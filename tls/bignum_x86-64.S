@@ -257,7 +257,10 @@ ENDPROC(mpi_sub_x86_64)
 /*
  * Operands size specialized implementations of the function above.
  *
- * TODO #1064 Probably there is no case for the function with the new modp.
+ * TODO #1064 This function, mpi_sub_x86_64_4_4, mpi_sub_x86_64_3_3, and
+ * mpi_sub_x86_64_2_2 are still can be used from NIST 256 modular inversion.
+ * It seems they can be removed after the inversion optimization or just
+ * called directly from the inversion function.
  */
 ENTRY(mpi_sub_x86_64_5_4)
 	movq	(%rdx), %r8
@@ -1313,9 +1316,6 @@ ENTRY_32(mpi_mul_mod_p256_x86_64_4)
 	ret
 ENDPROC(mpi_mul_mod_p256_x86_64_4)
 
-/**
- * TODO #1064: See "Speeding up Big-Numbers Squaring", S.Gueron and V.Krasnov
- */
 ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
 	push	%rbx
 	push	%r12
@@ -1658,6 +1658,8 @@ ENDPROC(mpi_from_mont_p256_x86_64)
 /**
  * Montgomery multiplication in NIST p256 domain of %RDI and %RSI 4-limbs MPIs
  * and store the reduced result in %RDI.
+ *
+ * Based on WolfSSL sp_256_mont_mul_avx2_4().
  */
 ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
 	pushq	%rbx
@@ -1757,8 +1759,15 @@ ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
 ENDPROC(mpi_mul_mont_mod_p256_x86_64)
 
 /**
- * Square a 4-limbs MPI in Montgomery form pointed by %RSI and store
- * the p256 reduced result in %RDI.
+ * Square a 4-limbs MPI in Montgomery form pointed by %RSI and store the
+ * p256 reduced result in %RDI.
+ *
+ * "Speeding up Big-Numbers Squaring" by Gueron and Krasnov suggest to use SHLD
+ * to double all x[i]*x[j] products at once. While this implementation also
+ * doebles the products only once, it uses ADCX interleaving with squaring and
+ * which also has lower latency and higher throughput.
+ *
+ * Based on WolfSSL sp_256_mont_sqr_avx2_4().
  */
 ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
 	pushq	%r12
