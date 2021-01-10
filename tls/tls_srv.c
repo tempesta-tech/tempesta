@@ -1346,8 +1346,8 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	/*
 	 * Part 2: Provide key exchange parameters for chosen ciphersuite.
 	 *
-	 * TODO #1064 estimate size of the message more accurately on configuration
-	 * time.
+	 * TODO #1031 estimate size of the message more accurately on
+	 * configuration time.
 	 */
 
 	p = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;

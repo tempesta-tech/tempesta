@@ -109,7 +109,7 @@ ENDPROC(mpi_add_x86_64)
 
 
 /**
- * Montgomery addition X = A + B mod P256. All the operands are 4 limbs in size.
+ * Modular addition X = A + B mod P256. All the operands are 4 limbs in size.
  *
  * %RDI	- pointer to X;
  * %RSI	- pointer to A (can be the same as X);
@@ -783,255 +783,6 @@ ENTRY_32(mpi_sqr_x86_64_4)
 	ret
 ENDPROC(mpi_sqr_x86_64_4)
 
-/**
- * Square a 4-limbs MPI in Montgomery form pointed by %RSI and store
- * the p256 reduced result in %RDI.
- * Borrowed from WolfSSL sp_256_mont_sqr_avx2_4().
- */
-ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
-	pushq	%r12
-	pushq	%r13
-	pushq	%r14
-	pushq	%r15
-	pushq	%rbx
-	# A[0] * A[1]
-	movq	(%rsi), %rdx
-	movq	16(%rsi), %r15
-	mulxq	8(%rsi), %r9, %r10
-	# A[0] * A[3]
-	mulxq	24(%rsi), %r11, %r12
-	# A[2] * A[1]
-	movq	%r15, %rdx
-	mulxq	8(%rsi), %rcx, %rbx
-	# A[2] * A[3]
-	mulxq	24(%rsi), %r13, %r14
-	xorq	%r15, %r15
-	adoxq	%rcx, %r11
-	adoxq	%rbx, %r12
-	# A[2] * A[0]
-	mulxq	(%rsi), %rcx, %rbx
-	# A[1] * A[3]
-	movq	8(%rsi), %rdx
-	adoxq	%r15, %r13
-	mulxq	24(%rsi), %rax, %r8
-	adcxq	%rcx, %r10
-	adoxq	%r15, %r14
-	adcxq	%rbx, %r11
-	adcxq	%rax, %r12
-	adcxq	%r8, %r13
-	adcxq	%r15, %r14
-	# Double with Carry Flag
-	xorq	%r15, %r15
-	# A[0] * A[0]
-	movq	(%rsi), %rdx
-	mulxq	%rdx, %r8, %rax
-	adcxq	%r9, %r9
-	adcxq	%r10, %r10
-	adoxq	%rax, %r9
-	# A[1] * A[1]
-	movq	8(%rsi), %rdx
-	mulxq	%rdx, %rcx, %rbx
-	adcxq	%r11, %r11
-	adoxq	%rcx, %r10
-	# A[2] * A[2]
-	movq	16(%rsi), %rdx
-	mulxq	%rdx, %rax, %rcx
-	adcxq	%r12, %r12
-	adoxq	%rbx, %r11
-	adcxq	%r13, %r13
-	adoxq	%rax, %r12
-	adcxq	%r14, %r14
-	# A[3] * A[3]
-	movq	24(%rsi), %rdx
-	mulxq	%rdx, %rax, %rbx
-	adoxq	%rcx, %r13
-	adcxq	%r15, %r15
-	adoxq	%rax, %r14
-	adoxq	%rbx, %r15
-	# Start Reduction, see mpi_from_mont_p256_x86_64().
-	movq	%r8, %rax
-	movq	%r11, %rdx
-	addq	%r8, %rdx
-	movq	%r9, %rsi
-	addq	%r8, %rdx
-	movq	%r10, %rcx
-	shlq	$32, %r8
-	shldq	$32, %rsi, %r10
-	shldq	$32, %rax, %r9
-	subq	%r8, %rdx
-	addq	%r8, %rsi
-	adcq	%r9, %rcx
-	adcq	%r10, %rdx
-	xorq	%r8, %r8
-	addq	%rax, %r12
-	adcq	%rsi, %r13
-	adcq	%rcx, %r14
-	adcq	%rdx, %r15
-	sbbq	$0x00, %r8
-	addq	%rax, %r11
-	adcq	%rsi, %r12
-	adcq	%rcx, %r13
-	adcq	%rdx, %r14
-	adcq	$0x00, %r15
-	sbbq	$0x00, %r8
-	movq	%rdx, %rbx
-	shldq	$32, %rcx, %rdx
-	shldq	$32, %rsi, %rcx
-	shldq	$32, %rax, %rsi
-	shrq	$32, %rbx
-	shlq	$32, %rax
-	addq	%rcx, %r11
-	adcq	%rdx, %r12
-	adcq	%rbx, %r13
-	adcq	$0x00, %r14
-	adcq	$0x00, %r15
-	sbbq	$0x00, %r8
-	subq	%rax, %r11
-	sbbq	%rsi, %r12
-	sbbq	%rcx, %r13
-	sbbq	%rdx, %r14
-	sbbq	%rbx, %r15
-	adcq	$0x00, %r8
-	movq	$0xffffffff, %rax
-	movq	$0xffffffff00000001, %rsi
-	andq	%r8, %rax
-	andq	%r8, %rsi
-	subq	%r8, %r12
-	sbbq	%rax, %r13
-	sbbq	$0x00, %r14
-	sbbq	%rsi, %r15
-	movq	%r12, (%rdi)
-	movq	%r13, 8(%rdi)
-	movq	%r14, 16(%rdi)
-	movq	%r15, 24(%rdi)
-	popq	%rbx
-	popq	%r15
-	popq	%r14
-	popq	%r13
-	popq	%r12
-	retq
-ENDPROC(mpi_sqr_mont_mod_p256_x86_64)
-
-/**
- * Multiply 4-limb MPI in %RSI by a long in %RDX and store the result in %RDI.
- */
-ENTRY_32(mpi_mul_int_x86_64_4)
-	push	%r12
-	push	%r13
-
-	mulxq	(%rsi), %r8, %r9
-	mulxq	8(%rsi), %r10, %r11
-	mulxq	16(%rsi), %rax, %rcx
-	movq	%r8, (%rdi)
-	mulxq	24(%rsi), %r12, %r13
-	addq	%r10, %r9
-	adcq	%rax, %r11
-	movq	%r9, 8(%rdi)
-	movq	%r11, 16(%rdi)
-	adcq	%rcx, %r12
-	adcq	$0, %r13
-	movq	%r12, 24(%rdi)
-	movq	%r13, 32(%rdi)
-
-	popq	%r13
-	popq	%r12
-	retq
-ENDPROC(mpi_mul_int_x86_64_4)
-
-/**
- * Convert the 4-limbs number in %RDI from Montogomery domain:
- *   r = a * 2^-256 mod P256
- *
- * This is the bit modified tail of WolfSSL sp_256_mont_mul_4(), which uses
- * the special form of the NIST prime, so we can replace MUL with additions
- * and shifts.
- */
-ENTRY_32(mpi_from_mont_p256_x86_64)
-	pushq	%r12
-	pushq	%r13
-	pushq	%r14
-	pushq	%r15
-	pushq	%rbx
-	movq	(%rdi), %r9
-	movq	8(%rdi), %r10
-	movq	16(%rdi), %r11
-	movq	24(%rdi), %r12
-	# mu = a[0]-a[3] + a[0]-a[2] << 32 << 64 + (a[0] * 2) << 192
-	#      - a[0] << 32 << 192
-	#      + (a[0] * 2) << 192
-	movq	%r9, %rax
-	movq	%r12, %rdx
-	addq	%rax, %rdx
-	movq	%r10, %rsi
-	addq	%rax, %rdx
-	movq	%r11, %r8
-	# a[0]-a[2] << 32
-	shlq	$32, %r9
-	shldq	$32, %rsi, %r11
-	shldq	$32, %rax, %r10
-	# - a[0] << 32 << 192
-	subq	%r9, %rdx
-	# + a[0]-a[2] << 32 << 64
-	addq	%r9, %rsi
-	adcq	%r10, %r8
-	adcq	%r11, %rdx
-	# a += (mu << 256) - (mu << 224) + (mu << 192) + (mu << 96) - mu
-	# a += mu << 256
-	xorq	%r9, %r9
-	movq	%rax, %r13
-	movq	%rsi, %r14
-	movq	%r8, %r15
-	movq	%rdx, %rbx
-	# a += mu << 192
-	addq	%rax, %r12
-	adcq	%rsi, %r13
-	adcq	%r8, %r14
-	adcq	%rdx, %r15
-	adcq	$0x00, %rbx
-	sbbq	$0x00, %r9
-	# mu <<= 32
-	movq	%rdx, %rcx
-	shldq	$32, %r8, %rdx
-	shldq	$32, %rsi, %r8
-	shldq	$32, %rax, %rsi
-	shrq	$32, %rcx
-	shlq	$32, %rax
-	# a += (mu << 32) << 64
-	addq	%r8, %r12
-	adcq	%rdx, %r13
-	adcq	%rcx, %r14
-	adcq	$0x00, %r15
-	adcq	$0x00, %rbx
-	sbbq	$0x00, %r9
-	# a -= (mu << 32) << 192
-	subq	%rax, %r12
-	sbbq	%rsi, %r13
-	sbbq	%r8, %r14
-	sbbq	%rdx, %r15
-	sbbq	%rcx, %rbx
-	adcq	$0x00, %r9
-	movq	$0xffffffff, %rax
-	movq	$0xffffffff00000001, %rsi
-	# mask m and sub from result if overflow
-	# m[0] = -1 & mask = mask
-	andq	%r9, %rax
-	# m[2] =  0 & mask = 0
-	andq	%r9, %rsi
-	subq	%r9, %r13
-	sbbq	%rax, %r14
-	sbbq	$0x00, %r15
-	sbbq	%rsi, %rbx
-	movq	%r13, (%rdi)
-	movq	%r14, 8(%rdi)
-	movq	%r15, 16(%rdi)
-	movq	%rbx, 24(%rdi)
-	popq	%rbx
-	popq	%r15
-	popq	%r14
-	popq	%r13
-	popq	%r12
-	retq
-ENDPROC(mpi_from_mont_p256_x86_64)
 
 /**
  * Fast reduction modulo 256 by FIPS 186-3 D.2:
@@ -1308,161 +1059,31 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	ret
 ENDPROC(ecp_mod_p256_x86_64)
 
-
 /**
- * Montgomery multiplication in NIST p256 domain of %RDI and %RSI 4-limbs MPIs
- * and store the reduced result in %RDI.
- * Borrowed from WolfSSL sp_256_mont_mul_avx2_4().
+ * Multiply 4-limb MPI in %RSI by a long in %RDX and store the result in %RDI.
  */
-ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
-	pushq	%rbx
-	pushq	%rbp
-	pushq	%r12
-	pushq	%r13
-	pushq	%r14
-	pushq	%r15
-	movq	%rdx, %rbp
-	#  A[0] * B[0]
-	movq	(%rbp), %rdx
+ENTRY_32(mpi_mul_int_x86_64_4)
+	push	%r12
+	push	%r13
+
 	mulxq	(%rsi), %r8, %r9
-	#  A[2] * B[0]
-	mulxq	16(%rsi), %r10, %r11
-	#  A[1] * B[0]
-	mulxq	8(%rsi), %rax, %rcx
-	xorq	%r15, %r15
-	adcxq	%rax, %r9
-	#  A[1] * B[3]
-	movq	24(%rbp), %rdx
-	mulxq	8(%rsi), %r12, %r13
-	adcxq	%rcx, %r10
-	#  A[0] * B[1]
-	movq	8(%rbp), %rdx
-	mulxq	(%rsi), %rax, %rcx
-	adoxq	%rax, %r9
-	#  A[2] * B[1]
-	mulxq	16(%rsi), %rax, %r14
-	adoxq	%rcx, %r10
-	adcxq	%rax, %r11
-	#  A[1] * B[2]
-	movq	16(%rbp), %rdx
-	mulxq	8(%rsi), %rax, %rcx
-	adcxq	%r14, %r12
-	adoxq	%rax, %r11
-	adcxq	%r15, %r13
-	adoxq	%rcx, %r12
-	#  A[0] * B[2]
-	mulxq	(%rsi), %rax, %rcx
-	adoxq	%r15, %r13
-	xorq	%r14, %r14
-	adcxq	%rax, %r10
-	#  A[1] * B[1]
-	movq	8(%rbp), %rdx
-	mulxq	8(%rsi), %rdx, %rax
-	adcxq	%rcx, %r11
-	adoxq	%rdx, %r10
-	#  A[3] * B[1]
-	movq	8(%rbp), %rdx
-	adoxq	%rax, %r11
-	mulxq	24(%rsi), %rax, %rcx
-	adcxq	%rax, %r12
-	#  A[2] * B[2]
-	movq	16(%rbp), %rdx
-	mulxq	16(%rsi), %rdx, %rax
-	adcxq	%rcx, %r13
-	adoxq	%rdx, %r12
-	#  A[3] * B[3]
-	movq	24(%rbp), %rdx
-	adoxq	%rax, %r13
-	mulxq	24(%rsi), %rax, %rcx
-	adoxq	%r15, %r14
-	adcxq	%rax, %r14
-	#  A[0] * B[3]
-	mulxq	(%rsi), %rdx, %rax
-	adcxq	%rcx, %r15
-	xorq	%rcx, %rcx
-	adcxq	%rdx, %r11
-	#  A[3] * B[0]
-	movq	24(%rsi), %rdx
-	adcxq	%rax, %r12
-	mulxq	(%rbp), %rbx, %rax
-	adoxq	%rbx, %r11
-	adoxq	%rax, %r12
-	#  A[3] * B[2]
-	mulxq	16(%rbp), %rdx, %rax
-	adcxq	%rdx, %r13
-	#  A[2] * B[3]
-	movq	24(%rbp), %rdx
-	adcxq	%rax, %r14
-	mulxq	16(%rsi), %rax, %rdx
-	adcxq	%rcx, %r15
-	adoxq	%rax, %r13
-	adoxq	%rdx, %r14
-	adoxq	%rcx, %r15
-	# Start Reduction, see mpi_from_mont_p256_x86_64().
-	movq	%r8, %rax
-	movq	%r11, %rdx
-	addq	%r8, %rdx
-	movq	%r9, %rsi
-	addq	%r8, %rdx
-	movq	%r10, %rbp
-	shlq	$32, %r8
-	shldq	$32, %rsi, %r10
-	shldq	$32, %rax, %r9
-	subq	%r8, %rdx
-	addq	%r8, %rsi
-	adcq	%r9, %rbp
-	adcq	%r10, %rdx
-	xorq	%r8, %r8
-	addq	%rax, %r12
-	adcq	%rsi, %r13
-	adcq	%rbp, %r14
-	adcq	%rdx, %r15
-	sbbq	$0x00, %r8
-	addq	%rax, %r11
-	adcq	%rsi, %r12
-	adcq	%rbp, %r13
-	adcq	%rdx, %r14
-	adcq	$0x00, %r15
-	sbbq	$0x00, %r8
-	movq	%rdx, %rcx
-	shldq	$32, %rbp, %rdx
-	shldq	$32, %rsi, %rbp
-	shldq	$32, %rax, %rsi
-	shrq	$32, %rcx
-	shlq	$32, %rax
-	addq	%rbp, %r11
-	adcq	%rdx, %r12
-	adcq	%rcx, %r13
-	adcq	$0x00, %r14
-	adcq	$0x00, %r15
-	sbbq	$0x00, %r8
-	subq	%rax, %r11
-	sbbq	%rsi, %r12
-	sbbq	%rbp, %r13
-	sbbq	%rdx, %r14
-	sbbq	%rcx, %r15
-	adcq	$0x00, %r8
-	movq	$0xffffffff, %rax
-	movq	$0xffffffff00000001, %rsi
-	andq	%r8, %rax
-	andq	%r8, %rsi
-	subq	%r8, %r12
-	sbbq	%rax, %r13
-	sbbq	$0x00, %r14
-	sbbq	%rsi, %r15
-	movq	%r12, (%rdi)
-	movq	%r13, 8(%rdi)
-	movq	%r14, 16(%rdi)
-	movq	%r15, 24(%rdi)
-	popq	%r15
-	popq	%r14
+	mulxq	8(%rsi), %r10, %r11
+	mulxq	16(%rsi), %rax, %rcx
+	movq	%r8, (%rdi)
+	mulxq	24(%rsi), %r12, %r13
+	addq	%r10, %r9
+	adcq	%rax, %r11
+	movq	%r9, 8(%rdi)
+	movq	%r11, 16(%rdi)
+	adcq	%rcx, %r12
+	adcq	$0, %r13
+	movq	%r12, 24(%rdi)
+	movq	%r13, 32(%rdi)
+
 	popq	%r13
 	popq	%r12
-	popq	%rbp
-	popq	%rbx
 	retq
-ENDPROC(mpi_mul_mont_mod_p256_x86_64)
-
+ENDPROC(mpi_mul_int_x86_64_4)
 
 /*
  * The two functions at the below are simple merges of the mudulus reduction
@@ -1897,3 +1518,316 @@ ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
 	pop	%rbx
 	ret
 ENDPROC(mpi_sqr_mod_p256_x86_64_4)
+
+
+/**
+ * Convert the 4-limbs number in %RDI from Montogomery domain:
+ *   r = a * 2^-256 mod P256
+ *
+ * This is the bit modified tail of WolfSSL sp_256_mont_mul_4(), which uses
+ * the special form of the NIST prime, so we can replace MUL with additions
+ * and shifts.
+ */
+.macro MONT_REDUCE
+	/*
+	 * mu = a[0]-a[3] + a[0]-a[2] << 32 << 64 + (a[0] * 2) << 192
+	 *      - a[0] << 32 << 192 + (a[0] * 2) << 192
+	 */
+	movq	%r8, %rax
+	movq	%r11, %rdx
+	addq	%r8, %rdx
+	movq	%r9, %rsi
+	addq	%r8, %rdx
+	movq	%r10, %rcx
+
+	/* a[0]-a[2] << 32 */
+	shlq	$32, %r8
+	shldq	$32, %rsi, %r10
+	shldq	$32, %rax, %r9
+
+	/* - a[0] << 32 << 192 */
+	subq	%r8, %rdx
+
+	/* + a[0]-a[2] << 32 << 64 */
+	addq	%r8, %rsi
+	adcq	%r9, %rcx
+	adcq	%r10, %rdx
+
+	/*
+	 * a += (mu << 256) - (mu << 224) + (mu << 192) + (mu << 96) - mu
+	 * a += mu << 256
+	 */
+	xorq	%r8, %r8
+	addq	%rax, %r12
+	adcq	%rsi, %r13
+	adcq	%rcx, %r14
+	adcq	%rdx, %r15
+
+	/* a += mu << 192 */
+	sbbq	$0x00, %r8
+	addq	%rax, %r11
+	adcq	%rsi, %r12
+	adcq	%rcx, %r13
+	adcq	%rdx, %r14
+	adcq	$0x00, %r15
+	sbbq	$0x00, %r8
+
+	/* mu <<= 32 */
+	movq	%rdx, %rbx
+	shldq	$32, %rcx, %rdx
+	shldq	$32, %rsi, %rcx
+	shldq	$32, %rax, %rsi
+	shrq	$32, %rbx
+	shlq	$32, %rax
+
+	/* a += (mu << 32) << 64 */
+	addq	%rcx, %r11
+	adcq	%rdx, %r12
+	adcq	%rbx, %r13
+	adcq	$0x00, %r14
+	adcq	$0x00, %r15
+	sbbq	$0x00, %r8
+
+	/* a -= (mu << 32) << 192 */
+	subq	%rax, %r11
+	sbbq	%rsi, %r12
+	sbbq	%rcx, %r13
+	sbbq	%rdx, %r14
+	sbbq	%rbx, %r15
+	adcq	$0x00, %r8
+
+	/*
+	 * J.W.Bos, "Montgomery Arithmetic from a Software Perspective", 2017,
+	 * chapter 2.4.2 proposes to check whether subtraction is required
+	 * (if non-constant time execution is allowed). If we jump from here on
+	 * ZF=0 to the end of the function we save several instructions and
+	 * will do see up to 10% performance improvement for the multiplication
+	 * and squaring benchmark, but the total execution time for point
+	 * multiplication operations will increase. There reason is the branch
+	 * misprediction - it's cheaper to execute the small code if the data
+	 * changes.
+	 */
+	movq	$0xffffffff, %rax
+	movq	$0xffffffff00000001, %rsi
+	/*
+	 * mask m and sub from result if overflow
+	 * m[0] = -1 & mask = mask
+	 */
+	andq	%r8, %rax
+	/* m[2] =  0 & mask = 0 */
+	andq	%r8, %rsi
+	subq	%r8, %r12
+	sbbq	%rax, %r13
+	sbbq	$0x00, %r14
+	sbbq	%rsi, %r15
+
+	/* Write data to the first input argument. */
+	movq	%r12, (%rdi)
+	movq	%r13, 8(%rdi)
+	movq	%r14, 16(%rdi)
+	movq	%r15, 24(%rdi)
+.endm
+
+ENTRY_32(mpi_from_mont_p256_x86_64)
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+	pushq	%rbx
+
+	movq	(%rdi), %r8
+	movq	8(%rdi), %r9
+	movq	16(%rdi), %r10
+	movq	24(%rdi), %r11
+
+	xorq	%r12, %r12
+	xorq	%r13, %r13
+	xorq	%r14, %r14
+	xorq	%r15, %r15
+
+	MONT_REDUCE
+
+	popq	%rbx
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	retq
+ENDPROC(mpi_from_mont_p256_x86_64)
+
+/**
+ * Montgomery multiplication in NIST p256 domain of %RDI and %RSI 4-limbs MPIs
+ * and store the reduced result in %RDI.
+ */
+ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
+	pushq	%rbx
+	pushq	%rbp
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	movq	%rdx, %rcx
+	#  A[0] * B[0]
+	movq	(%rcx), %rdx
+	mulxq	(%rsi), %r8, %r9
+	#  A[2] * B[0]
+	mulxq	16(%rsi), %r10, %r11
+	#  A[1] * B[0]
+	mulxq	8(%rsi), %rax, %rbx
+	xorq	%r15, %r15
+	adcxq	%rax, %r9
+	#  A[1] * B[3]
+	movq	24(%rcx), %rdx
+	mulxq	8(%rsi), %r12, %r13
+	adcxq	%rbx, %r10
+	#  A[0] * B[1]
+	movq	8(%rcx), %rdx
+	mulxq	(%rsi), %rax, %rbx
+	adoxq	%rax, %r9
+	#  A[2] * B[1]
+	mulxq	16(%rsi), %rax, %r14
+	adoxq	%rbx, %r10
+	adcxq	%rax, %r11
+	#  A[1] * B[2]
+	movq	16(%rcx), %rdx
+	mulxq	8(%rsi), %rax, %rbx
+	adcxq	%r14, %r12
+	adoxq	%rax, %r11
+	adcxq	%r15, %r13
+	adoxq	%rbx, %r12
+	#  A[0] * B[2]
+	mulxq	(%rsi), %rax, %rbx
+	adoxq	%r15, %r13
+	xorq	%r14, %r14
+	adcxq	%rax, %r10
+	#  A[1] * B[1]
+	movq	8(%rcx), %rdx
+	mulxq	8(%rsi), %rdx, %rax
+	adcxq	%rbx, %r11
+	adoxq	%rdx, %r10
+	#  A[3] * B[1]
+	movq	8(%rcx), %rdx
+	adoxq	%rax, %r11
+	mulxq	24(%rsi), %rax, %rbx
+	adcxq	%rax, %r12
+	#  A[2] * B[2]
+	movq	16(%rcx), %rdx
+	mulxq	16(%rsi), %rdx, %rax
+	adcxq	%rbx, %r13
+	adoxq	%rdx, %r12
+	#  A[3] * B[3]
+	movq	24(%rcx), %rdx
+	adoxq	%rax, %r13
+	mulxq	24(%rsi), %rax, %rbx
+	adoxq	%r15, %r14
+	adcxq	%rax, %r14
+	#  A[0] * B[3]
+	mulxq	(%rsi), %rdx, %rax
+	adcxq	%rbx, %r15
+	xorq	%rbx, %rbx
+	adcxq	%rdx, %r11
+	#  A[3] * B[0]
+	movq	24(%rsi), %rdx
+	adcxq	%rax, %r12
+	mulxq	(%rcx), %rbp, %rax
+	adoxq	%rbp, %r11
+	adoxq	%rax, %r12
+	#  A[3] * B[2]
+	mulxq	16(%rcx), %rdx, %rax
+	adcxq	%rdx, %r13
+	#  A[2] * B[3]
+	movq	24(%rcx), %rdx
+	adcxq	%rax, %r14
+	mulxq	16(%rsi), %rax, %rdx
+	adcxq	%rbx, %r15
+	adoxq	%rax, %r13
+	adoxq	%rdx, %r14
+	adoxq	%rbx, %r15
+
+	MONT_REDUCE
+
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%rbp
+	popq	%rbx
+	retq
+ENDPROC(mpi_mul_mont_mod_p256_x86_64)
+
+/**
+ * Square a 4-limbs MPI in Montgomery form pointed by %RSI and store
+ * the p256 reduced result in %RDI.
+ */
+ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+	pushq	%rbx
+
+	# A[0] * A[1]
+	movq	(%rsi), %rdx
+	movq	16(%rsi), %r15
+	mulxq	8(%rsi), %r9, %r10
+	# A[0] * A[3]
+	mulxq	24(%rsi), %r11, %r12
+	# A[2] * A[1]
+	movq	%r15, %rdx
+	mulxq	8(%rsi), %rcx, %rbx
+	# A[2] * A[3]
+	mulxq	24(%rsi), %r13, %r14
+	xorq	%r15, %r15
+	adoxq	%rcx, %r11
+	adoxq	%rbx, %r12
+	# A[2] * A[0]
+	mulxq	(%rsi), %rcx, %rbx
+	# A[1] * A[3]
+	movq	8(%rsi), %rdx
+	adoxq	%r15, %r13
+	mulxq	24(%rsi), %rax, %r8
+	adcxq	%rcx, %r10
+	adoxq	%r15, %r14
+	adcxq	%rbx, %r11
+	adcxq	%rax, %r12
+	adcxq	%r8, %r13
+	adcxq	%r15, %r14
+	# Double with Carry Flag
+	xorq	%r15, %r15
+	# A[0] * A[0]
+	movq	(%rsi), %rdx
+	mulxq	%rdx, %r8, %rax
+	adcxq	%r9, %r9
+	adcxq	%r10, %r10
+	adoxq	%rax, %r9
+	# A[1] * A[1]
+	movq	8(%rsi), %rdx
+	mulxq	%rdx, %rcx, %rbx
+	adcxq	%r11, %r11
+	adoxq	%rcx, %r10
+	# A[2] * A[2]
+	movq	16(%rsi), %rdx
+	mulxq	%rdx, %rax, %rcx
+	adcxq	%r12, %r12
+	adoxq	%rbx, %r11
+	adcxq	%r13, %r13
+	adoxq	%rax, %r12
+	adcxq	%r14, %r14
+	# A[3] * A[3]
+	movq	24(%rsi), %rdx
+	mulxq	%rdx, %rax, %rbx
+	adoxq	%rcx, %r13
+	adcxq	%r15, %r15
+	adoxq	%rax, %r14
+	adoxq	%rbx, %r15
+
+	MONT_REDUCE
+
+	popq	%rbx
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	retq
+ENDPROC(mpi_sqr_mont_mod_p256_x86_64)
