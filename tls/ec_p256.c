@@ -14,8 +14,7 @@
  *
  * 4. RFC 8422 for the related TLS structures and constants
  *
- * 5. J.W.Bos, P.L.Montgomery, "Montgomery Arithmetic from a Software
- *    Perspective", 2017.
+ * 5. J.W.Bos, "Montgomery Arithmetic from a Software Perspective", 2017.
  *
  * 6. Coron, Jean-S'ebastien. Resistance against differential power analysis
  *    for elliptic curve cryptosystems. In : Cryptographic Hardware and
@@ -1276,7 +1275,6 @@ ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char k[])
 	ecp256_safe_invert_jac(&txi, k[i] >> 7);
 
 	/* ecp256_add_mixed() for P->Z == 1 */
-	// TODO #1064 ecp256_add_mixed(r, r, &txi);  P = r  Q = txi
 	mpi_sub_mod_p256_x86_64(t1, txi.x, r->x);
 	mpi_sub_mod_p256_x86_64(t2, txi.y, r->y);
 	memcpy(z, t1, G_LIMBS * CIL);
@@ -1298,7 +1296,10 @@ ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char k[])
 
 		ecp256_safe_invert_jac(&txi, k[i] >> 7);
 
-		// TODO #1064 ecp256_add_mixed(r, r, &txi);
+		/*
+		 * Addition in mixed affine-Jacobian coordinates,
+		 * see ecp256_add_mixed().
+		 */
 		mpi_sqr_mont_mod_p256_x86_64(t1, z);
 		mpi_mul_mont_mod_p256_x86_64(t2, t1, z);
 		mpi_mul_mont_mod_p256_x86_64(t1, t1, txi.x);
