@@ -29,35 +29,22 @@
 #include "mpool.h"
 #include "ttls.h"
 
-/* Bit large than other pools to be able to store temporary data. */
-#define CS_MP_SZ	(PAGE_SIZE << TTLS_CSPOOL_ORDER)
-
 /*
  * TLS memory profiles for all supported key exchanges.
+ * All the profiles are small enough, so one page (order=0) is enough.
  */
 static union {
 	TlsMpiPool	mp;
-	unsigned char	_[CS_MP_SZ];
-} cs_mp_ecdhe_secp256 __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
-}, cs_mp_ecdhe_secp384 __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
-}, cs_mp_ecdhe_curve25519 __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
-}, cs_mp_dhe __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
+	unsigned char	_[PAGE_SIZE];
+}
+cs_mp_ecdhe_secp256 __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
+},
+cs_mp_ecdhe_curve25519 __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
+},
+cs_mp_dhe __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
 };
 
 static TlsCiphersuite ciphersuite_definitions[] = {
@@ -65,52 +52,44 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM-8",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	    &cs_mp_ecdhe_curve25519.mp } },
+	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM-8",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	    &cs_mp_ecdhe_curve25519.mp } },
+	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 	  "TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_RSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_RSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-DHE-RSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
@@ -148,7 +127,7 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 #define __CS_ADDR_MP(mp_name, x)					\
 do {									\
 	if (x > (unsigned long)&cs_mp_##mp_name				\
-	    && x < (unsigned long)&cs_mp_##mp_name + CS_MP_SZ)		\
+	    && x < (unsigned long)&cs_mp_##mp_name + PAGE_SIZE)		\
 		return &cs_mp_##mp_name.mp;				\
 } while (0)
 
@@ -161,7 +140,6 @@ ttls_ciphersuite_addr_mp(void *addr)
 	unsigned long x = (unsigned long)addr;
 
 	__CS_ADDR_MP(ecdhe_secp256, x);
-	__CS_ADDR_MP(ecdhe_secp384, x);
 	__CS_ADDR_MP(dhe, x);
 
 	return NULL;

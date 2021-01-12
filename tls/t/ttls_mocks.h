@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS mocks for the unit tests
  *
- * Copyright (C) 2018-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 #define EXPECT_TRUE(c)		BUG_ON(!(c))
 #define EXPECT_ZERO(c)		BUG_ON((c) != 0)
 #define EXPECT_EQ(c, v)		BUG_ON((c) != (v))
+#define EXPECT_NOT_NULL(v)	BUG_ON((v) == NULL)
 
 /*
  * md_* mocks are required for RSA tests.

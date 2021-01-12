@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS EC NIST secp256r1 (prime256v1) unit test
  *
- * Copyright (C) 2018-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,6 @@
 #include "util.h"
 
 /* Mock irrelevant groups. */
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 #ifdef DEBUG
@@ -63,12 +62,12 @@ ecp_base_math(void)
 	int i;
 	TlsMpi *A, *B, *T1, *T2, *X1, *X2;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(T1 = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(T2 = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(X1 = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(X2 = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_NOT_NULL(A = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(B = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(T1 = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(T2 = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(X1 = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(X2 = ttls_mpi_alloc_stack_init(8));
 
 	X1->used = 4;
 	X2->used = 4;
@@ -139,7 +138,7 @@ ecp_base_math(void)
 		mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(A));
 		mpi_shift_l1_mod_p256_x86_64(MPI_P(X2), MPI_P(A));
 		mpi_add_mod_p256_x86_64(MPI_P(X2), MPI_P(X2), MPI_P(X2));
-		mpi_sub_mod_p256_x86_64_4(MPI_P(X2), MPI_P(X2), MPI_P(A));
+		mpi_sub_mod_p256_x86_64(MPI_P(X2), MPI_P(X2), MPI_P(A));
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
 		mpi_mul_mod_p256_x86_64_4(MPI_P(A), MPI_P(A), MPI_P(T1));
@@ -318,7 +317,7 @@ ecp_mul(void)
 
 	/* Use group from the MPI profile for Secp256r1 PK operations. */
 	grp = &SECP256_G;
-	EXPECT_FALSE(!grp);
+	EXPECT_NOT_NULL(grp);
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
 	EXPECT_EQ(grp->bits, 256);
 	EXPECT_EQ(G.P.used, 4);
@@ -372,7 +371,7 @@ ecp_mul(void)
 
 		/*
 		 * ECP test #2 (constant op_count, other point).
-		 * We computed P = 2G last time, use it.
+		 * We computed P = m * G last time, use it.
 		 */
 		memcpy(pXY, MPI_P(&P->X), G_LIMBS * CIL);
 		memcpy(&pXY[G_LIMBS], MPI_P(&P->Y), G_LIMBS * CIL);

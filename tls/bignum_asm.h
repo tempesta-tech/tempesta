@@ -3,7 +3,7 @@
  *
  * Declarations for big integer assembly routines.
  *
- * Copyright (C) 2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ void mpi_sub_x86_64_2_2(unsigned long *x, const unsigned long *b,
 			const unsigned long *a);
 void mpi_sub_x86_64(unsigned long *x, const unsigned long *b,
 		    const unsigned long *a, size_t b_len, size_t a_len);
-void mpi_sub_mod_p256_x86_64_4(unsigned long *x, const unsigned long *a,
+void mpi_sub_mod_p256_x86_64(unsigned long *x, const unsigned long *a,
 			       const unsigned long *b);
 
 void mpi_shift_l_x86_64_4(unsigned long *x, const unsigned long *a,
@@ -66,6 +66,11 @@ void mpi_mul_mod_p256_x86_64_4(unsigned long *x, const unsigned long *a,
 void mpi_sqr_mod_p256_x86_64_4(unsigned long *x, const unsigned long *a);
 
 void ecp_mod_p256_x86_64(unsigned long *x);
+
+void mpi_mul_mont_mod_p256_x86_64(unsigned long *x, const unsigned long *a,
+				  const unsigned long *b);
+void mpi_sqr_mont_mod_p256_x86_64(unsigned long *x, const unsigned long *a);
+void mpi_from_mont_p256_x86_64(unsigned long *x);
 
 #endif /* __BIGNUM_ASM_H__ */
 
