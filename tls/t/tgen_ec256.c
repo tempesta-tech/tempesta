@@ -45,8 +45,6 @@ tgen256_set_zero(Ecp256Point *p)
 	ecp256_lset(p->z, 0);
 }
 
-
-
 /**
  * Print precomputed table with all the coordinates converted to the
  * Montgomery form.

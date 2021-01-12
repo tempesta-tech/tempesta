@@ -419,7 +419,7 @@ ecp256_mul(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
  * reduction or use inversion for normal numbers only.
  */
 static void
-ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
+ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *__restrict N)
 {
 	int delta = 1, g0, i, m, n;
 	/* Tau matrices */
@@ -681,7 +681,7 @@ ecp256_safe_invert_jac(Ecp256Point *q, unsigned char inv)
 static void
 ecp256_double_jac(Ecp256Point *r, const Ecp256Point *p)
 {
-	unsigned long m[4], s[8], t[8], u[8];
+	unsigned long m[4], s[4], t[4], u[4];
 
 	/* M = 3(X + Z^2)(X - Z^2) */
 	mpi_sqr_mont_mod_p256_x86_64(s, p->z);
@@ -699,71 +699,67 @@ ecp256_double_jac(Ecp256Point *r, const Ecp256Point *p)
 	mpi_sqr_mont_mod_p256_x86_64(u, t);
 	mpi_div2_x86_64_4(u, u);
 
-	/* T = M^2 - 2 * S */
+	/* r->x = T = M^2 - 2 * S */
 	mpi_sqr_mont_mod_p256_x86_64(t, m);
 	mpi_sub_mod_p256_x86_64(t, t, s);
 	mpi_sub_mod_p256_x86_64(t, t, s);
 
-	/* S = M(S - T) - U */
+	/* r->z = U = 2 * Y * Z */
+	mpi_mul_mont_mod_p256_x86_64(r->z, p->y, p->z);
+	mpi_shift_l1_mod_p256_x86_64(r->z, r->z);
+
+	/* r->y = S = M(S - T) - U */
 	mpi_sub_mod_p256_x86_64(s, s, t);
 	mpi_mul_mont_mod_p256_x86_64(s, s, m);
-	mpi_sub_mod_p256_x86_64(s, s, u);
-
-	/* U = 2 * Y * Z */
-	mpi_mul_mont_mod_p256_x86_64(u, p->y, p->z);
-	mpi_shift_l1_mod_p256_x86_64(u, u);
+	mpi_sub_mod_p256_x86_64(r->y, s, u);
 
 	ecp256_copy(r->x, t);
-	ecp256_copy(r->y, s);
-	ecp256_copy(r->z, u);
 }
 
 /**
  * Repeated point doubling in Jacobian coordinates (GECC 3.23).
  */
 static void
-ecp256_double_jac_n(Ecp256Point *r, const Ecp256Point *p)
+ecp256_double_jac_n(Ecp256Point *__restrict r, const Ecp256Point *__restrict p)
 {
 	int i;
-	unsigned long x[8], y[4], z[8], a[8], b[8], w[8], t[4], y2[8];
+	unsigned long a[4], b[4], w[4], t[4], y2[4];
 
-	ecp256_copy(x, p->x);
-	ecp256_copy(z, p->z);
+	ecp256_copy(r->x, p->x);
+	ecp256_copy(r->z, p->z);
 
 	/* Y = 2 * Y */
-	mpi_shift_l1_mod_p256_x86_64(y, p->y);
+	mpi_shift_l1_mod_p256_x86_64(r->y, p->y);
 	/* W = Z^4 */
-	mpi_sqr_mont_mod_p256_x86_64(w, z);
+	mpi_sqr_mont_mod_p256_x86_64(w, r->z);
 	mpi_sqr_mont_mod_p256_x86_64(w, w);
 
 	for (i = 0; i < D; ++i) {
 		/* A = 3 * (X^2 - W) */
-		mpi_sqr_mont_mod_p256_x86_64(a, x);
+		mpi_sqr_mont_mod_p256_x86_64(a, r->x);
 		mpi_sub_mod_p256_x86_64(a, a, w);
 		mpi_tpl_mod_p256_x86_64(a, a);
 		/* B = X * Y^2 */
-		mpi_sqr_mont_mod_p256_x86_64(y2, y);
-		mpi_mul_mont_mod_p256_x86_64(b, y2, x);
+		mpi_sqr_mont_mod_p256_x86_64(y2, r->y);
+		mpi_mul_mont_mod_p256_x86_64(b, y2, r->x);
 		/* X = A^2 - 2 * B */
-		mpi_sqr_mont_mod_p256_x86_64(x, a);
+		mpi_sqr_mont_mod_p256_x86_64(r->x, a);
 		mpi_shift_l1_mod_p256_x86_64(t, b);
-		mpi_sub_mod_p256_x86_64(x, x, t);
+		mpi_sub_mod_p256_x86_64(r->x, r->x, t);
 		/* Z = Z * Y */
-		mpi_mul_mont_mod_p256_x86_64(z, z, y);
+		mpi_mul_mont_mod_p256_x86_64(r->z, r->z, r->y);
 		/* W = W * Y^4 */
 		mpi_sqr_mont_mod_p256_x86_64(y2, y2);
 		if (likely(i != D - 1))
 			mpi_mul_mont_mod_p256_x86_64(w, w, y2);
 		/* Y = 2 * A * (B - X) - Y^4 */
-		mpi_sub_mod_p256_x86_64(b, b, x);
+		mpi_sub_mod_p256_x86_64(b, b, r->x);
 		mpi_mul_mont_mod_p256_x86_64(a, a, b);
-		mpi_shift_l1_mod_p256_x86_64(y, a);
-		mpi_sub_mod_p256_x86_64(y, y, y2);
+		mpi_shift_l1_mod_p256_x86_64(r->y, a);
+		mpi_sub_mod_p256_x86_64(r->y, r->y, y2);
 	}
 
-	mpi_div2_x86_64_4(r->y, y);
-	memcpy_fast(r->x, x, 4 * CIL);
-	memcpy_fast(r->z, z, 4 * CIL);
+	mpi_div2_x86_64_4(r->y, r->y);
 }
 
 /*
@@ -813,6 +809,8 @@ ecp256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q)
  * Addition R = P + Q in Jacobian coordinates using add-1998-cmo-2 from [8].
  * Cost: 12M + 4S + 6add + 1dbl.
  *
+ * @r and @p might point to the same EC points.
+ *
  * OpenSSL and WolfSSL use the same formula, but the former one avoids extra
  * subtraction to handle almost impossible case of equal points (see
  * ecp_nistz256_point_add()), so we do the same.
@@ -827,27 +825,27 @@ ecp256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q)
  * functions.
  */
 static void
-ecp256_add_jac(Ecp256Point *r, const Ecp256Point *p, const Ecp256Point *q)
+ecp256_add_jac(Ecp256Point *r, const Ecp256Point *p, const Ecp256Point *__restrict q)
 {
-	unsigned long t1[8], t2[8], t3[8], t4[8], u1[8], s1[8], h[8], tr[8];
+	unsigned long t1[4], t2[4], t3[4], u1[4], s1[4], h[4], tr[4];
 	bool p_inf = ecp256_mpi_eq_0(p->z), q_inf = ecp256_mpi_eq_0(q->z);
 
 	mpi_sqr_mont_mod_p256_x86_64(t1, p->z);
 	mpi_sqr_mont_mod_p256_x86_64(t2, q->z);
-	mpi_mul_mont_mod_p256_x86_64(t3, t1, q->x);	/* U2 = X2 * Z1^2 */
 	mpi_mul_mont_mod_p256_x86_64(u1, t2, p->x);	/* U1 = X1 * Z2^2 */
-	mpi_sub_mod_p256_x86_64(h, t3, u1);		/* H = U2 - U1 */
+	mpi_mul_mont_mod_p256_x86_64(r->x, t1, q->x);	/* U2 = X2 * Z1^2 */
+	mpi_sub_mod_p256_x86_64(h, r->x, u1);		/* H = U2 - U1 */
 
 	mpi_mul_mont_mod_p256_x86_64(s1, t2, q->z);
-	mpi_mul_mont_mod_p256_x86_64(t4, t1, p->z);
+	mpi_mul_mont_mod_p256_x86_64(t3, t1, p->z);
 	mpi_mul_mont_mod_p256_x86_64(s1, s1, p->y);	/* S1 = Y1 * Z2^3 */
-	mpi_mul_mont_mod_p256_x86_64(t4, t4, q->y);	/* S2 = Y2 * Z1^3 */
-	mpi_sub_mod_p256_x86_64(tr, t4, s1);		/* R = S2 - S1 */
+	mpi_mul_mont_mod_p256_x86_64(t3, t3, q->y);	/* S2 = Y2 * Z1^3 */
+	mpi_sub_mod_p256_x86_64(tr, t3, s1);		/* R = S2 - S1 */
 
-#ifdef TLS_CONST_TIME
-	if (unlikely(!p_inf & !q_inf & ecp256_eq(u1, t3) & ecp256_eq(s1, t4)))
+#ifdef CRYPTO_CONST_TIME
+	if (unlikely(!p_inf & !q_inf & ecp256_eq(u1, r->x) & ecp256_eq(s1, t3)))
 #else
-	if (unlikely(!p_inf && !q_inf && ecp256_eq(u1, t3) && ecp256_eq(s1, t4)))
+	if (unlikely(!p_inf && !q_inf && ecp256_eq(u1, r->x) && ecp256_eq(s1, t3)))
 #endif
 	{
 		ecp256_double_jac(r, p);
@@ -855,27 +853,23 @@ ecp256_add_jac(Ecp256Point *r, const Ecp256Point *p, const Ecp256Point *q)
 	}
 
 	mpi_mul_mont_mod_p256_x86_64(t1, h, p->z);
-	mpi_mul_mont_mod_p256_x86_64(t1, t1, q->z);	/* Z3 = H * Z1 * Z2 */
+	mpi_mul_mont_mod_p256_x86_64(r->z, t1, q->z);	/* Z3 = H * Z1 * Z2 */
 
 	mpi_sqr_mont_mod_p256_x86_64(t2, h);		/* H^2 */
 	mpi_mul_mont_mod_p256_x86_64(h, h, t2);		/* H^3 */
-	mpi_mul_mont_mod_p256_x86_64(t2, t2, u1);		/* U1 * H^2 */
-	mpi_sqr_mont_mod_p256_x86_64(t3, tr);		/* R^2 */
-	mpi_shift_l1_mod_p256_x86_64(t4, t2);		/* 2 * U1 * H^2 */
+	mpi_mul_mont_mod_p256_x86_64(t2, t2, u1);	/* U1 * H^2 */
+	mpi_sqr_mont_mod_p256_x86_64(r->x, tr);		/* R^2 */
+	mpi_shift_l1_mod_p256_x86_64(t3, t2);		/* 2 * U1 * H^2 */
 
 	/* X3 = R^2 - H^3 - 2 * U1 * H^2 */
-	mpi_sub_mod_p256_x86_64(t3, t3, h);
-	mpi_sub_mod_p256_x86_64(t3, t3, t4);
+	mpi_sub_mod_p256_x86_64(r->x, r->x, h);
+	mpi_sub_mod_p256_x86_64(r->x, r->x, t3);
 
 	/* Y3 = (U1 * H^2 - X3) * R - S1 * H^3 */
-	mpi_sub_mod_p256_x86_64(t2, t2, t3);
+	mpi_sub_mod_p256_x86_64(t2, t2, r->x);
 	mpi_mul_mont_mod_p256_x86_64(t2, t2, tr);
 	mpi_mul_mont_mod_p256_x86_64(s1, s1, h);
-	mpi_sub_mod_p256_x86_64(t2, t2, s1);
-
-	ecp256_copy(r->x, t3);
-	ecp256_copy(r->y, t2);
-	ecp256_copy(r->z, t1);
+	mpi_sub_mod_p256_x86_64(r->y, t2, s1);
 }
 
 /*
@@ -1257,12 +1251,13 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
  * Fixed-base comb method with V=d extended precomputed tables (GECC 3.45, 3.47).
  */
 static void
-ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char k[])
+ecp256_mul_comb_core_g(Ecp256Point *__restrict r,
+		       const unsigned char *__restrict k)
 {
 	Ecp256Point txi;
 	size_t i = G_D - 1;
 	unsigned char ii;
-	unsigned long t1[8], t2[8], t3[8], t4[8], x[8], y[8], z[8];
+	unsigned long t1[4], t2[4], t3[4], t4[4];
 
 	/*
 	 * Start with a non-zero point and randomize its coordinates.
@@ -1286,18 +1281,18 @@ ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char k[])
 	/* ecp256_add_mixed() for P->Z == 1 */
 	mpi_sub_mod_p256_x86_64(t1, txi.x, r->x);
 	mpi_sub_mod_p256_x86_64(t2, txi.y, r->y);
-	memcpy(z, t1, G_LIMBS * CIL);
+	ecp256_copy(r->z, t1);
 	mpi_sqr_mont_mod_p256_x86_64(t3, t1);
 	mpi_mul_mont_mod_p256_x86_64(t4, t3, t1);
 	mpi_mul_mont_mod_p256_x86_64(t3, t3, r->x);
 	mpi_shift_l1_mod_p256_x86_64(t1, t3);
-	mpi_sqr_mont_mod_p256_x86_64(x, t2);
-	mpi_sub_mod_p256_x86_64(x, x, t1);
-	mpi_sub_mod_p256_x86_64(x, x, t4);
-	mpi_sub_mod_p256_x86_64(t3, t3, x);
+	mpi_sqr_mont_mod_p256_x86_64(r->x, t2);
+	mpi_sub_mod_p256_x86_64(r->x, r->x, t1);
+	mpi_sub_mod_p256_x86_64(r->x, r->x, t4);
+	mpi_sub_mod_p256_x86_64(t3, t3, r->x);
 	mpi_mul_mont_mod_p256_x86_64(t3, t3, t2);
 	mpi_mul_mont_mod_p256_x86_64(t4, t4, r->y);
-	mpi_sub_mod_p256_x86_64(y, t3, t4);
+	mpi_sub_mod_p256_x86_64(r->y, t3, t4);
 
 	while (i--) {
 		ii = (k[i] & 0x7Fu) >> 1;
@@ -1309,29 +1304,25 @@ ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char k[])
 		 * Addition in mixed affine-Jacobian coordinates,
 		 * see ecp256_add_mixed().
 		 */
-		mpi_sqr_mont_mod_p256_x86_64(t1, z);
-		mpi_mul_mont_mod_p256_x86_64(t2, t1, z);
+		mpi_sqr_mont_mod_p256_x86_64(t1, r->z);
+		mpi_mul_mont_mod_p256_x86_64(t2, t1, r->z);
 		mpi_mul_mont_mod_p256_x86_64(t1, t1, txi.x);
 		mpi_mul_mont_mod_p256_x86_64(t2, t2, txi.y);
-		mpi_sub_mod_p256_x86_64(t1, t1, x);
-		mpi_sub_mod_p256_x86_64(t2, t2, y);
-		mpi_mul_mont_mod_p256_x86_64(z, z, t1);
+		mpi_sub_mod_p256_x86_64(t1, t1, r->x);
+		mpi_sub_mod_p256_x86_64(t2, t2, r->y);
+		mpi_mul_mont_mod_p256_x86_64(r->z, r->z, t1);
 		mpi_sqr_mont_mod_p256_x86_64(t3, t1);
 		mpi_mul_mont_mod_p256_x86_64(t4, t3, t1);
-		mpi_mul_mont_mod_p256_x86_64(t3, t3, x);
+		mpi_mul_mont_mod_p256_x86_64(t3, t3, r->x);
 		mpi_shift_l1_mod_p256_x86_64(t1, t3);
-		mpi_sqr_mont_mod_p256_x86_64(x, t2);
-		mpi_sub_mod_p256_x86_64(x, x, t1);
-		mpi_sub_mod_p256_x86_64(x, x, t4);
-		mpi_sub_mod_p256_x86_64(t3, t3, x);
+		mpi_sqr_mont_mod_p256_x86_64(r->x, t2);
+		mpi_sub_mod_p256_x86_64(r->x, r->x, t1);
+		mpi_sub_mod_p256_x86_64(r->x, r->x, t4);
+		mpi_sub_mod_p256_x86_64(t3, t3, r->x);
 		mpi_mul_mont_mod_p256_x86_64(t3, t3, t2);
-		mpi_mul_mont_mod_p256_x86_64(t4, t4, y);
-		mpi_sub_mod_p256_x86_64(y, t3, t4);
+		mpi_mul_mont_mod_p256_x86_64(t4, t4, r->y);
+		mpi_sub_mod_p256_x86_64(r->y, t3, t4);
 	}
-
-	ecp256_copy(r->x, x);
-	ecp256_copy(r->y, y);
-	ecp256_copy(r->z, z);
 }
 
 /**

@@ -94,7 +94,7 @@ ecdhe_srv(void)
 				  "\x9D\x52\x79\x7C\x9C\x74\x8F\x67";
 
 	/* ttls_mpool() treats the pool as "handshake" pool. */
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(0, GFP_KERNEL)));
+	EXPECT_NOT_NULL(mp = ttls_mpi_pool_create(0, GFP_KERNEL));
 
 	/*
 	 * Copy (clone) ECDH context from the MPI profile for Secp256r1 PK
@@ -103,7 +103,7 @@ ecdhe_srv(void)
 	 */
 	ctx = ttls_mpool_alloc_data(mp, cs_mp_ecdhe_secp256.mp.curr
 					- sizeof(*mp));
-	EXPECT_FALSE(!ctx);
+	EXPECT_NOT_NULL(ctx);
 	mp->curr = cs_mp_ecdhe_secp256.mp.curr;
 	memcpy_fast(ctx, MPI_POOL_DATA(&cs_mp_ecdhe_secp256.mp),
 		    mp->curr - sizeof(*mp));

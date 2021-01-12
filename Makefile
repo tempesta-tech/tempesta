@@ -70,11 +70,11 @@ TFW_CFLAGS += -DDBG_HTTP_STREAM=$(DBG_HTTP_STREAM)
 TFW_CFLAGS += -DDBG_HPACK=$(DBG_HPACK)
 
 # By default Tempesta TLS randomizes elliptic curve points using RDRAND
-# instruction, which provides high speed random numbers generator.
-# However, if you do not trust your CPU vendor, then use TLS_CONST_TIME
+# instruction, which provides a high speed random numbers generator.
+# However, if you do not trust your CPU vendor, then use CRYPTO_CONST_TIME
 # to make all the computations constant time to prevent side channel attacks.
-ifdef TLS_CONST_TIME
-	TFW_CFLAGS += -DTLS_CONST_TIME
+ifdef CRYPTO_CONST_TIME
+	TFW_CFLAGS += -DCRYPTO_CONST_TIME
 endif
 
 PROC = $(shell cat /proc/cpuinfo)
