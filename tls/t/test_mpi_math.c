@@ -4,7 +4,7 @@
  * The test is responsibe for plain operations non involving MPI pool
  * allocations, which are the subject for test in test_mpi.c.
  *
- * Copyright (C) 2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -61,7 +61,6 @@ ttls_mpool(void *addr)
 
 /* Mock irrelevant groups. */
 const TlsEcpGrp SECP256_G = {};
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 static void
@@ -560,6 +559,100 @@ mpi_elementary(void)
 	free(B);
 }
 
+/**
+ * Copy of ecp256_to_mont().
+ */
+static void
+__to_mont(unsigned long *__restrict r, const unsigned long *__restrict a)
+{
+	long t[8], a32[8], o;
+
+	a32[0] = a[0] & 0xffffffff;
+	a32[1] = a[0] >> 32;
+	a32[2] = a[1] & 0xffffffff;
+	a32[3] = a[1] >> 32;
+	a32[4] = a[2] & 0xffffffff;
+	a32[5] = a[2] >> 32;
+	a32[6] = a[3] & 0xffffffff;
+	a32[7] = a[3] >> 32;
+
+	/*  1  1  0 -1 -1 -1 -1  0 */
+	t[0] = 0 + a32[0] + a32[1] - a32[3] - a32[4] - a32[5] - a32[6];
+	/*  0  1  1  0 -1 -1 -1 -1 */
+	t[1] = 0 + a32[1] + a32[2] - a32[4] - a32[5] - a32[6] - a32[7];
+	/*  0  0  1  1  0 -1 -1 -1 */
+	t[2] = 0 + a32[2] + a32[3] - a32[5] - a32[6] - a32[7];
+	/* -1 -1  0  2  2  1  0 -1 */
+	t[3] = 0 - a32[0] - a32[1] + 2 * a32[3] + 2 * a32[4] + a32[5] - a32[7];
+	/*  0 -1 -1  0  2  2  1  0 */
+	t[4] = 0 - a32[1] - a32[2] + 2 * a32[4] + 2 * a32[5] + a32[6];
+	/*  0  0 -1 -1  0  2  2  1 */
+	t[5] = 0 - a32[2] - a32[3] + 2 * a32[5] + 2 * a32[6] + a32[7];
+	/* -1 -1  0  0  0  1  3  2 */
+	t[6] = 0 - a32[0] - a32[1] + a32[5] + 3 * a32[6] + 2 * a32[7];
+	/*  1  0 -1 -1 -1 -1  0  3 */
+	t[7] = 0 + a32[0] - a32[2] - a32[3] - a32[4] - a32[5] + 3 * a32[7];
+
+	t[1] += t[0] >> 32; t[0] &= 0xffffffff;
+	t[2] += t[1] >> 32; t[1] &= 0xffffffff;
+	t[3] += t[2] >> 32; t[2] &= 0xffffffff;
+	t[4] += t[3] >> 32; t[3] &= 0xffffffff;
+	t[5] += t[4] >> 32; t[4] &= 0xffffffff;
+	t[6] += t[5] >> 32; t[5] &= 0xffffffff;
+	t[7] += t[6] >> 32; t[6] &= 0xffffffff;
+
+	o = t[7] >> 32; t[7] &= 0xffffffff;
+
+	t[0] += o;
+	t[3] -= o;
+	t[6] -= o;
+	t[7] += o;
+	t[1] += t[0] >> 32; t[0] &= 0xffffffff;
+	t[2] += t[1] >> 32; t[1] &= 0xffffffff;
+	t[3] += t[2] >> 32; t[2] &= 0xffffffff;
+	t[4] += t[3] >> 32; t[3] &= 0xffffffff;
+	t[5] += t[4] >> 32; t[4] &= 0xffffffff;
+	t[6] += t[5] >> 32; t[5] &= 0xffffffff;
+	t[7] += t[6] >> 32; t[6] &= 0xffffffff;
+
+	r[0] = (t[1] << 32) | t[0];
+	r[1] = (t[3] << 32) | t[2];
+	r[2] = (t[5] << 32) | t[4];
+	r[3] = (t[7] << 32) | t[6];
+}
+
+static void
+mont_basic(void)
+{
+	const unsigned long a[8] = {1, 0, 2, 3}, b[4] = {4, 5, 6, 7};
+	unsigned long am[8] = {}, bm[4] = {};
+	/* Only 4 limbs are used, fill with garbage. */
+	unsigned long r[8] = {[0 ... 7] = 5};
+
+	__to_mont(am, a);
+	__to_mont(bm, b);
+
+	mpi_sqr_mont_mod_p256_x86_64(am, am);
+	mpi_mul_mont_mod_p256_x86_64(r, am, bm);
+	mpi_from_mont_p256_x86_64(r);
+
+	EXPECT_EQ(r[0], 0x0000008c00000172UL);
+	EXPECT_EQ(r[1], 0xfffffe190000002bUL);
+	EXPECT_EQ(r[2], 0xffffffa1ffffff62UL);
+	EXPECT_EQ(r[3], 0x00000153ffffff8fUL);
+
+	r[0] = 0xf859b3b476e5a4d0UL;
+	r[1] = 0x3f461f4b7a77820cUL;
+	r[2] = 0x97342b748b9333a9UL;
+	r[3] = 0xd249ca4aaf0f531dUL;
+
+	mpi_from_mont_p256_x86_64(r);
+	EXPECT_EQ(r[0], 0x102eb1cc0aaf20aaUL);
+	EXPECT_EQ(r[1], 0x43ea8a401fe365dcUL);
+	EXPECT_EQ(r[2], 0xd35b2054e61f5e5UL);
+	EXPECT_EQ(r[3], 0xd7aac08c0475fb7dUL);
+}
+
 static void
 ecp_mod256(void)
 {
@@ -858,59 +951,59 @@ ecp_sub_mod256(void)
 	b = MPI_P(B);
 	x = MPI_P(X);
 
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 0, 0, 0, 0);
 
 	MPI_P(A)[0] = 2;
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 1, 0, 0, 0);
-	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	mpi_sub_mod_p256_x86_64(x, b, a);
 	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0x00000000ffffffffUL,
 			 0x0000000000000000UL, 0xffffffff00000001UL);
 
 	MPI_P(A)[0] = 0;
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0x00000000ffffffffUL,
 			 0x0000000000000000UL, 0xffffffff00000001UL);
-	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	mpi_sub_mod_p256_x86_64(x, b, a);
 	EXPECT_MPI(X, 4, 1, 0, 0, 0);
 
 	MPI_P(B)[0] = 0;
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 0, 0, 0, 0);
 
 	MPI_P(A)[0] = 0xfffffffffffffffeUL;
 	MPI_P(A)[1] = 0xffffffffUL;
 	MPI_P(A)[2] = 0;
 	MPI_P(A)[3] = 0xffffffff00000001UL;
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0x00000000ffffffffUL,
 			 0x0000000000000000UL, 0xffffffff00000001UL);
-	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	mpi_sub_mod_p256_x86_64(x, b, a);
 	EXPECT_MPI(X, 4, 1, 0, 0, 0);
 
 	MPI_P(B)[0] = 1;
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 0xfffffffffffffffdUL, 0x00000000ffffffffUL,
 			 0x0000000000000000UL, 0xffffffff00000001UL);
-	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	mpi_sub_mod_p256_x86_64(x, b, a);
 	EXPECT_MPI(X, 4, 2, 0, 0, 0);
 
 	MPI_P(B)[0] = 0x81049834a729f046;
 	MPI_P(B)[1] = 0x8e8ccd3064d562a6;
 	MPI_P(B)[2] = 0x9571db50f3374ad4;
 	MPI_P(B)[3] = 0x9ce41a936065fb64;
-	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	mpi_sub_mod_p256_x86_64(x, a, b);
 	EXPECT_MPI(X, 4, 0x7efb67cb58d60fb8UL, 0x717332d09b2a9d59UL,
 			 0x6a8e24af0cc8b52bUL, 0x631be56b9f9a049cUL);
-	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	mpi_sub_mod_p256_x86_64(x, b, a);
 	EXPECT_MPI(X, 4, 0x81049834a729f047UL, 0x8e8ccd3064d562a6UL,
 			 0x9571db50f3374ad4UL, 0x9ce41a936065fb64UL);
 
-	mpi_sub_mod_p256_x86_64_4(x, x, b);
+	mpi_sub_mod_p256_x86_64(x, x, b);
 	EXPECT_MPI(X, 4, 0x0000000000000001UL, 0x0000000000000000UL,
 			 0x0000000000000000UL, 0x0000000000000000UL);
-	mpi_sub_mod_p256_x86_64_4(x, x, a);
+	mpi_sub_mod_p256_x86_64(x, x, a);
 	EXPECT_MPI(X, 4, 2, 0, 0, 0);
 
 	free(A);
@@ -944,15 +1037,18 @@ ecp_add_mod256(void)
 	EXPECT_MPI(X, 4, 2, 0xffffffffffffffffUL, 0, 0);
 
 	a[0] = 1;
-	b[0] = b[2] = b[3] = ULONG_MAX;
+	b[0] = 0xfffffffffffffffeUL;
+	b[1] = 0x00000000ffffffffUL;
+	b[2] = 0;
+	b[3] = 0xffffffff00000001UL;
 	mpi_add_mod_p256_x86_64(x, a, b);
-	EXPECT_MPI(X, 4, 0x0000000000000001UL, 0xffffffff00000000UL,
-			 0xffffffffffffffffUL, 0x00000000fffffffeUL);
+	EXPECT_MPI(X, 4, 0xffffffffffffffffUL, 0xffffffffUL,
+			 0, 0xffffffff00000001UL);
 
 	a[0] = 0;
 	mpi_add_mod_p256_x86_64(x, a, b);
-	EXPECT_MPI(X, 4, 0x0000000000000000UL, 0xffffffff00000000UL,
-			 0xffffffffffffffffUL, 0x00000000fffffffeUL);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0xffffffffUL,
+			 0, 0xffffffff00000001UL);
 
 	a[0] = b[0] = 0xfffffffffffffffeUL;
 	a[1] = b[1] = 0x00000000ffffffffUL;
@@ -974,6 +1070,7 @@ main(int argc, char *argv[])
 	mpi_sub();
 	mpi_shift();
 	mpi_elementary();
+	mont_basic();
 	ecp_mod256();
 	ecp_sub_mod256();
 	ecp_add_mod256();

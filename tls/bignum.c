@@ -799,10 +799,8 @@ __mpi_mul(size_t n, const unsigned long *s, unsigned long *d, unsigned long b)
  *
  * All the arguments may reference the same MPI.
  *
- * TODO #1064 the function is used for squaring which is inefficient, so
- * implement a normal squaring. (Gather statistics how many square calls
- * and for which sizes).
- * See "Speeding up Big-Numbers Squaring", S.Gueron and V.Krasnov, 2012.
+ * TODO #1064 replace the call with a faster implementation for ec_p256
+ * and move this for TODO #1335 for the rest of the calls.
  */
 void
 ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
@@ -1087,7 +1085,8 @@ ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 }
 
 /**
- * Fast Montgomery initialization (thanks to Tom St Denis).
+ * Fast Montgomery initialization -N^-1 mod 2^256 (256 = 2^8).
+ * (see Tom St Denis, mp_montgomery_setup()).
  */
 static void
 __mpi_montg_init(unsigned long *mm, const TlsMpi *N)
@@ -1106,6 +1105,9 @@ __mpi_montg_init(unsigned long *mm, const TlsMpi *N)
 
 /**
  * Montgomery multiplication: A = A * B * R^-1 mod N  (HAC 14.36).
+ *
+ * TODO #1335: this is used for modular exponentiation only, so repalce it with
+ * an adequate assembly implementation for the RSA handshakes.
  */
 static int
 __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
@@ -1173,6 +1175,10 @@ __mpi_montred(TlsMpi *A, const TlsMpi *N, unsigned long mm, TlsMpi *T)
  *
  * @RR is used to avoid re-computing R * R mod N across multiple calls,
  * which speeds up things a bit.
+ *
+ * TODO #1335: couple the Montgomery multiplication with Karatsuba's one:
+ * RSA operates with large numbers, so Karatsuba with fallback to 256-bit
+ * schoolbook should be beneficial.
  */
 int
 ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,

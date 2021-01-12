@@ -29,7 +29,6 @@
 #include "../mpool.c"
 
 /* Mock irrelevant groups. */
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 #define EC_Qx								   \
@@ -91,7 +90,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 
 	/* Special case for A = -3 */
 	ecp256_lset(A, 3);
-	mpi_sub_mod_p256_x86_64_4(RHS, RHS, A);
+	mpi_sub_mod_p256_x86_64(RHS, RHS, A);
 	mpi_mul_mod_p256_x86_64_4(RHS, RHS, MPI_P(&pt->X));
 	mpi_add_mod_p256_x86_64(RHS, RHS, MPI_P(&G.B));
 
@@ -106,11 +105,11 @@ ecdsa_sign(void)
 	size_t slen;
 	char hash[32] = {1}, sig[80] = {0};
 
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_NOT_NULL(mp = ttls_mpi_pool_create(0, GFP_KERNEL));
 
-	EXPECT_FALSE(!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))));
+	EXPECT_NOT_NULL(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx)));
 
-	EXPECT_FALSE(!(ctx->grp = ttls_ecp_group_lookup(TTLS_ECP_DP_SECP256R1)));
+	EXPECT_NOT_NULL(ctx->grp = ttls_ecp_group_lookup(TTLS_ECP_DP_SECP256R1));
 
 	ttls_mpi_read_binary(&ctx->Q.X, EC_Qx, 32);
 	ttls_mpi_read_binary(&ctx->Q.Y, EC_Qy, 32);

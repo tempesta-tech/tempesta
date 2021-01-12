@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS benchmark for crypto routines
  *
- * Copyright (C) 2020 Tempesta Technologies, INC.
+ * Copyright (C) 2020-2021 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,7 +38,6 @@
 #include "../mpool.c"
 
 /* Mock irrelevant groups. */
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 #define BM_TIME		10
@@ -89,25 +88,25 @@ do {									\
 #define UNROLL(F)	F; F; F; F; F; F; F; F; F; F; F; F; F; F; F; F; 
 
 void
-bm_mul_p256(void)
+bm_mul_mont_p256(void)
 {
 	unsigned long x[8];
 	unsigned long a[4] = {UINT_MAX, 2, ULONG_MAX, 4};
 	unsigned long b[4] = {ULONG_MAX, 4, UINT_MAX, 2};
 
-	BENCHMARK("256-bit mul_mod",
-		UNROLL(mpi_mul_mod_p256_x86_64_4(x, a, b));
+	BENCHMARK("256-bit mul_mont_mod",
+		UNROLL(mpi_mul_mont_mod_p256_x86_64(x, a, b));
 	);
 }
 
 void
-bm_sqr_p256(void)
+bm_sqr_mont_p256(void)
 {
 	unsigned long x[8];
 	unsigned long a[4] = {UINT_MAX, 2, ULONG_MAX, 4};
 
-	BENCHMARK("256-bit sqr_mod",
-		UNROLL(mpi_sqr_mod_p256_x86_64_4(x, a));
+	BENCHMARK("256-bit sqr_mont_mod",
+		UNROLL(mpi_sqr_mont_mod_p256_x86_64(x, a));
 	);
 }
 
@@ -134,7 +133,7 @@ bm_ecdsa_sign_p256(void)
 	size_t slen;
 	char hash[32], sig[80];
 
-	mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL);
+	mp = ttls_mpi_pool_create(0, GFP_KERNEL);
 	BUG_ON(!mp);
 	ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx));
 	BUG_ON(!ctx);
@@ -181,7 +180,7 @@ bm_ecdhe_srv_p256(void)
 				  "\xE9\x84\x9D\x52\x79\x7C\x9C\x74"
 				  "\x8F\x67";
 
-	mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL);
+	mp = ttls_mpi_pool_create(0, GFP_KERNEL);
 	BUG_ON(!mp);
 
 	/*
@@ -217,11 +216,13 @@ main(int argc, char *argv[])
 
 	/*
 	 * Benchmark multiplication vs squaring - the fundamental ratio
-	 * for calculation price of ECC algorithms. Traditional ration in
+	 * for calculation price of ECC algorithms. Traditional ratio in
 	 * the literature is [0.8, 0.86].
+	 * The current Montgomery ratio is 0.795.
+	 * The previous FIPS reduction was 0.907.
 	 */
-	bm_mul_p256();
-	bm_sqr_p256();
+	bm_mul_mont_p256();
+	bm_sqr_mont_p256();
 
 	bm_ecdsa_sign_p256();
 	bm_ecdhe_srv_p256();

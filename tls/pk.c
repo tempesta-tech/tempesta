@@ -33,6 +33,8 @@
 #include "rsa.h"
 #include "tls_internal.h"
 
+#define __MPOOL_PK_ORDER	1 /* We need 2 pages to handle RSA-4096 keys */
+
 static int
 rsa_can_do(ttls_pk_type_t type)
 {
@@ -83,7 +85,7 @@ rsa_alloc_wrap(void)
 
 	might_sleep();
 
-	if (!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)))
+	if (!(mp = ttls_mpi_pool_create(__MPOOL_PK_ORDER, GFP_KERNEL)))
 		return NULL;
 
 	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
@@ -131,9 +133,6 @@ ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg __attribute__((unused)),
 	const unsigned char *end = sig + sig_len;
 	size_t len;
 	TlsMpi *r, *s;
-
-	if (WARN_ON_ONCE(!eck->grp->ecdsa_verify))
-		return -EINVAL;
 
 	r = ttls_mpi_alloc_stack_init(0);
 	s = ttls_mpi_alloc_stack_init(0);
@@ -190,7 +189,7 @@ eckey_alloc_wrap(void)
 
 	might_sleep();
 
-	if (!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)))
+	if (!(mp = ttls_mpi_pool_create(__MPOOL_PK_ORDER, GFP_KERNEL)))
 		return NULL;
 
 	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
