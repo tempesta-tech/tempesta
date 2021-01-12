@@ -626,7 +626,8 @@ mont_basic(void)
 {
 	const unsigned long a[8] = {1, 0, 2, 3}, b[4] = {4, 5, 6, 7};
 	unsigned long am[8] = {}, bm[4] = {};
-	unsigned long r[8] = {5}; /* only 4 limbs are used, fill with garbage */
+	/* Only 4 limbs are used, fill with garbage. */
+	unsigned long r[8] = {[0 ... 7] = 5};
 
 	__to_mont(am, a);
 	__to_mont(bm, b);

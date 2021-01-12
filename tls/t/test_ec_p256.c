@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS EC NIST secp256r1 (prime256v1) unit test
  *
- * Copyright (C) 2018-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -62,12 +62,12 @@ ecp_base_math(void)
 	int i;
 	TlsMpi *A, *B, *T1, *T2, *X1, *X2;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(T1 = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(T2 = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(X1 = ttls_mpi_alloc_stack_init(8)));
-	EXPECT_FALSE(!(X2 = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_NOT_NULL(A = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(B = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(T1 = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(T2 = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(X1 = ttls_mpi_alloc_stack_init(8));
+	EXPECT_NOT_NULL(X2 = ttls_mpi_alloc_stack_init(8));
 
 	X1->used = 4;
 	X2->used = 4;
@@ -317,7 +317,7 @@ ecp_mul(void)
 
 	/* Use group from the MPI profile for Secp256r1 PK operations. */
 	grp = &SECP256_G;
-	EXPECT_FALSE(!grp);
+	EXPECT_NOT_NULL(grp);
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
 	EXPECT_EQ(grp->bits, 256);
 	EXPECT_EQ(G.P.used, 4);
