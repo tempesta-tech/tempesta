@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2021 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -154,11 +154,13 @@ update_single_js_template()
 	cookie=${cookie:-"__tfw"}
 
 	if [[ -z $d_min || -z $d_range ]]; then
-		echo "Error: 'js_challenge' mandatory options not set!"
-		return
+		error "at line 'js_challenge $js_line': mandatory options 'delay_min' or 'delay_range' not set!"
 	fi
 	template=${template%%.html}".tpl"
 	$script_path/update_template.pl $template $cookie $d_min $d_range
+	if [ $? -ne 0 ]; then
+		error "at line 'js_challenge $js_line': tempate file can't be prepared"
+	fi
 }
 
 # JS challenge file is a template file, update it using values defined in
@@ -200,6 +202,10 @@ start()
 	}
 
 	update_js_challenge_templates
+	if [ $? -ne 0 ]; then
+		unload_modules
+		error "cannot start Tempesta FW: error at configuration pre-processing"
+	fi
 	echo "...start Tempesta FW"
 	# If 'net.tempesta.state' entry exists but Tempesta start process has
 	# been failed for some reason (e.g. configuration parsing error), then
@@ -218,7 +224,7 @@ stop()
 {
 	echo "Stopping Tempesta..."
 
-	sysctl -w net.tempesta.state=stop
+	sysctl -e -w net.tempesta.state=stop
 
 	echo "...unload Tempesta modules"
 	unload_modules
