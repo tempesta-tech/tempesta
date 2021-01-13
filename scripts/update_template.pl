@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2017-2020 Tempesta Technologies, Inc.
+# Copyright (C) 2017-2021 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -29,13 +29,16 @@ if (!$template || $template !~ '.tpl$' || !$sticky_name
 {
 	die "bad args!\n"
 }
+unless (-e $template && -r $template) {
+	die "JavaScript Challenge template '$template' not found, generation aborted!\n";
+}
 
 # Assemble HTML templates and minify resulting files.
 sub assemble
 {
 	my ($src) = @_;
 	unless (-e $src) {
-		die "JavaScript Challenge template '$src' not found, generation aborted!";
+		die "JavaScript Challenge template '$src' not found, generation aborted!\n";
 	}
 
 	my $dir = dirname($src);
