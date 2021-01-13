@@ -22,11 +22,12 @@
 if [ -z "$TFW_SYSTEMD" ]; then
 	if [ "${TEMPESTA_LCK}" != "$0" ]; then
 		env TEMPESTA_LCK="$0" flock -n -E 254 "/tmp/tempesta-lock-file" "$0" "$@"
-		if [ $? -eq 254 ]; then
+		ret=$?
+		if [ $ret -eq 254 ]; then
 			echo "Cannot operate with Tempesta FW: locked by another process"
 			exit 3
 		fi
-		exit
+		exit $ret
 	fi
 fi
 
