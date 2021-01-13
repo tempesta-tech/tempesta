@@ -790,7 +790,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 err:
 	kfree(js_ch);
-	cur_vhost->cookie->js_challenge = NULL;
 
 	return r;
 }
