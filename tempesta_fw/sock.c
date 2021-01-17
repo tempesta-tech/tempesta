@@ -559,6 +559,13 @@ ss_do_close(struct sock *sk)
 	/* The socket must have atomic allocation mask. */
 	WARN_ON_ONCE(!(sk->sk_allocation & GFP_ATOMIC));
 
+	/*
+	 * We use the spin lock only since we're working in softirq, however
+	 * the rest of the TCP/IP stack relies that the closing code sets
+	 * sk->sk_lock.owned, e.g. tcp_tasklet_func(), so set the lock owner.
+	 */
+	sk->sk_lock.owned = 1;
+
 	/* The below is mostly copy-paste from tcp_close(). */
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
@@ -615,10 +622,17 @@ adjudge_to_death:
 	sock_orphan(sk);
 
 	/*
+	 * An adoption of release_sock() for our sleep-less tcp_close() version.
+	 *
 	 * SS sockets are processed in softirq only,
 	 * so backlog queue should be empty.
 	 */
 	WARN_ON(sk->sk_backlog.tail);
+	if (likely(sk->sk_prot->release_cb))
+		sk->sk_prot->release_cb(sk);
+	sk->sk_lock.owned = 0;
+	if (waitqueue_active(&sk->sk_lock.wq))
+		wake_up(&sk->sk_lock.wq);
 
 	percpu_counter_inc(sk->sk_prot->orphan_count);
 
