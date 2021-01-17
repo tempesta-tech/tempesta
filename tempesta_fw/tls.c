@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -548,6 +548,8 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	TfwMsgIter it;
 	TfwStr str = {};
 
+	assert_spin_locked(&tls->lock);
+
 	/*
 	 * Encrypted (application data) messages will be prepended by a header
 	 * in tfw_tls_encrypt(), so if we have an encryption context, then we
@@ -603,7 +605,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
-	WARN_ON_ONCE(io->skb_list);
+	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
 
 	return r;
 }

@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -461,6 +461,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
 		T_DBG2("Attempt to send on inactive socket %p\n", sk);
+		ss_skb_queue_purge(skb_head);
 		return -EBADF;
 	}
 
