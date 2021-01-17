@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1336,6 +1336,7 @@ ttls_handle_alert(TlsCtx *tls)
 int
 ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 {
+	int r;
 	TlsIOCtx *io = &tls->io_out;
 
 	T_DBG("send alert level=%u message=%u\n", lvl, msg);
@@ -1347,7 +1348,10 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[0] = lvl;
 	io->alert[1] = msg;
 
-	return ttls_write_record(tls, NULL);
+	if ((r = ttls_write_record(tls, NULL)))
+		T_WARN("Cannot sent TLS alert %d:%d, %d\n", msg, lvl, r);
+
+	return r;
 }
 
 int
