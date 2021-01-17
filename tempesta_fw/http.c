@@ -2294,6 +2294,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			goto clean;
 		req->pit.parsed_hdr = &req->stream->parser.hdr;
 		__set_bit(TFW_HTTP_B_H2, req->flags);
+		/* Version for HTTP/1 is filled by parser. */
+		req->version = TFW_HTTP_VER_20;
 	}
 
 	if (type & Conn_Clnt) {
