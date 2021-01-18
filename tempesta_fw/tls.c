@@ -309,8 +309,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
 
+	/*
+	 * If client closes connection early, we may get here with sk_user_data
+	 * being NULL.
+	 */
 	if (unlikely(sk->sk_user_data == NULL))
-		return -EINVAL;
+		return -EPIPE;
 
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
