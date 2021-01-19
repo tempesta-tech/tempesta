@@ -5204,6 +5204,12 @@ next_msg:
 			}
 		}
 		else {
+			if (TFW_MSG_H2(req)) {
+				TfwH2Ctx *ctx = tfw_h2_context(conn);
+				if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
+					__set_bit(TFW_HTTP_B_HEADERS_PARSED,
+						  req->flags);
+			}
 			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 					  &data_up);
 			T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
@@ -5312,6 +5318,10 @@ next_msg:
 	 * for every new request. Connection rates limits usually much more
 	 * strict than request rates, so this attack path is closed by usual
 	 * frang configuration.
+	 *
+	 * TODO: block the request if Frang didn't finish its job. It mostly
+	 * indicates internal errors, when not all frang checks was asserted
+	 * against the request.
 	 */
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);

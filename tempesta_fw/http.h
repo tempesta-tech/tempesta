@@ -250,6 +250,8 @@ enum {
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
+	/* Message headers are fully parsed */
+	TFW_HTTP_B_HEADERS_PARSED,
 	/* Message is fully parsed */
 	TFW_HTTP_B_FULLY_PARSED,
 	/* Message has HTTP/2 format. */

@@ -1171,7 +1171,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 			T_FSM_EXIT();
 
 		/* Headers are not fully parsed yet. */
-		if (!(req->crlf.flags & TFW_STR_COMPLETE))
+		if (!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
 			__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_Check);
 		/*
 		* Full HTTP header has been processed, and any possible
