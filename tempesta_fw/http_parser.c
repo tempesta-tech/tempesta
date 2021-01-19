@@ -1076,6 +1076,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 __FSM_STATE(RGen_BodyInit, cold) {					\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
+	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
 	T_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
 	       msg->flags[0], msg->content_length);			\
 									\
@@ -1112,6 +1113,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
+	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
 	T_DBG3("parse response body: flags=%#lx content_length=%lu\n",	\
 	       msg->flags[0], msg->content_length);			\
 									\
@@ -8174,6 +8176,7 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	 */
 	req->content_length = req->body.len;
 	req->body.flags |= TFW_STR_COMPLETE;
+	__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
