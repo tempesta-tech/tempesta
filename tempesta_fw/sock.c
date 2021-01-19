@@ -545,8 +545,6 @@ ss_do_close(struct sock *sk)
 	struct sk_buff *skb;
 	int data_was_unread = 0;
 
-	if (unlikely(!sk))
-		return;
 	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
@@ -1406,10 +1404,25 @@ ss_tx_action(void)
 			bh_unlock_sock(sk);
 			goto dead_sock;
 		}
+
 		switch (sw.action) {
 		case SS_SEND:
+			/*
+			 * Don't make TSQ spin on the lock while we're working
+			 * with the socket.
+			 *
+			 * Socket is locked and this synchronizes possible socket
+			 * closing with tcp_tasklet_func(): we must clear the
+			 * TSQ deffered flag with sk->sk_lock.owned = 1.
+			 *
+			 * Set sk->sk_lock.owned = 0 if no closing is required,
+			 * otherwise ss_do_close() does this.
+			 */
+			sk->sk_lock.owned = 1;
+
 			ss_do_send(sk, &sw.skb_head, sw.flags);
 			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+				sk->sk_lock.owned = 0;
 				bh_unlock_sock(sk);
 				break;
 			}
