@@ -759,18 +759,21 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			return TFW_BLOCK;
 		}
 		else if (frang_assert_host_header(&prim_trim, &sec_trim)) {
-			frang_msg("Request authority differs between headers",
+			frang_msg("Request authority in URI differs from host header",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
 		}
 		break;
 	/*
-	 * Old protocols may have no 'host' header, it's arbitrary header that
-	 * can be treated by modern servers as special host headers, while
-	 * old ones may not. Client tries to confuse some servers in the
-	 * forwarding chain by adding a header with possible double meaning?
+	 * Old protocols may have no 'host' header, if presents it's a usual
+	 * header with no special meaning. But in installations of servers with
+	 * modern protocols its use for routing decisions is very common.
+	 * It's suspicious, when modern features are used with obsoleted
+	 * protocols, block the request to avoid possible confusion of HTTP
+	 * routing on backends.
 	 */
-	case TFW_HTTP_VER_10: case TFW_HTTP_VER_09:
+	case TFW_HTTP_VER_10:
+	case TFW_HTTP_VER_09:
 		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
 				      &prim_trim, &prim_name);
 		if (TFW_STR_EMPTY(&req->host) && TFW_STR_EMPTY(&prim_trim))
