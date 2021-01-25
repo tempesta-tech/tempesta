@@ -267,7 +267,9 @@ tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
 	next = tcp_write_queue_next(sk, skb);
 	tcb_next = TCP_SKB_CB(next);
 	WARN_ON_ONCE((tcb_next->seq || tcb_next->end_seq)
-		     && tcb_next->seq + next->len != tcb_next->end_seq);
+		     && tcb_next->seq + next->len
+		        + !!(tcb_next->tcp_flags & TCPHDR_FIN)
+			!= tcb_next->end_seq);
 
 	tcb_next->seq = tcb->end_seq;
 	tcb_next->end_seq = tcb_next->seq + next->len;
@@ -329,8 +331,17 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	       tcb->seq, tcb->end_seq);
 	BUG_ON(!ttls_xfrm_ready(tls));
 	WARN_ON_ONCE(skb->len > TLS_MAX_PAYLOAD_SIZE);
+#if 0
 	WARN_ON_ONCE(tcb->seq + skb->len + !!(tcb->tcp_flags & TCPHDR_FIN)
 		     != tcb->end_seq);
+#endif
+	if (tcb->seq + skb->len + !!(tcb->tcp_flags & TCPHDR_FIN)
+		     != tcb->end_seq) {
+		pr_err("state=%lx seq=%u len=%u end_seq=%u fin=%d\n",
+			sk->sk_flags, tcb->seq, skb->len, tcb->end_seq,
+			tcb->tcp_flags & TCPHDR_FIN);
+		BUG();
+	}
 
 	head_sz = ttls_payload_off(xfrm);
 	tag_sz = ttls_xfrm_taglen(xfrm);
