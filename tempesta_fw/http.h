@@ -265,8 +265,6 @@ enum {
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
 	TFW_HTTP_B_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
-	/* URI has form http://authority/path, not just /path */
-	TFW_HTTP_B_URI_FULL,
 	/* Request is non-idempotent. */
 	TFW_HTTP_B_NON_IDEMP,
 	/* Request stated 'Accept: text/html' header */
