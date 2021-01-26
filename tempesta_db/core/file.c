@@ -281,7 +281,7 @@ tdb_file_open(TDB *db, unsigned long size)
 
 	if (!filp->f_op->fallocate) {
 		TDB_ERR("TDB requires filesystem with fallocate support\n");
-		filp_close(db->filp, NULL);
+		filp_close(filp, NULL);
 		return -EBADF;
 	}
 
@@ -292,7 +292,7 @@ tdb_file_open(TDB *db, unsigned long size)
 	sb_end_write(inode->i_sb);
 	if (ret) {
 		TDB_ERR("Cannot fallocate file, %ld\n", ret);
-		filp_close(db->filp, NULL);
+		filp_close(filp, NULL);
 		return ret;
 	}
 
