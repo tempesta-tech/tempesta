@@ -5319,9 +5319,7 @@ next_msg:
 	 * strict than request rates, so this attack path is closed by usual
 	 * frang configuration.
 	 *
-	 * TODO: block the request if Frang didn't finish its job. It mostly
-	 * indicates internal errors, when not all frang checks was asserted
-	 * against the request.
+	 * TODO #1490: block the request if Frang didn't finish its job.
 	 */
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
