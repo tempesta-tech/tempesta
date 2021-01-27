@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1386,8 +1386,8 @@ this_chunk:
 
 static int
 tfw_h2_msg_rewrite_data_common(TfwHttpTransIter *mit, const TfwStr *str,
-                               const char *stop,
-                               void cpy(void *dest, const void *src, size_t n))
+			       const char *stop,
+			       void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
 	TfwMsgIter *it = &mit->iter;
@@ -1485,14 +1485,14 @@ this_chunk:
 
 int
 tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
-                        const char *stop)
+			const char *stop)
 {
 	return tfw_h2_msg_rewrite_data_common(mit, str, stop, memcpy_fast);
 }
 
 int
 tfw_h2_msg_rewrite_data_lc(TfwHttpTransIter *mit, const TfwStr *str,
-                           const char *stop)
+			   const char *stop)
 {
 	return tfw_h2_msg_rewrite_data_common(mit, str, stop, tfw_cstrtolower);
 }

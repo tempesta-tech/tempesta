@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -624,6 +624,76 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 }
 
 /**
+ * Get Host value. Host can be defined:
+ * - in h2 requests in Host header, in authority pseudo header. The latter SHOULD
+ *   be used, but RFC 7540 still allows to use Host header.
+ * - in http/1 requests in Host header and inside URI.
+ *
+ * @req		- request handle;
+ * @hid		- header id, -1 for req->host;
+ * @trimmed	- trimmed host value without spaces.
+ * @name_only	- host value without port component.
+ */
+static void
+frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
+			TfwStr *name_only)
+{
+	TfwStr raw_val, hdr_trim = { 0 }, hdr_name = { 0 }, *c, *end;
+	bool got_delim = false;
+
+	/* Parser will block duplicated headers for this hids. */
+	if (hid > 0) {
+		tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[hid], hid,
+					 &raw_val);
+	}
+	else {
+		/*
+		 * Only used for http/1.1 requests. Always must be identical
+		 * to Host: header, so we can keep parser cleaner and faster.
+		 */
+		*trimmed = req->host;
+		*name_only = req->host;
+		return;
+	}
+
+	hdr_name.chunks = hdr_trim.chunks = raw_val.chunks;
+	hdr_name.flags =  hdr_trim.flags  = raw_val.flags;
+
+	TFW_STR_FOR_EACH_CHUNK(c, &raw_val, end) {
+		if (c->flags & TFW_STR_VALUE) {
+			if (!got_delim) {
+				hdr_name.nchunks++;
+				hdr_name.len += c->len;
+			}
+			hdr_trim.nchunks++;
+			hdr_trim.len += c->len;
+		}
+		/*
+		 * When host is IPv6 addr, a 1-byte long chunk with ':' may
+		 * also represent a part of IP address, but it is marked with
+		 * TFW_STR_VALUE and checked in condition above.
+		 */
+		else if (c->len == 1 && c->data[0] == ':') {
+			got_delim = true;
+			hdr_trim.nchunks++;
+			hdr_trim.len += c->len;
+		}
+	}
+
+	*trimmed = hdr_trim;
+	*name_only = hdr_name;
+}
+
+static bool
+frang_assert_host_header(const TfwStr *l, const TfwStr *r)
+{
+	if (TFW_STR_EMPTY(l) || TFW_STR_EMPTY(r))
+		return false;
+
+	return tfw_strcmp(l, r);
+}
+
+/**
  * Require host header in HTTP request (RFC 7230 5.4).
  * Block HTTP/1.1 requests w/o host header,
  * but just print warning for older HTTP.
@@ -632,58 +702,91 @@ static int
 frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
-	TfwStr host_hdr_val, host_hdr_trim = { 0 }, host_hdr_name = { 0 }, *c, *end;
 	unsigned long sni_hash = 0;
-	bool got_delim = false;
 	unsigned short port;
 	unsigned short real_port;
+	TfwStr prim_trim = { 0 }, prim_name = { 0 }, /* primary source */
+	       sec_trim = { 0 },  sec_name = { 0 },  /* secondary source */
+	       *val_trim = NULL,  *val_name = NULL;  /* effective source */
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
 
+	switch (req->version) {
 	/*
-	 * Host header must be presented,
-	 * but don't enforce the policy for HTTP older than 1.1.
+	 * In h2 protocol the Host: header is not required and :authority
+	 * pseudo-header should be used instead. But this is "SHOULD"
+	 * requirement and a request may has missing :authority and existing
+	 * Host: header. Block request if none defined or their values are
+	 * not identical.
 	 */
-	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {
-		frang_msg("Host header field", &FRANG_ACC2CLI(ra)->addr,
-			  " is missed\n");
-		return req->version > TFW_HTTP_VER_10 ? TFW_BLOCK : TFW_PASS;
-	}
-
-	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &host_hdr_val);
-	/* Host can contain whitespaces, trimmed value is required. */
-	host_hdr_name.chunks = host_hdr_trim.chunks = host_hdr_val.chunks;
-	host_hdr_name.flags = host_hdr_trim.flags = host_hdr_val.flags;
-
-	TFW_STR_FOR_EACH_CHUNK(c, &host_hdr_val, end) {
-		if (c->flags & TFW_STR_VALUE) {
-			if (!got_delim) {
-				host_hdr_name.nchunks++;
-				host_hdr_name.len += c->len;
+	case TFW_HTTP_VER_20:
+		frang_get_host_header(req, TFW_HTTP_HDR_H2_AUTHORITY,
+				      &prim_trim, &prim_name);
+		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
+				      &sec_trim, &sec_name);
+		val_name = &prim_name;
+		val_trim = &prim_trim;
+		if (unlikely(TFW_STR_EMPTY(val_trim))) {
+			val_name = &sec_name;
+			val_trim = &sec_trim;
+			if (unlikely(TFW_STR_EMPTY(val_trim))) {
+				frang_msg("Request authority is unknown",
+					  &FRANG_ACC2CLI(ra)->addr, "\n");
+				return TFW_BLOCK;
 			}
-			host_hdr_trim.nchunks++;
-			host_hdr_trim.len += c->len;
 		}
-		else if (c->len == 1 && c->data[0] == ':') {
-			got_delim = true;
-			host_hdr_trim.nchunks++;
-			host_hdr_trim.len += c->len;
+		else if (frang_assert_host_header(&prim_trim, &sec_trim)) {
+			frang_msg("Request authority differs between headers",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+			return TFW_BLOCK;
 		}
-	}
-
-	if (TFW_STR_EMPTY(&host_hdr_trim)) {
-		/* Host can be empty only if URI has form "/path". */
-		if (test_bit(TFW_HTTP_B_URI_FULL, req->flags))
+		break;
+	/*
+	 * In http/1.1 host header and authority defined in URI must always be
+	 * identical.
+	 */
+	case TFW_HTTP_VER_11:
+		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
+				      &prim_trim, &prim_name);
+		frang_get_host_header(req, -1,
+				      &sec_trim, &sec_name);
+		val_name = &prim_name;
+		val_trim = &prim_trim;
+		if (unlikely(TFW_STR_EMPTY(val_trim))) {
+			frang_msg("Request authority is unknown",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+			return TFW_BLOCK;
+		}
+		else if (frang_assert_host_header(&prim_trim, &sec_trim)) {
+			frang_msg("Request authority in URI differs from host header",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+			return TFW_BLOCK;
+		}
+		break;
+	/*
+	 * Old protocols may have no 'host' header, if presents it's a usual
+	 * header with no special meaning. But in installations of servers with
+	 * modern protocols its use for routing decisions is very common.
+	 * It's suspicious, when modern features are used with obsoleted
+	 * protocols, block the request to avoid possible confusion of HTTP
+	 * routing on backends.
+	 */
+	case TFW_HTTP_VER_10:
+	case TFW_HTTP_VER_09:
+		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
+				      &prim_trim, &prim_name);
+		if (TFW_STR_EMPTY(&req->host) && TFW_STR_EMPTY(&prim_trim))
 			return TFW_PASS;
-
-		frang_msg("Host header is empty", &FRANG_ACC2CLI(ra)->addr, "\n");
+		frang_msg("Host header field in protocol prior to HTTP/1.1",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
+	default:
 		return TFW_BLOCK;
 	}
 
 	/* Check that host header is not a IP address. */
-	if (!tfw_addr_pton(&host_hdr_trim, &addr)) {
+	if (!tfw_addr_pton(val_trim, &addr)) {
 		frang_msg("Host header field contains IP address",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return TFW_BLOCK;
@@ -696,7 +799,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	else {
 		port =  req->host_port ? : 80;
 	}
-	if (sni_hash && (tfw_hash_str(&host_hdr_name) != sni_hash)) {
+	if (sni_hash && (tfw_hash_str(val_name) != sni_hash)) {
 		frang_msg("host header doesn't match SNI from TLS handshake",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return TFW_BLOCK;
@@ -710,19 +813,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		frang_msg("port from host header doesn't match real port",
 			  &FRANG_ACC2CLI(ra)->addr, ": %d (%d)\n", port,
 			  real_port);
-		return TFW_BLOCK;
-	}
-
-	if (!test_bit(TFW_HTTP_B_URI_FULL, req->flags))
-		return TFW_PASS;
-
-	/*
-	 * If URI has form "http://host:port/path",
-	 * then host header must be equal to host in URI.
-	 */
-	if (tfw_stricmp(&req->host, &host_hdr_trim)) {
-		frang_msg("Host header is not equal to host in URL",
-			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return TFW_BLOCK;
 	}
 
@@ -1084,7 +1174,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 			T_FSM_EXIT();
 
 		/* Headers are not fully parsed yet. */
-		if (!(req->crlf.flags & TFW_STR_COMPLETE))
+		if (!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
 			__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_Check);
 		/*
 		* Full HTTP header has been processed, and any possible

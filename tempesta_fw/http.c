@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -2294,6 +2294,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			goto clean;
 		req->pit.parsed_hdr = &req->stream->parser.hdr;
 		__set_bit(TFW_HTTP_B_H2, req->flags);
+		/* Version for HTTP/1 is filled by parser. */
+		req->version = TFW_HTTP_VER_20;
 	}
 
 	if (type & Conn_Clnt) {
@@ -5193,32 +5195,38 @@ next_msg:
 				"Request parsing inconsistency");
 			return TFW_BLOCK;
 		}
-		if (TFW_MSG_H2(req) && tfw_h2_stream_req_complete(req->stream)) {
-			if (tfw_h2_parse_req_finish(req)) {
+		if (TFW_MSG_H2(req)) {
+			TfwH2Ctx *ctx;
+
+			if (tfw_h2_stream_req_complete(req->stream)) {
+				if (likely(!tfw_h2_parse_req_finish(req)))
+					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_http_req_parse_block(req, 500,
 					"Request parsing inconsistency");
 				return TFW_BLOCK;
 			}
+			ctx = tfw_h2_context(conn);
+			if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
+				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 		}
-		else {
-			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
-					  &data_up);
-			T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
-			if (r == TFW_BLOCK) {
-				TFW_INC_STAT_BH(clnt.msgs_filtout);
-				tfw_http_req_parse_block(req, 403,
-					"postponed request has been filtered out");
-				return TFW_BLOCK;
-			}
-			/*
-			 * TFW_POSTPONE status means that parsing succeeded
-			 * but more data is needed to complete it. Lower layers
-			 * just supply data for parsing. They only want to know
-			 * if processing of a message should continue or not.
-			 */
-			return TFW_PASS;
+
+		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);
+		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+		if (r == TFW_BLOCK) {
+			TFW_INC_STAT_BH(clnt.msgs_filtout);
+			tfw_http_req_parse_block(req, 403,
+				"postponed request has been filtered out");
+			return TFW_BLOCK;
 		}
+		/*
+		 * TFW_POSTPONE status means that parsing succeeded
+		 * but more data is needed to complete it. Lower layers
+		 * just supply data for parsing. They only want to know
+		 * if processing of a message should continue or not.
+		 */
+		return TFW_PASS;
+
 	case TFW_PASS:
 		/*
 		 * The request is fully parsed,
@@ -5310,6 +5318,8 @@ next_msg:
 	 * for every new request. Connection rates limits usually much more
 	 * strict than request rates, so this attack path is closed by usual
 	 * frang configuration.
+	 *
+	 * TODO #1490: block the request if Frang didn't finish its job.
 	 */
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
