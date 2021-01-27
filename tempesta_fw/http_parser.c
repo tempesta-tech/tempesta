@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1076,6 +1076,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 __FSM_STATE(RGen_BodyInit, cold) {					\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
+	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
 	T_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
 	       msg->flags[0], msg->content_length);			\
 									\
@@ -1112,6 +1113,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
+	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
 	T_DBG3("parse response body: flags=%#lx content_length=%lu\n",	\
 	       msg->flags[0], msg->content_length);			\
 									\
@@ -3493,7 +3495,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	 * req->userinfo, reset req->host and fill it.
 	 */
 	__FSM_STATE(Req_UriAuthorityStart) {
-		__set_bit(TFW_HTTP_B_URI_FULL, req->flags);
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
@@ -5027,7 +5028,7 @@ __FSM_STATE(st, cold) {							\
  * Auxiliary macros for parsing message header values (as @__FSM_I_*
  * macros, but intended for HTTP/2 messages parsing).
  */
-#define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
+#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
 do {									\
 	p += n;								\
 	if (__data_off(p) < len)					\
@@ -5038,7 +5039,7 @@ do {									\
 	}								\
 	parser->_i_st = &&to;						\
 	__msg_hdr_chunk_fixup(data, len);				\
-	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
+	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
@@ -5071,6 +5072,12 @@ do {									\
 	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
+
+#define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
+
+#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
 
 #define __FSM_H2_I_MOVE_n(to, n)					\
 	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
@@ -5292,6 +5299,100 @@ do {									\
  *	HTTP/2 request parsing
  * ------------------------------------------------------------------------
  */
+static int
+__h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
+			 bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_A_Start) {
+		if (likely(isalnum(c) || c == '.' || c == '-'))
+			__FSM_I_JMP(Req_I_A);
+		if (likely(c == '['))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_A_v6, 1, TFW_STR_VALUE);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_A) {
+		/* See Req_UriAuthority processing. */
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			__FSM_H2_I_MOVE_LAMBDA_n_flag(Req_I_A, 1, {
+				__msg_hdr_chunk_fixup(data, (p - data));
+				__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
+			}, TFW_STR_VALUE);
+		}
+		if (p - data) {
+			__msg_hdr_chunk_fixup(data, (p - data));
+			__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
+		}
+		parser->_i_st = &&Req_I_A_End;
+		goto Req_I_A_End;
+	}
+
+	__FSM_STATE(Req_I_A_End) {
+		if (c == ':') {
+			parser->_acc = 0;
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_A_Port, 1, 0);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_A_v6) {
+		/* See Req_UriAuthorityIPv6 processing. */
+		if (likely(isxdigit(c) || c == ':'))
+			__FSM_H2_I_MOVE_n_flag(Req_I_A_v6, 1, TFW_STR_VALUE);
+		if (likely(c == ']')) {
+			__msg_hdr_chunk_fixup(data, (p - data + 1));
+			__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
+			parser->_i_st = &&Req_I_A_End;
+			p += 1;
+			if (unlikely(__data_off(p) >= len)) {
+				if (fin)
+					__FSM_EXIT(CSTR_EQ);
+				__FSM_EXIT(TFW_POSTPONE);
+			}
+			goto Req_I_A_End;
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_A_Port) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_ulong_ws(p, __data_remain(p), &parser->_acc,
+					   USHRT_MAX);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			req->host_port = parser->_acc;
+			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_A_Port, __fsm_sz, {
+				if (req->host_port)
+					__FSM_EXIT(CSTR_EQ);
+				__FSM_EXIT(CSTR_NEQ);
+			}, TFW_STR_VALUE);
+		default:
+			req->host_port = parser->_acc;
+			parser->_acc = 0;
+			if (!req->host_port)
+				return CSTR_NEQ;
+			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_A_Port, __fsm_sz, {
+				if (req->host_port)
+					__FSM_EXIT(CSTR_EQ);
+				__FSM_EXIT(CSTR_NEQ);
+			}, TFW_STR_VALUE);
+		}
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_authority);
+
 static int
 __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		      bool fin)
@@ -6194,58 +6295,6 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_if_nmatch);
-
-static int
-__h2_req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
-{
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(req);
-
-	__FSM_START(parser->_i_st);
-
-	__FSM_STATE(Req_I_H_Start) {
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_H2_I_MOVE(Req_I_H);
-		if (likely(c == '['))
-			__FSM_H2_I_MOVE_NEQ(Req_I_H_v6, 1);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H) {
-		/* See Req_AuthorityGen processing. */
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_H2_I_MOVE(Req_I_H);
-		if (c == ':')
-			__FSM_H2_I_MOVE(Req_I_H_Port);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_v6) {
-		/* See Req_AuthorityIPv6 processing. */
-		if (likely(isxdigit(c) || c == ':'))
-			__FSM_H2_I_MOVE_NEQ(Req_I_H_v6, 1);
-		if (likely(c == ']'))
-			__FSM_H2_I_MOVE(Req_I_H_v6_End);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_v6_End) {
-		if (likely(c == ':'))
-			__FSM_H2_I_MOVE(Req_I_H_Port);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_Port) {
-		/* See Req_Port processing. */
-		if (likely(isdigit(c)))
-			__FSM_H2_I_MOVE(Req_I_H_Port);
-		return CSTR_NEQ;
-	}
-
-done:
-	return r;
-}
-STACK_FRAME_NON_STANDARD(__h2_req_parse_host);
 
 static int
 __h2_req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len,
@@ -7183,58 +7232,6 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		__FSM_JMP(Req_Scheme_1CharStep);
 	}
 
-	__FSM_STATE(Req_HdrPsAuthorityV) {
-		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_AUTHORITY))
-			__FSM_H2_DROP(Req_HdrPsAuthorityV);
-
-		parser->_hdr_tag = TFW_HTTP_HDR_H2_AUTHORITY;
-		__set_bit(TFW_HTTP_B_URI_FULL, req->flags);
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_H2_PSHDR_MOVE_FIN(Req_HdrPsAuthorityV, 1,
-						Req_AuthorityGen);
-		else if (c == '[')
-			__FSM_H2_PSHDR_MOVE_DROP(Req_HdrPsAuthorityV,
-						 1, Req_AuthorityIPv6);
-		__FSM_H2_DROP(Req_HdrPsAuthorityV);
-	}
-
-	__FSM_STATE(Req_AuthorityGen) {
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_H2_PSHDR_MOVE_FIN(Req_AuthorityGen, 1,
-						Req_AuthorityGen);
-		/*
-		 * The value of HTTP/2 authority pseudo-header must not
-		 * include 'userinfo' component (see RFC 7540 section
-		 * 8.1.2.3 for details).
-		 */
-		if (unlikely(c == '@'))
-			__FSM_H2_DROP(Req_AuthorityGen);
-		__FSM_JMP(Req_AuthorityEnd);
-	}
-
-	__FSM_STATE(Req_AuthorityIPv6) {
-		if (likely(isxdigit(c) || c == ':')) {
-			__FSM_H2_PSHDR_MOVE_DROP(Req_AuthorityIPv6,
-						 1, Req_AuthorityIPv6);
-		} else if(c == ']') {
-			__FSM_H2_PSHDR_MOVE_FIN(Req_AuthorityIPv6, 1,
-						Req_AuthorityEnd);
-		}
-		__FSM_H2_DROP(Req_AuthorityIPv6);
-	}
-
-	__FSM_STATE(Req_AuthorityEnd) {
-		if (c == ':')
-			__FSM_H2_PSHDR_MOVE_FIN(Req_AuthorityEnd, 1, Req_Port);
-		__FSM_H2_DROP(Req_AuthorityEnd);
-	}
-
-	__FSM_STATE(Req_Port) {
-		if (likely(isdigit(c)))
-			__FSM_H2_PSHDR_MOVE_FIN(Req_Port, 1, Req_Port);
-		__FSM_H2_DROP(Req_Port);
-	}
-
 	__FSM_STATE(Req_HdrPsPathV, hot) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_PATH))
 			__FSM_H2_DROP(Req_HdrPsPathV);
@@ -7307,6 +7304,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		__FSM_H2_HDR_COMPLETE(Req_Path);
 	}
 
+	/* ':authority' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrPsAuthorityV, req, __h2_req_parse_authority,
+			     TFW_HTTP_HDR_H2_AUTHORITY, 0);
+
 	/* ----------------    Header values    ---------------- */
 
 	/* 'accept' is read, process field-value. */
@@ -7331,9 +7332,12 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			     __h2_req_parse_content_type,
 			     TFW_HTTP_HDR_CONTENT_TYPE, 0);
 
-	/* 'host' is read, process field-value. */
-	TFW_H2_PARSE_HDR_VAL(Req_HdrHostV, req, __h2_req_parse_host,
-			     TFW_HTTP_HDR_HOST, 1);
+	/*
+	 * 'host' is read, process field-value. Semantically equals to
+	 * :authority header, use the same parsing functions.
+	 */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrHostV, req, __h2_req_parse_authority,
+			     TFW_HTTP_HDR_HOST, 0);
 
 	/* 'if-none-match' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrIf_None_MatchV, msg,
@@ -8174,6 +8178,7 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	 */
 	req->content_length = req->body.len;
 	req->body.flags |= TFW_STR_COMPLETE;
+	__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],

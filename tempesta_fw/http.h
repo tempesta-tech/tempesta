@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -250,6 +250,8 @@ enum {
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
+	/* Message headers are fully parsed */
+	TFW_HTTP_B_HEADERS_PARSED,
 	/* Message is fully parsed */
 	TFW_HTTP_B_FULLY_PARSED,
 	/* Message has HTTP/2 format. */
@@ -263,8 +265,6 @@ enum {
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
 	TFW_HTTP_B_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
-	/* URI has form http://authority/path, not just /path */
-	TFW_HTTP_B_URI_FULL,
 	/* Request is non-idempotent. */
 	TFW_HTTP_B_NON_IDEMP,
 	/* Request stated 'Accept: text/html' header */
