@@ -843,7 +843,7 @@ done:
 	return abs(len);
 }
 
-int
+static int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it, int *fragn)
 {
