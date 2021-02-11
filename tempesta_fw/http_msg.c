@@ -1443,21 +1443,11 @@ tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data)
 	int r;
 	TfwStr dst = {};
 
-	if ((r = ss_skb_get_room(it->skb_head, it->skb, *off, data->len, &dst)))
+	if ((r = ss_skb_get_room_w_frag(it->skb_head, it->skb, *off, data->len, &dst, &it->frag))) {
 		return r;
-
-	/*
-	 * @dst is always a plain string. If the @data wasn't inserted into
-	 * current skb fragment, then it was appended to a previous one.
-	 * Insertions into linear part doesn't require iterator updates.
-	 */
-	*off = dst.data;
-	if (it->frag >= 0) {
-		skb_frag_t *f = &skb_shinfo(it->skb)->frags[it->frag];
-		long offset = dst.data - (char *)skb_frag_address(f);
-		if (offset < 0 || offset > skb_frag_size(f))
-			it->frag--;
 	}
+
+	*off = dst.data;
 
 	return tfw_strcpy(&dst, data);
 }

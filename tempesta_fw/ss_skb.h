@@ -209,9 +209,11 @@ int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
 		      unsigned int tx_flags);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
-		 int len, TfwStr *it);
+                 int len, TfwStr *it, int *fragn);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
+int ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb,
+                           char *pspt, unsigned int len, TfwStr *it, int *fragn);
 int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			    size_t head, size_t tail);
 int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
