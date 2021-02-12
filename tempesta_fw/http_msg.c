@@ -1448,6 +1448,7 @@ tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data)
 	}
 
 	*off = dst.data;
+	it->skb = dst.skb;
 
 	return tfw_strcpy(&dst, data);
 }
