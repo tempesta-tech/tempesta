@@ -430,7 +430,7 @@ __new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
  */
 static int
 __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
-                    int len, TfwStr *it, int *fragn)
+		    int len, TfwStr *it, int *fragn)
 {
 	int alloc = len > 0;
 	struct page *page = virt_to_head_page(skb->head);
@@ -624,7 +624,7 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
  */
 static int
 __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
-                          int len, TfwStr *it, int *fragn)
+			  int len, TfwStr *it, int *fragn)
 {
 	int tail_len;
 	struct sk_buff *skb_dst;
@@ -715,7 +715,7 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 
 static int
 __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
-                   int len, TfwStr *it)
+		   int len, TfwStr *it)
 {
 	int _;
 
@@ -776,8 +776,7 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	d_size = skb_headlen(skb);
 	offset = pspt - (char *)skb->data;
 	if (offset >= 0 && offset < d_size) {
-		int t_size = d_size - offset;
-		len = max(len, -t_size);
+		len = max_t(long, len, offset - d_size);
 		ret = __split_linear_data(skb_head, skb, pspt, len, it, fragn);
 		goto done;
 	}
@@ -810,8 +809,7 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 		 * neighbours.
 		 */
 		if (offset >= 0 && offset < d_size) {
-			int t_size = d_size - offset;
-			len = max(len, -t_size);
+			len = max_t(long, len, offset - d_size);
 			ret = __split_pgfrag(skb_head, skb, i, offset, len, it, fragn);
 			goto done;
 		}
@@ -867,6 +865,24 @@ skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
  * Instead, these SKBs must be set up with complete HTTP message headers
  * without the need for further modifications.
  */
+
+int
+ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+		       unsigned int len, TfwStr *it, int *fragn)
+{
+	int r = skb_fragment(skb_head, skb, pspt, len, it, fragn);
+	if (r == len)
+		return 0;
+	/*
+	 * skb_fragment() returns a number of processed data, which can
+	 * differ from the requested one: inserted or removed part of data is
+	 * less than requested and the caller has to handle it. Currently
+	 * none of the callers support that, just raise -ENOMEM in that case,
+	 * since the error is passed further.
+	 */
+	return r <= 0 ? r : -ENOMEM;
+}
+
 int
 ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 		unsigned int len, TfwStr *it)
@@ -874,23 +890,6 @@ ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	int _;
 
 	return ss_skb_get_room_w_frag(skb_head, skb, pspt, len, it, &_);
-}
-
-int
-ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
-                       unsigned int len, TfwStr *it, int *fragn)
-{
-	int r = skb_fragment(skb_head, skb, pspt, len, it, fragn);
-	if (r == len)
-		return 0;
-	/*
-	 * TODO: skb_fragment() returns a number of processed data, which can
-	 * differ from the requested one: inserted or removed part of data is
-	 * less than requested and the caller has to handle it. Currently
-	 * none of the callers support that, just raise -ENOMEM in that case,
-	 * since the error is passed further.
-	 */
-	return r <= 0 ? r : -ENOMEM;
 }
 
 /**

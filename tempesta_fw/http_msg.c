@@ -1443,7 +1443,9 @@ tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data)
 	int r;
 	TfwStr dst = {};
 
-	if ((r = ss_skb_get_room_w_frag(it->skb_head, it->skb, *off, data->len, &dst, &it->frag))) {
+	if ((r = ss_skb_get_room_w_frag(it->skb_head, it->skb, *off, data->len,
+					&dst, &it->frag)))
+	{
 		return r;
 	}
 
