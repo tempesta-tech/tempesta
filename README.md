@@ -60,3 +60,9 @@ following topics:
 * [Configuration guide](https://github.com/tempesta-tech/tempesta/wiki/Configuration)
 * [Use cases](https://github.com/tempesta-tech/tempesta/wiki/Use-cases)
 * [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Benchmarks)
+
+
+# Join Us
+
+[Join our Slack public channel for Tempesta FW contributors and user](https://join.slack.com/share/zt-mf1o0fjr-nT9cppqcl4FThhpzLoh7KQ)
+and feel free to ask any questions and discuss any Tempesta Fw-related topics!
