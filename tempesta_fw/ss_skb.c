@@ -228,15 +228,18 @@ success:
  * expected to have SKB fragments.
  */
 static inline void *
-__skb_data_address(struct sk_buff *skb)
+__skb_data_address(struct sk_buff *skb, int *fragn)
 {
+	*fragn = -1;
 	if (skb == NULL)
 		return NULL;
 	if (skb_headlen(skb))
 		return skb->data;
 	WARN_ON_ONCE(!skb_is_nonlinear(skb));
-	if (skb_shinfo(skb)->nr_frags)
+	if (skb_shinfo(skb)->nr_frags) {
+		*fragn = 0;
 		return skb_frag_address(&skb_shinfo(skb)->frags[0]);
+	}
 	WARN_ON_ONCE(skb_has_frag_list(skb));
 	return NULL;
 }
@@ -256,8 +259,7 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it, int *fragn)
 		*fragn = i;
 	} else {
 		it->skb = skb->next;
-		it->data = __skb_data_address(it->skb);
-		*fragn = -1;
+		it->data = __skb_data_address(it->skb, fragn);
 	}
 }
 
