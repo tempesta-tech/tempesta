@@ -4162,7 +4162,7 @@ do {									\
 	frame_hdr.flags = (len) ?  0 : (hdr_flags);			\
 	tfw_h2_pack_frame_header(buf, &frame_hdr);			\
 									\
-	r = tfw_http_msg_insert(iter, data, &frame_hdr_str);		\
+	r = tfw_http_msg_insert(iter, &data, &frame_hdr_str);		\
 	if (unlikely(r)) 						\
 		return r;						\
 } while ((len));

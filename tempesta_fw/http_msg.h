@@ -170,7 +170,6 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
-int tfw_http_msg_del_eol(struct sk_buff *skb_head, TfwStr *hdr);
 int tfw_http_msg_to_chunked(TfwHttpMsg *hm);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
@@ -190,7 +189,7 @@ int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 int tfw_h2_msg_rewrite_data_lc(TfwHttpTransIter *mit, const TfwStr *str,
                                const char *stop);
 
-int tfw_http_msg_insert(TfwMsgIter *it, char *off, const TfwStr *data);
+int tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data);
 
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\
 	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\
