@@ -22,6 +22,7 @@ use warnings;
 my ($rmem, $rcv_buf, $wmem, $snd_buf, $fwd_alloc) = (0, 0, 0, 0, 0);
 my ($wmem_q, $ropt_mem, $back_log, $sock_drop) = (0, 0, 0, 0);
 
+# See linux/net/ipv4/inet_diag.c for the fields reporting.
 my @ss = `ss -tm '( dport = :https or sport = :https )' | grep skmem`;
 foreach (@ss) {
 	/\s+skmem:\(r(\d+),rb(\d+),t(\d+),tb(\d+),f(\d+),w(\d+),o(\d+),bl(\d+),
