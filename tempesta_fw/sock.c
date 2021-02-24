@@ -341,6 +341,23 @@ ss_sock_active(struct sock *sk)
  * ------------------------------------------------------------------------
  */
 /**
+ * The simplified version of sk_forced_mem_schedule().
+ * We use the forced version of the socket accounting function to send the
+ * data ASAP - we can't wait for memory as process context does.
+ */
+static void
+ss_forced_mem_schedule(struct sock *sk, int size)
+{
+	int amt;
+
+	if (size <= sk->sk_forward_alloc)
+		return;
+	amt = sk_mem_pages(size);
+	sk->sk_forward_alloc += amt * SK_MEM_QUANTUM;
+	sk_memory_allocated_add(sk, amt);
+}
+
+/**
  * @skb_head can be invalid after the function call, don't try to use it.
  */
 static void
@@ -389,6 +406,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
 		       tempesta_tls_skb_type(skb));
 
+		ss_forced_mem_schedule(sk, skb->truesize);
 		skb_entail(sk, skb);
 
 		tp->write_seq += skb->len;
@@ -583,6 +601,7 @@ ss_do_close(struct sock *sk)
 				T_WARN("can't send FIN due to bad alloc");
 			} else {
 				skb_reserve(skb, MAX_TCP_HEADER);
+				ss_forced_mem_schedule(sk, skb->truesize);
 				tcp_init_nondata_skb(skb, tp->write_seq,
 						     TCPHDR_ACK | TCPHDR_FIN);
 				tcp_queue_skb(sk, skb);

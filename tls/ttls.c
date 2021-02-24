@@ -1702,6 +1702,13 @@ ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
 	}
 }
 
+/**
+ * Process the ChangeCipherSpec message.
+ * This function actually doesn't change the cipher specification as defined in
+ * the RFC since changing cipher spec may lead to the CCS injection attack.
+ * See description of the attack and the testing script at
+ * https://nmap.org/nsedoc/scripts/ssl-ccs-injection.html
+ */
 int
 ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf, size_t len,
 			      unsigned int *read)
