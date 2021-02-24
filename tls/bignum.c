@@ -1165,7 +1165,8 @@ __mpi_montred(TlsMpi *A, const TlsMpi *N, unsigned long mm, TlsMpi *T)
 }
 
 /**
- * Sliding-window exponentiation: X = A^E mod N  (HAC 14.85).
+ * Sliding-window exponentiation with Montgomery reduction: X = A^E mod N
+ * See HAC 14.85 and [2] chapter 7.2.2.
  *
  * @X	- destination MPI;
  * @A	- left-hand MPI

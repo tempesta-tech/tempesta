@@ -238,11 +238,15 @@ next_msg:
 /**
  * Add the TLS record overhead to current TCP socket control data.
  */
-static void
+static int
 tfw_tls_tcp_add_overhead(struct sock *sk, unsigned int overhead)
 {
+	if (!sk_wmem_schedule(sk, overhead))
+		return -ENOMEM;
 	sk->sk_wmem_queued += overhead;
 	sk_mem_charge(sk, overhead);
+
+	return 0;
 }
 
 /**
@@ -441,7 +445,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for tag_sz.
 	 */
-	tfw_tls_tcp_add_overhead(sk, t_sz);
+	if (tfw_tls_tcp_add_overhead(sk, t_sz))
+		return -ENOMEM;
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
