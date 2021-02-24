@@ -5402,7 +5402,7 @@ next_msg:
 	 * error response to client and move on to the next request.
 	 */
 	else if (unlikely(!req->vhost)) {
-		tfw_http_send_resp(req, 404,
+		tfw_http_req_block(req, 403,
 				   "request dropped: cannot find appropriate "
 				   "virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
