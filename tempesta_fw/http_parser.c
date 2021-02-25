@@ -67,7 +67,11 @@
 	tfw_http_msg_set_str_data(msg, field, pos)
 
 #define __msg_field_fixup(field, pos)					\
-	tfw_http_msg_add_str_data(msg, field, data, __data_off(pos))
+do {									\
+	if (unlikely(tfw_http_msg_add_str_data(msg, field, data,	\
+					       __data_off(pos))))	\
+		return CSTR_NEQ;					\
+} while (0)
 
 #define __msg_field_finish(field, pos)					\
 do {									\
@@ -76,7 +80,10 @@ do {									\
 } while (0)
 
 #define __msg_field_fixup_pos(field, data, len)				\
-	tfw_http_msg_add_str_data(msg, field, data, len)
+do {									\
+	if (unlikely(tfw_http_msg_add_str_data(msg, field, data, len)))	\
+		return CSTR_NEQ;					\
+} while (0)
 
 #define __msg_field_finish_pos(field, data, len)			\
 do {									\
@@ -94,7 +101,11 @@ do {									\
 	__msg_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
 #define __msg_hdr_chunk_fixup(data, len)				\
-	tfw_http_msg_add_str_data(msg, &msg->stream->parser.hdr, data, len)
+do {									\
+	if (unlikely(tfw_http_msg_add_str_data(msg,			\
+			&msg->stream->parser.hdr, data, len)))		\
+		return CSTR_NEQ;					\
+} while (0)
 
 #define __msg_hdr_set_hpack_index(idx)					\
 	parser->hdr.hpack_idx = idx;
