@@ -558,7 +558,11 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
  * TFW_STR_DUPLICATE - grow as duplicate string
  * @return pointer to the first of newly added chunk.
  *
- * TODO do we need exponential growing?
+ * Note that there are no separate notions of chunk count and chunk capacity.
+ * They are always identical. As other code is careful to grow only one TfwStr
+ * at a time, its TfwStr::chunks keeps being the rightmost allocated memory area
+ * in a pool. As there is nothing to the right from that area, resizing doesn't
+ * involve additional work most of the time, and is cheap.
  */
 static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
