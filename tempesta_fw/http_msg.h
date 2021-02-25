@@ -149,8 +149,9 @@ tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
 	return tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_ADD, true);
 }
 
-int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
-				size_t len, struct sk_buff *skb);
+int __must_check __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str,
+					     void *data, size_t len,
+					     struct sk_buff *skb);
 #define tfw_http_msg_add_str_data(hm, str, data, len)			\
 	__tfw_http_msg_add_str_data(hm, str, data, len,			\
 				    ss_skb_peek_tail(&hm->msg.skb_head))
