@@ -315,8 +315,11 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * If client closes connection early, we may get here with sk_user_data
 	 * being NULL.
 	 */
-	if (unlikely(sk->sk_user_data == NULL))
-		return -EPIPE;
+	if (unlikely(!sk->sk_user_data)) {
+		WARN_ON_ONCE(!sock_flag(sk, SOCK_DEAD));
+		r = -EPIPE;
+		goto err_purge_tcp_write_queue;
+	}
 
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
@@ -331,17 +334,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	       tcb->seq, tcb->end_seq);
 	BUG_ON(!ttls_xfrm_ready(tls));
 	WARN_ON_ONCE(skb->len > TLS_MAX_PAYLOAD_SIZE);
-#if 0
 	WARN_ON_ONCE(tcb->seq + skb->len + !!(tcb->tcp_flags & TCPHDR_FIN)
 		     != tcb->end_seq);
-#endif
-	if (tcb->seq + skb->len + !!(tcb->tcp_flags & TCPHDR_FIN)
-		     != tcb->end_seq) {
-		pr_err("state=%lx seq=%u len=%u end_seq=%u fin=%d\n",
-			sk->sk_flags, tcb->seq, skb->len, tcb->end_seq,
-			tcb->tcp_flags & TCPHDR_FIN);
-		BUG();
-	}
 
 	head_sz = ttls_payload_off(xfrm);
 	tag_sz = ttls_xfrm_taglen(xfrm);
@@ -349,7 +343,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	type = tempesta_tls_skb_type(skb);
 	if (!type) {
 		T_WARN("%s: bad skb type %u\n", __func__, type);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err_kill_sock;
 	}
 
 	/* TLS header is always allocated from the skb headroom. */
@@ -545,7 +540,35 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
+	if (!r || r == -ENOMEM)
+		return r;
 
+	/*
+	 * We can not send unencrypted data and can not
+	 * normally close the socket with FIN since
+	 * we're in progress on sending from the write
+	 * queue.
+	 *
+	 * TODO #861 Send RST, move the socket to dead state,
+	 * and drop all the pending unencrypted data.
+	 * We can not use tcp_v4_send_reset() since it
+	 * works solely in response to ingress segment.
+	 */
+err_kill_sock:
+	if (!sock_flag(sk, SOCK_DEAD)) {
+		sk->sk_err = ECONNRESET;
+		tcp_set_state(sk, TCP_CLOSE);
+		sk->sk_shutdown = SHUTDOWN_MASK;
+		sock_set_flag(sk, SOCK_DEAD);
+	}
+err_purge_tcp_write_queue:
+	while ((skb = tcp_send_head(sk))) {
+		tcp_advance_send_head(sk, skb);
+		__skb_unlink(skb, &sk->sk_write_queue);
+		sk_wmem_free_skb(sk, skb);
+	}
+	T_WARN("%s: cannot encrypt data (%d), only partial data was sent\n",
+	       __func__, r);
 	return r;
 #undef AUTO_SEGS_N
 }
