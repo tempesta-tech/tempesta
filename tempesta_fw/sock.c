@@ -550,6 +550,7 @@ ss_do_close(struct sock *sk)
 	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
+	WARN_ON_ONCE(!in_softirq());
 	WARN_ON_ONCE(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON_ONCE(sock_flag(sk, SOCK_LINGER));
@@ -627,8 +628,7 @@ adjudge_to_death:
 	 * so backlog queue should be empty.
 	 */
 	WARN_ON(sk->sk_backlog.tail);
-	if (likely(sk->sk_prot->release_cb))
-		sk->sk_prot->release_cb(sk);
+	tcp_release_cb(sk);
 	sk->sk_lock.owned = 0;
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);

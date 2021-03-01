@@ -1973,28 +1973,6 @@ index 564beb7e..689feabc 100644
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end = size;
  #else
-diff --git a/net/core/sock.c b/net/core/sock.c
-index ec6eb546..34b8fdd7 100644
---- a/net/core/sock.c
-+++ b/net/core/sock.c
-@@ -1806,8 +1806,16 @@ void sock_wfree(struct sk_buff *skb)
- 	 * if sk_wmem_alloc reaches 0, we must finish what sk_free()
- 	 * could not do because of in-flight packets
- 	 */
--	if (refcount_sub_and_test(len, &sk->sk_wmem_alloc))
-+	if (refcount_sub_and_test(len, &sk->sk_wmem_alloc)) {
-+		/*
-+		 * We don't bother with Tempesta socket memory limitations
-+		 * since in proxy mode we just forward packets instead of real
-+		 * allocations. Probably this is an issue. Probably sockets
-+		 * can be freed from under us.
-+		 */
-+		WARN_ON(sock_flag(sk, SOCK_TEMPESTA));
- 		__sk_free(sk);
-+	}
- }
- EXPORT_SYMBOL(sock_wfree);
- 
 diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
 index 0cc08c51..0617420f 100644
 --- a/net/ipv4/inet_connection_sock.c
@@ -2225,7 +2203,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..c1e80bf3 100644
+index 83d11cd2..a2be88c4 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -2353,7 +2331,7 @@ index 83d11cd2..c1e80bf3 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2336,7 +2381,58 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2336,7 +2381,30 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			clear_bit(TCP_TSQ_DEFERRED, &sk->sk_tsq_flags);
  		if (tcp_small_queue_check(sk, skb, 0))
  			break;
@@ -2373,37 +2351,9 @@ index 83d11cd2..c1e80bf3 100644
 +		 */
 +		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb)) {
 +			result = sk->sk_write_xmit(sk, skb, limit);
-+			if (result == -EPIPE) {
-+				/* Just a closed socket - do nothing. */
-+				WARN_ON_ONCE(!sock_flag(sk, SOCK_DEAD));
-+				return false;
-+			}
-+			if (result) {
-+				/*
-+				 * We can not send unencrypted data and can not
-+				 * close and free the socket from here:
-+				 * 1. our caller may reference the socket;
-+				 * 2. and also we can not normally close the
-+				 *    socket with FIN since we just drop the
-+				 *    TCP payload (sender didn't finish
-+				 *    transmission).
-+				 * Move the socket to dead state and just drop
-+				 * all the pending unencrypted data - hopefully
-+				 * the someone closes it at some point, see
-+				 * tcp_reset(). This should never happen.
-+				 *
-+				 * TODO send RST.
-+				 */
-+				net_warn_ratelimited(
-+					"Tempesta TLS: cannot encrypt data (%d),"
-+					" try to close the TCP connection.\n",
-+					result);
-+				tcp_write_queue_purge(sk);
-+				tcp_clear_xmit_timers(sk);
-+				sk->sk_err = ECONNRESET;
-+				tcp_set_state(sk, TCP_CLOSE);
-+				sk->sk_shutdown = SHUTDOWN_MASK;
-+				sock_set_flag(sk, SOCK_DEAD);
++			if (unlikely(result)) {
++				if (result == -ENOMEM)
++					break; /* try again next time */
 +				return false;
 +			}
 +			/* Fix up TSO segments after TLS overhead. */
@@ -2413,7 +2363,7 @@ index 83d11cd2..c1e80bf3 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2518,6 +2614,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2518,6 +2586,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -2421,7 +2371,7 @@ index 83d11cd2..c1e80bf3 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2839,7 +2936,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -2839,7 +2908,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -2430,7 +2380,7 @@ index 83d11cd2..c1e80bf3 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3129,6 +3226,7 @@ int tcp_send_synack(struct sock *sk)
+@@ -3129,6 +3198,7 @@ int tcp_send_synack(struct sock *sk)
  	}
  	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  }
