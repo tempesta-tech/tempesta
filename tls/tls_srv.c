@@ -2088,7 +2088,7 @@ ttls_handshake_send_out_buffers(TlsCtx *tls, struct sg_table *sgt,
 	*pg = NULL;
 	sg_mark_end(&sgt->sgl[sgt->nents - 1]);
 	/* Exit, enter the FSM on more data from the client. */
-	return __ttls_send_record(tls, sgt, false);
+	return __ttls_send_record(tls, sgt);
 }
 
 /**
