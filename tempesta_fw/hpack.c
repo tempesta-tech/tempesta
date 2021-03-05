@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -3686,6 +3686,17 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  * operations the new headers overwrites the old data in the existing skb(s).
  * In the expansion case new headers are added along with new skb(s) creation
  * into the internally generated message.
+ * While we do our best to rewrite the HTTP message in-place, sometimes the
+ * final HTTP/2 message may be bigger than the original HTTP/1 one, so we have
+ * to fall back from TFW_H2_TRANS_ADD, TFW_H2_TRANS_SUB, or TFW_H2_TRANS_INPLACE
+ * to TFW_H2_TRANS_EXPAND operation. This basically happen in 2 cases:
+ * 1. HTTP/2 overhead is too large in comparison with the original data, which
+ * can not be significantly compressed, i.e. with too short original message.
+ * This basically artificial and usually the case for benchmarks;
+ * 2. too much data is added, e.g. with resp_hdr_add configuration option.
+ * The first case isn't so important and basically the 'false try' is cheap
+ * because the traversed data is small. The second one might be a problem.
+ * TODO #1103: revise the logic.
  */
 int
 tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
@@ -3697,6 +3708,7 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
+	TfwHttpTransIter mit = resp->mit;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3728,15 +3740,24 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		switch (op) {
 		case TFW_H2_TRANS_SUB:
 		case TFW_H2_TRANS_ADD:
-			return tfw_hpack_hdr_add(resp, NULL, &idx, true);
+			r = tfw_hpack_hdr_add(resp, NULL, &idx, true);
+			if (r != -ENOSPC)
+				return r;
+			resp->mit = mit;
+			break;
 		case TFW_H2_TRANS_EXPAND:
 			return tfw_hpack_hdr_expand(resp, NULL, &idx, true);
 		case TFW_H2_TRANS_INPLACE:
-			return tfw_hpack_hdr_inplace(resp, hdr, &idx, true,
-						     true);
+			r = tfw_hpack_hdr_inplace(resp, hdr, &idx, true, true);
+			if (r != -ENOSPC)
+				return r;
+			resp->mit = mit;
+			break;
 		default:
 			BUG();
 		}
+
+		return tfw_hpack_hdr_expand(resp, NULL, &idx, true);
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3754,38 +3775,54 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			write_int(index, 0x3F, 0x40, &idx);
 		else
 			write_int(index, 0xF, 0, &idx);
-
 		switch (op) {
 		case TFW_H2_TRANS_SUB:
 		case TFW_H2_TRANS_ADD:
-			return tfw_hpack_hdr_add(resp, hdr, &idx, true);
+			r = tfw_hpack_hdr_add(resp, hdr, &idx, true);
+			if (r != -ENOSPC)
+				return r;
+			resp->mit = mit;
+			break;
 		case TFW_H2_TRANS_EXPAND:
 			return tfw_hpack_hdr_expand(resp, hdr, &idx, true);
 		case TFW_H2_TRANS_INPLACE:
-			return tfw_hpack_hdr_inplace(resp, hdr, &idx, true,
-						     false);
+			r = tfw_hpack_hdr_inplace(resp, hdr, &idx, true, false);
+			if (r != -ENOSPC)
+				return r;
+			resp->mit = mit;
+			break;
 		default:
 			BUG();
 		}
+
+		return tfw_hpack_hdr_expand(resp, hdr, &idx, true);
 	}
 
 	WARN_ON_ONCE(index || st_index);
 
 	idx.sz = 1;
 	idx.buf[0] = (r & HPACK_IDX_FLAG_ADD) ? 0x40 : 0;
-
 	switch (op) {
 	case TFW_H2_TRANS_SUB:
 	case TFW_H2_TRANS_ADD:
-		return tfw_hpack_hdr_add(resp, hdr, &idx, false);
+		r = tfw_hpack_hdr_add(resp, hdr, &idx, false);
+		if (r != -ENOSPC)
+			return r;
+		resp->mit = mit;
+		break;
 	case TFW_H2_TRANS_EXPAND:
 		return tfw_hpack_hdr_expand(resp, hdr, &idx, false);
 	case TFW_H2_TRANS_INPLACE:
-		return tfw_hpack_hdr_inplace(resp, hdr, &idx, false,
-					     false);
+		r = tfw_hpack_hdr_inplace(resp, hdr, &idx, false, false);
+		if (r != -ENOSPC)
+			return r;
+		resp->mit = mit;
+		break;
 	default:
 		BUG();
 	}
+
+	return tfw_hpack_hdr_expand(resp, hdr, &idx, false);
 }
 
 void
