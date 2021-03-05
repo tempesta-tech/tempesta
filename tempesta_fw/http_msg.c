@@ -1412,7 +1412,7 @@ this_chunk:
 			       " format: free space exhausted (accumulated"
 			       " length: %lu\n", mit->acc_len);
 
-			return -E2BIG;
+			return -ENOSPC;
 		}
 		cpy(mit->curr_ptr, c->data + c_off, n_copy);
 
@@ -1436,10 +1436,9 @@ this_chunk:
 				mit->curr_ptr = skb_frag_address(frag);
 			}
 			else {
-				if (WARN_ON_ONCE(it->skb_head == it->skb->next &&
-						 (c_size != f_room
-						  || c + 1 < end)))
-					return -EINVAL;
+				if (it->skb_head == it->skb->next
+				    && (c_size != f_room || c + 1 < end))
+					return -ENOSPC;
 
 				tfw_h2_msg_transform_setup(mit, it->skb->next,
 							   false);
