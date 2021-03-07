@@ -530,6 +530,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	for (p = pages; p < pages_end; ++p)
 		put_page(*p);
 
+	/*
+	 * This function is called from tcp_write_xmit() processing the TCP
+	 * socket write queue, so we can not call synchronous socket closing
+	 * which may purge the write queue, so call ss_close() here.
+	 * At this point we have sent all the appliction data to the peer and
+	 * now the TCP is sending the TLS close notify alert, i.e. there is
+	 * no pending data in the TCP wite queue and we can safely purge it.
+	 */
 	if (type == TTLS_MSG_ALERT &&
 	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
@@ -544,15 +552,13 @@ out:
 		return r;
 
 	/*
-	 * We can not send unencrypted data and can not
-	 * normally close the socket with FIN since
-	 * we're in progress on sending from the write
+	 * We can not send unencrypted data and can not normally close the
+	 * socket with FIN since we're in progress on sending from the write
 	 * queue.
 	 *
-	 * TODO #861 Send RST, move the socket to dead state,
-	 * and drop all the pending unencrypted data.
-	 * We can not use tcp_v4_send_reset() since it
-	 * works solely in response to ingress segment.
+	 * TODO #861 Send RST, move the socket to dead state, and drop all
+	 * the pending unencrypted data. We can not use tcp_v4_send_reset()
+	 * since it works solely in response to ingress segment.
 	 */
 err_kill_sock:
 	if (!sock_flag(sk, SOCK_DEAD)) {
@@ -665,6 +671,21 @@ tfw_tls_conn_dtor(void *c)
 		if (tls->peer_conf)
 			tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));
 
+		/*
+		 * We're in an upcall from the TCP layer, most likely caused
+		 * by some error on the layer, and socket is already closed by
+		 * ss_do_close(). We destroy the TLS context and there could not
+		 * be a TSQ transmission in progress on the socket because
+		 * tcp_tsq_handler() isn't called on closed socket and
+		 * tcp_tasklet_func() and ss_do_close() are synchronized by
+		 * the socket lock and TCP_TSQ_DEFERRED socket flag.
+		 *
+		 * We can not move the TLS context freeing into sk_destruct
+		 * callback, because once the Tempesta connection destrcuctor
+		 * (this function) is finished Tempesta FW can be unloaded and
+		 * we can not leave any context on a socket with transmission
+		 * in progress.
+		 */
 		ttls_ctx_clear(tls);
 	}
 	tfw_cli_conn_release((TfwCliConn *)c);
