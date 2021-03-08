@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -446,7 +446,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	};
 
 	BUG_ON(!sk);
-	if (WARN_ON_ONCE(!*skb_head))
+	/* The queue could be purged in previous call. */
+	if (unlikely(!*skb_head))
 		return 0;
 
 	cpu = sk->sk_incoming_cpu;
@@ -461,6 +462,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
 		T_DBG2("Attempt to send on inactive socket %p\n", sk);
+		ss_skb_queue_purge(skb_head);
 		return -EBADF;
 	}
 
@@ -544,13 +546,12 @@ ss_do_close(struct sock *sk)
 	struct sk_buff *skb;
 	int data_was_unread = 0;
 
-	if (unlikely(!sk))
-		return;
 	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
+	WARN_ON_ONCE(!in_softirq());
 	WARN_ON_ONCE(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON_ONCE(sock_flag(sk, SOCK_LINGER));
@@ -558,6 +559,13 @@ ss_do_close(struct sock *sk)
 	WARN_ON_ONCE(tcp_sk(sk)->repair);
 	/* The socket must have atomic allocation mask. */
 	WARN_ON_ONCE(!(sk->sk_allocation & GFP_ATOMIC));
+
+	/*
+	 * We use the spin lock only since we're working in softirq, however
+	 * the rest of the TCP/IP stack relies that the closing code sets
+	 * sk->sk_lock.owned, e.g. tcp_tasklet_func(), so set the lock owner.
+	 */
+	sk->sk_lock.owned = 1;
 
 	/* The below is mostly copy-paste from tcp_close(). */
 	sk->sk_shutdown = SHUTDOWN_MASK;
@@ -615,10 +623,16 @@ adjudge_to_death:
 	sock_orphan(sk);
 
 	/*
+	 * An adoption of release_sock() for our sleep-less tcp_close() version.
+	 *
 	 * SS sockets are processed in softirq only,
 	 * so backlog queue should be empty.
 	 */
 	WARN_ON(sk->sk_backlog.tail);
+	tcp_release_cb(sk);
+	sk->sk_lock.owned = 0;
+	if (waitqueue_active(&sk->sk_lock.wq))
+		wake_up(&sk->sk_lock.wq);
 
 	percpu_counter_inc(sk->sk_prot->orphan_count);
 
@@ -1391,10 +1405,25 @@ ss_tx_action(void)
 			bh_unlock_sock(sk);
 			goto dead_sock;
 		}
+
 		switch (sw.action) {
 		case SS_SEND:
+			/*
+			 * Don't make TSQ spin on the lock while we're working
+			 * with the socket.
+			 *
+			 * Socket is locked and this synchronizes possible socket
+			 * closing with tcp_tasklet_func(): we must clear the
+			 * TSQ deffered flag with sk->sk_lock.owned = 1.
+			 *
+			 * Set sk->sk_lock.owned = 0 if no closing is required,
+			 * otherwise ss_do_close() does this.
+			 */
+			sk->sk_lock.owned = 1;
+
 			ss_do_send(sk, &sw.skb_head, sw.flags);
 			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+				sk->sk_lock.owned = 0;
 				bh_unlock_sock(sk);
 				break;
 			}
