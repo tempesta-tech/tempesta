@@ -752,7 +752,7 @@ static int
 __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	       int len, TfwStr *it, int *fragn)
 {
-	int i = -1, ret;
+	int i = -1, j = -1, ret;
 	long offset;
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -816,6 +816,30 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 			ret = __split_pgfrag(skb_head, skb, i, offset, len, it, fragn);
 			goto done;
 		}
+		/*
+		 * In case another fragment does not exist, remember the
+		 * fragment number, after which you need to insert/delete data.
+		 */
+		if (offset == d_size)
+			j = i;
+	}
+
+	if (unlikely(j >= 0)) {
+		if (len > 0) {
+			if (!(ret = __new_pgfrag(skb_head, skb, len, j + 1, 1)))
+				__it_next_data(skb, j + 1, it, fragn);
+			goto done;
+		}
+
+		if (j == si->nr_frags - 1) {
+			T_WARN("Cannot delete bytes from skb\n");
+			ret = -EFAULT;
+			goto done;
+		}
+
+		ret = __split_pgfrag_del_w_frag(skb_head, skb, j + 1, 0, -len,
+						it, fragn);
+		goto done;
 	}
 
 	/* The split is not within the SKB. */
