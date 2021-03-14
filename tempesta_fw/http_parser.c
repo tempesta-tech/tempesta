@@ -111,7 +111,7 @@ do {									\
 	parser->hdr.hpack_idx = idx;
 
 /**
- * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
+ * GCC still does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
  * used in the defines below here to reduce stack frame usage.
  * Since the variables are global now, be careful with them.
@@ -125,12 +125,21 @@ do {									\
 	size_t		__maybe_unused __fsm_sz;			\
 	TfwStr		__maybe_unused *chunk = &parser->_tmp_chunk;	\
 
+/**
+ * The function prints the problem place of an HTTP message whenever there
+ * is not enough functionality in our parser or there is an attack.
+ * We need to give more context about the case, so we print the data with
+ * 8 bytes (at most) backward offset and 48 bytes (at most) length.
+ * The standard format printing deals with non-printable characters, so it's
+ * safe to print the attack payload as is.
+ */
 #define TFW_PARSER_BLOCK(st)						\
 do {									\
-	T_WARN("Parser error: state=" #st " input=%#x('%.*s')"		\
+	unsigned int __p_o = min_t(unsigned int, 8, p - data);		\
+	unsigned int __p_n = min_t(unsigned int, 48, data + len + __p_o - p);\
+	T_WARN("Parser error: state=" #st " input(-%d)=%#x('%.*s')"	\
 	       " data_len=%lu off=%lu\n",				\
-	       (char)c, min(16U, (unsigned int)(data + len - p)), p,	\
-	       len, p - data);						\
+	       __p_o, (char)c, __p_n, p - __p_o, len, p - data);	\
 	return TFW_BLOCK;						\
 } while (0)
 
