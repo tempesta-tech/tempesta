@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -654,6 +654,17 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 }
 
 /**
+ * Writes certificate length in exactly TTLS_CERT_LEN_LEN bytes of @buf.
+ */
+static inline void
+x509_write_cert_len(unsigned char *buf, size_t n)
+{
+	buf[0] = (unsigned char)(n >> 16);
+	buf[1] = (unsigned char)(n >> 8);
+	buf[2] = (unsigned char)n;
+}
+
+/**
  * Parse and fill a single X.509 certificate in DER format.
  */
 static int
@@ -665,6 +676,7 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	ttls_x509_buf sig_params1, sig_params2, sig_oid2;
 
 	BUG_ON(!crt || !buf);
+	BUG_ON(crt->raw.p);
 	memset(&sig_params1, 0, sizeof(ttls_x509_buf));
 	memset(&sig_params2, 0, sizeof(ttls_x509_buf));
 	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
@@ -683,25 +695,34 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
 	if (r) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT;
+		r = TTLS_ERR_X509_INVALID_FORMAT;
+		goto err;
 	}
 	if (len > (size_t)(end - p)) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT
-				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		r = TTLS_ERR_X509_INVALID_FORMAT + TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		goto err;
 	}
 	crt_end = p + len;
 
+	r = -ENOMEM;
 	/*
-	 * Create and populate a new buffer for the raw field.
-	 * Reuse the buffer, we're responsible to free the pages later.
+	 * Create and populate a new buffer for the raw certificate field for
+	 * transmission as is (with prepending certificate length, see
+	 * ttls_write_certificate()) in the TLS handshake.
 	 */
+	if (unlikely(crt_end + TTLS_CERT_LEN_LEN - buf > PAGE_SIZE)) {
+		T_ERR("Trying to load too large certificate of %lu bytes\n",
+		      crt_end - buf);
+		goto err;
+	}
+	if (!(crt->raw.p = (unsigned char *)__get_free_pages(GFP_KERNEL, 0)))
+		goto err;
 	crt->raw.len = crt_end - buf;
-	crt->raw.p = p = buf;
+	memcpy(ttls_x509_crt_raw(crt), buf, crt->raw.len);
+	x509_write_cert_len(crt->raw.p, crt->raw.len);
 
 	/* Direct pointers to the new buffer. */
-	p += crt->raw.len - len;
+	p = buf + crt->raw.len - len;
 	end = crt_end = p + len;
 
 	/* TBSCertificate  ::=  SEQUENCE  { */
@@ -710,8 +731,8 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
 	if (r) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT + r;
+		r += TTLS_ERR_X509_INVALID_FORMAT;
+		goto err;
 	}
 
 	end = p + len;
@@ -728,21 +749,18 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	    || (r = ttls_x509_get_serial(&p, end, &crt->serial))
 	    || (r = ttls_x509_get_alg(&p, end, &crt->sig_oid, &sig_params1)))
 	{
-		ttls_x509_crt_free(crt);
-		return r;
+		goto err;
 	}
 	if (crt->version < 0 || crt->version > 2) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_UNKNOWN_VERSION;
+		r = TTLS_ERR_X509_UNKNOWN_VERSION;
+		goto err;
 	}
 	crt->version++;
 
 	r = ttls_x509_get_sig_alg(&crt->sig_oid, &sig_params1, &crt->sig_md,
 				  &crt->sig_pk, &crt->sig_opts);
-	if (r) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if (r)
+		goto err;
 
 	/* issuer Name */
 	crt->issuer_raw.p = p;
@@ -750,13 +768,11 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
 	if (r) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT + r;
+		r += TTLS_ERR_X509_INVALID_FORMAT;
+		goto err;
 	}
-	if ((r = ttls_x509_get_name(&p, p + len, &crt->issuer))) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if ((r = ttls_x509_get_name(&p, p + len, &crt->issuer)))
+		goto err;
 	crt->issuer_raw.len = p - crt->issuer_raw.p;
 
 	/*
@@ -765,31 +781,24 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	 *	notAfter	Time
 	 * }
 	 */
-	r = x509_get_dates(&p, end, &crt->valid_from, &crt->valid_to);
-	if (r) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if ((r = x509_get_dates(&p, end, &crt->valid_from, &crt->valid_to)))
+		goto err;
 
 	/* subject Name */
 	crt->subject_raw.p = p;
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
 	if (r) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT + r;
+		r += TTLS_ERR_X509_INVALID_FORMAT;
+		goto err;
 	}
-	if (len && (r = ttls_x509_get_name(&p, p + len, &crt->subject))) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if (len && (r = ttls_x509_get_name(&p, p + len, &crt->subject)))
+		goto err;
 	crt->subject_raw.len = p - crt->subject_raw.p;
 
 	/* SubjectPublicKeyInfo */
-	if ((r = ttls_pk_parse_subpubkey(&p, end, &crt->pk))) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if ((r = ttls_pk_parse_subpubkey(&p, end, &crt->pk)))
+		goto err;
 
 	/*
 	 *  issuerUniqueID  [1] IMPLICIT UniqueIdentifier OPTIONAL,
@@ -800,26 +809,19 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	 *		-- If present, version shall be v3
 	 */
 	if (crt->version == 2 || crt->version == 3) {
-		if ((r = x509_get_uid(&p, end, &crt->issuer_id, 1))) {
-			ttls_x509_crt_free(crt);
-			return r;
-		}
-		if ((r = x509_get_uid(&p, end, &crt->subject_id,  2))) {
-			ttls_x509_crt_free(crt);
-			return r;
-		}
+		if ((r = x509_get_uid(&p, end, &crt->issuer_id, 1)))
+			goto err;
+		if ((r = x509_get_uid(&p, end, &crt->subject_id,  2)))
+			goto err;
 	}
 	if (crt->version == 3) {
-		if ((r = x509_get_crt_ext(&p, end, crt))) {
-			ttls_x509_crt_free(crt);
-			return r;
-		}
+		if ((r = x509_get_crt_ext(&p, end, crt)))
+			goto err;
 	}
 
 	if (p != end) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT
-				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		r = TTLS_ERR_X509_INVALID_FORMAT + TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		goto err;
 	}
 	end = crt_end;
 
@@ -830,31 +832,29 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	 * signatureAlgorithm	AlgorithmIdentifier,
 	 * signatureValue	BIT STRING
 	 */
-	if ((r = ttls_x509_get_alg(&p, end, &sig_oid2, &sig_params2))) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if ((r = ttls_x509_get_alg(&p, end, &sig_oid2, &sig_params2)))
+		goto err;
 	if (crt->sig_oid.len != sig_oid2.len
 	    || x509_memcmp(crt->sig_oid.p, sig_oid2.p, crt->sig_oid.len)
 	    || sig_params1.len != sig_params2.len
 	    || (sig_params1.len
 		&& x509_memcmp(sig_params1.p, sig_params2.p, sig_params1.len)))
 	{
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_SIG_MISMATCH;
+		r = TTLS_ERR_X509_SIG_MISMATCH;
+		goto err;
 	}
-	if ((r = ttls_x509_get_sig(&p, end, &crt->sig))) {
-		ttls_x509_crt_free(crt);
-		return r;
-	}
+	if ((r = ttls_x509_get_sig(&p, end, &crt->sig)))
+		goto err;
 
 	if (p != end) {
-		ttls_x509_crt_free(crt);
-		return TTLS_ERR_X509_INVALID_FORMAT
-				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		r = TTLS_ERR_X509_INVALID_FORMAT + TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		goto err;
 	}
 
 	return 0;
+err:
+	ttls_x509_crt_free(crt);
+	return r;
 }
 
 /**
@@ -1887,13 +1887,12 @@ ttls_x509_crt_free(TlsX509Crt *crt)
 			kfree(seq_prv);
 		}
 
-		if (cert_cur->raw.p) {
-			ttls_bzero_safe(cert_cur->raw.p, cert_cur->raw.len);
-			/*
-			 * It's a user responsibility to free the certificate
-			 * pages.
-			 */
-		}
+		/*
+		 * Certificates are sent in plain text,
+		 * so no need to zero memory.
+		 */
+		if (cert_cur->raw.p)
+			free_page((unsigned long)cert_cur->raw.p);
 
 		cert_cur = cert_cur->next;
 	} while (cert_cur);
@@ -1914,15 +1913,10 @@ EXPORT_SYMBOL(ttls_x509_crt_free);
 void
 ttls_x509_crt_destroy(TlsX509Crt **crt)
 {
-	if (!*crt)
+	if (unlikely(!*crt))
 		return;
 	ttls_x509_crt_free(*crt);
 
-	if ((*crt)->raw.p && (*crt)->raw.len) {
-		__free_pages(virt_to_page((*crt)->raw.p),
-			     get_order((*crt)->raw.len));
-	}
-	ttls_bzero_safe(*crt, sizeof(TlsX509Crt));
 	kmem_cache_free(cert_cache, *crt);
 	*crt = NULL;
 }
