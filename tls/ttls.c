@@ -300,7 +300,7 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 			return -ENOMEM;
 
 		r = ttls_x509_crt_parse_der(dst->peer_cert,
-					    src->peer_cert->raw.p,
+					    ttls_x509_crt_raw(src->peer_cert),
 					    src->peer_cert->raw.len);
 		if (r) {
 			kfree(dst->peer_cert);
@@ -1386,6 +1386,9 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	}
 
 	/*
+	 * Write the certifictes chain.
+	 * All the certificates are placed in separate pages by the x509 parser.
+	 *
 	 *   7 . 9	length of cert. 1
 	 *  10 . n-1	peer certificate
 	 *   n . n+2	length of cert. 2
@@ -1405,8 +1408,8 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		}
 
 		tot_len += n;
-		get_page(virt_to_page(ttls_x509_crt_page(crt)));
-		sg_set_buf(&sgt->sgl[sgt->nents++], ttls_x509_crt_page(crt), n);
+		get_page(virt_to_page(crt->raw.p));
+		sg_set_buf(&sgt->sgl[sgt->nents++], crt->raw.p, n);
 		T_DBG3("add cert page %pK,len=%lu seg=%u\n",
 		       crt->raw.p, n, sgt->nents - 1);
 	}

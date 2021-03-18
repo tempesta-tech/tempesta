@@ -6292,8 +6292,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	char buff[TFW_ULTOA_BUF_SIZ] = {0};
 	TfwStr *cl_buf = c_len_hdr ? __TFW_STR_CH(c_len_hdr, 1) : 0;
 
-	body = tfw_cfg_read_file(filename, &b_sz, 0);
-	if (!body) {
+	if (!(body = tfw_cfg_read_file(filename, &b_sz, 0))) {
 		*len = *body_offset = 0;
 		return NULL;
 	}
@@ -6329,7 +6328,7 @@ err_2:
 	if (c_len_hdr)
 		c_len_hdr->len -= cl_buf->len;
 err:
-	free_pages((unsigned long)body, get_order(b_sz));
+	kfree(body);
 
 	return res;
 }
