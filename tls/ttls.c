@@ -69,7 +69,7 @@ ttls_max_ciphertext_len(const TlsXfrm *xfrm)
 static inline unsigned short
 ttls_msg2crypt_len(const TlsIOCtx *io, const TlsXfrm *xfrm)
 {
-	return io->msglen - ttls_expiv_len(xfrm) - ttls_xfrm_taglen(xfrm);
+	return io->msglen - ttls_expiv_len(xfrm) - TTLS_TAG_LEN;
 }
 
 static void
@@ -117,7 +117,7 @@ ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf)
 	 * TAG to the final record payload length.
 	 */
 	len = ((unsigned short)buf[3] << 8) + buf[4];
-	len += ttls_expiv_len(xfrm) + ttls_xfrm_taglen(xfrm);
+	len += ttls_expiv_len(xfrm) + TTLS_TAG_LEN;
 	buf[3] = (unsigned char)(len >> 8);
 	buf[4] = (unsigned char)len;
 
@@ -565,7 +565,7 @@ ttls_derive_keys(TlsCtx *tls)
 	const TlsCipherInfo *ci;
 	const TlsMdInfo *md_info;
 	size_t mac_key_len, iv_copy_len;
-	int r = 0, tag_size;
+	int r = 0;
 	TlsSess *sess = &tls->sess;
 	TlsXfrm *xfrm = &tls->xfrm;
 	TlsHandshake *hs = tls->hs;
@@ -582,7 +582,6 @@ ttls_derive_keys(TlsCtx *tls)
 		      xfrm->ciphersuite_info->mac);
 		return TTLS_ERR_BAD_INPUT_DATA;
 	}
-	tag_size = ttls_xfrm_taglen(xfrm);
 
 	/* Set appropriate PRF function and other TLS 1.2 functions. */
 	if (xfrm->ciphersuite_info->mac == TTLS_MD_SHA384) {
@@ -658,9 +657,7 @@ ttls_derive_keys(TlsCtx *tls)
 		xfrm->fixed_ivlen = 4;
 		WARN_ON_ONCE(ttls_expiv_len(xfrm) != TTLS_IV_LEN);
 		/* Minimum length is expicit IV + tag */
-		xfrm->minlen = ttls_expiv_len(xfrm)
-				+ ((xfrm->ciphersuite_info->flags
-				    & TTLS_CIPHERSUITE_SHORT_TAG) ? 8 : 16);
+		xfrm->minlen = ttls_expiv_len(xfrm) + TTLS_TAG_LEN;
 	} else {
 		BUG_ON(ci->mode != TTLS_MODE_STREAM);
 		/*
@@ -684,9 +681,8 @@ ttls_derive_keys(TlsCtx *tls)
 		/* Minimum length */
 		xfrm->minlen = xfrm->maclen;
 	}
-	T_DBG("keylen=%u minlen=%u ivlen=%u maclen=%u tagsize=%d"
-	      " mac_key_len=%lu\n", xfrm->keylen, xfrm->minlen, xfrm->ivlen,
-	      xfrm->maclen, tag_size, mac_key_len);
+	T_DBG("keylen=%u minlen=%u ivlen=%u maclen=%u mac_key_len=%lu\n",
+	      xfrm->keylen, xfrm->minlen, xfrm->ivlen, xfrm->maclen, mac_key_len);
 
 	/* Finally setup the cipher contexts, IVs and MAC secrets. */
 	if (tls->conf->endpoint == TTLS_IS_CLIENT) {
@@ -718,11 +714,11 @@ ttls_derive_keys(TlsCtx *tls)
 		ttls_md_hmac_starts(&xfrm->md_ctx_dec, mac_dec, mac_key_len);
 	}
 
-	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_enc, ci, tag_size))) {
+	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_enc, ci, TTLS_TAG_LEN))) {
 		T_DBG("cannot setup encryption cipher, %d\n", r);
 		return r;
 	}
-	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_dec, ci, tag_size))) {
+	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_dec, ci, TTLS_TAG_LEN))) {
 		T_DBG("cannot setup decryption cipher, %d\n", r);
 		return r;
 	}
@@ -868,7 +864,6 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	TlsIOCtx *io = &tls->io_in;
 	struct crypto_aead *tfm = xfrm->cipher_ctx_dec.cipher_ctx;
 	unsigned int sgn = 1;
-	unsigned char taglen;
 	struct aead_request *req;
 	struct scatterlist *sg = NULL;
 	unsigned char aad_buf[TLS_AAD_SPACE_SIZE];
@@ -880,23 +875,21 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	}
 
 	expiv_len = ttls_expiv_len(xfrm);
-	taglen = ttls_xfrm_taglen(xfrm);
 	mode = xfrm->cipher_ctx_enc.cipher_info->mode;
 
 	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
 	T_DBG2("decrypt input record from network: hdr=%pK msglen=%d chunks=%u"
-	       " taglen=%u eiv_len=%lu\n",
-	       io->hdr, io->msglen, io->chunks, taglen, expiv_len);
-	if (unlikely(io->msglen < expiv_len + taglen)) {
-		T_DBG("%s: msglen (%u) < expiv_len (%lu) + taglen (%u)\n",
-		      __func__, io->msglen, expiv_len, taglen);
+	       " eiv_len=%lu\n", io->hdr, io->msglen, io->chunks, expiv_len);
+	if (unlikely(io->msglen < expiv_len + TTLS_TAG_LEN)) {
+		T_DBG("%s: msglen (%u) < expiv_len (%lu) + TAG_LEN (16)\n",
+		      __func__, io->msglen, expiv_len);
 		return TTLS_ERR_INVALID_MAC;
 	}
 
-	dec_msglen = io->msglen - expiv_len - taglen;
+	dec_msglen = io->msglen - expiv_len - TTLS_TAG_LEN;
 
 	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv, sizeof(io->iv));
-	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + taglen, buf,
+	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + TTLS_TAG_LEN, buf,
 				     &sg, &sgn);
 	if (!req)
 		return TTLS_ERR_INTERNAL_ERROR;
@@ -909,7 +902,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	T_DBG3_BUF("IV used", xfrm->iv_dec, xfrm->ivlen);
 	T_DBG3_SL("decrypt: AAD|msg|TAG", sg, sgn, 0, TLS_AAD_SPACE_SIZE +
-		  dec_msglen + taglen);
+		  dec_msglen + TTLS_TAG_LEN);
 
 	/*
 	 * Decrypt and authenticate.
@@ -922,7 +915,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	aead_request_set_tfm(req, tfm);
 	aead_request_set_ad(req, TLS_AAD_SPACE_SIZE);
 	/* The crypto layer expects AAD segment in output scatter list. */
-	aead_request_set_crypt(req, sg, sg, dec_msglen + taglen,
+	aead_request_set_crypt(req, sg, sg, dec_msglen + TTLS_TAG_LEN,
 			       xfrm->iv_dec);
 	r = crypto_aead_decrypt(req);
 
@@ -2330,19 +2323,13 @@ static int ttls_default_ciphersuites[] = {
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 	TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 	TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM_8,
 
 	/* All AES-256 ephemeral suites */
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 	TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 	TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
 	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
-	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8,
 
 	0
 };

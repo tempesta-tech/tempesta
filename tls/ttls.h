@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,6 +108,7 @@
 
 #define TTLS_IV_LEN				8 /* explicit IV size */
 #define TTLS_ALERT_LEN				2
+#define TTLS_TAG_LEN				16
 
 /* Maximum host name defined in RFC 1035. */
 #define TTLS_MAX_HOST_NAME_LEN			255
@@ -627,13 +628,6 @@ void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
 
 bool ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 		      size_t len);
-
-static inline unsigned char
-ttls_xfrm_taglen(const TlsXfrm *xfrm)
-{
-	return xfrm->ciphersuite_info->flags & TTLS_CIPHERSUITE_SHORT_TAG
-		? 8 : 16;
-}
 
 static inline size_t
 ttls_expiv_len(const TlsXfrm *xfrm)
