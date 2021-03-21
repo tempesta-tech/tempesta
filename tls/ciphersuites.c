@@ -9,7 +9,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,28 +58,6 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
-	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
-	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM",
-	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
-	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
-	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
-	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM-8",
-	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
-	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
-	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
-	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM",
-	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
-	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
-	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM-8",
-	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
-	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 	  "TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256,
@@ -105,21 +83,11 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_DHE_RSA,
 	  0, { &cs_mp_dhe.mp, NULL } },
-	{ TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8,
-	  "TLS-DHE-RSA-WITH-AES-256-CCM-8",
-	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
-	  TTLS_KEY_EXCHANGE_DHE_RSA,
-	  TTLS_CIPHERSUITE_SHORT_TAG, { &cs_mp_dhe.mp, NULL } },
 	{ TTLS_TLS_DHE_RSA_WITH_AES_128_CCM,
 	  "TLS-DHE-RSA-WITH-AES-128-CCM",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_DHE_RSA,
 	  0, { &cs_mp_dhe.mp, NULL } },
-	{ TTLS_TLS_DHE_RSA_WITH_AES_128_CCM_8,
-	  "TLS-DHE-RSA-WITH-AES-128-CCM-8",
-	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
-	  TTLS_KEY_EXCHANGE_DHE_RSA,
-	  TTLS_CIPHERSUITE_SHORT_TAG, { &cs_mp_dhe.mp, NULL } },
 	{ 0, "", TTLS_CIPHER_NONE, TTLS_MD_NONE, TTLS_KEY_EXCHANGE_NONE,
 	  0, { NULL, NULL } }
 };
