@@ -1434,6 +1434,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		       unsigned int *read)
 {
 	uint8_t alert;
+	unsigned int vr = 0;
 	int r = 0, i = 0, n, authmode;
 	TlsIOCtx *io = &tls->io_in;
 	TlsSess *sess = &tls->sess;
@@ -1505,7 +1506,7 @@ parse:
 		 * one. The client should know what's going on, so we don't
 		 * send an alert.
 		 */
-		sess->verify_result = TTLS_X509_BADCERT_MISSING;
+		vr = TTLS_X509_BADCERT_MISSING;
 		if (authmode != TTLS_VERIFY_OPTIONAL)
 			r = TTLS_ERR_NO_CLIENT_CERTIFICATE;
 		goto err;
@@ -1578,13 +1579,14 @@ parse:
 	}
 
 	if (authmode != TTLS_VERIFY_NONE) {
+		unsigned int vr_tmp;
 		const TlsPkCtx *pk = &sess->peer_cert->pk;
 		TlsX509Crt *ca_chain = tls->hs->key_cert->ca_chain;
 		ttls_x509_crl *ca_crl = tls->hs->key_cert->ca_crl;
 
 		/* Main check: verify certificate */
 		r = ttls_x509_crt_verify(sess->peer_cert, ca_chain, ca_crl,
-					 tls->hostname, &sess->verify_result);
+					 tls->hostname, &vr);
 		if (r)
 			T_DBG("client cert verification status: %d\n", r);
 
@@ -1595,18 +1597,18 @@ parse:
 		if (ttls_pk_can_do(pk, TTLS_PK_ECKEY)
 		    && ttls_check_curve(tls, ttls_pk_ec(*pk)->grp->id))
 		{
-			sess->verify_result |= TTLS_X509_BADCERT_BAD_KEY;
+			vr |= TTLS_X509_BADCERT_BAD_KEY;
 			T_DBG("bad certificate (EC key curve)\n");
 			if (!r)
 				r = TTLS_ERR_BAD_HS_CERTIFICATE;
 		}
 
-		if (ttls_check_cert_usage(sess->peer_cert,
-					  tls->xfrm.ciphersuite_info,
-					  !tls->conf->endpoint,
-					  &sess->verify_result))
-		{
-			T_DBG("bad certificate (usage extensions)\n");
+		vr_tmp = ttls_check_cert_usage(sess->peer_cert,
+					       tls->xfrm.ciphersuite_info,
+					       !tls->conf->endpoint);
+		if (vr_tmp) {
+			T_DBG("bad certificate (usage extensions), %x\n", vr_tmp);
+			vr |= vr_tmp;
 			if (!r)
 				r = TTLS_ERR_BAD_HS_CERTIFICATE;
 		}
@@ -1638,7 +1640,6 @@ parse:
 			 * Which alert to send may be a subject of debate in
 			 * some cases.
 			 */
-			unsigned int vr = sess->verify_result;
 			T_DBG3("Certificate verification flags %x\n", vr);
 			if (vr & TTLS_X509_BADCERT_OTHER)
 				alert = TTLS_ALERT_MSG_ACCESS_DENIED;
@@ -2634,13 +2635,20 @@ err:
 	return -1;
 }
 
+/*
+ * Check usage of a certificate wrt extensions:
+ * keyUsage, extendedKeyUsage (later), and nSCertType (later).
+ *
+ * Warning: cert_endpoint is the endpoint of the cert (ie, of our peer when we
+ * check a cert we received from them)!
+ *
+ * Return 0 if everything is OK or error code otherwise
+ */
 int
-ttls_check_cert_usage(const TlsX509Crt *cert,
-		      const TlsCiphersuite *ciphersuite, int cert_endpoint,
-		      uint32_t *flags)
+ttls_check_cert_usage(const TlsX509Crt *cert, const TlsCiphersuite *ciphersuite,
+		      int cert_endpoint)
 {
-	int r = 0;
-	int usage = 0;
+	int r = 0, usage = 0;
 	const char *ext_oid;
 	size_t ext_len;
 
@@ -2656,28 +2664,19 @@ ttls_check_cert_usage(const TlsX509Crt *cert,
 		case TTLS_KEY_EXCHANGE_NONE:
 			usage = 0;
 		}
-	} else {
-		/* Client auth: we only implement RSA and ECDSA sign for now. */
-		usage = TTLS_X509_KU_DIGITAL_SIGNATURE;
-	}
-
-	if (ttls_x509_crt_check_key_usage(cert, usage)) {
-		*flags |= TTLS_X509_BADCERT_KEY_USAGE;
-		r = -1;
-	}
-
-	if (cert_endpoint == TTLS_IS_SERVER) {
 		ext_oid = TTLS_OID_SERVER_AUTH;
 		ext_len = TTLS_OID_SIZE(TTLS_OID_SERVER_AUTH);
 	} else {
+		/* Client auth: we only implement RSA and ECDSA sign for now. */
+		usage = TTLS_X509_KU_DIGITAL_SIGNATURE;
 		ext_oid = TTLS_OID_CLIENT_AUTH;
 		ext_len = TTLS_OID_SIZE(TTLS_OID_CLIENT_AUTH);
 	}
 
-	if (ttls_x509_crt_check_extended_key_usage(cert, ext_oid, ext_len)) {
-		*flags |= TTLS_X509_BADCERT_EXT_KEY_USAGE;
-		r = -1;
-	}
+	if (ttls_x509_crt_check_key_usage(cert, usage))
+		r |= TTLS_X509_BADCERT_KEY_USAGE;
+	if (ttls_x509_crt_check_extended_key_usage(cert, ext_oid, ext_len))
+		r |= TTLS_X509_BADCERT_EXT_KEY_USAGE;
 
 	return r;
 }

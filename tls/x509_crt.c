@@ -668,10 +668,9 @@ x509_write_cert_len(unsigned char *buf, size_t n)
  * Parse and fill a single X.509 certificate in DER format.
  */
 static int
-x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
+x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 {
 	int r;
-	size_t len;
 	unsigned char *p, *end, *crt_end;
 	ttls_x509_buf sig_params1, sig_params2, sig_oid2;
 
@@ -682,7 +681,6 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
 
 	p = (unsigned char*)buf;
-	len = buflen;
 	end = p + len;
 
 	/*
@@ -722,7 +720,7 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	x509_write_cert_len(crt->raw.p, crt->raw.len);
 
 	/* Direct pointers to the new buffer. */
-	p = buf + crt->raw.len - len;
+	p = ttls_x509_crt_raw(crt) + crt->raw.len - len;
 	end = crt_end = p + len;
 
 	/* TBSCertificate  ::=  SEQUENCE  { */
@@ -862,7 +860,7 @@ err:
  * chained list.
  */
 int
-ttls_x509_crt_parse_der(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
+ttls_x509_crt_parse_der(TlsX509Crt *chain, const unsigned char *buf, size_t buflen)
 {
 	int r;
 	TlsX509Crt *crt = chain, *prev = NULL;
@@ -874,7 +872,7 @@ ttls_x509_crt_parse_der(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
 		crt = crt->next;
 	}
 #if DBG_TLS == 3
-	print_hex_dump(KERN_INFO, "Binary certificate", DUMP_PREFIX_OFFSET,
+	print_hex_dump(KERN_INFO, "binary certificate ", DUMP_PREFIX_OFFSET,
 		       16, 1, buf, buflen, true);
 #endif
 
@@ -996,30 +994,6 @@ struct x509_crt_verify_string {
 	const char *string;
 };
 
-static const struct x509_crt_verify_string x509_crt_verify_strings[] = {
-{ TTLS_X509_BADCERT_EXPIRED,		"The certificate validity has expired" },
-{ TTLS_X509_BADCERT_REVOKED,		"The certificate has been revoked (is on a CRL)" },
-{ TTLS_X509_BADCERT_CN_MISMATCH,	"The certificate Common Name (CN) does not match with the expected CN" },
-{ TTLS_X509_BADCERT_NOT_TRUSTED,	"The certificate is not correctly signed by the trusted CA" },
-{ TTLS_X509_BADCRL_NOT_TRUSTED,		"The CRL is not correctly signed by the trusted CA" },
-{ TTLS_X509_BADCRL_EXPIRED,		"The CRL is expired" },
-{ TTLS_X509_BADCERT_MISSING,		"Certificate was missing" },
-{ TTLS_X509_BADCERT_SKIP_VERIFY,	"Certificate verification was skipped" },
-{ TTLS_X509_BADCERT_OTHER,		"Other reason (can be used by verify callback)" },
-{ TTLS_X509_BADCERT_FUTURE,		"The certificate validity starts in the future" },
-{ TTLS_X509_BADCRL_FUTURE,		"The CRL is from the future" },
-{ TTLS_X509_BADCERT_KEY_USAGE,		"Usage does not match the keyUsage extension" },
-{ TTLS_X509_BADCERT_EXT_KEY_USAGE,	"Usage does not match the extendedKeyUsage extension" },
-{ TTLS_X509_BADCERT_NS_CERT_TYPE,	"Usage does not match the nsCertType extension" },
-{ TTLS_X509_BADCERT_BAD_MD,		"The certificate is signed with an unacceptable hash." },
-{ TTLS_X509_BADCERT_BAD_PK,		"The certificate is signed with an unacceptable PK alg (eg RSA vs ECDSA)." },
-{ TTLS_X509_BADCERT_BAD_KEY,		"The certificate is signed with an unacceptable key (eg bad curve, RSA too short)." },
-{ TTLS_X509_BADCRL_BAD_MD,		"The CRL is signed with an unacceptable hash." },
-{ TTLS_X509_BADCRL_BAD_PK,		"The CRL is signed with an unacceptable PK alg (eg RSA vs ECDSA)." },
-{ TTLS_X509_BADCRL_BAD_KEY,		"The CRL is signed with an unacceptable key (eg bad curve, RSA too short)." },
-{ 0, NULL }
-};
-
 /**
  * Check usage of certificate against keyUsage extension.
  *
@@ -1046,7 +1020,7 @@ ttls_x509_crt_check_key_usage(const TlsX509Crt *crt,
 	unsigned int may_mask = TTLS_X509_KU_ENCIPHER_ONLY
 				| TTLS_X509_KU_DECIPHER_ONLY;
 
-	if ((crt->ext_types & TTLS_X509_EXT_KEY_USAGE) == 0)
+	if (!(crt->ext_types & TTLS_X509_EXT_KEY_USAGE))
 		return 0;
 
 	usage_must = usage & ~may_mask;
@@ -1082,23 +1056,20 @@ ttls_x509_crt_check_extended_key_usage(const TlsX509Crt *crt,
 	const ttls_x509_sequence *cur;
 
 	/* Extension is not mandatory, absent means no restriction */
-	if ((crt->ext_types & TTLS_X509_EXT_EXTENDED_KEY_USAGE) == 0)
+	if (!(crt->ext_types & TTLS_X509_EXT_EXTENDED_KEY_USAGE))
 		return 0;
 
-	/*
-	 * Look for the requested usage (or wildcard ANY) in our list
-	 */
-	for (cur = &crt->ext_key_usage; cur != NULL; cur = cur->next)
-	{
+	/* Look for the requested usage (or wildcard ANY) in our list. */
+	for (cur = &crt->ext_key_usage; cur; cur = cur->next) {
 		const ttls_x509_buf *cur_oid = &cur->buf;
 
-		if (cur_oid->len == usage_len &&
-		    x509_memcmp(cur_oid->p, usage_oid, usage_len) == 0)
+		if (cur_oid->len == usage_len
+		    && !memcmp(cur_oid->p, usage_oid, usage_len))
 		{
 			return 0;
 		}
 
-		if (TTLS_OID_CMP(TTLS_OID_ANY_EXTENDED_KEY_USAGE, cur_oid) == 0)
+		if (!TTLS_OID_CMP(TTLS_OID_ANY_EXTENDED_KEY_USAGE, cur_oid))
 			return 0;
 	}
 

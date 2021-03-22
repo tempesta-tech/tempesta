@@ -427,7 +427,7 @@ const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
 TfwCfgSpec *tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name);
 int tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list);
 
-void *tfw_cfg_read_file(const char *path, size_t *file_size, size_t off);
+void *tfw_cfg_read_file(const char *path, size_t *file_size);
 
 int tfw_cfg_parse(struct list_head *mod_list);
 void tfw_cfg_cleanup(struct list_head *mod_list);

@@ -281,7 +281,6 @@ struct ttls_alpn_proto {
  * @peer_cert		- peer X.509 cert chain;
  * @start		- starting time;
  * @etm			- flag for Encrypt-then-MAC activation;
- * @verify_result	- verification result;
  * @ciphersuite		- chosen ciphersuite;
  * @id_len		- session id length;
  * @id			- session identifier;
@@ -292,7 +291,6 @@ typedef struct {
 	TlsX509Crt	*peer_cert;
 	time_t		start;
 	int		etm;
-	uint32_t	verify_result;
 	unsigned short	ciphersuite;
 	unsigned char	id_len;
 	unsigned char	id[TTLS_SESS_ID_LEN];
