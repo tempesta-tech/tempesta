@@ -60,7 +60,7 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
 {
 	int r;
 	size_t off = ttls_payload_off(&tls->xfrm);
-	size_t tail = ttls_xfrm_taglen(&tls->xfrm);
+	size_t tail = TTLS_TAG_LEN;
 
 	while (unlikely(skb->len <= off)) {
 		struct sk_buff *skb_head = ss_skb_dequeue(&skb);
@@ -295,7 +295,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 #define AUTO_SEGS_N	8
 
 	int r = -ENOMEM;
-	unsigned int head_sz, tag_sz, len, frags, t_sz, out_frags;
+	unsigned int head_sz, len, frags, t_sz, out_frags;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -338,8 +338,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		     != tcb->end_seq);
 
 	head_sz = ttls_payload_off(xfrm);
-	tag_sz = ttls_xfrm_taglen(xfrm);
-	len = head_sz + skb->len + tag_sz;
+	len = head_sz + skb->len + TTLS_TAG_LEN;
 	type = tempesta_tls_skb_type(skb);
 	if (!type) {
 		T_WARN("%s: bad skb type %u\n", __func__, type);
@@ -387,7 +386,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	t_sz = skb_tail->truesize;
 	WARN_ON_ONCE(next == skb);
 	if (skb_tail == skb) {
-		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, tag_sz);
+		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, TTLS_TAG_LEN);
 		if (r < 0)
 			goto out;
 	} else {
@@ -398,7 +397,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		out_sgt.nents += r;
 
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
-					    tag_sz);
+					    TTLS_TAG_LEN);
 		if (r < 0)
 			goto out;
 	}
@@ -414,14 +413,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * tcp_write_xmit() should set proper skb->tcp_gso_segs.
 	 */
 	if (likely(skb_tail->next == next)) {
-		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
+		TCP_SKB_CB(skb_tail)->end_seq += TTLS_TAG_LEN;
 
 		/* A new frag is added to the end of the current skb. */
 		WARN_ON_ONCE(t_sz > skb_tail->truesize);
 		t_sz = skb_tail->truesize - t_sz;
 	}
 	else {
-		WARN_ON_ONCE(skb_tail->next->len != tag_sz);
+		WARN_ON_ONCE(skb_tail->next->len != TTLS_TAG_LEN);
 		WARN_ON_ONCE(skb_tail->truesize != t_sz);
 
 		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
@@ -446,14 +445,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * consistent state.
 	 */
 	tfw_tls_tcp_propagate_dseq(sk, skb_tail);
-	tcp_sk(sk)->write_seq += head_sz + tag_sz;
+	tcp_sk(sk)->write_seq += head_sz + TTLS_TAG_LEN;
 
 	/*
 	 * TLS record header is always allocated from the reserved skb headroom.
 	 * The room for the tag may also be allocated from the reserved tailroom
 	 * or in a new page fragment in skb_tail or next, probably new, skb.
 	 * So to adjust the socket write memory we have to check the both skbs
-	 * and only for tag_sz.
+	 * and only for TTLS_TAG_LEN.
 	 */
 	if (tfw_tls_tcp_add_overhead(sk, t_sz))
 		return -ENOMEM;

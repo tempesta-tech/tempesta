@@ -260,19 +260,9 @@ ttls_own_cert(TlsCtx *tls)
 	return key_cert ? key_cert->cert : NULL;
 }
 
-/*
- * Check usage of a certificate wrt extensions:
- * keyUsage, extendedKeyUsage (later), and nSCertType (later).
- *
- * Warning: cert_endpoint is the endpoint of the cert (ie, of our peer when we
- * check a cert we received from them)!
- *
- * Return 0 if everything is OK, -1 if not.
- */
 int ttls_check_cert_usage(const TlsX509Crt *cert,
 			  const TlsCiphersuite *ciphersuite,
-			  int cert_endpoint,
-			  uint32_t *flags);
+			  int cert_endpoint);
 
 void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
 

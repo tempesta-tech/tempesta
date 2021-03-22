@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,8 +30,6 @@
 typedef struct {
 	TlsX509Crt	crt;
 	TlsPkCtx	key;
-	unsigned long	crt_pg_addr;
-	unsigned int	crt_pg_order;
 	unsigned int	conf_stage;
 } TlsCertConf;
 
@@ -132,27 +130,21 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	ttls_x509_crt_init(&conf->crt);
 	/* Preserve 3 bytes for the certificate length. */
-	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size, TTLS_CERT_LEN_LEN);
+	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size);
 	if (!crt_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
 			 ce->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
-	r = ttls_x509_crt_parse(&conf->crt, crt_data + TTLS_CERT_LEN_LEN,
-				crt_size);
-	if (r) {
+	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
+	if (r)
 		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			 cs->name, -r);
-		free_pages((unsigned long)crt_data, get_order(crt_size));
-		return -EINVAL;
-	}
-	ttls_x509_write_cert_len(&conf->crt, crt_data);
 
-	conf->crt_pg_addr = (unsigned long)crt_data;
-	conf->crt_pg_order = get_order(crt_size);
+	kfree(crt_data);
 
-	return 0;
+	return r;
 }
 
 int
@@ -199,7 +191,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	ttls_pk_init(&conf->key);
 
-	key_data = tfw_cfg_read_file(ce->vals[0], &key_size, 0);
+	key_data = tfw_cfg_read_file(ce->vals[0], &key_size);
 	if (!key_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
 			 ce->name, ce->vals[0]);
@@ -208,7 +200,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = ttls_pk_parse_key(&conf->key, key_data, key_size);
 	/* The key is copied, so free the paged data. */
-	free_pages((unsigned long)key_data, get_order(key_size));
+	kfree(key_data);
 	if (r) {
 		T_ERR_NL("%s: Invalid private key specified (%x)\n",
 			 cs->name, -r);
@@ -245,7 +237,6 @@ tfw_tls_cleanup_tls_cert(TlsCertConf *conf)
 	if (!(conf->conf_stage & TFW_TLS_CFG_F_CERT))
 		return;
 	ttls_x509_crt_free(&conf->crt);
-	free_pages(conf->crt_pg_addr, conf->crt_pg_order);
 }
 
 static void

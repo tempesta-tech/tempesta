@@ -78,11 +78,10 @@
  */
 #define TTLS_ERR_X509_FATAL_ERROR			-0x3000
 
-/**
- * \name X509 Verify codes
+/*
+ * X509 Verify codes
  */
-/* Reminder: update x509_crt_verify_strings[] in library/x509_crt.c */
- /* The certificate validity has expired. */
+/* The certificate validity has expired. */
 #define TTLS_X509_BADCERT_EXPIRED			    0x01
 /* The certificate has been revoked (is on a CRL). */
 #define TTLS_X509_BADCERT_REVOKED			    0x02
@@ -96,8 +95,6 @@
 #define TTLS_X509_BADCRL_EXPIRED			    0x20
 /* Certificate was missing. */
 #define TTLS_X509_BADCERT_MISSING			    0x40
-/* Certificate verification was skipped. */
-#define TTLS_X509_BADCERT_SKIP_VERIFY			    0x80
 /* Other reason (can be used by verify callback) */
 #define TTLS_X509_BADCERT_OTHER				  0x0100
 /* The certificate validity starts in the future. */
