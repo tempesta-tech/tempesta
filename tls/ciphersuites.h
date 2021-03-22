@@ -30,7 +30,7 @@
 #include "pk.h"
 
 /*
- * Supported ciphersuites (Official IANA names) and recommended ciphersuites
+ * Supported ciphersuites and/or recommended by IANA ciphersuites
  * https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
  */
 #define TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256	0x9E

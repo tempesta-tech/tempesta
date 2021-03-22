@@ -114,7 +114,7 @@ typedef struct TlsX509Crt {
 	struct TlsX509Crt *next;
 } TlsX509Crt;
 
-int ttls_x509_crt_parse_der(TlsX509Crt *chain, unsigned char *buf,
+int ttls_x509_crt_parse_der(TlsX509Crt *chain, const unsigned char *buf,
 			    size_t buflen);
 int ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen);
 

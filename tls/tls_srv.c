@@ -452,7 +452,7 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 {
 	TlsKeyCert *cur, *list = tls->peer_conf->key_cert;
 	ttls_pk_type_t pk_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
-	uint32_t flags;
+	int r;
 
 	if (pk_alg == TTLS_PK_NONE)
 		return 0;
@@ -474,15 +474,13 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 		 * This avoids sending the client a cert it'll reject based on
 		 * keyUsage or other extensions.
 		 *
-		 * It also allows the user to provision different certificates
+		 * It also allows the user to provide different certificates
 		 * for different uses based on keyUsage, eg if they want to
 		 * avoid signing and decrypting with the same RSA key.
 		 */
-		if (ttls_check_cert_usage(cur->cert, ci, TTLS_IS_SERVER,
-					  &flags))
-		{
+		if ((r = ttls_check_cert_usage(cur->cert, ci, TTLS_IS_SERVER))) {
 			T_DBG("certificate mismatch: (extended) key usage"
-			      " extension\n");
+			      " extension, %#x\n", r);
 			continue;
 		}
 
@@ -2004,7 +2002,6 @@ ttls_handshake_server_hello(TlsCtx *tls, struct sg_table *sgt,
 		    || tls->hs->sni_authmode == TTLS_VERIFY_NONE)
 		{
 			/* Default and the only option at least before #830. */
-			tls->sess.verify_result = TTLS_X509_BADCERT_SKIP_VERIFY;
 			tls->state = TTLS_CLIENT_KEY_EXCHANGE;
 		} else {
 			tls->state = TTLS_CLIENT_CERTIFICATE;

@@ -67,7 +67,7 @@ static int
 rsa_sign_wrap(void *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
 	      size_t hash_len, unsigned char *sig, size_t *sig_len)
 {
-	TlsRSACtx * rsa = (TlsRSACtx *)ctx;
+	TlsRSACtx *rsa = (TlsRSACtx *)ctx;
 
 	if (WARN_ON_ONCE(md_alg == TTLS_MD_NONE))
 		return -EINVAL;
