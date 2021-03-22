@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@
 #include "pk.h"
 
 /*
- * Supported ciphersuites (Official IANA names) and recommended ciphersuites
+ * Supported ciphersuites and/or recommended by IANA ciphersuites
  * https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
  */
 #define TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256	0x9E
@@ -41,12 +41,6 @@
 #define TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384	0xC030
 #define TTLS_TLS_DHE_RSA_WITH_AES_128_CCM		0xC09E
 #define TTLS_TLS_DHE_RSA_WITH_AES_256_CCM		0xC09F
-#define TTLS_TLS_DHE_RSA_WITH_AES_128_CCM_8		0xC0A2
-#define TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8		0xC0A3
-#define TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM		0xC0AC
-#define TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM		0xC0AD
-#define TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8		0xC0AE
-#define TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8		0xC0AF
 
 /*
  * Reminder: update ttls_premaster_secret when adding a new key exchange.
@@ -58,9 +52,6 @@ typedef enum {
 	TTLS_KEY_EXCHANGE_ECDHE_RSA,
 	TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 } ttls_key_exchange_type_t;
-
-/* Short authentication tag, eg for CCM_8 */
-#define TTLS_CIPHERSUITE_SHORT_TAG	0x02
 
 /**
  * This structure is used for storing ciphersuite information.

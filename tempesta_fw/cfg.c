@@ -64,7 +64,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1919,14 +1919,14 @@ tfw_cfg_parse(struct list_head *mod_list)
 	char *cfg_text_buf;
 
 	T_DBG3("reading configuration file...\n");
-	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, &file_size, 0)))
+	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, &file_size)))
 		return -ENOENT;
 
 	T_DBG2("parsing configuration and pushing it to modules...\n");
 	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
 		T_DBG("Error parsing configuration data\n");
 
-	free_pages((unsigned long)cfg_text_buf, get_order(file_size));
+	kfree(cfg_text_buf);
 
 	return ret;
 }
@@ -1960,12 +1960,11 @@ tfw_cfg_conclude(struct list_head *mod_list)
  * ------------------------------------------------------------------------
  */
 /**
- * The functions returns a buffer containing the whole file with offset
- * @prefix_off.
- * The buffer must be freed with free_pages().
+ * The functions returns a buffer containing the whole file.
+ * The buffer must be freed with kfree().
  */
 void *
-tfw_cfg_read_file(const char *path, size_t *file_size, size_t prefix_off)
+tfw_cfg_read_file(const char *path, size_t *file_size)
 {
 	char *out_buf;
 	struct file *fp;
@@ -1996,18 +1995,15 @@ tfw_cfg_read_file(const char *path, size_t *file_size, size_t prefix_off)
 	buf_size += 1; /* for '\0' */
 	*file_size = buf_size;
 
-	out_buf = (char *)__get_free_pages(GFP_KERNEL,
-					   get_order(buf_size + prefix_off));
-	if (!out_buf) {
+	if (!(out_buf = kmalloc(buf_size, GFP_KERNEL))) {
 		T_ERR_NL("can't allocate memory\n");
 		goto err_alloc;
 	}
 
 	do {
-		T_DBG3("read by offset: %d\n", (int)off);
+		T_DBG3("read to %pK by off %d\n", out_buf, (int)off);
 		read_size = min((size_t)(buf_size - off), PAGE_SIZE);
-		bytes_read = kernel_read(fp, out_buf + prefix_off + off,
-					 read_size, &off);
+		bytes_read = kernel_read(fp, out_buf + off, read_size, &off);
 		if (bytes_read < 0) {
 			T_ERR_NL("can't read file: %s (err: %zu)\n", path,
 				 bytes_read);
@@ -2023,12 +2019,12 @@ tfw_cfg_read_file(const char *path, size_t *file_size, size_t prefix_off)
 
 	filp_close(fp, NULL);
 
-	out_buf[prefix_off + off] = '\0';
+	out_buf[off] = '\0';
 	set_fs(oldfs);
 	return out_buf;
 
 err_read:
-	free_pages((unsigned long)out_buf, get_order(buf_size));
+	kfree(out_buf);
 err_alloc:
 	filp_close(fp, NULL);
 err_open:
