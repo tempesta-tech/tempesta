@@ -150,11 +150,11 @@ __C:
 #define __ARF			__C+0x080(%rip)
 #define __LSH			__C+0x0a0(%rip)
 #define __ZERO			__C+0x0c0(%rip)
-#define __SP			__C+0x0e0(%rip)
-#define __HTAB			__C+0x100(%rip)
+#define __SP			__C+0x0e0
+#define __HTAB			__C+0x100
 #define __DEL			__C+0x120(%rip)
-#define __DQUOTE		__C+0x140(%rip)
-#define __EXCL			__C+0x160(%rip)
+#define __DQUOTE		__C+0x140
+#define __EXCL			__C+0x160
 #define __ASCII			__ZERO
 
 /* Allowed alphabet passed to processing functions by pointer. */
@@ -1987,81 +1987,81 @@ END(__tfw_strspn_simd) /* for local sibling calls only */
  * %RDI - the string pointer, %RSI - the string length.
  * See strspn.c C implementation in the benchmark.
  */
-ENTRY(__tfw_match_ctext_vchar)
+.macro FULL_MATCH NAME START EXCLUDE CHAR
 	/* Process strings of length not more than 4 bytes separately. */
 	cmpq	$4, %rsi
-	ja	.ctxt_vchr_long_str
+	ja	.ctxt_\NAME\()_long_str
 	cmpq	$2, %rsi
-	je	.ctxt_vchr_len_2
-	jbe	.ctxt_vchr_len_10
+	je	.ctxt_\NAME\()_len_2
+	jbe	.ctxt_\NAME\()_len_10
 	cmpq	$3, %rsi
-	je	.ctxt_vchr_len_3
+	je	.ctxt_\NAME\()_len_3
 	cmpq	$4, %rsi
-	jne	.ctxt_vchr_len_0
+	jne	.ctxt_\NAME\()_len_0
 	movzbl	3(%rdi), %eax
-	movzbl	ctext_vchar(%rax), %esi
-.ctxt_vchr_do_len_3:
+	movzbl	\NAME(%rax), %esi
+.ctxt_\NAME\()_do_len_3:
 	movzbl	2(%rdi), %eax
-	movzbl	ctext_vchar(%rax), %edx
-.ctxt_vchr_do_len_2:
+	movzbl	\NAME(%rax), %edx
+.ctxt_\NAME\()_do_len_2:
 	movzbl	(%rdi), %eax
 	movzbl	1(%rdi), %ecx
-	movzbl	ctext_vchar(%rax), %eax
-	testb	%al, ctext_vchar(%rcx)
-	je	.ctxt_vchr_match1
+	movzbl	\NAME(%rax), %eax
+	testb	%al, \NAME(%rcx)
+	je	.ctxt_\NAME\()_match1
 	leal	2(%rdx,%rsi), %eax
 	testl	%edx, %edx
 	movl	$2, %edx
 	cmove	%rdx, %rax
 	ret
-.ctxt_vchr_len_10:
+.ctxt_\NAME\()_len_10:
 	cmpq	$1, %rsi
-	jne	.ctxt_vchr_len_0
+	jne	.ctxt_\NAME\()_len_0
 	movzbl	(%rdi), %eax
-	movzbl	ctext_vchar(%rax), %eax
+	movzbl	\NAME(%rax), %eax
 	ret
-.ctxt_vchr_len_0:
+.ctxt_\NAME\()_len_0:
 	xorl	%eax, %eax
 	ret
-.ctxt_vchr_match1:
+.ctxt_\NAME\()_match1:
 	rep ret
-.ctxt_vchr_len_3:
+.ctxt_\NAME\()_len_3:
 	xorl	%esi, %esi
-	jmp	.ctxt_vchr_do_len_3
-.ctxt_vchr_len_2:
+	jmp	.ctxt_\NAME\()_do_len_3
+.ctxt_\NAME\()_len_2:
 	xorl	%esi, %esi
 	xorl	%edx, %edx
-	jmp	.ctxt_vchr_do_len_2
+	jmp	.ctxt_\NAME\()_do_len_2
 
 	/*
 	 * The main matching part split into 128, 64, 32, 16 and the tail
 	 * processing blocks.
 	 */
-.ctxt_vchr_long_str:
+.ctxt_\NAME\()_long_str:
 	addq	%rdi, %rsi
 	movq	%rdi, %rax
-.ctxt_vchr_try_128:
+.ctxt_\NAME\()_try_128:
 	leaq	128(%rax), %rdx
 	cmpq	%rdx, %rsi
-	jnb	.ctxt_vchr_128
+	jnb	.ctxt_\NAME\()_128
 	leaq	64(%rax), %rdx
 	cmpq	%rdx, %rsi
-	jnb	.ctxt_vchr_64
-.ctxt_vchr_try_32:
+	jnb	.ctxt_\NAME\()_64
+.ctxt_\NAME\()_try_32:
 	leaq	32(%rax), %rdx
 	cmpq	%rdx, %rsi
-	jnb	.ctxt_vchr_32
-.ctxt_vchr_try_16:
+	jnb	.ctxt_\NAME\()_32
+.ctxt_\NAME\()_try_16:
 	leaq	16(%rax), %rdx
 	cmpq	%rdx, %rsi
-	jb	.ctxt_vchr_tail
-	jmp	.ctxt_vchr_16
+	jb	.ctxt_\NAME\()_tail
+	jmp	.ctxt_\NAME\()_16
 
 	/* Vector processing blocks. */
-.ctxt_vchr_128:
+.ctxt_\NAME\()_128:
 	vmovdqa	__ZERO, %ymm5
 	vmovdqa	__DEL, %ymm4
-	vmovdqa	__SP, %ymm1
+	vmovdqa	\START(%rip), %ymm1
 	vlddqu	(%rax), %ymm7
 	vlddqu	32(%rax), %ymm9
 	vpcmpeqb %ymm4, %ymm7, %ymm2
@@ -2082,17 +2082,33 @@ ENTRY(__tfw_match_ctext_vchar)
 	vpcmpgtb %ymm5, %ymm1, %ymm1
 	vpor	%ymm10, %ymm2, %ymm2
 	vpor	%ymm4, %ymm1, %ymm1
-	vmovdqa	__HTAB, %ymm4
+	vmovdqa	\CHAR(%rip), %ymm4
 	vpcmpeqb %ymm4, %ymm7, %ymm7
 	vpcmpeqb %ymm4, %ymm9, %ymm9
+.if \EXCLUDE
+	vpor	%ymm7, %ymm0, %ymm0
+.else
 	vpxor	%ymm7, %ymm0, %ymm0
+.endif
 	vpcmpeqb %ymm4, %ymm8, %ymm8
+.if \EXCLUDE
+	vpor	%ymm9, %ymm3, %ymm3
+.else
 	vpxor	%ymm9, %ymm3, %ymm3
+.endif
 	vpmovmskb %ymm0, %r8d
 	vpcmpeqb %ymm4, %ymm6, %ymm0
+.if \EXCLUDE
+	vpor	%ymm8, %ymm1, %ymm1
+.else
 	vpxor	%ymm8, %ymm1, %ymm1
+.endif
 	vpmovmskb %ymm3, %ecx
+.if \EXCLUDE
+	vpor	%ymm0, %ymm2, %ymm0
+.else
 	vpxor	%ymm0, %ymm2, %ymm0
+.endif
 	vpmovmskb %ymm1, %r9d
 	movq	%rcx, %r11
 	movslq	%r8d, %rcx
@@ -2105,19 +2121,19 @@ ENTRY(__tfw_match_ctext_vchar)
 	orq	%r8, %r9
 	tzcnt	%r9, %r9
 	cmpq	$63, %rcx
-	jbe	.ctxt_vchr_mistmatch
+	jbe	.ctxt_\NAME\()_mistmatch
 	leaq	64(%r9), %rcx
 	cmpq	$127, %rcx
-	jbe	.ctxt_vchr_mistmatch
+	jbe	.ctxt_\NAME\()_mistmatch
 	movq	%rdx, %rax
-	jmp	.ctxt_vchr_try_128
+	jmp	.ctxt_\NAME\()_try_128
 
-.ctxt_vchr_64:
+.ctxt_\NAME\()_64:
 	vlddqu	(%rax), %ymm3
 	vlddqu	32(%rax), %ymm2
 	vmovdqa	__ZERO, %ymm5
 	vmovdqa	__DEL, %ymm4
-	vmovdqa	__SP, %ymm0
+	vmovdqa	\START(%rip), %ymm0
 	vpsubb	%ymm5, %ymm3, %ymm1
 	vpsubb	%ymm5, %ymm2, %ymm5
 	vpcmpeqb %ymm4, %ymm3, %ymm6
@@ -2126,11 +2142,16 @@ ENTRY(__tfw_match_ctext_vchar)
 	vpor	%ymm6, %ymm1, %ymm1
 	vpcmpgtb %ymm5, %ymm0, %ymm0
 	vpor	%ymm4, %ymm0, %ymm0
-	vmovdqa	__HTAB, %ymm4
+	vmovdqa	\CHAR(%rip), %ymm4
 	vpcmpeqb %ymm4, %ymm3, %ymm3
 	vpcmpeqb %ymm4, %ymm2, %ymm2
+.if \EXCLUDE
+	vpor	%ymm3, %ymm1, %ymm1
+	vpor	%ymm2, %ymm0, %ymm0
+.else
 	vpxor	%ymm3, %ymm1, %ymm1
 	vpxor	%ymm2, %ymm0, %ymm0
+.endif
 	vpmovmskb %ymm1, %r8d
 	vpmovmskb %ymm0, %ecx
 	movslq	%r8d, %r8
@@ -2138,122 +2159,133 @@ ENTRY(__tfw_match_ctext_vchar)
 	orq	%r8, %rcx
 	tzcnt	%rcx, %rcx
 	cmpq	$63, %rcx
-	jbe	.ctxt_vchr_mistmatch
+	jbe	.ctxt_\NAME\()_mistmatch
 	movq	%rdx, %rax
-	jmp	.ctxt_vchr_try_32
+	jmp	.ctxt_\NAME\()_try_32
 
-.ctxt_vchr_32:
+.ctxt_\NAME\()_32:
 	vlddqu	(%rax), %ymm1
-	vmovdqa	__SP, %ymm0
+	vmovdqa	\START(%rip), %ymm0
 	vpsubb	__ZERO, %ymm1, %ymm2
 	vpcmpgtb %ymm2, %ymm0, %ymm0
 	vpcmpeqb __DEL, %ymm1, %ymm2
-	vpcmpeqb __HTAB, %ymm1, %ymm1
+	vpcmpeqb \CHAR(%rip), %ymm1, %ymm1
 	vpor	%ymm2, %ymm0, %ymm0
+.if \EXCLUDE
+	vpor	%ymm1, %ymm0, %ymm0
+.else
 	vpxor	%ymm1, %ymm0, %ymm0
+.endif
 	vpmovmskb %ymm0, %ecx
 	tzcnt	%ecx, %ecx
 	movl	%ecx, %ecx
 	cmpq	$31, %rcx
-	jbe	.ctxt_vchr_mistmatch
+	jbe	.ctxt_\NAME\()_mistmatch
 	movq	%rdx, %rax
-	jmp	.ctxt_vchr_try_16
+	jmp	.ctxt_\NAME\()_try_16
 
-.ctxt_vchr_16:
+.ctxt_\NAME\()_16:
 	vlddqu	(%rax), %xmm1
-	vmovdqa	__SP, %xmm0
+	vmovdqa	\START(%rip), %xmm0
 	vpsubb	__ZERO, %xmm1, %xmm2
 	vpcmpgtb %xmm2, %xmm0, %xmm0
 	vpcmpeqb __DEL, %xmm1, %xmm2
-	vpcmpeqb __HTAB, %xmm1, %xmm1
+	vpcmpeqb \CHAR(%rip), %xmm1, %xmm1
 	vpor	%xmm2, %xmm0, %xmm0
+.if \EXCLUDE
+	vpor	%xmm1, %xmm0, %xmm0
+.else
 	vpxor	%xmm1, %xmm0, %xmm0
+.endif
 	vpmovmskb %xmm0, %ecx
 	orl	$0xffffffffffff0000, %ecx
 	tzcnt	%ecx, %ecx
 	movl	%ecx, %ecx
 	cmpq	$15, %rcx
-	jbe	.ctxt_vchr_mistmatch
+	jbe	.ctxt_\NAME\()_mistmatch
 	movq	%rdx, %rax
-	jmp	.ctxt_vchr_tail
+	jmp	.ctxt_\NAME\()_tail
 
-.ctxt_vchr_mistmatch:
+.ctxt_\NAME\()_mistmatch:
 	subq	%rdi, %rax
 	addq	%rcx, %rax
 	ret
 
 	/* The tail loops processes string lengths in range [4, 15]. */
-.ctxt_vchr_tail_loop:
+.ctxt_\NAME\()_tail_loop:
 	movzbl	-4(%rcx), %edx
 	movzbl	-3(%rcx), %r10d
 	movzbl	-2(%rcx), %r8d
 	movzbl	-1(%rcx), %r9d
-	movzbl	ctext_vchar(%rdx), %edx
-	movzbl	ctext_vchar(%r8), %r8d
-	movzbl	ctext_vchar(%r9), %r9d
+	movzbl	\NAME(%rdx), %edx
+	movzbl	\NAME(%r8), %r8d
+	movzbl	\NAME(%r9), %r9d
 	movl	%edx, %r11d
-	andb	ctext_vchar(%r10), %r11b
+	andb	\NAME(%r10), %r11b
 	movl	%r11d, %r10d
 	movl	%r8d, %r11d
 	andl	%r9d, %r11d
 	testb	%r10b, %r11b
-	je	.ctxt_vchr_end
+	je	.ctxt_\NAME\()_end
 	movq	%rcx, %rax
-.ctxt_vchr_tail:
+.ctxt_\NAME\()_tail:
 	leaq	4(%rax), %rcx
 	cmpq	%rcx, %rsi
-	jnb	.ctxt_vchr_tail_loop
+	jnb	.ctxt_\NAME\()_tail_loop
 	subq	%rax, %rsi
 	cmpq	$2, %rsi
-	je	.ctxt_vchr_tail_2
+	je	.ctxt_\NAME\()_tail_2
 	cmpq	$3, %rsi
-	je	.ctxt_vchr_tail_3
+	je	.ctxt_\NAME\()_tail_3
 	cmpq	$1, %rsi
-	je	.ctxt_vchr_tail_1
+	je	.ctxt_\NAME\()_tail_1
 	subq	%rdi, %rax
 	movq	%rax, %rsi
 	xorl	%eax, %eax
-.ctxt_vchr_add_len:
+.ctxt_\NAME\()_add_len:
 	addq	%rsi, %rax
 	ret
-.ctxt_vchr_end:
+.ctxt_\NAME\()_end:
 	subq	%rdi, %rax
 	testb	%r10b, %r10b
-	je	.ctxt_vchr_mismatch_1
+	je	.ctxt_\NAME\()_mismatch_1
 	addl	%r8d, %r9d
 	testl	%r8d, %r8d
 	cmovne	%r9d, %r8d
 	movl	%r8d, %r8d
 	leaq	2(%rax,%r8), %rax
 	ret
-.ctxt_vchr_mismatch_1:
+.ctxt_\NAME\()_mismatch_1:
 	addq	%rdx, %rax
 	ret
-.ctxt_vchr_tail_1:
+.ctxt_\NAME\()_tail_1:
 	movzbl	(%rax), %edx
 	subq	%rdi, %rax
 	movq	%rax, %rsi
-	movzbl	ctext_vchar(%rdx), %ecx
-.ctxt_vchr_add_tail_len:
+	movzbl	\NAME(%rdx), %ecx
+.ctxt_\NAME\()_add_tail_len:
 	movl	%ecx, %eax
-	jmp	.ctxt_vchr_add_len
-.ctxt_vchr_tail_2:
+	jmp	.ctxt_\NAME\()_add_len
+.ctxt_\NAME\()_tail_2:
 	xorl	%edx, %edx
-.ctxt_vchr_do_tail_2:
+.ctxt_\NAME\()_do_tail_2:
 	movzbl	(%rax), %ecx
 	movq	%rax, %rsi
 	movzbl	1(%rax), %eax
 	subq	%rdi, %rsi
-	movzbl	ctext_vchar(%rcx), %ecx
-	testb	%cl, ctext_vchar(%rax)
-	je	.ctxt_vchr_add_tail_len
+	movzbl	\NAME(%rcx), %ecx
+	testb	%cl, \NAME(%rax)
+	je	.ctxt_\NAME\()_add_tail_len
 	leaq	2(%rsi,%rdx), %rax
 	ret
-.ctxt_vchr_tail_3:
+.ctxt_\NAME\()_tail_3:
 	movzbl	2(%rax), %edx
-	movzbl	ctext_vchar(%rdx), %edx
-	jmp	.ctxt_vchr_do_tail_2
+	movzbl	\NAME(%rdx), %edx
+	jmp	.ctxt_\NAME\()_do_tail_2
+.endm
 
+ENTRY(__tfw_match_ctext_vchar)
+FULL_MATCH ctext_vchar __SP 0 __HTAB
 ENDPROC(__tfw_match_ctext_vchar)
 
 /*
@@ -2340,270 +2372,5 @@ ENTRY(tfw_match_cookie)
 ENDPROC(tfw_match_cookie)
 
 ENTRY(__tfw_match_etag)
-	/* Process strings of length not more than 4 bytes separately. */
-	cmpq	$4, %rsi
-	ja	.ctxt_etag_long_str
-	cmpq	$2, %rsi
-	je	.ctxt_etag_len_2
-	jbe	.ctxt_etag_len_10
-	cmpq	$3, %rsi
-	je	.ctxt_etag_len_3
-	cmpq	$4, %rsi
-	jne	.ctxt_etag_len_0
-	movzbl	3(%rdi), %eax
-	movzbl	etag(%rax), %esi
-.ctxt_etag_do_len_3:
-	movzbl	2(%rdi), %eax
-	movzbl	etag(%rax), %edx
-.ctxt_etag_do_len_2:
-	movzbl	(%rdi), %eax
-	movzbl	1(%rdi), %ecx
-	movzbl	etag(%rax), %eax
-	testb	%al, etag(%rcx)
-	je	.ctxt_etag_match1
-	leal	2(%rdx,%rsi), %eax
-	testl	%edx, %edx
-	movl	$2, %edx
-	cmove	%rdx, %rax
-	ret
-.ctxt_etag_len_10:
-	cmpq	$1, %rsi
-	jne	.ctxt_etag_len_0
-	movzbl	(%rdi), %eax
-	movzbl	etag(%rax), %eax
-	ret
-.ctxt_etag_len_0:
-	xorl	%eax, %eax
-	ret
-.ctxt_etag_match1:
-	rep ret
-.ctxt_etag_len_3:
-	xorl	%esi, %esi
-	jmp	.ctxt_etag_do_len_3
-.ctxt_etag_len_2:
-	xorl	%esi, %esi
-	xorl	%edx, %edx
-	jmp	.ctxt_etag_do_len_2
-
-	/*
-	 * The main matching part split into 128, 64, 32, 16 and the tail
-	 * processing blocks.
-	 */
-.ctxt_etag_long_str:
-	addq	%rdi, %rsi
-	movq	%rdi, %rax
-.ctxt_etag_try_128:
-	leaq	128(%rax), %rdx
-	cmpq	%rdx, %rsi
-	jnb	.ctxt_etag_128
-	leaq	64(%rax), %rdx
-	cmpq	%rdx, %rsi
-	jnb	.ctxt_etag_64
-.ctxt_etag_try_32:
-	leaq	32(%rax), %rdx
-	cmpq	%rdx, %rsi
-	jnb	.ctxt_etag_32
-.ctxt_etag_try_16:
-	leaq	16(%rax), %rdx
-	cmpq	%rdx, %rsi
-	jb	.ctxt_etag_tail
-	jmp	.ctxt_etag_16
-
-	/* Vector processing blocks. */
-.ctxt_etag_128:
-	vmovdqa	__ZERO, %ymm5
-	vmovdqa	__DEL, %ymm4
-	vmovdqa	__EXCL, %ymm1
-	vlddqu	(%rax), %ymm7
-	vlddqu	32(%rax), %ymm9
-	vpcmpeqb %ymm4, %ymm7, %ymm2
-	vpsubb	%ymm5, %ymm7, %ymm0
-	vlddqu	64(%rax), %ymm6
-	vpsubb	%ymm5, %ymm9, %ymm3
-	vlddqu	96(%rax), %ymm8
-	vpcmpgtb %ymm0, %ymm1, %ymm0
-	vpcmpgtb %ymm3, %ymm1, %ymm3
-	vpor	%ymm2, %ymm0, %ymm0
-	vpcmpeqb %ymm4, %ymm9, %ymm2
-	vpcmpeqb %ymm4, %ymm6, %ymm10
-	vpor	%ymm2, %ymm3, %ymm3
-	vpsubb	%ymm5, %ymm6, %ymm2
-	vpsubb	%ymm5, %ymm8, %ymm5
-	vpcmpeqb %ymm4, %ymm8, %ymm4
-	vpcmpgtb %ymm2, %ymm1, %ymm2
-	vpcmpgtb %ymm5, %ymm1, %ymm1
-	vpor	%ymm10, %ymm2, %ymm2
-	vpor	%ymm4, %ymm1, %ymm1
-	vmovdqa	__DQUOTE, %ymm4
-	vpcmpeqb %ymm4, %ymm7, %ymm7
-	vpcmpeqb %ymm4, %ymm9, %ymm9
-	vpor	%ymm7, %ymm0, %ymm0
-	vpcmpeqb %ymm4, %ymm8, %ymm8
-	vpor	%ymm9, %ymm3, %ymm3
-	vpmovmskb %ymm0, %r8d
-	vpcmpeqb %ymm4, %ymm6, %ymm0
-	vpor	%ymm8, %ymm1, %ymm1
-	vpmovmskb %ymm3, %ecx
-	vpor	%ymm0, %ymm2, %ymm0
-	vpmovmskb %ymm1, %r9d
-	movq	%rcx, %r11
-	movslq	%r8d, %rcx
-	salq	$32, %r11
-	salq	$32, %r9
-	vpmovmskb %ymm0, %r10d
-	orq	%r11, %rcx
-	tzcnt	%rcx, %rcx
-	movslq	%r10d, %r8
-	orq	%r8, %r9
-	tzcnt	%r9, %r9
-	cmpq	$63, %rcx
-	jbe	.ctxt_etag_mistmatch
-	leaq	64(%r9), %rcx
-	cmpq	$127, %rcx
-	jbe	.ctxt_etag_mistmatch
-	movq	%rdx, %rax
-	jmp	.ctxt_etag_try_128
-
-.ctxt_etag_64:
-	vlddqu	(%rax), %ymm3
-	vlddqu	32(%rax), %ymm2
-	vmovdqa	__ZERO, %ymm5
-	vmovdqa	__DEL, %ymm4
-	vmovdqa	__EXCL, %ymm0
-	vpsubb	%ymm5, %ymm3, %ymm1
-	vpsubb	%ymm5, %ymm2, %ymm5
-	vpcmpeqb %ymm4, %ymm3, %ymm6
-	vpcmpgtb %ymm1, %ymm0, %ymm1
-	vpcmpeqb %ymm4, %ymm2, %ymm4
-	vpor	%ymm6, %ymm1, %ymm1
-	vpcmpgtb %ymm5, %ymm0, %ymm0
-	vpor	%ymm4, %ymm0, %ymm0
-	vmovdqa	__DQUOTE, %ymm4
-	vpcmpeqb %ymm4, %ymm3, %ymm3
-	vpcmpeqb %ymm4, %ymm2, %ymm2
-	vpor	%ymm3, %ymm1, %ymm1
-	vpor	%ymm2, %ymm0, %ymm0
-	vpmovmskb %ymm1, %r8d
-	vpmovmskb %ymm0, %ecx
-	movslq	%r8d, %r8
-	salq	$32, %rcx
-	orq	%r8, %rcx
-	tzcnt	%rcx, %rcx
-	cmpq	$63, %rcx
-	jbe	.ctxt_etag_mistmatch
-	movq	%rdx, %rax
-	jmp	.ctxt_etag_try_32
-
-.ctxt_etag_32:
-	vlddqu	(%rax), %ymm1
-	vmovdqa	__EXCL, %ymm0
-	vpsubb	__ZERO, %ymm1, %ymm2
-	vpcmpgtb %ymm2, %ymm0, %ymm0
-	vpcmpeqb __DEL, %ymm1, %ymm2
-	vpcmpeqb __DQUOTE, %ymm1, %ymm1
-	vpor	%ymm2, %ymm0, %ymm0
-	vpor	%ymm1, %ymm0, %ymm0
-	vpmovmskb %ymm0, %ecx
-	tzcnt	%ecx, %ecx
-	movl	%ecx, %ecx
-	cmpq	$31, %rcx
-	jbe	.ctxt_etag_mistmatch
-	movq	%rdx, %rax
-	jmp	.ctxt_etag_try_16
-
-.ctxt_etag_16:
-	vlddqu	(%rax), %xmm1
-	vmovdqa	__EXCL, %xmm0
-	vpsubb	__ZERO, %xmm1, %xmm2
-	vpcmpgtb %xmm2, %xmm0, %xmm0
-	vpcmpeqb __DEL, %xmm1, %xmm2
-	vpcmpeqb __DQUOTE, %xmm1, %xmm1
-	vpor	%xmm2, %xmm0, %xmm0
-	vpor	%xmm1, %xmm0, %xmm0
-	vpmovmskb %xmm0, %ecx
-	orl	$0xffffffffffff0000, %ecx
-	tzcnt	%ecx, %ecx
-	movl	%ecx, %ecx
-	cmpq	$15, %rcx
-	jbe	.ctxt_etag_mistmatch
-	movq	%rdx, %rax
-	jmp	.ctxt_etag_tail
-
-.ctxt_etag_mistmatch:
-	subq	%rdi, %rax
-	addq	%rcx, %rax
-	ret
-
-	/* The tail loops processes string lengths in range [4, 15]. */
-.ctxt_etag_tail_loop:
-	movzbl	-4(%rcx), %edx
-	movzbl	-3(%rcx), %r10d
-	movzbl	-2(%rcx), %r8d
-	movzbl	-1(%rcx), %r9d
-	movzbl	etag(%rdx), %edx
-	movzbl	etag(%r8), %r8d
-	movzbl	etag(%r9), %r9d
-	movl	%edx, %r11d
-	andb	etag(%r10), %r11b
-	movl	%r11d, %r10d
-	movl	%r8d, %r11d
-	andl	%r9d, %r11d
-	testb	%r10b, %r11b
-	je	.ctxt_etag_end
-	movq	%rcx, %rax
-.ctxt_etag_tail:
-	leaq	4(%rax), %rcx
-	cmpq	%rcx, %rsi
-	jnb	.ctxt_etag_tail_loop
-	subq	%rax, %rsi
-	cmpq	$2, %rsi
-	je	.ctxt_etag_tail_2
-	cmpq	$3, %rsi
-	je	.ctxt_etag_tail_3
-	cmpq	$1, %rsi
-	je	.ctxt_etag_tail_1
-	subq	%rdi, %rax
-	movq	%rax, %rsi
-	xorl	%eax, %eax
-.ctxt_etag_add_len:
-	addq	%rsi, %rax
-	ret
-.ctxt_etag_end:
-	subq	%rdi, %rax
-	testb	%r10b, %r10b
-	je	.ctxt_etag_mismatch_1
-	addl	%r8d, %r9d
-	testl	%r8d, %r8d
-	cmovne	%r9d, %r8d
-	movl	%r8d, %r8d
-	leaq	2(%rax,%r8), %rax
-	ret
-.ctxt_etag_mismatch_1:
-	addq	%rdx, %rax
-	ret
-.ctxt_etag_tail_1:
-	movzbl	(%rax), %edx
-	subq	%rdi, %rax
-	movq	%rax, %rsi
-	movzbl	etag(%rdx), %ecx
-.ctxt_etag_add_tail_len:
-	movl	%ecx, %eax
-	jmp	.ctxt_etag_add_len
-.ctxt_etag_tail_2:
-	xorl	%edx, %edx
-.ctxt_etag_do_tail_2:
-	movzbl	(%rax), %ecx
-	movq	%rax, %rsi
-	movzbl	1(%rax), %eax
-	subq	%rdi, %rsi
-	movzbl	etag(%rcx), %ecx
-	testb	%cl, etag(%rax)
-	je	.ctxt_etag_add_tail_len
-	leaq	2(%rsi,%rdx), %rax
-	ret
-.ctxt_etag_tail_3:
-	movzbl	2(%rax), %edx
-	movzbl	etag(%rdx), %edx
-	jmp	.ctxt_etag_do_tail_2
-
+FULL_MATCH etag __EXCL 1 __DQUOTE
 ENDPROC(__tfw_match_etag)
