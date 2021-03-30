@@ -44,10 +44,13 @@
  *		  used to accept HTTP header values;
  * @_xff	- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
  * @_cookie	- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
+ * @etag	- ASCII characters for HTTP Etag header (RFC 7232);
  * @ZERO	- ASCII zero upper bound for matching 0 < v < SP;
- * @SP		- ASCII SP low bound for matching 0 < v < SP;
+ * @SP		- ASCII SP low bound for matching 0 < v < SP/DQUOTE;
  * @HTAB	- ASCII HTAB;
  * @DEL		- ASCII DEL;
+ * @DQUOTE	- ASCII DQUOTE low bound for matching 0 < v < DQUOTE;
+ * @EXCL	- ASCII Exclamation mark;
  * @ASCII	- most significant bit to split ASCII table to 2 halves;
  */
 .section .rodata
@@ -88,6 +91,15 @@ __C:
 	/* ASCII DEL (0x78). */
 	.quad	0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f
 	.quad	0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f
+	/* ASCII DQUOTE. */
+	.quad	0x2222222222222222, 0x2222222222222222
+	.quad	0x2222222222222222, 0x2222222222222222
+	/*
+	 * ASCII Exclamation mark '!' to use in signed comparison,
+	 * ' '(0x21) - 0x80 = 0xa1.
+	 */
+	.quad	0xa1a1a1a1a1a1a1a1, 0xa1a1a1a1a1a1a1a1
+	.quad	0xa1a1a1a1a1a1a1a1, 0xa1a1a1a1a1a1a1a1
 	/*
 	 * URI-accepted characters, in little endian.
 	 *
@@ -141,15 +153,17 @@ __C:
 #define __SP			__C+0x0e0(%rip)
 #define __HTAB			__C+0x100(%rip)
 #define __DEL			__C+0x120(%rip)
+#define __DQUOTE		__C+0x140(%rip)
+#define __EXCL			__C+0x160(%rip)
 #define __ASCII			__ZERO
 
 /* Allowed alphabet passed to processing functions by pointer. */
-#define __URI			$__C+0x140
-#define __TOKEN			$__C+0x160
-#define __QETOKEN		$__C+0x180
-#define __NCTL			$__C+0x1a0
-#define __XFF			$__C+0x1c0
-#define __COOKIE		$__C+0x1e0
+#define __URI			$__C+0x180
+#define __TOKEN			$__C+0x1a0
+#define __QETOKEN		$__C+0x1c0
+#define __NCTL			$__C+0x1e0
+#define __XFF			$__C+0x200
+#define __COOKIE		$__C+0x220
 
 .align 64
 
@@ -317,6 +331,30 @@ cookie:
 	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+/*
+ * ASCII codes for Etag value defined by RFC 7232 2.3 as
+ *
+ *	%x21 / %x23-7E / obs-text
+ *	; VCHAR except double quotes, plus obs-text
+ */
+etag:
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
 
 #ifdef DEBUG
 
@@ -2300,3 +2338,272 @@ ENTRY(tfw_match_cookie)
 	movq	$custom_cookie, %rdx
 	jmp	__tfw_match_custom
 ENDPROC(tfw_match_cookie)
+
+ENTRY(__tfw_match_etag)
+	/* Process strings of length not more than 4 bytes separately. */
+	cmpq	$4, %rsi
+	ja	.ctxt_etag_long_str
+	cmpq	$2, %rsi
+	je	.ctxt_etag_len_2
+	jbe	.ctxt_etag_len_10
+	cmpq	$3, %rsi
+	je	.ctxt_etag_len_3
+	cmpq	$4, %rsi
+	jne	.ctxt_etag_len_0
+	movzbl	3(%rdi), %eax
+	movzbl	etag(%rax), %esi
+.ctxt_etag_do_len_3:
+	movzbl	2(%rdi), %eax
+	movzbl	etag(%rax), %edx
+.ctxt_etag_do_len_2:
+	movzbl	(%rdi), %eax
+	movzbl	1(%rdi), %ecx
+	movzbl	etag(%rax), %eax
+	testb	%al, etag(%rcx)
+	je	.ctxt_etag_match1
+	leal	2(%rdx,%rsi), %eax
+	testl	%edx, %edx
+	movl	$2, %edx
+	cmove	%rdx, %rax
+	ret
+.ctxt_etag_len_10:
+	cmpq	$1, %rsi
+	jne	.ctxt_etag_len_0
+	movzbl	(%rdi), %eax
+	movzbl	etag(%rax), %eax
+	ret
+.ctxt_etag_len_0:
+	xorl	%eax, %eax
+	ret
+.ctxt_etag_match1:
+	rep ret
+.ctxt_etag_len_3:
+	xorl	%esi, %esi
+	jmp	.ctxt_etag_do_len_3
+.ctxt_etag_len_2:
+	xorl	%esi, %esi
+	xorl	%edx, %edx
+	jmp	.ctxt_etag_do_len_2
+
+	/*
+	 * The main matching part split into 128, 64, 32, 16 and the tail
+	 * processing blocks.
+	 */
+.ctxt_etag_long_str:
+	addq	%rdi, %rsi
+	movq	%rdi, %rax
+.ctxt_etag_try_128:
+	leaq	128(%rax), %rdx
+	cmpq	%rdx, %rsi
+	jnb	.ctxt_etag_128
+	leaq	64(%rax), %rdx
+	cmpq	%rdx, %rsi
+	jnb	.ctxt_etag_64
+.ctxt_etag_try_32:
+	leaq	32(%rax), %rdx
+	cmpq	%rdx, %rsi
+	jnb	.ctxt_etag_32
+.ctxt_etag_try_16:
+	leaq	16(%rax), %rdx
+	cmpq	%rdx, %rsi
+	jb	.ctxt_etag_tail
+	jmp	.ctxt_etag_16
+
+	/* Vector processing blocks. */
+.ctxt_etag_128:
+	vmovdqa	__ZERO, %ymm5
+	vmovdqa	__DEL, %ymm4
+	vmovdqa	__EXCL, %ymm1
+	vlddqu	(%rax), %ymm7
+	vlddqu	32(%rax), %ymm9
+	vpcmpeqb %ymm4, %ymm7, %ymm2
+	vpsubb	%ymm5, %ymm7, %ymm0
+	vlddqu	64(%rax), %ymm6
+	vpsubb	%ymm5, %ymm9, %ymm3
+	vlddqu	96(%rax), %ymm8
+	vpcmpgtb %ymm0, %ymm1, %ymm0
+	vpcmpgtb %ymm3, %ymm1, %ymm3
+	vpor	%ymm2, %ymm0, %ymm0
+	vpcmpeqb %ymm4, %ymm9, %ymm2
+	vpcmpeqb %ymm4, %ymm6, %ymm10
+	vpor	%ymm2, %ymm3, %ymm3
+	vpsubb	%ymm5, %ymm6, %ymm2
+	vpsubb	%ymm5, %ymm8, %ymm5
+	vpcmpeqb %ymm4, %ymm8, %ymm4
+	vpcmpgtb %ymm2, %ymm1, %ymm2
+	vpcmpgtb %ymm5, %ymm1, %ymm1
+	vpor	%ymm10, %ymm2, %ymm2
+	vpor	%ymm4, %ymm1, %ymm1
+	vmovdqa	__DQUOTE, %ymm4
+	vpcmpeqb %ymm4, %ymm7, %ymm7
+	vpcmpeqb %ymm4, %ymm9, %ymm9
+	vpor	%ymm7, %ymm0, %ymm0
+	vpcmpeqb %ymm4, %ymm8, %ymm8
+	vpor	%ymm9, %ymm3, %ymm3
+	vpmovmskb %ymm0, %r8d
+	vpcmpeqb %ymm4, %ymm6, %ymm0
+	vpor	%ymm8, %ymm1, %ymm1
+	vpmovmskb %ymm3, %ecx
+	vpor	%ymm0, %ymm2, %ymm0
+	vpmovmskb %ymm1, %r9d
+	movq	%rcx, %r11
+	movslq	%r8d, %rcx
+	salq	$32, %r11
+	salq	$32, %r9
+	vpmovmskb %ymm0, %r10d
+	orq	%r11, %rcx
+	tzcnt	%rcx, %rcx
+	movslq	%r10d, %r8
+	orq	%r8, %r9
+	tzcnt	%r9, %r9
+	cmpq	$63, %rcx
+	jbe	.ctxt_etag_mistmatch
+	leaq	64(%r9), %rcx
+	cmpq	$127, %rcx
+	jbe	.ctxt_etag_mistmatch
+	movq	%rdx, %rax
+	jmp	.ctxt_etag_try_128
+
+.ctxt_etag_64:
+	vlddqu	(%rax), %ymm3
+	vlddqu	32(%rax), %ymm2
+	vmovdqa	__ZERO, %ymm5
+	vmovdqa	__DEL, %ymm4
+	vmovdqa	__EXCL, %ymm0
+	vpsubb	%ymm5, %ymm3, %ymm1
+	vpsubb	%ymm5, %ymm2, %ymm5
+	vpcmpeqb %ymm4, %ymm3, %ymm6
+	vpcmpgtb %ymm1, %ymm0, %ymm1
+	vpcmpeqb %ymm4, %ymm2, %ymm4
+	vpor	%ymm6, %ymm1, %ymm1
+	vpcmpgtb %ymm5, %ymm0, %ymm0
+	vpor	%ymm4, %ymm0, %ymm0
+	vmovdqa	__DQUOTE, %ymm4
+	vpcmpeqb %ymm4, %ymm3, %ymm3
+	vpcmpeqb %ymm4, %ymm2, %ymm2
+	vpor	%ymm3, %ymm1, %ymm1
+	vpor	%ymm2, %ymm0, %ymm0
+	vpmovmskb %ymm1, %r8d
+	vpmovmskb %ymm0, %ecx
+	movslq	%r8d, %r8
+	salq	$32, %rcx
+	orq	%r8, %rcx
+	tzcnt	%rcx, %rcx
+	cmpq	$63, %rcx
+	jbe	.ctxt_etag_mistmatch
+	movq	%rdx, %rax
+	jmp	.ctxt_etag_try_32
+
+.ctxt_etag_32:
+	vlddqu	(%rax), %ymm1
+	vmovdqa	__EXCL, %ymm0
+	vpsubb	__ZERO, %ymm1, %ymm2
+	vpcmpgtb %ymm2, %ymm0, %ymm0
+	vpcmpeqb __DEL, %ymm1, %ymm2
+	vpcmpeqb __DQUOTE, %ymm1, %ymm1
+	vpor	%ymm2, %ymm0, %ymm0
+	vpor	%ymm1, %ymm0, %ymm0
+	vpmovmskb %ymm0, %ecx
+	tzcnt	%ecx, %ecx
+	movl	%ecx, %ecx
+	cmpq	$31, %rcx
+	jbe	.ctxt_etag_mistmatch
+	movq	%rdx, %rax
+	jmp	.ctxt_etag_try_16
+
+.ctxt_etag_16:
+	vlddqu	(%rax), %xmm1
+	vmovdqa	__EXCL, %xmm0
+	vpsubb	__ZERO, %xmm1, %xmm2
+	vpcmpgtb %xmm2, %xmm0, %xmm0
+	vpcmpeqb __DEL, %xmm1, %xmm2
+	vpcmpeqb __DQUOTE, %xmm1, %xmm1
+	vpor	%xmm2, %xmm0, %xmm0
+	vpor	%xmm1, %xmm0, %xmm0
+	vpmovmskb %xmm0, %ecx
+	orl	$0xffffffffffff0000, %ecx
+	tzcnt	%ecx, %ecx
+	movl	%ecx, %ecx
+	cmpq	$15, %rcx
+	jbe	.ctxt_etag_mistmatch
+	movq	%rdx, %rax
+	jmp	.ctxt_etag_tail
+
+.ctxt_etag_mistmatch:
+	subq	%rdi, %rax
+	addq	%rcx, %rax
+	ret
+
+	/* The tail loops processes string lengths in range [4, 15]. */
+.ctxt_etag_tail_loop:
+	movzbl	-4(%rcx), %edx
+	movzbl	-3(%rcx), %r10d
+	movzbl	-2(%rcx), %r8d
+	movzbl	-1(%rcx), %r9d
+	movzbl	etag(%rdx), %edx
+	movzbl	etag(%r8), %r8d
+	movzbl	etag(%r9), %r9d
+	movl	%edx, %r11d
+	andb	etag(%r10), %r11b
+	movl	%r11d, %r10d
+	movl	%r8d, %r11d
+	andl	%r9d, %r11d
+	testb	%r10b, %r11b
+	je	.ctxt_etag_end
+	movq	%rcx, %rax
+.ctxt_etag_tail:
+	leaq	4(%rax), %rcx
+	cmpq	%rcx, %rsi
+	jnb	.ctxt_etag_tail_loop
+	subq	%rax, %rsi
+	cmpq	$2, %rsi
+	je	.ctxt_etag_tail_2
+	cmpq	$3, %rsi
+	je	.ctxt_etag_tail_3
+	cmpq	$1, %rsi
+	je	.ctxt_etag_tail_1
+	subq	%rdi, %rax
+	movq	%rax, %rsi
+	xorl	%eax, %eax
+.ctxt_etag_add_len:
+	addq	%rsi, %rax
+	ret
+.ctxt_etag_end:
+	subq	%rdi, %rax
+	testb	%r10b, %r10b
+	je	.ctxt_etag_mismatch_1
+	addl	%r8d, %r9d
+	testl	%r8d, %r8d
+	cmovne	%r9d, %r8d
+	movl	%r8d, %r8d
+	leaq	2(%rax,%r8), %rax
+	ret
+.ctxt_etag_mismatch_1:
+	addq	%rdx, %rax
+	ret
+.ctxt_etag_tail_1:
+	movzbl	(%rax), %edx
+	subq	%rdi, %rax
+	movq	%rax, %rsi
+	movzbl	etag(%rdx), %ecx
+.ctxt_etag_add_tail_len:
+	movl	%ecx, %eax
+	jmp	.ctxt_etag_add_len
+.ctxt_etag_tail_2:
+	xorl	%edx, %edx
+.ctxt_etag_do_tail_2:
+	movzbl	(%rax), %ecx
+	movq	%rax, %rsi
+	movzbl	1(%rax), %eax
+	subq	%rdi, %rsi
+	movzbl	etag(%rcx), %ecx
+	testb	%cl, etag(%rax)
+	je	.ctxt_etag_add_tail_len
+	leaq	2(%rsi,%rdx), %rax
+	ret
+.ctxt_etag_tail_3:
+	movzbl	2(%rax), %edx
+	movzbl	etag(%rdx), %edx
+	jmp	.ctxt_etag_do_tail_2
+
+ENDPROC(__tfw_match_etag)

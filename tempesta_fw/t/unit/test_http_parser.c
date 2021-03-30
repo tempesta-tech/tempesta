@@ -2123,7 +2123,7 @@ TEST(http_parser, etag)
 	"\r\n"								\
 	"0123456789"
 
-#define ETAG_VALUE	"3f80f-1b6-3e1cb03b"
+#define ETAG_VALUE	"8278-DWzgdpjT5G+X/kwWVjosOBLzcbo"
 #define ETAG_H		"ETag:   \""
 #define ETAG_TAIL	"\"  \r\n"
 #define ETAG		ETAG_H ETAG_VALUE ETAG_TAIL
