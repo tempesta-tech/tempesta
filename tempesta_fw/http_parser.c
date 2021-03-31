@@ -2484,7 +2484,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		return CSTR_NEQ;
 	}
 
-	/* End of token */
+	/* End of ETag */
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
