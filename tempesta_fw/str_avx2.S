@@ -5,7 +5,7 @@
  * description and performance comparison with other implementations at
  * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  *
- * Copyright (C) 2016-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -45,11 +45,11 @@
  * @_xff	- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
  * @_cookie	- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
  * @etag	- ASCII characters for HTTP Etag header (RFC 7232);
- * @ZERO	- ASCII zero upper bound for matching 0 < v < SP;
- * @SP		- ASCII SP low bound for matching 0 < v < SP/DQUOTE;
+ * @ZERO	- ASCII zero low bound for matching 0 < v < SP;
+ * @SP		- ASCII SP upper bound for matching 0 < v < SP/DQUOTE;
  * @HTAB	- ASCII HTAB;
  * @DEL		- ASCII DEL;
- * @DQUOTE	- ASCII DQUOTE low bound for matching 0 < v < DQUOTE;
+ * @DQUOTE	- ASCII DQUOTE upper bound for matching 0 < v < DQUOTE;
  * @EXCL	- ASCII Exclamation mark;
  * @ASCII	- most significant bit to split ASCII table to 2 halves;
  */
@@ -1982,8 +1982,11 @@ ENTRY(__tfw_strspn_simd)
 END(__tfw_strspn_simd) /* for local sibling calls only */
 
 /**
- * CTEXT | VCHAR handles both the halves of ASCII table, so we use
- * separate logic to match the characters set.
+ * CTEXT | VCHAR and Etag value handles both the halves of ASCII table, so we
+ * use separate logic to match the characters set.
+ * NAME - name of ASCII codes table to accept
+ * START - lower bound for accept characters for range START < v < 0xFF
+ * EXCLUDE - exclude/include CHAR flag
  * %RDI - the string pointer, %RSI - the string length.
  * See strspn.c C implementation in the benchmark.
  */
