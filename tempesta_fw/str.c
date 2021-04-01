@@ -6,7 +6,7 @@
  * configuration phase.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -77,6 +77,7 @@ bool custom_nctl_enabled = false;
 bool custom_ctext_vchar_enabled = false;
 bool custom_xff_enabled = false;
 bool custom_cookie_enabled = false;
+bool custom_etag_enabled = false;
 
 unsigned char custom_uri[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_token[256] ____cacheline_aligned __read_mostly;
@@ -85,14 +86,15 @@ unsigned char custom_nctl[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_ctext_vchar[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_xff[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_cookie[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_etag[256] ____cacheline_aligned __read_mostly;
 
 #ifdef AVX2
 
 /**
  * Custom alphabets (top and bottom ASCII halves) for AVX2 processing:
- * uri, token, qetoken, nctl, ctext_vchar, xff, cookie.
+ * uri, token, qetoken, nctl, ctext_vchar, xff, cookie, etag.
  */
-unsigned char __CUSTOM[14][32] ____cacheline_aligned __read_mostly = {{0}};
+unsigned char __CUSTOM[16][32] ____cacheline_aligned __read_mostly = {{0}};
 
 extern size_t __tfw_match_custom(const char *str, size_t len,
 				 const unsigned char *a,
@@ -107,7 +109,7 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 
 	if (custom_ctext_vchar_enabled)
 		r = __tfw_match_custom(str, len, custom_ctext_vchar,
-				       __CUSTOM[4], __CUSTOM[5]);
+				       __CUSTOM[8], __CUSTOM[9]);
 	else
 		r = __tfw_match_ctext_vchar(str, len);
 
@@ -116,6 +118,25 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 	return r;
 }
 EXPORT_SYMBOL(tfw_match_ctext_vchar);
+
+extern size_t __tfw_match_etag(const char *str, size_t len);
+
+size_t
+tfw_match_etag(const char *str, size_t len)
+{
+	size_t r;
+
+	if (custom_etag_enabled)
+		r = __tfw_match_custom(str, len, custom_etag,
+				       __CUSTOM[14], __CUSTOM[15]);
+	else
+		r = __tfw_match_etag(str, len);
+
+	T_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
+
+	return r;
+}
+EXPORT_SYMBOL(tfw_match_etag);
 
 static void
 __init_custom_a(const unsigned char *cfg_a, unsigned char *a, size_t c_off)
@@ -153,6 +174,7 @@ TFW_INIT_CUSTOM_A(nctl, 3);
 TFW_INIT_CUSTOM_A(ctext_vchar, 4);
 TFW_INIT_CUSTOM_A(xff, 5);
 TFW_INIT_CUSTOM_A(cookie, 6);
+TFW_INIT_CUSTOM_A(etag, 7);
 
 #else
 /**
@@ -327,6 +349,31 @@ static const unsigned char cookie[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
+/*
+ * ASCII codes for Etag value defined by RFC 7232 2.3 as
+ *
+ *	%x21 / %x23-7E / obs-text
+ *	; VCHAR except double quotes, plus obs-text
+ */
+static const unsigned char etag[] = {
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+};
+
 static size_t
 __tfw_match_slow(const char *str, size_t len, const unsigned char *tbl)
 {
@@ -368,6 +415,7 @@ TFW_MATCH(nctl);
 TFW_MATCH(ctext_vchar);
 TFW_MATCH(xff);
 TFW_MATCH(cookie);
+TFW_MATCH(etag);
 
 TFW_INIT_CUSTOM_A(uri);
 TFW_INIT_CUSTOM_A(token);
@@ -376,6 +424,7 @@ TFW_INIT_CUSTOM_A(nctl);
 TFW_INIT_CUSTOM_A(ctext_vchar);
 TFW_INIT_CUSTOM_A(xff);
 TFW_INIT_CUSTOM_A(cookie);
+TFW_INIT_CUSTOM_A(etag);
 
 #endif /* AVX2 */
 

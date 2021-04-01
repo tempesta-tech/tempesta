@@ -2473,7 +2473,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(I_Etag_Val) {
 		weak = parser->hdr.flags & TFW_STR_ETAG_WEAK;
-		__FSM_I_MATCH_MOVE_fixup(token, I_Etag_Val,
+		__FSM_I_MATCH_MOVE_fixup(etag, I_Etag_Val,
 					 (TFW_STR_VALUE | weak));
 		c = *(p + __fsm_sz);
 		if (likely(c == '"')) {
@@ -2484,7 +2484,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		return CSTR_NEQ;
 	}
 
-	/* End of token */
+	/* End of ETag */
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
