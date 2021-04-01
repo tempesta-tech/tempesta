@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -2123,7 +2123,7 @@ TEST(http_parser, etag)
 	"\r\n"								\
 	"0123456789"
 
-#define ETAG_VALUE	"3f80f-1b6-3e1cb03b"
+#define ETAG_VALUE	"8278-DWzgdpjT5G+X/kwWVjosOBLzcbo"
 #define ETAG_H		"ETag:   \""
 #define ETAG_TAIL	"\"  \r\n"
 #define ETAG		ETAG_H ETAG_VALUE ETAG_TAIL

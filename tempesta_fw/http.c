@@ -6640,6 +6640,7 @@ TFW_HTTP_CFG_CUSTOM_BRANGE(nctl);
 TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar);
 TFW_HTTP_CFG_CUSTOM_BRANGE(xff);
 TFW_HTTP_CFG_CUSTOM_BRANGE(cookie);
+TFW_HTTP_CFG_CUSTOM_BRANGE(etag);
 
 static TfwCfgSpec tfw_http_specs[] = {
 	{
@@ -6713,6 +6714,13 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_brange_cookie,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_brange_cookie,
+	},
+	{
+		.name = "http_etag_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_etag,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_etag,
 	},
 	{ 0 }
 };
