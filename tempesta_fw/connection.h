@@ -440,6 +440,11 @@ static inline void
 tfw_connection_unlink_from_sk(struct sock *sk)
 {
 	BUG_ON(!sk->sk_user_data);
+
+	sk->sk_data_ready = NULL;
+	sk->sk_state_change = NULL;
+	sk->sk_write_xmit = NULL;
+
 	sk->sk_user_data = NULL;
 }
 

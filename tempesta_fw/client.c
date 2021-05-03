@@ -250,6 +250,14 @@ EXPORT_SYMBOL(tfw_client_obtain);
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.
+ *
+ * TODO #515: tfw_client_for_each() can cause a scheduler stall message in
+ * kernel log. Earlier TfwClients were organised as a list and looping through
+ * all the clients involved a schedule() call like all other long loops in
+ * process context. So it was safe to dive into a long tfw_client_for_each()
+ * loop. But after TDB become the storage for TfwClient instances, a new
+ * procedure tdb_entry_walk() was introduced, that can grab the scheduler for
+ * a long time while interrupts are disabled.
  */
 int
 tfw_client_for_each(int (*fn)(void *))
