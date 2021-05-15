@@ -117,8 +117,8 @@ void tfw_objects_wait_release(const atomic64_t *counter, int delay,
 static inline void
 tfw_srv_loop_sched_rcu(void)
 {
-	cond_resched_rcu_qs();
-	rcu_barrier_bh();
+	cond_resched();
+	rcu_barrier();
 }
 
 #endif /* __TEMPESTA_FW_H__ */

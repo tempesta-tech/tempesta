@@ -27,9 +27,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <asm/sync_bitops.h>
 #include <linux/bitops.h>
 #include <linux/slab.h>
+#include <asm/sync_bitops.h>
 
 #include "lib/str.h"
 #include "htrie.h"
@@ -924,7 +924,7 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 		p->d_wcl = tdb_alloc_blk(hdr);
 	}
 
-	TDB_DBG("init db header: nwb=%lu db_size=%lu rec_len=%u\n",
+	TDB_DBG("init db header: nwb=%llu db_size=%lu rec_len=%u\n",
 		atomic64_read(&hdr->nwb), hdr->dbsz, hdr->rec_len);
 
 	return hdr;

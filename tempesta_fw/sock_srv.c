@@ -293,9 +293,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 }
 
 static void
-tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
+tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 {
-	TfwSrvConn *srv_conn = (TfwSrvConn *)data;
+	TfwSrvConn *srv_conn = from_timer(srv_conn, t, timer);
 
 	/* A new socket is created for each connect attempt. */
 	tfw_sock_srv_connect_try(srv_conn);
@@ -311,9 +311,7 @@ static inline void
 __setup_retry_timer(TfwSrvConn *srv_conn)
 {
 	__reset_retry_timer(srv_conn);
-	setup_timer(&srv_conn->timer,
-		    tfw_sock_srv_connect_retry_timer_cb,
-		    (unsigned long)srv_conn);
+	timer_setup(&srv_conn->timer, tfw_sock_srv_connect_retry_timer_cb, 0);
 }
 
 static inline void
@@ -628,7 +626,7 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)srv_conn);
 	BUG_ON(!list_empty(&srv_conn->nip_queue));
-	BUG_ON(ACCESS_ONCE(srv_conn->qsize));
+	BUG_ON(READ_ONCE(srv_conn->qsize));
 
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
@@ -752,9 +750,9 @@ tfw_sock_srv_grace_stop(TfwServer *srv)
 }
 
 static void
-tfw_sock_srv_grace_shutdown_cb(unsigned long data)
+tfw_sock_srv_grace_shutdown_cb(struct timer_list *t)
 {
-	TfwServer *srv = (TfwServer *)data;
+	TfwServer *srv = from_timer(srv, t, gs_timer);
 
 	tfw_sock_srv_grace_stop(srv);
 }
@@ -781,8 +779,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 		if (atomic64_read(&srv->sess_n))
 			tfw_server_start_sched(srv);
 
-		setup_timer(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb,
-			    (unsigned long)srv);
+		timer_setup(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb, 0);
 		tfw_sock_srv_grace_list_add(srv);
 		mod_timer(&srv->gs_timer,
 		          jiffies + (unsigned long)tfw_cfg_grace_time * HZ);

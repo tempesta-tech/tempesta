@@ -2124,8 +2124,8 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		r = ttls_parse_client_hello(tls, buf, len, hh_len, read);
 		if (r)
 			return r;
-		/* Fall through. */
 		tls->state = TTLS_SERVER_HELLO;
+		fallthrough;
 	}
 	/*
 	 *  ==>   ServerHello
@@ -2222,13 +2222,14 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 			return T_OK;
 		}
 		tls->state = TTLS_HANDSHAKE_WRAPUP;
-		/* Fall through. */
+		fallthrough;
 	}
 
 	T_FSM_STATE(TTLS_HANDSHAKE_WRAPUP) {
 		resumed = tls->hs->resume;
 		ttls_handshake_wrapup(tls);
 		tls->state = TTLS_HANDSHAKE_OVER;
+		fallthrough;
 	}
 	T_FSM_STATE(TTLS_HANDSHAKE_OVER) {
 		WARN_ON_ONCE(r);

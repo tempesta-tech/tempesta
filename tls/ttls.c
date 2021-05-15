@@ -1171,6 +1171,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * Read IV for the encrypted alert as we do this for
 		 * application data records.
 		 */
+		fallthrough;
 
 	case TTLS_MSG_APPLICATION_DATA:
 		if (unlikely(!ready))
@@ -2467,9 +2468,9 @@ ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 {
 	switch (sig_alg) {
 	case TTLS_PK_RSA:
-		return set->rsa && (1 << md_alg);
+		return set->rsa & (1 << md_alg);
 	case TTLS_PK_ECDSA:
-		return set->ecdsa && (1 << md_alg);
+		return set->ecdsa & (1 << md_alg);
 	default:
 		return false;
 	}

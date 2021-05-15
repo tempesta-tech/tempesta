@@ -289,7 +289,7 @@ struct ttls_alpn_proto {
  */
 typedef struct {
 	TlsX509Crt	*peer_cert;
-	time_t		start;
+	long		start;
 	int		etm;
 	unsigned short	ciphersuite;
 	unsigned char	id_len;

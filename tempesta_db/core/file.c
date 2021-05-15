@@ -4,7 +4,7 @@
  * File mapping and IO.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies.
+ * Copyright (C) 2015-2021 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -168,7 +168,6 @@ ma_free(unsigned long addr, int node)
 static unsigned long
 tempesta_map_file(struct file *file, unsigned long len, int node)
 {
-	mm_segment_t oldfs;
 	MArea *ma;
 	loff_t off = 0;
 	unsigned long addr = -ENOMEM;
@@ -195,9 +194,6 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 
 	get_file(file);
 
-	oldfs = get_fs();
-	set_fs(get_ds());
-
 	addr = kernel_read(file, (char *)ma->start, len, &off);
 	if (addr != len) {
 		TDB_ERR("Cannot read %lu bytes to addr %p, ret = %ld\n",
@@ -205,12 +201,10 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 		fput(file);
 		__ma_free(ma);
 		addr = -EIO;
-		goto err_fs;
+		goto err;
 	}
 
 	addr = ma->start;
-err_fs:
-	set_fs(oldfs);
 err:
 	mutex_unlock(&map_mtx);
 
@@ -225,7 +219,6 @@ static void
 tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 		    int node)
 {
-	mm_segment_t oldfs;
 	MArea *ma;
 	loff_t off = 0;
 	ssize_t r;
@@ -239,18 +232,13 @@ tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 		goto err;
 	}
 
-	oldfs = get_fs();
-	set_fs(get_ds());
-
 	r = kernel_write(file, (void *)ma->start, len, &off);
 	if (r != len) {
 		TDB_WARN("Cannot sync mapping %lx of size %lu pages\n",
 			 ma->start, ma->pages);
-		goto err_fs;
+		goto err;
 	}
 
-err_fs:
-	set_fs(oldfs);
 err:
 	fput(file);
 	ma_free(addr, node);

@@ -40,7 +40,7 @@ struct sk_buff {
 
 			union {
 				ktime_t		tstamp;
-				u64		skb_mstamp;
+				u64		skb_mstamp_ns;
 			};
 		};
 		struct rb_node	rbnode; /* used in netem & tcp stack */
@@ -68,7 +68,6 @@ struct sk_buff {
 				fclone:2,
 				peeked:1,
 				head_frag:1,
-				xmit_more:1,
 				skb_page:1;
 
 	__u32			headers_start[0];

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -97,9 +97,6 @@ TEST_SUITE(http_match);
 TEST_SUITE(http_msg);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
-TEST_SUITE(sched_ratio);
-TEST_SUITE(sched_hash);
-TEST_SUITE(http_tbl);
 TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
@@ -126,9 +123,6 @@ test_run_all(void)
 	TEST_SUITE_RUN(http_msg);
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);
-	TEST_SUITE_RUN(sched_ratio);
-	TEST_SUITE_RUN(sched_hash);
-	TEST_SUITE_RUN(http_tbl);
 	TEST_SUITE_RUN(hpack);
 
 	kernel_fpu_end();

@@ -175,14 +175,16 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	size_t i, rc;
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
-	unsigned int qsize[srv->conn_n];
+	unsigned int *qsize;
 	bool hm = test_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.val = val,
-		.psz = ARRAY_SIZE(tfw_pstats_ith)
 	};
+
+	if (!(qsize = kmalloc(sizeof(int) * srv->conn_n, GFP_KERNEL)))
+		return -ENOMEM;
 
 	tfw_apm_stats_bh(srv->apmref, &pstats);
 
@@ -204,10 +206,10 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	}
 
 #ifdef DEBUG
-	seq_printf(seq, "References\t\t\t: %zd\n",
+	seq_printf(seq, "References\t\t\t: %lld\n",
 			atomic64_read(&srv->refcnt));
 #endif
-	seq_printf(seq, "Total pinned sessions\t\t: %zd\n",
+	seq_printf(seq, "Total pinned sessions\t\t: %lld\n",
 			atomic64_read(&srv->sess_n));
 	seq_printf(seq, "Total schedulable connections\t: %zd\n",
 			srv->conn_n - rc);
@@ -234,6 +236,8 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	for (i = 0; i < srv->conn_n; ++i)
 		seq_printf(seq, "\tConnection %03zd queue size\t: %u\n",
 				i, qsize[i]);
+
+	kfree(qsize);
 
 	return 0;
 #undef SPRNE
@@ -265,12 +269,12 @@ static struct proc_dir_entry *tfw_procfs_perfstat;
 static struct proc_dir_entry *tfw_procfs_srvstats;
 static struct proc_dir_entry *tfw_procfs_sgstats;
 
-static struct file_operations tfw_srvstats_fops = {
-	.owner		= THIS_MODULE,
-	.open		= tfw_srvstats_seq_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
+static struct proc_ops tfw_srvstats_fops = {
+	.proc_flags	= PROC_ENTRY_PERMANENT,
+	.proc_open	= tfw_srvstats_seq_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
 };
 
 static int
@@ -300,7 +304,6 @@ tfw_procfs_cfgend(void)
 {
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
-		.psz = ARRAY_SIZE(tfw_pstats_ith)
 	};
 
 	if (tfw_runstate_is_reconfig())
@@ -351,12 +354,12 @@ TfwMod tfw_procfs_mod = {
 /*
  * Init/exit routines.
  */
-static struct file_operations tfw_perfstat_fops = {
-	.owner		= THIS_MODULE,
-	.open		= tfw_perfstat_seq_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
+static struct proc_ops tfw_perfstat_fops = {
+	.proc_flags	= PROC_ENTRY_PERMANENT,
+	.proc_open	= tfw_perfstat_seq_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
 };
 
 int

@@ -25,7 +25,6 @@
 #pragma GCC target("mmx", "sse4.2")
 #endif
 #include <linux/ctype.h>
-#include <linux/frame.h>
 #include <linux/kernel.h>
 
 #undef DEBUG
@@ -2663,11 +2662,11 @@ __check_date(unsigned int year, unsigned int month, unsigned int day,
  *
  * @return number of seconds since epoch in GMT.
  */
-static time_t
+static long
 __date_secs(unsigned int year, unsigned int month, unsigned int day,
             unsigned int hour, unsigned int min, unsigned int sec)
 {
-	time_t days;
+	long days;
 
 	if (__check_date(year, month, day, hour, min, sec) < 0)
 		return CSTR_NEQ;
@@ -2682,7 +2681,7 @@ __date_secs(unsigned int year, unsigned int month, unsigned int day,
 	       hour * 3600 + min * 60 + sec;
 }
 
-static time_t
+static long
 __parse_month(unsigned int month_int)
 {
 	switch (month_int) {
@@ -2916,7 +2915,7 @@ do {									\
 
 	__FSM_STATE(I_Res) {
 		unsigned int month;
-		time_t date;
+		long date;
 
 		month = __parse_month(parser->month_int);
 		if (month < 0)
@@ -6537,7 +6536,7 @@ do {									\
 
 	__FSM_STATE(I_Res) {
 		unsigned int month;
-		time_t date;
+		long date;
 
 		month = __parse_month(parser->month_int);
 		if (month < 0)

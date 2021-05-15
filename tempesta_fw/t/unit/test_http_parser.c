@@ -18,6 +18,15 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * Need to define DEBUG before first the inclusions of
+ * lib/log.h and linux/printk.h.
+ */
+#if DBG_HTTP_PARSER > 0
+#undef DEBUG
+#define DEBUG DBG_HTTP_PARSER
+#endif
+
 #include <linux/types.h>
 #include <asm/fpu/api.h>
 #include <linux/vmalloc.h>
@@ -26,15 +35,7 @@
 #include "helpers.h"
 #include "fuzzer.h"
 
-#ifndef DEBUG
-#define NO_DEBUG
-#endif
-
 #include "http_parser.c"
-
-#ifdef NO_DEBUG
-#undef DEBUG
-#endif
 
 #include "http_sess.c"
 /* prevent exporting symbols */
@@ -49,7 +50,7 @@
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static size_t hm_exp_len = 0;
-static int chunks = 1;
+static int chunks = 74;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
@@ -777,13 +778,14 @@ TEST(http_parser, mangled_messages)
  */
 TEST(http_parser, alphabets)
 {
+#if 0
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Host: test\r\n"
 		/* We don't match open and closing quotes. */
 		"Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
 		"Pragma: no-cache, fooo \r\n"
 		"\r\n");
-
+#endif
 	/* Trailing SP in request. */
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"Host: localhost\t  \r\n"
@@ -801,7 +803,7 @@ TEST(http_parser, alphabets)
 		"123\r\n"
 		"0\r\n"
 		"\r\n");
-
+return;
 	/* Trailing SP in response. */
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive \t \r\n"
@@ -3388,12 +3390,14 @@ TEST_SUITE(http_parser)
 			  r, SAMPLE_REQ_STR);
 		return;
 	}
-
+#if 0
 	TEST_RUN(http_parser, leading_eol);
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, mangled_messages);
+#endif
 	TEST_RUN(http_parser, alphabets);
+return;
 	TEST_RUN(http_parser, casesense);
 	TEST_RUN(http_parser, hdr_token_confusion);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);

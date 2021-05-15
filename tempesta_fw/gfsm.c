@@ -269,7 +269,6 @@ done:
 
 	return r;
 }
-EXPORT_SYMBOL(tfw_gfsm_move);
 
 #ifdef DEBUG
 /**
@@ -282,7 +281,6 @@ tfw_gfsm_debug_state(TfwGState *st, const char *msg)
 	      msg, st->curr, !!(FSM_STATE(st) & TFW_GFSM_ONSTACK), FSM(st),
 		PRIO(st), TFW_GFSM_STATE(st));
 }
-EXPORT_SYMBOL(tfw_gfsm_debug_state);
 #endif
 
 /**
@@ -336,7 +334,6 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 
 	return prio;
 }
-EXPORT_SYMBOL(tfw_gfsm_register_hook);
 
 /**
  * The function called must be pretty sure that there is no live messages
@@ -353,7 +350,6 @@ tfw_gfsm_unregister_hook(int fsm_id, int prio, int state)
 	memset(&fsm_hooks[fsm_id][shift], 0, sizeof(TfwFsmHook));
 	fsm_hooks_bm[fsm_id][prio] &= ~(1 << st);
 }
-EXPORT_SYMBOL(tfw_gfsm_unregister_hook);
 
 int
 tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
@@ -365,7 +361,6 @@ tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_gfsm_register_fsm);
 
 void
 tfw_gfsm_unregister_fsm(int fsm_id)
@@ -374,4 +369,3 @@ tfw_gfsm_unregister_fsm(int fsm_id)
 
 	fsm_htbl[fsm_id] = NULL;
 }
-EXPORT_SYMBOL(tfw_gfsm_unregister_fsm);

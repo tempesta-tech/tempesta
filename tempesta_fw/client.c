@@ -59,7 +59,7 @@ static struct {
 typedef struct {
 	TfwClient	cli;
 	TfwAddr		xff_addr;
-	time_t		expires;
+	long		expires;
 	spinlock_t	lock;
 	atomic_t	users;
 	unsigned long	user_agent_len;
@@ -113,7 +113,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
-	time_t curr_time = tfw_current_timestamp();
+	long curr_time = tfw_current_timestamp();
 	int users;
 
 	if (memcmp_fast(&cli->addr.sin6_addr, &ctx->addr.sin6_addr,

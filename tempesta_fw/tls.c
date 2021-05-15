@@ -148,7 +148,7 @@ next_msg:
 	default:
 		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
 		       -r);
-		/* Fall through. */
+		fallthrough;
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
@@ -264,7 +264,7 @@ tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
 	if (tcp_skb_is_last(sk, skb))
 		return;
 
-	next = tcp_write_queue_next(sk, skb);
+	next = skb_rb_next(skb);
 	tcb_next = TCP_SKB_CB(next);
 	WARN_ON_ONCE((tcb_next->seq || tcb_next->end_seq)
 		     && tcb_next->seq + next->len
@@ -351,7 +351,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 	/* Try to aggregate several skbs into one TLS record. */
 	while (!tcp_skb_is_last(sk, skb_tail)) {
-		next = tcp_write_queue_next(sk, skb_tail);
+		next = skb_rb_next(skb_tail);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
@@ -510,7 +510,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			break;
 		if (WARN_ON_ONCE(frags >= sgt.nents))
 			break;
-		next = tcp_write_queue_next(sk, next);
+		next = skb_rb_next(next);
 		sg_unmark_end(&sgt.sgl[frags - 1]);
 		sg_unmark_end(&out_sgt.sgl[out_frags - 1]);
 	}
@@ -567,8 +567,11 @@ err_kill_sock:
 		sock_set_flag(sk, SOCK_DEAD);
 	}
 err_purge_tcp_write_queue:
+	/*
+	 * Leave encrypted segments in the retransmission rb-tree,
+	 * but purge the send queue on unencrypted segments.
+	 */
 	while ((skb = tcp_send_head(sk))) {
-		tcp_advance_send_head(sk, skb);
 		__skb_unlink(skb, &sk->sk_write_queue);
 		sk_wmem_free_skb(sk, skb);
 	}

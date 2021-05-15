@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2021 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -26,11 +26,27 @@ pushd "$root" > /dev/null
 root="$(pwd)"
 popd > /dev/null
 
+clean_exit()
+{
+	rmmod tfw_test 2>/dev/null
+	rmmod tfw_fuzzer 2>/dev/null
+	rmmod tempesta_db 2>/dev/null
+	rmmod tempesta_lib 2>/dev/null
+
+	[ ${1} -ne 0 ] && exit ${1}
+}
+
 echo -e "\n @@@ RUNNING UNIT TESTS..."
-insmod $root/../tfw_fuzzer.ko
-insmod $root/tfw_test.ko
-rmmod tfw_test
-rmmod tfw_fuzzer
+
+# Load helper modules - here we test and mock Tempesta FW module only,
+# so that's OK to include all the service modules.
+insmod $root/../../../lib/tempesta_lib.ko || clean_exit 1
+insmod $root/../../../tempesta_db/core/tempesta_db.ko || clean_exit 1
+
+insmod $root/../tfw_fuzzer.ko || clean_exit 1
+insmod $root/tfw_test.ko || clean_exit 1
+
+clean_exit 0
 
 echo -e "\n @@@ UNIT TEST OUTPUT SUMMARY (see dmesg for full log):\n"
 dmesg | grep tfw_test
