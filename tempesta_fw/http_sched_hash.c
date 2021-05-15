@@ -270,7 +270,7 @@ tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 	if (!cl)
 		return;
 
-	call_rcu_bh(&cl->rcu, tfw_sched_hash_cleanup_rcu_cb);
+	call_rcu(&cl->rcu, tfw_sched_hash_cleanup_rcu_cb);
 }
 
 static int
@@ -434,7 +434,7 @@ tfw_sched_hash_del_srv(TfwServer *srv)
 
 	RCU_INIT_POINTER(srv->sched_data, NULL);
 	if (cl)
-		call_rcu_bh(&cl->rcu, tfw_sched_hash_put_srv_data);
+		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_hash = {

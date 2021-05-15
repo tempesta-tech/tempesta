@@ -249,7 +249,7 @@ static inline bool
 tfw_srv_conn_queue_full(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
-	return (ACCESS_ONCE(srv_conn->qsize) >= sg->max_qsize);
+	return READ_ONCE(srv_conn->qsize) >= sg->max_qsize;
 }
 
 /*
@@ -262,7 +262,7 @@ static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
-	return ((ACCESS_ONCE(srv_conn->recns) >= sg->max_recns));
+	return READ_ONCE(srv_conn->recns) >= sg->max_recns;
 }
 
 /*

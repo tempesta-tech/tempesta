@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,13 +27,11 @@
 /*
  * @ith		- array of percentile numbers, with space for min/max/avg;
  * @val		- array of percentile values, and values for min/max/avg;
- * @psz		- size of @ith and @val arrays;
  * @seq		- opaque data related to percentiles calculation;
  */
 typedef struct {
 	const unsigned int	*ith;
 	unsigned int		*val;
-	unsigned int		psz;
 	unsigned int		seq;
 } TfwPrcntlStats;
 
@@ -58,6 +56,8 @@ static const unsigned int tfw_pstats_ith[] = {
 	[TFW_PSTATS_IDX_P95] = 95,
 	[TFW_PSTATS_IDX_P99] = 99,
 };
+
+#define T_PSZ	ARRAY_SIZE(tfw_pstats_ith)
 
 /*
  * Structures for health monitoring statistics accountings

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2021 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,10 +22,6 @@
 
 #include "cfg.h"
 #include "test.h"
-#ifdef EXPORT_SYMBOL
-#undef EXPORT_SYMBOL
-#define EXPORT_SYMBOL(func)
-#endif
 #include "cfg.c"
 
 #undef module_init

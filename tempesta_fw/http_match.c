@@ -496,7 +496,6 @@ tfw_http_match_req(const TfwHttpReq *req, struct list_head *mlst)
 
 	return NULL;
 }
-EXPORT_SYMBOL(tfw_http_match_req);
 
 /**
  * Allocate an empty HTTP chain.
@@ -528,7 +527,6 @@ tfw_http_chain_add(const char *name, TfwHttpTable *table)
 
 	return chain;
 }
-EXPORT_SYMBOL(tfw_http_chain_add);
 
 /**
  * Free http table (together with all elements allocated from its pool).
@@ -539,7 +537,6 @@ tfw_http_table_free(TfwHttpTable *table)
 	if (table)
 		tfw_pool_destroy(table->pool);
 }
-EXPORT_SYMBOL(tfw_http_table_free);
 
 /**
  * Allocate a rule from the pool of current http table
@@ -571,7 +568,6 @@ tfw_http_rule_new(TfwHttpChain *chain, tfw_http_match_arg_t type,
 
 	return rule;
 }
-EXPORT_SYMBOL(tfw_http_rule_new);
 
 int
 tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
@@ -612,7 +608,6 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_http_rule_arg_init);
 
 const char *
 tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
@@ -701,7 +696,6 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 
 	return arg_out;
 }
-EXPORT_SYMBOL(tfw_http_arg_adjust);
 
 int
 tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
@@ -736,4 +730,3 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_http_verify_hdr_field);

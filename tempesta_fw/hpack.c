@@ -1376,7 +1376,7 @@ index:
 				goto get_indexed_name;
 			}
 
-			/* Fall through. */
+			fallthrough;
 		}
 		case HPACK_STATE_NAME:
 		{
@@ -1407,7 +1407,7 @@ index:
 			if (unlikely(src >= last))
 				goto out;
 
-			/* Fall through. */
+			fallthrough;
 		}
 		case HPACK_STATE_NAME_TEXT:
 		{
@@ -1442,7 +1442,7 @@ get_indexed_name:
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
-			/* Fall through. */
+			fallthrough;
 		}
 		case HPACK_STATE_VALUE:
 		{
@@ -1470,7 +1470,7 @@ get_value:
 			if (unlikely(src >= last))
 				goto out;
 
-			/* Fall through. */
+			fallthrough;
 		}
 		case HPACK_STATE_VALUE_TEXT:
 		{
@@ -1740,7 +1740,7 @@ do {									\
 		if (hp->index)
 			goto get_indexed_name;
 
-		/* Fall through. */
+		fallthrough;
 
 	case HPACK_STATE_NAME:
 		prev = src;
@@ -1863,7 +1863,7 @@ check_name_text:
 
 		GET_NEXT_DATA(src >= last);
 
-		/* Fall through. */
+		fallthrough;
 	}
 	case HPACK_STATE_VALUE:
 		T_DBG3("%s: decode header value length...\n", __func__);
@@ -1890,7 +1890,7 @@ check_name_text:
 
 		GET_NEXT_DATA(src >= last);
 
-		/* Fall through. */
+		fallthrough;
 
 	case HPACK_STATE_VALUE_TEXT:
 	{
@@ -2233,7 +2233,7 @@ typedef enum {
 	       ret, idx, idx + 1, pos, idx + 1, data);			\
 	switch (idx) {							\
 	case 1:								\
-		/* Fall through. */					\
+		fallthrough;						\
 	case 2:								\
 		if (state == HPACK_HDR_NAME_SEARCH) {			\
 			if (SH_LC(pos) != SH_LC(data))			\
@@ -2243,7 +2243,7 @@ typedef enum {
 		}							\
 		if (idx == 1)						\
 			break;						\
-		/* Fall through. */					\
+		fallthrough;						\
 	case 0:								\
 		if (state == HPACK_HDR_NAME_SEARCH) {			\
 			if (CHAR_LC(pos + idx) == CHAR_LC(data + idx))	\

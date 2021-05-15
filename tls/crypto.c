@@ -310,8 +310,6 @@ ttls_sha256_init_start(ttls_sha256_context *ctx)
 
 	if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha256_info)))
 		return r;
-	ctx->desc.flags = 0;
-
 	return crypto_shash_init(&ctx->desc);
 }
 
@@ -322,8 +320,6 @@ ttls_sha384_init_start(ttls_sha512_context *ctx)
 
 	if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha384_info)))
 		return r;
-	ctx->desc.flags = 0;
-
 	return crypto_shash_init(&ctx->desc);
 }
 

@@ -155,9 +155,9 @@ typedef struct {
 	unsigned int	s_maxage;
 	unsigned int	max_stale;
 	unsigned int	min_fresh;
-	time_t		timestamp;
-	time_t		age;
-	time_t		expires;
+	long		timestamp;
+	long		age;
+	long		expires;
 } TfwCacheControl;
 
 /**
@@ -388,7 +388,7 @@ struct tfw_http_msg_t {
  */
 typedef struct {
 	unsigned int	flags;
-	time_t		m_date;
+	long		m_date;
 } TfwHttpCond;
 
 /**
@@ -542,8 +542,8 @@ typedef struct {
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
 	unsigned short		status;
-	time_t			date;
-	time_t			last_modified;
+	long			date;
+	long			last_modified;
 	unsigned long		jrxtstamp;
 	TfwHttpTransIter	mit;
 };

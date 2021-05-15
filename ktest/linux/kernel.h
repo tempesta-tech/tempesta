@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -94,7 +94,7 @@ struct list_head {
 	struct list_head *next, *prev;
 };
 
-static inline void
+static inline int
 get_random_bytes_arch(void *buf, int nbytes)
 {
 #ifdef NO_RANDOM
@@ -119,6 +119,13 @@ get_random_bytes_arch(void *buf, int nbytes)
 		memcpy(buf, &l, nbytes);
 	}
 #endif
+	return nbytes;
+}
+
+static inline void
+get_random_bytes(void *buf, int nbytes)
+{
+	get_random_bytes_arch(buf, nbytes);
 }
 
 #define DUMP_PREFIX_OFFSET	0

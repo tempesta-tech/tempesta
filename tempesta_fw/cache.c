@@ -104,12 +104,12 @@ typedef struct {
 	unsigned int	body_len;
 	unsigned int	method: 4;
 	unsigned int	flags: 28;
-	time_t		age;
-	time_t		date;
-	time_t		req_time;
-	time_t		resp_time;
-	time_t		lifetime;
-	time_t		last_modified;
+	long		age;
+	long		date;
+	long		req_time;
+	long		resp_time;
+	long		lifetime;
+	long		last_modified;
 	long		key;
 	long		status;
 	long		hdrs;
@@ -440,10 +440,10 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 /*
  * Calculate freshness lifetime according to RFC 7234 4.2.1.
  */
-static time_t
+static long
 tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
-	time_t lifetime;
+	long lifetime;
 
 	if (resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)
 		lifetime = resp->cache_ctl.s_maxage;
@@ -461,12 +461,12 @@ tfw_cache_calc_lifetime(TfwHttpResp *resp)
 /*
  * Calculate the current entry age according to RFC 7234 4.2.3.
  */
-static time_t
+static long
 tfw_cache_entry_age(TfwCacheEntry *ce)
 {
-	time_t apparent_age = max_t(time_t, 0, ce->resp_time - ce->date);
-	time_t corrected_age = ce->age + ce->resp_time - ce->req_time;
-	time_t initial_age = max(apparent_age, corrected_age);
+	long apparent_age = max_t(long, 0, ce->resp_time - ce->date);
+	long corrected_age = ce->age + ce->resp_time - ce->req_time;
+	long initial_age = max(apparent_age, corrected_age);
 	return (initial_age + tfw_current_timestamp() - ce->resp_time);
 }
 
@@ -485,18 +485,18 @@ tfw_cache_entry_age(TfwCacheEntry *ce)
  * ce->lifetime, then the entry is stale but still may be served
  * to a client, provided that the cache policy allows that.
  */
-static time_t
+static long
 tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 {
-	time_t ce_age = tfw_cache_entry_age(ce);
-	time_t ce_lifetime, lt_fresh = UINT_MAX;
+	long ce_age = tfw_cache_entry_age(ce);
+	long ce_lifetime, lt_fresh = UINT_MAX;
 
 	if (ce->lifetime <= 0)
 		return 0;
 
 #define CC_LIFETIME_FRESH	(TFW_HTTP_CC_MAX_AGE | TFW_HTTP_CC_MIN_FRESH)
 	if (req->cache_ctl.flags & CC_LIFETIME_FRESH) {
-		time_t lt_max_age = UINT_MAX, lt_min_fresh = UINT_MAX;
+		long lt_max_age = UINT_MAX, lt_min_fresh = UINT_MAX;
 		if (req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
 			lt_max_age = req->cache_ctl.max_age;
 		if (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH)
@@ -506,7 +506,7 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (!(req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)) {
 		ce_lifetime = min(lt_fresh, ce->lifetime);
 	} else {
-		time_t lt_max_stale = ce->lifetime + req->cache_ctl.max_stale;
+		long lt_max_stale = ce->lifetime + req->cache_ctl.max_stale;
 		ce_lifetime = min(lt_fresh, lt_max_stale);
 	}
 #undef CC_LIFETIME_FRESH
@@ -1984,7 +1984,7 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
 	bool to_h2 = TFW_MSG_H2(resp->req);
 	TfwHttpTransIter *mit = &resp->mit;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	time_t age = tfw_cache_entry_age(ce);
+	long age = tfw_cache_entry_age(ce);
 	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
 	char *name = to_h2 ? "age" : "age" S_DLM;
 	unsigned int nlen = to_h2 ? SLEN("age") : SLEN("age" S_DLM);
@@ -2051,7 +2051,7 @@ err:
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		     unsigned int stream_id)
 {
 	int h;
@@ -2192,7 +2192,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	unsigned int id = 0;
 	TDB *db = node_db();
 	TdbIter iter;
-	time_t lifetime;
+	long lifetime;
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
 		goto out;

@@ -114,7 +114,7 @@ typedef struct {
 		} date;
 	};
 	union {
-		time_t			_date;
+		long			_date;
 		unsigned int		month_int;
 	};
 	TfwStr				_tmp_chunk;

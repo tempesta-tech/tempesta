@@ -375,7 +375,7 @@ static TfwStr http_5xx_resp_body = {
  * header field. See RFC 2616 section 3.3.
  */
 static void
-tfw_http_prep_date_from(char *buf, time_t date)
+tfw_http_prep_date_from(char *buf, long date)
 {
 	struct tm tm;
 	char *ptr = buf;
@@ -395,7 +395,7 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
 	*p++ = '0' + n % 10;
 
-	time_to_tm(date, 0, &tm);
+	time64_to_tm(date, 0, &tm);
 
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
@@ -5179,6 +5179,7 @@ next_msg:
 	switch (r) {
 	default:
 		T_ERR("Unrecognized HTTP request parser return code, %d\n", r);
+		fallthrough;
 	case TFW_BLOCK:
 		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
@@ -5587,7 +5588,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	TfwHttpResp *resp = (TfwHttpResp *)hmresp;
 	TfwHttpReq *req = hmresp->req;
 	TfwFsmData data;
-	time_t timestamp = tfw_current_timestamp();
+	long timestamp = tfw_current_timestamp();
 
 	/*
 	 * The time the response was received is used in cache
@@ -5759,6 +5760,7 @@ next_msg:
 	switch (r) {
 	default:
 		T_ERR("Unrecognized HTTP response parser return code, %d\n", r);
+		fallthrough;
 	case TFW_BLOCK:
 		/*
 		 * The response has not been fully parsed. There's no
