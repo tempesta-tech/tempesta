@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2017-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -454,11 +454,10 @@ static inline int
 __tfw_sched_ratio_get_rtt(size_t si, TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	unsigned int recalc;
-	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
+	unsigned int val[T_PSZ] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.val = val,
-		.psz = ARRAY_SIZE(tfw_pstats_ith)
 	};
 	TfwRatioSrvData *srvdata = rtodata->srvdata;
 	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
@@ -667,7 +666,7 @@ tfw_sched_ratio_calc_tmfn(TfwRatio *ratio,
 	 */
 	crtodata = ratio->rtodata;
 	rcu_assign_pointer(ratio->rtodata, nrtodata);
-	call_rcu_bh(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
+	call_rcu(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
 
 rearm:
 	smp_mb();
@@ -679,20 +678,22 @@ rearm:
  * Periodic function for Dynamic Ratio Scheduler.
  */
 static void
-tfw_sched_ratio_dynamic_tmfn(unsigned long tmfn_data)
+tfw_sched_ratio_dynamic_tmfn(struct timer_list *t)
 {
-	tfw_sched_ratio_calc_tmfn((TfwRatio *)tmfn_data,
-				   tfw_sched_ratio_calc_dynamic);
+	TfwRatio *r = from_timer(r, t, timer);
+
+	tfw_sched_ratio_calc_tmfn(r, tfw_sched_ratio_calc_dynamic);
 }
 
 /**
  * Periodic function for Predictive Ratio Scheduler.
  */
 static void
-tfw_sched_ratio_predict_tmfn(unsigned long tmfn_data)
+tfw_sched_ratio_predict_tmfn(struct timer_list *t)
 {
-	tfw_sched_ratio_calc_tmfn((TfwRatio *)tmfn_data,
-				   tfw_sched_ratio_calc_predict);
+	TfwRatio *r = from_timer(r, t, timer);
+
+	tfw_sched_ratio_calc_tmfn(r, tfw_sched_ratio_calc_predict);
 }
 
 /*
@@ -1030,7 +1031,7 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	}
 
 	/* Release all memory allocated for the group. */
-	call_rcu_bh(&ratio->rcu, tfw_sched_ratio_cleanup_rcu_cb);
+	call_rcu(&ratio->rcu, tfw_sched_ratio_cleanup_rcu_cb);
 }
 
 static int
@@ -1193,15 +1194,13 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg, void *arg)
 		ratio->intvl = TFW_SCHED_RATIO_INTVL;
 		atomic_set(&ratio->rearm, 1);
 		smp_mb__after_atomic();
-		setup_timer(&ratio->timer,
-			    tfw_sched_ratio_dynamic_tmfn, (unsigned long)ratio);
+		timer_setup(&ratio->timer, tfw_sched_ratio_dynamic_tmfn, 0);
 		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 	} else if (sg->flags & TFW_SG_F_SCHED_RATIO_PREDICT) {
 		ratio->intvl = msecs_to_jiffies(1000 / schref->rate);
 		atomic_set(&ratio->rearm, 1);
 		smp_mb__after_atomic();
-		setup_timer(&ratio->timer,
-			    tfw_sched_ratio_predict_tmfn, (unsigned long)ratio);
+		timer_setup(&ratio->timer, tfw_sched_ratio_predict_tmfn, 0);
 		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 	}
 
@@ -1288,7 +1287,7 @@ tfw_sched_ratio_del_srv(TfwServer *srv)
 
 	RCU_INIT_POINTER(srv->sched_data, NULL);
 	if (srvdesc)
-		call_rcu_bh(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
+		call_rcu(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_ratio = {

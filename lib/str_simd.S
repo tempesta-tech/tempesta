@@ -10,7 +10,7 @@
  * The implementation doesn't use alignment function prologs since aligned
  * version has shown worse performance, see the memcpy.c microbenchmark.
  *
- * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@
 #include <asm/alternative-asm.h>
 #include <asm/export.h>
 
-ENTRY(__memcpy_fast)
+SYM_FUNC_START(__memcpy_fast)
 	movq	%rdx, %rax
 	leaq	128(%rsi), %rcx
 	movq	%rsi, %r8
@@ -135,9 +135,9 @@ ENTRY(__memcpy_fast)
 	movb	%dl, (%rax)
 .Lcpy_ret:
 	ret
-ENDPROC(__memcpy_fast)
+SYM_FUNC_END(__memcpy_fast)
 
-ENTRY(__memcmp_fast)
+SYM_FUNC_START(__memcmp_fast)
 	leaq	(%rdi,%rdx), %rax
 	leaq	128(%rdi), %rcx
 	cmpq	%rcx, %rax
@@ -267,9 +267,9 @@ ENTRY(__memcmp_fast)
 	movzbl	%al, %eax
 .Lcmp_ret:
 	ret
-ENDPROC(__memcmp_fast)
+SYM_FUNC_END(__memcmp_fast)
 
-ENTRY(__bzero_fast)
+SYM_FUNC_START(__bzero_fast)
 	movq	%rsi, %rax
 	movq	%rdi, %rdx
 	andq	$-128, %rax
@@ -352,4 +352,4 @@ ENTRY(__bzero_fast)
 	movb	$0, (%rax)
 .Lbz_ret:
 	ret
-ENDPROC(__bzero_fast)
+SYM_FUNC_END(__bzero_fast)

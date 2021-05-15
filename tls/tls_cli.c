@@ -416,7 +416,7 @@ static void ssl_write_alpn_ext(TlsCtx *ssl,
 static int ssl_generate_random(TlsCtx *ssl)
 {
 	unsigned char *p = ssl->handshake->randbytes;
-	time_t t;
+	long t;
 
 	t = ttls_time();
 	*p++ = (unsigned char)(t >> 24);

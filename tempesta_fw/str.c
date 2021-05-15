@@ -771,7 +771,7 @@ tfw_strdup(TfwPool *pool, const TfwStr *src)
 	const TfwStr *s_c, *end;
 	char *data;
 
-	WARN_ON(in_softirq());
+	WARN_ON(in_serving_softirq());
 
 	n = (src->nchunks + 1) * sizeof(TfwStr) + src->len;
 	dst = (TfwStr *)tfw_pool_alloc(pool, n);

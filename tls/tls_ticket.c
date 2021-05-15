@@ -174,9 +174,9 @@ ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
  * synchronisation except time.
  */
 static void
-ttls_ticket_rotate_keys(unsigned long data)
+ttls_ticket_rotate_keys(struct timer_list *t)
 {
-	TlsTicketPeerCfg *tcfg = (TlsTicketPeerCfg *)data;
+	TlsTicketPeerCfg *tcfg = from_timer(tcfg, t, timer);
 	unsigned long secs;
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
@@ -350,7 +350,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 		}
 	}
 
-	setup_timer(&tcfg->timer, ttls_ticket_rotate_keys, (unsigned long)tcfg);
+	timer_setup(&tcfg->timer, ttls_ticket_rotate_keys, 0);
 	secs = tcfg->lifetime - (tfw_current_timestamp() % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 

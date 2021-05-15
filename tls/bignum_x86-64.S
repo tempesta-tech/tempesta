@@ -18,7 +18,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/linkage.h>
-#include <asm/alternative-asm.h>
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 
@@ -26,16 +25,12 @@
  * Use 32-byte alignment instead of common 4-byte to improve micro-op caching
  * for the functions with many LCPs and/or branches.
  */
-#define ENTRY_32(name)							\
-	.globl name ASM_NL						\
-	.align 32, 0x90 ASM_NL						\
-	name:
-
+#define SYM_FUNC_START_32(name)	SYM_START(name, SYM_L_GLOBAL, .align 32)
 
 /**
  * Compare 4-limbs MPI %RDI with MPI %RSI.
  */
-ENTRY(mpi_cmp_x86_64_4)
+SYM_FUNC_START(mpi_cmp_x86_64_4)
 	movq	$-1, %rdx
 	movq	24(%rdi), %rax
 	subq	24(%rsi), %rax
@@ -52,7 +47,7 @@ ENTRY(mpi_cmp_x86_64_4)
 .cmp_4_done:
 	cmovbq	%rdx, %rax
 	retq
-ENDPROC(mpi_cmp_x86_64_4)
+SYM_FUNC_END(mpi_cmp_x86_64_4)
 
 
 /**
@@ -64,7 +59,7 @@ ENDPROC(mpi_cmp_x86_64_4)
  *
  * TODO #1335 it seems we can throw out the generic-length functions.
  */
-ENTRY(mpi_add_x86_64)
+SYM_FUNC_START(mpi_add_x86_64)
 	subq	%rcx, %r9
 	addq	$1, %r9
 
@@ -105,7 +100,7 @@ ENTRY(mpi_add_x86_64)
 .enospc:
 	movq	$-1, %rax
 	ret
-ENDPROC(mpi_add_x86_64)
+SYM_FUNC_END(mpi_add_x86_64)
 
 
 /**
@@ -117,7 +112,7 @@ ENDPROC(mpi_add_x86_64)
  *
  * Borrowed from WolfSSL sp_256_mont_add_4().
  */
-ENTRY(mpi_add_mod_p256_x86_64)
+SYM_FUNC_START(mpi_add_mod_p256_x86_64)
 	movq	(%rsi), %rax
 	movq	8(%rsi), %rcx
 	movq	16(%rsi), %r8
@@ -141,7 +136,7 @@ ENTRY(mpi_add_mod_p256_x86_64)
 	movq	%r8, 16(%rdi)
 	movq	%r9, 24(%rdi)
 	retq
-ENDPROC(mpi_add_mod_p256_x86_64)
+SYM_FUNC_END(mpi_add_mod_p256_x86_64)
 
 
 /**
@@ -155,7 +150,7 @@ ENDPROC(mpi_add_mod_p256_x86_64)
  *
  * TODO #1335 it seems we can throw out the generic-length functions.
  */
-ENTRY(mpi_sub_x86_64)
+SYM_FUNC_START(mpi_sub_x86_64)
 	subq	%rcx, %r8
 	addq	$1, %r8
 
@@ -252,7 +247,7 @@ ENTRY(mpi_sub_x86_64)
 	cmpq	%rdx, %rdi
 	jne	.copy_msb
 	ret
-ENDPROC(mpi_sub_x86_64)
+SYM_FUNC_END(mpi_sub_x86_64)
 
 /*
  * Operands size specialized implementations of the function above.
@@ -262,7 +257,7 @@ ENDPROC(mpi_sub_x86_64)
  * It seems they can be removed after the inversion optimization or just
  * called directly from the inversion function.
  */
-ENTRY(mpi_sub_x86_64_5_4)
+SYM_FUNC_START(mpi_sub_x86_64_5_4)
 	movq	(%rdx), %r8
 	movq	8(%rdx), %r9
 	movq	16(%rdx), %r10
@@ -279,9 +274,9 @@ ENTRY(mpi_sub_x86_64_5_4)
 	sbbq	$0, %r8
 	movq	%r8, 32(%rdi)
 	ret
-ENDPROC(mpi_sub_x86_64_5_4)
+SYM_FUNC_END(mpi_sub_x86_64_5_4)
 
-ENTRY(mpi_sub_x86_64_4_4)
+SYM_FUNC_START(mpi_sub_x86_64_4_4)
 	movq	(%rdx), %r8
 	movq	8(%rdx), %r9
 	movq	16(%rdx), %r10
@@ -295,7 +290,7 @@ ENTRY(mpi_sub_x86_64_4_4)
 	movq	%r10, 16(%rdi)
 	movq	%r11, 24(%rdi)
 	ret
-ENDPROC(mpi_sub_x86_64_4_4)
+SYM_FUNC_END(mpi_sub_x86_64_4_4)
 
 /**
  * Subtract X = A - B mod P256, where A->used >= B->used.
@@ -304,7 +299,7 @@ ENDPROC(mpi_sub_x86_64_4_4)
  * %RSI	- pointer to A (can be the same as X);
  * %RDX	- pointer to B;
  */
-ENTRY(mpi_sub_mod_p256_x86_64)
+SYM_FUNC_START(mpi_sub_mod_p256_x86_64)
 	movq	(%rsi), %rax
 	movq	8(%rsi), %rcx
 	movq	16(%rsi), %r8
@@ -328,9 +323,9 @@ ENTRY(mpi_sub_mod_p256_x86_64)
 	movq	%r8, 16(%rdi)
 	movq	%r9, 24(%rdi)
 	retq
-ENDPROC(mpi_sub_mod_p256_x86_64)
+SYM_FUNC_END(mpi_sub_mod_p256_x86_64)
 
-ENTRY(mpi_sub_x86_64_3_3)
+SYM_FUNC_START(mpi_sub_x86_64_3_3)
 	movq	(%rdx), %r8
 	movq	8(%rdx), %r9
 	movq	16(%rdx), %r10
@@ -341,9 +336,9 @@ ENTRY(mpi_sub_x86_64_3_3)
 	movq	%r9, 8(%rdi)
 	movq	%r10, 16(%rdi)
 	ret
-ENDPROC(mpi_sub_x86_64_3_3)
+SYM_FUNC_END(mpi_sub_x86_64_3_3)
 
-ENTRY(mpi_sub_x86_64_2_2)
+SYM_FUNC_START(mpi_sub_x86_64_2_2)
 	movq	(%rdx), %r8
 	movq	8(%rdx), %r9
 	subq	(%rsi), %r8
@@ -351,7 +346,7 @@ ENTRY(mpi_sub_x86_64_2_2)
 	movq	%r8, (%rdi)
 	movq	%r9, 8(%rdi)
 	ret
-ENDPROC(mpi_sub_x86_64_2_2)
+SYM_FUNC_END(mpi_sub_x86_64_2_2)
 
 
 /**
@@ -364,7 +359,7 @@ ENDPROC(mpi_sub_x86_64_2_2)
  *
  * TODO #1335 it seems we can throw out the generic-length functions.
  */
-ENTRY(mpi_shift_l_x86_64)
+SYM_FUNC_START(mpi_shift_l_x86_64)
 	/*
 	 * Frst iteration with zeroed most significant limb propagating its
 	 * bits to the extra limb.
@@ -390,7 +385,7 @@ ENTRY(mpi_shift_l_x86_64)
 	shlq	%cl, %r11
 	movq	%r11, (%rdi)
 	ret
-ENDPROC(mpi_shift_l_x86_64)
+SYM_FUNC_END(mpi_shift_l_x86_64)
 
 /**
  * A specialization of the above for 4 limbs MPI with and extra 5th limb.
@@ -399,7 +394,7 @@ ENDPROC(mpi_shift_l_x86_64)
  * %RSI - pointer to the original MPI;
  * %RDX	- N bits to shift.
  */
-ENTRY(mpi_shift_l_x86_64_4)
+SYM_FUNC_START(mpi_shift_l_x86_64_4)
 	movq	%rdx, %rcx
 	movq	24(%rsi), %r11
 	movq	16(%rsi), %r10
@@ -417,13 +412,13 @@ ENTRY(mpi_shift_l_x86_64_4)
 	movq	%r9, 8(%rdi)
 	movq	%r8, (%rdi)
 	ret
-ENDPROC(mpi_shift_l_x86_64_4)
+SYM_FUNC_END(mpi_shift_l_x86_64_4)
 
 /**
  * X (%RDI) = A (%RSI) << 1 mod p256, both the MPIs are 4 limbs.
  * Borrowed from WolfSSL _sp_256_mont_dbl_4().
  */
-ENTRY(mpi_shift_l1_mod_p256_x86_64)
+SYM_FUNC_START(mpi_shift_l1_mod_p256_x86_64)
 	movq	(%rsi), %rdx
 	movq	8(%rsi), %rax
 	movq	16(%rsi), %rcx
@@ -447,7 +442,7 @@ ENTRY(mpi_shift_l1_mod_p256_x86_64)
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
 	retq
-ENDPROC(mpi_shift_l1_mod_p256_x86_64)
+SYM_FUNC_END(mpi_shift_l1_mod_p256_x86_64)
 
 
 /**
@@ -459,7 +454,7 @@ ENDPROC(mpi_shift_l1_mod_p256_x86_64)
  *
  * TODO #1335 it seems we can throw out the generic-length functions.
  */
-ENTRY(mpi_shift_r_x86_64)
+SYM_FUNC_START(mpi_shift_r_x86_64)
 	movq	%rdx, %rcx
 	xorq	%rax, %rax
 
@@ -476,7 +471,7 @@ ENTRY(mpi_shift_r_x86_64)
 .shr_last:
 	shrq	%cl, (%rdi, %rax, 8)
 	ret
-ENDPROC(mpi_shift_r_x86_64)
+SYM_FUNC_END(mpi_shift_r_x86_64)
 
 /**
  * A specialization of the above for 4 limbs MPI.
@@ -484,7 +479,7 @@ ENDPROC(mpi_shift_r_x86_64)
  * %RDI	- pointer to X;
  * %RSI	- N bits to shift.
  */
-ENTRY(mpi_shift_r_x86_64_4)
+SYM_FUNC_START(mpi_shift_r_x86_64_4)
 	movq	%rsi, %rcx
 	movq	8(%rdi), %r8
 	movq	16(%rdi), %r9
@@ -494,14 +489,14 @@ ENTRY(mpi_shift_r_x86_64_4)
 	shrdq	%cl, %r10, 16(%rdi)
 	shrq	%cl, 24(%rdi)
 	ret
-ENDPROC(mpi_shift_r_x86_64_4)
+SYM_FUNC_END(mpi_shift_r_x86_64_4)
 
 
 /**
  * Divide the 256-bit MPI in %RSI by 2 mod P256 and store in %RDI.
  * The code is borrowed from WolfSSL, sp_256_div2_4().
  */
-ENTRY(mpi_div2_x86_64_4)
+SYM_FUNC_START(mpi_div2_x86_64_4)
 	movq	(%rsi), %rdx
 	movq	8(%rsi), %rax
 	movq	16(%rsi), %rcx
@@ -528,14 +523,14 @@ ENTRY(mpi_div2_x86_64_4)
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
 	retq
-ENDPROC(mpi_div2_x86_64_4)
+SYM_FUNC_END(mpi_div2_x86_64_4)
 
 
 /**
  * X (%RDI) = 3 * A (%RSI) mod p256, both the MPIs are 4 limbs.
  * Borrowed from WolfSSL sp_256_mont_tpl_4().
  */
-ENTRY_32(mpi_tpl_mod_p256_x86_64)
+SYM_FUNC_START_32(mpi_tpl_mod_p256_x86_64)
 	movq	(%rsi), %rdx
 	movq	8(%rsi), %rax
 	movq	16(%rsi), %rcx
@@ -573,7 +568,7 @@ ENTRY_32(mpi_tpl_mod_p256_x86_64)
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
 	retq
-ENDPROC(mpi_tpl_mod_p256_x86_64)
+SYM_FUNC_END(mpi_tpl_mod_p256_x86_64)
 
 
 /**
@@ -590,7 +585,7 @@ ENDPROC(mpi_tpl_mod_p256_x86_64)
  * TODO #1335 VPMULUDQ can be used to sepeedup the function, see "Speeding up
  * Elliptic Curve Cryptography on the P-384 Curve" by Hernandez et all, 2016.
  */
-ENTRY_32(mpi_mul_x86_64_4)
+SYM_FUNC_START_32(mpi_mul_x86_64_4)
 	push	%r12
 	push	%r13
 	push	%r14
@@ -690,7 +685,7 @@ ENTRY_32(mpi_mul_x86_64_4)
 	pop	%r13
 	pop	%r12
 	ret
-ENDPROC(mpi_mul_x86_64_4)
+SYM_FUNC_END(mpi_mul_x86_64_4)
 
 
 /**
@@ -708,7 +703,7 @@ ENDPROC(mpi_mul_x86_64_4)
  *
  * Use 32-byte alignment instead of common 4-byte to improve micro-op caching.
  */
-ENTRY_32(mpi_sqr_x86_64_4)
+SYM_FUNC_START_32(mpi_sqr_x86_64_4)
 	push	%rbx
 	push	%r12
 	push	%r13
@@ -784,7 +779,7 @@ ENTRY_32(mpi_sqr_x86_64_4)
 	pop	%r12
 	pop	%rbx
 	ret
-ENDPROC(mpi_sqr_x86_64_4)
+SYM_FUNC_END(mpi_sqr_x86_64_4)
 
 
 /**
@@ -877,7 +872,7 @@ __P256x:
 	.quad	0xfffffff40000000c, 0x0000000000000000
 	.quad	0x0000000bffffffff, 0xfffffffffffffff4
 .section .text
-ENTRY_32(ecp_mod_p256_x86_64)
+SYM_FUNC_START_32(ecp_mod_p256_x86_64)
 	prefetcht0 (%rdi)
 	prefetcht0 __P256x(%rip)
 	prefetcht0 __P256x+128(%rip)
@@ -1060,12 +1055,12 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	popq	%r12
 	popq	%rbx
 	ret
-ENDPROC(ecp_mod_p256_x86_64)
+SYM_FUNC_END(ecp_mod_p256_x86_64)
 
 /**
  * Multiply 4-limb MPI in %RSI by a long in %RDX and store the result in %RDI.
  */
-ENTRY_32(mpi_mul_int_x86_64_4)
+SYM_FUNC_START_32(mpi_mul_int_x86_64_4)
 	push	%r12
 	push	%r13
 
@@ -1086,13 +1081,13 @@ ENTRY_32(mpi_mul_int_x86_64_4)
 	popq	%r13
 	popq	%r12
 	retq
-ENDPROC(mpi_mul_int_x86_64_4)
+SYM_FUNC_END(mpi_mul_int_x86_64_4)
 
 /*
  * The two functions at the below are simple merges of the mudulus reduction
  * from the above with multiplication and squaring correspondingly.
  */
-ENTRY_32(mpi_mul_mod_p256_x86_64_4)
+SYM_FUNC_START_32(mpi_mul_mod_p256_x86_64_4)
 	push	%r12
 	push	%r13
 	push	%r14
@@ -1314,9 +1309,9 @@ ENTRY_32(mpi_mul_mod_p256_x86_64_4)
 	pop	%r13
 	pop	%r12
 	ret
-ENDPROC(mpi_mul_mod_p256_x86_64_4)
+SYM_FUNC_END(mpi_mul_mod_p256_x86_64_4)
 
-ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
+SYM_FUNC_START_32(mpi_sqr_mod_p256_x86_64_4)
 	push	%rbx
 	push	%r12
 	push	%r13
@@ -1517,7 +1512,7 @@ ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
 	pop	%r12
 	pop	%rbx
 	ret
-ENDPROC(mpi_sqr_mod_p256_x86_64_4)
+SYM_FUNC_END(mpi_sqr_mod_p256_x86_64_4)
 
 
 /**
@@ -1628,7 +1623,7 @@ ENDPROC(mpi_sqr_mod_p256_x86_64_4)
 	movq	%r15, 24(%rdi)
 .endm
 
-ENTRY_32(mpi_from_mont_p256_x86_64)
+SYM_FUNC_START_32(mpi_from_mont_p256_x86_64)
 	pushq	%r12
 	pushq	%r13
 	pushq	%r14
@@ -1653,7 +1648,7 @@ ENTRY_32(mpi_from_mont_p256_x86_64)
 	popq	%r13
 	popq	%r12
 	retq
-ENDPROC(mpi_from_mont_p256_x86_64)
+SYM_FUNC_END(mpi_from_mont_p256_x86_64)
 
 /**
  * Montgomery multiplication in NIST p256 domain of %RDI and %RSI 4-limbs MPIs
@@ -1661,7 +1656,7 @@ ENDPROC(mpi_from_mont_p256_x86_64)
  *
  * Based on WolfSSL sp_256_mont_mul_avx2_4().
  */
-ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
+SYM_FUNC_START_32(mpi_mul_mont_mod_p256_x86_64)
 	pushq	%rbx
 	pushq	%rbp
 	pushq	%r12
@@ -1756,7 +1751,7 @@ ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
 	popq	%rbp
 	popq	%rbx
 	retq
-ENDPROC(mpi_mul_mont_mod_p256_x86_64)
+SYM_FUNC_END(mpi_mul_mont_mod_p256_x86_64)
 
 /**
  * Square a 4-limbs MPI in Montgomery form pointed by %RSI and store the
@@ -1769,7 +1764,7 @@ ENDPROC(mpi_mul_mont_mod_p256_x86_64)
  *
  * Based on WolfSSL sp_256_mont_sqr_avx2_4().
  */
-ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
+SYM_FUNC_START_32(mpi_sqr_mont_mod_p256_x86_64)
 	pushq	%r12
 	pushq	%r13
 	pushq	%r14
@@ -1839,4 +1834,4 @@ ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
 	popq	%r13
 	popq	%r12
 	retq
-ENDPROC(mpi_sqr_mont_mod_p256_x86_64)
+SYM_FUNC_END(mpi_sqr_mont_mod_p256_x86_64)

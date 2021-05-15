@@ -21,11 +21,11 @@
 #define __LIB_COMMON_H__
 
 /* Get current timestamp in secs. */
-static inline time_t
+static inline long
 tfw_current_timestamp(void)
 {
-	struct timespec ts;
-	getnstimeofday(&ts);
+	struct timespec64 ts;
+	ktime_get_real_ts64(&ts);
 	return ts.tv_sec;
 }
 

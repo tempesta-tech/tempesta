@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -32,6 +32,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "http_msg.h"
+
+#include "pool.c"
 
 static TfwConn conn_req, conn_resp;
 
@@ -108,6 +110,34 @@ test_resp_free(TfwHttpResp *resp)
  */
 struct {} *tfw_perfstat;
 
+bool
+ss_active(void)
+{
+	return true;
+}
+
+int
+ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
+{
+	return 0;
+}
+
+int
+ss_close(struct sock *sk, int flags)
+{
+	return 0;
+}
+
+void
+ss_synchronize(void)
+{
+}
+
+void
+ss_stop(void)
+{
+}
+
 void
 tfw_client_set_expires_time(unsigned int expires_time)
 {
@@ -116,6 +146,13 @@ tfw_client_set_expires_time(unsigned int expires_time)
 void
 tfw_client_put(TfwClient *cli)
 {
+}
+
+TfwClient *
+tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
+		  void (*init)(void *))
+{
+	return NULL;
 }
 
 int
@@ -132,6 +169,40 @@ tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
 
 void
 tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
+{
+}
+
+int
+tfw_gfsm_register_hook(int fsm_id, int prio, int state,
+		       unsigned short hndl_fsm_id, int st0)
+{
+	return 0;
+}
+
+void
+tfw_gfsm_unregister_fsm(int fsm_id)
+{
+}
+
+void
+tfw_gfsm_unregister_hook(int fsm_id, int prio, int state)
+{
+}
+
+int
+tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
+{
+	return 0;
+}
+
+int
+tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
+{
+	return 0;
+}
+
+void
+tfw_filter_block_ip(const TfwAddr *addr)
 {
 }
 
@@ -187,5 +258,85 @@ tfw_tls_cfg_configured(bool global)
 
 void
 tfw_tls_match_any_sni_to_dflt(bool match)
+{
+}
+
+void
+tfw_connection_init(TfwConn *conn)
+{
+	memset(conn, 0, sizeof(*conn));
+	INIT_LIST_HEAD(&conn->list);
+}
+
+int
+tfw_connection_close(TfwConn *conn, bool sync)
+{
+	return 0;
+}
+
+void
+tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
+{
+}
+
+void
+tfw_connection_hooks_unregister(int type)
+{
+}
+
+TfwHdrMods*
+tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
+{
+	return NULL;
+}
+
+TfwVhost *
+tfw_http_tbl_vhost(TfwMsg *msg, bool *block)
+{
+	return NULL;
+}
+
+int
+tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method)
+{
+	return 0;
+}
+
+TfwGlobal *
+tfw_vhost_get_global(void)
+{
+	return NULL;
+}
+
+void
+tfw_vhost_destroy(TfwVhost *vhost)
+{
+}
+
+TfwSrvConn *
+tfw_vhost_get_srv_conn(TfwMsg *msg)
+{
+	return NULL;
+}
+
+TfwLocation *
+tfw_location_match(TfwVhost *vhost, TfwStr *arg)
+{
+	return NULL;
+}
+
+TfwNipDef *
+tfw_nipdef_match(TfwLocation *loc, unsigned char method, TfwStr *arg)
+{
+	return NULL;
+}
+
+void
+tfw_sg_wait_release(void)
+{
+}
+
+void
+tfw_server_destroy(TfwServer *srv)
 {
 }

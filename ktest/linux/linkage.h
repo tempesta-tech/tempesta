@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,19 +21,20 @@
 #define __LINKAGE_H__
 
 #define ASM_NL		;
+#define	SYM_L_GLOBAL	.globl
 
-#define ALIGN		.align 4,0x90
-
-#define ENTRY(name)							\
-	.globl name ASM_NL						\
-	ALIGN ASM_NL							\
+#define SYM_START(name, linkage, ALIGN)					\
+	linkage name ASM_NL						\
+	ALIGN,0x90 ASM_NL						\
 	name:
 
-#define END(name)							\
+#define SYM_FUNC_START(name)	SYM_START(name, SYM_L_GLOBAL, .align 4)
+
+#define SYM_CODE_END(name)						\
 	.size name, .-name
 
-#define ENDPROC(name)							\
+#define SYM_FUNC_END(name)						\
 	.type name, @function ASM_NL					\
-	END(name)
+	SYM_CODE_END(name)
 
 #endif /* __LINKAGE_H__ */

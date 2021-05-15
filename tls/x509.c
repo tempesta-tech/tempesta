@@ -707,7 +707,7 @@ x509_get_current_time(ttls_x509_time *now)
 {
 	struct tm t;
 
-	time_to_tm(ttls_time(), 0, &t);
+	time64_to_tm(ttls_time(), 0, &t);
 
 	now->year = t.tm_year + 1900;
 	now->mon  = t.tm_mon  + 1;

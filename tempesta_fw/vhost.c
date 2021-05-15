@@ -718,7 +718,7 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc,
 	case 1:
 		if (!append)
 			break;
-		/* Fall through */
+		fallthrough;
 	default:
 		T_ERR_NL("%s: Invalid number of values.\n", cs->name);
 		return -EINVAL;

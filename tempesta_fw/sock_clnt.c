@@ -53,9 +53,9 @@ tfw_cli_cache(int type)
 }
 
 static void
-tfw_sock_cli_keepalive_timer_cb(unsigned long data)
+tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 {
-	TfwCliConn *cli_conn = (TfwCliConn *)data;
+	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
 
 	T_DBG("Client timeout end\n");
 
@@ -92,8 +92,7 @@ tfw_cli_conn_alloc(int type)
 			 &__lockdep_no_validate__, 2);
 #endif
 
-	setup_timer(&cli_conn->timer, tfw_sock_cli_keepalive_timer_cb,
-		    (unsigned long)cli_conn);
+	timer_setup(&cli_conn->timer, tfw_sock_cli_keepalive_timer_cb, 0);
 
 	return cli_conn;
 }

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -37,6 +37,8 @@ MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
 MODULE_VERSION(TFW_VERSION);
 MODULE_LICENSE("GPL");
+
+#define T_SYSCTL_STBUF_LEN	32UL
 
 typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
@@ -302,28 +304,24 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
  */
 static int
 tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
-		   void __user *user_buf, size_t *lenp, loff_t *ppos)
+		   void *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
 
 	mutex_lock(&tfw_sysctl_mtx);
 
 	if (is_write) {
-		char new_state_buf[ctl->maxlen];
+		char new_state_buf[T_SYSCTL_STBUF_LEN];
 		char *new_state, *old_state;
-		size_t copied_data_len;
+		size_t copied_data_len = min(T_SYSCTL_STBUF_LEN - 1, *lenp);
 
-		copied_data_len = min((size_t)ctl->maxlen, *lenp);
-		r = strncpy_from_user(new_state_buf, user_buf, copied_data_len);
-		if (r < 0)
-			goto out;
+		memcpy(new_state_buf, user_buf, copied_data_len);
 
-		new_state_buf[r] = 0;
+		new_state_buf[copied_data_len] = 0;
 		new_state = strim(new_state_buf);
 		old_state = ctl->data;
 
-		r = tfw_ctlfn_state_change(old_state, new_state);
-		if (r)
+		if ((r = tfw_ctlfn_state_change(old_state, new_state)))
 			goto out;
 	}
 
@@ -373,13 +371,11 @@ tfw_objects_wait_release(const atomic64_t *counter, int delay,
 	}
 }
 
-static char tfw_sysctl_state_buf[32];
 static struct ctl_table_header *tfw_sysctl_hdr;
 static struct ctl_table tfw_sysctl_tbl[] = {
 	{
 		.procname	= "state",
-		.data		= tfw_sysctl_state_buf,
-		.maxlen		= sizeof(tfw_sysctl_state_buf) - 1,
+		.maxlen		= T_SYSCTL_STBUF_LEN - 1,
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
 	},
@@ -409,7 +405,7 @@ tfw_exit(void)
 	T_LOG("exiting...\n");
 
 	/* Wait for outstanding RCU callbacks to complete. */
-	rcu_barrier_bh();
+	rcu_barrier();
 
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();

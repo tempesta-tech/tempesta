@@ -1588,7 +1588,6 @@ ss_synchronize(void)
 		acc = wq_acc = 0;
 	}
 }
-EXPORT_SYMBOL(ss_synchronize);
 
 /**
  * We need the explicit flag about Tempesta intention to shutdown.
@@ -1611,7 +1610,6 @@ ss_start(void)
 		return;
 	WRITE_ONCE(__ss_active, true);
 }
-EXPORT_SYMBOL(ss_start);
 
 void
 ss_stop(void)
@@ -1620,14 +1618,12 @@ ss_stop(void)
 		return;
 	WRITE_ONCE(__ss_active, false);
 }
-EXPORT_SYMBOL(ss_stop);
 
 bool
 ss_active(void)
 {
 	return READ_ONCE(__ss_active);
 }
-EXPORT_SYMBOL(ss_active);
 
 int __init
 tfw_sync_socket_init(void)

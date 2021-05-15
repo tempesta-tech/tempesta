@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -189,7 +189,7 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 	 * Considering that TfwPcntCtl{}->end is of type unsigned int,
 	 * it's totally unimaginable that this situation may ever happen.
 	 */
-	BUG_ON(end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
+	BUG_ON(end >= (1UL << (sizeof_field(TfwPcntCtl, end) * 8)));
 	pc->end = end;
 
 	shift = min_t(unsigned int, order - pc->order, TFW_STATS_BCKTS_ORDER);
@@ -627,11 +627,24 @@ typedef struct {
 #define TFW_APM_TIMER_INTVL	(HZ / 20)
 #define TFW_APM_UBUF_SZ		TFW_APM_TIMER_INTVL	/* a slot per ms. */
 
+#define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
+#define TFW_APM_MAX_TMWSCALE	50	/* Maximum time window scale. */
+
+#define TFW_APM_MIN_TMWINDOW	60	/* Minimum time window (secs). */
+#define TFW_APM_MAX_TMWINDOW	3600	/* Maximum time window (secs). */
+
+#define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
+
+#define TFW_APM_HM_AUTO		"auto"
+#define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
+#define TFW_APM_DFLT_URL	"\"/\""
+
 typedef struct {
 	TfwApmRBuf		rbuf;
 	TfwApmRBCtl		rbctl;
 	TfwApmStats		stats;
 	TfwApmUBuf __percpu	*ubuf;
+	TfwServer		*srv;
 	struct timer_list	timer;
 	unsigned long		flags;
 	TfwApmHMCtl		hmctl;
@@ -721,8 +734,8 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 #define IDX_ITH		TFW_PSTATS_IDX_ITH
 
 	int i, p;
-	unsigned long cnt = 0, val, pval[pstats->psz];
-	TfwApmRBEState st[rbuf->rbufsz];
+	unsigned long cnt = 0, val, pval[T_PSZ];
+	TfwApmRBEState st[TFW_APM_MAX_TMWSCALE];
 	TfwPcntRanges *pcntrng;
 	TfwApmRBEnt *rbent = rbuf->rbent;
 
@@ -732,12 +745,12 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 		__tfw_apm_state_next(pcntrng, &st[i]);
 	}
 	/* The number of items to collect for each percentile. */
-	for (i = p = IDX_ITH; i < pstats->psz; ++i) {
+	for (i = p = IDX_ITH; i < T_PSZ; ++i) {
 		pval[i] = rbctl->total_cnt * pstats->ith[i] / 100;
 		if (!pval[i])
 			pstats->val[p++] = 0;
 	}
-	while (p < pstats->psz) {
+	while (p < T_PSZ) {
 		int v_min = USHRT_MAX;
 		for (i = 0; i < rbuf->rbufsz; i++) {
 			if (st[i].v < v_min)
@@ -751,7 +764,7 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 			cnt += pcntrng->cnt[st[i].r][st[i].b];
 			tfw_apm_state_next(pcntrng, &st[i]);
 		}
-		for ( ; p < pstats->psz && pval[p] <= cnt; ++p)
+		for ( ; p < T_PSZ && pval[p] <= cnt; ++p)
 			pstats->val[p] = v_min;
 	}
 	cnt = val = 0;
@@ -887,7 +900,6 @@ tfw_apm_calc(TfwApmData *data)
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.val = val,
-		.psz = ARRAY_SIZE(tfw_pstats_ith)
 	};
 	TfwApmSEnt *asent;
 
@@ -901,7 +913,7 @@ tfw_apm_calc(TfwApmData *data)
 	T_DBG3("%s: Percentile values may have changed.\n", __func__);
 	write_lock(&asent->rwlock);
 	memcpy_fast(asent->pstats.val, pstats.val,
-		    asent->pstats.psz * sizeof(asent->pstats.val[0]));
+		    T_PSZ * sizeof(asent->pstats.val[0]));
 	atomic_inc(&data->stats.rdidx);
 	write_unlock(&asent->rwlock);
 
@@ -931,7 +943,7 @@ tfw_apm_calc(TfwApmData *data)
 									\
 	fn_lock(&asent->rwlock);					\
 	memcpy(pstats->val, asent->pstats.val,				\
-	       pstats->psz * sizeof(pstats->val[0]));			\
+	       T_PSZ * sizeof(pstats->val[0]));				\
 	fn_unlock(&asent->rwlock);					\
 	pstats->seq = rdidx;						\
 									\
@@ -961,9 +973,7 @@ tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
 {
 	int i;
 
-	if (pstats->psz != ARRAY_SIZE(tfw_pstats_ith))
-		return 1;
-	for (i = 0; i < pstats->psz; ++i)
+	for (i = 0; i < T_PSZ; ++i)
 		if (pstats->ith[i] != tfw_pstats_ith[i])
 			return 1;
 	return 0;
@@ -974,14 +984,12 @@ tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
  * Runs periodically on timer.
  */
 static void
-tfw_apm_prcntl_tmfn(unsigned long fndata)
+tfw_apm_prcntl_tmfn(struct timer_list *t)
 {
 	int i, icpu;
-	TfwApmData *data = (TfwApmData *)fndata;
+	TfwApmData *data = from_timer(data, t, timer);
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBEnt *rbent = rbuf->rbent;
-
-	BUG_ON(!fndata);
 
 	/*
 	 * Increment the counter and make the updates use the other array
@@ -1015,10 +1023,11 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
  * and sending test request if necessary.
  */
 static void
-tfw_apm_hm_timer_cb(unsigned long data)
+tfw_apm_hm_timer_cb(struct timer_list *t)
 {
-	TfwServer *srv = (TfwServer *)data;
-	TfwApmData *apmdata = (TfwApmData *)srv->apmref;
+	TfwApmHMCtl *hmctl = from_timer(hmctl, t, timer);
+	TfwApmData *apmdata = container_of(hmctl, TfwApmData, hmctl);
+	TfwServer *srv = apmdata->srv;
 	TfwApmHM *hm = READ_ONCE(apmdata->hmctl.hm);
 	unsigned long now;
 
@@ -1082,13 +1091,10 @@ tfw_apm_rbent_init(TfwApmRBEnt *rbent, unsigned long jtmistamp)
 	__tfw_apm_rbent_reset(rbent, jtmistamp);
 }
 
-/*
+/**
  * Create and initialize an APM ring buffer for a server.
- *
- * Note that due to specifics of Tempesta start up process this code
- * is executed in SoftIRQ context (so that sleeping is not allowed).
+ * Must be called from process context.
  */
-
 static void *
 tfw_apm_create(void)
 {
@@ -1099,7 +1105,6 @@ tfw_apm_create(void)
 	int i, icpu, size, hm_size;
 	unsigned int *val[2];
 	int rbufsz = tfw_apm_tmwscale;
-	int psz = ARRAY_SIZE(tfw_pstats_ith);
 
 	might_sleep();
 	if (!tfw_apm_tmwscale) {
@@ -1112,7 +1117,7 @@ tfw_apm_create(void)
 	/* Keep complete stats for the full time window. */
 	size = sizeof(TfwApmData)
 		+ rbufsz * sizeof(TfwApmRBEnt)
-		+ 2 * psz * sizeof(unsigned int)
+		+ 2 * T_PSZ * sizeof(unsigned int)
 		+ hm_size;
 	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
 		return NULL;
@@ -1127,18 +1132,16 @@ tfw_apm_create(void)
 	/* Set up memory areas. */
 	rbent = (TfwApmRBEnt *)(data + 1);
 	val[0] = (unsigned int *)(rbent + rbufsz);
-	val[1] = (unsigned int *)(val[0] + psz);
+	val[1] = (unsigned int *)(val[0] + T_PSZ);
 
 	data->rbuf.rbent = rbent;
 	data->rbuf.rbufsz = rbufsz;
 
 	data->stats.asent[0].pstats.ith = tfw_pstats_ith;
 	data->stats.asent[0].pstats.val = val[0];
-	data->stats.asent[0].pstats.psz = psz;
 
 	data->stats.asent[1].pstats.ith = tfw_pstats_ith;
 	data->stats.asent[1].pstats.val = val[1];
-	data->stats.asent[1].pstats.psz = psz;
 
 	/* Initialize data. */
 	for (i = 0; i < rbufsz; ++i)
@@ -1165,7 +1168,7 @@ tfw_apm_create(void)
 
 	if (hm_size) {
 		i = 0;
-		hmstats = (TfwApmHMStats *)(val[1] + psz);
+		hmstats = (TfwApmHMStats *)(val[1] + T_PSZ);
 		list_for_each_entry(ent, &tfw_hm_codes_list, list)
 			hmstats[i++].hmcfg = ent;
 		BUG_ON(tfw_hm_codes_cnt != i);
@@ -1198,9 +1201,10 @@ tfw_apm_add_srv(TfwServer *srv)
 
 	/* Start the timer for the percentile calculation. */
 	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	setup_timer(&data->timer, tfw_apm_prcntl_tmfn, (unsigned long)data);
+	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
 	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
 
+	data->srv = srv;
 	srv->apmref = data;
 
 	return 0;
@@ -1349,7 +1353,7 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 	/* Start server's health monitoring timer. */
 	atomic_set(&hmctl->rearm, 1);
 	smp_mb__after_atomic();
-	setup_timer(&hmctl->timer, tfw_apm_hm_timer_cb, (unsigned long)srv);
+	timer_setup(&hmctl->timer, tfw_apm_hm_timer_cb, 0);
 	now = jiffies;
 	mod_timer(&hmctl->timer, now + hm->tmt * HZ);
 	WRITE_ONCE(hmctl->jtmstamp, now);
@@ -1428,19 +1432,6 @@ tfw_apm_get_hm(const char *name)
 	}
 	return NULL;
 }
-
-
-#define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
-#define TFW_APM_MAX_TMWSCALE	50	/* Maximum time window scale. */
-
-#define TFW_APM_MIN_TMWINDOW	60	/* Minimum time window (secs). */
-#define TFW_APM_MAX_TMWINDOW	3600	/* Maximum time window (secs). */
-
-#define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
-
-#define TFW_APM_HM_AUTO		"auto"
-#define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
-#define TFW_APM_DFLT_URL	"\"/\""
 
 bool
 tfw_apm_check_hm(const char *name)

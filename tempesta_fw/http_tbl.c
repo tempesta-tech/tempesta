@@ -507,7 +507,7 @@ tfw_cfgop_replace_active_table(TfwHttpTable *new_table)
 	TfwHttpTable *active_table = tfw_table;
 
 	rcu_assign_pointer(tfw_table, new_table);
-	synchronize_rcu_bh();
+	synchronize_rcu();
 
 	tfw_cfgop_free_table(active_table);
 }

@@ -90,7 +90,6 @@ tfw_filter_block_ip(const TfwAddr *addr)
 		T_DBG_ADDR("block client", addr, TFW_NO_PORT);
 	}
 }
-EXPORT_SYMBOL(tfw_filter_block_ip);
 
 /**
  * Drop early IP layer filtering.

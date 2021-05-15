@@ -291,6 +291,7 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 * memory), thus the receive execution flow must not reach this
 		 * point.
 		 */
+		fallthrough;
 	default:
 		BUG();
 	}

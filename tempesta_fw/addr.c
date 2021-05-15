@@ -444,26 +444,28 @@ tfw_put_dec(u32 q, char *out_buf)
 	 */
 	switch(digits_n) {
 	case 4:
-		r  = (q * 0x0ccd) >> 15;
+		r = (q * 0x0ccd) >> 15;
 		out_buf[3] = (q - 10 * r) + '0';
-		q  = (r * 0x00cd) >> 11;
+		q = (r * 0x00cd) >> 11;
 		out_buf[2] = (r - 10 * q) + '0';
+		fallthrough;
 	case 2:
-		r  = (q * 0x000d) >> 7;
+		r = (q * 0x000d) >> 7;
 		out_buf[1] = (q - 10 * r) + '0';
 		out_buf[0] = r + '0';
-
 		break;
 	case 5:
-		r  = (q * 0xcccd) >> 19;
+		r = (q * 0xcccd) >> 19;
 		out_buf[4] = (q - 10 * r) + '0';
 		q  = (r * 0x0ccd) >> 15;
 		out_buf[3] = (r - 10 * q) + '0';
+		fallthrough;
 	case 3:
-		r  = (q * 0x00cd) >> 11;
+		r = (q * 0x00cd) >> 11;
 		out_buf[2] = (q - 10 * r) + '0';
-		q  = (r * 0x000d) >> 7;
+		q = (r * 0x000d) >> 7;
 		out_buf[1] = (r - 10 * q) + '0';
+		fallthrough;
 	case 1:
 		out_buf[0] = q + '0';
 	}
@@ -488,13 +490,17 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 
 	switch(digits_n) {
 	case 4:
-		out_buf[-4] = hex_asc[(group >> 12)      ];
+		out_buf[-4] = hex_asc[(group >> 12)];
+		fallthrough;
 	case 3:
-		out_buf[-3] = hex_asc[(group >> 8)  & 0xF];
+		out_buf[-3] = hex_asc[(group >> 8) & 0xF];
+		fallthrough;
 	case 2:
-		out_buf[-2] = hex_asc[(group >> 4)  & 0xF];
+		out_buf[-2] = hex_asc[(group >> 4) & 0xF];
+		fallthrough;
 	case 1:
-		out_buf[-1] = hex_asc[ group        & 0xF];
+		out_buf[-1] = hex_asc[group & 0xF];
+		fallthrough;
 	}
 
 	return out_buf;

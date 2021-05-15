@@ -81,7 +81,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/ctype.h>
-#include <linux/frame.h>
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 
@@ -1211,7 +1210,6 @@ tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 
 	return -EINVAL;
 }
-EXPORT_SYMBOL(tfw_cfg_map_enum);
 
 /**
  * Get value of attribute with name @attr_key.
@@ -1231,7 +1229,6 @@ tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
 
 	return default_val;
 }
-EXPORT_SYMBOL(tfw_cfg_get_attr);
 
 /**
  * Check that integer is in specified range.
@@ -1247,7 +1244,6 @@ tfw_cfg_check_range(long value, long min, long max)
 	}
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_check_range);
 
 /**
  * Check that integer @value is a multiple of @divisor (print an error
@@ -1263,7 +1259,6 @@ tfw_cfg_check_multiple_of(long value, int divisor)
 	}
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_check_multiple_of);
 
 /**
  * Check that the entry @e has exactly @val_n values.
@@ -1278,7 +1273,6 @@ tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n)
 	}
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_check_val_n);
 
 /**
  * Most of the handlers below work with single-value entries like this:
@@ -1307,7 +1301,6 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 
 	return r;
 }
-EXPORT_SYMBOL(tfw_cfg_check_single_val);
 
 /**
  * Detect integer base and strip 0x and 0b prefixes from the string.
@@ -1352,7 +1345,6 @@ tfw_cfg_parse_int(const char *s, int *out_int)
 		return -EINVAL;
 	return kstrtoint(s, base, out_int);
 }
-EXPORT_SYMBOL(tfw_cfg_parse_int);
 
 int
 tfw_cfg_parse_long(const char *s, long *out_long)
@@ -1362,7 +1354,6 @@ tfw_cfg_parse_long(const char *s, long *out_long)
 		return -EINVAL;
 	return kstrtol(s, base, out_long);
 }
-EXPORT_SYMBOL(tfw_cfg_parse_long);
 
 int
 tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
@@ -1373,7 +1364,6 @@ tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
 		return -EINVAL;
 	return kstrtouint(s, base, out_uint);
 }
-EXPORT_SYMBOL(tfw_cfg_parse_uint);
 
 /**
  * Borrowed from linux/lib/kstrtox.c because the function isn't exported by
@@ -1461,7 +1451,6 @@ tfw_cfg_parse_intvl(const char *str, unsigned long *i0, unsigned long *i1)
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_parse_intvl);
 
 void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
@@ -1469,7 +1458,6 @@ tfw_cfg_cleanup_children(TfwCfgSpec *cs)
 	TfwCfgSpec *nested_specs = cs->dest;
 	spec_cleanup(nested_specs);
 }
-EXPORT_SYMBOL(tfw_cfg_cleanup_children);
 
 /**
  * This handler allows to parse nested entries recursively.
@@ -1571,7 +1559,6 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	ret = (run_hooks && cse && cse->finish_hook) ? cse->finish_hook(cs) : 0;
 	return ret;
 }
-EXPORT_SYMBOL(tfw_cfg_handle_children);
 
 int
 tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
@@ -1624,7 +1611,6 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 	*dest_bool = is_true;
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_set_bool);
 
 int
 tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
@@ -1669,7 +1655,6 @@ err:
 	T_ERR_NL("can't parse integer");
 	return -EINVAL;
 }
-EXPORT_SYMBOL(tfw_cfg_set_int);
 
 int
 tfw_cfg_set_long(TfwCfgSpec *cs, TfwCfgEntry *e)
@@ -1704,7 +1689,6 @@ err:
 	T_ERR_NL("can't parse long integer");
 	return -EINVAL;
 }
-EXPORT_SYMBOL(tfw_cfg_set_long);
 
 static void
 tfw_cfg_cleanup_str(TfwCfgSpec *cs)
@@ -1777,7 +1761,6 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_set_str);
 
 /*
  * ------------------------------------------------------------------------
@@ -1828,7 +1811,6 @@ tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name)
 {
 	return spec_find(specs, name);
 }
-EXPORT_SYMBOL(tfw_cfg_spec_find);
 
 /**
  * The top-level parsing routine.
@@ -1892,7 +1874,6 @@ err:
 	entry_reset(&ps.e);
 	return -EINVAL;
 }
-EXPORT_SYMBOL(tfw_cfg_parse_mods);
 
 /**
  * Clean up parsed configuration data in modules.
@@ -1971,7 +1952,6 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	ssize_t bytes_read;
 	size_t read_size, buf_size;
 	loff_t off = 0;
-	mm_segment_t oldfs;
 
 	if (!path || !*path) {
 		T_ERR_NL("can't open file with empty name\n");
@@ -1979,9 +1959,6 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	}
 
 	T_DBG2("reading file: %s\n", path);
-
-	oldfs = get_fs();
-	set_fs(get_ds());
 
 	fp = filp_open(path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
@@ -2020,7 +1997,6 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	filp_close(fp, NULL);
 
 	out_buf[off] = '\0';
-	set_fs(oldfs);
 	return out_buf;
 
 err_read:
@@ -2028,7 +2004,6 @@ err_read:
 err_alloc:
 	filp_close(fp, NULL);
 err_open:
-	set_fs(oldfs);
 	return NULL;
 }
 

@@ -501,7 +501,7 @@ dbg_prefix_vec:
  *	__m256i r = _mm256_or_si256(v, lc);
  *	_mm256_storeu_si256((__m256i *)dest, r);
  */
-ENTRY(__tfw_strtolower_avx2)
+SYM_FUNC_START(__tfw_strtolower_avx2)
 	leaq	8(%rsp), %r10
 	andq	$-32, %rsp
 	xorl	%eax, %eax
@@ -681,7 +681,7 @@ ENTRY(__tfw_strtolower_avx2)
 	movslq	%ebx, %rax
 	jmp	.str2low_small_len
 
-ENDPROC(__tfw_strtolower_avx2)
+SYM_FUNC_END(__tfw_strtolower_avx2)
 
 /**
  * Case insensitive comprison of the strings %RDI and %RSI of length %RDX.
@@ -689,7 +689,7 @@ ENDPROC(__tfw_strtolower_avx2)
  * Return 0 if strings match and non-zero otherwise.
  * See the benchmark mentioned above for C implementation.
  */
-ENTRY(__tfw_stricmp_avx2)
+SYM_FUNC_START(__tfw_stricmp_avx2)
 	cmpq	$8, %rdx
 	ja	.stricmp_short
 
@@ -1037,7 +1037,7 @@ ENTRY(__tfw_stricmp_avx2)
 	movl	%ecx, %eax
 	jmp	.stricmp_tail
 
-ENDPROC(__tfw_stricmp_avx2)
+SYM_FUNC_END(__tfw_stricmp_avx2)
 
 /**
  * Case insensitive comparison of the strings %RDI and %RSI of length %RDX.
@@ -1047,7 +1047,7 @@ ENDPROC(__tfw_stricmp_avx2)
  * The implementation is very close to __tfw_stricmp_avx2() above, see also
  * the benchmark mentioned above for C implementation.
  */
-ENTRY(__tfw_stricmp_avx2_2lc)
+SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	cmpq	$8, %rdx
 	ja	.sic2lc_short
 
@@ -1354,7 +1354,7 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 	movl	%ecx, %eax
 	jmp	.sic2lc_tail
 
-ENDPROC(__tfw_stricmp_avx2_2lc)
+SYM_FUNC_END(__tfw_stricmp_avx2_2lc)
 
 /**
  * Match input string %RDI with length %RSI against custom allowed alphabet
@@ -1363,7 +1363,7 @@ ENDPROC(__tfw_stricmp_avx2_2lc)
  * See the benchmark mentioned above for C implementation.
  * This implementation differs only in matching 2nd half of ASCII table.
  */
-ENTRY(__tfw_match_custom)
+SYM_FUNC_START(__tfw_match_custom)
 	cmpq	$4, %rsi
 	vlddqu	(%rcx), %xmm15
 	vlddqu	(%r8), %xmm12
@@ -1686,14 +1686,14 @@ ENTRY(__tfw_match_custom)
 	movzbl	(%rdx,%rcx), %ecx
 	jmp	.do_mcust_2
 
-ENDPROC(__tfw_match_custom)
+SYM_FUNC_END(__tfw_match_custom)
 
 /**
  * strspn(3)-like routine to match input string %RDI of length %RSI against
  * particular static alphabet encoded as byte array %RDX or vector %RCX.
  * See strspn.c C implementation in the benchmark.
  */
-ENTRY(__tfw_strspn_simd)
+SYM_CODE_START(__tfw_strspn_simd)
 	/* Process strings of length not more than 4 bytes separately. */
 	cmpq	$4, %rsi
 	vlddqu	(%rcx), %xmm1
@@ -1979,7 +1979,7 @@ ENTRY(__tfw_strspn_simd)
 	movzbl	(%rdx,%rcx), %ecx
 	jmp	.strspn_do_tail_2
 
-END(__tfw_strspn_simd) /* for local sibling calls only */
+SYM_CODE_END(__tfw_strspn_simd) /* for local sibling calls only */
 
 /**
  * CTEXT | VCHAR and Etag value handles both the halves of ASCII table, so we
@@ -2287,16 +2287,16 @@ END(__tfw_strspn_simd) /* for local sibling calls only */
 	jmp	.ctxt_\NAME\()_do_tail_2
 .endm
 
-ENTRY(__tfw_match_ctext_vchar)
+SYM_FUNC_START(__tfw_match_ctext_vchar)
 FULL_MATCH ctext_vchar __SP 0 __HTAB
-ENDPROC(__tfw_match_ctext_vchar)
+SYM_FUNC_END(__tfw_match_ctext_vchar)
 
 /*
  * The following group of functions tfw_match_X() must be in this file to
  * to not to export __CUSTOM with complex offsets.
  */
 
-ENTRY(tfw_match_uri)
+SYM_FUNC_START(tfw_match_uri)
 	cmpb	$0, custom_uri_enabled(%rip)
 	jne	.match_cust_uri
 	movq	__URI, %rcx
@@ -2307,9 +2307,9 @@ ENTRY(tfw_match_uri)
 	movq	__CUST_URI_1, %r8
 	movq	$custom_uri, %rdx
 	jmp	__tfw_match_custom
-ENDPROC(tfw_match_uri)
+SYM_FUNC_END(tfw_match_uri)
 
-ENTRY(tfw_match_token)
+SYM_FUNC_START(tfw_match_token)
 	cmpb	$0, custom_token_enabled(%rip)
 	jne	.match_cust_token
 	movq	__TOKEN, %rcx
@@ -2320,9 +2320,9 @@ ENTRY(tfw_match_token)
 	movq	__CUST_TOKEN_1, %r8
 	movq	$custom_token, %rdx
 	jmp	__tfw_match_custom
-ENDPROC(tfw_match_token)
+SYM_FUNC_END(tfw_match_token)
 
-ENTRY(tfw_match_qetoken)
+SYM_FUNC_START(tfw_match_qetoken)
 	cmpb	$0, custom_qetoken_enabled(%rip)
 	jne	.match_cust_qetoken
 	movq	__QETOKEN, %rcx
@@ -2333,9 +2333,9 @@ ENTRY(tfw_match_qetoken)
 	movq	__CUST_QETOKEN_1, %r8
 	movq	$custom_qetoken, %rdx
 	jmp	__tfw_match_custom
-ENDPROC(tfw_match_qetoken)
+SYM_FUNC_END(tfw_match_qetoken)
 
-ENTRY(tfw_match_nctl)
+SYM_FUNC_START(tfw_match_nctl)
 	cmpb	$0, custom_nctl_enabled(%rip)
 	jne	.match_cust_nctl
 	movq	__NCTL, %rcx
@@ -2346,9 +2346,9 @@ ENTRY(tfw_match_nctl)
 	movq	__CUST_NCTL_1, %r8
 	movq	$custom_nctl, %rdx
 	jmp	__tfw_match_custom
-ENDPROC(tfw_match_nctl)
+SYM_FUNC_END(tfw_match_nctl)
 
-ENTRY(tfw_match_xff)
+SYM_FUNC_START(tfw_match_xff)
 	cmpb	$0, custom_xff_enabled(%rip)
 	jne	.match_cust_xff
 	movq	__XFF, %rcx
@@ -2359,9 +2359,9 @@ ENTRY(tfw_match_xff)
 	movq	__CUST_XFF_1, %r8
 	movq	$custom_xff, %rdx
 	jmp	__tfw_match_custom
-ENDPROC(tfw_match_xff)
+SYM_FUNC_END(tfw_match_xff)
 
-ENTRY(tfw_match_cookie)
+SYM_FUNC_START(tfw_match_cookie)
 	cmpb	$0, custom_cookie_enabled(%rip)
 	jne	.match_cust_cookie
 	movq	__COOKIE, %rcx
@@ -2372,8 +2372,8 @@ ENTRY(tfw_match_cookie)
 	movq	__CUST_COOKIE_1, %r8
 	movq	$custom_cookie, %rdx
 	jmp	__tfw_match_custom
-ENDPROC(tfw_match_cookie)
+SYM_FUNC_END(tfw_match_cookie)
 
-ENTRY(__tfw_match_etag)
+SYM_FUNC_START(__tfw_match_etag)
 FULL_MATCH etag __EXCL 1 __DQUOTE
-ENDPROC(__tfw_match_etag)
+SYM_FUNC_END(__tfw_match_etag)

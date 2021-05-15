@@ -406,7 +406,6 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 					 &ua_value);
 
 	shash_desc->tfm = sticky->shash;
-	shash_desc->flags = 0;
 
 	T_DBG_PRINT_STICKY_COOKIE(addr, &ua_value, sv);
 
@@ -447,12 +446,12 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 {
 	int r;
 	static const unsigned int len = sizeof(StickyVal) * 2;
+	char buf[sizeof(StickyVal) * 2];
 	bool to_h2 = TFW_MSG_H2(resp->req);
 	char *name = to_h2 ? S_SET_COOKIE : S_F_SET_COOKIE;
 	unsigned int nm_len = to_h2 ? SLEN(S_SET_COOKIE) : SLEN(S_F_SET_COOKIE);
 	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
-	char buf[len];
 	TfwStickyCookie *sticky = resp->req->vhost->cookie;
 	size_t cookie_len = sticky->name_eq.len;
 	TfwStr set_cookie = {
@@ -518,7 +517,6 @@ __redir_hmac_calc(TfwHttpReq *req, RedirMarkVal *mv)
 	SHASH_DESC_ON_STACK(shash_desc, sticky->shash);
 
 	shash_desc->tfm = sticky->shash;
-	shash_desc->flags = 0;
 
 	T_DBG("http_sess: calculate redirection mark: ts=%#lx(now=%#lx),"
 	      " att_no=%#x\n", mv->ts, jiffies, mv->att_no);
@@ -603,13 +601,13 @@ end_##f:								\
 			b = hi ? hex_asc_hi((hmac)[i])			\
 			       : hex_asc_lo((hmac)[i]);			\
 			if (b != *tr) {					\
-				int n = sizeof(hmac) * 2;		\
-				char buf[n];				\
+				char buf[sizeof(hmac) * 2];		\
 				bin2hex(buf, hmac, sizeof(hmac));	\
 				sess_warn("bad received HMAC value",	\
 					  addr, ": %c(pos=%d),"		\
 					  " ts=%#lx orig_hmac=[%.*s]\n", \
-					  *tr, i, ts, n, buf);		\
+					  *tr, i, ts,			\
+					  (int)sizeof(hmac) * 2, buf);	\
 				r = TFW_HTTP_SESS_VIOLATE;		\
 				goto end;				\
 			}						\
