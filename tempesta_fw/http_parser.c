@@ -1005,6 +1005,7 @@ __FSM_STATE(st_curr) {							\
 		mark_trailer_hdr(msg, &parser->hdr);			\
 		parser->_i_st = &&RGen_EoL;				\
 		parser->_hdr_tag = id;					\
+		parser->_acc = 0;					\
 		p += __fsm_n;						\
 		BUG_ON(unlikely(__data_off(p) >= len));			\
 		__FSM_JMP(RGen_RWS); /* skip RWS */			\
@@ -1041,6 +1042,7 @@ __FSM_STATE(st_curr) {							\
 		mark_trailer_hdr(msg, &parser->hdr);			\
 		parser->_i_st = &&RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
+		parser->_acc = 0;					\
 		p += __fsm_n;						\
 		BUG_ON(unlikely(__data_off(p) >= len));			\
 		__FSM_JMP(RGen_RWS); /* skip RWS */			\
@@ -1411,10 +1413,8 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			return  CSTR_NEQ;
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c)) {
-			parser->_acc = 0;
+		if (IS_CRLF(c))
 			return __data_off(p + __fsm_sz);
-		}
 		return CSTR_NEQ;
 	}
 
@@ -1423,10 +1423,10 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 
-		parser->_acc = 0; /* reinit for next token */
-
-		if (IS_TOKEN(c))
+		if (IS_TOKEN(c)) {
+			parser->_acc = 0; /* reinit for next token */
 			__FSM_I_JMP(I_Conn);
+		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2276,10 +2276,8 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c)) {
-			parser->_acc = 0;
+		if (IS_CRLF(c))
 			return __data_off(p + __fsm_sz);
-		}
 		return CSTR_NEQ;
 	}
 
@@ -2288,10 +2286,10 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Req_I_EoT);
 
-		parser->_acc = 0; /* reinit for next token */
-
-		if (IS_TOKEN(c))
+		if (IS_TOKEN(c)) {
+			parser->_acc = 0; /* reinit for next token */
 			__FSM_I_JMP(Req_I_CC);
+		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2590,9 +2588,9 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz, TFW_STR_VALUE);
 		default:
 			req->host_port = parser->_acc;
-			parser->_acc = 0;
 			if (!req->host_port)
 				return CSTR_NEQ;
+			parser->_acc = 0;
 			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_n, TFW_STR_VALUE);
 		}
 		return CSTR_NEQ;
@@ -8385,7 +8383,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			__FSM_I_JMP(Resp_I_EoT);
 		}
 		if (IS_CRLF(c)) {
-			parser->_acc = 0;
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			return __data_off(p + __fsm_sz);
 		}
