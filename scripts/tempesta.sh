@@ -34,8 +34,8 @@ fi
 . "$(dirname $0)/tfw_lib.sh"
 
 script_path="$(dirname $0)"
-tdb_path=${TDB_PATH:="$TFW_ROOT/tempesta_db/core"}
-tfw_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw"}
+tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
+tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
@@ -211,11 +211,13 @@ start()
 	# If 'net.tempesta.state' entry exists but Tempesta start process has
 	# been failed for some reason (e.g. configuration parsing error), then
 	# 'sysctl' does not indicate any problems and exits with zero code;
-	# so, we need to parse 'stderr' here to get actual result.
+	# so, stderr may return 'sysctl: setting key "net.tempesta.state"'
+	# followed by some error message or just empty string.
+	# The most reliable way to check Tempesta status is to check dmesg.
 	err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
-	if [[ -n ${err} ]]; then
+	if [[ -z "`check_dmesg 'Tempesta FW is ready'`" ]]; then
 		unload_modules
-		error "cannot start Tempesta FW (sysctl code: ${err##*: })"
+		error "cannot start Tempesta FW (sysctl message: ${err##*: })"
 	else
 		echo "done"
 	fi
