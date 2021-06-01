@@ -21,7 +21,7 @@
 . "$(dirname $0)/tfw_lib.sh"
 
 # Path to testing modules.
-tm_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw/t"}
+tm_path=${TFW_PATH:="$TFW_ROOT/fw/t"}
 
 declare conn= iter= msgs= srv= thr= unload= verbose=
 

@@ -105,13 +105,11 @@ else
 	ERROR = "ADX CPU extension is required for Tempesta TLS"
 endif
 
-TFW_CFLAGS += -mmmx -msse4.2
-
 KERNEL = /lib/modules/$(shell uname -r)/build
 
 export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
 
-obj-m	+= lib/ tempesta_db/core/ tempesta_fw/ tls/
+obj-m	+= lib/ db/core/ fw/ tls/
 
 all: build
 
@@ -127,18 +125,18 @@ ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
 endif
 	$(MAKE) -C tls/t generate_tables
-	$(MAKE) -C tempesta_db
+	$(MAKE) -C db
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
 
 test: build
 	./scripts/tempesta.sh --stop
 	./scripts/tempesta.sh --load
-	./tempesta_fw/t/unit/run_all_tests.sh
+	./fw/t/unit/run_all_tests.sh
 	./scripts/tempesta.sh --unload
 
 clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
-	$(MAKE) -C tempesta_db clean
+	$(MAKE) -C db clean
 	$(MAKE) -C tls clean
 	$(MAKE) -C tls/t clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
