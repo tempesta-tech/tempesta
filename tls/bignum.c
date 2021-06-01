@@ -16,7 +16,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,13 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
+#ifdef AVX2
+#pragma GCC target("mmx", "sse4.2", "avx2")
+#else
+#pragma GCC target("mmx", "sse4.2")
+#endif
+
 #include "debug.h"
 
 #include <linux/bitops.h>

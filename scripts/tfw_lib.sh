@@ -1,6 +1,6 @@
 # Common utilities for Tempesta scripts
 #
-# Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+# Copyright (C) 2016-2021 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -186,4 +186,12 @@ tfw_irqbalance_revert()
 		' $IRQB_CONF_PATH
 		systemctl restart irqbalance.service >/dev/null
 	fi
+}
+
+check_dmesg()
+{
+	msg=$1
+
+	# Exclude debug level to work in the same way for all the build types.
+	dmesg --level=emerg,alert,crit,err,warn,notice,info | tail | grep "$msg"
 }
