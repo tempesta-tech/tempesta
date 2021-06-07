@@ -20,14 +20,6 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
-/* Must be after the Linux headers and before the Tempesta headers. */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #include "tempesta_fw.h"
 #include "hash.h"
 #include "http.h"
@@ -353,10 +345,8 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 /*
  * ------------------------------------------------------------------------
  *	Configuration processing.
- *	The code at the below may be called with FPU enabled.
  * ------------------------------------------------------------------------
  */
-#pragma GCC reset_options
 
 /*
  * Pointer to the current location structure.

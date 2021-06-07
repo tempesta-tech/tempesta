@@ -19,13 +19,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #undef DEBUG
 #if DBG_TLS > 0
 #define DEBUG DBG_TLS
@@ -912,10 +905,8 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration.
- *	The code at the below may be called with FPU enabled.
  * ------------------------------------------------------------------------
  */
-#pragma GCC reset_options
 
 static int
 tfw_tls_do_init(void)
