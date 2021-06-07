@@ -32,31 +32,8 @@
  */
 #define ttls_mpool_alloc_stack(n)	malloc(n)
 
-void
-ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
-{
-	BUG();
-}
-
-int
-ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
-{
-	BUG();
-}
-
-void
-ttls_mpi_pool_free(void *ctx)
-{
-	BUG();
-}
-
-TlsMpiPool *
-ttls_mpool(void *addr)
-{
-	BUG();
-}
-
 #include "../bignum.c"
+#pragma GCC reset_options
 #include "util.h"
 
 /* Mock irrelevant groups. */

@@ -35,13 +35,13 @@
 #include "helpers.h"
 #include "fuzzer.h"
 
-#include "http_parser.c"
-
-#include "http_sess.c"
-/* prevent exporting symbols */
-#include <linux/module.h>
+#ifdef EXPORT_SYMBOL
 #undef EXPORT_SYMBOL
+#endif
 #define EXPORT_SYMBOL(...)
+
+#include "http_parser.c"
+#include "http_sess.c"
 #include "str.c"
 #include "ss_skb.c"
 #include "msg.c"
@@ -783,14 +783,13 @@ TEST(http_parser, mangled_messages)
  */
 TEST(http_parser, alphabets)
 {
-#if 0
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Host: test\r\n"
 		/* We don't match open and closing quotes. */
 		"Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
 		"Pragma: no-cache, fooo \r\n"
 		"\r\n");
-#endif
+
 	/* Trailing SP in request. */
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"Host: localhost\t  \r\n"
@@ -3395,14 +3394,12 @@ TEST_SUITE(http_parser)
 			  r, SAMPLE_REQ_STR);
 		return;
 	}
-#if 0
+
 	TEST_RUN(http_parser, leading_eol);
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, mangled_messages);
-#endif
 	TEST_RUN(http_parser, alphabets);
-#if 0
 	TEST_RUN(http_parser, casesense);
 	TEST_RUN(http_parser, hdr_token_confusion);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
@@ -3442,5 +3439,4 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);
 
 	redir_mark_enabled = false;
-#endif
 }

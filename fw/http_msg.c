@@ -124,7 +124,6 @@ __tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array, size_t n,
 
 	return NULL;
 }
-EXPORT_SYMBOL(__tfw_http_msg_find_hdr);
 
 typedef struct {
 	TfwStr			hdr;	/* Header name. */
@@ -293,7 +292,6 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	/* Empty header value part. */
 	TFW_STR_INIT(val);
 }
-EXPORT_SYMBOL(__http_msg_hdr_val);
 
 void
 __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val)
@@ -321,7 +319,6 @@ __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val)
 	/* Empty header value part. */
 	TFW_STR_INIT(out_val);
 }
-EXPORT_SYMBOL(__h2_msg_hdr_val);
 
 /**
  * Slow check of generic (raw) header for singularity.
@@ -1236,7 +1233,6 @@ tfw_http_msg_free(TfwHttpMsg *m)
 
 	tfw_pool_destroy(m->pool);
 }
-EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
  * Allocate a new HTTP message.
