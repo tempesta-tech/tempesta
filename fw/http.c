@@ -87,13 +87,6 @@
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "cache.h"
