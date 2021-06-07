@@ -23,13 +23,6 @@
 /*
  * TODO: #488 add socket/connection options adjusting to change client QoS
  */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #include <linux/ctype.h>
 #include <linux/spinlock.h>
 
@@ -1550,11 +1543,8 @@ static TfwClassifier frang_class_ops = {
 /*
  * ------------------------------------------------------------------------
  *	Init/exit procedures for http limits.
- *	The code at the below may be called with FPU enabled.
  * ------------------------------------------------------------------------
  */
-#pragma GCC reset_options
-
 typedef struct {
 	int			prio;
 	int			hook_fsm;
