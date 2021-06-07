@@ -105,6 +105,8 @@ else
 	ERROR = "ADX CPU extension is required for Tempesta TLS"
 endif
 
+TFW_CFLAGS += -mno-vzeroupper
+
 KERNEL = /lib/modules/$(shell uname -r)/build
 
 export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV

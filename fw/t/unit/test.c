@@ -81,13 +81,11 @@ test_call_teardown_fn(void)
 	if (test_teardown_fn)
 		test_teardown_fn();
 }
-#if 0
+
 TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
 TEST_SUITE(mem_fast);
-#endif
 TEST_SUITE(http_parser);
-#if 0
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
 TEST_SUITE(http_msg);
@@ -96,32 +94,31 @@ TEST_SUITE(addr);
 TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
-#endif
+
 int
 test_run_all(void)
 {
 	test_fail_counter = 0;
-#if 0
+
 	/* Run sleeping tests first. */
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
-#endif
+
 	kernel_fpu_begin();
 
 	/*
 	 * Preemption is disabled by kernel_fpu_begin(), so
 	 * the tests can not sleep.
 	 */
-#if 0
 	TEST_SUITE_RUN(tfw_str);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(mem_fast);
 	__fpu_schedule();
-#endif
+
 	TEST_SUITE_RUN(http_parser);
 	__fpu_schedule();
-#if 0
+
 	TEST_SUITE_RUN(http_match);
 	__fpu_schedule();
 
@@ -136,7 +133,7 @@ test_run_all(void)
 
 	TEST_SUITE_RUN(hpack);
 	__fpu_schedule();
-#endif
+
 	kernel_fpu_end();
 
 	return test_fail_counter;

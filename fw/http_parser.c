@@ -115,6 +115,9 @@ do {									\
  * variables in nested blocks, so we declare all required temporal variables
  * used in the defines below here to reduce stack frame usage.
  * Since the variables are global now, be careful with them.
+ *
+ * objtool understands jump table, but our direct jumps are still opaque for it,
+ * so use compiler barrier to avoid stack manipulations after jumps.
  */
 #define __FSM_DECLARE_VARS(ptr)						\
 	TfwHttpMsg	*msg = (TfwHttpMsg *)(ptr);			\
@@ -124,6 +127,7 @@ do {									\
 	int		__maybe_unused __fsm_n;				\
 	size_t		__maybe_unused __fsm_sz;			\
 	TfwStr		__maybe_unused *chunk = &parser->_tmp_chunk;	\
+	barrier();
 
 /**
  * The function prints the problem place of an HTTP message whenever there
@@ -135,8 +139,9 @@ do {									\
  */
 #define TFW_PARSER_BLOCK(st)						\
 do {									\
-	unsigned int __p_o = min_t(unsigned int, 8, p - data);		\
-	unsigned int __p_n = min_t(unsigned int, 48, data + len + __p_o - p);\
+	register unsigned int __p_o = min_t(unsigned int, 8, p - data);	\
+	register unsigned int __p_n = min_t(unsigned int, 48,		\
+					    data + len + __p_o - p);	\
 	T_WARN("Parser error: state=" #st " input(-%d)=%#x('%.*s')"	\
 	       " data_len=%lu off=%lu\n",				\
 	       __p_o, (char)c, __p_n, p - __p_o, len, p - data);	\
@@ -1094,7 +1099,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit, cold) {					\
-	TfwStr *tbl = msg->h_tbl->tbl;					\
+	register TfwStr *tbl = msg->h_tbl->tbl;				\
 									\
 	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
 	T_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
@@ -1131,7 +1136,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_RESP_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
-	TfwStr *tbl = msg->h_tbl->tbl;					\
+	register TfwStr *tbl = msg->h_tbl->tbl;				\
 									\
 	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
 	T_DBG3("parse response body: flags=%#lx content_length=%lu\n",	\
@@ -1375,7 +1380,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_JMP(I_ConnOther);
 
 		if (test_bit(TFW_HTTP_B_CONN_KA, &parser->_acc)) {
-			unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
+			register unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
 
 			if (test_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags))
 				return CSTR_NEQ;
@@ -2724,7 +2729,7 @@ typedef enum {
 static int
 __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	static const void *st[][23] ____cacheline_aligned = {
+	static const void * const st[][23] __annotate_jump_table = {
 		[RFC_822] = {
 			&&I_Day, &&I_Day, &&I_SP,
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
@@ -6345,7 +6350,7 @@ STACK_FRAME_NON_STANDARD(__h2_req_parse_referer);
 static int
 __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
-	static const void *st[][23] ____cacheline_aligned = {
+	static const void * const st[][23] __annotate_jump_table = {
 		[RFC_822] = {
 			&&I_Day, &&I_Day, &&I_SP,
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
