@@ -17,7 +17,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#define RSA_TEST
+#define NO_RSA_FUNC
 #include "ttls_mocks.h"
 /* mpool.c requires ECP and DHM routines. */
 #include "../bignum.c"

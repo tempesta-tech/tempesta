@@ -24,6 +24,7 @@
 #include "ktest.h"
 
 #include "ttls.h"
+#pragma GCC reset_options
 
 #define EXPECT_FALSE(c)		BUG_ON(c)
 #define EXPECT_TRUE(c)		BUG_ON(!(c))
@@ -31,89 +32,7 @@
 #define EXPECT_EQ(c, v)		BUG_ON((c) != (v))
 #define EXPECT_NOT_NULL(v)	BUG_ON((v) == NULL)
 
-/*
- * md_* mocks are required for RSA tests.
- */
-
-void
-ttls_md_init(TlsMdCtx *ctx)
-{
-}
-
-void
-ttls_md_free(TlsMdCtx *ctx)
-{
-}
-
-int
-ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
-{
-	switch (ctx->md_info->type) {
-	case TTLS_MODE_NONE:
-		BUG();
-	case TTLS_MD_SHA256:
-		memset(output, 0, 32);
-		return 0;
-	case TTLS_MD_SHA384:
-		memset(output, 0, 48);
-		return 0;
-	case TTLS_MD_SHA512:
-		memset(output, 0, 64);
-		return 0;
-	}
-	return 0;
-}
-
-int
-ttls_md(const TlsMdInfo *md_info, const unsigned char *input,
-		   size_t ilen, unsigned char *output)
-{
-	return 0;
-}
-
-int
-ttls_md_setup(TlsMdCtx *ctx, const TlsMdInfo *md_info, int hmac)
-{
-	return 0;
-}
-
-const TlsMdInfo *
-ttls_md_info_from_type(ttls_md_type_t md_type)
-{
-	static struct shash_alg shash = {
-		.digestsize = 32,
-	};
-	static const TlsMdInfo md_info = {
-		.type = TTLS_MD_SHA256,
-		.alg_hash = &shash.base,
-	};
-	return &md_info;
-}
-
-int
-ttls_md_starts(TlsMdCtx *ctx)
-{
-	return 0;
-}
-
-int
-ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
-{
-	return 0;
-}
-
-int
-ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen)
-{
-	static const char OID[1] = {0};
-
-	*oid = OID;
-	*olen = 1;
-
-	return 0;
-}
-
-#ifndef RSA_TEST
+#ifndef NO_RSA_FUNC
 size_t
 ttls_rsa_get_len(const TlsRSACtx *ctx)
 {
@@ -156,6 +75,6 @@ ttls_rsa_pkcs1_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 {
 	return 0;
 }
-#endif /* RSA_TEST */
+#endif /* NO_RSA_FUNC */
 
 #endif /* __TTLS_MOCKS_H__ */
