@@ -22,14 +22,6 @@
 #include <linux/module.h>
 #include <linux/sort.h>
 
-/* Must be after the Linux headers and before the Tempesta headers. */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #include "tempesta_fw.h"
 #include "apm.h"
 #include "log.h"
@@ -1003,9 +995,6 @@ tfw_sched_ratio_cleanup_rcu_cb(struct rcu_head *rcu)
 	TfwRatio *ratio = container_of(rcu, TfwRatio, rcu);
 	tfw_sched_ratio_cleanup(ratio);
 }
-
-/* The code at the below may be called with FPU enabled. */
-#pragma GCC reset_options
 
 /**
  * Delete a server group from Ratio Scheduler.

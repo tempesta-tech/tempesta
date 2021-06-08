@@ -434,6 +434,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		t_sz = skb_tail->next->truesize;
 
 		skb_tail = skb_tail->next;
+		INIT_LIST_HEAD(&skb_tail->tcp_tsorted_anchor);
 	}
 
 	/*
