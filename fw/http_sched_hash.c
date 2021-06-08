@@ -35,13 +35,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #include <linux/hash.h>
 #include <linux/module.h>
 
@@ -256,9 +249,6 @@ tfw_sched_hash_cleanup_rcu_cb(struct rcu_head *rcu)
 	TfwHashConnList *cl = container_of(rcu, TfwHashConnList, rcu);
 	kfree(cl);
 }
-
-/* The code at the below may be called with FPU enabled. */
-#pragma GCC reset_options
 
 static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)

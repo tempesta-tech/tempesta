@@ -23,13 +23,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
-
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <net/sock.h>
@@ -1273,6 +1266,9 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	WARN_ON_ONCE(skb->next || skb->prev);
 	WARN_ON_ONCE(skb->sk);
 
+	skb_dst_drop(skb);
+	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+
 	if (!skb_transport_header_was_set(skb)) {
 		/* Quick path for new skbs. */
 		skb->ip_summed = CHECKSUM_PARTIAL;
@@ -1282,8 +1278,6 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	skb->skb_mstamp_ns = 0;
 	skb->dev = NULL;
 	bzero_fast(skb->cb, sizeof(skb->cb));
-	skb_dst_drop(skb);
-	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
 	nf_reset_ct(skb);
 	skb->mac_len = 0;
 	skb->queue_mapping = 0;

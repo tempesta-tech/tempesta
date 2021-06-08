@@ -28,13 +28,6 @@
 #if DBG_APM > 0
 #define DEBUG DBG_APM
 #endif
-/* Must be after the Linux headers and before the Tempesta headers. */
-#pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
-#ifdef AVX2
-#pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
 #include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"
@@ -1073,9 +1066,6 @@ tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 	BUG_ON(!apmref);
 	__tfw_apm_update(apmref, jtstamp, jiffies_to_msecs(jrtt));
 }
-
-/* The code at the below may be called with FPU enabled. */
-#pragma GCC reset_options
 
 static void
 tfw_apm_destroy(TfwApmData *data)
