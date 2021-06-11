@@ -500,7 +500,6 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 		fallthrough;
 	case 1:
 		out_buf[-1] = hex_asc[group & 0xF];
-		fallthrough;
 	}
 
 	return out_buf;

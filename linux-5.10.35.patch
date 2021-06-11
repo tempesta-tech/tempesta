@@ -2491,10 +2491,10 @@ index a28045dc9..4ca11b6d7 100644
  
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
-index 000000000..0fa2cb468
+index 000000000..f6be0927a
 --- /dev/null
 +++ b/security/tempesta/Kconfig
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,16 @@
 +config SECURITY_TEMPESTA
 +	bool "Tempesta FW Support"
 +	depends on SECURITY && NET && INET
@@ -2504,6 +2504,8 @@ index 000000000..0fa2cb468
 +	select CRYPTO_HMAC
 +	select CRYPTO_SHA1
 +	select CRYPTO_SHA1_SSSE3
++	select CRYPTO_GCM
++	select CRYPTO_CCM
 +	default y
 +	help
 +	  This selects Tempesta FW security module.
