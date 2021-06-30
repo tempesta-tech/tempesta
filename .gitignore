@@ -1,9 +1,11 @@
 # Kbuild output
+*.cmd
 *.o
 *.o.*
 *.ko
 *.ko.cmd
 *.obj
+*.mod
 *.mod.c
 .tmp_versions
 modules.order
@@ -25,8 +27,8 @@ Module.symvers
 *.pyc
 
 # tdb binaries
-/tempesta_db/libtdb/libtdb.so
-/tempesta_db/tdbq/tdbq
+/db/libtdb/libtdb.so
+/db/tdbq/tdbq
 
 #debian package
 build-stamp
