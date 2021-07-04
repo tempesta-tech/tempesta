@@ -95,9 +95,17 @@ TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
 
+extern int tfw_pool_init(void);
+extern void tfw_pool_exit(void);
+
 int
 test_run_all(void)
 {
+	int r;
+
+	r = tfw_pool_init();
+	BUG_ON(r != 0);
+
 	test_fail_counter = 0;
 
 	/* Run sleeping tests first. */
@@ -135,6 +143,8 @@ test_run_all(void)
 	__fpu_schedule();
 
 	kernel_fpu_end();
+
+	tfw_pool_exit();
 
 	return test_fail_counter;
 }
