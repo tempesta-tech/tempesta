@@ -132,9 +132,7 @@ endif
 
 test: build
 	./scripts/tempesta.sh --stop
-	./scripts/tempesta.sh --load
 	./fw/t/unit/run_all_tests.sh
-	./scripts/tempesta.sh --unload
 
 clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
