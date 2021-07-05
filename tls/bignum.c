@@ -703,8 +703,7 @@ ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 void
 ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b)
 {
-	DECLARE_MPI_AUTO(_B, 1);
-	MPI_P(&_B)[0] = (b < 0) ? -b : b;
+	DECLARE_MPI_AUTO_INITLIMBS(_B, 1, { (b < 0) ? -b : b });
 	_B.s = (b < 0) ? -1 : 1;
 
 	ttls_mpi_add_mpi(X, A, &_B);
@@ -848,9 +847,8 @@ ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 void
 ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b)
 {
-	DECLARE_MPI_AUTO(_B, 1);
+	DECLARE_MPI_AUTO_INITLIMBS(_B, 1, { b });
 	_B.s = 1;
-	MPI_P(&_B)[0] = b;
 
 	ttls_mpi_mul_mpi(X, A, &_B);
 }
@@ -1157,9 +1155,8 @@ __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
 static int
 __mpi_montred(TlsMpi *A, const TlsMpi *N, unsigned long mm, TlsMpi *T)
 {
-	DECLARE_MPI_AUTO(U, 1);
+	DECLARE_MPI_AUTO_INITLIMBS(U, 1, { 1 });
 	U.s = 1;
-	MPI_P(&U)[0] = 1;
 
 	return __mpi_montmul(A, &U, N, mm, T);
 }

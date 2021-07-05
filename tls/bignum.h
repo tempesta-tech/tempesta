@@ -155,6 +155,12 @@ do {									\
 	unsigned long __##name##_p[size];				\
 	MPI_WRAP(name, __##name##_p)
 
+/* Can be used for constant MPIs only! */
+#define DECLARE_MPI_AUTO_INITLIMBS(name, size, limbs_initializer)	\
+	unsigned long __##name##_p[size] = limbs_initializer;		\
+	MPI_WRAP(name, __##name##_p)
+
+
 #define ttls_mpi_alloca_zero(X, ln)					\
 do {									\
 	ttls_mpi_alloca_init(X, ln);					\
