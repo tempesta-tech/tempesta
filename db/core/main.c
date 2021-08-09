@@ -304,7 +304,7 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 	db->node = node;
 
 	if (tdb_file_open(db, fsize)) {
-		TDB_ERR("Cannot open db\n");
+		TDB_ERR("Cannot open db for %s\n", path);
 		goto err;
 	}
 
