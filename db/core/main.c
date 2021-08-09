@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 - 2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.17"
+#define TDB_VERSION	"0.1.18"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -186,7 +186,10 @@ tdb_get_db(const char *path, int node)
 {
 	int full_len, len;
 	char *slash;
+	char tbl_nname[TDB_TBLNAME_LEN + 2] = {};
 	TDB *db;
+
+	BUG_ON(node > 9);
 
 	full_len = strlen(path);
 	if (strncmp(path + full_len - sizeof(TDB_SUFFIX) + 1,
@@ -201,12 +204,15 @@ tdb_get_db(const char *path, int node)
 		return NULL;
 	}
 	len = full_len - (slash - path) - sizeof(TDB_SUFFIX);
-	if (len >= TDB_TBLNAME_LEN) {
-		TDB_ERR("Too long table name %s\n", path);
+	/* We'll need to fit <name><numa_id>.tdb */
+	if (len + sizeof(TDB_SUFFIX) >= TDB_TBLNAME_LEN) {
+		TDB_ERR("Too long table name %s (%d instead of %lu)\n",
+			path, len, TDB_TBLNAME_LEN - sizeof(TDB_SUFFIX) - 1);
 		return NULL;
 	}
 
-	db = tdb_tbl_lookup(slash + 1, len);
+	snprintf(tbl_nname, TDB_TBLNAME_LEN, "%.*s%d", len, slash + 1, node);
+	db = tdb_tbl_lookup(tbl_nname, len + 1);
 	if (db)
 		return db;
 
@@ -215,9 +221,10 @@ tdb_get_db(const char *path, int node)
 		TDB_ERR("Cannot allocate new db handler\n");
 		return NULL;
 	}
-	snprintf(db->path, TDB_PATH_LEN, "%.*s%X.tdb",
+
+	snprintf(db->path, TDB_PATH_LEN, "%.*s%d.tdb",
 		 (int)(full_len - sizeof(TDB_SUFFIX) + 1), path, node);
-	snprintf(db->tbl_name, TDB_TBLNAME_LEN, "%.*s%X.tdb",
+	snprintf(db->tbl_name, TDB_TBLNAME_LEN, "%.*s%d.tdb",
 		 len, slash + 1, node);
 
 	return tdb_get(db);
@@ -318,7 +325,7 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 	spin_lock_init(&db->ga_lock);
 
 	TDB_LOG("Opened table %s: size=%lu rec_size=%u base=%p\n",
-		path, fsize, rec_size, db->hdr);
+		db->path, fsize, rec_size, db->hdr);
 
 	return db;
 err_init:
