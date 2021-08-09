@@ -2531,7 +2531,7 @@ static TfwCfgSpec tfw_cache_specs[] = {
 		.dest = &cache_cfg.db_size,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.multiple_of = 2 * 1024 * 1024,
-			.range = { 2 * 1024 * 1024, (1UL << 37) },
+			.range = { 16 * 1024 * 1024, (1UL << 37) },
 		}
 	},
 	{
