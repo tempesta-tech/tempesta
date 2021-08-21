@@ -57,7 +57,7 @@ ma_get_best_fit(unsigned long len, int node)
 
 	for (ma = &mas[node]; ma; ma = ma->next) {
 		if (MA_FREE(ma)
-		    && ma->pages > req_pages
+		    && ma->pages >= req_pages
 		    && (!best_fit || best_fit->pages > ma->pages))
 			best_fit = ma;
 	}
