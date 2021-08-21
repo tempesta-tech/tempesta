@@ -154,7 +154,7 @@ typedef struct {
 static struct {
 	int cache;
 	unsigned int methods;
-	unsigned int db_size;
+	unsigned long db_size;
 	const char *db_path;
 } cache_cfg __read_mostly;
 
@@ -2527,11 +2527,11 @@ static TfwCfgSpec tfw_cache_specs[] = {
 	{
 		.name = "cache_size",
 		.deflt = "268435456",
-		.handler = tfw_cfg_set_int,
+		.handler = tfw_cfg_set_long,
 		.dest = &cache_cfg.db_size,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.multiple_of = PAGE_SIZE,
-			.range = { PAGE_SIZE, (1 << 30) },
+			.multiple_of = 2 * 1024 * 1024,
+			.range = { 16 * 1024 * 1024, (1UL << 37) },
 		}
 	},
 	{
