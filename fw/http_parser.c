@@ -3154,8 +3154,7 @@ __req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(I_Tempesta_Cache_get) {
-		if (IS_CRLF(c)) {
-			// do some processing of PURGE X-Tempesta-Cache request
+		if (likely(IS_CRLF(c))) {
 			hm->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
 			return __data_off(p);
 		}
@@ -3164,6 +3163,7 @@ __req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len)
 done:
 	return r;
 }
+STACK_FRAME_NON_STANDARD(__req_parse_x_tempesta_cache);
 
 static int
 __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -6769,7 +6769,6 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
-
 static int
 __h2_req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			  bool fin)
@@ -6790,8 +6789,7 @@ __h2_req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(I_Tempesta_Cache_get) {
-		if (IS_CRLF(c)) {
-			// do some processing of PURGE X-Tempesta-Cache request
+		if (likely(IS_CRLF(c))) {
 			hm->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
 			return __data_off(p);
 		}
@@ -6800,6 +6798,8 @@ __h2_req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len,
 done:
 	return r;
 }
+STACK_FRAME_NON_STANDARD(__h2_req_parse_x_tempesta_cache);
+
 
 /* Parse method override request headers. */
 static int

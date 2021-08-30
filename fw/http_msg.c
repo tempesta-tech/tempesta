@@ -821,41 +821,27 @@ cleanup:
 }
 
 /**
- * Substitute request method
+ * Substitute request method with "get"
  *
- * For a while it's just a custom realization for substituting dest method with sub method
- * (Implemented to substitute PURGE with GET in X-Tempesta-Cache processing)
+ * Note: replaced method name length is supposed to be shorter
+ *       than the replacement string ("get")
  */
 int
-tfw_http_req_meth_sub(TfwHttpMsg *hm, unsigned char dest_meth, unsigned char sub_meth)
+tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm, unsigned char dest_meth)
 {
-	const char *dest_name = NULL;
-	const char *sub_name = NULL;
+	const char *dest_name;
+	size_t dest_len;
 
-	size_t dest_len, sub_len;
+	TfwStr sub_str = TFW_STR_STRING("get");
 
-	TfwStr sub_str = {};
+	BUG_ON(hm->req->method != dest_meth);
 
-	if (hm->req->method != dest_meth)
-		return TFW_BLOCK; /* todo: check return values */
-
-	/* do we need to look for "get" string in HTTP headers or just set it as stub constant value? */
 	dest_name = tfw_http_tbl_method_get_name(dest_meth);
-	sub_name = tfw_http_tbl_method_get_name(sub_meth);
-
-	/* todo: optimize this later */
-	if (!dest_name || !sub_name)
-		return TFW_BLOCK;
-
 	dest_len = strlen(dest_name);
-	sub_len = strlen(sub_name);
 
-	if (dest_len<sub_len)
-		return TFW_BLOCK;
+	BUG_ON(dest_len < sub_str.len);
 
-	sub_str = TFW_STR_FROM_CSTR(sub_name);
-
-	if (ss_skb_cutoff_data(hm->msg.skb_head, &sub_str, 0, dest_len-sub_len))
+	if (ss_skb_cutoff_data(hm->msg.skb_head, &sub_str, 0, dest_len-sub_str.len))
 		return TFW_BLOCK;
 
 	return TFW_PASS;
