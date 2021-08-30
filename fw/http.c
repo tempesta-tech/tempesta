@@ -2992,6 +2992,18 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
+	/* remove X-Tempesta-Cache and change PURGE to GET, if proper flag X-Tempesta-Cache was set */
+	/* todo: check place of this processing */
+	r = tfw_http_msg_del_tempesta_cache_hdr(hm);
+	if (r)
+		return r;
+
+	if(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
+		r = tfw_http_req_sub(hm, TFW_HTTP_METH_PURGE, TFW_HTTP_METH_GET);
+		if (r)
+			return r;
+	}
+
 	r = tfw_http_sess_req_process(req);
 	if (r)
 		return r;
@@ -3914,7 +3926,7 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
 
 		val_out->len += chunk->len;
 
-		/* 
+		/*
 		 * Skip OWS after the header value (RWS) - they must be in
 		 * separate chunks too.
 		 */
@@ -4117,6 +4129,13 @@ def:
 		if (hid == TFW_HTTP_HDR_KEEP_ALIVE
 		    || hid == TFW_HTTP_HDR_CONNECTION
 		    || tgt->flags & TFW_STR_HBH_HDR)
+			continue;
+
+		/*
+		 * Remove 'X-Tempesta-Cache' header
+		 * from the HTTP/2 response.
+		 */
+		if (hid == TFW_HTTP_HDR_X_TEMPESTA_CACHE)
 			continue;
 
 		/*

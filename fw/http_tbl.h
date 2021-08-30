@@ -56,5 +56,6 @@ typedef struct {
 
 TfwVhost *tfw_http_tbl_vhost(TfwMsg *msg, bool *block);
 int tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method);
+const char *tfw_http_tbl_method_get_name(int value);
 
 #endif /* __HTTP_TBL__ */

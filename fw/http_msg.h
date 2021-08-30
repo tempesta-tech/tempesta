@@ -158,6 +158,7 @@ int __must_check __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str,
 
 unsigned int tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr);
+int tfw_http_req_sub(TfwHttpMsg *hm, unsigned char dest_meth, unsigned char sub_meth);
 int tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr,
 			      unsigned int hid, bool append);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
@@ -171,6 +172,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
+int tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm);
 int tfw_http_msg_to_chunked(TfwHttpMsg *hm);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,

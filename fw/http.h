@@ -148,6 +148,7 @@ enum {
 #define TFW_HTTP_CC_HDR_AUTHORIZATION	0x00080000
 /* Config directives that affect Cache Control. */
 #define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x01000000
+#define TFW_HTTP_CC_CACHE_PURGE		0x02000000
 
 typedef struct {
 	unsigned int	flags;

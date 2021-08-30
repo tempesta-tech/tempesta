@@ -3156,6 +3156,7 @@ __req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_Tempesta_Cache_get) {
 		if (IS_CRLF(c)) {
 			// do some processing of PURGE X-Tempesta-Cache request
+			hm->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
 			return __data_off(p);
 		}
 		__FSM_EXIT(CSTR_NEQ);
@@ -6791,6 +6792,7 @@ __h2_req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_Tempesta_Cache_get) {
 		if (IS_CRLF(c)) {
 			// do some processing of PURGE X-Tempesta-Cache request
+			hm->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
 			return __data_off(p);
 		}
 		__FSM_EXIT(CSTR_NEQ);

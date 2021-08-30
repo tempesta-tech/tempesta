@@ -31,6 +31,7 @@
 #include "gfsm.h"
 #include "http_msg.h"
 #include "http_parser.h"
+#include "http_tbl.h"
 #include "ss_skb.h"
 
 /**
@@ -820,6 +821,47 @@ cleanup:
 }
 
 /**
+ * Substitute request method
+ *
+ * For a while it's just a custom realization for substituting dest method with sub method
+ * (Implemented to substitute PURGE with GET in X-Tempesta-Cache processing)
+ */
+int
+tfw_http_req_sub(TfwHttpMsg *hm, unsigned char dest_meth, unsigned char sub_meth)
+{
+	const char *dest_name = NULL;
+	const char *sub_name = NULL;
+
+	size_t dest_len, sub_len;
+
+	TfwStr sub_str = {};
+
+	if (hm->req->method != dest_meth)
+		return TFW_BLOCK; /* todo: check return values */
+
+	/* do we need to look for "get" string in HTTP headers or just set it as stub constant value? */
+	dest_name = tfw_http_tbl_method_get_name(dest_meth);
+	sub_name = tfw_http_tbl_method_get_name(sub_meth);
+
+	/* todo: optimize this later */
+	if (!dest_name || !sub_name)
+		return TFW_BLOCK;
+
+	dest_len = strlen(dest_name);
+	sub_len = strlen(sub_name);
+
+	if (dest_len<sub_len)
+		return TFW_BLOCK;
+
+	sub_str = TFW_STR_FROM_CSTR(sub_name);
+
+	if (ss_skb_cutoff_data(hm->msg.skb_head, &sub_str, 0, dest_len-sub_len))
+		return TFW_BLOCK;
+
+	return TFW_PASS;
+}
+
+/**
  * Transform HTTP message @hm header with identifier @hid.
  * @hdr must be compound string and contain two or three parts:
  * header name, colon and header value. If @hdr value is empty,
@@ -972,6 +1014,28 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
 			if ((r = __hdr_del(hm, hid)))
 				return r;
+	} while (hid);
+
+	return 0;
+}
+
+/**
+ * Remove X-Tempesta-Cache header in the message
+ */
+int
+tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	unsigned int hid = ht->off;
+	int r = 0;
+
+	do {
+		hid--;
+		if (hid == TFW_HTTP_HDR_X_TEMPESTA_CACHE) {
+			if ((r = __hdr_del(hm, hid)))
+				return r;
+			break;
+		}
 	} while (hid);
 
 	return 0;
