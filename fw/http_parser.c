@@ -3136,6 +3136,35 @@ done:
 STACK_FRAME_NON_STANDARD(__req_parse_x_forwarded_for);
 
 static int
+__req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_X_Tempesta_Cache) {
+		/*
+		 * Tempesta custom header for PURGE:
+		 *	X-Tempesta-Cache = "X-Tempesta-Cache" ":" method
+		 *	method = "get"
+		 */
+		TRY_STR("get", Req_I_X_Tempesta_Cache, I_Tempesta_Cache_get);
+		__FSM_EXIT(CSTR_NEQ);
+	}
+
+	__FSM_STATE(I_Tempesta_Cache_get) {
+		if (IS_CRLF(c)) {
+			// do some processing of PURGE X-Tempesta-Cache request
+			return __data_off(p);
+		}
+		__FSM_EXIT(CSTR_NEQ);
+	}
+done:
+	return r;
+}
+
+static int
 __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
@@ -3952,6 +3981,20 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				p += 17;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
+			if (likely(__data_available(p, 17)
+				   && *(p + 1) == '-'
+				   && *(p + 10) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p + 2, 't', 'e', 'm', 'p',
+						 'e', 's', 't', 'a')
+				   && C8_INT7_LCM(p + 9, 'a', '-', 'c', 'a',
+						 'c', 'h', 'e', ':')))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 16));
+				parser->_i_st = &&Req_HdrX_Tempesta_CacheV;
+				p += 16;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
 			if (likely(__data_available(p, 11)
@@ -4075,6 +4118,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	*/
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrX_Method_OverrideV, req,
 				  __parse_m_override);
+
+	/* 'X-Tempesta-Cache:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Tempesta_CacheV, msg, __req_parse_x_tempesta_cache,
+				     TFW_HTTP_HDR_X_TEMPESTA_CACHE, 0);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -5040,6 +5087,8 @@ __FSM_STATE(st, cold) {							\
 			goto Req_HdrX_Forwarded_ForV;			\
 		case TFW_TAG_HDR_USER_AGENT:				\
 			goto Req_HdrUser_AgentV;			\
+		case TFW_TAG_HDR_X_TEMPESTA_CACHE:			\
+			goto Req_HdrX_Tempesta_CacheV;			\
 		case TFW_TAG_HDR_RAW:					\
 			goto RGen_HdrOtherV;				\
 		default:						\
@@ -6719,6 +6768,37 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+
+static int
+__h2_req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len,
+			  bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_X_Tempesta_Cache) {
+		/*
+		 * Tempesta custom header for PURGE:
+		 *	X-Tempesta-Cache = "X-Tempesta-Cache" ":" method
+		 *	method = "get"
+		 */
+		H2_TRY_STR("get", Req_I_X_Tempesta_Cache, I_Tempesta_Cache_get);
+		__FSM_EXIT(CSTR_NEQ);
+	}
+
+	__FSM_STATE(I_Tempesta_Cache_get) {
+		if (IS_CRLF(c)) {
+			// do some processing of PURGE X-Tempesta-Cache request
+			return __data_off(p);
+		}
+		__FSM_EXIT(CSTR_NEQ);
+	}
+done:
+	return r;
+}
+
 /* Parse method override request headers. */
 static int
 __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
@@ -7194,6 +7274,20 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			}
 			__FSM_H2_OTHER_n(4);
 
+		/* x-tempesta-cache */
+		case TFW_CHAR4_INT('x', '-', 't', 'e'):
+			if (likely(__data_available(p, 16)
+				 && *(p + 1) != '-'
+				 && *(p + 10) == '-'))
+			{
+				if (C8_INT(p + 4, 'm', 'p', 'e', 's', 't', 'a', '-', 'c')
+				    && C4_INT(p + 12,  'a', 'c', 'h', 'e'))
+				{
+					__FSM_H2_FIN(Req_HdrX_Tempesta_CacheV, 16,
+						     TFW_TAG_HDR_X_TEMPESTA_CACHE);
+				}
+			}
+			__FSM_H2_OTHER_n(4);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
@@ -7393,6 +7487,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			     __h2_req_parse_x_forwarded_for,
 			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
 
+	/* 'x-tempesta-cache' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Tempesta_CacheV, msg,
+			     __h2_req_parse_x_tempesta_cache,
+			     TFW_HTTP_HDR_X_TEMPESTA_CACHE, 0);
 	/*
 	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
 	 * 'X-Method-Override:*OWS' is read, process field-value.

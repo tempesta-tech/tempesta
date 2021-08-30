@@ -205,11 +205,12 @@ typedef enum {
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
 	TFW_HTTP_HDR_KEEP_ALIVE,
 	TFW_HTTP_HDR_TRANSFER_ENCODING,
+	TFW_HTTP_HDR_X_TEMPESTA_CACHE,
 
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
 
-	TFW_HTTP_HDR_NUM	= 16,
+	TFW_HTTP_HDR_NUM	= 17,
 } tfw_http_hdr_t;
 
 enum {

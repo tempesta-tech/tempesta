@@ -1252,6 +1252,9 @@ done:
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
+	case TFW_TAG_HDR_X_TEMPESTA_CACHE:
+		parser->_hdr_tag = TFW_HTTP_HDR_X_TEMPESTA_CACHE;
+		break;
 	default:
 		WARN_ON_ONCE(1);
 		return T_DROP;
