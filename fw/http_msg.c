@@ -827,7 +827,7 @@ cleanup:
  * (Implemented to substitute PURGE with GET in X-Tempesta-Cache processing)
  */
 int
-tfw_http_req_sub(TfwHttpMsg *hm, unsigned char dest_meth, unsigned char sub_meth)
+tfw_http_req_meth_sub(TfwHttpMsg *hm, unsigned char dest_meth, unsigned char sub_meth)
 {
 	const char *dest_name = NULL;
 	const char *sub_name = NULL;

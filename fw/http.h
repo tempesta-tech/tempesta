@@ -211,7 +211,7 @@ typedef enum {
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
 
-	TFW_HTTP_HDR_NUM	= 17,
+	TFW_HTTP_HDR_NUM,
 } tfw_http_hdr_t;
 
 enum {

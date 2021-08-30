@@ -2999,7 +2999,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		return r;
 
 	if(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
-		r = tfw_http_req_sub(hm, TFW_HTTP_METH_PURGE, TFW_HTTP_METH_GET);
+		r = tfw_http_req_meth_sub(hm, TFW_HTTP_METH_PURGE, TFW_HTTP_METH_GET);
 		if (r)
 			return r;
 	}

@@ -234,7 +234,7 @@ tfw_http_tbl_method_get_name(int value)
 	const TfwCfgEnum *pos;
 	for (pos = tfw_http_tbl_cfg_method_enum; pos->name; ++pos) {
 		if(pos->value == value) {
-			return pos->name
+			return pos->name;
 		}
 	}
 	return NULL;
