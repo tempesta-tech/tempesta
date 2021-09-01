@@ -868,7 +868,7 @@ done:
 	return abs(len);
 }
 
-static int
+int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it, int *fragn)
 {
@@ -1111,7 +1111,7 @@ skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
 			it->skb = skb;
 			return 0;
 		}
-		
+
 		__it_next_data(skb, i + 1, it, &_);
 
 		return 0;

@@ -2992,8 +2992,9 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	/* remove X-Tempesta-Cache and change PURGE to GET, if proper flag X-Tempesta-Cache was set */
-	/* todo: check place of this processing */
+	/* Remove X-Tempesta-Cache and change PURGE to GET,
+	 * if proper flag X-Tempesta-Cache was set
+	 */
 	r = tfw_http_msg_del_tempesta_cache_hdr(hm);
 	if (r)
 		return r;
