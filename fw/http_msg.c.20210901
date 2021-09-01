@@ -827,41 +827,106 @@ cleanup:
  *       than the replacement string ("get")
  */
 int
-tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm)
+tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm, unsigned char dest_meth)
 {
+#if 0
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *dst, *tmp, *end, *orig_hdr = &hm->msg.data;
+
+	TFW_STR_FOR_EACH_DUP(dst, orig_hdr, end) {
+		if (dst->len < hdr->len)
+			continue;
+		/*
+		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
+		 * the header in-place. Do not call @ss_skb_cutoff_data if no
+		 * adjustment is needed.
+		 */
+		if (dst->len != hdr->len
+		    && ss_skb_cutoff_data(hm->msg.skb_head, dst, hdr->len, 0))
+			return TFW_BLOCK;
+		if (tfw_strcpy(dst, hdr))
+			return TFW_BLOCK;
+		goto cleanup;
+	}
+
+	if (__hdr_expand(hm, orig_hdr, hdr, false))
+		return TFW_BLOCK;
+	dst = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
+
+cleanup:
+	TFW_STR_FOR_EACH_DUP(tmp, orig_hdr, end) {
+		if (tmp != dst
+		    && ss_skb_cutoff_data(hm->msg.skb_head, tmp, 0,
+					  tfw_str_eolen(tmp)))
+			return TFW_BLOCK;
+	}
+
+	*orig_hdr = *dst;
+	return TFW_PASS;
+#endif
+
 	const char *dest_name;
 	size_t dest_len;
 
-	const char *sub_str = "get";
-	unsigned int sub_len = sizeof("get")-1;
+	TfwStr *end, *chunk;
 
-	struct sk_buff *skb;
-	unsigned int off, tail;
+	TfwStr sub_str = {};
+	size_t sub_len = sizeof("get")-1;
 
-	TfwStr it = {};
-	int _;
+	BUG_ON(hm->req->method != dest_meth);
 
-	BUG_ON(!hm);
-	BUG_ON(!hm->req);
-
-	dest_name = tfw_http_tbl_method_get_name(hm->req->method);
+	dest_name = tfw_http_tbl_method_get_name(dest_meth); /* "purge" */
 	dest_len = strlen(dest_name);
 
 	BUG_ON(dest_len < sub_len);
 
-	tail = dest_len - sub_len;
+#if 0
+	/* is this applicable ??? */
+	/* taken from FIXUP_DATA(&sub_str, hm->msg.skb_head, dest_len): */
+	/* the 4th param (skb) is set to NULL in FIXUP_DATA call */
+	if (__tfw_http_msg_add_str_data(hm, &sub_str, hm->msg.skb_head,
+				    dest_len, NULL))
+			return TFW_BLOCK;
+#endif
 
-	skb = hm->msg.skb_head;
-	off = 0;
+#if 0
+	/* see __tfw_http_msg_add_str_data for work with compound */
+	/* !!! see tfw_strcpy for copying data ->
+	need analog function for copying from skb buffers */
+	/* also may look at tfw_strcpy_desc */
+	/* also mat look at tfw_http_msg_grow_hdr_tbl */
 
-	while (skb) {
-		if(sub_len > 0)
-			memcpy_fast(skb->data, sub_str + off,
-				    min_t(unsigned int, skb->data_len, sub_len));
+	/* ??? Read HTTP method string to sub_str */
+	if (__tfw_http_msg_set_str_data(sub_str, hm->msg.skb_head->data,
+				        hm->msg.skb_head))
+			return TFW_BLOCK;
 
-		if (likely(skb->data_len > sub_len)) {
+	sub_str->len = hm->msg.skb_head + dest_len - (void *)sub_str->data;
+	BUG_ON(!sub_str->len);
+	/////
+
+	/* cut off extra length */
+	TFW_STR_FOR_EACH_DUP(chunk, &sub_str, end) {
+		if (ss_skb_cutoff_data(hm->msg.skb_head, &sub_str,
+				       0, dest_len-sub_len))
+			return TFW_BLOCK;
+	};
+	/* todo: rewrite method data */
+
+	return TFW_PASS;
+#endif
+	struct sk_buff *skb = hm->msg.skb_head;
+	size_t off = sub_len;
+	size_t tail = dest_len - sub_len;
+
+	TfwStr it = {};
+	int _;
+
+	while (skb && skb->data_len > 0) {
+		memcpy_fast(skb->data, sub_str + off,
+			    min(skb->data_len, sub_len));
+		if (likely(skb->data_len >= sub_len))
 			break;
-		}
 		sub_len -= skb->data_len;
 		off += skb->data_len;
 		skb = skb->next;
@@ -869,26 +934,31 @@ tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm)
 
 	BUG_ON(!skb);
 
-	while (skb) {
+	while (skb && skb->data_len > 0) {
 		bzero_fast(&it, sizeof(TfwStr));
-		if (skb_fragment(hm->msg.skb_head, skb, skb->data + sub_len,
-				 -(min_t(unsigned int, skb->data_len, tail)),
-				 &it, &_) < 0)
-			return TFW_BLOCK;
-
+		r = skb_fragment(hm->msg.skb_head, skb, sub_len + off,
+				 min(skb->data_len, sub_len), &it, &_);
+		if (r < 0)
+			return r;
 		if(likely(skb->data_len >= tail)) {
-			tail = 0;
 			break;
 		}
 		tail -= skb->data_len;
-		skb = skb->next;
+		off += skb->data_len;
 	}
 
-	BUG_ON(tail > 0);
+#if 0
+		TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
 
-	hm->req->method = TFW_HTTP_METH_GET;
-
-	return TFW_PASS;
+	/* Delete the underlying data. */
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		if (ss_skb_cutoff_data(hm->msg.skb_head, dup, 0,
+				       tfw_str_eolen(dup)))
+			return TFW_BLOCK;
+	};
+///////
+#endif
 }
 
 /**
