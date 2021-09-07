@@ -833,7 +833,7 @@ tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm)
 	size_t dest_len;
 
 	const char *sub_str = "get";
-	unsigned int sub_len = sizeof("get")-1;
+	unsigned int sub_len = sizeof(sub_str)-1;
 
 	struct sk_buff *skb;
 	unsigned int off, tail;
@@ -1056,17 +1056,17 @@ int
 tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
 	int r = 0;
+	TfwStr *hdr;
 
-	do {
-		hid--;
-		if (hid == TFW_HTTP_HDR_X_TEMPESTA_CACHE) {
-			if ((r = __hdr_del(hm, hid)))
-				return r;
-			break;
-		}
-	} while (hid);
+	hdr = &ht->tbl[TFW_HTTP_HDR_X_TEMPESTA_CACHE];
+
+	if(!hdr || TFW_STR_EMPTY(hdr))
+		return 0;
+
+	T_DBG("tfw_http_msg_del_tempesta_cache_hdr: delete header\n");
+	if ((r = __hdr_del(hm, TFW_HTTP_HDR_X_TEMPESTA_CACHE)))
+		return r;
 
 	return 0;
 }

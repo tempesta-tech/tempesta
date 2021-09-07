@@ -2999,7 +2999,8 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
-	if(req->method == TFW_HTTP_METH_PURGE && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
+	if (req->method == TFW_HTTP_METH_PURGE
+	    && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
 		r = tfw_http_req_meth_sub_with_get(hm);
 		if (r)
 			return r;
