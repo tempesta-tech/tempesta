@@ -158,7 +158,7 @@ int __must_check __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str,
 
 unsigned int tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr);
-int tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm);
+int tfw_http_req_meth_sub_with_get(TfwHttpReq *req);
 int tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr,
 			      unsigned int hid, bool append);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,

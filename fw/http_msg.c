@@ -827,37 +827,40 @@ cleanup:
  *       than the replacement string ("get")
  */
 int
-tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm)
+tfw_http_req_meth_sub_with_get(TfwHttpReq *req)
 {
 	const char *dest_name;
-	size_t dest_len;
+	unsigned int dest_len;
 
-	const char *sub_str = "get";
-	unsigned int sub_len = sizeof(sub_str)-1;
+	const char *sub_name = "get";
+	unsigned int sub_len = sizeof("get")-1;
 
 	struct sk_buff *skb;
 	unsigned int off, tail;
 
+	int cut;
+	int r;
+
 	TfwStr it = {};
 	int _;
 
-	BUG_ON(!hm);
-	BUG_ON(!hm->req);
+	BUG_ON(!req);
 
-	dest_name = tfw_http_tbl_method_get_name(hm->req->method);
+	dest_name = tfw_http_tbl_method_get_name(req->method);
 	dest_len = strlen(dest_name);
 
 	BUG_ON(dest_len < sub_len);
 
 	tail = dest_len - sub_len;
 
-	skb = hm->msg.skb_head;
+	skb = req->msg.skb_head;
 	off = 0;
 
 	while (skb) {
-		if(sub_len > 0)
-			memcpy_fast(skb->data, sub_str + off,
+		if(sub_len > 0) {
+			memcpy_fast(skb->data, sub_name + off,
 				    min_t(unsigned int, skb->data_len, sub_len));
+		}
 
 		if (likely(skb->data_len > sub_len)) {
 			break;
@@ -870,11 +873,13 @@ tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm)
 	BUG_ON(!skb);
 
 	while (skb) {
+		cut = (int)min_t(unsigned int, skb->data_len, tail);
 		bzero_fast(&it, sizeof(TfwStr));
-		if (skb_fragment(hm->msg.skb_head, skb, skb->data + sub_len,
-				 -(min_t(unsigned int, skb->data_len, tail)),
-				 &it, &_) < 0)
+
+		if ((r = skb_fragment(req->msg.skb_head, skb, skb->data,
+				      -cut, &it, &_)) != -cut)  {
 			return TFW_BLOCK;
+		}
 
 		if(likely(skb->data_len >= tail)) {
 			tail = 0;
@@ -886,7 +891,7 @@ tfw_http_req_meth_sub_with_get(TfwHttpMsg *hm)
 
 	BUG_ON(tail > 0);
 
-	hm->req->method = TFW_HTTP_METH_GET;
+	req->method = TFW_HTTP_METH_GET;
 
 	return TFW_PASS;
 }

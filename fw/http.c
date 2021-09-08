@@ -2992,20 +2992,6 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	/* Remove X-Tempesta-Cache and change PURGE to GET,
-	 * if proper flag X-Tempesta-Cache was set
-	 */
-	r = tfw_http_msg_del_tempesta_cache_hdr(hm);
-	if (r)
-		return r;
-
-	if (req->method == TFW_HTTP_METH_PURGE
-	    && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
-		r = tfw_http_req_meth_sub_with_get(hm);
-		if (r)
-			return r;
-	}
-
 	r = tfw_http_sess_req_process(req);
 	if (r)
 		return r;
@@ -5418,6 +5404,21 @@ next_msg:
 		else
 			tfw_http_resp_fwd(req->resp);
 	}
+
+	/* Remove X-Tempesta-Cache and change PURGE to GET,
+	 * if proper flag X-Tempesta-Cache was set
+	 */
+	r = tfw_http_msg_del_tempesta_cache_hdr((TfwHttpMsg *)req);
+	if (r)
+		return r;
+
+	if (req->method == TFW_HTTP_METH_PURGE
+	    && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
+		r = tfw_http_req_meth_sub_with_get(req);
+		if (r)
+			return r;
+	}
+
 	/*
 	 * If no virtual host has been found for current request, there
 	 * is no sense for its further processing, so we drop it, send
