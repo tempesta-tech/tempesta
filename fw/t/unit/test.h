@@ -188,7 +188,7 @@ do {						\
 		TEST_FAIL("EXPECT_STR_EQ(%s, %s) => NULL ptr: (%p, %p)\n", \
 			  #str1, #str2, _s1, _s2); \
 	else if (strcmp(_s1, _s2))		\
-		TEST_FAIL("EXPECT_STR_EQ(%s, %s) => NEQ:\n  str1: %s\n  str2: %s\n", \
+		TEST_FAIL("EXPECT_STR_EQ(%s, %s) => '%s' != '%s'\n", \
 			  #str1, #str2, _s1, _s2); \
 } while (0)
 
