@@ -424,7 +424,7 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
  * e.g. 12345 -> "12345".
  *
  * The function can only print up to 5 digits and take input numbers that are
- * less than 65536, which is suitable for printing port and IPv4 octet values.
+ * less than 81920, which is suitable for printing port and IPv4 octet values.
  *
  * Returns a position behind the last digit in @out_buf.
  */
@@ -433,6 +433,8 @@ tfw_put_dec(u32 q, char *out_buf)
 {
 	u32 r;
 	u8 digits_n = 1 + (q > 9) + (q > 99) + (q > 999) + (q > 9999);
+
+	BUG_ON(q >= 81920);
 
 	/* Extract individual digits and convert them to ASCII characters.
 	 *
@@ -450,7 +452,7 @@ tfw_put_dec(u32 q, char *out_buf)
 		out_buf[2] = (r - 10 * q) + '0';
 		fallthrough;
 	case 2:
-		r = (q * 0x000d) >> 7;
+		r = (q * 0x00cd) >> 11;
 		out_buf[1] = (q - 10 * r) + '0';
 		out_buf[0] = r + '0';
 		break;
@@ -463,7 +465,7 @@ tfw_put_dec(u32 q, char *out_buf)
 	case 3:
 		r = (q * 0x00cd) >> 11;
 		out_buf[2] = (q - 10 * r) + '0';
-		q = (r * 0x000d) >> 7;
+		q = (r * 0x00cd) >> 11;
 		out_buf[1] = (r - 10 * q) + '0';
 		fallthrough;
 	case 1:
