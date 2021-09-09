@@ -85,12 +85,18 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		if (p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME) {
-			if (!ttls_sni_cb(tls, p + 3, hostname_len))
+			switch (ttls_sni_cb(tls, p + 3, hostname_len)) {
+			case 0: /* ok */
 				return 0;
-			T_WARN("TLS: server requested by client is not known.\n");
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_UNRECOGNIZED_NAME);
-			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			case -ENOENT:
+				ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+						TTLS_ALERT_MSG_UNRECOGNIZED_NAME);
+				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			default:
+				ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+						TTLS_ALERT_MSG_INTERNAL_ERROR);
+				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			}
 		}
 
 		servername_list_size -= hostname_len + 3;
@@ -1042,7 +1048,8 @@ bad_version:
 	 */
 	if (!tls->peer_conf) {
 		if (ttls_sni_cb(tls, NULL, 0) || !tls->peer_conf) {
-			T_WARN("TLS: server requested by client is not known.\n");
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+					TTLS_ALERT_MSG_INTERNAL_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
