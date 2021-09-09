@@ -35,26 +35,18 @@
 #define TTLS_ERR_PK_TYPE_MISMATCH	-0x3F00
 /* Bad input parameters to function. */
 #define TTLS_ERR_PK_BAD_INPUT_DATA	-0x3E80
-/* Read/write of file failed. */
-#define TTLS_ERR_PK_FILE_IO_ERROR	-0x3E00
 /* Unsupported key version. */
 #define TTLS_ERR_PK_KEY_INVALID_VERSION	-0x3D80
 /* Invalid key tag or value. */
 #define TTLS_ERR_PK_KEY_INVALID_FORMAT	-0x3D00
 /* Key algorithm is unsupported (only RSA and EC are supported). */
 #define TTLS_ERR_PK_UNKNOWN_PK_ALG	-0x3C80
-/* Private key password can't be empty. */
-#define TTLS_ERR_PK_PASSWORD_REQUIRED	-0x3C00
-/* Given private key password does not allow for correct decryption. */
-#define TTLS_ERR_PK_PASSWORD_MISMATCH	-0x3B80
 /* The pubkey tag or value is invalid (only RSA and EC are supported). */
 #define TTLS_ERR_PK_INVALID_PUBKEY	-0x3B00
 /* The algorithm tag or value is invalid. */
 #define TTLS_ERR_PK_INVALID_ALG		-0x3A80
 /* The signature is valid but its length is less than expected. */
 #define TTLS_ERR_PK_SIG_LEN_MISMATCH	-0x3900
-/* PK hardware accelerator failed. */
-#define TTLS_ERR_PK_HW_ACCEL_FAILED	-0x3880
 
 /**
  * Public key types
