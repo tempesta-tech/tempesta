@@ -46,8 +46,6 @@
 #define TTLS_ERR_INVALID_MAC			-0x7180
 /* An invalid SSL record was received. */
 #define TTLS_ERR_INVALID_RECORD			-0x7200
-/* The connection indicated an EOF. */
-#define TTLS_ERR_CONN_EOF			-0x7280
 /*
  * No client certification received from the client, but required by the
  * authentication mode.

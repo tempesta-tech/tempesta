@@ -33,10 +33,6 @@
 #define TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT		-0x1080
 /* PEM string is not as expected. */
 #define TTLS_ERR_PEM_INVALID_DATA			-0x1100
-/* Failed to allocate memory. */
-#define TTLS_ERR_PEM_ALLOC_FAILED			-0x1180
-/* Unsupported key encryption algorithm. */
-#define TTLS_ERR_PEM_UNKNOWN_ENC_ALG			-0x1280
 /* Private key password can't be empty. */
 #define TTLS_ERR_PEM_PASSWORD_REQUIRED			-0x1300
 /* Given private key password does not allow for correct decryption. */
