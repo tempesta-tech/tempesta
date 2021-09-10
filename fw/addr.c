@@ -419,6 +419,21 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
  * define few low-level helpers here instead of using something like snprintf().
  */
 
+static const u16 decpair[100] = {
+#define _(x) (__force u16) __cpu_to_le16((((x % 10) << 8) | (x / 10)) + 0x3030)
+	_( 0), _( 1), _( 2), _( 3), _( 4), _( 5), _( 6), _( 7), _( 8), _( 9),
+	_(10), _(11), _(12), _(13), _(14), _(15), _(16), _(17), _(18), _(19),
+	_(20), _(21), _(22), _(23), _(24), _(25), _(26), _(27), _(28), _(29),
+	_(30), _(31), _(32), _(33), _(34), _(35), _(36), _(37), _(38), _(39),
+	_(40), _(41), _(42), _(43), _(44), _(45), _(46), _(47), _(48), _(49),
+	_(50), _(51), _(52), _(53), _(54), _(55), _(56), _(57), _(58), _(59),
+	_(60), _(61), _(62), _(63), _(64), _(65), _(66), _(67), _(68), _(69),
+	_(70), _(71), _(72), _(73), _(74), _(75), _(76), _(77), _(78), _(79),
+	_(80), _(81), _(82), _(83), _(84), _(85), _(86), _(87), _(88), _(89),
+	_(90), _(91), _(92), _(93), _(94), _(95), _(96), _(97), _(98), _(99),
+#undef _
+};
+
 /**
  * Convert a number to base-10 textual representation,
  * e.g. 12345 -> "12345".
@@ -431,45 +446,37 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 static char *
 tfw_put_dec(u32 q, char *out_buf)
 {
-	u32 r;
+	u32 r = q;
 	u8 digits_n = 1 + (q > 9) + (q > 99) + (q > 999) + (q > 9999);
 
 	BUG_ON(q >= 81920);
 
-	/* Extract individual digits and convert them to ASCII characters.
+	/* Extract successive pairs of digits and look them up in ASCII table.
 	 *
 	 * Decimal digits are extracted by fast division by 10.
-	 * The code is based on put_dec_full9() from linux/lib/vsprintf.c.
+	 * The code is based on put_dec_trunc8() from linux/lib/vsprintf.c.
 	 *
 	 * Some programs treat leading zeros as an octal base mark,
 	 * so the switch(digits_n) is used to skip them.
 	 */
 	switch(digits_n) {
-	case 4:
-		r = (q * 0x0ccd) >> 15;
-		out_buf[3] = (q - 10 * r) + '0';
-		q = (r * 0x00cd) >> 11;
-		out_buf[2] = (r - 10 * q) + '0';
-		fallthrough;
-	case 2:
-		r = (q * 0x00cd) >> 11;
-		out_buf[1] = (q - 10 * r) + '0';
-		out_buf[0] = r + '0';
-		break;
 	case 5:
 		r = (q * 0xcccd) >> 19;
 		out_buf[4] = (q - 10 * r) + '0';
-		q  = (r * 0x0ccd) >> 15;
-		out_buf[3] = (r - 10 * q) + '0';
 		fallthrough;
+	case 4:
+		q = (r * 0x147b) >> 19;
+		*((u16 *)(out_buf + 2)) = decpair[r - 100*q];
+		fallthrough;
+	case 2:
+		*((u16 *)(out_buf + 0)) = decpair[q];
+		break;
 	case 3:
-		r = (q * 0x00cd) >> 11;
-		out_buf[2] = (q - 10 * r) + '0';
-		q = (r * 0x00cd) >> 11;
-		out_buf[1] = (r - 10 * q) + '0';
+		r = (q * 0x147b) >> 19;
+		*((u16 *)(out_buf + 1)) = decpair[q - 100*r];
 		fallthrough;
 	case 1:
-		out_buf[0] = q + '0';
+		out_buf[0] = r + '0';
 	}
 
 	return out_buf + digits_n;
