@@ -30,23 +30,28 @@ TEST(tfw_addr_ntop, formats_ipv4_addrs)
 	TfwAddr a1 = tfw_addr_new_v4(INADDR_ANY, 0);
 	TfwAddr a2 = tfw_addr_new_v4(htonl(INADDR_LOOPBACK), htons(8001));
 	TfwAddr a3 = tfw_addr_new_v4(htonl(0x0764FF0A), htons(65535));
+	TfwAddr a4 = tfw_addr_new_v4(htonl(0x6883B563), htons(9999));
 
 	char s1[TFW_ADDR_STR_BUF_SIZE];
 	char s2[TFW_ADDR_STR_BUF_SIZE];
 	char s3[TFW_ADDR_STR_BUF_SIZE];
-	size_t l1, l2, l3;
+	char s4[TFW_ADDR_STR_BUF_SIZE];
+	size_t l1, l2, l3, l4;
 
 	memset(s1, 0xAA, sizeof(s1));
 	memset(s2, 0xAA, sizeof(s2));
 	memset(s3, 0xAA, sizeof(s3));
+	memset(s4, 0xAA, sizeof(s4));
 
 	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
 	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
 	l3 = tfw_addr_ntop(&a3, s3, sizeof(s3));
+	l4 = tfw_addr_ntop(&a4, s4, sizeof(s4));
 
-	EXPECT_EQ(0, memcmp("0.0.0.0", s1, ++l1));
-	EXPECT_EQ(0, memcmp("127.0.0.1:8001", s2, ++l2));
-	EXPECT_EQ(0, memcmp("7.100.255.10:65535", s3, ++l3));
+	EXPECT_STR_EQ("0.0.0.0", s1);
+	EXPECT_STR_EQ("127.0.0.1:8001", s2);
+	EXPECT_STR_EQ("7.100.255.10:65535", s3);
+	EXPECT_STR_EQ("104.131.181.99:9999", s4);
 }
 
 TEST(tfw_addr_ntop, formats_ipv6_addrs)
@@ -178,10 +183,30 @@ TEST(tfw_addr_pton, recognizes_v4_and_v6_addrs)
 	EXPECT_TRUE(tfw_addr_eq(&a5, &e5));
 }
 
+TEST(tfw_put_dec, proof_correctness)
+{
+	u32 num, rem;
+
+	for (num = 0; num < 81920; ++num) {
+		char s[5] = { 0xAA };
+		char *pos = tfw_put_dec(num, s) - 1;
+
+		if (num != 0)
+			EXPECT_NE(s[0], '0');
+
+		for (rem = num; pos >= s; --pos) {
+			EXPECT_EQ(*pos - '0', rem % 10);
+			rem /= 10;
+		}
+		EXPECT_EQ(rem, 0);
+	}
+}
+
 TEST_SUITE(addr)
 {
 	TEST_RUN(tfw_addr_ntop, formats_ipv4_addrs);
 	TEST_RUN(tfw_addr_ntop, formats_ipv6_addrs);
 	TEST_RUN(tfw_addr_ntop, omits_port_80);
 	TEST_RUN(tfw_addr_pton, recognizes_v4_and_v6_addrs);
+	TEST_RUN(tfw_put_dec, proof_correctness);
 }
