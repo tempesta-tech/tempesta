@@ -515,22 +515,15 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
  * Sets @ci only if the suite matches.
  */
 static int
-ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
+ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 {
-	const TlsCiphersuite *suite_info;
 	ttls_pk_type_t sig_type;
-
-	suite_info = ttls_ciphersuite_from_id(suite_id);
-	if (!suite_info) {
-		T_WARN("ClientHello: cannot match a ciphersuite\n");
-		return TTLS_ERR_INTERNAL_ERROR;
-	}
 
 	T_DBG("trying ciphersuite: %s\n", suite_info->name);
 
 	if (ttls_ciphersuite_uses_ec(suite_info) && !tls->hs->curves[0]) {
 		T_DBG("ciphersuite mismatch: no common elliptic curve\n");
-		return 0;
+		return -1;
 	}
 	/*
 	 * If the ciphersuite requires signing, check whether
@@ -543,7 +536,7 @@ ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
 	{
 		T_DBG("ciphersuite mismatch: no suitable hash algorithm"
 		      " for signature algorithm %d", sig_type);
-		return 0;
+		return -1;
 	}
 	/*
 	 * Final check: if ciphersuite requires us to have a
@@ -554,10 +547,8 @@ ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
 	 */
 	if (ttls_pick_cert(tls, suite_info)) {
 		T_DBG("ciphersuite mismatch: no suitable certificate\n");
-		return 0;
+		return -1;
 	}
-
-	*ci = suite_info;
 
 	return 0;
 }
@@ -565,7 +556,7 @@ ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
 static int
 ttls_choose_ciphersuite(TlsCtx *tls)
 {
-	int r, i, got_common_suite = 0;
+	int i, got_common_suite = 0;
 	const int *ciphersuites;
 	const TlsCiphersuite *ci = NULL;
 	const unsigned short *cs;
@@ -576,17 +567,21 @@ ttls_choose_ciphersuite(TlsCtx *tls)
 		for (cs = tls->hs->css; cs < tls->hs->css + cs_cnt; cs++) {
 			if (*cs != ciphersuites[i])
 				continue;
+
+			ci = ttls_ciphersuite_from_id(ciphersuites[i]);
+			if (!ci) {
+				T_WARN("ClientHello: cannot match a ciphersuite\n");
+				return TTLS_ERR_INTERNAL_ERROR;
+			}
+
 			got_common_suite = 1;
-			r = ttls_ciphersuite_match(tls, ciphersuites[i], &ci);
-			if (r)
-				return r;
-			if (ci)
+			if (!ttls_ciphersuite_match(tls, ci))
 				goto have_ciphersuite;
 		}
 
 	if (got_common_suite) {
 		T_WARN("None of the common ciphersuites is usable"
-		       " (e.g. no suitable certificate)\n");
+		       " (e.g. no suitable certificate), like %s\n", ci->name);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_HANDSHAKE_FAILURE);
 		return -EINVAL;
