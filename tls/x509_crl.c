@@ -392,7 +392,7 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 		  &crl->sig_opts)) != 0)
 	{
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_UNKNOWN_SIG_ALG);
+		return ret;
 	}
 
 	/*
