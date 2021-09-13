@@ -98,8 +98,9 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
-		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
-		       -r);
+		TFW_WITH_ADDR_FMT(&c->peer->addr, TFW_WITH_PORT, addr_str,
+			T_WARN("Session %s rejected with error -0x%X\n",
+				addr_str, -r));
 		fallthrough;
 	case T_DROP:
 		spin_unlock(&tls->lock);
@@ -796,7 +797,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 
 #define SNI_WARN(fmt, ...)						\
 	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
-			  T_WARN("TLS: sni ext: client %s requested"fmt, \
+			  T_WARN("client %s requested"fmt, \
 				 addr_str, __VA_ARGS__))
 
 /**
