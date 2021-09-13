@@ -92,7 +92,8 @@ pk_use_ecparams(const ttls_asn1_buf *params, const TlsEcpGrp **grp)
 		return -EINVAL;
 	}
 	if (ttls_oid_get_ec_grp(params, &grp_id)) {
-		T_ERR("Unsupported elliptic curve\n");
+		TTLS_WITH_OID_FMT(params, ec_str,
+			T_WARN("PK - Elliptic curve %s is unsupported\n", ec_str));
 		return -EINVAL;
 	}
 

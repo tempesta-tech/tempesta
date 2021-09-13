@@ -1558,7 +1558,7 @@ parse:
 		r = ttls_x509_crt_parse_der(sess->peer_cert, p + i, n);
 		switch(r) {
 		case 0: /*ok*/
-		case TTLS_ERR_X509_UNKNOWN_SIG_ALG + TTLS_ERR_OID_NOT_FOUND:
+		case TTLS_ERR_X509_UNKNOWN_SIG_ALG:
 			/*
 			 * Ignore certificate with an unknown algorithm: maybe a
 			 * prior certificate was already trusted.

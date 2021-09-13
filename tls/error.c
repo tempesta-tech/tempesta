@@ -243,11 +243,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_BASE64_INVALID_CHARACTER))
 		snprintf(buf, buflen, "BASE64 - Invalid character in input");
 
-	if (use_ret == -(TTLS_ERR_OID_NOT_FOUND))
-		snprintf(buf, buflen, "OID - OID is not found");
-	if (use_ret == -(TTLS_ERR_OID_BUF_TOO_SMALL))
-		snprintf(buf, buflen, "OID - output buffer is too small");
-
 	if (strlen(buf) != 0)
 		return;
 
