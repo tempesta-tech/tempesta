@@ -2070,6 +2070,39 @@ ttls_get_session(const TlsCtx *tls, TlsSess *dst)
 	return ttls_session_copy(dst, &tls->sess);
 }
 
+/**
+ * Fill out a peer address from a socket buffer containing a packet.
+ */
+int ttls_extract_peer_addr(TlsCtx *tls, void *ss)
+{
+	struct sockaddr_in *sin = (struct sockaddr_in*) ss;
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6*) ss;
+	struct sk_buff *skb = tls->io_in.skb_list;
+	const struct iphdr *ih4 = ip_hdr(skb);
+	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
+	const struct tcphdr *tcp = tcp_hdr(skb);
+
+	if (!skb || !ih6 || !tcp)
+		return -EINVAL;
+
+	switch (ih6->version) {
+	case 4:
+		sin->sin_family = AF_INET;
+		sin->sin_port = tcp->source;
+		sin->sin_addr.s_addr = ih4->saddr;
+		return 0;
+	case 6:
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_port = tcp->source;
+		memcpy(&sin6->sin6_addr, &ih6->saddr,
+		       sizeof(struct in6_addr));
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+
 static bool
 ttls_hs_checksumable(TlsCtx *tls)
 {
