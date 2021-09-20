@@ -234,6 +234,8 @@ int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 int ttls_write_finished(TlsCtx *tls, struct sg_table *sgt,
 			unsigned char **in_buf);
 
+int ttls_extract_peer_addr(TlsCtx *tls, void *sa);
+
 unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type);
 ttls_pk_type_t ttls_pk_alg_from_sig(unsigned char sig);
 
