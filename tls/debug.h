@@ -35,4 +35,21 @@
 
 #include "lib/log.h"
 
+#define TTLS_LOG_WITH_PEER(tls, action_expr)			\
+do {								\
+	struct sockaddr_storage _tls_peer_ss;			\
+	struct sockaddr_storage *_tls_peer_sa = &_tls_peer_ss;	\
+	if (ttls_extract_peer_addr(tls, _tls_peer_sa))		\
+		_tls_peer_sa = NULL;				\
+	action_expr;						\
+} while (0)
+
+#define TTLS_PEER_FMT "[c=%pISp] "
+#define TTLS_ERR(tls, fmt, ...) TTLS_LOG_WITH_PEER(tls, \
+	T_ERR(TTLS_PEER_FMT fmt, _tls_peer_sa, ##__VA_ARGS__))
+#define TTLS_WARN(tls, fmt, ...) TTLS_LOG_WITH_PEER(tls, \
+	T_WARN(TTLS_PEER_FMT fmt, _tls_peer_sa, ##__VA_ARGS__))
+#define TTLS_LOG(tls, fmt, ...) TTLS_LOG_WITH_PEER(tls, \
+	T_LOG(TTLS_PEER_FMT fmt, _tls_peer_sa, ##__VA_ARGS__))
+
 #endif /* __TTLS_DEBUG_H__ */
