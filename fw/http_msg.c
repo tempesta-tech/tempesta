@@ -820,6 +820,52 @@ cleanup:
 	return TFW_PASS;
 }
 
+typedef struct {
+	struct sk_buff *skb;
+	const char *data;
+	unsigned int len;
+	unsigned int tail;
+	char *data_off;
+} replace_string_t;
+
+/**
+ * Callback for processing HTTP method substitution
+ */
+static int
+tfw_http_req_meth_sub(void *data, unsigned char *buf, size_t len,
+		  unsigned int *read)
+{
+	int r = T_OK;
+	replace_string_t *replace = data;
+
+	unsigned int off = 0;
+
+	BUG_ON(!buf);
+	BUG_ON(!len);
+	BUG_ON(!replace);
+	BUG_ON(!replace->data);
+
+	if (replace->len > 0) {
+		off = min_t(unsigned int, len, replace->len);
+		memcpy_fast(buf, replace->data, (size_t)off);
+		*read += off;
+
+		if (len >= replace->len) {
+			replace->data_off = buf+off;
+			replace->len = 0;
+			r = T_OK;
+		} else {
+			replace->len -= len;
+			r = T_POSTPONE;
+		}
+	}
+	if (!len) {
+		r = T_POSTPONE;
+	}
+
+	return r;
+}
+
 /**
  * Substitute request method with "get"
  *
@@ -832,13 +878,15 @@ tfw_http_req_meth_sub_with_get(TfwHttpReq *req)
 	const char *dest_name;
 	unsigned int dest_len;
 
-	const char *sub_name = "get";
-	unsigned int sub_len = sizeof("get")-1;
+	const char *sub_name = "GET";
+	unsigned int sub_len = sizeof("GET")-1;
 
 	struct sk_buff *skb;
-	unsigned int off, tail;
+	unsigned int tail;
 
-	int cut;
+	unsigned int parsed, unused;
+	replace_string_t replace;
+
 	int r;
 
 	TfwStr it = {};
@@ -847,49 +895,41 @@ tfw_http_req_meth_sub_with_get(TfwHttpReq *req)
 	BUG_ON(!req);
 
 	dest_name = tfw_http_tbl_method_get_name(req->method);
+	BUG_ON(!dest_name);
+
 	dest_len = strlen(dest_name);
 
 	BUG_ON(dest_len < sub_len);
 
 	tail = dest_len - sub_len;
 
+	BUG_ON(!req->msg.skb_head);
+
 	skb = req->msg.skb_head;
-	off = 0;
 
-	while (skb) {
-		if(sub_len > 0) {
-			memcpy_fast(skb->data, sub_name + off,
-				    min_t(unsigned int, skb->data_len, sub_len));
-		}
+	replace.data = sub_name;
+	replace.len = sub_len;
+	replace.tail = tail;
+	replace.skb = skb;
 
-		if (likely(skb->data_len > sub_len)) {
-			break;
-		}
-		sub_len -= skb->data_len;
-		off += skb->data_len;
-		skb = skb->next;
+	parsed = 0;
+	r = ss_skb_process(skb, tfw_http_req_meth_sub, &replace,
+			   &unused, &parsed);
+	if (r != T_OK) {
+		return TFW_BLOCK;
 	}
 
-	BUG_ON(!skb);
-
-	while (skb) {
-		cut = (int)min_t(unsigned int, skb->data_len, tail);
+	/* Cut off the tail. */
+	while (tail) {
 		bzero_fast(&it, sizeof(TfwStr));
-
-		if ((r = skb_fragment(req->msg.skb_head, skb, skb->data,
-				      -cut, &it, &_)) != -cut)  {
-			return TFW_BLOCK;
+		r = skb_fragment(skb, skb, replace.data_off, -tail, &it, &_);
+		if (r < 0) {
+			T_WARN("Cannot delete tail\n");
+			return r;
 		}
-
-		if(likely(skb->data_len >= tail)) {
-			tail = 0;
-			break;
-		}
-		tail -= skb->data_len;
-		skb = skb->next;
+		BUG_ON(r > tail);
+		tail -= r;
 	}
-
-	BUG_ON(tail > 0);
 
 	req->method = TFW_HTTP_METH_GET;
 
@@ -1072,6 +1112,7 @@ tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm)
 	T_DBG("tfw_http_msg_del_tempesta_cache_hdr: delete header\n");
 	if ((r = __hdr_del(hm, TFW_HTTP_HDR_X_TEMPESTA_CACHE)))
 		return r;
+	T_DBG("tfw_http_msg_del_tempesta_cache_hdr: header deleted\n");
 
 	return 0;
 }

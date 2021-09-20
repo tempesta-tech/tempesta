@@ -5417,6 +5417,7 @@ next_msg:
 		r = tfw_http_req_meth_sub_with_get(req);
 		if (r)
 			return r;
+		tfw_http_send_resp(req, 200, "purge: success");
 	}
 
 	/*
