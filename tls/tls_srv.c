@@ -1243,7 +1243,8 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 		tls->state = TTLS_SERVER_CHANGE_CIPHER_SPEC;
 
 		if ((r = ttls_derive_keys(tls))) {
-			T_DBG("ServerHello: cannot derive keys, %d\n", r);
+			TTLS_WARN(tls, "ServerHello: cannot derive keys, crypto error %d\n",
+					  r);
 			return r;
 		}
 	}
@@ -1785,8 +1786,10 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_INTERNAL_ERROR;
 	}
 
-	if ((r = ttls_derive_keys(tls)))
-		T_DBG("KeyExchange: cannot derive keys, %d\n", r);
+	if ((r = ttls_derive_keys(tls))) {
+		TTLS_WARN(tls, "KeyExchange: cannot derive keys, crypto error %d\n", r);
+		return T_DROP;
+	}
 
 	return r;
 }

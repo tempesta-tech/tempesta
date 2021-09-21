@@ -340,14 +340,11 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 	unsigned char __buf[TTLS_MD_MAX_SIZE * 3] ____cacheline_aligned;
 	unsigned char *tmp = __buf, *h_i = &__buf[TTLS_MD_MAX_SIZE * 2];
 
-	if (!(md_info = ttls_md_info_from_type(md_type)))
-		return TTLS_ERR_INTERNAL_ERROR;
-
 	ttls_md_init(&md_ctx);
 
+	md_info = ttls_md_info_from_type(md_type);
 	md_len = ttls_md_get_size(md_info);
-	if (TTLS_MD_MAX_SIZE * 2 < md_len + llen + rlen)
-		return TTLS_ERR_BAD_INPUT_DATA;
+	BUG_ON(TTLS_MD_MAX_SIZE * 2 < md_len + llen + rlen);
 
 	memcpy_fast(tmp + md_len, label, llen);
 	memcpy_fast(tmp + md_len + llen, random, rlen);
@@ -571,17 +568,7 @@ ttls_derive_keys(TlsCtx *tls)
 	TlsHandshake *hs = tls->hs;
 
 	ci = ttls_cipher_info_from_type(xfrm->ciphersuite_info->cipher);
-	if (!ci) {
-		T_DBG("cipher info for %d not found\n",
-		      xfrm->ciphersuite_info->cipher);
-		return TTLS_ERR_BAD_INPUT_DATA;
-	}
 	md_info = ttls_md_info_from_type(xfrm->ciphersuite_info->mac);
-	if (!md_info) {
-		T_DBG("mac info for %d not found\n",
-		      xfrm->ciphersuite_info->mac);
-		return TTLS_ERR_BAD_INPUT_DATA;
-	}
 
 	/* Set appropriate PRF function and other TLS 1.2 functions. */
 	if (xfrm->ciphersuite_info->mac == TTLS_MD_SHA384) {
