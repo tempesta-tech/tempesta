@@ -1255,9 +1255,9 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (unlikely(io->hstype == TTLS_HS_CLIENT_HELLO &&
 			     io->hslen < 38))
 		{
-			T_DBG("too short client handshake message: %u\n",
+			TTLS_WARN(tls, "too short client handshake message: %u\n",
 			      io->hslen);
-			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			return T_DROP;
 		}
 
 		/* With TLS we don't handle fragmentation (for now) */

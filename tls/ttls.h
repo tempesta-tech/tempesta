@@ -59,8 +59,6 @@
 #define TTLS_ERR_CA_CHAIN_REQUIRED		-0x7680
 /* An unexpected message was received from our peer. */
 #define TTLS_ERR_UNEXPECTED_MESSAGE		-0x7700
-/* Processing of the ClientHello handshake message failed. */
-#define TTLS_ERR_BAD_HS_CLIENT_HELLO		-0x7900
 /* Processing of the ServerHello handshake message failed. */
 #define TTLS_ERR_BAD_HS_SERVER_HELLO		-0x7980
 /* Processing of the Certificate handshake message failed. */
