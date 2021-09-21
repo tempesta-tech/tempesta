@@ -3149,7 +3149,8 @@ __req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 *	X-Tempesta-Cache = "X-Tempesta-Cache" ":" method
 		 *	method = "get"
 		 */
-		TRY_STR("get", Req_I_X_Tempesta_Cache, I_Tempesta_Cache_get);
+		TRY_STR_fixup(&TFW_STR_STRING("get"), Req_I_X_Tempesta_Cache,
+			      I_Tempesta_Cache_get);
 		__FSM_EXIT(CSTR_NEQ);
 	}
 
