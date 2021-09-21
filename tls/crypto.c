@@ -147,7 +147,7 @@ ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type)
 	for (def = ttls_ciphers; def->info; def++)
 		if (def->type == cipher_type)
 			return def->info;
-	return NULL;
+	BUG();
 }
 
 /*
