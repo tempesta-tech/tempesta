@@ -128,8 +128,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - No CA Chain is set, but required to operate");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_MESSAGE))
 			snprintf(buf, buflen, "TLS - An unexpected message was received from our peer");
-		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_HELLO))
-			snprintf(buf, buflen, "TLS - Processing of the ClientHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_SERVER_HELLO))
 			snprintf(buf, buflen, "TLS - Processing of the ServerHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CERTIFICATE))
