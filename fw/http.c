@@ -4838,9 +4838,11 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
 
-	if (req->resp) {
-		tfw_http_req_cache_service(req->resp);
-		return;
+	if (likely(!(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE))) {
+		if (req->resp) {
+			tfw_http_req_cache_service(req->resp);
+			return;
+		}
 	}
 
 	/*
@@ -4859,11 +4861,13 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		goto send_502;
 	}
 
-	r = TFW_MSG_H2(req)
-		? tfw_h2_adjust_req(req)
-		: tfw_h1_adjust_req(req);
-	if (r)
-		goto send_500;
+	if (likely(!(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE))) {
+		r = TFW_MSG_H2(req)
+			? tfw_h2_adjust_req(req)
+			: tfw_h1_adjust_req(req);
+		if (r)
+			goto send_500;
+	}
 
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
