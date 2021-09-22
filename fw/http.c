@@ -2829,6 +2829,14 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
+	if(!hm->msg.skb_head) {
+		/* ss_skb_fmt_src_addr fails on NULL skb on forbidden IP call to
+		PURGE with X-Tempesta-Cache, this needs investigation.
+		This is a stub. */
+		T_ERR("Empty skb for X-Forwarded-For header");
+		return -EINVAL;
+	}
+
 	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
 
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
@@ -5395,16 +5403,6 @@ next_msg:
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
 
-	/*
-	 * Response is already prepared for the client by sticky module.
-	 */
-	if (unlikely(req->resp)) {
-		if (TFW_MSG_H2(req))
-			tfw_h2_resp_fwd(req->resp);
-		else
-			tfw_http_resp_fwd(req->resp);
-	}
-
 	/* Remove X-Tempesta-Cache and change PURGE to GET,
 	 * if proper flag X-Tempesta-Cache was set
 	 */
@@ -5417,7 +5415,16 @@ next_msg:
 		r = tfw_http_req_meth_sub_with_get(req);
 		if (r)
 			return r;
-		tfw_http_send_resp(req, 200, "purge: success");
+	}
+
+	/*
+	 * Response is already prepared for the client by sticky module.
+	 */
+	if (unlikely(req->resp)) {
+		if (TFW_MSG_H2(req))
+			tfw_h2_resp_fwd(req->resp);
+		else
+			tfw_http_resp_fwd(req->resp);
 	}
 
 	/*

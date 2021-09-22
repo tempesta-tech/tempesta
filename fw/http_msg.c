@@ -931,8 +931,6 @@ tfw_http_req_meth_sub_with_get(TfwHttpReq *req)
 		tail -= r;
 	}
 
-	req->method = TFW_HTTP_METH_GET;
-
 	return TFW_PASS;
 }
 

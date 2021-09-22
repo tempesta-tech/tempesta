@@ -1784,8 +1784,8 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 	 */
 
 out:
-	resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
-	action((TfwHttpMsg *)resp);
+		resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
+		action((TfwHttpMsg *)resp);
 }
 
 /**
@@ -1826,7 +1826,8 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
+	if (!(cache_cfg.cache && g_vhost && g_vhost->cache_purge &&
+		g_vhost->cache_purge_acl)) {
 		tfw_http_send_resp(req, 403, "purge: not configured");
 		return;
 	}
@@ -2224,32 +2225,40 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	resp = tfw_cache_build_resp(req, ce, lifetime, id);
-	/*
-	 * The stream of HTTP/2-request should be closed here since we have
-	 * successfully created the resulting response from cache and will
-	 * send this response to the client (without forwarding request to
-	 * the backend), thus the stream will be finished.
-	 */
-	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					    HTTP2_F_END_STREAM);
-		if (unlikely(!id)) {
-			tfw_http_msg_free((TfwHttpMsg *)resp);
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			goto put;
+	if (likely(req->method == TFW_HTTP_METH_GET &&
+		(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0)) {
+		resp = tfw_cache_build_resp(req, ce, lifetime, id);
+		/*
+		 * The stream of HTTP/2-request should be closed here since we
+		 * have successfully created the resulting response from cache
+		 * and will send this response to the client (without forwarding
+		 * request to the backend), thus the stream will be finished.
+		 */
+		if (resp && TFW_MSG_H2(req)) {
+			id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
+						    HTTP2_F_END_STREAM);
+			if (unlikely(!id)) {
+				tfw_http_msg_free((TfwHttpMsg *)resp);
+				tfw_http_conn_msg_free((TfwHttpMsg *)req);
+				goto put;
+			}
 		}
 	}
 out:
-	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
-		tfw_http_send_resp(req, 504, "resource not cached");
-	else
+		if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
+			tfw_http_send_resp(req, 504, "resource not cached");
+		else {
 		/*
 		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
 		 * if any with values from cached entries to revalidate stored
 		 * stale responses for both: client and Tempesta.
 		 */
-		action((TfwHttpMsg *)req);
+			if (req->method == TFW_HTTP_METH_GET ||
+				unlikely(req->cache_ctl.flags &
+					 TFW_HTTP_CC_CACHE_PURGE)) {
+				action((TfwHttpMsg *)req);
+			}
+		}
 put:
 	tfw_cache_dbce_put(ce);
 }
@@ -2265,10 +2274,15 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	}
 
 	req = (TfwHttpReq *)msg;
-	if (unlikely(req->method == TFW_HTTP_METH_PURGE))
+	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
 		tfw_cache_purge_method(req);
-	else
+		if (unlikely(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)) {
+			cache_req_process_node(req, action);
+		}
+	}
+	else {
 		cache_req_process_node(req, action);
+	}
 }
 
 static void
@@ -2294,7 +2308,8 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		req = resp->req;
 	}
 
-	if (req->method == TFW_HTTP_METH_PURGE)
+	if (req->method == TFW_HTTP_METH_PURGE ||
+		unlikely(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE))
 		goto do_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
