@@ -3004,9 +3004,9 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
-	r = tfw_http_add_x_forwarded_for(hm);
-	if (r)
-		return r;
+		r = tfw_http_add_x_forwarded_for(hm);
+		if (r)
+			return r;
 
 	r = tfw_http_add_hdr_via(hm);
 	if (r)
@@ -4838,10 +4838,10 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
 
-	if (req->resp) {
-		tfw_http_req_cache_service(req->resp);
-		return;
-	}
+		if (req->resp) {
+			tfw_http_req_cache_service(req->resp);
+			return;
+		}
 
 	/*
 	 * Dispatch request to an appropriate server. Schedulers should
@@ -4859,11 +4859,11 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		goto send_502;
 	}
 
-	r = TFW_MSG_H2(req)
-		? tfw_h2_adjust_req(req)
-		: tfw_h1_adjust_req(req);
-	if (r)
-		goto send_500;
+		r = TFW_MSG_H2(req)
+			? tfw_h2_adjust_req(req)
+			: tfw_h1_adjust_req(req);
+		if (r)
+			goto send_500;
 
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
@@ -5420,31 +5420,37 @@ next_msg:
 	/*
 	 * Response is already prepared for the client by sticky module.
 	 */
-	if (unlikely(req->resp)) {
-		if (TFW_MSG_H2(req))
-			tfw_h2_resp_fwd(req->resp);
-		else
-			tfw_http_resp_fwd(req->resp);
-	}
+	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)==0)) {
+		if (unlikely(req->resp)) {
+			if (TFW_MSG_H2(req))
+				tfw_h2_resp_fwd(req->resp);
+			else
+				tfw_http_resp_fwd(req->resp);
+		}
 
-	/*
-	 * If no virtual host has been found for current request, there
-	 * is no sense for its further processing, so we drop it, send
-	 * error response to client and move on to the next request.
-	 */
-	else if (unlikely(!req->vhost)) {
-		tfw_http_req_block(req, 403,
-				   "request dropped: cannot find appropriate "
-				   "virtual host");
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}
-	else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
 		/*
-		 * The request should either be stored or released.
-		 * Otherwise we lose the reference to it and get a leak.
+		 * If no virtual host has been found for current request, there
+		 * is no sense for its further processing, so we drop it, send
+		 * error response to client and move on to the next request.
 		 */
-		tfw_http_send_resp(req, 500, "request dropped:"
-					     " processing error");
+		else if (unlikely(!req->vhost)) {
+			tfw_http_req_block(req, 403,
+					   "request dropped: cannot find appropriate "
+					   "virtual host");
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+		}
+		else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
+			/*
+			 * The request should either be stored or released.
+			 * Otherwise we lose the reference to it and get a leak.
+			 */
+			tfw_http_send_resp(req, 500, "request dropped:"
+						     " processing error");
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+		}
+	}
+	else {
+		tfw_http_send_resp(req, 200, "purge: success");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	/*
@@ -5493,10 +5499,10 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	tfw_http_sess_learn(resp);
 
-	if (TFW_MSG_H2(resp->req))
-		tfw_h2_resp_adjust_fwd(resp);
-	else
-		tfw_h1_resp_adjust_fwd(resp);
+		if (TFW_MSG_H2(resp->req))
+			tfw_h2_resp_adjust_fwd(resp);
+		else
+			tfw_h1_resp_adjust_fwd(resp);
 }
 
 /**
