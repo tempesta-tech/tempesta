@@ -1818,25 +1818,27 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 /**
  * Process PURGE request method according to the configuration.
  */
-static void
+static int
 tfw_cache_purge_method(TfwHttpReq *req)
 {
 	int ret;
+	int res = -EINVAL;
 	TfwAddr saddr;
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && g_vhost && g_vhost->cache_purge &&
-		g_vhost->cache_purge_acl)) {
-		tfw_http_send_resp(req, 403, "purge: not configured");
-		return;
+	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)==0)) {
+		if (!(cache_cfg.cache && g_vhost && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
+			tfw_http_send_resp(req, 403, "purge: not configured");
+			return res;
+		}
 	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(&saddr)) {
 		tfw_http_send_resp(req, 403, "purge: ACL violation");
-		return;
+		return res;
 	}
 
 	/* Only "invalidate" option is implemented at this time. */
@@ -1846,13 +1848,15 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		break;
 	default:
 		tfw_http_send_resp(req, 403, "purge: invalid option");
-		return;
+		return res;
 	}
 
 	if (ret)
 		tfw_http_send_resp(req, 404, "purge: processing error");
-	else
-		tfw_http_send_resp(req, 200, "purge: success");
+	else {
+		res = 0;
+	}
+	return res;
 }
 
 /**
@@ -2275,9 +2279,12 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 
 	req = (TfwHttpReq *)msg;
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
-		tfw_cache_purge_method(req);
+		if (tfw_cache_purge_method(req))
+			return;
 		if (unlikely(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)) {
 			cache_req_process_node(req, action);
+		} else {
+			tfw_http_send_resp(req, 200, "purge: success");
 		}
 	}
 	else {
