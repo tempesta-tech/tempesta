@@ -1093,7 +1093,7 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 }
 
 /**
- * Remove X-Tempesta-Cache header in the message
+ * Remove X-Tempesta-Cache header in HTTP/1.1 message
  */
 int
 tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm)

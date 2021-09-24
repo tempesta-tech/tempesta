@@ -1784,8 +1784,14 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 	 */
 
 out:
+	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)==0)) {
 		resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
 		action((TfwHttpMsg *)resp);
+	}
+	else {
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_send_resp(req, 200, "purge: success");
+	}
 }
 
 /**
@@ -1827,12 +1833,10 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)==0)) {
 		if (!(cache_cfg.cache && g_vhost && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
 			tfw_http_send_resp(req, 403, "purge: not configured");
 			return res;
 		}
-	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
@@ -1853,9 +1857,9 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	if (ret)
 		tfw_http_send_resp(req, 404, "purge: processing error");
-	else {
+	else
 		res = 0;
-	}
+
 	return res;
 }
 
@@ -2315,8 +2319,7 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		req = resp->req;
 	}
 
-	if (req->method == TFW_HTTP_METH_PURGE ||
-		unlikely(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE))
+	if (req->method == TFW_HTTP_METH_PURGE)
 		goto do_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;

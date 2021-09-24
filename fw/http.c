@@ -2829,13 +2829,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
-	if(!hm->msg.skb_head) {
-		/* ss_skb_fmt_src_addr fails on NULL skb on forbidden IP call to
-		PURGE with X-Tempesta-Cache, this needs investigation.
-		This is a stub. */
-		T_ERR("Empty skb for X-Forwarded-For header");
-		return -EINVAL;
-	}
+	BUG_ON(!hm->msg.skb_head);
 
 	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
 
@@ -3004,9 +2998,9 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
-		r = tfw_http_add_x_forwarded_for(hm);
-		if (r)
-			return r;
+	r = tfw_http_add_x_forwarded_for(hm);
+	if (r)
+		return r;
 
 	r = tfw_http_add_hdr_via(hm);
 	if (r)
@@ -4838,10 +4832,10 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
 
-		if (req->resp) {
-			tfw_http_req_cache_service(req->resp);
-			return;
-		}
+	if (req->resp) {
+		tfw_http_req_cache_service(req->resp);
+		return;
+	}
 
 	/*
 	 * Dispatch request to an appropriate server. Schedulers should
@@ -4859,11 +4853,11 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		goto send_502;
 	}
 
-		r = TFW_MSG_H2(req)
-			? tfw_h2_adjust_req(req)
-			: tfw_h1_adjust_req(req);
-		if (r)
-			goto send_500;
+	r = TFW_MSG_H2(req)
+		? tfw_h2_adjust_req(req)
+		: tfw_h1_adjust_req(req);
+	if (r)
+		goto send_500;
 
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
@@ -5406,9 +5400,11 @@ next_msg:
 	/* Remove X-Tempesta-Cache and change PURGE to GET,
 	 * if proper flag X-Tempesta-Cache was set
 	 */
-	r = tfw_http_msg_del_tempesta_cache_hdr((TfwHttpMsg *)req);
-	if (r)
-		return r;
+	if (!TFW_MSG_H2(req)) {
+		r = tfw_http_msg_del_tempesta_cache_hdr((TfwHttpMsg *)req);
+		if (r)
+			return r;
+	}
 
 	if (req->method == TFW_HTTP_METH_PURGE
 	    && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
@@ -5420,36 +5416,36 @@ next_msg:
 	/*
 	 * Response is already prepared for the client by sticky module.
 	 */
-	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)==0)) {
-		if (unlikely(req->resp)) {
-			if (TFW_MSG_H2(req))
-				tfw_h2_resp_fwd(req->resp);
-			else
-				tfw_http_resp_fwd(req->resp);
-		}
-
-		/*
-		 * If no virtual host has been found for current request, there
-		 * is no sense for its further processing, so we drop it, send
-		 * error response to client and move on to the next request.
-		 */
-		else if (unlikely(!req->vhost)) {
-			tfw_http_req_block(req, 403,
-					   "request dropped: cannot find appropriate "
-					   "virtual host");
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-		}
-		else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
-			/*
-			 * The request should either be stored or released.
-			 * Otherwise we lose the reference to it and get a leak.
-			 */
-			tfw_http_send_resp(req, 500, "request dropped:"
-						     " processing error");
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-		}
+	if (unlikely(req->resp) && likely((req->cache_ctl.flags &
+		TFW_HTTP_CC_CACHE_PURGE)==0)) {
+		if (TFW_MSG_H2(req))
+			tfw_h2_resp_fwd(req->resp);
+		else
+			tfw_http_resp_fwd(req->resp);
 	}
-	else {
+
+	/*
+	 * If no virtual host has been found for current request, there
+	 * is no sense for its further processing, so we drop it, send
+	 * error response to client and move on to the next request.
+	 */
+	else if (unlikely(!req->vhost)) {
+		tfw_http_req_block(req, 403,
+				   "request dropped: cannot find appropriate "
+				   "virtual host");
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+	else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
+		/*
+		 * The request should either be stored or released.
+		 * Otherwise we lose the reference to it and get a leak.
+		 */
+		tfw_http_send_resp(req, 500, "request dropped:"
+					     " processing error");
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+	else if (unlikely(req->resp) && unlikely(req->cache_ctl.flags &
+		TFW_HTTP_CC_CACHE_PURGE)) {
 		tfw_http_send_resp(req, 200, "purge: success");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -5499,10 +5495,10 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	tfw_http_sess_learn(resp);
 
-		if (TFW_MSG_H2(resp->req))
-			tfw_h2_resp_adjust_fwd(resp);
-		else
-			tfw_h1_resp_adjust_fwd(resp);
+	if (TFW_MSG_H2(resp->req))
+		tfw_h2_resp_adjust_fwd(resp);
+	else
+		tfw_h1_resp_adjust_fwd(resp);
 }
 
 /**
