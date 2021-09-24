@@ -6772,33 +6772,45 @@ done:
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
 static int
-__h2_req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len,
+__h2_req_parse_x_tempesta_cache(TfwHttpReq *req, unsigned char *data, size_t len,
 			  bool fin)
 {
 	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(hm);
+	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
 
+	/*
+	* Tempesta custom header for PURGE:
+	*      X-Tempesta-Cache = "X-Tempesta-Cache" ":" method
+	*      method = "get"
+	*/
 	__FSM_STATE(Req_I_X_Tempesta_Cache) {
-		/*
-		 * Tempesta custom header for PURGE:
-		 *	X-Tempesta-Cache = "X-Tempesta-Cache" ":" method
-		 *	method = "get"
-		 */
-		H2_TRY_STR("get", Req_I_X_Tempesta_Cache, I_Tempesta_Cache_get);
-		__FSM_EXIT(CSTR_NEQ);
+		H2_TRY_STR_LAMBDA("get", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
+			__FSM_EXIT(CSTR_EQ);
+		} , Req_I_X_Tempesta_Cache, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
-	__FSM_STATE(I_Tempesta_Cache_get) {
-		if (likely(IS_CRLF(c))) {
-			hm->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
-			return __data_off(p);
-		}
-		__FSM_EXIT(CSTR_NEQ);
+	__FSM_STATE(I_Meth_Unknown) {
+		__FSM_I_MATCH_MOVE(token, I_Meth_Unknown);
+		req->cache_ctl.flags |= TFW_HTTP_CC_CACHE_PURGE;
+		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
+
+	__FSM_STATE(I_EoT) {
+		if (IS_TOKEN(c))
+			__FSM_H2_I_MOVE(I_Meth_Unknown);
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE(I_EoT);
+		return CSTR_NEQ;
+	}
+
 done:
 	return r;
+
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_tempesta_cache);
 
@@ -7280,10 +7292,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 		/* x-tempesta-cache */
 		case TFW_CHAR4_INT('x', '-', 't', 'e'):
-			if (likely(__data_available(p, 16)
-				 && *(p + 1) != '-'
-				 && *(p + 10) == '-'))
+			if (unlikely(!__data_available(p, 16)))
+				 __FSM_H2_NEXT_n(Req_HdrX_Te, 4);
 			{
+				if (*(p + 1) == '-'  && *(p + 10) == '-')
 				if (C8_INT(p + 4, 'm', 'p', 'e', 's', 't', 'a', '-', 'c')
 				    && C4_INT(p + 12,  'a', 'c', 'h', 'e'))
 				{
@@ -7492,9 +7504,9 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
 
 	/* 'x-tempesta-cache' is read, process field-value. */
-	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Tempesta_CacheV, msg,
+	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Tempesta_CacheV, req,
 			     __h2_req_parse_x_tempesta_cache,
-			     TFW_HTTP_HDR_X_TEMPESTA_CACHE, 0);
+			     TFW_HTTP_HDR_X_TEMPESTA_CACHE, 1);
 	/*
 	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
 	 * 'X-Method-Override:*OWS' is read, process field-value.
@@ -7805,6 +7817,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			__FSM_H2_NEXT(Req_HdrX_H);
 		case 'm':
 			__FSM_H2_NEXT(Req_HdrX_M);
+		case 't':
+			__FSM_H2_NEXT(Req_HdrX_T);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
@@ -7882,6 +7896,22 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Overr, 'i', Req_HdrX_Http_Method_Overri);
 	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Overri, 'd', Req_HdrX_Http_Method_Overrid);
 	__FSM_H2_TX_AF_FIN(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
+			   TFW_TAG_HDR_RAW);
+
+	/* X-Tempesta-Cache processing */
+	__FSM_H2_TX_AF(Req_HdrX_T, 'e', Req_HdrX_Te);
+	__FSM_H2_TX_AF(Req_HdrX_Te, 'm', Req_HdrX_Tem);
+	__FSM_H2_TX_AF(Req_HdrX_Tem, 'p', Req_HdrX_Temp);
+	__FSM_H2_TX_AF(Req_HdrX_Temp, 'e', Req_HdrX_Tempe);
+	__FSM_H2_TX_AF(Req_HdrX_Tempe, 's', Req_HdrX_Tempes);
+	__FSM_H2_TX_AF(Req_HdrX_Tempes, 't', Req_HdrX_Tempest);
+	__FSM_H2_TX_AF(Req_HdrX_Tempest, 'a', Req_HdrX_Tempesta);
+	__FSM_H2_TX_AF(Req_HdrX_Tempesta, '-', Req_HdrX_Tempesta_);
+	__FSM_H2_TX_AF(Req_HdrX_Tempesta_, 'c', Req_HdrX_Tempesta_C);
+	__FSM_H2_TX_AF(Req_HdrX_Tempesta_C, 'a', Req_HdrX_Tempesta_Ca);
+	__FSM_H2_TX_AF(Req_HdrX_Tempesta_Ca, 'c', Req_HdrX_Tempesta_Cac);
+	__FSM_H2_TX_AF(Req_HdrX_Tempesta_Cac, 'h', Req_HdrX_Tempesta_Cach);
+	__FSM_H2_TX_AF_FIN(Req_HdrX_Tempesta_Cach, 'e', Req_HdrX_Tempesta_CacheV,
 			   TFW_TAG_HDR_RAW);
 
 	__FSM_H2_TX_AF(Req_HdrU, 's', Req_HdrUs);
