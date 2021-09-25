@@ -832,7 +832,7 @@ typedef struct {
  * Callback for processing HTTP method substitution
  */
 static int
-tfw_http_req_meth_sub(void *data, unsigned char *buf, size_t len,
+tfw_http_req_meth_subst(void *data, unsigned char *buf, size_t len,
 		  unsigned int *read)
 {
 	int r = T_OK;
@@ -869,11 +869,11 @@ tfw_http_req_meth_sub(void *data, unsigned char *buf, size_t len,
 /**
  * Substitute request method with "get"
  *
- * Note: replaced method name length is supposed to be shorter
- *       than the replacement string ("get")
+ * Note: the name length of the method being replaced must be the same
+ *	 or longer than the length of the replacement string ("GET").
  */
 int
-tfw_http_req_meth_sub_with_get(TfwHttpReq *req)
+tfw_http_req_meth_subst_with_get(TfwHttpReq *req)
 {
 	const char *dest_name;
 	unsigned int dest_len;
@@ -913,7 +913,7 @@ tfw_http_req_meth_sub_with_get(TfwHttpReq *req)
 	replace.skb = skb;
 
 	parsed = 0;
-	r = ss_skb_process(skb, tfw_http_req_meth_sub, &replace,
+	r = ss_skb_process(skb, tfw_http_req_meth_subst, &replace,
 			   &unused, &parsed);
 	if (r != T_OK) {
 		return TFW_BLOCK;
@@ -1107,10 +1107,9 @@ tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm)
 	if(!hdr || TFW_STR_EMPTY(hdr))
 		return 0;
 
-	T_DBG("tfw_http_msg_del_tempesta_cache_hdr: delete header\n");
+	T_DBG3("%s: X-Tempesta-Cache header deleted\n", __func__);
 	if ((r = __hdr_del(hm, TFW_HTTP_HDR_X_TEMPESTA_CACHE)))
 		return r;
-	T_DBG("tfw_http_msg_del_tempesta_cache_hdr: header deleted\n");
 
 	return 0;
 }

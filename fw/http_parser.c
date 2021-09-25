@@ -6814,7 +6814,6 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_tempesta_cache);
 
-
 /* Parse method override request headers. */
 static int
 __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,

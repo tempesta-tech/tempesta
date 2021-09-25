@@ -2829,8 +2829,6 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
-	BUG_ON(!hm->msg.skb_head);
-
 	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
 
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
@@ -4122,13 +4120,6 @@ def:
 			continue;
 
 		/*
-		 * Remove 'X-Tempesta-Cache' header
-		 * from the HTTP/2 response.
-		 */
-		if (hid == TFW_HTTP_HDR_X_TEMPESTA_CACHE)
-			continue;
-
-		/*
 		 * 'Server' header must be replaced; thus, remove the original
 		 * header (and all its duplicates) skipping it here; the new
 		 * header will be written later, during new headers' addition
@@ -5400,15 +5391,13 @@ next_msg:
 	/* Remove X-Tempesta-Cache and change PURGE to GET,
 	 * if proper flag X-Tempesta-Cache was set
 	 */
-	if (!TFW_MSG_H2(req)) {
-		r = tfw_http_msg_del_tempesta_cache_hdr((TfwHttpMsg *)req);
-		if (r)
-			return r;
-	}
+	r = tfw_http_msg_del_tempesta_cache_hdr((TfwHttpMsg *)req);
+	if (r)
+		return r;
 
 	if (req->method == TFW_HTTP_METH_PURGE
 	    && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
-		r = tfw_http_req_meth_sub_with_get(req);
+		r = tfw_http_req_meth_subst_with_get(req);
 		if (r)
 			return r;
 	}
@@ -5417,7 +5406,7 @@ next_msg:
 	 * Response is already prepared for the client by sticky module.
 	 */
 	if (unlikely(req->resp) && likely((req->cache_ctl.flags &
-		TFW_HTTP_CC_CACHE_PURGE) == 0)) {
+					   TFW_HTTP_CC_CACHE_PURGE) == 0)) {
 		if (TFW_MSG_H2(req))
 			tfw_h2_resp_fwd(req->resp);
 		else
@@ -5445,7 +5434,7 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	else if (unlikely(req->resp) && unlikely(req->cache_ctl.flags &
-		TFW_HTTP_CC_CACHE_PURGE)) {
+						 TFW_HTTP_CC_CACHE_PURGE)) {
 		tfw_http_send_resp(req, 200, "purge: success");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}

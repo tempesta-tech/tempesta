@@ -1833,10 +1833,10 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-		if (!(cache_cfg.cache && g_vhost && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
-			tfw_http_send_resp(req, 403, "purge: not configured");
-			return res;
-		}
+	if (!(cache_cfg.cache && g_vhost && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
+		tfw_http_send_resp(req, 403, "purge: not configured");
+		return res;
+	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
@@ -2233,11 +2233,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	T_DBG("Cache: req->method = %d, req->cache_ctl.flags = 0x%x (is not X-Tempesta-Cache: %d)\n",
-		(int)req->method, req->cache_ctl.flags,
-		(int)((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0));
-	if (likely(req->method == TFW_HTTP_METH_GET &&
-		(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0)) {
+	if ((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0) {
 		resp = tfw_cache_build_resp(req, ce, lifetime, id);
 		/*
 		 * The stream of HTTP/2-request should be closed here since we
@@ -2256,20 +2252,15 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 out:
-		if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
-			tfw_http_send_resp(req, 504, "resource not cached");
-		else {
+	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
+		tfw_http_send_resp(req, 504, "resource not cached");
+	else
 		/*
 		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
 		 * if any with values from cached entries to revalidate stored
 		 * stale responses for both: client and Tempesta.
 		 */
-			if (req->method == TFW_HTTP_METH_GET ||
-				unlikely(req->cache_ctl.flags &
-					 TFW_HTTP_CC_CACHE_PURGE)) {
-				action((TfwHttpMsg *)req);
-			}
-		}
+		action((TfwHttpMsg *)req);
 put:
 	tfw_cache_dbce_put(ce);
 }
@@ -2294,9 +2285,8 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 			tfw_http_send_resp(req, 200, "purge: success");
 		}
 	}
-	else {
+	else
 		cache_req_process_node(req, action);
-	}
 }
 
 static void
