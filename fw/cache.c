@@ -1784,7 +1784,7 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 	 */
 
 out:
-	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)==0)) {
+	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0)) {
 		resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
 		action((TfwHttpMsg *)resp);
 	}
@@ -2233,6 +2233,9 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
+	T_DBG("Cache: req->method = %d, req->cache_ctl.flags = 0x%x (is not X-Tempesta-Cache: %d)\n",
+		(int)req->method, req->cache_ctl.flags,
+		(int)((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0));
 	if (likely(req->method == TFW_HTTP_METH_GET &&
 		(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0)) {
 		resp = tfw_cache_build_resp(req, ce, lifetime, id);

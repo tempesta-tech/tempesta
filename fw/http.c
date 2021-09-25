@@ -5417,7 +5417,7 @@ next_msg:
 	 * Response is already prepared for the client by sticky module.
 	 */
 	if (unlikely(req->resp) && likely((req->cache_ctl.flags &
-		TFW_HTTP_CC_CACHE_PURGE)==0)) {
+		TFW_HTTP_CC_CACHE_PURGE) == 0)) {
 		if (TFW_MSG_H2(req))
 			tfw_h2_resp_fwd(req->resp);
 		else
