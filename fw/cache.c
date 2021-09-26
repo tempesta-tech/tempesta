@@ -1752,6 +1752,48 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	}
 }
 
+/*
+ * Processing of reponse to PURGE with X-Tempesta-Cache header:
+ * 	Remove body content, set Content-Length to zero
+ */
+static void
+tfw_process_purge_x_tempesta_cache_response(TfwHttpResp *resp)
+{
+	TfwStr *dup, *end;
+	TfwStr replacement = {
+		.chunks = (TfwStr []) {
+			TFW_STR_STRING("Content-Length"),
+			TFW_STR_STRING(": "),
+			TFW_STR_STRING("0")
+		},
+		.nchunks = 3,
+	};
+	TfwStr *c = replacement.chunks;
+	int r;
+
+	if(!TFW_STR_EMPTY(&resp->body)) {
+		/* Delete the underlying body data. */
+		TFW_STR_FOR_EACH_DUP(dup, &resp->body, end) {
+			if (ss_skb_cutoff_data(resp->msg.skb_head, dup, 0,
+			    tfw_str_eolen(dup))) {
+				T_ERR("Cache: Failed to remove message body "
+				      "from PURGE X-Tempesta-Cache response\n");
+				return;
+			}
+		};
+		resp->body.len = 0;
+		resp->body.chunks = 0;
+	}
+
+	/* Zeroing Content-Length  */
+	replacement.len = c[0].len + c[1].len + c[2].len;
+	r = tfw_http_msg_hdr_xfrm_str((TfwHttpMsg *)resp, &replacement,
+				      TFW_HTTP_HDR_CONTENT_LENGTH, false);
+	if(r)
+		T_ERR("Cache: Failed to rewrite Content-Length in PURGE "
+		      "X-Tempesta-Cache response\n");
+}
+
 static void
 tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 {
@@ -1784,13 +1826,14 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 	 */
 
 out:
-	if (likely((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0)) {
+	if (likely(!(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE))) {
 		resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
 		action((TfwHttpMsg *)resp);
 	}
 	else {
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 200, "purge: success");
+		/* Processing of response for PURGE with X-Tempeasta-Cache */
+		tfw_process_purge_x_tempesta_cache_response(resp);
+		tfw_http_resp_fwd(resp);
 	}
 }
 
@@ -2233,7 +2276,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	if ((req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) == 0) {
+	if (!(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)) {
 		resp = tfw_cache_build_resp(req, ce, lifetime, id);
 		/*
 		 * The stream of HTTP/2-request should be closed here since we
@@ -2277,16 +2320,14 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 
 	req = (TfwHttpReq *)msg;
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
-		if (tfw_cache_purge_method(req))
-			return;
-		if (unlikely(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)) {
-			cache_req_process_node(req, action);
-		} else {
-			tfw_http_send_resp(req, 200, "purge: success");
-		}
-	}
-	else
-		cache_req_process_node(req, action);
+                if (tfw_cache_purge_method(req))
+                        return;
+                if (!(req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE)) {
+                        tfw_http_send_resp(req, 200, "purge: success");
+                        return;
+                }
+        }
+        cache_req_process_node(req, action);
 }
 
 static void

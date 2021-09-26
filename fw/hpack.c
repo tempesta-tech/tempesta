@@ -1249,11 +1249,11 @@ done:
 	case TFW_TAG_HDR_USER_AGENT:
 		parser->_hdr_tag = TFW_HTTP_HDR_USER_AGENT;
 		break;
-	case TFW_TAG_HDR_RAW:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
 	case TFW_TAG_HDR_X_TEMPESTA_CACHE:
 		parser->_hdr_tag = TFW_HTTP_HDR_X_TEMPESTA_CACHE;
+		break;
+	case TFW_TAG_HDR_RAW:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
 	default:
 		WARN_ON_ONCE(1);

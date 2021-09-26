@@ -5388,8 +5388,9 @@ next_msg:
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
 
-	/* Remove X-Tempesta-Cache and change PURGE to GET,
-	 * if proper flag X-Tempesta-Cache was set
+	/*
+	 * Remove X-Tempesta-Cache header and change PURGE to GET,
+	 * if special flag for X-Tempesta-Cache was set.
 	 */
 	r = tfw_http_msg_del_tempesta_cache_hdr((TfwHttpMsg *)req);
 	if (r)
@@ -5405,8 +5406,8 @@ next_msg:
 	/*
 	 * Response is already prepared for the client by sticky module.
 	 */
-	if (unlikely(req->resp) && likely((req->cache_ctl.flags &
-					   TFW_HTTP_CC_CACHE_PURGE) == 0)) {
+	if (unlikely(req->resp) && likely(!(req->cache_ctl.flags &
+					    TFW_HTTP_CC_CACHE_PURGE))) {
 		if (TFW_MSG_H2(req))
 			tfw_h2_resp_fwd(req->resp);
 		else
@@ -5433,11 +5434,7 @@ next_msg:
 					     " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
-	else if (unlikely(req->resp) && unlikely(req->cache_ctl.flags &
-						 TFW_HTTP_CC_CACHE_PURGE)) {
-		tfw_http_send_resp(req, 200, "purge: success");
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}
+
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
