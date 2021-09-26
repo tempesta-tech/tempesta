@@ -228,18 +228,6 @@ tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method)
 	return 0;
 }
 
-const char *
-tfw_http_tbl_method_get_name(int value)
-{
-	const TfwCfgEnum *pos;
-	for (pos = tfw_http_tbl_cfg_method_enum; pos->name; ++pos) {
-		if(pos->value == value) {
-			return pos->name;
-		}
-	}
-	return NULL;
-}
-
 static TfwHttpChain *
 tfw_chain_lookup(const char *name)
 {

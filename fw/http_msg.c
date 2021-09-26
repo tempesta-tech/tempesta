@@ -31,7 +31,6 @@
 #include "gfsm.h"
 #include "http_msg.h"
 #include "http_parser.h"
-#include "http_tbl.h"
 #include "ss_skb.h"
 
 /**
@@ -867,7 +866,7 @@ tfw_http_req_meth_subst(void *data, unsigned char *buf, size_t len,
 }
 
 /**
- * Substitute request method with "get"
+ * Substitute request method "PURGE" with "GET"
  *
  * Note: the name length of the method being replaced must be the same
  *	 or longer than the length of the replacement string ("GET").
@@ -875,11 +874,10 @@ tfw_http_req_meth_subst(void *data, unsigned char *buf, size_t len,
 int
 tfw_http_req_meth_subst_with_get(TfwHttpReq *req)
 {
-	const char *dest_name;
-	unsigned int dest_len;
+	unsigned int dest_len = sizeof("PURGE")-1;
 
-	const char *sub_name = "GET";
-	unsigned int sub_len = sizeof("GET")-1;
+	const char *subst_name = "GET";
+	unsigned int subst_len = sizeof("GET")-1;
 
 	struct sk_buff *skb;
 	unsigned int tail;
@@ -893,22 +891,17 @@ tfw_http_req_meth_subst_with_get(TfwHttpReq *req)
 	int _;
 
 	BUG_ON(!req);
+	BUG_ON(req->method != TFW_HTTP_METH_PURGE);
+	BUG_ON(dest_len < subst_len);
 
-	dest_name = tfw_http_tbl_method_get_name(req->method);
-	BUG_ON(!dest_name);
-
-	dest_len = strlen(dest_name);
-
-	BUG_ON(dest_len < sub_len);
-
-	tail = dest_len - sub_len;
+	tail = dest_len - subst_len;
 
 	BUG_ON(!req->msg.skb_head);
 
 	skb = req->msg.skb_head;
 
-	replace.data = sub_name;
-	replace.len = sub_len;
+	replace.data = subst_name;
+	replace.len = subst_len;
 	replace.tail = tail;
 	replace.skb = skb;
 
@@ -1104,7 +1097,7 @@ tfw_http_msg_del_tempesta_cache_hdr(TfwHttpMsg *hm)
 
 	hdr = &ht->tbl[TFW_HTTP_HDR_X_TEMPESTA_CACHE];
 
-	if(!hdr || TFW_STR_EMPTY(hdr))
+	if(TFW_STR_EMPTY(hdr))
 		return 0;
 
 	T_DBG3("%s: X-Tempesta-Cache header deleted\n", __func__);
