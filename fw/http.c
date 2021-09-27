@@ -5398,7 +5398,7 @@ next_msg:
 
 	if (req->method == TFW_HTTP_METH_PURGE
 	    && req->cache_ctl.flags & TFW_HTTP_CC_CACHE_PURGE) {
-		r = tfw_http_req_meth_subst_with_get(req);
+		r = tfw_http_subst_purge_with_get((TfwHttpMsg*)req);
 		if (r)
 			return r;
 	}

@@ -819,110 +819,98 @@ cleanup:
 	return TFW_PASS;
 }
 
-typedef struct {
-	struct sk_buff *skb;
-	const char *data;
-	unsigned int len;
-	unsigned int tail;
-	char *data_off;
-} replace_string_t;
-
-/**
- * Callback for processing HTTP method substitution
- */
 static int
-tfw_http_req_meth_subst(void *data, unsigned char *buf, size_t len,
-		  unsigned int *read)
+__subst_purge_with_get_helper(const void *data, void *frag, unsigned int frag_size,
+			     unsigned char *left, unsigned int *frag_off,
+			     char *next_frag)
 {
-	int r = T_OK;
-	replace_string_t *replace = data;
-
-	unsigned int off = 0;
-
-	BUG_ON(!buf);
-	BUG_ON(!len);
-	BUG_ON(!replace);
-	BUG_ON(!replace->data);
-
-	if (replace->len > 0) {
-		off = min_t(unsigned int, len, replace->len);
-		memcpy_fast(buf, replace->data, (size_t)off);
-		*read += off;
-
-		if (len >= replace->len) {
-			replace->data_off = buf+off;
-			replace->len = 0;
-			r = T_OK;
-		} else {
-			replace->len -= len;
-			r = T_POSTPONE;
+	*frag_off = 0;
+	if (!*next_frag && frag && frag_size) {
+		*frag_off = min_t(unsigned int, frag_size, *left);
+		memcpy(frag, data, *frag_off);
+		if(frag_size == *left) {
+			*next_frag = 1;
 		}
+		*left -= *frag_off;
+		if (!*next_frag && !*left)
+			return 1;
 	}
-	if (!len) {
-		r = T_POSTPONE;
-	}
+	else if (*next_frag)
+		return 1;
 
-	return r;
+	return 0;
 }
 
 /**
- * Substitute request method "PURGE" with "GET"
- *
- * Note: the name length of the method being replaced must be the same
- *	 or longer than the length of the replacement string ("GET").
+ * Substitute request method "PURGE" with "GET" for X-TEmpesta-Cache usage
  */
 int
-tfw_http_req_meth_subst_with_get(TfwHttpReq *req)
+tfw_http_subst_purge_with_get(TfwHttpMsg *hm)
 {
 	unsigned int dest_len = sizeof("PURGE")-1;
 
-	const char *subst_name = "GET";
-	unsigned int subst_len = sizeof("GET")-1;
+	const char *data = "GET";
+	unsigned char left = sizeof("GET")-1;
+
+	/* Destination length must be greater or equal to the rewrite length */
+	unsigned char tail = dest_len - left;
+
+	void *frag;
+	unsigned int frag_size;
+	unsigned int frag_off;
+
+	unsigned char nfrags, n;
+	unsigned char next_frag = 0;
 
 	struct sk_buff *skb;
-	unsigned int tail;
-
-	unsigned int parsed, unused;
-	replace_string_t replace;
-
-	int r;
+	int r = 0;
 
 	TfwStr it = {};
 	int _;
 
-	BUG_ON(!req);
-	BUG_ON(req->method != TFW_HTTP_METH_PURGE);
-	BUG_ON(dest_len < subst_len);
+	skb = hm->msg.skb_head;
+	while (left>0) {
+		if (skb_headlen(skb)) {
+			frag = skb->data;
+			frag_size = skb->data_len;
+			if (__subst_purge_with_get_helper(data, skb->data,
+							skb->data_len,
+							&left, &frag_off,
+							&next_frag))
+				break;
+		}
+		nfrags = skb_shinfo(skb)->nr_frags;
+		for (n=0; n<nfrags; n++) {
+			frag = skb_frag_address(&skb_shinfo(skb)->frags[n]);
+			frag_size = skb_frag_size(&skb_shinfo(skb)->frags[n]);
+			if (__subst_purge_with_get_helper(data, frag, frag_size,
+							 &left, &frag_off,
+							 &next_frag))
+				break;
+		}
 
-	tail = dest_len - subst_len;
-
-	BUG_ON(!req->msg.skb_head);
-
-	skb = req->msg.skb_head;
-
-	replace.data = subst_name;
-	replace.len = subst_len;
-	replace.tail = tail;
-	replace.skb = skb;
-
-	parsed = 0;
-	r = ss_skb_process(skb, tfw_http_req_meth_subst, &replace,
-			   &unused, &parsed);
-	if (r != T_OK) {
-		return TFW_BLOCK;
+		skb = skb->next;
+		if (!skb)
+			break;
 	}
+	if (left)
+		return TFW_BLOCK;
 
 	/* Cut off the tail. */
 	while (tail) {
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb, skb, replace.data_off, -tail, &it, &_);
+		r = skb_fragment(hm->msg.skb_head, skb, frag+frag_off, -tail,
+				 &it, &_);
 		if (r < 0) {
 			T_WARN("Cannot delete tail\n");
-			return r;
+			return TFW_BLOCK;
 		}
 		BUG_ON(r > tail);
 		tail -= r;
 	}
+
+	if (tail)
+		return TFW_BLOCK;
 
 	return TFW_PASS;
 }
