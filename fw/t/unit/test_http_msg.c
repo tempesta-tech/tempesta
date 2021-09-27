@@ -84,7 +84,82 @@ TEST(http_msg, hdr_in_array)
 	EXPECT_NOT_NULL(tfw_http_msg_find_hdr(&dup_hdr, hdrs));
 }
 
+/* Test replacing PURGE with GET method in HTTP/1 request */
+TEST(http_msg, test_tfw_http_subst_purge_with_get)
+{
+	TfwHttpMsg *hm;
+	struct sk_buff *skb = NULL;
+	unsigned char *skb_data;
+	size_t i,j;
+	size_t len;
+	int r;
+
+	#define S_PURGE_FULL	"PURGE /index.html HTTP/1.1"
+
+	#define S_PURGE_FRAG_01_01 "PURGE"
+	#define S_PURGE_FRAG_01_02 " /index.html HTTP/1.1"
+
+	#define S_PURGE_FRAG_02_01 "PUR"
+	#define S_PURGE_FRAG_02_02 "GE /index.html HTTP/1.1"
+
+	#define S_PURGE_FRAG_03_01 "PUR"
+	#define S_PURGE_FRAG_03_02 "GE"
+	#define S_PURGE_FRAG_03_03 " /index.html HTTP/1.1"
+
+	#define S_PURGE_FRAG_04_01 "PU"
+	#define S_PURGE_FRAG_04_02 "RGE"
+	#define S_PURGE_FRAG_04_03 " /index.html HTTP/1.1"
+
+	#define S_PURGE_FRAG_05_01 "PU"
+	#define S_PURGE_FRAG_05_02 "RG"
+	#define S_PURGE_FRAG_05_03 "E "
+	#define S_PURGE_FRAG_05_04 "/index.html HTTP/1.1"
+
+	const char *data[6][4] = {
+		{S_PURGE_FULL, "", "", ""},
+		{S_PURGE_FRAG_01_01, S_PURGE_FRAG_01_02, "", ""},
+		{S_PURGE_FRAG_02_01, S_PURGE_FRAG_02_02, "", ""},
+		{S_PURGE_FRAG_03_01, S_PURGE_FRAG_03_02, S_PURGE_FRAG_03_03, ""},
+		{S_PURGE_FRAG_04_01, S_PURGE_FRAG_04_02, S_PURGE_FRAG_04_03, ""},
+		{S_PURGE_FRAG_05_01, S_PURGE_FRAG_05_02, S_PURGE_FRAG_05_03,
+			S_PURGE_FRAG_05_04}
+	 };
+
+
+	hm = kmalloc(sizeof(TfwHttpMsg), GFP_ATOMIC);
+	EXPECT_NOT_NULL(hm);
+	memset(hm, 0, sizeof(TfwHttpMsg));
+	for (i=0; i<6; i++) {
+
+		for(j=0; j<4; j++) {
+			skb = alloc_skb(128, GFP_ATOMIC);
+			EXPECT_NOT_NULL(skb);
+			skb_reserve(skb, 64);
+
+			len = strlen(data[i][j]);
+			if (len > 0) {
+				skb_data = skb_put(skb, len);
+				EXPECT_NOT_NULL(skb_data);
+				memcpy(skb_data, data[i][j], len);
+			}
+			ss_skb_queue_tail(&hm->msg.skb_head, skb);
+		}
+
+		T_WARN("Test: tfw_http_subst_purge_with_get [%lu]\n", i);
+		r = tfw_http_subst_purge_with_get(hm);
+		EXPECT_ZERO(r);
+
+		/* purge skb */
+		while ((skb = ss_skb_dequeue(&hm->msg.skb_head)) != NULL)
+			kfree_skb(skb);
+	}
+
+	/* cleanup */
+	kfree(hm);
+}
+
 TEST_SUITE(http_msg)
 {
 	TEST_RUN(http_msg, hdr_in_array);
+	TEST_RUN(http_msg, test_tfw_http_subst_purge_with_get);
 }
