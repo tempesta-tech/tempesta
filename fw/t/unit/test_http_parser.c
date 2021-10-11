@@ -266,7 +266,7 @@ do {								\
 } while (0)
 
 #define EXPECT_TFWSTR_EQ(tfw_str, cstr) 			\
-	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, sizeof(cstr) - 1, 0))
+	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
 
 #define REQ_SIMPLE_HEAD		"GET / HTTP/1.1\r\n"
 #define EMPTY_REQ		REQ_SIMPLE_HEAD "\r\n"
@@ -634,24 +634,17 @@ TEST(http_parser, mangled_messages)
 			 "Host: test\r\n"
 			 "\r\n");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: test\r\n"
-			 "\x1fX-Foo: test\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: test\r\n"
+				"\x1fX-Foo: test");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: test\r\n"
-			 "Connection: close, \"foo\"\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: test\r\n"
+				"Connection: close, \"foo\"");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			 "Content-Type: foo/aa-\x19np\r\n"
 			 "\r\n");
 
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "Content-Length: 0\r\n"
-			  "X-Foo: t\x7fst\r\n"
-			  "\r\n");
+	EXPECT_BLOCK_RESP_SIMPLE("X-Foo: t\x7fst");
 }
 
 /**
@@ -659,30 +652,28 @@ TEST(http_parser, mangled_messages)
  */
 TEST(http_parser, alphabets)
 {
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Host: test\r\n"
-		/* We don't match open and closing quotes. */
-		"Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
-		"Pragma: no-cache, fooo \r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("Host: test\r\n"
+		       /* We don't match open and closing quotes. */
+		       "Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
+		       "Pragma: no-cache, fooo ");
 
 	/* Trailing SP in request. */
-	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"Host: localhost\t  \r\n"
-		"User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
-		"Accept: */*\t \r\n"
-		"Connection: Keep-Alive \t \r\n"
-		"X-Custom-Hdr: custom header values \t  \r\n"
-		"X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
-		"Content-Type: text/html; charset=iso-8859-1  \t \r\n"
-		"Cache-Control: max-age=0, private, min-fresh=42 \t \r\n"
-		"Transfer-Encoding: compress, deflate, gzip, chunked\t  \r\n"
-		"Cookie: session=42; theme=dark  \t \r\n"
-		"\r\n"
-		"3\r\n"
-		"123\r\n"
-		"0\r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("Host: localhost\t  \r\n"
+		       "User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
+		       "Accept: */*\t \r\n"
+		       "Connection: Keep-Alive \t \r\n"
+		       "X-Custom-Hdr: custom header values \t  \r\n"
+		       "X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
+		       "Content-Type: text/html; charset=iso-8859-1  \t \r\n"
+		       "Cache-Control: "
+		       "max-age=0, private, min-fresh=42 \t \r\n"
+		       "Transfer-Encoding: "
+		       "compress, deflate, gzip, chunked\t  \r\n"
+		       "Cookie: session=42; theme=dark  \t \r\n"
+		       "\r\n"
+		       "3\r\n"
+		       "123\r\n"
+		       "0");
 
 	/* Trailing SP in response. */
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
@@ -706,12 +697,10 @@ TEST(http_parser, alphabets)
  */
 TEST(http_parser, casesense)
 {
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"hOST: test\r\n"
-		"cAchE-CoNtRoL: no-cache\n"
-		"x-fORWarDED-For: 1.1.1.1\r\n"
-		"conTent-typE: chunked\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("hOST: test\r\n"
+		       "cAchE-CoNtRoL: no-cache\n"
+		       "x-fORWarDED-For: 1.1.1.1\r\n"
+		       "conTent-typE: chunked");
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"aGE: 10\r\n"
@@ -733,47 +722,23 @@ TEST(http_parser, casesense)
 	 * Check that we don't apply 0x20 mask to special characters.
 	 */
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host\x1a test\r\n"
-			 "\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Cache-Control\x1a no-cache\r\n"
-			 "\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "X-Forwarded-For\x1a 1.1.1.1\r\n"
-			 "\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Content-Type\x1a chunked\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host\x1a test");
+	EXPECT_BLOCK_REQ_SIMPLE("Cache-Control\x1a no-cache");
+	EXPECT_BLOCK_REQ_SIMPLE("X-Forwarded-For\x1a 1.1.1.1");
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Type\x1a chunked");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Age\x1a\t10\r\n"
 			  "\r\n"
 			  "4\r\n");
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "Cache-Control\x1a no-cache\r\n"
-			  "Content-Length: 0\r\n"
-			  "\r\n");
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "date\x1a Tue, 31 Jan 2012 15:02:53 GMT\r\n"
-			  "Content-Length: 0\r\n"
-			  "\r\n");
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "Expires\x1a Tue, 31 Jan 2012 15:02:53 GMT \t \r\n"
-			  "Content-Length: 0\r\n"
-			  "\r\n");
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "eTaG\x1a \"3f80f-1b6-3e1cb03b\"\r\n"
-			  "Content-Length: 0\r\n"
-			  "\r\n");
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "Content-Type\x1a text/html; charset=iso-8859-1\r\n"
-			  "Content-Length: 0\r\n"
-			  "\r\n");
-	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-			  "Server\x1a Apache/2.4.6 (CentOS)\r\n"
-			  "Content-Length: 0\r\n"
-			  "\r\n");
+	EXPECT_BLOCK_RESP_SIMPLE("Cache-Control\x1a no-cache");
+	EXPECT_BLOCK_RESP_SIMPLE("date\x1a Tue, 31 Jan 2012 15:02:53 GMT");
+	EXPECT_BLOCK_RESP_SIMPLE("Expires\x1a"
+				 " Tue, 31 Jan 2012 15:02:53 GMT \t ");
+	EXPECT_BLOCK_RESP_SIMPLE("eTaG\x1a \"3f80f-1b6-3e1cb03b\"");
+	EXPECT_BLOCK_RESP_SIMPLE("Content-Type\x1a"
+				 " text/html; charset=iso-8859-1");
+	EXPECT_BLOCK_RESP_SIMPLE("Server\x1a Apache/2.4.6 (CentOS)");
 }
 
 /**
@@ -785,24 +750,19 @@ TEST(http_parser, hdr_token_confusion)
 	 * Headers must contain at least single character, otherwise
 	 * message must be blocked.
 	 */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 ": methodGET\r\n"
-			 "\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 ":methodGET\r\n"
-			 "\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 ":method GET\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE(": methodGET");
+	EXPECT_BLOCK_REQ_SIMPLE(":methodGET");
+	EXPECT_BLOCK_REQ_SIMPLE(":method GET");
+
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
-			 ": methodGET\r\n"
-			 "\r\n");
+			  ": methodGET\r\n"
+			  "\r\n");
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
-			 ":methodGET\r\n"
-			 "\r\n");
+			  ":methodGET\r\n"
+			  "\r\n");
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
-			 ":method GET\r\n"
-			 "\r\n");
+			  ":method GET\r\n"
+			  "\r\n");
 }
 
 TEST(http_parser, fills_hdr_tbl_for_req)
@@ -832,34 +792,33 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_auth =  "Authorization: "
 			      "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t ";
 
-	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
-		"Accept: */*\r\n"
-		"Host: localhost\r\n"
-		"Connection: Keep-Alive\r\n"
-		"X-Custom-Hdr: custom header values\r\n"
-		"X-Forwarded-For: 127.0.0.1, example.com\r\n"
-		"Dummy0: 0\r\n"
-		"Dummy1: 1\r\n"
-		"Dummy2: 2\r\n"
-		"Dummy3: 3\r\n"
-		"Dummy4: 4\r\n"
-		"Dummy5: 5\r\n"
-		"Dummy6: 6\r\n"
-		"Content-Type: text/html; charset=iso-8859-1\r\n"
-		"Dummy7: 7\r\n"
-		"Dummy8: 8\r\n" /* That is done to check table reallocation. */
-		"Dummy9: 9\r\n"
-		"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"
-		"Pragma: no-cache, fooo \r\n"
-		"Transfer-Encoding: compress, gzip, chunked\r\n"
-		"Cookie: session=42; theme=dark\r\n"
-		"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
-		"\r\n"
-		"6\r\n"
-		"123456\r\n"
-		"0\r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
+		       "Accept: */*\r\n"
+		       "Host: localhost\r\n"
+		       "Connection: Keep-Alive\r\n"
+		       "X-Custom-Hdr: custom header values\r\n"
+		       "X-Forwarded-For: 127.0.0.1, example.com\r\n"
+		       "Dummy0: 0\r\n"
+		       "Dummy1: 1\r\n"
+		       "Dummy2: 2\r\n"
+		       "Dummy3: 3\r\n"
+		       "Dummy4: 4\r\n"
+		       "Dummy5: 5\r\n"
+		       "Dummy6: 6\r\n"
+		       "Content-Type: text/html; charset=iso-8859-1\r\n"
+		       "Dummy7: 7\r\n"
+		       /* That is done to check table reallocation. */
+		       "Dummy8: 8\r\n"
+		       "Dummy9: 9\r\n"
+		       "Cache-Control: max-age=1, no-store, min-fresh=30\r\n"
+		       "Pragma: no-cache, fooo \r\n"
+		       "Transfer-Encoding: compress, gzip, chunked\r\n"
+		       "Cookie: session=42; theme=dark\r\n"
+		       "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
+		       "\r\n"
+		       "6\r\n"
+		       "123456\r\n"
+		       "0");
 	{
 		ht = req->h_tbl;
 
@@ -900,35 +859,21 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		h_pragma = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
 		h_auth = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
 
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
-					    strlen(s_host), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
-					    strlen(s_connection), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
-					    strlen(s_ct), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_xff, s_xff,
-					    strlen(s_xff), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_user_agent, s_user_agent,
-					    strlen(s_user_agent), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_te, s_te,
-					    strlen(s_te), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_cookie, s_cookie,
-					    strlen(s_cookie), 0));
+		EXPECT_TFWSTR_EQ(&h_host, s_host);
+		EXPECT_TFWSTR_EQ(&h_connection, s_connection);
+		EXPECT_TFWSTR_EQ(&h_conttype, s_ct);
+		EXPECT_TFWSTR_EQ(&h_xff, s_xff);
+		EXPECT_TFWSTR_EQ(&h_user_agent, s_user_agent);
+		EXPECT_TFWSTR_EQ(&h_te, s_te);
+		EXPECT_TFWSTR_EQ(&h_cookie, s_cookie);
 
-		EXPECT_TRUE(tfw_str_eq_cstr(h_accept, s_accept,
-					    strlen(s_accept), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_xch, s_xch,
-					    strlen(s_xch), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
-					    strlen(s_dummy4), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
-					    strlen(s_dummy9), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
-					    strlen(s_cc), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_pragma, s_pragma,
-					    strlen(s_pragma), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_auth, s_auth,
-					    strlen(s_auth), 0));
+		EXPECT_TFWSTR_EQ(h_accept, s_accept);
+		EXPECT_TFWSTR_EQ(h_xch, s_xch);
+		EXPECT_TFWSTR_EQ(h_dummy4, s_dummy4);
+		EXPECT_TFWSTR_EQ(h_dummy9, s_dummy9);
+		EXPECT_TFWSTR_EQ(h_cc, s_cc);
+		EXPECT_TFWSTR_EQ(h_pragma, s_pragma);
+		EXPECT_TFWSTR_EQ(h_auth, s_auth);
 
 		EXPECT_TRUE(req->content_length == 0);
 		EXPECT_TRUE(req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION);
@@ -988,8 +933,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	{
 		ht = resp->h_tbl;
 
-		EXPECT_TRUE(tfw_str_eq_cstr(&ht->tbl[TFW_HTTP_STATUS_LINE],
-			    "HTTP/1.1 200 OK", strlen("HTTP/1.1 200 OK"), 0));
+		EXPECT_TFWSTR_EQ(&ht->tbl[TFW_HTTP_STATUS_LINE],
+				 "HTTP/1.1 200 OK");
 
 		/* Special headers: */
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
@@ -1018,29 +963,18 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
 		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
 
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
-					    strlen(s_connection), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
-					    strlen(s_ct), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_srv, s_srv,
-					    strlen(s_srv), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_te, s_te,
-					    strlen(s_te), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_ka, s_ka,
-					    strlen(s_ka), 0));
+		EXPECT_TFWSTR_EQ(&h_connection, s_connection);
+		EXPECT_TFWSTR_EQ(&h_conttype, s_ct);
+		EXPECT_TFWSTR_EQ(&h_srv, s_srv);
+		EXPECT_TFWSTR_EQ(&h_te, s_te);
+		EXPECT_TFWSTR_EQ(&h_ka, s_ka);
 
-		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
-					    strlen(s_dummy4), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
-					    strlen(s_cc), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
-					    strlen(s_dummy9), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_exp, s_exp,
-					    strlen(s_exp), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_age, s_age,
-					    strlen(s_age), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_date, s_date,
-					    strlen(s_date), 0));
+		EXPECT_TFWSTR_EQ(h_dummy4, s_dummy4);
+		EXPECT_TFWSTR_EQ(h_cc, s_cc);
+		EXPECT_TFWSTR_EQ(h_dummy9, s_dummy9);
+		EXPECT_TFWSTR_EQ(h_exp, s_exp);
+		EXPECT_TFWSTR_EQ(h_age, s_age);
+		EXPECT_TFWSTR_EQ(h_date, s_date);
 
 		EXPECT_TRUE(resp->keep_alive == 600);
 		EXPECT_TRUE(h_dummy9->eolen == 2);
@@ -1394,26 +1328,16 @@ TEST(http_parser, pragma)
 
 TEST(http_parser, suspicious_x_forwarded_for)
 {
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,"
-		"  natsys-lab.com:65535  \r\n"
-		"\r\n")
+	FOR_REQ_SIMPLE("X-Forwarded-For:   [::1]:1234,5.6.7.8   ,"
+		       "  natsys-lab.com:65535  ")
 	{
 		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
 		EXPECT_GT(h->len, 0);
 	}
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "X-Forwarded-For: 1.2.3.4, , 5.6.7.8\r\n"
-			 "\r\n");
-
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "X-Forwarded-For: foo!\r\n"
-			 "\r\n");
-
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "X-Forwarded-For: \r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("X-Forwarded-For: 1.2.3.4, , 5.6.7.8");
+	EXPECT_BLOCK_REQ_SIMPLE("X-Forwarded-For: foo!");
+	EXPECT_BLOCK_REQ_SIMPLE("X-Forwarded-For: ");
 }
 
 TEST(http_parser, parses_connection_value)
@@ -1490,12 +1414,11 @@ TEST(http_parser, content_length)
 	/* Content-Length is mandatory for responses. */
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n\r\n");
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Content-Length: 0\r\n"
-		"\r\n")
+	FOR_REQ_SIMPLE("Content-Length: 0")
 	{
 		EXPECT_TRUE(req->content_length == 0);
 	}
+
 	FOR_RESP("HTTP/1.0 200 OK\r\n"
 		 "Content-Length: 0\r\n"
 		 "\r\n")
@@ -1518,9 +1441,8 @@ TEST(http_parser, content_length)
 		EXPECT_TRUE(resp->content_length == 5);
 	}
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Content-Length: 5\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 5");
+
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 		 	  "Content-Length: 5\r\n"
 		 	  "\r\n");
@@ -1572,10 +1494,8 @@ TEST(http_parser, content_length)
 			  "\r\n"
 			  "0123456789");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Content-Length: 0\r\n"
-		  	 "Content-Length: 0\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 0\r\n"
+		  		"Content-Length: 0");
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 0\r\n"
 			  "Content-Length: 0\r\n"
@@ -1710,9 +1630,7 @@ TEST(http_parser, ows)
 		"\n"
 		"0123456789");
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Host:foo.com\r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("Host:foo.com");
 
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Host :foo.com\r\n"
@@ -1745,159 +1663,68 @@ TEST(http_parser, ows)
 
 TEST(http_parser, folding)
 {
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host:    \r\n"
-			 "   foo.com\r\n"
-			 "Connection: close\r\n"
-			 "\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host:    \r\n"
+				"   foo.com\r\n"
+				"Connection: close");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: 	foo.com\r\n"
-			 "Connection:\n"
-			 "	close\r\n"
-			 "\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: 	foo.com\r\n"
+				"Connection:\n"
+				"	close");
 }
 
 TEST(http_parser, accept)
 {
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  text/html \r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+#define FOR_ACCEPT(accept_val, EXPECT_MACRO)				\
+	FOR_REQ_SIMPLE("Accept:" accept_val)				\
+	{								\
+		EXPECT_MACRO(test_bit(TFW_HTTP_B_ACCEPT_HTML,		\
+				      req->flags));			\
 	}
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  text/html, application/xhtml+xml \r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
+	FOR_ACCEPT("  text/html ", EXPECT_TRUE);
+	FOR_ACCEPT("  text/html, application/xhtml+xml ", EXPECT_TRUE);
+	FOR_ACCEPT("  text/html;q=0.8 ", EXPECT_TRUE);
+	FOR_ACCEPT(" text/html,application/xhtml+xml,application/xml;"
+		   "q=0.9,image/webp,image/apng,*/*;q=0.8",
+		   EXPECT_TRUE);
+	FOR_ACCEPT("  text/html, */*  ", EXPECT_TRUE);
+	FOR_ACCEPT("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ",
+		   EXPECT_TRUE);
+	FOR_ACCEPT("  invalid/invalid; param=\"value value\", text/html",
+		   EXPECT_TRUE);
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  text/html;q=0.8 \r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/html,application/xhtml+xml,application/xml;"
-		"q=0.9,image/webp,image/apng,*/*;q=0.8\r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  text/*  \r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  text/html, */*  \r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  */*  \r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  invalid/invalid;  q=0.5;    key=val, */* \r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept:  text/html,  invalid/invalid  ;  key=val;   q=0.5 \r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept: invalid/invalid; param=\"value value\", text/html\r\n"
-		"\r\n")
-	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept: textK/html\r\n"
-		"\r\n");
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
+	FOR_ACCEPT("  text/*  ", EXPECT_FALSE);
+	FOR_ACCEPT("  */*  ", EXPECT_FALSE);
+	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ",
+		   EXPECT_FALSE);
+	FOR_ACCEPT(" textK/html", EXPECT_FALSE);
 
 	/*
 	 * '*' is part of the token alphabet, but for Accept header '*' symbol
 	 * has special meaning and doesn't included into mime types.
 	 */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/*html\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: *text/html\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: *text/*html\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */*text\r\n"
-		"\r\n");
-
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/*html");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: *text/html");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: *text/*html");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: */*text");
 	/* Can't use group operator for type and use specific subtype. */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */invalid\r\n"
-		"\r\n");
-
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: */invalid");
 	/* Invalid delimiters between parts. */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */* text/plain\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/html; =0.5\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/html; q = 0.5 \r\n"
-		"\r\n");
-
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: */* text/plain");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/html; =0.5");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/html; q = 0.5 ");
 	/* Weight parameter can't have arbitrary value. */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: invalid/invalid; q=foo\r\n"
-		"\r\n");
-
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: invalid/invalid; q=foo");
 	/* Mime type must have two parts and  '/' character between them. */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: invalid\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: /invalid\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: invalid/\r\n"
-		"\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/html; q=0.5; text/css/\r\n"
-		"\r\n");
-
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: invalid");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: /invalid");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: invalid/");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/html; q=0.5; text/css/");
 	/* Empty types are not allowed. */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */*,,,\r\n"
-		"\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: */*,,,");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept: */,,,");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */,,,\r\n"
-		"\r\n");
+#undef FOR_ACCEPT
 }
 
 TEST(http_parser, host)
@@ -2030,7 +1857,7 @@ TEST(http_parser, transfer_encoding)
 	}								\
 	FOR_RESP("HTTP/1.1 200 OK\r\n"					\
 		 "Transfer-Encoding: chunked\r\n"			\
-		"\r\n" chunks "\r\n")					\
+		 "\r\n" chunks "\r\n")					\
 	{								\
 		EXPECT_TRUE(resp->body.len == sizeof(chunks) - 1);	\
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CHUNKED, resp->flags));	\
@@ -2126,14 +1953,12 @@ TEST(http_parser, transfer_encoding)
 	/*
 	 * Trailer headers
 	 */
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Host:\r\n"
-		"Transfer-Encoding: chunked\r\n"
-		"\r\n"
-		"0\n"
-		"Connection: close\r\n"
-		"If-Modified-Since: Wed, 08 Jan 2003 23:11:55 GMT\r\n"
-		"\r\n")
+	FOR_REQ_SIMPLE("Host:\r\n"
+		       "Transfer-Encoding: chunked\r\n"
+		       "\r\n"
+		       "0\n"
+		       "Connection: close\r\n"
+		       "If-Modified-Since: Wed, 08 Jan 2003 23:11:55 GMT")
 	{
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
 				 "Connection: close");
@@ -2261,25 +2086,21 @@ TEST(http_parser, transfer_encoding)
 	 * "Content-Length:" and "Transfer-Encoding:" header fields
 	 * may not be present together in a request.
 	 */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Content-Length: 4\r\n"
-			 "Transfer-Encoding: chunked\r\n"
-			 "\r\n"
-			 "4\r\n"
-			 "1234\r\n"
-			 "0\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 4\r\n"
+				"Transfer-Encoding: chunked\r\n"
+				"\r\n"
+				"4\r\n"
+				"1234\r\n"
+				"0");
 	/*
 	 * "chunked" coding must be present in a request if there's
 	 * any other coding (i.e. "Transfer-Encoding" is present).
 	 */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Transfer-Encoding: gzip\r\n"
-			 "\r\n"
-			 "4\r\n"
-			 "1234\r\n"
-			 "0\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Transfer-Encoding: gzip\r\n"
+				"\r\n"
+				"4\r\n"
+				"1234\r\n"
+				"0");
 	/*
 	 * "Content-Length:" and "Transfer-Encoding:" header fields
 	 * may not be present together in a response.
@@ -2301,14 +2122,12 @@ TEST(http_parser, transfer_encoding)
 	 * MUST apply chunked as the final transfer coding to ensure that the
 	 * message is properly framed.
 	 */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Transfer-Encoding: chunked, gzip\r\n"
-			 "Connection: close\r\n"
-			 "\r\n"
-			 "4\r\n"
-			 "1234\r\n"
-			 "0\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Transfer-Encoding: chunked, gzip\r\n"
+				"Connection: close\r\n"
+				"\r\n"
+				"4\r\n"
+				"1234\r\n"
+				"0");
 	/*
 	 * RFC 7230 3.3.1:
 	 *
@@ -2348,11 +2167,9 @@ TEST(http_parser, transfer_encoding)
 	 * If we have Transfer-Encoding, then we must have 'chunked',
 	 * so the request must be blocked.
 	 */
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Transfer-Encoding: chunkedchunked\r\n"
-			 "\r\n"
-			 "0\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Transfer-Encoding: chunkedchunked\r\n"
+				"\r\n"
+				"0");
 
 	EXPECT_BLOCK_RESP("HTTP/1.1 101 Switching Protocols OK\r\n"
 			  "Transfer-Encoding: chunked\r\n"
@@ -2371,18 +2188,17 @@ TEST(http_parser, transfer_encoding)
 	 * For now the other transfer encodings (gzip, deflate etc.)
 	 * are not processed, just passed by the parser.
 	 */
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Transfer-Encoding: " TOKEN_ALPHABET " ,  dummy \t, chunked\r\n"
-		"\r\n"
-		"0\r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("Transfer-Encoding: "
+		       TOKEN_ALPHABET " ,  dummy \t, chunked\r\n"
+		       "\r\n"
+		       "0");
 	FOR_RESP("HTTP/1.0 200 OK\r\n"
 		 "Transfer-Encoding: " TOKEN_ALPHABET "\t, dummy\t, chunked\r\n"
 		 "\r\n"
 		 "0\r\n"
 		 "\r\n");
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
+	FOR_REQ_SIMPLE(
 		"Transfer-Encoding: dummy0, dummy1, dummy2, dummy3, dummy4, "
 		"dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
 		"dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
@@ -2406,8 +2222,7 @@ TEST(http_parser, transfer_encoding)
 		"dummy120, dummy121, dummy122, dummy123, dummy124, dummy125, "
 		"dummy126, dummy127, chunked\r\n"
 		"\r\n"
-		"0\r\n"
-		"\r\n");
+		"0");
 	FOR_RESP("HTTP/1.0 200 OK\r\n"
 		 "Transfer-Encoding: dummy0, dummy1, dummy2, dummy3, dummy4, "
 		 "dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
@@ -2457,14 +2272,12 @@ TEST(http_parser, crlf_trailer)
 	 * Use a trick with different CRLF length to differentiate
 	 * between the correct CRLF and an incorrect CRLF.
 	 */
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Transfer-Encoding: chunked\r\n"
-		"\n"
-		"4\r\n"
-		"1234\r\n"
-		"0\r\n"
-		"Custom-Hdr: custom-data\r\n"
-		"\r\n")
+	FOR_REQ_SIMPLE("Transfer-Encoding: chunked\r\n"
+		       "\n"
+		       "4\r\n"
+		       "1234\r\n"
+		       "0\r\n"
+		       "Custom-Hdr: custom-data")
 	{
 		/* 'Custom-Hdr:' is the first raw header in this example. */
 		id = tfw_http_msg_hdr_lookup((TfwHttpMsg *)req, &s_custom);
@@ -2514,10 +2327,8 @@ TEST(http_parser, crlf_trailer)
 
 TEST(http_parser, cookie)
 {
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Host:\r\n"
-		"Cookie: session=42; theme=dark\r\n"
-		"\r\n")
+	FOR_REQ_SIMPLE("Host:\r\n"
+		       "Cookie: session=42; theme=dark")
 	{
 		TfwStr *end, *c;
 		TfwStr *cookie = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
@@ -2572,42 +2383,31 @@ TEST(http_parser, cookie)
 			c = part_end;
 
 			EXPECT_TRUE(kv_idx < kv_count);
-			EXPECT_TRUE(tfw_str_eq_cstr(&part, kv[kv_idx].str,
-			                            strlen(kv[kv_idx].str), 0));
+			EXPECT_TFWSTR_EQ(&part, kv[kv_idx].str);
 			EXPECT_EQ(part_flags, kv[kv_idx].flags);
 			kv_idx++;
 		}
 	}
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: g.com\r\n"
-			 "Cookie: session=42;theme=dark\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: g.com\r\n"
+				"Cookie: session=42;theme=dark");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: g.com\r\n"
-			 "Cookie: session=42, theme=dark\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: g.com\r\n"
+				"Cookie: session=42, theme=dark");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: g.com\r\n"
-			 "Cookie: session=42 theme=dark\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: g.com\r\n"
+				"Cookie: session=42 theme=dark");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host: g.com\r\n"
-			 "Cookie: session=42\ttheme=dark\r\n"
-			 "\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: g.com\r\n"
+				"Cookie: session=42\ttheme=dark");
 
 	/*
 	 * This actually should be blocked due to unclosed DQUOTE.
 	 * But cookie values are opaque for us, this is job for application
 	 * layer to accurately parse cookie values.
 	 */
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Host: g.com\r\n"
-		"Cookie: session=\"42; theme=dark\r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("Host: g.com\r\n"
+		       "Cookie: session=\"42; theme=dark");
 }
 
 TEST(http_parser, set_cookie)
@@ -2615,8 +2415,8 @@ TEST(http_parser, set_cookie)
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		 "Content-Length: 10\r\n"
 		 "Set-Cookie: sessionid=38afes7a8; HttpOnly; Path=/\r\n"
-		"\r\n"
-		"0123456789")
+		 "\r\n"
+		 "0123456789")
 	{
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
@@ -2640,8 +2440,8 @@ TEST(http_parser, set_cookie)
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		 "Content-Length: 10\r\n"
 		 "Set-Cookie: sessionid=\"38afes7a8\"; HttpOnly; Path=/\r\n"
-		"\r\n"
-		"0123456789")
+		 "\r\n"
+		 "0123456789")
 	{
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
@@ -2665,8 +2465,8 @@ TEST(http_parser, set_cookie)
 		 "Content-Length: 10\r\n"
 		 "Set-Cookie: id=a3fWa; Expires=Wed, 21 Oct 2015 07:28:00 GMT; "
 		 "Secure; HttpOnly\r\n"
-		"\r\n"
-		"0123456789")
+		 "\r\n"
+		 "0123456789")
 	{
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
@@ -2934,55 +2734,11 @@ TEST(http_parser, if_none_match)
 
 TEST(http_parser, referer)
 {
-	TfwHttpHdrTbl *ht;
-	TfwStr h_referer;
-
-	const char *s_referer1 =
-		"http://tempesta-tech.com:8080"
-		"/cgi-bin/show.pl?entry=tempesta      ";
-	const char *s_referer2 =
-		"/cgi-bin/show.pl?entry=tempesta";
-	const char *s_referer3 =
-		"http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]"
-		":8080/cgi-bin/show.pl?entry=tempesta";
-
-	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"Referer:    http://tempesta-tech.com:8080"
-		"/cgi-bin/show.pl?entry=tempesta      \r\n"
-		"\r\n")
-	{
-		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
-					 TFW_HTTP_HDR_REFERER,
-					 &h_referer);
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer1,
-					    strlen(s_referer1), 0));
-	}
-
-	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"Referer:  /cgi-bin/show.pl?entry=tempesta\r\n"
-		"\r\n")
-	{
-		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
-					 TFW_HTTP_HDR_REFERER,
-					 &h_referer);
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer2,
-					    strlen(s_referer2), 0));
-	}
-
-	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"Referer: http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]:8080"
-		"/cgi-bin/show.pl?entry=tempesta\r\n"
-		"\r\n")
-	{
-		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
-					 TFW_HTTP_HDR_REFERER,
-					 &h_referer);
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer3,
-					    strlen(s_referer3), 0));
-	}
+	FOR_REQ_SIMPLE("Referer:    http://tempesta-tech.com:8080"
+		       "/cgi-bin/show.pl?entry=tempesta      ");
+	FOR_REQ_SIMPLE("Referer:  /cgi-bin/show.pl?entry=tempesta");
+	FOR_REQ_SIMPLE("Referer: http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]"
+		       ":8080/cgi-bin/show.pl?entry=tempesta");
 }
 
 TEST(http_parser, req_hop_by_hop)
@@ -3489,7 +3245,8 @@ TEST(http_parser, content_type_line_parser)
 	}
 
 	/* Multipart requests with multiple boundaries are clearly malicious. */
-	EXPECT_BLOCK_REQ(HEAD"multipart/form-data; boundary=1; boundary=2"TAIL);
+	EXPECT_BLOCK_REQ(HEAD "multipart/form-data; boundary=1; boundary=2"
+			 TAIL);
 
 	/* Comma is not a valid separator here. */
 	EXPECT_BLOCK_REQ(HEAD "multipart/form-data, boundary=123" TAIL);
@@ -3595,20 +3352,19 @@ TEST(http_parser, xff)
 	const char *s_proxy1 = "70.41.3.18";
 	const char *s_proxy2 = "150.172.238.178";
 
-	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"X-Forwarded-For: 203.0.113.195,70.41.3.18,150.172.238.178\r\n"
-		"\r\n");
+	FOR_REQ_SIMPLE("X-Forwarded-For: "
+		       "203.0.113.195,70.41.3.18,150.172.238.178");
 	{
 		xff = req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
 
 		v = get_next_str_val(&xff);
-		EXPECT_TRUE(tfw_str_eq_cstr(&v, s_client, strlen(s_client), 0));
+		EXPECT_TFWSTR_EQ(&v, s_client);
 
 		v = get_next_str_val(&xff);
-		EXPECT_TRUE(tfw_str_eq_cstr(&v, s_proxy1, strlen(s_proxy1), 0));
+		EXPECT_TFWSTR_EQ(&v, s_proxy1);
 
 		v = get_next_str_val(&xff);
-		EXPECT_TRUE(tfw_str_eq_cstr(&v, s_proxy2, strlen(s_proxy2), 0));
+		EXPECT_TFWSTR_EQ(&v, s_proxy2);
 	}
 }
 
