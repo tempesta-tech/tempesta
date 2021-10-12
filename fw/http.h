@@ -228,10 +228,7 @@ enum {
 	 * is not set for HTTP/1.1 connections which are persistent by default.
 	 * CONN_EXTRA: 'Connection:' header contains additional terms.
 	 *
-	 * There is no requirement for mutual exclusivity for CONN_CLOSE and
-	 * CONN_KA flags, their meaning is not limited by connection
-	 * persistence and states about 'Connection:' header value. CONN_CLOSE
-	 * always takes precedence over CONN_KA flag.
+	 * CONN_CLOSE and CONN_KA flags are mutual exclusive.
 	 */
 	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
 	TFW_HTTP_B_CONN_KA,
