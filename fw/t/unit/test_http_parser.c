@@ -1674,57 +1674,132 @@ TEST(http_parser, folding)
 
 TEST(http_parser, accept)
 {
-#define FOR_ACCEPT(accept_val, EXPECT_MACRO)				\
+#define __FOR_ACCEPT(accept_val, EXPECT_HTML_MACRO)			\
 	FOR_REQ_SIMPLE("Accept:" accept_val)				\
 	{								\
-		EXPECT_MACRO(test_bit(TFW_HTTP_B_ACCEPT_HTML,		\
-				      req->flags));			\
+		EXPECT_HTML_MACRO(test_bit(TFW_HTTP_B_ACCEPT_HTML,	\
+					   req->flags));		\
 	}
 
-	FOR_ACCEPT("  text/html ", EXPECT_TRUE);
-	FOR_ACCEPT("  text/html, application/xhtml+xml ", EXPECT_TRUE);
-	FOR_ACCEPT("  text/html;q=0.8 ", EXPECT_TRUE);
-	FOR_ACCEPT(" text/html,application/xhtml+xml,application/xml;"
-		   "q=0.9,image/webp,image/apng,*/*;q=0.8",
-		   EXPECT_TRUE);
-	FOR_ACCEPT("  text/html, */*  ", EXPECT_TRUE);
-	FOR_ACCEPT("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ",
-		   EXPECT_TRUE);
-	FOR_ACCEPT("  invalid/invalid; param=\"value value\", text/html",
-		   EXPECT_TRUE);
+#define FOR_ACCEPT(accept_val)		__FOR_ACCEPT(accept_val, EXPECT_FALSE)
+#define FOR_ACCEPT_HTML(accept_val)	__FOR_ACCEPT(accept_val, EXPECT_TRUE)
+#define EXPECT_BLOCK_ACCEPT(header)	EXPECT_BLOCK_REQ_SIMPLE("Accept:"header)
 
-	FOR_ACCEPT("  text/*  ", EXPECT_FALSE);
-	FOR_ACCEPT("  */*  ", EXPECT_FALSE);
-	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ",
-		   EXPECT_FALSE);
-	FOR_ACCEPT(" textK/html", EXPECT_FALSE);
+#define TEST_ACCEPT_EXT(HEAD)						\
+	FOR_ACCEPT(HEAD ";key=val");					\
+	FOR_ACCEPT(HEAD ";" TOKEN_ALPHABET "=" TOKEN_ALPHABET);		\
+	FOR_ACCEPT(HEAD ";" TOKEN_ALPHABET "=\"" TOKEN_ALPHABET "\"");	\
+	FOR_ACCEPT(HEAD ";key=\"\"");					\
+	FOR_ACCEPT(HEAD "  ; \t key=val");				\
+	FOR_ACCEPT(HEAD ";key=val;key=val");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";");					\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"\"\"");			\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"val");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key=val\"");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";");					\
+	EXPECT_BLOCK_ACCEPT(HEAD ";;");					\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key=");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key==");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key =val");				\
+	EXPECT_BLOCK_ACCEPT(HEAD ";\"key\"=val");			\
+	EXPECT_BLOCK_ACCEPT(HEAD ";key= val");				\
+	EXPECT_BLOCK_ACCEPT(HEAD " key=val");				\
+	EXPECT_BLOCK_ACCEPT(HEAD "key=val");
 
+	/* media-range */
+	FOR_ACCEPT("*/*");
+	FOR_ACCEPT("dummy/*");
+	FOR_ACCEPT("dummy/dummy");
+	FOR_ACCEPT(TOKEN_ALPHABET "/" TOKEN_ALPHABET);
+
+	EXPECT_BLOCK_ACCEPT("");
+	EXPECT_BLOCK_ACCEPT(" ");
+	EXPECT_BLOCK_ACCEPT("dummy");
+	EXPECT_BLOCK_ACCEPT("*");
+	EXPECT_BLOCK_ACCEPT("*/dummy");
+	EXPECT_BLOCK_ACCEPT("dummy/dummy/dummy");
+	EXPECT_BLOCK_ACCEPT("dummy/*/*");
+	EXPECT_BLOCK_ACCEPT("*/*/*");
+	EXPECT_BLOCK_ACCEPT(QETOKEN_ALPHABET "/dummy");
+	EXPECT_BLOCK_ACCEPT("/dummy");
+	EXPECT_BLOCK_ACCEPT("dummy/");
+	EXPECT_BLOCK_ACCEPT("dummy/dummy/");
 	/*
 	 * '*' is part of the token alphabet, but for Accept header '*' symbol
 	 * has special meaning and doesn't included into mime types.
 	 */
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/*html");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: *text/html");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: *text/*html");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: */*text");
-	/* Can't use group operator for type and use specific subtype. */
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: */invalid");
-	/* Invalid delimiters between parts. */
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: */* text/plain");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/html; =0.5");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/html; q = 0.5 ");
-	/* Weight parameter can't have arbitrary value. */
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: invalid/invalid; q=foo");
-	/* Mime type must have two parts and  '/' character between them. */
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: invalid");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: /invalid");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: invalid/");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: text/html; q=0.5; text/css/");
-	/* Empty types are not allowed. */
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: */*,,,");
-	EXPECT_BLOCK_REQ_SIMPLE("Accept: */,,,");
+	EXPECT_BLOCK_ACCEPT("dummy/*dummy");
+	EXPECT_BLOCK_ACCEPT("*dummy/dummy");
+	EXPECT_BLOCK_ACCEPT("*dummy/*dummy");
+	EXPECT_BLOCK_ACCEPT("*/*dummy");
 
+	/* parameter */
+	TEST_ACCEPT_EXT("dummy/dummy");
+	EXPECT_BLOCK_ACCEPT("*/*;key");
+
+	/* weight */
+	FOR_ACCEPT("*/*;q=0");
+	/* No prohibition in RFC for that. */
+	FOR_ACCEPT("*/*;q=0;q=1");
+	FOR_ACCEPT("*/*;q=0.0");
+	FOR_ACCEPT("*/*;q=0.5");
+	FOR_ACCEPT("*/*;q=0.999");
+	FOR_ACCEPT("*/*;q=1");
+	FOR_ACCEPT("*/*;q=1.0");
+	FOR_ACCEPT("*/*;q=1.000");
+	FOR_ACCEPT("*/*\t  ; \tq=0");
+
+	/* Breaks the RFC, just dot+digits alphabet is checked... */
+	FOR_ACCEPT("*/*;q=1......");
+	FOR_ACCEPT("*/*;q=1.23..45.6..789...");
+	FOR_ACCEPT("*/*;q=12345");
+	/* ...but first char is checked as in RFC. */
+	FOR_ACCEPT("*/*;q=0.000");
+	EXPECT_BLOCK_ACCEPT("*/*;q=5.000");
+	EXPECT_BLOCK_ACCEPT("*/*;q=.000");
+
+	EXPECT_BLOCK_ACCEPT("*/*;q=dummy");
+	EXPECT_BLOCK_ACCEPT("*/*;q==");
+	EXPECT_BLOCK_ACCEPT("*/*;q=");
+	EXPECT_BLOCK_ACCEPT("*/*;q");
+	EXPECT_BLOCK_ACCEPT("*/*;=0.5");
+	EXPECT_BLOCK_ACCEPT("*/*;q =0");
+	EXPECT_BLOCK_ACCEPT("*/*;q= 0");
+
+	/* accept-ext */
+	TEST_ACCEPT_EXT("dummy/dummy;q=0");
+	EXPECT_BLOCK_ACCEPT("*/*;q=0;key");
+
+	/* Multiple values */
+	FOR_ACCEPT("dummy/dummy\t,dummy/dummy ,\t\tdummy/dummy");
+	FOR_ACCEPT("  \t\t */*  ;\t key=val ; key=val\t;\t"
+		   "q=0;\t\text=val ; ext=val;\tkey=val \t\t");
+	/* Invalid delimiters between parts. */
+	EXPECT_BLOCK_ACCEPT("*/* text/plain");
+	/* Empty types are not allowed. */
+	EXPECT_BLOCK_ACCEPT(",");
+	EXPECT_BLOCK_ACCEPT("*/*,,");
+	EXPECT_BLOCK_ACCEPT("*/,,");
+
+	/* HTML validations */
+	FOR_ACCEPT_HTML("  text/html ");
+	FOR_ACCEPT_HTML("  text/html, application/xhtml+xml ");
+	FOR_ACCEPT_HTML("  text/html;q=0.8 ");
+	FOR_ACCEPT_HTML(" text/html,application/xhtml+xml,application/xml;"
+			"q=0.9,image/webp,image/apng,*/*;q=0.8");
+	FOR_ACCEPT_HTML("  text/html, */*  ");
+	FOR_ACCEPT_HTML("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ");
+	FOR_ACCEPT_HTML("  invalid/invalid; param=\"value value\", text/html");
+	FOR_ACCEPT("  text/*  ");
+	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ");
+	FOR_ACCEPT(" textK/html");
+
+#undef TEST_ACCEPT_EXT
+#undef EXPECT_BLOCK_ACCEPT
+#undef FOR_ACCEPT_HTML
 #undef FOR_ACCEPT
+#undef __FOR_ACCEPT
 }
 
 TEST(http_parser, host)

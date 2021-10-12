@@ -444,12 +444,15 @@ __FSM_STATE(st, cold) {							\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
 
-#define __FSM_REQUIRE_FIRST_DIGIT(st, st_next)				\
+#define __FSM_REQUIRE(st, st_next, predicate)				\
 __FSM_STATE(st) {							\
-	if (unlikely(!IS_DIGIT(c)))					\
+	if (unlikely(!predicate))					\
 		return CSTR_NEQ;					\
 	parser->_i_st = &&st_next;					\
 }
+
+#define __FSM_REQUIRE_FIRST_DIGIT(st, st_next)				\
+	__FSM_REQUIRE(st, st_next, IS_DIGIT(c))
 
 /* 4-byte (Integer) access to a string Pointer. */
 #define PI(p)	(*(unsigned int *)(p))
@@ -2121,8 +2124,22 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
+	/*
+	 * RFC 7231 5.3.1
+	 *
+	 * Parser doesn't follow the RFC for qvalue, because it
+	 * would introduce new states here (hence slower parsing),
+	 * but an attack doesn't look likely.
+	 *
+	 * But it can validate just the first char "for free"
+	 * (anyway empty qvalue validation is required), so it's validated.
+	 */
+	__FSM_REQUIRE(Req_I_QValueBeg, Req_I_QValue,
+		      (c == '0' || c == '1'));
+
+
 	__FSM_STATE(Req_I_QValue) {
-		if (isdigit(c) || c == '.')
+		if (IS_DIGIT(c) || c == '.')
 			__FSM_I_MOVE(Req_I_QValue);
 		__FSM_I_JMP(I_EoT);
 		return CSTR_NEQ;
@@ -2137,14 +2154,17 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_AcceptOther) {
-		TRY_STR("q=", Req_I_AcceptOther, Req_I_QValue);
+		TRY_STR("q=", Req_I_AcceptOther, Req_I_QValueBeg);
 		TRY_STR_INIT();
 		__FSM_I_MATCH_MOVE(token, Req_I_AcceptOther);
 		c = *(p + __fsm_sz);
 		if (c == '=')
-			__FSM_I_MOVE_n(Req_I_ParamValue, __fsm_sz + 1);
+			__FSM_I_MOVE_n(Req_I_ParamValueBeg, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
+
+	__FSM_REQUIRE(Req_I_ParamValueBeg, Req_I_ParamValue,
+		      (IS_TOKEN(c) || c == '\"'));
 
 	__FSM_STATE(Req_I_ParamValue) {
 		if (c == '\"')
@@ -5641,6 +5661,9 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
+	__FSM_REQUIRE(Req_I_QValueBeg, Req_I_QValue,
+		      (IS_DIGIT(c) || c == '.'));
+
 	__FSM_STATE(Req_I_QValue) {
 		if (isdigit(c) || c == '.')
 			__FSM_H2_I_MOVE(Req_I_QValue);
@@ -5659,14 +5682,17 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_AcceptOther) {
 		H2_TRY_STR_LAMBDA("q=", {
 			__FSM_EXIT(CSTR_NEQ);
-		}, Req_I_AcceptOther, Req_I_QValue);
+		}, Req_I_AcceptOther, Req_I_QValueBeg);
 		TRY_STR_INIT();
 		__FSM_H2_I_MATCH_MOVE(token, Req_I_AcceptOther);
 		c = *(p + __fsm_sz);
 		if (c == '=')
-			__FSM_H2_I_MOVE_n(Req_I_ParamValue, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_n(Req_I_ParamValueBeg, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
+
+	__FSM_REQUIRE(Req_I_ParamValueBeg, Req_I_ParamValue,
+		      (IS_TOKEN(c) || c == '\"'));
 
 	__FSM_STATE(Req_I_ParamValue) {
 		if (c == '\"')
