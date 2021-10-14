@@ -92,7 +92,6 @@
 #include "cfg.h"
 #include "client.h"
 #include "log.h"
-#include "htype.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -1385,7 +1384,7 @@ _parse_integer(const char *s, unsigned int base, unsigned long *p)
 		unsigned int lc = c | 0x20; /* don't tolower() this line */
 		unsigned int val;
 
-		if (IS_DIGIT(c))
+		if (isdigit(c))
 			val = c - '0';
 		else if ('a' <= lc && lc <= 'f')
 			val = lc - 'a' + 10;
