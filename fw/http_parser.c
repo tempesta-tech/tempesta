@@ -452,7 +452,7 @@ __FSM_STATE(st) {							\
 }
 
 #define __FSM_REQUIRE_FIRST_DIGIT(st, st_next)				\
-	__FSM_REQUIRE(st, st_next, IS_DIGIT(c))
+	__FSM_REQUIRE(st, st_next, isdigit(c))
 
 /* 4-byte (Integer) access to a string Pointer. */
 #define PI(p)	(*(unsigned int *)(p))
@@ -2139,7 +2139,7 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 
 	__FSM_STATE(Req_I_QValue) {
-		if (IS_DIGIT(c) || c == '.')
+		if (isdigit(c) || c == '.')
 			__FSM_I_MOVE(Req_I_QValue);
 		__FSM_I_JMP(I_EoT);
 		return CSTR_NEQ;
@@ -2948,7 +2948,7 @@ do {									\
 	__FSM_STATE(I_SpaceOrDay) {
 		if (c == ' ')
 			__NEXT_TEMPL_STATE();
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.day = parser->date.day * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -2956,7 +2956,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Day) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.day = parser->date.day * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -2982,7 +2982,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Year) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.year = parser->date.year * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -2990,7 +2990,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Hour) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.hour = parser->date.hour * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -2998,7 +2998,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Min) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.min = parser->date.min * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -3006,7 +3006,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Sec) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.sec = parser->date.sec * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -5662,7 +5662,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_REQUIRE(Req_I_QValueBeg, Req_I_QValue,
-		      (IS_DIGIT(c) || c == '.'));
+		      (isdigit(c) || c == '.'));
 
 	__FSM_STATE(Req_I_QValue) {
 		if (isdigit(c) || c == '.')
@@ -6631,7 +6631,7 @@ do {									\
 	__FSM_STATE(I_SpaceOrDay) {
 		if (c == ' ')
 			__NEXT_TEMPL_STATE();
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.day = parser->date.day * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -6639,7 +6639,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Day) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.day = parser->date.day * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -6665,7 +6665,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Year) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.year = parser->date.year * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -6673,7 +6673,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Hour) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.hour = parser->date.hour * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -6681,7 +6681,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Min) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.min = parser->date.min * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
@@ -6689,7 +6689,7 @@ do {									\
 	}
 
 	__FSM_STATE(I_Sec) {
-		if (IS_DIGIT(c)) {
+		if (isdigit(c)) {
 			parser->date.sec = parser->date.sec * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
 		}
