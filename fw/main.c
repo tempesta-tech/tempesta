@@ -63,7 +63,6 @@ tfw_runstate_is_reconfig(void)
 {
 	return READ_ONCE(tfw_reconfig);
 }
-EXPORT_SYMBOL(tfw_runstate_is_reconfig);
 
 /**
  * Return true if Tempesta is started, and false otherwise.
@@ -73,7 +72,6 @@ tfw_runstate_is_started(void)
 {
 	return READ_ONCE(tfw_started);
 }
-EXPORT_SYMBOL(tfw_runstate_is_started);
 
 /**
  * Add @mod to the global list of registered modules.
