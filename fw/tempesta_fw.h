@@ -103,6 +103,7 @@ void tfw_mod_unregister(TfwMod *mod);
 TfwMod *tfw_mod_find(const char *name);
 
 bool tfw_runstate_is_reconfig(void);
+bool tfw_runstate_is_started(void);
 
 void tfw_objects_wait_release(const atomic64_t *counter, int delay,
 			      const char *name);
