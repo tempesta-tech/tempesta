@@ -56,7 +56,7 @@ static LIST_HEAD(tfw_mods);
 static DEFINE_RWLOCK(tfw_mods_lock);
 
 /**
- * Return true if Tempesta is running, and false otherwise.
+ * Return true if Tempesta is reconfiguring, and false otherwise.
  */
 bool
 tfw_runstate_is_reconfig(void)
@@ -64,6 +64,16 @@ tfw_runstate_is_reconfig(void)
 	return READ_ONCE(tfw_reconfig);
 }
 EXPORT_SYMBOL(tfw_runstate_is_reconfig);
+
+/**
+ * Return true if Tempesta is started, and false otherwise.
+ */
+bool
+tfw_runstate_is_started(void)
+{
+	return READ_ONCE(tfw_started);
+}
+EXPORT_SYMBOL(tfw_runstate_is_started);
 
 /**
  * Add @mod to the global list of registered modules.
@@ -243,7 +253,7 @@ tfw_start(struct list_head *mod_list)
 	tfw_cfg_conclude(mod_list);
 	WRITE_ONCE(tfw_started, true);
 
-	T_LOG("Tempesta FW is ready\n");
+	T_LOG_NL("Tempesta FW is ready\n");
 
 	return 0;
 stop_mods:
@@ -405,7 +415,17 @@ tfw_exit(void)
 {
 	int i;
 
-	T_LOG("exiting...\n");
+	T_LOG_NL("exiting...\n");
+
+	/* Let's put this under the same mutex as the sysctl callback
+	 * to avoid concurrent shutdown calls */
+	mutex_lock(&tfw_sysctl_mtx);
+	if (READ_ONCE(tfw_started)) {
+		T_WARN_NL("Tempesta FW is still running, shutting down...\n");
+		tfw_stop(&tfw_mods);
+		WRITE_ONCE(tfw_started, false);
+	}
+	mutex_unlock(&tfw_sysctl_mtx);
 
 	/* Wait for outstanding RCU callbacks to complete. */
 	rcu_barrier();
