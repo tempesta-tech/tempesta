@@ -1384,7 +1384,7 @@ _parse_integer(const char *s, unsigned int base, unsigned long *p)
 		unsigned int lc = c | 0x20; /* don't tolower() this line */
 		unsigned int val;
 
-		if ('0' <= c && c <= '9')
+		if (isdigit(c))
 			val = c - '0';
 		else if ('a' <= lc && lc <= 'f')
 			val = lc - 'a' + 10;

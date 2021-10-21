@@ -261,10 +261,30 @@ tfw_srvstats_seq_open(struct inode *inode, struct file *file)
 	return single_open(file, tfw_srvstats_seq_reconfig, PDE_DATA(inode));
 }
 
+static int
+tfw_state_seq_show(struct seq_file *seq, void *off)
+{
+	const char *st;
+	if (tfw_runstate_is_started()) {
+		st = tfw_runstate_is_reconfig() ? "reconfig\n" : "started\n";
+	} else {
+		st = "stopped\n";
+	}
+	seq_printf(seq, st);
+	return  0;
+}
+
+static int
+tfw_state_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tfw_state_seq_show, NULL);
+}
+
 /*
  * Start/stop routines.
  */
 static struct proc_dir_entry *tfw_procfs_tempesta;
+static struct proc_dir_entry *tfw_procfs_state;
 static struct proc_dir_entry *tfw_procfs_perfstat;
 static struct proc_dir_entry *tfw_procfs_srvstats;
 static struct proc_dir_entry *tfw_procfs_sgstats;
@@ -362,6 +382,14 @@ static struct proc_ops tfw_perfstat_fops = {
 	.proc_release	= single_release,
 };
 
+static struct proc_ops tfw_state_fops = {
+	.proc_flags	= PROC_ENTRY_PERMANENT,
+	.proc_open	= tfw_state_seq_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+};
+
 int
 tfw_procfs_init(void)
 {
@@ -369,21 +397,28 @@ tfw_procfs_init(void)
 	if (!tfw_procfs_tempesta)
 		goto out;
 
+	tfw_procfs_state = proc_create("state", S_IRUGO,
+					tfw_procfs_tempesta,
+					&tfw_state_fops);
+	if (!tfw_procfs_state)
+		goto out_tempesta;
+
 	tfw_procfs_perfstat = proc_create("perfstat", S_IRUGO,
 					  tfw_procfs_tempesta,
 					  &tfw_perfstat_fops);
 	if (!tfw_procfs_perfstat)
-		goto out_tempesta;
+		goto out_state;
 
 	tfw_mod_register(&tfw_procfs_mod);
 
 	return 0;
 
-out:
-	return -ENOMEM;
+out_state:
+	remove_proc_entry("state", NULL);
 out_tempesta:
 	remove_proc_entry("tempesta", NULL);
-	goto out;
+out:
+	return -ENOMEM;
 }
 
 void
@@ -391,5 +426,6 @@ tfw_procfs_exit(void)
 {
 	tfw_mod_unregister(&tfw_procfs_mod);
 	remove_proc_entry("perfstat", tfw_procfs_tempesta);
+	remove_proc_entry("state", tfw_procfs_tempesta);
 	remove_proc_entry("tempesta", NULL);
 }
