@@ -99,7 +99,7 @@ EXPORT_SYMBOL(tdb_entry_get_room);
 
 /**
  * Lookup and get a record.
- * Since we don't copy returned records, we have to lock the memory location
+ * Since we don't copy returned records, we have to lock the bucket
  * where the record is placed and the user must call tdb_rec_put() when finish
  * with the record.
  *
@@ -155,6 +155,20 @@ tdb_rec_put(void *rec)
 	read_unlock_bh(&b->lock);
 }
 EXPORT_SYMBOL(tdb_rec_put);
+
+void
+tdb_rec_keep(void *rec)
+{
+	TdbBucket *b;
+
+	BUG_ON(!rec);
+
+	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
+	BUG_ON(!b);
+
+	read_lock_bh(&b->lock);
+}
+EXPORT_SYMBOL(tdb_rec_keep);
 
 int
 tdb_info(char *buf, size_t len)

@@ -198,6 +198,7 @@ void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 TdbIter tdb_rec_get(TDB *db, unsigned long key);
 void tdb_rec_next(TDB *db, TdbIter *iter);
 void tdb_rec_put(void *rec);
+void tdb_rec_keep(void *rec);
 int tdb_info(char *buf, size_t len);
 TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx);
 int tdb_entry_walk(TDB *db, int (*fn)(void *));
