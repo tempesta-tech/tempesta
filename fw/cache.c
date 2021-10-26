@@ -1830,7 +1830,7 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 			ce->lifetime = 0;
 		tdb_rec_next(db, &iter);
 		ce = (TfwCacheEntry *)iter.rec;
-	} while(ce);
+	} while (ce);
 
 	return 0;
 }
