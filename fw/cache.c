@@ -925,13 +925,6 @@ this_chunk:
 	return true;
 }
 
-static inline void
-tfw_cache_dbce_put(TfwCacheEntry *ce)
-{
-	if (ce)
-		tdb_rec_put(ce);
-}
-
 /*
  * Select the most appropriate cache entry for this request.
  */
@@ -974,19 +967,28 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		 * we find a live record early, so we take an extra read lock
 		 * here.
 		 */
+		/* TODO #522: replace a cache entry on a new entry insertion
+		 * (e.g. the bucket can not contain both the stale and fresh
+		 * entries) and rework the loop. */
 		if (tfw_cache_entry_key_eq(db, req, ce)) {
 			if (tfw_cache_entry_is_live(req, ce)) {
-				if (ce_best) {
+				if (ce_best)
 					tdb_rec_put(ce_best);
-				}
 				ce_best = ce;
 				break;
-			} else if (!ce_best
+			}
+			else if (!ce_best
 				   || tfw_cache_entry_age(ce)
-				      < tfw_cache_entry_age(ce_best)) {
-				if (ce_best) {
+				      < tfw_cache_entry_age(ce_best))
+			{
+				if (ce_best)
 					tdb_rec_put(ce_best);
-				}
+				/* It's possible that we end up iterating until
+				 * the end (while looking for a live entry), and
+				 * `ce_best` might be in a bucket that was
+				 * already read-unlocked by `tdb_rec_next`, so
+				 * we add an extra reference to it.
+				 */
 				tdb_rec_keep(ce);
 				ce_best = ce;
 			}
@@ -995,9 +997,9 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		ce = (TfwCacheEntry *)iter->rec;
 	} while (ce);
 
-	if (!ce_best) {
+	if (!ce_best)
 		TFW_INC_STAT_BH(cache.misses);
-	}
+
 	return ce_best;
 }
 
@@ -1810,6 +1812,9 @@ out:
 /*
  * Invalidate all cache entries that match the request. This is implemented by
  * making the entries stale.
+ *
+ * TODO #522 Review the invalidation logic.
+ *
  */
 static int
 tfw_cache_purge_invalidate(TfwHttpReq *req)
@@ -1820,9 +1825,8 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 	unsigned long key = tfw_http_req_key_calc(req);
 
 	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter)) {
+	if (TDB_ITER_BAD(iter))
 		return 0;
-	}
 
 	ce = (TfwCacheEntry *)iter.rec;
 	do {
@@ -2271,7 +2275,8 @@ out:
 		 */
 		action((TfwHttpMsg *)req);
 put:
-	tfw_cache_dbce_put(ce);
+	if (ce)
+		tdb_rec_put(ce);
 }
 
 static void
