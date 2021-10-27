@@ -925,10 +925,13 @@ this_chunk:
 	return true;
 }
 
+/*
+ * Select the most appropriate cache entry for this request.
+ */
 static TfwCacheEntry *
 tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 {
-	TfwCacheEntry *ce;
+	TfwCacheEntry *ce, *ce_best;
 	unsigned long key = tfw_http_req_key_calc(req);
 
 	*iter = tdb_rec_get(db, key);
@@ -952,34 +955,52 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 	 *
 	 * TODO: tfw_cache_entry_key_eq() should be extended to support
 	 * secondary keys (#508) and to skip not current representations.
-	 * Currently this function is used in two cases: to serve client and to
-	 * invalidate all cached responses (purge method).
+	 * Currently this function is used only to serve clients.
 	 */
 	ce = (TfwCacheEntry *)iter->rec;
+	ce_best = NULL;
 	do {
 		/*
-		 * Basically we don't need to compare keys if only one record
-		 * is in the bucket. Checking for next record instead of
-		 * comparing the keys would has sense for long URI, but
-		 * performance benchmarks don't show any improvement.
+		 * Pick the best cache record. The "best" record is either the
+		 * first live record that we find, or the most recent stale
+		 * record. We have to iterate through the entire bucket, unless
+		 * we find a live record early, so we take an extra read lock
+		 * here.
 		 */
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			break;
-		tdb_rec_next(db, iter);
-		if (!(ce = (TfwCacheEntry *)iter->rec)) {
-			TFW_INC_STAT_BH(cache.misses);
-			return NULL;
+		/* TODO #522: replace a cache entry on a new entry insertion
+		 * (e.g. the bucket can not contain both the stale and fresh
+		 * entries) and rework the loop. */
+		if (tfw_cache_entry_key_eq(db, req, ce)) {
+			if (tfw_cache_entry_is_live(req, ce)) {
+				if (ce_best)
+					tdb_rec_put(ce_best);
+				ce_best = ce;
+				break;
+			}
+			else if (!ce_best
+				   || tfw_cache_entry_age(ce)
+				      < tfw_cache_entry_age(ce_best))
+			{
+				if (ce_best)
+					tdb_rec_put(ce_best);
+				/* It's possible that we end up iterating until
+				 * the end (while looking for a live entry), and
+				 * `ce_best` might be in a bucket that was
+				 * already read-unlocked by `tdb_rec_next`, so
+				 * we add an extra reference to it.
+				 */
+				tdb_rec_keep(ce);
+				ce_best = ce;
+			}
 		}
-	} while (true);
+		tdb_rec_next(db, iter);
+		ce = (TfwCacheEntry *)iter->rec;
+	} while (ce);
 
-	return ce;
-}
+	if (!ce_best)
+		TFW_INC_STAT_BH(cache.misses);
 
-static inline void
-tfw_cache_dbce_put(TfwCacheEntry *ce)
-{
-	if (ce)
-		tdb_rec_put(ce);
+	return ce_best;
 }
 
 /**
@@ -1788,9 +1809,12 @@ out:
 	action((TfwHttpMsg *)resp);
 }
 
-/**
- * Invalidate a cache entry.
- * In fact, this is implemented by making the cache entry stale.
+/*
+ * Invalidate all cache entries that match the request. This is implemented by
+ * making the entries stale.
+ *
+ * TODO #522 Review the invalidation logic.
+ *
  */
 static int
 tfw_cache_purge_invalidate(TfwHttpReq *req)
@@ -1798,19 +1822,19 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 	TdbIter iter;
 	TDB *db = node_db();
 	TfwCacheEntry *ce = NULL;
+	unsigned long key = tfw_http_req_key_calc(req);
 
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
-		return -ENOENT;
-	ce->lifetime = 0;
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		return 0;
 
+	ce = (TfwCacheEntry *)iter.rec;
 	do {
+		if (tfw_cache_entry_key_eq(db, req, ce))
+			ce->lifetime = 0;
 		tdb_rec_next(db, &iter);
 		ce = (TfwCacheEntry *)iter.rec;
-		if (ce && tfw_cache_entry_key_eq(db, req, ce))
-			ce->lifetime = 0;
 	} while (ce);
-
-	tfw_cache_dbce_put(ce);
 
 	return 0;
 }
@@ -2251,7 +2275,8 @@ out:
 		 */
 		action((TfwHttpMsg *)req);
 put:
-	tfw_cache_dbce_put(ce);
+	if (ce)
+		tdb_rec_put(ce);
 }
 
 static void
