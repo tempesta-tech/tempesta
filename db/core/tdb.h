@@ -197,7 +197,22 @@ void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);
 void tdb_rec_next(TDB *db, TdbIter *iter);
+
+/*
+ * Release a read-lock on the record's bucket.
+ */
 void tdb_rec_put(void *rec);
+
+/*
+ * Acquire a read-lock on the record's bucket.
+ *
+ * Record iteration functions take a read-lock that is released when iteration
+ * finishes, or when moving between buckets. Use this function, if you need to
+ * keep the record locked.
+ *
+ */
+void tdb_rec_keep(void *rec);
+
 int tdb_info(char *buf, size_t len);
 TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx);
 int tdb_entry_walk(TDB *db, int (*fn)(void *));
