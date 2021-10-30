@@ -20,6 +20,8 @@
 #ifndef __LIB_LOG_H__
 #define __LIB_LOG_H__
 
+#include <linux/errno.h>
+
 /*
  * Return codes.
  * TODO: move all the Tempesta return codes to this enum.

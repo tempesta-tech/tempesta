@@ -27,6 +27,7 @@
 #include <linux/spinlock.h>
 
 #include "lib/fsm.h"
+#include "lib/str.h"
 #include "tdb.h"
 
 #include "tempesta_fw.h"

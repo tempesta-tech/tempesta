@@ -20,8 +20,9 @@
 #ifndef __TFW_TLS_H__
 #define __TFW_TLS_H__
 
+#include <net/tls_hs.h>
+
 #include "gfsm.h"
-#include "ttls.h"
 
 #define TFW_FSM_TLS		TFW_FSM_HTTPS
 

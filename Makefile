@@ -30,24 +30,24 @@ endif
 TFW_GCOV ?= n
 
 # Specify the defines below if you need to build Tempesta FW with
-# debugging of the subsystem, e.g. for Tempesta TLS:
+# debugging of the subsystem, e.g. for the HTTP parser:
 #
-#	$ DEBUG=1 DBG_SS=2 DBG_TLS=3 make clean all
+#	$ DEBUG=1 DBG_SS=2 DBG_HTTP_PARSER=3 make clean all
 #
 # The most debug-output subsystems have their own DBG_* option, but the
 # rest of code prints debug messages solely on DEBUG variable.
 # DEBUG can be undefined to smoothly compile with 3-party code using the
 # same variable.
 #
-# In the example above TLS code is built with the maximum verbosity,
+# In the example above the HTTP parser code is built with the maximum verbosity,
 # sockets code with verbosity 2, and the rest of the code, non having
 # designated debugging options, with the smalles debugging verbosity.
 #
 # You also can just use
 #
-# 	$ DBG_TLS=3 make
+# 	$ DBG_HTTP_PARSER=3 make
 #
-# to build the TLS only subsystem with the maximum debug level.
+# to build the HTTP parser only subsystem with the maximum debug level.
 #
 # While some C-files having their own debugging options, e.g. sock.c and DBG_SS
 # correspondingly, undefine the DEBUG symbol, unit tests may include several
@@ -58,13 +58,12 @@ TFW_GCOV ?= n
 DBG_CFG ?= 0
 DBG_HTTP_PARSER ?= 0
 DBG_SS ?= 0
-DBG_TLS ?= 0
 DBG_APM ?= 0
 DBG_HTTP_FRAME ?= 0
 DBG_HTTP_STREAM ?= 0
 DBG_HPACK ?= 0
 TFW_CFLAGS += -DDBG_CFG=$(DBG_CFG) -DDBG_HTTP_PARSER=$(DBG_HTTP_PARSER)
-TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_TLS=$(DBG_TLS) -DDBG_APM=$(DBG_APM)
+TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_APM=$(DBG_APM)
 TFW_CFLAGS += -DDBG_HTTP_FRAME=$(DBG_HTTP_FRAME)
 TFW_CFLAGS += -DDBG_HTTP_STREAM=$(DBG_HTTP_STREAM)
 TFW_CFLAGS += -DDBG_HPACK=$(DBG_HPACK)
@@ -111,7 +110,7 @@ KERNEL = /lib/modules/$(shell uname -r)/build
 
 export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
 
-obj-m	+= lib/ db/core/ fw/ tls/
+obj-m	+= lib/ db/core/ fw/
 
 all: build
 
@@ -126,7 +125,6 @@ ifndef AVX2
 	$(warning WARNING: PLEASE DO NOT USE THE BUILD IN PRODUCTION)
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
 endif
-	$(MAKE) -C tls/t generate_tables
 	$(MAKE) -C db
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
 
@@ -137,7 +135,5 @@ test: build
 clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
 	$(MAKE) -C db clean
-	$(MAKE) -C tls clean
-	$(MAKE) -C tls/t clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;

@@ -396,7 +396,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 		ss_skb_init_for_xmit(skb);
 		if (flags & SS_F_ENCRYPT)
-			tempesta_tls_skb_settype(skb, SS_SKB_F2TYPE(flags));
+			tls_skb_settype(skb, SS_SKB_F2TYPE(flags));
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
@@ -404,7 +404,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		       " truesize=%u mark=%u tls_type=%x\n",
 		       smp_processor_id(), __func__, sk,
 		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
-		       tempesta_tls_skb_type(skb));
+		       tls_skb_type(skb));
 
 		ss_forced_mem_schedule(sk, skb->truesize);
 		skb_entail(sk, skb);
