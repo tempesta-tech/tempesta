@@ -197,6 +197,7 @@ typedef enum {
 	TFW_HTTP_HDR_REFERER,
 	TFW_HTTP_HDR_IF_NONE_MATCH,
 	TFW_HTTP_HDR_ETAG = TFW_HTTP_HDR_IF_NONE_MATCH,
+	TFW_HTTP_HDR_X_TEMPESTA_CACHE,
 
 	/* End of list of singular header. */
 	TFW_HTTP_HDR_NONSINGULAR,
@@ -209,7 +210,7 @@ typedef enum {
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
 
-	TFW_HTTP_HDR_NUM	= 16,
+	TFW_HTTP_HDR_NUM,
 } tfw_http_hdr_t;
 
 enum {
@@ -272,6 +273,8 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
+	/* Request is PURGE with an 'X-Tempesta-Cache: get' header. */
+	TFW_HTTP_B_PURGE_GET,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,

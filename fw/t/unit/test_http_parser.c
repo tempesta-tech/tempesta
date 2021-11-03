@@ -3893,6 +3893,22 @@ TEST(http_parser, vchar)
 #undef TEST_VCHAR_HEADER
 }
 
+TEST(http_parser, x_tempesta_cache)
+{
+	FOR_REQ_SIMPLE("X-Tempesta-Cache: get ") {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_PURGE_GET, req->flags));
+	}
+	FOR_REQ_SIMPLE("X-Tempesta-Cache: get, get") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_PURGE_GET, req->flags));
+	}
+	FOR_REQ_SIMPLE("X-Tempesta-Cache: ge ") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_PURGE_GET, req->flags));
+	}
+	FOR_REQ_SIMPLE("X-Tempesta-Cache: head ") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_PURGE_GET, req->flags));
+	}
+}
+
 TEST_SUITE(http_parser)
 {
 	int r;
@@ -3938,6 +3954,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, xff);
 	TEST_RUN(http_parser, date);
 	TEST_RUN(http_parser, method_override);
+	TEST_RUN(http_parser, x_tempesta_cache);
 	TEST_RUN(http_parser, vchar);
 
 	/*

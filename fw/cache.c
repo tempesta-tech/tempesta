@@ -1490,7 +1490,11 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	}
 
 	/* Request method is a part of the cache record key. */
-	ce->method = req->method;
+	if (unlikely(req->method == TFW_HTTP_METH_PURGE
+	    && test_bit(TFW_HTTP_B_PURGE_GET, req->flags)))
+		ce->method = TFW_HTTP_METH_GET;
+	else
+		ce->method = req->method;
 
 	/* Write ':status' pseudo-header. */
 	ce->status = TDB_OFF(db->hdr, p);
@@ -1840,9 +1844,10 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 }
 
 /**
- * Process PURGE request method according to the configuration.
+ * Process PURGE request method according to the configuration. Send a response,
+ * unless there are no errors *and* we're also told to refresh the cache.
  */
-static void
+static int
 tfw_cache_purge_method(TfwHttpReq *req)
 {
 	int ret;
@@ -1852,14 +1857,14 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
 		tfw_http_send_resp(req, 403, "purge: not configured");
-		return;
+		return -EINVAL;
 	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(&saddr)) {
 		tfw_http_send_resp(req, 403, "purge: ACL violation");
-		return;
+		return -EINVAL;
 	}
 
 	/* Only "invalidate" option is implemented at this time. */
@@ -1869,13 +1874,15 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		break;
 	default:
 		tfw_http_send_resp(req, 403, "purge: invalid option");
-		return;
+		return -EINVAL;
 	}
 
 	if (ret)
 		tfw_http_send_resp(req, 404, "purge: processing error");
-	else
+	else if (!test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
 		tfw_http_send_resp(req, 200, "purge: success");
+
+	return ret;
 }
 
 /**
@@ -2282,6 +2289,7 @@ put:
 static void
 tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {
+	int ret;
 	TfwHttpReq *req;
 
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
@@ -2290,9 +2298,12 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	}
 
 	req = (TfwHttpReq *)msg;
-	if (unlikely(req->method == TFW_HTTP_METH_PURGE))
-		tfw_cache_purge_method(req);
-	else
+	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
+		ret = tfw_cache_purge_method(req);
+		/* Check if we want to do a GET in addition to PURGE. */
+		if (!ret && test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
+			action((TfwHttpMsg *)req);
+	} else
 		cache_req_process_node(req, action);
 }
 
