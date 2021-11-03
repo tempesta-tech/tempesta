@@ -154,6 +154,7 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("set-cookie:",	TFW_HTTP_HDR_SET_COOKIE),
 		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
 		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+		TfwStrDefV("x-tempesta-cache:",	TFW_HTTP_HDR_X_TEMPESTA_CACHE),
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) !=
@@ -180,6 +181,7 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
 		TfwStrDefV("user-agent:",	TFW_HTTP_HDR_USER_AGENT),
 		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+		TfwStrDefV("x-tempesta-cache:",	TFW_HTTP_HDR_X_TEMPESTA_CACHE),
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) !=
@@ -206,6 +208,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
 			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+			[TFW_HTTP_HDR_X_TEMPESTA_CACHE]	= SLEN("X-Tempesta-Cache:"),
 			[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
 			[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
 			[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
@@ -219,6 +222,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
 			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+			[TFW_HTTP_HDR_X_TEMPESTA_CACHE]	= SLEN("X-Tempesta-Cache:"),
 			[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
 			[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
 			[TFW_HTTP_HDR_USER_AGENT]	= SLEN("User-Agent:"),

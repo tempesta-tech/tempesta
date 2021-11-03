@@ -3279,6 +3279,48 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__req_parse_x_forwarded_for);
 
+/*
+ * Parse a non-standard "X-Tempesta-Cache" header which may be used in a PURGE
+ * request.
+ */
+static int
+__req_parse_x_tempesta_cache(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_X_Tempesta_Cache) {
+		/* "X-Tempesta-Cache" ":" method */
+		TRY_STR_fixup(&TFW_STR_STRING("get"), Req_I_X_Tempesta_Cache,
+			      I_Tempesta_Cache_get);
+		/* If the method is not "GET" just ignore the rest of the
+		 * header line. */
+		__FSM_I_JMP(I_Tempesta_Cache_skip);
+	}
+
+	__FSM_STATE(I_Tempesta_Cache_get) {
+		if (likely(IS_CRLF(c) || IS_WS(c))) {
+			__set_bit(TFW_HTTP_B_PURGE_GET, hm->flags);
+			if (IS_CRLF(c))
+				return __data_off(p);
+		}
+		__FSM_I_JMP(I_Tempesta_Cache_skip);
+	}
+
+	__FSM_STATE(I_Tempesta_Cache_skip) {
+		/* Skip the rest of the line. */
+		__FSM_I_MATCH_MOVE(nctl, I_Tempesta_Cache_skip);
+		if (!IS_CRLF(*(p + __fsm_sz)))
+			return CSTR_NEQ;
+		return __data_off(p + __fsm_sz);
+	}
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__req_parse_x_tempesta_cache);
+
 static int
 __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -4096,6 +4138,20 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				p += 17;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
+			/* match X-Tempesta-Cache */
+			if (likely(__data_available(p, 17)
+				   && *(p + 1) == '-'
+				   && *(p + 10) == '-'
+				   && C8_INT_LCM(p + 2, 't', 'e', 'm', 'p',
+						 'e', 's', 't', 'a')
+				   && C8_INT7_LCM(p + 9, 'a', '-', 'c', 'a',
+						 'c', 'h', 'e', ':')))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 16));
+				parser->_i_st = &&Req_HdrX_Tempesta_CacheV;
+				p += 16;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
 			if (likely(__data_available(p, 11)
@@ -4219,6 +4275,12 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	*/
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrX_Method_OverrideV, req,
 				  __parse_m_override);
+
+	/* 'X-Tempesta-Cache:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Tempesta_CacheV, msg,
+				     __req_parse_x_tempesta_cache,
+				     TFW_HTTP_HDR_X_TEMPESTA_CACHE, 0);
+
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -4721,6 +4783,8 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE(Req_HdrX_H);
 		case 'm':
 			__FSM_MOVE(Req_HdrX_M);
+		case 't':
+			__FSM_MOVE(Req_HdrX_T);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
@@ -4761,6 +4825,22 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrX_Method_Overri, 'd', Req_HdrX_Method_Overrid);
 	__FSM_TX_AF(Req_HdrX_Method_Overrid, 'e', Req_HdrX_Method_Override);
 	__FSM_TX_AF_OWS(Req_HdrX_Method_Override, Req_HdrX_Method_OverrideV);
+
+	/* X-Tempesta-Cache header processing */
+	__FSM_TX_AF(Req_HdrX_T, 'e', Req_HdrX_Te);
+	__FSM_TX_AF(Req_HdrX_Te, 'm', Req_HdrX_Tem);
+	__FSM_TX_AF(Req_HdrX_Tem, 'p', Req_HdrX_Temp);
+	__FSM_TX_AF(Req_HdrX_Temp, 'e', Req_HdrX_Tempe);
+	__FSM_TX_AF(Req_HdrX_Tempe, 's', Req_HdrX_Tempes);
+	__FSM_TX_AF(Req_HdrX_Tempes, 't', Req_HdrX_Tempest);
+	__FSM_TX_AF(Req_HdrX_Tempest, 'a', Req_HdrX_Tempesta);
+	__FSM_TX_AF(Req_HdrX_Tempesta, '-', Req_HdrX_Tempesta_);
+	__FSM_TX_AF(Req_HdrX_Tempesta_, 'c', Req_HdrX_Tempesta_C);
+	__FSM_TX_AF(Req_HdrX_Tempesta_C, 'a', Req_HdrX_Tempesta_Ca);
+	__FSM_TX_AF(Req_HdrX_Tempesta_Ca, 'c', Req_HdrX_Tempesta_Cac);
+	__FSM_TX_AF(Req_HdrX_Tempesta_Cac, 'h', Req_HdrX_Tempesta_Cach);
+	__FSM_TX_AF(Req_HdrX_Tempesta_Cach, 'e', Req_HdrX_Tempesta_Cache);
+	__FSM_TX_AF_OWS(Req_HdrX_Tempesta_Cache, Req_HdrX_Tempesta_CacheV);
 
 	/* X-HTTP-Method header processing. */
 	__FSM_TX_AF(Req_HdrX_H, 't', Req_HdrX_Ht);

@@ -2983,6 +2983,52 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 	return 0;
 }
 
+/*
+ * Rewrite HTTP/1 "PURGE" method to "GET" directly inside a request SKB.
+ */
+static int
+tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
+{
+	const char *q = "GET";
+	char *p;
+	struct skb_shared_info *si;
+	struct sk_buff *skb = head;
+	unsigned int f, z;
+	int ret;
+
+	/* Possible if somehow we already sent a response  */
+	BUG_ON(!head);
+
+	/* Chop two bytes from the beginning of SKB data. */
+	ret = ss_skb_chop_head_tail(head, head, 2, 0);
+	if (ret)
+		return ret;
+
+	do {
+		p = skb->data;
+		z = skb_headlen(skb);
+		while (z--) {
+			*p++ = *q++;
+			if (!*q)
+				return 0;
+		}
+		si = skb_shinfo(skb);
+		for (f = 0; f < si->nr_frags; ++f) {
+			p = skb_frag_address(&si->frags[f]);
+			z = skb_frag_size(&si->frags[f]);
+			while (z--) {
+				*p++ = *q++;
+				if (!*q)
+					return 0;
+			}
+		}
+		skb = skb->next;
+	} while (skb != head);
+
+	T_ERR("Not enough skb data for method rewrite?!\n");
+	return -ENOMEM;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -2991,6 +3037,12 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 {
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+
+	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
+		r = tfw_h1_rewrite_purge_to_get(hm->msg.skb_head);
+		if (r)
+			return r;
+	}
 
 	r = tfw_http_sess_req_process(req);
 	if (r)
@@ -3503,6 +3555,38 @@ err:
 	return r;
 }
 
+/*
+ * Throw away a response body and set "Content-Length" to zero.
+ */
+static int
+tfw_h1_purge_resp_clean(TfwHttpResp *resp)
+{
+	int ret;
+	struct sk_buff *head;
+	TfwStr replacement = {
+		.chunks = (TfwStr []) {
+			TFW_STR_STRING("Content-Length"),
+			TFW_STR_STRING(": "),
+			TFW_STR_STRING("0"),
+		},
+		.nchunks = 3,
+	};
+	TfwStr *c = replacement.chunks;
+
+	if (!TFW_STR_EMPTY(&resp->body)) {
+		head = resp->msg.skb_head;
+		ret = ss_skb_chop_head_tail(head, head, 0,
+					    tfw_str_total_len(&resp->body));
+		if (ret)
+			return ret;
+		TFW_STR_INIT(&resp->body);
+	}
+
+	replacement.len = c[0].len + c[1].len + c[2].len;
+	return tfw_http_msg_hdr_xfrm_str((TfwHttpMsg *)resp, &replacement,
+					 TFW_HTTP_HDR_CONTENT_LENGTH, false);
+}
+
 /**
  * Adjust the response before proxying it to real client.
  */
@@ -3532,6 +3616,12 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			conn_flg = BIT(TFW_HTTP_B_CONN_CLOSE);
 		else if (test_bit(TFW_HTTP_B_CONN_KA, req->flags))
 			conn_flg = BIT(TFW_HTTP_B_CONN_KA);
+	}
+
+	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
+		r = tfw_h1_purge_resp_clean(resp);
+		if (r < 0)
+			return r;
 	}
 
 	r = tfw_http_sess_resp_process(resp, false);
@@ -5371,6 +5461,13 @@ next_msg:
 		return TFW_BLOCK;
 	}
 
+	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
+		/* Override shouldn't be combined with PURGE, that'd
+		 * probably break things */
+		req->method_override = _TFW_HTTP_METH_NONE;
+	} else
+		__clear_bit(TFW_HTTP_B_PURGE_GET, req->flags);
+
 	/*
 	 * Method override masks real request properties, non-idempotent methods
 	 * can hide behind idempotent, method is used as a key in cache
@@ -5408,6 +5505,11 @@ next_msg:
 				   "virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
+	/*
+	 * Look up a cache entry for this request. If there's one, a response
+	 * will be linked to this request. Then our callback will either return
+	 * a cached response, or forward the request to an upstream.
+	 */
 	else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
 		/*
 		 * The request should either be stored or released.
