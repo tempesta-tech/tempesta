@@ -646,7 +646,7 @@ tfw_h2_pseudo_index(unsigned short status)
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, TfwFsmData *data);
+int tfw_http_msg_process(TfwConn *conn, TfwFsmData *data);
 int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 				 TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);

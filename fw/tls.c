@@ -30,6 +30,7 @@
 #include "msg.h"
 #include "procfs.h"
 #include "http_frame.h"
+#include "http_limits.h"
 #include "tls.h"
 #include "vhost.h"
 #include "lib/hash.h"
@@ -98,15 +99,6 @@ tfw_tls_purge_io_ctx(TlsIOCtx *io)
 	ttls_reset_io_ctx(io);
 }
 
-static int
-tfw_tls_hs_over(TlsCtx *ctx, int state)
-{
-	TfwCliConn *c = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
-	TfwFsmData data_up = { .req = ERR_PTR(-state)};
-
-	return tfw_gfsm_move(&c->state, TFW_TLS_FSM_HS_DONE, &data_up);
-}
-
 /**
  * A connection has been lost during handshake processing, warn Frang.
  * It's relatively cheap to pass SYN cookie and then send previously captured
@@ -117,19 +109,17 @@ void
 tfw_tls_connection_lost(TfwConn *conn)
 {
 	TlsCtx *tls = &((TfwTlsConn *)conn)->tls;
-	TfwFsmData data_up = { .req = ERR_PTR(-TTLS_HS_CB_INCOMPLETE)};
 
 	if (!ttls_hs_done(tls))
-		tfw_gfsm_move(&conn->state, TFW_TLS_FSM_HS_DONE, &data_up);
+		frang_tls_handler(tls, TFW_TLS_FSM_HS_DONE);
 }
 
-static int
-tfw_tls_msg_process(void *conn, TfwFsmData *data)
+int
+tfw_tls_msg_process(void *conn, struct sk_buff *skb)
 {
 	int r, parsed;
-	struct sk_buff *nskb = NULL, *skb = data->skb;
-	TfwConn *c = conn;
-	TlsCtx *tls = tfw_tls_context(c);
+	struct sk_buff *nskb = NULL;
+	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
 
 	/*
@@ -152,7 +142,7 @@ next_msg:
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
-			tfw_tls_hs_over(tls, TTLS_HS_CB_INCOMPLETE);
+			frang_tls_handler(tls, TTLS_HS_CB_INCOMPLETE);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:
@@ -212,7 +202,7 @@ next_msg:
 		ttls_reset_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
 
-		r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
+		r = tfw_http_msg_process(conn, &data_up);
 		if (r == TFW_BLOCK) {
 			kfree_skb(nskb);
 			return r;
@@ -714,7 +704,11 @@ tfw_tls_conn_init(TfwConn *c)
 	if ((r = tfw_h2_context_init(h2)))
 		return r;
 
-	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
+	/*
+	 * We never hook TLS connections in GFSM, but initialize it with 0 state
+	 * to keep the things safe.
+	 */
+	tfw_gfsm_state_init(&c->state, c, 0);
 
 	c->destructor = tfw_tls_conn_dtor;
 
@@ -1079,22 +1073,16 @@ tfw_tls_init(void)
 	if (r)
 		return -EINVAL;
 
-	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_hs_over,
+	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, frang_tls_handler,
 				ttls_cli_id);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;
 
-	if ((r = tfw_gfsm_register_fsm(TFW_FSM_TLS, tfw_tls_msg_process)))
-		goto err_fsm;
-
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_TLS);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
-
-err_fsm:
-	tfw_h2_cleanup();
 err_h2:
 	tfw_tls_do_cleanup();
 
@@ -1106,7 +1094,6 @@ tfw_tls_exit(void)
 {
 	tfw_mod_unregister(&tfw_tls_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_TLS);
-	tfw_gfsm_unregister_fsm(TFW_FSM_TLS);
 	tfw_h2_cleanup();
 	tfw_tls_do_cleanup();
 }

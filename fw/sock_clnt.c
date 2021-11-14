@@ -4,7 +4,7 @@
  * TCP/IP stack hooks and socket routines to handle client traffic.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -47,6 +47,9 @@ tfw_cli_cache(int type)
 	/*
 	 * Currently any secure (TLS) connection is considered as HTTP/2
 	 * connection, since we don't have any business with plain TLS.
+	 *
+	 * FIXME #1422 this should be fixed since we still need HTTP/1 as
+	 * more applicable protocol for service management.
 	 */
 	return type & TFW_FSM_HTTPS ?
 		tfw_h2_conn_cache : tfw_cli_conn_cache;
@@ -274,10 +277,16 @@ tfw_sock_clnt_drop(struct sock *sk)
 	tfw_connection_put(conn);
 }
 
-static const SsHooks tfw_sock_clnt_ss_hooks = {
+static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_connection_recv,
+	.connection_recv	= tfw_http_msg_process,
+};
+
+static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
+	.connection_new		= tfw_sock_clnt_new,
+	.connection_drop	= tfw_sock_clnt_drop,
+	.connection_recv	= tfw_tls_msg_process,
 };
 
 static int
@@ -387,10 +396,14 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	if (type == TFW_FSM_HTTP)
-		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
-	else if (type == TFW_FSM_HTTPS)
-		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpsClnt);
+	if (type == TFW_FSM_HTTP) {
+		ss_proto_init(&ls->proto, &tfw_sock_http_clnt_ss_hooks,
+			      Conn_HttpClnt);
+	}
+	else if (type == TFW_FSM_HTTPS) {
+		ss_proto_init(&ls->proto, &tfw_sock_tls_clnt_ss_hooks,
+			      Conn_HttpsClnt);
+	}
 
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;

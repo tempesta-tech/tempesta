@@ -224,7 +224,7 @@ tfw_tls_cert_cfg_finish(TfwVhost *vhost)
 	curr_cert_conf = &conf->certs[conf->certs_num];
 	if (curr_cert_conf->conf_stage) {
 		T_ERR_NL("TLS: certificate configuration is not done, "
-			 "directive 'tls_certificate_key' is missing. \n");
+			 "directive 'tls_certificate_key' is missing.\n");
 		return -EINVAL;
 	}
 

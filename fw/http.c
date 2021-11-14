@@ -121,7 +121,6 @@
 #define RESP_BUF_LEN		128
 
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
-int ghprio; /* GFSM hook priority. */
 
 #define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
 unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
@@ -5132,12 +5131,11 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
+tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
 	bool block;
 	ss_skb_actor_t *actor;
 	unsigned int parsed;
-	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
 	TfwFsmData data_up;
@@ -5168,7 +5166,7 @@ next_msg:
 		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 
 	/*
-	 * We have to keep @data the same to pass it as is to FSMs
+	 * We have to keep @skb the same to pass it as is to FSMs
 	 * registered with lower priorities after us, but we must
 	 * feed the new data version to FSMs registered on our states.
 	 */
@@ -5339,8 +5337,7 @@ next_msg:
 	 * the quickest way to obtain target VHost and target backend server
 	 * connection since it allows to avoid expensive tables lookups.
 	 */
-	switch (tfw_http_sess_obtain(req))
-	{
+	switch (tfw_http_sess_obtain(req)) {
 	case TFW_HTTP_SESS_SUCCESS:
 		break;
 
@@ -5710,11 +5707,10 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_resp_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
+tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
 	int r = TFW_BLOCK;
 	unsigned int chunks_unused, parsed;
-	struct sk_buff *skb = data->skb;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwFsmData data_up;
@@ -5749,7 +5745,7 @@ next_msg:
 	       skb->len, parsed, hmresp->msg.len, hmresp->version, r);
 
 	/*
-	 * We have to keep @data the same to pass it as is to FSMs
+	 * We have to keep @skb the same to pass it as is to FSMs
 	 * registered with lower priorities after us, but we must
 	 * feed the new data version to FSMs registered on our states.
 	 */
@@ -5934,28 +5930,28 @@ bad_msg:
  * @return status (application logic decision) of the message processing.
  */
 int
-tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
+tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
+			     struct sk_buff *skb)
 {
 	if (WARN_ON_ONCE(!stream))
 		return -EINVAL;
 	if (unlikely(!stream->msg)) {
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
 		if (!stream->msg) {
-			__kfree_skb(data->skb);
+			__kfree_skb(skb);
 			return TFW_BLOCK;
 		}
-		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg,
-					 data->skb);
+		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg, skb);
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
 	}
 
-	T_DBG2("Add skb %p to message %p\n", data->skb, stream->msg);
-	ss_skb_queue_tail(&stream->msg->skb_head, data->skb);
+	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
+	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
 	return (TFW_CONN_TYPE(conn) & Conn_Clnt)
-		? tfw_http_req_process(conn, stream, data)
-		: tfw_http_resp_process(conn, stream, data);
+		? tfw_http_req_process(conn, stream, skb)
+		: tfw_http_resp_process(conn, stream, skb);
 }
 
 /**
@@ -5967,24 +5963,25 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
  * returned an error code on. The rest of skbs are freed by us.
  */
 int
-tfw_http_msg_process(void *conn, TfwFsmData *data)
+tfw_http_msg_process(void *conn, struct sk_buff *skb)
 {
 	int r = T_OK;
 	TfwStream *stream = &((TfwConn *)conn)->stream;
 	struct sk_buff *next;
 
-	if (data->skb->prev)
-		data->skb->prev->next = NULL;
-	for (next = data->skb->next; data->skb;
-	     data->skb = next, next = next ? next->next : NULL)
+	if (skb->prev)
+		skb->prev->next = NULL;
+	for (next = skb->next; skb;
+	     skb = next, next = next ? next->next : NULL)
 	{
 		if (likely(r == T_OK || r == T_POSTPONE)) {
-			data->skb->next = data->skb->prev = NULL;
+			skb->next = skb->prev = NULL;
 			r = TFW_CONN_H2(conn)
-				? tfw_h2_frame_process(conn, data)
-				: tfw_http_msg_process_generic(conn, stream, data);
+				? tfw_h2_frame_process(conn, skb)
+				: tfw_http_msg_process_generic(conn, stream,
+							       skb);
 		} else {
-			__kfree_skb(data->skb);
+			__kfree_skb(skb);
 		}
 	}
 
@@ -6737,28 +6734,15 @@ TfwMod tfw_http_mod  = {
  *	init/exit
  * ------------------------------------------------------------------------
  */
-
 int __init
 tfw_http_init(void)
 {
 	int r;
 
-	r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
-	if (r)
+	if ((r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process)))
 		return r;
 
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
-
-	ghprio = tfw_gfsm_register_hook(TFW_FSM_TLS,
-					TFW_GFSM_HOOK_PRIORITY_ANY,
-					TFW_TLS_FSM_DATA_READY,
-					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
-	if (ghprio < 0) {
-		tfw_connection_hooks_unregister(TFW_FSM_HTTP);
-		tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
-		return ghprio;
-	}
-
 	tfw_mod_register(&tfw_http_mod);
 
 	return 0;
@@ -6768,7 +6752,6 @@ void
 tfw_http_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_mod);
-	tfw_gfsm_unregister_hook(TFW_FSM_TLS, ghprio, TFW_TLS_FSM_DATA_READY);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }

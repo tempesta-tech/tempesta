@@ -123,17 +123,6 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 	return TFW_CONN_HOOK_CALL(conn, conn_send, msg);
 }
 
-int
-tfw_connection_recv(void *cdata, struct sk_buff *skb)
-{
-	TfwConn *conn = cdata;
-	TfwFsmData fsm_data = {
-		.skb = skb,
-	};
-
-	return tfw_gfsm_dispatch(&conn->state, conn, &fsm_data);
-}
-
 void
 tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {
