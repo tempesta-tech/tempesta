@@ -218,6 +218,7 @@ tdb_get_db(const char *path, int node)
 		return NULL;
 	}
 	len = full_len - (slash - path) - sizeof(TDB_SUFFIX);
+	BUG_ON(len < 0);
 	/* We'll need to fit <name><numa_id>.tdb */
 	if (len + sizeof(TDB_SUFFIX) >= TDB_TBLNAME_LEN) {
 		TDB_ERR("Too long table name %s (%d instead of %lu)\n",
