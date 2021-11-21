@@ -693,7 +693,7 @@ tfw_tls_conn_init(TfwConn *c)
 
 	T_DBG2("%s: conn=[%p]\n", __func__, c);
 
-	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
+	if ((r = ttls_ctx_init(tls, c->sk, &tfw_tls.cfg))) {
 		T_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
