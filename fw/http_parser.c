@@ -3635,10 +3635,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	/* ----------------    Request Line    ---------------- */
 
 	/* Parser internal initializers, must be called once per message. */
-	__FSM_STATE(Req_0, hot) {
-		if (unlikely(IS_CRLF(c)))
-			__FSM_MOVE_nofixup(Req_0);
-		/* fall through */
+	__FSM_STATE(Req_0_CR, hot) {
+		if (unlikely(c == \r))
+			__FSM_MOVE_nofixup(Req_0_LF);
+	}
+	__FSM_STATE(Req_0_LF, hot) {
+		if (unlikely(c == \n))
+			__FSM_MOVE_nofixup(Req_0_ExtraLeadingCRLF);
+	}
+	__FSM_STATE(Req_0_ExtraLeadingCRLF, hot) {
+		if (unlikely(c <= 0x20))
+			TFW_PARSER_BLOCK(Req_ExtraLeadingCRLF);
 	}
 
 	/* HTTP method. */
