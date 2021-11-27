@@ -5217,8 +5217,8 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
-#define CHOP_LEADING CRLF
-#ifdef CHOP_LEADING CRLF
+#define CHOP_LEADING_CRLF
+#ifdef CHOP_LEADING_CRLF
 /**
  * Removes single leading CR or CRLF or LF.
  * Indicates a buggy message if there are more leading CR or LF or other characters <= 0x20.
@@ -5320,7 +5320,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	TfwHttpMsg *hmsib;
 	TfwFsmData data_up;
 	int r = TFW_BLOCK;
-#ifdef CHOP_LEADING CRLF
+#ifdef CHOP_LEADING_CRLF
 	int rc;
 #endif
 
@@ -5339,7 +5339,7 @@ next_msg:
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
 
-#ifdef CHOP_LEADING CRLF
+#ifdef CHOP_LEADING_CRLF
 	rc = tfw_h1_chop_leading_crlf(struct sk_buff *skb);
 	if (unlikely(rc == EBADMSG))
 	{
