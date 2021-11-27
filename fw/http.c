@@ -5340,19 +5340,22 @@ next_msg:
 	req = (TfwHttpReq *)stream->msg;
 
 #ifdef CHOP_LEADING_CRLF
-	rc = tfw_h1_chop_leading_crlf(struct sk_buff *skb);
-	if (unlikely(rc == EBADMSG))
+	if (!TFW_MSG_H2(req))
 	{
-		T_DBG2("Block invalid HTTP request (leading CRLFs)\n");
-		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		tfw_http_req_parse_drop(req, 400, "Failed to parse request");
-		return TFW_BLOCK;
-	}
-	else if (unlikely(rc != 0))
-	{
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		tfw_http_req_parse_block(req, 500, "Request dropped: internal error");
-		return TFW_BLOCK;
+		rc = tfw_h1_chop_leading_crlf(struct sk_buff *skb);
+		if (unlikely(rc == EBADMSG))
+		{
+			T_DBG2("Block invalid HTTP request (leading CRLFs)\n");
+			TFW_INC_STAT_BH(clnt.msgs_parserr);
+			tfw_http_req_parse_drop(req, 400, "Failed to parse request");
+			return TFW_BLOCK;
+		}
+		else if (unlikely(rc != 0))
+		{
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_http_req_parse_block(req, 500, "Request dropped: internal error");
+			return TFW_BLOCK;
+		}
 	}
 #endif
 	
@@ -5369,7 +5372,7 @@ next_msg:
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs
 	 * registered with lower priorities after us, but we must
-	 * feed the new data version to FSMs registered on our states.
+	 * feed the fnew data version to FSMs registered on our states.
 	 */
 	data_up.skb = skb;
 	data_up.req = (TfwMsg *)req;
