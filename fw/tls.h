@@ -29,7 +29,7 @@ int tfw_tls_cfg_alpn_protos(const char *cfg_str, bool *deprecated);
 void tfw_tls_free_alpn_protos(void);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
 
-int tfw_tls_msg_process(void *conn, struct sk_buff *skb);
+int tfw_tls_msg_process(struct sock *sk, struct sk_buff *skb);
 
 
 #endif /* __TFW_TLS_H__ */

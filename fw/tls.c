@@ -50,45 +50,6 @@ static struct {
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
 
-/**
- * Chop skb list with begin at @skb by TLS extra data at the begin and end of
- * the list after decryption and write the right pointer at the first skb and
- * offset to @data for upper layers processing.
- */
-static int
-tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
-		     TfwFsmData *__restrict data)
-{
-	int r;
-	size_t off = ttls_payload_off(&tls->xfrm);
-	size_t tail = TTLS_TAG_LEN;
-
-	while (unlikely(skb->len <= off)) {
-		struct sk_buff *skb_head = ss_skb_dequeue(&skb);
-		off -= skb_head->len;
-		__kfree_skb(skb_head);
-		if (WARN_ON_ONCE(!skb))
-			return -EIO;
-	}
-
-	data->skb = skb;
-
-	skb = data->skb->prev;
-	while (unlikely(skb->len <= tail)) {
-		tail -= skb->len;
-		ss_skb_unlink(&data->skb, skb);
-		if (WARN_ON_ONCE(!data->skb))
-			return -EIO;
-		__kfree_skb(skb);
-		skb = data->skb->prev;
-	}
-
-	if (unlikely(r = ss_skb_chop_head_tail(NULL, data->skb, off, 0)))
-		return r;
-
-	return ss_skb_chop_head_tail(NULL, data->skb->prev, 0, tail);
-}
-
 static inline void
 tfw_tls_purge_io_ctx(TlsIOCtx *io)
 {
@@ -115,114 +76,9 @@ tfw_tls_connection_lost(TfwConn *conn)
 }
 
 int
-tfw_tls_msg_process(void *conn, struct sk_buff *skb)
+tfw_tls_msg_process(struct sock *sk, struct sk_buff *skb)
 {
-	int r, parsed;
-	struct sk_buff *nskb = NULL;
-	TlsCtx *tls = tfw_tls_context(conn);
-	TfwFsmData data_up = {};
-
-	/*
-	 * Perform TLS handshake if necessary and decrypt the TLS message
-	 * in-place by chunks. Add skb to the list to build scatterlist if
-	 * it contains end of current message.
-	 */
-next_msg:
-	spin_lock(&tls->lock);
-	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
-
-	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
-	parsed = 0;
-	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
-	switch (r) {
-	default:
-		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
-		       -r);
-		fallthrough;
-	case T_DROP:
-		spin_unlock(&tls->lock);
-		if (!ttls_hs_done(tls))
-			frang_tls_handler(tls, TTLS_HS_CB_INCOMPLETE);
-		/* The skb is freed in tfw_tls_conn_dtor(). */
-		return r;
-	case T_POSTPONE:
-		/* No complete TLS record seen yet. */
-		spin_unlock(&tls->lock);
-		return TFW_PASS;
-	case T_OK:
-		/* A complete TLS record is received. */
-		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
-		       parsed, skb->len);
-		break;
-	}
-
-	/*
-	 * Possibly there are other TLS message in the @skb - create
-	 * an skb sibling and process it on the next iteration.
-	 * If a part of incomplete TLS message leaves at the end of the
-	 * @skb, then store the skb in the TLS context for next FSM
-	 * shot.
-	 *
-	 * Many sibling skbs can be produced by TLS and HTTP layers
-	 * together - don't coalesce them: we process messages at once
-	 * and it has sense to work with sparse skbs in HTTP
-	 * adjustment logic to have some room to place a new fragments.
-	 * The logic is simple because each layer works with messages
-	 * from previous layer not crossing skb boundaries. The drawback
-	 * is that we produce a lot of skbs causing pressure on the
-	 * memory allocator.
-	 *
-	 * Split @skb before calling HTTP layer to chop it and not let HTTP
-	 * to read after end of the message.
-	 */
-	if (parsed < skb->len) {
-		nskb = ss_skb_split(skb, parsed);
-		if (unlikely(!nskb)) {
-			spin_unlock(&tls->lock);
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			return T_DROP;
-		}
-	}
-
-	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA) {
-		/*
-		 * Current record contains an "application data" message.
-		 * ttls_recv() has already decrypted the payload, but TLS
-		 * overhead data are still attached. We need to cut them off.
-		 *
-		 * Pass tls->io_in.skb_list to data_up ownership for the upper
-		 * layer processing.
-		 */
-		r = tfw_tls_chop_skb_rec(tls, tls->io_in.skb_list, &data_up);
-		if (r) {
-			spin_unlock(&tls->lock);
-			return r;
-		}
-
-		ttls_reset_io_ctx(&tls->io_in);
-		spin_unlock(&tls->lock);
-
-		r = tfw_http_msg_process(conn, &data_up);
-		if (r == TFW_BLOCK) {
-			kfree_skb(nskb);
-			return r;
-		}
-	} else {
-		/*
-		 * The decrypted payload is not required for upper levels.
-		 * Lifetime of skbs in input contexts ends here.
-		 */
-		tfw_tls_purge_io_ctx(&tls->io_in);
-		spin_unlock(&tls->lock);
-	}
-
-	if (nskb) {
-		skb = nskb;
-		nskb = NULL;
-		goto next_msg;
-	}
-
-	return r;
+	return tls_process_skb(sk, skb, tfw_http_msg_process);
 }
 
 /**

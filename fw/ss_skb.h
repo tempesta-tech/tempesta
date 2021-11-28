@@ -148,14 +148,6 @@ ss_skb_queue_purge(struct sk_buff **skb_head)
 		kfree_skb(skb);
 }
 
-static inline void
-ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
-{
-	skb->len += delta;
-	skb->data_len += delta;
-	skb->truesize += delta;
-}
-
 /*
  * skb_tailroom - number of bytes at buffer end
  *

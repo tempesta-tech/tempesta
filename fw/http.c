@@ -5963,10 +5963,10 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
  * returned an error code on. The rest of skbs are freed by us.
  */
 int
-tfw_http_msg_process(void *conn, struct sk_buff *skb)
+tfw_http_msg_process(struct sock *sk, struct sk_buff *skb)
 {
 	int r = T_OK;
-	TfwStream *stream = &((TfwConn *)conn)->stream;
+	TfwStream *stream = &((TfwConn *)sk->sk_user_data)->stream;
 	struct sk_buff *next;
 
 	if (skb->prev)
