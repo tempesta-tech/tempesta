@@ -3029,6 +3029,96 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
 	return -ENOMEM;
 }
 
+#define CHOP_LEADING_CRLF
+#ifdef CHOP_LEADING_CRLF
+/**
+ * Removes single leading CR or CRLF or LF.
+ * Indicates a buggy message if there are more leading CR or LF or other characters <= 0x20.
+ * @return zero on success and error code on error.
+ * EBADMSG error code indicates a buggy message (for 400);
+ * other error codes indicates internal errors (for 500).
+ *
+ * TODO (possible) remove iteration over skb list
+ */
+static int
+tfw_h1_chop_leading_crlf(struct sk_buff *skb)
+{
+	struct sk_buff *stop = skb;
+	char *p, *q;
+	int i, n, ret, ba;
+	char buf[sizeof(__u32)];
+	struct skb_shared_info *si;
+	skb_frag_t *frag;
+
+	if (likely(skb_headlen(skb) >= 3))
+	{
+		p = q = skb->data;
+		if (unlikely(*p == \r)) p++;
+		if (unlikely(*p == \n)) p++;
+		if (unlikely(*p <= 0x20))
+			//Offloading subsequent parser from buggy message
+			return EBADMSG;
+		if (unlikely((n = p - q)))
+		{
+			// Cleaning the msg
+			ret = ss_skb_chop_head_tail(skb, skb, n, 0);
+			if (ret)
+				return ret;
+		}
+		return 0;
+	}
+
+	// grab 3 bytes
+	n = 0; *(__u32*)&buf = 0;
+	do {
+		ba = skb_headlen(skb);
+		p = skb->data;
+		while (likely(ba--))
+		{
+			if (unlikely(n >= 3))
+				goto end_grab;
+			buf[n++] = p++;
+		}
+		
+		si = skb_shinfo(skb);
+		for (i = 0; i < si->nr_frags; i++)
+		{
+			frag = &si->frag[i];
+			ba = skb_frag_size(frag);
+			p = skb_frag_address(frag);
+			while (likely(ba--))
+			{
+				if (unlikely(n >= 3))
+					goto end_grab;
+				buf[n++] = p++;
+			}
+		}
+		skb = skb->next;
+	} while (skb != stop);
+	
+end_grab:
+	if (unlikely(n < 3))
+	{
+		// Message is too short
+		return EBADMSG;
+	}
+	p = buf;
+	if (unlikely(*p == \r)) p++;
+	if (unlikely(*p == \n)) p++;
+	if (unlikely(*p <= 0x20))
+		//Offloading subsequent parser from buggy message
+		return EBADMSG;
+	if (unlikely((n = p - buf)))
+	{
+		// Cleaning the msg
+		ret = ss_skb_chop_head_tail(skb, skb, n, 0);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+#endif
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -3037,6 +3127,10 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 {
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	
+	r = tfw_h1_chop_leading_crlf(hm->msg.skb_head)
+	if (r)
+		return r;
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
 		r = tfw_h1_rewrite_purge_to_get(hm->msg.skb_head);
@@ -5217,94 +5311,6 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
-#define CHOP_LEADING_CRLF
-#ifdef CHOP_LEADING_CRLF
-/**
- * Removes single leading CR or CRLF or LF.
- * Indicates a buggy message if there are more leading CR or LF or other characters <= 0x20.
- * @return zero on success and error code on error.
- * EBADMSG error code indicates a buggy message (for 400);
- * other error codes indicates internal errors (for 500).
- */
-static int
-tfw_h1_chop_leading_crlf(struct sk_buff *skb)
-{
-	struct sk_buff *stop = skb;
-	char *p, *q;
-	int i, n, ret, ba;
-	char buf[sizeof(__u32)];
-	struct skb_shared_info *si;
-	skb_frag_t *frag;
-
-	if (likely(skb_headlen(skb) >= 3))
-	{
-		p = q = skb->data;
-		if (unlikely(*p == \r)) p++;
-		if (unlikely(*p == \n)) p++;
-		if (unlikely(*p <= 0x20))
-			//Offloading subsequent parser from buggy message
-			return EBADMSG;
-		if (unlikely((n = p - q)))
-		{
-			// Cleaning the msg
-			ret = ss_skb_chop_head_tail(skb, skb, n, 0);
-			if (ret)
-				return ret;
-		}
-		return 0;
-	}
-
-	// grab 3 bytes
-	n = 0; *(__u32*)&buf = 0;
-	do {
-		ba = skb_headlen(skb);
-		p = skb->data;
-		while (likely(ba--))
-		{
-			if (unlikely(n >= 3))
-				goto end_grab;
-			buf[n++] = p++;
-		}
-		
-		si = skb_shinfo(skb);
-		for (i = 0; i < si->nr_frags; i++)
-		{
-			frag = &si->frag[i];
-			ba = skb_frag_size(frag);
-			p = skb_frag_address(frag);
-			while (likely(ba--))
-			{
-				if (unlikely(n >= 3))
-					goto end_grab;
-				buf[n++] = p++;
-			}
-		}
-		skb = skb->next;
-	} while (skb != stop);
-	
-end_grab:
-	if (unlikely(n < 3))
-	{
-		// Message is too short
-		return EBADMSG;
-	}
-	p = buf;
-	if (unlikely(*p == \r)) p++;
-	if (unlikely(*p == \n)) p++;
-	if (unlikely(*p <= 0x20))
-		//Offloading subsequent parser from buggy message
-		return EBADMSG;
-	if (unlikely((n = p - buf)))
-	{
-		// Cleaning the msg
-		ret = ss_skb_chop_head_tail(skb, skb, n, 0);
-		if (ret)
-			return ret;
-	}
-	return 0;
-}
-#endif
-
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -5320,9 +5326,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	TfwHttpMsg *hmsib;
 	TfwFsmData data_up;
 	int r = TFW_BLOCK;
-#ifdef CHOP_LEADING_CRLF
-	int rc;
-#endif
 
 	BUG_ON(!stream->msg);
 
@@ -5338,27 +5341,6 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
-
-#ifdef CHOP_LEADING_CRLF
-	if (!TFW_MSG_H2(req))
-	{
-		rc = tfw_h1_chop_leading_crlf(struct sk_buff *skb);
-		if (unlikely(rc == EBADMSG))
-		{
-			T_DBG2("Block invalid HTTP request (leading CRLFs)\n");
-			TFW_INC_STAT_BH(clnt.msgs_parserr);
-			tfw_http_req_parse_drop(req, 400, "Failed to parse request");
-			return TFW_BLOCK;
-		}
-		else if (unlikely(rc != 0))
-		{
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_http_req_parse_block(req, 500, "Request dropped: internal error");
-			return TFW_BLOCK;
-		}
-	}
-#endif
-	
 	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
@@ -5372,7 +5354,7 @@ next_msg:
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs
 	 * registered with lower priorities after us, but we must
-	 * feed the fnew data version to FSMs registered on our states.
+	 * feed the new data version to FSMs registered on our states.
 	 */
 	data_up.skb = skb;
 	data_up.req = (TfwMsg *)req;
