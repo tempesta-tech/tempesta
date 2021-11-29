@@ -3032,18 +3032,15 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
 #define CHOP_LEADING_CRLF
 #ifdef CHOP_LEADING_CRLF
 /**
- * Removes single leading CR or CRLF or LF.
- * Indicates a buggy message if there are more leading CR or LF or other characters <= 0x20.
+ * Removes single leading CR or CRLF or LF, if any.
+ * Indicates a buggy message if there are more leading CR or LF or other characters <= 0x20 with EBADMSG.
  * @return zero on success and error code on error.
- * EBADMSG error code indicates a buggy message (for 400);
- * other error codes indicates internal errors (for 500).
- *
- * TODO (possible) remove iteration over skb list
  */
 static int
-tfw_h1_chop_leading_crlf(struct sk_buff *skb)
+tfw_h1_chop_leading_crlf(struct sk_buff **head)
 {
-	struct sk_buff *stop = skb;
+	struct sk_buff *skb = *head;
+	struct sk_buff *stop = *head;
 	char *p, *q;
 	int i, n, ret, ba;
 	char buf[sizeof(__u32)];
@@ -3056,7 +3053,7 @@ tfw_h1_chop_leading_crlf(struct sk_buff *skb)
 		if (unlikely(*p == \r)) p++;
 		if (unlikely(*p == \n)) p++;
 		if (unlikely(*p <= 0x20))
-			//Offloading subsequent parser from buggy message
+			//Drop erroneous request
 			return EBADMSG;
 		if (unlikely((n = p - q)))
 		{
@@ -3097,23 +3094,39 @@ tfw_h1_chop_leading_crlf(struct sk_buff *skb)
 	} while (skb != stop);
 	
 end_grab:
-	if (unlikely(n < 3))
+	if (unlikely(n < 3)
 	{
-		// Message is too short
+		// Impossible, however test for more correctness
 		return EBADMSG;
 	}
 	p = buf;
 	if (unlikely(*p == \r)) p++;
 	if (unlikely(*p == \n)) p++;
 	if (unlikely(*p <= 0x20))
-		//Offloading subsequent parser from buggy message
+		//Drop erroneous request
 		return EBADMSG;
 	if (unlikely((n = p - buf)))
 	{
 		// Cleaning the msg
-		ret = ss_skb_chop_head_tail(skb, skb, n, 0);
-		if (ret)
-			return ret;
+		skb = *head;
+		while (n)
+		{
+			if (likely(skb->len > n)
+			{
+				return ss_skb_chop_head_tail(skb, skb, n, 0);
+			}
+			if (unlikely(skb->next == skb)
+			{
+				// the single skb in list
+				return EBADMSG;
+			}
+			n -= skb->len;
+			skb->next->prev = skn->prev;
+			skb->prev->next = skb->next;
+			*head = skb->next;
+			__kfree_skb(skb);
+			skb = *head;
+		}
 	}
 	return 0;
 }
@@ -3128,7 +3141,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	
-	r = tfw_h1_chop_leading_crlf(hm->msg.skb_head)
+	r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head)
 	if (r)
 		return r;
 
