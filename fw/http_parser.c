@@ -3645,7 +3645,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	}
 	__FSM_STATE(Req_0_ExtraLeadingCRLF, hot) {
 		if (unlikely(c <= 0x20))
-			TFW_PARSER_BLOCK(Req_ExtraLeadingCRLF);
+			TFW_PARSER_BLOCK(Req_0_ExtraLeadingCRLF);
 	}
 
 	/* HTTP method. */
