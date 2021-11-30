@@ -3050,8 +3050,8 @@ tfw_h1_chop_leading_crlf(struct sk_buff **head)
 	if (likely(skb_headlen(skb) >= 3))
 	{
 		p = q = skb->data;
-		if (unlikely(*p == \r)) p++;
-		if (unlikely(*p == \n)) p++;
+		if (unlikely(*p == '\r')) p++;
+		if (unlikely(*p == '\n')) p++;
 		if (unlikely(*p <= 0x20))
 			//Drop erroneous request
 			return EBADMSG;
@@ -3074,34 +3074,34 @@ tfw_h1_chop_leading_crlf(struct sk_buff **head)
 		{
 			if (unlikely(n >= 3))
 				goto end_grab;
-			buf[n++] = p++;
+			buf[n++] = *p++;
 		}
 		
 		si = skb_shinfo(skb);
 		for (i = 0; i < si->nr_frags; i++)
 		{
-			frag = &si->frag[i];
+			frag = &si->frags[i];
 			ba = skb_frag_size(frag);
 			p = skb_frag_address(frag);
 			while (likely(ba--))
 			{
 				if (unlikely(n >= 3))
 					goto end_grab;
-				buf[n++] = p++;
+				buf[n++] = *p++;
 			}
 		}
 		skb = skb->next;
 	} while (skb != stop);
 	
 end_grab:
-	if (unlikely(n < 3)
+	if (unlikely(n < 3))
 	{
 		// Impossible, however test for more correctness
 		return EBADMSG;
 	}
 	p = buf;
-	if (unlikely(*p == \r)) p++;
-	if (unlikely(*p == \n)) p++;
+	if (unlikely(*p == '\r')) p++;
+	if (unlikely(*p == '\n')) p++;
 	if (unlikely(*p <= 0x20))
 		//Drop erroneous request
 		return EBADMSG;
@@ -3111,17 +3111,17 @@ end_grab:
 		skb = *head;
 		while (n)
 		{
-			if (likely(skb->len > n)
+			if (likely(skb->len > n))
 			{
 				return ss_skb_chop_head_tail(skb, skb, n, 0);
 			}
-			if (unlikely(skb->next == skb)
+			if (unlikely(skb->next == skb))
 			{
 				// the single skb in list
 				return EBADMSG;
 			}
 			n -= skb->len;
-			skb->next->prev = skn->prev;
+			skb->next->prev = skb->prev;
 			skb->prev->next = skb->next;
 			*head = skb->next;
 			__kfree_skb(skb);
@@ -3141,7 +3141,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	
-	r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head)
+	r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head);
 	if (r)
 		return r;
 
