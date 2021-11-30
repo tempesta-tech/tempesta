@@ -54,6 +54,7 @@ The **master** branch is unstable and contains code for upcoming beta.
 Please see our **[Wiki](https://github.com/tempesta-tech/tempesta/wiki)** for
 following topics:
 
+* [Quick start](https://github.com/tempesta-tech/tempesta/wiki/Configuration#quick-start)
 * [Design description](https://github.com/tempesta-tech/tempesta/wiki)
 * [System requirements](https://github.com/tempesta-tech/tempesta/wiki/Requirements)
 * [Installation procedures](https://github.com/tempesta-tech/tempesta/wiki/Installation)
