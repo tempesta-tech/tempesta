@@ -3029,108 +3029,35 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
 	return -ENOMEM;
 }
 
-#define CHOP_LEADING_CRLF
-#ifdef CHOP_LEADING_CRLF
 /**
- * Removes single leading CR or CRLF or LF, if any.
- * Indicates a buggy message if there are more leading CR or LF or other characters <= 0x20 with EBADMSG.
+ * Removes n bytes from the beginning of the message, iterating over skb chain if needed.
  * @return zero on success and error code on error.
+ *
+ * TODO: to be replaced with future version of ss_skb_chop_head_tail() over all skbs of the message
  */
 static int
-tfw_h1_chop_leading_crlf(struct sk_buff **head)
+tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned n)
 {
 	struct sk_buff *skb = *head;
-	struct sk_buff *stop = *head;
-	char *p, *q;
-	int i, n, ret, ba;
-	char buf[sizeof(__u32)];
-	struct skb_shared_info *si;
-	skb_frag_t *frag;
-
-	if (likely(skb_headlen(skb) >= 3))
+	while (n)
 	{
-		p = q = skb->data;
-		if (unlikely(*p == '\r')) p++;
-		if (unlikely(*p == '\n')) p++;
-		if (unlikely(*p <= 0x20))
-			//Drop erroneous request
-			return EBADMSG;
-		if (unlikely((n = p - q)))
+		if (likely(skb->len > n))
 		{
-			// Cleaning the msg
-			ret = ss_skb_chop_head_tail(skb, skb, n, 0);
-			if (ret)
-				return ret;
+			return ss_skb_chop_head_tail(skb, skb, n, 0);
 		}
-		return 0;
-	}
-
-	// grab 3 bytes
-	n = 0; *(__u32*)&buf = 0;
-	do {
-		ba = skb_headlen(skb);
-		p = skb->data;
-		while (likely(ba--))
+		if (unlikely(skb->next == skb))
 		{
-			if (unlikely(n >= 3))
-				goto end_grab;
-			buf[n++] = *p++;
+			return -EBADMSG;
 		}
-		
-		si = skb_shinfo(skb);
-		for (i = 0; i < si->nr_frags; i++)
-		{
-			frag = &si->frags[i];
-			ba = skb_frag_size(frag);
-			p = skb_frag_address(frag);
-			while (likely(ba--))
-			{
-				if (unlikely(n >= 3))
-					goto end_grab;
-				buf[n++] = *p++;
-			}
-		}
-		skb = skb->next;
-	} while (skb != stop);
-	
-end_grab:
-	if (unlikely(n < 3))
-	{
-		// Impossible, however test for more correctness
-		return EBADMSG;
-	}
-	p = buf;
-	if (unlikely(*p == '\r')) p++;
-	if (unlikely(*p == '\n')) p++;
-	if (unlikely(*p <= 0x20))
-		//Drop erroneous request
-		return EBADMSG;
-	if (unlikely((n = p - buf)))
-	{
-		// Cleaning the msg
+		n -= skb->len;
+		skb->next->prev = skb->prev;
+		skb->prev->next = skb->next;
+		*head = skb->next;
+		__kfree_skb(skb);
 		skb = *head;
-		while (n)
-		{
-			if (likely(skb->len > n))
-			{
-				return ss_skb_chop_head_tail(skb, skb, n, 0);
-			}
-			if (unlikely(skb->next == skb))
-			{
-				// the single skb in list
-				return EBADMSG;
-			}
-			n -= skb->len;
-			skb->next->prev = skb->prev;
-			skb->prev->next = skb->next;
-			*head = skb->next;
-			__kfree_skb(skb);
-			skb = *head;
-		}
 	}
 	return 0;
 }
-#endif
 
 /**
  * Adjust the request before proxying it to real server.
@@ -3139,11 +3066,18 @@ static int
 tfw_h1_adjust_req(TfwHttpReq *req)
 {
 	int r;
+	unsigned n_to_strip = 0;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	
-	r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head);
-	if (r)
-		return r;
+	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
+	                !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+	if (unlikely(n_to_strip))
+	{
+		r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head, n_to_strip);
+		/* TODO: replace this with future version of ss_skb_chop_head_tail() over all skbs of the message */
+		if (r)
+			return r;
+	}
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
 		r = tfw_h1_rewrite_purge_to_get(hm->msg.skb_head);

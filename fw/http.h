@@ -275,6 +275,10 @@ enum {
 	TFW_HTTP_B_REQ_DROP,
 	/* Request is PURGE with an 'X-Tempesta-Cache: get' header. */
 	TFW_HTTP_B_PURGE_GET,
+	/* Need strip 1 leading CR */
+	TFW_HTTP_B_NEED_STRIP_LEADING_CR,
+	/* Need strip 1 leading LF */
+	TFW_HTTP_B_NEED_STRIP_LEADING_LF,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,
