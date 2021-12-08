@@ -3039,16 +3039,11 @@ static int
 tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned n)
 {
 	struct sk_buff *skb = *head;
-	while (n)
-	{
+	while (n) {
 		if (likely(skb->len > n))
-		{
 			return ss_skb_chop_head_tail(skb, skb, n, 0);
-		}
 		if (unlikely(skb->next == skb))
-		{
 			return -EBADMSG;
-		}
 		n -= skb->len;
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
@@ -3070,9 +3065,8 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	
 	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
-	                !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
-	if (unlikely(n_to_strip))
-	{
+		     !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+	if (unlikely(n_to_strip)) {
 		r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head, n_to_strip);
 		/* TODO: replace this with future version of ss_skb_chop_head_tail() over all skbs of the message */
 		if (r)
