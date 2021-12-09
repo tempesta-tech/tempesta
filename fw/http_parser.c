@@ -3635,23 +3635,27 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	/* - Skipping and stripping leading CRLFs - */
 
 	/* The parser accepts 1 optional CRLF or LF before the request line.
-	 * The parser stores the fact of presense of it for subsequent stripping.
-	 * The parser blocks the request if it contains additional CRLFs before the request line.
+	 * The parser stores the fact of presense of it for subsequent
+	 * stripping. The parser blocks the request if it contains additional
+	 * CRLFs before the request line.
 	 */
 	__FSM_STATE(Req_0, hot) {
 		if (unlikely(c == '\r')) {
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags);
+			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR,
+				  req->flags);
 			__FSM_MOVE_nofixup(Req_0_Wait_LF);
 		}
 		if (unlikely(c == '\n')) {
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
+				  req->flags);
 			__FSM_MOVE_nofixup(Req_0_CheckExtraLeadingCRLF);
 		}
-		goto Req_0_CheckExtraLeadingCRLF;
+		__FSM_JMP(Req_0_CheckExtraLeadingCRLF);
 	}
-	__FSM_STATE(Req_0_Wait_LF, hot) {
+	__FSM_STATE(Req_0_Wait_LF) {
 		if (likely(c == '\n')) 	{
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
+				  req->flags);
 			__FSM_MOVE_nofixup(Req_0_CheckExtraLeadingCRLF);
 		}
 		TFW_PARSER_BLOCK(Req_0_Wait_LF);

@@ -3030,16 +3030,19 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
 }
 
 /**
- * Removes n bytes from the beginning of the message, iterating over skb chain if needed.
+ * Removes n bytes from the beginning of the message, iterating over skb chain
+ * if needed.
  * @return zero on success and error code on error.
  *
- * TODO: to be replaced with future version of ss_skb_chop_head_tail() over all skbs of the message
+ * TODO #1535: to be replaced with future version of ss_skb_chop_head_tail()
+ * over all skbs of the message
  */
 static int
-tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned n)
+tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned int n)
 {
-	struct sk_buff *skb = *head;
+	struct sk_buff *skb;
 	while (n) {
+		skb = *head;
 		if (likely(skb->len > n))
 			return ss_skb_chop_head_tail(skb, skb, n, 0);
 		if (unlikely(skb->next == skb))
@@ -3049,7 +3052,6 @@ tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned n)
 		skb->prev->next = skb->next;
 		*head = skb->next;
 		__kfree_skb(skb);
-		skb = *head;
 	}
 	return 0;
 }
@@ -3061,14 +3063,19 @@ static int
 tfw_h1_adjust_req(TfwHttpReq *req)
 {
 	int r;
-	unsigned n_to_strip = 0;
+	unsigned int n_to_strip = 0;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	
-	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
-		     !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR,
+		                req->flags)
+		     +
+		     !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
+				 req->flags);
 	if (unlikely(n_to_strip)) {
 		r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head, n_to_strip);
-		/* TODO: replace this with future version of ss_skb_chop_head_tail() over all skbs of the message */
+		/* TODO 1535: replace this with future version of
+		 * ss_skb_chop_head_tail() over all skbs of the message 
+		 */
 		if (r)
 			return r;
 	}
