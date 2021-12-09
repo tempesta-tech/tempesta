@@ -3045,9 +3045,13 @@ tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned int n)
 		skb = *head;
 		if (likely(skb->len > n))
 			return ss_skb_chop_head_tail(skb, skb, n, 0);
-		if (unlikely(skb->next == skb))
+		if (WARN_ON(skb->next == skb))
 			return -EBADMSG;
 		n -= skb->len;
+		/* We do not use ss_skb_unlink() here to prevent it
+		 * to remove the last skb in the list and to skip
+		 * some actions using our apriori knowledge
+		 */
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
 		*head = skb->next;
@@ -3065,7 +3069,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r;
 	unsigned int n_to_strip = 0;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
-	
+
 	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR,
 		                req->flags)
 		     +
