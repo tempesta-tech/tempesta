@@ -1009,6 +1009,61 @@ ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 }
 
 /**
+ * Chop @head and @tail bytes at head and end of the message (skb circular
+ * list), iterating over the list if nessessary.
+ * @return 0 on success and -(error code) on error.
+ * 
+ * Message length should be greater than the sum of @head and @trail,
+ * otherwise an error is retuned.
+ */
+int
+ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head, 
+			   size_t head, size_t trail)
+{
+
+	struct sk_buff *skb, *skb_hd;
+	skb = *skb_list_head;
+	if (likely(skb->next == skb)) {
+		/* There is the only 1 buffer in the list */
+		if (WARN_ON(skb->len <= head + trail))
+			return -EBADMSG;
+		return ss_skb_chop_head_tail(skb, skb, head, trail);
+	}
+	while (head) {
+		if (likely(skb->len > head))
+			return ss_skb_chop_head_tail(skb, skb, head, 0);
+		if (WARN_ON(skb->next == skb))
+			return -EBADMSG;
+		head -= skb->len;
+		/* We do not use ss_skb_unlink() here to prevent it
+		 * to remove the last skb in the list and to skip
+		 * some actions using our apriori knowledge
+		 */
+		skb->next->prev = skb->prev;
+		skb->prev->next = skb->next;
+		*skb_list_head = skb_hd = skb->next;
+		__kfree_skb(skb);
+		skb = skb_hd;
+	}
+	while (trail) {
+		skb = skb_hd->prev;
+		if (likely(skb->len > trail))
+			return ss_skb_chop_head_tail(skb, skb, 0, trail);
+		if (WARN_ON(skb->prev == skb))
+			return -EBADMSG;
+		trail -= skb->len;
+		/* We do not use ss_skb_unlink() here to prevent it
+		 * to remove the last skb in the list and to skip
+		 * some actions using our apriori knowledge
+		 */
+		skb_hd->prev = skb->prev;
+		skb->prev->next = skb_hd;
+		__kfree_skb(skb);
+	}
+	return 0;
+}
+
+/**
  * Cut off @str->len data bytes from underlying skbs skipping the first
  * @skip bytes, and also cut off @tail bytes after @str.
  * @str can be an HTTP header or other parsed part of HTTP message
