@@ -3648,21 +3648,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		if (unlikely(c == '\n')) {
 			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
 				  req->flags);
-			__FSM_MOVE_nofixup(Req_0_CheckExtraLeadingCRLF);
+			__FSM_MOVE_nofixup(Req_Method);
 		}
-		__FSM_JMP(Req_0_CheckExtraLeadingCRLF);
+		__FSM_JMP(Req_Method);
 	}
 	__FSM_STATE(Req_0_Wait_LF) {
 		if (likely(c == '\n')) 	{
 			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
 				  req->flags);
-			__FSM_MOVE_nofixup(Req_0_CheckExtraLeadingCRLF);
+			__FSM_MOVE_nofixup(Req_Method);
 		}
 		TFW_PARSER_BLOCK(Req_0_Wait_LF);
-	}
-	__FSM_STATE(Req_0_CheckExtraLeadingCRLF, hot) {
-		if (unlikely(c <= 0x20))
-			TFW_PARSER_BLOCK(Req_0_CheckExtraLeadingCRLF);
 	}
 
 	/* ----------------    Request Line    ---------------- */
