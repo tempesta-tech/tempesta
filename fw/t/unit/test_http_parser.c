@@ -386,13 +386,17 @@ TEST(http_parser, leading_eol)
 	FOR_REQ(EMPTY_REQ);
 	FOR_REQ("\n" EMPTY_REQ);
 	FOR_REQ("\r\n" EMPTY_REQ);
-	FOR_REQ("\n\n\n" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);
 
 	FOR_RESP(EMPTY_RESP);
 	FOR_RESP("\n" EMPTY_RESP);
 	FOR_RESP("\r\n" EMPTY_RESP);
 	FOR_RESP("\n\n\n" EMPTY_RESP);
 }
+
+
 
 TEST(http_parser, parses_req_method)
 {
@@ -1565,9 +1569,9 @@ TEST(http_parser, content_length)
 
 TEST(http_parser, eol_crlf)
 {
-	FOR_REQ("\rGET / HTTP/1.1\r\n"
-		"Host: d.com\r\n"
-		"\r\n");
+	EXPECT_BLOCK_REQ("\rGET / HTTP/1.1\r\n"
+		         "Host: d.com\r\n"
+		         "\r\n");
 
 	__FOR_REQ("POST / HTTP/1.1\n"
 		  "Host: a.com\n"
