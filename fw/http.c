@@ -3049,7 +3049,7 @@ tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned int n)
 			return -EBADMSG;
 		n -= skb->len;
 		/* We do not use ss_skb_unlink() here to prevent it
-		 * to remove the last skb in the list and to skip
+		 * from removing the last skb in the list and to skip
 		 * some actions using our apriori knowledge
 		 */
 		skb->next->prev = skb->prev;
