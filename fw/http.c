@@ -3045,12 +3045,12 @@ tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned int n)
 		skb = *head;
 		if (likely(skb->len > n))
 			return ss_skb_chop_head_tail(skb, skb, n, 0);
-		if (WARN_ON(skb->next == skb))
+		if (WARN_ON_ONCE(skb->next == skb))
 			return -EBADMSG;
 		n -= skb->len;
-		/* We do not use ss_skb_unlink() here to prevent it
-		 * from removing the last skb in the list and to skip
-		 * some actions using our apriori knowledge
+		/* We do not use ss_skb_unlink() here to avoid
+		 * the removal of the last skb in the list and
+		 * to skip extra actions that are unnecessary here.
 		 */
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
@@ -3070,11 +3070,8 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	unsigned int n_to_strip = 0;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR,
-		                req->flags)
-		     +
-		     !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
-				 req->flags);
+	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
+		     !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 	if (unlikely(n_to_strip)) {
 		r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head, n_to_strip);
 		/* TODO 1535: replace this with future version of
