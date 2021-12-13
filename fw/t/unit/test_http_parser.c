@@ -381,11 +381,24 @@ test_string_split(const TfwStr *expected, const TfwStr *parsed)
 	EXPECT_EQ(c_e, end_e);
 }
 
+static inline int
+number_to_strip(TfwHttpReq *req)
+{
+	return
+		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
+		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+}
+
+
+
 TEST(http_parser, leading_eol)
 {
 	FOR_REQ(EMPTY_REQ);
+	EXPECT_EQ(number_to_strip(req), 0);
 	FOR_REQ("\n" EMPTY_REQ);
+	EXPECT_EQ(number_to_strip(req), 1);
 	FOR_REQ("\r\n" EMPTY_REQ);
+	EXPECT_EQ(number_to_strip(req), 2);
 	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);
