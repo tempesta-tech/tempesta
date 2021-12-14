@@ -4409,7 +4409,7 @@ do {									\
 			__MATCH_METH(UNLOCK, 2);
 		__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
 	default:
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 match_meth:
 	__FSM_MOVE_nofixup_n(Req_MUSpace, __fsm_n);
@@ -4439,7 +4439,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	case 'U':
 		__FSM_MOVE_nofixup(Req_MethU);
 	}
-	__FSM_MOVE_nofixup(Req_MethodUnknown);
+	__FSM_JMP(Req_MethodUnknown);
 
 
 	/* ----------------    Improbable states    ---------------- */
