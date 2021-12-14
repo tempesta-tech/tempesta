@@ -473,6 +473,9 @@ TEST(http_parser, parses_req_method)
 
 #undef TEST_REQ_UNKNOWN
 #undef TEST_REQ_METHOD
+
+	/* Test for empty method */
+	EXPECT_BLOCK_REQ(" /filename HTTP/1.1\r\n\r\n");
 }
 
 TEST(http_parser, parses_req_uri)
