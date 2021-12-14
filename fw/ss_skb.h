@@ -212,9 +212,6 @@ int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 
-int ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
-		   unsigned int *chunks, unsigned int *processed);
-
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);

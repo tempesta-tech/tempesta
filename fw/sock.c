@@ -394,7 +394,12 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			continue;
 		}
 
-		ss_skb_init_for_xmit(skb);
+		if (!(flags & SS_NO_SKB_INIT))
+			ss_skb_init_for_xmit(skb);
+		/*
+		 * TODO #1064: The flag is used in tfw_tls_conn_send() only -
+		 * do we still need it?
+		 */
 		if (flags & SS_F_ENCRYPT)
 			tls_skb_settype(skb, SS_SKB_F2TYPE(flags));
 		/* Propagate mark of message head skb.*/

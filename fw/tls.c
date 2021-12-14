@@ -433,74 +433,14 @@ err_purge_tcp_write_queue:
  * initiates a record transmission, e.g. alert or a handshake message.
  */
 static int
-tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
+tfw_tls_send(TlsCtx *tls)
 {
-	int r, flags = 0;
-	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
-	TlsIOCtx *io = &tls->io_out;
-	TfwMsgIter it;
-	TfwStr str = {};
-
-	assert_spin_locked(&tls->lock);
-
 	/*
-	 * Encrypted (application data) messages will be prepended by a header
-	 * in tfw_tls_encrypt(), so if we have an encryption context, then we
-	 * don't send the header. Otherwise (handshake message) copy the whole
-	 * data with a header.
-	 *
-	 * During handshake (!ttls_xfrm_ready(tls)), io may contain several
-	 * consequent records of the same TTLS_MSG_HANDSHAKE type. io, except
-	 * msglen containing length of the last record, describes the first
-	 * record.
+	 * New skbs are created by tls_send(), so no need to initialize them
+	 * in ss_do_send(). tls_skb_settype() for encryption is set for all the
+	 * skbs by tls_send().
 	 */
-	if (ttls_xfrm_ready(tls) && io->msgtype == TTLS_MSG_ALERT) {
-		str.data = io->alert;
-		str.len = io->hslen;
-	} else {
-		str.data = io->hdr;
-		str.len = TLS_HEADER_SIZE + io->hslen;
-	}
-	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x)"
-	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
-	      str.len, sgt ? sgt->nents : 0, io->msglen, io->msgtype, conn,
-	      conn->cli_conn.sk->sk_write_xmit, ttls_xfrm_ready(tls));
-
-	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len, 0)))
-		return r;
-	if ((r = tfw_msg_write(&it, &str)))
-		return r;
-	/* Only one skb should has been allocated. */
-	WARN_ON_ONCE(it.skb->next != io->skb_list
-		     || it.skb->prev != io->skb_list);
-	if (sgt) {
-		int f, i = it.frag + 1;
-		struct sk_buff *skb = it.skb;
-		struct scatterlist *sg;
-
-		for_each_sg(sgt->sgl, sg, sgt->nents, f) {
-			if (i >= MAX_SKB_FRAGS) {
-				if (!(skb = ss_skb_alloc(0)))
-					return -ENOMEM;
-				ss_skb_queue_tail(&io->skb_list, skb);
-				i = 0;
-			}
-			skb_fill_page_desc(skb, i++, sg_page(sg), sg->offset,
-					   sg->length);
-			ss_skb_adjust_data_len(skb, sg->length);
-			T_DBG3("fill skb frag %d by %pK,len=%u,flags=%lx in"
-			       " skb=%pK,len=%u\n", i - 1,
-			       sg_virt(sg), sg->length, sg->page_link & 0x3,
-			       skb, skb->len);
-		}
-	}
-	if (ttls_xfrm_need_encrypt(tls))
-		flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
-
-	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
-	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
-
-	return r;
+	return ss_send(tls->sk, &tls->io_out.skb_list, SS_NO_SKB_INIT);
 }
 
 static void
