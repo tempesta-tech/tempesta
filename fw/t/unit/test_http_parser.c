@@ -52,10 +52,22 @@
 
 static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
 
+#define FORCE_1B_CHUNKS 0
+/* Set this macro to 1 to bypass PRIMES iterations and
+ * force 1-byte chunks.
+ * This is a temporary measure until more correct
+ * chunk size control implemented.
+ */
+
+
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static size_t hm_exp_len = 0;
+#if FORCE_1B_CHUNKS
+static unsigned int chunks = 1;
+#else
 static unsigned int chunks = 1, prime = 0;
+#endif
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
@@ -84,7 +96,9 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			step++;
 			rem--;
 		}
-
+#if FORCE_1B_CHUNKS
+		step = 1;
+#endif
 		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
 			  len, pos, chunks, step);
 		if (type == FUZZ_REQ)
@@ -189,7 +203,11 @@ do_split_and_parse(unsigned char *str, int type)
 	 * stop splitting message into pieces bigger than
 	 * the message itself.
 	 */
+#if FORCE_1B_CHUNKS
+	chunks += len - 2; /* to guarantee exit on 2nd pass */
+#else
 	chunks += PRIMES[prime++ % ARRAY_SIZE(PRIMES)];
+#endif
 	if (chunks > len)
 		return 1;
 
@@ -476,6 +494,11 @@ TEST(http_parser, parses_req_method)
 
 	/* Test for empty method */
 	EXPECT_BLOCK_REQ(" /filename HTTP/1.1\r\n\r\n");
+        /* Malformed methods */
+	EXPECT_BLOCK_REQ("\tOST /filename HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("P\tST /filename HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("PO\tT /filename HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("POS\t /filename HTTP/1.1\r\n\r\n");
 }
 
 TEST(http_parser, parses_req_uri)
