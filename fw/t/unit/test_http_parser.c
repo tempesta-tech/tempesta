@@ -50,22 +50,25 @@
 /* Compile the test itself w/o autovectorization. */
 #pragma GCC reset_options
 
-static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
-
-#define FORCE_1B_CHUNKS 0
-/* Set this macro to 1 to bypass PRIMES iterations and
- * force 1-byte chunks.
- * This is a temporary measure until more correct
- * chunk size control implemented.
+/* Set this macro to 1 to return pseudo-random chunking based on PRIMES.
+ * You can set it here directly or via compiler command line
  */
+#ifndef USE_PRIMES
+#define USE_PRIMES 0
+#endif
 
+#if USE_PRIMES
+static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
+#else
+static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 256, 1500, 9216, 1024*1024 /* to fit a message of 'any' size */  };
+static unsigned int chunk_size_index = 0;
+#define CHUNK_SIZE_CNT (sizeof(CHUNK_SIZES)/sizeof(CHUNK_SIZES[0]))
+#endif
 
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static size_t hm_exp_len = 0;
-#if FORCE_1B_CHUNKS
-static unsigned int chunks = 1;
-#else
+#if USE_PRIMES
 static unsigned int chunks = 1, prime = 0;
 #endif
 
@@ -79,6 +82,9 @@ static unsigned int chunks = 1, prime = 0;
 #define VCHAR_ALPHABET		"\x09 \"" OTHER_DELIMETERS 		\
 				TOKEN_ALPHABET OBS_TEXT
 #define ETAG_ALPHABET		OTHER_DELIMETERS TOKEN_ALPHABET OBS_TEXT
+
+
+#if USE_PRIMES
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
@@ -96,9 +102,6 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			step++;
 			rem--;
 		}
-#if FORCE_1B_CHUNKS
-		step = 1;
-#endif
 		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
 			  len, pos, chunks, step);
 		if (type == FUZZ_REQ)
@@ -117,6 +120,42 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 	return r;
 }
 
+#else
+
+static int
+split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
+{
+	size_t pos = 0, step;
+	unsigned int parsed;
+	int r = 0;
+	TfwHttpMsg *hm = (type == FUZZ_REQ)
+			? (TfwHttpMsg *)req
+			: (TfwHttpMsg *)resp;
+
+	while (pos < len) {
+		step = chunk_size;
+		if (step >= len - pos)
+			step = len - pos;
+		TEST_DBG3("split: len=%zu pos=%zu, step=%zu\n",
+			  len, pos, step);
+		if (type == FUZZ_REQ)
+			r = tfw_http_parse_req(req, str + pos, step, &parsed);
+		else
+			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
+
+		pos += step;
+		hm->msg.len += parsed;
+
+		if (r != TFW_POSTPONE)
+			return r;
+	}
+	BUG_ON(pos != len);
+
+	return r;
+}
+
+#endif
+
 /**
  * Response must be paired with request to be parsed correctly. Update sample
  * request for further response parsing.
@@ -134,6 +173,8 @@ set_sample_req(unsigned char *str)
 
 	return tfw_http_parse_req(sample_req, str, len, &parsed);
 }
+
+#if USE_PRIMES
 
 static void
 test_case_parse_prepare(const char *str, size_t sz_diff)
@@ -203,16 +244,100 @@ do_split_and_parse(unsigned char *str, int type)
 	 * stop splitting message into pieces bigger than
 	 * the message itself.
 	 */
-#if FORCE_1B_CHUNKS
-	chunks += len - 2; /* to guarantee exit on 2nd pass */
-#else
 	chunks += PRIMES[prime++ % ARRAY_SIZE(PRIMES)];
-#endif
 	if (chunks > len)
 		return 1;
 
 	return r;
 }
+
+#else
+
+static void
+test_case_parse_prepare(const char *str, size_t sz_diff)
+{
+	chunk_size_index = 0;
+	hm_exp_len = strlen(str) - sz_diff;
+}
+
+/**
+ * The function is designed to be called in a loop, e.g.
+ *   while(!do_split_and_parse(str, type));
+ *
+ * type may be FUZZ_REQ or FUZZ_RESP.
+ *
+ * On each iteration it splits the @str into fragments and pushes
+ * them to the HTTP parser.
+ *
+ * That is done because:
+ *  - HTTP pipelining: the feature implies that such a "split" may occur at
+ *    any position of the input string. THe HTTP parser should be able to handle
+ *    that, and we would like to test it.
+ *  - Code coverage: the parser contains some optimizations for non-fragmented
+ *    data, so we need to generate all possible fragments to test both "fast
+ *    path" and "slow path" execution.
+ *
+ * The function is stateful:
+ *  - It puts the parsed request or response to the global variable
+ *  @req or @resp (on each call, depending on the message type).
+ *  - It maintains the internal state between calls.
+ *
+ * Return value:
+ *  == 0 - OK: current step of the loop is done without errors, proceed.
+ *  <  0 - Error: the parsing is failed.
+ *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
+ */
+static int
+do_split_and_parse(unsigned char *str, int type)
+{
+	int r;
+	static size_t len;
+
+	BUG_ON(!str);
+	
+	if (chunk_size_index >= CHUNK_SIZE_CNT)
+		/*
+		 * Return any value which non-TFW_* constant to
+		 * stop splitting message into pieces bigger than
+		 * the message itself, or when CHUNK_SIZE list is
+		 * over.
+		 */
+		return 1;
+
+	if (chunk_size_index == 0)
+		len = strlen(str);
+
+	if (type == FUZZ_REQ) {
+		if (req)
+			test_req_free(req);
+
+		req = test_req_alloc(len);
+	}
+	else if (type == FUZZ_RESP) {
+		if (resp)
+			test_resp_free(resp);
+
+		resp = test_resp_alloc(len);
+		tfw_http_msg_pair(resp, sample_req);
+	}
+	else {
+		BUG();
+	}
+
+	r = split_and_parse_n(str, type, len, CHUNK_SIZES[chunk_size_index]);
+	
+	if (CHUNK_SIZES[chunk_size_index] >= len)
+		chunk_size_index = CHUNK_SIZE_CNT;
+		/* Stop splitting the message.
+		   This guarantees exit from next iteration */
+	else
+		chunk_size_index++;
+		/* Try next size on next interation */
+
+	return r;
+}
+
+#endif
 
 /**
  * To validate message parsing we provide text string which describes
