@@ -77,6 +77,9 @@ typedef struct {
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
+ * @msg_base_bn	- base byte number of currently processed input block
+ * @token_start_bn - start byte number of currently processed token
+ *                   currently used for method name processing only
  * @_hdr_tag	- stores header id which must be closed on generic EoL handling
  *		  (see RGEN_EOL());
  * @_acc	- integer accumulator for parsing chunked integers;
@@ -101,6 +104,8 @@ typedef struct {
 	const void			*state;
 	const void			*_i_st;
 	long				to_read;
+	long				msg_base_bn;
+	long				token_start_bn;
 	union {
 		unsigned long		_acc;
 		struct {

@@ -184,7 +184,7 @@ done:									\
 	if (r == TFW_PASS)						\
 		__set_bit(TFW_HTTP_B_FULLY_PARSED, msg->flags);		\
 	/* Remaining number of bytes to process in the data chunk. */	\
-	*parsed = __data_off(p);
+	parser->msg_base_bn += *parsed = __data_off(p);			\
 
 #define __FSM_MOVE_nofixup_n(to, n)					\
 do {									\
@@ -266,6 +266,14 @@ do {									\
 	}								\
 	goto to;							\
 } while (0)
+
+#define FSM_current_bn()	(parser->msg_base_bn + __data_off(p))
+#define FSM_start_token() 						\
+do {									\
+	parser->token_start_bn = FSM_current_bn();			\
+} while (0)
+#define FSM_current_token_size()					\
+	( FSM_current_bn() - parser->token_start_bn )
 
 /*
  * __FSM_I_* macros are intended to help with parsing of message
@@ -3665,6 +3673,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method, hot) {
+		FSM_start_token();
 		if (likely(__data_available(p, 9))) {
 			/*
 			 * Move most frequent methods forward and do not use
@@ -4561,6 +4570,9 @@ Req_Method_1CharStep: __attribute__((cold))
 
 	__FSM_STATE(Req_MethodUnknown, cold) {
 		__FSM_MATCH_MOVE_nofixup(token, Req_MethodUnknown);
+		if (!FSM_current_token_size())
+			/* Zero-length method names are not allowed */
+			TFW_PARSER_BLOCK(Req_MethodUnknown);
 		req->method = _TFW_HTTP_METH_UNKNOWN;
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
