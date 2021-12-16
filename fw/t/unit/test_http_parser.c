@@ -50,11 +50,23 @@
 /* Compile the test itself w/o autovectorization. */
 #pragma GCC reset_options
 
-/* Set this macro to 1 to return pseudo-random chunking based on PRIMES.
- * You can set it here directly or via compiler command line
+/* This macro controls selection between conventional chunking
+ * function based on PRIMES array and newer one based in
+ * CHUNK_SIZES array.
+ * USE_PRIMES:
+ *	0 - use newer function based on CHUNK_SIZES
+ *	1 - use conventional function based on PRIMES
+ * For now the PRIMES function is enabled by default
+ * and CHUNK_SIZES is "experimental" must be enabled
+ * manualy. However the goal of the next day is to
+ * switch to CHUNK_SIZES func permanently and remove
+ * USE_PRIMES func completely.
+ *
+ * You can set the macro here directly or via compiler
+ * options in the Makefile.
  */
 #ifndef USE_PRIMES
-#define USE_PRIMES 0
+#define USE_PRIMES 1
 #endif
 
 #if USE_PRIMES
