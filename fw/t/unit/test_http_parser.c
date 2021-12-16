@@ -294,15 +294,6 @@ do_split_and_parse(unsigned char *str, int type)
 	static size_t len;
 
 	BUG_ON(!str);
-	
-	if (chunk_size_index >= CHUNK_SIZE_CNT)
-		/*
-		 * Return any value which non-TFW_* constant to
-		 * stop splitting message into pieces bigger than
-		 * the message itself, or when CHUNK_SIZE list is
-		 * over.
-		 */
-		return 1;
 
 	if (chunk_size_index == 0)
 		len = strlen(str);
@@ -325,14 +316,20 @@ do_split_and_parse(unsigned char *str, int type)
 	}
 
 	r = split_and_parse_n(str, type, len, CHUNK_SIZES[chunk_size_index]);
-	
+
 	if (CHUNK_SIZES[chunk_size_index] >= len)
-		chunk_size_index = CHUNK_SIZE_CNT;
-		/* Stop splitting the message.
-		   This guarantees exit from next iteration */
-	else
+		/*
+		 * Return any value which non-TFW_* constant to
+		 * stop splitting message into pieces bigger than
+		 * the message itself.
+		 */
+		return 1;
+	else {
+		/* Try next size, if any. on next interation */
 		chunk_size_index++;
-		/* Try next size on next interation */
+		if (chunk_size_index >= CHUNK_SIZE_CNT)
+			return 1;
+	}
 
 	return r;
 }
