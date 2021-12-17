@@ -441,13 +441,13 @@ __FSM_STATE(st, cold) {							\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == (ch)))						\
 		__FSM_MOVE_nofixup(st_next);				\
-	__FSM_MOVE_nofixup(Req_MethodUnknown);				\
+	__FSM_JMP(Req_MethodUnknown);				\
 }
 
 #define __FSM_METH_MOVE_finish(st, ch, m_type)				\
 __FSM_STATE(st, cold) {							\
 	if (unlikely(c != (ch)))					\
-		__FSM_MOVE_nofixup(Req_MethodUnknown);			\
+		__FSM_JMP(Req_MethodUnknown);			\
 	req->method = (m_type);						\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
@@ -4469,7 +4469,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'U':
 			__FSM_MOVE_nofixup(Req_MethPu);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* POST */
 	__FSM_METH_MOVE(Req_MethPo, 'S', Req_MethPos);
@@ -4488,7 +4488,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'P':
 			__FSM_MOVE_nofixup(Req_MethPropp);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* PROPFIND */
 	__FSM_METH_MOVE(Req_MethPropf, 'I', Req_MethPropfi);
@@ -4509,7 +4509,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			req->method = TFW_HTTP_METH_PUT;
 			__FSM_MOVE_nofixup(Req_MUSpace);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* PURGE */
 	__FSM_METH_MOVE(Req_MethPur, 'G', Req_MethPurg);
@@ -4540,7 +4540,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'O':
 			__FSM_MOVE_nofixup(Req_MethMo);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* MKCOL */
 	__FSM_METH_MOVE(Req_MethMk, 'C', Req_MethMkc);
