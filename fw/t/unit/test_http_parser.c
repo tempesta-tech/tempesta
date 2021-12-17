@@ -223,7 +223,7 @@ test_case_parse_prepare(const char *str, size_t sz_diff)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 static int
-do_split_and_parse(unsigned char *str, int type)
+do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 {
 	int r;
 	static size_t len;
@@ -258,7 +258,7 @@ do_split_and_parse(unsigned char *str, int type)
 	 */
 	chunks += PRIMES[prime++ % ARRAY_SIZE(PRIMES)];
 	if (chunks > len)
-		return 1;
+		return r == err_to_keep? r : 1;
 
 	return r;
 }
@@ -300,7 +300,7 @@ test_case_parse_prepare(const char *str, size_t sz_diff)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 static int
-do_split_and_parse(unsigned char *str, int type)
+do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 {
 	int r;
 	static size_t len;
@@ -335,12 +335,12 @@ do_split_and_parse(unsigned char *str, int type)
 		 * stop splitting message into pieces bigger than
 		 * the message itself.
 		 */
-		return 1;
+		return r == err_to_keep? r : 1;
 	else {
 		/* Try next size, if any. on next interation */
 		chunk_size_index++;
 		if (chunk_size_index >= CHUNK_SIZE_CNT)
-			return 1;
+			return r == err_to_keep? r : 1;
 	}
 
 	return r;
@@ -366,7 +366,7 @@ validate_data_fully_parsed(int type)
 
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
-	int _err = do_split_and_parse(str, type);		\
+	int _err = do_split_and_parse(str, type, TFW_BLOCK);		\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
 	    || !validate_data_fully_parsed(type))		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
@@ -379,7 +379,7 @@ validate_data_fully_parsed(int type)
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
 ({								\
-	int _err = do_split_and_parse(str, type);		\
+	int _err = do_split_and_parse(str, type, TFW_PASS);		\
 	if (_err == TFW_PASS)					\
 		TEST_FAIL("%s is not blocked as expected:\n%s",	\
 			       (type == FUZZ_REQ ? "request" :	\
