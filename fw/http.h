@@ -138,7 +138,11 @@ enum {
 #define TFW_HTTP_CC_PROXY_REVAL		0x00000200
 #define TFW_HTTP_CC_PUBLIC		0x00000400
 #define TFW_HTTP_CC_PRIVATE		0x00000800
-#define TFW_HTTP_CC_S_MAXAGE		0x00001000
+#define TFW_HTTP_CC_NO_CACHE_QUAL	0x00001000
+#define TFW_HTTP_CC_PRIVATE_QUAL	0x00002000
+#define TFW_HTTP_CC_S_MAXAGE		0x00004000
+/* Unknown flag */
+#define TFW_HTTP_CC_OTHER		0x00008000
 /* Mask to indicate that CC header is present. */
 #define TFW_HTTP_CC_IS_PRESENT		0x0000ffff
 /* Headers that affect Cache Control. */
@@ -536,6 +540,18 @@ typedef struct {
 } TfwHttpTransIter;
 
 /**
+ * @capacity 	- actually allocated items memory
+ * @last 	- pointer to the last item, can be lower, equal, and even larger
+ *		  than capacity, but never larger than capacity.
+ *		  last = count_of_complete_items + 1
+ */
+typedef struct {
+	unsigned int	capacity;
+	unsigned int	last;
+	TfwStr		*items;
+} TfwStrArray;
+
+/**
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
  *
@@ -550,6 +566,8 @@ struct tfw_http_resp_t {
 	long			last_modified;
 	unsigned long		jrxtstamp;
 	TfwHttpTransIter	mit;
+	TfwStrArray		no_cache_tokens;
+	TfwStrArray		private_tokens;
 };
 
 #define TFW_HDR_MAP_INIT_CNT		32
