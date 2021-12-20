@@ -2245,13 +2245,21 @@ done:
 static int
 __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 {
-	int r = CSTR_NEQ;
+	/* Very similar to __resp_parse_cache_control */
+	int r = TFW_BLOCK;
 	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
 
+	__FSM_STATE(Req_I_CC_start) {
+		parser->cache_flags.flag_name = 0;
+		parser->cache_flags.filled = false;
+		/* A flag can be precluded either by semicolumn (implied in this branch) or by comma. */
+		parser->cache_flags.flag_allowed = true;
+		/* fall through */
+	}
 	__FSM_STATE(Req_I_CC) {
-		WARN_ON_ONCE(parser->_acc);
+		WARN_ON_ONCE(parser->cache_flags.flag_name);
 		switch (TFW_LC(c)) {
 		case 'm':
 			__FSM_I_JMP(Req_I_CC_m);
@@ -2264,6 +2272,8 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_m) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR("max-age=", Req_I_CC_m, Req_I_CC_MaxAgeVBeg);
 		TRY_STR("min-fresh=", Req_I_CC_m, Req_I_CC_MinFreshVBeg);
 		TRY_STR("max-stale", Req_I_CC_m, Req_I_CC_MaxStale);
@@ -2272,45 +2282,61 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_n) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR_LAMBDA("no-cache", {
-			parser->_acc = TFW_HTTP_CC_NO_CACHE;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_NO_CACHE;
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		TRY_STR_LAMBDA("no-store", {
-			parser->_acc = TFW_HTTP_CC_NO_STORE;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_NO_STORE;
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		TRY_STR_LAMBDA("no-transform", {
-			parser->_acc = TFW_HTTP_CC_NO_TRANSFORM;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_NO_TRANSFORM;
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_o) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR_LAMBDA("only-if-cached", {
-			parser->_acc = TFW_HTTP_CC_OIFCACHED;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_OIFCACHED;
 		}, Req_I_CC_o, Req_I_CC_Flag);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_Flag) {
-		WARN_ON_ONCE(!parser->_acc);
+		/* A start of a common flag successfully detected */
+		WARN_ON_ONCE(!parser->cache_flags.flag_name);
+		parser->cache_flags.filled = true;
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
-			req->cache_ctl.flags |= parser->_acc;
+			parser->cache_flags.flag_allowed = false; // Req_I_EoT will update the field at comma
+			if (parser->cache_flags.flag_name == 0)
+				__FSM_EXIT(TFW_BLOCK);
+			req->cache_ctl.flags |= parser->cache_flags.flag_name;
+			parser->cache_flags.flag_name = 0;
 			__FSM_I_JMP(Req_I_EoT);
 		}
+		/* ...but the flag appears to have an unknown suffix */
+		parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxAgeVBeg, Req_I_CC_MaxAgeV);
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
+		parser->cache_flags.filled = true;
+		/* Req_I_EoT will update the field at comma */
+		parser->cache_flags.flag_allowed = false; 
+
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
-			return __fsm_n;
+			__FSM_EXIT(__fsm_n);
 		req->cache_ctl.max_age = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
@@ -2319,18 +2345,24 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MinFreshVBeg, Req_I_CC_MinFreshV);
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
+		parser->cache_flags.filled = true;
+		parser->cache_flags.flag_allowed = false;
+
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
-			return __fsm_n;
+			__FSM_EXIT(__fsm_n);
 		req->cache_ctl.min_fresh = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
+		parser->cache_flags.filled = true;
+		parser->cache_flags.flag_allowed = false;
+
 		if (c == '=')
 			__FSM_I_MOVE(Req_I_CC_MaxStaleVBeg);
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
@@ -2338,46 +2370,88 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 			__FSM_I_JMP(Req_I_EoT);
 		}
+		parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+		/* something like "max-staledfgh$!dgh" */
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxStaleVBeg, Req_I_CC_MaxStaleV);
 
 	__FSM_STATE(Req_I_CC_MaxStaleV) {
+		parser->cache_flags.filled = true;
+		parser->cache_flags.flag_allowed = false; /* already done by Req_I_CC_MaxStale though */
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			__msg_hdr_chunk_fixup(data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (!parser->cache_flags.filled)
+				__FSM_EXIT(TFW_BLOCK);
+			else
+				__FSM_EXIT(__fsm_n);
+		}
 		req->cache_ctl.max_stale = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_Ext) {
+		/* Any flag we don't understand.
+		 * Here we just skip all the tokens, double quotes and equal signs.
+		 */
 		/* TODO: process cache extensions. */
-		__FSM_I_MATCH_MOVE(qetoken, Req_I_CC_Ext);
+		__FSM_I_MATCH_MOVE_finish(qetoken, Req_I_CC_Ext, {
+			parser->cache_flags.filled = true;
+			/* Don't check the "flag_allowed" if we are just skipping the tail of already recognized flag. */
+			if (parser->cache_flags.flag_name == 0)
+			{
+				if (!parser->cache_flags.flag_allowed)
+					__FSM_EXIT(TFW_BLOCK);
+				parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+			}
+		});
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
-			return __data_off(p + __fsm_sz);
-		return CSTR_NEQ;
+		if (__fsm_sz > 0)
+		{
+			if (parser->cache_flags.flag_name == 0)
+			{
+				if (!parser->cache_flags.flag_allowed)
+					__FSM_EXIT(TFW_BLOCK);
+				parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+			}
+			parser->cache_flags.filled = true;
+		}
+		if (parser->cache_flags.flag_name != 0)
+			parser->cache_flags.flag_allowed = false; /* Req_I_EoT will update the field at comma */
+		__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz);
+
+		if (IS_CRLF(c)) {
+			if (!parser->cache_flags.filled) {
+				__FSM_EXIT(TFW_BLOCK);
+			}
+			else
+				__FSM_EXIT(__data_off(p + __fsm_sz));
+		}
+		__FSM_EXIT(TFW_BLOCK);
 	}
 
 	/* End of term. */
 	__FSM_STATE(Req_I_EoT) {
+		parser->cache_flags.flag_allowed = parser->cache_flags.flag_allowed || c == ',';
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Req_I_EoT);
 
 		if (IS_TOKEN(c)) {
-			parser->_acc = 0; /* reinit for next token */
+			parser->cache_flags.flag_name = 0; /* reinit for next token */
 			__FSM_I_JMP(Req_I_CC);
 		}
-		if (IS_CRLF(c))
-			return __data_off(p);
-		return CSTR_NEQ;
+		if (IS_CRLF(c)) {
+			if (!parser->cache_flags.filled)
+				__FSM_EXIT(TFW_BLOCK);
+			else
+				__FSM_EXIT(__data_off(p));
+		}
+		__FSM_EXIT(TFW_BLOCK);
 	}
 
 done:
@@ -8573,13 +8647,21 @@ STACK_FRAME_NON_STANDARD(__resp_parse_age);
 static int
 __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
+	/* Very similar to __req_parse_cache_control */
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(resp);
 
 	__FSM_START(parser->_i_st);
 
+	__FSM_STATE(Req_I_CC_start) {
+		parser->cache_flags.flag_name = 0;
+		parser->cache_flags.filled = false;
+		/* A flag can be precluded either by semicolumn (implied in this branch) or by comma. */
+		parser->cache_flags.flag_allowed = true;
+		/* fall through */
+	}
 	__FSM_STATE(Resp_I_CC) {
-		WARN_ON_ONCE(parser->_acc);
+		WARN_ON_ONCE(parser->cache_flags.flag_name);
 		switch (TFW_LC(c)) {
 		case 'm':
 			__FSM_I_JMP(Resp_I_CC_m);
@@ -8594,59 +8676,117 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_m) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR_fixup(&TFW_STR_STRING("max-age="), Resp_I_CC_m,
 			      Resp_I_CC_MaxAgeVBeg);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("must-revalidate"),
 			&parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_MUST_REVAL;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_MUST_REVAL;
 		}, Resp_I_CC_m, Resp_I_Flag);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_n) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-cache"),
 			&parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_NO_CACHE;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_NO_CACHE;
 		}, Resp_I_CC_n, Resp_I_Flag);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-store"),
 			&parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_NO_STORE;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_NO_STORE;
 		}, Resp_I_CC_n, Resp_I_Flag);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-transform"),
 			&parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_NO_TRANSFORM;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_NO_TRANSFORM;
 		}, Resp_I_CC_n, Resp_I_Flag);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_p) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("public"), &parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_PUBLIC;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_PUBLIC;
 		}, Resp_I_CC_p, Resp_I_Flag);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("private"), &parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_PRIVATE;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_PRIVATE;
 		}, Resp_I_CC_p, Resp_I_Flag);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("proxy-revalidate"),
 			&parser->hdr, {
-			parser->_acc = TFW_HTTP_CC_PROXY_REVAL;
+			parser->cache_flags.flag_name = TFW_HTTP_CC_PROXY_REVAL;
 		}, Resp_I_CC_p, Resp_I_Flag);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_Flag) {
-		WARN_ON_ONCE(!parser->_acc);
+		/* A start of a common flag successfully detected */
+		bool is_qualified = (parser->cache_flags.flag_name == TFW_HTTP_CC_PRIVATE ||
+		    parser->cache_flags.flag_name == TFW_HTTP_CC_NO_CACHE) &&
+		    c == '=';
+		WARN_ON_ONCE(!parser->cache_flags.flag_name);
+		parser->cache_flags.filled = true;
+		if (is_qualified) {
+			parser->cache_flags.flag_allowed = false;
+			resp->cache_ctl.flags |= parser->cache_flags.flag_name;
+			/* Resp_I_CC_Opening_Quote => Resp_I_CC_Flag_Argument => Resp_I_EoT */
+			__FSM_I_MOVE(Resp_I_CC_Opening_Quote);
+		}
+
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
-			resp->cache_ctl.flags |= parser->_acc;
-			parser->_acc = 0;
+			/* Req_I_EoT will update the field at comma */
+			parser->cache_flags.flag_allowed = false;
+			resp->cache_ctl.flags |= parser->cache_flags.flag_name;
 			__FSM_I_JMP(Resp_I_EoT);
 		}
+		/* ...but the flag appears to have an unknown suffix */
+		parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
+	__FSM_STATE(Resp_I_CC_Opening_Quote) {
+		if (c != '"')
+			__FSM_EXIT(TFW_BLOCK);
+		else
+			__FSM_I_MOVE(Resp_I_CC_Flag_Argument);
+	}
+
+	__FSM_STATE(Resp_I_CC_Flag_Argument) {
+		/* comma separated field list (field-name/token) with optional linear white space */
+		__FSM_I_MATCH_MOVE_finish(token, Resp_I_Ext, {
+			if (parser->cache_flags.flag_name == 0)
+			{
+				if (!parser->cache_flags.flag_allowed)
+					__FSM_EXIT(TFW_BLOCK);
+				parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+			}
+			parser->cache_flags.filled = true;
+		});
+		c = *(p + __fsm_sz);
+		if (IS_CRLF(c))
+			__FSM_EXIT(TFW_BLOCK);
+		else if (IS_WS(c) || c == ',') {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			p += __fsm_sz;
+			__FSM_I_MOVE(Resp_I_CC_Flag_Argument);
+		}
+		else if (c == '"') {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			p += __fsm_sz;
+			__FSM_I_MOVE(Resp_I_EoT);
+		}
+		else
+			__FSM_EXIT(TFW_BLOCK);
+	}
+
 	__FSM_STATE(Resp_I_CC_s) {
+		if (!parser->cache_flags.flag_allowed)
+			__FSM_EXIT(TFW_BLOCK);
 		TRY_STR_fixup(&TFW_STR_STRING("s-maxage="), Resp_I_CC_s,
 			      Resp_I_CC_SMaxAgeVBeg);
 		TRY_STR_INIT();
@@ -8664,13 +8804,17 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 * directives), the directive's value is considered invalid.
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE))
-			return CSTR_NEQ;
+			__FSM_EXIT(TFW_BLOCK);
+
+		parser->cache_flags.filled = true;
+		parser->cache_flags.flag_allowed = false; // Req_I_EoT will update the field
+
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 		if (__fsm_n < 0)
-			return __fsm_n;
+			__FSM_EXIT(__fsm_n);
 		resp->cache_ctl.max_age = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_n, 0);
@@ -8687,56 +8831,89 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 * directives), the directive's value is considered invalid.
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE))
-			return CSTR_NEQ;
+			__FSM_EXIT(TFW_BLOCK);
+
+		parser->cache_flags.filled = true;
+		parser->cache_flags.flag_allowed = false;
+
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 		if (__fsm_n < 0)
-			return __fsm_n;
+			__FSM_EXIT(__fsm_n);
 		resp->cache_ctl.s_maxage = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
 		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_n, 0);
 	}
 
 	__FSM_STATE(Resp_I_Ext) {
+		/* Any flag we don't understand.
+		 * Here we just skip all the tokens, double quotes and equal signs.
+		 */
 		/* TODO: process cache extensions. */
-		__FSM_I_MATCH_MOVE_fixup(qetoken, Resp_I_Ext, 0);
+		__FSM_I_MATCH_MOVE_finish(qetoken, Resp_I_Ext, {
+			/* Don't check the "flag_allowed" if we are just skipping the tail of already recognized flag. */
+			if (parser->cache_flags.flag_name == 0)
+			{
+				if (!parser->cache_flags.flag_allowed)
+					__FSM_EXIT(TFW_BLOCK);
+				parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+			}
+			parser->cache_flags.filled = true;
+		});
 		c = *(p + __fsm_sz);
+		if (__fsm_sz > 0) {
+			if (parser->cache_flags.flag_name == 0)
+			{
+				if (!parser->cache_flags.flag_allowed)
+					__FSM_EXIT(TFW_BLOCK);
+				parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+			}
+			parser->cache_flags.filled = true;
+		}
+
+		if (parser->cache_flags.flag_name != 0)
+			parser->cache_flags.flag_allowed = false; /* updated by Resp_I_EoT on comma */
 		if (IS_WS(c) || c == ',') {
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			p += __fsm_sz;
 			__FSM_I_JMP(Resp_I_EoT);
 		}
 		if (IS_CRLF(c)) {
-			__msg_hdr_chunk_fixup(p, __fsm_sz);
-			return __data_off(p + __fsm_sz);
+			if (!parser->cache_flags.filled) {
+				__FSM_EXIT(TFW_BLOCK);
 		}
-		return CSTR_NEQ;
+			else {
+				__msg_hdr_chunk_fixup(p, __fsm_sz); // ???
+				__FSM_EXIT(__data_off(p + __fsm_sz));
+			}
+		}
+		__FSM_EXIT(TFW_BLOCK);
 	}
 
 	/* End of term. */
 	__FSM_STATE(Resp_I_EoT) {
+		parser->cache_flags.flag_allowed = parser->cache_flags.flag_allowed || c == ',';
 		if (c == ',')
 			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, 0);
 
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, TFW_STR_OWS);
 
-		parser->_acc = 0; /* reinit for next token */
 
-		/*
-		 * TODO
-		 * - For the time being we don't support field values for
-		 *   no-cache and private fields, so just skip '=[token]*'.
-		 */
-		if (c == '=')
-			__FSM_I_MOVE_fixup(Resp_I_Ext, 1, 0);
-		if (IS_TOKEN(c))
+
+		if (IS_TOKEN(c)) {
+			parser->cache_flags.flag_name = 0; /* reinit for next token */
 			__FSM_I_JMP(Resp_I_CC);
-		if (IS_CRLF(c))
-			return __data_off(p);
-		return CSTR_NEQ;
+		}
+		if (IS_CRLF(c)) {
+			if (!parser->cache_flags.filled)
+				__FSM_EXIT(TFW_BLOCK);
+			else
+				__FSM_EXIT(__data_off(p));
+		}
+		__FSM_EXIT(TFW_BLOCK);
 	}
 
 done:

@@ -983,9 +983,9 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 
 TEST(http_parser, cache_control)
 {
-	/* TODO #530
 	EXPECT_BLOCK_REQ_RESP_SIMPLE("Cache-Control: ");
-	EXPECT_BLOCK_REQ_RESP_SIMPLE("Cache-Control: no-cache no-store");*/
+	EXPECT_BLOCK_REQ_RESP_SIMPLE("Cache-Control: no-cache no-store");
+	EXPECT_BLOCK_REQ_RESP_SIMPLE("Cache-Control: dummy0 dummy1");
 
 	FOR_REQ(EMPTY_REQ)
 	{
@@ -1088,6 +1088,22 @@ TEST(http_parser, cache_control)
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
 	}								\
+    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = dummy");
+
+#define TEST_HAVING_ARGUMENT(directive, flag, MSG_UPPER, MSG_LOWER)	\
+	TEST_COMMON(directive, flag, MSG_UPPER, MSG_LOWER);		\
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=");	\
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=1");	\
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=\"")	;\
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=dummy");	\
+	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive		\
+				 "=\"" TOKEN_ALPHABET "\"")		\
+	{								\
+		EXPECT_TRUE(MSG_LOWER->cache_ctl.flags & flag);		\
+    }
+
+#define TEST_NO_ARGUMENT(directive, flag, MSG_UPPER, MSG_LOWER)		\
+	TEST_COMMON(directive, flag, MSG_UPPER, MSG_LOWER);		\
 	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=")	\
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
@@ -1103,22 +1119,7 @@ TEST(http_parser, cache_control)
 	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=dummy")	\
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
-	}
-	/* TODO #530
-	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive
-					  " = dummy");*/
-
-/* TODO #530 */
-#define TEST_HAVING_ARGUMENT(directive, flag, MSG_UPPER, MSG_LOWER)	\
-	TEST_COMMON(directive, flag, MSG_UPPER, MSG_LOWER);	/*	\
-	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive		\
-				 "=\"" TOKEN_ALPHABET "\"")		\
-	{								\
-		EXPECT_TRUE(MSG_LOWER->cache_ctl.flags & flag);		\
-	}*/
-
-#define TEST_NO_ARGUMENT(directive, flag, MSG_UPPER, MSG_LOWER)		\
-	TEST_COMMON(directive, flag, MSG_UPPER, MSG_LOWER);		\
+    }								\
 	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive		\
 				 "=\"dummy\"")				\
 	{								\
@@ -1150,14 +1151,10 @@ TEST(http_parser, cache_control)
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
 		EXPECT_TRUE(MSG_LOWER->cache_ctl.FIELD == 0);		\
-	}
-	/* TODO #530
-	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive
-					  " = dummy");
-	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive
-					  " = 0");
-	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive
-					  "=10 10");*/
+    }								\
+    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = dummy");  \
+    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = 0");      \
+    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=10 10");    \
 
 	/*
 	 * RFC 7234 4.2.1:
@@ -1192,7 +1189,7 @@ TEST(http_parser, cache_control)
 		EXPECT_TRUE(req->cache_ctl.max_stale == UINT_MAX);
 	}
 
-	/* Request diirectives. */
+	/* Request directives. */
 	TEST_NO_ARGUMENT("no-cache", TFW_HTTP_CC_NO_CACHE, REQ, req);
 	TEST_NO_ARGUMENT("no-store", TFW_HTTP_CC_NO_STORE, REQ, req);
 	TEST_NO_ARGUMENT("no-transform", TFW_HTTP_CC_NO_TRANSFORM, REQ, req);

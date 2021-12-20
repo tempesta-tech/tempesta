@@ -93,6 +93,7 @@ typedef struct {
  *		  hop-by-hop
  * @_date	- currently parsed http date value;
  * @month_int	- accumulator for parsing of month;
+ * @cache_flags - additional state for internal FSM used to parse cache-control values.
  */
 typedef struct {
 	unsigned short			to_go;
@@ -116,6 +117,11 @@ typedef struct {
 	union {
 		long			_date;
 		unsigned int		month_int;
+		struct {
+			short		flag_name;
+			char		filled;
+			char		flag_allowed;
+		} cache_flags;
 	};
 	TfwStr				_tmp_chunk;
 	TfwStr				hdr;
