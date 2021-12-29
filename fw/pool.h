@@ -28,6 +28,12 @@
 
 #define TFW_POOL_ZERO	0x1
 
+#define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
+#define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
+#define TFW_POOL_CHUNK_END(p)	((void *)TFW_POOL_CHUNK_BASE((p)->curr) + (p)->off)
+#define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
+#define TFW_POOL_ALIGN_PTR(p)	((void *)TFW_POOL_ALIGN_SZ((unsigned long)p))
+
 /**
  * Memory pool chunk descriptor.
  *
@@ -70,7 +76,7 @@ typedef struct {
  })
 
 TfwPool *__tfw_pool_new(size_t n);
-void *__tfw_pool_alloc(TfwPool *p, size_t n, bool align, bool *new_page);
+void *__tfw_pool_alloc_page(TfwPool *p, size_t n, bool align);
 void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
 void tfw_pool_clean(TfwPool *p, void *ptr);
 void tfw_pool_destroy(TfwPool *p);
@@ -78,11 +84,48 @@ void *__tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n,
 			 bool copy);
 
 static inline void *
+tfw_pool_alloc_np(TfwPool *p, size_t n, bool *np)
+{
+	void *a;
+	unsigned int off;
+
+	off = TFW_POOL_ALIGN_SZ(p->off) + n;
+
+	if (unlikely(off > TFW_POOL_CHUNK_SZ(p))) {
+		*np = true;
+		return __tfw_pool_alloc_page(p, n, /* align */ true);
+	}
+
+	*np = false;
+	a = TFW_POOL_ALIGN_PTR(TFW_POOL_CHUNK_END(p));
+	p->off = off;
+
+	return a;
+}
+
+static inline void *
 tfw_pool_alloc(TfwPool *p, size_t n)
 {
 	bool dummy;
 
-	return __tfw_pool_alloc(p, n, true, &dummy);
+	return tfw_pool_alloc_np(p, n, &dummy);
+}
+
+static inline void *
+tfw_pool_alloc_not_align_np(TfwPool *p, size_t n, bool *np)
+{
+	void *a;
+
+	if (unlikely(p->off + n > TFW_POOL_CHUNK_SZ(p))) {
+		*np = true;
+		return __tfw_pool_alloc_page(p, n, /* align */ false);
+	}
+
+	*np = false;
+	a = TFW_POOL_CHUNK_END(p);
+	p->off += n;
+
+	return a;
 }
 
 static inline void *
@@ -90,7 +133,7 @@ tfw_pool_alloc_not_align(TfwPool *p, size_t n)
 {
 	bool dummy;
 
-	return __tfw_pool_alloc(p, n, false, &dummy);
+	return tfw_pool_alloc_not_align_np(p, n, &dummy);
 }
 
 static inline void *

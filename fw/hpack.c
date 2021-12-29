@@ -440,7 +440,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 		return 0;
 	}
 
-	if (!(it->pos = __tfw_pool_alloc(it->pool, 1, false, &np)))
+	if (!(it->pos = tfw_pool_alloc_not_align_np(it->pool, 1, &np)))
 		return -ENOMEM;
 
 	*it->pos = sym;
@@ -699,7 +699,7 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	size += (s_hdr->nchunks + 1) * sizeof(TfwStr) + s_hdr->len;
 	T_DBG3("%s: size=%lu, s_hdr->nchunks=%u, s_hdr->len=%lu\n", __func__,
 	       size, s_hdr->nchunks, s_hdr->len);
-	if (!(d_hdr = __tfw_pool_alloc(h_pool, size, true, np)))
+	if (!(d_hdr = tfw_pool_alloc_np(h_pool, size, np)))
 		return -ENOMEM;
 
 	*d_hdr = *s_hdr;
@@ -1040,8 +1040,8 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	et->rb_size = HPACK_ENC_TABLE_MAX_SIZE;
 	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE)))
 		goto err_et;
-	et->rbuf = __tfw_pool_alloc(et->pool, HPACK_ENC_TABLE_MAX_SIZE,
-				    true, &np);
+	et->rbuf = tfw_pool_alloc_np(et->pool, HPACK_ENC_TABLE_MAX_SIZE,
+				     &np);
 	BUG_ON(np || !et->rbuf);
 
 	return 0;
