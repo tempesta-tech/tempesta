@@ -538,6 +538,18 @@ typedef struct {
 } TfwHttpTransIter;
 
 /**
+ * @capacity 	- actually allocated items memory
+ * @last 	- pointer to the last item, can be lower, equal, and even larger
+ *		  than capacity, but never larger than capacity.
+ *		  last = count_of_complete_items + 1
+ */
+typedef struct {
+	unsigned int	capacity;
+	unsigned int	last;
+	TfwStr		*items;
+} TfwStrArray;
+
+/**
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
  *
@@ -552,6 +564,8 @@ struct tfw_http_resp_t {
 	long			last_modified;
 	unsigned long		jrxtstamp;
 	TfwHttpTransIter	mit;
+	TfwStrArray		no_cache_tokens;
+	TfwStrArray		private_tokens;
 };
 
 #define TFW_HDR_MAP_INIT_CNT		32

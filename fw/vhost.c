@@ -90,6 +90,8 @@ static const TfwCfgEnum tfw_method_enum[] = {
  */
 #define TFW_CAPOLICY_ARRAY_SZ	(64)
 
+#define TFW_CAPOLICY_TOKEN_ARRAY_SZ	(16)
+
 /*
  * Each non-idempotent request definition directive is put into
  * a separately allocated memory area. The pointers to the memory
@@ -340,6 +342,27 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 		return NULL;
 
 	return &loc->mod_hdrs[mod_type];
+}
+
+TfwCaPolicyTokens*
+tfw_vhost_get_cache_policy_tokens(TfwLocation *loc, TfwVhost *vhost, tfw_capo_t capo_type)
+{
+	TfwVhost *vh_dflt = vhost->vhost_dflt;
+	const bool is_del = capo_type == TFW_D_CACHE_RESP_HDR_DEL;
+	BUG_ON(capo_type != TFW_D_CACHE_RESP_HDR_DEL && capo_type != TFW_D_CACHE_CONTROL_IGNORE);
+
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !(is_del ? loc->capo_hdr_del.sz : loc->capo_ignore.sz))
+		loc = vhost->loc_dflt;
+	if (!loc || !(is_del ? loc->capo_hdr_del.sz : loc->capo_ignore.sz))
+		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
+	if (!loc || !(is_del ? loc->capo_hdr_del.sz : loc->capo_ignore.sz))
+		return NULL;
+
+	if (is_del)
+		return &loc->capo_hdr_del;
+	else
+		return &loc->capo_ignore;
 }
 
 /*
@@ -1001,6 +1024,119 @@ tfw_cfgop_out_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+/* Extended caching policies */
+static TfwCaPolicyToken *
+tfw_capolicy_token_new(int cmd, int op, const char *arg, size_t len)
+{
+	TfwCaPolicyToken *token;
+
+	if ((token = kmalloc(sizeof(TfwCaPolicyToken) + len + 1, GFP_KERNEL)) == NULL)
+		return NULL;
+	token->arg = (char *)(token + 1);
+	token->len = len;
+	memcpy((void *)token->arg, (void *)arg, len + 1);
+
+	return token;
+}
+
+static int
+tfw_cfgop_capolicy_token(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc, int cmd)
+{
+	size_t i, len;
+	tfw_match_t op;
+	const char *arg;
+
+	BUG_ON((cmd != TFW_D_CACHE_RESP_HDR_DEL) && (cmd != TFW_D_CACHE_CONTROL_IGNORE));
+
+	if (ce->attr_n) {
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
+			 cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n < 1) {
+		T_ERR_NL("%s: Arguments required\n",
+			 cs->name);
+		return -EINVAL;
+	}
+
+	/* Add each token into the array.*/
+	for (i = 0; i < ce->val_n; ++i) {
+		TfwCaPolicyToken *token;
+
+		arg = ce->vals[i];
+		len = strlen(arg);
+
+		if (cmd == TFW_D_CACHE_RESP_HDR_DEL) {
+			if (loc->capo_hdr_del.sz == TFW_CAPOLICY_TOKEN_ARRAY_SZ)
+				return -ENOMEM;
+			if (!(token = tfw_capolicy_token_new(cmd, op, arg, len+1)))
+				return -ENOMEM;
+			/* Need a trailing semicolumn for header matching.
+			   "token->arg" total length is "len+2" here. */
+			token->arg[len] = ':';
+			token->arg[len+1] = '\0';
+			loc->capo_hdr_del.tokens[loc->capo_hdr_del.sz++] = token;
+		}
+		else {
+			if (loc->capo_ignore.sz == TFW_CAPOLICY_TOKEN_ARRAY_SZ)
+				return -ENOMEM;
+			if (!(token = tfw_capolicy_token_new(cmd, op, arg, len)))
+				return -ENOMEM;
+			loc->capo_ignore.tokens[loc->capo_ignore.sz++] = token;
+		}
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_loc_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfwcfg_this_location);
+	return tfw_cfgop_capolicy_token(cs, ce, tfwcfg_this_location,
+					 TFW_D_CACHE_RESP_HDR_DEL);
+}
+
+static int
+tfw_cfgop_loc_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfwcfg_this_location);
+	return tfw_cfgop_capolicy_token(cs, ce, tfwcfg_this_location,
+					 TFW_D_CACHE_CONTROL_IGNORE);
+}
+
+static int
+tfw_cfgop_in_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfw_vhost_entry);
+	return tfw_cfgop_capolicy_token(cs, ce, tfw_vhost_entry->loc_dflt,
+					 TFW_D_CACHE_RESP_HDR_DEL);
+}
+
+static int
+tfw_cfgop_in_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfw_vhost_entry);
+	return tfw_cfgop_capolicy_token(cs, ce, tfw_vhost_entry->loc_dflt,
+					 TFW_D_CACHE_CONTROL_IGNORE);
+}
+
+static int
+tfw_cfgop_out_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	return tfw_cfgop_capolicy_token(cs, ce, vh_dflt->loc_dflt,
+					 TFW_D_CACHE_RESP_HDR_DEL);
+}
+
+static int
+tfw_cfgop_out_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	return tfw_cfgop_capolicy_token(cs, ce, vh_dflt->loc_dflt,
+					 TFW_D_CACHE_CONTROL_IGNORE);
+}
+
 /*
  * Find a location directive entry. The entry is looked up
  * in the array that holds all location directives.
@@ -1083,9 +1219,14 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->arg = argmem;
 	loc->len = len;
 	loc->frang_cfg = (FrangVhostCfg *)data;
+	/* next array starts right after the previous one */
 	loc->capo = (TfwCaPolicy **)(loc->frang_cfg + 1);
 	loc->capo_sz = 0;
-	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
+	loc->capo_hdr_del.tokens = (TfwCaPolicyToken **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
+	loc->capo_hdr_del.sz = 0;
+	loc->capo_ignore.tokens = (TfwCaPolicyToken **)(loc->capo_hdr_del.tokens + TFW_CAPOLICY_TOKEN_ARRAY_SZ);
+	loc->capo_ignore.sz = 0;
+	loc->nipdef = (TfwNipDef **)(loc->capo_ignore.tokens + TFW_CAPOLICY_TOKEN_ARRAY_SZ);
 	loc->nipdef_sz = 0;
 	loc->hdrs_pool = pool;
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs =
@@ -2735,6 +2876,22 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "cache_resp_hdr_del",
+		.deflt = NULL,
+		.handler = tfw_cfgop_loc_cache_resp_hdr_del,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_control_ignore",
+		.deflt = NULL,
+		.handler = tfw_cfgop_loc_cache_control_ignore,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "nonidempotent",
 		.deflt = NULL,
 		.handler = tfw_cfgop_loc_nonidempotent,
@@ -2821,6 +2978,22 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.name = "cache_fulfill",
 		.deflt = NULL,
 		.handler = tfw_cfgop_in_cache_fulfill,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_resp_hdr_del",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_resp_hdr_del,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_control_ignore",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_control_ignore,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
@@ -2987,6 +3160,22 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.name = "cache_fulfill",
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_cache_fulfill,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_resp_hdr_del",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_resp_hdr_del,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_control_ignore",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_control_ignore,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,

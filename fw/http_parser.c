@@ -734,7 +734,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 }
 
 /**
- * Add header name listed in Connection header to table of raw headers.
+ * Add header name listed in Connection header to hop-by-hop table of raw headers.
  * If @last is true then (@data, @len) represents last chunk of header name and
  * chunk with ':' will be added to the end. Otherwize last header in table stays
  * open to add more data.
@@ -748,9 +748,9 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
  * TFW_HTTP_PARSE_RAWHDR_VAL macro.
  */
 static int
-__hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
+__hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool finalize_item)
 {
-	TfwStr *hdr, *append;
+	TfwStr *hbh_hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
 	static const TfwStr block[] = {
 		/* End-to-end spec and raw headers */
@@ -774,39 +774,116 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 
 	if (hbh->off == TFW_HBH_TOKENS_MAX)
 		return CSTR_NEQ;
-	hdr = &hbh->raw[hbh->off];
+	hbh_hdr = &hbh->raw[hbh->off];
 
-	if (!TFW_STR_EMPTY(hdr)) {
-		append = tfw_str_add_compound(hm->pool, hdr);
+	if (!TFW_STR_EMPTY(hbh_hdr)) {
+		append = tfw_str_add_compound(hm->pool, hbh_hdr);
 	}
 	else {
 		append = (TfwStr *)tfw_pool_alloc(hm->pool, sizeof(TfwStr));
-		hdr->chunks = append;
-		hdr->nchunks = 1;
+		hbh_hdr->chunks = append;
+		hbh_hdr->nchunks = 1;
 	}
 	if (!append)
 		return -ENOMEM;
 	append->len = len;
 	append->data = data;
-	hdr->len += len;
+	hbh_hdr->len += len;
 
-	if (last) {
+	if (finalize_item) {
 		TfwStr s_colon = { .data = ":", .len = 1 };
-		append = tfw_str_add_compound(hm->pool, hdr);
+		append = tfw_str_add_compound(hm->pool, hbh_hdr);
 		if (!append)
 			return -ENOMEM;
 		*append = s_colon;
-		hdr->len += s_colon.len;
+		hbh_hdr->len += s_colon.len;
 		++hbh->off;
 
-		if (tfw_http_msg_find_hdr(hdr, block))
+		if (tfw_http_msg_find_hdr(hbh_hdr, block))
 			return CSTR_NEQ;
 		/*
 		 * Don't set TFW_STR_HBH_HDR flag if such header was already
 		 * parsed. See comment in mark_raw_hbh()
 		 */
-		if (!__mark_hbh_hdr(hm, hdr))
-			hdr->flags |= TFW_STR_HBH_HDR;
+		if (!__mark_hbh_hdr(hm, hbh_hdr))
+			hbh_hdr->flags |= TFW_STR_HBH_HDR;
+	};
+
+	return 0;
+}
+
+/* similar to tfw_http_msg_grow_hdr_tbl */
+int
+__str_array_grow(TfwHttpMsg *hm, TfwStrArray *array)
+{
+	unsigned int old_capacity = array->capacity;
+	unsigned int new_capacity = old_capacity * 2;
+	size_t new_size, old_size;
+	TfwStr *new_array;
+	if (old_capacity == 0)
+		new_capacity = 2;
+	BUG_ON(old_capacity > TFW_CACHE_CONTROL_TOKENS_MAX);
+
+	new_size = new_capacity * sizeof(TfwStr);
+	old_size = old_capacity * sizeof(TfwStr);
+
+	if (old_capacity == 0) {
+		new_array = tfw_pool_alloc(hm->pool, new_size);
+	}
+	else {
+		new_array = tfw_pool_realloc(hm->pool, array->items, old_size,
+					     new_size);
+	}
+	if (!new_array)
+		return -ENOMEM;
+
+	array->capacity = new_capacity;
+	bzero_fast(new_array + old_capacity,
+		   old_capacity * sizeof(TfwStr));
+	array->items = new_array;
+
+	return 0;
+}
+
+/* Similar to __hbh_parser_add_data */
+static int
+__str_array_add_token(TfwHttpMsg *hm, TfwStrArray *array, char *data,
+		      unsigned long len, bool finalize_item)
+{
+	TfwStr *token, *last_chunk;
+
+	if (array->last == TFW_CACHE_CONTROL_TOKENS_MAX)
+		return TFW_BLOCK;
+	if (len != 0) {
+		if (array->last >= array->capacity) {
+			int rslt = __str_array_grow(hm, array);
+			if (rslt != 0) return rslt;
+		}
+		token = &array->items[array->last];
+		BUG_ON(array->last >= array->capacity);
+
+		if (!TFW_STR_EMPTY(token)) {
+			last_chunk = tfw_str_add_compound(hm->pool, token);
+		}
+		else {
+			last_chunk = (TfwStr *)tfw_pool_alloc(hm->pool, sizeof(TfwStr));
+			token->chunks = last_chunk;
+			token->nchunks = 1;
+		}
+		if (!last_chunk)
+			return -ENOMEM;
+		last_chunk->len = len;
+		last_chunk->data = data;
+		token->len += len;
+	}
+
+	if (finalize_item) {
+		/* Only finalize non-empty and valid item */
+		bool is_valid = array->last < array->capacity &&
+				!TFW_STR_EMPTY(&array->items[array->last]);
+		if (is_valid)
+			++array->last;
+		BUG_ON(array->last > array->capacity);
 	};
 
 	return 0;
@@ -8727,15 +8804,17 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_Flag) {
 		/* A start of a common flag successfully detected */
 		bool is_qualified = (parser->cache_flags.flag_name == TFW_HTTP_CC_PRIVATE ||
-		    parser->cache_flags.flag_name == TFW_HTTP_CC_NO_CACHE) &&
-		    c == '=';
+			parser->cache_flags.flag_name == TFW_HTTP_CC_NO_CACHE) &&
+			c == '=';
 		WARN_ON_ONCE(!parser->cache_flags.flag_name);
 		parser->cache_flags.filled = true;
 		if (is_qualified) {
 			parser->cache_flags.flag_allowed = false;
-			resp->cache_ctl.flags |= parser->cache_flags.flag_name;
-			/* Resp_I_CC_Opening_Quote => Resp_I_CC_Flag_Argument => Resp_I_EoT */
-			__FSM_I_MOVE(Resp_I_CC_Opening_Quote);
+			/* Qualified form cancels out the general flag */
+			/* resp->cache_ctl.flags |= parser->cache_flags.flag_name; */
+			/* Resp_I_CC_Opening_Quote => Resp_I_CC_Flag_Argument =>
+			 * => Resp_I_EoT */
+			__FSM_I_MOVE_fixup(Resp_I_CC_Opening_Quote, 1, 0);
 		}
 
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
@@ -8753,32 +8832,43 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (c != '"')
 			__FSM_EXIT(TFW_BLOCK);
 		else
-			__FSM_I_MOVE(Resp_I_CC_Flag_Argument);
+			__FSM_I_MOVE_fixup(Resp_I_CC_Flag_Argument, 1, 0);
 	}
 
 	__FSM_STATE(Resp_I_CC_Flag_Argument) {
-		/* comma separated field list (field-name/token) with optional linear white space */
+		/* comma separated field list (field-name/token) with optional
+		 * linear white space */
+		TfwStrArray *tokens;
 		__FSM_I_MATCH_MOVE_finish(token, Resp_I_Ext, {
-			if (parser->cache_flags.flag_name == 0)
+			tokens = parser->cache_flags.flag_name == TFW_HTTP_CC_PRIVATE ?
+				 &resp->private_tokens : &resp->no_cache_tokens;
+			if (__str_array_add_token(msg, tokens,
+						  p, __fsm_sz, false))
 			{
-				if (!parser->cache_flags.flag_allowed)
-					__FSM_EXIT(TFW_BLOCK);
-				parser->cache_flags.flag_name = TFW_HTTP_CC_OTHER;
+				__FSM_EXIT(TFW_BLOCK);
 			}
-			parser->cache_flags.filled = true;
 		});
+
+		tokens = parser->cache_flags.flag_name == TFW_HTTP_CC_PRIVATE ?
+			 &resp->private_tokens : &resp->no_cache_tokens;
+		if (__str_array_add_token(msg, tokens, p, __fsm_sz, false))
+			__FSM_EXIT(TFW_BLOCK);
+		/* Header name comparision requires a trailing semicolumn */
+		if (__str_array_add_token(msg, tokens, ":", 1, true))
+			__FSM_EXIT(TFW_BLOCK);
+
 		c = *(p + __fsm_sz);
 		if (IS_CRLF(c))
 			__FSM_EXIT(TFW_BLOCK);
 		else if (IS_WS(c) || c == ',') {
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			p += __fsm_sz;
-			__FSM_I_MOVE(Resp_I_CC_Flag_Argument);
+			__FSM_I_MOVE_fixup(Resp_I_CC_Flag_Argument, 1, 0);
 		}
 		else if (c == '"') {
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			p += __fsm_sz;
-			__FSM_I_MOVE(Resp_I_EoT);
+			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, 0);
 		}
 		else
 			__FSM_EXIT(TFW_BLOCK);
@@ -8900,8 +8990,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, TFW_STR_OWS);
-
-
 
 		if (IS_TOKEN(c)) {
 			parser->cache_flags.flag_name = 0; /* reinit for next token */

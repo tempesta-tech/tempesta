@@ -1088,7 +1088,7 @@ TEST(http_parser, cache_control)
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
 	}								\
-    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = dummy");
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = dummy");
 
 #define TEST_HAVING_ARGUMENT(directive, flag, MSG_UPPER, MSG_LOWER)	\
 	TEST_COMMON(directive, flag, MSG_UPPER, MSG_LOWER);		\
@@ -1099,8 +1099,8 @@ TEST(http_parser, cache_control)
 	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive		\
 				 "=\"" TOKEN_ALPHABET "\"")		\
 	{								\
-		EXPECT_TRUE(MSG_LOWER->cache_ctl.flags & flag);		\
-    }
+		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
+	}
 
 #define TEST_NO_ARGUMENT(directive, flag, MSG_UPPER, MSG_LOWER)		\
 	TEST_COMMON(directive, flag, MSG_UPPER, MSG_LOWER);		\
@@ -1119,7 +1119,7 @@ TEST(http_parser, cache_control)
 	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=dummy")	\
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
-    }								\
+	}								\
 	FOR_##MSG_UPPER##_SIMPLE("Cache-Control:" directive		\
 				 "=\"dummy\"")				\
 	{								\
@@ -1151,10 +1151,10 @@ TEST(http_parser, cache_control)
 	{								\
 		EXPECT_FALSE(MSG_LOWER->cache_ctl.flags & flag);	\
 		EXPECT_TRUE(MSG_LOWER->cache_ctl.FIELD == 0);		\
-    }								\
-    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = dummy");  \
-    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = 0");      \
-    EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=10 10");    \
+	}								\
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = dummy");  \
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive " = 0");      \
+	EXPECT_BLOCK_##MSG_UPPER##_SIMPLE("Cache-Control:" directive "=10 10");    \
 
 	/*
 	 * RFC 7234 4.2.1:

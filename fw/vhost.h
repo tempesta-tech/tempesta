@@ -45,6 +45,8 @@ typedef struct {
 typedef enum {
 	TFW_D_CACHE_BYPASS,
 	TFW_D_CACHE_FULFILL,
+	TFW_D_CACHE_RESP_HDR_DEL,
+	TFW_D_CACHE_CONTROL_IGNORE
 } tfw_capo_t;
 
 /**
@@ -61,6 +63,28 @@ typedef struct {
 	size_t		len;
 	const char	*arg;
 } TfwCaPolicy;
+
+/**
+ * A single token from a list of tokens for cache policies.
+ *
+ * @len	- Length of the string in @arg (without null-terminator).
+ * @arg	- String with header name. Points to a char array placed in memory
+ *	  right behind the @arg field.
+ */
+typedef struct {
+	size_t		len;
+	char		*arg;
+} TfwCaPolicyToken;
+
+/**
+ * @tokens - Array of tokens. Point to an array of "TfwCaPolicyToken*" situated
+ *	     in memory right after this structure. Double indirection because
+ *	     the array is statically allocated and "TfwCaPolicyToken*" is dynamic.
+ */
+typedef struct {
+	size_t			sz;
+	TfwCaPolicyToken	**tokens;
+} TfwCaPolicyTokens;
 
 /**
  * Headers modification description.
@@ -117,6 +141,8 @@ typedef struct {
 	size_t			capo_sz;
 	size_t			nipdef_sz;
 	TfwCaPolicy		**capo;
+	TfwCaPolicyTokens	capo_hdr_del;
+	TfwCaPolicyTokens	capo_ignore;
 	TfwNipDef		**nipdef;
 	FrangVhostCfg		*frang_cfg;
 	TfwSrvGroup		*main_sg;
@@ -235,6 +261,8 @@ TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
+TfwCaPolicyTokens*
+tfw_vhost_get_cache_policy_tokens(TfwLocation *loc, TfwVhost *vhost, tfw_capo_t capo_type);
 
 static inline TfwVhost*
 tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)

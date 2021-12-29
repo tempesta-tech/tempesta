@@ -37,6 +37,12 @@ typedef struct {
 /** Maximum of hop-by-hop tokens listed in Connection header. */
 #define TFW_HBH_TOKENS_MAX		16
 
+/** Hard limit for no-cache and private tokens. The logic that uses them can be
+ *  pretty CPU-heavy, like O(N^2) or O(N*logN), so we avoid unintentional DOS
+ *  by limiting the N.
+ */
+#define TFW_CACHE_CONTROL_TOKENS_MAX	16
+
 /**
  * Non-cacheable hop-by-hop headers in terms of RFC 7230.
  *

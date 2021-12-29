@@ -307,7 +307,7 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 {
 	TfwCaPolicy *capo;
 
-	/* Search locations in current vhost. */
+	/* Search locations in current loc. */
 	if (loc && loc->capo_sz) {
 		if ((capo = tfw_capolicy_match(loc, arg)))
 			return capo->cmd;
@@ -1434,6 +1434,42 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 	return false;
 }
 
+static bool
+check_ignored_header(const TfwStr *field, const TfwCaPolicyTokens *tokens,
+		     TfwCacheEntry *ce)
+{
+	int i;
+	for (i = 0; i < tokens->sz; i++) {
+		const TfwStr to_del = {
+			.data = tokens->tokens[i]->arg,
+			.len = tokens->tokens[i]->len
+		};
+		if (tfw_stricmpspn(field, &to_del, ':') == 0) {
+			if (ce)
+				--ce->hdr_num;
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool
+check_ignored_header2(const TfwStr *field, const TfwStrArray *tokens,
+		      TfwCacheEntry *ce)
+{
+	int i;
+	/* TfwStrArray implies invariants:
+	   last < capacity and last = count - 1  */
+	for (i = 0; i < tokens->last; i++) {
+		if (tfw_stricmpspn(field, &tokens->items[i], ':') == 0) {
+			if (ce)
+				--ce->hdr_num;
+			return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Copy response skbs to database mapped area.
  * @tot_len	- total length of actual data to write w/o TfwCStr's etc;
@@ -1450,6 +1486,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	char *p;
 	unsigned short status_idx;
 	TfwStr *field, *h, *end1, *end2;
+	TfwCaPolicyTokens *hdr_del_tokens;
 	TDB *db = node_db();
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	long n, etag_off = 0;
@@ -1538,9 +1575,13 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	if (tfw_cache_h2_copy_str(&ce->rph_len, &p, &trec, rph, &tot_len))
 		return -ENOMEM;
 
+	hdr_del_tokens = tfw_vhost_get_cache_policy_tokens(req->location, req->vhost,
+							   TFW_D_CACHE_RESP_HDR_DEL);
+
 	ce->hdrs = TDB_OFF(db->hdr, p);
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
+	printk("Writing cache");
 	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
 		int hid = field - resp->h_tbl->tbl;
 		/*
@@ -1554,6 +1595,23 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		{
 			--ce->hdr_num;
 			continue;
+		}
+
+		if (hdr_del_tokens) {
+			/* remove headers mentioned in cache_resp_hdr_del */
+			if (check_ignored_header(field, hdr_del_tokens, ce))
+				continue;
+		}
+
+		if (resp->no_cache_tokens.last > 0) {
+			/* remove headers mentioned in Cache-Control: no-cache */
+			if (check_ignored_header2(field, &resp->no_cache_tokens, ce))
+				continue;
+		}
+		if (resp->private_tokens.last > 0) {
+			/* remove headers mentioned in Cache-Control: private */
+			if (check_ignored_header2(field, &resp->private_tokens, ce))
+				continue;
 		}
 
 		if (hid == TFW_HTTP_HDR_ETAG) {
@@ -1651,7 +1709,9 @@ __cache_entry_size(TfwHttpResp *resp)
 	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
-
+	TfwCaPolicyTokens *hdr_del_tokens =
+			tfw_vhost_get_cache_policy_tokens(req->location, req->vhost,
+							  TFW_D_CACHE_RESP_HDR_DEL);
 	/* Add compound key size */
 	res_size += req->uri_path.len;
 	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
@@ -1678,6 +1738,20 @@ __cache_entry_size(TfwHttpResp *resp)
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(hdr))
 			continue;
+
+		if (hdr_del_tokens) {
+			if (check_ignored_header(hdr, hdr_del_tokens, NULL))
+				continue;
+		}
+
+		if (resp->no_cache_tokens.last > 0) {
+			if (check_ignored_header2(hdr, &resp->no_cache_tokens, NULL))
+				continue;
+		}
+		if (resp->private_tokens.last > 0) {
+			if (check_ignored_header2(hdr, &resp->private_tokens, NULL))
+				continue;
+		}
 
 		size = sizeof(TfwCStr);
 
