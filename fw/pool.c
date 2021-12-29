@@ -46,10 +46,6 @@
 #include "lib/str.h"
 #include "pool.h"
 
-#define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
-#define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
-#define TFW_POOL_CHUNK_END(p)	(TFW_POOL_CHUNK_BASE((p)->curr) + (p)->off)
-#define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
 #define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\
 				 + TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)))
 #define TFW_POOL_PGCACHE_SZ	512
@@ -116,46 +112,30 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 }
 
 void *
-__tfw_pool_alloc(TfwPool *p, size_t n, bool align, bool *new_page)
+__tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 {
-	void *a;
+	TfwPoolChunk *c, *curr = p->curr;
+	unsigned int desc_size = align
+		? TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk))
+		: sizeof(TfwPoolChunk);
+	unsigned int off = desc_size + n;
+	unsigned int order = get_order(off);
 
-	*new_page = false;
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+	if (!c)
+		return NULL;
+	c->next = curr;
+	c->order = order;
 
-	if (align)
-		n = TFW_POOL_ALIGN_SZ(n);
+	curr->off = p->off;
 
-	if (unlikely(p->off + n > TFW_POOL_CHUNK_SZ(p))) {
-		TfwPoolChunk *c, *curr = p->curr;
-		unsigned int desc_size = align
-			? TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk))
-			: sizeof(TfwPoolChunk);
-		unsigned int off = desc_size + n;
-		unsigned int order = get_order(off);
+	p->order = order;
+	p->off = off;
+	p->curr = c;
 
-		c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
-		if (!c)
-			return NULL;
-		c->next = curr;
-		c->order = order;
-
-		curr->off = p->off;
-
-		p->order = order;
-		p->off = off;
-		p->curr = c;
-
-		*new_page = true;
-
-		return align
-			? (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1))
-			: (void *)(c + 1);
-	}
-
-	a = (char *)TFW_POOL_CHUNK_END(p);
-	p->off += n;
-
-	return a;
+	return align
+		? (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1))
+		: (void *)(c + 1);
 }
 
 void *
@@ -165,10 +145,7 @@ __tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n, bool copy)
 
 	BUG_ON(new_n < old_n);
 
-	old_n = TFW_POOL_ALIGN_SZ(old_n);
-	new_n = TFW_POOL_ALIGN_SZ(new_n);
-
-	if ((char *)ptr + old_n == (char *)TFW_POOL_CHUNK_END(p)
+	if ((char *)ptr + old_n == TFW_POOL_CHUNK_END(p)
 	    && p->off - old_n + new_n <= TFW_POOL_CHUNK_SZ(p))
 	{
 		p->off += new_n - old_n;
@@ -193,7 +170,7 @@ tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 	n = TFW_POOL_ALIGN_SZ(n);
 
 	/* Stack-like usage is expected. */
-	if (unlikely((char *)ptr + n != (char *)TFW_POOL_CHUNK_END(p)))
+	if (unlikely((char *)ptr + n != TFW_POOL_CHUNK_END(p)))
 		return;
 
 	p->off -= n;
