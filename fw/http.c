@@ -5494,7 +5494,8 @@ next_msg:
 		 */
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 503,
-			"request dropped: can't send JS challenge");
+			"request dropped: can't send JS challenge since a"
+			" non-challengeable resource (e.g. image) was requested");
 		return TFW_BLOCK;
 
 	default:
