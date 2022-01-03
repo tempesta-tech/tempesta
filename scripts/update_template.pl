@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2017-2021 Tempesta Technologies, Inc.
+# Copyright (C) 2017-2022 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -30,7 +30,8 @@ if (!$template || $template !~ '.tpl$' || !$sticky_name
 	die "bad args!\n"
 }
 unless (-e $template && -r $template) {
-	die "JavaScript Challenge template '$template' not found, generation aborted!\n";
+	die "JavaScript Challenge template '$template' not found,"
+	    . " generation aborted!\n";
 }
 
 # Assemble HTML templates and minify resulting files.
@@ -38,7 +39,8 @@ sub assemble
 {
 	my ($src) = @_;
 	unless (-e $src) {
-		die "JavaScript Challenge template '$src' not found, generation aborted!\n";
+		die "JavaScript Challenge template '$src' not found,"
+		    . " generation aborted!\n";
 	}
 
 	my $dir = dirname($src);
@@ -49,9 +51,8 @@ sub assemble
 		OUTPUT_PATH	=> "$dir",
 	});
 
-	say "Assemble JavaScript Challenge template '$src' -> '$dest'";
+	say "Assemble JavaScript challenge template '$dir/$src' -> '$dir/$dest'";
 
-	my $html;
 	my $t_vals = {
 		STICKY_NAME => $sticky_name,
 		DELAY_MIN => $delay_min,
