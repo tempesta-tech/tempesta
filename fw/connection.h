@@ -208,7 +208,7 @@ enum {
 typedef struct {
 	TfwCliConn	cli_conn;
 	TlsCtx		tls;
-} TfwTlsConn;
+} __attribute__((packed)) TfwTlsConn;
 
 #define tfw_tls_context(conn)	((TlsCtx *)(&((TfwTlsConn *)conn)->tls))
 

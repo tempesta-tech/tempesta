@@ -215,8 +215,6 @@ int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
-int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
-                                   struct page ***old_pages);
 int ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			  int frag_num, char *curr, const char *stop);
 
