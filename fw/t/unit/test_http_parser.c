@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,9 +46,6 @@
 #include "ss_skb.c"
 #include "msg.c"
 #include "http_msg.c"
-
-/* Compile the test itself w/o autovectorization. */
-#pragma GCC reset_options
 
 static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
 
@@ -3909,6 +3906,127 @@ TEST(http_parser, x_tempesta_cache)
 	}
 }
 
+TEST(http_parser, perf)
+{
+	int i;
+	unsigned int parsed;
+	volatile unsigned long t0 = jiffies;
+
+#define REQ_PERF(str)							\
+do {									\
+	test_case_parse_prepare(str, 0);				\
+	if (req)							\
+		test_req_free(req);					\
+	req = test_req_alloc(sizeof(str) - 1);				\
+	tfw_http_parse_req(req, str, sizeof(str) - 1, &parsed);		\
+} while (0)
+
+#define RESP_PERF(str)							\
+do {									\
+	test_case_parse_prepare(str, 0);				\
+	if (resp)							\
+		test_resp_free(resp);					\
+	resp = test_resp_alloc(sizeof(str) - 1);			\
+	tfw_http_msg_pair(resp, sample_req);				\
+	tfw_http_parse_resp(resp, str, sizeof(str) - 1, &parsed);	\
+} while (0)
+
+	for (i = 0; i < 1000; ++i) {
+		/*
+		 * Benchmark serverla requests to make the headers parsing more
+		 * visible in the performance results. Also having L7 DDoS in
+		 * mind we need to to care about requests more than responses.
+		 */
+		REQ_PERF("GET / HTTP/1.1\n"
+			 "Host: example.com\n"
+			 "\n");
+		REQ_PERF("GET /index.html HTTP/1.1\r\n"
+			 "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
+			 "User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
+			 "If-Modified-Since: Sat, 29 Oct 1994 19:43:31 GMT\r\n"
+			 "Keep-Alive: timeout=600, max=65526\r\n"
+			 "Host: afaahfaduy3wbfdf.dsfda.12.dsdf.2.df\n"
+			 "X-Forwarded-For: 203.0.113.195,70.41.3.18,150.172.238.178\r\n"
+			 "Cookie: session=42; theme=dark\r\n"
+			 "Referer: http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:"
+				  "765d]:8080/cgi-bin/show.pl?entry=tempesta\r\n"
+			 "\r\n");
+
+		/* Also test invalid request. */
+		REQ_PERF("GET / HTTP/1.1\r\n"
+			 "Host :foo.com\r\n"
+			 "\r\n");
+		REQ_PERF("GET /https://ru.wikipedia.org/wiki/%D0%A8%D0%B0%D0"
+			       "%B1%D0%BB%D0%BE%D0%BD:%D0%9B%D0%B5%D0%BE%D0%BD"
+			       "%D0%B0%D1%80%D0%B4%D0%BE_%D0%B4%D0%B0_%D0%92%D0"
+			       "%B8%D0%BD%D1%87%D0%B8 HTTP/1.1\r\n"
+			 "POST / HTTP/1.1\r\n"
+			 "Host: test\r\n"
+			 "\r\n");
+
+		REQ_PERF("POST /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n"
+			 "Host: a.com\r\n"
+			 "Cookie: session=42; theme=dark\r\n"
+			 "Dummy0: 0\r\n"
+			 "Keep-Alive: timeout=600, max=65526\r\n"
+			 "Referer:    http://tempesta-tech.com:8080\r\n"
+				"/cgi-bin/show.pl?entry=tempesta      \r\n"
+			 "If-Modified-Since: Sat, 29 Oct 1994 19:43:31 GMT\r\n"
+			 "X-Forwarded-For: 203.0.113.195,70.41.3.18,150.172.238.178\r\n"
+			 "X-Custom-Hdr: custom header values\r\n"
+			 "\r\n");
+		REQ_PERF("GET http://natsys-lab.com:8080/cgi-bin/show.pl HTTP/1.1\r\n"
+			 "Connection: Keep-Alive\r\n"
+			 "Cookie: session=42\r\n"
+			 "Accept: */*\r\n"
+			 "\r\n");
+
+		/*
+		 * We need to benchmark the body processing, but don't make
+		 * it too long to mask the headers processing overheads.
+		 */
+#define __BODY_CHUNK_50	"01234567890123456789012345678901234567890123456789"
+#define BODY_CHUNK_1000	"1000\r\n"					\
+	__BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50	\
+	__BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50	\
+	__BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50	\
+	__BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50	\
+	__BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50 __BODY_CHUNK_50
+		RESP_PERF("HTTP/1.1 200 OK\r\n"
+			 "Connection: Keep-Alive\r\n"
+			 "Dummy0: 0\r\n"
+			 "Content-Type: text/html; charset=iso-8859-1\r\n"
+			 "X-Forwarded-For: 203.0.113.195,70.41.3.18,150.172.238.178"
+			 "Cache-Control: max-age=5, private, no-cache, ext=foo\r\n"
+			 "Last-Modified: Wed, 21 Oct 2015 07:28:00 GMT\r\n"
+			 "Set-Cookie: sessionid=38afes7a8;HttpOnly; Path=/\r\n"
+			 "Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
+			 "Keep-Alive: timeout=600, max=65526\r\n"
+			 "Transfer-Encoding: compress, gzip, chunked\r\n"
+			 "Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips mod_fcgid/2.3.9\r\n"
+			 "Age: 12  \n"
+			 "Date: Sun, 09 Sep 2001 01:46:40 GMT\t\n"
+			 "\r\n"
+			 BODY_CHUNK_1000
+			 BODY_CHUNK_1000
+			 BODY_CHUNK_1000
+			 BODY_CHUNK_1000
+			 "0\r\n"
+			 "\r\n");
+#undef BODY_CHUNK_1000
+#undef __BODY_CHUNK_50
+		RESP_PERF("HTTP/1.1 101 Switching Protocols OK\r\n"
+			  "Content-Length: 10\r\n"
+			  "Set-Cookie: sessionid=38afes7a8 Path=/\r\n"
+			  "\r\n"
+			  "0123456789");
+	}
+	pr_info("===> http parser time: %ums\n",
+		jiffies_to_msecs(jiffies - t0));
+#undef REQ_PERF
+#undef RESP_PERF
+}
+
 TEST_SUITE(http_parser)
 {
 	int r;
@@ -3967,4 +4085,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);
 
 	redir_mark_enabled = false;
+
+	TEST_RUN(http_parser, perf);
 }
