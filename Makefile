@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2022 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-TFW_CFLAGS = $(DEFINES) -Werror -mpreferred-stack-boundary=4
+TFW_CFLAGS = $(DEFINES) -Werror
 ifdef DEBUG
 	TFW_CFLAGS += -DDEBUG=$(DEBUG)
 endif
@@ -104,8 +104,6 @@ ifneq (, $(findstring adx, $(PROC)))
 else
 	ERROR = "ADX CPU extension is required for Tempesta TLS"
 endif
-
-TFW_CFLAGS += -mno-vzeroupper
 
 KERNEL = /lib/modules/$(shell uname -r)/build
 
