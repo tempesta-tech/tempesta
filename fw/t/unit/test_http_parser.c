@@ -818,7 +818,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		       "\r\n"
 		       "6\r\n"
 		       "123456\r\n"
-		       "0");
+		       "0")
 	{
 		ht = req->h_tbl;
 
@@ -929,7 +929,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"3\r\n"
 		"012\r\n"
 		"0\r\n"
-		"\r\n");
+		"\r\n")
 	{
 		ht = resp->h_tbl;
 
@@ -3364,28 +3364,28 @@ TEST(http_parser, content_type_line_parser)
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name=\"unfinished" TAIL);
 
 	/* Other parameter quoted values. */
-	FOR_REQ(HEAD "text/plain; name=\"value\"" TAIL){
+	FOR_REQ(HEAD "text/plain; name=\"value\"" TAIL) {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain; name=\"value\"");
 	}
-	FOR_REQ(HEAD "text/plain; name=\"value\" " TAIL){
+	FOR_REQ(HEAD "text/plain; name=\"value\" " TAIL) {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain; name=\"value\" ");
 	}
-	FOR_REQ(HEAD "text/plain; name=\"value\";" TAIL){
+	FOR_REQ(HEAD "text/plain; name=\"value\";" TAIL) {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain; name=\"value\";");
 	}
-	FOR_REQ(HEAD "text/plain; name=\"value\"; " TAIL){
+	FOR_REQ(HEAD "text/plain; name=\"value\"; " TAIL) {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain; name=\"value\"; ");
 	}
 
-	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\"" TAIL){
+	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\"" TAIL) {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain; name=\"val\\\"ue\"");
 	}
-	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\" " TAIL){
+	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\" " TAIL) {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain; name=\"val\\\"ue\" ");
 	}
@@ -3428,7 +3428,7 @@ TEST(http_parser, xff)
 	const char *s_proxy2 = "150.172.238.178";
 
 	FOR_REQ_SIMPLE("X-Forwarded-For: "
-		       "203.0.113.195,70.41.3.18,150.172.238.178");
+		       "203.0.113.195,70.41.3.18,150.172.238.178")
 	{
 		xff = req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
 
