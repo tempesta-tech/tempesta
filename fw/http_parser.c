@@ -441,13 +441,13 @@ __FSM_STATE(st, cold) {							\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == (ch)))						\
 		__FSM_MOVE_nofixup(st_next);				\
-	__FSM_JMP(Req_MethodUnknown);				\
+	__FSM_JMP(Req_MethodUnknown);					\
 }
 
 #define __FSM_METH_MOVE_finish(st, ch, m_type)				\
 __FSM_STATE(st, cold) {							\
 	if (unlikely(c != (ch)))					\
-		__FSM_JMP(Req_MethodUnknown);			\
+		__FSM_JMP(Req_MethodUnknown);				\
 	req->method = (m_type);						\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }

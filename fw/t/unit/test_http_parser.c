@@ -72,9 +72,12 @@
 #if USE_PRIMES
 static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
 #else
-static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 256, 1500, 9216, 1024*1024 /* to fit a message of 'any' size */  };
+static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 
+                                   256, 1500, 9216, 1024*1024
+                                  /* to fit a message of 'any' size */
+                                 };
 static unsigned int chunk_size_index = 0;
-#define CHUNK_SIZE_CNT (sizeof(CHUNK_SIZES)/sizeof(CHUNK_SIZES[0]))
+#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 #endif
 
 static TfwHttpReq *req, *sample_req;
@@ -560,8 +563,6 @@ TEST(http_parser, leading_eol)
 	FOR_RESP("\r\n" EMPTY_RESP);
 	FOR_RESP("\n\n\n" EMPTY_RESP);
 }
-
-
 
 TEST(http_parser, parses_req_method)
 {
