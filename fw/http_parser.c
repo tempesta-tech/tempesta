@@ -3923,8 +3923,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		case 'a':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'c', 'c', 'e', 'p')
-				   && TFW_LC(*(p + 6)) == 't'
-				   && *(p + 13) == ':'))
+				   && TFW_LC(*(p + 5)) == 't'
+				   && *(p + 6) == ':'))
 			{
 				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Req_HdrAcceptV;
