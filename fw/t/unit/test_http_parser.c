@@ -140,7 +140,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
-	size_t pos = 0, step;
+	size_t pos = 0;
 	unsigned int parsed;
 	int r = 0;
 	TfwHttpMsg *hm = (type == FUZZ_REQ)
@@ -148,17 +148,17 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			: (TfwHttpMsg *)resp;
 
 	while (pos < len) {
-		step = chunk_size;
-		if (step >= len - pos)
-			step = len - pos;
+		if (chunk_size >= len - pos)
+			/* At the last chunk */
+			chunk_size = len - pos;
 		TEST_DBG3("split: len=%zu pos=%zu, step=%zu\n",
 			  len, pos, step);
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, step, &parsed);
+			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
+			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
 
-		pos += step;
+		pos += chunk_size;
 		hm->msg.len += parsed;
 
 		if (r != TFW_POSTPONE)
@@ -338,12 +338,12 @@ do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 		 * stop splitting message into pieces bigger than
 		 * the message itself.
 		 */
-		return r == err_to_keep? r : 1;
+		return r == err_to_keep ? r : 1;
 	else {
 		/* Try next size, if any. on next interation */
 		chunk_size_index++;
 		if (chunk_size_index >= CHUNK_SIZE_CNT)
-			return r == err_to_keep? r : 1;
+			return r == err_to_keep ? r : 1;
 	}
 
 	return r;
