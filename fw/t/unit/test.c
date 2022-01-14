@@ -94,6 +94,7 @@ TEST_SUITE(addr);
 TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
+TEST_SUITE(pool);
 
 extern int tfw_pool_init(void);
 extern void tfw_pool_exit(void);
@@ -140,6 +141,9 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hpack);
+	__fpu_schedule();
+
+	TEST_SUITE_RUN(pool);
 	__fpu_schedule();
 
 	kernel_fpu_end();

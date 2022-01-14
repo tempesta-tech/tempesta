@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -250,9 +250,10 @@ TEST(hpack, dec_table_dynamic)
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
-	if (entry)
+	if (entry) {
 		new_len += entry->hdr->len + 32;
 		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
+	}
 
 	EXPECT_OK(tfw_hpack_set_length(hp, new_len));
 

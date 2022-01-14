@@ -16,7 +16,7 @@
  * application level filters must be implemented.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -87,7 +87,7 @@ tfw_filter_block_ip(const TfwAddr *addr)
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
 		T_WARN_ADDR("cannot create blocking rule", addr, TFW_NO_PORT);
 	} else {
-		T_DBG_ADDR("block client", addr, TFW_NO_PORT);
+		T_WARN_ADDR("block client", addr, TFW_NO_PORT);
 	}
 }
 

@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2022 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -30,7 +30,6 @@ obj-m	= tempesta_fw.o t/
 tfw-srcs = $(wildcard $(obj)/*.c)
 tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))
 ifdef AVX2
-	EXTRA_CFLAGS += -mno-vzeroupper
 	tfw-objs += str_avx2.o
 endif
 

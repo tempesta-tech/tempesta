@@ -3,7 +3,7 @@
  *
  * Precomputation of the static table for m * G in NIST secp256r1.
  *
- * Copyright (C) 2020-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -186,18 +186,19 @@ tgen256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q,
 static int
 tgen256_normalize_jac_many(Ecp256Point *T[], size_t t_len)
 {
-	int i;
+	int i, r = -EINVAL;
 	unsigned long *c, zi[8], zzi[8], t[8];
-	DECLARE_MPI_AUTO(u, 8);
-	TlsMpi *C;
+	TlsMpi *C, *U;
+
+	U = ttls_mpool_alloc_stack(sizeof(TlsMpi) + 8 * CIL);
+	ttls_mpi_init_next(U, 8);
 
 	c = ttls_mpool_alloc_stack(G_LIMBS * 2 * CIL * t_len);
 
 	C = ttls_mpool_alloc_stack(sizeof(TlsMpi));
-	ttls_mpi_init_next(C, 0);
+	ttls_mpi_init_next(C, 8);
 	C->_off = (short)((unsigned long)c + (t_len - 1) * 8 * CIL
 			  - (unsigned long)C);
-	C->limbs = 8;
 
 	/* c[i] = Z_0 * ... * Z_i */
 	memcpy_fast(c, T[0]->z, 4 * CIL);
@@ -206,22 +207,22 @@ tgen256_normalize_jac_many(Ecp256Point *T[], size_t t_len)
 
 	/* The modular inversion can not handle zero values. */
 	if (WARN_ON_ONCE(ecp256_mpi_eq_0(&c[(t_len - 1) * 8])))
-		return -EINVAL;
+		goto err;
 
-	/* u = 1 / (Z_0 * ... * Z_n) mod P */
+	/* U = 1 / (Z_0 * ... * Z_n) mod P */
 	C->used = 4;
-	ecp256_inv_mod(&u, C, &G.P);
+	ecp256_inv_mod(U, C, &G.P);
 
 	for (i = t_len - 1; i >= 0; i--) {
 		/*
 		 * Zi = 1 / Z_i mod p
-		 * u = 1 / (Z_0 * ... * Z_i) mod P
+		 * U = 1 / (Z_0 * ... * Z_i) mod P
 		 */
 		if (!i) {
-			ecp256_mpi_read(zi, &u);
+			ecp256_mpi_read(zi, U);
 		} else {
-			mpi_mul_mod_p256_x86_64_4(zi, MPI_P(&u), &c[(i - 1) * 8]);
-			mpi_mul_mod_p256_x86_64_4(MPI_P(&u), MPI_P(&u), T[i]->z);
+			mpi_mul_mod_p256_x86_64_4(zi, MPI_P(U), &c[(i - 1) * 8]);
+			mpi_mul_mod_p256_x86_64_4(MPI_P(U), MPI_P(U), T[i]->z);
 		}
 
 		/* proceed as in normalize(). */
@@ -238,9 +239,12 @@ tgen256_normalize_jac_many(Ecp256Point *T[], size_t t_len)
 		ecp256_lset(T[i]->z, 1);
 	}
 
-	ttls_mpi_pool_cleanup_ctx((unsigned long)c, false);
+	r = 0;
+err:
+	/* Cleaup up to the earliest pointer on the stack. */
+	ttls_mpi_pool_cleanup_ctx((unsigned long)U, false);
 
-	return 0;
+	return r;
 }
 
 /*

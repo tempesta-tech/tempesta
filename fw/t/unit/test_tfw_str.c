@@ -1672,7 +1672,8 @@ TEST(str_avx2, perf)
 		tfw_match_xff(str, 255);
 		tfw_match_ctext_vchar(str, 255);
 	}
-	pr_info("   str AVX2 time: %lums\n", jiffies - t0);
+	pr_info("   str AVX2 time: %ums\n",
+		jiffies_to_msecs(jiffies - t0));
 
 	tfw_init_custom_xff(NULL);
 }

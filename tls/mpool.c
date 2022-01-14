@@ -19,7 +19,7 @@
  * implicitly for MPI math. Dynamically allocated pages are used instead of
  * static per-cpu ones.
  *
- * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -121,7 +121,8 @@ ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
 		BUG();
 	}
 
-	mp->curr += MPI_POOL_SZ_ALIGN(n);
+	mp->curr += n;
+	BUG_ON((unsigned long)ptr & LMASK);
 
 	return ptr;
 }

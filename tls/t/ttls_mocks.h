@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS mocks for the unit tests
  *
- * Copyright (C) 2018-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,7 +24,6 @@
 #include "ktest.h"
 
 #include "ttls.h"
-#pragma GCC reset_options
 
 #define EXPECT_FALSE(c)		BUG_ON(c)
 #define EXPECT_TRUE(c)		BUG_ON(!(c))
