@@ -8810,7 +8810,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-cache"),
 			&parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_NO_CACHE;
-		}, Resp_I_CC_n, Resp_I_Flag);
+		}, Resp_I_CC_n, Resp_I_Flag_Maybe_Qal);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-store"),
 			&parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_NO_STORE;
@@ -8831,7 +8831,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}, Resp_I_CC_p, Resp_I_Flag);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("private"), &parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_PRIVATE;
-		}, Resp_I_CC_p, Resp_I_Flag);
+		}, Resp_I_CC_p, Resp_I_Flag_Maybe_Qal);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("proxy-revalidate"),
 			&parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_PROXY_REVAL;
