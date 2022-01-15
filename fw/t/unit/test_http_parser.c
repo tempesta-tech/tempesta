@@ -50,42 +50,16 @@
 /* Compile the test itself w/o autovectorization. */
 #pragma GCC reset_options
 
-/* This macro controls selection between conventional chunking
- * function based on PRIMES array and newer one based in
- * CHUNK_SIZES array.
- * USE_PRIMES:
- *	0 - use newer function based on CHUNK_SIZES
- *	1 - use conventional function based on PRIMES
- * For now the PRIMES function is enabled by default
- * and CHUNK_SIZES is "experimental" must be enabled
- * manualy. However the goal of the next day is to
- * switch to CHUNK_SIZES func permanently and remove
- * USE_PRIMES func completely.
- *
- * You can set the macro here directly or via compiler
- * options in the Makefile.
- */
-#ifndef USE_PRIMES
-#define USE_PRIMES 0
-#endif
-
-#if USE_PRIMES
-static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
-#else
 static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
 static int chunk_size_index = 0;
 #define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
-#endif
 
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static size_t hm_exp_len = 0;
-#if USE_PRIMES
-static unsigned int chunks = 1, prime = 0;
-#endif
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
@@ -97,45 +71,6 @@ static unsigned int chunks = 1, prime = 0;
 #define VCHAR_ALPHABET		"\x09 \"" OTHER_DELIMETERS 		\
 				TOKEN_ALPHABET OBS_TEXT
 #define ETAG_ALPHABET		OTHER_DELIMETERS TOKEN_ALPHABET OBS_TEXT
-
-
-#if USE_PRIMES
-
-static int
-split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
-{
-	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
-	unsigned int parsed;
-	int r = 0;
-	TfwHttpMsg *hm = (type == FUZZ_REQ)
-			? (TfwHttpMsg *)req
-			: (TfwHttpMsg *)resp;
-
-	while (pos < len) {
-		step = chlen;
-		if (rem) {
-			step++;
-			rem--;
-		}
-		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
-			  len, pos, chunks, step);
-		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, step, &parsed);
-		else
-			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
-
-		pos += step;
-		hm->msg.len += parsed;
-
-		if (r != TFW_POSTPONE)
-			return r;
-	}
-	BUG_ON(pos != len);
-
-	return r;
-}
-
-#else
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
@@ -169,8 +104,6 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 	return r;
 }
 
-#endif
-
 /**
  * Response must be paired with request to be parsed correctly. Update sample
  * request for further response parsing.
@@ -188,85 +121,6 @@ set_sample_req(unsigned char *str)
 
 	return tfw_http_parse_req(sample_req, str, len, &parsed);
 }
-
-#if USE_PRIMES
-
-static void
-test_case_parse_prepare(const char *str, size_t sz_diff)
-{
-	chunks = 1;
-	hm_exp_len = strlen(str) - sz_diff;
-}
-
-/**
- * The function is designed to be called in a loop, e.g.
- *   while(!do_split_and_parse(str, type));
- *
- * type may be FUZZ_REQ or FUZZ_RESP.
- *
- * On each iteration it splits the @str into fragments and pushes
- * them to the HTTP parser.
- *
- * That is done because:
- *  - HTTP pipelining: the feature implies that such a "split" may occur at
- *    any position of the input string. THe HTTP parser should be able to handle
- *    that, and we would like to test it.
- *  - Code coverage: the parser contains some optimizations for non-fragmented
- *    data, so we need to generate all possible fragments to test both "fast
- *    path" and "slow path" execution.
- *
- * The function is stateful:
- *  - It puts the parsed request or response to the global variable
- *  @req or @resp (on each call, depending on the message type).
- *  - It maintains the internal state between calls.
- *
- * Return value:
- *  == 0 - OK: current step of the loop is done without errors, proceed.
- *  <  0 - Error: the parsing is failed.
- *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
- */
-static int
-do_split_and_parse(unsigned char *str, int type, int err_to_keep)
-{
-	int r;
-	static size_t len;
-
-	BUG_ON(!str);
-
-	if (chunks == 1)
-		len = strlen(str);
-
-	if (type == FUZZ_REQ) {
-		if (req)
-			test_req_free(req);
-
-		req = test_req_alloc(len);
-	}
-	else if (type == FUZZ_RESP) {
-		if (resp)
-			test_resp_free(resp);
-
-		resp = test_resp_alloc(len);
-		tfw_http_msg_pair(resp, sample_req);
-	}
-	else {
-		BUG();
-	}
-
-	r = split_and_parse_n(str, type, len, chunks);
-	/*
-	 * Return any value which non-TFW_* constant to
-	 * stop splitting message into pieces bigger than
-	 * the message itself.
-	 */
-	chunks += PRIMES[prime++ % ARRAY_SIZE(PRIMES)];
-	if (chunks > len)
-		return r == err_to_keep? r : 1;
-
-	return r;
-}
-
-#else
 
 static void
 test_case_parse_prepare(const char *str, size_t sz_diff)
@@ -350,8 +204,6 @@ do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 
 	return r;
 }
-
-#endif
 
 /**
  * To validate message parsing we provide text string which describes
