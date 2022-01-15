@@ -1881,6 +1881,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_EoL) {
 		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, I_EoL, 0);
 		if (IS_CRLF(*(p + __fsm_sz))) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			p += __fsm_sz;
 			goto finalize;
 		}

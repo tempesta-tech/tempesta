@@ -66,7 +66,7 @@
  * options in the Makefile.
  */
 #ifndef USE_PRIMES
-#define USE_PRIMES 1
+#define USE_PRIMES 0
 #endif
 
 #if USE_PRIMES
@@ -76,7 +76,7 @@ static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
-static unsigned int chunk_size_index = 0;
+static int chunk_size_index = 0;
 #define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 #endif
 
@@ -151,8 +151,8 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 		if (chunk_size >= len - pos)
 			/* At the last chunk */
 			chunk_size = len - pos;
-		TEST_DBG3("split: len=%zu pos=%zu, step=%zu\n",
-			  len, pos, step);
+		TEST_DBG3("split: len=%zu pos=%zu\n",
+			  len, pos);
 		if (type == FUZZ_REQ)
 			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
 		else
@@ -312,6 +312,8 @@ do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 
 	if (chunk_size_index == 0)
 		len = strlen(str);
+	else if (chunk_size_index < 0)
+		return 1;
 
 	if (type == FUZZ_REQ) {
 		if (req)
@@ -338,12 +340,12 @@ do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 		 * stop splitting message into pieces bigger than
 		 * the message itself.
 		 */
-		return r == err_to_keep ? r : 1;
+		chunk_size_index = -1;
 	else {
 		/* Try next size, if any. on next interation */
 		chunk_size_index++;
 		if (chunk_size_index >= CHUNK_SIZE_CNT)
-			return r == err_to_keep ? r : 1;
+			chunk_size_index = -1;
 	}
 
 	return r;
@@ -369,7 +371,8 @@ validate_data_fully_parsed(int type)
 
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
-	int _err = do_split_and_parse(str, type, TFW_BLOCK);		\
+	int _err = do_split_and_parse(str, type, TFW_BLOCK);	\
+	if (_err != 1)						\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
 	    || !validate_data_fully_parsed(type))		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
