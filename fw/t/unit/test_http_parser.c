@@ -1656,6 +1656,10 @@ TEST(http_parser, ows)
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 " Host: foo.com\r\n"
 			 "\r\n");
+
+	FOR_REQ_SIMPLE("Accept-Encoding: dummy");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept -Encoding: dummy");
+	EXPECT_BLOCK_REQ_SIMPLE("Accept- Encoding: dummy");
 }
 
 TEST(http_parser, folding)

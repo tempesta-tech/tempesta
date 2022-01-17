@@ -46,6 +46,11 @@
 #define __data_remain(pos)		(len - __data_off(pos))
 #define __data_available(pos, num)	(num <= __data_remain(pos))
 
+typedef struct {
+	size_t data_fixed_up;
+	size_t data_processed;
+} fsm_result;
+
 /**
  * The following set of macros is for use in generic field processing.
  * @__msg_field_open macro is used for field opening, @__msg_field_fixup
@@ -63,7 +68,8 @@
 do {									\
 	if (unlikely(tfw_http_msg_add_str_data(msg, field, data,	\
 					       __data_off(pos))))	\
-		return CSTR_NEQ;					\
+		__FSM_EXIT(CSTR_NEQ);					\
+	__fsm_last_fixup = data + (len);				\
 } while (0)
 
 #define __msg_field_finish(field, pos)					\
@@ -75,7 +81,8 @@ do {									\
 #define __msg_field_fixup_pos(field, data, len)				\
 do {									\
 	if (unlikely(tfw_http_msg_add_str_data(msg, field, data, len)))	\
-		return CSTR_NEQ;					\
+		__FSM_EXIT(CSTR_NEQ);					\
+	__fsm_last_fixup = data + (len);				\
 } while (0)
 
 #define __msg_field_finish_pos(field, data, len)			\
@@ -97,7 +104,8 @@ do {									\
 do {									\
 	if (unlikely(tfw_http_msg_add_str_data(msg,			\
 			&msg->stream->parser.hdr, data, len)))		\
-		return CSTR_NEQ;					\
+		__FSM_EXIT(CSTR_NEQ);					\
+	__fsm_last_fixup = data + (len);				\
 } while (0)
 
 #define __msg_hdr_set_hpack_index(idx)					\
@@ -117,6 +125,7 @@ do {									\
 	TfwHttpParser	*parser = &msg->stream->parser;			\
 	unsigned char	*p = data;					\
 	unsigned char	c = *p;						\
+	unsigned char	__maybe_unused *__fsm_last_fixup = p;		\
 	int		__maybe_unused __fsm_n;				\
 	size_t		__maybe_unused __fsm_sz;			\
 	TfwStr		__maybe_unused *chunk = &parser->_tmp_chunk;	\
@@ -304,7 +313,8 @@ do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		__msg_hdr_chunk_fixup(data, len);			\
+		__msg_hdr_chunk_fixup(__fsm_last_fixup,			\
+				      __data_remain(__fsm_last_fixup));	\
 		parser->_i_st = &&to;					\
 		r = TFW_POSTPONE;					\
 		finish;							\
@@ -911,7 +921,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 		}							\
 		__msg_field_fixup_pos(field, p, __fsm_n);		\
 		parser->_i_st = &&curr_st;				\
-		return CSTR_POSTPONE;					\
+		__FSM_EXIT(CSTR_POSTPONE);				\
 	}
 
 #define TRY_STR_fixup(str, curr_st, next_st)				\
@@ -998,6 +1008,20 @@ __FSM_STATE(RGen_CRLFCR, hot) {						\
 	FSM_EXIT(TFW_PASS);						\
 }
 
+
+static inline fsm_result
+fsm_not_fixed_up(size_t argument)
+{
+	return (fsm_result){ .data_processed = argument,
+			     .data_fixed_up = 0 };
+}
+
+static inline fsm_result
+fsm_return_argument(fsm_result argument)
+{
+	return argument;
+}
+
 /*
  * We have HTTP message descriptors and special headers,
  * however we still need to store full headers (instead of just their values)
@@ -1005,50 +1029,73 @@ __FSM_STATE(RGen_CRLFCR, hot) {						\
  * (e.g. Content-Length which is doubled by TfwHttpMsg.content_length)
  * to mangle row skb data.
  */
-#define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, hm, func, id, saveval)	\
-__FSM_STATE(st_curr) {							\
-	BUG_ON(__data_off(p) > len);					\
-	__fsm_sz = __data_remain(p);					\
-	if (!parser->_i_st)						\
-		TRY_STR_INIT();						\
-	/*								\
-	 * Check whether the header slot is acquired to catch		\
-	 * duplicate headers in sense of RFC 7230 3.2.2.		\
-	 */								\
-	if (id < TFW_HTTP_HDR_NONSINGULAR				\
-	    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
-		TFW_PARSER_BLOCK(st_curr);				\
-	__fsm_n = func(hm, p, __fsm_sz);				\
-	T_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
-	       " id=%d\n", __fsm_n, __fsm_sz, id);			\
-	switch (__fsm_n) {						\
-	case CSTR_POSTPONE:						\
-		/* The automaton state keeping is handled in @func. */	\
-		p += __fsm_sz;						\
-		parser->state = &&st_curr;				\
-		__FSM_EXIT(TFW_POSTPONE);				\
-	case CSTR_BADLEN: /* bad header length */			\
-	case CSTR_NEQ: /* bad header value */				\
-		TFW_PARSER_BLOCK(st_curr);				\
-	default:							\
-		BUG_ON(__fsm_n < 0);					\
-		/* The header value is fully parsed, move forward. */	\
-		if (saveval)						\
-			__msg_hdr_chunk_fixup(p, __fsm_n);		\
-		r = process_trailer_hdr(msg, &parser->hdr, id);		\
-		if (r < 0 && r != CSTR_POSTPONE)			\
-			TFW_PARSER_BLOCK(st_curr);			\
-		parser->_i_st = &&RGen_EoL;				\
-		parser->_hdr_tag = id;					\
-		parser->_acc = 0;					\
-		p += __fsm_n;						\
-		BUG_ON(unlikely(__data_off(p) >= len));			\
-		__FSM_JMP(RGen_RWS); /* skip RWS */			\
-	}								\
+/* "wrapper" and "saveval" paremeters are for compatibility only.
+ * They are supposed to be removed in the future and all calls replaced by
+ * TFW_HTTP_PARSE_HDR_VAL, effectively making wrapper = fsm_return_argument and
+ * saveval = 1.
+ */
+#define __TFW_HTTP_PARSE_HDR_VAL(st_curr, hm, func, wrapper, id, saveval)	\
+__FSM_STATE(st_curr) {								\
+	fsm_result rslt;							\
+	size_t data_remain = __data_remain(p);					\
+	BUG_ON(__data_off(p) > len);						\
+	if (!parser->_i_st)							\
+		TRY_STR_INIT();							\
+	/*									\
+	 * Check whether the header slot is acquired to catch			\
+	 * duplicate headers in sense of RFC 7230 3.2.2.			\
+	 */									\
+	if (id != TFW_HTTP_HDR_RAW)						\
+		if (id < TFW_HTTP_HDR_NONSINGULAR				\
+		    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
+			TFW_PARSER_BLOCK(st_curr);				\
+										\
+	rslt = wrapper(func(hm, p, data_remain));				\
+	BUG_ON(rslt.data_fixed_up > rslt.data_processed);			\
+										\
+	if (id != TFW_HTTP_HDR_RAW)						\
+		T_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
+		       " id=%d\n", rslt.data_processed, data_remain, id);	\
+	else									\
+		T_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
+		       rslt.data_processed, data_remain);			\
+										\
+	switch (rslt.data_processed) {						\
+	case CSTR_POSTPONE:							\
+		/* The automaton state keeping is handled in @func. */		\
+		p += data_remain;						\
+		parser->state = &&st_curr;					\
+		__FSM_EXIT(TFW_POSTPONE);					\
+	case CSTR_BADLEN: /* bad header length */				\
+	case CSTR_NEQ: /* bad header value */					\
+		TFW_PARSER_BLOCK(st_curr);					\
+	default:								\
+		BUG_ON(rslt.data_processed < 0);				\
+		/* The header value is fully parsed, move forward. */		\
+		if (saveval && rslt.data_processed > rslt.data_fixed_up)	\
+			__msg_hdr_chunk_fixup(p + rslt.data_fixed_up,		\
+				rslt.data_processed - rslt.data_fixed_up);	\
+		r = process_trailer_hdr(msg, &parser->hdr, id);			\
+		if (r < 0 && r != CSTR_POSTPONE)				\
+			TFW_PARSER_BLOCK(st_curr);				\
+		parser->_i_st = &&RGen_EoL;					\
+		parser->_hdr_tag = id;						\
+		parser->_acc = 0;						\
+		p += rslt.data_processed;					\
+		BUG_ON(unlikely(__data_off(p) >= len));				\
+		__FSM_JMP(RGen_RWS); /* skip RWS */				\
+	}									\
 }
 
-#define TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, hm, func, id)		\
-	__TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, hm, func, id, 1)
+#define TFW_HTTP_PARSE_HDR_VAL(st_curr, hm, func, id)			\
+	__TFW_HTTP_PARSE_HDR_VAL(st_curr, hm, func, fsm_return_argument, id, 1)
+
+#define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, hm, func, id, saveval)	\
+	__TFW_HTTP_PARSE_HDR_VAL(st_curr, hm, func, fsm_not_fixed_up, id, saveval)
+
+#define TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, hm, func, id)	\
+	__TFW_HTTP_PARSE_HDR_VAL(st_curr, hm, func, fsm_not_fixed_up, id, 1)
+
 
 #define __TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, hm, func, saveval)		\
 __FSM_STATE(st_curr) {							\
@@ -1088,7 +1135,7 @@ __FSM_STATE(st_curr) {							\
 }
 
 #define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, hm, func)			\
-	__TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, hm, func, 1)
+	__TFW_HTTP_PARSE_HDR_VAL(st_curr, hm, func, fsm_not_fixed_up, TFW_HTTP_HDR_RAW, 1)
 
 /*
  * Parse raw (common) HTTP headers.
@@ -1522,6 +1569,8 @@ __parse_content_length(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 		return r;
 	}
+done:
+	return r;
 }
 
 /**
@@ -1601,7 +1650,7 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 	return 0;
 }
 
-static int
+static fsm_result
 __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
@@ -1656,7 +1705,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 			goto finalize;
 		}
-		return CSTR_NEQ;
+		__FSM_EXIT(CSTR_NEQ);
 	}
 
 	__FSM_STATE(I_ContTypeParamOWS) {
@@ -1679,7 +1728,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			 */
 			if (__test_and_set_bit(
 			      TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY, req->flags))
-				return CSTR_NEQ;
+				__FSM_EXIT(CSTR_NEQ);
 		}, I_ContTypeParam, I_ContTypeBoundaryValue);
 		TRY_STR_INIT();
 		/* Fall through. */;
@@ -1691,10 +1740,10 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			/* Line terminated just after parameter name. Value is
 			 * missing.
 			 */
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		}
 		if (*(p + __fsm_sz) != '=')
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		__FSM_I_MOVE_fixup(I_ContTypeParamValue, __fsm_sz + 1, 0);
 	}
 
@@ -1726,7 +1775,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		}
 		if (unlikely(__fsm_sz == __fsm_n)) {
 			parser->_i_st = &&I_ContTypeBoundaryValueUnquoted;
-			return CSTR_POSTPONE;
+			__FSM_EXIT(CSTR_POSTPONE);
 		}
 
 		p += __fsm_sz;
@@ -1747,7 +1796,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		}
 		if (unlikely(__fsm_sz == __fsm_n)) {
 			parser->_i_st = &&I_ContTypeBoundaryValueQuoted;
-			return CSTR_POSTPONE;
+			__FSM_EXIT(CSTR_POSTPONE);
 		}
 		p += __fsm_sz;
 
@@ -1758,7 +1807,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		}
 		if (IS_CRLF(*p)) {
 			/* Missing closing '"'. */
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		}
 		if (*p != '"') {
 			/* TODO: faster qdtext/quoted-pair matcher. */
@@ -1777,14 +1826,14 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 		if (unlikely(__data_remain(p) == 0)) {
 			parser->_i_st = &&I_ContTypeParamValueOWS;
-			return CSTR_POSTPONE;
+			__FSM_EXIT(CSTR_POSTPONE);
 		}
 		__FSM_I_JMP(I_ContTypeParamValueOWS);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValueEscapedChar) {
 		if (IS_CRLF(*p))
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		req->multipart_boundary_raw.len += 1;
 		req->multipart_boundary.len += 1;
 		__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueQuoted, 1,
@@ -1810,7 +1859,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
 		if (IS_CRLF(c))
 			goto finalize;
-		return CSTR_NEQ;
+		__FSM_EXIT(CSTR_NEQ);
 	}
 
 	__FSM_STATE(I_ContTypeParamValueQuoted) {
@@ -1828,7 +1877,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE_fixup(I_ContTypeParamValueOWS, 1, 0);
 		if (IS_CRLF(*p)) {
 			/* Missing closing '"'. */
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		}
 		/* TODO: faster qdtext/quoted-pair matcher. */
 		__FSM_I_MOVE_fixup(I_ContTypeParamValueQuoted, 1, 0);
@@ -1836,7 +1885,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_ContTypeParamValueEscapedChar) {
 		if (IS_CRLF(*p))
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		__FSM_I_MOVE_fixup(I_ContTypeParamValueQuoted, 1,
 				   TFW_STR_VALUE);
 	}
@@ -1851,7 +1900,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_ContTypeOtherTypeSlash) {
 		if (c != '/')
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 		__FSM_I_MOVE_fixup(I_ContTypeOtherSubtype, 1, 0);
 	}
 
@@ -1867,22 +1916,25 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
 		if (IS_CRLF(c))
 			goto finalize;
-		return CSTR_NEQ;
+		__FSM_EXIT(CSTR_NEQ);
 	}
 
 	__FSM_STATE(I_EoL) {
 		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, I_EoL, 0);
 		if (IS_CRLF(*(p + __fsm_sz))) {
-			/* __TFW_HTTP_PARSE_SPECHDR_VAL is told to not fixup it */
-			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			/* Thanks to the fsm_result and reworked
+			   __TFW_HTTP_PARSE_HDR_VAL, uncommenting the following
+			   fixup leads to the same execution results. */
+			/* __msg_hdr_chunk_fixup(p, __fsm_sz); */
 			p += __fsm_sz;
 			goto finalize;
 		}
-		return CSTR_NEQ;
+		__FSM_EXIT(CSTR_NEQ);
 	}
 
 done:
-	return r;
+	return (fsm_result){ .data_processed = r,
+			     .data_fixed_up = __data_off(__fsm_last_fixup) };
 
 finalize:
 	if (req->multipart_boundary_raw.len > 0) {
@@ -1895,10 +1947,11 @@ finalize:
 		 * intersecting buffers, we have to make a separate copy.
 		 */
 		if (__strdup_multipart_boundaries(req))
-			return CSTR_NEQ;
+			__FSM_EXIT(CSTR_NEQ);
 	}
 
-	return __data_off(p);
+	return (fsm_result){ .data_processed = __data_off(p),
+			     .data_fixed_up = __data_off(__fsm_last_fixup) };
 }
 STACK_FRAME_NON_STANDARD(__req_parse_content_type);
 
@@ -4240,9 +4293,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   TFW_HTTP_HDR_CONTENT_LENGTH);
 
 	/* 'Content-Type:*OWS' is read, process field-value. */
-	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, msg,
+	TFW_HTTP_PARSE_HDR_VAL(Req_HdrContent_TypeV, msg,
 				     __req_parse_content_type,
-				     TFW_HTTP_HDR_CONTENT_TYPE, 0);
+				     TFW_HTTP_HDR_CONTENT_TYPE);
 
 	/* 'Host:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, req, __req_parse_host,
@@ -6047,6 +6100,8 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 			      bool fin)
 {
 	int ret;
+	int r = CSTR_NEQ;
+	unsigned char *__fsm_last_fixup = data;
 
 	ret = parse_long_ws(data, len, &msg->content_length);
 
@@ -6062,6 +6117,8 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	}
 
 	return ret >= 0 ? CSTR_NEQ : ret;
+done:
+	return r;
 }
 
 static int
@@ -7251,6 +7308,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		     bool fin, bool value_stage)
 {
 	int ret = T_OK;
+	int r = TFW_BLOCK;
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
@@ -8367,6 +8425,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 out:
 	return ret;
+done:
+	return r;
 }
 STACK_FRAME_NON_STANDARD(tfw_h2_parse_req_hdr);
 
@@ -8378,7 +8438,10 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpMsg *msg = (TfwHttpMsg *)req;
 	TfwHttpParser *parser = &msg->stream->parser;
+	unsigned char *__fsm_last_fixup = data;
+
 	int ret = T_POSTPONE;
+	int r = T_DROP;
 
 	if (parser->to_read == -1) {
 		if (WARN_ON_ONCE(!ctx->plen))
@@ -8417,6 +8480,8 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 out:
 	*parsed += m_len;
 	return ret;
+done:
+	return r;
 }
 
 /**
