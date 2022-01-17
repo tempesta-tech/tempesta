@@ -4615,7 +4615,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrAcc, 'e', Req_HdrAcce);
 	__FSM_TX_AF(Req_HdrAcce, 'p', Req_HdrAccep);
 	__FSM_TX_AF(Req_HdrAccep, 't', Req_HdrAccept);
-	__FSM_TX_AF(Req_HdrAccept, ':', Req_HdrAcceptV);
+	__FSM_TX_AF_OWS(Req_HdrAccept, Req_HdrAcceptV);
 
 	/* Authorization header processing. */
 	__FSM_TX_AF(Req_HdrAu, 't', Req_HdrAut);
