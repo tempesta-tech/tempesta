@@ -47,9 +47,6 @@
 #include "msg.c"
 #include "http_msg.c"
 
-/* Compile the test itself w/o autovectorization. */
-#pragma GCC reset_options
-
 static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
