@@ -54,7 +54,7 @@ static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
-static int chunk_size_index = 0;
+static unsigned int chunk_size_index = 0;
 #define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 
 static TfwHttpReq *req, *sample_req;
@@ -131,7 +131,7 @@ test_case_parse_prepare(const char *str, size_t sz_diff)
 
 /**
  * The function is designed to be called in a loop, e.g.
- *   while(!do_split_and_parse(str, type));
+ *   while(!do_split_and_parse(str, type)) { ... }
  *
  * type may be FUZZ_REQ or FUZZ_RESP.
  *
@@ -157,7 +157,7 @@ test_case_parse_prepare(const char *str, size_t sz_diff)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 static int
-do_split_and_parse(unsigned char *str, int type, int err_to_keep)
+do_split_and_parse(unsigned char *str, int type)
 {
 	int r;
 	static size_t len;
@@ -166,7 +166,12 @@ do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 
 	if (chunk_size_index == 0)
 		len = strlen(str);
-	else if (chunk_size_index < 0)
+	else if (chunk_size_index >= CHUNK_SIZE_CNT)
+		/*
+		 * Return any positive value to indicate that
+		 * all defined chunk sizes were tested and
+		 * no more iterations needed.
+		 */
 		return 1;
 
 	if (type == FUZZ_REQ) {
@@ -190,17 +195,13 @@ do_split_and_parse(unsigned char *str, int type, int err_to_keep)
 
 	if (CHUNK_SIZES[chunk_size_index] >= len)
 		/*
-		 * Return any value which non-TFW_* constant to
-		 * stop splitting message into pieces bigger than
+		 * Stop splitting message into pieces bigger than
 		 * the message itself.
 		 */
-		chunk_size_index = -1;
-	else {
+		chunk_size_index = CHUNK_SIZE_CNT;
+	else
 		/* Try next size, if any. on next interation */
 		chunk_size_index++;
-		if (chunk_size_index >= CHUNK_SIZE_CNT)
-			chunk_size_index = -1;
-	}
 
 	return r;
 }
@@ -223,8 +224,7 @@ validate_data_fully_parsed(int type)
 
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
-	int _err = do_split_and_parse(str, type, TFW_BLOCK);	\
-	if (_err != 1)						\
+	int _err = do_split_and_parse(str, type);		\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
 	    || !validate_data_fully_parsed(type))		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
@@ -237,7 +237,7 @@ validate_data_fully_parsed(int type)
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
 ({								\
-	int _err = do_split_and_parse(str, type, TFW_PASS);		\
+	int _err = do_split_and_parse(str, type);		\
 	if (_err == TFW_PASS)					\
 		TEST_FAIL("%s is not blocked as expected:\n%s",	\
 			       (type == FUZZ_REQ ? "request" :	\
@@ -403,12 +403,12 @@ number_to_strip(TfwHttpReq *req)
 
 TEST(http_parser, leading_eol)
 {
-	FOR_REQ(EMPTY_REQ);
-	EXPECT_EQ(number_to_strip(req), 0);
-	FOR_REQ("\n" EMPTY_REQ);
-	EXPECT_EQ(number_to_strip(req), 1);
-	FOR_REQ("\r\n" EMPTY_REQ);
-	EXPECT_EQ(number_to_strip(req), 2);
+	FOR_REQ(EMPTY_REQ)
+		EXPECT_EQ(number_to_strip(req), 0);
+	FOR_REQ("\n" EMPTY_REQ)
+		EXPECT_EQ(number_to_strip(req), 1);
+	FOR_REQ("\r\n" EMPTY_REQ)
+		EXPECT_EQ(number_to_strip(req), 2);
 	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);
