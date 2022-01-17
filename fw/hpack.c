@@ -3116,7 +3116,8 @@ commit:
 	it.last->rindex = ++tbl->idx_acc;
 
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
-	tfw_hpack_write(&s_val, ptr);
+	if (!TFW_STR_EMPTY(&s_val))
+		tfw_hpack_write(&s_val, ptr);
 
 	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
 
@@ -3646,13 +3647,16 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		if (unlikely(r))
 			return r;
 
-		bnd = __TFW_STR_CH(&s_val, 0)->data;
+		if (!TFW_STR_EMPTY(&s_val))
+			bnd = __TFW_STR_CH(&s_val, 0)->data;
+		else
+			bnd = mit->bnd;
 
 		r = tfw_h2_msg_rewrite_data_lc(mit, &s_name, bnd);
 		if (unlikely(r))
 			return r;
 	} else {
-		bnd = indexed
+		bnd = indexed || TFW_STR_EMPTY(&s_val)
 			? mit->bnd
 			: __TFW_STR_CH(&s_val, 0)->data;
 
@@ -3671,10 +3675,11 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	r = tfw_h2_msg_rewrite_data(mit, &s_vlen, bnd);
 	if (unlikely(r))
 		return r;
-
-	r = tfw_h2_msg_rewrite_data(mit, &s_val, mit->bnd);
-	if (unlikely(r))
-		return r;
+	if (!TFW_STR_EMPTY(&s_val)) {
+		r = tfw_h2_msg_rewrite_data(mit, &s_val, mit->bnd);
+		if (unlikely(r))
+			return r;
+	}
 
 	return 0;
 }
