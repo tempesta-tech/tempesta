@@ -238,17 +238,6 @@ do {									\
 #define __FSM_MATCH_MOVE(alphabet, to, flag)				\
 	__FSM_MATCH_MOVE_f(alphabet, to, &msg->stream->parser.hdr, flag)
 
-#define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
-do {									\
-	__fsm_n = __data_remain(p);					\
-	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
-	p += __fsm_sz;							\
-	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		parser->state = &&to;					\
-		__FSM_EXIT(TFW_POSTPONE);				\
-	}								\
-} while (0)
-
 #define __FSM_MOVE_hdr_fixup(to, n)					\
 do {									\
 	__msg_hdr_chunk_fixup(p, n);					\
@@ -426,13 +415,13 @@ __FSM_STATE(st, cold) {							\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == (ch)))						\
 		__FSM_MOVE_nofixup(st_next);				\
-	__FSM_MOVE_nofixup(Req_MethodUnknown);				\
+	__FSM_JMP(Req_MethodUnknown);					\
 }
 
 #define __FSM_METH_MOVE_finish(st, ch, m_type)				\
 __FSM_STATE(st, cold) {							\
 	if (unlikely(c != (ch)))					\
-		__FSM_MOVE_nofixup(Req_MethodUnknown);			\
+		__FSM_JMP(Req_MethodUnknown);				\
 	req->method = (m_type);						\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
@@ -1873,6 +1862,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_EoL) {
 		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, I_EoL, 0);
 		if (IS_CRLF(*(p + __fsm_sz))) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			p += __fsm_sz;
 			goto finalize;
 		}
@@ -4341,6 +4331,8 @@ do {									\
 	__fsm_n += step_inc;						\
 	goto match_meth;						\
 } while (0)
+#define __MK_METH_UNKNOWN()						\
+do { req->method = _TFW_HTTP_METH_UNKNOWN; } while (0)
 
 	__fsm_n = 4;
 	switch (PI(p)) {
@@ -4350,18 +4342,21 @@ do {									\
 	case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(PURGE, 1);
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
 	case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
 		__MATCH_METH(COPY, 0);
 	case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
 		if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
 			__MATCH_METH(DELETE, 2);
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethDele, 4);
 	case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
 		__MATCH_METH(LOCK, 0);
 	case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
 		if (likely(*(p + 4) == 'L'))
 			__MATCH_METH(MKCOL, 1);
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
 	case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
 		__MATCH_METH(MOVE, 0);
@@ -4372,10 +4367,12 @@ do {									\
 			req->method = TFW_HTTP_METH_OPTIONS;
 			__FSM_MOVE_nofixup_n(Req_Uri, 8);
 		}
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
 	case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
 		if (likely(*(p + 4) == 'H'))
 			__MATCH_METH(PATCH, 1);
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
 	case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
 		if (likely(*((unsigned int *)p + 1)
@@ -4389,6 +4386,7 @@ do {									\
 		{
 			__MATCH_METH(PROPPATCH, 5);
 		}
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethProp, 4);
 	case TFW_CHAR4_INT('P', 'U', 'T', ' '):
 		req->method = TFW_HTTP_METH_PUT;
@@ -4396,13 +4394,15 @@ do {									\
 	case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(TRACE, 1);
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
 	case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
 		if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
 			__MATCH_METH(UNLOCK, 2);
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
 	default:
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 match_meth:
 	__FSM_MOVE_nofixup_n(Req_MUSpace, __fsm_n);
@@ -4412,28 +4412,38 @@ match_meth:
 Req_Method_1CharStep: __attribute__((cold))
 	switch (c) {
 	case 'G':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethG);
 	case 'H':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethH);
 	case 'P':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethP);
 	case 'C':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethC);
 	case 'D':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethD);
 	case 'L':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethL);
 	case 'M':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethM);
 	case 'O':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethO);
 	case 'T':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethT);
 	case 'U':
+		__MK_METH_UNKNOWN();
 		__FSM_MOVE_nofixup(Req_MethU);
 	}
-	__FSM_MOVE_nofixup(Req_MethodUnknown);
-
+	__FSM_JMP(Req_MethodUnknown);
+#undef __MK_METH_UNKNOWN						\
 
 	/* ----------------    Improbable states    ---------------- */
 
@@ -4453,7 +4463,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'U':
 			__FSM_MOVE_nofixup(Req_MethPu);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* POST */
 	__FSM_METH_MOVE(Req_MethPo, 'S', Req_MethPos);
@@ -4472,7 +4482,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'P':
 			__FSM_MOVE_nofixup(Req_MethPropp);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* PROPFIND */
 	__FSM_METH_MOVE(Req_MethPropf, 'I', Req_MethPropfi);
@@ -4493,7 +4503,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			req->method = TFW_HTTP_METH_PUT;
 			__FSM_MOVE_nofixup(Req_MUSpace);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* PURGE */
 	__FSM_METH_MOVE(Req_MethPur, 'G', Req_MethPurg);
@@ -4524,7 +4534,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'O':
 			__FSM_MOVE_nofixup(Req_MethMo);
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
+		__FSM_JMP(Req_MethodUnknown);
 	}
 	/* MKCOL */
 	__FSM_METH_MOVE(Req_MethMk, 'C', Req_MethMkc);
@@ -4553,8 +4563,23 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_METH_MOVE_finish(Req_MethUnloc, 'K', TFW_HTTP_METH_UNLOCK);
 
 	__FSM_STATE(Req_MethodUnknown, cold) {
-		__FSM_MATCH_MOVE_nofixup(token, Req_MethodUnknown);
-		req->method = _TFW_HTTP_METH_UNKNOWN;
+		__fsm_n = __data_remain(p);
+		__fsm_sz = tfw_match_token(p, __fsm_n);
+		if (likely(__fsm_sz)) {
+			req->method = _TFW_HTTP_METH_UNKNOWN;
+			p += __fsm_sz;
+		}
+		if (unlikely(__fsm_sz == __fsm_n)) {
+			parser->state = &&Req_MethodUnknown;
+			__FSM_EXIT(TFW_POSTPONE);
+		}
+		if (unlikely(req->method != _TFW_HTTP_METH_UNKNOWN))
+			TFW_PARSER_BLOCK(Req_MethodUnknown);
+			/* if neither here nor earlier we did not
+			 * assign the _TFW_HTTP_METH_UNKNOWN
+			 * then there is zero-length method name
+			 * and the request must be blocked.
+			 */
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
@@ -4602,7 +4627,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrAcc, 'e', Req_HdrAcce);
 	__FSM_TX_AF(Req_HdrAcce, 'p', Req_HdrAccep);
 	__FSM_TX_AF(Req_HdrAccep, 't', Req_HdrAccept);
-	__FSM_TX_AF(Req_HdrAccept, ':', Req_HdrAcceptV);
+	__FSM_TX_AF_OWS(Req_HdrAccept, Req_HdrAcceptV);
 
 	/* Authorization header processing. */
 	__FSM_TX_AF(Req_HdrAu, 't', Req_HdrAut);
