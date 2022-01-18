@@ -396,8 +396,6 @@ number_to_strip(TfwHttpReq *req)
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 }
 
-
-
 TEST(http_parser, leading_eol)
 {
 	FOR_REQ(EMPTY_REQ)

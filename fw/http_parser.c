@@ -238,17 +238,6 @@ do {									\
 #define __FSM_MATCH_MOVE(alphabet, to, flag)				\
 	__FSM_MATCH_MOVE_f(alphabet, to, &msg->stream->parser.hdr, flag)
 
-#define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
-do {									\
-	__fsm_n = __data_remain(p);					\
-	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
-	p += __fsm_sz;							\
-	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		parser->state = &&to;					\
-		__FSM_EXIT(TFW_POSTPONE);				\
-	}								\
-} while (0)
-
 #define __FSM_MOVE_hdr_fixup(to, n)					\
 do {									\
 	__msg_hdr_chunk_fixup(p, n);					\
