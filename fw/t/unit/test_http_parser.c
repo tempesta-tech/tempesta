@@ -47,12 +47,16 @@
 #include "msg.c"
 #include "http_msg.c"
 
-static const int PRIMES[] = { 1, 2, 3, 5, 7, 11, 13, 17 };
+static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 
+                                   256, 1500, 9216, 1024*1024
+                                  /* to fit a message of 'any' size */
+                                 };
+static unsigned int chunk_size_index = 0;
+#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static size_t hm_exp_len = 0;
-static unsigned int chunks = 1, prime = 0;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
@@ -66,9 +70,9 @@ static unsigned int chunks = 1, prime = 0;
 #define ETAG_ALPHABET		OTHER_DELIMETERS TOKEN_ALPHABET OBS_TEXT
 
 static int
-split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
+split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
-	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
+	size_t pos = 0;
 	unsigned int parsed;
 	int r = 0;
 	TfwHttpMsg *hm = (type == FUZZ_REQ)
@@ -76,20 +80,17 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			: (TfwHttpMsg *)resp;
 
 	while (pos < len) {
-		step = chlen;
-		if (rem) {
-			step++;
-			rem--;
-		}
-
-		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
-			  len, pos, chunks, step);
+		if (chunk_size >= len - pos)
+			/* At the last chunk */
+			chunk_size = len - pos;
+		TEST_DBG3("split: len=%zu pos=%zu\n",
+			  len, pos);
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, step, &parsed);
+			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
+			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
 
-		pos += step;
+		pos += chunk_size;
 		hm->msg.len += parsed;
 
 		if (r != TFW_POSTPONE)
@@ -121,13 +122,13 @@ set_sample_req(unsigned char *str)
 static void
 test_case_parse_prepare(const char *str, size_t sz_diff)
 {
-	chunks = 1;
+	chunk_size_index = 0;
 	hm_exp_len = strlen(str) - sz_diff;
 }
 
 /**
  * The function is designed to be called in a loop, e.g.
- *   while(!do_split_and_parse(str, type));
+ *   while(!do_split_and_parse(str, type)) { ... }
  *
  * type may be FUZZ_REQ or FUZZ_RESP.
  *
@@ -160,8 +161,15 @@ do_split_and_parse(unsigned char *str, int type)
 
 	BUG_ON(!str);
 
-	if (chunks == 1)
+	if (chunk_size_index == 0)
 		len = strlen(str);
+	else if (chunk_size_index >= CHUNK_SIZE_CNT)
+		/*
+		 * Return any positive value to indicate that
+		 * all defined chunk sizes were tested and
+		 * no more iterations needed.
+		 */
+		return 1;
 
 	if (type == FUZZ_REQ) {
 		if (req)
@@ -180,15 +188,17 @@ do_split_and_parse(unsigned char *str, int type)
 		BUG();
 	}
 
-	r = split_and_parse_n(str, type, len, chunks);
-	/*
-	 * Return any value which non-TFW_* constant to
-	 * stop splitting message into pieces bigger than
-	 * the message itself.
-	 */
-	chunks += PRIMES[prime++ % ARRAY_SIZE(PRIMES)];
-	if (chunks > len)
-		return 1;
+	r = split_and_parse_n(str, type, len, CHUNK_SIZES[chunk_size_index]);
+
+	if (CHUNK_SIZES[chunk_size_index] >= len)
+		/*
+		 * Stop splitting message into pieces bigger than
+		 * the message itself.
+		 */
+		chunk_size_index = CHUNK_SIZE_CNT;
+	else
+		/* Try next size, if any. on next interation */
+		chunk_size_index++;
 
 	return r;
 }
@@ -378,12 +388,29 @@ test_string_split(const TfwStr *expected, const TfwStr *parsed)
 	EXPECT_EQ(c_e, end_e);
 }
 
+static inline int
+number_to_strip(TfwHttpReq *req)
+{
+	return
+		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
+		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
+}
+
 TEST(http_parser, leading_eol)
 {
-	FOR_REQ(EMPTY_REQ);
-	FOR_REQ("\n" EMPTY_REQ);
-	FOR_REQ("\r\n" EMPTY_REQ);
-	FOR_REQ("\n\n\n" EMPTY_REQ);
+	FOR_REQ(EMPTY_REQ)
+		EXPECT_EQ(number_to_strip(req), 0);
+	FOR_REQ("\n" EMPTY_REQ)
+		EXPECT_EQ(number_to_strip(req), 1);
+	FOR_REQ("\r\n" EMPTY_REQ)
+		EXPECT_EQ(number_to_strip(req), 2);
+	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\r" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\t" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\x1F" EMPTY_REQ);
+	EXPECT_BLOCK_REQ("\xFF" EMPTY_REQ);
 
 	FOR_RESP(EMPTY_RESP);
 	FOR_RESP("\n" EMPTY_RESP);
@@ -453,6 +480,14 @@ TEST(http_parser, parses_req_method)
 
 #undef TEST_REQ_UNKNOWN
 #undef TEST_REQ_METHOD
+
+	/* Test for empty method */
+	EXPECT_BLOCK_REQ(" /filename HTTP/1.1\r\n\r\n");
+        /* Malformed methods */
+	EXPECT_BLOCK_REQ("\tOST /filename HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("P\tST /filename HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("PO\tT /filename HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("POS\t /filename HTTP/1.1\r\n\r\n");
 }
 
 TEST(http_parser, parses_req_uri)
@@ -1562,9 +1597,9 @@ TEST(http_parser, content_length)
 
 TEST(http_parser, eol_crlf)
 {
-	FOR_REQ("\rGET / HTTP/1.1\r\n"
-		"Host: d.com\r\n"
-		"\r\n");
+	EXPECT_BLOCK_REQ("\rGET / HTTP/1.1\r\n"
+		         "Host: d.com\r\n"
+		         "\r\n");
 
 	__FOR_REQ("POST / HTTP/1.1\n"
 		  "Host: a.com\n"
