@@ -671,6 +671,86 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 }
 
 /**
+ * Append the data and data2 strings as leaves into 2-level tree "array".
+ * data2 will not be appended if data is empty.
+ */
+int
+tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array, unsigned int count_limit,
+			   char *data, unsigned long len,
+			   char *terminator, unsigned long terminator_len)
+{
+	TfwStr *last_token;
+	int new_items_n = 0;
+	bool terminator_assigned;
+
+	bool data_assigned = data && len != 0;
+	if (data_assigned)
+		new_items_n += 1;
+
+	last_token = NULL;
+	if (array->nchunks != 0)
+		last_token = &array->chunks[array->nchunks - 1];
+
+	terminator_assigned = terminator && terminator_len != 0;
+	if (terminator_assigned) {
+		bool has_unterminated_item = data_assigned;
+		if (has_unterminated_item == false) {
+			if (last_token && (last_token->flags & TFW_STR_COMPLETE) == 0)
+				has_unterminated_item = true;
+		}
+		if (has_unterminated_item == false)
+			terminator_assigned = false;
+	}
+
+	if (terminator_assigned)
+		new_items_n += 1;
+
+	/* data_assigned || terminator_assigned */
+	if (new_items_n != 0) {
+		TfwStr *last_chunk;
+		/* empty array is supposed to be initialized by zeroes */
+		if (array->nchunks == 0) {
+			last_token = __str_grow_tree(pool, array, 0, 1);
+			if (!last_token)
+				return -ENOMEM;
+		}
+		if ((last_token->flags & TFW_STR_COMPLETE) == TFW_STR_COMPLETE) {
+			if (array->nchunks == count_limit)
+				return -1;
+			last_token = __str_grow_tree(pool, array, 0, 1);
+			if (!last_token)
+				return -ENOMEM;
+		}
+
+		last_chunk = __str_grow_tree(pool, last_token, 0, new_items_n);
+		if (!last_chunk)
+			return -ENOMEM;
+		if (data_assigned) {
+			last_chunk->len = len;
+			last_chunk->data = data;
+			last_token->len += len;
+			if (terminator_assigned) {
+				BUG_ON(new_items_n != 2);
+				last_chunk[1].len = terminator_len;
+				last_chunk[1].data = terminator;
+				last_token->len += terminator_len;
+			}
+		}
+		else {
+			last_chunk->len = terminator_len;
+			last_chunk->data = terminator;
+			last_token->len += terminator_len;
+		}
+
+		if (terminator_assigned)
+			last_token->flags |= TFW_STR_COMPLETE;
+		/* We don't really care about array->len */
+	}
+
+	return 0;
+}
+
+/**
  * Function for deep TfwStr copying.
  */
 int

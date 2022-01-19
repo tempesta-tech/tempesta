@@ -397,9 +397,10 @@ static bool
 tfw_cache_employ_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	unsigned int ignored_resp_flags =
-		tfw_vhost_get_cache_policy_mask(req->location, req->vhost);
-	resp->cache_ctl.flags &= ~ignored_resp_flags;
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	unsigned int effective_resp_flags =
+		resp->cache_ctl.flags & ~cc_ignore_flags;
 
 #define CC_REQ_DONTCACHE				\
 	(TFW_HTTP_CC_CFG_CACHE_BYPASS | TFW_HTTP_CC_NO_STORE)
@@ -418,18 +419,18 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 	 */
 	if (req->cache_ctl.flags & CC_REQ_DONTCACHE)
 		return false;
-	if (resp->cache_ctl.flags & CC_RESP_DONTCACHE)
+	if (effective_resp_flags & CC_RESP_DONTCACHE)
 		return false;
 	if (!(req->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
 	    && (req->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
-	if (!(resp->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
-	    && (resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
+	if (!(effective_resp_flags & TFW_HTTP_CC_IS_PRESENT)
+	    && (effective_resp_flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
 	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
 	    && !(req->cache_ctl.flags & CC_RESP_AUTHCAN))
 		return false;
-	if (!(resp->cache_ctl.flags & CC_RESP_CACHEIT)
+	if (!(effective_resp_flags & CC_RESP_CACHEIT)
 	    && !tfw_cache_status_bydef(resp))
 		return false;
 #undef CC_RESP_AUTHCAN
@@ -1437,42 +1438,6 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 	return false;
 }
 
-static bool
-check_ignored_header(const TfwStr *field, const TfwCaPolicyTokens *tokens,
-		     TfwCacheEntry *ce)
-{
-	int i;
-	for (i = 0; i < tokens->sz; i++) {
-		const TfwStr to_del = {
-			.data = tokens->tokens[i]->arg,
-			.len = tokens->tokens[i]->len
-		};
-		if (tfw_stricmpspn(field, &to_del, ':') == 0) {
-			if (ce)
-				--ce->hdr_num;
-			return true;
-		}
-	}
-	return false;
-}
-
-static bool
-check_ignored_header2(const TfwStr *field, const TfwStrArray *tokens,
-		      TfwCacheEntry *ce)
-{
-	int i;
-	/* TfwStrArray implies invariants:
-	   last < capacity and last = count - 1  */
-	for (i = 0; i < tokens->last; i++) {
-		if (tfw_stricmpspn(field, &tokens->items[i], ':') == 0) {
-			if (ce)
-				--ce->hdr_num;
-			return true;
-		}
-	}
-	return false;
-}
-
 /**
  * Copy response skbs to database mapped area.
  * @tot_len	- total length of actual data to write w/o TfwCStr's etc;
@@ -1489,7 +1454,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	char *p;
 	unsigned short status_idx;
 	TfwStr *field, *h, *end1, *end2;
-	TfwCaPolicyTokens *hdr_del_tokens;
 	TDB *db = node_db();
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	long n, etag_off = 0;
@@ -1578,8 +1542,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	if (tfw_cache_h2_copy_str(&ce->rph_len, &p, &trec, rph, &tot_len))
 		return -ENOMEM;
 
-	hdr_del_tokens = tfw_vhost_get_cache_policy_tokens(req->location, req->vhost);
-
 	ce->hdrs = TDB_OFF(db->hdr, p);
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
@@ -1591,29 +1553,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * possible duplicates), since we will substitute it with our
 		 * version of this header.
 		 */
-		if ((field->flags & TFW_STR_HBH_HDR)
+		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(field))
 		{
 			--ce->hdr_num;
 			continue;
-		}
-
-		if (hdr_del_tokens) {
-			/* remove headers mentioned in cache_resp_hdr_del */
-			if (check_ignored_header(field, hdr_del_tokens, ce))
-				continue;
-		}
-
-		if (resp->no_cache_tokens.last > 0) {
-			/* remove headers mentioned in Cache-Control: no-cache */
-			if (check_ignored_header2(field, &resp->no_cache_tokens, ce))
-				continue;
-		}
-		if (resp->private_tokens.last > 0) {
-			/* remove headers mentioned in Cache-Control: private */
-			if (check_ignored_header2(field, &resp->private_tokens, ce))
-				continue;
 		}
 
 		if (hid == TFW_HTTP_HDR_ETAG) {
@@ -1702,6 +1647,45 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	return 0;
 }
 
+static bool
+check_cfg_ignored_header(const TfwStr *field, TfwCaToken *tokens,
+		     unsigned int tokens_sz)
+{
+	int i;
+	int bytes_count = 0;
+	TfwCaToken *token = tokens;
+	for (i = 0; i < tokens_sz; i++) {
+		const TfwStr to_del = {
+			.data = &token->str,
+			.len = token->len - 1
+		};
+		BUG_ON(token->len > 10000);
+		if (tfw_stricmpspn(field, &to_del, ':') == 0) {
+			return true;
+		}
+		bytes_count += offsetof(TfwCaToken, str) + token->len;
+		token = (TfwCaToken *)(bytes_count + (char *)tokens);
+	}
+	return false;
+}
+
+static bool
+check_cc_ignored_header(const TfwStr *field, const TfwStr *tokens)
+{
+	int i;
+	for (i = 0; i < tokens->nchunks; i++) {
+		if (tfw_stricmpspn(field, &tokens->chunks[i], ':') == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * __cache_entry_size is supposed to be called before tfw_cache_copy_resp,
+ * to set the TFW_STR_NOCCPY_HDR flag on the headers, so we don't double-check
+ * the ignored header list (this check is O(N*M) currently).
+ */
 static long
 __cache_entry_size(TfwHttpResp *resp)
 {
@@ -1711,8 +1695,8 @@ __cache_entry_size(TfwHttpResp *resp)
 	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
-	TfwCaPolicyTokens *hdr_del_tokens =
-			tfw_vhost_get_cache_policy_tokens(req->location, req->vhost);
+	TfwCaTokenArray hdr_del_tokens =
+			tfw_vhost_get_capo_hdr_del(req->location, req->vhost);
 	/* Add compound key size */
 	res_size += req->uri_path.len;
 	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
@@ -1740,18 +1724,36 @@ __cache_entry_size(TfwHttpResp *resp)
 		    || TFW_STR_EMPTY(hdr))
 			continue;
 
-		if (hdr_del_tokens) {
-			if (check_ignored_header(hdr, hdr_del_tokens, NULL))
+		/*
+		 * TODO #496: assemble all the string patterns into state machines
+		 * (one if possible) to avoid the loops over all configured and
+		 * mentioned in `private` and `no-cache` directives.
+		 */
+		/* remove headers mentioned in cache_resp_hdr_del */
+		if (hdr_del_tokens.tokens) {
+			if (check_cfg_ignored_header(hdr, hdr_del_tokens.tokens,
+						     hdr_del_tokens.sz))
+			{
+				hdr->flags |= TFW_STR_NOCCPY_HDR;
 				continue;
+			}
 		}
 
-		if (resp->no_cache_tokens.last > 0) {
-			if (check_ignored_header2(hdr, &resp->no_cache_tokens, NULL))
+		/* remove headers mentioned in Cache-Control: no-cache */
+		if (resp->no_cache_tokens.nchunks != 0) {
+			if (check_cc_ignored_header(hdr, &resp->no_cache_tokens))
+			{
+				hdr->flags |= TFW_STR_NOCCPY_HDR;
 				continue;
+			}
 		}
-		if (resp->private_tokens.last > 0) {
-			if (check_ignored_header2(hdr, &resp->private_tokens, NULL))
+		/* remove headers mentioned in Cache-Control: private */
+		if (resp->private_tokens.nchunks != 0) {
+			if (check_cc_ignored_header(hdr, &resp->private_tokens))
+			{
+				hdr->flags |= TFW_STR_NOCCPY_HDR;
 				continue;
+			}
 		}
 
 		size = sizeof(TfwCStr);

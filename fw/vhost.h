@@ -65,26 +65,21 @@ typedef struct {
 } TfwCaPolicy;
 
 /**
- * A single token from a list of tokens for cache policies.
+ * Just a simple string.
  *
- * @len	- Length of the string in @arg (without null-terminator).
- * @arg	- String with header name. Points to a char array placed in memory
- *	  right behind the @arg field.
+ * @len	- Length of the string in @str (with null-terminator).
+ * @str	- First character of the string.
  */
 typedef struct {
 	size_t		len;
-	char		*arg;
-} TfwCaPolicyToken;
+	char		str;
+} TfwCaToken;
 
-/**
- * @tokens - Array of tokens. Point to an array of "TfwCaPolicyToken*" situated
- *	     in memory right after this structure. Double indirection because
- *	     the array is statically allocated and "TfwCaPolicyToken*" is dynamic.
- */
+/* tfw_vhost_get_capo_hdr_del result */
 typedef struct {
-	size_t			sz;
-	TfwCaPolicyToken	**tokens;
-} TfwCaPolicyTokens;
+	unsigned int	sz;
+	TfwCaToken	*tokens;
+} TfwCaTokenArray;
 
 /**
  * Headers modification description.
@@ -127,6 +122,9 @@ enum {
  * @capo_sz	- Size of @capo array.
  * @nipdef_sz	- Size of @nipdef array.
  * @capo	- Array of pointers to Cache Policy definitions.
+ * @capo_hdr_del - Flat array of cache_resp_hdr_del header names.
+ * @capo_hdr_del_sz - Number of headers in the @capo_hdr_del.
+ * @cc_ignore   - Mask for flags corresponding to cache_control_ignore headers.
  * @nipdef	- Array of pointers to Non-Idempotent Request definitions.
  * @frang_cfg	- Pointer to location-specific Frang settings structure.
  * @main_sg	- Main server group to which requests must be proxied.
@@ -141,8 +139,9 @@ typedef struct {
 	size_t			capo_sz;
 	size_t			nipdef_sz;
 	TfwCaPolicy		**capo;
-	TfwCaPolicyTokens	capo_hdr_del;
-	unsigned int		capo_ignore;
+	TfwCaToken		*capo_hdr_del;
+	unsigned int		capo_hdr_del_sz;
+	unsigned int		cc_ignore;
 	TfwNipDef		**nipdef;
 	FrangVhostCfg		*frang_cfg;
 	TfwSrvGroup		*main_sg;
@@ -261,10 +260,10 @@ TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
-TfwCaPolicyTokens*
-tfw_vhost_get_cache_policy_tokens(TfwLocation *loc, TfwVhost *vhost);
-unsigned int
-tfw_vhost_get_cache_policy_mask(TfwLocation *loc, TfwVhost *vhost);
+TfwCaTokenArray tfw_vhost_get_capo_hdr_del(TfwLocation *loc,
+					   TfwVhost *vhost);
+unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
+				     TfwVhost *vhost);
 
 static inline TfwVhost*
 tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)

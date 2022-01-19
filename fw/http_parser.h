@@ -127,7 +127,6 @@ typedef struct {
 		struct {
 			short		dir_flag;
 			char		filled;
-			char		dir_allowed;
 		} cache_control;
 	};
 	TfwStr				_tmp_chunk;

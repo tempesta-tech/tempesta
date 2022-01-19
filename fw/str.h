@@ -208,10 +208,12 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_VALUE		0x08
 /* The string represents hop-by-hop header, not end-to-end one */
 #define TFW_STR_HBH_HDR		0x10
+/* Not cachable due to configuration settings or no-cache/private directive */
+#define TFW_STR_NOCCPY_HDR	0x20
 /* Weak identifier was set for Etag value. */
-#define TFW_STR_ETAG_WEAK	0x20
+#define TFW_STR_ETAG_WEAK	0x40
 /* Trailer  header. */
-#define TFW_STR_TRAILER		0x40
+#define TFW_STR_TRAILER		0x80
 /*
  * The string/chunk is a header fully indexed in HPACK static
  * table (used only for HTTP/1.1=>HTTP/2 message transformation).
@@ -392,6 +394,10 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 			 const char *stop);
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
+int tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
+			       unsigned int count_limit,
+			       char *data, unsigned long len,
+			       char *terminator, unsigned long terminator_len);
 
 typedef enum {
 	TFW_STR_EQ_DEFAULT = 0x0,

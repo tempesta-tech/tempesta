@@ -1888,12 +1888,16 @@ check_name_text:
 
 		NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
-		if (src >= last && !h2_mode) {
-			/* We are going to skip the HPACK_STATE_VALUE_TEXT,
-			   but still need the newline for a correct HTTP/1 */
-			EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
+		if (src >= last) {
+			if (!h2_mode) {
+				/*
+				 * We are going to skip the HPACK_STATE_VALUE_TEXT,
+				 * but still need the newline for a correct HTTP/1
+				 */
+				EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
+			}
+			goto out;
 		}
-		GET_NEXT_DATA(src >= last);
 
 		fallthrough;
 
