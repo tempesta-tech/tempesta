@@ -592,6 +592,23 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 }
 
 /**
+ * Allocate a new @str with @n chunks.
+ * @return pointer to the first of newly allocated chunks.
+ */
+static TfwStr *
+__str_alloc(TfwPool *pool, TfwStr *str, int n)
+{
+	TfwStr *a = tfw_pool_alloc(pool, n * sizeof(TfwStr));
+	if (!a)
+		return NULL;
+
+	str->chunks = a;
+	str->nchunks = n;
+	memset(a, 0, sizeof(TfwStr) * n);
+	return a;
+}
+
+/**
  * Grow @str for @n new chunks.
  * New branches of the string tree are created on 2nd level only,
  * i.e. there is no possibility to grow number of chunks of duplicate string.
@@ -609,6 +626,7 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
+	TfwStr *new_chunk;
 	if (str->flags & flag ||
 	    (!flag && str->nchunks)) {
 		unsigned int l;
@@ -636,10 +654,10 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		str->nchunks = n + 1;
 	}
 
-	str = str->chunks + str->nchunks - n;
-	bzero_fast(str, sizeof(TfwStr) * n);
+	new_chunk = str->chunks + str->nchunks - n;
+	bzero_fast(new_chunk, sizeof(TfwStr) * n);
 
-	return str;
+	return new_chunk;
 }
 
 /**
@@ -671,18 +689,34 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 }
 
 /**
- * Append the data and data2 strings as leaves into 2-level tree "array".
- * data2 will not be appended if data is empty.
+ * Append the data and terminator strings as leaves into 2-level tree @array.
+ * If assigned, @terminator will be appended to the last incomplete item.
+ *
+ * array -> chunks[0] = { nchunks = 2,
+ *                        len = 0,
+ *                        chunks = ["token1", ":"],    <= @terminator was ":"
+ *                        flags = TFW_STR_COMPLETE }
+ *          chunks[1] = { nchunks = 3,
+ *                        len = undefined,
+ *                        chunks = ["tok", "en2", ":"],
+ *                        flags = TFW_STR_COMPLETE }
+ *          chunks[2] = { nchunks = 0,    <= single chunk stored inside parent
+ *                        len = 3,
+ *                        data = "tok",
+ *                        flags = 0 }     <= last uncompleted item
+ *          nchunks = 3
  */
 int
-tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array, unsigned int count_limit,
+tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 			   char *data, unsigned long len,
 			   char *terminator, unsigned long terminator_len)
 {
 	TfwStr *last_token;
+	TfwStr *last_chunks;
 	int new_items_n = 0;
-	bool terminator_assigned;
+	unsigned long added_len;
 
+	bool terminator_assigned;
 	bool data_assigned = data && len != 0;
 	if (data_assigned)
 		new_items_n += 1;
@@ -691,61 +725,88 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array, unsigned int count_limi
 	if (array->nchunks != 0)
 		last_token = &array->chunks[array->nchunks - 1];
 
-	terminator_assigned = terminator && terminator_len != 0;
-	if (terminator_assigned) {
-		bool has_unterminated_item = data_assigned;
-		if (has_unterminated_item == false) {
-			if (last_token && (last_token->flags & TFW_STR_COMPLETE) == 0)
-				has_unterminated_item = true;
-		}
-		if (has_unterminated_item == false)
-			terminator_assigned = false;
+	terminator_assigned = false;
+	if (terminator && terminator_len != 0) {
+		bool unterminated_item =
+			data_assigned
+			|| (last_token
+			    && (last_token->flags & TFW_STR_COMPLETE) == 0);
+		/*
+		 * Only append terminator to an existing uncompleted item or to
+		 * the one newly created below.
+		 */
+		terminator_assigned = unterminated_item;
 	}
 
 	if (terminator_assigned)
 		new_items_n += 1;
 
 	/* data_assigned || terminator_assigned */
-	if (new_items_n != 0) {
-		TfwStr *last_chunk;
-		/* empty array is supposed to be initialized by zeroes */
-		if (array->nchunks == 0) {
-			last_token = __str_grow_tree(pool, array, 0, 1);
-			if (!last_token)
-				return -ENOMEM;
-		}
-		if ((last_token->flags & TFW_STR_COMPLETE) == TFW_STR_COMPLETE) {
-			if (array->nchunks == count_limit)
-				return -1;
-			last_token = __str_grow_tree(pool, array, 0, 1);
-			if (!last_token)
-				return -ENOMEM;
-		}
+	if (new_items_n == 0)
+		return 0;
 
-		last_chunk = __str_grow_tree(pool, last_token, 0, new_items_n);
-		if (!last_chunk)
+	/* Empty array is supposed to be initialized by zeroes */
+	/* Allocate a new uncompleted first-level item if none exist. */
+	if (array->nchunks == 0) { /* implies last_token == NULL */
+		/*
+		 * Cannot store "last_token" at the place of "array" the way
+		 * "__str_grow_tree" implies, because we need distinct nchunks
+		 * for different levels of the tree.
+		 */
+		last_token = __str_alloc(pool, array, 1);
+		if (!last_token)
 			return -ENOMEM;
-		if (data_assigned) {
-			last_chunk->len = len;
-			last_chunk->data = data;
-			last_token->len += len;
-			if (terminator_assigned) {
-				BUG_ON(new_items_n != 2);
-				last_chunk[1].len = terminator_len;
-				last_chunk[1].data = terminator;
-				last_token->len += terminator_len;
-			}
-		}
-		else {
-			last_chunk->len = terminator_len;
-			last_chunk->data = terminator;
-			last_token->len += terminator_len;
-		}
-
-		if (terminator_assigned)
-			last_token->flags |= TFW_STR_COMPLETE;
-		/* We don't really care about array->len */
 	}
+
+	if ((last_token->flags & TFW_STR_COMPLETE) == TFW_STR_COMPLETE) {
+		if (array->nchunks == __TFW_STR_ARRAY_MAX)
+			return -1;
+		last_token = __str_grow_tree(pool, array, 0, 1);
+		if (!last_token)
+			return -ENOMEM;
+	}
+	/* Append second-level chunks into the uncompleted token/item. */
+	if (TFW_STR_EMPTY(last_token)) {
+		if (new_items_n == 1)
+			/* Merge single item into parent to avoid reallocation */
+			last_chunks = last_token;
+		else
+			last_chunks = __str_alloc(pool, last_token, new_items_n);
+	}
+	else
+		last_chunks = __str_grow_tree(pool, last_token, 0, new_items_n);
+
+	if (!last_chunks)
+		return -ENOMEM;
+
+	added_len = 0;
+	if (data_assigned) {
+		added_len += len;
+		last_chunks->len = len;
+		last_chunks->data = data;
+
+		if (terminator_assigned) {
+			BUG_ON(new_items_n != 2);
+			BUG_ON(last_chunks == last_token);
+			added_len += terminator_len;
+			last_chunks[1].len = terminator_len;
+			last_chunks[1].data = terminator;
+		}
+	}
+	else { /* terminator_assigned == true */
+		added_len += terminator_len;
+		last_chunks->len = terminator_len;
+		last_chunks->data = terminator;
+	}
+	/*
+	 * We don't care about array->len, but the last_token->len is requires
+	 * for string comparison functions e.g. tfw_stricmpspn
+	*/
+	if (last_token != last_chunks)
+		last_token->len += added_len;
+
+	if (terminator_assigned)
+		last_token->flags |= TFW_STR_COMPLETE;
 
 	return 0;
 }

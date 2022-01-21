@@ -72,7 +72,7 @@ typedef struct {
  */
 typedef struct {
 	size_t		len;
-	char		str;
+	char		str[0];
 } TfwCaToken;
 
 /* tfw_vhost_get_capo_hdr_del result */

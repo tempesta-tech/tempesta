@@ -351,7 +351,7 @@ do {									\
 		parser->_i_st = &&to;					\
 		r = TFW_POSTPONE;					\
 		finish;							\
-		__FSM_EXIT(r);				\
+		__FSM_EXIT(r);						\
 	}								\
 } while (0)
 
@@ -2250,13 +2250,22 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	parser->cache_control.dir_flag = 0;
+
 	__FSM_STATE(Req_I_CC_start) {
-		parser->cache_control.dir_flag = 0;
-		parser->cache_control.filled = false;
-		/* fall through */
+		if (IS_WS(c))
+			__FSM_I_MOVE(Req_I_CC_start);
+		/* Two consecutive commas not allowed */
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
+
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_CC);
+		/* Forbid empty header value */
+		__FSM_EXIT(TFW_BLOCK);
 	}
+
 	__FSM_STATE(Req_I_CC) {
-		WARN_ON_ONCE(parser->cache_control.dir_flag);
 		switch (TFW_LC(c)) {
 		case 'm':
 			__FSM_I_JMP(Req_I_CC_m);
@@ -2300,22 +2309,17 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_CC_Flag) {
 		/* A start of a standard directive successfully detected */
-		WARN_ON_ONCE(!parser->cache_control.dir_flag);
-		parser->cache_control.filled = true;
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
 			req->cache_ctl.flags |= parser->cache_control.dir_flag;
 			__FSM_I_JMP(Req_I_EoT);
 		}
 		/* ...but the directive appears to have an unknown suffix */
-		parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxAgeVBeg, Req_I_CC_MaxAgeV);
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
@@ -2330,8 +2334,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MinFreshVBeg, Req_I_CC_MinFreshV);
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
@@ -2344,8 +2346,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
-		parser->cache_control.filled = true;
-
 		if (c == '=')
 			__FSM_I_MOVE(Req_I_CC_MaxStaleVBeg);
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
@@ -2353,7 +2353,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 			__FSM_I_JMP(Req_I_EoT);
 		}
-		parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
 		/* something like "max-staledfgh$!dgh" */
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
@@ -2361,8 +2360,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxStaleVBeg, Req_I_CC_MaxStaleV);
 
 	__FSM_STATE(Req_I_CC_MaxStaleV) {
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
@@ -2375,21 +2372,10 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_Ext) {
-		/* Any flag we don't understand.
+		/* Any directive we don't understand.
 		 * Here we just skip all the tokens, double quotes and equal signs.
 		 */
-		__FSM_I_MATCH_MOVE_fixup_finish(qetoken, Req_I_CC_Ext, 0, {
-			parser->cache_control.filled = true;
-			if (parser->cache_control.dir_flag == 0) {
-				parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
-			}
-		});
-		if (__fsm_sz > 0) {
-			if (parser->cache_control.dir_flag == 0) {
-				parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
-			}
-			parser->cache_control.filled = true;
-		}
+		__FSM_I_MATCH_MOVE_fixup(qetoken, Req_I_CC_Ext, 0);
 
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz);
 	}
@@ -2405,31 +2391,37 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_EXIT(TFW_BLOCK);
 
-		if (IS_CRLF(c)) {
-			/* Cache-Control header cannot be empty */
-			if (!parser->cache_control.filled)
-				__FSM_EXIT(TFW_BLOCK);
-			else
-				__FSM_EXIT(__data_processed(p));
-		}
+		if (IS_CRLF(c))
+			__FSM_EXIT(__data_processed(p));
+
 		__FSM_EXIT(TFW_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_After_Comma) {
-		if (IS_WS(c) || c == ',')
+		if (IS_WS(c))
 			__FSM_I_MOVE(Req_I_After_Comma);
+		/*
+		 * RFC 7234 uses RFC 7230 for token list definition.
+		 * Per RFC 7230 Section 7 sender is required to send
+		 * non-empty tokens i.e. no two consequtive commas allowed.
+		 * However, this section also mentiones compatibility with
+		 * older implementations that might send a limited amount of
+		 * empty directives/consecutive commas as allowed, for example,
+		 * by RFC 2616 HTTP/1.1 specification.
+		 * Here we forbid consecutive commas completely.
+		 */
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
 
+		parser->_acc = 0;
 		if (IS_TOKEN(c)) {
 			/* reinit for next token */
 			parser->cache_control.dir_flag = 0;
 			__FSM_I_JMP(Req_I_CC);
 		}
-		if (IS_CRLF(c)) {
-			if (!parser->cache_control.filled)
-				__FSM_EXIT(TFW_BLOCK);
-			else
-				__FSM_EXIT(__data_processed(p));
-		}
+		if (IS_CRLF(c))
+			__FSM_EXIT(__data_processed(p));
+
 		__FSM_EXIT(TFW_BLOCK);
 	}
 
@@ -5921,13 +5913,22 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_START(parser->_i_st);
 
+	parser->cache_control.dir_flag = 0;
+
 	__FSM_STATE(Req_I_CC_start) {
-		parser->cache_control.dir_flag = 0;
-		parser->cache_control.filled = false;
-		/* fall through */
+		if (IS_WS(c))
+			__FSM_I_MOVE(Req_I_CC_start);
+		/* Two consecutive commas not allowed */
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
+
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_CC);
+		/* Forbid empty header value */
+		__FSM_EXIT(TFW_BLOCK);
 	}
+
 	__FSM_STATE(Req_I_CC) {
-		WARN_ON_ONCE(parser->cache_control.dir_flag);
 		switch (TFW_LC(c)) {
 		case 'm':
 			__FSM_I_JMP(Req_I_CC_m);
@@ -5994,21 +5995,16 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_CC_Flag) {
-		WARN_ON_ONCE(!parser->cache_control.dir_flag);
-		parser->cache_control.filled = true;
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.flags |= parser->cache_control.dir_flag;
 			__FSM_I_JMP(Req_I_EoT);
 		}
-		parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxAgeVBeg, Req_I_CC_MaxAgeV);
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE) {
@@ -6031,8 +6027,6 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MinFreshVBeg, Req_I_CC_MinFreshV);
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE) {
@@ -6053,8 +6047,6 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
-		parser->cache_control.filled = true;
-
 		if (c == '=')
 			__FSM_H2_I_MOVE_RESET_ACC(Req_I_CC_MaxStaleVBeg, 1);
 		if (IS_WS(c) || c == ',') {
@@ -6068,8 +6060,6 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxStaleVBeg, Req_I_CC_MaxStaleV);
 
 	__FSM_STATE(Req_I_CC_MaxStaleV) {
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE) {
@@ -6089,23 +6079,10 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_n);
 	}
 
-	__FSM_STATE(Req_I_CC_Ext_Repeated) {
-		/* Equivalent of passing lambda to __FSM_I_MATCH_MOVE_fixup_finish */
-		if (parser->cache_control.dir_flag == 0) {
-			parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
-		}
-		/* fallthough */
-	}
 	__FSM_STATE(Req_I_CC_Ext) {
-		__FSM_H2_I_MATCH_MOVE_LAMBDA(qetoken, Req_I_CC_Ext_Repeated, {
+		__FSM_H2_I_MATCH_MOVE_LAMBDA(qetoken, Req_I_CC_Ext, {
 			parser->_acc = 0;
 		});
-		if (__fsm_sz > 0) {
-			if (parser->cache_control.dir_flag == 0) {
-				parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
-			}
-			parser->cache_control.filled = true;
-		}
 
 		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_sz);
 	}
@@ -6123,14 +6100,16 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_After_Comma) {
-		if (IS_WS(c) || c == ',')
+		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_After_Comma);
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
+
 		parser->_acc = 0;
 		if (IS_TOKEN(c)) {
 			parser->cache_control.dir_flag = 0;
 			__FSM_I_JMP(Req_I_CC);
 		}
-		/* Should also check for parser->cache_control.filled at CRLF */
 		__FSM_EXIT(TFW_BLOCK);
 	}
 
@@ -8676,13 +8655,23 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	parser->cache_control.dir_flag = 0;
+
 	__FSM_STATE(Req_I_CC_start) {
-		parser->cache_control.dir_flag = 0;
-		parser->cache_control.filled = false;
-		/* fall through */
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(Req_I_CC_start, 1, TFW_STR_OWS);
+		/* Two consecutive commas not allowed */
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
+
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Resp_I_CC);
+
+		/* Forbid empty header value */
+		__FSM_EXIT(TFW_BLOCK);
 	}
+
 	__FSM_STATE(Resp_I_CC) {
-		WARN_ON_ONCE(parser->cache_control.dir_flag);
 		switch (TFW_LC(c)) {
 		case 'm':
 			__FSM_I_JMP(Resp_I_CC_m);
@@ -8711,7 +8700,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-cache"),
 			&parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_NO_CACHE;
-		}, Resp_I_CC_n, Resp_I_Flag_Maybe_Qal);
+		}, Resp_I_CC_n, Resp_I_Flag_No_Cache);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-store"),
 			&parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_NO_STORE;
@@ -8730,7 +8719,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}, Resp_I_CC_p, Resp_I_Flag);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("private"), &parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_PRIVATE;
-		}, Resp_I_CC_p, Resp_I_Flag_Maybe_Qal);
+		}, Resp_I_CC_p, Resp_I_Flag_Private);
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("proxy-revalidate"),
 			&parser->hdr, {
 			parser->cache_control.dir_flag = TFW_HTTP_CC_PROXY_REVAL;
@@ -8739,47 +8728,47 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
-	__FSM_STATE(Resp_I_Flag_Maybe_Qal) {
-		/*
-		 * no-cache or private with arguments as defined by rfc7234
-		 * sections 5.2.2.2 and 5.2.2.6
-		 */
-		parser->cache_control.filled = true;
+	/*
+	 * no-cache or private with arguments as defined by rfc7234
+	 * sections 5.2.2.2 and 5.2.2.6
+	 */
+	__FSM_STATE(Resp_I_Flag_No_Cache) {
 		if (c == '=') {
 			/* Qualified form cancels out the general flag */
-			if (parser->cache_control.dir_flag == TFW_HTTP_CC_PRIVATE)
-				resp->cache_ctl.flags |= TFW_HTTP_CC_PRIVATE_QUAL;
-			else
-				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE_QUAL;
-
-			/* Resp_I_CC_Opening_Quote => Resp_I_CC_Flag_Argument =>
-			 * => Resp_I_EoT */
-			__FSM_I_MOVE_fixup(Resp_I_CC_Opening_Quote, 1, 0);
+			/*
+			 * Resp_I_CC_Opening_Quote => Resp_I_CC_Dir_Arg_Token =>
+			 * => Resp_I_CC_Dir_Arg_EoT
+			 */
+			__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Opening_Quote, 1, 0);
 		}
-		/* not qualified, fall though */
+		__FSM_I_JMP(Resp_I_Flag);
 	}
+
+	__FSM_STATE(Resp_I_Flag_Private) {
+		if (c == '=')
+			__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Opening_Quote, 1, 0);
+
+		__FSM_I_JMP(Resp_I_Flag);
+	}
+
 	__FSM_STATE(Resp_I_Flag) {
 		/* A start of a standard directive successfully detected */
-		WARN_ON_ONCE(!parser->cache_control.dir_flag);
-		parser->cache_control.filled = true;
-
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
 			resp->cache_ctl.flags |= parser->cache_control.dir_flag;
 			__FSM_I_JMP(Resp_I_EoT);
 		}
 		/* ...but the flag appears to have an unknown suffix */
-		parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
-	__FSM_STATE(Resp_I_CC_Opening_Quote) {
+	__FSM_STATE(Resp_I_CC_Dir_Opening_Quote) {
 		if (c != '"')
 			__FSM_EXIT(TFW_BLOCK);
-		else
-			__FSM_I_MOVE_fixup(Resp_I_CC_Flag_Argument_Token, 1, 0);
+
+		__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_Token, 1, 0);
 	}
 
-	__FSM_STATE(Resp_I_CC_Flag_Argument_Token) {
+	__FSM_STATE(Resp_I_CC_Dir_Arg_Token) {
 		/* comma-separated field list (field-name/token) with optional
 		 * linear white space
 		 */
@@ -8789,7 +8778,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 		__FSM_I_MATCH_MOVE_fixup_finish(token, Resp_I_Ext, 0, {
 			if (tfw_str_array_append_chunk(msg->pool, tokens,
-						       TFW_CACHE_CONTROL_TOKENS_MAX,
 						       p, __fsm_sz,
 						       NULL, 0))
 			{
@@ -8799,23 +8787,48 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 		/* Header name comparison requires a trailing colon */
 		if (tfw_str_array_append_chunk(msg->pool, tokens,
-					       TFW_CACHE_CONTROL_TOKENS_MAX,
 					       p, __fsm_sz,
 					       ":", 1))
 		{
 			__FSM_EXIT(TFW_BLOCK);
 		}
 
-		__FSM_I_MOVE_fixup(Resp_I_CC_Flag_Separator, __fsm_sz, 0);
+		__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_EoT, __fsm_sz, 0);
 	}
 
-	__FSM_STATE(Resp_I_CC_Flag_Separator) {
+	__FSM_STATE(Resp_I_CC_Dir_Arg_EoT) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_EoT, 1,
+					   TFW_STR_OWS);
 		if (IS_CRLF(c))
 			__FSM_EXIT(TFW_BLOCK);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_fixup(Resp_I_CC_Flag_Argument_Token, 1, 0);
+		 if (c == ',')
+			__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_Comma, 1, 0);
 		if (c == '"')
 			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, 0);
+		/*
+		 * if (IS_TOKEN(c)) then block too, because tokens should be
+		 * separated by commas
+		 */
+		__FSM_EXIT(TFW_BLOCK);
+	}
+
+	__FSM_STATE(Resp_I_CC_Dir_Arg_Comma) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_Comma, 1,
+					   TFW_STR_OWS);
+		if (IS_CRLF(c))
+			__FSM_EXIT(TFW_BLOCK);
+		/*
+		 * Two consecutive commas in arguments not allowed,
+		 * just like in Cache-Control directives.
+		 */
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
+		if (c == '"')
+			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, 0);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Resp_I_CC_Dir_Arg_Token);
 
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -8839,8 +8852,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE))
 			__FSM_EXIT(TFW_BLOCK);
-
-		parser->cache_control.filled = true;
 
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
@@ -8866,8 +8877,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE))
 			__FSM_EXIT(TFW_BLOCK);
 
-		parser->cache_control.filled = true;
-
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
@@ -8880,23 +8889,12 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_Ext) {
-		/* Any flag we don't understand.
+		/*
+		 * Any directive we don't understand.
 		 * Here we just skip all the tokens, double quotes and
 		 * equality signs.
 		 */
-		__FSM_I_MATCH_MOVE_fixup_finish(qetoken, Resp_I_Ext, 0, {
-			if (parser->cache_control.dir_flag == 0) {
-				parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
-			}
-			parser->cache_control.filled = true;
-		});
-
-		if (__fsm_sz > 0) {
-			if (parser->cache_control.dir_flag == 0) {
-				parser->cache_control.dir_flag = TFW_HTTP_CC_OTHER;
-			}
-			parser->cache_control.filled = true;
-		}
+		__FSM_I_MATCH_MOVE_fixup(qetoken, Resp_I_Ext, 0);
 
 		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_sz, 0);
 	}
@@ -8912,34 +8910,28 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_EXIT(TFW_BLOCK);
 
-		if (IS_CRLF(c)) {
-			/* Cache-Control header cannot be empty */
-			if (!parser->cache_control.filled)
-				__FSM_EXIT(TFW_BLOCK);
-			else
-				__FSM_EXIT(__data_processed(p));
-		}
+		if (IS_CRLF(c))
+			__FSM_EXIT(__data_processed(p));
+
 		__FSM_EXIT(TFW_BLOCK);
 	}
 
 	__FSM_STATE(Resp_I_After_Comma) {
-		if (c == ',')
-			__FSM_I_MOVE_fixup(Resp_I_After_Comma, 1, 0);
-
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(Resp_I_After_Comma, 1, TFW_STR_OWS);
+		/* Two consecutive commas not allowed */
+		if (c == ',')
+			__FSM_EXIT(TFW_BLOCK);
 
+		parser->_acc = 0;
 		if (IS_TOKEN(c)) {
 			/* reinit for next token */
 			parser->cache_control.dir_flag = 0;
 			__FSM_I_JMP(Resp_I_CC);
 		}
-		if (IS_CRLF(c)) {
-			if (!parser->cache_control.filled)
-				__FSM_EXIT(TFW_BLOCK);
-			else
-				__FSM_EXIT(__data_processed(p));
-		}
+		if (IS_CRLF(c))
+			__FSM_EXIT(__data_processed(p));
+
 		__FSM_EXIT(TFW_BLOCK);
 	}
 

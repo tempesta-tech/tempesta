@@ -1071,7 +1071,7 @@ tfw_cfgop_capo_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 		const char *arg = ce->vals[i];
 		size_t len = strlen(arg);
 		/* Need a trailing colon for header matching, and '\0'. */
-		int item_size = offsetof(TfwCaToken, str) + len + 1 + 1;
+		int item_size = sizeof(TfwCaToken) + len + 1 + 1;
 		total_size += item_size;
 	}
 	new_tokens = NULL;
@@ -1086,13 +1086,13 @@ tfw_cfgop_capo_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 		for (i = 0; i < ce->val_n; ++i) {
 			const char *arg = ce->vals[i];
 			size_t len = strlen(arg);
-			char *str = &token->str;
+			char *str = token->str;
 			token->len = len + 2;
 			memcpy(str, (void *)arg, len);
 			str[len] = ':';
-			str[len+1] = '\0';
+			str[len + 1] = '\0';
 
-			actual_bytes += offsetof(TfwCaToken, str) + len + 2;
+			actual_bytes += sizeof(TfwCaToken) + len + 2;
 			token = (TfwCaToken *)(actual_bytes + (char *)new_tokens);
 		}
 		BUG_ON(actual_bytes != total_size);
@@ -1111,11 +1111,11 @@ tfw_cfgop_capo_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 static int
 tfw_cfgop_cc_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 {
-#define STR_AND_LEN(s)  s, sizeof(s)-1
+#define STR_AND_LEN(s)  sizeof(s)-1, s
 const struct {
 	unsigned int flag;
-	char *dir;
 	unsigned int dir_sz;
+	char *dir;
 } dir_map[] = {
 	/* CC directives common to requests and responses. */
 	{ TFW_HTTP_CC_NO_CACHE, STR_AND_LEN("no-cache") },
@@ -1161,7 +1161,6 @@ const struct {
 
 	return 0;
 }
-#undef DIR_MAP_SIZE
 
 static int
 tfw_cfgop_loc_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)

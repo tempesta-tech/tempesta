@@ -195,6 +195,7 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  * ------------------------------------------------------------------------
  */
 #define __TFW_STR_CN_MAX	UINT_MAX
+#define __TFW_STR_ARRAY_MAX	16
 /*
  * Str consists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
@@ -395,7 +396,6 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 int tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
-			       unsigned int count_limit,
 			       char *data, unsigned long len,
 			       char *terminator, unsigned long terminator_len);
 

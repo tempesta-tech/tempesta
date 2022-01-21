@@ -1545,7 +1545,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->hdrs = TDB_OFF(db->hdr, p);
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
-	printk("Writing cache");
 	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
 		int hid = field - resp->h_tbl->tbl;
 		/*
@@ -1656,14 +1655,14 @@ check_cfg_ignored_header(const TfwStr *field, TfwCaToken *tokens,
 	TfwCaToken *token = tokens;
 	for (i = 0; i < tokens_sz; i++) {
 		const TfwStr to_del = {
-			.data = &token->str,
+			.data = token->str,
 			.len = token->len - 1
 		};
 		BUG_ON(token->len > 10000);
 		if (tfw_stricmpspn(field, &to_del, ':') == 0) {
 			return true;
 		}
-		bytes_count += offsetof(TfwCaToken, str) + token->len;
+		bytes_count += sizeof(TfwCaToken) + token->len;
 		token = (TfwCaToken *)(bytes_count + (char *)tokens);
 	}
 	return false;

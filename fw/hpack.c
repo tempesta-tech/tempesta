@@ -1888,14 +1888,15 @@ check_name_text:
 
 		NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
-		if (src >= last) {
-			if (!h2_mode) {
-				/*
-				 * We are going to skip the HPACK_STATE_VALUE_TEXT,
-				 * but still need the newline for a correct HTTP/1
-				 */
+		if (unlikely(src >= last)) {
+			/*
+			 * The header has no value, so we are going to skip the
+			 * HPACK_STATE_VALUE_TEXT, but still need to write CRLF
+			 * at the end of the header line for a correct HTTP/1.
+			 */
+			if (!h2_mode)
 				EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
-			}
+
 			goto out;
 		}
 

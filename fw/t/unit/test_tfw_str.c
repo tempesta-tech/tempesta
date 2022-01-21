@@ -1679,6 +1679,83 @@ TEST(str_avx2, perf)
 }
 #endif
 
+TEST(tfw_str_array_append_chunk, simple)
+{
+	TfwStr *s = tfw_pool_alloc(str_pool, sizeof(*s));
+	BUG_ON(!s);
+	TFW_STR_INIT(s);
+
+	tfw_str_array_append_chunk(str_pool, s, "token1", SLEN("token1"),
+				   ":", 1);
+	EXPECT_TRUE(s->nchunks == 1);
+	EXPECT_TRUE(s->chunks[0].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "token1:", SLEN("token1:"), 0));
+
+	tfw_str_array_append_chunk(str_pool, s, "token2", SLEN("token2"),
+				   ":", 1);
+	EXPECT_TRUE(s->nchunks == 2);
+	EXPECT_TRUE(s->chunks[0].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "token1:", SLEN("token1:"), 0));
+	EXPECT_TRUE(s->chunks[1].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[1],
+				    "token2:", SLEN("token2:"), 0));
+}
+
+TEST(tfw_str_array_append_chunk, compound)
+{
+	TfwStr *s = tfw_pool_alloc(str_pool, sizeof(*s));
+	BUG_ON(!s);
+	TFW_STR_INIT(s);
+
+	tfw_str_array_append_chunk(str_pool, s, "tok", SLEN("tok"), NULL, 0);
+	EXPECT_TRUE(s->nchunks == 1);
+	EXPECT_TRUE(s->chunks[0].flags == 0);
+	EXPECT_TRUE(s->chunks[0].nchunks == 0);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "tok", SLEN("tok"), 0));
+
+	tfw_str_array_append_chunk(str_pool, s, "en1", SLEN("en1"), ":", 1);
+	EXPECT_TRUE(s->nchunks == 1);
+	EXPECT_TRUE(s->chunks[0].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(s->chunks[0].nchunks == 3);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "token1:", SLEN("token1:"), 0));
+
+	tfw_str_array_append_chunk(str_pool, s, "tok", SLEN("tok"), NULL, 0);
+	EXPECT_TRUE(s->nchunks == 2);
+	EXPECT_TRUE(s->chunks[0].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(s->chunks[0].nchunks == 3);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "token1:", SLEN("token1:"), 0));
+	EXPECT_TRUE(s->chunks[1].flags == 0);
+	EXPECT_TRUE(s->chunks[1].nchunks == 0);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[1],
+				    "tok", SLEN("tok"), 0));
+
+	tfw_str_array_append_chunk(str_pool, s, "en", SLEN("en"), NULL, 0);
+	EXPECT_TRUE(s->nchunks == 2);
+	EXPECT_TRUE(s->chunks[0].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(s->chunks[0].nchunks == 3);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "token1:", SLEN("token1:"), 0));
+	EXPECT_TRUE(s->chunks[1].flags == 0);
+	EXPECT_TRUE(s->chunks[1].nchunks == 2);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[1],
+				    "token", SLEN("token"), 0));
+
+	tfw_str_array_append_chunk(str_pool, s, "2", SLEN("2"), ":", 1);
+	EXPECT_TRUE(s->nchunks == 2);
+	EXPECT_TRUE(s->chunks[0].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[0],
+				    "token1:", SLEN("token1:"), 0));
+	EXPECT_TRUE(s->chunks[1].flags == TFW_STR_COMPLETE);
+	EXPECT_TRUE(s->chunks[1].nchunks == 4);
+	EXPECT_TRUE(tfw_str_eq_cstr(&s->chunks[1],
+				    "token2:", SLEN("token2:"), 0));
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -1765,6 +1842,9 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_next_str_val, first);
 	TEST_RUN(tfw_str_next_str_val, middle);
 	TEST_RUN(tfw_str_next_str_val, last);
+
+	TEST_RUN(tfw_str_array_append_chunk, simple);
+	TEST_RUN(tfw_str_array_append_chunk, compound);
 
 #ifdef AVX2
 	TEST_RUN(str_avx2, perf);

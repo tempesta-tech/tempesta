@@ -41,7 +41,7 @@ typedef struct {
  *  pretty CPU-heavy, like O(N^2) or O(N*logN), so we avoid unintentional DOS
  *  by limiting the N.
  */
-#define TFW_CACHE_CONTROL_TOKENS_MAX	16
+#define TFW_CACHE_CONTROL_TOKENS_MAX	__TFW_STR_ARRAY_MAX
 
 /**
  * Non-cacheable hop-by-hop headers in terms of RFC 7230.
@@ -101,6 +101,10 @@ typedef struct {
  * @month_int	- accumulator for parsing of month;
  * @cache_control - additional state for internal FSM used to parse
  *		    cache-control values.
+ * @dir_flag	- designates an uncommitted directive currently being processed.
+ * @filled	- a flat set when the header is not empty, i.e. conain at
+ *		  least one directive-token.
+
  */
 typedef struct {
 	unsigned short			to_go;
@@ -126,7 +130,6 @@ typedef struct {
 		unsigned int		month_int;
 		struct {
 			short		dir_flag;
-			char		filled;
 		} cache_control;
 	};
 	TfwStr				_tmp_chunk;
