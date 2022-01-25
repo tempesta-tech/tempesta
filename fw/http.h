@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -615,6 +615,11 @@ enum {
 #define HTTP_CODE_MIN 100
 #define HTTP_CODE_MAX 599
 #define HTTP_CODE_BIT_NUM(code) ((code) - HTTP_CODE_MIN)
+
+#define T_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
+			  T_WARN("%s, status %d: %s\n",			\
+				 msg, status, addr_str))
 
 static inline int
 tfw_http_resp_code_range(const int n)

@@ -99,11 +99,7 @@ typedef struct {
  *		  hop-by-hop
  * @_date	- currently parsed http date value;
  * @month_int	- accumulator for parsing of month;
- * @cache_control - additional state for internal FSM used to parse
- *		    cache-control values.
- * @dir_flag	- designates an uncommitted directive currently being processed.
- * @filled	- a flat set when the header is not empty, i.e. conain at
- *		  least one directive-token.
+ * @cc_dir_flag	- designates an uncommitted directive currently being processed.
 
  */
 typedef struct {
@@ -128,9 +124,7 @@ typedef struct {
 	union {
 		long			_date;
 		unsigned int		month_int;
-		struct {
-			short		dir_flag;
-		} cache_control;
+		unsigned int		cc_dir_flag;
 	};
 	TfwStr				_tmp_chunk;
 	TfwStr				hdr;

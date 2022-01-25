@@ -113,11 +113,6 @@
 #define S_H2_PATH		":path"
 #define S_H2_STAT		":status"
 
-#define T_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
-	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-			  T_WARN("%s, status %d: %s\n",			\
-				 msg, status, addr_str))
-
 #define RESP_BUF_LEN		128
 
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
