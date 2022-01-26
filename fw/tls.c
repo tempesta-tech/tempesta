@@ -76,9 +76,9 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
 	while (unlikely(skb->len <= tail)) {
 		tail -= skb->len;
 		ss_skb_unlink(&data->skb, skb);
+		__kfree_skb(skb);
 		if (WARN_ON_ONCE(!data->skb))
 			return -EIO;
-		__kfree_skb(skb);
 		skb = data->skb->prev;
 	}
 
