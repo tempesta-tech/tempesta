@@ -1017,18 +1017,18 @@ ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
  * otherwise an error is retuned.
  */
 int
-ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head, 
+ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
 			   size_t head, size_t trail)
 {
 	struct sk_buff *skb, *skb_hd;
 	size_t sum;
 	int ret;
-	
+
 	skb_hd = *skb_list_head;
 	if (likely(skb_hd->next == skb_hd))
 		goto single_buff;
 	goto multi_buffs;
-	
+
 	/* Everywhere in the function we perform 'redundant'
 	 * checks for head and tail values to avoid unneccessary
 	 * calls to underlying ss_skb_chop_head_tail() for
@@ -1049,14 +1049,14 @@ single_buff:
 	return ss_skb_chop_head_tail(NULL, skb_hd, head, trail);
 
 multi_buffs:
-    /* skb_list contains more than 1 skb &&
+	/* skb_list contains more than 1 skb &&
 	 * skb_hd points to head element of the list
 	 */
-	 
+
 	/* Here below we delete heading skbs which size
 	 * is less than chop demand at the head,
 	 * switching to single_buff: in case
-	 */ 
+	 */
 	skb = skb_hd;
 	while (unlikely(skb->len <= head))
 	{
@@ -1074,15 +1074,15 @@ multi_buffs:
 		if (unlikely(skb->next == skb))
 			goto single_buff;
 	}
-	
-    /* skb_list still contains more than 1 skb &&
+
+	/* skb_list still contains more than 1 skb &&
 	 * skb_hd points to head element of the list
 	 */
 
 	/* Here below we delete trailing skbs which size
 	 * is less than chop demand at the tail,
 	 * switching to single_buff: in case
-	 */ 
+	 */
 	skb = skb_hd->prev;
 	while (unlikely(skb->len <= trail)) {
 		trail -= skb->len;
@@ -1093,23 +1093,21 @@ multi_buffs:
 		if (unlikely(skb == skb_hd))
 			goto single_buff;
 	}
-	
-    /* skb_list still contains more than 1 skb &&
+
+	/* skb_list still contains more than 1 skb &&
 	 * skb_hd points to head element of the list &&
 	 * skb points to last element of the list
 	 */
-	 
+
 	/* Here we remove remaining head and trail bytes, if any */
-	if (head)
-	{
+	if (head) {
 		ret = ss_skb_chop_head_tail(NULL, skb_hd, head, 0);
 		if (unlikely(ret))
 			return ret;
 	}
-	
 	if (trail)
 		return ss_skb_chop_head_tail(NULL, skb, 0, trail);
-	
+
 	return 0;
 }
 
