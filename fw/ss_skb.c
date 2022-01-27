@@ -1025,9 +1025,8 @@ ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
 	int ret;
 
 	skb_hd = *skb_list_head;
-	if (likely(skb_hd->next == skb_hd))
-		goto single_buff;
-	goto multi_buffs;
+	if (unlikely(skb_hd->next != skb_hd))
+		goto multi_buffs;
 
 	/* Everywhere in the function we perform 'redundant'
 	 * checks for @head and @trail values to avoid unneccessary
@@ -1041,7 +1040,7 @@ single_buff:
 	 */
 	sum = head + trail;
 	if (WARN_ON_ONCE(skb_hd->len <= sum))
-		return -EBADMSG;
+		return -EINVAL;
 	if (unlikely(sum == 0))
 		/* Nothing to chop */
 		/* This check is mostly for jumps from branches below */
