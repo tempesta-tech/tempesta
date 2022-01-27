@@ -1061,7 +1061,7 @@ multi_buffs:
 	while (unlikely(skb->len <= head)) {
 		head -= skb->len;
 		/* We do not use ss_skb_unlink() here and in
-		 * in the similar loop for tail below to prevent
+		 * the similar loop for tail below to prevent
 	 	 * removing the last skb in the list and to skip
 	 	 * unneccessary checks and actions inside the func.
 	 	 */
