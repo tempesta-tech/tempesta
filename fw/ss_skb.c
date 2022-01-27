@@ -1030,7 +1030,7 @@ ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
 	goto multi_buffs;
 
 	/* Everywhere in the function we perform 'redundant'
-	 * checks for head and tail values to avoid unneccessary
+	 * checks for @head and @trail values to avoid unneccessary
 	 * calls to underlying ss_skb_chop_head_tail() for
 	 * optimization purpose
 	 */
