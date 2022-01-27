@@ -1100,12 +1100,12 @@ multi_buffs:
 	 */
 
 	/* Here we remove remaining head and trail bytes, if any */
-	if (head) {
+	if (likely(head)) {
 		ret = ss_skb_chop_head_tail(NULL, skb_hd, head, 0);
 		if (unlikely(ret))
 			return ret;
 	}
-	if (trail)
+	if (likely(trail))
 		return ss_skb_chop_head_tail(NULL, skb, 0, trail);
 
 	return 0;
