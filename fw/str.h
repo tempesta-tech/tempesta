@@ -397,7 +397,7 @@ TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 int tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 			       char *data, unsigned long len,
-			       char *terminator, unsigned long terminator_len);
+			       bool complete_last);
 
 typedef enum {
 	TFW_STR_EQ_DEFAULT = 0x0,

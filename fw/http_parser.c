@@ -6112,8 +6112,6 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_After_Comma) {
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_After_Comma);
-		if (c == ',')
-			__FSM_EXIT(TFW_BLOCK);
 
 		parser->_acc = 0;
 		if (IS_TOKEN(c)) {
@@ -8784,11 +8782,10 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/* comma-separated field list (field-name/token) with optional
 		 * linear white space
 		 */
-#define __APPEND_CC_DIR(terminator)						\
+#define __APPEND_CC_DIR(complete_current)					\
 do {										\
 	int ret = tfw_str_array_append_chunk(msg->pool, tokens, p, __fsm_sz,	\
-					     terminator,			\
-					     terminator ? SLEN(terminator) : 0);\
+					     complete_current);			\
 	if (unlikely(ret)) {							\
 		if (ret == -E2BIG)						\
 			T_WARN_ADDR_STATUS(					\
@@ -8805,11 +8802,11 @@ do {										\
 
 		__FSM_I_MATCH_MOVE_fixup_finish(token, Resp_I_CC_Dir_Arg_Token,
 						0, {
-			__APPEND_CC_DIR(NULL);
+			__APPEND_CC_DIR(false);
 		});
 
 		/* Completing the current item */
-		__APPEND_CC_DIR("");
+		__APPEND_CC_DIR(true);
 #undef __APPEND_CC_DIR
 
 		__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_EoT, __fsm_sz, 0);

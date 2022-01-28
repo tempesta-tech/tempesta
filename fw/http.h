@@ -539,9 +539,12 @@ typedef struct {
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
  *
- * @jrxtstamp	- time the message has been received, in jiffies;
- * @mit		- iterator for controlling HTTP/1.1 => HTTP/2 message
- *		  transformation process (applicable for HTTP/2 mode only).
+ * @jrxtstamp	    - time the message has been received, in jiffies;
+ * @mit		    - iterator for controlling HTTP/1.1 => HTTP/2 message
+ *		      transformation process (applicable for HTTP/2 mode only).
+ * @no_cache_tokens - tokens for cache-control directive e.g.
+ *		      Cache-Control: no-cache="token1, token2"
+ * @private_tokens  - similar to @no_cache_tokens but for private="tokens"
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;

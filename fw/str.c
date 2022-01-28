@@ -689,16 +689,10 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 }
 
 /**
- * Append the data and terminator strings as leaves into 2-level tree @array.
- * If assigned, @terminator will be appended to the last incomplete item.
- * If @terminator is assigned but @terminator_len is 0, the last item in the
- * @array is marked as completed, but no terminator is appended
- * i.e. empty terminator.
- *
+ * Append the @data string as a leaf into 2-level tree @array. *
  * Constracts:
  * 1. @data != NULL
- * 2. @terminator == NULL iff @terminator_len == 0
- * 3. In case of error the caller do not proceed with the HTTP message and
+ * 2. In case of error the caller do not proceed with the HTTP message and
  *    frees the associated memory pool soon.
  *
  * The array is at most 3 levels:
@@ -707,61 +701,46 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
  * 3. string chunks for the arrays items (if the strings are chunked)
  *
  * array -> chunks[0] = { nchunks = 2,
- *                        len = 0,
- *                        chunks = ["token1", ":"],    <= @terminator was ":"
- *                        flags = TFW_STR_COMPLETE }
- *          chunks[1] = { nchunks = 3,
  *                        len = undefined,
- *                        chunks = ["tok", "en2", ":"],
+ *                        chunks = ["tok", "en2"],
  *                        flags = TFW_STR_COMPLETE }
- *          chunks[2] = { nchunks = 0,    <= single chunk stored inside parent
+ *          chunks[1] = { nchunks = 0,    <= single chunk stored inside parent
  *                        len = 3,
  *                        data = "tok",
  *                        flags = 0 }     <= last uncompleted item
- *          nchunks = 3
+ *          nchunks = 2
  */
 int
 tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 			   char *data, unsigned long len,
-			   char *terminator, unsigned long terminator_len)
+			   bool complete_last)
 {
-	TfwStr *last_token = NULL, *last_chunks;
-	int new_items_n = 0;
+	TfwStr *last_token = NULL, *last_chunk;
 	unsigned long added_len = 0;
-	bool terminator_assigned;
-	bool shall_terminate;
+	bool shall_complete;
 
 	/* Quick return when there's nothing to do */
-	if (!len && !terminator)
+	if (!len && !complete_last)
 		return 0;
 
 	BUG_ON(!data);
-	BUG_ON(!terminator && terminator_len);
-
-	if (len)
-		new_items_n = 1;
 	if (array->nchunks)
 		last_token = &array->chunks[array->nchunks - 1];
 	/*
-	 * Only append terminator to an existing uncompleted item or to
+	 * Only try to complete an existing uncompleted item or to
 	 * the one newly created at the below.
 	 */
 	if ((len || (last_token && !(last_token->flags & TFW_STR_COMPLETE)))
-	    && terminator)
+	    && complete_last)
 	{
-		shall_terminate = true;
-		if (terminator_len) {
-			terminator_assigned = true;
-			++new_items_n;
-		}
+		shall_complete = true;
 	} else {
-		shall_terminate = false;
-		terminator_assigned = false;
+		shall_complete = false;
 	}
 
-	if (!new_items_n) {
+	if (!len) {
 		/* No chunks to be appended, just mark the item as completed */
-		if (shall_terminate) /* implies last_token != NULL */
+		if (shall_complete) /* implies last_token != NULL */
 			last_token->flags |= TFW_STR_COMPLETE;
 
 		return 0;
@@ -777,7 +756,7 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 	 * Empty chunks array is always initialized with zeroes.
 	 *
 	 * Step 1: allocate a new uncompleted first-level item if none exists or
-	 * if the last array item is completed (has a terminator).
+	 * if the last array item is completed.
 	 */
 	if (!last_token) { /* implies array->nchunks == 0 */
 		/*
@@ -790,17 +769,12 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 			return -ENOMEM;
 	}
 	else if (last_token->flags & TFW_STR_COMPLETE) {
-		if (unlikely(array->nchunks == __TFW_STR_ARRAY_MAX))
-			return -E2BIG;
 		/*
 		 * If the last token is complete, then we need to add some more
-		 * data next. There is no use case for addition of terminator
-		 * to an empty item.
-		 * Due to the conditions above, "!len && new_items_n" implies
-		 * "last_token && !(last_token->flags & TFW_STR_COMPLETE)",
-		 * so len is always non-zero here.
+		 * data next.
 		 */
-		BUG_ON(!len);
+		if (unlikely(array->nchunks == __TFW_STR_ARRAY_MAX))
+			return -E2BIG;
 		last_token = __str_grow_tree(pool, array, 0, 1);
 		if (unlikely(!last_token)) {
 			/*
@@ -818,35 +792,21 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 	 * a trivial TfwPool->off movement happens in this case.
 	 */
 	if (TFW_STR_EMPTY(last_token)) {
-		if (new_items_n == 1)
-			/* Merge single item into parent to avoid reallocation */
-			last_chunks = last_token;
-		else
-			last_chunks = __str_alloc(pool, last_token, new_items_n);
+		/* Merge single item into parent to avoid reallocation */
+		last_chunk = last_token;
 	} else {
-		last_chunks = __str_grow_tree(pool, last_token, 0, new_items_n);
+		last_chunk = __str_grow_tree(pool, last_token, 0, 1);
 	}
 
-	if (!last_chunks)
+	if (!last_chunk)
 		return -ENOMEM;
 
-	if (len) {
-		added_len += len;
-		last_chunks->len = len;
-		last_chunks->data = data;
-
-		++last_chunks;
-	}
-	if (terminator_assigned) {
-		/* Should not terminate an empty item */
-		BUG_ON(last_chunks == last_token);
-		added_len += terminator_len;
-		last_chunks->len = terminator_len;
-		last_chunks->data = terminator;
-	}
+	added_len += len;
+	last_chunk->len = len;
+	last_chunk->data = data;
 	/*
-+	 * We don't care about array->len, but the last_token->len is required
-+	 * for string comparison functions e.g. tfw_stricmpspn().
+	 * We don't care about array->len, but the last_token->len is required
+	 * for string comparison functions e.g. tfw_stricmpspn().
 	 * For one-chunk item the token->len is assigned directly on the parent,
 	 * it gets copied into a child chunk when the item grows to more than
 	 * one chunk, thus last_token->len = last_token->chunks[0].len
@@ -855,10 +815,8 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 	if (last_token->nchunks)
 		last_token->len += added_len;
 
-	if (shall_terminate) {
-		BUG_ON(!last_token);
+	if (shall_complete)
 		last_token->flags |= TFW_STR_COMPLETE;
-	}
 
 	return 0;
 }
