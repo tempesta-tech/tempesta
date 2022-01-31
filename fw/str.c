@@ -6,7 +6,7 @@
  * configuration phase.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -689,7 +689,7 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 }
 
 /**
- * Append the @data string as a leaf into 2-level tree @array. *
+ * Append the @data string as a leaf into 2-level tree @array.
  * Constracts:
  * 1. @data != NULL
  * 2. In case of error the caller do not proceed with the HTTP message and
@@ -720,7 +720,7 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 	bool shall_complete;
 
 	/* Quick return when there's nothing to do */
-	if (!len && !complete_last)
+	if (unlikely(!len && !complete_last))
 		return 0;
 
 	BUG_ON(!data);
@@ -738,7 +738,7 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 		shall_complete = false;
 	}
 
-	if (!len) {
+	if (unlikely(!len)) {
 		/* No chunks to be appended, just mark the item as completed */
 		if (shall_complete) /* implies last_token != NULL */
 			last_token->flags |= TFW_STR_COMPLETE;
@@ -805,8 +805,9 @@ tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
 	last_chunk->len = len;
 	last_chunk->data = data;
 	/*
-	 * We don't care about array->len, but the last_token->len is required
-	 * for string comparison functions e.g. tfw_stricmpspn().
+	 * array->len has no sense since this is an array of independent strings.
+	 * However, last_token->len is required for string comparison functions
+	 * e.g. tfw_stricmpspn().
 	 * For one-chunk item the token->len is assigned directly on the parent,
 	 * it gets copied into a child chunk when the item grows to more than
 	 * one chunk, thus last_token->len = last_token->chunks[0].len

@@ -8779,8 +8779,11 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_Dir_Arg_Token) {
-		/* comma-separated field list (field-name/token) with optional
-		 * linear white space
+		/* Comma-separated field list (field-name/token) with optional
+		 * linear white space.
+		 * We do not set TfwStr->skb for tokens, since the tokens are
+		 * used in read-only fashion to compare strings and are never
+		 * rewriten (TfwStr->skb is used for rewriting raw data only).
 		 */
 #define __APPEND_CC_DIR(complete_current)					\
 do {										\
