@@ -20,14 +20,21 @@
 TTLS_CFLAGS += -I$(src)/../tls
 export TTLS_CFLAGS TFW_CFLAGS
 
-EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
+EXTRA_CFLAGS += $(TFW_CFLAGS)
+ifdef ENABLE_TLS
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
+endif
 EXTRA_CFLAGS += -I$(src)/../db/core -I$(src)/../
 
 GCOV_PROFILE := $(TFW_GCOV)
 
 obj-m	= tempesta_fw.o t/
 
-tfw-srcs = $(wildcard $(obj)/*.c)
+tfw-srcs = $(filter-out $(obj)/tls.c $(obj)/tls_conf.c, $(wildcard $(obj)/*.c))
+ifdef ENABLE_TLS
+tfw-srcs += $(obj)/tls.c $(obj)/tls_conf.c
+endif
+
 tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))
 ifdef AVX2
 	tfw-objs += str_avx2.o

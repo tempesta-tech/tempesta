@@ -96,26 +96,38 @@ ifneq (, $(findstring bmi2, $(PROC)))
 	BMI2 = "y"
 	TFW_CFLAGS += -DBMI2=1
 else
-	ERROR = "BMI2 CPU extension is required for Tempesta TLS"
+	WARNING = "BMI2 CPU extension is required for Tempesta TLS. Disabling it"
 endif
 ifneq (, $(findstring adx, $(PROC)))
 	ADX = "y"
 	TFW_CFLAGS += -DADX=1
 else
-	ERROR = "ADX CPU extension is required for Tempesta TLS"
+	WARNING = "ADX CPU extension is required for Tempesta TLS. Disabling it"
+endif
+
+ifdef ($(and $(ADX),$(BMI2),)
+ENABLE_TLS = 1
+TFW_CFLAGS += -DENABLE_TLS=$(ENABLE_TLS)
 endif
 
 KERNEL = /lib/modules/$(shell uname -r)/build
 
-export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
+export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV ENABLE_TLS
 
-obj-m	+= lib/ db/core/ fw/ tls/
+obj-m	+= lib/ db/core/ fw/
+
+ifdef ENABLE_TLS
+obj-m	+= tls/
+endif
 
 all: build
 
 build:
 ifdef ERROR
 	$(error $(ERROR))
+endif
+ifdef WARNING
+	$(warning $(WARNING))
 endif
 ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
@@ -124,7 +136,9 @@ ifndef AVX2
 	$(warning WARNING: PLEASE DO NOT USE THE BUILD IN PRODUCTION)
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
 endif
+ifdef ENABLE_TLS
 	$(MAKE) -C tls/t generate_tables
+endif
 	$(MAKE) -C db
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
 
@@ -135,7 +149,9 @@ test: build
 clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
 	$(MAKE) -C db clean
+ifdef ENABLE_TLS
 	$(MAKE) -C tls clean
 	$(MAKE) -C tls/t clean
+endif
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;
