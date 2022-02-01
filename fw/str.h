@@ -44,7 +44,7 @@
  * the number of chunks in a compound string. Zero means a plain string.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -195,6 +195,7 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  * ------------------------------------------------------------------------
  */
 #define __TFW_STR_CN_MAX	UINT_MAX
+#define __TFW_STR_ARRAY_MAX	16
 /*
  * Str consists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
@@ -208,10 +209,12 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_VALUE		0x08
 /* The string represents hop-by-hop header, not end-to-end one */
 #define TFW_STR_HBH_HDR		0x10
+/* Not cachable due to configuration settings or no-cache/private directive */
+#define TFW_STR_NOCCPY_HDR	0x20
 /* Weak identifier was set for Etag value. */
-#define TFW_STR_ETAG_WEAK	0x20
+#define TFW_STR_ETAG_WEAK	0x40
 /* Trailer  header. */
-#define TFW_STR_TRAILER		0x40
+#define TFW_STR_TRAILER		0x80
 /*
  * The string/chunk is a header fully indexed in HPACK static
  * table (used only for HTTP/1.1=>HTTP/2 message transformation).
@@ -392,6 +395,9 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 			 const char *stop);
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
+int tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
+			       char *data, unsigned long len,
+			       bool complete_last);
 
 typedef enum {
 	TFW_STR_EQ_DEFAULT = 0x0,

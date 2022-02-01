@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,8 @@ static const TfwCfgEnum tfw_method_enum[] = {
  * The directives are deduplicated when put into the array.
  */
 #define TFW_CAPOLICY_ARRAY_SZ	(64)
+
+#define TFW_CAPOLICY_HDR_DEL_LIMIT	(16)
 
 /*
  * Each non-idempotent request definition directive is put into
@@ -340,6 +342,38 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 		return NULL;
 
 	return &loc->mod_hdrs[mod_type];
+}
+
+TfwCaTokenArray
+tfw_vhost_get_capo_hdr_del(TfwLocation *loc, TfwVhost *vhost)
+{
+	TfwVhost *vh_dflt = vhost->vhost_dflt;
+
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !loc->capo_hdr_del)
+		loc = vhost->loc_dflt;
+	if (!loc || !loc->capo_hdr_del)
+		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
+	if (!loc || !loc->capo_hdr_del)
+		return (TfwCaTokenArray){0, NULL};
+
+	return (TfwCaTokenArray){loc->capo_hdr_del_sz, loc->capo_hdr_del};
+}
+
+unsigned int
+tfw_vhost_get_cc_ignore(TfwLocation *loc, TfwVhost *vhost)
+{
+	TfwVhost *vh_dflt = vhost->vhost_dflt;
+
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !loc->cc_ignore)
+		loc = vhost->loc_dflt;
+	if (!loc || !loc->cc_ignore)
+		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
+	if (!loc || !loc->cc_ignore)
+		return 0;
+
+	return loc->cc_ignore;
 }
 
 /*
@@ -1002,6 +1036,175 @@ tfw_cfgop_out_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 /*
+ * cache_resp_hdr_del option to always remove specific headers from
+ * cached responses.
+ */
+static int
+tfw_cfgop_capo_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
+{
+	size_t i;
+	size_t total_size;
+	TfwCaToken *new_tokens;
+
+	if (ce->attr_n) {
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
+			 cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n < 1) {
+		T_ERR_NL("%s: Arguments required\n",
+			 cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n > TFW_CAPOLICY_HDR_DEL_LIMIT) {
+		T_ERR_NL("%s: Too many headers\n",
+			 cs->name);
+		return -EINVAL;
+	}
+
+	/*
+	 * Precalculate the total strings size and allocate into
+	 * single memory block
+	 */
+	total_size = 0;
+	for (i = 0; i < ce->val_n; ++i) {
+		const char *arg = ce->vals[i];
+		size_t len = strlen(arg);
+		/* Need a trailing colon for header matching, and '\0'. */
+		int item_size = sizeof(TfwCaToken) + len + 1 + 1;
+		total_size += item_size;
+	}
+	new_tokens = NULL;
+
+	if (total_size != 0) {
+		size_t actual_bytes = 0;
+		TfwCaToken *token;
+		new_tokens = kzalloc(total_size, GFP_KERNEL);
+		if (!new_tokens)
+			return -ENOMEM;
+		token = new_tokens;
+		for (i = 0; i < ce->val_n; ++i) {
+			const char *arg = ce->vals[i];
+			size_t len = strlen(arg);
+			char *str = token->str;
+			token->len = len + 2;
+			memcpy(str, (void *)arg, len);
+			str[len] = ':';
+			str[len + 1] = '\0';
+
+			actual_bytes += sizeof(TfwCaToken) + len + 2;
+			token = (TfwCaToken *)(actual_bytes + (char *)new_tokens);
+		}
+		BUG_ON(actual_bytes != total_size);
+	}
+	BUG_ON(ce->val_n && !new_tokens);
+	loc->capo_hdr_del = new_tokens;
+	loc->capo_hdr_del_sz = ce->val_n;
+
+	return 0;
+}
+
+/*
+ * cache_control_ignore allows us to selectively ignore some undesired
+ * Cache-Control directives sent to us in a response from upstream server.
+ */
+static int
+tfw_cfgop_cc_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
+{
+#define STR_AND_LEN(s)  sizeof(s)-1, s
+const struct {
+	unsigned int flag;
+	unsigned int dir_sz;
+	char *dir;
+} dir_map[] = {
+	/* CC directives common to requests and responses. */
+	{ TFW_HTTP_CC_NO_CACHE, STR_AND_LEN("no-cache") },
+	{ TFW_HTTP_CC_NO_STORE, STR_AND_LEN("no-store") },
+	{ TFW_HTTP_CC_NO_TRANSFORM, STR_AND_LEN("no-transform") },
+	{ TFW_HTTP_CC_MAX_AGE, STR_AND_LEN("max-age") },
+	/* Response-only CC directives. */
+	{ TFW_HTTP_CC_MUST_REVAL, STR_AND_LEN("must-revalidate") },
+	{ TFW_HTTP_CC_PROXY_REVAL, STR_AND_LEN("proxy-revalidate") },
+	{ TFW_HTTP_CC_PUBLIC, STR_AND_LEN("public") },
+	{ TFW_HTTP_CC_PRIVATE, STR_AND_LEN("private") },
+	{ TFW_HTTP_CC_S_MAXAGE, STR_AND_LEN("max-age") },
+};
+#undef 	STR_AND_LEN
+
+	size_t i, len;
+	const char *arg;
+
+	if (ce->attr_n) {
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
+			 cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n < 1) {
+		T_ERR_NL("%s: Arguments required\n",
+			 cs->name);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < ce->val_n; ++i) {
+		int map_idx;
+		arg = ce->vals[i];
+		len = strlen(arg);
+		for (map_idx = 0; map_idx < ARRAY_SIZE(dir_map); map_idx++) {
+			if (strncasecmp(arg, dir_map[map_idx].dir,
+					 dir_map[map_idx].dir_sz) == 0)
+			{
+				loc->cc_ignore |= dir_map[map_idx].flag;
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_loc_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfwcfg_this_location);
+	return tfw_cfgop_capo_hdr_del(cs, ce, tfwcfg_this_location);
+}
+
+static int
+tfw_cfgop_loc_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfwcfg_this_location);
+	return tfw_cfgop_cc_ignore(cs, ce, tfwcfg_this_location);
+}
+
+static int
+tfw_cfgop_in_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfw_vhost_entry);
+	return tfw_cfgop_capo_hdr_del(cs, ce, tfw_vhost_entry->loc_dflt);
+}
+
+static int
+tfw_cfgop_in_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfw_vhost_entry);
+	return tfw_cfgop_cc_ignore(cs, ce, tfw_vhost_entry->loc_dflt);
+}
+
+static int
+tfw_cfgop_out_cache_resp_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	return tfw_cfgop_capo_hdr_del(cs, ce, vh_dflt->loc_dflt);
+}
+
+static int
+tfw_cfgop_out_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	return tfw_cfgop_cc_ignore(cs, ce, vh_dflt->loc_dflt);
+}
+
+/*
  * Find a location directive entry. The entry is looked up
  * in the array that holds all location directives.
  */
@@ -1083,8 +1286,12 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->arg = argmem;
 	loc->len = len;
 	loc->frang_cfg = (FrangVhostCfg *)data;
+	/* next array starts right after the previous one */
 	loc->capo = (TfwCaPolicy **)(loc->frang_cfg + 1);
 	loc->capo_sz = 0;
+	loc->capo_hdr_del = NULL;
+	loc->capo_hdr_del_sz = 0;
+	loc->cc_ignore = 0;
 	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
 	loc->nipdef_sz = 0;
 	loc->hdrs_pool = pool;
@@ -1266,6 +1473,7 @@ tfw_location_del(TfwLocation *loc)
 		BUG_ON(!loc->capo[i]);
 		kfree(loc->capo[i]);
 	}
+	kfree(loc->capo_hdr_del);
 	for (i = 0; i < loc->nipdef_sz; ++i) {
 		BUG_ON(!loc->nipdef[i]);
 		kfree(loc->nipdef[i]);
@@ -2735,6 +2943,22 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "cache_resp_hdr_del",
+		.deflt = NULL,
+		.handler = tfw_cfgop_loc_cache_resp_hdr_del,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_control_ignore",
+		.deflt = NULL,
+		.handler = tfw_cfgop_loc_cache_control_ignore,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "nonidempotent",
 		.deflt = NULL,
 		.handler = tfw_cfgop_loc_nonidempotent,
@@ -2821,6 +3045,22 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.name = "cache_fulfill",
 		.deflt = NULL,
 		.handler = tfw_cfgop_in_cache_fulfill,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_resp_hdr_del",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_resp_hdr_del,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_control_ignore",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_control_ignore,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
@@ -2987,6 +3227,22 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.name = "cache_fulfill",
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_cache_fulfill,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_resp_hdr_del",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_resp_hdr_del,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_control_ignore",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_control_ignore,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,

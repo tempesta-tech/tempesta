@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1888,7 +1888,17 @@ check_name_text:
 
 		NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
-		GET_NEXT_DATA(src >= last);
+		if (unlikely(src >= last)) {
+			/*
+			 * The header has no value, so we are going to skip the
+			 * HPACK_STATE_VALUE_TEXT, but still need to write CRLF
+			 * at the end of the header line for a correct HTTP/1.
+			 */
+			if (!h2_mode)
+				EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
+
+			goto out;
+		}
 
 		fallthrough;
 
