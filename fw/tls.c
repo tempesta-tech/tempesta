@@ -62,30 +62,13 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
 	size_t off = ttls_payload_off(&tls->xfrm);
 	size_t tail = TTLS_TAG_LEN;
 
-	while (unlikely(skb->len <= off)) {
-		struct sk_buff *skb_head = ss_skb_dequeue(&skb);
-		off -= skb_head->len;
-		__kfree_skb(skb_head);
-		if (WARN_ON_ONCE(!skb))
-			return -EIO;
-	}
+	r = ss_skb_list_chop_head_tail(&skb, off, tail);
+	if (unlikely(r))
+		return r;
 
 	data->skb = skb;
 
-	skb = data->skb->prev;
-	while (unlikely(skb->len <= tail)) {
-		tail -= skb->len;
-		ss_skb_unlink(&data->skb, skb);
-		__kfree_skb(skb);
-		if (WARN_ON_ONCE(!data->skb))
-			return -EIO;
-		skb = data->skb->prev;
-	}
-
-	if (unlikely(r = ss_skb_chop_head_tail(NULL, data->skb, off, 0)))
-		return r;
-
-	return ss_skb_chop_head_tail(NULL, data->skb->prev, 0, tail);
+	return 0;
 }
 
 static inline void
