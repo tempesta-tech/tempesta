@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -539,9 +539,12 @@ typedef struct {
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
  *
- * @jrxtstamp	- time the message has been received, in jiffies;
- * @mit		- iterator for controlling HTTP/1.1 => HTTP/2 message
- *		  transformation process (applicable for HTTP/2 mode only).
+ * @jrxtstamp	    - time the message has been received, in jiffies;
+ * @mit		    - iterator for controlling HTTP/1.1 => HTTP/2 message
+ *		      transformation process (applicable for HTTP/2 mode only).
+ * @no_cache_tokens - tokens for cache-control directive e.g.
+ *		      Cache-Control: no-cache="token1, token2"
+ * @private_tokens  - similar to @no_cache_tokens but for private="tokens"
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
@@ -550,6 +553,8 @@ struct tfw_http_resp_t {
 	long			last_modified;
 	unsigned long		jrxtstamp;
 	TfwHttpTransIter	mit;
+	TfwStr			no_cache_tokens;
+	TfwStr			private_tokens;
 };
 
 #define TFW_HDR_MAP_INIT_CNT		32
@@ -613,6 +618,11 @@ enum {
 #define HTTP_CODE_MIN 100
 #define HTTP_CODE_MAX 599
 #define HTTP_CODE_BIT_NUM(code) ((code) - HTTP_CODE_MIN)
+
+#define T_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
+			  T_WARN("%s, status %d: %s\n",			\
+				 msg, status, addr_str))
 
 static inline int
 tfw_http_resp_code_range(const int n)

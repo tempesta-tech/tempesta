@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -307,7 +307,7 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 {
 	TfwCaPolicy *capo;
 
-	/* Search locations in current vhost. */
+	/* Search locations in current loc. */
 	if (loc && loc->capo_sz) {
 		if ((capo = tfw_capolicy_match(loc, arg)))
 			return capo->cmd;
@@ -397,6 +397,10 @@ static bool
 tfw_cache_employ_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	unsigned int effective_resp_flags =
+		resp->cache_ctl.flags & ~cc_ignore_flags;
 
 #define CC_REQ_DONTCACHE				\
 	(TFW_HTTP_CC_CFG_CACHE_BYPASS | TFW_HTTP_CC_NO_STORE)
@@ -415,18 +419,18 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 	 */
 	if (req->cache_ctl.flags & CC_REQ_DONTCACHE)
 		return false;
-	if (resp->cache_ctl.flags & CC_RESP_DONTCACHE)
+	if (effective_resp_flags & CC_RESP_DONTCACHE)
 		return false;
 	if (!(req->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
 	    && (req->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
-	if (!(resp->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
-	    && (resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
+	if (!(effective_resp_flags & TFW_HTTP_CC_IS_PRESENT)
+	    && (effective_resp_flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
 	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
 	    && !(req->cache_ctl.flags & CC_RESP_AUTHCAN))
 		return false;
-	if (!(resp->cache_ctl.flags & CC_RESP_CACHEIT)
+	if (!(effective_resp_flags & CC_RESP_CACHEIT)
 	    && !tfw_cache_status_bydef(resp))
 		return false;
 #undef CC_RESP_AUTHCAN
@@ -1548,7 +1552,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * possible duplicates), since we will substitute it with our
 		 * version of this header.
 		 */
-		if ((field->flags & TFW_STR_HBH_HDR)
+		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(field))
 		{
@@ -1642,6 +1646,45 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	return 0;
 }
 
+static bool
+check_cfg_ignored_header(const TfwStr *field, TfwCaToken *tokens,
+		     unsigned int tokens_sz)
+{
+	int i;
+	int bytes_count = 0;
+	TfwCaToken *token = tokens;
+	for (i = 0; i < tokens_sz; i++) {
+		const TfwStr to_del = {
+			.data = token->str,
+			.len = token->len - 1
+		};
+		BUG_ON(token->len > 10000);
+		if (tfw_stricmpspn(field, &to_del, ':') == 0) {
+			return true;
+		}
+		bytes_count += sizeof(TfwCaToken) + token->len;
+		token = (TfwCaToken *)(bytes_count + (char *)tokens);
+	}
+	return false;
+}
+
+static bool
+check_cc_ignored_header(const TfwStr *field, const TfwStr *tokens)
+{
+	int i;
+	for (i = 0; i < tokens->nchunks; i++) {
+		if (tfw_stricmpspn(field, &tokens->chunks[i], ':') == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * __cache_entry_size is supposed to be called before tfw_cache_copy_resp,
+ * to set the TFW_STR_NOCCPY_HDR flag on the headers, so we don't double-check
+ * the ignored header list (this check is O(N*M) currently).
+ */
 static long
 __cache_entry_size(TfwHttpResp *resp)
 {
@@ -1651,7 +1694,8 @@ __cache_entry_size(TfwHttpResp *resp)
 	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
-
+	TfwCaTokenArray hdr_del_tokens =
+			tfw_vhost_get_capo_hdr_del(req->location, req->vhost);
 	/* Add compound key size */
 	res_size += req->uri_path.len;
 	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
@@ -1678,6 +1722,38 @@ __cache_entry_size(TfwHttpResp *resp)
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(hdr))
 			continue;
+
+		/*
+		 * TODO #496: assemble all the string patterns into state machines
+		 * (one if possible) to avoid the loops over all configured and
+		 * mentioned in `private` and `no-cache` directives.
+		 */
+		/* remove headers mentioned in cache_resp_hdr_del */
+		if (hdr_del_tokens.tokens) {
+			if (check_cfg_ignored_header(hdr, hdr_del_tokens.tokens,
+						     hdr_del_tokens.sz))
+			{
+				hdr->flags |= TFW_STR_NOCCPY_HDR;
+				continue;
+			}
+		}
+
+		/* remove headers mentioned in Cache-Control: no-cache */
+		if (resp->no_cache_tokens.nchunks != 0) {
+			if (check_cc_ignored_header(hdr, &resp->no_cache_tokens))
+			{
+				hdr->flags |= TFW_STR_NOCCPY_HDR;
+				continue;
+			}
+		}
+		/* remove headers mentioned in Cache-Control: private */
+		if (resp->private_tokens.nchunks != 0) {
+			if (check_cc_ignored_header(hdr, &resp->private_tokens))
+			{
+				hdr->flags |= TFW_STR_NOCCPY_HDR;
+				continue;
+			}
+		}
 
 		size = sizeof(TfwCStr);
 

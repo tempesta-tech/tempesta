@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -112,11 +112,6 @@
 #define S_H2_AUTH		":authority"
 #define S_H2_PATH		":path"
 #define S_H2_STAT		":status"
-
-#define T_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
-	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-			  T_WARN("%s, status %d: %s\n",			\
-				 msg, status, addr_str))
 
 #define RESP_BUF_LEN		128
 

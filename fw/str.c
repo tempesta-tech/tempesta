@@ -6,7 +6,7 @@
  * configuration phase.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -592,6 +592,23 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 }
 
 /**
+ * Allocate a new @str with @n chunks.
+ * @return pointer to the first of newly allocated chunks.
+ */
+static TfwStr *
+__str_alloc(TfwPool *pool, TfwStr *str, int n)
+{
+	TfwStr *a = tfw_pool_alloc(pool, n * sizeof(TfwStr));
+	if (!a)
+		return NULL;
+
+	str->chunks = a;
+	str->nchunks = n;
+	memset(a, 0, sizeof(TfwStr) * n);
+	return a;
+}
+
+/**
  * Grow @str for @n new chunks.
  * New branches of the string tree are created on 2nd level only,
  * i.e. there is no possibility to grow number of chunks of duplicate string.
@@ -609,6 +626,7 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
+	TfwStr *new_chunk;
 	if (str->flags & flag ||
 	    (!flag && str->nchunks)) {
 		unsigned int l;
@@ -636,10 +654,10 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		str->nchunks = n + 1;
 	}
 
-	str = str->chunks + str->nchunks - n;
-	bzero_fast(str, sizeof(TfwStr) * n);
+	new_chunk = str->chunks + str->nchunks - n;
+	bzero_fast(new_chunk, sizeof(TfwStr) * n);
 
-	return str;
+	return new_chunk;
 }
 
 /**
@@ -668,6 +686,140 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 	str->flags |= TFW_STR_DUPLICATE;
 
 	return dup_str;
+}
+
+/**
+ * Append the @data string as a leaf into 2-level tree @array.
+ * Constracts:
+ * 1. @data != NULL
+ * 2. In case of error the caller do not proceed with the HTTP message and
+ *    frees the associated memory pool soon.
+ *
+ * The array is at most 3 levels:
+ * 1. TfwStr for the root
+ * 2. TfwStr's consisting the array (the array items)
+ * 3. string chunks for the arrays items (if the strings are chunked)
+ *
+ * array -> chunks[0] = { nchunks = 2,
+ *                        len = undefined,
+ *                        chunks = ["tok", "en2"],
+ *                        flags = TFW_STR_COMPLETE }
+ *          chunks[1] = { nchunks = 0,    <= single chunk stored inside parent
+ *                        len = 3,
+ *                        data = "tok",
+ *                        flags = 0 }     <= last uncompleted item
+ *          nchunks = 2
+ */
+int
+tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
+			   char *data, unsigned long len,
+			   bool complete_last)
+{
+	TfwStr *last_token = NULL, *last_chunk;
+	unsigned long added_len = 0;
+	bool shall_complete;
+
+	/* Quick return when there's nothing to do */
+	if (unlikely(!len && !complete_last))
+		return 0;
+
+	BUG_ON(!data);
+	if (array->nchunks)
+		last_token = &array->chunks[array->nchunks - 1];
+	/*
+	 * Only try to complete an existing uncompleted item or to
+	 * the one newly created at the below.
+	 */
+	if ((len || (last_token && !(last_token->flags & TFW_STR_COMPLETE)))
+	    && complete_last)
+	{
+		shall_complete = true;
+	} else {
+		shall_complete = false;
+	}
+
+	if (unlikely(!len)) {
+		/* No chunks to be appended, just mark the item as completed */
+		if (shall_complete) /* implies last_token != NULL */
+			last_token->flags |= TFW_STR_COMPLETE;
+
+		return 0;
+	}
+
+	/*
+	 * Allocate memory required for the new token and/or chunks.
+	 * tfw_pool_realloc() is called at most once: either to reallocate the
+	 * array items or reallocate an item chunks. In the first case the pool
+	 * can be called once more to allocate chunks for a new item, but there
+	 * will be only one trivial TfwPool->off movement.
+	 *
+	 * Empty chunks array is always initialized with zeroes.
+	 *
+	 * Step 1: allocate a new uncompleted first-level item if none exists or
+	 * if the last array item is completed.
+	 */
+	if (!last_token) { /* implies array->nchunks == 0 */
+		/*
+		 * Cannot store "last_token" at the place of "array" the way
+		 * "__str_grow_tree" implies, because we need distinct nchunks
+		 * for different levels of the tree.
+		 */
+		last_token = __str_alloc(pool, array, 1);
+		if (unlikely(!last_token))
+			return -ENOMEM;
+	}
+	else if (last_token->flags & TFW_STR_COMPLETE) {
+		/*
+		 * If the last token is complete, then we need to add some more
+		 * data next.
+		 */
+		if (unlikely(array->nchunks == __TFW_STR_ARRAY_MAX))
+			return -E2BIG;
+		last_token = __str_grow_tree(pool, array, 0, 1);
+		if (unlikely(!last_token)) {
+			/*
+			 * Just return an error code and do not call
+			 * tfw_pool_free(). The caller won't proceed with the
+			 * failure and will block the HTTP message, so the whole
+			 * pool is going to be freed soon.
+			 */
+			return -ENOMEM;
+		}
+	}
+	/*
+	 * Step 2: append second-level chunks into the uncompleted token/item.
+	 * last_token is empty only if it was just allocated on Step 1, so only
+	 * a trivial TfwPool->off movement happens in this case.
+	 */
+	if (TFW_STR_EMPTY(last_token)) {
+		/* Merge single item into parent to avoid reallocation */
+		last_chunk = last_token;
+	} else {
+		last_chunk = __str_grow_tree(pool, last_token, 0, 1);
+	}
+
+	if (!last_chunk)
+		return -ENOMEM;
+
+	added_len += len;
+	last_chunk->len = len;
+	last_chunk->data = data;
+	/*
+	 * array->len has no sense since this is an array of independent strings.
+	 * However, last_token->len is required for string comparison functions
+	 * e.g. tfw_stricmpspn().
+	 * For one-chunk item the token->len is assigned directly on the parent,
+	 * it gets copied into a child chunk when the item grows to more than
+	 * one chunk, thus last_token->len = last_token->chunks[0].len
+	 * (see __str_grow_tree). Then we just bump len with newly added chunks.
+	*/
+	if (last_token->nchunks)
+		last_token->len += added_len;
+
+	if (shall_complete)
+		last_token->flags |= TFW_STR_COMPLETE;
+
+	return 0;
 }
 
 /**
@@ -1004,7 +1156,7 @@ __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 {
 	int i1, i2, off1, off2;
 	long n;
-	const TfwStr *c1, *c2;
+	const TfwStr *c1 = NULL, *c2 = NULL;
 
 	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
 	BUG_ON(!stop);
@@ -1044,7 +1196,19 @@ __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 		BUG_ON(n && (!c1 || !c2));
 	}
 out:
-	return s1->len == s2->len ? 0 : (long)s1->len - (long)s2->len;
+	if (s1->len == s2->len)
+		return 0;
+	/*
+	 * String lengths might not be exactly equal due to one of the strings
+	 * lacking the stop character. Treat those as matched.
+	 * Not applicable to empty strings though.
+	 */
+	if (c1 && c1->len > off1 && *(c1->data + off1) == stop)
+		return 0;
+	if (c2 && c2->len > off2 && *(c2->data + off2) == stop)
+		return 0;
+
+	return (long)s1->len - (long)s2->len;
 }
 
 /**

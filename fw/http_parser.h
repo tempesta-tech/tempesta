@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -36,6 +36,12 @@ typedef struct {
 
 /** Maximum of hop-by-hop tokens listed in Connection header. */
 #define TFW_HBH_TOKENS_MAX		16
+
+/** Hard limit for no-cache and private tokens. The logic that uses them can be
+ *  pretty CPU-heavy, like O(N^2) or O(N*logN), so we avoid unintentional DOS
+ *  by limiting the N.
+ */
+#define TFW_CACHE_CONTROL_TOKENS_MAX	__TFW_STR_ARRAY_MAX
 
 /**
  * Non-cacheable hop-by-hop headers in terms of RFC 7230.
@@ -93,6 +99,8 @@ typedef struct {
  *		  hop-by-hop
  * @_date	- currently parsed http date value;
  * @month_int	- accumulator for parsing of month;
+ * @cc_dir_flag	- designates an uncommitted directive currently being processed.
+
  */
 typedef struct {
 	unsigned short			to_go;
@@ -116,6 +124,7 @@ typedef struct {
 	union {
 		long			_date;
 		unsigned int		month_int;
+		unsigned int		cc_dir_flag;
 	};
 	TfwStr				_tmp_chunk;
 	TfwStr				hdr;
