@@ -1362,7 +1362,7 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 		       inet->inet_dport, sk->sk_state);
 
 	addr->sin6_family = AF_INET6;
-	addr->sin6_port = inet->inet_sport;
+	addr->sin6_port = inet->inet_dport;
 #if IS_ENABLED(CONFIG_IPV6)
 	if (inet6_sk(sk)) {
 		struct ipv6_pinfo *np = inet6_sk(sk);
