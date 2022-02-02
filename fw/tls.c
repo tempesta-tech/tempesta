@@ -55,20 +55,12 @@ static bool allow_any_sni_reconfig;
  * offset to @data for upper layers processing.
  */
 static int
-tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
-		     TfwFsmData *__restrict data)
+tfw_tls_chop_skb_rec(TlsCtx *tls)
 {
-	int r;
 	size_t off = ttls_payload_off(&tls->xfrm);
 	size_t tail = TTLS_TAG_LEN;
 
-	r = ss_skb_list_chop_head_tail(&skb, off, tail);
-	if (unlikely(r))
-		return r;
-
-	data->skb = skb;
-
-	return 0;
+	return ss_skb_list_chop_head_tail(&tls->io_in.skb_list, off, tail);
 }
 
 static inline void
@@ -186,12 +178,15 @@ next_msg:
 		 * Pass tls->io_in.skb_list to data_up ownership for the upper
 		 * layer processing.
 		 */
-		r = tfw_tls_chop_skb_rec(tls, tls->io_in.skb_list, &data_up);
+		r = tfw_tls_chop_skb_rec(tls);
 		if (r) {
+			tfw_tls_purge_io_ctx(&tls->io_in);
+			kfree_skb(nskb);
 			spin_unlock(&tls->lock);
 			return r;
 		}
 
+		data_up.skb = tls->io_in.skb_list;
 		ttls_reset_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
 
