@@ -4746,8 +4746,10 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
 	}
 
+	/* Do not log client port as it doesn't provide useful information
+	 * and could contain outdated cached data (see #1473). */
 	if (!nolog)
-		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
+		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
 
 	if (TFW_MSG_H2(req))
 		tfw_h2_error_resp(req, status, reply, attack, on_req_recv_event);
