@@ -428,7 +428,7 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 	    && (effective_resp_flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
 	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
-	    && !(req->cache_ctl.flags & CC_RESP_AUTHCAN))
+	    && !(effective_resp_flags & CC_RESP_AUTHCAN))
 		return false;
 	if (!(effective_resp_flags & CC_RESP_CACHEIT)
 	    && !tfw_cache_status_bydef(resp))
@@ -448,10 +448,15 @@ static long
 tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
 	long lifetime;
+	TfwHttpReq *req = resp->req;
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	unsigned int effective_resp_flags =
+		resp->cache_ctl.flags & ~cc_ignore_flags;
 
-	if (resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)
+	if (effective_resp_flags & TFW_HTTP_CC_S_MAXAGE)
 		lifetime = resp->cache_ctl.s_maxage;
-	else if (resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
+	else if (effective_resp_flags & TFW_HTTP_CC_MAX_AGE)
 		lifetime = resp->cache_ctl.max_age;
 	else if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
 		lifetime = resp->cache_ctl.expires - resp->date;
@@ -1470,6 +1475,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		.len = SLEN(S_VIA_H2_PROTO) + g_vhost->hdr_via_len,
 		.nchunks = 2
 	};
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	unsigned int effective_resp_flags =
+		resp->cache_ctl.flags & ~cc_ignore_flags;
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -1604,7 +1613,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
 
-	if (resp->cache_ctl.flags
+	if (effective_resp_flags
 	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL))
 		ce->flags |= TFW_CE_MUST_REVAL;
 	ce->date = resp->date;
