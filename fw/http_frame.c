@@ -1770,6 +1770,10 @@ next_msg:
 	 * will be just split into separate skb (above).
 	 */
 	if (APP_FRAME(h2)) {
+		/* This chopping algorithm could be repleces with a call
+		 * of ss_skb_list_chop_head_tail(). We refrain of it
+		 * to proccess a special case !h2->skb_head below.
+		 */
 		while (unlikely(h2->skb_head->len <= h2->data_off)) {
 			struct sk_buff *skb = ss_skb_dequeue(&h2->skb_head);
 			h2->data_off -= skb->len;

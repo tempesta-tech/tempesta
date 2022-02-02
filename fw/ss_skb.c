@@ -1009,6 +1009,107 @@ ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 }
 
 /**
+ * Chop @head and @trail bytes at head and end of the message (skb circular
+ * list), iterating over the list if nessessary.
+ * @return 0 on success and -(error code) on error.
+ *
+ * Message length should be greater than the sum of @head and @trail,
+ * otherwise an error is retuned.
+ */
+int
+ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
+			   size_t head, size_t trail)
+{
+	struct sk_buff *skb, *skb_hd;
+	size_t sum;
+	int ret;
+
+	skb_hd = *skb_list_head;
+	if (unlikely(skb_hd->next != skb_hd))
+		goto multi_buffs;
+
+	/* Everywhere in the function we perform 'redundant'
+	 * checks for @head and @trail values to avoid unneccessary
+	 * calls to underlying ss_skb_chop_head_tail() for
+	 * optimization purpose
+	 */
+
+single_buff:
+	/* There is the only 1 buffer in the list
+	 * and skb_hd points to it
+	 */
+	sum = head + trail;
+	if (WARN_ON_ONCE(skb_hd->len <= sum))
+		return -EINVAL;
+	if (unlikely(sum == 0))
+		/* Nothing to chop */
+		/* This check is mostly for jumps from branches below */
+		return 0;
+	return ss_skb_chop_head_tail(NULL, skb_hd, head, trail);
+
+multi_buffs:
+	/* skb_list contains more than 1 skb &&
+	 * skb_hd points to head element of the list
+	 */
+
+	/* Here below we delete heading skbs which size
+	 * is less than chop demand at the head,
+	 * switching to single_buff: in case
+	 */
+	skb = skb_hd;
+	while (unlikely(skb->len <= head)) {
+		head -= skb->len;
+		/* We do not use ss_skb_unlink() here and in
+		 * the similar loop for tail below to prevent
+	 	 * removing the last skb in the list and to skip
+	 	 * unneccessary checks and actions inside the func.
+	 	 */
+		skb->next->prev = skb->prev;
+		skb->prev->next = skb->next;
+		*skb_list_head = skb_hd = skb->next;
+		__kfree_skb(skb);
+		skb = skb_hd;
+		if (unlikely(skb->next == skb))
+			goto single_buff;
+	}
+
+	/* skb_list still contains more than 1 skb &&
+	 * skb_hd points to head element of the list
+	 */
+
+	/* Here below we delete trailing skbs which size
+	 * is less than chop demand at the tail,
+	 * switching to single_buff: in case
+	 */
+	skb = skb_hd->prev;
+	while (unlikely(skb->len <= trail)) {
+		trail -= skb->len;
+		skb_hd->prev = skb->prev;
+		skb->prev->next = skb_hd;
+		__kfree_skb(skb);
+		skb = skb_hd->prev;
+		if (unlikely(skb == skb_hd))
+			goto single_buff;
+	}
+
+	/* skb_list still contains more than 1 skb &&
+	 * skb_hd points to head element of the list &&
+	 * skb points to last element of the list
+	 */
+
+	/* Here we remove remaining head and trail bytes, if any */
+	if (likely(head)) {
+		ret = ss_skb_chop_head_tail(NULL, skb_hd, head, 0);
+		if (unlikely(ret))
+			return ret;
+	}
+	if (likely(trail))
+		return ss_skb_chop_head_tail(NULL, skb, 0, trail);
+
+	return 0;
+}
+
+/**
  * Cut off @str->len data bytes from underlying skbs skipping the first
  * @skip bytes, and also cut off @tail bytes after @str.
  * @str can be an HTTP header or other parsed part of HTTP message

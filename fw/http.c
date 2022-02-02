@@ -2982,22 +2982,24 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
  * Rewrite HTTP/1 "PURGE" method to "GET" directly inside a request SKB.
  */
 static int
-tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
+tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
 {
 	const char *q = "GET";
 	char *p;
 	struct skb_shared_info *si;
-	struct sk_buff *skb = head;
+	struct sk_buff *skb, *head;
 	unsigned int f, z;
 	int ret;
 
 	/* Possible if somehow we already sent a response  */
-	BUG_ON(!head);
+	BUG_ON(!*head_p);
 
 	/* Chop two bytes from the beginning of SKB data. */
-	ret = ss_skb_chop_head_tail(head, head, 2, 0);
+	ret = ss_skb_list_chop_head_tail(head_p, 2, 0);
 	if (ret)
 		return ret;
+	/* List head element *head_p could change above */
+	skb = head = *head_p;
 
 	do {
 		p = skb->data;
@@ -3025,37 +3027,6 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff *head)
 }
 
 /**
- * Removes n bytes from the beginning of the message, iterating over skb chain
- * if needed.
- * @return zero on success and error code on error.
- *
- * TODO #1535: to be replaced with future version of ss_skb_chop_head_tail()
- * over all skbs of the message
- */
-static int
-tfw_h1_chop_leading_crlf(struct sk_buff **head, unsigned int n)
-{
-	struct sk_buff *skb;
-	while (n) {
-		skb = *head;
-		if (likely(skb->len > n))
-			return ss_skb_chop_head_tail(skb, skb, n, 0);
-		if (WARN_ON_ONCE(skb->next == skb))
-			return -EBADMSG;
-		n -= skb->len;
-		/* We do not use ss_skb_unlink() here to avoid
-		 * the removal of the last skb in the list and
-		 * to skip extra actions that are unnecessary here.
-		 */
-		skb->next->prev = skb->prev;
-		skb->prev->next = skb->next;
-		*head = skb->next;
-		__kfree_skb(skb);
-	}
-	return 0;
-}
-
-/**
  * Adjust the request before proxying it to real server.
  */
 static int
@@ -3068,16 +3039,13 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	n_to_strip = !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
 		     !!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 	if (unlikely(n_to_strip)) {
-		r = tfw_h1_chop_leading_crlf(&hm->msg.skb_head, n_to_strip);
-		/* TODO 1535: replace this with future version of
-		 * ss_skb_chop_head_tail() over all skbs of the message 
-		 */
+		r =  ss_skb_list_chop_head_tail(&hm->msg.skb_head, n_to_strip, 0);
 		if (r)
 			return r;
 	}
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
-		r = tfw_h1_rewrite_purge_to_get(hm->msg.skb_head);
+		r = tfw_h1_rewrite_purge_to_get(&hm->msg.skb_head);
 		if (r)
 			return r;
 	}
