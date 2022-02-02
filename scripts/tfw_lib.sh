@@ -151,8 +151,9 @@ tfw_set_net_queues()
 	cpu_mask=$(perl -le 'printf("%x", (1 << '$CPUS_N') - 1)')
 
 	for dev in $devs; do
-		queues=$(ethtool -l $dev 2>/dev/null \
+		queues_str=$(ethtool -l $dev 2>/dev/null \
 				| grep -m 1 RX | sed -e 's/RX\:\s*//')
+		queues=$(printf '%d' "$queues_str" 2>/dev/null)
 		if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
 			# Switch off RPS for multi-queued interfaces.
 			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
