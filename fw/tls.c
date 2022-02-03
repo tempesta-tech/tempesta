@@ -49,28 +49,6 @@ static struct {
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
 
-/**
- * Chop skb list with begin at @skb by TLS extra data at the begin and end of
- * the list after decryption and write the right pointer at the first skb and
- * offset to @data for upper layers processing.
- */
-static int
-tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
-		     TfwFsmData *__restrict data)
-{
-	int r;
-	size_t off = ttls_payload_off(&tls->xfrm);
-	size_t tail = TTLS_TAG_LEN;
-
-	r = ss_skb_list_chop_head_tail(&skb, off, tail);
-	if (unlikely(r))
-		return r;
-
-	data->skb = skb;
-
-	return 0;
-}
-
 static inline void
 tfw_tls_purge_io_ctx(TlsIOCtx *io)
 {
@@ -182,16 +160,23 @@ next_msg:
 		 * Current record contains an "application data" message.
 		 * ttls_recv() has already decrypted the payload, but TLS
 		 * overhead data are still attached. We need to cut them off.
-		 *
-		 * Pass tls->io_in.skb_list to data_up ownership for the upper
-		 * layer processing.
 		 */
-		r = tfw_tls_chop_skb_rec(tls, tls->io_in.skb_list, &data_up);
+		r = ss_skb_list_chop_head_tail(
+				&tls->io_in.skb_list,
+				ttls_payload_off(&tls->xfrm),
+				TTLS_TAG_LEN);
 		if (r) {
+			tfw_tls_purge_io_ctx(&tls->io_in);
+			kfree_skb(nskb);
 			spin_unlock(&tls->lock);
 			return r;
 		}
 
+		/*
+		 * Pass tls->io_in.skb_list to data_up ownership for the upper
+		 * layer processing.
+		 */
+		data_up.skb = tls->io_in.skb_list;
 		ttls_reset_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
 
