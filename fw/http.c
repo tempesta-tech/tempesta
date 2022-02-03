@@ -1310,7 +1310,7 @@ tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
-				   TFW_WITH_PORT, status);
+				   TFW_NO_PORT, status);
 	}
 
 	if (TFW_MSG_H2(req))
@@ -4595,7 +4595,7 @@ static void
 tfw_http_conn_error_log(TfwConn *conn, const char *msg)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
-		T_WARN_ADDR(msg, &conn->peer->addr, TFW_WITH_PORT);
+		T_WARN_ADDR(msg, &conn->peer->addr, TFW_NO_PORT);
 }
 
 static void
@@ -4913,7 +4913,7 @@ clean:
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
 		T_WARN_ADDR_STATUS("response dropped: processing error",
 				   &req->conn->peer->addr,
-				   TFW_WITH_PORT, 500);
+				   TFW_NO_PORT, 500);
 	tfw_h2_send_resp(req, 500, stream_id);
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	TFW_INC_STAT_BH(serv.msgs_otherr);
