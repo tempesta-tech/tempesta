@@ -1156,7 +1156,11 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])	\
-		&& (req->method == TFW_HTTP_METH_GET)) {	\
+		&& ((req->method == TFW_HTTP_METH_GET)	\
+		 || (req->method == TFW_HTTP_METH_HEAD)	\
+		 || (req->method == TFW_HTTP_METH_DELETE)	\
+		 || (req->method == TFW_HTTP_METH_TRACE)	\
+		   )) {	\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}	\
 	if (msg->content_length) {					\
@@ -8561,7 +8565,10 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	if (likely(type != HTTP2_DATA))
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-	else if (unlikely(req->method == TFW_HTTP_METH_GET))
+	else if (unlikely(req->method == TFW_HTTP_METH_GET)
+		  || unlikely(req->method == TFW_HTTP_METH_HEAD)
+		  || unlikely(req->method == TFW_HTTP_METH_DELETE)
+		  || unlikely(req->method == TFW_HTTP_METH_TRACE))
 		r = T_DROP;
 	else
 		r = tfw_h2_parse_body(data, len, req, parsed);
