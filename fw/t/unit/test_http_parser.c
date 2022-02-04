@@ -47,7 +47,7 @@
 #include "msg.c"
 #include "http_msg.c"
 
-static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 
+static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
@@ -1482,7 +1482,12 @@ TEST(http_parser, content_length)
 	/* Content-Length is mandatory for responses. */
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n\r\n");
 
-	FOR_REQ_SIMPLE("Content-Length: 0")
+	/* Content-Length must not be present in GET requests */
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 0");
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Content-Length: 0\r\n"
+		"\r\n")
 	{
 		EXPECT_TRUE(req->content_length == 0);
 	}
@@ -1494,7 +1499,7 @@ TEST(http_parser, content_length)
 		EXPECT_TRUE(resp->content_length == 0);
 	}
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
+	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Content-Length: 5\r\n"
 		"\r\n"
 		"dummy")
@@ -1544,7 +1549,7 @@ TEST(http_parser, content_length)
 	EXPECT_BLOCK_DIGITS("HTTP/1.0 200 OK\r\nContent-Length: ",
 			    "\r\n\r\ndummy", EXPECT_BLOCK_RESP);
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
 			 "Content-Length: 10, 10\r\n"
 			 "\r\n"
 			 "0123456789");
@@ -1553,7 +1558,7 @@ TEST(http_parser, content_length)
 			  "\r\n"
 			  "0123456789");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
 			 "Content-Length: 10 10\r\n"
 			 "\r\n"
 			 "0123456789");
@@ -1562,7 +1567,8 @@ TEST(http_parser, content_length)
 			  "\r\n"
 			  "0123456789");
 
-	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 0\r\n"
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1"
+				"Content-Length: 0\r\n"
 		  		"Content-Length: 0");
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 0\r\n"
