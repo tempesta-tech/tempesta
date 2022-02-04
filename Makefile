@@ -104,9 +104,11 @@ else
 ifdef M
 	DIR = $(M)/
 endif
-	# Some cloud providers hide ADX support bit in vCPU, but it still present, make run-rime check to discard false negative cases
+	# Some cloud providers hide ADX support bit in vCPU, but it still present,
+	# make run-rime check to discard false negative cases
 	CHECK_CONF = $(DIR)scripts/check_conf.pl
-	ADX_SUPPORTED := $(shell $(CHECK_CONF) 2>/dev/null | grep ADX | if grep -q ': found'; then echo y; fi)
+	ADX_SUPPORTED := $(shell $(CHECK_CONF) 2>/dev/null | \
+	grep ADX | if grep -q ': found'; then echo y; fi)
 ifeq ($(ADX_SUPPORTED), y)
 	ADX = "y"
 else

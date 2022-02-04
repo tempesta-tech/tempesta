@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2020-2021 Tempesta Technologies, Inc.
+# Copyright (C) 2020-2022 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -44,7 +44,9 @@ int main() {
     $tmp_exe_filename =~ s{\.[^.]*(?:\.c)?$}{};
     my $exit_status = system("gcc", $tmp_src->filename, "-o", $tmp_exe_filename);
     my $test_output = `$tmp_exe_filename`;
-    print "'Intel ADX Instruction Extensions' support: ", index($test_output, "ADX supported") == -1 || $exit_status != 0 ? "NOT " : "", "found\n";
+    print "'Intel ADX Instruction Extensions' support: ",
+        index($test_output, "ADX supported") == -1 || $exit_status != 0 ?
+        "NOT " : "", "found\n";
     if ($exit_status != 0) {
         return;
     }
