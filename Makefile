@@ -100,9 +100,23 @@ else
 endif
 ifneq (, $(findstring adx, $(PROC)))
 	ADX = "y"
-	TFW_CFLAGS += -DADX=1
+else
+ifdef M
+	DIR = $(M)/
+endif
+	# Some cloud providers hide ADX support bit in vCPU, but it still present,
+	# make run-rime check to discard false negative cases
+	CHECK_CONF = $(DIR)scripts/check_conf.pl
+	ADX_SUPPORTED := $(shell $(CHECK_CONF) 2>/dev/null | \
+	grep ADX | if grep -q ': found'; then echo y; fi)
+ifeq ($(ADX_SUPPORTED), y)
+	ADX = "y"
 else
 	ERROR = "ADX CPU extension is required for Tempesta TLS"
+endif
+endif
+ifeq ($(ADX),y)
+	TFW_CFLAGS += -DADX=1
 endif
 
 KERNEL = /lib/modules/$(shell uname -r)/build
