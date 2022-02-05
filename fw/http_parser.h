@@ -52,8 +52,7 @@ typedef struct {
  *
  * Headers unconditionally treated as hop-by-hop must be listed in
  * tfw_http_init_parser_req()/tfw_http_init_parser_resp() functions and must be
- * members of Special headers.
- * group.
+ * members of Special headers group.
  *
  * @spec	- bit array for special headers. Hop-by-hop special header is
  *		  stored as (0x1 << tfw_http_hdr_t[hid]);
