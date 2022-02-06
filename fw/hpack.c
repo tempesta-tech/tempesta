@@ -2435,9 +2435,6 @@ tfw_hpack_write(const TfwStr *h_field, char *out_buf)
 
 	T_DBG3("%s: enter, h_field->len=%lu,\n", __func__, h_field->len);
 
-	if (WARN_ON_ONCE(TFW_STR_EMPTY(h_field)))
-		return out_buf;
-
 	TFW_STR_FOR_EACH_CHUNK(c, h_field, end) {
 		if (!c->len)
 			continue;
@@ -3021,6 +3018,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, TfwStr *__restrict hdr,
 
 	hdr_len = tfw_http_hdr_split(hdr, &s_nm, &s_val,
 				     op == TFW_H2_TRANS_INPLACE);
+	WARN_ON_ONCE(TFW_STR_EMPTY(&s_nm));
 
 	WARN_ON_ONCE(cur_size > window || window > HPACK_ENC_TABLE_MAX_SIZE);
 	if ((node_size = hdr_len + HPACK_ENTRY_OVERHEAD) > window) {
