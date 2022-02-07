@@ -85,7 +85,8 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-/* TODO: When CONNECT will be added, add it to tfw_handle_validation_req() */
+/* TODO: When CONNECT will be added, add it to tfw_handle_validation_req()
+ * and to body processing content-length filtering */
 /* New safe methods MUST be added to TFW_HTTP_IS_METH_SAFE macro */
 typedef enum {
 	_TFW_HTTP_METH_NONE,

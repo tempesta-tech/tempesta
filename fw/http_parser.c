@@ -1155,13 +1155,21 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		 */							\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
-	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])	\
-		&& ((req->method == TFW_HTTP_METH_GET)	\
-		 || (req->method == TFW_HTTP_METH_HEAD)	\
-		 || (req->method == TFW_HTTP_METH_DELETE)	\
-		 || (req->method == TFW_HTTP_METH_TRACE)	\
-		   )) {	\
-		TFW_PARSER_BLOCK(RGen_BodyInit);			\
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {	\
+		/* Method override either honored or request message with method	\
+		 * override header dropped later in processing */	\
+		if (unlikely(req->method_override)) {	\
+			if (req->method_override == TFW_HTTP_METH_GET	\
+			 || req->method_override == TFW_HTTP_METH_HEAD	\
+			 || req->method_override == TFW_HTTP_METH_DELETE	\
+			 || req->method_override == TFW_HTTP_METH_TRACE)	\
+				TFW_PARSER_BLOCK(RGen_BodyInit);			\
+		} else if (req->method == TFW_HTTP_METH_GET	\
+			  || req->method == TFW_HTTP_METH_HEAD	\
+			  || req->method == TFW_HTTP_METH_DELETE	\
+			  || req->method == TFW_HTTP_METH_TRACE) {	\
+			TFW_PARSER_BLOCK(RGen_BodyInit);			\
+		}	\
 	}	\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
