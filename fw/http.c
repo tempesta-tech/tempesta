@@ -5487,9 +5487,8 @@ next_msg:
 	 * backend.
 	 * 
 	 * While non-idempotent method can be hidden behind idempotent, it is
-	 * reasonable to expect that safe method will be hidden only behind
-	 * safe method (usually GET), and non-safe behind non-safe method
-	 * (usually POST).
+	 * reasonable to expect that non-safe method can not be hidden behind
+	 * safe method.
 	 */
 	if (unlikely(req->method_override)) {
 		if (TFW_HTTP_IS_METH_SAFE(req->method)

@@ -684,28 +684,32 @@ TEST(http_parser, mangled_messages)
  */
 TEST(http_parser, alphabets)
 {
-	FOR_REQ_SIMPLE("Host: test\r\n"
-		       /* We don't match open and closing quotes. */
-		       "Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
-		       "Pragma: no-cache, fooo ");
+	FOR_REQ("PUT / HTTP/1.1\r\n"
+			"Host: test\r\n"
+			/* We don't match open and closing quotes. */
+			"Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
+			"Pragma: no-cache, fooo \r\n"
+			"\r\n");
 
 	/* Trailing SP in request. */
-	FOR_REQ_SIMPLE("Host: localhost\t  \r\n"
-		       "User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
-		       "Accept: */*\t \r\n"
-		       "Connection: Keep-Alive \t \r\n"
-		       "X-Custom-Hdr: custom header values \t  \r\n"
-		       "X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
-		       "Content-Type: text/html; charset=iso-8859-1  \t \r\n"
-		       "Cache-Control: "
-		       "max-age=0, private, min-fresh=42 \t \r\n"
-		       "Transfer-Encoding: "
-		       "compress, deflate, gzip, chunked\t  \r\n"
-		       "Cookie: session=42; theme=dark  \t \r\n"
-		       "\r\n"
-		       "3\r\n"
-		       "123\r\n"
-		       "0");
+	FOR_REQ("PUT / HTTP/1.1\r\n"
+			"Host: localhost\t  \r\n"
+			"User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
+			"Accept: */*\t \r\n"
+			"Connection: Keep-Alive \t \r\n"
+			"X-Custom-Hdr: custom header values \t  \r\n"
+			"X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
+			"Content-Type: text/html; charset=iso-8859-1  \t \r\n"
+			"Cache-Control: "
+			"max-age=0, private, min-fresh=42 \t \r\n"
+			"Transfer-Encoding: "
+			"compress, deflate, gzip, chunked\t  \r\n"
+			"Cookie: session=42; theme=dark  \t \r\n"
+			"\r\n"
+			"3\r\n"
+			"123\r\n"
+			"0\r\n"
+			"\r\n");
 
 	/* Trailing SP in response. */
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
@@ -729,10 +733,12 @@ TEST(http_parser, alphabets)
  */
 TEST(http_parser, casesense)
 {
-	FOR_REQ_SIMPLE("hOST: test\r\n"
-		       "cAchE-CoNtRoL: no-cache\n"
-		       "x-fORWarDED-For: 1.1.1.1\r\n"
-		       "conTent-typE: chunked");
+	FOR_REQ("PUT / HTTP/1.1\r\n"
+			"hOST: test\r\n"
+			"cAchE-CoNtRoL: no-cache\n"
+			"x-fORWarDED-For: 1.1.1.1\r\n"
+			"conTent-typE: chunked\r\n"
+			"\r\n");
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"aGE: 10\r\n"
@@ -1474,6 +1480,39 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_EXTRA, req->flags));
+	}
+}
+
+TEST(http_parser, content_type_in_bodyless_requests)
+{
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Type: text/plain");
+
+	EXPECT_BLOCK_REQ("HEAD / HTTP/1.1\r\n"
+			  "Content-Type: text/html; charset=utf-8\r\n"
+		 	  "Content-Length: 0\r\n"
+		 	  "\r\n");
+
+	EXPECT_BLOCK_REQ("DELETE / HTTP/1.1\r\n"
+			  "Content-Length: 5\r\n"
+			  "Content-Type: text/html\r\n"
+			  "\r\n"
+			  "dummy");
+
+	EXPECT_BLOCK_REQ("TRACE / HTTP/1.1\r\n"
+			  "Content-Type: application/octet-stream\r\n"
+			  "\r\n");
+
+	/* Uncomment when CONNECT method will be added to Tempesta FW */
+	// EXPECT_BLOCK_REQ("CONNECT / HTTP/1.1\r\n"
+	// 		  "Content-Type: application/octet-stream\r\n"
+	// 		  "\r\n");
+
+	FOR_REQ("OPTIONS / HTTP/1.1\r\n"
+			"Content-Type: text/plain\r\n"
+			"\r\n")
+	{
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain");
 	}
 }
 
@@ -4122,6 +4161,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, pragma);
 	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
+	TEST_RUN(http_parser, content_type_in_bodyless_requests);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);
 	TEST_RUN(http_parser, ows);

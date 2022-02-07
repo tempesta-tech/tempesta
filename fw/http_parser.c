@@ -1155,7 +1155,12 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		 */							\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
-	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {	\
+	/* According to RFC 7231 4.3.* a payload within GET, HEAD, DELETE,	\
+	 * TRACE and CONNECT requests has no defined semantics and	\
+	 * implementations can reject it. We do this respecting overrides.	\
+	*/	\
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])	\
+	 || !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE])) {	\
 		/* Method override either honored or request message with method	\
 		 * override header dropped later in processing */	\
 		if (unlikely(req->method_override)) {	\
