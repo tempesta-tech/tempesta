@@ -5485,9 +5485,21 @@ next_msg:
 	 * We don't rewrite the method string and don't remove override header
 	 * since there can be additional intermediates between TempestaFW and
 	 * backend.
+	 * 
+	 * While non-idempotent method can be hidden behind idempotent, it is
+	 * reasonable to expect that safe method will be hidden only behind
+	 * safe method (usually GET), and non-safe behind non-safe method
+	 * (usually POST).
 	 */
-	if (unlikely(req->method_override))
+	if (unlikely(req->method_override)) {
+		if (TFW_HTTP_IS_METH_SAFE(req->method)
+			&& !TFW_HTTP_IS_METH_SAFE(req->method_override)) {
+			tfw_http_req_parse_block(req, 400,
+				"request dropped: unsafe method override attempted");
+			return TFW_BLOCK;
+		}
 		req->method = req->method_override;
+	}
 
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
