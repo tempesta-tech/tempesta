@@ -1659,11 +1659,7 @@ TEST(http_parser, eol_crlf)
 		EXPECT_TRUE(ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH].eolen == 1);
 	}
 
-	/*
-	 * It seems RFC 7230 3.3 doesn't prohibit message body
-	 * for GET requests.
-	 */
-	__FOR_REQ("GET / HTTP/1.1\n"
+	__FOR_REQ("POST / HTTP/1.1\n"
 		  "Host: b.com\n"
 		  "Content-Length: 6\n"
 		  "\r\n"
@@ -2914,12 +2910,9 @@ TEST(http_parser, req_hop_by_hop)
 	"Dummy5: 5\r\n"							\
 	"Foo: is hop-by-hop header\r\n"					\
 	"Dummy6: 6\r\n"							\
-	"Content-Length: 0\r\n"						\
-	"Content-Type: text/html; charset=iso-8859-1\r\n"		\
+	"Buzz: is hop-by-hop header\r\n"				\
 	"Dummy7: 7\r\n"							\
 	"Dummy8: 8\r\n"							\
-	"Buzz: is hop-by-hop header\r\n"				\
-	"Dummy9: 9\r\n"							\
 	"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"		\
 	"Pragma: no-cache, fooo \r\n"					\
 	"Cookie: session=42; theme=dark\r\n"				\
@@ -2931,8 +2924,8 @@ TEST(http_parser, req_hop_by_hop)
 		REQ_HBH_END)
 	{
 		ht = req->h_tbl;
-		/* Common (raw) headers: 17 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+		/* Common (raw) headers: 16 total with 9 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -2946,8 +2939,8 @@ TEST(http_parser, req_hop_by_hop)
 		REQ_HBH_END)
 	{
 		ht = req->h_tbl;
-		/* Common (raw) headers: 17 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+		/* Common (raw) headers: 16 total with 9 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -2969,8 +2962,8 @@ TEST(http_parser, req_hop_by_hop)
 		REQ_HBH_END)
 	{
 		ht = req->h_tbl;
-		/* Common (raw) headers: 17 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+		/* Common (raw) headers: 16 total with 9 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -2978,7 +2971,7 @@ TEST(http_parser, req_hop_by_hop)
 			case TFW_HTTP_HDR_CONNECTION:
 			case TFW_HTTP_HDR_KEEP_ALIVE:
 			case TFW_HTTP_HDR_RAW + 4:
-			case TFW_HTTP_HDR_RAW + 12:
+			case TFW_HTTP_HDR_RAW + 10:
 				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
 				break;
 			default:
