@@ -3568,7 +3568,6 @@ static int
 tfw_h1_purge_resp_clean(TfwHttpResp *resp)
 {
 	int ret;
-	struct sk_buff *head;
 	TfwStr replacement = {
 		.chunks = (TfwStr []) {
 			TFW_STR_STRING("Content-Length"),
@@ -3580,9 +3579,8 @@ tfw_h1_purge_resp_clean(TfwHttpResp *resp)
 	TfwStr *c = replacement.chunks;
 
 	if (!TFW_STR_EMPTY(&resp->body)) {
-		head = resp->msg.skb_head;
-		ret = ss_skb_chop_head_tail(head, head, 0,
-					    tfw_str_total_len(&resp->body));
+		ret = ss_skb_list_chop_head_tail(&resp->msg.skb_head,
+				0, tfw_str_total_len(&resp->body));
 		if (ret)
 			return ret;
 		TFW_STR_INIT(&resp->body);
