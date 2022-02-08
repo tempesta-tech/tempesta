@@ -2445,9 +2445,6 @@ tfw_hpack_write(const TfwStr *h_field, char *out_buf)
 
 	T_DBG3("%s: enter, h_field->len=%lu,\n", __func__, h_field->len);
 
-	if (WARN_ON_ONCE(TFW_STR_EMPTY(h_field)))
-		return out_buf;
-
 	TFW_STR_FOR_EACH_CHUNK(c, h_field, end) {
 		if (!c->len)
 			continue;
@@ -3031,6 +3028,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, TfwStr *__restrict hdr,
 
 	hdr_len = tfw_http_hdr_split(hdr, &s_nm, &s_val,
 				     op == TFW_H2_TRANS_INPLACE);
+	WARN_ON_ONCE(TFW_STR_EMPTY(&s_nm));
 
 	WARN_ON_ONCE(cur_size > window || window > HPACK_ENC_TABLE_MAX_SIZE);
 	if ((node_size = hdr_len + HPACK_ENTRY_OVERHEAD) > window) {
@@ -3126,7 +3124,8 @@ commit:
 	it.last->rindex = ++tbl->idx_acc;
 
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
-	tfw_hpack_write(&s_val, ptr);
+	if (!TFW_STR_EMPTY(&s_val))
+		tfw_hpack_write(&s_val, ptr);
 
 	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
 
@@ -3656,13 +3655,16 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		if (unlikely(r))
 			return r;
 
-		bnd = __TFW_STR_CH(&s_val, 0)->data;
+		if (!TFW_STR_EMPTY(&s_val))
+			bnd = __TFW_STR_CH(&s_val, 0)->data;
+		else
+			bnd = mit->bnd;
 
 		r = tfw_h2_msg_rewrite_data_lc(mit, &s_name, bnd);
 		if (unlikely(r))
 			return r;
 	} else {
-		bnd = indexed
+		bnd = indexed || TFW_STR_EMPTY(&s_val)
 			? mit->bnd
 			: __TFW_STR_CH(&s_val, 0)->data;
 
@@ -3681,10 +3683,11 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	r = tfw_h2_msg_rewrite_data(mit, &s_vlen, bnd);
 	if (unlikely(r))
 		return r;
-
-	r = tfw_h2_msg_rewrite_data(mit, &s_val, mit->bnd);
-	if (unlikely(r))
-		return r;
+	if (!TFW_STR_EMPTY(&s_val)) {
+		r = tfw_h2_msg_rewrite_data(mit, &s_val, mit->bnd);
+		if (unlikely(r))
+			return r;
+	}
 
 	return 0;
 }
