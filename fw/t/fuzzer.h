@@ -30,7 +30,8 @@ enum {
 
 enum {
 	FUZZ_REQ,
-	FUZZ_RESP
+	FUZZ_RESP,
+	FUZZ_REQ_H2
 };
 
 typedef enum {
