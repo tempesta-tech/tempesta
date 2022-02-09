@@ -8489,7 +8489,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		__FSM_H2_DROP(Req_MethodUnknown);
 	}
 
-	/* Improbable states of shceme value processing. */
+	/* Improbable states of scheme value processing. */
 
 	__FSM_H2_SCHEME_STATE_MOVE(Req_Scheme_1CharStep, 'h', Req_SchemeH);
 	__FSM_H2_SCHEME_STATE_MOVE(Req_SchemeH, 't', Req_SchemeHt);
