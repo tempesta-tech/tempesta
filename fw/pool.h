@@ -24,6 +24,7 @@
 #define __TFW_POOL_H__
 
 #include <linux/cache.h>
+#include <linux/kernel.h>
 #include "log.h"
 
 #define TFW_POOL_ZERO	0x1
