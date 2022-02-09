@@ -1170,9 +1170,9 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 			 || req->method_override == TFW_HTTP_METH_TRACE)	\
 				TFW_PARSER_BLOCK(RGen_BodyInit);			\
 		} else if (req->method == TFW_HTTP_METH_GET	\
-			  || req->method == TFW_HTTP_METH_HEAD	\
-			  || req->method == TFW_HTTP_METH_DELETE	\
-			  || req->method == TFW_HTTP_METH_TRACE) {	\
+				|| req->method == TFW_HTTP_METH_HEAD	\
+				|| req->method == TFW_HTTP_METH_DELETE	\
+				|| req->method == TFW_HTTP_METH_TRACE) {	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);			\
 		}	\
 	}	\

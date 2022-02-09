@@ -109,8 +109,7 @@ tfw_h2_pack_hdr_frame(const char *str, char buf[], unsigned int buf_len)
 		hdr_one = strsep(strp, "\n");
 		hdr = hdr_one;
 		if (*hdr == ':') {
-			++hdr;
-			if (!*hdr)
+			if (!*(++hdr))
 				continue;
 		}
 		hdrp = &hdr;
@@ -1642,7 +1641,7 @@ TEST(http_parser, content_type_in_bodyless_requests)
 			   ":scheme: https\n"
 			   ":path: /");
 
-	/* But wiht content-length will be block for http2 too */
+	/* But with content-length will be block for http2 too */
 	EXPECT_BLOCK_REQ_H2(":authority: debian\n"
 						":method: GET\n"
 						":scheme: http\n"
@@ -1784,10 +1783,10 @@ TEST(http_parser, content_length)
 		 "Content-Length: 0\r\n"
 		 "\r\n");
 
-		/*
-		* A server MAY send a Content-Length header field in a 304
-		* (Not Modified) response to a conditional GET request.
-		*/
+	/*
+	 * A server MAY send a Content-Length header field in a 304
+	 * (Not Modified) response to a conditional GET request.
+	 */
 #define NOT_PARSED "dummy_body"
 #define RESP	"HTTP/1.1 304 Not Modified\r\n"		\
 		"Content-Length: 5\r\n"			\
