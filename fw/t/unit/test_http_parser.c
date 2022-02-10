@@ -1013,6 +1013,68 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	}
 }
 
+TEST(http_parser, fills_hdr_tbl_for_resp2)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *h_lastmodified, *h_cc, *h_pragma;
+	TfwStr h_etag, h_setcookie, h_contlen;
+
+	/* Expected values for special headers. */
+	const char *s_etag = "W/\"0815\" ";
+	const char *s_setcookie = "__Host-id=1; Secure; Path=/; domain=example.com ";
+	const char *s_contlen = "5";
+	/* Expected values for raw headers. */
+	const char *s_lastmodified = "Last-Modified: Wed, 21 Oct 2015 07:28:00 GMT ";
+	const char *s_cc = "Cache-Control: dummy=\"\", dummy ";
+	const char *s_pragma = "Pragma: no-cache ";
+
+	FOR_RESP(
+		"HTTP/1.1 200 OK\r\n"
+		"ETag: W/\"0815\" \r\n"
+		"Content-Length: 5 \r\n"
+		"Set-Cookie: __Host-id=1; Secure; Path=/; domain=example.com \r\n"
+		"Last-Modified: Wed, 21 Oct 2015 07:28:00 GMT \r\n"
+		"Cache-Control: dummy=\"\", dummy \r\n"
+		"Pragma: no-cache \r\n"
+		"\r\n"
+		"01234")
+	{
+		ht = resp->h_tbl;
+
+		EXPECT_TFWSTR_EQ(&ht->tbl[TFW_HTTP_STATUS_LINE],
+				 "HTTP/1.1 200 OK");
+
+		/* Special headers: */
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_ETAG],
+					TFW_HTTP_HDR_ETAG,
+					&h_etag);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_SET_COOKIE],
+					TFW_HTTP_HDR_SET_COOKIE,
+					&h_setcookie);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
+					TFW_HTTP_HDR_CONTENT_LENGTH, &h_contlen);
+
+		/*
+		 * Common (raw) headers: Cache-Control, Last-Modified, Pragma.
+		 */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 3);
+
+		if (ht->off == TFW_HTTP_HDR_RAW + 3) {
+			h_lastmodified = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
+			h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
+			h_pragma = &ht->tbl[TFW_HTTP_HDR_RAW + 2];
+
+			EXPECT_TFWSTR_EQ(h_lastmodified, s_lastmodified);
+			EXPECT_TFWSTR_EQ(h_cc, s_cc);
+			EXPECT_TFWSTR_EQ(h_pragma, s_pragma);
+		}
+
+		EXPECT_TFWSTR_EQ(&h_etag, s_etag);
+		EXPECT_TFWSTR_EQ(&h_setcookie, s_setcookie);
+		EXPECT_TFWSTR_EQ(&h_contlen, s_contlen);
+	}
+}
+
 TEST(http_parser, cache_control)
 {
 	TfwStr dummy_header = { .data = "dummy:", .len = SLEN("dummy:") };
@@ -4117,6 +4179,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, hdr_token_confusion);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
+	TEST_RUN(http_parser, fills_hdr_tbl_for_resp2);
 	TEST_RUN(http_parser, cache_control);
 	TEST_RUN(http_parser, status);
 	TEST_RUN(http_parser, age);
