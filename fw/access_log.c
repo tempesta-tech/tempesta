@@ -26,39 +26,7 @@
 
 static bool access_log_enabled = false;
 
-/** Build string consists of chunks that belong to the header value.
- * @param http_version is TFW_HTTP_VER_xx enum
- * @param line is the request line from TfwHttpReq::h_tbl */
-static TfwStr
-get_http_header_value(char http_version, TfwStr *line)
-{
-	WARN_ONCE(TFW_STR_PLAIN(line), "Got plain string from parser");
-	if (TFW_STR_PLAIN(line))
-		return *line;
-	if (http_version >= TFW_HTTP_VER_09 && http_version <= TFW_HTTP_VER_11) {
-		TfwStr result;
-		TfwStr *chunk = line->chunks, *end = chunk + line->nchunks;
-		for (; chunk < end; chunk++) {
-			if (chunk->len == 1 && *chunk->data == ':')
-				break;
-		}
-		if (chunk == end)
-			return TFW_STR_STRING("");
-		chunk++;
-		while (chunk < end && (chunk->flags & TFW_STR_OWS) != 0)
-			chunk++;
-		if (chunk == end)
-			return TFW_STR_STRING("");
-		TFW_STR_INIT(&result);
-		result.chunks = chunk;
-		result.nchunks = end - chunk;
-		return result;
-	} else {
-		WARN_ONCE(true, "HTTP/2.0 not handled yet");
-		return *line;
-	}
-}
-
+#if 0
 void tfw_str_info(TfwStr *str) {
 	unsigned i = 0;
 	const TfwStr *s, *end;
@@ -69,6 +37,59 @@ void tfw_str_info(TfwStr *str) {
 	}
 
 }
+#endif
+
+/** Build string consists of chunks that belong to the header value.
+ * If header value is empty, then it returns "-" to be nginx-like.
+ *
+ * @param http_version is TFW_HTTP_VER_xx enum
+ * @param line is the request line from TfwHttpReq::h_tbl */
+static TfwStr
+get_http_header_value(char http_version, TfwStr *line)
+{
+	TfwStr result;
+	size_t len = line->len;
+	TfwStr *chunk = line->chunks, *end = chunk + line->nchunks;
+	static TfwStr empty_hdr = TFW_STR_STRING("-");
+
+	if (http_version >= TFW_HTTP_VER_09 && http_version <= TFW_HTTP_VER_11) {
+
+		/* Should never get plain string from parser */
+		if (TFW_STR_PLAIN(line))
+			return TFW_STR_EMPTY(line) ? empty_hdr : *line;
+
+		/* Skip over until ':' marker */
+		for (; chunk < end; chunk++) {
+			len -= chunk->len;
+			if (chunk->len == 1 && *chunk->data == ':')
+				break;
+		}
+		if (chunk == end)
+			return empty_hdr;
+		chunk++;
+
+		/* Skip possible whitespace blocks */
+		while (chunk < end && (chunk->flags & TFW_STR_OWS) != 0) {
+			len -= chunk->len;
+			chunk++;
+		}
+	} else {
+		/* skip over chunks until HDR_VALUE one */
+		while (chunk < end && (chunk->flags & TFW_STR_HDR_VALUE) == 0) {
+			len -= chunk->len;
+			chunk++;
+		}
+	}
+
+	if (chunk == end)
+		return empty_hdr;
+
+	TFW_STR_INIT(&result);
+	result.len = len;
+	result.chunks = chunk;
+	result.nchunks = end - chunk;
+	return result;
+}
 
 void
 do_access_log(TfwHttpResp *resp)
@@ -76,6 +97,9 @@ do_access_log(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	// TODO: make it larger and per-cpu statically allocated
 	char buf[1024], *p = buf, *end = buf + sizeof(buf);
+
+	if (!access_log_enabled)
+		return;
 
 #define CONCAT_TFW_STR(s) do {                               \
 		if ((s) != NULL) {                           \
@@ -160,10 +184,16 @@ do_access_log(TfwHttpResp *resp)
 	CONCAT_STR("\" \"");
 	CONCAT_HDR(TFW_HTTP_HDR_USER_AGENT);
 	CONCAT_STR("\"");
+
+#if 0
+	CONCAT_STR("   COOKIE: <");
+	CONCAT_HDR(TFW_HTTP_HDR_COOKIE);
+	*p++ = '>';
+#endif
 overflow:
 	*(p < end ? p : buf + sizeof(buf) - 1) = 0;
 	pr_info("%s", buf);
-	tfw_str_info(req->h_tbl->tbl + TFW_HTTP_HDR_COOKIE);
+	/*tfw_str_info(req->h_tbl->tbl + TFW_HTTP_HDR_COOKIE);*/
 #undef CONCAT_CASE_STR_XX
 #undef CONCAT_CASE_STR
 #undef CONCAT_STR
