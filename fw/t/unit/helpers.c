@@ -362,3 +362,5 @@ void
 tfw_server_destroy(TfwServer *srv)
 {
 }
+
+void do_access_log(TfwHttpResp *resp) {}
