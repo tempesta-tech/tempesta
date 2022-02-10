@@ -103,6 +103,7 @@
 #include "server.h"
 #include "tls.h"
 #include "apm.h"
+#include "access_log.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -3706,6 +3707,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 	T_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 	WARN_ON_ONCE(req->resp != resp);
+	do_access_log(resp);
 
 	/*
 	 * If the list is empty, then it's either a bug, or the client
