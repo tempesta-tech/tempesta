@@ -133,6 +133,7 @@ enum {
 #define TFW_HTTP_CC_MAX_STALE		0x00000010
 #define TFW_HTTP_CC_MIN_FRESH		0x00000020
 #define TFW_HTTP_CC_OIFCACHED		0x00000040
+#define TFW_HTTP_CC_CHAIN_NO_CACHE	0x00000080
 /* Response only CC directives. */
 #define TFW_HTTP_CC_MUST_REVAL		0x00000100
 #define TFW_HTTP_CC_PROXY_REVAL		0x00000200
@@ -263,6 +264,8 @@ enum {
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
 	TFW_HTTP_B_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
+	/* Request fitted no cache cookie rule */
+	TFW_HTTP_B_CHAIN_NO_CACHE,
 	/* Request is non-idempotent. */
 	TFW_HTTP_B_NON_IDEMP,
 	/* Request stated 'Accept: text/html' header */

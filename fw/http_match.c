@@ -375,7 +375,7 @@ state_hdr_sp:
 static bool
 match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	tfw_http_hdr_t id = rule->hid;
+	tfw_http_hdr_t id = rule->val.hid;
 
 	BUG_ON(id < 0);
 	if (id == TFW_HTTP_HDR_RAW)
@@ -408,6 +408,41 @@ match_mark(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return mark == rule->arg.num;
 }
 
+static bool
+match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+{
+	TfwStr cookie_val;
+	TfwStr *hdr, *end, *dup;
+	tfw_str_eq_flags_t flags;
+	if (unlikely(rule->val.type != TFW_HTTP_MATCH_V_COOKIE))
+		return false;
+	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
+	if (TFW_STR_EMPTY(hdr))
+		return 0;
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		TfwStr value = { 0 };
+		int r;
+		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
+		r = tfw_http_search_cookie(rule->val.ptn.str,
+					   rule->val.ptn.len,
+					   &value, &cookie_val,
+					   rule->val.ptn.op, false);
+		if (r)
+			goto val_cmp;
+	}
+	return 0;
+
+val_cmp:
+	flags = map_op_to_str_eq_flags(rule->op);
+	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
+		return tfw_str_eq_cstr_off(&cookie_val,
+					   cookie_val.len - rule->arg.len,
+					   rule->arg.str, rule->arg.len,
+					   flags);
+	return tfw_str_eq_cstr(&cookie_val, rule->arg.str, rule->arg.len,
+			       flags);
+}
+
 typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
 
 static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
@@ -417,6 +452,7 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
 	[TFW_HTTP_MATCH_F_URI]		= match_uri,
 	[TFW_HTTP_MATCH_F_MARK]		= match_mark,
+	[TFW_HTTP_MATCH_F_COOKIE]	= match_cookie,
 };
 
 /**
@@ -425,7 +461,7 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
  * has appropriate action type.
  */
 static bool
-do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+do_eval(TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	match_fn match_fn;
 	tfw_http_match_fld_t field;
@@ -458,6 +494,16 @@ do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		req->msg.skb_head->mark = rule->act.mark;
 		return false;
 	}
+	/*
+	 * Evaluate binary flag setting action.
+	 */
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_FLAG) {
+		if (likely(rule->act.flg.set))
+			set_bit(rule->act.flg.fid, req->flags);
+		else
+			clear_bit(rule->act.flg.fid, req->flags);
+		return false;
+	}
 	return true;
 }
 
@@ -471,6 +517,7 @@ tfw_http_tbl_arg_type(tfw_http_match_fld_t field)
 		[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
 		[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
 		[TFW_HTTP_MATCH_F_MARK]		= TFW_HTTP_MATCH_A_NUM,
+		[TFW_HTTP_MATCH_F_COOKIE]	= TFW_HTTP_MATCH_A_STR,
 	};
 
 	BUG_ON(field <= 0 || field >= _TFW_HTTP_MATCH_F_COUNT);
@@ -483,7 +530,7 @@ tfw_http_tbl_arg_type(tfw_http_match_fld_t field)
  * Return a first matching rule.
  */
 TfwHttpMatchRule *
-tfw_http_match_req(const TfwHttpReq *req, struct list_head *mlst)
+tfw_http_match_req(TfwHttpReq *req, struct list_head *mlst)
 {
 	TfwHttpMatchRule *rule;
 
@@ -599,7 +646,8 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 	rule->arg.len = arg_len;
 	memcpy(rule->arg.str, arg, arg_len);
 	if (rule->field == TFW_HTTP_MATCH_F_HDR
-	    && rule->hid == TFW_HTTP_HDR_RAW)
+	    && rule->val.type == TFW_HTTP_MATCH_V_HID
+	    && rule->val.hid == TFW_HTTP_HDR_RAW)
 	{
 		char *p = rule->arg.str;
 		while ((*p = tolower(*p)))
@@ -609,14 +657,37 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 	return 0;
 }
 
+static
+size_t
+tfw_http_escape_pre_post(char *out , const char *str)
+{
+	int i;
+	size_t len = 0;
+	bool escaped = false;
+
+	for (i = 0; str[i]; ++i) {
+		if (str[i] == '*' && !escaped && (i == 0 || !str[i + 1]))
+			continue;
+		if (str[i] != '\\' || escaped) {
+			escaped = false;
+			*out = str[i];
+			++len;
+			++out;
+		}
+		else if (str[i] == '\\') {
+			escaped = true;
+		}
+	}
+
+	return len;
+}
+
 const char *
 tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		    const char *raw_hdr_name, size_t *size_out,
 		    tfw_http_match_arg_t *type_out,
 		    tfw_http_match_op_t *op_out)
 {
-	int i;
-	bool escaped;
 	char *arg_out, *pos;
 	size_t name_len = 0, full_name_len = 0, len = strlen(arg);
 	bool wc_arg = (arg[0] == '*' && len == 1);
@@ -631,7 +702,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	if (wc_arg && !raw_hdr_name)
 		return NULL;
 
-	if (raw_hdr_name) {
+	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
 		name_len = strlen(raw_hdr_name);
 		full_name_len = name_len + SLEN(S_DLM);
 	}
@@ -641,7 +712,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	if (raw_hdr_name) {
+	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
 		memcpy(arg_out, raw_hdr_name, name_len);
 		memcpy(arg_out + name_len, S_DLM, SLEN(S_DLM));
 	}
@@ -661,41 +732,93 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	 * pattern should be applied.
 	 */
 	if (!wc_arg && arg[0] == '*') {
-		if (*op_out == TFW_HTTP_MATCH_O_PREFIX)
+		if (*op_out == TFW_HTTP_MATCH_O_PREFIX) {
 			T_WARN_NL("http_match: unable to match"
 				  " double-wildcard patterns '%s', so"
 				  " prefix pattern will be applied\n", arg);
-
-		else if (raw_hdr_name)
-			T_WARN_NL("http_match: unable to match suffix"
-				  " pattern '%s' in case of raw header"
-				  " specification: '%s', so wildcard pattern"
-				  " will not be applied\n", arg, raw_hdr_name);
-
-		else
+		}
+		else if (raw_hdr_name) {
+			if (field != TFW_HTTP_MATCH_F_COOKIE)
+				T_WARN_NL("http_match: unable to match suffix"
+					  " pattern '%s' in case of raw header"
+					  " specification: '%s', so wildcard"
+					  " pattern will not be applied\n",
+					  arg, raw_hdr_name);
+			else
+				*op_out = TFW_HTTP_MATCH_O_SUFFIX;
+		} else {
 			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
+		}
 	}
 
-	len = full_name_len;
-	escaped = false;
 	pos = arg_out + full_name_len;
-	for (i = 0; arg[i]; ++i) {
-		if (arg[i] == '*' && !escaped && (i == 0 || !arg[i + 1]))
-			continue;
-		if (arg[i] != '\\' || escaped) {
-			escaped = false;
-			*pos = arg[i];
-			++len;
-			++pos;
-		}
-		else if (arg[i] == '\\') {
-			escaped = true;
-		}
-	}
-	*size_out = len + 1;
+	len = tfw_http_escape_pre_post(pos, arg);
+	*size_out += full_name_len + len + 1;
 
 	return arg_out;
 }
+
+const char *
+tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
+		    unsigned int *len_out,
+		    tfw_http_match_val_t *type_out,
+		    tfw_http_match_op_t *op_out)
+{
+	size_t len, len_adjust;
+	char *val_out;
+	bool wc_val;
+
+	if (field == TFW_HTTP_MATCH_F_HDR) {
+		*type_out = TFW_HTTP_MATCH_V_HID;
+		return NULL;
+	}
+	else if (field == TFW_HTTP_MATCH_F_COOKIE)
+	{
+		*type_out = TFW_HTTP_MATCH_V_COOKIE;
+	} else {
+		/* When not a hdr or cookie rule this value is not used */
+		return NULL;
+	}
+
+	if (!val) {
+		T_ERR_NL("http_tbl: cookie pattern is empty, must be filled\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	len = strlen(val);
+	wc_val = (val[0] == '*' && len == 1);
+
+	if (!(val_out = kzalloc(len + SLEN("=") + 1, GFP_KERNEL))) {
+		T_ERR_NL("http_match: unable to allocate rule field value.\n");
+		return ERR_PTR(-ENOMEM);
+	}
+
+	*op_out = TFW_HTTP_MATCH_O_EQ;
+	if (wc_val)
+		*op_out = TFW_HTTP_MATCH_O_WILDCARD;
+	if (len > 1 && val[len - 1] == '*' && val[len - 2] != '\\')
+		*op_out = TFW_HTTP_MATCH_O_PREFIX;
+	if (!wc_val && val[0] == '*') {
+		if (*op_out == TFW_HTTP_MATCH_O_PREFIX) {
+			T_ERR_NL("http_match: unable to match"
+				 " double-wildcard patterns '%s'\n", val);
+			return ERR_PTR(-EINVAL);
+		} else {
+			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
+		}
+	}
+
+	len_adjust = tfw_http_escape_pre_post(val_out, val);
+	if (*op_out == TFW_HTTP_MATCH_O_EQ ||
+	    *op_out == TFW_HTTP_MATCH_O_SUFFIX)
+	{
+		val_out[len_adjust++] = '=';
+	}
+	*len_out = len_adjust;
+
+	return val_out;
+}
+
 
 int
 tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
@@ -729,4 +852,86 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 	}
 
 	return 0;
+}
+
+/*
+ * Search for cookie in `Set-Cookie`/`Cookie` header value @cookie
+ * and save the cookie value into @val. Prefix, suffix or wildacar compare
+ * @op is supported, pass TFW_HTTP_MATCH_O_EQ for default behaviour.
+ * Flag @is_resp_hdr identifies the header name: true for `Set-Cookie`,
+ * false for `Cookie`.
+ */
+int
+tfw_http_search_cookie(const char *cstr, unsigned long clen,
+		       const TfwStr *cookie, TfwStr *val,
+		       tfw_http_match_op_t op, bool is_resp_hdr)
+{
+	TfwStr *chunk, *end;
+	TfwStr tmp = { 0 };
+	unsigned int n = cookie->nchunks;
+	/* Search cookie name. */
+	end = cookie->chunks + cookie->nchunks;
+	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
+		if (!(chunk->flags & TFW_STR_NAME))
+			continue;
+		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD))
+			break;
+		/*
+		 * Create a temporary compound string, starting with this
+		 * chunk. The total string length is not used here, so it
+		 * is not set.
+		 */
+		tmp.chunks = chunk;
+		tmp.nchunks = n;
+		tmp.len = 0;
+		/* The ops are the same due to '=' at the end of cookie name */
+		if (op == TFW_HTTP_MATCH_O_PREFIX ||
+		    op == TFW_HTTP_MATCH_O_EQ)
+		{
+			if (tfw_str_eq_cstr(&tmp, cstr, clen,
+					    TFW_STR_EQ_PREFIX))
+			{
+				break;
+			}
+		}
+		else if (op == TFW_HTTP_MATCH_O_SUFFIX) {
+			TfwStr *name;
+			unsigned int len = 0, name_n = 0;
+
+			for (name = chunk; name != end; ++name, ++name_n) {
+				if (!(name->flags & TFW_STR_NAME)) {
+					break;
+				}
+				len += name->len;
+			}
+			tmp.nchunks = name_n;
+			tmp.len = len;
+			if (len < clen)
+				continue;
+			if (tfw_str_eq_cstr_off(&tmp, len - clen, cstr, clen,
+						TFW_STR_EQ_PREFIX))
+			{
+				break;
+			}
+
+		} else {
+			continue;
+		}
+		/*
+		 * 'Cookie' header has multiple name-value pairs while the
+		 * 'Set-Cookie' has only one.
+		 */
+		if (unlikely(is_resp_hdr))
+			return 0;
+	}
+	if (chunk == end)
+		return 0;
+	/* Search cookie value, starting with next chunk. */
+	for (++chunk; chunk != end; ++chunk)
+		if (chunk->flags & TFW_STR_VALUE)
+			break;
+
+	tfw_str_collect_cmp(chunk, end, val, ";");
+
+	return 1;
 }

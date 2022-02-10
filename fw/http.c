@@ -4010,7 +4010,7 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
 
 		val_out->len += chunk->len;
 
-		/* 
+		/*
 		 * Skip OWS after the header value (RWS) - they must be in
 		 * separate chunks too.
 		 */
@@ -5402,6 +5402,11 @@ next_msg:
 	 */
 	req->cache_ctl.timestamp = tfw_current_timestamp();
 	req->jrxtstamp = jiffies;
+	/*
+	 * Bypass cache if corresponding binary flag in request set
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_CHAIN_NO_CACHE, req->flags)))
+		req->cache_ctl.flags |= TFW_HTTP_CC_CHAIN_NO_CACHE;
 
 	/*
 	 * Run frang checks first before any processing happen. Can't start
