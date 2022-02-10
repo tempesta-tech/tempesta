@@ -873,6 +873,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	tfw_connection_get(req->conn);
+	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)req->conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
