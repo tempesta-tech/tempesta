@@ -1717,6 +1717,7 @@ next_msg:
 	default:
 		T_WARN("Unrecognized return code %d during HTTP/2 frame"
 		       " receiving, drop frame\n", r);
+		// fallthrough
 	case T_DROP:
 		T_DBG3("Drop invalid HTTP/2 frame\n");
 		goto out;
