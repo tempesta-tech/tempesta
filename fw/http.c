@@ -5495,7 +5495,7 @@ next_msg:
 			&& !TFW_HTTP_IS_METH_SAFE(req->method_override))
 		{
 			tfw_http_req_parse_block(req, 400,
-				"request dropped: unsafe method override attempted");
+				"request dropped: unsafe method override");
 			return TFW_BLOCK;
 		}
 		req->method = req->method_override;

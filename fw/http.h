@@ -116,7 +116,7 @@ typedef enum {
 	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
-#define TFW_HTTP_IS_METH_SAFE(meth)									\
+#define TFW_HTTP_IS_METH_SAFE(meth)					\
 	((meth) == TFW_HTTP_METH_GET || (meth) == TFW_HTTP_METH_HEAD	\
 	 || (meth) == TFW_HTTP_METH_OPTIONS || (meth) == TFW_HTTP_METH_PROPFIND)
 
