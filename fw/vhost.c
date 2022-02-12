@@ -1127,7 +1127,7 @@ const struct {
 	{ TFW_HTTP_CC_PROXY_REVAL, STR_AND_LEN("proxy-revalidate") },
 	{ TFW_HTTP_CC_PUBLIC, STR_AND_LEN("public") },
 	{ TFW_HTTP_CC_PRIVATE, STR_AND_LEN("private") },
-	{ TFW_HTTP_CC_S_MAXAGE, STR_AND_LEN("max-age") },
+	{ TFW_HTTP_CC_S_MAXAGE, STR_AND_LEN("s-maxage") },
 };
 #undef 	STR_AND_LEN
 

@@ -428,7 +428,7 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 	    && (effective_resp_flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
 	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
-	    && !(req->cache_ctl.flags & CC_RESP_AUTHCAN))
+	    && !(effective_resp_flags & CC_RESP_AUTHCAN))
 		return false;
 	if (!(effective_resp_flags & CC_RESP_CACHEIT)
 	    && !tfw_cache_status_bydef(resp))
@@ -448,10 +448,15 @@ static long
 tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
 	long lifetime;
+	TfwHttpReq *req = resp->req;
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	unsigned int effective_resp_flags =
+		resp->cache_ctl.flags & ~cc_ignore_flags;
 
-	if (resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)
+	if (effective_resp_flags & TFW_HTTP_CC_S_MAXAGE)
 		lifetime = resp->cache_ctl.s_maxage;
-	else if (resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
+	else if (effective_resp_flags & TFW_HTTP_CC_MAX_AGE)
 		lifetime = resp->cache_ctl.max_age;
 	else if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
 		lifetime = resp->cache_ctl.expires - resp->date;
@@ -507,7 +512,18 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 			lt_min_fresh = ce->lifetime - req->cache_ctl.min_fresh;
 		lt_fresh = min(lt_max_age, lt_min_fresh);
 	}
-	if (!(req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)) {
+	/*
+	 * RFC 7234 Section 4.2.4:
+	 * A cache MUST NOT generate a stale response if it is prohibited by an
+	 * explicit in-protocol directive (e.g., by a "no-store" or "no-cache"
+	 * cache directive, a "must-revalidate" cache-response-directive, or an
+	 * applicable "s-maxage" or "proxy-revalidate" cache-response-directive;
+	 * see Section 5.2.2).
+	 */
+	/* tfw_cache_copy_resp() calculates the TFW_CE_MUST_REVAL flag */
+	if (!(req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)
+	    || (ce->flags & TFW_CE_MUST_REVAL))
+	{
 		ce_lifetime = min(lt_fresh, ce->lifetime);
 	} else {
 		long lt_max_stale = ce->lifetime + req->cache_ctl.max_stale;
@@ -1470,6 +1486,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		.len = SLEN(S_VIA_H2_PROTO) + g_vhost->hdr_via_len,
 		.nchunks = 2
 	};
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	unsigned int effective_resp_flags =
+		resp->cache_ctl.flags & ~cc_ignore_flags;
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -1604,9 +1624,21 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
 
-	if (resp->cache_ctl.flags
-	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL))
+	/* RFC 7234 Section 3.2:
+	 * Note that cached responses that contain the "must-revalidate" and/or
+	 * "s-maxage" response directives are not allowed to be served stale
+	 * (Section 4.2.4) by shared caches. In particular, a response with
+	 * either "max-age=0, must-revalidate" or "s-maxage=0" cannot be used to
+	 * satisfy a subsequent request without revalidating it on the origin
+	 * server.
+	 * Also see tfw_cache_entry_is_live().
+	 */
+	if (effective_resp_flags
+	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL |
+	       TFW_HTTP_CC_S_MAXAGE))
+	{
 		ce->flags |= TFW_CE_MUST_REVAL;
+	}
 	ce->date = resp->date;
 	ce->age = resp->cache_ctl.age;
 	ce->req_time = req->cache_ctl.timestamp;
