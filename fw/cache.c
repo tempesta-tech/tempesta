@@ -1624,7 +1624,15 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
 
-	/* See tfw_cache_entry_is_live() */
+	/* RFC 7234 Section 3.2:
+	 * Note that cached responses that contain the "must-revalidate" and/or
+	 * "s-maxage" response directives are not allowed to be served stale
+	 * (Section 4.2.4) by shared caches. In particular, a response with
+	 * either "max-age=0, must-revalidate" or "s-maxage=0" cannot be used to
+	 * satisfy a subsequent request without revalidating it on the origin
+	 * server.
+	 * Also see tfw_cache_entry_is_live().
+	 */
 	if (effective_resp_flags
 	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL |
 	       TFW_HTTP_CC_S_MAXAGE))
