@@ -4008,7 +4008,7 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
 
 		val_out->len += chunk->len;
 
-		/* 
+		/*
 		 * Skip OWS after the header value (RWS) - they must be in
 		 * separate chunks too.
 		 */
@@ -5485,9 +5485,21 @@ next_msg:
 	 * We don't rewrite the method string and don't remove override header
 	 * since there can be additional intermediates between TempestaFW and
 	 * backend.
+	 *
+	 * While non-idempotent method can be hidden behind idempotent, it is
+	 * reasonable to expect that non-safe method can not be hidden behind
+	 * safe method.
 	 */
-	if (unlikely(req->method_override))
+	if (unlikely(req->method_override)) {
+		if (TFW_HTTP_IS_METH_SAFE(req->method)
+			&& !TFW_HTTP_IS_METH_SAFE(req->method_override))
+		{
+			tfw_http_req_parse_block(req, 400,
+				"request dropped: unsafe method override");
+			return TFW_BLOCK;
+		}
 		req->method = req->method_override;
+	}
 
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);

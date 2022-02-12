@@ -47,7 +47,7 @@
 #include "msg.c"
 #include "http_msg.c"
 
-static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128, 
+static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
@@ -56,6 +56,11 @@ static unsigned int chunk_size_index = 0;
 
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
+static TfwH2Conn conn;
+static TfwStream stream;
+static TfwStr h2_parsed_hdr;
+static char h2_buf[1024];
+static unsigned int h2_len = 0;
 static size_t hm_exp_len = 0;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
@@ -69,6 +74,61 @@ static size_t hm_exp_len = 0;
 				TOKEN_ALPHABET OBS_TEXT
 #define ETAG_ALPHABET		OTHER_DELIMETERS TOKEN_ALPHABET OBS_TEXT
 
+static
+unsigned int
+tfw_h2_encode_str(const char *str, char *buf)
+{
+	TfwHPackInt hpint;
+	unsigned int len = strlen(str);
+	write_int(len, 0x7f, 0, &hpint);
+	memcpy_fast(buf, hpint.buf, hpint.sz);
+	memcpy_fast(buf + hpint.sz, str, len);
+	return hpint.sz + len;
+}
+
+#define H2_HDR_HDR_SZ 9
+#define LIT_HDR_FLD_WO_IND 0x00
+static
+unsigned int
+tfw_h2_pack_hdr_frame(const char *str, char buf[], unsigned int buf_len)
+{
+	unsigned long hdrs_len = 0;
+	TfwFrameHdr frame_hdr = {.flags = HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM,
+							 .type = HTTP2_HEADERS,
+							 .stream_id = 1};
+	char **strp, *hdr_one, *hdr, **hdrp, *hdr_val;
+	char str_buf[256] = {0};
+	char *_str = str_buf;
+
+	BUG_ON(strlen(str) + 1 > ARRAY_SIZE(str_buf));
+
+	memcpy_fast(_str, str, strlen(str));
+
+	strp = &_str;
+	do {
+		hdr_one = strsep(strp, "\n");
+		hdr = hdr_one;
+		if (*hdr == ':') {
+			if (!*(++hdr))
+				continue;
+		}
+		hdrp = &hdr;
+		strsep(hdrp, ":");
+		hdr_val = hdrp ? strim(*hdrp) : "";
+		*(buf + H2_HDR_HDR_SZ + hdrs_len++) = LIT_HDR_FLD_WO_IND;
+		hdrs_len += tfw_h2_encode_str(hdr_one,
+					      buf + H2_HDR_HDR_SZ + hdrs_len);
+		hdrs_len += tfw_h2_encode_str(hdr_val,
+					      buf + H2_HDR_HDR_SZ + hdrs_len);
+	} while (*strp);
+
+	frame_hdr.length = hdrs_len;
+	tfw_h2_pack_frame_header(buf, &frame_hdr);
+
+	BUG_ON(frame_hdr.length + H2_HDR_HDR_SZ > buf_len);
+	return frame_hdr.length + H2_HDR_HDR_SZ;
+}
+
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
@@ -79,6 +139,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			? (TfwHttpMsg *)req
 			: (TfwHttpMsg *)resp;
 
+	BUG_ON(type != FUZZ_REQ && type != FUZZ_RESP);
 	while (pos < len) {
 		if (chunk_size >= len - pos)
 			/* At the last chunk */
@@ -120,17 +181,35 @@ set_sample_req(unsigned char *str)
 }
 
 static void
-test_case_parse_prepare(const char *str, size_t sz_diff)
+test_case_parse_prepare_http(const char *str, size_t sz_diff)
 {
 	chunk_size_index = 0;
 	hm_exp_len = strlen(str) - sz_diff;
+}
+
+static void
+test_case_parse_prepare_h2(const char *str, size_t sz_diff)
+{
+	h2_len = tfw_h2_pack_hdr_frame(str, h2_buf, ARRAY_SIZE(h2_buf));
+	h2_len -= H2_HDR_HDR_SZ;
+
+	tfw_h2_context_init(&conn.h2);
+	conn.h2.hdr.type = HTTP2_HEADERS;
+	h2_parsed_hdr = (TfwStr){
+		.data = h2_buf,
+		.len = H2_HDR_HDR_SZ,
+		.nchunks = 1
+	};
+	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
+
+	hm_exp_len = h2_len - sz_diff;
 }
 
 /**
  * The function is designed to be called in a loop, e.g.
  *   while(!do_split_and_parse(str, type)) { ... }
  *
- * type may be FUZZ_REQ or FUZZ_RESP.
+ * type may be FUZZ_REQ or FUZZ_REQ_H2 or FUZZ_RESP.
  *
  * On each iteration it splits the @str into fragments and pushes
  * them to the HTTP parser.
@@ -203,6 +282,38 @@ do_split_and_parse(unsigned char *str, int type)
 	return r;
 }
 
+static int
+do_h2_parse(unsigned char *str, unsigned int len, int type)
+{
+	int r;
+	unsigned int parsed;
+
+	BUG_ON(!str);
+
+	if (type == FUZZ_REQ_H2) {
+		if (req)
+			test_req_free(req);
+
+		req = test_req_alloc(len);
+	}
+	else {
+		BUG();
+	}
+
+	req->conn = (TfwConn*)&conn;
+	req->pit.parsed_hdr = &h2_parsed_hdr;
+	stream.msg = (TfwMsg*)req;
+	req->stream = &stream;
+
+	r = tfw_h2_parse_req(req, str, len, &parsed);
+
+	((TfwHttpMsg*)req)->msg.len += parsed;
+	if (r == T_POSTPONE)
+		r = tfw_h2_parse_req_finish(req);
+
+	return r;
+}
+
 /**
  * To validate message parsing we provide text string which describes
  * HTTP message from start to end. If there any unused bytes after
@@ -211,7 +322,7 @@ do_split_and_parse(unsigned char *str, int type)
 static int
 validate_data_fully_parsed(int type)
 {
-	TfwHttpMsg *hm = (type == FUZZ_REQ)
+	TfwHttpMsg *hm = (type == FUZZ_REQ || type == FUZZ_REQ_H2)
 			? (TfwHttpMsg *)req
 			: (TfwHttpMsg *)resp;
 
@@ -221,46 +332,64 @@ validate_data_fully_parsed(int type)
 
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
-	int _err = do_split_and_parse(str, type);		\
+	int _err = type == FUZZ_REQ_H2 ?			\
+		do_h2_parse(h2_buf + H2_HDR_HDR_SZ,		\
+			    h2_len, type) :			\
+		do_split_and_parse(str, type);			\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
 	    || !validate_data_fully_parsed(type))		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
-			  (type == FUZZ_REQ ? "request" :	\
-				              "response"),	\
+			  (type == FUZZ_REQ			\
+			   || type == FUZZ_REQ_H2		\
+			   ? "request" : "response"),		\
 			  _err, (str)); 			\
 	__fpu_schedule();					\
-	_err == TFW_PASS;					\
+	type == FUZZ_REQ_H2 ? false:				\
+		_err == TFW_PASS;				\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
 ({								\
-	int _err = do_split_and_parse(str, type);		\
+	int _err = type == FUZZ_REQ_H2 ?			\
+		do_h2_parse(h2_buf + H2_HDR_HDR_SZ,		\
+			    h2_len, type) :			\
+		do_split_and_parse(str, type);			\
 	if (_err == TFW_PASS)					\
 		TEST_FAIL("%s is not blocked as expected:\n%s",	\
-			       (type == FUZZ_REQ ? "request" :	\
-						   "response"),	\
+			  (type == FUZZ_REQ			\
+			   || type == FUZZ_REQ_H2		\
+			   ? "request" : "response"),		\
 			       (str));				\
 	__fpu_schedule();					\
-	_err == TFW_BLOCK || _err == TFW_POSTPONE;		\
+	type == FUZZ_REQ_H2 ? false :				\
+		_err == TFW_BLOCK || _err == TFW_POSTPONE;	\
 })
 
-#define __FOR_REQ(str, sz_diff)					\
+#define __FOR_REQ(str, sz_diff, type)				\
 	TEST_LOG("=== request: [%s]\n", str);			\
-	test_case_parse_prepare(str, sz_diff);			\
-	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
+	type == FUZZ_REQ_H2 ?					\
+		test_case_parse_prepare_h2(str, sz_diff) :	\
+		test_case_parse_prepare_http(str, sz_diff);	\
+	while (TRY_PARSE_EXPECT_PASS(str, type))
 
-#define FOR_REQ(str)	__FOR_REQ(str, 0)
+#define FOR_REQ(str)	__FOR_REQ(str, 0, FUZZ_REQ)
+#define FOR_REQ_H2(str)	__FOR_REQ(str, 0, FUZZ_REQ_H2)
 
-#define EXPECT_BLOCK_REQ(str)					\
+#define __EXPECT_BLOCK_REQ(str, type)				\
 do {								\
 	TEST_LOG("=== request: [%s]\n", str);			\
-	test_case_parse_prepare(str, 0);			\
-	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
+	type == FUZZ_REQ_H2 ?					\
+		test_case_parse_prepare_h2(str, 0) :		\
+		test_case_parse_prepare_http(str, 0);		\
+	while (TRY_PARSE_EXPECT_BLOCK(str, type));		\
 } while (0)
+
+#define EXPECT_BLOCK_REQ(str)		__EXPECT_BLOCK_REQ(str, FUZZ_REQ)
+#define EXPECT_BLOCK_REQ_H2(str)	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2)
 
 #define __FOR_RESP(str, sz_diff)				\
 	TEST_LOG("=== response: [%s]\n", str);			\
-	test_case_parse_prepare(str, sz_diff);			\
+	test_case_parse_prepare_http(str, sz_diff);		\
 	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
 
 #define FOR_RESP(str)	__FOR_RESP(str, 0)
@@ -268,7 +397,7 @@ do {								\
 #define EXPECT_BLOCK_RESP(str)					\
 do {								\
 	TEST_LOG("=== response: [%s]\n", str);			\
-	test_case_parse_prepare(str, 0);			\
+	test_case_parse_prepare_http(str, 0);			\
 	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
@@ -684,28 +813,32 @@ TEST(http_parser, mangled_messages)
  */
 TEST(http_parser, alphabets)
 {
-	FOR_REQ_SIMPLE("Host: test\r\n"
-		       /* We don't match open and closing quotes. */
-		       "Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
-		       "Pragma: no-cache, fooo ");
+	FOR_REQ("PUT / HTTP/1.1\r\n"
+		"Host: test\r\n"
+		/* We don't match open and closing quotes. */
+		"Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
+		"Pragma: no-cache, fooo \r\n"
+		"\r\n");
 
 	/* Trailing SP in request. */
-	FOR_REQ_SIMPLE("Host: localhost\t  \r\n"
-		       "User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
-		       "Accept: */*\t \r\n"
-		       "Connection: Keep-Alive \t \r\n"
-		       "X-Custom-Hdr: custom header values \t  \r\n"
-		       "X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
-		       "Content-Type: text/html; charset=iso-8859-1  \t \r\n"
-		       "Cache-Control: "
-		       "max-age=0, private, min-fresh=42 \t \r\n"
-		       "Transfer-Encoding: "
-		       "compress, deflate, gzip, chunked\t  \r\n"
-		       "Cookie: session=42; theme=dark  \t \r\n"
-		       "\r\n"
-		       "3\r\n"
-		       "123\r\n"
-		       "0");
+	FOR_REQ("PUT / HTTP/1.1\r\n"
+		"Host: localhost\t  \r\n"
+		"User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
+		"Accept: */*\t \r\n"
+		"Connection: Keep-Alive \t \r\n"
+		"X-Custom-Hdr: custom header values \t  \r\n"
+		"X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
+		"Content-Type: text/html; charset=iso-8859-1  \t \r\n"
+		"Cache-Control: "
+		"max-age=0, private, min-fresh=42 \t \r\n"
+		"Transfer-Encoding: "
+		"compress, deflate, gzip, chunked\t  \r\n"
+		"Cookie: session=42; theme=dark  \t \r\n"
+		"\r\n"
+		"3\r\n"
+		"123\r\n"
+		"0\r\n"
+		"\r\n");
 
 	/* Trailing SP in response. */
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
@@ -729,10 +862,12 @@ TEST(http_parser, alphabets)
  */
 TEST(http_parser, casesense)
 {
-	FOR_REQ_SIMPLE("hOST: test\r\n"
-		       "cAchE-CoNtRoL: no-cache\n"
-		       "x-fORWarDED-For: 1.1.1.1\r\n"
-		       "conTent-typE: chunked");
+	FOR_REQ("PUT / HTTP/1.1\r\n"
+		"hOST: test\r\n"
+		"cAchE-CoNtRoL: no-cache\n"
+		"x-fORWarDED-For: 1.1.1.1\r\n"
+		"conTent-typE: chunked\r\n"
+		"\r\n");
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"aGE: 10\r\n"
@@ -1477,12 +1612,57 @@ TEST(http_parser, parses_connection_value)
 	}
 }
 
+TEST(http_parser, content_type_in_bodyless_requests)
+{
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Type: text/plain");
+
+	EXPECT_BLOCK_REQ("HEAD / HTTP/1.1\r\n"
+			 "Content-Type: text/html; charset=utf-8\r\n"
+		 	 "Content-Length: 0\r\n"
+		 	 "\r\n");
+
+	EXPECT_BLOCK_REQ("DELETE / HTTP/1.1\r\n"
+			 "Content-Length: 5\r\n"
+			 "Content-Type: text/html\r\n"
+			 "\r\n"
+			 "dummy");
+
+	EXPECT_BLOCK_REQ("TRACE / HTTP/1.1\r\n"
+			 "Content-Type: application/octet-stream\r\n"
+			 "\r\n");
+
+	FOR_REQ("OPTIONS / HTTP/1.1\r\n"
+		"Content-Type: text/plain\r\n"
+		"\r\n")
+	{
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain");
+	}
+
+	/* Without content-length will not be blocked */
+	FOR_REQ_H2(":method: GET\n"
+		   ":scheme: https\n"
+		   ":path: /");
+
+	/* But with content-length will be block for http2 too */
+	EXPECT_BLOCK_REQ_H2(":authority: debian\n"
+			    ":method: GET\n"
+			    ":scheme: http\n"
+			    ":path: /\n"
+			    "content-length: 0");
+}
+
 TEST(http_parser, content_length)
 {
 	/* Content-Length is mandatory for responses. */
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n\r\n");
 
-	FOR_REQ_SIMPLE("Content-Length: 0")
+	/* Content-Length must not be present in GET requests */
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 0");
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Content-Length: 0\r\n"
+		"\r\n")
 	{
 		EXPECT_TRUE(req->content_length == 0);
 	}
@@ -1494,7 +1674,7 @@ TEST(http_parser, content_length)
 		EXPECT_TRUE(resp->content_length == 0);
 	}
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
+	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Content-Length: 5\r\n"
 		"\r\n"
 		"dummy")
@@ -1544,7 +1724,7 @@ TEST(http_parser, content_length)
 	EXPECT_BLOCK_DIGITS("HTTP/1.0 200 OK\r\nContent-Length: ",
 			    "\r\n\r\ndummy", EXPECT_BLOCK_RESP);
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
 			 "Content-Length: 10, 10\r\n"
 			 "\r\n"
 			 "0123456789");
@@ -1553,7 +1733,7 @@ TEST(http_parser, content_length)
 			  "\r\n"
 			  "0123456789");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
 			 "Content-Length: 10 10\r\n"
 			 "\r\n"
 			 "0123456789");
@@ -1562,7 +1742,8 @@ TEST(http_parser, content_length)
 			  "\r\n"
 			  "0123456789");
 
-	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 0\r\n"
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1"
+				"Content-Length: 0\r\n"
 		  		"Content-Length: 0");
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 0\r\n"
@@ -1643,7 +1824,7 @@ TEST(http_parser, eol_crlf)
 		  "\n"
 		  "a=24\n"
 		  "\n",  /* the LF is ignored. */
-		  1)
+		  1, FUZZ_REQ)
 	{
 		TfwHttpHdrTbl *ht = req->h_tbl;
 
@@ -1653,17 +1834,13 @@ TEST(http_parser, eol_crlf)
 		EXPECT_TRUE(ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH].eolen == 1);
 	}
 
-	/*
-	 * It seems RFC 7230 3.3 doesn't prohibit message body
-	 * for GET requests.
-	 */
-	__FOR_REQ("GET / HTTP/1.1\n"
+	__FOR_REQ("POST / HTTP/1.1\n"
 		  "Host: b.com\n"
 		  "Content-Length: 6\n"
 		  "\r\n"
 		  "b=24\r\n"
 		  "\r\n",  /* the CRLF is ignored. */
-		  2)
+		  2, FUZZ_REQ)
 	{
 		EXPECT_TRUE(req->crlf.len == 2);
 		EXPECT_TRUE(req->body.len == 6);
@@ -2890,7 +3067,7 @@ TEST(http_parser, req_hop_by_hop)
 	TfwStr *field;
 	long id;
 #define REQ_HBH_START							\
-	"GET /foo HTTP/1.1\r\n"						\
+	"POST /foo HTTP/1.1\r\n"						\
 	"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"			\
 	"Accept: */*\r\n"						\
 	"Host: localhost\r\n"						\
@@ -3219,11 +3396,11 @@ TEST(http_parser, fuzzer)
 				       FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
-				test_case_parse_prepare(str, 0);
+				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ);
 				break;
 			case FUZZ_INVALID:
-				test_case_parse_prepare(str, 0);
+				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ);
 				break;
 			case FUZZ_END:
@@ -3245,11 +3422,11 @@ resp:
 				       FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
-				test_case_parse_prepare(str, 0);
+				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP);
 				break;
 			case FUZZ_INVALID:
-				test_case_parse_prepare(str, 0);
+				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP);
 				break;
 			case FUZZ_END:
@@ -3985,7 +4162,7 @@ TEST(http_parser, perf)
 
 #define REQ_PERF(str)							\
 do {									\
-	test_case_parse_prepare(str, 0);				\
+	test_case_parse_prepare_http(str, 0);				\
 	if (req)							\
 		test_req_free(req);					\
 	req = test_req_alloc(sizeof(str) - 1);				\
@@ -3994,7 +4171,7 @@ do {									\
 
 #define RESP_PERF(str)							\
 do {									\
-	test_case_parse_prepare(str, 0);				\
+	test_case_parse_prepare_http(str, 0);				\
 	if (resp)							\
 		test_resp_free(resp);					\
 	resp = test_resp_alloc(sizeof(str) - 1);			\
@@ -4123,6 +4300,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, pragma);
 	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
+	TEST_RUN(http_parser, content_type_in_bodyless_requests);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);
 	TEST_RUN(http_parser, ows);
