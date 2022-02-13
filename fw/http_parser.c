@@ -94,6 +94,16 @@ do {									\
 #define __msg_chunk_flags(flag)						\
 	__msg_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
+/*
+ * The macro is frequently used for headers opened by tfw_http_msg_hdr_open().
+ * It sets the header's TfwStr->data to the current chunk pointer,
+ * but leaves TfwStr->len = 0. This TfwStr->data value is used latter when
+ * the parser will be reading "n" bytes of data using a pointer variable "p".
+ * The underlying __tfw_http_msg_add_str_data() detects TfwStr->len == 0 and
+ * sets the current TfwStr's length to p + n - TfwStr->data i.e. the final
+ * string will effectively point to the original chunk's start and will contain
+ * every parsed byte counting from the chunk's start.
+*/
 #define __msg_hdr_chunk_fixup(data, len)				\
 do {									\
 	if (unlikely(tfw_http_msg_add_str_data(msg,			\
@@ -225,17 +235,15 @@ do {									\
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
-#define __FSM_MATCH_MOVE_fixup_x(alphabet, to, field, flag, fixup_pos) \
+#define __FSM_MATCH_MOVE_flag_data(alphabet, to, field, flag, data_start) \
 do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		/* Continue field processing on next skb. */		\
 		BUG_ON(!(field)->data);					\
-		if (fixup_pos)						\
-			__msg_field_fixup_pos(field, p, __fsm_sz);	\
-		else							\
-			__msg_field_fixup(field, data + len);		\
+		__msg_field_fixup_pos(field, data_start,		\
+				      __data_remain(data_start));	\
 		__msg_field_chunk_flags(field, flag);			\
 		parser->state = &&to;					\
 		p += __fsm_sz;						\
@@ -245,12 +253,12 @@ do {									\
 
 /* Fixups p + __fsm_sz on chunk exhaustion */
 #define __FSM_MATCH_MOVE_pos_f(alphabet, to, field, flag)		\
-	__FSM_MATCH_MOVE_fixup_x(alphabet, to, field, flag, true)
+	__FSM_MATCH_MOVE_flag_data(alphabet, to, field, flag, p)
 
 /* Fixups data + len on chunk exhaustion */
 #define __FSM_MATCH_MOVE(alphabet, to, flag)				\
-	__FSM_MATCH_MOVE_fixup_x(alphabet, to, &msg->stream->parser.hdr, \
-				   flag, false)
+	__FSM_MATCH_MOVE_flag_data(alphabet, to, &msg->stream->parser.hdr, \
+				   flag, data)
 
 #define __FSM_MOVE_hdr_fixup(to, n)					\
 do {									\
@@ -892,20 +900,20 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * (POSTPONE). We store current parser state only when we return from the
  * parser FSM - it's better that to store the state on each transition.
  */
-#define TRY_STR_LAMBDA(str, lambda, curr_st, matched_st)		\
+#define TRY_STR_LAMBDA(str, lambda, curr_st, on_match_st)		\
 	TRY_STR_LAMBDA_BY_REF_finish(str, lambda, {			\
 			parser->_i_st = &&curr_st;			\
-		}, &&matched_st)
+		}, &&on_match_st)
 
-#define TRY_STR(str, curr_st, matched_st)				\
+#define TRY_STR(str, curr_st, on_match_st)				\
 	TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
 			parser->_i_st = &&curr_st;			\
-		}, &&matched_st)
+		}, &&on_match_st)
 
-#define TRY_STR_BY_REF(str, curr_st, matched_st)			\
+#define TRY_STR_BY_REF(str, curr_st, on_match_st)			\
 	TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
 			parser->_i_st = curr_st;			\
-		}, matched_st)
+		}, on_match_st)
 
 /**
  * The same as @TRY_STR_LAMBDA_finish(), but @str must be of plain
@@ -913,7 +921,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * header field); besides, @finish parameter is not used in this macro.
  * xxx_fixup() family of functions is used to explicit chunking of strings.
  */
-#define TRY_STR_LAMBDA_fixup(str, field, lambda, curr_st, matched_st)	\
+#define TRY_STR_LAMBDA_fixup(str, field, lambda, curr_st, on_match_st)	\
 	BUG_ON(!TFW_STR_PLAIN(str));					\
 	if (!chunk->data)						\
 		chunk->data = p;					\
@@ -923,15 +931,15 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 		if (chunk->len == (str)->len) {				\
 			lambda;						\
 			TRY_STR_INIT();					\
-			__FSM_I_MOVE_fixup_f(matched_st, __fsm_n, field, 0);\
+			__FSM_I_MOVE_fixup_f(on_match_st, __fsm_n, field, 0);\
 		}							\
 		__msg_field_fixup_pos(field, p, __fsm_n);		\
 		parser->_i_st = &&curr_st;				\
 		return CSTR_POSTPONE;					\
 	}
 
-#define TRY_STR_fixup(str, curr_st, matched_st)				\
-	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, matched_st)
+#define TRY_STR_fixup(str, curr_st, on_match_st)				\
+	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, on_match_st)
 
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
@@ -2509,17 +2517,17 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__FSM_I_MATCH_MOVE_fixup(cookie, Req_I_CookieVal, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
 		if (c == ';') {
-			/* No-fixup function with additional fixups. */
 			if (likely(__fsm_sz)) {
 				/* Save cookie-value w/o ';'. */
 				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
 			/*
+			 * No-fixup function with additional fixups above.
 			 * This macro will never fixup the chunk, because
 			 * we won't reach this branch with
 			 * p + __fsm_sz == data + len.
-			  */
+			 */
 			__FSM_I_MOVE_n(Req_I_CookieSemicolon, __fsm_sz);
 		}
 		if (unlikely(IS_CRLFWS(c))) {
@@ -5429,7 +5437,7 @@ __FSM_STATE(st, cold) {							\
  * Auxiliary macros for parsing message header values (as @__FSM_I_*
  * macros, but intended for HTTP/2 messages parsing).
  */
-#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
+#define __FSM_H2_I_MOVE_n_flag(to, n, lambda, flag)			\
 do {									\
 	p += n;								\
 	if (__data_off(p) < len)					\
@@ -5475,7 +5483,7 @@ do {									\
 } while (0)
 
 #define __FSM_H2_I_MOVE_n(to, n)					\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, 0)
+	__FSM_H2_I_MOVE_n_flag(to, n, {}, 0)
 
 #define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
 
@@ -5536,7 +5544,7 @@ do {									\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, flag)
 
-#define __FSM_H2_I_MOVE_NEQ_LAMBDA_fixup_f(to, n, field, lambda, flag)	\
+#define __FSM_H2_I_MOVE_NEQ_fixup_f(to, n, field, flag)			\
 do {									\
 	BUG_ON(!(field)->data);						\
 	if (likely(__data_off(p + n) < len)) {				\
@@ -5545,10 +5553,8 @@ do {									\
 		p += n;							\
 		goto to;						\
 	}								\
-	if (likely(fin)) {						\
-		lambda;							\
+	if (likely(fin))						\
 		__FSM_EXIT(CSTR_NEQ);					\
-	}								\
 	__msg_field_fixup_pos(field, p, n);				\
 	__FSM_I_field_chunk_flags(field, TFW_STR_HDR_VALUE | flag);	\
 	parser->_i_st = &&to;						\
@@ -5556,7 +5562,7 @@ do {									\
 } while (0)
 
 #define __FSM_H2_I_MOVE_NEQ_fixup(to, n, flag)				\
-	__FSM_H2_I_MOVE_NEQ_LAMBDA_fixup_f(to, n, &parser->hdr, {}, flag)
+	__FSM_H2_I_MOVE_NEQ_fixup_f(to, n, &parser->hdr, flag)
 
 #define __FSM_H2_I_MATCH_MOVE_LAMBDA_fixup(alphabet, to, lambda, flag)	\
 do {									\
@@ -5722,7 +5728,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 		/* See Req_UriAuthority processing. */
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			/* non-fixup function mimicking explicit fixups */
-			__FSM_H2_I_MOVE_LAMBDA_n_flag(Req_I_A, 1, {
+			__FSM_H2_I_MOVE_n_flag(Req_I_A, 1, {
 				__msg_hdr_chunk_fixup(data, (p - data));
 				__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
 			}, TFW_STR_VALUE);
@@ -5997,7 +6003,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_DECLARE_VARS(req);
 
 #define __FSM_H2_I_MOVE_RESET_ACC(to, n)				\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {				\
+	__FSM_H2_I_MOVE_n_flag(to, n, {					\
 		parser->_acc = 0;					\
 	}, 0)
 
@@ -9252,12 +9258,12 @@ __resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__FSM_I_MATCH_MOVE_fixup(cookie, Resp_I_CookieVal, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
 		if (c == ';') {
-			/* No-fixup function with additional fixups. */
 			if (likely(__fsm_sz)) {
 				/* Save cookie-value w/o ';'. */
 				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
+			/* No-fixup function with additional fixups above. */
 			__FSM_I_MOVE_n(Resp_I_CookieSemicolon, __fsm_sz);
 		}
 		if (unlikely(IS_CRLFWS(c))) {
