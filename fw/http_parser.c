@@ -235,15 +235,17 @@ do {									\
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
-#define __FSM_MATCH_MOVE_flag_data(alphabet, to, field, flag, data_start) \
+#define __FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, flag, fixup_pos) \
 do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		/* Continue field processing on next skb. */		\
 		BUG_ON(!(field)->data);					\
-		__msg_field_fixup_pos(field, data_start,		\
-				      __data_remain(data_start));	\
+		if (fixup_pos)						\
+			__msg_field_fixup_pos(field, p, __fsm_sz);	\
+		else							\
+			__msg_field_fixup(field, data + len);		\
 		__msg_field_chunk_flags(field, flag);			\
 		parser->state = &&to;					\
 		p += __fsm_sz;						\
@@ -253,12 +255,12 @@ do {									\
 
 /* Fixups p + __fsm_sz on chunk exhaustion */
 #define __FSM_MATCH_MOVE_pos_f(alphabet, to, field, flag)		\
-	__FSM_MATCH_MOVE_flag_data(alphabet, to, field, flag, p)
+	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, flag, true)
 
 /* Fixups data + len on chunk exhaustion */
 #define __FSM_MATCH_MOVE(alphabet, to, flag)				\
-	__FSM_MATCH_MOVE_flag_data(alphabet, to, &msg->stream->parser.hdr, \
-				   flag, data)
+	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, &msg->stream->parser.hdr, \
+				  flag, false)
 
 #define __FSM_MOVE_hdr_fixup(to, n)					\
 do {									\
@@ -298,8 +300,6 @@ do {									\
 } while (0)
 
 /* These four macroses fixup by data + len on chunk exhaustion */
-#define __FSM_I_MOVE(to)						\
-	__FSM_I_MOVE_BY_REF_n(&&to, 1, 0)
 
 #define __FSM_I_MOVE_n(to, n)						\
 	__FSM_I_MOVE_BY_REF_n(&&to, n, 0)
@@ -310,6 +310,8 @@ do {									\
 #define __FSM_I_MOVE_BY_REF(to)						\
 	__FSM_I_MOVE_BY_REF_n(to, 1, 0)
 
+#define __FSM_I_MOVE(to)						\
+	__FSM_I_MOVE_BY_REF_n(&&to, 1, 0)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			goto to
 
@@ -895,25 +897,28 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 		return CSTR_POSTPONE;					\
 	}
 
+#define TRY_STR_LAMBDA_finish(str, lambda, finish, state)		\
+	TRY_STR_LAMBDA_BY_REF_finish(str, lambda, finish, &&state)
+
 /*
  * Store current state if we're going to exit in waiting for new data
  * (POSTPONE). We store current parser state only when we return from the
  * parser FSM - it's better that to store the state on each transition.
  */
-#define TRY_STR_LAMBDA(str, lambda, curr_st, on_match_st)		\
-	TRY_STR_LAMBDA_BY_REF_finish(str, lambda, {			\
+#define TRY_STR_LAMBDA(str, lambda, curr_st, next_st)			\
+	TRY_STR_LAMBDA_finish(str, lambda, {				\
 			parser->_i_st = &&curr_st;			\
-		}, &&on_match_st)
+		}, next_st)
 
-#define TRY_STR(str, curr_st, on_match_st)				\
-	TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
+#define TRY_STR(str, curr_st, next_st)					\
+	TRY_STR_LAMBDA_finish(str, { }, {				\
 			parser->_i_st = &&curr_st;			\
-		}, &&on_match_st)
+		}, next_st)
 
-#define TRY_STR_BY_REF(str, curr_st, on_match_st)			\
+#define TRY_STR_BY_REF(str, curr_st, next_st)				\
 	TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
 			parser->_i_st = curr_st;			\
-		}, on_match_st)
+		}, next_st)
 
 /**
  * The same as @TRY_STR_LAMBDA_finish(), but @str must be of plain
@@ -921,7 +926,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * header field); besides, @finish parameter is not used in this macro.
  * xxx_fixup() family of functions is used to explicit chunking of strings.
  */
-#define TRY_STR_LAMBDA_fixup(str, field, lambda, curr_st, on_match_st)	\
+#define TRY_STR_LAMBDA_fixup(str, field, lambda, curr_st, next_st)	\
 	BUG_ON(!TFW_STR_PLAIN(str));					\
 	if (!chunk->data)						\
 		chunk->data = p;					\
@@ -931,15 +936,15 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 		if (chunk->len == (str)->len) {				\
 			lambda;						\
 			TRY_STR_INIT();					\
-			__FSM_I_MOVE_fixup_f(on_match_st, __fsm_n, field, 0);\
+			__FSM_I_MOVE_fixup_f(next_st, __fsm_n, field, 0);\
 		}							\
 		__msg_field_fixup_pos(field, p, __fsm_n);		\
 		parser->_i_st = &&curr_st;				\
 		return CSTR_POSTPONE;					\
 	}
 
-#define TRY_STR_fixup(str, curr_st, on_match_st)				\
-	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, on_match_st)
+#define TRY_STR_fixup(str, curr_st, next_st)				\
+	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, next_st)
 
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
@@ -1400,12 +1405,12 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
  * to @name and do @lambda otherwize
 */
 #define TRY_CONN_TOKEN(name, lambda)					\
-	TRY_STR_LAMBDA_BY_REF_finish(name, lambda, {			\
+	TRY_STR_LAMBDA_finish(name, lambda, {				\
 			if (__hbh_parser_add_data(hm, data, len, false))\
 				r = CSTR_NEQ;				\
 			else						\
 				parser->_i_st = &&I_Conn;		\
-		}, &&I_ConnTok)
+		}, I_ConnTok)
 
 	/*
 	 * Connection header lists either boolean connection tokens or
@@ -5437,7 +5442,7 @@ __FSM_STATE(st, cold) {							\
  * Auxiliary macros for parsing message header values (as @__FSM_I_*
  * macros, but intended for HTTP/2 messages parsing).
  */
-#define __FSM_H2_I_MOVE_n_flag(to, n, lambda, flag)			\
+#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
 do {									\
 	p += n;								\
 	if (__data_off(p) < len)					\
@@ -5482,8 +5487,14 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
+#define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
+
+#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
+
 #define __FSM_H2_I_MOVE_n(to, n)					\
-	__FSM_H2_I_MOVE_n_flag(to, n, {}, 0)
+	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
 #define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
 
@@ -5540,7 +5551,7 @@ do {									\
 	__FSM_H2_I_MOVE_LAMBDA_fixup_f(to, n, &parser->hdr, lambda, flag)
 
 #define __FSM_H2_I_MOVE_fixup(to, n, flag)				\
-	__FSM_H2_I_MOVE_LAMBDA_fixup_f(to, n, &parser->hdr, {		\
+	__FSM_H2_I_MOVE_LAMBDA_fixup(to, n, {				\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, flag)
 
@@ -5728,7 +5739,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 		/* See Req_UriAuthority processing. */
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			/* non-fixup function mimicking explicit fixups */
-			__FSM_H2_I_MOVE_n_flag(Req_I_A, 1, {
+			__FSM_H2_I_MOVE_LAMBDA_n_flag(Req_I_A, 1, {
 				__msg_hdr_chunk_fixup(data, (p - data));
 				__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
 			}, TFW_STR_VALUE);
@@ -5752,8 +5763,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_A_v6) {
 		/* See Req_UriAuthorityIPv6 processing. */
 		if (likely(isxdigit(c) || c == ':'))
-			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_A_v6, 1, {},
-						     TFW_STR_VALUE);
+			__FSM_H2_I_MOVE_fixup(Req_I_A_v6, 1, TFW_STR_VALUE);
 		if (likely(c == ']')) {
 			__msg_hdr_chunk_fixup(data, (p - data + 1));
 			__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
@@ -6003,9 +6013,9 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_DECLARE_VARS(req);
 
 #define __FSM_H2_I_MOVE_RESET_ACC(to, n)				\
-	__FSM_H2_I_MOVE_n_flag(to, n, {					\
+	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {				\
 		parser->_acc = 0;					\
-	}, 0)
+	})
 
 	__FSM_START(parser->_i_st);
 
