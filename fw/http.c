@@ -863,6 +863,9 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	if ((ret = tfw_hpack_encode(resp, &s_hdr, op, !cache)))
 		return ret;
 
+	/* set status on response for access logging */
+	resp->status = status;
+
 	return 0;
 }
 
@@ -1055,6 +1058,8 @@ tfw_h1_send_resp(TfwHttpReq *req, int status)
 	date = TFW_STR_DATE_CH(&msg);
 	date->data = *this_cpu_ptr(&g_buf);
 	tfw_http_prep_date(date->data);
+	resp->status = status;
+	resp->content_length = body->len;
 	if (!body->data)
 		msg.nchunks = 5;
 
