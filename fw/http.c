@@ -4614,11 +4614,14 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 
 skip_stream:
 	if (attack) {
-		if (reply)
+		if (reply) {
 			tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 						    !on_req_recv_event);
-		else if (!on_req_recv_event)
-			tfw_connection_close(req->conn, true);
+		} else {
+			do_access_log_req(req, 403, 0);
+			if (!on_req_recv_event)
+				tfw_connection_close(req->conn, true);
+		}
 	}
 
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
