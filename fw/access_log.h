@@ -23,6 +23,8 @@
 
 #include "http_types.h"
 
+#define TODO_LOG_CONN(resp)  pr_info("%s:%d (%s): conn => %p, conn->peer => %p", &__FILE__[28], __LINE__, __FUNCTION__, (resp)->conn, (resp)->conn ? (resp)->conn->peer : NULL);
+void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
 
 #endif /* __TFW_ACCESS_LOG_H__ */
