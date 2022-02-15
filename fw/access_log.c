@@ -18,26 +18,17 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include "access_log.h"
 #include "connection.h"
 #include "server.h"
 #include "http.h"
 #include "lib/common.h"
-#include <linux/timekeeping.h>
 
 static bool access_log_enabled = false;
 
-#if 0
-void tfw_str_info(TfwStr *str) {
-	unsigned i = 0;
-	const TfwStr *s, *end;
-	pr_info("======================== %ld bytes, %d chunks", str->len, str->nchunks);
-	TFW_STR_FOR_EACH_CHUNK(s, str, end) {
-		pr_info("         chunk %d => %02x, len = %d, [%.*s]", i, s->flags, (int)s->len, (int)s->len, s->data);
-		i++;
-	}
-
-}
-#endif
+/* Use small buffer because printk won't display strings longer that ~1000 bytes */
+#define ACCESS_LOG_BUF_SIZE 990
+static DEFINE_PER_CPU_ALIGNED(char[ACCESS_LOG_BUF_SIZE], access_log_buf);
 
 /** Build string consists of chunks that belong to the header value.
  * If header value is empty, then it returns "-" to be nginx-like.
@@ -91,58 +82,71 @@ get_http_header_value(char http_version, TfwStr *line)
 	return result;
 }
 
+
+static inline size_t
+append_to_cstr_bounded(char *p, char *end, TfwStr *s,
+		unsigned remaining, unsigned reserve)
+{
+	ssize_t limit, n;
+	if (s == NULL)
+		return 0;
+
+	limit = (end - p) / remaining - reserve;
+	if (limit <= 0)
+		return 0;
+
+	n = tfw_str_to_cstr(s, p, limit);
+	if (n + 1 == limit && n >= 3) {
+		p[n - 3] = '.';
+		p[n - 2] = '.';
+		p[n - 1] = '.';
+	}
+	p += n;
+
+	return n;
+}
+
+
 void
 do_access_log(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	// TODO: make it larger and per-cpu statically allocated
-	char buf[1024], *p = buf, *end = buf + sizeof(buf);
+	char *buf = this_cpu_ptr(access_log_buf);
+	char *p = buf, *end = p + ACCESS_LOG_BUF_SIZE;
 
 	if (!access_log_enabled)
 		return;
 
-#define CONCAT_TFW_STR(s) do {                               \
-		if ((s) != NULL) {                           \
-                        p += tfw_str_to_cstr(s, p, end - p); \
-			if (p + 1 >= end) goto overflow;     \
-		}                                            \
+#define CONCAT_TFW_STR(s, remaining, reserve)                      \
+	p += append_to_cstr_bounded(p, end, s, remaining, reserve)
+#define CONCAT_HDR(hdr_id, remaining, reserve) do {                \
+                TfwStr hdr = get_http_header_value(req->version,   \
+				req->h_tbl->tbl + hdr_id);         \
+                CONCAT_TFW_STR(&hdr, remaining, reserve);          \
 	} while (0)
-#define CONCAT_HDR(hdr_id) do {                                  \
-                TfwStr hdr = get_http_header_value(req->version, \
-				req->h_tbl->tbl + hdr_id);       \
-                CONCAT_TFW_STR(&hdr);                            \
+#define CONCAT_PRINTF(fmt, ...) do {                               \
+		p += snprintf(p, end - p, fmt, ##__VA_ARGS__);     \
+		if (p >= end) goto overflow;                       \
 	} while (0)
-#define CONCAT_PRINTF(fmt, ...) do {                           \
-		p += snprintf(p, end - p, fmt, ##__VA_ARGS__); \
-		if (p >= end) goto overflow;                   \
-	} while (0)
-#define CONCAT_STR(str) do {                               \
-		if (p + sizeof(str) >= end) goto overflow; \
-		memcpy(p, str, sizeof(str) - 1);           \
-		p += sizeof(str) - 1;                      \
+#define CONCAT_STR(str) do {                                       \
+		if (p + sizeof(str) >= end) goto overflow;         \
+		memcpy(p, str, sizeof(str) - 1);                   \
+		p += sizeof(str) - 1;                              \
 	} while (0)
 
+	if (req)
+		TODO_LOG_CONN(req);
 	/* Resp->conn is NULL if invalid response had been received */
-	if (resp->conn && resp->conn->peer)
-		p = tfw_addr_fmt(&resp->conn->peer->addr, TFW_NO_PORT, p);
+	if (req->conn && req->conn->peer)
+		p = tfw_addr_fmt(&req->conn->peer->addr, TFW_NO_PORT, p);
 	else
-		CONCAT_STR("0.0.0.0");
-	do {
-		struct tm t;
-		static const char months[12][4] = {
-			"Jan", "Feb", "Mar",
-			"Apr", "May", "Jun",
-			"Jul", "Aug", "Sep",
-			"Oct", "Nov", "Dec"
-		};
-		time64_t now =ktime_get_real_seconds();
-		time64_to_tm(now, 0, &t);
-		CONCAT_PRINTF(" [%d/%s/%ld:%02d:%02d:%02d +0000] \"",
-			      t.tm_mday, months[t.tm_mon], 1900 + t.tm_year,
-			      t.tm_hour, t.tm_min, t.tm_sec);
-	} while (0);
-	if (req->vhost != NULL)
-		CONCAT_TFW_STR(&req->vhost->name);
+		CONCAT_STR("-");
+
+	CONCAT_STR(" \"");
+	if (req->vhost != NULL && !TFW_STR_EMPTY(&req->vhost->name))
+		CONCAT_TFW_STR(&req->vhost->name, 3, 40);
+	else
+		CONCAT_STR("-");
 #define CONCAT_CASE_STR(x, str) case x: CONCAT_STR(str); break
 
 #define CONCAT_CASE_STR_XX(x, str) CONCAT_CASE_STR(x, XX(str))
@@ -164,11 +168,14 @@ do_access_log(TfwHttpResp *resp)
 	CONCAT_CASE_STR_XX(TFW_HTTP_METH_TRACE,      "TRACE");
 	CONCAT_CASE_STR_XX(TFW_HTTP_METH_UNLOCK,     "UNLOCK");
 	CONCAT_CASE_STR_XX(TFW_HTTP_METH_PURGE,      "PURGE");
-	default: CONCAT_STR("UNKNOWN");
+	default: CONCAT_STR("-");
 #undef XX
 	}
-	CONCAT_TFW_STR(&req->uri_path);
-
+	if (!TFW_STR_EMPTY(&req->uri_path))
+		CONCAT_TFW_STR(&req->uri_path, 3,
+			       8 + 2 + 10 + 1 + 20 + 2 + 3 + 1);
+	else
+		CONCAT_STR("-");
 	switch (req->version) {
 #define XX(str) " " str
 	CONCAT_CASE_STR_XX(TFW_HTTP_VER_09, "HTTP/0.9");
@@ -176,24 +183,18 @@ do_access_log(TfwHttpResp *resp)
 	CONCAT_CASE_STR_XX(TFW_HTTP_VER_11, "HTTP/1.1");
 	CONCAT_CASE_STR_XX(TFW_HTTP_VER_20, "HTTP/2.0");
 #undef XX
-	default: CONCAT_STR("INVALID");
+	default: CONCAT_STR("-");
 	}
 
 	CONCAT_PRINTF("\" %d %lu \"", (int)resp->status, resp->content_length);
-	CONCAT_HDR(TFW_HTTP_HDR_REFERER);
+	CONCAT_HDR(TFW_HTTP_HDR_REFERER, 2, 3 + 1);
 	CONCAT_STR("\" \"");
-	CONCAT_HDR(TFW_HTTP_HDR_USER_AGENT);
+	CONCAT_HDR(TFW_HTTP_HDR_USER_AGENT, 1, 1);
 	CONCAT_STR("\"");
 
-#if 0
-	CONCAT_STR("   COOKIE: <");
-	CONCAT_HDR(TFW_HTTP_HDR_COOKIE);
-	*p++ = '>';
-#endif
 overflow:
-	*(p < end ? p : buf + sizeof(buf) - 1) = 0;
+	*(p < end ? p : end - 1) = 0;
 	pr_info("%s", buf);
-	/*tfw_str_info(req->h_tbl->tbl + TFW_HTTP_HDR_COOKIE);*/
 #undef CONCAT_CASE_STR_XX
 #undef CONCAT_CASE_STR
 #undef CONCAT_STR
