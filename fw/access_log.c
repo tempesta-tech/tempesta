@@ -110,7 +110,13 @@ append_to_cstr_bounded(char *p, char *end, TfwStr *s,
 void
 do_access_log(TfwHttpResp *resp)
 {
-	TfwHttpReq *req = resp->req;
+	do_access_log_req(resp->req, resp->status, resp->content_length);
+}
+
+
+void
+do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
+{
 	char *buf = this_cpu_ptr(access_log_buf);
 	char *p = buf, *end = p + ACCESS_LOG_BUF_SIZE;
 
@@ -186,7 +192,7 @@ do_access_log(TfwHttpResp *resp)
 	default: CONCAT_STR("-");
 	}
 
-	CONCAT_PRINTF("\" %d %lu \"", (int)resp->status, resp->content_length);
+	CONCAT_PRINTF("\" %d %lu \"", status, content_length);
 	CONCAT_HDR(TFW_HTTP_HDR_REFERER, 2, 3 + 1);
 	CONCAT_STR("\" \"");
 	CONCAT_HDR(TFW_HTTP_HDR_USER_AGENT, 1, 1);
@@ -194,7 +200,7 @@ do_access_log(TfwHttpResp *resp)
 
 overflow:
 	*(p < end ? p : end - 1) = 0;
-	pr_info("%s", buf);
+	pr_info("%s\n", buf);
 #undef CONCAT_CASE_STR_XX
 #undef CONCAT_CASE_STR
 #undef CONCAT_STR

@@ -4668,6 +4668,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 
 		if (!attack)
 			close &= !tfw_http_req_prev_conn_close(req);
+		do_access_log_req(req, status, 0);
 		if (close)
 			tfw_connection_close(req->conn, true);
 		tfw_http_conn_req_clean(req);
