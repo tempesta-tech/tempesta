@@ -2453,7 +2453,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		/* Any directive we don't understand.
 		 * Here we just skip all the tokens, double quotes and equal signs.
 		 */
-		__FSM_I_MATCH_MOVE_fixup(qetoken, Req_I_CC_Ext, 0);
+		__FSM_I_MATCH_MOVE(qetoken, Req_I_CC_Ext);
 
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz);
 	}
@@ -5520,9 +5520,6 @@ do {									\
 #define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
 
-#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
-
 #define __FSM_H2_I_MOVE_n(to, n)					\
 	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
@@ -5793,7 +5790,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_A_v6) {
 		/* See Req_UriAuthorityIPv6 processing. */
 		if (likely(isxdigit(c) || c == ':'))
-			__FSM_H2_I_MOVE_n_flag(Req_I_A_v6, 1, TFW_STR_VALUE);
+			__FSM_H2_I_MOVE_fixup(Req_I_A_v6, 1, TFW_STR_VALUE);
 		if (likely(c == ']')) {
 			__msg_hdr_chunk_fixup(data, (p - data + 1));
 			__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
