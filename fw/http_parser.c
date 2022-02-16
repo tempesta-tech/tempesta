@@ -310,8 +310,7 @@ do {									\
 #define __FSM_I_MOVE_BY_REF(to)						\
 	__FSM_I_MOVE_BY_REF_n(to, 1, 0)
 
-#define __FSM_I_MOVE(to)						\
-	__FSM_I_MOVE_BY_REF_n(&&to, 1, 0)
+#define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			goto to
 
