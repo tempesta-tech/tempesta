@@ -1,8 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,7 +22,6 @@
 
 #include "http_types.h"
 
-#define TODO_LOG_CONN(resp)  pr_info("%s:%d (%s): conn => %p, conn->peer => %p", &__FILE__[28], __LINE__, __FUNCTION__, (resp)->conn, (resp)->conn ? (resp)->conn->peer : NULL);
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
 
