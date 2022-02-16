@@ -119,27 +119,6 @@ get_http_header_value(char http_version, TfwStr *line)
 }
 
 
-static inline size_t
-append_to_cstr_truncated(char *p, char *end, TfwStr *s,
-		unsigned remaining, unsigned reserve)
-{
-	ssize_t limit, n;
-	if (s == NULL)
-		return 0;
-	limit = (end - p) / remaining - reserve;
-	if (limit <= 0)
-		return 0;
-	n = tfw_str_to_cstr(s, p, limit);
-	if (n + 1 == limit && n >= 3) {
-		p[n - 3] = '.';
-		p[n - 2] = '.';
-		p[n - 1] = '.';
-	}
-	p += n;
-	return n;
-}
-
-
 void
 do_access_log(TfwHttpResp *resp)
 {
