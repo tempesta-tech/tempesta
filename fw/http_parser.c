@@ -5422,9 +5422,6 @@ do {									\
 #define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
 
-#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
-
 #define __FSM_H2_I_MOVE_n(to, n)					\
 	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
