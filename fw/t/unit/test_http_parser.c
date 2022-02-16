@@ -952,7 +952,8 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_xch = "X-Custom-Hdr: custom header values";
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
-	const char *s_cc  = "Cache-Control: max-age=1, no-store, min-fresh=30";
+	const char *s_cc  = "Cache-Control: "
+		"max-age=1, dummy, no-store, min-fresh=30";
 	const char *s_te  = "compress, gzip, chunked";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_pragma =  "Pragma: no-cache, fooo ";
@@ -977,7 +978,8 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		       /* That is done to check table reallocation. */
 		       "Dummy8: 8\r\n"
 		       "Dummy9: 9\r\n"
-		       "Cache-Control: max-age=1, no-store, min-fresh=30\r\n"
+		       "Cache-Control: "
+		       "max-age=1, dummy, no-store, min-fresh=30\r\n"
 		       "Pragma: no-cache, fooo \r\n"
 		       "Transfer-Encoding: compress, gzip, chunked\r\n"
 		       "Cookie: session=42; theme=dark\r\n"
@@ -1052,24 +1054,31 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_age, *h_date, *h_exp;
-	TfwStr h_connection, h_conttype, h_srv, h_te, h_ka;
+	TfwStr *h_lastmodified, *h_pragma;
+	TfwStr h_connection, h_conttype, h_srv, h_te, h_ka, h_etag;
+	TfwStr h_setcookie;
 
 	/* Expected values for special headers. */
 	const char *s_connection = "Keep-Alive";
 	const char *s_ct = "text/html; charset=iso-8859-1";
 	const char *s_srv = "Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 			    " mod_fcgid/2.3.9";
+	const char *s_etag = "W/\"0815\" ";
+	const char *s_setcookie = "__Host-id=1; Secure; Path=/; domain=example.com ";
 	/* Expected values for raw headers. */
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc = "Cache-Control: "
-			   "max-age=5, private, no-cache, no-cache=\"fieldname\", ext=foo";
+		"max-age=5, private, no-cache, no-cache=\"fieldname\", ext=foo";
 	const char *s_te = "compress, gzip, chunked";
 	const char *s_exp = "Expires: Tue, 31 Jan 2012 15:02:53 GMT";
 	const char *s_ka = "timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_age = "Age: 12  ";
 	const char *s_date = "Date: Sun, 09 Sep 2001 01:46:40 GMT\t";
+	const char *s_lastmodified =
+		"Last-Modified: Wed, 21 Oct 2015 07:28:00 GMT ";
+	const char *s_pragma = "Pragma: no-cache ";
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive\r\n"
@@ -1083,7 +1092,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n"
-		"Cache-Control: max-age=5, private, no-cache, no-cache=\"fieldname\", ext=foo\r\n"
+		"Cache-Control: "
+		"max-age=5, private, no-cache, no-cache=\"fieldname\", ext=foo\r\n"
 		"Dummy9: 9\r\n" /* That is done to check table reallocation. */
 		"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
 		"Keep-Alive: timeout=600, max=65526\r\n"
@@ -1092,6 +1102,10 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		        " mod_fcgid/2.3.9\r\n"
 		"Age: 12  \n"
 		"Date: Sun, 09 Sep 2001 01:46:40 GMT\t\n"
+		"ETag: W/\"0815\" \r\n"
+		"Set-Cookie: __Host-id=1; Secure; Path=/; domain=example.com \r\n"
+		"Last-Modified: Wed, 21 Oct 2015 07:28:00 GMT \r\n"
+		"Pragma: no-cache \r\n"
 		"\r\n"
 		"3\r\n"
 		"012\r\n"
@@ -1116,12 +1130,18 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					TFW_HTTP_HDR_TRANSFER_ENCODING, &h_te);
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_KEEP_ALIVE],
 					TFW_HTTP_HDR_KEEP_ALIVE, &h_ka);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_ETAG],
+					TFW_HTTP_HDR_ETAG,
+					&h_etag);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_SET_COOKIE],
+					TFW_HTTP_HDR_SET_COOKIE,
+					&h_setcookie);
 
 		/*
 		 * Common (raw) headers: 10 dummies, Cache-Control,
 		 * Expires, Age, Date.
 		 */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
 		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
@@ -1129,12 +1149,16 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		h_exp = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
 		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
 		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_lastmodified = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
+		h_pragma = &ht->tbl[TFW_HTTP_HDR_RAW + 15];
 
 		EXPECT_TFWSTR_EQ(&h_connection, s_connection);
 		EXPECT_TFWSTR_EQ(&h_conttype, s_ct);
 		EXPECT_TFWSTR_EQ(&h_srv, s_srv);
 		EXPECT_TFWSTR_EQ(&h_te, s_te);
 		EXPECT_TFWSTR_EQ(&h_ka, s_ka);
+		EXPECT_TFWSTR_EQ(&h_etag, s_etag);
+		EXPECT_TFWSTR_EQ(&h_setcookie, s_setcookie);
 
 		EXPECT_TFWSTR_EQ(h_dummy4, s_dummy4);
 		EXPECT_TFWSTR_EQ(h_cc, s_cc);
@@ -1142,6 +1166,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		EXPECT_TFWSTR_EQ(h_exp, s_exp);
 		EXPECT_TFWSTR_EQ(h_age, s_age);
 		EXPECT_TFWSTR_EQ(h_date, s_date);
+		EXPECT_TFWSTR_EQ(h_lastmodified, s_lastmodified);
+		EXPECT_TFWSTR_EQ(h_pragma, s_pragma);
 
 		EXPECT_TRUE(resp->keep_alive == 600);
 		EXPECT_TRUE(h_dummy9->eolen == 2);
