@@ -819,7 +819,6 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 	return val_out;
 }
 
-
 int
 tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 			  unsigned int *hid_out)
