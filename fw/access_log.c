@@ -29,7 +29,6 @@
  * - TRUNCATABLE => this expression will be truncated if it does not fit
  *   log buffer
  *
- * !!!
  * If you add new UNTRUNCATABLE/TRUNCATABLE field don't forget to also
  * set appropriate variable/array value in do_access_log_req()
  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -39,11 +38,11 @@
  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
  */
 #define ACCESS_LOG_LINE(FIXED, UNTRUNCATABLE, TRUNCATABLE) \
-	FIXED("[tempesta fw] ")                            \
+	FIXED(__BNR)                                       \
 	UNTRUNCATABLE(client_ip)                           \
 	FIXED(" \"")                                       \
 	UNTRUNCATABLE(vhost)                               \
-	FIXED(" \"")                                       \
+	FIXED("\" \"")                                     \
 	UNTRUNCATABLE(method)                              \
 	FIXED(" ")                                         \
 	TRUNCATABLE(uri)                                   \
@@ -119,38 +118,30 @@ get_http_header_value(char http_version, TfwStr *line)
 }
 
 
-void
-do_access_log(TfwHttpResp *resp)
-{
-	do_access_log_req(resp->req, resp->status, resp->content_length);
-}
-
-#define HTTP_METHODS(XX) \
-	XX(COPY)         \
-	XX(DELETE)       \
-	XX(GET)          \
-	XX(HEAD)         \
-	XX(LOCK)         \
-	XX(MKCOL)        \
-	XX(MOVE)         \
-	XX(OPTIONS)      \
-	XX(PATCH)        \
-	XX(POST)         \
-	XX(PROPFIND)     \
-	XX(PROPPATCH)    \
-	XX(PUT)          \
-	XX(TRACE)        \
-	XX(UNLOCK)       \
-	XX(PURGE)
-
+/* Helpers for const=>name conversions for http methods and versions {{{ */
 static const struct {
 #	define MAX_HTTP_METHOD_NAME_LEN	10
 	char name[MAX_HTTP_METHOD_NAME_LEN];
 	u8 len;
 } http_methods[] = {
-#define XX(name) [TFW_HTTP_METH_ ## name] = { #name, sizeof(#name) - 1 },
-	HTTP_METHODS(XX)
-#undef XX
+#define STR_METHOD(name) [TFW_HTTP_METH_ ## name] = { #name, sizeof(#name) - 1 }
+	STR_METHOD(COPY),
+	STR_METHOD(DELETE),
+	STR_METHOD(GET),
+	STR_METHOD(HEAD),
+	STR_METHOD(LOCK),
+	STR_METHOD(MKCOL),
+	STR_METHOD(MOVE),
+	STR_METHOD(OPTIONS),
+	STR_METHOD(PATCH),
+	STR_METHOD(POST),
+	STR_METHOD(PROPFIND),
+	STR_METHOD(PROPPATCH),
+	STR_METHOD(PUT),
+	STR_METHOD(TRACE),
+	STR_METHOD(UNLOCK),
+	STR_METHOD(PURGE),
+#undef STR_METHOD
 };
 
 static const struct {
@@ -158,14 +149,13 @@ static const struct {
 	char name[MAX_HTTP_VERSION_LEN];
 	u8 len;
 } http_versions[] = {
-#define XX(ver, name) [ver] = { name, sizeof(name) - 1 }
-	XX(TFW_HTTP_VER_09, "HTTP/0.9"),
-	XX(TFW_HTTP_VER_10, "HTTP/1.0"),
-	XX(TFW_HTTP_VER_11, "HTTP/1.1"),
-	XX(TFW_HTTP_VER_20, "HTTP/2.0"),
-#undef XX
+#define STR_VERSION(ver, name) [ver] = { name, sizeof(name) - 1 }
+	STR_VERSION(TFW_HTTP_VER_09, "HTTP/0.9"),
+	STR_VERSION(TFW_HTTP_VER_10, "HTTP/1.0"),
+	STR_VERSION(TFW_HTTP_VER_11, "HTTP/1.1"),
+	STR_VERSION(TFW_HTTP_VER_20, "HTTP/2.0"),
+#undef STR_VERSION
 };
-
 
 enum {
 #define IGNORE(...)
@@ -174,7 +164,7 @@ enum {
 #undef ENUM
 #undef IGNORE
 	TRUNCATABLE_FIELDS_COUNT
-};
+};/*}}}*/
 
 struct str_ref {
 	const char *data;
@@ -205,27 +195,32 @@ make_plain(char *p, char *end, TfwStr *src, struct str_ref *dst)
 /** Truncates truncatable fields if needed. */
 static void
 process_truncated(TfwStr *in, struct str_ref *out, char *p, char *end, 
-		unsigned used_chars)
+                  unsigned used_chars)
 {
 	unsigned i;
 	unsigned total_len = 0;
 	unsigned truncated_count = 0;
 	unsigned max_untruncated_len, buf_avail;
+	
 	if (unlikely(used_chars >= ACCESS_LOG_BUF_SIZE))
 		goto no_buffer_space;
+	
 	/* Compute total length of all strings that can be truncated */
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++)
 		total_len += in[i].len;
+	
 	/* Check if we're on happy path: all strings fit */
 	if (likely(total_len + used_chars < ACCESS_LOG_BUF_SIZE)) {
 		for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++)
 			p = make_plain(p, end, in + i, out + i);
 		return;
 	}
+	
 	/* Unhappy path: evenly distribute available buffer space across all
 	 * strings that do not fit */
 	buf_avail = (ACCESS_LOG_BUF_SIZE - used_chars);
 	max_untruncated_len = buf_avail / TRUNCATABLE_FIELDS_COUNT;
+	
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++) {
 		/* we loose some chars due to string "less than", but
 		 * tfw_str_to_cstr accounts terminating NUL to total buffer
@@ -235,9 +230,11 @@ process_truncated(TfwStr *in, struct str_ref *out, char *p, char *end,
 		else
 			truncated_count++;
 	}
+	
 	max_untruncated_len = buf_avail / truncated_count;
 	if (max_untruncated_len < sizeof("..."))
 		goto no_buffer_space;
+
 	/* Now tuncate/plainarize strings */
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++) {
 		if (in[i].len < max_untruncated_len) {
@@ -248,13 +245,17 @@ process_truncated(TfwStr *in, struct str_ref *out, char *p, char *end,
 			out[i].data = p;
 			out[i].len = max_untruncated_len;
 			tfw_str_to_cstr(in + i, p, max_untruncated_len);
-			memcpy(p + max_untruncated_len - 3, "...", sizeof("...") - 1);
+			memcpy_fast(p + max_untruncated_len - 3,
+			            "...", sizeof("...") - 1);
 			p += max_untruncated_len;
 		}
 	}
 	return;
+
 no_buffer_space:
-	/* unlikely, but don't crash/bug */
+	/* We're getting here only if untruncatable/fixed fields are
+	 * ACCESS_LOG_BUF_SIZE or above bytes length.
+	 * In this extreme case the best we can do is just */
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++) {
 		out[i].data = "";
 		out[i].len = 0;
@@ -273,11 +274,14 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	struct str_ref missing = { "-", 1 };
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
 	struct str_ref truncated_out[TRUNCATABLE_FIELDS_COUNT];
+
 	/* Check if logging is enabled */
 	if (!access_log_enabled)
 		return;
-	/* client_ip */
-	/* this BUG_ON would only trigger if
+	
+	/* client_ip
+	 *
+	 * this BUG_ON would only trigger if
 	 * ACCESS_LOG_BUF_SIZE < TFW_ADDR_STR_BUF_SIZE
 	 * which should be always false */
 	BUG_ON(end - p < TFW_ADDR_STR_BUF_SIZE);
@@ -290,6 +294,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	} else {
 		client_ip = missing;
 	}
+
 	/* vhost */
 #define FMT_vhost "%.*s"
 #define ARG_vhost , vhost.len, vhost.data
@@ -298,26 +303,31 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	} else {
 		vhost = missing;
 	}
+
 	/* method */
 #define FMT_method "%.*s"
 #define ARG_method , method.len, method.data
 	if (req->method < sizeof(http_methods) / sizeof(*http_methods)
-			&& http_methods[req->method].len != 0) {
+	    && http_methods[req->method].len != 0)
+	{
 		method.data = http_methods[req->method].name;
 		method.len = http_methods[req->method].len;
 	} else {
 		method = missing;
 	}
+
 	/* http version */
 #define FMT_version "%.*s"
 #define ARG_version , version.len, version.data
 	if (req->version < sizeof(http_versions) / sizeof(*http_versions)
-			&& http_versions[req->version].len != 0) {
+	    && http_versions[req->version].len != 0)
+	{
 		version.data = http_versions[req->version].name;
 		version.len = http_versions[req->version].len;
 	} else {
 		version = missing;
 	}
+	
 	/* status, content_length */
 	/* NOTE: we only roughly estimate lengths of numbers, leaving final
 	 * transformation to printk. This has some side-effects like string
@@ -331,13 +341,15 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	status.len = 10; /* len(str(2**32)) */
 	content_length.data = "";
 	content_length.len = 20; /* len(str(2**64)) */
+	
 	/* Process truncated fields */
 	truncated_in[idx_uri] = req->uri_path;
-#define ADD_HDR(id, tfw_hdr_id)                                      \
+#define ADD_HDR(id, tfw_hdr_id)                                        \
 		truncated_in[id] = get_http_header_value(req->version, \
 				req->h_tbl->tbl + tfw_hdr_id);
 	ADD_HDR(idx_referer, TFW_HTTP_HDR_REFERER);
 	ADD_HDR(idx_user_agent, TFW_HTTP_HDR_USER_AGENT);
+	
 	/* Now we calculate first estimation of
 	 * "maximum allowed truncated string length" */
 #define ESTIMATE_FIXED(str) + (sizeof(str) - 1)
@@ -346,6 +358,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	process_truncated(truncated_in, truncated_out, p, end,
 			ACCESS_LOG_LINE(ESTIMATE_FIXED, ESTIMATE_UNTRUNCATABLE,
 					ESTIMATE_TRUNCATABLE));
+
 	/* Use macro to build format string */
 #define FMT_FIXED(str) str
 #define FMT_UNTRUNCATABLE(id) FMT_ ## id
@@ -354,16 +367,20 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 #define ARG_UNTRUNCATABLE(id) ARG_ ## id
 #define ARG_TRUNCATABLE(id) , truncated_out[idx_ ## id].len, \
 		truncated_out[idx_ ## id].data
-#ifdef XXX
-BEGIN
-#endif
-
-	/* we have to enforce some macro expansion here */
+	/* Calling pr_info(ACCESS_LOG_LINE...) directly won't work because
+	 * preprocessor would treat whole expression as a single argument,
+	 * so we need additional level of macro expansion. */
 #define DO_PR_INFO(...) pr_info(__VA_ARGS__)
 	DO_PR_INFO(
 		ACCESS_LOG_LINE(FMT_FIXED, FMT_UNTRUNCATABLE, FMT_TRUNCATABLE) "\n"
 		ACCESS_LOG_LINE(ARG_FIXED, ARG_UNTRUNCATABLE, ARG_TRUNCATABLE)
 	);
+#if 0
+	/* Undefine all locally defined macros.
+	 * You can use following oneliner to regenerate this list
+	 */
+sed -nre '/^do_access_log_req/,/^\}/{s/^#[[:space:]]*define[[:space:]]*([^([:space:]]+).*/#undef \1/p}' fw/access_log.c | tac
+#endif
 #undef DO_PR_INFO
 #undef ARG_TRUNCATABLE
 #undef ARG_UNTRUNCATABLE
@@ -387,10 +404,12 @@ BEGIN
 #undef FMT_vhost
 #undef ARG_client_ip
 #undef FMT_client_ip
+}
 
-#ifdef XXX
-END
-#endif
+void
+do_access_log(TfwHttpResp *resp)
+{
+	do_access_log_req(resp->req, resp->status, resp->content_length);
 }
 
 static TfwCfgSpec tfw_http_specs[] = {
