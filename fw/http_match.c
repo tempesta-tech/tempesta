@@ -787,11 +787,6 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 	len = strlen(val);
 	wc_val = (val[0] == '*' && len == 1);
 
-	if (!(val_out = kzalloc(len + SLEN("=") + 1, GFP_KERNEL))) {
-		T_ERR_NL("http_match: unable to allocate rule field value.\n");
-		return ERR_PTR(-ENOMEM);
-	}
-
 	*op_out = TFW_HTTP_MATCH_O_EQ;
 	if (wc_val)
 		*op_out = TFW_HTTP_MATCH_O_WILDCARD;
@@ -801,10 +796,15 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 		if (*op_out == TFW_HTTP_MATCH_O_PREFIX) {
 			T_ERR_NL("http_match: unable to match"
 				 " double-wildcard patterns '%s'\n", val);
-			goto err;
+			return ERR_PTR(-EINVAL);
 		} else {
 			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
 		}
+	}
+
+	if (!(val_out = kzalloc(len + SLEN("=") + 1, GFP_KERNEL))) {
+		T_ERR_NL("http_match: unable to allocate rule field value.\n");
+		return ERR_PTR(-ENOMEM);
 	}
 
 	len_adjust = tfw_http_escape_pre_post(val_out, val);
@@ -816,9 +816,6 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 	*len_out = len_adjust;
 
 	return val_out;
-err:
-	kfree(val_out);
-	return ERR_PTR(-EINVAL);
 }
 
 int
