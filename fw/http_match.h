@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,8 +35,16 @@ typedef enum {
 	TFW_HTTP_MATCH_F_METHOD,
 	TFW_HTTP_MATCH_F_URI,
 	TFW_HTTP_MATCH_F_MARK,
+	TFW_HTTP_MATCH_F_COOKIE,
 	_TFW_HTTP_MATCH_F_COUNT
 } tfw_http_match_fld_t;
+
+typedef enum {
+	TFW_HTTP_MATCH_V_NA = 0,
+	TFW_HTTP_MATCH_V_HID,
+	TFW_HTTP_MATCH_V_COOKIE,
+	_TFW_HTTP_MATCH_V_COUNT
+} tfw_http_match_val_t;
 
 typedef enum {
 	TFW_HTTP_MATCH_O_NA = 0,
@@ -65,6 +73,7 @@ typedef enum {
 	TFW_HTTP_MATCH_ACT_VHOST,
 	TFW_HTTP_MATCH_ACT_MARK,
 	TFW_HTTP_MATCH_ACT_BLOCK,
+	TFW_HTTP_MATCH_ACT_FLAG,
 	_TFW_HTTP_MATCH_ACT_COUNT
 } tfw_http_rule_act_t;
 
@@ -80,11 +89,27 @@ typedef struct {
 } TfwHttpMatchArg;
 
 typedef struct {
+	tfw_http_match_val_t type;
+	union {
+		unsigned int hid;
+		struct {
+			tfw_http_match_op_t op;
+			unsigned int len; /* String length for speedup */
+			const char *str; /* Allocated sring, free it after */
+		} ptn; /* Pattern */
+	};
+} TfwHttpMatchVal;
+
+typedef struct {
 	tfw_http_rule_act_t type;
 	union {
 		TfwHttpChain *chain;
 		TfwVhost *vhost;
 		unsigned int mark;
+		struct {
+			unsigned int fid;
+			bool set;
+		} flg;
 	};
 } TfwHttpAction;
 
@@ -93,8 +118,8 @@ typedef struct {
 	tfw_http_match_fld_t	field; /* Field of a HTTP message to compare. */
 	tfw_http_match_op_t 	op;    /* Comparison operator. */
 	TfwHttpAction		act;   /* Rule action. */
-	unsigned int		hid;   /* Header ID. */
-	unsigned int		inv;   /* Comparison inversion (inequality) flag.*/
+	TfwHttpMatchVal 	val;   /* A field value to compare with arg. */
+	unsigned int		inv;   /* Comparison inversion (!=) flag.*/
 	TfwHttpMatchArg 	arg;   /* A value to be compared with the field.
 					  note: the @arg has variable length. */
 } TfwHttpMatchRule;
@@ -114,7 +139,7 @@ void tfw_http_table_free(TfwHttpTable *table);
  * Match a HTTP request against a list of rules in chain.
  * Return a matching rule.
  */
-TfwHttpMatchRule *tfw_http_match_req(const TfwHttpReq *req,
+TfwHttpMatchRule *tfw_http_match_req(TfwHttpReq *req,
 				     struct list_head *mlst);
 
 /**
@@ -130,8 +155,16 @@ const char *tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 				const char *raw_hdr_name, size_t *size_out,
 				tfw_http_match_arg_t *type_out,
 				tfw_http_match_op_t *op_out);
+const char *tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
+				unsigned int *len_out,
+				tfw_http_match_val_t *type_out,
+				tfw_http_match_op_t *op_out);
 int tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **h_name,
 			      unsigned int *hid_out);
+
+int tfw_http_search_cookie(const char *cstr, unsigned long clen,
+		  const TfwStr *cookie, TfwStr *val,
+		  tfw_http_match_op_t op, bool is_resp_hdr);
 
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\

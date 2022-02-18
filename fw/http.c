@@ -5412,6 +5412,14 @@ next_msg:
 	 */
 	req->cache_ctl.timestamp = tfw_current_timestamp();
 	req->jrxtstamp = jiffies;
+	/*
+	 * Bypass cache if corresponding binary flag in request set.
+	 * We need separate from cache_ctl binary flag in request
+	 * due to multiple rules may one after one set and clear
+	 * the flag before it evaluated to CC_NO_CACHE here.
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_CHAIN_NO_CACHE, req->flags)))
+		req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
 
 	/*
 	 * Run frang checks first before any processing happen. Can't start

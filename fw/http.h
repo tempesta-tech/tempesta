@@ -269,6 +269,8 @@ enum {
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
 	TFW_HTTP_B_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
+	/* Request fitted no cache cookie rule */
+	TFW_HTTP_B_CHAIN_NO_CACHE,
 	/* Request is non-idempotent. */
 	TFW_HTTP_B_NON_IDEMP,
 	/* Request stated 'Accept: text/html' header */

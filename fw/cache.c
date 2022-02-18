@@ -356,6 +356,7 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	/* cache_fulfill - work as usual in cache mode. */
 	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
 
+	/* CC_NO_CACHE also may be set by http chain rules */
 	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
 		/*
 		 * TODO: RFC 7234 4. "... a cache MUST NOT reuse a stored

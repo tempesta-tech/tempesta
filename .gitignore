@@ -23,6 +23,9 @@ Module.symvers
 .settings
 .pydevproject
 
+# vscode project settings
+.vscode
+
 # Python compiler cache files
 *.pyc
 
