@@ -362,3 +362,11 @@ void
 tfw_server_destroy(TfwServer *srv)
 {
 }
+
+void do_access_log(TfwHttpResp *resp)
+{
+}
+
+void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
+{
+}
