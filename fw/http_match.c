@@ -51,7 +51,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -413,6 +413,7 @@ match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	TfwStr cookie_val;
 	TfwStr *hdr, *end, *dup;
+
 	tfw_str_eq_flags_t flags;
 	if (unlikely(rule->val.type != TFW_HTTP_MATCH_V_COOKIE))
 		return false;
@@ -657,8 +658,7 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 	return 0;
 }
 
-static
-size_t
+static size_t
 tfw_http_escape_pre_post(char *out , const char *str)
 {
 	int i;
@@ -772,8 +772,7 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 		*type_out = TFW_HTTP_MATCH_V_HID;
 		return NULL;
 	}
-	else if (field == TFW_HTTP_MATCH_F_COOKIE)
-	{
+	else if (field == TFW_HTTP_MATCH_F_COOKIE) {
 		*type_out = TFW_HTTP_MATCH_V_COOKIE;
 	} else {
 		/* When not a hdr or cookie rule this value is not used */
@@ -802,7 +801,7 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 		if (*op_out == TFW_HTTP_MATCH_O_PREFIX) {
 			T_ERR_NL("http_match: unable to match"
 				 " double-wildcard patterns '%s'\n", val);
-			return ERR_PTR(-EINVAL);
+			goto err;
 		} else {
 			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
 		}
@@ -817,6 +816,9 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 	*len_out = len_adjust;
 
 	return val_out;
+err:
+	kfree(val_out);
+	return ERR_PTR(-EINVAL);
 }
 
 int
@@ -898,9 +900,8 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 			unsigned int len = 0, name_n = 0;
 
 			for (name = chunk; name != end; ++name, ++name_n) {
-				if (!(name->flags & TFW_STR_NAME)) {
+				if (!(name->flags & TFW_STR_NAME))
 					break;
-				}
 				len += name->len;
 			}
 			tmp.nchunks = name_n;

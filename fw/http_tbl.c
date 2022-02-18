@@ -83,7 +83,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -474,7 +474,8 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_MARK;
-	} else if (strlen(action) && action[0] == '$') {
+	}
+	else if (strlen(action) && action[0] == '$') {
 		if (!strcasecmp(action, "$cache")) {
 			tfw_cfg_parse_uint(action_val, &act_val_parsed);
 			if (act_val_parsed != 1 && act_val_parsed != 0) {
@@ -492,17 +493,21 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 				 action);
 			return -EINVAL;
 		}
-	} else if (action_val) {
+	}
+	else if (action_val) {
 		T_ERR_NL("http_tbl: only 'mark' or '$..' actions "
 			 "may have any value: '%s'\n",
 			 action_val);
 		return -EINVAL;
-	} else if (!strcasecmp(action, "block")) {
+	}
+	else if (!strcasecmp(action, "block")) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_BLOCK;
-	} else if ((chain = tfw_chain_lookup(action))) {
+	}
+	else if ((chain = tfw_chain_lookup(action))) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 		rule->act.chain = chain;
-	} else if ((vhost = tfw_vhost_lookup_reconfig(action))) {
+	}
+	else if ((vhost = tfw_vhost_lookup_reconfig(action))) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_VHOST;
 		rule->act.vhost = vhost;
 	} else {

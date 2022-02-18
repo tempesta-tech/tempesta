@@ -5406,7 +5406,7 @@ next_msg:
 	 * Bypass cache if corresponding binary flag in request set
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_CHAIN_NO_CACHE, req->flags)))
-		req->cache_ctl.flags |= TFW_HTTP_CC_CHAIN_NO_CACHE;
+		req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
 
 	/*
 	 * Run frang checks first before any processing happen. Can't start
