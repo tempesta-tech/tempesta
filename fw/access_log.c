@@ -76,6 +76,7 @@ get_http_header_value(char http_version, TfwStr *line)
 	size_t len = line->len;
 	TfwStr *chunk = line->chunks, *end = chunk + line->nchunks;
 	static TfwStr empty_hdr = TFW_STR_STRING("-");
+
 	switch (http_version) {
 	case TFW_HTTP_VER_09:
 	case TFW_HTTP_VER_10:
@@ -108,8 +109,10 @@ get_http_header_value(char http_version, TfwStr *line)
 	default:
 		return empty_hdr;
 	}
+
 	if (chunk == end)
 		return empty_hdr;
+
 	TFW_STR_INIT(&result);
 	result.len = len;
 	result.chunks = chunk;
@@ -118,7 +121,7 @@ get_http_header_value(char http_version, TfwStr *line)
 }
 
 
-/* Helpers for const=>name conversions for http methods and versions {{{ */
+/* Helpers for const=>name conversions for http methods and versions */
 static const struct {
 #	define MAX_HTTP_METHOD_NAME_LEN	10
 	char name[MAX_HTTP_METHOD_NAME_LEN];
@@ -164,7 +167,7 @@ enum {
 #undef ENUM
 #undef IGNORE
 	TRUNCATABLE_FIELDS_COUNT
-};/*}}}*/
+};
 
 struct str_ref {
 	const char *data;
@@ -219,6 +222,8 @@ process_truncated(TfwStr *in, struct str_ref *out, char *p, char *end,
 	/* Unhappy path: evenly distribute available buffer space across all
 	 * strings that do not fit */
 	buf_avail = (ACCESS_LOG_BUF_SIZE - used_chars);
+	/* This division by constant usually gets optimized by compiler with
+	 * multiplication/shifts */
 	max_untruncated_len = buf_avail / TRUNCATABLE_FIELDS_COUNT;
 	
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++) {
@@ -375,12 +380,11 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 		ACCESS_LOG_LINE(FMT_FIXED, FMT_UNTRUNCATABLE, FMT_TRUNCATABLE) "\n"
 		ACCESS_LOG_LINE(ARG_FIXED, ARG_UNTRUNCATABLE, ARG_TRUNCATABLE)
 	);
-#if 0
+
 	/* Undefine all locally defined macros.
 	 * You can use following oneliner to regenerate this list
+	 * sed -nre '/^do_access_log_req/,/^\}/{s@^#[[:space:]]*define[[:space:]]*([^([:space:]]+).*@#undef \1@p}' fw/access_log.c | tac
 	 */
-sed -nre '/^do_access_log_req/,/^\}/{s/^#[[:space:]]*define[[:space:]]*([^([:space:]]+).*/#undef \1/p}' fw/access_log.c | tac
-#endif
 #undef DO_PR_INFO
 #undef ARG_TRUNCATABLE
 #undef ARG_UNTRUNCATABLE
