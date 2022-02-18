@@ -83,7 +83,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -194,6 +194,7 @@ static const TfwCfgEnum tfw_http_tbl_cfg_field_enum[] = {
 	{ "hdr",	TFW_HTTP_MATCH_F_HDR },
 	{ "mark",	TFW_HTTP_MATCH_F_MARK },
 	{ "method",	TFW_HTTP_MATCH_F_METHOD },
+	{ "cookie",	TFW_HTTP_MATCH_F_COOKIE },
 	{ 0 }
 };
 
@@ -337,6 +338,7 @@ tfw_cfgop_http_tbl_chain_finish(TfwCfgSpec *cs)
  *       uri == "*.php" -> static;
  *       mark == 2 -> waf_chain;
  *       referer != "*hacked.com" -> mark = 7;
+ *       hdr "Referer" == "http://badhost.com*" -> block;
  *       -> mark = 3;
  *   }
  *
@@ -345,17 +347,21 @@ tfw_cfgop_http_tbl_chain_finish(TfwCfgSpec *cs)
  * the list of rules of current chain.
  *
  * Syntax:
- *            +------------------------ First operand of rule's condition part
- *            |                         (HTTP request field or 'mark');
- *            |   +-------------------- Condition type: equal ('==') or not
- *            |   |                     equal ('!=');
- *            |   |     +-------------- Second operand of rule's condition part
- *            |   |     |               (argument for the rule - any string);
- *            |   |     |         +---- Action part of the rule (reference to
- *            |   |     |         |     other http_chain or vhost, 'block' or
- *            |   |     |         |     'mark' action).
- *            V   V     V         V
- *           uri == "*.php" -> static
+ *  +---------------------------------  First operand of rule's condition part
+ *  |                                   (HTTP request field or 'mark');
+ *  |    +----------------------------  Header or any other field value to do
+ *  |    |                              comparison with
+ *  |    |     +----------------------  Condition type: equal ('==') or not
+ *  |    |     |                        equal ('!=');
+ *  |    |     |      +---------------  Second operand of rule's condition part
+ *  |    |     |      |                 (argument for the rule - any string);
+ *  |    |     |      |       +-------  Action part of the rule (reference to
+ *  |    |     |      |       |         other http_chain or vhost, 'block' or
+ *  |    |     |      |       |         'mark' action).
+ *  |    |     |      |       |     +-  Possible value for specified action
+ *  |    |     |      |       |     |
+ *  V    V     V      V       V     V
+ * hdr "Host" == "bad.ru" -> mark = 7
  *
  */
 static int
@@ -363,10 +369,14 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	int r;
 	TfwHttpMatchRule *rule;
-	const char *in_field, *hdr, *action, *action_val, *in_arg, *arg = NULL;
-	unsigned int invert, hid = TFW_HTTP_HDR_RAW;
-	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD;
+	const char *in_field, *in_field_val, *action, *action_val,
+		   *in_arg, *arg = NULL, *val = NULL;
+	unsigned int invert, hid = TFW_HTTP_HDR_RAW,
+		     act_val_parsed, val_len;
+	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD,
+			    op_val = TFW_HTTP_MATCH_O_WILDCARD;
 	tfw_http_match_fld_t field = TFW_HTTP_MATCH_F_WILDCARD;
+	tfw_http_match_val_t type_val = TFW_HTTP_MATCH_V_NA;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
 	TfwCfgRule *cfg_rule = &e->rule;
 	size_t arg_size = 0;
@@ -383,7 +393,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	invert = cfg_rule->inv;
 	in_field = cfg_rule->fst;
-	hdr = cfg_rule->fst_ext;
+	in_field_val = cfg_rule->fst_ext;
 	in_arg = cfg_rule->snd;
 	action = cfg_rule->act;
 	action_val = cfg_rule->val;
@@ -406,14 +416,25 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 				 in_field);
 			return r;
 		}
-		if ((r = tfw_http_verify_hdr_field(field, &hdr, &hid)))
-			return r;
+		if (field != TFW_HTTP_MATCH_F_COOKIE) {
+			if ((r = tfw_http_verify_hdr_field(field,
+							   &in_field_val,
+							   &hid)))
+			{
+				return r;
+			}
+		}
 
-		arg = tfw_http_arg_adjust(in_arg, field, hdr, &arg_size,
-					  &type, &op);
+		arg = tfw_http_arg_adjust(in_arg, field, in_field_val,
+					  &arg_size, &type, &op);
 		if (IS_ERR(arg))
 			return PTR_ERR(arg);
 	}
+
+	val = tfw_http_val_adjust(in_field_val, field,
+				  &val_len, &type_val, &op_val);
+	if (IS_ERR(val))
+		return PTR_ERR(val);
 
 	rule = tfw_http_rule_new(tfw_chain_entry, type, arg_size);
 	if (!rule) {
@@ -425,7 +446,14 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		       && type != TFW_HTTP_MATCH_A_NUM
 		       && type != TFW_HTTP_MATCH_A_METHOD
 		       && type != TFW_HTTP_MATCH_A_WILDCARD);
-		rule->hid = hid;
+		rule->val.type = type_val;
+		if (type_val == TFW_HTTP_MATCH_V_COOKIE) {
+			rule->val.ptn.op = op_val;
+			rule->val.ptn.str = val;
+			rule->val.ptn.len = val_len;
+		} else {
+			rule->val.hid = hid;
+		}
 		rule->inv = invert;
 		rule->field = field;
 		rule->op = op;
@@ -446,16 +474,40 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_MARK;
-	} else if (action_val) {
-		T_ERR_NL("http_tbl: not 'mark' actions must not have any value:"
-			 " '%s'\n", action_val);
+	}
+	else if (strlen(action) && action[0] == '$') {
+		if (!strcasecmp(action, "$cache")) {
+			tfw_cfg_parse_uint(action_val, &act_val_parsed);
+			if (act_val_parsed != 1 && act_val_parsed != 0) {
+				T_ERR_NL("http_tbl: '$cache' action value "
+					 "must 0 or 1: '%s'\n",
+					 action_val);
+				return -EINVAL;
+			}
+			rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
+			rule->act.flg.set = (act_val_parsed == 0);
+			rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
+		} else {
+			T_ERR_NL("http_tbl: only '$cache' flag setting action "
+				 "supported for now: '%s'\n",
+				 action);
+			return -EINVAL;
+		}
+	}
+	else if (action_val) {
+		T_ERR_NL("http_tbl: only 'mark' or '$..' actions "
+			 "may have any value: '%s'\n",
+			 action_val);
 		return -EINVAL;
-	} else if (!strcasecmp(action, "block")) {
+	}
+	else if (!strcasecmp(action, "block")) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_BLOCK;
-	} else if ((chain = tfw_chain_lookup(action))) {
+	}
+	else if ((chain = tfw_chain_lookup(action))) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 		rule->act.chain = chain;
-	} else if ((vhost = tfw_vhost_lookup_reconfig(action))) {
+	}
+	else if ((vhost = tfw_vhost_lookup_reconfig(action))) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_VHOST;
 		rule->act.vhost = vhost;
 	} else {
@@ -475,6 +527,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	return 0;
 err:
+	kfree(val);
 	kfree(arg);
 	return r;
 }
@@ -484,6 +537,8 @@ tfw_cfgop_release_rule(TfwHttpMatchRule *rule)
 {
 	if (rule->act.type == TFW_HTTP_MATCH_ACT_VHOST)
 		tfw_vhost_put(rule->act.vhost);
+	if (rule->val.type == TFW_HTTP_MATCH_V_COOKIE)
+		kfree(rule->val.ptn.str);
 	return 0;
 }
 

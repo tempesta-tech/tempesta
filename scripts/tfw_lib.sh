@@ -1,6 +1,6 @@
 # Common utilities for Tempesta scripts
 #
-# Copyright (C) 2016-2021 Tempesta Technologies, Inc.
+# Copyright (C) 2016-2022 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -32,6 +32,16 @@ declare -r SYSD_IRQB_PATH="/lib/systemd/system/irqbalance.service"
 declare -r BAN_CONF_VAR="TFW_BAN_IRQS"
 declare -a IRQS_GLOB_LIST
 
+ensure_command()
+{
+	if ! hash "$1" &> /dev/null
+	then
+		echo "'$1' command not found"
+		exit 1
+	fi
+}
+
+ensure_command bc
 calc()
 {
 	echo "$1" | bc -iq | tail -1

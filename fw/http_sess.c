@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,6 +46,7 @@
 #include "client.h"
 #include "hash.h"
 #include "http_msg.h"
+#include "http_match.h"
 #include "http_sess.h"
 #include "http_sess_conf.h"
 #include "vhost.h"
@@ -270,63 +271,6 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv,
 }
 
 /*
- * Search for cookie defined in @sticky configuration in `Set-Cookie`/`Cookie`
- * header value @cookie and save the cookie value into @val. @is_resp_hdr flag
- * identifies the header name: true for `Set-Cookie`, false for `Cookie`.
- */
-static int
-search_cookie(TfwStickyCookie *sticky, const TfwStr *cookie, TfwStr *val,
-	      bool is_resp_hdr)
-{
-	const char *const cstr = sticky->name_eq.data;
-	const unsigned long clen = sticky->name_eq.len;
-	TfwStr *chunk, *end;
-	TfwStr tmp = { .flags = 0, };
-	unsigned int n = cookie->nchunks;
-
-	BUG_ON(!TFW_STR_PLAIN(&sticky->name_eq));
-
-	/* Search cookie name. */
-	end = cookie->chunks + cookie->nchunks;
-	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
-		if (!(chunk->flags & TFW_STR_NAME))
-			continue;
-		/*
-		 * Create a temporary compound string, starting with this
-		 * chunk. The total string length is not used here, so it
-		 * is not set.
-		 */
-		tmp.chunks = chunk;
-		tmp.nchunks = n;
-		if (tfw_str_eq_cstr(&tmp, cstr, clen, TFW_STR_EQ_PREFIX))
-			break;
-		/*
-		 * 'Cookie' header has multiple name-value pairs while the
-		 * 'Set-Cookie' has only one.
-		 */
-		if (unlikely(is_resp_hdr))
-			return 0;
-	}
-	if (chunk == end)
-		return 0;
-
-	/* Search cookie value, starting with next chunk. */
-	for (++chunk; chunk != end; ++chunk)
-		if (chunk->flags & TFW_STR_VALUE)
-			break;
-	/*
-	 * The party can send us zero-value cookie,
-	 * treat this as not found cookie.
-	 */
-	if (unlikely(chunk == end))
-		return 0;
-
-	tfw_str_collect_cmp(chunk, end, val, ";");
-
-	return 1;
-}
-
-/*
  * Find Tempesta sticky cookie in an HTTP request.
  *
  * Return 1 if the cookie is found.
@@ -356,7 +300,11 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 		int r;
 
 		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
-		r = search_cookie(req->vhost->cookie, &value, cookie_val, false);
+		BUG_ON(!TFW_STR_PLAIN(&req->vhost->cookie->name_eq));
+		r = tfw_http_search_cookie(req->vhost->cookie->name_eq.data,
+					   req->vhost->cookie->name_eq.len,
+					   &value, cookie_val,
+					   TFW_HTTP_MATCH_O_EQ, false);
 		if (r)
 			return r;
 	}
@@ -1231,6 +1179,8 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 {
 	TfwStickyCookie *sticky = resp->req->vhost->cookie;
 	TfwStr *hdr, *dup, *dup_end;
+
+	BUG_ON(!TFW_STR_PLAIN(&sticky->name_eq));
 	/*
 	 * Each cookie in set header is placed in its own `Set-Cookie` header,
 	 * need to look through all of them
@@ -1242,8 +1192,13 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 		if (TFW_STR_EMPTY(dup))
 			continue;
 		tfw_http_msg_srvhdr_val(dup, TFW_HTTP_HDR_SET_COOKIE, &value);
-		if (search_cookie(sticky, &value, cookie_val, true))
+		if (tfw_http_search_cookie(sticky->name_eq.data,
+					   sticky->name_eq.len,
+					   &value, cookie_val,
+					   TFW_HTTP_MATCH_O_EQ, true))
+		{
 			return 1;
+		}
 	}
 
 	return 0;

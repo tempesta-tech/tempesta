@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -109,39 +109,55 @@ http_match_suite_teardown(void)
 
 static void
 test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
-			const char *hdr, const char *in_arg)
+			const char *in_val, const char *in_arg)
 {
 	MatchEntry *e;
 	unsigned int hid = TFW_HTTP_HDR_RAW;
-	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD;
+	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD,
+			    op_val = TFW_HTTP_MATCH_O_WILDCARD;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
+	tfw_http_match_val_t val_type = TFW_HTTP_MATCH_V_HID;
 	size_t arg_size = 0;
-	const char *arg = NULL;
+	unsigned int val_len = 0;
+	const char *arg = NULL, *val = NULL;
 
 	BUG_ON(in_arg && field == TFW_HTTP_MATCH_F_WILDCARD);
 	BUG_ON(!in_arg && field != TFW_HTTP_MATCH_F_WILDCARD);
 
-	tfw_http_verify_hdr_field(field, &hdr, &hid);
-	arg = tfw_http_arg_adjust(in_arg, field, hdr, &arg_size, &type, &op);
+	if (field != TFW_HTTP_MATCH_F_COOKIE) {
+		tfw_http_verify_hdr_field(field, &in_val, &hid);
+	}
+	val = tfw_http_val_adjust(in_val, field, &val_len, &val_type, &op_val);
+	arg = tfw_http_arg_adjust(in_arg, field, in_val, &arg_size, &type, &op);
 	EXPECT_NOT_NULL(arg);
 	if (!arg)
 		return;
-
 	e = test_rule_container_new(test_chain, MatchEntry, rule,
 				    type, arg_size);
 	EXPECT_NOT_NULL(e);
 	if (!e)
 		goto err;
-	e->rule.hid = hid;
 	e->rule.field = field;
+	e->rule.val.type = val_type;
+	if (val_type == TFW_HTTP_MATCH_V_COOKIE) {
+		e->rule.val.ptn.op = op_val;
+		e->rule.val.ptn.str = val;
+		e->rule.val.ptn.len = val_len;
+	} else {
+		e->rule.val.hid = hid;
+	}
 	e->rule.op = op;
 	e->rule.arg.type = type;
 	tfw_http_rule_arg_init(&e->rule, arg, arg_size - 1);
 	/* Just dummy action type to avoid BUG_ON in 'do_eval()'. */
 	e->rule.act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 	e->test_id = test_id;
+
+	kfree(arg);
+	return;
 err:
 	kfree(arg);
+	kfree(val);
 }
 
 int
@@ -502,6 +518,192 @@ TEST(http_match, method_eq)
 	EXPECT_EQ(42, match_id);
 }
 
+#define TFW_TEST_MAX_COOKIE_NCHUNKS 20
+TfwStr test_cookie_chunks[TFW_TEST_MAX_COOKIE_NCHUNKS] = { 0 };
+TfwStr test_cookie = { .chunks = test_cookie_chunks };
+
+static
+void tfw_test_cookie(char* header, ...)
+{
+	char *field;
+
+	va_list args;
+	va_start(args, header);
+
+	test_cookie_chunks[0] = (TfwStr){
+		.data = header, NULL, strlen(header), 0, 0, 0
+	};
+	test_cookie.nchunks = 1;
+
+	do {
+		char *eq_p;
+		field = va_arg(args, char *);
+		if (!field)
+			break;
+
+		eq_p = strchr(field, '=');
+		BUG_ON(!eq_p);
+
+		if (test_cookie.nchunks != 1)
+			test_cookie.chunks[test_cookie.nchunks++] = (TfwStr) {
+				.data = "; ", NULL,
+				SLEN("; "), 0, 0, 0
+			};
+
+		test_cookie.chunks[test_cookie.nchunks++] = (TfwStr) {
+			.data = field, NULL,
+			eq_p - field + 1, 0, TFW_STR_NAME, 0
+		};
+		test_cookie.chunks[test_cookie.nchunks++] = (TfwStr) {
+			.data = eq_p + 1, NULL,
+			strlen(field) - (eq_p - field + 1), 0, TFW_STR_VALUE, 0
+		};
+	} while (true);
+
+	va_end(args);
+
+	{
+		unsigned int n;
+
+		test_cookie.len = 0;
+		for (n = 0; n < test_cookie.nchunks; ++n) {
+			test_cookie.len += test_cookie.chunks[n].len;
+		}
+	}
+
+	test_req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE] = test_cookie;
+}
+
+TEST(http_match, cookie)
+{
+	int match_id;
+
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+				"User-Agent", "U880D/4.0 (CP/M; 8-bit)");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_COOKIE,
+				"name", "*");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_COOKIE,
+				"coo_*", "*");
+	test_chain_add_rule_str(4, TFW_HTTP_MATCH_F_COOKIE,
+				"J_-*", "Val_");
+	test_chain_add_rule_str(5, TFW_HTTP_MATCH_F_COOKIE,
+				"J_-*", "Val__*");
+	test_chain_add_rule_str(6, TFW_HTTP_MATCH_F_COOKIE,
+				"name", "Val_");
+	test_chain_add_rule_str(7, TFW_HTTP_MATCH_F_COOKIE,
+				"_09", "_088_*");
+	test_chain_add_rule_str(8, TFW_HTTP_MATCH_F_COOKIE,
+				"_09*", "_088_*");
+	test_chain_add_rule_str(9, TFW_HTTP_MATCH_F_COOKIE,
+				"some", "some_\\*_");
+	test_chain_add_rule_str(10, TFW_HTTP_MATCH_F_COOKIE,
+				"*zxcv", "*dd");
+
+	tfw_test_cookie("Cookie: ",
+			"name1=value1",
+			"NaMe=Val_",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(-1, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"name=",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(2, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"name1=value1",
+			"name=Val_",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(2, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"coo_=value1",
+			"5678=Val_",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(3, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"coo_-DDD=value1",
+			"5678=Val_",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(3, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"name1=value1",
+			"J_-=Val_",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(4, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"name1=value1",
+			"J_-=Val",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(-1, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"name1=value1",
+			"J_----=Val__",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(5, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"name1=value1",
+			"J_----=Val__--",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(5, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"_09=_088_*",
+			"some=some_*",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(7, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"_0*9=_088_",
+			"some=some_*_",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(9, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"ggggggg=fffff",
+			"zxcv=dd",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(10, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"ggggggg=fffff",
+			"zzzzzzzxcv=dd",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(10, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"ggggggg=fffff",
+			"zxcv=d",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(-1, match_id);
+
+	tfw_test_cookie("Cookie: ",
+			"ggggggg=fffff",
+			"xcv=dddd",
+			NULL);
+	match_id = test_chain_match();
+	EXPECT_EQ(-1, match_id);
+}
+
 TEST_SUITE(http_match)
 {
 	TEST_SETUP(http_match_suite_setup);
@@ -518,4 +720,5 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, raw_header_eq);
 	TEST_RUN(http_match, raw_header_eq_ws);
 	TEST_RUN(http_match, method_eq);
+	TEST_RUN(http_match, cookie);
 }
