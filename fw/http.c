@@ -103,6 +103,7 @@
 #include "server.h"
 #include "tls.h"
 #include "apm.h"
+#include "access_log.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -862,6 +863,9 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	if ((ret = tfw_hpack_encode(resp, &s_hdr, op, !cache)))
 		return ret;
 
+	/* set status on response for access logging */
+	resp->status = status;
+
 	return 0;
 }
 
@@ -872,6 +876,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	tfw_connection_get(req->conn);
+	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)req->conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
@@ -1053,6 +1058,8 @@ tfw_h1_send_resp(TfwHttpReq *req, int status)
 	date = TFW_STR_DATE_CH(&msg);
 	date->data = *this_cpu_ptr(&g_buf);
 	tfw_http_prep_date(date->data);
+	resp->status = status;
+	resp->content_length = body->len;
 	if (!body->data)
 		msg.nchunks = 5;
 
@@ -3704,6 +3711,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 	T_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 	WARN_ON_ONCE(req->resp != resp);
+	do_access_log(resp);
 
 	/*
 	 * If the list is empty, then it's either a bug, or the client
@@ -4609,11 +4617,14 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 
 skip_stream:
 	if (attack) {
-		if (reply)
+		if (reply) {
 			tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 						    !on_req_recv_event);
-		else if (!on_req_recv_event)
-			tfw_connection_close(req->conn, true);
+		} else {
+			do_access_log_req(req, 403, 0);
+			if (!on_req_recv_event)
+				tfw_connection_close(req->conn, true);
+		}
 	}
 
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -4663,6 +4674,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 
 		if (!attack)
 			close &= !tfw_http_req_prev_conn_close(req);
+		do_access_log_req(req, status, 0);
 		if (close)
 			tfw_connection_close(req->conn, true);
 		tfw_http_conn_req_clean(req);
