@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -100,7 +100,7 @@ enum {
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
 
-typedef struct {
+typedef struct TfwConn {
 	TFW_CONN_COMMON;
 } TfwConn;
 

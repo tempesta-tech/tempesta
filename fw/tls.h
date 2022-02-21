@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,33 +20,7 @@
 #ifndef __TFW_TLS_H__
 #define __TFW_TLS_H__
 
-#include "gfsm.h"
 #include "ttls.h"
-
-#define TFW_FSM_TLS		TFW_FSM_HTTPS
-
-/**
- * TLS states.
- */
-#define TFW_GFSM_TLS_STATE(s)	((TFW_FSM_TLS << TFW_GFSM_FSM_SHIFT) | (s))
-enum {
-	/* TLS FSM initial state, not hookable. */
-	TFW_TLS_FSM_INIT	= TFW_GFSM_TLS_STATE(0),
-	/*
-	 * A TLS Handshake has been completed on a connection. Client could
-	 * either process a new full handshake or resume previous session. The
-	 * state is also reached if the handshake process ended up with the
-	 * error or never reached the final stage.
-	 */
-	TFW_TLS_FSM_HS_DONE	= TFW_GFSM_TLS_STATE(1),
-	/*
-	 * A new portion of data is decrypted and ready to be consumed by the
-	 * upper layers.
-	 */
-	TFW_TLS_FSM_DATA_READY	= TFW_GFSM_TLS_STATE(2),
-
-	TFW_TLS_FSM_DONE	= TFW_GFSM_TLS_STATE(TFW_GFSM_STATE_LAST)
-};
 
 void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
@@ -54,5 +28,7 @@ void tfw_tls_match_any_sni_to_dflt(bool match);
 int tfw_tls_cfg_alpn_protos(const char *cfg_str, bool *deprecated);
 void tfw_tls_free_alpn_protos(void);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
+
+int tfw_tls_msg_process(void *conn, struct sk_buff *skb);
 
 #endif /* __TFW_TLS_H__ */

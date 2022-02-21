@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -88,7 +88,6 @@ enum {
 	/* Security rules enforcement. */
 	TFW_FSM_FRANG_REQ,
 	TFW_FSM_FRANG_RESP,
-	TFW_FSM_FRANG_TLS,
 
 	TFW_FSM_NUM /* Must be <= TFW_GFSM_FSM_N */
 };
@@ -178,11 +177,12 @@ typedef struct {
 	unsigned short	states[TFW_GFSM_FSM_NUM];
 } TfwGState;
 
-#define TFW_GFSM_STATE(s)	((s)->states[(unsigned char)(s)->curr]	\
-				 & ((TFW_GFSM_FSM_MASK << TFW_GFSM_FSM_SHIFT) \
-				    | TFW_GFSM_STATE_MASK))
+#define TFW_GFSM_STATE(s) ((s)->states[(unsigned char)(s)->curr]	\
+			  & ((TFW_GFSM_FSM_MASK << TFW_GFSM_FSM_SHIFT)	\
+			    | TFW_GFSM_STATE_MASK))
 
-typedef int (*tfw_gfsm_handler_t)(void *obj, TfwFsmData *data);
+typedef struct TfwConn TfwConn;
+typedef int (*tfw_gfsm_handler_t)(TfwConn *conn, TfwFsmData *data);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
 int tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data);

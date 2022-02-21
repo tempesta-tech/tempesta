@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1698,14 +1698,14 @@ tfw_h2_context_reinit(TfwH2Ctx *ctx, bool postponed)
 }
 
 int
-tfw_h2_frame_process(void *c, TfwFsmData *data)
+tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb)
 {
 	int r;
 	bool postponed;
 	unsigned int parsed, unused;
 	TfwFsmData data_up = {};
 	TfwH2Ctx *h2 = tfw_h2_context(c);
-	struct sk_buff *nskb = NULL, *skb = data->skb;
+	struct sk_buff *nskb = NULL;
 
 next_msg:
 	postponed = false;
