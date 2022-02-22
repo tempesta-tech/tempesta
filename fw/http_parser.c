@@ -3838,15 +3838,23 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		if (likely(c == '/'))
 			__FSM_JMP(Req_UriMark);
 
-		if (likely(__data_available(p, 7)
-			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
-			   && *(p + 4) == ':' && *(p + 5) == '/'
-			   && *(p + 6) == '/'))
-			__FSM_MOVE_nofixup_n(Req_UriAuthorityStart, 7);
+		if (likely(__data_available(p, 4)))
+			switch (*(unsigned int *)p) {
+			case TFW_CHAR4_INT('h', 't', 't', 'p'):
+				__FSM_MOVE_nofixup_n(Req_UriSchHttp, 4);
+			case TFW_CHAR4_INT('w', 's', ':', '/'):
+				__FSM_MOVE_nofixup_n(Req_UriSchWsColonSlash, 4);
+			case TFW_CHAR4_INT('w', 's', 's', ':'):
+				__FSM_MOVE_nofixup_n(Req_UriSchWssColon, 4);
+			default:
+				TFW_PARSER_BLOCK(Req_Uri);
+			}
 
-		/* "http://" slow path - step char-by-char. */
+		/* scheme slow path - step char-by-char. */
 		if (likely(TFW_LC(c) == 'h'))
 			__FSM_MOVE_nofixup(Req_UriSchH);
+		else if (TFW_LC(c) == 'w')
+			__FSM_MOVE_nofixup(Req_UriSchW);
 
 		TFW_PARSER_BLOCK(Req_Uri);
 	}
@@ -4735,13 +4743,45 @@ Req_Method_1CharStep: __attribute__((cold))
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
-	/* process URI scheme: "http://" */
+	/* process URI scheme */
+	/* slow path for 'http://' and 'https://' */
 	__FSM_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt);
 	__FSM_TX_LC_nofixup(Req_UriSchHt, 't', Req_UriSchHtt);
 	__FSM_TX_LC_nofixup(Req_UriSchHtt, 'p', Req_UriSchHttp);
-	__FSM_TX_nofixup(Req_UriSchHttp, ':', Req_UriSchHttpColon);
+	__FSM_STATE(Req_UriSchHttp, cold) {
+		switch (TFW_LC(c)) {
+		case ':':
+			__FSM_MOVE_nofixup(Req_UriSchHttpColon);
+		case 's':
+			__FSM_MOVE_nofixup(Req_UriSchHttps);
+		}
+		TFW_PARSER_BLOCK(Req_UriSchHttp);
+	}
+	/* http */
 	__FSM_TX_nofixup(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
 	__FSM_TX_nofixup(Req_UriSchHttpColonSlash, '/', Req_UriAuthorityStart);
+	/* https */
+	__FSM_TX_nofixup(Req_UriSchHttps, ':', Req_UriSchHttpsColon);
+	__FSM_TX_nofixup(Req_UriSchHttpsColon, '/', Req_UriSchHttpsColonSlash);
+	__FSM_TX_nofixup(Req_UriSchHttpsColonSlash, '/', Req_UriAuthorityStart);
+	/* slow path for 'ws://' and 'wss://' */
+	__FSM_TX_LC_nofixup(Req_UriSchW, 's', Req_UriSchWs);
+	__FSM_STATE(Req_UriSchWs, cold) {
+		switch (TFW_LC(c)) {
+		case ':':
+			__FSM_MOVE_nofixup(Req_UriSchWsColon);
+		case 's':
+			__FSM_MOVE_nofixup(Req_UriSchWss);
+		}
+		TFW_PARSER_BLOCK(Req_UriSchWs);
+	}
+	/* ws */
+	__FSM_TX_nofixup(Req_UriSchWsColon, '/', Req_UriSchWsColonSlash);
+	__FSM_TX_nofixup(Req_UriSchWsColonSlash, '/', Req_UriAuthorityStart);
+	/* wss */
+	__FSM_TX_nofixup(Req_UriSchWss, ':', Req_UriSchWssColon);
+	__FSM_TX_nofixup(Req_UriSchWssColon, '/', Req_UriSchWssColonSlash);
+	__FSM_TX_nofixup(Req_UriSchWssColonSlash, '/', Req_UriAuthorityStart);
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
 	__FSM_TX_nofixup(Req_HttpVerT1, 'T', Req_HttpVerT2);
@@ -5731,7 +5771,7 @@ do {									\
 		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
 		__FSM_EXIT(CSTR_POSTPONE);				\
 	}
- 
+
 #define H2_TRY_STR_LAMBDA_fixup(str, fld, lambda, curr_st, next_st)	\
 	H2_TRY_STR_2LAMBDA_fixup(str, fld, {}, lambda, curr_st, next_st)
 
