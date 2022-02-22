@@ -3841,10 +3841,35 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		if (likely(__data_available(p, 4)))
 			switch (*(unsigned int *)p) {
 			case TFW_CHAR4_INT('h', 't', 't', 'p'):
+				if (likely(__data_available(p, 7))
+				    && *(p + 4) == ':' && *(p + 5) == '/'
+				    && *(p + 6) == '/')
+				{
+					__FSM_MOVE_nofixup_n(
+						Req_UriAuthorityStart, 7);
+				}
+				if (likely(__data_available(p, 8))
+				    && C4_INT_LCM(p + 4, 's', ':', '/', '/'))
+				{
+					__FSM_MOVE_nofixup_n(
+						Req_UriAuthorityStart, 8);
+				}
 				__FSM_MOVE_nofixup_n(Req_UriSchHttp, 4);
 			case TFW_CHAR4_INT('w', 's', ':', '/'):
+				if (likely(__data_available(p, 5))
+				    && *(p + 4) == '/')
+				{
+					__FSM_MOVE_nofixup_n(
+						Req_UriAuthorityStart, 5);
+				}
 				__FSM_MOVE_nofixup_n(Req_UriSchWsColonSlash, 4);
 			case TFW_CHAR4_INT('w', 's', 's', ':'):
+				if (likely(__data_available(p, 6))
+				    && *(p + 4) == '/' && *(p + 5) == '/')
+				{
+					__FSM_MOVE_nofixup_n(
+						Req_UriAuthorityStart, 6);
+				}
 				__FSM_MOVE_nofixup_n(Req_UriSchWssColon, 4);
 			default:
 				TFW_PARSER_BLOCK(Req_Uri);
