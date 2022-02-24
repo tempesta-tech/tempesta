@@ -4,7 +4,7 @@
  * Generic connection management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "gfsm.h"
 #include "log.h"
 #include "sync_socket.h"
+#include "http.h"
 
 TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
@@ -131,7 +132,7 @@ tfw_connection_recv(void *cdata, struct sk_buff *skb)
 		.skb = skb,
 	};
 
-	return tfw_gfsm_dispatch(&conn->state, conn, &fsm_data);
+	return tfw_http_msg_process(conn, &fsm_data);
 }
 
 void

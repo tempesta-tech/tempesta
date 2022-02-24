@@ -855,13 +855,6 @@ enum {
 	TFW_FRANG_RESP_FSM_DONE	= TFW_GFSM_FRANG_RESP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-#define TFW_GFSM_FRANG_TLS_STATE(s)					\
-	((TFW_FSM_FRANG_TLS << TFW_GFSM_FSM_SHIFT) | (s))
-enum {
-	TFW_FRANG_TLS_FSM_INIT	= TFW_GFSM_FRANG_TLS_STATE(0),
-	TFW_FRANG_TLS_FSM_DONE	= TFW_GFSM_FRANG_TLS_STATE(TFW_GFSM_STATE_LAST)
-};
-
 #define __FRANG_FSM_MOVE(st)	T_FSM_MOVE(st, if (r) T_FSM_EXIT(); )
 
 #define __FRANG_FSM_JUMP_EXIT(st)					\
@@ -1245,10 +1238,9 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 }
 
 static int
-frang_http_req_handler(void *obj, TfwFsmData *data)
+frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 {
 	int r;
-	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
 	TfwVhost *dvh = NULL;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
@@ -1411,10 +1403,9 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 }
 
 static int
-frang_resp_handler(void *obj, TfwFsmData *data)
+frang_resp_handler(TfwConn *conn, TfwFsmData *data)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)data->resp;
-	TfwConn *conn = (TfwConn *)obj;
 	int r = TFW_PASS;
 
 	switch (TFW_GFSM_STATE(&conn->state)) {
@@ -1450,8 +1441,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		ra->history[i].ts = ts;
 	}
 
-	switch (hs_state)
-	{
+	switch (hs_state) {
 	case TTLS_HS_CB_FINISHED_NEW:
 		ra->history[i].tls_sess_new++;
 		break;
@@ -1472,8 +1462,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 			sum_incomplete += ra->history[i].tls_sess_incomplete;
 		}
 
-	switch (hs_state)
-	{
+	switch (hs_state) {
 	case TTLS_HS_CB_FINISHED_NEW:
 		if (conf->tls_new_conn_rate
 		    && sum_new > conf->tls_new_conn_rate)
@@ -1510,12 +1499,11 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 	return TFW_PASS;
 }
 
-static int
-frang_tls_handler(void *obj, TfwFsmData *data)
+int
+frang_tls_handler(TlsCtx *tls, int state)
 {
-	TfwCliConn *conn = (TfwCliConn *)obj;
-	FrangAcc *ra = conn->sk->sk_security;
-	int hs_state = -PTR_ERR(data->req);
+	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
+	FrangAcc *ra = conn->cli_conn.sk->sk_security;
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	int r;
 
@@ -1524,7 +1512,7 @@ frang_tls_handler(void *obj, TfwFsmData *data)
 
 	spin_lock(&ra->lock);
 
-	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, hs_state);
+	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, state);
 	if (r == TFW_BLOCK && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
 
@@ -1595,14 +1583,6 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 		.st0		= TFW_FRANG_RESP_FSM_FWD,
 		.name		= "response_fwd",
 	},
-	{
-		.prio		= -1,
-		.hook_fsm	= TFW_FSM_HTTPS,
-		.hook_state	= TFW_TLS_FSM_HS_DONE,
-		.fsm_id		= TFW_FSM_FRANG_TLS,
-		.st0		= TFW_FRANG_TLS_FSM_INIT,
-		.name		= "tls_hs_done",
-	},
 };
 
 void
@@ -1663,12 +1643,6 @@ tfw_http_limits_init(void)
 		goto err_fsm_resp;
 	}
 
-	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_TLS, frang_tls_handler);
-	if (r) {
-		T_ERR_NL("frang: can't register frang tls fsm\n");
-		goto err_fsm_tls;
-	}
-
 	r = tfw_http_limits_hooks_register();
 	if (r)
 		goto err_hooks;
@@ -1676,8 +1650,6 @@ tfw_http_limits_init(void)
 	return 0;
 err_hooks:
 	tfw_http_limits_hooks_remove();
-	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_TLS);
-err_fsm_tls:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 err_fsm_resp:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
@@ -1693,7 +1665,6 @@ tfw_http_limits_exit(void)
 	T_DBG("frang exit\n");
 
 	tfw_http_limits_hooks_remove();
-	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_TLS);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();

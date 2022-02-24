@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -237,5 +237,7 @@ struct frang_vhost_cfg_t {
 	bool			http_trailer_split;
 	bool			http_method_override;
 };
+
+int frang_tls_handler(TlsCtx *tls, int state);
 
 #endif /* __HTTP_LIMITS__ */
