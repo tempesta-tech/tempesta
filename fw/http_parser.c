@@ -380,31 +380,31 @@ do {									\
 	__FSM_I_MATCH_MOVE_fixup_finish(alphabet, to, flag, {})
 
 /* Conditional transition from state @st to @st_next. */
-#define __FSM_TX_COND(st, condition, st_next, field) 			\
-__FSM_STATE(st) {							\
+#define __FSM_TX_COND(st, condition, st_next, field, ...)		\
+__FSM_STATE(st, __VA_ARGS__) {						\
 	if (likely(condition))						\
 		__FSM_MOVE_f(st_next, field);				\
 	TFW_PARSER_BLOCK(st);						\
 }
 
-#define __FSM_TX_COND_nofixup(st, condition, st_next) 			\
-__FSM_STATE(st) {							\
+#define __FSM_TX_COND_nofixup(st, condition, st_next, ...)		\
+__FSM_STATE(st, __VA_ARGS__) {						\
 	if (likely(condition))						\
 		__FSM_MOVE_nofixup(st_next);				\
 	TFW_PARSER_BLOCK(st);						\
 }
 
 /* Automaton transition from state @st to @st_next on character @ch. */
-#define __FSM_TX(st, ch, st_next)					\
-	__FSM_TX_COND(st, c == (ch), st_next, &parser->hdr)
-#define __FSM_TX_nofixup(st, ch, st_next)				\
-	__FSM_TX_COND_nofixup(st, c == (ch), st_next)
+#define __FSM_TX(st, ch, st_next, ...)					\
+	__FSM_TX_COND(st, c == (ch), st_next, &parser->hdr, __VA_ARGS__)
+#define __FSM_TX_nofixup(st, ch, st_next, ...)				\
+	__FSM_TX_COND_nofixup(st, c == (ch), st_next, __VA_ARGS__)
 
 /* Case-insensitive version of __FSM_TX(). */
-#define __FSM_TX_LC(st, ch, st_next, field)				\
-	__FSM_TX_COND(st, TFW_LC(c) == (ch), st_next, field)
-#define __FSM_TX_LC_nofixup(st, ch, st_next) 				\
-	__FSM_TX_COND_nofixup(st, TFW_LC(c) == (ch), st_next)
+#define __FSM_TX_LC(st, ch, st_next, field, ...)			\
+	__FSM_TX_COND(st, TFW_LC(c) == (ch), st_next, field, __VA_ARGS__)
+#define __FSM_TX_LC_nofixup(st, ch, st_next, ...)			\
+	__FSM_TX_COND_nofixup(st, TFW_LC(c) == (ch), st_next, __VA_ARGS__)
 
 /*
  * Automaton transition with alphabet checking and fallback state.
@@ -3837,152 +3837,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	__FSM_STATE(Req_Uri, hot) {
 		if (likely(c == '/'))
 			__FSM_JMP(Req_UriMark);
-
-		if (likely(__data_available(p, 4)))
-			switch (*(unsigned int *)p) {
-			case TFW_CHAR4_INT('h', 't', 't', 'p'):
-				if (likely(__data_available(p, 7))
-				    && *(p + 4) == ':' && *(p + 5) == '/'
-				    && *(p + 6) == '/')
-				{
-					__FSM_MOVE_nofixup_n(
-						Req_UriAuthorityStart, 7);
-				}
-				if (likely(__data_available(p, 8))
-				    && C4_INT_LCM(p + 4, 's', ':', '/', '/'))
-				{
-					__FSM_MOVE_nofixup_n(
-						Req_UriAuthorityStart, 8);
-				}
-				__FSM_MOVE_nofixup_n(Req_UriSchHttp, 4);
-			case TFW_CHAR4_INT('w', 's', ':', '/'):
-				if (likely(__data_available(p, 5))
-				    && *(p + 4) == '/')
-				{
-					__FSM_MOVE_nofixup_n(
-						Req_UriAuthorityStart, 5);
-				}
-				__FSM_MOVE_nofixup_n(Req_UriSchWsColonSlash, 4);
-			case TFW_CHAR4_INT('w', 's', 's', ':'):
-				if (likely(__data_available(p, 6))
-				    && *(p + 4) == '/' && *(p + 5) == '/')
-				{
-					__FSM_MOVE_nofixup_n(
-						Req_UriAuthorityStart, 6);
-				}
-				__FSM_MOVE_nofixup_n(Req_UriSchWssColon, 4);
-			default:
-				TFW_PARSER_BLOCK(Req_Uri);
-			}
-
-		/* scheme slow path - step char-by-char. */
-		if (likely(TFW_LC(c) == 'h'))
-			__FSM_MOVE_nofixup(Req_UriSchH);
-		else if (TFW_LC(c) == 'w')
-			__FSM_MOVE_nofixup(Req_UriSchW);
-
-		TFW_PARSER_BLOCK(Req_Uri);
-	}
-
-	/*
-	 * URI host part.
-	 * RFC 3986 chapter 3.2: authority = [userinfo@]host[:port]
-	 *
-	 * Authority parsing: it can be "host" or "userinfo@host" (port is
-	 * parsed later). At the beginning we don't know, which of variants we
-	 * have. So we fill req->host, and if we get '@', we copy host to
-	 * req->userinfo, reset req->host and fill it.
-	 */
-	__FSM_STATE(Req_UriAuthorityStart) {
-		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			__msg_field_open(&req->host, p);
-			__FSM_MOVE_f(Req_UriAuthority, &req->host);
-		} else if (likely(c == '/')) {
-			/*
-			 * The case where "Host:" header value is empty.
-			 * A special TfwStr{} string is created that has
-			 * a valid pointer and the length of zero.
-			 */
-			T_DBG3("Handling http:///path\n");
-			tfw_http_msg_set_str_data(msg, &req->host, p);
-			req->host.flags |= TFW_STR_COMPLETE;
-			__FSM_JMP(Req_UriMark);
-		} else if (c == '[') {
-			__msg_field_open(&req->host, p);
-			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
-		}
-		TFW_PARSER_BLOCK(Req_UriAuthorityStart);
-	}
-
-	__FSM_STATE(Req_UriAuthority) {
-		if (likely(isalnum(c) || c == '.' || c == '-' || c == '@')) {
-			if (unlikely(c == '@')) {
-				if (!TFW_STR_EMPTY(&req->userinfo)) {
-					T_DBG("Second '@' in authority\n");
-					TFW_PARSER_BLOCK(Req_UriAuthority);
-				}
-				T_DBG3("Authority contains userinfo\n");
-				/* copy current host to userinfo */
-				req->userinfo = req->host;
-				__msg_field_finish(&req->userinfo, p);
-				TFW_STR_INIT(&req->host);
-
-				__FSM_MOVE_nofixup(Req_UriAuthorityResetHost);
-			}
-
-			__FSM_MOVE_f(Req_UriAuthority, &req->host);
-		}
-		__FSM_JMP(Req_UriAuthorityEnd);
-	}
-
-	__FSM_STATE(Req_UriAuthorityIPv6) {
-		if (likely(isxdigit(c) || c == ':')) {
-			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
-		} else if(c == ']') {
-			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
-		}
-		TFW_PARSER_BLOCK(Req_UriAuthorityIPv6);
-	}
-
-	__FSM_STATE(Req_UriAuthorityResetHost) {
-		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			__msg_field_open(&req->host, p);
-			__FSM_MOVE_f(Req_UriAuthority, &req->host);
-		} else if (c == '[') {
-			__msg_field_open(&req->host, p);
-			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
-		}
-		__FSM_JMP(Req_UriAuthorityEnd);
-	}
-
-	__FSM_STATE(Req_UriAuthorityEnd) {
-		if (c == ':')
-			__FSM_MOVE_f(Req_UriPort, &req->host);
-		/* Authority End */
-		__msg_field_finish(&req->host, p);
-		T_DBG3("Userinfo len = %i, host len = %i\n",
-		       (int)req->userinfo.len, (int)req->host.len);
-		if (likely(c == '/')) {
-			__FSM_JMP(Req_UriMark);
-		}
-		else if (c == ' ') {
-			__FSM_MOVE_nofixup(Req_HttpVer);
-		}
-		TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
-	}
-
-	/* Host port in URI */
-	__FSM_STATE(Req_UriPort) {
-		if (likely(isdigit(c)))
-			__FSM_MOVE_f(Req_UriPort, &req->host);
-		__msg_field_finish(&req->host, p);
-		if (likely(c == '/')) {
-			__FSM_JMP(Req_UriMark);
-		}
-		else if (c == ' ') {
-			__FSM_MOVE_nofixup(Req_HttpVer);
-		}
-		TFW_PARSER_BLOCK(Req_UriPort);
+		else
+			__FSM_JMP(Req_UriRareForms);
 	}
 
 	__FSM_STATE(Req_UriMark, hot) {
@@ -4768,11 +4624,32 @@ Req_Method_1CharStep: __attribute__((cold))
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
+	__FSM_STATE(Req_UriRareForms, cold) {
+		/* TODO Support authority form as in RFC7230#section-5.3.3
+		 * when CONNECT method will be added */
+		/* Asterisk form as in RFC7230#section-5.3.4 */
+		if (req->method == TFW_HTTP_METH_OPTIONS && c == '*')
+			__FSM_MOVE_nofixup(Req_UriMarkEnd);
+		/* Absolute form as in RFC7230#section-5.3.2 */
+		__FSM_JMP(Req_UriAbsoluteForm);
+	}
+
+	__FSM_STATE(Req_UriAbsoluteForm, cold) {
+		/* Rare form so there is no need to speed-up matching with
+		 * fast path prefixing */
+		if (likely(TFW_LC(c) == 'h'))
+			__FSM_MOVE_nofixup(Req_UriSchH);
+		else if (TFW_LC(c) == 'w')
+			__FSM_MOVE_nofixup(Req_UriSchW);
+
+		TFW_PARSER_BLOCK(Req_UriAbsoluteForm);
+	}
+
 	/* process URI scheme */
-	/* slow path for 'http://' and 'https://' */
-	__FSM_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt);
-	__FSM_TX_LC_nofixup(Req_UriSchHt, 't', Req_UriSchHtt);
-	__FSM_TX_LC_nofixup(Req_UriSchHtt, 'p', Req_UriSchHttp);
+	/* path for 'http://' and 'https://' */
+	__FSM_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt, cold);
+	__FSM_TX_LC_nofixup(Req_UriSchHt, 't', Req_UriSchHtt, cold);
+	__FSM_TX_LC_nofixup(Req_UriSchHtt, 'p', Req_UriSchHttp, cold);
 	__FSM_STATE(Req_UriSchHttp, cold) {
 		switch (TFW_LC(c)) {
 		case ':':
@@ -4783,14 +4660,18 @@ Req_Method_1CharStep: __attribute__((cold))
 		TFW_PARSER_BLOCK(Req_UriSchHttp);
 	}
 	/* http */
-	__FSM_TX_nofixup(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
-	__FSM_TX_nofixup(Req_UriSchHttpColonSlash, '/', Req_UriAuthorityStart);
+	__FSM_TX_nofixup(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash,
+			 cold);
+	__FSM_TX_nofixup(Req_UriSchHttpColonSlash, '/', Req_UriAuthorityStart,
+			 cold);
 	/* https */
-	__FSM_TX_nofixup(Req_UriSchHttps, ':', Req_UriSchHttpsColon);
-	__FSM_TX_nofixup(Req_UriSchHttpsColon, '/', Req_UriSchHttpsColonSlash);
-	__FSM_TX_nofixup(Req_UriSchHttpsColonSlash, '/', Req_UriAuthorityStart);
-	/* slow path for 'ws://' and 'wss://' */
-	__FSM_TX_LC_nofixup(Req_UriSchW, 's', Req_UriSchWs);
+	__FSM_TX_nofixup(Req_UriSchHttps, ':', Req_UriSchHttpsColon, cold);
+	__FSM_TX_nofixup(Req_UriSchHttpsColon, '/', Req_UriSchHttpsColonSlash,
+			 cold);
+	__FSM_TX_nofixup(Req_UriSchHttpsColonSlash, '/', Req_UriAuthorityStart,
+			 cold);
+	/* path for 'ws://' and 'wss://' */
+	__FSM_TX_LC_nofixup(Req_UriSchW, 's', Req_UriSchWs, cold);
 	__FSM_STATE(Req_UriSchWs, cold) {
 		switch (TFW_LC(c)) {
 		case ':':
@@ -4801,12 +4682,116 @@ Req_Method_1CharStep: __attribute__((cold))
 		TFW_PARSER_BLOCK(Req_UriSchWs);
 	}
 	/* ws */
-	__FSM_TX_nofixup(Req_UriSchWsColon, '/', Req_UriSchWsColonSlash);
-	__FSM_TX_nofixup(Req_UriSchWsColonSlash, '/', Req_UriAuthorityStart);
+	__FSM_TX_nofixup(Req_UriSchWsColon, '/', Req_UriSchWsColonSlash, cold);
+	__FSM_TX_nofixup(Req_UriSchWsColonSlash, '/', Req_UriAuthorityStart,
+			 cold);
 	/* wss */
-	__FSM_TX_nofixup(Req_UriSchWss, ':', Req_UriSchWssColon);
-	__FSM_TX_nofixup(Req_UriSchWssColon, '/', Req_UriSchWssColonSlash);
-	__FSM_TX_nofixup(Req_UriSchWssColonSlash, '/', Req_UriAuthorityStart);
+	__FSM_TX_nofixup(Req_UriSchWss, ':', Req_UriSchWssColon, cold);
+	__FSM_TX_nofixup(Req_UriSchWssColon, '/', Req_UriSchWssColonSlash,
+			 cold);
+	__FSM_TX_nofixup(Req_UriSchWssColonSlash, '/', Req_UriAuthorityStart,
+			 cold);
+
+	/*
+	 * URI host part.
+	 * RFC 3986 chapter 3.2: authority = [userinfo@]host[:port]
+	 *
+	 * Authority parsing: it can be "host" or "userinfo@host" (port is
+	 * parsed later). At the beginning we don't know, which of variants we
+	 * have. So we fill req->host, and if we get '@', we copy host to
+	 * req->userinfo, reset req->host and fill it.
+	 */
+	__FSM_STATE(Req_UriAuthorityStart, cold) {
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			__msg_field_open(&req->host, p);
+			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+		} else if (likely(c == '/')) {
+			/*
+			 * The case where "Host:" header value is empty.
+			 * A special TfwStr{} string is created that has
+			 * a valid pointer and the length of zero.
+			 */
+			T_DBG3("Handling http:///path\n");
+			tfw_http_msg_set_str_data(msg, &req->host, p);
+			req->host.flags |= TFW_STR_COMPLETE;
+			__FSM_JMP(Req_UriMark);
+		} else if (c == '[') {
+			__msg_field_open(&req->host, p);
+			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
+		}
+		TFW_PARSER_BLOCK(Req_UriAuthorityStart);
+	}
+
+	__FSM_STATE(Req_UriAuthority, cold) {
+		if (likely(isalnum(c) || c == '.' || c == '-' || c == '@')) {
+			if (unlikely(c == '@')) {
+				if (!TFW_STR_EMPTY(&req->userinfo)) {
+					T_DBG("Second '@' in authority\n");
+					TFW_PARSER_BLOCK(Req_UriAuthority);
+				}
+				T_DBG3("Authority contains userinfo\n");
+				/* copy current host to userinfo */
+				req->userinfo = req->host;
+				__msg_field_finish(&req->userinfo, p);
+				TFW_STR_INIT(&req->host);
+
+				__FSM_MOVE_nofixup(Req_UriAuthorityResetHost);
+			}
+
+			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+		}
+		__FSM_JMP(Req_UriAuthorityEnd);
+	}
+
+	__FSM_STATE(Req_UriAuthorityIPv6, cold) {
+		if (likely(isxdigit(c) || c == ':')) {
+			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
+		} else if(c == ']') {
+			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
+		}
+		TFW_PARSER_BLOCK(Req_UriAuthorityIPv6);
+	}
+
+	__FSM_STATE(Req_UriAuthorityResetHost, cold) {
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			__msg_field_open(&req->host, p);
+			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+		} else if (c == '[') {
+			__msg_field_open(&req->host, p);
+			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
+		}
+		__FSM_JMP(Req_UriAuthorityEnd);
+	}
+
+	__FSM_STATE(Req_UriAuthorityEnd, cold) {
+		if (c == ':')
+			__FSM_MOVE_f(Req_UriPort, &req->host);
+		/* Authority End */
+		__msg_field_finish(&req->host, p);
+		T_DBG3("Userinfo len = %i, host len = %i\n",
+		       (int)req->userinfo.len, (int)req->host.len);
+		if (likely(c == '/')) {
+			__FSM_JMP(Req_UriMark);
+		}
+		else if (c == ' ') {
+			__FSM_MOVE_nofixup(Req_HttpVer);
+		}
+		TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
+	}
+
+	/* Host port in URI */
+	__FSM_STATE(Req_UriPort, cold) {
+		if (likely(isdigit(c)))
+			__FSM_MOVE_f(Req_UriPort, &req->host);
+		__msg_field_finish(&req->host, p);
+		if (likely(c == '/')) {
+			__FSM_JMP(Req_UriMark);
+		}
+		else if (c == ' ') {
+			__FSM_MOVE_nofixup(Req_HttpVer);
+		}
+		TFW_PARSER_BLOCK(Req_UriPort);
+	}
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
 	__FSM_TX_nofixup(Req_HttpVerT1, 'T', Req_HttpVerT2);
