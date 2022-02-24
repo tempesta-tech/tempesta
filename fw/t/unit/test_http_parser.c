@@ -672,6 +672,8 @@ TEST(http_parser, parses_req_uri)
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
 	}
 
+	FOR_REQ("OPTIONS * HTTP/1.1\r\n\r\n");
+
 	EXPECT_BLOCK_REQ("GET sch://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
 	EXPECT_BLOCK_REQ("GET \x7f HTTP/1.1\r\n"
