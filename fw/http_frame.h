@@ -200,11 +200,13 @@ typedef struct {
 	unsigned char	data_off;
 } TfwH2Ctx;
 
+typedef struct TfwConn TfwConn;
+
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
 int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
-int tfw_h2_frame_process(void *c, TfwFsmData *data);
+int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 unsigned int tfw_h2_stream_id(TfwHttpReq *req);
 unsigned int tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
