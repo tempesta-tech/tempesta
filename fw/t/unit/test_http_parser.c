@@ -1636,6 +1636,47 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_EXTRA, req->flags));
 	}
+
+	FOR_REQ_SIMPLE("Connection: upgrade")
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_EXTRA, req->flags));
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags));
+	}
+}
+
+TEST(http_parser, upgrade)
+{
+	FOR_REQ_SIMPLE("Upgrade: websocket")
+	{
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_UPGRADE],
+				 "Upgrade: websocket");
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags));
+	}
+
+	FOR_REQ_SIMPLE("Upgrade: h2c, quic")
+	{
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_UPGRADE],
+				 "Upgrade: h2c, quic");
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				      req->flags));
+	}
+
+	FOR_REQ_SIMPLE("Upgrade: websocket, h2c")
+	{
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_UPGRADE],
+				 "Upgrade: websocket, h2c");
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags));
+	}
+
+	FOR_REQ_SIMPLE("Upgrade: h2c , websocket");
+	FOR_REQ_SIMPLE("Upgrade: h2c,  websocket");
+	EXPECT_BLOCK_REQ_SIMPLE("Upgrade: /websocket");
+	EXPECT_BLOCK_REQ_SIMPLE("Upgrade: , websocket");
+	EXPECT_BLOCK_REQ_SIMPLE("Upgrade: websocket/");
+	EXPECT_BLOCK_REQ_SIMPLE("Upgrade: websocket/, h2c");
+
 }
 
 TEST(http_parser, content_type_in_bodyless_requests)
@@ -4326,6 +4367,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, pragma);
 	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
+	TEST_RUN(http_parser, upgrade);
 	TEST_RUN(http_parser, content_type_in_bodyless_requests);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);

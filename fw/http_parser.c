@@ -713,7 +713,7 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 	 *
 	 * Unset TFW_STR_HBH_HDR flag for header name to indicate that
 	 * corresponding hop-by-hop header was found.
-	*/
+	 */
 	for (i = 0; i < hbh->off; ++i) {
 		TfwStr *hbh_name = &hbh->raw[i];
 		if ((hbh_name->flags & TFW_STR_HBH_HDR)
@@ -752,10 +752,10 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 }
 
 /**
- * Add header name listed in Connection header to hop-by-hop table of raw headers.
- * If @last is true then (@data, @len) represents last chunk of header name and
- * chunk with ':' will be added to the end. Otherwize last header in table stays
- * open to add more data.
+ * Add header name listed in Connection header to hop-by-hop table of raw
+ * headers. If @last is true then (@data, @len) represents last chunk of header
+ * name and chunk with ':' will be added to the end. Otherwise last header in
+ * table stays open to add more data.
  *
  * After name of hop-by-hop header was completed, will search for headers
  * with that name and mark them as hop-by-hop.
@@ -766,7 +766,8 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
  * TFW_HTTP_PARSE_RAWHDR_VAL macro.
  */
 static int
-__hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool finalize_item)
+__hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
+		      bool finalize_item)
 {
 	TfwStr *hbh_hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
@@ -928,7 +929,8 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * header field); besides, @finish parameter is not used in this macro.
  * xxx_fixup() family of functions is used to explicit chunking of strings.
  */
-#define TRY_STR_LAMBDA_fixup(str, field, lambda, curr_st, next_st)	\
+#define TRY_STR_LAMBDA_fixup_flag(str, field, lambda, curr_st, next_st,	\
+				  flag)					\
 	BUG_ON(!TFW_STR_PLAIN(str));					\
 	if (!chunk->data)						\
 		chunk->data = p;					\
@@ -938,15 +940,25 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 		if (chunk->len == (str)->len) {				\
 			lambda;						\
 			TRY_STR_INIT();					\
-			__FSM_I_MOVE_fixup_f(next_st, __fsm_n, field, 0);\
+			__FSM_I_MOVE_fixup_f(next_st, __fsm_n, field,	\
+					     flag);			\
 		}							\
 		__msg_field_fixup_pos(field, p, __fsm_n);		\
+		__FSM_I_field_chunk_flags(field, flag);			\
 		parser->_i_st = &&curr_st;				\
 		return CSTR_POSTPONE;					\
 	}
 
+#define TRY_STR_LAMBDA_fixup(str, field, lambda, curr_st, next_st)	\
+	TRY_STR_LAMBDA_fixup_flag(str, field, lambda, curr_st,		\
+				  next_st, 0)
+
 #define TRY_STR_fixup(str, curr_st, next_st)				\
 	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, next_st)
+
+#define TRY_STR_fixup_flag(str, curr_st, next_st, flag)			\
+	TRY_STR_LAMBDA_fixup_flag(str, &parser->hdr, { }, curr_st,	\
+				  next_st, flag)
 
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
@@ -1451,10 +1463,9 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * Other headers listed in the header will be compared with names of
 	 * end-to-end headers during saving in __hbh_parser_add_data().
 	 *
-	 * TODO: RFC 6455 WebSocket Protocol
-	 * During handshake client sets "Connection: update" and "Update" header.
-	 * This headers should be passed to server unchanged to allow
-	 * WebSocket protocol.
+	 * For WebSocket Protocol during handshake client sets
+	 * "Connection: upgrade" and "Upgrade" header. This headers should be
+	 * recreated before pass to backend.
 	 */
 	__FSM_STATE(I_Conn) {
 		WARN_ON_ONCE(parser->_acc);
@@ -1465,6 +1476,9 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		/* Spec headers */
 		TRY_CONN_TOKEN("keep-alive", {
 			__set_bit(TFW_HTTP_B_CONN_KA, &parser->_acc);
+		});
+		TRY_CONN_TOKEN("upgrade", {
+			__set_bit(TFW_HTTP_B_CONN_UPGRADE, &parser->_acc);
 		});
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_ConnOther);
@@ -1492,6 +1506,15 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			if (test_bit(TFW_HTTP_B_CONN_KA, msg->flags))
 				return CSTR_NEQ;
 			__set_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags);
+		}
+		else if (test_bit(TFW_HTTP_B_CONN_UPGRADE, &parser->_acc)) {
+			register unsigned int hid = TFW_HTTP_HDR_UPGRADE;
+
+			__set_bit(TFW_HTTP_B_CONN_UPGRADE, msg->flags);
+
+			parser->hbh_parser.spec |= 0x1 << hid;
+			if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))
+				msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;
 		}
 
 		__FSM_I_JMP(I_EoT);
@@ -2503,8 +2526,9 @@ STACK_FRAME_NON_STANDARD(__req_parse_cache_control);
 
 /*
  * Nested FSM with explicit fine-grained fixups, should employ
-   __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
-*/
+ * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup()
+ * everywhere.
+ */
 static int
 __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -3319,6 +3343,145 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__parse_pragma);
+
+/**
+ * Parse Upgrade header field. Its semantics is described in RFC 7230 6.1.
+ * For now only websocket protocol supported.
+ *
+ * Nested FSM with explicit fine-grained fixups, should employ
+ * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
+ */
+static int
+__req_parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	/*
+	 * Here we build a header value string manually to split it in chunks:
+	 * next chunk starts after ',' or ' ' list delimiter and '/' delimiter.
+	 * Optional protocol version chunk separate from protocol name chunk.
+	 */
+	__FSM_STATE(I_UpgradeProtocolStart) {
+		static const TfwStr s_websocket = TFW_STR_STRING("websocket");
+		TRY_STR_LAMBDA_fixup_flag(&s_websocket, &parser->hdr, {
+			__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, &parser->_acc);
+		}, I_UpgradeProtocolStart, I_UpgradeProtocol, TFW_STR_NAME);
+
+		__FSM_I_MATCH_MOVE_fixup(token, I_UpgradeProtocol,
+					 TFW_STR_NAME);
+		if (__fsm_sz == 0) {
+			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				     &parser->_acc))
+			{
+				__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+					  msg->flags);
+				__FSM_I_JMP(I_UpgradeProtocolEnd);
+			}
+
+			/*
+			 * Protocol name should contain at least 1 character.
+			 */
+			return CSTR_NEQ;
+		}
+		__FSM_I_JMP(I_UpgradeProtocolEnd);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character in
+	 * protocol name and now we can pass zero length token.
+	 */
+	__FSM_STATE(I_UpgradeProtocol) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_UpgradeProtocol, TFW_STR_NAME);
+		if (__fsm_sz == 0) {
+			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				     &parser->_acc))
+			{
+				__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+					  msg->flags);
+			}
+		}
+
+		__FSM_I_JMP(I_UpgradeProtocolEnd);
+	}
+
+	__FSM_STATE(I_UpgradeProtocolEnd) {
+		if (__fsm_sz) {
+			/* Save protocol name */
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__FSM_I_chunk_flags(TFW_STR_NAME);
+		}
+
+		p += __fsm_sz;
+		if (likely(IS_CRLF(*(p)))) {
+			__FSM_EXIT(__data_processed(p));
+		}
+		if (IS_WS(*p) || *p == ',')
+			__FSM_I_MOVE_fixup(I_EoLE, 1, 0);
+		if (*p == '/')
+			__FSM_I_MOVE_fixup(I_UpgradeVersionStart, 1, 0);
+		return CSTR_NEQ;
+	}
+
+	/*
+	 * Protocol version stored in a separate value TfwStr chunk.
+	 * May not be empty. '/' already matched.
+	 */
+	__FSM_STATE(I_UpgradeVersionStart) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_UpgradeVersion,
+					 TFW_STR_VALUE);
+		if (likely(__fsm_sz))
+			__FSM_I_JMP(I_UpgradeVersionEnd);
+		return CSTR_NEQ;
+	}
+
+	/*
+	 * At this state we know that we saw at least one character in
+	 * protocol version and now we can pass zero length token.
+	 */
+
+	__FSM_STATE(I_UpgradeVersion) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_UpgradeVersion,
+					 TFW_STR_VALUE);
+		__FSM_I_JMP(I_UpgradeVersionEnd);
+	}
+
+	__FSM_STATE(I_UpgradeVersionEnd) {
+		if (likely(__fsm_sz)) {
+			/* Save protocol version */
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__FSM_I_chunk_flags(TFW_STR_VALUE);
+		}
+
+		p += __fsm_sz;
+		if (likely(IS_CRLF(*(p)))) {
+			__FSM_EXIT(__data_processed(p));
+		}
+		if (IS_WS(*p) || *p == ',')
+			__FSM_I_MOVE_fixup(I_EoLE, 1, 0);
+		return CSTR_NEQ;
+	}
+
+	/* End of list entry */
+	__FSM_STATE(I_EoLE) {
+		if (IS_WS(*p) || *p == ',')
+			__FSM_I_MOVE_fixup(I_EoLE, 1, 0);
+
+		if (IS_TOKEN(*p)) {
+			parser->_acc = 0; /* reinit for next list entry */
+			__FSM_I_JMP(I_UpgradeProtocolStart);
+		}
+		if (IS_CRLF(*p))
+			__FSM_EXIT(__data_processed(p));
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__req_parse_upgrade);
 
 static int
 __req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -4323,6 +4486,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				p += 10;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
+			if (likely(__data_available(p, 8)
+				   && C4_INT_LCM(p, 'u', 'p', 'g', 'r')
+				   && C4_INT3_LCM(p + 4, 'a', 'd', 'e', ':')))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 7));
+				parser->_i_st = &&Req_HdrUpgradeV;
+				p += 7;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
 			__FSM_MOVE(Req_HdrU);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
@@ -4421,6 +4593,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUser_AgentV, msg,
 				   __req_parse_user_agent,
 				   TFW_HTTP_HDR_USER_AGENT);
+
+	/* 'Upgrade:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUpgradeV, msg,__req_parse_upgrade,
+				     TFW_HTTP_HDR_UPGRADE, 0);
 
 	/* 'Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, msg, __req_parse_cookie,
@@ -5068,8 +5244,18 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Http_Method_Override);
 	__FSM_TX_AF_OWS(Req_HdrX_Http_Method_Override, Req_HdrX_Method_OverrideV);
 
+	__FSM_STATE(Req_HdrU, cold) {
+		switch (TFW_LC(c)) {
+		case 's':
+			__FSM_MOVE(Req_HdrUs);
+		case 'p':
+			__FSM_MOVE(Req_HdrUp);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
 	/* User-Agent header processing. */
-	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs);
 	__FSM_TX_AF(Req_HdrUs, 'e', Req_HdrUse);
 	__FSM_TX_AF(Req_HdrUse, 'r', Req_HdrUser);
 	__FSM_TX_AF(Req_HdrUser, '-', Req_HdrUser_);
@@ -5079,6 +5265,14 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen);
 	__FSM_TX_AF(Req_HdrUser_Agen, 't', Req_HdrUser_Agent);
 	__FSM_TX_AF_OWS(Req_HdrUser_Agent, Req_HdrUser_AgentV);
+
+	/* Upgrade header processing. */
+	__FSM_TX_AF(Req_HdrUp, 'g', Req_HdrUpg);
+	__FSM_TX_AF(Req_HdrUpg, 'r', Req_HdrUpgr);
+	__FSM_TX_AF(Req_HdrUpgr, 'a', Req_HdrUpgra);
+	__FSM_TX_AF(Req_HdrUpgra, 'd', Req_HdrUpgrad);
+	__FSM_TX_AF(Req_HdrUpgrad, 'e', Req_HdrUpgrade);
+	__FSM_TX_AF_OWS(Req_HdrUpgrade, Req_HdrUpgradeV);
 
 	/* Cookie header processing. */
 	__FSM_TX_AF(Req_HdrCoo, 'k', Req_HdrCook);
@@ -5731,7 +5925,7 @@ do {									\
 		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
 		__FSM_EXIT(CSTR_POSTPONE);				\
 	}
- 
+
 #define H2_TRY_STR_LAMBDA_fixup(str, fld, lambda, curr_st, next_st)	\
 	H2_TRY_STR_2LAMBDA_fixup(str, fld, {}, lambda, curr_st, next_st)
 

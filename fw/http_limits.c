@@ -565,6 +565,49 @@ frang_http_methods_override(const TfwHttpReq *req, FrangAcc *ra,
 }
 
 static int
+frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
+			     FrangVhostCfg *f_cfg)
+{
+	BUG_ON(!req);
+
+	switch (req->version) {
+	/*
+	 * TODO upgrade websocket checks for h2 as described in RFC8441
+	 */
+	case TFW_HTTP_VER_20:
+		break;
+	/*
+	 * Tempesta FW MUST block requests with Upgrade header but without
+	 * upgrade option in Connection header. Tempesta FW MUST ignore
+	 * Upgrade header for HTTP version less then HTTP/1.1.
+	 * See RFC7230#section-6.1.
+	 */
+	case TFW_HTTP_VER_11:
+	case TFW_HTTP_VER_10:
+	case TFW_HTTP_VER_09:
+		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
+		    && !test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags))
+		{
+			frang_msg("upgrade request without connection option",
+				  &FRANG_ACC2CLI(ra)->addr, ": protocol: %s\n",
+				  "websocket");
+			return TFW_BLOCK;
+		}
+		if (req->version == TFW_HTTP_VER_10
+		    || req->version == TFW_HTTP_VER_09)
+		{
+			clear_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				  ((TfwHttpReq *)req)->flags);
+		}
+		break;
+	default:
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
+static int
 frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 {
 	TfwStr field, *s;
@@ -1188,6 +1231,13 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		*/
 		if (f_cfg->http_ct_required || f_cfg->http_ct_vals)
 			r = frang_http_ct_check(req, ra, f_cfg->http_ct_vals);
+
+		/* Do checks for websocket upgrade */
+		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
+		    && (r = frang_http_upgrade_websocket(req, ra, f_cfg)))
+		{
+			T_FSM_EXIT();
+		}
 
 		__FRANG_FSM_MOVE(Frang_Req_Body_Start);
 	}
