@@ -3837,8 +3837,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	__FSM_STATE(Req_Uri, hot) {
 		if (likely(c == '/'))
 			__FSM_JMP(Req_UriMark);
-		else
-			__FSM_JMP(Req_UriRareForms);
+		__FSM_JMP(Req_UriRareForms);
 	}
 
 	__FSM_STATE(Req_UriMark, hot) {
@@ -4625,8 +4624,8 @@ Req_Method_1CharStep: __attribute__((cold))
 	}
 
 	__FSM_STATE(Req_UriRareForms, cold) {
-		/* TODO Support authority form as in RFC7230#section-5.3.3
-		 * when CONNECT method will be added */
+		/* There is also authority form as in RFC7230#section-5.3.3,
+		 * but it only used with CONNECT that is not supported */
 		/* Asterisk form as in RFC7230#section-5.3.4 */
 		if (req->method == TFW_HTTP_METH_OPTIONS && c == '*')
 			__FSM_MOVE_nofixup(Req_UriMarkEnd);
