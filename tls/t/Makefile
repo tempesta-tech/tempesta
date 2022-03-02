@@ -25,7 +25,7 @@ CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -mrdrnd -DNR_CPUS=1 \
 		  -Wall -Werror -Wno-sign-compare -Wno-unused-but-set-variable \
 		  -Wno-pointer-sign -Werror=strict-prototypes -Warray-bounds=0 \
 		  -Werror=incompatible-pointer-types -Wno-unused-const-variable \
-		  -Wno-unused-function -Wno-format-security \
+		  -Wno-unused-function \
 		  -I../../ktest -I../.. -I..
 
 TEST_CFLAGS	= -O0 -ggdb3 -DNO_RANDOM
