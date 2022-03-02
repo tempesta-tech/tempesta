@@ -139,7 +139,7 @@ print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
 	const unsigned char *c = (unsigned char *)buf;
 
 	fflush(NULL);
-	printf(prefix_str);
+	printf("%s", prefix_str);
 
 	for (i = 0; i < len; ++i) {
 		if (i && !(i % 16))
