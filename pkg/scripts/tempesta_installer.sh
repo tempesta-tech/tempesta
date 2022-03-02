@@ -57,22 +57,19 @@ usage()
 # our needs.
 tfw_download()
 {
-	repo="${1}"
-	tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$repo/tags | grep -P 'name": "\d+' | cut -d '"' -f 4 | sort -V -r | head -n1`
-	if [[ ! "$tag" ]]; then
-		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$repo"
+  release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
+	if [[ ! "$release_tag" ]]; then
+		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
 		#TODO: show next line only if received 403 status code.
 		echo "Or may be Github API rate limit exceeded."
 		exit 2
 	fi
 
-	release_tag="$DISTRO/$tag"
-	uri="https://api.github.com/repos/$GITHUB_USER/$repo/releases/tags/${release_tag}"
-
+	uri="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/releases/tags/${release_tag}"
 	links=`curl -s $uri | grep browser_download_url | grep -P "$2" | cut -d '"' -f 4`
 	if [[ ! "$links" ]]; then
 		echo "Can't download file $2 from release ${release_tag} in repo:"
-		echo "https://github.com/$GITHUB_USER/$repo"
+		echo "https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
 		#TODO: show next line only if received 403 status code.
 		echo "Or may be Github API rate limit exceeded."
 		exit 2
@@ -90,13 +87,21 @@ tfw_install_packages()
 	shift
 	files=("${@}")
 
-	echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
-	mkdir -p $DOWNLOAD_DIR/$repo
-
-	for file in "${files[@]}"
-	do
-		tfw_download $repo $file
-	done
+  case $DISTRO in
+	"debian-8")
+    echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
+    mkdir -p $DOWNLOAD_DIR/$repo
+    ;;
+	"ubuntu-20")
+    repo=""
+    echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
+    # echo "$DOWNLOAD_DIR/$repo"
+    mkdir -p $DOWNLOAD_DIR/$repo
+    ;;
+  *)
+		;;
+  esac
+	tfw_download $repo $file
 
 	# Packages can depend on each other, install with single command to
 	# make all packages setup correctly.
@@ -122,6 +127,17 @@ tfw_install_deps()
 		apt-get -t jessie-backports dist-upgrade -y
 		APT_OPTS="-t jessie-backports"
 		;;
+        "ubuntu-20")
+        echo ""
+		echo "Installation on Ubuntu 20 LTS requires updating system from"
+		echo "jessie-backports repository before installing TempestaFW."
+		tfw_confirm
+
+		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
+		        "focal main" >> /etc/apt/sources.list
+		apt-get update
+		apt-get dist-upgrade -y
+    ;;
 	*)
 		;;
 	esac
@@ -210,6 +226,9 @@ tfw_try_distro()
 	"Debian GNU/Linux 9 (stretch)")
 		DISTRO="debian-9"
 		;;
+	"Ubuntu 20.04.4 LTS" | "Ubuntu 20.04.3 LTS")
+		DISTRO="ubuntu-20"
+		;;
 	*)
 		echo "Installer does not support $d_name distro!"
 		exit 2
@@ -223,8 +242,9 @@ tfw_set_grub_default()
 		return
 	fi
 
+	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35+ | head -n1 | cut -d "'" -f 2`
 	entry=`grep menuentry /boot/grub/grub.cfg | grep tempesta | head -n1 | cut -d "'" -f 2`
-	if [[ ! "$entry" ]]; then
+	if [[ ! "$entry" && ! "$u_entry" ]]; then
 		echo "Error: Can't find Tempesta patched kernel in /boot/grub/grub.cfg!"
 		return
 	fi
@@ -283,4 +303,3 @@ echo ""
 echo "More information about TempestaFW configuration and troubleshooting"
 echo "can be found in readme and wiki on project page:"
 echo "https://github.com/tempesta-tech/tempesta"
-
