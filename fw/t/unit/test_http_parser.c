@@ -129,17 +129,17 @@ tfw_h2_pack_hdr_frame(const char *str, char buf[], unsigned int buf_len)
 	return frame_hdr.length + H2_HDR_HDR_SZ;
 }
 
-static int
+static int __attribute__((unused))
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
 	size_t pos = 0;
 	unsigned int parsed;
 	int r = 0;
-	TfwHttpMsg *hm = (type == FUZZ_REQ)
-			? (TfwHttpMsg *)req
-			: (TfwHttpMsg *)resp;
+	TfwHttpMsg *hm = (type == FUZZ_RESP)
+			? (TfwHttpMsg *)resp
+			: (TfwHttpMsg *)req;
 
-	BUG_ON(type != FUZZ_REQ && type != FUZZ_RESP);
+	BUG_ON(type != FUZZ_REQ && type != FUZZ_REQ_H2 && type != FUZZ_RESP);
 	while (pos < len) {
 		if (chunk_size >= len - pos)
 			/* At the last chunk */
@@ -149,13 +149,14 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 		if (type == FUZZ_REQ)
 			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
 		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, str + pos, len, &parsed);
+			r = tfw_h2_parse_req(req, str + pos, chunk_size, &parsed);
 		else
 			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
 
+		BUILD_BUG_ON(TFW_POSTPONE - T_POSTPONE != 0);
 		if (r != TFW_POSTPONE)
 			return r;
 
@@ -207,6 +208,7 @@ test_case_parse_prepare_h2(const char *str, size_t sz_diff)
 	};
 	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
 
+	chunk_size_index = 0;
 	hm_exp_len = h2_len - sz_diff;
 }
 
@@ -1710,20 +1712,20 @@ TEST(http_parser, content_type_in_bodyless_requests)
 			    "content-length: 0");
 }
 
-//TEST(http_parser, http2_cache_control_and_authority)
-//{
-//	/* Without content-length will not be blocked */
-//	FOR_REQ_H2(":method: GET\n"
-//		   ":scheme: https\n"
-//		   ":path: /");
-//
-//	/* But with content-length will be block for http2 too */
-//	EXPECT_BLOCK_REQ_H2(":authority: debian\n"
-//			    ":method: GET\n"
-//			    ":scheme: http\n"
-//			    ":path: /\n"
-//			    "content-length: 0");
-//}
+TEST(http_parser, http2_cache_control_and_authority)
+{
+	/* Without content-length will not be blocked */
+	FOR_REQ_H2(":method: GET\n"
+		   ":scheme: https\n"
+		   ":path: /");
+
+	/* But with content-length will be block for http2 too */
+	EXPECT_BLOCK_REQ_H2(":authority: debian\n"
+			    ":method: GET\n"
+			    ":scheme: http\n"
+			    ":path: /\n"
+			    "content-length: 0");
+}
 
 TEST(http_parser, content_length)
 {
@@ -4374,6 +4376,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_type_in_bodyless_requests);
+	TEST_RUN(http_parser, http2_cache_control_and_authority);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);
 	TEST_RUN(http_parser, ows);
