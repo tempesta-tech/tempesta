@@ -148,6 +148,8 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			  len, pos);
 		if (type == FUZZ_REQ)
 			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
+		else if (type == FUZZ_REQ_H2)
+			r = tfw_h2_parse_req(req, str + pos, len, &parsed);
 		else
 			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
 
@@ -156,6 +158,9 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 
 		if (r != TFW_POSTPONE)
 			return r;
+
+		if (type == FUZZ_REQ_H2)
+			r = tfw_h2_parse_req_finish(req);
 	}
 	BUG_ON(pos != len);
 
@@ -233,22 +238,19 @@ test_case_parse_prepare_h2(const char *str, size_t sz_diff)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 static int
-do_split_and_parse(unsigned char *str, int type)
+do_split_and_parse(unsigned char *str, unsigned int len, int type)
 {
 	int r;
-	static size_t len;
 
 	BUG_ON(!str);
 
-	if (chunk_size_index == 0)
-		len = strlen(str);
-	else if (chunk_size_index >= CHUNK_SIZE_CNT)
-		/*
-		 * Return any positive value to indicate that
-		 * all defined chunk sizes were tested and
-		 * no more iterations needed.
-		 */
-		return 1;
+	if (chunk_size_index == CHUNK_SIZE_CNT)
+	/*
+	 * Return any positive value to indicate that
+	 * all defined chunk sizes were tested and
+	 * no more iterations needed.
+	 */
+	return 1;
 
 	if (type == FUZZ_REQ) {
 		if (req)
@@ -256,6 +258,17 @@ do_split_and_parse(unsigned char *str, int type)
 
 		req = test_req_alloc(len);
 	}
+//	else if (type == FUZZ_REQ_H2) {
+//		if (req)
+//			test_req_free(req);
+//
+//		req = test_req_alloc(len);
+//
+//		req->conn = (TfwConn*)&conn;
+//		req->pit.parsed_hdr = &h2_parsed_hdr;
+//		stream.msg = (TfwMsg*)req;
+//		req->stream = &stream;
+//	}
 	else if (type == FUZZ_RESP) {
 		if (resp)
 			test_resp_free(resp);
@@ -330,12 +343,12 @@ validate_data_fully_parsed(int type)
 	return hm->msg.len == hm_exp_len;
 }
 
-#define TRY_PARSE_EXPECT_PASS(str, type)			\
+#define TRY_PARSE_EXPECT_PASS(str, len, type)			\
 ({ 								\
 	int _err = type == FUZZ_REQ_H2 ?			\
 		do_h2_parse(h2_buf + H2_HDR_HDR_SZ,		\
 			    h2_len, type) :			\
-		do_split_and_parse(str, type);			\
+		do_split_and_parse(str, len, type);		\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
 	    || !validate_data_fully_parsed(type))		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
@@ -348,12 +361,12 @@ validate_data_fully_parsed(int type)
 		_err == TFW_PASS;				\
 })
 
-#define TRY_PARSE_EXPECT_BLOCK(str, type)			\
+#define TRY_PARSE_EXPECT_BLOCK(str, len, type)			\
 ({								\
 	int _err = type == FUZZ_REQ_H2 ?			\
 		do_h2_parse(h2_buf + H2_HDR_HDR_SZ,		\
 			    h2_len, type) :			\
-		do_split_and_parse(str, type);			\
+		do_split_and_parse(str, len, type);		\
 	if (_err == TFW_PASS)					\
 		TEST_FAIL("%s is not blocked as expected:\n%s",	\
 			  (type == FUZZ_REQ			\
@@ -370,27 +383,27 @@ validate_data_fully_parsed(int type)
 	type == FUZZ_REQ_H2 ?					\
 		test_case_parse_prepare_h2(str, sz_diff) :	\
 		test_case_parse_prepare_http(str, sz_diff);	\
-	while (TRY_PARSE_EXPECT_PASS(str, type))
+	while (TRY_PARSE_EXPECT_PASS(str, strlen(str), type))
 
 #define FOR_REQ(str)	__FOR_REQ(str, 0, FUZZ_REQ)
 #define FOR_REQ_H2(str)	__FOR_REQ(str, 0, FUZZ_REQ_H2)
 
-#define __EXPECT_BLOCK_REQ(str, type)				\
-do {								\
-	TEST_LOG("=== request: [%s]\n", str);			\
-	type == FUZZ_REQ_H2 ?					\
-		test_case_parse_prepare_h2(str, 0) :		\
-		test_case_parse_prepare_http(str, 0);		\
-	while (TRY_PARSE_EXPECT_BLOCK(str, type));		\
+#define __EXPECT_BLOCK_REQ(str, type)					\
+do {									\
+	TEST_LOG("=== request: [%s]\n", str);				\
+	type == FUZZ_REQ_H2 ?						\
+		test_case_parse_prepare_h2(str, 0) :			\
+		test_case_parse_prepare_http(str, 0);			\
+	while (TRY_PARSE_EXPECT_BLOCK(str, strlen(str), type));		\
 } while (0)
 
 #define EXPECT_BLOCK_REQ(str)		__EXPECT_BLOCK_REQ(str, FUZZ_REQ)
 #define EXPECT_BLOCK_REQ_H2(str)	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2)
 
-#define __FOR_RESP(str, sz_diff)				\
-	TEST_LOG("=== response: [%s]\n", str);			\
-	test_case_parse_prepare_http(str, sz_diff);		\
-	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
+#define __FOR_RESP(str, sz_diff)					\
+	TEST_LOG("=== response: [%s]\n", str);				\
+	test_case_parse_prepare_http(str, sz_diff);			\
+	while (TRY_PARSE_EXPECT_PASS(str, strlen(str), FUZZ_RESP))
 
 #define FOR_RESP(str)	__FOR_RESP(str, 0)
 
@@ -398,7 +411,7 @@ do {								\
 do {								\
 	TEST_LOG("=== response: [%s]\n", str);			\
 	test_case_parse_prepare_http(str, 0);			\
-	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
+	while (TRY_PARSE_EXPECT_BLOCK(str, strlen(str), FUZZ_RESP));		\
 } while (0)
 
 #define EXPECT_TFWSTR_EQ(tfw_str, cstr) 			\
@@ -3442,11 +3455,11 @@ TEST(http_parser, fuzzer)
 			switch (ret) {
 			case FUZZ_VALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ);
+				TRY_PARSE_EXPECT_PASS(str, strlen(str), FUZZ_REQ);
 				break;
 			case FUZZ_INVALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ);
+				TRY_PARSE_EXPECT_BLOCK(str, strlen(str), FUZZ_REQ);
 				break;
 			case FUZZ_END:
 			default:
@@ -3468,11 +3481,11 @@ resp:
 			switch (ret) {
 			case FUZZ_VALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP);
+				TRY_PARSE_EXPECT_PASS(str, strlen(str), FUZZ_RESP);
 				break;
 			case FUZZ_INVALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP);
+				TRY_PARSE_EXPECT_BLOCK(str, strlen(str), FUZZ_RESP);
 				break;
 			case FUZZ_END:
 			default:
