@@ -258,17 +258,17 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type)
 
 		req = test_req_alloc(len);
 	}
-//	else if (type == FUZZ_REQ_H2) {
-//		if (req)
-//			test_req_free(req);
-//
-//		req = test_req_alloc(len);
-//
-//		req->conn = (TfwConn*)&conn;
-//		req->pit.parsed_hdr = &h2_parsed_hdr;
-//		stream.msg = (TfwMsg*)req;
-//		req->stream = &stream;
-//	}
+	else if (type == FUZZ_REQ_H2) {
+		if (req)
+			test_req_free(req);
+
+		req = test_req_alloc(len);
+
+		req->conn = (TfwConn*)&conn;
+		req->pit.parsed_hdr = &h2_parsed_hdr;
+		stream.msg = (TfwMsg*)req;
+		req->stream = &stream;
+	}
 	else if (type == FUZZ_RESP) {
 		if (resp)
 			test_resp_free(resp);
@@ -295,7 +295,7 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type)
 	return r;
 }
 
-static int
+static int __attribute__((unused))
 do_h2_parse(unsigned char *str, unsigned int len, int type)
 {
 	int r;
@@ -346,8 +346,7 @@ validate_data_fully_parsed(int type)
 #define TRY_PARSE_EXPECT_PASS(str, len, type)			\
 ({ 								\
 	int _err = type == FUZZ_REQ_H2 ?			\
-		do_h2_parse(h2_buf + H2_HDR_HDR_SZ,		\
-			    h2_len, type) :			\
+		do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len, type) : \
 		do_split_and_parse(str, len, type);		\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
 	    || !validate_data_fully_parsed(type))		\
@@ -364,8 +363,7 @@ validate_data_fully_parsed(int type)
 #define TRY_PARSE_EXPECT_BLOCK(str, len, type)			\
 ({								\
 	int _err = type == FUZZ_REQ_H2 ?			\
-		do_h2_parse(h2_buf + H2_HDR_HDR_SZ,		\
-			    h2_len, type) :			\
+		do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len, type) : \
 		do_split_and_parse(str, len, type);		\
 	if (_err == TFW_PASS)					\
 		TEST_FAIL("%s is not blocked as expected:\n%s",	\
