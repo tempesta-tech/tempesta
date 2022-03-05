@@ -47,7 +47,7 @@
 #include "msg.c"
 #include "http_msg.c"
 
-static const int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
+static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
@@ -55,8 +55,8 @@ static unsigned int chunk_size_index = 0;
 #define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 
 enum {
-	CHUNK_ON,
-	CHUNK_OFF
+	CHUNK_OFF,
+	CHUNK_ON
 };
 
 static TfwHttpReq *req, *sample_req;
@@ -161,7 +161,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 		pos += chunk_size;
 		hm->msg.len += parsed;
 
-		BUILD_BUG_ON(TFW_POSTPONE - T_POSTPONE != 0);
+		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
 		if (r != TFW_POSTPONE)
 			return r;
 
@@ -248,6 +248,7 @@ static int
 do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mode)
 {
 	int r;
+	unsigned int chunk_size;
 
 	BUG_ON(!str);
 
@@ -273,8 +274,9 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &h2_parsed_hdr;
-		stream.msg = (TfwMsg*)req;
 		req->stream = &stream;
+		tfw_http_init_parser_req(req);
+		stream.msg = (TfwMsg*)req;
 	}
 	else if (type == FUZZ_RESP) {
 		if (resp)
@@ -287,7 +289,13 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 		BUG();
 	}
 
-	r = split_and_parse_n(str, type, len, chunk_mode == CHUNK_OFF ? len : CHUNK_SIZES[chunk_size_index]);
+	chunk_size = chunk_mode == CHUNK_OFF
+			? len
+			: CHUNK_SIZES[chunk_size_index];
+
+	TEST_DBG3("split: chunk_mode=%d, chunk_size=%u\n", chunk_mode, chunk_size);
+
+	r = split_and_parse_n(str, type, len, chunk_size);
 
 	if (chunk_mode == CHUNK_OFF || CHUNK_SIZES[chunk_size_index] >= len)
 		/*
@@ -331,8 +339,7 @@ validate_data_fully_parsed(int type)
 			   ? "request" : "response"),					\
 			  _err, (str));							\
 	__fpu_schedule();								\
-	type == FUZZ_REQ_H2 ? false:							\
-		_err == TFW_PASS;							\
+	_err == TFW_PASS;								\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode)					\
@@ -347,8 +354,7 @@ validate_data_fully_parsed(int type)
 			   ? "request" : "response"),					\
 			       (str));							\
 	__fpu_schedule();								\
-	type == FUZZ_REQ_H2 ? false :							\
-		_err == TFW_BLOCK || _err == TFW_POSTPONE;				\
+	_err == TFW_BLOCK || _err == TFW_POSTPONE;					\
 })
 
 #define __FOR_REQ(str, sz_diff, type, chunk_mode)				\
@@ -1673,21 +1679,6 @@ TEST(http_parser, content_type_in_bodyless_requests)
 	}
 
 	/* Without content-length will not be blocked */
-	FOR_REQ_H2_CHUNK_OFF(":method: GET\n"
-			     ":scheme: https\n"
-			     ":path: /");
-
-	/* But with content-length will be block for http2 too */
-	EXPECT_BLOCK_REQ_H2_CHUNK_OFF(":authority: debian\n"
-			    ":method: GET\n"
-			    ":scheme: http\n"
-			    ":path: /\n"
-			    "content-length: 0");
-}
-
-TEST(http_parser, http2_cache_control_and_authority)
-{
-	/* Without content-length will not be blocked */
 	FOR_REQ_H2(":method: GET\n"
 		   ":scheme: https\n"
 		   ":path: /");
@@ -1698,6 +1689,17 @@ TEST(http_parser, http2_cache_control_and_authority)
 			    ":scheme: http\n"
 			    ":path: /\n"
 			    "content-length: 0");
+}
+
+TEST(http_parser, http2_check_important_fields)
+{
+	FOR_REQ_H2(":method: GET\n"
+		   ":scheme: https\n"
+		   ":path: /\n"
+		   "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\n"
+		   "Cache-Control: max-age=1, dummy, no-store, min-fresh=30\n"
+		   "Content-Type: text/plain\n"
+		   "Content-Length: 13");
 }
 
 TEST(http_parser, content_length)
@@ -4349,7 +4351,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_type_in_bodyless_requests);
-//	TEST_RUN(http_parser, http2_cache_control_and_authority);
+	TEST_RUN(http_parser, http2_check_important_fields);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);
 	TEST_RUN(http_parser, ows);
