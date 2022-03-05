@@ -242,8 +242,10 @@ enum {
 	TFW_HTTP_B_CONN_KA,
 	TFW_HTTP_B_CONN_UPGRADE,
 	TFW_HTTP_B_CONN_EXTRA,
-	/* Request is a websocket upgrade request */
+	/* Message is a websocket upgrade request */
 	TFW_HTTP_B_UPGRADE_WEBSOCKET,
+	/* Message upgrade header contains extra fields */
+	TFW_HTTP_B_UPGRADE_EXTRA,
 	/* Chunked is last transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
 	/* Chunked in the middle of applied transfer encodings. */

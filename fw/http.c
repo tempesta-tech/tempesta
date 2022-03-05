@@ -2573,6 +2573,33 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 }
 
 /*
+ * Add 'Upgrade:' header for websocket upgrade messages
+ */
+static int
+tfw_http_set_hdr_upgrade(TfwHttpMsg *hm, bool is_resp)
+{
+	int r = 0;
+
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)) {
+		if (is_resp && ((TfwHttpResp *)hm)->status == 101
+		    && test_bit(TFW_HTTP_B_UPGRADE_EXTRA, hm->flags))
+		{
+			T_ERR("Unable to add uncompliant Upgrade: header "
+			      "to msg [%p]\n", hm);
+			return -EINVAL;
+		}
+		r = tfw_http_msg_hdr_xfrm(hm, "upgrade", SLEN("upgrade"),
+				  "websocket", SLEN("websocket"),
+				  TFW_HTTP_HDR_UPGRADE, 0);
+		if (r)
+			T_ERR("Unable to add Upgrade: header to msg [%p]\n", hm);
+		else
+			T_DBG2("Added Upgrade: header to msg [%p]\n", hm);
+	}
+	return r;
+}
+
+/*
  * Expand HTTP response with 'Date:' header field.
  */
 int
@@ -2677,23 +2704,38 @@ tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 {
+	int r;
 	BUILD_BUG_ON(BIT_WORD(__TFW_HTTP_MSG_M_CONN) != 0);
 	if (((hm->flags[0] & __TFW_HTTP_MSG_M_CONN) == conn_flg)
 	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION]))
-	    && !test_bit(TFW_HTTP_B_CONN_EXTRA, hm->flags))
+	    && !test_bit(TFW_HTTP_B_CONN_EXTRA, hm->flags)
+	    && !test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
+	{
 		return 0;
+	}
 
 	switch (conn_flg) {
 	case BIT(TFW_HTTP_B_CONN_CLOSE):
 		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "close",
 					     TFW_HTTP_HDR_CONNECTION, 0);
 	case BIT(TFW_HTTP_B_CONN_KA):
-		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "keep-alive",
-					     TFW_HTTP_HDR_CONNECTION, 0);
+		r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "keep-alive",
+					  TFW_HTTP_HDR_CONNECTION, 0);
+		break;
 	default:
-		return TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
 					    TFW_HTTP_HDR_CONNECTION);
 	}
+
+	if (r < 0)
+		return r;
+
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
+	    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
+		r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "upgrade",
+				      TFW_HTTP_HDR_CONNECTION, 1);
+
+	return r;
 }
 
 /**
@@ -3069,6 +3111,10 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_msg_del_hbh_hdrs(hm);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_set_hdr_upgrade(hm, false);
 	if (r < 0)
 		return r;
 
@@ -3639,6 +3685,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		return r;
 
 	r = tfw_http_msg_del_hbh_hdrs(hm);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_set_hdr_upgrade(hm, true);
 	if (r < 0)
 		return r;
 
