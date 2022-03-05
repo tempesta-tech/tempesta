@@ -2,7 +2,7 @@
 #
 # Tempesta FW install script.
 #
-# Copyright (C) 2017 Tempesta Technologies, Inc.
+# Copyright (C) 2017-2022 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -24,9 +24,9 @@ declare -r DOWNLOAD_DIR=tfw_downloads
 
 declare -r GITHUB_USER="tempesta-tech"
 declare -r GITHUB_REPO_TEMPESTA="tempesta"
-declare -r GITHUB_REPO_LINUX="linux-4.14.32-tfw"
+declare -r GITHUB_REPO_LINUX="linux-5.10.35-tfw"
 
-#TODO: currently Debian 9 is the only supported distribution, other
+#TODO: currently Ubuntu 20 is the only supported distribution, other
 # distributions may have other names.
 # Don't install packages with debug symbols.
 declare -a FILES_LINUX=("linux-image-[\d.]+-tempesta(.bpo)?-amd64_"
@@ -57,7 +57,7 @@ usage()
 # our needs.
 tfw_download()
 {
-  release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
+        release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
 	if [[ ! "$release_tag" ]]; then
 		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
 		#TODO: show next line only if received 403 status code.
@@ -88,14 +88,13 @@ tfw_install_packages()
 	files=("${@}")
 
   case $DISTRO in
-	"debian-8")
+	"debian-11")
     echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
     mkdir -p $DOWNLOAD_DIR/$repo
     ;;
 	"ubuntu-20")
     repo=""
     echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
-    # echo "$DOWNLOAD_DIR/$repo"
     mkdir -p $DOWNLOAD_DIR/$repo
     ;;
   *)
@@ -115,17 +114,16 @@ tfw_install_deps()
 	APT_OPTS=
 
 	case $DISTRO in
-	"debian-8")
+	"debian-11")
 		echo ""
-		echo "Installation on Debian 8 requires updating system from"
-		echo "jessie-backports repository before installing TempestaFW."
+		echo "Installation on Debian 11 requires updating system from"
+		echo "bullseye repository before installing TempestaFW."
 		tfw_confirm
 
 		echo "deb http://deb.debian.org/debian/ " \
-		        "jessie-backports main" >> /etc/apt/sources.list
+		        "bullseye main" >> /etc/apt/sources.list
 		apt-get update
 		apt-get -t jessie-backports dist-upgrade -y
-		APT_OPTS="-t jessie-backports"
 		;;
         "ubuntu-20")
         echo ""
@@ -168,7 +166,7 @@ tfw_install()
 	echo -e "autoinstall_all_kernels=\"yes\"" >> /etc/dkms/framework.conf
 
 	tfw_install_packages $GITHUB_REPO_LINUX "${FILES_LINUX[@]}"
-	tfw_install_packages $GITHUB_REPO_TEMPESTA "${FILES_TEMPESTA[@]}"
+	# tfw_install_packages $GITHUB_REPO_TEMPESTA "${FILES_TEMPESTA[@]}"
 }
 
 # Find all installed packages that suit *_FILES regular expressions and save
@@ -220,11 +218,8 @@ tfw_try_distro()
 	d_name=`cat /etc/os-release | grep PRETTY_NAME | cut -d '"' -f 2`
 
 	case $d_name in
-	"Debian GNU/Linux 8 (jessie)")
-		DISTRO="debian-8"
-		;;
-	"Debian GNU/Linux 9 (stretch)")
-		DISTRO="debian-9"
+	"Debian GNU/Linux bullseye")
+		DISTRO="debian-11"
 		;;
 	"Ubuntu 20.04.4 LTS" | "Ubuntu 20.04.3 LTS")
 		DISTRO="ubuntu-20"
