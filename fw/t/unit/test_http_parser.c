@@ -164,11 +164,11 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
 		if (r != TFW_POSTPONE)
 			return r;
-
-		if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req_finish(req);
 	}
 	BUG_ON(pos != len);
+
+	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE)
+		r = tfw_h2_parse_req_finish(req);
 
 	return r;
 }
@@ -326,47 +326,54 @@ validate_data_fully_parsed(int type)
 	return hm->msg.len == hm_exp_len;
 }
 
-#define TRY_PARSE_EXPECT_PASS(str, type, chunk_mode)					\
-({											\
-	int _err = type == FUZZ_REQ_H2							\
-		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len, type, chunk_mode)	\
-		: do_split_and_parse(str, strlen(str), type, chunk_mode);		\
-	if (_err == TFW_BLOCK || _err == TFW_POSTPONE					\
-	    || !validate_data_fully_parsed(type))					\
-		TEST_FAIL("can't parse %s (code=%d):\n%s",				\
-			  (type == FUZZ_REQ						\
-			   || type == FUZZ_REQ_H2					\
-			   ? "request" : "response"),					\
-			  _err, (str));							\
-	__fpu_schedule();								\
-	_err == TFW_PASS;								\
+#define TRY_PARSE_EXPECT_PASS(str, type, chunk_mode)			\
+({						    			\
+	int _err = type == FUZZ_REQ_H2		    			\
+		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len,	\
+				     type, chunk_mode)			\
+		: do_split_and_parse(str, strlen(str),			\
+				     type, chunk_mode);			\
+	if (_err == TFW_BLOCK || _err == TFW_POSTPONE			\
+	    || !validate_data_fully_parsed(type))   			\
+		TEST_FAIL("can't parse %s (code=%d):\n%s",		\
+			  (type == FUZZ_REQ	    			\
+			   || type == FUZZ_REQ_H2			\
+			   ? "request" : "response"),			\
+			  _err, (str));					\
+	__fpu_schedule();						\
+	_err == TFW_PASS;						\
 })
 
-#define TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode)					\
-({											\
-	int _err = type == FUZZ_REQ_H2							\
-		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len, type, chunk_mode)	\
-		: do_split_and_parse(str, strlen(str), type, chunk_mode);		\
-	if (_err == TFW_PASS)								\
-		TEST_FAIL("%s is not blocked as expected:\n%s",				\
-			  (type == FUZZ_REQ						\
-			   || type == FUZZ_REQ_H2					\
-			   ? "request" : "response"),					\
-			       (str));							\
-	__fpu_schedule();								\
-	_err == TFW_BLOCK || _err == TFW_POSTPONE;					\
+#define TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode)			\
+({									\
+	int _err = type == FUZZ_REQ_H2					\
+		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len,	\
+				     type, chunk_mode)			\
+		: do_split_and_parse(str, strlen(str),			\
+				     type, chunk_mode);			\
+	if (_err == TFW_PASS)						\
+		TEST_FAIL("%s is not blocked as expected:\n%s",		\
+			  (type == FUZZ_REQ				\
+			   || type == FUZZ_REQ_H2			\
+			   ? "request" : "response"),			\
+			       (str));					\
+	__fpu_schedule();						\
+	_err == TFW_BLOCK || _err == TFW_POSTPONE;			\
 })
 
-#define __FOR_REQ(str, sz_diff, type, chunk_mode)				\
-	TEST_LOG("=== request: [%s]\n", str);					\
-	type == FUZZ_REQ_H2 ?							\
-		test_case_parse_prepare_h2(str, sz_diff) :			\
-		test_case_parse_prepare_http(str, sz_diff);			\
+#define __FOR_REQ(str, sz_diff, type, chunk_mode)			\
+	TEST_LOG("=== request: [%s]\n", str);				\
+	type == FUZZ_REQ_H2 ?						\
+		test_case_parse_prepare_h2(str, sz_diff) :		\
+		test_case_parse_prepare_http(str, sz_diff);		\
 	while (TRY_PARSE_EXPECT_PASS(str, type, chunk_mode))
 
-#define FOR_REQ(str)			__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
-#define FOR_REQ_H2(str)			__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_ON)
-#define FOR_REQ_H2_CHUNK_OFF(str)	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
+#define FOR_REQ(str)						\
+	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
+#define FOR_REQ_H2(str)						\
+	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_ON)
+#define FOR_REQ_H2_CHUNK_OFF(str)				\
+	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
 
 #define __EXPECT_BLOCK_REQ(str, type, chunk_mode)			\
 do {									\
@@ -377,9 +384,12 @@ do {									\
 	while (TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode));		\
 } while (0)
 
-#define EXPECT_BLOCK_REQ(str)			__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2(str)		__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_OFF)
+#define EXPECT_BLOCK_REQ(str)					\
+	__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
+#define EXPECT_BLOCK_REQ_H2(str)				\
+	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_ON)
+#define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)			\
+	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_OFF)
 
 #define __FOR_RESP(str, sz_diff, chunk_mode)				\
 	TEST_LOG("=== response: [%s]\n", str);				\
