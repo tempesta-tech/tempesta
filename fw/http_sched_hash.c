@@ -129,6 +129,7 @@ __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
 {
 	return (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer))
 		&& !tfw_srv_conn_restricted(conn)
+		&& !tfw_srv_conn_unscheduled(conn)
 		&& !tfw_srv_conn_busy(conn)
 		&& !tfw_srv_conn_queue_full(conn)
 		&& tfw_srv_conn_get_if_live(conn);
@@ -333,6 +334,8 @@ tfw_sched_hash_add_conns(TfwServer *srv, TfwHashConnList *cl, size_t *seed,
 
 	list_for_each_entry(conn, &srv->conn_list, list) {
 		unsigned long hash;
+		if (tfw_srv_conn_unscheduled(conn))
+			continue;
 		do {
 			hash = __hash_64(srv_hash ^ *seed);
 			*seed += seed_inc;
@@ -432,6 +435,30 @@ tfw_sched_hash_del_srv(TfwServer *srv)
 		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
 }
 
+static int
+tfw_sched_hash_upd_srv(TfwServer *srv)
+{
+	size_t size, seed, seed_inc = 0;
+	TfwHashConnList *cl = rcu_dereference_bh_check(srv->sched_data, 1);
+	TfwHashConnList *cl_copy;
+
+	seed = get_random_long();
+	seed_inc = get_random_int();
+
+	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
+	if (!(cl_copy = kzalloc(size, GFP_ATOMIC)))
+		return -ENOMEM;
+
+	tfw_sched_hash_add_conns(srv, cl_copy, &seed, seed_inc);
+
+	rcu_assign_pointer(srv->sched_data, cl_copy);
+
+	if (cl)
+		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
+
+	return 0;
+}
+
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
@@ -439,6 +466,7 @@ static TfwScheduler tfw_sched_hash = {
 	.del_grp	= tfw_sched_hash_del_grp,
 	.add_srv	= tfw_sched_hash_add_srv,
 	.del_srv	= tfw_sched_hash_del_srv,
+	.upd_srv	= tfw_sched_hash_upd_srv,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };

@@ -200,7 +200,7 @@ typedef struct {
 	unsigned char	data_off;
 } TfwH2Ctx;
 
-typedef struct TfwConn TfwConn;
+typedef struct tfw_conn_t TfwConn;
 
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);

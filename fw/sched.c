@@ -78,4 +78,3 @@ tfw_sched_unregister(TfwScheduler *sched)
 	BUG_ON(list_empty(&sched->list));
 	list_del_init(&sched->list);
 }
-
