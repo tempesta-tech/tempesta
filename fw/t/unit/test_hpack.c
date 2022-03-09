@@ -23,6 +23,21 @@
 #include "http_frame.c"
 #include "http.c"
 
+void tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
+{
+	(void)srv_conn;
+}
+void tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
+{
+	(void)srv;
+	(void)srv_conn;
+}
+TfwSrvConn *tfw_sock_srv_new_conn(TfwServer *srv)
+{
+	(void)srv;
+	return NULL;
+}
+
 #include "test.h"
 #include "helpers.h"
 #include "tfw_str_helper.h"

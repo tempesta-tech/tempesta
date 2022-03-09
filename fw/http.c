@@ -2339,7 +2339,6 @@ static int
 tfw_http_conn_init(TfwConn *conn)
 {
 	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		if (!list_empty(&srv_conn->fwd_queue)) {
@@ -5921,6 +5920,42 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 }
 
 /**
+ * Does websocket upgrade procedure.
+ *
+ * Marks current server and client connection as websocket connection. Starts
+ * reconnection with backend to restore full backend connection count.
+ *
+ * @return zero on success and negative otherwise
+ */
+static int
+tfw_http_websocket_upgrade(TfwHttpResp *resp)
+{
+	TfwServer *srv = (TfwServer *)resp->conn->peer;
+	TfwSrvConn *srv_conn;
+
+	/* Cannot proceed with upgrade websocket due to error
+	* in creation of new http connection. While it will not be
+	* inherently erroneous to upgrade existing connection, but
+	* we would pay for it with essentially dropping connection with
+	* server. Better just drop upgrade request and reestablish connection.
+	*/
+	if (!(srv_conn = tfw_sock_srv_new_conn(srv))) {
+		tfw_http_conn_error_log(resp->conn,
+					"Can't create new connection for "
+					"websocket upgrade response");
+		return TFW_BLOCK;
+	}
+
+	set_bit(TFW_CONN_B_UNSCHED, &((TfwSrvConn *)resp->conn)->flags);
+
+	tfw_sock_srv_connect_one(srv, srv_conn);
+
+	srv->sg->sched->upd_srv(srv);
+
+	return TFW_PASS;
+}
+
+/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */
@@ -5931,6 +5966,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	unsigned int chunks_unused, parsed;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
+	TfwHttpResp *resp;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false;
 
@@ -5953,6 +5989,7 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
+	resp = (TfwHttpResp *)hmresp;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -6098,6 +6135,23 @@ next_msg:
 		r = TFW_PASS;
 		goto next_resp;
 	}
+
+	/*
+	 * Upgrade client and server connection to websocket, remove it
+	 * from scheduler and provision new connection.
+	 *
+	 * TODO #755: set existent client and server connection to Conn_Ws*
+	 * when websocket proxing protocol will be implemented
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, hmresp->flags)
+		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
+		     && resp->status == 101))
+	{
+		r = tfw_http_websocket_upgrade(resp);
+		if (unlikely(r < TFW_PASS))
+			return TFW_BLOCK;
+	}
+
 	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
