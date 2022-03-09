@@ -1304,6 +1304,7 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 		return NULL;
 
 	if (!tfw_srv_conn_restricted(srv_conn)
+	    && !tfw_srv_conn_unscheduled(srv_conn)
 	    && !tfw_srv_conn_busy(srv_conn)
 	    && !tfw_srv_conn_queue_full(srv_conn)
 	    && !tfw_srv_conn_hasnip(srv_conn)
@@ -1400,7 +1401,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 	}
 	/*
 	 * In unlikely but possible situations the same session will be tried
-	 * on multiple cpus, use locking to guarantee theat the srv_conn
+	 * on multiple cpus, use locking to guarantee that the srv_conn
 	 * will point to the same server for all of them, or requests from the
 	 * same session might be forwarded to different servers.
 	 */

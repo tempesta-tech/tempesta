@@ -51,6 +51,14 @@ enum {
 	/* HTTPS */
 	Conn_HttpsClnt	= Conn_Clnt | TFW_FSM_HTTPS,
 	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
+
+	/* Websocket plain */
+	Conn_WsClnt	= Conn_HttpClnt | TFW_FSM_WS,
+	Conn_WsSrv	= Conn_HttpSrv | TFW_FSM_WS,
+
+	/* Websocket secure */
+	Conn_WssClnt	= Conn_HttpsClnt | TFW_FSM_WS,
+	Conn_WssSrv	= Conn_HttpsSrv | TFW_FSM_WS,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
@@ -100,7 +108,7 @@ enum {
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
 
-typedef struct TfwConn {
+typedef struct tfw_conn_t {
 	TFW_CONN_COMMON;
 } TfwConn;
 
@@ -199,7 +207,9 @@ enum {
 	/* Connection is in use or at least scheduled to be established. */
 	TFW_CONN_B_ACTIVE,
 	/* Connection is disconnected and stopped. */
-	TFW_CONN_B_STOPPED
+	TFW_CONN_B_STOPPED,
+	/* Mark connection as unavailable to schedulers */
+	TFW_CONN_B_UNSCHED
 };
 
 /**
@@ -295,6 +305,15 @@ static inline bool
 tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 {
 	return test_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+}
+
+/*
+ * Connection is unavailable to scheduler and may be removed from it
+ */
+static inline bool
+tfw_srv_conn_unscheduled(TfwSrvConn *srv_conn)
+{
+	return test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 }
 
 /*
