@@ -64,7 +64,7 @@
  * a socket is created first, and then there's a period of time while
  * a connection is being established.
  *
- * TfwSrvConn{} instance goes though the following periods of life:
+ * TfwSrvConn{} instance goes through the following periods of life:
  * - First, a TfwSrvConn{} instance is allocated and set up with
  *   data from configuration file.
  * - When a server socket is created, the TfwSrvConn{} instance

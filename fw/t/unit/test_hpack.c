@@ -21,6 +21,7 @@
 #define tfw_connection_send(a, b) 0
 #include "http_stream.c"
 #include "http_frame.c"
+#define tfw_connection_repair(a) ((void)(a))
 #include "http.c"
 
 #include "test.h"

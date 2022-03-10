@@ -181,7 +181,7 @@ typedef struct {
 			  & ((TFW_GFSM_FSM_MASK << TFW_GFSM_FSM_SHIFT)	\
 			    | TFW_GFSM_STATE_MASK))
 
-typedef struct TfwConn TfwConn;
+typedef struct tfw_conn_t TfwConn;
 typedef int (*tfw_gfsm_handler_t)(TfwConn *conn, TfwFsmData *data);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);

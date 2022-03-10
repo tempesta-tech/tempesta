@@ -43,8 +43,9 @@ enum {
 	/* Each connection has Client or Server bit. */
 	Conn_Clnt	= 0x1 << __Conn_Bits,
 	Conn_Srv	= 0x2 << __Conn_Bits,
-	Conn_W_Clnt	= 0x4 << __Conn_Bits,
-	Conn_W_Srv	= 0x8 << __Conn_Bits,
+
+	/* Websocket bit */
+	Conn_Ws		= 0x4 << __Conn_Bits,
 
 	/* HTTP */
 	Conn_HttpClnt	= Conn_Clnt | TFW_FSM_HTTP,
@@ -54,13 +55,13 @@ enum {
 	Conn_HttpsClnt	= Conn_Clnt | TFW_FSM_HTTPS,
 	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
 
-	/* Websocket */
-	Conn_WsClnt	= Conn_W_Clnt | TFW_FSM_HTTP,
-	Conn_WsSrv	= Conn_W_Srv | TFW_FSM_HTTP,
+	/* Websocket plain */
+	Conn_WsClnt	= Conn_Ws | Conn_HttpClnt,
+	Conn_WsSrv	= Conn_Ws | Conn_HttpSrv,
 
-	/* Secure websocket */
-	Conn_WssClnt	= Conn_W_Clnt | TFW_FSM_HTTPS,
-	Conn_WssSrv	= Conn_W_Srv | TFW_FSM_HTTPS,
+	/* Websocket secure */
+	Conn_WssClnt	= Conn_Ws | Conn_HttpsClnt,
+	Conn_WssSrv	= Conn_Ws | Conn_HttpsSrv,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
@@ -110,7 +111,7 @@ enum {
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
 
-typedef struct TfwConn {
+typedef struct tfw_conn_t {
 	TFW_CONN_COMMON;
 } TfwConn;
 

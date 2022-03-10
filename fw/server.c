@@ -46,7 +46,7 @@ static atomic64_t act_sg_n = ATOMIC64_INIT(0);
  * On the TempestaFW start or live reconfiguration a new configuration is
  * parsed and all server groups declared in the configuration are added into
  * sg_hash_reconfig. If the configuration is valid sg_hash_reconfig replaces
- * sg_hash by tfw_sg_apply_reconfig(). Otherwize reconfig list is cleared by
+ * sg_hash by tfw_sg_apply_reconfig(). Otherwise reconfig list is cleared by
  * sock_srv.c
  *
  * The same server group instance may be listed in both sg_hash and

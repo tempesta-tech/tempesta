@@ -5904,6 +5904,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	unsigned int chunks_unused, parsed;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
+	TfwHttpResp *resp;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false;
 
@@ -5926,6 +5927,7 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
+	resp = (TfwHttpResp *)hmresp;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -6071,6 +6073,24 @@ next_msg:
 		r = TFW_PASS;
 		goto next_resp;
 	}
+
+	/*
+	 * Upgrade client and server connection to websocket type, remove it
+	 * from scheduler and provision new connection.
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, hmresp->flags)
+		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
+		     && resp->status == 101))
+	{
+		TfwSrvConn *srv_conn = tfw_sock_srv_new_conn();
+
+		hmresp->req->conn->proto.type |= Conn_Ws;
+		hmresp->conn->proto.type |= Conn_Ws;
+		tfw_srv_conn_init_as_dead(srv_conn);
+		// tfw_connection_repair(hmresp->conn);
+		printk(KERN_INFO "tfw_test: AYM: 0:\n");
+	}
+
 	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
