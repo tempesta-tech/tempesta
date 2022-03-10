@@ -63,7 +63,6 @@ static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
-static TfwStr h2_parsed_hdr;
 static char h2_buf[1024];
 static unsigned int h2_len = 0;
 static size_t hm_exp_len = 0;
@@ -206,11 +205,6 @@ test_case_parse_prepare_h2(const char *str, size_t sz_diff)
 
 	tfw_h2_context_init(&conn.h2);
 	conn.h2.hdr.type = HTTP2_HEADERS;
-	h2_parsed_hdr = (TfwStr){
-		.data = h2_buf,
-		.len = H2_HDR_HDR_SZ,
-		.nchunks = 1
-	};
 	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
 
 	chunk_size_index = 0;
@@ -273,7 +267,7 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 		req = test_req_alloc(len);
 
 		req->conn = (TfwConn*)&conn;
-		req->pit.parsed_hdr = &h2_parsed_hdr;
+		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
