@@ -221,7 +221,7 @@ tfw_try_distro()
 	"Debian GNU/Linux bullseye")
 		DISTRO="debian-11"
 		;;
-	"Ubuntu 20.04.4 LTS" | "Ubuntu 20.04.3 LTS")
+	Ubuntu[[:space:]]20*)
 		DISTRO="ubuntu-20"
 		;;
 	*)
