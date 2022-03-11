@@ -21,8 +21,22 @@
 #define tfw_connection_send(a, b) 0
 #include "http_stream.c"
 #include "http_frame.c"
-#define tfw_connection_repair(a) ((void)(a))
 #include "http.c"
+
+void tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
+{
+	(void)srv_conn;
+}
+void tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
+{
+	(void)srv;
+	(void)srv_conn;
+}
+TfwSrvConn *tfw_sock_srv_new_conn(TfwServer *srv)
+{
+	(void)srv;
+	return NULL;
+}
 
 #include "test.h"
 #include "helpers.h"

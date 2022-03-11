@@ -217,7 +217,7 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
  */
-static void
+void
 tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 {
 	int r;
@@ -528,7 +528,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * Get reference to server and mark the connection as active, which means
  * that server must be put during connection release procedure.
  */
-static inline void
+inline void
 tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
@@ -631,7 +631,7 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 
-static TfwSrvConn *
+TfwSrvConn *
 tfw_sock_srv_new_conn(TfwServer *srv)
 {
 	TfwSrvConn *srv_conn;

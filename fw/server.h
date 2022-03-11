@@ -339,5 +339,6 @@ tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
+void tfw_sched_del_conn(TfwScheduler *sched, TfwSrvConn srv_conn);
 
 #endif /* __SERVER_H__ */

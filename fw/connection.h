@@ -44,9 +44,6 @@ enum {
 	Conn_Clnt	= 0x1 << __Conn_Bits,
 	Conn_Srv	= 0x2 << __Conn_Bits,
 
-	/* Websocket bit */
-	Conn_Ws		= 0x4 << __Conn_Bits,
-
 	/* HTTP */
 	Conn_HttpClnt	= Conn_Clnt | TFW_FSM_HTTP,
 	Conn_HttpSrv	= Conn_Srv | TFW_FSM_HTTP,
@@ -56,12 +53,12 @@ enum {
 	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
 
 	/* Websocket plain */
-	Conn_WsClnt	= Conn_Ws | Conn_HttpClnt,
-	Conn_WsSrv	= Conn_Ws | Conn_HttpSrv,
+	Conn_WsClnt	= Conn_HttpClnt | TFW_FSM_WS,
+	Conn_WsSrv	= Conn_HttpSrv | TFW_FSM_WS,
 
 	/* Websocket secure */
-	Conn_WssClnt	= Conn_Ws | Conn_HttpsClnt,
-	Conn_WssSrv	= Conn_Ws | Conn_HttpsSrv,
+	Conn_WssClnt	= Conn_HttpsClnt | TFW_FSM_WS,
+	Conn_WssSrv	= Conn_HttpsSrv | TFW_FSM_WS,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)

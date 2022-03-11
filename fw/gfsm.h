@@ -84,6 +84,8 @@ enum {
 	/* Protocols */
 	TFW_FSM_HTTP,
 	TFW_FSM_HTTPS,
+	/* Not really a FSM */
+	TFW_FSM_WS,
 
 	/* Security rules enforcement. */
 	TFW_FSM_FRANG_REQ,

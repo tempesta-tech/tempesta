@@ -108,6 +108,10 @@
 #include "sync_socket.h"
 #include "lib/common.h"
 
+void tfw_sock_srv_connect_try(TfwSrvConn *srv_conn);
+void tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn);
+TfwSrvConn *tfw_sock_srv_new_conn(TfwServer *srv);
+
 #define S_H2_METHOD		":method"
 #define S_H2_SCHEME		":scheme"
 #define S_H2_AUTH		":authority"
@@ -2339,7 +2343,7 @@ static int
 tfw_http_conn_init(TfwConn *conn)
 {
 	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-
+// printk(KERN_INFO "tfw_test: AYM: tfw_http_conn_init: %p\n", conn);
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		if (!list_empty(&srv_conn->fwd_queue)) {
@@ -2732,8 +2736,10 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 
 	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
 	    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
+	{
 		r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "upgrade",
 				      TFW_HTTP_HDR_CONNECTION, 1);
+	}
 
 	return r;
 }
@@ -6082,13 +6088,32 @@ next_msg:
 		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
 		     && resp->status == 101))
 	{
-		TfwSrvConn *srv_conn = tfw_sock_srv_new_conn();
+		TfwServer *srv = (TfwServer *)resp->conn->peer;
+		TfwSrvConn *srv_conn;
 
-		hmresp->req->conn->proto.type |= Conn_Ws;
-		hmresp->conn->proto.type |= Conn_Ws;
-		tfw_srv_conn_init_as_dead(srv_conn);
-		// tfw_connection_repair(hmresp->conn);
-		printk(KERN_INFO "tfw_test: AYM: 0:\n");
+		/* Cannot proceed with upgrade websocket due to error
+		 * in creation of new http connection. While it will not be
+		 * inherently erroneous to upgrade existing connection, but
+		 * we would pay for it with essentially dropping connection with
+		 * server. Better just drop upgrade request and
+		 * reestablish connection.
+		 */
+		if (!(srv_conn = tfw_sock_srv_new_conn(srv))) {
+			tfw_http_conn_error_log(conn, "Can't create new "
+						      "connection for websocket"
+						      " upgrade response");
+			return TFW_BLOCK;
+		}
+
+		// hmresp->req->conn->proto.type |= Conn_Ws;
+		// hmresp->conn->proto.type |= Conn_Ws;
+
+		// tfw_srv_conn_init_as_dead((TfwSrvConn *)hmresp->conn);
+		// tfw_connection_unlink_from_sk(hmresp->conn->sk);
+		set_bit(TFW_CONN_B_UNSCHED, &hmresp->conn->flags);
+
+		tfw_sock_srv_conn_activate(srv, srv_conn);
+		tfw_sock_srv_connect_try(srv_conn);
 	}
 
 	/*
