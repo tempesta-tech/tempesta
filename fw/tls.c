@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1036,13 +1036,6 @@ tfw_tls_cfgend(void)
 			    "provided. At least one vhost must have TLS "
 			   "certificates configured.\n");
 		return -EINVAL;
-	}
-
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS_GLOBAL)) {
-		T_WARN_NL("TLS: no global TLS certificates provided. "
-			  "Client TLS connections with unknown "
-			    "server name values or with no server name "
-			    "specified will be dropped.\n");
 	}
 
 	return 0;
