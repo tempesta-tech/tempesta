@@ -1001,13 +1001,6 @@ tfw_tls_cfgend(void)
 		return -EINVAL;
 	}
 
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS_GLOBAL)) {
-		T_WARN_NL("TLS: no global TLS certificates provided. "
-			  "Client TLS connections with unknown "
-			    "server name values or with no server name "
-			    "specified will be dropped.\n");
-	}
-
 	return 0;
 }
 
