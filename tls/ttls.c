@@ -1840,7 +1840,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 }
 
 int
-ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
+ttls_ctx_init(TlsCtx *tls, struct sock *sk, const TlsCfg *conf)
 {
 	bzero_fast(tls, sizeof(*tls));
 	spin_lock_init(&tls->lock);
@@ -1853,6 +1853,7 @@ ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
 	bzero_fast(tls->hs, sizeof(*tls->hs));
 
 	tls->hs->sni_authmode = TTLS_VERIFY_UNSET;
+	tls->sk = sk;
 
 	return 0;
 }
