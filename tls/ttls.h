@@ -584,7 +584,7 @@ void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
-int ttls_ctx_init(TlsCtx *tls, struct sock *sk, const TlsCfg *conf);
+int ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf);
 
 void ttls_conf_authmode(TlsCfg *conf, int authmode);
 
