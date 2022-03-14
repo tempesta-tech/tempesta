@@ -1840,7 +1840,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 }
 
 int
-ttls_ctx_init(TlsCtx *tls, struct sock *sk, const TlsCfg *conf)
+ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
 {
 	bzero_fast(tls, sizeof(*tls));
 	spin_lock_init(&tls->lock);
@@ -1853,7 +1853,6 @@ ttls_ctx_init(TlsCtx *tls, struct sock *sk, const TlsCfg *conf)
 	bzero_fast(tls->hs, sizeof(*tls->hs));
 
 	tls->hs->sni_authmode = TTLS_VERIFY_UNSET;
-	tls->sk = sk;
 
 	return 0;
 }
@@ -2140,6 +2139,15 @@ ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len, size_t hh_len,
 	return ttls_handshake_server_step(tls, buf, len, hh_len, read);
 }
 
+#define TTLS_WARN_PEER(t, fmt,...)					\
+do {									\
+	if ((t)->sk->sk_family == AF_INET)				\
+		T_WARN(fmt " peer %pI4\n", ##__VA_ARGS__, &(t)->sk->sk_daddr); \
+	else								\
+		T_WARN(fmt " peer %pI6c\n", ##__VA_ARGS__,		\
+		       &(t)->sk->sk_v6_daddr);				\
+} while (0)
+
 /**
  * Main TLS receive routine.
  *
@@ -2173,8 +2181,11 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 	if (!(io->st_flags & TTLS_F_ST_HDRIV)) {
 		unsigned int delta;
 
-		if ((r = ttls_parse_record_hdr(tls, buf, len, read)))
+		if ((r = ttls_parse_record_hdr(tls, buf, len, read))) {
+			TTLS_WARN_PEER(tls, "Bad TLS record (error -0x%X) from",
+				       r);
 			return r;
+		}
 		delta = *read - parsed;
 		len -= delta;
 		buf += delta;
@@ -2206,6 +2217,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		if (unlikely(!ttls_xfrm_ready(tls))) {
 			if (!(r = ttls_handle_alert(tls)))
 				return T_OK;
+			TTLS_WARN_PEER(tls, "Bad TLS alert on handshake from");
 			return T_DROP;
 		}
 		break;
@@ -2219,7 +2231,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 			T_DBG("refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_NO_RENEGOTIATION);
-			return TTLS_ERR_UNEXPECTED_MESSAGE;
+			return T_DROP;
 		}
 
 		/*
@@ -2248,7 +2260,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 				ttls_update_checksum(tls, buf - hh_len, n);
 			}
 		} else {
-			T_DBG("handshake error: %d\n", r);
+			TTLS_WARN_PEER(tls, "TLS handshake error %d with", r);
 		}
 		return r;
 
@@ -2258,7 +2270,8 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		 * established.
 		 */
 		if (unlikely(tls->state != TTLS_HANDSHAKE_OVER)) {
-			T_WARN("TLS context isn't ready after handshake\n");
+			TTLS_WARN_PEER(tls, "TLS context isn't ready after"
+				       " handshake for");
 			return T_DROP;
 		}
 		break;
@@ -2275,14 +2288,16 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 	}
 	*read += io->msglen - io->rlen;
 	if ((r = ttls_decrypt(tls, NULL))) {
-		T_DBG("cannot decrypt msg on state %x, ret=%d%s\n",
-		      tls->state, r, r == -EBADMSG ? "(bad ciphertext)" : "");
+		TTLS_WARN_PEER(tls, "TLS cannot decrypt msg on state %x,"
+			       " ret=%d%s,", tls->state, r,
+			       r == -EBADMSG ? "(bad ciphertext)" : "");
 		return T_DROP;
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
 		if (!(r = ttls_handle_alert(tls)))
 			return T_OK;
+		TTLS_WARN_PEER(tls, "Bad TLS alert from");
 		return T_DROP;
 	}
 

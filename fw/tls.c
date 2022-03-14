@@ -98,10 +98,6 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
-		TFW_WITH_ADDR_FMT(&c->peer->addr, TFW_WITH_PORT, addr_str,
-			T_WARN("Session %s rejected with error -0x%X\n",
-				addr_str, -r));
-		fallthrough;
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
@@ -663,7 +659,7 @@ tfw_tls_conn_init(TfwConn *c)
 
 	T_DBG2("%s: conn=[%p]\n", __func__, c);
 
-	if ((r = ttls_ctx_init(tls, c->sk, &tfw_tls.cfg))) {
+	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		T_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
