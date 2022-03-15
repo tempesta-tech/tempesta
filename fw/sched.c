@@ -78,28 +78,3 @@ tfw_sched_unregister(TfwScheduler *sched)
 	BUG_ON(list_empty(&sched->list));
 	list_del_init(&sched->list);
 }
-
-/*
- * Remove connection from scheduler.
- * Can be called from SoftIRQ context.
- */
-void
-tfw_sched_del_conn(TfwScheduler *sched, TfwSrvConn *srv_conn)
-{
-	rcu_read_lock_bh();
-	srvdesc = rcu_dereference_bh(srv->sched_data);
-	if (unlikely(!srvdesc))
-		goto done;
-
-rerun:
-	if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn)))
-		goto done;
-	if (skipnip && nipconn) {
-		skipnip = 0;
-		goto rerun;
-	}
-done:
-	rcu_read_unlock_bh();
-
-	tfw_srv_loop_sched_rcu();
-}

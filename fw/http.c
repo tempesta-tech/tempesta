@@ -6105,12 +6105,12 @@ next_msg:
 			return TFW_BLOCK;
 		}
 
-		// hmresp->req->conn->proto.type |= Conn_Ws;
-		// hmresp->conn->proto.type |= Conn_Ws;
+		// hmresp->req->conn->proto.type |= TFW_FSM_WS;
+		// hmresp->conn->proto.type |= TFW_FSM_WS;
+		set_bit(TFW_CONN_B_UNSCHED, &((TfwSrvConn *)hmresp->conn)->flags);
 
 		// tfw_srv_conn_init_as_dead((TfwSrvConn *)hmresp->conn);
 		// tfw_connection_unlink_from_sk(hmresp->conn->sk);
-		set_bit(TFW_CONN_B_UNSCHED, &hmresp->conn->flags);
 
 		tfw_sock_srv_conn_activate(srv, srv_conn);
 		tfw_sock_srv_connect_try(srv_conn);

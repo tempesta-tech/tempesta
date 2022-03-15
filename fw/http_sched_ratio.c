@@ -832,7 +832,7 @@ __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
 		unsigned long idxval = atomic64_inc_return(&srvdesc->counter);
 		TfwSrvConn *srv_conn = srvdesc->conn[idxval % srvdesc->conn_n];
 
-		if (unlikely(tfw_srv_conn_restricted(srv_conn)
+		if (unlikely(tfw_srv_conn_unscheduled(srv_conn)
 			     || tfw_srv_conn_busy(srv_conn)
 			     || tfw_srv_conn_queue_full(srv_conn)))
 			continue;
@@ -1291,6 +1291,68 @@ tfw_sched_ratio_del_srv(TfwServer *srv)
 		call_rcu(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
+static int
+tfw_sched_ratio_upd_srv(TfwServer *srv)
+{
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
+	TfwRatioSrvDesc *srvdesc_copy;
+	size_t size, ci = 0;
+	TfwSrvConn **conn, *srv_conn;
+
+	if (!(srvdesc_copy = kzalloc(sizeof(TfwRatioSrvDesc), GFP_ATOMIC)))
+		return -ENOMEM;
+
+	rcu_read_lock_bh();
+
+	srvdesc = rcu_dereference_bh(srv->sched_data);
+
+	srvdesc_copy->seq = srvdesc->seq;
+	atomic64_set(&srvdesc_copy->counter, atomic64_read(&srvdesc->counter));
+
+	rcu_read_unlock_bh();
+
+	size = sizeof(TfwSrvConn *) * srv->conn_n;
+	if (!(srvdesc_copy->conn = kzalloc(size, GFP_ATOMIC))) {
+		kfree(srvdesc_copy);
+		return -ENOMEM;
+	}
+
+	conn = srvdesc_copy->conn;
+	list_for_each_entry(srv_conn, &srv->conn_list, list) {
+		if (unlikely(ci++ == srv->conn_n))
+			goto err;
+		*conn++ = srv_conn;
+	}
+	if (unlikely(ci != srv->conn_n))
+		goto err;
+
+	srvdesc_copy->conn_n = srv->conn_n;
+	srvdesc_copy->srv = srv;
+
+	rcu_assign_pointer(srv->sched_data, srvdesc_copy);
+
+	if (srvdesc)
+		call_rcu(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
+
+	return 0;
+err:
+	kfree(srvdesc_copy->conn);
+	kfree(srvdesc_copy);
+	return -EINVAL;
+}
+
+static int
+tfw_sched_ratio_add_conn(TfwSrvConn *srv_conn)
+{
+	return 0;
+}
+
+static void
+tfw_sched_ratio_del_conn(TfwSrvConn *srv_conn)
+{
+
+}
+
 static TfwScheduler tfw_sched_ratio = {
 	.name		= "ratio",
 	.list		= LIST_HEAD_INIT(tfw_sched_ratio.list),
@@ -1298,6 +1360,9 @@ static TfwScheduler tfw_sched_ratio = {
 	.del_grp	= tfw_sched_ratio_del_grp,
 	.add_srv	= tfw_sched_ratio_add_srv,
 	.del_srv	= tfw_sched_ratio_del_srv,
+	.upd_srv	= tfw_sched_ratio_upd_srv,
+	.add_conn	= tfw_sched_ratio_add_conn,
+	.del_conn	= tfw_sched_ratio_del_conn,
 	.sched_sg_conn	= tfw_sched_ratio_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_ratio_sched_srv_conn,
 };

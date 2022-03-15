@@ -207,7 +207,9 @@ enum {
 	/* Connection is in use or at least scheduled to be established. */
 	TFW_CONN_B_ACTIVE,
 	/* Connection is disconnected and stopped. */
-	TFW_CONN_B_STOPPED
+	TFW_CONN_B_STOPPED,
+	/* Mark connection as unavailable to schedulers */
+	TFW_CONN_B_UNSCHED
 };
 
 /**
@@ -303,6 +305,16 @@ static inline bool
 tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 {
 	return test_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+}
+
+/*
+ * Connection is anavailable to scheduler for some reason
+ */
+static inline bool
+tfw_srv_conn_unscheduled(TfwSrvConn *srv_conn)
+{
+	return tfw_srv_conn_restricted(srv_conn)
+	       || test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 }
 
 /*

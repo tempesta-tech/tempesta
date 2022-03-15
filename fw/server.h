@@ -163,6 +163,14 @@ typedef struct {
  *		  Called in process context at re-configuration time.
  * @del_srv	- delete single server added via add_srv.
  *		  Called in SoftIRQ context.
+ * @upd_srv	- update (add or delete connections) single server.
+ *		  Called in SoftIRQ context.
+ * @add_conn	- add single server connection to the scheduler.
+ *		  Called in SoftIRQ context.
+ * @del_conn	- delete single server connection from the scheduler
+ *		  added via add_conn.
+ *		  Called in SoftIRQ context.
+
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
  * @sched_srv_conn	- schedule a request to the given server.
@@ -183,10 +191,13 @@ typedef struct {
 struct tfw_scheduler_t {
 	const char		*name;
 	struct list_head	list;
+	int			(*add_conn)(TfwSrvConn *srv_conn);
+	void			(*del_conn)(TfwSrvConn *srv_conn);
 	int			(*add_grp)(TfwSrvGroup *sg, void *arg);
 	void			(*del_grp)(TfwSrvGroup *sg);
 	int			(*add_srv)(TfwServer *srv);
 	void			(*del_srv)(TfwServer *srv);
+	int			(*upd_srv)(TfwServer *srv);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
 };
@@ -339,6 +350,5 @@ tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
-void tfw_sched_del_conn(TfwScheduler *sched, TfwSrvConn srv_conn);
 
 #endif /* __SERVER_H__ */
