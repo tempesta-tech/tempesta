@@ -1690,7 +1690,7 @@ TEST(http_parser, content_type_in_bodyless_requests)
 	/* But with content-length will be block for http2 too */
 	EXPECT_BLOCK_REQ_H2(":authority: debian\n"
 			    ":method: GET\n"
-			    ":scheme: http\n"
+			    ":scheme: https\n"
 			    ":path: /\n"
 			    "content-length: 0");
 }
