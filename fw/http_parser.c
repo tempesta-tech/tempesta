@@ -868,7 +868,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * DELETE, TRACE and CONNECT requests has no defined semantics
  * and implementations can reject it. We do this respecting overrides.
  */
-static int
+int
 tfw_http_content_fields_check(TfwHttpReq *req)
 {
 	TfwStr *tbl = req->h_tbl->tbl;
@@ -8757,10 +8757,6 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 	{
 		r = T_DROP;
 	}
-	else if (unlikely(tfw_http_content_fields_check(req)))
-	{
-		r = T_DROP;
-	}
 	else
 	{
 		r = tfw_h2_parse_body(data, len, req, parsed);
@@ -8790,11 +8786,6 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 		     && (TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_METHOD])
 			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME])
 			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_PATH]))))
-	{
-		return T_DROP;
-	}
-
-	if (unlikely(tfw_http_content_fields_check(req)))
 	{
 		return T_DROP;
 	}
