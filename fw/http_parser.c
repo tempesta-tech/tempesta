@@ -6308,6 +6308,15 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 			      bool fin)
 {
 	int ret;
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+
+	if (unlikely(req->method == TFW_HTTP_METH_GET
+		     || req->method == TFW_HTTP_METH_HEAD
+		     || req->method == TFW_HTTP_METH_DELETE
+		     || req->method == TFW_HTTP_METH_TRACE))
+	{
+		return CSTR_NEQ;
+	}
 
 	ret = parse_long_ws(data, len, &msg->content_length);
 
