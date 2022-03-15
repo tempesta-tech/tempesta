@@ -5306,7 +5306,8 @@ next_msg:
 			TfwH2Ctx *ctx;
 
 			if (tfw_h2_stream_req_complete(req->stream)) {
-				if (likely(!tfw_h2_parse_req_finish(req)))
+				if (likely(!tfw_http_content_fields_check(req)
+					&& !tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_http_req_parse_block(req, 500,
@@ -5314,8 +5315,12 @@ next_msg:
 				return TFW_BLOCK;
 			}
 			ctx = tfw_h2_context(conn);
-			if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
+			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
+				if (tfw_http_content_fields_check(req))
+					return TFW_BLOCK;
+
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+			}
 		}
 
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);

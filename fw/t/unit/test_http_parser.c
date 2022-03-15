@@ -167,8 +167,10 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 	}
 	BUG_ON(pos != len);
 
-	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE)
-		r = tfw_h2_parse_req_finish(req);
+	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
+		if (!(r = tfw_http_content_fields_check(req)))
+			r = tfw_h2_parse_req_finish(req);
+	}
 
 	return r;
 }
