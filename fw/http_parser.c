@@ -864,15 +864,15 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	return CSTR_EQ;
 }
 
-/* According to RFC 7231 4.3.* a payload within GET, HEAD,
- * DELETE, TRACE and CONNECT requests has no defined semantics
- * and implementations can reject it. We do this respecting overrides.
- */
 int
-tfw_http_content_fields_check(TfwHttpReq *req)
+tfw_http_parse_req_on_headers_done(TfwHttpReq *req)
 {
 	TfwStr *tbl = req->h_tbl->tbl;
 
+	/* According to RFC 7231 4.3.* a payload within GET, HEAD,
+	 * DELETE, TRACE and CONNECT requests has no defined semantics
+	 * and implementations can reject it. We do this respecting overrides.
+	 */
 	if (TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
 	    || TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
 	{
@@ -884,9 +884,9 @@ tfw_http_content_fields_check(TfwHttpReq *req)
 			    || req->method_override == TFW_HTTP_METH_DELETE
 			    || req->method_override == TFW_HTTP_METH_TRACE)
 			{
-				T_DBG3("%s: content-length or content-type"
+				T_WARN("%s: content-length or content-type"
 				       " not allowed to be used with such"
-				       " overridden bodyless method\n", __func__);
+				       " overridden method\n", __func__);
 				return T_BAD;
 			}
 		}
@@ -895,9 +895,9 @@ tfw_http_content_fields_check(TfwHttpReq *req)
 			 || req->method == TFW_HTTP_METH_DELETE
 			 || req->method == TFW_HTTP_METH_TRACE)
 		{
-			T_DBG3("%s: content-length or content-type"
+			T_WARN("%s: content-length or content-type"
 			       " not allowed to be used with such"
-			       " bodyless method\n", __func__);
+			       " method\n", __func__);
 			return T_BAD;
 		}
 	}
@@ -1235,7 +1235,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 									\
-	if (tfw_http_content_fields_check(req))	{			\
+	if (tfw_http_parse_req_on_headers_done(req)) {			\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 									\
@@ -8758,9 +8758,7 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 		r = T_DROP;
 	}
 	else
-	{
 		r = tfw_h2_parse_body(data, len, req, parsed);
-	}
 
 	return (r == T_OK) ? T_POSTPONE : r;
 }

@@ -86,7 +86,7 @@ enum {
 };
 
 /* TODO: When CONNECT will be added, add it to tfw_handle_validation_req()
- * and to tfw_http_content_fields_check() */
+ * and to tfw_http_parse_req_on_headers_done() */
 /* New safe methods MUST be added to TFW_HTTP_IS_METH_SAFE macro */
 typedef enum {
 	_TFW_HTTP_METH_NONE,
