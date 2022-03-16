@@ -5316,10 +5316,10 @@ next_msg:
 			}
 			ctx = tfw_h2_context(conn);
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
-				if (tfw_http_parse_req_on_headers_done(req))
-					return TFW_BLOCK;
-
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+
+				if (unlikely(tfw_http_parse_req_on_headers_done(req)))
+					return TFW_BLOCK;
 			}
 		}
 
