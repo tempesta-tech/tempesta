@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -572,7 +572,7 @@ frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
 
 	switch (req->version) {
 	/*
-	 * TODO upgrade websocket checks for h2 as described in RFC8441
+	 * TODO #755: upgrade websocket checks for h2 as described in RFC8441
 	 */
 	case TFW_HTTP_VER_20:
 		break;
@@ -593,8 +593,7 @@ frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
 				  "websocket");
 			return TFW_BLOCK;
 		}
-		if (req->version == TFW_HTTP_VER_10
-		    || req->version == TFW_HTTP_VER_09)
+		if (req->version < TFW_HTTP_VER_11)
 		{
 			clear_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
 				  ((TfwHttpReq *)req)->flags);

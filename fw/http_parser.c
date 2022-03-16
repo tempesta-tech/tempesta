@@ -956,10 +956,6 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 #define TRY_STR_fixup(str, curr_st, next_st)				\
 	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, next_st)
 
-#define TRY_STR_fixup_flag(str, curr_st, next_st, flag)			\
-	TRY_STR_LAMBDA_fixup_flag(str, &parser->hdr, { }, curr_st,	\
-				  next_st, flag)
-
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
  *
