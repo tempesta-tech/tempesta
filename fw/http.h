@@ -170,11 +170,11 @@ typedef struct {
  * Http headers table.
  *
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
- * repetition attacks. See __hdr_is_singular() and don't forget to
- * update the static headers array when add a new singular header here.
- * If the new header is hop-by-hop (must not be forwarded and cached by Tempesta)
- * it must be listed in tfw_http_init_parser_req()/tfw_http_init_parser_resp()
- * for unconditionally hop-by-hop header or in __parse_connection() otherwize.
+ * repetition attacks. See __hdr_is_singular() and don't forget to update the
+ * static headers array when add a new singular header here. If the new header
+ * is hop-by-hop (must not be forwarded and cached by Tempesta) it must be
+ * listed in tfw_http_init_parser_req()/tfw_http_init_parser_resp()
+ * for unconditionally hop-by-hop header or in __parse_connection() otherwise.
  * If the header is end-to-end it must be listed in __hbh_parser_add_data().
  *
  * Note: don't forget to update __http_msg_hdr_val() and
@@ -212,6 +212,7 @@ typedef enum {
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
 	TFW_HTTP_HDR_KEEP_ALIVE,
 	TFW_HTTP_HDR_TRANSFER_ENCODING,
+	TFW_HTTP_HDR_UPGRADE,
 
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
@@ -239,7 +240,10 @@ enum {
 	 */
 	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
 	TFW_HTTP_B_CONN_KA,
+	TFW_HTTP_B_CONN_UPGRADE,
 	TFW_HTTP_B_CONN_EXTRA,
+	/* Request is a websocket upgrade request */
+	TFW_HTTP_B_UPGRADE_WEBSOCKET,
 	/* Chunked is last transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
 	/* Chunked in the middle of applied transfer encodings. */
