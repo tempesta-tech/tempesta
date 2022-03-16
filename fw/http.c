@@ -2343,7 +2343,6 @@ static int
 tfw_http_conn_init(TfwConn *conn)
 {
 	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-// printk(KERN_INFO "tfw_test: AYM: tfw_http_conn_init: %p\n", conn);
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		if (!list_empty(&srv_conn->fwd_queue)) {
