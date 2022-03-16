@@ -308,13 +308,12 @@ tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 }
 
 /*
- * Connection is anavailable to scheduler for some reason
+ * Connection is unavailable to scheduler and may be removed from it
  */
 static inline bool
 tfw_srv_conn_unscheduled(TfwSrvConn *srv_conn)
 {
-	return tfw_srv_conn_restricted(srv_conn)
-	       || test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	return test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 }
 
 /*

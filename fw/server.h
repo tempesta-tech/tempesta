@@ -165,12 +165,7 @@ typedef struct {
  *		  Called in SoftIRQ context.
  * @upd_srv	- update (add or delete connections) single server.
  *		  Called in SoftIRQ context.
- * @add_conn	- add single server connection to the scheduler.
- *		  Called in SoftIRQ context.
- * @del_conn	- delete single server connection from the scheduler
- *		  added via add_conn.
- *		  Called in SoftIRQ context.
-
+ *
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
  * @sched_srv_conn	- schedule a request to the given server.
@@ -191,8 +186,6 @@ typedef struct {
 struct tfw_scheduler_t {
 	const char		*name;
 	struct list_head	list;
-	int			(*add_conn)(TfwSrvConn *srv_conn);
-	void			(*del_conn)(TfwSrvConn *srv_conn);
 	int			(*add_grp)(TfwSrvGroup *sg, void *arg);
 	void			(*del_grp)(TfwSrvGroup *sg);
 	int			(*add_srv)(TfwServer *srv);

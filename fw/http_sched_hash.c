@@ -128,6 +128,7 @@ static inline int
 __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
 {
 	return (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer))
+		&& !tfw_srv_conn_restricted(conn)
 		&& !tfw_srv_conn_unscheduled(conn)
 		&& !tfw_srv_conn_busy(conn)
 		&& !tfw_srv_conn_queue_full(conn)
@@ -333,6 +334,8 @@ tfw_sched_hash_add_conns(TfwServer *srv, TfwHashConnList *cl, size_t *seed,
 
 	list_for_each_entry(conn, &srv->conn_list, list) {
 		unsigned long hash;
+		if (tfw_srv_conn_unscheduled(conn))
+			continue;
 		do {
 			hash = __hash_64(srv_hash ^ *seed);
 			*seed += seed_inc;
@@ -438,7 +441,7 @@ tfw_sched_hash_upd_srv(TfwServer *srv)
 	size_t size, seed, seed_inc = 0;
 	TfwHashConnList *cl = rcu_dereference_bh_check(srv->sched_data, 1);
 	TfwHashConnList *cl_copy;
-
+printk(KERN_INFO "tfw_test: AYM: hash:\n");
 	seed = get_random_long();
 	seed_inc = get_random_int();
 
@@ -456,18 +459,6 @@ tfw_sched_hash_upd_srv(TfwServer *srv)
 	return 0;
 }
 
-// static int
-// tfw_sched_hash_add_conn(TfwSrvConn *srv_conn)
-// {
-// 	return 0;
-// }
-
-// static void
-// tfw_sched_hash_del_conn(TfwSrvConn *srv_conn)
-// {
-
-// }
-
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
@@ -476,8 +467,6 @@ static TfwScheduler tfw_sched_hash = {
 	.add_srv	= tfw_sched_hash_add_srv,
 	.del_srv	= tfw_sched_hash_del_srv,
 	.upd_srv	= tfw_sched_hash_upd_srv,
-	// .add_conn	= tfw_sched_hash_add_conn,
-	// .del_conn	= tfw_sched_hash_del_conn,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };
