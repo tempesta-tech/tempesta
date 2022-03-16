@@ -39,6 +39,7 @@ tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
+tfw_cfg_template=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmpl.conf"}
 
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
@@ -67,6 +68,33 @@ usage()
 	echo -e "  --restart   Restart.\n"
 	echo -e "  --reload    Live reconfiguration.\n"
 }
+
+templater()
+{
+	# Replace !include dircetive with file contents
+	> $tfw_cfg_path
+	while IFS= read -r line
+	do
+		if [[ $line =~ '!include' ]]; 
+		then
+			IFS=' '
+			read -ra path <<< "$line"
+
+			files=$(find ${path[1]} -type f -regextype posix-extended -regex '.*')
+			while IFS= read -r file; do
+				value=`cat $file`
+				echo "$value" >> $tfw_cfg_path
+			done <<< "$files"
+		elif [[ ${line:0:1} = \# ]]; then
+			:
+		else
+			value="$line"
+			echo "$value" >> $tfw_cfg_path
+		fi
+	done < "$tfw_cfg_template"
+}
+
+templater
 
 error()
 {
