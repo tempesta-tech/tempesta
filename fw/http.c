@@ -5306,7 +5306,7 @@ next_msg:
 			TfwH2Ctx *ctx;
 
 			if (tfw_h2_stream_req_complete(req->stream)) {
-				if (likely(!tfw_http_content_fields_check(req)
+				if (likely(!tfw_http_parse_req_on_headers_done(req)
 					&& !tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -5316,7 +5316,7 @@ next_msg:
 			}
 			ctx = tfw_h2_context(conn);
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
-				if (tfw_http_content_fields_check(req))
+				if (tfw_http_parse_req_on_headers_done(req))
 					return TFW_BLOCK;
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
