@@ -133,6 +133,8 @@ typedef struct {
 void tfw_http_init_parser_req(TfwHttpReq *req);
 void tfw_http_init_parser_resp(TfwHttpResp *resp);
 
+int tfw_http_parse_req_on_headers_done(TfwHttpReq *req);
+
 int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		       unsigned int *parsed);
 
@@ -145,7 +147,5 @@ int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			unsigned int *parsed);
 int tfw_http_parse_terminate(TfwHttpMsg *hm);
 bool tfw_http_parse_is_done(TfwHttpMsg *hm);
-
-int tfw_http_parse_req_on_headers_done(TfwHttpReq *req);
 
 #endif /* __TFW_HTTP_PARSER_H__ */

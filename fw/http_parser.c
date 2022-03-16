@@ -864,47 +864,6 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	return CSTR_EQ;
 }
 
-int
-tfw_http_parse_req_on_headers_done(TfwHttpReq *req)
-{
-	TfwStr *tbl = req->h_tbl->tbl;
-
-	/* According to RFC 7231 4.3.* a payload within GET, HEAD,
-	 * DELETE, TRACE and CONNECT requests has no defined semantics
-	 * and implementations can reject it. We do this respecting overrides.
-	 */
-	if (TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
-	    || TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
-	{
-		/* Method override either honored or request message
-		 * with method override header dropped later in processing */
-		if (unlikely(req->method_override)) {
-			if (req->method_override == TFW_HTTP_METH_GET
-			    || req->method_override == TFW_HTTP_METH_HEAD
-			    || req->method_override == TFW_HTTP_METH_DELETE
-			    || req->method_override == TFW_HTTP_METH_TRACE)
-			{
-				T_WARN("%s: content-length or content-type"
-				       " not allowed to be used with such"
-				       " overridden method\n", __func__);
-				return T_BAD;
-			}
-		}
-		else if (req->method == TFW_HTTP_METH_GET
-			 || req->method == TFW_HTTP_METH_HEAD
-			 || req->method == TFW_HTTP_METH_DELETE
-			 || req->method == TFW_HTTP_METH_TRACE)
-		{
-			T_WARN("%s: content-length or content-type"
-			       " not allowed to be used with such"
-			       " method\n", __func__);
-			return T_BAD;
-		}
-	}
-
-	return T_OK;
-}
-
 /*
  * Helping state identifiers used to define which jump address an FSM should
  * set as the entry point.
@@ -3769,6 +3728,39 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 	 *     Connection: RFC 7230 6.1.
 	 */
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+}
+
+int
+tfw_http_parse_req_on_headers_done(TfwHttpReq *req)
+{
+#define IS_BODYLESS_METHOD(meth)						\
+	((meth) == TFW_HTTP_METH_GET || (meth) == TFW_HTTP_METH_HEAD		\
+	 || (meth) == TFW_HTTP_METH_DELETE || (meth) == TFW_HTTP_METH_TRACE)
+
+	TfwStr *tbl = req->h_tbl->tbl;
+
+	/* According to RFC 7231 4.3.* a payload within GET, HEAD,
+	 * DELETE, TRACE and CONNECT requests has no defined semantics
+	 * and implementations can reject it. We do this respecting overrides.
+	 */
+	if (TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
+	    || TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
+	{
+		/* Method override either honored or request message
+		 * with method override header dropped later in processing */
+		if ((req->method_override
+			&& IS_BODYLESS_METHOD(req->method_override))
+		    || IS_BODYLESS_METHOD(req->method)) {
+				T_WARN("%s: Content-Length or Content-Type"
+				       " not allowed to be used with such"
+				       " (overridden) method\n", __func__);
+				return T_DROP;
+		}
+	}
+
+	return T_OK;
+
+#undef IS_BODYLESS_METHOD
 }
 
 int
