@@ -267,7 +267,7 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 			test_req_free(req);
 
 		req = test_req_alloc(len);
-
+		conn.h2.hpack.state = 0;
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
@@ -289,7 +289,8 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 			? len
 			: CHUNK_SIZES[chunk_size_index];
 
-	TEST_DBG3("split: chunk_mode=%d, chunk_size=%u\n", chunk_mode, chunk_size);
+	TEST_DBG3("%s: chunk_mode=%d, chunk_size_index=%u, chunk_size=%u\n",
+		    __func__, chunk_mode, chunk_size_index, chunk_size);
 
 	r = split_and_parse_n(str, type, len, chunk_size);
 

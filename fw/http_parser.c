@@ -7645,9 +7645,9 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			__FSM_H2_OTHER_n(4);
 		/* connection */
 		case TFW_CHAR4_INT('c', 'o', 'n', 'n'):
-			if (unlikely(!__data_available(p, 9)))
+			if (unlikely(!__data_available(p, 10)))
 				__FSM_H2_NEXT_n(Req_HdrConn, 4);
-			if (C8_INT(p + 2,  'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'))
+			if (C8_INT(p + 2, 'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'))
 				__FSM_H2_DROP(Req_HdrConnection);
 			__FSM_H2_OTHER_n(4);
 		/* content-* */
