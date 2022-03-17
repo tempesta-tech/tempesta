@@ -2581,10 +2581,21 @@ tfw_http_set_hdr_upgrade(TfwHttpMsg *hm, bool is_resp)
 	int r = 0;
 
 	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)) {
+		/*
+		 * RFC7230#section-6.7:
+		 * A server that sends a 101 (Switching Protocols) response
+		 * MUST send an Upgrade header field to indicate the new
+		 * protocol(s) to * which the connection is being switched; if
+		 * multiple protocol layers are being switched, the sender MUST
+		 * list the protocols in layer-ascending order.
+		 *
+		 * We do expect neither upgrades besides 'websocket' nor
+		 * multilayer upgrades. So we consider extra options as error.
+		 */
 		if (is_resp && ((TfwHttpResp *)hm)->status == 101
 		    && test_bit(TFW_HTTP_B_UPGRADE_EXTRA, hm->flags))
 		{
-			T_ERR("Unable to add uncompliant Upgrade: header "
+			T_ERR("Unable to add uncompliant 'Upgrade:' header "
 			      "to msg [%p]\n", hm);
 			return -EINVAL;
 		}
@@ -2714,6 +2725,12 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 		return 0;
 	}
 
+	/*
+	 * We can see `TFW_HTTP_B_CONN_CLOSE` here only in case of 4XX
+	 * response with 'Connection: close' option.
+	 *
+	 * For requests conn_flg by default is TFW_HTTP_B_CONN_KA.
+	 */
 	if (unlikely(conn_flg == BIT(TFW_HTTP_B_CONN_CLOSE)))
 		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "close",
 					     TFW_HTTP_HDR_CONNECTION, 0);
