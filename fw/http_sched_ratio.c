@@ -32,8 +32,9 @@
 
 typedef struct {
 	struct rcu_head		rcu;
-	TfwSrvConn		*c[0];
-} TfwSrvConnRcu;
+	size_t			conn_n;
+	TfwSrvConn		*conns[0];
+} TfwRatioSrvConnList;
 
 /**
  * Individual upstream server descriptor.
@@ -43,17 +44,15 @@ typedef struct {
  *
  * @rcu		- RCU control structure.
  * @srv		- pointer to server structure.
- * @conn	- list of pointers to server connection structures.
+ * @cl		- pointer to list of pointers to server connection structures.
  * @counter	- monotonic counter for choosing the next connection.
- * @conn_n	- number of connections to server.
  * @seq		- current sequence number for APM stats.
  */
 typedef struct {
 	struct rcu_head		rcu;
 	TfwServer		*srv;
-	TfwSrvConnRcu		*conn;
+	TfwRatioSrvConnList	*cl;
 	atomic64_t		counter;
-	size_t			conn_n;
 	unsigned int		seq;
 } TfwRatioSrvDesc;
 
@@ -832,12 +831,12 @@ static inline TfwSrvConn *
 __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
 {
 	size_t ci;
-	TfwSrvConnRcu *conn = rcu_dereference_bh_check(srvdesc->conn, 1);
+	TfwRatioSrvConnList *cl = rcu_dereference_bh_check(srvdesc->cl, 1);
 
 	rcu_read_lock_bh();
-	for (ci = 0; ci < srvdesc->conn_n; ++ci) {
+	for (ci = 0; ci < cl->conn_n; ++ci) {
 		unsigned long idxval = atomic64_inc_return(&srvdesc->counter);
-		TfwSrvConn *srv_conn = conn->c[idxval % srvdesc->conn_n];
+		TfwSrvConn *srv_conn = cl->conns[idxval % cl->conn_n];
 
 		if (unlikely(tfw_srv_conn_restricted(srv_conn)
 			     || tfw_srv_conn_unscheduled(srv_conn)
@@ -992,7 +991,7 @@ tfw_sched_ratio_cleanup(TfwRatio *ratio)
 
 	/* Data that is shared between pool entries. */
 	for (si = 0; si < ratio->srv_n; ++si)
-		kfree(ratio->srvdesc[si].conn);
+		kfree(ratio->srvdesc[si].cl);
 
 	kfree(ratio->hstdata);
 	kfree(ratio->rtodata);
@@ -1051,10 +1050,10 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 {
 	size_t size, ci = 0;
 	TfwSrvConn *srv_conn;
-	TfwSrvConnRcu *conn;
+	TfwRatioSrvConnList *cl;
 
-	size = sizeof(TfwSrvConnRcu) + sizeof(TfwSrvConn *) * srv->conn_n;
-	if (!(conn = kzalloc(size, GFP_KERNEL)))
+	size = sizeof(TfwRatioSrvConnList) + sizeof(TfwSrvConn *) * srv->conn_n;
+	if (!(cl = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
@@ -1062,20 +1061,20 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 			continue;
 		if (unlikely(ci++ == srv->conn_n))
 			goto err;
-		printk(KERN_INFO "tfw_test: AYM: ddd: %ld\n", ci);
-		conn->c[ci-1] = srv_conn;
+
+		cl->conns[ci-1] = srv_conn;
 	}
 	if (unlikely(ci != srv->conn_n))
 		goto err;
 
-	srvdesc->conn_n = srv->conn_n;
+	cl->conn_n = ci;
 	srvdesc->srv = srv;
 	atomic64_set(&srvdesc->counter, 0);
 
-	rcu_assign_pointer(srvdesc->conn, conn);
+	rcu_assign_pointer(srvdesc->cl, cl);
 	return 0;
 err:
-	kfree(srvdesc->conn);
+	kfree(srvdesc->cl);
 	return -EINVAL;
 }
 
@@ -1292,15 +1291,15 @@ static void
 tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
 {
 	TfwRatioSrvDesc *srvdesc = container_of(rcu, TfwRatioSrvDesc, rcu);
-	kfree(srvdesc->conn);
+	kfree(srvdesc->cl);
 	kfree(srvdesc);
 }
 
 static void
 tfw_sched_ratio_put_conn_data(struct rcu_head *rcu)
 {
-	TfwSrvConnRcu *conn = container_of(rcu, TfwSrvConnRcu, rcu);
-	kfree(conn);
+	TfwRatioSrvConnList *cl = container_of(rcu, TfwRatioSrvConnList, rcu);
+	kfree(cl);
 }
 
 static void
@@ -1318,12 +1317,12 @@ tfw_sched_ratio_upd_srv(TfwServer *srv)
 {
 	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
 	size_t size, ci = 0;
-	TfwSrvConnRcu *conn_copy;
-	TfwSrvConnRcu *conn = rcu_dereference_bh_check(srvdesc->conn, 1);
+	TfwRatioSrvConnList *cl_copy;
+	TfwRatioSrvConnList *cl = rcu_dereference_bh_check(srvdesc->cl, 1);
 	TfwSrvConn *srv_conn;
 
-	size = sizeof(TfwSrvConnRcu) + sizeof(TfwSrvConn *) * srv->conn_n;
-	if (!(conn_copy = kzalloc(size, GFP_ATOMIC)))
+	size = sizeof(TfwRatioSrvConnList) + sizeof(TfwSrvConn *) * srv->conn_n;
+	if (!(cl_copy = kzalloc(size, GFP_ATOMIC)))
 		return -ENOMEM;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
@@ -1331,19 +1330,19 @@ tfw_sched_ratio_upd_srv(TfwServer *srv)
 			continue;
 		if (unlikely(ci++ == srv->conn_n))
 			goto err;
-		conn_copy->c[ci-1] = srv_conn;
+		cl_copy->conns[ci-1] = srv_conn;
 	}
 	if (unlikely(ci != srv->conn_n))
 		goto err;
-
-	rcu_assign_pointer(srvdesc->conn, conn_copy);
+	cl->conn_n = ci;
+	rcu_assign_pointer(srvdesc->cl, cl_copy);
 
 	if (srvdesc)
-		call_rcu(&conn->rcu, tfw_sched_ratio_put_conn_data);
+		call_rcu(&cl->rcu, tfw_sched_ratio_put_conn_data);
 
 	return 0;
 err:
-	kfree(conn_copy);
+	kfree(cl_copy);
 	return -EINVAL;
 }
 

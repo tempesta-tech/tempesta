@@ -441,7 +441,7 @@ tfw_sched_hash_upd_srv(TfwServer *srv)
 	size_t size, seed, seed_inc = 0;
 	TfwHashConnList *cl = rcu_dereference_bh_check(srv->sched_data, 1);
 	TfwHashConnList *cl_copy;
-printk(KERN_INFO "tfw_test: AYM: hash:\n");
+
 	seed = get_random_long();
 	seed_inc = get_random_int();
 
