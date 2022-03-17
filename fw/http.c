@@ -6080,8 +6080,11 @@ next_msg:
 	}
 
 	/*
-	 * Upgrade client and server connection to websocket type, remove it
+	 * Upgrade client and server connection to websocket, remove it
 	 * from scheduler and provision new connection.
+	 *
+	 * TODO #755: set existent client and server connection to Conn_Ws*
+	 * when websocket proxing protocol will be implemented
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, hmresp->flags)
 		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
@@ -6104,8 +6107,6 @@ next_msg:
 			return TFW_BLOCK;
 		}
 
-		// hmresp->req->conn->proto.type |= TFW_FSM_WS;
-		// hmresp->conn->proto.type |= TFW_FSM_WS;
 		set_bit(TFW_CONN_B_UNSCHED,
 			&((TfwSrvConn *)hmresp->conn)->flags);
 
@@ -6113,7 +6114,6 @@ next_msg:
 		tfw_sock_srv_connect_try(srv_conn);
 
 		srv->sg->sched->upd_srv(srv);
-		// tfw_connection_unlink_from_sk(hmresp->conn->sk);
 	}
 
 	/*
