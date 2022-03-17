@@ -39,6 +39,7 @@ tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
+tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
@@ -66,6 +67,37 @@ usage()
 	echo -e "  --stop      Stop and unload modules."
 	echo -e "  --restart   Restart.\n"
 	echo -e "  --reload    Live reconfiguration.\n"
+}
+
+templater()
+{
+	# Replace !include dircetive with file contents
+	> $tfw_cfg_temp
+	while IFS= read -r line
+	do
+		if [[ ${line:0:1} = \# ]]; then
+			:
+		elif [[ $line =~ '!include' ]]; then
+			IFS=' '
+			read -ra path <<< "$line"
+
+			files=$(find ${path[1]} -type f -regextype posix-extended -regex '.*')
+			while IFS= read -r file; do
+				value=`cat $file`
+				echo "$value" >> $tfw_cfg_temp
+			done <<< "$files"
+		else
+			value="$line"
+			echo "$value" >> $tfw_cfg_temp
+		fi
+	done < "$tfw_cfg_path"
+}
+
+remove_tmp_conf()
+{
+	if [ -f $tfw_cfg_temp ]; then
+		rm $tfw_cfg_temp
+	fi
 }
 
 error()
@@ -111,7 +143,7 @@ load_modules()
 	load_one_module "$tdb_path/$tdb_mod.ko" ||
 		error "cannot load tempesta database module"
 
-	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_path" ||
+	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp" ||
 		error "cannot load tempesta module"
 }
 
@@ -171,6 +203,8 @@ update_single_js_template()
 # Let TempestaFW warn user on issues.
 update_js_challenge_templates()
 {
+	templater
+
 	echo "...compile html templates for JS challenge"
 	# Just a simple parser: don't care about commented brackets and sections.
 	# More sophisticated parser should work inside configuration processing.
@@ -221,6 +255,7 @@ start()
 	else
 		echo "done"
 	fi
+	remove_tmp_conf
 }
 
 stop()
@@ -246,6 +281,7 @@ reload()
 		error "cannot reconfigure Tempesta FW"
 	else
 		echo "done"
+		remove_tmp_conf
 	fi
 }
 
