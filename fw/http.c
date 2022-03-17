@@ -2714,26 +2714,36 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 		return 0;
 	}
 
-	switch (conn_flg) {
-	case BIT(TFW_HTTP_B_CONN_CLOSE):
+	if (unlikely(conn_flg == BIT(TFW_HTTP_B_CONN_CLOSE)))
 		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "close",
 					     TFW_HTTP_HDR_CONNECTION, 0);
-	case BIT(TFW_HTTP_B_CONN_KA):
-		r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "keep-alive",
-					  TFW_HTTP_HDR_CONNECTION, 0);
-		break;
-	default:
-		r = TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
-					    TFW_HTTP_HDR_CONNECTION);
+
+	if (conn_flg == BIT(TFW_HTTP_B_CONN_KA)) {
+		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
+		    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
+		{
+			r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection",
+						  "keep-alive, upgrade",
+						  TFW_HTTP_HDR_CONNECTION, 0);
+		}
+		else {
+			r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection",
+						  "keep-alive",
+						  TFW_HTTP_HDR_CONNECTION, 0);
+		}
+	} else {
+		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
+		    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
+		{
+			r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection",
+						  "upgrade",
+						  TFW_HTTP_HDR_CONNECTION, 0);
+		}
+		else {
+			r = TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
+					         TFW_HTTP_HDR_CONNECTION);
+		}
 	}
-
-	if (r < 0)
-		return r;
-
-	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
-	    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
-		r = TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "upgrade",
-				      TFW_HTTP_HDR_CONNECTION, 1);
 
 	return r;
 }
