@@ -180,6 +180,8 @@ int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache);
 void tfw_http_sess_put(TfwHttpSess *sess);
 void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
 
+void tfw_http_sess_redir_mark_enable(void);
+void tfw_http_sess_redir_mark_disable(void);
 void tfw_http_sess_redir_enable(void);
 bool tfw_http_sess_max_misses(void);
 unsigned int tfw_http_sess_mark_size(void);

@@ -113,6 +113,16 @@ typedef struct {
 static const DEFINE_TFW_STR(redir_mark_eq, "__tfw=");
 static bool redir_mark_enabled, redir_mark_enabled_reconfig;
 
+void tfw_http_sess_redir_mark_enable(void)
+{
+	redir_mark_enabled = true;
+}
+
+void tfw_http_sess_redir_mark_disable(void)
+{
+	redir_mark_enabled = false;
+}
+
 void tfw_http_sess_redir_enable(void)
 {
 	redir_mark_enabled_reconfig = true;
