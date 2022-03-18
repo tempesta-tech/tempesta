@@ -216,8 +216,10 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 /**
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
+ *
+ * Used only in timer callback.
  */
-void
+static void
 tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 {
 	int r;
@@ -228,7 +230,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	addr = &srv_conn->peer->addr;
 
 	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
-	                   &sk);
+			   &sk);
 	if (r) {
 		/*
 		 * Continue reconnection attempts in case of out-of-memory
@@ -524,23 +526,19 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
-static inline void
-tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
-{
-	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
-}
-
 /*
  * Get reference to server and mark the connection as active, which means
  * that server must be put during connection release procedure.
  *
  * And start connection attempt.
  */
-void
-tfw_sock_srv_connect_one(TfwServer * srv, TfwSrvConn *srv_conn)
+static void
+tfw_sock_srv_connect_one(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
-	tfw_sock_srv_conn_activate(srv, srv_conn);
+
+	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+
 	tfw_sock_srv_connect_try_later(srv_conn);
 }
 
@@ -639,7 +637,7 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 
-TfwSrvConn *
+static TfwSrvConn *
 tfw_sock_srv_new_conn(TfwServer *srv)
 {
 	TfwSrvConn *srv_conn;

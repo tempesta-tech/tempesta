@@ -104,6 +104,7 @@
 #include "tls.h"
 #include "apm.h"
 #include "access_log.h"
+#include "websocket.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -2311,8 +2312,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 
 			mit->map = tfw_pool_alloc(hm->pool, sz);
 			if (unlikely(!mit->map)) {
-				T_WARN("HTTP/2: unable to allocate memory for"
-				       " response header map\n");
+				T_WARN("HTTP/2: unable to allocate memory for "
+				       "response header map\n");
 				goto clean;
 			}
 			mit->map->size = TFW_HDR_MAP_INIT_CNT;
@@ -2339,6 +2340,7 @@ static int
 tfw_http_conn_init(TfwConn *conn)
 {
 	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		if (!list_empty(&srv_conn->fwd_queue)) {
@@ -5922,35 +5924,25 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 /**
  * Does websocket upgrade procedure.
  *
- * Marks current server and client connection as websocket connection. Starts
- * reconnection with backend to restore full backend connection count.
+ * Marks current client connection as websocket connection. Allocated new plain
+ * TfwConn connection with websocket type and steal backend connection socket
+ * into it. Starts reconnection for stealed from connection. Pairs websocket
+ * connections with each other.
  *
  * @return zero on success and negative otherwise
  */
 static int
-tfw_http_websocket_upgrade(TfwHttpResp *resp)
+tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn * cli_conn)
 {
-	TfwServer *srv = (TfwServer *)resp->conn->peer;
-	TfwSrvConn *srv_conn;
+	TfwConn *ws_conn;
 
-	/* Cannot proceed with upgrade websocket due to error
-	* in creation of new http connection. While it will not be
-	* inherently erroneous to upgrade existing connection, but
-	* we would pay for it with essentially dropping connection with
-	* server. Better just drop upgrade request and reestablish connection.
-	*/
-	if (!(srv_conn = tfw_sock_srv_new_conn(srv))) {
-		tfw_http_conn_error_log(resp->conn,
-					"Can't create new connection for "
-					"websocket upgrade response");
+	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
 		return TFW_BLOCK;
-	}
 
-	set_bit(TFW_CONN_B_UNSCHED, &((TfwSrvConn *)resp->conn)->flags);
+	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
 
-	tfw_sock_srv_connect_one(srv, srv_conn);
-
-	srv->sg->sched->upd_srv(srv);
+	cli_conn->pair = (TfwConn *)ws_conn;
+	ws_conn->pair = (TfwConn *)cli_conn;
 
 	return TFW_PASS;
 }
@@ -5966,9 +5958,9 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	unsigned int chunks_unused, parsed;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
-	TfwHttpResp *resp;
+	TfwCliConn *cli_conn;
 	TfwFsmData data_up;
-	bool conn_stop, filtout = false;
+	bool conn_stop, filtout = false, websocket = false;
 
 	BUG_ON(!stream->msg);
 	/*
@@ -5989,7 +5981,7 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
-	resp = (TfwHttpResp *)hmresp;
+	cli_conn = (TfwCliConn *) hmresp->req->conn;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -6105,11 +6097,33 @@ next_msg:
 		return TFW_BLOCK;
 
 	/*
+	 * We need to know if connection will be upgraded after response
+	 * forwarding here before sibling processing because after upgrade
+	 * http semantics for pipelined responses no longer apply.
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, hmresp->flags)
+		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
+		     && ((TfwHttpResp *)hmresp)->status == 101))
+	{
+		websocket = true;
+	}
+
+	/*
 	 * If @skb's data has not been processed in full, then
 	 * we have pipelined responses. Create a sibling message.
 	 * @skb is replaced with a pointer to a new SKB.
+	 *
+	 * RFC6455#section-5.5.2:
+	 * If the server finishes ... without aborting the WebSocket
+	 * handshake, the server considers the WebSocket connection to be
+	 * established and that the WebSocket connection is in the OPEN state.
+	 * At this point, the server may begin sending (and receiving) data.
+	 *
+	 * This means that can be no http sibling messages on successfully
+	 * opened (upgraded) websocket connection. Further data is websocket
+	 * protocol data.
 	 */
-	if (skb) {
+	if (skb && !websocket) {
 		hmsib = tfw_http_msg_create_sibling(hmresp, skb);
 		/*
 		 * In case of an error there's no recourse. The
@@ -6137,30 +6151,24 @@ next_msg:
 	}
 
 	/*
-	 * Upgrade client and server connection to websocket, remove it
-	 * from scheduler and provision new connection.
-	 *
-	 * TODO #755: set existent client and server connection to Conn_Ws*
-	 * when websocket proxing protocol will be implemented
-	 */
-	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, hmresp->flags)
-		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
-		     && resp->status == 101))
-	{
-		r = tfw_http_websocket_upgrade(resp);
-		if (unlikely(r < TFW_PASS))
-			return TFW_BLOCK;
-	}
-
-	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
 	 * @hmsib is not attached to the connection yet.
 	 */
 	tfw_http_resp_cache(hmresp);
 
+	/* Do upgrade if correct websocket upgrade response detected earlier */
+	if (websocket) {
+		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
+		if (unlikely(r < TFW_PASS))
+			return TFW_BLOCK;
+	}
+
 next_resp:
-	if (hmsib) {
+	if (skb && websocket) {
+		return tfw_ws_msg_process(cli_conn->pair, skb);
+	}
+	else if (hmsib) {
 		/*
 		 * Switch the connection to the sibling message.
 		 * Data processing will continue with the new SKB.
@@ -6203,28 +6211,27 @@ bad_msg:
  */
 int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
-			     TfwFsmData *data)
+			     struct sk_buff *skb)
 {
 	if (WARN_ON_ONCE(!stream))
 		return -EINVAL;
 	if (unlikely(!stream->msg)) {
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
 		if (!stream->msg) {
-			__kfree_skb(data->skb);
+			__kfree_skb(skb);
 			return TFW_BLOCK;
 		}
-		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg,
-					 data->skb);
+		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg, skb);
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
 	}
 
-	T_DBG2("Add skb %p to message %p\n", data->skb, stream->msg);
-	ss_skb_queue_tail(&stream->msg->skb_head, data->skb);
+	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
+	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
 	return (TFW_CONN_TYPE(conn) & Conn_Clnt)
-		? tfw_http_req_process(conn, stream, data->skb)
-		: tfw_http_resp_process(conn, stream, data->skb);
+		? tfw_http_req_process(conn, stream, skb)
+		: tfw_http_resp_process(conn, stream, skb);
 }
 
 /**
@@ -6236,27 +6243,14 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
  * returned an error code on. The rest of skbs are freed by us.
  */
 int
-tfw_http_msg_process(TfwConn *conn, TfwFsmData *data)
+tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
-	int r = T_OK;
+	int r;
 	TfwStream *stream = &((TfwConn *)conn)->stream;
-	struct sk_buff *next;
 
-	if (data->skb->prev)
-		data->skb->prev->next = NULL;
-	for (next = data->skb->next; data->skb;
-	     data->skb = next, next = next ? next->next : NULL)
-	{
-		if (likely(r == T_OK || r == T_POSTPONE)) {
-			data->skb->next = data->skb->prev = NULL;
-			r = TFW_CONN_H2(conn)
-				? tfw_h2_frame_process(conn, data->skb)
-				: tfw_http_msg_process_generic(conn, stream,
-							       data);
-		} else {
-			__kfree_skb(data->skb);
-		}
-	}
+	r = TFW_CONN_H2(conn)
+		? tfw_h2_frame_process(conn, skb)
+		: tfw_http_msg_process_generic(conn, stream, skb);
 
 	return r;
 }
@@ -7003,6 +6997,17 @@ TfwMod tfw_http_mod  = {
 };
 
 /*
+ * We do not use http fsm for message processing any more, but only for
+ * frang checks, so to clearly show our intention we BUG() here.
+ */
+static int
+tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
+{
+	BUG();
+	return 0;
+}
+
+/*
  * ------------------------------------------------------------------------
  *	init/exit
  * ------------------------------------------------------------------------
@@ -7013,7 +7018,7 @@ tfw_http_init(void)
 {
 	int r;
 
-	if ((r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process)))
+	if ((r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process_fsm)))
 		return r;
 
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);

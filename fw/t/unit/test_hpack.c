@@ -23,19 +23,16 @@
 #include "http_frame.c"
 #include "http.c"
 
-void tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
+TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 {
 	(void)srv_conn;
-}
-void tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
-{
-	(void)srv;
-	(void)srv_conn;
-}
-TfwSrvConn *tfw_sock_srv_new_conn(TfwServer *srv)
-{
-	(void)srv;
 	return NULL;
+}
+int tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
+{
+	(void)conn;
+	(void)skb;
+	return 0;
 }
 
 #include "test.h"

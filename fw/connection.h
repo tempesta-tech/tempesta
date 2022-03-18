@@ -53,12 +53,12 @@ enum {
 	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
 
 	/* Websocket plain */
-	Conn_WsClnt	= Conn_HttpClnt | TFW_FSM_WS,
-	Conn_WsSrv	= Conn_HttpSrv | TFW_FSM_WS,
+	Conn_WsClnt	= Conn_HttpClnt | TFW_FSM_WEBSOCKET,
+	Conn_WsSrv	= Conn_HttpSrv | TFW_FSM_WEBSOCKET,
 
 	/* Websocket secure */
-	Conn_WssClnt	= Conn_HttpsClnt | TFW_FSM_WS,
-	Conn_WssSrv	= Conn_HttpsSrv | TFW_FSM_WS,
+	Conn_WssClnt	= Conn_HttpsClnt | TFW_FSM_WEBSOCKET,
+	Conn_WssSrv	= Conn_HttpsSrv | TFW_FSM_WEBSOCKET,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
@@ -94,9 +94,11 @@ enum {
  * @timer	- The keep-alive/retry timer for the connection;
  * @stream	- instance for control messages processing;
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
+ * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
  */
+typedef struct tfw_conn_t TfwConn;
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
@@ -105,6 +107,7 @@ enum {
 	struct timer_list	timer;			\
 	TfwStream		stream;			\
 	TfwPeer 		*peer;			\
+	TfwConn			*pair;			\
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
 
@@ -516,6 +519,7 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
+int tfw_connection_recv(TfwConn *conn, struct sk_buff *skb);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConn *conn);
@@ -526,7 +530,5 @@ void tfw_connection_repair(TfwConn *conn);
 int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
-
-int tfw_connection_recv(void *cdata, struct sk_buff *skb);
 
 #endif /* __TFW_CONNECTION_H__ */

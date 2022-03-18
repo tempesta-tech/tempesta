@@ -3,7 +3,7 @@
  *
  * Tempesta Bomber: a tool for HTTP servers stress testing.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -169,7 +169,7 @@ tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len,
 }
 
 static int
-tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb)
+tfw_bmb_conn_recv(TfwConn *cdata, struct sk_buff *skb)
 {
 	if (verbose) {
 		unsigned int parsed = 0, chunks = 0;
@@ -371,7 +371,7 @@ release_sockets:
 		}
 
 		/*
-		 * FIXME at this point work_queue still can contain many works.
+		 * TODO at this point work_queue still can contain many works.
 		 * The wait loop above can be passed by connection error at
 		 * the middle of the work queue processing, i.e. softirq
 		 * still didn't process our ss_close() work. Thus freed sockets
@@ -393,7 +393,7 @@ tfw_bmb_stop_threads(void)
 
 	for (i = 0; i < nthreads; i++) {
 		if (bmb_tasks[i].task_struct) {
-			/* FIXME possible race with the thread completion. */
+			/* TODO possible race with the thread completion. */
 			kthread_stop(bmb_tasks[i].task_struct);
 			bmb_tasks[i].task_struct = NULL;
 			atomic_dec(&bmb_threads);
