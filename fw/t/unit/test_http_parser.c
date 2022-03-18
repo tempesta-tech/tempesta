@@ -1678,12 +1678,20 @@ TEST(http_parser, content_type_in_bodyless_requests)
 			 " X-HTTP-Method-Override: " #METHOD "\r\n"	\
 		 	 "\r\n");					\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"				\
+		 	 "Content-Length: 0\r\n"			\
+			 " X-HTTP-Method: " #METHOD "\r\n"		\
+		 	 "\r\n");					\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"				\
 		 	 "Content-Type: text/html\r\n"			\
 			 "X-Method-Override: " #METHOD "\r\n"		\
 		 	 "\r\n");					\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"				\
 		 	 "Content-Type: text/html\r\n"			\
 			 "X-HTTP-Method-Override: " #METHOD "\r\n"	\
+		 	 "\r\n");					\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"				\
+		 	 "Content-Type: text/html\r\n"			\
+			 "X-HTTP-Method: " #METHOD "\r\n"		\
 		 	 "\r\n");
 
 #define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)				\
@@ -1710,13 +1718,23 @@ TEST(http_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ_H2(":method: PUT\n"				\
 			    ":scheme: https\n"				\
 			    ":path: /\n"				\
+			    "content-length: 0\n"			\
+			    "x-http-method: "#METHOD);			\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"				\
+			    ":scheme: https\n"				\
+			    ":path: /\n"				\
 			    "content-type: text/plain\n"		\
 			    "x-method-override: "#METHOD);		\
 	EXPECT_BLOCK_REQ_H2(":method: PUT\n"				\
 			    ":scheme: https\n"				\
 			    ":path: /\n"				\
 			    "content-type: text/plain\n"		\
-			    "x-http-method-override: "#METHOD);
+			    "x-http-method-override: "#METHOD);		\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"				\
+			    ":scheme: https\n"				\
+			    ":path: /\n"				\
+			    "content-type: text/plain\n"		\
+			    "x-http-method: "#METHOD);
 
 
 	EXPECT_BLOCK_BODYLESS_REQ(GET);
