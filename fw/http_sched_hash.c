@@ -447,12 +447,6 @@ tfw_sched_hash_del_srv(TfwServer *srv)
 		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
 }
 
-static int
-tfw_sched_hash_upd_srv(TfwServer *srv)
-{
-	return tfw_sched_hash_srv_setup(srv);
-}
-
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
@@ -460,7 +454,6 @@ static TfwScheduler tfw_sched_hash = {
 	.del_grp	= tfw_sched_hash_del_grp,
 	.add_srv	= tfw_sched_hash_add_srv,
 	.del_srv	= tfw_sched_hash_del_srv,
-	.upd_srv	= tfw_sched_hash_upd_srv,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };

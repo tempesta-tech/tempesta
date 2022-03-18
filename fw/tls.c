@@ -77,7 +77,7 @@ tfw_tls_connection_lost(TfwConn *conn)
 }
 
 int
-tfw_tls_msg_process(void *conn, struct sk_buff *skb)
+tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
 	int r, parsed;
 	struct sk_buff *nskb = NULL;
@@ -171,7 +171,8 @@ next_msg:
 		ttls_reset_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
 
-		r = tfw_http_msg_process(conn, &data_up);
+		/* Do upcall to http or websocket */
+		r = tfw_connection_recv(conn, data_up.skb);
 		if (r == TFW_BLOCK) {
 			kfree_skb(nskb);
 			return r;

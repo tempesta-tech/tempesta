@@ -3,7 +3,7 @@
  *
  * User-space communication routines.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2022 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -201,7 +201,7 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 	}
 
 	/*
-	 * FIXME implement select of all records:
+	 * TODO implement select of all records:
 	 * 1. full HTrie iterator is required;
 	 * 2. use many netlink frames to send probably large data set.
 	 */

@@ -84,8 +84,10 @@ enum {
 	/* Protocols */
 	TFW_FSM_HTTP,
 	TFW_FSM_HTTPS,
-	/* Not really a FSM */
-	TFW_FSM_WS,
+	/* Not really a FSM, used for connection hook registration only */
+	TFW_FSM_WEBSOCKET,
+	TFW_FSM_WS  = TFW_FSM_WEBSOCKET | TFW_FSM_HTTP,
+	TFW_FSM_WSS = TFW_FSM_WEBSOCKET | TFW_FSM_HTTPS,
 
 	/* Security rules enforcement. */
 	TFW_FSM_FRANG_REQ,
@@ -187,7 +189,6 @@ typedef struct tfw_conn_t TfwConn;
 typedef int (*tfw_gfsm_handler_t)(TfwConn *conn, TfwFsmData *data);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
-int tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data);
 int tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data);
 
 #ifdef DEBUG

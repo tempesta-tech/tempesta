@@ -1321,14 +1321,6 @@ tfw_sched_ratio_del_srv(TfwServer *srv)
 		call_rcu(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
-static int
-tfw_sched_ratio_upd_srv(TfwServer *srv)
-{
-	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
-
-	return tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc);
-}
-
 static TfwScheduler tfw_sched_ratio = {
 	.name		= "ratio",
 	.list		= LIST_HEAD_INIT(tfw_sched_ratio.list),
@@ -1336,7 +1328,6 @@ static TfwScheduler tfw_sched_ratio = {
 	.del_grp	= tfw_sched_ratio_del_grp,
 	.add_srv	= tfw_sched_ratio_add_srv,
 	.del_srv	= tfw_sched_ratio_del_srv,
-	.upd_srv	= tfw_sched_ratio_upd_srv,
 	.sched_sg_conn	= tfw_sched_ratio_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_ratio_sched_srv_conn,
 };
