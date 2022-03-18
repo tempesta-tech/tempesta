@@ -2585,7 +2585,7 @@ tfw_http_set_hdr_upgrade(TfwHttpMsg *hm, bool is_resp)
 		 * RFC7230#section-6.7:
 		 * A server that sends a 101 (Switching Protocols) response
 		 * MUST send an Upgrade header field to indicate the new
-		 * protocol(s) to * which the connection is being switched; if
+		 * protocol(s) to which the connection is being switched; if
 		 * multiple protocol layers are being switched, the sender MUST
 		 * list the protocols in layer-ascending order.
 		 *
