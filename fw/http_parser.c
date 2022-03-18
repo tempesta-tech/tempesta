@@ -7550,7 +7550,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: len=%lu, data=%.*s%s, req=[%p]\n", __func__, len,
+	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
 	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state);
@@ -8341,17 +8341,20 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	 * header if more data is found afer 'd'
 	 */
 	__FSM_STATE(Req_HdrX_Http_Metho, cold) {
-		if (c != 'd')
+		if (unlikely(c != 'd'))
 			__FSM_JMP(RGen_HdrOtherN);
+
 		p += 1;
-		T_DBG3("%s: name fin, h_tag=%d, to=Req_HdrX_Http_Metho len=%lu, "
-		       "off=%lu\n",
-		       __func__, TFW_TAG_HDR_RAW, len, __data_off(p));
-		if (unlikely(__data_off(p) < len))
-			goto RGen_HdrOtherN;
+		T_DBG3("%s: name next, to=Req_HdrX_Http_Method len=%lu,"
+		    " off=%lu\n",
+		    __func__, len, __data_off(p));
+		if (likely(__data_off(p) < len))
+			__FSM_JMP(Req_HdrX_Http_Method);
+
 		__msg_hdr_chunk_fixup(data, len);
-		if (unlikely(!fin))
+		if (likely(!fin))
 			__FSM_H2_POSTPONE(Req_HdrX_Http_Method);
+
 		it->tag = TFW_TAG_HDR_RAW;
 		__FSM_H2_OK(Req_HdrX_Method_OverrideV);
 	}
