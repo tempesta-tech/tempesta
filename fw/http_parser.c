@@ -3348,7 +3348,7 @@ STACK_FRAME_NON_STANDARD(__parse_pragma);
  * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
-__req_parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
+__parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
@@ -3382,6 +3382,8 @@ __req_parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			 */
 			return CSTR_NEQ;
 		}
+
+		__set_bit(TFW_HTTP_B_UPGRADE_EXTRA, msg->flags);
 		__FSM_I_JMP(I_UpgradeProtocolEnd);
 	}
 
@@ -3398,6 +3400,8 @@ __req_parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 				__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
 					  msg->flags);
 			}
+		} else {
+			__set_bit(TFW_HTTP_B_UPGRADE_EXTRA, msg->flags);
 		}
 
 		__FSM_I_JMP(I_UpgradeProtocolEnd);
@@ -3437,7 +3441,6 @@ __req_parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * At this state we know that we saw at least one character in
 	 * protocol version and now we can pass zero length token.
 	 */
-
 	__FSM_STATE(I_UpgradeVersion) {
 		__FSM_I_MATCH_MOVE_fixup(token, I_UpgradeVersion,
 					 TFW_STR_VALUE);
@@ -3477,7 +3480,7 @@ __req_parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 done:
 	return r;
 }
-STACK_FRAME_NON_STANDARD(__req_parse_upgrade);
+STACK_FRAME_NON_STANDARD(__parse_upgrade);
 
 static int
 __req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -4479,7 +4482,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   TFW_HTTP_HDR_USER_AGENT);
 
 	/* 'Upgrade:*OWS' is read, process field-value. */
-	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUpgradeV, msg,__req_parse_upgrade,
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUpgradeV, msg, __parse_upgrade,
 				     TFW_HTTP_HDR_UPGRADE, 0);
 
 	/* 'Cookie:*OWS' is read, process field-value. */
@@ -10057,6 +10060,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrT);
+		case 'u':
+			if (likely(__data_available(p, 8)
+				   && C4_INT_LCM(p, 'u', 'p', 'g', 'r')
+				   && C4_INT3_LCM(p + 4, 'a', 'd', 'e', ':')))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 7));
+				parser->_i_st = &&Resp_HdrUpgradeV;
+				p += 7;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
+			__FSM_MOVE(Resp_HdrU);
 		case 'v':
 			if (likely(__data_available(p, 5)
 			           && C4_INT3_LCM(p + 1, 'a', 'r', 'y', ':')))
@@ -10228,6 +10242,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 
 	/* 'Pragma:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrPragmaV, msg, __parse_pragma, 0);
+
+	/* 'Upgrade:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrUpgradeV, msg, __parse_upgrade,
+				     TFW_HTTP_HDR_UPGRADE, 0);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, resp, __resp_parse_server,
@@ -10743,6 +10761,15 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	__FSM_TX_AF(Resp_HdrWWW_Authentica, 't', Resp_HdrWWW_Authenticat);
 	__FSM_TX_AF(Resp_HdrWWW_Authenticat, 'e', Resp_HdrWWW_Authenticate);
 	__FSM_TX_AF_OWS_HP(Resp_HdrWWW_Authenticate, RGen_HdrOtherV, 61);
+
+	/* Upgrade header processing. */
+	__FSM_TX_AF(Resp_HdrU, 'p', Resp_HdrUp);
+	__FSM_TX_AF(Resp_HdrUp, 'g', Resp_HdrUpg);
+	__FSM_TX_AF(Resp_HdrUpg, 'r', Resp_HdrUpgr);
+	__FSM_TX_AF(Resp_HdrUpgr, 'a', Resp_HdrUpgra);
+	__FSM_TX_AF(Resp_HdrUpgra, 'd', Resp_HdrUpgrad);
+	__FSM_TX_AF(Resp_HdrUpgrad, 'e', Resp_HdrUpgrade);
+	__FSM_TX_AF_OWS(Resp_HdrUpgrade, Resp_HdrUpgradeV);
 
 	__FSM_FINISH(resp);
 
