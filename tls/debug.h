@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS
  *
- * Copyright (C) 2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,21 +35,19 @@
 
 #include "lib/log.h"
 
-#define TTLS_LOG_WITH_PEER(tls, action_expr)			\
-do {								\
-	struct sockaddr_storage _tls_peer_ss;			\
-	struct sockaddr_storage *_tls_peer_sa = &_tls_peer_ss;	\
-	if (ttls_extract_peer_addr(tls, _tls_peer_sa))		\
-		_tls_peer_sa = NULL;				\
-	action_expr;						\
+#define TTLS_LOG_WITH_PEER(tls, fmt, log, ...)				\
+do {									\
+	if ((tls)->sk->sk_family == AF_INET)				\
+		log("[%pI4] " fmt, &(tls)->sk->sk_daddr, ##__VA_ARGS__);\
+	else								\
+		log("[%pI6c] " fmt, &(tls)->sk->sk_v6_daddr, ##__VA_ARGS__);\
 } while (0)
 
-#define TTLS_PEER_FMT "[c=%pISp] "
-#define TTLS_ERR(tls, fmt, ...) TTLS_LOG_WITH_PEER(tls, \
-	T_ERR(TTLS_PEER_FMT fmt, _tls_peer_sa, ##__VA_ARGS__))
-#define TTLS_WARN(tls, fmt, ...) TTLS_LOG_WITH_PEER(tls, \
-	T_WARN(TTLS_PEER_FMT fmt, _tls_peer_sa, ##__VA_ARGS__))
-#define TTLS_LOG(tls, fmt, ...) TTLS_LOG_WITH_PEER(tls, \
-	T_LOG(TTLS_PEER_FMT fmt, _tls_peer_sa, ##__VA_ARGS__))
+#define TTLS_ERR(tls, fmt, ...)						\
+	TTLS_LOG_WITH_PEER(tls, fmt, T_ERR, ##__VA_ARGS__)
+#define TTLS_WARN(tls, fmt, ...)					\
+	TTLS_LOG_WITH_PEER(tls, fmt, T_WARN, ##__VA_ARGS__)
+#define TTLS_LOG(tls, fmt, ...)						\
+	TTLS_LOG_WITH_PEER(tls, fmt, T_LOG, ##__VA_ARGS__)
 
 #endif /* __TTLS_DEBUG_H__ */

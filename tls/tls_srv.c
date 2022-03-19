@@ -924,7 +924,7 @@ bad_version:
 		n = tls->hs->ext_sz;
 		if (n + 4 > tls->hs->ext_rem_sz || n > sizeof(tls->hs->ext)) {
 			TTLS_WARN(tls, "ClientHello: bad extension size %d"
-			               " (tls->hs->ext_rem_sz=%u)\n",
+			               " (remaining extensions size %u)\n",
 			          n, tls->hs->ext_rem_sz);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
