@@ -20,7 +20,7 @@
 #ifndef __TFW_MPOOL_H__
 #define __TFW_MPOOL_H__
 
-#include "ttls.h"
+#include "tls_internal.h"
 
 TlsMpiPool *ttls_mpool(void *addr);
 void *ttls_mpool_alloc_stack(size_t n);
