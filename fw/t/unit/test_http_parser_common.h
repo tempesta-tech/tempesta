@@ -47,12 +47,13 @@
 #include "msg.h"
 #include "http_msg.h"
 
-static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
+static const unsigned int CHUNK_SIZES[] = { 9216, 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
 static unsigned int chunk_size_index = 0;
-#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
+//#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
+#define CHUNK_SIZE_CNT 1
 
 enum {
 	CHUNK_OFF,
@@ -64,63 +65,66 @@ static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
 static char h2_buf[1024];
+static char *h2_buf_ptr = h2_buf;
 static unsigned int h2_len = 0;
 static size_t hm_exp_len = 0;
 
+
+struct header_rec
+{
+	char *buf;
+	size_t size;
+};
+
+typedef struct header_rec	TfwHeaderRec;
+
 static
-unsigned int
-tfw_h2_encode_str(const char *str, char *buf)
+void __attribute__((unused))
+tfw_h2_encode_data(TfwHeaderRec data)
 {
 	TfwHPackInt hpint;
-	unsigned int len = strlen(str);
-	write_int(len, 0x7f, 0, &hpint);
-	memcpy_fast(buf, hpint.buf, hpint.sz);
-	memcpy_fast(buf + hpint.sz, str, len);
-	return hpint.sz + len;
+
+	write_int(data.size, 0x7F, 0, &hpint);
+	memcpy_fast(h2_buf_ptr, hpint.buf, hpint.sz);
+	h2_buf_ptr += hpint.sz;
+	memcpy_fast(h2_buf_ptr, data.buf, data.size);
+	h2_buf_ptr += data.size;
 }
 
-#define H2_HDR_HDR_SZ 9
-#define LIT_HDR_FLD_WO_IND 0x00
 static
-unsigned int
-tfw_h2_pack_hdr_frame(const char *str, char buf[], unsigned int buf_len)
+void __attribute__((unused))
+tfw_h2_encode_header(TfwHeaderRec name, TfwHeaderRec value)
 {
-	unsigned long hdrs_len = 0;
-	TfwFrameHdr frame_hdr = {.flags = HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM,
-							 .type = HTTP2_HEADERS,
-							 .stream_id = 1};
-	char **strp, *hdr_one, *hdr, **hdrp, *hdr_val;
-	char str_buf[256] = {0};
-	char *_str = str_buf;
+	static const int LIT_HDR_FLD_WO_IND  = 0x00;
 
-	BUG_ON(strlen(str) + 1 > ARRAY_SIZE(str_buf));
+	*h2_buf_ptr = LIT_HDR_FLD_WO_IND;
+	++h2_buf_ptr;
 
-	memcpy_fast(_str, str, strlen(str));
-
-	strp = &_str;
-	do {
-		hdr_one = strsep(strp, "\n");
-		hdr = hdr_one;
-		if (*hdr == ':') {
-			if (!*(++hdr))
-				continue;
-		}
-		hdrp = &hdr;
-		strsep(hdrp, ":");
-		hdr_val = hdrp ? strim(*hdrp) : "";
-		*(buf + H2_HDR_HDR_SZ + hdrs_len++) = LIT_HDR_FLD_WO_IND;
-		hdrs_len += tfw_h2_encode_str(hdr_one,
-					      buf + H2_HDR_HDR_SZ + hdrs_len);
-		hdrs_len += tfw_h2_encode_str(hdr_val,
-					      buf + H2_HDR_HDR_SZ + hdrs_len);
-	} while (*strp);
-
-	frame_hdr.length = hdrs_len;
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-	BUG_ON(frame_hdr.length + H2_HDR_HDR_SZ > buf_len);
-	return frame_hdr.length + H2_HDR_HDR_SZ;
+	tfw_h2_encode_data(name);
+	tfw_h2_encode_data(value);
 }
+
+static
+TfwHeaderRec __attribute__((unused))
+data_from_str(char *data, size_t data_sz)
+{
+	TfwHeaderRec ret = {data, data_sz};
+	return ret;
+}
+
+#define STR(data) \
+	data_from_str(data, sizeof(data) - 1)
+
+#define HEADER(name, value) \
+	tfw_h2_encode_header(name, value)
+
+#define HEADERS_FRAME(...)						\
+do {									\
+	bzero_fast(h2_buf, sizeof(h2_buf));				\
+	h2_buf_ptr = h2_buf;						\
+	__VA_ARGS__;							\
+	BUG_ON(h2_buf_ptr > *(&h2_buf + 1));				\
+} while (0)
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
@@ -189,18 +193,18 @@ test_case_parse_prepare_http(const char *str, size_t sz_diff)
 }
 
 static void
-test_case_parse_prepare_h2(const char *str, size_t sz_diff)
+test_case_parse_prepare_h2(size_t sz_diff)
 {
-	h2_len = tfw_h2_pack_hdr_frame(str, h2_buf, ARRAY_SIZE(h2_buf));
-	h2_len -= H2_HDR_HDR_SZ;
-
 	tfw_h2_context_init(&conn.h2);
 	conn.h2.hdr.type = HTTP2_HEADERS;
 	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
 
 	chunk_size_index = 0;
+	h2_len = h2_buf_ptr - h2_buf;
 	hm_exp_len = h2_len - sz_diff;
 }
+
+
 
 /**
  * The function is designed to be called in a loop, e.g.
@@ -301,7 +305,8 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
  * HTTP message from start to end. If there any unused bytes after
  * message is successfully parsed, then parsing was incorrect.
  */
-static int
+static
+int __attribute__((unused))
 validate_data_fully_parsed(int type)
 {
 	TfwHttpMsg *hm = (type == FUZZ_REQ || type == FUZZ_REQ_H2)
@@ -315,7 +320,7 @@ validate_data_fully_parsed(int type)
 #define TRY_PARSE_EXPECT_PASS(str, type, chunk_mode)			\
 ({						    			\
 	int _err = type == FUZZ_REQ_H2		    			\
-		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len,	\
+		? do_split_and_parse(h2_buf, h2_len,	\
 				     type, chunk_mode)			\
 		: do_split_and_parse(str, strlen(str),			\
 				     type, chunk_mode);			\
@@ -333,7 +338,7 @@ validate_data_fully_parsed(int type)
 #define TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode)			\
 ({									\
 	int _err = type == FUZZ_REQ_H2					\
-		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len,	\
+		? do_split_and_parse(h2_buf, h2_len,			\
 				     type, chunk_mode)			\
 		: do_split_and_parse(str, strlen(str),			\
 				     type, chunk_mode);			\
@@ -350,31 +355,37 @@ validate_data_fully_parsed(int type)
 #define __FOR_REQ(str, sz_diff, type, chunk_mode)			\
 	TEST_LOG("=== request: [%s]\n", str);				\
 	type == FUZZ_REQ_H2 ?						\
-		test_case_parse_prepare_h2(str, sz_diff) :		\
+		test_case_parse_prepare_h2(sz_diff) :			\
 		test_case_parse_prepare_http(str, sz_diff);		\
 	while (TRY_PARSE_EXPECT_PASS(str, type, chunk_mode))
 
-#define FOR_REQ(str)						\
+#define FOR_REQ(str)							\
 	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
-#define FOR_REQ_H2(str)						\
-	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_ON)
-#define FOR_REQ_H2_CHUNK_OFF(str)				\
+#define FOR_REQ_H2(HEADERS_FRAME_BLOCK)					\
+	HEADERS_FRAME_BLOCK;						\
+	__FOR_REQ(							\
+	    "HTTP/2 request preview is not available now...",		\
+	     0, FUZZ_REQ_H2, CHUNK_ON)
+#define FOR_REQ_H2_CHUNK_OFF(str)					\
 	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
 
 #define __EXPECT_BLOCK_REQ(str, type, chunk_mode)			\
 do {									\
 	TEST_LOG("=== request: [%s]\n", str);				\
 	type == FUZZ_REQ_H2 ?						\
-		test_case_parse_prepare_h2(str, 0) :			\
+		test_case_parse_prepare_h2(0) :				\
 		test_case_parse_prepare_http(str, 0);			\
 	while (TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode));		\
 } while (0)
 
-#define EXPECT_BLOCK_REQ(str)					\
+#define EXPECT_BLOCK_REQ(str)						\
 	__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2(str)				\
-	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)			\
+#define EXPECT_BLOCK_REQ_H2(HEADERS_FRAME_BLOCK)			\
+	HEADERS_FRAME_BLOCK;						\
+	__EXPECT_BLOCK_REQ(						\
+	    "HTTP/2 request preview is not available now...",		\
+	    FUZZ_REQ_H2, CHUNK_ON)
+#define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)				\
 	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_OFF)
 
 #define __FOR_RESP(str, sz_diff, chunk_mode)				\

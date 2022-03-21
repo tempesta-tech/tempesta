@@ -85,7 +85,7 @@ test_call_teardown_fn(void)
 TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
 TEST_SUITE(mem_fast);
-TEST_SUITE(http_parser);
+TEST_SUITE(http1_parser);
 TEST_SUITE(http2_parser);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
@@ -126,8 +126,8 @@ test_run_all(void)
 //	TEST_SUITE_RUN(mem_fast);
 //	__fpu_schedule();
 
-	TEST_SUITE_RUN(http_parser);
-	__fpu_schedule();
+//	TEST_SUITE_RUN(http1_parser);
+//	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser);
 	__fpu_schedule();
