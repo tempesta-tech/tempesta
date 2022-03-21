@@ -167,8 +167,10 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 	BUG_ON(pos != len);
 
 	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
-		if (!(r = tfw_http_parse_req_on_headers_done(req)))
+		if (!(r = tfw_http_parse_check_bodyless_meth(req))) {
+			__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 			r = tfw_h2_parse_req_finish(req);
+		}
 	}
 
 	return r;

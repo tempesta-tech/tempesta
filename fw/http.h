@@ -86,7 +86,7 @@ enum {
 };
 
 /* TODO: When CONNECT will be added, add it to tfw_handle_validation_req()
- * and to tfw_http_parse_req_on_headers_done() */
+ * and to tfw_http_parse_check_bodyless_meth() */
 /* New safe methods MUST be added to TFW_HTTP_IS_METH_SAFE macro */
 typedef enum {
 	_TFW_HTTP_METH_NONE,
@@ -119,6 +119,10 @@ typedef enum {
 #define TFW_HTTP_IS_METH_SAFE(meth)					\
 	((meth) == TFW_HTTP_METH_GET || (meth) == TFW_HTTP_METH_HEAD	\
 	 || (meth) == TFW_HTTP_METH_OPTIONS || (meth) == TFW_HTTP_METH_PROPFIND)
+
+#define TFW_HTTP_IS_METH_BODYLESS(meth)					\
+	((meth) == TFW_HTTP_METH_GET || (meth) == TFW_HTTP_METH_HEAD	\
+	 || (meth) == TFW_HTTP_METH_DELETE || (meth) == TFW_HTTP_METH_TRACE)
 
 /* HTTP protocol versions. */
 enum {
