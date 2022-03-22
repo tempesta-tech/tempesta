@@ -528,7 +528,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * Get reference to server and mark the connection as active, which means
  * that server must be put during connection release procedure.
  */
-inline void
+void
 tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
