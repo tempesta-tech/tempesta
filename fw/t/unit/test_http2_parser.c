@@ -284,6 +284,6 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 TEST_SUITE(http2_parser)
 {
 	TEST_RUN(http2_parser, http2_check_important_fields);
-	TEST_RUN(http2_parser, parses_req_method);
-	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
+//	TEST_RUN(http2_parser, parses_req_method);
+//	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
 }
