@@ -70,17 +70,21 @@ static unsigned int h2_len = 0;
 static size_t hm_exp_len = 0;
 
 
-struct header_rec
+typedef struct field_rec
 {
 	char *buf;
 	size_t size;
-};
+} TfwFieldRec;
 
-typedef struct header_rec	TfwHeaderRec;
+typedef struct header_rec
+{
+	TfwFieldRec name;
+	TfwFieldRec value;
+} TfwHeaderRec;
 
 static
 void __attribute__((unused))
-tfw_h2_encode_data(TfwHeaderRec data)
+tfw_h2_encode_data(TfwFieldRec data)
 {
 	TfwHPackInt hpint;
 
@@ -93,37 +97,62 @@ tfw_h2_encode_data(TfwHeaderRec data)
 
 static
 void __attribute__((unused))
-tfw_h2_encode_header(TfwHeaderRec name, TfwHeaderRec value)
+tfw_h2_encode_header(TfwHeaderRec header)
 {
 	static const int LIT_HDR_FLD_WO_IND  = 0x00;
 
 	*h2_buf_ptr = LIT_HDR_FLD_WO_IND;
 	++h2_buf_ptr;
 
-	tfw_h2_encode_data(name);
-	tfw_h2_encode_data(value);
+	tfw_h2_encode_data(header.name);
+	tfw_h2_encode_data(header.value);
+}
+
+static
+void __attribute__((unused))
+tfw_h2_process_headers(int headers_cnt, ...)
+{
+	va_list headers;
+	int i;
+
+	va_start(headers, headers_cnt);
+	for (i = 0; i < headers_cnt; ++i) {
+		tfw_h2_encode_header(va_arg(headers, TfwHeaderRec));
+	}
+	va_end(headers);
 }
 
 static
 TfwHeaderRec __attribute__((unused))
-data_from_str(char *data, size_t data_sz)
+tfw_h2_process_fields(TfwFieldRec name, TfwFieldRec value)
 {
-	TfwHeaderRec ret = {data, data_sz};
+	TfwHeaderRec ret = {name, value};
+	return ret;
+}
+
+static
+TfwFieldRec __attribute__((unused))
+data_from_str(char *data)
+{
+	TfwFieldRec ret = {data, strlen(data)};
 	return ret;
 }
 
 #define STR(data) \
-	data_from_str(data, sizeof(data) - 1)
+	data_from_str(data)
 
 #define HEADER(name, value) \
-	tfw_h2_encode_header(name, value)
+	tfw_h2_process_fields(name, value)
 
-#define HEADERS_FRAME(...)						\
-do {									\
-	bzero_fast(h2_buf, sizeof(h2_buf));				\
-	h2_buf_ptr = h2_buf;						\
-	__VA_ARGS__;							\
-	BUG_ON(h2_buf_ptr > *(&h2_buf + 1));				\
+#define HEADERS_COUNT(...) \
+    (sizeof((TfwHeaderRec[]){__VA_ARGS__})/sizeof(TfwHeaderRec))
+
+#define HEADERS_FRAME(...)							\
+do {										\
+	bzero_fast(h2_buf, sizeof(h2_buf));					\
+	h2_buf_ptr = h2_buf;							\
+	tfw_h2_process_headers(HEADERS_COUNT(__VA_ARGS__), __VA_ARGS__);	\
+	BUG_ON(h2_buf_ptr > *(&h2_buf + 1));					\
 } while (0)
 
 static int
