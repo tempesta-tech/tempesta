@@ -70,21 +70,21 @@ static unsigned int h2_len = 0;
 static size_t hm_exp_len = 0;
 
 
-typedef struct field_rec
+typedef struct data_rec
 {
 	char *buf;
 	size_t size;
-} TfwFieldRec;
+} TfwDataRec;
 
 typedef struct header_rec
 {
-	TfwFieldRec name;
-	TfwFieldRec value;
+	TfwDataRec name;
+	TfwDataRec value;
 } TfwHeaderRec;
 
 static
 void __attribute__((unused))
-tfw_h2_encode_data(TfwFieldRec data)
+tfw_h2_encode_data(TfwDataRec data)
 {
 	TfwHPackInt hpint;
 
@@ -109,51 +109,33 @@ tfw_h2_encode_header(TfwHeaderRec header)
 }
 
 static
-void __attribute__((unused))
-tfw_h2_process_headers(int headers_cnt, ...)
+TfwDataRec __attribute__((unused))
+__data_from_STR(char *data)
 {
-	va_list headers;
-	int i;
-
-	va_start(headers, headers_cnt);
-	for (i = 0; i < headers_cnt; ++i) {
-		tfw_h2_encode_header(va_arg(headers, TfwHeaderRec));
-	}
-	va_end(headers);
-}
-
-static
-TfwHeaderRec __attribute__((unused))
-tfw_h2_process_fields(TfwFieldRec name, TfwFieldRec value)
-{
-	TfwHeaderRec ret = {name, value};
-	return ret;
-}
-
-static
-TfwFieldRec __attribute__((unused))
-data_from_str(char *data)
-{
-	TfwFieldRec ret = {data, strlen(data)};
+	TfwDataRec ret = {data, strlen(data)};
 	return ret;
 }
 
 #define STR(data) \
-	data_from_str(data)
+	__data_from_STR(data)
 
-#define HEADER(name, value) \
-	tfw_h2_process_fields(name, value)
+#define HEADERS_FRAME_BEGIN()				\
+do {							\
+	TfwHeaderRec temp;				\
+	bzero_fast(h2_buf, sizeof(h2_buf));		\
+	h2_buf_ptr = h2_buf
 
-#define HEADERS_COUNT(...) \
-    (sizeof((TfwHeaderRec[]){__VA_ARGS__})/sizeof(TfwHeaderRec))
-
-#define HEADERS_FRAME(...)							\
-do {										\
-	bzero_fast(h2_buf, sizeof(h2_buf));					\
-	h2_buf_ptr = h2_buf;							\
-	tfw_h2_process_headers(HEADERS_COUNT(__VA_ARGS__), __VA_ARGS__);	\
-	BUG_ON(h2_buf_ptr > *(&h2_buf + 1));					\
+#define HEADER(name_rec, value_rec)			\
+do {							\
+	temp.name = name_rec;				\
+	temp.value = value_rec;				\
+	tfw_h2_encode_header(temp);			\
 } while (0)
+
+#define HEADERS_FRAME_END()				\
+	BUG_ON(h2_buf_ptr > *(&h2_buf + 1));		\
+} while (0)
+
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
@@ -490,3 +472,4 @@ number_to_strip(TfwHttpReq *req)
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 }
+
