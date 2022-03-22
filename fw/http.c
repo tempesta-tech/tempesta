@@ -5303,23 +5303,21 @@ next_msg:
 			return TFW_BLOCK;
 		}
 		if (TFW_MSG_H2(req)) {
-			TfwH2Ctx *ctx;
+			TfwH2Ctx *ctx = tfw_h2_context(conn);
+			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
+				if (unlikely(tfw_http_parse_check_bodyless_meth(req)))
+					return TFW_BLOCK;
+
+				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+			}
 
 			if (tfw_h2_stream_req_complete(req->stream)) {
-				if (likely(!tfw_http_parse_req_on_headers_done(req)
-					&& !tfw_h2_parse_req_finish(req)))
+				if (likely(!tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_http_req_parse_block(req, 500,
 					"Request parsing inconsistency");
 				return TFW_BLOCK;
-			}
-			ctx = tfw_h2_context(conn);
-			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
-				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
-
-				if (unlikely(tfw_http_parse_req_on_headers_done(req)))
-					return TFW_BLOCK;
 			}
 		}
 

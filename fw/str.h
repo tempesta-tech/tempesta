@@ -271,8 +271,7 @@ typedef struct tfwstr_t {
 
 #define TFW_STR_INIT(s)		memset((s), 0, sizeof(TfwStr))
 
-#define TFW_STR_NOT_EMPTY(s)	((s)->nchunks | (s)->len)
-#define TFW_STR_EMPTY(s)	!TFW_STR_NOT_EMPTY(s)
+#define TFW_STR_EMPTY(s)	(!((s)->nchunks | (s)->len))
 #define TFW_STR_PLAIN(s)	(!((s)->nchunks))
 #define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 

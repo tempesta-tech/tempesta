@@ -161,71 +161,101 @@ TEST(http2_parser, parses_req_method)
 
 TEST(http2_parser, content_type_in_bodyless_requests)
 {
-#define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)				\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR(#METHOD)),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-length"), STR("0"))			\
-	));								\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR(#METHOD)),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-type"), STR("text/plain"))		\
-	));
+#define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)					\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR(#METHOD)),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-length"), STR("0"))				\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
+	}									\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR(#METHOD)),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-type"), STR("text/plain"))			\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
+	}
 
-#define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(METHOD)			\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR("PUT")),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-length"), STR("0")),		\
-		HEADER(STR("x-method-override"), STR(#METHOD))		\
-	));								\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR("PUT")),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-type"), STR("text/plain")),		\
-		HEADER(STR("x-method-override"), STR(#METHOD))		\
-	));								\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR("PUT")),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-length"), STR("0")),		\
-		HEADER(STR("x-http-method-override"), STR(#METHOD))	\
-	));								\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR("PUT")),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-type"), STR("text/plain")),		\
-		HEADER(STR("x-http-method-override"), STR(#METHOD))	\
-	));								\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR("PUT")),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-length"), STR("0")),		\
-		HEADER(STR("x-http-method"), STR(#METHOD))		\
-	));								\
-	EXPECT_BLOCK_REQ_H2(						\
-	    HEADERS_FRAME(						\
-		HEADER(STR(":method"), STR("PUT")),			\
-		HEADER(STR(":scheme"), STR("https")),			\
-		HEADER(STR(":path"), STR("/filename")),			\
-		HEADER(STR("content-type"), STR("text/plain")),		\
-		HEADER(STR("x-http-method"), STR(#METHOD))		\
-	));
+#define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(METHOD)				\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR("PUT")),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-length"), STR("0")),			\
+		HEADER(STR("x-method-override"), STR(#METHOD))			\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR("PUT")),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-type"), STR("text/plain")),			\
+		HEADER(STR("x-method-override"), STR(#METHOD))			\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR("PUT")),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-length"), STR("0")),			\
+		HEADER(STR("x-http-method-override"), STR(#METHOD))		\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR("PUT")),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-type"), STR("text/plain")),			\
+		HEADER(STR("x-http-method-override"), STR(#METHOD))		\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR("PUT")),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-length"), STR("0")),			\
+		HEADER(STR("x-http-method"), STR(#METHOD))			\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME(							\
+		HEADER(STR(":method"), STR("PUT")),				\
+		HEADER(STR(":scheme"), STR("https")),				\
+		HEADER(STR(":path"), STR("/filename")),				\
+		HEADER(STR("content-type"), STR("text/plain")),			\
+		HEADER(STR("x-http-method"), STR(#METHOD))			\
+	));									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}
 
 
 	EXPECT_BLOCK_BODYLESS_REQ_H2(GET);
