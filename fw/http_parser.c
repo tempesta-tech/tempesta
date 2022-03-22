@@ -1194,7 +1194,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 									\
-	if (tfw_http_parse_req_on_headers_done(req)) {			\
+	if (tfw_http_parse_check_bodyless_meth(req)) {			\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 									\
@@ -3730,37 +3730,39 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
 }
 
-int
-tfw_http_parse_req_on_headers_done(TfwHttpReq *req)
-{
-#define IS_BODYLESS_METHOD(meth)						\
-	((meth) == TFW_HTTP_METH_GET || (meth) == TFW_HTTP_METH_HEAD		\
-	 || (meth) == TFW_HTTP_METH_DELETE || (meth) == TFW_HTTP_METH_TRACE)
 
+/**
+ * Check h1/h2 request after all headers was parsed.
+ *
+ * According to RFC 7231 4.3.* a payload within GET, HEAD,
+ * DELETE, TRACE and CONNECT requests has no defined semantics
+ * and implementations can reject it. We do this respecting overrides.
+ *
+ * Return T_DROP if request contains Content-Length or Content-Type field
+ * for bodyless method.
+ */
+int
+tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
+{
 	TfwStr *tbl = req->h_tbl->tbl;
 
-	/* According to RFC 7231 4.3.* a payload within GET, HEAD,
-	 * DELETE, TRACE and CONNECT requests has no defined semantics
-	 * and implementations can reject it. We do this respecting overrides.
-	 */
-	if (TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
-	    || TFW_STR_NOT_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
+	    || !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
 	{
 		/* Method override either honored or request message
 		 * with method override header dropped later in processing */
 		if ((req->method_override
-			&& IS_BODYLESS_METHOD(req->method_override))
-		    || IS_BODYLESS_METHOD(req->method)) {
-				T_WARN("%s: Content-Length or Content-Type"
-				       " not allowed to be used with such"
-				       " (overridden) method\n", __func__);
-				return T_DROP;
+			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
+		{
+			T_WARN("%s: Content-Length or Content-Type"
+			       " not allowed to be used with such"
+			       " (overridden) method\n", __func__);
+			return T_DROP;
 		}
 	}
 
 	return T_OK;
-
-#undef IS_BODYLESS_METHOD
 }
 
 int
@@ -8346,9 +8348,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 		p += 1;
 		T_DBG3("%s: name next, to=Req_HdrX_Http_Method len=%lu,"
-		    " off=%lu\n",
-		    __func__, len, __data_off(p));
-		if (likely(__data_off(p) < len))
+		       " off=%lu\n", __func__, len, __data_off(p));
+		if (__data_off(p) < len)
 			__FSM_JMP(Req_HdrX_Http_Method);
 
 		__msg_hdr_chunk_fixup(data, len);
@@ -8745,10 +8746,9 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	if (likely(type != HTTP2_DATA))
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-	else if (unlikely(req->method == TFW_HTTP_METH_GET
-		 || req->method == TFW_HTTP_METH_HEAD
-		 || req->method == TFW_HTTP_METH_DELETE
-		 || req->method == TFW_HTTP_METH_TRACE))
+	else if ((req->method_override
+			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
 	{
 		r = T_DROP;
 	}
@@ -8769,6 +8769,9 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 
 	if (WARN_ON_ONCE(!tfw_h2_stream_req_complete(req->stream)))
+		return T_DROP;
+
+	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
 		return T_DROP;
 
 	/*
@@ -8798,7 +8801,6 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	 */
 	req->content_length = req->body.len;
 	req->body.flags |= TFW_STR_COMPLETE;
-	__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
