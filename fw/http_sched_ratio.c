@@ -1045,15 +1045,29 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	call_rcu(&ratio->rcu, tfw_sched_ratio_cleanup_rcu_cb);
 }
 
+static void
+tfw_sched_ratio_put_conn_data(struct rcu_head *rcu)
+{
+	TfwRatioSrvConnList *cl = container_of(rcu, TfwRatioSrvConnList, rcu);
+	kfree(cl);
+}
+
+/**
+ * Add anew or update descriptor for server.
+ *
+ * Can be called from user context on (re-)configuration or from SoftIRQ context
+ * as well on websocket connection establishment to renew actual connection list.
+ */
 static int
 tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 {
 	size_t size, ci = 0;
 	TfwSrvConn *srv_conn;
-	TfwRatioSrvConnList *cl;
+	TfwRatioSrvConnList *cl_copy;
+	TfwRatioSrvConnList *cl = rcu_dereference_bh_check(srvdesc->cl, 1);
 
 	size = sizeof(TfwRatioSrvConnList) + sizeof(TfwSrvConn *) * srv->conn_n;
-	if (!(cl = kzalloc(size, GFP_KERNEL)))
+	if (!(cl_copy = kzalloc(size, in_task() ? GFP_KERNEL : GFP_ATOMIC)))
 		return -ENOMEM;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
@@ -1062,19 +1076,21 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 		if (unlikely(ci++ == srv->conn_n))
 			goto err;
 
-		cl->conns[ci-1] = srv_conn;
+		cl_copy->conns[ci-1] = srv_conn;
 	}
 	if (unlikely(ci != srv->conn_n))
 		goto err;
 
-	cl->conn_n = ci;
-	srvdesc->srv = srv;
-	atomic64_set(&srvdesc->counter, 0);
+	cl_copy->conn_n = ci;
+	rcu_assign_pointer(srvdesc->srv, srv);
+	rcu_assign_pointer(srvdesc->cl, cl_copy);
 
-	rcu_assign_pointer(srvdesc->cl, cl);
+	if (cl)
+		call_rcu(&cl->rcu, tfw_sched_ratio_put_conn_data);
+
 	return 0;
 err:
-	kfree(srvdesc->cl);
+	kfree(cl_copy);
 	return -EINVAL;
 }
 
@@ -1296,13 +1312,6 @@ tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
 }
 
 static void
-tfw_sched_ratio_put_conn_data(struct rcu_head *rcu)
-{
-	TfwRatioSrvConnList *cl = container_of(rcu, TfwRatioSrvConnList, rcu);
-	kfree(cl);
-}
-
-static void
 tfw_sched_ratio_del_srv(TfwServer *srv)
 {
 	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
@@ -1316,34 +1325,8 @@ static int
 tfw_sched_ratio_upd_srv(TfwServer *srv)
 {
 	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
-	size_t size, ci = 0;
-	TfwRatioSrvConnList *cl_copy;
-	TfwRatioSrvConnList *cl = rcu_dereference_bh_check(srvdesc->cl, 1);
-	TfwSrvConn *srv_conn;
 
-	size = sizeof(TfwRatioSrvConnList) + sizeof(TfwSrvConn *) * srv->conn_n;
-	if (!(cl_copy = kzalloc(size, GFP_ATOMIC)))
-		return -ENOMEM;
-
-	list_for_each_entry(srv_conn, &srv->conn_list, list) {
-		if (tfw_srv_conn_unscheduled(srv_conn))
-			continue;
-		if (unlikely(ci++ == srv->conn_n))
-			goto err;
-		cl_copy->conns[ci-1] = srv_conn;
-	}
-	if (unlikely(ci != srv->conn_n))
-		goto err;
-	cl->conn_n = ci;
-	rcu_assign_pointer(srvdesc->cl, cl_copy);
-
-	if (srvdesc)
-		call_rcu(&cl->rcu, tfw_sched_ratio_put_conn_data);
-
-	return 0;
-err:
-	kfree(cl_copy);
-	return -EINVAL;
+	return tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc);
 }
 
 static TfwScheduler tfw_sched_ratio = {
