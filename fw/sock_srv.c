@@ -524,15 +524,24 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
+static inline void
+tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
+{
+	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+}
+
 /*
  * Get reference to server and mark the connection as active, which means
  * that server must be put during connection release procedure.
+ *
+ * And start connection attempt.
  */
 void
-tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
+tfw_sock_srv_connect_one(TfwServer * srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
-	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+	tfw_sock_srv_conn_activate(srv, srv_conn);
+	tfw_sock_srv_connect_try_later(srv_conn);
 }
 
 static void
@@ -549,8 +558,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * that parallel execution can't happen with the same socket.
 	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
-		tfw_sock_srv_conn_activate(srv, srv_conn);
-		tfw_sock_srv_connect_try_later(srv_conn);
+		tfw_sock_srv_connect_one(srv, srv_conn);
 	}
 }
 
@@ -652,8 +660,7 @@ tfw_sock_srv_append_conns_n(TfwServer *srv, size_t conn_n)
 	for (i = 0; i < conn_n; ++i) {
 		if (!(srv_conn = tfw_sock_srv_new_conn(srv)))
 			return -ENOMEM;
-		tfw_sock_srv_conn_activate(srv, srv_conn);
-		tfw_sock_srv_connect_try_later(srv_conn);
+		tfw_sock_srv_connect_one(srv, srv_conn);
 		tfw_srv_loop_sched_rcu();
 	}
 

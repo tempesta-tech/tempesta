@@ -5920,6 +5920,42 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 }
 
 /**
+ * Does websocket upgrade procedure.
+ *
+ * Marks current server and client connection as websocket connection. Starts
+ * reconnection with backend to restore full backend connection count.
+ *
+ * @return zero on success and negative otherwise
+ */
+static int
+tfw_http_websocket_upgrade(TfwHttpResp *resp)
+{
+	TfwServer *srv = (TfwServer *)resp->conn->peer;
+	TfwSrvConn *srv_conn;
+
+	/* Cannot proceed with upgrade websocket due to error
+	* in creation of new http connection. While it will not be
+	* inherently erroneous to upgrade existing connection, but
+	* we would pay for it with essentially dropping connection with
+	* server. Better just drop upgrade request and reestablish connection.
+	*/
+	if (!(srv_conn = tfw_sock_srv_new_conn(srv))) {
+		tfw_http_conn_error_log(resp->conn,
+					"Can't create new connection for "
+					"websocket upgrade response");
+		return TFW_BLOCK;
+	}
+
+	set_bit(TFW_CONN_B_UNSCHED, &((TfwSrvConn *)resp->conn)->flags);
+
+	tfw_sock_srv_connect_one(srv, srv_conn);
+
+	srv->sg->sched->upd_srv(srv);
+
+	return TFW_PASS;
+}
+
+/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */
@@ -6111,30 +6147,9 @@ next_msg:
 		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
 		     && resp->status == 101))
 	{
-		TfwServer *srv = (TfwServer *)resp->conn->peer;
-		TfwSrvConn *srv_conn;
-
-		/* Cannot proceed with upgrade websocket due to error
-		 * in creation of new http connection. While it will not be
-		 * inherently erroneous to upgrade existing connection, but
-		 * we would pay for it with essentially dropping connection with
-		 * server. Better just drop upgrade request and
-		 * reestablish connection.
-		 */
-		if (!(srv_conn = tfw_sock_srv_new_conn(srv))) {
-			tfw_http_conn_error_log(conn, "Can't create new "
-						      "connection for websocket"
-						      " upgrade response");
+		r = tfw_http_websocket_upgrade(resp);
+		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
-		}
-
-		set_bit(TFW_CONN_B_UNSCHED,
-			&((TfwSrvConn *)hmresp->conn)->flags);
-
-		tfw_sock_srv_conn_activate(srv, srv_conn);
-		tfw_sock_srv_connect_try(srv_conn);
-
-		srv->sg->sched->upd_srv(srv);
 	}
 
 	/*

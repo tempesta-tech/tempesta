@@ -345,8 +345,7 @@ int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
 
 /* Public sock_srv routings */
-void tfw_sock_srv_connect_try(TfwSrvConn *srv_conn);
-void tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn);
+void tfw_sock_srv_connect_one(TfwServer *srv, TfwSrvConn *srv_conn);
 TfwSrvConn *tfw_sock_srv_new_conn(TfwServer *srv);
 
 #endif /* __SERVER_H__ */
