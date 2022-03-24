@@ -8744,16 +8744,18 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	*parsed = 0;
 
-	if (likely(type != HTTP2_DATA))
+	if (likely(type != HTTP2_DATA)) {
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
+	}
 	else if ((req->method_override
-			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
-		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
+		  && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		 || TFW_HTTP_IS_METH_BODYLESS(req->method))
 	{
 		r = T_DROP;
 	}
-	else
+	else {
 		r = tfw_h2_parse_body(data, len, req, parsed);
+	}
 
 	return (r == T_OK) ? T_POSTPONE : r;
 }
@@ -8768,7 +8770,7 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 {
 	TfwHttpHdrTbl *ht = req->h_tbl;
 
-	if (WARN_ON_ONCE(!tfw_h2_stream_req_complete(req->stream)))
+	if (unlikely(!tfw_h2_stream_req_complete(req->stream)))
 		return T_DROP;
 
 	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))

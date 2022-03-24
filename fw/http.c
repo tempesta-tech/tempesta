@@ -5304,6 +5304,11 @@ next_msg:
 		}
 		if (TFW_MSG_H2(req)) {
 			TfwH2Ctx *ctx = tfw_h2_context(conn);
+			/* If the parser met END_HEADERS flag we can be ensure
+			 * that we get and processed all headers.
+			 * We will be at this point even if the parser met
+			 * END_STREAM and END_HEADERS flags at once.
+			 */
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
 				if (unlikely(tfw_http_parse_check_bodyless_meth(req)))
 					return TFW_BLOCK;
