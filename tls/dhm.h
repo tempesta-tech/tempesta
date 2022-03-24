@@ -61,10 +61,7 @@
  * DHM Error codes
  */
 #define TTLS_ERR_DHM_BAD_INPUT_DATA		-0x3080  /**< Bad input parameters. */
-#define TTLS_ERR_DHM_READ_PARAMS_FAILED				-0x3100  /**< Reading of the DHM parameters failed. */
-#define TTLS_ERR_DHM_READ_PUBLIC_FAILED				-0x3200  /**< Reading of the public values failed. */
 #define TTLS_ERR_DHM_MAKE_PUBLIC_FAILED				-0x3280  /**< Making of the public value failed. */
-#define TTLS_ERR_DHM_CALC_SECRET_FAILED				-0x3300  /**< Calculation of the DHM secret failed. */
 
 /**
  * The DHM context structure.

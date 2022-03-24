@@ -98,9 +98,6 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
-		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
-		       -r);
-		fallthrough;
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
@@ -796,7 +793,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 
 #define SNI_WARN(fmt, ...)						\
 	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
-			  T_WARN("TLS: sni ext: client %s requested "fmt, \
+			  T_WARN("client %s requested"fmt, \
 				 addr_str, __VA_ARGS__))
 
 /**
@@ -815,7 +812,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
 
 	if (WARN_ON_ONCE(ctx->peer_conf))
-		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		return -EBUSY;
 
 	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
@@ -823,12 +820,12 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			SNI_WARN(" '%s' vhost by name, reject connection.\n",
 				 TFW_VH_DFT_NAME);
 			tfw_vhost_put(vhost);
-			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			return -ENOENT;
 		}
 		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
 			SNI_WARN(" unknown server name '%.*s', reject connection.\n",
-				 (int)len, data);
-			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+				 PR_TFW_STR(&srv_name));
+			return -ENOENT;
 		}
 	}
 	/*
@@ -837,13 +834,16 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	 */
 	if (!vhost)
 		vhost = tfw_vhost_lookup_default();
-	if (unlikely(!vhost))
-		return TTLS_ERR_CERTIFICATE_REQUIRED;
+	if (WARN_ON_ONCE(!vhost))
+		return -ENOKEY;
 
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
-	if (unlikely(!peer_cfg))
-		return TTLS_ERR_CERTIFICATE_REQUIRED;
+	if (unlikely(!peer_cfg)) {
+		SNI_WARN(" misconfigured vhost '%.*s', reject connection.\n",
+			 PR_TFW_STR(&vhost->name));
+		return -ENOKEY;
+	}
 
 	if (DBG_TLS) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
@@ -995,13 +995,6 @@ tfw_tls_cfgend(void)
 			    "provided. At least one vhost must have TLS "
 			   "certificates configured.\n");
 		return -EINVAL;
-	}
-
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS_GLOBAL)) {
-		T_WARN_NL("TLS: no global TLS certificates provided. "
-			  "Client TLS connections with unknown "
-			    "server name values or with no server name "
-			    "specified will be dropped.\n");
 	}
 
 	return 0;
