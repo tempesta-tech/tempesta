@@ -39,6 +39,7 @@
 
 #include <linux/preempt.h>
 
+#include "tls_internal.h"
 #include "bignum.h"
 #include "ciphersuites.h"
 #include "dhm.h"
