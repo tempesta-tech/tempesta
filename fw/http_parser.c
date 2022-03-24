@@ -8770,9 +8770,6 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 {
 	TfwHttpHdrTbl *ht = req->h_tbl;
 
-	if (unlikely(!tfw_h2_stream_req_complete(req->stream)))
-		return T_DROP;
-
 	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
 		return T_DROP;
 
