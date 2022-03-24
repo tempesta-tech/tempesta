@@ -143,7 +143,8 @@ static int x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
 	/* Get md_alg from md_oid */
 	if ((ret = ttls_oid_get_md_alg(&md_oid, md_alg)) != 0) {
 		TTLS_WITH_OID_FMT(&md_oid, md_str,
-			T_WARN("X509 - Hash algorithm %s is unsupported", md_str));
+			T_WARN("X509 - Hash algorithm with OID %s is unsupported",
+			       md_str));
 		return TTLS_ERR_X509_INVALID_ALG;
 	}
 
@@ -627,7 +628,8 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 
 	if ((ret = ttls_oid_get_sig_alg(sig_oid, md_alg, pk_alg)) != 0) {
 		TTLS_WITH_OID_FMT(sig_oid, sig_str,
-			T_WARN("X509 - Signature algorithm %s is unsupported", sig_str));
+			T_WARN("X509 - Signature algorithm with OID %s is unsupported",
+			       sig_str));
 		return TTLS_ERR_X509_UNKNOWN_SIG_ALG;
 	}
 
