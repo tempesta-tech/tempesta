@@ -166,8 +166,12 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 	}
 	BUG_ON(pos != len);
 
-	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE)
-		r = tfw_h2_parse_req_finish(req);
+	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
+		if (!(r = tfw_http_parse_check_bodyless_meth(req))) {
+			__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+			r = tfw_h2_parse_req_finish(req);
+		}
+	}
 
 	return r;
 }
@@ -265,7 +269,7 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 			test_req_free(req);
 
 		req = test_req_alloc(len);
-
+		conn.h2.hpack.state = 0;
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
@@ -287,7 +291,8 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 			? len
 			: CHUNK_SIZES[chunk_size_index];
 
-	TEST_DBG3("split: chunk_mode=%d, chunk_size=%u\n", chunk_mode, chunk_size);
+	TEST_DBG3("%s: chunk_mode=%d, chunk_size_index=%u, chunk_size=%u\n",
+		    __func__, chunk_mode, chunk_size_index, chunk_size);
 
 	r = split_and_parse_n(str, type, len, chunk_size);
 
@@ -1698,22 +1703,152 @@ TEST(http_parser, upgrade)
 
 TEST(http_parser, content_type_in_bodyless_requests)
 {
-	EXPECT_BLOCK_REQ_SIMPLE("Content-Type: text/plain");
+#define EXPECT_BLOCK_BODYLESS_REQ(METHOD)					\
+	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
+		 	 "Content-Length: 0\r\n"				\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
+	}									\
+	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
+		 	 "Content-Type: text/html\r\n"				\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
+	}
 
-	EXPECT_BLOCK_REQ("HEAD / HTTP/1.1\r\n"
-			 "Content-Type: text/html; charset=utf-8\r\n"
-		 	 "Content-Length: 0\r\n"
-		 	 "\r\n");
+#define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(METHOD)				\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
+		 	 "Content-Length: 0\r\n"				\
+			 "X-Method-Override: " #METHOD "\r\n"			\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
+		 	 "Content-Length: 0\r\n"				\
+			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
+		 	 "Content-Length: 0\r\n"				\
+			 "X-HTTP-Method: " #METHOD "\r\n"			\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
+		 	 "Content-Type: text/html\r\n"				\
+			 "X-Method-Override: " #METHOD "\r\n"			\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
+		 	 "Content-Type: text/html\r\n"				\
+			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
+		 	 "Content-Type: text/html\r\n"				\
+			 "X-HTTP-Method: " #METHOD "\r\n"			\
+		 	 "\r\n");						\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}
 
-	EXPECT_BLOCK_REQ("DELETE / HTTP/1.1\r\n"
-			 "Content-Length: 5\r\n"
-			 "Content-Type: text/html\r\n"
-			 "\r\n"
-			 "dummy");
+#define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)					\
+	EXPECT_BLOCK_REQ_H2(":method: "#METHOD"\n"				\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-length: 0");				\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
+	}									\
+	EXPECT_BLOCK_REQ_H2(":method: "#METHOD"\n"				\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-type: text/plain");			\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
+	}
 
-	EXPECT_BLOCK_REQ("TRACE / HTTP/1.1\r\n"
-			 "Content-Type: application/octet-stream\r\n"
-			 "\r\n");
+#define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(METHOD)				\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-length: 0\n"				\
+			    "x-method-override: "#METHOD);			\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-length: 0\n"				\
+			    "x-http-method-override: "#METHOD);			\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-length: 0\n"				\
+			    "x-http-method: "#METHOD);				\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-type: text/plain\n"			\
+			    "x-method-override: "#METHOD);			\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-type: text/plain\n"			\
+			    "x-http-method-override: "#METHOD);			\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
+			    ":scheme: https\n"					\
+			    ":path: /\n"					\
+			    "content-type: text/plain\n"			\
+			    "x-http-method: "#METHOD);				\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}
+
+
+	EXPECT_BLOCK_BODYLESS_REQ(GET);
+	EXPECT_BLOCK_BODYLESS_REQ(HEAD);
+	EXPECT_BLOCK_BODYLESS_REQ(DELETE);
+	EXPECT_BLOCK_BODYLESS_REQ(TRACE);
+
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(GET);
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(HEAD);
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(DELETE);
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(TRACE);
 
 	FOR_REQ("OPTIONS / HTTP/1.1\r\n"
 		"Content-Type: text/plain\r\n"
@@ -1723,28 +1858,44 @@ TEST(http_parser, content_type_in_bodyless_requests)
 				 "Content-Type: text/plain");
 	}
 
-	/* Without content-length will not be blocked */
-	FOR_REQ_H2(":method: GET\n"
-		   ":scheme: https\n"
-		   ":path: /");
+	EXPECT_BLOCK_BODYLESS_REQ_H2(GET);
+	EXPECT_BLOCK_BODYLESS_REQ_H2(HEAD);
+	EXPECT_BLOCK_BODYLESS_REQ_H2(DELETE);
+	EXPECT_BLOCK_BODYLESS_REQ_H2(TRACE);
 
-	/* But with content-length will be block for http2 too */
-	EXPECT_BLOCK_REQ_H2(":authority: debian\n"
-			    ":method: GET\n"
-			    ":scheme: https\n"
-			    ":path: /\n"
-			    "content-length: 0");
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(GET);
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(HEAD);
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(DELETE);
+	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(TRACE);
+
+	FOR_REQ_H2(":method: OPTIONS\n"
+		   ":scheme: https\n"
+		   ":path: /\n"
+		   "content-type: text/plain");
+
+
+#undef EXPECT_BLOCK_BODYLESS_REQ
+#undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE
+#undef EXPECT_BLOCK_BODYLESS_REQ_H2
+#undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2
 }
 
 TEST(http_parser, http2_check_important_fields)
 {
+	EXPECT_BLOCK_REQ_H2(":method: GET\n"
+			    ":scheme: http\n"
+			    ":path: /");
+
 	FOR_REQ_H2(":method: GET\n"
 		   ":scheme: https\n"
 		   ":path: /\n"
 		   "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\n"
-		   "Cache-Control: max-age=1, dummy, no-store, min-fresh=30\n"
-		   "Content-Type: text/plain\n"
-		   "Content-Length: 13");
+		   "Cache-Control: max-age=1, dummy, no-store, min-fresh=30");
+
+	EXPECT_BLOCK_REQ_H2(":method: GET\n"
+			    ":scheme: https\n"
+			    ":path: /\n"
+			    "connection: Keep-Alive");
 }
 
 TEST(http_parser, content_length)
