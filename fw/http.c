@@ -5380,7 +5380,18 @@ next_msg:
 			return TFW_BLOCK;
 		}
 		if (TFW_MSG_H2(req)) {
-			TfwH2Ctx *ctx;
+			TfwH2Ctx *ctx = tfw_h2_context(conn);
+			/* If the parser met END_HEADERS flag we can be ensure
+			 * that we get and processed all headers.
+			 * We will be at this point even if the parser met
+			 * END_STREAM and END_HEADERS flags at once.
+			 */
+			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
+				if (unlikely(tfw_http_parse_check_bodyless_meth(req)))
+					return TFW_BLOCK;
+
+				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+			}
 
 			if (tfw_h2_stream_req_complete(req->stream)) {
 				if (likely(!tfw_h2_parse_req_finish(req)))
@@ -5390,9 +5401,6 @@ next_msg:
 					"Request parsing inconsistency");
 				return TFW_BLOCK;
 			}
-			ctx = tfw_h2_context(conn);
-			if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
-				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 		}
 
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);
