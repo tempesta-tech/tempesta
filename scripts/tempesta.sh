@@ -81,7 +81,7 @@ templater()
 			IFS=' '
 			read -ra path <<< "$line"
 
-			files=$(find ${path[1]} -type f -regextype posix-extended -regex '.*')
+			files=$(find ${path[1]} -type f -regextype posix-extended -regex '.*\.conf$')
 			while IFS= read -r file; do
 				value=`cat $file`
 				echo "$value" >> $tfw_cfg_temp
