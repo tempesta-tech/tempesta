@@ -60,11 +60,30 @@ enum {
 	CHUNK_ON
 };
 
+#define TOKEN_ALPHABET		"!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQ"	\
+				"RSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~"
+#define QETOKEN_ALPHABET	TOKEN_ALPHABET "\"="
+
+#define EXPECT_BLOCK_DIGITS(head, tail, BLOCK_MACRO)		\
+	BLOCK_MACRO(head tail);					\
+	BLOCK_MACRO(head "  " tail);				\
+	BLOCK_MACRO(head "5a" tail);				\
+	BLOCK_MACRO(head "\"" tail);				\
+	BLOCK_MACRO(head "=" tail);				\
+	BLOCK_MACRO(head "-1" tail);				\
+	BLOCK_MACRO(head "0.99" tail);				\
+	BLOCK_MACRO(head "dummy" tail);				\
+	BLOCK_MACRO(head "4294967296" tail);			\
+	BLOCK_MACRO(head "9223372036854775807" tail);		\
+	BLOCK_MACRO(head "9223372036854775808" tail);		\
+	BLOCK_MACRO(head "18446744073709551615" tail);		\
+	BLOCK_MACRO(head "18446744073709551616" tail)
+
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
-static char h2_buf[1024];
+static char h2_buf[2048];
 static char *h2_buf_ptr = h2_buf;
 static unsigned int h2_len = 0;
 static size_t hm_exp_len = 0;
@@ -279,6 +298,7 @@ do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mod
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
+		__set_bit(TFW_HTTP_B_H2, req->flags);
 	}
 	else if (type == FUZZ_RESP) {
 		if (resp)

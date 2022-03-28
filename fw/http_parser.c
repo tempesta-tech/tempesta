@@ -6142,14 +6142,10 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_CC_m) {
 		H2_TRY_STR_LAMBDA("max-age=", {
-			req->cache_ctl.max_age = parser->_acc;
-			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
-			__FSM_EXIT(CSTR_EQ);
+			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_CC_m, Req_I_CC_MaxAgeVBeg);
 		H2_TRY_STR_LAMBDA("min-fresh=", {
-			req->cache_ctl.min_fresh = parser->_acc;
-			req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
-			__FSM_EXIT(CSTR_EQ);
+			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_CC_m, Req_I_CC_MinFreshVBeg);
 		H2_TRY_STR_LAMBDA("max-stale", {
 			req->cache_ctl.max_stale = UINT_MAX;
@@ -6248,7 +6244,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
 		if (c == '=')
-			__FSM_H2_I_MOVE_RESET_ACC(Req_I_CC_MaxStaleVBeg, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_CC_MaxStaleVBeg, 1);
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.max_stale = UINT_MAX;
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
