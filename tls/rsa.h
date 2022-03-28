@@ -38,7 +38,6 @@
 #define TTLS_ERR_RSA_BAD_INPUT_DATA		-0x4080  /**< Bad input parameters to function. */
 #define TTLS_ERR_RSA_INVALID_PADDING				   -0x4100  /**< Input data contains invalid padding and is rejected. */
 #define TTLS_ERR_RSA_KEY_CHECK_FAILED				  -0x4200  /**< Key failed to pass the validity check of the library. */
-#define TTLS_ERR_RSA_PUBLIC_FAILED		 -0x4280  /**< The public key operation failed. */
 #define TTLS_ERR_RSA_PRIVATE_FAILED		-0x4300  /**< The private key operation failed. */
 #define TTLS_ERR_RSA_VERIFY_FAILED		 -0x4380  /**< The PKCS#1 verification failed. */
 #define TTLS_ERR_RSA_RNG_FAILED			-0x4480 /**< The random generator failed to generate non-zeros. */

@@ -29,8 +29,13 @@
 #include "crypto.h"
 #include "x509.h"
 
-#define TTLS_ERR_OID_NOT_FOUND			 -0x002E  /**< OID is not found. */
-#define TTLS_ERR_OID_BUF_TOO_SMALL		 -0x000B  /**< output buffer is too small */
+#define TTLS_WITH_OID_FMT(asn1_buf, fmtd_oid_var_name, action_expr)	\
+    do {								\
+	char fmtd_oid_var_name[32] = { 0 };				\
+	ttls_oid_get_numeric_string(fmtd_oid_var_name,			\
+		ARRAY_SIZE(fmtd_oid_var_name), asn1_buf);		\
+	action_expr;							\
+    } while (0)
 
 /*
  * Top level OID tuples
@@ -294,11 +299,8 @@ typedef struct {
  * \param buf	   buffer to put representation in
  * \param size	  size of the buffer
  * \param oid	   OID to translate
- *
- * \return		  Length of the string written (excluding final NULL) or
- *				  TTLS_ERR_OID_BUF_TOO_SMALL in case of error
  */
-int ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid);
+void ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid);
 
 /**
  * \brief		  Translate an X.509 extension OID into local values
@@ -306,7 +308,7 @@ int ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid
  * \param oid	  OID to use
  * \param ext_type place to store the extension type
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_x509_ext_type(const ttls_asn1_buf *oid, int *ext_type);
 
@@ -317,7 +319,7 @@ int ttls_oid_get_x509_ext_type(const ttls_asn1_buf *oid, int *ext_type);
  * \param oid	  OID to use
  * \param short_name	place to store the string pointer
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_attr_short_name(const ttls_asn1_buf *oid, const char **short_name);
 
@@ -327,7 +329,7 @@ int ttls_oid_get_attr_short_name(const ttls_asn1_buf *oid, const char **short_na
  * \param oid	  OID to use
  * \param pk_alg   place to store public key algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_pk_alg(const ttls_asn1_buf *oid, ttls_pk_type_t *pk_alg);
 
@@ -338,7 +340,7 @@ int ttls_oid_get_pk_alg(const ttls_asn1_buf *oid, ttls_pk_type_t *pk_alg);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_pk_alg(ttls_pk_type_t pk_alg,
 			   const char **oid, size_t *olen);
@@ -349,7 +351,7 @@ int ttls_oid_get_oid_by_pk_alg(ttls_pk_type_t pk_alg,
  * \param oid	  OID to use
  * \param grp_id   place to store group id
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_ec_grp(const ttls_asn1_buf *oid, ttls_ecp_group_id *grp_id);
 
@@ -360,7 +362,7 @@ int ttls_oid_get_ec_grp(const ttls_asn1_buf *oid, ttls_ecp_group_id *grp_id);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_ec_grp(ttls_ecp_group_id grp_id,
 			   const char **oid, size_t *olen);
@@ -372,7 +374,7 @@ int ttls_oid_get_oid_by_ec_grp(ttls_ecp_group_id grp_id,
  * \param md_alg   place to store message digest algorithm
  * \param pk_alg   place to store public key algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_sig_alg(const ttls_asn1_buf *oid,
 		 ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg);
@@ -383,7 +385,7 @@ int ttls_oid_get_sig_alg(const ttls_asn1_buf *oid,
  * \param oid	  OID to use
  * \param desc	 place to store string pointer
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_sig_alg_desc(const ttls_asn1_buf *oid, const char **desc);
 
@@ -395,7 +397,7 @@ int ttls_oid_get_sig_alg_desc(const ttls_asn1_buf *oid, const char **desc);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_sig_alg(ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
 				const char **oid, size_t *olen);
@@ -406,7 +408,7 @@ int ttls_oid_get_oid_by_sig_alg(ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
  * \param oid	  OID to use
  * \param md_alg   place to store message digest algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_md_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg);
 
@@ -416,7 +418,7 @@ int ttls_oid_get_md_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg);
  * \param oid	  OID to use
  * \param md_hmac  place to store message hmac algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_md_hmac(const ttls_asn1_buf *oid, ttls_md_type_t *md_hmac);
 
@@ -427,7 +429,7 @@ int ttls_oid_get_md_hmac(const ttls_asn1_buf *oid, ttls_md_type_t *md_hmac);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen);
 
@@ -437,7 +439,7 @@ int ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen
  * \param oid		   OID to use
  * \param cipher_alg	place to store cipher algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_cipher_alg(const ttls_asn1_buf *oid, ttls_cipher_type_t *cipher_alg);
 
