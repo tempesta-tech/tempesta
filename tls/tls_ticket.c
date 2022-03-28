@@ -383,22 +383,9 @@ ttls_tickets_clean(TlsPeerCfg *cfg)
 int
 ttls_tickets_init()
 {
-	int err = TTLS_ERR_BAD_INPUT_DATA;
-
 	t_cfg.cipher_info = ttls_cipher_info_from_type(TTLS_CIPHER_AES_128_GCM);
-
-	if (!t_cfg.cipher_info
-	    || (t_cfg.cipher_info->mode != TTLS_MODE_GCM
-		&& t_cfg.cipher_info->mode != TTLS_MODE_CCM)
-	    || t_cfg.cipher_info->key_len > TTLS_TICKET_KEY_LEN)
-	{
-		return err;
-	}
-
 	t_cfg.md_info = ttls_md_info_from_type(TTLS_MD_SHA256);
-	if (!t_cfg.md_info || !t_cfg.md_info->alg_hmac)
-		return err;
-
+	BUG_ON(t_cfg.cipher_info->key_len > TTLS_TICKET_KEY_LEN);
 	return 0;
 }
 

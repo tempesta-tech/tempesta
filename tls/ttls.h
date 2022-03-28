@@ -46,8 +46,6 @@
 #define TTLS_ERR_INVALID_MAC			-0x7180
 /* An invalid SSL record was received. */
 #define TTLS_ERR_INVALID_RECORD			-0x7200
-/* The connection indicated an EOF. */
-#define TTLS_ERR_CONN_EOF			-0x7280
 /*
  * No client certification received from the client, but required by the
  * authentication mode.
@@ -61,8 +59,6 @@
 #define TTLS_ERR_CA_CHAIN_REQUIRED		-0x7680
 /* An unexpected message was received from our peer. */
 #define TTLS_ERR_UNEXPECTED_MESSAGE		-0x7700
-/* Processing of the ClientHello handshake message failed. */
-#define TTLS_ERR_BAD_HS_CLIENT_HELLO		-0x7900
 /* Processing of the ServerHello handshake message failed. */
 #define TTLS_ERR_BAD_HS_SERVER_HELLO		-0x7980
 /* Processing of the Certificate handshake message failed. */
@@ -530,6 +526,7 @@ typedef struct tls_handshake_t TlsHandshake;
  * heirs. Since most of the work is done per-cpu, we can not pay much attention
  * to the lock granularity.
  *
+ * @sk		- linked with the TLS connection TCP socket;
  * @lock	- protects the TLS context changes;
  * @conf	- global TLS configuration;
  * @peer_conf	- Vhost specific TLS configuration;
@@ -545,6 +542,7 @@ typedef struct tls_handshake_t TlsHandshake;
  * @hostname	- expected peer CN for verification (and SNI if available);
  */
 typedef struct ttls_context {
+	struct sock		*sk;
 	spinlock_t		lock;
 	const TlsCfg		*conf;
 	TlsPeerCfg		*peer_conf;
