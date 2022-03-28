@@ -73,6 +73,7 @@ templater()
 {
 	# Replace !include dircetive with file contents
 	> $tfw_cfg_temp
+	mkdir $TFW_ROOT/etc
 	while IFS= read -r line
 	do
 		if [[ ${line:0:1} = \# ]]; then
