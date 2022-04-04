@@ -514,9 +514,12 @@ TEST(http2_parser, alphabets)
 		HEADER(STR("user-agent"), STR("Wget/1.13.4 (linux-gnu)\t  "));
 		HEADER(STR("accept"), STR("*/*\t "));
 		HEADER(STR("x-custom-hdr"), STR("custom header values \t  "));
-		HEADER(STR("x-forwarded-for"), STR("127.0.0.1, example.com    \t "));
-		HEADER(STR("content-type"), STR("text/html; charset=iso-8859-1  \t "));
-		HEADER(STR("cache-control"), STR("max-age=0, private, min-fresh=42 \t "));
+		HEADER(STR("x-forwarded-for"),
+		       STR("127.0.0.1, example.com    \t "));
+		HEADER(STR("content-type"),
+		       STR("text/html; charset=iso-8859-1  \t "));
+		HEADER(STR("cache-control"),
+		       STR("max-age=0, private, min-fresh=42 \t "));
 	    HEADERS_FRAME_END();
 	);
 }
@@ -572,10 +575,12 @@ TEST(http2_parser, fills_hdr_tbl_for_req)
 		HEADER(STR("Dummy7"), STR("7"));
 		HEADER(STR("Dummy8"), STR("8"));
 		HEADER(STR("Dummy9"), STR("9"));
-		HEADER(STR("cache-control"), STR("max-age=1, dummy, no-store, min-fresh=30"));
+		HEADER(STR("cache-control"),
+		       STR("max-age=1, dummy, no-store, min-fresh=30"));
 		HEADER(STR("pragma"), STR("no-cache, fooo "));
 		HEADER(STR("cookie"), STR("session=42; theme=dark"));
-		HEADER(STR("authorization"), STR("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t "));
+		HEADER(STR("authorization"),
+		       STR("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t "));
 	    HEADERS_FRAME_END();
 	)
 	{
@@ -1199,7 +1204,7 @@ TEST(http2_parser, accept)
 #define FOR_ACCEPT(accept_val)		__FOR_ACCEPT(accept_val, EXPECT_FALSE)
 #define FOR_ACCEPT_HTML(accept_val)	__FOR_ACCEPT(accept_val, EXPECT_TRUE)
 
-#define EXPECT_BLOCK_REQ_H2_ACCEPT(header)						\
+#define EXPECT_BLOCK_REQ_H2_ACCEPT(header)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
 		HEADER(STR(":method"), STR("GET"));				\
@@ -1216,18 +1221,18 @@ TEST(http2_parser, accept)
 	FOR_ACCEPT(HEAD ";key=\"\"");						\
 	FOR_ACCEPT(HEAD "  ; \t key=val");					\
 	FOR_ACCEPT(HEAD ";key=val;key=val");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";");						\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";;");						\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"\"\"");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"val");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=val\"");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key==");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key =val");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";\"key\"=val");				\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key= val");					\
-	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD " key=val");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";;");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"\"\"");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"val");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=val\"");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key==");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key =val");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";\"key\"=val");			\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key= val");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD " key=val");				\
 	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD "key=val");
 
 	/* media-range */
@@ -1402,7 +1407,8 @@ TEST(http2_parser, host)
 			.chunks = (TfwStr []) {
 				{ .data = ":authority" , .len = 10 },
 				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
-				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE|TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE
+					   |TFW_STR_TRAILER },
 			},
 			.len = 32,
 			.nchunks = 2,
@@ -1421,11 +1427,13 @@ TEST(http2_parser, host)
 			.chunks = (TfwStr []) {
 				{ .data = ":authority" , .len = 10 },
 				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
-				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE|TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE
+					   |TFW_STR_TRAILER },
 				{ .data = ":" , .len = 1,
 				 .flags = TFW_STR_TRAILER },
 				{ .data = "65535", .len = 5,
-				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE|TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE
+					   |TFW_STR_TRAILER },
 			},
 			.len = 38,
 			.nchunks = 4,
@@ -2406,14 +2414,14 @@ TEST(http2_parser, vchar)
 	)
 
 /* Tests that header is validated by ctext_vchar alphabet. */
-#define TEST_VCHAR_HEADER(header, id)				\
-	EXPECT_FOR_REQ_H2_HDR_EQ(header, VCHAR_ALPHABET, id);	\
-	EXPECT_BLOCK_REQ_H2_HDR(header, "");			\
-	EXPECT_BLOCK_REQ_H2_HDR(header, "\x08");		\
-	EXPECT_BLOCK_REQ_H2_HDR(header, "\x0B");		\
-	EXPECT_BLOCK_REQ_H2_HDR(header, "\x14");		\
-	EXPECT_BLOCK_REQ_H2_HDR(header, "\x1F");		\
-	EXPECT_BLOCK_REQ_H2_HDR(header, "\x7F");		\
+#define TEST_VCHAR_HEADER(header, id)						\
+	EXPECT_FOR_REQ_H2_HDR_EQ(header, VCHAR_ALPHABET, id);			\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "");					\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x08");				\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x0B");				\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x14");				\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x1F");				\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x7F");				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
 		HEADER(STR(":method"), STR("GET"));				\
@@ -2520,6 +2528,7 @@ TEST(http2_parser, perf)
 	    HEADER(STR(":authority"), STR("example.com"));
 	HEADERS_FRAME_END();
 	request_1.size = H2_BUILDER_GET_BUF_SIZE();
+	H2_BUILDER_RESET_BUF();
 
 	H2_BUILDER_INIT();
 	H2_BUILDER_SET_BUF(request_2.data);
@@ -2531,11 +2540,15 @@ TEST(http2_parser, perf)
 	    HEADER(STR("authorization"), STR("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="));
 	    HEADER(STR("user-agent"), STR("Wget/1.13.4 (linux-gnu)"));
 	    HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
-	    HEADER(STR("x-forwarded-for"), STR("203.0.113.195,70.41.3.18,150.172.238.178"));
+	    HEADER(STR("x-forwarded-for"),
+		   STR("203.0.113.195,70.41.3.18,150.172.238.178"));
 	    HEADER(STR("cookie"), STR("session=42; theme=dark"));
-	    HEADER(STR("referer"), STR("http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]:8080/cgi-bin/show.pl?entry=tempesta"));
+	    HEADER(STR("referer"),
+		   STR("http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]:8080"
+		       "/cgi-bin/show.pl?entry=tempesta"));
 	HEADERS_FRAME_END();
 	request_2.size = H2_BUILDER_GET_BUF_SIZE();
+	H2_BUILDER_RESET_BUF();
 
 	/* Also test invalid request. */
 	H2_BUILDER_INIT();
@@ -2547,20 +2560,23 @@ TEST(http2_parser, perf)
 	    HEADER(STR("authority"), STR("foo.com"));
 	HEADERS_FRAME_END();
 	request_3.size = H2_BUILDER_GET_BUF_SIZE();
+	H2_BUILDER_RESET_BUF();
 
 	H2_BUILDER_INIT();
 	H2_BUILDER_SET_BUF(request_4.data);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("GET"));
 	    HEADER(STR(":scheme"), STR("https"));
-	    HEADER(STR(":path"), STR("/https://ru.wikipedia.org/wiki/%D0%A8%D0%B0%D0"
-			       "%B1%D0%BB%D0%BE%D0%BD:%D0%9B%D0%B5%D0%BE%D0%BD"
-			       "%D0%B0%D1%80%D0%B4%D0%BE_%D0%B4%D0%B0_%D0%92%D0"
-			       "%B8%D0%BD%D1%87%D0%B8"));
+	    HEADER(STR(":path"),
+		   STR("/https://ru.wikipedia.org/wiki/%D0%A8%D0%B0%D0"
+		       "%B1%D0%BB%D0%BE%D0%BD:%D0%9B%D0%B5%D0%BE%D0%BD"
+		       "%D0%B0%D1%80%D0%B4%D0%BE_%D0%B4%D0%B0_%D0%92%D0"
+		       "%B8%D0%BD%D1%87%D0%B8"));
 	    HEADER(STR(":method"), STR("POST"));
 	    HEADER(STR(":authority"), STR("test"));
 	HEADERS_FRAME_END();
 	request_4.size = H2_BUILDER_GET_BUF_SIZE();
+	H2_BUILDER_RESET_BUF();
 
 	H2_BUILDER_INIT();
 	H2_BUILDER_SET_BUF(request_5.data);
@@ -2571,13 +2587,16 @@ TEST(http2_parser, perf)
 	    HEADER(STR(":authority"), STR("a.com"));
 	    HEADER(STR("cookie"), STR("session=42; theme=dark"));
 	    HEADER(STR("Dummy0"), STR("0"));
-	    HEADER(STR("referer"), STR("http://tempesta-tech.com:8080\r\n"
-				"/cgi-bin/show.pl?entry=tempesta"));
+	    HEADER(STR("referer"),
+		   STR("http://tempesta-tech.com:8080\r\n"
+		       "/cgi-bin/show.pl?entry=tempesta"));
 	    HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
-	    HEADER(STR("x-forwarded-for"), STR("203.0.113.195,70.41.3.18,150.172.238.178"));
+	    HEADER(STR("x-forwarded-for"),
+		   STR("203.0.113.195,70.41.3.18,150.172.238.178"));
 	    HEADER(STR("x-custom-hdr"), STR("custom header values"));
 	HEADERS_FRAME_END();
 	request_5.size = H2_BUILDER_GET_BUF_SIZE();
+	H2_BUILDER_RESET_BUF();
 
 	H2_BUILDER_INIT();
 	H2_BUILDER_SET_BUF(request_6.data);
@@ -2589,22 +2608,23 @@ TEST(http2_parser, perf)
 	    HEADER(STR("accept"), STR("*/*"));
 	HEADERS_FRAME_END();
 	request_6.size = H2_BUILDER_GET_BUF_SIZE();
+	H2_BUILDER_RESET_BUF();
 
 #define REQ_PERF(frames_buf)							\
-do {									\
-	test_case_parse_prepare_h2();					\
-	if (req)							\
-		test_req_free(req);					\
-	req = test_req_alloc(frames_buf.size);				\
-		req = test_req_alloc(frames_max_sz);	   \
-		conn.h2.hpack.state = 0;			   \
-		req->conn = (TfwConn*)&conn;			   \
-		req->pit.parsed_hdr = &stream.parser.hdr;	   \
-		req->stream = &stream;				   \
-		tfw_http_init_parser_req(req);			   \
-		stream.msg = (TfwMsg*)req;			   \
-		__set_bit(TFW_HTTP_B_H2, req->flags);		   \
-	tfw_h2_parse_req(req, frames_buf.data, frames_buf.size, &parsed);		\
+do {										\
+	test_case_parse_prepare_h2();						\
+	if (req)								\
+		test_req_free(req);						\
+	req = test_req_alloc(frames_buf.size);					\
+		req = test_req_alloc(frames_max_sz);				\
+		conn.h2.hpack.state = 0;					\
+		req->conn = (TfwConn*)&conn;					\
+		req->pit.parsed_hdr = &stream.parser.hdr;			\
+		req->stream = &stream;						\
+		tfw_http_init_parser_req(req);					\
+		stream.msg = (TfwMsg*)req;					\
+		__set_bit(TFW_HTTP_B_H2, req->flags);				\
+	tfw_h2_parse_req(req, frames_buf.data, frames_buf.size, &parsed);	\
 } while (0)
 
 	for (i = 0; i < 1000; ++i) {
@@ -2625,10 +2645,6 @@ do {									\
 
 #undef REQ_PERF
 #undef H2_BUF
-}
-
-TEST(http2_parser, work)
-{
 }
 
 TEST_SUITE(http2_parser)
@@ -2656,7 +2672,6 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
 	TEST_RUN(http2_parser, perf);
-	TEST_RUN(http2_parser, work);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in

@@ -5953,7 +5953,7 @@ do {									\
 
 #define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
 	H2_TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
-		goto *next_st;					\
+		goto *next_st;						\
 	}, {								\
 		parser->_i_st = curr_st;				\
 	}, next_st)
@@ -5963,42 +5963,45 @@ do {									\
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
  * used (instead of hard coded header field).
  */
-#define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3, curr_st, next_st) \
-	BUG_ON(!TFW_STR_PLAIN(str));					\
-	if (!chunk->data)						\
-		chunk->data = p;					\
-	__fsm_n = __try_str(fld, chunk, p, __data_remain(p),		\
-			    (str)->data, (str)->len);			\
-	do {\
-	if (__fsm_n > 0) {						\
-		if (likely(chunk->len == (str)->len)) {			\
-			lambda1;					\
-			TRY_STR_INIT();					\
-			__msg_field_fixup_pos(fld, p, __fsm_n);		\
-			__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE); \
-			if (__data_off(p + __fsm_n) < len) {		\
-				p += __fsm_n;				\
-				goto next_st;				\
-			}						\
-			if (likely(fin))				\
-				lambda2;				\
-			parser->_i_st = &&next_st;			\
-			__FSM_EXIT(CSTR_POSTPONE);			\
-		}							\
-		__msg_field_fixup_pos(fld, p, __fsm_n);			\
-		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
-		if (likely(fin)) {					\
-			lambda3;					\
-		}							\
-		parser->_i_st = &&curr_st;				\
-		__FSM_EXIT(CSTR_POSTPONE);				\
-	}\
+#define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3,           \
+				 curr_st, next_st)				\
+	BUG_ON(!TFW_STR_PLAIN(str));						\
+	if (!chunk->data)							\
+		chunk->data = p;						\
+	__fsm_n = __try_str(fld, chunk, p, __data_remain(p),			\
+			    (str)->data, (str)->len);				\
+	do {									\
+		if (__fsm_n > 0) {						\
+			if (likely(chunk->len == (str)->len)) {			\
+				lambda1;					\
+				TRY_STR_INIT();					\
+				__msg_field_fixup_pos(fld, p, __fsm_n);		\
+				__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE); \
+				if (__data_off(p + __fsm_n) < len) {		\
+					p += __fsm_n;				\
+					goto next_st;				\
+				}						\
+				if (likely(fin))				\
+					lambda2;				\
+				parser->_i_st = &&next_st;			\
+				__FSM_EXIT(CSTR_POSTPONE);			\
+			}							\
+			__msg_field_fixup_pos(fld, p, __fsm_n);			\
+			__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
+			if (likely(fin)) {					\
+				lambda3;					\
+			}							\
+			parser->_i_st = &&curr_st;				\
+			__FSM_EXIT(CSTR_POSTPONE);				\
+		}								\
 	} while (0)
 
 #define H2_TRY_STR_2LAMBDA_fixup(str, fld, lambda1, lambda2, curr_st, next_st)	\
-	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, {__FSM_EXIT(CSTR_NEQ);}, curr_st, next_st)
+	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2,			\
+				 { __FSM_EXIT(CSTR_NEQ); },			\
+				 curr_st, next_st)
 
-#define H2_TRY_STR_LAMBDA_fixup(str, fld, lambda, curr_st, next_st)	\
+#define H2_TRY_STR_LAMBDA_fixup(str, fld, lambda, curr_st, next_st)		\
 	H2_TRY_STR_2LAMBDA_fixup(str, fld, {}, lambda, curr_st, next_st)
 
 /*
@@ -6578,9 +6581,13 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		static const TfwStr s_multipart_form_data =
 			TFW_STR_STRING("multipart/form-data");
 		H2_TRY_STR_3LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {}, {
-			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-			__FSM_EXIT(CSTR_EQ);
-		}, {p += __fsm_n; break;}, I_ContTypeMediaType, I_ContTypeMaybeMultipart);
+				__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+				__FSM_EXIT(CSTR_EQ);
+			}, {
+				p += __fsm_n;
+				break;
+			},
+			I_ContTypeMediaType, I_ContTypeMaybeMultipart);
 		if (chunk->len >= sizeof("multipart/") - 1) {
 			TRY_STR_INIT();
 			__FSM_I_JMP(I_ContTypeOtherSubtype);
@@ -7273,7 +7280,8 @@ do {									\
 		if (isdigit(c)) {
 			p += 1;
 			if (__data_off(p) == len && fin) {
-				parser->date.year = parser->date.year * 10 + (c - '0');
+				parser->date.year
+					= parser->date.year * 10+ (c - '0');
 				++parser->date.pos;
 				__FSM_JMP(*st[parser->date.type][parser->date.pos]);
 			}
@@ -8242,8 +8250,9 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		case ':':
 			p += 1;
 			if (likely(__data_off(p) < len)) {
-				T_DBG3("%s: name next, to=Req_HdrPseudo len=%lu, off=%lu\n", __func__,
-				    len, __data_off(p));
+				T_DBG3("%s: name next, to=Req_HdrPseudo"
+				       " len=%lu, off=%lu\n", __func__,
+				       len, __data_off(p));
 				__FSM_JMP(Req_HdrPseudo);
 			}
 			if (likely(!fin)) {

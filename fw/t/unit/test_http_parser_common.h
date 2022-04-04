@@ -18,6 +18,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#ifndef __TFW_HTTP_PARSER_COMMON_H__
+#define __TFW_HTTP_PARSER_COMMON_H__
+
 /*
  * Need to define DEBUG before first the inclusions of
  * lib/log.h and linux/printk.h.
@@ -40,18 +43,12 @@
 #endif
 #define EXPORT_SYMBOL(...)
 
-//#include "http_parser.h"
-//#include "http_sess.h"
-//#include "str.h"
-//#include "ss_skb.h"
-//#include "msg.h"
-//#include "http_msg.h"
-#include "http_parser.c"
-#include "http_sess.c"
-#include "str.c"
-#include "ss_skb.c"
-#include "msg.c"
-#include "http_msg.c"
+#include "http_parser.h"
+#include "http_sess.h"
+#include "str.h"
+#include "ss_skb.h"
+#include "msg.h"
+#include "http_msg.h"
 
 static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
@@ -140,9 +137,9 @@ static unsigned int frames_cnt = 0;
 static unsigned int frames_max_sz = 0;
 static unsigned int frames_total_sz = 0;
 
-static unsigned char frames_str_buf[3 * 1024];
-static unsigned char *frames_buf_ptr = frames_str_buf;
-static unsigned int frames_buf_capacity = sizeof(frames_str_buf);
+static unsigned char frames_str_buf[3 * 1024] __attribute__((unused));
+static unsigned char *frames_buf_ptr __attribute__((unused)) = NULL;
+static unsigned int frames_buf_capacity __attribute__((unused)) = 0;
 
 static
 unsigned int __attribute__((unused))
@@ -199,48 +196,52 @@ __data_from_RAW(char *data, size_t size)
 #define RAW(data) \
 	__data_from_RAW(data, sizeof(data))
 
-#define HEADERS_FRAME_BEGIN()				\
-do {							\
-	TfwHeaderRec temp;				\
-	unsigned int frame_sz = 0;			\
-	frames[frames_cnt].subtype = HTTP2_HEADERS\
+#define HEADERS_FRAME_BEGIN()							\
+do {										\
+	TfwHeaderRec temp;							\
+	unsigned int frame_sz = 0;						\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	frames[frames_cnt].subtype = HTTP2_HEADERS				\
 
-#define HEADER(name_rec, value_rec)			\
-do {							\
-	temp.name = name_rec;				\
-	temp.value = value_rec;				\
-	frame_sz += tfw_h2_encode_header(temp);		\
-	BUG_ON(frames_buf_ptr > frames_str_buf + frames_buf_capacity);	\
+#define HEADER(name_rec, value_rec)						\
+do {										\
+	temp.name = name_rec;							\
+	temp.value = value_rec;							\
+	frame_sz += tfw_h2_encode_header(temp);					\
+	BUG_ON(frames_buf_ptr > frames_str_buf + frames_buf_capacity);		\
 } while (0)
 
-#define HEADERS_FRAME_END()				\
-	frames[frames_cnt].str = frames_buf_ptr - frame_sz;    \
-	frames[frames_cnt].len = frame_sz;    \
-	frames_total_sz += frame_sz; \
-	frames_max_sz = max(frames_max_sz, frame_sz);	\
-	++frames_cnt; \
+#define HEADERS_FRAME_END()							\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	frames[frames_cnt].str = frames_buf_ptr - frame_sz;			\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_total_sz += frame_sz;						\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	++frames_cnt;								\
 } while (0)
 
 
-#define DATA_FRAME_BEGIN()				\
-do {							\
-	unsigned int frame_sz = 0;			\
-	frames[frames_cnt].subtype = HTTP2_DATA	\
+#define DATA_FRAME_BEGIN()							\
+do {										\
+	unsigned int frame_sz = 0;						\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	frames[frames_cnt].subtype = HTTP2_DATA					\
 
-#define DATA(data_rec)			\
-do {							\
-	memcpy_fast(frames_buf_ptr, data_rec.buf, data_rec.size); \
-	frames_buf_ptr += data_rec.size; \
-	frame_sz += data_rec.size;			\
-	BUG_ON(frames_buf_ptr > frames_str_buf + frames_buf_capacity);	\
+#define DATA(data_rec)								\
+do {										\
+	memcpy_fast(frames_buf_ptr, data_rec.buf, data_rec.size);		\
+	frames_buf_ptr += data_rec.size;					\
+	frame_sz += data_rec.size;						\
+	BUG_ON(frames_buf_ptr > frames_str_buf + frames_buf_capacity);		\
 } while (0)
 
-#define DATA_FRAME_END()				\
-	frames[frames_cnt].str = frames_buf_ptr - frame_sz;    \
-	frames[frames_cnt].len = frame_sz;    \
-	frames_total_sz += frame_sz; \
-	frames_max_sz = max(frames_max_sz, frame_sz);	\
-	++frames_cnt; \
+#define DATA_FRAME_END()							\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	frames[frames_cnt].str = frames_buf_ptr - frame_sz;			\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_total_sz += frame_sz;						\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	++frames_cnt;								\
 } while (0)
 
 
@@ -514,14 +515,20 @@ validate_data_fully_parsed(int type)
 		test_case_parse_prepare_http(str, sz_diff);		\
 	while (TRY_PARSE_EXPECT_PASS(type, chunk_mode))
 
-#define H2_BUILDER_SET_BUF(h2_builder_buf) \
+#define H2_BUILDER_SET_BUF(h2_builder_buf)				\
+	BUG_ON(frames_buf_ptr);						\
 	frames_buf_ptr = h2_builder_buf;				\
-	frames_buf_capacity = sizeof(h2_builder_buf); \
+	frames_buf_capacity = sizeof(h2_builder_buf);			\
 	bzero_fast(frames_buf_ptr, frames_buf_capacity)
 
-#define H2_BUILDER_INIT() \
-	frames_cnt = 0;	\
-	frames_total_sz = 0;	 \
+#define H2_BUILDER_RESET_BUF()						\
+	BUG_ON(!frames_buf_ptr);					\
+	frames_buf_ptr = NULL;						\
+	frames_buf_capacity = 0
+
+#define H2_BUILDER_INIT()						\
+	frames_cnt = 0;							\
+	frames_total_sz = 0;						\
 	frames_max_sz = 0
 
 #define H2_BUILDER_GET_BUF_SIZE() \
@@ -530,16 +537,17 @@ validate_data_fully_parsed(int type)
 #define FOR_REQ(str)							\
 	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
 #define FOR_REQ_H2(H2_BUILDER_BLOCK)					\
-	H2_BUILDER_INIT();				\
-	H2_BUILDER_SET_BUF(frames_str_buf);		\
+	H2_BUILDER_INIT();						\
+	H2_BUILDER_SET_BUF(frames_str_buf);				\
 	H2_BUILDER_BLOCK;						\
+	H2_BUILDER_RESET_BUF();						\
 	__FOR_REQ(							\
 	    "HTTP/2 request preview is not available now...",		\
 	     0, FUZZ_REQ_H2, CHUNK_ON)
 #define FOR_REQ_H2_CHUNK_OFF(str)					\
 	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
 
-#define __EXPECT_BLOCK_REQ(str, type, chunk_mode)				\
+#define __EXPECT_BLOCK_REQ(str, type, chunk_mode)			\
 do {									\
 	TEST_LOG("=== request: [%s]\n", str);				\
 	type == FUZZ_REQ_H2 ?						\
@@ -550,10 +558,11 @@ do {									\
 
 #define EXPECT_BLOCK_REQ(str)						\
 	__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2(H2_BUILDER_BLOCK)			\
-	H2_BUILDER_INIT();				\
-	H2_BUILDER_SET_BUF(frames_str_buf);		\
+#define EXPECT_BLOCK_REQ_H2(H2_BUILDER_BLOCK)				\
+	H2_BUILDER_INIT();						\
+	H2_BUILDER_SET_BUF(frames_str_buf);				\
 	H2_BUILDER_BLOCK;						\
+	H2_BUILDER_RESET_BUF();						\
 	__EXPECT_BLOCK_REQ(						\
 	    "HTTP/2 request preview is not available now...",		\
 	    FUZZ_REQ_H2, CHUNK_ON)
@@ -571,10 +580,10 @@ do {									\
 do {									\
 	TEST_LOG("=== response: [%s]\n", str);				\
 	test_case_parse_prepare_http(str, 0);				\
-	while (TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON));	\
+	while (TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON));		\
 } while (0)
 
-#define EXPECT_TFWSTR_EQ(tfw_str, cstr) 			\
+#define EXPECT_TFWSTR_EQ(tfw_str, cstr)					\
 	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
 
 /*
@@ -649,3 +658,4 @@ TfwStr get_next_str_val(TfwStr *str)
 	return v;
 }
 
+#endif /* __TFW_HTTP_PARSER_COMMON_H__ */
