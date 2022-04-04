@@ -110,45 +110,45 @@ test_run_all(void)
 
 	test_fail_counter = 0;
 
-//	/* Run sleeping tests first. */
-//	TEST_SUITE_RUN(cfg);
-//	TEST_SUITE_RUN(wq);
+	/* Run sleeping tests first. */
+	TEST_SUITE_RUN(cfg);
+	TEST_SUITE_RUN(wq);
 
 	kernel_fpu_begin();
 
-//	/*
-//	 * Preemption is disabled by kernel_fpu_begin(), so
-//	 * the tests can not sleep.
-//	 */
-//	TEST_SUITE_RUN(tfw_str);
-//	__fpu_schedule();
+	/*
+	 * Preemption is disabled by kernel_fpu_begin(), so
+	 * the tests can not sleep.
+	 */
+	TEST_SUITE_RUN(tfw_str);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(mem_fast);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(mem_fast);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(http1_parser);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(http1_parser);
+	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser);
 	__fpu_schedule();
 
-//	TEST_SUITE_RUN(http_match);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(http_match);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(http_msg);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(http_msg);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(hash);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(hash);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(addr);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(addr);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(hpack);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(hpack);
+	__fpu_schedule();
 
-//	TEST_SUITE_RUN(pool);
-//	__fpu_schedule();
+	TEST_SUITE_RUN(pool);
+	__fpu_schedule();
 
 	kernel_fpu_end();
 
