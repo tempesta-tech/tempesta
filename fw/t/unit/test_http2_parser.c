@@ -647,7 +647,7 @@ TEST(http2_parser, cache_control)
 	    HEADERS_FRAME_END();						\
 	)
 
-//	EXPECT_BLOCK_REQ_H2_CC("");	// TODO
+	EXPECT_BLOCK_REQ_H2_CC("");
 	EXPECT_BLOCK_REQ_H2_CC(" ");
 	EXPECT_BLOCK_REQ_H2_CC("no-cache no-store");
 	EXPECT_BLOCK_REQ_H2_CC("dummy0 dummy1");
@@ -882,7 +882,7 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 
 	EXPECT_BLOCK_REQ_H2_XFF("1.2.3.4, , 5.6.7.8");
 	EXPECT_BLOCK_REQ_H2_XFF("foo!");
-//	EXPECT_BLOCK_REQ_H2_XFF(""); // TODO
+	EXPECT_BLOCK_REQ_H2_XFF("");
 }
 
 TEST(http2_parser, content_type_in_bodyless_requests)
@@ -1236,7 +1236,7 @@ TEST(http2_parser, accept)
 	FOR_ACCEPT("dummy/dummy");
 	FOR_ACCEPT(TOKEN_ALPHABET "/" TOKEN_ALPHABET);
 
-//	EXPECT_BLOCK_REQ_H2_ACCEPT("");	// TODO
+	EXPECT_BLOCK_REQ_H2_ACCEPT("");
 	EXPECT_BLOCK_REQ_H2_ACCEPT(" ");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*");
@@ -1348,7 +1348,7 @@ TEST(http2_parser, host)
 	)
 
 
-//	EXPECT_BLOCK_REQ_H2_HOST("");		// TODO
+	EXPECT_BLOCK_REQ_H2_HOST("");
 	EXPECT_BLOCK_REQ_H2_HOST(" ");
 	EXPECT_BLOCK_REQ_H2_HOST(" tempesta-tech.com");
 
@@ -1708,7 +1708,7 @@ TEST(http2_parser, if_none_match)
 	}
 
 	/* Empty header */
-//	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("");		// TODO
+	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("");
 	/* Not quoted value. */
 	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("ETAG_2");
 	/* Incomplete header. */
@@ -2408,6 +2408,7 @@ TEST(http2_parser, vchar)
 /* Tests that header is validated by ctext_vchar alphabet. */
 #define TEST_VCHAR_HEADER(header, id)				\
 	EXPECT_FOR_REQ_H2_HDR_EQ(header, VCHAR_ALPHABET, id);	\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "");			\
 	EXPECT_BLOCK_REQ_H2_HDR(header, "\x08");		\
 	EXPECT_BLOCK_REQ_H2_HDR(header, "\x0B");		\
 	EXPECT_BLOCK_REQ_H2_HDR(header, "\x14");		\
@@ -2418,10 +2419,10 @@ TEST(http2_parser, vchar)
 		HEADER(STR(":method"), STR("GET"));				\
 		HEADER(STR(":scheme"), STR("https"));				\
 		HEADER(STR(":path"), STR("/"));					\
-		HEADER(STR(header), RAW("\x00"));					\
+		HEADER(STR(header), RAW("\x00"));				\
 	    HEADERS_FRAME_END();						\
 	)
-//	EXPECT_FOR_REQ_H2_HDR_EQ(header, "", id);		// TODO: length = 0 --> wrong PASS
+
 
 	/* Special headers */
 	TEST_VCHAR_HEADER("user-agent", TFW_HTTP_HDR_USER_AGENT);

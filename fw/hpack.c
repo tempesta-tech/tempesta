@@ -1463,6 +1463,12 @@ get_value:
 
 			T_DBG3("%s: value length: %lu\n", __func__, hp->length);
 
+			if (!hp->length) {
+				T_DBG3("%s: zero-length value\n", __func__);
+				r = T_DROP;
+				goto out;
+			}
+
 			NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
 			BUFFER_VAL_OPEN(hp->length);
@@ -1477,11 +1483,7 @@ get_value:
 			unsigned long m_len;
 get_value_text:
 			WARN_ON_ONCE(state & HPACK_FLAGS_NO_VALUE);
-			if (!hp->length) {
-				T_DBG3("%s: zero-length value\n", __func__);
-				r = T_DROP;
-				goto out;
-			}
+			BUG_ON(!hp->length);
 
 			T_DBG3("%s: decode header value...\n", __func__);
 			m_len = min((unsigned long)(last - src), hp->length);
@@ -1596,6 +1598,12 @@ set_window:
 			GET_CONTINUE(hp->length);
 			T_DBG3("%s: value length finally decoded: %lu\n",
 			       __func__, hp->length);
+
+			if (!hp->length) {
+				T_DBG3("%s: zero-length value\n", __func__);
+				r = T_DROP;
+				goto out;
+			}
 
 			NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
