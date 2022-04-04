@@ -5741,7 +5741,7 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
-#define __FSM_H2_I_MOVE_NEQ_LAMBDA_n(to, n, lambda)			\
+#define __FSM_H2_I_MOVE_NEQ_LAMBDA_n_flag(to, n, lambda, flag)		\
 do {									\
 	p += n;								\
 	if (likely(__data_off(p) < len))				\
@@ -5752,7 +5752,7 @@ do {									\
 	}								\
 	parser->_i_st = &&to;						\
 	__msg_hdr_chunk_fixup(data, len);				\
-	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
+	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
@@ -5774,13 +5774,19 @@ do {									\
 #define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
 
+#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
+
 #define __FSM_H2_I_MOVE_n(to, n)					\
-	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
+	__FSM_H2_I_MOVE_n_flag(to, n, 0)
 
 #define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
 
+#define __FSM_H2_I_MOVE_NEQ_n_flag(to, n, flag)				\
+	__FSM_H2_I_MOVE_NEQ_LAMBDA_n_flag(to, n, {}, flag)
+
 #define __FSM_H2_I_MOVE_NEQ(to, n)					\
-	__FSM_H2_I_MOVE_NEQ_LAMBDA_n(to, n, {})
+	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
 
 #define __FSM_H2_I_MOVE_BY_REF_NEQ(to, n)				\
 	__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, {})
@@ -5947,7 +5953,7 @@ do {									\
 
 #define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
 	H2_TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
-		__FSM_EXIT(CSTR_NEQ);					\
+		goto *next_st;					\
 	}, {								\
 		parser->_i_st = curr_st;				\
 	}, next_st)
@@ -5957,12 +5963,13 @@ do {									\
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
  * used (instead of hard coded header field).
  */
-#define H2_TRY_STR_2LAMBDA_fixup(str, fld, lambda1, lambda2, curr_st, next_st) \
+#define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3, curr_st, next_st) \
 	BUG_ON(!TFW_STR_PLAIN(str));					\
 	if (!chunk->data)						\
 		chunk->data = p;					\
 	__fsm_n = __try_str(fld, chunk, p, __data_remain(p),		\
 			    (str)->data, (str)->len);			\
+	do {\
 	if (__fsm_n > 0) {						\
 		if (likely(chunk->len == (str)->len)) {			\
 			lambda1;					\
@@ -5978,13 +5985,18 @@ do {									\
 			parser->_i_st = &&next_st;			\
 			__FSM_EXIT(CSTR_POSTPONE);			\
 		}							\
-		if (likely(fin))					\
-			__FSM_EXIT(CSTR_NEQ);				\
-		parser->_i_st = &&curr_st;				\
 		__msg_field_fixup_pos(fld, p, __fsm_n);			\
 		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
+		if (likely(fin)) {					\
+			lambda3;					\
+		}							\
+		parser->_i_st = &&curr_st;				\
 		__FSM_EXIT(CSTR_POSTPONE);				\
-	}
+	}\
+	} while (0)
+
+#define H2_TRY_STR_2LAMBDA_fixup(str, fld, lambda1, lambda2, curr_st, next_st)	\
+	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, {__FSM_EXIT(CSTR_NEQ);}, curr_st, next_st)
 
 #define H2_TRY_STR_LAMBDA_fixup(str, fld, lambda, curr_st, next_st)	\
 	H2_TRY_STR_2LAMBDA_fixup(str, fld, {}, lambda, curr_st, next_st)
@@ -6012,7 +6024,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (likely(isalnum(c) || c == '.' || c == '-'))
 			__FSM_I_JMP(Req_I_A);
 		if (likely(c == '['))
-			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_A_v6, 1, TFW_STR_VALUE);
+			__FSM_H2_I_MOVE_NEQ_n_flag(Req_I_A_v6, 1, TFW_STR_VALUE);
 		return CSTR_NEQ;
 	}
 
@@ -6044,7 +6056,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_A_v6) {
 		/* See Req_UriAuthorityIPv6 processing. */
 		if (likely(isxdigit(c) || c == ':'))
-			__FSM_H2_I_MOVE_fixup(Req_I_A_v6, 1, TFW_STR_VALUE);
+			__FSM_H2_I_MOVE_NEQ_n_flag(Req_I_A_v6, 1, TFW_STR_VALUE);
 		if (likely(c == ']')) {
 			__msg_hdr_chunk_fixup(data, (p - data + 1));
 			__msg_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
@@ -6105,7 +6117,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_WSAccept) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE(Req_I_WSAccept);
+			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept, 1);
 		/* Fall through. */
 	}
 
@@ -6178,7 +6190,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		});
 		c = *(p + __fsm_sz);
 		if (c == '/')
-			__FSM_H2_I_MOVE_n(Req_I_Slash, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_Slash, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
 
@@ -6196,7 +6208,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_REQUIRE(Req_I_QValueBeg, Req_I_QValue,
-		      (isdigit(c) || c == '.'));
+		      (c == '0' || c == '1'));
 
 	__FSM_STATE(Req_I_QValue) {
 		if (isdigit(c) || c == '.')
@@ -6218,10 +6230,12 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_AcceptOther, Req_I_QValueBeg);
 		TRY_STR_INIT();
-		__FSM_H2_I_MATCH_MOVE(token, Req_I_AcceptOther);
+		__FSM_H2_I_MATCH_MOVE_LAMBDA(token, Req_I_AcceptOther, {
+			__FSM_EXIT(CSTR_NEQ);
+		});
 		c = *(p + __fsm_sz);
 		if (c == '=')
-			__FSM_H2_I_MOVE_n(Req_I_ParamValueBeg, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_ParamValueBeg, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
 
@@ -6252,7 +6266,9 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_H2_I_MOVE(Req_I_WSAccept);
 		if (c == ';')
 			/* Skip weight parameter. */
-			__FSM_H2_I_MOVE(Req_I_WSAcceptOther);
+			__FSM_H2_I_MOVE_LAMBDA_n(Req_I_WSAcceptOther, 1, {
+				__FSM_EXIT(CSTR_NEQ);
+			});
 		return CSTR_NEQ;
 	}
 
@@ -6561,10 +6577,10 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_ContTypeMediaType) {
 		static const TfwStr s_multipart_form_data =
 			TFW_STR_STRING("multipart/form-data");
-		H2_TRY_STR_LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {
+		H2_TRY_STR_3LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {}, {
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 			__FSM_EXIT(CSTR_EQ);
-		}, I_ContTypeMediaType, I_ContTypeMaybeMultipart);
+		}, {p += __fsm_n; break;}, I_ContTypeMediaType, I_ContTypeMaybeMultipart);
 		if (chunk->len >= sizeof("multipart/") - 1) {
 			TRY_STR_INIT();
 			__FSM_I_JMP(I_ContTypeOtherSubtype);
@@ -6580,13 +6596,19 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
 		}
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeMultipartOWS, 1, 0);
+			__FSM_H2_I_MOVE_LAMBDA_fixup(I_ContTypeMultipartOWS, 1, {
+			    __set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			    goto finalize;
+			}, 0);
 		__FSM_I_JMP(I_ContTypeOtherSubtype);
 	}
 
 	__FSM_STATE(I_ContTypeMultipartOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeMultipartOWS, 1, 0);
+			__FSM_H2_I_MOVE_LAMBDA_fixup(I_ContTypeMultipartOWS, 1, {
+			    __set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			    goto finalize;
+			}, 0);
 		if (c == ';') {
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
@@ -6798,6 +6820,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContTypeOtherType) {
 		__FSM_H2_I_MATCH_MOVE_FIN_fixup(token, I_ContTypeOtherType, 0);
+		c = *(p + __fsm_sz);
 		if (c != '/')
 			return CSTR_NEQ;
 		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherSubtype,
@@ -7029,7 +7052,7 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Etag_Val) {
 		weak = parser->hdr.flags & TFW_STR_ETAG_WEAK;
-		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(token, I_Etag_Val,
+		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(etag, I_Etag_Val,
 						(TFW_STR_VALUE | weak));
 		c = *(p + __fsm_sz);
 		if (likely(c == '"')) {
@@ -7113,7 +7136,7 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_Year, &&I_Year, &&I_Year, &&I_Year,
+			&&I_Year, &&I_Year, &&I_Year, &&I_YearEnd,
 			&&I_Res
 		}
 	};
@@ -7242,6 +7265,18 @@ do {									\
 		if (isdigit(c)) {
 			parser->date.year = parser->date.year * 10 + (c - '0');
 			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_YearEnd) {
+		if (isdigit(c)) {
+			p += 1;
+			if (__data_off(p) == len && fin) {
+				parser->date.year = parser->date.year * 10 + (c - '0');
+				++parser->date.pos;
+				__FSM_JMP(*st[parser->date.type][parser->date.pos]);
+			}
 		}
 		return CSTR_NEQ;
 	}
@@ -7637,14 +7672,15 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(I_Meth_Unknown) {
-		__FSM_I_MATCH_MOVE(token, I_Meth_Unknown);
-		req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_I_MATCH_MOVE_finish(token, I_Meth_Unknown, {
+			req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		});
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
 	__FSM_STATE(I_EoT) {
 		if (IS_TOKEN(c))
-			__FSM_H2_I_MOVE(I_Meth_Unknown);
+			__FSM_H2_I_MOVE_n(I_Meth_Unknown, 0);
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(I_EoT);
 		return CSTR_NEQ;
@@ -8060,9 +8096,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		if (!tfw_http_sess_max_misses())
 			__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_Mark, 1, Req_Path);
 
-		TRY_STR_INIT();
-		WARN_ON_ONCE(parser->_i_st);
-
+		if (!parser->_i_st)
+			TRY_STR_INIT();
 		__fsm_n = __h2_req_parse_mark(req, p, __data_remain(p), fin);
 		if (__fsm_n == CSTR_POSTPONE)
 			__FSM_H2_POSTPONE(Req_Mark);
@@ -8205,7 +8240,17 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_STATE(Req_Hdr, cold) {
 		switch (c) {
 		case ':':
-			__FSM_H2_NEXT(Req_HdrPseudo);
+			p += 1;
+			if (likely(__data_off(p) < len)) {
+				T_DBG3("%s: name next, to=Req_HdrPseudo len=%lu, off=%lu\n", __func__,
+				    len, __data_off(p));
+				__FSM_JMP(Req_HdrPseudo);
+			}
+			if (likely(!fin)) {
+				__msg_hdr_chunk_fixup(data, len);
+				__FSM_H2_POSTPONE(Req_HdrPseudo);
+			}
+			__FSM_H2_DROP(Req_Hdr);
 		case 'a':
 			__FSM_H2_NEXT(Req_HdrA);
 		case 'c':
@@ -8227,7 +8272,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		case 'x':
 			__FSM_H2_NEXT(Req_HdrX);
 		default:
-			__FSM_H2_NEXT(RGen_HdrOtherN);
+			__FSM_H2_OTHER_n(0);
 		}
 	}
 
@@ -8958,9 +9003,6 @@ int
 tfw_h2_parse_req_finish(TfwHttpReq *req)
 {
 	TfwHttpHdrTbl *ht = req->h_tbl;
-
-	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
-		return T_DROP;
 
 	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
 		return T_DROP;

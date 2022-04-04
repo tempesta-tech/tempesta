@@ -24,13 +24,6 @@
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
-#define OTHER_DELIMETERS	"(),/:;<=>?@[\\]{}"
-#define OBS_TEXT		"\x80\x90\xC8\xAE\xFE\xFF"
-#define VCHAR_ALPHABET		"\x09 \"" OTHER_DELIMETERS 		\
-				TOKEN_ALPHABET OBS_TEXT
-#define ETAG_ALPHABET		OTHER_DELIMETERS TOKEN_ALPHABET OBS_TEXT
-
-
 #define REQ_SIMPLE_HEAD		"GET / HTTP/1.1\r\n"
 #define EMPTY_REQ		REQ_SIMPLE_HEAD "\r\n"
 #define RESP_SIMPLE_HEAD	"HTTP/1.0 200 OK\r\n"		\
@@ -76,12 +69,6 @@
 	{							\
 		EXPECT_TFWSTR_EQ(&resp->h_tbl->tbl[id], header);\
 	}
-
-#define EXPECT_BLOCK_SHORT(head, tail, BLOCK_MACRO)		\
-	BLOCK_MACRO(head "65536" tail);				\
-	BLOCK_MACRO(head "2147483647" tail);			\
-	BLOCK_MACRO(head "2147483648" tail);			\
-	BLOCK_MACRO(head "4294967295" tail)
 
 
 TEST(http1_parser, leading_eol)
@@ -1633,12 +1620,11 @@ TEST(http1_parser, accept)
 	FOR_ACCEPT(HEAD "  ; \t key=val");				\
 	FOR_ACCEPT(HEAD ";key=val;key=val");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";");					\
+	EXPECT_BLOCK_ACCEPT(HEAD ";;");					\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"\"\"");			\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"val");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=val\"");				\
-	EXPECT_BLOCK_ACCEPT(HEAD ";");					\
-	EXPECT_BLOCK_ACCEPT(HEAD ";;");					\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key==");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key =val");				\
@@ -2542,21 +2528,6 @@ TEST(http1_parser, set_cookie)
 			  "0123456789");
 }
 
-/* For ETag and If-None-Match headers */
-#define COMMON_ETAG_BLOCK(header, BLOCK_MACRO)		\
-	BLOCK_MACRO(header ": \"dummy\"\r\n"		\
-		   ": \"dummy\"");			\
-	BLOCK_MACRO(header ": \"dummy");		\
-	BLOCK_MACRO(header ": dummy\"");		\
-	BLOCK_MACRO(header ": 'dummy'");		\
-	BLOCK_MACRO(header ": W/ \"dummy\"");		\
-	BLOCK_MACRO(header ": w/\"dummy\"");		\
-	BLOCK_MACRO(header ": \"\x00\"");		\
-	BLOCK_MACRO(header ": \"\x0F\"");		\
-	BLOCK_MACRO(header ": \"\x7F\"");		\
-	BLOCK_MACRO(header ": \" \"");			\
-	BLOCK_MACRO(header ": \"\"\"")
-
 TEST(http1_parser, etag)
 {
 #define RESP_ETAG_START						\
@@ -2607,7 +2578,9 @@ TEST(http1_parser, etag)
 	/* Same code is used to parse ETag header and If-None-Match header. */
 	ETAG_BLOCK("ETag: \"dummy1\", \"dummy2\"");
 	ETAG_BLOCK("ETag: *\r\n");
-	COMMON_ETAG_BLOCK("ETag", ETAG_BLOCK);
+	COMMON_ETAG_BLOCK("ETag: ", ETAG_BLOCK);
+	ETAG_BLOCK("ETag: \"dummy\"\r\n"
+		       ": \"dummy\"");
 
 #undef ETAG_BLOCK
 #undef FOR_ETAG
@@ -2738,14 +2711,14 @@ TEST(http1_parser, if_none_match)
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: \"" ETAG_2 "\", * ");
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: *, \"" ETAG_2 "\" ");
 
-	COMMON_ETAG_BLOCK("If-None-Match", EXPECT_BLOCK_REQ_SIMPLE);
+	COMMON_ETAG_BLOCK("If-None-Match: ", EXPECT_BLOCK_REQ_SIMPLE);
+	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: \"dummy\"\r\n"
+					     ": \"dummy\"");
 
 #undef ETAG_1
 #undef ETAG_2
 #undef ETAG_3
 }
-
-#undef COMMON_ETAG_BLOCK
 
 TEST(http1_parser, referer)
 {
@@ -3092,11 +3065,11 @@ TEST(http1_parser, fuzzer)
 			switch (ret) {
 			case FUZZ_VALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ, CHUNK_ON);
+				TRY_PARSE_EXPECT_PASS(FUZZ_REQ, CHUNK_ON);
 				break;
 			case FUZZ_INVALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ, CHUNK_ON);
+				TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON);
 				break;
 			case FUZZ_END:
 			default:
@@ -3118,11 +3091,11 @@ resp:
 			switch (ret) {
 			case FUZZ_VALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP, CHUNK_ON);
+				TRY_PARSE_EXPECT_PASS(FUZZ_RESP, CHUNK_ON);
 				break;
 			case FUZZ_INVALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP, CHUNK_ON);
+				TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON);
 				break;
 			case FUZZ_END:
 			default:
@@ -3340,23 +3313,6 @@ TEST(http1_parser, content_type_line_parser)
 
 #undef HEAD
 #undef TAIL
-}
-
-static
-TfwStr get_next_str_val(TfwStr *str)
-{
-	TfwStr v, *c, *end;
-	unsigned int nchunks = 0;
-
-	v = *str = tfw_str_next_str_val(str);
-	TFW_STR_FOR_EACH_CHUNK(c, &v, end) {
-		if (!(c->flags & TFW_STR_VALUE))
-			break;
-		nchunks++;
-	}
-	v.nchunks = nchunks;
-
-	return v;
 }
 
 TEST(http1_parser, xff)
@@ -3972,63 +3928,63 @@ do {									\
 
 TEST_SUITE(http1_parser)
 {
-//	int r;
+	int r;
 
-//	if ((r = set_sample_req(SAMPLE_REQ_STR))) {
-//		TEST_FAIL("can't parse sample request (code=%d):\n%s",
-//			  r, SAMPLE_REQ_STR);
-//		return;
-//	}
+	if ((r = set_sample_req(SAMPLE_REQ_STR))) {
+		TEST_FAIL("can't parse sample request (code=%d):\n%s",
+			  r, SAMPLE_REQ_STR);
+		return;
+	}
 
-//	TEST_RUN(http1_parser, leading_eol);
-//	TEST_RUN(http1_parser, parses_req_method);
-//	TEST_RUN(http1_parser, parses_req_uri);
-//	TEST_RUN(http1_parser, mangled_messages);
-//	TEST_RUN(http1_parser, alphabets);
-//	TEST_RUN(http1_parser, casesense);
-//	TEST_RUN(http1_parser, hdr_token_confusion);
-//	TEST_RUN(http1_parser, fills_hdr_tbl_for_req);
-//	TEST_RUN(http1_parser, fills_hdr_tbl_for_resp);
-//	TEST_RUN(http1_parser, cache_control);
-//	TEST_RUN(http1_parser, status);
-//	TEST_RUN(http1_parser, age);
-//	TEST_RUN(http1_parser, pragma);
-//	TEST_RUN(http1_parser, suspicious_x_forwarded_for);
-//	TEST_RUN(http1_parser, parses_connection_value);
-//	TEST_RUN(http1_parser, content_type_in_bodyless_requests);
-//	TEST_RUN(http1_parser, content_length);
-//	TEST_RUN(http1_parser, eol_crlf);
-//	TEST_RUN(http1_parser, ows);
-//	TEST_RUN(http1_parser, folding);
-//	TEST_RUN(http1_parser, accept);
-//	TEST_RUN(http1_parser, host);
-//	TEST_RUN(http1_parser, transfer_encoding);
-//	TEST_RUN(http1_parser, crlf_trailer);
-//	TEST_RUN(http1_parser, cookie);
-//	TEST_RUN(http1_parser, set_cookie);
-//	TEST_RUN(http1_parser, etag);
-//	TEST_RUN(http1_parser, if_none_match);
-//	TEST_RUN(http1_parser, referer);
-//	TEST_RUN(http1_parser, req_hop_by_hop);
-//	TEST_RUN(http1_parser, resp_hop_by_hop);
-//	TEST_RUN(http1_parser, fuzzer);
-//	TEST_RUN(http1_parser, content_type_line_parser);
-//	TEST_RUN(http1_parser, xff);
-//	TEST_RUN(http1_parser, date);
-//	TEST_RUN(http1_parser, method_override);
-//	TEST_RUN(http1_parser, x_tempesta_cache);
-//	TEST_RUN(http1_parser, vchar);
+	TEST_RUN(http1_parser, leading_eol);
+	TEST_RUN(http1_parser, parses_req_method);
+	TEST_RUN(http1_parser, parses_req_uri);
+	TEST_RUN(http1_parser, mangled_messages);
+	TEST_RUN(http1_parser, alphabets);
+	TEST_RUN(http1_parser, casesense);
+	TEST_RUN(http1_parser, hdr_token_confusion);
+	TEST_RUN(http1_parser, fills_hdr_tbl_for_req);
+	TEST_RUN(http1_parser, fills_hdr_tbl_for_resp);
+	TEST_RUN(http1_parser, cache_control);
+	TEST_RUN(http1_parser, status);
+	TEST_RUN(http1_parser, age);
+	TEST_RUN(http1_parser, pragma);
+	TEST_RUN(http1_parser, suspicious_x_forwarded_for);
+	TEST_RUN(http1_parser, parses_connection_value);
+	TEST_RUN(http1_parser, content_type_in_bodyless_requests);
+	TEST_RUN(http1_parser, content_length);
+	TEST_RUN(http1_parser, eol_crlf);
+	TEST_RUN(http1_parser, ows);
+	TEST_RUN(http1_parser, folding);
+	TEST_RUN(http1_parser, accept);
+	TEST_RUN(http1_parser, host);
+	TEST_RUN(http1_parser, transfer_encoding);
+	TEST_RUN(http1_parser, crlf_trailer);
+	TEST_RUN(http1_parser, cookie);
+	TEST_RUN(http1_parser, set_cookie);
+	TEST_RUN(http1_parser, etag);
+	TEST_RUN(http1_parser, if_none_match);
+	TEST_RUN(http1_parser, referer);
+	TEST_RUN(http1_parser, req_hop_by_hop);
+	TEST_RUN(http1_parser, resp_hop_by_hop);
+	TEST_RUN(http1_parser, fuzzer);
+	TEST_RUN(http1_parser, content_type_line_parser);
+	TEST_RUN(http1_parser, xff);
+	TEST_RUN(http1_parser, date);
+	TEST_RUN(http1_parser, method_override);
+	TEST_RUN(http1_parser, x_tempesta_cache);
+	TEST_RUN(http1_parser, vchar);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-//	tfw_http_sess_redir_mark_enable();
+	tfw_http_sess_redir_mark_enable();
 
-//	TEST_RUN(http1_parser, parses_enforce_ext_req);
-//	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
+	TEST_RUN(http1_parser, parses_enforce_ext_req);
+	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
 
-//	tfw_http_sess_redir_mark_disable();
+	tfw_http_sess_redir_mark_disable();
 
-//	TEST_RUN(http1_parser, perf);
+	TEST_RUN(http1_parser, perf);
 }

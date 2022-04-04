@@ -517,7 +517,6 @@ TEST(http2_parser, alphabets)
 		HEADER(STR("x-forwarded-for"), STR("127.0.0.1, example.com    \t "));
 		HEADER(STR("content-type"), STR("text/html; charset=iso-8859-1  \t "));
 		HEADER(STR("cache-control"), STR("max-age=0, private, min-fresh=42 \t "));
-//		HEADER(STR("cookie"), STR("session=42; theme=dark  \t "));	// TODO
 	    HEADERS_FRAME_END();
 	);
 }
@@ -1017,17 +1016,1646 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2
 }
 
+TEST(http2_parser, content_length)
+{
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("0"));
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA(STR(""));
+	    DATA_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->content_length == 0);
+	}
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("5"));
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA(RAW(""));
+	    DATA_FRAME_END();
+	);
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("5"));
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA(STR("dummy"));
+	    DATA_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->content_length == 5);
+	}
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("10"));
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA(STR("dummy"));
+	    DATA_FRAME_END();
+	);
+
+
+#define EXPECT_BLOCK_REQ_H2_CL_DUMMY(content_length)				\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("cache-length"), STR(content_length));		\
+	    HEADERS_FRAME_END();						\
+	    DATA_FRAME_BEGIN();							\
+		DATA(STR("dummy"));						\
+	    DATA_FRAME_END();							\
+	);
+
+
+	EXPECT_BLOCK_DIGITS("", "", EXPECT_BLOCK_REQ_H2_CL_DUMMY);
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("10, 10"));
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA(STR("0123456789"));
+	    DATA_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("10 10"));
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA(STR("0123456789"));
+	    DATA_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("content-length"), STR("0"));
+		HEADER(STR("content-length"), STR("0"));
+	    HEADERS_FRAME_END();
+	);
+
+#undef EXPECT_BLOCK_REQ_H2_CL_DUMMY
+}
+
+TEST(http2_parser, ows)
+{
+#define EXPECT_BLOCK_REQ_H2_METHOD(name, value)					\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(name), STR(value));					\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("foo.com"));			\
+	    HEADERS_FRAME_END();						\
+	);
+
+#define EXPECT_BLOCK_REQ_H2_SCHEME(name, value)					\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(name), STR(value));					\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("foo.com"));			\
+	    HEADERS_FRAME_END();						\
+	);
+
+#define EXPECT_BLOCK_REQ_H2_AUTHORITY(name, value)				\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(name), STR(value));					\
+	    HEADERS_FRAME_END();						\
+	);
+
+
+	EXPECT_BLOCK_REQ_H2_METHOD(":method", "		GET");
+	EXPECT_BLOCK_REQ_H2_METHOD(":method", "GET	");
+	EXPECT_BLOCK_REQ_H2_METHOD("	:method", "GET");
+	EXPECT_BLOCK_REQ_H2_METHOD(":method	", "GET");
+
+	EXPECT_BLOCK_REQ_H2_SCHEME(":scheme", "		https");
+	EXPECT_BLOCK_REQ_H2_SCHEME(":scheme", "https	");
+	EXPECT_BLOCK_REQ_H2_SCHEME("	:scheme", "https");
+	EXPECT_BLOCK_REQ_H2_SCHEME(":scheme	", "https");
+
+	EXPECT_BLOCK_REQ_H2_AUTHORITY(":authority", " foo.com");
+	EXPECT_BLOCK_REQ_H2_AUTHORITY(":authority", "foo.com ");
+	EXPECT_BLOCK_REQ_H2_AUTHORITY(" :authority", "foo.com");
+	EXPECT_BLOCK_REQ_H2_AUTHORITY(":authority ", "foo.com");
+
+
+#undef EXPECT_BLOCK_REQ_H2_AUTHORITY
+#undef EXPECT_BLOCK_REQ_H2_SCHEME
+#undef EXPECT_BLOCK_REQ_H2_METHOD
+}
+
+TEST(http2_parser, accept)
+{
+#define __FOR_ACCEPT(accept_val, EXPECT_HTML_MACRO)				\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("accept"), STR(accept_val));				\
+	    HEADERS_FRAME_END();						\
+	)									\
+	{									\
+		EXPECT_HTML_MACRO(test_bit(TFW_HTTP_B_ACCEPT_HTML,		\
+					   req->flags));			\
+	}
+
+#define FOR_ACCEPT(accept_val)		__FOR_ACCEPT(accept_val, EXPECT_FALSE)
+#define FOR_ACCEPT_HTML(accept_val)	__FOR_ACCEPT(accept_val, EXPECT_TRUE)
+
+#define EXPECT_BLOCK_REQ_H2_ACCEPT(header)						\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("accept"), STR(header));				\
+	    HEADERS_FRAME_END();						\
+	);
+
+#define TEST_ACCEPT_EXT(HEAD)							\
+	FOR_ACCEPT(HEAD ";key=val");						\
+	FOR_ACCEPT(HEAD ";" TOKEN_ALPHABET "=" TOKEN_ALPHABET);			\
+	FOR_ACCEPT(HEAD ";" TOKEN_ALPHABET "=\"" TOKEN_ALPHABET "\"");		\
+	FOR_ACCEPT(HEAD ";key=\"\"");						\
+	FOR_ACCEPT(HEAD "  ; \t key=val");					\
+	FOR_ACCEPT(HEAD ";key=val;key=val");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";");						\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";;");						\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"\"\"");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=\"val");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=val\"");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key=");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key==");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key =val");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";\"key\"=val");				\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD ";key= val");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD " key=val");					\
+	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD "key=val");
+
+	/* media-range */
+	FOR_ACCEPT("*/*");
+	FOR_ACCEPT("dummy/*");
+	FOR_ACCEPT("dummy/dummy");
+	FOR_ACCEPT(TOKEN_ALPHABET "/" TOKEN_ALPHABET);
+
+//	EXPECT_BLOCK_REQ_H2_ACCEPT("");	// TODO
+	EXPECT_BLOCK_REQ_H2_ACCEPT(" ");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/dummy/dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/*/*");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*/*");
+	EXPECT_BLOCK_REQ_H2_ACCEPT(QETOKEN_ALPHABET "/dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("/dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/dummy/");
+	/*
+	 * '*' is part of the token alphabet, but for Accept header '*' symbol
+	 * has special meaning and doesn't included into mime types.
+	 */
+	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/*dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*dummy/dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*dummy/*dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*dummy");
+
+	/* parameter */
+	TEST_ACCEPT_EXT("dummy/dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;key");
+
+	/* weight */
+	FOR_ACCEPT("*/*;q=0");
+	/* No prohibition in RFC for that. */
+	FOR_ACCEPT("*/*;q=0;q=1");
+	FOR_ACCEPT("*/*;q=0.0");
+	FOR_ACCEPT("*/*;q=0.5");
+	FOR_ACCEPT("*/*;q=0.999");
+	FOR_ACCEPT("*/*;q=1");
+	FOR_ACCEPT("*/*;q=1.0");
+	FOR_ACCEPT("*/*;q=1.000");
+	FOR_ACCEPT("*/*\t  ; \tq=0");
+
+	/* Breaks the RFC, just dot+digits alphabet is checked... */
+	FOR_ACCEPT("*/*;q=1......");
+	FOR_ACCEPT("*/*;q=1.23..45.6..789...");
+	FOR_ACCEPT("*/*;q=12345");
+	/* ...but first char is checked as in RFC. */
+	FOR_ACCEPT("*/*;q=0.000");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=5.000");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=.000");
+
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=dummy");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q==");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;=0.5");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q =0");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q= 0");
+
+	/* accept-ext */
+	TEST_ACCEPT_EXT("dummy/dummy;q=0");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=0;key");
+
+	/* Multiple values */
+	FOR_ACCEPT("dummy/dummy\t,dummy/dummy ,\t\tdummy/dummy");
+	FOR_ACCEPT("  \t\t */*  ;\t key=val ; key=val\t;\t"
+		   "q=0;\t\text=val ; ext=val;\tkey=val \t\t");
+	/* Invalid delimiters between parts. */
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/* text/plain");
+	/* Empty types are not allowed. */
+	EXPECT_BLOCK_REQ_H2_ACCEPT(",");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*,,");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/,,");
+
+	/* HTML validations */
+	FOR_ACCEPT_HTML("  text/html ");
+	FOR_ACCEPT_HTML("  text/html, application/xhtml+xml ");
+	FOR_ACCEPT_HTML("  text/html;q=0.8 ");
+	FOR_ACCEPT_HTML(" text/html,application/xhtml+xml,application/xml;"
+			"q=0.9,image/webp,image/apng,*/*;q=0.8");
+	FOR_ACCEPT_HTML("  text/html, */*  ");
+	FOR_ACCEPT_HTML("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ");
+	FOR_ACCEPT_HTML("  invalid/invalid; param=\"value value\", text/html");
+	FOR_ACCEPT("  text/*  ");
+	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ");
+	FOR_ACCEPT(" textK/html");
+
+#undef TEST_ACCEPT_EXT
+#undef EXPECT_BLOCK_REQ_H2_ACCEPT
+#undef FOR_ACCEPT_HTML
+#undef FOR_ACCEPT
+#undef __FOR_ACCEPT
+}
+
+TEST(http2_parser, host)
+{
+#define FOR_REQ_H2_HOST(host)							\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR(host));				\
+	    HEADERS_FRAME_END();						\
+	)
+
+#define EXPECT_BLOCK_REQ_H2_HOST(host)						\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR(host));				\
+	    HEADERS_FRAME_END();						\
+	)
+
+
+//	EXPECT_BLOCK_REQ_H2_HOST("");		// TODO
+	EXPECT_BLOCK_REQ_H2_HOST(" ");
+	EXPECT_BLOCK_REQ_H2_HOST(" tempesta-tech.com");
+
+	FOR_REQ_H2_HOST("tempesta-tech.com")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
+
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = ":authority" , .len = 10 },
+				{ .data = "tempesta-tech.com" , .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_TRAILER },
+			},
+			.len = 27,
+			.nchunks = 2,
+			.flags = TFW_STR_COMPLETE
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 0);
+	}
+
+	FOR_REQ_H2_HOST("tempesta-tech.com:443")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
+
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = ":authority" , .len = 10 },
+				{ .data = "tempesta-tech.com" , .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_TRAILER },
+				{ .data = ":" , .len = 1,
+				  .flags = TFW_STR_TRAILER },
+				{ .data = "443" , .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_TRAILER },
+			},
+			.len = 31,
+			.nchunks = 4,
+			.flags = TFW_STR_COMPLETE
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 443);
+	}
+
+	FOR_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
+
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = ":authority" , .len = 10 },
+				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE|TFW_STR_TRAILER },
+			},
+			.len = 32,
+			.nchunks = 2,
+			.flags = TFW_STR_COMPLETE
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 0);
+	}
+
+	FOR_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]:65535")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
+
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = ":authority" , .len = 10 },
+				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE|TFW_STR_TRAILER },
+				{ .data = ":" , .len = 1,
+				 .flags = TFW_STR_TRAILER },
+				{ .data = "65535", .len = 5,
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE|TFW_STR_TRAILER },
+			},
+			.len = 38,
+			.nchunks = 4,
+			.flags = TFW_STR_COMPLETE
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 65535);
+	}
+
+	/* Invalid port */
+	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:0");
+	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:65536");
+	EXPECT_BLOCK_DIGITS("tempesta-tech.com:", "",
+			    EXPECT_BLOCK_REQ_H2_HOST);
+	EXPECT_BLOCK_SHORT( "tempesta-tech.com:", "",
+			    EXPECT_BLOCK_REQ_H2_HOST);
+	EXPECT_BLOCK_DIGITS("[fd42:5ca1:e3a7::1000]:", "",
+			    EXPECT_BLOCK_REQ_H2_HOST);
+	EXPECT_BLOCK_SHORT( "[fd42:5ca1:e3a7::1000]:", "",
+			    EXPECT_BLOCK_REQ_H2_HOST);
+
+	/* Port syntax is broken. */
+	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:443:1");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]:443:1");
+	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com::443");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]::443");
+	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com 443");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000] 443");
+	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:443-1");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]-1");
+
+	/* Invalid brackets around IPv6. */
+	EXPECT_BLOCK_REQ_H2_HOST("fd42:5ca1:e3a7::1000");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000][");
+	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000[");
+
+
+#undef EXPECT_BLOCK_REQ_H2_HOST
+#undef FOR_REQ_H2_HOST
+}
+
+TEST(http2_parser, cookie)
+{
+#define FOR_REQ_H2_COOKIE(cookie)						\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("g.com"));			\
+		HEADER(STR("cookie"), STR(cookie));				\
+	    HEADERS_FRAME_END();						\
+	)
+
+#define EXPECT_BLOCK_REQ_H2_COOKIE(cookie)					\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("g.com"));			\
+		HEADER(STR("cookie"), STR(cookie));				\
+	    HEADERS_FRAME_END();						\
+	)
+
+
+	FOR_REQ_H2_COOKIE("session=42; theme=dark")
+	{
+		TfwStr *end, *c;
+		TfwStr *cookie = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
+		struct {
+			unsigned int flags;
+			const char *str;
+		} kv[] = {
+			{ 0, "cookie" },
+			{ TFW_STR_NAME|TFW_STR_TRAILER, "session=" },
+			{ TFW_STR_VALUE|TFW_STR_TRAILER, "42" },
+			{ TFW_STR_TRAILER, "; " },
+			{ TFW_STR_NAME|TFW_STR_TRAILER, "theme=" },
+			{ TFW_STR_VALUE|TFW_STR_TRAILER, "dark" },
+		};
+		size_t kv_count = sizeof(kv) / sizeof(kv[0]);
+		int kv_idx;
+
+		/*
+		 * Even if the entire cookie field is in a continuous chunk,
+		 * the parser splits it into multiple chunks of data, for every
+		 * key and value of a cookie parameter to start at the beginning
+		 * of a chunk.
+		 * Other code expects keys and values to always begin at the
+		 * left border of a chunk. Verifying it here.
+		 */
+
+		EXPECT_TRUE(cookie->nchunks >= kv_count);
+
+		kv_idx = 0;
+		c = cookie->chunks;
+		end = c + cookie->nchunks;
+		while (c < end) {
+			TfwStr *part_end = c;
+			TfwStr part = {};
+			unsigned int part_flags = c->flags;
+
+			/*
+			 * Chunks with keys and values are marked with special
+			 * flags.
+			 */
+			while (part_end < end && part_end->flags == part_flags)
+				part_end++;
+
+			if (part_end - c > 1) {
+				part.chunks = c;
+				part.nchunks = part_end - c;
+			} else {
+				part = *c;
+			}
+
+			c = part_end;
+
+			EXPECT_TRUE(kv_idx < kv_count);
+			EXPECT_TFWSTR_EQ(&part, kv[kv_idx].str);
+			EXPECT_EQ(part_flags, kv[kv_idx].flags);
+			kv_idx++;
+		}
+	}
+
+	/*
+	 * This actually should be blocked due to unclosed DQUOTE.
+	 * But cookie values are opaque for us, this is job for application
+	 * layer to accurately parse cookie values.
+	 */
+	FOR_REQ_H2_COOKIE("session=\"42; theme=dark");
+
+	EXPECT_BLOCK_REQ_H2_COOKIE("session=42;theme=dark");
+	EXPECT_BLOCK_REQ_H2_COOKIE("session=42; theme=dark ");
+	EXPECT_BLOCK_REQ_H2_COOKIE("session=42; theme=dark\t");
+	EXPECT_BLOCK_REQ_H2_COOKIE("session=42, theme=dark");
+	EXPECT_BLOCK_REQ_H2_COOKIE("session=42 theme=dark");
+	EXPECT_BLOCK_REQ_H2_COOKIE("session=42\ttheme=dark");
+
+
+#undef EXPECT_BLOCK_REQ_H2_COOKIE
+#undef FOR_REQ_H2_COOKIE
+}
+
+TEST(http2_parser, if_none_match)
+{
+#define FOR_REQ_H2_IF_NONE_MATCH(if_none_match)					\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("if-none-match"), STR(if_none_match));		\
+	    HEADERS_FRAME_END();						\
+	)
+
+#define EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH(if_none_match)			\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("if-none-match"), STR(if_none_match));		\
+	    HEADERS_FRAME_END();						\
+	)
+
+
+#define ETAG_1	ETAG_ALPHABET
+#define ETAG_2	"dummy2"
+#define ETAG_3	"dummy3"
+
+
+	FOR_REQ_H2_IF_NONE_MATCH("\"" ETAG_1 "\"")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag, ETAG_1 "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ_H2_IF_NONE_MATCH("\"\"")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag, "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ_H2_IF_NONE_MATCH("\"" ETAG_1 "\", \"" ETAG_2 "\"")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag_1, ETAG_1 "\"");
+		DEFINE_TFW_STR(exp_etag_2, ETAG_2 "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ_H2_IF_NONE_MATCH("\"" ETAG_1 "\", W/\"" ETAG_2 "\", \"" ETAG_3 "\"")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag_1, ETAG_1 "\"");
+		DEFINE_TFW_STR(exp_etag_2, ETAG_2 "\"");
+		DEFINE_TFW_STR(exp_etag_3, ETAG_3 "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_TRUE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				    & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_3, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ_H2_IF_NONE_MATCH("*")
+	{
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	/* Empty header */
+//	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("");		// TODO
+	/* Not quoted value. */
+	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("ETAG_2");
+	/* Incomplete header. */
+	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH( "\"" ETAG_2 "\", ");
+	/* No delimiter. */
+	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("\"" ETAG_2 "\" \"" ETAG_3 "\" ");
+	/* Etag list + Any etag. */
+	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("\"" ETAG_2 "\", * ");
+	EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH("*, \"" ETAG_2 "\" ");
+
+	COMMON_ETAG_BLOCK("", EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH);
+
+
+#undef ETAG_1
+#undef ETAG_2
+#undef ETAG_3
+
+#undef EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH
+#undef FOR_REQ_H2_IF_NONE_MATCH
+}
+
+TEST(http2_parser, referer)
+{
+#define FOR_REQ_H2_IF_REFERER(referer)						\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("referer"), STR(referer));				\
+	    HEADERS_FRAME_END();						\
+	)
+
+
+	FOR_REQ_H2_IF_REFERER("http://tempesta-tech.com:8080"
+		       "/cgi-bin/show.pl?entry=tempesta      ");
+	FOR_REQ_H2_IF_REFERER("/cgi-bin/show.pl?entry=tempesta");
+	FOR_REQ_H2_IF_REFERER("http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]"
+		       ":8080/cgi-bin/show.pl?entry=tempesta");
+
+#undef FOR_REQ_H2_IF_REFERER
+}
+
+TEST(http2_parser, content_type_line_parser)
+{
+#define FOR_REQ_H2_CONTENT_TYPE(content_type)					\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("POST"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("localhost.localdomain"));	\
+		HEADER(STR("content-type"), STR(content_type));			\
+		HEADER(STR("content-length"), STR("0"));			\
+	    HEADERS_FRAME_END();						\
+	)
+
+#define EXPECT_BLOCK_REQ_H2_CONTENT_TYPE(content_type)				\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("POST"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("localhost.localdomain"));	\
+		HEADER(STR("content-type"), STR(content_type));			\
+		HEADER(STR("content-length"), STR("0"));			\
+	    HEADERS_FRAME_END();						\
+	)
+
+#define CT01 "multIPart/forM-data  ;    bouNDary=1234567890 ; otherparam=otherval  "
+
+	FOR_REQ_H2_CONTENT_TYPE(CT01) {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				     req->flags));
+		EXPECT_TFWSTR_EQ(&req->multipart_boundary_raw, "1234567890");
+		EXPECT_TFWSTR_EQ(&req->multipart_boundary, "1234567890");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" CT01);
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data; boundary=\"1234\\56\\\"7890\"") {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				     req->flags));
+		EXPECT_TFWSTR_EQ(&req->multipart_boundary_raw,
+		                 "\"1234\\56\\\"7890\"");
+		EXPECT_TFWSTR_EQ(&req->multipart_boundary, "123456\"7890");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data; "
+				 "boundary=\"1234\\56\\\"7890\"");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data") {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data ") {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data ");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data \t") {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data \t");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data1") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data1");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data1; param=value") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data1; "
+				 "param=value");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multihello/world") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multihello/world");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multihello/world; param=value") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multihello/world; param=value");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-dat") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-dat");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-other; param=value") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-other; "
+				 "param=value");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("multipart/form-data; xboundary=1234567890") {
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart/form-data; "
+				 "xboundary=1234567890");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("application/octet-stream") {
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "application/octet-stream");
+	}
+
+	/* Multipart requests with multiple boundaries are clearly malicious. */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data; boundary=1; boundary=2");
+
+	/* Comma is not a valid separator here. */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data, boundary=123");
+
+	/* Unfinished quoted parameter value */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data; boundary=\"123");
+
+	/* Spaces where they do not belong */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data; boundary =123");
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data; boundary= 123");
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data; boundary=12 3");
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/form-data; boun dary=123");
+
+	/*
+	 * Other media types are not restricted in terms of boundary parameter
+	 * quantities.
+	 */
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; boundary=1; boundary=2") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; boundary=1; "
+				 "boundary=2");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; boundary=1; boundary=2; boundary=3") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; boundary=1; "
+				 "boundary=2; boundary=3");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("textqwe/plain; boundary=1; other=3") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "textqwe/plain; boundary=1; "
+				 "other=3");
+	}
+
+	/* Parameter should be in format name=value. */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name");
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name ");
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name\t ");
+
+	/* Unfinished quoted parameter value */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name=\"unfinished");
+
+	/* Other parameter quoted values. */
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; name=\"value\"") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; name=\"value\"");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; name=\"value\" ") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; name=\"value\" ");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; name=\"value\";") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; name=\"value\";");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; name=\"value\"; ") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; name=\"value\"; ");
+	}
+
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; name=\"val\\\"ue\"") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; name=\"val\\\"ue\"");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("text/plain; name=\"val\\\"ue\" ") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "text/plain; name=\"val\\\"ue\" ");
+	}
+
+	/* Line ended at '\\'. */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name=\"val\\");
+
+	FOR_REQ_H2_CONTENT_TYPE("multitest") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multitest");
+	}
+
+#undef HEAD
+#undef TAIL
+
+#undef EXPECT_BLOCK_REQ_H2_CONTENT_TYPE
+#undef FOR_REQ_H2_CONTENT_TYPE
+}
+
+TEST(http2_parser, xff)
+{
+	TfwStr xff, v;
+
+	const char *s_client = "203.0.113.195";
+	const char *s_proxy1 = "70.41.3.18";
+	const char *s_proxy2 = "150.172.238.178";
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("x-forwarded-for"),
+		       STR("203.0.113.195,70.41.3.18,150.172.238.178"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		xff = req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+
+		v = get_next_str_val(&xff);
+		EXPECT_TFWSTR_EQ(&v, s_client);
+
+		v = get_next_str_val(&xff);
+		EXPECT_TFWSTR_EQ(&v, s_proxy1);
+
+		v = get_next_str_val(&xff);
+		EXPECT_TFWSTR_EQ(&v, s_proxy2);
+	}
+}
+
+TEST(http2_parser, date)
+{
+#define FOR_EACH_DATE(strdate, expect_seconds)					\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR("if-modified-since"), STR(strdate));			\
+	    HEADERS_FRAME_END();						\
+	)									\
+	{									\
+		EXPECT_TRUE(req->cond.m_date == expect_seconds);		\
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);		\
+	}
+
+#define FOR_EACH_DATE_INVALID(strdate)	FOR_EACH_DATE(strdate, 0)
+
+/*
+ * Use this macros in cases where exactly
+ * 4-digit year tests make sence and 2-digits don't.
+ */
+#define FOR_EACH_DATE_RFC_822_ISOC(day, month, year, time, expect_seconds)\
+	/* Day name is redundant so is skipped on parsing */			\
+	FOR_EACH_DATE("Inv, " day " " month " " year " " time " GMT",		\
+		      expect_seconds);						\
+	/* For ISOC format test only 2 digits in day */				\
+	FOR_EACH_DATE("Inv " month " " day " " time " " year, expect_seconds)
+
+#define FOR_EACH_DATE_RFC_822_ISOC_INVALID(day, month, year, time)		\
+	FOR_EACH_DATE_RFC_822_ISOC(day, month, year, time, 0)
+
+#define FOR_EACH_DATE_FORMAT(day, month, year, year_2d, time, expect_seconds)	\
+	FOR_EACH_DATE_RFC_822_ISOC(day, month, year, time, expect_seconds);	\
+	/* ISO850 */								\
+	FOR_EACH_DATE("Invalid, " day "-" month "-" year_2d " " time " GMT", 	\
+		      expect_seconds)
+
+#define FOR_EACH_DATE_FORMAT_INVALID(day, month, year, year_2d, time)		\
+	FOR_EACH_DATE_FORMAT(day, month, year, year_2d, time, 0)
+
+	FOR_EACH_DATE_FORMAT("31", "Jan", "2012", "12", "15:02:53",
+				   1328022173);
+	FOR_EACH_DATE_FORMAT_INVALID("31", "JAN", "2012", "12", "15:02:53");
+
+	FOR_EACH_DATE_FORMAT_INVALID(" 31", "Jan", "2012", "12", "15:02:53");
+	FOR_EACH_DATE_FORMAT_INVALID("31", " Jan", "2012", "12", "15:02:53");
+	FOR_EACH_DATE_FORMAT_INVALID("31", "Jan", " 2012", " 12", "15:02:53");
+	FOR_EACH_DATE_FORMAT_INVALID("31", "Jan", "2012", "12", " 15:02:53");
+
+	/* Header-specific tests. */
+	/*
+	 * RFC 7232 3.3.
+	 *
+	 * A recipient MUST ignore If-Modified-Since if the request contains an
+	 * If-None-Match header field.
+	 */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("if-none-match"), STR("\"xyzzy\""));
+		HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+	}
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
+		HEADER(STR("if-none-match"), STR("\"xyzzy\""));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+	}
+
+	/*
+	 * RFC 7232 3.3.
+	 *
+	 * A recipient MUST ignore the If-Modified-Since header field ...
+	 * if the request method is neither GET nor HEAD.
+	 */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+	}
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("PUT"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+	}
+
+	/*
+	 * RFC 7230 3.2.2:
+	 *
+	 * A sender MUST NOT generate multiple header fields with the same field
+	 * name in a message unless either the entire field value for that
+	 * header field is defined as a comma-separated list [i.e., #(values)]
+	 * or the header field is a well-known exception.
+	 */
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("if-modified-since"), STR("Wed, 21 Oct 2015 07:28:00 GMT"));
+		HEADER(STR("if-modified-since"), STR("Wed, 21 Oct 2015 07:28:00 GMT"));
+	    HEADERS_FRAME_END();
+	);
+
+	/* If only 1 or 0 dates are valid, it's the multiple headers anyway. */
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR("if-modified-since"), STR("Wed, 21 Oct 2015 07:28:00 GMT"));
+		HEADER(STR("if-modified-since"), STR("Wed, 41 Oct 2015 07:28:00 GMT"));
+	    HEADERS_FRAME_END();
+	);
+
+	/* Date tests. */
+
+	/* Date ranges. */
+	/*
+	 * Less then 01 Jan 1970.
+	 * Date in RFC 850 can not be less then 01 Jan 1970.
+	 */
+	/* Treat as 00, 69, 70 (and so on) year CE */
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0000", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "0069", "23:59:59");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0070", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0070", "00:00:01");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0099", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0100", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0999", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "1969", "23:59:59");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "1970", "00:00:00");
+
+	/* More then 01 Jan 1970. */
+	/*
+	 * For ISO 850 this implementation violates RFC:
+	 *
+	 * Recipients of a timestamp value in rfc850-date format, which uses a
+	 * two-digit year, MUST interpret a timestamp that appears to be more
+	 * than 50 years in the future as representing the most recent year in
+	 * the past that had the same last two digits.
+	 *
+	 * But it's done intensionally, also Nginx implements the same logic.
+	 */
+	FOR_EACH_DATE_FORMAT("01", "Jan", "1970", "70", "00:00:01", 1);
+	/* 2000 */
+	FOR_EACH_DATE_FORMAT("01", "Jan", "2000", "00", "00:00:00",
+				   946684800);
+	FOR_EACH_DATE("Invalid, 01-Jan-00 00:00:00 GMT", 946684800);
+	/* 2069 */
+	FOR_EACH_DATE_FORMAT("31", "Dec", "2069", "69", "23:59:59",
+				   3155759999);
+	FOR_EACH_DATE_RFC_822_ISOC("31", "Dec", "9999", "23:59:59",
+					 253402300799);
+	/*
+	 * Incorrect day
+	 */
+	/*
+	 * According to RFC "00" is a valid day, but Tempesta rejects it
+	 * because of ambiguity of its interpretation.
+	 */
+	FOR_EACH_DATE_FORMAT_INVALID("00", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("0", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("1", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("32", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("-1", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("invalid", "Jan", "2000", "00",
+				     "00:00:00");
+
+	FOR_EACH_DATE_FORMAT("30", "Apr", "1978", "78", "00:00:00",
+				   262742400);
+	FOR_EACH_DATE_FORMAT_INVALID("31", "Apr", "1995", "95", "00:00:00");
+	FOR_EACH_DATE_FORMAT("31", "Jul", "2003", "03", "00:00:00",
+				   1059609600);
+	FOR_EACH_DATE_FORMAT("30", "Sep", "2009", "09", "00:00:00",
+				   1254268800);
+	FOR_EACH_DATE_FORMAT_INVALID("31", "Sep", "2050", "50", "00:00:00");
+
+	/* Leap years */
+	FOR_EACH_DATE_FORMAT("29", "Feb", "1996", "96", "00:00:00", 825552000);
+	FOR_EACH_DATE_FORMAT_INVALID("29", "Feb", "1999", "99", "00:00:00");
+
+	/* Incorrect month. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Ja", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Janu", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "January", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jab", "2000", "00", "00:00:00");
+
+	/* Incorrect year. */
+	/* Only 4 digits for RFC 822 & ISOC and 2 digits for RFC 850 allowed */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "0", "0", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "1", "1", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "44", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "000", "000","00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "999", "999", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "10000", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "", "", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "-1", "-1","00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "invalid", "invalid",
+				     "00:00:00");
+
+	/* Incorrect hours. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", ":00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "0:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "000:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "24:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "100:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "-1:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "invalid:00:00");
+
+	/* Incorrect minutes. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00::00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:0:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:000:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:60:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:100:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:-1:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:invalid:00");
+
+	/*
+	 * Incorrect seconds.
+	 */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:0");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:000");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:60");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:100");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:-1");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:invalid");
+	/* Leap seconds are not implemented (as in Nginx) */
+	FOR_EACH_DATE_FORMAT_INVALID("30", "Jun", "1992", "92", "23:59:60");
+
+	/*
+	 * Format specific tests.
+	 */
+	/* Only GMT allowed */
+	FOR_EACH_DATE_INVALID("Inv, 01 Jan 2000 00:00:00 EST");
+	FOR_EACH_DATE_INVALID("Invalid, 01-Jan-00 00:00:00 EST");
+
+	/* GMT is requred */
+	FOR_EACH_DATE_INVALID("Inv, 01 Jan 2000 00:00:00");
+	FOR_EACH_DATE_INVALID("Invalid, 01-Jan-00 00:00:00");
+
+	/*
+	 * ISOC
+	 * Only 2 spaces for 1-digit day and 1 space for 2-digit day
+	 */
+	FOR_EACH_DATE("Inv Jan  1 00:00:01 1970", 1);
+	FOR_EACH_DATE("Inv Jan 01 00:00:01 1970", 1);
+	FOR_EACH_DATE_INVALID("Inv Jan   1 00:00:01 1970");
+	FOR_EACH_DATE_INVALID("Inv Jan  01 00:00:01 1970");
+
+	FOR_EACH_DATE_INVALID("invalid");
+
+#undef IF_MSINCE_INVALID
+#undef FOR_EACH_DATE_FORMAT_INVALID
+#undef FOR_EACH_DATE_FORMAT
+#undef FOR_EACH_DATE_RFC_822_ISOC_INVALID
+#undef FOR_EACH_DATE_RFC_822_ISOC
+#undef FOR_EACH_DATE_INVALID
+#undef FOR_EACH_DATE
+}
+
+TEST(http2_parser, method_override)
+{
+#define EXPECT_FOR_REQ_H2_METHOD_OVERRIDE(METHOD)				\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("POST"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("example.com"));			\
+		HEADER(STR("x-method-override"), STR(#METHOD));			\
+	    HEADERS_FRAME_END();						\
+	);									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("POST"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("example.com"));			\
+		HEADER(STR("x-http-method-override"), STR(#METHOD));		\
+	    HEADERS_FRAME_END();						\
+	);									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}									\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("POST"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("example.com"));			\
+		HEADER(STR("x-http-method"), STR(#METHOD));			\
+	    HEADERS_FRAME_END();						\
+	);									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
+	}
+
+#define EXPECT_FOR_REQ_H2_METHOD_OVERRIDE_UWN(METHOD)				\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("POST"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(":authority"), STR("example.com"));			\
+		HEADER(STR("x-method-override"), STR(METHOD));			\
+	    HEADERS_FRAME_END();						\
+	);									\
+	{									\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
+		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_UNKNOWN);	\
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("POST"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/"));
+		HEADER(STR(":authority"), STR("example.com"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_NONE);
+	}
+
+	EXPECT_FOR_REQ_H2_METHOD_OVERRIDE(PATCH);
+	EXPECT_FOR_REQ_H2_METHOD_OVERRIDE(PUT);
+
+	EXPECT_FOR_REQ_H2_METHOD_OVERRIDE_UWN("PATCHX");
+	EXPECT_FOR_REQ_H2_METHOD_OVERRIDE_UWN("PATCH COPY");
+
+#undef EXPECT_FOR_REQ_H2_METHOD_OVERRIDE_UWN
+#undef EXPECT_FOR_REQ_H2_METHOD_OVERRIDE
+}
+
+TEST(http2_parser, vchar)
+{
+#define EXPECT_FOR_REQ_H2_HDR_EQ(name, value, id)				\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(name), STR(value));					\
+	    HEADERS_FRAME_END();						\
+	)									\
+	{									\
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[id],	name value);		\
+	}
+
+#define EXPECT_BLOCK_REQ_H2_HDR(name, value)					\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(name), STR(value));					\
+	    HEADERS_FRAME_END();						\
+	)
+
+/* Tests that header is validated by ctext_vchar alphabet. */
+#define TEST_VCHAR_HEADER(header, id)				\
+	EXPECT_FOR_REQ_H2_HDR_EQ(header, VCHAR_ALPHABET, id);	\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x08");		\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x0B");		\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x14");		\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x1F");		\
+	EXPECT_BLOCK_REQ_H2_HDR(header, "\x7F");		\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(STR(":method"), STR("GET"));				\
+		HEADER(STR(":scheme"), STR("https"));				\
+		HEADER(STR(":path"), STR("/"));					\
+		HEADER(STR(header), RAW("\x00"));					\
+	    HEADERS_FRAME_END();						\
+	)
+//	EXPECT_FOR_REQ_H2_HDR_EQ(header, "", id);		// TODO: length = 0 --> wrong PASS
+
+	/* Special headers */
+	TEST_VCHAR_HEADER("user-agent", TFW_HTTP_HDR_USER_AGENT);
+
+	/* RGen_HdrOtherN headers */
+	TEST_VCHAR_HEADER(TOKEN_ALPHABET, TFW_HTTP_HDR_RAW);
+	EXPECT_BLOCK_REQ_H2_HDR("\x09", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\"", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR(",", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("/", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR(":", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR(";", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("<", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("=", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR(">", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("?", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("@", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("[", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\\", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("]", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("{", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("}", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\x7F", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\x80", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\x90", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\xC8", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\xAE", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\xFE", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\xFF", "dummy");
+	EXPECT_BLOCK_REQ_H2_HDR("\xFF", "dummy");
+	/* Very long header name */
+	EXPECT_BLOCK_REQ_H2_HDR("Well-Prince-so-Genoa-and-Lucca-are-now-"
+	"just-family-estates-of-the-Buonapartes-But-I-warn-you-if-you-dont-"
+	"tell-me-that-this-means-war-if-you-still-try-to-defend-the-infamies-"
+	"and-horrors-perpetrated-by-that-Antichrist-I-really-believe-he-is-"
+	"Antichrist-I-will-have-nothing-more-to-do-with-you-and-you-are-no-"
+	"longer-my-friend-no-longer-my-faithful-slave-as-you-call-yourself!-"
+	"But-how-do-you-do-I-see-I-have-frightened-you-sit-down-and-tell-me-"
+	"all-the-news#It-was-in-July-1805-and-the-speaker-was-the-well-known-"
+	"Anna-Pavlovna-Scherer-maid-of-honor-and-favorite-of-the-Empress-"
+	"Marya-Fedorovna-With-these-words-she-greeted-Prince-Vasili-Kuagin-a-"
+	"man-of-high-rank-and-importance-who-was-the-first-to-arrive-at-her-"
+	"reception-Anna-Pavlovna-had-had-a-cough-for-some-days-She-was-as-she-"
+	"said-suffering-from-la-grippe-grippe-being-then-a-new-word-in-St-"
+	"Petersburg-used-only-by-the-elite#All-her-invitations-without-"
+	"exception-written-in-French-and-delivered-by-a-scarlet-liveried-"
+	"footman-that-morning-ran-as-follows#If-you-have-nothing-better-to-do"
+	"-Count-(or-Prince)-and-if-the-prospect-of-spending-an-evening-with-a"
+	"-poor-invalid-is-not-too-terrible-I-shall-be-very-charmed-to-see-you"
+	"-tonight-between-7-and-10-Annette-Scherer#Heavens!-what-a-virulent-"
+	"attack!-replied-the-prince-not-in-the-least-disconcerted-by-this-"
+	"reception-He-had-just-entered-wearing-an-embroidered-court-uniform-"
+	"knee-breeches-and-shoes-and-had-stars-on-his-breast-and-a-serene-"
+	"expression-on-his-flat-face-He-spoke-in-that-refined-French-in-which"
+	"-our-grandfathers-not-only-spoke-but-thought-and-with-the-gentle-"
+	"patronizing-intonation-natural-to-a-man-of-importance-who-had-grown-"
+	"old-in-society-and-at-court-He-went-up-to-Anna-Pavlovna-kissed-her-"
+	"hand-presenting-to-her-his-bald-scented-and-shining-head-and-"
+	"complacently-seated-himself-on-the-sofa#First-of-all-dear-friend-tell"
+	"-me-how-you-are-Set-your-friends-mind-at-rest-said-he-without-"
+	"altering-his-tone-beneath-the-politeness-and-affected-sympathy-of-"
+	"which-indifference-and-even-irony-could-be-discerned", "dummy");
+
+#undef TEST_RAW_REQ
+#undef TEST_VCHAR_HEADER
+#undef EXPECT_BLOCK_REQ_H2_HDR
+#undef EXPECT_FOR_REQ_H2_HDR_EQ
+}
+
+TEST(http2_parser, perf)
+{
+#define H2_BUF(name, capacity) \
+	static struct { \
+		unsigned char data[capacity];	\
+		unsigned int size;  \
+	} name
+
+	int i;
+	unsigned int parsed;
+	volatile unsigned long t0 = jiffies;
+
+	H2_BUF(request_1, 1024);
+	H2_BUF(request_2, 1024);
+	H2_BUF(request_3, 1024);
+	H2_BUF(request_4, 1024);
+	H2_BUF(request_5, 1024);
+	H2_BUF(request_6, 1024);
+
+	H2_BUILDER_INIT();
+	H2_BUILDER_SET_BUF(request_1.data);
+	HEADERS_FRAME_BEGIN();
+	    HEADER(STR(":method"), STR("GET"));
+	    HEADER(STR(":scheme"), STR("https"));
+	    HEADER(STR(":path"), STR("/"));
+	    HEADER(STR(":authority"), STR("example.com"));
+	HEADERS_FRAME_END();
+	request_1.size = H2_BUILDER_GET_BUF_SIZE();
+
+	H2_BUILDER_INIT();
+	H2_BUILDER_SET_BUF(request_2.data);
+	HEADERS_FRAME_BEGIN();
+	    HEADER(STR(":method"), STR("GET"));
+	    HEADER(STR(":scheme"), STR("https"));
+	    HEADER(STR(":path"), STR("/index.html"));
+	    HEADER(STR(":authority"), STR("afaahfaduy3wbfdf.dsfda.12.dsdf.2.df"));
+	    HEADER(STR("authorization"), STR("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="));
+	    HEADER(STR("user-agent"), STR("Wget/1.13.4 (linux-gnu)"));
+	    HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
+	    HEADER(STR("x-forwarded-for"), STR("203.0.113.195,70.41.3.18,150.172.238.178"));
+	    HEADER(STR("cookie"), STR("session=42; theme=dark"));
+	    HEADER(STR("referer"), STR("http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]:8080/cgi-bin/show.pl?entry=tempesta"));
+	HEADERS_FRAME_END();
+	request_2.size = H2_BUILDER_GET_BUF_SIZE();
+
+	/* Also test invalid request. */
+	H2_BUILDER_INIT();
+	H2_BUILDER_SET_BUF(request_3.data);
+	HEADERS_FRAME_BEGIN();
+	    HEADER(STR(":method"), STR("GET"));
+	    HEADER(STR(":scheme"), STR("https"));
+	    HEADER(STR(":path"), STR("/"));
+	    HEADER(STR("authority"), STR("foo.com"));
+	HEADERS_FRAME_END();
+	request_3.size = H2_BUILDER_GET_BUF_SIZE();
+
+	H2_BUILDER_INIT();
+	H2_BUILDER_SET_BUF(request_4.data);
+	HEADERS_FRAME_BEGIN();
+	    HEADER(STR(":method"), STR("GET"));
+	    HEADER(STR(":scheme"), STR("https"));
+	    HEADER(STR(":path"), STR("/https://ru.wikipedia.org/wiki/%D0%A8%D0%B0%D0"
+			       "%B1%D0%BB%D0%BE%D0%BD:%D0%9B%D0%B5%D0%BE%D0%BD"
+			       "%D0%B0%D1%80%D0%B4%D0%BE_%D0%B4%D0%B0_%D0%92%D0"
+			       "%B8%D0%BD%D1%87%D0%B8"));
+	    HEADER(STR(":method"), STR("POST"));
+	    HEADER(STR(":authority"), STR("test"));
+	HEADERS_FRAME_END();
+	request_4.size = H2_BUILDER_GET_BUF_SIZE();
+
+	H2_BUILDER_INIT();
+	H2_BUILDER_SET_BUF(request_5.data);
+	HEADERS_FRAME_BEGIN();
+	    HEADER(STR(":method"), STR("POST"));
+	    HEADER(STR(":scheme"), STR("https"));
+	    HEADER(STR(":path"), STR("/a/b/c/dir/?foo=1&bar=2#abcd"));
+	    HEADER(STR(":authority"), STR("a.com"));
+	    HEADER(STR("cookie"), STR("session=42; theme=dark"));
+	    HEADER(STR("Dummy0"), STR("0"));
+	    HEADER(STR("referer"), STR("http://tempesta-tech.com:8080\r\n"
+				"/cgi-bin/show.pl?entry=tempesta"));
+	    HEADER(STR("if-modified-since"), STR("Sat, 29 Oct 1994 19:43:31 GMT"));
+	    HEADER(STR("x-forwarded-for"), STR("203.0.113.195,70.41.3.18,150.172.238.178"));
+	    HEADER(STR("x-custom-hdr"), STR("custom header values"));
+	HEADERS_FRAME_END();
+	request_5.size = H2_BUILDER_GET_BUF_SIZE();
+
+	H2_BUILDER_INIT();
+	H2_BUILDER_SET_BUF(request_6.data);
+	HEADERS_FRAME_BEGIN();
+	    HEADER(STR(":method"), STR("POST"));
+	    HEADER(STR(":scheme"), STR("https"));
+	    HEADER(STR(":path"), STR("http://natsys-lab.com:8080/cgi-bin/show.pl"));
+	    HEADER(STR("cookie"), STR("session=42"));
+	    HEADER(STR("accept"), STR("*/*"));
+	HEADERS_FRAME_END();
+	request_6.size = H2_BUILDER_GET_BUF_SIZE();
+
+#define REQ_PERF(frames_buf)							\
+do {									\
+	test_case_parse_prepare_h2();					\
+	if (req)							\
+		test_req_free(req);					\
+	req = test_req_alloc(frames_buf.size);				\
+		req = test_req_alloc(frames_max_sz);	   \
+		conn.h2.hpack.state = 0;			   \
+		req->conn = (TfwConn*)&conn;			   \
+		req->pit.parsed_hdr = &stream.parser.hdr;	   \
+		req->stream = &stream;				   \
+		tfw_http_init_parser_req(req);			   \
+		stream.msg = (TfwMsg*)req;			   \
+		__set_bit(TFW_HTTP_B_H2, req->flags);		   \
+	tfw_h2_parse_req(req, frames_buf.data, frames_buf.size, &parsed);		\
+} while (0)
+
+	for (i = 0; i < 1000; ++i) {
+		/*
+		 * Benchmark serverla requests to make the headers parsing more
+		 * visible in the performance results. Also having L7 DDoS in
+		 * mind we need to to care about requests more than responses.
+		 */
+		REQ_PERF(request_1);
+		REQ_PERF(request_2);
+		REQ_PERF(request_3);
+		REQ_PERF(request_4);
+		REQ_PERF(request_5);
+		REQ_PERF(request_6);
+	}
+	pr_info("===> http parser time: %ums\n",
+		jiffies_to_msecs(jiffies - t0));
+
+#undef REQ_PERF
+#undef H2_BUF
+}
+
+TEST(http2_parser, work)
+{
+}
+
 TEST_SUITE(http2_parser)
 {
-//	TEST_RUN(http2_parser, http2_check_important_fields);
-//	TEST_RUN(http2_parser, parses_req_method);
-//	TEST_RUN(http2_parser, parses_req_uri);
-//	TEST_RUN(http2_parser, mangled_messages);
-//	TEST_RUN(http2_parser, alphabets);
-//	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
-//	TEST_RUN(http2_parser, cache_control);
-//	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
-//	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
+	TEST_RUN(http2_parser, http2_check_important_fields);
+	TEST_RUN(http2_parser, parses_req_method);
+	TEST_RUN(http2_parser, parses_req_uri);
+	TEST_RUN(http2_parser, mangled_messages);
+	TEST_RUN(http2_parser, alphabets);
+	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
+	TEST_RUN(http2_parser, cache_control);
+	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
+	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
+	TEST_RUN(http2_parser, content_length);
+	TEST_RUN(http2_parser, ows);
+	TEST_RUN(http2_parser, accept);
+	TEST_RUN(http2_parser, host);
+	TEST_RUN(http2_parser, cookie);
+	TEST_RUN(http2_parser, if_none_match);
+	TEST_RUN(http2_parser, referer);
+//	TEST_RUN(http2_parser, fuzzer);		// TODO
+	TEST_RUN(http2_parser, content_type_line_parser);
+	TEST_RUN(http2_parser, xff);
+	TEST_RUN(http2_parser, date);
+	TEST_RUN(http2_parser, method_override);
+	TEST_RUN(http2_parser, vchar);
+	TEST_RUN(http2_parser, perf);
+	TEST_RUN(http2_parser, work);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
@@ -1035,8 +2663,8 @@ TEST_SUITE(http2_parser)
 	 */
 	tfw_http_sess_redir_mark_enable();
 
-//	TEST_RUN(http2_parser, parses_enforce_ext_req);
-//	TEST_RUN(http2_parser, parses_enforce_ext_req_rmark);
+	TEST_RUN(http2_parser, parses_enforce_ext_req);
+	TEST_RUN(http2_parser, parses_enforce_ext_req_rmark);
 
 	tfw_http_sess_redir_mark_disable();
 }
