@@ -19,7 +19,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/ctype.h>
-#include <linux/kernel.h>
 
 #undef DEBUG
 #if DBG_HTTP_PARSER > 0
