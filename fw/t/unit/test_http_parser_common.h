@@ -129,47 +129,64 @@ typedef struct frame_rec
 {
     unsigned int len;
     unsigned char *str;
-    TfwFrameType subtype;
+    TfwFrameType subtype;	// used only for FUZZ_REQ_H2 cases
 } TfwFrameRec;
 
-static TfwFrameRec frames[2];
+#define ALLOWED_FRAMES_CNT 2
+
+static TfwFrameRec frames[ALLOWED_FRAMES_CNT];
 static unsigned int frames_cnt = 0;
 static unsigned int frames_max_sz = 0;
 static unsigned int frames_total_sz = 0;
 
-static unsigned char frames_str_buf[3 * 1024] __attribute__((unused));
-static unsigned char *frames_buf_ptr __attribute__((unused)) = NULL;
-static unsigned int frames_buf_capacity __attribute__((unused)) = 0;
+typedef struct frames_buf_abstract {
+	unsigned int capacity;
+	unsigned int size;
+	unsigned char data[0];
+} TfwFramesBuf;
+
+#define DECLARE_FRAMES_BUF(NAME, CAPACITY)					\
+	static struct {								\
+		unsigned int capacity;						\
+		unsigned int size;						\
+		unsigned char data[CAPACITY];					\
+	} __attribute__((unused)) NAME = {.data = {}, .capacity = CAPACITY, .size = 0}
+
+DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
+static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
+
+#define FRAMES_BUF_POS() \
+	(frames_buf_ptr->data + frames_buf_ptr->size)
+
+#define FRAMES_BUF_OFFSET(frame_sz) \
+	(frames_buf_ptr->data + frames_buf_ptr->size + frame_sz)
 
 static
 unsigned int __attribute__((unused))
-tfw_h2_encode_data(TfwDataRec data)
+tfw_h2_encode_data(unsigned char *buf, TfwDataRec data)
 {
 	TfwHPackInt hpint;
 
 	write_int(data.size, 0x7F, 0, &hpint);
-	memcpy_fast(frames_buf_ptr, hpint.buf, hpint.sz);
-	frames_buf_ptr += hpint.sz;
-	memcpy_fast(frames_buf_ptr, data.buf, data.size);
-	frames_buf_ptr += data.size;
+	memcpy_fast(buf, hpint.buf, hpint.sz);
+	memcpy_fast(buf + hpint.sz, data.buf, data.size);
 
 	return hpint.sz + data.size;
 }
 
 static
 unsigned int __attribute__((unused))
-tfw_h2_encode_header(TfwHeaderRec header)
+tfw_h2_encode_header(unsigned char *buf, TfwHeaderRec header)
 {
 	static const int LIT_HDR_FLD_WO_IND  = 0x00;
 
 	unsigned int header_sz = 0;
 
-	*frames_buf_ptr = LIT_HDR_FLD_WO_IND;
-	++frames_buf_ptr;
+	*buf = LIT_HDR_FLD_WO_IND;
 	++header_sz;
 
-	header_sz += tfw_h2_encode_data(header.name);
-	header_sz += tfw_h2_encode_data(header.value);
+	header_sz += tfw_h2_encode_data(buf + header_sz, header.name);
+	header_sz += tfw_h2_encode_data(buf + header_sz, header.value);
 
 	return header_sz;
 }
@@ -205,18 +222,22 @@ do {										\
 
 #define HEADER(name_rec, value_rec)						\
 do {										\
+	BUG_ON(!frames_buf_ptr);						\
 	temp.name = name_rec;							\
 	temp.value = value_rec;							\
-	frame_sz += tfw_h2_encode_header(temp);					\
-	BUG_ON(frames_buf_ptr > frames_str_buf + frames_buf_capacity);		\
+	frame_sz += tfw_h2_encode_header(					\
+		FRAMES_BUF_OFFSET(frame_sz), temp);				\
+	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
 #define HEADERS_FRAME_END()							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].str = frames_buf_ptr - frame_sz;			\
+	BUG_ON(!frames_buf_ptr);						\
+	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
 	frames[frames_cnt].len = frame_sz;					\
-	frames_total_sz += frame_sz;						\
+	frames_buf_ptr->size += frame_sz;					\
 	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
 	++frames_cnt;								\
 } while (0)
 
@@ -225,24 +246,69 @@ do {										\
 do {										\
 	unsigned int frame_sz = 0;						\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].subtype = HTTP2_DATA					\
+	frames[frames_cnt].subtype = HTTP2_DATA
 
 #define DATA(data_rec)								\
 do {										\
-	memcpy_fast(frames_buf_ptr, data_rec.buf, data_rec.size);		\
-	frames_buf_ptr += data_rec.size;					\
-	frame_sz += data_rec.size;						\
-	BUG_ON(frames_buf_ptr > frames_str_buf + frames_buf_capacity);		\
+	BUG_ON(!frames_buf_ptr);						\
+	memcpy_fast(FRAMES_BUF_POS(), data_rec.buf, data_rec.size);		\
+	frame_sz = data_rec.size;						\
+	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
 #define DATA_FRAME_END()							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].str = frames_buf_ptr - frame_sz;			\
+	BUG_ON(!frames_buf_ptr);						\
+	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
 	frames[frames_cnt].len = frame_sz;					\
-	frames_total_sz += frame_sz;						\
+	frames_buf_ptr->size += frame_sz;					\
 	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
 	++frames_cnt;								\
 } while (0)
+
+
+#define RESET_FRAMES_BUF()							\
+	BUG_ON(!frames_buf_ptr);						\
+	frames_buf_ptr = NULL
+
+#define SET_FRAMES_BUF(frames_buf)						\
+	BUG_ON(frames_buf_ptr);							\
+	frames_buf_ptr = (TfwFramesBuf *) &frames_buf;				\
+	frames_buf_ptr->size = 0;						\
+	bzero_fast(frames_buf_ptr->data, frames_buf_ptr->capacity)
+
+#define ASSIGN_FRAMES(str, str_len)						\
+do {										\
+	bzero_fast(frames, sizeof(frames));					\
+	frames_cnt = 1;								\
+	frames[0].str = str;							\
+	frames[0].len = str_len;						\
+	frames_max_sz = str_len;						\
+	frames_total_sz = str_len;						\
+} while(0)
+
+#define INIT_FRAMES()								\
+	frames_cnt = 0;								\
+	frames_max_sz = 0;							\
+	frames_total_sz = 0;							\
+	bzero_fast(frames, sizeof(frames))
+
+#define GET_FRAMES_MAX_SZ() \
+	({frames_max_sz;})
+
+#define GET_FRAMES_TOTAL_SZ() \
+	({frames_total_sz;})
+
+#define FOR_EACH_FRAME(lambda)							\
+do {										\
+	unsigned int frame_index;						\
+	for (frame_index = 0; frame_index < frames_cnt; ++frame_index)		\
+		lambda;								\
+} while(0)
+
+#define GET_CURRENT_FRAME() \
+	({frames[frame_index];})
 
 
 static int
@@ -307,15 +373,7 @@ test_case_parse_prepare_http(char *str, size_t sz_diff)
 	size_t str_len = strlen(str);
 
 	chunk_size_index = 0;
-
-	frames_max_sz = str_len;
-	frames_cnt = 1;
-
-	frames[0].str = str;
-	frames[0].len = str_len;
-
-	frames_total_sz = str_len;
-
+	ASSIGN_FRAMES(str, str_len);
 	hm_exp_len = str_len - sz_diff;
 }
 
@@ -327,7 +385,7 @@ test_case_parse_prepare_h2(void)
 	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
 
 	chunk_size_index = 0;
-	hm_exp_len = frames_total_sz;
+	hm_exp_len = GET_FRAMES_TOTAL_SZ();
 }
 
 
@@ -365,7 +423,6 @@ do_split_and_parse(int type, int chunk_mode)
 {
 	int r;
 	unsigned int chunk_size;
-	unsigned int frame_index;
 
 	if (chunk_size_index == CHUNK_SIZE_CNT)
 		/*
@@ -379,13 +436,13 @@ do_split_and_parse(int type, int chunk_mode)
 		if (req)
 			test_req_free(req);
 
-		req = test_req_alloc(frames_max_sz);
+		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 	}
 	else if (type == FUZZ_REQ_H2) {
 		if (req)
 			test_req_free(req);
 
-		req = test_req_alloc(frames_max_sz);
+		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 		conn.h2.hpack.state = 0;
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
@@ -398,7 +455,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (resp)
 			test_resp_free(resp);
 
-		resp = test_resp_alloc(frames_max_sz);
+		resp = test_resp_alloc(GET_FRAMES_TOTAL_SZ());
 		tfw_http_msg_pair(resp, sample_req);
 	}
 	else {
@@ -406,15 +463,14 @@ do_split_and_parse(int type, int chunk_mode)
 	}
 
 	chunk_size = chunk_mode == CHUNK_OFF
-			? frames_max_sz
+			? GET_FRAMES_MAX_SZ()
 			: CHUNK_SIZES[chunk_size_index];
 
 	TEST_DBG3("%s: chunk_mode=%d, chunk_size_index=%u, chunk_size=%u\n",
 		    __func__, chunk_mode, chunk_size_index, chunk_size);
 
-	for (frame_index = 0; frame_index < frames_cnt; ++frame_index)
-	{
-		TfwFrameRec frame = frames[frame_index];
+	FOR_EACH_FRAME({
+		TfwFrameRec frame = GET_CURRENT_FRAME();
 
 		if (type == FUZZ_REQ_H2) {
 			TfwH2Ctx *ctx = tfw_h2_context(req->conn);
@@ -446,13 +502,14 @@ do_split_and_parse(int type, int chunk_mode)
 				break;
 			}
 		}
-	}
+	});
 
 	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
 		r = tfw_h2_parse_req_finish(req);
 	}
 
-	if (chunk_mode == CHUNK_OFF || CHUNK_SIZES[chunk_size_index] >= frames_max_sz)
+	if (chunk_mode == CHUNK_OFF
+	    || CHUNK_SIZES[chunk_size_index] >= GET_FRAMES_MAX_SZ())
 		/*
 		 * Stop splitting message into pieces bigger than
 		 * the message itself.
@@ -515,32 +572,13 @@ validate_data_fully_parsed(int type)
 		test_case_parse_prepare_http(str, sz_diff);		\
 	while (TRY_PARSE_EXPECT_PASS(type, chunk_mode))
 
-#define H2_BUILDER_SET_BUF(h2_builder_buf)				\
-	BUG_ON(frames_buf_ptr);						\
-	frames_buf_ptr = h2_builder_buf;				\
-	frames_buf_capacity = sizeof(h2_builder_buf);			\
-	bzero_fast(frames_buf_ptr, frames_buf_capacity)
-
-#define H2_BUILDER_RESET_BUF()						\
-	BUG_ON(!frames_buf_ptr);					\
-	frames_buf_ptr = NULL;						\
-	frames_buf_capacity = 0
-
-#define H2_BUILDER_INIT()						\
-	frames_cnt = 0;							\
-	frames_total_sz = 0;						\
-	frames_max_sz = 0
-
-#define H2_BUILDER_GET_BUF_SIZE() \
-	({frames_total_sz;})
-
 #define FOR_REQ(str)							\
 	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
-#define FOR_REQ_H2(H2_BUILDER_BLOCK)					\
-	H2_BUILDER_INIT();						\
-	H2_BUILDER_SET_BUF(frames_str_buf);				\
-	H2_BUILDER_BLOCK;						\
-	H2_BUILDER_RESET_BUF();						\
+#define FOR_REQ_H2(H2_FRAMES_DEF_BLOCK)					\
+	INIT_FRAMES();							\
+	SET_FRAMES_BUF(frames_buf);					\
+	H2_FRAMES_DEF_BLOCK;						\
+	RESET_FRAMES_BUF();						\
 	__FOR_REQ(							\
 	    "HTTP/2 request preview is not available now...",		\
 	     0, FUZZ_REQ_H2, CHUNK_ON)
@@ -558,11 +596,11 @@ do {									\
 
 #define EXPECT_BLOCK_REQ(str)						\
 	__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2(H2_BUILDER_BLOCK)				\
-	H2_BUILDER_INIT();						\
-	H2_BUILDER_SET_BUF(frames_str_buf);				\
-	H2_BUILDER_BLOCK;						\
-	H2_BUILDER_RESET_BUF();						\
+#define EXPECT_BLOCK_REQ_H2(H2_FRAMES_DEF_BLOCK)			\
+	INIT_FRAMES();							\
+	SET_FRAMES_BUF(frames_buf);					\
+	H2_FRAMES_DEF_BLOCK;						\
+	RESET_FRAMES_BUF();						\
 	__EXPECT_BLOCK_REQ(						\
 	    "HTTP/2 request preview is not available now...",		\
 	    FUZZ_REQ_H2, CHUNK_ON)
