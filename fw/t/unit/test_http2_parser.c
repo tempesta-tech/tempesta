@@ -2502,36 +2502,29 @@ TEST(http2_parser, vchar)
 
 TEST(http2_parser, perf)
 {
-#define H2_BUF(name, capacity) \
-	static struct { \
-		unsigned char data[capacity];	\
-		unsigned int size;  \
-	} name
-
 	int i;
 	unsigned int parsed;
 	volatile unsigned long t0 = jiffies;
 
-	H2_BUF(request_1, 1024);
-	H2_BUF(request_2, 1024);
-	H2_BUF(request_3, 1024);
-	H2_BUF(request_4, 1024);
-	H2_BUF(request_5, 1024);
-	H2_BUF(request_6, 1024);
+	DECLARE_FRAMES_BUF(request_1, 512);
+	DECLARE_FRAMES_BUF(request_2, 512);
+	DECLARE_FRAMES_BUF(request_3, 512);
+	DECLARE_FRAMES_BUF(request_4, 512);
+	DECLARE_FRAMES_BUF(request_5, 512);
+	DECLARE_FRAMES_BUF(request_6, 512);
 
-	H2_BUILDER_INIT();
-	H2_BUILDER_SET_BUF(request_1.data);
+	INIT_FRAMES();
+	SET_FRAMES_BUF(request_1);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("GET"));
 	    HEADER(STR(":scheme"), STR("https"));
 	    HEADER(STR(":path"), STR("/"));
 	    HEADER(STR(":authority"), STR("example.com"));
 	HEADERS_FRAME_END();
-	request_1.size = H2_BUILDER_GET_BUF_SIZE();
-	H2_BUILDER_RESET_BUF();
+	RESET_FRAMES_BUF();
 
-	H2_BUILDER_INIT();
-	H2_BUILDER_SET_BUF(request_2.data);
+	INIT_FRAMES();
+	SET_FRAMES_BUF(request_2);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("GET"));
 	    HEADER(STR(":scheme"), STR("https"));
@@ -2547,23 +2540,21 @@ TEST(http2_parser, perf)
 		   STR("http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]:8080"
 		       "/cgi-bin/show.pl?entry=tempesta"));
 	HEADERS_FRAME_END();
-	request_2.size = H2_BUILDER_GET_BUF_SIZE();
-	H2_BUILDER_RESET_BUF();
+	RESET_FRAMES_BUF();
 
 	/* Also test invalid request. */
-	H2_BUILDER_INIT();
-	H2_BUILDER_SET_BUF(request_3.data);
+	INIT_FRAMES();
+	SET_FRAMES_BUF(request_3);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("GET"));
 	    HEADER(STR(":scheme"), STR("https"));
 	    HEADER(STR(":path"), STR("/"));
 	    HEADER(STR("authority"), STR("foo.com"));
 	HEADERS_FRAME_END();
-	request_3.size = H2_BUILDER_GET_BUF_SIZE();
-	H2_BUILDER_RESET_BUF();
+	RESET_FRAMES_BUF();
 
-	H2_BUILDER_INIT();
-	H2_BUILDER_SET_BUF(request_4.data);
+	INIT_FRAMES();
+	SET_FRAMES_BUF(request_4);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("GET"));
 	    HEADER(STR(":scheme"), STR("https"));
@@ -2575,11 +2566,10 @@ TEST(http2_parser, perf)
 	    HEADER(STR(":method"), STR("POST"));
 	    HEADER(STR(":authority"), STR("test"));
 	HEADERS_FRAME_END();
-	request_4.size = H2_BUILDER_GET_BUF_SIZE();
-	H2_BUILDER_RESET_BUF();
+	RESET_FRAMES_BUF();
 
-	H2_BUILDER_INIT();
-	H2_BUILDER_SET_BUF(request_5.data);
+	INIT_FRAMES();
+	SET_FRAMES_BUF(request_5);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("POST"));
 	    HEADER(STR(":scheme"), STR("https"));
@@ -2595,11 +2585,10 @@ TEST(http2_parser, perf)
 		   STR("203.0.113.195,70.41.3.18,150.172.238.178"));
 	    HEADER(STR("x-custom-hdr"), STR("custom header values"));
 	HEADERS_FRAME_END();
-	request_5.size = H2_BUILDER_GET_BUF_SIZE();
-	H2_BUILDER_RESET_BUF();
+	RESET_FRAMES_BUF();
 
-	H2_BUILDER_INIT();
-	H2_BUILDER_SET_BUF(request_6.data);
+	INIT_FRAMES();
+	SET_FRAMES_BUF(request_6);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(STR(":method"), STR("POST"));
 	    HEADER(STR(":scheme"), STR("https"));
@@ -2607,8 +2596,7 @@ TEST(http2_parser, perf)
 	    HEADER(STR("cookie"), STR("session=42"));
 	    HEADER(STR("accept"), STR("*/*"));
 	HEADERS_FRAME_END();
-	request_6.size = H2_BUILDER_GET_BUF_SIZE();
-	H2_BUILDER_RESET_BUF();
+	RESET_FRAMES_BUF();
 
 #define REQ_PERF(frames_buf)							\
 do {										\
