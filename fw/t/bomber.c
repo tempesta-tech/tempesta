@@ -249,7 +249,7 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 			return;
 		}
 
-		r = fuzz_gen(&task->ctx, task->buf, &task->buf[BUF_SIZE], 0, 1,
+		r = fuzz_gen_h1(&task->ctx, task->buf, &task->buf[BUF_SIZE], 0, 1,
 			     FUZZ_REQ);
 		if (r < 0) {
 			T_ERR("Cannot generate HTTP request, r=%d\n", r);

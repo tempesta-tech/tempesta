@@ -278,7 +278,7 @@ do {										\
 	frames_buf_ptr->size = 0;						\
 	bzero_fast(frames_buf_ptr->data, frames_buf_ptr->capacity)
 
-#define ASSIGN_FRAMES(str, str_len)						\
+#define ASSIGN_FRAMES_FOR_H1(str, str_len)					\
 do {										\
 	bzero_fast(frames, sizeof(frames));					\
 	frames_cnt = 1;								\
@@ -293,6 +293,30 @@ do {										\
 	frames_max_sz = 0;							\
 	frames_total_sz = 0;							\
 	bzero_fast(frames, sizeof(frames))
+
+#define ADD_HEADERS_FRAME(frame, frame_sz)					\
+do {										\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	bzero_fast(&frames[frames_cnt], sizeof(frames[0]));			\
+	frames[frames_cnt].subtype = HTTP2_HEADERS;				\
+	frames[frames_cnt].str = frame;						\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
+	++frames_cnt;								\
+} while(0)
+
+#define ADD_DATA_FRAME(frame, frame_sz)						\
+do {										\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	bzero_fast(&frames[frames_cnt], sizeof(frames[0]));			\
+	frames[frames_cnt].subtype = HTTP2_DATA;				\
+	frames[frames_cnt].str = frame;						\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
+	++frames_cnt;								\
+} while(0)
 
 #define GET_FRAMES_MAX_SZ() \
 	({frames_max_sz;})
@@ -373,7 +397,7 @@ test_case_parse_prepare_http(char *str, size_t sz_diff)
 	size_t str_len = strlen(str);
 
 	chunk_size_index = 0;
-	ASSIGN_FRAMES(str, str_len);
+	ASSIGN_FRAMES_FOR_H1(str, str_len);
 	hm_exp_len = str_len - sz_diff;
 }
 
@@ -444,6 +468,7 @@ do_split_and_parse(int type, int chunk_mode)
 
 		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 		conn.h2.hpack.state = 0;
+		conn.h2.hpack.length = 0;
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
