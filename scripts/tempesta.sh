@@ -135,10 +135,6 @@ load_modules()
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
 
-	# Set kernel panic behavior
-	echo '-1' > /proc/sys/kernel/panic
-	echo 1 > /proc/sys/kernel/panic_on_oops
-	echo 0 > /proc/sys/kernel/panic_on_warn
 
 	load_one_module "$lib_path/$lib_mod.ko" ||
 		error "cannot load tempesta library module"
@@ -166,6 +162,11 @@ unload_modules()
 setup()
 {
 	tfw_set_net_queues "$devs"
+
+	# Set kernel panic behavior
+	echo '-1' > /proc/sys/kernel/panic
+	echo 1 > /proc/sys/kernel/panic_on_oops
+	echo 0 > /proc/sys/kernel/panic_on_warn
 
 	# Tempesta builds socket buffers by itself, don't cork TCP segments.
 	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
