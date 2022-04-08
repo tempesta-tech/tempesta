@@ -66,23 +66,16 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 	       type, flags);
 
 	if (send) {
+		/* In the sending flow we now support sending response even if
+		 * we do not receive END_STREAM. This is crucial for websocket
+		 * bootstrapping for http2. */
 		/*
 		 * In the sending flow this FSM procedure intended only for
 		 * HEADERS, DATA and RST_STREAM frames processing.
 		 */
 		BUG_ON(!(flags & HTTP2_F_END_STREAM)
+		       && !(flags & HTTP2_F_END_HEADERS)
 		       && type != HTTP2_RST_STREAM);
-		/*
-		 * We can send HEADERS or DATA frames to the client only
-		 * when HTTP2_STREAM_REM_HALF_CLOSED state is passed (RFC
-		 * 7540 section 5.1).
-		 */
-		if (WARN_ON_ONCE(stream->state < HTTP2_STREAM_REM_HALF_CLOSED
-				 && flags & HTTP2_F_END_STREAM))
-		{
-			res = STREAM_FSM_RES_IGNORE;
-			goto done;
-		}
 	}
 
 	switch (stream->state) {
@@ -109,6 +102,11 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 				& (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM))
 			{
 			case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
+				if (send) {
+					stream->state =
+						HTTP2_STREAM_LOC_CLOSED;
+					break;
+				}
 				stream->state = HTTP2_STREAM_REM_HALF_CLOSED;
 				break;
 			case HTTP2_F_END_HEADERS:
@@ -201,7 +199,8 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 
 	case HTTP2_STREAM_LOC_CLOSED:
 		/* All types of frames are allowed in this state. */
-		if (type == HTTP2_RST_STREAM) {
+		if (type == HTTP2_RST_STREAM
+		    || flags & HTTP2_F_END_STREAM) {
 			if (send) {
 				res = STREAM_FSM_RES_IGNORE;
 				break;
@@ -212,10 +211,12 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		break;
 
 	case HTTP2_STREAM_REM_HALF_CLOSED:
-		if (send && (type == HTTP2_RST_STREAM
-			     || flags & HTTP2_F_END_STREAM))
-		{
-			stream->state = HTTP2_STREAM_REM_CLOSED;
+		if (send) {
+			if (type == HTTP2_RST_STREAM
+			    || (flags & HTTP2_F_END_STREAM))
+			{
+				stream->state = HTTP2_STREAM_REM_CLOSED;
+			}
 			break;
 		}
 		/*
@@ -295,7 +296,6 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		BUG();
 	}
 
-done:
 	T_DBG3("exit %s: stream->state=%d, res=%d\n", __func__,
 	       stream->state, res);
 

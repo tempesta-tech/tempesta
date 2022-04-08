@@ -851,9 +851,9 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 	if ((ce->resp_status != 200) && (ce->resp_status != 206))
 		return true;
 	/* RFC 7232 Section 5. */
-	/* TODO: Add CONNECT */
 	if ((req->method == TFW_HTTP_METH_OPTIONS)
-	    || (req->method == TFW_HTTP_METH_TRACE))
+	    || (req->method == TFW_HTTP_METH_TRACE)
+	    || (req->method == TFW_HTTP_METH_CONNECT))
 		return true;
 
 	/* If-None-Match: */

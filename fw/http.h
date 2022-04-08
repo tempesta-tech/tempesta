@@ -85,8 +85,7 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-/* TODO: When CONNECT will be added, add it to tfw_handle_validation_req()
- * and to body processing content-length filtering */
+/* TODO: Add CONNECT method to body processing content-length filtering */
 /* New safe methods MUST be added to TFW_HTTP_IS_METH_SAFE macro */
 typedef enum {
 	_TFW_HTTP_METH_NONE,
@@ -109,6 +108,7 @@ typedef enum {
 	TFW_HTTP_METH_PUT,
 	TFW_HTTP_METH_TRACE,		/* Safe. */
 	TFW_HTTP_METH_UNLOCK,
+	TFW_HTTP_METH_CONNECT,		/* Non-idempotent. */
 	/* Well-known methods, not listed in RFCs. */
 	TFW_HTTP_METH_PURGE,
 	/* Unknown method, passed to upstream without additional processing. */
@@ -192,6 +192,7 @@ typedef enum {
 	TFW_HTTP_HDR_H2_SCHEME,
 	TFW_HTTP_HDR_H2_AUTHORITY,
 	TFW_HTTP_HDR_H2_PATH,
+	TFW_HTTP_HDR_H2_PROTOCOL,
 	TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_HOST = TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
@@ -242,7 +243,7 @@ enum {
 	TFW_HTTP_B_CONN_KA,
 	TFW_HTTP_B_CONN_UPGRADE,
 	TFW_HTTP_B_CONN_EXTRA,
-	/* Message is a websocket upgrade request */
+	/* Message is a websocket upgrade request or response*/
 	TFW_HTTP_B_UPGRADE_WEBSOCKET,
 	/* Message upgrade header contains extra fields */
 	TFW_HTTP_B_UPGRADE_EXTRA,

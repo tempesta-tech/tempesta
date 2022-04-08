@@ -644,7 +644,7 @@ tfw_tls_conn_dtor(void *c)
 		 * the socket lock and TCP_TSQ_DEFERRED socket flag.
 		 *
 		 * We can not move the TLS context freeing into sk_destruct
-		 * callback, because once the Tempesta connection destrcuctor
+		 * callback, because once the Tempesta connection destructor
 		 * (this function) is finished Tempesta FW can be unloaded and
 		 * we can not leave any context on a socket with transmission
 		 * in progress.

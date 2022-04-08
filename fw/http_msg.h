@@ -34,6 +34,12 @@
 #define S_VIA_H2_PROTO		"2.0 "
 #define S_VERSION11		"HTTP/1.1"
 #define S_0			S_VERSION11 " "
+#define S_METH_GET		"GET"
+#define S_WEBSOCKET		"websocket"
+#define S_CONNECTION		"connection"
+#define S_UPGRADE		"upgrade"
+#define S_SEC_KEY		"sec-websocket-key"
+#define S_SEC_ACCEPT		"sec-websocket-accept"
 
 /*
  * The size of the buffer to store the value for ':status' pseudo-header

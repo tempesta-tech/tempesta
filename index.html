@@ -1,0 +1,39 @@
+<!DOCTYPE HTML>
+
+<html>
+   <head>
+      <script type = "text/javascript">
+         function WebSocketOpen() {
+            if ("WebSocket" in window) {
+               var ws = new WebSocket("wss://ru.ayum.ru/url");
+               ws.onopen = function() {
+                  console.log('ws opened')
+               };
+
+               ws.onmessage = function (evt) {
+                  var received_msg = evt.data;
+                  console.log('ws msg: ' + received_msg)
+               };
+
+               ws.onclose = function() {
+                  console.log('ws close')
+               };
+
+               window.ws = ws
+            } else {
+               alert("WebSocket NOT supported by your Browser!");
+            }
+         }
+         function WebSocketSend() {
+            window.ws.send("msg");
+         }
+      </script>
+   </head>
+
+   <body>
+      <div id = "sse">
+         <a href = "javascript:WebSocketOpen()">Open WebSocket</a>
+         <a href = "javascript:WebSocketSend()">Send message to WebSocket</a>
+      </div>
+   </body>
+</html>

@@ -64,6 +64,17 @@ enum {
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
 
 /**
+ * Paired connection for websocket protocol implementation.
+ *
+ * @conn	- TfwCliConn or TfwSrvConn paired connection;
+ * @stream	- stream for http/2 websocket multiplexing or NULL
+ */
+typedef struct tfw_pair_conn_t {
+	TfwConn		*conn;
+	TfwStream	*stream;
+} TfwPairConn;
+
+/**
  * Session/Presentation layer (in OSI terms) handling.
  *
  * An instance of TfwConn{} structure links each HTTP message to properties
@@ -94,7 +105,7 @@ enum {
  * @timer	- The keep-alive/retry timer for the connection;
  * @stream	- instance for control messages processing;
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
- * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
+ * @pair	- paired connection for websocket protocol case;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
  */
@@ -107,7 +118,7 @@ typedef struct tfw_conn_t TfwConn;
 	struct timer_list	timer;			\
 	TfwStream		stream;			\
 	TfwPeer 		*peer;			\
-	TfwConn			*pair;			\
+	TfwPairConn		pair;			\
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
 

@@ -114,6 +114,7 @@
 #define S_H2_AUTH		":authority"
 #define S_H2_PATH		":path"
 #define S_H2_STAT		":status"
+#define S_H2_PROTO		":protocol"
 
 #define RESP_BUF_LEN		128
 
@@ -869,6 +870,19 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	return 0;
 }
 
+static inline bool
+tfw_http_resp_is_websocket_upgrade(TfwHttpResp *resp)
+{
+	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, resp->flags)
+		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, resp->flags)
+		     && resp->status == 101))
+	{
+		return true;
+	}
+
+	return false;
+}
+
 void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
@@ -891,7 +905,10 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
-	tfw_http_resp_pair_free(req);
+	if (tfw_http_resp_is_websocket_upgrade(resp))
+		tfw_http_conn_msg_free(req->pair);
+	else
+		tfw_http_resp_pair_free(req);
 }
 
 static void
@@ -3313,6 +3330,60 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 	return 0;
 }
 
+const char base64_chars[] =
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static size_t
+base64_encoded_size(size_t slen)
+{
+	size_t ret;
+
+	ret = slen;
+	if (slen % 3 != 0)
+		ret += 3 - (slen % 3);
+	ret /= 3;
+	ret *= 4;
+
+	return ret;
+}
+
+static int
+base64_encode(unsigned char *dst, size_t dlen, size_t *olen,
+	      const unsigned char *src, size_t slen)
+{
+	size_t  i;
+	size_t  j;
+	size_t  v;
+
+	if (src == NULL || slen == 0)
+		return -1;
+
+	*olen = base64_encoded_size(slen);
+	if (dlen < *olen)
+		return -1;
+
+	for (i=0, j=0; i<slen; i+=3, j+=4) {
+		v = src[i];
+		v = i+1 < slen ? v << 8 | src[i+1] : v << 8;
+		v = i+2 < slen ? v << 8 | src[i+2] : v << 8;
+
+		dst[j]   = base64_chars[(v >> 18) & 0x3F];
+		dst[j+1] = base64_chars[(v >> 12) & 0x3F];
+		if (i+1 < slen) {
+			dst[j+2] = base64_chars[(v >> 6) & 0x3F];
+		} else {
+			dst[j+2] = '=';
+		}
+		if (i+2 < slen) {
+			dst[j+3] = base64_chars[v & 0x3F];
+		} else {
+			dst[j+3] = '=';
+		}
+	}
+
+	return 0;
+}
+
 /**
  * Transform h2 request to http1.1 request before forward it to backend server.
  * Usually we prefer in-place header modifications avoid copying, but here
@@ -3336,14 +3407,25 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
 	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
+	bool protocol = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_PROTOCOL]);
 	size_t pseudo_num;
-	TfwStr meth = {}, host_val = {}, *field, *end;
+	TfwStr meth = {
+		.chunks = (TfwStr []) {
+			{ .data = S_METH_GET, .len = SLEN(S_METH_GET) },
+		},
+		.len = SLEN(S_METH_GET),
+		.nchunks = 1
+	};
+	TfwStr host_val = {}, protocol_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
 	const DEFINE_TFW_STR(sp, " ");
 	const DEFINE_TFW_STR(dlm, S_DLM);
 	const DEFINE_TFW_STR(crlf, S_CRLF);
 	const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
+	const DEFINE_TFW_STR(connection_upgrade,
+			     S_CONNECTION S_DLM S_UPGRADE S_CRLF S_UPGRADE S_DLM);
+	const DEFINE_TFW_STR(sec_websocket, S_SEC_KEY S_DLM);
 	char *buf = *this_cpu_ptr(&g_buf);
 	char *xff_end = ss_skb_fmt_src_addr(req->msg.skb_head, buf);
 	const TfwStr h_xff = {
@@ -3389,6 +3471,18 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 */
 	bool need_cl = req->body.len &&
 	               TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
+	unsigned char key_buf[16];
+	size_t key_buf_n;
+	/* Buffer for base64-encoded sec-websocket-key for key of 16 bytes */
+	char encoded_key_buf[24];
+	TfwStr websocket_key = {
+		.chunks = (TfwStr []) {
+			{ .data = encoded_key_buf,
+			  .len = sizeof(encoded_key_buf) },
+		},
+		.len = sizeof(encoded_key_buf),
+		.nchunks = 1
+	};
 
 	if (need_cl) {
 		cl_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
@@ -3417,6 +3511,28 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		return -EINVAL;
 	}
 
+	/* When CONNECT from H2 client :protocol must be present
+	 * and must be equal to websocket */
+	if (req->method == TFW_HTTP_METH_CONNECT) {
+		if (!protocol) {
+			T_WARN("Cant convert h2 request to http/1.1: "
+			       "no protocol found for CONNECT request\n");
+			return -EINVAL;
+		}
+		else
+		{
+			__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PROTOCOL],
+					 &protocol_val);
+			if (!tfw_str_eq_cstr(&protocol_val, S_WEBSOCKET,
+					     SLEN(S_WEBSOCKET), TFW_STR_EQ_CASEI))
+			{
+				T_WARN("Cant convert h2 request to http/1.1: "
+				       "protocol not equals to 'websocket'\n");
+				return -EINVAL;
+			}
+		}
+	}
+
 	/*
 	 * First apply message modifications defined by admin in configuration
 	 * file. Ideally we should do it at last stage, when h2 headers are
@@ -3436,6 +3552,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
 	host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
 	pseudo_num = 3; /* Count authority as usual header for now. */
+	if (protocol)
+		pseudo_num += 1;
 	/*
 	 * Calculate http1.1 headers size. H2 request contains pseudo headers
 	 * that are represented in different way in the http1.1 requests.
@@ -3478,6 +3596,21 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			h1_hdrs_sz += SLEN(S_F_HOST) - SLEN(S_DLM);
 		}
 	}
+	if (req->method == TFW_HTTP_METH_CONNECT) {
+		/* CONNECT method rewrite */
+		h1_hdrs_sz -= SLEN("CONNECT") - SLEN("GET");
+		/* :protocol pseudo header, connection and upgrade headers */
+		if (protocol) {
+			h1_hdrs_sz += SLEN(S_CRLF) + connection_upgrade.len
+				      - SLEN(S_H2_PROTO);
+			/* Earlier in the function we rejected non websocket
+			 * protocol so here we know that protocol equals
+			 * 'websocket' and here we do websocket specific header
+			 * calculations. */
+			h1_hdrs_sz += SLEN(S_CRLF) + sec_websocket.len
+				      + websocket_key.len;
+		}
+	}
 
 	/* 'x-forwarded-for' header must be updated. */
 	if (!TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR])) {
@@ -3518,7 +3651,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		return r;
 
 	/* First line. */
-	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
+	/* CONNECT meth rewrites as GET (already in meth), others copied as is */
+	if (req->method != TFW_HTTP_METH_CONNECT) {
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
+	}
 	r = tfw_msg_write(&it, &meth);
 	r |= tfw_msg_write(&it, &sp);
 	r |= tfw_msg_write(&it, &req->uri_path);
@@ -3529,6 +3665,25 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &host_val);
 	r |= tfw_msg_write(&it, &host_val);
 	r |= tfw_msg_write(&it, &crlf);
+	if (req->method == TFW_HTTP_METH_CONNECT && protocol) {
+		r |= tfw_msg_write(&it, &connection_upgrade);
+		r |= tfw_msg_write(&it, &protocol_val);
+		r |= tfw_msg_write(&it, &crlf);
+		/* Earlier in the function we reject non websocket protocol
+		 * so here we know that protocol equals websocket' and do
+		 * websocket specific header insert. */
+		key_buf_n = get_random_bytes_arch(key_buf, sizeof(key_buf));
+		if (unlikely(key_buf_n < sizeof(key_buf)))
+			get_random_bytes((unsigned char *)key_buf + key_buf_n,
+					 sizeof(key_buf) - key_buf_n);
+		r |= base64_encode(encoded_key_buf, sizeof(encoded_key_buf),
+				   &key_buf_n, key_buf, sizeof(key_buf));
+		if (unlikely(r))
+			goto err;
+		r |= tfw_msg_write(&it, &sec_websocket);
+		r |= tfw_msg_write(&it, &websocket_key);
+		r |= tfw_msg_write(&it, &crlf);
+	}
 
 	/* Skip host header: it's already written. */
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
@@ -4186,6 +4341,16 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	TfwHttpHdrMap *map = mit->map;
 	TfwNextHdrOp *next = &mit->next;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
+	TfwStr sec_accept_hdr = {
+		.chunks = (TfwStr []){
+			{ .data = S_SEC_ACCEPT,
+			  .len = SLEN(S_SEC_ACCEPT), .flags = TFW_STR_NAME },
+			{ .data = S_DLM, .len = SLEN(S_DLM) }
+		},
+		.len = SLEN(S_SEC_ACCEPT) + SLEN(S_DLM),
+		.nchunks = 2
+	};
+	bool websocket = tfw_http_resp_is_websocket_upgrade(resp);
 
 	mit->bnd = NULL;
 
@@ -4297,6 +4462,13 @@ def:
 		    || hid == TFW_HTTP_HDR_CONNECTION
 		    || tgt->flags & TFW_STR_HBH_HDR)
 			continue;
+
+		/* Remove Sec-WebSocket-Accept header for websocket upgrade */
+		if (websocket && hid >= TFW_HTTP_HDR_RAW
+		    && !__hdr_name_cmp(tgt, &sec_accept_hdr))
+		{
+			continue;
+		}
 
 		/*
 		 * 'Server' header must be replaced; thus, remove the original
@@ -4458,7 +4630,8 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	TfwMsgIter *iter = &mit->iter;
 	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	unsigned long max_sz = ctx->rsettings.max_frame_sz;
-	unsigned char fr_flags = (b_len || local_body)
+	unsigned char fr_flags = (b_len || local_body ||
+				  tfw_http_resp_is_websocket_upgrade(resp))
 			? HTTP2_F_END_HEADERS
 			: HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM;
 
@@ -4857,7 +5030,7 @@ tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
  *    their encoding in HTTP/2. A request or response containing uppercase
  *    header field names MUST be treated as malformed (Section 8.1.2.6).
  *
- * Major browsers and curl ignore that RFC requirement an work well. But
+ * Major browsers and curl ignore that RFC requirement and work well. But
  * that is definitely an RFC violation and implementation specific behaviour.
  */
 static void
@@ -4873,12 +5046,19 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
+	bool websocket = false;
+	unsigned short status;
+
+	if (tfw_http_resp_is_websocket_upgrade(resp))
+		websocket = true;
+
 	/*
 	 * Get ID of corresponding stream to prepare/send HTTP/2 response, and
 	 * unlink request from the stream.
 	 */
 	stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					   HTTP2_F_END_STREAM);
+					   HTTP2_F_END_HEADERS |
+					   (websocket ? 0 : HTTP2_F_END_STREAM));
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -4894,7 +5074,17 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_resp_status_write(resp, resp->status, TFW_H2_TRANS_SUB,
+	if (!mit->bnd) {
+		TfwStr *last = TFW_STR_LAST(&resp->crlf);
+		mit->bnd = last->data + last->len;
+		hdrs_end = true;
+	}
+
+	if (websocket)
+		status = 200;
+	else
+		status = resp->status;
+	r = tfw_h2_resp_status_write(resp, status, TFW_H2_TRANS_SUB,
 				     false);
 	if (unlikely(r))
 		goto clean;
@@ -4902,7 +5092,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (WARN_ON_ONCE(!mit->bnd))
 		goto clean;
 
-	do {
+	while (!hdrs_end) {
 		TfwStr *last;
 		TfwStr hdr = next->s_hdr;
 		TfwH2TransOp op = next->op;
@@ -4921,7 +5111,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		if (unlikely(r))
 			goto clean;
 
-	} while (!hdrs_end);
+	}
 
 	/*
 	 * Write additional headers in HTTP/2 format in the end of the
@@ -5381,21 +5571,68 @@ next_msg:
 			return TFW_BLOCK;
 		}
 		if (TFW_MSG_H2(req)) {
-			TfwH2Ctx *ctx;
+			TfwH2Ctx *ctx = tfw_h2_context(conn);
+			TfwStr protocol_val = {};
+			TfwHttpHdrTbl *ht = req->h_tbl;
 
-			if (tfw_h2_stream_req_complete(req->stream)) {
-				if (likely(!tfw_h2_parse_req_finish(req)))
-					break;
+			if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
+				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+
+			if (!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
+				goto skip;
+
+			if (ctx->hdr.type == HTTP2_DATA) {
+				if (stream->proto == HTTP2_STREAM_PROTO_WEBSOCKET)
+					return tfw_ws_msg_process(conn, stream,
+								  skb);
+			}
+
+			if (!test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
+				if (unlikely(
+					!TFW_STR_EMPTY(
+						&ht->tbl[TFW_HTTP_HDR_H2_PROTOCOL])
+					&& req->method == TFW_HTTP_METH_CONNECT))
+				{
+					__h2_msg_hdr_val(
+						&ht->tbl[TFW_HTTP_HDR_H2_PROTOCOL],
+						&protocol_val);
+					if (!tfw_str_eq_cstr(&protocol_val, S_WEBSOCKET,
+							SLEN(S_WEBSOCKET),
+							TFW_STR_EQ_CASEI))
+					{
+						T_WARN("Unsupported upgrade protocol\n");
+						return TFW_BLOCK;
+					}
+					__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+						req->flags);
+				}
+			}
+
+			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
+			    || tfw_h2_stream_req_complete(req->stream))
+			{
+				if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+					     req->flags))
+				{
+					if (likely(
+						!tfw_h2_parse_req_semifinish(req)))
+					{
+						break;
+					}
+				}
+				else
+				{
+					if (likely(!tfw_h2_parse_req_finish(req)))
+						break;
+				}
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_http_req_parse_block(req, 500,
 					"Request parsing inconsistency");
 				return TFW_BLOCK;
 			}
-			ctx = tfw_h2_context(conn);
-			if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
-				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 		}
 
+skip:
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);
 		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK) {
@@ -5417,7 +5654,6 @@ next_msg:
 		 * The request is fully parsed,
 		 * fall through and process it.
 		 */
-
 		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
 				 && (req->content_length != req->body.len)))
 		{
@@ -5932,17 +6168,24 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  * @return zero on success and negative otherwise
  */
 static int
-tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn * cli_conn)
+tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn,
+			   TfwStream *cli_stream)
 {
 	TfwConn *ws_conn;
 
 	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
 		return TFW_BLOCK;
 
-	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
+	if (!TFW_CONN_H2(cli_conn)) {
+		cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
+	} else {
+		cli_stream->proto = HTTP2_STREAM_PROTO_WEBSOCKET;
+		cli_stream->pair = ws_conn;
+	}
 
-	cli_conn->pair = (TfwConn *)ws_conn;
-	ws_conn->pair = (TfwConn *)cli_conn;
+	cli_conn->pair.conn = (TfwConn *)ws_conn;
+	ws_conn->pair.conn = (TfwConn *)cli_conn;
+	ws_conn->pair.stream = cli_stream;
 
 	return TFW_PASS;
 }
@@ -5959,6 +6202,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwCliConn *cli_conn;
+	TfwStream *cli_stream;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false, websocket = false;
 
@@ -5981,7 +6225,8 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
-	cli_conn = (TfwCliConn *) hmresp->req->conn;
+	cli_conn = (TfwCliConn *)hmresp->req->conn;
+	cli_stream = hmresp->req->stream;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -6101,12 +6346,8 @@ next_msg:
 	 * forwarding here before sibling processing because after upgrade
 	 * http semantics for pipelined responses no longer apply.
 	 */
-	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, hmresp->flags)
-		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hmresp->flags)
-		     && ((TfwHttpResp *)hmresp)->status == 101))
-	{
+	if (tfw_http_resp_is_websocket_upgrade((TfwHttpResp *)hmresp))
 		websocket = true;
-	}
 
 	/*
 	 * If @skb's data has not been processed in full, then
@@ -6159,14 +6400,15 @@ next_msg:
 
 	/* Do upgrade if correct websocket upgrade response detected earlier */
 	if (websocket) {
-		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
+		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn,
+					       cli_stream);
 		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
 	}
 
 next_resp:
 	if (skb && websocket) {
-		return tfw_ws_msg_process(cli_conn->pair, skb);
+		return tfw_ws_msg_process(cli_conn->pair.conn, cli_stream, skb);
 	}
 	else if (hmsib) {
 		/*

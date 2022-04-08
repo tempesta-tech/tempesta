@@ -28,11 +28,17 @@ TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	(void)srv_conn;
 	return NULL;
 }
-int tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
+int tfw_ws_msg_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
 	(void)conn;
+	(void)stream;
 	(void)skb;
 	return 0;
+}
+void tfw_ws_stream_drop(TfwConn *conn, TfwStream *stream)
+{
+	(void)conn;
+	(void)stream;
 }
 
 #include "test.h"

@@ -133,33 +133,17 @@ typedef struct tfw_cfg_ws_t TfwCfgWs;
 
 /**
  * Process data for websocket connection without any introspection and
- * analisis of the protocol. Just send it as is.
+ * analisis of the protocol. Just send it as is for h1 or frame it for h2.
  *
- * Create light http msg with Conn_Srv flag just to append skb to it and forward
- * it further. Client messages contain many fields not needed for websocket
- * protocol.
  */
 int
-tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
+tfw_ws_msg_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
 	int r;
 	TfwCliConn *cli_conn;
-	TfwHttpMsg *hm;
+	TfwHttpMsg hm = { 0 };
 
 	T_DBG2("%s: conn=[%p], skb=[%p]\n", __func__, conn, skb);
-
-	hm = __tfw_http_msg_alloc(Conn_Srv, false);
-	if (!hm) {
-		__kfree_skb(skb);
-		return T_DROP;
-	}
-
-	ss_skb_queue_tail(&hm->msg.skb_head, skb);
-
-	if ((r = tfw_connection_send(conn->pair, (TfwMsg *)hm))) {
-		T_DBG("%s: cannot send data to via websocket\n", __func__);
-		tfw_connection_close(conn, true);
-	}
 
 	/* When receiving data from client we consider client timeout */
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
@@ -174,7 +158,39 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 		spin_unlock(&cli_conn->timer_lock);
 	}
 
-	tfw_http_msg_free(hm);
+	if (TFW_CONN_H2(conn->pair.conn)) {
+		TfwH2Ctx *ctx = tfw_h2_context(conn);
+		TfwStr data = {
+			.chunks = (TfwStr []){
+				{},
+				{ .data = skb->data, .len = skb->len }
+			},
+			.len = skb->len,
+			.nchunks = 2
+		};
+		TfwFrameHdr hdr = {
+			.length = skb->len,
+			.stream_id = conn->pair.stream->id,
+			.type = HTTP2_DATA,
+			.flags = 0
+		};
+
+		BUG_ON(conn->pair.stream->proto !=
+		       HTTP2_STREAM_PROTO_WEBSOCKET);
+
+		return tfw_h2_send_frame(ctx, &hdr, &data);
+	}
+
+	ss_skb_queue_tail(&hm.msg.skb_head, skb);
+
+
+	if ((r = tfw_connection_send(
+		TFW_CONN_H2(conn) ? stream->pair : conn->pair.conn,
+		(TfwMsg *)&hm)))
+	{
+		T_DBG("%s: cannot send data to via websocket\n", __func__);
+		tfw_connection_close(conn, true);
+	}
 
 	return r;
 }
@@ -205,15 +221,31 @@ tfw_ws_conn_unpair(TfwConn *conn)
 {
 	TfwConn *pair;
 
-	if (!conn || !conn->pair)
+	if (!conn || !(conn->pair.conn))
 		return NULL;
 
-	pair = conn->pair;
+	pair = conn->pair.conn;
 
-	conn->pair = NULL;
-	pair->pair = NULL;
+	conn->pair.conn = NULL;
+	conn->pair.stream = NULL;
+	pair->pair.conn = NULL;
+	pair->pair.stream = NULL;
 
 	return pair;
+}
+
+void
+tfw_ws_stream_drop(TfwConn *conn, TfwStream * stream)
+{
+	TfwConn *pair = tfw_ws_conn_unpair(conn);
+
+	BUG_ON(stream->proto != HTTP2_STREAM_PROTO_WEBSOCKET);
+	BUG_ON(!TFW_CONN_H2(conn));
+
+	if (!pair)
+		return;
+
+	tfw_connection_close(pair, true);
 }
 
 static void
