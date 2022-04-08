@@ -162,6 +162,11 @@ setup()
 {
 	tfw_set_net_queues "$devs"
 
+	# Automatically immediately reboot on kernel crashes and ignore kernel warnings.
+	echo '-1' > /proc/sys/kernel/panic
+	echo 1 > /proc/sys/kernel/panic_on_oops
+	echo 0 > /proc/sys/kernel/panic_on_warn
+
 	# Tempesta builds socket buffers by itself, don't cork TCP segments.
 	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
 	# Sotfirqs are doing more work, so increase input queues.
