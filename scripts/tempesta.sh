@@ -135,6 +135,11 @@ load_modules()
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
 
+	# Set kernel panic behavior
+	echo '-1' > /proc/sys/kernel/panic
+	echo 1 > /proc/sys/kernel/panic_on_oops
+	echo 0 > /proc/sys/kernel/panic_on_warn
+
 	load_one_module "$lib_path/$lib_mod.ko" ||
 		error "cannot load tempesta library module"
 
