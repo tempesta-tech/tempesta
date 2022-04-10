@@ -409,32 +409,30 @@ static FrangGlobCfg	tfw_frang_glob_reconfig;
  * processing, both strings are guaranteed to be plain.
  */
 static bool
-tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
+tfw_vhost_name_match(const BasicStr *vh, const BasicStr *name)
 {
-	if (WARN_ON_ONCE(!TFW_STR_PLAIN(name)))
-		return false;
-	return vh->name.len == name->len
-		&& !strncasecmp(vh->name.data, name->data, vh->name.len);
+	return vh->len == name->len
+		&& !strncasecmp(vh->data, name->data, vh->len);
 }
 
 /**
  *  Match vhost to requested name. Can be called in softirq context only.
  */
 static bool
-tfw_vhost_name_match_fast(TfwVhost *vh, const TfwStr *name)
+tfw_vhost_name_match_fast(const BasicStr *vh, const BasicStr *name)
 {
-	return !tfw_stricmp(&vh->name, name);
+	return !basic_stricmp_fast(vh, name);
 }
 
 static inline TfwVhost *
-__tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
-		   bool (*match_fn)(TfwVhost *, const TfwStr *))
+__tfw_vhost_lookup(TfwVhostList *vh_list, const BasicStr *name,
+		   bool (*match_fn)(const BasicStr *, const BasicStr *))
 {
 	TfwVhost *vhost;
-	unsigned long key = tfw_hash_str(name);
+	unsigned long key = basic_hash_str(name);
 
 	hash_for_each_possible(vh_list->vh_hash, vhost, hlist, key) {
-		if (match_fn(vhost, name)) {
+		if (match_fn(&vhost->name, name)) {
 			tfw_vhost_get(vhost);
 			return vhost;
 		}
@@ -451,7 +449,7 @@ __tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
 TfwVhost *
 tfw_vhost_lookup_reconfig(const char *name)
 {
-	TfwStr ns = TFW_STR_FROM_CSTR(name);
+	const BasicStr ns = {.data = (char *)name, .len= strlen(name)};
 	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
 				  tfw_vhost_name_match);
 }
@@ -463,13 +461,10 @@ tfw_vhost_lookup_reconfig(const char *name)
  * release the reference after use.
  */
 TfwVhost *
-tfw_vhost_lookup(const TfwStr *name)
+tfw_vhost_lookup(const BasicStr *name)
 {
 	TfwVhost *vhost;
 	TfwVhostList *vhlist;
-
-	if (unlikely(TFW_STR_EMPTY(name)))
-		return NULL;
 
 	rcu_read_lock_bh();
 	vhlist = rcu_dereference_bh(tfw_vhosts);
@@ -1820,7 +1815,7 @@ tfw_vhost_new(const char *name)
 static inline void
 tfw_vhost_add(TfwVhost *vhost)
 {
-	unsigned long key = tfw_hash_str(&vhost->name);
+	unsigned long key = basic_hash_str(&vhost->name);
 
 	hash_add(tfw_vhosts_reconfig->vh_hash, &vhost->hlist, key);
 	tfw_vhost_get(vhost);

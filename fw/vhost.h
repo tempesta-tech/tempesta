@@ -193,7 +193,7 @@ enum {
  */
 struct  tfw_vhost_t {
 	struct hlist_node	hlist;
-	TfwStr			name;
+	BasicStr		name;
 	TfwLocation		*loc;
 	TfwLocation		*loc_dflt;
 	TfwVhost		*vhost_dflt;
@@ -252,7 +252,7 @@ bool tfw_capuacl_match(TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
 TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
-TfwVhost *tfw_vhost_lookup(const TfwStr *name);
+TfwVhost *tfw_vhost_lookup(const BasicStr *name);
 TfwVhost *tfw_vhost_lookup_default(void);
 bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
