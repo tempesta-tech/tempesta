@@ -142,6 +142,13 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			 cs->name, -r);
 
+	/*
+	 * Validate the vhost name against all SANs from the certificate and
+	 * add the SANs for fast matching against SNI in run-time.
+	 *
+	 * TODO #496: how to process SANs now?
+	 */
+
 	kfree(crt_data);
 
 	return r;

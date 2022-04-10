@@ -804,7 +804,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 static int
 tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 {
-	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
+	const BasicStr srv_name = {.data = (char *)data, .len = len};
 	TfwVhost *vhost = NULL;
 	TlsPeerCfg *peer_cfg;
 	TfwCliConn *cli_conn = &container_of(ctx, TfwTlsConn, tls)->cli_conn;

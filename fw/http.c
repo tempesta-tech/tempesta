@@ -89,6 +89,8 @@
 
 #include "lib/hash.h"
 #include "lib/str.h"
+#include "access_log.h"
+#include "apm.h"
 #include "cache.h"
 #include "hash.h"
 #include "http_limits.h"
@@ -102,8 +104,6 @@
 #include "procfs.h"
 #include "server.h"
 #include "tls.h"
-#include "apm.h"
-#include "access_log.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
