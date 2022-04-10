@@ -206,7 +206,8 @@ struct  tfw_vhost_t {
 	TlsPeerCfg		tls_cfg;
 };
 
-#define TFW_VH_DFT_NAME		"default"
+/* Default vhost is simply a full wildcard, matching any name. */
+#define TFW_VH_DFT_NAME		"*"
 
 /**
  * Global settings (exist only on top level and are not reconfigurable).

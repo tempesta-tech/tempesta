@@ -449,7 +449,8 @@ __tfw_vhost_lookup(TfwVhostList *vh_list, const BasicStr *name,
 TfwVhost *
 tfw_vhost_lookup_reconfig(const char *name)
 {
-	const BasicStr ns = {.data = (char *)name, .len= strlen(name)};
+	const BasicStr ns = {.data = (char *)name, .len = strlen(name)};
+
 	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
 				  tfw_vhost_name_match);
 }
@@ -2402,7 +2403,7 @@ tfw_vhost_cfgend(void)
 				  &tfw_frang_vhost_reconfig);
 	if (r)
 		goto err;
-	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN("default"));
+	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN(TFW_VH_DFT_NAME));
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
 	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
