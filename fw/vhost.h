@@ -248,24 +248,6 @@ tfw_vhost_put(TfwVhost *vhost)
 	tfw_vhost_destroy(vhost);
 }
 
-TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
-bool tfw_capuacl_match(TfwAddr *addr);
-TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
-TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
-TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
-TfwVhost *tfw_vhost_lookup(const BasicStr *name);
-TfwVhost *tfw_vhost_lookup_default(void);
-bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
-TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
-TfwVhost *tfw_vhost_new(const char *name);
-TfwGlobal *tfw_vhost_get_global(void);
-TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
-				   int mod_type);
-TfwCaTokenArray tfw_vhost_get_capo_hdr_del(TfwLocation *loc,
-					   TfwVhost *vhost);
-unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
-				     TfwVhost *vhost);
-
 static inline TfwVhost*
 tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
 {
@@ -277,5 +259,28 @@ tfw_vhost_is_default(TfwVhost *vhost)
 {
 	return !vhost->vhost_dflt;
 }
+
+TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
+bool tfw_capuacl_match(TfwAddr *addr);
+TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
+TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
+
+TfwVhost *tfw_vhost_new(const char *name);
+void tfw_vhost_add_sni_map(const BasicStr *cn, const char *hname, int hlen);
+
+TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
+TfwVhost *tfw_vhost_lookup(const BasicStr *name);
+TfwVhost *tfw_vhost_lookup_sni(const BasicStr *name);
+TfwVhost *tfw_vhost_lookup_default(void);
+
+bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
+TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
+TfwGlobal *tfw_vhost_get_global(void);
+TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
+				   int mod_type);
+TfwCaTokenArray tfw_vhost_get_capo_hdr_del(TfwLocation *loc,
+					   TfwVhost *vhost);
+unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
+				     TfwVhost *vhost);
 
 #endif /* __TFW_VHOST_H__ */
