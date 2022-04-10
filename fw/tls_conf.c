@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,6 +109,53 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 }
 
 /**
+ * Validate the vhost name against all SANs from the certificate and
+ * add the SANs for fast matching against SNI in run-time.
+ *
+ * @hname is a zero-terminated string.
+ *
+ * TODO #496: how to process SANs now?
+ */
+static int
+tfw_tls_add_cn(const ttls_x509_buf *sname, const char *hname, int hlen)
+{
+	/*
+	 * If the host name is default ('*'), then any SAN is good and we
+	 * place the certificate by '*' instead of the SAN.
+	 */
+	if (hlen == 1 && hname[0] == '*') {
+		// TODO add the certificate to the SNI-indexed hash
+		return 0;
+	}
+
+	/* Try exact name match. */
+	if (sname->len == hlen && !strncasecmp(sname->p, hname, hlen)) {
+		// TODO add the certificate to the SNI-indexed hash
+		return 0;
+	}
+
+	/*
+	 * Try wildcard match by RFC 2818 3.1:
+	 *
+	 *   Names may contain the wildcard character * which is considered to
+	 *   match any single domain name component or component fragment.
+	 *   E.g., *.a.com matches foo.a.com but not bar.foo.a.com. f*.com
+	 *   matches foo.com but not bar.com.
+	 */
+	if (sname->len >= 3 && sname->p[0] == '*' && sname->p[1] == '.') {
+		char *p = strchr(hname, '.');
+		if (p && sname->len - 1 == hname + hlen - p
+		    && !strncasecmp(sname->p + 1, p, sname->len - 1))
+		{
+			// TODO add the certificate to the SNI-indexed hash
+			return 0;
+		}
+	}
+
+	return T_BAD;
+}
+
+/**
  * Handle 'tls_certificate <path>' config entry.
  */
 int
@@ -138,17 +185,23 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
-	if (r)
+	if (r) {
 		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			 cs->name, -r);
+		goto err;
+	}
 
-	/*
-	 * Validate the vhost name against all SANs from the certificate and
-	 * add the SANs for fast matching against SNI in run-time.
-	 *
-	 * TODO #496: how to process SANs now?
-	 */
+	if (ttls_x509_process_san(&conf->crt, tfw_tls_add_cn,
+				  vhost->name.data, vhost->name.len))
+	{
+		/* None of the SANs match the vhost. */
+		T_WARN("Vhost %s doesn't have certificate with matching SAN/CN.\n"
+		       "Maybe that's fine, but it's worth checking the config -\n"
+		       "if there is no relations between the names, then host\n"
+		       "name confussion attack is possible.\n", vhost->name.data);
+	}
 
+err:
 	kfree(crt_data);
 
 	return r;
