@@ -50,12 +50,13 @@
 #include "msg.h"
 #include "http_msg.h"
 
-static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
+static const unsigned int CHUNK_SIZES[] = { 9216, 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
 static unsigned int chunk_size_index = 0;
-#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
+//#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
+#define CHUNK_SIZE_CNT 1
 
 enum {
 	CHUNK_OFF,
@@ -161,72 +162,66 @@ static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
 #define FRAMES_BUF_OFFSET(frame_sz) \
 	(frames_buf_ptr->data + frames_buf_ptr->size + frame_sz)
 
-static
-unsigned int __attribute__((unused))
-tfw_h2_encode_data(unsigned char *buf, TfwDataRec data)
-{
-	TfwHPackInt hpint;
 
-	write_int(data.size, 0x7F, 0, &hpint);
-	memcpy_fast(buf, hpint.buf, hpint.sz);
-	memcpy_fast(buf + hpint.sz, data.buf, data.size);
+#define __INDEX(data, max, mask)						\
+do {										\
+	TfwHPackInt hpint;							\
+	BUG_ON(data < 1);							\
+	write_int(data, max, mask, &hpint);					\
+	memcpy_fast(buf, hpint.buf, hpint.sz);					\
+	buf += hpint.sz;							\
+} while(0)
 
-	return hpint.sz + data.size;
-}
+#define __NAME(data, mask)							\
+	*buf++ = mask;								\
+	VALUE(data);
 
-static
-unsigned int __attribute__((unused))
-tfw_h2_encode_header(unsigned char *buf, TfwHeaderRec header)
-{
-	static const int LIT_HDR_FLD_WO_IND  = 0x00;
+#define VALUE(data)								\
+do {										\
+	TfwHPackInt hpint;							\
+	size_t data_len = strlen(data);						\
+	write_int(data_len, 0x7F, 0, &hpint);					\
+	memcpy_fast(buf, hpint.buf, hpint.sz);					\
+	memcpy_fast(buf + hpint.sz, data, data_len);				\
+	buf += hpint.sz + data_len;						\
+} while(0)
 
-	unsigned int header_sz = 0;
 
-	*buf = LIT_HDR_FLD_WO_IND;
-	++header_sz;
+#define INDEX(data)	__INDEX((data), 0x7F, 0x80)
+#define NAME(data)
 
-	header_sz += tfw_h2_encode_data(buf + header_sz, header.name);
-	header_sz += tfw_h2_encode_data(buf + header_sz, header.value);
+#define INC_IND_BY_INDEX(data)	__INDEX((data), 0x3F, 0x40)
+#define INC_IND_BY_NAME(data)	__NAME((data), 0x40)
+#define INC_IND(name_desc, value_desc)						\
+	INC_IND_BY_##name_desc;							\
+	value_desc;
 
-	return header_sz;
-}
+#define WO_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0)
+#define WO_IND_BY_NAME(data)	__NAME((data), 0)
+#define WO_IND(name_desc, value_desc)						\
+	WO_IND_BY_##name_desc;							\
+	value_desc;
 
-static
-TfwDataRec __attribute__((unused))
-__data_from_STR(char *data)
-{
-	TfwDataRec ret = {data, strlen(data)};
-	return ret;
-}
+#define NEV_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0x10)
+#define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
+#define NEV_IND(name_desc, value_desc)						\
+	NEV_IND_BY_##name_desc;							\
+	value_desc;
 
-#define STR(data) \
-	__data_from_STR(data)
-
-static
-TfwDataRec __attribute__((unused))
-__data_from_RAW(char *data, size_t size)
-{
-	TfwDataRec ret = {data, size};
-	return ret;
-}
-
-#define RAW(data) \
-	__data_from_RAW(data, sizeof(data))
 
 #define HEADERS_FRAME_BEGIN()							\
 do {										\
-	TfwHeaderRec temp;							\
 	unsigned int frame_sz = 0;						\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].subtype = HTTP2_HEADERS				\
+	frames[frames_cnt].subtype = HTTP2_HEADERS
 
-#define HEADER(name_rec, value_rec)						\
+#define HEADER(header_desc)							\
 do {										\
+	unsigned char *buf;							\
 	BUG_ON(!frames_buf_ptr);						\
-	temp.name = name_rec;							\
-	temp.value = value_rec;							\
-	frame_sz += tfw_h2_encode_header(					\
-		FRAMES_BUF_OFFSET(frame_sz), temp);				\
+	buf = FRAMES_BUF_OFFSET(frame_sz);					\
+	header_desc;								\
+	frame_sz += buf - FRAMES_BUF_OFFSET(frame_sz);				\
 	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
@@ -338,12 +333,17 @@ do {										\
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
+	static char chunks[100*1024*1024] = {};
+	static char *chunks_ptr = NULL;
+
 	size_t pos = 0;
 	unsigned int parsed;
 	int r = TFW_PASS;
 	TfwHttpMsg *hm = (type == FUZZ_RESP)
 			? (TfwHttpMsg *)resp
 			: (TfwHttpMsg *)req;
+
+	chunks_ptr = chunks;
 
 	BUG_ON(type != FUZZ_REQ && type != FUZZ_REQ_H2 && type != FUZZ_RESP);
 
@@ -354,15 +354,21 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			/* At the last chunk */
 			chunk_size = len - pos;
 		TEST_DBG3("%s: len=%zu pos=%zu\n",  __func__, len, pos);
+
+		BUG_ON(chunks_ptr + chunk_size > *(&chunks + 1));
+		memcpy(chunks_ptr, str + pos, chunk_size);
+
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
+			r = tfw_http_parse_req(req, chunks_ptr, chunk_size, &parsed);
 		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, str + pos, chunk_size, &parsed);
+			r = tfw_h2_parse_req(req, chunks_ptr, chunk_size, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
+			r = tfw_http_parse_resp(resp, chunks_ptr, chunk_size, &parsed);
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
+
+		chunks_ptr += chunk_size + 17;
 
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
 		if (r != TFW_POSTPONE)
@@ -474,6 +480,8 @@ do_split_and_parse(int type, int chunk_mode)
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
+		req->pit.pool = __tfw_pool_new(0);
+		BUG_ON(!req->pit.pool);
 		__set_bit(TFW_HTTP_B_H2, req->flags);
 	}
 	else if (type == FUZZ_RESP) {
@@ -704,8 +712,8 @@ number_to_strip(TfwHttpReq *req)
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 }
 
-static
-TfwStr get_next_str_val(TfwStr *str)
+static TfwStr __attribute__((unused))
+get_next_str_val(TfwStr *str)
 {
 	TfwStr v, *c, *end;
 	unsigned int nchunks = 0;
