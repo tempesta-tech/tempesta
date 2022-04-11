@@ -109,7 +109,7 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 }
 
 /**
- * Validate the vhost name against all SANs from the certificate and
+ * Validate the vhost name @hname against all SANs from the certificate and
  * add the SANs for fast matching against SNI in run-time.
  *
  * @hname is a zero-terminated string.
@@ -155,13 +155,17 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, const char *hname, int hlen)
 	if (sname->len >= 3 && sname->p[0] == '*' && sname->p[1] == '.') {
 		char *p = strchr(hname, '.');
 
+		/* Return 0 if the wildcard CN matches the host name. */
 		if (p && sname->len - 1 == hname + hlen - p
 		    && !strncasecmp(sname->p + 1, p, sname->len - 1))
-		{
 			r = 0;
-			cn.data = p;
-			cn.len = sname->len - 1;
-		}
+
+		/*
+		 * Add the chopped (w/o leading '*') wildcard to
+		 * the SNI mapping.
+		 */
+		cn.data = sname->p + 1;
+		cn.len = sname->len - 1;
 	}
 
 	/*
