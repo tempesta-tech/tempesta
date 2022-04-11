@@ -162,6 +162,9 @@ setup()
 {
 	tfw_set_net_queues "$devs"
 
+	# Enable sysrq
+	echo 1 > /proc/sys/kernel/sysrq
+
 	# Automatically immediately reboot on kernel crashes and ignore kernel warnings.
 	echo '-1' > /proc/sys/kernel/panic
 	echo 1 > /proc/sys/kernel/panic_on_oops
