@@ -27,14 +27,14 @@
 #include "cfg.h"
 #include "connection.h"
 #include "client.h"
-#include "msg.h"
-#include "procfs.h"
+#include "hash.h"
 #include "http.h"
 #include "http_frame.h"
 #include "http_limits.h"
+#include "msg.h"
+#include "procfs.h"
 #include "tls.h"
 #include "vhost.h"
-#include "lib/hash.h"
 
 /**
  * Global level TLS configuration.
@@ -793,8 +793,31 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 
 #define SNI_WARN(fmt, ...)						\
 	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
-			  T_WARN("client %s requested"fmt, \
-				 addr_str, __VA_ARGS__))
+			  T_WARN("client %s requested " fmt, addr_str,	\
+				 __VA_ARGS__))
+
+static int
+fw_tls_apply_sni_wildcard(BasicStr *name)
+{
+	int n;
+	char *p = strchr(name->data, '.');
+	if (!p)
+		return -ENOENT;
+	n = name->data + name->len - p;
+
+	/* The resulting name must be lower than a top level domain. */
+	if (n < 3 || !strchr(p + 1, '.'))
+		return -ENOENT;
+
+	/*
+	 * Store leading dot to match against chpped wildcard (see
+	 * tfw_tls_add_cn()) and do not confuse the name with a CN.
+	 */
+	name->data = p;
+	name->len = n;
+
+	return 0;
+}
 
 /**
  * Find matching vhost according to server name in SNI extension. The function
@@ -804,7 +827,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 static int
 tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 {
-	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
+	BasicStr srv_name = {.data = (char *)data, .len = len};
 	TfwVhost *vhost = NULL;
 	TlsPeerCfg *peer_cfg;
 	TfwCliConn *cli_conn = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
@@ -816,14 +839,24 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 
 	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
+
 		if (unlikely(vhost && !vhost->vhost_dflt)) {
-			SNI_WARN(" '%s' vhost by name, reject connection.\n",
+			SNI_WARN("default vhost by name '%s', reject connection.\n",
 				 TFW_VH_DFT_NAME);
 			tfw_vhost_put(vhost);
 			return -ENOENT;
 		}
+
+		/*
+		 * Try wildcard SANs if the SNI requests 3rd-level or
+		 * lower domain.
+		 */
+		if (!vhost && !fw_tls_apply_sni_wildcard(&srv_name))
+			if ((vhost = tfw_vhost_lookup_sni(&srv_name)))
+				goto found;
+
 		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
-			SNI_WARN(" unknown server name '%.*s', reject connection.\n",
+			SNI_WARN("unknown server name '%.*s', reject connection.\n",
 				 PR_TFW_STR(&srv_name));
 			return -ENOENT;
 		}
@@ -836,19 +869,24 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		vhost = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!vhost))
 		return -ENOKEY;
-
+found:
+	/*
+	 * The peer configuration might be taked from the default vhost, which
+	 * is different from @vhost. We put() the virtual host, when @ctx is
+	 * freed.
+	 */
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
 	if (unlikely(!peer_cfg)) {
-		SNI_WARN(" misconfigured vhost '%.*s', reject connection.\n",
+		SNI_WARN("misconfigured vhost '%.*s', reject connection.\n",
 			 PR_TFW_STR(&vhost->name));
 		return -ENOKEY;
 	}
 
 	if (DBG_TLS) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
-		T_DBG("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
-		      __func__, PR_TFW_STR(&srv_name),
+		T_DBG("found SAN/CN '%.*s' for SNI '%.*s' and vhost '%.*s'\n",
+		      PR_TFW_STR(&srv_name), len, data,
 		      PR_TFW_STR(&vhost->name));
 	}
 	/* Save processed server name as hash. */
@@ -871,7 +909,6 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
  *	TLS library configuration.
  * ------------------------------------------------------------------------
  */
-
 static int
 tfw_tls_do_init(void)
 {

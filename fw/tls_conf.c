@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,6 +109,71 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 }
 
 /**
+ * Validate the vhost name against all SANs from the certificate and
+ * add the SANs for fast matching against SNI in run-time.
+ *
+ * @hname is a zero-terminated string.
+ */
+static int
+tfw_tls_add_cn(const ttls_x509_buf *sname, const char *hname, int hlen)
+{
+	int r = T_BAD;
+	BasicStr cn = {.data = sname->p, .len = sname->len};
+
+	/*
+	 * If the host name is default ('*'), then any SAN is good and we
+	 * place the certificate by '*' instead of the SAN.
+	 * Any SNI can be matched with the certificate regardless its SAN/CN.
+	 */
+	if (hlen == 1 && hname[0] == '*')
+		return 0;
+
+	/*
+	 * Try exact name match.
+	 * SNI with this name will be resolved from the vhost hash table.
+	 */
+	if (sname->len == hlen && !strncasecmp(sname->p, hname, hlen))
+		return 0;
+
+	/*
+	 * Try wildcard match by RFC 2818 3.1:
+	 *
+	 *   Names may contain the wildcard character * which is considered to
+	 *   match any single domain name component or component fragment.
+	 *   E.g., *.a.com matches foo.a.com but not bar.foo.a.com. f*.com
+	 *   matches foo.com but not bar.com.
+	 *
+	 * A vhost a.org may use certificate with SAN like
+	 *
+	 *   a.org *.a.org www.beta.a.org www.wiki.a.org
+	 *
+	 * all the SNIs must be matched with the vhost. Moreover, there could be
+	 * configured 2 vhosts, e.g. wiki.a.org and www.a.org with the
+	 * certificate. In this case there is SAN/CN name collision and we
+	 * suppose that any such collision happens on the same certificate only.
+	 */
+	if (sname->len >= 3 && sname->p[0] == '*' && sname->p[1] == '.') {
+		char *p = strchr(hname, '.');
+
+		if (p && sname->len - 1 == hname + hlen - p
+		    && !strncasecmp(sname->p + 1, p, sname->len - 1))
+		{
+			r = 0;
+			cn.data = p;
+			cn.len = sname->len - 1;
+		}
+	}
+
+	/*
+	 * Add the full SAN/CN entry or chopped wildcard (e.g. ".a.org" for
+	 * "*.a.org") for SNI resolving into the vhost name.
+	 */
+	tfw_vhost_add_sni_map(&cn, hname, hlen);
+
+	return T_BAD;
+}
+
+/**
  * Handle 'tls_certificate <path>' config entry.
  */
 int
@@ -138,10 +203,23 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
-	if (r)
+	if (r) {
 		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			 cs->name, -r);
+		goto err;
+	}
 
+	if (ttls_x509_process_san(&conf->crt, tfw_tls_add_cn,
+				  vhost->name.data, vhost->name.len))
+	{
+		/* None of the SANs match the vhost. */
+		T_WARN("Vhost %s doesn't have certificate with matching SAN/CN.\n"
+		       "Maybe that's fine, but it's worth checking the config -\n"
+		       "if there is no relations between the names, then host\n"
+		       "name confussion attack is possible.\n", vhost->name.data);
+	}
+
+err:
 	kfree(crt_data);
 
 	return r;
