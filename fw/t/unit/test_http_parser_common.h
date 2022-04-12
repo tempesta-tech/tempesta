@@ -186,6 +186,15 @@ do {										\
 	buf += hpint.sz + data_len;						\
 } while(0)
 
+#define RVALUE(data)								\
+do {										\
+	TfwHPackInt hpint;							\
+	size_t data_len = sizeof(data);						\
+	write_int(data_len, 0x7F, 0, &hpint);					\
+	memcpy_fast(buf, hpint.buf, hpint.sz);					\
+	memcpy_fast(buf + hpint.sz, data, data_len);				\
+	buf += hpint.sz + data_len;						\
+} while(0)
 
 #define INDEX(data)	__INDEX((data), 0x7F, 0x80)
 #define NAME(data)
@@ -243,11 +252,12 @@ do {										\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = HTTP2_DATA
 
-#define DATA(data_rec)								\
+#define DATA(data)								\
 do {										\
+	size_t data_len = strlen(data);							\
 	BUG_ON(!frames_buf_ptr);						\
-	memcpy_fast(FRAMES_BUF_POS(), data_rec.buf, data_rec.size);		\
-	frame_sz = data_rec.size;						\
+	memcpy_fast(FRAMES_BUF_OFFSET(frame_sz), data, data_len);		\
+	frame_sz += data_len;				\
 	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
