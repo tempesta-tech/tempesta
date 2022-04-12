@@ -46,7 +46,11 @@ state for now. The alpha is available by:
 * [binary packages](https://github.com/tempesta-tech/tempesta/releases)
 * [installation script](https://github.com/tempesta-tech/tempesta/wiki/Install-from-packages#using-installer-script)
 
-The **master** branch is unstable and contains code for upcoming beta.
+The **master** branch is a development (and unstable) branch for contributers and
+early testers only.
+Use [release-0.6](https://github.com/tempesta-tech/tempesta/tree/release-0.6) branch
+or binary releases https://github.com/tempesta-tech/tempesta/tree/release-0.6 for
+stable versions.
 
 
 ## Installation and Configuration
