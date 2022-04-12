@@ -49,7 +49,7 @@ state for now. The alpha is available by:
 The **master** branch is a development (and unstable) branch for contributers and
 early testers only.
 Use [release-0.6](https://github.com/tempesta-tech/tempesta/tree/release-0.6) branch
-or binary releases https://github.com/tempesta-tech/tempesta/tree/release-0.6 for
+or [binary releases](https://github.com/tempesta-tech/tempesta/tree/release-0.6) for
 stable versions.
 
 
