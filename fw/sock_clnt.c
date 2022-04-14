@@ -367,6 +367,7 @@ typedef struct {
  * stopped, and not changed in between. Therefore, no locking is required.
  */
 static LIST_HEAD(tfw_listen_socks);
+static LIST_HEAD(tfw_listen_socks_reconf);
 
 /**
  * Allocate a new TfwListenSock and add it to the global list of sockets.
@@ -385,7 +386,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		return -EINVAL;
 
 	/* Is there such an address on the list already? */
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
+	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
 		if (tfw_addr_eq(addr, &ls->addr)) {
 			T_LOG_ADDR("Duplicate listener with", addr,
 				   TFW_WITH_PORT);
@@ -404,10 +405,8 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		ss_proto_init(&ls->proto, &tfw_sock_tls_clnt_ss_hooks,
 			      Conn_HttpsClnt);
 
-	list_add(&ls->list, &tfw_listen_socks);
+	list_add(&ls->list, &tfw_listen_socks_reconf);
 	ls->addr = *addr;
-
-	tfw_classifier_add_inport(tfw_addr_port(addr));
 
 	return 0;
 }
@@ -490,7 +489,7 @@ tfw_sock_check_lst(TfwServer *srv)
 	TfwListenSock *ls;
 
 	T_DBG3("Checking server....\n");
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
+	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
 		T_DBG3("Iterating listener\n");
 		if (tfw_addr_ifmatch(&srv->addr, &ls->addr))
 			return -EINVAL;
@@ -627,21 +626,71 @@ tfw_sock_clnt_cfgend(void)
 static int
 tfw_sock_clnt_start(void)
 {
-	int r;
+	int r = 0;
 	TfwListenSock *ls;
+	TfwListenSock *ls_reconf;
+	TfwListenSock *tmp;
 
-	if (tfw_runstate_is_reconfig())
-		return 0;
+	tfw_classifier_cleanup_inport();
+	list_for_each_entry(ls_reconf, &tfw_listen_socks_reconf, list) {
+		bool found = false;
 
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		if ((r = tfw_listen_sock_start(ls))) {
-			T_ERR_ADDR("can't start listening on", &ls->addr,
-				   TFW_WITH_PORT);
-			goto err;
+		list_for_each_entry(ls, &tfw_listen_socks, list) {
+			if (tfw_addr_eq(&ls_reconf->addr, &ls->addr)) {
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
+			ls = kzalloc(sizeof(*ls), GFP_KERNEL);
+			if (!ls) {
+				r = -ENOMEM;
+				goto err;
+			}
+
+			ss_proto_init(&ls->proto, ls_reconf->proto.hooks, ls_reconf->proto.type);
+
+			list_add(&ls->list, &tfw_listen_socks);
+			ls->addr = ls_reconf->addr;
+
+			if ((r = tfw_listen_sock_start(ls))) {
+				T_ERR_ADDR("can't start listening on", &ls_reconf->addr,
+					   TFW_WITH_PORT);
+				goto err;
+			}
+		}
+
+	}
+
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
+		bool found = false;
+
+		list_for_each_entry(ls_reconf, &tfw_listen_socks_reconf, list) {
+			if (tfw_addr_eq(&ls_reconf->addr, &ls->addr)) {
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
+			list_del(&ls->list);
+			if (!ls->sk)
+				continue;
+			ss_release(ls->sk);
+			ls->sk = NULL;
+			kfree(ls);
+		} else {
+			tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
 		}
 	}
 
-	return 0;
+done:
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list)
+		kfree(ls);
+
+	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
+	return r;
 
 err:
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
@@ -651,7 +700,7 @@ err:
 		ls->sk = NULL;
 	}
 
-	return r;
+	goto done;
 }
 
 static void
@@ -702,6 +751,7 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.handler = tfw_cfgop_listen,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = true,
+		.allow_reconfig = true,
 	},
 	{
 		.name = "keepalive_timeout",
