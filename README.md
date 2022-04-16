@@ -67,6 +67,6 @@ following topics:
 * [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Benchmarks)
 
 
-## Thanks
+## We appreciate support of our technical partner
 
-We appreciate support of our technical partner <a href="https://netactuate.com/"><img src="https://user-images.githubusercontent.com/884694/163684435-f4c9a95f-ab2c-4f3c-8734-81c173677e01.svg" width="200"/></a>
+ <a href="https://netactuate.com/"><img src="https://user-images.githubusercontent.com/884694/163684435-f4c9a95f-ab2c-4f3c-8734-81c173677e01.svg" width="300"/></a>
