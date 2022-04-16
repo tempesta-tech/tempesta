@@ -65,3 +65,9 @@ following topics:
 * [Configuration guide](https://github.com/tempesta-tech/tempesta/wiki/Configuration)
 * [Use cases](https://github.com/tempesta-tech/tempesta/wiki/Use-cases)
 * [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Benchmarks)
+
+
+## Thanks
+
+We appreciate support of our technical partner [![NALogo-Multicolor-NoByline-1](https://user-images.githubusercontent.com/884694/163684435-f4c9a95f-ab2c-4f3c-8734-81c173677e01.svg)](https://netactuate.com/)
+
