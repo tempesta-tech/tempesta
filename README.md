@@ -64,7 +64,7 @@ following topics:
 * [Installation procedures](https://github.com/tempesta-tech/tempesta/wiki/Installation)
 * [Configuration guide](https://github.com/tempesta-tech/tempesta/wiki/Configuration)
 * [Use cases](https://github.com/tempesta-tech/tempesta/wiki/Use-cases)
-* [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Benchmarks)
+* [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Performance#benchmarks)
 
 
 ## We appreciate support of our technical partner
