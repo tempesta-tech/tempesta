@@ -720,7 +720,7 @@ number_to_strip(TfwHttpReq *req)
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 }
 
-static TfwStr __attribute__((unused))
+static TfwStr
 get_next_str_val(TfwStr *str)
 {
 	TfwStr v, *c, *end;

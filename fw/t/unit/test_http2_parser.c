@@ -2725,7 +2725,7 @@ end:
 	kernel_fpu_begin();
 }
 
-TEST(http2_parser, hpack)
+TEST(http2_parser, hpack_static_table)
 {
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
@@ -2744,7 +2744,7 @@ TEST(http2_parser, hpack)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
-//	EXPECT_BLOCK_REQ_H2(		// TODO: must be blocked
+//	EXPECT_BLOCK_REQ_H2(		// TODO: must be fixed in [#1614]
 //	    HEADERS_FRAME_BEGIN();
 //		// :method = "GET"
 //		HEADER(INDEX(2));
@@ -2967,39 +2967,39 @@ TEST(http2_parser, hpack)
 
 TEST_SUITE(http2_parser)
 {
-//	TEST_RUN(http2_parser, http2_check_important_fields);
-//	TEST_RUN(http2_parser, parses_req_method);
-//	TEST_RUN(http2_parser, parses_req_uri);
-//	TEST_RUN(http2_parser, mangled_messages);
-//	TEST_RUN(http2_parser, alphabets);
-//	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
-//	TEST_RUN(http2_parser, cache_control);
-//	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
-//	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
-//	TEST_RUN(http2_parser, content_length);
-//	TEST_RUN(http2_parser, ows);
-//	TEST_RUN(http2_parser, accept);
-//	TEST_RUN(http2_parser, host);
-//	TEST_RUN(http2_parser, cookie);
-//	TEST_RUN(http2_parser, if_none_match);
-//	TEST_RUN(http2_parser, referer);
-//	TEST_RUN(http2_parser, content_type_line_parser);
-//	TEST_RUN(http2_parser, xff);
-//	TEST_RUN(http2_parser, date);
-//	TEST_RUN(http2_parser, method_override);
-//	TEST_RUN(http2_parser, vchar);
-//	TEST_RUN(http2_parser, perf);
-//	TEST_RUN(http2_parser, fuzzer);
-	TEST_RUN(http2_parser, hpack);
+	TEST_RUN(http2_parser, http2_check_important_fields);
+	TEST_RUN(http2_parser, parses_req_method);
+	TEST_RUN(http2_parser, parses_req_uri);
+	TEST_RUN(http2_parser, mangled_messages);
+	TEST_RUN(http2_parser, alphabets);
+	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
+	TEST_RUN(http2_parser, cache_control);
+	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
+	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
+	TEST_RUN(http2_parser, content_length);
+	TEST_RUN(http2_parser, ows);
+	TEST_RUN(http2_parser, accept);
+	TEST_RUN(http2_parser, host);
+	TEST_RUN(http2_parser, cookie);
+	TEST_RUN(http2_parser, if_none_match);
+	TEST_RUN(http2_parser, referer);
+	TEST_RUN(http2_parser, content_type_line_parser);
+	TEST_RUN(http2_parser, xff);
+	TEST_RUN(http2_parser, date);
+	TEST_RUN(http2_parser, method_override);
+	TEST_RUN(http2_parser, vchar);
+	TEST_RUN(http2_parser, perf);
+	TEST_RUN(http2_parser, fuzzer);
+	TEST_RUN(http2_parser, hpack_static_table);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-//	tfw_http_sess_redir_mark_enable();
+	tfw_http_sess_redir_mark_enable();
 
-//	TEST_RUN(http2_parser, parses_enforce_ext_req);
-//	TEST_RUN(http2_parser, parses_enforce_ext_req_rmark);
+	TEST_RUN(http2_parser, parses_enforce_ext_req);
+	TEST_RUN(http2_parser, parses_enforce_ext_req_rmark);
 
-//	tfw_http_sess_redir_mark_disable();
+	tfw_http_sess_redir_mark_disable();
 }
