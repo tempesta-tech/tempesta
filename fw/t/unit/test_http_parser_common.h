@@ -50,13 +50,12 @@
 #include "msg.h"
 #include "http_msg.h"
 
-static const unsigned int CHUNK_SIZES[] = { 9216, 1, 2, 3, 4, 8, 16, 32, 64, 128,
+static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
                                   /* to fit a message of 'any' size */
                                  };
 static unsigned int chunk_size_index = 0;
-//#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
-#define CHUNK_SIZE_CNT 1
+#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 
 enum {
 	CHUNK_OFF,
@@ -175,11 +174,10 @@ static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
 	frames_buf_ptr->size += frame_sz
 
 
-#define __INDEX(data, max, mask)						\
+#define __INDEX(index, max, mask)						\
 do {										\
 	TfwHPackInt hpint;							\
-	BUG_ON(data < 1);							\
-	write_int(data, max, mask, &hpint);					\
+	write_int(index, max, mask, &hpint);					\
 	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
 	frame_buf += hpint.sz;							\
 } while(0)
@@ -198,7 +196,7 @@ do {										\
 	frame_buf += hpint.sz + data_len;					\
 } while(0)
 
-#define RVALUE(data)								\
+#define RAW_VALUE(data)								\
 do {										\
 	TfwHPackInt hpint;							\
 	size_t data_len = sizeof(data);						\
@@ -344,8 +342,8 @@ DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
-	static char chunks[100*1024*1024] = {};
-	static char *chunks_ptr = NULL;
+	static char chunks[2*1024*1024] = {};
+	static char *chunks_ptr = chunks;
 
 	size_t pos = 0;
 	unsigned int parsed;
@@ -353,8 +351,6 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 	TfwHttpMsg *hm = (type == FUZZ_RESP)
 			? (TfwHttpMsg *)resp
 			: (TfwHttpMsg *)req;
-
-	chunks_ptr = chunks;
 
 	BUG_ON(type != FUZZ_REQ && type != FUZZ_REQ_H2 && type != FUZZ_RESP);
 
@@ -366,6 +362,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			chunk_size = len - pos;
 		TEST_DBG3("%s: len=%zu pos=%zu\n",  __func__, len, pos);
 
+		chunks_ptr = chunks + (chunks_ptr - chunks + chunk_size) % sizeof(chunks);
 		BUG_ON(chunks_ptr + chunk_size > *(&chunks + 1));
 		memcpy(chunks_ptr, str + pos, chunk_size);
 
