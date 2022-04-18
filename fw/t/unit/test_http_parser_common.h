@@ -153,14 +153,26 @@ typedef struct frames_buf_abstract {
 		unsigned char data[CAPACITY];					\
 	} __attribute__((unused)) NAME = {.data = {}, .capacity = CAPACITY, .size = 0}
 
-DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
+
+#define RESET_FRAMES_BUF()							\
+	BUG_ON(!frames_buf_ptr);						\
+	frames_buf_ptr = NULL
+
+#define SET_FRAMES_BUF(frames_buf)						\
+	BUG_ON(frames_buf_ptr);							\
+	frames_buf_ptr = (TfwFramesBuf *) &frames_buf;				\
+	frames_buf_ptr->size = 0;						\
+	bzero_fast(frames_buf_ptr->data, frames_buf_ptr->capacity)
 
 #define FRAMES_BUF_POS() \
 	(frames_buf_ptr->data + frames_buf_ptr->size)
 
-#define FRAMES_BUF_OFFSET(frame_sz) \
-	(frames_buf_ptr->data + frames_buf_ptr->size + frame_sz)
+#define FRAMES_BUF_END() \
+	(frames_buf_ptr->data + frames_buf_ptr->capacity)
+
+#define FRAMES_BUF_SIZE_ADD(frame_sz) \
+	frames_buf_ptr->size += frame_sz
 
 
 #define __INDEX(data, max, mask)						\
@@ -168,12 +180,12 @@ do {										\
 	TfwHPackInt hpint;							\
 	BUG_ON(data < 1);							\
 	write_int(data, max, mask, &hpint);					\
-	memcpy_fast(buf, hpint.buf, hpint.sz);					\
-	buf += hpint.sz;							\
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
+	frame_buf += hpint.sz;							\
 } while(0)
 
 #define __NAME(data, mask)							\
-	*buf++ = mask;								\
+	*frame_buf++ = mask;							\
 	VALUE(data);
 
 #define VALUE(data)								\
@@ -181,9 +193,9 @@ do {										\
 	TfwHPackInt hpint;							\
 	size_t data_len = strlen(data);						\
 	write_int(data_len, 0x7F, 0, &hpint);					\
-	memcpy_fast(buf, hpint.buf, hpint.sz);					\
-	memcpy_fast(buf + hpint.sz, data, data_len);				\
-	buf += hpint.sz + data_len;						\
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
+	memcpy_fast(frame_buf + hpint.sz, data, data_len);			\
+	frame_buf += hpint.sz + data_len;					\
 } while(0)
 
 #define RVALUE(data)								\
@@ -191,9 +203,9 @@ do {										\
 	TfwHPackInt hpint;							\
 	size_t data_len = sizeof(data);						\
 	write_int(data_len, 0x7F, 0, &hpint);					\
-	memcpy_fast(buf, hpint.buf, hpint.sz);					\
-	memcpy_fast(buf + hpint.sz, data, data_len);				\
-	buf += hpint.sz + data_len;						\
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
+	memcpy_fast(frame_buf + hpint.sz, data, data_len);			\
+	frame_buf += hpint.sz + data_len;					\
 } while(0)
 
 #define INDEX(data)	__INDEX((data), 0x7F, 0x80)
@@ -218,70 +230,57 @@ do {										\
 	value_desc;
 
 
-#define HEADERS_FRAME_BEGIN()							\
+#define __FRAME_BEGIN(type)							\
 do {										\
-	unsigned int frame_sz = 0;						\
+	unsigned char *frame_buf;						\
+	unsigned int frame_sz;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].subtype = HTTP2_HEADERS
+	frames[frames_cnt].subtype = type;					\
+	frame_buf = FRAMES_BUF_POS()
+
+#define __FRAME_END()								\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	BUG_ON(!frame_buf);							\
+	frame_sz = frame_buf - FRAMES_BUF_POS();				\
+	frames[frames_cnt].str = FRAMES_BUF_POS();				\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
+	++frames_cnt;								\
+	FRAMES_BUF_SIZE_ADD(frame_sz);						\
+} while (0)
+
+
+#define HEADERS_FRAME_BEGIN() \
+	__FRAME_BEGIN(HTTP2_HEADERS)
 
 #define HEADER(header_desc)							\
 do {										\
-	unsigned char *buf;							\
-	BUG_ON(!frames_buf_ptr);						\
-	buf = FRAMES_BUF_OFFSET(frame_sz);					\
+	BUG_ON(!frame_buf);							\
 	header_desc;								\
-	frame_sz += buf - FRAMES_BUF_OFFSET(frame_sz);				\
-	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
+	BUG_ON(frame_buf > FRAMES_BUF_END());					\
 } while (0)
 
-#define HEADERS_FRAME_END()							\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	BUG_ON(!frames_buf_ptr);						\
-	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_buf_ptr->size += frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
-	++frames_cnt;								\
-} while (0)
+#define HEADERS_FRAME_END() \
+	__FRAME_END()
 
 
-#define DATA_FRAME_BEGIN()							\
-do {										\
-	unsigned int frame_sz = 0;						\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].subtype = HTTP2_DATA
+#define DATA_FRAME_BEGIN() \
+	__FRAME_BEGIN(HTTP2_DATA)
 
 #define DATA(data)								\
 do {										\
-	size_t data_len = strlen(data);							\
-	BUG_ON(!frames_buf_ptr);						\
-	memcpy_fast(FRAMES_BUF_OFFSET(frame_sz), data, data_len);		\
-	frame_sz += data_len;				\
-	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
+	unsigned int data_len;							\
+	BUG_ON(!frame_buf);							\
+	data_len = strlen(data);						\
+	memcpy_fast(frame_buf, data, data_len);					\
+	frame_buf += data_len;							\
+	BUG_ON(frame_buf > FRAMES_BUF_END());					\
 } while (0)
 
-#define DATA_FRAME_END()							\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	BUG_ON(!frames_buf_ptr);						\
-	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_buf_ptr->size += frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
-	++frames_cnt;								\
-} while (0)
+#define DATA_FRAME_END() \
+	__FRAME_END()
 
-
-#define RESET_FRAMES_BUF()							\
-	BUG_ON(!frames_buf_ptr);						\
-	frames_buf_ptr = NULL
-
-#define SET_FRAMES_BUF(frames_buf)						\
-	BUG_ON(frames_buf_ptr);							\
-	frames_buf_ptr = (TfwFramesBuf *) &frames_buf;				\
-	frames_buf_ptr->size = 0;						\
-	bzero_fast(frames_buf_ptr->data, frames_buf_ptr->capacity)
 
 #define ASSIGN_FRAMES_FOR_H1(str, str_len)					\
 do {										\
@@ -339,6 +338,8 @@ do {										\
 #define GET_CURRENT_FRAME() \
 	({frames[frame_index];})
 
+
+DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
