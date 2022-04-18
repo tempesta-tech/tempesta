@@ -1442,6 +1442,9 @@ get_indexed_name:
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
+			if (unlikely(src >= last))
+				goto out;
+
 			fallthrough;
 		}
 		case HPACK_STATE_VALUE:
