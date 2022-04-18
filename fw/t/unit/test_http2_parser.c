@@ -58,9 +58,9 @@ TEST(http2_parser, parses_req_method)
 #define TEST_REQ_METHOD(METHOD)							\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
+		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -70,9 +70,9 @@ TEST(http2_parser, parses_req_method)
 #define TEST_REQ_UNKNOWN(METHOD)						\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
+		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -174,9 +174,9 @@ TEST(http2_parser, parses_req_uri)
 #define TEST_URI_PATH(req_uri_path)						\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE(req_uri_path)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE(req_uri_path)));		\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -187,10 +187,10 @@ TEST(http2_parser, parses_req_uri)
 #define TEST_FULL_REQ(req_host, req_uri_path)					\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE(req_uri_path)));			\
-		HEADER(WO_IND(NAME(":authority"), VALUE(req_host)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE(req_uri_path)));		\
+		HEADER(WO_IND(NAME(":authority"), VALUE(req_host)));		\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -635,20 +635,20 @@ TEST(http2_parser, cache_control)
 #define EXPECT_BLOCK_REQ_H2_CC(cache_control)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("cache-control"), VALUE(cache_control)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("cache-control"), VALUE(cache_control)));	\
 	    HEADERS_FRAME_END();						\
 	);
 
 #define FOR_REQ_H2_CC(cache_control)						\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("cache-control"), VALUE(cache_control)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("cache-control"), VALUE(cache_control)));	\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -862,10 +862,10 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 #define EXPECT_BLOCK_REQ_H2_XFF(x_forwarded_for)				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("x-forwarded-for"), VALUE(x_forwarded_for)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("x-forwarded-for"), VALUE(x_forwarded_for)));\
 	    HEADERS_FRAME_END();						\
 	);
 
@@ -895,10 +895,10 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 #define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));			\
+		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -906,10 +906,10 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 	}									\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));			\
+		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -919,11 +919,11 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 #define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(METHOD)				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));			\
-		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -932,11 +932,11 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 	}									\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));			\
-		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
+		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -945,11 +945,11 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 	}									\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));			\
-		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -958,11 +958,11 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 	}									\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));			\
-		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
+		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -971,11 +971,11 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 	}									\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));			\
-		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -984,11 +984,11 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 	}									\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));				\
-		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));			\
-		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
+		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
+		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -1030,8 +1030,19 @@ TEST(http2_parser, content_length)
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
 		HEADER(WO_IND(NAME("content-length"), VALUE("0")));
 	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(req->content_length == 0);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));
+	    HEADERS_FRAME_END();
 	    DATA_FRAME_BEGIN();
-		DATA("");
 	    DATA_FRAME_END();
 	)
 	{
@@ -1046,7 +1057,6 @@ TEST(http2_parser, content_length)
 		HEADER(WO_IND(NAME("content-length"), VALUE("5")));
 	    HEADERS_FRAME_END();
 	    DATA_FRAME_BEGIN();
-//		DATA(RAW(""));
 	    DATA_FRAME_END();
 	);
 
@@ -1081,13 +1091,13 @@ TEST(http2_parser, content_length)
 #define EXPECT_BLOCK_REQ_H2_CL_DUMMY(content_length)				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("cache-length"), VALUE(content_length)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("cache-length"), VALUE(content_length)));	\
 	    HEADERS_FRAME_END();						\
 	    DATA_FRAME_BEGIN();							\
-		DATA("dummy");						\
+		DATA("dummy");							\
 	    DATA_FRAME_END();							\
 	);
 
@@ -1136,30 +1146,30 @@ TEST(http2_parser, ows)
 #define EXPECT_BLOCK_REQ_H2_METHOD(name, value)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(name), VALUE(value)));					\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("foo.com")));			\
+		HEADER(WO_IND(NAME(name), VALUE(value)));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("foo.com")));		\
 	    HEADERS_FRAME_END();						\
 	);
 
 #define EXPECT_BLOCK_REQ_H2_SCHEME(name, value)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(name), VALUE(value)));					\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("foo.com")));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(name), VALUE(value)));			\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("foo.com")));		\
 	    HEADERS_FRAME_END();						\
 	);
 
 #define EXPECT_BLOCK_REQ_H2_AUTHORITY(name, value)				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(name), VALUE(value)));					\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(name), VALUE(value)));			\
 	    HEADERS_FRAME_END();						\
 	);
 
@@ -1190,10 +1200,10 @@ TEST(http2_parser, accept)
 #define __FOR_ACCEPT(accept_val, EXPECT_HTML_MACRO)				\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("accept"), VALUE(accept_val)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("accept"), VALUE(accept_val)));		\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -1207,10 +1217,10 @@ TEST(http2_parser, accept)
 #define EXPECT_BLOCK_REQ_H2_ACCEPT(header)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("accept"), VALUE(header)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("accept"), VALUE(header)));			\
 	    HEADERS_FRAME_END();						\
 	);
 
@@ -1335,20 +1345,20 @@ TEST(http2_parser, host)
 #define FOR_REQ_H2_HOST(host)							\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE(host)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE(host)));		\
 	    HEADERS_FRAME_END();						\
 	)
 
 #define EXPECT_BLOCK_REQ_H2_HOST(host)						\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE(host)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE(host)));		\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -1483,22 +1493,22 @@ TEST(http2_parser, cookie)
 #define FOR_REQ_H2_COOKIE(cookie)						\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("g.com")));			\
-		HEADER(WO_IND(NAME("cookie"), VALUE(cookie)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("g.com")));		\
+		HEADER(WO_IND(NAME("cookie"), VALUE(cookie)));			\
 	    HEADERS_FRAME_END();						\
 	)
 
 #define EXPECT_BLOCK_REQ_H2_COOKIE(cookie)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("g.com")));			\
-		HEADER(WO_IND(NAME("cookie"), VALUE(cookie)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("g.com")));		\
+		HEADER(WO_IND(NAME("cookie"), VALUE(cookie)));			\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -1587,20 +1597,20 @@ TEST(http2_parser, if_none_match)
 #define FOR_REQ_H2_IF_NONE_MATCH(if_none_match)					\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("if-none-match"), VALUE(if_none_match)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("if-none-match"), VALUE(if_none_match)));	\
 	    HEADERS_FRAME_END();						\
 	)
 
 #define EXPECT_BLOCK_REQ_H2_IF_NONE_MATCH(if_none_match)			\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("if-none-match"), VALUE(if_none_match)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("if-none-match"), VALUE(if_none_match)));	\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -1743,10 +1753,10 @@ TEST(http2_parser, referer)
 #define FOR_REQ_H2_IF_REFERER(referer)						\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("referer"), VALUE(referer)));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("referer"), VALUE(referer)));		\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -1765,24 +1775,26 @@ TEST(http2_parser, content_type_line_parser)
 #define FOR_REQ_H2_CONTENT_TYPE(content_type)					\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("POST")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("localhost.localdomain")));	\
-		HEADER(WO_IND(NAME("content-type"), VALUE(content_type)));			\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(							\
+		    NAME(":authority"), VALUE("localhost.localdomain")));	\
+		HEADER(WO_IND(NAME("content-type"), VALUE(content_type)));	\
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 	    HEADERS_FRAME_END();						\
 	)
 
 #define EXPECT_BLOCK_REQ_H2_CONTENT_TYPE(content_type)				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("POST")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("localhost.localdomain")));	\
-		HEADER(WO_IND(NAME("content-type"), VALUE(content_type)));			\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(							\
+		    NAME(":authority"), VALUE("localhost.localdomain")));	\
+		HEADER(WO_IND(NAME("content-type"), VALUE(content_type)));	\
+		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -2022,10 +2034,10 @@ TEST(http2_parser, date)
 #define FOR_EACH_DATE(strdate, expect_seconds)					\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE(strdate)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("if-modified-since"), VALUE(strdate)));	\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -2071,7 +2083,7 @@ TEST(http2_parser, date)
 	/*
 	 * RFC 7232 3.3.
 	 *
-	⁃	 * A recipient MUST ignore If-Modified-Since if the request contains an
+	 * A recipient MUST ignore If-Modified-Since if the request contains an
 	 * If-None-Match header field.
 	 */
 	FOR_REQ_H2(
@@ -2080,7 +2092,9 @@ TEST(http2_parser, date)
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
 		HEADER(WO_IND(NAME("if-none-match"), VALUE("\"xyzzy\"")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
 	    HEADERS_FRAME_END();
 	)
 	{
@@ -2091,7 +2105,9 @@ TEST(http2_parser, date)
 		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
 		HEADER(WO_IND(NAME("if-none-match"), VALUE("\"xyzzy\"")));
 	    HEADERS_FRAME_END();
 	)
@@ -2110,7 +2126,9 @@ TEST(http2_parser, date)
 		HEADER(WO_IND(NAME(":method"), VALUE("POST")));
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
 	    HEADERS_FRAME_END();
 	)
 	{
@@ -2121,7 +2139,9 @@ TEST(http2_parser, date)
 		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
 	    HEADERS_FRAME_END();
 	)
 	{
@@ -2141,8 +2161,12 @@ TEST(http2_parser, date)
 		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
 	    HEADERS_FRAME_END();
 	);
 
@@ -2152,8 +2176,12 @@ TEST(http2_parser, date)
 		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
-		HEADER(WO_IND(NAME("if-modified-since"), VALUE("Wed, 41 Oct 2015 07:28:00 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
+		HEADER(WO_IND(
+		    NAME("if-modified-since"),
+		    VALUE("Wed, 41 Oct 2015 07:28:00 GMT")));
 	    HEADERS_FRAME_END();
 	);
 
@@ -2312,11 +2340,11 @@ TEST(http2_parser, method_override)
 #define EXPECT_FOR_REQ_H2_METHOD_OVERRIDE(METHOD)				\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("POST")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));			\
-		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
+		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -2325,11 +2353,11 @@ TEST(http2_parser, method_override)
 	}									\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("POST")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));			\
-		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));		\
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
+		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -2338,11 +2366,11 @@ TEST(http2_parser, method_override)
 	}									\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("POST")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));			\
-		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
+		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -2353,11 +2381,11 @@ TEST(http2_parser, method_override)
 #define EXPECT_FOR_REQ_H2_METHOD_OVERRIDE_UWN(METHOD)				\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("POST")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));			\
-		HEADER(WO_IND(NAME("x-method-override"), VALUE(METHOD)));			\
+		HEADER(WO_IND(NAME(":method"), VALUE("POST")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
+		HEADER(WO_IND(NAME("x-method-override"), VALUE(METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	);									\
 	{									\
@@ -2393,10 +2421,10 @@ TEST(http2_parser, vchar)
 #define EXPECT_FOR_REQ_H2_HDR_EQ(name, value, id)				\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(name), VALUE(value)));					\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(name), VALUE(value)));			\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -2406,10 +2434,10 @@ TEST(http2_parser, vchar)
 #define EXPECT_BLOCK_REQ_H2_HDR(name, value)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(name), VALUE(value)));					\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(name), VALUE(value)));			\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -2424,10 +2452,10 @@ TEST(http2_parser, vchar)
 	EXPECT_BLOCK_REQ_H2_HDR(header, "\x7F");				\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
-		HEADER(WO_IND(NAME(":method"), VALUE("GET")));				\
-		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));				\
-		HEADER(WO_IND(NAME(":path"), VALUE("/")));					\
-		HEADER(WO_IND(NAME(header), RVALUE("\x00")));				\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME(header), RAW_VALUE("\x00")));		\
 	    HEADERS_FRAME_END();						\
 	)
 
@@ -2529,10 +2557,16 @@ TEST(http2_parser, perf)
 	    HEADER(WO_IND(NAME(":method"), VALUE("GET")));
 	    HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 	    HEADER(WO_IND(NAME(":path"), VALUE("/index.html")));
-	    HEADER(WO_IND(NAME(":authority"), VALUE("afaahfaduy3wbfdf.dsfda.12.dsdf.2.df")));
-	    HEADER(WO_IND(NAME("authorization"), VALUE("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==")));
+	    HEADER(WO_IND(
+		NAME(":authority"),
+		VALUE("afaahfaduy3wbfdf.dsfda.12.dsdf.2.df")));
+	    HEADER(WO_IND(
+		NAME("authorization"),
+		VALUE("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==")));
 	    HEADER(WO_IND(NAME("user-agent"), VALUE("Wget/1.13.4 (linux-gnu)")));
-	    HEADER(WO_IND(NAME("if-modified-since"), VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
+	    HEADER(WO_IND(
+		NAME("if-modified-since"),
+		VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
 	    HEADER(WO_IND(NAME("x-forwarded-for"),
 		   VALUE("203.0.113.195,70.41.3.18,150.172.238.178")));
 	    HEADER(WO_IND(NAME("cookie"), VALUE("session=42; theme=dark")));
@@ -2558,11 +2592,12 @@ TEST(http2_parser, perf)
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("GET")));
 	    HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
-	    HEADER(WO_IND(NAME(":path"),
-		   VALUE("/https://ru.wikipedia.org/wiki/%D0%A8%D0%B0%D0"
-		       "%B1%D0%BB%D0%BE%D0%BD:%D0%9B%D0%B5%D0%BE%D0%BD"
-		       "%D0%B0%D1%80%D0%B4%D0%BE_%D0%B4%D0%B0_%D0%92%D0"
-		       "%B8%D0%BD%D1%87%D0%B8")));
+	    HEADER(WO_IND(
+		NAME(":path"),
+		VALUE("/https://ru.wikipedia.org/wiki/%D0%A8%D0%B0%D0"
+		      "%B1%D0%BB%D0%BE%D0%BD:%D0%9B%D0%B5%D0%BE%D0%BD"
+		      "%D0%B0%D1%80%D0%B4%D0%BE_%D0%B4%D0%B0_%D0%92%D0"
+		      "%B8%D0%BD%D1%87%D0%B8")));
 	    HEADER(WO_IND(NAME(":method"), VALUE("POST")));
 	    HEADER(WO_IND(NAME(":authority"), VALUE("test")));
 	HEADERS_FRAME_END();
@@ -2577,10 +2612,13 @@ TEST(http2_parser, perf)
 	    HEADER(WO_IND(NAME(":authority"), VALUE("a.com")));
 	    HEADER(WO_IND(NAME("cookie"), VALUE("session=42; theme=dark")));
 	    HEADER(WO_IND(NAME("Dummy0"), VALUE("0")));
-	    HEADER(WO_IND(NAME("referer"),
-		   VALUE("http://tempesta-tech.com:8080\r\n"
-		       "/cgi-bin/show.pl?entry=tempesta")));
-	    HEADER(WO_IND(NAME("if-modified-since"), VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
+	    HEADER(WO_IND(
+		NAME("referer"),
+		VALUE("http://tempesta-tech.com:8080\r\n"
+		      "/cgi-bin/show.pl?entry=tempesta")));
+	    HEADER(WO_IND(
+		NAME("if-modified-since"),
+		VALUE("Sat, 29 Oct 1994 19:43:31 GMT")));
 	    HEADER(WO_IND(NAME("x-forwarded-for"),
 		   VALUE("203.0.113.195,70.41.3.18,150.172.238.178")));
 	    HEADER(WO_IND(NAME("x-custom-hdr"), VALUE("custom header values")));
@@ -2592,7 +2630,9 @@ TEST(http2_parser, perf)
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("POST")));
 	    HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
-	    HEADER(WO_IND(NAME(":path"), VALUE("http://natsys-lab.com:8080/cgi-bin/show.pl")));
+	    HEADER(WO_IND(
+		NAME(":path"),
+		VALUE("http://natsys-lab.com:8080/cgi-bin/show.pl")));
 	    HEADER(WO_IND(NAME("cookie"), VALUE("session=42")));
 	    HEADER(WO_IND(NAME("accept"), VALUE("*/*")));
 	HEADERS_FRAME_END();
@@ -2689,131 +2729,224 @@ TEST(http2_parser, hpack)
 {
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(2));	// :method = "GET"
-		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(4));	// :path = "/"
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
 	    HEADERS_FRAME_END();
 	)
 	{
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME], ":scheme" "https");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
+				 ":scheme" "https");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
 //	EXPECT_BLOCK_REQ_H2(		// TODO: must be blocked
 //	    HEADERS_FRAME_BEGIN();
-//		HEADER(INDEX(2));	// :method = "GET"
-//		HEADER(INDEX(6));	// :scheme = "http"
-//		HEADER(INDEX(4));	// :path = "/"
+//		// :method = "GET"
+//		HEADER(INDEX(2));
+//		// :scheme = "http"
+//		HEADER(INDEX(6));
+//		// :path = "/"
+//		HEADER(INDEX(4));
 //	    HEADERS_FRAME_END();
 //	);
 
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(2));	// :method = "GET"
-		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(5));	// :path = "/index.html"
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/index.html"
+		HEADER(INDEX(5));
 	    HEADERS_FRAME_END();
 	)
 	{
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME], ":scheme" "https");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
+				 ":scheme" "https");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/index.html");
 	}
 
 	EXPECT_BLOCK_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(2));	// :method = "GET"
-		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(5));	// :path = "/index.html"
-		HEADER(WO_IND(INDEX(28), VALUE("1")));	// content-length = "1"
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/index.html"
+		HEADER(INDEX(5));
+		// content-length = "1"
+		HEADER(WO_IND(INDEX(28), VALUE("1")));
 	    HEADERS_FRAME_END();
 	);
 
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(3));	// :method = "POST"
-		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(4));	// :path = "/"
+		// :method = "POST"
+		HEADER(INDEX(3));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
 	    HEADERS_FRAME_END();
 	)
 	{
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME], ":scheme" "https");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
+				 ":scheme" "https");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(2));	// :method = "GET"
-		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(4));	// :path = "/"
-		HEADER(WO_IND(INDEX(1), VALUE("localhost"))); // :authority = "localhost"
-		HEADER(WO_IND(INDEX(15), VALUE("utf-8"))); // accept-charset = "utf-8"
-		HEADER(INDEX(16));	// accept-encoding = "gzip, deflate"
-		HEADER(WO_IND(INDEX(17), VALUE("fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5"))); // accept-language = "fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5"
-		HEADER(WO_IND(INDEX(19), VALUE("*/*"))); // accept = "*/*"
-		HEADER(WO_IND(INDEX(21), VALUE("13"))); // age = "13"
-		HEADER(WO_IND(INDEX(23), VALUE("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="))); // authorization = "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
-		HEADER(WO_IND(INDEX(24), VALUE("max-age=1, no-store, min-fresh=30"))); // cache-control = "max-age=1, no-store, min-fresh=30"
-		HEADER(WO_IND(INDEX(32), VALUE("session=42; theme=dark"))); // cookie = "session=42; theme=dark"
-		HEADER(WO_IND(INDEX(37), VALUE("webmaster@example.org"))); // from = "webmaster@example.org"
-		HEADER(WO_IND(INDEX(38), VALUE("developer.mozilla.org:5588"))); // host = "developer.mozilla.org:5588"
-		HEADER(WO_IND(INDEX(39), VALUE("\"67ab43\", \"54ed21\", \"7892dd\""))); // if-match = "\"67ab43\", \"54ed21\", \"7892dd\""
-		HEADER(WO_IND(INDEX(40), VALUE("Inv, 31 Jan 2012 15:02:53 GMT"))); // if-modified-since = "Inv, 31 Jan 2012 15:02:53"
-		HEADER(WO_IND(INDEX(42), VALUE("Wed, 21 Oct 2015 07:28:00 GMT"))); // if-range = "Wed, 21 Oct 2015 07:28:00 GMT"
-		HEADER(WO_IND(INDEX(43), VALUE("Tue, 21 Oct 2015 17:28:00 GMT"))); // if-unmodified-since = "Inv, 31 Jan 2012 15:02:55"
-		HEADER(WO_IND(INDEX(45), VALUE("<https://example.com>; rel=\"preconnect\""))); // link = "<https://example.com>; rel=\"preconnect\""
-		HEADER(WO_IND(INDEX(47), VALUE("24"))); // max-forwards = "24"
-		HEADER(WO_IND(INDEX(49), VALUE("Basic YWxhZGRpbjpvcGVuc2VzYW1l"))); // proxy-authorization = "Basic YWxhZGRpbjpvcGVuc2VzYW1l"
-		HEADER(WO_IND(INDEX(50), VALUE("bytes=200-1000, 2000-6576, 19000-"))); // range = "bytes=200-1000, 2000-6576, 19000-"
-		HEADER(WO_IND(INDEX(51), VALUE("https://example.com/page?q=123"))); // referer = "https://example.com/page?q=123"
-		HEADER(WO_IND(INDEX(58), VALUE("Wget/1.13.4 (linux-gnu)"))); // user-agent = "Wget/1.13.4 (linux-gnu)"
-		HEADER(WO_IND(INDEX(60), VALUE("1.0 fred, 1.1 p.example.net"))); // via = "1.0 fred, 1.1 p.example.net"
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// :authority = "localhost"
+		HEADER(WO_IND(INDEX(1), VALUE("localhost")));
+		// accept-charset = "utf-8"
+		HEADER(WO_IND(INDEX(15), VALUE("utf-8")));
+		// accept-encoding = "gzip, deflate"
+		HEADER(INDEX(16));
+		// accept-language = "fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5"
+		HEADER(WO_IND(
+		    INDEX(17),
+		    VALUE("fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5")));
+		// accept = "*/*"
+		HEADER(WO_IND(INDEX(19), VALUE("*/*")));
+		// age = "13"
+		HEADER(WO_IND(INDEX(21), VALUE("13")));
+		// authorization = "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+		HEADER(WO_IND(
+		    INDEX(23),
+		    VALUE("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==")));
+		// cache-control = "max-age=1, no-store, min-fresh=30"
+		HEADER(WO_IND(
+		    INDEX(24),
+		    VALUE("max-age=1, no-store, min-fresh=30")));
+		// cookie = "session=42; theme=dark"
+		HEADER(WO_IND(INDEX(32), VALUE("session=42; theme=dark")));
+		// from = "webmaster@example.org"
+		HEADER(WO_IND(INDEX(37), VALUE("webmaster@example.org")));
+		// host = "developer.mozilla.org:5588"
+		HEADER(WO_IND(INDEX(38), VALUE("developer.mozilla.org:5588")));
+		// if-match = "\"67ab43\", \"54ed21\", \"7892dd\""
+		HEADER(WO_IND(
+		    INDEX(39),
+		    VALUE("\"67ab43\", \"54ed21\", \"7892dd\"")));
+		// if-modified-since = "Inv, 31 Jan 2012 15:02:53"
+		HEADER(WO_IND(INDEX(40), VALUE("Inv, 31 Jan 2012 15:02:53 GMT")));
+		// if-range = "Wed, 21 Oct 2015 07:28:00 GMT"
+		HEADER(WO_IND(INDEX(42), VALUE("Wed, 21 Oct 2015 07:28:00 GMT")));
+		 // if-unmodified-since = "Inv, 31 Jan 2012 15:02:55"
+		HEADER(WO_IND(INDEX(43), VALUE("Tue, 21 Oct 2015 17:28:00 GMT")));
+		// link = "<https://example.com>; rel=\"preconnect\""
+		HEADER(WO_IND(
+		    INDEX(45),
+		    VALUE("<https://example.com>; rel=\"preconnect\"")));
+		// max-forwards = "24"
+		HEADER(WO_IND(INDEX(47), VALUE("24")));
+		// proxy-authorization = "Basic YWxhZGRpbjpvcGVuc2VzYW1l"
+		HEADER(WO_IND(INDEX(49), VALUE("Basic YWxhZGRpbjpvcGVuc2VzYW1l")));
+		// range = "bytes=200-1000, 2000-6576, 19000-"
+		HEADER(WO_IND(
+		    INDEX(50),
+		    VALUE("bytes=200-1000, 2000-6576, 19000-")));
+		// referer = "https://example.com/page?q=123"
+		HEADER(WO_IND(INDEX(51), VALUE("https://example.com/page?q=123")));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(WO_IND(INDEX(58), VALUE("Wget/1.13.4 (linux-gnu)")));
+		// via = "1.0 fred, 1.1 p.example.net"
+		HEADER(WO_IND(INDEX(60), VALUE("1.0 fred, 1.1 p.example.net")));
 
 	    HEADERS_FRAME_END();
 	)
 	{
 		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 17);
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME], ":scheme" "https");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
+				 ":scheme" "https");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 		EXPECT_TFWSTR_EQ(&req->host, "localhost");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW], "accept-charset" "utf-8");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 1], "accept-encoding" "gzip, deflate");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 2], "accept-language" "fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 3], "accept" "*/*");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 4], "age" "13");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 5], "authorization" "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 6], "cache-control" "max-age=1, no-store, min-fresh=30");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE], "cookie" "session=42; theme=dark");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 7], "from" "webmaster@example.org");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], "host" "developer.mozilla.org:5588");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW],
+				 "accept-charset" "utf-8");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 1],
+				 "accept-encoding" "gzip, deflate");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 2],
+				 "accept-language"
+				 "fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 3],
+				 "accept" "*/*");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 4],
+				 "age" "13");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 5],
+				 "authorization"
+				 "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 6],
+				 "cache-control"
+				 "max-age=1, no-store, min-fresh=30");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE],
+				 "cookie" "session=42; theme=dark");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 7],
+				 "from" "webmaster@example.org");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+				 "host" "developer.mozilla.org:5588");
 		EXPECT_EQ(req->host_port, 5588);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 8], "if-match" "\"67ab43\", \"54ed21\", \"7892dd\"");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 9], "if-modified-since" "Inv, 31 Jan 2012 15:02:53 GMT");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 8],
+				 "if-match"
+				 "\"67ab43\", \"54ed21\", \"7892dd\"");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 9],
+				 "if-modified-since"
+				 "Inv, 31 Jan 2012 15:02:53 GMT");
 		EXPECT_TRUE(req->cond.m_date == 1328022173);
 		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 10], "if-range" "Wed, 21 Oct 2015 07:28:00 GMT");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 11], "if-unmodified-since" "Tue, 21 Oct 2015 17:28:00 GMT");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 12], "link" "<https://example.com>; rel=\"preconnect\"");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 13], "max-forwards" "24");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 14], "proxy-authorization" "Basic YWxhZGRpbjpvcGVuc2VzYW1l");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 15], "range" "bytes=200-1000, 2000-6576, 19000-");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_REFERER], "referer" "https://example.com/page?q=123");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT], "user-agent" "Wget/1.13.4 (linux-gnu)");
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 16], "via" "1.0 fred, 1.1 p.example.net");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 10],
+				 "if-range" "Wed, 21 Oct 2015 07:28:00 GMT");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 11],
+				 "if-unmodified-since"
+				 "Tue, 21 Oct 2015 17:28:00 GMT");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 12],
+				 "link"
+				 "<https://example.com>; rel=\"preconnect\"");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 13],
+				 "max-forwards" "24");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 14],
+				 "proxy-authorization"
+				 "Basic YWxhZGRpbjpvcGVuc2VzYW1l");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 15],
+				 "range" "bytes=200-1000, 2000-6576, 19000-");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_REFERER],
+				 "referer" "https://example.com/page?q=123");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT],
+				 "user-agent" "Wget/1.13.4 (linux-gnu)");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 16],
+				 "via" "1.0 fred, 1.1 p.example.net");
 	}
 
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(3));	// :method = "POST"
-		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(4));	// :path = "/"
-		HEADER(WO_IND(INDEX(28), VALUE("7"))); // content-length = "7"
-		HEADER(WO_IND(INDEX(31), VALUE("text/plain"))); // content-type = "text/plain"
-		HEADER(WO_IND(INDEX(35), VALUE("100-continue"))); // expect = "100-continue"
-		HEADER(WO_IND(INDEX(41), VALUE("\"xyzzy\""))); // if-none-match = "\"xyzzy\""
+		// :method = "POST"
+		HEADER(INDEX(3));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// content-length = "7"
+		HEADER(WO_IND(INDEX(28), VALUE("7")));
+		// content-type = "text/plain"
+		HEADER(WO_IND(INDEX(31), VALUE("text/plain")));
+		// expect = "100-continue"
+		HEADER(WO_IND(INDEX(35), VALUE("100-continue")));
+		 // if-none-match = "\"xyzzy\""
+		HEADER(WO_IND(INDEX(41), VALUE("\"xyzzy\"")));
 	    HEADERS_FRAME_END();
 	    DATA_FRAME_BEGIN();
 		DATA("1234567");
@@ -2821,10 +2954,14 @@ TEST(http2_parser, hpack)
 	)
 	{
 	    EXPECT_TRUE(req->content_length == 7);
-	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH], "content-length" "7");
-	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE], "content-type" "text/plain");
-	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW], "expect" "100-continue");
-	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH], "if-none-match" "\"xyzzy\"");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
+			     "content-length" "7");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+			     "content-type" "text/plain");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW],
+			     "expect" "100-continue");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH],
+			     "if-none-match" "\"xyzzy\"");
 	}
 }
 
