@@ -2700,6 +2700,36 @@ TEST(http2_parser, hpack)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
+//	EXPECT_BLOCK_REQ_H2(		// TODO: must be blocked
+//	    HEADERS_FRAME_BEGIN();
+//		HEADER(INDEX(2));	// :method = "GET"
+//		HEADER(INDEX(6));	// :scheme = "http"
+//		HEADER(INDEX(4));	// :path = "/"
+//	    HEADERS_FRAME_END();
+//	);
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(INDEX(2));	// :method = "GET"
+		HEADER(INDEX(7));	// :scheme = "https"
+		HEADER(INDEX(5));	// :path = "/index.html"
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME], ":scheme" "https");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/index.html");
+	}
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(INDEX(2));	// :method = "GET"
+		HEADER(INDEX(7));	// :scheme = "https"
+		HEADER(INDEX(5));	// :path = "/index.html"
+		HEADER(WO_IND(INDEX(28), VALUE("1")));	// content-length = "1"
+	    HEADERS_FRAME_END();
+	);
+
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
 		HEADER(INDEX(3));	// :method = "POST"
@@ -2717,36 +2747,6 @@ TEST(http2_parser, hpack)
 	    HEADERS_FRAME_BEGIN();
 		HEADER(INDEX(2));	// :method = "GET"
 		HEADER(INDEX(7));	// :scheme = "https"
-		HEADER(INDEX(5));	// :path = "/index.html"
-	    HEADERS_FRAME_END();
-	)
-	{
-		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME], ":scheme" "https");
-		EXPECT_TFWSTR_EQ(&req->uri_path, "/index.html");
-	}
-
-//	EXPECT_BLOCK_REQ_H2(		// TODO: must be blocked
-//	    HEADERS_FRAME_BEGIN();
-//		HEADER(INDEX(2));	// :method = "GET"
-//		HEADER(INDEX(6));	// :scheme = "http"
-//		HEADER(INDEX(4));	// :path = "/"
-//	    HEADERS_FRAME_END();
-//	);
-
-	EXPECT_BLOCK_REQ_H2(
-	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(2));	// :method = "GET"
-		HEADER(INDEX(7));	// :scheme = "http"
-		HEADER(INDEX(4));	// :path = "/"
-		HEADER(WO_IND(INDEX(28), VALUE("10")));	// content-length
-	    HEADERS_FRAME_END();
-	);
-
-	FOR_REQ_H2(
-	    HEADERS_FRAME_BEGIN();
-		HEADER(INDEX(2));	// :method = "GET"
-		HEADER(INDEX(7));	// :scheme = "https"
 		HEADER(INDEX(4));	// :path = "/"
 		HEADER(WO_IND(INDEX(1), VALUE("localhost"))); // :authority = "localhost"
 		HEADER(WO_IND(INDEX(15), VALUE("utf-8"))); // accept-charset = "utf-8"
@@ -2756,15 +2756,11 @@ TEST(http2_parser, hpack)
 		HEADER(WO_IND(INDEX(21), VALUE("13"))); // age = "13"
 		HEADER(WO_IND(INDEX(23), VALUE("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="))); // authorization = "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
 		HEADER(WO_IND(INDEX(24), VALUE("max-age=1, no-store, min-fresh=30"))); // cache-control = "max-age=1, no-store, min-fresh=30"
-		// content-length	// TODO
-		// content-type		// TODO
 		HEADER(WO_IND(INDEX(32), VALUE("session=42; theme=dark"))); // cookie = "session=42; theme=dark"
-		// expect: 100-continue	// TODO
 		HEADER(WO_IND(INDEX(37), VALUE("webmaster@example.org"))); // from = "webmaster@example.org"
 		HEADER(WO_IND(INDEX(38), VALUE("developer.mozilla.org:5588"))); // host = "developer.mozilla.org:5588"
 		HEADER(WO_IND(INDEX(39), VALUE("\"67ab43\", \"54ed21\", \"7892dd\""))); // if-match = "\"67ab43\", \"54ed21\", \"7892dd\""
 		HEADER(WO_IND(INDEX(40), VALUE("Inv, 31 Jan 2012 15:02:53 GMT"))); // if-modified-since = "Inv, 31 Jan 2012 15:02:53"
-//		HEADER(WO_IND(INDEX(41), VALUE("\"xyzzy\""))); // if-none-match = "\"xyzzy\""	// TODO: if-modified-since header ignored if exist if-none-match
 		HEADER(WO_IND(INDEX(42), VALUE("Wed, 21 Oct 2015 07:28:00 GMT"))); // if-range = "Wed, 21 Oct 2015 07:28:00 GMT"
 		HEADER(WO_IND(INDEX(43), VALUE("Tue, 21 Oct 2015 17:28:00 GMT"))); // if-unmodified-since = "Inv, 31 Jan 2012 15:02:55"
 		HEADER(WO_IND(INDEX(45), VALUE("<https://example.com>; rel=\"preconnect\""))); // link = "<https://example.com>; rel=\"preconnect\""
@@ -2798,7 +2794,6 @@ TEST(http2_parser, hpack)
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 9], "if-modified-since" "Inv, 31 Jan 2012 15:02:53 GMT");
 		EXPECT_TRUE(req->cond.m_date == 1328022173);
 		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
-//		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH], "if-none-match" "\"xyzzy\"");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 10], "if-range" "Wed, 21 Oct 2015 07:28:00 GMT");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 11], "if-unmodified-since" "Tue, 21 Oct 2015 17:28:00 GMT");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 12], "link" "<https://example.com>; rel=\"preconnect\"");
@@ -2809,33 +2804,55 @@ TEST(http2_parser, hpack)
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT], "user-agent" "Wget/1.13.4 (linux-gnu)");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 16], "via" "1.0 fred, 1.1 p.example.net");
 	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(INDEX(3));	// :method = "POST"
+		HEADER(INDEX(7));	// :scheme = "https"
+		HEADER(INDEX(4));	// :path = "/"
+		HEADER(WO_IND(INDEX(28), VALUE("7"))); // content-length = "7"
+		HEADER(WO_IND(INDEX(31), VALUE("text/plain"))); // content-type = "text/plain"
+		HEADER(WO_IND(INDEX(35), VALUE("100-continue"))); // expect = "100-continue"
+		HEADER(WO_IND(INDEX(41), VALUE("\"xyzzy\""))); // if-none-match = "\"xyzzy\""
+	    HEADERS_FRAME_END();
+	    DATA_FRAME_BEGIN();
+		DATA("1234567");
+	    DATA_FRAME_END();
+	)
+	{
+	    EXPECT_TRUE(req->content_length == 7);
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH], "content-length" "7");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE], "content-type" "text/plain");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW], "expect" "100-continue");
+	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH], "if-none-match" "\"xyzzy\"");
+	}
 }
 
 TEST_SUITE(http2_parser)
 {
-	TEST_RUN(http2_parser, http2_check_important_fields);
-	TEST_RUN(http2_parser, parses_req_method);
-	TEST_RUN(http2_parser, parses_req_uri);
-	TEST_RUN(http2_parser, mangled_messages);
-	TEST_RUN(http2_parser, alphabets);
-	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
-	TEST_RUN(http2_parser, cache_control);
-	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
-	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
-	TEST_RUN(http2_parser, content_length);
-	TEST_RUN(http2_parser, ows);
-	TEST_RUN(http2_parser, accept);
-	TEST_RUN(http2_parser, host);
-	TEST_RUN(http2_parser, cookie);
-	TEST_RUN(http2_parser, if_none_match);
-	TEST_RUN(http2_parser, referer);
-	TEST_RUN(http2_parser, content_type_line_parser);
-	TEST_RUN(http2_parser, xff);
-	TEST_RUN(http2_parser, date);
-	TEST_RUN(http2_parser, method_override);
-	TEST_RUN(http2_parser, vchar);
-	TEST_RUN(http2_parser, perf);
-	TEST_RUN(http2_parser, fuzzer);
+//	TEST_RUN(http2_parser, http2_check_important_fields);
+//	TEST_RUN(http2_parser, parses_req_method);
+//	TEST_RUN(http2_parser, parses_req_uri);
+//	TEST_RUN(http2_parser, mangled_messages);
+//	TEST_RUN(http2_parser, alphabets);
+//	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
+//	TEST_RUN(http2_parser, cache_control);
+//	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
+//	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
+//	TEST_RUN(http2_parser, content_length);
+//	TEST_RUN(http2_parser, ows);
+//	TEST_RUN(http2_parser, accept);
+//	TEST_RUN(http2_parser, host);
+//	TEST_RUN(http2_parser, cookie);
+//	TEST_RUN(http2_parser, if_none_match);
+//	TEST_RUN(http2_parser, referer);
+//	TEST_RUN(http2_parser, content_type_line_parser);
+//	TEST_RUN(http2_parser, xff);
+//	TEST_RUN(http2_parser, date);
+//	TEST_RUN(http2_parser, method_override);
+//	TEST_RUN(http2_parser, vchar);
+//	TEST_RUN(http2_parser, perf);
+//	TEST_RUN(http2_parser, fuzzer);
 	TEST_RUN(http2_parser, hpack);
 
 	/*
