@@ -2701,7 +2701,7 @@ TEST(http2_parser, fuzzer)
 			INIT_FRAMES();
 			ADD_HEADERS_FRAME(str, headers_len);
 			ADD_DATA_FRAME(str + headers_len, body_len);
-			test_case_parse_prepare_h2();
+			test_case_parse_prepare_h2();	
 			switch (ret) {
 			case FUZZ_VALID:
 				TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON);

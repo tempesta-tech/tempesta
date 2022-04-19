@@ -3062,13 +3062,12 @@ TEST(http1_parser, fuzzer)
 			TEST_DBG3("start field: %d request: %d\n", field, i);
 			ret = fuzz_gen_h1(&context, str, str + len, field, MOVE,
 				       FUZZ_REQ);
+			test_case_parse_prepare_http(str);
 			switch (ret) {
 			case FUZZ_VALID:
-				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_PASS(FUZZ_REQ, CHUNK_ON);
 				break;
 			case FUZZ_INVALID:
-				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON);
 				break;
 			case FUZZ_END:
@@ -3088,13 +3087,12 @@ resp:
 			TEST_DBG3("start field: %d response: %d\n", field, i);
 			ret = fuzz_gen_h1(&context, str, str + len, field, MOVE,
 				       FUZZ_RESP);
+			test_case_parse_prepare_http(str);
 			switch (ret) {
 			case FUZZ_VALID:
-				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_PASS(FUZZ_RESP, CHUNK_ON);
 				break;
 			case FUZZ_INVALID:
-				test_case_parse_prepare_http(str, 0);
 				TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON);
 				break;
 			case FUZZ_END:
@@ -3813,7 +3811,7 @@ TEST(http1_parser, perf)
 
 #define REQ_PERF(str)							\
 do {									\
-	test_case_parse_prepare_http(str, 0);				\
+	test_case_parse_prepare_http(str);				\
 	if (req)							\
 		test_req_free(req);					\
 	req = test_req_alloc(sizeof(str) - 1);				\
@@ -3822,7 +3820,7 @@ do {									\
 
 #define RESP_PERF(str)							\
 do {									\
-	test_case_parse_prepare_http(str, 0);				\
+	test_case_parse_prepare_http(str);				\
 	if (resp)							\
 		test_resp_free(resp);					\
 	resp = test_resp_alloc(sizeof(str) - 1);			\
