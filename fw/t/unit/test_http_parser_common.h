@@ -110,7 +110,6 @@ static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
-static size_t hm_exp_len = 0;
 
 
 typedef struct data_rec
@@ -227,7 +226,6 @@ do {										\
 	NEV_IND_BY_##name_desc;							\
 	value_desc;
 
-
 #define __FRAME_BEGIN(type)							\
 do {										\
 	unsigned char *frame_buf;						\
@@ -342,9 +340,6 @@ DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
-	static char chunks[2*1024*1024] = {};
-	static char *chunks_ptr = chunks;
-
 	size_t pos = 0;
 	unsigned int parsed;
 	int r = TFW_PASS;
@@ -362,21 +357,15 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			chunk_size = len - pos;
 		TEST_DBG3("%s: len=%zu pos=%zu\n",  __func__, len, pos);
 
-		chunks_ptr = chunks + (chunks_ptr - chunks + chunk_size) % sizeof(chunks);
-		BUG_ON(chunks_ptr + chunk_size > *(&chunks + 1));
-		memcpy(chunks_ptr, str + pos, chunk_size);
-
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, chunks_ptr, chunk_size, &parsed);
+			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
 		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, chunks_ptr, chunk_size, &parsed);
+			r = tfw_h2_parse_req(req, str + pos, chunk_size, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, chunks_ptr, chunk_size, &parsed);
+			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
-
-		chunks_ptr += chunk_size + 17;
 
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
 		if (r != TFW_POSTPONE)
@@ -405,14 +394,10 @@ set_sample_req(unsigned char *str)
 	return tfw_http_parse_req(sample_req, str, len, &parsed);
 }
 
-static void
-test_case_parse_prepare_http(char *str, size_t sz_diff)
+static void __attribute__((unused))
+test_case_parse_prepare_http(char *str)
 {
-	size_t str_len = strlen(str);
-
-	chunk_size_index = 0;
-	ASSIGN_FRAMES_FOR_H1(str, str_len);
-	hm_exp_len = str_len - sz_diff;
+	ASSIGN_FRAMES_FOR_H1(str, strlen(str));
 }
 
 static void
@@ -421,9 +406,6 @@ test_case_parse_prepare_h2(void)
 	tfw_h2_context_init(&conn.h2);
 	conn.h2.hdr.type = HTTP2_HEADERS;
 	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
-
-	chunk_size_index = 0;
-	hm_exp_len = GET_FRAMES_TOTAL_SZ();
 }
 
 
@@ -570,21 +552,24 @@ do_split_and_parse(int type, int chunk_mode)
  */
 static
 int __attribute__((unused))
-validate_data_fully_parsed(int type)
+validate_data_fully_parsed(int type, size_t sz_diff)
 {
 	TfwHttpMsg *hm = (type == FUZZ_REQ || type == FUZZ_REQ_H2)
 			? (TfwHttpMsg *)req
 			: (TfwHttpMsg *)resp;
 
+	size_t hm_exp_len = GET_FRAMES_TOTAL_SZ() - sz_diff;
+
 	EXPECT_EQ(hm->msg.len, hm_exp_len);
 	return hm->msg.len == hm_exp_len;
 }
 
-#define TRY_PARSE_EXPECT_PASS(type, chunk_mode)				\
-({									\
+#define __TRY_PARSE_EXPECT_PASS(type, sz_diff, chunk_mode)		\
+chunk_size_index = 0;							\
+while (({								\
 	int _err = do_split_and_parse(type, chunk_mode);		\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE			\
-	    || !validate_data_fully_parsed(type))   			\
+	    || !validate_data_fully_parsed(type, sz_diff))		\
 		TEST_FAIL("can't parse %s (code=%d)\n",			\
 			  (type == FUZZ_REQ	    			\
 			   || type == FUZZ_REQ_H2			\
@@ -592,10 +577,14 @@ validate_data_fully_parsed(int type)
 			  _err);					\
 	__fpu_schedule();						\
 	_err == TFW_PASS;						\
-})
+}))
+
+#define TRY_PARSE_EXPECT_PASS(type, chunk_mode) \
+	__TRY_PARSE_EXPECT_PASS(type, 0, chunk_mode)
 
 #define TRY_PARSE_EXPECT_BLOCK(type, chunk_mode)			\
-({									\
+chunk_size_index = 0;							\
+while (({								\
 	int _err = do_split_and_parse(type, chunk_mode);		\
 	if (_err == TFW_PASS)						\
 		TEST_FAIL("%s is not blocked as expected\n",		\
@@ -604,14 +593,17 @@ validate_data_fully_parsed(int type)
 			   ? "request" : "response"));			\
 	__fpu_schedule();						\
 	_err == TFW_BLOCK || _err == TFW_POSTPONE;			\
-})
+}))
+
+#define PRINT_REQ(str) \
+	TEST_LOG("=== request: [%s]\n", str)
 
 #define __FOR_REQ(str, sz_diff, type, chunk_mode)			\
-	TEST_LOG("=== request: [%s]\n", str);				\
+	PRINT_REQ(str);							\
 	type == FUZZ_REQ_H2 ?						\
 		test_case_parse_prepare_h2() :				\
-		test_case_parse_prepare_http(str, sz_diff);		\
-	while (TRY_PARSE_EXPECT_PASS(type, chunk_mode))
+		test_case_parse_prepare_http(str);			\
+	__TRY_PARSE_EXPECT_PASS(type, sz_diff, chunk_mode)
 
 #define FOR_REQ(str)							\
 	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
@@ -625,14 +617,21 @@ validate_data_fully_parsed(int type)
 	     0, FUZZ_REQ_H2, CHUNK_ON)
 #define FOR_REQ_H2_CHUNK_OFF(str)					\
 	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
+#define FOR_REQ_H2_HPACK(H2_FRAMES_DEF_BLOCK)				\
+	INIT_FRAMES();							\
+	SET_FRAMES_BUF(frames_buf);					\
+	H2_FRAMES_DEF_BLOCK;						\
+	RESET_FRAMES_BUF();						\
+	PRINT_REQ("HTTP/2 request preview is not available now...");	\
+	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
 
 #define __EXPECT_BLOCK_REQ(str, type, chunk_mode)			\
 do {									\
-	TEST_LOG("=== request: [%s]\n", str);				\
+	PRINT_REQ(str);							\
 	type == FUZZ_REQ_H2 ?						\
 		test_case_parse_prepare_h2() :				\
-		test_case_parse_prepare_http(str, 0);			\
-	while (TRY_PARSE_EXPECT_BLOCK(type, chunk_mode));		\
+		test_case_parse_prepare_http(str);			\
+	TRY_PARSE_EXPECT_BLOCK(type, chunk_mode);			\
 } while (0)
 
 #define EXPECT_BLOCK_REQ(str)						\
@@ -647,19 +646,25 @@ do {									\
 	    FUZZ_REQ_H2, CHUNK_ON)
 #define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)				\
 	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_OFF)
+#define EXPECT_BLOCK_REQ_H2_HPACK(H2_FRAMES_DEF_BLOCK)			\
+	INIT_FRAMES();							\
+	SET_FRAMES_BUF(frames_buf);					\
+	H2_FRAMES_DEF_BLOCK;						\
+	RESET_FRAMES_BUF();						\
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON)
 
 #define __FOR_RESP(str, sz_diff, chunk_mode)				\
 	TEST_LOG("=== response: [%s]\n", str);				\
-	test_case_parse_prepare_http(str, sz_diff);			\
-	while (TRY_PARSE_EXPECT_PASS(FUZZ_RESP, chunk_mode))
+	test_case_parse_prepare_http(str);				\
+	__TRY_PARSE_EXPECT_PASS(FUZZ_RESP, sz_diff, chunk_mode)
 
 #define FOR_RESP(str)	__FOR_RESP(str, 0, CHUNK_ON)
 
 #define EXPECT_BLOCK_RESP(str)						\
 do {									\
 	TEST_LOG("=== response: [%s]\n", str);				\
-	test_case_parse_prepare_http(str, 0);				\
-	while (TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON));		\
+	test_case_parse_prepare_http(str);				\
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON);			\
 } while (0)
 
 #define EXPECT_TFWSTR_EQ(tfw_str, cstr)					\
@@ -720,7 +725,7 @@ number_to_strip(TfwHttpReq *req)
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 }
 
-static TfwStr
+static TfwStr __attribute__((unused))
 get_next_str_val(TfwStr *str)
 {
 	TfwStr v, *c, *end;
