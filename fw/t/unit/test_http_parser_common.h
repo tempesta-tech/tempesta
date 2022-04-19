@@ -226,6 +226,8 @@ do {										\
 	NEV_IND_BY_##name_desc;							\
 	value_desc;
 
+#define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
+
 #define __FRAME_BEGIN(type)							\
 do {										\
 	unsigned char *frame_buf;						\
