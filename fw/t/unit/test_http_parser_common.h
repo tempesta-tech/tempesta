@@ -214,13 +214,13 @@ do {										\
 	INC_IND_BY_##name_desc;							\
 	value_desc;
 
-#define WO_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0)
+#define WO_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0)
 #define WO_IND_BY_NAME(data)	__NAME((data), 0)
 #define WO_IND(name_desc, value_desc)						\
 	WO_IND_BY_##name_desc;							\
 	value_desc;
 
-#define NEV_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0x10)
+#define NEV_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0x10)
 #define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
 #define NEV_IND(name_desc, value_desc)						\
 	NEV_IND_BY_##name_desc;							\
