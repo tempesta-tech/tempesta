@@ -23,6 +23,25 @@
 
 #include "http.h"
 
+typedef enum {
+    TFW_HTTP_RES_VHOST,
+    TFW_HTTP_RES_REDIR,
+    _TFW_HTTP_RES_COUNT
+} tfw_http_res_act_t;
+
+typedef struct {
+    char *url;
+    unsigned int resp_code;
+} TfwHttpRedir;
+
+typedef struct {
+    tfw_http_res_act_t type;
+    union {
+        TfwVhost *vhost;
+        TfwHttpRedir redir;
+    };
+} TfwHttpActionResult;
+
 /**
  * HTTP chain. Contains list of rules for matching.
  *
@@ -54,7 +73,7 @@ typedef struct {
 	TfwPool *pool;
 } TfwHttpTable;
 
-TfwVhost *tfw_http_tbl_vhost(TfwMsg *msg, bool *block);
+TfwHttpActionResult tfw_http_tbl_action(TfwMsg *msg, bool *block);
 int tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method);
 
 #endif /* __HTTP_TBL__ */
