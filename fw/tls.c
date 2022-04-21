@@ -887,7 +887,7 @@ found:
 	if (DBG_TLS) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
 		T_DBG("found SAN/CN '%.*s' for SNI '%.*s' and vhost '%.*s'\n",
-		      PR_TFW_STR(&srv_name), len, data,
+		      PR_TFW_STR(&srv_name), (int)len, data,
 		      PR_TFW_STR(&vhost->name));
 	}
 	/* Save processed server name as hash. */
