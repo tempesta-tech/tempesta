@@ -120,7 +120,7 @@ static TfwHttpChain *tfw_chain_entry;
  * chain is processed primarily (must be first in the table list); if rule
  * of some chain points to other chain - move to that chain and scan it.
  */
-static TfwVhost *
+static TfwHttpActionResult
 tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 {
 	TfwHttpChain *chain;
@@ -136,7 +136,7 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 		if (unlikely(!rule)) {
 			T_DBG("http_tbl: No rule found in HTTP chain '%s'\n",
 			      chain->name);
-			return NULL;
+			return (TfwHttpActionResult){ .type = TFW_HTTP_RES_VHOST, .vhost = NULL };
 		}
 		chain = (rule->act.type == TFW_HTTP_MATCH_ACT_CHAIN)
 		      ? rule->act.chain
@@ -145,13 +145,20 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 
 	/* If rule points to virtual host, return the pointer. */
 	if (rule->act.type == TFW_HTTP_MATCH_ACT_VHOST)
-		return rule->act.vhost;
+	{
+		return (TfwHttpActionResult){ .type = TFW_HTTP_RES_VHOST, .vhost = rule->act.vhost };
+	}
+
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_REDIR)
+	{
+		return (TfwHttpActionResult){ .type = TFW_HTTP_RES_REDIR, .redir = rule->act.redir};
+	}
 
 	/* If rule has 'block' action, request must be blocked. */
 	if (rule->act.type == TFW_HTTP_MATCH_ACT_BLOCK)
 		*block = true;
 
-	return NULL;
+	return (TfwHttpActionResult){ .type = TFW_HTTP_RES_VHOST, .vhost = NULL };
 }
 
 /*
@@ -161,10 +168,10 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
  * match http chain rules that specify which virtual host
  * or other http chain the request should be forwarded to.
  */
-TfwVhost *
-tfw_http_tbl_vhost(TfwMsg *msg, bool *block)
+TfwHttpActionResult
+tfw_http_tbl_action(TfwMsg *msg, bool *block)
 {
-	TfwVhost *vhost = NULL;
+	TfwHttpActionResult action = { .type = TFW_HTTP_RES_VHOST, .vhost = NULL };
 	TfwHttpTable *active_table;
 
 	rcu_read_lock_bh();
@@ -174,11 +181,14 @@ tfw_http_tbl_vhost(TfwMsg *msg, bool *block)
 		goto done;
 
 	BUG_ON(list_empty(&active_table->head));
-	if ((vhost = tfw_http_tbl_scan(msg, active_table, block)))
-		tfw_vhost_get(vhost);
+	action = tfw_http_tbl_scan(msg, active_table, block);
+
+	if (action.type == TFW_HTTP_RES_VHOST && action.vhost)
+		tfw_vhost_get(action.vhost);
+
 done:
- 	rcu_read_unlock_bh();
- 	return vhost;
+	rcu_read_unlock_bh();
+	return action;
 }
 
 /*
@@ -494,8 +504,29 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 	}
+	else if (action && action_val &&
+		    !tfw_cfg_parse_uint(action, &rule->act.redir.resp_code))
+	{
+		size_t len;
+
+		if (rule->act.redir.resp_code != 301 &&
+			rule->act.redir.resp_code != 302 &&
+			rule->act.redir.resp_code != 303 &&
+			rule->act.redir.resp_code != 307 &&
+			rule->act.redir.resp_code != 308)
+		{
+			T_ERR_NL("http_tbl: incorect redirection status code: '%s'\n", action_val);
+			return -EINVAL;
+		}
+
+		len = strlen(action_val);
+		rule->act.redir.url = kmalloc(len + 1, GFP_KERNEL);
+		rule->act.type = TFW_HTTP_MATCH_ACT_REDIR;
+
+		memcpy_fast(rule->act.redir.url, action_val, len + 1);
+	}
 	else if (action_val) {
-		T_ERR_NL("http_tbl: only 'mark' or '$..' actions "
+		T_ERR_NL("http_tbl: only 'mark', '$..' or redirection actions "
 			 "may have any value: '%s'\n",
 			 action_val);
 		return -EINVAL;
@@ -539,6 +570,8 @@ tfw_cfgop_release_rule(TfwHttpMatchRule *rule)
 		tfw_vhost_put(rule->act.vhost);
 	if (rule->val.type == TFW_HTTP_MATCH_V_COOKIE)
 		kfree(rule->val.ptn.str);
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_REDIR)
+		kfree(rule->act.redir.url);
 	return 0;
 }
 
