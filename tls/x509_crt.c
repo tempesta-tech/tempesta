@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1789,6 +1789,38 @@ exit:
 
 	return 0;
 }
+
+int
+ttls_x509_process_san(const TlsX509Crt *crt,
+		      int (*process_cn)(const ttls_x509_buf *, const char *, int),
+		      const char *hname, int hlen)
+{
+	int r = TTLS_X509_BADCERT_CN_MISMATCH;
+	const ttls_x509_name *name;
+	const ttls_x509_sequence *cur;
+
+	if (crt->ext_types & TTLS_X509_EXT_SUBJECT_ALT_NAME) {
+		for (cur = &crt->subject_alt_names; cur; cur = cur->next) {
+			const unsigned char san_type = (unsigned char)cur->buf.tag
+							& TTLS_ASN1_TAG_VALUE_MASK;
+			/* Just skip non-dNSName records. */
+			if (san_type != TTLS_X509_SAN_DNS_NAME)
+				continue;
+			if (!process_cn(&cur->buf, hname, hlen))
+				r = 0;
+		}
+	} else {
+		for (name = &crt->subject; name; name = name->next) {
+			if (TTLS_OID_CMP(TTLS_OID_AT_CN, &name->oid))
+				continue;
+			if (!process_cn(&name->val, hname, hlen))
+				r = 0;
+		}
+	}
+
+	return r;
+}
+EXPORT_SYMBOL(ttls_x509_process_san);
 
 TlsX509Crt *
 ttls_x509_crt_alloc(void)

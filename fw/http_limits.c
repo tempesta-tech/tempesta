@@ -742,12 +742,11 @@ static int
 frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
-	unsigned long sni_hash = 0;
 	unsigned short port;
 	unsigned short real_port;
 	TfwStr prim_trim = { 0 }, prim_name = { 0 }, /* primary source */
 	       sec_trim = { 0 },  sec_name = { 0 },  /* secondary source */
-	       *val_trim = NULL,  *val_name = NULL;  /* effective source */
+	       *val_trim = NULL;  /* effective source */
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
@@ -765,10 +764,8 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				      &prim_trim, &prim_name);
 		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
 				      &sec_trim, &sec_name);
-		val_name = &prim_name;
 		val_trim = &prim_trim;
 		if (unlikely(TFW_STR_EMPTY(val_trim))) {
-			val_name = &sec_name;
 			val_trim = &sec_trim;
 			if (unlikely(TFW_STR_EMPTY(val_trim))) {
 				frang_msg("Request authority is unknown",
@@ -791,7 +788,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				      &prim_trim, &prim_name);
 		frang_get_host_header(req, -1,
 				      &sec_trim, &sec_name);
-		val_name = &prim_name;
 		val_trim = &prim_trim;
 		if (unlikely(TFW_STR_EMPTY(val_trim))) {
 			frang_msg("Request authority is unknown",
@@ -832,18 +828,10 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		return TFW_BLOCK;
 	}
 	/* Check that SNI for TLS connection matches host header. */
-	if (TFW_CONN_TLS(req->conn)) {
-		sni_hash = tfw_tls_context(req->conn)->sni_hash;
+	if (TFW_CONN_TLS(req->conn))
 		port = req->host_port ? : 443;
-	}
-	else {
-		port =  req->host_port ? : 80;
-	}
-	if (sni_hash && (tfw_hash_str(val_name) != sni_hash)) {
-		frang_msg("host header doesn't match SNI from TLS handshake",
-			  &FRANG_ACC2CLI(ra)->addr, "\n");
-		return TFW_BLOCK;
-	}
+	else
+		port = req->host_port ? : 80;
 	/*
 	 * TfwClient instance can be reused across multiple connections,
 	 * check the port number of the current connection, not the first one.
