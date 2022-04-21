@@ -22,21 +22,345 @@
 #include "test_http_parser_common.h"
 
 
-#define DYN_TBL_START_INDEX 62
+#define STATIC_TBL_LAST_INDEX 61
+#define DYN_TBL_FIRST_INDEX 62
 
-static unsigned int dyn_tbl_total_cnt_inc_indexes = 0;
+#define DYN_TBL_INDEX(index)							\
+({										\
+	BUG_ON((index) < 1);							\
+	INDEX(STATIC_TBL_LAST_INDEX + (index));					\
+})
 
-#define GET_INC_IND_TOTAL_CNT() \
-	({dyn_tbl_total_cnt_inc_indexes;})
+#define EXPECT_H_TBL_TFW_STR_EMPTY(h_tbl_index) \
+	EXPECT_TRUE(TFW_STR_EMPTY(&req->h_tbl->tbl[h_tbl_index]))
 
-#define SET_INC_IND_TOTAL_CNT(value) \
-	({dyn_tbl_total_cnt_inc_indexes = value;})
+#define EXPECT_H_TBL_TFWSTR_EQ(h_tbl_index, expected) \
+	EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[h_tbl_index], expected)
 
-#define DYN_IND(entry_seq_no) \
-	INDEX(DYN_TBL_START_INDEX + dyn_tbl_total_cnt_inc_indexes - entry_seq_no)
+#define EXPECT_H_TBL_TFWSTR_DUP_EQ(h_tbl_index, dup_no, expected)		\
+do {										\
+	const TfwStr *str = &req->h_tbl->tbl[h_tbl_index];			\
+	BUG_ON(!TFW_STR_DUP(str));						\
+	EXPECT_TFWSTR_EQ(TFW_STR_CHUNK(str, dup_no), expected);			\
+} while (0)
 
-#define EXPECT_TFWSTR_EQ_H_TBL(index, name, value) \
-	EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[index], name value)
+
+#define HPACK_ENTRY_OVERHEAD		32
+
+#define DYN_TBL_ENTRY_SZ(data) \
+	(strlen(data) + HPACK_ENTRY_OVERHEAD)
+
+
+TEST(http2_parser_hpack, literal_header_field_with_incremental_indexing)
+{
+	const char *s_dummy = "dummy" "super123";
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INC_IND(INDEX(DYN_TBL_FIRST_INDEX), VALUE("FooBoo")));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(INC_IND(NAME("dummy"), VALUE("super123")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(INC_IND(INDEX(58), VALUE("Wget/1.13.4 (linux-gnu)")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 0);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT,
+				       "user-agent" "Wget/1.13.4 (linux-gnu)");
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 0);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT,
+				       "user-agent" "Wget/1.13.4 (linux-gnu)");
+	}
+}
+
+TEST(http2_parser_hpack, literal_header_field_without_indexing)
+{
+	const char *s_dummy = "dummy" "super123";
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(WO_IND(INDEX(DYN_TBL_FIRST_INDEX), VALUE("FooBoo")));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(WO_IND(NAME("dummy"), VALUE("super123")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(WO_IND(INDEX(58), VALUE("Wget/1.13.4 (linux-gnu)")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 0);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT,
+				       "user-agent" "Wget/1.13.4 (linux-gnu)");
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	);
+}
+
+TEST(http2_parser_hpack, literal_header_field_never_indexed)
+{
+	const char *s_dummy = "dummy" "super123";
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(NEV_IND(INDEX(DYN_TBL_FIRST_INDEX), VALUE("FooBoo")));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(NEV_IND(NAME("dummy"), VALUE("super123")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(NEV_IND(INDEX(58), VALUE("Wget/1.13.4 (linux-gnu)")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 0);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT,
+				       "user-agent" "Wget/1.13.4 (linux-gnu)");
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	);
+}
+
+TEST(http2_parser_hpack, not_existed_indexes)
+{
+	const char *s_dummy = "dummy" "super123";
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(INC_IND(NAME("dummy"), VALUE("super123")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+		EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// not existed index
+		HEADER(INDEX(DYN_TBL_FIRST_INDEX + 1));
+	    HEADERS_FRAME_END();
+	);
+}
 
 TEST(http2_parser_hpack, static_table_all_indexes_for_req)
 {
@@ -183,7 +507,6 @@ TEST(http2_parser_hpack, static_table_all_indexes_for_req)
 	)
 	{
 		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 17);
-
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
 				 ":scheme" "https");
@@ -348,7 +671,6 @@ TEST(http2_parser_hpack, increment_all_static_indexes_for_req)
 	)
 	{
 		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 17);
-
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
 				 ":scheme" "https");
@@ -413,65 +735,62 @@ TEST(http2_parser_hpack, increment_all_static_indexes_for_req)
 				 "via" "1.0 fred, 1.1 p.example.net");
 	}
 
-	SET_INC_IND_TOTAL_CNT(24);
-
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		// :method = "GET"
 		HEADER(INDEX(2));
 		// :scheme = "https"
-		HEADER(DYN_IND(1));
+		HEADER(DYN_TBL_INDEX(24));
 		// :path = "/"
-		HEADER(DYN_IND(2));
+		HEADER(DYN_TBL_INDEX(23));
 		// :authority = "localhost"
-		HEADER(DYN_IND(3));
+		HEADER(DYN_TBL_INDEX(22));
 		// accept-charset = "utf-8"
-		HEADER(DYN_IND(4));
+		HEADER(DYN_TBL_INDEX(21));
 		// accept-encoding = "gzip, deflate"
-		HEADER(DYN_IND(5));
+		HEADER(DYN_TBL_INDEX(20));
 		// accept-language = "fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5"
-		HEADER(DYN_IND(6));
+		HEADER(DYN_TBL_INDEX(19));
 		// accept = "*/*"
-		HEADER(DYN_IND(7));
+		HEADER(DYN_TBL_INDEX(18));
 		// age = "13"
-		HEADER(DYN_IND(8));
+		HEADER(DYN_TBL_INDEX(17));
 		// authorization = "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
-		HEADER(DYN_IND(9));
+		HEADER(DYN_TBL_INDEX(16));
 		// cache-control = "max-age=1, no-store, min-fresh=30"
-		HEADER(DYN_IND(10));
+		HEADER(DYN_TBL_INDEX(15));
 		// cookie = "session=42; theme=dark"
-		HEADER(DYN_IND(11));
+		HEADER(DYN_TBL_INDEX(14));
 		// from = "webmaster@example.org"
-		HEADER(DYN_IND(12));
+		HEADER(DYN_TBL_INDEX(13));
 		// host = "developer.mozilla.org:5588"
-		HEADER(DYN_IND(13));
+		HEADER(DYN_TBL_INDEX(12));
 		// if-match = "\"67ab43\", \"54ed21\", \"7892dd\""
-		HEADER(DYN_IND(14));
+		HEADER(DYN_TBL_INDEX(11));
 		// if-modified-since = "Inv, 31 Jan 2012 15:02:53"
-		HEADER(DYN_IND(15));
+		HEADER(DYN_TBL_INDEX(10));
 		// if-range = "Wed, 21 Oct 2015 07:28:00 GMT"
-		HEADER(DYN_IND(16));
+		HEADER(DYN_TBL_INDEX(9));
 		 // if-unmodified-since = "Inv, 31 Jan 2012 15:02:55"
-		HEADER(DYN_IND(17));
+		HEADER(DYN_TBL_INDEX(8));
 		// link = "<https://example.com>; rel=\"preconnect\""
-		HEADER(DYN_IND(18));
+		HEADER(DYN_TBL_INDEX(7));
 		// max-forwards = "24"
-		HEADER(DYN_IND(19));
+		HEADER(DYN_TBL_INDEX(6));
 		// proxy-authorization = "Basic YWxhZGRpbjpvcGVuc2VzYW1l"
-		HEADER(DYN_IND(20));
+		HEADER(DYN_TBL_INDEX(5));
 		// range = "bytes=200-1000, 2000-6576, 19000-"
-		HEADER(DYN_IND(21));
+		HEADER(DYN_TBL_INDEX(4));
 		// referer = "https://example.com/page?q=123"
-		HEADER(DYN_IND(22));
+		HEADER(DYN_TBL_INDEX(3));
 		// user-agent = "Wget/1.13.4 (linux-gnu)"
-		HEADER(DYN_IND(23));
+		HEADER(DYN_TBL_INDEX(2));
 		// via = "1.0 fred, 1.1 p.example.net"
-		HEADER(DYN_IND(24));
+		HEADER(DYN_TBL_INDEX(1));
 	    HEADERS_FRAME_END();
 	)
 	{
 		EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 17);
-
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_SCHEME],
 				 ":scheme" "https");
@@ -537,69 +856,12 @@ TEST(http2_parser_hpack, increment_all_static_indexes_for_req)
 	}
 }
 
-TEST(http2_parser_hpack, not_existed_indexes)
-{
-	EXPECT_BLOCK_REQ_H2_HPACK(
-	    HEADERS_FRAME_BEGIN();
-		// :method = "GET"
-		HEADER(INDEX(2));
-		// :scheme = "https"
-		HEADER(INDEX(7));
-		// :path = "/"
-		HEADER(INDEX(4));
-		// not existed index
-		HEADER(INDEX(DYN_TBL_START_INDEX));
-	    HEADERS_FRAME_END();
-	);
-
-	FOR_REQ_H2_HPACK(
-	    HEADERS_FRAME_BEGIN();
-		// :method = "GET"
-		HEADER(INDEX(2));
-		// :scheme = "https"
-		HEADER(INDEX(7));
-		// :path = "/"
-		HEADER(INDEX(4));
-		// dummy = "super123"
-		HEADER(INC_IND(NAME("dummy"), VALUE("super123")));
-	    HEADERS_FRAME_END();
-	)
-	{
-		EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_RAW, "dummy", "super123");
-	}
-
-	FOR_REQ_H2_HPACK(
-	    HEADERS_FRAME_BEGIN();
-		// :method = "GET"
-		HEADER(INDEX(2));
-		// :scheme = "https"
-		HEADER(INDEX(7));
-		// :path = "/"
-		HEADER(INDEX(4));
-		// dummy = "super123"
-		HEADER(INDEX(DYN_TBL_START_INDEX));
-	    HEADERS_FRAME_END();
-	)
-	{
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_RAW, "dummy", "super123");
-	}
-
-	EXPECT_BLOCK_REQ_H2_HPACK(
-	    HEADERS_FRAME_BEGIN();
-		// :method = "GET"
-		HEADER(INDEX(2));
-		// :scheme = "https"
-		HEADER(INDEX(7));
-		// :path = "/"
-		HEADER(INDEX(4));
-		// not existed index
-		HEADER(INDEX(DYN_TBL_START_INDEX + 1));
-	    HEADERS_FRAME_END();
-	);
-}
-
 TEST(http2_parser_hpack, erase_all_indexes)
 {
+	const char *s_authority = ":authority" "localhost";
+	const char *s_dummy = "dummy" "super123";
+	const char *s_user_agent = "user-agent" "Wget/1.13.4 (linux-gnu)";
+
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		// :method = "GET"
@@ -617,12 +879,11 @@ TEST(http2_parser_hpack, erase_all_indexes)
 	    HEADERS_FRAME_END();
 	)
 	{
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_H2_AUTHORITY, ":authority", "localhost");
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_RAW, "dummy", "super123");
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_USER_AGENT, "user-agent", "Wget/1.13.4 (linux-gnu)");
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_H2_AUTHORITY, s_authority);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
 	}
-
-	SET_INC_IND_TOTAL_CNT(3);
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
@@ -633,17 +894,18 @@ TEST(http2_parser_hpack, erase_all_indexes)
 		// :path = "/"
 		HEADER(INDEX(4));
 		// :authority = "localhost"
-		HEADER(DYN_IND(1));
+		HEADER(DYN_TBL_INDEX(3));
 		// dummy = "super123"
-		HEADER(DYN_IND(2));
+		HEADER(DYN_TBL_INDEX(2));
 		// user-agent = "Wget/1.13.4 (linux-gnu)"
-		HEADER(DYN_IND(3));
+		HEADER(DYN_TBL_INDEX(1));
 	    HEADERS_FRAME_END();
 	)
 	{
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_H2_AUTHORITY, ":authority", "localhost");
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_RAW, "dummy", "super123");
-	    EXPECT_TFWSTR_EQ_H_TBL(TFW_HTTP_HDR_USER_AGENT, "user-agent", "Wget/1.13.4 (linux-gnu)");
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_H2_AUTHORITY, s_authority);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
 	}
 
 	FOR_REQ_H2_HPACK(
@@ -668,7 +930,7 @@ TEST(http2_parser_hpack, erase_all_indexes)
 		// :path = "/"
 		HEADER(INDEX(4));
 		// :authority = "localhost" - already not exists
-		HEADER(DYN_IND(1));
+		HEADER(DYN_TBL_INDEX(3));
 	    HEADERS_FRAME_END();
 	);
 
@@ -681,7 +943,7 @@ TEST(http2_parser_hpack, erase_all_indexes)
 		// :path = "/"
 		HEADER(INDEX(4));
 		// dummy = "super123" - already not exists
-		HEADER(DYN_IND(2));
+		HEADER(DYN_TBL_INDEX(2));
 	    HEADERS_FRAME_END();
 	);
 
@@ -694,17 +956,774 @@ TEST(http2_parser_hpack, erase_all_indexes)
 		// :path = "/"
 		HEADER(INDEX(4));
 		// user-agent = "Wget/1.13.4 (linux-gnu)" - already not exists
-		HEADER(DYN_IND(3));
+		HEADER(DYN_TBL_INDEX(1));
 	    HEADERS_FRAME_END();
 	);
+}
+
+TEST(http2_parser_hpack, erase_indexes_one_by_one)
+{
+	const char *s_authority = ":authority" "localhost";
+	const char *s_dummy = "dummy" "super123";
+	const char *s_user_agent = "user-agent" "Wget/1.13.4 (linux-gnu)";
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// :authority = "localhost"
+		HEADER(INC_IND(NAME(":authority"), VALUE("localhost")));
+		// dummy = "super123"
+		HEADER(INC_IND(NAME("dummy"), VALUE("super123")));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(INC_IND(NAME("user-agent"), VALUE("Wget/1.13.4 (linux-gnu)")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_H2_AUTHORITY, s_authority);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// :authority = "localhost"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy = "super123"
+		HEADER(DYN_TBL_INDEX(2));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_H2_AUTHORITY, s_authority);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dynamic table fits to indexes size
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_authority)
+			    + DYN_TBL_ENTRY_SZ(s_dummy)
+			    + DYN_TBL_ENTRY_SZ(s_user_agent)));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// :authority = "localhost"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy = "super123"
+		HEADER(DYN_TBL_INDEX(2));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_H2_AUTHORITY, s_authority);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// erase one index from the end of dynamic table
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy)
+			    + DYN_TBL_ENTRY_SZ(s_user_agent)));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123"
+		HEADER(DYN_TBL_INDEX(2));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFW_STR_EMPTY(TFW_HTTP_HDR_H2_AUTHORITY);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW, s_dummy);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// :authority = "localhost" - not existed index
+		HEADER(DYN_TBL_INDEX(3));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// erase one index from the end of dynamic table
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_user_agent)));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// user-agent = "Wget/1.13.4 (linux-gnu)"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 0);
+	    EXPECT_H_TBL_TFW_STR_EMPTY(TFW_HTTP_HDR_H2_AUTHORITY);
+	    EXPECT_H_TBL_TFW_STR_EMPTY(TFW_HTTP_HDR_RAW);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_USER_AGENT, s_user_agent);
+	}
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy = "super123" -  not existed index
+		HEADER(DYN_TBL_INDEX(2));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// erase all indexes
+		HEADER(SZ_UPD(0));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// user-agent = "Wget/1.13.4 (linux-gnu)" - not existed index
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	);
+}
+
+TEST(http2_parser_hpack, eviction_of_indexes)
+{
+	const char *s_dummy1 = "dummy1" "Luper1";
+	const char *s_dummy2 = "dummy2" "pUper2";
+	const char *s_dummy3 = "dummy3" "zuPer3";
+	const char *s_dummy4 = "dummy4" "fupEr4";
+	const char *s_dummy5 = "dummy5" "supeR5";
+
+	BUG_ON(strlen(s_dummy1) != strlen(s_dummy2));
+	BUG_ON(strlen(s_dummy1) != strlen(s_dummy3));
+	BUG_ON(strlen(s_dummy1) != strlen(s_dummy4));
+	BUG_ON(strlen(s_dummy1) != strlen(s_dummy5));
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(INC_IND(NAME("dummy1"), VALUE("Luper1")));
+		// dummy2 = "pUper2"
+		HEADER(INC_IND(NAME("dummy2"), VALUE("pUper2")));
+		// dummy3 = "zuPer3"
+		HEADER(INC_IND(NAME("dummy3"), VALUE("zuPer3")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dynamic table fits to indexes size
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
+			    + DYN_TBL_ENTRY_SZ(s_dummy2)
+			    + DYN_TBL_ENTRY_SZ(s_dummy3)));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(1));
+		//
+		// dummy4 = "fupEr4"
+		HEADER(INC_IND(NAME("dummy4"), VALUE("fupEr4")));
+		// [dummy1 = "Luper1"] was pushed out
+		// from below by [dummy4 = "fupEr4"]
+		//
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy4 = "fupEr4"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 4);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 0, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 2, 0, s_dummy3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 2, 1, s_dummy3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 3, 0, s_dummy4);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 3, 1, s_dummy4);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy4 = "fupEr4"
+		HEADER(DYN_TBL_INDEX(1));
+		//
+		// dummy5 = "supeR5"
+		HEADER(INC_IND(NAME("dummy5"), VALUE("supeR5")));
+		// [dummy2 = "pUper1"] was pushed out
+		// from below by [dummy5 = "supeR5"]
+		//
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy4 = "fupEr4"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy5 = "supeR5"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 4);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 0, s_dummy3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 1, s_dummy3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 2, 0, s_dummy4);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 2, 1, s_dummy4);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 3, 0, s_dummy5);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 3, 1, s_dummy5);
+	}
+}
+
+TEST(http2_parser_hpack, dup_with_equal_values_in_indexes)
+{
+	const char *s_dummy1 = "dummy1" "Luper1";
+	const char *s_dummy2 = "dummy2" "pUper2";
+	const char *s_dummy3 = "dummy3" "zuPer3";
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(INC_IND(NAME("dummy1"), VALUE("Luper1")));
+		// dummy2 = "pUper2"
+		HEADER(INC_IND(NAME("dummy2"), VALUE("pUper2")));
+		// dummy3 = "zuPer3"
+		HEADER(INC_IND(NAME("dummy3"), VALUE("zuPer3")));
+		// dummy1 = "Luper1" - add duplicate with the same frame
+		HEADER(INC_IND(NAME("dummy1"), VALUE("Luper1")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 1, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy2 = "pUper2" - add duplicate with the other frame
+		HEADER(INC_IND(NAME("dummy2"), VALUE("pUper2")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy2);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(5));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(4));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 1, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 0, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(5));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(4));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(3));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy2);
+	}
+}
+
+TEST(http2_parser_hpack, dup_with_diff_values_in_indexes)
+{
+	const char *s_dummy1_luper1 = "dummy1" "Luper1";
+	const char *s_dummy1_luper2 = "dummy1" "Luper2";
+	const char *s_dummy2_puper1 = "dummy2" "pUper1";
+	const char *s_dummy2_puper2 = "dummy2" "pUper2";
+	const char *s_dummy3 = "dummy3" "zuPer1";
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(INC_IND(NAME("dummy1"), VALUE("Luper1")));
+		// dummy2 = "pUper1"
+		HEADER(INC_IND(NAME("dummy2"), VALUE("pUper1")));
+		// dummy3 = "zuPer1"
+		HEADER(INC_IND(NAME("dummy3"), VALUE("zuPer1")));
+		// dummy1 = "Luper2" - add duplicate with the same frame
+		HEADER(INC_IND(NAME("dummy1"), VALUE("Luper2")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 0, s_dummy1_luper1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 1, s_dummy1_luper2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2_puper1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy2 = "pUper2" - - add duplicate with the other frame
+		HEADER(INC_IND(NAME("dummy2"), VALUE("pUper2")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy2_puper2);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(5));
+		// dummy2 = "pUper1"
+		HEADER(DYN_TBL_INDEX(4));
+		// dummy3 = "zuPer1"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy1 = "Luper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 0, s_dummy1_luper1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 0, 1, s_dummy1_luper2);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 0, s_dummy2_puper1);
+	    EXPECT_H_TBL_TFWSTR_DUP_EQ(TFW_HTTP_HDR_RAW + 1, 1, s_dummy2_puper2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(5));
+		// dummy2 = "pUper1"
+		HEADER(DYN_TBL_INDEX(4));
+		// dummy3 = "zuPer1"
+		HEADER(DYN_TBL_INDEX(3));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy1_luper1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2_puper1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy3 = "zuPer1"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy1 = "Luper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy1_luper2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy2_puper2);
+	}
+}
+
+TEST(http2_parser_hpack, erased_indexes_not_come_back)
+{
+	const char *s_dummy1 = "dummy1" "Luper1";
+	const char *s_dummy2 = "dummy2" "pUper2";
+	const char *s_dummy3 = "dummy3" "zuPer3";
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(INC_IND(NAME("dummy1"), VALUE("Luper1")));
+		// dummy2 = "pUper2"
+		HEADER(INC_IND(NAME("dummy2"), VALUE("pUper2")));
+		// dummy3 = "zuPer3"
+		HEADER(INC_IND(NAME("dummy3"), VALUE("zuPer3")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1"
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 3);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy1);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 2, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// set dynamic table size little smaller than need
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
+			    + DYN_TBL_ENTRY_SZ(s_dummy2)
+			    + DYN_TBL_ENTRY_SZ(s_dummy3) - 1));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1" - already not exists
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy3);
+	}
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// set dynamic table size to fit indexes size
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
+			    + DYN_TBL_ENTRY_SZ(s_dummy2)
+			    + DYN_TBL_ENTRY_SZ(s_dummy3)));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy1 = "Luper1" - still not exists
+		HEADER(DYN_TBL_INDEX(3));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		// :method = "GET"
+		HEADER(INDEX(2));
+		// :scheme = "https"
+		HEADER(INDEX(7));
+		// :path = "/"
+		HEADER(INDEX(4));
+		// dummy2 = "pUper2"
+		HEADER(DYN_TBL_INDEX(2));
+		// dummy3 = "zuPer3"
+		HEADER(DYN_TBL_INDEX(1));
+	    HEADERS_FRAME_END();
+	)
+	{
+	    EXPECT_EQ(req->h_tbl->off, TFW_HTTP_HDR_RAW + 2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 0, s_dummy2);
+	    EXPECT_H_TBL_TFWSTR_EQ(TFW_HTTP_HDR_RAW + 1, s_dummy3);
+	}
 }
 
 TEST_SUITE(http2_parser_hpack)
 {
 	TEST_SETUP(test_case_parse_prepare_h2);
 
+	TEST_RUN(http2_parser_hpack, literal_header_field_with_incremental_indexing);
+	TEST_RUN(http2_parser_hpack, literal_header_field_without_indexing);
+	TEST_RUN(http2_parser_hpack, literal_header_field_never_indexed);
+	TEST_RUN(http2_parser_hpack, not_existed_indexes);
 	TEST_RUN(http2_parser_hpack, static_table_all_indexes_for_req);
 	TEST_RUN(http2_parser_hpack, increment_all_static_indexes_for_req);
-	TEST_RUN(http2_parser_hpack, not_existed_indexes);
 	TEST_RUN(http2_parser_hpack, erase_all_indexes);
+	TEST_RUN(http2_parser_hpack, erase_indexes_one_by_one);
+	TEST_RUN(http2_parser_hpack, eviction_of_indexes);
+	TEST_RUN(http2_parser_hpack, dup_with_equal_values_in_indexes);
+	TEST_RUN(http2_parser_hpack, dup_with_diff_values_in_indexes);
+	TEST_RUN(http2_parser_hpack, erased_indexes_not_come_back);
 }
