@@ -996,7 +996,7 @@ tfw_http_sess_eq(TdbRec *rec, void *data)
 	 * Vhosts are removed and added at runtime, so can't
 	 * compare pointers here.
 	 */
-	if (tfw_stricmp(&sess->vhost->name, &ctx->req->vhost->name)) {
+	if (basic_stricmp_fast(&sess->vhost->name, &ctx->req->vhost->name)) {
 		read_unlock(&sess->lock);
 		return false;
 	}

@@ -56,14 +56,8 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 
 		if (use_ret == -(TTLS_ERR_DHM_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "DHM - Bad input parameters");
-		if (use_ret == -(TTLS_ERR_DHM_READ_PARAMS_FAILED))
-			snprintf(buf, buflen, "DHM - Reading of the DHM parameters failed");
-		if (use_ret == -(TTLS_ERR_DHM_READ_PUBLIC_FAILED))
-			snprintf(buf, buflen, "DHM - Reading of the public values failed");
 		if (use_ret == -(TTLS_ERR_DHM_MAKE_PUBLIC_FAILED))
 			snprintf(buf, buflen, "DHM - Making of the public value failed");
-		if (use_ret == -(TTLS_ERR_DHM_CALC_SECRET_FAILED))
-			snprintf(buf, buflen, "DHM - Calculation of the DHM secret failed");
 
 		if (use_ret == -(TTLS_ERR_ECP_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "ECP - Bad input parameters to function");
@@ -80,10 +74,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "PEM - No PEM header or footer found");
 		if (use_ret == -(TTLS_ERR_PEM_INVALID_DATA))
 			snprintf(buf, buflen, "PEM - PEM string is not as expected");
-		if (use_ret == -(TTLS_ERR_PEM_ALLOC_FAILED))
-			snprintf(buf, buflen, "PEM - Failed to allocate memory");
-		if (use_ret == -(TTLS_ERR_PEM_UNKNOWN_ENC_ALG))
-			snprintf(buf, buflen, "PEM - Unsupported key encryption algorithm");
 		if (use_ret == -(TTLS_ERR_PEM_PASSWORD_REQUIRED))
 			snprintf(buf, buflen, "PEM - Private key password can't be empty");
 		if (use_ret == -(TTLS_ERR_PEM_PASSWORD_MISMATCH))
@@ -93,30 +83,20 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 
 		if (use_ret == -(TTLS_ERR_PK_ALLOC_FAILED))
 			snprintf(buf, buflen, "PK - Memory allocation failed");
-		if (use_ret == -(TTLS_ERR_PK_TYPE_MISMATCH))
-			snprintf(buf, buflen, "PK - Type mismatch, eg attempt to encrypt with an ECDSA key");
 		if (use_ret == -(TTLS_ERR_PK_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "PK - Bad input parameters to function");
-		if (use_ret == -(TTLS_ERR_PK_FILE_IO_ERROR))
-			snprintf(buf, buflen, "PK - Read/write of file failed");
 		if (use_ret == -(TTLS_ERR_PK_KEY_INVALID_VERSION))
 			snprintf(buf, buflen, "PK - Unsupported key version");
 		if (use_ret == -(TTLS_ERR_PK_KEY_INVALID_FORMAT))
 			snprintf(buf, buflen, "PK - Invalid key tag or value");
 		if (use_ret == -(TTLS_ERR_PK_UNKNOWN_PK_ALG))
 			snprintf(buf, buflen, "PK - Key algorithm is unsupported (only RSA and EC are supported)");
-		if (use_ret == -(TTLS_ERR_PK_PASSWORD_REQUIRED))
-			snprintf(buf, buflen, "PK - Private key password can't be empty");
-		if (use_ret == -(TTLS_ERR_PK_PASSWORD_MISMATCH))
-			snprintf(buf, buflen, "PK - Given private key password does not allow for correct decryption");
 		if (use_ret == -(TTLS_ERR_PK_INVALID_PUBKEY))
 			snprintf(buf, buflen, "PK - The pubkey tag or value is invalid (only RSA and EC are supported)");
 		if (use_ret == -(TTLS_ERR_PK_INVALID_ALG))
 			snprintf(buf, buflen, "PK - The algorithm tag or value is invalid");
 		if (use_ret == -(TTLS_ERR_PK_SIG_LEN_MISMATCH))
 			snprintf(buf, buflen, "PK - The signature is valid but its length is less than expected");
-		if (use_ret == -(TTLS_ERR_PK_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "PK - PK hardware accelerator failed");
 
 		if (use_ret == -(TTLS_ERR_RSA_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "RSA - Bad input parameters to function");
@@ -124,8 +104,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "RSA - Input data contains invalid padding and is rejected");
 		if (use_ret == -(TTLS_ERR_RSA_KEY_CHECK_FAILED))
 			snprintf(buf, buflen, "RSA - Key failed to pass the validity check of the library");
-		if (use_ret == -(TTLS_ERR_RSA_PUBLIC_FAILED))
-			snprintf(buf, buflen, "RSA - The public key operation failed");
 		if (use_ret == -(TTLS_ERR_RSA_PRIVATE_FAILED))
 			snprintf(buf, buflen, "RSA - The private key operation failed");
 		if (use_ret == -(TTLS_ERR_RSA_VERIFY_FAILED))
@@ -140,8 +118,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - Verification of the message MAC failed");
 		if (use_ret == -(TTLS_ERR_INVALID_RECORD))
 			snprintf(buf, buflen, "TLS - An invalid TLS record was received");
-		if (use_ret == -(TTLS_ERR_CONN_EOF))
-			snprintf(buf, buflen, "TLS - The connection indicated an EOF");
 		if (use_ret == -(TTLS_ERR_NO_CLIENT_CERTIFICATE))
 			snprintf(buf, buflen, "TLS - No client certification received from the client, but required by the authentication mode");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_TOO_LARGE))
@@ -152,8 +128,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - No CA Chain is set, but required to operate");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_MESSAGE))
 			snprintf(buf, buflen, "TLS - An unexpected message was received from our peer");
-		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_HELLO))
-			snprintf(buf, buflen, "TLS - Processing of the ClientHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_SERVER_HELLO))
 			snprintf(buf, buflen, "TLS - Processing of the ServerHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CERTIFICATE))
@@ -266,11 +240,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		snprintf(buf, buflen, "BASE64 - Output buffer too small");
 	if (use_ret == -(TTLS_ERR_BASE64_INVALID_CHARACTER))
 		snprintf(buf, buflen, "BASE64 - Invalid character in input");
-
-	if (use_ret == -(TTLS_ERR_OID_NOT_FOUND))
-		snprintf(buf, buflen, "OID - OID is not found");
-	if (use_ret == -(TTLS_ERR_OID_BUF_TOO_SMALL))
-		snprintf(buf, buflen, "OID - output buffer is too small");
 
 	if (strlen(buf) != 0)
 		return;

@@ -141,8 +141,12 @@ static int x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
 	p += md_oid.len;
 
 	/* Get md_alg from md_oid */
-	if ((ret = ttls_oid_get_md_alg(&md_oid, md_alg)) != 0)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+	if ((ret = ttls_oid_get_md_alg(&md_oid, md_alg)) != 0) {
+		TTLS_WITH_OID_FMT(&md_oid, md_str,
+			T_WARN("X509 - Hash algorithm with OID %s is unsupported",
+			       md_str));
+		return TTLS_ERR_X509_INVALID_ALG;
+	}
 
 	/* Make sure params is absent of NULL */
 	if (p == end)
@@ -209,7 +213,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 			return ret;
 
 		if ((ret = ttls_oid_get_md_alg(&alg_id, md_alg)) != 0)
-			return(TTLS_ERR_X509_INVALID_ALG + ret);
+			return TTLS_ERR_X509_INVALID_ALG;
 
 		if (p != end2)
 			return(TTLS_ERR_X509_INVALID_ALG +
@@ -235,8 +239,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 		/* Only MFG1 is recognised for now */
 		if (TTLS_OID_CMP(TTLS_OID_MGF1, &alg_id) != 0)
-			return(TTLS_ERR_X509_FEATURE_UNAVAILABLE +
-		TTLS_ERR_OID_NOT_FOUND);
+			return TTLS_ERR_X509_FEATURE_UNAVAILABLE;
 
 		/* Parse HashAlgorithm */
 		if ((ret = x509_get_hash_alg(&alg_params, mgf_md)) != 0)
@@ -623,8 +626,12 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 	if (*sig_opts != NULL)
 		return(TTLS_ERR_X509_BAD_INPUT_DATA);
 
-	if ((ret = ttls_oid_get_sig_alg(sig_oid, md_alg, pk_alg)) != 0)
-		return(TTLS_ERR_X509_UNKNOWN_SIG_ALG + ret);
+	if ((ret = ttls_oid_get_sig_alg(sig_oid, md_alg, pk_alg)) != 0) {
+		TTLS_WITH_OID_FMT(sig_oid, sig_str,
+			T_WARN("X509 - Signature algorithm with OID %s is unsupported",
+			       sig_str));
+		return TTLS_ERR_X509_UNKNOWN_SIG_ALG;
+	}
 
 	if (*pk_alg == TTLS_PK_RSASSA_PSS)
 	{
