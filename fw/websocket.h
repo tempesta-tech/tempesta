@@ -24,5 +24,6 @@ typedef struct tfw_conn_t TfwConn;
 
 int tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb);
 TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn);
+void tfw_ws_cli_mod_timer(TfwCliConn *conn);
 
 #endif /* __TFW_WS_H__ */

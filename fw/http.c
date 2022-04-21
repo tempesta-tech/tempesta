@@ -2312,8 +2312,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 
 			mit->map = tfw_pool_alloc(hm->pool, sz);
 			if (unlikely(!mit->map)) {
-				T_WARN("HTTP/2: unable to allocate memory for "
-				       "response header map\n");
+				T_WARN("HTTP/2: unable to allocate memory for"
+				       " response header map\n");
 				goto clean;
 			}
 			mit->map->size = TFW_HDR_MAP_INIT_CNT;
@@ -5038,6 +5038,12 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
 
+	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
+	 * not be scheduled to it. It will be used only for websocket transport.
+	 * If upgrade will fail, we clear it. */
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
+		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
 	/* Forward request to the server. */
 	tfw_http_req_fwd_resched(srv_conn, req, &eq);
 	tfw_http_req_zap_error(&eq);
@@ -5944,6 +5950,8 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn * cli_conn)
 	cli_conn->pair = (TfwConn *)ws_conn;
 	ws_conn->pair = (TfwConn *)cli_conn;
 
+	tfw_ws_cli_mod_timer(cli_conn);
+
 	return TFW_PASS;
 }
 
@@ -6213,6 +6221,10 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb)
 {
+	int r;
+	TfwHttpMsg *req;
+	bool websocket = false;
+
 	if (WARN_ON_ONCE(!stream))
 		return -EINVAL;
 	if (unlikely(!stream->msg)) {
@@ -6229,9 +6241,24 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
 	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
-	return (TFW_CONN_TYPE(conn) & Conn_Clnt)
-		? tfw_http_req_process(conn, stream, skb)
-		: tfw_http_resp_process(conn, stream, skb);
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
+		return tfw_http_req_process(conn, stream, skb);
+
+	/* That is paired request, it may be freed after resp processing */
+	req = ((TfwHttpMsg *)stream->msg)->pair;
+	websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags);
+	if ((r = tfw_http_resp_process(conn, stream, skb))) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		/*
+		 * We must clear TFW_CONN_B_UNSCHED to make server connection
+		 * available for request scheduling further if websocket upgrade
+		 * request failed.
+		 */
+		if (websocket)
+			clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
+
+	return r;
 }
 
 /**
@@ -6996,16 +7023,16 @@ TfwMod tfw_http_mod  = {
 	.specs	= tfw_http_specs,
 };
 
-/*
- * We do not use http fsm for message processing any more, but only for
- * frang checks, so to clearly show our intention we BUG() here.
- */
-static int
-tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
-{
-	BUG();
-	return 0;
-}
+// /*
+//  * We do not use http fsm for message processing any more, but only for
+//  * frang checks, so to clearly show our intention we BUG() here.
+//  */
+// static int
+// tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
+// {
+// 	BUG();
+// 	return 0;
+// }
 
 /*
  * ------------------------------------------------------------------------
@@ -7016,11 +7043,6 @@ tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
 int __init
 tfw_http_init(void)
 {
-	int r;
-
-	if ((r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process_fsm)))
-		return r;
-
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
 	tfw_mod_register(&tfw_http_mod);
@@ -7033,5 +7055,4 @@ tfw_http_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
-	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }

@@ -312,10 +312,6 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 
 	if (fsm_hooks[fsm_id][shift].fsm_id)
 		return -EBUSY;
-	if (!fsm_htbl[fsm_id]) {
-		T_ERR_NL("gfsm: fsm %d is not registered\n", fsm_id);
-		return -ENOENT;
-	}
 
 	fsm_hooks[fsm_id][shift].st0 = st0;
 	fsm_hooks[fsm_id][shift].fsm_id = hndl_fsm_id;

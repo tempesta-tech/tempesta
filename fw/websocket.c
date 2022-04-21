@@ -132,49 +132,47 @@ static struct tfw_cfg_ws_t {
 typedef struct tfw_cfg_ws_t TfwCfgWs;
 
 /**
+ * Rearm client connection timer for client timeout functionality,
+ * `client_ws_timeout` is a corresponding config setting.
+ * TODO #736: do not update time on each packet handling.
+ */
+void
+tfw_ws_cli_mod_timer(TfwCliConn *conn)
+{
+	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
+
+	spin_lock(&conn->timer_lock);
+	if (timer_pending(&conn->timer))
+		mod_timer(&conn->timer,
+			jiffies + msecs_to_jiffies(
+				(long)tfw_cfg_ws.client_ws_timeout
+					* 1000));
+	spin_unlock(&conn->timer_lock);
+}
+
+/**
  * Process data for websocket connection without any introspection and
  * analisis of the protocol. Just send it as is.
- *
- * Create light http msg with Conn_Srv flag just to append skb to it and forward
- * it further. Client messages contain many fields not needed for websocket
- * protocol.
  */
 int
 tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
 	int r;
-	TfwCliConn *cli_conn;
-	TfwHttpMsg *hm;
+	TfwMsg msg = { 0 };
 
 	T_DBG2("%s: conn=[%p], skb=[%p]\n", __func__, conn, skb);
 
-	hm = __tfw_http_msg_alloc(Conn_Srv, false);
-	if (!hm) {
-		__kfree_skb(skb);
-		return T_DROP;
-	}
+	ss_skb_queue_tail(&msg.skb_head, skb);
 
-	ss_skb_queue_tail(&hm->msg.skb_head, skb);
-
-	if ((r = tfw_connection_send(conn->pair, (TfwMsg *)hm))) {
+	if ((r = tfw_connection_send(conn->pair, &msg))) {
 		T_DBG("%s: cannot send data to via websocket\n", __func__);
 		tfw_connection_close(conn, true);
 	}
 
 	/* When receiving data from client we consider client timeout */
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
-		cli_conn = (TfwCliConn *)conn;
-
-		spin_lock(&cli_conn->timer_lock);
-		if (timer_pending(&cli_conn->timer))
-			mod_timer(&cli_conn->timer,
-				jiffies + msecs_to_jiffies(
-					(long)tfw_cfg_ws.client_ws_timeout
-						* 1000));
-		spin_unlock(&cli_conn->timer_lock);
+		tfw_ws_cli_mod_timer((TfwCliConn *)conn);
 	}
-
-	tfw_http_msg_free(hm);
 
 	return r;
 }
@@ -182,8 +180,9 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 /**
  * Websocket connection hooks.
  *
- * These hooks unified between wss and ws. For wss called tls and for
- * plain ws called http conn_hook. No self recursion here just downcall.
+ * These hooks unified between wss and ws. For wss we call HTTPS state machine
+ * and for plain ws we call HTTP conn_hook. No self recursion here just
+ * downcall into lower layer through `tfw_conn_hook_call()`.
  *
  * TFW_CONN_HTTP_TYPE macro strips TFW_FSM_WEBSOCKET mark from connection type.
  */
