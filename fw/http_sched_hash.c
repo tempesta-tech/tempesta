@@ -403,38 +403,26 @@ tfw_sched_hash_put_srv_data(struct rcu_head *rcu)
 }
 
 static int
-tfw_sched_hash_srv_setup(TfwServer *srv)
-{
-	size_t size, seed, seed_inc = 0;
-	TfwHashConnList *cl = rcu_dereference_bh_check(srv->sched_data, 1);
-	TfwHashConnList *cl_copy;
-
-	seed = get_random_long();
-	seed_inc = get_random_int();
-
-	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
-	if (!(cl_copy = kzalloc(size, in_task() ? GFP_KERNEL : GFP_ATOMIC)))
-		return -ENOMEM;
-
-	tfw_sched_hash_add_conns(srv, cl_copy, &seed, seed_inc);
-
-	rcu_assign_pointer(srv->sched_data, cl_copy);
-
-	if (cl)
-		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
-
-	return 0;
-}
-
-static int
 tfw_sched_hash_add_srv(TfwServer *srv)
 {
+	size_t size, seed, seed_inc = 0;
 	TfwHashConnList *cl = rcu_dereference_check(srv->sched_data, 1);
 
 	if (unlikely(cl))
 		return -EEXIST;
 
-	return tfw_sched_hash_srv_setup(srv);
+	seed = get_random_long();
+	seed_inc = get_random_int();
+
+	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
+	if (!(cl = kzalloc(size, GFP_KERNEL)))
+		return -ENOMEM;
+
+	tfw_sched_hash_add_conns(srv, cl, &seed, seed_inc);
+
+	rcu_assign_pointer(srv->sched_data, cl);
+
+	return 0;
 }
 
 static void
