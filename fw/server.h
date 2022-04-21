@@ -163,7 +163,6 @@ typedef struct {
  *		  Called in process context at re-configuration time.
  * @del_srv	- delete single server added via add_srv.
  *		  Called in SoftIRQ context.
- *
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
  * @sched_srv_conn	- schedule a request to the given server.
