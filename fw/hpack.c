@@ -1463,7 +1463,7 @@ get_value:
 
 			T_DBG3("%s: value length: %lu\n", __func__, hp->length);
 
-			if (!hp->length) {
+			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
 				r = T_DROP;
 				goto out;
@@ -1599,7 +1599,7 @@ set_window:
 			T_DBG3("%s: value length finally decoded: %lu\n",
 			       __func__, hp->length);
 
-			if (!hp->length) {
+			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
 				r = T_DROP;
 				goto out;

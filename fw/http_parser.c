@@ -7280,7 +7280,7 @@ do {									\
 			p += 1;
 			if (__data_off(p) == len && fin) {
 				parser->date.year
-					= parser->date.year * 10+ (c - '0');
+					= parser->date.year * 10 + (c - '0');
 				++parser->date.pos;
 				__FSM_JMP(*st[parser->date.type][parser->date.pos]);
 			}

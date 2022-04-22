@@ -3832,7 +3832,7 @@ do {									\
 
 	for (i = 0; i < 1000; ++i) {
 		/*
-		 * Benchmark serverla requests to make the headers parsing more
+		 * Benchmark several requests to make the headers parsing more
 		 * visible in the performance results. Also having L7 DDoS in
 		 * mind we need to to care about requests more than responses.
 		 */

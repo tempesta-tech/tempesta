@@ -105,13 +105,11 @@ enum {
 	BLOCK_MACRO(head "\" \"");				\
 	BLOCK_MACRO(head "\"\"\"")
 
-
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
 static size_t hm_exp_len = 0;
-
 
 typedef struct data_rec
 {
@@ -241,7 +239,6 @@ do {										\
 	++frames_cnt;								\
 } while (0)
 
-
 #define DATA_FRAME_BEGIN()							\
 do {										\
 	unsigned int frame_sz = 0;						\
@@ -266,7 +263,6 @@ do {										\
 	frames_total_sz += frame_sz;						\
 	++frames_cnt;								\
 } while (0)
-
 
 #define RESET_FRAMES_BUF()							\
 	BUG_ON(!frames_buf_ptr);						\
@@ -388,8 +384,6 @@ test_case_parse_prepare_h2(void)
 	hm_exp_len = GET_FRAMES_TOTAL_SZ();
 }
 
-
-
 /**
  * The function is designed to be called in a loop, e.g.
  *   while(!do_split_and_parse(str, len, type, chunk_mode)) { ... }
@@ -417,7 +411,6 @@ test_case_parse_prepare_h2(void)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-
 static int
 do_split_and_parse(int type, int chunk_mode)
 {
