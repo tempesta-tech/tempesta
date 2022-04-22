@@ -461,12 +461,19 @@ do_split_and_parse(int type, int chunk_mode)
 		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 	}
 	else if (type == FUZZ_REQ_H2) {
-		if (req)
-			test_req_free(req);
+		static TfwH2Ctx	h2_origin;
 
-		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
+		if (chunk_size_index == 0)
+			h2_origin = conn.h2;
+		else
+			conn.h2 = h2_origin;
+
 		conn.h2.hpack.state = 0;
 		conn.h2.hpack.length = 0;
+
+		if (req)
+			test_req_free(req);
+		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
