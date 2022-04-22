@@ -7278,17 +7278,6 @@ TfwMod tfw_http_mod  = {
 	.specs	= tfw_http_specs,
 };
 
-// /*
-//  * We do not use http fsm for message processing any more, but only for
-//  * frang checks, so to clearly show our intention we BUG() here.
-//  */
-// static int
-// tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
-// {
-// 	BUG();
-// 	return 0;
-// }
-
 /*
  * ------------------------------------------------------------------------
  *	init/exit

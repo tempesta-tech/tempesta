@@ -129,8 +129,8 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
 	int r;
 
-print_hex_dump(KERN_ALERT, "mem: ", DUMP_PREFIX_ADDRESS,
-                                16, 1, msg->skb_head->data, msg->skb_head->len, 1);
+	T_DBG3_BUF("bytes to client", msg->skb_head->data, msg->skb_head->len);
+
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 	/*
 	 * The lock is needed because the timer deletion was moved from release() to
