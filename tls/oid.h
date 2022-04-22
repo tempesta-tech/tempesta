@@ -29,8 +29,13 @@
 #include "crypto.h"
 #include "x509.h"
 
-#define TTLS_ERR_OID_NOT_FOUND			 -0x002E  /**< OID is not found. */
-#define TTLS_ERR_OID_BUF_TOO_SMALL		 -0x000B  /**< output buffer is too small */
+#define TTLS_WITH_OID_FMT(asn1_buf, fmtd_oid_var_name, action_expr)	\
+    do {								\
+	char fmtd_oid_var_name[32] = { 0 };				\
+	ttls_oid_get_numeric_string(fmtd_oid_var_name,			\
+		ARRAY_SIZE(fmtd_oid_var_name), asn1_buf);		\
+	action_expr;							\
+    } while (0)
 
 /*
  * Top level OID tuples
@@ -89,24 +94,42 @@
 /*
  * Arc for standard naming attributes
  */
-#define TTLS_OID_AT			  TTLS_OID_ISO_CCITT_DS "\x04" /**< id-at OBJECT IDENTIFIER ::= {joint-iso-ccitt(2) ds(5) 4} */
-#define TTLS_OID_AT_CN		   TTLS_OID_AT "\x03" /**< id-at-commonName AttributeType:= {id-at 3} */
-#define TTLS_OID_AT_SUR_NAME				 TTLS_OID_AT "\x04" /**< id-at-surName AttributeType:= {id-at 4} */
-#define TTLS_OID_AT_SERIAL_NUMBER			TTLS_OID_AT "\x05" /**< id-at-serialNumber AttributeType:= {id-at 5} */
-#define TTLS_OID_AT_COUNTRY				  TTLS_OID_AT "\x06" /**< id-at-countryName AttributeType:= {id-at 6} */
-#define TTLS_OID_AT_LOCALITY				 TTLS_OID_AT "\x07" /**< id-at-locality AttributeType:= {id-at 7} */
-#define TTLS_OID_AT_STATE		TTLS_OID_AT "\x08" /**< id-at-state AttributeType:= {id-at 8} */
-#define TTLS_OID_AT_ORGANIZATION			 TTLS_OID_AT "\x0A" /**< id-at-organizationName AttributeType:= {id-at 10} */
-#define TTLS_OID_AT_ORG_UNIT				 TTLS_OID_AT "\x0B" /**< id-at-organizationalUnitName AttributeType:= {id-at 11} */
-#define TTLS_OID_AT_TITLE		TTLS_OID_AT "\x0C" /**< id-at-title AttributeType:= {id-at 12} */
-#define TTLS_OID_AT_POSTAL_ADDRESS		   TTLS_OID_AT "\x10" /**< id-at-postalAddress AttributeType:= {id-at 16} */
-#define TTLS_OID_AT_POSTAL_CODE			  TTLS_OID_AT "\x11" /**< id-at-postalCode AttributeType:= {id-at 17} */
-#define TTLS_OID_AT_GIVEN_NAME			   TTLS_OID_AT "\x2A" /**< id-at-givenName AttributeType:= {id-at 42} */
-#define TTLS_OID_AT_INITIALS				 TTLS_OID_AT "\x2B" /**< id-at-initials AttributeType:= {id-at 43} */
-#define TTLS_OID_AT_GENERATION_QUALIFIER	 TTLS_OID_AT "\x2C" /**< id-at-generationQualifier AttributeType:= {id-at 44} */
-#define TTLS_OID_AT_UNIQUE_IDENTIFIER		TTLS_OID_AT "\x2D" /**< id-at-uniqueIdentifier AttributType:= {id-at 45} */
-#define TTLS_OID_AT_DN_QUALIFIER			 TTLS_OID_AT "\x2E" /**< id-at-dnQualifier AttributeType:= {id-at 46} */
-#define TTLS_OID_AT_PSEUDONYM				TTLS_OID_AT "\x41" /**< id-at-pseudonym AttributeType:= {id-at 65} */
+/* id-at OBJECT IDENTIFIER ::= {joint-iso-ccitt(2) ds(5) 4} */
+#define TTLS_OID_AT				TTLS_OID_ISO_CCITT_DS "\x04"
+/* id-at-commonName AttributeType:= {id-at 3} */
+#define TTLS_OID_AT_CN				TTLS_OID_AT "\x03"
+/* id-at-surName AttributeType:= {id-at 4} */
+#define TTLS_OID_AT_SUR_NAME			TTLS_OID_AT "\x04"
+/* id-at-serialNumber AttributeType:= {id-at 5} */
+#define TTLS_OID_AT_SERIAL_NUMBER		TTLS_OID_AT "\x05"
+/* id-at-countryName AttributeType:= {id-at 6} */
+#define TTLS_OID_AT_COUNTRY			TTLS_OID_AT "\x06"
+/* id-at-locality AttributeType:= {id-at 7} */
+#define TTLS_OID_AT_LOCALITY			TTLS_OID_AT "\x07"
+/* id-at-state AttributeType:= {id-at 8} */
+#define TTLS_OID_AT_STATE			TTLS_OID_AT "\x08"
+/* id-at-organizationName AttributeType:= {id-at 10} */
+#define TTLS_OID_AT_ORGANIZATION		TTLS_OID_AT "\x0A"
+/* id-at-organizationalUnitName AttributeType:= {id-at 11} */
+#define TTLS_OID_AT_ORG_UNIT			TTLS_OID_AT "\x0B"
+/* id-at-title AttributeType:= {id-at 12} */
+#define TTLS_OID_AT_TITLE			TTLS_OID_AT "\x0C"
+/* id-at-postalAddress AttributeType:= {id-at 16} */
+#define TTLS_OID_AT_POSTAL_ADDRESS		TTLS_OID_AT "\x10"
+/* id-at-postalCode AttributeType:= {id-at 17} */
+#define TTLS_OID_AT_POSTAL_CODE			TTLS_OID_AT "\x11"
+/* id-at-givenName AttributeType:= {id-at 42} */
+#define TTLS_OID_AT_GIVEN_NAME			TTLS_OID_AT "\x2A"
+/* id-at-initials AttributeType:= {id-at 43} */
+#define TTLS_OID_AT_INITIALS			TTLS_OID_AT "\x2B"
+/* id-at-generationQualifier AttributeType:= {id-at 44} */
+#define TTLS_OID_AT_GENERATION_QUALIFIER	TTLS_OID_AT "\x2C"
+/* id-at-uniqueIdentifier AttributType:= {id-at 45} */
+#define TTLS_OID_AT_UNIQUE_IDENTIFIER		TTLS_OID_AT "\x2D"
+/* id-at-dnQualifier AttributeType:= {id-at 46} */
+#define TTLS_OID_AT_DN_QUALIFIER		TTLS_OID_AT "\x2E"
+/* id-at-pseudonym AttributeType:= {id-at 65} */
+#define TTLS_OID_AT_PSEUDONYM			TTLS_OID_AT "\x41"
 
 #define TTLS_OID_DOMAIN_COMPONENT			"\x09\x92\x26\x89\x93\xF2\x2C\x64\x01\x19" /** id-domainComponent AttributeType:= {itu-t(0) data(9) pss(2342) ucl(19200300) pilot(100) pilotAttributeType(1) domainComponent(25)} */
 
@@ -294,11 +317,8 @@ typedef struct {
  * \param buf	   buffer to put representation in
  * \param size	  size of the buffer
  * \param oid	   OID to translate
- *
- * \return		  Length of the string written (excluding final NULL) or
- *				  TTLS_ERR_OID_BUF_TOO_SMALL in case of error
  */
-int ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid);
+void ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid);
 
 /**
  * \brief		  Translate an X.509 extension OID into local values
@@ -306,7 +326,7 @@ int ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid
  * \param oid	  OID to use
  * \param ext_type place to store the extension type
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_x509_ext_type(const ttls_asn1_buf *oid, int *ext_type);
 
@@ -317,7 +337,7 @@ int ttls_oid_get_x509_ext_type(const ttls_asn1_buf *oid, int *ext_type);
  * \param oid	  OID to use
  * \param short_name	place to store the string pointer
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_attr_short_name(const ttls_asn1_buf *oid, const char **short_name);
 
@@ -327,7 +347,7 @@ int ttls_oid_get_attr_short_name(const ttls_asn1_buf *oid, const char **short_na
  * \param oid	  OID to use
  * \param pk_alg   place to store public key algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_pk_alg(const ttls_asn1_buf *oid, ttls_pk_type_t *pk_alg);
 
@@ -338,7 +358,7 @@ int ttls_oid_get_pk_alg(const ttls_asn1_buf *oid, ttls_pk_type_t *pk_alg);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_pk_alg(ttls_pk_type_t pk_alg,
 			   const char **oid, size_t *olen);
@@ -349,7 +369,7 @@ int ttls_oid_get_oid_by_pk_alg(ttls_pk_type_t pk_alg,
  * \param oid	  OID to use
  * \param grp_id   place to store group id
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_ec_grp(const ttls_asn1_buf *oid, ttls_ecp_group_id *grp_id);
 
@@ -360,7 +380,7 @@ int ttls_oid_get_ec_grp(const ttls_asn1_buf *oid, ttls_ecp_group_id *grp_id);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_ec_grp(ttls_ecp_group_id grp_id,
 			   const char **oid, size_t *olen);
@@ -372,7 +392,7 @@ int ttls_oid_get_oid_by_ec_grp(ttls_ecp_group_id grp_id,
  * \param md_alg   place to store message digest algorithm
  * \param pk_alg   place to store public key algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_sig_alg(const ttls_asn1_buf *oid,
 		 ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg);
@@ -383,7 +403,7 @@ int ttls_oid_get_sig_alg(const ttls_asn1_buf *oid,
  * \param oid	  OID to use
  * \param desc	 place to store string pointer
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_sig_alg_desc(const ttls_asn1_buf *oid, const char **desc);
 
@@ -395,7 +415,7 @@ int ttls_oid_get_sig_alg_desc(const ttls_asn1_buf *oid, const char **desc);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_sig_alg(ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
 				const char **oid, size_t *olen);
@@ -406,7 +426,7 @@ int ttls_oid_get_oid_by_sig_alg(ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
  * \param oid	  OID to use
  * \param md_alg   place to store message digest algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_md_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg);
 
@@ -416,7 +436,7 @@ int ttls_oid_get_md_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg);
  * \param oid	  OID to use
  * \param md_hmac  place to store message hmac algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_md_hmac(const ttls_asn1_buf *oid, ttls_md_type_t *md_hmac);
 
@@ -427,7 +447,7 @@ int ttls_oid_get_md_hmac(const ttls_asn1_buf *oid, ttls_md_type_t *md_hmac);
  * \param oid	  place to store ASN.1 OID string pointer
  * \param olen	 length of the OID
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen);
 
@@ -437,7 +457,7 @@ int ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen
  * \param oid		   OID to use
  * \param cipher_alg	place to store cipher algorithm
  *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
+ * \return		 0 if successful, or -1
  */
 int ttls_oid_get_cipher_alg(const ttls_asn1_buf *oid, ttls_cipher_type_t *cipher_alg);
 

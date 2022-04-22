@@ -26,5 +26,6 @@ typedef struct tfw_stream_t TfwStream;
 int tfw_ws_msg_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb);
 TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn);
 void tfw_ws_stream_drop(TfwConn *conn, TfwStream *stream);
+void tfw_ws_cli_mod_timer(TfwCliConn *conn);
 
 #endif /* __TFW_WS_H__ */

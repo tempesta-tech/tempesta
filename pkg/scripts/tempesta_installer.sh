@@ -243,8 +243,13 @@ tfw_set_grub_default()
 		echo "Error: Can't find Tempesta patched kernel in /boot/grub/grub.cfg!"
 		return
 	fi
+	if [[ "$entry" ]]; then
+		echo "GRUB_DEFAULT='Advanced options for Debian GNU/Linux>$entry'" >> /etc/default/grub
+	fi
+	if [[ "$u_entry" ]]; then
+		echo "GRUB_DEFAULT='Advanced options for Ubuntu>$u_entry'" >> /etc/default/grub
+	fi
 
-	echo "GRUB_DEFAULT='Advanced options for Debian GNU/Linux>$entry'" >> /etc/default/grub
 	update-grub
 }
 

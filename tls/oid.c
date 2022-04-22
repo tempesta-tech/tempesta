@@ -60,7 +60,7 @@ static const TYPE_T * oid_ ## NAME ## _from_asn1(const ttls_asn1_buf *oid)	 \
 int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
 {					   \
 	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);		\
-	if (data == NULL) return(TTLS_ERR_OID_NOT_FOUND);			\
+	if (data == NULL) return -1;						\
 	*ATTR1 = data->descriptor.ATTR1;			\
 	return 0;					\
 }
@@ -73,7 +73,7 @@ int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
 int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
 {					   \
 	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);		\
-	if (data == NULL) return(TTLS_ERR_OID_NOT_FOUND);			\
+	if (data == NULL) return -1;						\
 	*ATTR1 = data->ATTR1;		   \
 	return 0;					\
 }
@@ -87,7 +87,7 @@ int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
 int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1, ATTR2_TYPE * ATTR2)  \
 {						   \
 	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);			\
-	if (data == NULL) return(TTLS_ERR_OID_NOT_FOUND);				\
+	if (data == NULL) return -1;						\
 	*ATTR1 = data->ATTR1;			   \
 	*ATTR2 = data->ATTR2;			   \
 	return 0;			\
@@ -109,7 +109,7 @@ int FN_NAME(ATTR1_TYPE ATTR1, const char **oid, size_t *olen)			 \
 		}				   \
 		cur++;			  \
 	}					   \
-	return(TTLS_ERR_OID_NOT_FOUND);		   \
+	return -1;				   \
 }
 
 /*
@@ -130,7 +130,7 @@ int FN_NAME(ATTR1_TYPE ATTR1, ATTR2_TYPE ATTR2, const char **oid ,		 \
 		}				   \
 		cur++;			  \
 	}					   \
-	return(TTLS_ERR_OID_NOT_FOUND);		   \
+	return -1;				   \
 }
 
 /*
@@ -467,14 +467,16 @@ FN_OID_GET_ATTR1(ttls_oid_get_md_hmac, oid_md_hmac_t, md_hmac, ttls_md_type_t, m
 #define OID_SAFE_SNPRINTF				   \
 	do {			\
 		if (ret < 0 || (size_t) ret >= n)			  \
-			return(TTLS_ERR_OID_BUF_TOO_SMALL);	\
+		    goto ellipsize;					\
 					\
 		n -= (size_t) ret;				  \
 		p += (size_t) ret;				  \
 	} while (0)
 
+static const char oid_ellipsis[] = "[...]";
+
 /* Return the x.y.z.... style numeric string for the given OID */
-int ttls_oid_get_numeric_string(char *buf, size_t size,
+void ttls_oid_get_numeric_string(char *buf, size_t size,
 				const ttls_asn1_buf *oid)
 {
 	int ret;
@@ -484,6 +486,7 @@ int ttls_oid_get_numeric_string(char *buf, size_t size,
 
 	p = buf;
 	n = size;
+	*p = '\0';
 
 	/* First byte contains first two dots */
 	if (oid->len > 0)
@@ -497,7 +500,7 @@ int ttls_oid_get_numeric_string(char *buf, size_t size,
 	{
 		/* Prevent overflow in value. */
 		if (((value << 7) >> 7) != value)
-			return(TTLS_ERR_OID_BUF_TOO_SMALL);
+			goto ellipsize;
 
 		value <<= 7;
 		value += oid->p[i] & 0x7F;
@@ -510,6 +513,16 @@ int ttls_oid_get_numeric_string(char *buf, size_t size,
 			value = 0;
 		}
 	}
+	return;
 
-	return((int) (size - n));
+ellipsize:
+	if (size < sizeof(oid_ellipsis))
+	    return;
+
+	if (n < sizeof(oid_ellipsis)) {
+	    n = sizeof(oid_ellipsis);
+	    p = buf + size - sizeof(oid_ellipsis);
+	}
+
+	snprintf(p, n, "%s", oid_ellipsis);
 }

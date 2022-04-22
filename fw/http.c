@@ -89,6 +89,8 @@
 
 #include "lib/hash.h"
 #include "lib/str.h"
+#include "access_log.h"
+#include "apm.h"
 #include "cache.h"
 #include "hash.h"
 #include "http_limits.h"
@@ -2329,8 +2331,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 
 			mit->map = tfw_pool_alloc(hm->pool, sz);
 			if (unlikely(!mit->map)) {
-				T_WARN("HTTP/2: unable to allocate memory for "
-				       "response header map\n");
+				T_WARN("HTTP/2: unable to allocate memory for"
+				       " response header map\n");
 				goto clean;
 			}
 			mit->map->size = TFW_HDR_MAP_INIT_CNT;
@@ -3464,6 +3466,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	int h_ct_replace = 0;
 	TfwStr h_cl = {0};
 	char cl_data[TFW_ULTOA_BUF_SIZ] = {0};
+	size_t cl_data_len = 0;
 	size_t cl_len = 0;
 	/*
 	 * The Transfer-Encoding header field cannot be in the h2 request, because
@@ -3485,19 +3488,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	};
 
 	if (need_cl) {
-		cl_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
-		if (!cl_len)
+		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
+		if (!cl_data_len)
 			return -EINVAL;
-		h_cl = (TfwStr) {
-			.chunks = (TfwStr []) {
-				{ .data = "Content-Length", .len = 14 },
-				{ .data = S_DLM, .len = SLEN(S_DLM) },
-				{ .data = cl_data, .len = cl_len },
-				{ .data = S_CRLF, .len = SLEN(S_CRLF) }
-			},
-			.len = 14 + SLEN(S_DLM) + cl_len + SLEN(S_CRLF),
-			.nchunks = 4
-		};
+		cl_len = SLEN("Content-Length") + SLEN(S_DLM) + cl_data_len + SLEN(S_CRLF);
 	}
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
@@ -3623,8 +3617,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 	h1_hdrs_sz += h_xff.len;
 	h1_hdrs_sz += h_via.len;
-	if (need_cl)
-		h1_hdrs_sz += h_cl.len;
+	h1_hdrs_sz += cl_len;
 
 	/*
 	 * Conditional substitution/additions of 'content-type' header. This is
@@ -3737,8 +3730,19 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	r |= tfw_msg_write(&it, &h_via);
-	if (need_cl)
+	if (need_cl) {
+		h_cl = (TfwStr) {
+			.chunks = (TfwStr []) {
+				{ .data = "Content-Length", .len = SLEN("Content-Length") },
+				{ .data = S_DLM, .len = SLEN(S_DLM) },
+				{ .data = cl_data, .len = cl_data_len },
+				{ .data = S_CRLF, .len = SLEN(S_CRLF) }
+			},
+			.len = cl_len,
+			.nchunks = 4
+		};
 		r |= tfw_msg_write(&it, &h_cl);
+	}
 	/* Finally close headers. */
 	r |= tfw_msg_write(&it, &crlf);
 
@@ -5228,6 +5232,12 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
 
+	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
+	 * not be scheduled to it. It will be used only for websocket transport.
+	 * If upgrade will fail, we clear it. */
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
+		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
 	/* Forward request to the server. */
 	tfw_http_req_fwd_resched(srv_conn, req, &eq);
 	tfw_http_req_zap_error(&eq);
@@ -5575,8 +5585,17 @@ next_msg:
 			TfwStr protocol_val = {};
 			TfwHttpHdrTbl *ht = req->h_tbl;
 
-			if (ctx->hdr.flags & HTTP2_F_END_HEADERS)
+			/* If the parser met END_HEADERS flag we can be sure
+			 * that we get and processed all headers.
+			 * We will be at this point even if the parser met
+			 * END_STREAM and END_HEADERS flags at once.
+			 */
+			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
+				if (unlikely(tfw_http_parse_check_bodyless_meth(req)))
+					return TFW_BLOCK;
+
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+			}
 
 			if (!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
 				goto skip;
@@ -6187,6 +6206,8 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn,
 	ws_conn->pair.conn = (TfwConn *)cli_conn;
 	ws_conn->pair.stream = cli_stream;
 
+	tfw_ws_cli_mod_timer(cli_conn);
+
 	return TFW_PASS;
 }
 
@@ -6455,6 +6476,10 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb)
 {
+	int r;
+	TfwHttpMsg *req;
+	bool websocket = false;
+
 	if (WARN_ON_ONCE(!stream))
 		return -EINVAL;
 	if (unlikely(!stream->msg)) {
@@ -6471,9 +6496,24 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
 	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
-	return (TFW_CONN_TYPE(conn) & Conn_Clnt)
-		? tfw_http_req_process(conn, stream, skb)
-		: tfw_http_resp_process(conn, stream, skb);
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
+		return tfw_http_req_process(conn, stream, skb);
+
+	/* That is paired request, it may be freed after resp processing */
+	req = ((TfwHttpMsg *)stream->msg)->pair;
+	websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags);
+	if ((r = tfw_http_resp_process(conn, stream, skb))) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		/*
+		 * We must clear TFW_CONN_B_UNSCHED to make server connection
+		 * available for request scheduling further if websocket upgrade
+		 * request failed.
+		 */
+		if (websocket)
+			clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
+
+	return r;
 }
 
 /**
@@ -7238,16 +7278,16 @@ TfwMod tfw_http_mod  = {
 	.specs	= tfw_http_specs,
 };
 
-/*
- * We do not use http fsm for message processing any more, but only for
- * frang checks, so to clearly show our intention we BUG() here.
- */
-static int
-tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
-{
-	BUG();
-	return 0;
-}
+// /*
+//  * We do not use http fsm for message processing any more, but only for
+//  * frang checks, so to clearly show our intention we BUG() here.
+//  */
+// static int
+// tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
+// {
+// 	BUG();
+// 	return 0;
+// }
 
 /*
  * ------------------------------------------------------------------------
@@ -7258,11 +7298,6 @@ tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
 int __init
 tfw_http_init(void)
 {
-	int r;
-
-	if ((r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process_fsm)))
-		return r;
-
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
 	tfw_mod_register(&tfw_http_mod);
@@ -7275,5 +7310,4 @@ tfw_http_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
-	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }

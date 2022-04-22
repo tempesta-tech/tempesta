@@ -1201,34 +1201,11 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		 */							\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
-	/* According to RFC 7231 4.3.* a payload within GET, HEAD,	\
-	 * DELETE, TRACE and CONNECT requests has no defined semantics	\
-	 * and implementations can reject it. We do this respecting	\
-	 * overrides.							\
-	 */								\
-	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])		\
-	    || !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))		\
-	{								\
-		/* Method override either honored or request message	\
-		 * with method override header dropped later in		\
-		 * processing */					\
-		if (unlikely(req->method_override)) {			\
-			if (req->method_override == TFW_HTTP_METH_GET		\
-			    || req->method_override == TFW_HTTP_METH_HEAD	\
-			    || req->method_override == TFW_HTTP_METH_DELETE	\
-			    || req->method_override == TFW_HTTP_METH_TRACE)	\
-			{							\
-				TFW_PARSER_BLOCK(RGen_BodyInit);		\
-			}						\
-		}							\
-		else if (req->method == TFW_HTTP_METH_GET		\
-			 || req->method == TFW_HTTP_METH_HEAD		\
-			 || req->method == TFW_HTTP_METH_DELETE		\
-			 || req->method == TFW_HTTP_METH_TRACE)		\
-		{							\
-			TFW_PARSER_BLOCK(RGen_BodyInit);		\
-		}							\
+									\
+	if (tfw_http_parse_check_bodyless_meth(req)) {			\
+		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
+									\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
 		__FSM_MOVE_nofixup(RGen_BodyStart);			\
@@ -3915,6 +3892,41 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
 }
 
+
+/**
+ * Check h1/h2 request after all headers was parsed.
+ *
+ * According to RFC 7231 4.3.* a payload within GET, HEAD,
+ * DELETE, TRACE and CONNECT requests has no defined semantics
+ * and implementations can reject it. We do this respecting overrides.
+ *
+ * Return T_DROP if request contains Content-Length or Content-Type field
+ * for bodyless method.
+ */
+int
+tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
+{
+	TfwStr *tbl = req->h_tbl->tbl;
+
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
+	    || !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
+	{
+		/* Method override either honored or request message
+		 * with method override header dropped later in processing */
+		if ((req->method_override
+			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
+		{
+			T_WARN("%s: Content-Length or Content-Type"
+			       " not allowed to be used with such"
+			       " (overridden) method\n", __func__);
+			return T_DROP;
+		}
+	}
+
+	return T_OK;
+}
+
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		   unsigned int *parsed)
@@ -6508,15 +6520,6 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 			      bool fin)
 {
 	int ret;
-	TfwHttpReq *req = (TfwHttpReq *)msg;
-
-	if (unlikely(req->method == TFW_HTTP_METH_GET
-		     || req->method == TFW_HTTP_METH_HEAD
-		     || req->method == TFW_HTTP_METH_DELETE
-		     || req->method == TFW_HTTP_METH_TRACE))
-	{
-		return CSTR_NEQ;
-	}
 
 	ret = parse_long_ws(data, len, &msg->content_length);
 
@@ -7749,7 +7752,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: len=%lu, data=%.*s%s, req=[%p]\n", __func__, len,
+	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
 	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state);
@@ -7852,9 +7855,9 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			__FSM_H2_OTHER_n(4);
 		/* connection */
 		case TFW_CHAR4_INT('c', 'o', 'n', 'n'):
-			if (unlikely(!__data_available(p, 9)))
+			if (unlikely(!__data_available(p, 10)))
 				__FSM_H2_NEXT_n(Req_HdrConn, 4);
-			if (C8_INT(p + 1,  'o', 'n', 'n', 'e', 'c', 't', 'i', 'n'))
+			if (C8_INT(p + 2, 'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'))
 				__FSM_H2_DROP(Req_HdrConnection);
 			__FSM_H2_OTHER_n(4);
 		/* content-* */
@@ -8581,17 +8584,19 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	 * header if more data is found afer 'd'
 	 */
 	__FSM_STATE(Req_HdrX_Http_Metho, cold) {
-		if (c != 'd')
+		if (unlikely(c != 'd'))
 			__FSM_JMP(RGen_HdrOtherN);
+
 		p += 1;
-		T_DBG3("%s: name fin, h_tag=%d, to=Req_HdrX_Http_Metho len=%lu, "
-		       "off=%lu\n",
-		       __func__, TFW_TAG_HDR_RAW, len, __data_off(p));
-		if (unlikely(__data_off(p) < len))
-			goto RGen_HdrOtherN;
+		T_DBG3("%s: name next, to=Req_HdrX_Http_Method len=%lu,"
+		       " off=%lu\n", __func__, len, __data_off(p));
+		if (__data_off(p) < len)
+			__FSM_JMP(Req_HdrX_Http_Method);
+
 		__msg_hdr_chunk_fixup(data, len);
-		if (unlikely(!fin))
+		if (likely(!fin))
 			__FSM_H2_POSTPONE(Req_HdrX_Http_Method);
+
 		it->tag = TFW_TAG_HDR_RAW;
 		__FSM_H2_OK(Req_HdrX_Method_OverrideV);
 	}
@@ -9013,17 +9018,18 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	*parsed = 0;
 
-	if (likely(type != HTTP2_DATA))
+	if (likely(type != HTTP2_DATA)) {
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-	else if (unlikely(req->method == TFW_HTTP_METH_GET
-		 || req->method == TFW_HTTP_METH_HEAD
-		 || req->method == TFW_HTTP_METH_DELETE
-		 || req->method == TFW_HTTP_METH_TRACE))
+	}
+	else if ((req->method_override
+		  && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		 || TFW_HTTP_IS_METH_BODYLESS(req->method))
 	{
 		r = T_DROP;
 	}
-	else
+	else {
 		r = tfw_h2_parse_body(data, len, req, parsed);
+	}
 
 	return (r == T_OK) ? T_POSTPONE : r;
 }
@@ -9039,6 +9045,9 @@ tfw_h2_parse_req_semifinish(TfwHttpReq *req)
 {
 	TfwHttpHdrTbl *ht = req->h_tbl;
 
+	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
+		return T_DROP;
+
 	/*
 	 * TFW_HTTP_B_H2_HDRS_FULL flag is set on first TFW_HTTP_HDR_REGULAR
 	 * header, if no present, need to check mandatory pseudo headers.
@@ -9050,8 +9059,6 @@ tfw_h2_parse_req_semifinish(TfwHttpReq *req)
 	{
 		return T_DROP;
 	}
-
-	__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
 			 &req->host);
