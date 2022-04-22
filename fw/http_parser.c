@@ -5762,13 +5762,16 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
-#define __FSM_H2_I_MOVE_NEQ(to, n)					\
+#define __FSM_H2_I_MOVE_NEQ_n(to, n)					\
 	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
 
-#define __FSM_H2_I_MOVE_BY_REF_NEQ(to, n)				\
+#define __FSM_H2_I_MOVE_NEQ(to)						\
+	__FSM_H2_I_MOVE_NEQ_n(to, 1)
+
+#define __FSM_H2_I_MOVE_BY_REF_NEQ(to)					\
 do {									\
 	parser->_i_st = to;						\
-	p += n;								\
+	p += 1;								\
 	if (__data_off(p) < len)					\
 		goto *to;						\
 	if (likely(fin)) {						\
@@ -6111,7 +6114,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_WSAccept) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept);
 		/* Fall through. */
 	}
 
@@ -6184,7 +6187,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		});
 		c = *(p + __fsm_sz);
 		if (c == '/')
-			__FSM_H2_I_MOVE_NEQ(Req_I_Slash, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_NEQ_n(Req_I_Slash, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
 
@@ -6229,7 +6232,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		});
 		c = *(p + __fsm_sz);
 		if (c == '=')
-			__FSM_H2_I_MOVE_NEQ(Req_I_ParamValueBeg, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_NEQ_n(Req_I_ParamValueBeg, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
 
@@ -6238,7 +6241,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_ParamValue) {
 		if (c == '\"')
-			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString);
 		__FSM_H2_I_MATCH_MOVE(token, Req_I_ParamValue);
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
@@ -6248,7 +6251,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_NEQ);
 		});
 		if (c != '"')
-			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString);
 		__FSM_H2_I_MOVE(I_EoT);
 	}
 
@@ -6447,7 +6450,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
 		if (c == '=')
-			__FSM_H2_I_MOVE_NEQ(Req_I_CC_MaxStaleVBeg, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_CC_MaxStaleVBeg);
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.max_stale = UINT_MAX;
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
@@ -7149,19 +7152,19 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 	 */
 	__FSM_STATE(I_WDate1) {
 		if (likely('A' <= c && c <= 'Z'))
-			__FSM_H2_I_MOVE_NEQ(I_WDate2, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate2);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDate2) {
 		if (likely('a' <= c && c <= 'z'))
-			__FSM_H2_I_MOVE_NEQ(I_WDate3, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate3);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDate3) {
 		if (likely('a' <= c && c <= 'z'))
-			__FSM_H2_I_MOVE_NEQ(I_WDate4, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate4);
 		return CSTR_NEQ;
 	}
 
@@ -7170,39 +7173,39 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 		parser->month_int = ((size_t)' ') << 24;
 		if (likely(c == ',')) {
 			parser->date.type = RFC_822;
-			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP);
 		}
 		if ('a' <= c && c <= 'z') {
 			parser->date.type = RFC_850;
-			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate5);
 		}
 		if (c == ' ') {
 			parser->date.type = ISOC;
 			__FSM_H2_I_MOVE_BY_REF_NEQ(
-				st[parser->date.type][parser->date.pos], 1);
+				st[parser->date.type][parser->date.pos]);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDate5) {
 		if ('a' <= c && c <= 'z')
-			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate5);
 		if (c == ',')
-			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDaySP) {
 		if (likely(c == ' '))
 			__FSM_H2_I_MOVE_BY_REF_NEQ(
-				st[parser->date.type][parser->date.pos], 1);
+				st[parser->date.type][parser->date.pos]);
 		return CSTR_NEQ;
 	}
 
-#define __NEXT_TEMPL_STATE()						\
-do {									\
-	++parser->date.pos;						\
-	__FSM_H2_I_MOVE_BY_REF_NEQ(st[parser->date.type][parser->date.pos], 1);\
+#define __NEXT_TEMPL_STATE()							\
+do {										\
+	++parser->date.pos;							\
+	__FSM_H2_I_MOVE_BY_REF_NEQ(st[parser->date.type][parser->date.pos]);	\
 } while (0)
 
 	__FSM_STATE(I_SP) {
