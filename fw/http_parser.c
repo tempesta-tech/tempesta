@@ -6544,10 +6544,10 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	TfwHttpReq *req = (TfwHttpReq *)hm;
 	__FSM_DECLARE_VARS(hm);
 
-#define __FSM_H2_I_MOVE_FIN_fixup(to, n, flag)				\
+#define __FSM_H2_I_MOVE_FIN_fixup(to, n)				\
 	__FSM_H2_I_MOVE_LAMBDA_fixup(to, n, {				\
 		goto finalize;						\
-	}, flag)
+	}, 0)
 
 #define __FSM_H2_I_MATCH_MOVE_FIN_fixup(alphabet, to, flag)		\
 	__FSM_H2_I_MATCH_MOVE_LAMBDA_fixup(alphabet, to, {		\
@@ -6586,7 +6586,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_ContTypeMaybeMultipart) {
 		if (c == ';') {
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1);
 		}
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE_LAMBDA_fixup(I_ContTypeMultipartOWS, 1, {
@@ -6604,14 +6604,14 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			}, 0);
 		if (c == ';') {
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_ContTypeParamOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1);
 		/* Fall through. */
 	}
 
@@ -6647,7 +6647,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(token, I_ContTypeParamOther, 0);
 		if (*(p + __fsm_sz) != '=')
 			return CSTR_NEQ;
-		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValue, __fsm_sz + 1, 0);
+		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValue, __fsm_sz + 1);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValue) {
@@ -6760,8 +6760,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContTypeParamValue) {
 		if (*p == '"')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueQuoted,
-						  1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueQuoted, 1);
 		/* Fall through. */
 	}
 
@@ -6769,14 +6768,14 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		__FSM_H2_I_MATCH_MOVE_FIN_fixup(token,
 						I_ContTypeParamValueUnquoted,
 						TFW_STR_VALUE);
-		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, __fsm_sz, 0);
+		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, __fsm_sz);
 	}
 
 	__FSM_STATE(I_ContTypeParamValueOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, 1);
 		if (c == ';')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1);
 		return CSTR_NEQ;
 	}
 
@@ -6794,8 +6793,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 				I_ContTypeParamValueEscapedChar,
 				1, 0);
 		if (*p == '"')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS,
-						  1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, 1);
 		if (IS_CRLF(*p)) {
 			/* Missing closing '"'. */
 			return CSTR_NEQ;
@@ -6816,8 +6814,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		c = *(p + __fsm_sz);
 		if (c != '/')
 			return CSTR_NEQ;
-		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherSubtype,
-					  __fsm_sz + 1, 0);
+		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherSubtype, __fsm_sz + 1);
 	}
 
 	__FSM_STATE(I_ContTypeOtherSubtype) {
@@ -6830,9 +6827,9 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContTypeOtherTypeOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherTypeOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherTypeOWS, 1);
 		if (c == ';')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1);
 		return CSTR_NEQ;
 	}
 
