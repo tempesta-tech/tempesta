@@ -169,15 +169,12 @@ enum {
 	TRUNCATABLE_FIELDS_COUNT
 };
 
-struct str_ref {
-	const char *data;
-	unsigned len;
-};
-
-/** Copies string to buffer if it is not plain. Returns pointer to the
- * first unused character in the "planar" buffer. */
+/**
+ * Copies string to buffer if it is not plain. Returns pointer to the
+ * first unused character in the "planar" buffer.
+ */
 static inline char*
-make_plain(char *p, char *end, TfwStr *src, struct str_ref *dst)
+make_plain(char *p, char *end, TfwStr *src, BasicStr *dst)
 {
 	if (TFW_STR_PLAIN(src)) {
 		dst->data = src->data;
@@ -195,10 +192,12 @@ make_plain(char *p, char *end, TfwStr *src, struct str_ref *dst)
 	}
 }
 
-/** Truncates truncatable fields if needed. */
+/**
+ * Truncates truncatable fields if needed.
+ */
 static void
-process_truncated(TfwStr *in, struct str_ref *out, char *p, char *end, 
-                  unsigned used_chars)
+process_truncated(TfwStr *in, BasicStr *out, char *p, char *end,
+		  unsigned used_chars)
 {
 	unsigned i;
 	unsigned total_len = 0;
@@ -272,13 +271,13 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 {
 	char *buf = this_cpu_ptr(access_log_buf);
 	char *p = buf, *end = buf + ACCESS_LOG_BUF_SIZE;
-	struct str_ref client_ip, vhost, method, version;
+	BasicStr client_ip, vhost, method, version;
 	/* These fields are only here to hold estimation of appropriate fields
 	 * length in characters */
-	struct str_ref status, content_length;
-	struct str_ref missing = { "-", 1 };
+	BasicStr status, content_length;
+	BasicStr missing = { "-", 1 };
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
-	struct str_ref truncated_out[TRUNCATABLE_FIELDS_COUNT];
+	BasicStr truncated_out[TRUNCATABLE_FIELDS_COUNT];
 
 	/* Check if logging is enabled */
 	if (!access_log_enabled)
@@ -291,7 +290,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	 * which should be always false */
 	BUG_ON(end - p < TFW_ADDR_STR_BUF_SIZE);
 #define FMT_client_ip "%.*s"
-#define ARG_client_ip , client_ip.len, client_ip.data
+#define ARG_client_ip , (int)client_ip.len, client_ip.data
 	if (req->conn && req->conn->peer) {
 		client_ip.data = p;
 		p = tfw_addr_fmt(&req->conn->peer->addr, TFW_NO_PORT, p);
@@ -302,20 +301,16 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 
 	/* vhost */
 #define FMT_vhost "%.*s"
-#define ARG_vhost , vhost.len, vhost.data
-	if (req->vhost && !TFW_STR_EMPTY(&req->vhost->name)) {
-		p = make_plain(p, end, &req->vhost->name, &vhost);
-	} else {
-		vhost = missing;
-	}
+#define ARG_vhost , (int)vhost.len, vhost.data
+	vhost = req->vhost && req->vhost->name.len ? req->vhost->name : missing;
 
 	/* method */
 #define FMT_method "%.*s"
-#define ARG_method , method.len, method.data
+#define ARG_method , (int)method.len, method.data
 	if (req->method < sizeof(http_methods) / sizeof(*http_methods)
 	    && http_methods[req->method].len != 0)
 	{
-		method.data = http_methods[req->method].name;
+		method.data = (char *)http_methods[req->method].name;
 		method.len = http_methods[req->method].len;
 	} else {
 		method = missing;
@@ -323,11 +318,11 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 
 	/* http version */
 #define FMT_version "%.*s"
-#define ARG_version , version.len, version.data
+#define ARG_version , (int)version.len, version.data
 	if (req->version < sizeof(http_versions) / sizeof(*http_versions)
 	    && http_versions[req->version].len != 0)
 	{
-		version.data = http_versions[req->version].name;
+		version.data = (char *)http_versions[req->version].name;
 		version.len = http_versions[req->version].len;
 	} else {
 		version = missing;
@@ -370,7 +365,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 #define FMT_TRUNCATABLE(id) "%.*s"
 #define ARG_FIXED(str)
 #define ARG_UNTRUNCATABLE(id) ARG_ ## id
-#define ARG_TRUNCATABLE(id) , truncated_out[idx_ ## id].len, \
+#define ARG_TRUNCATABLE(id) , (int)truncated_out[idx_ ## id].len, \
 		truncated_out[idx_ ## id].data
 	/* Calling pr_info(ACCESS_LOG_LINE...) directly won't work because
 	 * preprocessor would treat whole expression as a single argument,
