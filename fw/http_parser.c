@@ -5740,21 +5740,6 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
-#define __FSM_H2_I_MOVE_NEQ_LAMBDA_n_flag(to, n, lambda, flag)		\
-do {									\
-	p += n;								\
-	if (likely(__data_off(p) < len))				\
-		goto to;						\
-	if (likely(fin)) {						\
-		lambda;							\
-		__FSM_EXIT(CSTR_NEQ);					\
-	}								\
-	parser->_i_st = &&to;						\
-	__msg_hdr_chunk_fixup(data, len);				\
-	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
-	__FSM_EXIT(CSTR_POSTPONE);					\
-} while (0)
-
 #define __FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, lambda)		\
 do {									\
 	parser->_i_st = to;						\
@@ -5773,16 +5758,24 @@ do {									\
 #define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
 
-#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
-
 #define __FSM_H2_I_MOVE_n(to, n)					\
-	__FSM_H2_I_MOVE_n_flag(to, n, 0)
+	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
 #define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
 
 #define __FSM_H2_I_MOVE_NEQ_n_flag(to, n, flag)				\
-	__FSM_H2_I_MOVE_NEQ_LAMBDA_n_flag(to, n, {}, flag)
+do {									\
+	p += n;								\
+	if (likely(__data_off(p) < len))				\
+		goto to;						\
+	if (likely(fin)) {						\
+		__FSM_EXIT(CSTR_NEQ);					\
+	}								\
+	parser->_i_st = &&to;						\
+	__msg_hdr_chunk_fixup(data, len);				\
+	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
+	__FSM_EXIT(CSTR_POSTPONE);					\
+} while (0)
 
 #define __FSM_H2_I_MOVE_NEQ(to, n)					\
 	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
@@ -5931,31 +5924,24 @@ do {									\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, curr_st, next_st)
 
-#define H2_TRY_STR_LAMBDA_BY_REF_finish(str, lambda1, lambda2, finish, state)\
+#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
 	if (!chunk->data)						\
 		chunk->data = p;					\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
 			    str, sizeof(str) - 1);			\
 	if (__fsm_n > 0) {						\
 		if (chunk->len == sizeof(str) - 1) {			\
-			lambda1;					\
 			TRY_STR_INIT();					\
-			__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(state, __fsm_n, lambda2);	\
+			__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(		\
+				next_st, __fsm_n, { goto *next_st; });	\
 		}							\
 		if (likely(fin))					\
 			return CSTR_NEQ;				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
-		finish;							\
+		parser->_i_st = curr_st;				\
 		__FSM_EXIT(CSTR_POSTPONE);				\
 	}
-
-#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
-	H2_TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
-		goto *next_st;						\
-	}, {								\
-		parser->_i_st = curr_st;				\
-	}, next_st)
 
 /**
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
