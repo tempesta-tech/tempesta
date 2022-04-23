@@ -27,8 +27,7 @@
 #include "cfg.h"
 #include "connection.h"
 #include "websocket.h"
-#include "http.h"
-#include "http_msg.h"
+#include "server.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
 
