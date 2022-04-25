@@ -1977,6 +1977,16 @@ TEST(http2_parser, content_type_line_parser)
 	/* Line ended at '\\'. */
 	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name=\"val\\");
 
+	/* Other cases */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/");
+	FOR_REQ_H2_CONTENT_TYPE("multipar") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipar");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("multipart") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart");
+	}
 	FOR_REQ_H2_CONTENT_TYPE("multitest") {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "content-type" "multitest");
