@@ -20,6 +20,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/sort.h>
+#include <linux/bsearch.h>
+
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "client.h"
@@ -369,6 +372,8 @@ typedef struct {
 static LIST_HEAD(tfw_listen_socks);
 static LIST_HEAD(tfw_listen_socks_reconf);
 
+static size_t tfw_listen_socks_sz = 0;
+
 /**
  * Allocate a new TfwListenSock and add it to the global list of sockets.
  * Don't open a socket now, just save the configuration data.
@@ -619,6 +624,20 @@ tfw_sock_clnt_cfgend(void)
 	return 0;
 }
 
+static int
+tfw_listen_socks_array_cmp(const void *l, const void *r)
+{
+	TfwAddr *a = &(*(TfwListenSock **)l)->addr;
+	TfwAddr *b = &(*(TfwListenSock **)r)->addr;
+	int cmp = memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr));
+
+	if (cmp)
+		return cmp;
+	else
+		return (a->sin6_port < b->sin6_port) ? -1 :
+	                                           (a->sin6_port > b->sin6_port);
+}
+
 /**
  * Start listening on all existing sockets (added via "listen" configuration
  * entries).
@@ -630,62 +649,60 @@ tfw_sock_clnt_start(void)
 	TfwListenSock *ls;
 	TfwListenSock *ls_reconf;
 	TfwListenSock *tmp;
+	size_t i, listen_socks_sz = tfw_listen_socks_sz;
+	TfwListenSock **listen_socks_array = kmalloc(tfw_listen_socks_sz *
+		                                         sizeof(listen_socks_array[0]),
+		                                         GFP_KERNEL);
+	TfwListenSock **ls_found;
+	bool *toched = kzalloc(tfw_listen_socks_sz, GFP_KERNEL);
 
-	tfw_classifier_cleanup_inport();
-	list_for_each_entry(ls_reconf, &tfw_listen_socks_reconf, list) {
-		bool found = false;
+	i = 0;
+	list_for_each_entry(ls, &tfw_listen_socks, list)
+		listen_socks_array[i++] = ls;
+	sort(listen_socks_array, tfw_listen_socks_sz,
+		 sizeof(listen_socks_array[0]), tfw_listen_socks_array_cmp, NULL);
 
-		list_for_each_entry(ls, &tfw_listen_socks, list) {
-			if (tfw_addr_eq(&ls_reconf->addr, &ls->addr)) {
-				found = true;
-				break;
-			}
-		}
+	list_for_each_entry_safe(ls_reconf, tmp, &tfw_listen_socks_reconf, list) {
+		if (!(ls_found = bsearch(&ls_reconf, listen_socks_array,
+			                     tfw_listen_socks_sz,
+			                     sizeof(listen_socks_array[0]),
+			                     tfw_listen_socks_array_cmp))) {
+				list_del(&ls_reconf->list);
+				list_add(&ls_reconf->list, &tfw_listen_socks);
 
-		if (!found) {
-			ls = kzalloc(sizeof(*ls), GFP_KERNEL);
-			if (!ls) {
-				r = -ENOMEM;
-				goto err;
-			}
-
-			ss_proto_init(&ls->proto, ls_reconf->proto.hooks, ls_reconf->proto.type);
-
-			list_add(&ls->list, &tfw_listen_socks);
-			ls->addr = ls_reconf->addr;
-
-			if ((r = tfw_listen_sock_start(ls))) {
-				T_ERR_ADDR("can't start listening on", &ls_reconf->addr,
-					   TFW_WITH_PORT);
-				goto err;
-			}
-		}
-
-	}
-
-	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
-		bool found = false;
-
-		list_for_each_entry(ls_reconf, &tfw_listen_socks_reconf, list) {
-			if (tfw_addr_eq(&ls_reconf->addr, &ls->addr)) {
-				found = true;
-				break;
-			}
-		}
-
-		if (!found) {
-			list_del(&ls->list);
-			if (!ls->sk)
-				continue;
-			ss_release(ls->sk);
-			ls->sk = NULL;
-			kfree(ls);
+				if ((r = tfw_listen_sock_start(ls_reconf))) {
+					T_ERR_ADDR("can't start listening on", &ls_reconf->addr,
+						   TFW_WITH_PORT);
+					goto err;
+				}
+				tfw_classifier_add_inport(tfw_addr_port(&ls_reconf->addr));
+				listen_socks_sz++;
 		} else {
-			tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
+			toched[ls_found - &listen_socks_array[0]] = true;
 		}
 	}
+
+	for (i = 0; i < tfw_listen_socks_sz; ++i) {
+		if (toched[i])
+			continue;
+
+		ls = listen_socks_array[i];
+		list_del(&ls->list);
+		if (!ls->sk)
+			continue;
+		ss_release(ls->sk);
+		ls->sk = NULL;
+		kfree(ls);
+
+		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
+		listen_socks_sz--;
+	}
+
+	tfw_listen_socks_sz = listen_socks_sz;
 
 done:
+	kfree(listen_socks_array);
+
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list)
 		kfree(ls);
 
