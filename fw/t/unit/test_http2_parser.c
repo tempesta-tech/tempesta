@@ -1309,6 +1309,9 @@ TEST(http2_parser, accept)
 	EXPECT_BLOCK_REQ_H2_ACCEPT(",");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*,,");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/,,");
+	/* Empty subtypes are not allowed. */
+	EXPECT_BLOCK_REQ_H2_ACCEPT("text/");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/");
 
 	/* HTML validations */
 	FOR_ACCEPT_HTML("  text/html ");
