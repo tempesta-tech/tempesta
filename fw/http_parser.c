@@ -5725,20 +5725,23 @@ __FSM_STATE(st, cold) {							\
  * Auxiliary macros for parsing message header values (as @__FSM_I_*
  * macros, but intended for HTTP/2 messages parsing).
  */
-#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
+#define __FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, lambda, flag, exit)	\
 do {									\
 	p += n;								\
 	if (__data_off(p) < len)					\
 		goto to;						\
 	if (likely(fin)) {						\
 		lambda;							\
-		__FSM_EXIT(CSTR_EQ);					\
+		__FSM_EXIT(exit);					\
 	}								\
 	parser->_i_st = &&to;						\
 	__msg_hdr_chunk_fixup(data, len);				\
 	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
+
+#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, (lambda), flag, CSTR_EQ)
 
 #define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
@@ -5749,18 +5752,7 @@ do {									\
 #define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
 
 #define __FSM_H2_I_MOVE_NEQ_n_flag(to, n, flag)				\
-do {									\
-	p += n;								\
-	if (likely(__data_off(p) < len))				\
-		goto to;						\
-	if (likely(fin)) {						\
-		__FSM_EXIT(CSTR_NEQ);					\
-	}								\
-	parser->_i_st = &&to;						\
-	__msg_hdr_chunk_fixup(data, len);				\
-	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
-	__FSM_EXIT(CSTR_POSTPONE);					\
-} while (0)
+	__FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, {}, flag, CSTR_NEQ)
 
 #define __FSM_H2_I_MOVE_NEQ_n(to, n)					\
 	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
