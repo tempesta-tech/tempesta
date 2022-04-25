@@ -6255,9 +6255,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_H2_I_MOVE(Req_I_WSAccept);
 		if (c == ';')
 			/* Skip weight parameter. */
-			__FSM_H2_I_MOVE_LAMBDA_n(Req_I_WSAcceptOther, 1, {
-				__FSM_EXIT(CSTR_NEQ);
-			});
+			__FSM_H2_I_MOVE_NEQ(Req_I_WSAcceptOther);
 		return CSTR_NEQ;
 	}
 
