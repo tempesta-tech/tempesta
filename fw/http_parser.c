@@ -6133,7 +6133,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_AfterText) {
 		if (c == '/')
-			__FSM_H2_I_MOVE(Req_I_AfterTextSlash);
+			__FSM_H2_I_MOVE_NEQ(Req_I_AfterTextSlash);
 
 		__FSM_H2_I_MOVE(Req_I_Type);
 	}
@@ -6155,7 +6155,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_AfterStar) {
 		if (c == '/')
-			__FSM_H2_I_MOVE(Req_I_StarSlashStar);
+			__FSM_H2_I_MOVE_NEQ(Req_I_StarSlashStar);
 		return CSTR_NEQ;
 	}
 
