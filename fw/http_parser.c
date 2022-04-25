@@ -7664,8 +7664,10 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_Unknown) {
 		__FSM_I_MATCH_MOVE_finish(token, I_Meth_Unknown, {
-			req->method_override = _TFW_HTTP_METH_UNKNOWN;
+			if (likely(fin))
+				break;
 		});
+		req->method_override = _TFW_HTTP_METH_UNKNOWN;
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
