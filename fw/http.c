@@ -1174,7 +1174,8 @@ tfw_http_conn_nip_adjust(TfwSrvConn *srv_conn)
 
 /*
  * Tell if the server connection's forwarding queue is on hold.
- * It's on hold if the request that was sent last was non-idempotent.
+ * It's on hold if the request that was sent last was non-idempotent or
+ * if connection marked as unscheduled (in case of protocol upgrade).
  */
 static inline bool
 tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
@@ -1182,7 +1183,8 @@ tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
-	return (req_sent && tfw_http_req_is_nip(req_sent));
+	return ((req_sent && tfw_http_req_is_nip(req_sent))
+		|| test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags));
 }
 
 /*
@@ -1540,6 +1542,13 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 
 	req->jtxtstamp = jiffies;
 	tfw_http_req_init_ss_flags(srv_conn, req);
+
+	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
+	 * not be scheduled to it. It will be used only for websocket transport.
+	 * If upgrade will fail, we clear it. */
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
+		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
 
 	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
 		return 0;
@@ -5042,12 +5051,6 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
 
-	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
-	 * not be scheduled to it. It will be used only for websocket transport.
-	 * If upgrade will fail, we clear it. */
-	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
-		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
-	}
 	/* Forward request to the server. */
 	tfw_http_req_fwd_resched(srv_conn, req, &eq);
 	tfw_http_req_zap_error(&eq);
@@ -5107,6 +5110,9 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 				     &req->uri_path))
 			goto nip_match;
 	}
+
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags))
+		goto nip_match;
 
 	if (safe_methods & (1 << req->method))
 		return;
@@ -5816,9 +5822,10 @@ error:
  * get the paired request, and then pass the response to cache
  * for further processing.
  */
-static void
+static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
+	int r;
 	TfwHttpResp *resp = (TfwHttpResp *)hmresp;
 	TfwHttpReq *req = hmresp->req;
 	TfwFsmData data;
@@ -5857,7 +5864,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
-		return;
+		return TFW_BLOCK;
 	}
 	/*
 	 * This hook isn't in tfw_http_resp_fwd() because responses from the
@@ -5870,7 +5877,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 		/* The response is freed by tfw_http_req_block(). */
 		tfw_http_req_block(req, 403, "response blocked: filtered out");
 		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return;
+		return TFW_BLOCK;
 	}
 
 	/*
@@ -5880,14 +5887,17 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * will be put in a new message.
 	 */
 	tfw_stream_unlink_msg(hmresp->stream);
-	if (tfw_cache_process(hmresp, tfw_http_resp_cache_cb))
+	if ((r = tfw_cache_process(hmresp, tfw_http_resp_cache_cb)))
 	{
 		tfw_http_conn_msg_free(hmresp);
 		tfw_http_send_resp(req, 500, "response dropped:"
 				   " processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */
+		return r;
 	}
+
+	return TFW_PASS;
 }
 
 /*
@@ -6175,7 +6185,9 @@ next_msg:
 	 * In the end, the response is sent on to the client.
 	 * @hmsib is not attached to the connection yet.
 	 */
-	tfw_http_resp_cache(hmresp);
+	r = tfw_http_resp_cache(hmresp);
+	if (unlikely(r < TFW_PASS))
+		return TFW_BLOCK;
 
 	/* Do upgrade if correct websocket upgrade response detected earlier */
 	if (websocket) {
@@ -6235,7 +6247,6 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 {
 	int r;
 	TfwHttpMsg *req;
-	bool websocket = false;
 
 	if (WARN_ON_ONCE(!stream))
 		return -EINVAL;
@@ -6258,9 +6269,10 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 
 	/* That is paired request, it may be freed after resp processing */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
-	websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags);
 	if ((r = tfw_http_resp_process(conn, stream, skb))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		bool websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+					  req->flags);
 		/*
 		 * We must clear TFW_CONN_B_UNSCHED to make server connection
 		 * available for request scheduling further if websocket upgrade
@@ -7034,17 +7046,6 @@ TfwMod tfw_http_mod  = {
 	.name	= "http",
 	.specs	= tfw_http_specs,
 };
-
-// /*
-//  * We do not use http fsm for message processing any more, but only for
-//  * frang checks, so to clearly show our intention we BUG() here.
-//  */
-// static int
-// tfw_http_msg_process_fsm(TfwConn *conn, TfwFsmData *data)
-// {
-// 	BUG();
-// 	return 0;
-// }
 
 /*
  * ------------------------------------------------------------------------

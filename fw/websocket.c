@@ -72,10 +72,10 @@ tfw_ws_conn_alloc(void)
 {
 	TfwConn *conn;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-
 	if (!(conn = kmem_cache_alloc(tfw_ws_conn_cache, GFP_ATOMIC)))
 		return NULL;
+
+	T_DBG2("%s: conn=[%p]\n", __func__, conn);
 
 	tfw_connection_init(conn);
 
