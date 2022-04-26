@@ -43,12 +43,11 @@
 #endif
 #define EXPORT_SYMBOL(...)
 
+#include "msg.h"
+#include "str.h"
+#include "http_msg.h"
 #include "http_parser.h"
 #include "http_sess.h"
-#include "str.h"
-#include "ss_skb.h"
-#include "msg.h"
-#include "http_msg.h"
 
 static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
@@ -105,24 +104,10 @@ enum {
 	BLOCK_MACRO(head "\" \"");				\
 	BLOCK_MACRO(head "\"\"\"")
 
-
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
-
-
-typedef struct data_rec
-{
-	char *buf;
-	size_t size;
-} TfwDataRec;
-
-typedef struct header_rec
-{
-	TfwDataRec name;
-	TfwDataRec value;
-} TfwHeaderRec;
 
 typedef struct frame_rec
 {
@@ -152,6 +137,8 @@ typedef struct frames_buf_abstract {
 	} __attribute__((unused)) NAME = {.data = {}, .capacity = CAPACITY, .size = 0}
 
 static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
+static unsigned char *frame_buf __attribute__((unused)) = NULL;
+static unsigned int frame_sz __attribute__((unused)) = 0;
 
 #define RESET_FRAMES_BUF()							\
 	BUG_ON(!frames_buf_ptr);						\
@@ -172,38 +159,56 @@ static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
 #define FRAMES_BUF_SIZE_ADD(frame_sz) \
 	frames_buf_ptr->size += frame_sz
 
+static
+void __attribute__((unused))
+__write_to_frame_RAW(char *data, size_t size)
+{
+	TfwHPackInt hpint;
+	write_int(size, 0x7F, 0, &hpint);
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);
+	memcpy_fast(frame_buf + hpint.sz, data, size);
+	frame_buf += hpint.sz + size;
+}
 
-#define __INDEX(index, max, mask)						\
+static
+void __attribute__((unused))
+__write_to_frame_STR(char *data)
+{
+	__write_to_frame_RAW(data, strlen(data));
+}
+
+/**
+ * Macros VALUE and RAW are linked.
+ * The VALUE uses __write_to_frame_STR as default behavior.
+ * If we want to declare VALUE not as a null-terminated string,
+ * but as a set of raw bytes, then we can write VALUE(RAW(...)).
+ */
+#define VALUE(str_or_write_raw)							\
 do {										\
-	TfwHPackInt hpint;							\
-	write_int(index, max, mask, &hpint);					\
-	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
-	frame_buf += hpint.sz;							\
-} while(0)
+	__write_to_frame_STR(str_or_write_raw);					\
+} while (0)
+
+#define RAW(data) \
+	({ __write_to_frame_RAW(data, sizeof(data)); break; "unreachable code"; })
+
+static
+void __attribute__((unused))
+__write_to_frame_INDEX(unsigned long index,
+		       unsigned short max,
+		       unsigned short mask)
+{
+	TfwHPackInt hpint;
+	write_int(index, max, mask, &hpint);
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);
+	frame_buf += hpint.sz;
+}
+
+#define __INDEX(index, max, mask) \
+	__write_to_frame_INDEX(index, max, mask)
 
 #define __NAME(data, mask)							\
 	*frame_buf++ = mask;							\
-	VALUE(data);
-
-#define VALUE(data)								\
-do {										\
-	TfwHPackInt hpint;							\
-	size_t data_len = strlen(data);						\
-	write_int(data_len, 0x7F, 0, &hpint);					\
-	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
-	memcpy_fast(frame_buf + hpint.sz, data, data_len);			\
-	frame_buf += hpint.sz + data_len;					\
-} while(0)
-
-#define RAW_VALUE(data)								\
-do {										\
-	TfwHPackInt hpint;							\
-	size_t data_len = sizeof(data);						\
-	write_int(data_len, 0x7F, 0, &hpint);					\
-	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
-	memcpy_fast(frame_buf + hpint.sz, data, data_len);			\
-	frame_buf += hpint.sz + data_len;					\
-} while(0)
+	VALUE(data)
 
 #define INDEX(data)	__INDEX((data), 0x7F, 0x80)
 #define NAME(data)
@@ -228,13 +233,13 @@ do {										\
 
 #define __FRAME_BEGIN(type)							\
 do {										\
-	unsigned char *frame_buf;						\
-	unsigned int frame_sz;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = type;					\
-	frame_buf = FRAMES_BUF_POS()
+	frame_buf = FRAMES_BUF_POS();						\
+} while (0)
 
 #define __FRAME_END()								\
+do {										\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	BUG_ON(!frame_buf);							\
 	frame_sz = frame_buf - FRAMES_BUF_POS();				\
@@ -408,8 +413,6 @@ test_case_parse_prepare_h2(void)
 	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
 }
 
-
-
 /**
  * The function is designed to be called in a loop, e.g.
  *   while(!do_split_and_parse(str, len, type, chunk_mode)) { ... }
@@ -437,7 +440,6 @@ test_case_parse_prepare_h2(void)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-
 static int
 do_split_and_parse(int type, int chunk_mode)
 {
@@ -741,5 +743,23 @@ get_next_str_val(TfwStr *str)
 
 	return v;
 }
+
+#define TFW_HTTP_SESS_REDIR_MARK_ENABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	tfw_http_sess_redir_enable();						\
+	hs_mod->start();							\
+} while (0)
+
+#define TFW_HTTP_SESS_REDIR_MARK_DISABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	hs_mod->stop();								\
+	hs_mod->cfgstart();							\
+} while (0)
 
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */
