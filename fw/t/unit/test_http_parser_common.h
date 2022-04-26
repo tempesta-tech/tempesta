@@ -43,12 +43,11 @@
 #endif
 #define EXPORT_SYMBOL(...)
 
+#include "msg.h"
+#include "str.h"
+#include "http_msg.h"
 #include "http_parser.h"
 #include "http_sess.h"
-#include "str.h"
-#include "ss_skb.h"
-#include "msg.h"
-#include "http_msg.h"
 
 static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
@@ -105,25 +104,11 @@ enum {
 	BLOCK_MACRO(head "\" \"");				\
 	BLOCK_MACRO(head "\"\"\"")
 
-
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
 static size_t hm_exp_len = 0;
-
-
-typedef struct data_rec
-{
-	char *buf;
-	size_t size;
-} TfwDataRec;
-
-typedef struct header_rec
-{
-	TfwDataRec name;
-	TfwDataRec value;
-} TfwHeaderRec;
 
 typedef struct frame_rec
 {
@@ -426,8 +411,6 @@ test_case_parse_prepare_h2(void)
 	hm_exp_len = GET_FRAMES_TOTAL_SZ();
 }
 
-
-
 /**
  * The function is designed to be called in a loop, e.g.
  *   while(!do_split_and_parse(str, len, type, chunk_mode)) { ... }
@@ -455,7 +438,6 @@ test_case_parse_prepare_h2(void)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-
 static int
 do_split_and_parse(int type, int chunk_mode)
 {
@@ -736,5 +718,23 @@ get_next_str_val(TfwStr *str)
 
 	return v;
 }
+
+#define TFW_HTTP_SESS_REDIR_MARK_ENABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	tfw_http_sess_redir_enable();						\
+	hs_mod->start();							\
+} while (0)
+
+#define TFW_HTTP_SESS_REDIR_MARK_DISABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	hs_mod->stop();								\
+	hs_mod->cfgstart();							\
+} while (0)
 
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */
