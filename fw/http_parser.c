@@ -5725,14 +5725,14 @@ __FSM_STATE(st, cold) {							\
  * Auxiliary macros for parsing message header values (as @__FSM_I_*
  * macros, but intended for HTTP/2 messages parsing).
  */
-#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
+#define __FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, lambda, flag, exit)	\
 do {									\
 	p += n;								\
 	if (__data_off(p) < len)					\
 		goto to;						\
 	if (likely(fin)) {						\
 		lambda;							\
-		__FSM_EXIT(CSTR_EQ);					\
+		__FSM_EXIT(exit);					\
 	}								\
 	parser->_i_st = &&to;						\
 	__msg_hdr_chunk_fixup(data, len);				\
@@ -5740,55 +5740,41 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
-#define __FSM_H2_I_MOVE_NEQ_LAMBDA_n_flag(to, n, lambda, flag)		\
-do {									\
-	p += n;								\
-	if (likely(__data_off(p) < len))				\
-		goto to;						\
-	if (likely(fin)) {						\
-		lambda;							\
-		__FSM_EXIT(CSTR_NEQ);					\
-	}								\
-	parser->_i_st = &&to;						\
-	__msg_hdr_chunk_fixup(data, len);				\
-	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | flag);			\
-	__FSM_EXIT(CSTR_POSTPONE);					\
-} while (0)
+#define __FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, flag)		\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, (lambda), flag, CSTR_EQ)
 
-#define __FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, lambda)		\
+#define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
+
+#define __FSM_H2_I_MOVE_n(to, n)					\
+	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
+
+#define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
+/* The same as __FSM_H2_I_MOVE_n(), but exactly for jumps w/o data moving. */
+#define __FSM_H2_I_JMP(to)		goto to
+
+#define __FSM_H2_I_MOVE_NEQ_n_flag(to, n, flag)				\
+	__FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, {}, flag, CSTR_NEQ)
+
+#define __FSM_H2_I_MOVE_NEQ_n(to, n)					\
+	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
+
+#define __FSM_H2_I_MOVE_NEQ(to)						\
+	__FSM_H2_I_MOVE_NEQ_n(to, 1)
+
+#define __FSM_H2_I_MOVE_BY_REF_NEQ(to)					\
 do {									\
 	parser->_i_st = to;						\
-	p += n;								\
+	p += 1;								\
 	if (__data_off(p) < len)					\
 		goto *to;						\
 	if (likely(fin)) {						\
-		lambda;							\
 		__FSM_EXIT(CSTR_NEQ);					\
 	}								\
 	__msg_hdr_chunk_fixup(data, len);				\
 	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
-
-#define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
-
-#define __FSM_H2_I_MOVE_n_flag(to, n, flag)				\
-	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, {}, flag)
-
-#define __FSM_H2_I_MOVE_n(to, n)					\
-	__FSM_H2_I_MOVE_n_flag(to, n, 0)
-
-#define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
-
-#define __FSM_H2_I_MOVE_NEQ_n_flag(to, n, flag)				\
-	__FSM_H2_I_MOVE_NEQ_LAMBDA_n_flag(to, n, {}, flag)
-
-#define __FSM_H2_I_MOVE_NEQ(to, n)					\
-	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
-
-#define __FSM_H2_I_MOVE_BY_REF_NEQ(to, n)				\
-	__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, {})
 
 #define __FSM_H2_I_MATCH(alphabet)					\
 do {									\
@@ -5931,77 +5917,78 @@ do {									\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, curr_st, next_st)
 
-#define H2_TRY_STR_LAMBDA_BY_REF_finish(str, lambda1, lambda2, finish, state)\
+/**
+ * The very similar to @H2_TRY_STR_2LAMBDA(), but uses referrers for states.
+ */
+#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
 	if (!chunk->data)						\
 		chunk->data = p;					\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
 			    str, sizeof(str) - 1);			\
 	if (__fsm_n > 0) {						\
 		if (chunk->len == sizeof(str) - 1) {			\
-			lambda1;					\
 			TRY_STR_INIT();					\
-			__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(state, __fsm_n, lambda2);	\
+			p += __fsm_n;					\
+			if (__data_off(p) < len)			\
+				goto *next_st;				\
+			if (likely(fin))				\
+				goto *next_st;				\
+			parser->_i_st = next_st;			\
+			__msg_hdr_chunk_fixup(data, len);		\
+			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
+			__FSM_EXIT(CSTR_POSTPONE);			\
 		}							\
 		if (likely(fin))					\
 			return CSTR_NEQ;				\
+		parser->_i_st = curr_st;				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
-		finish;							\
 		__FSM_EXIT(CSTR_POSTPONE);				\
 	}
-
-#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
-	H2_TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
-		goto *next_st;						\
-	}, {								\
-		parser->_i_st = curr_st;				\
-	}, next_st)
 
 /**
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
  * used (instead of hard coded header field).
  */
-#define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3,           \
+#define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3,		\
 				 curr_st, next_st)				\
 	BUG_ON(!TFW_STR_PLAIN(str));						\
 	if (!chunk->data)							\
 		chunk->data = p;						\
 	__fsm_n = __try_str(fld, chunk, p, __data_remain(p),			\
 			    (str)->data, (str)->len);				\
-	do {									\
-		if (__fsm_n > 0) {						\
-			if (likely(chunk->len == (str)->len)) {			\
-				lambda1;					\
-				TRY_STR_INIT();					\
-				__msg_field_fixup_pos(fld, p, __fsm_n);		\
-				__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE); \
-				if (__data_off(p + __fsm_n) < len) {		\
-					p += __fsm_n;				\
-					goto next_st;				\
-				}						\
-				if (likely(fin))				\
-					lambda2;				\
-				parser->_i_st = &&next_st;			\
-				__FSM_EXIT(CSTR_POSTPONE);			\
-			}							\
+	if (__fsm_n > 0) {							\
+		if (likely(chunk->len == (str)->len)) {				\
+			lambda1;						\
+			TRY_STR_INIT();						\
 			__msg_field_fixup_pos(fld, p, __fsm_n);			\
 			__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
-			if (likely(fin)) {					\
-				lambda3;					\
+			if (__data_off(p + __fsm_n) < len) {			\
+				p += __fsm_n;					\
+				goto next_st;					\
 			}							\
-			parser->_i_st = &&curr_st;				\
+			parser->_i_st = &&next_st;				\
+			if (likely(fin))					\
+				lambda2;					\
 			__FSM_EXIT(CSTR_POSTPONE);				\
 		}								\
-	} while (0)
+		__msg_field_fixup_pos(fld, p, __fsm_n);				\
+		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);		\
+		parser->_i_st = &&curr_st;					\
+		if (likely(fin))						\
+			lambda3;						\
+		__FSM_EXIT(CSTR_POSTPONE);					\
+	}
 
 #define H2_TRY_STR_2LAMBDA_fixup(str, fld, lambda1, lambda2, curr_st, next_st)	\
-	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2,			\
-				 { __FSM_EXIT(CSTR_NEQ); },			\
-				 curr_st, next_st)
+	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, {			\
+					__FSM_EXIT(CSTR_NEQ);			\
+				}, curr_st, next_st)
 
-#define H2_TRY_STR_LAMBDA_fixup(str, fld, lambda, curr_st, next_st)		\
-	H2_TRY_STR_2LAMBDA_fixup(str, fld, {}, lambda, curr_st, next_st)
+#define H2_TRY_STR_2FIN_fixup(str, fld, fin1, fin2, curr_st, next_st)		\
+	H2_TRY_STR_3LAMBDA_fixup(str, fld, {}, fin1, fin2,			\
+				 curr_st, next_st)
 
 /*
  * ------------------------------------------------------------------------
@@ -6024,7 +6011,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_A_Start) {
 		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_JMP(Req_I_A);
+			__FSM_H2_I_JMP(Req_I_A);
 		if (likely(c == '['))
 			__FSM_H2_I_MOVE_NEQ_n_flag(Req_I_A_v6, 1, TFW_STR_VALUE);
 		return CSTR_NEQ;
@@ -6119,7 +6106,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_WSAccept) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept);
 		/* Fall through. */
 	}
 
@@ -6140,13 +6127,13 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		}, Req_I_Accept, Req_I_AfterStar);
 		TRY_STR_INIT();
 		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Type);
+			__FSM_H2_I_JMP(Req_I_Type);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_AfterText) {
 		if (c == '/')
-			__FSM_H2_I_MOVE(Req_I_AfterTextSlash);
+			__FSM_H2_I_MOVE_NEQ(Req_I_AfterTextSlash);
 
 		__FSM_H2_I_MOVE(Req_I_Type);
 	}
@@ -6163,12 +6150,12 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
-		__FSM_I_JMP(Req_I_Subtype);
+		__FSM_H2_I_JMP(Req_I_Subtype);
 	}
 
 	__FSM_STATE(Req_I_AfterStar) {
 		if (c == '/')
-			__FSM_H2_I_MOVE(Req_I_StarSlashStar);
+			__FSM_H2_I_MOVE_NEQ(Req_I_StarSlashStar);
 		return CSTR_NEQ;
 	}
 
@@ -6181,9 +6168,9 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_AcceptHtml) {
 		if (IS_WS(c) || c == ',' || c == ';') {
 			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			__FSM_I_JMP(I_EoT);
+			__FSM_H2_I_JMP(I_EoT);
 		}
-		__FSM_I_JMP(Req_I_Subtype);
+		__FSM_H2_I_JMP(Req_I_Subtype);
 	}
 
 	__FSM_STATE(Req_I_Type) {
@@ -6192,7 +6179,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		});
 		c = *(p + __fsm_sz);
 		if (c == '/')
-			__FSM_H2_I_MOVE_NEQ(Req_I_Slash, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_NEQ_n(Req_I_Slash, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
 
@@ -6200,7 +6187,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == '*')
 			__FSM_H2_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Subtype);
+			__FSM_H2_I_JMP(Req_I_Subtype);
 		return CSTR_NEQ;
 	}
 
@@ -6215,7 +6202,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_QValue) {
 		if (isdigit(c) || c == '.')
 			__FSM_H2_I_MOVE(Req_I_QValue);
-		__FSM_I_JMP(I_EoT);
+		__FSM_H2_I_JMP(I_EoT);
 		return CSTR_NEQ;
 	}
 
@@ -6223,7 +6210,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_WSAcceptOther);
 		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_AcceptOther);
+			__FSM_H2_I_JMP(Req_I_AcceptOther);
 		return CSTR_NEQ;
 	}
 
@@ -6237,7 +6224,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		});
 		c = *(p + __fsm_sz);
 		if (c == '=')
-			__FSM_H2_I_MOVE_NEQ(Req_I_ParamValueBeg, __fsm_sz + 1);
+			__FSM_H2_I_MOVE_NEQ_n(Req_I_ParamValueBeg, __fsm_sz + 1);
 		return CSTR_NEQ;
 	}
 
@@ -6246,7 +6233,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_ParamValue) {
 		if (c == '\"')
-			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString);
 		__FSM_H2_I_MATCH_MOVE(token, Req_I_ParamValue);
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
@@ -6256,7 +6243,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_NEQ);
 		});
 		if (c != '"')
-			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString);
 		__FSM_H2_I_MOVE(I_EoT);
 	}
 
@@ -6268,9 +6255,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_H2_I_MOVE(Req_I_WSAccept);
 		if (c == ';')
 			/* Skip weight parameter. */
-			__FSM_H2_I_MOVE_LAMBDA_n(Req_I_WSAcceptOther, 1, {
-				__FSM_EXIT(CSTR_NEQ);
-			});
+			__FSM_H2_I_MOVE_NEQ(Req_I_WSAcceptOther);
 		return CSTR_NEQ;
 	}
 
@@ -6325,7 +6310,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == ',')
 			__FSM_H2_I_MOVE(Req_I_CC_start_Comma);
 		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_CC);
+			__FSM_H2_I_JMP(Req_I_CC);
 
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -6334,7 +6319,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_CC_start_Comma);
 		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_CC);
+			__FSM_H2_I_JMP(Req_I_CC);
 		/* Forbid empty header value and double commas */
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -6342,13 +6327,13 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_CC) {
 		switch (TFW_LC(c)) {
 		case 'm':
-			__FSM_I_JMP(Req_I_CC_m);
+			__FSM_H2_I_JMP(Req_I_CC_m);
 		case 'n':
-			__FSM_I_JMP(Req_I_CC_n);
+			__FSM_H2_I_JMP(Req_I_CC_n);
 		case 'o':
-			__FSM_I_JMP(Req_I_CC_o);
+			__FSM_H2_I_JMP(Req_I_CC_o);
 		}
-		__FSM_I_JMP(Req_I_CC_Ext);
+		__FSM_H2_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_m) {
@@ -6364,7 +6349,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_m, Req_I_CC_MaxStale);
 		TRY_STR_INIT();
-		__FSM_I_JMP(Req_I_CC_Ext);
+		__FSM_H2_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_n) {
@@ -6387,7 +6372,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		TRY_STR_INIT();
-		__FSM_I_JMP(Req_I_CC_Ext);
+		__FSM_H2_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_o) {
@@ -6398,15 +6383,15 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_o, Req_I_CC_Flag);
 		TRY_STR_INIT();
-		__FSM_I_JMP(Req_I_CC_Ext);
+		__FSM_H2_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_Flag) {
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.flags |= parser->cc_dir_flag;
-			__FSM_I_JMP(Req_I_EoT);
+			__FSM_H2_I_JMP(Req_I_EoT);
 		}
-		__FSM_I_JMP(Req_I_CC_Ext);
+		__FSM_H2_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxAgeVBeg, Req_I_CC_MaxAgeV);
@@ -6455,13 +6440,13 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
 		if (c == '=')
-			__FSM_H2_I_MOVE_NEQ(Req_I_CC_MaxStaleVBeg, 1);
+			__FSM_H2_I_MOVE_NEQ(Req_I_CC_MaxStaleVBeg);
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.max_stale = UINT_MAX;
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-			__FSM_I_JMP(Req_I_EoT);
+			__FSM_H2_I_JMP(Req_I_EoT);
 		}
-		__FSM_I_JMP(Req_I_CC_Ext);
+		__FSM_H2_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxStaleVBeg, Req_I_CC_MaxStaleV);
@@ -6510,7 +6495,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		parser->_acc = 0;
 		if (IS_TOKEN(c)) {
 			parser->cc_dir_flag = 0;
-			__FSM_I_JMP(Req_I_CC);
+			__FSM_H2_I_JMP(Req_I_CC);
 		}
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -6557,12 +6542,12 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	TfwHttpReq *req = (TfwHttpReq *)hm;
 	__FSM_DECLARE_VARS(hm);
 
-#define __FSM_H2_I_MOVE_FIN_fixup(to, n, flag)				\
+#define __FSM_H2_I_MOVE_FINALIZE_fixup(to, n)				\
 	__FSM_H2_I_MOVE_LAMBDA_fixup(to, n, {				\
 		goto finalize;						\
-	}, flag)
+	}, 0)
 
-#define __FSM_H2_I_MATCH_MOVE_FIN_fixup(alphabet, to, flag)		\
+#define __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(alphabet, to, flag)		\
 	__FSM_H2_I_MATCH_MOVE_LAMBDA_fixup(alphabet, to, {		\
 		p += __fsm_sz;						\
 		goto finalize;						\
@@ -6572,41 +6557,46 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContType) {
 		if (req->method != TFW_HTTP_METH_POST)
-			__FSM_I_JMP(I_EoL);
+			__FSM_H2_I_JMP(I_EoL);
 		/* Fall through. */
 	}
 
 	__FSM_STATE(I_ContTypeMediaType) {
-		static const TfwStr s_multipart_form_data =
-			TFW_STR_STRING("multipart/form-data");
-		H2_TRY_STR_3LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {}, {
+		static const TfwStr s_multipart_slash =
+			TFW_STR_STRING("multipart/");
+		H2_TRY_STR_2FIN_fixup(&s_multipart_slash, &parser->hdr, {
+				__FSM_EXIT(CSTR_NEQ);
+			}, {
+				__FSM_EXIT(CSTR_EQ);
+			}, I_ContTypeMediaType, I_ContTypeAfterMultipartSlash);
+		TRY_STR_INIT();
+		__FSM_H2_I_JMP(I_ContTypeOtherType);
+	}
+
+	__FSM_STATE(I_ContTypeAfterMultipartSlash) {
+		static const TfwStr s_form_data =
+			TFW_STR_STRING("form-data");
+		H2_TRY_STR_2FIN_fixup(&s_form_data, &parser->hdr, {
 				__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 				__FSM_EXIT(CSTR_EQ);
 			}, {
-				p += __fsm_n;
-				break;
-			},
-			I_ContTypeMediaType, I_ContTypeMaybeMultipart);
-		if (chunk->len >= sizeof("multipart/") - 1) {
-			TRY_STR_INIT();
-			__FSM_I_JMP(I_ContTypeOtherSubtype);
-		} else {
-			TRY_STR_INIT();
-			__FSM_I_JMP(I_ContTypeOtherType);
-		}
+				__FSM_EXIT(CSTR_EQ);
+			}, I_ContTypeAfterMultipartSlash, I_ContTypeMaybeMultipart);
+		TRY_STR_INIT();
+		__FSM_H2_I_JMP(I_ContTypeOtherSubtype);
 	}
 
 	__FSM_STATE(I_ContTypeMaybeMultipart) {
 		if (c == ';') {
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		}
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE_LAMBDA_fixup(I_ContTypeMultipartOWS, 1, {
 			    __set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 			    goto finalize;
 			}, 0);
-		__FSM_I_JMP(I_ContTypeOtherSubtype);
+		__FSM_H2_I_JMP(I_ContTypeOtherSubtype);
 	}
 
 	__FSM_STATE(I_ContTypeMultipartOWS) {
@@ -6617,21 +6607,21 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			}, 0);
 		if (c == ';') {
 			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_ContTypeParamOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		/* Fall through. */
 	}
 
 	__FSM_STATE(I_ContTypeParam) {
 		static const TfwStr s_boundary = TFW_STR_STRING("boundary=");
 		if (!test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags))
-			__FSM_I_JMP(I_ContTypeParamOther);
+			__FSM_H2_I_JMP(I_ContTypeParamOther);
 
 		H2_TRY_STR_2LAMBDA_fixup(&s_boundary, &parser->hdr, {
 			/*
@@ -6660,7 +6650,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(token, I_ContTypeParamOther, 0);
 		if (*(p + __fsm_sz) != '=')
 			return CSTR_NEQ;
-		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValue, __fsm_sz + 1, 0);
+		__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamValue, __fsm_sz + 1);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValue) {
@@ -6706,7 +6696,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		req->multipart_boundary_raw.nchunks = parser->hdr.nchunks -
 			(size_t)req->multipart_boundary_raw.data;
 		/* __fsm_sz != __fsm_n, therefore __data_remain(p) > 0 */
-		__FSM_I_JMP(I_ContTypeParamValueOWS);
+		__FSM_H2_I_JMP(I_ContTypeParamValueOWS);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValueQuoted) {
@@ -6759,7 +6749,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			parser->_i_st = &&I_ContTypeParamValueOWS;
 			return CSTR_POSTPONE;
 		}
-		__FSM_I_JMP(I_ContTypeParamValueOWS);
+		__FSM_H2_I_JMP(I_ContTypeParamValueOWS);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValueEscapedChar) {
@@ -6773,23 +6763,22 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContTypeParamValue) {
 		if (*p == '"')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueQuoted,
-						  1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamValueQuoted, 1);
 		/* Fall through. */
 	}
 
 	__FSM_STATE(I_ContTypeParamValueUnquoted) {
-		__FSM_H2_I_MATCH_MOVE_FIN_fixup(token,
+		__FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(token,
 						I_ContTypeParamValueUnquoted,
 						TFW_STR_VALUE);
-		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, __fsm_sz, 0);
+		__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamValueOWS, __fsm_sz);
 	}
 
 	__FSM_STATE(I_ContTypeParamValueOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamValueOWS, 1);
 		if (c == ';')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		return CSTR_NEQ;
 	}
 
@@ -6807,8 +6796,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 				I_ContTypeParamValueEscapedChar,
 				1, 0);
 		if (*p == '"')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamValueOWS,
-						  1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamValueOWS, 1);
 		if (IS_CRLF(*p)) {
 			/* Missing closing '"'. */
 			return CSTR_NEQ;
@@ -6825,16 +6813,15 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(I_ContTypeOtherType) {
-		__FSM_H2_I_MATCH_MOVE_FIN_fixup(token, I_ContTypeOtherType, 0);
+		__FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(token, I_ContTypeOtherType, 0);
 		c = *(p + __fsm_sz);
 		if (c != '/')
 			return CSTR_NEQ;
-		__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherSubtype,
-					  __fsm_sz + 1, 0);
+		__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeOtherSubtype, __fsm_sz + 1);
 	}
 
 	__FSM_STATE(I_ContTypeOtherSubtype) {
-		__FSM_H2_I_MATCH_MOVE_FIN_fixup(token, I_ContTypeOtherSubtype, 0);
+		__FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(token, I_ContTypeOtherSubtype, 0);
 		__msg_hdr_chunk_fixup(p, __fsm_sz);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
 		p += __fsm_sz;
@@ -6843,14 +6830,14 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContTypeOtherTypeOWS) {
 		if (IS_WS(c))
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeOtherTypeOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeOtherTypeOWS, 1);
 		if (c == ';')
-			__FSM_H2_I_MOVE_FIN_fixup(I_ContTypeParamOWS, 1, 0);
+			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_EoL) {
-		__FSM_H2_I_MATCH_MOVE_FIN_fixup(ctext_vchar, I_EoL, 0);
+		__FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(ctext_vchar, I_EoL, 0);
 		return CSTR_NEQ;
 	}
 
@@ -6873,8 +6860,8 @@ finalize:
 
 	return CSTR_EQ;
 
-#undef __FSM_H2_I_MOVE_FIN_fixup
-#undef __FSM_H2_I_MATCH_MOVE_FIN_fixup
+#undef __FSM_H2_I_MOVE_FINALIZE_fixup
+#undef __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_content_type);
 
@@ -6938,7 +6925,7 @@ __h2_req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 						    | TFW_STR_VALUE);
 			}
 			p += __fsm_sz;
-			__FSM_I_JMP(Req_I_CookieSemicolon);
+			__FSM_H2_I_JMP(Req_I_CookieSemicolon);
 		}
 		return CSTR_NEQ;
 	}
@@ -7157,19 +7144,19 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 	 */
 	__FSM_STATE(I_WDate1) {
 		if (likely('A' <= c && c <= 'Z'))
-			__FSM_H2_I_MOVE_NEQ(I_WDate2, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate2);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDate2) {
 		if (likely('a' <= c && c <= 'z'))
-			__FSM_H2_I_MOVE_NEQ(I_WDate3, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate3);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDate3) {
 		if (likely('a' <= c && c <= 'z'))
-			__FSM_H2_I_MOVE_NEQ(I_WDate4, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate4);
 		return CSTR_NEQ;
 	}
 
@@ -7178,39 +7165,39 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 		parser->month_int = ((size_t)' ') << 24;
 		if (likely(c == ',')) {
 			parser->date.type = RFC_822;
-			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP);
 		}
 		if ('a' <= c && c <= 'z') {
 			parser->date.type = RFC_850;
-			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate5);
 		}
 		if (c == ' ') {
 			parser->date.type = ISOC;
 			__FSM_H2_I_MOVE_BY_REF_NEQ(
-				st[parser->date.type][parser->date.pos], 1);
+				st[parser->date.type][parser->date.pos]);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDate5) {
 		if ('a' <= c && c <= 'z')
-			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDate5);
 		if (c == ',')
-			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_WDaySP) {
 		if (likely(c == ' '))
 			__FSM_H2_I_MOVE_BY_REF_NEQ(
-				st[parser->date.type][parser->date.pos], 1);
+				st[parser->date.type][parser->date.pos]);
 		return CSTR_NEQ;
 	}
 
-#define __NEXT_TEMPL_STATE()						\
-do {									\
-	++parser->date.pos;						\
-	__FSM_H2_I_MOVE_BY_REF_NEQ(st[parser->date.type][parser->date.pos], 1);\
+#define __NEXT_TEMPL_STATE()							\
+do {										\
+	++parser->date.pos;							\
+	__FSM_H2_I_MOVE_BY_REF_NEQ(st[parser->date.type][parser->date.pos]);	\
 } while (0)
 
 	__FSM_STATE(I_SP) {
@@ -7280,7 +7267,7 @@ do {									\
 			p += 1;
 			if (__data_off(p) == len && fin) {
 				parser->date.year
-					= parser->date.year * 10+ (c - '0');
+					= parser->date.year * 10 + (c - '0');
 				++parser->date.pos;
 				__FSM_JMP(*st[parser->date.type][parser->date.pos]);
 			}
@@ -7426,13 +7413,13 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			__FSM_EXIT(CSTR_EQ);
 		}, I_Pragma, I_Pragma_NoCache);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Pragma_Ext);
+		__FSM_H2_I_JMP(I_Pragma_Ext);
 	}
 
 	__FSM_STATE(I_Pragma_NoCache) {
 		if (IS_WS(c) || c == ',')
 			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
-		__FSM_I_JMP(I_Pragma_Ext);
+		__FSM_H2_I_JMP(I_Pragma_Ext);
 	}
 
 	__FSM_STATE(I_Pragma_Ext) {
@@ -7446,7 +7433,7 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_H2_I_MOVE(I_EoT);
-		__FSM_I_JMP(I_Pragma_Ext);
+		__FSM_H2_I_JMP(I_Pragma_Ext);
 	}
 
 done:
@@ -7511,7 +7498,7 @@ __h2_req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		__msg_hdr_chunk_fixup(p, __fsm_sz);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
 		p += __fsm_sz;
-		__FSM_I_JMP(Req_I_XFF_Sep);
+		__FSM_H2_I_JMP(Req_I_XFF_Sep);
 	}
 
 	__FSM_STATE(Req_I_XFF_Sep) {
@@ -7546,25 +7533,25 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(I_Meth_Start) {
 		switch (TFW_LC(c)) {
 		case 'c':
-			__FSM_I_JMP(I_Meth_C);
+			__FSM_H2_I_JMP(I_Meth_C);
 		case 'd':
-			__FSM_I_JMP(I_Meth_D);
+			__FSM_H2_I_JMP(I_Meth_D);
 		case 'g':
-			__FSM_I_JMP(I_Meth_G);
+			__FSM_H2_I_JMP(I_Meth_G);
 		case 'h':
-			__FSM_I_JMP(I_Meth_H);
+			__FSM_H2_I_JMP(I_Meth_H);
 		case 'l':
-			__FSM_I_JMP(I_Meth_L);
+			__FSM_H2_I_JMP(I_Meth_L);
 		case 'm':
-			__FSM_I_JMP(I_Meth_M);
+			__FSM_H2_I_JMP(I_Meth_M);
 		case 'o':
-			__FSM_I_JMP(I_Meth_O);
+			__FSM_H2_I_JMP(I_Meth_O);
 		case 'p':
-			__FSM_I_JMP(I_Meth_P);
+			__FSM_H2_I_JMP(I_Meth_P);
 		case 't':
-			__FSM_I_JMP(I_Meth_T);
+			__FSM_H2_I_JMP(I_Meth_T);
 		case 'u':
-			__FSM_I_JMP(I_Meth_U);
+			__FSM_H2_I_JMP(I_Meth_U);
 		}
 		__FSM_I_MOVE(I_Meth_Unknown);
 	}
@@ -7575,7 +7562,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_C, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_D) {
@@ -7584,7 +7571,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_D, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_G) {
@@ -7593,7 +7580,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_G, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_H) {
@@ -7602,7 +7589,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_H, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_L) {
@@ -7611,7 +7598,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_L, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_M) {
@@ -7624,7 +7611,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_M, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_O) {
@@ -7633,7 +7620,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_O, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_P) {
@@ -7658,7 +7645,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_T) {
@@ -7675,19 +7662,21 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_U, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_JMP(I_Meth_Unknown);
+		__FSM_H2_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_Unknown) {
 		__FSM_I_MATCH_MOVE_finish(token, I_Meth_Unknown, {
-			req->method_override = _TFW_HTTP_METH_UNKNOWN;
+			if (likely(fin))
+				break;
 		});
+		req->method_override = _TFW_HTTP_METH_UNKNOWN;
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
 	__FSM_STATE(I_EoT) {
 		if (IS_TOKEN(c))
-			__FSM_H2_I_MOVE_n(I_Meth_Unknown, 0);
+			__FSM_H2_I_JMP(I_Meth_Unknown);
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(I_EoT);
 		return CSTR_NEQ;
@@ -8280,7 +8269,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		case 'x':
 			__FSM_H2_NEXT(Req_HdrX);
 		default:
-			__FSM_H2_OTHER_n(0);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
