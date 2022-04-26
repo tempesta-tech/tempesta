@@ -530,9 +530,7 @@ void tfw_test_cookie(char* header, ...)
 	va_list args;
 	va_start(args, header);
 
-	test_cookie_chunks[0] = (TfwStr){
-		.data = header, NULL, strlen(header), 0, 0, 0
-	};
+	test_cookie_chunks[0] = TFW_STR_FROM_CSTR(header);
 	test_cookie.nchunks = 1;
 
 	do {
@@ -545,18 +543,15 @@ void tfw_test_cookie(char* header, ...)
 		BUG_ON(!eq_p);
 
 		if (test_cookie.nchunks != 1)
-			test_cookie.chunks[test_cookie.nchunks++] = (TfwStr) {
-				.data = "; ", NULL,
-				SLEN("; "), 0, 0, 0
-			};
+			test_cookie.chunks[test_cookie.nchunks++]
+				= TFW_STR_STRING("; ");
 
 		test_cookie.chunks[test_cookie.nchunks++] = (TfwStr) {
-			.data = field, NULL,
-			eq_p - field + 1, 0, TFW_STR_NAME, 0
+			.data = field, eq_p - field + 1, NULL, 0, TFW_STR_NAME, 0
 		};
 		test_cookie.chunks[test_cookie.nchunks++] = (TfwStr) {
-			.data = eq_p + 1, NULL,
-			strlen(field) - (eq_p - field + 1), 0, TFW_STR_VALUE, 0
+			.data = eq_p + 1, strlen(field) - (eq_p - field + 1),
+			NULL, 0, TFW_STR_VALUE, 0
 		};
 	} while (true);
 
