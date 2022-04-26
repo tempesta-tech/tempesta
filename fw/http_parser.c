@@ -5740,21 +5740,6 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
-#define __FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, lambda)		\
-do {									\
-	parser->_i_st = to;						\
-	p += n;								\
-	if (__data_off(p) < len)					\
-		goto *to;						\
-	if (likely(fin)) {						\
-		lambda;							\
-		__FSM_EXIT(CSTR_NEQ);					\
-	}								\
-	__msg_hdr_chunk_fixup(data, len);				\
-	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
-	__FSM_EXIT(CSTR_POSTPONE);					\
-} while (0)
-
 #define __FSM_H2_I_MOVE_LAMBDA_n(to, n, lambda)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag(to, n, lambda, 0)
 
@@ -5781,7 +5766,18 @@ do {									\
 	__FSM_H2_I_MOVE_NEQ_n_flag(to, n, 0)
 
 #define __FSM_H2_I_MOVE_BY_REF_NEQ(to, n)				\
-	__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, {})
+do {									\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (__data_off(p) < len)					\
+		goto *to;						\
+	if (likely(fin)) {						\
+		__FSM_EXIT(CSTR_NEQ);					\
+	}								\
+	__msg_hdr_chunk_fixup(data, len);				\
+	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
+	__FSM_EXIT(CSTR_POSTPONE);					\
+} while (0)
 
 #define __FSM_H2_I_MATCH(alphabet)					\
 do {									\
@@ -5924,6 +5920,9 @@ do {									\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, curr_st, next_st)
 
+/**
+ * The very similar to @H2_TRY_STR_2LAMBDA(), but uses referrers for states.
+ */
 #define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
 	if (!chunk->data)						\
 		chunk->data = p;					\
@@ -5932,14 +5931,21 @@ do {									\
 	if (__fsm_n > 0) {						\
 		if (chunk->len == sizeof(str) - 1) {			\
 			TRY_STR_INIT();					\
-			__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(		\
-				next_st, __fsm_n, { goto *next_st; });	\
+			p += __fsm_n;					\
+			if (__data_off(p) < len)			\
+				goto *next_st;				\
+			if (likely(fin))				\
+				goto *next_st;				\
+			parser->_i_st = next_st;			\
+			__msg_hdr_chunk_fixup(data, len);		\
+			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
+			__FSM_EXIT(CSTR_POSTPONE);			\
 		}							\
 		if (likely(fin))					\
 			return CSTR_NEQ;				\
+		parser->_i_st = curr_st;				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
-		parser->_i_st = curr_st;				\
 		__FSM_EXIT(CSTR_POSTPONE);				\
 	}
 
