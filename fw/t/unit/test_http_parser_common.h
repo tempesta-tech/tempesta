@@ -135,6 +135,8 @@ static TfwFrameRec frames[ALLOWED_FRAMES_CNT];
 static unsigned int frames_cnt = 0;
 static unsigned int frames_max_sz = 0;
 static unsigned int frames_total_sz = 0;
+static TfwHeaderRec tmp_header_rec __attribute__((unused));
+static unsigned int tmp_frame_sz __attribute__((unused)) = 0;
 
 typedef struct frames_buf_abstract {
 	unsigned int capacity;
@@ -155,8 +157,8 @@ static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
 #define FRAMES_BUF_POS() \
 	(frames_buf_ptr->data + frames_buf_ptr->size)
 
-#define FRAMES_BUF_OFFSET(frame_sz) \
-	(frames_buf_ptr->data + frames_buf_ptr->size + frame_sz)
+#define FRAMES_BUF_OFFSET(tmp_frame_sz) \
+	(frames_buf_ptr->data + frames_buf_ptr->size + tmp_frame_sz)
 
 static
 unsigned int __attribute__((unused))
@@ -212,35 +214,34 @@ __data_from_RAW(char *data, size_t size)
 
 #define HEADERS_FRAME_BEGIN()							\
 do {										\
-	TfwHeaderRec temp;							\
-	unsigned int frame_sz = 0;						\
+	tmp_frame_sz = 0;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = HTTP2_HEADERS				\
 
 #define HEADER(name_rec, value_rec)						\
 do {										\
 	BUG_ON(!frames_buf_ptr);						\
-	temp.name = name_rec;							\
-	temp.value = value_rec;							\
-	frame_sz += tfw_h2_encode_header(					\
-		FRAMES_BUF_OFFSET(frame_sz), temp);				\
-	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
+	tmp_header_rec.name = name_rec;						\
+	tmp_header_rec.value = value_rec;					\
+	tmp_frame_sz += tfw_h2_encode_header(					\
+		FRAMES_BUF_OFFSET(tmp_frame_sz), tmp_header_rec);		\
+	BUG_ON(frames_buf_ptr->size + tmp_frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
 #define HEADERS_FRAME_END()							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	BUG_ON(!frames_buf_ptr);						\
 	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_buf_ptr->size += frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
+	frames[frames_cnt].len = tmp_frame_sz;					\
+	frames_buf_ptr->size += tmp_frame_sz;					\
+	frames_max_sz = max(frames_max_sz, tmp_frame_sz);			\
+	frames_total_sz += tmp_frame_sz;					\
 	++frames_cnt;								\
 } while (0)
 
 #define DATA_FRAME_BEGIN()							\
 do {										\
-	unsigned int frame_sz = 0;						\
+	tmp_frame_sz = 0;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = HTTP2_DATA
 
@@ -248,18 +249,18 @@ do {										\
 do {										\
 	BUG_ON(!frames_buf_ptr);						\
 	memcpy_fast(FRAMES_BUF_POS(), data_rec.buf, data_rec.size);		\
-	frame_sz = data_rec.size;						\
-	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
+	tmp_frame_sz = data_rec.size;						\
+	BUG_ON(frames_buf_ptr->size + tmp_frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
 #define DATA_FRAME_END()							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	BUG_ON(!frames_buf_ptr);						\
 	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_buf_ptr->size += frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
+	frames[frames_cnt].len = tmp_frame_sz;					\
+	frames_buf_ptr->size += tmp_frame_sz;					\
+	frames_max_sz = max(frames_max_sz, tmp_frame_sz);			\
+	frames_total_sz += tmp_frame_sz;					\
 	++frames_cnt;								\
 } while (0)
 
