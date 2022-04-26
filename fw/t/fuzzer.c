@@ -411,24 +411,20 @@ addch(TfwFuzzContext *ctx, char **p, char *end, char ch)
 static void
 add_string_n(TfwFuzzContext *ctx, char **p, char *end, const char *str, int n)
 {
-	while (*p != end && n) {
-		*(*p)++ = *str++;
-		--n;
-	}
+	int p_remain = end - *p;
+	int str_cpy_sz = min(p_remain, n);
 
-	if (n)
+	memcpy(*p, str, str_cpy_sz);
+	*p += str_cpy_sz;
+
+	if (str_cpy_sz != n)
 		ctx->is_buf_not_enough = true;
 }
 
 static void
 add_string(TfwFuzzContext *ctx, char **p, char *end, const char *str)
 {
-	while (*p != end && *str != '\0') {
-		*(*p)++ = *str++;
-	}
-
-	if (*str != '\0')
-		ctx->is_buf_not_enough = true;
+	add_string_n(ctx, p, end, str, strlen(str));
 }
 
 static void
