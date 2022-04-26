@@ -8269,7 +8269,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		case 'x':
 			__FSM_H2_NEXT(Req_HdrX);
 		default:
-			__FSM_H2_OTHER_n(0);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
