@@ -94,24 +94,42 @@
 /*
  * Arc for standard naming attributes
  */
-#define TTLS_OID_AT			  TTLS_OID_ISO_CCITT_DS "\x04" /**< id-at OBJECT IDENTIFIER ::= {joint-iso-ccitt(2) ds(5) 4} */
-#define TTLS_OID_AT_CN		   TTLS_OID_AT "\x03" /**< id-at-commonName AttributeType:= {id-at 3} */
-#define TTLS_OID_AT_SUR_NAME				 TTLS_OID_AT "\x04" /**< id-at-surName AttributeType:= {id-at 4} */
-#define TTLS_OID_AT_SERIAL_NUMBER			TTLS_OID_AT "\x05" /**< id-at-serialNumber AttributeType:= {id-at 5} */
-#define TTLS_OID_AT_COUNTRY				  TTLS_OID_AT "\x06" /**< id-at-countryName AttributeType:= {id-at 6} */
-#define TTLS_OID_AT_LOCALITY				 TTLS_OID_AT "\x07" /**< id-at-locality AttributeType:= {id-at 7} */
-#define TTLS_OID_AT_STATE		TTLS_OID_AT "\x08" /**< id-at-state AttributeType:= {id-at 8} */
-#define TTLS_OID_AT_ORGANIZATION			 TTLS_OID_AT "\x0A" /**< id-at-organizationName AttributeType:= {id-at 10} */
-#define TTLS_OID_AT_ORG_UNIT				 TTLS_OID_AT "\x0B" /**< id-at-organizationalUnitName AttributeType:= {id-at 11} */
-#define TTLS_OID_AT_TITLE		TTLS_OID_AT "\x0C" /**< id-at-title AttributeType:= {id-at 12} */
-#define TTLS_OID_AT_POSTAL_ADDRESS		   TTLS_OID_AT "\x10" /**< id-at-postalAddress AttributeType:= {id-at 16} */
-#define TTLS_OID_AT_POSTAL_CODE			  TTLS_OID_AT "\x11" /**< id-at-postalCode AttributeType:= {id-at 17} */
-#define TTLS_OID_AT_GIVEN_NAME			   TTLS_OID_AT "\x2A" /**< id-at-givenName AttributeType:= {id-at 42} */
-#define TTLS_OID_AT_INITIALS				 TTLS_OID_AT "\x2B" /**< id-at-initials AttributeType:= {id-at 43} */
-#define TTLS_OID_AT_GENERATION_QUALIFIER	 TTLS_OID_AT "\x2C" /**< id-at-generationQualifier AttributeType:= {id-at 44} */
-#define TTLS_OID_AT_UNIQUE_IDENTIFIER		TTLS_OID_AT "\x2D" /**< id-at-uniqueIdentifier AttributType:= {id-at 45} */
-#define TTLS_OID_AT_DN_QUALIFIER			 TTLS_OID_AT "\x2E" /**< id-at-dnQualifier AttributeType:= {id-at 46} */
-#define TTLS_OID_AT_PSEUDONYM				TTLS_OID_AT "\x41" /**< id-at-pseudonym AttributeType:= {id-at 65} */
+/* id-at OBJECT IDENTIFIER ::= {joint-iso-ccitt(2) ds(5) 4} */
+#define TTLS_OID_AT				TTLS_OID_ISO_CCITT_DS "\x04"
+/* id-at-commonName AttributeType:= {id-at 3} */
+#define TTLS_OID_AT_CN				TTLS_OID_AT "\x03"
+/* id-at-surName AttributeType:= {id-at 4} */
+#define TTLS_OID_AT_SUR_NAME			TTLS_OID_AT "\x04"
+/* id-at-serialNumber AttributeType:= {id-at 5} */
+#define TTLS_OID_AT_SERIAL_NUMBER		TTLS_OID_AT "\x05"
+/* id-at-countryName AttributeType:= {id-at 6} */
+#define TTLS_OID_AT_COUNTRY			TTLS_OID_AT "\x06"
+/* id-at-locality AttributeType:= {id-at 7} */
+#define TTLS_OID_AT_LOCALITY			TTLS_OID_AT "\x07"
+/* id-at-state AttributeType:= {id-at 8} */
+#define TTLS_OID_AT_STATE			TTLS_OID_AT "\x08"
+/* id-at-organizationName AttributeType:= {id-at 10} */
+#define TTLS_OID_AT_ORGANIZATION		TTLS_OID_AT "\x0A"
+/* id-at-organizationalUnitName AttributeType:= {id-at 11} */
+#define TTLS_OID_AT_ORG_UNIT			TTLS_OID_AT "\x0B"
+/* id-at-title AttributeType:= {id-at 12} */
+#define TTLS_OID_AT_TITLE			TTLS_OID_AT "\x0C"
+/* id-at-postalAddress AttributeType:= {id-at 16} */
+#define TTLS_OID_AT_POSTAL_ADDRESS		TTLS_OID_AT "\x10"
+/* id-at-postalCode AttributeType:= {id-at 17} */
+#define TTLS_OID_AT_POSTAL_CODE			TTLS_OID_AT "\x11"
+/* id-at-givenName AttributeType:= {id-at 42} */
+#define TTLS_OID_AT_GIVEN_NAME			TTLS_OID_AT "\x2A"
+/* id-at-initials AttributeType:= {id-at 43} */
+#define TTLS_OID_AT_INITIALS			TTLS_OID_AT "\x2B"
+/* id-at-generationQualifier AttributeType:= {id-at 44} */
+#define TTLS_OID_AT_GENERATION_QUALIFIER	TTLS_OID_AT "\x2C"
+/* id-at-uniqueIdentifier AttributType:= {id-at 45} */
+#define TTLS_OID_AT_UNIQUE_IDENTIFIER		TTLS_OID_AT "\x2D"
+/* id-at-dnQualifier AttributeType:= {id-at 46} */
+#define TTLS_OID_AT_DN_QUALIFIER		TTLS_OID_AT "\x2E"
+/* id-at-pseudonym AttributeType:= {id-at 65} */
+#define TTLS_OID_AT_PSEUDONYM			TTLS_OID_AT "\x41"
 
 #define TTLS_OID_DOMAIN_COMPONENT			"\x09\x92\x26\x89\x93\xF2\x2C\x64\x01\x19" /** id-domainComponent AttributeType:= {itu-t(0) data(9) pss(2342) ucl(19200300) pilot(100) pilotAttributeType(1) domainComponent(25)} */
 

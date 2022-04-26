@@ -188,6 +188,30 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 
 /*
  * ------------------------------------------------------------------------
+ *	Basic C strings with pointer to data and length.
+ *
+ * Use the strings, wherever you just need contiguous string operations, without
+ * manipulating with underlying raw data and chunks.
+ * ------------------------------------------------------------------------
+ */
+typedef struct  {
+	char	*data;
+	size_t	len;
+} BasicStr;
+
+/*
+ * Uses SIMD, so call it from softirq context only.
+ */
+static inline long
+basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
+{
+	return s1->len != s2->len
+		? (long)s1->len - (long)s2->len
+		: tfw_cstricmp(s1->data, s2->data, s1->len);
+}
+
+/*
+ * ------------------------------------------------------------------------
  *	Tempesta chunked strings
  *
  * The strings use SIMD instructions, so use them carefully to not to call
@@ -232,10 +256,12 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 #define SLEN(s)			(sizeof(s) - 1)
 
 /*
+ * Can be casted to BasicStr, so do not change the order of the frist 2 members!
+ *
  * @ptr		- pointer to string data or array of nested strings;
- * @skb		- socket buffer containing the string data;
  * @len		- total length of compound or plain string (HTTP message body
  *		  size can be extreme large, so we need 64 bits to handle it);
+ * @skb		- socket buffer containing the string data;
  * @eolen	- the length of string's line endings, if present (as for now,
  *		  it should be 0 if the string has no EOL at all, 1 for LF and
  *		  2 for CRLF);
@@ -250,21 +276,21 @@ typedef struct tfwstr_t {
 		char *data;
 		struct tfwstr_t *chunks;
 	};
-	struct sk_buff	*skb;
 	unsigned long	len;
+	struct sk_buff	*skb;
 	unsigned int	nchunks;
 	unsigned short	flags;
 	unsigned short	hpack_idx:14;
 	unsigned short	eolen:2;
 } TfwStr;
 
-#define TFW_STR_STRING(val)		((TfwStr){.data = (val), NULL,	\
-						  sizeof(val) - 1, 0, 0, 0})
-#define TFW_STR_F_STRING(val, flags)	((TfwStr){.data = (val), NULL,	\
-						sizeof(val) - 1, 0, flags, 0})
+#define TFW_STR_STRING(val)		((TfwStr){.data = (val), SLEN(val), \
+						  NULL, 0, 0, 0})
+#define TFW_STR_F_STRING(val, flags)	((TfwStr){.data = (val), SLEN(val), \
+						  NULL, 0, flags, 0})
 #define DEFINE_TFW_STR(name, val)	TfwStr name = TFW_STR_STRING(val)
-#define TFW_STR_FROM_CSTR(s)		((TfwStr){.data = (char*)(s),	\
-						  NULL, strlen(s), 0, 0, 0})
+#define TFW_STR_FROM_CSTR(s)		((TfwStr){.data = (char*)(s), strlen(s), \
+						  NULL, 0, 0, 0})
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data

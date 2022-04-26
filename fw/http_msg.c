@@ -122,7 +122,7 @@ typedef struct {
 	TfwStr			hdr;	/* Header name. */
 	unsigned int		id;	/* id in TfwHttpHdrTbl */
 } TfwHdrDef;
-#define TfwStrDefV(v, id)	{{ .data = (v), NULL, sizeof(v) - 1, 0 }, (id) }
+#define TfwStrDefV(v, id)	{{ .data = (v), SLEN(v), NULL, 0 }, (id) }
 
 static inline unsigned int
 __tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[])

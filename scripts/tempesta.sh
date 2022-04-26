@@ -73,7 +73,7 @@ templater()
 {
 	# Replace !include dircetive with file contents
 	> $tfw_cfg_temp
-	mkdir $TFW_ROOT/etc > /dev/null
+	mkdir $TFW_ROOT/etc 2>/dev/null
 	while IFS= read -r line
 	do
 		if [[ ${line:0:1} = \# ]]; then
@@ -161,6 +161,14 @@ unload_modules()
 setup()
 {
 	tfw_set_net_queues "$devs"
+
+	# Enable sysrq
+	echo 1 > /proc/sys/kernel/sysrq
+
+	# Automatically immediately reboot on kernel crashes and ignore kernel warnings.
+	echo '1' > /proc/sys/kernel/panic
+	echo 1 > /proc/sys/kernel/panic_on_oops
+	echo 0 > /proc/sys/kernel/panic_on_warn
 
 	# Tempesta builds socket buffers by itself, don't cork TCP segments.
 	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
