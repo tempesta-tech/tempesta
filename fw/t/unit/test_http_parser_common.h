@@ -160,38 +160,56 @@ static unsigned int frame_sz __attribute__((unused)) = 0;
 #define FRAMES_BUF_SIZE_ADD(frame_sz) \
 	frames_buf_ptr->size += frame_sz
 
+static
+void __attribute__((unused))
+__write_to_frame_RAW(char *data, size_t size)
+{
+	TfwHPackInt hpint;
+	write_int(size, 0x7F, 0, &hpint);
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);
+	memcpy_fast(frame_buf + hpint.sz, data, size);
+	frame_buf += hpint.sz + size;
+}
 
-#define __INDEX(index, max, mask)						\
+static
+void __attribute__((unused))
+__write_to_frame_STR(char *data)
+{
+	__write_to_frame_RAW(data, strlen(data));
+}
+
+/**
+ * Macros VALUE and RAW are linked.
+ * The VALUE uses __write_to_frame_STR as default behavior.
+ * If we want to declare VALUE not as a null-terminated string,
+ * but as a set of raw bytes, then we can write VALUE(RAW(...)).
+ */
+#define VALUE(str_or_write_raw)							\
 do {										\
-	TfwHPackInt hpint;							\
-	write_int(index, max, mask, &hpint);					\
-	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
-	frame_buf += hpint.sz;							\
-} while(0)
+	__write_to_frame_STR(str_or_write_raw);					\
+} while (0)
+
+#define RAW(data) \
+	({ __write_to_frame_RAW(data, sizeof(data)); break; "unreachable code"; })
+
+static
+void __attribute__((unused))
+__write_to_frame_INDEX(unsigned long index,
+		       unsigned short max,
+		       unsigned short mask)
+{
+	TfwHPackInt hpint;
+	write_int(index, max, mask, &hpint);
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);
+	frame_buf += hpint.sz;
+}
+
+#define __INDEX(index, max, mask) \
+	__write_to_frame_INDEX(index, max, mask)
 
 #define __NAME(data, mask)							\
 	*frame_buf++ = mask;							\
-	VALUE(data);
-
-#define VALUE(data)								\
-do {										\
-	TfwHPackInt hpint;							\
-	size_t data_len = strlen(data);						\
-	write_int(data_len, 0x7F, 0, &hpint);					\
-	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
-	memcpy_fast(frame_buf + hpint.sz, data, data_len);			\
-	frame_buf += hpint.sz + data_len;					\
-} while(0)
-
-#define RAW_VALUE(data)								\
-do {										\
-	TfwHPackInt hpint;							\
-	size_t data_len = sizeof(data);						\
-	write_int(data_len, 0x7F, 0, &hpint);					\
-	memcpy_fast(frame_buf, hpint.buf, hpint.sz);				\
-	memcpy_fast(frame_buf + hpint.sz, data, data_len);			\
-	frame_buf += hpint.sz + data_len;					\
-} while(0)
+	VALUE(data)
 
 #define INDEX(data)	__INDEX((data), 0x7F, 0x80)
 #define NAME(data)
