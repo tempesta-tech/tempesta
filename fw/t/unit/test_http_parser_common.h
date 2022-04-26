@@ -43,12 +43,11 @@
 #endif
 #define EXPORT_SYMBOL(...)
 
+#include "msg.h"
+#include "str.h"
+#include "http_msg.h"
 #include "http_parser.h"
 #include "http_sess.h"
-#include "str.h"
-#include "ss_skb.h"
-#include "msg.h"
-#include "http_msg.h"
 
 static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
@@ -105,13 +104,11 @@ enum {
 	BLOCK_MACRO(head "\" \"");				\
 	BLOCK_MACRO(head "\"\"\"")
 
-
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 static TfwH2Conn conn;
 static TfwStream stream;
 static size_t hm_exp_len = 0;
-
 
 typedef struct data_rec
 {
@@ -138,6 +135,8 @@ static TfwFrameRec frames[ALLOWED_FRAMES_CNT];
 static unsigned int frames_cnt = 0;
 static unsigned int frames_max_sz = 0;
 static unsigned int frames_total_sz = 0;
+static TfwHeaderRec tmp_header_rec __attribute__((unused));
+static unsigned int tmp_frame_sz __attribute__((unused)) = 0;
 
 typedef struct frames_buf_abstract {
 	unsigned int capacity;
@@ -158,8 +157,8 @@ static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
 #define FRAMES_BUF_POS() \
 	(frames_buf_ptr->data + frames_buf_ptr->size)
 
-#define FRAMES_BUF_OFFSET(frame_sz) \
-	(frames_buf_ptr->data + frames_buf_ptr->size + frame_sz)
+#define FRAMES_BUF_OFFSET(tmp_frame_sz) \
+	(frames_buf_ptr->data + frames_buf_ptr->size + tmp_frame_sz)
 
 static
 unsigned int __attribute__((unused))
@@ -215,36 +214,34 @@ __data_from_RAW(char *data, size_t size)
 
 #define HEADERS_FRAME_BEGIN()							\
 do {										\
-	TfwHeaderRec temp;							\
-	unsigned int frame_sz = 0;						\
+	tmp_frame_sz = 0;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = HTTP2_HEADERS				\
 
 #define HEADER(name_rec, value_rec)						\
 do {										\
 	BUG_ON(!frames_buf_ptr);						\
-	temp.name = name_rec;							\
-	temp.value = value_rec;							\
-	frame_sz += tfw_h2_encode_header(					\
-		FRAMES_BUF_OFFSET(frame_sz), temp);				\
-	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
+	tmp_header_rec.name = name_rec;						\
+	tmp_header_rec.value = value_rec;					\
+	tmp_frame_sz += tfw_h2_encode_header(					\
+		FRAMES_BUF_OFFSET(tmp_frame_sz), tmp_header_rec);		\
+	BUG_ON(frames_buf_ptr->size + tmp_frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
 #define HEADERS_FRAME_END()							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	BUG_ON(!frames_buf_ptr);						\
 	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_buf_ptr->size += frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
+	frames[frames_cnt].len = tmp_frame_sz;					\
+	frames_buf_ptr->size += tmp_frame_sz;					\
+	frames_max_sz = max(frames_max_sz, tmp_frame_sz);			\
+	frames_total_sz += tmp_frame_sz;					\
 	++frames_cnt;								\
 } while (0)
 
-
 #define DATA_FRAME_BEGIN()							\
 do {										\
-	unsigned int frame_sz = 0;						\
+	tmp_frame_sz = 0;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = HTTP2_DATA
 
@@ -252,21 +249,20 @@ do {										\
 do {										\
 	BUG_ON(!frames_buf_ptr);						\
 	memcpy_fast(FRAMES_BUF_POS(), data_rec.buf, data_rec.size);		\
-	frame_sz = data_rec.size;						\
-	BUG_ON(frames_buf_ptr->size + frame_sz > frames_buf_ptr->capacity);	\
+	tmp_frame_sz = data_rec.size;						\
+	BUG_ON(frames_buf_ptr->size + tmp_frame_sz > frames_buf_ptr->capacity);	\
 } while (0)
 
 #define DATA_FRAME_END()							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	BUG_ON(!frames_buf_ptr);						\
 	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_buf_ptr->size += frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
+	frames[frames_cnt].len = tmp_frame_sz;					\
+	frames_buf_ptr->size += tmp_frame_sz;					\
+	frames_max_sz = max(frames_max_sz, tmp_frame_sz);			\
+	frames_total_sz += tmp_frame_sz;					\
 	++frames_cnt;								\
 } while (0)
-
 
 #define RESET_FRAMES_BUF()							\
 	BUG_ON(!frames_buf_ptr);						\
@@ -412,8 +408,6 @@ test_case_parse_prepare_h2(void)
 	hm_exp_len = GET_FRAMES_TOTAL_SZ();
 }
 
-
-
 /**
  * The function is designed to be called in a loop, e.g.
  *   while(!do_split_and_parse(str, len, type, chunk_mode)) { ... }
@@ -441,7 +435,6 @@ test_case_parse_prepare_h2(void)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-
 static int
 do_split_and_parse(int type, int chunk_mode)
 {
@@ -720,5 +713,23 @@ TfwStr get_next_str_val(TfwStr *str)
 
 	return v;
 }
+
+#define TFW_HTTP_SESS_REDIR_MARK_ENABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	tfw_http_sess_redir_enable();						\
+	hs_mod->start();							\
+} while (0)
+
+#define TFW_HTTP_SESS_REDIR_MARK_DISABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	hs_mod->stop();								\
+	hs_mod->cfgstart();							\
+} while (0)
 
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */
