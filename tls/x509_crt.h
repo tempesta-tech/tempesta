@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,6 +140,11 @@ int ttls_x509_crt_check_key_usage(const TlsX509Crt *crt,
 int ttls_x509_crt_check_extended_key_usage(const TlsX509Crt *crt,
 					   const char *usage_oid,
 					   size_t usage_len);
+
+int ttls_x509_process_san(const TlsX509Crt *crt,
+			  int (*process_cn)(const ttls_x509_buf *,
+					    const char *, int),
+			  const char *name, int len);
 
 TlsX509Crt *ttls_x509_crt_alloc(void);
 void ttls_x509_crt_init(TlsX509Crt *crt);

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019 Tempesta Technologies, INC.
+ * Copyright (C) 2019-2022 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,7 +23,20 @@
 
 #include "str.h"
 
+#include "lib/hash.h"
+
+static inline long
+basic_hash_str(const BasicStr *str)
+{
+	unsigned long crc0 = 0, crc1 = 0;
+
+	__hash_calc(&crc0, &crc1, str->data, str->len);
+
+	return (crc1 << 32) | crc0;
+}
+
 unsigned long tfw_hash_str_len(const TfwStr *str, unsigned long str_len);
+
 #define tfw_hash_str(str)     tfw_hash_str_len((str), ULONG_MAX)
 
 #endif /* __TFW_HASH_H__ */
