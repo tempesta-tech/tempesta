@@ -380,8 +380,7 @@ h2_write_int(unsigned long index, char **p, char *end)
 
 	if (likely(index < max)) {
 		index |= mask;
-	}
-	else {
+	} else {
 		*(*p)++ = max | mask;
 		index -= max;
 		while (index > max) {
@@ -392,7 +391,7 @@ h2_write_int(unsigned long index, char **p, char *end)
 		}
 	}
 
-	if(*p + 1 > end)
+	if (*p + 1 > end)
 		return;
 
 	*(*p)++ = index;
@@ -403,13 +402,10 @@ addch(TfwFuzzContext *ctx, char **p, char *end, char ch)
 {
 	BUG_ON(!ch);
 
-	if(*p == end) {
+	if(*p == end)
 		ctx->is_buf_not_enough = true;
-	}
 	else
-	{
 		*(*p)++ = ch;
-	}
 }
 
 static void
@@ -420,9 +416,8 @@ add_string_n(TfwFuzzContext *ctx, char **p, char *end, const char *str, int n)
 		--n;
 	}
 
-	if (n) {
+	if (n)
 		ctx->is_buf_not_enough = true;
-	}
 }
 
 static void
@@ -432,9 +427,8 @@ add_string(TfwFuzzContext *ctx, char **p, char *end, const char *str)
 		*(*p)++ = *str++;
 	}
 
-	if (*str != '\0') {
+	if (*str != '\0')
 		ctx->is_buf_not_enough = true;
-	}
 }
 
 static void
@@ -452,9 +446,8 @@ add_rand_string(TfwFuzzContext *ctx, char **p, char *end, int n, const char *see
 		*(*p)++ = seed[idxval % len];
 	}
 
-	if (n) {
+	if (n)
 		ctx->is_buf_not_enough = true;
-	}
 }
 
 static unsigned int
@@ -541,9 +534,7 @@ __add_header(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 		BUG_ON(remain_p > sizeof(h2_buf));
 		*p = h2_buf;
 		end = h2_buf + remain_p;
-	}
-	else
-	{
+	} else {
 		add_string(ctx, p, end, fld_data[t].h1_key);
 		v |= add_field(ctx, type, p, end, SPACES);
 	}
@@ -556,17 +547,15 @@ __add_header(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 			(gen_vector[t].size + gen_vector[t].over));
 	}
 
-	if (type != FUZZ_REQ_H2) {
+	if (type != FUZZ_REQ_H2)
 		add_string(ctx, p, end, "\r\n");
-	}
 
 	if (type == FUZZ_REQ_H2) {
 		static const int LIT_HDR_FLD_WO_IND  = 0x00;
 		int h2_value_sz =  *p - h2_buf;
 		*p = saved_p;
-		if (*p < saved_end) {
+		if (*p < saved_end)
 			*(*p)++ = LIT_HDR_FLD_WO_IND;
-		}
 
 		h2_write_int(strlen(fld_data[t].h2_key), p, saved_end);
 		add_string(ctx, p, saved_end, fld_data[t].h2_key);
@@ -594,9 +583,8 @@ __add_header_rand(TfwFuzzContext *ctx, int type,
 	rand = fld_random_nums[ctx->i[t] % strlen(fld_random_nums)];
 
 	/* For now, just alternate between adding a header and not adding. */
-	if (++rand % 2) {
+	if (++rand % 2)
 		return __add_header(ctx, type, p, end, t, n);
-	}
 
 	switch (t) {
 	case CONTENT_LENGTH:
@@ -751,9 +739,8 @@ fuzz_hdrs_compatible(TfwFuzzContext *ctx, int type, unsigned int v)
 		if (ctx->hdr_flags & (1 << CONTENT_LENGTH | 1 << CONTENT_TYPE)) {
 			unsigned int bodyless_methods = FUZZ_FLD_F_METHOD_GET
 							| FUZZ_FLD_F_METHOD_HEAD;
-			if (ctx->fld_flags[METHOD] & bodyless_methods) {
+			if (ctx->fld_flags[METHOD] & bodyless_methods)
 				return false;
-			}
 		}
 	}
 	/*
@@ -934,9 +921,8 @@ fuzz_gen_h1(TfwFuzzContext *ctx, char *str, char *end, field_t start,
 
 	BUG_ON(str > end);
 	*str = '\0';
-	if (ctx->is_buf_not_enough) {
+	if (ctx->is_buf_not_enough)
 		v |= FUZZ_INVALID;
-	}
 
 	if (!(v & FUZZ_INVALID) && !fuzz_hdrs_compatible(ctx, type, v))
 		v |= FUZZ_INVALID;
@@ -1024,9 +1010,8 @@ fuzz_gen_h2(TfwFuzzContext *ctx, char *str, char *end, field_t start,
 	*body_len = str - saved_str;
 
 	BUG_ON(str > end);
-	if (ctx->is_buf_not_enough) {
+	if (ctx->is_buf_not_enough)
 		v |= FUZZ_INVALID;
-	}
 
 	if (!(v & FUZZ_INVALID) && !fuzz_hdrs_compatible(ctx, type, v))
 		v |= FUZZ_INVALID;
