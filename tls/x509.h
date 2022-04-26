@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,6 +133,21 @@
 #define TTLS_X509_KU_DECIPHER_ONLY			0x8000	/* bit 8 */
 
 /*
+ * X.509 v3 Subject Alternative Name types.
+ *
+ * otherName			[0] OtherName,
+ * rfc822Name			[1] IA5String,
+ * dNSName			[2] IA5String,
+ * x400Address			[3] ORAddress,
+ * directoryName		[4] Name,
+ * ediPartyName			[5] EDIPartyName,
+ * uniformResourceIdentifier	[6] IA5String,
+ * iPAddress			[7] OCTET STRING,
+ * registeredID			[8] OBJECT IDENTIFIER
+ */
+#define TTLS_X509_SAN_DNS_NAME				2
+
+/*
  * X.509 extension types
  *
  * Comments refer to the status for using certificates. Status can be
@@ -167,7 +182,7 @@
 #define TTLS_X509_MAX_DN_NAME_SIZE			256
 
 /**
- * \name Structures for parsing X.509 certificates, CRLs and CSRs
+ * Structures for parsing X.509 certificates, CRLs and CSRs
  */
 
 /**
