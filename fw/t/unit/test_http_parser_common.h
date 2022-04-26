@@ -138,6 +138,8 @@ typedef struct frames_buf_abstract {
 	} __attribute__((unused)) NAME = {.data = {}, .capacity = CAPACITY, .size = 0}
 
 static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
+static unsigned char *frame_buf __attribute__((unused)) = NULL;
+static unsigned int frame_sz __attribute__((unused)) = 0;
 
 #define RESET_FRAMES_BUF()							\
 	BUG_ON(!frames_buf_ptr);						\
@@ -215,13 +217,13 @@ do {										\
 
 #define __FRAME_BEGIN(type)							\
 do {										\
-	unsigned char *frame_buf;						\
-	unsigned int frame_sz;							\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	frames[frames_cnt].subtype = type;					\
-	frame_buf = FRAMES_BUF_POS()
+	frame_buf = FRAMES_BUF_POS();						\
+} while (0)
 
 #define __FRAME_END()								\
+do {										\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
 	BUG_ON(!frame_buf);							\
 	frame_sz = frame_buf - FRAMES_BUF_POS();				\
