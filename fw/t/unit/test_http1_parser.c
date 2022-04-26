@@ -3979,12 +3979,10 @@ TEST_SUITE(http1_parser)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	tfw_http_sess_redir_mark_enable();
-
+	TFW_HTTP_SESS_REDIR_MARK_ENABLE();
 	TEST_RUN(http1_parser, parses_enforce_ext_req);
 	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
-
-	tfw_http_sess_redir_mark_disable();
+	TFW_HTTP_SESS_REDIR_MARK_DISABLE();
 
 	TEST_RUN(http1_parser, perf);
 }
