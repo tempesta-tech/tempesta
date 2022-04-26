@@ -89,6 +89,8 @@
 
 #include "lib/hash.h"
 #include "lib/str.h"
+#include "access_log.h"
+#include "apm.h"
 #include "cache.h"
 #include "hash.h"
 #include "http_limits.h"
@@ -102,8 +104,6 @@
 #include "procfs.h"
 #include "server.h"
 #include "tls.h"
-#include "apm.h"
-#include "access_log.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -3381,6 +3381,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	int h_ct_replace = 0;
 	TfwStr h_cl = {0};
 	char cl_data[TFW_ULTOA_BUF_SIZ] = {0};
+	size_t cl_data_len = 0;
 	size_t cl_len = 0;
 	/*
 	 * The Transfer-Encoding header field cannot be in the h2 request, because
@@ -3390,19 +3391,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	               TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
 
 	if (need_cl) {
-		cl_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
-		if (!cl_len)
+		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
+		if (!cl_data_len)
 			return -EINVAL;
-		h_cl = (TfwStr) {
-			.chunks = (TfwStr []) {
-				{ .data = "Content-Length", .len = 14 },
-				{ .data = S_DLM, .len = SLEN(S_DLM) },
-				{ .data = cl_data, .len = cl_len },
-				{ .data = S_CRLF, .len = SLEN(S_CRLF) }
-			},
-			.len = 14 + SLEN(S_DLM) + cl_len + SLEN(S_CRLF),
-			.nchunks = 4
-		};
+		cl_len = SLEN("Content-Length") + SLEN(S_DLM) + cl_data_len + SLEN(S_CRLF);
 	}
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
@@ -3489,8 +3481,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 	h1_hdrs_sz += h_xff.len;
 	h1_hdrs_sz += h_via.len;
-	if (need_cl)
-		h1_hdrs_sz += h_cl.len;
+	h1_hdrs_sz += cl_len;
 
 	/*
 	 * Conditional substitution/additions of 'content-type' header. This is
@@ -3581,8 +3572,19 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	r |= tfw_msg_write(&it, &h_via);
-	if (need_cl)
+	if (need_cl) {
+		h_cl = (TfwStr) {
+			.chunks = (TfwStr []) {
+				{ .data = "Content-Length", .len = SLEN("Content-Length") },
+				{ .data = S_DLM, .len = SLEN(S_DLM) },
+				{ .data = cl_data, .len = cl_data_len },
+				{ .data = S_CRLF, .len = SLEN(S_CRLF) }
+			},
+			.len = cl_len,
+			.nchunks = 4
+		};
 		r |= tfw_msg_write(&it, &h_cl);
+	}
 	/* Finally close headers. */
 	r |= tfw_msg_write(&it, &crlf);
 

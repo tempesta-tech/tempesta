@@ -34,6 +34,16 @@
 #include "client.h"
 #include "tls_conf.h"
 
+/*
+ * The hash table entry for mapping @sni to @vhost for SAN certificates handling.
+ */
+typedef struct {
+	struct hlist_node	hlist;
+	TfwVhost		*vhost;
+	size_t			sni_len;
+	char			sni[0];
+} TfwSVHMap;
+
 #define TFW_VH_HBITS	10
 /**
  * Control object for holding full set of virtual hosts specific for current
@@ -44,11 +54,13 @@
  * @expl_dflt	- Flag to indicate explicit configuration of default
  *		  virtual host.
  * @vh_hash	- Hash table with configured virtual hosts.
+ * @sni_vh_map	- Hash table mapping SNI to virtual hosts.
  */
 typedef struct {
 	TfwVhost	*vhost_dflt;
 	bool		expl_dflt;
 	DECLARE_HASHTABLE(vh_hash, TFW_VH_HBITS);
+	DECLARE_HASHTABLE(sni_vh_map, TFW_VH_HBITS);
 } TfwVhostList;
 
 /* Mappings for match operators. */
@@ -409,32 +421,30 @@ static FrangGlobCfg	tfw_frang_glob_reconfig;
  * processing, both strings are guaranteed to be plain.
  */
 static bool
-tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
+tfw_vhost_name_match(const BasicStr *vh, const BasicStr *name)
 {
-	if (WARN_ON_ONCE(!TFW_STR_PLAIN(name)))
-		return false;
-	return vh->name.len == name->len
-		&& !strncasecmp(vh->name.data, name->data, vh->name.len);
+	return vh->len == name->len
+		&& !strncasecmp(vh->data, name->data, vh->len);
 }
 
 /**
  *  Match vhost to requested name. Can be called in softirq context only.
  */
 static bool
-tfw_vhost_name_match_fast(TfwVhost *vh, const TfwStr *name)
+tfw_vhost_name_match_fast(const BasicStr *vh, const BasicStr *name)
 {
-	return !tfw_stricmp(&vh->name, name);
+	return !basic_stricmp_fast(vh, name);
 }
 
 static inline TfwVhost *
-__tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
-		   bool (*match_fn)(TfwVhost *, const TfwStr *))
+__tfw_vhost_lookup(TfwVhostList *vh_list, const BasicStr *name,
+		   bool (*match_fn)(const BasicStr *, const BasicStr *))
 {
 	TfwVhost *vhost;
-	unsigned long key = tfw_hash_str(name);
+	unsigned long key = basic_hash_str(name);
 
 	hash_for_each_possible(vh_list->vh_hash, vhost, hlist, key) {
-		if (match_fn(vhost, name)) {
+		if (match_fn(&vhost->name, name)) {
 			tfw_vhost_get(vhost);
 			return vhost;
 		}
@@ -451,7 +461,8 @@ __tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
 TfwVhost *
 tfw_vhost_lookup_reconfig(const char *name)
 {
-	TfwStr ns = TFW_STR_FROM_CSTR(name);
+	const BasicStr ns = {.data = (char *)name, .len = strlen(name)};
+
 	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
 				  tfw_vhost_name_match);
 }
@@ -463,13 +474,10 @@ tfw_vhost_lookup_reconfig(const char *name)
  * release the reference after use.
  */
 TfwVhost *
-tfw_vhost_lookup(const TfwStr *name)
+tfw_vhost_lookup(const BasicStr *name)
 {
 	TfwVhost *vhost;
 	TfwVhostList *vhlist;
-
-	if (unlikely(TFW_STR_EMPTY(name)))
-		return NULL;
 
 	rcu_read_lock_bh();
 	vhlist = rcu_dereference_bh(tfw_vhosts);
@@ -479,6 +487,33 @@ tfw_vhost_lookup(const TfwStr *name)
 	rcu_read_unlock_bh();
 
 	return vhost;
+}
+
+/**
+ * Lookup vhost by an SNI wildcard.
+ */
+TfwVhost *
+tfw_vhost_lookup_sni(const BasicStr *name)
+{
+	TfwSVHMap *svhm;
+	TfwVhostList *vhlist;
+	unsigned long key = basic_hash_str(name);
+
+	rcu_read_lock_bh();
+	vhlist = rcu_dereference_bh(tfw_vhosts);
+	BUG_ON(!vhlist);
+
+	hash_for_each_possible(vhlist->sni_vh_map, svhm, hlist, key) {
+		if (svhm->sni_len != name->len
+		    || tfw_cstricmp(name->data, svhm->sni, svhm->sni_len))
+			continue;
+		tfw_vhost_get(svhm->vhost);
+		rcu_read_unlock_bh();
+		return svhm->vhost;
+	}
+	rcu_read_unlock_bh();
+
+	return NULL;
 }
 
 /**
@@ -1820,7 +1855,7 @@ tfw_vhost_new(const char *name)
 static inline void
 tfw_vhost_add(TfwVhost *vhost)
 {
-	unsigned long key = tfw_hash_str(&vhost->name);
+	unsigned long key = basic_hash_str(&vhost->name);
 
 	hash_add(tfw_vhosts_reconfig->vh_hash, &vhost->hlist, key);
 	tfw_vhost_get(vhost);
@@ -1828,6 +1863,37 @@ tfw_vhost_add(TfwVhost *vhost)
 		vhost->vhost_dflt = tfw_vhosts_reconfig->vhost_dflt;
 		tfw_vhost_get(vhost->vhost_dflt);
 	}
+}
+
+/**
+ * Called on (re-)configuration time in process context.
+ */
+void
+tfw_vhost_add_sni_map(const BasicStr *cn, const char *hname, int hlen)
+{
+	unsigned long key = basic_hash_str(cn);
+	TfwSVHMap *svhm;
+	int n = sizeof(*svhm) + cn->len;
+	const BasicStr ns = {.data = (char *)hname, .len = hlen};
+
+	if (!(svhm = kmalloc(n, GFP_KERNEL))) {
+		T_WARN("Cannot allocate mapping for SAN/CN %.*s -> %s\n",
+		       (int)cn->len, cn->data, hname);
+		return;
+	}
+
+	svhm->vhost = __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
+					 tfw_vhost_name_match);
+	if (!svhm->vhost) {
+		T_WARN("Cannot find vhost %s\n", hname);
+		kfree(svhm);
+		return;
+	}
+	INIT_HLIST_NODE(&svhm->hlist);
+	svhm->sni_len = cn->len;
+	memcpy(svhm->sni, cn->data, cn->len);
+
+	hash_add(tfw_vhosts_reconfig->sni_vh_map, &svhm->hlist, key);
 }
 
 static const TfwCfgEnum frang_http_methods_enum[] = {
@@ -2243,7 +2309,6 @@ tfw_cfgop_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static void
 tfw_cfgop_frang_cleanup(TfwCfgSpec *cs)
 {
-	return;
 }
 
 static int
@@ -2365,6 +2430,7 @@ tfw_vhost_cfgstart(void)
 
 	tfw_vhosts_reconfig->expl_dflt = false;
 	hash_init(tfw_vhosts_reconfig->vh_hash);
+	hash_init(tfw_vhosts_reconfig->sni_vh_map);
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		T_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
@@ -2407,7 +2473,7 @@ tfw_vhost_cfgend(void)
 				  &tfw_frang_vhost_reconfig);
 	if (r)
 		goto err;
-	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN("default"));
+	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN(TFW_VH_DFT_NAME));
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
 	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
@@ -2494,18 +2560,27 @@ static void
 tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 {
 	TfwVhost *vhost;
+	TfwSVHMap *svhm;
 	struct hlist_node *tmp;
 	int i;
 
 	if (!vhosts)
 		return;
 
-	hash_for_each_safe((vhosts->vh_hash), i, tmp, vhost, hlist) {
+	hash_for_each_safe(vhosts->vh_hash, i, tmp, vhost, hlist) {
 		hash_del(&vhost->hlist);
 		set_bit(TFW_VHOST_B_REMOVED, &vhost->flags);
 		tfw_vhost_put(vhost);
 		tfw_srv_loop_sched_rcu();
 	}
+
+	hash_for_each_safe(vhosts->sni_vh_map, i, tmp, svhm, hlist) {
+		hash_del(&svhm->hlist);
+		tfw_vhost_put(svhm->vhost);
+		kfree(svhm);
+		tfw_srv_loop_sched_rcu();
+	}
+
 	set_bit(TFW_VHOST_B_REMOVED, &vhosts->vhost_dflt->flags);
 	tfw_vhost_put(vhosts->vhost_dflt);
 	kfree(vhosts);
