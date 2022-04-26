@@ -1309,6 +1309,9 @@ TEST(http2_parser, accept)
 	EXPECT_BLOCK_REQ_H2_ACCEPT(",");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*,,");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/,,");
+	/* Empty subtypes are not allowed. */
+	EXPECT_BLOCK_REQ_H2_ACCEPT("text/");
+	EXPECT_BLOCK_REQ_H2_ACCEPT("*/");
 
 	/* HTML validations */
 	FOR_ACCEPT_HTML("  text/html ");
@@ -1974,6 +1977,16 @@ TEST(http2_parser, content_type_line_parser)
 	/* Line ended at '\\'. */
 	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("text/plain; name=\"val\\");
 
+	/* Other cases */
+	EXPECT_BLOCK_REQ_H2_CONTENT_TYPE("multipart/");
+	FOR_REQ_H2_CONTENT_TYPE("multipar") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipar");
+	}
+	FOR_REQ_H2_CONTENT_TYPE("multipart") {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "content-type" "multipart");
+	}
 	FOR_REQ_H2_CONTENT_TYPE("multitest") {
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "content-type" "multitest");
@@ -2604,20 +2617,18 @@ do {										\
 	if (req)								\
 		test_req_free(req);						\
 	req = test_req_alloc(frames_buf.size);					\
-		req = test_req_alloc(frames_max_sz);				\
-		conn.h2.hpack.state = 0;					\
-		req->conn = (TfwConn*)&conn;					\
-		req->pit.parsed_hdr = &stream.parser.hdr;			\
-		req->stream = &stream;						\
-		tfw_http_init_parser_req(req);					\
-		stream.msg = (TfwMsg*)req;					\
-		__set_bit(TFW_HTTP_B_H2, req->flags);				\
+	req->conn = (TfwConn*)&conn;						\
+	req->pit.parsed_hdr = &stream.parser.hdr;				\
+	req->stream = &stream;							\
+	tfw_http_init_parser_req(req);						\
+	stream.msg = (TfwMsg*)req;						\
+	__set_bit(TFW_HTTP_B_H2, req->flags);					\
 	tfw_h2_parse_req(req, frames_buf.data, frames_buf.size, &parsed);	\
 } while (0)
 
 	for (i = 0; i < 1000; ++i) {
 		/*
-		 * Benchmark serverla requests to make the headers parsing more
+		 * Benchmark several requests to make the headers parsing more
 		 * visible in the performance results. Also having L7 DDoS in
 		 * mind we need to to care about requests more than responses.
 		 */
@@ -2708,17 +2719,16 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, date);
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
-	TEST_RUN(http2_parser, perf);
 	TEST_RUN(http2_parser, fuzzer);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	tfw_http_sess_redir_mark_enable();
-
+	TFW_HTTP_SESS_REDIR_MARK_ENABLE();
 	TEST_RUN(http2_parser, parses_enforce_ext_req);
 	TEST_RUN(http2_parser, parses_enforce_ext_req_rmark);
+	TFW_HTTP_SESS_REDIR_MARK_DISABLE();
 
-	tfw_http_sess_redir_mark_disable();
+	TEST_RUN(http2_parser, perf);
 }
