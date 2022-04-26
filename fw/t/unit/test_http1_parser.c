@@ -3830,7 +3830,7 @@ do {									\
 
 	for (i = 0; i < 1000; ++i) {
 		/*
-		 * Benchmark serverla requests to make the headers parsing more
+		 * Benchmark several requests to make the headers parsing more
 		 * visible in the performance results. Also having L7 DDoS in
 		 * mind we need to to care about requests more than responses.
 		 */
@@ -3977,12 +3977,10 @@ TEST_SUITE(http1_parser)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	tfw_http_sess_redir_mark_enable();
-
+	TFW_HTTP_SESS_REDIR_MARK_ENABLE();
 	TEST_RUN(http1_parser, parses_enforce_ext_req);
 	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
-
-	tfw_http_sess_redir_mark_disable();
+	TFW_HTTP_SESS_REDIR_MARK_DISABLE();
 
 	TEST_RUN(http1_parser, perf);
 }
