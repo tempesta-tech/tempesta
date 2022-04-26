@@ -43,12 +43,11 @@
 #endif
 #define EXPORT_SYMBOL(...)
 
+#include "msg.h"
+#include "str.h"
+#include "http_msg.h"
 #include "http_parser.h"
 #include "http_sess.h"
-#include "str.h"
-#include "ss_skb.h"
-#include "msg.h"
-#include "http_msg.h"
 
 static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
                                    256, 1500, 9216, 1024*1024
@@ -688,5 +687,23 @@ TfwStr get_next_str_val(TfwStr *str)
 
 	return v;
 }
+
+#define TFW_HTTP_SESS_REDIR_MARK_ENABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	tfw_http_sess_redir_enable();						\
+	hs_mod->start();							\
+} while (0)
+
+#define TFW_HTTP_SESS_REDIR_MARK_DISABLE()					\
+do {										\
+	TfwMod *hs_mod = NULL;							\
+	hs_mod = tfw_mod_find("http_sess");					\
+	BUG_ON(!hs_mod);							\
+	hs_mod->stop();								\
+	hs_mod->cfgstart();							\
+} while (0)
 
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */

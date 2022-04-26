@@ -2670,16 +2670,15 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, date);
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
-	TEST_RUN(http2_parser, perf);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	tfw_http_sess_redir_mark_enable();
-
+	TFW_HTTP_SESS_REDIR_MARK_ENABLE();
 	TEST_RUN(http2_parser, parses_enforce_ext_req);
 	TEST_RUN(http2_parser, parses_enforce_ext_req_rmark);
+	TFW_HTTP_SESS_REDIR_MARK_DISABLE();
 
-	tfw_http_sess_redir_mark_disable();
+	TEST_RUN(http2_parser, perf);
 }
