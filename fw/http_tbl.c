@@ -145,7 +145,7 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 
 	/* If rule points to virtual host, return the pointer. */
 	if (rule->act.type == TFW_HTTP_MATCH_ACT_VHOST)
-		return  rule->act.vhost;
+		return rule->act.vhost;
 
 	/* If rule has 'block' action, request must be blocked. */
 	if (rule->act.type == TFW_HTTP_MATCH_ACT_BLOCK)
