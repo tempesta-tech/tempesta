@@ -5951,6 +5951,7 @@ do {									\
  */
 #define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3,		\
 				 curr_st, next_st)				\
+do {										\
 	BUG_ON(!TFW_STR_PLAIN(str));						\
 	if (!chunk->data)							\
 		chunk->data = p;						\
@@ -5977,7 +5978,8 @@ do {									\
 		if (likely(fin))						\
 			lambda3;						\
 		__FSM_EXIT(CSTR_POSTPONE);					\
-	}
+	}									\
+} while (0)
 
 #define H2_TRY_STR_2LAMBDA_fixup(str, fld, lambda1, lambda2, curr_st, next_st)	\
 	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, {			\
@@ -6560,28 +6562,24 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(I_ContTypeMediaType) {
-		static const TfwStr s_multipart_slash =
-			TFW_STR_STRING("multipart/");
-		H2_TRY_STR_2FIN_fixup(&s_multipart_slash, &parser->hdr, {
+		static const TfwStr s_multipart_form_data =
+			TFW_STR_STRING("multipart/form-data");
+		H2_TRY_STR_2FIN_fixup(&s_multipart_form_data, &parser->hdr, {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			__FSM_EXIT(CSTR_EQ);
+		}, {
+			if (chunk->len == sizeof("multipart/") - 1)
 				__FSM_EXIT(CSTR_NEQ);
-			}, {
-				__FSM_EXIT(CSTR_EQ);
-			}, I_ContTypeMediaType, I_ContTypeAfterMultipartSlash);
-		TRY_STR_INIT();
-		__FSM_I_JMP(I_ContTypeOtherType);
-	}
-
-	__FSM_STATE(I_ContTypeAfterMultipartSlash) {
-		static const TfwStr s_form_data =
-			TFW_STR_STRING("form-data");
-		H2_TRY_STR_2FIN_fixup(&s_form_data, &parser->hdr, {
-				__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-				__FSM_EXIT(CSTR_EQ);
-			}, {
-				__FSM_EXIT(CSTR_EQ);
-			}, I_ContTypeAfterMultipartSlash, I_ContTypeMaybeMultipart);
-		TRY_STR_INIT();
-		__FSM_I_JMP(I_ContTypeOtherSubtype);
+			p += __fsm_n;
+			break;
+		}, I_ContTypeMediaType, I_ContTypeMaybeMultipart);
+		if (chunk->len >= sizeof("multipart/") - 1) {
+			TRY_STR_INIT();
+			__FSM_I_JMP(I_ContTypeOtherSubtype);
+		} else {
+			TRY_STR_INIT();
+			__FSM_I_JMP(I_ContTypeOtherType);
+		}
 	}
 
 	__FSM_STATE(I_ContTypeMaybeMultipart) {
