@@ -5916,35 +5916,6 @@ do {									\
 	}, curr_st, next_st)
 
 /**
- * The very similar to @H2_TRY_STR_2LAMBDA(), but uses referrers for states.
- */
-#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
-	if (!chunk->data)						\
-		chunk->data = p;					\
-	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
-			    str, sizeof(str) - 1);			\
-	if (__fsm_n > 0) {						\
-		if (chunk->len == sizeof(str) - 1) {			\
-			TRY_STR_INIT();					\
-			p += __fsm_n;					\
-			if (__data_off(p) < len)			\
-				goto *next_st;				\
-			if (likely(fin))				\
-				goto *next_st;				\
-			parser->_i_st = next_st;			\
-			__msg_hdr_chunk_fixup(data, len);		\
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
-			__FSM_EXIT(CSTR_POSTPONE);			\
-		}							\
-		if (likely(fin))					\
-			return CSTR_NEQ;				\
-		parser->_i_st = curr_st;				\
-		__msg_hdr_chunk_fixup(data, len);			\
-		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
-		__FSM_EXIT(CSTR_POSTPONE);				\
-	}
-
-/**
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
  * used (instead of hard coded header field).
@@ -7302,8 +7273,9 @@ do {										\
 #undef __NEXT_TEMPL_STATE
 
 	__FSM_STATE(I_GMT) {
-		H2_TRY_STR_BY_REF("gmt",
-			&&I_GMT, st[parser->date.type][parser->date.pos + 1]);
+		H2_TRY_STR_LAMBDA("gmt", {
+			__FSM_I_JMP(I_Res);
+		}, I_GMT, I_Res);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
