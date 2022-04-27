@@ -48,7 +48,7 @@
  * ------------------------------------------------------------------------
  */
 
-DECLARE_BITMAP(tfw_inports, 65536);
+static DECLARE_BITMAP(tfw_inports, 65536) __read_mostly;
 
 static TfwClassifier __rcu *classifier = NULL;
 
@@ -124,7 +124,7 @@ tfw_classify_conn_estab(struct sock *sk)
 	TfwClassifier *clfr;
 
 	if (test_bit(sport, tfw_inports))
-			goto ours;
+		goto ours;
 
 	return TFW_PASS;
 
