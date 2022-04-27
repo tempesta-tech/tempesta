@@ -5968,16 +5968,16 @@ do {										\
 				p += __fsm_n;					\
 				goto next_st;					\
 			}							\
-			parser->_i_st = &&next_st;				\
 			if (likely(fin))					\
 				fin1;						\
+			parser->_i_st = &&next_st;				\
 			__FSM_EXIT(CSTR_POSTPONE);				\
 		}								\
 		__msg_field_fixup_pos(fld, p, __fsm_n);				\
 		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);		\
-		parser->_i_st = &&curr_st;					\
 		if (likely(fin))						\
 			fin2;							\
+		parser->_i_st = &&curr_st;					\
 		__FSM_EXIT(CSTR_POSTPONE);					\
 	}									\
 } while (0)
