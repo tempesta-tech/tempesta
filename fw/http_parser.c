@@ -5948,6 +5948,8 @@ do {									\
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
  * used (instead of hard coded header field).
+ * The @lambda might interrupt process and return with an error. In such case
+ * we don't need to fixup the current data chunk.
  */
 #define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(str, fld,		\
 						       lambda, fin1, fin2,	\
