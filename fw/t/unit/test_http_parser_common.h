@@ -162,7 +162,7 @@ static unsigned int frame_sz __attribute__((unused)) = 0;
 
 static
 void __attribute__((unused))
-__write_to_frame_RAW(char *data, size_t size)
+write_to_frame_DATA(char *data, size_t size)
 {
 	TfwHPackInt hpint;
 	write_int(size, 0x7F, 0, &hpint);
@@ -171,30 +171,15 @@ __write_to_frame_RAW(char *data, size_t size)
 	frame_buf += hpint.sz + size;
 }
 
-static
-void __attribute__((unused))
-__write_to_frame_STR(char *data)
-{
-	__write_to_frame_RAW(data, strlen(data));
-}
+#define VALUE(str) \
+	write_to_frame_DATA(str, strlen(str))
 
-/**
- * Macros VALUE and RAW are linked.
- * The VALUE uses __write_to_frame_STR as default behavior.
- * If we want to declare VALUE not as a null-terminated string,
- * but as a set of raw bytes, then we can write VALUE(RAW(...)).
- */
-#define VALUE(str_or_write_raw)							\
-do {										\
-	__write_to_frame_STR(str_or_write_raw);					\
-} while (0)
-
-#define RAW(data) \
-	({ __write_to_frame_RAW(data, sizeof(data)); break; "unreachable code"; })
+#define VALUE_RAW(data) \
+	write_to_frame_DATA(data, sizeof(data))
 
 static
 void __attribute__((unused))
-__write_to_frame_INDEX(unsigned long index,
+write_to_frame_INDEX(unsigned long index,
 		       unsigned short max,
 		       unsigned short mask)
 {
@@ -205,7 +190,7 @@ __write_to_frame_INDEX(unsigned long index,
 }
 
 #define __INDEX(index, max, mask) \
-	__write_to_frame_INDEX(index, max, mask)
+	write_to_frame_INDEX(index, max, mask)
 
 #define __NAME(data, mask)							\
 	*frame_buf++ = mask;							\
