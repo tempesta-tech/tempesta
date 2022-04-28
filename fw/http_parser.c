@@ -159,7 +159,7 @@ do {									\
 	register unsigned int __p_n = min_t(unsigned int, 48,		\
 					    data + len + __p_o - p);	\
 	T_WARN("Parser error: state=" #st " input(-%d)=%#x('%.*s')"	\
-	       " data_len=%lu off=%lu\n",				\
+	       " data_len=%u off=%lu\n",				\
 	       __p_o, (char)c, __p_n, p - __p_o, len, p - data);	\
 	return TFW_BLOCK;						\
 } while (0)
@@ -3927,7 +3927,7 @@ tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
 }
 
 int
-tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
+tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		   unsigned int *parsed)
 {
 	int r = TFW_BLOCK;
@@ -8902,10 +8902,10 @@ out:
 STACK_FRAME_NON_STANDARD(tfw_h2_parse_req_hdr);
 
 static int
-tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
+tfw_h2_parse_body(char *data, unsigned int len, TfwHttpReq *req,
 		  unsigned int *parsed)
 {
-	unsigned long m_len;
+	unsigned int m_len;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpMsg *msg = (TfwHttpMsg *)req;
 	TfwHttpParser *parser = &msg->stream->parser;
@@ -8929,14 +8929,14 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 	parser->to_read -= m_len;
 
 	if (parser->to_read) {
-		T_DBG3("%s: postpone, to_read=%ld, m_len=%lu, len=%lu\n",
+		T_DBG3("%s: postpone, to_read=%ld, m_len=%u, len=%u\n",
 		       __func__, parser->to_read, m_len, len);
 		__msg_field_fixup(&req->body, data + len);
 		goto out;
 	}
 
 	WARN_ON_ONCE(m_len != len);
-	T_DBG3("%s: to_read=%ld, m_len=%lu, len=%lu\n", __func__,
+	T_DBG3("%s: to_read=%ld, m_len=%u, len=%u\n", __func__,
 	       parser->to_read, m_len, len);
 
 	if (tfw_http_msg_add_str_data(msg, &req->body, data, m_len))
@@ -8960,7 +8960,7 @@ out:
  * parser state.
  */
 int
-tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
+tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		 unsigned int *parsed)
 {
 	int r;
@@ -9718,7 +9718,7 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 }
 
 int
-tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
+tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 		    unsigned int *parsed)
 {
 	int r = TFW_BLOCK;

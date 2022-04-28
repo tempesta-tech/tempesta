@@ -135,15 +135,15 @@ void tfw_http_init_parser_resp(TfwHttpResp *resp);
 
 int tfw_http_parse_check_bodyless_meth(TfwHttpReq *req);
 
-int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
+int tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		       unsigned int *parsed);
 
 int tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			 bool fin, bool value_stage);
-int tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
+int tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		     unsigned int *parsed);
 int tfw_h2_parse_req_finish(TfwHttpReq *req);
-int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
+int tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			unsigned int *parsed);
 int tfw_http_parse_terminate(TfwHttpMsg *hm);
 bool tfw_http_parse_is_done(TfwHttpMsg *hm);
