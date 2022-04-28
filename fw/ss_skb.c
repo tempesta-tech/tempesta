@@ -1245,7 +1245,7 @@ ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 	       unsigned int *chunks, unsigned int *processed)
 {
 	int i, r = SS_OK;
-	int headlen = skb_headlen(skb);
+	unsigned int headlen = skb_headlen(skb);
 	unsigned int _processed;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
