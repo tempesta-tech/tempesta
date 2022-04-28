@@ -2468,7 +2468,7 @@ TEST(http2_parser, vchar)
 		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
-		HEADER(WO_IND(NAME(header), VALUE(RAW("\x00"))));		\
+		HEADER(WO_IND(NAME(header), VALUE_RAW("\x00")));		\
 	    HEADERS_FRAME_END();						\
 	)
 
