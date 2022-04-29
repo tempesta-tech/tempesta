@@ -1506,7 +1506,7 @@ TEST(http1_parser, eol_crlf)
 		  "\n"
 		  "a=24\n"
 		  "\n",  /* the LF is ignored. */
-		  1, FUZZ_REQ, CHUNK_ON)
+		  1, CHUNK_ON)
 	{
 		TfwHttpHdrTbl *ht = req->h_tbl;
 
@@ -1522,7 +1522,7 @@ TEST(http1_parser, eol_crlf)
 		  "\r\n"
 		  "b=24\r\n"
 		  "\r\n",  /* the CRLF is ignored. */
-		  2, FUZZ_REQ, CHUNK_ON)
+		  2, CHUNK_ON)
 	{
 		EXPECT_TRUE(req->crlf.len == 2);
 		EXPECT_TRUE(req->body.len == 6);
