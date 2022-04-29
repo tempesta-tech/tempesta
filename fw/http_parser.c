@@ -6539,7 +6539,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		goto finalize;						\
 	}, 0)
 
-#define __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(alphabet, to, flag)		\
+#define __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(alphabet, to, flag)	\
 	__FSM_H2_I_MATCH_MOVE_LAMBDA_fixup(alphabet, to, {		\
 		p += __fsm_sz;						\
 		goto finalize;						\
