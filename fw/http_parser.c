@@ -5955,13 +5955,15 @@ do {										\
 	}									\
 } while (0)
 
-#define H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, fld, lambda, fin, curr_st, next_st) \
+#define H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, fld, lambda, fin,		\
+					       curr_st, next_st)		\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
 		str, fld, lambda, fin, {					\
 			__FSM_EXIT(CSTR_NEQ);					\
 		} , curr_st, next_st)
 
-#define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_fixup(str, fld, fin1, fin2, curr_st, next_st) \
+#define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_fixup(str, fld, fin1, fin2,		\
+						curr_st, next_st)		\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
 		str, fld, {}, fin1, fin2, curr_st, next_st)
 
@@ -6541,11 +6543,25 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			TFW_STR_STRING("multipart/form-data");
 		H2_TRY_STR_FULL_OR_PART_MATCH_FIN_fixup(
 			&s_multipart_form_data, &parser->hdr, {
+				/*
+				 * In that lambda (that corresponds to a full
+				 * match) the parser do successful exit
+				 * and it is no needed to apply p += __fsm_n.
+				 */
 				__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 				__FSM_EXIT(CSTR_EQ);
 			}, {
 				if (chunk->len == sizeof("multipart/") - 1)
 					__FSM_EXIT(CSTR_NEQ);
+				/* This lambda (that corresponds to a partial
+				 * match) indicate that the parser will continue
+				 * working in the next state
+				 * (I_ContTypeOtherSubtype or I_ContTypeOtherType).
+				 * The parser must continue working in the next
+				 * state from position right after already
+				 * processed bytes. So, it is needed
+				 * to apply p += __fsm_n.
+				 */
 				p += __fsm_n;
 				break;
 			}, I_ContTypeMediaType, I_ContTypeMaybeMultipart);
