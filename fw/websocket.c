@@ -168,7 +168,7 @@ tfw_ws_msg_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	}
 
 	if (TFW_CONN_H2(conn->pair.conn)) {
-		TfwH2Ctx *ctx = tfw_h2_context(conn);
+		TfwH2Ctx *ctx = tfw_h2_context(conn->pair.conn);
 		TfwStr data = {
 			.chunks = (TfwStr []){
 				{},
