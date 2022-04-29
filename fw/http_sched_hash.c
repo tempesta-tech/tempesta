@@ -395,13 +395,6 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 	return 0;
 }
 
-static void
-tfw_sched_hash_put_srv_data(struct rcu_head *rcu)
-{
-	TfwHashConnList *cl = container_of(rcu, TfwHashConnList, rcu);
-	kfree(cl);
-}
-
 static int
 tfw_sched_hash_add_srv(TfwServer *srv)
 {
@@ -423,6 +416,13 @@ tfw_sched_hash_add_srv(TfwServer *srv)
 	rcu_assign_pointer(srv->sched_data, cl);
 
 	return 0;
+}
+
+static void
+tfw_sched_hash_put_srv_data(struct rcu_head *rcu)
+{
+	TfwHashConnList *cl = container_of(rcu, TfwHashConnList, rcu);
+	kfree(cl);
 }
 
 static void
