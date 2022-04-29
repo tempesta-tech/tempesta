@@ -45,6 +45,10 @@ void test_call_teardown_fn(void);
 
 #define TEST_BANNER "tfw_test: "
 
+#define TEST_LOG_HEX_DUMP_NO_MORE_32_BYTES(buf, len)			\
+    print_hex_dump(KERN_INFO, TEST_BANNER, DUMP_PREFIX_NONE, 32, 1,	\
+               buf, min_t(size_t, len, 32U), true)
+
 #define TEST_LOG(...) printk(KERN_INFO TEST_BANNER __VA_ARGS__)
 #define TEST_LOG_LF(...) 	\
 do {				\

@@ -617,6 +617,13 @@ while (({								\
 #define PRINT_REQ(str) \
 	TEST_LOG("=== request: [%s]\n", str)
 
+#define PRINT_REQ_H2() \
+do {\
+    BUG_ON(frames_cnt == 0);\
+    TEST_LOG("=== request:\n");\
+    TEST_LOG_HEX_DUMP_NO_MORE_32_BYTES(frames[0].str, frames[0].len);\
+} while (0)
+
 #define __FOR_REQ(str, sz_diff, chunk_mode)				\
 	PRINT_REQ(str);							\
 	test_case_parse_prepare_http(str);				\
@@ -626,12 +633,12 @@ while (({								\
 	__FOR_REQ(str, 0, CHUNK_ON)
 #define FOR_REQ_H2(FRAMES_DEFINITION)					\
 	ASSIGN_FRAMES_FOR_H2(FRAMES_DEFINITION);			\
-	PRINT_REQ("HTTP/2 request preview is not available now...");	\
+	PRINT_REQ_H2();							\
 	test_case_parse_prepare_h2();					\
 	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
 #define FOR_REQ_H2_HPACK(FRAMES_DEFINITION)				\
 	ASSIGN_FRAMES_FOR_H2(FRAMES_DEFINITION);			\
-	PRINT_REQ("HTTP/2 request preview is not available now...");	\
+	PRINT_REQ_H2();							\
 	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
 
 #define EXPECT_BLOCK_REQ(str)						\
@@ -643,14 +650,14 @@ do {									\
 #define EXPECT_BLOCK_REQ_H2(FRAMES_DEFINITION)				\
 do {									\
 	ASSIGN_FRAMES_FOR_H2(FRAMES_DEFINITION);			\
-	PRINT_REQ("HTTP/2 request preview is not available now...");	\
+	PRINT_REQ_H2();							\
 	test_case_parse_prepare_h2();					\
 	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
 } while (0)
 #define EXPECT_BLOCK_REQ_H2_HPACK(FRAMES_DEFINITION)			\
 do {									\
-	ASSIGN_FRAMES_FOR_H2(FRAMES_DEFINITION);\
-	PRINT_REQ("HTTP/2 request preview is not available now...");	\
+	ASSIGN_FRAMES_FOR_H2(FRAMES_DEFINITION);			\
+	PRINT_REQ_H2();							\
 	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
 } while (0)
 
