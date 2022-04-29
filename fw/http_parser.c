@@ -2964,7 +2964,12 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[RFC_850] = {
 			&&I_Day, &&I_Day, &&I_Minus,
@@ -2973,7 +2978,12 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[ISOC] = {
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
@@ -3140,8 +3150,13 @@ do {									\
 #undef __NEXT_TEMPL_STATE
 
 	__FSM_STATE(I_GMT) {
+
 		TRY_STR_BY_REF("gmt", &&I_GMT,
-		               st[parser->date.type][parser->date.pos + 1]);
+			/*
+			 * The st[][]-table is not used because it is known
+			 * that I_GMT is followed by I_Res.
+			 */
+			&&I_Res);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
@@ -7100,7 +7115,12 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[RFC_850] = {
 			&&I_Day, &&I_Day, &&I_Minus,
@@ -7109,7 +7129,12 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[ISOC] = {
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
@@ -7290,6 +7315,10 @@ do {										\
 
 	__FSM_STATE(I_GMT) {
 		H2_TRY_STR_LAMBDA("gmt", {
+			/*
+			 * The st[][]-table is not used because it is known
+			 * that I_GMT is followed by I_Res.
+			 */
 			__FSM_I_JMP(I_Res);
 		}, I_GMT, I_Res);
 		TRY_STR_INIT();
