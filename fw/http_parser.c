@@ -7705,7 +7705,10 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
 
-/*
+/**
+ * Parse Tempesta FW session redirection mark in URI into req->mark or
+ * normal URI path to parser->hdr.
+ *
  * Nested FSM with explicit fine-grained fixups, should employ
  * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
  * H2_TRY_STR_LAMBDA_fixup() everywhere.
@@ -7730,14 +7733,21 @@ __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 			/*
 			 * The end of ':path' header has been met; thus, we can
 			 * just go out, and the parsed '/' will be fixed up in
-			 * the outside state after returning.
+			 * the outside state Req_Path after returning.
 			 */
 			TFW_STR_INIT(&req->mark);
-			return __data_off(p + 1);
+			return 0;
 		}, 0);
 	}
 
 	__FSM_STATE(Req_I_UriMarkName) {
+		/*
+		 * Lookup for Tempesta FW URI marker.
+		 * If there is no such marker, then there is zero matching and
+		 * p remains the same. However a valid URI may have the same
+		 * prefix with the Tempesta FW marker. In this case we move the
+		 * whole matching perfix to parser->hdr.
+		 */
 		str = tfw_http_sess_mark_name();
 		H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, &req->mark, {
 			parser->to_read = tfw_http_sess_mark_size();
@@ -7745,6 +7755,9 @@ __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_UriMarkName, Req_I_UriMarkValue);
 		/*
+		 * __try_str() in H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup()
+		 * didn't find a match, i.e. returned CSTR_NEQ.
+		 *
 		 * In case of HTTP/2 processing we need not set @req->uri_path
 		 * here; instead, the value of ':path' pseudo-header in
 		 * @req->h_tbl (currently @parser->hdr) is used. If mark isn't
@@ -8037,6 +8050,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		__fsm_sz = tfw_match_token(p, __fsm_n);
 		if (unlikely(__fsm_sz != __fsm_n))
 			__FSM_H2_DROP(RGen_HdrOtherN);
+		/*
+		 * Use (data, len) instead of (p, __fsm_n) since we moved p in
+		 * previous states trying known header names.
+		 */
 		__msg_hdr_chunk_fixup(data, len);
 		if (unlikely(!fin))
 			__FSM_H2_POSTPONE(RGen_HdrOtherN);
@@ -8112,26 +8129,26 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 		if (!parser->_i_st)
 			TRY_STR_INIT();
+		/* __fsm_n == CSTR_NEQ if the path doesn't start with '/'. */
 		__fsm_n = __h2_req_parse_mark(req, p, __data_remain(p), fin);
 		if (__fsm_n == CSTR_POSTPONE)
 			__FSM_H2_POSTPONE(Req_Mark);
 		if (__fsm_n < 0) {
 			__FSM_H2_DROP(Req_Mark);
 		}
-		WARN_ON_ONCE(!__fsm_n);
 		parser->_i_st = NULL;
 
+		/*
+		 * All data is already fixed up in __h2_req_parse_mark()
+		 * into parser->hdr.
+		 */
+		if (!__fsm_n)
+			__FSM_JMP(Req_Path);
 		if (TFW_STR_EMPTY(&req->mark)) {
-			/*
-			 * All @__fsm_n data is already fixed up in
-			 * @__h2_req_parse_mark() (into @parser->hdr), except
-			 * the case of final chunk of the ':path' header, but
-			 * in this case the reaming data will be fixed up below,
-			 * in @__FSM_H2_PSHDR_MOVE_FIN(), just before the exit.
-			 */
-			WARN_ON_ONCE(__fsm_n > 1);
-			__FSM_H2_PSHDR_MOVE_FIN(Req_Mark, __fsm_n, Req_Path);
+			/* Common path prefix with the redirection mark. */
+			__FSM_H2_PSHDR_MOVE_DROP_nofixup(Req_Mark, __fsm_n, Req_Path);
 		}
+		/* Found Tempest FW redirection marker. */
 		__FSM_H2_PSHDR_MOVE_DROP_nofixup(Req_Mark, __fsm_n, Req_MarkEnd);
 	}
 
