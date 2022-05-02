@@ -332,11 +332,27 @@ do {									\
 /*
  * __FSM_I_MOVE_fixup_xxx() and __FSM_I_MATCH_fixup_xxx() family macroses
  * fixup p + n and p + __fsm_sz appropriately. They are to be used for explicit
- * fine-grained control of chunking within a string:
- * i.e. a caller can explicitly chop an ingress contiguous string
- * into multiple chunks thus generating efficient key/value pairs.
- * These explicit fixups should not be mixed with regular fixups
- * (__FSM_I_MOVE and others).
+ * fine-grained control of chunking within a string, i.e. a caller can
+ * explicitly chop an ingress contiguous string into multiple chunks thus
+ * generating efficient key/value pairs.
+ *
+ * Normal MOVE macros fixup @data if there is not enough data and we're going to
+ * return TFW_POSTPONE. We can not use @p since we don't know how many states we
+ * executed on the current chunk, so we have no length of currently matched data.
+ * In other words if you call a fixup function first and next you do normal
+ * movement, then you might see the same data twice in the parsed data.
+ *
+ * Following rules must be meet for safe fixup logic:
+ * 1. explicit fixups should not be mixed with regular fixups (__FSM_I_MOVE and
+ *    others)
+ * 2. call __msg_field_open() to initialize a new _empty_ TfwStr chunk (see
+ *    __tfw_http_msg_add_str_data())
+ * 3. fixup data in each state (so that you know how much data you processed)
+ *    and make sure that __tfw_http_msg_add_str_data() is called by macros
+ *    for @p, not @data. With this approach headers are processed, e.g. see
+ *    __FSM_MOVE_hdr_fixup() with transition to Req_HdrAcceptV,
+ *    __msg_hdr_chunk_fixup(p, __fsm_sz) in RGEN_OWS() and finally
+ *    __msg_hdr_chunk_fixup(p, __fsm_n) in __TFW_HTTP_PARSE_RAWHDR_VAL().
  */
 /*
  * Fixup the current chunk that starts at the current data pointer
@@ -1657,10 +1673,6 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 	return 0;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
-   __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
-*/
 static int
 __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -1963,10 +1975,6 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
 
 /**
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
- *
  */
 static int
 __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
@@ -2496,11 +2504,6 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__req_parse_cache_control);
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup()
- * everywhere.
- */
 static int
 __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -2615,9 +2618,6 @@ __FSM_STATE(st) {							\
  * Function have extended behaviour when processing client connection.
  *
  * RFC 7232 2.3.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -3273,9 +3273,6 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
  * The meaning of "Pragma: no-cache" in responses is not specified. However,
  * some applications may expect it to prevent caching being in responses as
  * well.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -3334,9 +3331,6 @@ STACK_FRAME_NON_STANDARD(__parse_pragma);
 /**
  * Parse Upgrade header field. Its semantics is described in RFC 7230 6.1.
  * For now only websocket protocol supported.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -3502,9 +3496,6 @@ done:
 
 /**
  * Parse X-Forwarded-For header, RFC 7239.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -5987,11 +5978,6 @@ do {										\
  *	HTTP/2 request parsing
  * ------------------------------------------------------------------------
  */
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			 bool fin)
@@ -6521,11 +6507,6 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	return ret >= 0 ? CSTR_NEQ : ret;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			    bool fin)
@@ -6868,11 +6849,6 @@ finalize:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_content_type);
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
@@ -6981,11 +6957,6 @@ __FSM_STATE(st) {							\
 	return CSTR_NEQ;						\
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			 bool fin)
@@ -7476,11 +7447,6 @@ done:
 	return r;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			       bool fin)
@@ -7708,10 +7674,6 @@ STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
 /**
  * Parse Tempesta FW session redirection mark in URI into req->mark or
  * normal URI path to parser->hdr.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
  */
 static int
 __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
@@ -9138,9 +9100,6 @@ STACK_FRAME_NON_STANDARD(__resp_parse_age);
 
 /**
  * Parse response Cache-Control, RFC 2616 14.9.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
@@ -9581,10 +9540,6 @@ done:
 	return r;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
- */
 static int
 __resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
