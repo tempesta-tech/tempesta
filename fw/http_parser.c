@@ -7714,12 +7714,13 @@ __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 		H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, &req->mark, {
 			parser->to_read = tfw_http_sess_mark_size();
 		}, {
+			/*
+			 * __try_str() in H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup()
+			 * didn't find a match, i.e. returned CSTR_NEQ.
+			 */
 			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_UriMarkName, Req_I_UriMarkValue);
 		/*
-		 * __try_str() in H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup()
-		 * didn't find a match, i.e. returned CSTR_NEQ.
-		 *
 		 * In case of HTTP/2 processing we need not set @req->uri_path
 		 * here; instead, the value of ':path' pseudo-header in
 		 * @req->h_tbl (currently @parser->hdr) is used. If mark isn't
