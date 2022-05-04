@@ -414,6 +414,32 @@ TEST(http2_parser, parses_enforce_ext_req_rmark)
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
 	}
 
+	/* Partial confusion with redir_mark_eq ("__tfw="), abort with `fin`. */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/" RMARK_NAME "/"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/" RMARK_NAME "/");
+		EXPECT_TRUE(TFW_STR_EMPTY(&req->mark));
+	}
+
+	/* Partial confusion with redir_mark_eq ("__tfw="), abort without `fin`. */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(STR(":method"), STR("GET"));
+		HEADER(STR(":scheme"), STR("https"));
+		HEADER(STR(":path"), STR("/" RMARK_NAME "/a"));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/" RMARK_NAME "/a");
+		EXPECT_TRUE(TFW_STR_EMPTY(&req->mark));
+	}
+
 	/* Wrong RMARK formats. */
 	EXPECT_BLOCK_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
