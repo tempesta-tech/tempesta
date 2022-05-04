@@ -217,7 +217,6 @@ write_to_frame_index(unsigned long index,
 	NEV_IND_BY_##name_desc;							\
 	value_desc;
 
-
 #define __FRAME_BEGIN(type)							\
 do {										\
 	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
@@ -238,7 +237,6 @@ do {										\
 	FRAMES_BUF_SIZE_ADD(frame_sz);						\
 } while (0)
 
-
 #define HEADERS_FRAME_BEGIN() \
 	__FRAME_BEGIN(HTTP2_HEADERS)
 
@@ -251,7 +249,6 @@ do {										\
 
 #define HEADERS_FRAME_END() \
 	__FRAME_END()
-
 
 #define DATA_FRAME_BEGIN() \
 	__FRAME_BEGIN(HTTP2_DATA)
@@ -268,7 +265,6 @@ do {										\
 
 #define DATA_FRAME_END() \
 	__FRAME_END()
-
 
 #define ASSIGN_FRAMES_FOR_H1(str, str_len)					\
 do {										\
@@ -325,7 +321,6 @@ do {										\
 
 #define GET_CURRENT_FRAME() \
 	({frames[frame_index];})
-
 
 DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
