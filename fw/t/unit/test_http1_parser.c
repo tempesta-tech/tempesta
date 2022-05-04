@@ -18,394 +18,11 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-/*
- * Need to define DEBUG before first the inclusions of
- * lib/log.h and linux/printk.h.
- */
-#if DBG_HTTP_PARSER > 0
-#undef DEBUG
-#define DEBUG DBG_HTTP_PARSER
-#endif
 
-#include <linux/types.h>
-#include <asm/fpu/api.h>
-#include <linux/vmalloc.h>
+#include "test_http_parser_common.h"
 
-#include "test.h"
-#include "helpers.h"
-#include "fuzzer.h"
-
-#ifdef EXPORT_SYMBOL
-#undef EXPORT_SYMBOL
-#endif
-#define EXPORT_SYMBOL(...)
-
-#include "http_parser.c"
-#include "http_sess.c"
-#include "str.c"
-#include "ss_skb.c"
-#include "msg.c"
-#include "http_msg.c"
-
-static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
-                                   256, 1500, 9216, 1024*1024
-                                  /* to fit a message of 'any' size */
-                                 };
-static unsigned int chunk_size_index = 0;
-#define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
-
-enum {
-	CHUNK_OFF,
-	CHUNK_ON
-};
-
-static TfwHttpReq *req, *sample_req;
-static TfwHttpResp *resp;
-static TfwH2Conn conn;
-static TfwStream stream;
-static char h2_buf[1024];
-static unsigned int h2_len = 0;
-static size_t hm_exp_len = 0;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
-
-#define TOKEN_ALPHABET		"!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQ"	\
-				"RSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~"
-#define QETOKEN_ALPHABET	TOKEN_ALPHABET "\"="
-#define OTHER_DELIMETERS	"(),/:;<=>?@[\\]{}"
-#define OBS_TEXT		"\x80\x90\xC8\xAE\xFE\xFF"
-#define VCHAR_ALPHABET		"\x09 \"" OTHER_DELIMETERS 		\
-				TOKEN_ALPHABET OBS_TEXT
-#define ETAG_ALPHABET		OTHER_DELIMETERS TOKEN_ALPHABET OBS_TEXT
-
-static
-unsigned int
-tfw_h2_encode_str(const char *str, char *buf)
-{
-	TfwHPackInt hpint;
-	unsigned int len = strlen(str);
-	write_int(len, 0x7f, 0, &hpint);
-	memcpy_fast(buf, hpint.buf, hpint.sz);
-	memcpy_fast(buf + hpint.sz, str, len);
-	return hpint.sz + len;
-}
-
-#define H2_HDR_HDR_SZ 9
-#define LIT_HDR_FLD_WO_IND 0x00
-static
-unsigned int
-tfw_h2_pack_hdr_frame(const char *str, char buf[], unsigned int buf_len)
-{
-	unsigned long hdrs_len = 0;
-	TfwFrameHdr frame_hdr = {.flags = HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM,
-							 .type = HTTP2_HEADERS,
-							 .stream_id = 1};
-	char **strp, *hdr_one, *hdr, **hdrp, *hdr_val;
-	char str_buf[256] = {0};
-	char *_str = str_buf;
-
-	BUG_ON(strlen(str) + 1 > ARRAY_SIZE(str_buf));
-
-	memcpy_fast(_str, str, strlen(str));
-
-	strp = &_str;
-	do {
-		hdr_one = strsep(strp, "\n");
-		hdr = hdr_one;
-		if (*hdr == ':') {
-			if (!*(++hdr))
-				continue;
-		}
-		hdrp = &hdr;
-		strsep(hdrp, ":");
-		hdr_val = hdrp ? strim(*hdrp) : "";
-		*(buf + H2_HDR_HDR_SZ + hdrs_len++) = LIT_HDR_FLD_WO_IND;
-		hdrs_len += tfw_h2_encode_str(hdr_one,
-					      buf + H2_HDR_HDR_SZ + hdrs_len);
-		hdrs_len += tfw_h2_encode_str(hdr_val,
-					      buf + H2_HDR_HDR_SZ + hdrs_len);
-	} while (*strp);
-
-	frame_hdr.length = hdrs_len;
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-	BUG_ON(frame_hdr.length + H2_HDR_HDR_SZ > buf_len);
-	return frame_hdr.length + H2_HDR_HDR_SZ;
-}
-
-static int
-split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
-{
-	size_t pos = 0;
-	unsigned int parsed;
-	int r = 0;
-	TfwHttpMsg *hm = (type == FUZZ_RESP)
-			? (TfwHttpMsg *)resp
-			: (TfwHttpMsg *)req;
-
-	BUG_ON(type != FUZZ_REQ && type != FUZZ_REQ_H2 && type != FUZZ_RESP);
-	while (pos < len) {
-		if (chunk_size >= len - pos)
-			/* At the last chunk */
-			chunk_size = len - pos;
-		TEST_DBG3("split: len=%zu pos=%zu\n",
-			  len, pos);
-		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
-		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, str + pos, chunk_size, &parsed);
-		else
-			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
-
-		pos += chunk_size;
-		hm->msg.len += parsed;
-
-		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
-		if (r != TFW_POSTPONE)
-			return r;
-	}
-	BUG_ON(pos != len);
-
-	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
-		if (!(r = tfw_http_parse_check_bodyless_meth(req))) {
-			__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
-			r = tfw_h2_parse_req_finish(req);
-		}
-	}
-
-	return r;
-}
-
-/**
- * Response must be paired with request to be parsed correctly. Update sample
- * request for further response parsing.
- */
-static int
-set_sample_req(unsigned char *str)
-{
-	size_t len = strlen(str);
-	unsigned int parsed;
-
-	if (sample_req)
-		test_req_free(sample_req);
-
-	sample_req = test_req_alloc(len);
-
-	return tfw_http_parse_req(sample_req, str, len, &parsed);
-}
-
-static void
-test_case_parse_prepare_http(const char *str, size_t sz_diff)
-{
-	chunk_size_index = 0;
-	hm_exp_len = strlen(str) - sz_diff;
-}
-
-static void
-test_case_parse_prepare_h2(const char *str, size_t sz_diff)
-{
-	h2_len = tfw_h2_pack_hdr_frame(str, h2_buf, ARRAY_SIZE(h2_buf));
-	h2_len -= H2_HDR_HDR_SZ;
-
-	tfw_h2_context_init(&conn.h2);
-	conn.h2.hdr.type = HTTP2_HEADERS;
-	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
-
-	chunk_size_index = 0;
-	hm_exp_len = h2_len - sz_diff;
-}
-
-/**
- * The function is designed to be called in a loop, e.g.
- *   while(!do_split_and_parse(str, len, type, chunk_mode)) { ... }
- *
- * type may be FUZZ_REQ or FUZZ_REQ_H2 or FUZZ_RESP.
- *
- * On each iteration it splits the @str into fragments and pushes
- * them to the HTTP parser.
- *
- * That is done because:
- *  - HTTP pipelining: the feature implies that such a "split" may occur at
- *    any position of the input string. THe HTTP parser should be able to handle
- *    that, and we would like to test it.
- *  - Code coverage: the parser contains some optimizations for non-fragmented
- *    data, so we need to generate all possible fragments to test both "fast
- *    path" and "slow path" execution.
- *
- * The function is stateful:
- *  - It puts the parsed request or response to the global variable
- *  @req or @resp (on each call, depending on the message type).
- *  - It maintains the internal state between calls.
- *
- * Return value:
- *  == 0 - OK: current step of the loop is done without errors, proceed.
- *  <  0 - Error: the parsing is failed.
- *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
- */
-static int
-do_split_and_parse(unsigned char *str, unsigned int len, int type, int chunk_mode)
-{
-	int r;
-	unsigned int chunk_size;
-
-	BUG_ON(!str);
-
-	if (chunk_size_index == CHUNK_SIZE_CNT)
-		/*
-		 * Return any positive value to indicate that
-		 * all defined chunk sizes were tested and
-		 * no more iterations needed.
-		 */
-		return 1;
-
-	if (type == FUZZ_REQ) {
-		if (req)
-			test_req_free(req);
-
-		req = test_req_alloc(len);
-	}
-	else if (type == FUZZ_REQ_H2) {
-		if (req)
-			test_req_free(req);
-
-		req = test_req_alloc(len);
-		conn.h2.hpack.state = 0;
-		req->conn = (TfwConn*)&conn;
-		req->pit.parsed_hdr = &stream.parser.hdr;
-		req->stream = &stream;
-		tfw_http_init_parser_req(req);
-		stream.msg = (TfwMsg*)req;
-	}
-	else if (type == FUZZ_RESP) {
-		if (resp)
-			test_resp_free(resp);
-
-		resp = test_resp_alloc(len);
-		tfw_http_msg_pair(resp, sample_req);
-	}
-	else {
-		BUG();
-	}
-
-	chunk_size = chunk_mode == CHUNK_OFF
-			? len
-			: CHUNK_SIZES[chunk_size_index];
-
-	TEST_DBG3("%s: chunk_mode=%d, chunk_size_index=%u, chunk_size=%u\n",
-		    __func__, chunk_mode, chunk_size_index, chunk_size);
-
-	r = split_and_parse_n(str, type, len, chunk_size);
-
-	if (chunk_mode == CHUNK_OFF || CHUNK_SIZES[chunk_size_index] >= len)
-		/*
-		 * Stop splitting message into pieces bigger than
-		 * the message itself.
-		 */
-		chunk_size_index = CHUNK_SIZE_CNT;
-	else
-		/* Try next size, if any. on next interation */
-		chunk_size_index++;
-
-	return r;
-}
-
-/**
- * To validate message parsing we provide text string which describes
- * HTTP message from start to end. If there any unused bytes after
- * message is successfully parsed, then parsing was incorrect.
- */
-static int
-validate_data_fully_parsed(int type)
-{
-	TfwHttpMsg *hm = (type == FUZZ_REQ || type == FUZZ_REQ_H2)
-			? (TfwHttpMsg *)req
-			: (TfwHttpMsg *)resp;
-
-	EXPECT_EQ(hm->msg.len, hm_exp_len);
-	return hm->msg.len == hm_exp_len;
-}
-
-#define TRY_PARSE_EXPECT_PASS(str, type, chunk_mode)			\
-({						    			\
-	int _err = type == FUZZ_REQ_H2		    			\
-		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len,	\
-				     type, chunk_mode)			\
-		: do_split_and_parse(str, strlen(str),			\
-				     type, chunk_mode);			\
-	if (_err == TFW_BLOCK || _err == TFW_POSTPONE			\
-	    || !validate_data_fully_parsed(type))   			\
-		TEST_FAIL("can't parse %s (code=%d):\n%s",		\
-			  (type == FUZZ_REQ	    			\
-			   || type == FUZZ_REQ_H2			\
-			   ? "request" : "response"),			\
-			  _err, (str));					\
-	__fpu_schedule();						\
-	_err == TFW_PASS;						\
-})
-
-#define TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode)			\
-({									\
-	int _err = type == FUZZ_REQ_H2					\
-		? do_split_and_parse(h2_buf + H2_HDR_HDR_SZ, h2_len,	\
-				     type, chunk_mode)			\
-		: do_split_and_parse(str, strlen(str),			\
-				     type, chunk_mode);			\
-	if (_err == TFW_PASS)						\
-		TEST_FAIL("%s is not blocked as expected:\n%s",		\
-			  (type == FUZZ_REQ				\
-			   || type == FUZZ_REQ_H2			\
-			   ? "request" : "response"),			\
-			       (str));					\
-	__fpu_schedule();						\
-	_err == TFW_BLOCK || _err == TFW_POSTPONE;			\
-})
-
-#define __FOR_REQ(str, sz_diff, type, chunk_mode)			\
-	TEST_LOG("=== request: [%s]\n", str);				\
-	type == FUZZ_REQ_H2 ?						\
-		test_case_parse_prepare_h2(str, sz_diff) :		\
-		test_case_parse_prepare_http(str, sz_diff);		\
-	while (TRY_PARSE_EXPECT_PASS(str, type, chunk_mode))
-
-#define FOR_REQ(str)						\
-	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
-#define FOR_REQ_H2(str)						\
-	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_ON)
-#define FOR_REQ_H2_CHUNK_OFF(str)				\
-	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
-
-#define __EXPECT_BLOCK_REQ(str, type, chunk_mode)			\
-do {									\
-	TEST_LOG("=== request: [%s]\n", str);				\
-	type == FUZZ_REQ_H2 ?						\
-		test_case_parse_prepare_h2(str, 0) :			\
-		test_case_parse_prepare_http(str, 0);			\
-	while (TRY_PARSE_EXPECT_BLOCK(str, type, chunk_mode));		\
-} while (0)
-
-#define EXPECT_BLOCK_REQ(str)					\
-	__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2(str)				\
-	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)			\
-	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_OFF)
-
-#define __FOR_RESP(str, sz_diff, chunk_mode)				\
-	TEST_LOG("=== response: [%s]\n", str);				\
-	test_case_parse_prepare_http(str, sz_diff);			\
-	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP, chunk_mode))
-
-#define FOR_RESP(str)	__FOR_RESP(str, 0, CHUNK_ON)
-
-#define EXPECT_BLOCK_RESP(str)						\
-do {									\
-	TEST_LOG("=== response: [%s]\n", str);				\
-	test_case_parse_prepare_http(str, 0);				\
-	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP, CHUNK_ON));	\
-} while (0)
-
-#define EXPECT_TFWSTR_EQ(tfw_str, cstr) 			\
-	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
 
 #define REQ_SIMPLE_HEAD		"GET / HTTP/1.1\r\n"
 #define EMPTY_REQ		REQ_SIMPLE_HEAD "\r\n"
@@ -453,82 +70,8 @@ do {									\
 		EXPECT_TFWSTR_EQ(&resp->h_tbl->tbl[id], header);\
 	}
 
-#define EXPECT_BLOCK_DIGITS(head, tail, BLOCK_MACRO)		\
-	BLOCK_MACRO(head tail);					\
-	BLOCK_MACRO(head "  " tail);				\
-	BLOCK_MACRO(head "5a" tail);				\
-	BLOCK_MACRO(head "\"" tail);				\
-	BLOCK_MACRO(head "=" tail);				\
-	BLOCK_MACRO(head "-1" tail);				\
-	BLOCK_MACRO(head "0.99" tail);				\
-	BLOCK_MACRO(head "dummy" tail);				\
-	BLOCK_MACRO(head "4294967296" tail);			\
-	BLOCK_MACRO(head "9223372036854775807" tail);		\
-	BLOCK_MACRO(head "9223372036854775808" tail);		\
-	BLOCK_MACRO(head "18446744073709551615" tail);		\
-	BLOCK_MACRO(head "18446744073709551616" tail)
 
-#define EXPECT_BLOCK_SHORT(head, tail, BLOCK_MACRO)		\
-	BLOCK_MACRO(head "65536" tail);				\
-	BLOCK_MACRO(head "2147483647" tail);			\
-	BLOCK_MACRO(head "2147483648" tail);			\
-	BLOCK_MACRO(head "4294967295" tail)
-/*
- * Test that the parsed string was split to the right amount of chunks and all
- * the chunks has the same flags.
- */
-void
-test_string_split(const TfwStr *expected, const TfwStr *parsed)
-{
-	TfwStr *end_p, *end_e, *c_p, *c_e;
-
-	BUG_ON(TFW_STR_PLAIN(expected));
-	EXPECT_FALSE(TFW_STR_PLAIN(parsed));
-	if (TFW_STR_PLAIN(parsed))
-		return;
-
-	EXPECT_GE(parsed->nchunks, expected->nchunks);
-	EXPECT_EQ(parsed->len, expected->len);
-	if (parsed->len != expected->len)
-		return;
-
-	c_p = parsed->chunks;
-	end_p = c_p + parsed->nchunks;
-	c_e = expected->chunks;
-	end_e = c_e + expected->nchunks;
-
-	while (c_e < end_e) {
-		unsigned short flags = c_e->flags;
-		TfwStr e_part = { .chunks = c_e }, p_part = { .chunks = c_p };
-
-		while ((c_e < end_e) && (c_e->flags == flags)) {
-			e_part.nchunks++;
-			e_part.len += c_e->len;
-			c_e++;
-		}
-		while ((c_p < end_p) && (c_p->flags == flags)) {
-			p_part.nchunks++;
-			p_part.len += c_p->len;
-			c_p++;
-		}
-		EXPECT_EQ(p_part.len, e_part.len);
-		if (p_part.len != e_part.len)
-			return;
-		EXPECT_OK(tfw_strcmp(&e_part, &p_part));
-	}
-	EXPECT_EQ(c_p, end_p);
-	EXPECT_EQ(c_e, end_e);
-}
-
-static inline int
-number_to_strip(TfwHttpReq *req)
-{
-	return
-		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
-		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
-}
-
-TEST(http_parser, leading_eol)
+TEST(http1_parser, leading_eol)
 {
 	FOR_REQ(EMPTY_REQ)
 		EXPECT_EQ(number_to_strip(req), 0);
@@ -550,7 +93,7 @@ TEST(http_parser, leading_eol)
 	FOR_RESP("\n\n\n" EMPTY_RESP);
 }
 
-TEST(http_parser, parses_req_method)
+TEST(http1_parser, parses_req_method)
 {
 #define TEST_REQ_METHOD(METHOD)					\
 	FOR_REQ(#METHOD " /filename HTTP/1.1\r\n\r\n")		\
@@ -622,7 +165,7 @@ TEST(http_parser, parses_req_method)
 	EXPECT_BLOCK_REQ("POS\t /filename HTTP/1.1\r\n\r\n");
 }
 
-TEST(http_parser, parses_req_uri)
+TEST(http1_parser, parses_req_uri)
 {
 #define TEST_URI_PATH(req_uri_path)					\
 	FOR_REQ("GET " req_uri_path " HTTP/1.1\r\n\r\n")		\
@@ -691,7 +234,7 @@ TEST(http_parser, parses_req_uri)
 #undef TEST_URI_PATH
 }
 
-TEST(http_parser, parses_enforce_ext_req)
+TEST(http1_parser, parses_enforce_ext_req)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"\r\n")
@@ -727,7 +270,7 @@ TEST(http_parser, parses_enforce_ext_req)
 	}
 }
 
-TEST(http_parser, parses_enforce_ext_req_rmark)
+TEST(http1_parser, parses_enforce_ext_req_rmark)
 {
 /*
  * Redirection attempt number, timestamp and calculated valid
@@ -810,7 +353,7 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
 }
 
 /* TODO add HTTP attack examples. */
-TEST(http_parser, mangled_messages)
+TEST(http1_parser, mangled_messages)
 {
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "POST / HTTP/1.1\r\n"
@@ -833,7 +376,7 @@ TEST(http_parser, mangled_messages)
 /**
  * Test for allowed characters in different parts of HTTP message.
  */
-TEST(http_parser, alphabets)
+TEST(http1_parser, alphabets)
 {
 	FOR_REQ("PUT / HTTP/1.1\r\n"
 		"Host: test\r\n"
@@ -882,7 +425,7 @@ TEST(http_parser, alphabets)
 /**
  * Test for case (in)sensitive matching of letters and special characters.
  */
-TEST(http_parser, casesense)
+TEST(http1_parser, casesense)
 {
 	FOR_REQ("PUT / HTTP/1.1\r\n"
 		"hOST: test\r\n"
@@ -933,7 +476,7 @@ TEST(http_parser, casesense)
 /**
  * Test that we don't treat invalid token prefixes as allowed tokens.
  */
-TEST(http_parser, hdr_token_confusion)
+TEST(http1_parser, hdr_token_confusion)
 {
 	/*
 	 * Headers must contain at least single character, otherwise
@@ -954,7 +497,7 @@ TEST(http_parser, hdr_token_confusion)
 			  "\r\n");
 }
 
-TEST(http_parser, fills_hdr_tbl_for_req)
+TEST(http1_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc, *h_pragma,
@@ -1072,7 +615,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	}
 }
 
-TEST(http_parser, fills_hdr_tbl_for_resp)
+TEST(http1_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_age, *h_date, *h_exp;
@@ -1196,7 +739,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	}
 }
 
-TEST(http_parser, cache_control)
+TEST(http1_parser, cache_control)
 {
 	TfwStr dummy_header = { .data = "dummy:", .len = SLEN("dummy:") };
 
@@ -1481,7 +1024,7 @@ TEST(http_parser, cache_control)
 #undef TEST_COMMON
 }
 
-TEST(http_parser, status)
+TEST(http1_parser, status)
 {
 #define EXPECT_BLOCK_STATUS(status)				\
 	EXPECT_BLOCK_RESP("HTTP/1.0" status "OK\r\n"		\
@@ -1517,7 +1060,7 @@ TEST(http_parser, status)
 #undef EXPECT_BLOCK_STATUS
 }
 
-TEST(http_parser, age)
+TEST(http1_parser, age)
 {
 	FOR_RESP_SIMPLE("Age:0")
 	{
@@ -1546,7 +1089,7 @@ TEST(http_parser, age)
 	EXPECT_BLOCK_DIGITS("Age:", "", EXPECT_BLOCK_RESP_SIMPLE);
 }
 
-TEST(http_parser, pragma)
+TEST(http1_parser, pragma)
 {
 #define ONLY_PRAGMA(header)							\
 	FOR_RESP_SIMPLE(header)							\
@@ -1577,7 +1120,7 @@ TEST(http_parser, pragma)
 #undef ONLY_PRAGMA
 }
 
-TEST(http_parser, suspicious_x_forwarded_for)
+TEST(http1_parser, suspicious_x_forwarded_for)
 {
 	FOR_REQ_SIMPLE("X-Forwarded-For:   [::1]:1234,5.6.7.8   ,"
 		       "  natsys-lab.com:65535  ")
@@ -1591,7 +1134,7 @@ TEST(http_parser, suspicious_x_forwarded_for)
 	EXPECT_BLOCK_REQ_SIMPLE("X-Forwarded-For: ");
 }
 
-TEST(http_parser, parses_connection_value)
+TEST(http1_parser, parses_connection_value)
 {
 	FOR_REQ_SIMPLE("Connection: Keep-Alive")
 	{
@@ -1701,7 +1244,7 @@ TEST(http_parser, upgrade)
 
 }
 
-TEST(http_parser, content_type_in_bodyless_requests)
+TEST(http1_parser, content_type_in_bodyless_requests)
 {
 #define EXPECT_BLOCK_BODYLESS_REQ(METHOD)					\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
@@ -1767,78 +1310,6 @@ TEST(http_parser, content_type_in_bodyless_requests)
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}
 
-#define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)					\
-	EXPECT_BLOCK_REQ_H2(":method: "#METHOD"\n"				\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-length: 0");				\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
-	}									\
-	EXPECT_BLOCK_REQ_H2(":method: "#METHOD"\n"				\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-type: text/plain");			\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
-	}
-
-#define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(METHOD)				\
-	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-length: 0\n"				\
-			    "x-method-override: "#METHOD);			\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
-		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
-	}									\
-	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-length: 0\n"				\
-			    "x-http-method-override: "#METHOD);			\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
-		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
-	}									\
-	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-length: 0\n"				\
-			    "x-http-method: "#METHOD);				\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
-		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
-	}									\
-	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-type: text/plain\n"			\
-			    "x-method-override: "#METHOD);			\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
-		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
-	}									\
-	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-type: text/plain\n"			\
-			    "x-http-method-override: "#METHOD);			\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
-		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
-	}									\
-	EXPECT_BLOCK_REQ_H2(":method: PUT\n"					\
-			    ":scheme: https\n"					\
-			    ":path: /\n"					\
-			    "content-type: text/plain\n"			\
-			    "x-http-method: "#METHOD);				\
-	{									\
-		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
-		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
-	}
-
 
 	EXPECT_BLOCK_BODYLESS_REQ(GET);
 	EXPECT_BLOCK_BODYLESS_REQ(HEAD);
@@ -1858,47 +1329,12 @@ TEST(http_parser, content_type_in_bodyless_requests)
 				 "Content-Type: text/plain");
 	}
 
-	EXPECT_BLOCK_BODYLESS_REQ_H2(GET);
-	EXPECT_BLOCK_BODYLESS_REQ_H2(HEAD);
-	EXPECT_BLOCK_BODYLESS_REQ_H2(DELETE);
-	EXPECT_BLOCK_BODYLESS_REQ_H2(TRACE);
-
-	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(GET);
-	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(HEAD);
-	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(DELETE);
-	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(TRACE);
-
-	FOR_REQ_H2(":method: OPTIONS\n"
-		   ":scheme: https\n"
-		   ":path: /\n"
-		   "content-type: text/plain");
-
 
 #undef EXPECT_BLOCK_BODYLESS_REQ
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE
-#undef EXPECT_BLOCK_BODYLESS_REQ_H2
-#undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2
 }
 
-TEST(http_parser, http2_check_important_fields)
-{
-	EXPECT_BLOCK_REQ_H2(":method: GET\n"
-			    ":scheme: http\n"
-			    ":path: /");
-
-	FOR_REQ_H2(":method: GET\n"
-		   ":scheme: https\n"
-		   ":path: /\n"
-		   "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\n"
-		   "Cache-Control: max-age=1, dummy, no-store, min-fresh=30");
-
-	EXPECT_BLOCK_REQ_H2(":method: GET\n"
-			    ":scheme: https\n"
-			    ":path: /\n"
-			    "connection: Keep-Alive");
-}
-
-TEST(http_parser, content_length)
+TEST(http1_parser, content_length)
 {
 	/* Content-Length is mandatory for responses. */
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n\r\n");
@@ -2058,7 +1494,7 @@ TEST(http_parser, content_length)
 #undef RESP
 }
 
-TEST(http_parser, eol_crlf)
+TEST(http1_parser, eol_crlf)
 {
 	EXPECT_BLOCK_REQ("\rGET / HTTP/1.1\r\n"
 		         "Host: d.com\r\n"
@@ -2106,7 +1542,7 @@ TEST(http_parser, eol_crlf)
 			 "\r\r\n");
 }
 
-TEST(http_parser, ows)
+TEST(http1_parser, ows)
 {
 	FOR_REQ("GET /a.html HTTP/1.1\r\n"
 		"Host: 		 foo.com 	\r\n"
@@ -2152,7 +1588,7 @@ TEST(http_parser, ows)
 			 "\r\n");
 }
 
-TEST(http_parser, folding)
+TEST(http1_parser, folding)
 {
 	EXPECT_BLOCK_REQ_SIMPLE("Host:    \r\n"
 				"   foo.com\r\n"
@@ -2163,7 +1599,7 @@ TEST(http_parser, folding)
 				"	close");
 }
 
-TEST(http_parser, accept)
+TEST(http1_parser, accept)
 {
 #define __FOR_ACCEPT(accept_val, EXPECT_HTML_MACRO)			\
 	FOR_REQ_SIMPLE("Accept:" accept_val)				\
@@ -2184,12 +1620,11 @@ TEST(http_parser, accept)
 	FOR_ACCEPT(HEAD "  ; \t key=val");				\
 	FOR_ACCEPT(HEAD ";key=val;key=val");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";");					\
+	EXPECT_BLOCK_ACCEPT(HEAD ";;");					\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"\"\"");			\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=\"val");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=val\"");				\
-	EXPECT_BLOCK_ACCEPT(HEAD ";");					\
-	EXPECT_BLOCK_ACCEPT(HEAD ";;");					\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key=");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key==");				\
 	EXPECT_BLOCK_ACCEPT(HEAD ";key =val");				\
@@ -2293,7 +1728,7 @@ TEST(http_parser, accept)
 #undef __FOR_ACCEPT
 }
 
-TEST(http_parser, host)
+TEST(http1_parser, host)
 {
 	FOR_REQ_SIMPLE("Host:\r\n"
 		       "Connection: close");
@@ -2411,7 +1846,7 @@ TEST(http_parser, host)
 	EXPECT_BLOCK_REQ_SIMPLE("Host: [fd42:5ca1:e3a7::1000[");
 }
 
-TEST(http_parser, transfer_encoding)
+TEST(http1_parser, transfer_encoding)
 {
 #define FOR_CHUNKED(chunks)						\
 	FOR_REQ("POST / HTTP/1.1\r\n"					\
@@ -2828,7 +2263,7 @@ TEST(http_parser, transfer_encoding)
  * point at location after the headers at the beginning of a message
  * was later reset to point at location after the trailing headers.
  */
-TEST(http_parser, crlf_trailer)
+TEST(http1_parser, crlf_trailer)
 {
 	unsigned int id;
 	DEFINE_TFW_STR(s_custom, "Custom-Hdr:");
@@ -2891,7 +2326,7 @@ TEST(http_parser, crlf_trailer)
 	}
 }
 
-TEST(http_parser, cookie)
+TEST(http1_parser, cookie)
 {
 	FOR_REQ_SIMPLE("Host:\r\n"
 		       "Cookie: session=42; theme=dark")
@@ -2976,7 +2411,7 @@ TEST(http_parser, cookie)
 		       "Cookie: session=\"42; theme=dark");
 }
 
-TEST(http_parser, set_cookie)
+TEST(http1_parser, set_cookie)
 {
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		 "Content-Length: 10\r\n"
@@ -3093,22 +2528,7 @@ TEST(http_parser, set_cookie)
 			  "0123456789");
 }
 
-/* For ETag and If-None-Match headers */
-#define COMMON_ETAG_BLOCK(header, BLOCK_MACRO)		\
-	BLOCK_MACRO(header ": \"dummy\"\r\n"		\
-		   ": \"dummy\"");			\
-	BLOCK_MACRO(header ": \"dummy");		\
-	BLOCK_MACRO(header ": dummy\"");		\
-	BLOCK_MACRO(header ": 'dummy'");		\
-	BLOCK_MACRO(header ": W/ \"dummy\"");		\
-	BLOCK_MACRO(header ": w/\"dummy\"");		\
-	BLOCK_MACRO(header ": \"\x00\"");		\
-	BLOCK_MACRO(header ": \"\x0F\"");		\
-	BLOCK_MACRO(header ": \"\x7F\"");		\
-	BLOCK_MACRO(header ": \" \"");			\
-	BLOCK_MACRO(header ": \"\"\"")
-
-TEST(http_parser, etag)
+TEST(http1_parser, etag)
 {
 #define RESP_ETAG_START						\
 	"HTTP/1.1 200 OK\r\n"					\
@@ -3158,7 +2578,9 @@ TEST(http_parser, etag)
 	/* Same code is used to parse ETag header and If-None-Match header. */
 	ETAG_BLOCK("ETag: \"dummy1\", \"dummy2\"");
 	ETAG_BLOCK("ETag: *\r\n");
-	COMMON_ETAG_BLOCK("ETag", ETAG_BLOCK);
+	COMMON_ETAG_BLOCK("ETag: ", ETAG_BLOCK);
+	ETAG_BLOCK("ETag: \"dummy\"\r\n"
+		       ": \"dummy\"");
 
 #undef ETAG_BLOCK
 #undef FOR_ETAG
@@ -3166,7 +2588,7 @@ TEST(http_parser, etag)
 #undef RESP_ETAG_START
 }
 
-TEST(http_parser, if_none_match)
+TEST(http1_parser, if_none_match)
 {
 #define ETAG_1	ETAG_ALPHABET
 #define ETAG_2	"dummy2"
@@ -3289,16 +2711,16 @@ TEST(http_parser, if_none_match)
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: \"" ETAG_2 "\", * ");
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: *, \"" ETAG_2 "\" ");
 
-	COMMON_ETAG_BLOCK("If-None-Match", EXPECT_BLOCK_REQ_SIMPLE);
+	COMMON_ETAG_BLOCK("If-None-Match: ", EXPECT_BLOCK_REQ_SIMPLE);
+	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: \"dummy\"\r\n"
+					     ": \"dummy\"");
 
 #undef ETAG_1
 #undef ETAG_2
 #undef ETAG_3
 }
 
-#undef COMMON_ETAG_BLOCK
-
-TEST(http_parser, referer)
+TEST(http1_parser, referer)
 {
 	FOR_REQ_SIMPLE("Referer:    http://tempesta-tech.com:8080"
 		       "/cgi-bin/show.pl?entry=tempesta      ");
@@ -3307,7 +2729,7 @@ TEST(http_parser, referer)
 		       ":8080/cgi-bin/show.pl?entry=tempesta");
 }
 
-TEST(http_parser, req_hop_by_hop)
+TEST(http1_parser, req_hop_by_hop)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *field;
@@ -3455,7 +2877,7 @@ TEST(http_parser, req_hop_by_hop)
 #undef REQ_HBH_END
 }
 
-TEST(http_parser, resp_hop_by_hop)
+TEST(http1_parser, resp_hop_by_hop)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *field;
@@ -3622,7 +3044,7 @@ TEST(http_parser, resp_hop_by_hop)
 #define N 6	// Count of generations
 #define MOVE 1	// Mutations per generation
 
-TEST(http_parser, fuzzer)
+TEST(http1_parser, fuzzer)
 {
 	size_t len = 10 * 1024 * 1024;
 	char *str;
@@ -3643,11 +3065,11 @@ TEST(http_parser, fuzzer)
 			switch (ret) {
 			case FUZZ_VALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ, CHUNK_ON);
+				TRY_PARSE_EXPECT_PASS(FUZZ_REQ, CHUNK_ON);
 				break;
 			case FUZZ_INVALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ, CHUNK_ON);
+				TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON);
 				break;
 			case FUZZ_END:
 			default:
@@ -3669,11 +3091,11 @@ resp:
 			switch (ret) {
 			case FUZZ_VALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP, CHUNK_ON);
+				TRY_PARSE_EXPECT_PASS(FUZZ_RESP, CHUNK_ON);
 				break;
 			case FUZZ_INVALID:
 				test_case_parse_prepare_http(str, 0);
-				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP, CHUNK_ON);
+				TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON);
 				break;
 			case FUZZ_END:
 			default:
@@ -3690,7 +3112,7 @@ end:
 	kernel_fpu_begin();
 }
 
-TEST(http_parser, content_type_line_parser)
+TEST(http1_parser, content_type_line_parser)
 {
 #define HEAD "POST / HTTP/1.1\r\nHost: localhost.localdomain\r\nContent-Type: "
 #define TAIL "\nContent-Length: 0\r\nKeep-Alive: timeout=98765\r\n\r\n"
@@ -3893,24 +3315,7 @@ TEST(http_parser, content_type_line_parser)
 #undef TAIL
 }
 
-static
-TfwStr get_next_str_val(TfwStr *str)
-{
-	TfwStr v, *c, *end;
-	unsigned int nchunks = 0;
-
-	v = *str = tfw_str_next_str_val(str);
-	TFW_STR_FOR_EACH_CHUNK(c, &v, end) {
-		if (!(c->flags & TFW_STR_VALUE))
-			break;
-		nchunks++;
-	}
-	v.nchunks = nchunks;
-
-	return v;
-}
-
-TEST(http_parser, xff)
+TEST(http1_parser, xff)
 {
 	TfwStr xff, v;
 
@@ -3934,7 +3339,7 @@ TEST(http_parser, xff)
 	}
 }
 
-TEST(http_parser, date)
+TEST(http1_parser, date)
 {
 #define FOR_EACH_DATE(strdate, expect_seconds)					\
 	FOR_RESP_SIMPLE("Last-Modified:" strdate)				\
@@ -4214,7 +3619,7 @@ TEST(http_parser, date)
 #undef FOR_EACH_DATE
 }
 
-TEST(http_parser, method_override)
+TEST(http1_parser, method_override)
 {
 	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Host: example.com\r\n"
@@ -4279,7 +3684,7 @@ TEST(http_parser, method_override)
 	}
 }
 
-TEST(http_parser, vchar)
+TEST(http1_parser, vchar)
 {
 /* Tests that header is validated by ctext_vchar alphabet. */
 #define TEST_VCHAR_HEADER(header, id, MSG_TYPE)				\
@@ -4384,7 +3789,7 @@ TEST(http_parser, vchar)
 #undef TEST_VCHAR_HEADER
 }
 
-TEST(http_parser, x_tempesta_cache)
+TEST(http1_parser, x_tempesta_cache)
 {
 	FOR_REQ_SIMPLE("X-Tempesta-Cache: get ") {
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_PURGE_GET, req->flags));
@@ -4400,7 +3805,7 @@ TEST(http_parser, x_tempesta_cache)
 	}
 }
 
-TEST(http_parser, perf)
+TEST(http1_parser, perf)
 {
 	int i;
 	unsigned int parsed;
@@ -4427,7 +3832,7 @@ do {									\
 
 	for (i = 0; i < 1000; ++i) {
 		/*
-		 * Benchmark serverla requests to make the headers parsing more
+		 * Benchmark several requests to make the headers parsing more
 		 * visible in the performance results. Also having L7 DDoS in
 		 * mind we need to to care about requests more than responses.
 		 */
@@ -4521,7 +3926,7 @@ do {									\
 #undef RESP_PERF
 }
 
-TEST_SUITE(http_parser)
+TEST_SUITE(http1_parser)
 {
 	int r;
 
@@ -4531,57 +3936,53 @@ TEST_SUITE(http_parser)
 		return;
 	}
 
-	TEST_RUN(http_parser, leading_eol);
-	TEST_RUN(http_parser, parses_req_method);
-	TEST_RUN(http_parser, parses_req_uri);
-	TEST_RUN(http_parser, mangled_messages);
-	TEST_RUN(http_parser, alphabets);
-	TEST_RUN(http_parser, casesense);
-	TEST_RUN(http_parser, hdr_token_confusion);
-	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
-	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
-	TEST_RUN(http_parser, cache_control);
-	TEST_RUN(http_parser, status);
-	TEST_RUN(http_parser, age);
-	TEST_RUN(http_parser, pragma);
-	TEST_RUN(http_parser, suspicious_x_forwarded_for);
-	TEST_RUN(http_parser, parses_connection_value);
-	TEST_RUN(http_parser, upgrade);
-	TEST_RUN(http_parser, content_type_in_bodyless_requests);
-	TEST_RUN(http_parser, http2_check_important_fields);
-	TEST_RUN(http_parser, content_length);
-	TEST_RUN(http_parser, eol_crlf);
-	TEST_RUN(http_parser, ows);
-	TEST_RUN(http_parser, folding);
-	TEST_RUN(http_parser, accept);
-	TEST_RUN(http_parser, host);
-	TEST_RUN(http_parser, transfer_encoding);
-	TEST_RUN(http_parser, crlf_trailer);
-	TEST_RUN(http_parser, cookie);
-	TEST_RUN(http_parser, set_cookie);
-	TEST_RUN(http_parser, etag);
-	TEST_RUN(http_parser, if_none_match);
-	TEST_RUN(http_parser, referer);
-	TEST_RUN(http_parser, req_hop_by_hop);
-	TEST_RUN(http_parser, resp_hop_by_hop);
-	TEST_RUN(http_parser, fuzzer);
-	TEST_RUN(http_parser, content_type_line_parser);
-	TEST_RUN(http_parser, xff);
-	TEST_RUN(http_parser, date);
-	TEST_RUN(http_parser, method_override);
-	TEST_RUN(http_parser, x_tempesta_cache);
-	TEST_RUN(http_parser, vchar);
+	TEST_RUN(http1_parser, leading_eol);
+	TEST_RUN(http1_parser, parses_req_method);
+	TEST_RUN(http1_parser, parses_req_uri);
+	TEST_RUN(http1_parser, mangled_messages);
+	TEST_RUN(http1_parser, alphabets);
+	TEST_RUN(http1_parser, casesense);
+	TEST_RUN(http1_parser, hdr_token_confusion);
+	TEST_RUN(http1_parser, fills_hdr_tbl_for_req);
+	TEST_RUN(http1_parser, fills_hdr_tbl_for_resp);
+	TEST_RUN(http1_parser, cache_control);
+	TEST_RUN(http1_parser, status);
+	TEST_RUN(http1_parser, age);
+	TEST_RUN(http1_parser, pragma);
+	TEST_RUN(http1_parser, suspicious_x_forwarded_for);
+	TEST_RUN(http1_parser, parses_connection_value);
+	TEST_RUN(http1_parser, content_type_in_bodyless_requests);
+	TEST_RUN(http1_parser, content_length);
+	TEST_RUN(http1_parser, eol_crlf);
+	TEST_RUN(http1_parser, ows);
+	TEST_RUN(http1_parser, folding);
+	TEST_RUN(http1_parser, accept);
+	TEST_RUN(http1_parser, host);
+	TEST_RUN(http1_parser, transfer_encoding);
+	TEST_RUN(http1_parser, crlf_trailer);
+	TEST_RUN(http1_parser, cookie);
+	TEST_RUN(http1_parser, set_cookie);
+	TEST_RUN(http1_parser, etag);
+	TEST_RUN(http1_parser, if_none_match);
+	TEST_RUN(http1_parser, referer);
+	TEST_RUN(http1_parser, req_hop_by_hop);
+	TEST_RUN(http1_parser, resp_hop_by_hop);
+	TEST_RUN(http1_parser, fuzzer);
+	TEST_RUN(http1_parser, content_type_line_parser);
+	TEST_RUN(http1_parser, xff);
+	TEST_RUN(http1_parser, date);
+	TEST_RUN(http1_parser, method_override);
+	TEST_RUN(http1_parser, x_tempesta_cache);
+	TEST_RUN(http1_parser, vchar);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	redir_mark_enabled = true;
+	TFW_HTTP_SESS_REDIR_MARK_ENABLE();
+	TEST_RUN(http1_parser, parses_enforce_ext_req);
+	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
+	TFW_HTTP_SESS_REDIR_MARK_DISABLE();
 
-	TEST_RUN(http_parser, parses_enforce_ext_req);
-	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);
-
-	redir_mark_enabled = false;
-
-	TEST_RUN(http_parser, perf);
+	TEST_RUN(http1_parser, perf);
 }
