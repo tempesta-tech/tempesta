@@ -414,7 +414,7 @@ TEST(http2_parser, parses_enforce_ext_req_rmark)
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
 	}
 
-	/* Partial confusion with redir_mark_eq ("__tfw="), abort woth `fin`. */
+	/* Partial confusion with redir_mark_eq ("__tfw="), abort with `fin`. */
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
 		HEADER(STR(":method"), STR("GET"));
@@ -427,7 +427,7 @@ TEST(http2_parser, parses_enforce_ext_req_rmark)
 		EXPECT_TRUE(TFW_STR_EMPTY(&req->mark));
 	}
 
-	/* Partial confusion with redir_mark_eq ("__tfw="), abort wothout `fin`. */
+	/* Partial confusion with redir_mark_eq ("__tfw="), abort without `fin`. */
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
 		HEADER(STR(":method"), STR("GET"));
