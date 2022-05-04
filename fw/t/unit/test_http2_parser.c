@@ -2359,7 +2359,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -2372,7 +2372,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -2385,7 +2385,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -2400,7 +2400,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_UNKNOWN);	\
