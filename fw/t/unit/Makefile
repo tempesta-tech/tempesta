@@ -33,3 +33,11 @@ ifdef AVX2
 endif
 
 tfw_test-objs = $(subst $(src)/,,$(t-objs))
+
+tfw_test-y +=	\
+	../../http_parser.o	\
+	../../http_sess.o	\
+	../../str.o		\
+	../../ss_skb.o		\
+	../../msg.o		\
+	../../http_msg.o

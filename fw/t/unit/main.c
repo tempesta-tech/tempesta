@@ -28,10 +28,25 @@ MODULE_DESCRIPTION("Tempesta FW tests");
 MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
 
+#define TFW_HTTP_SESS_MOD_INIT()						\
+do {										\
+	extern int tfw_http_sess_init(void);					\
+	int r = tfw_http_sess_init();						\
+	BUG_ON(r);								\
+} while (0)
+
+#define TFW_HTTP_SESS_MOD_EXIT()						\
+do {										\
+	extern int tfw_http_sess_exit(void);					\
+	tfw_http_sess_exit();							\
+} while (0)
+
 static int __init
 tfw_test_init(void)
 {
 	int fail_count = 0;
+
+	TFW_HTTP_SESS_MOD_INIT();
 
 	printk("tfw_test: start\n");
 	fail_count = test_run_all();
@@ -48,6 +63,7 @@ tfw_test_init(void)
 void
 tfw_test_exit(void)
 {
+	TFW_HTTP_SESS_MOD_EXIT();
 }
 
 module_init(tfw_test_init);
