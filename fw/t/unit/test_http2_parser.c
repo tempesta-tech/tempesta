@@ -2672,6 +2672,56 @@ do {										\
 #undef H2_BUF
 }
 
+TEST(http2_parser, fuzzer)
+{
+#define N 6	// Count of generations
+#define MOVE 1	// Mutations per generation
+
+	size_t len = 10 * 1024 * 1024;
+	char *str;
+	unsigned int headers_len = 0, body_len = 0;
+	int ret;
+	int field, i;
+	TfwFuzzContext context;
+
+	kernel_fpu_end();
+	str = vmalloc(len);
+	kernel_fpu_begin();
+
+	fuzz_init(&context, false);
+
+	for (field = SPACES; field < N_FIELDS; field++) {
+		for (i = 0; i < N; i++) {
+			TEST_DBG3("start field: %d request: %d\n", field, i);
+			ret = fuzz_gen_h2(&context, str, str + len, field, MOVE,
+				       FUZZ_REQ_H2, &headers_len, &body_len);
+			INIT_FRAMES();
+			ADD_HEADERS_FRAME(str, headers_len);
+			ADD_DATA_FRAME(str + headers_len, body_len);
+			test_case_parse_prepare_h2();
+			switch (ret) {
+			case FUZZ_VALID:
+				TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON);
+				break;
+			case FUZZ_INVALID:
+				TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);
+				break;
+			case FUZZ_END:
+			default:
+				goto end;
+			}
+
+			/* Fuzzer generates huge debug message flow. */
+			test_debug_relax();
+		}
+	}
+
+end:
+	kernel_fpu_end();
+	vfree(str);
+	kernel_fpu_begin();
+}
+
 TEST_SUITE(http2_parser)
 {
 	TEST_RUN(http2_parser, http2_check_important_fields);
@@ -2690,12 +2740,12 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, cookie);
 	TEST_RUN(http2_parser, if_none_match);
 	TEST_RUN(http2_parser, referer);
-//	TEST_RUN(http2_parser, fuzzer);		// TODO
 	TEST_RUN(http2_parser, content_type_line_parser);
 	TEST_RUN(http2_parser, xff);
 	TEST_RUN(http2_parser, date);
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
+	TEST_RUN(http2_parser, fuzzer);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
