@@ -162,7 +162,7 @@ static unsigned int frame_sz __attribute__((unused)) = 0;
 
 static
 void __attribute__((unused))
-write_to_frame_DATA(char *data, size_t size)
+write_to_frame_data(char *data, size_t size)
 {
 	TfwHPackInt hpint;
 	write_int(size, 0x7F, 0, &hpint);
@@ -172,16 +172,16 @@ write_to_frame_DATA(char *data, size_t size)
 }
 
 #define VALUE(str) \
-	write_to_frame_DATA(str, strlen(str))
+	write_to_frame_data(str, strlen(str))
 
 #define VALUE_RAW(data) \
-	write_to_frame_DATA(data, sizeof(data))
+	write_to_frame_data(data, sizeof(data))
 
 static
 void __attribute__((unused))
-write_to_frame_INDEX(unsigned long index,
-		       unsigned short max,
-		       unsigned short mask)
+write_to_frame_index(unsigned long index,
+		     unsigned short max,
+		     unsigned short mask)
 {
 	TfwHPackInt hpint;
 	write_int(index, max, mask, &hpint);
@@ -190,7 +190,7 @@ write_to_frame_INDEX(unsigned long index,
 }
 
 #define __INDEX(index, max, mask) \
-	write_to_frame_INDEX(index, max, mask)
+	write_to_frame_index(index, max, mask)
 
 #define __NAME(data, mask)							\
 	*frame_buf++ = mask;							\
