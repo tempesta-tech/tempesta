@@ -172,7 +172,7 @@ write_to_frame_data(char *data, size_t size)
 }
 
 #define VALUE(str) \
-	write_to_frame_data(str, strlen(str))
+	write_to_frame_data(str, SLEN(str))
 
 #define VALUE_RAW(data) \
 	write_to_frame_data(data, sizeof(data))
