@@ -58,6 +58,8 @@ typedef enum {
 	SERVER,
 	CACHE_CONTROL,
 	EXPIRES,
+	SCHEME,		// intended only for HTTP2
+	PATH,		// intended only for HTTP2
 	TRANSFER_ENCODING_NUM,
 	URI_PATH_DEPTH,
 	BODY_CHUNKS_NUM,
@@ -67,6 +69,8 @@ typedef enum {
 /*
  * @hdr_flags		- a flag for each header;
  * @fld_flags		- message and contents flags;
+ * @is_buf_not_enough   - a flag is true if generated message did not fit
+ *                        into str (buffer) given in fuzz_gen_h1/fuzz_gen_h2
  */
 typedef struct {
 	int i[N_FIELDS];
@@ -75,11 +79,14 @@ typedef struct {
 	int curr_duplicates;
 	unsigned int hdr_flags;
 	unsigned int fld_flags[N_FIELDS];
+	bool is_buf_not_enough;
 } TfwFuzzContext;
 
 void fuzz_init(TfwFuzzContext *context, bool is_only_valid);
 
-int fuzz_gen(TfwFuzzContext *context, char *str, char *end, field_t start,
+int fuzz_gen_h1(TfwFuzzContext *context, char *str, char *end, field_t start,
 	     int move, int type);
 
+int fuzz_gen_h2(TfwFuzzContext *context, char *str, char *end, field_t start,
+	     int move, int type, unsigned int *headers_len, unsigned int *body_len);
 #endif /* __TFW_FUZZER_H__ */
