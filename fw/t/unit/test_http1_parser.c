@@ -3060,7 +3060,7 @@ TEST(http1_parser, fuzzer)
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
 			TEST_DBG3("start field: %d request: %d\n", field, i);
-			ret = fuzz_gen(&context, str, str + len, field, MOVE,
+			ret = fuzz_gen_h1(&context, str, str + len, field, MOVE,
 				       FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
@@ -3086,7 +3086,7 @@ resp:
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
 			TEST_DBG3("start field: %d response: %d\n", field, i);
-			ret = fuzz_gen(&context, str, str + len, field, MOVE,
+			ret = fuzz_gen_h1(&context, str, str + len, field, MOVE,
 				       FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
