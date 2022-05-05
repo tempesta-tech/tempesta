@@ -564,7 +564,7 @@ do {										\
 do {										\
 	unsigned int data_len;							\
 	BUG_ON(!frame_buf);							\
-	data_len = strlen(data);						\
+	data_len = SLEN(data);							\
 	memcpy_fast(frame_buf, data, data_len);					\
 	frame_buf += data_len;							\
 	BUG_ON(frame_buf > FRAMES_BUF_END());					\
