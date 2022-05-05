@@ -110,209 +110,58 @@ static TfwH2Conn conn;
 static TfwStream stream;
 static size_t hm_exp_len = 0;
 
-typedef struct data_rec
-{
-	char *buf;
-	size_t size;
-} TfwDataRec;
-
-typedef struct header_rec
-{
-	TfwDataRec name;
-	TfwDataRec value;
-} TfwHeaderRec;
-
-typedef struct frame_rec
+/**
+ * Reference to a frame of bytes containing the request data to be parsed.
+ * Such a frame corresponds to one HTTP request.
+ *
+ * @len:	frame length in bytes;
+ * @str:	pointer to frame;
+ * @subtype:	auxiliary field with HTTP/2 frame type that is used only
+ *		for HTTP/2 (FUZZ_REQ_H2) requests.
+ *
+  * Used for types HTTP/1 and HTTP/2 requests.
+ */
+typedef struct
 {
     unsigned int len;
     unsigned char *str;
-    TfwFrameType subtype;	// used only for FUZZ_REQ_H2 cases
+    TfwFrameType subtype;
 } TfwFrameRec;
 
+/**
+ * Service data for working with frames inside the framework
+ * for building and processing HTTP requests.
+ *
+ * @frames:		array of TfwFrameRec entries.
+ * @frames_cnt:		actual count of entries in @frames;
+ * @frames_max_sz:	largest frame size in bytes;
+ * @frames_total_sz:	total size of all frames in bytes.
+ *
+ * ALLOWED_FRAMES_CNT - explicit restriction of allowed frames count.
+ *			The value is selected based on the need for test scenarios;
+ *
+ * Typically, @frames contains logically related entries that need
+ * to be parsed during a single call to do_split_and_parse().
+ *
+ * Used for types HTTP/1 and HTTP/2 requests.
+ */
 #define ALLOWED_FRAMES_CNT 2
-
 static TfwFrameRec frames[ALLOWED_FRAMES_CNT];
 static unsigned int frames_cnt = 0;
 static unsigned int frames_max_sz = 0;
 static unsigned int frames_total_sz = 0;
-static TfwHeaderRec tmp_header_rec __attribute__((unused));
-static unsigned int tmp_frame_sz __attribute__((unused)) = 0;
 
-typedef struct frames_buf_abstract {
-	unsigned int capacity;
-	unsigned int size;
-	unsigned char data[0];
-} TfwFramesBuf;
-
-#define DECLARE_FRAMES_BUF(NAME, CAPACITY)					\
-	static struct {								\
-		unsigned int capacity;						\
-		unsigned int size;						\
-		unsigned char data[CAPACITY];					\
-	} __attribute__((unused)) NAME = {.data = {}, .capacity = CAPACITY, .size = 0}
-
-DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
-static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
-
-#define FRAMES_BUF_POS() \
-	(frames_buf_ptr->data + frames_buf_ptr->size)
-
-#define FRAMES_BUF_OFFSET(tmp_frame_sz) \
-	(frames_buf_ptr->data + frames_buf_ptr->size + tmp_frame_sz)
-
-static
-unsigned int __attribute__((unused))
-tfw_h2_encode_data(unsigned char *buf, TfwDataRec data)
-{
-	TfwHPackInt hpint;
-
-	write_int(data.size, 0x7F, 0, &hpint);
-	memcpy_fast(buf, hpint.buf, hpint.sz);
-	memcpy_fast(buf + hpint.sz, data.buf, data.size);
-
-	return hpint.sz + data.size;
-}
-
-static
-unsigned int __attribute__((unused))
-tfw_h2_encode_header(unsigned char *buf, TfwHeaderRec header)
-{
-	static const int LIT_HDR_FLD_WO_IND  = 0x00;
-
-	unsigned int header_sz = 0;
-
-	*buf = LIT_HDR_FLD_WO_IND;
-	++header_sz;
-
-	header_sz += tfw_h2_encode_data(buf + header_sz, header.name);
-	header_sz += tfw_h2_encode_data(buf + header_sz, header.value);
-
-	return header_sz;
-}
-
-static
-TfwDataRec __attribute__((unused))
-__data_from_STR(char *data)
-{
-	TfwDataRec ret = {data, strlen(data)};
-	return ret;
-}
-
-#define STR(data) \
-	__data_from_STR(data)
-
-static
-TfwDataRec __attribute__((unused))
-__data_from_RAW(char *data, size_t size)
-{
-	TfwDataRec ret = {data, size};
-	return ret;
-}
-
-#define RAW(data) \
-	__data_from_RAW(data, sizeof(data))
-
-#define HEADERS_FRAME_BEGIN()							\
-do {										\
-	tmp_frame_sz = 0;							\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].subtype = HTTP2_HEADERS				\
-
-#define HEADER(name_rec, value_rec)						\
-do {										\
-	BUG_ON(!frames_buf_ptr);						\
-	tmp_header_rec.name = name_rec;						\
-	tmp_header_rec.value = value_rec;					\
-	tmp_frame_sz += tfw_h2_encode_header(					\
-		FRAMES_BUF_OFFSET(tmp_frame_sz), tmp_header_rec);		\
-	BUG_ON(frames_buf_ptr->size + tmp_frame_sz > frames_buf_ptr->capacity);	\
-} while (0)
-
-#define HEADERS_FRAME_END()							\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	BUG_ON(!frames_buf_ptr);						\
-	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = tmp_frame_sz;					\
-	frames_buf_ptr->size += tmp_frame_sz;					\
-	frames_max_sz = max(frames_max_sz, tmp_frame_sz);			\
-	frames_total_sz += tmp_frame_sz;					\
-	++frames_cnt;								\
-} while (0)
-
-#define DATA_FRAME_BEGIN()							\
-do {										\
-	tmp_frame_sz = 0;							\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	frames[frames_cnt].subtype = HTTP2_DATA
-
-#define DATA(data_rec)								\
-do {										\
-	BUG_ON(!frames_buf_ptr);						\
-	memcpy_fast(FRAMES_BUF_POS(), data_rec.buf, data_rec.size);		\
-	tmp_frame_sz = data_rec.size;						\
-	BUG_ON(frames_buf_ptr->size + tmp_frame_sz > frames_buf_ptr->capacity);	\
-} while (0)
-
-#define DATA_FRAME_END()							\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	BUG_ON(!frames_buf_ptr);						\
-	frames[frames_cnt].str = frames_buf_ptr->data + frames_buf_ptr->size;	\
-	frames[frames_cnt].len = tmp_frame_sz;					\
-	frames_buf_ptr->size += tmp_frame_sz;					\
-	frames_max_sz = max(frames_max_sz, tmp_frame_sz);			\
-	frames_total_sz += tmp_frame_sz;					\
-	++frames_cnt;								\
-} while (0)
-
-#define RESET_FRAMES_BUF()							\
-	BUG_ON(!frames_buf_ptr);						\
-	frames_buf_ptr = NULL
-
-#define SET_FRAMES_BUF(frames_buf)						\
-	BUG_ON(frames_buf_ptr);							\
-	frames_buf_ptr = (TfwFramesBuf *) &frames_buf;				\
-	frames_buf_ptr->size = 0;						\
-	bzero_fast(frames_buf_ptr->data, frames_buf_ptr->capacity)
-
-#define ASSIGN_FRAMES_FOR_H1(str, str_len)					\
-do {										\
-	bzero_fast(frames, sizeof(frames));					\
-	frames_cnt = 1;								\
-	frames[0].str = str;							\
-	frames[0].len = str_len;						\
-	frames_max_sz = str_len;						\
-	frames_total_sz = str_len;						\
-} while(0)
-
+/**
+ * INIT_FRAMES - initialization of service data for frames
+ *		 before the formation of new frames.
+ *
+ * Used for types HTTP/1 and HTTP/2 requests.
+ */
 #define INIT_FRAMES()								\
 	frames_cnt = 0;								\
 	frames_max_sz = 0;							\
 	frames_total_sz = 0;							\
 	bzero_fast(frames, sizeof(frames))
-
-#define ADD_HEADERS_FRAME(frame, frame_sz)					\
-do {										\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	bzero_fast(&frames[frames_cnt], sizeof(frames[0]));			\
-	frames[frames_cnt].subtype = HTTP2_HEADERS;				\
-	frames[frames_cnt].str = frame;						\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
-	++frames_cnt;								\
-} while(0)
-
-#define ADD_DATA_FRAME(frame, frame_sz)						\
-do {										\
-	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
-	bzero_fast(&frames[frames_cnt], sizeof(frames[0]));			\
-	frames[frames_cnt].subtype = HTTP2_DATA;				\
-	frames[frames_cnt].str = frame;						\
-	frames[frames_cnt].len = frame_sz;					\
-	frames_max_sz = max(frames_max_sz, frame_sz);				\
-	frames_total_sz += frame_sz;						\
-	++frames_cnt;								\
-} while(0)
 
 #define GET_FRAMES_MAX_SZ() \
 	({frames_max_sz;})
@@ -320,6 +169,14 @@ do {										\
 #define GET_FRAMES_TOTAL_SZ() \
 	({frames_total_sz;})
 
+/**
+ * FOR_EACH_FRAME - iterates over the entries in @frames
+ *		    and executes a lambda for each entry.
+ *
+ * To get the current frame in a lambda, you must use the GET_CURRENT_FRAME macro.
+ *
+ * Used for types HTTP/1 and HTTP/2 requests.
+ */
 #define FOR_EACH_FRAME(lambda)							\
 do {										\
 	unsigned int frame_index;						\
@@ -327,13 +184,466 @@ do {										\
 		lambda;								\
 } while(0)
 
+/**
+ * GET_CURRENT_FRAME - returns entry from @frames indexed by @frame_index
+ *		       from FOR_EACH_FRAME macro.
+ *
+ * Used only inside the lambda from FOR_EACH_FRAME macro.
+ *
+ * Used for types HTTP/1 and HTTP/2 requests.
+ */
 #define GET_CURRENT_FRAME() \
 	({frames[frame_index];})
 
+/**
+ * The special "abstract" structure for buffers with different capacity.
+ *
+ * @capacity:	number of bytes that the buffer has allocated space for;
+ * @size:	actual count of bytes that is currently used.
+ *		The @size is never can be greater than @capacity;
+ * @data[]:	internal bytes array of size @capacity.
+ *
+ * It is part of DSL framework for building HTTP/2 requests.
+ *
+ * Such TfwFramesBuf-like buffer is used to store frames sequentially
+ * for generated HTTP/2 messages.
+ * One buffer can be used for many frames. Typically, the buffer contains several
+ * logically related frames that need to be processed
+ * in one call to do_split_and_parse().
+ *
+ * The such buffer is for HTTP/2 messages only generated by .
+ * HTTP/1 messages do not need such storage for their content,
+ * as they are now specified using static strings (const char*)
+ * stored in the global data segment.
+ *
+ * There is no need to create TfwFramesBuf structures by yourself.
+ * A TfwFramesBuf-like buffer must be created by the DECLARE_FRAMES_BUF macro.
+ * Inside the DSL framework, the buffer declared
+ * with DECLARE_FRAMES_BUF is cast to the TfwFramesBuf type.
+ *
+ * Used for HTTP/2 requests only.
+ */
+typedef struct {
+	const unsigned int capacity;
+	unsigned int size;
+	unsigned char data[0];
+} TfwFramesBuf;
+
+/**
+ * DECLARE_FRAMES_BUF - declaring a TfwFramesBuf-like buffer static instance.
+ *
+ * @name:	identifier of buffer instance;
+ * @max_size:	max allowed size in bytes that can be to store in the buffer.
+ *		Other words number of bytes that the buffer has allocated space for.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define DECLARE_FRAMES_BUF(name, max_size)					\
+	static struct {								\
+		const unsigned int capacity;					\
+		unsigned int size;						\
+		unsigned char data[max_size];					\
+	} __attribute__((unused)) name = {.data = {}, .capacity = max_size, .size = 0}
+
+/**
+ * Service data for working with TfwFramesBuf-like buffers inside
+ * the DSL framework for building HTTP/2 requests.
+ *
+ * @frames_buf_ptr:	pointer to TfwFramesBuf-like buffer;
+ * @frame_buf:		pointer to write data;
+ *
+ * The @frames_buf_ptr refers to a TfwFramesBuf-like buffer currently used
+ * to store formed frames. @frames_buf_ptr must be set by the SET_FRAMES_BUF
+ * macro before the beginning the HTTP/2 message definition block.After
+ * the end of the HTTP/2 message definition block, @frames_buf_ptr
+ * must be reset by the RESET_FRAMES_BUF macro.
+ *
+ * The @frame_buf is pointer for positioning inside internal array @data[]
+ * of TfwFramesBuf-like buffer. It is used for writing data.
+ * Each write operation must self control @frame_buf after use and
+ * shift @frame_buf to position next after the end of the data block
+ * just written.
+ *
+ * Used for HTTP/2 requests only.
+ */
+static TfwFramesBuf *frames_buf_ptr __attribute__((unused)) = NULL;
+static unsigned char *frame_buf __attribute__((unused)) = NULL;
+
+/**
+ * RESET_FRAMES_BUF - reset current value of @frames_buf_ptr.
+ *
+ * It is used after the end of the HTTP/2 message definition block.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define RESET_FRAMES_BUF()							\
+	BUG_ON(!frames_buf_ptr);						\
+	frames_buf_ptr = NULL
+
+/**
+ * SET_FRAMES_BUF - set @frames_buf_ptr to @frames_buf.
+ *
+ * @frames_buf:		a TfwFramesBuf-like buffer
+ *			declared with DECLARE_FRAMES_BUF macro.
+ *
+ * It is used befor the beginning of the HTTP/2 message definition block.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define SET_FRAMES_BUF(frames_buf)						\
+	BUG_ON(frames_buf_ptr);							\
+	frames_buf_ptr = (TfwFramesBuf *) &frames_buf;				\
+	frames_buf_ptr->size = 0;						\
+	bzero_fast(frames_buf_ptr->data, frames_buf_ptr->capacity)
+
+/**
+ * FRAMES_BUF_COMMIT - commit data of a newly formed frame.
+ *
+ * @frame_sz: size of a newly formed frame.
+ *
+ * Actually, the size of the newly formed frame is simply added
+ * to the size of the TfwFramesBuf-like buffer.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define FRAMES_BUF_COMMIT(frame_sz) \
+	frames_buf_ptr->size += frame_sz
+
+/**
+ * FRAMES_BUF_POS - return pointer to current commited position
+ *		    of the TfwFramesBuf-like buffer.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define FRAMES_BUF_POS() \
+	(frames_buf_ptr->data + frames_buf_ptr->size)
+
+/**
+ * FRAMES_BUF_END - return pointer to the end of the TfwFramesBuf-like buffer.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define FRAMES_BUF_END() \
+	(frames_buf_ptr->data + frames_buf_ptr->capacity)
+
+/**
+ * __FRAME_BEGIN - generic macro for mark beginning of frame.
+ *
+ * @type:	HTTP/2 frame type.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define __FRAME_BEGIN(type)							\
+do {										\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	frames[frames_cnt].subtype = type;					\
+	frame_buf = FRAMES_BUF_POS();						\
+} while (0)
+
+static unsigned int frame_sz_tmp __attribute__((unused)) = 0;
+
+/**
+ * __FRAME_END - generic macro for mark end of frame.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define __FRAME_END()								\
+do {										\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	BUG_ON(!frame_buf);							\
+	frame_sz_tmp = frame_buf - FRAMES_BUF_POS();				\
+	frames[frames_cnt].str = FRAMES_BUF_POS();				\
+	frames[frames_cnt].len = frame_sz_tmp;					\
+	frames_max_sz = max(frames_max_sz, frame_sz_tmp);			\
+	frames_total_sz += frame_sz_tmp;					\
+	++frames_cnt;								\
+	FRAMES_BUF_COMMIT(frame_sz_tmp);					\
+} while (0)
+
+/**
+ * write_to_frame_data() - write some bytes of data to HPACK frame.
+ *
+ * @data:	a pointer to data;
+ * @size:	a length of data in bytes.
+ *
+ * This function writes @data in @frame_buf using HPACK format.
+ *
+ * Used for HTTP/2 requests only.
+ */
+static
+void __attribute__((unused))
+write_to_frame_data(char *data, size_t size)
+{
+	TfwHPackInt hpint;
+	write_int(size, 0x7F, 0, &hpint);
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);
+	memcpy_fast(frame_buf + hpint.sz, data, size);
+	frame_buf += hpint.sz + size;
+}
+
+/**
+ * VALUE - write string to HEADERS-frame (without Haffman encoding).
+ *
+ * @str:	a C-like static string.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define VALUE(str) \
+	write_to_frame_data(str, SLEN(str))
+
+/**
+ * VALUE_RAW - write some bytes to HEADERS-frame.
+ *
+ * @data:	an array with data.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define VALUE_RAW(data) \
+	write_to_frame_data(data, sizeof(data))
+
+/**
+ * write_to_frame_index() - write index to HPACK frame.
+ *
+ * @index:	index value;
+ * @max:	max value of the prefix.
+ * @mask:	n-bit pattern followed by prefix;
+ *
+ * This function writes @index in @frame_buf using HPACK format.
+ *
+ * Used for HTTP/2 requests only.
+ */
+static
+void __attribute__((unused))
+write_to_frame_index(unsigned long index,
+		     unsigned short max,
+		     unsigned short mask)
+{
+	TfwHPackInt hpint;
+	write_int(index, max, mask, &hpint);
+	memcpy_fast(frame_buf, hpint.buf, hpint.sz);
+	frame_buf += hpint.sz;
+}
+
+/**
+ * __INDEX - write index to HEADERS-frame like integer representation.
+ *
+* @index:	index value;
+ * @max:	max value of the prefix.
+ * @mask:	n-bit pattern ollowed by prefix;
+ *
+ * There is no need to use __INDEX macro directly.
+ * Use XXX_IND-families macro or INDEX macro.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define __INDEX(index, max, mask) \
+	write_to_frame_index(index, max, mask)
+
+/**
+ * __NAME - write header name filed to HEADERS-frame
+ *	    like string representation.
+ *
+ * @hdr_name:	pointer to string buffer with header name;
+ * @mask:	n-bit pattern followed by the header field name.
+ *
+ * There is no need to use __NAME macro directly.
+ * Use XXX_IND-families macro.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define __NAME(hdr_name, mask)							\
+	*frame_buf++ = mask;							\
+	VALUE(hdr_name)
+
+/**
+ * HEADERS_FRAME_BEGIN - mark beginning of HEADERS-frame.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define HEADERS_FRAME_BEGIN() \
+	__FRAME_BEGIN(HTTP2_HEADERS)
+
+/**
+ * HEADER - auxiliary macro to separate header fields
+ *	    during defining an HTTP/2 message.
+ *
+ * @header_desc:	a description of header field.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define HEADER(header_desc)							\
+do {										\
+	BUG_ON(!frame_buf);							\
+	header_desc;								\
+	BUG_ON(frame_buf > FRAMES_BUF_END());					\
+} while (0)
+
+/**
+ * HEADERS_FRAME_END - mark end of HEADERS-frame.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define HEADERS_FRAME_END() \
+	__FRAME_END()
+
+/**
+ * INDEX - specifying indexed representation in the header field.
+ *
+ * @index:	index value.
+ *
+ * Used for:
+ * - indicating Indexed Header Field Representation in HTTP/2 header field.
+ *   Example of usage:	HEADER(INDEX(2));
+ * - specify to indexed name in XXX_IND-families macro.
+ *   Example of usage:	HEADER(XXX_IND(INDEX(2), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define INDEX(index)	__INDEX((index), 0x7F, 0x80)
+
+/**
+ * NAME - specifying named representation in the header field.
+ *
+ * Used for XXX_IND-families macro.
+ * Example of usage:	HEADER(XXX_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define NAME(data)
+
+/**
+ * Literal Header Field with Incremental Indexing.
+ * Example of usage:
+ * - Indexed Name:	HEADER(INC_IND(INDEX(2), VALUE("POST")));
+ * - New Name:		HEADER(INC_IND(NAME(":method"), VALUE("POST"))).
+ */
+#define INC_IND_BY_INDEX(data)	__INDEX((data), 0x3F, 0x40)
+#define INC_IND_BY_NAME(data)	__NAME((data), 0x40)
+#define INC_IND(name_desc, value_desc)						\
+	INC_IND_BY_##name_desc;							\
+	value_desc;
+
+/**
+ * Literal Header Field without Indexing.
+ * Example of usage:
+ * - Indexed Name:	HEADER(WO_IND(INDEX(2), VALUE("POST")));
+ * - New Name:		HEADER(WO_IND(NAME(":method"), VALUE("POST"))).
+ */
+#define WO_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0)
+#define WO_IND_BY_NAME(data)	__NAME((data), 0)
+#define WO_IND(name_desc, value_desc)						\
+	WO_IND_BY_##name_desc;							\
+	value_desc;
+
+/**
+ * Literal Header Field Never Indexed.
+ * Example of usage:
+ * - Indexed Name:	HEADER(NEV_IND(INDEX(2), VALUE("POST")));
+ * - New Name:		HEADER(NEV_IND(NAME(":method"), VALUE("POST"))).
+ */
+#define NEV_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0x10)
+#define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
+#define NEV_IND(name_desc, value_desc)						\
+	NEV_IND_BY_##name_desc;							\
+	value_desc;
+
+/**
+ * DATA_FRAME_BEGIN - mark beginning of DATA-frame.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define DATA_FRAME_BEGIN() \
+	__FRAME_BEGIN(HTTP2_DATA)
+
+/**
+ * DATA - write some bytes to DATA-frame.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define DATA(data)								\
+do {										\
+	unsigned int data_len;							\
+	BUG_ON(!frame_buf);							\
+	data_len = SLEN(data);							\
+	memcpy_fast(frame_buf, data, data_len);					\
+	frame_buf += data_len;							\
+	BUG_ON(frame_buf > FRAMES_BUF_END());					\
+} while (0)
+
+/**
+ * DATA_FRAME_END - mark end of DATA-frame.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define DATA_FRAME_END() \
+	__FRAME_END()
+
+/**
+ * ADD_HEADERS_FRAME - add HEADERS-frame to @frames.
+ *
+ * @frame_buf:		a pointer to external buffer with HEADERS-frame payload.
+ * @frame_sz:		a size of HEADERS-frame payload in bytes.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define ADD_HEADERS_FRAME(frame_buf, frame_sz)					\
+do {										\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	bzero_fast(&frames[frames_cnt], sizeof(frames[0]));			\
+	frames[frames_cnt].subtype = HTTP2_HEADERS;				\
+	frames[frames_cnt].str = frame_buf;					\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
+	++frames_cnt;								\
+} while(0)
+
+/**
+ * ADD_DATA_FRAME - add DATA-frame to @frames.
+ *
+ * @frame_buf:		a pointer to external buffer with DATA-frame payload.
+ * @frame_sz:		a size of DATA-frame payload in bytes.
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define ADD_DATA_FRAME(frame_buf, frame_sz)					\
+do {										\
+	BUG_ON(frames_cnt >= ARRAY_SIZE(frames));				\
+	bzero_fast(&frames[frames_cnt], sizeof(frames[0]));			\
+	frames[frames_cnt].subtype = HTTP2_DATA;				\
+	frames[frames_cnt].str = frame_buf;					\
+	frames[frames_cnt].len = frame_sz;					\
+	frames_max_sz = max(frames_max_sz, frame_sz);				\
+	frames_total_sz += frame_sz;						\
+	++frames_cnt;								\
+} while(0)
+
+/**
+ * ASSIGN_FRAMES_FOR_H1 - assign HTTP/1 request to @frames.
+ *
+ * @str_buf:		a pointer to external buffer with HTTP/1 request.
+ * @str_len:		a size of request in bytes.
+ *
+ * Used for HTTP/1 requests only.
+ */
+#define ASSIGN_FRAMES_FOR_H1(str_buf, str_len)					\
+do {										\
+	bzero_fast(frames, sizeof(frames));					\
+	frames_cnt = 1;								\
+	frames[0].str = str_buf;						\
+	frames[0].len = str_len;						\
+	frames_max_sz = str_len;						\
+	frames_total_sz = str_len;						\
+} while(0)
+
+DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 {
+	static char chunks[2*1024*1024] = {};
+	static char *chunks_ptr = chunks;
+
 	size_t pos = 0;
 	unsigned int parsed;
 	int r = TFW_PASS;
@@ -350,15 +660,22 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
 			/* At the last chunk */
 			chunk_size = len - pos;
 		TEST_DBG3("%s: len=%zu pos=%zu\n",  __func__, len, pos);
+
+		chunks_ptr = chunks + (chunks_ptr - chunks + chunk_size) % sizeof(chunks);
+		BUG_ON(chunks_ptr + chunk_size > *(&chunks + 1));
+		memcpy(chunks_ptr, str + pos, chunk_size);
+
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
+			r = tfw_http_parse_req(req, chunks_ptr, chunk_size, &parsed);
 		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, str + pos, chunk_size, &parsed);
+			r = tfw_h2_parse_req(req, chunks_ptr, chunk_size, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
+			r = tfw_http_parse_resp(resp, chunks_ptr, chunk_size, &parsed);
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
+
+		chunks_ptr += chunk_size + 17;
 
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
 		if (r != TFW_POSTPONE)
@@ -467,6 +784,8 @@ do_split_and_parse(int type, int chunk_mode)
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
+		req->pit.pool = __tfw_pool_new(0);
+		BUG_ON(!req->pit.pool);
 		__set_bit(TFW_HTTP_B_H2, req->flags);
 	}
 	else if (type == FUZZ_RESP) {
@@ -697,8 +1016,8 @@ number_to_strip(TfwHttpReq *req)
 		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
 }
 
-static
-TfwStr get_next_str_val(TfwStr *str)
+static TfwStr
+get_next_str_val(TfwStr *str)
 {
 	TfwStr v, *c, *end;
 	unsigned int nchunks = 0;
