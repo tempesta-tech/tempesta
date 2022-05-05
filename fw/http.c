@@ -1546,6 +1546,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
 	 * not be scheduled to it. It will be used only for websocket transport.
 	 * If upgrade will fail, we clear it. */
+	/* All code paths to the function guarded by `fwd_qlock` so there is
+	 * no race condition here. */
 	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
 		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 	}
@@ -6267,7 +6269,8 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		return tfw_http_req_process(conn, stream, skb);
 
-	/* That is paired request, it may be freed after resp processing */
+	/* That is paired request, it may be freed after resp processing,
+	 * so we cannot move it iside `if` clause. */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
 	if ((r = tfw_http_resp_process(conn, stream, skb))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;

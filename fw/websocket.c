@@ -93,7 +93,7 @@ tfw_ws_conn_alloc(void)
 TfwConn *
 tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 {
-	TfwConn *conn;
+	TfwConn *conn = NULL;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 
 	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
@@ -101,7 +101,7 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	if (!(conn = tfw_ws_conn_alloc())) {
 		T_WARN_ADDR("Can't create new connection for socket stealing",
 			    &srv->addr, TFW_NO_PORT);
-		return NULL;
+		goto err;
 	}
 	conn->peer = (TfwPeer *)srv;
 	conn->sk = srv_conn->sk;
@@ -114,6 +114,7 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	srv_conn->sk = NULL;
 	if (srv_conn->destructor)
 		srv_conn->destructor(srv_conn);
+err:
 	clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 
 	return conn;
