@@ -26,6 +26,11 @@ Module.symvers
 # vscode project settings
 .vscode
 
+# nodejs and npm
+node_modules
+package.json
+package-lock.json
+
 # Python compiler cache files
 *.pyc
 

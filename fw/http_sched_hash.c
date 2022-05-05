@@ -19,7 +19,7 @@
  * server unless it is offline.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -129,6 +129,7 @@ __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
 {
 	return (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer))
 		&& !tfw_srv_conn_restricted(conn)
+		&& !tfw_srv_conn_unscheduled(conn)
 		&& !tfw_srv_conn_busy(conn)
 		&& !tfw_srv_conn_queue_full(conn)
 		&& tfw_srv_conn_get_if_live(conn);
@@ -333,6 +334,8 @@ tfw_sched_hash_add_conns(TfwServer *srv, TfwHashConnList *cl, size_t *seed,
 
 	list_for_each_entry(conn, &srv->conn_list, list) {
 		unsigned long hash;
+		if (tfw_srv_conn_unscheduled(conn))
+			continue;
 		do {
 			hash = __hash_64(srv_hash ^ *seed);
 			*seed += seed_inc;

@@ -20,6 +20,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/sort.h>
+#include <linux/bsearch.h>
+
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "client.h"
@@ -49,7 +52,7 @@ tfw_cli_cache(int type)
 	 * Currently any secure (TLS) connection is considered as HTTP/2
 	 * connection, since we don't have any business with plain TLS.
 	 *
-	 * FIXME #1422 this should be fixed since we still need HTTP/1 as
+	 * TODO #1422 this should be fixed since we still need HTTP/1 as
 	 * more applicable protocol for service management.
  	 */
 	return type & TFW_FSM_HTTPS ?
@@ -130,7 +133,6 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	int r;
 
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
-
 	/*
 	 * The lock is needed because the timer deletion was moved from release() to
 	 * drop(). While release() is called when there are no other users, there is
@@ -287,7 +289,7 @@ static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_tls_msg_process,
+	.connection_recv	= tfw_tls_connection_recv,
 };
 
 static int
@@ -367,6 +369,7 @@ typedef struct {
  * stopped, and not changed in between. Therefore, no locking is required.
  */
 static LIST_HEAD(tfw_listen_socks);
+static LIST_HEAD(tfw_listen_socks_reconf);
 
 /**
  * Allocate a new TfwListenSock and add it to the global list of sockets.
@@ -385,7 +388,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		return -EINVAL;
 
 	/* Is there such an address on the list already? */
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
+	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
 		if (tfw_addr_eq(addr, &ls->addr)) {
 			T_LOG_ADDR("Duplicate listener with", addr,
 				   TFW_WITH_PORT);
@@ -404,10 +407,8 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		ss_proto_init(&ls->proto, &tfw_sock_tls_clnt_ss_hooks,
 			      Conn_HttpsClnt);
 
-	list_add(&ls->list, &tfw_listen_socks);
+	list_add(&ls->list, &tfw_listen_socks_reconf);
 	ls->addr = *addr;
-
-	tfw_classifier_add_inport(tfw_addr_port(addr));
 
 	return 0;
 }
@@ -417,12 +418,12 @@ tfw_listen_sock_del_all(void)
 {
 	TfwListenSock *ls, *tmp;
 
-	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
 		BUG_ON(ls->sk);
 		kfree(ls);
 	}
 
-	INIT_LIST_HEAD(&tfw_listen_socks);
+	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	tfw_classifier_cleanup_inport();
 }
 
@@ -490,7 +491,7 @@ tfw_sock_check_lst(TfwServer *srv)
 	TfwListenSock *ls;
 
 	T_DBG3("Checking server....\n");
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
+	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
 		T_DBG3("Iterating listener\n");
 		if (tfw_addr_ifmatch(&srv->addr, &ls->addr))
 			return -EINVAL;
@@ -620,6 +621,19 @@ tfw_sock_clnt_cfgend(void)
 	return 0;
 }
 
+static int
+tfw_listen_socks_array_cmp(const void *l, const void *r)
+{
+	TfwAddr *a = &(*(TfwListenSock **)l)->addr;
+	TfwAddr *b = &(*(TfwListenSock **)r)->addr;
+	int cmp = memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr));
+
+	if (cmp)
+		return cmp;
+	else
+		return (int)a->sin6_port - (int)b->sin6_port;
+}
+
 /**
  * Start listening on all existing sockets (added via "listen" configuration
  * entries).
@@ -627,30 +641,88 @@ tfw_sock_clnt_cfgend(void)
 static int
 tfw_sock_clnt_start(void)
 {
-	int r;
-	TfwListenSock *ls;
+	static size_t tfw_listen_socks_sz = 0;
 
-	if (tfw_runstate_is_reconfig())
-		return 0;
+	int r = 0;
+	TfwListenSock *ls, *tmp;
+	size_t i, listen_socks_sz = tfw_listen_socks_sz;
+	TfwListenSock **ls_found, **listen_socks_array = NULL;
+	bool *touched = NULL;
 
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
+	touched = kzalloc(tfw_listen_socks_sz, GFP_KERNEL);
+	if (!touched) {
+		T_ERR("can't allocate memory\n");
+		r = -ENOMEM;
+		goto done;
+	}
+
+	listen_socks_array = kmalloc(tfw_listen_socks_sz *
+				     sizeof(listen_socks_array[0]), GFP_KERNEL);
+	if (!listen_socks_array) {
+		T_ERR("can't allocate memory\n");
+		r = -ENOMEM;
+		goto done;
+	}
+
+	i = 0;
+	list_for_each_entry(ls, &tfw_listen_socks, list)
+		listen_socks_array[i++] = ls;
+	sort(listen_socks_array, tfw_listen_socks_sz,
+	     sizeof(listen_socks_array[0]), tfw_listen_socks_array_cmp, NULL);
+
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
+		ls_found = bsearch(&ls, listen_socks_array, tfw_listen_socks_sz,
+				   sizeof(listen_socks_array[0]),
+				   tfw_listen_socks_array_cmp);
+		if (ls_found) {
+			touched[ls_found - &listen_socks_array[0]] = true;
+			continue;
+		}
+
+		list_del(&ls->list);
+		list_add(&ls->list, &tfw_listen_socks);
+
 		if ((r = tfw_listen_sock_start(ls))) {
 			T_ERR_ADDR("can't start listening on", &ls->addr,
 				   TFW_WITH_PORT);
-			goto err;
+			goto done;
 		}
+
+		tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
+		listen_socks_sz++;
 	}
 
-	return 0;
+	for (i = 0; i < tfw_listen_socks_sz; ++i) {
+		if (touched[i])
+			continue;
 
-err:
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		ls = listen_socks_array[i];
+
+		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
+		listen_socks_sz--;
+
+		list_del(&ls->list);
 		if (!ls->sk)
 			continue;
 		ss_release(ls->sk);
 		ls->sk = NULL;
+		kfree(ls);
 	}
 
+	tfw_listen_socks_sz = listen_socks_sz;
+
+done:
+	kfree(listen_socks_array);
+	kfree(touched);
+
+	/**
+	 * The list contains the intersection of initial tfw_listen_socks_reconf
+	 * and initial tfw_listen_socks
+	 */
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list)
+		kfree(ls);
+
+	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	return r;
 }
 
@@ -658,9 +730,6 @@ static void
 tfw_sock_clnt_stop(void)
 {
 	TfwListenSock *ls;
-
-	if (tfw_runstate_is_reconfig())
-		return;
 
 	might_sleep();
 
@@ -702,6 +771,7 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.handler = tfw_cfgop_listen,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = true,
+		.allow_reconfig = true,
 	},
 	{
 		.name = "keepalive_timeout",
