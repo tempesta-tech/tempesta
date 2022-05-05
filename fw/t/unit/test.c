@@ -87,6 +87,7 @@ TEST_SUITE(tfw_str);
 TEST_SUITE(mem_fast);
 TEST_SUITE(http1_parser);
 TEST_SUITE(http2_parser);
+TEST_SUITE(http2_parser_hpack);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
 TEST_SUITE(http_msg);
@@ -130,6 +131,9 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser);
+	__fpu_schedule();
+
+	TEST_SUITE_RUN(http2_parser_hpack);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_match);
