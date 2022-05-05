@@ -25,6 +25,7 @@
  */
 #include <linux/ctype.h>
 #include <linux/spinlock.h>
+#include <linux/bitmap.h>
 
 #include "lib/fsm.h"
 #include "tdb.h"
@@ -47,10 +48,7 @@
  * ------------------------------------------------------------------------
  */
 
-static struct {
-	__be16		ports[DEF_MAX_PORTS];
-	unsigned int	count;
-} tfw_inports __read_mostly;
+static DECLARE_BITMAP(tfw_inports, 65536) __read_mostly;
 
 static TfwClassifier __rcu *classifier = NULL;
 
@@ -103,15 +101,19 @@ tfw_classify_ipv6(struct sk_buff *skb)
 void
 tfw_classifier_add_inport(__be16 port)
 {
-	BUG_ON(tfw_inports.count == DEF_MAX_PORTS - 1);
+	set_bit(port, tfw_inports);
+}
 
-	tfw_inports.ports[tfw_inports.count++] = port;
+void
+tfw_classifier_remove_inport(__be16 port)
+{
+	clear_bit(port, tfw_inports);
 }
 
 void
 tfw_classifier_cleanup_inport(void)
 {
-	memset(&tfw_inports, 0, sizeof(tfw_inports));
+	bitmap_zero(tfw_inports, 65536);
 }
 
 static int
@@ -121,10 +123,9 @@ tfw_classify_conn_estab(struct sock *sk)
 	unsigned short sport = tfw_addr_get_sk_sport(sk);
 	TfwClassifier *clfr;
 
-	/* Pass the packet if it's not for us. */
-	for (i = 0; i < tfw_inports.count; ++i)
-		if (sport == tfw_inports.ports[i])
-			goto ours;
+	if (test_bit(sport, tfw_inports))
+		goto ours;
+
 	return TFW_PASS;
 
 ours:
