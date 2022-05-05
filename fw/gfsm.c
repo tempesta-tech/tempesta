@@ -57,7 +57,7 @@
  * tfw_gfsm_move().
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -194,17 +194,6 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 }
 
 /**
- * Dispatch connection data to proper FSM by application protocol type.
- */
-int
-tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
-{
-	int fsm_id = TFW_FSM_TYPE(((SsProto *)obj)->type);
-
-	return __gfsm_fsm_exec(st, fsm_id, data);
-}
-
-/**
  * Move the FSM with descriptor @st to new the state @state and call all
  * registered hooks for it.
  *
@@ -323,10 +312,6 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 
 	if (fsm_hooks[fsm_id][shift].fsm_id)
 		return -EBUSY;
-	if (!fsm_htbl[fsm_id]) {
-		T_ERR_NL("gfsm: fsm %d is not registered\n", fsm_id);
-		return -ENOENT;
-	}
 
 	fsm_hooks[fsm_id][shift].st0 = st0;
 	fsm_hooks[fsm_id][shift].fsm_id = hndl_fsm_id;

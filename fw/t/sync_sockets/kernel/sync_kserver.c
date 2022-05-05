@@ -6,7 +6,7 @@
  * kworker threads.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -182,7 +182,7 @@ kserver_exit(void)
 			ss_close_sync(conn[ci], true);
 
 	/*
-	 * FIXME at this point the module can crash if there is some active
+	 * TODO at this point the module can crash if there is some active
 	 * softirq processing the sockets which are calling ssocket_hooks
 	 * callbacks.
 	 */

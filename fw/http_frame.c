@@ -1803,7 +1803,7 @@ next_msg:
 		}
 		h2->data_off = 0;
 		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
-		r = tfw_http_msg_process_generic(c, h2->cur_stream, &data_up);
+		r = tfw_http_msg_process_generic(c, h2->cur_stream, data_up.skb);
 		if (r == T_DROP) {
 			kfree_skb(nskb);
 			goto out;

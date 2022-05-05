@@ -25,6 +25,7 @@
 #include "log.h"
 #include "sync_socket.h"
 #include "http.h"
+#include "websocket.h"
 
 TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
@@ -125,14 +126,29 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 }
 
 int
-tfw_connection_recv(void *cdata, struct sk_buff *skb)
+tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
-	TfwConn *conn = cdata;
-	TfwFsmData fsm_data = {
-		.skb = skb,
-	};
+	int r = T_OK;
+	struct sk_buff *next;
 
-	return tfw_http_msg_process(conn, &fsm_data);
+	if (skb->prev)
+		skb->prev->next = NULL;
+	for (next = skb->next; skb;
+	     skb = next, next = next ? next->next : NULL)
+	{
+		if (likely(r == T_OK || r == T_POSTPONE)) {
+			skb->next = skb->prev = NULL;
+			if (unlikely(TFW_CONN_PROTO(conn) == TFW_FSM_WS
+				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))
+				r = tfw_ws_msg_process(conn, skb);
+			else
+				r = tfw_http_msg_process(conn, skb);
+		} else {
+			__kfree_skb(skb);
+		}
+	}
+
+	return r;
 }
 
 void
