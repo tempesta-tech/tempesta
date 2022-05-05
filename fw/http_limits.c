@@ -633,7 +633,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 	 *	Content-Type = media-type
 	 *	media-type = type "/" subtype *( OWS ";" OWS parameter )
 	 *
-	 * FIXME this matching is too permissive, e.g. we can pass
+	 * TODO this matching is too permissive, e.g. we can pass
 	 * "text/plain1", which isn't a correct subtype. Strong FSM processing
 	 * is required. Or HTTP parser must pass only known types and Frang
 	 * decides which of them are allowed.

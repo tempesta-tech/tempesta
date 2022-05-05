@@ -52,7 +52,7 @@ tfw_cli_cache(int type)
 	 * Currently any secure (TLS) connection is considered as HTTP/2
 	 * connection, since we don't have any business with plain TLS.
 	 *
-	 * FIXME #1422 this should be fixed since we still need HTTP/1 as
+	 * TODO #1422 this should be fixed since we still need HTTP/1 as
 	 * more applicable protocol for service management.
  	 */
 	return type & TFW_FSM_HTTPS ?
@@ -133,7 +133,6 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	int r;
 
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
-
 	/*
 	 * The lock is needed because the timer deletion was moved from release() to
 	 * drop(). While release() is called when there are no other users, there is
@@ -290,7 +289,7 @@ static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_tls_msg_process,
+	.connection_recv	= tfw_tls_connection_recv,
 };
 
 static int

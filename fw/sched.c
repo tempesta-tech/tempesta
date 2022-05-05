@@ -4,7 +4,7 @@
  * Request schedulers interface.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -78,4 +78,3 @@ tfw_sched_unregister(TfwScheduler *sched)
 	BUG_ON(list_empty(&sched->list));
 	list_del_init(&sched->list);
 }
-

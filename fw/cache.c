@@ -1347,7 +1347,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	tfw_http_msg_srvhdr_val(h, TFW_HTTP_HDR_ETAG, &h_val);
 
 	/* Update supposed Etag offset to real value. */
-	/* FIXME: #803 */
+	/* TODO: #803 */
 	e_p = TDB_PTR(db->hdr, h_off);
 	if (e_p + TFW_CSTR_HDRLEN > h_trec->data + h_trec->len) {
 		h_trec = tdb_next_rec_chunk(db, h_trec);
@@ -1654,7 +1654,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	}
 
 	/* Update offsets of 304 headers to real values */
-	/* FIXME: #803 */
+	/* TODO: #803 */
 	trec = &ce->trec;
 	for (i = 0; i < ARRAY_SIZE(ce->hdrs_304); ++i) {
 		if (!ce->hdrs_304[i])

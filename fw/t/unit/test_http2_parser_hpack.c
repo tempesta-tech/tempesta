@@ -21,9 +21,11 @@
 
 #include "test_http_parser_common.h"
 
-TEST(http2_parser_hpack, hpack_static_table)
+TEST(http2_parser_hpack, static_table)
 {
-	FOR_REQ_H2(
+	test_case_parse_prepare_h2();
+
+	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "GET" */
 		HEADER(INDEX(2));
@@ -41,7 +43,7 @@ TEST(http2_parser_hpack, hpack_static_table)
 	}
 
 	/* TODO: must be fixed in [#1614]
-	EXPECT_BLOCK_REQ_H2(
+	EXPECT_BLOCK_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		// :method = "GET"
 		HEADER(INDEX(2));
@@ -53,7 +55,7 @@ TEST(http2_parser_hpack, hpack_static_table)
 	);
 	*/
 
-	FOR_REQ_H2(
+	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "GET" */
 		HEADER(INDEX(2));
@@ -70,7 +72,7 @@ TEST(http2_parser_hpack, hpack_static_table)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/index.html");
 	}
 
-	EXPECT_BLOCK_REQ_H2(
+	EXPECT_BLOCK_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "GET" */
 		HEADER(INDEX(2));
@@ -83,7 +85,7 @@ TEST(http2_parser_hpack, hpack_static_table)
 	    HEADERS_FRAME_END();
 	);
 
-	FOR_REQ_H2(
+	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "POST" */
 		HEADER(INDEX(3));
@@ -100,7 +102,7 @@ TEST(http2_parser_hpack, hpack_static_table)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
-	FOR_REQ_H2(
+	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "GET" */
 		HEADER(INDEX(2));
@@ -229,7 +231,7 @@ TEST(http2_parser_hpack, hpack_static_table)
 				 "via" "1.0 fred, 1.1 p.example.net");
 	}
 
-	FOR_REQ_H2(
+	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "POST" */
 		HEADER(INDEX(3));

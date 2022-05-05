@@ -64,7 +64,7 @@
  * a socket is created first, and then there's a period of time while
  * a connection is being established.
  *
- * TfwSrvConn{} instance goes though the following periods of life:
+ * TfwSrvConn{} instance goes through the following periods of life:
  * - First, a TfwSrvConn{} instance is allocated and set up with
  *   data from configuration file.
  * - When a server socket is created, the TfwSrvConn{} instance
@@ -216,6 +216,8 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 /**
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
+ *
+ * Used only in timer callback.
  */
 static void
 tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
@@ -228,7 +230,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	addr = &srv_conn->peer->addr;
 
 	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
-	                   &sk);
+			   &sk);
 	if (r) {
 		/*
 		 * Continue reconnection attempts in case of out-of-memory
@@ -527,12 +529,17 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 /*
  * Get reference to server and mark the connection as active, which means
  * that server must be put during connection release procedure.
+ *
+ * And start connection attempt.
  */
-static inline void
-tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
+static void
+tfw_sock_srv_connect_one(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
+
 	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+
+	tfw_sock_srv_connect_try_later(srv_conn);
 }
 
 static void
@@ -549,8 +556,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * that parallel execution can't happen with the same socket.
 	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
-		tfw_sock_srv_conn_activate(srv, srv_conn);
-		tfw_sock_srv_connect_try_later(srv_conn);
+		tfw_sock_srv_connect_one(srv, srv_conn);
 	}
 }
 
@@ -652,8 +658,7 @@ tfw_sock_srv_append_conns_n(TfwServer *srv, size_t conn_n)
 	for (i = 0; i < conn_n; ++i) {
 		if (!(srv_conn = tfw_sock_srv_new_conn(srv)))
 			return -ENOMEM;
-		tfw_sock_srv_conn_activate(srv, srv_conn);
-		tfw_sock_srv_connect_try_later(srv_conn);
+		tfw_sock_srv_connect_one(srv, srv_conn);
 		tfw_srv_loop_sched_rcu();
 	}
 
