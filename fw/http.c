@@ -1184,7 +1184,7 @@ tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 	return ((req_sent && tfw_http_req_is_nip(req_sent))
-		|| test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags));
+		|| tfw_srv_conn_unscheduled(srv_conn));
 }
 
 /*
