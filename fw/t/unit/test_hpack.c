@@ -23,6 +23,18 @@
 #include "http_frame.c"
 #include "http.c"
 
+TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
+{
+	(void)srv_conn;
+	return NULL;
+}
+int tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
+{
+	(void)conn;
+	(void)skb;
+	return 0;
+}
+
 #include "test.h"
 #include "helpers.h"
 #include "tfw_str_helper.h"

@@ -2,7 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies.
+ * Copyright (C) 2015-2022 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -104,7 +104,7 @@ typedef struct {
 #define TDB_HTRIE_ROOT(h)						\
 	(TdbHtrieNode *)((char *)(h) + TDB_HDR_SZ(h) + sizeof(TdbExt))
 
-/* FIXME we can't store zero bytes by zero key. */
+/* TODO we can't store zero bytes by zero key. */
 static inline int
 tdb_live_fsrec(TdbHdr *dbh, TdbFRec *rec)
 {
