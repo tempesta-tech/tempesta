@@ -64,7 +64,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -125,7 +125,7 @@ __alloc_and_copy_literal(const char *src, size_t len, bool keep_bs)
 	}
 
 	/* Copy the string. Eat escaping backslashes if @keep_bs is not set. */
-	/* FIXME: the logic looks like a tiny FSM,
+	/* TODO: the logic looks like a tiny FSM,
 	 *        so perhaps it should be included to the TFSM. */
 	src_end = src + len;
 	src_pos = src;
