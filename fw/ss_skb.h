@@ -46,7 +46,7 @@ enum {
 	SS_OK		= 0,
 };
 
-typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
+typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
 			   unsigned int *read);
 
 /**

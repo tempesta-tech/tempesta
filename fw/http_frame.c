@@ -1481,7 +1481,7 @@ conn_term:
  * Main FSM for processing HTTP/2 frames.
  */
 static int
-tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
+tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		  unsigned int *read)
 {
 	int n, r = T_POSTPONE;
