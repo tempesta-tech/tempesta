@@ -651,6 +651,13 @@ do {										\
 	frames_total_sz = str_len;						\
 } while(0)
 
+/**
+ * ASSIGN_FRAMES_FOR_H2 - assign HTTP/2 message(s) to @frames.
+ *
+ * @FRAMES_DEFINITION:	a description of HTTP/2 message(s).
+ *
+ * Used for HTTP/2 requests only.
+ */
 #define ASSIGN_FRAMES_FOR_H2(FRAMES_DEFINITION)					\
 do {										\
 	INIT_FRAMES();								\
