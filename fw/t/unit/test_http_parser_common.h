@@ -772,8 +772,15 @@ do_split_and_parse(int type, int chunk_mode)
 		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 	}
 	else if (type == FUZZ_REQ_H2) {
+		/*
+		 * During the processing of a request, the HPACK dynamic table
+		 * is modified. The same query is used for each chunk size.
+		 * At the same time, the HPACK dynamic table does not have
+		 * the property of idempotence. At least for this reason,
+		 * for each chunk size, we need to use the initial state
+		 * of the context that came to the input of the function.
+		 */
 		static TfwH2Ctx	h2_origin;
-
 		if (chunk_size_index == 0)
 			h2_origin = conn.h2;
 		else
