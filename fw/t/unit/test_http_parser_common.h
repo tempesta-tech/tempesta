@@ -966,11 +966,13 @@ do {\
 
 #define FOR_REQ(str)							\
 	__FOR_REQ(str, 0, CHUNK_ON)
+
 #define FOR_REQ_H2(frames_definition)					\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
 	PRINT_REQ_H2();							\
 	test_case_parse_prepare_h2();					\
 	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
+
 #define FOR_REQ_H2_HPACK(frames_definition)				\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
 	PRINT_REQ_H2();							\
@@ -982,6 +984,7 @@ do {									\
 	test_case_parse_prepare_http(str);				\
 	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON);			\
 } while (0)
+
 #define EXPECT_BLOCK_REQ_H2(frames_definition)				\
 do {									\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
@@ -989,6 +992,7 @@ do {									\
 	test_case_parse_prepare_h2();					\
 	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
 } while (0)
+
 #define EXPECT_BLOCK_REQ_H2_HPACK(frames_definition)			\
 do {									\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
