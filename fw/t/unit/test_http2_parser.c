@@ -1,8 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -412,6 +411,32 @@ TEST(http2_parser, parses_enforce_ext_req_rmark)
 		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
 		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
+	}
+
+	/* Partial confusion with redir_mark_eq ("__tfw="), abort with `fin`. */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/" RMARK_NAME "/")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/" RMARK_NAME "/");
+		EXPECT_TRUE(TFW_STR_EMPTY(&req->mark));
+	}
+
+	/* Partial confusion with redir_mark_eq ("__tfw="), abort without `fin`. */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/" RMARK_NAME "/a")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/" RMARK_NAME "/a");
+		EXPECT_TRUE(TFW_STR_EMPTY(&req->mark));
 	}
 
 	/* Wrong RMARK formats. */
@@ -2359,7 +2384,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -2372,7 +2397,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -2385,7 +2410,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -2400,7 +2425,7 @@ TEST(http2_parser, method_override)
 		HEADER(WO_IND(NAME(":authority"), VALUE("example.com")));	\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);			\
 		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_UNKNOWN);	\
@@ -2468,7 +2493,7 @@ TEST(http2_parser, vchar)
 		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
 		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
-		HEADER(WO_IND(NAME(header), VALUE(RAW("\x00"))));		\
+		HEADER(WO_IND(NAME(header), VALUE_RAW("\x00")));		\
 	    HEADERS_FRAME_END();						\
 	)
 

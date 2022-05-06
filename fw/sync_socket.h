@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -53,6 +53,8 @@ enum {
 	Conn_Stop		= 0x1 << __Flag_Bits,
 };
 
+typedef struct tfw_conn_t TfwConn;
+
 /* Table of Synchronous Sockets connection callbacks. */
 typedef struct ss_hooks {
 	/* New connection accepted. */
@@ -71,7 +73,7 @@ typedef struct ss_hooks {
 	void (*connection_drop)(struct sock *sk);
 
 	/* Process data received on the socket. */
-	int (*connection_recv)(void *conn, struct sk_buff *skb);
+	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb);
 } SsHooks;
 
 /**

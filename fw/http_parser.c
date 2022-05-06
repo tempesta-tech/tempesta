@@ -332,11 +332,27 @@ do {									\
 /*
  * __FSM_I_MOVE_fixup_xxx() and __FSM_I_MATCH_fixup_xxx() family macroses
  * fixup p + n and p + __fsm_sz appropriately. They are to be used for explicit
- * fine-grained control of chunking within a string:
- * i.e. a caller can explicitly chop an ingress contiguous string
- * into multiple chunks thus generating efficient key/value pairs.
- * These explicit fixups should not be mixed with regular fixups
- * (__FSM_I_MOVE and others).
+ * fine-grained control of chunking within a string, i.e. a caller can
+ * explicitly chop an ingress contiguous string into multiple chunks thus
+ * generating efficient key/value pairs.
+ *
+ * Normal MOVE macros fixup @data if there is not enough data and we're going to
+ * return TFW_POSTPONE. We can not use @p since we don't know how many states we
+ * executed on the current chunk, so we have no length of currently matched data.
+ * In other words if you call a fixup function first and next you do normal
+ * movement, then you might see the same data twice in the parsed data.
+ *
+ * Following rules must be meet for safe fixup logic:
+ * 1. explicit fixups should not be mixed with regular fixups (__FSM_I_MOVE and
+ *    others)
+ * 2. call __msg_field_open() to initialize a new _empty_ TfwStr chunk (see
+ *    __tfw_http_msg_add_str_data())
+ * 3. fixup data in each state (so that you know how much data you processed)
+ *    and make sure that __tfw_http_msg_add_str_data() is called by macros
+ *    for @p, not @data. With this approach headers are processed, e.g. see
+ *    __FSM_MOVE_hdr_fixup() with transition to Req_HdrAcceptV,
+ *    __msg_hdr_chunk_fixup(p, __fsm_sz) in RGEN_OWS() and finally
+ *    __msg_hdr_chunk_fixup(p, __fsm_n) in __TFW_HTTP_PARSE_RAWHDR_VAL().
  */
 /*
  * Fixup the current chunk that starts at the current data pointer
@@ -1657,10 +1673,6 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 	return 0;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
-   __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
-*/
 static int
 __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -1963,10 +1975,6 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
 
 /**
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
- *
  */
 static int
 __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
@@ -2496,11 +2504,6 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__req_parse_cache_control);
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup()
- * everywhere.
- */
 static int
 __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -2615,9 +2618,6 @@ __FSM_STATE(st) {							\
  * Function have extended behaviour when processing client connection.
  *
  * RFC 7232 2.3.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -2964,7 +2964,12 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[RFC_850] = {
 			&&I_Day, &&I_Day, &&I_Minus,
@@ -2973,7 +2978,12 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[ISOC] = {
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
@@ -3140,8 +3150,13 @@ do {									\
 #undef __NEXT_TEMPL_STATE
 
 	__FSM_STATE(I_GMT) {
+
 		TRY_STR_BY_REF("gmt", &&I_GMT,
-		               st[parser->date.type][parser->date.pos + 1]);
+			/*
+			 * The st[][]-table is not used because it is known
+			 * that I_GMT is followed by I_Res.
+			 */
+			&&I_Res);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
@@ -3258,9 +3273,6 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
  * The meaning of "Pragma: no-cache" in responses is not specified. However,
  * some applications may expect it to prevent caching being in responses as
  * well.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -3319,9 +3331,6 @@ STACK_FRAME_NON_STANDARD(__parse_pragma);
 /**
  * Parse Upgrade header field. Its semantics is described in RFC 7230 6.1.
  * For now only websocket protocol supported.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -3487,9 +3496,6 @@ done:
 
 /**
  * Parse X-Forwarded-For header, RFC 7239.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -5750,8 +5756,6 @@ do {									\
 	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
 #define __FSM_H2_I_MOVE(to)		__FSM_H2_I_MOVE_n(to, 1)
-/* The same as __FSM_H2_I_MOVE_n(), but exactly for jumps w/o data moving. */
-#define __FSM_H2_I_JMP(to)		goto to
 
 #define __FSM_H2_I_MOVE_NEQ_n_flag(to, n, flag)				\
 	__FSM_H2_I_MOVE_LAMBDA_n_flag_exit(to, n, {}, flag, CSTR_NEQ)
@@ -5918,41 +5922,16 @@ do {									\
 	}, curr_st, next_st)
 
 /**
- * The very similar to @H2_TRY_STR_2LAMBDA(), but uses referrers for states.
- */
-#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
-	if (!chunk->data)						\
-		chunk->data = p;					\
-	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
-			    str, sizeof(str) - 1);			\
-	if (__fsm_n > 0) {						\
-		if (chunk->len == sizeof(str) - 1) {			\
-			TRY_STR_INIT();					\
-			p += __fsm_n;					\
-			if (__data_off(p) < len)			\
-				goto *next_st;				\
-			if (likely(fin))				\
-				goto *next_st;				\
-			parser->_i_st = next_st;			\
-			__msg_hdr_chunk_fixup(data, len);		\
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
-			__FSM_EXIT(CSTR_POSTPONE);			\
-		}							\
-		if (likely(fin))					\
-			return CSTR_NEQ;				\
-		parser->_i_st = curr_st;				\
-		__msg_hdr_chunk_fixup(data, len);			\
-		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
-		__FSM_EXIT(CSTR_POSTPONE);				\
-	}
-
-/**
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
  * used (instead of hard coded header field).
+ * The @lambda might interrupt process and return with an error. In such case
+ * we don't need to fixup the current data chunk.
  */
-#define H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, lambda3,		\
-				 curr_st, next_st)				\
+#define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(str, fld,		\
+						       lambda, fin1, fin2,	\
+						       curr_st, next_st)	\
+do {										\
 	BUG_ON(!TFW_STR_PLAIN(str));						\
 	if (!chunk->data)							\
 		chunk->data = p;						\
@@ -5960,7 +5939,7 @@ do {									\
 			    (str)->data, (str)->len);				\
 	if (__fsm_n > 0) {							\
 		if (likely(chunk->len == (str)->len)) {				\
-			lambda1;						\
+			lambda;							\
 			TRY_STR_INIT();						\
 			__msg_field_fixup_pos(fld, p, __fsm_n);			\
 			__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
@@ -5968,37 +5947,36 @@ do {									\
 				p += __fsm_n;					\
 				goto next_st;					\
 			}							\
-			parser->_i_st = &&next_st;				\
 			if (likely(fin))					\
-				lambda2;					\
+				fin1;						\
+			parser->_i_st = &&next_st;				\
 			__FSM_EXIT(CSTR_POSTPONE);				\
 		}								\
 		__msg_field_fixup_pos(fld, p, __fsm_n);				\
 		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);		\
-		parser->_i_st = &&curr_st;					\
 		if (likely(fin))						\
-			lambda3;						\
+			fin2;							\
+		parser->_i_st = &&curr_st;					\
 		__FSM_EXIT(CSTR_POSTPONE);					\
-	}
+	}									\
+} while (0)
 
-#define H2_TRY_STR_2LAMBDA_fixup(str, fld, lambda1, lambda2, curr_st, next_st)	\
-	H2_TRY_STR_3LAMBDA_fixup(str, fld, lambda1, lambda2, {			\
-					__FSM_EXIT(CSTR_NEQ);			\
-				}, curr_st, next_st)
+#define H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, fld, lambda, fin,		\
+					       curr_st, next_st)		\
+	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
+		str, fld, lambda, fin, {					\
+			__FSM_EXIT(CSTR_NEQ);					\
+		} , curr_st, next_st)
 
-#define H2_TRY_STR_2FIN_fixup(str, fld, fin1, fin2, curr_st, next_st)		\
-	H2_TRY_STR_3LAMBDA_fixup(str, fld, {}, fin1, fin2,			\
-				 curr_st, next_st)
+#define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_fixup(str, fld, fin1, fin2,		\
+						curr_st, next_st)		\
+	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
+		str, fld, {}, fin1, fin2, curr_st, next_st)
 
 /*
  * ------------------------------------------------------------------------
  *	HTTP/2 request parsing
  * ------------------------------------------------------------------------
- */
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
  */
 static int
 __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
@@ -6011,7 +5989,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_A_Start) {
 		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_H2_I_JMP(Req_I_A);
+			__FSM_I_JMP(Req_I_A);
 		if (likely(c == '['))
 			__FSM_H2_I_MOVE_NEQ_n_flag(Req_I_A_v6, 1, TFW_STR_VALUE);
 		return CSTR_NEQ;
@@ -6127,7 +6105,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		}, Req_I_Accept, Req_I_AfterStar);
 		TRY_STR_INIT();
 		if (IS_TOKEN(c))
-			__FSM_H2_I_JMP(Req_I_Type);
+			__FSM_I_JMP(Req_I_Type);
 		return CSTR_NEQ;
 	}
 
@@ -6150,7 +6128,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(Req_I_Subtype);
+		__FSM_I_JMP(Req_I_Subtype);
 	}
 
 	__FSM_STATE(Req_I_AfterStar) {
@@ -6168,9 +6146,9 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_AcceptHtml) {
 		if (IS_WS(c) || c == ',' || c == ';') {
 			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			__FSM_H2_I_JMP(I_EoT);
+			__FSM_I_JMP(I_EoT);
 		}
-		__FSM_H2_I_JMP(Req_I_Subtype);
+		__FSM_I_JMP(Req_I_Subtype);
 	}
 
 	__FSM_STATE(Req_I_Type) {
@@ -6187,7 +6165,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == '*')
 			__FSM_H2_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_H2_I_JMP(Req_I_Subtype);
+			__FSM_I_JMP(Req_I_Subtype);
 		return CSTR_NEQ;
 	}
 
@@ -6202,7 +6180,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_QValue) {
 		if (isdigit(c) || c == '.')
 			__FSM_H2_I_MOVE(Req_I_QValue);
-		__FSM_H2_I_JMP(I_EoT);
+		__FSM_I_JMP(I_EoT);
 		return CSTR_NEQ;
 	}
 
@@ -6210,7 +6188,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_WSAcceptOther);
 		if (IS_TOKEN(c))
-			__FSM_H2_I_JMP(Req_I_AcceptOther);
+			__FSM_I_JMP(Req_I_AcceptOther);
 		return CSTR_NEQ;
 	}
 
@@ -6310,7 +6288,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == ',')
 			__FSM_H2_I_MOVE(Req_I_CC_start_Comma);
 		if (IS_TOKEN(c))
-			__FSM_H2_I_JMP(Req_I_CC);
+			__FSM_I_JMP(Req_I_CC);
 
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -6319,7 +6297,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_CC_start_Comma);
 		if (IS_TOKEN(c))
-			__FSM_H2_I_JMP(Req_I_CC);
+			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value and double commas */
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -6327,13 +6305,13 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_CC) {
 		switch (TFW_LC(c)) {
 		case 'm':
-			__FSM_H2_I_JMP(Req_I_CC_m);
+			__FSM_I_JMP(Req_I_CC_m);
 		case 'n':
-			__FSM_H2_I_JMP(Req_I_CC_n);
+			__FSM_I_JMP(Req_I_CC_n);
 		case 'o':
-			__FSM_H2_I_JMP(Req_I_CC_o);
+			__FSM_I_JMP(Req_I_CC_o);
 		}
-		__FSM_H2_I_JMP(Req_I_CC_Ext);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_m) {
@@ -6349,7 +6327,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_m, Req_I_CC_MaxStale);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(Req_I_CC_Ext);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_n) {
@@ -6372,7 +6350,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(Req_I_CC_Ext);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_o) {
@@ -6383,15 +6361,15 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_o, Req_I_CC_Flag);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(Req_I_CC_Ext);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_Flag) {
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.flags |= parser->cc_dir_flag;
-			__FSM_H2_I_JMP(Req_I_EoT);
+			__FSM_I_JMP(Req_I_EoT);
 		}
-		__FSM_H2_I_JMP(Req_I_CC_Ext);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxAgeVBeg, Req_I_CC_MaxAgeV);
@@ -6444,9 +6422,9 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_WS(c) || c == ',') {
 			req->cache_ctl.max_stale = UINT_MAX;
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-			__FSM_H2_I_JMP(Req_I_EoT);
+			__FSM_I_JMP(Req_I_EoT);
 		}
-		__FSM_H2_I_JMP(Req_I_CC_Ext);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_MaxStaleVBeg, Req_I_CC_MaxStaleV);
@@ -6495,7 +6473,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		parser->_acc = 0;
 		if (IS_TOKEN(c)) {
 			parser->cc_dir_flag = 0;
-			__FSM_H2_I_JMP(Req_I_CC);
+			__FSM_I_JMP(Req_I_CC);
 		}
 		__FSM_EXIT(TFW_BLOCK);
 	}
@@ -6529,11 +6507,6 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	return ret >= 0 ? CSTR_NEQ : ret;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			    bool fin)
@@ -6547,7 +6520,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		goto finalize;						\
 	}, 0)
 
-#define __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(alphabet, to, flag)		\
+#define __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup(alphabet, to, flag)	\
 	__FSM_H2_I_MATCH_MOVE_LAMBDA_fixup(alphabet, to, {		\
 		p += __fsm_sz;						\
 		goto finalize;						\
@@ -6557,33 +6530,44 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContType) {
 		if (req->method != TFW_HTTP_METH_POST)
-			__FSM_H2_I_JMP(I_EoL);
+			__FSM_I_JMP(I_EoL);
 		/* Fall through. */
 	}
 
 	__FSM_STATE(I_ContTypeMediaType) {
-		static const TfwStr s_multipart_slash =
-			TFW_STR_STRING("multipart/");
-		H2_TRY_STR_2FIN_fixup(&s_multipart_slash, &parser->hdr, {
-				__FSM_EXIT(CSTR_NEQ);
-			}, {
-				__FSM_EXIT(CSTR_EQ);
-			}, I_ContTypeMediaType, I_ContTypeAfterMultipartSlash);
-		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_ContTypeOtherType);
-	}
-
-	__FSM_STATE(I_ContTypeAfterMultipartSlash) {
-		static const TfwStr s_form_data =
-			TFW_STR_STRING("form-data");
-		H2_TRY_STR_2FIN_fixup(&s_form_data, &parser->hdr, {
+		static const TfwStr s_multipart_form_data =
+			TFW_STR_STRING("multipart/form-data");
+		H2_TRY_STR_FULL_OR_PART_MATCH_FIN_fixup(
+			&s_multipart_form_data, &parser->hdr, {
+				/*
+				 * In that lambda (that corresponds to a full
+				 * match) the parser do successful exit
+				 * and it is no needed to apply p += __fsm_n.
+				 */
 				__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 				__FSM_EXIT(CSTR_EQ);
 			}, {
-				__FSM_EXIT(CSTR_EQ);
-			}, I_ContTypeAfterMultipartSlash, I_ContTypeMaybeMultipart);
-		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_ContTypeOtherSubtype);
+				if (chunk->len == sizeof("multipart/") - 1)
+					__FSM_EXIT(CSTR_NEQ);
+				/* This lambda (that corresponds to a partial
+				 * match) indicate that the parser will continue
+				 * working in the next state
+				 * (I_ContTypeOtherSubtype or I_ContTypeOtherType).
+				 * The parser must continue working in the next
+				 * state from position right after already
+				 * processed bytes. So, it is needed
+				 * to apply p += __fsm_n.
+				 */
+				p += __fsm_n;
+				break;
+			}, I_ContTypeMediaType, I_ContTypeMaybeMultipart);
+		if (chunk->len >= sizeof("multipart/") - 1) {
+			TRY_STR_INIT();
+			__FSM_I_JMP(I_ContTypeOtherSubtype);
+		} else {
+			TRY_STR_INIT();
+			__FSM_I_JMP(I_ContTypeOtherType);
+		}
 	}
 
 	__FSM_STATE(I_ContTypeMaybeMultipart) {
@@ -6596,7 +6580,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			    __set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 			    goto finalize;
 			}, 0);
-		__FSM_H2_I_JMP(I_ContTypeOtherSubtype);
+		__FSM_I_JMP(I_ContTypeOtherSubtype);
 	}
 
 	__FSM_STATE(I_ContTypeMultipartOWS) {
@@ -6621,9 +6605,9 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_ContTypeParam) {
 		static const TfwStr s_boundary = TFW_STR_STRING("boundary=");
 		if (!test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags))
-			__FSM_H2_I_JMP(I_ContTypeParamOther);
+			__FSM_I_JMP(I_ContTypeParamOther);
 
-		H2_TRY_STR_2LAMBDA_fixup(&s_boundary, &parser->hdr, {
+		H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(&s_boundary, &parser->hdr, {
 			/*
 			 * Requests with multipart/form-data payload should have
 			 * only one boundary parameter.
@@ -6696,7 +6680,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		req->multipart_boundary_raw.nchunks = parser->hdr.nchunks -
 			(size_t)req->multipart_boundary_raw.data;
 		/* __fsm_sz != __fsm_n, therefore __data_remain(p) > 0 */
-		__FSM_H2_I_JMP(I_ContTypeParamValueOWS);
+		__FSM_I_JMP(I_ContTypeParamValueOWS);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValueQuoted) {
@@ -6749,7 +6733,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			parser->_i_st = &&I_ContTypeParamValueOWS;
 			return CSTR_POSTPONE;
 		}
-		__FSM_H2_I_JMP(I_ContTypeParamValueOWS);
+		__FSM_I_JMP(I_ContTypeParamValueOWS);
 	}
 
 	__FSM_STATE(I_ContTypeBoundaryValueEscapedChar) {
@@ -6865,11 +6849,6 @@ finalize:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_content_type);
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
@@ -6925,7 +6904,7 @@ __h2_req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 						    | TFW_STR_VALUE);
 			}
 			p += __fsm_sz;
-			__FSM_H2_I_JMP(Req_I_CookieSemicolon);
+			__FSM_I_JMP(Req_I_CookieSemicolon);
 		}
 		return CSTR_NEQ;
 	}
@@ -6978,11 +6957,6 @@ __FSM_STATE(st) {							\
 	return CSTR_NEQ;						\
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			 bool fin)
@@ -7112,7 +7086,12 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[RFC_850] = {
 			&&I_Day, &&I_Day, &&I_Minus,
@@ -7121,7 +7100,12 @@ __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			&&I_Hour, &&I_Hour, &&I_SC,
 			&&I_Min, &&I_Min, &&I_SC,
 			&&I_Sec, &&I_Sec, &&I_SP,
-			&&I_GMT, &&I_Res
+			&&I_GMT, /*&&I_Res*/
+			/*
+			 * The I_Res is omitted because the transition
+			 * from I_GMT to I_Res is explicitly indicated
+			 * in the code below
+			 */
 		},
 		[ISOC] = {
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
@@ -7301,8 +7285,13 @@ do {										\
 #undef __NEXT_TEMPL_STATE
 
 	__FSM_STATE(I_GMT) {
-		H2_TRY_STR_BY_REF("gmt",
-			&&I_GMT, st[parser->date.type][parser->date.pos + 1]);
+		H2_TRY_STR_LAMBDA("gmt", {
+			/*
+			 * The st[][]-table is not used because it is known
+			 * that I_GMT is followed by I_Res.
+			 */
+			__FSM_I_JMP(I_Res);
+		}, I_GMT, I_Res);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
@@ -7413,13 +7402,13 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 			__FSM_EXIT(CSTR_EQ);
 		}, I_Pragma, I_Pragma_NoCache);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Pragma_Ext);
+		__FSM_I_JMP(I_Pragma_Ext);
 	}
 
 	__FSM_STATE(I_Pragma_NoCache) {
 		if (IS_WS(c) || c == ',')
 			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
-		__FSM_H2_I_JMP(I_Pragma_Ext);
+		__FSM_I_JMP(I_Pragma_Ext);
 	}
 
 	__FSM_STATE(I_Pragma_Ext) {
@@ -7433,7 +7422,7 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_H2_I_MOVE(I_EoT);
-		__FSM_H2_I_JMP(I_Pragma_Ext);
+		__FSM_I_JMP(I_Pragma_Ext);
 	}
 
 done:
@@ -7458,11 +7447,6 @@ done:
 	return r;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
- */
 static int
 __h2_req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			       bool fin)
@@ -7498,7 +7482,7 @@ __h2_req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		__msg_hdr_chunk_fixup(p, __fsm_sz);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
 		p += __fsm_sz;
-		__FSM_H2_I_JMP(Req_I_XFF_Sep);
+		__FSM_I_JMP(Req_I_XFF_Sep);
 	}
 
 	__FSM_STATE(Req_I_XFF_Sep) {
@@ -7533,25 +7517,25 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(I_Meth_Start) {
 		switch (TFW_LC(c)) {
 		case 'c':
-			__FSM_H2_I_JMP(I_Meth_C);
+			__FSM_I_JMP(I_Meth_C);
 		case 'd':
-			__FSM_H2_I_JMP(I_Meth_D);
+			__FSM_I_JMP(I_Meth_D);
 		case 'g':
-			__FSM_H2_I_JMP(I_Meth_G);
+			__FSM_I_JMP(I_Meth_G);
 		case 'h':
-			__FSM_H2_I_JMP(I_Meth_H);
+			__FSM_I_JMP(I_Meth_H);
 		case 'l':
-			__FSM_H2_I_JMP(I_Meth_L);
+			__FSM_I_JMP(I_Meth_L);
 		case 'm':
-			__FSM_H2_I_JMP(I_Meth_M);
+			__FSM_I_JMP(I_Meth_M);
 		case 'o':
-			__FSM_H2_I_JMP(I_Meth_O);
+			__FSM_I_JMP(I_Meth_O);
 		case 'p':
-			__FSM_H2_I_JMP(I_Meth_P);
+			__FSM_I_JMP(I_Meth_P);
 		case 't':
-			__FSM_H2_I_JMP(I_Meth_T);
+			__FSM_I_JMP(I_Meth_T);
 		case 'u':
-			__FSM_H2_I_JMP(I_Meth_U);
+			__FSM_I_JMP(I_Meth_U);
 		}
 		__FSM_I_MOVE(I_Meth_Unknown);
 	}
@@ -7562,7 +7546,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_C, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_D) {
@@ -7571,7 +7555,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_D, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_G) {
@@ -7580,7 +7564,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_G, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_H) {
@@ -7589,7 +7573,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_H, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_L) {
@@ -7598,7 +7582,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_L, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_M) {
@@ -7611,7 +7595,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_M, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_O) {
@@ -7620,7 +7604,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_O, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_P) {
@@ -7645,7 +7629,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_T) {
@@ -7662,7 +7646,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_U, I_EoT);
 		TRY_STR_INIT();
-		__FSM_H2_I_JMP(I_Meth_Unknown);
+		__FSM_I_JMP(I_Meth_Unknown);
 	}
 
 	__FSM_STATE(I_Meth_Unknown) {
@@ -7676,7 +7660,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_EoT) {
 		if (IS_TOKEN(c))
-			__FSM_H2_I_JMP(I_Meth_Unknown);
+			__FSM_I_JMP(I_Meth_Unknown);
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE(I_EoT);
 		return CSTR_NEQ;
@@ -7687,10 +7671,9 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_H2_I_MOVE_fixup()/__FSM_H2_I_MATCH_MOVE_fixup()/
- * H2_TRY_STR_LAMBDA_fixup() everywhere.
+/**
+ * Parse Tempesta FW session redirection mark in URI into req->mark or
+ * normal URI path to parser->hdr.
  */
 static int
 __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
@@ -7712,18 +7695,29 @@ __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 			/*
 			 * The end of ':path' header has been met; thus, we can
 			 * just go out, and the parsed '/' will be fixed up in
-			 * the outside state after returning.
+			 * the outside state Req_Path after returning.
 			 */
 			TFW_STR_INIT(&req->mark);
-			return __data_off(p + 1);
+			return 0;
 		}, 0);
 	}
 
 	__FSM_STATE(Req_I_UriMarkName) {
+		/*
+		 * Lookup for Tempesta FW URI marker.
+		 * If there is no such marker, then there is zero matching and
+		 * p remains the same. However a valid URI may have the same
+		 * prefix with the Tempesta FW marker. In this case we move the
+		 * whole matching perfix to parser->hdr.
+		 */
 		str = tfw_http_sess_mark_name();
-		H2_TRY_STR_2LAMBDA_fixup(str, &req->mark, {
+		H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, &req->mark, {
 			parser->to_read = tfw_http_sess_mark_size();
 		}, {
+			/*
+			 * __try_str() in H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup()
+			 * didn't find a match, i.e. returned CSTR_NEQ.
+			 */
 			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_UriMarkName, Req_I_UriMarkValue);
 		/*
@@ -8019,6 +8013,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		__fsm_sz = tfw_match_token(p, __fsm_n);
 		if (unlikely(__fsm_sz != __fsm_n))
 			__FSM_H2_DROP(RGen_HdrOtherN);
+		/*
+		 * Use (data, len) instead of (p, __fsm_n) since we moved p in
+		 * previous states trying known header names.
+		 */
 		__msg_hdr_chunk_fixup(data, len);
 		if (unlikely(!fin))
 			__FSM_H2_POSTPONE(RGen_HdrOtherN);
@@ -8094,26 +8092,26 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 		if (!parser->_i_st)
 			TRY_STR_INIT();
+		/* __fsm_n == CSTR_NEQ if the path doesn't start with '/'. */
 		__fsm_n = __h2_req_parse_mark(req, p, __data_remain(p), fin);
 		if (__fsm_n == CSTR_POSTPONE)
 			__FSM_H2_POSTPONE(Req_Mark);
 		if (__fsm_n < 0) {
 			__FSM_H2_DROP(Req_Mark);
 		}
-		WARN_ON_ONCE(!__fsm_n);
 		parser->_i_st = NULL;
 
+		/*
+		 * All data is already fixed up in __h2_req_parse_mark()
+		 * into parser->hdr.
+		 */
+		if (!__fsm_n)
+			__FSM_JMP(Req_Path);
 		if (TFW_STR_EMPTY(&req->mark)) {
-			/*
-			 * All @__fsm_n data is already fixed up in
-			 * @__h2_req_parse_mark() (into @parser->hdr), except
-			 * the case of final chunk of the ':path' header, but
-			 * in this case the reaming data will be fixed up below,
-			 * in @__FSM_H2_PSHDR_MOVE_FIN(), just before the exit.
-			 */
-			WARN_ON_ONCE(__fsm_n > 1);
-			__FSM_H2_PSHDR_MOVE_FIN(Req_Mark, __fsm_n, Req_Path);
+			/* Common path prefix with the redirection mark. */
+			__FSM_H2_PSHDR_MOVE_DROP_nofixup(Req_Mark, __fsm_n, Req_Path);
 		}
+		/* Found Tempest FW redirection marker. */
 		__FSM_H2_PSHDR_MOVE_DROP_nofixup(Req_Mark, __fsm_n, Req_MarkEnd);
 	}
 
@@ -9103,9 +9101,6 @@ STACK_FRAME_NON_STANDARD(__resp_parse_age);
 
 /**
  * Parse response Cache-Control, RFC 2616 14.9.
- *
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
  */
 static int
 __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
@@ -9546,10 +9541,6 @@ done:
 	return r;
 }
 
-/*
- * Nested FSM with explicit fine-grained fixups, should employ
- * __FSM_I_MOVE_fixup()/__FSM_I_MATCH_fixup()/TRY_STR_fixup() everywhere.
- */
 static int
 __resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 {

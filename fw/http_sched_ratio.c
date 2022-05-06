@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2017-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -833,6 +833,7 @@ __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
 		TfwSrvConn *srv_conn = srvdesc->conn[idxval % srvdesc->conn_n];
 
 		if (unlikely(tfw_srv_conn_restricted(srv_conn)
+			     || tfw_srv_conn_unscheduled(srv_conn)
 			     || tfw_srv_conn_busy(srv_conn)
 			     || tfw_srv_conn_queue_full(srv_conn)))
 			continue;
@@ -1047,6 +1048,8 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 
 	conn = srvdesc->conn;
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
+		if (tfw_srv_conn_unscheduled(srv_conn))
+			continue;
 		if (unlikely(ci++ == srv->conn_n))
 			goto err;
 		*conn++ = srv_conn;
