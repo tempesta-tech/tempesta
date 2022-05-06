@@ -515,6 +515,8 @@ do {										\
  * Example of usage:
  * - Indexed Name:	HEADER(INC_IND(INDEX(2), VALUE("POST")));
  * - New Name:		HEADER(INC_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
  */
 #define INC_IND_BY_INDEX(data)	__INDEX((data), 0x3F, 0x40)
 #define INC_IND_BY_NAME(data)	__NAME((data), 0x40)
@@ -527,8 +529,10 @@ do {										\
  * Example of usage:
  * - Indexed Name:	HEADER(WO_IND(INDEX(2), VALUE("POST")));
  * - New Name:		HEADER(WO_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
  */
-#define WO_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0)
+#define WO_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0)
 #define WO_IND_BY_NAME(data)	__NAME((data), 0)
 #define WO_IND(name_desc, value_desc)						\
 	WO_IND_BY_##name_desc;							\
@@ -539,12 +543,24 @@ do {										\
  * Example of usage:
  * - Indexed Name:	HEADER(NEV_IND(INDEX(2), VALUE("POST")));
  * - New Name:		HEADER(NEV_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
  */
-#define NEV_IND_BY_INDEX(data)	__INDEX((data), 0xF, 0x10)
+#define NEV_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0x10)
 #define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
 #define NEV_IND(name_desc, value_desc)						\
 	NEV_IND_BY_##name_desc;							\
 	value_desc;
+
+#define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
+
+/**
+ * Dynamic Table Size Update.
+ * Example of usage:		HEADER(SZ_UPD(new_size)).
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
 
 /**
  * DATA_FRAME_BEGIN - mark beginning of DATA-frame.
@@ -756,12 +772,26 @@ do_split_and_parse(int type, int chunk_mode)
 		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 	}
 	else if (type == FUZZ_REQ_H2) {
-		if (req)
-			test_req_free(req);
+		/*
+		 * During the processing of a request, the HPACK dynamic table
+		 * is modified. The same query is used for each chunk size.
+		 * At the same time, the HPACK dynamic table does not have
+		 * the property of idempotence. At least for this reason,
+		 * for each chunk size, we need to use the initial state
+		 * of the context that came to the input of the function.
+		 */
+		static TfwH2Ctx	h2_origin;
+		if (chunk_size_index == 0)
+			h2_origin = conn.h2;
+		else
+			conn.h2 = h2_origin;
 
-		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 		conn.h2.hpack.state = 0;
 		conn.h2.hpack.length = 0;
+
+		if (req)
+			test_req_free(req);
+		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
