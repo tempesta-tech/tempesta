@@ -254,9 +254,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv,
 	}
 
 	code = jsch_allow ? sticky->redirect_code: TFW_REDIR_STATUS_CODE_DFLT;
-	r = TFW_MSG_H2(req)
-		? tfw_h2_prep_redirect(resp, code, &rmark, &cookie, &body)
-		: tfw_h1_prep_redirect(resp, code, &rmark, &cookie, &body);
+	r = tfw_http_prep_redir(resp, code, &rmark, &cookie, &body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;

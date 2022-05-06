@@ -136,10 +136,8 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, TfwHttpActionResult *action)
 		if (unlikely(!rule)) {
 			T_DBG("http_tbl: No rule found in HTTP chain '%s'\n",
 			      chain->name);
-			*action = (TfwHttpActionResult){
-				.type = TFW_HTTP_RES_VHOST,
-				.vhost = NULL
-			};
+			action->type = TFW_HTTP_RES_VHOST;
+			action->vhost = NULL;
 			return 0;
 		}
 		chain = (rule->act.type == TFW_HTTP_MATCH_ACT_CHAIN)
@@ -149,25 +147,19 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, TfwHttpActionResult *action)
 
 	switch (rule->act.type) {
 		case TFW_HTTP_MATCH_ACT_VHOST:
-			*action = (TfwHttpActionResult){
-				.type = TFW_HTTP_RES_VHOST,
-				.vhost = rule->act.vhost
-			};
+			action->type = TFW_HTTP_RES_VHOST;
+			action->vhost = rule->act.vhost;
 			return 0;
 		case TFW_HTTP_MATCH_ACT_REDIR:
-			*action = (TfwHttpActionResult){
-				.type = TFW_HTTP_RES_REDIR,
-				.redir = rule->act.redir
-			};
+			action->type = TFW_HTTP_RES_REDIR;
+			action->redir = rule->act.redir;
 			return 0;
 		case TFW_HTTP_MATCH_ACT_BLOCK:
 			return -1;
 
 		default:
-			*action = (TfwHttpActionResult){
-				.type = TFW_HTTP_RES_VHOST,
-				.vhost = NULL
-			};
+			action->type = TFW_HTTP_RES_VHOST;
+			action->vhost = NULL;
 			return 0;
 	}
 }
@@ -189,15 +181,15 @@ tfw_http_tbl_action(TfwMsg *msg, TfwHttpActionResult *action)
 
 	active_table = rcu_dereference_bh(tfw_table);
 	if(!active_table) {
-		*action = (TfwHttpActionResult){ .type = TFW_HTTP_RES_VHOST,
-						 .vhost = NULL };
+		action->type = TFW_HTTP_RES_VHOST;
+		action->vhost = NULL;
 		goto done;
 	}
 
 	BUG_ON(list_empty(&active_table->head));
 	r = tfw_http_tbl_scan(msg, active_table, action);
 
-	if (action->type == TFW_HTTP_RES_VHOST && action->vhost)
+	if (!r && action->type == TFW_HTTP_RES_VHOST && action->vhost)
 		tfw_vhost_get(action->vhost);
 
 done:
@@ -537,7 +529,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 
-		url->chunks = kmalloc((TFW_HTTP_MAX_REDIR_VARS + 1) *
+		url->chunks = kzalloc((TFW_HTTP_MAX_REDIR_VARS + 1) *
 				      sizeof(TfwStr), GFP_KERNEL);
 		if (!url->chunks) {
 			T_ERR_NL("http_tbl: can't allocate memory for "
@@ -568,38 +560,43 @@ do {                                                                  \
 		for (begin = pos = action_val, i = 0;
 		     *pos && i < TFW_HTTP_MAX_REDIR_VARS;)
 		{
-			if (*pos == '$') {
-				tfw_http_redir_var_t var;
+			unsigned char var;
 
-				if (val_end - pos > SLEN("request_uri") &&
-				   !strncmp(pos + 1, "request_uri",
-					    SLEN("request_uri")))
-				{
-					CREATE_CHUNK();
+			if (*pos != '$') {
+				++pos;
+				continue;
+			}
 
-					begin = pos += SLEN("$request_uri");
+			if (val_end - pos > SLEN("request_uri") &&
+			   !strncmp(pos + 1, "request_uri",
+				    SLEN("request_uri")))
+			{
+				CREATE_CHUNK();
 
-					var= TFW_HTTP_REDIR_URI;
-				} else if (val_end - pos > SLEN("host") &&
-					   !strncmp(pos + 1, "host",
-						    SLEN("host")))
-				{
-					CREATE_CHUNK();
+				begin = pos += SLEN("$request_uri");
 
-					begin = pos += SLEN("$host");
+				var = TFW_HTTP_REDIR_URI;
+			} else if (val_end - pos > SLEN("host") &&
+				   !strncmp(pos + 1, "host",
+					    SLEN("host")))
+			{
+				CREATE_CHUNK();
 
-					var = TFW_HTTP_REDIR_HOST;
-				} else {
-					++pos;
-					continue;
-				}
+				begin = pos += SLEN("$host");
 
-				rule->act.redir.var[i] = var;
-				i++;
+				var = TFW_HTTP_REDIR_HOST;
 			} else {
 				++pos;
+				continue;
 			}
+
+			rule->act.redir.var[i] = var;
+			rule->act.redir.nvar++;
+			i++;
 		}
+
+		if (pos - begin)
+			CREATE_CHUNK();
 #undef CREATE_CHUNK
 
 		if (i >= TFW_HTTP_MAX_REDIR_VARS) {

@@ -948,11 +948,7 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 	int src_num = src->nchunks;
 	int dst_num = dst->nchunks;
 
-	/*
-	 * Only TfwStr descriptors with identical complexity
-	 * and chunks number are allowed.
-	 */
-	if (unlikely(src_num != dst_num))
+	if (unlikely(src_num > dst_num))
 		return -E2BIG;
 
 	c2 = dst_num ? dst->chunks : dst;
@@ -965,6 +961,8 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 		dst->len = src->len;
 		dst->flags = src->flags;
 	}
+
+	dst->nchunks = src->nchunks;
 
 	return 0;
 }
