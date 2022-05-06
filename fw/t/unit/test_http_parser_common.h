@@ -515,6 +515,8 @@ do {										\
  * Example of usage:
  * - Indexed Name:	HEADER(INC_IND(INDEX(2), VALUE("POST")));
  * - New Name:		HEADER(INC_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
  */
 #define INC_IND_BY_INDEX(data)	__INDEX((data), 0x3F, 0x40)
 #define INC_IND_BY_NAME(data)	__NAME((data), 0x40)
@@ -527,6 +529,8 @@ do {										\
  * Example of usage:
  * - Indexed Name:	HEADER(WO_IND(INDEX(2), VALUE("POST")));
  * - New Name:		HEADER(WO_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
  */
 #define WO_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0)
 #define WO_IND_BY_NAME(data)	__NAME((data), 0)
@@ -539,6 +543,8 @@ do {										\
  * Example of usage:
  * - Indexed Name:	HEADER(NEV_IND(INDEX(2), VALUE("POST")));
  * - New Name:		HEADER(NEV_IND(NAME(":method"), VALUE("POST"))).
+ *
+ * Used for HTTP/2 requests only.
  */
 #define NEV_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0x10)
 #define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
@@ -546,6 +552,14 @@ do {										\
 	NEV_IND_BY_##name_desc;							\
 	value_desc;
 
+#define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
+
+/**
+ * Dynamic Table Size Update.
+ * Example of usage:		HEADER(SZ_UPD(new_size)).
+ *
+ * Used for HTTP/2 requests only.
+ */
 #define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
 
 /**
