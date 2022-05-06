@@ -115,8 +115,10 @@
 #define S_H2_STAT		":status"
 
 #define RESP_BUF_LEN		128
+#define URL_BUF_LEN		1024
 
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
+static DEFINE_PER_CPU(char[URL_BUF_LEN], g_url_buf);
 
 #define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
 unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
@@ -1117,6 +1119,17 @@ err:
 	tfw_http_resp_build_error(req);
 }
 
+/*
+ * Perform operations to sending an custom HTTP2 response to a client.
+ * Set current date in the header of an HTTP response.
+ * If memory allocation error or message setup errors occurred, then
+ * client connection should be closed, because response-request
+ * pairing for pipelined requests is violated.
+ *
+ * NOTE: The first chunk is a status line, and then every odd chunk is a header
+ * field name starting with CRLF and ending with ': ', and every even chunk is
+ * a value.
+ */
 static void
 tfw_h2_send_resp2(TfwHttpReq *req, TfwStr *msg, int status,
 	              unsigned int stream_id)
@@ -1190,6 +1203,17 @@ err:
 	tfw_http_resp_build_error(req);
 }
 
+/*
+ * Perform operations to sending an custom HTTP1 response to a client.
+ * Set current date in the header of an HTTP response.
+ * If memory allocation error or message setup errors occurred, then client
+ * connection should be closed, because response-request pairing for pipelined
+ * requests is violated.
+ *
+ * NOTE: The first chunk is a status line, and then every odd chunk is a header
+ * field name starting with CRLF and ending with ': ', and every even chunk is
+ * a value.
+ */
 static void
 tfw_h1_send_resp2(TfwHttpReq *req, TfwStr *msg, int status)
 {
@@ -1498,54 +1522,59 @@ tfw_http_send_resp2(TfwHttpReq *req, TfwStr *msg, int status)
 }
 
 static void
-tfw_http_req_redir(TfwHttpReq *req, int status, const char *pattern)
+tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 {
-	size_t url_len = strlen(pattern) + 1;
-	char *url = kmalloc(url_len, GFP_KERNEL);
 	char *date_val = *this_cpu_ptr(&g_buf);
+	char *url = *this_cpu_ptr(&g_url_buf);
 	char *url_p = url;
-	const char *pattern_end = pattern + strlen(pattern);
-	TfwStr *c, *end;
+	TfwStr *c, *end, *c2, *end2;
 	char *status_line;
+	size_t i = 0;
+	TfwStr *hdr;
+	TfwStr hdr_val;
 
 	tfw_http_prep_date(date_val);
 
-#define TFW_STRCPY(from)                                                 \
-do {                                                                     \
-	size_t dif = url_p - url;                                            \
-	url = krealloc(url, url_len + (from)->len, GFP_KERNEL);              \
-	if (!url) {                                                          \
-		T_WARN("HTTP: unable to allocate memory for redirection url\n"); \
-		return;                                                          \
-	}                                                                    \
-	url_p = url + dif;                                                   \
-	TFW_STR_FOR_EACH_CHUNK(c, (from), end) {                             \
-		memcpy_fast(url_p, c->data, c->len);                             \
-		url_p += c->len;                                                 \
-	}                                                                    \
+#define TFW_STRCPY(from)                                                       \
+do {                                                                           \
+	if (url_p + (from)->len + 1 > url + URL_BUF_LEN) {                     \
+		T_WARN("HTTP: unable to allocate memory for redirection "      \
+		       "url\n");                                               \
+		return;                                                        \
+	}                                                                      \
+	TFW_STR_FOR_EACH_CHUNK(c2, (from), end2) {                             \
+		memcpy_fast(url_p, c2->data, c2->len);                         \
+		url_p += c2->len;                                              \
+	}                                                                      \
 } while (0)
 
-	for (; *pattern; ++pattern) {
-		if (*pattern == '$') {
-			size_t len = pattern_end - pattern - 1;
-
-			if (pattern_end - pattern > SLEN("request_uri") &&
-				!strncmp(pattern + 1, "request_uri", min(SLEN("request_uri"), len)))
-			{
-				TFW_STRCPY(&req->uri_path);
-				pattern += SLEN("request_uri");
-			} else if (pattern_end - pattern > SLEN("host") &&
-				       !strncmp(pattern + 1, "host", min(SLEN("host"), len)))
-			{
-				TFW_STRCPY(&req->host);
-				pattern += SLEN("host");
-			}
-		} else {
-			*url_p++ = *pattern;
+	TFW_STR_FOR_EACH_CHUNK(c, &redir->url, end) {
+		if (url_p + c->len + 1 > url + URL_BUF_LEN) {
+			T_WARN("HTTP: unable to allocate memory for "
+			       "redirection url\n");
+			return;
 		}
+
+		memcpy_fast(url_p, c->data, c->len);
+		url_p += c->len;
+
+		switch (redir->var[i]) {
+			case TFW_HTTP_REDIR_URI:
+				TFW_STRCPY(&req->uri_path);
+				break;
+			case TFW_HTTP_REDIR_HOST:
+				hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+				tfw_http_msg_clnthdr_val(req, hdr,
+							 TFW_HTTP_HDR_HOST,
+							 &hdr_val);
+				TFW_STRCPY(&hdr_val);
+				break;
+			default:
+				BUG();
+		}
+		i++;
 	}
 	*url_p = '\0';
-
 #undef TFW_STRCPY
 
 	status_line = tfw_http_resp_status_line(status);
@@ -1557,31 +1586,36 @@ do {                                                                     \
 	{
 		TfwStr msg = {
 			.chunks = (TfwStr []){
-				{ .data = status_line, .len = strlen(status_line) },
-				{ .data = S_CRLF S_F_DATE, .len = SLEN(S_CRLF S_F_DATE),
+				{ .data = status_line,
+				  .len = strlen(status_line) },
+				{ .data = S_CRLF S_F_DATE,
+				  .len = SLEN(S_CRLF S_F_DATE),
 				  .hpack_idx = 33 },
 				{ .data = date_val, .len = SLEN(S_V_DATE) },
 				{ .data = S_CRLF S_F_CONTENT_LENGTH,
-				  .len = SLEN(S_CRLF S_F_CONTENT_LENGTH), .hpack_idx = 28 },
+				  .len = SLEN(S_CRLF S_F_CONTENT_LENGTH),
+				  .hpack_idx = 28 },
 				{ .data = "0", .len = SLEN("0") },
-				{ .data = S_CRLF S_F_LOCATION, .len = SLEN(S_CRLF S_F_LOCATION),
+				{ .data = S_CRLF S_F_LOCATION,
+				  .len = SLEN(S_CRLF S_F_LOCATION),
 				  .hpack_idx = 46 },
 				{ .data = (char *)url, .len = url_p - url },
-				{ .data = S_CRLF S_F_SERVER, .len = SLEN(S_CRLF S_F_SERVER),
+				{ .data = S_CRLF S_F_SERVER,
+				  .len = SLEN(S_CRLF S_F_SERVER),
 				  .hpack_idx = 54 },
 				{ .data = TFW_NAME "/" TFW_VERSION,
 				  .len = SLEN(TFW_NAME "/" TFW_VERSION) },
-				{ .data = S_CRLF S_CRLF, .len = SLEN(S_CRLF S_CRLF) },
+				{ .data = S_CRLF S_CRLF,
+				  .len = SLEN(S_CRLF S_CRLF) },
 			},
-			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF S_F_CONTENT_LENGTH
-				        "0" S_CRLF S_F_LOCATION S_CRLF S_F_SERVER TFW_NAME "/"
-				        TFW_VERSION S_CRLF S_CRLF) + (url_p - url),
+			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF
+				    S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
+				    S_CRLF S_F_SERVER TFW_NAME "/" TFW_VERSION
+				    S_CRLF S_CRLF) + (url_p - url),
 			.nchunks = 10
 		};
 		tfw_http_send_resp2(req, &msg, status);
 	}
-
-	kfree(url);
 }
 
 static bool
@@ -5584,7 +5618,6 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 static int
 tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
-	bool block;
 	ss_skb_actor_t *actor;
 	unsigned int parsed;
 	TfwHttpReq *req;
@@ -5603,7 +5636,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	 * until all data in the SKB is processed.
 	 */
 next_msg:
-	block = false;
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
@@ -5742,20 +5774,14 @@ next_msg:
 	 * rules, such as `mark` rule. Even if http_chains is the
 	 * slowest method we have, we can't simply skip it.
 	 */
-	res = tfw_http_tbl_action((TfwMsg *)req, &block);
-	if (unlikely(block)) {
+	if (unlikely(r = tfw_http_tbl_action((TfwMsg *)req, &res))) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 403,
 			"request has been filtered out via http table");
 		return TFW_BLOCK;
 	}
-	if (res.type == TFW_HTTP_RES_REDIR) {
-		tfw_http_req_redir(req, res.redir.resp_code, res.redir.url);
-		return TFW_PASS;
-	} else if (res.type == TFW_HTTP_RES_VHOST) {
+	if (res.type == TFW_HTTP_RES_VHOST) {
 		req->vhost = res.vhost;
-	} else {
-		BUG();
 	}
 	if (req->vhost)
 		req->location = tfw_location_match(req->vhost, &req->uri_path);
@@ -5804,6 +5830,11 @@ next_msg:
 		tfw_http_req_parse_block(req, 403,
 			"parsed request has been filtered out");
 		return TFW_BLOCK;
+	}
+
+	if (res.type == TFW_HTTP_RES_REDIR) {
+		tfw_http_req_redir(req, res.redir.resp_code, &res.redir);
+		return TFW_PASS;
 	}
 
 	/*
@@ -6506,8 +6537,8 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		.len = len,
 	};
 	LIST_HEAD(equeue);
-	bool block = false;
 	TfwHttpActionResult res;
+	int r;
 
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
@@ -6533,8 +6564,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	 * but in vhost: instead of table lookups target vhost could be chosen
 	 * directly.
 	 */
-	res = tfw_http_tbl_action((TfwMsg *)req, &block);
-	if (unlikely(block)) {
+	if (unlikely(r = tfw_http_tbl_action((TfwMsg *)req, &res))) {
 		T_WARN_ADDR("Unable to assign vhost for health monitoring "
 			    "request of backend server", &srv->addr,
 			    TFW_WITH_PORT);
