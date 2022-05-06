@@ -703,10 +703,8 @@ int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status,
-			 TfwStr *rmark, TfwStr *cookie, TfwStr *body);
-int tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status,
-			 TfwStr *rmark, TfwStr *cookie, TfwStr *body);
+int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
+			TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
