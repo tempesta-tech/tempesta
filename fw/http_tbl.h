@@ -23,6 +23,34 @@
 
 #include "http.h"
 
+#define TFW_HTTP_MAX_REDIR_VARS 8
+
+typedef enum {
+	TFW_HTTP_REDIR_URI,
+	TFW_HTTP_REDIR_HOST,
+	_TFW_HTTP_REDIR_VAR_COUNT
+} tfw_http_redir_var_t;
+
+typedef enum {
+	TFW_HTTP_RES_VHOST,
+	TFW_HTTP_RES_REDIR,
+	_TFW_HTTP_RES_COUNT
+} tfw_http_res_act_t;
+
+typedef struct {
+	TfwStr url;
+	tfw_http_redir_var_t var[TFW_HTTP_MAX_REDIR_VARS];
+	unsigned int resp_code;
+} TfwHttpRedir;
+
+typedef struct {
+	tfw_http_res_act_t type;
+	union {
+	TfwVhost *vhost;
+	TfwHttpRedir redir;
+	};
+} TfwHttpActionResult;
+
 /**
  * HTTP chain. Contains list of rules for matching.
  *
@@ -54,7 +82,7 @@ typedef struct {
 	TfwPool *pool;
 } TfwHttpTable;
 
-TfwVhost *tfw_http_tbl_vhost(TfwMsg *msg, bool *block);
+int tfw_http_tbl_action(TfwMsg *msg, TfwHttpActionResult *action);
 int tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method);
 
 #endif /* __HTTP_TBL__ */

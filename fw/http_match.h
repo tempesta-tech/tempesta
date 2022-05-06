@@ -72,6 +72,7 @@ typedef enum {
 	TFW_HTTP_MATCH_ACT_CHAIN,
 	TFW_HTTP_MATCH_ACT_VHOST,
 	TFW_HTTP_MATCH_ACT_MARK,
+	TFW_HTTP_MATCH_ACT_REDIR,
 	TFW_HTTP_MATCH_ACT_BLOCK,
 	TFW_HTTP_MATCH_ACT_FLAG,
 	_TFW_HTTP_MATCH_ACT_COUNT
@@ -105,6 +106,7 @@ typedef struct {
 	union {
 		TfwHttpChain *chain;
 		TfwVhost *vhost;
+		TfwHttpRedir redir;
 		unsigned int mark;
 		struct {
 			unsigned int fid;
