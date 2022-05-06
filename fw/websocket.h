@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,19 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_TLS_H__
-#define __TFW_TLS_H__
-
-#include "ttls.h"
-
-void tfw_tls_cfg_require(void);
-void tfw_tls_cfg_configured(bool global);
-void tfw_tls_match_any_sni_to_dflt(bool match);
-int tfw_tls_cfg_alpn_protos(const char *cfg_str, bool *deprecated);
-void tfw_tls_free_alpn_protos(void);
-int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
+#ifndef __TFW_WS_H__
+#define __TFW_WS_H__
 
 typedef struct tfw_conn_t TfwConn;
-int tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb);
 
-#endif /* __TFW_TLS_H__ */
+int tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb);
+TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn);
+void tfw_ws_cli_mod_timer(TfwCliConn *conn);
+
+#endif /* __TFW_WS_H__ */

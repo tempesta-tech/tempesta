@@ -7,7 +7,7 @@
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 0.2.0 of the License,
+ * the Free Software Foundation; either version 2 of the License,
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -29,7 +29,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta HTTP fuzzer");
-MODULE_VERSION("0.1.3");
+MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
 
 #define FUZZ_MSG_F_INVAL	FUZZ_INVALID
