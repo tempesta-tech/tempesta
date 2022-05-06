@@ -710,7 +710,7 @@ int tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status,
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
-void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
+void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);

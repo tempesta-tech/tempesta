@@ -937,7 +937,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 }
 
 static void
-tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
+tfw_h2_send_err_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 {
 	TfwStr *msg;
 	resp_code_t code;
@@ -1055,7 +1055,7 @@ err:
  * the fourth chunk must be CRLF.
  */
 static void
-tfw_h1_send_resp(TfwHttpReq *req, int status)
+tfw_h1_send_err_resp(TfwHttpReq *req, int status)
 {
 	TfwMsgIter it;
 	resp_code_t code;
@@ -1131,7 +1131,7 @@ err:
  * a value.
  */
 static void
-tfw_h2_send_resp2(TfwHttpReq *req, TfwStr *msg, int status,
+tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
 	              unsigned int stream_id)
 {
 	TfwHttpResp *resp;
@@ -1215,7 +1215,7 @@ err:
  * a value.
  */
 static void
-tfw_h1_send_resp2(TfwHttpReq *req, TfwStr *msg, int status)
+tfw_h1_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
 {
 	TfwMsgIter it;
 	TfwHttpResp *resp;
@@ -1489,7 +1489,7 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 
 /* Common interface for sending error responses. */
 void
-tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
+tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
@@ -1497,16 +1497,16 @@ tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 	}
 
 	if (TFW_MSG_H2(req))
-		tfw_h2_send_resp(req, status, 0);
+		tfw_h2_send_err_resp(req, status, 0);
 	else
-		tfw_h1_send_resp(req, status);
+		tfw_h1_send_err_resp(req, status);
 }
 
 static void
-tfw_http_send_resp2(TfwHttpReq *req, TfwStr *msg, int status)
+tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_send_resp2(req, msg, status, 0);
+		tfw_h2_send_resp(req, msg, status, 0);
 	} else {
 		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 
@@ -1517,7 +1517,7 @@ tfw_http_send_resp2(TfwHttpReq *req, TfwStr *msg, int status)
 		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
 		spin_unlock(&cli_conn->seq_qlock);
 
-		tfw_h1_send_resp2(req, msg, status);
+		tfw_h1_send_resp(req, msg, status);
 	}
 }
 
@@ -1614,7 +1614,7 @@ do {                                                                           \
 				    S_CRLF S_CRLF) + (url_p - url),
 			.nchunks = 10
 		};
-		tfw_http_send_resp2(req, &msg, status);
+		tfw_http_send_resp(req, &msg, status);
 	}
 }
 
@@ -1717,7 +1717,7 @@ tfw_http_req_zap_error(struct list_head *eq)
 		    || (!TFW_MSG_H2(req)
 			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 		{
-			tfw_http_send_resp(req, req->httperr.status,
+			tfw_http_send_err_resp(req, req->httperr.status,
 					   req->httperr.reason);
 		}
 		else
@@ -2237,7 +2237,7 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 		}
 	} else if (!(sch_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
 		T_DBG("Unable to find a backend server\n");
-		tfw_http_send_resp(req, 502, "request dropped: unable to"
+		tfw_http_send_err_resp(req, 502, "request dropped: unable to"
 				   " find an available back end server");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return 0;
@@ -4893,7 +4893,7 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	 */
 	if (tfw_http_adjust_resp(resp)) {
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 500,
+		tfw_http_send_err_resp(req, 500,
 				   "response dropped: processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
@@ -4966,7 +4966,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * is already in locally closed state (switched in
 	 * @tfw_h2_stream_id_close() during failed proxy/internal response
 	 * creation) or will be switched into locally closed state in
-	 * @tfw_h2_send_resp() (or in @tfw_h2_stream_id_close() if no error
+	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_close() if no error
 	 * response is needed) below; remotely (i.e. on client side) stream
 	 * will be closed - due to END_STREAM flag set in the last frame of
 	 * error response; in case of attack we must close entire connection,
@@ -4974,7 +4974,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * error response.
 	 */
 	if (reply) {
-		tfw_h2_send_resp(req, status, 0);
+		tfw_h2_send_err_resp(req, status, 0);
 		if (attack)
 			tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 						    !on_req_recv_event);
@@ -5039,7 +5039,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 		 */
 		if (on_req_recv_event || attack)
 			tfw_http_req_set_conn_close(req);
-		tfw_h1_send_resp(req, status);
+		tfw_h1_send_err_resp(req, status);
 	}
 	/*
 	 * Serve all pending requests if not under attack, close immediately
@@ -5263,7 +5263,7 @@ clean:
 		T_WARN_ADDR_STATUS("response dropped: processing error",
 				   &req->conn->peer->addr,
 				   TFW_NO_PORT, 500);
-	tfw_h2_send_resp(req, 500, stream_id);
+	tfw_h2_send_err_resp(req, 500, stream_id);
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
@@ -5343,11 +5343,11 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	goto conn_put;
 
 send_502:
-	tfw_http_send_resp(req, 502, "request dropped: processing error");
+	tfw_http_send_err_resp(req, 502, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_resp(req, 500, "request dropped: processing error");
+	tfw_http_send_err_resp(req, 500, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	/*
@@ -5942,7 +5942,7 @@ next_msg:
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		tfw_http_send_resp(req, 500, "request dropped:"
+		tfw_http_send_err_resp(req, 500, "request dropped:"
 					     " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -6178,7 +6178,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	if (tfw_cache_process(hmresp, tfw_http_resp_cache_cb))
 	{
 		tfw_http_conn_msg_free(hmresp);
-		tfw_http_send_resp(req, 500, "response dropped:"
+		tfw_http_send_err_resp(req, 500, "response dropped:"
 				   " processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */
