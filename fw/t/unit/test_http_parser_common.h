@@ -157,10 +157,12 @@ static unsigned int frames_total_sz = 0;
  * Used for types HTTP/1 and HTTP/2 requests.
  */
 #define INIT_FRAMES()								\
+do {										\
 	frames_cnt = 0;								\
 	frames_max_sz = 0;							\
 	frames_total_sz = 0;							\
-	bzero_fast(frames, sizeof(frames))
+	bzero_fast(frames, sizeof(frames));					\
+} while (0)
 
 #define GET_FRAMES_MAX_SZ() \
 	({frames_max_sz;})
@@ -276,8 +278,10 @@ static unsigned char *frame_buf __attribute__((unused)) = NULL;
  * Used for HTTP/2 requests only.
  */
 #define RESET_FRAMES_BUF()							\
+do {										\
 	BUG_ON(!frames_buf_ptr);						\
-	frames_buf_ptr = NULL
+	frames_buf_ptr = NULL;							\
+} while (0)
 
 /**
  * SET_FRAMES_BUF - set @frames_buf_ptr to @frames_buf.
@@ -451,8 +455,10 @@ write_to_frame_index(unsigned long index,
  * Used for HTTP/2 requests only.
  */
 #define __NAME(hdr_name, mask)							\
+do {										\
 	*frame_buf++ = mask;							\
-	VALUE(hdr_name)
+	VALUE(hdr_name);							\
+} while (0)
 
 /**
  * HEADERS_FRAME_BEGIN - mark beginning of HEADERS-frame.
@@ -521,8 +527,10 @@ do {										\
 #define INC_IND_BY_INDEX(data)	__INDEX((data), 0x3F, 0x40)
 #define INC_IND_BY_NAME(data)	__NAME((data), 0x40)
 #define INC_IND(name_desc, value_desc)						\
+do {										\
 	INC_IND_BY_##name_desc;							\
-	value_desc;
+	value_desc;								\
+} while (0)
 
 /**
  * Literal Header Field without Indexing.
@@ -535,8 +543,10 @@ do {										\
 #define WO_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0)
 #define WO_IND_BY_NAME(data)	__NAME((data), 0)
 #define WO_IND(name_desc, value_desc)						\
+do {										\
 	WO_IND_BY_##name_desc;							\
-	value_desc;
+	value_desc;								\
+} while (0)
 
 /**
  * Literal Header Field Never Indexed.
@@ -549,8 +559,10 @@ do {										\
 #define NEV_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0x10)
 #define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
 #define NEV_IND(name_desc, value_desc)						\
+do {										\
 	NEV_IND_BY_##name_desc;							\
-	value_desc;
+	value_desc;								\
+} while (0)
 
 #define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
 
