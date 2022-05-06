@@ -118,8 +118,10 @@
 #define S_H2_STAT		":status"
 
 #define RESP_BUF_LEN		128
+#define URL_BUF_LEN		1024
 
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
+static DEFINE_PER_CPU(char[URL_BUF_LEN], g_url_buf);
 
 #define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
 unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
@@ -135,8 +137,12 @@ static struct {
 #define S_HTTPS			"https://"
 
 #define S_200			"HTTP/1.1 200 OK"
+#define S_301			"HTTP/1.1 301 Moved Permanently"
 #define S_302			"HTTP/1.1 302 Found"
+#define S_303			"HTTP/1.1 303 See Also"
 #define S_304			"HTTP/1.1 304 Not Modified"
+#define S_307			"HTTP/1.1 307 Temporary Redirect"
+#define S_308			"HTTP/1.1 308 Permanent Redirect"
 #define S_400			"HTTP/1.1 400 Bad Request"
 #define S_403			"HTTP/1.1 403 Forbidden"
 #define S_404			"HTTP/1.1 404 Not Found"
@@ -827,6 +833,43 @@ tfw_http_enum_resp_code(int status)
 	}
 }
 
+static inline char *
+tfw_http_resp_status_line(int status)
+{
+	switch(status) {
+	case 200:
+		return S_200;
+	case 301:
+		return S_301;
+	case 302:
+		return S_302;
+	case 303:
+		return S_303;
+	case 307:
+		return S_307;
+	case 308:
+		return S_308;
+	case 400:
+		return S_400;
+	case 403:
+		return S_403;
+	case 404:
+		return S_404;
+	case 412:
+		return S_412;
+	case 500:
+		return S_500;
+	case 502:
+		return S_502;
+	case 503:
+		return S_503;
+	case 504:
+		return S_504;
+	default:
+		return NULL;
+	}
+}
+
 /**
  * Write HTTP/2 ':status' pseudo-header. The ':status' is only defined
  * pseudo-header for the response and all HTTP/2 responses must contain it.
@@ -897,7 +940,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 }
 
 static void
-tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
+tfw_h2_send_err_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 {
 	TfwStr *msg;
 	resp_code_t code;
@@ -1015,7 +1058,7 @@ err:
  * the fourth chunk must be CRLF.
  */
 static void
-tfw_h1_send_resp(TfwHttpReq *req, int status)
+tfw_h1_send_err_resp(TfwHttpReq *req, int status)
 {
 	TfwMsgIter it;
 	resp_code_t code;
@@ -1066,6 +1109,145 @@ tfw_h1_send_resp(TfwHttpReq *req, int status)
 		msg.nchunks = 5;
 
 	if (tfw_msg_write(&it, &msg))
+		goto err_setup;
+
+	tfw_http_resp_fwd(resp);
+
+	return;
+err_setup:
+	T_DBG2("%s: Response message allocation error: conn=[%p]\n",
+	       __func__, req->conn);
+	tfw_http_msg_free((TfwHttpMsg *)resp);
+err:
+	tfw_http_resp_build_error(req);
+}
+
+/*
+ * Perform operations to sending an custom HTTP2 response to a client.
+ * Set current date in the header of an HTTP response.
+ * If memory allocation error or message setup errors occurred, then
+ * client connection should be closed, because response-request
+ * pairing for pipelined requests is violated.
+ *
+ * NOTE: The first chunk is a status line, and then every odd chunk is a header
+ * field name starting with CRLF and ending with ': ', and every even chunk is
+ * a value.
+ */
+static void
+tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
+	              unsigned int stream_id)
+{
+	TfwHttpResp *resp;
+	struct sk_buff **skb_head;
+	TfwHttpTransIter *mit;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwStr hdr = {
+		.chunks = (TfwStr []){ {}, {} },
+		.nchunks = 2
+	};
+	int i;
+
+	if (!stream_id) {
+		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
+						   HTTP2_F_END_STREAM);
+		if (unlikely(!stream_id)) {
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			return;
+		}
+	}
+
+	resp = tfw_http_msg_alloc_resp_light(req);
+	if (unlikely(!resp))
+		goto err;
+
+	mit = &resp->mit;
+	skb_head = &resp->msg.skb_head;
+
+	/* Set HTTP/2 ':status' pseudo-header. */
+	mit->start_off = FRAME_HEADER_SIZE;
+	if (tfw_h2_resp_status_write(resp, status, TFW_H2_TRANS_EXPAND, false))
+		goto err_setup;
+
+	/*
+	 * Form and write HTTP/2 response headers excluding "\r\n", ':'
+	 * separators and OWS.
+	 */
+	for (i = 1; i < msg->nchunks - 1; i += 2) {
+		__TFW_STR_CH(&hdr, 0)->data = __TFW_STR_CH(msg, i)->data + SLEN(S_CRLF);
+		__TFW_STR_CH(&hdr, 0)->len = __TFW_STR_CH(msg, i)->len - SLEN(S_CRLF) - 2;
+		__TFW_STR_CH(&hdr, 1)->data = __TFW_STR_CH(msg, i + 1)->data;
+		__TFW_STR_CH(&hdr, 1)->len = __TFW_STR_CH(msg, i + 1)->len;
+		hdr.len = __TFW_STR_CH(&hdr, 0)->len + __TFW_STR_CH(&hdr, 1)->len;
+		hdr.hpack_idx = __TFW_STR_CH(msg, i)->hpack_idx;
+
+		if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND, true))
+			goto err_setup;
+	}
+
+	if (WARN_ON_ONCE(!mit->acc_len))
+		goto err_setup;
+
+	if (tfw_h2_frame_local_resp(resp, stream_id, mit->acc_len, NULL))
+		goto err_setup;
+
+	/* Send resulting HTTP/2 response and release HPACK encoder index. */
+	tfw_h2_resp_fwd(resp);
+
+	return;
+
+err_setup:
+	T_DBG("%s: HTTP/2 response message transformation error: conn=[%p]\n",
+	      __func__, req->conn);
+
+	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
+
+	tfw_http_msg_free((TfwHttpMsg *)resp);
+err:
+	tfw_http_resp_build_error(req);
+}
+
+/*
+ * Perform operations to sending an custom HTTP1 response to a client.
+ * Set current date in the header of an HTTP response.
+ * If memory allocation error or message setup errors occurred, then client
+ * connection should be closed, because response-request pairing for pipelined
+ * requests is violated.
+ *
+ * NOTE: The first chunk is a status line, and then every odd chunk is a header
+ * field name starting with CRLF and ending with ': ', and every even chunk is
+ * a value.
+ */
+static void
+tfw_h1_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
+{
+	TfwMsgIter it;
+	TfwHttpResp *resp;
+	TfwStr *crlf;
+
+	crlf = __TFW_STR_CH(msg, msg->nchunks - 1);
+	if (test_bit(TFW_HTTP_B_CONN_KA, req->flags)
+	    || test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags))
+	{
+		unsigned long crlf_len = crlf->len;
+		if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
+			crlf->data = S_CRLF S_H_CONN_CLOSE;
+			crlf->len = SLEN(S_CRLF S_H_CONN_CLOSE);
+		} else {
+			crlf->data = S_CRLF S_H_CONN_KA;
+			crlf->len = SLEN(S_CRLF S_H_CONN_KA);
+		}
+		msg->len += crlf->len - crlf_len;
+	}
+
+	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
+		goto err;
+	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0))
+		goto err_setup;
+
+	resp->status = status;
+	resp->content_length = 0;
+
+	if (tfw_msg_write(&it, msg))
 		goto err_setup;
 
 	tfw_http_resp_fwd(resp);
@@ -1312,7 +1494,7 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 
 /* Common interface for sending error responses. */
 void
-tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
+tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
@@ -1320,9 +1502,125 @@ tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 	}
 
 	if (TFW_MSG_H2(req))
-		tfw_h2_send_resp(req, status, 0);
+		tfw_h2_send_err_resp(req, status, 0);
 	else
-		tfw_h1_send_resp(req, status);
+		tfw_h1_send_err_resp(req, status);
+}
+
+static void
+tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
+{
+	if (TFW_MSG_H2(req)) {
+		tfw_h2_send_resp(req, msg, status, 0);
+	} else {
+		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+
+		WARN_ONCE(!list_empty_careful(&req->msg.seq_list),
+			  "Request is already in seq_queue\n");
+		tfw_stream_unlink_msg(req->stream);
+		spin_lock(&cli_conn->seq_qlock);
+		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+		spin_unlock(&cli_conn->seq_qlock);
+
+		tfw_h1_send_resp(req, msg, status);
+	}
+}
+
+static void
+tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
+{
+	char *date_val = *this_cpu_ptr(&g_buf);
+	char *url = *this_cpu_ptr(&g_url_buf);
+	char *url_p = url;
+	TfwStr *c, *end, *c2, *end2;
+	char *status_line;
+	size_t i = 0;
+	TfwStr *hdr;
+	TfwStr hdr_val;
+
+	tfw_http_prep_date(date_val);
+
+#define TFW_STRCPY(from)                                                       \
+do {                                                                           \
+	if (url_p + (from)->len + 1 > url + URL_BUF_LEN) {                     \
+		T_WARN("HTTP: unable to allocate memory for redirection "      \
+		       "url\n");                                               \
+		return;                                                        \
+	}                                                                      \
+	TFW_STR_FOR_EACH_CHUNK(c2, (from), end2) {                             \
+		memcpy_fast(url_p, c2->data, c2->len);                         \
+		url_p += c2->len;                                              \
+	}                                                                      \
+} while (0)
+
+	TFW_STR_FOR_EACH_CHUNK(c, &redir->url, end) {
+		if (url_p + c->len + 1 > url + URL_BUF_LEN) {
+			T_WARN("HTTP: unable to allocate memory for "
+			       "redirection url\n");
+			return;
+		}
+
+		memcpy_fast(url_p, c->data, c->len);
+		url_p += c->len;
+
+		switch (redir->var[i]) {
+			case TFW_HTTP_REDIR_URI:
+				TFW_STRCPY(&req->uri_path);
+				break;
+			case TFW_HTTP_REDIR_HOST:
+				hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+				tfw_http_msg_clnthdr_val(req, hdr,
+							 TFW_HTTP_HDR_HOST,
+							 &hdr_val);
+				TFW_STRCPY(&hdr_val);
+				break;
+			default:
+				BUG();
+		}
+		i++;
+	}
+	*url_p = '\0';
+#undef TFW_STRCPY
+
+	status_line = tfw_http_resp_status_line(status);
+	if (!status_line) {
+		T_WARN("Unexpected response error code: [%d]\n", status);
+		status_line = S_500;
+	}
+
+	{
+		TfwStr msg = {
+			.chunks = (TfwStr []){
+				{ .data = status_line,
+				  .len = strlen(status_line) },
+				{ .data = S_CRLF S_F_DATE,
+				  .len = SLEN(S_CRLF S_F_DATE),
+				  .hpack_idx = 33 },
+				{ .data = date_val, .len = SLEN(S_V_DATE) },
+				{ .data = S_CRLF S_F_CONTENT_LENGTH,
+				  .len = SLEN(S_CRLF S_F_CONTENT_LENGTH),
+				  .hpack_idx = 28 },
+				{ .data = "0", .len = SLEN("0") },
+				{ .data = S_CRLF S_F_LOCATION,
+				  .len = SLEN(S_CRLF S_F_LOCATION),
+				  .hpack_idx = 46 },
+				{ .data = (char *)url, .len = url_p - url },
+				{ .data = S_CRLF S_F_SERVER,
+				  .len = SLEN(S_CRLF S_F_SERVER),
+				  .hpack_idx = 54 },
+				{ .data = TFW_NAME "/" TFW_VERSION,
+				  .len = SLEN(TFW_NAME "/" TFW_VERSION) },
+				{ .data = S_CRLF S_CRLF,
+				  .len = SLEN(S_CRLF S_CRLF) },
+			},
+			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF
+				    S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
+				    S_CRLF S_F_SERVER TFW_NAME "/" TFW_VERSION
+				    S_CRLF S_CRLF) + (url_p - url),
+			.nchunks = 10
+		};
+		tfw_http_send_resp(req, &msg, status);
+	}
 }
 
 static bool
@@ -1424,7 +1722,7 @@ tfw_http_req_zap_error(struct list_head *eq)
 		    || (!TFW_MSG_H2(req)
 			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 		{
-			tfw_http_send_resp(req, req->httperr.status,
+			tfw_http_send_err_resp(req, req->httperr.status,
 					   req->httperr.reason);
 		}
 		else
@@ -1953,7 +2251,7 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 		}
 	} else if (!(sch_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
 		T_DBG("Unable to find a backend server\n");
-		tfw_http_send_resp(req, 502, "request dropped: unable to"
+		tfw_http_send_err_resp(req, 502, "request dropped: unable to"
 				   " find an available back end server");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return 0;
@@ -4609,7 +4907,7 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	 */
 	if (tfw_http_adjust_resp(resp)) {
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 500,
+		tfw_http_send_err_resp(req, 500,
 				   "response dropped: processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
@@ -4682,7 +4980,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * is already in locally closed state (switched in
 	 * @tfw_h2_stream_id_close() during failed proxy/internal response
 	 * creation) or will be switched into locally closed state in
-	 * @tfw_h2_send_resp() (or in @tfw_h2_stream_id_close() if no error
+	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_close() if no error
 	 * response is needed) below; remotely (i.e. on client side) stream
 	 * will be closed - due to END_STREAM flag set in the last frame of
 	 * error response; in case of attack we must close entire connection,
@@ -4690,7 +4988,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * error response.
 	 */
 	if (reply) {
-		tfw_h2_send_resp(req, status, 0);
+		tfw_h2_send_err_resp(req, status, 0);
 		if (attack)
 			tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 						    !on_req_recv_event);
@@ -4755,7 +5053,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 		 */
 		if (on_req_recv_event || attack)
 			tfw_http_req_set_conn_close(req);
-		tfw_h1_send_resp(req, status);
+		tfw_h1_send_err_resp(req, status);
 	}
 	/*
 	 * Serve all pending requests if not under attack, close immediately
@@ -4979,7 +5277,7 @@ clean:
 		T_WARN_ADDR_STATUS("response dropped: processing error",
 				   &req->conn->peer->addr,
 				   TFW_NO_PORT, 500);
-	tfw_h2_send_resp(req, 500, stream_id);
+	tfw_h2_send_err_resp(req, 500, stream_id);
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
@@ -5059,11 +5357,11 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	goto conn_put;
 
 send_502:
-	tfw_http_send_resp(req, 502, "request dropped: processing error");
+	tfw_http_send_err_resp(req, 502, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_resp(req, 500, "request dropped: processing error");
+	tfw_http_send_err_resp(req, 500, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	/*
@@ -5337,13 +5635,13 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 static int
 tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
-	bool block;
 	ss_skb_actor_t *actor;
 	unsigned int parsed;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
 	TfwFsmData data_up;
 	int r = TFW_BLOCK;
+	TfwHttpActionResult res;
 
 	BUG_ON(!stream->msg);
 
@@ -5355,7 +5653,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	 * until all data in the SKB is processed.
 	 */
 next_msg:
-	block = false;
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
@@ -5494,12 +5791,14 @@ next_msg:
 	 * rules, such as `mark` rule. Even if http_chains is the
 	 * slowest method we have, we can't simply skip it.
 	 */
-	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
-	if (unlikely(block)) {
+	if (unlikely(r = tfw_http_tbl_action((TfwMsg *)req, &res))) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 403,
 			"request has been filtered out via http table");
 		return TFW_BLOCK;
+	}
+	if (res.type == TFW_HTTP_RES_VHOST) {
+		req->vhost = res.vhost;
 	}
 	if (req->vhost)
 		req->location = tfw_location_match(req->vhost, &req->uri_path);
@@ -5548,6 +5847,11 @@ next_msg:
 		tfw_http_req_parse_block(req, 403,
 			"parsed request has been filtered out");
 		return TFW_BLOCK;
+	}
+
+	if (res.type == TFW_HTTP_RES_REDIR) {
+		tfw_http_req_redir(req, res.redir.resp_code, &res.redir);
+		return TFW_PASS;
 	}
 
 	/*
@@ -5655,7 +5959,7 @@ next_msg:
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		tfw_http_send_resp(req, 500, "request dropped:"
+		tfw_http_send_err_resp(req, 500, "request dropped:"
 					     " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -5892,7 +6196,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	if ((r = tfw_cache_process(hmresp, tfw_http_resp_cache_cb)))
 	{
 		tfw_http_conn_msg_free(hmresp);
-		tfw_http_send_resp(req, 500, "response dropped:"
+		tfw_http_send_err_resp(req, 500, "response dropped:"
 				   " processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */
@@ -6325,7 +6629,8 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		.len = len,
 	};
 	LIST_HEAD(equeue);
-	bool block = false;
+	TfwHttpActionResult res;
+	int r;
 
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
@@ -6351,12 +6656,18 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	 * but in vhost: instead of table lookups target vhost could be chosen
 	 * directly.
 	 */
-	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
-	if (unlikely(!req->vhost || block)) {
+	if (unlikely(r = tfw_http_tbl_action((TfwMsg *)req, &res))) {
 		T_WARN_ADDR("Unable to assign vhost for health monitoring "
 			    "request of backend server", &srv->addr,
 			    TFW_WITH_PORT);
 		goto cleanup;
+	}
+	if (res.type == TFW_HTTP_RES_REDIR) {
+		goto cleanup;
+	} else if (res.type == TFW_HTTP_RES_VHOST) {
+		req->vhost = res.vhost;
+	} else {
+		BUG();
 	}
 	req->location = req->vhost->loc_dflt;
 

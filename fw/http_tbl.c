@@ -120,8 +120,8 @@ static TfwHttpChain *tfw_chain_entry;
  * chain is processed primarily (must be first in the table list); if rule
  * of some chain points to other chain - move to that chain and scan it.
  */
-static TfwVhost *
-tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
+static int
+tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, TfwHttpActionResult *action)
 {
 	TfwHttpChain *chain;
 	TfwHttpMatchRule *rule;
@@ -136,22 +136,40 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 		if (unlikely(!rule)) {
 			T_DBG("http_tbl: No rule found in HTTP chain '%s'\n",
 			      chain->name);
-			return NULL;
+			*action = (TfwHttpActionResult){
+				.type = TFW_HTTP_RES_VHOST,
+				.vhost = NULL
+			};
+			return 0;
 		}
 		chain = (rule->act.type == TFW_HTTP_MATCH_ACT_CHAIN)
 		      ? rule->act.chain
 		      : NULL;
 	}
 
-	/* If rule points to virtual host, return the pointer. */
-	if (rule->act.type == TFW_HTTP_MATCH_ACT_VHOST)
-		return rule->act.vhost;
+	switch (rule->act.type) {
+		case TFW_HTTP_MATCH_ACT_VHOST:
+			*action = (TfwHttpActionResult){
+				.type = TFW_HTTP_RES_VHOST,
+				.vhost = rule->act.vhost
+			};
+			return 0;
+		case TFW_HTTP_MATCH_ACT_REDIR:
+			*action = (TfwHttpActionResult){
+				.type = TFW_HTTP_RES_REDIR,
+				.redir = rule->act.redir
+			};
+			return 0;
+		case TFW_HTTP_MATCH_ACT_BLOCK:
+			return -1;
 
-	/* If rule has 'block' action, request must be blocked. */
-	if (rule->act.type == TFW_HTTP_MATCH_ACT_BLOCK)
-		*block = true;
-
-	return NULL;
+		default:
+			*action = (TfwHttpActionResult){
+				.type = TFW_HTTP_RES_VHOST,
+				.vhost = NULL
+			};
+			return 0;
+	}
 }
 
 /*
@@ -161,24 +179,30 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
  * match http chain rules that specify which virtual host
  * or other http chain the request should be forwarded to.
  */
-TfwVhost *
-tfw_http_tbl_vhost(TfwMsg *msg, bool *block)
+int
+tfw_http_tbl_action(TfwMsg *msg, TfwHttpActionResult *action)
 {
-	TfwVhost *vhost = NULL;
 	TfwHttpTable *active_table;
+	int r = 0;
 
 	rcu_read_lock_bh();
 
 	active_table = rcu_dereference_bh(tfw_table);
-	if(!active_table)
+	if(!active_table) {
+		*action = (TfwHttpActionResult){ .type = TFW_HTTP_RES_VHOST,
+						 .vhost = NULL };
 		goto done;
+	}
 
 	BUG_ON(list_empty(&active_table->head));
-	if ((vhost = tfw_http_tbl_scan(msg, active_table, block)))
-		tfw_vhost_get(vhost);
+	r = tfw_http_tbl_scan(msg, active_table, action);
+
+	if (action->type == TFW_HTTP_RES_VHOST && action->vhost)
+		tfw_vhost_get(action->vhost);
+
 done:
- 	rcu_read_unlock_bh();
- 	return vhost;
+	rcu_read_unlock_bh();
+	return r;
 }
 
 /*
@@ -494,8 +518,101 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 	}
+	else if (action && action_val &&
+		 !tfw_cfg_parse_uint(action, &rule->act.redir.resp_code))
+	{
+		TfwStr *url = &rule->act.redir.url;
+		const char *begin, *pos;
+		const char *val_end = action_val + strlen(action_val);
+		size_t i;
+
+		if (rule->act.redir.resp_code != 301 &&
+		    rule->act.redir.resp_code != 302 &&
+		    rule->act.redir.resp_code != 303 &&
+		    rule->act.redir.resp_code != 307 &&
+		    rule->act.redir.resp_code != 308)
+		{
+			T_ERR_NL("http_tbl: incorect redirection status code: "
+				 "'%s'\n", action_val);
+			return -EINVAL;
+		}
+
+		url->chunks = kmalloc((TFW_HTTP_MAX_REDIR_VARS + 1) *
+				      sizeof(TfwStr), GFP_KERNEL);
+		if (!url->chunks) {
+			T_ERR_NL("http_tbl: can't allocate memory for "
+				 "redirections\n");
+			return -EINVAL;
+		}
+
+		url->nchunks = 0;
+		url->len = 0;
+
+#define CREATE_CHUNK()                                                \
+do {                                                                  \
+	url->chunks[i].data = kmalloc(pos - begin + 1, GFP_KERNEL);   \
+	if (!url->chunks[i].data) {                                   \
+		kfree(url->chunks);                                   \
+		T_ERR_NL("http_tbl: can't allocate memory for "       \
+			 "redirections\n");                           \
+		return -EINVAL;                                       \
+	}                                                             \
+	url->chunks[i].len = pos - begin;                             \
+	url->chunks[i].nchunks = 0;                                   \
+	memcpy(url->chunks[i].data, begin, pos - begin);              \
+	url->chunks[i].data[pos - begin] = '\0';                      \
+	url->nchunks++;                                               \
+	url->len += pos - begin;                                      \
+} while (0)
+
+		for (begin = pos = action_val, i = 0;
+		     *pos && i < TFW_HTTP_MAX_REDIR_VARS;)
+		{
+			if (*pos == '$') {
+				tfw_http_redir_var_t var;
+
+				if (val_end - pos > SLEN("request_uri") &&
+				   !strncmp(pos + 1, "request_uri",
+					    SLEN("request_uri")))
+				{
+					CREATE_CHUNK();
+
+					begin = pos += SLEN("$request_uri");
+
+					var= TFW_HTTP_REDIR_URI;
+				} else if (val_end - pos > SLEN("host") &&
+					   !strncmp(pos + 1, "host",
+						    SLEN("host")))
+				{
+					CREATE_CHUNK();
+
+					begin = pos += SLEN("$host");
+
+					var = TFW_HTTP_REDIR_HOST;
+				} else {
+					++pos;
+					continue;
+				}
+
+				rule->act.redir.var[i] = var;
+				i++;
+			} else {
+				++pos;
+			}
+		}
+#undef CREATE_CHUNK
+
+		if (i >= TFW_HTTP_MAX_REDIR_VARS) {
+			T_ERR_NL("http_tbl: too many vars (more %d) in redirection url: "
+				 "'%s'\n",
+			 TFW_HTTP_MAX_REDIR_VARS, action_val);
+			return -EINVAL;
+		}
+
+		rule->act.type = TFW_HTTP_MATCH_ACT_REDIR;
+	}
 	else if (action_val) {
-		T_ERR_NL("http_tbl: only 'mark' or '$..' actions "
+		T_ERR_NL("http_tbl: only 'mark', '$..' or redirection actions "
 			 "may have any value: '%s'\n",
 			 action_val);
 		return -EINVAL;
@@ -539,6 +656,14 @@ tfw_cfgop_release_rule(TfwHttpMatchRule *rule)
 		tfw_vhost_put(rule->act.vhost);
 	if (rule->val.type == TFW_HTTP_MATCH_V_COOKIE)
 		kfree(rule->val.ptn.str);
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_REDIR) {
+		int i;
+
+		for (i = 0; i < rule->act.redir.url.nchunks; ++i) {
+			kfree(rule->act.redir.url.chunks[i].data);
+		}
+		kfree(rule->act.redir.url.chunks);
+	}
 	return 0;
 }
 
