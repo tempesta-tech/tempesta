@@ -358,7 +358,7 @@ TEST(http2_parser_hpack, not_existed_indexes)
 	);
 }
 
-TEST(http2_parser_hpack, static_table_all_indexes_for_req)
+TEST(http2_parser_hpack, static_table_all_indexes_for_request)
 {
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
@@ -600,7 +600,7 @@ TEST(http2_parser_hpack, static_table_all_indexes_for_req)
 	}
 }
 
-TEST(http2_parser_hpack, increment_all_static_indexes_for_req)
+TEST(http2_parser_hpack, increment_all_static_indexes_for_request)
 {
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
@@ -1723,8 +1723,8 @@ TEST_SUITE(http2_parser_hpack)
 	TEST_RUN(http2_parser_hpack, literal_header_field_without_indexing);
 	TEST_RUN(http2_parser_hpack, literal_header_field_never_indexed);
 	TEST_RUN(http2_parser_hpack, not_existed_indexes);
-	TEST_RUN(http2_parser_hpack, static_table_all_indexes_for_req);
-	TEST_RUN(http2_parser_hpack, increment_all_static_indexes_for_req);
+	TEST_RUN(http2_parser_hpack, static_table_all_indexes_for_request);
+	TEST_RUN(http2_parser_hpack, increment_all_static_indexes_for_request);
 	TEST_RUN(http2_parser_hpack, erase_all_indexes);
 	TEST_RUN(http2_parser_hpack, erase_indexes_one_by_one);
 	TEST_RUN(http2_parser_hpack, eviction_of_indexes);
