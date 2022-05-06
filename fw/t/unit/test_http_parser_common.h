@@ -979,26 +979,20 @@ do {\
 	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
 
 #define EXPECT_BLOCK_REQ(str)						\
-do {									\
 	PRINT_REQ(str);							\
 	test_case_parse_prepare_http(str);				\
-	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON);			\
-} while (0)
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON)
 
 #define EXPECT_BLOCK_REQ_H2(frames_definition)				\
-do {									\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
 	PRINT_REQ_H2();							\
 	test_case_parse_prepare_h2();					\
-	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
-} while (0)
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON)
 
 #define EXPECT_BLOCK_REQ_H2_HPACK(frames_definition)			\
-do {									\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
 	PRINT_REQ_H2();							\
-	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
-} while (0)
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON)
 
 #define __FOR_RESP(str, sz_diff, chunk_mode)				\
 	TEST_LOG("=== response: [%s]\n", str);				\
@@ -1008,11 +1002,9 @@ do {									\
 #define FOR_RESP(str)	__FOR_RESP(str, 0, CHUNK_ON)
 
 #define EXPECT_BLOCK_RESP(str)						\
-do {									\
 	TEST_LOG("=== response: [%s]\n", str);				\
 	test_case_parse_prepare_http(str);				\
-	TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON);			\
-} while (0)
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_RESP, CHUNK_ON)
 
 #define EXPECT_TFWSTR_EQ(tfw_str, cstr)					\
 	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))

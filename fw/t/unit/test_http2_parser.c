@@ -925,7 +925,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
 		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
 	}									\
@@ -936,7 +936,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
 		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
 	}
@@ -950,7 +950,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -963,7 +963,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -976,7 +976,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -989,7 +989,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
 		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1002,7 +1002,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
 		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1015,7 +1015,7 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));	\
 		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
-	);									\
+	)									\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
