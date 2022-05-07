@@ -157,10 +157,12 @@ static unsigned int frames_total_sz = 0;
  * Used for types HTTP/1 and HTTP/2 requests.
  */
 #define INIT_FRAMES()								\
+do {										\
 	frames_cnt = 0;								\
 	frames_max_sz = 0;							\
 	frames_total_sz = 0;							\
-	bzero_fast(frames, sizeof(frames))
+	bzero_fast(frames, sizeof(frames));					\
+} while (0)
 
 #define GET_FRAMES_MAX_SZ() \
 	({frames_max_sz;})
@@ -276,8 +278,10 @@ static unsigned char *frame_buf __attribute__((unused)) = NULL;
  * Used for HTTP/2 requests only.
  */
 #define RESET_FRAMES_BUF()							\
+do {										\
 	BUG_ON(!frames_buf_ptr);						\
-	frames_buf_ptr = NULL
+	frames_buf_ptr = NULL;							\
+} while (0)
 
 /**
  * SET_FRAMES_BUF - set @frames_buf_ptr to @frames_buf.
@@ -451,8 +455,10 @@ write_to_frame_index(unsigned long index,
  * Used for HTTP/2 requests only.
  */
 #define __NAME(hdr_name, mask)							\
+do {										\
 	*frame_buf++ = mask;							\
-	VALUE(hdr_name)
+	VALUE(hdr_name);							\
+} while (0)
 
 /**
  * HEADERS_FRAME_BEGIN - mark beginning of HEADERS-frame.
@@ -521,8 +527,10 @@ do {										\
 #define INC_IND_BY_INDEX(data)	__INDEX((data), 0x3F, 0x40)
 #define INC_IND_BY_NAME(data)	__NAME((data), 0x40)
 #define INC_IND(name_desc, value_desc)						\
+do {										\
 	INC_IND_BY_##name_desc;							\
-	value_desc;
+	value_desc;								\
+} while (0)
 
 /**
  * Literal Header Field without Indexing.
@@ -535,8 +543,10 @@ do {										\
 #define WO_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0)
 #define WO_IND_BY_NAME(data)	__NAME((data), 0)
 #define WO_IND(name_desc, value_desc)						\
+do {										\
 	WO_IND_BY_##name_desc;							\
-	value_desc;
+	value_desc;								\
+} while (0)
 
 /**
  * Literal Header Field Never Indexed.
@@ -549,8 +559,10 @@ do {										\
 #define NEV_IND_BY_INDEX(data)	__INDEX((data), 0x0F, 0x10)
 #define NEV_IND_BY_NAME(data)	__NAME((data), 0x10)
 #define NEV_IND(name_desc, value_desc)						\
+do {										\
 	NEV_IND_BY_##name_desc;							\
-	value_desc;
+	value_desc;								\
+} while (0)
 
 #define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
 
@@ -651,6 +663,21 @@ do {										\
 	frames_total_sz = str_len;						\
 } while(0)
 
+/**
+ * ASSIGN_FRAMES_FOR_H2 - assign HTTP/2 frame(s) to @frames.
+ *
+ * @frames_definition:	a description of HTTP/2 frame(s).
+ *
+ * Used for HTTP/2 requests only.
+ */
+#define ASSIGN_FRAMES_FOR_H2(frames_definition)					\
+do {										\
+	INIT_FRAMES();								\
+	SET_FRAMES_BUF(frames_buf);						\
+	frames_definition;							\
+	RESET_FRAMES_BUF();							\
+} while(0)
+
 DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
 static int
@@ -716,7 +743,7 @@ test_case_parse_prepare_http(char *str)
 	ASSIGN_FRAMES_FOR_H1(str, strlen(str));
 }
 
-static void
+static void __attribute__((unused))
 test_case_parse_prepare_h2(void)
 {
 	tfw_h2_context_init(&conn.h2);
@@ -922,63 +949,56 @@ while (({								\
 	_err == TFW_BLOCK || _err == TFW_POSTPONE;			\
 }))
 
-#define PRINT_REQ(str) \
-	TEST_LOG("=== request: [%s]\n", str)
+#define PRINT_REQ(str)	TEST_LOG("h1 req: [%s]\n", str)
 
-#define __FOR_REQ(str, sz_diff, type, chunk_mode)			\
-	PRINT_REQ(str);							\
-	type == FUZZ_REQ_H2 ?						\
-		test_case_parse_prepare_h2() :				\
-		test_case_parse_prepare_http(str);			\
-	__TRY_PARSE_EXPECT_PASS(type, sz_diff, chunk_mode)
-
-#define FOR_REQ(str)							\
-	__FOR_REQ(str, 0, FUZZ_REQ, CHUNK_ON)
-#define FOR_REQ_H2(H2_FRAMES_DEF_BLOCK)					\
-	INIT_FRAMES();							\
-	SET_FRAMES_BUF(frames_buf);					\
-	H2_FRAMES_DEF_BLOCK;						\
-	RESET_FRAMES_BUF();						\
-	__FOR_REQ(							\
-	    "HTTP/2 request preview is not available now...",		\
-	     0, FUZZ_REQ_H2, CHUNK_ON)
-#define FOR_REQ_H2_CHUNK_OFF(str)					\
-	__FOR_REQ(str, 0, FUZZ_REQ_H2, CHUNK_OFF)
-#define FOR_REQ_H2_HPACK(H2_FRAMES_DEF_BLOCK)				\
-	INIT_FRAMES();							\
-	SET_FRAMES_BUF(frames_buf);					\
-	H2_FRAMES_DEF_BLOCK;						\
-	RESET_FRAMES_BUF();						\
-	PRINT_REQ("HTTP/2 request preview is not available now...");	\
-	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
-
-#define __EXPECT_BLOCK_REQ(str, type, chunk_mode)			\
+#define PRINT_REQ_H2()							\
 do {									\
-	PRINT_REQ(str);							\
-	type == FUZZ_REQ_H2 ?						\
-		test_case_parse_prepare_h2() :				\
-		test_case_parse_prepare_http(str);			\
-	TRY_PARSE_EXPECT_BLOCK(type, chunk_mode);			\
+    BUG_ON(frames_cnt == 0);						\
+    print_hex_dump(KERN_INFO, TEST_BANNER "h2 req: ", DUMP_PREFIX_NONE,	\
+		   32, 1, frames[0].str, min_t(size_t, frames[0].len, 32U),\
+		   true);						\
 } while (0)
 
+#define __FOR_REQ(str, sz_diff, chunk_mode)				\
+	PRINT_REQ(str);							\
+	test_case_parse_prepare_http(str);				\
+	__TRY_PARSE_EXPECT_PASS(FUZZ_REQ, sz_diff, chunk_mode)
+
+#define FOR_REQ(str)							\
+	__FOR_REQ(str, 0, CHUNK_ON)
+
+#define FOR_REQ_H2(frames_definition)					\
+	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
+	PRINT_REQ_H2();							\
+	test_case_parse_prepare_h2();					\
+	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
+
+#define FOR_REQ_H2_HPACK(frames_definition)				\
+	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
+	PRINT_REQ_H2();							\
+	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
+
 #define EXPECT_BLOCK_REQ(str)						\
-	__EXPECT_BLOCK_REQ(str, FUZZ_REQ, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2(H2_FRAMES_DEF_BLOCK)			\
-	INIT_FRAMES();							\
-	SET_FRAMES_BUF(frames_buf);					\
-	H2_FRAMES_DEF_BLOCK;						\
-	RESET_FRAMES_BUF();						\
-	__EXPECT_BLOCK_REQ(						\
-	    "HTTP/2 request preview is not available now...",		\
-	    FUZZ_REQ_H2, CHUNK_ON)
-#define EXPECT_BLOCK_REQ_H2_CHUNK_OFF(str)				\
-	__EXPECT_BLOCK_REQ(str, FUZZ_REQ_H2, CHUNK_OFF)
-#define EXPECT_BLOCK_REQ_H2_HPACK(H2_FRAMES_DEF_BLOCK)			\
-	INIT_FRAMES();							\
-	SET_FRAMES_BUF(frames_buf);					\
-	H2_FRAMES_DEF_BLOCK;						\
-	RESET_FRAMES_BUF();						\
-	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON)
+do {									\
+	PRINT_REQ(str);							\
+	test_case_parse_prepare_http(str);				\
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ, CHUNK_ON);			\
+} while (0)
+
+#define EXPECT_BLOCK_REQ_H2(frames_definition)				\
+do {									\
+	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
+	PRINT_REQ_H2();							\
+	test_case_parse_prepare_h2();					\
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
+} while (0)
+
+#define EXPECT_BLOCK_REQ_H2_HPACK(frames_definition)			\
+do {									\
+	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
+	PRINT_REQ_H2();							\
+	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON);			\
+} while (0)
 
 #define __FOR_RESP(str, sz_diff, chunk_mode)				\
 	TEST_LOG("=== response: [%s]\n", str);				\
