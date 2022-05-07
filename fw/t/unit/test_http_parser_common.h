@@ -949,14 +949,14 @@ while (({								\
 	_err == TFW_BLOCK || _err == TFW_POSTPONE;			\
 }))
 
-#define PRINT_REQ(str) \
-	TEST_LOG("=== request: [%s]\n", str)
+#define PRINT_REQ(str)	TEST_LOG("h1 req: [%s]\n", str)
 
-#define PRINT_REQ_H2() \
-do {\
-    BUG_ON(frames_cnt == 0);\
-    TEST_LOG("=== request:\n");\
-    TEST_LOG_HEX_DUMP_NO_MORE_32_BYTES(frames[0].str, frames[0].len);\
+#define PRINT_REQ_H2()							\
+do {									\
+    BUG_ON(frames_cnt == 0);						\
+    print_hex_dump(KERN_INFO, TEST_BANNER "h2 req: ", DUMP_PREFIX_NONE,	\
+		   32, 1, frames[0].str, min_t(size_t, frames[0].len, 32U),\
+		   true);						\
 } while (0)
 
 #define __FOR_REQ(str, sz_diff, chunk_mode)				\
