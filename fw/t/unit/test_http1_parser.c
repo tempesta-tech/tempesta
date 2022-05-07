@@ -1249,13 +1249,13 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 #define EXPECT_BLOCK_BODYLESS_REQ(METHOD)					\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
 		 	 "Content-Length: 0\r\n"				\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
 	}									\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
 		 	 "Content-Type: text/html\r\n"				\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
 	}
@@ -1264,7 +1264,7 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
 		 	 "Content-Length: 0\r\n"				\
 			 "X-Method-Override: " #METHOD "\r\n"			\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1272,7 +1272,7 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
 		 	 "Content-Length: 0\r\n"				\
 			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1280,7 +1280,7 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
 		 	 "Content-Length: 0\r\n"				\
 			 "X-HTTP-Method: " #METHOD "\r\n"			\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1288,7 +1288,7 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
 		 	 "Content-Type: text/html\r\n"				\
 			 "X-Method-Override: " #METHOD "\r\n"			\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1296,7 +1296,7 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
 		 	 "Content-Type: text/html\r\n"				\
 			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1304,7 +1304,7 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
 		 	 "Content-Type: text/html\r\n"				\
 			 "X-HTTP-Method: " #METHOD "\r\n"			\
-		 	 "\r\n");						\
+		 	 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
