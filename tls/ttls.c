@@ -2142,7 +2142,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 	TlsIOCtx *io = &tls->io_in;
 
 	BUG_ON(!tls || !tls->conf);
-	T_DBG3("%s: tls=%pK len=%lu read=%u\n", __func__, tls, len, *read);
+	T_DBG3("%s: tls=%pK len=%u read=%u\n", __func__, tls, len, *read);
 
 	if (!(io->st_flags & TTLS_F_ST_HDRIV)) {
 		unsigned int delta;
