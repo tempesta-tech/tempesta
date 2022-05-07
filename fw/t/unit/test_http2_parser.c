@@ -2067,8 +2067,6 @@ TEST(http2_parser, xff)
 	}
 }
 
-TEST(http2_parser, date)
-{
 #define FOR_EACH_DATE(strdate, expect_seconds)					\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
@@ -2108,6 +2106,8 @@ TEST(http2_parser, date)
 #define FOR_EACH_DATE_FORMAT_INVALID(day, month, year, year_2d, time)		\
 	FOR_EACH_DATE_FORMAT(day, month, year, year_2d, time, 0)
 
+TEST(http2_parser, date_format)
+{
 	FOR_EACH_DATE_FORMAT("31", "Jan", "2012", "12", "15:02:53",
 				   1328022173);
 	FOR_EACH_DATE_FORMAT_INVALID("31", "JAN", "2012", "12", "15:02:53");
@@ -2117,6 +2117,170 @@ TEST(http2_parser, date)
 	FOR_EACH_DATE_FORMAT_INVALID("31", "Jan", " 2012", " 12", "15:02:53");
 	FOR_EACH_DATE_FORMAT_INVALID("31", "Jan", "2012", "12", " 15:02:53");
 
+	/* More than 01 Jan 1970. */
+	/*
+	 * For ISO 850 this implementation violates RFC:
+	 *
+	 * Recipients of a timestamp value in rfc850-date format, which uses a
+	 * two-digit year, MUST interpret a timestamp that appears to be more
+	 * than 50 years in the future as representing the most recent year in
+	 * the past that had the same last two digits.
+	 *
+	 * But it's done intensionally, also Nginx implements the same logic.
+	 */
+	FOR_EACH_DATE_FORMAT("01", "Jan", "1970", "70", "00:00:01", 1);
+	/* 2000 */
+	FOR_EACH_DATE_FORMAT("01", "Jan", "2000", "00", "00:00:00",
+				   946684800);
+	FOR_EACH_DATE("Invalid, 01-Jan-00 00:00:00 GMT", 946684800);
+	/* 2069 */
+	FOR_EACH_DATE_FORMAT("31", "Dec", "2069", "69", "23:59:59",
+				   3155759999);
+	FOR_EACH_DATE_RFC_822_ISOC("31", "Dec", "9999", "23:59:59",
+					 253402300799);
+	/*
+	 * Format specific tests.
+	 */
+	/* Only GMT allowed */
+	FOR_EACH_DATE_INVALID("Inv, 01 Jan 2000 00:00:00 EST");
+	FOR_EACH_DATE_INVALID("Invalid, 01-Jan-00 00:00:00 EST");
+
+	/* GMT is requred */
+	FOR_EACH_DATE_INVALID("Inv, 01 Jan 2000 00:00:00");
+	FOR_EACH_DATE_INVALID("Invalid, 01-Jan-00 00:00:00");
+
+	/*
+	 * ISOC
+	 * Only 2 spaces for 1-digit day and 1 space for 2-digit day
+	 */
+	FOR_EACH_DATE("Inv Jan  1 00:00:01 1970", 1);
+	FOR_EACH_DATE("Inv Jan 01 00:00:01 1970", 1);
+	FOR_EACH_DATE_INVALID("Inv Jan   1 00:00:01 1970");
+	FOR_EACH_DATE_INVALID("Inv Jan  01 00:00:01 1970");
+
+	FOR_EACH_DATE_INVALID("invalid");
+}
+
+TEST(http2_parser, date_ranges)
+{
+	/*
+	 * Less then 01 Jan 1970.
+	 * Date in RFC 850 can not be less then 01 Jan 1970.
+	 */
+	/* Treat as 00, 69, 70 (and so on) year CE */
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0000", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "0069", "23:59:59");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0070", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0070", "00:00:01");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0099", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0100", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0999", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "1969", "23:59:59");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "1970", "00:00:00");
+}
+
+TEST(http2_parser, date_day)
+{
+	/*
+	 * According to RFC "00" is a valid day, but Tempesta rejects it
+	 * because of ambiguity of its interpretation.
+	 */
+	FOR_EACH_DATE_FORMAT_INVALID("00", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("0", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("1", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("32", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("-1", "Jan", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("invalid", "Jan", "2000", "00",
+				     "00:00:00");
+
+	FOR_EACH_DATE_FORMAT("30", "Apr", "1978", "78", "00:00:00",
+				   262742400);
+	FOR_EACH_DATE_FORMAT_INVALID("31", "Apr", "1995", "95", "00:00:00");
+	FOR_EACH_DATE_FORMAT("31", "Jul", "2003", "03", "00:00:00",
+				   1059609600);
+	FOR_EACH_DATE_FORMAT("30", "Sep", "2009", "09", "00:00:00",
+				   1254268800);
+	FOR_EACH_DATE_FORMAT_INVALID("31", "Sep", "2050", "50", "00:00:00");
+}
+
+TEST(http2_parser, date_year)
+{
+	/* Leap years */
+	FOR_EACH_DATE_FORMAT("29", "Feb", "1996", "96", "00:00:00", 825552000);
+	FOR_EACH_DATE_FORMAT_INVALID("29", "Feb", "1999", "99", "00:00:00");
+
+	/* Incorrect year. */
+	/* Only 4 digits for RFC 822 & ISOC and 2 digits for RFC 850 allowed */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "0", "0", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "1", "1", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "44", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "000", "000","00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "999", "999", "00:00:00");
+	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "10000", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "", "", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "-1", "-1","00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "invalid", "invalid",
+				     "00:00:00");
+}
+
+TEST(http2_parser, date_month)
+{
+	/* Incorrect month. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Ja", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Janu", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "January", "2000", "00", "00:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jab", "2000", "00", "00:00:00");
+}
+
+TEST(http2_parser, date_hour)
+{
+	/* Incorrect hours. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", ":00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "0:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "000:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "24:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "100:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "-1:00:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "invalid:00:00");
+}
+
+TEST(http2_parser, date_minute)
+{
+	/* Incorrect minutes. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00::00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:0:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:000:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:60:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:100:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:-1:00");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:invalid:00");
+}
+
+TEST(http2_parser, date_second)
+{
+	/* Incorrect seconds. */
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:0");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:000");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:60");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:100");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:-1");
+	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:invalid");
+	/* Leap seconds are not implemented (as in Nginx) */
+	FOR_EACH_DATE_FORMAT_INVALID("30", "Jun", "1992", "92", "23:59:60");
+}
+#undef IF_MSINCE_INVALID
+#undef FOR_EACH_DATE_FORMAT_INVALID
+#undef FOR_EACH_DATE_FORMAT
+#undef FOR_EACH_DATE_RFC_822_ISOC_INVALID
+#undef FOR_EACH_DATE_RFC_822_ISOC
+#undef FOR_EACH_DATE_INVALID
+#undef FOR_EACH_DATE
+
+TEST(http2_parser, date)
+{
 	/* Header-specific tests. */
 	/*
 	 * RFC 7232 3.3.
@@ -2222,155 +2386,6 @@ TEST(http2_parser, date)
 		    VALUE("Wed, 41 Oct 2015 07:28:00 GMT")));
 	    HEADERS_FRAME_END();
 	);
-
-	/* Date tests. */
-
-	/* Date ranges. */
-	/*
-	 * Less then 01 Jan 1970.
-	 * Date in RFC 850 can not be less then 01 Jan 1970.
-	 */
-	/* Treat as 00, 69, 70 (and so on) year CE */
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0000", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "0069", "23:59:59");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0070", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0070", "00:00:01");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0099", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0100", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0999", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "1969", "23:59:59");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "1970", "00:00:00");
-
-	/* More then 01 Jan 1970. */
-	/*
-	 * For ISO 850 this implementation violates RFC:
-	 *
-	 * Recipients of a timestamp value in rfc850-date format, which uses a
-	 * two-digit year, MUST interpret a timestamp that appears to be more
-	 * than 50 years in the future as representing the most recent year in
-	 * the past that had the same last two digits.
-	 *
-	 * But it's done intensionally, also Nginx implements the same logic.
-	 */
-	FOR_EACH_DATE_FORMAT("01", "Jan", "1970", "70", "00:00:01", 1);
-	/* 2000 */
-	FOR_EACH_DATE_FORMAT("01", "Jan", "2000", "00", "00:00:00",
-				   946684800);
-	FOR_EACH_DATE("Invalid, 01-Jan-00 00:00:00 GMT", 946684800);
-	/* 2069 */
-	FOR_EACH_DATE_FORMAT("31", "Dec", "2069", "69", "23:59:59",
-				   3155759999);
-	FOR_EACH_DATE_RFC_822_ISOC("31", "Dec", "9999", "23:59:59",
-					 253402300799);
-	/*
-	 * Incorrect day
-	 */
-	/*
-	 * According to RFC "00" is a valid day, but Tempesta rejects it
-	 * because of ambiguity of its interpretation.
-	 */
-	FOR_EACH_DATE_FORMAT_INVALID("00", "Jan", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("", "Jan", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("0", "Jan", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("1", "Jan", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("32", "Jan", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("-1", "Jan", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("invalid", "Jan", "2000", "00",
-				     "00:00:00");
-
-	FOR_EACH_DATE_FORMAT("30", "Apr", "1978", "78", "00:00:00",
-				   262742400);
-	FOR_EACH_DATE_FORMAT_INVALID("31", "Apr", "1995", "95", "00:00:00");
-	FOR_EACH_DATE_FORMAT("31", "Jul", "2003", "03", "00:00:00",
-				   1059609600);
-	FOR_EACH_DATE_FORMAT("30", "Sep", "2009", "09", "00:00:00",
-				   1254268800);
-	FOR_EACH_DATE_FORMAT_INVALID("31", "Sep", "2050", "50", "00:00:00");
-
-	/* Leap years */
-	FOR_EACH_DATE_FORMAT("29", "Feb", "1996", "96", "00:00:00", 825552000);
-	FOR_EACH_DATE_FORMAT_INVALID("29", "Feb", "1999", "99", "00:00:00");
-
-	/* Incorrect month. */
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Ja", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Janu", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "January", "2000", "00", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jab", "2000", "00", "00:00:00");
-
-	/* Incorrect year. */
-	/* Only 4 digits for RFC 822 & ISOC and 2 digits for RFC 850 allowed */
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "0", "0", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "1", "1", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "44", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "000", "000","00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "999", "999", "00:00:00");
-	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "10000", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "", "", "00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "-1", "-1","00:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "invalid", "invalid",
-				     "00:00:00");
-
-	/* Incorrect hours. */
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", ":00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "0:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "000:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "24:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "100:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "-1:00:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "invalid:00:00");
-
-	/* Incorrect minutes. */
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00::00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:0:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:000:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:60:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:100:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:-1:00");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:invalid:00");
-
-	/*
-	 * Incorrect seconds.
-	 */
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:0");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:000");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:60");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:100");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:-1");
-	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00:invalid");
-	/* Leap seconds are not implemented (as in Nginx) */
-	FOR_EACH_DATE_FORMAT_INVALID("30", "Jun", "1992", "92", "23:59:60");
-
-	/*
-	 * Format specific tests.
-	 */
-	/* Only GMT allowed */
-	FOR_EACH_DATE_INVALID("Inv, 01 Jan 2000 00:00:00 EST");
-	FOR_EACH_DATE_INVALID("Invalid, 01-Jan-00 00:00:00 EST");
-
-	/* GMT is requred */
-	FOR_EACH_DATE_INVALID("Inv, 01 Jan 2000 00:00:00");
-	FOR_EACH_DATE_INVALID("Invalid, 01-Jan-00 00:00:00");
-
-	/*
-	 * ISOC
-	 * Only 2 spaces for 1-digit day and 1 space for 2-digit day
-	 */
-	FOR_EACH_DATE("Inv Jan  1 00:00:01 1970", 1);
-	FOR_EACH_DATE("Inv Jan 01 00:00:01 1970", 1);
-	FOR_EACH_DATE_INVALID("Inv Jan   1 00:00:01 1970");
-	FOR_EACH_DATE_INVALID("Inv Jan  01 00:00:01 1970");
-
-	FOR_EACH_DATE_INVALID("invalid");
-
-#undef IF_MSINCE_INVALID
-#undef FOR_EACH_DATE_FORMAT_INVALID
-#undef FOR_EACH_DATE_FORMAT
-#undef FOR_EACH_DATE_RFC_822_ISOC_INVALID
-#undef FOR_EACH_DATE_RFC_822_ISOC
-#undef FOR_EACH_DATE_INVALID
-#undef FOR_EACH_DATE
 }
 
 TEST(http2_parser, method_override)
@@ -2781,6 +2796,14 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, referer);
 	TEST_RUN(http2_parser, content_type_line_parser);
 	TEST_RUN(http2_parser, xff);
+	TEST_RUN(http2_parser, date_format);
+	TEST_RUN(http2_parser, date_ranges);
+	TEST_RUN(http2_parser, date_day);
+	TEST_RUN(http2_parser, date_year);
+	TEST_RUN(http2_parser, date_month);
+	TEST_RUN(http2_parser, date_hour);
+	TEST_RUN(http2_parser, date_minute);
+	TEST_RUN(http2_parser, date_second);
 	TEST_RUN(http2_parser, date);
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);

@@ -1380,7 +1380,7 @@ __FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
 __FSM_STATE(RGen_LWS, hot) {						\
 	__fsm_sz = __data_remain(p);					\
 	__fsm_n = parse_ows(p, __fsm_sz);				\
-	T_DBG3("parse LWS: __fsm_n=%d, __fsm_sz=%lu, len=%lu,"		\
+	T_DBG3("parse LWS: __fsm_n=%d, __fsm_sz=%lu, len=%u,"		\
 	       " off=%lu\n", __fsm_n, __fsm_sz, len, __data_off(p));	\
 	if  (__fsm_n == CSTR_POSTPONE) {				\
 		__msg_hdr_chunk_fixup(p, __fsm_sz);			\
@@ -1403,7 +1403,7 @@ __FSM_STATE(RGen_LWS, hot) {						\
 __FSM_STATE(RGen_RWS, hot) {						\
 	if (likely(IS_WS(c)))						\
 		__FSM_MOVE_nofixup(RGen_RWS);				\
-	T_DBG3("parse RWS: len=%lu, off=%lu\n", len, __data_off(p));	\
+	T_DBG3("parse RWS: len=%u, off=%lu\n", len, __data_off(p));	\
 	parser->state = parser->_i_st;					\
 	parser->_i_st = NULL;						\
 	BUG_ON(unlikely(__data_off(p) >= len));				\
@@ -3941,7 +3941,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	__FSM_DECLARE_VARS(req);
 	*parsed = 0;
 
-	T_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
+	T_DBG("parse %u client data bytes (%.*s%s) on req=%p\n",
 	      len, min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state);
@@ -9717,7 +9717,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_DECLARE_VARS(resp);
 	*parsed = 0;
 
-	T_DBG("parse %lu server data bytes (%.*s%s) on resp=%p\n",
+	T_DBG("parse %u server data bytes (%.*s%s) on resp=%p\n",
 	      len, min(500, (int)len), data, len > 500 ? "..." : "", resp);
 
 	__FSM_START(parser->state);
