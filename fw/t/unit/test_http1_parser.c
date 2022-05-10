@@ -3054,6 +3054,10 @@ TEST(http1_parser, fuzzer)
 	kernel_fpu_end();
 	str = vmalloc(len);
 	kernel_fpu_begin();
+	if (!str) {
+		pr_err("vmalloc() failure, too small RAM?\n");
+		return;
+	}
 
 	fuzz_init(&context, false);
 
@@ -3076,7 +3080,7 @@ TEST(http1_parser, fuzzer)
 			}
 
 			/* Fuzzer generates huge debug message flow. */
-			test_debug_relax();
+			__fpu_schedule();
 		}
 	}
 resp:
@@ -3101,7 +3105,7 @@ resp:
 			}
 
 			/* Fuzzer generates huge debug message flow. */
-			test_debug_relax();
+			__fpu_schedule();
 		}
 	}
 end:
