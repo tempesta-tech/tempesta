@@ -61,17 +61,8 @@ do {				\
 
 #if defined(DEBUG) && (DEBUG >= 1)
 #define TEST_DBG(...) pr_debug(TEST_BANNER "  " __VA_ARGS__)
-
-/* Sleep a little bit to relax the console. */
-#define test_debug_relax()						\
-do {									\
-	BUG_ON(in_serving_softirq());					\
-	schedule();							\
-} while (0)
-
 #else
 #define TEST_DBG(...)
-#define test_debug_relax()
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 2)
@@ -111,7 +102,6 @@ do { 							\
 	test_suite__##name(); 				\
 	test_set_setup_fn(NULL);			\
 	test_set_teardown_fn(NULL);			\
-	test_debug_relax();				\
 } while (0)
 
 #define TEST_FAIL(...) 					\
@@ -196,6 +186,11 @@ static inline void
 __fpu_schedule(void)
 {
 	kernel_fpu_end();
+	/*
+	 * With CONFIG_PREEMPTION (CONFIG_PREEMT or CONFIG_PREEMPT_RT)
+	 * preemt_enable() called kernel_fpu_end() may call __schedule().
+	 * We need this schedule() to cover other configurations.
+	 */
 	schedule();
 	kernel_fpu_begin();
 }
