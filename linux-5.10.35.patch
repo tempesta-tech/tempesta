@@ -1009,7 +1009,6 @@ index 000000000..9dc507aab
 +	count_vm_event(HTLB_BUDDY_PGALLOC);
 +
 +	__ClearPageReserved(p);
-+	prep_compound_page(p, HUGETLB_PAGE_ORDER);
 +
 +	return p;
 +}
