@@ -310,6 +310,7 @@ do {									\
 	__FSM_I_MOVE_BY_REF_n(to, 1, 0)
 
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
+
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			goto to
 
@@ -573,8 +574,8 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
  */
 static __always_inline int
 __parse_ulong(unsigned char *__restrict data, size_t len,
-              const unsigned long *__restrict delimiter_a,
-              unsigned long *__restrict acc, unsigned long limit)
+	      const unsigned long *__restrict delimiter_a,
+	      unsigned long *__restrict acc, unsigned long limit)
 {
 	unsigned char *p;
 
@@ -598,7 +599,7 @@ __parse_ulong(unsigned char *__restrict data, size_t len,
  */
 static __always_inline int
 __parse_ulong_ws(unsigned char *__restrict data, size_t len,
-                 unsigned long *__restrict acc, unsigned long limit)
+		 unsigned long *__restrict acc, unsigned long limit)
 {
 	/*
 	 * Standard white-space characters are:
@@ -613,6 +614,30 @@ __parse_ulong_ws(unsigned char *__restrict data, size_t len,
 		0x0000000100003e00UL, 0, 0, 0
 	};
 	return __parse_ulong(data, len, whitespace_a, acc, limit);
+}
+
+/**
+ * Parse an integer followed by delim.
+ */
+static __always_inline int
+__parse_ulong_ws_delim(unsigned char *__restrict data, size_t len,
+		       unsigned long *__restrict acc, unsigned long limit)
+{
+	/*
+	 * Standard white-space plus semicolon and dquoute characters are:
+	 * '\t' (0x09) horizontal tab (TAB)
+	 * '\n' (0x0a) newline (LF)
+	 * '\v' (0x0b) vertical tab (VT)
+	 * '\f' (0x0c) feed (FF)
+	 * '\r' (0x0d) carriage return (CR)
+	 * ' '  (0x20) space (SPC)
+	 * '"'  (0x22) dquote
+	 * ';'  (0x3b) semicolon
+	 */
+	static const unsigned long ws_comma_a[] ____cacheline_aligned = {
+		0x0800000500003e00UL, 0, 0, 0
+	};
+	return __parse_ulong(data, len, ws_comma_a, acc, limit);
 }
 
 #define parse_int_ws(data, len, acc)					\
@@ -647,7 +672,6 @@ parse_ulong_list(unsigned char *data, size_t len, unsigned long *acc,
 
 #define parse_uint_list(data, len, acc)					\
 	parse_ulong_list(data, len, acc, UINT_MAX)
-
 
 /**
  * Parse probably chunked string representation of an hexadecimal integer.
@@ -798,6 +822,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 		TFW_STR_STRING("date:"),
 		TFW_STR_STRING("etag:"),
 		TFW_STR_STRING("expires:"),
+		TFW_STR_STRING("forwarded:"),
 		TFW_STR_STRING("host:"),
 		TFW_STR_STRING("pragma:"),
 		TFW_STR_STRING("server:"),
@@ -871,6 +896,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_IF_NONE_MATCH:
 	case TFW_HTTP_HDR_X_FORWARDED_FOR:
 	case TFW_HTTP_HDR_TRANSFER_ENCODING:
+	case TFW_HTTP_HDR_FORWARDED:
 		return CSTR_NEQ;
 	}
 
@@ -2859,7 +2885,7 @@ STACK_FRAME_NON_STANDARD(__req_parse_referer);
 
 static int
 __check_date(unsigned int year, unsigned int month, unsigned int day,
-             unsigned int hour, unsigned int min, unsigned int sec)
+	     unsigned int hour, unsigned int min, unsigned int sec)
 {
 	static const unsigned mday[] = { 31, 28, 31, 30, 31, 30,
 	                                 31, 31, 30, 31, 30, 31 };
@@ -2897,7 +2923,7 @@ __check_date(unsigned int year, unsigned int month, unsigned int day,
  */
 static long
 __date_secs(unsigned int year, unsigned int month, unsigned int day,
-            unsigned int hour, unsigned int min, unsigned int sec)
+	    unsigned int hour, unsigned int min, unsigned int sec)
 {
 	long days;
 
@@ -3558,6 +3584,449 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__req_parse_x_forwarded_for);
 
+/**
+ * Parse Forwarded header, RFC 7239.
+ */
+static int
+__req_parse_forwarded(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+#define FWD_SET_FOR			0x00000001
+#define FWD_SET_HOST			0x00000002
+#define FWD_SET_PROTO			0x00000004
+#define FWD_SET_BY			0x00000008
+
+/* Fixup current @p + n before postpone without bounds check. */
+#define __FSM_I_POSTPONE_fixup(to, n, flag)				\
+do {									\
+	BUG_ON(!&parser->hdr.data);					\
+	BUG_ON(n < 0);							\
+	__msg_field_fixup_pos(&parser->hdr, p, n);			\
+	__FSM_I_field_chunk_flags(&parser->hdr, flag);			\
+	parser->_i_st = &&to;						\
+	__FSM_EXIT(TFW_POSTPONE);					\
+} while (0)
+
+/* 
+ * Tries to find parameter in header.
+ * Parsing fails if parameter not a unique in current header.
+ *
+ * RFC 7239 section 4: 
+ * Each parameter MUST NOT occur more than once per field-value.
+ */
+#define FWD_TRY_STR_NAME(name, curr_st, next_st, fwd_flag)		\
+	TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING(name),		\
+				  &parser->hdr, { 			\
+				  if (parser->flags & fwd_flag)	\
+					return CSTR_NEQ;		\
+				  parser->flags |= fwd_flag;	\
+				  }, curr_st, next_st,			\
+				  TFW_STR_NAME)
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_Fwd) {
+		FWD_TRY_STR_NAME("for=", Req_I_Fwd, Req_I_Fwd_For_Start,
+				 FWD_SET_FOR);
+		FWD_TRY_STR_NAME("host=", Req_I_Fwd, Req_I_Fwd_Host_Start,
+				 FWD_SET_HOST);
+		FWD_TRY_STR_NAME("proto=", Req_I_Fwd, Req_I_Fwd_Proto_Start,
+				 FWD_SET_PROTO);
+		FWD_TRY_STR_NAME("by=", Req_I_Fwd, Req_I_Fwd_By_Start,
+				 FWD_SET_BY);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_List) {
+		/* Eat OWS before parameter. */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_List, 1, 0);
+		/* Find next "for=" in list. */
+		FWD_TRY_STR_NAME("for=",
+				 Req_I_Fwd_For_List,
+				 Req_I_Fwd_For_Start,
+				 0);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Start) {
+		if (likely(c == '"'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_Quoted, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Unquoted) {
+		/*
+		 * Eat IP address or host name.
+		 *
+		 * TODO: parse/validate IP addresses and textual IDs.
+		 * Currently we just validate separate characters, but the
+		 * whole value may be invalid (e.g. "---[_..[[").
+		 */
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_For_Node_Id_Unquoted,
+					 TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep, __fsm_sz, TFW_STR_VALUE);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_Fwd_For_Node_Id_Unquoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff,
+					 Req_I_Fwd_For_Node_Id_Unquoted,
+					 TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep, __fsm_sz, TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Quoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff,
+					 Req_I_Fwd_For_Node_Id_Quoted,
+					 TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep_Quoted, __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Node_Id_Quoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff,
+					 Req_I_Fwd_For_Node_Id_Quoted,
+					 TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep_Quoted, __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted) {
+		/* At this point we tries fixup '"' with near symbol */
+
+		if (unlikely(c != '"'))
+			return CSTR_NEQ;
+		/* End of data on quote */
+		if (unlikely(__data_off(p + 1) >= len))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep, 1, 0);
+		/* EOL after quote */
+		if (likely(IS_CRLF(*(p + 1)))) {
+			__msg_hdr_chunk_fixup(p, 1);
+			return __data_off(p + 1);
+		}
+		/* ';' after quote */
+		if (likely(*(p + 1) == ';'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd, 2, 0);
+		/* ',' after quote */
+		if (unlikely(*(p + 1) == ','))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_List, 2, 0);
+		/* WS after quote */
+		if (unlikely(IS_WS(*(p + 1))))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep_End, 2, 0);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep) {
+		/* go to next param */
+		if (likely(c == ';'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep_End) {
+		/*
+		 * Proxy chains are rare, so we expect that the list will end
+		 * after the first node and we get EOL here.
+		 */
+		if (likely(IS_CRLF(c)))
+			return __data_off(p);
+		/*
+		 * "for=" can be represented as comma
+		 * separated list, find next one.
+		 */
+		if (unlikely(c == ','))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_List, 1, 0);
+	        /* OWS before comma or before EOL (is unusual). */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep_End, 1, 0);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Start) {
+		if (unlikely(IS_CRLFWS(c)))
+			return CSTR_NEQ;
+		if (likely(c == '"'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Start_Quoted, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Unquoted) {
+		/* See Req_UriAuthority processing. */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '.' || c == '-')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Host_Unquoted,
+						       __fsm_sz,
+						       TFW_STR_VALUE);
+		}
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted,
+				   __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Start_Quoted) {
+		if (likely(c == '['))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_v6_Quoted_Start,
+					   1, TFW_STR_VALUE);
+		/* Block empty quotes */
+		if (unlikely(c == '"'))
+			return CSTR_NEQ;
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Quoted) {
+		/* See Req_UriAuthority processing. */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '.' || c == '-')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Host_Quoted,
+						       __fsm_sz,
+						       TFW_STR_VALUE);
+		}
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Quoted,
+				   __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_v6_Quoted_Start) {
+		/* Block empty braces */
+		if (unlikely(c == ']'))
+			return CSTR_NEQ;
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_v6_Quoted) {
+		/* See Req_UriAuthorityIPv6 processing. */
+		__fsm_sz = 0;
+
+		while (likely(isxdigit(c) || c == ':')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Host_v6_Quoted,
+						       __fsm_sz,
+						       TFW_STR_VALUE);
+		}
+		if (likely(c == ']'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Quoted,
+					   __fsm_sz + 1, TFW_STR_VALUE);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_End_Quoted) {
+		if (c == ':')
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Quoted,
+					   1, 0);
+		__FSM_I_JMP(Req_I_Fwd_Next_Or_Finish_Quoted);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_End_Unquoted) {
+		if (c == ':')
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Unquoted,
+					   1, 0);
+		__FSM_I_JMP(Req_I_Fwd_Next_Or_Finish);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Port_Unquoted) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_ulong_ws_delim(p, __fsm_sz,
+						 (unsigned long*)&parser->port,
+						 USHRT_MAX);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Unquoted,
+					   __fsm_sz, TFW_STR_VALUE);
+		default:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
+					   __fsm_n, TFW_STR_VALUE);
+		}
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Port_Quoted) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_ulong_ws_delim(p, __fsm_sz,
+						 (unsigned long*)&parser->port,
+						 USHRT_MAX);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Quoted,
+					   __fsm_sz, TFW_STR_VALUE);
+		default:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish_Quoted,
+					   __fsm_n,
+					   TFW_STR_VALUE);
+		}
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Start) {
+		if (unlikely(IS_CRLFWS(c)))
+			return CSTR_NEQ;
+		if (likely(c == '"'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Proto_Quoted_Start, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Unquoted) {
+		/* RFC 3986: 3.1 list of allowed characters */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Proto_Unquoted,
+						       __fsm_sz,
+						       TFW_STR_VALUE);
+		}
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
+				   __fsm_sz, TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Quoted_Start) {
+		/* Block empty quotes */
+		if (unlikely(c == '"'))
+			return CSTR_NEQ;
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Quoted) {
+		/* RFC 3986: 3.1 list of allowed characters */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Proto_Quoted,
+						       __fsm_sz,
+						       TFW_STR_VALUE);
+		}
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish_Quoted,
+				   __fsm_sz, TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_By_Start) {
+		if (likely(c == '"'))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_By_Quoted, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_By_Unquoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff,
+					 Req_I_Fwd_By_Node_Id_Unquoted,
+					 TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_Fwd_By_Node_Id_Unquoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff,
+					 Req_I_Fwd_By_Node_Id_Unquoted,
+					 TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_By_Quoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_By_Node_Id_Quoted,
+					 TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish_Quoted, __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_Fwd_By_Node_Id_Quoted) {
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_By_Node_Id_Quoted,
+					 TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish_Quoted, __fsm_sz,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Next_Or_Finish) {
+		if (c == ';')
+			__FSM_I_MOVE_fixup(Req_I_Fwd, 1, 0);
+		if (IS_CRLFWS(c))
+			return __data_off(p);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Next_Or_Finish_Quoted) {
+		if (unlikely(c != '"'))
+			return CSTR_NEQ;
+		/* End of data on quote. */
+		if (unlikely(__data_off(p + 1) >= len))
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, 1, 0);
+		/* EOL after quote */
+		if (likely(IS_CRLFWS(*(p + 1)))) {
+			__msg_hdr_chunk_fixup(p, 1);
+			return __data_off(p + 1);
+		}
+		/* ";" after quote */
+		if (*(p + 1) == ';')
+			__FSM_I_MOVE_fixup(Req_I_Fwd, 2, 0);
+
+		return CSTR_NEQ;
+	}
+done:
+	return r;
+
+#undef FWD_SET_FOR
+#undef FWD_SET_HOST
+#undef FWD_SET_PROTO
+#undef FWD_SET_BY
+#undef __FSM_I_POSTPONE_fixup
+#undef FWD_TRY_STR_NAME
+}
+STACK_FRAME_NON_STANDARD(__req_parse_forwarded);
+
 /*
  * Parse a non-standard "X-Tempesta-Cache" header which may be used in a PURGE
  * request.
@@ -4205,6 +4674,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			default:
 				__FSM_MOVE(RGen_HdrOtherN);
 			}
+		case 'f':
+			if (likely(__data_available(p, 10)
+				   && C8_INT_LCM(p + 1, 'o', 'r', 'w', 'a', 'r',
+							'd', 'e', 'd')
+				   && *(p + 9) == ':'))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 9));
+				parser->_i_st = &&Req_HdrForwardedV;
+				p += 9;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
+			__FSM_MOVE(Req_HdrF);
 		case 'h':
 			if (likely(__data_available(p, 5)
 				   && C4_INT3_LCM(p + 1, 'o', 's', 't', ':')))
@@ -4459,6 +4940,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, msg,
 				     __req_parse_content_type,
 				     TFW_HTTP_HDR_CONTENT_TYPE, 0);
+
+	/* 'Forwarded:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrForwardedV, msg,
+				     __req_parse_forwarded,
+				     TFW_HTTP_HDR_FORWARDED, 0);
 
 	/* 'Host:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, req, __req_parse_host,
@@ -5111,6 +5597,17 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrContent_Typ, 'e', Req_HdrContent_Type);
 	__FSM_TX_AF_OWS(Req_HdrContent_Type, Req_HdrContent_TypeV);
 
+	/* Forwarded header processing. */
+	__FSM_TX_AF(Req_HdrF, 'o', Req_HdrFo);
+	__FSM_TX_AF(Req_HdrFo, 'r', Req_HdrFor);
+	__FSM_TX_AF(Req_HdrFor, 'w', Req_HdrForw);
+	__FSM_TX_AF(Req_HdrForw, 'a', Req_HdrForwa);
+	__FSM_TX_AF(Req_HdrForwa, 'r', Req_HdrForwar);
+	__FSM_TX_AF(Req_HdrForwar, 'd', Req_HdrForward);
+	__FSM_TX_AF(Req_HdrForward, 'e', Req_HdrForwarde);
+	__FSM_TX_AF(Req_HdrForwarde, 'd', Req_HdrForwarded);
+	__FSM_TX_AF_OWS(Req_HdrForwarded, Req_HdrForwardedV);
+
 	/* Host header processing. */
 	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo);
 	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos);
@@ -5718,6 +6215,8 @@ __FSM_STATE(st, cold) {							\
 			goto Req_HdrRefererV;				\
 		case TFW_TAG_HDR_X_FORWARDED_FOR:			\
 			goto Req_HdrX_Forwarded_ForV;			\
+		case TFW_TAG_HDR_FORWARDED:				\
+			goto Req_HdrForwardedV;				\
 		case TFW_TAG_HDR_USER_AGENT:				\
 			goto Req_HdrUser_AgentV;			\
 		case TFW_TAG_HDR_RAW:					\
@@ -5930,7 +6429,8 @@ do {									\
  */
 #define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(str, fld,		\
 						       lambda, fin1, fin2,	\
-						       curr_st, next_st)	\
+						       curr_st, next_st,	\
+						       flag)			\
 do {										\
 	BUG_ON(!TFW_STR_PLAIN(str));						\
 	if (!chunk->data)							\
@@ -5942,7 +6442,8 @@ do {										\
 			lambda;							\
 			TRY_STR_INIT();						\
 			__msg_field_fixup_pos(fld, p, __fsm_n);			\
-			__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);	\
+			__FSM_I_field_chunk_flags(fld, 				\
+						  TFW_STR_HDR_VALUE | flag);	\
 			if (__data_off(p + __fsm_n) < len) {			\
 				p += __fsm_n;					\
 				goto next_st;					\
@@ -5953,7 +6454,7 @@ do {										\
 			__FSM_EXIT(CSTR_POSTPONE);				\
 		}								\
 		__msg_field_fixup_pos(fld, p, __fsm_n);				\
-		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE);		\
+		__FSM_I_field_chunk_flags(fld, TFW_STR_HDR_VALUE | flag);	\
 		if (likely(fin))						\
 			fin2;							\
 		parser->_i_st = &&curr_st;					\
@@ -5961,17 +6462,24 @@ do {										\
 	}									\
 } while (0)
 
+#define H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup_name(str, fld, lambda, fin,	\
+					       curr_st, next_st)		\
+	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
+		str, fld, lambda, fin, {					\
+			__FSM_EXIT(CSTR_NEQ);					\
+		} , curr_st, next_st, TFW_STR_NAME)
+
 #define H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, fld, lambda, fin,		\
 					       curr_st, next_st)		\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
 		str, fld, lambda, fin, {					\
 			__FSM_EXIT(CSTR_NEQ);					\
-		} , curr_st, next_st)
+		} , curr_st, next_st, 0)
 
 #define H2_TRY_STR_FULL_OR_PART_MATCH_FIN_fixup(str, fld, fin1, fin2,		\
 						curr_st, next_st)		\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
-		str, fld, {}, fin1, fin2, curr_st, next_st)
+		str, fld, {}, fin1, fin2, curr_st, next_st, 0)
 
 /*
  * ------------------------------------------------------------------------
@@ -7504,6 +8012,454 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+static int
+__h2_req_parse_forwarded(TfwHttpMsg *hm, unsigned char *data, size_t len,
+			 bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+#define FWD_SET_FOR			0x00000001
+#define FWD_SET_HOST			0x00000002
+#define FWD_SET_PROTO			0x00000004
+#define FWD_SET_BY			0x00000008
+
+/* Fixup current @p + n before postpone without bounds check. */
+#define __FSM_H2_I_POSTPONE_fixup(to, n, lambda, flag)			   \
+do {									   \
+	BUG_ON(!&parser->hdr.data);					   \
+	BUG_ON(n < 0);							   \
+	__msg_field_fixup_pos(&parser->hdr, p, n);			   \
+	__FSM_I_field_chunk_flags(&parser->hdr, TFW_STR_HDR_VALUE | flag); \
+	parser->_i_st = &&to;						   \
+	if (fin) 							   \
+		lambda;							   \
+	__FSM_EXIT(TFW_POSTPONE);					   \
+} while (0)
+
+#define __FSM_H2_I_FWD_EQ_fixup(to, n, flag)				   \
+	__FSM_H2_I_POSTPONE_fixup(to, n, {				   \
+		__FSM_EXIT(CSTR_EQ);					   \
+	}, flag)
+
+#define __FSM_H2_I_FWD_NEQ_fixup(to, n, flag)				   \
+	__FSM_H2_I_POSTPONE_fixup(to, n, {				   \
+		__FSM_EXIT(CSTR_NEQ);					   \
+	}, flag)
+
+#define FWD_SET_FLAG(flag) parser->flags |= flag
+
+/* 
+ * Tries to find parameter in header.
+ * Parsing fails if parameter not a unique in current header.
+ *
+ * RFC 7239 section 4: 
+ * Each parameter MUST NOT occur more than once per field-value.
+ */
+#define H2_FWD_TRY_STR_NAME(name, curr_st, next_st, fw_flag)		   \
+	H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup_name(&TFW_STR_STRING(name), \
+						    &parser->hdr, {	   \
+						    if (parser->flags  \
+							& fw_flag)	   \
+							return CSTR_NEQ;   \
+						     FWD_SET_FLAG(fw_flag);\
+						    }, {		   \
+						    __FSM_EXIT(CSTR_NEQ);  \
+						    }, curr_st,		   \
+						    next_st)
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_Fwd) {
+		H2_FWD_TRY_STR_NAME("for=", Req_I_Fwd, Req_I_Fwd_For_Start,
+				    FWD_SET_FOR);
+		H2_FWD_TRY_STR_NAME("host=", Req_I_Fwd, Req_I_Fwd_Host_Start,
+				    FWD_SET_HOST);
+		H2_FWD_TRY_STR_NAME("proto=", Req_I_Fwd, Req_I_Fwd_Proto_Start,
+				    FWD_SET_PROTO);
+		H2_FWD_TRY_STR_NAME("by=", Req_I_Fwd, Req_I_Fwd_By_Start,
+				    FWD_SET_BY);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_List) {
+		/* Eat OWS before parameter. */
+		if (unlikely(IS_WS(c)))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_For_List, 1, 0);
+		/* Find next "for=" in list. */
+		H2_FWD_TRY_STR_NAME("for=",
+				    Req_I_Fwd_For_List,
+				    Req_I_Fwd_For_Start,
+				    0);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Start) {
+		if (likely(c == '"'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_For_Quoted, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Unquoted) {
+		/*
+		 * Eat IP address or host name.
+		 *
+		 * TODO: parse/validate IP addresses and textual IDs.
+		 * Currently we just validate separate characters, but the
+		 * whole value may be invalid (e.g. "---[_..[[").
+		 */
+		__FSM_H2_I_MATCH_MOVE_fixup(xff,
+					    Req_I_Fwd_For_Node_Id_Unquoted,
+					    TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep, __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_Fwd_For_Node_Id_Unquoted) {
+		__FSM_H2_I_MATCH_MOVE_fixup(xff,
+					    Req_I_Fwd_For_Node_Id_Unquoted,
+					    TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep, __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Quoted) {
+		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(xff,
+						Req_I_Fwd_For_Node_Id_Quoted,
+						TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep_Quoted, __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Node_Id_Quoted) {
+		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(xff,
+						Req_I_Fwd_For_Node_Id_Quoted,
+						TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep_Quoted, __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted) {
+		/* At this point we tries fixup '"' with near symbol */
+
+		if (unlikely(c != '"'))
+			return CSTR_NEQ;
+		/* End of data on quote */
+		if (likely(__data_off(p + 1) >= len))
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep, 1, 0);
+		/* ';' after quote */
+		if (likely(*(p + 1) == ';'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 2, 0);
+		/* ',' after quote */
+		if (unlikely(*(p + 1) == ','))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_For_List, 2, 0);
+		/* WS after quote */
+		if (unlikely(IS_WS(*(p + 1))))
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep_End, 2, 0);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep) {
+		/* go to next param */
+		if (likely(c == ';'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep_End) {
+		/*
+		 * "for=" can be represented as comma
+		 * separated list, find next one.
+		 */
+		if (unlikely(c == ','))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_For_List, 1, 0);
+	        /* OWS before comma or before EOL (is unusual). */
+		if (unlikely(IS_WS(c)))
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep_End, 1, 0);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Start) {
+		if (likely(c == '"'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_Start_Quoted,
+						  1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Unquoted) {
+		/* See Req_UriAuthority processing. */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '.' || c == '-')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_H2_I_FWD_EQ_fixup(Req_I_Fwd_Host_Unquoted,
+						        __fsm_sz,
+						        TFW_STR_VALUE);
+		}
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted,
+				      __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Start_Quoted) {
+		if (likely(c == '['))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_H_v6_Quoted_Start,
+						  1, TFW_STR_VALUE);
+		/* Block empty quotes */
+		if (unlikely(c == '"'))
+			return CSTR_NEQ;
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Quoted) {
+		/* See Req_UriAuthority processing. */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '.' || c == '-')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_H2_I_FWD_NEQ_fixup(Req_I_Fwd_Host_Quoted,
+							 __fsm_sz,
+						         TFW_STR_VALUE);
+		}
+		__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_End_Quoted,
+					  __fsm_sz,
+					  TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_H_v6_Quoted_Start) {
+		/* Block empty braces */
+		if (unlikely(c == ']'))
+			return CSTR_NEQ;
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_H_v6_Quoted) {
+		/* See Req_UriAuthorityIPv6 processing. */
+		__fsm_sz = 0;
+
+		while (likely(isxdigit(c) || c == ':')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_H2_I_FWD_NEQ_fixup(Req_I_Fwd_H_v6_Quoted,
+							 __fsm_sz,
+						         TFW_STR_VALUE);
+		}
+		if (likely(c == ']'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_End_Quoted,
+						  __fsm_sz + 1, TFW_STR_VALUE);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_End_Quoted) {
+		if (c == ':')
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_Port_Quoted,
+						  1, 0);
+		__FSM_I_JMP(Req_I_Fwd_Next_Or_End_Quoted);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_End_Unquoted) {
+		if (c == ':')
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_Port_Unquoted,
+						  1, 0);
+		__FSM_I_JMP(Req_I_Fwd_Next_Or_Finish);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Port_Unquoted) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_ulong_ws_delim(p, __fsm_sz,
+						 (unsigned long*)&parser->port,
+						 USHRT_MAX);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Host_Port_Unquoted,
+					      __fsm_sz, TFW_STR_VALUE);
+		default:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
+					      __fsm_n, TFW_STR_VALUE);
+		}
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Host_Port_Quoted) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_ulong_ws_delim(p, __fsm_sz,
+						 (unsigned long*)&parser->port,
+						 USHRT_MAX);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_Port_Quoted,
+						  __fsm_sz, TFW_STR_VALUE);
+		default:
+			if (parser->port == 0 || parser->port > 65535)
+				return CSTR_NEQ;
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Next_Or_End_Quoted,
+						  __fsm_n,
+						  TFW_STR_VALUE);
+		}
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Start) {
+		if (likely(c == '"'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Proto_Quoted_Start,
+						  1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Pto_Unquoted) {
+		/* RFC 3986: 3.1 list of allowed characters */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_H2_I_FWD_EQ_fixup(Req_I_Fwd_Pto_Unquoted,
+						        __fsm_sz,
+						        TFW_STR_VALUE);
+		}
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
+				      __fsm_sz, TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Quoted_Start) {
+		/* Block empty quotes */
+		if (unlikely(c == '"'))
+			return CSTR_NEQ;
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_Proto_Quoted) {
+		/* RFC 3986: 3.1 list of allowed characters */
+		__fsm_sz = 0;
+
+		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
+			__fsm_sz++;
+			c = *(p + __fsm_sz);
+			if (unlikely(__data_off(p + __fsm_sz) >= len))
+				__FSM_H2_I_FWD_NEQ_fixup(Req_I_Fwd_Proto_Quoted,
+							 __fsm_sz,
+							 TFW_STR_VALUE);
+		}
+		__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Next_Or_End_Quoted,
+					  __fsm_sz, TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_By_Start) {
+		if (likely(c == '"'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_By_Quoted, 1, 0);
+		/* Fall through */
+	}
+
+	__FSM_STATE(Req_I_Fwd_By_Unquoted) {
+		__FSM_H2_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_By_Node_Id_Unquoted,
+					    TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_Fwd_By_Node_Id_Unquoted) {
+		__FSM_H2_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_By_Node_Id_Unquoted,
+					    TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
+				      TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_By_Quoted) {
+		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(xff,
+						Req_I_Fwd_By_Node_Id_Quoted,
+						TFW_STR_VALUE);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_End_Quoted,
+				      __fsm_sz, TFW_STR_VALUE);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_Fwd_By_Node_Id_Quoted) {
+		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(xff,
+						Req_I_Fwd_By_Node_Id_Quoted,
+						TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_End_Quoted,
+				      __fsm_sz, TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(Req_I_Fwd_Next_Or_Finish) {
+		if (likely(c == ';'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 1, 0);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Fwd_Next_Or_End_Quoted) {
+		if (unlikely(c != '"'))
+			return CSTR_NEQ;
+		/* End of data on quote */
+		if (likely(__data_off(p + 1) >= len)) {
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
+					      1, 0);
+		}
+		/* ";" after quote */
+		if (likely(*(p + 1) == ';'))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 2, 0);
+
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+
+#undef FWD_SET_FOR
+#undef FWD_SET_HOST
+#undef FWD_SET_PROTO
+#undef FWD_SET_BY
+#undef __FSM_H2_I_POSTPONE_fixup
+#undef __FSM_H2_I_FWD_EQ_fixup
+#undef __FSM_H2_I_FWD_NEQ_fixup
+#undef FWD_SET_FLAG
+#undef H2_FWD_TRY_STR_NAME
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_forwarded);
+
 /* Parse method override request headers. */
 static int
 __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
@@ -7887,6 +8843,17 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_FIN(Req_HdrCookieV, 6,
 					     TFW_TAG_HDR_COOKIE);
 			__FSM_H2_OTHER_n(4);
+		/* forwarded */
+		case TFW_CHAR4_INT('f', 'o', 'r', 'w'):
+			if (unlikely(!__data_available(p, 9)))
+				__FSM_H2_NEXT_n(Req_HdrX_Fo, 4);
+			if (C4_INT(p + 4,  'a', 'r', 'd', 'e')
+			    && *(p + 8) == 'd')
+			{
+				__FSM_H2_FIN(Req_HdrForwardedV, 9,
+					     TFW_TAG_HDR_FORWARDED);
+			}
+			__FSM_H2_OTHER_n(4);
 		/* host */
 		case TFW_CHAR4_INT('h', 'o', 's', 't'):
 			__FSM_H2_FIN(Req_HdrHostV, 4, TFW_TAG_HDR_HOST);
@@ -8199,6 +9166,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			     __h2_req_parse_x_forwarded_for,
 			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
 
+	/* 'forwarded' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrForwardedV, msg,
+			     __h2_req_parse_forwarded,
+			     TFW_HTTP_HDR_FORWARDED, 0);
 	/*
 	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
 	 * 'X-Method-Override:*OWS' is read, process field-value.
@@ -8250,6 +9221,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			__FSM_H2_NEXT(Req_HdrA);
 		case 'c':
 			__FSM_H2_NEXT(Req_HdrC);
+		case 'f':
+			__FSM_H2_NEXT(Req_HdrF);
 		case 'h':
 			__FSM_H2_NEXT(Req_HdrH);
 		case 'i':
@@ -8424,6 +9397,15 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrContent_Ty, 'p', Req_HdrContent_Typ);
 	__FSM_H2_TX_AF_FIN(Req_HdrContent_Typ, 'e', Req_HdrContent_TypeV,
 			   TFW_TAG_HDR_CONTENT_TYPE);
+
+	__FSM_H2_TX_AF(Req_HdrF, 'o', Req_HdrFo);
+	__FSM_H2_TX_AF(Req_HdrFo, 'r', Req_HdrFor);
+	__FSM_H2_TX_AF(Req_HdrFor, 'w', Req_HdrForw);
+	__FSM_H2_TX_AF(Req_HdrForw, 'a', Req_HdrForwa);
+	__FSM_H2_TX_AF(Req_HdrForwa, 'r', Req_HdrForwar);
+	__FSM_H2_TX_AF(Req_HdrForwar, 'd', Req_HdrForward);
+	__FSM_H2_TX_AF(Req_HdrForward, 'e', Req_HdrForwarde);
+	__FSM_H2_TX_AF_FIN(Req_HdrForwarde, 'd', Req_HdrForwardedV, TFW_TAG_HDR_FORWARDED);
 
 	__FSM_H2_TX_AF(Req_HdrH, 'o', Req_HdrHo);
 	__FSM_H2_TX_AF(Req_HdrHo, 's', Req_HdrHos);

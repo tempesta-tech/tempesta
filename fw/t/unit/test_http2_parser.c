@@ -2780,6 +2780,358 @@ end:
 	kernel_fpu_begin();
 }
 
+TEST(http2_parser, forwarded)
+{
+#define FOR_REQ_H2_FORWARDED(forwarded)						\
+	FOR_REQ_H2(								\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("forwarded"),				\
+		       VALUE(forwarded)));					\
+	    HEADERS_FRAME_END();						\
+	)
+
+#define EXPECT_BLOCK_REQ_H2_FORWARDED(forwarded) 				\
+	EXPECT_BLOCK_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();						\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));			\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));			\
+		HEADER(WO_IND(NAME("forwarded"), VALUE(forwarded)));		\
+	    HEADERS_FRAME_END();						\
+	)
+
+	/* Invalid port. */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:0");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:65536");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:443;");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:443\"");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:443 ;");
+
+	/* Space after semicolon */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:443; proto=http");
+	/* Space before semicolon */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:443 ;proto=http");
+	/* Spaces around semicolon */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:443"
+				      " ; proto=http");
+
+	/* Invalid non quoted IPv6. */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=[111:222:233]");
+	/* IPv6 with invalid chars. */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=[111:p22:t3]");
+
+	/* Quoted host with port. */
+	FOR_REQ_H2_FORWARDED("host=\"tempesta-tech.com:443\"");
+	/* Quoted IPv6 host with port. */
+	FOR_REQ_H2_FORWARDED("host=\"[11:22:33:44]:443\"");
+
+	/* Common cases. */
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE},
+				{ .data = "tempesta-tech.com:443", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+			},
+			.len = 35,
+			.nchunks = 5
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE},
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+			},
+			.len = 31,
+			.nchunks = 3
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443;"
+			     "for=8.8.8.8")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE},
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+			},
+			.len = 47,
+			.nchunks = 8
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443;"
+			     "for=8.8.8.8;"
+			     "by=8.8.4.4")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+			},
+			.len = 58,
+			.nchunks = 11
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443;"
+			     "for=8.8.8.8;"
+			     "by=8.8.4.4;"
+			     "proto=https")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "proto=", .len = 6,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "https", .len = 5,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+			},
+			.len = 70,
+			.nchunks = 14
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443;"
+			     "for=8.8.8.8,"
+		             "for=1.2.3.4:8080;"
+		             "by=8.8.4.4;"
+		             "proto=https")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded:", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ",", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "1.2.3.4:8080", .len = 12,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "proto=", .len = 6,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "https", .len = 5,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+			},
+			.len = 87,
+			.nchunks = 17
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	/* Cases from RFC 7239. */
+	FOR_REQ_H2_FORWARDED("for=\"_gazonk\"");
+	FOR_REQ_H2_FORWARDED("For=\"[2001:db8:cafe::17]:4711\"");
+	FOR_REQ_H2_FORWARDED("for=192.0.2.60;proto=http;by=203.0.113.43");
+	FOR_REQ_H2_FORWARDED("for=192.0.2.43, for=198.51.100.17");
+
+	/* Shuffle params */
+	FOR_REQ_H2_FORWARDED(
+		       "for=1.2.3.4;"
+		       "host=example.com;"
+		       "by=8.8.8.8;"
+		       "proto=https");
+
+	FOR_REQ_H2_FORWARDED(
+		       "host=example.com;"
+		       "for=1.2.3.4;"
+		       "by=8.8.8.8;"
+		       "proto=https");
+
+	FOR_REQ_H2_FORWARDED(
+		       "host=example.com;"
+		       "by=8.8.8.8;"
+		       "for=1.2.3.4;"
+		       "proto=https");
+
+	FOR_REQ_H2_FORWARDED(
+		       "host=example.com;"
+		       "by=8.8.8.8;"
+		       "proto=https;"
+		       "for=1.2.3.4");
+
+	FOR_REQ_H2_FORWARDED(
+		       "for=1.2.3.4;"
+		       "by=8.8.8.8;"
+		       "host=example.com;"
+		       "proto=https");
+
+	FOR_REQ_H2_FORWARDED(
+		       "proto=https;"
+		       "host=example.com;"
+		       "for=1.2.3.4;"
+		       "by=8.8.8.8");
+
+	FOR_REQ_H2_FORWARDED(
+		       "by=8.8.8.8;"
+		       "host=example.com;"
+		       "for=1.2.3.4;"
+		       "proto=https");
+
+	FOR_REQ_H2_FORWARDED(
+		       "by=8.8.8.8;"
+		       "proto=https;"
+		       "for=1.2.3.4;"
+		       "host=example.com");
+
+	/* Duplicated params name.
+	 *
+	 * RFC 7239 section 4:
+	 * Each parameter MUST NOT occur more than once per field-value.
+	 */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("proto=http;for=8.8.8.8;proto=http");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=2.2.2.2;for=8.8.8.8;by=2.2.2.2");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=goo.gl;for=8.8.8.8;host="
+				"example.com");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.1.1.1;host=goo.gl;for="
+				"2.2.2.2");
+	/* "for=" represented as separated list is allowed */
+	FOR_REQ_H2_FORWARDED("for=1.1.1.1, for=2.2.2.2;host=goo.gl");
+
+	/* Suspicious */
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=\"\"");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=\"\"");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("host=\"[]\"");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=\"\"");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("proto=");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("proto=\"\"");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4,");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4, ");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4, ,for=5.6.7.8");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4, , 5.6.7.8;");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("foo!");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4;host=\"goo.gl");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4;proto='https';host=goo.gl");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4;proto=<xss>;host=goo.gl");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4;proto=\"><xss>;host=goo.gl");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4;proto=\"\"><xss>\";"
+				      "host=goo.gl");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("for=1.2.3.4;proto=\" onclick=alert(1);"
+				      "host=goo.gl");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=1.2.3.4;host=\"><xss>;proto=http");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=1.2.3.4;host=\" alert(1);proto=http");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=1.2.3.4;host=' goo.gl;proto=http");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=1.2.3.4;host=http;proto="
+				      "http;for=<xss>");
+	EXPECT_BLOCK_REQ_H2_FORWARDED("by=<xss>;host=http;proto=http;"
+				      "for=1.2.3.4");
+
+#undef EXPECT_BLOCK_REQ_H2_FORWARDED
+#undef FOR_REQ_H2_FORWARDED
+}
+
 TEST_SUITE(http2_parser)
 {
 	TEST_RUN(http2_parser, http2_check_important_fields);
@@ -2812,6 +3164,7 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
 	TEST_RUN(http2_parser, fuzzer);
+	TEST_RUN(http2_parser, forwarded);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
