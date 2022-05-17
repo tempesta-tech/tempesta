@@ -41,6 +41,7 @@
 #include "vhost.h"
 #include "log.h"
 #include "hash.h"
+#include "http_match.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -665,6 +666,38 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 }
 
 /**
+ * Get first host value from Forwarded header.
+ *
+ * Use first value, i.e it more likly will be value with origin host.
+ *
+ * @req		- request handle;
+ * @trimmed	- trimmed host value without spaces.
+ * @name_only	- host value without port component.
+ * @return	- false if "host=" if not exists in header otherwise true.
+ */
+static bool
+frang_get_host_forwarded(const TfwHttpReq *req, TfwStr *trimmed,
+			 TfwStr *name_only)
+{
+	TfwStr raw_val = req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+	TfwStr  *dup, *end;
+	TfwStr fwd_host = { 0 };
+
+	if (TFW_STR_EMPTY(&raw_val))
+		return false;
+
+	TFW_STR_FOR_EACH_DUP(dup, &raw_val, end) {
+		if (tfw_http_search_host_forwarded(dup, &fwd_host)) {
+			*trimmed = fwd_host;
+			*name_only = fwd_host;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
  * Get Host value. Host can be defined:
  * - in h2 requests in Host header, in authority pseudo header. The latter SHOULD
  *   be used, but RFC 7540 still allows to use Host header.
@@ -747,6 +780,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	unsigned short real_port;
 	TfwStr prim_trim = { 0 }, prim_name = { 0 }, /* primary source */
 	       sec_trim = { 0 },  sec_name = { 0 },  /* secondary source */
+	       fwd_trim = { 0 },  fwd_name = { 0 },
 	       *val_trim = NULL;  /* effective source */
 
 	BUG_ON(!req);
@@ -779,6 +813,15 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
 		}
+		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)) {
+			if (frang_assert_host_header(&prim_trim, &fwd_trim)) {
+				static char *msg =  "Request authority "
+						    "differs from forwarded";
+				frang_msg(msg,
+					  &FRANG_ACC2CLI(ra)->addr, "\n");
+				return TFW_BLOCK;
+			}
+		}
 		break;
 	/*
 	 * In http/1.1 host header and authority defined in URI must always be
@@ -789,6 +832,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				      &prim_trim, &prim_name);
 		frang_get_host_header(req, -1,
 				      &sec_trim, &sec_name);
+		;
 		val_trim = &prim_trim;
 		if (unlikely(TFW_STR_EMPTY(val_trim))) {
 			frang_msg("Request authority is unknown",
@@ -799,6 +843,15 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			frang_msg("Request authority in URI differs from host header",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
+		}
+		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)) {
+			if (frang_assert_host_header(&prim_trim, &fwd_trim)) {
+				static char *msg = "Request authority in URI "
+						   "differs from forwarded";
+				frang_msg(msg,
+					  &FRANG_ACC2CLI(ra)->addr, "\n");
+				return TFW_BLOCK;
+			}
 		}
 		break;
 	/*
