@@ -7,6 +7,18 @@ assignees: ''
 
 ---
 
+# Motivation
+
+For enhancement issues (a new feature request) need to describe why the feature
+must be implemented. E.g. the feature is required to support a widespread web
+framework or browser. References to the real life cases are appreciated.
+
+Features, simplifying a popular use cases, improving performance and/or
+simplifying the Tempesta FW architecture are appreciated.
+
+We do not take into the scope features just because they are supported by other
+web accelerator or described in an RFC.
+
 # Scope
 
 **TODO** Describe the issue scope. Please attach all necessary logs for a bug report and a scenario to reproduce.
