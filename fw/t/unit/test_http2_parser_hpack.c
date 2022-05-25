@@ -377,20 +377,6 @@ TEST(http2_parser_hpack, static_table_all_indexes_for_request)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
-	/*
-	 * TODO: must be fixed in [#1614]
-	EXPECT_BLOCK_REQ_H2_HPACK(
-	    HEADERS_FRAME_BEGIN();
-		// :method = "GET"
-		HEADER(INDEX(2));
-		// :scheme = "http"
-		HEADER(INDEX(6));
-		// :path = "/"
-		HEADER(INDEX(4));
-	    HEADERS_FRAME_END();
-	);
-	*/
-
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
 		/* :method = "GET" */
