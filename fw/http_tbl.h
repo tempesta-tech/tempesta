@@ -25,26 +25,21 @@
 
 #define TFW_HTTP_MAX_REDIR_VARS 8
 
-typedef enum {
-	TFW_HTTP_REDIR_URI,
-	TFW_HTTP_REDIR_HOST,
-	_TFW_HTTP_REDIR_VAR_COUNT
-} tfw_http_redir_var_t;
+#define TFW_HTTP_REDIR_URI 0
+#define TFW_HTTP_REDIR_HOST 1
 
-typedef enum {
-	TFW_HTTP_RES_VHOST,
-	TFW_HTTP_RES_REDIR,
-	_TFW_HTTP_RES_COUNT
-} tfw_http_res_act_t;
+#define TFW_HTTP_RES_VHOST 0
+#define TFW_HTTP_RES_REDIR 1
 
 typedef struct {
 	TfwStr url;
-	tfw_http_redir_var_t var[TFW_HTTP_MAX_REDIR_VARS];
+	unsigned char var[TFW_HTTP_MAX_REDIR_VARS];
+	size_t nvar;
 	unsigned int resp_code;
 } TfwHttpRedir;
 
 typedef struct {
-	tfw_http_res_act_t type;
+	unsigned char type;
 	union {
 	TfwVhost *vhost;
 	TfwHttpRedir redir;

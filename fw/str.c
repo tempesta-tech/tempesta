@@ -948,11 +948,7 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 	int src_num = src->nchunks;
 	int dst_num = dst->nchunks;
 
-	/*
-	 * Only TfwStr descriptors with identical complexity
-	 * and chunks number are allowed.
-	 */
-	if (unlikely(src_num != dst_num))
+	if (unlikely(src_num > dst_num))
 		return -E2BIG;
 
 	c2 = dst_num ? dst->chunks : dst;
@@ -965,6 +961,8 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 		dst->len = src->len;
 		dst->flags = src->flags;
 	}
+
+	dst->nchunks = src->nchunks;
 
 	return 0;
 }
@@ -1372,7 +1370,6 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
  * then free it, and successfully continue tfw_pool_realloc() sequence.
  *
  * Returns length of the output string.
- *
  */
 size_t
 tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
