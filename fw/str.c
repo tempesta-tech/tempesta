@@ -1370,7 +1370,6 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
  * then free it, and successfully continue tfw_pool_realloc() sequence.
  *
  * Returns length of the output string.
- *
  */
 size_t
 tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
