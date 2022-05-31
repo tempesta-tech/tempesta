@@ -313,7 +313,7 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 }
 
 TfwVhost *
-tfw_http_tbl_action(TfwMsg *msg, bool *block)
+tfw_http_tbl_action(TfwMsg *msg, void *res)
 {
 	return NULL;
 }
