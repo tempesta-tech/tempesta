@@ -81,6 +81,15 @@ typedef enum {
 } TfwH2Err;
 
 /**
+ * With addition of websocket protocol over http/2 multiplexed stream
+ * we now have essentially two protos of stream. While steam stays semantically
+ * http/2, but we have to have a mean of differentiating protos to route
+ * messages accordingly.
+ */
+#define HTTP2_STREAM_PROTO_H2		0
+#define HTTP2_STREAM_PROTO_WEBSOCKET	1
+
+/**
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
@@ -92,8 +101,10 @@ typedef enum {
  * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
+ * @proto	- protocol of stream, now websocket or zero;
+ * @pair	- in case of websocket proto, paired backend connection.
  */
-typedef struct {
+typedef struct tfw_stream_t {
 	struct rb_node		node;
 	struct list_head	hcl_node;
 	unsigned int		id;
@@ -101,8 +112,10 @@ typedef struct {
 	spinlock_t		st_lock;
 	unsigned int		loc_wnd;
 	unsigned short		weight;
+	unsigned short		proto : 1;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
+	TfwConn			*pair;
 } TfwStream;
 
 /**

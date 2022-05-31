@@ -202,6 +202,7 @@ typedef struct {
 
 typedef struct tfw_conn_t TfwConn;
 
+int tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data);
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
 int tfw_h2_context_init(TfwH2Ctx *ctx);

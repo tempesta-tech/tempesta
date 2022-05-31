@@ -140,7 +140,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 			skb->next = skb->prev = NULL;
 			if (unlikely(TFW_CONN_PROTO(conn) == TFW_FSM_WS
 				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))
-				r = tfw_ws_msg_process(conn, skb);
+				r = tfw_ws_msg_process(conn, &conn->stream, skb);
 			else
 				r = tfw_http_msg_process(conn, skb);
 		} else {

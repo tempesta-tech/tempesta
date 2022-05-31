@@ -142,6 +142,7 @@ int tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req
 			 bool fin, bool value_stage);
 int tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		     unsigned int *parsed);
+int tfw_h2_parse_req_semifinish(TfwHttpReq *req);
 int tfw_h2_parse_req_finish(TfwHttpReq *req);
 int tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			unsigned int *parsed);

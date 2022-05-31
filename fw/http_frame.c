@@ -27,6 +27,7 @@
 #include "procfs.h"
 #include "http.h"
 #include "http_frame.h"
+#include "websocket.h"
 
 #define FRAME_PREFACE_CLI_MAGIC		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define FRAME_PREFACE_CLI_MAGIC_LEN	24
@@ -72,15 +73,16 @@ typedef enum {
 
 /**
  * IDs for SETTINGS parameters of HTTP/2 connection (RFC 7540
- * section 6.5.2).
+ * section 6.5.2 and RFC 8441 section 9.1).
  */
 typedef enum {
-	HTTP2_SETTINGS_TABLE_SIZE	= 0x01,
+	HTTP2_SETTINGS_TABLE_SIZE		= 0x01,
 	HTTP2_SETTINGS_ENABLE_PUSH,
 	HTTP2_SETTINGS_MAX_STREAMS,
 	HTTP2_SETTINGS_INIT_WND_SIZE,
 	HTTP2_SETTINGS_MAX_FRAME_SIZE,
-	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE
+	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE,
+	HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL	= 0x08,
 } TfwSettingsId;
 
 #define __FRAME_FSM_EXIT()						\
@@ -311,7 +313,7 @@ err:
 	return r;
 }
 
-static inline int
+int
 tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 {
 	return __tfw_h2_send_frame(ctx, hdr, data, false);
@@ -376,16 +378,21 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 static inline int
 tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
-	unsigned char key_buf[SETTINGS_KEY_SIZE];
-	unsigned char val_buf[SETTINGS_VAL_SIZE];
+	unsigned char key_buf_wnd[SETTINGS_KEY_SIZE];
+	unsigned char val_buf_wnd[SETTINGS_VAL_SIZE];
+	unsigned char key_buf_con[SETTINGS_KEY_SIZE];
+	unsigned char val_buf_con[SETTINGS_VAL_SIZE];
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = key_buf, .len = SETTINGS_KEY_SIZE },
-			{ .data = val_buf, .len = SETTINGS_VAL_SIZE }
+			{ .data = key_buf_wnd, .len = SETTINGS_KEY_SIZE },
+			{ .data = val_buf_wnd, .len = SETTINGS_VAL_SIZE },
+			{ .data = key_buf_con, .len = SETTINGS_KEY_SIZE },
+			{ .data = val_buf_con, .len = SETTINGS_VAL_SIZE }
 		},
-		.len = SETTINGS_KEY_SIZE + SETTINGS_VAL_SIZE,
-		.nchunks = 3
+		.len = sizeof(key_buf_wnd) + sizeof(val_buf_wnd)
+		       + sizeof(key_buf_con) + sizeof(val_buf_con),
+		.nchunks = 5
 	};
 	TfwFrameHdr hdr = {
 		.length = data.len,
@@ -398,8 +405,13 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 		     || SETTINGS_VAL_SIZE != sizeof(unsigned int)
 		     || SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 
-	*(unsigned short *)key_buf = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
-	*(unsigned int *)val_buf = htonl(ctx->lsettings.wnd_sz);
+	*(unsigned short *)key_buf_wnd = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
+	*(unsigned int *)val_buf_wnd = htonl(ctx->lsettings.wnd_sz);
+
+	/* Enable websocket upgrade with CONNECT */
+	*(unsigned short *)key_buf_con =
+		htons(HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL);
+	*(unsigned int *)val_buf_con = htonl(1);
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
@@ -576,6 +588,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 static inline void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	if (stream->proto == HTTP2_STREAM_PROTO_WEBSOCKET)
+		tfw_ws_stream_drop((TfwConn *)conn, stream);
 	tfw_h2_stop_stream(&ctx->sched, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;
@@ -609,7 +625,7 @@ __tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 		 * cases controlled by server connection side (after adding to
 		 * @fwd_queue): successful response sending, eviction etc.
 		 */
-		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
+		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags) && !hmreq->resp)
 			tfw_http_conn_msg_free(hmreq);
 	}
 }
@@ -716,9 +732,11 @@ tfw_h2_stream_id(TfwHttpReq *req)
 /*
  * Get stream ID for upper layer to prepare and send frame with response to
  * client, and process stream FSM for the frame (of type specified in @type
- * and with flags set in @flags). This procedure also unlinks request from
- * corresponding stream (if linked) and moves the stream to the queue of
- * closed streams (if it is not contained there yet).
+ * and with flags set in @flags).
+ *
+ * In case of _HTTP2_UNDEFINED frame type or present HTTP2_F_END_STREAM in flag
+ * this procedure also unlinks request from corresponding stream (if linked) and
+ * moves the stream to the queue of closed streams (if it is not there yet).
  */
 unsigned int
 tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
@@ -736,10 +754,12 @@ tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
 		return 0;
 	}
 
-	if (type < _HTTP2_UNDEFINED &&
-	    !STREAM_SEND_PROCESS(stream, type, flags))
-	{
-		id = stream->id;
+	if (type < _HTTP2_UNDEFINED) {
+		if (!STREAM_SEND_PROCESS(stream, type, flags))
+			id = stream->id;
+
+		if (!(flags & HTTP2_F_END_STREAM))
+			goto done;
 	}
 
 	req->stream = NULL;
@@ -747,6 +767,7 @@ tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
 
 	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
 
+done:
 	spin_unlock(&ctx->lock);
 
 	return id;
@@ -928,6 +949,11 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 {
 	TfwSettings *dest = &ctx->rsettings;
 
+	/*
+	 * Note that receiving SETTINGS_ENABLE_CONNECT_PROTOCOL from client
+	 * has no impact as it only intended for sending by server
+	 * (RFC 8441 section 3).
+	 */
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
 		dest->hdr_tbl_sz = min_t(unsigned int,
