@@ -9,7 +9,7 @@ pipeline {
             steps {
                 buildName '#PR-${ghprbPullId}'
                 sh 'rm -rf /root/tempesta'
-                sh 'mv ../tempesta /root/tempesta'
+                sh 'cp -r . /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
                 }
