@@ -26,7 +26,7 @@ pipeline {
         stage('Run tests') {
             steps {
                 dir("/home/tempesta/tempesta-test"){
-                    sh './run_tests.py ws'
+                    sh './run_tests.py'
                 }
             }
         }
