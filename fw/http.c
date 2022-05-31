@@ -748,8 +748,14 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	url.chunks[url.nchunks++] = req->uri_path;
 	url.len += req->uri_path.len;
 
-	body_len = tfw_str_to_cstr(body, body_val, RESP_BUF_LEN -
-						   SLEN(S_V_DATE) - cl_len);
+	/*
+	 * We have to copy the body since tfw_h2_append_predefined_body() called
+	 * from tfw_h2_frame_local_resp() expects body as plain string.
+	 * At the moment this function is used for sticky session redirects, so
+	 * there is no big difference wehre to copy the body.
+	 */
+	body_len = tfw_str_to_cstr(body, body_val,
+				   RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len);
 
 	{
 		TfwStr msg = {
@@ -1449,26 +1455,24 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 
 	tfw_http_prep_date(date_val);
 
-#define TFW_STRCPY(from)                                                       \
-do {                                                                           \
-	if ((char *)url_p + sizeof(url_chunks[0]) > (char *)url_chunks +       \
-						    RESP_BUF_LEN -             \
-						    SLEN(S_V_DATE))            \
-	{                                                                      \
-		T_WARN("HTTP: unable to allocate memory for redirection "      \
-		       "url\n");                                               \
-		return;                                                        \
-	}                                                                      \
-	TFW_STR_FOR_EACH_CHUNK(c2, (from), end2) {                             \
-		*url_p++ = *c2;                                                \
-		url_len += c2->len;                                            \
-	}                                                                      \
+#define TFW_STRCPY(from)						\
+do {									\
+	if ((char *)url_p + sizeof(url_chunks[0])			\
+	    > (char *)url_chunks + RESP_BUF_LEN - SLEN(S_V_DATE))	\
+	{								\
+		T_WARN("HTTP: unable to allocate memory for redirection "\
+		       "url\n");					\
+		return;							\
+	}								\
+	TFW_STR_FOR_EACH_CHUNK(c2, (from), end2) {			\
+		*url_p++ = *c2;						\
+		url_len += c2->len;					\
+	}								\
 } while (0)
 
 	TFW_STR_FOR_EACH_CHUNK(c, &redir->url, end) {
-		if ((char *)url_p + sizeof(url_chunks[0]) > (char *)url_chunks +
-							    RESP_BUF_LEN -
-							    SLEN(S_V_DATE))
+		if ((char *)url_p + sizeof(url_chunks[0])
+		    > (char *)url_chunks + RESP_BUF_LEN - SLEN(S_V_DATE))
 		{
 			T_WARN("HTTP: unable to allocate memory for "
 			       "redirection url\n");
