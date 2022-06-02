@@ -2233,17 +2233,13 @@ typedef enum {
 									\
 	BUG_ON(len < (part_len));					\
 	if (state != HPACK_HDR_NAME_SEARCH				\
-	    && (state != HPACK_HDR_VALUE_FOUND				\
-		|| chunk != TFW_STR_LAST(hdr)				\
+	    && (state != HPACK_HDR_VALUE_FOUND || chunk != TFW_STR_LAST(hdr)\
 		|| len != (part_len)))					\
 		return ret;						\
 									\
-	for (; (data[idx] == ' ' || data[idx] == '\t') && idx >= 0;	\
-	     --idx);							\
-	if (state == HPACK_HDR_NAME_SEARCH				\
-	    && idx >= 0							\
-	    && data[idx] == ':')					\
-	{								\
+	while ((data[idx] == ' ' || data[idx] == '\t') && idx >= 0)	\
+	     --idx;							\
+	if (state == HPACK_HDR_NAME_SEARCH && idx >= 0 && data[idx] == ':') {\
 		found = true;						\
 		--idx;							\
 	}								\
@@ -2259,7 +2255,8 @@ typedef enum {
 		if (state == HPACK_HDR_NAME_SEARCH) {			\
 			if (SH_LC(pos) != SH_LC(data))			\
 				return ret;				\
-		} else if (HP_SH(pos) != HP_SH(data)) {			\
+		}							\
+		else if (HP_SH(pos) != HP_SH(data)) {			\
 			return ret;					\
 		}							\
 		if (idx == 1)						\
@@ -2302,8 +2299,8 @@ tfw_hpack_node_compare(const TfwStr *__restrict hdr,
 {
 	short i;
 	const TfwStr *chunk, *end;
-	unsigned long hlen = hdr->len;
-	unsigned short node_hlen = node->hdr_len;
+	unsigned long k, hlen = hdr->len;
+	unsigned short len, min_len = 0, node_hlen = node->hdr_len;
 	const char *pos = node->hdr;
 	TfwHPackCmpStates state = HPACK_HDR_NAME_SEARCH;
 
@@ -2332,11 +2329,9 @@ do {									\
 	}								\
 } while (0)
 
-#define SHIFT(n)							\
-	HDR_PART_SHIFT(n, n)
+#define SHIFT(n)	HDR_PART_SHIFT(n, n)
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
-		unsigned short min_len, len;
 		const char *data = chunk->data;
 
 		if (!chunk->len)
@@ -2412,31 +2407,31 @@ do {									\
 			}
 		}
 chunk_end:
-		if (!node_hlen) {
-			unsigned long k = min_len;
-			/*
-			 * If we have matched @node_hlen characters of header,
-			 * and the remained characters are OWS, then the entire
-			 * header should be considered matched.
-			 */
-			WARN_ON_ONCE(state != HPACK_HDR_VALUE_FOUND);
-			for (;;) {
-				for (; k < chunk->len; ++k) {
-					if (data[k] != ' ' && data[k] != '\t')
-						return 1;
-				}
-
-				if (++chunk >= end)
-					return 0;
-
-				data = chunk->data;
-				k = 0;
-			}
-		}
+		if (!node_hlen)
+			break;
 	}
-	WARN_ON_ONCE(hlen);
 
-	return node_hlen ? -1 : 0;
+	/* @node is longer than @hdr. */
+	if (node_hlen)
+		return -1;
+
+	/*
+	 * The header may have empty value and in this case @hdr may have
+	 * stripped spaces and ':' so we may fall here with matching the header
+	 * name only, but in HPACK_HDR_NAME_SEARCH state, so we need to check the
+	 * rest of the chunk whether it's a prefix of @node.
+	 *
+	 * If we have matched @node_hlen characters of header, and the remained
+	 * characters are OWS, then the entire header should be considered
+	 * matched.
+	 */
+	for (k = min_len; chunk < end; ++chunk, k = 0) {
+		for ( ; k < chunk->len; ++k)
+			if (chunk->data[k] != ' ' && chunk->data[k] != '\t')
+				return 1;
+	}
+
+	return 0;
 
 #undef HDR_PART_SHIFT
 #undef HDR_PART_COMPARE
