@@ -10186,6 +10186,30 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	return T_OK;
 }
 
+void
+tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr)
+{
+	TfwStr *c, *end;
+	bool has_exp_port = false;
+
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		if (!(c->flags & TFW_STR_VALUE) && c->len == 1 &&
+			c->data[0] == ':') {
+			has_exp_port = true;
+			break;
+		}
+	}
+
+	if (has_exp_port) {
+		/* chunk containing the port should always be the last one */
+		TfwStr p_chunk = hdr->chunks[hdr->nchunks - 1];
+		unsigned long host_port = 0;
+		__parse_ulong_ws(p_chunk.data, p_chunk.len, &host_port, USHRT_MAX);
+		T_DBG3("%s: got port: %lu\n", __func__, host_port);
+		req->host_port = host_port;
+	}
+}
+
 /*
  * ------------------------------------------------------------------------
  *	HTTP response parsing

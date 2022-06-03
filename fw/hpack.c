@@ -1233,6 +1233,8 @@ done:
 		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
+		/* we need to parse port part of the header again */
+		tfw_idx_hdr_parse_host_port(req, entry->hdr);
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
