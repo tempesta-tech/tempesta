@@ -512,7 +512,6 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int port;
 	TfwAddr addr;
 	const char *in_str = NULL;
-	bool deprecated = true;
 
 	if (tfw_cfg_check_val_n(ce, 1) || ce->attr_n > 1)
 		goto parse_err;
@@ -553,7 +552,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		goto done;
 
 	type = TFW_FSM_HTTPS;
-	if (!tfw_tls_cfg_alpn_protos(in_str, &deprecated))
+	if (!tfw_tls_cfg_alpn_protos(in_str))
 		goto done;
 
 parse_err:
@@ -562,14 +561,6 @@ parse_err:
 	return -EINVAL;
 
 done:
-	if (deprecated) {
-		static int warn = 1;
-		if (warn)
-			T_WARN_NL("Listening for HTTP/1.1 protocol is "
-				  "compatibility mode and may lack of "
-				  "performance.\n");
-		warn = 0;
-	}
 	if (type == TFW_FSM_HTTPS)
 		tfw_tls_cfg_require();
 	return tfw_listen_sock_add(&addr, type);
@@ -603,7 +594,6 @@ static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
 	tfw_listen_sock_del_all();
-	tfw_tls_free_alpn_protos();
 }
 
 static int

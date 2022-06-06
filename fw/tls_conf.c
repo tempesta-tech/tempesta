@@ -218,9 +218,10 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	{
 		/* None of the SANs match the vhost. */
 		T_WARN("Vhost %s doesn't have certificate with matching SAN/CN.\n"
-		       "Maybe that's fine, but it's worth checking the config -\n"
-		       "if there is no relations between the names, then host\n"
-		       "name confussion attack is possible.\n", vhost->name.data);
+		       "    Maybe that's fine, but it's worth checking the\n"
+		       "    config - if there is no relations between the\n"
+		       "    names, then host name confusion attack is possible.\n",
+		       vhost->name.data);
 	}
 
 err:
