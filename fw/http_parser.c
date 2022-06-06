@@ -10210,6 +10210,23 @@ tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr)
 	}
 }
 
+void
+tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
+{
+	TfwStr *c, *end;
+
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		if (c->flags & TFW_STR_HDR_VALUE) {
+			int ret = __h2_req_parse_if_msince((TfwHttpMsg *)req,
+					c->data, c->len, true);
+			T_DBG3("%s: __h2_req_parse_if_msince ret=%d\n",
+				__func__, ret);
+		}
+	}
+
+	T_DBG3("%s: req->cond.m_date: %lu\n", __func__, req->cond.m_date);
+}
+
 /*
  * ------------------------------------------------------------------------
  *	HTTP response parsing
