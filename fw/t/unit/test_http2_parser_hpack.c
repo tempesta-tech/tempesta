@@ -808,21 +808,16 @@ TEST(http2_parser_hpack, increment_all_static_indexes_for_request)
 				 "from" "webmaster@example.org");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 "host" "developer.mozilla.org:5588");
-		/*
-		 * TODO: must be fixed in [#1617]
-		 * EXPECT_EQ(req->host_port, 5588);
-		 */
+		EXPECT_EQ(req->host_port, 5588);
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 8],
 				 "if-match"
 				 "\"67ab43\", \"54ed21\", \"7892dd\"");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 9],
 				 "if-modified-since"
 				 "Inv, 31 Jan 2012 15:02:53 GMT");
-		/*
-		 * TODO: must be fixed in [#1617]
-		 * EXPECT_TRUE(req->cond.m_date == 1328022173);
-		 * EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
-		 */
+		EXPECT_TRUE(req->cond.m_date == 1328022173);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 10],
 				 "if-range" "Wed, 21 Oct 2015 07:28:00 GMT");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 11],
