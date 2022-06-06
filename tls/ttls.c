@@ -2737,11 +2737,14 @@ bool
 ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 		 size_t len)
 {
+	T_DBG("match client ALPN %.*s (len=%lu) against our %.*s\n",
+	      (int)len, buf, len, (int)proto->len, proto->name);
+
 	if (proto->len != len)
 		return false;
-	if (len == 8)
+	if (len == 8) /* http/1.1 */
 		return *(unsigned long *)proto->name == *(unsigned long *)buf;
-	if (len == 2)
+	if (len == 2) /* h2 */
 		return *(unsigned short *)proto->name == *(unsigned short *)buf;
 
 	return !memcmp_fast(proto->name, buf, len);

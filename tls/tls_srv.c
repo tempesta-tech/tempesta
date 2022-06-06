@@ -377,7 +377,6 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	/* Use our order of preference. */
 	for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
 		our = &alpn_list[i];
-		WARN_ON_ONCE(our->len > 32);
 		for (theirs = start; theirs != end; theirs += cur_len) {
 			cur_len = *theirs++;
 			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
@@ -387,7 +386,12 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		}
 	}
 
-	TTLS_WARN(tls, "ClientHello: cannot find matching alpn\n");
+	/* We verified the length of ALPN in the loop above. */
+	TTLS_WARN(tls, "ClientHello: cannot find matching ALPN for %.*s%s\n",
+		  *start, start + 1,
+		  *start + 1 < end - start
+			? " (there are more ALPNs from the client)"
+			: "");
 	ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 			TTLS_ALERT_MSG_NO_APPLICATION_PROTOCOL);
 	return -EBADMSG;
