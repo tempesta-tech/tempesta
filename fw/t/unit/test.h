@@ -81,6 +81,16 @@ do {				\
 #define TEST_DBG4(...) pr_debug(TEST_BANNER "        " __VA_ARGS__)
 #else
 #define TEST_DBG4(...)
+
+#if defined(DEBUG) && (DEBUG >= 3)
+#define SLEEP_TIME	15*1000
+#define TEST_WAIT(...)				\
+do {						\
+	TEST_LOG("postpone exec for 15s...\n");	\
+	msleep(SLEEP_TIME);			\
+} while(0)
+#else
+#define TEST_WAIT(...)
 #endif
 
 /*
