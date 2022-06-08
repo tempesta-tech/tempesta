@@ -966,49 +966,47 @@ tfw_tls_match_any_sni_to_dflt(bool match)
 }
 
 int
-tfw_tls_cfg_alpn_protos(const char *cfg_str, bool *deprecated)
+tfw_tls_cfg_alpn_protos(const char *cfg_str)
 {
-	ttls_alpn_proto *protos;
+	ttls_alpn_proto *proto0 = &tfw_tls.cfg.alpn_list[0];
+	ttls_alpn_proto *proto1 = &tfw_tls.cfg.alpn_list[1];
 
-#define PROTO_INIT(order, proto)				\
-do {								\
-	protos[order].name = TTLS_ALPN_##proto;			\
-	protos[order].len = sizeof(TTLS_ALPN_##proto) - 1;	\
-	protos[order].id = TTLS_ALPN_ID_##proto;		\
-} while (0)
-
-	protos = kzalloc(TTLS_ALPN_PROTOS * sizeof(ttls_alpn_proto), GFP_KERNEL);
-	if (unlikely(!protos))
-		return -ENOMEM;
-
-	tfw_tls.cfg.alpn_list = protos;
-
-	if (!strcasecmp(cfg_str, "https")) {
-		PROTO_INIT(0, HTTP1);
-		*deprecated = true;
-		return 0;
-	}
+	BUILD_BUG_ON(TTLS_ALPN_PROTOS != 2);
 
 	if (!strcasecmp(cfg_str, "h2")) {
-		PROTO_INIT(0, HTTP2);
-		*deprecated = false;
-		return 0;
+		/* Prefer HTTP/2 over HTTP/1. */
+		switch (proto0->id) {
+		case TTLS_ALPN_ID_HTTP2:
+			return 0;
+		case TTLS_ALPN_ID_HTTP1:
+			*proto1 = *proto0;
+			fallthrough;
+		case 0:
+			proto0->id = TTLS_ALPN_ID_HTTP2;
+			proto0->name = TTLS_ALPN_HTTP2;
+			proto0->len = sizeof(TTLS_ALPN_HTTP2) - 1;
+			return 0;
+		}
 	}
 
-	tfw_tls.cfg.alpn_list = NULL;
-	kfree(protos);
+	if (!strcasecmp(cfg_str, "https")) {
+		switch (proto0->id) {
+		case TTLS_ALPN_ID_HTTP2:
+			proto1->id = TTLS_ALPN_ID_HTTP1;
+			proto1->name = TTLS_ALPN_HTTP1;
+			proto1->len = sizeof(TTLS_ALPN_HTTP1) - 1;
+			return 0;
+		case TTLS_ALPN_ID_HTTP1:
+			return 0;
+		case 0:
+			proto0->id = TTLS_ALPN_ID_HTTP1;
+			proto0->name = TTLS_ALPN_HTTP1;
+			proto0->len = sizeof(TTLS_ALPN_HTTP1) - 1;
+			return 0;
+		}
+	}
 
 	return -EINVAL;
-#undef PROTO_INIT
-}
-
-void
-tfw_tls_free_alpn_protos(void)
-{
-	if (tfw_tls.cfg.alpn_list) {
-		kfree(tfw_tls.cfg.alpn_list);
-		tfw_tls.cfg.alpn_list = NULL;
-	}
 }
 
 static int

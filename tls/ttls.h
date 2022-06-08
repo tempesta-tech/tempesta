@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -236,11 +236,11 @@
 #define TTLS_ALPN_HTTP2				"h2"
 
 /* Number of protocols for negotiation in APLN extension. */
-#define TTLS_ALPN_PROTOS			1
+#define TTLS_ALPN_PROTOS			2
 
 /* The id numbers of supported protocols for APLN extension. */
 typedef enum {
-	TTLS_ALPN_ID_HTTP1,
+	TTLS_ALPN_ID_HTTP1 = 1,
 	TTLS_ALPN_ID_HTTP2
 } ttls_alpn_proto_id;
 
@@ -459,7 +459,7 @@ typedef struct {
  * Members are grouped by size (largest first) to minimize padding overhead.
  */
 typedef struct {
-	const ttls_alpn_proto		*alpn_list;
+	ttls_alpn_proto			alpn_list[TTLS_ALPN_PROTOS];
 	uint32_t			read_timeout;
 	unsigned int			dhm_min_bitlen;
 	unsigned int			endpoint : 1;
