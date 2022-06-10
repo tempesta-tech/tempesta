@@ -342,6 +342,47 @@ TEST(http_match, headers_eq)
 	free_all_str();
 }
 
+TEST(http_match, headers_duplicated_eq)
+{
+	create_str_pool();
+
+	{
+		int match_id;
+		TfwStr *hdr1, *hdr2, *hdr3, *dup1, *dup2, *dup3;
+
+		hdr1 =  make_compound_str2("X-Forwarded-For: ", "2.2.2.2");
+		dup1 = tfw_str_add_duplicate(str_pool, hdr1);
+		*dup1 = *make_compound_str2("X-Forwarded-For: ", "1.1.1.1");
+
+		hdr2 =  make_compound_str2("X-Forwarded-For: ", "4.4.4.4");
+		dup2 = tfw_str_add_duplicate(str_pool, hdr2);
+		*dup2 = *make_compound_str2("X-Forwarded-For: ", "5.5.5.5");
+
+		hdr3 =  make_compound_str2("X-Forwarded-For: ", "1.1.1.1");
+		dup3 = tfw_str_add_duplicate(str_pool, hdr3);
+		*dup3 = *make_compound_str2("X-Forwarded-For: ", "2.2.2.2");
+
+		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+					"X-Forwarded-For: ", "3.3.3.3");
+		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+					"X-Forwarded-For: ", "1.1.1.1");
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR] = *hdr2;
+		match_id = test_chain_match();
+		EXPECT_EQ(-1, match_id);
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR] = *hdr1;
+		match_id = test_chain_match();
+		EXPECT_EQ(2, match_id);
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR] = *hdr3;
+		match_id = test_chain_match();
+		EXPECT_EQ(2, match_id);
+	}
+
+	free_all_str();
+}
+
 TEST(http_match, hdr_host_prefix)
 {
 	create_str_pool();
@@ -710,6 +751,7 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, uri_wc_escaped);
 	TEST_RUN(http_match, host_eq);
 	TEST_RUN(http_match, headers_eq);
+	TEST_RUN(http_match, headers_duplicated_eq);
 	TEST_RUN(http_match, hdr_host_prefix);
 	TEST_RUN(http_match, hdr_host_suffix);
 	TEST_RUN(http_match, raw_header_eq);
