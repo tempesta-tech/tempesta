@@ -88,6 +88,17 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 	return flags_tbl[op];
 }
 
+static bool
+tfw_str_match(const TfwStr *str, const char *cstr,
+	  int cstr_len, tfw_str_eq_flags_t flags, tfw_http_match_op_t op)
+{
+	if (op == TFW_HTTP_MATCH_O_SUFFIX)
+		return tfw_str_eq_cstr_off(str, str->len - cstr_len,
+					   cstr, cstr_len, flags);
+
+	return tfw_str_eq_cstr(str, cstr, cstr_len, flags);
+}
+
 /**
  * Look up a header in the @req->h_tbl by given @id,
  * and compare @rule->arg with the header's value (skipping name and LWS).
@@ -109,7 +120,7 @@ static bool
 hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	   tfw_http_hdr_t id)
 {
-	TfwStr *hdr;
+	TfwStr *hdr, *dup, *end;
 	TfwStr hdr_val;
 	tfw_str_eq_flags_t flags;
 	tfw_http_match_op_t op =  rule->op;
@@ -125,8 +136,6 @@ hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	if (op == TFW_HTTP_MATCH_O_WILDCARD)
 		return true;
 
-	tfw_http_msg_clnthdr_val(req, hdr, id, &hdr_val);
-
 	flags = map_op_to_str_eq_flags(rule->op);
 	/*
 	 * There is no general rule, but most headers are case-insensitive.
@@ -134,11 +143,13 @@ hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	 */
 	flags |= TFW_STR_EQ_CASEI;
 
-	if (op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(&hdr_val, hdr_val.len - str_len,
-					   str, str_len, flags);
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		tfw_http_msg_clnthdr_val(req, dup, id, &hdr_val);
+		if (tfw_str_match(&hdr_val, str, str_len, flags, op))
+			return true;
+	}
 
-	return tfw_str_eq_cstr(&hdr_val, str, str_len, flags);
+	return false;
 }
 
 static bool
