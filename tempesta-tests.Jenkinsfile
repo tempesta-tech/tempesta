@@ -1,4 +1,8 @@
 pipeline {
+    environment {
+        TESTS_PATH = "/home/tempesta/tempesta-test"
+    }
+
     agent {
        label "tempesta-test"
     }
@@ -27,14 +31,14 @@ pipeline {
 
         stage('Checkout tempesta-tests') {
             steps {
-                sh 'rm -rf /home/tempesta/tempesta-test'
-                sh 'git clone https://github.com/tempesta-tech/tempesta-test.git /home/tempesta/tempesta-test'
+                sh 'rm -rf ${TESTS_PATH}'
+                sh 'git clone https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
             }
         }
 
         stage('Run tests') {
             steps {
-                dir("/home/tempesta/tempesta-test"){
+                dir('${TESTS_PATH}'){
                     sh './run_tests.py'
                 }
             }
