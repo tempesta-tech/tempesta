@@ -794,29 +794,27 @@ tfw_sock_clnt_init(void)
 	 * Check that flags for SS layer and Connection
 	 * layer are not overlapping.
 	 */
-	BUILD_BUG_ON(Conn_Stop & (Conn_Clnt |
-				  Conn_Srv |
-				  TFW_FSM_HTTP |
-				  TFW_FSM_HTTPS));
+	BUILD_BUG_ON(Conn_Stop & (Conn_Clnt | Conn_Srv
+				  | TFW_FSM_HTTP | TFW_FSM_HTTPS));
 	BUG_ON(tfw_cli_conn_cache);
 	BUG_ON(tfw_h2_conn_cache);
 
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
 					       sizeof(TfwCliConn), 0, 0, NULL);
+	if (!tfw_cli_conn_cache)
+		return -ENOMEM;
+
 	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
 					       sizeof(TfwH2Conn), 0, 0, NULL);
 
-	if (tfw_cli_conn_cache && tfw_h2_conn_cache) {
-		tfw_mod_register(&tfw_sock_clnt_mod);
-		return 0;
+	if (!tfw_h2_conn_cache) {
+		kmem_cache_destroy(tfw_cli_conn_cache);
+		return -ENOMEM;
 	}
 
-	if (tfw_cli_conn_cache)
-		kmem_cache_destroy(tfw_cli_conn_cache);
-	if (tfw_h2_conn_cache)
-		kmem_cache_destroy(tfw_h2_conn_cache);
+	tfw_mod_register(&tfw_sock_clnt_mod);
 
-	return -ENOMEM;
+	return 0;
 }
 
 void
