@@ -22,7 +22,7 @@ pipeline {
 
         stage('Build tempesta-fw') {
             steps {
-                sh 'git clone https://github.com/tempesta-tech/tempesta.git'
+                sh 'sudo git clone https://github.com/tempesta-tech/tempesta.git'
                 sh 'cp -r tempesta /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
