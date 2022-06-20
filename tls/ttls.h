@@ -565,6 +565,7 @@ typedef struct ttls_context {
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
 typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
+typedef bool ttls_alpn_match_t(TlsCtx *tls, ttls_alpn_proto *alpn);
 
 enum {
 	TTLS_HS_CB_FINISHED_NEW,

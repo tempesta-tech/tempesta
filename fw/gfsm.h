@@ -79,13 +79,25 @@
  * build real stack. This simplifies the protocols handling, makes it faster
  * and provides more flexibility to set classification FSMs' hooks for
  * specific secured application protocol.
+ *
+ * The constants are used in the less significant byte for connection or socket
+ * type, see also enums in connection.h and sync_socket.h.
+ *
+ * TODO #77: probably we should get rid of the FRANG states, call the http
+ * limiting callbacks directly and make the enum purely for the protocol
+ * type. Then the enum in connection.h determines server/client connection
+ * and from sync_socket.h the state of the connection. Now this enum looks
+ * inconsistent.
  */
 enum {
 	/* Protocols */
-	TFW_FSM_HTTP,
-	TFW_FSM_HTTPS,
+	TFW_FSM_HTTP		= 0,
+	TFW_FSM_HTTPS		= 1,
+	/* h2c isn't supported, so HTTP/2 is always HTTPS */
+	TFW_FSM_H2		= 2 | TFW_FSM_HTTPS,
+
 	/* Not really a FSM, used for connection hook registration only */
-	TFW_FSM_WEBSOCKET,
+	TFW_FSM_WEBSOCKET	= 4,
 	TFW_FSM_WS  = TFW_FSM_WEBSOCKET | TFW_FSM_HTTP,
 	TFW_FSM_WSS = TFW_FSM_WEBSOCKET | TFW_FSM_HTTPS,
 

@@ -52,6 +52,10 @@ enum {
 	Conn_HttpsClnt	= Conn_Clnt | TFW_FSM_HTTPS,
 	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
 
+	/* HTTP/2 */
+	Conn_H2Clnt	= Conn_Clnt | TFW_FSM_H2,
+	Conn_H2Srv	= Conn_Srv | TFW_FSM_H2,
+
 	/* Websocket plain */
 	Conn_WsClnt	= Conn_HttpClnt | TFW_FSM_WEBSOCKET,
 	Conn_WsSrv	= Conn_HttpSrv | TFW_FSM_WEBSOCKET,
@@ -234,11 +238,6 @@ typedef struct {
 } TfwH2Conn;
 
 #define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
-
-#define TFW_CONN_H2(c)							\
-	(TFW_CONN_TLS((TfwConn *)c)					\
-	 && tfw_tls_context(c)->alpn_chosen				\
-	 && tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {

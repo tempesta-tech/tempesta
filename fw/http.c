@@ -2538,7 +2538,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	else
 		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 
-	if (TFW_CONN_H2(conn)) {
+	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2) {
 		TfwHttpReq *req = (TfwHttpReq *)hm;
 
 		if(!(req->pit.pool = __tfw_pool_new(0)))
@@ -2739,7 +2739,7 @@ static void tfw_http_resp_terminate(TfwHttpMsg *hm);
 static void
 tfw_http_conn_drop(TfwConn *conn)
 {
-	bool h2_mode = TFW_CONN_H2(conn);
+	bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
 
 	T_DBG2("%s: conn=[%p]\n", __func__, conn);
 
@@ -6545,14 +6545,15 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 int
 tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
-	int r;
 	TfwStream *stream = &((TfwConn *)conn)->stream;
 
-	r = TFW_CONN_H2(conn)
-		? tfw_h2_frame_process(conn, skb)
-		: tfw_http_msg_process_generic(conn, stream, skb);
+	WARN_ON_ONCE(tfw_tls_context(c)->alpn_chosen
+		     && tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2
+		     && TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2);
 
-	return r;
+	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
+		return tfw_h2_frame_process(conn, skb);
+	return tfw_http_msg_process_generic(conn, stream, skb);
 }
 
 /**

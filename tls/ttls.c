@@ -52,6 +52,7 @@ static ttls_send_cb_t *ttls_send_cb;
 extern ttls_sni_cb_t *ttls_sni_cb;
 extern ttls_hs_over_cb_t *ttls_hs_over_cb;
 extern ttls_cli_id_t *ttls_cli_id_cb;
+extern ttls_alpn_match_t *ttls_alpn_match_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -236,12 +237,14 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
  */
 void
 ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
-			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb)
+			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb,
+			ttls_alpn_match_t *alpn_match_cb)
 {
 	ttls_send_cb = send_cb;
 	ttls_sni_cb = sni_cb;
 	ttls_hs_over_cb = hs_over_cb;
 	ttls_cli_id_cb = cli_id_cb;
+	ttls_alpn_match_cb = alpn_match_cb;
 }
 EXPORT_SYMBOL(ttls_register_callbacks);
 

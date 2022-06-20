@@ -1077,13 +1077,6 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 }
 EXPORT_SYMBOL(ss_proto_init);
 
-void
-ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
-{
-	*child = *parent;
-	child->type |= child_type;
-}
-
 /**
  * Make data socket serviced by synchronous sockets.
  *
