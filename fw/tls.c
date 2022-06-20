@@ -655,11 +655,12 @@ static int
 tfw_tls_conn_init(TfwConn *c)
 {
 	int r;
-	TlsCtx *tls = tfw_tls_context(c);
-	TfwH2Ctx *h2 = tfw_h2_context(c);
+	TlsCtx *tls;
 
 	T_DBG2("%s: conn=[%p]\n", __func__, c);
+	BUG_ON(!(c->proto.type & TFW_FSM_HTTPS));
 
+	tls = tfw_tls_context(c);
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		T_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
@@ -668,8 +669,9 @@ tfw_tls_conn_init(TfwConn *c)
 	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
 
-	if ((r = tfw_h2_context_init(h2)))
-		return r;
+	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2)
+		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
+			return r;
 
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
@@ -905,6 +907,22 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 				sizeof(TfwAddr), hash);
 }
 
+bool
+tfw_tls_alpn_match(TlsCtx *tls, ttls_alpn_proto *alpn)
+{
+	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
+
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2
+	    && alpn->id == TTLS_ALPN_ID_HTTP2)
+		return true;
+
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_HTTPS
+	    && alpn->id == TTLS_ALPN_ID_HTTP1)
+		return true;
+
+	return false;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration.
@@ -977,7 +995,7 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 		/* Prefer HTTP/2 over HTTP/1. */
 		switch (proto0->id) {
 		case TTLS_ALPN_ID_HTTP2:
-			return 0;
+			return TFW_FSM_H2;
 		case TTLS_ALPN_ID_HTTP1:
 			*proto1 = *proto0;
 			fallthrough;
@@ -985,7 +1003,7 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 			proto0->id = TTLS_ALPN_ID_HTTP2;
 			proto0->name = TTLS_ALPN_HTTP2;
 			proto0->len = sizeof(TTLS_ALPN_HTTP2) - 1;
-			return 0;
+			return TFW_FSM_H2;
 		}
 	}
 
@@ -995,14 +1013,14 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 			proto1->id = TTLS_ALPN_ID_HTTP1;
 			proto1->name = TTLS_ALPN_HTTP1;
 			proto1->len = sizeof(TTLS_ALPN_HTTP1) - 1;
-			return 0;
+			return TFW_FSM_HTTPS;
 		case TTLS_ALPN_ID_HTTP1:
-			return 0;
+			return TFW_FSM_HTTPS;
 		case 0:
 			proto0->id = TTLS_ALPN_ID_HTTP1;
 			proto0->name = TTLS_ALPN_HTTP1;
 			proto0->len = sizeof(TTLS_ALPN_HTTP1) - 1;
-			return 0;
+			return TFW_FSM_HTTPS;
 		}
 	}
 
@@ -1072,7 +1090,7 @@ tfw_tls_init(void)
 		return -EINVAL;
 
 	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, frang_tls_handler,
-				ttls_cli_id);
+				ttls_cli_id, tfw_tls_alpn_match);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;

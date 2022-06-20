@@ -190,7 +190,8 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_client;
 	}
 
-	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
+	ss_proto_inherit(listen_sock_proto, &conn->proto);
+	BUG_ON(!(conn->proto.type & Conn_Clnt));
 
 	conn->destructor = (void *)tfw_cli_conn_release;
 
@@ -382,10 +383,23 @@ static int
 tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
+	const SsHooks *shooks;
 
-	/* Check for supported types */
-	if (!(type == TFW_FSM_HTTP || type == TFW_FSM_HTTPS))
+	switch (type) {
+	case TFW_FSM_HTTP:
+		shooks = &tfw_sock_http_clnt_ss_hooks;
+		break;
+	case TFW_FSM_HTTPS:
+	case TFW_FSM_h2:
+		/*
+		 * We call the same TLS hooks before generic HTTP processing
+		 * for both the HTTP/1 and HTTP/2.
+		 */
+		shooks = &tfw_sock_tls_clnt_ss_hooks;
+		break;
+	default:
 		return -EINVAL;
+	}
 
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
@@ -400,13 +414,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	if (type == TFW_FSM_HTTP)
-		ss_proto_init(&ls->proto, &tfw_sock_http_clnt_ss_hooks,
-			      Conn_HttpClnt);
-	else if (type == TFW_FSM_HTTPS)
-		ss_proto_init(&ls->proto, &tfw_sock_tls_clnt_ss_hooks,
-			      Conn_HttpsClnt);
-
+	ss_proto_init(&ls->proto, shooks, Conn_Clnt | type);
 	list_add(&ls->list, &tfw_listen_socks_reconf);
 	ls->addr = *addr;
 
@@ -508,8 +516,7 @@ tfw_sock_check_lst(TfwServer *srv)
 static int
 tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r, type = TFW_FSM_HTTP;
-	int port;
+	int r, port, type = TFW_FSM_HTTP;
 	TfwAddr addr;
 	const char *in_str = NULL;
 
@@ -541,6 +548,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		goto parse_err;
 
+	/* Plain HTTP/1 is the default listening socket. */
 	if (!ce->attr_n)
 		goto done;
 
@@ -551,8 +559,8 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!strcasecmp(in_str, "http"))
 		goto done;
 
-	type = TFW_FSM_HTTPS;
-	if (!tfw_tls_cfg_alpn_protos(in_str))
+	type = tfw_tls_cfg_alpn_protos(in_str);
+	if (type > 0)
 		goto done;
 
 parse_err:
@@ -561,7 +569,7 @@ parse_err:
 	return -EINVAL;
 
 done:
-	if (type == TFW_FSM_HTTPS)
+	if (type & TFW_FSM_HTTPS)
 		tfw_tls_cfg_require();
 	return tfw_listen_sock_add(&addr, type);
 }

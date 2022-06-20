@@ -105,6 +105,12 @@ ss_sock_live(struct sock *sk)
 	return sk->sk_state == TCP_ESTABLISHED;
 }
 
+static inline void
+ss_proto_inherit(const SsProto *parent, SsProto *child)
+{
+	*child = *parent;
+}
+
 /* Synchronous operation required. */
 #define SS_F_SYNC			0x01
 /* Keep SKBs (use clones) on sending. */
@@ -122,7 +128,6 @@ int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
 void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
-void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, struct sk_buff **skb_head, int flags);
