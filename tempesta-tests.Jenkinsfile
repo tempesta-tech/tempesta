@@ -1,32 +1,45 @@
 pipeline {
+    environment {
+        TESTS_PATH = "/home/tempesta/tempesta-test"
+    }
+
     agent {
-       label "epyc-tempesta-test"
+       label "tempesta-test"
     }
 
     stages {
-
-        stage('make Tempesta') {
+        stage('Set buildName and cleanWS'){
             steps {
-                buildName '#PR-${ghprbPullId}'
-                sh 'rm -rf /root/tempesta'
-                sh 'cp -r . /root/tempesta'
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    script {
+                        currentBuild.displayName = "PR-${ghprbPullId}"
+                    }
+                    cleanWs()
+                    sh 'rm -rf /root/tempesta'
+                }
+            }
+        }
+
+        stage('Build tempesta-fw') {
+            steps {
+                sh 'sudo git clone https://github.com/tempesta-tech/tempesta.git /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
                 }
             }
         }
 
-        stage('Checkout Tempesta-tests') {
+        stage('Checkout tempesta-tests') {
             steps {
-                sh 'rm -rf /home/tempesta/tempesta-test'
-                sh 'git clone https://github.com/tempesta-tech/tempesta-test.git /home/tempesta/tempesta-test'
+                sh 'rm -rf ${TESTS_PATH}'
+                sh 'git clone https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
             }
         }
 
         stage('Run tests') {
             steps {
-                dir("/home/tempesta/tempesta-test"){
-                    sh './run_tests.py'
+                dir("${TESTS_PATH}"){
+                    sh './run_tests.py -n'
                 }
             }
         }
