@@ -32,7 +32,7 @@ pipeline {
         stage('Checkout tempesta-tests') {
             steps {
                 sh 'rm -rf ${TESTS_PATH}'
-                sh 'git clone https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
+                sh 'git clone -b disable_tests_issue_198 https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
             }
         }
 
