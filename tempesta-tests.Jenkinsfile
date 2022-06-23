@@ -23,7 +23,7 @@ pipeline {
             steps {
                 sh 'pwd'
                 sh 'ls -a'
-                sh 'git status'
+                sh 'cp -r . /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
                 }
