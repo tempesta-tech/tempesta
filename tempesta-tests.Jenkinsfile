@@ -21,8 +21,6 @@ pipeline {
 
         stage('Build tempesta-fw') {
             steps {
-                sh 'pwd'
-                sh 'ls -a'
                 sh 'cp -r . /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
