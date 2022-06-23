@@ -1890,7 +1890,10 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
  * a response is received to the holding request. The hold is also
  * removed when the holding non-idempotent request is followed by
  * another request from the same client. Effectively, that re-enables
- * pipelining. See RFC 7230 6.3.2.
+ * pipelining. Due to we have a means to detect and recover from partial
+ * failure conditions involving the pipelined sequence we can remove
+ * hold and continue to pipeline requests after non-idempotent.
+ * See RFC 7230 6.3.2.
  *
  * Requests must be forwarded in the same order they are put in the
  * queue, and so it must be done under the queue lock, otherwise
@@ -5359,7 +5362,7 @@ nip_match:
  * Set the flag if @req is non-idempotent. Add the request to the list
  * of the client connection to preserve the correct order of responses.
  * If the request follows a non-idempotent request in flight, then the
- * preceding request becomes idempotent.
+ * preceding request becomes idempotent. See @tfw_http_req_fwd comment
  */
 static void
 tfw_http_req_add_seq_queue(TfwHttpReq *req)
@@ -5856,7 +5859,12 @@ next_msg:
 		req->method = req->method_override;
 	}
 
-	if (!TFW_MSG_H2(req))
+	if (TFW_MSG_H2(req))
+		/*
+		 * Just marks request as non-idempotent if required.
+		 */
+		tfw_http_req_mark_nip(req);
+	else
 		hmsib = tfw_h1_req_process(stream, skb);
 
 	/*
