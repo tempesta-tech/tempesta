@@ -39,7 +39,7 @@ pipeline {
         stage('Run tests') {
             steps {
                 dir("${TESTS_PATH}"){
-                    sh './run_tests.py -n'
+                    sh './run_tests.py -nv'
                 }
             }
         }
