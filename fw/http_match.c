@@ -88,6 +88,18 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 	return flags_tbl[op];
 }
 
+static bool
+tfw_rule_str_match(const TfwStr *str, const char *cstr,
+		   int cstr_len, tfw_str_eq_flags_t flags,
+		   tfw_http_match_op_t op)
+{
+	if (op == TFW_HTTP_MATCH_O_SUFFIX)
+		return tfw_str_eq_cstr_off(str, str->len - cstr_len,
+					   cstr, cstr_len, flags);
+
+	return tfw_str_eq_cstr(str, cstr, cstr_len, flags);
+}
+
 /**
  * Look up a header in the @req->h_tbl by given @id,
  * and compare @rule->arg with the header's value (skipping name and LWS).
@@ -109,12 +121,11 @@ static bool
 hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	   tfw_http_hdr_t id)
 {
-	TfwStr *hdr;
-	TfwStr hdr_val;
+	TfwStr hdr_val, *hdr, *dup, *end;
 	tfw_str_eq_flags_t flags;
-	tfw_http_match_op_t op =  rule->op;
+	const tfw_http_match_op_t op =  rule->op;
 	const char *str = rule->arg.str;
-	int str_len = rule->arg.len;
+	const int str_len = rule->arg.len;
 
 	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
 
@@ -125,8 +136,6 @@ hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	if (op == TFW_HTTP_MATCH_O_WILDCARD)
 		return true;
 
-	tfw_http_msg_clnthdr_val(req, hdr, id, &hdr_val);
-
 	flags = map_op_to_str_eq_flags(rule->op);
 	/*
 	 * There is no general rule, but most headers are case-insensitive.
@@ -134,11 +143,13 @@ hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	 */
 	flags |= TFW_STR_EQ_CASEI;
 
-	if (op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(&hdr_val, hdr_val.len - str_len,
-					   str, str_len, flags);
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		tfw_http_msg_clnthdr_val(req, dup, id, &hdr_val);
+		if (tfw_rule_str_match(&hdr_val, str, str_len, flags, op))
+			return true;
+	}
 
-	return tfw_str_eq_cstr(&hdr_val, str, str_len, flags);
+	return false;
 }
 
 static bool
@@ -158,11 +169,12 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_str_eq_flags_t flags;
 	const TfwStr *uri_path = &req->uri_path;
 	const TfwHttpMatchArg *arg = &rule->arg;
+	const tfw_http_match_op_t op = rule->op;
 
-	if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
+	if (op == TFW_HTTP_MATCH_O_WILDCARD)
 		return true;
 
-	flags = map_op_to_str_eq_flags(rule->op);
+	flags = map_op_to_str_eq_flags(op);
 	/* RFC 7230:
 	 *  2.7.3: the comparison is case-insensitive.
 	 *
@@ -171,18 +183,14 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 */
 	flags |= TFW_STR_EQ_CASEI;
 
-	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(uri_path, uri_path->len - arg->len,
-					   arg->str, arg->len, flags);
-
-	return tfw_str_eq_cstr(uri_path, arg->str, arg->len, flags);
+	return tfw_rule_str_match(uri_path, arg->str, arg->len, flags, op);
 }
 
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	tfw_str_eq_flags_t flags;
-	const TfwHttpMatchArg *arg;
+	const TfwHttpMatchArg *arg = &rule->arg;
 	const TfwStr *host = &req->host;
 
 	if (host->len == 0)
@@ -202,12 +210,8 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 *  normalizing the host).
 	 */
 	flags |= TFW_STR_EQ_CASEI;
-	arg = &rule->arg;
-	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(host, host->len - arg->len,
-					   arg->str, arg->len, flags);
 
-	return tfw_str_eq_cstr(host, arg->str, arg->len, flags);
+	return tfw_rule_str_match(host, arg->str, arg->len, flags, rule->op);
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\
@@ -413,13 +417,13 @@ match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	TfwStr cookie_val;
 	TfwStr *hdr, *end, *dup;
+	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	tfw_str_eq_flags_t flags;
 	if (unlikely(rule->val.type != TFW_HTTP_MATCH_V_COOKIE))
 		return false;
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
-		return 0;
+		return false;
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		TfwStr value = { 0 };
 		int r;
@@ -429,19 +433,12 @@ match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 					   &value, &cookie_val,
 					   rule->val.ptn.op, false);
 		if (r)
-			goto val_cmp;
+			return tfw_rule_str_match(&cookie_val, rule->arg.str,
+						  rule->arg.len, flags,
+						  rule->op);
 	}
-	return 0;
 
-val_cmp:
-	flags = map_op_to_str_eq_flags(rule->op);
-	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(&cookie_val,
-					   cookie_val.len - rule->arg.len,
-					   rule->arg.str, rule->arg.len,
-					   flags);
-	return tfw_str_eq_cstr(&cookie_val, rule->arg.str, rule->arg.len,
-			       flags);
+	return false;
 }
 
 typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
