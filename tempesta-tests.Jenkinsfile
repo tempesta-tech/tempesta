@@ -8,12 +8,13 @@ pipeline {
     }
 
     stages {
-        stage('Set buildName'){
+        stage('Set buildName and cleanWS'){
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     script {
                         currentBuild.displayName = "PR-${ghprbPullId}"
                     }
+                    cleanWs()
                     sh 'rm -rf /root/tempesta'
                 }
             }
@@ -21,7 +22,7 @@ pipeline {
 
         stage('Build tempesta-fw') {
             steps {
-                sh 'cp -r . /root/tempesta'
+                sh 'sudo git clone https://github.com/tempesta-tech/tempesta.git /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
                 }
@@ -38,17 +39,10 @@ pipeline {
         stage('Run tests') {
             steps {
                 dir("${TESTS_PATH}"){
-                    sh './run_tests.py -nv'
+                    sh './run_tests.py -n'
                 }
             }
         }
 
-
-        stage('Clean WS'){
-            steps {
-                    cleanWs()
-                }
-            
-        }
     }
 }
