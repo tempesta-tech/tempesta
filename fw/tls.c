@@ -908,7 +908,7 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 }
 
 bool
-tfw_tls_alpn_match(TlsCtx *tls, ttls_alpn_proto *alpn)
+tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
 

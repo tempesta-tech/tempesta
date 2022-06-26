@@ -390,7 +390,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		shooks = &tfw_sock_http_clnt_ss_hooks;
 		break;
 	case TFW_FSM_HTTPS:
-	case TFW_FSM_h2:
+	case TFW_FSM_H2:
 		/*
 		 * We call the same TLS hooks before generic HTTP processing
 		 * for both the HTTP/1 and HTTP/2.

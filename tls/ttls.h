@@ -565,7 +565,7 @@ typedef struct ttls_context {
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
 typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
-typedef bool ttls_alpn_match_t(TlsCtx *tls, ttls_alpn_proto *alpn);
+typedef bool ttls_alpn_match_t(const TlsCtx *tls, const ttls_alpn_proto *alpn);
 
 enum {
 	TTLS_HS_CB_FINISHED_NEW,
@@ -581,7 +581,9 @@ void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 		      unsigned short len);
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
 void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
-			     ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb);
+			     ttls_hs_over_cb_t *hs_over_cb,
+			     ttls_cli_id_t *cli_id_cb,
+			     ttls_alpn_match_t *alpn_match_cb);
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
