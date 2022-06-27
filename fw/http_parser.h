@@ -123,7 +123,7 @@ typedef struct {
 		} date;
 		struct {
 			unsigned int   flags;
-			unsigned short port;
+			unsigned int port;
 		};
 	};
 	union {
