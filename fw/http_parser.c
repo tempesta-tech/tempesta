@@ -3586,6 +3586,13 @@ STACK_FRAME_NON_STANDARD(__req_parse_x_forwarded_for);
 
 /**
  * Parse Forwarded header, RFC 7239.
+ *
+ * Defines logic to parse Forwarded header as set of unique pairs Param=Value
+ * separated by semicolon. Also "Value" part can be in double quotes. Whole
+ * field of header MUST be parsed. To have a handy way to process parsed string,
+ * we can fixup these params as Key=Value. To achieve this we set flag
+ * TFW_STR_NAME for "Param=" part and TFW_STR_VALUE for "Value" part. Semicolon
+ * and quotes fixup without these flags.
  */
 static int
 __req_parse_forwarded(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -3609,7 +3616,7 @@ do {									\
 	__FSM_EXIT(TFW_POSTPONE);					\
 } while (0)
 
-/* 
+/*
  * Tries to find parameter in header.
  * Parsing fails if parameter not a unique in current header.
  *
@@ -3619,9 +3626,9 @@ do {									\
 #define FWD_TRY_STR_NAME(name, curr_st, next_st, fwd_flag)		\
 	TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING(name),		\
 				  &parser->hdr, { 			\
-				  if (parser->flags & fwd_flag)	\
+				  if (parser->flags & fwd_flag)		\
 					return CSTR_NEQ;		\
-				  parser->flags |= fwd_flag;	\
+				  parser->flags |= fwd_flag;		\
 				  }, curr_st, next_st,			\
 				  TFW_STR_NAME)
 
@@ -3644,8 +3651,7 @@ do {									\
 		if (unlikely(IS_WS(c)))
 			__FSM_I_MOVE_fixup(Req_I_Fwd_For_List, 1, 0);
 		/* Find next "for=" in list. */
-		FWD_TRY_STR_NAME("for=",
-				 Req_I_Fwd_For_List,
+		FWD_TRY_STR_NAME("for=", Req_I_Fwd_For_List,
 				 Req_I_Fwd_For_Start,
 				 0);
 		return CSTR_NEQ;
@@ -3677,15 +3683,13 @@ do {									\
 	 * a host address and now we can pass zero length token.
 	 */
 	__FSM_STATE(Req_I_Fwd_For_Node_Id_Unquoted) {
-		__FSM_I_MATCH_MOVE_fixup(xff,
-					 Req_I_Fwd_For_Node_Id_Unquoted,
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_For_Node_Id_Unquoted,
 					 TFW_STR_VALUE);
 		__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep, __fsm_sz, TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_Fwd_For_Quoted) {
-		__FSM_I_MATCH_MOVE_fixup(xff,
-					 Req_I_Fwd_For_Node_Id_Quoted,
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_For_Node_Id_Quoted,
 					 TFW_STR_VALUE);
 		if (unlikely(!__fsm_sz))
 			return CSTR_NEQ;
@@ -3694,15 +3698,14 @@ do {									\
 	}
 
 	__FSM_STATE(Req_I_Fwd_For_Node_Id_Quoted) {
-		__FSM_I_MATCH_MOVE_fixup(xff,
-					 Req_I_Fwd_For_Node_Id_Quoted,
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_For_Node_Id_Quoted,
 					 TFW_STR_VALUE);
 		__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep_Quoted, __fsm_sz,
 				   TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted) {
-		/* At this point we tries fixup '"' with near symbol */
+		/* At this point we try to fixup '"' with near symbol. */
 
 		if (unlikely(c != '"'))
 			return CSTR_NEQ;
@@ -3762,8 +3765,8 @@ do {									\
 		/* Fall through */
 	}
 
+	/* Parse host parameter as defined in RFC 7230 5.4. */
 	__FSM_STATE(Req_I_Fwd_Host_Unquoted) {
-		/* See Req_UriAuthority processing. */
 		__fsm_sz = 0;
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
@@ -3774,23 +3777,26 @@ do {									\
 						       __fsm_sz,
 						       TFW_STR_VALUE);
 		}
-		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted,
-				   __fsm_sz,
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted, __fsm_sz,
 				   TFW_STR_VALUE);
 	}
 
+	/*
+	 * Quoted version of parse host, this implies we must have been already
+	 * fixed up dquote without flags in previous state.
+	 */
 	__FSM_STATE(Req_I_Fwd_Host_Start_Quoted) {
 		if (likely(c == '['))
-			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_v6_Quoted_Start,
-					   1, TFW_STR_VALUE);
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_v6_Quoted_Start, 1,
+					   TFW_STR_VALUE);
 		/* Block empty quotes */
 		if (unlikely(c == '"'))
 			return CSTR_NEQ;
 		/* Fall through */
 	}
 
+	/* Parse host parameter as defined in RFC 7230 5.4. */
 	__FSM_STATE(Req_I_Fwd_Host_Quoted) {
-		/* See Req_UriAuthority processing. */
 		__fsm_sz = 0;
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
@@ -3801,8 +3807,7 @@ do {									\
 						       __fsm_sz,
 						       TFW_STR_VALUE);
 		}
-		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Quoted,
-				   __fsm_sz,
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Quoted, __fsm_sz,
 				   TFW_STR_VALUE);
 	}
 
@@ -3814,7 +3819,6 @@ do {									\
 	}
 
 	__FSM_STATE(Req_I_Fwd_Host_v6_Quoted) {
-		/* See Req_UriAuthorityIPv6 processing. */
 		__fsm_sz = 0;
 
 		while (likely(isxdigit(c) || c == ':')) {
@@ -3834,15 +3838,13 @@ do {									\
 
 	__FSM_STATE(Req_I_Fwd_Host_End_Quoted) {
 		if (c == ':')
-			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Quoted,
-					   1, 0);
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Quoted, 1, 0);
 		__FSM_I_JMP(Req_I_Fwd_Next_Or_Finish_Quoted);
 	}
 
 	__FSM_STATE(Req_I_Fwd_Host_End_Unquoted) {
 		if (c == ':')
-			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Unquoted,
-					   1, 0);
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_Port_Unquoted, 1, 0);
 		__FSM_I_JMP(Req_I_Fwd_Next_Or_Finish);
 	}
 
@@ -3863,8 +3865,8 @@ do {									\
 		default:
 			if (parser->port == 0 || parser->port > 65535)
 				return CSTR_NEQ;
-			__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
-					   __fsm_n, TFW_STR_VALUE);
+			__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_n,
+					   TFW_STR_VALUE);
 		}
 
 		return CSTR_NEQ;
@@ -3915,8 +3917,8 @@ do {									\
 						       __fsm_sz,
 						       TFW_STR_VALUE);
 		}
-		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
-				   __fsm_sz, TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
+				   TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_Fwd_Proto_Quoted_Start) {
@@ -8012,6 +8014,16 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+/**
+ * Parse Forwarded header, RFC 7239.
+ *
+ * Defines logic to parse Forwarded header as set of unique pairs Param=Value
+ * separated by semicolon. Also "Value" part can be in double quotes. Whole
+ * field of header MUST be parsed. To have a handy way to process parsed string,
+ * we can fixup these params as Key=Value. To achieve this we set flag
+ * TFW_STR_NAME for "Param=" part and TFW_STR_VALUE for "Value" part. Semicolon
+ * and quotes fixup without these flags.
+ */
 static int
 __h2_req_parse_forwarded(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			 bool fin)
@@ -8059,7 +8071,7 @@ do {									   \
 #define H2_FWD_TRY_STR_NAME(name, curr_st, next_st, fw_flag)		   \
 	H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup_name(&TFW_STR_STRING(name), \
 						    &parser->hdr, {	   \
-						    if (parser->flags  \
+						    if (parser->flags	   \
 							& fw_flag)	   \
 							return CSTR_NEQ;   \
 						     FWD_SET_FLAG(fw_flag);\
@@ -8087,8 +8099,7 @@ do {									   \
 		if (unlikely(IS_WS(c)))
 			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_For_List, 1, 0);
 		/* Find next "for=" in list. */
-		H2_FWD_TRY_STR_NAME("for=",
-				    Req_I_Fwd_For_List,
+		H2_FWD_TRY_STR_NAME("for=", Req_I_Fwd_For_List,
 				    Req_I_Fwd_For_Start,
 				    0);
 		return CSTR_NEQ;
@@ -8108,8 +8119,7 @@ do {									   \
 		 * Currently we just validate separate characters, but the
 		 * whole value may be invalid (e.g. "---[_..[[").
 		 */
-		__FSM_H2_I_MATCH_MOVE_fixup(xff,
-					    Req_I_Fwd_For_Node_Id_Unquoted,
+		__FSM_H2_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_For_Node_Id_Unquoted,
 					    TFW_STR_VALUE);
 		if (unlikely(!__fsm_sz))
 			return CSTR_NEQ;
@@ -8122,8 +8132,7 @@ do {									   \
 	 * a host address and now we can pass zero length token.
 	 */
 	__FSM_STATE(Req_I_Fwd_For_Node_Id_Unquoted) {
-		__FSM_H2_I_MATCH_MOVE_fixup(xff,
-					    Req_I_Fwd_For_Node_Id_Unquoted,
+		__FSM_H2_I_MATCH_MOVE_fixup(xff, Req_I_Fwd_For_Node_Id_Unquoted,
 					    TFW_STR_VALUE);
 		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep, __fsm_sz,
 				      TFW_STR_VALUE);
@@ -8148,7 +8157,7 @@ do {									   \
 	}
 
 	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted) {
-		/* At this point we tries fixup '"' with near symbol */
+		/* At this point we try to fixup '"' with near symbol. */
 
 		if (unlikely(c != '"'))
 			return CSTR_NEQ;
@@ -8196,8 +8205,8 @@ do {									   \
 		/* Fall through */
 	}
 
+	/* Parse host parameter as defined in RFC 7230 5.4. */
 	__FSM_STATE(Req_I_Fwd_Host_Unquoted) {
-		/* See Req_UriAuthority processing. */
 		__fsm_sz = 0;
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
@@ -8208,11 +8217,14 @@ do {									   \
 						        __fsm_sz,
 						        TFW_STR_VALUE);
 		}
-		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted,
-				      __fsm_sz,
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted, __fsm_sz,
 				      TFW_STR_VALUE);
 	}
 
+	/*
+	 * Quoted version of parse host, this implies we must have been already
+	 * fixed up dquote without flags in previous state.
+	 */
 	__FSM_STATE(Req_I_Fwd_Host_Start_Quoted) {
 		if (likely(c == '['))
 			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_H_v6_Quoted_Start,
@@ -8223,8 +8235,8 @@ do {									   \
 		/* Fall through */
 	}
 
+	/* Parse host parameter as defined in RFC 7230 5.4. */
 	__FSM_STATE(Req_I_Fwd_Host_Quoted) {
-		/* See Req_UriAuthority processing. */
 		__fsm_sz = 0;
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
@@ -8235,8 +8247,7 @@ do {									   \
 							 __fsm_sz,
 						         TFW_STR_VALUE);
 		}
-		__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_End_Quoted,
-					  __fsm_sz,
+		__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_End_Quoted, __fsm_sz,
 					  TFW_STR_VALUE);
 	}
 
@@ -8248,7 +8259,6 @@ do {									   \
 	}
 
 	__FSM_STATE(Req_I_Fwd_H_v6_Quoted) {
-		/* See Req_UriAuthorityIPv6 processing. */
 		__fsm_sz = 0;
 
 		while (likely(isxdigit(c) || c == ':')) {
@@ -8297,8 +8307,8 @@ do {									   \
 		default:
 			if (parser->port == 0 || parser->port > 65535)
 				return CSTR_NEQ;
-			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
-					      __fsm_n, TFW_STR_VALUE);
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_n,
+					      TFW_STR_VALUE);
 		}
 
 		return CSTR_NEQ;
@@ -8348,8 +8358,8 @@ do {									   \
 						        __fsm_sz,
 						        TFW_STR_VALUE);
 		}
-		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
-				      __fsm_sz, TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
+				      TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_Fwd_Proto_Quoted_Start) {
@@ -8407,8 +8417,8 @@ do {									   \
 						TFW_STR_VALUE);
 		if (unlikely(!__fsm_sz))
 			return CSTR_NEQ;
-		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_End_Quoted,
-				      __fsm_sz, TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_End_Quoted, __fsm_sz,
+				      TFW_STR_VALUE);
 	}
 
 	/*
@@ -8419,8 +8429,8 @@ do {									   \
 		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(xff,
 						Req_I_Fwd_By_Node_Id_Quoted,
 						TFW_STR_VALUE);
-		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_End_Quoted,
-				      __fsm_sz, TFW_STR_VALUE);
+		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_End_Quoted, __fsm_sz,
+				      TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_Fwd_Next_Or_Finish) {
@@ -8435,8 +8445,7 @@ do {									   \
 			return CSTR_NEQ;
 		/* End of data on quote */
 		if (likely(__data_off(p + 1) >= len)) {
-			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish,
-					      1, 0);
+			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, 1, 0);
 		}
 		/* ";" after quote */
 		if (likely(*(p + 1) == ';'))

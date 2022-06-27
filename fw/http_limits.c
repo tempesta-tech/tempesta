@@ -813,14 +813,11 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
 		}
-		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)) {
-			if (frang_assert_host_header(&prim_trim, &fwd_trim)) {
-				static char *msg =  "Request authority "
-						    "differs from forwarded";
-				frang_msg(msg,
-					  &FRANG_ACC2CLI(ra)->addr, "\n");
-				return TFW_BLOCK;
-			}
+		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
+			 && frang_assert_host_header(&prim_trim, &fwd_trim)) {
+			frang_msg("Request authority differs from forwarded",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+			return TFW_BLOCK;
 		}
 		break;
 	/*
@@ -832,7 +829,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				      &prim_trim, &prim_name);
 		frang_get_host_header(req, -1,
 				      &sec_trim, &sec_name);
-		;
 		val_trim = &prim_trim;
 		if (unlikely(TFW_STR_EMPTY(val_trim))) {
 			frang_msg("Request authority is unknown",
@@ -844,14 +840,11 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
 		}
-		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)) {
-			if (frang_assert_host_header(&prim_trim, &fwd_trim)) {
-				static char *msg = "Request authority in URI "
-						   "differs from forwarded";
-				frang_msg(msg,
-					  &FRANG_ACC2CLI(ra)->addr, "\n");
-				return TFW_BLOCK;
-			}
+		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
+			 && frang_assert_host_header(&prim_trim, &fwd_trim)) {
+			frang_msg("Request authority in URI differs from forwarded",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+			return TFW_BLOCK;
 		}
 		break;
 	/*

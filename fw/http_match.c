@@ -990,16 +990,14 @@ tfw_http_search_host_forwarded(const TfwStr *hdr, TfwStr *host_val)
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
 
-		if (tfw_str_eq_cstr(chunk, "host=", 5,
-				    TFW_HTTP_MATCH_O_EQ)) {
+		if (tfw_str_eq_cstr(chunk, "host=", 5, TFW_HTTP_MATCH_O_EQ)) {
 			++chunk;
 			if (!(chunk->flags & TFW_STR_VALUE)) {
 			/* Skip quote and collect until next quote */
 				++chunk;
 				stop = '"';
 			}
-			tfw_str_collect_cmp(chunk, end,
-					    host_val, &stop);
+			tfw_str_collect_cmp(chunk, end, host_val, &stop);
 
 			return true;
 		}
