@@ -2594,7 +2594,7 @@ TEST(http2_parser, perf)
 	DECLARE_FRAMES_BUF(request_5, 512);
 	DECLARE_FRAMES_BUF(request_6, 512);
 
-	INIT_FRAMES();
+	tfw_init_frames();
 	SET_FRAMES_BUF(request_1);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("GET")));
@@ -2604,7 +2604,7 @@ TEST(http2_parser, perf)
 	HEADERS_FRAME_END();
 	RESET_FRAMES_BUF();
 
-	INIT_FRAMES();
+	tfw_init_frames();
 	SET_FRAMES_BUF(request_2);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("GET")));
@@ -2630,7 +2630,7 @@ TEST(http2_parser, perf)
 	RESET_FRAMES_BUF();
 
 	/* Also test invalid request. */
-	INIT_FRAMES();
+	tfw_init_frames();
 	SET_FRAMES_BUF(request_3);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("GET")));
@@ -2640,7 +2640,7 @@ TEST(http2_parser, perf)
 	HEADERS_FRAME_END();
 	RESET_FRAMES_BUF();
 
-	INIT_FRAMES();
+	tfw_init_frames();
 	SET_FRAMES_BUF(request_4);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("GET")));
@@ -2656,7 +2656,7 @@ TEST(http2_parser, perf)
 	HEADERS_FRAME_END();
 	RESET_FRAMES_BUF();
 
-	INIT_FRAMES();
+	tfw_init_frames();
 	SET_FRAMES_BUF(request_5);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("POST")));
@@ -2678,7 +2678,7 @@ TEST(http2_parser, perf)
 	HEADERS_FRAME_END();
 	RESET_FRAMES_BUF();
 
-	INIT_FRAMES();
+	tfw_init_frames();
 	SET_FRAMES_BUF(request_6);
 	HEADERS_FRAME_BEGIN();
 	    HEADER(WO_IND(NAME(":method"), VALUE("POST")));
@@ -2753,7 +2753,7 @@ TEST(http2_parser, fuzzer)
 			TEST_DBG3("start field: %d request: %d\n", field, i);
 			ret = fuzz_gen_h2(&context, str, str + len, field, MOVE,
 				       FUZZ_REQ_H2, &headers_len, &body_len);
-			INIT_FRAMES();
+			tfw_init_frames();
 			ADD_HEADERS_FRAME(str, headers_len);
 			ADD_DATA_FRAME(str + headers_len, body_len);
 			test_case_parse_prepare_h2();	
@@ -2775,6 +2775,7 @@ TEST(http2_parser, fuzzer)
 	}
 
 end:
+	tfw_frames_chunks_free();
 	kernel_fpu_end();
 	vfree(str);
 	kernel_fpu_begin();

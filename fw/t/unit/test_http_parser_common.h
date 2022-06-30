@@ -56,6 +56,13 @@ static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
 static unsigned int chunk_size_index = 0;
 #define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 
+/* Use detached chunks mode while parsing by default */
+#define CHUNK_MODE_DETACHED
+
+typedef struct {
+	char *buf;
+} tfw_test_chunk_t;
+
 enum {
 	CHUNK_OFF,
 	CHUNK_ON
@@ -122,9 +129,13 @@ static TfwStream stream;
  */
 typedef struct
 {
-    unsigned int len;
-    unsigned char *str;
-    TfwFrameType subtype;
+	unsigned int len;
+	unsigned char *str;
+	TfwFrameType subtype;
+#ifdef CHUNK_MODE_DETACHED
+	tfw_test_chunk_t *chunks;
+	uint32_t chunk_cnt;
+#endif
 } TfwFrameRec;
 
 /**
@@ -144,31 +155,23 @@ typedef struct
  *
  * Used for types HTTP/1 and HTTP/2 requests.
  */
-#define ALLOWED_FRAMES_CNT 2
+#define ALLOWED_FRAMES_CNT  16
+#define FRAME_MAX_SIZE	    1048576
 static TfwFrameRec frames[ALLOWED_FRAMES_CNT];
 static unsigned int frames_cnt = 0;
 static unsigned int frames_max_sz = 0;
 static unsigned int frames_total_sz = 0;
 
 /**
- * INIT_FRAMES - initialization of service data for frames
- *		 before the formation of new frames.
+ * GET_CURRENT_FRAME - returns entry from @frames indexed by @frame_index
+ *		       from FOR_EACH_FRAME macro.
+ *
+ * Used only inside the lambda from FOR_EACH_FRAME macro.
  *
  * Used for types HTTP/1 and HTTP/2 requests.
  */
-#define INIT_FRAMES()								\
-do {										\
-	frames_cnt = 0;								\
-	frames_max_sz = 0;							\
-	frames_total_sz = 0;							\
-	bzero_fast(frames, sizeof(frames));					\
-} while (0)
-
-#define GET_FRAMES_MAX_SZ() \
-	({frames_max_sz;})
-
-#define GET_FRAMES_TOTAL_SZ() \
-	({frames_total_sz;})
+#define GET_CURRENT_FRAME() \
+	({&frames[frame_index];})
 
 /**
  * FOR_EACH_FRAME - iterates over the entries in @frames
@@ -185,16 +188,55 @@ do {										\
 		lambda;								\
 } while(0)
 
+#ifdef CHUNK_MODE_DETACHED
+static void tfw_free_chunks(tfw_test_chunk_t *chunks, uint32_t chunk_cnt) {
+	int i;
+	TEST_DBG4("%s: chunks %pK, cnt %u\n", __func__, chunks, chunk_cnt);
+	for (i = 0; i < chunk_cnt; i++)
+		kfree(chunks[i].buf);
+	kernel_fpu_end();
+	vfree(chunks);
+	kernel_fpu_begin();
+}
+
+static void tfw_frames_chunks_free(void) {
+	FOR_EACH_FRAME({
+		TfwFrameRec *frame = GET_CURRENT_FRAME();
+		if (frame->chunks != NULL && frame->chunk_cnt != 0) {
+			TEST_DBG4("%s: f: %pK, f->chunks: %pK, f->chunk_cnt %u\n",
+				__func__, frame, frame->chunks,
+				frame->chunk_cnt);
+			tfw_free_chunks(frame->chunks, frame->chunk_cnt);
+		}
+		frame->chunks	 = NULL;
+		frame->chunk_cnt = 0;
+	});
+}
+#endif
+
 /**
- * GET_CURRENT_FRAME - returns entry from @frames indexed by @frame_index
- *		       from FOR_EACH_FRAME macro.
- *
- * Used only inside the lambda from FOR_EACH_FRAME macro.
+ * tfw_init_frames - initialization of service data for frames
+ *			before the formation of new frames.
  *
  * Used for types HTTP/1 and HTTP/2 requests.
+ * If there were some chunk buffers assigned to the frame, deallocate them here.
  */
-#define GET_CURRENT_FRAME() \
-	({frames[frame_index];})
+static void tfw_init_frames(void) {
+#ifdef CHUNK_MODE_DETACHED
+	tfw_frames_chunks_free();
+#endif
+	frames_cnt = 0;
+	frames_max_sz = 0;
+	frames_total_sz = 0;
+	bzero_fast(frames, sizeof(frames));
+}
+
+#define GET_FRAMES_MAX_SZ() \
+	({frames_max_sz;})
+
+#define GET_FRAMES_TOTAL_SZ() \
+	({frames_total_sz;})
+
 
 /**
  * The special "abstract" structure for buffers with different capacity.
@@ -244,7 +286,7 @@ typedef struct {
 		const unsigned int capacity;					\
 		unsigned int size;						\
 		unsigned char data[max_size];					\
-	} __attribute__((unused)) name = {.data = {}, .capacity = max_size, .size = 0}
+	} __attribute__((unused)) name = {.capacity = max_size}
 
 /**
  * Service data for working with TfwFramesBuf-like buffers inside
@@ -289,7 +331,7 @@ do {										\
  * @frames_buf:		a TfwFramesBuf-like buffer
  *			declared with DECLARE_FRAMES_BUF macro.
  *
- * It is used befor the beginning of the HTTP/2 message definition block.
+ * It is used before the beginning of the HTTP/2 message definition block.
  *
  * Used for HTTP/2 requests only.
  */
@@ -646,22 +688,42 @@ do {										\
 } while(0)
 
 /**
- * ASSIGN_FRAMES_FOR_H1 - assign HTTP/1 request to @frames.
+ * tfw_h1_frames_assign - assign HTTP/1 request to @frames.
  *
  * @str_buf:		a pointer to external buffer with HTTP/1 request.
  * @str_len:		a size of request in bytes.
  *
  * Used for HTTP/1 requests only.
+ * 'frames' entity here is pure artificial thing.
+ * It's used to devide large strings into smaller chunks
+ * to overcome large buffer allocation restrictions.
  */
-#define ASSIGN_FRAMES_FOR_H1(str_buf, str_len)					\
-do {										\
-	bzero_fast(frames, sizeof(frames));					\
-	frames_cnt = 1;								\
-	frames[0].str = str_buf;						\
-	frames[0].len = str_len;						\
-	frames_max_sz = str_len;						\
-	frames_total_sz = str_len;						\
-} while(0)
+static void tfw_h1_frames_assign(char *str, size_t len)
+{
+	int i = 0;
+	uint32_t pos = 0;
+	uint32_t last_frame_len;
+	tfw_init_frames();
+	frames_cnt = DIV_ROUND_UP(len, FRAME_MAX_SIZE);
+	TEST_DBG("%s: frames cnt %u\n", __func__, frames_cnt);
+	BUG_ON(frames_cnt > ALLOWED_FRAMES_CNT);
+
+	if (frames_cnt > 1) {
+		for (i = 0; i < frames_cnt - 1; i++) {
+			frames[i].str = str + pos;
+			frames[i].len = FRAME_MAX_SIZE;
+			frames_max_sz = FRAME_MAX_SIZE;
+			frames_total_sz += FRAME_MAX_SIZE;
+			pos += FRAME_MAX_SIZE;
+		}
+	}
+
+	last_frame_len = len % FRAME_MAX_SIZE;
+	frames[frames_cnt - 1].str = str + pos;
+	frames[frames_cnt - 1].len = (last_frame_len != 0) ?
+				last_frame_len : FRAME_MAX_SIZE;
+	frames_total_sz += frames[frames_cnt - 1].len;
+}
 
 /**
  * ASSIGN_FRAMES_FOR_H2 - assign HTTP/2 frame(s) to @frames.
@@ -672,7 +734,7 @@ do {										\
  */
 #define ASSIGN_FRAMES_FOR_H2(frames_definition)					\
 do {										\
-	INIT_FRAMES();								\
+	tfw_init_frames();							\
 	SET_FRAMES_BUF(frames_buf);						\
 	frames_definition;							\
 	RESET_FRAMES_BUF();							\
@@ -680,40 +742,161 @@ do {										\
 
 DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
-static int
-split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunk_size)
+#ifdef CHUNK_MODE_DETACHED
+static tfw_test_chunk_t *tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size,
+						uint32_t str_len)
 {
-	size_t pos = 0;
+	int i;
+	uint32_t last_chunk_len;
+	tfw_test_chunk_t *chunks;
+
+	TEST_DBG4("%s: [%u] chunks, chunk size %u, pg order %u, str len %u\n",
+		__func__, chunk_cnt, chunk_size, get_order(chunk_size), str_len);
+
+	/* temprorarily allow sleeping */
+	kernel_fpu_end();
+	chunks = (tfw_test_chunk_t *)__vmalloc(chunk_cnt * sizeof(*chunks),
+						__GFP_ZERO);
+	if (!chunks) {
+		TEST_DBG("%s: Failed to allocate chunk descriptors\n", __func__);
+		return ERR_PTR(-ENOMEM);
+	}
+	kernel_fpu_begin();
+	TEST_DBG4("%s: chunks buf %pK\n", __func__, chunks);
+
+	if (chunk_cnt > 1) {
+		for (i = 0; i < chunk_cnt - 1; i++) {
+			chunks[i].buf = (char *)kmalloc(chunk_size, GFP_ATOMIC);
+			if (!chunks[i].buf) {
+				TEST_DBG("%s: Failed to allocate chunk page(s)\n",
+					__func__);
+				goto err_page_alloc;
+			}
+		}
+	}
+
+	/* last chunk size may differ, so set it up separately */
+	last_chunk_len = str_len % chunk_size;
+	if (last_chunk_len != 0) {
+		chunk_size = last_chunk_len;
+	}
+
+	chunks[chunk_cnt - 1].buf = (char *)kmalloc(chunk_size, GFP_ATOMIC);
+	if (!chunks[chunk_cnt - 1].buf) {
+		TEST_DBG("%s: Failed to allocate last chunk page(s)\n", __func__);
+		goto err_page_alloc;
+	}
+
+	return chunks;
+
+err_page_alloc:
+	tfw_free_chunks(chunks, chunk_cnt);
+	return ERR_PTR(-ENOMEM);
+}
+
+#endif
+
+static int
+split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
+			uint32_t chunk_size, tfw_test_chunk_t **fchunks)
+{
+	uint32_t pos = 0;
 	unsigned int parsed;
+	uint32_t __cs;
 	int r = TFW_PASS;
-	TfwHttpMsg *hm = (type == FUZZ_RESP)
-			? (TfwHttpMsg *)resp
-			: (TfwHttpMsg *)req;
+	uint32_t chunk_cnt;
+	TfwHttpMsg *hm;
+#ifdef CHUNK_MODE_DETACHED
+	uint32_t cidx;
+	char *buf;
+	tfw_test_chunk_t *chunks = NULL;
+#endif
+	__cs = chunk_size;
+	hm = (type == FUZZ_RESP)
+		? (TfwHttpMsg *)resp
+		: (TfwHttpMsg *)req;
+	chunk_cnt = DIV_ROUND_UP(len, chunk_size);
+	*fchunks = NULL;
 
 	BUG_ON(type != FUZZ_REQ && type != FUZZ_REQ_H2 && type != FUZZ_RESP);
 
-	TEST_DBG3("%s: len=%zu, chunk_size=%zu\n", __func__, len, chunk_size);
+	TEST_DBG3("%s: type=%u, len=%u, chunk_size=%u, chunk_cnt=%u\n",
+			__func__, type, len, chunk_size, chunk_cnt);
+
+#ifdef CHUNK_MODE_DETACHED
+	/* prepare chunks */
+	chunks = tfw_prep_chunks(chunk_cnt, chunk_size, len);
+	BUG_ON(IS_ERR(chunks));
+#endif
 
 	while (pos < len) {
 		if (chunk_size >= len - pos)
 			/* At the last chunk */
 			chunk_size = len - pos;
-		TEST_DBG3("%s: len=%zu pos=%zu\n",  __func__, len, pos);
+
+#ifdef CHUNK_MODE_DETACHED
+		cidx = DIV_ROUND_UP(pos, __cs);
+		buf = chunks[cidx].buf;
+		/* copy payload */
+		memcpy(buf, str + pos, chunk_size);
+
+		TEST_DBG3("%s: > chunk [%u / %u] addr %pK, pos=%u\n",  __func__,
+				cidx, chunk_cnt - 1, buf, pos);
+#else
+		TEST_DBG3("%s: > chunk [%u / %u] addr %pK, pos=%u\n",  __func__,
+				DIV_ROUND_UP(pos, __cs), chunk_cnt - 1,
+				str + pos, pos);
+#endif
 
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, chunk_size, &parsed);
+#ifdef CHUNK_MODE_DETACHED
+			r = tfw_http_parse_req(req, buf, chunk_size, &parsed);
+#else
+			r = tfw_http_parse_req(req, str + pos,
+						chunk_size, &parsed);
+#endif
 		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, str + pos, chunk_size, &parsed);
+#ifdef CHUNK_MODE_DETACHED
+			r = tfw_h2_parse_req(req, buf, chunk_size, &parsed);
+#else
+			r = tfw_h2_parse_req(req, str + pos,
+						chunk_size, &parsed);
+#endif
 		else
-			r = tfw_http_parse_resp(resp, str + pos, chunk_size, &parsed);
+#ifdef CHUNK_MODE_DETACHED
+			r = tfw_http_parse_resp(resp, buf, chunk_size, &parsed);
+#else
+			r = tfw_http_parse_resp(resp, str + pos,
+						chunk_size, &parsed);
+#endif
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
 
+		TEST_DBG3("%s: < parser ret %d, pos %u, msg len %zu\n", __func__,
+				r, pos, hm->msg.len);
+
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
-		if (r != TFW_POSTPONE)
+		if (r != TFW_POSTPONE) {
+#ifdef CHUNK_MODE_DETACHED
+			tfw_free_chunks(chunks, chunk_cnt);
+#endif
 			return r;
+		}
 	}
+#ifdef CHUNK_MODE_DETACHED
+	if (type == FUZZ_REQ_H2) {
+		/**
+		 * Chunks deallocation postponement is required here
+		 * due to the fact that some @req fields would point to
+		 * the data in chunks and this data would be checked later.
+		 * See comments for @do_split_and_parse()/__TRY_PARSE_EXPECT_*
+		 */
+		*fchunks = chunks;
+	} else {
+		tfw_free_chunks(chunks, chunk_cnt);
+	}
+#endif
 	BUG_ON(pos != len);
 
 	return r;
@@ -734,13 +917,14 @@ set_sample_req(unsigned char *str)
 
 	sample_req = test_req_alloc(len);
 
+	TEST_LOG("parse sample req [%s]\n", str);
 	return tfw_http_parse_req(sample_req, str, len, &parsed);
 }
 
 static void __attribute__((unused))
 test_case_parse_prepare_http(char *str)
 {
-	ASSIGN_FRAMES_FOR_H1(str, strlen(str));
+	tfw_h1_frames_assign(str, strlen(str));
 }
 
 static void __attribute__((unused))
@@ -783,14 +967,20 @@ do_split_and_parse(int type, int chunk_mode)
 {
 	int r;
 	unsigned int chunk_size;
+	tfw_test_chunk_t *chunks = NULL;
 
-	if (chunk_size_index == CHUNK_SIZE_CNT)
+	if (chunk_size_index == CHUNK_SIZE_CNT) {
 		/*
 		 * Return any positive value to indicate that
 		 * all defined chunk sizes were tested and
 		 * no more iterations needed.
 		 */
+#ifdef CHUNK_MODE_DETACHED
+		if (type == FUZZ_REQ_H2)
+			tfw_frames_chunks_free();
+#endif
 		return 1;
+	}
 
 	if (type == FUZZ_REQ) {
 		if (req)
@@ -847,29 +1037,47 @@ do_split_and_parse(int type, int chunk_mode)
 		    __func__, chunk_mode, chunk_size_index, chunk_size);
 
 	FOR_EACH_FRAME({
-		TfwFrameRec frame = GET_CURRENT_FRAME();
+		TfwFrameRec *frame = GET_CURRENT_FRAME();
 
 		if (type == FUZZ_REQ_H2) {
 			TfwH2Ctx *ctx = tfw_h2_context(req->conn);
-			ctx->hdr.type = frame.subtype;
-			ctx->plen = frame.len;
+			ctx->hdr.type = frame->subtype;
+			ctx->plen = frame->len;
 		}
 
 		if (type == FUZZ_REQ_H2
-		    && frame.subtype == HTTP2_DATA
-		    && !frame.len)
+		    && frame->subtype == HTTP2_DATA
+		    && !frame->len)
 		{
 			r = TFW_POSTPONE;
 		}
 		else
 		{
-			r = split_and_parse_n(frame.str, type, frame.len, chunk_size);
+			r = split_and_parse_n(frame->str, type, frame->len,
+						chunk_size, &chunks);
+#ifdef CHUNK_MODE_DETACHED
+			if (frame->chunks != NULL) {
+				tfw_free_chunks(frame->chunks,
+						frame->chunk_cnt);
+				frame->chunks	 = NULL;
+				frame->chunk_cnt = 0;
+			}
+			if (chunks) {
+				frame->chunks	= chunks;
+				frame->chunk_cnt = DIV_ROUND_UP(frame->len,
+								chunk_size);
+				TEST_DBG4("%s: new chunks => frame %pK, "
+					"frame->chunks %pK, frame->chunk_cnt %u\n",
+					__func__, frame, frame->chunks,
+					frame->chunk_cnt);
+			}
+#endif
 		}
 
 		if (r != TFW_POSTPONE)
 			break;
 
-		if (type == FUZZ_REQ_H2 && frame.subtype == HTTP2_HEADERS) {
+		if (type == FUZZ_REQ_H2 && frame->subtype == HTTP2_HEADERS) {
 			if (!tfw_http_parse_check_bodyless_meth(req)) {
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 			}

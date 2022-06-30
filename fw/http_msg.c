@@ -646,9 +646,9 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 	if (WARN_ON_ONCE(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE)))
 		return -EINVAL;
 
-	T_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
+	T_DBG3("store field chunk len=%lu data=%pK(%c) field=<%pK,%#x,%lu,%pK>\n",
 	       len, data, isprint(*(char *)data) ? *(char *)data : '.',
-	       str->flags, str->len, str->data);
+	       str, str->flags, str->len, str->data);
 
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->data)
