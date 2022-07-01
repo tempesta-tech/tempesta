@@ -347,13 +347,43 @@ do {									\
  * 1. explicit fixups should not be mixed with regular fixups (__FSM_I_MOVE and
  *    others)
  * 2. call __msg_field_open() to initialize a new _empty_ TfwStr chunk (see
- *    __tfw_http_msg_add_str_data())
+ *    __tfw_http_msg_set_str_data()). Usually we use it to initialize header
+ *    before using fixup functions to it. However, also we can use it to
+ *    initialize chunk of TfwStr that have already been allocated before.
+ *    (see __req_parse_forwarded()).
  * 3. fixup data in each state (so that you know how much data you processed)
  *    and make sure that __tfw_http_msg_add_str_data() is called by macros
  *    for @p, not @data. With this approach headers are processed, e.g. see
  *    __FSM_MOVE_hdr_fixup() with transition to Req_HdrAcceptV,
  *    __msg_hdr_chunk_fixup(p, __fsm_sz) in RGEN_OWS() and finally
  *    __msg_hdr_chunk_fixup(p, __fsm_n) in __TFW_HTTP_PARSE_RAWHDR_VAL().
+ *
+ * For complex headers we may need ability to open chunk in certain state
+ * (that will save current data pointer) then travel to another stay or do
+ * checks in loop and finally fixup all processed data.
+ *
+ * Approach which looks good(pseudo-code):
+ * 1. Allocate new chunk. TfwStr *ch = tfw_str_add_compound(hm->pool,
+ *							    &parser->hdr);
+ * 2. Open chunk with __msg_field_open(ch, p).
+ * 3. Do some processing in loop. Just move @p of parser function many times.
+ * 4. Finnaly. Update the last chunk by calculating length using data pointer
+ * that have been saved at first step. tfw_str_updlen(&parser->hdr, p);
+ * For linear SKB this should works perfectly, but with fragmented data we will
+ * get some problems. @p might point to new SKB, but last chunk in parser will
+ * point to previous SKB and we must not to calculate offsets with different
+ * SKBs. This implies we should fixup last chunk of header before postpone and
+ * logic might be like this:
+ *
+ * Steps 1 and 2 as above.
+ * 3. First of all we need to check last chunk. If chunk is fixuped we need to
+ * allocate new chunk. Then we need to check bounds of @data, if it's
+ * exhausted we should fixup current chunk then postpone message. Once message
+ * parsing resumed repeat the step.
+ * 4. Same as above.
+ *
+ * As we see, we need to allocate new chunk after message parsing jumped to next
+ * data fragment. It's very important.
  */
 /*
  * Fixup the current chunk that starts at the current data pointer
@@ -3600,10 +3630,85 @@ __req_parse_forwarded(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
+/* List of flags used to mark parameters as parsed. */
 #define FWD_SET_FOR			0x00000001
 #define FWD_SET_HOST			0x00000002
 #define FWD_SET_PROTO			0x00000004
 #define FWD_SET_BY			0x00000008
+
+/*
+ * Set of macroses which give possibility to explicitly open chunk and fixup
+ * last opened chunk. It allocates new chunk in @parser->hdr which stay opened
+ * and requires to fixup(update length) explicity.
+ *
+ * Open chunk in certain state, then move to another state and move @p pointer
+ * without updating opened chunk, do some checks and then fixup the last opened
+ * chunk. It allows us to fixup arbitrary length data as single chunk.
+ *
+ * In these macroses we are using:
+ * 1. tfw_str_add_compound() for allocating new chunk in specified TfwStr.
+ * 2. __msg_field_open() for chunk opening. Just inits @data and &skb of @str
+ * but leaves length zeroed.
+ * 3. tfw_str_updlen() for fixupping chunk. Simply updates length of the last
+ * chunk and of whole @str. tfw_str_updlen() can't update length of chunk that
+ * already have length. It means before call tfw_str_updlen() for @parser->hdr
+ * we need ensure that last chunk isn't fixuped(length of chunk is zero). If
+ * last chunk have already been fixuped, we need to use regular fixup functions.
+ * e.g __msg_field_fixup_pos(). We can't use __msg_field_fixup_pos() with
+ * opened chunk, because last chunk will be updated, but total length of TfwStr
+ * (parser->header) will !not! be updated.
+ *
+ * Also, need be careful with fragmented data, before jump to next SKB need to
+ * fixup current chunk.
+ */
+
+/* If last chunk of @parser->hdr is opened fixup it, otherwise do nothing. */
+#define FWD_FIXUP_CURR()						\
+do {									\
+	TfwStr *ch = TFW_STR_CURR(&parser->hdr);			\
+	if (TFW_STR_EMPTY(ch))						\
+		tfw_str_updlen(&parser->hdr, p + 1);			\
+} while(0)
+
+/*
+ * If last chunk of @parser->hdr is opened move by 1 to @to and fixup,
+ * otherwise __FSM_I_MOVE_fixup.
+ */
+#define FWD_MOVE_FIXUP_CURR(to, flag)					\
+do {									\
+	TfwStr *ch = TFW_STR_CURR(&parser->hdr);			\
+	if (TFW_STR_EMPTY(ch)) {					\
+		p += 1;							\
+		parser->_i_st = &&to;					\
+		tfw_str_updlen(&parser->hdr, p);			\
+		if (unlikely(__data_off(p) >= len))			\
+			__FSM_EXIT(TFW_POSTPONE); 			\
+		goto to; 						\
+	}								\
+	__FSM_I_MOVE_fixup(to, 1, flag);				\
+} while (0)
+
+/*
+ * Allocate chunk and open it. Then inc @p and move to @to.
+ * If data exhausted fixup current chunk.
+ */
+#define FWD_MOVE_OPEN_CHUNK(to, flag)					\
+do {									\
+	TfwStr *ch = tfw_str_add_compound(hm->pool, &parser->hdr);	\
+	if (!ch) { 							\
+		T_WARN("Cannot grow HTTP data string\n"); 		\
+		return CSTR_NEQ; 					\
+	} 								\
+	__msg_field_open(ch, p); 					\
+	__FSM_I_field_chunk_flags(ch, flag);				\
+	p += 1;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		parser->_i_st = &&to;					\
+		tfw_str_updlen(&parser->hdr, p);			\
+		__FSM_EXIT(TFW_POSTPONE); 				\
+	} 								\
+	goto to; 							\
+} while (0)
 
 /* Fixup current @p + n before postpone without bounds check. */
 #define __FSM_I_POSTPONE_fixup(to, n, flag)				\
@@ -3705,27 +3810,28 @@ do {									\
 	}
 
 	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted) {
-		/* At this point we try to fixup '"' with near symbol. */
-
 		if (unlikely(c != '"'))
 			return CSTR_NEQ;
-		/* End of data on quote */
-		if (unlikely(__data_off(p + 1) >= len))
-			__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep, 1, 0);
+		FWD_MOVE_OPEN_CHUNK(Req_I_Fwd_For_Sep_Quoted_N, 0);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted_N) {
+		/* At this point we try to fixup '"' with near symbol. */
+
 		/* EOL after quote */
-		if (likely(IS_CRLF(*(p + 1)))) {
-			__msg_hdr_chunk_fixup(p, 1);
-			return __data_off(p + 1);
+		if (likely(IS_CRLF(c))) {
+			FWD_FIXUP_CURR();
+			return __data_off(p);
 		}
 		/* ';' after quote */
-		if (likely(*(p + 1) == ';'))
-			__FSM_I_MOVE_fixup(Req_I_Fwd, 2, 0);
+		if (likely(c == ';'))
+			FWD_MOVE_FIXUP_CURR(Req_I_Fwd, 0);
 		/* ',' after quote */
-		if (unlikely(*(p + 1) == ','))
-			__FSM_I_MOVE_fixup(Req_I_Fwd_For_List, 2, 0);
+		if (unlikely(c == ','))
+			FWD_MOVE_FIXUP_CURR(Req_I_Fwd_For_List, 0);
 		/* WS after quote */
-		if (unlikely(IS_WS(*(p + 1))))
-			__FSM_I_MOVE_fixup(Req_I_Fwd_For_Sep_End, 2, 0);
+		if (unlikely(IS_WS(c)))
+			FWD_MOVE_FIXUP_CURR(Req_I_Fwd_For_Sep_End, 0);
 
 		return CSTR_NEQ;
 	}
@@ -3994,28 +4100,18 @@ do {									\
 
 	__FSM_STATE(Req_I_Fwd_Next_Or_Finish) {
 		if (c == ';')
-			__FSM_I_MOVE_fixup(Req_I_Fwd, 1, 0);
-		if (IS_CRLFWS(c))
+			FWD_MOVE_FIXUP_CURR(Req_I_Fwd, 0);
+		if (IS_CRLFWS(c)) {
+			FWD_FIXUP_CURR();
 			return __data_off(p);
+		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_Fwd_Next_Or_Finish_Quoted) {
 		if (unlikely(c != '"'))
 			return CSTR_NEQ;
-		/* End of data on quote. */
-		if (unlikely(__data_off(p + 1) >= len))
-			__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, 1, 0);
-		/* EOL after quote */
-		if (likely(IS_CRLFWS(*(p + 1)))) {
-			__msg_hdr_chunk_fixup(p, 1);
-			return __data_off(p + 1);
-		}
-		/* ";" after quote */
-		if (*(p + 1) == ';')
-			__FSM_I_MOVE_fixup(Req_I_Fwd, 2, 0);
-
-		return CSTR_NEQ;
+		FWD_MOVE_OPEN_CHUNK(Req_I_Fwd_Next_Or_Finish, 0);
 	}
 done:
 	return r;
@@ -4024,6 +4120,9 @@ done:
 #undef FWD_SET_HOST
 #undef FWD_SET_PROTO
 #undef FWD_SET_BY
+#undef FWD_FIXUP_CURR
+#undef FWD_MOVE_FIXUP_CURR
+#undef FWD_MOVE_OPEN_CHUNK
 #undef __FSM_I_POSTPONE_fixup
 #undef FWD_TRY_STR_NAME
 }
@@ -8031,13 +8130,71 @@ __h2_req_parse_forwarded(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
+/* List of flags used to mark parameters as parsed. */
 #define FWD_SET_FOR			0x00000001
 #define FWD_SET_HOST			0x00000002
 #define FWD_SET_PROTO			0x00000004
 #define FWD_SET_BY			0x00000008
 
+/* See comments to __req_parse_forwarded() */
+
+/* If last chunk of @parser->hdr is opened fixup it, otherwise do nothing. */
+#define H2_FWD_FIXUP_CURR()						   \
+do {									   \
+	TfwStr *ch = TFW_STR_CURR(&parser->hdr);			   \
+	if (TFW_STR_EMPTY(ch))						   \
+		tfw_str_updlen(&parser->hdr, p + 1);			   \
+} while(0)
+
+/*
+ * If last chunk of @parser->hdr is opened move by 1 to @to and fixup,
+ * otherwise __FSM_I_MOVE_fixup.
+ */
+#define H2_FWD_MOVE_FIXUP_CURR(to, flag, ret)				   \
+do {									   \
+	TfwStr *ch = TFW_STR_CURR(&parser->hdr);			   \
+	if (TFW_STR_EMPTY(ch)) {					   \
+		p += 1;							   \
+		parser->_i_st = &&to;					   \
+		tfw_str_updlen(&parser->hdr, p);			   \
+		if (unlikely(__data_off(p) >= len)) {			   \
+			if(likely(fin))					   \
+				__FSM_EXIT(ret);			   \
+			__FSM_EXIT(TFW_POSTPONE);			   \
+		}							   \
+		goto to; 						   \
+	}								   \
+	__FSM_H2_I_MOVE_LAMBDA_fixup(to, 1, {				   \
+		__FSM_EXIT(ret);					   \
+	}, flag);							   \
+} while (0)
+
+/*
+ * Allocate chunk and open it. Then inc @p and move to @to.
+ * If data exhausted fixup current chunk.
+ */
+#define H2_FWD_MOVE_OPEN_CHUNK(to, flag, ret)				   \
+do {									   \
+	TfwStr *ch = tfw_str_add_compound(hm->pool, &parser->hdr);	   \
+	if (!ch) { 							   \
+		T_WARN("Cannot grow HTTP data string\n"); 		   \
+		return CSTR_NEQ; 					   \
+	} 								   \
+	__msg_field_open(ch, p); 					   \
+	__FSM_I_field_chunk_flags(ch, TFW_STR_HDR_VALUE | flag);	   \
+	p += 1;								   \
+	if (unlikely(__data_off(p) >= len)) {				   \
+		if(likely(fin))						   \
+			__FSM_EXIT(ret);				   \
+		parser->_i_st = &&to;					   \
+		tfw_str_updlen(&parser->hdr, p);			   \
+		__FSM_EXIT(TFW_POSTPONE); 				   \
+	} 								   \
+	goto to; 							   \
+} while (0)
+
 /* Fixup current @p + n before postpone without bounds check. */
-#define __FSM_H2_I_POSTPONE_fixup(to, n, lambda, flag)			   \
+#define __FSM_H2_I_POSTPONE_fixup(to, n, lambda, flag) 			   \
 do {									   \
 	BUG_ON(!&parser->hdr.data);					   \
 	BUG_ON(n < 0);							   \
@@ -8157,22 +8314,24 @@ do {									   \
 	}
 
 	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted) {
-		/* At this point we try to fixup '"' with near symbol. */
-
 		if (unlikely(c != '"'))
 			return CSTR_NEQ;
-		/* End of data on quote */
-		if (likely(__data_off(p + 1) >= len))
-			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep, 1, 0);
+		H2_FWD_MOVE_OPEN_CHUNK(Req_I_Fwd_For_Sep_Quoted_N, 0, CSTR_EQ);
+	}
+
+	__FSM_STATE(Req_I_Fwd_For_Sep_Quoted_N) {
+		/* At this point we try to fixup '"' with near symbol. */
+
 		/* ';' after quote */
-		if (likely(*(p + 1) == ';'))
-			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 2, 0);
+		if (likely(c == ';'))
+			H2_FWD_MOVE_FIXUP_CURR(Req_I_Fwd, 0, CSTR_NEQ);
 		/* ',' after quote */
-		if (unlikely(*(p + 1) == ','))
-			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_For_List, 2, 0);
+		if (unlikely(c == ','))
+			H2_FWD_MOVE_FIXUP_CURR(Req_I_Fwd_For_List, 0, CSTR_NEQ);
 		/* WS after quote */
-		if (unlikely(IS_WS(*(p + 1))))
-			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_For_Sep_End, 2, 0);
+		if (unlikely(IS_WS(c)))
+			H2_FWD_MOVE_FIXUP_CURR(Req_I_Fwd_For_Sep_End, 0,
+					       CSTR_EQ);
 
 		return CSTR_NEQ;
 	}
@@ -8435,7 +8594,7 @@ do {									   \
 
 	__FSM_STATE(Req_I_Fwd_Next_Or_Finish) {
 		if (likely(c == ';'))
-			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 1, 0);
+			H2_FWD_MOVE_FIXUP_CURR(Req_I_Fwd, 0, CSTR_NEQ);
 
 		return CSTR_NEQ;
 	}
@@ -8443,13 +8602,7 @@ do {									   \
 	__FSM_STATE(Req_I_Fwd_Next_Or_End_Quoted) {
 		if (unlikely(c != '"'))
 			return CSTR_NEQ;
-		/* End of data on quote */
-		if (likely(__data_off(p + 1) >= len)) {
-			__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, 1, 0);
-		}
-		/* ";" after quote */
-		if (likely(*(p + 1) == ';'))
-			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd, 2, 0);
+		H2_FWD_MOVE_OPEN_CHUNK(Req_I_Fwd_Next_Or_Finish, 0, CSTR_EQ);
 
 		return CSTR_NEQ;
 	}
@@ -8461,6 +8614,9 @@ done:
 #undef FWD_SET_HOST
 #undef FWD_SET_PROTO
 #undef FWD_SET_BY
+#undef H2_FWD_FIXUP_CURR
+#undef H2_FWD_MOVE_FIXUP_CURR
+#undef H2_FWD_MOVE_OPEN_CHUNK
 #undef __FSM_H2_I_POSTPONE_fixup
 #undef __FSM_H2_I_FWD_EQ_fixup
 #undef __FSM_H2_I_FWD_NEQ_fixup
