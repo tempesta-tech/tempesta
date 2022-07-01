@@ -4066,6 +4066,82 @@ TEST(http1_parser, forwarded)
 		test_string_split(&h_expected, forwarded);
 	}
 
+	/* quoted version */
+	FOR_REQ_SIMPLE("Forwarded:     "
+		       "host=tempesta-tech.com:443;"
+		       "for=\"8.8.8.8\";"
+		       "by=8.8.4.4")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Forwarded:", .len = 10 },
+				{ .data = "     ", .len = 5,
+				  .flags = TFW_STR_OWS },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ":", .len = 1},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ";", .len = 1 },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME },
+				{ .data = "\"", .len = 1 },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE },
+				{ .data = "\";", .len = 2 },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 66,
+			.nchunks = 13
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	/* quoted version */
+	FOR_REQ_SIMPLE("Forwarded:     "
+		       "host=\"tempesta-tech.com:443\";"
+		       "for=8.8.8.8;"
+		       "by=8.8.4.4")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Forwarded:", .len = 10 },
+				{ .data = "     ", .len = 5,
+				  .flags = TFW_STR_OWS },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME },
+				{ .data = "\"", .len = 1 },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ":", .len = 1},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE },
+				{ .data = "\";", .len = 2 },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ";", .len = 1 },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 66,
+			.nchunks = 13
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
 	/* Cases from RFC 7239. */
 	FOR_REQ_SIMPLE("Forwarded: for=\"_gazonk\"");
 	FOR_REQ_SIMPLE("Forwarded: For=\"[2001:db8:cafe::17]:4711\"");

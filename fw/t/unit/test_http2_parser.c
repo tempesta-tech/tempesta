@@ -3028,6 +3028,84 @@ TEST(http2_parser, forwarded)
 		test_string_split(&h_expected, forwarded);
 	}
 
+	/* quoted version */
+	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443;"
+			     "for=\"8.8.8.8\";"
+			     "by=8.8.4.4")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "\"", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = "\";", .len = 2,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+			},
+			.len = 60,
+			.nchunks = 12
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
+	/* quoted version */
+	FOR_REQ_H2_FORWARDED("host=\"tempesta-tech.com:443\";"
+			     "for=8.8.8.8;"
+			     "by=8.8.4.4")
+	{
+		TfwStr *forwarded = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "forwarded", .len = 9 },
+				{ .data = "host=", .len = 5,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "\"", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "tempesta-tech.com", .len = 17,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ":", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE},
+				{ .data = "443", .len = 3,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE},
+				{ .data = "\";", .len = 2,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "for=", .len = 4,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.8.8", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+				{ .data = ";", .len = 1,
+				  .flags = TFW_STR_HDR_VALUE },
+				{ .data = "by=", .len = 3,
+				  .flags = TFW_STR_NAME|TFW_STR_HDR_VALUE },
+				{ .data = "8.8.4.4", .len = 7,
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
+			},
+			.len = 60,
+			.nchunks = 12
+		};
+
+		test_string_split(&h_expected, forwarded);
+	}
+
 	/* Cases from RFC 7239. */
 	FOR_REQ_H2_FORWARDED("for=\"_gazonk\"");
 	FOR_REQ_H2_FORWARDED("For=\"[2001:db8:cafe::17]:4711\"");
