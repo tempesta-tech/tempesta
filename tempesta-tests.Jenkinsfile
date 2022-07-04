@@ -36,6 +36,9 @@ pipeline {
         }
 
         stage('Run tests') {
+            options {
+                timeout(time: 10, unit: 'MINUTES')   // timeout on this stage
+            }
             steps {
                 dir("${TESTS_PATH}"){
                     sh './run_tests.py -nv'
