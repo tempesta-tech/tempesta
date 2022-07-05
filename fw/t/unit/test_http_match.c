@@ -740,6 +740,121 @@ TEST(http_match, cookie)
 	EXPECT_EQ(-1, match_id);
 }
 
+/*
+ * Match host by priority.
+ *
+ * For http1 when URI host not empty, Host
+ * header and Forwarded will be ignored.
+ * otherwise headers will be matched
+ * in such order: Host, Forwarded.
+ *
+ * For http2 all three headers will be matched
+ * in such order: URI(:authority), Host, Forwarded.
+ */
+TEST(http_match, choose_host)
+{
+	create_str_pool();
+
+	{
+		int match_id;
+
+		/* Special headers must be compound */
+		TFW_STR2(hdr1, "Host: ", "example.eu");
+		TFW_STR2(hdr2, "Host: ", "example.de");
+		TFW_STR2(hdr3, "Host: ", "example.net");
+		TfwStr hdr4     = {
+			.chunks = (TfwStr []) {
+				{ .data = "Forwarded:" , .len = 10 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
+				{ .data = "host=" , .len = 5,
+				  .flags = TFW_STR_NAME },
+				{ .data = "example.ru" , .len = 10,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 25,
+			.nchunks = 4
+		};
+
+		TfwStr hdr5     = {
+			.chunks = (TfwStr []) {
+				{ .data = ":authority" , .len = 10 },
+				{ .data = "example.eu" , .len = 10,
+				  .flags = TFW_STR_HDR_VALUE | TFW_STR_VALUE },
+			},
+			.len = 20,
+			.nchunks = 2
+		};
+
+		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HOST,
+					NULL, "example.com");
+
+		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HOST,
+					NULL, "example.eu");
+
+		test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HOST,
+					NULL, "example.ru");
+
+		/* Host not specified. */
+		match_id = test_chain_match();
+		EXPECT_EQ(-1, match_id);
+
+		/* Host specified by URI. */
+		set_tfw_str(&test_req->host, "example.com");
+		match_id = test_chain_match();
+		EXPECT_EQ(1, match_id);
+
+		/*
+		 * Host specified by URI and Host header
+		 * host from uri must be matched.
+		 */
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		match_id = test_chain_match();
+		EXPECT_EQ(1, match_id);
+
+		/* Host specified by Host header */
+		set_tfw_str(&test_req->host, "");
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		match_id = test_chain_match();
+		EXPECT_EQ(2, match_id);
+
+		/*
+		 * Host specified by Host, Forwarded headers
+		 * and URI. Host from uri must be matched.
+		 */
+		set_tfw_str(&test_req->host, "example.com");
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
+		match_id = test_chain_match();
+		EXPECT_EQ(1, match_id);
+
+		/*
+		 * Host specified by Host and Forwarded headers.
+		 * Host from Forwarded header must be matched.
+		 */
+		set_tfw_str(&test_req->host, "");
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr2;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
+		match_id = test_chain_match();
+		EXPECT_EQ(3, match_id);
+
+		/*
+		 * HTTP2!
+		 * Host specified by Host, Forwarded headers
+		 * and :authority. Host from :authority must be matched.
+		 */
+		__set_bit(TFW_HTTP_B_H2, test_req->flags);
+		set_tfw_str(&test_req->host, "");
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY] = hdr5;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr3;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
+		match_id = test_chain_match();
+		EXPECT_EQ(2, match_id);
+	}
+
+	free_all_str();
+}
+
 TEST_SUITE(http_match)
 {
 	TEST_SETUP(http_match_suite_setup);
@@ -758,4 +873,5 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, raw_header_eq_ws);
 	TEST_RUN(http_match, method_eq);
 	TEST_RUN(http_match, cookie);
+	TEST_RUN(http_match, choose_host);
 }

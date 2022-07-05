@@ -147,6 +147,7 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
+		TfwStrDefV("forwarded:",	TFW_HTTP_HDR_FORWARDED),
 		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
 		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
 		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
@@ -175,6 +176,7 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrDefV("forwarded:",	TFW_HTTP_HDR_FORWARDED),
 		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
 		TfwStrDefV("if-none-match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
 		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
@@ -218,6 +220,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			[TFW_HTTP_HDR_ETAG]		= SLEN("ETag:"),
 			[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
 			[TFW_HTTP_HDR_UPGRADE]		= SLEN("Upgrade:"),
+			[TFW_HTTP_HDR_FORWARDED]	= SLEN("Forwarded:"),
 		},
 		(unsigned char []) {
 			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
@@ -233,6 +236,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			[TFW_HTTP_HDR_IF_NONE_MATCH]	= SLEN("If-None-Match:"),
 			[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
 			[TFW_HTTP_HDR_UPGRADE]		= SLEN("Upgrade:"),
+			[TFW_HTTP_HDR_FORWARDED]	= SLEN("Forwarded:"),
 		},
 	};
 	TfwStr *c, *end;
@@ -556,7 +560,8 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 			if (WARN_ON_ONCE(!TFW_MSG_H2(hm)
 					 || id != TFW_HTTP_HDR_COOKIE))
 				return TFW_BLOCK;
-		} else if (id != TFW_HTTP_HDR_X_FORWARDED_FOR) {
+		} else if (id != TFW_HTTP_HDR_X_FORWARDED_FOR &&
+			   id != TFW_HTTP_HDR_FORWARDED) {
 			/*
 			 * RFC 7230 3.2.2: duplicate of non-singular special
 			 * header - leave the decision to classification layer.
