@@ -92,6 +92,8 @@ typedef struct {
  * @sec		- currently parsed seconds;
  * @type	- type of parsed date;
  * @pos		- position in date state template;
+ * @flags	- accumulator which can be used to store flags while parsing;
+ * @port	- currently parsed port;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  * @hbh_parser	- list of special and raw headers names to be treated as
@@ -119,6 +121,10 @@ typedef struct {
 			unsigned char	type;
 			unsigned char	pos;
 		} date;
+		struct {
+			unsigned int   flags;
+			unsigned int port;
+		};
 	};
 	union {
 		long			_date;

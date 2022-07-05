@@ -1228,6 +1228,9 @@ done:
 	case TFW_TAG_HDR_COOKIE:
 		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
 		break;
+	case TFW_TAG_HDR_FORWARDED:
+		parser->_hdr_tag = TFW_HTTP_HDR_FORWARDED;
+		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
 		break;
