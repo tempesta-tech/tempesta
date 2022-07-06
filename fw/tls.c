@@ -1096,6 +1096,7 @@ tfw_tls_init(void)
 		goto err_h2;
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_HTTPS);
+	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_H2);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
