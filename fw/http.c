@@ -6547,7 +6547,7 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
 	TfwStream *stream = &((TfwConn *)conn)->stream;
 
-	WARN_ON_ONCE(tfw_tls_context(conn)->alpn_chosen
+	WARN_ON_ONCE(TFW_CONN_TLS(conn) && tfw_tls_context(conn)->alpn_chosen
 		     && tfw_tls_context(conn)->alpn_chosen->id
 			== TTLS_ALPN_ID_HTTP2
 		     && TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2);
