@@ -1264,11 +1264,45 @@ done:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
 	default:
-		WARN_ON_ONCE(1);
+		T_WARN("%s: HTTP/2 request dropped: unexpected HPACK entry tag"
+			" = %d\n", __func__, entry->tag);
 		return T_DROP;
 	}
 
 	return T_OK;
+}
+
+static bool
+tfw_hpack_entry_tag_valid(unsigned int entry_tag)
+{
+	bool is_valid = false;
+
+	switch(entry_tag) {
+	case TFW_TAG_HDR_H2_METHOD:
+	case TFW_TAG_HDR_H2_SCHEME:
+	case TFW_TAG_HDR_H2_AUTHORITY:
+	case TFW_TAG_HDR_H2_PATH:
+	case TFW_TAG_HDR_ACCEPT:
+	case TFW_TAG_HDR_AUTHORIZATION:
+	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_CONTENT_LENGTH:
+	case TFW_TAG_HDR_CONTENT_TYPE:
+	case TFW_TAG_HDR_COOKIE:
+	case TFW_TAG_HDR_HOST:
+	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
+	case TFW_TAG_HDR_IF_NONE_MATCH:
+	case TFW_TAG_HDR_PRAGMA:
+	case TFW_TAG_HDR_REFERER:
+	case TFW_TAG_HDR_X_FORWARDED_FOR:
+	case TFW_TAG_HDR_USER_AGENT:
+	case TFW_TAG_HDR_RAW:
+		is_valid = true;
+		break;
+	default:
+		T_WARN("%s: HTTP/2 request dropped: invalid HPACK entry tag"
+			" = %d\n", __func__, entry_tag);
+	}
+	return is_valid;
 }
 
 /*
@@ -1446,7 +1480,8 @@ get_indexed_name:
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
-			if (!entry || tfw_hpack_hdr_name_set(hp, req, entry)) {
+			if (!entry || !tfw_hpack_entry_tag_valid(entry->tag) ||
+				tfw_hpack_hdr_name_set(hp, req, entry)) {
 				r = T_DROP;
 				goto out;
 			}
@@ -1540,7 +1575,7 @@ get_all_indexed:
 			WARN_ON_ONCE(!hp->index);
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
-			if (!entry) {
+			if (!entry || !tfw_hpack_entry_tag_valid(entry->tag)) {
 				r = T_DROP;
 				goto out;
 			}
