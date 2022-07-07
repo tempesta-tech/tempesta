@@ -56,9 +56,6 @@ static const unsigned int CHUNK_SIZES[] = { 1, 2, 3, 4, 8, 16, 32, 64, 128,
 static unsigned int chunk_size_index = 0;
 #define CHUNK_SIZE_CNT ARRAY_SIZE(CHUNK_SIZES)
 
-/* Use detached chunks mode while parsing by default */
-#define CHUNK_MODE_DETACHED
-
 typedef struct {
 	char *buf;
 } TfwTestChunk;
@@ -135,10 +132,8 @@ typedef struct
 	unsigned int len;
 	unsigned char *str;
 	TfwFrameType subtype;
-#ifdef CHUNK_MODE_DETACHED
 	TfwTestChunk *chunks;
 	uint32_t chunk_cnt;
-#endif
 } TfwFrameRec;
 
 /**
@@ -191,7 +186,6 @@ do {										\
 		lambda;								\
 } while(0)
 
-#ifdef CHUNK_MODE_DETACHED
 static void
 tfw_free_chunks(TfwTestChunk *chunks, uint32_t chunk_cnt) {
 	int i;
@@ -217,7 +211,6 @@ tfw_frames_chunks_free(void) {
 		frame->chunk_cnt = 0;
 	});
 }
-#endif
 
 /**
  * tfw_init_frames - initialization of service data for frames
@@ -228,9 +221,7 @@ tfw_frames_chunks_free(void) {
  */
 static inline void
 tfw_init_frames(void) {
-#ifdef CHUNK_MODE_DETACHED
 	tfw_frames_chunks_free();
-#endif
 	frames_cnt = 0;
 	frames_max_sz = 0;
 	frames_total_sz = 0;
@@ -743,7 +734,6 @@ do {										\
 
 DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
-#ifdef CHUNK_MODE_DETACHED
 static TfwTestChunk *
 tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 {
@@ -794,8 +784,6 @@ err_alloc:
 	return ERR_PTR(-ENOMEM);
 }
 
-#endif
-
 static inline int
 split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 		uint32_t chunk_size, TfwTestChunk **fchunks)
@@ -806,11 +794,9 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 	int r = TFW_PASS;
 	uint32_t chunk_cnt;
 	TfwHttpMsg *hm;
-#ifdef CHUNK_MODE_DETACHED
 	uint32_t cidx;
 	char *buf;
 	TfwTestChunk *chunks = NULL;
-#endif
 	__cs = chunk_size;
 	hm = (type == FUZZ_RESP)
 		? (TfwHttpMsg *)resp
@@ -823,18 +809,15 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 	TEST_DBG3("%s: type=%u, len=%u, chunk_size=%u, chunk_cnt=%u\n",
 			__func__, type, len, chunk_size, chunk_cnt);
 
-#ifdef CHUNK_MODE_DETACHED
 	/* prepare chunks */
 	chunks = tfw_prep_chunks(chunk_cnt, chunk_size, len);
 	BUG_ON(IS_ERR(chunks));
-#endif
 
 	while (pos < len) {
 		if (chunk_size >= len - pos)
 			/* At the last chunk */
 			chunk_size = len - pos;
 
-#ifdef CHUNK_MODE_DETACHED
 		cidx = DIV_ROUND_UP(pos, __cs);
 		buf = chunks[cidx].buf;
 		/* copy payload */
@@ -842,33 +825,13 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 
 		TEST_DBG3("%s: > chunk [%u / %u] addr %pK, pos=%u\n",  __func__,
 				cidx, chunk_cnt - 1, buf, pos);
-#else
-		TEST_DBG3("%s: > chunk [%u / %u] addr %pK, pos=%u\n",  __func__,
-				DIV_ROUND_UP(pos, __cs), chunk_cnt - 1,
-				str + pos, pos);
-#endif
 
 		if (type == FUZZ_REQ)
-#ifdef CHUNK_MODE_DETACHED
 			r = tfw_http_parse_req(req, buf, chunk_size, &parsed);
-#else
-			r = tfw_http_parse_req(req, str + pos,
-						chunk_size, &parsed);
-#endif
 		else if (type == FUZZ_REQ_H2)
-#ifdef CHUNK_MODE_DETACHED
 			r = tfw_h2_parse_req(req, buf, chunk_size, &parsed);
-#else
-			r = tfw_h2_parse_req(req, str + pos,
-						chunk_size, &parsed);
-#endif
 		else
-#ifdef CHUNK_MODE_DETACHED
 			r = tfw_http_parse_resp(resp, buf, chunk_size, &parsed);
-#else
-			r = tfw_http_parse_resp(resp, str + pos, chunk_size,
-						&parsed);
-#endif
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
@@ -878,13 +841,10 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
 		if (r != TFW_POSTPONE) {
-#ifdef CHUNK_MODE_DETACHED
 			tfw_free_chunks(chunks, chunk_cnt);
-#endif
 			return r;
 		}
 	}
-#ifdef CHUNK_MODE_DETACHED
 	if (type == FUZZ_REQ_H2) {
 		/**
 		 * Chunks deallocation postponement is required here
@@ -896,7 +856,6 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 	} else {
 		tfw_free_chunks(chunks, chunk_cnt);
 	}
-#endif
 	BUG_ON(pos != len);
 
 	return r;
@@ -975,10 +934,8 @@ do_split_and_parse(int type, int chunk_mode)
 		 * all defined chunk sizes were tested and
 		 * no more iterations needed.
 		 */
-#ifdef CHUNK_MODE_DETACHED
 		if (type == FUZZ_REQ_H2)
 			tfw_frames_chunks_free();
-#endif
 		return 1;
 	}
 
@@ -1055,7 +1012,6 @@ do_split_and_parse(int type, int chunk_mode)
 		{
 			r = split_and_parse_n(frame->str, type, frame->len,
 						chunk_size, &chunks);
-#ifdef CHUNK_MODE_DETACHED
 			if (frame->chunks != NULL) {
 				tfw_free_chunks(frame->chunks,
 						frame->chunk_cnt);
@@ -1071,7 +1027,6 @@ do_split_and_parse(int type, int chunk_mode)
 					__func__, frame, frame->chunks,
 					frame->chunk_cnt);
 			}
-#endif
 		}
 
 		if (r != TFW_POSTPONE)
