@@ -156,9 +156,20 @@ ss_active_guard_enter(unsigned long val)
 {
 	atomic64_t *acnt = this_cpu_ptr(&__ss_act_cnt);
 
+	/*
+	 * Don't race with ss_wait_newconn() and ss_synchronize() on the __ss_act_cnt
+	 * if we commited to shutdown.
+	 */
 	if (unlikely(!READ_ONCE(__ss_active)))
 		return SS_BAD;
+
 	atomic64_add(val, acnt);
+
+	/*
+	 * If ss_stop() and the whole ss_wait_newconn() or ss_synchronize() were
+	 * called between __ss_active check above and the addition, then revert
+	 * the addtion on the second check.
+	 */
 	if (unlikely(!READ_ONCE(__ss_active))) {
 		atomic64_sub(val, acnt);
 		return SS_BAD;
@@ -1569,11 +1580,17 @@ ss_synchronize(void)
 				for_each_online_cpu(cpu) {
 					TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 					SsCloseBacklog *cb;
+					atomic64_t *acm;
+
 					cb = &per_cpu(close_backlog, cpu);
+					acm = &per_cpu(__ss_act_cnt, cpu);
 					T_WARN("  cpu %d(%d), backlog size %lu,"
-					       " work queue size %d\n",
-						 cpu, smp_processor_id(), cb->size,
-						 tfw_wq_size(wq));
+					       " active connections mask %#lx,"
+					       " cntwork queue size %d\n",
+					       cpu, smp_processor_id(),
+					       cb->size,
+					       (unsigned long)atomic64_read(acm),
+					       tfw_wq_size(wq));
 				}
 				T_WARN("Memory leakage is possible\n");
 				return;
