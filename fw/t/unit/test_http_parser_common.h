@@ -61,7 +61,7 @@ static unsigned int chunk_size_index = 0;
 
 typedef struct {
 	char *buf;
-} tfw_test_chunk_t;
+} TfwTestChunk;
 
 enum {
 	CHUNK_OFF,
@@ -124,6 +124,9 @@ static TfwStream stream;
  * @str:	pointer to frame;
  * @subtype:	auxiliary field with HTTP/2 frame type that is used only
  *		for HTTP/2 (FUZZ_REQ_H2) requests.
+ * @chunks:	points to array of chunks, which kind of represent scattered
+ *		data buffers of SKBs
+ * @chunk_cnt:	number of detached chunks
  *
   * Used for types HTTP/1 and HTTP/2 requests.
  */
@@ -133,7 +136,7 @@ typedef struct
 	unsigned char *str;
 	TfwFrameType subtype;
 #ifdef CHUNK_MODE_DETACHED
-	tfw_test_chunk_t *chunks;
+	TfwTestChunk *chunks;
 	uint32_t chunk_cnt;
 #endif
 } TfwFrameRec;
@@ -189,7 +192,8 @@ do {										\
 } while(0)
 
 #ifdef CHUNK_MODE_DETACHED
-static void tfw_free_chunks(tfw_test_chunk_t *chunks, uint32_t chunk_cnt) {
+static void
+tfw_free_chunks(TfwTestChunk *chunks, uint32_t chunk_cnt) {
 	int i;
 	TEST_DBG4("%s: chunks %pK, cnt %u\n", __func__, chunks, chunk_cnt);
 	for (i = 0; i < chunk_cnt; i++)
@@ -199,7 +203,8 @@ static void tfw_free_chunks(tfw_test_chunk_t *chunks, uint32_t chunk_cnt) {
 	kernel_fpu_begin();
 }
 
-static void tfw_frames_chunks_free(void) {
+static void
+tfw_frames_chunks_free(void) {
 	FOR_EACH_FRAME({
 		TfwFrameRec *frame = GET_CURRENT_FRAME();
 		if (frame->chunks != NULL && frame->chunk_cnt != 0) {
@@ -221,7 +226,8 @@ static void tfw_frames_chunks_free(void) {
  * Used for types HTTP/1 and HTTP/2 requests.
  * If there were some chunk buffers assigned to the frame, deallocate them here.
  */
-static void tfw_init_frames(void) {
+static inline void
+tfw_init_frames(void) {
 #ifdef CHUNK_MODE_DETACHED
 	tfw_frames_chunks_free();
 #endif
@@ -230,13 +236,6 @@ static void tfw_init_frames(void) {
 	frames_total_sz = 0;
 	bzero_fast(frames, sizeof(frames));
 }
-
-#define GET_FRAMES_MAX_SZ() \
-	({frames_max_sz;})
-
-#define GET_FRAMES_TOTAL_SZ() \
-	({frames_total_sz;})
-
 
 /**
  * The special "abstract" structure for buffers with different capacity.
@@ -698,11 +697,13 @@ do {										\
  * It's used to devide large strings into smaller chunks
  * to overcome large buffer allocation restrictions.
  */
-static void tfw_h1_frames_assign(char *str, size_t len)
+static inline void
+tfw_h1_frames_assign(char *str, size_t len)
 {
 	int i = 0;
 	uint32_t pos = 0;
 	uint32_t last_frame_len;
+
 	tfw_init_frames();
 	frames_cnt = DIV_ROUND_UP(len, FRAME_MAX_SIZE);
 	TEST_DBG("%s: frames cnt %u\n", __func__, frames_cnt);
@@ -743,22 +744,22 @@ do {										\
 DECLARE_FRAMES_BUF(frames_buf, 3 * 1024);
 
 #ifdef CHUNK_MODE_DETACHED
-static tfw_test_chunk_t *tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size,
-						uint32_t str_len)
+static TfwTestChunk *
+tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 {
 	int i;
 	uint32_t last_chunk_len;
-	tfw_test_chunk_t *chunks;
+	TfwTestChunk *chunks;
 
 	TEST_DBG4("%s: [%u] chunks, chunk size %u, pg order %u, str len %u\n",
 		__func__, chunk_cnt, chunk_size, get_order(chunk_size), str_len);
 
 	/* temprorarily allow sleeping */
 	kernel_fpu_end();
-	chunks = (tfw_test_chunk_t *)__vmalloc(chunk_cnt * sizeof(*chunks),
-						__GFP_ZERO);
+	chunks = __vmalloc(chunk_cnt * sizeof(*chunks), __GFP_ZERO);
 	if (!chunks) {
 		TEST_DBG("%s: Failed to allocate chunk descriptors\n", __func__);
+		kernel_fpu_begin();
 		return ERR_PTR(-ENOMEM);
 	}
 	kernel_fpu_begin();
@@ -766,22 +767,21 @@ static tfw_test_chunk_t *tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size
 
 	if (chunk_cnt > 1) {
 		for (i = 0; i < chunk_cnt - 1; i++) {
-			chunks[i].buf = (char *)kmalloc(chunk_size, GFP_ATOMIC);
+			chunks[i].buf = kmalloc(chunk_size, GFP_ATOMIC);
 			if (!chunks[i].buf) {
 				TEST_DBG("%s: Failed to allocate chunk page(s)\n",
 					__func__);
-				goto err_page_alloc;
+				goto err_alloc;
 			}
 		}
 	}
 
 	/* last chunk size may differ, so set it up separately */
 	last_chunk_len = str_len % chunk_size;
-	if (last_chunk_len != 0) {
+	if (last_chunk_len != 0)
 		chunk_size = last_chunk_len;
-	}
 
-	chunks[chunk_cnt - 1].buf = (char *)kmalloc(chunk_size, GFP_ATOMIC);
+	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size, GFP_ATOMIC);
 	if (!chunks[chunk_cnt - 1].buf) {
 		TEST_DBG("%s: Failed to allocate last chunk page(s)\n", __func__);
 		goto err_page_alloc;
@@ -789,16 +789,16 @@ static tfw_test_chunk_t *tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size
 
 	return chunks;
 
-err_page_alloc:
+err_alloc:
 	tfw_free_chunks(chunks, chunk_cnt);
 	return ERR_PTR(-ENOMEM);
 }
 
 #endif
 
-static int
+static inline int
 split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
-			uint32_t chunk_size, tfw_test_chunk_t **fchunks)
+		uint32_t chunk_size, TfwTestChunk **fchunks)
 {
 	uint32_t pos = 0;
 	unsigned int parsed;
@@ -809,7 +809,7 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 #ifdef CHUNK_MODE_DETACHED
 	uint32_t cidx;
 	char *buf;
-	tfw_test_chunk_t *chunks = NULL;
+	TfwTestChunk *chunks = NULL;
 #endif
 	__cs = chunk_size;
 	hm = (type == FUZZ_RESP)
@@ -866,8 +866,8 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 #ifdef CHUNK_MODE_DETACHED
 			r = tfw_http_parse_resp(resp, buf, chunk_size, &parsed);
 #else
-			r = tfw_http_parse_resp(resp, str + pos,
-						chunk_size, &parsed);
+			r = tfw_http_parse_resp(resp, str + pos, chunk_size,
+						&parsed);
 #endif
 
 		pos += chunk_size;
@@ -967,7 +967,7 @@ do_split_and_parse(int type, int chunk_mode)
 {
 	int r;
 	unsigned int chunk_size;
-	tfw_test_chunk_t *chunks = NULL;
+	TfwTestChunk *chunks = NULL;
 
 	if (chunk_size_index == CHUNK_SIZE_CNT) {
 		/*
@@ -986,7 +986,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (req)
 			test_req_free(req);
 
-		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
+		req = test_req_alloc(frames_total_sz);
 	}
 	else if (type == FUZZ_REQ_H2) {
 		/*
@@ -1008,7 +1008,7 @@ do_split_and_parse(int type, int chunk_mode)
 
 		if (req)
 			test_req_free(req);
-		req = test_req_alloc(GET_FRAMES_TOTAL_SZ());
+		req = test_req_alloc(frames_total_sz);
 		req->conn = (TfwConn*)&conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
@@ -1022,7 +1022,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (resp)
 			test_resp_free(resp);
 
-		resp = test_resp_alloc(GET_FRAMES_TOTAL_SZ());
+		resp = test_resp_alloc(frames_total_sz);
 		tfw_http_msg_pair(resp, sample_req);
 	}
 	else {
@@ -1030,7 +1030,7 @@ do_split_and_parse(int type, int chunk_mode)
 	}
 
 	chunk_size = chunk_mode == CHUNK_OFF
-			? GET_FRAMES_MAX_SZ()
+			? frames_max_sz
 			: CHUNK_SIZES[chunk_size_index];
 
 	TEST_DBG3("%s: chunk_mode=%d, chunk_size_index=%u, chunk_size=%u\n",
@@ -1059,11 +1059,11 @@ do_split_and_parse(int type, int chunk_mode)
 			if (frame->chunks != NULL) {
 				tfw_free_chunks(frame->chunks,
 						frame->chunk_cnt);
-				frame->chunks	 = NULL;
+				frame->chunks = NULL;
 				frame->chunk_cnt = 0;
 			}
 			if (chunks) {
-				frame->chunks	= chunks;
+				frame->chunks = chunks;
 				frame->chunk_cnt = DIV_ROUND_UP(frame->len,
 								chunk_size);
 				TEST_DBG4("%s: new chunks => frame %pK, "
@@ -1080,9 +1080,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (type == FUZZ_REQ_H2 && frame->subtype == HTTP2_HEADERS) {
 			if (!tfw_http_parse_check_bodyless_meth(req)) {
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
-			}
-			else
-			{
+			} else {
 				r = TFW_BLOCK;
 				break;
 			}
@@ -1094,7 +1092,7 @@ do_split_and_parse(int type, int chunk_mode)
 	}
 
 	if (chunk_mode == CHUNK_OFF
-	    || CHUNK_SIZES[chunk_size_index] >= GET_FRAMES_MAX_SZ())
+	    || CHUNK_SIZES[chunk_size_index] >= frames_max_sz)
 		/*
 		 * Stop splitting message into pieces bigger than
 		 * the message itself.
@@ -1120,7 +1118,7 @@ validate_data_fully_parsed(int type, size_t sz_diff)
 			? (TfwHttpMsg *)req
 			: (TfwHttpMsg *)resp;
 
-	size_t hm_exp_len = GET_FRAMES_TOTAL_SZ() - sz_diff;
+	size_t hm_exp_len = frames_total_sz - sz_diff;
 
 	EXPECT_EQ(hm->msg.len, hm_exp_len);
 	return hm->msg.len == hm_exp_len;
