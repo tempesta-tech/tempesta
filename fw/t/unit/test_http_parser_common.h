@@ -784,7 +784,7 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size, GFP_ATOMIC);
 	if (!chunks[chunk_cnt - 1].buf) {
 		TEST_DBG("%s: Failed to allocate last chunk page(s)\n", __func__);
-		goto err_page_alloc;
+		goto err_alloc;
 	}
 
 	return chunks;
