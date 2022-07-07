@@ -620,7 +620,8 @@ tfw_tls_conn_dtor(void *c)
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
 
-	tfw_h2_context_clear(tfw_h2_context(c));
+	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
+		tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
@@ -700,10 +701,13 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	 * transmission. Otherwise if we have to close the socket
 	 * and can not write to the socket, then there is no other way than
 	 * skip the alert and just close the socket.
+	 *
+	 * That's just OK if we're closing a TCP connection during TLS handshake.
 	 */
 	if (r) {
-		T_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
-			    &c->peer->addr, TFW_NO_PORT);
+		if (r != -EPROTO)
+			T_WARN_ADDR("Close TCP socket w/o sending alert to"
+				    " the peer", &c->peer->addr, TFW_NO_PORT);
 		r = ss_close(c->sk, sync ? SS_F_SYNC : 0);
 	}
 
