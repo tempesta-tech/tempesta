@@ -230,6 +230,13 @@ tfw_h1_frames_assign(char *str, size_t len)
 	frames_total_sz += frames[frames_cnt - 1].len;
 }
 
+#define TFW_CANARY_SIZE 16
+#if !IS_ENABLED(CONFIG_KASAN)
+#define TFW_DATA_OFF	TFW_CANARY_SIZE / 2
+#else
+#define TFW_DATA_OFF	0
+#endif
+
 /**
  * tfw_prep_chunks - allocate detached buffers for chunks
  *
@@ -238,6 +245,8 @@ tfw_h1_frames_assign(char *str, size_t len)
  * @str_len:		incoming linear buf len
  *
  * Used for HTTP/1 and HTTP/2 requests.
+ * If CONFIG_KASAN is not set, canary would be placed before
+ * and right after the payload.
  */
 static TfwTestChunk *
 tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
@@ -262,12 +271,20 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 
 	if (chunk_cnt > 1) {
 		for (i = 0; i < chunk_cnt - 1; i++) {
+#if !IS_ENABLED(CONFIG_KASAN)
+			chunks[i].buf = kmalloc(chunk_size + TFW_CANARY_SIZE,
+						GFP_ATOMIC);
+#else
 			chunks[i].buf = kmalloc(chunk_size, GFP_ATOMIC);
+#endif
 			if (!chunks[i].buf) {
 				TEST_DBG("%s: Failed to allocate chunk page(s)\n",
 					__func__);
 				goto err_alloc;
 			}
+#if !IS_ENABLED(CONFIG_KASAN)
+			memset(chunks[i].buf, 0x55, chunk_size + TFW_CANARY_SIZE);
+#endif
 		}
 	}
 
@@ -276,12 +293,19 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 	if (last_chunk_len != 0)
 		chunk_size = last_chunk_len;
 
+#if !IS_ENABLED(CONFIG_KASAN)
+	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size + TFW_CANARY_SIZE,
+						GFP_ATOMIC);
+#else
 	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size, GFP_ATOMIC);
+#endif
 	if (!chunks[chunk_cnt - 1].buf) {
 		TEST_DBG("%s: Failed to allocate last chunk page(s)\n", __func__);
 		goto err_alloc;
 	}
-
+#if !IS_ENABLED(CONFIG_KASAN)
+	memset(chunks[i].buf, 0x55, chunk_size + TFW_CANARY_SIZE);
+#endif
 	return chunks;
 
 err_alloc:
@@ -326,17 +350,17 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 		cidx = DIV_ROUND_UP(pos, __cs);
 		buf = chunks[cidx].buf;
 		/* copy payload */
-		memcpy(buf, str + pos, chunk_size);
+		memcpy(buf + TFW_DATA_OFF, str + pos, chunk_size);
 
 		TEST_DBG3("%s: > chunk [%u / %u] addr %pK, pos=%u\n",  __func__,
 				cidx, chunk_cnt - 1, buf, pos);
 
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, buf, chunk_size, &parsed);
+			r = tfw_http_parse_req(req, buf + TFW_DATA_OFF, chunk_size, &parsed);
 		else if (type == FUZZ_REQ_H2)
-			r = tfw_h2_parse_req(req, buf, chunk_size, &parsed);
+			r = tfw_h2_parse_req(req, buf + TFW_DATA_OFF, chunk_size, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, buf, chunk_size, &parsed);
+			r = tfw_http_parse_resp(resp, buf + TFW_DATA_OFF, chunk_size, &parsed);
 
 		pos += chunk_size;
 		hm->msg.len += parsed;
