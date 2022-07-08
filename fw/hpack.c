@@ -927,6 +927,46 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	return 0;
 }
 
+/*
+ * When header name and/or value is taken from either
+ * static or dynamic table, check if entry tag is valid
+ * (i.e. this header is valid for request)
+ * Valid pseudo-headers for requests/responses are defined
+ * in RFC 7540 8.1.2.3/8.1.2.4
+ */
+static bool
+tfw_hpack_entry_tag_valid(unsigned int entry_tag)
+{
+	bool is_valid = false;
+
+	switch (entry_tag) {
+	case TFW_TAG_HDR_H2_METHOD:
+	case TFW_TAG_HDR_H2_SCHEME:
+	case TFW_TAG_HDR_H2_AUTHORITY:
+	case TFW_TAG_HDR_H2_PATH:
+	case TFW_TAG_HDR_ACCEPT:
+	case TFW_TAG_HDR_AUTHORIZATION:
+	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_CONTENT_LENGTH:
+	case TFW_TAG_HDR_CONTENT_TYPE:
+	case TFW_TAG_HDR_COOKIE:
+	case TFW_TAG_HDR_HOST:
+	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
+	case TFW_TAG_HDR_IF_NONE_MATCH:
+	case TFW_TAG_HDR_PRAGMA:
+	case TFW_TAG_HDR_REFERER:
+	case TFW_TAG_HDR_X_FORWARDED_FOR:
+	case TFW_TAG_HDR_USER_AGENT:
+	case TFW_TAG_HDR_RAW:
+		is_valid = true;
+		break;
+	default:
+		T_DBG3("%s: HPACK entry tag (%d) is not valid for HTTP/2 req\n",
+			__func__, entry_tag);
+	}
+	return is_valid;
+}
+
 static const TfwHPackEntry *
 tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 {
@@ -952,6 +992,9 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 		entry = tbl->entries + curr;
 		WARN_ON_ONCE(!entry->name_num);
 	}
+
+	if (entry && !tfw_hpack_entry_tag_valid(entry->tag))
+		entry = NULL;
 
 	WARN_ON_ONCE(entry && (!entry->hdr || !entry->hdr->nchunks));
 
@@ -1272,38 +1315,6 @@ done:
 	return T_OK;
 }
 
-static bool
-tfw_hpack_entry_tag_valid(unsigned int entry_tag)
-{
-	bool is_valid = false;
-
-	switch(entry_tag) {
-	case TFW_TAG_HDR_H2_METHOD:
-	case TFW_TAG_HDR_H2_SCHEME:
-	case TFW_TAG_HDR_H2_AUTHORITY:
-	case TFW_TAG_HDR_H2_PATH:
-	case TFW_TAG_HDR_ACCEPT:
-	case TFW_TAG_HDR_AUTHORIZATION:
-	case TFW_TAG_HDR_CACHE_CONTROL:
-	case TFW_TAG_HDR_CONTENT_LENGTH:
-	case TFW_TAG_HDR_CONTENT_TYPE:
-	case TFW_TAG_HDR_COOKIE:
-	case TFW_TAG_HDR_HOST:
-	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
-	case TFW_TAG_HDR_IF_NONE_MATCH:
-	case TFW_TAG_HDR_PRAGMA:
-	case TFW_TAG_HDR_REFERER:
-	case TFW_TAG_HDR_X_FORWARDED_FOR:
-	case TFW_TAG_HDR_USER_AGENT:
-	case TFW_TAG_HDR_RAW:
-		is_valid = true;
-		break;
-	default:
-		T_WARN("%s: HTTP/2 request dropped: invalid HPACK entry tag"
-			" = %d\n", __func__, entry_tag);
-	}
-	return is_valid;
-}
 
 /*
  * HPACK decoder FSM for HTTP/2 message processing.
@@ -1480,8 +1491,7 @@ get_indexed_name:
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
-			if (!entry || !tfw_hpack_entry_tag_valid(entry->tag) ||
-				tfw_hpack_hdr_name_set(hp, req, entry)) {
+			if (!entry || tfw_hpack_hdr_name_set(hp, req, entry)) {
 				r = T_DROP;
 				goto out;
 			}
@@ -1575,7 +1585,7 @@ get_all_indexed:
 			WARN_ON_ONCE(!hp->index);
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
-			if (!entry || !tfw_hpack_entry_tag_valid(entry->tag)) {
+			if (!entry) {
 				r = T_DROP;
 				goto out;
 			}
