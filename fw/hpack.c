@@ -958,6 +958,7 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 	case TFW_TAG_HDR_REFERER:
 	case TFW_TAG_HDR_X_FORWARDED_FOR:
 	case TFW_TAG_HDR_USER_AGENT:
+	case TFW_TAG_HDR_TRANSFER_ENCODING:
 	case TFW_TAG_HDR_RAW:
 		is_valid = true;
 		break;
@@ -1303,6 +1304,9 @@ done:
 		break;
 	case TFW_TAG_HDR_USER_AGENT:
 		parser->_hdr_tag = TFW_HTTP_HDR_USER_AGENT;
+		break;
+	case TFW_TAG_HDR_TRANSFER_ENCODING:
+		parser->_hdr_tag = TFW_HTTP_HDR_TRANSFER_ENCODING;
 		break;
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
