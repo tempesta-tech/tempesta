@@ -950,6 +950,7 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 	case TFW_TAG_HDR_CONTENT_TYPE:
 	case TFW_TAG_HDR_COOKIE:
+	case TFW_TAG_HDR_FORWARDED:
 	case TFW_TAG_HDR_HOST:
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 	case TFW_TAG_HDR_IF_NONE_MATCH:
