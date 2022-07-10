@@ -83,7 +83,8 @@ do {										\
 } while(0)
 
 static void
-tfw_free_chunks(TfwTestChunk *chunks, uint32_t chunk_cnt) {
+tfw_free_chunks(TfwTestChunk *chunks, uint32_t chunk_cnt)
+{
 	int i;
 	TEST_DBG4("%s: chunks %pK, cnt %u\n", __func__, chunks, chunk_cnt);
 	for (i = 0; i < chunk_cnt; i++)
@@ -94,7 +95,8 @@ tfw_free_chunks(TfwTestChunk *chunks, uint32_t chunk_cnt) {
 }
 
 void
-tfw_frames_chunks_free(void) {
+tfw_frames_chunks_free(void)
+{
 	FOR_EACH_FRAME({
 		TfwFrameRec *frame = GET_CURRENT_FRAME();
 		if (frame->chunks != NULL && frame->chunk_cnt != 0) {
@@ -116,7 +118,8 @@ tfw_frames_chunks_free(void) {
  * If there were some chunk buffers assigned to the frame, deallocate them here.
  */
 void
-tfw_init_frames(void) {
+tfw_init_frames(void)
+{
 	tfw_frames_chunks_free();
 	frames_cnt = 0;
 	frames_max_sz = 0;
@@ -476,8 +479,7 @@ do_split_and_parse(int type, int chunk_mode)
 			test_req_free(req);
 
 		req = test_req_alloc(frames_total_sz);
-	}
-	else if (type == FUZZ_REQ_H2) {
+	} else if (type == FUZZ_REQ_H2) {
 		/*
 		 * During the processing of a request, the HPACK dynamic table
 		 * is modified. The same query is used for each chunk size.
@@ -506,15 +508,13 @@ do_split_and_parse(int type, int chunk_mode)
 		req->pit.pool = __tfw_pool_new(0);
 		BUG_ON(!req->pit.pool);
 		__set_bit(TFW_HTTP_B_H2, req->flags);
-	}
-	else if (type == FUZZ_RESP) {
+	} else if (type == FUZZ_RESP) {
 		if (resp)
 			test_resp_free(resp);
 
 		resp = test_resp_alloc(frames_total_sz);
 		tfw_http_msg_pair(resp, sample_req);
-	}
-	else {
+	} else {
 		BUG();
 	}
 
@@ -536,12 +536,9 @@ do_split_and_parse(int type, int chunk_mode)
 
 		if (type == FUZZ_REQ_H2
 		    && frame->subtype == HTTP2_DATA
-		    && !frame->len)
-		{
+		    && !frame->len) {
 			r = TFW_POSTPONE;
-		}
-		else
-		{
+		} else {
 			r = split_and_parse_n(frame->str, type, frame->len,
 						chunk_size, &chunks);
 			if (frame->chunks != NULL) {
