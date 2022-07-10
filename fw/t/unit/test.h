@@ -77,6 +77,12 @@ do {				\
 #define TEST_DBG3(...)
 #endif
 
+#if defined(DEBUG) && (DEBUG >= 4)
+#define TEST_DBG4(...) pr_debug(TEST_BANNER "        " __VA_ARGS__)
+#else
+#define TEST_DBG4(...)
+#endif
+
 /*
  * Declare test functions as unused
  * such that they can be easily commented out.
