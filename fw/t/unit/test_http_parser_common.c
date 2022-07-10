@@ -258,7 +258,7 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 	TEST_DBG4("%s: [%u] chunks, chunk size %u, pg order %u, str len %u\n",
 		__func__, chunk_cnt, chunk_size, get_order(chunk_size), str_len);
 
-	/* temprorarily allow sleeping */
+	/* temprorarily allow sleeping while allocating test chunks */
 	kernel_fpu_end();
 	chunks = __vmalloc(chunk_cnt * sizeof(*chunks), __GFP_ZERO);
 	if (!chunks) {
@@ -266,20 +266,21 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 		kernel_fpu_begin();
 		return ERR_PTR(-ENOMEM);
 	}
-	kernel_fpu_begin();
+
 	TEST_DBG4("%s: chunks buf %pK\n", __func__, chunks);
 
 	if (chunk_cnt > 1) {
 		for (i = 0; i < chunk_cnt - 1; i++) {
 #if !IS_ENABLED(CONFIG_KASAN)
 			chunks[i].buf = kmalloc(chunk_size + TFW_CANARY_SIZE,
-						GFP_ATOMIC);
+						GFP_KERNEL);
 #else
-			chunks[i].buf = kmalloc(chunk_size, GFP_ATOMIC);
+			chunks[i].buf = kmalloc(chunk_size, GFP_KERNEL);
 #endif
 			if (!chunks[i].buf) {
 				TEST_DBG("%s: Failed to allocate chunk page(s)\n",
 					__func__);
+				kernel_fpu_begin();
 				goto err_alloc;
 			}
 #if !IS_ENABLED(CONFIG_KASAN)
@@ -295,17 +296,19 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 
 #if !IS_ENABLED(CONFIG_KASAN)
 	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size + TFW_CANARY_SIZE,
-						GFP_ATOMIC);
+						GFP_KERNEL);
 #else
-	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size, GFP_ATOMIC);
+	chunks[chunk_cnt - 1].buf = kmalloc(chunk_size, GFP_KERNEL);
 #endif
 	if (!chunks[chunk_cnt - 1].buf) {
 		TEST_DBG("%s: Failed to allocate last chunk page(s)\n", __func__);
+		kernel_fpu_begin();
 		goto err_alloc;
 	}
 #if !IS_ENABLED(CONFIG_KASAN)
 	memset(chunks[i].buf, 0x55, chunk_size + TFW_CANARY_SIZE);
 #endif
+	kernel_fpu_begin();
 	return chunks;
 
 err_alloc:
