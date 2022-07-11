@@ -801,17 +801,17 @@ static int
 fw_tls_apply_sni_wildcard(BasicStr *name)
 {
 	int n;
-	char *p = strchr(name->data, '.');
+	char *p = strnchr(name->data, name->len, '.');
 	if (!p)
 		return -ENOENT;
 	n = name->data + name->len - p;
 
 	/* The resulting name must be lower than a top level domain. */
-	if (n < 3 || !strchr(p + 1, '.'))
+	if (n < 3 || !strnchr(p + 1, n, '.'))
 		return -ENOENT;
 
 	/*
-	 * Store leading dot to match against chpped wildcard (see
+	 * Store leading dot to match against chopped wildcard (see
 	 * tfw_tls_add_cn()) and do not confuse the name with a CN.
 	 */
 	name->data = p;
@@ -841,7 +841,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
 
-		if (unlikely(vhost && !vhost->vhost_dflt)) {
+		if (unlikely(vhost && tfw_vhost_is_default(vhost))) {
 			SNI_WARN("default vhost by name '%s', reject connection.\n",
 				 TFW_VH_DFT_NAME);
 			tfw_vhost_put(vhost);
