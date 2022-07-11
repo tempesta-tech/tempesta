@@ -121,11 +121,12 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, const char *hname, int hlen)
 	BasicStr cn = {.data = sname->p, .len = sname->len};
 
 	/*
-	 * If the host name is default ('*'), then any SAN is good and we
+	 * If the host name is "default", then any SAN is good and we
 	 * place the certificate by '*' instead of the SAN.
 	 * Any SNI can be matched with the certificate regardless its SAN/CN.
 	 */
-	if (hlen == 1 && hname[0] == '*')
+	if (hlen == SLEN(TFW_VH_DFT_NAME)
+	    && !strncmp(hname, TFW_VH_DFT_NAME, hlen))
 		return 0;
 
 	/*
