@@ -81,6 +81,7 @@ do {				\
 #define TEST_DBG4(...) pr_debug(TEST_BANNER "        " __VA_ARGS__)
 #else
 #define TEST_DBG4(...)
+#endif
 
 /* Since the test actually starts right from init_module(),
  * it's quite difficult to load needed module symbols in gdb beforehand.
