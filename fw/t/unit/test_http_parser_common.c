@@ -309,7 +309,7 @@ tfw_prep_chunks(uint32_t chunk_cnt, uint32_t chunk_size, uint32_t str_len)
 		goto err_alloc;
 	}
 #if !IS_ENABLED(CONFIG_KASAN)
-	memset(chunks[i].buf, 0x55, chunk_size + TFW_CANARY_SIZE);
+	memset(chunks[chunk_cnt - 1].buf, 0x55, chunk_size + TFW_CANARY_SIZE);
 #endif
 	kernel_fpu_begin();
 	return chunks;
