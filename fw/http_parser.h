@@ -154,4 +154,6 @@ int tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 int tfw_http_parse_terminate(TfwHttpMsg *hm);
 bool tfw_http_parse_is_done(TfwHttpMsg *hm);
 
+void tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr);
+void tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr);
 #endif /* __TFW_HTTP_PARSER_H__ */

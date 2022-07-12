@@ -207,7 +207,7 @@ struct  tfw_vhost_t {
 };
 
 /* Default vhost is simply a full wildcard, matching any name. */
-#define TFW_VH_DFT_NAME		"*"
+#define TFW_VH_DFT_NAME		"default"
 
 /**
  * Global settings (exist only on top level and are not reconfigurable).

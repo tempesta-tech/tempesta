@@ -83,6 +83,23 @@ do {				\
 #define TEST_DBG4(...)
 #endif
 
+/* Since the test actually starts right from init_module(),
+ * it's quite difficult to load needed module symbols in gdb beforehand.
+ * Postpone execution for several seconds to be able to pause the VM,
+ * and load needed module symbols in gdb (e.g. via lx-symbols command)
+ * This is only enabled for debug builds.
+ */
+#if defined(DEBUG) && (DEBUG >= 3)
+#define SLEEP_TIME	15*1000
+#define TEST_WAIT(...)				\
+do {						\
+	TEST_LOG("postpone exec for 15s...\n");	\
+	msleep(SLEEP_TIME);			\
+} while(0)
+#else
+#define TEST_WAIT(...)
+#endif
+
 /*
  * Declare test functions as unused
  * such that they can be easily commented out.
