@@ -20,6 +20,11 @@
  */
 #include <linux/module.h>
 
+#undef DEBUG
+#if DBG_TEST > 0
+#define DEBUG DBG_TEST
+#endif
+
 #include "tempesta_fw.h"
 #include "test.h"
 
@@ -47,6 +52,8 @@ tfw_test_init(void)
 	int fail_count = 0;
 
 	TFW_HTTP_SESS_MOD_INIT();
+
+	TEST_WAIT();
 
 	printk("tfw_test: start\n");
 	fail_count = test_run_all();

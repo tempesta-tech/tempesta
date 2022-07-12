@@ -927,6 +927,48 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	return 0;
 }
 
+/*
+ * When header name and/or value is taken from either
+ * static or dynamic table, check if entry tag is valid
+ * (i.e. this header is valid for request)
+ * Valid pseudo-headers for requests/responses are defined
+ * in RFC 7540 8.1.2.3/8.1.2.4
+ */
+static bool
+tfw_hpack_entry_tag_valid(unsigned int entry_tag)
+{
+	bool is_valid = false;
+
+	switch (entry_tag) {
+	case TFW_TAG_HDR_H2_METHOD:
+	case TFW_TAG_HDR_H2_SCHEME:
+	case TFW_TAG_HDR_H2_AUTHORITY:
+	case TFW_TAG_HDR_H2_PATH:
+	case TFW_TAG_HDR_ACCEPT:
+	case TFW_TAG_HDR_AUTHORIZATION:
+	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_CONTENT_LENGTH:
+	case TFW_TAG_HDR_CONTENT_TYPE:
+	case TFW_TAG_HDR_COOKIE:
+	case TFW_TAG_HDR_FORWARDED:
+	case TFW_TAG_HDR_HOST:
+	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
+	case TFW_TAG_HDR_IF_NONE_MATCH:
+	case TFW_TAG_HDR_PRAGMA:
+	case TFW_TAG_HDR_REFERER:
+	case TFW_TAG_HDR_X_FORWARDED_FOR:
+	case TFW_TAG_HDR_USER_AGENT:
+	case TFW_TAG_HDR_TRANSFER_ENCODING:
+	case TFW_TAG_HDR_RAW:
+		is_valid = true;
+		break;
+	default:
+		T_DBG3("%s: HPACK entry tag (%d) is not valid for HTTP/2 req\n",
+			__func__, entry_tag);
+	}
+	return is_valid;
+}
+
 static const TfwHPackEntry *
 tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 {
@@ -952,6 +994,9 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 		entry = tbl->entries + curr;
 		WARN_ON_ONCE(!entry->name_num);
 	}
+
+	if (entry && !tfw_hpack_entry_tag_valid(entry->tag))
+		entry = NULL;
 
 	WARN_ON_ONCE(entry && (!entry->hdr || !entry->hdr->nchunks));
 
@@ -1233,9 +1278,17 @@ done:
 		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
+		/* We need to parse port part of the header again
+		 * to fill @req->host_port
+		 */
+		tfw_idx_hdr_parse_host_port(req, entry->hdr);
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		/* When 'if-modified-since' hdr is taken from HPACK dyn table,
+		 * we need to parse date once again to fill @req->cond.m_date.
+		 */
+		tfw_idx_hdr_parse_if_mod_since(req, entry->hdr);
 		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
@@ -1252,16 +1305,21 @@ done:
 	case TFW_TAG_HDR_USER_AGENT:
 		parser->_hdr_tag = TFW_HTTP_HDR_USER_AGENT;
 		break;
+	case TFW_TAG_HDR_TRANSFER_ENCODING:
+		parser->_hdr_tag = TFW_HTTP_HDR_TRANSFER_ENCODING;
+		break;
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
 	default:
-		WARN_ON_ONCE(1);
+		T_WARN("%s: HTTP/2 request dropped: unexpected HPACK entry tag"
+			" = %d\n", __func__, entry->tag);
 		return T_DROP;
 	}
 
 	return T_OK;
 }
+
 
 /*
  * HPACK decoder FSM for HTTP/2 message processing.
