@@ -682,13 +682,19 @@ tfw_sock_clnt_start(void)
 		list_del(&ls->list);
 		list_add(&ls->list, &tfw_listen_socks);
 
+		/*
+		 * Paired with tfw_classify_conn_estab(): firstly add the port
+		 * to the bitmap and then move it to the listen state to
+		 * guarantee that the HTTP limits initialization code was called.
+		 */
+		tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
+
 		if ((r = tfw_listen_sock_start(ls))) {
 			T_ERR_ADDR("can't start listening on", &ls->addr,
 				   TFW_WITH_PORT);
 			goto done;
 		}
 
-		tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
 		listen_socks_sz++;
 	}
 
