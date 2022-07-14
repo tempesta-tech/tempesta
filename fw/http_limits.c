@@ -1443,7 +1443,6 @@ frang_tls_handler(TlsCtx *tls, int state)
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	int r;
 
-	BUG_ON(!ra); // TODO #1643 remove me
 	if (WARN_ON_ONCE(!dflt_vh))
 		return TFW_BLOCK;
 
@@ -1470,7 +1469,6 @@ static DECLARE_BITMAP(tfw_inports, 65536) __read_mostly;
 void
 tfw_classifier_add_inport(__be16 port)
 {
-	pr_err("AK_DBG 1643: set port %x in bitmap\n", port); // TODO #1643 remove me
 	set_bit(port, tfw_inports);
 }
 
@@ -1491,7 +1489,6 @@ tfw_classify_conn_estab(struct sock *sk)
 {
 	if (test_bit(tfw_addr_get_sk_sport(sk), tfw_inports))
 		return frang_conn_new(sk);
-	else BUG_ON(tfw_addr_get_sk_sport(sk) == 0xbb01/*443*/); // TODO #1643 remove me
 
 	return TFW_PASS;
 }
