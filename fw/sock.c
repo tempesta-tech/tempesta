@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -109,6 +109,10 @@ static const char *ss_statename[] = {
  * calls: the shutdown process must wait until all the calls finished and
  * no new calls can be executed.
  *
+ * __ss_act_cnt is per-CPU, but any given connection can increase it on one CPU
+ * and decrease on another - that's fine we do use only the sum of all per-CPU
+ * values.
+ *
  * However, softirqs can call SS down- or upcall any time. Moreover, there could
  * be an ingress packet for some Tempesta's socket and it initiates new
  * Tempesta's calls in softirq. So to guarantee shutdown process convergence we
@@ -184,21 +188,12 @@ ss_active_guard_exit(unsigned long val)
 	atomic64_sub(val, this_cpu_ptr(&__ss_act_cnt));
 }
 
-/**
- * Guard for calling connection error/drop callback for each established socket,
- * so we guarantee that all upper layer connections are closed.
- */
-#define SS_CALL_GUARD_ENTER(cb, sk)					\
-({									\
-	ss_active_guard_enter(SS_V_ACT_LIVECONN);			\
-	SS_CALL(cb, sk);						\
-})
-
-#define SS_CALL_GUARD_EXIT(cb, sk)					\
-do {									\
-	SS_CALL(cb, sk);						\
-	ss_active_guard_exit(SS_V_ACT_LIVECONN);			\
-} while (0)
+static void
+__ss_conn_drop_guard_exit(struct sock *sk)
+{
+	SS_CALL(connection_drop, sk);
+	ss_active_guard_exit(SS_V_ACT_LIVECONN);
+}
 
 static void
 ss_ipi(struct irq_work *work)
@@ -684,7 +679,7 @@ static void
 ss_linkerror(struct sock *sk)
 {
 	ss_do_close(sk);
-	SS_CALL_GUARD_EXIT(connection_drop, sk);
+	__ss_conn_drop_guard_exit(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
@@ -985,7 +980,7 @@ ss_tcp_state_change(struct sock *sk)
 			 * and ss_active_guard_enter() there.
 			 */
 			if (!lsk)
-				SS_CALL_GUARD_EXIT(connection_drop, sk);
+				__ss_conn_drop_guard_exit(sk);
 			return;
 		}
 
@@ -1388,7 +1383,7 @@ EXPORT_SYMBOL(ss_getpeername);
 do {								\
 	ss_do_close(sk);					\
 	bh_unlock_sock(sk);					\
-	SS_CALL_GUARD_EXIT(connection_drop, sk);		\
+	__ss_conn_drop_guard_exit(sk);				\
 	sock_put(sk); /* paired with ss_do_close() */		\
 } while (0)
 
