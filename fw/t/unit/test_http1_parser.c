@@ -3823,7 +3823,7 @@ TEST(http1_parser, x_tempesta_cache)
 	}
 }
 
-TEST(http1_parser, forwarded)
+TEST_MPART(http1_parser, forwarded, 0)
 {
 	/* Invalid port. */
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
@@ -3864,6 +3864,11 @@ TEST(http1_parser, forwarded)
 		       "host=\"[11:22:33:44]:443\"");
 	FOR_REQ_SIMPLE("Forwarded:     "
 		       "host=tempesta-tech.com:443    ");
+
+}
+
+TEST_MPART(http1_parser, forwarded, 1)
+{
 	/* Common cases. */
 	FOR_REQ_SIMPLE("Forwarded:     "
 		       "host=tempesta-tech.com:443")
@@ -3975,7 +3980,10 @@ TEST(http1_parser, forwarded)
 
 		test_string_split(&h_expected, forwarded);
 	}
+}
 
+TEST_MPART(http1_parser, forwarded, 2)
+{
 	FOR_REQ_SIMPLE("Forwarded:     "
 		       "host=tempesta-tech.com:443;"
 		       "for=8.8.8.8;"
@@ -4141,7 +4149,9 @@ TEST(http1_parser, forwarded)
 
 		test_string_split(&h_expected, forwarded);
 	}
+}
 
+TEST_MPART(http1_parser, forwarded, 3) {
 	/* Cases from RFC 7239. */
 	FOR_REQ_SIMPLE("Forwarded: for=\"_gazonk\"");
 	FOR_REQ_SIMPLE("Forwarded: For=\"[2001:db8:cafe::17]:4711\"");
@@ -4251,6 +4261,13 @@ TEST(http1_parser, forwarded)
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: by=<xss>;host=http;proto=http;"
 				"for=1.2.3.4");
 }
+
+#define H1_FWD_TCNT 4
+TEST_MPART_DEFINE(http1_parser, forwarded, H1_FWD_TCNT,
+	TEST_MPART_NAME(http1_parser, forwarded, 0),
+	TEST_MPART_NAME(http1_parser, forwarded, 1),
+	TEST_MPART_NAME(http1_parser, forwarded, 2),
+	TEST_MPART_NAME(http1_parser, forwarded, 3));
 
 TEST(http1_parser, perf)
 {
@@ -4421,7 +4438,7 @@ TEST_SUITE(http1_parser)
 	TEST_RUN(http1_parser, method_override);
 	TEST_RUN(http1_parser, x_tempesta_cache);
 	TEST_RUN(http1_parser, vchar);
-	TEST_RUN(http1_parser, forwarded);
+	TEST_MPART_RUN(http1_parser, forwarded);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in

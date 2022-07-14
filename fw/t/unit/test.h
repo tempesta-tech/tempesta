@@ -107,6 +107,27 @@ do {						\
 #define TEST(unit, assertion)				\
 	static void __attribute__((unused)) test__ ##unit ##__ ##assertion(void)
 
+#define TEST_MPART_NAME(unit, assertion, part)		\
+	test__ ##unit ##__ ##assertion ##__ ##part
+
+#define TEST_MPART(unit, assertion, part)		\
+	static void __attribute((unused))		\
+	TEST_MPART_NAME(unit, assertion, part)(void)
+
+#define TEST_MPART_DEFINE(unit, assertion, cnt, ...)	\
+	static void (*unit ##__ ##assertion ##__tarr[cnt])(void) = {__VA_ARGS__}
+
+#define TEST_MPART_RUN(unit, assertion)					    \
+do {									    \
+	int i;								    \
+	test_call_setup_fn();						    \
+	for (i = 0; i < ARRAY_SIZE(unit ##__ ##assertion ##__tarr); i++) {  \
+		TEST_LOG_LF("TEST_RUN(%s, %s) #%d", #unit, #assertion, i);  \
+		unit ##__ ##assertion ##__tarr[i]();			    \
+	}								    \
+	test_call_teardown_fn();					    \
+} while(0)
+
 #define TEST_SUITE(name) void test_suite__##name(void)
 #define TEST_SETUP(fn) test_set_setup_fn(fn)
 #define TEST_TEARDOWN(fn) test_set_teardown_fn(fn)

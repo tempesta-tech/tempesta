@@ -2781,8 +2781,7 @@ end:
 	kernel_fpu_begin();
 }
 
-TEST(http2_parser, forwarded)
-{
+/* H2 'forwarded' test request definition */
 #define FOR_REQ_H2_FORWARDED(forwarded)						\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
@@ -2804,6 +2803,8 @@ TEST(http2_parser, forwarded)
 	    HEADERS_FRAME_END();						\
 	)
 
+TEST_MPART(http2_parser, forwarded, 0)
+{
 	/* Invalid port. */
 	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:0");
 	EXPECT_BLOCK_REQ_H2_FORWARDED("host=tempesta-tech.com:65536");
@@ -2829,7 +2830,10 @@ TEST(http2_parser, forwarded)
 	FOR_REQ_H2_FORWARDED("host=\"tempesta-tech.com:443\"");
 	/* Quoted IPv6 host with port. */
 	FOR_REQ_H2_FORWARDED("host=\"[11:22:33:44]:443\"");
+}
 
+TEST_MPART(http2_parser, forwarded, 1)
+{
 	/* Common cases. */
 	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443")
 	{
@@ -2935,7 +2939,10 @@ TEST(http2_parser, forwarded)
 
 		test_string_split(&h_expected, forwarded);
 	}
+}
 
+TEST_MPART(http2_parser, forwarded, 2)
+{
 	FOR_REQ_H2_FORWARDED("host=tempesta-tech.com:443;"
 			     "for=8.8.8.8;"
 			     "by=8.8.4.4;"
@@ -3106,7 +3113,10 @@ TEST(http2_parser, forwarded)
 
 		test_string_split(&h_expected, forwarded);
 	}
+}
 
+TEST_MPART(http2_parser, forwarded, 3)
+{
 	/* Cases from RFC 7239. */
 	FOR_REQ_H2_FORWARDED("for=\"_gazonk\"");
 	FOR_REQ_H2_FORWARDED("For=\"[2001:db8:cafe::17]:4711\"");
@@ -3207,9 +3217,17 @@ TEST(http2_parser, forwarded)
 	EXPECT_BLOCK_REQ_H2_FORWARDED("by=<xss>;host=http;proto=http;"
 				      "for=1.2.3.4");
 
+}
+
+#define H2_FWD_TCNT 4
+TEST_MPART_DEFINE(http2_parser, forwarded, H2_FWD_TCNT,
+		TEST_MPART_NAME(http2_parser, forwarded, 0),
+		TEST_MPART_NAME(http2_parser, forwarded, 1),
+		TEST_MPART_NAME(http2_parser, forwarded, 2),
+		TEST_MPART_NAME(http2_parser, forwarded, 3));
+
 #undef EXPECT_BLOCK_REQ_H2_FORWARDED
 #undef FOR_REQ_H2_FORWARDED
-}
 
 TEST_SUITE(http2_parser)
 {
@@ -3243,7 +3261,7 @@ TEST_SUITE(http2_parser)
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
 	TEST_RUN(http2_parser, fuzzer);
-	TEST_RUN(http2_parser, forwarded);
+	TEST_MPART_RUN(http2_parser, forwarded);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
