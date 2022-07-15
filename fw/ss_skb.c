@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1656,19 +1656,19 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 
 /**
  * Evict extra data between @curr and @stop pointers, beginning from the @skb
- * and the @frag_num fragment.
+ * and the @frag_idx fragment.
  */
 int
 ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
-		      int frag_num, char *curr, const char *stop)
+		      int frag_idx, char *curr, const char *stop)
 {
 	TfwStr it;
 	long offset;
 	int size, ret;
 	const char *addr;
 
-	if (frag_num >= 0) {
-		skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_num];
+	if (frag_idx >= 0) {
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
 
 		size = skb_frag_size(frag);
 		addr = skb_frag_address(frag);
@@ -1682,7 +1682,6 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 	for (;;) {
 		int len, tail = 0;
 		long stop_offset = stop - addr;
-		int _;
 
 		if (WARN_ON_ONCE(offset < 0 || offset >= size))
 			return -EINVAL;
@@ -1704,16 +1703,18 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			len -= size - stop_offset;
 		}
 
-		T_DBG3("%s: frag_num=%d, size=%d, offset=%ld, stop_offset=%ld,"
-		       " len=%d, tail=%d\n", __func__, frag_num, size, offset,
+		T_DBG3("%s: frag_idx=%d, size=%d, offset=%ld, stop_offset=%ld,"
+		       " len=%d, tail=%d\n", __func__, frag_idx, size, offset,
 		       stop_offset, len, tail);
 
-		if (frag_num >= 0)
-			ret = __split_pgfrag_del(skb_head, skb, frag_num,
-						 offset, len, &it);
+		if (frag_idx >= 0)
+			ret = __split_pgfrag_del_w_frag(skb_head, skb, frag_idx,
+							offset, len, &it,
+							&frag_idx);
 		else
 			ret =  __split_linear_data(skb_head, skb, curr, -len,
-						   &it, &_);
+						   &it, &frag_idx);
+
 		if (unlikely(ret))
 			return ret;
 
@@ -1721,24 +1722,32 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			return 0;
 
 		/*
+		 * While searching for a place to put the remaining data
+		 * there might be the case when we would either use existing
+		 * @sk_buff->next of the current SKB or completely new SKB,
+		 * which would be allocated and inserted right after the current one.
+		 * When this happens, we need to reacquire the correct @skb.
+		 * See __split_pgfrag_del_w_frag() / __split_linear_data() for details.
+		 */
+		if (skb != it.skb) {
+                        if (WARN_ON_ONCE(skb_head == it.skb))
+                                return -EINVAL;
+                        skb = it.skb; 
+                }
+
+		/*
 		 * The extra space is evicted from current fragment (or from skb
 		 * head space), but the stop pointer is not reached yet. Move to
 		 * the next fragment (or skb).
 		 */
-		if (skb_shinfo(skb)->nr_frags > frag_num + 1) {
+		if (frag_idx >= 0 && frag_idx < skb_shinfo(skb)->nr_frags) {
 			skb_frag_t *frag;
 
-			++frag_num;
-			frag = &skb_shinfo(skb)->frags[frag_num];
+			frag = &skb_shinfo(skb)->frags[frag_idx];
 			size = skb_frag_size(frag);
 			addr = curr = skb_frag_address(frag);
 		}
 		else {
-			if (WARN_ON_ONCE(skb_head == skb->next))
-				return -EINVAL;
-
-			frag_num = -1;
-			skb = skb->next;
 			size = skb_headlen(skb);
 			addr = curr = skb->data;
 		}
