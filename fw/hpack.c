@@ -3190,11 +3190,11 @@ commit:
 	it.last->hdr_len = hdr_len;
 	it.last->rindex = ++tbl->idx_acc;
 
+	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
+
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
 	if (!TFW_STR_EMPTY(&s_val))
 		tfw_hpack_write(&s_val, ptr);
-
-	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
 
 	WARN_ON_ONCE(tbl->rb_len > tbl->size);
 
