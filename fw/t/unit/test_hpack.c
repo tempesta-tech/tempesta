@@ -1914,6 +1914,84 @@ TEST(hpack, enc_table_rbtree)
 #undef HDR_VALUE_5
 }
 
+TEST(hpack, enc_table_eviction)
+{
+	TfwHPackETbl *tbl;
+	int i = 0;
+	TfwStr *filler;
+	TfwStr *f_hdr, *l_hdr_val, *filler_val;
+	TfwHPackETblRes res;
+	TfwHPackNodeIter pl = {};
+	char hdr[64];
+	char long_val[255] = "qwertyuiopqwertyuiopqwertyuiopqwertyuiopqwerty"
+			     "uiopqwertyuiopqwertyuiop";
+	const TfwHPackNode *node = NULL;
+
+	TFW_STR(col, ":");
+	TFW_STR(f_hdr_val, "first header");
+	TFW_STR(l_hdr, "LastHeader");
+
+	tbl = &ctx.hpack.enc_tbl;
+
+	f_hdr = make_compound_str("HeaderFirst");
+	collect_compound_str(f_hdr, col, 0);
+	collect_compound_str(f_hdr, f_hdr_val, 0);
+	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_OK(tfw_hpack_add_node(tbl, f_hdr, &pl,
+				     TFW_H2_TRANS_INPLACE));
+	bzero_fast(&pl, sizeof(pl));
+
+	for (;;) {
+		unsigned long node_size;
+		unsigned long new_size;
+
+		sprintf(hdr, "Header%i", i);
+
+		filler = make_compound_str(hdr);
+		filler_val = make_compound_str(long_val);
+		collect_compound_str(filler, col, 0);
+		collect_compound_str(filler, filler_val, 0);
+
+		node_size = filler->len + HPACK_ENTRY_OVERHEAD;
+		new_size = tbl->size + node_size;
+
+		/* next large addition evict some headers. */
+		if (new_size > tbl->window)
+			break;
+
+		res = tfw_hpack_rbtree_find(tbl, filler, &node, &pl);
+		EXPECT_GT(res, HPACK_IDX_ST_FOUND);
+		EXPECT_NULL(node);
+		EXPECT_OK(tfw_hpack_add_node(tbl, filler, &pl,
+					     TFW_H2_TRANS_INPLACE));
+		bzero_fast(&pl, sizeof(pl));
+		bzero_fast(hdr, sizeof(hdr));
+		i++;
+	}
+
+	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+
+	l_hdr_val = make_compound_str(long_val);
+	collect_compound_str(l_hdr, col, 0);
+	collect_compound_str(l_hdr, l_hdr_val, 0);
+
+	res = tfw_hpack_rbtree_find(tbl, l_hdr, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_OK(tfw_hpack_add_node(tbl, l_hdr, &pl,
+				     TFW_H2_TRANS_INPLACE));
+	bzero_fast(&pl, sizeof(pl));
+
+	/* first header must not present. */
+	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+}
+
 #define ADD_NODE(s, n)								\
 do {										\
 	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
@@ -2260,4 +2338,5 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, enc_table_rbtree);
 	TEST_RUN(hpack, rbtree_ins_rebalance);
 	TEST_RUN(hpack, rbtree_del_rebalance);
+	TEST_RUN(hpack, enc_table_eviction);
 }
