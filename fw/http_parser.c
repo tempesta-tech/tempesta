@@ -576,8 +576,8 @@ __FSM_STATE(st) {							\
  * @str is always in lower case.
  *
  * @return
- * 	CSTR_NEQ:		not equal
- * 	> 0:			(partial) equal
+ * 	CSTR_NEQ:	not equal
+ * 	> 0:		(partially) equal, length of matched chunk
  */
 static int
 __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
@@ -748,6 +748,31 @@ parse_ows(unsigned char *__restrict data, size_t len)
 }
 
 /**
+ * These headers should not be present in the list
+ * of hop-by-hop headers.
+ */
+static const TfwStr ete_spec_raw_hdrs[] = {
+	/* End-to-end spec and raw headers */
+	TFW_STR_STRING("age:"),
+	TFW_STR_STRING("authorization:"),
+	TFW_STR_STRING("cache-control:"),
+	TFW_STR_STRING("connection:"),
+	TFW_STR_STRING("content-length:"),
+	TFW_STR_STRING("content-type:"),
+	TFW_STR_STRING("cookie:"),
+	TFW_STR_STRING("date:"),
+	TFW_STR_STRING("etag:"),
+	TFW_STR_STRING("expires:"),
+	TFW_STR_STRING("forwarded:"),
+	TFW_STR_STRING("host:"),
+	TFW_STR_STRING("pragma:"),
+	TFW_STR_STRING("server:"),
+	TFW_STR_STRING("transfer-encoding:"),
+	TFW_STR_STRING("user-agent:"),
+	TFW_STR_STRING("x-forwarded-for:"),
+};
+
+/**
  * Mark existing spec headers of http message @hm as hop-by-hop if they were
  * listed in Connection header or in @tfw_http_init_parser_* function.
  */
@@ -759,8 +784,11 @@ mark_spec_hbh(TfwHttpMsg *hm)
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
 		TfwStr *hdr = &hm->h_tbl->tbl[id];
-		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr)))
+		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
+			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
+				__func__, hm, id);
 			hdr->flags |= TFW_STR_HBH_HDR;
+		}
 	}
 }
 
@@ -788,6 +816,9 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 		if ((hbh_name->flags & TFW_STR_HBH_HDR)
 		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':')))
 		{
+			T_DBG3("%s: hbh raw[%d], hm %pK, hdr %pK ->flags %x, "
+				"flags +TFW_STR_HBH_HDR\n",
+				__func__, i, hm, hdr, hdr->flags);
 			hdr->flags |= TFW_STR_HBH_HDR;
 			hbh_name->flags = hbh_name->flags &
 					~(unsigned int)TFW_STR_HBH_HDR;
@@ -816,18 +847,18 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 	if ((hid >= ht->off) || (TFW_STR_EMPTY(&ht->tbl[hid])))
 		return false;
 
+	T_DBG3("%s: hm %pK, hid %u, flags +TFW_STR_HBH_HDR\n",
+		__func__, hm, hid);
 	ht->tbl[hid].flags |= TFW_STR_HBH_HDR;
 	return true;
 }
 
 /**
- * Add header name listed in Connection header to hop-by-hop table of raw
- * headers. If @last is true then (@data, @len) represents last chunk of header
- * name and chunk with ':' will be added to the end. Otherwise last header in
- * table stays open to add more data.
- *
- * After name of hop-by-hop header was completed, will search for headers
- * with that name and mark them as hop-by-hop.
+ * Complete HBH header.
+ * Chunk with ':' will be added to the end.
+ * After name of hop-by-hop header was completed, the routine will search
+ * for headers with that name and mark them as hop-by-hop.
+ * Header might not be parsed yet, i.e. it comes after the Connection header.
  *
  * NOTE: Most of the headers listed in RFC 7231 are end-to-end and must not
  * be listed in the header. Instead of comparing connection tokens to all
@@ -835,31 +866,51 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
  * TFW_HTTP_PARSE_RAWHDR_VAL macro.
  */
 static int
+__hbh_parser_finalize(TfwHttpMsg *hm)
+{
+	TfwStr *hbh_hdr, *append;
+	TfwStr s_colon = { .data = ":", .len = 1 };
+	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
+	hbh_hdr = &hbh->raw[hbh->off];
+
+	T_DBG3("%s: hbh->off %d, hbh_h %pK, hbh_h->nchunks %d, hbh_h->len %lu\n",
+		__func__, hbh->off, hbh_hdr, hbh_hdr->nchunks, hbh_hdr->len);
+
+	append = tfw_str_add_compound(hm->pool, hbh_hdr);
+	if (!append)
+		return -ENOMEM;
+	memcpy(append, &s_colon, sizeof(TfwStr));
+
+	hbh_hdr->len += s_colon.len;
+	++hbh->off;
+
+	if (tfw_http_msg_find_hdr(hbh_hdr, ete_spec_raw_hdrs))
+		return CSTR_NEQ;
+	/*
+	 * Don't set TFW_STR_HBH_HDR flag if such header was already
+	 * parsed. See comment in mark_raw_hbh()
+	 */
+	if (!__mark_hbh_hdr(hm, hbh_hdr))
+		hbh_hdr->flags |= TFW_STR_HBH_HDR;
+
+	return 0;
+}
+
+/**
+ * Add header name listed in Connection header to hop-by-hop table of raw
+ * headers. If @finalize_item is true then (@data, @len) represents
+ * last chunk of header name and HBH header would be finalized.
+ * Otherwise last header in table stays open to add more data.
+ */
+static int
 __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 		      bool finalize_item)
 {
 	TfwStr *hbh_hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
-	static const TfwStr block[] = {
-		/* End-to-end spec and raw headers */
-		TFW_STR_STRING("age:"),
-		TFW_STR_STRING("authorization:"),
-		TFW_STR_STRING("cache-control:"),
-		TFW_STR_STRING("connection:"),
-		TFW_STR_STRING("content-length:"),
-		TFW_STR_STRING("content-type:"),
-		TFW_STR_STRING("cookie:"),
-		TFW_STR_STRING("date:"),
-		TFW_STR_STRING("etag:"),
-		TFW_STR_STRING("expires:"),
-		TFW_STR_STRING("forwarded:"),
-		TFW_STR_STRING("host:"),
-		TFW_STR_STRING("pragma:"),
-		TFW_STR_STRING("server:"),
-		TFW_STR_STRING("transfer-encoding:"),
-		TFW_STR_STRING("user-agent:"),
-		TFW_STR_STRING("x-forwarded-for:"),
-	};
+
+	T_DBG3("%s: hm %pK, data %pK, *data [%c], len %lu, fin=%d\n",
+		__func__, hm, data, *data, len, finalize_item ? 1 : 0);
 
 	if (hbh->off == TFW_HBH_TOKENS_MAX)
 		return CSTR_NEQ;
@@ -867,38 +918,22 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 
 	if (!TFW_STR_EMPTY(hbh_hdr)) {
 		append = tfw_str_add_compound(hm->pool, hbh_hdr);
-	}
-	else {
+	} else {
 		append = (TfwStr *)tfw_pool_alloc(hm->pool, sizeof(TfwStr));
 		hbh_hdr->chunks = append;
 		hbh_hdr->nchunks = 1;
 	}
+
 	if (!append)
 		return -ENOMEM;
 	append->len = len;
 	append->data = data;
 	hbh_hdr->len += len;
 
-	if (finalize_item) {
-		TfwStr s_colon = { .data = ":", .len = 1 };
-		append = tfw_str_add_compound(hm->pool, hbh_hdr);
-		if (!append)
-			return -ENOMEM;
-		*append = s_colon;
-		hbh_hdr->len += s_colon.len;
-		++hbh->off;
+	T_DBG3("%s: hbh->off %d, hbh_h %pK, hbh_h->nchunks %d, hbh_h->len %lu\n",
+		__func__, hbh->off, hbh_hdr, hbh_hdr->nchunks, hbh_hdr->len);
 
-		if (tfw_http_msg_find_hdr(hbh_hdr, block))
-			return CSTR_NEQ;
-		/*
-		 * Don't set TFW_STR_HBH_HDR flag if such header was already
-		 * parsed. See comment in mark_raw_hbh()
-		 */
-		if (!__mark_hbh_hdr(hm, hbh_hdr))
-			hbh_hdr->flags |= TFW_STR_HBH_HDR;
-	};
-
-	return 0;
+	return finalize_item ? __hbh_parser_finalize(hm) : 0;
 }
 
 static int
@@ -951,14 +986,18 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * TRY_STR_* macros are supposed to be used without explicit fixups, so the
  * whole data + len chunk will be fixed up on chunk exhaustion.
  * @str in TRY_STR_LAMBDA must be in lower case.
- * @lambda is called on successfull match.
+ * @lambda is called on successfull full string match.
  * @finish is called when the current data+len chunk is exhausted.
  */
 #define TRY_STR_LAMBDA_BY_REF_finish(str, lambda, finish, state)	\
 	if (!chunk->data)						\
 		chunk->data = p;					\
+	T_DBG3("TSLBR_pre: data %pK, p %pK, c [%c], len %zu, "		\
+		"str='%s'\n", data, p, c, len, str);			\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
 			    str, sizeof(str) - 1);			\
+	T_DBG3("TSLBR_post: __fsm_n: %d, chunk->len %lu\n",		\
+		__fsm_n, chunk->len);					\
 	if (__fsm_n > 0) {						\
 		if (chunk->len == sizeof(str) - 1) {			\
 			lambda;						\
@@ -1492,7 +1531,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 */
 #define TRY_CONN_TOKEN(name, lambda)					\
 	TRY_STR_LAMBDA_finish(name, lambda, {				\
-			if (__hbh_parser_add_data(hm, data, len, false))\
+			if (__hbh_parser_add_data(hm, p, __fsm_n, false))\
 				r = CSTR_NEQ;				\
 			else						\
 				parser->_i_st = &&I_Conn;		\
@@ -1515,13 +1554,19 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		WARN_ON_ONCE(parser->_acc);
 		/* Boolean connection tokens */
 		TRY_CONN_TOKEN("close", {
+			if (__hbh_parser_add_data(hm, p, __fsm_n, false))
+				return CSTR_NEQ;
 			__set_bit(TFW_HTTP_B_CONN_CLOSE, &parser->_acc);
 		});
 		/* Spec headers */
 		TRY_CONN_TOKEN("keep-alive", {
+			if (__hbh_parser_add_data(hm, p, __fsm_n, false))
+				return CSTR_NEQ;
 			__set_bit(TFW_HTTP_B_CONN_KA, &parser->_acc);
 		});
 		TRY_CONN_TOKEN("upgrade", {
+			if (__hbh_parser_add_data(hm, p, __fsm_n, false))
+				return CSTR_NEQ;
 			__set_bit(TFW_HTTP_B_CONN_UPGRADE, &parser->_acc);
 		});
 		TRY_STR_INIT();
@@ -1532,8 +1577,12 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_ConnTok) {
 		WARN_ON_ONCE(!parser->_acc);
 
-		if (!IS_WS(c) && c != ',' && !IS_CRLF(c))
+		if (likely(IS_WS(c) || c == ',' || IS_CRLF(c))) {
+			if (__hbh_parser_finalize(hm))
+				return CSTR_NEQ;
+		} else {
 			__FSM_I_JMP(I_ConnOther);
+		}
 
 		if (test_bit(TFW_HTTP_B_CONN_KA, &parser->_acc)) {
 			register unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
