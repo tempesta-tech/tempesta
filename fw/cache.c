@@ -27,6 +27,11 @@
 #include <linux/tcp.h>
 #include <linux/topology.h>
 
+#undef DEBUG
+#if DBG_CACHE > 0
+#define DEBUG DBG_CACHE
+#endif
+
 #include "tdb.h"
 
 #include "lib/str.h"

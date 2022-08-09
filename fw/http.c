@@ -87,6 +87,11 @@
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
+#undef DEBUG
+#if DBG_HTTP > 0
+#define DEBUG DBG_HTTP
+#endif
+
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "access_log.h"
