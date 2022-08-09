@@ -786,7 +786,7 @@ mark_spec_hbh(TfwHttpMsg *hm)
 		TfwStr *hdr = &hm->h_tbl->tbl[id];
 		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
 			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
-				__func__, hm, id);
+			       __func__, hm, id);
 			hdr->flags |= TFW_STR_HBH_HDR;
 		}
 	}
@@ -817,8 +817,8 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':')))
 		{
 			T_DBG3("%s: hbh raw[%d], hm %pK, hdr %pK ->flags %x, "
-				"flags +TFW_STR_HBH_HDR\n",
-				__func__, i, hm, hdr, hdr->flags);
+			       "flags +TFW_STR_HBH_HDR\n",
+			       __func__, i, hm, hdr, hdr->flags);
 			hdr->flags |= TFW_STR_HBH_HDR;
 			hbh_name->flags = hbh_name->flags &
 					~(unsigned int)TFW_STR_HBH_HDR;
@@ -848,7 +848,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 		return false;
 
 	T_DBG3("%s: hm %pK, hid %u, flags +TFW_STR_HBH_HDR\n",
-		__func__, hm, hid);
+	       __func__, hm, hid);
 	ht->tbl[hid].flags |= TFW_STR_HBH_HDR;
 	return true;
 }
@@ -874,12 +874,12 @@ __hbh_parser_finalize(TfwHttpMsg *hm)
 	hbh_hdr = &hbh->raw[hbh->off];
 
 	T_DBG3("%s: hbh->off %d, hbh_h %pK, hbh_h->nchunks %d, hbh_h->len %lu\n",
-		__func__, hbh->off, hbh_hdr, hbh_hdr->nchunks, hbh_hdr->len);
+	       __func__, hbh->off, hbh_hdr, hbh_hdr->nchunks, hbh_hdr->len);
 
 	append = tfw_str_add_compound(hm->pool, hbh_hdr);
 	if (!append)
 		return -ENOMEM;
-	memcpy(append, &s_colon, sizeof(TfwStr));
+	*append = s_colon;
 
 	hbh_hdr->len += s_colon.len;
 	++hbh->off;
@@ -910,7 +910,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
 
 	T_DBG3("%s: hm %pK, data %pK, *data [%c], len %lu, fin=%d\n",
-		__func__, hm, data, *data, len, finalize_item ? 1 : 0);
+	       __func__, hm, data, *data, len, finalize_item ? 1 : 0);
 
 	if (hbh->off == TFW_HBH_TOKENS_MAX)
 		return CSTR_NEQ;
@@ -931,7 +931,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 	hbh_hdr->len += len;
 
 	T_DBG3("%s: hbh->off %d, hbh_h %pK, hbh_h->nchunks %d, hbh_h->len %lu\n",
-		__func__, hbh->off, hbh_hdr, hbh_hdr->nchunks, hbh_hdr->len);
+	       __func__, hbh->off, hbh_hdr, hbh_hdr->nchunks, hbh_hdr->len);
 
 	return finalize_item ? __hbh_parser_finalize(hm) : 0;
 }
@@ -993,11 +993,11 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	if (!chunk->data)						\
 		chunk->data = p;					\
 	T_DBG3("TSLBR_pre: data %pK, p %pK, c [%c], len %zu, "		\
-		"str='%s'\n", data, p, c, len, str);			\
+	       "str='%s'\n", data, p, c, len, str);			\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
 			    str, sizeof(str) - 1);			\
 	T_DBG3("TSLBR_post: __fsm_n: %d, chunk->len %lu\n",		\
-		__fsm_n, chunk->len);					\
+	       __fsm_n, chunk->len);					\
 	if (__fsm_n > 0) {						\
 		if (chunk->len == sizeof(str) - 1) {			\
 			lambda;						\
