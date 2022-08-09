@@ -115,7 +115,8 @@ do {						\
 	TEST_MPART_NAME(unit, assertion, part)(void)
 
 #define TEST_MPART_DEFINE(unit, assertion, cnt, ...)	\
-	static void (*unit ##__ ##assertion ##__tarr[cnt])(void) = {__VA_ARGS__}
+	static void __attribute__((unused))		\
+	(*unit ##__ ##assertion ##__tarr[cnt])(void) = {__VA_ARGS__}
 
 #define TEST_MPART_RUN(unit, assertion)					    \
 do {									    \
