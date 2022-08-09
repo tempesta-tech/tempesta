@@ -90,7 +90,6 @@ tfw_mod_register(TfwMod *mod)
 	list_add_tail(&mod->list, &tfw_mods);
 	write_unlock(&tfw_mods_lock);
 }
-EXPORT_SYMBOL(tfw_mod_register);
 
 /**
  * Remove the @mod from the global list.
@@ -105,7 +104,6 @@ tfw_mod_unregister(TfwMod *mod)
 	list_del(&mod->list);
 	write_unlock(&tfw_mods_lock);
 }
-EXPORT_SYMBOL(tfw_mod_unregister);
 
 TfwMod *
 tfw_mod_find(const char *name)
@@ -124,8 +122,8 @@ tfw_mod_find(const char *name)
 	return NULL;
 }
 
-static inline void
-tfw_cleanup(struct list_head *mod_list)
+static void
+tfw_cleanup(void)
 {
 	/*
 	 * Wait until all network activity is stopped
@@ -134,24 +132,26 @@ tfw_cleanup(struct list_head *mod_list)
 	if (!tfw_runstate_is_reconfig())
 		ss_synchronize();
 
-	tfw_cfg_cleanup(mod_list);
+	tfw_cfg_cleanup(&tfw_mods);
 
 	if (!tfw_runstate_is_reconfig())
 		tfw_sg_wait_release();
 	T_DBG("New configuration is cleaned.\n");
 }
 
-static inline void
-tfw_mods_stop(struct list_head *mod_list)
+static void
+tfw_mods_stop(void)
 {
 	TfwMod *mod;
 
 	ss_stop();
 
 	T_DBG("Stopping all modules...\n");
-	MOD_FOR_EACH_REVERSE(mod, mod_list) {
+	pr_err("AK_DBG Stopping all modules...\n");
+	MOD_FOR_EACH_REVERSE(mod, &tfw_mods) {
 		T_DBG2("mod_stop(): %s\n", mod->name);
 		if (mod->stop && mod->started) {
+			pr_err("AK_DBG mod_stop(): %s\n", mod->name);
 			mod->stop();
 			mod->started = 0;
 		}
@@ -161,20 +161,20 @@ tfw_mods_stop(struct list_head *mod_list)
 }
 
 static void
-tfw_stop(struct list_head *mod_list)
+tfw_stop(void)
 {
-	tfw_mods_stop(mod_list);
-	tfw_cleanup(mod_list);
+	tfw_mods_stop();
+	tfw_cleanup();
 }
 
 static int
-tfw_mods_cfgstart(struct list_head *mod_list)
+tfw_mods_cfgstart(void)
 {
 	int ret;
 	TfwMod *mod;
 
 	T_DBG2("Prepare the configuration processing...\n");
-	MOD_FOR_EACH(mod, mod_list) {
+	MOD_FOR_EACH(mod, &tfw_mods) {
 		if (!mod->cfgstart)
 			continue;
 		T_DBG2("mod_cfgstart(): %s\n", mod->name);
@@ -190,13 +190,13 @@ tfw_mods_cfgstart(struct list_head *mod_list)
 }
 
 static int
-tfw_mods_start(struct list_head *mod_list)
+tfw_mods_start(void)
 {
 	int ret;
 	TfwMod *mod;
 
 	T_DBG2("starting modules...\n");
-	MOD_FOR_EACH(mod, mod_list) {
+	MOD_FOR_EACH(mod, &tfw_mods) {
 		if (!mod->start)
 			continue;
 		T_DBG2("mod_start(): %s\n", mod->name);
@@ -213,13 +213,13 @@ tfw_mods_start(struct list_head *mod_list)
 }
 
 static int
-tfw_mods_cfgend(struct list_head *mod_list)
+tfw_mods_cfgend(void)
 {
 	int ret;
 	TfwMod *mod;
 
 	T_DBG2("Completing the configuration processing...\n");
-	MOD_FOR_EACH(mod, mod_list) {
+	MOD_FOR_EACH(mod, &tfw_mods) {
 		if (!mod->cfgend)
 			continue;
 		T_DBG2("mod_cfgend(): %s\n", mod->name);
@@ -235,20 +235,20 @@ tfw_mods_cfgend(struct list_head *mod_list)
 }
 
 static int
-tfw_start(struct list_head *mod_list)
+tfw_start(void)
 {
 	int ret;
 
 	ss_start();
-	if ((ret = tfw_mods_cfgstart(mod_list)))
+	if ((ret = tfw_mods_cfgstart()))
 		goto cleanup;
-	if ((ret = tfw_cfg_parse(mod_list)))
+	if ((ret = tfw_cfg_parse(&tfw_mods)))
 		goto cleanup;
-	if ((ret = tfw_mods_cfgend(mod_list)))
+	if ((ret = tfw_mods_cfgend()))
 		goto cleanup;
-	if ((ret = tfw_mods_start(mod_list)))
+	if ((ret = tfw_mods_start()))
 		goto stop_mods;
-	tfw_cfg_conclude(mod_list);
+	tfw_cfg_conclude(&tfw_mods);
 	WRITE_ONCE(tfw_started, true);
 
 	T_LOG_NL("Tempesta FW is ready\n");
@@ -261,11 +261,11 @@ stop_mods:
 	 * and Tempesta must be fully stopped and cleared.
 	 */
 	WRITE_ONCE(tfw_reconfig, false);
-	tfw_mods_stop(mod_list);
+	tfw_mods_stop();
 	WRITE_ONCE(tfw_started, false);
 cleanup:
 	T_WARN_NL("Configuration parsing has failed. Clean up...\n");
-	tfw_cleanup(mod_list);
+	tfw_cleanup();
 	return ret;
 }
 
@@ -286,7 +286,7 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 			T_LOG("Live reconfiguration of Tempesta.\n");
 		}
 
-		r = tfw_start(&tfw_mods);
+		r = tfw_start();
 		WRITE_ONCE(tfw_reconfig, false);
 
 		return r;
@@ -298,7 +298,7 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 			return -EINVAL;
 		}
 
-		tfw_stop(&tfw_mods);
+		tfw_stop();
 		WRITE_ONCE(tfw_started, false);
 
 		return 0;
@@ -420,7 +420,7 @@ tfw_exit(void)
 	mutex_lock(&tfw_sysctl_mtx);
 	if (READ_ONCE(tfw_started)) {
 		T_WARN_NL("Tempesta FW is still running, shutting down...\n");
-		tfw_stop(&tfw_mods);
+		tfw_stop();
 		WRITE_ONCE(tfw_started, false);
 	}
 	mutex_unlock(&tfw_sysctl_mtx);

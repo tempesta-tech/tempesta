@@ -43,8 +43,6 @@
  * our specs may interfere with already existing modules.
  * Instead, we create a dummy TfwMod{} and pass it to them as if it was real.
  */
-
-static LIST_HEAD(test_tfw_mods);
 TfwMod test_dummy_mod = { .name = "test_dummy_mod" };
 
 static int
@@ -52,22 +50,22 @@ do_parse_cfg(const char *cfg_text, TfwCfgSpec specs[])
 {
 	int ret;
 
-	BUG_ON(!list_empty(&test_tfw_mods));
+	BUG_ON(!list_empty(&tfw_mods));
 	test_dummy_mod.specs = specs;
-	list_add(&test_dummy_mod.list, &test_tfw_mods);
+	list_add(&test_dummy_mod.list, &tfw_mods);
 
-	if ((ret = tfw_cfg_parse_mods(cfg_text, &test_tfw_mods)))
+	if ((ret = tfw_cfg_parse_mods(cfg_text, &tfw_mods)))
 		return ret;
-	if ((ret = tfw_mods_cfgend(&test_tfw_mods)))
+	if ((ret = tfw_mods_cfgend()))
 		return ret;
-	return tfw_mods_start(&test_tfw_mods);
+	return tfw_mods_start();
 }
 
 static void
 do_cleanup_cfg(void)
 {
-	BUG_ON(list_empty(&test_tfw_mods));
-	tfw_stop(&test_tfw_mods);
+	BUG_ON(list_empty(&tfw_mods));
+	tfw_stop();
 	list_del(&test_dummy_mod.list);
 }
 
@@ -1089,6 +1087,10 @@ TEST(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs)
 
 TEST_SUITE(cfg)
 {
+	LIST_HEAD(tmp_tfw_mods);
+	tmp_tfw_mods = tfw_mods;
+	INIT_LIST_HEAD(&tfw_mods);
+
 	TEST_RUN(cfg_parser, invokes_specified_handler);
 	TEST_RUN(cfg_parser, allows_repeating_entries);
 	TEST_RUN(cfg_parser, allows_optional_entries);
@@ -1112,4 +1114,6 @@ TEST_SUITE(cfg)
 	TEST_RUN(tfw_cfg_set_str, checks_character_set);
 	TEST_RUN(tfw_cfg_handle_children, parses_nested_entries_recursively);
 	TEST_RUN(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs);
+
+	tfw_mods = tmp_tfw_mods;
 }
