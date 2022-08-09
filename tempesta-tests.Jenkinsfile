@@ -37,7 +37,7 @@ pipeline {
 
         stage('Run tests') {
             options {
-                timeout(time: 45, unit: 'MINUTES')   // timeout on this stage
+                timeout(time: 60, unit: 'MINUTES')   // timeout on this stage
             }
             steps {
                 dir("${TESTS_PATH}"){
