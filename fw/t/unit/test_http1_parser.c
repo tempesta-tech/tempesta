@@ -2911,6 +2911,7 @@ TEST(http1_parser, resp_hop_by_hop)
 	"Content-Type: text/html; charset=iso-8859-1\r\n"		\
 	"Dummy7: 7\r\n"							\
 	"Buzz: is hop-by-hop header\r\n"				\
+	"Keep-Alivevv: hello there\r\n"					\
 	"Dummy8: 8\r\n"							\
 	"Foo: is hop-by-hop header\r\n"					\
 	"Cache-Control: max-age=5, private, no-cache, ext=foo\r\n"	\
@@ -2919,6 +2920,7 @@ TEST(http1_parser, resp_hop_by_hop)
 	"Keep-Alive: timeout=600, max=65526\r\n"			\
 	"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"		\
 		" mod_fcgid/2.3.9\r\n"					\
+	"Bar: is hop-by-hop header\r\n"					\
 	"Age: 12  \n"							\
 	"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"			\
 	"\r\n"								\
@@ -2930,7 +2932,7 @@ TEST(http1_parser, resp_hop_by_hop)
 	{
 		ht = resp->h_tbl;
 		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -2952,7 +2954,7 @@ TEST(http1_parser, resp_hop_by_hop)
 	{
 		ht = resp->h_tbl;
 		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -2971,12 +2973,12 @@ TEST(http1_parser, resp_hop_by_hop)
 
 	/* Hop-by-hop headers: Connection, Keep-Alive and user headers */
 	FOR_RESP(RESP_HBH_START
-		 "Connection: Foo, Keep-Alive, Bar, Buzz\r\n"
+		 "Connection: Foo, Keep-Alive, Bar, Buzz, Keep-Alivevv\r\n"
 		 RESP_HBH_END)
 	{
 		ht = resp->h_tbl;
 		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -2984,8 +2986,15 @@ TEST(http1_parser, resp_hop_by_hop)
 			case TFW_HTTP_HDR_SERVER:
 			case TFW_HTTP_HDR_CONNECTION:
 			case TFW_HTTP_HDR_KEEP_ALIVE:
+			/* Foo: is hop-by-hop header */
 			case TFW_HTTP_HDR_RAW + 3:
+			/* Buzz: is hop-by-hop header */
 			case TFW_HTTP_HDR_RAW + 9:
+			/* Keep-Alivevv: hello there */
+			case TFW_HTTP_HDR_RAW + 10:
+			/* Bar: is hop-by-hop header */
+			case TFW_HTTP_HDR_RAW + 15:
+				TEST_DBG3("test HBH flag, h_tbl->tbl[%lu]\n", id);
 				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
 				break;
 			default:
