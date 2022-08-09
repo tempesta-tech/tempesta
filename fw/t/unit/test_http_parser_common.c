@@ -230,6 +230,8 @@ tfw_h1_frames_assign(char *str, size_t len)
 	frames[frames_cnt - 1].str = str + pos;
 	frames[frames_cnt - 1].len = (last_frame_len != 0) ?
 				last_frame_len : FRAME_MAX_SIZE;
+	if (frames_max_sz == 0)
+		frames_max_sz = frames[frames_cnt - 1].len;
 	frames_total_sz += frames[frames_cnt - 1].len;
 }
 
@@ -375,24 +377,20 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 				r, pos, hm->msg.len);
 
 		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
-		if (r != TFW_POSTPONE) {
-			tfw_free_chunks(chunks, chunk_cnt);
-			return r;
-		}
+		if (r != TFW_POSTPONE)
+			goto complete;
 	}
-	if (type == FUZZ_REQ_H2) {
-		/**
-		 * Chunks deallocation postponement is required here
-		 * due to the fact that some @req fields would point to
-		 * the data in chunks and this data would be checked later.
-		 * See comments for @do_split_and_parse()/__TRY_PARSE_EXPECT_*
-		 */
-		*fchunks = chunks;
-	} else {
-		tfw_free_chunks(chunks, chunk_cnt);
-	}
+
 	BUG_ON(pos != len);
 
+complete:
+	/**
+	 * Chunks deallocation postponement is required here
+	 * due to the fact that some @req fields would point to
+	 * the data in chunks and this data would be checked later.
+	 * See comments for @do_split_and_parse()/__TRY_PARSE_EXPECT_*
+	 */
+	*fchunks = chunks;
 	return r;
 }
 
@@ -469,8 +467,7 @@ do_split_and_parse(int type, int chunk_mode)
 		 * all defined chunk sizes were tested and
 		 * no more iterations needed.
 		 */
-		if (type == FUZZ_REQ_H2)
-			tfw_frames_chunks_free();
+		tfw_frames_chunks_free();
 		return 1;
 	}
 
@@ -528,6 +525,13 @@ do_split_and_parse(int type, int chunk_mode)
 	FOR_EACH_FRAME({
 		TfwFrameRec *frame = GET_CURRENT_FRAME();
 
+		if (frame->chunks != NULL) {
+			tfw_free_chunks(frame->chunks,
+					frame->chunk_cnt);
+			frame->chunks = NULL;
+			frame->chunk_cnt = 0;
+		}
+
 		if (type == FUZZ_REQ_H2) {
 			TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 			ctx->hdr.type = frame->subtype;
@@ -541,12 +545,7 @@ do_split_and_parse(int type, int chunk_mode)
 		} else {
 			r = split_and_parse_n(frame->str, type, frame->len,
 						chunk_size, &chunks);
-			if (frame->chunks != NULL) {
-				tfw_free_chunks(frame->chunks,
-						frame->chunk_cnt);
-				frame->chunks = NULL;
-				frame->chunk_cnt = 0;
-			}
+
 			if (chunks) {
 				frame->chunks = chunks;
 				frame->chunk_cnt = DIV_ROUND_UP(frame->len,

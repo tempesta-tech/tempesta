@@ -2775,7 +2775,6 @@ TEST(http2_parser, fuzzer)
 	}
 
 end:
-	tfw_frames_chunks_free();
 	kernel_fpu_end();
 	vfree(str);
 	kernel_fpu_begin();
