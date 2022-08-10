@@ -69,20 +69,7 @@ tfw_connection_repair(TfwConn *conn)
 int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
-	int r;
-
-	/*
-	 * This function might be called from process context on Tempesta FW
-	 * start or stop operation or from softirq, so need to save FPU context
-	 * to call autovectorized synchronous sockets code.
-	 */
-	kernel_fpu_begin_mask(KFPU_MXCSR);
-
-	r = TFW_CONN_HOOK_CALL(conn, conn_close, sync);
-
-	kernel_fpu_end();
-
-	return r;
+	return TFW_CONN_HOOK_CALL(conn, conn_close, sync);
 }
 
 /**
