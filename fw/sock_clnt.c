@@ -790,11 +790,12 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 };
 
 TfwMod tfw_sock_clnt_mod  = {
-	.name	= "sock_clnt",
-	.cfgend = tfw_sock_clnt_cfgend,
-	.start	= tfw_sock_clnt_start,
-	.stop	= tfw_sock_clnt_stop,
-	.specs	= tfw_sock_clnt_specs,
+	.name		= "sock_clnt",
+	.cfgend		= tfw_sock_clnt_cfgend,
+	.start		= tfw_sock_clnt_start,
+	.stop		= tfw_sock_clnt_stop,
+	.specs		= tfw_sock_clnt_specs,
+	.sock_user	= 1,
 };
 
 /*

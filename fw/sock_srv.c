@@ -2413,6 +2413,7 @@ static TfwMod tfw_sock_srv_mod = {
 	.start		= tfw_sock_srv_start,
 	.stop		= tfw_sock_srv_stop,
 	.specs		= tfw_sock_srv_specs,
+	.sock_user	= 1,
 };
 
 /*

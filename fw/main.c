@@ -47,6 +47,7 @@ size_t  exit_hooks_n;
 DEFINE_MUTEX(tfw_sysctl_mtx);
 static bool tfw_started = false;
 static bool tfw_reconfig = false;
+static int tfw_ss_users = 0;
 
 /*
  * The global list of all registered modules
@@ -125,13 +126,6 @@ tfw_mod_find(const char *name)
 static void
 tfw_cleanup(void)
 {
-	/*
-	 * Wait until all network activity is stopped
-	 * before data in modules can be cleaned up safely.
-	 */
-	if (!tfw_runstate_is_reconfig())
-		ss_synchronize();
-
 	tfw_cfg_cleanup(&tfw_mods);
 
 	if (!tfw_runstate_is_reconfig())
@@ -143,19 +137,36 @@ static void
 tfw_mods_stop(void)
 {
 	TfwMod *mod;
+	bool ss_synced = false;
 
 	ss_stop();
 
 	T_DBG("Stopping all modules...\n");
-	pr_err("AK_DBG Stopping all modules...\n");
 	MOD_FOR_EACH_REVERSE(mod, &tfw_mods) {
 		T_DBG2("mod_stop(): %s\n", mod->name);
-		if (mod->stop && mod->started) {
-			pr_err("AK_DBG mod_stop(): %s\n", mod->name);
-			mod->stop();
-			mod->started = 0;
-		}
+		if (!mod->stop || !mod->started)
+			continue;
+
+		mod->stop();
+		mod->started = 0;
+
+		tfw_ss_users -= mod->sock_user;
+		if (ss_synced || tfw_ss_users || tfw_runstate_is_reconfig())
+			continue;
+		/*
+		 * Wait until all network activity is stopped before data in
+		 * modules can be cleaned up safely. We must do this between
+		 * stopping modules using synchronous sockets and modules
+		 * providing data structures for the first modules.
+		 * In particular, we need to stop all networking activity after
+		 * stopping sock_clnt and during the synchronization period the
+		 * client database must provide valid references to stored
+		 * clients.
+		 */
+		ss_synchronize();
+		ss_synced = false;
 	}
+	BUG_ON(tfw_ss_users);
 
 	T_LOG("modules are stopped\n");
 }
@@ -197,6 +208,8 @@ tfw_mods_start(void)
 
 	T_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, &tfw_mods) {
+		BUG_ON(mod->sock_user && (!mod->start || !mod->stop));
+
 		if (!mod->start)
 			continue;
 		T_DBG2("mod_start(): %s\n", mod->name);
@@ -206,6 +219,7 @@ tfw_mods_start(void)
 			return ret;
 		}
 		mod->started = 1;
+		tfw_ss_users += mod->sock_user;
 	}
 	T_DBG("modules are started\n");
 
