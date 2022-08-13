@@ -2261,7 +2261,6 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 	if (io->msgtype == TTLS_MSG_ALERT) {
 		if (!(r = ttls_handle_alert(tls)))
 			return T_OK;
-		TTLS_WARN(tls, "Bad TLS alert\n");
 		return T_DROP;
 	}
 
