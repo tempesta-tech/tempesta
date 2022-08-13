@@ -15,6 +15,12 @@ Module.symvers
 *~
 \#*\#
 .\#*
+*.orig
+.*.swp
+
+# ctags and cscope
+cscope.*
+tags
 
 # eclipse project settings
 .pydevproject
