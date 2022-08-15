@@ -993,6 +993,50 @@ tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
 	return dst;
 }
 
+/*
+ * Prepare new compound @TfwStr to make it structurally identical
+ * to the source TfwStr except for the actual data it points to.
+ * The chunk descriptors of the new string would point to the linear
+ * buffer provided by @data_str.
+ * Data copying is expected to be performed elsewhere.
+ *
+ * @pool     - pool descriptor
+ * @data_str - plain TfwStr which points to target data buffer,
+ *	       e.g. returned from ss_skb_get_room() call
+ * @src	     - source string
+ */
+TfwStr *
+tfw_strcpy_prep(TfwPool *pool, const TfwStr *data_str, const TfwStr *src)
+{
+	size_t sz;
+	char *data;
+	const TfwStr *sc, *end;
+	TfwStr *dst, *dc;
+
+	BUG_ON(!TFW_STR_PLAIN(data_str));
+
+	sz = (src->nchunks + 1) * sizeof(TfwStr);
+	dst = (TfwStr *)tfw_pool_alloc(pool, sz);
+	if (unlikely(!dst))
+		return NULL;
+
+	*dst = *src;
+	dst->chunks = dst + 1;
+	dst->skb = data_str->skb;
+
+	data = data_str->data;
+	dc = TFW_STR_CHUNK(dst, 0);
+	TFW_STR_FOR_EACH_CHUNK(sc, src, end) {
+		__tfw_str_set_data(dc, data, data_str->skb);
+		dc->len = sc->len;
+		data += sc->len;
+		++dc;
+	}
+
+	return dst;
+}
+
+
 static inline int
 __tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
 {

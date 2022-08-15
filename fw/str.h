@@ -416,6 +416,13 @@ tfw_str_fixup_eol(TfwStr *str, int eolen)
 		*(short *)(str->data + str->len) = 0x0a0d; /* CRLF, '\r\n' */
 }
 
+static inline void
+__tfw_str_set_data(TfwStr *str, void *data, struct sk_buff *skb)
+{
+	str->data = data;
+	str->skb = skb;
+}
+
 void tfw_str_del_chunk(TfwStr *str, int id);
 void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 			 const char *stop);
@@ -436,6 +443,8 @@ int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 TfwStr *tfw_strdup(TfwPool *pool, const TfwStr *src);
 int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
 TfwStr *tfw_strdup_desc(TfwPool *pool, const TfwStr *src);
+TfwStr *tfw_strcpy_prep(TfwPool *pool, const TfwStr *data_str,
+			const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 int tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk);
 
