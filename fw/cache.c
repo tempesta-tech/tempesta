@@ -2313,10 +2313,6 @@ write_body:
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      TFW_MSG_H2(req), stream_id))
 			goto free;
-		if (!TFW_MSG_H2(req)
-		    && test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-		    && tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
-			goto free;
 	}
 
 	return resp;
