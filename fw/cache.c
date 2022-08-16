@@ -1541,6 +1541,13 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		.len = SLEN(S_VIA_H2_PROTO) + g_vhost->hdr_via_len,
 		.nchunks = 2
 	};
+	TfwStr val_cl = {
+		.chunks = (TfwStr []){
+			{ .data = *this_cpu_ptr(&g_c_buf), .len = 0 }
+		},
+		.nchunks = 1
+	};
+
 	unsigned int cc_ignore_flags =
 		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
@@ -1635,6 +1642,13 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 			continue;
 		}
 
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+		    && !test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
+		    && hid == TFW_HTTP_HDR_TRANSFER_ENCODING) {
+			--ce->hdr_num;
+			continue;
+		}
+
 		if (hid == TFW_HTTP_HDR_ETAG) {
 			/* Must be updated after tfw_cache_h2_copy_hdr(). */
 			etag_off = TDB_OFF(db->hdr, p);
@@ -1642,7 +1656,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		}
 
 		__save_hdr_304_off(ce, resp, field, TDB_OFF(db->hdr, p));
-
 		n = tfw_cache_h2_copy_hdr(ce, &p, &trec, field, &tot_len);
 		if (unlikely(n < 0))
 			return n;
@@ -1663,6 +1676,23 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	ce->hdr_h2_off = ce->hdr_num + 1;
 	ce->hdr_num += 2;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		val_cl.chunks->len = tfw_ultoa(resp->body.len,
+					       val_cl.chunks->data,
+					       TFW_ULTOA_BUF_SIZ);
+
+		val_cl.len = val_cl.chunks->len;
+		if (!val_cl.len)
+			return -EINVAL;
+
+		/* Add 'content-length' header. */
+		n = tfw_cache_h2_add_hdr(ce, &p, &trec, 28, &val_cl, &tot_len);
+		if (unlikely(n < 0))
+			return n;
+
+		ce->hdr_num += 1;
+	}
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
@@ -1777,6 +1807,7 @@ __cache_entry_size(TfwHttpResp *resp)
 	TfwStr host_val, *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
 	long size, res_size = CE_BODY_SIZE;
+	size_t cl_len;
 	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
@@ -1807,6 +1838,11 @@ __cache_entry_size(TfwHttpResp *resp)
 		if ((hdr->flags & TFW_STR_HBH_HDR)
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(hdr))
+			continue;
+
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+		    && !test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
+		    && hid == TFW_HTTP_HDR_TRANSFER_ENCODING)
 			continue;
 
 		/*
@@ -1883,6 +1919,15 @@ __cache_entry_size(TfwHttpResp *resp)
 	res_size += 2;
 	res_size += tfw_hpack_int_size(via_sz, 0x7F);
 	res_size += via_sz;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		cl_len = tfw_ultoa(resp->body.len, *this_cpu_ptr(&g_c_buf),
+				   TFW_ULTOA_BUF_SIZ);
+		res_size += sizeof(TfwCStr);
+		res_size += 2;
+		res_size += tfw_hpack_int_size(cl_len, 0x7F);
+		res_size += cl_len;
+	}
 
 	/* Add body size. */
 	res_size += resp->body.len;
@@ -2473,8 +2518,9 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		/* Check if we want to do a GET in addition to PURGE. */
 		if (!ret && test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
 			action((TfwHttpMsg *)req);
-	} else
+	} else {
 		cache_req_process_node(req, action);
+	}
 }
 
 static void

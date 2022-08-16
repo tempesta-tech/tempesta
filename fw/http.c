@@ -4029,13 +4029,8 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			return r;
 	}
 
-	r = TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
+	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
-	if (r < 0)
-		return r;
-
-	/* Frame response if framing information was lost or absent. */
-	return tfw_http_msg_frame_h1_msg(hm);
 }
 
 /*
@@ -4277,6 +4272,27 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache)
 	else
 		T_DBG3("%s: added 'date' header, resp=[%p]\n", __func__, resp);
 
+	return r;
+}
+
+static int
+tfw_h2_add_hdr_clen(TfwHttpResp *resp)
+{
+	int r;
+	char* buf = *this_cpu_ptr(&g_buf);
+	size_t cl_valsize = tfw_ultoa(resp->body.len, buf,
+				      TFW_ULTOA_BUF_SIZ);
+
+	r = tfw_h2_msg_hdr_add(resp, "content-length",
+			       SLEN("content-length"), buf,
+			       cl_valsize, 28);
+
+	if (unlikely(r))
+		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
+		      __func__, resp);
+	else
+		T_DBG3("%s: added 'conent-length' header, resp=[%p]\n",
+		       __func__, resp);
 	return r;
 }
 
@@ -4864,6 +4880,8 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
+	TFW_STR_INIT(&resp->stream->parser.cut);
+
 	/*
 	 * A client can disconnect at any time after the request was
 	 * forwarded to backend. In this case the response will never be sent
@@ -5174,6 +5192,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(!stream_id))
 		goto out;
 
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+		tfw_http_msg_del_parsed_cuts((TfwHttpMsg*)resp, true);
 	/*
 	 * Transform HTTP/1.1 headers into HTTP/2 form, in parallel with
 	 * adjusting of particular headers.
@@ -5242,6 +5262,12 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	r = tfw_h2_resp_add_loc_hdrs(resp, h_mods, false);
 	if (unlikely(r))
 		goto clean;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		r = tfw_h2_add_hdr_clen(resp);
+		if (unlikely(r))
+			goto clean;
+	}
 
 	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
 	if (unlikely(r))
@@ -6346,16 +6372,7 @@ next_msg:
 			filtout = true;
 			goto bad_msg;
 		}
-		/*
-		 * Cut extra data found by parser and never intended to be
-		 * forwarded to client, such as chunked encoding. It can be cut
-		 * off later, but just do it now while all the data sits in the
-		 * last skb.
-		 */
-		if (tfw_http_msg_del_parsed_cuts(hmresp, false)) {
-			TFW_INC_STAT_BH(serv.msgs_otherr);
-			goto bad_msg;
-		}
+
 		/*
 		 * TFW_POSTPONE status means that parsing succeeded
 		 * but more data is needed to complete it. Lower layers
@@ -6395,14 +6412,6 @@ next_msg:
 	}
 	else {
 		skb = NULL;
-	}
-	/*
-	 * Cut everything from response, which we don't want to pass, e.g.
-	 * chunked encoding.
-	 */
-	if (tfw_http_msg_del_parsed_cuts(hmresp, true)) {
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		goto bad_msg;
 	}
 
 	/*
