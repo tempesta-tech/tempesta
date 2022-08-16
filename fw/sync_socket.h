@@ -119,6 +119,9 @@ ss_proto_inherit(const SsProto *parent, SsProto *child)
 #define SS_F_CONN_CLOSE			0x04
 /* Call TLS encryption hook on the skb transmission. */
 #define SS_F_ENCRYPT			0x08
+/* Close with TCP RST (connection abort). */
+#define __SS_F_RST			0x10
+#define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
 
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)
@@ -139,7 +142,7 @@ int ss_bind(struct sock *sk, const TfwAddr *addr);
 int ss_listen(struct sock *sk, int backlog);
 void ss_getpeername(struct sock *sk, TfwAddr *addr);
 void ss_wait_newconn(void);
-void ss_synchronize(void);
+bool ss_synchronize(void);
 void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);

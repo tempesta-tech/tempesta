@@ -189,7 +189,7 @@ ss_active_guard_exit(unsigned long val)
 }
 
 static void
-__ss_conn_drop_guard_exit(struct sock *sk)
+ss_conn_drop_guard_exit(struct sock *sk)
 {
 	SS_CALL(connection_drop, sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
@@ -538,19 +538,13 @@ EXPORT_SYMBOL(ss_send);
  * Note: it used to be called in process context as well, at the time when
  * Tempesta starts or stops. That's not the case right now, but it may change.
  *
- * TODO In some cases we need to close socket aggressively w/o FIN_WAIT_2 state,
- * e.g. by sending RST. So we need to add second parameter to the function
- * which says how to close the socket.
- * One of the examples is rcl_req_limit() (it should reset connections).
- * See tcp_sk(sk)->linger2 processing in standard tcp_close().
- *
  * Called with locked socket.
  */
 static void
-ss_do_close(struct sock *sk)
+ss_do_close(struct sock *sk, int flags)
 {
 	struct sk_buff *skb;
-	int data_was_unread = 0;
+	bool data_was_unread = false;
 
 	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
@@ -576,10 +570,8 @@ ss_do_close(struct sock *sk)
 	/* The below is mostly copy-paste from tcp_close(). */
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
-	while ((skb = __skb_dequeue(&sk->sk_receive_queue)) != NULL) {
-		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
-			  tcp_hdr(skb)->fin;
-		data_was_unread += len;
+	while ((skb = __skb_dequeue(&sk->sk_receive_queue))) {
+		data_was_unread = true;
 		T_DBG3("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
 		__kfree_skb(skb);
 	}
@@ -589,8 +581,13 @@ ss_do_close(struct sock *sk)
 	if (sk->sk_state == TCP_CLOSE)
 		goto adjudge_to_death;
 
-	if (data_was_unread) {
-		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
+	if (data_was_unread || (flags & __SS_F_RST)) {
+		if ((flags & __SS_F_RST)) {
+			sk->sk_err = ECONNRESET;
+			sk->sk_shutdown = SHUTDOWN_MASK;
+		} else {
+			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
+		}
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	}
@@ -660,8 +657,15 @@ adjudge_to_death:
 	}
 	if (sk->sk_state == TCP_CLOSE) {
 		struct request_sock *req = tcp_sk(sk)->fastopen_rsk;
-		if (req != NULL)
+		if (req)
 			reqsk_fastopen_remove(sk, req, false);
+		if (flags & __SS_F_RST)
+			/*
+			 * Evict all data for transmission since we might never
+			 * have enough window from the malicious/misbehaving client.
+			 * Receive queue is purged in inet_csk_destroy_sock().
+			 */
+			tcp_write_queue_purge(sk);
 		inet_csk_destroy_sock(sk);
 	}
 }
@@ -678,8 +682,8 @@ adjudge_to_death:
 static void
 ss_linkerror(struct sock *sk)
 {
-	ss_do_close(sk);
-	__ss_conn_drop_guard_exit(sk);
+	ss_do_close(sk, 0);
+	ss_conn_drop_guard_exit(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
@@ -753,7 +757,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 
 	if (ss_skb_unroll(&skb_head, skb)) {
 		__kfree_skb(skb);
-		return SS_DROP;
+		return SS_BAD;
 	}
 
 	while ((skb = ss_skb_dequeue(&skb_head))) {
@@ -777,7 +781,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		if (unlikely(offset > 0 &&
 			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
 		{
-			r = SS_DROP;
+			r = SS_BAD;
 			goto out;
 		}
 		offset = 0;
@@ -809,7 +813,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
-		r = SS_DROP;
+		r = SS_BAD;
 	}
 out:
 	if (skb_head)
@@ -827,11 +831,10 @@ out:
  *
  * TODO #873 process URG.
  */
-static bool
+static int
 ss_tcp_process_data(struct sock *sk)
 {
-	bool droplink = true;
-	int r, count, processed = 0;
+	int r = 0, count, processed = 0;
 	unsigned int skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -858,14 +861,13 @@ ss_tcp_process_data(struct sock *sk)
 		processed += count;
 
 		if (r < 0)
-			goto out;
-		else if (!count)
+			break;
+		if (!count)
 			T_WARN("recvmsg bug: overlapping TCP segment at %X"
 			       " seq %X rcvnxt %X len %x\n",
 			       tp->copied_seq, skb_seq, tp->rcv_nxt,
 				 skb_len);
 	}
-	droplink = false;
 out:
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
@@ -875,7 +877,7 @@ out:
 	if (processed)
 		tcp_cleanup_rbuf(sk, processed);
 
-	return droplink;
+	return r;
 }
 
 /*
@@ -901,37 +903,13 @@ ss_tcp_data_ready(struct sock *sk)
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
 		T_ERR("error data in socket %p\n", sk);
+		return;
 	}
-	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
-		if (ss_tcp_process_data(sk) &&
-		    !(SS_CONN_TYPE(sk) & Conn_Stop)) {
-			/*
-			 * Close connection in case of internal errors,
-			 * banned packets, or FIN in the received packet,
-			 * and only if it's not on hold until explicitly
-			 * closed.
-			 *
-			 * ss_close() is responsible for calling
-			 * application layer connection closing callback.
-			 * The callback will free all SKBs linked with
-			 * the message that is currently being processed.
-			 *
-			 * Closing a socket should go through the queue and
-			 * should be done after all pending data has been sent.
-			 *
-			 * TODO #861. ss_tcp_process_data() returns true/false
-			 * on all kind of problems: e.g. inability to unroll an
-			 * skb and a security event. However, the problems are
-			 * very different - we should send pending data in first
-			 * case (SS_BAD) and send RST in the second (SS_DROP).
-			 */
-			ss_close(sk, SS_F_SYNC);
-		}
-	}
-	else {
+
+	if (skb_queue_empty(&sk->sk_receive_queue)) {
 		/*
 		 * Check for URG data.
-		 * TODO shouldn't we do it in ss_tcp_process_data()?
+		 * TODO #873: shouldn't we do it in ss_tcp_process_data()?
 		 */
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
@@ -939,6 +917,32 @@ ss_tcp_data_ready(struct sock *sk)
 			T_DBG3("[%d]: urgent data in socket %p\n",
 			       smp_processor_id(), sk);
 		}
+	}
+
+	switch (ss_tcp_process_data(sk)) {
+	case SS_OK:
+		return;
+	case SS_BAD:
+		/*
+		 * Close connection in case of internal errors,
+		 * banned packets, or FIN in the received packet,
+		 * and only if it's not on hold until explicitly
+		 * closed.
+		 *
+		 * ss_close() is responsible for calling
+		 * application layer connection closing callback.
+		 * The callback will free all SKBs linked with
+		 * the message that is currently being processed.
+		 *
+		 * Closing a socket should go through the queue and
+		 * should be done after all pending data has been sent.
+		 */
+		if (!(SS_CONN_TYPE(sk) & Conn_Stop))
+			ss_close(sk, SS_F_SYNC);
+		break;
+	case SS_DROP:
+		ss_close(sk, SS_F_ABORT);
+		break;
 	}
 }
 
@@ -972,7 +976,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * it on our own without calling upper layer hooks.
 		 */
 		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
-			ss_do_close(sk);
+			ss_do_close(sk, 0);
 			sock_put(sk);
 			/*
 			 * The case of a connect to an upstream server that
@@ -980,12 +984,12 @@ ss_tcp_state_change(struct sock *sk)
 			 * and ss_active_guard_enter() there.
 			 */
 			if (!lsk)
-				__ss_conn_drop_guard_exit(sk);
+				ss_conn_drop_guard_exit(sk);
 			return;
 		}
 
 		if (lsk && ss_active_guard_enter(SS_V_ACT_LIVECONN)) {
-			ss_do_close(sk);
+			ss_do_close(sk, 0);
 			sock_put(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
@@ -1003,6 +1007,7 @@ ss_tcp_state_change(struct sock *sk)
 		if (r) {
 			T_DBG2("[%d]: New connection hook failed, r=%d\n",
 			       smp_processor_id(), r);
+			/* ss_linkerror() decrements SS_V_ACT_LIVECONN. */
 			ss_linkerror(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
@@ -1047,17 +1052,12 @@ ss_tcp_state_change(struct sock *sk)
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
-		 * In current implementation we never reach TCP_CLOSE state
-		 * in regular course of action. When a socket is moved from
-		 * TCP_ESTABLISHED state to a closing state, we forcefully
-		 * close the socket before it can reach the final state.
-		 *
-		 * We get here when an error has occurred in the connection.
-		 * It could be that RST was received which may happen for
-		 * multiple reasons. Or it could be a case of TCP timeout
-		 * where the connection appears to be dead. In all of these
-		 * cases the socket is moved directly to TCP_CLOSE state
-		 * thus skipping all other states.
+		 * We reach the state on regular tcp_close() (including the
+		 * active closing from our side), tcp_abort() or tcp_done()
+		 * in case of connection errors/RST and also tcp_fin() ->
+		 * tcp_time_wait() for FIN_WAIT_2 and TIME_WAIT (also active
+		 * closing) lead to tcp_done(). Note that we get here also on
+		 * concurrent closing (TCP_CLOSING).
 		 *
 		 * It's safe to call the callback since we set socket callbacks
 		 * either for just created, not connected, sockets or in the
@@ -1379,13 +1379,14 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 }
 EXPORT_SYMBOL(ss_getpeername);
 
-#define __sk_close_locked(sk)					\
-do {								\
-	ss_do_close(sk);					\
-	bh_unlock_sock(sk);					\
-	__ss_conn_drop_guard_exit(sk);				\
-	sock_put(sk); /* paired with ss_do_close() */		\
-} while (0)
+static void
+__sk_close_locked(struct sock *sk, int flags)
+{
+	ss_do_close(sk, flags);
+	bh_unlock_sock(sk);
+	ss_conn_drop_guard_exit(sk);
+	sock_put(sk); /* paired with ss_do_close() */
+}
 
 static void
 ss_tx_action(void)
@@ -1434,7 +1435,7 @@ ss_tx_action(void)
 				break;
 			}
 			/* paired with bh_lock_sock() */
-			__sk_close_locked(sk);
+			__sk_close_locked(sk, sw.flags);
 			break;
 		case SS_CLOSE:
 			/*
@@ -1456,7 +1457,7 @@ ss_tx_action(void)
 				break;
 			}
 			/* paired with bh_lock_sock() */
-			__sk_close_locked(sk);
+			__sk_close_locked(sk, sw.flags);
 			break;
 		default:
 			BUG();
@@ -1544,7 +1545,7 @@ EXPORT_SYMBOL(ss_wait_newconn);
  * SS upcalls are protected with SS_V_ACT_LIVECONN.
  * Can sleep, so must be called from user-space context.
  */
-void
+bool
 ss_synchronize(void)
 {
 	int cpu, wq_acc = 0, wq_acc_old = 0;
@@ -1581,14 +1582,16 @@ ss_synchronize(void)
 					acm = &per_cpu(__ss_act_cnt, cpu);
 					T_WARN("  cpu %d(%d), backlog size %lu,"
 					       " active connections mask %#lx,"
-					       " cntwork queue size %d\n",
+					       " cntwork queue size %d,"
+					       " close backlog is %sempty\n",
 					       cpu, smp_processor_id(),
 					       cb->size,
 					       (unsigned long)atomic64_read(acm),
-					       tfw_wq_size(wq));
+					       tfw_wq_size(wq),
+					       list_empty(&cb->head)
+					       ? "" : "NOT ");
 				}
-				T_WARN("Memory leakage is possible\n");
-				return;
+				return false;
 			}
 		}
 		else if (acc + wq_acc < acc_old + wq_acc_old) {
@@ -1599,6 +1602,8 @@ ss_synchronize(void)
 		wq_acc_old = wq_acc;
 		acc = wq_acc = 0;
 	}
+
+	return true;
 }
 
 /**

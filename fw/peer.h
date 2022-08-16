@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -61,24 +61,12 @@ tfw_peer_add_conn(TfwPeer *p, struct list_head *conn_list)
 static inline void
 tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 {
-	spin_lock_bh(&p->conn_lock);
+	local_bh_disable();
+	spin_lock_nested(&p->conn_lock, SINGLE_DEPTH_NESTING);
 
 	list_del_init(conn_list);
 
 	spin_unlock_bh(&p->conn_lock);
 }
-
-#define tfw_peer_for_each_conn(p, conn, member, cb)			\
-({									\
-	int r = 0;							\
-	spin_lock_bh(&(p)->conn_lock);					\
-	list_for_each_entry(conn, &(p)->conn_list, member) {		\
-		r = (cb)(conn);						\
-		if (unlikely((r)))					\
-			break;						\
-	}								\
-	spin_unlock_bh(&(p)->conn_lock);				\
-	r;								\
-})
 
 #endif /* __PEER_H__ */

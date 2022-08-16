@@ -139,7 +139,7 @@ next_msg:
 		if (unlikely(!nskb)) {
 			spin_unlock(&tls->lock);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			return T_DROP;
+			return T_BAD;
 		}
 	}
 
@@ -240,7 +240,7 @@ tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
  * can add the next skb in the send queue to the current encrypted TLS record.
  *
  * We extend the skbs on TCP transmission (when CWND is calculated), so we
- * also adjust TPC sequence numbers in the socket. See skb_entail().
+ * also adjust TCP sequence numbers in the socket. See skb_entail().
  */
 int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
@@ -267,6 +267,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
+
+	assert_spin_locked(&sk->sk_lock.slock);
 
 	/*
 	 * If client closes connection early, we may get here with sk_user_data
@@ -499,6 +501,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
 	{
+		/*
+		 * If we're not done with transmission within the current
+		 * tcp_write_xmit() call, then the delayed ss_close() socket
+		 * freeing might kill the socket concurrently with TCP
+		 * transmission process leading to NULL pointer dereference.
+		 */
+		WARN_ON_ONCE(!tcp_skb_is_last(sk, skb_tail));
 		ss_close(sk, SS_F_SYNC);
 	}
 
@@ -512,27 +521,17 @@ out:
 	 * We can not send unencrypted data and can not normally close the
 	 * socket with FIN since we're in progress on sending from the write
 	 * queue.
-	 *
-	 * TODO #861 Send RST, move the socket to dead state, and drop all
-	 * the pending unencrypted data. We can not use tcp_v4_send_reset()
-	 * since it works solely in response to ingress segment.
 	 */
 err_kill_sock:
-	if (!sock_flag(sk, SOCK_DEAD)) {
-		sk->sk_err = ECONNRESET;
-		tcp_set_state(sk, TCP_CLOSE);
-		sk->sk_shutdown = SHUTDOWN_MASK;
-		sock_set_flag(sk, SOCK_DEAD);
-	}
+	ss_close(sk, SS_F_ABORT);
+	goto err_epilogue;
 err_purge_tcp_write_queue:
 	/*
 	 * Leave encrypted segments in the retransmission rb-tree,
 	 * but purge the send queue on unencrypted segments.
 	 */
-	while ((skb = tcp_send_head(sk))) {
-		__skb_unlink(skb, &sk->sk_write_queue);
-		sk_wmem_free_skb(sk, skb);
-	}
+	tcp_write_queue_purge(sk);
+err_epilogue:
 	T_WARN("%s: cannot encrypt data (%d), only partial data was sent\n",
 	       __func__, r);
 	return r;
@@ -696,7 +695,8 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	spin_unlock(&tls->lock);
 
 	/*
-	 * ttls_close_notify() calls ss_send() with SS_F_CONN_CLOSE flag, so
+	 * Once the TLS close notify alert is going to be sent by
+	 * tcp_write_xmit(), tfw_tls_encrypt() calls ss_close(), so
 	 * if the call succeeded, then we'll close the socket with the alert
 	 * transmission. Otherwise if we have to close the socket
 	 * and can not write to the socket, then there is no other way than
@@ -712,6 +712,12 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	}
 
 	return r;
+}
+
+static void
+tfw_tls_conn_abort(TfwConn *c)
+{
+	ss_close(c->sk, SS_F_ABORT);
 }
 
 static void
@@ -765,6 +771,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 static TfwConnHooks tls_conn_hooks = {
 	.conn_init	= tfw_tls_conn_init,
 	.conn_close	= tfw_tls_conn_close,
+	.conn_abort	= tfw_tls_conn_abort,
 	.conn_drop	= tfw_tls_conn_drop,
 	.conn_send	= tfw_tls_conn_send,
 };

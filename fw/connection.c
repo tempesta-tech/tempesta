@@ -72,6 +72,12 @@ tfw_connection_close(TfwConn *conn, bool sync)
 	return TFW_CONN_HOOK_CALL(conn, conn_close, sync);
 }
 
+void
+tfw_connection_abort(TfwConn *conn)
+{
+	TFW_CONN_HOOK_CALL(conn, conn_abort);
+}
+
 /**
  * Publish the "connection is dropped" event via TfwConnHooks.
  */
