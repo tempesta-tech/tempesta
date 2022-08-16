@@ -915,6 +915,7 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 	TfwStr *chunk, *end;
 	TfwStr tmp = { 0 };
 	unsigned int n = cookie->nchunks;
+
 	/* Search cookie name. */
 	end = cookie->chunks + cookie->nchunks;
 	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
@@ -960,6 +961,7 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 			}
 
 		} else {
+			WARN_ON_ONCE(1);
 			continue;
 		}
 		/*

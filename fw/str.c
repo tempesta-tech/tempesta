@@ -565,6 +565,7 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 		bzero_fast(out, sizeof(*out));
 		return;
 	}
+	BUG_ON(!TFW_STR_PLAIN(chunk));
 
 	BUG_ON(!TFW_STR_PLAIN(chunk));
 
