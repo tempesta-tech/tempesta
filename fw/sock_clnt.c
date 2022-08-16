@@ -307,9 +307,10 @@ __cli_conn_close_cb(TfwConn *conn)
 }
 
 static int
-__cli_conn_close_sync_cb(TfwConn *conn)
+__cli_conn_abort_cb(TfwConn *conn)
 {
-	return tfw_connection_close(conn, true);
+	tfw_connection_abort(conn);
+	return 0;
 }
 
 /**
@@ -320,10 +321,7 @@ __cli_conn_close_sync_cb(TfwConn *conn)
 static int
 tfw_cli_conn_close_all(void *data)
 {
-	TfwClient *cli = (TfwClient *)data;
-	TfwConn *conn;
-
-	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
+	return tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_close_cb);
 }
 
 /**
@@ -333,12 +331,10 @@ tfw_cli_conn_close_all(void *data)
  * connections, trying to cause a work queue overrun and delay security events
  * handlers. To detach attackers efficiently, we have to use synchronous close.
  */
-int tfw_cli_conn_close_all_sync(TfwClient *cli)
+static int
+tfw_cli_conn_abort_all(void *data)
 {
-	TfwConn *conn;
-
-	return tfw_peer_for_each_conn(cli, conn, list,
-				      __cli_conn_close_sync_cb);
+	return tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_abort_cb);
 }
 
 /*
@@ -630,8 +626,7 @@ tfw_listen_socks_array_cmp(const void *l, const void *r)
 
 	if (cmp)
 		return cmp;
-	else
-		return (int)a->sin6_port - (int)b->sin6_port;
+	return (int)a->sin6_port - (int)b->sin6_port;
 }
 
 /**
@@ -767,6 +762,21 @@ tfw_sock_clnt_stop(void)
 		schedule();
 		local_bh_disable();
 	}
+	local_bh_enable();
+}
+
+/**
+ * Something wrong went on the network layer, e.g. many ACK segment drops and
+ * some TLS sockets can not make progress on data transmission, so client
+ * connection closing callbacks weren't called. This is unlikely, but probable,
+ * situation. Do hard connections termination.
+ */
+void
+tfw_cli_abort_all(void)
+{
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_abort_all))
+		;
 	local_bh_enable();
 }
 

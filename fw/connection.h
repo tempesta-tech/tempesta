@@ -263,6 +263,13 @@ typedef struct {
 	int (*conn_close)(TfwConn *conn, bool sync);
 
 	/*
+	 * Called to abort a connection intentionally on Tempesta side.
+	 * This is rough connection closing without any notifications like TLS
+	 * alerts, probably with TCP RST or just silent connection termination.
+	 */
+	void (*conn_abort)(TfwConn *conn);
+
+	/*
 	 * Called when closing a connection (client or server,
 	 * as in conn_init()). This is required for modules that
 	 * maintain the number of established client connections.
@@ -517,6 +524,26 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);
 }
 
+static inline int
+tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
+{
+	int r = 0;
+	TfwConn *conn, *tmp_conn;
+
+	spin_lock_bh(&p->conn_lock);
+
+	/* @cb() may delete connections from the list. */
+	list_for_each_entry_safe(conn, tmp_conn, &p->conn_list, list) {
+		r = cb(conn);
+		if (unlikely(r))
+			break;
+	}
+
+	spin_unlock_bh(&(p)->conn_lock);
+
+	return r;
+}
+
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
@@ -529,6 +556,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
 int tfw_connection_close(TfwConn *conn, bool sync);
+void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 

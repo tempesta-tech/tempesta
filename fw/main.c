@@ -28,10 +28,9 @@
 #include "cfg.h"
 #include "client.h"
 #include "log.h"
+#include "server.h"
 #include "str.h"
 #include "sync_socket.h"
-#include "server.h"
-#include "vhost.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -151,7 +150,7 @@ tfw_mods_stop(void)
 		mod->started = 0;
 
 		tfw_ss_users -= mod->sock_user;
-		if (ss_synced || tfw_ss_users || tfw_runstate_is_reconfig())
+		if (ss_synced || tfw_ss_users)
 			continue;
 		/*
 		 * Wait until all network activity is stopped before data in
@@ -163,8 +162,12 @@ tfw_mods_stop(void)
 		 * client database must provide valid references to stored
 		 * clients.
 		 */
-		ss_synchronize();
-		ss_synced = false;
+		if (!ss_synchronize()) {
+			tfw_cli_abort_all();
+			/* Check that all the connections are terminated now. */
+			WARN_ON(!ss_synchronize());
+		}
+		ss_synced = true;
 	}
 	BUG_ON(tfw_ss_users);
 
@@ -219,7 +222,9 @@ tfw_mods_start(void)
 			return ret;
 		}
 		mod->started = 1;
-		tfw_ss_users += mod->sock_user;
+
+		if (!tfw_runstate_is_reconfig())
+			tfw_ss_users += mod->sock_user;
 	}
 	T_DBG("modules are started\n");
 

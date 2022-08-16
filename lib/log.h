@@ -1,7 +1,7 @@
 /**
  *		Tempesta kernel library
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2022 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 enum {
 	/* Generic error. */
 	T_BAD		= -3,
-	/* The message must be dropped. */
+	/* The message must be dropped (typically on a security event). */
 	T_DROP		= -2,
 	/* The message should be stashed (made by callback). */
 	T_POSTPONE	= -1,

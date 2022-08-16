@@ -572,10 +572,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
-	TfwConn *conn;
-
-	return tfw_peer_for_each_conn(srv, conn, list,
-				      tfw_sock_srv_disconnect);
+	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
 
 /*
