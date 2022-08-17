@@ -53,8 +53,10 @@ tfw_cli_cache(int type)
 	case TFW_FSM_H2:
 		return tfw_h2_conn_cache;
 	case TFW_FSM_HTTPS:
+	case TFW_FSM_WSS:
 		return tfw_https_conn_cache;
 	case TFW_FSM_HTTP:
+	case TFW_FSM_WS:
 		return tfw_h1_conn_cache;
 	default:
 		BUG();
