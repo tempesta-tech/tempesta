@@ -893,10 +893,19 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 
 /*
  * Search for cookie in `Set-Cookie`/`Cookie` header value @cookie
- * and save the cookie value into @val. Prefix, suffix or wildacar compare
- * @op is supported, pass TFW_HTTP_MATCH_O_EQ for default behaviour.
- * Flag @is_resp_hdr identifies the header name: true for `Set-Cookie`,
- * false for `Cookie`.
+ * and save the cookie value into @val.
+ * @cstr - string to compare against
+ * @clen - length of string from above
+ * @cookie - TfwStr containing cookie header value
+ * @val - output TfwStr to store particular cookie value
+ * @op - comparison type.
+ *	 Prefix, suffix or wildacar compareis supported,
+ *	 pass TFW_HTTP_MATCH_O_EQ for default behaviour.
+ * @is_resp_hdr - header name identifier:
+ *		  true for `Set-Cookie`,
+ *		  false for `Cookie`.
+ * @return - 0 if given cookie name hasn't been found,
+ *	     1 if found + particular cookie value (if exists)
  */
 int
 tfw_http_search_cookie(const char *cstr, unsigned long clen,
@@ -962,6 +971,7 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 	}
 	if (chunk == end)
 		return 0;
+
 	/* Search cookie value, starting with next chunk. */
 	for (++chunk; chunk != end; ++chunk)
 		if (chunk->flags & TFW_STR_VALUE)

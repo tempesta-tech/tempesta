@@ -561,12 +561,12 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 {
 	TfwStr *next;
 
-	BUG_ON(!TFW_STR_PLAIN(chunk));
-
 	if (unlikely(chunk == end)) {
 		bzero_fast(out, sizeof(*out));
 		return;
 	}
+
+	BUG_ON(!TFW_STR_PLAIN(chunk));
 
 	/* If this is last chunk, just return it in this case. */
 	next = chunk + 1;
@@ -1027,8 +1027,8 @@ tfw_strcpy_prep(TfwPool *pool, const TfwStr *data_str, const TfwStr *src)
 	data = data_str->data;
 	dc = TFW_STR_CHUNK(dst, 0);
 	TFW_STR_FOR_EACH_CHUNK(sc, src, end) {
+		*dc = *sc;
 		__tfw_str_set_data(dc, data, data_str->skb);
-		dc->len = sc->len;
 		data += sc->len;
 		++dc;
 	}
