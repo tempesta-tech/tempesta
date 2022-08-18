@@ -39,6 +39,11 @@
 #include <linux/time.h>
 #include <linux/vmalloc.h>
 
+#undef DEBUG
+#if DBG_HTTP_SESS > 0
+#define DEBUG DBG_HTTP_SESS
+#endif
+
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "addr.h"
