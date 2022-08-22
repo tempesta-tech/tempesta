@@ -83,11 +83,12 @@ test_call_teardown_fn(void)
 		test_teardown_fn();
 }
 
+extern TEST_SUITE_MPART_ARR(http1_parser, H1_SUITE_PART_CNT);
+extern TEST_SUITE_MPART_ARR(http2_parser, H2_SUITE_PART_CNT);
+
 TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
 TEST_SUITE(mem_fast);
-extern TEST_SUITE_MPART_ARR(http1_parser, H1_SUITE_PART_CNT);
-TEST_SUITE(http2_parser);
 TEST_SUITE(http2_parser_hpack);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
@@ -131,7 +132,7 @@ test_run_all(void)
 	TEST_SUITE_MPART_RUN(http1_parser);
 	__fpu_schedule();
 
-	TEST_SUITE_RUN(http2_parser);
+	TEST_SUITE_MPART_RUN(http2_parser);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser_hpack);

@@ -1353,10 +1353,10 @@ TEST_MPART(http1_parser, content_type_in_bodyless_requests, 3)
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE
 
 TEST_MPART_DEFINE(http1_parser, content_type_in_bodyless_requests, H1_CT_BODYLESS_TCNT,
-	TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 0),
-	TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 1),
-	TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 2),
-	TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 3));
+		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 0),
+		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 1),
+		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 2),
+		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 3));
 
 
 TEST(http1_parser, content_length)
@@ -3371,10 +3371,10 @@ TEST_MPART(http1_parser, content_type_line_parser, 3)
 #undef TAIL
 
 TEST_MPART_DEFINE(http1_parser, content_type_line_parser, H1_CT_LINE_PARSER_TCNT,
-	TEST_MPART_NAME(http1_parser, content_type_line_parser, 0),
-	TEST_MPART_NAME(http1_parser, content_type_line_parser, 1),
-	TEST_MPART_NAME(http1_parser, content_type_line_parser, 2),
-	TEST_MPART_NAME(http1_parser, content_type_line_parser, 3));
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 0),
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 1),
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 2),
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 3));
 
 TEST(http1_parser, xff)
 {
@@ -3694,11 +3694,11 @@ TEST_MPART(http1_parser, date, 4)
 #undef FOR_EACH_DATE
 
 TEST_MPART_DEFINE(http1_parser, date, H1_DATE_PARSE_TCNT,
-	TEST_MPART_NAME(http1_parser, date, 0),
-	TEST_MPART_NAME(http1_parser, date, 1),
-	TEST_MPART_NAME(http1_parser, date, 2),
-	TEST_MPART_NAME(http1_parser, date, 3),
-	TEST_MPART_NAME(http1_parser, date, 4));
+		  TEST_MPART_NAME(http1_parser, date, 0),
+		  TEST_MPART_NAME(http1_parser, date, 1),
+		  TEST_MPART_NAME(http1_parser, date, 2),
+		  TEST_MPART_NAME(http1_parser, date, 3),
+		  TEST_MPART_NAME(http1_parser, date, 4));
 
 
 TEST(http1_parser, method_override)
@@ -4326,10 +4326,10 @@ TEST_MPART(http1_parser, forwarded, 3) {
 }
 
 TEST_MPART_DEFINE(http1_parser, forwarded, H1_FWD_TCNT,
-	TEST_MPART_NAME(http1_parser, forwarded, 0),
-	TEST_MPART_NAME(http1_parser, forwarded, 1),
-	TEST_MPART_NAME(http1_parser, forwarded, 2),
-	TEST_MPART_NAME(http1_parser, forwarded, 3));
+		  TEST_MPART_NAME(http1_parser, forwarded, 0),
+		  TEST_MPART_NAME(http1_parser, forwarded, 1),
+		  TEST_MPART_NAME(http1_parser, forwarded, 2),
+		  TEST_MPART_NAME(http1_parser, forwarded, 3));
 
 TEST(http1_parser, perf)
 {

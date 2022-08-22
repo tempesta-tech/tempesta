@@ -19,6 +19,7 @@
  */
 
 #include "test_http_parser_common.h"
+#include "test_http_parser_defs.h"
 
 TEST(http2_parser, http2_check_important_fields)
 {
@@ -655,8 +656,6 @@ TEST(http2_parser, fills_hdr_tbl_for_req)
 	}
 }
 
-TEST(http2_parser, cache_control)
-{
 #define EXPECT_BLOCK_REQ_H2_CC(cache_control)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
@@ -677,6 +676,8 @@ TEST(http2_parser, cache_control)
 	    HEADERS_FRAME_END();						\
 	)
 
+TEST_MPART(http2_parser, cache_control, 0)
+{
 	EXPECT_BLOCK_REQ_H2_CC("");
 	EXPECT_BLOCK_REQ_H2_CC(" ");
 	EXPECT_BLOCK_REQ_H2_CC("no-cache no-store");
@@ -711,7 +712,10 @@ TEST(http2_parser, cache_control)
 		EXPECT_TRUE(req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE);
 		EXPECT_TRUE(req->cache_ctl.max_age == 4);
 	}
+}
 
+TEST_MPART(http2_parser, cache_control, 1)
+{
 	/* Cache Control Extensions, not strict compliance with RFC. */
 	FOR_REQ_H2_CC(QETOKEN_ALPHABET ", no-cache, "
 		      QETOKEN_ALPHABET ", no-store, "
@@ -770,7 +774,7 @@ TEST(http2_parser, cache_control)
 		EXPECT_TRUE(req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE);
 		EXPECT_TRUE(req->cache_ctl.max_stale == UINT_MAX);
 	}
-
+}
 
 #define TEST_COMMON(directive, flag)						\
 	FOR_REQ_H2_CC(directive)						\
@@ -858,21 +862,28 @@ TEST(http2_parser, cache_control)
 	}									\
 	EXPECT_BLOCK_REQ_H2_CC(directive " = dummy");				\
 	EXPECT_BLOCK_REQ_H2_CC(directive " = 0");				\
-	EXPECT_BLOCK_REQ_H2_CC(directive "=10 10");				\
+	EXPECT_BLOCK_REQ_H2_CC(directive "=10 10");
 
-
+TEST_MPART(http2_parser, cache_control, 2)
+{
 	TEST_NO_ARGUMENT("no-cache", TFW_HTTP_CC_NO_CACHE);
 	TEST_NO_ARGUMENT("no-store", TFW_HTTP_CC_NO_STORE);
 	TEST_NO_ARGUMENT("no-transform", TFW_HTTP_CC_NO_TRANSFORM);
+}
 
+TEST_MPART(http2_parser, cache_control, 3)
+{
 	TEST_SECONDS("max-age", TFW_HTTP_CC_MAX_AGE, max_age);
 	TEST_SECONDS("max-stale", TFW_HTTP_CC_MAX_STALE, max_stale);
 	TEST_SECONDS("min-fresh", TFW_HTTP_CC_MIN_FRESH, min_fresh);
+}
 
+TEST_MPART(http2_parser, cache_control, 4)
+{
 	EXPECT_BLOCK_DIGITS("max-age=", "", EXPECT_BLOCK_REQ_H2_CC);
 	EXPECT_BLOCK_DIGITS("max-stale=", "", EXPECT_BLOCK_REQ_H2_CC);
 	EXPECT_BLOCK_DIGITS("min-fresh=", "", EXPECT_BLOCK_REQ_H2_CC);
-
+}
 
 #undef TEST_SECONDS
 #undef TEST_NO_ARGUMENT
@@ -880,7 +891,13 @@ TEST(http2_parser, cache_control)
 
 #undef FOR_REQ_H2_CC
 #undef EXPECT_BLOCK_REQ_H2_CC
-}
+
+TEST_MPART_DEFINE(http2_parser, cache_control, H2_CC_TCNT,
+		  TEST_MPART_NAME(http2_parser, cache_control, 0),
+		  TEST_MPART_NAME(http2_parser, cache_control, 1),
+		  TEST_MPART_NAME(http2_parser, cache_control, 2),
+		  TEST_MPART_NAME(http2_parser, cache_control, 3),
+		  TEST_MPART_NAME(http2_parser, cache_control, 4));
 
 TEST(http2_parser, suspicious_x_forwarded_for)
 {
@@ -915,8 +932,6 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 	EXPECT_BLOCK_REQ_H2_XFF("");
 }
 
-TEST(http2_parser, content_type_in_bodyless_requests)
-{
 #define EXPECT_BLOCK_BODYLESS_REQ_H2(METHOD)					\
 	EXPECT_BLOCK_REQ_H2(							\
 	    HEADERS_FRAME_BEGIN();						\
@@ -1021,14 +1036,22 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}
 
-
+TEST_MPART(http2_parser, content_type_in_bodyless_requests, 0)
+{
 	EXPECT_BLOCK_BODYLESS_REQ_H2(GET);
 	EXPECT_BLOCK_BODYLESS_REQ_H2(HEAD);
 	EXPECT_BLOCK_BODYLESS_REQ_H2(DELETE);
 	EXPECT_BLOCK_BODYLESS_REQ_H2(TRACE);
+}
 
+TEST_MPART(http2_parser, content_type_in_bodyless_requests, 1)
+{
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(GET);
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(HEAD);
+}
+
+TEST_MPART(http2_parser, content_type_in_bodyless_requests, 2)
+{
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(DELETE);
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2(TRACE);
 
@@ -1040,11 +1063,15 @@ TEST(http2_parser, content_type_in_bodyless_requests)
 		HEADER(WO_IND(NAME("content-type"), VALUE("text/plain")));
 	    HEADERS_FRAME_END();
 	);
-
+}
 
 #undef EXPECT_BLOCK_BODYLESS_REQ_H2
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2
-}
+
+TEST_MPART_DEFINE(http2_parser, content_type_in_bodyless_requests, H2_CT_BODYLESS_TCNT,
+		  TEST_MPART_NAME(http2_parser, content_type_in_bodyless_requests, 0),
+		  TEST_MPART_NAME(http2_parser, content_type_in_bodyless_requests, 1),
+		  TEST_MPART_NAME(http2_parser, content_type_in_bodyless_requests, 2));
 
 TEST(http2_parser, content_length)
 {
@@ -1220,8 +1247,6 @@ TEST(http2_parser, ows)
 #undef EXPECT_BLOCK_REQ_H2_METHOD
 }
 
-TEST(http2_parser, accept)
-{
 #define __FOR_ACCEPT(accept_val, EXPECT_HTML_MACRO)				\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
@@ -1270,6 +1295,8 @@ TEST(http2_parser, accept)
 	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD " key=val");				\
 	EXPECT_BLOCK_REQ_H2_ACCEPT(HEAD "key=val");
 
+TEST_MPART(http2_parser, accept, 0)
+{
 	/* media-range */
 	FOR_ACCEPT("*/*");
 	FOR_ACCEPT("dummy/*");
@@ -1288,6 +1315,10 @@ TEST(http2_parser, accept)
 	EXPECT_BLOCK_REQ_H2_ACCEPT("/dummy");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("dummy/dummy/");
+}
+
+TEST_MPART(http2_parser, accept, 1)
+{
 	/*
 	 * '*' is part of the token alphabet, but for Accept header '*' symbol
 	 * has special meaning and doesn't included into mime types.
@@ -1312,7 +1343,10 @@ TEST(http2_parser, accept)
 	FOR_ACCEPT("*/*;q=1.0");
 	FOR_ACCEPT("*/*;q=1.000");
 	FOR_ACCEPT("*/*\t  ; \tq=0");
+}
 
+TEST_MPART(http2_parser, accept, 2)
+{
 	/* Breaks the RFC, just dot+digits alphabet is checked... */
 	FOR_ACCEPT("*/*;q=1......");
 	FOR_ACCEPT("*/*;q=1.23..45.6..789...");
@@ -1333,6 +1367,10 @@ TEST(http2_parser, accept)
 	/* accept-ext */
 	TEST_ACCEPT_EXT("dummy/dummy;q=0");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=0;key");
+}
+
+TEST_MPART(http2_parser, accept, 3)
+{
 
 	/* Multiple values */
 	FOR_ACCEPT("dummy/dummy\t,dummy/dummy ,\t\tdummy/dummy");
@@ -1361,15 +1399,20 @@ TEST(http2_parser, accept)
 	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ");
 	FOR_ACCEPT(" textK/html");
 
+}
+
 #undef TEST_ACCEPT_EXT
 #undef EXPECT_BLOCK_REQ_H2_ACCEPT
 #undef FOR_ACCEPT_HTML
 #undef FOR_ACCEPT
 #undef __FOR_ACCEPT
-}
 
-TEST(http2_parser, host)
-{
+TEST_MPART_DEFINE(http2_parser, accept, H2_ACCEPT_TCNT,
+		  TEST_MPART_NAME(http2_parser, accept, 0),
+		  TEST_MPART_NAME(http2_parser, accept, 1),
+		  TEST_MPART_NAME(http2_parser, accept, 2),
+		  TEST_MPART_NAME(http2_parser, accept, 3));
+
 #define FOR_REQ_H2_HOST(host)							\
 	FOR_REQ_H2(								\
 	    HEADERS_FRAME_BEGIN();						\
@@ -1390,7 +1433,8 @@ TEST(http2_parser, host)
 	    HEADERS_FRAME_END();						\
 	)
 
-
+TEST_MPART(http2_parser, host, 0)
+{
 	EXPECT_BLOCK_REQ_H2_HOST("");
 	EXPECT_BLOCK_REQ_H2_HOST(" ");
 	EXPECT_BLOCK_REQ_H2_HOST(" tempesta-tech.com");
@@ -1481,7 +1525,10 @@ TEST(http2_parser, host)
 
 		EXPECT_EQ(req->host_port, 65535);
 	}
+}
 
+TEST_MPART(http2_parser, host, 1)
+{
 	/* Invalid port */
 	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:0");
 	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:65536");
@@ -1493,7 +1540,10 @@ TEST(http2_parser, host)
 			    EXPECT_BLOCK_REQ_H2_HOST);
 	EXPECT_BLOCK_SHORT( "[fd42:5ca1:e3a7::1000]:", "",
 			    EXPECT_BLOCK_REQ_H2_HOST);
+}
 
+TEST_MPART(http2_parser, host, 2)
+{
 	/* Port syntax is broken. */
 	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:443:1");
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]:443:1");
@@ -1503,18 +1553,25 @@ TEST(http2_parser, host)
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000] 443");
 	EXPECT_BLOCK_REQ_H2_HOST("tempesta-tech.com:443-1");
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000]-1");
+}
 
+TEST_MPART(http2_parser, host, 3)
+{
 	/* Invalid brackets around IPv6. */
 	EXPECT_BLOCK_REQ_H2_HOST("fd42:5ca1:e3a7::1000");
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000");
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000");
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000][");
 	EXPECT_BLOCK_REQ_H2_HOST("[fd42:5ca1:e3a7::1000[");
-
+}
 
 #undef EXPECT_BLOCK_REQ_H2_HOST
 #undef FOR_REQ_H2_HOST
-}
+TEST_MPART_DEFINE(http2_parser, host, H2_HOST_TCNT,
+		  TEST_MPART_NAME(http2_parser, host, 0),
+		  TEST_MPART_NAME(http2_parser, host, 1),
+		  TEST_MPART_NAME(http2_parser, host, 2),
+		  TEST_MPART_NAME(http2_parser, host, 3));
 
 TEST(http2_parser, cookie)
 {
@@ -2106,7 +2163,7 @@ TEST(http2_parser, xff)
 #define FOR_EACH_DATE_FORMAT_INVALID(day, month, year, year_2d, time)		\
 	FOR_EACH_DATE_FORMAT(day, month, year, year_2d, time, 0)
 
-TEST(http2_parser, date_format)
+TEST_MPART(http2_parser, date_format, 0)
 {
 	FOR_EACH_DATE_FORMAT("31", "Jan", "2012", "12", "15:02:53",
 				   1328022173);
@@ -2138,6 +2195,10 @@ TEST(http2_parser, date_format)
 				   3155759999);
 	FOR_EACH_DATE_RFC_822_ISOC("31", "Dec", "9999", "23:59:59",
 					 253402300799);
+}
+
+TEST_MPART(http2_parser, date_format, 1)
+{
 	/*
 	 * Format specific tests.
 	 */
@@ -2161,6 +2222,10 @@ TEST(http2_parser, date_format)
 	FOR_EACH_DATE_INVALID("invalid");
 }
 
+TEST_MPART_DEFINE(http2_parser, date_format, H2_DATE_FMT_TCNT,
+		  TEST_MPART_NAME(http2_parser, date_format, 0),
+		  TEST_MPART_NAME(http2_parser, date_format, 1));
+
 TEST(http2_parser, date_ranges)
 {
 	/*
@@ -2179,7 +2244,7 @@ TEST(http2_parser, date_ranges)
 	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "1970", "00:00:00");
 }
 
-TEST(http2_parser, date_day)
+TEST_MPART(http2_parser, date_day, 0)
 {
 	/*
 	 * According to RFC "00" is a valid day, but Tempesta rejects it
@@ -2193,7 +2258,10 @@ TEST(http2_parser, date_day)
 	FOR_EACH_DATE_FORMAT_INVALID("-1", "Jan", "2000", "00", "00:00:00");
 	FOR_EACH_DATE_FORMAT_INVALID("invalid", "Jan", "2000", "00",
 				     "00:00:00");
+}
 
+TEST_MPART(http2_parser, date_day, 1)
+{
 	FOR_EACH_DATE_FORMAT("30", "Apr", "1978", "78", "00:00:00",
 				   262742400);
 	FOR_EACH_DATE_FORMAT_INVALID("31", "Apr", "1995", "95", "00:00:00");
@@ -2203,6 +2271,10 @@ TEST(http2_parser, date_day)
 				   1254268800);
 	FOR_EACH_DATE_FORMAT_INVALID("31", "Sep", "2050", "50", "00:00:00");
 }
+
+TEST_MPART_DEFINE(http2_parser, date_day, H2_DATE_FMT_TCNT,
+		  TEST_MPART_NAME(http2_parser, date_day, 0),
+		  TEST_MPART_NAME(http2_parser, date_day, 1));
 
 TEST(http2_parser, date_year)
 {
@@ -3215,48 +3287,74 @@ TEST_MPART(http2_parser, forwarded, 3)
 				      "http;for=<xss>");
 	EXPECT_BLOCK_REQ_H2_FORWARDED("by=<xss>;host=http;proto=http;"
 				      "for=1.2.3.4");
-
 }
 
-#define H2_FWD_TCNT 4
 TEST_MPART_DEFINE(http2_parser, forwarded, H2_FWD_TCNT,
-		TEST_MPART_NAME(http2_parser, forwarded, 0),
-		TEST_MPART_NAME(http2_parser, forwarded, 1),
-		TEST_MPART_NAME(http2_parser, forwarded, 2),
-		TEST_MPART_NAME(http2_parser, forwarded, 3));
+		  TEST_MPART_NAME(http2_parser, forwarded, 0),
+		  TEST_MPART_NAME(http2_parser, forwarded, 1),
+		  TEST_MPART_NAME(http2_parser, forwarded, 2),
+		  TEST_MPART_NAME(http2_parser, forwarded, 3));
 
 #undef EXPECT_BLOCK_REQ_H2_FORWARDED
 #undef FOR_REQ_H2_FORWARDED
 
-TEST_SUITE(http2_parser)
+TEST_SUITE_MPART(http2_parser, 0)
 {
 	TEST_RUN(http2_parser, http2_check_important_fields);
 	TEST_RUN(http2_parser, parses_req_method);
 	TEST_RUN(http2_parser, parses_req_uri);
+}
+
+TEST_SUITE_MPART(http2_parser, 1)
+{
 	TEST_RUN(http2_parser, mangled_messages);
 	TEST_RUN(http2_parser, alphabets);
 	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
-	TEST_RUN(http2_parser, cache_control);
+	TEST_MPART_RUN(http2_parser, cache_control);
+}
+
+TEST_SUITE_MPART(http2_parser, 2)
+{
 	TEST_RUN(http2_parser, suspicious_x_forwarded_for);
-	TEST_RUN(http2_parser, content_type_in_bodyless_requests);
+	TEST_MPART_RUN(http2_parser, content_type_in_bodyless_requests);
 	TEST_RUN(http2_parser, content_length);
+}
+
+TEST_SUITE_MPART(http2_parser, 3)
+{
 	TEST_RUN(http2_parser, ows);
-	TEST_RUN(http2_parser, accept);
-	TEST_RUN(http2_parser, host);
+	TEST_MPART_RUN(http2_parser, accept);
+}
+
+TEST_SUITE_MPART(http2_parser, 4)
+{
+	TEST_MPART_RUN(http2_parser, host);
 	TEST_RUN(http2_parser, cookie);
 	TEST_RUN(http2_parser, if_none_match);
 	TEST_RUN(http2_parser, referer);
 	TEST_RUN(http2_parser, content_type_line_parser);
 	TEST_RUN(http2_parser, xff);
-	TEST_RUN(http2_parser, date_format);
+}
+
+TEST_SUITE_MPART(http2_parser, 5)
+{
+	TEST_MPART_RUN(http2_parser, date_format);
 	TEST_RUN(http2_parser, date_ranges);
-	TEST_RUN(http2_parser, date_day);
+	TEST_MPART_RUN(http2_parser, date_day);
 	TEST_RUN(http2_parser, date_year);
+}
+
+TEST_SUITE_MPART(http2_parser, 6)
+{
 	TEST_RUN(http2_parser, date_month);
 	TEST_RUN(http2_parser, date_hour);
 	TEST_RUN(http2_parser, date_minute);
 	TEST_RUN(http2_parser, date_second);
 	TEST_RUN(http2_parser, date);
+}
+
+TEST_SUITE_MPART(http2_parser, 7)
+{
 	TEST_RUN(http2_parser, method_override);
 	TEST_RUN(http2_parser, vchar);
 	TEST_RUN(http2_parser, fuzzer);
@@ -3273,3 +3371,14 @@ TEST_SUITE(http2_parser)
 
 	TEST_RUN(http2_parser, perf);
 }
+
+TEST_SUITE_MPART_DEFINE(http2_parser, H2_SUITE_PART_CNT,
+	TEST_SUITE_MPART_NAME(http2_parser, 0),
+	TEST_SUITE_MPART_NAME(http2_parser, 1),
+	TEST_SUITE_MPART_NAME(http2_parser, 2),
+	TEST_SUITE_MPART_NAME(http2_parser, 3),
+	TEST_SUITE_MPART_NAME(http2_parser, 4),
+	TEST_SUITE_MPART_NAME(http2_parser, 5),
+	TEST_SUITE_MPART_NAME(http2_parser, 6),
+	TEST_SUITE_MPART_NAME(http2_parser, 7));
+
