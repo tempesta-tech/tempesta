@@ -29,4 +29,14 @@
 
 #define H1_SUITE_PART_CNT	3
 
+/* http1 tests parts count */
+#define H2_CT_BODYLESS_TCNT	3
+#define H2_FWD_TCNT		4
+#define H2_ACCEPT_TCNT		4
+#define H2_HOST_TCNT		4
+#define H2_CC_TCNT		5
+#define H2_DATE_FMT_TCNT	2
+
+#define H2_SUITE_PART_CNT	8
+
 #endif
