@@ -21,6 +21,7 @@
 #include <linux/types.h>
 #include <linux/module.h>
 #include "test.h"
+#include "test_http_parser_defs.h"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
@@ -85,7 +86,7 @@ test_call_teardown_fn(void)
 TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
 TEST_SUITE(mem_fast);
-TEST_SUITE(http1_parser);
+extern TEST_SUITE_MPART_ARR(http1_parser, H1_SUITE_PART_CNT);
 TEST_SUITE(http2_parser);
 TEST_SUITE(http2_parser_hpack);
 TEST_SUITE(http_sticky);
@@ -127,7 +128,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(mem_fast);
 	__fpu_schedule();
 
-	TEST_SUITE_RUN(http1_parser);
+	TEST_SUITE_MPART_RUN(http1_parser);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser);
