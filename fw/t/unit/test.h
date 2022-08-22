@@ -129,6 +129,31 @@ do {									    \
 	test_call_teardown_fn();					    \
 } while(0)
 
+#define TEST_SUITE_MPART_NAME(name, part)		\
+	test_suite__ ##name ##__ ##part
+
+#define TEST_SUITE_MPART(name, part)			\
+	void TEST_SUITE_MPART_NAME(name, part)(void)
+
+#define TEST_SUITE_MPART_ARR(name, cnt)			\
+	void __attribute__((unused))			\
+	(*tsuite ##__ ##name ##__arr[cnt])(void)
+
+#define TEST_SUITE_MPART_DEFINE(name, cnt, ...)		\
+	void __attribute__((unused))			\
+	(*tsuite ##__ ##name ##__arr[cnt])(void) = {__VA_ARGS__}
+
+#define TEST_SUITE_MPART_RUN(name)					    \
+do {									    \
+	int i;								    \
+	for (i = 0; i < ARRAY_SIZE(tsuite ##__ ##name ##__arr); i++) {	    \
+		TEST_LOG_LF("TEST_SUITE_RUN(%s) #%d", #name, i);	    \
+		tsuite ##__ ##name ##__arr[i]();			    \
+	}								    \
+	test_set_setup_fn(NULL);					    \
+	test_set_teardown_fn(NULL);					    \
+} while(0)
+
 #define TEST_SUITE(name) void test_suite__##name(void)
 #define TEST_SETUP(fn) test_set_setup_fn(fn)
 #define TEST_TEARDOWN(fn) test_set_teardown_fn(fn)
