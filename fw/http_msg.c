@@ -706,12 +706,8 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 		return r;
 
 	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
-
-	dst = tfw_strcpy_prep(hm->pool, &it, hdr);
+	dst = tfw_strcpy_comp_ext(hm->pool, &it, hdr);
 	if (unlikely(!dst))
-		return TFW_BLOCK;
-
-	if (tfw_strcpy(dst, hdr))
 		return TFW_BLOCK;
 
 	/*
