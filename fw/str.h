@@ -443,8 +443,8 @@ int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 TfwStr *tfw_strdup(TfwPool *pool, const TfwStr *src);
 int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
 TfwStr *tfw_strdup_desc(TfwPool *pool, const TfwStr *src);
-TfwStr *tfw_strcpy_prep(TfwPool *pool, const TfwStr *data_str,
-			const TfwStr *src);
+TfwStr *tfw_strcpy_comp_ext(TfwPool *pool, const TfwStr *data_str,
+			    const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 int tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk);
 
