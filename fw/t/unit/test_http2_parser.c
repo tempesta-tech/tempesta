@@ -1068,10 +1068,14 @@ TEST_MPART(http2_parser, content_type_in_bodyless_requests, 2)
 #undef EXPECT_BLOCK_BODYLESS_REQ_H2
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE_H2
 
-TEST_MPART_DEFINE(http2_parser, content_type_in_bodyless_requests, H2_CT_BODYLESS_TCNT,
-		  TEST_MPART_NAME(http2_parser, content_type_in_bodyless_requests, 0),
-		  TEST_MPART_NAME(http2_parser, content_type_in_bodyless_requests, 1),
-		  TEST_MPART_NAME(http2_parser, content_type_in_bodyless_requests, 2));
+TEST_MPART_DEFINE(http2_parser, content_type_in_bodyless_requests,
+		  H2_CT_BODYLESS_TCNT,
+		  TEST_MPART_NAME(http2_parser,
+				  content_type_in_bodyless_requests, 0),
+		  TEST_MPART_NAME(http2_parser,
+				  content_type_in_bodyless_requests, 1),
+		  TEST_MPART_NAME(http2_parser,
+				  content_type_in_bodyless_requests, 2));
 
 TEST(http2_parser, content_length)
 {
