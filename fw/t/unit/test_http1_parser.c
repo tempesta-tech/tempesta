@@ -1352,11 +1352,16 @@ TEST_MPART(http1_parser, content_type_in_bodyless_requests, 3)
 #undef EXPECT_BLOCK_BODYLESS_REQ
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE
 
-TEST_MPART_DEFINE(http1_parser, content_type_in_bodyless_requests, H1_CT_BODYLESS_TCNT,
-		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 0),
-		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 1),
-		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 2),
-		  TEST_MPART_NAME(http1_parser, content_type_in_bodyless_requests, 3));
+TEST_MPART_DEFINE(http1_parser, content_type_in_bodyless_requests,
+		  H1_CT_BODYLESS_TCNT,
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 0),
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 1),
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 2),
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 3));
 
 
 TEST(http1_parser, content_length)
