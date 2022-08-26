@@ -20,7 +20,7 @@
  */
 
 #include "test_http_parser_common.h"
-
+#include "test_http_parser_defs.h"
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
@@ -1252,8 +1252,6 @@ TEST(http_parser, upgrade)
 
 }
 
-TEST(http1_parser, content_type_in_bodyless_requests)
-{
 #define EXPECT_BLOCK_BODYLESS_REQ(METHOD)					\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
 		 	 "Content-Length: 0\r\n"				\
@@ -1318,14 +1316,27 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}
 
-
+TEST_MPART(http1_parser, content_type_in_bodyless_requests, 0)
+{
 	EXPECT_BLOCK_BODYLESS_REQ(GET);
 	EXPECT_BLOCK_BODYLESS_REQ(HEAD);
+}
+
+
+TEST_MPART(http1_parser, content_type_in_bodyless_requests, 1)
+{
 	EXPECT_BLOCK_BODYLESS_REQ(DELETE);
 	EXPECT_BLOCK_BODYLESS_REQ(TRACE);
+}
 
+TEST_MPART(http1_parser, content_type_in_bodyless_requests, 2)
+{
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(GET);
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(HEAD);
+}
+
+TEST_MPART(http1_parser, content_type_in_bodyless_requests, 3)
+{
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(DELETE);
 	EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(TRACE);
 
@@ -1336,11 +1347,22 @@ TEST(http1_parser, content_type_in_bodyless_requests)
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: text/plain");
 	}
-
+}
 
 #undef EXPECT_BLOCK_BODYLESS_REQ
 #undef EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE
-}
+
+TEST_MPART_DEFINE(http1_parser, content_type_in_bodyless_requests,
+		  H1_CT_BODYLESS_TCNT,
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 0),
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 1),
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 2),
+		  TEST_MPART_NAME(http1_parser,
+				  content_type_in_bodyless_requests, 3));
+
 
 TEST(http1_parser, content_length)
 {
@@ -3139,13 +3161,13 @@ end:
 	kernel_fpu_begin();
 }
 
-TEST(http1_parser, content_type_line_parser)
-{
 #define HEAD "POST / HTTP/1.1\r\nHost: localhost.localdomain\r\nContent-Type: "
 #define TAIL "\nContent-Length: 0\r\nKeep-Alive: timeout=98765\r\n\r\n"
 
 #define CT01 "multIPart/forM-data  ;    bouNDary=1234567890 ; otherparam=otherval  "
 
+TEST_MPART(http1_parser, content_type_line_parser, 0)
+{
 	FOR_REQ(HEAD CT01 TAIL) {
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
@@ -3199,7 +3221,10 @@ TEST(http1_parser, content_type_line_parser)
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: multipart/form-data1");
 	}
+}
 
+TEST_MPART(http1_parser, content_type_line_parser, 1)
+{
 	FOR_REQ(HEAD "multipart/form-data1; param=value" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
@@ -3258,7 +3283,10 @@ TEST(http1_parser, content_type_line_parser)
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: application/octet-stream");
 	}
+}
 
+TEST_MPART(http1_parser, content_type_line_parser, 2)
+{
 	/* Multipart requests with multiple boundaries are clearly malicious. */
 	EXPECT_BLOCK_REQ(HEAD "multipart/form-data; boundary=1; boundary=2"
 			 TAIL);
@@ -3299,6 +3327,10 @@ TEST(http1_parser, content_type_line_parser)
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name" TAIL);
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name " TAIL);
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name\t " TAIL);
+}
+
+TEST_MPART(http1_parser, content_type_line_parser, 3)
+{
 
 	/* Unfinished quoted parameter value */
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name=\"unfinished" TAIL);
@@ -3338,9 +3370,16 @@ TEST(http1_parser, content_type_line_parser)
 				 "Content-Type: multitest");
 	}
 
+}
+
 #undef HEAD
 #undef TAIL
-}
+
+TEST_MPART_DEFINE(http1_parser, content_type_line_parser, H1_CT_LINE_PARSER_TCNT,
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 0),
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 1),
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 2),
+		  TEST_MPART_NAME(http1_parser, content_type_line_parser, 3));
 
 TEST(http1_parser, xff)
 {
@@ -3366,8 +3405,6 @@ TEST(http1_parser, xff)
 	}
 }
 
-TEST(http1_parser, date)
-{
 #define FOR_EACH_DATE(strdate, expect_seconds)					\
 	FOR_RESP_SIMPLE("Last-Modified:" strdate)				\
 	{									\
@@ -3421,6 +3458,8 @@ TEST(http1_parser, date)
 		EXPECT_TRUE(req->cond.m_date == 0);				\
 	}
 
+TEST_MPART(http1_parser, date, 0)
+{
 	FOR_EACH_DATE_FORMAT("31", "Jan", "2012", "12", "15:02:53",
 				   1328022173);
 	FOR_EACH_DATE_FORMAT_INVALID("31", "JAN", "2012", "12", "15:02:53");
@@ -3460,7 +3499,10 @@ TEST(http1_parser, date)
 	{
 		EXPECT_TRUE(req->cond.m_date == 0);
 	}
+}
 
+TEST_MPART(http1_parser, date, 1)
+{
 	/*
 	 * RFC 7230 3.2.2:
 	 *
@@ -3513,7 +3555,10 @@ TEST(http1_parser, date)
 	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "0999", "00:00:00");
 	FOR_EACH_DATE_RFC_822_ISOC_INVALID("31", "Dec", "1969", "23:59:59");
 	FOR_EACH_DATE_RFC_822_ISOC_INVALID("01", "Jan", "1970", "00:00:00");
+}
 
+TEST_MPART(http1_parser, date, 2)
+{
 	/* More then 01 Jan 1970. */
 	/*
 	 * For ISO 850 this implementation violates RFC:
@@ -3550,7 +3595,10 @@ TEST(http1_parser, date)
 	FOR_EACH_DATE_FORMAT_INVALID("-1", "Jan", "2000", "00", "00:00:00");
 	FOR_EACH_DATE_FORMAT_INVALID("invalid", "Jan", "2000", "00",
 				     "00:00:00");
+}
 
+TEST_MPART(http1_parser, date, 3)
+{
 	FOR_EACH_DATE_FORMAT("30", "Apr", "1978", "78", "00:00:00",
 				   262742400);
 	FOR_EACH_DATE_FORMAT_INVALID("31", "Apr", "1995", "95", "00:00:00");
@@ -3582,7 +3630,11 @@ TEST(http1_parser, date)
 	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "-1", "-1","00:00:00");
 	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "invalid", "invalid",
 				     "00:00:00");
+}
 
+
+TEST_MPART(http1_parser, date, 4)
+{
 	/* Incorrect hours. */
 	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", ":00:00");
 	FOR_EACH_DATE_FORMAT_INVALID("01", "Jan", "2000", "00", "00:00");
@@ -3636,6 +3688,7 @@ TEST(http1_parser, date)
 	FOR_EACH_DATE_INVALID("Inv Jan  01 00:00:01 1970");
 
 	FOR_EACH_DATE_INVALID("invalid");
+}
 
 #undef IF_MSINCE_INVALID
 #undef FOR_EACH_DATE_FORMAT_INVALID
@@ -3644,7 +3697,14 @@ TEST(http1_parser, date)
 #undef FOR_EACH_DATE_RFC_822_ISOC
 #undef FOR_EACH_DATE_INVALID
 #undef FOR_EACH_DATE
-}
+
+TEST_MPART_DEFINE(http1_parser, date, H1_DATE_PARSE_TCNT,
+		  TEST_MPART_NAME(http1_parser, date, 0),
+		  TEST_MPART_NAME(http1_parser, date, 1),
+		  TEST_MPART_NAME(http1_parser, date, 2),
+		  TEST_MPART_NAME(http1_parser, date, 3),
+		  TEST_MPART_NAME(http1_parser, date, 4));
+
 
 TEST(http1_parser, method_override)
 {
@@ -3710,7 +3770,6 @@ TEST(http1_parser, method_override)
 		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_UNKNOWN);
 	}
 }
-
 TEST(http1_parser, vchar)
 {
 /* Tests that header is validated by ctext_vchar alphabet. */
@@ -4271,12 +4330,11 @@ TEST_MPART(http1_parser, forwarded, 3) {
 				"for=1.2.3.4");
 }
 
-#define H1_FWD_TCNT 4
 TEST_MPART_DEFINE(http1_parser, forwarded, H1_FWD_TCNT,
-	TEST_MPART_NAME(http1_parser, forwarded, 0),
-	TEST_MPART_NAME(http1_parser, forwarded, 1),
-	TEST_MPART_NAME(http1_parser, forwarded, 2),
-	TEST_MPART_NAME(http1_parser, forwarded, 3));
+		  TEST_MPART_NAME(http1_parser, forwarded, 0),
+		  TEST_MPART_NAME(http1_parser, forwarded, 1),
+		  TEST_MPART_NAME(http1_parser, forwarded, 2),
+		  TEST_MPART_NAME(http1_parser, forwarded, 3));
 
 TEST(http1_parser, perf)
 {
@@ -4399,7 +4457,7 @@ do {									\
 #undef RESP_PERF
 }
 
-TEST_SUITE(http1_parser)
+TEST_SUITE_MPART(http1_parser, 0)
 {
 	int r;
 
@@ -4422,9 +4480,13 @@ TEST_SUITE(http1_parser)
 	TEST_RUN(http1_parser, status);
 	TEST_RUN(http1_parser, age);
 	TEST_RUN(http1_parser, pragma);
+}
+
+TEST_SUITE_MPART(http1_parser, 1)
+{
 	TEST_RUN(http1_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http1_parser, parses_connection_value);
-	TEST_RUN(http1_parser, content_type_in_bodyless_requests);
+	TEST_MPART_RUN(http1_parser, content_type_in_bodyless_requests);
 	TEST_RUN(http1_parser, content_length);
 	TEST_RUN(http1_parser, eol_crlf);
 	TEST_RUN(http1_parser, ows);
@@ -4439,11 +4501,15 @@ TEST_SUITE(http1_parser)
 	TEST_RUN(http1_parser, if_none_match);
 	TEST_RUN(http1_parser, referer);
 	TEST_RUN(http1_parser, req_hop_by_hop);
+}
+
+TEST_SUITE_MPART(http1_parser, 2)
+{
 	TEST_RUN(http1_parser, resp_hop_by_hop);
 	TEST_RUN(http1_parser, fuzzer);
-	TEST_RUN(http1_parser, content_type_line_parser);
+	TEST_MPART_RUN(http1_parser, content_type_line_parser);
 	TEST_RUN(http1_parser, xff);
-	TEST_RUN(http1_parser, date);
+	TEST_MPART_RUN(http1_parser, date);
 	TEST_RUN(http1_parser, method_override);
 	TEST_RUN(http1_parser, x_tempesta_cache);
 	TEST_RUN(http1_parser, vchar);
@@ -4460,3 +4526,9 @@ TEST_SUITE(http1_parser)
 
 	TEST_RUN(http1_parser, perf);
 }
+
+TEST_SUITE_MPART_DEFINE(http1_parser, H1_SUITE_PART_CNT,
+	TEST_SUITE_MPART_NAME(http1_parser, 0),
+	TEST_SUITE_MPART_NAME(http1_parser, 1),
+	TEST_SUITE_MPART_NAME(http1_parser, 2));
+
