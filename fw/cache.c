@@ -27,6 +27,11 @@
 #include <linux/tcp.h>
 #include <linux/topology.h>
 
+#undef DEBUG
+#if DBG_CACHE > 0
+#define DEBUG DBG_CACHE
+#endif
+
 #include "tdb.h"
 
 #include "lib/str.h"
@@ -123,6 +128,55 @@ typedef struct {
 
 #define CE_BODY_SIZE							\
 	(sizeof(TfwCacheEntry) - offsetof(TfwCacheEntry, ce_body))
+
+#if defined(DEBUG)
+#define CE_DBGBUF_LEN	1024
+static DEFINE_PER_CPU(char *, ce_dbg_buf) = NULL;
+
+static void
+__tfw_dbg_dump_ce(const TfwCacheEntry *ce)
+{
+	char *buf;
+	int len = 0;
+	buf = *this_cpu_ptr(&ce_dbg_buf);
+	bzero_fast(buf, CE_DBGBUF_LEN);
+
+#define CE_DUMP_MEMBER(fmt, ...)					\
+	snprintf(buf + len, CE_DBGBUF_LEN - len, "    %14s: " fmt "\n",	\
+		 __VA_ARGS__)
+
+	len += CE_DUMP_MEMBER("key %lx, chunk_next %d, len %d", "TdbVRec",
+			      ce->trec.key, ce->trec.chunk_next, ce->trec.len);
+	len += CE_DUMP_MEMBER("%d", "key_len",		ce->key_len);
+	len += CE_DUMP_MEMBER("%d", "status_len",     	ce->status_len);
+	len += CE_DUMP_MEMBER("%d", "rph_len",        	ce->rph_len);
+	len += CE_DUMP_MEMBER("%d", "hdr_num",        	ce->hdr_num);
+	len += CE_DUMP_MEMBER("%d", "hdr_h2_off",     	ce->hdr_h2_off);
+	len += CE_DUMP_MEMBER("%d", "hdr_len",        	ce->hdr_len);
+	len += CE_DUMP_MEMBER("%d", "body_len",       	ce->body_len);
+	len += CE_DUMP_MEMBER("%d", "method",	      	ce->method);
+	len += CE_DUMP_MEMBER("%d", "flags",	      	ce->flags);
+
+	len += CE_DUMP_MEMBER("%lu", "age",		ce->age);
+	len += CE_DUMP_MEMBER("%lu", "date",	      	ce->date);
+	len += CE_DUMP_MEMBER("%lu", "req_time",	ce->req_time);
+	len += CE_DUMP_MEMBER("%lu", "resp_time",   	ce->resp_time);
+	len += CE_DUMP_MEMBER("%lu", "last_modified",   ce->last_modified);
+	len += CE_DUMP_MEMBER("%lx", "key off",		ce->key);
+	len += CE_DUMP_MEMBER("%lx", "status off",  	ce->status);
+	len += CE_DUMP_MEMBER("%lx", "hdrs off",    	ce->hdrs);
+	len += CE_DUMP_MEMBER("%lx", "body off",    	ce->body);
+	/* @hmflags occupies a single ulong */
+	len += CE_DUMP_MEMBER("%lx [%*pbl]", "hmflags", *ce->hmflags,
+			      _TFW_HTTP_FLAGS_NUM, ce->hmflags);
+	len += CE_DUMP_MEMBER("%x",  "version",     ce->version);
+	len += CE_DUMP_MEMBER("%d",  "resp_status", ce->resp_status);
+
+	T_DBG("Tdb CE [%p]: \n%s", ce, buf);
+}
+#else
+#define __tfw_dbg_dump_ce(...)
+#endif
 
 /**
  * String header for cache entries used for TfwStr serialization.
@@ -1669,12 +1723,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
 	}
 
-	T_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
-	      " (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
-	      " key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)\n",
-	      resp->content_length, resp->msg.len, ce, ce->trec.len,
-	      ce->key_len, ce->status_len, ce->hdr_num, ce->hdr_len,
-	      ce->key, ce->status, ce->hdrs, ce->body);
+	T_DBG("Copied message to cache: resp=%p content-length=%lu msg_len=%lu",
+	      resp, resp->content_length, resp->msg.len);
+	__tfw_dbg_dump_ce(ce);
 
 	return 0;
 }
@@ -2308,10 +2359,6 @@ write_body:
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      TFW_MSG_H2(req), stream_id))
 			goto free;
-		if (!TFW_MSG_H2(req)
-		    && test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-		    && tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
-			goto free;
 	}
 
 	return resp;
@@ -2334,18 +2381,22 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	TdbIter iter;
 	long lifetime;
 
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req))) {
+		T_DBG3("%s: db=[%p] req=[%p] CE has not been found\n",
+		       __func__, db, req);
 		goto out;
+	}
+	__tfw_dbg_dump_ce(ce);
 
-	if (!(lifetime = tfw_cache_entry_is_live(req, ce)))
+	if (!(lifetime = tfw_cache_entry_is_live(req, ce))) {
+		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not valid\n",
+		       __func__, db, req, ce);
 		goto out;
+	}
 
-	T_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
-	      " status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
-		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
-		ce->trec.key, ce, ce->trec.len, ce->key_len, ce->status_len,
-		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
-		ce->body);
+	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p",
+	      req, ce->trec.key, ce);
+
 	TFW_INC_STAT_BH(cache.hits);
 
 	if (!tfw_handle_validation_req(req, ce))
@@ -2562,7 +2613,25 @@ tfw_cache_start(void)
 		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
 	}
 
+#if defined(DEBUG)
+	for_each_online_cpu(i) {
+		char *dbg_buf = kmalloc_node(CE_DBGBUF_LEN, GFP_KERNEL,
+					     cpu_to_node(i));
+		if (!dbg_buf) {
+			T_WARN("Failed to allocate CE dump buffer\n");
+			goto dbg_buf_free;
+		}
+		per_cpu(ce_dbg_buf, i) = dbg_buf;
+	}
+#endif
+
 	return 0;
+
+#if defined(DEBUG)
+dbg_buf_free:
+	for_each_online_cpu(i)
+		kfree(per_cpu(ce_dbg_buf, i));
+#endif
 close_db:
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
@@ -2587,6 +2656,11 @@ tfw_cache_stop(void)
 	}
 #if 0
 	kthread_stop(cache_mgr_thr);
+#endif
+
+#if defined(DEBUG)
+	for_each_online_cpu(i)
+		kfree(per_cpu(ce_dbg_buf, i));
 #endif
 
 	for_each_node_with_cpus(i)

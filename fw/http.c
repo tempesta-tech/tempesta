@@ -87,6 +87,11 @@
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
+#undef DEBUG
+#if DBG_HTTP > 0
+#define DEBUG DBG_HTTP
+#endif
+
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "access_log.h"
@@ -4316,7 +4321,6 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
 
 		if (!name_found) {
 			if (chunk->data[0] == ':') {
-				WARN_ON_ONCE(chunk->len != 1);
 				name_found = true;
 			} else {
 				++name_out->nchunks;

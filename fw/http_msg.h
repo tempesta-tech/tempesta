@@ -51,15 +51,9 @@ const void *__tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array,
 	(TfwStr *)__tfw_http_msg_find_hdr(hdr, array,			\
 					  ARRAY_SIZE(array), sizeof(TfwStr))
 
-static inline void
-__tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
-{
-	str->data = data;
-	str->skb = skb;
-}
 #define tfw_http_msg_set_str_data(hm, str, data)			\
-	__tfw_http_msg_set_str_data(str, data,				\
-				    ss_skb_peek_tail(&hm->msg.skb_head))
+	__tfw_str_set_data(str, data,					\
+			   ss_skb_peek_tail(&hm->msg.skb_head))
 
 void __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val);
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);

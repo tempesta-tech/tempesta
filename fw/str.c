@@ -561,12 +561,12 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 {
 	TfwStr *next;
 
-	BUG_ON(!TFW_STR_PLAIN(chunk));
-
 	if (unlikely(chunk == end)) {
 		bzero_fast(out, sizeof(*out));
 		return;
 	}
+
+	BUG_ON(!TFW_STR_PLAIN(chunk));
 
 	/* If this is last chunk, just return it in this case. */
 	next = chunk + 1;
@@ -988,6 +988,50 @@ tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
 	TFW_STR_FOR_EACH_CHUNK(s, src, end) {
 		*d = *s;
 		++d;
+	}
+
+	return dst;
+}
+
+/*
+ * Allocate and set up new compound @TfwStr to make it structurally identical
+ * to the source TfwStr except for the actual data it points to.
+ * The chunk descriptors of the new string would point to the linear
+ * buffer provided by @data_str.
+ *
+ * @pool     - pool descriptor
+ * @data_str - plain TfwStr which points to target data buffer,
+ *	       e.g. returned from ss_skb_get_room() call
+ * @src	     - source string
+ */
+TfwStr *
+tfw_strcpy_comp_ext(TfwPool *pool, const TfwStr *data_str, const TfwStr *src)
+{
+	size_t sz;
+	char *data;
+	const TfwStr *sc, *end;
+	TfwStr *dst, *dc;
+
+	BUG_ON(TFW_STR_PLAIN(src));
+	BUG_ON(!TFW_STR_PLAIN(data_str));
+
+	sz = (src->nchunks + 1) * sizeof(TfwStr);
+	dst = (TfwStr *)tfw_pool_alloc(pool, sz);
+	if (unlikely(!dst))
+		return NULL;
+
+	*dst = *src;
+	dst->chunks = dst + 1;
+	dst->skb = data_str->skb;
+
+	data = data_str->data;
+	dc = TFW_STR_CHUNK(dst, 0);
+	TFW_STR_FOR_EACH_CHUNK(sc, src, end) {
+		*dc = *sc;
+		__tfw_str_set_data(dc, data, data_str->skb);
+		memcpy_fast(dc->data, sc->data, sc->len);
+		data += sc->len;
+		++dc;
 	}
 
 	return dst;
