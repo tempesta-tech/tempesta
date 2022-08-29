@@ -347,7 +347,7 @@ do {									\
  * 1. explicit fixups should not be mixed with regular fixups (__FSM_I_MOVE and
  *    others)
  * 2. call __msg_field_open() to initialize a new _empty_ TfwStr chunk (see
- *    __tfw_http_msg_set_str_data()). Usually we use it to initialize header
+ *    __tfw_str_set_data()). Usually we use it to initialize header
  *    before using fixup functions to it. However, also we can use it to
  *    initialize chunk of TfwStr that have already been allocated before.
  *    (see __req_parse_forwarded()).

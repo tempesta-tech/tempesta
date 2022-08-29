@@ -652,17 +652,16 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->data)
-			__tfw_http_msg_set_str_data(str, data, skb);
+			__tfw_str_set_data(str, data, skb);
 		str->len = data + len - (void *)str->data;
 		BUG_ON(!str->len);
-	}
-	else if (likely(len)) {
+	} else if (likely(len)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
 		if (!sn) {
 			T_WARN("Cannot grow HTTP data string\n");
 			return -ENOMEM;
 		}
-		__tfw_http_msg_set_str_data(sn, data, skb);
+		__tfw_str_set_data(sn, data, skb);
 		tfw_str_updlen(str, data + len);
 	}
 
@@ -697,6 +696,7 @@ static int
 __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 {
 	int r;
+	TfwStr *dst;
 	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
@@ -706,7 +706,8 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 		return r;
 
 	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
-	if (tfw_strcpy(&it, hdr))
+	dst = tfw_strcpy_comp_ext(hm->pool, &it, hdr);
+	if (unlikely(!dst))
 		return TFW_BLOCK;
 
 	/*
@@ -715,7 +716,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 	 * (e.g. header name and value are placed in different chunks) aren't
 	 * satisfied. So don't consider the header for normal HTTP processing.
 	 */
-	hm->h_tbl->tbl[hid] = it;
+	hm->h_tbl->tbl[hid] = *dst;
 
 	return 0;
 }
