@@ -84,6 +84,14 @@ TfwHttpReq *test_req;
 	_c;								\
 })
 
+static int
+http_match_suite_rule_release(TfwHttpMatchRule *rule)
+{
+	if (rule->val.type == TFW_HTTP_MATCH_V_COOKIE)
+		kfree(rule->val.ptn.str);
+	return 0;
+}
+
 static void
 http_match_suite_setup(void)
 {
@@ -102,6 +110,8 @@ http_match_suite_teardown(void)
 {
 	test_req_free(test_req);
 	test_req = NULL;
+
+	tfw_http_chain_rules_for_each(test_chain, http_match_suite_rule_release);
 
 	tfw_http_table_free(test_table);
 	test_table = NULL;

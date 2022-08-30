@@ -96,7 +96,7 @@ typedef struct {
 		struct {
 			tfw_http_match_op_t op;
 			unsigned int len; /* String length for speedup */
-			const char *str; /* Allocated sring, free it after */
+			const char *str; /* Allocated string, free it after */
 		} ptn; /* Pattern */
 	};
 } TfwHttpMatchVal;
