@@ -426,11 +426,22 @@ tfw_listen_sock_del_all(void)
 {
 	TfwListenSock *ls, *tmp;
 
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+			if (ls->sk)
+				/*
+				 * If error occurred during starting module,
+				 * release sockets which were bound.
+				 */
+				ss_release(ls->sk);
+			kfree(ls);
+	}
+
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
 		BUG_ON(ls->sk);
 		kfree(ls);
 	}
 
+	INIT_LIST_HEAD(&tfw_listen_socks);
 	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	tfw_classifier_cleanup_inport();
 }
