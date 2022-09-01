@@ -35,7 +35,7 @@ git clean -fd
 
 Packaging require to hame `debian` directory in repo root, create symlink:
 ```sh
-ln -s pkg/tempesta/debian debian
+ln -s pkg/debian debian
 ```
 
 Update packet changelog with `dch` command. See manpages for more info.
