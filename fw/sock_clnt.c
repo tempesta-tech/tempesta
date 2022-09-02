@@ -721,7 +721,6 @@ tfw_sock_clnt_start(void)
 		if (!ls->sk)
 			continue;
 		ss_release(ls->sk);
-		ls->sk = NULL;
 		kfree(ls);
 	}
 
@@ -850,7 +849,7 @@ tfw_sock_clnt_init(void)
 	tfw_https_conn_cache = kmem_cache_create("tfw_https_conn_cache",
 						 sizeof(TfwTlsConn), 0, 0, NULL);
 	if (!tfw_https_conn_cache) {
-		kmem_cache_destroy(tfw_https_conn_cache);
+		kmem_cache_destroy(tfw_h1_conn_cache);
 		return -ENOMEM;
 	}
 
