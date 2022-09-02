@@ -626,6 +626,8 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 {
 	BUG_ON(timer_pending(&srv_conn->timer));
 
+	tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
+
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)srv_conn);
 	BUG_ON(!list_empty(&srv_conn->nip_queue));
@@ -680,10 +682,8 @@ tfw_sock_srv_del_conns(void *psrv)
 	TfwSrvConn *srv_conn, *tmp;
 	TfwServer *srv = psrv;
 
-	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list) {
-		tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
+	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list)
 		tfw_srv_conn_free(srv_conn);
-	}
 }
 
 static int
