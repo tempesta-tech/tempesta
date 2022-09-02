@@ -666,12 +666,14 @@ tfw_tls_conn_init(TfwConn *c)
 		return -EINVAL;
 	}
 
-	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
-		return -EINVAL;
+	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init)) {
+		r = -EINVAL;
+		goto err_cleanup;
+	}
 
 	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2)
 		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
-			return r;
+			goto err_cleanup;
 
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
@@ -682,6 +684,9 @@ tfw_tls_conn_init(TfwConn *c)
 	c->destructor = tfw_tls_conn_dtor;
 
 	return 0;
+err_cleanup:
+	tfw_tls_conn_dtor(c);
+	return r;
 }
 
 static int
