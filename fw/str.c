@@ -567,8 +567,6 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 	}
 	BUG_ON(!TFW_STR_PLAIN(chunk));
 
-	BUG_ON(!TFW_STR_PLAIN(chunk));
-
 	/* If this is last chunk, just return it in this case. */
 	next = chunk + 1;
 	if (likely(next == end || (stop && *next->data == *stop))) {
