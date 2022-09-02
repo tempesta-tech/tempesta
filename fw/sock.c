@@ -567,7 +567,7 @@ ss_do_close(struct sock *sk, int flags)
 	 */
 	sk->sk_lock.owned = 1;
 
-	/* The below is mostly copy-paste from tcp_close(). */
+	/* The below is mostly copy-paste from tcp_close(), 5.10.35. */
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
 	while ((skb = __skb_dequeue(&sk->sk_receive_queue))) {
@@ -584,7 +584,6 @@ ss_do_close(struct sock *sk, int flags)
 	if (data_was_unread || (flags & __SS_F_RST)) {
 		if ((flags & __SS_F_RST)) {
 			sk->sk_err = ECONNRESET;
-			sk->sk_shutdown = SHUTDOWN_MASK;
 		} else {
 			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
 		}
@@ -592,30 +591,39 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	}
 	else if (tcp_close_state(sk)) {
-		/* The code below is taken from tcp_send_fin(). */
+		/* The code below is taken from tcp_send_fin(), 5.10.35. */
+		struct sk_buff *skb, *tskb, *tail;
 		struct tcp_sock *tp = tcp_sk(sk);
-		int mss_now = tcp_current_mss(sk);
 
-		skb = tcp_write_queue_tail(sk);
+		tskb = tail = tcp_write_queue_tail(sk);
+		if (!tskb && tcp_under_memory_pressure(sk))
+			tskb = skb_rb_last(&sk->tcp_rtx_queue);
 
-		if (skb && tcp_send_head(sk)) {
+		if (tskb) {
 			/* Send FIN with data if we have any. */
-			TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_FIN;
-			TCP_SKB_CB(skb)->end_seq++;
+			TCP_SKB_CB(tskb)->tcp_flags |= TCPHDR_FIN;
+			TCP_SKB_CB(tskb)->end_seq++;
 			tp->write_seq++;
+			if (!tail) {
+				WRITE_ONCE(tp->snd_nxt, tp->snd_nxt + 1);
+				goto adjudge_to_death;
+			}
 		}
 		else {
 			/* No data to send in the socket, allocate new skb. */
-			skb = sk_stream_alloc_skb(sk, 0, sk->sk_allocation, true);
-			if (!skb) {
+			skb = alloc_skb_fclone(MAX_TCP_HEADER, sk->sk_allocation);
+			if (unlikely(!skb)) {
 				T_WARN("can't send FIN due to bad alloc");
-			} else {
-				tcp_init_nondata_skb(skb, tp->write_seq,
-						     TCPHDR_ACK | TCPHDR_FIN);
-				tcp_queue_skb(sk, skb);
+				goto adjudge_to_death;
 			}
+			INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+			skb_reserve(skb, MAX_TCP_HEADER);
+			ss_forced_mem_schedule(sk, skb->truesize);
+			tcp_init_nondata_skb(skb, tp->write_seq,
+					     TCPHDR_ACK | TCPHDR_FIN);
+			tcp_queue_skb(sk, skb);
 		}
-		__tcp_push_pending_frames(sk, mss_now, TCP_NAGLE_OFF);
+		__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
 	}
 
 adjudge_to_death:
@@ -639,8 +647,7 @@ adjudge_to_death:
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
 		if (tmo > TCP_TIMEWAIT_LEN) {
-			inet_csk_reset_keepalive_timer(sk,
-						tmo - TCP_TIMEWAIT_LEN);
+			inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
 		} else {
 			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
 			return;
@@ -656,7 +663,10 @@ adjudge_to_death:
 		}
 	}
 	if (sk->sk_state == TCP_CLOSE) {
-		struct request_sock *req = tcp_sk(sk)->fastopen_rsk;
+		struct request_sock *req;
+
+		req = rcu_dereference_protected(tcp_sk(sk)->fastopen_rsk,
+						lockdep_sock_is_held(sk));
 		if (req)
 			reqsk_fastopen_remove(sk, req, false);
 		if (flags & __SS_F_RST)
