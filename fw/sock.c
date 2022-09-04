@@ -969,9 +969,13 @@ ss_tcp_state_change(struct sock *sk)
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
-		/* Process the new TCP connection. */
-		SsProto *proto = sk->sk_user_data;
-		struct sock *lsk = proto->listener;
+		/*
+		 * Process the new TCP connection.
+		 * The kernel sets sk_allocation to GFP_KERNEL, so this way we
+		 * cad differentiate server sockets, created by as, and client
+		 * sockets created by the kernel.
+		 */
+		bool is_srv_sock = (sk->sk_allocation == GFP_ATOMIC);
 		int r;
 
 		/*
@@ -993,12 +997,12 @@ ss_tcp_state_change(struct sock *sk)
 			 * cannot be completed now. Paired with ss_connect()
 			 * and ss_active_guard_enter() there.
 			 */
-			if (!lsk)
+			if (is_srv_sock)
 				ss_conn_drop_guard_exit(sk);
 			return;
 		}
 
-		if (lsk && ss_active_guard_enter(SS_V_ACT_LIVECONN)) {
+		if (!is_srv_sock && ss_active_guard_enter(SS_V_ACT_LIVECONN)) {
 			ss_do_close(sk, 0);
 			sock_put(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
@@ -1024,16 +1028,11 @@ ss_tcp_state_change(struct sock *sk)
 		}
 
 		sock_set_flag(sk, SOCK_TEMPESTA);
-		if (lsk) {
-			/*
-			 * This is a new socket for an accepted connect
-			 * request that the kernel has allocated itself.
-			 * Kernel initializes this field to GFP_KERNEL.
-			 * Tempesta works with sockets in SoftIRQ context,
-			 * so set it to atomic allocation.
-			 */
-			sk->sk_allocation = GFP_ATOMIC;
-		}
+		/*
+		 * Tempesta works with sockets in SoftIRQ context, so always use
+		 * atomic allocations only.
+		 */
+		sk->sk_allocation = GFP_ATOMIC;
 		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
 	else if (sk->sk_state == TCP_CLOSE_WAIT) {
@@ -1079,20 +1078,6 @@ ss_tcp_state_change(struct sock *sk)
 	}
 }
 
-void
-ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
-{
-	proto->hooks = hooks;
-	proto->type = type;
-
-	/*
-	 * The memory allocated for @proto should be already zero'ed, so don't
-	 * initialize this field to NULL, but instead check the invariant.
-	 */
-	WARN_ON_ONCE(proto->listener);
-}
-EXPORT_SYMBOL(ss_proto_init);
-
 /**
  * Make data socket serviced by synchronous sockets.
  *
@@ -1126,12 +1111,9 @@ EXPORT_SYMBOL(ss_set_callbacks);
 void
 ss_set_listen(struct sock *sk)
 {
-	((SsProto *)sk->sk_user_data)->listener = sk;
-
 	sk->sk_state_change = ss_tcp_state_change;
 	sock_set_flag(sk, SOCK_TEMPESTA);
 }
-EXPORT_SYMBOL(ss_set_listen);
 
 /*
  * Create a new socket for IPv4 or IPv6 protocol. The original functions
@@ -1547,7 +1529,6 @@ ss_wait_newconn(void)
 		}
 	}
 }
-EXPORT_SYMBOL(ss_wait_newconn);
 
 /**
  * Wait until there are no queued works and no running tasklets.
