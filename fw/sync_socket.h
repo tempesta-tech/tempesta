@@ -31,7 +31,6 @@
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
 	const struct ss_hooks	*hooks;
-	struct sock		*listener;
 	int			type;
 } SsProto;
 
@@ -106,9 +105,10 @@ ss_sock_live(struct sock *sk)
 }
 
 static inline void
-ss_proto_inherit(const SsProto *parent, SsProto *child)
+ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 {
-	*child = *parent;
+	proto->hooks = hooks;
+	proto->type = type;
 }
 
 /* Synchronous operation required. */
@@ -127,10 +127,6 @@ ss_proto_inherit(const SsProto *parent, SsProto *child)
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)
 #define SS_SKB_F2TYPE(f)		((f) >> 8)
 
-int ss_hooks_register(SsHooks* hooks);
-void ss_hooks_unregister(SsHooks* hooks);
-
-void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, struct sk_buff **skb_head, int flags);
