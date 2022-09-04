@@ -262,6 +262,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	tfw_connection_link_from_sk((TfwConn *)srv_conn, sk);
 	tfw_connection_link_to_sk((TfwConn *)srv_conn, sk);
 	tfw_srv_conn_init_as_dead(srv_conn);
+	sk->sk_uid.val = SS_SRV_USER;
 	ss_set_callbacks(sk);
 	/*
 	 * Set connection destructor such that connection failover can

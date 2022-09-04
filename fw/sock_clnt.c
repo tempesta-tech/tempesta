@@ -157,15 +157,14 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return r;
 }
 
-static const SsHooks *tfw_sock_clnt_hooks(int type);
-
 /**
  * This hook is called when a new client connection is established.
  */
 static int
 tfw_sock_clnt_new(struct sock *sk)
 {
-	int r = -ENOMEM, type;
+	int r = -ENOMEM;
+	SsProto *proto;
 	TfwClient *cli;
 	TfwConn *conn;
 	TfwAddr addr;
@@ -179,7 +178,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	 * from referencing TfwListenSock{} while a new TfwConn{} object
 	 * is not yet allocated/initialized.
 	 */
-	type = (long)sk->sk_user_data;
+	proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
 
 	ss_getpeername(sk, &addr);
@@ -189,13 +188,13 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = (TfwConn *)tfw_cli_conn_alloc(type);
+	conn = (TfwConn *)tfw_cli_conn_alloc(proto->type);
 	if (!conn) {
 		T_ERR("can't allocate a new client connection\n");
 		goto err_client;
 	}
 
-	ss_proto_init(&conn->proto, tfw_sock_clnt_hooks(type), type);
+	ss_proto_init(&conn->proto, proto->hooks, proto->type);
 	BUG_ON(!(conn->proto.type & Conn_Clnt));
 
 	conn->destructor = (void *)tfw_cli_conn_release;
@@ -298,22 +297,30 @@ static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_recv	= tfw_tls_connection_recv,
 };
 
-static const SsHooks *
-tfw_sock_clnt_hooks(int type)
+/*
+ * We call the same TLS hooks before generic HTTP processing
+ * for both the HTTP/1 and HTTP/2.
+ */
+static const SsProto tfw_sock_listen_protos[] = {
+	{ &tfw_sock_http_clnt_ss_hooks,	TFW_FSM_HTTP},
+	{ &tfw_sock_http_clnt_ss_hooks,	Conn_HttpClnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_HTTPS},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_HttpsClnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt},
+};
+
+static const SsProto *
+tfw_sock_clnt_protos(int type)
 {
-	switch (type) {
-	case TFW_FSM_HTTP:
-		return &tfw_sock_http_clnt_ss_hooks;
-	case TFW_FSM_HTTPS:
-	case TFW_FSM_H2:
-		/*
-		 * We call the same TLS hooks before generic HTTP processing
-		 * for both the HTTP/1 and HTTP/2.
-		 */
-		return &tfw_sock_tls_clnt_ss_hooks;
-	default:
-		BUG();
-	}
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tfw_sock_listen_protos); ++i)
+		if (tfw_sock_listen_protos[i].type == type)
+			return &tfw_sock_listen_protos[i];
+	BUG();
 }
 
 static int
@@ -402,7 +409,7 @@ static int
 tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
-	const SsHooks *shooks = tfw_sock_clnt_hooks(type);
+	const SsHooks *shooks = tfw_sock_clnt_protos(type)->hooks;
 
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
@@ -475,8 +482,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	/*
 	 * Link the new socket and TfwListenSock.
 	 *
-	 * sk_user_data for listening sockets is used as an inherited type for
-	 * children sockets only, so we just store the socket type here.
+	 * We use static SsProto's for sk_user_data for listening sockets.
 	 * This way initialization of passively open sockets doesn't depend
 	 * on the listening socket, which migh be closed during a new connection
 	 * establishing.
@@ -485,7 +491,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	 * an unlimited time.
 	 */
 	ls->sk = sk;
-	sk->sk_user_data = (void *)(long)ls->proto.type;
+	sk->sk_user_data = (SsProto *)tfw_sock_clnt_protos(ls->proto.type);
 
 	ss_set_listen(sk);
 
@@ -725,16 +731,8 @@ tfw_sock_clnt_start(void)
 		listen_socks_sz--;
 
 		list_del(&ls->list);
-		if (ls->sk) {
+		if (ls->sk)
 			ss_release(ls->sk);
-			/*
-			 * There is at least one listener, which we need to close, so
-			 * wait while all new connections finish before freeing the
-			 * listeners. This prevents racing of the function with
-			 * tfw_sock_clnt_new().
-			 */
-			ss_wait_newconn();
-		}
 		kfree(ls);
 	}
 
