@@ -967,15 +967,11 @@ ss_tcp_state_change(struct sock *sk)
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
+	WARN_ON(sk->sk_allocation != GFP_ATOMIC);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
-		/*
-		 * Process the new TCP connection.
-		 * The kernel sets sk_allocation to GFP_KERNEL, so this way we
-		 * cad differentiate server sockets, created by as, and client
-		 * sockets created by the kernel.
-		 */
-		bool is_srv_sock = (sk->sk_allocation == GFP_ATOMIC);
+		/* Process the new TCP connection. */
+		bool is_srv_sock = (sk->sk_uid.val == SS_SRV_USER);
 		int r;
 
 		/*
@@ -1028,11 +1024,6 @@ ss_tcp_state_change(struct sock *sk)
 		}
 
 		sock_set_flag(sk, SOCK_TEMPESTA);
-		/*
-		 * Tempesta works with sockets in SoftIRQ context, so always use
-		 * atomic allocations only.
-		 */
-		sk->sk_allocation = GFP_ATOMIC;
 		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
 	else if (sk->sk_state == TCP_CLOSE_WAIT) {

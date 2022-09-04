@@ -111,6 +111,9 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 	proto->type = type;
 }
 
+/* Dummy user ID to differentiate server from client sockets. */
+#define SS_SRV_USER			0x11223344
+
 /* Synchronous operation required. */
 #define SS_F_SYNC			0x01
 /* Keep SKBs (use clones) on sending. */
@@ -149,7 +152,6 @@ void ss_get_stat(SsStat *stat);
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
-#define SS_CONN_TYPE(sk)							\
-	(((SsProto *)(sk)->sk_user_data)->type)
+#define SS_CONN_TYPE(sk)	(((SsProto *)(sk)->sk_user_data)->type)
 
 #endif /* __SS_SOCK_H__ */
