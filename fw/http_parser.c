@@ -995,6 +995,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_IF_NONE_MATCH:
 	case TFW_HTTP_HDR_X_FORWARDED_FOR:
 	case TFW_HTTP_HDR_TRANSFER_ENCODING:
+	case TFW_HTTP_HDR_CONTENT_ENCODING:
 	case TFW_HTTP_HDR_FORWARDED:
 		return CSTR_NEQ;
 	}
@@ -2127,6 +2128,7 @@ finalize:
 STACK_FRAME_NON_STANDARD(__req_parse_content_type);
 
 /**
+ * Parse Content-Encoding header value, RFC 9110 8.4.
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
  *
  * We cut chunked encoding for responses, since the chunked encoding is not
@@ -2135,28 +2137,16 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
  */
 static int
 __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
-			  bool client)
+			  bool client, bool content)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st);
 
-	/*
-	 * According to RFC 7230 section 3.3.1:
-	 *
-	 * TODO: In a response:
-	 * A server MUST NOT send a Transfer-Encoding header field
-	 * in any 2xx (Successful) response to a CONNECT request.
-	 */
-	__FSM_STATE(I_TransEncod) {
-		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
-			unsigned int status = ((TfwHttpResp *)hm)->status;
-			if (status - 100U < 100U || status == 204)
-				return CSTR_NEQ;
-		}
-		/* Fall through. */
-	}
+	/* Content-Encoding can't contain "chunked". Skip this part. */
+	if (content)
+		__FSM_I_JMP(I_EncodTok);
 
 	__FSM_STATE(I_TransEncodTok) {
 		/*
@@ -2197,9 +2187,16 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	 */
 	__FSM_STATE(I_TransEncodOther) {
 		__set_bit(TFW_HTTP_B_TE_EXTRA, msg->flags);
-		__FSM_I_MATCH_MOVE_fixup(token, I_TransEncodOther, 0);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_EncodTok) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_EncodTok, 0);
 		__msg_hdr_chunk_fixup(p, __fsm_sz);
 		p += __fsm_sz;
+
+		if (content)
+			__FSM_I_JMP(I_EoT);
 
 		if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags))) {
 			if (client)
@@ -2216,8 +2213,13 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
-		if (IS_TOKEN(c))
+		if (IS_TOKEN(c)) {
+			if (content)
+				__FSM_I_JMP(I_EncodTok);
+
 			__FSM_I_JMP(I_TransEncodTok);
+		}
+
 		if (IS_CRLF(c))
 			return __data_off(p);
 
@@ -2232,13 +2234,38 @@ STACK_FRAME_NON_STANDARD(__parse_transfer_encoding);
 static int
 __req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	return __parse_transfer_encoding(hm, data, len, true);
+	return __parse_transfer_encoding(hm, data, len, true, false);
 }
 
 static int
 __resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	return __parse_transfer_encoding(hm, data, len, false);
+	/*
+	 * According to RFC 7230 section 3.3.1:
+	 *
+	 * TODO: In a response:
+	 * A server MUST NOT send a Transfer-Encoding header field
+	 * in any 2xx (Successful) response to a CONNECT request.
+	 */
+	if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
+		unsigned int status = ((TfwHttpResp *)hm)->status;
+		if (status - 100U < 100U || status == 204)
+			return CSTR_NEQ;
+	}
+
+	return __parse_transfer_encoding(hm, data, len, false, false);
+}
+
+static int
+__req_parse_content_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, true, true);
+}
+
+static int
+__resp_parse_content_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, false, true);
 }
 
 /*
@@ -5089,6 +5116,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	/* Content-* headers. */
 	__FSM_STATE(Req_HdrContent_) {
 		switch (TFW_LC(c)) {
+		case 'e':
+			if (likely(__data_available(p, 9)
+				   && C8_INT7_LCM(p + 1, 'n', 'c', 'o', 'd',
+						  'i', 'n', 'g', ':')))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 9));
+				parser->_i_st = &&Req_HdrContent_EncodingV;
+				p += 9;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
+			__FSM_MOVE(Req_HdrContent_E);
 		case 'l':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'n', 'g', 't')
@@ -5130,6 +5168,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrConnectionV, msg, __parse_connection,
 				   TFW_HTTP_HDR_CONNECTION);
+
+	/* 'Content-Encding:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_EncodingV, msg,
+				     __req_parse_content_encoding,
+				     TFW_HTTP_HDR_CONTENT_ENCODING, 0);
 
 	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_LengthV, msg,
@@ -5783,6 +5826,16 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrConten, 't', Req_HdrContent);
 	__FSM_TX_AF(Req_HdrContent, '-', Req_HdrContent_);
 
+	/* Content-Encoding header processing. */
+	__FSM_TX_AF(Req_HdrContent_E, 'n', Req_HdrContent_En);
+	__FSM_TX_AF(Req_HdrContent_En, 'c', Req_HdrContent_Enc);
+	__FSM_TX_AF(Req_HdrContent_Enc, 'o', Req_HdrContent_Enco);
+	__FSM_TX_AF(Req_HdrContent_Enco, 'd', Req_HdrContent_Encod);
+	__FSM_TX_AF(Req_HdrContent_Encod, 'i', Req_HdrContent_Encodi);
+	__FSM_TX_AF(Req_HdrContent_Encodi, 'n', Req_HdrContent_Encodin);
+	__FSM_TX_AF(Req_HdrContent_Encodin, 'g', Req_HdrContent_Encoding);
+	__FSM_TX_AF_OWS(Req_HdrContent_Encoding, Req_HdrContent_EncodingV);
+
 	/* Content-Length header processing. */
 	__FSM_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le);
 	__FSM_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len);
@@ -6397,6 +6450,8 @@ __FSM_STATE(st, cold) {							\
 			goto Req_HdrAuthorizationV;			\
 		case TFW_TAG_HDR_CACHE_CONTROL:				\
 			goto Req_HdrCache_ControlV;			\
+		case TFW_TAG_HDR_CONTENT_ENCODING:			\
+			goto Req_HdrContent_EncodingV;			\
 		case TFW_TAG_HDR_CONTENT_LENGTH:			\
 			goto Req_HdrContent_LengthV;			\
 		case TFW_TAG_HDR_CONTENT_TYPE:				\
@@ -7192,6 +7247,38 @@ done:
 #undef __FSM_H2_I_MOVE_RESET_ACC
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_cache_control);
+
+/* Parse Content-Encoding header value, RFC 9110 8.4. */
+static int
+__h2_req_parse_content_encoding(TfwHttpMsg *hm, unsigned char *data,
+				size_t len, bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_EncodTok) {
+		__FSM_H2_I_MATCH_MOVE_fixup(token, I_EncodTok, 0);
+		__FSM_H2_I_MOVE_fixup(I_EoT, __fsm_sz, 0);
+	}
+
+	/* End of term. */
+	__FSM_STATE(I_EoT) {
+		if (c == ',')
+			__FSM_H2_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(I_EncodTok);
+
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_content_encoding);
 
 static int
 __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
@@ -9094,6 +9181,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (C8_INT(p + 4, 'e', 'n', 't', '-', 't', 'y', 'p', 'e'))
 				__FSM_H2_FIN(Req_HdrContent_TypeV, 12,
 					     TFW_TAG_HDR_CONTENT_TYPE);
+			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'e', 'n', 'c', 'o')
+			    && C4_INT(p + 12,  'd', 'i', 'n', 'g'))
+				__FSM_H2_FIN(Req_HdrContent_EncodingV, 16,
+					     TFW_TAG_HDR_CONTENT_ENCODING);
 			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'l', 'e', 'n', 'g')
 			    && C4_INT(p + 10,  'n', 'g', 't', 'h'))
 				__FSM_H2_FIN(Req_HdrContent_LengthV, 14,
@@ -9382,6 +9473,11 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TFW_H2_PARSE_HDR_VAL(Req_HdrCache_ControlV, req,
 			     __h2_req_parse_cache_control, TFW_HTTP_HDR_RAW, 1);
 
+	/* 'content-encoding' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrContent_EncodingV, msg,
+			     __h2_req_parse_content_encoding,
+			     TFW_HTTP_HDR_CONTENT_ENCODING, 1);
+
 	/* 'content-length' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrContent_LengthV, msg,
 			     __h2_req_parse_content_length,
@@ -9641,6 +9737,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(Req_HdrContent_, cold) {
 		switch (c) {
+		case 'e':
+			__FSM_H2_NEXT(Req_HdrContent_E);
 		case 'l':
 			__FSM_H2_NEXT(Req_HdrContent_L);
 		case 't':
@@ -9649,6 +9747,16 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
+
+	__FSM_H2_TX_AF(Req_HdrContent_E, 'n', Req_HdrContent_En);
+	__FSM_H2_TX_AF(Req_HdrContent_En, 'c', Req_HdrContent_Enc);
+	__FSM_H2_TX_AF(Req_HdrContent_Enc, 'o', Req_HdrContent_Enco);
+	__FSM_H2_TX_AF(Req_HdrContent_Enco, 'd', Req_HdrContent_Encod);
+	__FSM_H2_TX_AF(Req_HdrContent_Encod, 'i', Req_HdrContent_Encodi);
+	__FSM_H2_TX_AF(Req_HdrContent_Encodi, 'n', Req_HdrContent_Encodin);
+	__FSM_H2_TX_AF_FIN(Req_HdrContent_Encodin, 'g',
+			   Req_HdrContent_EncodingV,
+			   TFW_TAG_HDR_CONTENT_ENCODING);
 
 	__FSM_H2_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le);
 	__FSM_H2_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len);
@@ -11455,7 +11563,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 						  'i', 'n', 'g', ':')))
 			{
 				__msg_hdr_chunk_fixup(data, __data_off(p + 8));
-				parser->_i_st = &&RGen_HdrOtherV;
+				parser->_i_st = &&Resp_HdrContent_EncodingV;
 				__msg_hdr_set_hpack_index(26);
 				p += 8;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
@@ -11534,6 +11642,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, msg, __parse_connection,
 				   TFW_HTTP_HDR_CONNECTION);
+
+	/* 'Content-Encoding:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_EncodingV, msg,
+				     __resp_parse_content_encoding,
+				     TFW_HTTP_HDR_CONTENT_ENCODING, 0);
 
 	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_LengthV, msg,
@@ -11772,7 +11885,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrContent_Encod, 'i', Resp_HdrContent_Encodi);
 	__FSM_TX_AF(Resp_HdrContent_Encodi, 'n', Resp_HdrContent_Encodin);
 	__FSM_TX_AF(Resp_HdrContent_Encodin, 'g', Resp_HdrContent_Encoding);
-	__FSM_TX_AF_OWS_HP(Resp_HdrContent_Encoding, RGen_HdrOtherV, 26);
+	__FSM_TX_AF_OWS_HP(Resp_HdrContent_Encoding, Resp_HdrContent_EncodingV,
+			   26);
 
 	__FSM_STATE(Resp_HdrContent_L) {
 		switch (TFW_LC(c)) {

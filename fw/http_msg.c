@@ -144,6 +144,7 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef resp_hdrs[] = {
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("content-encoding:", TFW_HTTP_HDR_CONTENT_ENCODING),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
@@ -173,6 +174,7 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef req_hdrs[] = {
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("content-encoding:", TFW_HTTP_HDR_CONTENT_ENCODING),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
@@ -208,6 +210,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	static const unsigned char hdr_lens[2][TFW_HTTP_HDR_RAW] = {
 		(unsigned char []) {
 			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_ENCODING]	= SLEN("Content-Encoding:"),
 			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
@@ -224,6 +227,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		},
 		(unsigned char []) {
 			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_ENCODING]	= SLEN("Content-Encoding:"),
 			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
