@@ -91,7 +91,7 @@ static const TfwHPackEntry static_table[] ____cacheline_aligned = {
 	HP_ENTRY_NAME("authorization",		TFW_TAG_HDR_AUTHORIZATION),
 	HP_ENTRY_NAME("cache-control",		TFW_TAG_HDR_CACHE_CONTROL),
 	HP_ENTRY_NAME("content-disposition",	TFW_TAG_HDR_RAW),
-	HP_ENTRY_NAME("content-encoding",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("content-encoding",	TFW_TAG_HDR_CONTENT_ENCODING),
 	HP_ENTRY_NAME("content-language",	TFW_TAG_HDR_RAW),
 	HP_ENTRY_NAME("content-length",		TFW_TAG_HDR_CONTENT_LENGTH),
 	HP_ENTRY_NAME("content-location",	TFW_TAG_HDR_RAW),
@@ -945,6 +945,7 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 	case TFW_TAG_HDR_ACCEPT:
 	case TFW_TAG_HDR_AUTHORIZATION:
 	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_CONTENT_ENCODING:
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 	case TFW_TAG_HDR_CONTENT_TYPE:
 	case TFW_TAG_HDR_COOKIE:
@@ -1262,6 +1263,9 @@ done:
 		break;
 	case TFW_TAG_HDR_CACHE_CONTROL:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
+	case TFW_TAG_HDR_CONTENT_ENCODING:
+		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_ENCODING;
 		break;
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_LENGTH;
