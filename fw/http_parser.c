@@ -1358,9 +1358,8 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 									\
-	if (tfw_http_parse_check_bodyless_meth(req)) {			\
-		TFW_PARSER_BLOCK(RGen_BodyInit);			\
-	}								\
+	if (tfw_http_parse_check_bodyless_meth(req))			\
+		FSM_EXIT(TFW_BLOCK);					\
 									\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
@@ -4618,9 +4617,8 @@ tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
 			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
 		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
 		{
-			T_WARN("%s: Content-Length or Content-Type"
-			       " not allowed to be used with such"
-			       " (overridden) method\n", __func__);
+			T_WARN("Content-Length or Content-Type not allowed to"
+			       " be used with such (overridden) method\n");
 			return T_DROP;
 		}
 	}
