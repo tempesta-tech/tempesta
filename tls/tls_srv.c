@@ -32,6 +32,7 @@
 
 ttls_sni_cb_t *ttls_sni_cb;
 ttls_hs_over_cb_t *ttls_hs_over_cb;
+ttls_alpn_match_t *ttls_alpn_match_cb;
 
 static int
 ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
@@ -379,7 +380,9 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		our = &alpn_list[i];
 		for (theirs = start; theirs != end; theirs += cur_len) {
 			cur_len = *theirs++;
-			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
+			if (ttls_alpn_ext_eq(our, theirs, cur_len)
+			    && ttls_alpn_match_cb(tls, our))
+			{
 				tls->alpn_chosen = our;
 				return 0;
 			}

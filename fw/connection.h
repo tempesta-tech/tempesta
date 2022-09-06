@@ -52,6 +52,10 @@ enum {
 	Conn_HttpsClnt	= Conn_Clnt | TFW_FSM_HTTPS,
 	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
 
+	/* HTTP/2 */
+	Conn_H2Clnt	= Conn_Clnt | TFW_FSM_H2,
+	Conn_H2Srv	= Conn_Srv | TFW_FSM_H2,
+
 	/* Websocket plain */
 	Conn_WsClnt	= Conn_HttpClnt | TFW_FSM_WEBSOCKET,
 	Conn_WsSrv	= Conn_HttpSrv | TFW_FSM_WEBSOCKET,
@@ -235,11 +239,6 @@ typedef struct {
 
 #define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
 
-#define TFW_CONN_H2(c)							\
-	(TFW_CONN_TLS((TfwConn *)c)					\
-	 && tfw_tls_context(c)->alpn_chosen				\
-	 && tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
-
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
 	/*
@@ -262,6 +261,13 @@ typedef struct {
 	 * Called to close a connection intentionally on Tempesta side.
 	 */
 	int (*conn_close)(TfwConn *conn, bool sync);
+
+	/*
+	 * Called to abort a connection intentionally on Tempesta side.
+	 * This is rough connection closing without any notifications like TLS
+	 * alerts, probably with TCP RST or just silent connection termination.
+	 */
+	void (*conn_abort)(TfwConn *conn);
 
 	/*
 	 * Called when closing a connection (client or server,
@@ -518,6 +524,33 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);
 }
 
+static inline int
+tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
+{
+	int r = 0;
+	TfwConn *conn, *tmp_conn;
+
+	spin_lock_bh(&p->conn_lock);
+
+	/*
+	 * @cb() may delete connections from the list.
+	 * Typically, this happens on connection_drop callbacks on sockets closing.
+	 * However, note that client and server connections drops are logically
+	 * different: client connections are just freed with all linked resources,
+	 * while the high level server connection handlers are preserved for
+	 * connection repair and freed on shutdown only.
+	 */
+	list_for_each_entry_safe(conn, tmp_conn, &p->conn_list, list) {
+		r = cb(conn);
+		if (unlikely(r))
+			break;
+	}
+
+	spin_unlock_bh(&(p)->conn_lock);
+
+	return r;
+}
+
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
@@ -530,6 +563,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
 int tfw_connection_close(TfwConn *conn, bool sync);
+void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 

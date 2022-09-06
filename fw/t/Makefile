@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2018 Tempesta Technologies, INC.
+# Copyright (C) 2015-2022 Tempesta Technologies, INC.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ export TFW_CFLAGS
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/.. -I$(src)/../../
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
-obj-m += sync_sockets/ unit/
+obj-m += unit/
 
 obj-m += tfw_fuzzer.o
 tfw_fuzzer-objs = \

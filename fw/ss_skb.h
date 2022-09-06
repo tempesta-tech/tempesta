@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ enum {
 	SS_SHUTDOWN	= -4,
 	/* Generic socket error. */
 	SS_BAD		= -3,
-	/* The packet must be dropped. */
+	/* The packet must be dropped (typically on a security event). */
 	SS_DROP		= -2,
 	/* The packet should be stashed (made by callback). */
 	SS_POSTPONE	= -1,

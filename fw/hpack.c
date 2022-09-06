@@ -386,8 +386,6 @@ do {								\
 	WARN_ON_ONCE(hp->length);				\
 } while (0)
 
-static unsigned long act_hp_str_n;
-
 void
 write_int(unsigned long index, unsigned short max, unsigned short mask,
 	  TfwHPackInt *__restrict res_idx)
@@ -1093,8 +1091,10 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 
 err_et:
 	tfw_pool_destroy(dt->h_pool);
+	dt->h_pool = NULL;
 err_dt:
 	tfw_pool_destroy(dt->pool);
+	dt->pool = NULL;
 
 	return -ENOMEM;
 }
@@ -1105,7 +1105,6 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
 	tfw_pool_destroy(hp->enc_tbl.pool);
 	tfw_pool_destroy(hp->dec_tbl.h_pool);
 	tfw_pool_destroy(hp->dec_tbl.pool);
-	WARN_ON_ONCE(act_hp_str_n);
 }
 
 /*

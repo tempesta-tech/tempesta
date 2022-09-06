@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -150,9 +150,10 @@ ss_close(struct sock *sk, int flags)
 	return 0;
 }
 
-void
+bool
 ss_synchronize(void)
 {
+	return true;
 }
 
 void
@@ -181,6 +182,11 @@ int
 tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
 	return 0;
+}
+
+void
+tfw_cli_abort_all(void)
+{
 }
 
 int

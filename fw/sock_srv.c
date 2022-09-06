@@ -262,6 +262,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	tfw_connection_link_from_sk((TfwConn *)srv_conn, sk);
 	tfw_connection_link_to_sk((TfwConn *)srv_conn, sk);
 	tfw_srv_conn_init_as_dead(srv_conn);
+	sk->sk_uid.val = SS_SRV_USER;
 	ss_set_callbacks(sk);
 	/*
 	 * Set connection destructor such that connection failover can
@@ -572,10 +573,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
-	TfwConn *conn;
-
-	return tfw_peer_for_each_conn(srv, conn, list,
-				      tfw_sock_srv_disconnect);
+	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
 
 /*
@@ -628,6 +626,8 @@ static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
 {
 	BUG_ON(timer_pending(&srv_conn->timer));
+
+	tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)srv_conn);
@@ -683,10 +683,8 @@ tfw_sock_srv_del_conns(void *psrv)
 	TfwSrvConn *srv_conn, *tmp;
 	TfwServer *srv = psrv;
 
-	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list) {
-		tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
+	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list)
 		tfw_srv_conn_free(srv_conn);
-	}
 }
 
 static int
@@ -2413,6 +2411,7 @@ static TfwMod tfw_sock_srv_mod = {
 	.start		= tfw_sock_srv_start,
 	.stop		= tfw_sock_srv_stop,
 	.specs		= tfw_sock_srv_specs,
+	.sock_user	= 1,
 };
 
 /*

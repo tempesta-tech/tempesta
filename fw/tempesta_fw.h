@@ -79,6 +79,8 @@
  * @stop	- called to stop a module when Tempesta is stopped;
  * @specs	- array of configuration directives specifications
  *		  for a module, terminated by a null element;
+ * @started	- the module current status;
+ * @sock_user	- the module uses sockets service;
  */
 typedef struct {
 	struct list_head	list;
@@ -89,7 +91,8 @@ typedef struct {
 	int			(*start)(void);
 	void			(*stop)(void);
 	TfwCfgSpec		*specs;
-	unsigned int		started:1;
+	unsigned int		started:1,
+				sock_user:1;
 } TfwMod;
 
 #define MOD_FOR_EACH(pos, head)		\

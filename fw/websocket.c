@@ -200,6 +200,14 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 	return r;
 }
 
+static void
+tfw_ws_conn_abort(TfwConn *conn)
+{
+	T_DBG("%s: conn=[%p]\n", __func__, conn);
+
+	tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
+}
+
 static TfwConn *
 tfw_ws_conn_unpair(TfwConn *conn)
 {
@@ -251,12 +259,14 @@ tfw_ws_conn_send(TfwConn *conn, TfwMsg *msg)
 
 static TfwConnHooks ws_conn_hooks = {
 	.conn_close	= tfw_ws_conn_close,
+	.conn_abort	= tfw_ws_conn_abort,
 	.conn_drop	= tfw_ws_conn_drop,
 	.conn_send	= tfw_ws_conn_send,
 };
 
 static TfwConnHooks wss_conn_hooks = {
 	.conn_close	= tfw_ws_conn_close,
+	.conn_abort	= tfw_ws_conn_abort,
 	.conn_drop	= tfw_ws_conn_drop,
 	.conn_send	= tfw_ws_conn_send,
 };

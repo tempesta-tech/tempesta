@@ -52,6 +52,7 @@ static ttls_send_cb_t *ttls_send_cb;
 extern ttls_sni_cb_t *ttls_sni_cb;
 extern ttls_hs_over_cb_t *ttls_hs_over_cb;
 extern ttls_cli_id_t *ttls_cli_id_cb;
+extern ttls_alpn_match_t *ttls_alpn_match_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -236,12 +237,14 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
  */
 void
 ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
-			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb)
+			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb,
+			ttls_alpn_match_t *alpn_match_cb)
 {
 	ttls_send_cb = send_cb;
 	ttls_sni_cb = sni_cb;
 	ttls_hs_over_cb = hs_over_cb;
 	ttls_cli_id_cb = cli_id_cb;
+	ttls_alpn_match_cb = alpn_match_cb;
 }
 EXPORT_SYMBOL(ttls_register_callbacks);
 
@@ -1295,14 +1298,14 @@ ttls_handle_alert(TlsCtx *tls)
 	/* Ignore non-fatal alerts, except close_notify. */
 	if (io->alert[0] == TTLS_ALERT_LEVEL_FATAL) {
 		T_DBG2("is a fatal alert message (msg %d)\n", io->alert[1]);
-		return T_DROP;
+		return T_BAD;
 	}
 	if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
 		T_DBG2("is a close notify message\n");
 		ttls_close_notify(tls);
-		return T_DROP;
+		return T_BAD;
 	}
 
 	/* Silently ignore: fetch new message */
@@ -2182,8 +2185,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		if (unlikely(!ttls_xfrm_ready(tls))) {
 			if (!(r = ttls_handle_alert(tls)))
 				return T_OK;
-			TTLS_WARN(tls, "Bad TLS alert on handshake\n");
-			return T_DROP;
+			return T_BAD;
 		}
 		break;
 
@@ -2196,7 +2198,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 			TTLS_WARN(tls, "refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_NO_RENEGOTIATION);
-			return T_DROP;
+			return T_BAD;
 		}
 
 		/*
@@ -2234,7 +2236,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		 */
 		if (unlikely(tls->state != TTLS_HANDSHAKE_OVER)) {
 			TTLS_WARN(tls, "TLS context isn't ready after handshake\n");
-			return T_DROP;
+			return T_BAD;
 		}
 		break;
 	}
@@ -2252,14 +2254,13 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 	if ((r = ttls_decrypt(tls, NULL))) {
 		TTLS_WARN(tls, "TLS cannot decrypt msg on state %x, ret=%d%s\n",
 			  tls->state, r, r == -EBADMSG ? "(bad ciphertext)" : "");
-		return T_DROP;
+		return T_BAD;
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
 		if (!(r = ttls_handle_alert(tls)))
 			return T_OK;
-		TTLS_WARN(tls, "Bad TLS alert\n");
-		return T_DROP;
+		return T_BAD;
 	}
 
 	return T_OK;
@@ -2276,7 +2277,8 @@ ttls_close_notify(TlsCtx *tls)
 	T_DBG("write close notify\n");
 
 	if (tls->state != TTLS_HANDSHAKE_OVER)
-		return -EINVAL;
+		return -EPROTO;
+
 	return ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
 			       TTLS_ALERT_MSG_CLOSE_NOTIFY);
 }

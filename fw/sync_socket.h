@@ -31,7 +31,6 @@
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
 	const struct ss_hooks	*hooks;
-	struct sock		*listener;
 	int			type;
 } SsProto;
 
@@ -105,6 +104,16 @@ ss_sock_live(struct sock *sk)
 	return sk->sk_state == TCP_ESTABLISHED;
 }
 
+static inline void
+ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
+{
+	proto->hooks = hooks;
+	proto->type = type;
+}
+
+/* Dummy user ID to differentiate server from client sockets. */
+#define SS_SRV_USER			0x11223344
+
 /* Synchronous operation required. */
 #define SS_F_SYNC			0x01
 /* Keep SKBs (use clones) on sending. */
@@ -113,16 +122,14 @@ ss_sock_live(struct sock *sk)
 #define SS_F_CONN_CLOSE			0x04
 /* Call TLS encryption hook on the skb transmission. */
 #define SS_F_ENCRYPT			0x08
+/* Close with TCP RST (connection abort). */
+#define __SS_F_RST			0x10
+#define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
 
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)
 #define SS_SKB_F2TYPE(f)		((f) >> 8)
 
-int ss_hooks_register(SsHooks* hooks);
-void ss_hooks_unregister(SsHooks* hooks);
-
-void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
-void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, struct sk_buff **skb_head, int flags);
@@ -134,7 +141,7 @@ int ss_bind(struct sock *sk, const TfwAddr *addr);
 int ss_listen(struct sock *sk, int backlog);
 void ss_getpeername(struct sock *sk, TfwAddr *addr);
 void ss_wait_newconn(void);
-void ss_synchronize(void);
+bool ss_synchronize(void);
 void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
@@ -145,7 +152,6 @@ void ss_get_stat(SsStat *stat);
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
-#define SS_CONN_TYPE(sk)							\
-	(((SsProto *)(sk)->sk_user_data)->type)
+#define SS_CONN_TYPE(sk)	(((SsProto *)(sk)->sk_user_data)->type)
 
 #endif /* __SS_SOCK_H__ */

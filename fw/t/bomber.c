@@ -120,7 +120,6 @@ static TfwBmbTask *bmb_tasks;
 static inline void
 __check_conn(TfwBmbConn *conn)
 {
-	BUG_ON(conn->proto.listener);
 	BUG_ON(conn->proto.hooks != &bmb_hooks);
 	BUG_ON(!conn->sk);
 	BUG_ON(!conn->task);

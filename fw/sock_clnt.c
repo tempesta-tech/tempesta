@@ -41,22 +41,26 @@
  * ------------------------------------------------------------------------
  */
 
-static struct kmem_cache *tfw_cli_conn_cache;
+static struct kmem_cache *tfw_h1_conn_cache;
+static struct kmem_cache *tfw_https_conn_cache;
 static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
-	/*
-	 * Currently any secure (TLS) connection is considered as HTTP/2
-	 * connection, since we don't have any business with plain TLS.
-	 *
-	 * TODO #1422 this should be fixed since we still need HTTP/1 as
-	 * more applicable protocol for service management.
- 	 */
-	return type & TFW_FSM_HTTPS ?
-		tfw_h2_conn_cache : tfw_cli_conn_cache;
+	switch (TFW_FSM_TYPE(type)) {
+	case TFW_FSM_H2:
+		return tfw_h2_conn_cache;
+	case TFW_FSM_HTTPS:
+	case TFW_FSM_WSS:
+		return tfw_https_conn_cache;
+	case TFW_FSM_HTTP:
+	case TFW_FSM_WS:
+		return tfw_h1_conn_cache;
+	default:
+		BUG();
+	}
 }
 
 static void
@@ -160,9 +164,9 @@ static int
 tfw_sock_clnt_new(struct sock *sk)
 {
 	int r = -ENOMEM;
+	SsProto *proto;
 	TfwClient *cli;
 	TfwConn *conn;
-	SsProto *listen_sock_proto;
 	TfwAddr addr;
 
 	T_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
@@ -174,7 +178,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	 * from referencing TfwListenSock{} while a new TfwConn{} object
 	 * is not yet allocated/initialized.
 	 */
-	listen_sock_proto = sk->sk_user_data;
+	proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
 
 	ss_getpeername(sk, &addr);
@@ -184,13 +188,14 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = (TfwConn *)tfw_cli_conn_alloc(listen_sock_proto->type);
+	conn = (TfwConn *)tfw_cli_conn_alloc(proto->type);
 	if (!conn) {
 		T_ERR("can't allocate a new client connection\n");
 		goto err_client;
 	}
 
-	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
+	ss_proto_init(&conn->proto, proto->hooks, proto->type);
+	BUG_ON(!(conn->proto.type & Conn_Clnt));
 
 	conn->destructor = (void *)tfw_cli_conn_release;
 
@@ -292,6 +297,32 @@ static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_recv	= tfw_tls_connection_recv,
 };
 
+/*
+ * We call the same TLS hooks before generic HTTP processing
+ * for both the HTTP/1 and HTTP/2.
+ */
+static const SsProto tfw_sock_listen_protos[] = {
+	{ &tfw_sock_http_clnt_ss_hooks,	TFW_FSM_HTTP},
+	{ &tfw_sock_http_clnt_ss_hooks,	Conn_HttpClnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_HTTPS},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_HttpsClnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt},
+};
+
+static const SsProto *
+tfw_sock_clnt_proto(int type)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tfw_sock_listen_protos); ++i)
+		if (tfw_sock_listen_protos[i].type == type)
+			return &tfw_sock_listen_protos[i];
+	BUG();
+}
+
 static int
 __cli_conn_close_cb(TfwConn *conn)
 {
@@ -304,9 +335,10 @@ __cli_conn_close_cb(TfwConn *conn)
 }
 
 static int
-__cli_conn_close_sync_cb(TfwConn *conn)
+__cli_conn_abort_cb(TfwConn *conn)
 {
-	return tfw_connection_close(conn, true);
+	tfw_connection_abort(conn);
+	return 0;
 }
 
 /**
@@ -317,10 +349,7 @@ __cli_conn_close_sync_cb(TfwConn *conn)
 static int
 tfw_cli_conn_close_all(void *data)
 {
-	TfwClient *cli = (TfwClient *)data;
-	TfwConn *conn;
-
-	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
+	return tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_close_cb);
 }
 
 /**
@@ -330,12 +359,10 @@ tfw_cli_conn_close_all(void *data)
  * connections, trying to cause a work queue overrun and delay security events
  * handlers. To detach attackers efficiently, we have to use synchronous close.
  */
-int tfw_cli_conn_close_all_sync(TfwClient *cli)
+static int
+tfw_cli_conn_abort_all(void *data)
 {
-	TfwConn *conn;
-
-	return tfw_peer_for_each_conn(cli, conn, list,
-				      __cli_conn_close_sync_cb);
+	return tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_abort_cb);
 }
 
 /*
@@ -382,10 +409,7 @@ static int
 tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
-
-	/* Check for supported types */
-	if (!(type == TFW_FSM_HTTP || type == TFW_FSM_HTTPS))
-		return -EINVAL;
+	const SsHooks *shooks = tfw_sock_clnt_proto(type)->hooks;
 
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
@@ -400,13 +424,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	if (type == TFW_FSM_HTTP)
-		ss_proto_init(&ls->proto, &tfw_sock_http_clnt_ss_hooks,
-			      Conn_HttpClnt);
-	else if (type == TFW_FSM_HTTPS)
-		ss_proto_init(&ls->proto, &tfw_sock_tls_clnt_ss_hooks,
-			      Conn_HttpsClnt);
-
+	ss_proto_init(&ls->proto, shooks, Conn_Clnt | type);
 	list_add(&ls->list, &tfw_listen_socks_reconf);
 	ls->addr = *addr;
 
@@ -418,11 +436,24 @@ tfw_listen_sock_del_all(void)
 {
 	TfwListenSock *ls, *tmp;
 
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
+			if (ls->sk)
+				/*
+				 * If error occurred during starting module,
+				 * release sockets which were bound.
+				 */
+				ss_release(ls->sk);
+			list_del(&ls->list);
+			kfree(ls);
+	}
+
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
 		BUG_ON(ls->sk);
+		list_del(&ls->list);
 		kfree(ls);
 	}
 
+	INIT_LIST_HEAD(&tfw_listen_socks);
 	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	tfw_classifier_cleanup_inport();
 }
@@ -450,15 +481,18 @@ tfw_listen_sock_start(TfwListenSock *ls)
 
 	/*
 	 * Link the new socket and TfwListenSock.
-	 * That must be done before calling ss_set_listen() that uses SsProto.
+	 *
+	 * We use static SsProto's for sk_user_data for listening sockets.
+	 * This way initialization of passively open sockets doesn't depend
+	 * on the listening socket, which might be closed during a new connection
+	 * establishing.
+	 *
+	 * When a listening socket is closed, the children sockets might live for
+	 * an unlimited time.
 	 */
 	ls->sk = sk;
-	sk->sk_user_data = ls;
+	sk->sk_user_data = (SsProto *)tfw_sock_clnt_proto(ls->proto.type);
 
-	/*
-	 * For listening sockets we use
-	 * ss_set_listen() instead of ss_set_callbacks().
-	 */
 	ss_set_listen(sk);
 
 	inet_sk(sk)->freebind = 1;
@@ -508,8 +542,7 @@ tfw_sock_check_lst(TfwServer *srv)
 static int
 tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r, type = TFW_FSM_HTTP;
-	int port;
+	int r, port, type = TFW_FSM_HTTP;
 	TfwAddr addr;
 	const char *in_str = NULL;
 
@@ -541,6 +574,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		goto parse_err;
 
+	/* Plain HTTP/1 is the default listening socket. */
 	if (!ce->attr_n)
 		goto done;
 
@@ -551,8 +585,8 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!strcasecmp(in_str, "http"))
 		goto done;
 
-	type = TFW_FSM_HTTPS;
-	if (!tfw_tls_cfg_alpn_protos(in_str))
+	type = tfw_tls_cfg_alpn_protos(in_str);
+	if (type > 0)
 		goto done;
 
 parse_err:
@@ -561,7 +595,7 @@ parse_err:
 	return -EINVAL;
 
 done:
-	if (type == TFW_FSM_HTTPS)
+	if (type & TFW_FSM_HTTPS)
 		tfw_tls_cfg_require();
 	return tfw_listen_sock_add(&addr, type);
 }
@@ -620,8 +654,7 @@ tfw_listen_socks_array_cmp(const void *l, const void *r)
 
 	if (cmp)
 		return cmp;
-	else
-		return (int)a->sin6_port - (int)b->sin6_port;
+	return (int)a->sin6_port - (int)b->sin6_port;
 }
 
 /**
@@ -672,13 +705,19 @@ tfw_sock_clnt_start(void)
 		list_del(&ls->list);
 		list_add(&ls->list, &tfw_listen_socks);
 
+		/*
+		 * Paired with tfw_classify_conn_estab(): firstly add the port
+		 * to the bitmap and then move it to the listen state to
+		 * guarantee that the HTTP limits initialization code was called.
+		 */
+		tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
+
 		if ((r = tfw_listen_sock_start(ls))) {
 			T_ERR_ADDR("can't start listening on", &ls->addr,
 				   TFW_WITH_PORT);
 			goto done;
 		}
 
-		tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
 		listen_socks_sz++;
 	}
 
@@ -692,10 +731,8 @@ tfw_sock_clnt_start(void)
 		listen_socks_sz--;
 
 		list_del(&ls->list);
-		if (!ls->sk)
-			continue;
-		ss_release(ls->sk);
-		ls->sk = NULL;
+		if (ls->sk)
+			ss_release(ls->sk);
 		kfree(ls);
 	}
 
@@ -723,7 +760,10 @@ tfw_sock_clnt_stop(void)
 
 	might_sleep();
 
-	/* Stop listening sockets. */
+	/*
+	 * Stop listening sockets, but leave them in the list to bve freed by
+	 * tfw_cfgop_cleanup_sock_clnt().
+	 */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if (!ls->sk)
 			continue;
@@ -754,6 +794,21 @@ tfw_sock_clnt_stop(void)
 	local_bh_enable();
 }
 
+/**
+ * Something wrong went on the network layer, e.g. many ACK segment drops and
+ * some TLS sockets can not make progress on data transmission, so client
+ * connection closing callbacks weren't called. This is unlikely, but probable,
+ * situation. Do hard connections termination.
+ */
+void
+tfw_cli_abort_all(void)
+{
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_abort_all))
+		;
+	local_bh_enable();
+}
+
 static TfwCfgSpec tfw_sock_clnt_specs[] = {
 	{
 		.name = "listen",
@@ -774,11 +829,12 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 };
 
 TfwMod tfw_sock_clnt_mod  = {
-	.name	= "sock_clnt",
-	.cfgend = tfw_sock_clnt_cfgend,
-	.start	= tfw_sock_clnt_start,
-	.stop	= tfw_sock_clnt_stop,
-	.specs	= tfw_sock_clnt_specs,
+	.name		= "sock_clnt",
+	.cfgend		= tfw_sock_clnt_cfgend,
+	.start		= tfw_sock_clnt_start,
+	.stop		= tfw_sock_clnt_stop,
+	.specs		= tfw_sock_clnt_specs,
+	.sock_user	= 1,
 };
 
 /*
@@ -794,29 +850,35 @@ tfw_sock_clnt_init(void)
 	 * Check that flags for SS layer and Connection
 	 * layer are not overlapping.
 	 */
-	BUILD_BUG_ON(Conn_Stop & (Conn_Clnt |
-				  Conn_Srv |
-				  TFW_FSM_HTTP |
-				  TFW_FSM_HTTPS));
-	BUG_ON(tfw_cli_conn_cache);
+	BUILD_BUG_ON(Conn_Stop & (Conn_Clnt | Conn_Srv
+				  | TFW_FSM_HTTP | TFW_FSM_HTTPS));
+	BUG_ON(tfw_h1_conn_cache);
+	BUG_ON(tfw_https_conn_cache);
 	BUG_ON(tfw_h2_conn_cache);
 
-	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwCliConn), 0, 0, NULL);
-	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
-					       sizeof(TfwH2Conn), 0, 0, NULL);
+	tfw_h1_conn_cache = kmem_cache_create("tfw_h1_conn_cache",
+					      sizeof(TfwCliConn), 0, 0, NULL);
+	if (!tfw_h1_conn_cache)
+		return -ENOMEM;
 
-	if (tfw_cli_conn_cache && tfw_h2_conn_cache) {
-		tfw_mod_register(&tfw_sock_clnt_mod);
-		return 0;
+	tfw_https_conn_cache = kmem_cache_create("tfw_https_conn_cache",
+						 sizeof(TfwTlsConn), 0, 0, NULL);
+	if (!tfw_https_conn_cache) {
+		kmem_cache_destroy(tfw_h1_conn_cache);
+		return -ENOMEM;
 	}
 
-	if (tfw_cli_conn_cache)
-		kmem_cache_destroy(tfw_cli_conn_cache);
-	if (tfw_h2_conn_cache)
-		kmem_cache_destroy(tfw_h2_conn_cache);
+	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
+					      sizeof(TfwH2Conn), 0, 0, NULL);
+	if (!tfw_h2_conn_cache) {
+		kmem_cache_destroy(tfw_https_conn_cache);
+		kmem_cache_destroy(tfw_h1_conn_cache);
+		return -ENOMEM;
+	}
 
-	return -ENOMEM;
+	tfw_mod_register(&tfw_sock_clnt_mod);
+
+	return 0;
 }
 
 void
@@ -824,5 +886,6 @@ tfw_sock_clnt_exit(void)
 {
 	tfw_mod_unregister(&tfw_sock_clnt_mod);
 	kmem_cache_destroy(tfw_h2_conn_cache);
-	kmem_cache_destroy(tfw_cli_conn_cache);
+	kmem_cache_destroy(tfw_https_conn_cache);
+	kmem_cache_destroy(tfw_h1_conn_cache);
 }
