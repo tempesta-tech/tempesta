@@ -313,7 +313,7 @@ static const SsProto tfw_sock_listen_protos[] = {
 };
 
 static const SsProto *
-tfw_sock_clnt_protos(int type)
+tfw_sock_clnt_proto(int type)
 {
 	int i;
 
@@ -409,7 +409,7 @@ static int
 tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
-	const SsHooks *shooks = tfw_sock_clnt_protos(type)->hooks;
+	const SsHooks *shooks = tfw_sock_clnt_proto(type)->hooks;
 
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks_reconf, list) {
@@ -484,14 +484,14 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	 *
 	 * We use static SsProto's for sk_user_data for listening sockets.
 	 * This way initialization of passively open sockets doesn't depend
-	 * on the listening socket, which migh be closed during a new connection
+	 * on the listening socket, which might be closed during a new connection
 	 * establishing.
 	 *
-	 * When a listening socket is closed, the children sockets migh live for
+	 * When a listening socket is closed, the children sockets might live for
 	 * an unlimited time.
 	 */
 	ls->sk = sk;
-	sk->sk_user_data = (SsProto *)tfw_sock_clnt_protos(ls->proto.type);
+	sk->sk_user_data = (SsProto *)tfw_sock_clnt_proto(ls->proto.type);
 
 	ss_set_listen(sk);
 
