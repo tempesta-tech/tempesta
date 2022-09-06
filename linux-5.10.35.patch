@@ -677,7 +677,7 @@ index a828cf99c..b877eb543 100644
   *	@skb: buffer to check
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 000000000..55049bd32
+index 000000000..8e9b6af75
 --- /dev/null
 +++ b/include/linux/tempesta.h
 @@ -0,0 +1,54 @@
@@ -925,10 +925,10 @@ index d73aed0fc..d19a4ecc1 100644
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
-index 000000000..9dc507aab
+index 000000000..7ee3ead54
 --- /dev/null
 +++ b/mm/tempesta_mm.c
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,274 @@
 +/**
 + *		Tempesta Memory Reservation
 + *
@@ -1995,7 +1995,7 @@ index 45fb450b4..48da5be43 100644
  
  	offset++;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
-index 2384ac048..b891e370b 100644
+index 2384ac048..920b1f01f 100644
 --- a/net/ipv4/tcp.c
 +++ b/net/ipv4/tcp.c
 @@ -322,6 +322,7 @@ DEFINE_STATIC_KEY_FALSE(tcp_rx_skb_cache_key);
@@ -2109,6 +2109,14 @@ index 2384ac048..b891e370b 100644
 +EXPORT_SYMBOL(tcp_check_oom);
  
  void tcp_close(struct sock *sk, long timeout)
+ {
+@@ -2627,6 +2644,7 @@ void tcp_write_queue_purge(struct sock *sk)
+ 	tcp_sk(sk)->packets_out = 0;
+ 	inet_csk(sk)->icsk_backoff = 0;
+ }
++EXPORT_SYMBOL_GPL(tcp_write_queue_purge);
+ 
+ int tcp_disconnect(struct sock *sk, int flags)
  {
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
 index fac5c1469..623d4f33e 100644
@@ -2521,7 +2529,7 @@ index 000000000..4c439ac0c
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 000000000..13054fb4a
+index 000000000..b8e8d67dc
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
 @@ -0,0 +1,138 @@

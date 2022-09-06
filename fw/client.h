@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@ int tfw_client_for_each(int (*fn)(void *));
 void tfw_client_set_expires_time(unsigned int expires_time);
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
-int tfw_cli_conn_close_all_sync(TfwClient *cli);
+void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
 

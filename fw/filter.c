@@ -148,7 +148,6 @@ static unsigned int
 tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
 {
-	int r;
 	const struct iphdr *ih;
 	struct in6_addr addr6;
 
@@ -161,16 +160,7 @@ tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
 	if (tfw_filter_check_ip(&addr6) == TFW_BLOCK)
 		return NF_DROP;
 
-	/* Check classifiers for Layer 3. */
-	r = tfw_classify_ipv4(skb);
-	switch (r) {
-	case TFW_PASS:
-		return NF_ACCEPT;
-	case TFW_POSTPONE:
-		return NF_STOLEN;
-	}
-
-	return NF_DROP;
+	return NF_ACCEPT;
 }
 
 static u8 *
@@ -233,7 +223,6 @@ static unsigned int
 tfw_ipv6_nf_hook(void *priv, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
 {
-	int r;
 	struct ipv6hdr *ih;
 
 	ih = __ipv6_hdr_check(skb);
@@ -243,16 +232,7 @@ tfw_ipv6_nf_hook(void *priv, struct sk_buff *skb,
 	if (tfw_filter_check_ip(&ih->saddr) == TFW_BLOCK)
 		return NF_DROP;
 
-	/* Check classifiers for Layer 3. */
-	r = tfw_classify_ipv6(skb);
-	switch (r) {
-	case TFW_PASS:
-		return NF_ACCEPT;
-	case TFW_POSTPONE:
-		return NF_STOLEN;
-	}
-
-	return NF_DROP;
+	return NF_ACCEPT;
 }
 
 static struct nf_hook_ops tfw_nf_ops[] __read_mostly = {

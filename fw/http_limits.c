@@ -45,157 +45,6 @@
 
 /*
  * ------------------------------------------------------------------------
- *	Generic classifier functionality.
- * ------------------------------------------------------------------------
- */
-
-static DECLARE_BITMAP(tfw_inports, 65536) __read_mostly;
-
-static TfwClassifier __rcu *classifier = NULL;
-
-/**
- * Shrink client connections hash and/or reduce QoS for blocked clients to
- * lower back-end servers or local system load.
- */
-void
-tfw_classify_shrink(void)
-{
-	/* TODO: delete a connection from the LRU */
-}
-
-int
-tfw_classify_ipv4(struct sk_buff *skb)
-{
-	int r;
-	TfwClassifier *clfr;
-
-	rcu_read_lock();
-
-	clfr = rcu_dereference(classifier);
-	r = (clfr && clfr->classify_ipv4)
-	    ? clfr->classify_ipv4(skb)
-	    : TFW_PASS;
-
-	rcu_read_unlock();
-
-	return r;
-}
-
-int
-tfw_classify_ipv6(struct sk_buff *skb)
-{
-	int r;
-	TfwClassifier *clfr;
-
-	rcu_read_lock();
-
-	clfr = rcu_dereference(classifier);
-	r = (clfr && clfr->classify_ipv6)
-	    ? clfr->classify_ipv6(skb)
-	    : TFW_PASS;
-
-	rcu_read_unlock();
-
-	return r;
-}
-
-void
-tfw_classifier_add_inport(__be16 port)
-{
-	set_bit(port, tfw_inports);
-}
-
-void
-tfw_classifier_remove_inport(__be16 port)
-{
-	clear_bit(port, tfw_inports);
-}
-
-void
-tfw_classifier_cleanup_inport(void)
-{
-	bitmap_zero(tfw_inports, 65536);
-}
-
-static int
-tfw_classify_conn_estab(struct sock *sk)
-{
-	int i;
-	unsigned short sport = tfw_addr_get_sk_sport(sk);
-	TfwClassifier *clfr;
-
-	if (test_bit(sport, tfw_inports))
-		goto ours;
-
-	return TFW_PASS;
-
-ours:
-	rcu_read_lock();
-
-	clfr = rcu_dereference(classifier);
-	i = (clfr && clfr->classify_conn_estab)
-	    ? clfr->classify_conn_estab(sk)
-	    : TFW_PASS;
-
-	rcu_read_unlock();
-
-	return i;
-}
-
-static void
-tfw_classify_conn_close(struct sock *sk)
-{
-	TfwClassifier *clfr = rcu_dereference(classifier);
-
-	if (clfr && clfr->classify_conn_close)
-		clfr->classify_conn_close(sk);
-}
-
-/**
- * Called from sk_filter() called from tcp_v4_rcv() and tcp_v6_rcv(),
- * i.e. when IP fragments are already assembled and we can process TCP.
- */
-static int
-tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
-{
-	struct tcphdr *th = tcp_hdr(skb);
-	TfwClassifier *clfr = rcu_dereference(classifier);
-
-	return clfr && clfr->classify_tcp ? clfr->classify_tcp(th) : TFW_PASS;
-}
-
-/*
- * tfw_classifier_register() and tfw_classifier_unregister()
- * are called at Tempesta start/stop time. The execution is
- * serialized with a mutex. There's no need for additional
- * protection of rcu_assign_pointer() from concurrent use.
- */
-void
-tfw_classifier_register(TfwClassifier *mod)
-{
-	T_DBG("Registering new classifier: %s\n", mod->name);
-
-	BUG_ON(classifier);
-	rcu_assign_pointer(classifier, mod);
-}
-
-void
-tfw_classifier_unregister(void)
-{
-	T_DBG("Un-registering classifier: %s\n", classifier->name);
-
-	rcu_assign_pointer(classifier, NULL);
-	synchronize_rcu();
-}
-
-static TempestaOps tempesta_ops = {
-	.sk_alloc	= tfw_classify_conn_estab,
-	.sk_free	= tfw_classify_conn_close,
-	.sock_tcp_rcv	= tfw_classify_tcp,
-};
-
-/*
- * ------------------------------------------------------------------------
  *	Frang classifier - static http limits implementation.
  * ------------------------------------------------------------------------
  */
@@ -338,6 +187,9 @@ frang_conn_new(struct sock *sk)
 	TfwAddr addr;
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 
+	/* The new socket is allocated by inet_csk_clone_lock(). */
+	assert_spin_locked(&sk->sk_lock.slock);
+
 	/*
 	 * Default vhost configuration stores global frang settings, it's always
 	 * available even on reload under heavy load. But the pointer comes
@@ -399,7 +251,7 @@ frang_conn_new(struct sock *sk)
  * Just update current connection count for a user.
  */
 static void
-frang_conn_close(struct sock *sk)
+tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = sk->sk_security;
 
@@ -1606,11 +1458,50 @@ frang_tls_handler(TlsCtx *tls, int state)
 	return r;
 }
 
-static TfwClassifier frang_class_ops = {
-	.name			= "frang",
-	.classify_conn_estab	= frang_conn_new,
-	.classify_conn_close	= frang_conn_close,
-};
+/*
+ * ------------------------------------------------------------------------
+ *	Generic classifier functionality.
+ * ------------------------------------------------------------------------
+ */
+
+static DECLARE_BITMAP(tfw_inports, 65536) __read_mostly;
+
+void
+tfw_classifier_add_inport(__be16 port)
+{
+	set_bit(port, tfw_inports);
+}
+
+void
+tfw_classifier_remove_inport(__be16 port)
+{
+	clear_bit(port, tfw_inports);
+}
+
+void
+tfw_classifier_cleanup_inport(void)
+{
+	bitmap_zero(tfw_inports, 65536);
+}
+
+static int
+tfw_classify_conn_estab(struct sock *sk)
+{
+	if (test_bit(tfw_addr_get_sk_sport(sk), tfw_inports))
+		return frang_conn_new(sk);
+
+	return TFW_PASS;
+}
+
+/**
+ * TODO #488: call from sk_filter() called from tcp_v4_rcv() and tcp_v6_rcv(),
+ * i.e. when IP fragments are already assembled and we can process TCP.
+ */
+static int
+tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
+{
+	return TFW_PASS;
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -1704,6 +1595,12 @@ tfw_http_limits_hooks_register(void)
 	return 0;
 }
 
+static TempestaOps tempesta_ops = {
+	.sk_alloc	= tfw_classify_conn_estab,
+	.sk_free	= tfw_classify_conn_close,
+	.sock_tcp_rcv	= tfw_classify_tcp,
+};
+
 int __init
 tfw_http_limits_init(void)
 {
@@ -1712,8 +1609,6 @@ tfw_http_limits_init(void)
 	tempesta_register_ops(&tempesta_ops);
 
 	BUILD_BUG_ON((sizeof(FrangAcc) > sizeof(TfwClassifierPrvt)));
-
-	tfw_classifier_register(&frang_class_ops);
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
 	if (r) {
@@ -1738,7 +1633,6 @@ err_hooks:
 err_fsm_resp:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm:
-	tfw_classifier_unregister();
 	tempesta_unregister_ops(&tempesta_ops);
 	return r;
 }
@@ -1751,6 +1645,5 @@ tfw_http_limits_exit(void)
 	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
-	tfw_classifier_unregister();
 	tempesta_unregister_ops(&tempesta_ops);
 }
