@@ -4590,9 +4590,9 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 
 	/*
 	 * Expected hop-by-hop headers:
-	 * - spec:
-	 *     none;
 	 * - raw:
+	 *     none;
+	 * - spec:
 	 *     Connection: RFC 7230 6.1.
 	 */
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
@@ -11086,11 +11086,12 @@ tfw_http_init_parser_resp(TfwHttpResp *resp)
 
 	/*
 	 * Expected hop-by-hop headers:
-	 * - spec:
-	 *     none;
 	 * - raw:
-	 *     Connection: RFC 7230 6.1,
-	 *     Server: hide protected server from the world.
+	 *     none;
+	 * - spec:
+	 *     Connection: RFC 7230 6.1.
+	 *     Server: Server header isn't defined as hop-by-hop by the RFC,
+	 *	       but we don't show protected server to world.
 	 */
 	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
 			 (0x1 << TFW_HTTP_HDR_SERVER);
