@@ -1384,6 +1384,12 @@ __FSM_STATE(RGen_BodyInit) {						\
 	if (test_bit(TFW_HTTP_B_VOID_BODY, msg->flags)) 		\
 		goto no_body;						\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
+		/* 							\
+		 * Block response which has Content-Encoding and 	\
+		 * Transfer-Encoding other than chunked 		\
+		 */ 							\
+		if (__parse_check_encodings(resp))			\
+			FSM_EXIT(TFW_BLOCK);				\
 		/*							\
 		 * According to RFC 7230 3.3.3 p.3, more strict		\
 		 * scenario has been implemented to exclude		\
@@ -11100,6 +11106,27 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 
 	if (req->method == TFW_HTTP_METH_HEAD)
 		__set_bit(TFW_HTTP_B_VOID_BODY, resp->flags);
+}
+
+/**
+ * Check whether response contains Content-Encoding and Transfer-Encoding
+ * other than chunked.
+ *
+ * Return T_DROP on success.
+ */
+static int
+__parse_check_encodings(TfwHttpResp *resp)
+{
+	TfwStr *tbl = resp->h_tbl->tbl;
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
+	    && !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_ENCODING])) {
+		T_WARN("Content-Encoding and Transfer-Encoding other than"
+		       "chunked not allowed to be in same response.\n");
+			return T_DROP;
+	}
+
+	return T_OK;
 }
 
 int
