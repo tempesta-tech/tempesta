@@ -1103,7 +1103,7 @@ int
 tfw_http_msg_del_parsed_cuts(TfwHttpMsg *hm, bool parsing_done)
 {
 	int r;
-	TfwStr cut, *c, *end, *hdr;
+	TfwStr cut;
 
 	cut = hm->stream->parser.cut;
 	if (!hm->stream->parser.pool || TFW_STR_EMPTY(&cut))
@@ -1113,49 +1113,11 @@ tfw_http_msg_del_parsed_cuts(TfwHttpMsg *hm, bool parsing_done)
 		return r;
 	else
 		hm->msg.len -= cut.len;
+
 	if (cut.nchunks)
 		tfw_pool_free(hm->stream->parser.pool, cut.data,
 			      cut.nchunks * sizeof(TfwStr));
-	/*
-	 * Message is fully parsed, remove all other unwanted data: 'chunked'
-	 * encoding token from Transfer-Encoding header. We remove it only if
-	 * it's a last coding.
-	 */
-	if (!parsing_done || !test_bit(TFW_HTTP_B_CHUNKED, hm->flags))
-		return 0;
-
-	/*
-	 * The whole header can be removed. Don't remove it, only mark as
-	 * hop-by-hop header: such headers are ignored while saved into cache
-	 * and never forwarded to h2 clients. Just avoid extra fragmentation
-	 * now.
-	 */
-	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING];
-	if (!test_bit(TFW_HTTP_B_TE_EXTRA, hm->flags)) {
-		hdr->flags |= TFW_STR_HBH_HDR;
-		return 0;
-	}
-	/*
-	 * Multiple transfer encodings: remove only final 'chunked'. Although
-	 * RFC 7540 encorage us to remove the header we can't: client won't
-	 * be able to deduce paylod coding, e.g. gzip.
-	 */
-	if (TFW_STR_DUP(hdr)) {
-		hdr = hdr->chunks + hdr->nchunks - 1;
-	}
-
-	cut = *hdr;
-	end = cut.chunks + cut.nchunks;
-	for (c = cut.chunks; c != end; ++c)
-		if (!(c->flags & TFW_STR_NAME)) {
-			++cut.chunks;
-			--cut.nchunks;
-			cut.len -= c->len;
-		}
-	hdr->nchunks -= cut.nchunks;
-	hdr->len -= cut.len;
-
-	return tfw_http_msg_del_str(hm, &cut);
+	return 0;
 }
 
 /**
