@@ -2173,7 +2173,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		 */
 		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("chunked"),
 					  &parser->hdr, {}, I_TransEncodTok,
-					  I_TransEncodChunked, TFW_STR_NAME);
+					  I_TransEncodChunked, 0);
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_TransEncodOther);
 	}
@@ -2208,8 +2208,9 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(I_EncodTok) {
-		__FSM_I_MATCH_MOVE_fixup(token, I_EncodTok, 0);
+		__FSM_I_MATCH_MOVE_fixup(token, I_EncodTok, TFW_STR_NAME);
 		__msg_hdr_chunk_fixup(p, __fsm_sz);
+		__FSM_I_chunk_flags(TFW_STR_NAME);
 		p += __fsm_sz;
 
 		if (content)
@@ -2218,6 +2219,9 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags))) {
 			if (client)
 				return CSTR_NEQ;
+			if (TFW_MSG_H2(hm->req))
+				return CSTR_NEQ;
+
 			__clear_bit(TFW_HTTP_B_CHUNKED, msg->flags);
 			__set_bit(TFW_HTTP_B_CHUNKED_APPLIED, msg->flags);
 		}

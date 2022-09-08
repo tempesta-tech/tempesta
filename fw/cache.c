@@ -1361,6 +1361,52 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 }
 
 /**
+ * Add 'Content-Encoding' header to the cache record. The list of encodings
+ * will be taken from 'Transfer-Encoding' header.
+ */
+static long
+tfw_cache_add_hdr_cenc(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
+		       TdbVRec **trec, size_t *tot_len)
+{
+	char *buf = *this_cpu_ptr(&g_c_buf);
+	long r;
+	TfwStr chunk = { .data = buf, .len = 0 };
+	TfwStr val_ce = { .chunks = &chunk, .nchunks = 1 };
+
+	r = tfw_http_resp_copy_encodings(resp, &chunk, RESP_BUF_LEN);
+	if (unlikely(r))
+		return r;
+
+	val_ce.len = chunk.len;
+	return tfw_cache_h2_add_hdr(ce, p, trec, 26, &val_ce, tot_len);
+}
+
+/**
+ * Add 'Content-Length' header to the cache record. The length will be taken
+ * from parsed response.
+ */
+static long
+tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
+		       TdbVRec **trec, size_t *tot_len)
+{
+	TfwStr val = {
+		.chunks = (TfwStr []){
+			{ .data = *this_cpu_ptr(&g_c_buf), .len = 0 }
+		},
+		.nchunks = 1
+	};
+
+	val.chunks->len = tfw_ultoa(resp->body.len, val.chunks->data,
+				    TFW_ULTOA_BUF_SIZ);
+
+	val.len = val.chunks->len;
+	if (!val.len)
+		return -EINVAL;
+
+	return tfw_cache_h2_add_hdr(ce, p, trec, 28, &val, tot_len);
+}
+
+/**
  * Fill @ce->etag with entity-tag value. RFC 7232 Section-2.3 doesn't limit
  * etag size, so can't just have a copy of entity-tag value somewhere in @ce,
  * instead fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
@@ -1541,12 +1587,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		.len = SLEN(S_VIA_H2_PROTO) + g_vhost->hdr_via_len,
 		.nchunks = 2
 	};
-	TfwStr val_cl = {
-		.chunks = (TfwStr []){
-			{ .data = *this_cpu_ptr(&g_c_buf), .len = 0 }
-		},
-		.nchunks = 1
-	};
 
 	unsigned int cc_ignore_flags =
 		tfw_vhost_get_cc_ignore(req->location, req->vhost);
@@ -1642,9 +1682,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 			continue;
 		}
 
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-		    && !test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
-		    && hid == TFW_HTTP_HDR_TRANSFER_ENCODING) {
+		if (hid == TFW_HTTP_HDR_TRANSFER_ENCODING) {
 			--ce->hdr_num;
 			continue;
 		}
@@ -1666,6 +1704,27 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	if (unlikely(n < 0))
 		return n;
 
+	/*
+	 * Add `Content-Encoding` header and copy encodings from
+	 * `Transfer-Encoding` to it.
+	 */
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		n = tfw_cache_add_hdr_cenc(resp, ce, &p, &trec, &tot_len);
+		if (unlikely(n < 0))
+			return n;
+
+		ce->hdr_num += 1;
+	}
+
+	/* Add 'content-length' header. */
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		n = tfw_cache_add_hdr_clen(resp, ce, &p, &trec, &tot_len);
+		if (unlikely(n < 0))
+			return n;
+
+		ce->hdr_num += 1;
+	}
+
 	/* Headers added only for h2 responses. */
 	/* Add 'via' header. */
 	memcpy_fast(__TFW_STR_CH(&val_via, 1)->data, g_vhost->hdr_via,
@@ -1676,23 +1735,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	ce->hdr_h2_off = ce->hdr_num + 1;
 	ce->hdr_num += 2;
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		val_cl.chunks->len = tfw_ultoa(resp->body.len,
-					       val_cl.chunks->data,
-					       TFW_ULTOA_BUF_SIZ);
-
-		val_cl.len = val_cl.chunks->len;
-		if (!val_cl.len)
-			return -EINVAL;
-
-		/* Add 'content-length' header. */
-		n = tfw_cache_h2_add_hdr(ce, &p, &trec, 28, &val_cl, &tot_len);
-		if (unlikely(n < 0))
-			return n;
-
-		ce->hdr_num += 1;
-	}
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
@@ -1796,6 +1838,30 @@ check_cc_ignored_header(const TfwStr *field, const TfwStr *tokens)
 	return false;
 }
 
+static unsigned long
+te_codings_size(TfwHttpResp *resp)
+{
+	TfwStr *te_hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING];
+	TfwStr *chunk, *end, *dup, *end_dup;
+	size_t len = 0;
+	bool first = true;
+
+	TFW_STR_FOR_EACH_DUP(dup, te_hdr, end_dup) {
+		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
+			if (!(chunk->flags & TFW_STR_NAME))
+				continue;
+
+			if (!first)
+				len += 1;
+
+			len += chunk->len;
+			first = false;
+		}
+	}
+
+	return len;
+}
+
 /*
  * __cache_entry_size is supposed to be called before tfw_cache_copy_resp,
  * to set the TFW_STR_NOCCPY_HDR flag on the headers, so we don't double-check
@@ -1807,7 +1873,6 @@ __cache_entry_size(TfwHttpResp *resp)
 	TfwStr host_val, *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
 	long size, res_size = CE_BODY_SIZE;
-	size_t cl_len;
 	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
@@ -1840,11 +1905,8 @@ __cache_entry_size(TfwHttpResp *resp)
 		    || TFW_STR_EMPTY(hdr))
 			continue;
 
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-		    && !test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
-		    && hid == TFW_HTTP_HDR_TRANSFER_ENCODING)
+		if (hid == TFW_HTTP_HDR_TRANSFER_ENCODING)
 			continue;
-
 		/*
 		 * TODO #496: assemble all the string patterns into state machines
 		 * (one if possible) to avoid the loops over all configured and
@@ -1902,6 +1964,36 @@ __cache_entry_size(TfwHttpResp *resp)
 	}
 
 	/*
+	 * Add the length of value of Transfer-Encoding, which will be used
+	 * as length of value of Content-Encoding, since Transfer-Encoding is
+	 * hop-by-hop it must not placed to cache and will be replaced by
+	 * Content-Encoding during caching response.
+	 */
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		unsigned long ce_len = te_codings_size(resp);
+
+		res_size += sizeof(TfwCStr);
+		res_size += 2;
+		res_size += tfw_hpack_int_size(ce_len, 0x7F);
+		res_size += ce_len;
+	}
+
+	/*
+	 * Add the length of Content-Length header. Content-Length used to
+	 * replace non-cachable *chunked* body.
+	 */
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		unsigned long  cl_len = tfw_ultoa(resp->body.len,
+						  *this_cpu_ptr(&g_c_buf),
+						  TFW_ULTOA_BUF_SIZ);
+
+		res_size += sizeof(TfwCStr);
+		res_size += 2;
+		res_size += tfw_hpack_int_size(cl_len, 0x7F);
+		res_size += cl_len;
+	}
+
+	/*
 	 * Add the length of our version of 'Server' header and 'Via' header.
 	 * Note, that we need two bytes for static index, since in the first
 	 * byte we have only four available bits for the index (we do not use
@@ -1919,15 +2011,6 @@ __cache_entry_size(TfwHttpResp *resp)
 	res_size += 2;
 	res_size += tfw_hpack_int_size(via_sz, 0x7F);
 	res_size += via_sz;
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		cl_len = tfw_ultoa(resp->body.len, *this_cpu_ptr(&g_c_buf),
-				   TFW_ULTOA_BUF_SIZ);
-		res_size += sizeof(TfwCStr);
-		res_size += 2;
-		res_size += tfw_hpack_int_size(cl_len, 0x7F);
-		res_size += cl_len;
-	}
 
 	/* Add body size. */
 	res_size += resp->body.len;
@@ -2376,8 +2459,6 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 			&& tfw_http_expand_hdr_date(resp))
-		    || (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-			&& tfw_http_expand_hdr_clen(resp, ce->body_len))
 		    || tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
 		{
 			goto free;

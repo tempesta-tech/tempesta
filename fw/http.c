@@ -123,8 +123,15 @@
 #define S_H2_STAT		":status"
 
 #define RESP_BUF_LEN		2048
+/* Current length enough to store all possible transfer codings. */
 
+#define RESP_TE_BUF_LEN		128
+
+/* General purpose per CPU buffer */
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
+
+/* Buffer for storing values of Transfer-Encoding header. */
+static DEFINE_PER_CPU(char[RESP_TE_BUF_LEN], g_te_buf);
 
 #define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
 unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
@@ -3199,6 +3206,28 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
+static int
+tfw_http_add_hdr_clen(TfwHttpMsg *hm)
+{
+	int r;
+	char *buf = *this_cpu_ptr(&g_buf);
+	size_t cl_valsize = tfw_ultoa(hm->body.len, buf,
+				      TFW_ULTOA_BUF_SIZ);
+
+	r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
+				  sizeof("Content-Length") - 1, buf, cl_valsize,
+				  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+
+	if (unlikely(r))
+		T_ERR("%s: unable to add 'content-length' header (msg=[%p])\n",
+		      __func__, hm);
+	else
+		T_DBG3("%s: added 'content-length' header, msg=[%p]\n",
+		       __func__, hm);
+
+	return r;
+}
+
 /**
  * Compose Content-Type header field from scratch.
  *
@@ -4275,6 +4304,9 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache)
 	return r;
 }
 
+/**
+ * Add 'Content-Length:' header field to an HTTP message.
+ */
 static int
 tfw_h2_add_hdr_clen(TfwHttpResp *resp)
 {
@@ -4291,9 +4323,90 @@ tfw_h2_add_hdr_clen(TfwHttpResp *resp)
 		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
 		      __func__, resp);
 	else
-		T_DBG3("%s: added 'conent-length' header, resp=[%p]\n",
+		T_DBG3("%s: added 'content-length' header, resp=[%p]\n",
 		       __func__, resp);
 	return r;
+}
+
+/**
+ * Add 'Content-Encoding:' header field to an HTTP message.
+ *
+ * @value - Value to add as field-value of Content-Encoding. Usually copied
+ * from transfer encoding.
+ */
+static int
+tfw_h2_add_hdr_cenc(TfwHttpResp *resp, TfwStr *value)
+{
+	int r;
+	TfwStr name = { .data = "content-encoding",
+			.len = SLEN("content-encoding")};
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = name.data, .len = name.len },
+			{ .data = value->data, .len = value->len }
+		},
+		.len = name.len + value->len,
+		.nchunks = 2,
+		.hpack_idx = 26
+	};
+
+	r = tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_ADD, true);
+
+	if (unlikely(r))
+		goto err;
+
+	T_DBG3("%s: added 'content-encoing' header, resp=[%p]\n", __func__,
+	       resp);
+
+	return r;
+err:
+	T_ERR("%s: unable to add 'content-encoding' header (resp=[%p])\n",
+	      __func__, resp);
+	return r;
+}
+
+/**
+ * Copy values of multiple transfer-encoding headers to @dst.
+ *
+ * @max_len - Max length that much can be copied.
+ */
+int
+tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
+{
+	size_t len = 0;
+	unsigned short sep = 0;
+	char *buf = dst->data;
+	TfwStr *chunk, *end, *dup, *dup_end;
+	TfwStr *hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING];
+
+	BUG_ON(TFW_STR_EMPTY(hdr));
+	BUG_ON(max_len == 0);
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
+			if (!(chunk->flags & TFW_STR_NAME))
+				continue;
+
+			if (len + chunk->len + sep > max_len) {
+				T_WARN("Transfer-Encoding has too many codings.\n");
+				return -ENOMEM;
+			}
+
+			if (sep) {
+				buf[len] = ',';
+				len += 1;
+			}
+
+			memcpy_fast(buf + len, chunk->data, chunk->len);
+
+			len += chunk->len;
+			sep = 1;
+		}
+	}
+
+	dst->len = len;
+
+	return 0;
 }
 
 /*
@@ -5180,6 +5293,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwNextHdrOp *next = &mit->next;
+	TfwStr codings = {.data = *this_cpu_ptr(&g_te_buf), .len = 0};
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
@@ -5194,6 +5308,30 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
 		tfw_http_msg_del_parsed_cuts((TfwHttpMsg*)resp, true);
+	/*
+	 * Accordingly to RFC 9113 8.2.2 connection-specific headers can't
+	 * be used in HTTP/2.
+	 *
+	 * The whole header can be removed. Don't remove it, only mark as
+	 * hop-by-hop header: such headers are ignored while saved into cache
+	 * and never forwarded to h2 clients. Just avoid extra fragmentation
+	 * now.
+	 */
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+	    || test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		TfwStr *te_hdr, *dup, *end;
+
+		te_hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING];
+		TFW_STR_FOR_EACH_DUP(dup, te_hdr, end)
+			dup->flags |= TFW_STR_HBH_HDR;
+	}
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		r = tfw_http_resp_copy_encodings(resp, &codings, RESP_BUF_LEN);
+		if (unlikely(r))
+			goto clean;
+	}
+
 	/*
 	 * Transform HTTP/1.1 headers into HTTP/2 form, in parallel with
 	 * adjusting of particular headers.
@@ -5255,6 +5393,19 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 			goto clean;
 	}
 
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		if (unlikely(tfw_h2_add_hdr_clen(resp)))
+			goto clean;
+	}
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		r = tfw_h2_add_hdr_cenc(resp, &codings);
+		if (unlikely(r))
+			goto clean;
+
+		TFW_STR_INIT(&codings);
+	}
+
 	r = TFW_H2_MSG_HDR_ADD(resp, "server", TFW_SERVER, 54);
 	if (unlikely(r))
 		goto clean;
@@ -5262,12 +5413,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	r = tfw_h2_resp_add_loc_hdrs(resp, h_mods, false);
 	if (unlikely(r))
 		goto clean;
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		r = tfw_h2_add_hdr_clen(resp);
-		if (unlikely(r))
-			goto clean;
-	}
 
 	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
 	if (unlikely(r))
@@ -6222,24 +6367,40 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
  * Http/1 response is terminated by connection close and lacks of framing
  * information. H2 connections have their own framing happening just before
  * forwarding message to network, but h1 connections still require explicit
- * framing. Don't add framing now, @tfw_http_adjust_resp() will handle it.
+ * framing.
  */
 static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	TfwFsmData data;
+	int r = 0;
 
-	if (unlikely(!TFW_MSG_H2(hm->req))) {
-		/*
-		 * A sender MUST NOT apply chunked more than once
-		 * to a message body (i.e., chunking an already
-		 * chunked message is not allowed). RFC 7230 3.3.1.
-		 */
-		if (!test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
-			__set_bit(TFW_HTTP_B_CHUNKED, hm->flags);
-		else
-			set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
+	/*
+	 * Response to HTTP2 client which has flag TFW_HTTP_B_CHUNKED_APPLIED
+	 * blocks during response parsing.
+	 */
+	WARN_ON_ONCE(TFW_MSG_H2(hm->req)
+		     && test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags));
+
+	if (test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
+		set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
+
+	r = tfw_http_add_hdr_clen(hm);
+	if (r) {
+		TfwHttpReq *req = hm->req;
+
+		tfw_http_popreq(hm, false);
+		/* The response is freed by tfw_http_req_block(). */
+		tfw_http_req_block(req, 502, "response blocked: filtered out");
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		return;
 	}
+
+	/*
+	 * At this place we can't ensure about a message is fully
+	 * received therefore mark resp as non-cachable.
+	 */
+	hm->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
 
 	/*
 	 * Note that in this case we don't have data to process.
@@ -6255,6 +6416,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 
 	if (tfw_http_resp_gfsm(hm, &data) != TFW_PASS)
 		return;
+
 	tfw_http_resp_cache(hm);
 }
 
