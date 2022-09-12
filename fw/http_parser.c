@@ -1396,8 +1396,20 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 * attempts of HTTP Request Smuggling or HTTP		\
 		 * Response Splitting.					\
 		 */							\
-		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
-			TFW_PARSER_BLOCK(RGen_BodyInit);		\
+		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {\
+			/*						\
+			 * Block responses which have transfer-encoding	\
+			 * *chunked* and content-length. Encodings other\
+			 * than	*chunked* are allowed to be used with	\
+			 * content-length header.			\
+			 */						\
+			if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))	\
+				TFW_PARSER_BLOCK(RGen_BodyInit);	\
+			if (msg->content_length == 0)			\
+				goto no_body;				\
+			parser->to_read = msg->content_length;		\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		}							\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/* Process the body until the connection is closed. */	\
