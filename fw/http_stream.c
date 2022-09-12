@@ -49,6 +49,14 @@ tfw_h2_stream_cache_destroy(void)
 /*
  * Stream FSM processing during frames receipt (see RFC 7540 section
  * 5.1 for details).
+ *
+ * @stream - H2 stream to process
+ * @type   - H2 frame type
+ * @flags  - H2 frame flags
+ * @send   - send or receive operation
+ * @err	   - holds error, if any
+ *
+ * @return - Stream FSM exec status
  */
 TfwStreamFsmRes
 tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
@@ -61,9 +69,10 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 
 	spin_lock(&stream->st_lock);
 
-	T_DBG3("enter %s: stream->state=%d, stream->id=%u, type=%hhu,"
-	       " flags=0x%hhx\n", __func__, stream->state, stream->id,
-	       type, flags);
+	T_DBG3("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s), flags %x\n",
+	       __func__, send ? "SEND" : "RECV", stream, stream->state,
+	       __h2_strm_st_n(stream->state), stream->id, type, __h2_frm_type_n(type),
+	       flags);
 
 	if (send) {
 		/*
@@ -296,8 +305,8 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 	}
 
 done:
-	T_DBG3("exit %s: stream->state=%d, res=%d\n", __func__,
-	       stream->state, res);
+	T_DBG3("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
+	       stream->state, __h2_strm_st_n(stream->state), res);
 
 	spin_unlock(&stream->st_lock);
 
