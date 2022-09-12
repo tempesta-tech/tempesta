@@ -650,8 +650,16 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_unlink(ctx, cur);
-		tfw_h2_stream_clean(ctx, cur);
+
+		/* The streams tree is about to be destroyed and
+		 * we don't want to trigger rebalancing.
+		 * No further actions regarding streams dependencies/prio
+		 * is required at this stage.
+		 */
+		tfw_h2_delete_stream(cur);
+		--ctx->streams_num;
 	}
+	sched->streams = RB_ROOT;
 }
 
 /*
