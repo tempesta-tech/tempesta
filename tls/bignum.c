@@ -273,8 +273,13 @@ ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count)
 	size_t limbs, bits, old_used = A->used;
 	unsigned long *x = MPI_P(X), *a = MPI_P(A);
 
-	if (WARN_ON_ONCE(!count || !old_used))
+	if (WARN_ON_ONCE(!old_used))
 		return;
+	if (unlikely(!count)) {
+		if (X != A)
+			ttls_mpi_copy_alloc(X, A, false);
+		return;
+	}
 
 	limbs = count >> BSHIFT;
 	bits = count & BMASK;
