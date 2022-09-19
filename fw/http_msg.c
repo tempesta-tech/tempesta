@@ -644,8 +644,8 @@ done:
  * that just now by facing CRLF at the start of the current data chunk.
  */
 int
-__tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwPool *pool, TfwStr *str, void *data,
-			    size_t len, struct sk_buff *skb)
+__tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data, size_t len,
+			    struct sk_buff *skb)
 {
 	if (WARN_ON_ONCE(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE)))
 		return -EINVAL;
@@ -992,131 +992,23 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 }
 
 /**
- * Modify message body, add string @data to the end of the body (if @append) or
- * to its beginning.
- */
-static int
-tfw_http_msg_body_xfrm(TfwHttpMsg *hm, const TfwStr *data, bool append,
-		       bool after_trailer)
-{
-	int r;
-	char *st;
-	TfwMsgIter it = {.skb_head = hm->msg.skb_head, /* .frag not used. */
-			 .skb = hm->body.skb};
-
-	if (!append) {
-		/* Insert string just at front of the body. */
-		st = TFW_STR_CHUNK(&hm->body, 0)->data;
-	}
-	else if (likely(!test_bit(TFW_HTTP_B_CHUNKED_TRAILER, hm->flags)
-			|| after_trailer))
-	{
-		/*
-		 * Trailing CRLF after chunked body (chunked trailed) was cut
-		 * off, restore it back at very end of the body.
-		 */
-		struct skb_shared_info *shi;
-		it.skb = ss_skb_peek_tail(&hm->msg.skb_head);
-		shi = skb_shinfo(it.skb);
-		if (shi->nr_frags) {
-			skb_frag_t *f = &shi->frags[shi->nr_frags - 1];
-			st = skb_frag_address(f) + skb_frag_size(f);
-		}
-		else {
-			st = it.skb->data + skb_headlen(it.skb);
-		}
-	}
-	else {
-		st = TFW_STR_CURR(&hm->body)->data + TFW_STR_CURR(&hm->body)->len;
-		if ((r = tfw_http_iter_set_at(&it, st)))
-			return r;
-	}
-
-	/* The modifications are done just befor push message into network,
-	 * don't bother ourselves with hm stracture maintaining.
-	 */
-	return tfw_http_msg_insert(&it, &st, data);
-}
-
-/**
- * The http1 message (response) is about to be forwarded. If it lacks of framing
- * information add it. The message is fully assembled, so try to use as little
- * modifications as possible.
+ * Remove flagged data and EOL from skb of TfwHttpMsg->body.
+ *
+ * WARNING: After this call TfwHttpMsg->body MUST not be used.
  */
 int
-tfw_http_msg_frame_h1_msg(TfwHttpMsg *hm)
-{
-	int r = 0;
-	const DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
-	const DEFINE_TFW_STR(zero_body_end, "0\r\n\r\n");
-	const DEFINE_TFW_STR(crlf, "\r\n");
-	TfwStr body_end = chunked_body_end;
-
-	/*
-	 * If chunked flag is set then either message was in chunked encoding
-	 * or it was terminated by connection close. If 'Transfer-Encoding'
-	 * header is marked as hop-by-hop, it doesn't require modification,
-	 * otherwize need to append chunked as final coding.
-	 */
-	if (!test_bit(TFW_HTTP_B_CHUNKED, hm->flags))
-		return 0;
-	if (!(hm->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING].flags
-	      & TFW_STR_HBH_HDR))
-	{
-		r = TFW_HTTP_MSG_HDR_XFRM(hm, "transfer-encoding", "chunked",
-					  TFW_HTTP_HDR_TRANSFER_ENCODING, 1);
-		if (r)
-			return r;
-	}
-
-	if (hm->body.len) {
-		char data[TFW_ULTOA_BUF_SIZ + 2] = {0};
-		TfwStr sz = {.data = data};
-
-		sz.len = tfw_ultohex(hm->body.len, sz.data, TFW_ULTOA_BUF_SIZ);
-		if (!sz.len)
-			return -EINVAL;
-		*(short *)(sz.data + sz.len) = 0x0a0d; /* CRLF, '\r\n' */
-		sz.len += 2;
-
-		if ((r = tfw_http_msg_body_xfrm(hm, &sz, false, false)))
-			return r;
-	}
-	else {
-		hm->body.data = hm->crlf.data + hm->crlf.len;
-		body_end = zero_body_end;
-	}
-
-	if (unlikely(test_bit(TFW_HTTP_B_CHUNKED_TRAILER, hm->flags)))
-		body_end.len -= 2;
-	if ((r = tfw_http_msg_body_xfrm(hm, &body_end, true, false)))
-		return r;
-	if (unlikely(test_bit(TFW_HTTP_B_CHUNKED_TRAILER, hm->flags))) {
-		if ((r = tfw_http_msg_body_xfrm(hm, &crlf, true, true)))
-			return r;
-	}
-
-	return 0;
-}
-
-int
-tfw_http_msg_del_parsed_cuts(TfwHttpMsg *hm, bool parsing_done)
+tfw_http_msg_del_flagged_body(TfwHttpMsg *hm)
 {
 	int r;
-	TfwStr cut;
 
-	cut = hm->stream->parser.cut;
-	if (!hm->stream->parser.pool || TFW_STR_EMPTY(&cut))
-		return 0;
-
-	if ((r = tfw_http_msg_del_str(hm, &hm->stream->parser.cut)))
+	r = ss_skb_cutoff_data_flagged(hm->msg.skb_head, &hm->body,
+				       TFW_STR_NAME, tfw_str_eolen(&hm->body));
+	if (unlikely(r))
 		return r;
-	else
-		hm->msg.len -= cut.len;
 
-	if (cut.nchunks)
-		tfw_pool_free(hm->stream->parser.pool, cut.data,
-			      cut.nchunks * sizeof(TfwStr));
+	hm->msg.len -= hm->stream->parser.cut_len;
+	TFW_STR_INIT(&hm->body);
+
 	return 0;
 }
 
@@ -1215,8 +1107,8 @@ this_chunk:
 
 		memcpy_fast(p, c->data + c_off, n_copy);
 		if (field && n_copy
-		    && __tfw_http_msg_add_str_data(hm, hm->pool, field, p,
-						   n_copy, it->skb))
+		    && __tfw_http_msg_add_str_data(hm, field, p, n_copy,
+						   it->skb))
 		{
 			return -ENOMEM;
 		}

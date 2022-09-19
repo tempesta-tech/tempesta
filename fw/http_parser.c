@@ -272,10 +272,11 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __body_fixup_append(n, field)					\
+#define __body_fixup_append(n, field, cut)				\
 do {									\
 	TfwStr *l = TFW_STR_CURR(field);				\
-	if (l->data + l->len == (char *)p) {				\
+	unsigned short flags = cut ? TFW_STR_NAME : 0;			\
+	if (l->data + l->len == (char *)p && (l->flags & flags)) {	\
 		l->len += n;						\
 		if (!TFW_STR_PLAIN(field))				\
 			(field)->len += n;				\
@@ -283,12 +284,16 @@ do {									\
 		if (TFW_STR_EMPTY(field))				\
 			tfw_http_msg_set_str_data(msg, field, p);	\
 		__msg_field_fixup_pos(field, p, n);			\
-	}								\
+		if (cut)						\
+			__msg_field_chunk_flags(field, TFW_STR_NAME);   \
+	} 								\
+	if (cut) 							\
+		parser->cut_len += n;					\
 } while (0)
 
-#define __FSM_MOVE_body_fixup(to, n, field)				\
+#define __FSM_MOVE_body_fixup(to, n, field, cut)			\
 do {									\
-	__body_fixup_append(n, field);					\
+	__body_fixup_append(n, field, cut);				\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		parser->state = &&to;					\
@@ -300,9 +305,9 @@ do {									\
 #define __FSM_MOVE_body_chunk_desc(to, n)				\
 do {									\
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {			\
-		__FSM_MOVE_body_fixup(to, n, &msg->stream->parser.cut);	\
+		__FSM_MOVE_body_fixup(to, n, &msg->body, true);		\
 	} else {							\
-		__FSM_MOVE_body_fixup(to, n, &msg->body);		\
+		__FSM_MOVE_body_fixup(to, n, &msg->body, false);	\
 	}								\
 } while (0)
 
@@ -1142,14 +1147,8 @@ __FSM_STATE(RGen_CR, hot) {						\
 #define TFW_HTTP_PARSE_CRLF()						\
 do {									\
 	if (unlikely(c == '\r')) {					\
-		if (msg->crlf.flags & TFW_STR_COMPLETE) {		\
-			/* Cut off the last CR from response */		\
-			if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)	\
-				__FSM_MOVE_body_fixup(RGen_CRLFCR, 1,	\
-						      &parser->cut); 	\
-			else						\
-				__FSM_MOVE_nofixup(RGen_CRLFCR);	\
-		}							\
+		if (msg->crlf.flags & TFW_STR_COMPLETE)			\
+			__FSM_MOVE_nofixup(RGen_CRLFCR);		\
 		if (!msg->crlf.data)					\
 			/* The end of the headers part. */		\
 			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
@@ -1168,7 +1167,7 @@ do {									\
 		}							\
 		parser->state = &&RGen_Hdr;				\
 		if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)		\
-			__body_fixup_append(1, &parser->cut);		\
+			__body_fixup_append(1, &msg->body, true);	\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
 } while (0)
@@ -1187,9 +1186,11 @@ __FSM_STATE(RGen_CRLFCR, hot) {						\
 		__FSM_JMP(RGen_BodyInit);				\
 	}								\
 	parser->state = &&RGen_CRLFCR;					\
-	/* Cut off the last LF from response */				\
+	/* Don't fixup last CR, just set EOLEN for body which will	\
+	 * be cutted during HTTP1 to HTTP2 transformation and will	\
+	 * not be stored in cache. */					\
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
-		__body_fixup_append(1, &parser->cut);			\
+		tfw_str_set_eolen(&msg->body, 2);			\
 	FSM_EXIT(TFW_PASS);						\
 }
 
@@ -1471,11 +1472,11 @@ __FSM_STATE(RGen_BodyReadChunk, __VA_ARGS__) {				\
 	parser->to_read -= __fsm_sz;					\
 	if (parser->to_read)						\
 		__FSM_MOVE_body_fixup(RGen_BodyReadChunk, __fsm_sz,	\
-				      &msg->body);			\
+				      &msg->body, false);		\
 	if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {			\
 		parser->to_read = -1;					\
 		__FSM_MOVE_body_fixup(RGen_BodyEoL, __fsm_sz,		\
-				      &msg->body);			\
+				      &msg->body, false);		\
 	}								\
 	/* We've fully read Content-Length bytes. */			\
 	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
@@ -1524,9 +1525,9 @@ __FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
 	 * Add everything and the current character.			\
 	 */								\
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
-		__body_fixup_append(1, &msg->stream->parser.cut);	\
+		__body_fixup_append(1, &msg->body, true);		\
 	else								\
-		__body_fixup_append(1, &msg->body);			\
+		__body_fixup_append(1, &msg->body, false);		\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	/* Process the trailer-part. */					\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
@@ -2148,9 +2149,8 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
  * Parse Content-Encoding header value, RFC 9110 8.4.
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
  *
- * We cut chunked encoding for responses, since the chunked encoding is not
- * allowed over h2 connections. We can't strip the 'chunked' token right at time
- * we see it, because it may be not final encoding, see RFC 7230 3.3.1.
+ * We cut transer-encoding for h2 responses, since the transfer-encoding is not
+ * allowed over h2 connections. See RFC 9113 8.2.2
  */
 static int
 __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
@@ -2198,9 +2198,6 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	 * chunked is applied to a RESPONSE payload body, the sender MUST either
 	 * apply chunked as the final transfer coding or terminate the message
 	 * by closing the connection.
-	 *
-	 * TODO: process transfer encodings: gzip, deflate, identity,
-	 * compress;
 	 */
 	__FSM_STATE(I_TransEncodOther) {
 		__set_bit(TFW_HTTP_B_TE_EXTRA, msg->flags);
@@ -2264,9 +2261,10 @@ __resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/*
 	 * According to RFC 7230 section 3.3.1:
 	 *
-	 * TODO: In a response:
 	 * A server MUST NOT send a Transfer-Encoding header field
 	 * in any 2xx (Successful) response to a CONNECT request.
+	 *
+	 * TODO check CONNECT request.
 	 */
 	if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
 		unsigned int status = ((TfwHttpResp *)hm)->status;
@@ -4587,13 +4585,8 @@ STACK_FRAME_NON_STANDARD(__parse_m_override);
 static inline void
 __parser_init(TfwHttpParser *parser)
 {
-	TfwPool *pool = parser->pool;
-
-	BUG_ON(!TFW_STR_EMPTY(&parser->cut));
-
 	bzero_fast(parser, sizeof(TfwHttpParser));
 	parser->to_read = -1; /* unknown body size */
-	parser->pool = pool;
 }
 
 void

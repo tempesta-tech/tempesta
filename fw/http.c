@@ -2897,42 +2897,6 @@ tfw_http_expand_hdr_date(TfwHttpResp *resp)
 	return r;
 }
 
-int
-tfw_http_expand_hdr_clen(TfwHttpResp *resp, size_t len)
-{
-	int r;
-	struct sk_buff **skb_head = &resp->msg.skb_head;
-	TfwHttpTransIter *mit = &resp->mit;
-	char *buf = *this_cpu_ptr(&g_buf);
-	TfwStr h_clen = {
-		.chunks = (TfwStr []){
-			TFW_STR_STRING(S_F_CONTENT_LENGTH),
-			{ .data = buf, .len = 0 },
-			TFW_STR_STRING(S_CRLF),
-		},
-		.len = SLEN(S_F_CONTENT_LENGTH) + SLEN(S_CRLF),
-		.nchunks = 3
-	};
-	TfwStr *len_str = __TFW_STR_CH(&h_clen, 1);
-
-	if (!len)
-		return 0;
-
-	len_str->len = tfw_ultoa(len, len_str->data, TFW_ULTOA_BUF_SIZ);
-	if (!len_str->len)
-		return -EINVAL;
-	h_clen.len += len_str->len;
-	r = tfw_http_msg_expand_data(&mit->iter, skb_head, &h_clen, NULL);
-	if (r)
-		T_ERR("Unable to expand resp [%p] with 'content-length:' "
-		      "header\n", resp);
-	else
-		T_DBG2("Expanded resp [%p] with 'content-length:' header\n",
-		       resp);
-
-	return r;
-}
-
 /**
  * Connection is to be closed after response for the request @req is forwarded
  * to the client. Don't process new requests from the client and update
@@ -4312,7 +4276,8 @@ tfw_h2_add_hdr_clen(TfwHttpResp *resp)
 {
 	int r;
 	char* buf = *this_cpu_ptr(&g_buf);
-	size_t cl_valsize = tfw_ultoa(resp->body.len, buf,
+	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	size_t cl_valsize = tfw_ultoa(body_len, buf,
 				      TFW_ULTOA_BUF_SIZ);
 
 	r = tfw_h2_msg_hdr_add(resp, "content-length",
@@ -4839,6 +4804,20 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 	return 0;
 }
 
+static TfwStr*
+__tfw_h2_get_body_start(TfwHttpResp* resp)
+{
+	TfwStr *c, *end;
+
+	TFW_STR_FOR_EACH_CHUNK(c, &resp->body, end) {
+		if (!(c->flags & TFW_STR_NAME))
+			return c;
+		continue;
+	}
+
+	return NULL;
+}
+
 /**
  * Split response into http/2 frames with respect to remote peer MAX_FRAME_SIZE
  * settings. Both HEADERS and DATA frames require framing or peer will reject
@@ -4860,9 +4839,10 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
  * message is pushed into network. No stream id modification, no header
  * adjustments are allowed after the call.
  *
- * The only case when message can be modified - body addition for locally
- * generated responses, which add body fragment-by-fragment with required
- * framing information.
+ * There are two cases when message can be modified:
+ * 1. Body addition for locally generated responses, which add body
+ * fragment-by-fragment with required framing information.
+ * 2. Cutting "chunked body" information from response.
  */
 static int
 tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
@@ -4871,7 +4851,8 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 {
 	int r;
 	char *data;
-	unsigned long b_len = resp->body.len;
+	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	TfwStr *h2_body = NULL;
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwFrameHdr frame_hdr = {.stream_id = stream_id};
 	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
@@ -4910,6 +4891,20 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	 */
 	if (!local_response) {
 		if (b_len) {
+			if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+				TfwHttpMsg *hm = (TfwHttpMsg*)resp;
+
+				/* Save beginning of body before modifying */
+				if (b_len > max_sz) {
+					h2_body = __tfw_h2_get_body_start(resp);
+					BUG_ON(!h2_body);
+				}
+
+				r = tfw_http_msg_del_flagged_body(hm);
+				if (unlikely(r))
+					return r;
+			}
+
 			frame_hdr.length = min(max_sz, b_len);
 			frame_hdr.type = HTTP2_DATA;
 			frame_hdr.flags = (frame_hdr.length == b_len)
@@ -4949,7 +4944,12 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 		unsigned long skew = 0;
 
 		iter->skb = resp->body.skb;
-		data = TFW_STR_CHUNK(&resp->body, 0)->data;
+
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+			data = h2_body->data;
+		else
+			data = TFW_STR_CHUNK(&resp->body, 0)->data;
+
 		if ((r = tfw_http_iter_set_at(iter, data)))
 			return r;
 
@@ -4992,8 +4992,6 @@ static void
 tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-
-	TFW_STR_INIT(&resp->stream->parser.cut);
 
 	/*
 	 * A client can disconnect at any time after the request was
@@ -5306,8 +5304,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(!stream_id))
 		goto out;
 
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-		tfw_http_msg_del_parsed_cuts((TfwHttpMsg*)resp, true);
 	/*
 	 * Accordingly to RFC 9113 8.2.2 connection-specific headers can't
 	 * be used in HTTP/2.
