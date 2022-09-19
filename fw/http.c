@@ -4406,7 +4406,8 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 		const TfwHdrModsDesc *desc = &h_mods->hdrs[i];
 		int r;
 
-		if (test_bit(i, mit->found) || !TFW_STR_CHUNK(desc->hdr, 1))
+		/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
+		if (test_bit(i, mit->found) || (TFW_STR_CHUNK(desc->hdr, 1) == NULL))
 			continue;
 
 		r = tfw_hpack_encode(resp, desc->hdr, op, !cache);
