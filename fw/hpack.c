@@ -1911,7 +1911,9 @@ check_name_text:
 			 * empty, then the header is about to be removed,
 			 * don't write it.
 			 */
-			if (!TFW_STR_CHUNK(dc_iter->desc->hdr, 1)) {
+
+			/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
+			if (TFW_STR_CHUNK(dc_iter->desc->hdr, 1) == NULL) {
 				dc_iter->skip = true;
 				goto out;
 			}
