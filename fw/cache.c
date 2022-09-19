@@ -1158,6 +1158,40 @@ do {						\
 } while (0)
 
 /**
+ * Copies http *chunked* body from plain or compound TfwStr @src to TdbRec @trec.
+ *
+ * @src is copied
+ * @return number of copied bytes on success and negative value otherwise.
+ */
+static int
+tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
+			       TfwStr *src, size_t *tot_len)
+{
+	long n;
+	TfwStr *c, *end;
+
+	BUG_ON(TFW_STR_DUP(src));
+
+	if (unlikely(!src->len))
+		return 0;
+
+	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
+		if (c->flags & TFW_STR_NAME)
+			continue;
+
+		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
+			T_ERR("Cache: cannot copy chunk of HTTP body\n");
+			return -ENOMEM;
+		}
+
+		*tot_len -= n;
+		*acc_len += n;
+	}
+
+	return 0;
+}
+
+/**
  * Copies plain or compound (chunked) TfwStr @src to TdbRec @trec.
  *
  * @src is copied
@@ -1395,8 +1429,9 @@ tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		},
 		.nchunks = 1
 	};
+	unsigned long body_len = resp->body.len - resp->stream->parser.cut_len;
 
-	val.chunks->len = tfw_ultoa(resp->body.len, val.chunks->data,
+	val.chunks->len = tfw_ultoa(body_len, val.chunks->data,
 				    TFW_ULTOA_BUF_SIZ);
 
 	val.len = val.chunks->len;
@@ -1738,8 +1773,13 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	r = tfw_cache_h2_copy_str(&ce->body_len, &p, &trec, &resp->body,
-				  &tot_len);
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
+						   &resp->body, &tot_len);
+	else
+		r = tfw_cache_h2_copy_str(&ce->body_len, &p, &trec, &resp->body,
+					  &tot_len);
+
 	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
@@ -1983,9 +2023,10 @@ __cache_entry_size(TfwHttpResp *resp)
 	 * replace non-cachable *chunked* body.
 	 */
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		unsigned long  cl_len = tfw_ultoa(resp->body.len,
-						  *this_cpu_ptr(&g_c_buf),
-						  TFW_ULTOA_BUF_SIZ);
+		unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+		unsigned long cl_len   = tfw_ultoa(body_len,
+						   *this_cpu_ptr(&g_c_buf),
+						   TFW_ULTOA_BUF_SIZ);
 
 		res_size += sizeof(TfwCStr);
 		res_size += 2;
@@ -2014,6 +2055,9 @@ __cache_entry_size(TfwHttpResp *resp)
 
 	/* Add body size. */
 	res_size += resp->body.len;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+		res_size -= resp->stream->parser.cut_len;
 
 	return res_size;
 err:
@@ -2449,8 +2493,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		 *
 		 * If the original message was in chunked encoding, it has been
 		 * removed and chunked trailer headers are stored with arbitrary
-		 * headers. Add content-length header for correct message
-		 * framing.
+		 * headers.
 		 */
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
 		    || tfw_http_expand_hdr_via(resp)

@@ -88,10 +88,8 @@ test_resp_alloc(size_t data_len)
 	BUG_ON(ret);
 
 	memset(&conn_resp, 0, sizeof(TfwConn));
-	conn_resp.proto.type = Conn_HttpSrv;
 	tfw_connection_init(&conn_req);
-	conn_resp.stream.parser.pool = __tfw_pool_new(0);
-	BUG_ON(!conn_resp.stream.parser.pool);
+	conn_resp.proto.type = Conn_HttpSrv;
 	hmresp->conn = &conn_resp;
 	hmresp->stream = &conn_resp.stream;
 	tfw_http_init_parser_resp((TfwHttpResp *)hmresp);

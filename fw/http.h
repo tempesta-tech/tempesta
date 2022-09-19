@@ -586,6 +586,11 @@ struct tfw_http_resp_t {
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
 
+#define TFW_HTTP_RESP_CUT_BODY_SZ(r) 					\
+	(r)->stream ? 							\
+	(r)->body.len - (r)->stream->parser.cut_len : 			\
+	(r)->body.len
+
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
 	for ((pos) = &(msg)->h_tbl->tbl[soff], 				\
 	     (end) = &(msg)->h_tbl->tbl[eoff];				\
@@ -694,7 +699,6 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
 int tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache);
 int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
-int tfw_http_expand_hdr_clen(TfwHttpResp *resp, size_t len);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
 void tfw_h2_resp_fwd(TfwHttpResp *resp);
