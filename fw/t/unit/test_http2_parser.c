@@ -1889,6 +1889,92 @@ TEST(http2_parser, referer)
 #undef FOR_REQ_H2_IF_REFERER
 }
 
+TEST(http2_parser, content_encoding)
+{
+	char cenc[] =
+	        "dummy0, dummy1, dummy2, dummy3, dummy4, "
+	        "dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
+	        "dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
+	        "dummy18, dummy19, dummy20, dummy21, dummy22, dummy23, "
+	        "dummy24, dummy25, dummy26, dummy27, dummy28, dummy29, "
+	        "dummy30, dummy31, dummy32, dummy33, dummy34, dummy35, "
+	        "dummy36, dummy37, dummy38, dummy39, dummy40, dummy41, "
+	        "dummy42, dummy43, dummy44, dummy45, dummy46, dummy47, "
+	        "dummy48, dummy49, dummy50, dummy51, dummy52, dummy53, "
+	        "dummy54, dummy55, dummy56, dummy57, dummy58, dummy59, "
+	        "dummy60, dummy61, dummy62, dummy63, dummy64, dummy65, "
+	        "dummy66, dummy67, dummy68, dummy69, dummy70, dummy71, "
+	        "dummy72, dummy73, dummy74, dummy75, dummy76, dummy77, "
+	        "dummy78, dummy79, dummy80, dummy81, dummy82, dummy83, "
+	        "dummy84, dummy85, dummy86, dummy87, dummy88, dummy89, "
+	        "dummy90, dummy91, dummy92, dummy93, dummy94, dummy95, "
+	        "dummy96, dummy97, dummy98, dummy99, dummy100, dummy101, "
+	        "dummy102, dummy103, dummy104, dummy105, dummy106, dummy107, "
+	        "dummy108, dummy109, dummy110, dummy111, dummy112, dummy113, "
+	        "dummy114, dummy115, dummy116, dummy117, dummy118, dummy119, "
+	        "dummy120, dummy121, dummy122, dummy123, dummy124, dummy125, "
+	        "dummy126, dummy127";
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("content-encoding"), VALUE(TOKEN_ALPHABET)));
+	    HEADERS_FRAME_END();
+	)
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_ENCODING];
+		EXPECT_GT(h->len, 0);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("content-encoding"), VALUE("gzip, br")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_ENCODING];
+		EXPECT_GT(h->len, 0);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("content-encoding"), VALUE(cenc)));
+	    HEADERS_FRAME_END();
+	)
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_ENCODING];
+		EXPECT_GT(h->len, 0);
+	}
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("content-encoding"), VALUE(TOKEN_ALPHABET ";"
+							      )));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("content-encoding"), VALUE(TOKEN_ALPHABET ",;"
+							      )));
+	    HEADERS_FRAME_END();
+	);
+}
+
 TEST(http2_parser, content_type_line_parser)
 {
 #define FOR_REQ_H2_CONTENT_TYPE(content_type)					\
@@ -3367,6 +3453,7 @@ TEST_SUITE_MPART(http2_parser, 4)
 	TEST_RUN(http2_parser, cookie);
 	TEST_RUN(http2_parser, if_none_match);
 	TEST_RUN(http2_parser, referer);
+	TEST_RUN(http2_parser, content_encoding);
 	TEST_RUN(http2_parser, content_type_line_parser);
 	TEST_RUN(http2_parser, xff);
 }

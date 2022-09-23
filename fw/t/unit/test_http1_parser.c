@@ -1883,6 +1883,97 @@ TEST(http1_parser, host)
 	EXPECT_BLOCK_REQ_SIMPLE("Host: [fd42:5ca1:e3a7::1000[");
 }
 
+TEST(http1_parser, chunked_cut_len)
+{
+	/* Chunked response */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "8\r\n"
+		 "abcdefgh\r\n"
+		 "0\r\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 8);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+
+	/* Chunked response with trailer */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "8\r\n"
+		 "abcdefgh\r\n"
+		 "0\r\n"
+		 "Age: 1\r\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 8);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+
+	/* Chunked response with LF insted of CRLF */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "8\n"
+		 "abcdefgh\n"
+		 "0\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 5);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+
+	/* Chunked response with mixed LF and CRLF */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "8\n"
+		 "abcdefgh\n"
+		 "0\r\n"
+		 "Age: 1\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 6);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+
+	/* Chunked response with chunk extension */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "8;qwe=123\r\n"
+		 "abcdefgh\r\n"
+		 "0\r\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 16);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+
+	/* Chunked response */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "0\r\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 3);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+	/* Chunked response */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\r\n"
+		 "000\r\n"
+		 "\r\n")
+	{
+		EXPECT_EQ(resp->stream->parser.cut_len, 5);
+		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
+	}
+}
+
 TEST(http1_parser, transfer_encoding)
 {
 #define FOR_CHUNKED(chunks)						\
@@ -2293,6 +2384,76 @@ TEST(http1_parser, transfer_encoding)
 #undef EXPECT_BLOCK_RESP_CHUNKED
 #undef EXPECT_BLOCK_REQ_CHUNKED
 #undef FOR_CHUNKED
+}
+
+TEST(http1_parser, content_encoding)
+{
+#define FOR_CENCODING(cencoding)					\
+	FOR_REQ("POST / HTTP/1.1\r\n"					\
+		"Content-Encoding:" cencoding "\r\n"			\
+		"\r\n");						\
+	FOR_RESP("HTTP/1.1 200 OK\r\n"					\
+		 "Content-Length: 0\r\n"				\
+		 "Content-Encoding:" cencoding "\r\n"			\
+		 "\r\n")
+
+#define EXPECT_BLOCK_CENC_REQ_RESP(cencoding)				\
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"				\
+		         "Content-Encoding:" cencoding "\r\n"		\
+		         "\r\n");					\
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"				\
+			  "Content-Length: 0\r\n"			\
+			  "Content-Encoding:" cencoding "\r\n"		\
+			  "\r\n")
+
+	FOR_CENCODING(
+	        "dummy0, dummy1, dummy2, dummy3, dummy4, "
+	        "dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
+	        "dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
+	        "dummy18, dummy19, dummy20, dummy21, dummy22, dummy23, "
+	        "dummy24, dummy25, dummy26, dummy27, dummy28, dummy29, "
+	        "dummy30, dummy31, dummy32, dummy33, dummy34, dummy35, "
+	        "dummy36, dummy37, dummy38, dummy39, dummy40, dummy41, "
+	        "dummy42, dummy43, dummy44, dummy45, dummy46, dummy47, "
+	        "dummy48, dummy49, dummy50, dummy51, dummy52, dummy53, "
+	        "dummy54, dummy55, dummy56, dummy57, dummy58, dummy59, "
+	        "dummy60, dummy61, dummy62, dummy63, dummy64, dummy65, "
+	        "dummy66, dummy67, dummy68, dummy69, dummy70, dummy71, "
+	        "dummy72, dummy73, dummy74, dummy75, dummy76, dummy77, "
+	        "dummy78, dummy79, dummy80, dummy81, dummy82, dummy83, "
+	        "dummy84, dummy85, dummy86, dummy87, dummy88, dummy89, "
+	        "dummy90, dummy91, dummy92, dummy93, dummy94, dummy95, "
+	        "dummy96, dummy97, dummy98, dummy99, dummy100, dummy101, "
+	        "dummy102, dummy103, dummy104, dummy105, dummy106, dummy107, "
+	        "dummy108, dummy109, dummy110, dummy111, dummy112, dummy113, "
+	        "dummy114, dummy115, dummy116, dummy117, dummy118, dummy119, "
+	        "dummy120, dummy121, dummy122, dummy123, dummy124, dummy125, "
+	        "dummy126, dummy127");
+
+	FOR_CENCODING(TOKEN_ALPHABET "," TOKEN_ALPHABET);
+	EXPECT_BLOCK_CENC_REQ_RESP(TOKEN_ALPHABET ";");
+	EXPECT_BLOCK_CENC_REQ_RESP(TOKEN_ALPHABET ",;" TOKEN_ALPHABET);
+
+	/*
+	 * Deny Transfer-Encoding other than chunked and Content-Encoding
+	 * in the same response. It's looks suspicious, all common backends
+	 * support only Transfer-Encoding chunked.
+	 */
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			  "Content-Length: 0\r\n"
+			  "Content-Encoding: gzip\r\n"
+			  "Transfer-Encoding: gzip\r\n"
+			  "\r\n");
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+			  "Content-Encoding: gzip\r\n"
+			  "Transfer-Encoding: chunked\r\n"
+			  "\r\n"
+			  "0\r\n"
+			  "\r\n");
+
+#undef FOR_CENCODING
+#undef EXPECT_BLOCK_CENC_REQ_RESP
 }
 
 /*
@@ -3804,7 +3965,6 @@ TEST(http1_parser, vchar)
 	TEST_RAW_RESP("Authorization");
 	TEST_RAW_RESP("Allow");
 	TEST_RAW_RESP("Content-Disposition");
-	TEST_RAW_RESP("Content-Encoding");
 	TEST_RAW_RESP("Content-Language");
 	TEST_RAW_RESP("Content-Location");
 	TEST_RAW_RESP("Content-Range");
@@ -4501,7 +4661,9 @@ TEST_SUITE_MPART(http1_parser, 1)
 	TEST_RUN(http1_parser, folding);
 	TEST_RUN(http1_parser, accept);
 	TEST_RUN(http1_parser, host);
+	TEST_RUN(http1_parser, chunked_cut_len);
 	TEST_RUN(http1_parser, transfer_encoding);
+	TEST_RUN(http1_parser, content_encoding);
 	TEST_RUN(http1_parser, crlf_trailer);
 	TEST_RUN(http1_parser, cookie);
 	TEST_RUN(http1_parser, set_cookie);
