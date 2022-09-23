@@ -5290,7 +5290,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwNextHdrOp *next = &mit->next;
 	TfwStr codings = {.data = *this_cpu_ptr(&g_te_buf), .len = 0};
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
@@ -5350,8 +5349,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 
 	do {
 		TfwStr *last;
-		TfwStr hdr = next->s_hdr;
-		TfwH2TransOp op = next->op;
+		TfwStr hdr = mit->next.s_hdr;
+		TfwH2TransOp op = mit->next.op;
 
 		r = tfw_h2_resp_next_hdr(resp, h_mods);
 		if (unlikely(r))

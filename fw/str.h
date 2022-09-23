@@ -237,8 +237,6 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 #define TFW_STR_NOCCPY_HDR	0x20
 /* Weak identifier was set for Etag value. */
 #define TFW_STR_ETAG_WEAK	0x40
-/* Trailer  header. */
-#define TFW_STR_TRAILER		0x80
 /*
  * The string/chunk is a header fully indexed in HPACK static
  * table (used only for HTTP/1.1=>HTTP/2 message transformation).
@@ -252,6 +250,9 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 
 /* The chunk contains only WS characters. */
 #define TFW_STR_OWS		0x100
+
+/* Trailer  header. */
+#define TFW_STR_TRAILER		0x200
 
 #define SLEN(s)			(sizeof(s) - 1)
 

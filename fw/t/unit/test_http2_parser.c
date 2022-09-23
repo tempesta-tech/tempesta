@@ -1481,7 +1481,7 @@ TEST_MPART(http2_parser, host, 0)
 			.chunks = (TfwStr []) {
 				{ .data = ":authority" , .len = 10 },
 				{ .data = "tempesta-tech.com" , .len = 17,
-				  .flags = TFW_STR_VALUE|TFW_STR_TRAILER },
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
 			},
 			.len = 27,
 			.nchunks = 2,
@@ -1500,11 +1500,11 @@ TEST_MPART(http2_parser, host, 0)
 			.chunks = (TfwStr []) {
 				{ .data = ":authority" , .len = 10 },
 				{ .data = "tempesta-tech.com" , .len = 17,
-				  .flags = TFW_STR_VALUE|TFW_STR_TRAILER },
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
 				{ .data = ":" , .len = 1,
-				  .flags = TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE },
 				{ .data = "443" , .len = 3,
-				  .flags = TFW_STR_VALUE|TFW_STR_TRAILER },
+				  .flags = TFW_STR_VALUE|TFW_STR_HDR_VALUE },
 			},
 			.len = 31,
 			.nchunks = 4,
@@ -1523,8 +1523,7 @@ TEST_MPART(http2_parser, host, 0)
 			.chunks = (TfwStr []) {
 				{ .data = ":authority" , .len = 10 },
 				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
-				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE
-					   |TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE },
 			},
 			.len = 32,
 			.nchunks = 2,
@@ -1543,13 +1542,11 @@ TEST_MPART(http2_parser, host, 0)
 			.chunks = (TfwStr []) {
 				{ .data = ":authority" , .len = 10 },
 				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
-				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE
-					   |TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE },
 				{ .data = ":" , .len = 1,
-				 .flags = TFW_STR_TRAILER },
+				 .flags = TFW_STR_HDR_VALUE },
 				{ .data = "65535", .len = 5,
-				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE
-					   |TFW_STR_TRAILER },
+				  .flags = TFW_STR_HDR_VALUE|TFW_STR_VALUE },
 			},
 			.len = 38,
 			.nchunks = 4,
@@ -1641,11 +1638,11 @@ TEST(http2_parser, cookie)
 			const char *str;
 		} kv[] = {
 			{ 0, "cookie" },
-			{ TFW_STR_NAME|TFW_STR_TRAILER, "session=" },
-			{ TFW_STR_VALUE|TFW_STR_TRAILER, "42" },
-			{ TFW_STR_TRAILER, "; " },
-			{ TFW_STR_NAME|TFW_STR_TRAILER, "theme=" },
-			{ TFW_STR_VALUE|TFW_STR_TRAILER, "dark" },
+			{ TFW_STR_NAME|TFW_STR_HDR_VALUE, "session=" },
+			{ TFW_STR_VALUE|TFW_STR_HDR_VALUE, "42" },
+			{ TFW_STR_HDR_VALUE, "; " },
+			{ TFW_STR_NAME|TFW_STR_HDR_VALUE, "theme=" },
+			{ TFW_STR_VALUE|TFW_STR_HDR_VALUE, "dark" },
 		};
 		size_t kv_count = sizeof(kv) / sizeof(kv[0]);
 		int kv_idx;
