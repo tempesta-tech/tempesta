@@ -26,18 +26,17 @@ EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m += tfw_test.o
 
+# Some of source files in this directory are symlinks to sources in /fw with
+# the same name. The build system doesn't care, and treats symlinks as regular
+# files. Incidentally that's what's needed, as this cause build scripts to write
+# object files right here in this directory, which prevents accidental
+# concurrent overwrites when compiling in parallel. The price is building some
+# of the code twice.
+
 t-srcs = $(wildcard $(obj)/*.c)
 t-objs = $(patsubst %.c, %.o, $(t-srcs))
 ifdef AVX2
-	t-objs += ../../str_avx2.o
+	t-objs += str_avx2.o
 endif
 
 tfw_test-objs = $(subst $(src)/,,$(t-objs))
-
-tfw_test-y +=	\
-	../../http_parser.o	\
-	../../http_sess.o	\
-	../../str.o		\
-	../../ss_skb.o		\
-	../../msg.o		\
-	../../http_msg.o
