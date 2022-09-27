@@ -475,6 +475,14 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 		return TFW_BLOCK;
 	}
 
+	if (!ct_vals) {
+		/*
+		 * Configuration does not provide a list of allowed types for
+		 * Content-Type, so everything is permitted.
+		 */
+		return TFW_PASS;
+	}
+
 	tfw_http_msg_clnthdr_val(req,
 				 &req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 TFW_HTTP_HDR_CONTENT_TYPE, &field);
