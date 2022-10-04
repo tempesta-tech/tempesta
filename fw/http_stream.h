@@ -48,6 +48,24 @@ typedef enum {
 	HTTP2_STREAM_CLOSED
 } TfwStreamState;
 
+static const char *__tfw_strm_st_names[] = {
+	[HTTP2_STREAM_LOC_RESERVED]	= "HTTP2_STREAM_LOC_RESERVED",
+	[HTTP2_STREAM_REM_RESERVED]	= "HTTP2_STREAM_REM_RESERVED",
+	[HTTP2_STREAM_OPENED]	    	= "HTTP2_STREAM_OPENED",
+	[HTTP2_STREAM_CONT]	    	= "HTTP2_STREAM_CONT",
+	[HTTP2_STREAM_CONT_CLOSED]  	= "HTTP2_STREAM_CONT_CLOSED",
+	[HTTP2_STREAM_LOC_CLOSED]	= "HTTP2_STREAM_LOC_CLOSED",
+	[HTTP2_STREAM_REM_HALF_CLOSED]	= "HTTP2_STREAM_REM_HALF_CLOSED",
+	[HTTP2_STREAM_REM_CLOSED]	= "HTTP2_STREAM_REM_CLOSED",
+	[HTTP2_STREAM_CLOSED]		= "HTTP2_STREAM_CLOSED",
+};
+
+static inline const char *
+__h2_strm_st_n(TfwStreamState state)
+{
+	return __tfw_strm_st_names[state];
+}
+
 /**
  * Final statuses of Stream FSM processing.
  */

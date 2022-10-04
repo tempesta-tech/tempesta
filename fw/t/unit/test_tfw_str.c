@@ -306,6 +306,7 @@ do {									\
 	tfw_cstrtolower(dst1, s, n);					\
 	c_strtolower(dst2, s, n);					\
 	EXPECT_TRUE(!strncmp(dst1, dst2, n));				\
+	kfree(dst1);							\
 } while (0)
 
 TEST(cstr, simd_strtolower)

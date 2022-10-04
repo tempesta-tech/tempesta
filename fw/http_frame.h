@@ -48,6 +48,26 @@ typedef enum {
 	_HTTP2_UNDEFINED
 } TfwFrameType;
 
+static const char *__tfw_h2_frm_names[] = {
+	[HTTP2_DATA]	      = "DATA",
+	[HTTP2_HEADERS]	      = "HEADERS",
+	[HTTP2_PRIORITY]      = "PRIORITY",
+	[HTTP2_RST_STREAM]    = "RST_STREAM",
+	[HTTP2_SETTINGS]      = "SETTINGS",
+	[HTTP2_PUSH_PROMISE]  = "PUSH_PROMISE",
+	[HTTP2_PING]	      = "PING",
+	[HTTP2_GOAWAY]	      = "GOAWAY",
+	[HTTP2_WINDOW_UPDATE] = "WINDOW_UPDATE",
+	[HTTP2_CONTINUATION]  = "CONTINUATION",
+	[_HTTP2_UNDEFINED]    = "< UNDEF >",
+};
+
+static inline const char *
+__h2_frm_type_n(TfwFrameType f_type)
+{
+	return __tfw_h2_frm_names[f_type];
+}
+
 /**
  * HTTP/2 frame flags. Can be specified in frame's header and
  * are specific to the particular frame types (RFC 7540 section
@@ -74,7 +94,7 @@ typedef enum {
 typedef struct {
 	int		length;
 	unsigned int	stream_id;
-	unsigned char	type;
+	TfwFrameType	type;
 	unsigned char	flags;
 } TfwFrameHdr;
 

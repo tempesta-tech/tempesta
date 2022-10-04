@@ -565,10 +565,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 
 	++ctx->streams_num;
 
-	T_DBG3("%s: stream added, id=%u, stream=[%p] weight=%hu,"
-	       " streams_num=%lu, dep_stream_id=%u, dep_stream=[%p],"
-	       " excl=%hhu\n", __func__, id, stream, stream->weight,
-	       ctx->streams_num, pri->stream_id, dep, pri->exclusive);
+	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
+	       "added strm [%p] id %u weight %u\n",
+	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
+	       stream, id, stream->weight);
 
 	return stream;
 }
@@ -576,6 +576,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 static inline void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
+	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
+	       __func__, stream, stream->id, stream->state,
+	       __h2_strm_st_n(stream->state), stream->weight,
+	       ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;
@@ -627,6 +631,7 @@ tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 static inline void
 tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 {
+	T_DBG3("%s: ctx [%p] ctx->cur_stream %p\n", __func__, ctx, ctx->cur_stream);
 	tfw_h2_stream_unlink(ctx, ctx->cur_stream);
 	tfw_h2_stream_clean(ctx, ctx->cur_stream);
 	ctx->cur_stream = NULL;
@@ -641,10 +646,20 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
 
+	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
+
 	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_unlink(ctx, cur);
-		tfw_h2_stream_clean(ctx, cur);
+
+		/* The streams tree is about to be destroyed and
+		 * we don't want to trigger rebalancing.
+		 * No further actions regarding streams dependencies/prio
+		 * is required at this stage.
+		 */
+		tfw_h2_delete_stream(cur);
+		--ctx->streams_num;
 	}
+	sched->streams = RB_ROOT;
 }
 
 /*
@@ -667,9 +682,7 @@ static inline void
 tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	spin_lock(&ctx->lock);
-
 	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
-
 	spin_unlock(&ctx->lock);
 }
 
@@ -687,6 +700,8 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 		    TfwH2Err err_code)
 {
 	if (stream && *stream) {
+		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
+			ctx, *stream, id, err_code);
 		tfw_h2_stream_add_closed(ctx, *stream);
 		*stream = NULL;
 	}
@@ -745,6 +760,9 @@ tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
 	req->stream = NULL;
 	stream->msg = NULL;
 
+	T_DBG3("%s: ctx [%p], strm [%p] added to closed streams list\n",
+	       __func__, ctx, stream);
+
 	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
 
 	spin_unlock(&ctx->lock);
@@ -763,8 +781,9 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 	unsigned int max_streams = ctx->lsettings.max_streams;
 	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
 
-	while (1)
-	{
+	T_DBG3("%s: ctx [%p] max_streams %u\n", __func__, ctx, max_streams);
+
+	while (1) {
 		spin_lock(&ctx->lock);
 
 		if (hclosed_streams->num <= TFW_MAX_CLOSED_STREAMS
@@ -782,6 +801,8 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 
 		spin_unlock(&ctx->lock);
 
+		T_DBG3("%s: ctx [%p] cur stream [%p]\n", __func__, ctx, cur);
+
 		tfw_h2_stream_clean(ctx, cur);
 	}
 }
@@ -791,9 +812,9 @@ tfw_h2_check_closed_stream(TfwH2Ctx *ctx)
 {
 	BUG_ON(!ctx->cur_stream);
 
-	T_DBG3("%s: stream->id=%u, stream->state=%d, stream=[%p], streams_num="
-	       "%lu\n", __func__, ctx->cur_stream->id, ctx->cur_stream->state,
-	       ctx->cur_stream, ctx->streams_num);
+	T_DBG3("%s: strm [%p] id %u state %d(%s), streams_num %lu\n",
+	       __func__, ctx->cur_stream, ctx->cur_stream->id, ctx->cur_stream->state,
+	       __h2_strm_st_n(ctx->cur_stream->state), ctx->streams_num);
 
 	if (tfw_h2_stream_is_closed(ctx->cur_stream))
 		tfw_h2_current_stream_remove(ctx);
