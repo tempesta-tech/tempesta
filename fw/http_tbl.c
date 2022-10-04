@@ -544,7 +544,6 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 do {                                                                  \
 	url->chunks[i].data = kmalloc(pos - begin + 1, GFP_KERNEL);   \
 	if (!url->chunks[i].data) {                                   \
-		kfree(url->chunks);                                   \
 		T_ERR_NL("http_tbl: can't allocate memory for "       \
 			 "redirections\n");                           \
 		return -EINVAL;                                       \
