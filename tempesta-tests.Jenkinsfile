@@ -41,7 +41,7 @@ pipeline {
             }
             steps {
                 dir("${TESTS_PATH}"){
-                    sh './run_tests.py -nv'
+                    sh './run_tests.py ${PARAMS}'
                 }
             }
         }
