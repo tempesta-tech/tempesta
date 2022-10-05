@@ -31,7 +31,7 @@ pipeline {
         stage('Checkout tempesta-tests') {
             steps {
                 sh 'rm -rf ${TESTS_PATH}'
-                sh 'git clone --branch ${test-branch} https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
+                sh 'git clone --branch ${TEST_BRANCH} https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
             }
         }
 
