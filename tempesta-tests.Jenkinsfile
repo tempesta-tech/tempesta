@@ -30,18 +30,18 @@ pipeline {
 
         stage('Checkout tempesta-tests') {
             steps {
-                sh 'rm -rf ${TESTS_PATH}'
-                sh 'git clone https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}'
+                sh "rm -rf ${TESTS_PATH}"
+                sh "git clone --branch $TEST_BRANCH https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}"
             }
         }
 
         stage('Run tests') {
             options {
-                timeout(time: 60, unit: 'MINUTES')   // timeout on this stage
+                timeout(time: 180, unit: 'MINUTES')   // timeout on this stage
             }
             steps {
                 dir("${TESTS_PATH}"){
-                    sh './run_tests.py -nv'
+                    sh "./run_tests.py $PARAMS"
                 }
             }
         }
