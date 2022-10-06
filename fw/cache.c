@@ -1732,18 +1732,20 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 static bool
 check_cfg_ignored_header(const TfwStr *field, TfwCaToken *tokens,
-		     unsigned int tokens_sz)
+			 unsigned int tokens_sz)
 {
 	int i;
 	int bytes_count = 0;
 	TfwCaToken *token = tokens;
+	const TfwStr *hdr = TFW_STR_DUP(field) ? TFW_STR_CHUNK(field, 0) : field;
+
 	for (i = 0; i < tokens_sz; i++) {
 		const TfwStr to_del = {
 			.data = token->str,
 			.len = token->len - 1
 		};
 		BUG_ON(token->len > 10000);
-		if (tfw_stricmpspn(field, &to_del, ':') == 0) {
+		if (tfw_stricmpspn(hdr, &to_del, ':') == 0) {
 			return true;
 		}
 		bytes_count += sizeof(TfwCaToken) + token->len;
