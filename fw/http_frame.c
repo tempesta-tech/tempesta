@@ -1223,8 +1223,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwH2Err err_code = HTTP2_ECODE_SIZE;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
-	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
-	       ctx->state);
+	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr->type,
+	       __h2_frm_type_n(hdr->type), ctx->state);
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;

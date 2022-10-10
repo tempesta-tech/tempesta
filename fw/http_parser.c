@@ -10375,26 +10375,40 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	int r;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
-	unsigned char type = ctx->hdr.type;
 
 	WARN_ON_ONCE(!len);
-	BUG_ON(type != HTTP2_HEADERS
-	       && type != HTTP2_CONTINUATION
-	       && type != HTTP2_DATA);
-
 	*parsed = 0;
 
-	if (likely(type != HTTP2_DATA)) {
+	switch(ctx->hdr.type) {
+	case HTTP2_HEADERS:
+	case HTTP2_CONTINUATION:
+		if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
+			/* Receiving END_HEADERS flags second time
+			 * means that we're processing trailer
+			 * HEADERS/CONTINUATION frame.
+			 *
+			 * RFC 9113 8.1: Trailer HEADERS frame must
+			 * contain END_STREAM flag.
+			 */
+			if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)) {
+				if (!(ctx->hdr.flags & HTTP2_F_END_STREAM))
+					return T_DROP;
+			}
+		}
+
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-	}
-	else if ((req->method_override
-		  && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
-		 || TFW_HTTP_IS_METH_BODYLESS(req->method))
-	{
-		r = T_DROP;
-	}
-	else {
+		break;
+	case HTTP2_DATA:
+		if ((req->method_override && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
+			return T_DROP;
+
 		r = tfw_h2_parse_body(data, len, req, parsed);
+		break;
+	default:
+		WARN(1, "%s: h2 ctx %p req %p, illegal frame type %d(%s)\n", __func__, ctx,
+		     req, ctx->hdr.type, __h2_frm_type_n(ctx->hdr.type));
+		return T_DROP;
 	}
 
 	return (r == T_OK) ? T_POSTPONE : r;

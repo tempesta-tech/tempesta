@@ -154,7 +154,7 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline bool
-tfw_h2_stream_req_complete(TfwStream *stream)
+tfw_h2_strm_req_is_compl(TfwStream *stream)
 {
 	return stream->state == HTTP2_STREAM_REM_HALF_CLOSED;
 }
