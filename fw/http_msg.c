@@ -559,10 +559,12 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		 * RFC 7230 3.2.2: all duplicates of special singular
 		 * headers must be blocked as early as possible,
 		 * just when parser reads them.
+		 *
+		 * RFC 9113 8.3: Pseudo-header fields MUST not appear
+		 * in a trailer section.
 		 */
 		if (id < TFW_HTTP_HDR_NONSINGULAR) {
-			if (WARN_ON_ONCE(!TFW_MSG_H2(hm)
-					 || id != TFW_HTTP_HDR_COOKIE))
+			if (!TFW_MSG_H2(hm) || id != TFW_HTTP_HDR_COOKIE)
 				return TFW_BLOCK;
 		} else if (id != TFW_HTTP_HDR_X_FORWARDED_FOR &&
 			   id != TFW_HTTP_HDR_FORWARDED) {
