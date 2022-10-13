@@ -93,6 +93,13 @@ TEST(http1_parser, leading_eol)
 	FOR_RESP("\n\n\n" EMPTY_RESP);
 }
 
+TEST(http1_parser, short_name)
+{
+	FOR_REQ_SIMPLE("X: test");
+	FOR_REQ_SIMPLE("Z: test");
+	EXPECT_BLOCK_REQ_SIMPLE(": test");
+}
+
 TEST(http1_parser, parses_req_method)
 {
 #define TEST_REQ_METHOD(METHOD)					\
@@ -4469,6 +4476,7 @@ TEST_SUITE_MPART(http1_parser, 0)
 
 	TEST_RUN(http1_parser, leading_eol);
 	TEST_RUN(http1_parser, parses_req_method);
+	TEST_RUN(http1_parser, short_name);
 	TEST_RUN(http1_parser, parses_req_uri);
 	TEST_RUN(http1_parser, mangled_messages);
 	TEST_RUN(http1_parser, alphabets);

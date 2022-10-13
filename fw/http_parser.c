@@ -1254,8 +1254,8 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 		 * ':' can be found at the beginning of a new skb or	\
 		 * fragment, it's ok.					\
 		*/							\
-		if (unlikely(!__fsm_sz					\
-			     && TFW_STR_EMPTY(&msg->stream->parser.hdr))) \
+		if (unlikely(!__fsm_sz && TFW_STR_EMPTY(&parser->hdr)	\
+			     && p == (unsigned char *)parser->hdr.data))\
 		{							\
 			TFW_PARSER_BLOCK(RGen_HdrOtherN);		\
 		}							\
