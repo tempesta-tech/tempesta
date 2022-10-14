@@ -35,6 +35,7 @@ pipeline {
                         echo "ERROR $e"
                     } finally {
                         sh 'rm -rf /root/tempesta'
+                        sh 'cp -r . /root/tempesta'
                         run_build = "true"
                     }
                 }
@@ -46,7 +47,6 @@ pipeline {
                 expression { run_build == 'true' }
             }
             steps {
-                sh 'cp -r . /root/tempesta'
                 dir("/root/tempesta"){
                     sh 'make'
                 }
