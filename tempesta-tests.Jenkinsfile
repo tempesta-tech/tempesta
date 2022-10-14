@@ -12,7 +12,6 @@ pipeline {
         stage('Set buildName'){
             steps {
                 script {
-                    env.RUN_BUILD = "true"
                     currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                     currentBuild.displayName = "PR-${ghprbPullId}"
                     OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
@@ -23,8 +22,10 @@ pipeline {
                             echo "NEW HASH: $NEW_HASH"
                         }
                         if (OLD_HASH == NEW_HASH){
-                            echo "New hash detected - new build will run"
+                            echo "HASH EQUALS - no new build"
                             env.RUN_BUILD = "false"
+                        } else {
+                            echo "NEW HASH DECTECTED - new build"
                         }
                         def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                         sh "/root/tempesta/scripts/tempesta.sh --stop"
