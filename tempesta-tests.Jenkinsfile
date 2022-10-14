@@ -23,12 +23,13 @@ pipeline {
                             echo "NEW HASH: $NEW_HASH"
                         }
                         if (OLD_HASH == NEW_HASH){
-                            echo 'New new hash detected - new build will run'
+                            echo "New hash detected - new build will run"
                             env.RUN_BUILD = "false"
                         }
                         def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                         sh "/root/tempesta/scripts/tempesta.sh --stop"
                         if (TEMPESTA_STATUS == 1){
+                            echo "TEMPESTA CANT RUN - SET RUN_BUILD"
                             env.RUN_BUILD = "true"
                         }
                     } catch (Exception e) {
