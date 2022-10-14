@@ -16,8 +16,10 @@ pipeline {
                         currentBuild.displayName = "PR-${ghprbPullId}"
                         try{
                             OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                            echo "OLD HASH: $OLD_HASH"
                             dir("/root/tempesta"){
                                 NEW_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                                echo "NEW HASH: $NEW_HASH"
                             }
                             if (OLD_HASH == NEW_HASH){
                                 echo 'New new hash detected - new build will run'
