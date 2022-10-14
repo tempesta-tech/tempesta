@@ -12,9 +12,9 @@ pipeline {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                     script {
+                        currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                         currentBuild.displayName = "PR-${ghprbPullId}"
                     }
-                    currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                     sh 'rm -rf /root/tempesta'
                 }
             }
