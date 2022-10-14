@@ -14,29 +14,27 @@ pipeline {
                     script {
                         currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                         currentBuild.displayName = "PR-${ghprbPullId}"
-                    }
-                }
-                script {
-                    try{
-                        OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                        dir("/root/tempesta"){
-                            NEW_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                        }
-                        if (OLD_HASH == NEW_HASH){
-                            echo 'New new hash detected - new build will run'
-                            def run_build = "false"
-                        }
-                        else{
-                            sh 'rm -rf /root/tempesta'
+                        try{
+                            OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                            dir("/root/tempesta"){
+                                NEW_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                            }
+                            if (OLD_HASH == NEW_HASH){
+                                echo 'New new hash detected - new build will run'
+                                def run_build = "false"
+                            }
+                            else{
+                                sh 'rm -rf /root/tempesta'
+                                def run_build = "true"
+                            }
+                            def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
+                            sh "/root/tempesta/scripts/tempesta.sh --stop"
+                            if (TEMPESTA_STATUS == 1){
+                                run_build = "true"
+                            }
+                        } catch (Exception e) {
                             def run_build = "true"
                         }
-                        def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
-                        sh "/root/tempesta/scripts/tempesta.sh --stop"
-                        if (TEMPESTA_STATUS == 1){
-                            run_build = "true"
-                        }
-                    } catch (Exception e) {
-                        def run_build = "true"
                     }
                 }
             }
