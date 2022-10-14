@@ -29,11 +29,11 @@ pipeline {
                         sh 'rm -rf /root/tempesta'
                         def run_build = "true"
                     }
-                }
                 def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                 sh "/root/tempesta/scripts/tempesta.sh --stop"
                 if (TEMPESTA_STATUS == 1){
                     run_build = "true"
+                }
                 }
             }
         }
