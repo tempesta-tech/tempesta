@@ -44,7 +44,7 @@ pipeline {
 
         stage('Build tempesta-fw') {
             when {
-                environment name: 'run_build', value: 'true'
+                expression { run_build == 'true' }
             }
             steps {
                 sh 'cp -r . /root/tempesta'
