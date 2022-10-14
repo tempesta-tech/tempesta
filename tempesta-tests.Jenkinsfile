@@ -12,11 +12,12 @@ pipeline {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     script {
+                        def run_build = "true"
                         currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                         currentBuild.displayName = "PR-${ghprbPullId}"
+                        OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                        echo "OLD HASH: $OLD_HASH"
                         try {
-                            OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                            echo "OLD HASH: $OLD_HASH"
                             dir("/root/tempesta"){
                                 NEW_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
                                 echo "NEW HASH: $NEW_HASH"
@@ -24,10 +25,6 @@ pipeline {
                             if (OLD_HASH == NEW_HASH){
                                 echo 'New new hash detected - new build will run'
                                 def run_build = "false"
-                            }
-                            else{
-                                sh 'rm -rf /root/tempesta'
-                                def run_build = "true"
                             }
                             def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                             sh "/root/tempesta/scripts/tempesta.sh --stop"
@@ -38,6 +35,7 @@ pipeline {
                             def run_build = "true"
                             echo "ERROR $e"
                         } finally {
+                            sh 'rm -rf /root/tempesta'
                             def run_build = "true"
                         }
                     }
