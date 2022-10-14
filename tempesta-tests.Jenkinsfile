@@ -24,7 +24,7 @@ pipeline {
                             }
                             if (OLD_HASH == NEW_HASH){
                                 echo 'New new hash detected - new build will run'
-                                def run_build = "false"
+                                run_build = "false"
                             }
                             def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                             sh "/root/tempesta/scripts/tempesta.sh --stop"
@@ -32,11 +32,11 @@ pipeline {
                                 run_build = "true"
                             }
                         } catch (Exception e) {
-                            def run_build = "true"
+                            run_build = "true"
                             echo "ERROR $e"
                         } finally {
                             sh 'rm -rf /root/tempesta'
-                            def run_build = "true"
+                            run_build = "true"
                         }
                     }
                 }
