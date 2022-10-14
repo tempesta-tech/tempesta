@@ -1,6 +1,7 @@
 pipeline {
     environment {
         TESTS_PATH = "/home/tempesta/tempesta-test"
+        RUN_BUILD = "true"
     }
 
     agent {
@@ -11,7 +12,7 @@ pipeline {
         stage('Set buildName'){
             steps {
                 script {
-                    def run_build = "true"
+                    env.RUN_BUILD = "true"
                     currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                     currentBuild.displayName = "PR-${ghprbPullId}"
                     OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
@@ -23,20 +24,20 @@ pipeline {
                         }
                         if (OLD_HASH == NEW_HASH){
                             echo 'New new hash detected - new build will run'
-                            run_build = "false"
+                            env.RUN_BUILD = "false"
                         }
                         def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                         sh "/root/tempesta/scripts/tempesta.sh --stop"
                         if (TEMPESTA_STATUS == 1){
-                            run_build = "true"
+                            env.RUN_BUILD = "true"
                         }
                     } catch (Exception e) {
-                        run_build = "true"
+                        env.RUN_BUILD = "true"
                         echo "ERROR $e"
                     } finally {
                         sh 'rm -rf /root/tempesta'
                         sh 'cp -r . /root/tempesta'
-                        run_build = "true"
+                        env.RUN_BUILD = "true"
                     }
                 }
             }
@@ -44,7 +45,7 @@ pipeline {
 
         stage('Build tempesta-fw') {
             when {
-                expression { run_build == 'true' }
+                expression { env.RUN_BUILD == 'true' }
             }
             steps {
                 dir("/root/tempesta"){
