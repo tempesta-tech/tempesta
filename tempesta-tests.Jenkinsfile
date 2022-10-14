@@ -17,11 +17,11 @@ pipeline {
                     }
                 }
                 script {
-                    def old_hash='git rev-parse HEAD'
-                    dir("${TESTS_PATH}"){
-                        def new_hash='git rev-parse HEAD'
+                    OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                    dir("/root/tempesta"){
+                        NEW_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
                     }
-                    if (old_hash == new_hash){
+                    if (OLD_HASH == NEW_HASH){
                         echo 'New new hash detected - new build will run'
                         def run_build = "false"
                     }
