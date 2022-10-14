@@ -35,7 +35,7 @@ pipeline {
                         if (TEMPESTA_STATUS == 1){
                             run_build = "true"
                         }
-                    } catch {
+                    } catch (Exception e) {
                         def run_build = "true"
                     }
                 }
