@@ -35,6 +35,7 @@ pipeline {
                                 run_build = "true"
                             }
                         } catch (Exception e) {
+                            def run_build = "true"
                             echo "ERROR $e"
                         } finally {
                             def run_build = "true"
