@@ -15,9 +15,9 @@ pipeline {
                         currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                         currentBuild.displayName = "PR-${ghprbPullId}"
                     }
-                    old_hash='git rev-parse HEAD'
+                    def old_hash='git rev-parse HEAD'
                     dir("${TESTS_PATH}"){
-                        new_hash='git rev-parse HEAD'
+                        def new_hash='git rev-parse HEAD'
                     }
                     if (old_hash == new_hash){
                         echo 'New new hash detected - new build will run'
