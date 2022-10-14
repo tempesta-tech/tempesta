@@ -33,6 +33,7 @@ pipeline {
                                 run_build = "true"
                             }
                         } catch (Exception e) {
+                            echo "FAILED $e"
                             def run_build = "true"
                         }
                     }
