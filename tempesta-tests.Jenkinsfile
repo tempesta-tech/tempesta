@@ -15,12 +15,26 @@ pipeline {
                         currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
                         currentBuild.displayName = "PR-${ghprbPullId}"
                     }
-                    sh 'rm -rf /root/tempesta'
+                    old_hash='git rev-parse HEAD'
+                    dir("${TESTS_PATH}"){
+                        new_hash='git rev-parse HEAD'
+                    }
+                    if (old_hash == new_hash){
+                        echo 'New new hash detected - new build will run'
+                        def run_build = "false"
+                    }
+                    else{
+                        sh 'rm -rf /root/tempesta'
+                        def run_build = "true"
+                    }
                 }
             }
         }
 
         stage('Build tempesta-fw') {
+            when {
+                environment name: 'run_build', value: 'true'
+            }
             steps {
                 sh 'cp -r . /root/tempesta'
                 dir("/root/tempesta"){
