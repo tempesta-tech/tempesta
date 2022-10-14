@@ -33,11 +33,7 @@ pipeline {
                             sh "/root/tempesta/scripts/tempesta.sh --stop"
                             if (TEMPESTA_STATUS == 1){
                                 run_build = "true"
-                            }
-                        } catch (Exception e) {
-                            echo "FAILED $e"
-                            def run_build = "true"
-                        } finally {
+                            } finally {
                             def run_build = "true"
                         }
                     }
