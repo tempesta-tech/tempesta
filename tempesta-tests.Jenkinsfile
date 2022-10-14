@@ -33,6 +33,11 @@ pipeline {
                             echo "TEMPESTA CANT RUN - SET RUN_BUILD"
                             env.RUN_BUILD = "true"
                         }
+                        if (env.RUN_BUILD == "true"){
+                            echo "Clean tempesta src"
+                            sh 'rm -rf /root/tempesta'
+                            sh 'cp -r . /root/tempesta'
+                        }
                     } catch (Exception e) {
                         env.RUN_BUILD = "true"
                         echo "ERROR $e"
