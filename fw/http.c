@@ -4943,12 +4943,13 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	if (b_len > max_sz) {
 		unsigned long skew = 0;
 
-		iter->skb = resp->body.skb;
-
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 			data = h2_body->data;
-		else
+			iter->skb = h2_body->skb;
+		} else {
 			data = TFW_STR_CHUNK(&resp->body, 0)->data;
+			iter->skb = resp->body.skb;
+		}
 
 		if ((r = tfw_http_iter_set_at(iter, data)))
 			return r;
