@@ -82,16 +82,27 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		BUG_ON(!(flags & HTTP2_F_END_STREAM)
 		       && type != HTTP2_RST_STREAM);
 		/*
-		 * We can send HEADERS or DATA frames to the client only
-		 * when HTTP2_STREAM_REM_HALF_CLOSED state is passed (RFC
-		 * 7540 section 5.1).
+		 * Usually we would send HEADERS/CONTINUATION or DATA frames
+		 * to the client when HTTP2_STREAM_REM_HALF_CLOSED state
+		 * is passed, e.g. we have received END_STREAM flag from peer.
+		 * However there might be the case when we can send a reply
+		 * right away, not waiting for an entire request reception (RFC 9113 8.1).
+		 * Consider this case:
+		 *	     clnt			    srv
+		 *	     ----			    ---
+		 *	  [OPEN]
+		 * SEND HEADERS (-END_STREAM) ->
+		 * SEND DATA    (+END_STREAM) ->
+		 *	  [HALF_CLOSED LOC]		  [OPEN]
+		 *				>-   RECV HEADERS (-END_STREAM)
+		 *					    |
+		 *					    V
+		 *				req is blocked by FRANG settings
+		 *					    |
+		 *					    V
+		 *				<- SEND HEADERS (+END_STREAM)
+		 *				   + close the stream/terminate connection
 		 */
-		if (WARN_ON_ONCE(stream->state < HTTP2_STREAM_REM_HALF_CLOSED
-				 && flags & HTTP2_F_END_STREAM))
-		{
-			res = STREAM_FSM_RES_IGNORE;
-			goto done;
-		}
 	}
 
 	switch (stream->state) {
@@ -131,7 +142,9 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 			 * the states of waiting CONTINUATION frame.
 			 */
 			case HTTP2_F_END_STREAM:
-				stream->state = HTTP2_STREAM_CONT_CLOSED;
+				stream->state = send
+					? HTTP2_STREAM_LOC_CLOSED
+					: HTTP2_STREAM_CONT_CLOSED;
 				break;
 			default:
 				stream->state = HTTP2_STREAM_CONT;
@@ -304,7 +317,6 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		BUG();
 	}
 
-done:
 	T_DBG3("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       stream->state, __h2_strm_st_n(stream->state), res);
 
