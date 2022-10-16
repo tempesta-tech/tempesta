@@ -9,21 +9,17 @@ pipeline {
     }
 
     stages {
-        try {
-            stage('Set buildName'){
-                steps {
-                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                        script {
-                            currentBuild.displayName = "PR-${ghprbPullId}"
-                            currentBuild.displayName = "${GIT_COMMIT[0..7]} $PARAMS"
-                        }
+        stage('Set buildName'){
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    script {
+                        currentBuild.displayName = "${GIT_COMMIT[0..7]} $PARAMS"
+                        currentBuild.displayName = "PR-${ghprbPullId}"
                     }
                 }
             }
-        } catch (Exception e) {
-            echo "Failed to set buildname - continue"
         }
-       
+    
         stage('Pre build'){
             steps {
                 script {
