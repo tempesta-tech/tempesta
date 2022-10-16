@@ -12,8 +12,13 @@ pipeline {
         stage('Set buildName'){
             steps {
                 script {
-                    currentBuild.displayName = "${GIT_COMMIT}-$PARAMS"
-                    currentBuild.displayName = "PR-${ghprbPullId}"
+                    try{
+                        currentBuild.displayName = "PR-${ghprbPullId}"
+                    } catch (Exception e) {
+                        echo "ERROR $e"
+                        echo "Set Buildname ${GIT_COMMIT} $PARAMS"
+                        currentBuild.displayName = "${GIT_COMMIT} $PARAMS"    
+                    }
                     OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
                     echo "OLD HASH: $OLD_HASH"
                     try {
