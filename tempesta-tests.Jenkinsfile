@@ -13,7 +13,7 @@ pipeline {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     script {
-                        currentBuild.displayName = "${GIT_COMMIT[0..7]} $PARAMS"
+                        currentBuild.displayName = "${GIT_COMMIT} $PARAMS"
                         catchError {
                             currentBuild.displayName = "PR-${ghprbPullId}"
                         }
