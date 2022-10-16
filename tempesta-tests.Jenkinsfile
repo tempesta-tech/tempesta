@@ -32,14 +32,15 @@ pipeline {
                             if (OLD_HASH == NEW_HASH){
                                 echo "HASH EQUALS - no new build"
                                 env.RUN_BUILD = "false"
+                                echo "Check tempesta start/stop"
+                                def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
+                                sh "/root/tempesta/scripts/tempesta.sh --stop"
+                                if (TEMPESTA_STATUS == 1){
+                                    echo "TEMPESTA CANT RUN - SET RUN_BUILD"
+                                    env.RUN_BUILD = "true"
+                                }
                             } else {
                                 echo "NEW HASH DECTECTED - new build"
-                            }
-                            def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
-                            sh "/root/tempesta/scripts/tempesta.sh --stop"
-                            if (TEMPESTA_STATUS == 1){
-                                echo "TEMPESTA CANT RUN - SET RUN_BUILD"
-                                env.RUN_BUILD = "true"
                             }
                             if (env.RUN_BUILD == "true"){
                                 echo "Clean tempesta src"
