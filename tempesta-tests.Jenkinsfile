@@ -17,7 +17,6 @@ pipeline {
                             currentBuild.displayName = "PR-${ghprbPullId}"
                         } catch (Exception e) {
                             echo "ERROR $e"
-
                         } finally {
                             echo "Set Buildname ${GIT_COMMIT} $PARAMS"
                             currentBuild.displayName = "${GIT_COMMIT} $PARAMS"                        
