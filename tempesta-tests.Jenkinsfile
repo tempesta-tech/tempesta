@@ -27,7 +27,7 @@ pipeline {
                 script {
                     try {
                         dir("/root/tempesta"){
-                            NEW_HASH=sh(script: "git rev-parse  HEAD", returnStdout: true).trim()
+                            NEW_HASH=sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                         }
                         echo "NEW HASH: $NEW_HASH"
                         OLD_HASH=sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
