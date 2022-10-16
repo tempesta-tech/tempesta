@@ -16,8 +16,8 @@ pipeline {
                         try{
                             echo "1"
                             echo "${ghprbPullId}"
-                            echo "3"
                             currentBuild.displayName = "PR-${ghprbPullId}"
+                            echo "3"
                         } catch (Exception e) {
                             echo "ERROR $e"
                         } finally {
