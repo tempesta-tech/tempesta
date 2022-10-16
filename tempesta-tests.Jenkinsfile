@@ -16,7 +16,7 @@ pipeline {
                         try{
                             echo "1"
                             echo "${ghprbPullId}"
-                            currentBuild.displayName = "${GIT_COMMIT} $PARAMS"
+                            currentBuild.displayName = "${GIT_COMMIT,length=6} $PARAMS"
                             currentBuild.displayName = "PR-${ghprbPullId}"
                             echo "3"
                         } catch (Exception e) {
