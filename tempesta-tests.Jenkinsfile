@@ -14,6 +14,9 @@ pipeline {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     script {
                         try{
+                            echo 1
+                            echo "${ghprbPullId}"
+                            echo 3
                             currentBuild.displayName = "PR-${ghprbPullId}"
                         } catch (Exception e) {
                             echo "ERROR $e"
