@@ -13,10 +13,8 @@ pipeline {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     script {
-                            currentBuild.displayName = "${GIT_COMMIT[0..7]} $PARAMS"
-                            currentBuild.displayName = "PR-${ghprbPullId}"
-
-
+                        currentBuild.displayName = "${GIT_COMMIT[0..7]} $PARAMS"
+                        currentBuild.displayName = "PR-${ghprbPullId}"
                     }
                 }
             }
@@ -24,38 +22,40 @@ pipeline {
 
         stage('Pre build'){
             steps {
-                try {
-                    dir("/root/tempesta"){
-                        NEW_HASH=sh(script: "git rev-parse  HEAD", returnStdout: true).trim()
-                        echo "NEW HASH: $NEW_HASH"
-                    }
-                    OLD_HASH=sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    echo "OLD HASH: $OLD_HASH"
-                    if (OLD_HASH == NEW_HASH){
-                        echo "HASH EQUALS - no new build"
-                        env.RUN_BUILD = "false"
-                        echo "Check tempesta start/stop"
-                        def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
-                        sh "/root/tempesta/scripts/tempesta.sh --stop"
-                        if (TEMPESTA_STATUS == 1){
-                            echo "TEMPESTA CANT RUN - SET RUN_BUILD"
-                            env.RUN_BUILD = "true"
+                script {
+                    try {
+                        dir("/root/tempesta"){
+                            NEW_HASH=sh(script: "git rev-parse  HEAD", returnStdout: true).trim()
                         }
-                    } else {
-                        echo "NEW HASH DECTECTED - new build"
-                    }
-                    if (env.RUN_BUILD == "true"){
-                        echo "Clean tempesta src"
+                        echo "NEW HASH: $NEW_HASH"
+                        OLD_HASH=sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                        echo "OLD HASH: $OLD_HASH"
+                        if (OLD_HASH == NEW_HASH){
+                            echo "HASH EQUALS - no new build"
+                            env.RUN_BUILD = "false"
+                            echo "Check tempesta start/stop"
+                            def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
+                            sh "/root/tempesta/scripts/tempesta.sh --stop"
+                            if (TEMPESTA_STATUS == 1){
+                                echo "TEMPESTA CANT RUN - SET RUN_BUILD"
+                                env.RUN_BUILD = "true"
+                            }
+                        } else {
+                            echo "NEW HASH DECTECTED - new build"
+                        }
+                        if (env.RUN_BUILD == "true"){
+                            echo "Clean tempesta src"
+                            sh 'rm -rf /root/tempesta'
+                            sh 'cp -r . /root/tempesta'
+                        }
+                    } catch (Exception e) {
+                        env.RUN_BUILD = "true"
+                        echo "ERROR $e"
+                    } finally {
                         sh 'rm -rf /root/tempesta'
                         sh 'cp -r . /root/tempesta'
+                        env.RUN_BUILD = "true"
                     }
-                } catch (Exception e) {
-                    env.RUN_BUILD = "true"
-                    echo "ERROR $e"
-                } finally {
-                    sh 'rm -rf /root/tempesta'
-                    sh 'cp -r . /root/tempesta'
-                    env.RUN_BUILD = "true"
                 }
             }
         }
