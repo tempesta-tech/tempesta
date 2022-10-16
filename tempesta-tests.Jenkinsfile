@@ -16,8 +16,10 @@ pipeline {
                         currentBuild.displayName = "PR-${ghprbPullId}"
                     } catch (Exception e) {
                         echo "ERROR $e"
+
+                    } finally {
                         echo "Set Buildname ${GIT_COMMIT} $PARAMS"
-                        currentBuild.displayName = "${GIT_COMMIT} $PARAMS"    
+                        currentBuild.displayName = "${GIT_COMMIT} $PARAMS"                        
                     }
                     OLD_HASH=sh(script: "git rev-parse HEAD", returnStdout: true).trim()
                     echo "OLD HASH: $OLD_HASH"
@@ -89,7 +91,6 @@ pipeline {
             steps {
                     cleanWs()
                 }
-            
         }
     }
 }
