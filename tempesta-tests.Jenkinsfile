@@ -39,19 +39,16 @@ pipeline {
                             echo "$TEMPESTA_STATUS"
                             if (TEMPESTA_STATUS != "0"){
                                 echo "TEMPESTA CANT RUN - new build required"
-                                sh 'rm -rf /root/tempesta'
-                                sh 'cp -r . /root/tempesta'
+                                sh 'rm -rf /root/tempesta; cp -r . /root/tempesta'
                                 env.RUN_BUILD = "true"
                             }
                         } else {
-                            sh 'rm -rf /root/tempesta'
-                            sh 'cp -r . /root/tempesta'
+                            sh 'rm -rf /root/tempesta; cp -r . /root/tempesta'
                             env.RUN_BUILD = "true"
                         }
                     } catch (Exception e) {
                         echo "ERROR $e"
-                        sh 'rm -rf /root/tempesta'
-                        sh 'cp -r . /root/tempesta'
+                        sh 'rm -rf /root/tempesta; cp -r . /root/tempesta'
                         env.RUN_BUILD = "true"
                     } finally {
                         echo "RUN_BUILD: ${RUN_BUILD}"
