@@ -48,11 +48,9 @@ pipeline {
                         env.RUN_BUILD = "true"
                         echo "ERROR $e"
                     } finally {
-                        if (env.RUN_BUILD == "true"){
-                            sh 'rm -rf /root/tempesta'
-                            sh 'cp -r . /root/tempesta'
-                            env.RUN_BUILD = "true"
-                        }
+                        sh 'rm -rf /root/tempesta'
+                        sh 'cp -r . /root/tempesta'
+                        env.RUN_BUILD = "true"
                     }
                 }
             }
