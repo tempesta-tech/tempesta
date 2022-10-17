@@ -40,9 +40,9 @@ pipeline {
                         echo "$TEMPESTA_STATUS"
                         if (TEMPESTA_STATUS != 0){
                             echo "TEMPESTA CANT RUN - SET RUN_BUILD"
-                            env.RUN_BUILD = "true"
                             sh 'rm -rf /root/tempesta'
                             sh 'cp -r . /root/tempesta'
+                            env.RUN_BUILD = "true"
                         }
                     } catch (Exception e) {
                         echo "ERROR $e"
