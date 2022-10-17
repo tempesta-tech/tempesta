@@ -10492,6 +10492,7 @@ void
 tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
 {
 	TfwStr *c, *end;
+	TfwHttpParser *parser;
 	int ret = CSTR_NEQ;
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
@@ -10502,6 +10503,10 @@ tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
 				__func__, ret);
 		}
 	}
+
+	/* Parser internal state has to be reset */
+	parser = &((TfwHttpMsg *)req)->stream->parser;
+	parser->_i_st = NULL;
 
 	T_DBG3("%s: req->cond.m_date: %lu\n", __func__, req->cond.m_date);
 }
