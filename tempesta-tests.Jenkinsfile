@@ -37,7 +37,7 @@ pipeline {
                             def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                             sh "/root/tempesta/scripts/tempesta.sh --stop"
                             echo "$TEMPESTA_STATUS"
-                            if (TEMPESTA_STATUS != 0){
+                            if (TEMPESTA_STATUS != "0"){
                                 echo "TEMPESTA CANT RUN - new build required"
                                 sh 'rm -rf /root/tempesta'
                                 sh 'cp -r . /root/tempesta'
