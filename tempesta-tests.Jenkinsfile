@@ -38,12 +38,9 @@ pipeline {
                         def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                         sh "/root/tempesta/scripts/tempesta.sh --stop"
                         echo "$TEMPESTA_STATUS"
-                        if (TEMPESTA_STATUS == 1){
+                        if (TEMPESTA_STATUS != 0){
                             echo "TEMPESTA CANT RUN - SET RUN_BUILD"
                             env.RUN_BUILD = "true"
-                        }
-                        if (env.RUN_BUILD == "true"){
-                            echo "Clean tempesta src"
                             sh 'rm -rf /root/tempesta'
                             sh 'cp -r . /root/tempesta'
                         }
