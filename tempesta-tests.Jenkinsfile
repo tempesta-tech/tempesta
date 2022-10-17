@@ -45,12 +45,12 @@ pipeline {
                             sh 'cp -r . /root/tempesta'
                         }
                     } catch (Exception e) {
-                        env.RUN_BUILD = "true"
                         echo "ERROR $e"
-                    } finally {
                         sh 'rm -rf /root/tempesta'
                         sh 'cp -r . /root/tempesta'
                         env.RUN_BUILD = "true"
+                    } finally {
+                        echo "RUN_BUILD: ${RUN_BUILD}"
                     }
                 }
             }
