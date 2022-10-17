@@ -39,7 +39,7 @@ pipeline {
                         echo "Check tempesta start/stop"
                         def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
                         sh "/root/tempesta/scripts/tempesta.sh --stop"
-                        if (TEMPESTA_STATUS == 1){
+                        if ($TEMPESTA_STATUS == 1){
                             echo "TEMPESTA CANT RUN - SET RUN_BUILD"
                             env.RUN_BUILD = "true"
                         }
