@@ -41,6 +41,9 @@ pipeline {
                                 echo "TEMPESTA CANT RUN - new build required"
                                 sh 'rm -rf /root/tempesta; cp -r . /root/tempesta'
                                 env.RUN_BUILD = "true"
+                            } else {
+                                echo "TEMPESTA RUN SUCCESSFULLY - no new build required"
+                                env.RUN_BUILD = "false"
                             }
                         } else {
                             sh 'rm -rf /root/tempesta; cp -r . /root/tempesta'
