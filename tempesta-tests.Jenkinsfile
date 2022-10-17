@@ -31,15 +31,19 @@ pipeline {
                         OLD_HASH=sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                         echo "OLD HASH: $OLD_HASH"
                         if (OLD_HASH == NEW_HASH){
-                            echo "HASH EQUALS - no new build"
+                            echo "HASH EQUALS - no build required"
                             env.RUN_BUILD = "false"
-                        }
-                        echo "Check tempesta start/stop"
-                        def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
-                        sh "/root/tempesta/scripts/tempesta.sh --stop"
-                        echo "$TEMPESTA_STATUS"
-                        if (TEMPESTA_STATUS != 0){
-                            echo "TEMPESTA CANT RUN - SET RUN_BUILD"
+                            echo "Check tempesta start/stop"
+                            def TEMPESTA_STATUS = sh(returnStatus: true, script: "/root/tempesta/scripts/tempesta.sh --start")
+                            sh "/root/tempesta/scripts/tempesta.sh --stop"
+                            echo "$TEMPESTA_STATUS"
+                            if (TEMPESTA_STATUS != 0){
+                                echo "TEMPESTA CANT RUN - new build required"
+                                sh 'rm -rf /root/tempesta'
+                                sh 'cp -r . /root/tempesta'
+                                env.RUN_BUILD = "true"
+                            }
+                        } else {
                             sh 'rm -rf /root/tempesta'
                             sh 'cp -r . /root/tempesta'
                             env.RUN_BUILD = "true"
