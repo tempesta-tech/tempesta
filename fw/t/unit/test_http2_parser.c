@@ -21,6 +21,36 @@
 #include "test_http_parser_common.h"
 #include "test_http_parser_defs.h"
 
+TEST(http2_parser, short_name)
+{
+	FOR_REQ_H2(
+		HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("x"), VALUE("test")));
+		HEADERS_FRAME_END();
+	);
+
+	FOR_REQ_H2(
+		HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("z"), VALUE("test")));
+		HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2(
+		HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME(""), VALUE("test")));
+		HEADERS_FRAME_END();
+	);
+}
+
 TEST(http2_parser, http2_check_important_fields)
 {
 	EXPECT_BLOCK_REQ_H2(
@@ -3304,6 +3334,7 @@ TEST_MPART_DEFINE(http2_parser, forwarded, H2_FWD_TCNT,
 
 TEST_SUITE_MPART(http2_parser, 0)
 {
+	TEST_RUN(http2_parser, short_name);
 	TEST_RUN(http2_parser, http2_check_important_fields);
 	TEST_RUN(http2_parser, parses_req_method);
 	TEST_RUN(http2_parser, parses_req_uri);
