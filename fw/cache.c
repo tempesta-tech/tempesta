@@ -1857,9 +1857,9 @@ check_cfg_ignored_header(const TfwStr *field, TfwCaToken *tokens,
 			.len = token->len - 1
 		};
 		BUG_ON(token->len > 10000);
-		if (tfw_stricmpspn(hdr, &to_del, ':') == 0) {
+		if (tfw_stricmpspn(hdr, &to_del, ':') == 0)
 			return true;
-		}
+
 		bytes_count += sizeof(TfwCaToken) + token->len;
 		token = (TfwCaToken *)(bytes_count + (char *)tokens);
 	}
@@ -1870,10 +1870,11 @@ static bool
 check_cc_ignored_header(const TfwStr *field, const TfwStr *tokens)
 {
 	int i;
+	const TfwStr *hdr = TFW_STR_DUP(field) ? TFW_STR_CHUNK(field, 0) : field;
+
 	for (i = 0; i < tokens->nchunks; i++) {
-		if (tfw_stricmpspn(field, &tokens->chunks[i], ':') == 0) {
+		if (tfw_stricmpspn(hdr, &tokens->chunks[i], ':') == 0)
 			return true;
-		}
 	}
 	return false;
 }
