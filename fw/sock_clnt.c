@@ -92,6 +92,7 @@ tfw_cli_conn_alloc(int type)
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
 	spin_lock_init(&cli_conn->timer_lock);
+	atomic_set(&cli_conn->get_pair, 0);
 #ifdef CONFIG_LOCKDEP
 	/*
 	 * The lock is acquired at only one place where there is no conflict
@@ -250,6 +251,8 @@ static void
 tfw_sock_clnt_drop(struct sock *sk)
 {
 	TfwConn *conn = sk->sk_user_data;
+	int type = conn->proto.type;
+	int get_refcnt = conn->get_refcnt;
 
 	T_DBG3("connection lost: close client socket: sk=%p, conn=%p, "
 	       "client=%p\n", sk, conn, conn->peer);
@@ -283,6 +286,9 @@ tfw_sock_clnt_drop(struct sock *sk)
 	 * are references to @conn.
 	 */
 	tfw_connection_put(conn);
+
+	if (!(type & TFW_FSM_WEBSOCKET) && get_refcnt)
+		tfw_connection_put(conn);
 }
 
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {

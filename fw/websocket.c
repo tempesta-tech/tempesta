@@ -208,38 +208,26 @@ tfw_ws_conn_abort(TfwConn *conn)
 	tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
 }
 
-static TfwConn *
-tfw_ws_conn_unpair(TfwConn *conn)
-{
-	TfwConn *pair;
-
-	if (!conn || !conn->pair)
-		return NULL;
-
-	pair = conn->pair;
-
-	conn->pair = NULL;
-	pair->pair = NULL;
-
-	return pair;
-}
-
 static void
 tfw_ws_conn_drop(TfwConn *conn)
 {
-	TfwConn *pair = tfw_ws_conn_unpair(conn);
+	TfwConn *pair = conn->pair;
+	int not_get_pair;
 
 	T_DBG("%s: conn=[%p]\n", __func__, conn);
 
-	if (TFW_CONN_TYPE(conn) & Conn_Srv)
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		not_get_pair = atomic_cmpxchg(&pair->get_pair, 0, 1);
 		tfw_connection_put(conn);
-	else
+	} else {
+		not_get_pair = atomic_cmpxchg(&conn->get_pair, 0, 1);
 		tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_drop);
+	}
 
-	if (!pair)
-		return;
+	if (!not_get_pair)
+		tfw_connection_close(pair, true);
 
-	tfw_connection_close(pair, true);
+	tfw_connection_put(pair);
 }
 
 /**

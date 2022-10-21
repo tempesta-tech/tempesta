@@ -100,6 +100,8 @@ enum {
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
  * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
  * @sk		- an appropriate sock handler;
+ * @get_refcnt	- flag of getting an additional refcnt for an websocket upgrade;
+ * @get_pair	- pair capture flag for websocket;
  * @destructor	- called when a connection is destroyed;
  */
 typedef struct tfw_conn_t TfwConn;
@@ -113,6 +115,8 @@ typedef struct tfw_conn_t TfwConn;
 	TfwPeer 		*peer;			\
 	TfwConn			*pair;			\
 	struct sock		*sk;			\
+	bool			get_refcnt;		\
+	atomic_t		get_pair;		\
 	void			(*destructor)(void *);
 
 typedef struct tfw_conn_t {

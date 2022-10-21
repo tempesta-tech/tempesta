@@ -1967,7 +1967,8 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
-	if (tfw_http_conn_on_hold(srv_conn)
+	if (req_sent
+	    && tfw_http_conn_on_hold(srv_conn)
 	    && !(srv->sg->flags & TFW_SRV_RETRY_NIP))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
@@ -5906,6 +5907,21 @@ next_msg:
 					     " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
+
+	if (unlikely(test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags)
+		     && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)))
+	{
+		/*
+		 * We take an additional refcnt one to prevent access to the
+		 * freed connection when racing between client and server
+		 * tfw_ws_conn_drop()
+		 */
+		if (!conn->get_refcnt) {
+			tfw_connection_get(conn);
+			conn->get_refcnt = true;
+		}
+	}
+
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
@@ -6215,6 +6231,16 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn * cli_conn)
 
 	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
 		return TFW_BLOCK;
+
+	/*
+	 * We take an additional refcnt one to prevent access to the
+	 * freed connection when racing between client and server
+	 * tfw_ws_conn_drop()
+	 */
+	if (!ws_conn->get_refcnt) {
+		tfw_connection_get(ws_conn);
+		ws_conn->get_refcnt = true;
+	}
 
 	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
 
