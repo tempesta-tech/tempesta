@@ -4810,7 +4810,7 @@ __tfw_h2_get_body_start(TfwHttpResp* resp)
 	TfwStr *c, *end;
 
 	TFW_STR_FOR_EACH_CHUNK(c, &resp->body, end) {
-		if (!(c->flags & TFW_STR_NAME))
+		if (!(c->flags & TFW_STR_CUT))
 			return c;
 		continue;
 	}

@@ -229,6 +229,8 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 #define TFW_STR_COMPLETE	0x02
 /* Some name starts at the string chunk. */
 #define TFW_STR_NAME		0x04
+/* The chunk contains cut-part that using while stripping chunked body. */
+#define TFW_STR_CUT		0x04
 /* Some value starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
 /* The string represents hop-by-hop header, not end-to-end one */
