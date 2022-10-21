@@ -1176,7 +1176,7 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 		return 0;
 
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
-		if (c->flags & TFW_STR_NAME)
+		if (c->flags & TFW_STR_CUT)
 			continue;
 
 		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
@@ -1888,7 +1888,7 @@ te_codings_size(TfwHttpResp *resp)
 
 	TFW_STR_FOR_EACH_DUP(dup, te_hdr, end_dup) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
-			if (!(chunk->flags & TFW_STR_NAME))
+			if (!(chunk->flags & TFW_STR_CUT))
 				continue;
 
 			if (!first)

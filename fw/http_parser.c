@@ -275,7 +275,7 @@ do {									\
 #define __body_fixup_append(n, field, cut)				\
 do {									\
 	TfwStr *l = TFW_STR_CURR(field);				\
-	unsigned short flags = cut ? TFW_STR_NAME : 0;			\
+	unsigned short flags = cut ? TFW_STR_CUT : 0;			\
 	if (l->data + l->len == (char *)p && (l->flags & flags)) {	\
 		l->len += n;						\
 		if (!TFW_STR_PLAIN(field))				\
@@ -285,7 +285,7 @@ do {									\
 			tfw_http_msg_set_str_data(msg, field, p);	\
 		__msg_field_fixup_pos(field, p, n);			\
 		if (cut)						\
-			__msg_field_chunk_flags(field, TFW_STR_NAME);   \
+			__msg_field_chunk_flags(field, TFW_STR_CUT);   \
 	} 								\
 	if (cut) 							\
 		parser->cut_len += n;					\

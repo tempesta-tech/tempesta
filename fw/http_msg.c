@@ -1002,7 +1002,7 @@ tfw_http_msg_del_flagged_body(TfwHttpMsg *hm)
 	int r;
 
 	r = ss_skb_cutoff_data_flagged(hm->msg.skb_head, &hm->body,
-				       TFW_STR_NAME, tfw_str_eolen(&hm->body));
+				       TFW_STR_CUT, tfw_str_eolen(&hm->body));
 	if (unlikely(r))
 		return r;
 
