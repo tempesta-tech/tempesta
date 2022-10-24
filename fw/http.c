@@ -3179,7 +3179,7 @@ tfw_http_add_hdr_clen(TfwHttpMsg *hm)
 				      TFW_ULTOA_BUF_SIZ);
 
 	r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
-				  sizeof("Content-Length") - 1, buf, cl_valsize,
+				  SLEN("Content-Length"), buf, cl_valsize,
 				  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
 
 	if (unlikely(r))
@@ -4350,28 +4350,35 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
 			if (!(chunk->flags & TFW_STR_NAME))
-				continue;
-
-			if (len + chunk->len + sep > max_len) {
-				T_WARN("Transfer-Encoding has too many codings.\n");
-				return -ENOMEM;
-			}
+		                continue;
 
 			if (sep) {
 				buf[len] = ',';
 				len += 1;
+				if (len > max_len)
+					goto err;
 			}
 
-			memcpy_fast(buf + len, chunk->data, chunk->len);
+			while(chunk < end && chunk->flags & TFW_STR_NAME) {
+				if (len + chunk->len > max_len)
+					goto err;
 
-			len += chunk->len;
-			sep = 1;
+				memcpy_fast(buf + len, chunk->data, chunk->len);
+				len += chunk->len;
+				chunk++;
+			}
+
+		        sep = 1;
 		}
 	}
 
 	dst->len = len;
 
 	return 0;
+
+err:
+	T_WARN("Transfer-Encoding has too many encodings.\n");
+	return -EINVAL;
 }
 
 /*
@@ -4709,29 +4716,38 @@ def:
 	return 0;
 }
 
-#define __tfw_h2_make_frames(len, hdr_flags)				\
-do {									\
-	r = tfw_msg_iter_move(iter, (unsigned char **)&data,		\
-			      max_sz + skew);				\
-	if (r)								\
-		return r;						\
-	/*								\
-	 * Each frame header is inserted before given data pointer,	\
-	 * skip it. Exception - first move operation: @data is set right\
-	 * after frame header.						\
-	 */								\
-	skew = sizeof(buf);						\
-									\
-	frame_hdr.length = min(max_sz, (len));				\
-	(len) -= frame_hdr.length;					\
-	frame_hdr.flags = (len) ?  0 : (hdr_flags);			\
-	tfw_h2_pack_frame_header(buf, &frame_hdr);			\
-									\
-	r = tfw_http_msg_insert(iter, &data, &frame_hdr_str);		\
-	if (unlikely(r)) 						\
-		return r;						\
-} while ((len));
+static int
+__tfw_h2_make_frames(unsigned long len, char *data, unsigned char *buf,
+		     u8 buf_sz, TfwMsgIter *iter, unsigned long skew,
+		     unsigned long max_sz, const TfwStr* frame_hdr_str,
+		     TfwFrameHdr *frame_hdr, unsigned char hdr_flags)
+{
+	int r;
 
+	do {
+		r = tfw_msg_iter_move(iter, (unsigned char **)&data,
+				      max_sz + skew);
+		if (r)
+			return r;
+		/*
+		 * Each frame header is inserted before given data pointer,
+		 * skip it. Exception - first move operation: @data is set right
+		 * after frame header.
+		 */
+		skew = buf_sz;
+
+		frame_hdr->length = min(max_sz, len);
+		len -= frame_hdr->length;
+		frame_hdr->flags = len ?  0 : hdr_flags;
+		tfw_h2_pack_frame_header(buf, frame_hdr);
+
+		r = tfw_http_msg_insert(iter, &data, frame_hdr_str);
+		if (unlikely(r))
+			return r;
+	} while (len);
+
+	return 0;
+}
 /**
  * Split response body stored locally. Allocate a new skb and put body there
  * by fragments. Every skb fragment has size of single page and has frame
@@ -4934,7 +4950,9 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 		h_len -= max_sz;
 		frame_hdr.type = HTTP2_CONTINUATION;
-		__tfw_h2_make_frames(h_len, fr_flags);
+		__tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
+				     max_sz, &frame_hdr_str, &frame_hdr,
+				     fr_flags);
 	}
 
 	if (local_response)
@@ -4963,7 +4981,9 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 		b_len -= max_sz;
 		frame_hdr.type = HTTP2_DATA;
-		__tfw_h2_make_frames(b_len, HTTP2_F_END_STREAM);
+		__tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
+				     max_sz, &frame_hdr_str, &frame_hdr,
+				     HTTP2_F_END_STREAM);
 	}
 
 	return 0;
@@ -6398,12 +6418,6 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		return;
 	}
-
-	/*
-	 * At this place we can't ensure about a message is fully
-	 * received therefore mark resp as non-cachable.
-	 */
-	hm->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
 
 	/*
 	 * Note that in this case we don't have data to process.

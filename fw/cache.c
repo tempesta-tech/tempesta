@@ -1356,7 +1356,7 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 	unsigned int prev_len = ce->hdr_len;
 	long n = TFW_CSTR_HDRLEN;
 
-	BUG_ON(!st_idx || TFW_STR_EMPTY(val));
+	BUG_ON(!st_idx || TFW_STR_EMPTY(val) || st_idx > 61);
 
 	len = tfw_hpack_int_size(st_idx, 0xF)
 		+ tfw_hpack_int_size(val->len, 0x7F)
@@ -1910,6 +1910,8 @@ te_codings_size(TfwHttpResp *resp)
 static long
 __cache_entry_size(TfwHttpResp *resp)
 {
+#define INDEX_SZ 2
+
 	TfwStr host_val, *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
 	long size, res_size = CE_BODY_SIZE;
@@ -2012,10 +2014,8 @@ __cache_entry_size(TfwHttpResp *resp)
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
 		unsigned long ce_len = te_codings_size(resp);
 
-		res_size += sizeof(TfwCStr);
-		res_size += 2;
-		res_size += tfw_hpack_int_size(ce_len, 0x7F);
-		res_size += ce_len;
+		res_size += sizeof(TfwCStr) + INDEX_SZ
+				   + tfw_hpack_int_size(ce_len, 0x7F) + ce_len;
 	}
 
 	/*
@@ -2028,10 +2028,8 @@ __cache_entry_size(TfwHttpResp *resp)
 						   *this_cpu_ptr(&g_c_buf),
 						   TFW_ULTOA_BUF_SIZ);
 
-		res_size += sizeof(TfwCStr);
-		res_size += 2;
-		res_size += tfw_hpack_int_size(cl_len, 0x7F);
-		res_size += cl_len;
+		res_size += sizeof(TfwCStr) + INDEX_SZ
+				   + tfw_hpack_int_size(cl_len, 0x7F) + cl_len;
 	}
 
 	/*
@@ -2043,15 +2041,12 @@ __cache_entry_size(TfwHttpResp *resp)
 	 * section 6.2.2 for details), and the 'Server' (as well as 'Via')
 	 * static index doesn't fit to that space.
 	 */
-	res_size += sizeof(TfwCStr);
-	res_size += 2;
-	res_size += tfw_hpack_int_size(SLEN(TFW_SERVER), 0x7F);
-	res_size += SLEN(TFW_SERVER);
+	res_size += sizeof(TfwCStr) + INDEX_SZ
+			   + tfw_hpack_int_size(SLEN(TFW_SERVER), 0x7F)
+			   + SLEN(TFW_SERVER);
 
-	res_size += sizeof(TfwCStr);
-	res_size += 2;
-	res_size += tfw_hpack_int_size(via_sz, 0x7F);
-	res_size += via_sz;
+	res_size += sizeof(TfwCStr) + INDEX_SZ
+			   + tfw_hpack_int_size(via_sz, 0x7F) + via_sz;
 
 	/* Add body size. */
 	res_size += resp->body.len;
@@ -2063,6 +2058,8 @@ __cache_entry_size(TfwHttpResp *resp)
 err:
 	T_WARN("Cache: trying to store too big string %ld\n", size);
 	return -E2BIG;
+
+#undef STATIC_INDEX_SZ
 }
 
 static void

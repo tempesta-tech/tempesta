@@ -272,9 +272,9 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __body_fixup_append(n, field, cut)				\
+#define __body_fixup_append(n, cut)					\
 do {									\
-	TfwStr *l = TFW_STR_CURR(field);				\
+	TfwStr *l = TFW_STR_CURR(&msg->body);				\
 	unsigned short flags = cut ? TFW_STR_CUT : 0;			\
 	/* 								\
 	 * Increase length of last chunk with same flags to have less   \
@@ -282,14 +282,15 @@ do {									\
 	 */ 								\
 	if (l->data + l->len == (char *)p && (l->flags & flags)) {	\
 		l->len += n;						\
-		if (!TFW_STR_PLAIN(field))				\
-			(field)->len += n;				\
+		if (!TFW_STR_PLAIN(&msg->body))				\
+			(&msg->body)->len += n;				\
 	} else {							\
-		if (TFW_STR_EMPTY(field))				\
-			tfw_http_msg_set_str_data(msg, field, p);	\
-		__msg_field_fixup_pos(field, p, n);			\
+		if (TFW_STR_EMPTY(&msg->body))				\
+			tfw_http_msg_set_str_data(msg, &msg->body, p);	\
+		__msg_field_fixup_pos(&msg->body, p, n);		\
 		if (cut)						\
-			__msg_field_chunk_flags(field, TFW_STR_CUT);    \
+			__msg_field_chunk_flags(&msg->body,		\
+						TFW_STR_CUT);		\
 	} 								\
 	/* 								\
 	 * Due to we don't store cut-chunks separately we need to       \
@@ -303,7 +304,7 @@ do {									\
 
 #define __FSM_MOVE_body_fixup(to, n, field, cut)			\
 do {									\
-	__body_fixup_append(n, field, cut);				\
+	__body_fixup_append(n, cut);					\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		parser->state = &&to;					\
@@ -1021,6 +1022,27 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	return CSTR_EQ;
 }
 
+/**
+ * Check whether response contains Content-Encoding and Transfer-Encoding
+ * other than chunked.
+ *
+ * Return T_DROP on success.
+ */
+static int
+__parse_check_encodings(TfwHttpResp *resp)
+{
+	TfwStr *tbl = resp->h_tbl->tbl;
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
+	    && !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_ENCODING])) {
+		T_WARN("Content-Encoding and Transfer-Encoding other than"
+		       "chunked not allowed to be in same response.\n");
+			return T_DROP;
+	}
+
+	return T_OK;
+}
+
 /*
  * Helping state identifiers used to define which jump address an FSM should
  * set as the entry point.
@@ -1177,7 +1199,7 @@ do {									\
 		}							\
 		parser->state = &&RGen_Hdr;				\
 		if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)		\
-			__body_fixup_append(1, &msg->body, true);	\
+			__body_fixup_append(1, true);			\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
 } while (0)
@@ -1547,9 +1569,9 @@ __FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
 	 * Add everything and the current character.			\
 	 */								\
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
-		__body_fixup_append(1, &msg->body, true);		\
+		__body_fixup_append(1, true);				\
 	else								\
-		__body_fixup_append(1, &msg->body, false);		\
+		__body_fixup_append(1, false);				\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	/* Process the trailer-part. */					\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
@@ -11138,27 +11160,6 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 
 	if (req->method == TFW_HTTP_METH_HEAD)
 		__set_bit(TFW_HTTP_B_VOID_BODY, resp->flags);
-}
-
-/**
- * Check whether response contains Content-Encoding and Transfer-Encoding
- * other than chunked.
- *
- * Return T_DROP on success.
- */
-static int
-__parse_check_encodings(TfwHttpResp *resp)
-{
-	TfwStr *tbl = resp->h_tbl->tbl;
-
-	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
-	    && !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_ENCODING])) {
-		T_WARN("Content-Encoding and Transfer-Encoding other than"
-		       "chunked not allowed to be in same response.\n");
-			return T_DROP;
-	}
-
-	return T_OK;
 }
 
 int
