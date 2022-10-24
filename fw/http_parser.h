@@ -133,10 +133,10 @@ typedef struct {
 		unsigned int		month_int;
 		unsigned int		cc_dir_flag;
 	};
+	unsigned long			cut_len;
 	TfwStr				_tmp_chunk;
 	TfwStr				hdr;
 	TfwHttpHbhHdrs			hbh_parser;
-	unsigned long			cut_len;
 } TfwHttpParser;
 
 void tfw_http_init_parser_req(TfwHttpReq *req);
