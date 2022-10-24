@@ -276,6 +276,10 @@ do {									\
 do {									\
 	TfwStr *l = TFW_STR_CURR(field);				\
 	unsigned short flags = cut ? TFW_STR_CUT : 0;			\
+	/* 								\
+	 * Increase length of last chunk with same flags to have less   \
+	 * chunks as possible. 						\
+	 */ 								\
 	if (l->data + l->len == (char *)p && (l->flags & flags)) {	\
 		l->len += n;						\
 		if (!TFW_STR_PLAIN(field))				\
@@ -285,8 +289,14 @@ do {									\
 			tfw_http_msg_set_str_data(msg, field, p);	\
 		__msg_field_fixup_pos(field, p, n);			\
 		if (cut)						\
-			__msg_field_chunk_flags(field, TFW_STR_CUT);   \
+			__msg_field_chunk_flags(field, TFW_STR_CUT);    \
 	} 								\
+	/* 								\
+	 * Due to we don't store cut-chunks separately we need to       \
+	 * store total length of cut-chunks to use it during calculating\
+	 * cache record size and in other places where we need to have  \
+	 * size of body and cut-chunks. 				\
+	 */								\
 	if (cut) 							\
 		parser->cut_len += n;					\
 } while (0)
@@ -1331,7 +1341,22 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);			\
 }
 
-/* Process according RFC 7230 3.3.3 */
+#define WARN_BODY_ATTACK(msg_type, attack_type) 			\
+	T_WARN("Transfer-Encoding chunked and Content-Length in same"   \
+	       " %s considered as attempt to %s attack.\n", msg_type,   \
+		attack_type)
+
+#define BLOCK_REQUEST_SMUGGLING() {					\
+	WARN_BODY_ATTACK("request", "Request smuggling");		\
+	FSM_EXIT(TFW_BLOCK);						\
+}
+
+#define BLOCK_RESPONSE_SPLITTING() {					\
+	WARN_BODY_ATTACK("reponse", "Response splitting");		\
+	FSM_EXIT(TFW_BLOCK); 						\
+}
+
+/* Process according RFC 9112 6.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit, cold) {					\
 	register TfwStr *tbl = msg->h_tbl->tbl;				\
@@ -1342,13 +1367,13 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 									\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
 		/*							\
-		 * According to RFC 7230 3.3.3 p.3, more strict		\
+		 * According to RFC 9112 6.3 p.3, more strict		\
 		 * scenario has been implemented to exclude		\
 		 * attempts of HTTP Request Smuggling or HTTP		\
 		 * Response Splitting.					\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
-			TFW_PARSER_BLOCK(RGen_BodyInit);		\
+			BLOCK_REQUEST_SMUGGLING();			\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
@@ -1372,7 +1397,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 	FSM_EXIT(TFW_PASS);						\
 }
 
-/* Process according RFC 7230 3.3.3 */
+/* Process according RFC 9112 6.3 */
 #define TFW_HTTP_INIT_RESP_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
 	register TfwStr *tbl = msg->h_tbl->tbl;				\
@@ -1391,21 +1416,18 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 */ 							\
 		if (__parse_check_encodings(resp))			\
 			FSM_EXIT(TFW_BLOCK);				\
-		/*							\
-		 * According to RFC 7230 3.3.3 p.3, more strict		\
-		 * scenario has been implemented to exclude		\
-		 * attempts of HTTP Request Smuggling or HTTP		\
-		 * Response Splitting.					\
-		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {\
 			/*						\
 			 * Block responses which have transfer-encoding	\
-			 * *chunked* and content-length. Encodings other\
-			 * than	*chunked* are allowed to be used with	\
-			 * content-length header.			\
+			 * *chunked* and content-length. According to	\
+			 * RFC 9112 6.3 p.3, more strict scenario has	\
+			 * been implemented to exclude attempts of HTTP	\
+			 * Request Smuggling or HTTP Response Splitting.\
+			 * Encodings other than	*chunked* are allowed	\
+			 * to be used with content-length header.	\
 			 */						\
 			if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))	\
-				TFW_PARSER_BLOCK(RGen_BodyInit);	\
+				BLOCK_RESPONSE_SPLITTING();		\
 			if (msg->content_length == 0)			\
 				goto no_body;				\
 			parser->to_read = msg->content_length;		\
@@ -2149,7 +2171,7 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
  * Parse Content-Encoding header value, RFC 9110 8.4.
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
  *
- * We cut transer-encoding for h2 responses, since the transfer-encoding is not
+ * We cut transfer-encoding for h2 responses, since the transfer-encoding is not
  * allowed over h2 connections. See RFC 9113 8.2.2
  */
 static int
