@@ -123,8 +123,8 @@
 #define S_H2_STAT		":status"
 
 #define RESP_BUF_LEN		2048
-/* Current length enough to store all possible transfer codings. */
 
+/* Current length enough to store all possible transfer encodings. */
 #define RESP_TE_BUF_LEN		128
 
 /* General purpose per CPU buffer */
@@ -4333,7 +4333,7 @@ err:
 /**
  * Copy values of multiple transfer-encoding headers to @dst.
  *
- * @max_len - Max length that much can be copied.
+ * @max_len - Maximum length of the buffer the TE headers would be copied to.
  */
 int
 tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
@@ -4810,6 +4810,7 @@ __tfw_h2_get_body_start(TfwHttpResp* resp)
 	TfwStr *c, *end;
 
 	TFW_STR_FOR_EACH_CHUNK(c, &resp->body, end) {
+		/* Skip chunking data such as chunk size and extension */
 		if (!(c->flags & TFW_STR_CUT))
 			return c;
 		continue;
@@ -4943,6 +4944,12 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	if (b_len > max_sz) {
 		unsigned long skew = 0;
 
+		/*
+		 * TODO: #498 and maybe #488 : iterate over the chunks only once
+		 * TODO: #1103 make only one memory allocation for hopefully
+		 * all the HTTP/2 frames headers instead of dealing with skb
+		 * framing with every small header
+		 */
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 			data = h2_body->data;
 			iter->skb = h2_body->skb;

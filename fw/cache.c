@@ -1159,7 +1159,7 @@ do {						\
 
 /**
  * Copies http *chunked* body from plain or compound TfwStr @src to TdbRec @trec.
- *
+ * The copied data does not contain the chunked encoding descriptors.
  * @src is copied
  * @return number of copied bytes on success and negative value otherwise.
  */
