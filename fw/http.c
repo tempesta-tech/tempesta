@@ -667,7 +667,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 		TFW_STR_CRLF_CH(msg, 1)->len = SLEN(S_V_CONN_KA);
 		TFW_STR_CRLF_CH(msg, 2)->data = S_CRLFCRLF;
 		TFW_STR_CRLF_CH(msg, 2)->len = SLEN(S_CRLFCRLF);
-		msg->len += SLEN(S_CRLF S_F_CONNECTION) + SLEN(S_V_CONN_CLOSE);
+		msg->len += SLEN(S_CRLF S_F_CONNECTION) + SLEN(S_V_CONN_KA);
 	}
 
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0))
