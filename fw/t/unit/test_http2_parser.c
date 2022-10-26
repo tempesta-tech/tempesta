@@ -1888,7 +1888,7 @@ TEST(http2_parser, referer)
 
 TEST(http2_parser, content_encoding)
 {
-	char cenc[] =
+	static char cenc[] =
 	        "dummy0, dummy1, dummy2, dummy3, dummy4, "
 	        "dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
 	        "dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
