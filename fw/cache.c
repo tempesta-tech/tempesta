@@ -2393,6 +2393,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!(lifetime = tfw_cache_entry_is_live(req, ce))) {
 		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not valid\n",
 		       __func__, db, req, ce);
+		TFW_INC_STAT_BH(cache.misses);
 		goto out;
 	}
 
