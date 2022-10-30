@@ -102,6 +102,6 @@ pipeline {
     TESTS_PATH = '/home/tempesta/tempesta-test'
     RUN_BUILD = 'true'
     TEST_BRANCH = 'master'
-    PARAMS = '-nv'
+    PARAMS = '-nv ws'
   }
 }
