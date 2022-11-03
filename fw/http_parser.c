@@ -1036,7 +1036,7 @@ __parse_check_encodings(TfwHttpResp *resp)
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
 	    && !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_ENCODING])) {
 		T_WARN("Content-Encoding and Transfer-Encoding other than"
-		       "chunked not allowed to be in same response.\n");
+		       " chunked not allowed to be in same response.\n");
 			return T_DROP;
 	}
 
