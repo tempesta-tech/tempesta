@@ -562,6 +562,11 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		 *
 		 * RFC 9113 8.3: Pseudo-header fields MUST not appear
 		 * in a trailer section.
+		 * For H2 requests which are indexed, @parser->_hdr_tag
+		 * would be obtained from the corresponding entry in either
+		 * static or dynamic table.
+		 * For H2 literal headers, @parser->_hdr_tag would be set
+		 * during actual HTTP parsing.
 		 */
 		if (id < TFW_HTTP_HDR_NONSINGULAR) {
 			if (!TFW_MSG_H2(hm) || id != TFW_HTTP_HDR_COOKIE)
