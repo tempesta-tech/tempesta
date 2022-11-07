@@ -5246,7 +5246,8 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	}
 
 	/* Do not log client port as it doesn't provide useful information
-	 * and could contain outdated cached data (see #1473). */
+	 * and could contain outdated cached data.
+	 */
 	if (!nolog)
 		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
 
