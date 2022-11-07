@@ -10382,26 +10382,30 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	switch(ctx->hdr.type) {
 	case HTTP2_HEADERS:
 	case HTTP2_CONTINUATION:
-		if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
-			/* Receiving END_HEADERS flags second time
-			 * means that we're processing trailer
-			 * HEADERS/CONTINUATION frame.
-			 *
-			 * RFC 9113 8.1: Trailer HEADERS frame must
-			 * contain END_STREAM flag.
-			 */
-			if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)) {
-				if (!(ctx->hdr.flags & HTTP2_F_END_STREAM))
-					return T_DROP;
-			}
+		/* Receiving END_HEADERS flags second time
+		 * means that we're processing trailer
+		 * HEADERS/CONTINUATION frame.
+		 *
+		 * RFC 9113 8.1: Trailer HEADERS frame must
+		 * contain END_STREAM flag.
+		 */
+
+		if (ctx->hdr.flags & HTTP2_F_END_HEADERS &&
+		    test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
+		    !(ctx->hdr.flags & HTTP2_F_END_STREAM))
+		{
+			return T_DROP;
 		}
 
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
 		break;
 	case HTTP2_DATA:
-		if ((req->method_override && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		if ((req->method_override &&
+		     TFW_HTTP_IS_METH_BODYLESS(req->method_override))
 		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
+		{
 			return T_DROP;
+		}
 
 		r = tfw_h2_parse_body(data, len, req, parsed);
 		break;
