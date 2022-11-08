@@ -10506,6 +10506,90 @@ tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
 	T_DBG3("%s: req->cond.m_date: %lu\n", __func__, req->cond.m_date);
 }
 
+enum {
+	TFW_HTTP_MLEN_3C = 3,
+	TFW_HTTP_MLEN_4C,
+	TFW_HTTP_MLEN_5C,
+	TFW_HTTP_MLEN_6C,
+	TFW_HTTP_MLEN_7C,
+	TFW_HTTP_MLEN_8C,
+	TFW_HTTP_MLEN_9C,
+};
+#define H2_METH_HDR_VLEN    7
+
+/**
+ * Obtain HTTP method id from TfwStr chunked string.
+ * Code here relies on http parser, which should
+ * filter out illegal 'method' headers.
+ * Used exclusively by HPACK related code.
+ */
+unsigned char
+tfw_http_meth_str2id(const TfwStr *m_hdr)
+{
+	unsigned long mv_len;
+	unsigned char *p;
+	const TfwStr *chunk;
+
+	BUG_ON(TFW_STR_PLAIN(m_hdr));
+
+	mv_len = m_hdr->len - H2_METH_HDR_VLEN;
+	/* ':method' name should always be in a single chunk */
+	chunk = TFW_STR_CHUNK(m_hdr, 1);
+	p = chunk->data;
+
+	switch (mv_len) {
+	case TFW_HTTP_MLEN_3C:
+		return *p == 'P' ? TFW_HTTP_METH_PUT : TFW_HTTP_METH_GET;
+	case TFW_HTTP_MLEN_4C:
+		switch (*p) {
+		case 'C':
+			return TFW_HTTP_METH_COPY;
+		case 'H':
+			return TFW_HTTP_METH_HEAD;
+		case 'L':
+			return TFW_HTTP_METH_LOCK;
+		case 'M':
+			return TFW_HTTP_METH_MOVE;
+		case 'P':
+			return TFW_HTTP_METH_POST;
+		default:
+			WARN_ON(1);
+			return _TFW_HTTP_METH_UNKNOWN;
+		}
+	case TFW_HTTP_MLEN_5C:
+		switch (*p) {
+		case 'M':
+			return TFW_HTTP_METH_MKCOL;
+		case 'T':
+			return TFW_HTTP_METH_TRACE;
+		case 'P':
+			if (chunk->len == 1)
+				p = TFW_STR_CHUNK(m_hdr, 2)->data;
+			else
+				p++;
+
+			return *p  == 'A'
+				? TFW_HTTP_METH_PATCH
+				: TFW_HTTP_METH_PURGE;
+		default:
+			WARN_ON(1);
+			return _TFW_HTTP_METH_UNKNOWN;
+		}
+	case TFW_HTTP_MLEN_6C:
+		return *p == 'D' ? TFW_HTTP_METH_DELETE
+				 : TFW_HTTP_METH_UNLOCK;
+	case TFW_HTTP_MLEN_7C:
+		/* TODO: add CONNECT method */
+		return TFW_HTTP_METH_OPTIONS;
+	case TFW_HTTP_MLEN_8C:
+		return TFW_HTTP_METH_PROPFIND;
+	case TFW_HTTP_MLEN_9C:
+		return TFW_HTTP_METH_PROPPATCH;
+	default:
+		return _TFW_HTTP_METH_UNKNOWN;
+	}
+}
+
 /*
  * ------------------------------------------------------------------------
  *	HTTP response parsing
