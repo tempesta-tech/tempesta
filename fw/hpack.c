@@ -1241,8 +1241,20 @@ done:
 		} else if (hp->index == 3) {
 			req->method = TFW_HTTP_METH_POST;
 		} else {
-			WARN_ON_ONCE(1);
-			return T_DROP;
+			/*
+			 * We would end up here while processing
+			 * 'Indexed Header Field' hdr, which points
+			 * to an entry in dynamic HPACK table.
+			 * This entry must has been previously populated
+			 * by 'Literal Header Field with Incremental Indexing'
+			 * hdr parsing and dynamic table update.
+			 * RFC 7540 6.2.1
+			 * */
+			req->method = tfw_http_meth_str2id(s_hdr);
+			if (unlikely(req->method == _TFW_HTTP_METH_UNKNOWN)) {
+				WARN_ON_ONCE(1);
+				return T_DROP;
+			}
 		}
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		break;
