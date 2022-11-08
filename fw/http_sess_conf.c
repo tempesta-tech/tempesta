@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,14 @@ static TfwVhost *cur_vhost;
 
 #define STICKY_NAME_DEFAULT	"__tfw"
 
+/*
+ * JavaScript challenge requires a browser to execute a code from the response
+ * body, so 30x redirects don't work for us since browsers ignore the body
+ * and perfrom redirects automatically. We still send location header, which
+ * is ignored by the browser in case of 50x error code, but the logic is simpler
+ * for us to allow a configurations with 30x redirects and unify the code for
+ * the JavaScript and Cookie challenges.
+ */
 static const unsigned int tfw_cfg_jsch_code_dflt = 503;
 #define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
 
