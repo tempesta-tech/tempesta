@@ -272,6 +272,56 @@ do {									\
 	goto to;							\
 } while (0)
 
+#define __body_fixup_append(n, cut)					\
+do {									\
+	TfwStr *l = TFW_STR_CURR(&msg->body);				\
+	unsigned short flags = cut ? TFW_STR_CUT : 0;			\
+	/* 								\
+	 * Increase length of last chunk with same flags to have less   \
+	 * chunks as possible. 						\
+	 */ 								\
+	if (l->data + l->len == (char *)p && (l->flags & flags)) {	\
+		l->len += n;						\
+		if (!TFW_STR_PLAIN(&msg->body))				\
+			(&msg->body)->len += n;				\
+	} else {							\
+		if (TFW_STR_EMPTY(&msg->body))				\
+			tfw_http_msg_set_str_data(msg, &msg->body, p);	\
+		__msg_field_fixup_pos(&msg->body, p, n);		\
+		if (cut)						\
+			__msg_field_chunk_flags(&msg->body,		\
+						TFW_STR_CUT);		\
+	} 								\
+	/* 								\
+	 * Due to we don't store cut-chunks separately we need to       \
+	 * store total length of cut-chunks to use it during calculating\
+	 * cache record size and in other places where we need to have  \
+	 * size of body and cut-chunks. 				\
+	 */								\
+	if (cut) 							\
+		parser->cut_len += n;					\
+} while (0)
+
+#define __FSM_MOVE_body_fixup(to, n, field, cut)			\
+do {									\
+	__body_fixup_append(n, cut);					\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		parser->state = &&to;					\
+		__FSM_EXIT(TFW_POSTPONE);				\
+	}								\
+	goto to;							\
+} while (0)
+
+#define __FSM_MOVE_body_chunk_desc(to, n)				\
+do {									\
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {			\
+		__FSM_MOVE_body_fixup(to, n, &msg->body, true);		\
+	} else {							\
+		__FSM_MOVE_body_fixup(to, n, &msg->body, false);	\
+	}								\
+} while (0)
+
 /*
  * __FSM_I_* macros are intended to help with parsing of message
  * header values. That is done with separate, nested, or interior
@@ -961,6 +1011,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_IF_NONE_MATCH:
 	case TFW_HTTP_HDR_X_FORWARDED_FOR:
 	case TFW_HTTP_HDR_TRANSFER_ENCODING:
+	case TFW_HTTP_HDR_CONTENT_ENCODING:
 	case TFW_HTTP_HDR_FORWARDED:
 		return CSTR_NEQ;
 	}
@@ -969,6 +1020,27 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, hm->flags);
 
 	return CSTR_EQ;
+}
+
+/**
+ * Check whether response contains Content-Encoding and Transfer-Encoding
+ * other than chunked.
+ *
+ * Return T_DROP on success.
+ */
+static int
+__parse_check_encodings(TfwHttpResp *resp)
+{
+	TfwStr *tbl = resp->h_tbl->tbl;
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)
+	    && !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_ENCODING])) {
+		T_WARN("Content-Encoding and Transfer-Encoding other than"
+		       " chunked not allowed to be in same response.\n");
+			return T_DROP;
+	}
+
+	return T_OK;
 }
 
 /*
@@ -1126,6 +1198,8 @@ do {									\
 			__FSM_JMP(RGen_BodyInit);			\
 		}							\
 		parser->state = &&RGen_Hdr;				\
+		if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)		\
+			__body_fixup_append(1, true);			\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
 } while (0)
@@ -1144,6 +1218,11 @@ __FSM_STATE(RGen_CRLFCR, hot) {						\
 		__FSM_JMP(RGen_BodyInit);				\
 	}								\
 	parser->state = &&RGen_CRLFCR;					\
+	/* Don't fixup last CR, just set EOLEN for body which will	\
+	 * be cutted during HTTP1 to HTTP2 transformation and will	\
+	 * not be stored in cache. */					\
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
+		tfw_str_set_eolen(&msg->body, 2);			\
 	FSM_EXIT(TFW_PASS);						\
 }
 
@@ -1284,7 +1363,22 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);			\
 }
 
-/* Process according RFC 7230 3.3.3 */
+#define WARN_BODY_ATTACK(msg_type, attack_type) 			\
+	T_WARN("Transfer-Encoding chunked and Content-Length in same"   \
+	       " %s considered as attempt to %s attack.\n", msg_type,   \
+		attack_type)
+
+#define BLOCK_REQUEST_SMUGGLING() {					\
+	WARN_BODY_ATTACK("request", "Request smuggling");		\
+	FSM_EXIT(TFW_BLOCK);						\
+}
+
+#define BLOCK_RESPONSE_SPLITTING() {					\
+	WARN_BODY_ATTACK("reponse", "Response splitting");		\
+	FSM_EXIT(TFW_BLOCK); 						\
+}
+
+/* Process according RFC 9112 6.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit, cold) {					\
 	register TfwStr *tbl = msg->h_tbl->tbl;				\
@@ -1295,13 +1389,13 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 									\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
 		/*							\
-		 * According to RFC 7230 3.3.3 p.3, more strict		\
+		 * According to RFC 9112 6.3 p.3, more strict		\
 		 * scenario has been implemented to exclude		\
 		 * attempts of HTTP Request Smuggling or HTTP		\
 		 * Response Splitting.					\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
-			TFW_PARSER_BLOCK(RGen_BodyInit);		\
+			BLOCK_REQUEST_SMUGGLING();			\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
@@ -1312,9 +1406,8 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		TFW_PARSER_BLOCK(RGen_BodyInit);			\
 	}								\
 									\
-	if (tfw_http_parse_check_bodyless_meth(req)) {			\
-		TFW_PARSER_BLOCK(RGen_BodyInit);			\
-	}								\
+	if (tfw_http_parse_check_bodyless_meth(req))			\
+		FSM_EXIT(TFW_BLOCK);					\
 									\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
@@ -1326,7 +1419,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 	FSM_EXIT(TFW_PASS);						\
 }
 
-/* Process according RFC 7230 3.3.3 */
+/* Process according RFC 9112 6.3 */
 #define TFW_HTTP_INIT_RESP_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
 	register TfwStr *tbl = msg->h_tbl->tbl;				\
@@ -1339,14 +1432,29 @@ __FSM_STATE(RGen_BodyInit) {						\
 	if (test_bit(TFW_HTTP_B_VOID_BODY, msg->flags)) 		\
 		goto no_body;						\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
-		/*							\
-		 * According to RFC 7230 3.3.3 p.3, more strict		\
-		 * scenario has been implemented to exclude		\
-		 * attempts of HTTP Request Smuggling or HTTP		\
-		 * Response Splitting.					\
-		 */							\
-		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
-			TFW_PARSER_BLOCK(RGen_BodyInit);		\
+		/* 							\
+		 * Block response which has Content-Encoding and 	\
+		 * Transfer-Encoding other than chunked 		\
+		 */ 							\
+		if (__parse_check_encodings(resp))			\
+			FSM_EXIT(TFW_BLOCK);				\
+		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {\
+			/*						\
+			 * Block responses which have transfer-encoding	\
+			 * *chunked* and content-length. According to	\
+			 * RFC 9112 6.3 p.3, more strict scenario has	\
+			 * been implemented to exclude attempts of HTTP	\
+			 * Request Smuggling or HTTP Response Splitting.\
+			 * Encodings other than	*chunked* are allowed	\
+			 * to be used with content-length header.	\
+			 */						\
+			if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))	\
+				BLOCK_RESPONSE_SPLITTING();		\
+			if (msg->content_length == 0)			\
+				goto no_body;				\
+			parser->to_read = msg->content_length;		\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		}							\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/* Process the body until the connection is closed. */	\
@@ -1407,10 +1515,12 @@ __FSM_STATE(RGen_BodyReadChunk, __VA_ARGS__) {				\
 	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));	\
 	parser->to_read -= __fsm_sz;					\
 	if (parser->to_read)						\
-		__FSM_MOVE_nf(RGen_BodyReadChunk, __fsm_sz, &msg->body); \
+		__FSM_MOVE_body_fixup(RGen_BodyReadChunk, __fsm_sz,	\
+				      &msg->body, false);		\
 	if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {			\
 		parser->to_read = -1;					\
-		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
+		__FSM_MOVE_body_fixup(RGen_BodyEoL, __fsm_sz,		\
+				      &msg->body, false);		\
 	}								\
 	/* We've fully read Content-Length bytes. */			\
 	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
@@ -1428,7 +1538,7 @@ __FSM_STATE(RGen_BodyChunkLen, __VA_ARGS__) {				\
 	       __fsm_sz, __fsm_n, parser->_acc);			\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
-		__FSM_MOVE_nf(RGen_BodyChunkLen, __fsm_sz, &msg->body);	\
+		__FSM_MOVE_body_chunk_desc(RGen_BodyChunkLen, __fsm_sz);\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
 		TFW_PARSER_BLOCK(RGen_BodyChunkLen);			\
@@ -1436,31 +1546,32 @@ __FSM_STATE(RGen_BodyChunkLen, __VA_ARGS__) {				\
 		parser->to_read = parser->_acc;				\
 		parser->_acc = 0;					\
 		parser->_cnt = 0;					\
-		__FSM_MOVE_nf(RGen_BodyChunkExt, __fsm_n, &msg->body);	\
+		__FSM_MOVE_body_chunk_desc(RGen_BodyChunkExt, __fsm_n);	\
 	}								\
 }									\
 __FSM_STATE(RGen_BodyChunkExt, __VA_ARGS__) {				\
 	if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))		\
-		__FSM_MOVE_f(RGen_BodyChunkExt, &msg->body);		\
+		__FSM_MOVE_body_chunk_desc(RGen_BodyChunkExt, 1);	\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyEoL, __VA_ARGS__) {				\
 	if (likely(c == '\r'))						\
-		__FSM_MOVE_f(RGen_BodyCR, &msg->body);			\
+		__FSM_MOVE_body_chunk_desc(RGen_BodyCR, 1);		\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_BodyCR);				\
 	if (parser->to_read)						\
-		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
+		__FSM_MOVE_body_chunk_desc(RGen_BodyChunk, 1);		\
 	/*								\
 	 * We've fully read the chunked body.				\
 	 * Add everything and the current character.			\
 	 */								\
-	if (tfw_http_msg_add_str_data(msg, &msg->body, data,		\
-				      __data_off(p) + 1))		\
-		TFW_PARSER_BLOCK(RGen_BodyCR);				\
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
+		__body_fixup_append(1, true);				\
+	else								\
+		__body_fixup_append(1, false);				\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	/* Process the trailer-part. */					\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
@@ -2079,42 +2190,34 @@ finalize:
 STACK_FRAME_NON_STANDARD(__req_parse_content_type);
 
 /**
+ * Parse Content-Encoding header value, RFC 9110 8.4.
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
+ *
+ * We cut transfer-encoding for h2 responses, since the transfer-encoding is not
+ * allowed over h2 connections. See RFC 9113 8.2.2
  */
 static int
 __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
-			  bool client)
+			  bool client, bool content)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st);
 
-	/*
-	 * According to RFC 7230 section 3.3.1:
-	 *
-	 * TODO: In a response:
-	 * A server MUST NOT send a Transfer-Encoding header field
-	 * in any 2xx (Successful) response to a CONNECT request.
-	 */
-	__FSM_STATE(I_TransEncod) {
-		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
-			unsigned int status = ((TfwHttpResp *)hm)->status;
-			if (status - 100U < 100U || status == 204)
-				return CSTR_NEQ;
-		}
-		/* Fall through. */
-	}
+	/* Content-Encoding can't contain "chunked". Skip this part. */
+	if (content)
+		__FSM_I_JMP(I_EncodTok);
 
 	__FSM_STATE(I_TransEncodTok) {
-
 		/*
 		 * A sender MUST NOT apply chunked more than once
 		 * to a message body (i.e., chunking an already
 		 * chunked message is not allowed). RFC 7230 3.3.1.
 		 */
-		TRY_STR_fixup(&TFW_STR_STRING("chunked"), I_TransEncodTok,
-			      I_TransEncodChunked);
+		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("chunked"),
+					  &parser->hdr, {}, I_TransEncodTok,
+					  I_TransEncodChunked, 0);
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_TransEncodOther);
 	}
@@ -2139,31 +2242,31 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	 * chunked is applied to a RESPONSE payload body, the sender MUST either
 	 * apply chunked as the final transfer coding or terminate the message
 	 * by closing the connection.
-	 *
-	 * TODO: process transfer encodings: gzip, deflate, identity,
-	 * compress;
 	 */
 	__FSM_STATE(I_TransEncodOther) {
-		__FSM_I_MATCH_MOVE_fixup(token, I_TransEncodOther, 0);
-		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',') {
-			__msg_hdr_chunk_fixup(p, __fsm_sz);
-			p += __fsm_sz;
+		__set_bit(TFW_HTTP_B_TE_EXTRA, msg->flags);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_EncodTok) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_EncodTok, TFW_STR_NAME);
+		__msg_hdr_chunk_fixup(p, __fsm_sz);
+		__FSM_I_chunk_flags(TFW_STR_NAME);
+		p += __fsm_sz;
+
+		if (content)
 			__FSM_I_JMP(I_EoT);
+
+		if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags))) {
+			if (client)
+				return CSTR_NEQ;
+			if (TFW_MSG_H2(hm->req))
+				return CSTR_NEQ;
+
+			__clear_bit(TFW_HTTP_B_CHUNKED, msg->flags);
+			__set_bit(TFW_HTTP_B_CHUNKED_APPLIED, msg->flags);
 		}
-		if (IS_CRLF(c)) {
-			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags)))
-			{
-				if (client)
-					return CSTR_NEQ;
-				__clear_bit(TFW_HTTP_B_CHUNKED, msg->flags);
-				__set_bit(TFW_HTTP_B_CHUNKED_APPLIED,
-					  msg->flags);
-			}
-			__msg_hdr_chunk_fixup(p, __fsm_sz);
-			return __data_off(p + __fsm_sz);
-		}
-		return CSTR_NEQ;
+		/* Fall through. */
 	}
 
 	/* End of term. */
@@ -2172,10 +2275,16 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
-		if (IS_TOKEN(c))
+		if (IS_TOKEN(c)) {
+			if (content)
+				__FSM_I_JMP(I_EncodTok);
+
 			__FSM_I_JMP(I_TransEncodTok);
+		}
+
 		if (IS_CRLF(c))
 			return __data_off(p);
+
 		return CSTR_NEQ;
 	}
 
@@ -2187,13 +2296,39 @@ STACK_FRAME_NON_STANDARD(__parse_transfer_encoding);
 static int
 __req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	return __parse_transfer_encoding(hm, data, len, true);
+	return __parse_transfer_encoding(hm, data, len, true, false);
 }
 
 static int
 __resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	return __parse_transfer_encoding(hm, data, len, false);
+	/*
+	 * According to RFC 7230 section 3.3.1:
+	 *
+	 * A server MUST NOT send a Transfer-Encoding header field
+	 * in any 2xx (Successful) response to a CONNECT request.
+	 *
+	 * TODO check CONNECT request.
+	 */
+	if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
+		unsigned int status = ((TfwHttpResp *)hm)->status;
+		if (status - 100U < 100U || status == 204)
+			return CSTR_NEQ;
+	}
+
+	return __parse_transfer_encoding(hm, data, len, false, false);
+}
+
+static int
+__req_parse_content_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, true, true);
+}
+
+static int
+__resp_parse_content_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, false, true);
 }
 
 /*
@@ -4508,9 +4643,9 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 
 	/*
 	 * Expected hop-by-hop headers:
-	 * - spec:
-	 *     none;
 	 * - raw:
+	 *     none;
+	 * - spec:
 	 *     Connection: RFC 7230 6.1.
 	 */
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
@@ -4541,9 +4676,8 @@ tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
 			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
 		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
 		{
-			T_WARN("%s: Content-Length or Content-Type"
-			       " not allowed to be used with such"
-			       " (overridden) method\n", __func__);
+			T_WARN("Content-Length or Content-Type not allowed to"
+			       " be used with such (overridden) method\n");
 			return T_DROP;
 		}
 	}
@@ -5039,6 +5173,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	/* Content-* headers. */
 	__FSM_STATE(Req_HdrContent_) {
 		switch (TFW_LC(c)) {
+		case 'e':
+			if (likely(__data_available(p, 9)
+				   && C8_INT7_LCM(p + 1, 'n', 'c', 'o', 'd',
+						  'i', 'n', 'g', ':')))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 9));
+				parser->_i_st = &&Req_HdrContent_EncodingV;
+				p += 9;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
+			__FSM_MOVE(Req_HdrContent_E);
 		case 'l':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'n', 'g', 't')
@@ -5080,6 +5225,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrConnectionV, msg, __parse_connection,
 				   TFW_HTTP_HDR_CONNECTION);
+
+	/* 'Content-Encding:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_EncodingV, msg,
+				     __req_parse_content_encoding,
+				     TFW_HTTP_HDR_CONTENT_ENCODING, 0);
 
 	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_LengthV, msg,
@@ -5733,6 +5883,16 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrConten, 't', Req_HdrContent);
 	__FSM_TX_AF(Req_HdrContent, '-', Req_HdrContent_);
 
+	/* Content-Encoding header processing. */
+	__FSM_TX_AF(Req_HdrContent_E, 'n', Req_HdrContent_En);
+	__FSM_TX_AF(Req_HdrContent_En, 'c', Req_HdrContent_Enc);
+	__FSM_TX_AF(Req_HdrContent_Enc, 'o', Req_HdrContent_Enco);
+	__FSM_TX_AF(Req_HdrContent_Enco, 'd', Req_HdrContent_Encod);
+	__FSM_TX_AF(Req_HdrContent_Encod, 'i', Req_HdrContent_Encodi);
+	__FSM_TX_AF(Req_HdrContent_Encodi, 'n', Req_HdrContent_Encodin);
+	__FSM_TX_AF(Req_HdrContent_Encodin, 'g', Req_HdrContent_Encoding);
+	__FSM_TX_AF_OWS(Req_HdrContent_Encoding, Req_HdrContent_EncodingV);
+
 	/* Content-Length header processing. */
 	__FSM_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le);
 	__FSM_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len);
@@ -6347,6 +6507,8 @@ __FSM_STATE(st, cold) {							\
 			goto Req_HdrAuthorizationV;			\
 		case TFW_TAG_HDR_CACHE_CONTROL:				\
 			goto Req_HdrCache_ControlV;			\
+		case TFW_TAG_HDR_CONTENT_ENCODING:			\
+			goto Req_HdrContent_EncodingV;			\
 		case TFW_TAG_HDR_CONTENT_LENGTH:			\
 			goto Req_HdrContent_LengthV;			\
 		case TFW_TAG_HDR_CONTENT_TYPE:				\
@@ -7142,6 +7304,38 @@ done:
 #undef __FSM_H2_I_MOVE_RESET_ACC
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_cache_control);
+
+/* Parse Content-Encoding header value, RFC 9110 8.4. */
+static int
+__h2_req_parse_content_encoding(TfwHttpMsg *hm, unsigned char *data,
+				size_t len, bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_EncodTok) {
+		__FSM_H2_I_MATCH_MOVE_fixup(token, I_EncodTok, 0);
+		__FSM_H2_I_MOVE_fixup(I_EoT, __fsm_sz, 0);
+	}
+
+	/* End of term. */
+	__FSM_STATE(I_EoT) {
+		if (c == ',')
+			__FSM_H2_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(I_EncodTok);
+
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_content_encoding);
 
 static int
 __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
@@ -9044,6 +9238,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (C8_INT(p + 4, 'e', 'n', 't', '-', 't', 'y', 'p', 'e'))
 				__FSM_H2_FIN(Req_HdrContent_TypeV, 12,
 					     TFW_TAG_HDR_CONTENT_TYPE);
+			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'e', 'n', 'c', 'o')
+			    && C4_INT(p + 12,  'd', 'i', 'n', 'g'))
+				__FSM_H2_FIN(Req_HdrContent_EncodingV, 16,
+					     TFW_TAG_HDR_CONTENT_ENCODING);
 			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'l', 'e', 'n', 'g')
 			    && C4_INT(p + 10,  'n', 'g', 't', 'h'))
 				__FSM_H2_FIN(Req_HdrContent_LengthV, 14,
@@ -9332,6 +9530,11 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TFW_H2_PARSE_HDR_VAL(Req_HdrCache_ControlV, req,
 			     __h2_req_parse_cache_control, TFW_HTTP_HDR_RAW, 1);
 
+	/* 'content-encoding' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrContent_EncodingV, msg,
+			     __h2_req_parse_content_encoding,
+			     TFW_HTTP_HDR_CONTENT_ENCODING, 1);
+
 	/* 'content-length' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrContent_LengthV, msg,
 			     __h2_req_parse_content_length,
@@ -9591,6 +9794,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(Req_HdrContent_, cold) {
 		switch (c) {
+		case 'e':
+			__FSM_H2_NEXT(Req_HdrContent_E);
 		case 'l':
 			__FSM_H2_NEXT(Req_HdrContent_L);
 		case 't':
@@ -9599,6 +9804,16 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
+
+	__FSM_H2_TX_AF(Req_HdrContent_E, 'n', Req_HdrContent_En);
+	__FSM_H2_TX_AF(Req_HdrContent_En, 'c', Req_HdrContent_Enc);
+	__FSM_H2_TX_AF(Req_HdrContent_Enc, 'o', Req_HdrContent_Enco);
+	__FSM_H2_TX_AF(Req_HdrContent_Enco, 'd', Req_HdrContent_Encod);
+	__FSM_H2_TX_AF(Req_HdrContent_Encod, 'i', Req_HdrContent_Encodi);
+	__FSM_H2_TX_AF(Req_HdrContent_Encodi, 'n', Req_HdrContent_Encodin);
+	__FSM_H2_TX_AF_FIN(Req_HdrContent_Encodin, 'g',
+			   Req_HdrContent_EncodingV,
+			   TFW_TAG_HDR_CONTENT_ENCODING);
 
 	__FSM_H2_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le);
 	__FSM_H2_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len);
@@ -10924,11 +11139,12 @@ tfw_http_init_parser_resp(TfwHttpResp *resp)
 
 	/*
 	 * Expected hop-by-hop headers:
-	 * - spec:
-	 *     none;
 	 * - raw:
-	 *     Connection: RFC 7230 6.1,
-	 *     Server: hide protected server from the world.
+	 *     none;
+	 * - spec:
+	 *     Connection: RFC 7230 6.1.
+	 *     Server: Server header isn't defined as hop-by-hop by the RFC,
+	 *	       but we don't show protected server to world.
 	 */
 	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
 			 (0x1 << TFW_HTTP_HDR_SERVER);
@@ -11405,7 +11621,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 						  'i', 'n', 'g', ':')))
 			{
 				__msg_hdr_chunk_fixup(data, __data_off(p + 8));
-				parser->_i_st = &&RGen_HdrOtherV;
+				parser->_i_st = &&Resp_HdrContent_EncodingV;
 				__msg_hdr_set_hpack_index(26);
 				p += 8;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
@@ -11484,6 +11700,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, msg, __parse_connection,
 				   TFW_HTTP_HDR_CONNECTION);
+
+	/* 'Content-Encoding:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_EncodingV, msg,
+				     __resp_parse_content_encoding,
+				     TFW_HTTP_HDR_CONTENT_ENCODING, 0);
 
 	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_LengthV, msg,
@@ -11722,7 +11943,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrContent_Encod, 'i', Resp_HdrContent_Encodi);
 	__FSM_TX_AF(Resp_HdrContent_Encodi, 'n', Resp_HdrContent_Encodin);
 	__FSM_TX_AF(Resp_HdrContent_Encodin, 'g', Resp_HdrContent_Encoding);
-	__FSM_TX_AF_OWS_HP(Resp_HdrContent_Encoding, RGen_HdrOtherV, 26);
+	__FSM_TX_AF_OWS_HP(Resp_HdrContent_Encoding, Resp_HdrContent_EncodingV,
+			   26);
 
 	__FSM_STATE(Resp_HdrContent_L) {
 		switch (TFW_LC(c)) {
