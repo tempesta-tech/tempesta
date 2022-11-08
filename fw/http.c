@@ -5215,7 +5215,8 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
  *
  * @req			- malicious or malformed request;
  * @status		- response status code to use;
- * @msg			- message to be logged;
+ * @msg			- message to be logged. Can be NULL if the caller does
+ *			  logging on their side;
  * @attack		- true if the request was sent intentionally, false for
  *			  internal errors or misconfigurations;
  * @on_req_recv_event	- true if request is not fully parsed and the caller
@@ -5248,7 +5249,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	/* Do not log client port as it doesn't provide useful information
 	 * and could contain outdated cached data.
 	 */
-	if (!nolog)
+	if (!nolog && msg)
 		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
 
 	if (TFW_MSG_H2(req))
@@ -6052,8 +6053,7 @@ next_msg:
 
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(req, 503,
-			"request dropped: sticky cookie challenge was failed");
+		tfw_http_req_parse_block(req, 503, NULL);
 		return TFW_BLOCK;
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
