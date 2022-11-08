@@ -960,7 +960,7 @@ alloc_head:
 }
 
 /**
- * Reverse operation to ss_skb_expand_head_tail(): chop @head and @tail bytes
+ * Reverse operation to ss_skb_expand_head_tail(): chop @head and @trail bytes
  * at head and end of the @skb.
  */
 int

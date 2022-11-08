@@ -5246,7 +5246,8 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	}
 
 	/* Do not log client port as it doesn't provide useful information
-	 * and could contain outdated cached data (see #1473). */
+	 * and could contain outdated cached data.
+	 */
 	if (!nolog)
 		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
 
@@ -5870,10 +5871,17 @@ next_msg:
 		}
 		if (TFW_MSG_H2(req)) {
 			TfwH2Ctx *ctx = tfw_h2_context(conn);
-			/* If the parser met END_HEADERS flag we can be ensure
+			/* If the parser met END_HEADERS flag we can be sure
 			 * that we get and processed all headers.
 			 * We will be at this point even if the parser met
 			 * END_STREAM and END_HEADERS flags at once.
+			 *
+			 * We should see END_HEADERS in the following cases:
+			 * - single HEADERS/PUSH_PROMISE w/ END_HEADERS set
+			 * - HEADERS/PUSH_PROMISE w/o END_HEADERS flag +
+			 *   one or more CONTINUATION, where the last
+			 *   CONTINUATION has END_HEADERS set
+			 * - trailer HEADERS frame might contain END_HEADERS as well
 			 */
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
 				if (unlikely(tfw_http_parse_check_bodyless_meth(req)))
@@ -5882,7 +5890,7 @@ next_msg:
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 			}
 
-			if (tfw_h2_stream_req_complete(req->stream)) {
+			if (tfw_h2_strm_req_is_compl(req->stream)) {
 				if (likely(!tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
