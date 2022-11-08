@@ -144,6 +144,7 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef resp_hdrs[] = {
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("content-encoding:", TFW_HTTP_HDR_CONTENT_ENCODING),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
@@ -173,6 +174,7 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef req_hdrs[] = {
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("content-encoding:", TFW_HTTP_HDR_CONTENT_ENCODING),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
@@ -208,6 +210,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	static const unsigned char hdr_lens[2][TFW_HTTP_HDR_RAW] = {
 		(unsigned char []) {
 			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_ENCODING]	= SLEN("Content-Encoding:"),
 			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
@@ -224,6 +227,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		},
 		(unsigned char []) {
 			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_ENCODING]	= SLEN("Content-Encoding:"),
 			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
@@ -640,8 +644,8 @@ done:
  * that just now by facing CRLF at the start of the current data chunk.
  */
 int
-__tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
-			    size_t len, struct sk_buff *skb)
+__tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data, size_t len,
+			    struct sk_buff *skb)
 {
 	if (WARN_ON_ONCE(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE)))
 		return -EINVAL;
@@ -988,89 +992,22 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 }
 
 /**
- * Modify message body, add string @data to the end of the body (if @append) or
- * to its beginning.
- */
-static int
-tfw_http_msg_body_xfrm(TfwHttpMsg *hm, const TfwStr *data, bool append)
-{
-	int r;
-	TfwStr it = {};
-	char *st = append
-		? (TFW_STR_CURR(&hm->body)->data + TFW_STR_CURR(&hm->body)->len)
-		: (TFW_STR_CHUNK(&hm->body, 0)->data);
-	/*
-	 * Last skb in the message skb list is the last skb of the body,
-	 * it's safe to add more chunks there. There are no trailer headers
-	 * since trailer may appear only after chunked body, but the message
-	 * wasn't in chunked encoding before.
-	 */
-	struct sk_buff *skb = append
-		? ss_skb_peek_tail(&hm->msg.skb_head)
-		: hm->body.skb;
-	/*
-	 * TODO: #498. During stream forwarding the message is to be forwarded
-	 * skb by skb without full assembling in memory and chunked encoding
-	 * is to be applied on the fly. It's crucial to write last-chunk at the
-	 * skb->tail to reuse allocation overhead and avoid possible skb
-	 * allocations.
-	 */
-	r = ss_skb_get_room(hm->msg.skb_head, skb, st, data->len, &it);
-	if (r)
-		return r;
-
-	if ((r = tfw_strcpy(&it, data)))
-		return r;
-	r = tfw_str_insert(hm->pool, &hm->body, &it,
-			   append ? hm->body.nchunks : 0);
-	if (r) {
-		T_WARN("Can't concatenate body %.*s with %.*s\n",
-		       PR_TFW_STR(&hm->body), PR_TFW_STR(data));
-		return r;
-	}
-
-	return 0;
-}
-
-/**
- * Transform message to chunked encoding.
+ * Remove flagged data and EOL from skb of TfwHttpMsg->body.
+ *
+ * WARNING: After this call TfwHttpMsg->body MUST not be used.
  */
 int
-tfw_http_msg_to_chunked(TfwHttpMsg *hm)
+tfw_http_msg_del_flagged_body(TfwHttpMsg *hm)
 {
 	int r;
-	const DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
-	const DEFINE_TFW_STR(zero_body_end, "0\r\n\r\n");
-	const TfwStr *body_end = &chunked_body_end;
 
-	r = TFW_HTTP_MSG_HDR_XFRM(hm, "Transfer-Encoding", "chunked",
-				  TFW_HTTP_HDR_TRANSFER_ENCODING, 1);
-	if (r)
+	r = ss_skb_cutoff_data_flagged(hm->msg.skb_head, &hm->body,
+				       TFW_STR_CUT, tfw_str_eolen(&hm->body));
+	if (unlikely(r))
 		return r;
 
-	if (hm->body.len) {
-		char data[TFW_ULTOA_BUF_SIZ + 2] = {0};
-		TfwStr sz = {.data = data};
-
-		sz.len = tfw_ultohex(hm->body.len, sz.data, TFW_ULTOA_BUF_SIZ);
-		if (!sz.len)
-			return -EINVAL;
-		*(short *)(sz.data + sz.len) = 0x0a0d; /* CRLF, '\r\n' */
-		sz.len += 2;
-
-		if ((r = tfw_http_msg_body_xfrm(hm, &sz, false)))
-			return r;
-	}
-	else {
-		hm->body.data = hm->crlf.data + hm->crlf.len;
-		body_end = &zero_body_end;
-	}
-
-	if ((r = tfw_http_msg_body_xfrm(hm, body_end, true))) {
-		return r;
-	}
-
-	__set_bit(TFW_HTTP_B_CHUNKED, hm->flags);
+	hm->msg.len -= hm->stream->parser.cut_len;
+	TFW_STR_INIT(&hm->body);
 
 	return 0;
 }

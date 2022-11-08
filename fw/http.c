@@ -124,7 +124,14 @@
 
 #define RESP_BUF_LEN		2048
 
+/* Current length enough to store all possible transfer encodings. */
+#define RESP_TE_BUF_LEN		128
+
+/* General purpose per CPU buffer */
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
+
+/* Buffer for storing values of Transfer-Encoding header. */
+static DEFINE_PER_CPU(char[RESP_TE_BUF_LEN], g_te_buf);
 
 #define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
 unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
@@ -3163,6 +3170,28 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
+static int
+tfw_http_add_hdr_clen(TfwHttpMsg *hm)
+{
+	int r;
+	char *buf = *this_cpu_ptr(&g_buf);
+	size_t cl_valsize = tfw_ultoa(hm->body.len, buf,
+				      TFW_ULTOA_BUF_SIZ);
+
+	r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
+				  SLEN("Content-Length"), buf, cl_valsize,
+				  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+
+	if (unlikely(r))
+		T_ERR("%s: unable to add 'content-length' header (msg=[%p])\n",
+		      __func__, hm);
+	else
+		T_DBG3("%s: added 'content-length' header, msg=[%p]\n",
+		       __func__, hm);
+
+	return r;
+}
+
 /**
  * Compose Content-Type header field from scratch.
  *
@@ -4239,6 +4268,119 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache)
 	return r;
 }
 
+/**
+ * Add 'Content-Length:' header field to an HTTP message.
+ */
+static int
+tfw_h2_add_hdr_clen(TfwHttpResp *resp)
+{
+	int r;
+	char* buf = *this_cpu_ptr(&g_buf);
+	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	size_t cl_valsize = tfw_ultoa(body_len, buf,
+				      TFW_ULTOA_BUF_SIZ);
+
+	r = tfw_h2_msg_hdr_add(resp, "content-length",
+			       SLEN("content-length"), buf,
+			       cl_valsize, 28);
+
+	if (unlikely(r))
+		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
+		      __func__, resp);
+	else
+		T_DBG3("%s: added 'content-length' header, resp=[%p]\n",
+		       __func__, resp);
+	return r;
+}
+
+/**
+ * Add 'Content-Encoding:' header field to an HTTP message.
+ *
+ * @value - Value to add as field-value of Content-Encoding. Usually copied
+ * from transfer encoding.
+ */
+static int
+tfw_h2_add_hdr_cenc(TfwHttpResp *resp, TfwStr *value)
+{
+	int r;
+	TfwStr name = { .data = "content-encoding",
+			.len = SLEN("content-encoding")};
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = name.data, .len = name.len },
+			{ .data = value->data, .len = value->len }
+		},
+		.len = name.len + value->len,
+		.nchunks = 2,
+		.hpack_idx = 26
+	};
+
+	r = tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_ADD, true);
+
+	if (unlikely(r))
+		goto err;
+
+	T_DBG3("%s: added 'content-encoing' header, resp=[%p]\n", __func__,
+	       resp);
+
+	return r;
+err:
+	T_ERR("%s: unable to add 'content-encoding' header (resp=[%p])\n",
+	      __func__, resp);
+	return r;
+}
+
+/**
+ * Copy values of multiple transfer-encoding headers to @dst.
+ *
+ * @max_len - Maximum length of the buffer the TE headers would be copied to.
+ */
+int
+tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
+{
+	size_t len = 0;
+	unsigned short sep = 0;
+	char *buf = dst->data;
+	TfwStr *chunk, *end, *dup, *dup_end;
+	TfwStr *hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING];
+
+	BUG_ON(TFW_STR_EMPTY(hdr));
+	BUG_ON(max_len == 0);
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
+			if (!(chunk->flags & TFW_STR_NAME))
+		                continue;
+
+			if (sep) {
+				buf[len] = ',';
+				len += 1;
+				if (len > max_len)
+					goto err;
+			}
+
+			while(chunk < end && chunk->flags & TFW_STR_NAME) {
+				if (len + chunk->len > max_len)
+					goto err;
+
+				memcpy_fast(buf + len, chunk->data, chunk->len);
+				len += chunk->len;
+				chunk++;
+			}
+
+		        sep = 1;
+		}
+	}
+
+	dst->len = len;
+
+	return 0;
+
+err:
+	T_WARN("Transfer-Encoding has too many encodings.\n");
+	return -EINVAL;
+}
+
 /*
  * In case if response is stale, we should pass it with a warning.
  */
@@ -4574,29 +4716,38 @@ def:
 	return 0;
 }
 
-#define __tfw_h2_make_frames(len, hdr_flags)				\
-do {									\
-	r = tfw_msg_iter_move(iter, (unsigned char **)&data,		\
-			      max_sz + skew);				\
-	if (r)								\
-		return r;						\
-	/*								\
-	 * Each frame header is inserted before given data pointer,	\
-	 * skip it. Exception - first move operation: @data is set right\
-	 * after frame header.						\
-	 */								\
-	skew = sizeof(buf);						\
-									\
-	frame_hdr.length = min(max_sz, (len));				\
-	(len) -= frame_hdr.length;					\
-	frame_hdr.flags = (len) ?  0 : (hdr_flags);			\
-	tfw_h2_pack_frame_header(buf, &frame_hdr);			\
-									\
-	r = tfw_http_msg_insert(iter, &data, &frame_hdr_str);		\
-	if (unlikely(r)) 						\
-		return r;						\
-} while ((len));
+static int
+__tfw_h2_make_frames(unsigned long len, char *data, unsigned char *buf,
+		     u8 buf_sz, TfwMsgIter *iter, unsigned long skew,
+		     unsigned long max_sz, const TfwStr* frame_hdr_str,
+		     TfwFrameHdr *frame_hdr, unsigned char hdr_flags)
+{
+	int r;
 
+	do {
+		r = tfw_msg_iter_move(iter, (unsigned char **)&data,
+				      max_sz + skew);
+		if (r)
+			return r;
+		/*
+		 * Each frame header is inserted before given data pointer,
+		 * skip it. Exception - first move operation: @data is set right
+		 * after frame header.
+		 */
+		skew = buf_sz;
+
+		frame_hdr->length = min(max_sz, len);
+		len -= frame_hdr->length;
+		frame_hdr->flags = len ?  0 : hdr_flags;
+		tfw_h2_pack_frame_header(buf, frame_hdr);
+
+		r = tfw_http_msg_insert(iter, &data, frame_hdr_str);
+		if (unlikely(r))
+			return r;
+	} while (len);
+
+	return 0;
+}
 /**
  * Split response body stored locally. Allocate a new skb and put body there
  * by fragments. Every skb fragment has size of single page and has frame
@@ -4669,6 +4820,21 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 	return 0;
 }
 
+static TfwStr*
+__tfw_h2_get_body_start(TfwHttpResp* resp)
+{
+	TfwStr *c, *end;
+
+	TFW_STR_FOR_EACH_CHUNK(c, &resp->body, end) {
+		/* Skip chunking data such as chunk size and extension */
+		if (!(c->flags & TFW_STR_CUT))
+			return c;
+		continue;
+	}
+
+	return NULL;
+}
+
 /**
  * Split response into http/2 frames with respect to remote peer MAX_FRAME_SIZE
  * settings. Both HEADERS and DATA frames require framing or peer will reject
@@ -4690,9 +4856,10 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
  * message is pushed into network. No stream id modification, no header
  * adjustments are allowed after the call.
  *
- * The only case when message can be modified - body addition for locally
- * generated responses, which add body fragment-by-fragment with required
- * framing information.
+ * There are two cases when message can be modified:
+ * 1. Body addition for locally generated responses, which add body
+ * fragment-by-fragment with required framing information.
+ * 2. Cutting "chunked body" information from response.
  */
 static int
 tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
@@ -4701,7 +4868,8 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 {
 	int r;
 	char *data;
-	unsigned long b_len = resp->body.len;
+	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	TfwStr *h2_body = NULL;
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwFrameHdr frame_hdr = {.stream_id = stream_id};
 	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
@@ -4740,6 +4908,20 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	 */
 	if (!local_response) {
 		if (b_len) {
+			if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+				TfwHttpMsg *hm = (TfwHttpMsg*)resp;
+
+				/* Save beginning of body before modifying */
+				if (b_len > max_sz) {
+					h2_body = __tfw_h2_get_body_start(resp);
+					BUG_ON(!h2_body);
+				}
+
+				r = tfw_http_msg_del_flagged_body(hm);
+				if (unlikely(r))
+					return r;
+			}
+
 			frame_hdr.length = min(max_sz, b_len);
 			frame_hdr.type = HTTP2_DATA;
 			frame_hdr.flags = (frame_hdr.length == b_len)
@@ -4768,7 +4950,9 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 		h_len -= max_sz;
 		frame_hdr.type = HTTP2_CONTINUATION;
-		__tfw_h2_make_frames(h_len, fr_flags);
+		__tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
+				     max_sz, &frame_hdr_str, &frame_hdr,
+				     fr_flags);
 	}
 
 	if (local_response)
@@ -4778,14 +4962,28 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	if (b_len > max_sz) {
 		unsigned long skew = 0;
 
-		iter->skb = resp->body.skb;
-		data = TFW_STR_CHUNK(&resp->body, 0)->data;
+		/*
+		 * TODO: #498 and maybe #488 : iterate over the chunks only once
+		 * TODO: #1103 make only one memory allocation for hopefully
+		 * all the HTTP/2 frames headers instead of dealing with skb
+		 * framing with every small header
+		 */
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+			data = h2_body->data;
+			iter->skb = h2_body->skb;
+		} else {
+			data = TFW_STR_CHUNK(&resp->body, 0)->data;
+			iter->skb = resp->body.skb;
+		}
+
 		if ((r = tfw_http_iter_set_at(iter, data)))
 			return r;
 
 		b_len -= max_sz;
 		frame_hdr.type = HTTP2_DATA;
-		__tfw_h2_make_frames(b_len, HTTP2_F_END_STREAM);
+		__tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
+				     max_sz, &frame_hdr_str, &frame_hdr,
+				     HTTP2_F_END_STREAM);
 	}
 
 	return 0;
@@ -5120,7 +5318,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwNextHdrOp *next = &mit->next;
+	TfwStr codings = {.data = *this_cpu_ptr(&g_te_buf), .len = 0};
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
@@ -5132,6 +5330,30 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 					   HTTP2_F_END_STREAM);
 	if (unlikely(!stream_id))
 		goto out;
+
+	/*
+	 * Accordingly to RFC 9113 8.2.2 connection-specific headers can't
+	 * be used in HTTP/2.
+	 *
+	 * The whole header can be removed. Don't remove it, only mark as
+	 * hop-by-hop header: such headers are ignored while saved into cache
+	 * and never forwarded to h2 clients. Just avoid extra fragmentation
+	 * now.
+	 */
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+	    || test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		TfwStr *te_hdr, *dup, *end;
+
+		te_hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING];
+		TFW_STR_FOR_EACH_DUP(dup, te_hdr, end)
+			dup->flags |= TFW_STR_HBH_HDR;
+	}
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		r = tfw_http_resp_copy_encodings(resp, &codings, RESP_BUF_LEN);
+		if (unlikely(r))
+			goto clean;
+	}
 
 	/*
 	 * Transform HTTP/1.1 headers into HTTP/2 form, in parallel with
@@ -5155,8 +5377,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 
 	do {
 		TfwStr *last;
-		TfwStr hdr = next->s_hdr;
-		TfwH2TransOp op = next->op;
+		TfwStr hdr = mit->next.s_hdr;
+		TfwH2TransOp op = mit->next.op;
 
 		r = tfw_h2_resp_next_hdr(resp, h_mods);
 		if (unlikely(r))
@@ -5192,6 +5414,19 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		r = tfw_h2_add_hdr_date(resp, TFW_H2_TRANS_ADD, false);
 		if (unlikely(r))
 			goto clean;
+	}
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		if (unlikely(tfw_h2_add_hdr_clen(resp)))
+			goto clean;
+	}
+
+	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
+		r = tfw_h2_add_hdr_cenc(resp, &codings);
+		if (unlikely(r))
+			goto clean;
+
+		TFW_STR_INIT(&codings);
 	}
 
 	r = TFW_H2_MSG_HDR_ADD(resp, "server", TFW_SERVER, 54);
@@ -6151,6 +6386,11 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 
 /*
  * Finish a response that is terminated by closing the connection.
+ *
+ * Http/1 response is terminated by connection close and lacks of framing
+ * information. H2 connections have their own framing happening just before
+ * forwarding message to network, but h1 connections still require explicit
+ * framing.
  */
 static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
@@ -6159,18 +6399,16 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	int r = 0;
 
 	/*
-	 * Add absent message framing information. It's possible to add a
-	 * 'Content-Length: 0' header, if the Transfer-Encoding header is not
-	 * set, but keep more generic solution and transform to chunked.
-	 * It's the only possible modification for future proxy mode.
-	 * If the framing information can't be added, then close client
-	 * connection after response is forwarded.
+	 * Response to HTTP2 client which has flag TFW_HTTP_B_CHUNKED_APPLIED
+	 * blocks during response parsing.
 	 */
-	if (!test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
-		r = tfw_http_msg_to_chunked(hm);
-	else
+	WARN_ON_ONCE(TFW_MSG_H2(hm->req)
+		     && test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags));
+
+	if (test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
 		set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
 
+	r = tfw_http_add_hdr_clen(hm);
 	if (r) {
 		TfwHttpReq *req = hm->req;
 
@@ -6195,6 +6433,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 
 	if (tfw_http_resp_gfsm(hm, &data) != TFW_PASS)
 		return;
+
 	tfw_http_resp_cache(hm);
 }
 
@@ -6312,6 +6551,7 @@ next_msg:
 			filtout = true;
 			goto bad_msg;
 		}
+
 		/*
 		 * TFW_POSTPONE status means that parsing succeeded
 		 * but more data is needed to complete it. Lower layers

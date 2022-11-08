@@ -217,6 +217,7 @@ typedef enum {
 	TFW_HTTP_HDR_FORWARDED,
 	TFW_HTTP_HDR_KEEP_ALIVE,
 	TFW_HTTP_HDR_TRANSFER_ENCODING,
+	TFW_HTTP_HDR_CONTENT_ENCODING,
 	TFW_HTTP_HDR_UPGRADE,
 
 	/* Start of list of generic (raw) headers. */
@@ -257,6 +258,8 @@ enum {
 	TFW_HTTP_B_CHUNKED_APPLIED,
 	/* Message has chunked trailer headers part. */
 	TFW_HTTP_B_CHUNKED_TRAILER,
+	/* Message has transfer encodings other than chunked. */
+	TFW_HTTP_B_TE_EXTRA,
 	/* The message body is limited by the connection closing. */
 	TFW_HTTP_B_UNLIMITED,
 	/* Media type is multipart/form-data. */
@@ -583,6 +586,11 @@ struct tfw_http_resp_t {
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
 
+#define TFW_HTTP_RESP_CUT_BODY_SZ(r) 					\
+	(r)->stream ? 							\
+	(r)->body.len - (r)->stream->parser.cut_len : 			\
+	(r)->body.len
+
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
 	for ((pos) = &(msg)->h_tbl->tbl[soff], 				\
 	     (end) = &(msg)->h_tbl->tbl[eoff];				\
@@ -721,5 +729,7 @@ int tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 			  unsigned long h_len);
 int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 			    unsigned long h_len, const TfwStr *body);
+int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
+				 size_t max_len);
 
 #endif /* __TFW_HTTP_H__ */

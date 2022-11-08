@@ -1110,6 +1110,30 @@ multi_buffs:
 }
 
 /**
+ * Cut off @len bytes from @skb starting at @ptr
+ */
+static int
+__ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
+		int len)
+{
+	int r;
+	TfwStr it = {};
+	int _;
+
+	while (len) {
+		bzero_fast(&it, sizeof(TfwStr));
+		r = skb_fragment(skb_head, skb, ptr, -len, &it, &_);
+		if (r < 0) {
+			T_WARN("Can't delete len=%i from skb=%p\n", len, skb);
+			return r;
+		}
+		BUG_ON(r > len);
+		len -= r;
+	}
+
+	return 0;
+}
+/**
  * Cut off @str->len data bytes from underlying skbs skipping the first
  * @skip bytes, and also cut off @tail bytes after @str.
  * @str can be an HTTP header or other parsed part of HTTP message
@@ -1145,18 +1169,46 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 	BUG_ON(it.skb == NULL);
 
 	/* Cut off the tail. */
-	while (tail) {
-		void *t_ptr = it.data;
-		struct sk_buff *t_skb = it.skb;
+	if (tail > 0)
+		return __ss_skb_cutoff(skb_head, it.skb, it.data, tail);
+
+	return 0;
+}
+
+/**
+ * Cut off @str->len data bytes from underlying skbs skipping chunks
+ * that doesn't have @flag, and also cut off @tail bytes after @str.
+ * @str can be an HTTP header or other parsed part of HTTP message
+ * ('uri_path', 'host' etc).
+ */
+int
+ss_skb_cutoff_data_flagged(struct sk_buff *skb_head, const TfwStr *str,
+			   unsigned short flag, int tail)
+{
+	int r;
+	TfwStr it = {};
+	const TfwStr *c, *end;
+	int _;
+
+	BUG_ON(tail < 0);
+
+	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+		if (!(c->flags & flag))
+			continue;
+
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it, &_);
-		if (r < 0) {
-			T_WARN("Cannot delete tail\n");
+		r = skb_fragment(skb_head, c->skb, c->data,
+				 -c->len, &it, &_);
+		if (r < 0)
 			return r;
-		}
-		BUG_ON(r > tail);
-		tail -= r;
 	}
+
+	BUG_ON(it.data == NULL);
+	BUG_ON(it.skb == NULL);
+
+	/* Cut off the tail. */
+	if (tail > 0)
+		return __ss_skb_cutoff(skb_head, it.skb, it.data, tail);
 
 	return 0;
 }
