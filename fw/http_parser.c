@@ -10375,26 +10375,44 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	int r;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
-	unsigned char type = ctx->hdr.type;
 
 	WARN_ON_ONCE(!len);
-	BUG_ON(type != HTTP2_HEADERS
-	       && type != HTTP2_CONTINUATION
-	       && type != HTTP2_DATA);
-
 	*parsed = 0;
 
-	if (likely(type != HTTP2_DATA)) {
+	switch(ctx->hdr.type) {
+	case HTTP2_HEADERS:
+	case HTTP2_CONTINUATION:
+		/* Receiving END_HEADERS flags second time
+		 * means that we're processing trailer
+		 * HEADERS/CONTINUATION frame.
+		 *
+		 * RFC 9113 8.1: Trailer HEADERS frame must
+		 * contain END_STREAM flag.
+		 */
+
+		if (ctx->hdr.flags & HTTP2_F_END_HEADERS &&
+		    test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
+		    !(ctx->hdr.flags & HTTP2_F_END_STREAM))
+		{
+			return T_DROP;
+		}
+
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-	}
-	else if ((req->method_override
-		  && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
-		 || TFW_HTTP_IS_METH_BODYLESS(req->method))
-	{
-		r = T_DROP;
-	}
-	else {
+		break;
+	case HTTP2_DATA:
+		if ((req->method_override &&
+		     TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
+		{
+			return T_DROP;
+		}
+
 		r = tfw_h2_parse_body(data, len, req, parsed);
+		break;
+	default:
+		WARN(1, "%s: h2 ctx %p req %p, illegal frame type %d(%s)\n", __func__, ctx,
+		     req, ctx->hdr.type, __h2_frm_type_n(ctx->hdr.type));
+		return T_DROP;
 	}
 
 	return (r == T_OK) ? T_POSTPONE : r;
@@ -10478,6 +10496,7 @@ void
 tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
 {
 	TfwStr *c, *end;
+	TfwHttpParser *parser;
 	int ret = CSTR_NEQ;
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
@@ -10489,7 +10508,95 @@ tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
 		}
 	}
 
+	/* Parser internal state has to be reset */
+	parser = &((TfwHttpMsg *)req)->stream->parser;
+	parser->_i_st = NULL;
+
 	T_DBG3("%s: req->cond.m_date: %lu\n", __func__, req->cond.m_date);
+}
+
+enum {
+	TFW_HTTP_MLEN_3C = 3,
+	TFW_HTTP_MLEN_4C,
+	TFW_HTTP_MLEN_5C,
+	TFW_HTTP_MLEN_6C,
+	TFW_HTTP_MLEN_7C,
+	TFW_HTTP_MLEN_8C,
+	TFW_HTTP_MLEN_9C,
+};
+#define H2_METH_HDR_VLEN    7
+
+/**
+ * Obtain HTTP method id from TfwStr chunked string.
+ * Code here relies on http parser, which should
+ * filter out illegal 'method' headers.
+ * Used exclusively by HPACK related code.
+ */
+unsigned char
+tfw_http_meth_str2id(const TfwStr *m_hdr)
+{
+	unsigned long mv_len;
+	unsigned char *p;
+	const TfwStr *chunk;
+
+	BUG_ON(TFW_STR_PLAIN(m_hdr));
+
+	mv_len = m_hdr->len - H2_METH_HDR_VLEN;
+	/* ':method' name should always be in a single chunk */
+	chunk = TFW_STR_CHUNK(m_hdr, 1);
+	p = chunk->data;
+
+	switch (mv_len) {
+	case TFW_HTTP_MLEN_3C:
+		return *p == 'P' ? TFW_HTTP_METH_PUT : TFW_HTTP_METH_GET;
+	case TFW_HTTP_MLEN_4C:
+		switch (*p) {
+		case 'C':
+			return TFW_HTTP_METH_COPY;
+		case 'H':
+			return TFW_HTTP_METH_HEAD;
+		case 'L':
+			return TFW_HTTP_METH_LOCK;
+		case 'M':
+			return TFW_HTTP_METH_MOVE;
+		case 'P':
+			return TFW_HTTP_METH_POST;
+		default:
+			WARN_ON(1);
+			return _TFW_HTTP_METH_UNKNOWN;
+		}
+	case TFW_HTTP_MLEN_5C:
+		switch (*p) {
+		case 'M':
+			return TFW_HTTP_METH_MKCOL;
+		case 'T':
+			return TFW_HTTP_METH_TRACE;
+		case 'P':
+			if (chunk->len == 1)
+				p = TFW_STR_CHUNK(m_hdr, 2)->data;
+			else
+				p++;
+
+			return *p  == 'A'
+				? TFW_HTTP_METH_PATCH
+				: TFW_HTTP_METH_PURGE;
+		default:
+			WARN_ON(1);
+			return _TFW_HTTP_METH_UNKNOWN;
+		}
+	case TFW_HTTP_MLEN_6C:
+		return *p == 'D' ? TFW_HTTP_METH_DELETE
+				 : TFW_HTTP_METH_UNLOCK;
+	case TFW_HTTP_MLEN_7C:
+		/* TODO: add CONNECT method */
+		return TFW_HTTP_METH_OPTIONS;
+	case TFW_HTTP_MLEN_8C:
+		return TFW_HTTP_METH_PROPFIND;
+	case TFW_HTTP_MLEN_9C:
+		return TFW_HTTP_METH_PROPPATCH;
+	default:
+		return _TFW_HTTP_METH_UNKNOWN;
+	}
 }
 
 /*

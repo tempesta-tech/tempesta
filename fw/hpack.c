@@ -158,7 +158,7 @@ enum {
 	HPACK_STATE_VALUE_LENGTH,
 	HPACK_STATE_VALUE_TEXT,
 	HPACK_STATE_ALL_INDEXED,
-	HPACK_STATE_WINDOW,
+	HPACK_STATE_DT_SZ_UPD,
 	_HPACK_STATE_NUM
 };
 
@@ -1241,8 +1241,20 @@ done:
 		} else if (hp->index == 3) {
 			req->method = TFW_HTTP_METH_POST;
 		} else {
-			WARN_ON_ONCE(1);
-			return T_DROP;
+			/*
+			 * We would end up here while processing
+			 * 'Indexed Header Field' hdr, which points
+			 * to an entry in dynamic HPACK table.
+			 * This entry must has been previously populated
+			 * by 'Literal Header Field with Incremental Indexing'
+			 * hdr parsing and dynamic table update.
+			 * RFC 7541 6.2.1
+			 * */
+			req->method = tfw_http_meth_str2id(s_hdr);
+			if (unlikely(req->method == _TFW_HTTP_METH_UNKNOWN)) {
+				WARN_ON_ONCE(1);
+				return T_DROP;
+			}
 		}
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		break;
@@ -1344,7 +1356,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	do {
 		state = hp->state;
 
-		T_DBG3("%s: header processing, n=%lu, to_parse=%lu, state=%d\n",
+		T_DBG3("%s: header processing, len=%lu, to_parse=%lu, state=%d\n",
 		       __func__, n, last - src, state);
 
 		switch (state & HPACK_STATE_MASK) {
@@ -1352,8 +1364,8 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		{
 			unsigned char c = *src++;
 
-			if (c & 0x80) {
-				T_DBG3("%s: reference by index...\n", __func__);
+			if (c & 0x80) { /* RFC 7541 6.1 */
+				T_DBG3("%s: > Indexed Header Field\n", __func__);
 
 				state |= HPACK_FLAGS_NO_VALUE;
 				hp->index = c & 0x7F;
@@ -1373,9 +1385,9 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 
 				goto get_all_indexed;
 
-			} else if (c & 0x40) {
-				T_DBG3("%s: reference with addition...\n",
-				       __func__);
+			} else if (c & 0x40) { /* RFC 7541 6.2.1 */
+				T_DBG3("%s: > Literal Header Field with "
+				       "Incremental Indexing\n", __func__);
 				state |= HPACK_FLAGS_ADD;
 				hp->index = c & 0x3F;
 				if (hp->index == 0x3F) {
@@ -1387,25 +1399,22 @@ index:
 					goto get_indexed_name;
 				}
 
-			} else if (c & 0x20) {
-				T_DBG3("%s: new window size...\n", __func__);
+			} else if (c & 0x20) { /* RFC 7541 6.3 */
+				T_DBG3("%s: > Dynamic Table Size Update\n", __func__);
 
 				hp->index = c & 0x1F;
 				if (hp->index == 0x1F)
 					GET_FLEXIBLE(hp->index,
-						     HPACK_STATE_WINDOW);
+						     HPACK_STATE_DT_SZ_UPD);
 
-				T_DBG3("%s: decoded window: %lu\n", __func__,
+				T_DBG3("%s: decoded new size: %lu\n", __func__,
 				       hp->index);
 
-				NEXT_STATE(HPACK_STATE_WINDOW);
+				NEXT_STATE(HPACK_STATE_DT_SZ_UPD);
 
-				goto set_window;
+				goto set_tbl_size;
 
 			} else {
-				T_DBG3("%s: reference with value...\n",
-				       __func__);
-
 				if (c & 0xE0) {
 					T_DBG3("%s: the code of the header's"
 					       " binary representation is not"
@@ -1414,10 +1423,18 @@ index:
 					goto out;
 				}
 
-				if (c & 0x10) {
-					T_DBG3("%s: transit header...\n",
-					      __func__);
+				if (!(c & 0xF0)) /* RFC 7541 6.2.2 */
+					T_DBG3("%s: > Literal Header Field "
+					       "without Indexing\n", __func__);
+
+				if (c & 0x10) { /* RFC 7541 6.2.3 */
+					T_DBG3("%s: > Literal Header Field "
+					       "Never Indexed\n", __func__);
 					state |= HPACK_FLAGS_TRANSIT;
+					/* TODO: representation for encoding
+					 * this particular header is not
+					 * being enforced at the moment.
+					 */
 				}
 
 				hp->index = c & 0x0F;
@@ -1635,16 +1652,16 @@ get_all_indexed:
 
 			goto get_indexed_name;
 
-		case HPACK_STATE_WINDOW:
+		case HPACK_STATE_DT_SZ_UPD:
 			GET_CONTINUE(hp->index);
-			T_DBG3("%s: new window size finally decoded: %lu\n",
+			T_DBG3("%s: new dyn table size finally decoded: %lu\n",
 			       __func__, hp->index);
-set_window:
+set_tbl_size:
 			if (tfw_hpack_set_length(hp, hp->index)) {
 				r = T_DROP;
 				goto out;
 			}
-			T_DBG3("%s: window size has been changed\n", __func__);
+			T_DBG3("%s: dyn table size has been changed\n", __func__);
 			break;
 
 		case HPACK_STATE_NAME_LENGTH:

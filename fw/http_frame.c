@@ -694,6 +694,7 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
  * all the unlinking and cleaning work will be made later, during shrinking
  * the queue of closed streams; thus, we just move the stream into the
  * closed queue here.
+ * We also reset the current stream of the H2 context here.
  */
 static int
 tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
@@ -1222,8 +1223,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwH2Err err_code = HTTP2_ECODE_SIZE;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
-	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
-	       ctx->state);
+	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr->type,
+	       __h2_frm_type_n(hdr->type), ctx->state);
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
@@ -1790,9 +1791,17 @@ next_msg:
 	 * tail, but we don't need to worry about that here since such padding
 	 * is processed as service data, separately from app frame, and it
 	 * will be just split into separate skb (above).
+	 *
+	 * While traversing the H2 frame FSM for 'non-service' frame types,
+	 * we should always end up with the correct stream,
+	 * e.g. @h2->cur_stream != NULL.
+	 * If an error occurs somewhere along the way, all the actions required
+	 * to handle it (e.g sending RST stream frame) should have already happened
+	 * by the time we get here. We shouldn't submit the data to the
+	 * upper level for the actual HTTP parsing.
 	 */
-	if (APP_FRAME(h2)) {
-		/* This chopping algorithm could be repleces with a call
+	if (APP_FRAME(h2) && likely(h2->cur_stream)) {
+		/* This chopping algorithm could be replaced with a call
 		 * of ss_skb_list_chop_head_tail(). We refrain of it
 		 * to proccess a special case !h2->skb_head below.
 		 */
@@ -1810,14 +1819,14 @@ next_msg:
 				return T_OK;
 			}
 		}
+
 		/*
 		 * The skb should be last here, since we do not accumulate
 		 * skbs until full frame will be received.
 		 */
 		WARN_ON_ONCE(h2->skb_head != h2->skb_head->next);
 		data_up.skb = h2->skb_head;
-		if (ss_skb_chop_head_tail(NULL, data_up.skb, h2->data_off, 0))
-		{
+		if (ss_skb_chop_head_tail(NULL, data_up.skb, h2->data_off, 0)) {
 			r = T_DROP;
 			kfree_skb(nskb);
 			goto out;
