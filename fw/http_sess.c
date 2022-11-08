@@ -555,7 +555,7 @@ end_##f:								\
 				char buf[sizeof(hmac) * 2];		\
 				bin2hex(buf, hmac, sizeof(hmac));	\
 				sess_warn("bad received HMAC value",	\
-					  addr, ": %c(pos=%d),"		\
+					  addr, " %c(pos=%d),"		\
 					  " ts=%#lx orig_hmac=[%.*s]\n", \
 					  *tr, i, ts,			\
 					  (int)sizeof(hmac) * 2, buf);	\
@@ -596,7 +596,7 @@ tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
 
 	if (mark_val->len != sizeof(RedirMarkVal) * 2) {
 		sess_warn("bad length of redirection mark", addr,
-			  ": %lu(%lu)\n", mark_val->len,
+			  " (%lu instead of %lu)\n", mark_val->len,
 			  sizeof(RedirMarkVal) * 2);
 		return TFW_HTTP_SESS_VIOLATE;
 	}
@@ -605,8 +605,10 @@ tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
 	HEX_STR_TO_BIN_GET(mv, att_no);
 	HEX_STR_TO_BIN_GET(mv, ts);
 
-	if (__redir_hmac_calc(req, mv))
+	if (__redir_hmac_calc(req, mv)) {
+		T_DBG("can not compute HMAC for a redirection mark\n");
 		return TFW_HTTP_SESS_VIOLATE;
+	}
 
 	return HEX_STR_TO_BIN_HMAC(mv->hmac, mv->ts, addr);
 }
@@ -633,6 +635,13 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 		}
 
 		if (r || ++mv->att_no > max_misses) {
+			/*
+			 * TODO #1102 we should not block client on the IP layer
+			 * always. We should deligate the blocking action to the
+			 * HTTP layer, which can take different blocking actions,
+			 * e.g. send an HTTP responce in case of
+			 * `block_action attack reply`.
+			 */
 			tfw_filter_block_ip(&req->conn->peer->addr);
 			return TFW_HTTP_SESS_VIOLATE;
 		}
@@ -745,7 +754,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		return TFW_HTTP_SESS_SUCCESS;
 
 	if (value->len != sizeof(StickyVal) * 2) {
-		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
+		sess_warn("bad sticky cookie length", addr, " %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
 		tfw_http_sticky_calc(req, sv);
 		return TFW_HTTP_SESS_VIOLATE;
@@ -754,15 +763,21 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	HEX_STR_TO_BIN_INIT(tr, c, value, end);
 	HEX_STR_TO_BIN_GET(sv, ts);
 
-	if (__sticky_calc(req, sv))
+	if (__sticky_calc(req, sv)) {
+		sess_warn("cannot compute sticky cookie value", addr, "\n");
 		return TFW_HTTP_SESS_VIOLATE;
+	}
 
 	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
 		return r;
 
 	/* The cookie is valid but already expired, reject it. */
-	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ)
+	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ) {
+		sess_warn("sticky cookie value expired", addr,
+			  " (issued=%lu lifetime=%lu now=%lu)\n", sv->ts,
+			  (unsigned long)sticky->sess_lifetime * HZ, jiffies);
 		return TFW_HTTP_SESS_VIOLATE;
+	}
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
 	__set_bit(TFW_HTTP_B_HAS_STICKY, req->flags);
@@ -961,8 +976,11 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 		T_DBG("sess: jsch block: Too old cookie, restart challenge.\n");
 		return TFW_HTTP_SESS_JS_RESTART;
 	}
-	T_DBG("sess: jsch block: request received outside allowed time range."
-	      "\n");
+
+	sess_warn("jsch redirect received outside allowed time range",
+		  &req->conn->peer->addr, " (%lu not in [%lu, %lu])\n",
+		  req->jrxtstamp, min_time, max_time);
+
 	return TFW_HTTP_SESS_VIOLATE;
 }
 
