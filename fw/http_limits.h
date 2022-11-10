@@ -165,6 +165,8 @@ struct frang_global_cfg_t {
  *			   code before client connection is closed.
  * @http_ct_required	- Header 'Content-Type:' is required;
  * @http_host_required	- Header 'Host:' is required;
+ * @http_trailer_split  - Allow the same header appear in both
+ *			  request header part and chunked trailer part;
  * @http_method_override - Allow method override in request headers.
  */
 struct frang_vhost_cfg_t {
