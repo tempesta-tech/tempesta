@@ -1309,7 +1309,7 @@ ttls_handle_alert(TlsCtx *tls)
 	}
 
 	/* Silently ignore: fetch new message */
-	return 0;
+	return T_OK;
 }
 
 /**
@@ -2151,7 +2151,8 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		unsigned int delta;
 
 		if ((r = ttls_parse_record_hdr(tls, buf, len, read))) {
-			TTLS_WARN(tls, "Bad TLS record (error -0x%X)\n", r);
+			if (unlikely(r != T_POSTPONE))
+				TTLS_WARN(tls, "Bad TLS record (err -0x%X)\n", r);
 			return r;
 		}
 		delta = *read - parsed;
