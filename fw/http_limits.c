@@ -966,7 +966,7 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	 * trailers (RFC 7540 section 8.1.2.1), and during parsing stage, in
 	 * @H2_MSG_VERIFY(), we have already verified that.
 	 */
-	if (!f_cfg->http_trailer_split)
+	if (f_cfg->http_trailer_split)
 		return TFW_PASS;
 
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
