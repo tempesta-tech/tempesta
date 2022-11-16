@@ -112,8 +112,7 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 
 	/* Connection destructor does failover for server connections */
 	srv_conn->sk = NULL;
-	if (srv_conn->destructor)
-		srv_conn->destructor(srv_conn);
+
 err:
 	clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 

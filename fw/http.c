@@ -6265,7 +6265,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwCliConn *cli_conn;
 	TfwFsmData data_up;
-	bool conn_stop, filtout = false, websocket = false;
+	bool conn_stop, filtout = false, websocket = false, was_upgrade = false;
 
 	BUG_ON(!stream->msg);
 	/*
@@ -6455,21 +6455,30 @@ next_msg:
 		goto next_resp;
 	}
 
+	/* Do upgrade if correct websocket upgrade response detected earlier */
+	if (websocket && !test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags)) {
+		tfw_connection_get((TfwConn *)(cli_conn));
+
+		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
+		if (unlikely(r < TFW_PASS)) {
+			tfw_connection_put((TfwConn *)(cli_conn));
+			return TFW_BLOCK;
+		}
+		was_upgrade = true;
+
+		tfw_connection_put((TfwConn *)(cli_conn));
+	}
+
 	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
 	 * @hmsib is not attached to the connection yet.
 	 */
 	r = tfw_http_resp_cache(hmresp);
+	if (was_upgrade)
+		conn->destructor(conn);
 	if (unlikely(r < TFW_PASS))
 		return TFW_BLOCK;
-
-	/* Do upgrade if correct websocket upgrade response detected earlier */
-	if (websocket) {
-		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
-		if (unlikely(r < TFW_PASS))
-			return TFW_BLOCK;
-	}
 
 next_resp:
 	if (skb && websocket) {
