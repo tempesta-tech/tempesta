@@ -94,6 +94,7 @@ pipeline {
         stage('Clean WS'){
             steps {
                     cleanWs()
+                    sh 'reboot &'
                 }
         }
     }
