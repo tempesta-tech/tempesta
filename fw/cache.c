@@ -2251,7 +2251,8 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
 
 	++it->frag;
 	skb_fill_page_desc(it->skb, it->frag, page, off, sz);
-	skb_frag_ref(it->skb, it->frag);
+	if (!h2)
+		skb_frag_ref(it->skb, it->frag);
 	ss_skb_adjust_data_len(it->skb, sz);
 
 	return 0;

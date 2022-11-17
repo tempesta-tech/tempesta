@@ -4807,7 +4807,6 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		++it->frag;
 		skb_fill_page_desc(it->skb, it->frag, page, 0,
 				   copy + FRAME_HEADER_SIZE);
-		skb_frag_ref(it->skb, it->frag);
 		ss_skb_adjust_data_len(it->skb, copy + FRAME_HEADER_SIZE);
 
 		if (it->frag + 1 == MAX_SKB_FRAGS
