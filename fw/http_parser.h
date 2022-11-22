@@ -25,7 +25,8 @@
 
 typedef struct {
 	unsigned int	size;	/* number of elements in the table */
-	unsigned int	off;
+	unsigned short	off;
+	unsigned short	cnt;
 	TfwStr		tbl[0];
 } TfwHttpHdrTbl;
 
