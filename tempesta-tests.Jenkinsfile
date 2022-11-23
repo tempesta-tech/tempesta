@@ -100,7 +100,7 @@ pipeline {
     
     post {
         always {
-            sh 'reboot &'
+            sh 'sleep 1; reboot &'
         }
   }
 }
