@@ -100,9 +100,7 @@ pipeline {
     
     post {
         always {
-            catchError(stageResult: 'SUCCESS', buildResult: currentBuild.result) {
-                sh 'reboot &'
-            }
+            sh 'sleep 1; reboot &'
         }
   }
 }
