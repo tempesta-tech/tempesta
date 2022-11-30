@@ -348,8 +348,8 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 {
 	const TfwStr *field, *end, *dup, *dup_end;
 
-	if (hdr_cnt && req->h_tbl->off >= hdr_cnt) {
-		frang_limmsg("HTTP headers number", req->h_tbl->off,
+	if (hdr_cnt && req->h_tbl->cnt > hdr_cnt) {
+		frang_limmsg("HTTP headers number", req->h_tbl->cnt,
 			     hdr_cnt, &FRANG_ACC2CLI(ra)->addr);
 		return TFW_BLOCK;
 	}
