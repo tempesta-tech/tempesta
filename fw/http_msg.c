@@ -520,6 +520,8 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 
 	BUG_ON(!TFW_STR_EMPTY(hdr));
 
+	++hm->h_tbl->cnt;
+
 	hdr->data = hdr_start;
 	hdr->skb = ss_skb_peek_tail(&hm->msg.skb_head);
 
