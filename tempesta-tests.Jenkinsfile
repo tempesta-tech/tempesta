@@ -100,6 +100,7 @@ pipeline {
     
     post {
         always {
+            archiveArtifacts artifacts: "$ARTIFACTSPATH", fingerprint: true
             sh 'sleep 1; reboot &'
         }
   }
