@@ -75,12 +75,7 @@ pipeline {
         stage('Checkout tempesta-tests') {
             steps {
                 dir("tempesta-test"){
-                    if ( ($TEST_BRANCH).startsWith('PR-')) {
-                        git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: $TEST_BRANCH
-                    }
-                    else{
-                        git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: $TEST_BRANCH
-                    }
+                    git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: $TEST_BRANCH
                 }
             }
         }
