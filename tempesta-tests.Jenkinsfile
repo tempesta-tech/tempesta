@@ -74,8 +74,14 @@ pipeline {
 
         stage('Checkout tempesta-tests') {
             steps {
-                sh "rm -rf ${TESTS_PATH}"
-                sh "git clone --branch $TEST_BRANCH https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}"
+                dir("tempesta-test"){
+                    if ( ($TEST_BRANCH).startsWith('PR-')) {
+                        git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: $TEST_BRANCH
+                    }
+                    else{
+                        git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: $TEST_BRANCH
+                    }
+                }
             }
         }
 
@@ -84,7 +90,7 @@ pipeline {
                 timeout(time: 180, unit: 'MINUTES')   // timeout on this stage
             }
             steps {
-                dir("${TESTS_PATH}"){
+                dir("tempesta-test"){
                     sh "./run_tests.py $PARAMS"
                 }
             }
