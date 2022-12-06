@@ -1,6 +1,5 @@
 pipeline {
     environment {
-        TESTS_PATH = "/home/tempesta/tempesta-test"
         RUN_BUILD = "true"
     }
 
@@ -75,7 +74,7 @@ pipeline {
         stage('Checkout tempesta-tests') {
             steps {
                 dir("tempesta-test"){
-                    git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: $TEST_BRANCH
+                    git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: "${TEST_BRANCH}"
                 }
             }
         }
@@ -91,17 +90,14 @@ pipeline {
             }
         }
 
-
-        stage('Clean WS'){
-            steps {
-                    cleanWs()
-                }
-        }
     }
     
     post {
         always {
-            archiveArtifacts artifacts: "$ARTIFACTSPATH", fingerprint: true
+            dir("tempesta-test"){
+                archiveArtifacts artifacts: "$BUILD_ID/*.pcap", allowEmptyArchive: true, fingerprint: true
+            }
+            cleanWs()
             sh 'sleep 1; reboot &'
         }
   }
