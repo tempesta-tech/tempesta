@@ -586,7 +586,7 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 	}
 #undef CC_LIFETIME_FRESH
 
-	return ce_lifetime > ce_age ? ce_lifetime : 0;
+	return ce_age > ce_lifetime ? 0 : ce_lifetime;
 }
 
 static bool
