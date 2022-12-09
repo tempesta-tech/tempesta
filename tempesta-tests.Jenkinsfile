@@ -1,6 +1,5 @@
 pipeline {
     environment {
-        TESTS_PATH = "/home/tempesta/tempesta-test"
         RUN_BUILD = "true"
     }
 
@@ -74,8 +73,9 @@ pipeline {
 
         stage('Checkout tempesta-tests') {
             steps {
-                sh "rm -rf ${TESTS_PATH}"
-                sh "git clone --branch $TEST_BRANCH https://github.com/tempesta-tech/tempesta-test.git ${TESTS_PATH}"
+                dir("tempesta-test"){
+                    git url: 'https://github.com/tempesta-tech/tempesta-test.git', branch: "${TEST_BRANCH}"
+                }
             }
         }
 
@@ -84,22 +84,20 @@ pipeline {
                 timeout(time: 180, unit: 'MINUTES')   // timeout on this stage
             }
             steps {
-                dir("${TESTS_PATH}"){
+                dir("tempesta-test"){
                     sh "./run_tests.py $PARAMS"
                 }
             }
         }
 
-
-        stage('Clean WS'){
-            steps {
-                    cleanWs()
-                }
-        }
     }
     
     post {
         always {
+            dir("tempesta-test"){
+                archiveArtifacts artifacts: "$BUILD_ID/*.pcap", allowEmptyArchive: true, fingerprint: true
+            }
+            cleanWs()
             sh 'sleep 1; reboot &'
         }
   }
