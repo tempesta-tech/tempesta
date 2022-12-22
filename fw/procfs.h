@@ -23,13 +23,9 @@
 #include "tempesta_fw.h"
 
 /*
- * @pfl_hits		- The number of page frag lookup hits.
- * @pfl_misses		- The number of page frag lookup misses.
  * @wq_full		- How many times we faced work queue full.
  */
 typedef struct {
-	u64	pfl_hits;
-	u64	pfl_misses;
 	u64	wq_full;
 } TfwSsStat;
 
