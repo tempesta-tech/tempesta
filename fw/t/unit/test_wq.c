@@ -29,9 +29,9 @@
 
 #include "work_queue.c"
 
-#define QSZ	2048		/* From work_queue.c */
-#define N	QSZ * 100
-#define JOB_N	10		/* Jobs per core. */
+#define TFW_DFLT_QSZ	2048		/* From work_queue.c */
+#define N		TFW_DFLT_QSZ * 100
+#define JOB_N		10		/* Jobs per core. */
 
 static const int X_EMPTY = 0;		/* The address skipped by producers. */
 static const int X_MISSED = 255;	/* The address skipped by consumers. */
@@ -73,7 +73,7 @@ tfw_test_wq_suite_setup(void)
 
 	wq = kzalloc(sizeof(TfwRBQueue), GFP_KERNEL);
 	BUG_ON(!wq);
-	r = tfw_wq_init(wq, cpu_to_node(smp_processor_id()));
+	r = tfw_wq_init(wq, TFW_DFLT_QSZ, cpu_to_node(smp_processor_id()));
 	BUG_ON(r);
 }
 
@@ -258,7 +258,7 @@ tfw_test_wq_run(TfwTestProducers *prods, TfwTestConsumers *cons)
 	for (i = 0; i < prods->prods_n; ++i)
 		wake_up_process(prods->prods[i].task);
 	/* Wait until queue is full. */
-	while (tfw_wq_size(wq) < QSZ)
+	while (tfw_wq_size(wq) < TFW_DFLT_QSZ)
 		schedule();
 	for (i = 0; i < cons->cons_n; ++i)
 		wake_up_process(cons->cons[i].task);

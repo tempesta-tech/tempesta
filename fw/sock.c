@@ -20,6 +20,7 @@
  */
 #include <linux/irq_work.h>
 #include <linux/module.h>
+#include <linux/netdevice.h>
 #include <linux/tempesta.h>
 #include <net/protocol.h>
 #include <net/inet_common.h>
@@ -126,6 +127,7 @@ static const char *ss_statename[] = {
 #define SS_ACT_SHIFT		32
 
 static bool __ss_active = false;
+static unsigned int __wq_size = 0;
 static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
 	= ATOMIC_INIT(0);
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
@@ -1588,6 +1590,63 @@ ss_synchronize(void)
 	return true;
 }
 
+/* This includes L2-L4 headers len + TLS record len (5 bytes) */
+#define TRANS_HDRS_SIZE			100
+/* small http/2 HEADERS frame size */
+#define H2_HEADERS_FRAME_SIZE		13
+
+/*
+ * Due to the nature of RX softIRQ processing, process_backlog() specifically,
+ * and the fact that NET_RX_ACTION and NET_TX_ACTION callback execution order
+ * differs from the order in mainline, we need to adjust TfwRBQueue size
+ * based on the current system state.
+ * This means that we should take the following things into account:
+ * - dev_rx_weight (net.core.{dev_weight, dev_weight_rx_bias} sysctl params)
+ * - iface MTU
+ * - average request size (quite difficult to estimate)
+ * This is a pretty rough estimation of how many http/2 requests
+ * would fit in sk_buff.
+ *
+ * The queue should be big enough to accommodate all the items pushed
+ * during one NAPI shot with a budget of @dev_rx_weight SKBs.
+ * In the worst-case scenario each sk_buff might be completely filled
+ * with small valid http/2 HEADERS/CONTINUATION frames,
+ * each of which consits of the frame header (9 bytes, RFC 7540 4.1) and
+ * mandatory pseudo-headers (RFC 9113 8.3.1). The headers are in
+ * 'Indexed Header Field' form and take 1 byte each.
+ * http/1 request would generally take much more space, so the queue would
+ * not overflow.
+ *
+ * TODO: since iface MTU and net.core.dev_weight can be changed in runtime,
+ * we might need to support dynamic queue resize without reloading the Tempesta
+ */
+static unsigned int
+ss_estimate_pcpu_wq_size(void)
+{
+	struct net_device *dev;
+	unsigned int req_per_skb;
+	unsigned int qsz;
+	unsigned int mtu = 0;
+
+	rtnl_lock();
+	for_each_netdev(&init_net, dev) {
+		/* Ignore lo MTU */
+		if (dev->flags & IFF_LOOPBACK)
+			continue;
+		T_DBG("%s: iface %s mtu %d\n", __func__, dev->name, dev->mtu);
+		if (dev->mtu > mtu)
+			mtu = dev->mtu;
+	}
+	rtnl_unlock();
+
+	req_per_skb = (mtu - TRANS_HDRS_SIZE) / H2_HEADERS_FRAME_SIZE;
+	qsz = roundup_pow_of_two(2 * req_per_skb * dev_rx_weight);
+
+	T_DBG("%s: dev_rx_weight %d, suggested qsz %d\n", __func__,
+	      dev_rx_weight, qsz);
+	return qsz;
+}
+
 /**
  * We need the explicit flag about Tempesta intention to shutdown.
  * The problem is that there are upcalls from Linux TCP/IP layer allocating
@@ -1634,12 +1693,16 @@ tfw_sync_socket_init(void)
 					      sizeof(SsCblNode), 0, 0, NULL);
 	if (!ss_cbacklog_cache)
 		return -ENOMEM;
+	__wq_size = ss_estimate_pcpu_wq_size();
 	for_each_online_cpu(cpu) {
 		SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
-		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
-			T_ERR_NL("Cannot initialize softirq tx work queue\n");
+		r = tfw_wq_init(wq, max_t(unsigned int, TFW_DFLT_QSZ, __wq_size),
+				cpu_to_node(cpu));
+		if (r) {
+			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work queue for CPU #%d\n",
+				 __func__, cpu);
 			kmem_cache_destroy(ss_cbacklog_cache);
 			return r;
 		}
