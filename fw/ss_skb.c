@@ -287,9 +287,9 @@ static int
 __new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
 	     int i, int shift)
 {
-	int off = 0;
+	int off;
 	void* addr;
-	struct page *page = NULL;
+	struct page *page;
 
 	BUG_ON(i > MAX_SKB_FRAGS);
 
