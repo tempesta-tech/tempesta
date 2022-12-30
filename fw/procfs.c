@@ -45,8 +45,6 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
 
 		/* Ss statistics. */
-		SADD(ss.pfl_hits);
-		SADD(ss.pfl_misses);
 		SADD(ss.wq_full);
 
 		/* Cache statistics. */
@@ -98,8 +96,6 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	tfw_perfstat_collect(&stat);
 
 	/* Ss statistics. */
-	SPRN("SS pfl hits\t\t\t\t", ss.pfl_hits);
-	SPRN("SS pfl misses\t\t\t\t", ss.pfl_misses);
 	SPRN("SS work queue full\t\t\t", ss.wq_full);
 	if (ss_stat) {
 		int cpu;
