@@ -67,7 +67,8 @@ typedef enum {
 	__HTTP2_RECV_FRAME_APP,
 	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,
 	HTTP2_RECV_CONT,
-	HTTP2_RECV_DATA
+	HTTP2_RECV_DATA,
+	HTTP2_RECV_APP_DATA_POST
 } TfwFrameState;
 
 /**
@@ -140,6 +141,23 @@ do {									\
 
 #define FRAME_FSM_READ(to_read)						\
 	FRAME_FSM_READ_LAMBDA(to_read, { })
+
+/*
+ * This macro is used to account the amount
+ * of payload still needed to be processed for a particular
+ * http/2 frame when frame header has been fully read.
+ * @to_read is initially set equal to the length of
+ * the frame payload and decreases as we process
+ * more sk_buff's and/or fragments.
+ */
+#define FRAME_FSM_READ_PYLD()						\
+do {									\
+	WARN_ON_ONCE(ctx->rlen >= ctx->to_read);			\
+	n = min_t(int, ctx->to_read - ctx->rlen, buf + len - p);	\
+	p += n;								\
+	ctx->rlen += n;							\
+	ctx->to_read -= ctx->rlen;					\
+} while (0)
 
 #define SET_TO_READ(ctx)						\
 do {									\
@@ -1650,36 +1668,62 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	}
 
 	T_FSM_STATE(HTTP2_RECV_DATA) {
-		FRAME_FSM_READ(ctx->to_read);
+		FRAME_FSM_READ_PYLD();
 
 		if (tfw_h2_stream_state_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
+
+		if (unlikely(ctx->to_read)) {
+			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
+		}
 
 		FRAME_FSM_EXIT(T_OK);
 	}
 
 	T_FSM_STATE(HTTP2_RECV_HEADER) {
-		FRAME_FSM_READ(ctx->to_read);
+		FRAME_FSM_READ_PYLD();
 
 		if (tfw_h2_headers_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
+
+		if (unlikely(ctx->to_read)) {
+			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
+		}
 
 		FRAME_FSM_EXIT(T_OK);
 	}
 
 	T_FSM_STATE(HTTP2_RECV_CONT) {
-		FRAME_FSM_READ(ctx->to_read);
+		FRAME_FSM_READ_PYLD();
 
 		if (tfw_h2_stream_state_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
+		if (unlikely(ctx->to_read)) {
+			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
+		}
+
 		FRAME_FSM_EXIT(T_OK);
 	}
+
+	/* This is the special state intended to handle edge cases
+	 * when H2 frame crosses sk_buff boundary and/or fragment boundary
+	 */
+	T_FSM_STATE(HTTP2_RECV_APP_DATA_POST) {
+		FRAME_FSM_READ_PYLD();
+
+		if (ctx->to_read)
+			FRAME_FSM_EXIT(T_POSTPONE);
+
+		FRAME_FSM_EXIT(T_OK);
+	}
+
 
 	T_FSM_STATE(HTTP2_IGNORE_FRAME_DATA) {
 		FRAME_FSM_READ(ctx->to_read);
 		FRAME_FSM_EXIT(T_OK);
 	}
+
 	}
 
 	FRAME_FSM_FINISH();
@@ -1839,6 +1883,7 @@ next_msg:
 			goto out;
 		}
 	} else {
+		h2->data_off = 0;
 		ss_skb_queue_purge(&h2->skb_head);
 	}
 
