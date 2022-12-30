@@ -183,7 +183,8 @@ typedef struct {
  * @state		- current FSM state of HTTP/2 processing context;
  * @to_read		- indicates how much data of HTTP/2 frame should
  *			  be read on next FSM @state;
- * @rlen		- length of accumulated data in @rbuf;
+ * @rlen		- length of accumulated data in @rbuf
+ *			  or length of the payload read in current FSM state;
  * @rbuf		- buffer for data accumulation from frames headers and
  *			  payloads (for service frames) during frames
  *			  processing;
