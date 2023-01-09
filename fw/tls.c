@@ -230,6 +230,8 @@ tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
 
 	tcb_next->seq = tcb->end_seq;
 	tcb_next->end_seq = tcb_next->seq + next->len;
+	if (tcb_next->tcp_flags & TCPHDR_FIN)
+		tcb_next->end_seq++;
 }
 
 /**
