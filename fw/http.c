@@ -5871,6 +5871,13 @@ next_msg:
 		}
 		if (TFW_MSG_H2(req)) {
 			TfwH2Ctx *ctx = tfw_h2_context(conn);
+
+			/* Do not check the request validity until
+			 * it has been fully parsed.
+			 */
+			if (unlikely(ctx->to_read))
+				return TFW_PASS;
+
 			/* If the parser met END_HEADERS flag we can be sure
 			 * that we get and processed all headers.
 			 * We will be at this point even if the parser met

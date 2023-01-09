@@ -26,15 +26,8 @@
 
 #include "work_queue.h"
 
-/*
- * The queue size shouldn't be too large to avoid a live lock at
- * a consumer side. Now it's twice as large as netdev budget.
- */
-#define QSZ		2048
-#define QMASK		(QSZ - 1)
-
 int
-tfw_wq_init(TfwRBQueue *q, int node)
+tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 {
 	int cpu;
 
@@ -46,12 +39,14 @@ tfw_wq_init(TfwRBQueue *q, int node)
 		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
 		atomic64_set(local_head, LLONG_MAX);
 	}
+	q->qsize = qsize;
 	q->last_head = 0;
 	atomic64_set(&q->head, 0);
 	atomic64_set(&q->tail, 0);
 	set_bit(TFW_QUEUE_IPI, &q->flags);
 
-	q->array = kmalloc_node(QSZ * WQ_ITEM_SZ, GFP_KERNEL, node);
+	/* Fallback to vmalloc for large queue sizes (> 128k items) */
+	q->array = kvmalloc_node(qsize * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
 		free_percpu(q->heads);
 		return -ENOMEM;
@@ -66,7 +61,7 @@ tfw_wq_destroy(TfwRBQueue *q)
 	/* Ensure that there is no pending work. */
 	WARN_ON_ONCE(tfw_wq_size(q));
 
-	kfree(q->array);
+	kvfree(q->array);
 	free_percpu(q->heads);
 }
 
@@ -101,8 +96,8 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 
 	for ( ; ; head = atomic64_read(&q->head)) {
 		tail = atomic64_read(&q->tail);
-		WARN_ON_ONCE(head > tail + QSZ);
-		if (unlikely(head == tail + QSZ)) {
+		WARN_ON_ONCE(head > tail + q->qsize);
+		if (unlikely(head == tail + q->qsize)) {
 			/*
 			 * Small threshold budget to pass through temporary
 			 * queue overflow.
@@ -125,7 +120,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 		cpu_relax();
 	}
 
-	memcpy(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
+	memcpy(&q->array[head & (q->qsize - 1)], ptr, WQ_ITEM_SZ);
 	wmb();
 
 	head = 0;
@@ -178,7 +173,7 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 			goto out;
 	}
 
-	memcpy(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
+	memcpy(buf, &q->array[tail & (q->qsize - 1)], WQ_ITEM_SZ);
 	mb();
 
 	/*

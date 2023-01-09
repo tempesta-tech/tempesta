@@ -2787,7 +2787,12 @@ tfw_cache_start(void)
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
 		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-		tfw_wq_init(&ct->wq, cpu_to_node(i));
+		r = tfw_wq_init(&ct->wq, TFW_DFLT_QSZ, cpu_to_node(i));
+		if (r) {
+			T_ERR_NL("%s: Can't initialize cache work queue for CPU #%d\n",
+				 __func__, i);
+			goto close_db;
+		}
 		init_irq_work(&ct->ipi_work, tfw_cache_ipi);
 		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
 	}
