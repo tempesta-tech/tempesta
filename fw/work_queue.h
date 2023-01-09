@@ -25,6 +25,8 @@
 
 #include "log.h"
 
+#define TFW_DFLT_QSZ	2048
+
 typedef struct {
 	long			_[4];
 } __WqItem;
@@ -35,6 +37,7 @@ typedef struct {
 typedef struct {
 	atomic64_t __percpu	*heads;
 	__WqItem		*array;
+	size_t			qsize;
 	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
@@ -55,7 +58,7 @@ do {								\
 	clear_bit(TFW_QUEUE_IPI, &(wq)->flags);			\
 } while (0)
 
-int tfw_wq_init(TfwRBQueue *wq, int node);
+int tfw_wq_init(TfwRBQueue *wq, size_t qsize, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
 long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
 int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, long *ticket);
