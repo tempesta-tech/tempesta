@@ -546,7 +546,7 @@ static void
 ss_do_close(struct sock *sk, int flags)
 {
 	struct sk_buff *skb;
-	bool data_was_unread = false;
+	int data_was_unread = 0;
 
 	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
@@ -573,7 +573,11 @@ ss_do_close(struct sock *sk, int flags)
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
 	while ((skb = __skb_dequeue(&sk->sk_receive_queue))) {
-		data_was_unread = true;
+		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq;
+
+		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN)
+			len--;
+		data_was_unread += len;
 		T_DBG3("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
 		__kfree_skb(skb);
 	}
