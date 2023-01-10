@@ -550,6 +550,9 @@ typedef struct {
  * @curr_ptr	- pointer in the skb to write the current header;
  * @bnd		- pointer to the boundary data (which should not be
  *		  overwritten);
+ * @frame_head	- pointer to reserved space for HEADERS frame. Used during
+ * 		  http2 framing. Simplifies framing of paged SKBs.
+ * 		  Framing function may not worry about paged and liner SKBs.
  * @iter	- skb expansion iterator;
  * @acc_len	- accumulated length of transformed message.
  */
@@ -561,6 +564,7 @@ typedef struct {
 	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
 	char		*curr_ptr;
 	char		*bnd;
+	char		*frame_head;
 	TfwMsgIter	iter;
 	unsigned long	acc_len;
 } TfwHttpTransIter;
@@ -586,6 +590,20 @@ struct tfw_http_resp_t {
 	TfwStr			no_cache_tokens;
 	TfwStr			private_tokens;
 };
+
+/**
+ * Represents the data that should be cleaned up after HTTP1 -> HTTP2 response
+ * transformation.
+ *
+ * @skb_head	- head of skb list that must be freed;
+ * @pages	- pages that must be freed;
+ * @pages_sz	- current number of @pages;
+ */
+typedef struct {
+	struct sk_buff *skb_head;
+	struct page *pages[MAX_SKB_FRAGS];
+	unsigned char pages_sz;
+} TfwHttpRespCleanup;
 
 #define TFW_HDR_MAP_INIT_CNT		32
 #define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\

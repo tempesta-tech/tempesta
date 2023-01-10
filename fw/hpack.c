@@ -3646,12 +3646,12 @@ tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
  */
 static int
 tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		  TfwHPackInt *__restrict idx, bool name_indexed)
+		  TfwHPackInt *__restrict idx, bool name_indexed, bool inplace)
 {
 	int r;
-	TfwStr *c, *end;
+	TfwHPackInt vlen;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwStr s_val;
+	TfwStr s_name = {}, s_val = {}, s_vlen = {};
 	const TfwStr s_idx = {
 		.data = idx->buf,
 		.len = idx->sz,
@@ -3660,43 +3660,53 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	T_DBG3("%s: s_idx->len=%lu, s_idx->data='%.*s'\n",
 	       __func__, s_idx.len, (int)s_idx.len, s_idx.data);
 
-	r = tfw_h2_msg_rewrite_data(mit, &s_idx, mit->bnd);
+	r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_idx);
 	if (unlikely(r))
 		return r;
 
 	if (!hdr)
 		return 0;
 
-	if (WARN_ON_ONCE(TFW_STR_PLAIN(hdr)))
+	if (WARN_ON_ONCE(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)))
 		return -EINVAL;
 
+	tfw_http_hdr_split(hdr, &s_name, &s_val, inplace);
+
 	if (unlikely(!name_indexed)) {
-		r = tfw_hpack_str_add(mit, TFW_STR_CHUNK(hdr, 0), resp->pool);
+		TfwHPackInt nlen;
+		TfwStr s_nlen = {};
+
+		write_int(s_name.len, 0x7F, 0, &nlen);
+		s_nlen.data = nlen.buf;
+		s_nlen.len = nlen.sz;
+
+		r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_nlen);
+		if (unlikely(r))
+			return r;
+
+		if (inplace)
+			r = tfw_http_msg_expand_from_pool_lc(mit, resp->pool,
+							     &s_name);
+		else
+			r = tfw_http_msg_expand_from_pool(mit, resp->pool,
+							  &s_name);
 		if (unlikely(r))
 			return r;
 	}
 
-	/*
-	 * During headers addition into the message the source @hdr must have
-	 * the following chunk structure (without the OWS):
-	 *
-	 *	{ name [S_DLM] value1 [value2 [value3 ...]] }.
-	 *
-	 */
-	c = TFW_STR_CHUNK(hdr, 1);
-	if (WARN_ON_ONCE(!c))
-		return -EINVAL;
+	write_int(s_val.len, 0x7F, 0, &vlen);
+	s_vlen.data = vlen.buf;
+	s_vlen.len = vlen.sz;
 
-	if (c->len == SLEN(S_DLM) && *(short *)c->data == *(short *)S_DLM) {
-		c = TFW_STR_CHUNK(hdr, 2);
-		if (WARN_ON_ONCE(!c))
-			return -EINVAL;
+	r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_vlen);
+
+	if (unlikely(r))
+		return r;
+	if (!TFW_STR_EMPTY(&s_val)) {
+		r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_val);
 	}
 
-	end = hdr->chunks + hdr->nchunks;
-	tfw_str_collect_cmp(c, end, &s_val, NULL);
-
-	return tfw_hpack_str_add(mit,&s_val, resp->pool);
+	return r;
 }
 
 /*
@@ -3768,88 +3778,6 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 }
 
 /*
- * Transform the HTTP/1.1 header @hdr in-place into HTTP/2 HPACK format in the
- * response @resp.
- */
-static int
-tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		      TfwHPackInt *__restrict idx, bool name_indexed,
-		      bool indexed)
-{
-	int r;
-	const char *bnd;
-	TfwHPackInt vlen;
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwStr s_name = {}, s_val = {}, s_vlen = {};
-	const TfwStr s_idx = {
-		.data = idx->buf,
-		.len = idx->sz,
-	};
-
-	T_DBG3("%s: s_idx->len=%lu, s_idx->data='%.*s'\n",
-	       __func__, s_idx.len, (int)s_idx.len, s_idx.data);
-
-	if (!hdr || WARN_ON_ONCE(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)))
-		return -EINVAL;
-
-	tfw_http_hdr_split(hdr, &s_name, &s_val, true);
-
-	if (unlikely(!name_indexed)) {
-		TfwHPackInt nlen;
-		TfwStr s_nlen = {};
-
-		bnd = __TFW_STR_CH(&s_name, 0)->data;
-
-		r = tfw_h2_msg_rewrite_data(mit, &s_idx, bnd);
-		if (unlikely(r))
-			return r;
-
-		write_int(s_name.len, 0x7F, 0, &nlen);
-		s_nlen.data = nlen.buf;
-		s_nlen.len = nlen.sz;
-
-		r = tfw_h2_msg_rewrite_data(mit, &s_nlen, bnd);
-		if (unlikely(r))
-			return r;
-
-		if (!TFW_STR_EMPTY(&s_val))
-			bnd = __TFW_STR_CH(&s_val, 0)->data;
-		else
-			bnd = mit->bnd;
-
-		r = tfw_h2_msg_rewrite_data_lc(mit, &s_name, bnd);
-		if (unlikely(r))
-			return r;
-	} else {
-		bnd = indexed || TFW_STR_EMPTY(&s_val)
-			? mit->bnd
-			: __TFW_STR_CH(&s_val, 0)->data;
-
-		r = tfw_h2_msg_rewrite_data(mit, &s_idx, bnd);
-		if (unlikely(r))
-			return r;
-
-		if (indexed)
-			return 0;
-	}
-
-	write_int(s_val.len, 0x7F, 0, &vlen);
-	s_vlen.data = vlen.buf;
-	s_vlen.len = vlen.sz;
-
-	r = tfw_h2_msg_rewrite_data(mit, &s_vlen, bnd);
-	if (unlikely(r))
-		return r;
-	if (!TFW_STR_EMPTY(&s_val)) {
-		r = tfw_h2_msg_rewrite_data(mit, &s_val, mit->bnd);
-		if (unlikely(r))
-			return r;
-	}
-
-	return 0;
-}
-
-/*
  * Perform encoding of the header @hdr into the HTTP/2 HPACK format. The four
  * operation types can be executed here: addition, substitution, in-place
  * transformation and expansion. In cases of addition, substitution and in-place
@@ -3878,7 +3806,6 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
-	TfwHttpTransIter mit = resp->mit;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3909,26 +3836,15 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 		write_int(index, 0x7F, 0x80, &idx);
 		switch (op) {
-		case TFW_H2_TRANS_SUB:
 		case TFW_H2_TRANS_ADD:
-			r = tfw_hpack_hdr_add(resp, NULL, &idx, true);
-			if (r != -ENOSPC)
-				return r;
-			resp->mit = mit;
-			break;
+			return tfw_hpack_hdr_add(resp, NULL, &idx, true, false);
+		case TFW_H2_TRANS_INPLACE:
+			return tfw_hpack_hdr_add(resp, NULL, &idx, true, true);
 		case TFW_H2_TRANS_EXPAND:
 			return tfw_hpack_hdr_expand(resp, NULL, &idx, true);
-		case TFW_H2_TRANS_INPLACE:
-			r = tfw_hpack_hdr_inplace(resp, hdr, &idx, true, true);
-			if (r != -ENOSPC)
-				return r;
-			resp->mit = mit;
-			break;
 		default:
 			BUG();
 		}
-
-		return tfw_hpack_hdr_expand(resp, NULL, &idx, true);
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3946,27 +3862,17 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			write_int(index, 0x3F, 0x40, &idx);
 		else
 			write_int(index, 0xF, 0, &idx);
+
 		switch (op) {
-		case TFW_H2_TRANS_SUB:
 		case TFW_H2_TRANS_ADD:
-			r = tfw_hpack_hdr_add(resp, hdr, &idx, true);
-			if (r != -ENOSPC)
-				return r;
-			resp->mit = mit;
-			break;
+			return tfw_hpack_hdr_add(resp, hdr, &idx, true, false);
+		case TFW_H2_TRANS_INPLACE:
+			return tfw_hpack_hdr_add(resp, hdr, &idx, true, true);
 		case TFW_H2_TRANS_EXPAND:
 			return tfw_hpack_hdr_expand(resp, hdr, &idx, true);
-		case TFW_H2_TRANS_INPLACE:
-			r = tfw_hpack_hdr_inplace(resp, hdr, &idx, true, false);
-			if (r != -ENOSPC)
-				return r;
-			resp->mit = mit;
-			break;
 		default:
 			BUG();
 		}
-
-		return tfw_hpack_hdr_expand(resp, hdr, &idx, true);
 	}
 
 	WARN_ON_ONCE(index || st_index);
@@ -3974,26 +3880,15 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	idx.sz = 1;
 	idx.buf[0] = (r & HPACK_IDX_FLAG_ADD) ? 0x40 : 0;
 	switch (op) {
-	case TFW_H2_TRANS_SUB:
 	case TFW_H2_TRANS_ADD:
-		r = tfw_hpack_hdr_add(resp, hdr, &idx, false);
-		if (r != -ENOSPC)
-			return r;
-		resp->mit = mit;
-		break;
+		return tfw_hpack_hdr_add(resp, hdr, &idx, false, false);
+	case TFW_H2_TRANS_INPLACE:
+		return tfw_hpack_hdr_add(resp, hdr, &idx, false, true);
 	case TFW_H2_TRANS_EXPAND:
 		return tfw_hpack_hdr_expand(resp, hdr, &idx, false);
-	case TFW_H2_TRANS_INPLACE:
-		r = tfw_hpack_hdr_inplace(resp, hdr, &idx, false, false);
-		if (r != -ENOSPC)
-			return r;
-		resp->mit = mit;
-		break;
 	default:
 		BUG();
 	}
-
-	return tfw_hpack_hdr_expand(resp, hdr, &idx, false);
 }
 
 void

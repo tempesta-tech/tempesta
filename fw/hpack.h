@@ -117,7 +117,6 @@ typedef struct {
 
 typedef enum {
 	TFW_H2_TRANS_INPLACE	= 0,
-	TFW_H2_TRANS_SUB,
 	TFW_H2_TRANS_ADD,
 	TFW_H2_TRANS_EXPAND,
 } TfwH2TransOp;

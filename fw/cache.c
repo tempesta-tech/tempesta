@@ -851,7 +851,14 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 					     true);
 		if (unlikely(r))
 			goto err_setup;
-		h_len++;	/* account for :status field itself */
+		/* account for :status field itself */
+		h_len++;
+
+		/*
+		 * Responses builded from cache has room for HEADERS frame reserved
+		 * in SKB linear data.
+		 */
+		resp->mit.frame_head = it->skb_head->data;
 	}
 
 	/* Put 304 headers */
@@ -2564,6 +2571,12 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		goto free;
 
 	h_len += mit->acc_len;
+
+	/*
+	 * Responses builded from cache has room for HEADERS frame reserved
+	 * in SKB linear data.
+	 */
+	resp->mit.frame_head = it->skb_head->data;
 
 	/*
 	 * Split response to h2 frames. Don't write body with generic function,

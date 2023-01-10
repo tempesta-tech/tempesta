@@ -33,6 +33,13 @@
 #include "http_parser.h"
 #include "ss_skb.h"
 
+/*
+ * Used during allocating from TfwPool first fragment for containing headers.
+ * If room in TfwPool below than this constant a full page will be allocated.
+ * Quite rare case when headers with framing data have a size below 128.
+ */
+#define MIN_HDR_FRAG_SIZE 128
+
 /**
  * Build TfwStr representing HTTP header.
  * @name	- header name without ':';
@@ -1237,6 +1244,14 @@ __tfw_http_msg_alloc(int type, bool full)
 	return hm;
 }
 
+
+/**
+ * Expand message by @src placing it to tailroom or to curent fragment.
+ * If room in current fragment not enough add new fragment. When number of
+ * fragments will be equal to MAX_SKB_FRAGS allocate one more SKB.
+ *
+ * MUST be used only for messages from cache or messages constructed locally.
+ */
 int
 tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			 const TfwStr *src, unsigned int *start_off)
@@ -1313,6 +1328,256 @@ this_chunk:
 	}
 
 	return 0;
+}
+
+static int
+tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
+{
+	int r;
+	bool np;
+	char* addr;
+	TfwMsgIter *it = &mit->iter;
+	struct skb_shared_info *si = skb_shinfo(it->skb);
+
+	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
+	if (!addr)
+		return -ENOMEM;
+
+	if (np) {
+		r = ss_skb_add_frag(it->skb_head, it->skb, addr, ++it->frag,
+				    size);
+		if (unlikely(r))
+			return r;
+	} else {
+		skb_frag_size_add(&si->frags[it->frag], size);
+	}
+
+	ss_skb_adjust_data_len(it->skb, size);
+	mit->curr_ptr = addr;
+
+	return 0;
+}
+
+/**
+ * Add first paged fragment using TfwPool and reserve room for HEADERS frame.
+ *
+ * This function must be used as start point of message transformation. After
+ * calling this you must use @pool only for allocating paged fragments during
+ * message trasformation. After it @pool can be used for anything else.
+ */
+int
+tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
+{
+	int r;
+	char* addr;
+	bool np;
+	TfwMsgIter *it = &mit->iter;
+	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
+
+	BUG_ON(room < 0);
+
+	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
+	if (room < MIN_HDR_FRAG_SIZE)
+		addr = __tfw_pool_alloc_page(pool, FRAME_HEADER_SIZE, false);
+	else
+		addr = tfw_pool_alloc_not_align_np(pool, FRAME_HEADER_SIZE,
+						   &np);
+
+	if (unlikely(!addr))
+		return -ENOMEM;
+
+	r = ss_skb_add_frag(it->skb_head, it->skb, addr, ++it->frag,
+			    FRAME_HEADER_SIZE);
+	if (unlikely(r))
+		return r;
+
+	ss_skb_adjust_data_len(mit->iter.skb, FRAME_HEADER_SIZE);
+	mit->frame_head = addr;
+	mit->curr_ptr = addr + FRAME_HEADER_SIZE;
+
+	return 0;
+}
+
+/*
+ * Expand message by @str increasing size of current paged fragment or add
+ * new paged fragment using @pool if room in current pool's chunk is not enough.
+ */
+static int
+__tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
+				const TfwStr *str,
+				void cpy(void *dest, const void *src, size_t n))
+{
+	const TfwStr *c, *end;
+	unsigned int room;
+	unsigned int n_copy;
+	unsigned int rlen;
+	unsigned int off;
+	int r;
+
+	BUG_ON(mit->iter.frag < 0);
+
+	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+		rlen = c->len;
+
+		while (rlen) {
+			room = TFW_POOL_CHUNK_ROOM(pool);
+			BUG_ON(room < 0);
+
+			/*
+			 * Use available room in current pool chunk.
+			 * If pool chunk is exhausted new page will be allocated.
+			 */
+			n_copy = room == 0 ? rlen : min(room, rlen);
+			off = c->len - rlen;
+
+			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy);
+			if (unlikely(r))
+				return r;
+
+			cpy(mit->curr_ptr, c->data + off, n_copy);
+			rlen -= n_copy;
+			mit->acc_len += n_copy;
+
+			T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr=%pK",
+			       __func__, mit->acc_len,
+			       n_copy, mit->curr_ptr);
+		}
+	}
+
+	return 0;
+}
+
+int
+tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
+			      const TfwStr *str)
+{
+	return __tfw_http_msg_expand_from_pool(mit, pool, str, memcpy_fast);
+}
+
+int
+tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
+				 const TfwStr *str)
+{
+	return __tfw_http_msg_expand_from_pool(mit, pool, str, tfw_cstrtolower);
+}
+
+static void
+__tfw_h2_msg_shrink_frags(TfwMsgIter *it, const char *body,
+			  TfwHttpRespCleanup *cleanup)
+{
+	struct skb_shared_info *si = skb_shinfo(it->skb);
+	skb_frag_t *frag = &si->frags[it->frag];
+	char* frag_addr = skb_frag_address(frag);
+	int len;
+	int i;
+
+	/* Delete all fragments from skb. We will use this skb as skb_head. */
+	if (!body) {
+		for (i = 0; i < si->nr_frags; i++) {
+			struct page *pg = skb_frag_page(&si->frags[i]);
+
+			cleanup->pages[i] = compound_head(pg);
+		}
+		len = it->skb->data_len;
+		cleanup->pages_sz = si->nr_frags;
+		si->nr_frags = 0;
+		it->frag = 0;
+		ss_skb_adjust_data_len(it->skb, -len);
+	} else if (frag_addr != body) {
+		/* Start of body it's not start of frag. Shrink frag.*/
+		len = body - frag_addr;
+		/* Add offset and decrease fragment's size */
+		skb_frag_off_add(frag, len);
+		skb_frag_size_sub(frag, len);
+		ss_skb_adjust_data_len(it->skb, -len);
+	}
+}
+
+/*
+ * Delete SKBs and paged fragments related to @resp that contains response
+ * headers. SKBs and fragments will be "unlinked" and placed to @cleanup.
+ * At this point we can't free SKBs, because data that they contain used
+ * as source for message trasformation.
+ */
+void
+tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
+{
+	char *begin, *end;
+	TfwMsgIter *it = &resp->mit.iter;
+	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
+	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
+	char *off = resp->body.len ? body : crlf->data + crlf->len;
+
+	do {
+		unsigned char i;
+		struct sk_buff *skb;
+		struct skb_shared_info *si = skb_shinfo(it->skb);
+
+		if (skb_headlen(it->skb)) {
+			begin = it->skb->data;
+			end = begin + skb_headlen(it->skb);
+
+			if ((begin <= off) && (end >= off)) {
+				it->frag = -1;
+				/* TODO: Handle this case, most likely for low MTU
+				 * it will be implemented as part of #1703 */
+				return;
+			}
+		}
+		for (i = 0; i < si->nr_frags; i++) {
+			skb_frag_t *f = &si->frags[i];
+
+			begin = skb_frag_address(f);
+			end = begin + skb_frag_size(f);
+
+			if ((begin <= off) && (end >= off)) {
+				it->frag = i;
+				__tfw_h2_msg_shrink_frags(it, body, cleanup);
+				goto end;
+			}
+		}
+
+		skb = it->skb;
+		it->skb = it->skb->next;
+		ss_skb_unlink(&it->skb_head, skb);
+		ss_skb_queue_tail(&cleanup->skb_head, skb);
+
+	} while (it->skb != NULL);
+
+end:
+	/* Pointer to data or CRLF not found in skbs. */
+	BUG_ON(!it->skb_head || !it->skb);
+
+	/*
+	 * If body not in first fragment save previous fragments for later
+	 * cleanup and remove them from skb.
+	 */
+	if (it->frag >= 1) {
+		int i;
+		int len;
+		struct skb_shared_info *si = skb_shinfo(it->skb);
+
+		for (i = 0; i < it->frag; i++) {
+			cleanup->pages[i] = skb_frag_page(&si->frags[i]);
+			cleanup->pages_sz++;
+			len = skb_frag_size(&si->frags[i]);
+			ss_skb_adjust_data_len(it->skb, -len);
+			si->nr_frags--;
+		}
+
+		memmove(&si->frags, &si->frags[it->frag],
+			(si->nr_frags) * sizeof(skb_frag_t));
+	}
+
+	/* Trim skb linear data. This is ugly hotfix and must be removed after
+	 * implementation of #1703 */
+	it->skb->len -= skb_headlen(it->skb);
+
+	it->skb_head = it->skb;
+	resp->msg.skb_head = it->skb;
+
+	/* Start from zero fragment */
+	it->frag = -1;
 }
 
 static int

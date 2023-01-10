@@ -32,6 +32,7 @@
 #define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
 #define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
 #define TFW_POOL_CHUNK_END(p)	((void *)TFW_POOL_CHUNK_BASE((p)->curr) + (p)->off)
+#define TFW_POOL_CHUNK_ROOM(p)	(TFW_POOL_CHUNK_SZ((p)) - (p)->off)
 #define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
 #define TFW_POOL_ALIGN_PTR(p)	((void *)TFW_POOL_ALIGN_SZ((unsigned long)p))
 

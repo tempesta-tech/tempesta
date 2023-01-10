@@ -1710,3 +1710,23 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 
 	return 0;
 }
+
+int
+ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
+		int frag_idx, size_t frag_sz)
+{
+	int r;
+	struct page *page = virt_to_page(addr);
+	int offset = addr - (char*)page_address(page);
+
+	r = __extend_pgfrags(skb_head, skb, frag_idx, 1);
+	if (unlikely(r))
+		return r;
+
+	/* Will fall with sysctl_max_frags != MAX_SKB_FRAGS? */
+	skb = (frag_idx < MAX_SKB_FRAGS - 1) ? skb : skb->next;
+	__skb_fill_page_desc(skb, frag_idx, page, offset, frag_sz);
+	__skb_frag_ref(&skb_shinfo(skb)->frags[frag_idx]);
+
+	return 0;
+}
