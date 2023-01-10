@@ -2565,6 +2565,12 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	h_len += mit->acc_len;
 
 	/*
+	 * Responses builded from cache has room for HEADERS frame reserved
+	 * in SKB linear data.
+	 */
+	resp->mit.frame_head = it->skb_head->data;
+
+	/*
 	 * Split response to h2 frames. Don't write body with generic function,
 	 * just indicate that we have body for correct framing.
 	 */

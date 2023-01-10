@@ -276,5 +276,6 @@ int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
                                    struct page ***old_pages);
 int ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			  int frag_num, char *curr, const char *stop);
-
+int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
+		    int frag_idx, size_t frag_sz);
 #endif /* __TFW_SS_SKB_H__ */
