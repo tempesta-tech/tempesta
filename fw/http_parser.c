@@ -6431,6 +6431,7 @@ __FSM_STATE(st_curr) {							\
 		}							\
 		parser->_i_st = NULL;					\
 		parser->_hdr_tag = hid;					\
+		parser->_acc = 0;					\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
 	case CSTR_POSTPONE:						\
 		__FSM_H2_POSTPONE(st_curr);				\
