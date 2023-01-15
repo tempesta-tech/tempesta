@@ -171,9 +171,8 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 	}
 
 	/* When receiving data from client we consider client timeout */
-	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		tfw_ws_cli_mod_timer((TfwCliConn *)conn);
-	}
 
 	return r;
 }
