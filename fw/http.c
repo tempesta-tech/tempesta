@@ -2724,7 +2724,7 @@ tfw_http_conn_release(TfwConn *conn)
  *
  * If a response comes or gets ready to forward after @seq_list is
  * disintegrated, then both the request and the response are dropped at the
- *  sight of an empty list.
+ * sight of an empty list.
  *
  * Locking is necessary as @seq_list is constantly probed from server
  * connection threads.
@@ -6117,8 +6117,9 @@ next_msg:
 		/* Override shouldn't be combined with PURGE, that'd
 		 * probably break things */
 		req->method_override = _TFW_HTTP_METH_NONE;
-	} else
+	} else {
 		__clear_bit(TFW_HTTP_B_PURGE_GET, req->flags);
+	}
 
 	/*
 	 * Method override masks real request properties, non-idempotent methods
@@ -6495,7 +6496,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  * @return zero on success and negative otherwise
  */
 static int
-tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn * cli_conn)
+tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 {
 	TfwConn *ws_conn;
 
@@ -6546,7 +6547,7 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
-	cli_conn = (TfwCliConn *) hmresp->req->conn;
+	cli_conn = (TfwCliConn *)hmresp->req->conn;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -6733,10 +6734,9 @@ next_msg:
 	}
 
 next_resp:
-	if (skb && websocket) {
+	if (skb && websocket)
 		return tfw_ws_msg_process(cli_conn->pair, skb);
-	}
-	else if (hmsib) {
+	if (hmsib) {
 		/*
 		 * Switch the connection to the sibling message.
 		 * Data processing will continue with the new SKB.
