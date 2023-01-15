@@ -1974,7 +1974,7 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
-	if (tfw_http_conn_on_hold(srv_conn)
+	if (req_sent && tfw_http_conn_on_hold(srv_conn)
 	    && !(srv->sg->flags & TFW_SRV_RETRY_NIP))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
