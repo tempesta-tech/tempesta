@@ -229,14 +229,25 @@ tfw_ws_conn_drop(TfwConn *conn)
 	TfwConn *pair = tfw_ws_conn_unpair(conn);
 
 	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	/*
+	 * The function can be called only after tfw_http_websocket_upgrade(),
+	 * which is called under the server socket spinlock and links the pairs.
+	 */
+	BUG_ON(!pair);
 
-	if (TFW_CONN_TYPE(conn) & Conn_Srv)
-		tfw_connection_put(conn);
-	else
+	/*
+	 * Server websocket connection always has reference count =1, which
+	 * leads to immediate tfw_ws_conn_release() call.
+	 *
+	 * Client connection may have larger reference counter if it has
+	 * pipelined HTTP messages before upgrading to websocket. In this case
+	 * we just put one reference counter as the pair from the server
+	 * connection.
+	 */
+	tfw_connection_put(conn);
+
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_drop);
-
-	if (!pair)
-		return;
 
 	tfw_connection_close(pair, true);
 }
