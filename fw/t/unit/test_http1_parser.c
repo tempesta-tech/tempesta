@@ -2691,8 +2691,8 @@ TEST(http1_parser, set_cookie)
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		 "Content-Length: 10\r\n"
 		 "Set-Cookie: __Host-id=1; Secure; Path=/; domain=example.com\r\n"
-		"\r\n"
-		"0123456789")
+		 "\r\n"
+		 "0123456789")
 	{
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
@@ -2711,6 +2711,71 @@ TEST(http1_parser, set_cookie)
 			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
+	}
+
+	/* Multiple Set-Cookie headers  */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		 "Set-Cookie: sessionid=38afes7a8; HttpOnly; Path=/\r\n"
+		 "Set-Cookie: id=a3fWa; Expires=Wed, 21 Oct 2015 07:28:00 GMT; "
+		 "Secure; HttpOnly\r\n"
+		 "Set-Cookie: __Host-id=1; Secure; Path=/; domain=example.com\r\n"
+		 "\r\n"
+		 "0123456789")
+	{
+		const TfwStr *dup, *dup_end;
+		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+		TfwStr s_expected[] = {
+			{
+				.chunks = (TfwStr []) {
+					{ .data = "Set-Cookie:" , .len = 11 },
+					{ .data = " " , .len = 1,
+					  .flags = TFW_STR_OWS },
+					{ .data = "sessionid=" , .len = 10,
+					  .flags = TFW_STR_NAME },
+					{ .data = "38afes7a8" , .len = 9,
+					  .flags = TFW_STR_VALUE  },
+					{ .data = "; HttpOnly; Path=/" , .len = 18 }
+				},
+				.len = 49,
+				.nchunks = 5,
+			},
+			{
+				.chunks = (TfwStr []) {
+					{ .data = "Set-Cookie:" , .len = 11 },
+					{ .data = " " , .len = 1,
+					  .flags = TFW_STR_OWS },
+					{ .data = "id=" , .len = 3,
+					  .flags = TFW_STR_NAME },
+					{ .data = "a3fWa" , .len = 5,
+					  .flags = TFW_STR_VALUE  },
+					{ .data = "; Expires=Wed, 21 Oct 2015 07:28:00 "
+							  "GMT; Secure; HttpOnly",
+					  .len = 57 }
+				},
+				.len = 77,
+				.nchunks = 5
+			},
+			{
+				.chunks = (TfwStr []) {
+					{ .data = "Set-Cookie:" , .len = 11 },
+					{ .data = " " , .len = 1,
+					  .flags = TFW_STR_OWS },
+					{ .data = "__Host-id=" , .len = 10,
+					  .flags = TFW_STR_NAME },
+					{ .data = "1" , .len = 1,
+					  .flags = TFW_STR_VALUE  },
+					{ .data = "; Secure; Path=/; domain=example.com",
+					  .len = 36 }
+				},
+				.len = 59,
+				.nchunks = 5
+			}
+		};
+		unsigned long idx = 0;
+		TFW_STR_FOR_EACH_DUP(dup, s_parsed, dup_end)
+			test_string_split(&s_expected[idx++], dup);
+		EXPECT_TRUE(idx == ARRAY_SIZE(s_expected));
 	}
 
 	/* No space after semicolon */

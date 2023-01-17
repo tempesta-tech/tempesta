@@ -128,7 +128,7 @@ static inline unsigned int
 __tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[])
 {
 	const TfwHdrDef *def;
-	size_t size = TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR;
+	size_t size = tfw_http_msg_header_table_size();
 	/* TODO: return error if @hdr can't be applied to response or client. */
 	def = (TfwHdrDef *)__tfw_http_msg_find_hdr(hdr, array, size,
 						   sizeof(TfwHdrDef));
@@ -161,7 +161,7 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) !=
-		     TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR);
+		     tfw_http_msg_header_table_size());
 
 	return __tfw_http_msg_spec_hid(hdr, resp_hdrs);
 }
@@ -191,7 +191,7 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) !=
-		     TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR);
+		     tfw_http_msg_header_table_size());
 
 	return __tfw_http_msg_spec_hid(hdr, req_hdrs);
 }
