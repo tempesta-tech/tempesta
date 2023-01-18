@@ -34,6 +34,16 @@
 #define TFW_CONN_HTTP_TYPE(c)	\
 	(TFW_FSM_TYPE(TFW_CONN_TYPE(c)) & (TFW_FSM_HTTP | TFW_FSM_HTTPS))
 
+/**
+ * Global level websocket configuration.
+ *
+ * @client_ws_timeout	- timeout between two consecutive client sends before
+ * 			  connection close;
+ */
+static struct {
+	int client_ws_timeout;
+} tfw_cfg_ws;
+
 static struct kmem_cache *tfw_ws_conn_cache;
 
 void
@@ -54,6 +64,25 @@ static const SsHooks tfw_ws_srv_ss_hooks = {
 	.connection_drop	= tfw_ws_srv_ss_hook_drop,
 	.connection_recv	= tfw_connection_recv,
 };
+
+/**
+ * Rearm client connection timer for client timeout functionality,
+ * `client_ws_timeout` is a corresponding config setting.
+ * TODO #736: do not update time on each packet handling.
+ */
+void
+tfw_ws_cli_mod_timer(TfwCliConn *conn)
+{
+	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
+
+	spin_lock(&conn->timer_lock);
+	if (timer_pending(&conn->timer))
+		mod_timer(&conn->timer,
+			jiffies + msecs_to_jiffies(
+				(long)tfw_cfg_ws.client_ws_timeout
+					* 1000));
+	spin_unlock(&conn->timer_lock);
+}
 
 static void
 tfw_ws_conn_release(void *conn)
@@ -105,10 +134,13 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	}
 	conn->peer = (TfwPeer *)srv;
 	conn->sk = srv_conn->sk;
-	conn->sk->sk_user_data = conn;
-
 	conn->destructor = tfw_ws_conn_release;
 	tfw_connection_revive(conn);
+	/*
+	 * Now conn becomes visible for the socket layer and
+	 * its callbacks can be called.
+	 */
+	conn->sk->sk_user_data = conn;
 
 	/* Connection destructor does failover for server connections */
 	srv_conn->sk = NULL;
@@ -146,7 +178,7 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	 * the client connection references it.
 	 *
 	 * The client connection can not be freed so far since the response is
-	 * still not forwarded to the client (see tfw_http_conn_cli_drop()), so
+	 * still not forwarded to the client (see tfw_http_conn_drop()), so
 	 * at this point we are safe to adjust the connection reference counter.
 	 */
 	cli_conn->pair = (TfwConn *)ws_conn;
@@ -159,37 +191,6 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
 
 	return TFW_PASS;
-}
-
-/**
- * Global level websocket configuration.
- *
- * @client_ws_timeout	- timeout between two consecutive client sends before
- * 			  connection close;
- */
-static struct tfw_cfg_ws_t {
-	int client_ws_timeout;
-} tfw_cfg_ws;
-
-typedef struct tfw_cfg_ws_t TfwCfgWs;
-
-/**
- * Rearm client connection timer for client timeout functionality,
- * `client_ws_timeout` is a corresponding config setting.
- * TODO #736: do not update time on each packet handling.
- */
-void
-tfw_ws_cli_mod_timer(TfwCliConn *conn)
-{
-	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
-
-	spin_lock(&conn->timer_lock);
-	if (timer_pending(&conn->timer))
-		mod_timer(&conn->timer,
-			jiffies + msecs_to_jiffies(
-				(long)tfw_cfg_ws.client_ws_timeout
-					* 1000));
-	spin_unlock(&conn->timer_lock);
 }
 
 /**
@@ -274,7 +275,7 @@ tfw_ws_conn_drop(TfwConn *conn)
 	 * The function can be called only after tfw_http_websocket_upgrade(),
 	 * which is called under the server socket spinlock and links the pairs.
 	 */
-	BUG_ON(!pair); // TODO crashes!
+	BUG_ON(!pair);
 
 	/*
 	 * Server websocket connection always has reference count =1, which
@@ -285,10 +286,9 @@ tfw_ws_conn_drop(TfwConn *conn)
 	 * we just put one reference counter as the pair from the server
 	 * connection.
 	 */
-	tfw_connection_put(conn);
-
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_drop);
+	tfw_connection_put(conn);
 
 	tfw_connection_close(pair, true);
 }

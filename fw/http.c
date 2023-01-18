@@ -6690,6 +6690,19 @@ next_msg:
 	}
 
 	/*
+	 * Do upgrade if correct websocket upgrade response detected earlier.
+	 * We have to do this before going to the cache, since the cache calls
+	 * the message forwarding on a callback, which may free both the request
+	 * and response leading to zero reference counter on the client
+	 * connection and its corresponding freeing.
+	 */
+	if (websocket) {
+		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
+		if (unlikely(r < TFW_PASS))
+			return TFW_BLOCK;
+	}
+
+	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
 	 * @hmsib is not attached to the connection yet.
@@ -6697,13 +6710,6 @@ next_msg:
 	r = tfw_http_resp_cache(hmresp);
 	if (unlikely(r < TFW_PASS))
 		return TFW_BLOCK;
-
-	/* Do upgrade if correct websocket upgrade response detected earlier */
-	if (websocket) {
-		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
-		if (unlikely(r < TFW_PASS))
-			return TFW_BLOCK;
-	}
 
 next_resp:
 	if (skb && websocket)
