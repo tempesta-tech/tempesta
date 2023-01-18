@@ -6486,44 +6486,6 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 }
 
 /**
- * Does websocket upgrade procedure.
- *
- * Marks current client connection as websocket connection. Allocated new plain
- * TfwConn connection with websocket type and steal backend connection socket
- * into it. Starts reconnection for stealed from connection. Pairs websocket
- * connections with each other.
- *
- * @return zero on success and negative otherwise
- */
-static int
-tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
-{
-	TfwConn *ws_conn;
-
-	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
-		return TFW_BLOCK;
-
-	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
-
-	/*
-	 * At the moment we're under the ws_conn->sk->sk_lock, as the function
-	 * is called from tfw_http_resp_process(). ws_conn->refcnt = 1 as only
-	 * the client connection references it.
-	 *
-	 * The client connection can not be freed so far since the response is
-	 * still not forwarded to the client (see tfw_http_conn_cli_drop()), so
-	 * at this point we are safe to adjust the connection reference counter.
-	 */
-	cli_conn->pair = (TfwConn *)ws_conn;
-	ws_conn->pair = (TfwConn *)cli_conn;
-	tfw_connection_get(ws_conn->pair);
-
-	tfw_ws_cli_mod_timer(cli_conn);
-
-	return TFW_PASS;
-}
-
-/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */

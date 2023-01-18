@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
 typedef struct tfw_conn_t TfwConn;
 
 int tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb);
-TfwConn *tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn);
+int tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn);
 void tfw_ws_cli_mod_timer(TfwCliConn *conn);
 
 #endif /* __TFW_WS_H__ */
