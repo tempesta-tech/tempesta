@@ -89,7 +89,7 @@ tfw_ws_conn_release(void *conn)
 {
 	TfwConn *_conn = (TfwConn *)conn;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
 	if (likely(_conn->sk))
 		tfw_connection_unlink_to_sk(_conn);
@@ -104,7 +104,7 @@ tfw_ws_conn_alloc(void)
 	if (!(conn = kmem_cache_alloc(tfw_ws_conn_cache, GFP_ATOMIC)))
 		return NULL;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
 	tfw_connection_init(conn);
 
@@ -125,7 +125,7 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	TfwConn *conn = NULL;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), srv_conn);
 
 	if (!(conn = tfw_ws_conn_alloc())) {
 		T_WARN_ADDR("Can't create new connection for socket stealing",
@@ -203,7 +203,10 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 	int r;
 	TfwMsg msg = { 0 };
 
-	T_DBG2("%s: conn=[%p], skb=[%p]\n", __func__, conn, skb);
+	assert_spin_locked(&conn->sk->sk_lock.slock);
+
+	T_DBG2("%s cpu/%d: conn=%p -> conn=%p, skb=%p\n",
+	       __func__, smp_processor_id(), conn, conn->pair, skb);
 
 	ss_skb_queue_tail(&msg.skb_head, skb);
 
@@ -234,7 +237,7 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 {
 	int r;
 
-	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
 	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_close, sync);
 
@@ -244,7 +247,7 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 static void
 tfw_ws_conn_abort(TfwConn *conn)
 {
-	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
 	tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
 }
@@ -270,7 +273,7 @@ tfw_ws_conn_drop(TfwConn *conn)
 {
 	TfwConn *pair = tfw_ws_conn_unpair(conn);
 
-	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 	/*
 	 * The function can be called only after tfw_http_websocket_upgrade(),
 	 * which is called under the server socket spinlock and links the pairs.
@@ -301,7 +304,8 @@ tfw_ws_conn_send(TfwConn *conn, TfwMsg *msg)
 {
 	int r;
 
-	T_DBG2("%s: conn=[%p], msg=[%p]\n", __func__, conn, msg);
+	T_DBG2("%s cpu/%d: conn=%p, msg=%p\n",
+	       __func__, smp_processor_id(), conn, msg);
 
 	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_send, msg);
 
