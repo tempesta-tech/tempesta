@@ -1455,10 +1455,9 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 void
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
-	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
-	}
 
 	if (TFW_MSG_H2(req))
 		tfw_h2_send_err_resp(req, status, 0);
