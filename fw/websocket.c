@@ -51,13 +51,20 @@ tfw_ws_srv_ss_hook_drop(struct sock *sk)
 {
 	TfwConn *conn = sk->sk_user_data;
 
-	tfw_connection_drop(conn);
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
+
+	/* See tfw_sock_clnt_drop(). */
 	tfw_connection_unlink_from_sk(sk);
+	tfw_connection_drop(conn);
+	tfw_connection_put(conn);
 }
 
 /*
  * Hook `connection_new()` can never be called, because ws connection
  * can only be bootstraped from http connection.
+ *
+ * These hooks are used for server connections only.
+ * Client connections use inherited hooks from sock_clnt.c.
  */
 static const SsHooks tfw_ws_srv_ss_hooks = {
 	.connection_new		= NULL,
@@ -174,16 +181,20 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 
 	/*
 	 * At the moment we're under the ws_conn->sk->sk_lock, as the function
-	 * is called from tfw_http_resp_process(). ws_conn->refcnt = 1 as only
-	 * the client connection references it.
+	 * is called from tfw_http_resp_process(). Make ws_conn->refcnt = 2 as
+	 * only the client connection references it and it must be intentionally
+	 * or on a TCP hook closed.
 	 *
 	 * The client connection can not be freed so far since the response is
 	 * still not forwarded to the client (see tfw_http_conn_drop()), so
 	 * at this point we are safe to adjust the connection reference counter.
 	 */
 	cli_conn->pair = (TfwConn *)ws_conn;
-	ws_conn->pair = (TfwConn *)cli_conn;
 	tfw_connection_get(cli_conn->pair);
+	BUG_ON(atomic_read(&cli_conn->refcnt) < 2);
+
+	ws_conn->pair = (TfwConn *)cli_conn;
+	tfw_connection_get(ws_conn->pair);
 
 	tfw_ws_cli_mod_timer(cli_conn);
 
@@ -204,6 +215,19 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 	TfwMsg msg = { 0 };
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
+	/*
+	 * The socket can be in process of closing, probably with changed CPU
+	 * locality, so tfw_ws_srv_ss_hook_drop() can be running now on a
+	 * different CPU. We have no idea about the state of the paired
+	 * connection, so we just ignore the transmission.
+	 *
+	 * Basically, this means that ss_send() was called after ss_close(),
+	 * which is wrong - please fix this if you see the warning.
+	 */
+	if (WARN_ON_ONCE(sock_flag(conn->sk, SOCK_DEAD))) {
+		kfree_skb(skb);
+		return 0;
+	}
 
 	T_DBG2("%s cpu/%d: conn=%p -> conn=%p, skb=%p\n",
 	       __func__, smp_processor_id(), conn, conn->pair, skb);
@@ -211,7 +235,7 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 	ss_skb_queue_tail(&msg.skb_head, skb);
 
 	if ((r = tfw_connection_send(conn->pair, &msg))) {
-		T_DBG("%s: cannot send data to via websocket\n", __func__);
+		T_DBG("%s: cannot send data via websocket\n", __func__);
 		tfw_connection_close(conn, true);
 	}
 
@@ -252,18 +276,22 @@ tfw_ws_conn_abort(TfwConn *conn)
 	tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
 }
 
+/**
+ * The function is called under the scoket lock, so we're safe to manupulate
+ * with it. However, the function can also be called concurrently on @conn->pair,
+ * so we can not touch any member of the paired connection.
+ */
 static TfwConn *
 tfw_ws_conn_unpair(TfwConn *conn)
 {
 	TfwConn *pair;
 
-	if (!conn || !conn->pair)
+	if (unlikely(!conn || !conn->pair))
 		return NULL;
 
 	pair = conn->pair;
 
 	conn->pair = NULL;
-	pair->pair = NULL;
 
 	return pair;
 }
@@ -273,7 +301,11 @@ tfw_ws_conn_drop(TfwConn *conn)
 {
 	TfwConn *pair = tfw_ws_conn_unpair(conn);
 
-	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
+	T_DBG("%s cpu/%d: conn=%p(refcnt=%d) pair=%p(refcnt=%d)\n",
+	      __func__, smp_processor_id(),
+	      conn, conn ? atomic_read(&conn->refcnt) : -1,
+	      pair, pair ? atomic_read(&pair->refcnt) : -1);
+
 	/*
 	 * The function can be called only after tfw_http_websocket_upgrade(),
 	 * which is called under the server socket spinlock and links the pairs.
@@ -281,19 +313,21 @@ tfw_ws_conn_drop(TfwConn *conn)
 	BUG_ON(!pair);
 
 	/*
-	 * Server websocket connection always has reference count =1, which
-	 * leads to immediate tfw_ws_conn_release() call.
-	 *
-	 * Client connection may have larger reference counter if it has
-	 * pipelined HTTP messages before upgrading to websocket. In this case
-	 * we just put one reference counter as the pair from the server
-	 * connection.
+	 * Client may pipelined HTTP requests to the connection and we couldn't
+	 * free them on uprgade since we needed the pair of upgrading request
+	 * and response. It's still possible to do, but it's unclear whether we
+	 * really need this though.
 	 */
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_drop);
-	tfw_connection_put(conn);
 
+	/*
+	 * We don't reference the paired connection and put it's reference count,
+	 * so this close call must drop the final refcounter and free the
+	 * connection.
+	 */
 	tfw_connection_close(pair, true);
+	tfw_connection_put(pair);
 }
 
 /**
