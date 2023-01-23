@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1007,11 +1007,12 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_HOST:
 	case TFW_HTTP_HDR_CONTENT_LENGTH:
 	case TFW_HTTP_HDR_CONTENT_TYPE:
-	case TFW_HTTP_HDR_COOKIE: /* and TFW_HTTP_HDR_SET_COOKIE */
+	case TFW_HTTP_HDR_COOKIE:
 	case TFW_HTTP_HDR_IF_NONE_MATCH:
 	case TFW_HTTP_HDR_X_FORWARDED_FOR:
 	case TFW_HTTP_HDR_TRANSFER_ENCODING:
 	case TFW_HTTP_HDR_CONTENT_ENCODING:
+	case TFW_HTTP_HDR_SET_COOKIE:
 	case TFW_HTTP_HDR_FORWARDED:
 		return CSTR_NEQ;
 	}
