@@ -170,7 +170,7 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		if (r == TFW_BLOCK) {
+		if (r == TFW_BLOCK || r == TFW_BAD) {
 			kfree_skb(nskb);
 			return r;
 		}

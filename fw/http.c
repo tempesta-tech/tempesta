@@ -5857,7 +5857,7 @@ next_msg:
 		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
-		return TFW_BLOCK;
+		return TFW_BAD;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -5891,8 +5891,13 @@ next_msg:
 			 * - trailer HEADERS frame might contain END_HEADERS as well
 			 */
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
-				if (unlikely(tfw_http_parse_check_bodyless_meth(req)))
+				if (unlikely(tfw_http_parse_check_bodyless_meth(req))) {
+					tfw_http_req_parse_block(req, 400,
+						"Request contains Content-Length"
+						" or Content-Type field"
+						" for bodyless method");
 					return TFW_BLOCK;
+				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 			}
@@ -5956,8 +5961,11 @@ next_msg:
 		skb = NULL;
 	}
 
-	if ((r = tfw_http_req_client_link(conn, req)))
+	if ((r = tfw_http_req_client_link(conn, req))) {
+		tfw_http_req_parse_block(req, 403, "request dropped: "
+					 "incorrect X-Forwarded-For header");
 		return r;
+	}
 	/*
 	 * Assign a target virtual host for the current request before further
 	 * processing.
@@ -6626,8 +6634,10 @@ next_msg:
 	 * event.
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r < TFW_PASS))
-		return TFW_BLOCK;
+	if (unlikely(r < TFW_PASS)) {
+		filtout = true;
+		goto bad_msg;
+	}
 
 	/*
 	 * We need to know if connection will be upgraded after response
@@ -6752,12 +6762,12 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	TfwHttpMsg *req;
 
 	if (WARN_ON_ONCE(!stream))
-		return -EINVAL;
+		return TFW_BAD;
 	if (unlikely(!stream->msg)) {
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
 		if (!stream->msg) {
 			__kfree_skb(skb);
-			return TFW_BLOCK;
+			return TFW_BAD;
 		}
 		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg, skb);
 		T_DBG2("Link new msg %p with connection %p\n",

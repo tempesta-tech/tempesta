@@ -908,6 +908,8 @@ out:
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
+	int flags;
+
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -938,28 +940,32 @@ ss_tcp_data_ready(struct sock *sk)
 	switch (ss_tcp_process_data(sk)) {
 	case SS_OK:
 		return;
-	case SS_BAD:
-		/*
-		 * Close connection in case of internal errors,
-		 * banned packets, or FIN in the received packet,
-		 * and only if it's not on hold until explicitly
-		 * closed.
-		 *
-		 * ss_close() is responsible for calling
-		 * application layer connection closing callback.
-		 * The callback will free all SKBs linked with
-		 * the message that is currently being processed.
-		 *
-		 * Closing a socket should go through the queue and
-		 * should be done after all pending data has been sent.
-		 */
-		if (!(SS_CONN_TYPE(sk) & Conn_Stop))
-			ss_close(sk, SS_F_SYNC);
-		break;
 	case SS_DROP:
-		ss_close(sk, SS_F_ABORT);
+		flags = SS_F_ABORT;
+		break;
+	case SS_BAD:
+		fallthrough;
+	default:
+		flags = SS_F_SYNC;
 		break;
 	}
+
+	/*
+	 * Close connection in case of internal errors,
+	 * banned packets, or FIN in the received packet,
+	 * and only if it's not on hold until explicitly
+	 * closed.
+	 *
+	 * ss_close() is responsible for calling
+	 * application layer connection closing callback.
+	 * The callback will free all SKBs linked with
+	 * the message that is currently being processed.
+	 *
+	 * Closing a socket should go through the queue and
+	 * should be done after all pending data has been sent.
+	 */
+	if (!(SS_CONN_TYPE(sk) & Conn_Stop))
+		ss_close(sk, flags);
 }
 
 /**
