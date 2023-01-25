@@ -139,6 +139,12 @@ enum {
 	 */
 	TFW_BLOCK	= SS_DROP,
 
+        /*
+         * Same as TFW_BLOCK, but we send FIN not RST in this case
+         * to the client.
+         */
+        TFW_BAD		= SS_BAD,
+
 	/*
 	 * We need more requests (or parts of a request) to make a decision.
 	 * Current message must be stashed and will be sent to the destination
