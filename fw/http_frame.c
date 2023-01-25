@@ -1878,7 +1878,9 @@ next_msg:
 		h2->data_off = 0;
 		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, data_up.skb);
-		if (r == T_DROP) {
+		/* TODO #1490: Check this place, when working on the task. */
+		if (r) {
+			WARN_ON_ONCE(r == T_POSTPONE);
 			kfree_skb(nskb);
 			goto out;
 		}

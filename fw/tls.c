@@ -98,6 +98,8 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
+		r = T_BAD;
+		fallthrough;
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
@@ -157,7 +159,7 @@ next_msg:
 			tfw_tls_purge_io_ctx(&tls->io_in);
 			kfree_skb(nskb);
 			spin_unlock(&tls->lock);
-			return r;
+			return T_BAD;
 		}
 
 		/*
@@ -170,7 +172,7 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		if (r == TFW_BLOCK) {
+		if (r == TFW_BLOCK || r == TFW_BAD) {
 			kfree_skb(nskb);
 			return r;
 		}
