@@ -2193,7 +2193,7 @@ index ab8ed0fc4..e260a0af6 100644
  		goto put_and_exit;
  	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash),
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..04f59aae9 100644
+index f99494637..12ef8eb20 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2377,14 +2377,14 @@ index f99494637..04f59aae9 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3494,6 +3564,7 @@ int tcp_send_synack(struct sock *sk)
- 	}
- 	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
+@@ -3454,6 +3524,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+ 	 */
+ 	trace_tcp_send_reset(sk, NULL);
  }
 +EXPORT_SYMBOL(tcp_send_active_reset);
  
- /**
-  * tcp_make_synack - Allocate one skb and build a SYNACK packet.
+ /* Send a crossed SYN-ACK during socket establishment.
+  * WARNING: This routine must only be called when we have already sent
 diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
 index 3f9bb6dd1..4b5917ff0 100644
 --- a/net/ipv6/tcp_ipv6.c
