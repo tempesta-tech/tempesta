@@ -397,6 +397,8 @@ typedef struct {
  */
 static LIST_HEAD(tfw_listen_socks);
 static LIST_HEAD(tfw_listen_socks_reconf);
+/* Count of entries in tfw_listen_socks list */
+static size_t tfw_listen_socks_sz = 0;
 
 /**
  * Allocate a new TfwListenSock and add it to the global list of sockets.
@@ -453,6 +455,7 @@ tfw_listen_sock_del_all(void)
 		kfree(ls);
 	}
 
+	tfw_listen_socks_sz = 0;
 	INIT_LIST_HEAD(&tfw_listen_socks);
 	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	tfw_classifier_cleanup_inport();
@@ -664,8 +667,6 @@ tfw_listen_socks_array_cmp(const void *l, const void *r)
 static int
 tfw_sock_clnt_start(void)
 {
-	static size_t tfw_listen_socks_sz = 0;
-
 	int r = 0;
 	TfwListenSock *ls, *tmp;
 	size_t i, listen_socks_sz = tfw_listen_socks_sz;
@@ -690,6 +691,8 @@ tfw_sock_clnt_start(void)
 	i = 0;
 	list_for_each_entry(ls, &tfw_listen_socks, list)
 		listen_socks_array[i++] = ls;
+	BUG_ON(i != tfw_listen_socks_sz);
+
 	sort(listen_socks_array, tfw_listen_socks_sz,
 	     sizeof(listen_socks_array[0]), tfw_listen_socks_array_cmp, NULL);
 
