@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -707,22 +707,35 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 		    TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
-	static TfwStr protos[] = {
+	static const TfwStr protos[] = {
 		{ .data = S_HTTP, .len = SLEN(S_HTTP) },
 		{ .data = S_HTTPS, .len = SLEN(S_HTTPS) },
 	};
 	char *date_val = *this_cpu_ptr(&g_buf);
 	char *cl_val = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE);
 	char *body_val = NULL;
-	TfwStr *proto = &protos[TFW_CONN_PROTO(req->conn) == TFW_FSM_HTTPS];
+	const TfwStr *proto =
+		&protos[!!(TFW_CONN_PROTO(req->conn) & TFW_FSM_HTTPS)];
 	TfwStr host;
-	size_t cl_len, body_len;
+	size_t cl_len, len, remaining, body_len = body ? body->len : 0;
 	char *status_line = tfw_http_resp_status_line(status);
 	int r;
 	TfwStr url = {
 		.chunks = (TfwStr []){ {}, {}, {}, {} },
 		.nchunks = 0
 	};
+	char *p;
+
+#define TFW_ADD_URL_CHUNK(chunk) 				\
+do { 								\
+	len = tfw_str_to_cstr(chunk, p, remaining);		\
+	url.chunks[url.nchunks].data = p;			\
+	url.chunks[url.nchunks].len = len;			\
+	url.len += len;						\
+	url.nchunks++;						\
+	remaining -= len;					\
+	p += len;						\
+} while (0)
 
 	if (!status_line) {
 		T_WARN("Unexpected response error code: [%d]\n", status);
@@ -730,26 +743,44 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	}
 
 	tfw_http_prep_date(date_val);
-	cl_len = tfw_ultoa(body ? body->len : 0, cl_val, RESP_BUF_LEN -
-							 SLEN(S_V_DATE));
+	cl_len = tfw_ultoa(body_len, cl_val, RESP_BUF_LEN - SLEN(S_V_DATE));
 	if (!cl_len)
 		return TFW_BLOCK;
 
-	body_val = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE) + cl_len;
-
-	if (req->host.len)
+	if (req->host.len) {
 		host = req->host;
-	else
-		tfw_http_msg_clnthdr_val(req,
-					 &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-					 TFW_HTTP_HDR_HOST, &host);
+	} else {
+		/* Invalid id value */
+		unsigned id = TFW_HTTP_HDR_NUM;
+
+		if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
+			id = TFW_HTTP_HDR_H2_AUTHORITY;
+		else if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
+			id = TFW_HTTP_HDR_HOST;
+
+		if (id != TFW_HTTP_HDR_NUM)
+			tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[id],
+						 id, &host);
+	}
+
+	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
+	len = host.len + req->uri_path.len + body_len;
+	if (likely(len) < remaining) {
+		p = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE) + cl_len;
+	} else {
+		p = tfw_pool_alloc(resp->pool, len + 1);
+		if (!p) {
+			T_WARN("HTTP/2: unable to allocate memory"
+			       " for redirection url\n");
+			return TFW_BLOCK;
+		}
+		remaining = len + 1;
+	}
 
 	if (host.len) {
 		url.chunks[url.nchunks++] = *proto;
 		url.len += proto->len;
-
-		url.chunks[url.nchunks++] = host;
-		url.len += host.len;
+		TFW_ADD_URL_CHUNK(&host);
 	}
 
 	if (rmark->len) {
@@ -757,8 +788,8 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 		url.len += rmark->len;
 	}
 
-	url.chunks[url.nchunks++] = req->uri_path;
-	url.len += req->uri_path.len;
+	TFW_ADD_URL_CHUNK(&req->uri_path);
+#undef TFW_ADD_URL_CHUNK
 
 	/*
 	 * We have to copy the body since tfw_h2_append_predefined_body() called
@@ -766,8 +797,10 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	 * At the moment this function is used for sticky session redirects, so
 	 * there is no big difference wehre to copy the body.
 	 */
-	body_len = tfw_str_to_cstr(body, body_val,
-				   RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len);
+	if (likely(body)) {
+		body_val = p;
+		body_len = tfw_str_to_cstr(body, body_val, remaining);
+	}
 
 	{
 		TfwStr msg = {
