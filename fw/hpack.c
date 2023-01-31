@@ -2548,6 +2548,65 @@ tfw_hpack_write(const TfwStr *h_field, char *out_buf)
 	return out_buf;
 }
 
+#ifdef DEBUG
+#define T_DBG_PRINT_HPACK_RBTREE(tbl) tfw_hpack_rbtree_print(tbl)
+#else
+#define T_DBG_PRINT_HPACK_RBTREE(tbl)
+#endif
+
+#ifdef DEBUG
+/* Debug functions for printing red-black tree. */
+static void
+tfw_hpack_rbtree_print_level(TfwHPackETbl *__restrict tbl,
+			     TfwHPackNode *__restrict root,
+			     unsigned int level, unsigned int pr_level)
+{
+	if (root && level < pr_level) {
+		TfwHPackNode *left = HPACK_NODE_COND(tbl, root->left);
+		TfwHPackNode *right = HPACK_NODE_COND(tbl, root->right);
+
+		tfw_hpack_rbtree_print_level(tbl, left, level + 1, pr_level);
+		tfw_hpack_rbtree_print_level(tbl, right, level + 1, pr_level);
+	} else if (root) {
+		T_DBG3("level (%u): rindex %lu hdr_len %hu color %hu "
+		       "parent %hd  left %hd right %hd | hdr %.*s",
+		       level, root->rindex, root->hdr_len, root->color,
+		       root->parent, root->left, root->right,
+		       root->hdr_len, root->hdr);
+	}
+}
+
+static unsigned int
+tfw_hpack_rbtree_cacl_level(TfwHPackETbl *__restrict tbl,
+			    TfwHPackNode *__restrict root)
+{
+	TfwHPackNode *left, *right;
+
+	if (!root)
+		return 0;
+
+	left = HPACK_NODE_COND(tbl, root->left);
+	right = HPACK_NODE_COND(tbl, root->right);
+	return max(tfw_hpack_rbtree_cacl_level(tbl, left),
+		   tfw_hpack_rbtree_cacl_level(tbl, right)) + 1;
+}
+
+static void
+tfw_hpack_rbtree_print(TfwHPackETbl *__restrict tbl)
+{
+	unsigned int pr_level, max_level;
+
+	T_DBG3("hpack rbtree:\n");
+	T_DBG3("first %p last %p rb_len %hu rb_size %hu size %hu\n",
+	       tbl->first, tbl->last, tbl->rb_len, tbl->rb_size, tbl->size);
+	T_DBG3("window %hu rbuf %p root %p idx_acc %lu\n",
+	       tbl->window, tbl->rbuf, tbl->root, tbl->idx_acc);
+	max_level = tfw_hpack_rbtree_cacl_level(tbl, tbl->root);
+	for (pr_level = 0; pr_level < max_level; ++pr_level)
+		tfw_hpack_rbtree_print_level(tbl, tbl->root, 0, pr_level);
+}
+#endif
+
 /*
  * Left rotation of red-black tree.
  */
@@ -3820,6 +3879,7 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 	T_DBG3("%s: op=%d, st_index=%hu, st_full_index=%d\n", __func__, op,
 	       st_index, st_full_index);
+	T_DBG_PRINT_HPACK_RBTREE(tbl);
 
 	if (!st_full_index && dyn_indexing) {
 		r = tfw_hpack_encoder_index(tbl, hdr, &index, resp->flags, op);
