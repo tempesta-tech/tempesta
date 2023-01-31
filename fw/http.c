@@ -1815,13 +1815,28 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	req->jtxtstamp = jiffies;
 	tfw_http_req_init_ss_flags(srv_conn, req);
 
-	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
+	/*
+	 * We set TFW_CONN_B_UNSCHED on server connection. New requests must
 	 * not be scheduled to it. It will be used only for websocket transport.
-	 * If upgrade will fail, we clear it. */
-	/* All code paths to the function guarded by `fwd_qlock` so there is
-	 * no race condition here. */
-	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
-		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	 * If upgrade will fail, we clear it.
+	 * All code paths to the function guarded by `fwd_qlock` so there is
+	 * no race condition here.
+	 */
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
+	    && test_and_set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags))
+	{
+		/*
+		 * The connection is already stolen by another websocket upgrade
+		 * request. tfw_ws_srv_new_steal_sk() raises server connection
+		 * failovering, so we return the appropriate value here.
+		 *
+		 * This is theoretically possible on highly concurrent scenarios
+		 * the current function is called under tfw_http_conn_on_hold()
+		 * check. More likely it can happen on a just and quickly
+		 * recovered server connection, which didn't clear the
+		 * TFW_CONN_B_UNSCHED bit in tfw_ws_srv_new_steal_sk() yet.
+		 */
+		return -EBADF;
 	}
 
 	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
