@@ -3075,14 +3075,8 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 		if (i >= HPACK_MAX_ENC_EVICTION)
 			return -E2BIG;
 
-		if (last == first) {
-			it->first = it->last = NULL;
-			it->rb_len = it->size = 0;
-			WARN_ON_ONCE(it->rb_size != HPACK_ENC_TABLE_MAX_SIZE);
-			T_DBG3("%s: table is empty (rbuf=[%p])\n", __func__,
-			       rbuf);
-			return 0;
-		}
+		if (unlikely(!size))
+			break;
 
 		f_len = HPACK_NODE_SIZE(first);
 		fhdr_len = ((TfwHPackNode *)first)->hdr_len;
@@ -3110,9 +3104,16 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 
 	} while (size > new_size);
 
-	it->size = size;
-	it->rb_len = rb_len;
-	it->first = (TfwHPackNode *)first;
+	if (likely(size)) {
+		it->size = size;
+		it->rb_len = rb_len;
+		it->first = (TfwHPackNode *)first;
+	} else {
+		it->first = it->last = NULL;
+		it->rb_len = it->size = 0;
+		WARN_ON_ONCE(it->rb_size != HPACK_ENC_TABLE_MAX_SIZE);
+		T_DBG3("%s: table is empty (rbuf=[%p])\n", __func__, rbuf);
+	}
 
 	return 0;
 }
