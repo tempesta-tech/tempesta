@@ -1832,9 +1832,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		 *
 		 * This is theoretically possible on highly concurrent scenarios
 		 * the current function is called under tfw_http_conn_on_hold()
-		 * check. More likely it can happen on a just and quickly
-		 * recovered server connection, which didn't clear the
-		 * TFW_CONN_B_UNSCHED bit in tfw_ws_srv_new_steal_sk() yet.
+		 * check.
 		 */
 		return -EBADF;
 	}
