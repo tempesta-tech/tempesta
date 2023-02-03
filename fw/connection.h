@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -215,7 +215,10 @@ enum {
 	TFW_CONN_B_ACTIVE,
 	/* Connection is disconnected and stopped. */
 	TFW_CONN_B_STOPPED,
-	/* Mark connection as unavailable to schedulers */
+	/*
+	 * Mark connection as unavailable to schedulers.
+	 * Used to steal server connections for websockets.
+	 */
 	TFW_CONN_B_UNSCHED
 };
 

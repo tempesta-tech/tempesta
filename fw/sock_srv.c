@@ -4,7 +4,7 @@
  * Handling server connections.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -336,6 +336,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
 	TfwConn *conn = sk->sk_user_data;
+	TfwSrvConn *srv_conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	BUG_ON(conn->sk != sk);
@@ -350,10 +351,12 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	tfw_connection_revive(conn);
 
 	/* Repair the connection if necessary. */
-	if (unlikely(tfw_srv_conn_restricted((TfwSrvConn *)conn)))
+	if (unlikely(tfw_srv_conn_restricted(srv_conn)))
 		tfw_connection_repair(conn);
 
-	__reset_retry_timer((TfwSrvConn *)conn);
+	__reset_retry_timer(srv_conn);
+
+	clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 
 	T_DBG_ADDR("connected", &srv->addr, TFW_WITH_PORT);
 	TFW_INC_STAT_BH(serv.conn_established);

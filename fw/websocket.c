@@ -3,7 +3,7 @@
  *
  * Websocket proxy protocol implementation for Tempesta FW.
  *
- * Copyright (C) 2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,6 +34,16 @@
 #define TFW_CONN_HTTP_TYPE(c)	\
 	(TFW_FSM_TYPE(TFW_CONN_TYPE(c)) & (TFW_FSM_HTTP | TFW_FSM_HTTPS))
 
+/**
+ * Global level websocket configuration.
+ *
+ * @client_ws_timeout	- timeout between two consecutive client sends before
+ * 			  connection close;
+ */
+static struct {
+	int client_ws_timeout;
+} tfw_cfg_ws;
+
 static struct kmem_cache *tfw_ws_conn_cache;
 
 void
@@ -41,96 +51,26 @@ tfw_ws_srv_ss_hook_drop(struct sock *sk)
 {
 	TfwConn *conn = sk->sk_user_data;
 
-	tfw_connection_drop(conn);
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
+
+	/* See tfw_sock_clnt_drop(). */
 	tfw_connection_unlink_from_sk(sk);
+	tfw_connection_drop(conn);
+	tfw_connection_put(conn);
 }
 
 /*
  * Hook `connection_new()` can never be called, because ws connection
  * can only be bootstraped from http connection.
+ *
+ * These hooks are used for server connections only.
+ * Client connections use inherited hooks from sock_clnt.c.
  */
 static const SsHooks tfw_ws_srv_ss_hooks = {
 	.connection_new		= NULL,
 	.connection_drop	= tfw_ws_srv_ss_hook_drop,
 	.connection_recv	= tfw_connection_recv,
 };
-
-static void
-tfw_ws_conn_release(void *conn)
-{
-	TfwConn *_conn = (TfwConn *)conn;
-
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-
-	if (likely(_conn->sk))
-		tfw_connection_unlink_to_sk(_conn);
-	kmem_cache_free(tfw_ws_conn_cache, _conn);
-}
-
-TfwConn *
-tfw_ws_conn_alloc(void)
-{
-	TfwConn *conn;
-
-	if (!(conn = kmem_cache_alloc(tfw_ws_conn_cache, GFP_ATOMIC)))
-		return NULL;
-
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-
-	tfw_connection_init(conn);
-
-	ss_proto_init(&conn->proto, &tfw_ws_srv_ss_hooks, Conn_WsSrv);
-
-	return conn;
-}
-
-/*
- * We create plain (not server) connection, because we do not need special logic
- * for connection failovering for websocket connection. And there is no need
- * for adding connection to a list of server connections. On shutdown all client
- * connection will be closed along with server connections paired with it.
- */
-TfwConn *
-tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
-{
-	TfwConn *conn = NULL;
-	TfwServer *srv = (TfwServer *)srv_conn->peer;
-
-	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
-
-	if (!(conn = tfw_ws_conn_alloc())) {
-		T_WARN_ADDR("Can't create new connection for socket stealing",
-			    &srv->addr, TFW_NO_PORT);
-		goto err;
-	}
-	conn->peer = (TfwPeer *)srv;
-	conn->sk = srv_conn->sk;
-	conn->sk->sk_user_data = conn;
-
-	conn->destructor = tfw_ws_conn_release;
-	tfw_connection_revive(conn);
-
-	/* Connection destructor does failover for server connections */
-	srv_conn->sk = NULL;
-	if (srv_conn->destructor)
-		srv_conn->destructor(srv_conn);
-err:
-	clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
-
-	return conn;
-}
-
-/**
- * Global level websocket configuration.
- *
- * @client_ws_timeout	- timeout between two consecutive client sends before
- * 			  connection close;
- */
-static struct tfw_cfg_ws_t {
-	int client_ws_timeout;
-} tfw_cfg_ws;
-
-typedef struct tfw_cfg_ws_t TfwCfgWs;
 
 /**
  * Rearm client connection timer for client timeout functionality,
@@ -151,6 +91,118 @@ tfw_ws_cli_mod_timer(TfwCliConn *conn)
 	spin_unlock(&conn->timer_lock);
 }
 
+static void
+tfw_ws_conn_release(void *conn)
+{
+	TfwConn *_conn = (TfwConn *)conn;
+
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
+
+	if (likely(_conn->sk))
+		tfw_connection_unlink_to_sk(_conn);
+	kmem_cache_free(tfw_ws_conn_cache, _conn);
+}
+
+TfwConn *
+tfw_ws_conn_alloc(void)
+{
+	TfwConn *conn;
+
+	if (!(conn = kmem_cache_alloc(tfw_ws_conn_cache, GFP_ATOMIC)))
+		return NULL;
+
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
+
+	tfw_connection_init(conn);
+
+	ss_proto_init(&conn->proto, &tfw_ws_srv_ss_hooks, Conn_WsSrv);
+
+	return conn;
+}
+
+/*
+ * We create plain (not server) connection, because we do not need special logic
+ * for connection failovering for websocket connection. And there is no need
+ * for adding connection to a list of server connections. On shutdown all client
+ * connection will be closed along with server connections paired with it.
+ */
+static TfwConn *
+tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
+{
+	TfwConn *conn = NULL;
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+
+	T_DBG2("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), srv_conn);
+
+	if (!(conn = tfw_ws_conn_alloc())) {
+		T_WARN_ADDR("Can't create new connection for socket stealing",
+			    &srv->addr, TFW_NO_PORT);
+		clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+		return NULL;
+	}
+	conn->peer = (TfwPeer *)srv;
+	conn->sk = srv_conn->sk;
+	conn->destructor = tfw_ws_conn_release;
+	tfw_connection_revive(conn);
+	/*
+	 * Now conn becomes visible for the socket layer and
+	 * its callbacks can be called.
+	 */
+	conn->sk->sk_user_data = conn;
+
+	/* Connection destructor does failover for server connections */
+	srv_conn->sk = NULL;
+	if (srv_conn->destructor)
+		srv_conn->destructor(srv_conn);
+
+	return conn;
+}
+
+/**
+ * Does websocket upgrade procedure.
+ *
+ * Marks current client connection as websocket connection. Allocated new plain
+ * TfwConn connection with websocket type and steal backend connection socket
+ * into it. Starts reconnection for stealed from connection. Pairs websocket
+ * connections with each other.
+ *
+ * @return zero on success and negative otherwise
+ */
+int
+tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
+{
+	TfwConn *ws_conn;
+
+	assert_spin_locked(&srv_conn->sk->sk_lock.slock);
+
+	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
+		return TFW_BLOCK;
+
+	/*
+	 * At the moment we're under the ws_conn->sk->sk_lock, as the function
+	 * is called from tfw_http_resp_process(). Make ws_conn->refcnt = 2 as
+	 * only the client connection references it and it must be intentionally
+	 * or on a TCP hook closed.
+	 *
+	 * The client connection can not be freed so far since the response is
+	 * still not forwarded to the client (see tfw_http_conn_drop()), so
+	 * at this point we are safe to adjust the connection reference counter.
+	 */
+	cli_conn->pair = (TfwConn *)ws_conn;
+	tfw_connection_get(cli_conn->pair);
+	BUG_ON(atomic_read(&cli_conn->refcnt) < 2);
+
+	ws_conn->pair = (TfwConn *)cli_conn;
+	tfw_connection_get(ws_conn->pair);
+
+	tfw_ws_cli_mod_timer(cli_conn);
+
+	/* Now websocket hooks will be called on the connection. */
+	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
+
+	return TFW_PASS;
+}
+
 /**
  * Process data for websocket connection without any introspection and
  * analisis of the protocol. Just send it as is.
@@ -161,19 +213,34 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 	int r;
 	TfwMsg msg = { 0 };
 
-	T_DBG2("%s: conn=[%p], skb=[%p]\n", __func__, conn, skb);
+	assert_spin_locked(&conn->sk->sk_lock.slock);
+	/*
+	 * The socket can be in process of closing, probably with changed CPU
+	 * locality, so tfw_ws_srv_ss_hook_drop() can be running now on a
+	 * different CPU. We have no idea about the state of the paired
+	 * connection, so we just ignore the transmission.
+	 *
+	 * Basically, this means that ss_send() was called after ss_close(),
+	 * which is wrong - please fix this if you see the warning.
+	 */
+	if (WARN_ON_ONCE(sock_flag(conn->sk, SOCK_DEAD))) {
+		kfree_skb(skb);
+		return 0;
+	}
+
+	T_DBG2("%s cpu/%d: conn=%p -> conn=%p, skb=%p\n",
+	       __func__, smp_processor_id(), conn, conn->pair, skb);
 
 	ss_skb_queue_tail(&msg.skb_head, skb);
 
 	if ((r = tfw_connection_send(conn->pair, &msg))) {
-		T_DBG("%s: cannot send data to via websocket\n", __func__);
+		T_DBG("%s: cannot send data via websocket\n", __func__);
 		tfw_connection_close(conn, true);
 	}
 
 	/* When receiving data from client we consider client timeout */
-	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		tfw_ws_cli_mod_timer((TfwCliConn *)conn);
-	}
 
 	return r;
 }
@@ -193,7 +260,7 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 {
 	int r;
 
-	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
 	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_close, sync);
 
@@ -203,23 +270,27 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 static void
 tfw_ws_conn_abort(TfwConn *conn)
 {
-	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
 	tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
 }
 
+/**
+ * The function is called under the scoket lock, so we're safe to manupulate
+ * with it. However, the function can also be called concurrently on @conn->pair,
+ * so we can not touch any member of the paired connection.
+ */
 static TfwConn *
 tfw_ws_conn_unpair(TfwConn *conn)
 {
 	TfwConn *pair;
 
-	if (!conn || !conn->pair)
+	if (unlikely(!conn || !conn->pair))
 		return NULL;
 
 	pair = conn->pair;
 
 	conn->pair = NULL;
-	pair->pair = NULL;
 
 	return pair;
 }
@@ -229,17 +300,33 @@ tfw_ws_conn_drop(TfwConn *conn)
 {
 	TfwConn *pair = tfw_ws_conn_unpair(conn);
 
-	T_DBG("%s: conn=[%p]\n", __func__, conn);
+	T_DBG("%s cpu/%d: conn=%p(refcnt=%d) pair=%p(refcnt=%d)\n",
+	      __func__, smp_processor_id(),
+	      conn, conn ? atomic_read(&conn->refcnt) : -1,
+	      pair, pair ? atomic_read(&pair->refcnt) : -1);
 
-	if (TFW_CONN_TYPE(conn) & Conn_Srv)
-		tfw_connection_put(conn);
-	else
+	/*
+	 * The function can be called only after tfw_http_websocket_upgrade(),
+	 * which is called under the server socket spinlock and links the pairs.
+	 */
+	BUG_ON(!pair);
+
+	/*
+	 * Client may pipelined HTTP requests to the connection and we couldn't
+	 * free them on uprgade since we needed the pair of upgrading request
+	 * and response. It's still possible to do, but it's unclear whether we
+	 * really need this though.
+	 */
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
 		tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_drop);
 
-	if (!pair)
-		return;
-
+	/*
+	 * We don't reference the paired connection and put it's reference count,
+	 * so this close call must drop the final refcounter and free the
+	 * connection.
+	 */
 	tfw_connection_close(pair, true);
+	tfw_connection_put(pair);
 }
 
 /**
@@ -250,7 +337,8 @@ tfw_ws_conn_send(TfwConn *conn, TfwMsg *msg)
 {
 	int r;
 
-	T_DBG2("%s: conn=[%p], msg=[%p]\n", __func__, conn, msg);
+	T_DBG2("%s cpu/%d: conn=%p, msg=%p\n",
+	       __func__, smp_processor_id(), conn, msg);
 
 	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_send, msg);
 

@@ -1455,10 +1455,9 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 void
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
-	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
-	}
 
 	if (TFW_MSG_H2(req))
 		tfw_h2_send_err_resp(req, status, 0);
@@ -1816,13 +1815,26 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	req->jtxtstamp = jiffies;
 	tfw_http_req_init_ss_flags(srv_conn, req);
 
-	/* We set TFW_CONN_B_UNSCHED on server connection. New requests must
+	/*
+	 * We set TFW_CONN_B_UNSCHED on server connection. New requests must
 	 * not be scheduled to it. It will be used only for websocket transport.
-	 * If upgrade will fail, we clear it. */
-	/* All code paths to the function guarded by `fwd_qlock` so there is
-	 * no race condition here. */
-	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)) {
-		set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	 * If upgrade will fail, we clear it.
+	 * All code paths to the function guarded by `fwd_qlock` so there is
+	 * no race condition here.
+	 */
+	if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
+	    && test_and_set_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags))
+	{
+		/*
+		 * The connection is already stolen by another websocket upgrade
+		 * request. tfw_ws_srv_new_steal_sk() raises server connection
+		 * failovering, so we return the appropriate value here.
+		 *
+		 * This is theoretically possible on highly concurrent scenarios
+		 * the current function is called under tfw_http_conn_on_hold()
+		 * check.
+		 */
+		return -EBADF;
 	}
 
 	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
@@ -2007,7 +2019,7 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
-	if (tfw_http_conn_on_hold(srv_conn)
+	if (req_sent && tfw_http_conn_on_hold(srv_conn)
 	    && !(srv->sg->flags & TFW_SRV_RETRY_NIP))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
@@ -2724,7 +2736,7 @@ tfw_http_conn_release(TfwConn *conn)
  *
  * If a response comes or gets ready to forward after @seq_list is
  * disintegrated, then both the request and the response are dropped at the
- *  sight of an empty list.
+ * sight of an empty list.
  *
  * Locking is necessary as @seq_list is constantly probed from server
  * connection threads.
@@ -6117,8 +6129,9 @@ next_msg:
 		/* Override shouldn't be combined with PURGE, that'd
 		 * probably break things */
 		req->method_override = _TFW_HTTP_METH_NONE;
-	} else
+	} else {
 		__clear_bit(TFW_HTTP_B_PURGE_GET, req->flags);
+	}
 
 	/*
 	 * Method override masks real request properties, non-idempotent methods
@@ -6485,34 +6498,6 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 }
 
 /**
- * Does websocket upgrade procedure.
- *
- * Marks current client connection as websocket connection. Allocated new plain
- * TfwConn connection with websocket type and steal backend connection socket
- * into it. Starts reconnection for stealed from connection. Pairs websocket
- * connections with each other.
- *
- * @return zero on success and negative otherwise
- */
-static int
-tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn * cli_conn)
-{
-	TfwConn *ws_conn;
-
-	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
-		return TFW_BLOCK;
-
-	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
-
-	cli_conn->pair = (TfwConn *)ws_conn;
-	ws_conn->pair = (TfwConn *)cli_conn;
-
-	tfw_ws_cli_mod_timer(cli_conn);
-
-	return TFW_PASS;
-}
-
-/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */
@@ -6546,7 +6531,7 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
-	cli_conn = (TfwCliConn *) hmresp->req->conn;
+	cli_conn = (TfwCliConn *)hmresp->req->conn;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -6717,6 +6702,19 @@ next_msg:
 	}
 
 	/*
+	 * Do upgrade if correct websocket upgrade response detected earlier.
+	 * We have to do this before going to the cache, since the cache calls
+	 * the message forwarding on a callback, which may free both the request
+	 * and response leading to zero reference counter on the client
+	 * connection and its corresponding freeing.
+	 */
+	if (websocket) {
+		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
+		if (unlikely(r < TFW_PASS))
+			return TFW_BLOCK;
+	}
+
+	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
 	 * @hmsib is not attached to the connection yet.
@@ -6725,18 +6723,10 @@ next_msg:
 	if (unlikely(r < TFW_PASS))
 		return TFW_BLOCK;
 
-	/* Do upgrade if correct websocket upgrade response detected earlier */
-	if (websocket) {
-		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
-		if (unlikely(r < TFW_PASS))
-			return TFW_BLOCK;
-	}
-
 next_resp:
-	if (skb && websocket) {
+	if (skb && websocket)
 		return tfw_ws_msg_process(cli_conn->pair, skb);
-	}
-	else if (hmsib) {
+	if (hmsib) {
 		/*
 		 * Switch the connection to the sibling message.
 		 * Data processing will continue with the new SKB.
