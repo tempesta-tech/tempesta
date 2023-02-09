@@ -394,16 +394,26 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 static inline int
 tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
-	unsigned char key_buf[SETTINGS_KEY_SIZE];
-	unsigned char val_buf[SETTINGS_VAL_SIZE];
+	/* XX(id, val) where
+	 * `id` is one of HTTP2_SETTINGS_xxx constants
+	 * `val` is of the size uint32_t
+	 */
+#define INITIAL_HEADERS(XX)                                     \
+	XX(HTTP2_SETTINGS_TABLE_SIZE, HPACK_ENC_TABLE_MAX_SIZE) \
+	XX(HTTP2_SETTINGS_INIT_WND_SIZE, ctx->lsettings.wnd_sz)
+
+#define PLUS_ONE(...) + 1
+	/* Automatically adjusted payload buffer */
+	unsigned char payload[(SETTINGS_KEY_SIZE + SETTINGS_VAL_SIZE)
+		* (0 INITIAL_HEADERS(PLUS_ONE))];
+#undef PLUS_ONE
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = key_buf, .len = SETTINGS_KEY_SIZE },
-			{ .data = val_buf, .len = SETTINGS_VAL_SIZE }
+			{ .data = payload, .len = sizeof(payload) },
 		},
-		.len = SETTINGS_KEY_SIZE + SETTINGS_VAL_SIZE,
-		.nchunks = 3
+		.len = sizeof(payload),
+		.nchunks = 2
 	};
 	TfwFrameHdr hdr = {
 		.length = data.len,
@@ -411,13 +421,23 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 		.type = HTTP2_SETTINGS,
 		.flags = 0
 	};
+	unsigned char *p = payload;
 
 	BUILD_BUG_ON(SETTINGS_KEY_SIZE != sizeof(unsigned short)
-		     || SETTINGS_VAL_SIZE != sizeof(unsigned int)
-		     || SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
+		     || SETTINGS_VAL_SIZE != sizeof(unsigned int));
+	/* Ensure that ALL values are of the size SETTINGS_VAL_SIZE */
+#define CHK_SZ(id, val) BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(val));
+	INITIAL_HEADERS(CHK_SZ);
+#undef CHK_SZ
 
-	*(unsigned short *)key_buf = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
-	*(unsigned int *)val_buf = htonl(ctx->lsettings.wnd_sz);
+	/* Set the payload */
+#define SET_VAL(id, val) do {                                          \
+		*(unsigned short *)p = htons(id);                      \
+		*(unsigned int *)(p + SETTINGS_KEY_SIZE) = htonl(val); \
+		p += SETTINGS_KEY_SIZE + SETTINGS_VAL_SIZE;            \
+	} while (0);
+	INITIAL_HEADERS(SET_VAL);
+#undef SET_VAL
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
