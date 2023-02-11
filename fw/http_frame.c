@@ -1903,6 +1903,8 @@ next_msg:
 	}
 
 out:
+	if (r && r != T_POSTPONE)
+		tfw_h2_context_reinit(h2, false);
 	ss_skb_queue_purge(&h2->skb_head);
 	return r;
 }
