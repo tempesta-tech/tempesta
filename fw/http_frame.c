@@ -394,16 +394,18 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 static inline int
 tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
-	unsigned char key_buf[SETTINGS_KEY_SIZE];
-	unsigned char val_buf[SETTINGS_VAL_SIZE];
+	struct {
+		unsigned short key;
+		unsigned int value;
+	} __attribute__((packed)) field[2];
+
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = key_buf, .len = SETTINGS_KEY_SIZE },
-			{ .data = val_buf, .len = SETTINGS_VAL_SIZE }
+			{ .data = (unsigned char*)field, .len = sizeof(field) },
 		},
-		.len = SETTINGS_KEY_SIZE + SETTINGS_VAL_SIZE,
-		.nchunks = 3
+		.len = sizeof(field),
+		.nchunks = 2
 	};
 	TfwFrameHdr hdr = {
 		.length = data.len,
@@ -413,11 +415,14 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	};
 
 	BUILD_BUG_ON(SETTINGS_KEY_SIZE != sizeof(unsigned short)
-		     || SETTINGS_VAL_SIZE != sizeof(unsigned int)
-		     || SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
+		     || SETTINGS_VAL_SIZE != sizeof(unsigned int));
 
-	*(unsigned short *)key_buf = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
-	*(unsigned int *)val_buf = htonl(ctx->lsettings.wnd_sz);
+	field[0].key   = htons(HTTP2_SETTINGS_TABLE_SIZE);
+	field[0].value = htonl(HPACK_ENC_TABLE_MAX_SIZE);
+
+	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
+	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
+	field[1].value = htonl(ctx->lsettings.wnd_sz);
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
