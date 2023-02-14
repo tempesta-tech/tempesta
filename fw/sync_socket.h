@@ -111,6 +111,22 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 	proto->type = type;
 }
 
+/**
+ * Add overhead to current TCP socket control data.
+ */
+static inline int
+ss_add_overhead(struct sock *sk, unsigned int overhead)
+{
+	if (!overhead)
+		return 0;
+	if (!sk_wmem_schedule(sk, overhead))
+		return -ENOMEM;
+	sk->sk_wmem_queued += overhead;
+	sk_mem_charge(sk, overhead);
+
+	return 0;
+}
+
 /* Dummy user ID to differentiate server from client sockets. */
 #define SS_SRV_USER			0x11223344
 
@@ -125,6 +141,11 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 /* Close with TCP RST (connection abort). */
 #define __SS_F_RST			0x10
 #define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
+
+enum {
+	/* This skb contains start of http2 frame. */
+	SS_F_HTTP2_FRAME_START	=	0x01,
+};
 
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)

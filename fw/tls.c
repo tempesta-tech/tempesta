@@ -195,20 +195,6 @@ next_msg:
 }
 
 /**
- * Add the TLS record overhead to current TCP socket control data.
- */
-static int
-tfw_tls_tcp_add_overhead(struct sock *sk, unsigned int overhead)
-{
-	if (!sk_wmem_schedule(sk, overhead))
-		return -ENOMEM;
-	sk->sk_wmem_queued += overhead;
-	sk_mem_charge(sk, overhead);
-
-	return 0;
-}
-
-/**
  * Propagate TCP correct sequence numbers from the current @skb with adjusted
  * sequence numbers for TLS overhead to the next one on TCP write queue.
  * So that tcp_send_head() always point to an skb with the right sequence
@@ -272,18 +258,6 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
 
-	assert_spin_locked(&sk->sk_lock.slock);
-
-	/*
-	 * If client closes connection early, we may get here with sk_user_data
-	 * being NULL.
-	 */
-	if (unlikely(!sk->sk_user_data)) {
-		WARN_ON_ONCE(!sock_flag(sk, SOCK_DEAD));
-		r = -EPIPE;
-		goto err_purge_tcp_write_queue;
-	}
-
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
 	xfrm = &tls->xfrm;
@@ -292,7 +266,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
-	       skb, skb->len, skb->data_len, tempesta_tls_skb_type(skb),
+	       skb, skb->len, skb->data_len, ss_skb_tls_type(skb),
 	       skb_shinfo(skb)->nr_frags, skb_headlen(skb),
 	       tcb->seq, tcb->end_seq);
 	BUG_ON(!ttls_xfrm_ready(tls));
@@ -302,11 +276,11 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 	head_sz = ttls_payload_off(xfrm);
 	len = head_sz + skb->len + TTLS_TAG_LEN;
-	type = tempesta_tls_skb_type(skb);
+	type = ss_skb_tls_type(skb);
 	if (!type) {
 		T_WARN("%s: bad skb type %u\n", __func__, type);
 		r = -EINVAL;
-		goto err_kill_sock;
+		goto err_epilogue;
 	}
 
 	/* TLS header is always allocated from the skb headroom. */
@@ -319,13 +293,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
-		       !!skb_headlen(next), tempesta_tls_skb_type(next),
+		       !!skb_headlen(next), ss_skb_tls_type(next),
 		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
 			break;
 		/* Don't put different message types into the same record. */
-		if (type != tempesta_tls_skb_type(next))
+		if (type != ss_skb_tls_type(next))
 			break;
 
 		/*
@@ -418,7 +392,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for TTLS_TAG_LEN.
 	 */
-	if (tfw_tls_tcp_add_overhead(sk, t_sz))
+	if (ss_add_overhead(sk, t_sz))
 		return -ENOMEM;
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
@@ -469,7 +443,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			goto out;
 		out_frags += r;
 
-		tempesta_tls_skb_clear(next);
+		tempesta_skb_clear_cb(next);
 		if (next == skb_tail)
 			break;
 		if (WARN_ON_ONCE(frags >= sgt.nents))
@@ -518,23 +492,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
-	if (!r || r == -ENOMEM)
+	if (!r)
 		return r;
-
-	/*
-	 * We can not send unencrypted data and can not normally close the
-	 * socket with FIN since we're in progress on sending from the write
-	 * queue.
-	 */
-err_kill_sock:
-	ss_close(sk, SS_F_ABORT);
-	goto err_epilogue;
-err_purge_tcp_write_queue:
-	/*
-	 * Leave encrypted segments in the retransmission rb-tree,
-	 * but purge the send queue on unencrypted segments.
-	 */
-	tcp_write_queue_purge(sk);
 err_epilogue:
 	T_WARN("%s: cannot encrypt data (%d), only partial data was sent\n",
 	       __func__, r);

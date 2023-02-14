@@ -3072,7 +3072,7 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 	do {
 		unsigned short f_len, fhdr_len;
 
-		if (i >= HPACK_MAX_ENC_EVICTION)
+		if (i >= HPACK_MAX_ENC_EVICTION && del_list)
 			return -E2BIG;
 
 		if (unlikely(!size))
@@ -3991,8 +3991,11 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 void
 tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 {
-	if (WARN_ON_ONCE(new_size > HPACK_ENC_TABLE_MAX_SIZE))
-		return;
+	if (new_size > HPACK_ENC_TABLE_MAX_SIZE) {
+		T_WARN("Client requests hpack table size (%hu), which is "
+			"greater than HPACK_ENC_TABLE_MAX_SIZE.", new_size);
+		new_size = HPACK_ENC_TABLE_MAX_SIZE;
+	}
 
 	spin_lock(&tbl->lock);
 
@@ -4000,14 +4003,95 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 	       " new_size=%hu\n", __func__, tbl->rb_len, tbl->size,
 	       tbl->window, new_size);
 
-	if (tbl->window > new_size) {
+	/*
+	 * RFC7541#section-4.2:
+	 * Multiple updates to the maximum table size can occur between the
+	 * transmission of two header blocks. In the case that this size is
+	 * changed more than once in this interval, the smallest maximum table
+	 * size that occurs in that interval MUST be signaled in a dynamic
+	 * table size update.
+	 */
+	if (tbl->window != new_size && (likely(!atomic_read(&tbl->wnd_changed))
+	    || unlikely(!tbl->window) || new_size < tbl->window))
+	{
 		if (tbl->size > new_size)
 			tfw_hpack_rbuf_calc(tbl, new_size, NULL,
 					    (TfwHPackETblIter *)tbl);
 		WARN_ON_ONCE(tbl->rb_len > tbl->size);
 
 		tbl->window = new_size;
+		atomic_set(&tbl->wnd_changed, 1);
 	}
 
 	spin_unlock(&tbl->lock);
+}
+
+int
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
+			   unsigned int *bytes_wtitten)
+{
+	TfwMsgIter it = { .frag = -1, .skb = skb, .skb_head = skb};
+	TfwStr new_size = {};
+	TfwHPackInt tmp = {};
+	TfwFrameHdr hdr = {};
+	char *data = skb->data;
+	int r = 0;
+
+	/*
+	 * Check header type. Sometimes because of skb splitting,
+	 * headers data can present here, but HTTP2_HEADERS code
+	 * (0x01) is not valid for headers data.
+	 */
+	if (skb->data[3] != HTTP2_HEADERS)
+		return 0;
+
+	/*
+	 * We should encode hpack dynamic table size, only in case when
+	 * it was changed and only once.
+	 */
+	if (unlikely(atomic_cmpxchg(&tbl->wnd_changed, 1, -1) == 1)) {
+		write_int(tbl->window, 0x1F, 0x20, &tmp);
+		new_size.data = tmp.buf;
+		new_size.len = tmp.sz;
+	
+		r = tfw_msg_iter_move(&it, (unsigned char **)&data,
+				      FRAME_HEADER_SIZE);
+		if (unlikely(r))
+			goto finish;
+
+		r = tfw_http_msg_insert(&it, &data, &new_size);
+		if (unlikely(r))
+			goto finish;
+
+		tfw_h2_unpack_frame_header(&hdr, skb->data);
+		hdr.length += tmp.sz;
+		tfw_h2_pack_frame_header(skb->data, &hdr);
+
+		*bytes_wtitten = tmp.sz;
+	}
+
+finish:
+	if (unlikely(r))
+		/*
+		 * In case of error we should restore value of `wnd_changed`
+		 * flag.
+		 */
+		atomic_set(&tbl->wnd_changed, 1);
+	return r;	
+}
+
+void
+tfw_hpack_enc_tbl_write_sz_release(TfwHPackETbl *__restrict tbl, int r)
+{
+	/*
+	 * Before calling this function, we should check that we encode
+	 * new dynamic table size into the frame, so `old` can have only
+	 * two values (-1 in most of all cases, since we set it previosly
+	 * or 1 if changing of dynamic table size was occured, before this
+	 * function is called).
+	 * We should change this flag only if it wasn't changed by
+	 * `tfw_hpack_set_rbuf_size` function.
+	 */
+	int old = atomic_cmpxchg(&tbl->wnd_changed, -1, r == 0 ? 0 : 1);
+	WARN_ON_ONCE(!old);
 }

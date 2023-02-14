@@ -545,7 +545,7 @@ index e37480b5f..617f4e76b 100644
  
  /*
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index a828cf99c..b877eb543 100644
+index a828cf99c..50f3419b4 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -232,6 +232,12 @@
@@ -581,60 +581,91 @@ index a828cf99c..b877eb543 100644
  
  	__u8			ipvs_property:1;
  	__u8			inner_protocol_type:1;
-@@ -931,6 +943,52 @@ struct sk_buff {
+@@ -931,6 +943,83 @@ struct sk_buff {
  #define SKB_ALLOC_RX		0x02
  #define SKB_ALLOC_NAPI		0x04
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +long __get_skb_count(void);
 +
++enum {
++	TEMPESTA_TLS_SKB_TYPE_OFF	= 0,
++	TEMPESTA_TLS_SKB_TYPE_MAX	= 0x7F,
++	TEMPESTA_SKB_FLAG_OFF		= 7,
++	TEMPESTA_SKB_FLAG_CLEAR_MASK	= 0x01,
++	TEMPESTA_SKB_FLAG_MAX		= 0xFF,
++};
++
 +/**
-+ * The skb type is used only for time between @skb was inserted into TCP send
++ * Tempesta uses skb->dev only for time between @skb was inserted into TCP send
 + * queue and it's processed (first time) in tcp_write_xmit(). This time the @skb
 + * isn't scheduled yet, so we can use skb->dev for our needs to avoid extending
 + * sk_buff. We use the least significant bit to be sure that this isn't a
-+ * pointer to not to break anything. TLS message type << 1 is always smaller
-+ * than 0xff.
++ * pointer to not to break anything.
 + */
 +static inline void
-+tempesta_tls_skb_settype(struct sk_buff *skb, unsigned char type)
-+{
-+	BUG_ON(type >= 0x80);
-+	WARN_ON_ONCE(skb->dev);
-+
-+	skb->dev = (void *)((type << 1) | 1UL);
-+}
-+
-+static inline unsigned char
-+tempesta_tls_skb_type(struct sk_buff *skb)
++tempesta_skb_set_cb_val(struct sk_buff *skb, unsigned long val, unsigned char off)
 +{
 +	unsigned long d = (unsigned long)skb->dev;
 +
++	BUG_ON(off + 1 >= sizeof(skb->dev) * BITS_PER_BYTE);
++	BUG_ON(!val || __builtin_clzl(val) < off + 1);
++	BUG_ON(skb->dev && !((unsigned long)skb->dev & 1UL));
++
++	d |= ((val << (off + 1)) | 1UL);
++	skb->dev = (void *)d;
++}
++
++static inline unsigned long
++tempesta_skb_get_cb_val(struct sk_buff *skb, unsigned char off, unsigned long mask)
++{
++	unsigned long d = (unsigned long)skb->dev;
++
++	BUG_ON(off + 1 >= sizeof(skb->dev) * BITS_PER_BYTE);
 +	if (!(d & 1UL))
 +		return 0; /* a pointer in skb->dev */
-+	return d >> 1;
++	return (d >> (off + 1)) & mask;
 +}
 +
 +static inline void
-+tempesta_tls_skb_typecp(struct sk_buff *dst, struct sk_buff *src)
++tempesta_skb_clear_cb_val(struct sk_buff *skb, unsigned long val, unsigned char off)
++{
++	unsigned long d = (unsigned long)skb->dev;
++	BUG_ON(off + 1 >= sizeof(skb->dev) * BITS_PER_BYTE);
++	BUG_ON(!val || __builtin_clzl(val) < off + 1);
++	BUG_ON(skb->dev && !((unsigned long)skb->dev & 1UL));
++
++	d &= ~(val << (off + 1));
++	skb->dev = (void *)d;
++}
++
++static inline unsigned long
++is_tempesta_skb_cb(struct sk_buff *skb)
++{
++	return ((unsigned long)skb->dev) & 1UL;
++}
++
++static inline void
++tempesta_skb_copy_cb(struct sk_buff *dst, struct sk_buff *src)
 +{
 +	dst->dev = src->dev;
 +}
 +
 +static inline void
-+tempesta_tls_skb_clear(struct sk_buff *skb)
++tempesta_skb_clear_cb(struct sk_buff *skb)
 +{
 +	unsigned long d = (unsigned long)skb->dev;
 +
-+	WARN_ON_ONCE(d & ~0xff);
++	WARN_ON_ONCE(!(d & 1UL));
 +	skb->dev = NULL;
 +}
++
 +#endif
 +
  /**
   * skb_pfmemalloc - Test if the skb was allocated from PFMEMALLOC reserves
   * @skb: buffer
-@@ -1074,6 +1132,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+@@ -1074,6 +1163,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
  bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  		      bool *fragstolen, int *delta_truesize);
  
@@ -642,7 +673,7 @@ index a828cf99c..b877eb543 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
  			    int node);
  struct sk_buff *__build_skb(void *data, unsigned int frag_size);
-@@ -2104,7 +2163,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
+@@ -2104,7 +2194,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -654,7 +685,7 @@ index a828cf99c..b877eb543 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -2341,6 +2404,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -2341,6 +2435,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -2193,7 +2224,7 @@ index ab8ed0fc4..e260a0af6 100644
  		goto put_and_exit;
  	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash),
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..12ef8eb20 100644
+index f99494637..8a48826a9 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2240,12 +2271,15 @@ index f99494637..12ef8eb20 100644
  
  /* Initialize TSO segments for a packet. */
  static void tcp_set_skb_tso_segs(struct sk_buff *skb, unsigned int mss_now)
-@@ -1518,12 +1523,39 @@ static void tcp_insert_write_queue_after(struct sk_buff *skb,
+@@ -1518,12 +1523,42 @@ static void tcp_insert_write_queue_after(struct sk_buff *skb,
  					 struct sock *sk,
  					 enum tcp_queue tcp_queue)
  {
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	tempesta_tls_skb_typecp(buff, skb);
++	tempesta_skb_copy_cb(buff, skb);
++	if (is_tempesta_skb_cb(buff))
++		tempesta_skb_clear_cb_val(buff, TEMPESTA_SKB_FLAG_CLEAR_MASK,
++					  TEMPESTA_SKB_FLAG_OFF);
 +#endif
  	if (tcp_queue == TCP_FRAG_IN_WRITE_QUEUE)
  		__skb_queue_after(&sk->sk_write_queue, skb, buff);
@@ -2280,7 +2314,7 @@ index f99494637..12ef8eb20 100644
  /* Function to create two new TCP segments.  Shrinks the given segment
   * to the specified size and appends a new segment with the rest of the
   * packet to the list.  This won't be called frequently, I hope.
-@@ -1561,7 +1593,7 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
+@@ -1561,7 +1596,7 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
  		return -ENOMEM;
  	}
  
@@ -2289,7 +2323,7 @@ index f99494637..12ef8eb20 100644
  		return -ENOMEM;
  
  	/* Get a new skb... force flag on. */
-@@ -1670,7 +1702,7 @@ int tcp_trim_head(struct sock *sk, struct sk_buff *skb, u32 len)
+@@ -1670,7 +1705,7 @@ int tcp_trim_head(struct sock *sk, struct sk_buff *skb, u32 len)
  {
  	u32 delta_truesize;
  
@@ -2298,7 +2332,7 @@ index f99494637..12ef8eb20 100644
  		return -ENOMEM;
  
  	delta_truesize = __pskb_trim_head(skb, len);
-@@ -1848,6 +1880,7 @@ unsigned int tcp_current_mss(struct sock *sk)
+@@ -1848,6 +1883,7 @@ unsigned int tcp_current_mss(struct sock *sk)
  
  	return mss_now;
  }
@@ -2306,14 +2340,23 @@ index f99494637..12ef8eb20 100644
  
  /* RFC2861, slow part. Adjust cwnd, after it was not full during one rto.
   * As additional protections, we do not touch cwnd in retransmission phases,
-@@ -2666,7 +2699,20 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2666,10 +2702,39 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
 -
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb)) {
-+			if (unlikely(limit <= TLS_MAX_OVERHEAD)) {
++/*
++ * Maximum number of bytes, that the hpack dynamic
++ * table size can occupy.
++ */
++#define HPACK_TBL_BYTES_OCCUPIED_MAX 3
++		if (sk->sk_write_xmit
++		    && (tempesta_skb_get_cb_val(skb, TEMPESTA_TLS_SKB_TYPE_OFF,
++						TEMPESTA_TLS_SKB_TYPE_MAX)
++			& TEMPESTA_TLS_SKB_TYPE_MAX)) {
++			if (unlikely(limit <= TLS_MAX_OVERHEAD +
++				     HPACK_TBL_BYTES_OCCUPIED_MAX)) {
 +				net_warn_ratelimited("%s: too small MSS %u"
 +						     " for TLS\n",
 +						     __func__, mss_now);
@@ -2324,11 +2367,21 @@ index f99494637..12ef8eb20 100644
 +			else
 +				limit -= TLS_MAX_OVERHEAD;
 +		}
-+#endif
++		if (skb->len > limit - HPACK_TBL_BYTES_OCCUPIED_MAX &&
++		    unlikely(tso_fragment(sk, skb,
++					  limit - HPACK_TBL_BYTES_OCCUPIED_MAX,
++					  mss_now, gfp)))
++			break;
++#undef HPACK_TBL_BYTES_OCCUPIED_MAX
++#else
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2681,7 +2727,30 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
++#endif
+ 
+ 		if (tcp_small_queue_check(sk, skb, 0))
+ 			break;
+@@ -2681,7 +2746,33 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  		 */
  		if (TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq)
  			break;
@@ -2346,7 +2399,10 @@ index f99494637..12ef8eb20 100644
 +		 * different TCP segments, so coalesce skbs for transmission to
 +		 * get 16KB (maximum size of TLS message).
 +		 */
-+		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb)) {
++		if (sk->sk_write_xmit
++		    && (tempesta_skb_get_cb_val(skb, TEMPESTA_TLS_SKB_TYPE_OFF,
++						TEMPESTA_TLS_SKB_TYPE_MAX)
++			& TEMPESTA_TLS_SKB_TYPE_MAX)) {
 +			result = sk->sk_write_xmit(sk, skb, limit);
 +			if (unlikely(result)) {
 +				if (result == -ENOMEM)
@@ -2360,7 +2416,7 @@ index f99494637..12ef8eb20 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2866,6 +2935,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2866,6 +2957,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -2368,7 +2424,7 @@ index f99494637..12ef8eb20 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -3183,7 +3253,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -3183,7 +3275,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  				 cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -2377,7 +2433,7 @@ index f99494637..12ef8eb20 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3454,6 +3524,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -3454,6 +3546,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  	 */
  	trace_tcp_send_reset(sk, NULL);
  }

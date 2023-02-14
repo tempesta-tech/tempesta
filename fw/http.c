@@ -4994,9 +4994,11 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 		h_len -= max_sz;
 		frame_hdr.type = HTTP2_CONTINUATION;
-		__tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
-				     max_sz, &frame_hdr_str, &frame_hdr,
-				     fr_flags);
+		r = __tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
+					 max_sz, &frame_hdr_str, &frame_hdr,
+					 fr_flags);
+		if (unlikely(r))
+			return r;
 	}
 
 	if (local_response)
@@ -5025,9 +5027,11 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 		b_len -= max_sz;
 		frame_hdr.type = HTTP2_DATA;
-		__tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
-				     max_sz, &frame_hdr_str, &frame_hdr,
-				     HTTP2_F_END_STREAM);
+		r = __tfw_h2_make_frames(b_len, data, buf, sizeof(buf), iter, skew,
+					 max_sz, &frame_hdr_str, &frame_hdr,
+					 HTTP2_F_END_STREAM);
+		if (unlikely(r))
+			return r;
 	}
 
 	return 0;

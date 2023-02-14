@@ -157,6 +157,91 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return r;
 }
 
+static int
+tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
+{
+	TfwConn *conn = sk->sk_user_data;
+	TfwH2Ctx *h2;
+	TfwHPackETbl *tbl;
+	unsigned int bytes_written = 0;
+	unsigned char flags;
+	bool h2_mode;
+	int r = 0;
+
+	assert_spin_locked(&sk->sk_lock.slock);
+
+	/*
+	 * If client closes connection early, we may get here with conn
+	 * being NULL.
+	 */
+	if (unlikely(!conn)) {
+		WARN_ON_ONCE(!sock_flag(sk, SOCK_DEAD));
+		r = -EPIPE;
+		goto err_purge_tcp_write_queue;
+	}
+
+	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
+	flags = ss_skb_flags(skb);
+
+	/*
+	 * We should write new hpack dynamic table size at the
+	 * beginning of the first header block, which is always
+	 * in linear part of skb. If skb_headlen is smaller
+	 * than FRAME_HEADER_SIZE, it means that skb doesn't
+	 * contain valid frame header in it's linear part.
+	 */
+	if (h2_mode && flags & SS_F_HTTP2_FRAME_START
+	    && skb_headlen(skb) >= FRAME_HEADER_SIZE)
+	{
+		h2 = tfw_h2_context(conn);
+		tbl = &h2->hpack.enc_tbl;
+
+		r = tfw_hpack_enc_tbl_write_sz(tbl, skb, &bytes_written);
+		if (unlikely(r)) {
+			T_WARN("%s: failed to encode new hpack dynamic "
+			       "table size (%d)", __func__, r);
+			goto ret;
+		}
+
+		tcp_sk(sk)->write_seq += bytes_written;
+		TCP_SKB_CB(skb)->end_seq += bytes_written;
+		/* Should be zero when skb is passed to kernel code. */
+		skb->tail_lock = 0;
+		r = ss_add_overhead(sk, bytes_written);
+		if (unlikely(r)) {
+			T_WARN("%s: failed to add overhead to current TCP "
+			       "socket control data. (%d)", __func__, r);
+			goto ret;
+		}
+	}
+
+	ss_skb_clear_flags(skb);
+	r = tfw_tls_encrypt(sk, skb, limit);
+
+ret:
+	if (h2_mode && unlikely(bytes_written))
+		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
+	if (unlikely(r) && r != -ENOMEM)
+		/*
+		 * We can not send unencrypted data and can not normally close the
+		 * socket with FIN since we're in progress on sending from the write
+		 * queue.
+		 */
+		ss_close(sk, SS_F_ABORT);
+
+	if (unlikely(r))
+		ss_skb_set_flags(skb, flags);
+	return r;
+
+err_purge_tcp_write_queue:
+	/*
+	 * Leave encrypted segments in the retransmission rb-tree,
+	 * but purge the send queue on unencrypted segments.
+	 */
+	tcp_write_queue_purge(sk);
+	return r;
+}
+
 /**
  * This hook is called when a new client connection is established.
  */
@@ -222,7 +307,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		 * upcall beside GFSM and SS, but that's efficient and I didn't
 		 * find a simple and better solution.
 		 */
-		sk->sk_write_xmit = tfw_tls_encrypt;
+		sk->sk_write_xmit = tfw_sc_write_xmit;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,
