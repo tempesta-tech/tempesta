@@ -2836,8 +2836,10 @@ TEST(http1_parser, etag)
 	FOR_ETAG("ETag: W/\"" ETAG_ALPHABET "\"",  ETAG_ALPHABET "\"");
 
 	/* Same code is used to parse ETag header and If-None-Match header. */
+	ETAG_BLOCK("Etag: \"dum my\"");
+	ETAG_BLOCK("Etag: \"dummy \"");
+	ETAG_BLOCK("Etag:  *\"");
 	ETAG_BLOCK("ETag: \"dummy1\", \"dummy2\"");
-	ETAG_BLOCK("ETag: *\r\n");
 	COMMON_ETAG_BLOCK("ETag: ", ETAG_BLOCK);
 	ETAG_BLOCK("ETag: \"dummy\"\r\n"
 		       ": \"dummy\"");
@@ -2943,7 +2945,7 @@ TEST(http1_parser, if_none_match)
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: \"" ETAG_2 "\", * ");
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: *, \"" ETAG_2 "\" ");
 
-	COMMON_ETAG_BLOCK("If-None-Match: ", EXPECT_BLOCK_REQ_SIMPLE);
+	COMMON_IF_NON_MATCH_BLOCK("If-None-Match: ", EXPECT_BLOCK_REQ_SIMPLE);
 	EXPECT_BLOCK_REQ_SIMPLE("If-None-Match: \"dummy\"\r\n"
 					     ": \"dummy\"");
 
