@@ -89,10 +89,9 @@ enum {
 	BLOCK_MACRO(head "4294967295" tail)
 
 /* For ETag and If-None-Match headers */
-#define COMMON_ETAG_BLOCK(head, BLOCK_MACRO)			\
+#define __COMMON_ETAG_IF_NONE_MATCH_BLOCK(head, BLOCK_MACRO)	\
 	BLOCK_MACRO(head "\"dummy");				\
 	BLOCK_MACRO(head "dummy\"");				\
-	BLOCK_MACRO(head "'dummy'");				\
 	BLOCK_MACRO(head "W/ \"dummy\"");			\
 	BLOCK_MACRO(head "w/\"dummy\"");			\
 	BLOCK_MACRO(head "\"\x00\"");				\
@@ -100,6 +99,13 @@ enum {
 	BLOCK_MACRO(head "\"\x7F\"");				\
 	BLOCK_MACRO(head "\" \"");				\
 	BLOCK_MACRO(head "\"\"\"")
+
+#define COMMON_ETAG_BLOCK(head, BLOCK_MACRO)			\
+	__COMMON_ETAG_IF_NONE_MATCH_BLOCK(head, BLOCK_MACRO)
+
+#define COMMON_IF_NON_MATCH_BLOCK(head, BLOCK_MACRO)		\
+	BLOCK_MACRO(head "'dummy'");				\
+	__COMMON_ETAG_IF_NONE_MATCH_BLOCK(head, BLOCK_MACRO)
 
 /**
  * Reference to a frame of bytes containing the request data to be parsed.

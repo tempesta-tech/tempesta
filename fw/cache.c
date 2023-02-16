@@ -1261,14 +1261,41 @@ tfw_cache_h2_copy_int(unsigned int *acc_len, unsigned long src,
 	return 0;
 }
 
+static int
+tfw_cache_copy_str_with_extra_quotes(TfwCacheEntry *ce, char **p, TdbVRec **trec,
+				     TfwStr *src, size_t *tot_len,
+				     bool need_extra_quotes)
+{
+#define ADD_ETAG_QUOTE(flag)                                            \
+do {                                                                    \
+        TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
+        if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
+                                  tot_len))                             \
+                return -ENOMEM;                                         \
+} while(0)
+
+	if (need_extra_quotes)
+		ADD_ETAG_QUOTE(0);
+
+	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, src, tot_len))
+		return -ENOMEM;
+
+	if (need_extra_quotes)
+		ADD_ETAG_QUOTE(TFW_STR_VALUE);
+
+	return 0;
+
+#undef ADD_ETAG_QUOTE
+}
+
 /**
  * Deep HTTP header copy to TdbRec.
  * @hdr is copied in depth first fashion to speed up upcoming scans.
  * @return number of copied bytes on success and negative value otherwise.
  */
 static long
-tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
-		      size_t *tot_len)
+tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
+		      TdbVRec **trec, TfwStr *hdr, size_t *tot_len)
 {
 	TfwCStr *cs;
 	long n = sizeof(TfwCStr);
@@ -1276,6 +1303,10 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
 	bool dupl = TFW_STR_DUP(hdr);
 	unsigned int init_len = ce->hdr_len;
 	TfwStr s_nm, s_val, *dup, *dup_end;
+	unsigned long s_val_len;
+	const bool need_extra_quotes =
+		test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags)
+		&& (hid == TFW_HTTP_HDR_ETAG);
 
 	T_DBG3("%s: ce=[%p] p=[%p], trec=[%p], tot_len='%zu'\n", __func__, ce,
 	       *p, *trec, *tot_len);
@@ -1288,7 +1319,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
 		tfw_http_hdr_split(hdr, &s_nm, &s_val, true);
 
 		st_index = hdr->hpack_idx;
-		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index);
+		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index) +
+			2 * need_extra_quotes;
 
 		/* Don't split short strings. */
 		if (sizeof(TfwCStr) + h_len <= L1_CACHE_BYTES)
@@ -1333,10 +1365,12 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
 				return -ENOMEM;
 		}
 
-		if (tfw_cache_h2_copy_int(&ce->hdr_len, s_val.len, 0x7f, p,
+		s_val_len =  s_val.len + 2 * need_extra_quotes;
+		if (tfw_cache_h2_copy_int(&ce->hdr_len, s_val_len, 0x7f, p,
 					  trec, tot_len)
-		    || tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &s_val,
-					     tot_len))
+		    || tfw_cache_copy_str_with_extra_quotes(ce, p, trec,
+							    &s_val, tot_len,
+							    need_extra_quotes))
 			return -ENOMEM;
 
 		CSTR_WRITE_HDR(0, ce->hdr_len - prev_len);
@@ -1501,6 +1535,13 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	tfw_http_hdr_split(h, &s_dummy, &s_val, true);
 	c_size = 2 + tfw_hpack_int_size(s_val.len, 0x7F);
 	CHECK_REC_SPACE();
+
+	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags)) {
+		len += 1;
+		c_size = 1;
+		CHECK_REC_SPACE();
+	}
+
 	TFW_STR_FOR_EACH_CHUNK(c, &h_val, end) {
 		if (c->flags & TFW_STR_VALUE) {
 			flags = c->flags;
@@ -1730,7 +1771,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		}
 
 		__save_hdr_304_off(ce, resp, field, TDB_OFF(db->hdr, p));
-		n = tfw_cache_h2_copy_hdr(ce, &p, &trec, field, &tot_len);
+		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field, &tot_len);
 		if (unlikely(n < 0))
 			return n;
 	}
@@ -2071,6 +2112,9 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	TfwCacheEntry *ce;
 	TfwStr rph, *s_line;
 	long data_len = __cache_entry_size(resp);
+
+	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags))
+		data_len += 2;
 
 	if (unlikely(data_len < 0))
 		return;

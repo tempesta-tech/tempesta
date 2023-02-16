@@ -256,11 +256,14 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 
 	nlen = hdr_lens[client][id];
 	/*
-	 * Only Host header is allowed to be empty.
+	 * Only Host header is allowed to be empty but because
+	 * we don't follow RFC and allow Etag header to be not
+	 * enclosed in double quotes it also can be empty.
 	 * If header string is plain, it is always empty header.
 	 * Not empty headers are compound strings.
 	 */
-	BUG_ON(id == TFW_HTTP_HDR_HOST ? nlen > hdr->len : nlen >= hdr->len);
+	BUG_ON(id == TFW_HTTP_HDR_HOST
+	       || id == TFW_HTTP_HDR_ETAG ? nlen > hdr->len : nlen >= hdr->len);
 
 	*val = *hdr;
 

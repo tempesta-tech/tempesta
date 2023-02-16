@@ -2863,7 +2863,7 @@ __FSM_STATE(st) {							\
 static int
 __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	int r = CSTR_NEQ;
+	int no_quotes, r = CSTR_NEQ;
 	bool if_nmatch = TFW_CONN_TYPE(hm->conn) & Conn_Clnt;
 	__FSM_DECLARE_VARS(hm);
 
@@ -2917,6 +2917,20 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 		if (IS_WS(c))
 			__FSM_I_MOVE_fixup(I_Etag, 1, 0);
+
+		/*
+		 * According to RFC 9110 8.8.3:
+		 * An entity-tag consists of an opaque quoted string, possibly
+		 * prefixed by a weakness indicator.
+		 * But unfortunately many do not follow RFC and send Etag
+		 * without double quotes (wordpress for example), so we
+		 * should process such Etag here.
+		 */
+		if (!if_nmatch) {
+			__set_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, msg->flags);
+			parser->_i_st = &&I_Etag_Val;
+			goto I_Etag_Val;
+		}
 		return CSTR_NEQ;
 	}
 
@@ -2932,18 +2946,35 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * in separate TfwStr chunk.
 	 */
 	__FSM_STATE(I_Etag_Val) {
+		no_quotes = test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
+				     msg->flags);
 		__FSM_I_MATCH_MOVE_fixup(etag, I_Etag_Val, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
-		if (likely(c == '"')) {
+		/*
+		 * Since we process Etags which are not enclosed in double
+		 * quotes, we check that there is quote at the end of Etag
+		 * only in case if it is in it's begin.
+		 */
+		if (likely(c == '"' && !no_quotes)) {
 			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz + 1, TFW_STR_VALUE);
+		}
+		if (unlikely(IS_CRLFWS(c)) && no_quotes) {
+			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz, __fsm_sz ?
+					   TFW_STR_VALUE : 0);
 		}
 		return CSTR_NEQ;
 	}
 
 	/* End of ETag */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(c))
-			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
+		if (IS_WS(c)) {
+			no_quotes = test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
+					     msg->flags);
+			if (!no_quotes)
+				__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
+			else
+				__FSM_MOVE_nofixup(I_EoT);
+		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		if (if_nmatch && c == ',')

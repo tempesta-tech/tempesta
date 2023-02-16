@@ -313,6 +313,11 @@ enum {
 	TFW_HTTP_B_HDR_LMODIFIED,
 	/* Response is fully processed and ready to be forwarded to the client. */
 	TFW_HTTP_B_RESP_READY,
+	/*
+	 * Response has header 'Etag: ' and this header is
+	 * not enclosed in double quotes.
+	 */
+	TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
 
 	_TFW_HTTP_FLAGS_NUM
 };
