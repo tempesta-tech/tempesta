@@ -212,7 +212,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 
 		/* Going out if the @skb is prohibied by the caller. */
 		if (!skb_head)
-			return -ENOMEM;
+			return -EINVAL;
 
 		/*
 		 * The number of page fragments that don't fit in the SKB
