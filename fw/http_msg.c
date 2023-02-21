@@ -915,8 +915,9 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
-		T_WARN("Appending to nonsingular header %d\n", hid);
-		return -ENOENT;
+		T_WARN("Appending to singular header '%.*s'\n",
+		       PR_TFW_STR(TFW_STR_CHUNK(hdr, 0)));
+		return 0;
 	}
 
 	if (!orig_hdr || TFW_STR_EMPTY(orig_hdr)) {
