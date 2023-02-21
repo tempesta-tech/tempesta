@@ -760,8 +760,8 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 	desc->hdr = hdr;
 	desc->append = append;
 	desc->hid = (mod_type == TFW_VHOST_HDRMOD_RESP)
-			? tfw_http_msg_resp_spec_hid(hdr)
-			: tfw_http_msg_req_spec_hid(hdr);
+			? tfw_http_msg_resp_spec_hid(TFW_STR_CHUNK(hdr, 0))
+			: tfw_http_msg_req_spec_hid(TFW_STR_CHUNK(hdr, 0));
 	++h_mods->sz;
 
 	return 0;
