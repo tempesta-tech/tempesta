@@ -2863,13 +2863,13 @@ __FSM_STATE(st) {							\
 static int
 __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	int weak, r = CSTR_NEQ;
+	int r = CSTR_NEQ;
 	bool if_nmatch = TFW_CONN_TYPE(hm->conn) & Conn_Clnt;
 	__FSM_DECLARE_VARS(hm);
 
 	/*
 	 * ETag value and closing DQUOTE is placed into separate chunks marked
-	 * with flags TFW_STR_VALUE and TFW_STR_ETAG_WEAK (optionally).
+	 * with flags TFW_STR_VALUE.
 	 * Closing DQUOTE is used to support empty Etags. Opening is not added
 	 * to simplify usage of tfw_stricmpspn()
 	 *
@@ -2923,13 +2923,7 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_TX_ETAG(I_Etag_W, '/', I_Etag_We);
 	__FSM_TX_ETAG(I_Etag_We, '"', I_Etag_Weak);
 
-	/*
-	 * Need to store WEAK flag, it is safe to store the flag in parser->hdr,
-	 * but only after first fixup in this function: header must became
-	 * compound string.
-	 */
 	__FSM_STATE(I_Etag_Weak) {
-		parser->hdr.flags |= TFW_STR_ETAG_WEAK;
 		__FSM_JMP(I_Etag_Val);
 	}
 
@@ -2938,14 +2932,10 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * in separate TfwStr chunk.
 	 */
 	__FSM_STATE(I_Etag_Val) {
-		weak = parser->hdr.flags & TFW_STR_ETAG_WEAK;
-		__FSM_I_MATCH_MOVE_fixup(etag, I_Etag_Val,
-					 (TFW_STR_VALUE | weak));
+		__FSM_I_MATCH_MOVE_fixup(etag, I_Etag_Val, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
 		if (likely(c == '"')) {
-			parser->hdr.flags &= ~TFW_STR_ETAG_WEAK;
-			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz + 1,
-					   TFW_STR_VALUE | weak);
+			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz + 1, TFW_STR_VALUE);
 		}
 		return CSTR_NEQ;
 	}
@@ -7815,7 +7805,7 @@ static int
 __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			 bool fin)
 {
-	int weak, r = CSTR_NEQ;
+	int r = CSTR_NEQ;
 	TfwHttpReq *req = (TfwHttpReq *)hm;
 	__FSM_DECLARE_VARS(hm);
 
@@ -7867,19 +7857,14 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_H2_TX_ETAG_fixup(I_Etag_We, '"', I_Etag_Weak);
 
 	__FSM_STATE(I_Etag_Weak) {
-		parser->hdr.flags |= TFW_STR_ETAG_WEAK;
 		__FSM_JMP(I_Etag_Val);
 	}
 
 	__FSM_STATE(I_Etag_Val) {
-		weak = parser->hdr.flags & TFW_STR_ETAG_WEAK;
-		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(etag, I_Etag_Val,
-						(TFW_STR_VALUE | weak));
+		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(etag, I_Etag_Val, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
 		if (likely(c == '"')) {
-			parser->hdr.flags &= ~TFW_STR_ETAG_WEAK;
-			__FSM_H2_I_MOVE_fixup(I_EoT, __fsm_sz + 1,
-					      TFW_STR_VALUE | weak);
+			__FSM_H2_I_MOVE_fixup(I_EoT, __fsm_sz + 1, TFW_STR_VALUE);
 		}
 		return CSTR_NEQ;
 	}
