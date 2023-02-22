@@ -1744,10 +1744,6 @@ TEST(http2_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
@@ -1763,10 +1759,6 @@ TEST(http2_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
@@ -1783,17 +1775,9 @@ TEST(http2_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
@@ -1811,24 +1795,12 @@ TEST(http2_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_TRUE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				    & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_3, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));

@@ -2809,7 +2809,7 @@ TEST(http1_parser, etag)
 	"\r\n"                     \
 	"0123456789"
 
-#define FOR_ETAG(header, expected, EXPECT_WEAK)				\
+#define FOR_ETAG(header, expected)				\
 	FOR_RESP(RESP_ETAG_START header "\r\n" RESP_ETAG_END)		\
 	{								\
 		TfwStr h_etag, s_etag;					\
@@ -2820,10 +2820,6 @@ TEST(http1_parser, etag)
 			TFW_HTTP_HDR_ETAG, &h_etag);			\
 		s_etag = tfw_str_next_str_val(&h_etag);			\
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);	\
-		if (!TFW_STR_EMPTY(&s_etag)) {				\
-			EXPECT_WEAK((TFW_STR_CHUNK(&s_etag, 0))->flags &\
-				TFW_STR_ETAG_WEAK);			\
-		}							\
 									\
 		s_etag = tfw_str_next_str_val(&s_etag);			\
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));			\
@@ -2832,12 +2828,12 @@ TEST(http1_parser, etag)
 #define ETAG_BLOCK(header)						\
 	EXPECT_BLOCK_RESP(RESP_ETAG_START header "\r\n" RESP_ETAG_END)
 
-	FOR_ETAG("ETag:   \"dummy\"  ",  "dummy\"", EXPECT_FALSE);
-	FOR_ETAG("ETag:   W/\"dummy\"  ", "dummy\"", EXPECT_TRUE);
-	FOR_ETAG("ETag: \"\" ", "\"", EXPECT_FALSE);
-	FOR_ETAG("ETag: W/\"\"", "\"", EXPECT_TRUE);
-	FOR_ETAG("ETag: \"" ETAG_ALPHABET "\"",  ETAG_ALPHABET "\"", EXPECT_FALSE);
-	FOR_ETAG("ETag: W/\"" ETAG_ALPHABET "\"",  ETAG_ALPHABET "\"", EXPECT_TRUE);
+	FOR_ETAG("ETag:   \"dummy\"  ",  "dummy\"");
+	FOR_ETAG("ETag:   W/\"dummy\"  ", "dummy\"");
+	FOR_ETAG("ETag: \"\" ", "\"");
+	FOR_ETAG("ETag: W/\"\"", "\"");
+	FOR_ETAG("ETag: \"" ETAG_ALPHABET "\"",  ETAG_ALPHABET "\"");
+	FOR_ETAG("ETag: W/\"" ETAG_ALPHABET "\"",  ETAG_ALPHABET "\"");
 
 	/* Same code is used to parse ETag header and If-None-Match header. */
 	ETAG_BLOCK("ETag: \"dummy1\", \"dummy2\"");
@@ -2866,10 +2862,6 @@ TEST(http1_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
@@ -2885,10 +2877,6 @@ TEST(http1_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
@@ -2905,17 +2893,9 @@ TEST(http1_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
@@ -2933,24 +2913,12 @@ TEST(http1_parser, if_none_match)
 
 		s_etag = tfw_str_next_str_val(&h_inm);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_TRUE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				    & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_3, '"'), 0);
-		if (!TFW_STR_EMPTY(&s_etag)) {
-			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
-				     & TFW_STR_ETAG_WEAK);
-		}
 
 		s_etag = tfw_str_next_str_val(&s_etag);
 		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));

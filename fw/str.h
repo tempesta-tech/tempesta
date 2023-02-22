@@ -237,8 +237,6 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 #define TFW_STR_HBH_HDR		0x10
 /* Not cachable due to configuration settings or no-cache/private directive */
 #define TFW_STR_NOCCPY_HDR	0x20
-/* Weak identifier was set for Etag value. */
-#define TFW_STR_ETAG_WEAK	0x40
 /*
  * The string/chunk is a header fully indexed in HPACK static
  * table (used only for HTTP/1.1=>HTTP/2 message transformation).
