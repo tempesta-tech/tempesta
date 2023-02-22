@@ -4592,6 +4592,7 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 	unsigned int i;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwH2TransOp op = cache ? TFW_H2_TRANS_EXPAND : TFW_H2_TRANS_ADD;
+	TfwHttpHdrTbl *ht = resp->h_tbl;
 
 	if (!h_mods)
 		return 0;
@@ -4599,10 +4600,20 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 	for (i = 0; i < h_mods->sz; ++i) {
 		const TfwHdrModsDesc *desc = &h_mods->hdrs[i];
 		int r;
+		unsigned short hid = desc->hid;
 
 		/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
-		if (test_bit(i, mit->found) || (TFW_STR_CHUNK(desc->hdr, 1) == NULL))
+		if (test_bit(i, mit->found)
+		    || (TFW_STR_CHUNK(desc->hdr, 1) == NULL))
 			continue;
+
+		if (unlikely(desc->append && !TFW_STR_EMPTY(&ht->tbl[hid])
+			     && (hid < TFW_HTTP_HDR_NONSINGULAR)))
+		{
+			T_WARN("Attempt to add already existed singular header '%.*s'\n",
+			PR_TFW_STR(TFW_STR_CHUNK(desc->hdr, 0)));
+			continue;
+		}
 
 		r = tfw_hpack_encode(resp, desc->hdr, op, !cache);
 		if (unlikely(r))
@@ -4610,6 +4621,28 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 	}
 
 	return 0;
+}
+
+static bool
+tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
+{
+	unsigned int idx;
+
+	if (!h_mods)
+		return false;
+
+	for (idx = 0; idx < h_mods->sz; ++idx) {
+		TfwHdrModsDesc *desc = &h_mods->hdrs[idx];
+
+		if (!desc->append && ((hid >= TFW_HTTP_HDR_RAW
+		    && !__hdr_name_cmp(hdr, desc->hdr))
+		    || hid == desc->hid))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 static int
@@ -4622,15 +4655,12 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	TfwHttpHdrTbl *ht = resp->h_tbl;
 
 	for (i = 0; i < map->count; ++i) {
-		TfwStr *first;
 		unsigned short hid = map->index[i].idx;
 		unsigned short d_num = map->index[i].d_idx;
 		TfwStr *tgt = &ht->tbl[hid];
 
 		if (TFW_STR_DUP(tgt))
 			tgt = TFW_STR_CHUNK(tgt, d_num);
-
-		first = TFW_STR_CHUNK(tgt, 0);
 
 		if (WARN_ON_ONCE(!tgt
 				 || TFW_STR_EMPTY(tgt)
@@ -4640,6 +4670,10 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%lu\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks,
 		       h_mods ? h_mods->sz : 0);
+
+		/* Don't encode header if it must be substituted from config */
+		if (tfw_h2_hdr_sub(hid, tgt, h_mods))
+			continue;
 
 		/*
 		 * Remove 'Connection', 'Keep-Alive' headers and all hop-by-hop
