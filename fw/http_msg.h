@@ -181,10 +181,6 @@ int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_write_data_pool(TfwHttpTransIter *mit, TfwPool* pool,
 			       const TfwStr *str, bool add_frag, bool has_body);
-int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
-			    const char *stop);
-int tfw_h2_msg_rewrite_data_lc(TfwHttpTransIter *mit, const TfwStr *str,
-                               const char *stop);
 void tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
 int tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data);
 

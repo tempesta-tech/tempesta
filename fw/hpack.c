@@ -3539,25 +3539,6 @@ tfw_huffman_encode_string(TfwStr *str, TfwPool *pool)
 }
 
 static int
-tfw_hpack_str_add_raw(TfwHttpTransIter *mit, TfwStr *str, bool in_huffman)
-{
-	int r = 0;
-	TfwHPackInt len;
-	TfwStr len_str = { 0 };
-	unsigned short mask = in_huffman ? 0x80 : 0x0;
-
-	write_int(str->len, 0x7F, mask, &len);
-	len_str.data = len.buf;
-	len_str.len = len.sz;
-
-	r = tfw_h2_msg_rewrite_data(mit, &len_str, mit->bnd);
-	if (unlikely(r))
-		return r;
-
-	return tfw_h2_msg_rewrite_data(mit, str, mit->bnd);
-}
-
-static int
 tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwMsgIter *it,
 			 struct sk_buff **skb_head, TfwStr *str,
 			 bool in_huffman)
@@ -3605,22 +3586,6 @@ tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwMsgIter *it,
  * headers (e.g. in cases of HTTP/1.1=>HTTP/2 or HTTP/2=>HTTP/2 response proxy),
  * thus avoiding Huffman encodings is completely RFC-compliant behaviour.
  */
-static inline int
-tfw_hpack_str_add(TfwHttpTransIter *mit, TfwStr *str, TfwPool *pool)
-{
-	bool in_huffman = false;
-
-	if (0) {
-		str = tfw_huffman_encode_string(str, pool);
-
-		if (IS_ERR(str))
-			return PTR_ERR(str);
-		in_huffman = true;
-	}
-
-	return tfw_hpack_str_add_raw(mit, str, in_huffman);
-}
-
 static inline int
 tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
 		     struct sk_buff **skb_head, TfwStr *str,
@@ -3685,7 +3650,8 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (WARN_ON_ONCE(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)))
 		return -EINVAL;
 
-	tfw_http_hdr_split(hdr, &s_name, &s_val, trans);
+	if (!tfw_http_hdr_split(hdr, &s_name, &s_val, trans))
+		return -EINVAL;
 
 	if (unlikely(!name_indexed)) {
 		TfwHPackInt nlen;
