@@ -493,22 +493,6 @@ struct tfw_http_req_t {
 #define TFW_D_IDX_BITS		4
 
 /**
- * Representation of operation with the next header (in order of headers in the
- * message) during HTTP/1.1=>HTTP/2 transformation process.
- *
- * @s_hdr	- source header for transformation;
- * @off		- offset of not copied data from last processed @chunk;
- * @chunk	- last chunk to be processed from @s_hdr;
- * @op		- transformation operation which should be executed.
- */
-typedef struct {
-	TfwStr		s_hdr;
-	unsigned long	off;
-	unsigned int	chunk;
-	TfwH2TransOp	op;
-} TfwNextHdrOp;
-
-/**
  * The indirection map entry.
  *
  * @idx		- header index in @h_tbl;
@@ -557,11 +541,8 @@ typedef struct {
 typedef struct {
 	TfwHttpHdrMap	*map;
 	unsigned int	start_off;
-	unsigned int	curr;
-	TfwNextHdrOp	next;
 	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
 	char		*curr_ptr;
-	char		*bnd;
 	char		*frame_head;
 	TfwMsgIter	iter;
 	unsigned long	acc_len;

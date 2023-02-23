@@ -633,8 +633,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 				  __TFW_STR_CH(&hdr, 1)->len;
 			hdr.hpack_idx = name->hpack_idx;
 
-			if ((r = tfw_hpack_encode(resp, &hdr,
-						  false, true)))
+			if ((r = tfw_hpack_encode(resp, &hdr, false, true)))
 				return r;
 		}
 	}
@@ -4699,162 +4698,6 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	return 0;
 }
 
-/*
- * Get next header from the @mit->map. Procedure designed to be called from the
- * outer cycle with changing of @mit iterator (including @mit->curr index of
- * current header in the indirection map). Note, for optimization purposes, on
- * each iteration function produces the boundary pointer @mit->bnd for current
- * iteration and the operation instance @mit->next - for the next iteration
- * (including source header @mit->next.s_hdr).
- *
- * TODO #1103: This function should be treated as a foundation for #1103 issue.
- */
-static int
-tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
-{
-	int r;
-	unsigned int i;
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwHttpHdrMap *map = mit->map;
-	TfwNextHdrOp *next = &mit->next;
-	TfwHttpHdrTbl *ht = resp->h_tbl;
-
-	mit->bnd = NULL;
-
-	for (i = mit->curr; i < map->count; ++i) {
-		int k;
-		TfwStr *first;
-		unsigned short hid = map->index[i].idx;
-		unsigned short d_num = map->index[i].d_idx;
-		TfwStr *tgt = &ht->tbl[hid];
-		TfwHdrModsDesc *f_desc = NULL;
-		const TfwStr *val;
-
-		if (TFW_STR_DUP(tgt))
-			tgt = TFW_STR_CHUNK(tgt, d_num);
-
-		first = TFW_STR_CHUNK(tgt, 0);
-
-		if (WARN_ON_ONCE(!tgt
-				 || TFW_STR_EMPTY(tgt)
-				 || TFW_STR_DUP(tgt)))
-			return -EINVAL;
-
-		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%lu\n",
-		       __func__, hid, d_num, ht->tbl[hid].nchunks,
-		       h_mods ? h_mods->sz : 0);
-
-		if (!h_mods)
-			goto def;
-
-		for (k = 0; k < h_mods->sz; ++k) {
-			TfwHdrModsDesc *desc = &h_mods->hdrs[k];
-
-			if ((hid < TFW_HTTP_HDR_RAW && hid == desc->hid)
-			    || (hid >= TFW_HTTP_HDR_RAW
-				&& !__hdr_name_cmp(tgt, desc->hdr)))
-			{
-				f_desc = desc;
-				break;
-			}
-		}
-		if (!f_desc)
-			goto def;
-
-		val = TFW_STR_CHUNK(f_desc->hdr, 2);
-		/*
-		 * If this is a duplicate of already processed header,
-		 * leave this duplicate as is (for transformation
-		 * in-place) in case of appending operation, and remove
-		 * it (by skipping) in case of substitution or deletion
-		 * operations.
-		 */
-		if (test_bit(k, mit->found)) {
-			if (!val || !f_desc->append)
-				continue;
-
-			mit->bnd = first->data;
-			next->s_hdr = *tgt;
-			next->op = TFW_H2_TRANS_INPLACE;
-
-			break;
-		}
-
-		__set_bit(k, mit->found);
-
-		/*
-		 * If header configured with empty value, it should be
-		 * removed from the response; so, just skip such header.
-		 */
-		if (!val)
-			continue;
-
-		mit->bnd = first->data;
-
-		/*
-		 * If the header configured for value appending,
-		 * concatenate it with the target header in skb for
-		 * subsequent in-place rewriting.
-		 */
-		if (f_desc->append) {
-			TfwStr h_app = {
-				.chunks = (TfwStr []){
-					{ .data = ", ", .len = 2 },
-					{ .data = val->data,
-					  .len = val->len }
-				},
-				.len = val->len + 2,
-				.nchunks = 2
-			};
-
-			r = tfw_strcat(resp->pool, tgt, &h_app);
-			if (unlikely(r))
-				return r;
-
-			next->s_hdr = *tgt;
-			next->op = TFW_H2_TRANS_INPLACE;
-			break;
-		}
-
-		next->s_hdr = *f_desc->hdr;
-		//next->op = TFW_H2_TRANS_SUB;
-		break;
-
-def:
-		/*
-		 * Remove 'Connection', 'Keep-Alive' headers and all hop-by-hop
-		 * headers from the HTTP/2 response.
-		 */
-		if (hid == TFW_HTTP_HDR_KEEP_ALIVE
-		    || hid == TFW_HTTP_HDR_CONNECTION
-		    || tgt->flags & TFW_STR_HBH_HDR)
-			continue;
-
-		/*
-		 * 'Server' header must be replaced; thus, remove the original
-		 * header (and all its duplicates) skipping it here; the new
-		 * header will be written later, during new headers' addition
-		 * stage.
-		 */
-		if (hid == TFW_HTTP_HDR_SERVER)
-			continue;
-
-		/*
-		 * In general case the header should be transformed in-place
-		 * from its original HTTP/1.1-representation in skb.
-		 */
-		mit->bnd = first->data;
-		next->s_hdr = *tgt;
-		next->op = TFW_H2_TRANS_INPLACE;
-
-		break;
-	}
-
-	mit->curr = i + 1;
-
-	return 0;
-}
-
 static int
 __tfw_h2_make_frames(unsigned long len, char *data, u8 buf_sz,
 		     TfwMsgIter *iter, unsigned long skew,
@@ -5496,7 +5339,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	 * Transform HTTP/1.1 headers into HTTP/2 form, in parallel with
 	 * adjusting of particular headers.
 	 */
-	WARN_ON_ONCE(mit->acc_len || mit->curr);
+	WARN_ON_ONCE(mit->acc_len);
 	tfw_h2_msg_transform_setup(mit, resp->msg.skb_head, true);
 
 	tfw_h2_msg_cutoff_headers(resp, &cleanup);
@@ -5507,14 +5350,11 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	 */
 	r = tfw_http_msg_setup_transform_pool(mit, resp->pool);
 	if (unlikely(r))
-		 goto clean;
+		goto clean;
 
 	r = tfw_h2_resp_status_write(resp, resp->status, true, false);
 	 if (unlikely(r))
-		 goto clean;
-
-	if (0)
-		r = tfw_h2_resp_next_hdr(resp, h_mods);
+		goto clean;
 
 	r = tfw_h2_hpack_encode_headers(resp, h_mods);
 	if (unlikely(r))
