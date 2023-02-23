@@ -582,7 +582,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
-	r = tfw_h2_resp_status_write(resp, status, TFW_H2_TRANS_EXPAND, false);
+	r = tfw_h2_resp_status_write(resp, status, false, false);
 	if (unlikely(r))
 		return r;
 
@@ -608,7 +608,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 			__TFW_STR_CH(&hdr, 0)->hpack_idx = name->hpack_idx;
 			r = tfw_hpack_encode(resp, __TFW_STR_CH(&hdr, 0),
-					     TFW_H2_TRANS_EXPAND, false);
+					     false, false);
 			if (unlikely(r))
 				return r;
 
@@ -634,13 +634,13 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			hdr.hpack_idx = name->hpack_idx;
 
 			if ((r = tfw_hpack_encode(resp, &hdr,
-						  TFW_H2_TRANS_EXPAND, true)))
+						  false, true)))
 				return r;
 		}
 	}
 
 	/*
-	 * Responses builded locally has room for HEADERS frame reserved
+	 * Responses built locally has room for frame header reserved
 	 * in SKB linear data.
 	 */
 	mit->frame_head = mit->iter.skb->data;
@@ -1036,7 +1036,7 @@ tfw_http_enum_resp_code(int status)
  */
 int
 tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
-			 TfwH2TransOp op, bool cache)
+			 bool use_pool, bool cache)
 {
 	int ret;
 	unsigned short index = tfw_h2_pseudo_index(status);
@@ -1051,8 +1051,6 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 		.hpack_idx = index ? index : 8
 	};
 
-	WARN_ON_ONCE(op != TFW_H2_TRANS_EXPAND && op != TFW_H2_TRANS_ADD);
-
 	/*
 	 * If the status code is not in the static table, set the default
 	 * static index just for the ':status' name.
@@ -1064,7 +1062,7 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	if (!tfw_ultoa(status, __TFW_STR_CH(&s_hdr, 1)->data, H2_STAT_VAL_LEN))
 		return -E2BIG;
 
-	if ((ret = tfw_hpack_encode(resp, &s_hdr, op, !cache)))
+	if ((ret = tfw_hpack_encode(resp, &s_hdr, use_pool, !cache)))
 		return ret;
 
 	/* set status on response for access logging */
@@ -4280,7 +4278,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 
 	via.hpack_idx = 60;
 
-	r = tfw_hpack_encode(resp, &via, TFW_H2_TRANS_ADD, true);
+	r = tfw_hpack_encode(resp, &via, true, true);
 	if (unlikely(r))
 		T_ERR("HTTP/2: unable to add 'via' header (resp=[%p])\n", resp);
 	else
@@ -4290,10 +4288,10 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 
 /*
  * Same as @tfw_http_set_hdr_date(), but intended for usage in HTTP/1.1=>HTTP/2
- * transformation.
+ * transformation and for building response from cache.
  */
 int
-tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache)
+tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
 {
 	int r;
 	char *s_date = *this_cpu_ptr(&g_buf);
@@ -4310,7 +4308,7 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache)
 
 	hdr.hpack_idx = 33;
 
-	r = tfw_hpack_encode(resp, &hdr, op, !cache);
+	r = tfw_hpack_encode(resp, &hdr, !cache, !cache);
 	if (unlikely(r))
 		T_ERR("HTTP/2: unable to add 'date' header to response"
 			" [%p]\n", resp);
@@ -4367,7 +4365,7 @@ tfw_h2_add_hdr_cenc(TfwHttpResp *resp, TfwStr *value)
 		.hpack_idx = 26
 	};
 
-	r = tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_ADD, true);
+	r = tfw_hpack_encode(resp, &hdr, true, true);
 
 	if (unlikely(r))
 		goto err;
@@ -4448,7 +4446,7 @@ tfw_h2_set_stale_warn(TfwHttpResp *resp)
 		.nchunks = 2
 	};
 
-	return tfw_hpack_encode(resp, &wh, TFW_H2_TRANS_EXPAND, false);
+	return tfw_hpack_encode(resp, &wh, false, false);
 }
 
 /*
@@ -4459,9 +4457,11 @@ tfw_h2_set_stale_warn(TfwHttpResp *resp)
  * HTTP/1.1=>HTTP/2 transformation), since the response HTTP parser
  * supports splitting the header name, colon, LWS, value and RWS into
  * different chunks.
+ *
+ * When @spcolon is true header splits by colon between name and value.
  */
 unsigned long
-tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
+tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool spcolon)
 {
 	unsigned long hdr_tail = 0;
 	TfwStr *chunk, *end, *last_chunk = NULL;
@@ -4475,7 +4475,7 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
 
-	if (!inplace) {
+	if (!spcolon) {
 		unsigned long off = 0;
 		/*
 		 * During headers addition (or message expansion) the source
@@ -4591,7 +4591,6 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 {
 	unsigned int i;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwH2TransOp op = cache ? TFW_H2_TRANS_EXPAND : TFW_H2_TRANS_ADD;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
 
 	if (!h_mods)
@@ -4615,7 +4614,7 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			continue;
 		}
 
-		r = tfw_hpack_encode(resp, desc->hdr, op, !cache);
+		r = tfw_hpack_encode(resp, desc->hdr, !cache, !cache);
 		if (unlikely(r))
 			return r;
 	}
@@ -4635,8 +4634,8 @@ tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 		TfwHdrModsDesc *desc = &h_mods->hdrs[idx];
 
 		if (!desc->append && ((hid >= TFW_HTTP_HDR_RAW
-		    && !__hdr_name_cmp(hdr, desc->hdr))
-		    || hid == desc->hid))
+				       && !__hdr_name_cmp(hdr, desc->hdr))
+				      || hid == desc->hid))
 		{
 			return true;
 		}
@@ -4693,7 +4692,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		if (hid == TFW_HTTP_HDR_SERVER)
 			continue;
 
-		r = tfw_hpack_encode(resp, tgt, TFW_H2_TRANS_INPLACE, true);
+		r = tfw_hpack_transform(resp, tgt);
 		if (unlikely(r))
 			return r;
 	}
@@ -4858,12 +4857,12 @@ def:
 }
 
 static int
-__tfw_h2_make_frames(unsigned long len, char *data, u8 buf_sz,
-		     TfwMsgIter *iter, unsigned long skew,
+__tfw_h2_make_frames(unsigned long len, char *data, TfwMsgIter *iter,
 		     unsigned long max_sz, const TfwStr* frame_hdr_str,
 		     TfwFrameHdr *frame_hdr, unsigned char hdr_flags)
 {
 	int r;
+	unsigned long skew = 0;
 
 	do {
 		r = tfw_msg_iter_move(iter, (unsigned char **)&data,
@@ -4876,7 +4875,7 @@ __tfw_h2_make_frames(unsigned long len, char *data, u8 buf_sz,
 		 * skip it. Exception - first move operation: @data is set right
 		 * after frame header.
 		 */
-		skew = buf_sz;
+		skew = frame_hdr_str->len;
 
 		frame_hdr->length = min(max_sz, len);
 		len -= frame_hdr->length;
@@ -5059,16 +5058,14 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 	/* Add CONTINATION frames. */
 	if (h_len > max_sz) {
-		unsigned long skew = 0;
-
 		iter->skb = iter->skb_head;
 		data = mit->frame_head + FRAME_HEADER_SIZE;
 
 		h_len -= max_sz;
 		frame_hdr.type = HTTP2_CONTINUATION;
 		mit->iter.frag = 0;
-		r = __tfw_h2_make_frames(h_len, data, sizeof(buf), iter, skew,
-					 max_sz, &frame_hdr_str, &frame_hdr,
+		r = __tfw_h2_make_frames(h_len, data, iter, max_sz,
+					 &frame_hdr_str, &frame_hdr,
 					 HTTP2_F_END_HEADERS);
 		if (unlikely(r))
 			return r;
@@ -5079,11 +5076,9 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 	/* Add more frame headers for DATA block. */
 	if (b_len > max_sz) {
-		unsigned long skew = 0;
-
 		/*
 		 * TODO: #498 and maybe #488 : iterate over the chunks only once
-		 * TODO: #1103 make only one memory allocation for hopefully
+		 * TODO: #1394 make only one memory allocation for hopefully
 		 * all the HTTP/2 frames headers instead of dealing with skb
 		 * framing with every small header
 		 */
@@ -5100,8 +5095,8 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 		b_len -= max_sz;
 		frame_hdr.type = HTTP2_DATA;
-		r = __tfw_h2_make_frames(b_len, data, sizeof(buf), iter, skew,
-					 max_sz, &frame_hdr_str, &frame_hdr,
+		r = __tfw_h2_make_frames(b_len, data, iter, max_sz,
+					 &frame_hdr_str, &frame_hdr,
 					 HTTP2_F_END_STREAM);
 		if (unlikely(r))
 			return r;
@@ -5424,7 +5419,8 @@ tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
 
-static void __tfw_h2_resp_cleanup(TfwHttpRespCleanup *cleanup)
+static void
+__tfw_h2_resp_cleanup(TfwHttpRespCleanup *cleanup)
 {
 	int i;
 	struct sk_buff *skb;
@@ -5510,8 +5506,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(r))
 		 goto clean;
 
-	r = tfw_h2_resp_status_write(resp, resp->status, TFW_H2_TRANS_ADD,
-				     false);
+	r = tfw_h2_resp_status_write(resp, resp->status, true, false);
 	 if (unlikely(r))
 		 goto clean;
 
@@ -5537,7 +5532,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		goto clean;
 
 	if (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)) {
-		r = tfw_h2_add_hdr_date(resp, TFW_H2_TRANS_ADD, false);
+		r = tfw_h2_add_hdr_date(resp, false);
 		if (unlikely(r))
 			goto clean;
 	}

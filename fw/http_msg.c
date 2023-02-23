@@ -1360,11 +1360,13 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 }
 
 /**
- * Add first paged fragment using TfwPool and reserve room for HEADERS frame.
+ * Add first paged fragment using TfwPool and reserve room for frame header.
  *
  * This function must be used as start point of message transformation. After
  * calling this you must use @pool only for allocating paged fragments during
- * message trasformation. After it @pool can be used for anything else.
+ * message trasformation to prevent splitting continuous memory. If we
+ * allocate TfwStr in the middle of encoding process, we got a gap between
+ * data, which will split the paged fragment.
  */
 int
 tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
@@ -1409,10 +1411,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
-	unsigned int room;
-	unsigned int n_copy;
-	unsigned int rlen;
-	unsigned int off;
+	unsigned int room, n_copy, rlen, off;
 	int r;
 
 	BUG_ON(mit->iter.frag < 0);

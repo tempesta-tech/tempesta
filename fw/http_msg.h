@@ -135,7 +135,7 @@ tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
 		.hpack_idx = idx
 	};
 
-	return tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_ADD, true);
+	return tfw_hpack_encode(resp, &hdr, true, true);
 }
 
 int __must_check __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str,

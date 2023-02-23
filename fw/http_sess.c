@@ -425,10 +425,8 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	      PR_TFW_STR(&sticky->name), len, buf);
 
 	if (to_h2) {
-		TfwH2TransOp op = cache ? TFW_H2_TRANS_EXPAND : TFW_H2_TRANS_ADD;
-
 		set_cookie.hpack_idx = 55;
-		r = tfw_hpack_encode(resp, &set_cookie, op, !cache);
+		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache);
 	}
 	else if (cache) {
 		TfwHttpTransIter *mit = &resp->mit;
