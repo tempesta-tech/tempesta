@@ -846,8 +846,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 
 		resp->mit.start_off = FRAME_HEADER_SIZE;
 
-		r = tfw_h2_resp_status_write(resp, 304, TFW_H2_TRANS_EXPAND,
-					     true);
+		r = tfw_h2_resp_status_write(resp, 304, false, true);
 		if (unlikely(r))
 			goto err_setup;
 		h_len++;	/* account for :status field itself */
@@ -2417,8 +2416,7 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
 
 	if (to_h2) {
 		h_age.hpack_idx = 21;
-		if ((r = tfw_hpack_encode(resp, &h_age, TFW_H2_TRANS_EXPAND,
-					  false)))
+		if ((r = tfw_hpack_encode(resp, &h_age, false, false)))
 			goto err;
 	} else {
 		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
@@ -2559,7 +2557,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	    || (lifetime > ce->lifetime
 		&& tfw_h2_set_stale_warn(resp))
 	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
-		&& tfw_h2_add_hdr_date(resp, TFW_H2_TRANS_EXPAND, true)))
+		&& tfw_h2_add_hdr_date(resp, true)))
 		goto free;
 
 	h_len += mit->acc_len;

@@ -739,12 +739,12 @@ int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
 void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
-int tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache);
+int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache);
 int tfw_h2_set_stale_warn(TfwHttpResp *resp);
 int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			     bool cache);
 int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
-			     TfwH2TransOp op, bool cache);
+			     bool use_pool, bool cache);
 /*
  * Functions to send an HTTP error response to a client.
  */

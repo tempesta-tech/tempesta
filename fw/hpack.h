@@ -274,8 +274,9 @@ void write_int(unsigned long index, unsigned short max, unsigned short mask,
 	       TfwHPackInt *__restrict res_idx);
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
+int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr);
 int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		     TfwH2TransOp op, bool dyn_indexing);
+		     bool use_pool, bool dyn_indexing);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 			     unsigned short new_size);
 int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
