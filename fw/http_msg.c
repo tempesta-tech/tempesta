@@ -1463,8 +1463,8 @@ tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
 }
 
 static void
-__tfw_h2_msg_shrink_headers(TfwMsgIter *it, const char *body,
-			    TfwHttpRespCleanup *cleanup)
+__tfw_h2_msg_shrink_frags(TfwMsgIter *it, const char *body,
+			  TfwHttpRespCleanup *cleanup)
 {
 	struct skb_shared_info *si = skb_shinfo(it->skb);
 	skb_frag_t *frag = &si->frags[it->frag];
@@ -1532,7 +1532,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 
 			if ((begin <= off) && (end >= off)) {
 				it->frag = i;
-				__tfw_h2_msg_shrink_headers(it, body, cleanup);
+				__tfw_h2_msg_shrink_frags(it, body, cleanup);
 				goto end;
 			}
 		}
