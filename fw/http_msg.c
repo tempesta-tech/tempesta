@@ -1520,7 +1520,8 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 
 			if ((begin <= off) && (end >= off)) {
 				it->frag = -1;
-				/* TODO: Handle this case, most likely for low MTU*/
+				/* TODO: Handle this case, most likely for low MTU
+				 * it will be implemented as part of #1703 */
 				return;
 			}
 		}
@@ -1568,6 +1569,10 @@ end:
 		memmove(&si->frags, &si->frags[it->frag],
 			(si->nr_frags) * sizeof(skb_frag_t));
 	}
+
+	/* Trim skb linear data. This is ugly hotfix and must be removed after
+	 * implementation of #1703 */
+	it->skb->len -= skb_headlen(it->skb);
 
 	it->skb_head = it->skb;
 	resp->msg.skb_head = it->skb;

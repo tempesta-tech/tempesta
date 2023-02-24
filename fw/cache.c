@@ -849,7 +849,14 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		r = tfw_h2_resp_status_write(resp, 304, false, true);
 		if (unlikely(r))
 			goto err_setup;
-		h_len++;	/* account for :status field itself */
+		/* account for :status field itself */
+		h_len++;
+
+		/*
+		 * Responses builded from cache has room for HEADERS frame reserved
+		 * in SKB linear data.
+		 */
+		resp->mit.frame_head = it->skb_head->data;
 	}
 
 	/* Put 304 headers */
