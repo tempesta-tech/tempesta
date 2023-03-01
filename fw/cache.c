@@ -850,6 +850,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 					     true);
 		if (unlikely(r))
 			goto err_setup;
+		h_len++;	/* account for :status field itself */
 	}
 
 	/* Put 304 headers */
