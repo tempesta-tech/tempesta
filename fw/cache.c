@@ -692,9 +692,7 @@ tfw_cache_h2_decode_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		acc += m_len;
 		*data += m_len;
 		if (acc == len) {
-			bzero_fast(dc_iter->__off,
-				   sizeof(*dc_iter)
-				   - offsetof(TfwDecodeCacheIter, __off));
+			TFW_STR_INIT(&dc_iter->hdr_data);
 			break;
 		}
 

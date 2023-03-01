@@ -262,21 +262,15 @@ typedef struct {
  * @skip	- flag to skip particular cached data in order to switch
  *		  between HTTP/2 and HTTP/1.1 resulting representation during
  *		  decoding from HTTP/2-cache;
- * @__off	- offset to reinitialize the iterator non-persistent part;
- * @desc	- pointer to the found header configured to be changed;
  * @acc_len	- accumulated length of the resulting headers part of the
  *		  response;
  * @hdr_data	- header's data currently received from cache;
- * @h2_data	- HTTP/2-specific data currently received from cache.
  */
 typedef struct {
 	TfwHdrMods		*h_mods;
 	bool			skip;
-	char			__off[0];
-	TfwHdrModsDesc		*desc;
 	unsigned long		acc_len;
 	TfwStr			hdr_data;
-	TfwStr			h2_data;
 } TfwDecodeCacheIter;
 
 #define	BUFFER_GET(len, it)					\

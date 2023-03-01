@@ -1775,7 +1775,7 @@ out:
 
 /*
  * Modified version of HPACK decoder FSM - for cache entries processing,
- * HTTP/2-headers decoding (either into HTTP/2 or HTTP/1.1 format) and skb
+ * HTTP/2-headers decoding (into HTTP/1.1 format) and skb
  * expanding at once; only static indexing is allowed, no service HPACK codes,
  * no Huffman decoding and no parsing; only a limited subset of HPACK decoder
  * FSM states is used.
@@ -1792,8 +1792,8 @@ tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 	TfwStr exp_str = {};
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
-	bool h2_mode = TFW_MSG_H2(resp->req);
-	const unsigned char *prev, *last = src + n;
+	const unsigned char *last = src + n;
+	unsigned char *prev = src;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 
 #define GET_NEXT_DATA(cond)						\
@@ -1810,12 +1810,6 @@ do {									\
 		goto out;						\
 	}
 
-#define FIXUP_H2_DATA(str, data, len)					\
-do {									\
-	if (h2_mode)							\
-		FIXUP_DATA(str, data, len);				\
-} while (0)
-
 #define EXPAND_STR_DATA(str)						\
 do {									\
 	if (tfw_http_msg_expand_data(it, skb_head, str, NULL)) {	\
@@ -1830,12 +1824,6 @@ do {									\
 	exp_str.data = ptr;						\
 	exp_str.len = length;						\
 	EXPAND_STR_DATA(&exp_str);					\
-} while (0)
-
-#define EXPAND_H2_DATA(data, len)					\
-do {									\
-	if (h2_mode)							\
-		EXPAND_DATA(data, len);					\
 } while (0)
 
 	WARN_ON_ONCE(!n);
@@ -1866,17 +1854,10 @@ do {									\
 		T_DBG3("%s: reference with value...\n", __func__);
 
 		hp->index = c & 0x0F;
-		if (hp->index == 0x0F) {
-			GET_FLEXIBLE_lambda(hp->index,
-				HPACK_STATE_INDEX, {
-				FIXUP_H2_DATA(&dc_iter->h2_data, src,
-					      src - prev);
-			});
-		}
+		if (hp->index == 0x0F)
+			GET_FLEXIBLE(hp->index, HPACK_STATE_INDEX);
 
 		T_DBG3("%s: name index: %u\n", __func__, hp->index);
-
-		FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
 
 		NEXT_STATE(hp->index
 			   ? HPACK_STATE_INDEXED_NAME_TEXT
@@ -1898,21 +1879,15 @@ do {									\
 		WARN_ON_ONCE(c & 0x80);
 
 		hp->length = c & 0x7F;
-		if (unlikely(hp->length == 0x7F)) {
-			GET_FLEXIBLE_lambda(hp->length,
-				HPACK_STATE_NAME_LENGTH, {
-				FIXUP_H2_DATA(&dc_iter->h2_data, src,
-					      src - prev);
-			});
-		}
+		if (unlikely(hp->length == 0x7F))
+			GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
+
 		else if (unlikely(hp->length == 0)) {
 			r = T_DROP;
 			goto out;
 		}
 
 		T_DBG3("%s: name length: %lu\n", __func__, hp->length);
-
-		FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
 
 		NEXT_STATE(HPACK_STATE_NAME_TEXT);
 
@@ -1942,18 +1917,17 @@ get_indexed_name:
 		dc_iter->hdr_data.len = entry->name_len;
 		dc_iter->hdr_data.data = __TFW_STR_CH(entry->hdr, 0)->data;
 
-		goto check_name_text;
+		goto write_name_text;
 
 	}
 	case HPACK_STATE_NAME_TEXT:
 	{
-		int i;
-		TfwHdrMods *h_mods;
 		unsigned long m_len;
 get_name_text:
 		m_len = min((unsigned long)(last - src), hp->length);
 
-		T_DBG3("%s: decoding header name, m_len=%lu\n", __func__, m_len);
+		T_DBG3("%s: decoding header name, m_len=%lu\n", __func__,
+		       m_len);
 
 		FIXUP_DATA(&dc_iter->hdr_data, src, m_len);
 
@@ -1961,49 +1935,12 @@ get_name_text:
 		src += m_len;
 
 		GET_NEXT_DATA(hp->length);
-check_name_text:
-		i = 0;
-		h_mods = dc_iter->h_mods;
-		WARN_ON_ONCE(dc_iter->desc);
-		if (h_mods) {
-			for (; i < h_mods->sz; ++i) {
-				TfwHdrModsDesc *d = &h_mods->hdrs[i];
 
-				if (!__hdr_name_cmp(&dc_iter->hdr_data, d->hdr))
-				{
-					dc_iter->desc = d;
-					break;
-				}
-			}
-		}
-
-		if (dc_iter->desc) {
-			/* All duplicate headers must be skipped by caller. */
-			WARN_ON_ONCE(test_bit(i, mit->found));
-			__set_bit(i, mit->found);
-			/*
-			 * Header modifications format: 0 chunk - header name,
-			 * optional 1st chunk - header value. If the value is
-			 * empty, then the header is about to be removed,
-			 * don't write it.
-			 */
-
-			/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
-			if (TFW_STR_CHUNK(dc_iter->desc->hdr, 1) == NULL) {
-				dc_iter->skip = true;
-				goto out;
-			}
-
-		}
-
-		if (h2_mode)
-			EXPAND_STR_DATA(&dc_iter->h2_data);
-
+write_name_text:
 		EXPAND_STR_DATA(&dc_iter->hdr_data);
-		TFW_STR_INIT(&dc_iter->hdr_data);
+		EXPAND_DATA(S_DLM, SLEN(S_DLM));
 
-		if (!h2_mode)
-			EXPAND_DATA(S_DLM, SLEN(S_DLM));
+		TFW_STR_INIT(&dc_iter->hdr_data);
 
 		T_DBG3("%s: name copied, n=%lu, tail=%lu, hp->length=%lu\n",
 		       __func__, n, last - src, hp->length);
@@ -2024,16 +1961,9 @@ check_name_text:
 
 		hp->length = c & 0x7F;
 		if (unlikely(hp->length == 0x7F))
-			GET_FLEXIBLE_lambda(hp->length,
-				HPACK_STATE_VALUE_LENGTH, {
-				if (!dc_iter->desc)
-					EXPAND_H2_DATA(src, src - prev);
-			});
+			GET_FLEXIBLE(hp->length, HPACK_STATE_VALUE_LENGTH);
 
 		T_DBG3("%s: value length: %lu\n", __func__, hp->length);
-
-		if (!dc_iter->desc)
-			EXPAND_H2_DATA(src, src - prev);
 
 		NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
@@ -2043,9 +1973,7 @@ check_name_text:
 			 * HPACK_STATE_VALUE_TEXT, but still need to write CRLF
 			 * at the end of the header line for a correct HTTP/1.
 			 */
-			if (!h2_mode)
-				EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
-
+			EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
 			goto out;
 		}
 
@@ -2058,82 +1986,21 @@ get_value_text:
 		T_DBG3("%s: decode header value...\n", __func__);
 		m_len = min((unsigned long)(last - src), hp->length);
 
-		if (dc_iter->desc && dc_iter->desc->append && h2_mode) {
-			/*
-			 * If the header value must be appended, we need to
-			 * collect the value for HTTP/2-header, since it should
-			 * be re-encoded in this case.
-			 */
-			FIXUP_DATA(&dc_iter->hdr_data, src, m_len);
-		}
-		else if (!dc_iter->desc || dc_iter->desc->append) {
-			EXPAND_DATA(src, m_len);
-		}
+		EXPAND_DATA(src, m_len);
 
 		hp->length -= m_len;
 		src += m_len;
 
 		GET_NEXT_DATA(hp->length);
 
-		if (dc_iter->desc) {
-			TfwStr *val, *h = dc_iter->desc->hdr;
-			/*
-			 * Header value is stored in chunk 1, see
-			 * tfw_cfgop_mod_hdr_add().
-			 */
-			TfwStr n_val = {
-				.chunks = (TfwStr []){
-					{ .data = ", ", .len = 2 },
-					{ .data = __TFW_STR_CH(h, 1)->data,
-					  .len = __TFW_STR_CH(h, 1)->len }
-				},
-				.len = __TFW_STR_CH(h, 1)->len + 2,
-				.nchunks = 2
-			};
-
-			dc_iter->skip = true;
-
-			if (h2_mode) {
-				TfwHPackInt vlen;
-
-				if (dc_iter->desc->append) {
-					val = &dc_iter->hdr_data;
-					if (tfw_strcat(resp->pool, val, &n_val))
-					{
-						r = T_DROP;
-						goto out;
-					}
-				}
-				else {
-					val = __TFW_STR_CH(&n_val, 1);
-				}
-
-				write_int(val->len, 0x7F, 0, &vlen);
-
-				EXPAND_DATA(vlen.buf, vlen.sz);
-				EXPAND_STR_DATA(val);
-
-				break;
-			}
-
-			val = dc_iter->desc->append
-				? &n_val
-				: __TFW_STR_CH(&n_val, 1);
-
-			EXPAND_STR_DATA(val);
-		}
-
-		if (!h2_mode)
-			EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
+		EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
 
 		break;
 	}
 	case HPACK_STATE_INDEX:
 		prev = src;
-		GET_CONTINUE_lambda(hp->index, {
-			FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
-		});
-		T_DBG3("%s: index finally decoded: %u\n", __func__, hp->index);
+		GET_CONTINUE(hp->index);
+		T_DBG3("%s: index finally decoded: %lu\n", __func__, hp->index);
 
 		NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 
@@ -2143,9 +2010,7 @@ get_value_text:
 
 	case HPACK_STATE_NAME_LENGTH:
 		prev = src;
-		GET_CONTINUE_lambda(hp->length, {
-			FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
-		});
+		GET_CONTINUE(hp->length);
 		T_DBG3("%s: name length finally decoded: %lu\n", __func__,
 		       hp->length);
 
@@ -2157,10 +2022,7 @@ get_value_text:
 
 	case HPACK_STATE_VALUE_LENGTH:
 		prev = src;
-		GET_CONTINUE_lambda(hp->length, {
-			if (!dc_iter->desc)
-				EXPAND_H2_DATA(src, src - prev);
-		});
+		GET_CONTINUE(hp->length);
 		T_DBG3("%s: value length finally decoded: %lu\n", __func__,
 		       hp->length);
 
@@ -2188,10 +2050,8 @@ out:
 
 #undef GET_NEXT_DATA
 #undef FIXUP_DATA
-#undef FIXUP_H2_DATA
 #undef EXPAND_STR_DATA
 #undef EXPAND_DATA
-#undef EXPAND_H2_DATA
 }
 
 /**
