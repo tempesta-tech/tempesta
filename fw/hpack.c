@@ -1179,6 +1179,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		  const TfwHPackEntry *__restrict entry)
 {
 	char *data;
+	unsigned int i;
 	unsigned long d_size;
 	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *s, *end, *s_hdr = entry->hdr;
@@ -1269,6 +1270,13 @@ done:
 		break;
 	case TFW_TAG_HDR_ACCEPT:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		for (i = 1, d = d_hdr->chunks; i < d_hdr->nchunks; i++) {
+			if (d[i].len == sizeof("text/html") - 1
+			    && memcmp_fast(d[i].data, "text/html",
+					   sizeof("text/html") - 1) == 0) {
+				__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			}
+		}
 		break;
 	case TFW_TAG_HDR_AUTHORIZATION:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
