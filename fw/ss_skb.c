@@ -1087,6 +1087,7 @@ ss_skb_cutoff_data_flagged(struct sk_buff *skb_head, const TfwStr *str,
 				 -c->len, &it, &_);
 		if (r < 0)
 			return r;
+		WARN_ON(r != c->len);
 	}
 
 	BUG_ON(it.data == NULL);
