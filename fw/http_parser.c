@@ -272,61 +272,30 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __body_fixup_append(n, cut)					\
+/*
+ * __FSM_I_* macros are intended to help with parsing of message
+ * body or header values. That is done with separate, nested, or
+ * interior FSMs, and so _I_ in the name means "interior" FSM.
+ */
+#define __FSM_I_MOVE_body(to, n, flag)					\
 do {									\
-	TfwStr *l = TFW_STR_CURR(&msg->body);				\
-	unsigned short flags = cut ? TFW_STR_CUT : 0;			\
-	/* 								\
-	 * Increase length of last chunk with same flags to have less   \
-	 * chunks as possible. 						\
-	 */ 								\
-	if (l->data + l->len == (char *)p && (l->flags & flags)) {	\
-		l->len += n;						\
-		if (!TFW_STR_PLAIN(&msg->body))				\
-			(&msg->body)->len += n;				\
-	} else {							\
-		if (TFW_STR_EMPTY(&msg->body))				\
-			tfw_http_msg_set_str_data(msg, &msg->body, p);	\
-		__msg_field_fixup_pos(&msg->body, p, n);		\
-		if (cut)						\
-			__msg_field_chunk_flags(&msg->body,		\
-						TFW_STR_CUT);		\
-	} 								\
 	/* 								\
 	 * Due to we don't store cut-chunks separately we need to       \
 	 * store total length of cut-chunks to use it during calculating\
 	 * cache record size and in other places where we need to have  \
 	 * size of body and cut-chunks. 				\
-	 */								\
-	if (cut) 							\
-		parser->cut_len += n;					\
-} while (0)
-
-#define __FSM_MOVE_body_fixup(to, n, field, cut)			\
-do {									\
-	__body_fixup_append(n, cut);					\
+	 */ 								\
+	parser->cut_len += n * !!(flag & TFW_STR_CUT);			\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
-		parser->state = &&to;					\
+		tfw_str_updlen(&msg->body, p);				\
+		__msg_field_chunk_flags(&msg->body, flag); 		\
+		parser->_i_st = &&to;					\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
 } while (0)
 
-#define __FSM_MOVE_body_chunk_desc(to, n)				\
-do {									\
-	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {			\
-		__FSM_MOVE_body_fixup(to, n, &msg->body, true);		\
-	} else {							\
-		__FSM_MOVE_body_fixup(to, n, &msg->body, false);	\
-	}								\
-} while (0)
-
-/*
- * __FSM_I_* macros are intended to help with parsing of message
- * header values. That is done with separate, nested, or interior
- * FSMs, and so _I_ in the name means "interior" FSM.
- */
 #define __FSM_I_field_chunk_flags(field, flag)				\
 	__msg_field_chunk_flags(field, flag)
 
@@ -1044,6 +1013,142 @@ __parse_check_encodings(TfwHttpResp *resp)
 	return T_OK;
 }
 
+static int
+__parse_body(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	const unsigned short flag = TFW_CONN_TYPE(hm->conn) & Conn_Srv ?
+							   TFW_STR_CUT : 0;
+	__FSM_DECLARE_VARS(hm);
+
+#define TFW_BODY_OPEN_CHUNK()						\
+do {									\
+	TfwStr *ch = tfw_str_add_compound(msg->pool, &msg->body);	\
+									\
+	if (!ch) { 							\
+		T_WARN("Cannot grow HTTP data string\n"); 		\
+		return CSTR_NEQ; 					\
+	} 								\
+	__msg_field_open(ch, p); 					\
+} while (0)
+
+	if (!TFW_STR_EMPTY(TFW_STR_CURR(&msg->body)))
+		TFW_BODY_OPEN_CHUNK();
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_BodyParseInit) {
+		/* For chunked body need parse @to_read from chunk descriptor. */
+		if (parser->to_read == -1)
+			__FSM_JMP(I_BodyChunked);
+	}
+
+	__FSM_STATE(I_BodyReadData) {
+		BUG_ON(parser->to_read < 0);
+		T_DBG3("read body: to_read=%ld\n", parser->to_read);
+
+		__fsm_sz = min_t(long, parser->to_read, __data_remain(p));
+		parser->to_read -= __fsm_sz;
+		if (parser->to_read)
+			__FSM_I_MOVE_body(I_BodyReadData, __fsm_sz, false);
+
+		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {
+			parser->to_read = -1;
+			__FSM_I_MOVE_body(I_ChunkDataEnd, __fsm_sz, false);
+		}
+
+		/* We've fully read Content-Length bytes. */
+		p += __fsm_sz;
+		tfw_str_updlen(&msg->body, p);
+		return __data_off(p);
+	}
+
+	__FSM_STATE(I_BodyChunked) {
+		/* Prevent @parse_int_hex false positives. */
+		if (!isxdigit(c))
+			__FSM_EXIT(TFW_BLOCK);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_BodyChunkLen) {
+		__fsm_sz = __data_remain(p);
+		/* Read next chunk length. */
+		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc,
+					&parser->_cnt);
+		T_DBG3("data chunk: remain_len=%zu ret=%d to_read=%lu\n",
+		       __fsm_sz, __fsm_n, parser->_acc);
+		switch (__fsm_n) {
+		case CSTR_POSTPONE:
+			__FSM_I_MOVE_body(I_BodyChunkLen, __fsm_sz, flag);
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			__FSM_EXIT(TFW_BLOCK);
+		default:
+			parser->to_read = parser->_acc;
+			parser->_acc = 0;
+			parser->_cnt = 0;
+			__FSM_I_MOVE_body(I_BodyChunkExt, __fsm_n, flag);
+		}
+	}
+
+	__FSM_STATE(I_BodyChunkExt) {
+		if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))
+			__FSM_I_MOVE_body(I_BodyChunkExt, 1, flag);
+		__FSM_JMP(I_BodyEoL);
+	}
+
+	/* Fixup chunked body data-part */
+	__FSM_STATE(I_ChunkDataEnd) {
+		/* Don't fixup chunk twice after resuming parsing. */
+		if (__data_off(p) > 0) {
+			tfw_str_updlen(&msg->body, p);
+			TFW_BODY_OPEN_CHUNK();
+		}
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_BodyEoL) {
+		if (likely(c == '\r'))
+			__FSM_I_MOVE_body(I_BodyCR, 1, flag);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_BodyCR) {
+		if (unlikely(c != '\n'))
+			__FSM_EXIT(TFW_BLOCK);
+		if (parser->to_read == -1)
+			__FSM_I_MOVE_body(I_BodyChunked, 1, flag);
+		else if (parser->to_read > 0)
+			/* We know size of chunk, parse data. */
+			__FSM_I_MOVE_body(I_BodyDescEnd, 1, flag);
+
+		/*
+		 * We've fully read the chunked body.
+		 * Add everything and the current character.
+		 */
+		parser->cut_len += !!(flag & TFW_STR_CUT);
+		tfw_str_updlen(&msg->body, ++p);
+		__msg_field_chunk_flags(&msg->body, flag);
+		return __data_off(p);
+	}
+
+	/* Fixup parsed chunk size */
+	__FSM_STATE(I_BodyDescEnd) {
+		/* Don't fixup chunk twice after resuming parsing. */
+		if (__data_off(p) > 0) {
+			tfw_str_updlen(&msg->body, p);
+			__msg_field_chunk_flags(&msg->body, flag);
+			TFW_BODY_OPEN_CHUNK();
+		}
+		__FSM_JMP(I_BodyReadData);
+	}
+done:
+	return r;
+
+#undef TFW_BODY_OPEN_CHUNK
+}
+STACK_FRAME_NON_STANDARD(__parse_body);
+
 /*
  * Helping state identifiers used to define which jump address an FSM should
  * set as the entry point.
@@ -1199,8 +1304,6 @@ do {									\
 			__FSM_JMP(RGen_BodyInit);			\
 		}							\
 		parser->state = &&RGen_Hdr;				\
-		if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)		\
-			__body_fixup_append(1, true);			\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
 } while (0)
@@ -1498,85 +1601,35 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 #define TFW_HTTP_PARSE_BODY(...)					\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_BodyStart, __VA_ARGS__) {				\
-	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
+	__msg_field_open(&msg->body, p);				\
 	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen_BodyChunk, __VA_ARGS__) {				\
-	T_DBG3("read body: to_read=%ld\n", parser->to_read);		\
-	if (parser->to_read == -1) {					\
-		/* Prevent @parse_int_hex false positives. */		\
-		if (!isxdigit(c))					\
-			TFW_PARSER_BLOCK(RGen_BodyChunk);		\
-		__FSM_JMP(RGen_BodyChunkLen);				\
-	}								\
-	/* Fall through. */						\
-}									\
-__FSM_STATE(RGen_BodyReadChunk, __VA_ARGS__) {				\
-	BUG_ON(parser->to_read < 0);					\
-	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));	\
-	parser->to_read -= __fsm_sz;					\
-	if (parser->to_read)						\
-		__FSM_MOVE_body_fixup(RGen_BodyReadChunk, __fsm_sz,	\
-				      &msg->body, false);		\
-	if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {			\
-		parser->to_read = -1;					\
-		__FSM_MOVE_body_fixup(RGen_BodyEoL, __fsm_sz,		\
-				      &msg->body, false);		\
-	}								\
-	/* We've fully read Content-Length bytes. */			\
-	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
-		TFW_PARSER_BLOCK(RGen_BodyReadChunk);			\
-	msg->body.flags |= TFW_STR_COMPLETE;				\
-	p += __fsm_sz;							\
-	parser->state = &&RGen_BodyReadChunk;				\
-	__FSM_EXIT(TFW_PASS);						\
-}									\
-__FSM_STATE(RGen_BodyChunkLen, __VA_ARGS__) {				\
+__FSM_STATE(RGen_BodyParse, __VA_ARGS__) {				\
 	__fsm_sz = __data_remain(p);					\
-	/* Read next chunk length. */					\
-	__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc, &parser->_cnt); \
-	T_DBG3("data chunk: remain_len=%zu ret=%d to_read=%lu\n",	\
-	       __fsm_sz, __fsm_n, parser->_acc);			\
+	__fsm_n = __parse_body(msg, p, __fsm_sz);			\
+	T_DBG3("parse body: ret=%d data_len=%lu", __fsm_n, __fsm_sz);	\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
-		__FSM_MOVE_body_chunk_desc(RGen_BodyChunkLen, __fsm_sz);\
+		parser->state = &&RGen_BodyParse;			\
+		p += __fsm_sz;						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
-		TFW_PARSER_BLOCK(RGen_BodyChunkLen);			\
+		TFW_PARSER_BLOCK(RGen_BodyParse);			\
 	default:							\
-		parser->to_read = parser->_acc;				\
-		parser->_acc = 0;					\
-		parser->_cnt = 0;					\
-		__FSM_MOVE_body_chunk_desc(RGen_BodyChunkExt, __fsm_n);	\
+		p += __fsm_n;						\
+		msg->body.flags |= TFW_STR_COMPLETE;			\
+		if (!test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {	\
+			__FSM_EXIT(TFW_PASS);				\
+		} else if (unlikely(__data_off(p) >= len)) {		\
+			/* Chunked body parsed. Wait for trailer. */	\
+			parser->state = &&RGen_Hdr;			\
+			__FSM_EXIT(TFW_POSTPONE);			\
+		}							\
+		/* Process the trailer-part. */				\
+		__FSM_JMP(RGen_Hdr);					\
 	}								\
 }									\
-__FSM_STATE(RGen_BodyChunkExt, __VA_ARGS__) {				\
-	if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))		\
-		__FSM_MOVE_body_chunk_desc(RGen_BodyChunkExt, 1);	\
-	/* Fall through. */						\
-}									\
-__FSM_STATE(RGen_BodyEoL, __VA_ARGS__) {				\
-	if (likely(c == '\r'))						\
-		__FSM_MOVE_body_chunk_desc(RGen_BodyCR, 1);		\
-	/* Fall through. */						\
-}									\
-__FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
-	if (unlikely(c != '\n'))					\
-		TFW_PARSER_BLOCK(RGen_BodyCR);				\
-	if (parser->to_read)						\
-		__FSM_MOVE_body_chunk_desc(RGen_BodyChunk, 1);		\
-	/*								\
-	 * We've fully read the chunked body.				\
-	 * Add everything and the current character.			\
-	 */								\
-	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
-		__body_fixup_append(1, true);				\
-	else								\
-		__body_fixup_append(1, false);				\
-	msg->body.flags |= TFW_STR_COMPLETE;				\
-	/* Process the trailer-part. */					\
-	__FSM_MOVE_nofixup(RGen_Hdr);					\
-}
 
 /*
  * Read OWS and move to stashed state. This is bit complicated (however
