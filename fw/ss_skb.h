@@ -49,46 +49,6 @@ enum {
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
 			   unsigned int *read);
 
-static inline unsigned char
-ss_skb_flags(struct sk_buff *skb)
-{
-	return tempesta_skb_get_cb_val(skb, TEMPESTA_SKB_FLAG_OFF,
-				       TEMPESTA_SKB_FLAG_MAX);
-}
-
-static inline void
-ss_skb_set_flags(struct sk_buff *skb, unsigned char flags)
-{
-	return tempesta_skb_set_cb_val(skb, flags, TEMPESTA_SKB_FLAG_OFF);
-}
-
-static inline void
-ss_skb_clear_flags(struct sk_buff *skb)
-{
-	return tempesta_skb_clear_cb_val(skb, TEMPESTA_SKB_FLAG_MAX,
-					 TEMPESTA_SKB_FLAG_OFF);
-}
-
-static inline unsigned char
-ss_skb_tls_type(struct sk_buff *skb)
-{
-	return tempesta_skb_get_cb_val(skb, TEMPESTA_TLS_SKB_TYPE_OFF,
-				       TEMPESTA_TLS_SKB_TYPE_MAX);
-}
-
-static inline void
-ss_skb_set_tls_type(struct sk_buff *skb, unsigned char type)
-{
-	return tempesta_skb_set_cb_val(skb, type, TEMPESTA_TLS_SKB_TYPE_OFF);
-}
-
-static inline void
-ss_skb_clear_type(struct sk_buff *skb)
-{
-	return tempesta_skb_clear_cb_val(skb, TEMPESTA_TLS_SKB_TYPE_MAX,
-					 TEMPESTA_TLS_SKB_TYPE_OFF);
-}
-
 /**
  * Add new _single_ @skb to the queue in FIFO order.
  */

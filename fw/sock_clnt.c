@@ -157,14 +157,78 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return r;
 }
 
+/**
+ * First `xmit` callback, which is used to add headers for HTTP2
+ * HEADERS and DATA frames. Also used to add hpack dynamic table
+ * size at the beginning of the first header block according to
+ * RFC 7541. Implemented in separate function, because we use
+ * `tso_fragment` with new limit to split skb before passing it
+ * to the second `xmit` callback.
+ */
 static int
-tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
+tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
+		       unsigned int *limit, unsigned int *nskbs)
 {
 	TfwConn *conn = sk->sk_user_data;
-	TfwH2Ctx *h2;
-	TfwHPackETbl *tbl;
+	TfwH2Ctx *h2 = tfw_h2_context(conn);
+	TfwHPackETbl *tbl = &h2->hpack.enc_tbl;
+	unsigned short flags = skb_tfw_flags(skb);
 	unsigned int bytes_written = 0;
-	unsigned char flags;
+	unsigned int t_tz = skb->truesize;
+	int r = 0;
+
+	/* Avoid adding data to linear part of skb. */
+	skb->tail_lock = 1;
+
+	if (flags & SS_F_HTTP2_FRAME_START &&
+	    !(flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
+	{
+#define HPACK_TBL_BYTES_SZ_MAX 3
+
+		r = tfw_hpack_enc_tbl_write_sz(tbl, skb, &bytes_written);
+		if (unlikely(r)) {
+			T_WARN("%s: failed to encode new hpack dynamic "
+			       "table size (%d)", __func__, r);
+			goto ret;
+		}
+
+		tcp_sk(sk)->write_seq += bytes_written;
+		TCP_SKB_CB(skb)->end_seq += bytes_written;
+		flags |= (bytes_written ? SS_F_HTTT2_HPACK_TBL_SZ_ENCODED : 0);
+		skb_set_tfw_flags(skb, flags);
+
+#undef  HPACK_TBL_BYTES_SZ_MAX
+	}
+
+ret:
+	/* Should be zero when skb is passed to the kernel code. */
+	skb->tail_lock = 0;
+	/*
+	 * Since we add some data to skb, we should adjust the socket write
+	 * memory both in case of success and in case of failure.
+	 */
+	r = ss_add_overhead(sk, skb->truesize - t_tz);
+	if (unlikely(r)) {
+		T_WARN("%s: failed to add overhead to current TCP "
+		       "socket control data. (%d)", __func__, r);
+	}
+
+	if (unlikely(r) && r != -ENOMEM)
+		/*
+		 * We can not send unencrypted data and can not normally close the
+		 * socket with FIN since we're in progress on sending from the write
+		 * queue.
+		 */
+		ss_close(sk, SS_F_ABORT);
+
+	return r;
+}
+
+static int
+tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
+		    unsigned int *limit, unsigned int *nskbs)
+{
+	TfwConn *conn = sk->sk_user_data;
 	bool h2_mode;
 	int r = 0;
 
@@ -180,57 +244,11 @@ tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		goto err_purge_tcp_write_queue;
 	}
 
+	*nskbs = UINT_MAX;
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
-	flags = ss_skb_flags(skb);
+	if (h2_mode)
+		return tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
 
-	/*
-	 * We should write new hpack dynamic table size at the
-	 * beginning of the first header block, which is always
-	 * in linear part of skb. If skb_headlen is smaller
-	 * than FRAME_HEADER_SIZE, it means that skb doesn't
-	 * contain valid frame header in it's linear part.
-	 */
-	if (h2_mode && flags & SS_F_HTTP2_FRAME_START
-	    && skb_headlen(skb) >= FRAME_HEADER_SIZE)
-	{
-		h2 = tfw_h2_context(conn);
-		tbl = &h2->hpack.enc_tbl;
-
-		r = tfw_hpack_enc_tbl_write_sz(tbl, skb, &bytes_written);
-		if (unlikely(r)) {
-			T_WARN("%s: failed to encode new hpack dynamic "
-			       "table size (%d)", __func__, r);
-			goto ret;
-		}
-
-		tcp_sk(sk)->write_seq += bytes_written;
-		TCP_SKB_CB(skb)->end_seq += bytes_written;
-		/* Should be zero when skb is passed to kernel code. */
-		skb->tail_lock = 0;
-		r = ss_add_overhead(sk, bytes_written);
-		if (unlikely(r)) {
-			T_WARN("%s: failed to add overhead to current TCP "
-			       "socket control data. (%d)", __func__, r);
-			goto ret;
-		}
-	}
-
-	ss_skb_clear_flags(skb);
-	r = tfw_tls_encrypt(sk, skb, limit);
-
-ret:
-	if (h2_mode && unlikely(bytes_written))
-		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
-	if (unlikely(r) && r != -ENOMEM)
-		/*
-		 * We can not send unencrypted data and can not normally close the
-		 * socket with FIN since we're in progress on sending from the write
-		 * queue.
-		 */
-		ss_close(sk, SS_F_ABORT);
-
-	if (unlikely(r))
-		ss_skb_set_flags(skb, flags);
 	return r;
 
 err_purge_tcp_write_queue:
@@ -239,6 +257,43 @@ err_purge_tcp_write_queue:
 	 * but purge the send queue on unencrypted segments.
 	 */
 	tcp_write_queue_purge(sk);
+	return r;
+}
+
+static int
+tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
+		  unsigned int limit, unsigned int nskbs)
+{
+	TfwConn *conn = sk->sk_user_data;
+	TfwH2Ctx *h2;
+	TfwHPackETbl *tbl;
+	unsigned short flags;
+	bool h2_mode;
+	int r = 0;
+
+	assert_spin_locked(&sk->sk_lock.slock);
+	/* Should be checked early in `tfw_sk_prepare_xmit`. */
+	BUG_ON(!conn);
+
+	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
+	flags = skb_tfw_flags(skb);
+
+	if (h2_mode) {
+		h2 = tfw_h2_context(conn);
+		tbl = &h2->hpack.enc_tbl;
+	}
+
+	r = tfw_tls_encrypt(sk, skb, limit);
+
+	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
+		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
+	if (unlikely(r) && r != -ENOMEM)
+		/*
+		 * We can not send unencrypted data and can not normally close the
+		 * socket with FIN since we're in progress on sending from the write
+		 * queue.
+		 */
+		ss_close(sk, SS_F_ABORT);
 	return r;
 }
 
@@ -301,13 +356,15 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
 	ss_set_callbacks(sk);
-	if (TFW_CONN_TLS(conn))
+	if (TFW_CONN_TLS(conn)) {
 		/*
 		 * Probably, that's not beautiful to introduce an alternate
 		 * upcall beside GFSM and SS, but that's efficient and I didn't
 		 * find a simple and better solution.
 		 */
-		sk->sk_write_xmit = tfw_sc_write_xmit;
+		sk->sk_prepare_xmit = tfw_sk_prepare_xmit;
+		sk->sk_write_xmit = tfw_sk_write_xmit;
+	}
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,

@@ -266,7 +266,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
-	       skb, skb->len, skb->data_len, ss_skb_tls_type(skb),
+	       skb, skb->len, skb->data_len, skb_tfw_tls_type(skb),
 	       skb_shinfo(skb)->nr_frags, skb_headlen(skb),
 	       tcb->seq, tcb->end_seq);
 	BUG_ON(!ttls_xfrm_ready(tls));
@@ -276,7 +276,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 	head_sz = ttls_payload_off(xfrm);
 	len = head_sz + skb->len + TTLS_TAG_LEN;
-	type = ss_skb_tls_type(skb);
+	type = skb_tfw_tls_type(skb);
 	if (!type) {
 		T_WARN("%s: bad skb type %u\n", __func__, type);
 		r = -EINVAL;
@@ -293,13 +293,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
-		       !!skb_headlen(next), ss_skb_tls_type(next),
+		       !!skb_headlen(next), skb_tfw_tls_type(next),
 		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
 			break;
 		/* Don't put different message types into the same record. */
-		if (type != ss_skb_tls_type(next))
+		if (type != skb_tfw_tls_type(next))
 			break;
 
 		/*
@@ -443,7 +443,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			goto out;
 		out_frags += r;
 
-		tempesta_skb_clear_cb(next);
+		skb_clear_tfw_cb(next);
 		if (next == skb_tail)
 			break;
 		if (WARN_ON_ONCE(frags >= sgt.nents))
