@@ -26,6 +26,11 @@
 
 #include "str.h"
 
+/* Minimum amount of available head room in an SKB to accomodate
+ * the transport headers and possible TLS overhead
+ */
+#define SS_SKB_MIN_HDRM	    MAX_TCP_HEADER / 2	/* 160 bytes */
+
 /**
  * Responses from socket hook functions.
  */
@@ -196,6 +201,43 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->truesize += delta;
 }
 
+/**
+ * Insert a single sk_buff or list of SKBs
+ * pointed to by @nskb_head after the specified @skb.
+ * Note that standard kernel 'skb_insert()' function does not suit here, as it
+ * works with 'sk_buff_head' structure with additional fields @qlen and @lock.
+ * We don't need these fields for our skb list,
+ * so a custom function had been introduced.
+ */
+static inline void
+ss_skb_queue_insert_after(struct sk_buff *skb, struct sk_buff *nskb_head)
+{
+	struct sk_buff *next = skb->next;
+	
+	next->prev = nskb_head->prev;
+	nskb_head->prev->next = next;
+
+	nskb_head->prev = skb;
+	skb->next = nskb_head;
+}
+
+#define ss_skb_queue_walk(queue, skb, tmp)				\
+	for (skb = (*queue), tmp = skb->next;				\
+	     tmp != (*queue); skb = tmp, tmp = tmp->next)
+
+#define ss_skb_queue_walk_from(queue, skb, it)				\
+	for (it = skb->next; skb != (*queue); skb = it, it = it->next)
+
+static inline u8
+__skb_frags_avail(const struct sk_buff *skb) {
+	return MAX_SKB_FRAGS - skb_shinfo(skb)->nr_frags;
+}
+
+static inline bool
+__skb_is_linked(const struct sk_buff *skb) {
+	return skb->next != NULL || skb->prev != NULL;
+}
+
 /*
  * skb_tailroom - number of bytes at buffer end
  *
@@ -241,6 +283,19 @@ ss_skb_alloc(size_t n)
 	return skb;
 }
 
+/* Move @cnt existing fragment descriptors within the SKB.
+ */
+static inline void
+ss_skb_frags_move(struct sk_buff *skb, unsigned int new_pos,
+		  unsigned int old_pos, unsigned int cnt)
+{
+	struct skb_shared_info *si = skb_shinfo(skb);
+	if (WARN_ON(!si->nr_frags))
+		return;
+	BUG_ON(new_pos + cnt > MAX_SKB_FRAGS);
+	memmove(&si->frags[new_pos], &si->frags[old_pos], cnt * sizeof(skb_frag_t));
+}
+
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
@@ -278,4 +333,10 @@ int ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			  int frag_num, char *curr, const char *stop);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 		    int frag_idx, size_t frag_sz);
+
+int ss_skb_linear_transform(struct sk_buff *skb, struct sk_buff **skb_head,
+			    unsigned char *split_point);
+struct sk_buff *
+ss_skb_hdrm_check(struct sock *sk, struct sk_buff *skb, const u32 limit);
+
 #endif /* __TFW_SS_SKB_H__ */

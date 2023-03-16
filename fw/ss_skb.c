@@ -173,21 +173,6 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it, int *fragn)
 	}
 }
 
-/*
- * Insert @nskb in the list after @skb. Note that standard
- * kernel 'skb_insert()' function does not suit here, as it
- * works with 'sk_buff_head' structure with additional fields
- * @qlen and @lock; we don't need these fields for our skb
- * list, so a custom function had been introduced.
- */
-static inline void
-__skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
-{
-	nskb->next = skb->next;
-	nskb->prev = skb;
-	nskb->next->prev = skb->next = nskb;
-}
-
 /**
  * Similar to skb_shift().
  * Make room for @n fragments starting with slot @from.
@@ -237,7 +222,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (nskb == NULL)
 				return -ENOMEM;
 			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
-			__skb_insert_after(skb, nskb);
+			ss_skb_queue_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
@@ -341,7 +326,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	int tail_off = pspt - (char *)page_address(page);
 
-	T_DBG3("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
+	T_DBG3("[%d]: %s: skb [%px] pspt [%px] len [%d] tail_len [%d]\n",
 	       smp_processor_id(), __func__, skb, pspt, len, tail_len);
 	BUG_ON(!skb->head_frag);
 	BUG_ON(tail_len <= 0);
@@ -873,8 +858,8 @@ ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 	skb_frag_t *frag;
 	TfwStr it;
 
-	T_DBG3("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
-	       " end=%pK len=%u data_len=%u nr_frags=%u)\n", __func__,
+	T_DBG3("%s: head=%#lx trail=%#lx skb=%px (head=%px data=%px tail=%px"
+	       " end=%px len=%u data_len=%u nr_frags=%u)\n", __func__,
 	       head, trail, skb, skb->head, skb->data, skb_tail_pointer(skb),
 	       skb_end_pointer(skb), skb->len, skb->data_len, si->nr_frags);
 	if (WARN_ON_ONCE(skb->len <= head + trail))
@@ -1625,4 +1610,279 @@ ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 	__skb_frag_ref(&skb_shinfo(skb)->frags[frag_idx]);
 
 	return 0;
+}
+
+/* Transform linear data of @orig_skb to a fragment of @nskb.
+ * The caller is responsible to keep track of the original skb.
+ * @off - offset within linear data of @orig_skb
+ * @f_pos - position of newly added fragment within @nskb->frags
+ */
+static void
+__skb_linear_to_frag(const struct sk_buff *orig_skb, struct sk_buff *nskb,
+		     unsigned int off, unsigned int f_pos)
+{
+	struct page *data_page;
+	pr_warn("%s: oskb %px nskb %px off %u f_pos %u\n", __func__, orig_skb,
+		nskb, off, f_pos);
+	BUG_ON(f_pos >= MAX_SKB_FRAGS);
+
+	data_page = virt_to_page(orig_skb->data);
+	__skb_fill_page_desc(nskb, f_pos, data_page,
+			     orig_skb->data + off -
+			     (unsigned char *)page_to_virt(data_page),
+			     skb_headlen(orig_skb) - off);
+
+	__skb_frag_ref(&skb_shinfo(nskb)->frags[f_pos]);
+	skb_shinfo(nskb)->nr_frags++;
+	ss_skb_adjust_data_len(nskb, skb_headlen(orig_skb) - off);
+}
+
+/* Move @cnt fragment descriptors of the @skb starting from @off
+ * to @nskb starting from @skb_shinfo(@nskb)->frags[@noff]
+ */
+static void
+__skb_frags_transfer(struct sk_buff *skb, struct sk_buff *nskb,
+		     unsigned int noff, unsigned int cnt, unsigned int off)
+{
+	int i;
+	if (!skb_shinfo(skb)->nr_frags)
+		return;
+
+	pr_warn("%s: S %px NS %px noff %u cnt %u off %d\n", __func__,
+		skb, nskb, noff, cnt, off);
+
+	BUG_ON(noff + cnt > MAX_SKB_FRAGS);
+	BUG_ON(off + cnt > MAX_SKB_FRAGS);
+
+	memcpy(&skb_shinfo(nskb)->frags[noff], &skb_shinfo(skb)->frags[off],
+	       cnt * sizeof(skb_frag_t));
+	skb_shinfo(nskb)->nr_frags += cnt;
+	for (i = noff; i < noff + cnt; i++) {
+		skb_frag_t *f = &skb_shinfo(nskb)->frags[i];
+		ss_skb_adjust_data_len(nskb, skb_frag_size(f));
+		__skb_frag_ref(f);
+	}
+}
+
+/* Using @split_point transform the remaining linear portion of original @skb
+ * to a fragment of the new SKB. Take care of fragments of the @skb too.
+ * If data in the linear area is not needed, just check for available head room,
+ * so the won't be any problems pushing transport headers later.
+ */
+int
+ss_skb_linear_transform(struct sk_buff *skb, struct sk_buff **skb_head,
+			unsigned char *split_point)
+{
+	struct sk_buff *nskb;
+	struct skb_shared_info *si;
+	BUG_ON(!skb_headlen(skb));
+
+	si = skb_shinfo(skb);
+	if (!split_point) {
+		/* If split position has not been provided,
+		 * check for available headroom and allocate new skb if needed */
+		if (skb_headroom(skb) >= SS_SKB_MIN_HDRM) {
+			/* Usage of linear portion of SKB is not expected */
+			skb_pull(skb, skb_headlen(skb));
+		} else {
+			nskb = ss_skb_alloc(0);
+			if (!nskb)
+				goto out_err;
+
+			__skb_frags_transfer(skb, nskb, 0, si->nr_frags, 0);
+			ss_skb_queue_tail(skb_head, nskb);
+		}
+	} else {
+		nskb = ss_skb_alloc(0);
+		if (!nskb)
+			goto out_err;
+
+		__skb_linear_to_frag(skb, nskb,
+				     split_point - skb->data, 0);
+
+		/* can we move all the original fragments of @skb to @nskb */
+		if (likely(si->nr_frags < MAX_SKB_FRAGS)) {
+			__skb_frags_transfer(skb, nskb, 1, si->nr_frags, 0);
+			ss_skb_queue_tail(skb_head, nskb);
+		} else {
+			/* @skb contains maximum amount of fragments already */
+			ss_skb_queue_tail(skb_head, nskb);
+
+			nskb = ss_skb_alloc(0);
+			if (!nskb) {
+				__kfree_skb(*skb_head);
+				goto out_err;
+			}
+			__skb_frags_transfer(skb, nskb, 0, si->nr_frags, 0);
+			ss_skb_queue_tail(skb_head, nskb);
+		}
+	}
+	return 0;
+
+out_err:
+	T_WARN("%s: can't allocate new skb for response"
+	       " transformation(orig skb %px)\n",
+	       __func__, skb);
+	return -ENOMEM;
+}
+
+/* This is basically a stripped-down version of skb_copy_header(),
+ * which only copies the needed SKB fields during transformation phase
+ * from below.
+ */
+static void
+__ss_skb_copy_header(struct sk_buff *oskb, struct sk_buff *nskb)
+{
+	memcpy(nskb->cb, oskb->cb, sizeof(oskb->cb));
+	nskb->dev = oskb->dev;
+
+	skb_shinfo(nskb)->gso_size = skb_shinfo(oskb)->gso_size;
+	skb_shinfo(nskb)->gso_segs = skb_shinfo(oskb)->gso_segs;
+	skb_shinfo(nskb)->gso_type = skb_shinfo(oskb)->gso_type;
+	skb_shinfo(nskb)->tx_flags = skb_shinfo(oskb)->tx_flags;
+}
+
+/* Since Tempesta FW tries to reuse SKBs containing the response from the backend,
+ * sometimes we might encounter an SKB with quite a small head room, which is
+ * not big enough to accommodate all the transport headers and TLS overhead.
+ * It usually the case when working on loopback with small MTU.
+ *
+ * Given the @limit, traverse @sk->sk_write_queue and check if @skb has
+ * big enough head room. If that's not the case, allocate new SKB,
+ * transform the linear data into the fragment of the newly allocated SKB
+ * and move the existing fragments as well.
+ *
+ * It might seem tempting to coalesce the small SKBs into a single one
+ * with all the fragments completely filled, but the @limit might become
+ * significantly smaller on the next iteration and SKB would be splitted again.
+ * See tcp_write_xmit() / __tcp_retransmit_skb().
+ *
+ * @skb - first sk_buff to check and possibly transform
+ * @limit - amount of data we're allowed to send now
+ */
+struct sk_buff *
+ss_skb_hdrm_check(struct sock *sk, struct sk_buff *skb, const u32 limit)
+{
+	struct sk_buff *tmp;
+	struct skb_shared_info *si, *nsi;
+	u8 flags;
+	unsigned int cur_len, i = 0, proc_len = 0;
+
+	struct sk_buff *nskb = NULL, *pre_mod_skb = skb->prev;
+	pr_warn("[%d] %s: skb %px limit %u\n", smp_processor_id(), __func__,
+		skb, limit);
+
+	skb_queue_walk_from_safe(&sk->sk_write_queue, skb, tmp) {
+		pr_warn("[%d] %s: skb %px TRANS\n", i++, __func__,
+			skb);
+		if (proc_len + skb->len > limit)
+			break;
+
+		cur_len = skb->len;
+		if (unlikely(skb_headroom(skb) < SS_SKB_MIN_HDRM)) {
+			si = skb_shinfo(skb);
+
+			nskb = ss_skb_alloc(0);
+			if (!nskb) {
+				goto out_err;
+			}
+			/* sk_wmem_queued_add(sk, nskb->truesize); */
+			/* sk_mem_charge(sk, nskb->truesize); */
+			ss_skb_init_for_xmit(nskb);
+
+			/* Tempesta does not utilize @skb->frag_list.
+			 * Incoming SKBs with non-empty frag_list are being
+			 * unrolled in @ss_skb_unroll() */
+			WARN_ON(skb_has_frag_list(skb));
+			
+			nsi = skb_shinfo(nskb);
+			if (skb_headlen(skb)) {
+				/* transform linear part of @skb to frag
+				 * at pos @nr_frags of @nskb */
+				__skb_linear_to_frag(skb, nskb, 0,
+						     nsi->nr_frags);
+			}
+
+			if (likely(si->nr_frags < MAX_SKB_FRAGS ||
+				   !skb_headlen(skb))) {
+				pr_warn("skb %px nr_frags %d\n", skb, si->nr_frags);
+
+				/* transfer all @skb frags to @nskb */
+				__skb_frags_transfer(skb, nskb, nsi->nr_frags,
+						     si->nr_frags, 0);
+				
+				__ss_skb_copy_header(skb, nskb);
+
+				__skb_header_release(nskb);
+
+				__skb_queue_after(&sk->sk_write_queue,
+						  skb, nskb);
+				__skb_unlink(skb, &sk->sk_write_queue);
+
+				tcp_skb_tsorted_anchor_cleanup(skb);
+				kfree_skb(skb);
+				/* sk_wmem_free_skb(sk, skb); */
+				/* __forced_mem_schedule(sk, nskb->truesize); */
+
+			} else {
+				/* @skb contains maximum amount of frags already */
+				__ss_skb_copy_header(skb, nskb);
+				TCP_SKB_CB(nskb)->end_seq =
+					TCP_SKB_CB(skb)->seq + skb_headlen(skb);
+
+				flags = TCP_SKB_CB(skb)->tcp_flags;
+				TCP_SKB_CB(nskb)->tcp_flags =
+					flags & ~(TCPHDR_FIN | TCPHDR_PSH);
+
+				sk_wmem_queued_add(sk, nskb->truesize);
+				sk_mem_charge(sk, nskb->truesize);
+
+				/* TODO: should we reinit TSO segs -
+				 * tcp_set_skb_tso_segs() ? */
+				__skb_header_release(nskb);
+				__skb_queue_after(&sk->sk_write_queue,
+						  skb, nskb);
+
+				nskb = ss_skb_alloc(0);
+				if (!nskb) {
+					tmp = skb->next;
+					__skb_unlink(tmp, &sk->sk_write_queue);
+					sk_wmem_free_skb(sk, tmp);
+					goto out_err;
+				}
+
+				ss_skb_init_for_xmit(nskb);
+				__ss_skb_copy_header(skb, nskb);
+				TCP_SKB_CB(nskb)->seq = TCP_SKB_CB(skb)->seq +
+					skb_headlen(skb);
+				TCP_SKB_CB(nskb)->tcp_flags = flags;
+
+				__skb_frags_transfer(skb, nskb, 0,
+						     si->nr_frags, 0);
+
+				sk_wmem_queued_add(sk, nskb->truesize);
+				sk_mem_charge(sk, nskb->truesize);
+
+				__skb_header_release(nskb);
+				__skb_queue_after(&sk->sk_write_queue,
+						  skb->next, nskb);
+
+				__skb_unlink(skb, &sk->sk_write_queue);
+				tcp_skb_tsorted_anchor_cleanup(skb);
+				kfree_skb(skb);
+			}
+		}
+		proc_len += cur_len;
+	}
+
+	pr_warn("[%d] %s: pmod->next %px proc_len %u\n", smp_processor_id(),
+		__func__, pre_mod_skb->next, proc_len);
+	
+	return pre_mod_skb->next;
+
+out_err:
+	T_WARN("%s sk %pK: failed to allocate new sk_buff"
+	       " while performing transformation of skb with small head room\n",
+	       __func__, sk);
+	return ERR_PTR(-ENOMEM);
 }

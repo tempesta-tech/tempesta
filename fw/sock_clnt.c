@@ -157,16 +157,18 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return r;
 }
 
-static int
+static struct sk_buff *
 tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 {
+	struct sk_buff *tskb, *iter, *tmp;
+
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
 	TfwHPackETbl *tbl;
 	unsigned int bytes_written = 0;
 	unsigned char flags;
 	bool h2_mode;
-	int r = 0;
+	int i, r = 0;
 
 	assert_spin_locked(&sk->sk_lock.slock);
 
@@ -180,8 +182,21 @@ tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		goto err_purge_tcp_write_queue;
 	}
 
+	tskb = ss_skb_hdrm_check(sk, skb, limit);
+	if (IS_ERR(tskb))
+		return tskb;
+
+	/* ------------------------ */
+	i = 0;
+	pr_warn("%s: sk %px POST HEADROOM TRANS DUMP\n", __func__, sk);
+	skb_queue_walk_safe(&sk->sk_write_queue, iter, tmp) {
+		pr_warn("#%2d LOOP skb %px\n", i++, iter);
+		skb_dump(KERN_WARNING, iter, true);
+	}
+	/* ------------------------ */
+
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
-	flags = ss_skb_flags(skb);
+	flags = ss_skb_flags(tskb);
 
 	/*
 	 * We should write new hpack dynamic table size at the
@@ -191,12 +206,12 @@ tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * contain valid frame header in it's linear part.
 	 */
 	if (h2_mode && flags & SS_F_HTTP2_FRAME_START
-	    && skb_headlen(skb) >= FRAME_HEADER_SIZE)
+	    && skb_headlen(tskb) >= FRAME_HEADER_SIZE)
 	{
 		h2 = tfw_h2_context(conn);
 		tbl = &h2->hpack.enc_tbl;
 
-		r = tfw_hpack_enc_tbl_write_sz(tbl, skb, &bytes_written);
+		r = tfw_hpack_enc_tbl_write_sz(tbl, tskb, &bytes_written);
 		if (unlikely(r)) {
 			T_WARN("%s: failed to encode new hpack dynamic "
 			       "table size (%d)", __func__, r);
@@ -204,9 +219,9 @@ tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		}
 
 		tcp_sk(sk)->write_seq += bytes_written;
-		TCP_SKB_CB(skb)->end_seq += bytes_written;
+		TCP_SKB_CB(tskb)->end_seq += bytes_written;
 		/* Should be zero when skb is passed to kernel code. */
-		skb->tail_lock = 0;
+		tskb->tail_lock = 0;
 		r = ss_add_overhead(sk, bytes_written);
 		if (unlikely(r)) {
 			T_WARN("%s: failed to add overhead to current TCP "
@@ -215,8 +230,18 @@ tfw_sc_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		}
 	}
 
-	ss_skb_clear_flags(skb);
-	r = tfw_tls_encrypt(sk, skb, limit);
+	ss_skb_clear_flags(tskb);
+
+	r = tfw_tls_encrypt(sk, tskb, limit);
+
+	/* ------------------------ */
+	i = 0;
+	pr_warn("%s: sk %px POST TFW_TLS_ENCRYPT\n", __func__, sk);
+	skb_queue_walk_safe(&sk->sk_write_queue, iter, tmp) {
+		pr_warn("#%2d LOOP skb %px\n", i++, iter);
+		skb_dump(KERN_WARNING, iter, true);
+	}
+	/* ------------------------ */
 
 ret:
 	if (h2_mode && unlikely(bytes_written))
@@ -229,9 +254,12 @@ ret:
 		 */
 		ss_close(sk, SS_F_ABORT);
 
-	if (unlikely(r))
+	if (unlikely(r)) {
 		ss_skb_set_flags(skb, flags);
-	return r;
+		return ERR_PTR(r);
+	}
+
+	return (tskb == skb) ? NULL : tskb;
 
 err_purge_tcp_write_queue:
 	/*
@@ -239,7 +267,7 @@ err_purge_tcp_write_queue:
 	 * but purge the send queue on unencrypted segments.
 	 */
 	tcp_write_queue_purge(sk);
-	return r;
+	return ERR_PTR(r);
 }
 
 /**
@@ -591,10 +619,10 @@ tfw_listen_sock_start(TfwListenSock *ls)
 		goto err;
 	}
 
-	T_DBG("start listening on socket: sk=%p\n", sk);
+	T_DBG("start listening on socket: sk=%px\n", sk);
 	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
 	if (r) {
-		T_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
+		T_ERR_NL("can't listen on front-end socket sk=%px (%d)\n",
 			 sk, r);
 		goto err;
 	}

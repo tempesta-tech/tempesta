@@ -1500,18 +1500,19 @@ __tfw_h2_msg_shrink_frags(TfwMsgIter *it, const char *body,
  * At this point we can't free SKBs, because data that they contain used
  * as source for message trasformation.
  */
-void
+int
 tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 {
+	int i, ret;
+	struct sk_buff *skb, *nskb_head = NULL;
 	char *begin, *end;
+
 	TfwMsgIter *it = &resp->mit.iter;
 	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
 	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
 	char *off = resp->body.len ? body : crlf->data + crlf->len;
 
 	do {
-		unsigned char i;
-		struct sk_buff *skb;
 		struct skb_shared_info *si = skb_shinfo(it->skb);
 
 		if (skb_headlen(it->skb)) {
@@ -1520,11 +1521,28 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 
 			if ((begin <= off) && (end >= off)) {
 				it->frag = -1;
-				/* TODO: Handle this case, most likely for low MTU
-				 * it will be implemented as part of #1703 */
-				return;
+				/* We would end up here if the start of the body or
+				 * the end of CRLF lies within the linear data area
+				 * of the current @it->skb
+				 */
+				ret = ss_skb_linear_transform(it->skb,
+							      &nskb_head, body);
+				if (unlikely(ret))
+					return ret;
+				
+				/* replace @it->skb with new list @nskb_head */
+				if (nskb_head) {
+					ss_skb_queue_insert_after(it->skb,
+								  nskb_head);
+					ss_skb_unlink(&it->skb_head, it->skb);
+					ss_skb_queue_tail(&cleanup->skb_head,
+							  it->skb);
+					it->skb = nskb_head;
+				}
+				break;
 			}
 		}
+
 		for (i = 0; i < si->nr_frags; i++) {
 			skb_frag_t *f = &si->frags[i];
 
@@ -1542,7 +1560,6 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 		it->skb = it->skb->next;
 		ss_skb_unlink(&it->skb_head, skb);
 		ss_skb_queue_tail(&cleanup->skb_head, skb);
-
 	} while (it->skb != NULL);
 
 end:
@@ -1566,19 +1583,16 @@ end:
 			si->nr_frags--;
 		}
 
-		memmove(&si->frags, &si->frags[it->frag],
-			(si->nr_frags) * sizeof(skb_frag_t));
+		ss_skb_frags_move(it->skb, 0, it->frag, si->nr_frags);
 	}
-
-	/* Trim skb linear data. This is ugly hotfix and must be removed after
-	 * implementation of #1703 */
-	it->skb->len -= skb_headlen(it->skb);
 
 	it->skb_head = it->skb;
 	resp->msg.skb_head = it->skb;
 
 	/* Start from zero fragment */
 	it->frag = -1;
+
+	return 0;
 }
 
 /**

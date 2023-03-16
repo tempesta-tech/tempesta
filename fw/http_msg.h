@@ -185,7 +185,7 @@ int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 			    const char *stop);
 int tfw_h2_msg_rewrite_data_lc(TfwHttpTransIter *mit, const TfwStr *str,
                                const char *stop);
-void tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
+int tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
 int tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data);
 
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\

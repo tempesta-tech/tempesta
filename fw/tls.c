@@ -262,8 +262,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	io = &tls->io_out;
 	xfrm = &tls->xfrm;
 
-	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
-	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
+	T_DBG3("%s: sk=%px(snd_una=%u snd_nxt=%u limit=%u)"
+	       " skb=%px(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
 	       skb, skb->len, skb->data_len, ss_skb_tls_type(skb),
@@ -290,7 +290,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
 
-		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
+		T_DBG3("next skb (%px) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
 		       !!skb_headlen(next), ss_skb_tls_type(next),
@@ -322,6 +322,11 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	next = skb_tail->next;
 	t_sz = skb_tail->truesize;
 	WARN_ON_ONCE(next == skb);
+
+	pr_warn("[%d] %s: head_sz %d, skb %px, skb->next %px, skb_tail %px, skb_tail->next %px\n",
+		smp_processor_id(), __func__, head_sz, skb, skb->next, skb_tail, skb_tail->next);
+
+
 	if (skb_tail == skb) {
 		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, TTLS_TAG_LEN);
 		if (r < 0)
@@ -426,7 +431,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		 */
 		r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
 
-		T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
+		T_DBG3("skb_to_sgvec (%u segs) from skb %px"
 		       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
 		       sgt.nents, next, next->len,
 		       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
@@ -561,8 +566,8 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 			skb_fill_page_desc(skb, i++, sg_page(sg), sg->offset,
 					   sg->length);
 			ss_skb_adjust_data_len(skb, sg->length);
-			T_DBG3("fill skb frag %d by %pK,len=%u,flags=%lx in"
-			       " skb=%pK,len=%u\n", i - 1,
+			T_DBG3("fill skb frag %d by %px,len=%u,flags=%lx in"
+			       " skb=%px,len=%u\n", i - 1,
 			       sg_virt(sg), sg->length, sg->page_link & 0x3,
 			       skb, skb->len);
 		}

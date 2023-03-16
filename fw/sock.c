@@ -371,16 +371,19 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
+	int i;
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb, *head = *skb_head;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	unsigned int mark = (*skb_head)->mark;
 
-	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
+	T_DBG3("[%d]: %s: sk=%px queue_empty=%d send_head=%px"
 	       " sk_state=%d mss=%d size=%d\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
 	       sk->sk_state, mss, size);
+
+	pr_warn("[%d] %s: mss %d\n", smp_processor_id(), __func__, mss);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!ss_sock_active(sk))) {
@@ -388,6 +391,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		return;
 	}
 
+	i = 0;
 	while ((skb = ss_skb_dequeue(skb_head))) {
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
@@ -395,7 +399,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		 * these SKBs.
 		 */
 		if (!skb->len) {
-			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
+			T_DBG3("[%d]: %s: drop skb=%px data_len=%u len=%u\n",
 			       smp_processor_id(), __func__,
 			       skb, skb->data_len, skb->len);
 			kfree_skb(skb);
@@ -411,20 +415,22 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
+		T_DBG3("[%d]: %s: entail sk=%px [#%d] skb=%px data_len=%u len=%u"
 		       " truesize=%u mark=%u tls_type=%x\n",
-		       smp_processor_id(), __func__, sk,
+		       smp_processor_id(), __func__, sk, i,
 		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
 		       ss_skb_tls_type(skb));
+		skb_dump(KERN_WARNING, skb, true);
 
 		ss_forced_mem_schedule(sk, skb->truesize);
 		skb_entail(sk, skb);
 
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
+		i++;
 	}
 
-	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
+	T_DBG3("[%d]: %s: sk=%px send_head=%px sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state, flags);
 
@@ -463,7 +469,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	cpu = sk->sk_incoming_cpu;
 
-	T_DBG3("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
+	T_DBG3("[%d]: %s: sk=%px (cpu=%d) state=%s\n",
 	       smp_processor_id(), __func__, sk, cpu,
 	       ss_statename[sk->sk_state]);
 
@@ -551,7 +557,7 @@ ss_do_close(struct sock *sk, int flags)
 	struct sk_buff *skb;
 	int data_was_unread = 0;
 
-	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
+	T_DBG2("[%d]: Close socket %px (%s): account=%d refcnt=%u\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -829,7 +835,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		}
 	}
 	if (tcp_fin) {
-		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
+		T_DBG2("Received data FIN on sk=%px, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
 		r = SS_BAD;
@@ -913,7 +919,7 @@ ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
 
-	T_DBG3("[%d]: %s: sk=%p state=%s\n",
+	T_DBG3("[%d]: %s: sk=%px state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -935,7 +941,7 @@ ss_tcp_data_ready(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
 			tp->urg_data = 0;
-			T_DBG3("[%d]: urgent data in socket %p\n",
+			T_DBG3("[%d]: urgent data in socket %px\n",
 			       smp_processor_id(), sk);
 		}
 	}
@@ -986,7 +992,7 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	T_DBG3("[%d]: %s: sk=%p state=%s\n",
+	T_DBG3("[%d]: %s: sk=%px state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);

@@ -1,4 +1,5 @@
-/**
+/*
+ *
  *		Tempesta FW
  *
  * Core HTTP-layer processing, including HTTP/2 and HTTP/1.1 versions.
@@ -5290,7 +5291,10 @@ static void
 tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	int r;
+	int i;
 	unsigned int stream_id;
+	struct sk_buff *sk_head;
+	struct sk_buff *skb, *temp;
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
@@ -5335,14 +5339,45 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 			goto clean;
 	}
 
+	/* XXX: DEBUG */
+	pr_warn("[%d] sk %px PRE TRANSFORM DUMP\n", smp_processor_id(),
+		resp->msg.skb_head->sk);
+	pr_warn("#0 skb ==>> %px\n", resp->msg.skb_head);
+	skb_dump(KERN_WARNING, resp->msg.skb_head, true);
+
+	i = 1;
+	skb_queue_walk_safe(resp->msg.skb_head, skb, temp) {
+		pr_warn("#%2d skb ==>> %px\n", i, skb);
+		skb_dump(KERN_WARNING, skb, true);
+		i++;
+	}
+
 	/*
 	 * Transform HTTP/1.1 headers into HTTP/2 form, in parallel with
 	 * adjusting of particular headers.
 	 */
 	WARN_ON_ONCE(mit->acc_len);
+
+	sk_head = resp->msg.skb_head;
 	tfw_h2_msg_transform_setup(mit, resp->msg.skb_head, true);
 
-	tfw_h2_msg_cutoff_headers(resp, &cleanup);
+	if (tfw_h2_msg_cutoff_headers(resp, &cleanup))
+		goto clean;
+
+	//////////////////////////
+	/* XXX: DEBUG */
+	pr_warn("[%d] sk %px == POST LINEAR SPLIT ==\n", smp_processor_id(),
+		resp->msg.skb_head->sk);
+	pr_warn("#0 skb ==>> %px\n", resp->msg.skb_head);
+	skb_dump(KERN_WARNING, resp->msg.skb_head, true);
+
+	i = 1;
+	skb_queue_walk_safe(resp->msg.skb_head, skb, temp) {
+		pr_warn("#%2d skb ==>> %px\n", i, skb);
+		skb_dump(KERN_WARNING, skb, true);
+		i++;
+	}
+	////////////////////
 
 	/*
 	 * Alloc room for frame header. After this call resp->pool
@@ -5404,6 +5439,17 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
 	if (unlikely(r))
 		goto clean;
+
+	pr_warn("[%d] sk %px POST REWRITE DUMP\n", smp_processor_id(),
+		resp->msg.skb_head->sk);
+	pr_warn("#0 skb ==>> %px\n", resp->msg.skb_head);
+	skb_dump(KERN_WARNING, resp->msg.skb_head, true);
+	i = 1;
+	skb_queue_walk_safe(resp->msg.skb_head, skb, temp) {
+		pr_warn("#%2d skb ==>> %px\n", i, skb);
+		skb_dump(KERN_WARNING, skb, true);
+		i++;
+	}
 
 	tfw_h2_resp_fwd(resp);
 
@@ -6718,7 +6764,8 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 		       stream->msg, conn);
 	}
 
-	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
+	T_DBG2("Add skb %px to message %p\n", skb, stream->msg);
+	skb_dump(KERN_WARNING, skb, true);
 	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
