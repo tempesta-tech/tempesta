@@ -1303,10 +1303,7 @@ done:
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		/* When 'if-modified-since' hdr is taken from HPACK dyn table,
-		 * we need to parse date once again to fill @req->cond.m_date.
-		 */
-		tfw_idx_hdr_parse_if_mod_since(req, entry->hdr);
+		h2_set_hdr_if_mod_since(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;

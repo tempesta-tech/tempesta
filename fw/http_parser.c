@@ -6920,7 +6920,7 @@ void
 h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (cstate->is_set && cstate->hdr_accept.text_html)
-	__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+		__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 }
 
 static int
@@ -8216,6 +8216,15 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_parse_http_date);
 
+void
+h2_set_hdr_if_mod_since(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set) {
+		req->cond.m_date = cstate->hdr_if_msince.date;
+		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
+	}
+}
+
 static int
 __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 			 bool fin)
@@ -8232,8 +8241,10 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	 * header field is defined as a comma-separated list [i.e., #(values)]
 	 * or the header field is a well-known exception.
 	 */
-	if (unlikely(req->cond.flags & TFW_HTTP_COND_IF_MSINCE))
+	if (unlikely(req->cond.flags & TFW_HTTP_COND_IF_MSINCE)) {
+		parser->cstate.is_set = 0;
 		return r;
+	}
 
 	/*
 	 * RFC 7232 3.3:
@@ -8260,12 +8271,14 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	}
 
 	if (r >= 0) {
-		req->cond.m_date = parser->_date;
-		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
+		parser->cstate.is_set = 1;
+		parser->cstate.hdr_if_msince.date = parser->_date;
+		h2_set_hdr_if_mod_since(req, &parser->cstate);
 
 		return CSTR_EQ;
 	}
 
+	parser->cstate.is_set = 0;
 	return r;
 }
 
@@ -10519,29 +10532,6 @@ tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr)
 		T_DBG3("%s: got port: %lu\n", __func__, host_port);
 		req->host_port = host_port;
 	}
-}
-
-void
-tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
-{
-	TfwStr *c, *end;
-	TfwHttpParser *parser;
-	int ret = CSTR_NEQ;
-
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
-		if (c->flags & TFW_STR_HDR_VALUE) {
-			ret = __h2_req_parse_if_msince((TfwHttpMsg *)req,
-					c->data, c->len, true);
-			T_DBG3("%s: __h2_req_parse_if_msince ret=%d\n",
-				__func__, ret);
-		}
-	}
-
-	/* Parser internal state has to be reset */
-	parser = &((TfwHttpMsg *)req)->stream->parser;
-	parser->_i_st = NULL;
-
-	T_DBG3("%s: req->cond.m_date: %lu\n", __func__, req->cond.m_date);
 }
 
 enum {
