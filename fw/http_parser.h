@@ -22,6 +22,7 @@
 
 #include "str.h"
 #include "http_types.h"
+#include "hpack.h"
 
 typedef struct {
 	unsigned int	size;	/* number of elements in the table */
@@ -113,6 +114,7 @@ typedef struct {
 	const void			*state;
 	const void			*_i_st;
 	long				to_read;
+	TfwCachedHeaderState		cstate;
 	union {
 		unsigned long		_acc;
 		struct {
@@ -159,6 +161,7 @@ int tfw_http_parse_terminate(TfwHttpMsg *hm);
 bool tfw_http_parse_is_done(TfwHttpMsg *hm);
 
 void tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr);
+void h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
 void tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr);
 unsigned char tfw_http_meth_str2id(const TfwStr *m_hdr);
 #endif /* __TFW_HTTP_PARSER_H__ */

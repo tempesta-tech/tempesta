@@ -751,7 +751,8 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
  */
 static int
 tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
-		    TfwMsgParseIter *__restrict it)
+		    TfwMsgParseIter *__restrict it,
+		    const TfwCachedHeaderState *__restrict cstate)
 {
 	int r;
 	bool new_page;
@@ -900,6 +901,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	}
 
 	entry = entries + curr;
+	entry->cstate = *cstate;
 	if ((r = tfw_hpack_set_entry(tbl->h_pool, it, entry, &new_page)))
 		return r;
 	/*
@@ -1179,7 +1181,6 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		  const TfwHPackEntry *__restrict entry)
 {
 	char *data;
-	unsigned int i;
 	unsigned long d_size;
 	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *s, *end, *s_hdr = entry->hdr;
@@ -1270,13 +1271,7 @@ done:
 		break;
 	case TFW_TAG_HDR_ACCEPT:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		for (i = 1, d = d_hdr->chunks; i < d_hdr->nchunks; i++) {
-			if (d[i].len == sizeof("text/html") - 1
-			    && memcmp_fast(d[i].data, "text/html",
-					   sizeof("text/html") - 1) == 0) {
-				__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			}
-		}
+		h2_set_hdr_accept(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_AUTHORIZATION:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
@@ -1585,7 +1580,8 @@ get_value_text:
 				HPACK_PROCESS_STRING(m_len, true);
 
 			if (state & HPACK_FLAGS_ADD
-			    && tfw_hpack_add_index(&hp->dec_tbl, it))
+			    && tfw_hpack_add_index(&hp->dec_tbl, it,
+			                           &req->stream->parser.cstate))
 			{
 				r = T_DROP;
 				goto out;

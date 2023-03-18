@@ -6916,6 +6916,13 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_authority);
 
+void
+h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set && cstate->hdr_accept.text_html)
+	__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+}
+
 static int
 __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		      bool fin)
@@ -6926,6 +6933,8 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_WSAccept) {
+		/* reset carried state every time we start parsing header */
+		parser->cstate.is_set = 0;
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept);
 		/* Fall through. */
@@ -6967,7 +6976,9 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
 		H2_TRY_STR_LAMBDA("html", {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			parser->cstate.is_set = 1;
+			parser->cstate.hdr_accept.text_html = 1;
+			h2_set_hdr_accept(req, &parser->cstate);
 			__FSM_EXIT(CSTR_EQ);
 		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
