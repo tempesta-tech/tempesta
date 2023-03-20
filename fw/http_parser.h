@@ -163,5 +163,6 @@ bool tfw_http_parse_is_done(TfwHttpMsg *hm);
 void tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr);
 void h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
 void h2_set_hdr_if_mod_since(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
+void h2_set_hdr_authority(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
 unsigned char tfw_http_meth_str2id(const TfwStr *m_hdr);
 #endif /* __TFW_HTTP_PARSER_H__ */

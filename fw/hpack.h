@@ -163,6 +163,9 @@ typedef struct {
 		struct {
 			long		    date;
 		} hdr_if_msince;
+		struct {
+			unsigned long	    port;
+		} hdr_authority;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;

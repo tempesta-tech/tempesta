@@ -6816,6 +6816,14 @@ do {										\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
 		str, fld, {}, fin1, fin2, curr_st, next_st, 0)
 
+/* Note: this method isn't called from __h2_req_parse_authority */
+void
+h2_set_hdr_authority(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set)
+		req->host_port = cstate->hdr_authority.port;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	HTTP/2 request parsing
@@ -6831,6 +6839,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_A_Start) {
+		parser->cstate.is_set = 0;
 		if (likely(isalnum(c) || c == '.' || c == '-'))
 			__FSM_I_JMP(Req_I_A);
 		if (likely(c == '['))
@@ -6892,6 +6901,8 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
 			req->host_port = parser->_acc;
+			parser->cstate.hdr_authority.port = parser->_acc;
+			parser->cstate.is_set = 1;
 			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_A_Port, __fsm_sz, {
 				if (req->host_port)
 					__FSM_EXIT(CSTR_EQ);
@@ -6899,6 +6910,8 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			}, TFW_STR_VALUE);
 		default:
 			req->host_port = parser->_acc;
+			parser->cstate.hdr_authority.port = parser->_acc;
+			parser->cstate.is_set = 1;
 			parser->_acc = 0;
 			if (!req->host_port)
 				return CSTR_NEQ;

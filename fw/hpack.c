@@ -1265,6 +1265,7 @@ done:
 		break;
 	case TFW_TAG_HDR_H2_AUTHORITY:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_AUTHORITY;
+		h2_set_hdr_authority(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_H2_PATH:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_PATH;
@@ -1296,10 +1297,7 @@ done:
 		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
-		/* We need to parse port part of the header again
-		 * to fill @req->host_port
-		 */
-		tfw_idx_hdr_parse_host_port(req, entry->hdr);
+		h2_set_hdr_authority(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
