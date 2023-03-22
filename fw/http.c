@@ -1108,7 +1108,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
  */
 static void
 tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
-	              unsigned int stream_id)
+		 unsigned int stream_id)
 {
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
@@ -3067,7 +3067,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 		}
 		else {
 			r = TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
-					         TFW_HTTP_HDR_CONNECTION);
+						 TFW_HTTP_HDR_CONNECTION);
 		}
 	}
 
@@ -3719,7 +3719,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * requests with Transfer-Encoding are blocked.
 	 */
 	bool need_cl = req->body.len &&
-	               TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
+		       TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
 
 	if (need_cl) {
 		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
@@ -4402,7 +4402,7 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
 			if (!(chunk->flags & TFW_STR_NAME))
-		                continue;
+				continue;
 
 			if (sep) {
 				buf[len] = ',';
@@ -4420,7 +4420,7 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 				chunk++;
 			}
 
-		        sep = 1;
+			sep = 1;
 		}
 	}
 

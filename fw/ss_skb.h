@@ -246,7 +246,7 @@ int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
 int
 ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
-                           size_t head, size_t trail);
+			   size_t head, size_t trail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
@@ -258,7 +258,7 @@ int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
-                                   struct page ***old_pages);
+				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 		    int frag_idx, size_t frag_sz);
 int

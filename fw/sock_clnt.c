@@ -146,8 +146,8 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	spin_lock(&cli_conn->timer_lock);
 	if (timer_pending(&cli_conn->timer))
 		mod_timer(&cli_conn->timer,
-		          jiffies +
-		          msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
+			  jiffies +
+			  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 	spin_unlock(&cli_conn->timer_lock);
 
 	if (r)
@@ -215,9 +215,9 @@ ret:
 
 	if (unlikely(r) && r != -ENOMEM)
 		/*
-		 * We can not send unencrypted data and can not normally close the
-		 * socket with FIN since we're in progress on sending from the write
-		 * queue.
+		 * We can not send unencrypted data and can not normally close
+		 * the socket with FIN since we're in progress on sending from
+		 * the write queue.
 		 */
 		ss_close(sk, SS_F_ABORT);
 
@@ -618,7 +618,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	T_LOG_ADDR("Open listen socket on", addr, TFW_WITH_PORT);
 
 	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
-	                   &sk);
+			   &sk);
 	if (r) {
 		T_ERR_NL("can't create listening socket (err: %d)\n", r);
 		return r;

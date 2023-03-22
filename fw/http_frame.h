@@ -254,13 +254,13 @@ tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 static inline void
 tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 {
-        hdr->length = ntohl(*(int *)buf) >> 8;
-        hdr->type = buf[3];
-        hdr->flags = buf[4];
-        hdr->stream_id = ntohl(*(unsigned int *)&buf[5]) & FRAME_STREAM_ID_MASK;
+	hdr->length = ntohl(*(int *)buf) >> 8;
+	hdr->type = buf[3];
+	hdr->flags = buf[4];
+	hdr->stream_id = ntohl(*(unsigned int *)&buf[5]) & FRAME_STREAM_ID_MASK;
 
-        T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
-               __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
+	T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
+	       __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
 }
 
 #endif /* __HTTP_FRAME__ */

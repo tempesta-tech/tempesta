@@ -57,8 +57,8 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 	const struct iphdr *ih4 = ip_hdr(skb);
 	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
 	TfwAddr addr = (ih6->version == 6)
-	                ? tfw_addr_new_v6(&ih6->saddr, 0)
-	                : tfw_addr_new_v4(ih4->saddr, 0);
+			? tfw_addr_new_v6(&ih6->saddr, 0)
+			: tfw_addr_new_v4(ih4->saddr, 0);
 
 	return tfw_addr_fmt(&addr, TFW_NO_PORT, out_buf);
 }
@@ -947,9 +947,9 @@ multi_buffs:
 		head -= skb->len;
 		/* We do not use ss_skb_unlink() here and in
 		 * the similar loop for tail below to prevent
-	 	 * removing the last skb in the list and to skip
-	 	 * unneccessary checks and actions inside the func.
-	 	 */
+		 * removing the last skb in the list and to skip
+		 * unneccessary checks and actions inside the func.
+		 */
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
 		*skb_list_head = skb_hd = skb->next;
@@ -1499,7 +1499,7 @@ EXPORT_SYMBOL(ss_skb_dump);
  */
 int
 ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
-                               struct page ***old_pages)
+			       struct page ***old_pages)
 {
 	unsigned int head_data_len = skb_headlen(skb);
 	unsigned int out_frags = 0;

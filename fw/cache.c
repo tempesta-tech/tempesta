@@ -1357,9 +1357,9 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
  */
 static int
 tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
-                             TfwStr *src, size_t *tot_len,
-                             long cache_strcpy(char **p, TdbVRec **trec,
-                                               TfwStr *src, size_t tot_len))
+			     TfwStr *src, size_t *tot_len,
+			     long cache_strcpy(char **p, TdbVRec **trec,
+					       TfwStr *src, size_t tot_len))
 {
 	long n;
 	TfwStr *c, *end;
@@ -1384,18 +1384,18 @@ tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
 
 static int
 tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
-                      TfwStr *src, size_t *tot_len)
+		      TfwStr *src, size_t *tot_len)
 {
 	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
-	                                    tfw_cache_strcpy);
+					    tfw_cache_strcpy);
 }
 
 static int
 tfw_cache_h2_copy_str_lc(unsigned int *acc_len, char **p, TdbVRec **trec,
-                         TfwStr *src, size_t *tot_len)
+			 TfwStr *src, size_t *tot_len)
 {
 	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
-	                                    tfw_cache_strcpy_lc);
+					    tfw_cache_strcpy_lc);
 }
 
 static inline int
@@ -1425,10 +1425,10 @@ tfw_cache_copy_str_with_extra_quotes(TfwCacheEntry *ce, char **p, TdbVRec **trec
 {
 #define ADD_ETAG_QUOTE(flag)                                            \
 do {                                                                    \
-        TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
-        if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
-                                  tot_len))                             \
-                return -ENOMEM;                                         \
+	TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
+	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
+				  tot_len))                             \
+		return -ENOMEM;                                         \
 } while(0)
 
 	if (need_extra_quotes)
@@ -1518,7 +1518,7 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			    || tfw_cache_h2_copy_int(&ce->hdr_len, s_nm.len,
 						     0x7f, p, trec, tot_len)
 			    || tfw_cache_h2_copy_str_lc(&ce->hdr_len, p, trec,
-			                                &s_nm, tot_len))
+							&s_nm, tot_len))
 				return -ENOMEM;
 		}
 
