@@ -99,6 +99,18 @@ typedef enum {
 } TfwH2Err;
 
 /**
+ * Last http2 response info, used to prepare frames
+ * in `xmit` callbacks.
+ *
+ * @h_len	- length of headers in htt2 response;
+ * @b_len	- length of body in htt2 response;
+ */
+typedef struct {
+	unsigned long h_len;
+	unsigned long b_len;
+} TfwHttpXmit;
+
+/**
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
@@ -110,8 +122,9 @@ typedef enum {
  * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
+ * @xmit	- last http2 response info, used in `xmit` callbacks;
  */
-typedef struct {
+struct tfw_http_stream_t {
 	struct rb_node		node;
 	struct list_head	hcl_node;
 	unsigned int		id;
@@ -121,7 +134,8 @@ typedef struct {
 	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
-} TfwStream;
+	TfwHttpXmit		xmit;
+};
 
 /**
  * Scheduler for stream's processing distribution based on dependency/priority
@@ -152,6 +166,14 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+
+static inline void
+tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
+			    unsigned long b_len)
+{
+	stream->xmit.h_len = h_len;
+	stream->xmit.b_len = b_len;
+}
 
 static inline bool
 tfw_h2_strm_req_is_compl(TfwStream *stream)

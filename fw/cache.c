@@ -2425,16 +2425,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
  * Add page from cache into response.
  */
 static int
-tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
-			bool h2, bool last_frag)
+tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
+			bool last_frag)
 {
 	int off;
 	struct page *page;
 
-	/*
-	 * @sz is guarantied to be bigger than FRAME_HEADER_SIZE if frame header
-	 * is stored in cache before data. True for first fragment.
-	 */
 	if (h2) {
 		char *new_p;
 		if (!(page = alloc_page(GFP_ATOMIC))) {
@@ -2442,11 +2438,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
 		}
 		new_p = page_address(page);
 		off = 0;
-		frame_hdr->flags = last_frag ? HTTP2_F_END_STREAM : 0;
-		frame_hdr->length = sz;
-		memcpy_fast(new_p + FRAME_HEADER_SIZE, p, sz);
-		sz += FRAME_HEADER_SIZE;
-		tfw_h2_pack_frame_header(new_p, frame_hdr);
+		memcpy_fast(new_p, p, sz);
 	}
 	else {
 		off = ((unsigned long)p & ~PAGE_MASK);
@@ -2489,7 +2481,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 			  unsigned long body_sz, bool h2, unsigned int stream_id)
 {
 	int r;
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
 	bool sh_frag = h2 ? false : true;
 
 	if (WARN_ON_ONCE(!it->skb_head))
@@ -2519,8 +2510,8 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 		if (f_size) {
 			f_size = min(body_sz, (unsigned long)f_size);
 			body_sz -= f_size;
-			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
-						    h2, !body_sz);
+			r = tfw_cache_add_body_page(it, p, f_size, h2,
+						    !body_sz);
 			if (r)
 				return r;
 			if (stream_id) {

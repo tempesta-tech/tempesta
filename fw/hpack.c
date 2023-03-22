@@ -3916,23 +3916,19 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 }
 
 int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
-			   unsigned int *bytes_wtitten)
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
+			   struct sk_buff *skb, TfwStream *stream,
+			   unsigned int mss_now, unsigned int *t_tz)
 {
-	TfwMsgIter it = { .frag = -1, .skb = skb, .skb_head = skb};
+	TfwMsgIter it = {
+		.skb = skb,
+		.skb_head = ((struct sk_buff *)&sk->sk_write_queue),
+		.frag = -1
+	};
 	TfwStr new_size = {};
 	TfwHPackInt tmp = {};
-	TfwFrameHdr hdr = {};
-	char *data = skb->data;
+	char *data;
 	int r = 0;
-
-	/*
-	 * Check header type. Sometimes because of skb splitting,
-	 * headers data can present here, but HTTP2_HEADERS code
-	 * (0x01) is not valid for headers data.
-	 */
-	if (skb->data[3] != HTTP2_HEADERS)
-		return 0;
 
 	/*
 	 * We should encode hpack dynamic table size, only in case when
@@ -3943,20 +3939,18 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
 		new_size.data = tmp.buf;
 		new_size.len = tmp.sz;
 	
-		r = tfw_msg_iter_move(&it, (unsigned char **)&data,
-				      FRAME_HEADER_SIZE);
+		data = tfw_http_iter_set_at_skb(&it, skb, FRAME_HEADER_SIZE);
+		if (!data) {
+			r = -E2BIG;
+			goto finish;
+		}
+
+		r = tfw_h2_insert_frame_header(sk, skb, stream, mss_now, &it,
+					       &data, &new_size, t_tz);
 		if (unlikely(r))
 			goto finish;
 
-		r = tfw_http_msg_insert(&it, &data, &new_size);
-		if (unlikely(r))
-			goto finish;
-
-		tfw_h2_unpack_frame_header(&hdr, skb->data);
-		hdr.length += tmp.sz;
-		tfw_h2_pack_frame_header(skb->data, &hdr);
-
-		*bytes_wtitten = tmp.sz;
+		stream->xmit.h_len += tmp.sz;
 	}
 
 finish:

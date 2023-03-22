@@ -37,6 +37,7 @@
 #include "addr.h"
 #include "procfs.h"
 #include "ss_skb.h"
+#include "sync_socket.h"
 
 /**
  * Get @skb's source address and port as a string, e.g. "127.0.0.1", "::1".
@@ -218,11 +219,22 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (r)
 				return r;
 		} else {
-			nskb = ss_skb_alloc(0);
+			/*
+			 * If skb->sk is set, we use functions from the Linux kernel
+			 * to allocate and insert skb.
+			 */
+			nskb = !skb->sk ? ss_skb_alloc(0) :
+				sk_stream_alloc_skb(skb->sk, 0, GFP_ATOMIC,
+						    true);
 			if (nskb == NULL)
 				return -ENOMEM;
 			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
-			ss_skb_insert_after(skb, nskb);
+			if (!skb->sk) {
+				ss_skb_insert_after(skb, nskb);
+			} else {
+				__skb_header_release(nskb);
+				__skb_queue_after(&skb->sk->sk_write_queue, skb, nskb);
+			}
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
@@ -1315,7 +1327,12 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	}
 
 	skb->skb_mstamp_ns = 0;
-	skb->dev = NULL;
+	/*
+	 * Do not clear skb->dev in case if it is used for private
+	 * tempesta data.
+	 */
+	if (!skb_tfw_is_present(skb))
+		skb->dev = NULL;
 	bzero_fast(skb->cb, sizeof(skb->cb));
 	nf_reset_ct(skb);
 	skb->mac_len = 0;

@@ -26,7 +26,8 @@ void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
 void tfw_tls_match_any_sni_to_dflt(bool match);
 int tfw_tls_cfg_alpn_protos(const char *cfg_str);
-int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
+int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
+		    unsigned int limit, unsigned int nskbs);
 
 typedef struct tfw_conn_t TfwConn;
 int tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb);

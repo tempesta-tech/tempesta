@@ -746,5 +746,20 @@ int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 			    unsigned long h_len, const TfwStr *body);
 int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
+int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
+			       TfwH2Ctx *ctx, TfwStream *stream,
+			       unsigned int mss_now, unsigned int limit,
+			       unsigned int *processed, bool *headers_end,
+			       unsigned int *t_tz, unsigned int *nskbs);
+int tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
+			    TfwH2Ctx *ctx, TfwStream *stream,
+			    unsigned int mss_now, unsigned int limit,
+			    unsigned int *processed, bool *headers_end,
+			    unsigned int *t_tz, unsigned int *nskbs);
+int tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
+			       TfwStream *stream, unsigned int mss_now,
+			       TfwMsgIter *it, char **data,
+			       const TfwStr *frame_hdr_str,
+			       unsigned int *t_tz);
 
 #endif /* __TFW_HTTP_H__ */

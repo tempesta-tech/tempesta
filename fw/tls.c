@@ -35,6 +35,7 @@
 #include "procfs.h"
 #include "tls.h"
 #include "vhost.h"
+#include "tcp.h"
 
 /**
  * Global level TLS configuration.
@@ -195,34 +196,6 @@ next_msg:
 }
 
 /**
- * Propagate TCP correct sequence numbers from the current @skb with adjusted
- * sequence numbers for TLS overhead to the next one on TCP write queue.
- * So that tcp_send_head() always point to an skb with the right sequence
- * numbers.
- */
-static void
-tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
-{
-	struct sk_buff *next;
-	struct tcp_skb_cb *tcb_next, *tcb = TCP_SKB_CB(skb);
-
-	if (tcp_skb_is_last(sk, skb))
-		return;
-
-	next = skb_queue_next(&sk->sk_write_queue, skb);
-	tcb_next = TCP_SKB_CB(next);
-	WARN_ON_ONCE((tcb_next->seq || tcb_next->end_seq)
-		     && tcb_next->seq + next->len
-		        + !!(tcb_next->tcp_flags & TCPHDR_FIN)
-			!= tcb_next->end_seq);
-
-	tcb_next->seq = tcb->end_seq;
-	tcb_next->end_seq = tcb_next->seq + next->len;
-	if (tcb_next->tcp_flags & TCPHDR_FIN)
-		tcb_next->end_seq++;
-}
-
-/**
  * The callback is called by tcp_write_xmit() if @skb must be encrypted by TLS.
  * @skb is current head of the TCP send queue. @limit defines how much data
  * can be sent right now with knowledge of current congestion and the receiver's
@@ -233,7 +206,8 @@ tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
  * also adjust TCP sequence numbers in the socket. See skb_entail().
  */
 int
-tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
+tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
+		unsigned int limit, unsigned int nskbs)
 {
 	/*
 	 * TODO #1103 currently even trivial 500-bytes HTTP message generates
@@ -242,7 +216,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 #define AUTO_SEGS_N	8
 
 	int r = -ENOMEM;
-	unsigned int head_sz, len, frags, t_sz, out_frags;
+	unsigned int head_sz, len, frags, t_sz, out_frags, i = 0;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -257,6 +231,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
+	bool tcp_fragment = (skb->len != skb->data_len);
 
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
@@ -287,7 +262,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	tcb->end_seq += head_sz;
 
 	/* Try to aggregate several skbs into one TLS record. */
-	while (!tcp_skb_is_last(sk, skb_tail)) {
+	while (!tcp_skb_is_last(sk, skb_tail) && i++ < nskbs - 1) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
@@ -306,7 +281,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		 * skb at @next may lag behind in sequence numbers. Recalculate
 		 * them from the previous skb which happens to be @skb_tail.
 		 */
-		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
+		tfw_tcp_propagate_dseq(sk, skb_tail);
 
 		len += next->len;
 		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
@@ -333,8 +308,10 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		sgt.nents += r;
 		out_sgt.nents += r;
 
+		skb_tail->sk = sk;
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    TTLS_TAG_LEN);
+		skb_tail->sk = NULL;
 		if (r < 0)
 			goto out;
 	}
@@ -360,7 +337,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		WARN_ON_ONCE(skb_tail->next->len != TTLS_TAG_LEN);
 		WARN_ON_ONCE(skb_tail->truesize != t_sz);
 
-		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
+		tfw_tcp_setup_new_skb(sk, skb_tail, mss_now, tcp_fragment);
 
 		/*
 		 * A new skb is added to the socket wmem.
@@ -371,7 +348,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		t_sz = skb_tail->next->truesize;
 
 		skb_tail = skb_tail->next;
-		INIT_LIST_HEAD(&skb_tail->tcp_tsorted_anchor);
+		skb_set_tfw_tls_type(skb_tail, type);
 	}
 
 	/*
@@ -382,7 +359,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * seqnos in it. If @next is the last skb, then the whole queue is in
 	 * consistent state.
 	 */
-	tfw_tls_tcp_propagate_dseq(sk, skb_tail);
+	tfw_tcp_propagate_dseq(sk, skb_tail);
 	tcp_sk(sk)->write_seq += head_sz + TTLS_TAG_LEN;
 
 	/*
