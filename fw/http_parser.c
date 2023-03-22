@@ -6839,7 +6839,6 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_A_Start) {
-		parser->cstate.is_set = 0;
 		if (likely(isalnum(c) || c == '.' || c == '-'))
 			__FSM_I_JMP(Req_I_A);
 		if (likely(c == '['))
@@ -6946,8 +6945,6 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_WSAccept) {
-		/* reset carried state every time we start parsing header */
-		parser->cstate.is_set = 0;
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE_NEQ(Req_I_WSAccept);
 		/* Fall through. */
@@ -8229,13 +8226,16 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_parse_http_date);
 
-void
+int
 h2_set_hdr_if_mod_since(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
+	if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
+		return T_DROP;
 	if (cstate->is_set) {
 		req->cond.m_date = cstate->hdr_if_msince.date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 	}
+	return T_OK;
 }
 
 static int
@@ -8254,10 +8254,8 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	 * header field is defined as a comma-separated list [i.e., #(values)]
 	 * or the header field is a well-known exception.
 	 */
-	if (unlikely(req->cond.flags & TFW_HTTP_COND_IF_MSINCE)) {
-		parser->cstate.is_set = 0;
+	if (unlikely(req->cond.flags & TFW_HTTP_COND_IF_MSINCE))
 		return r;
-	}
 
 	/*
 	 * RFC 7232 3.3:
@@ -8291,7 +8289,6 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 		return CSTR_EQ;
 	}
 
-	parser->cstate.is_set = 0;
 	return r;
 }
 

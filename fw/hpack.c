@@ -1301,7 +1301,8 @@ done:
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		h2_set_hdr_if_mod_since(req, &entry->cstate);
+		if (h2_set_hdr_if_mod_since(req, &entry->cstate))
+			return T_DROP;
 		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
@@ -1361,6 +1362,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		case HPACK_STATE_READY:
 		{
 			unsigned char c = *src++;
+			req->stream->parser.cstate.is_set = 0;
 
 			if (c & 0x80) { /* RFC 7541 6.1 */
 				T_DBG3("%s: > Indexed Header Field\n", __func__);
