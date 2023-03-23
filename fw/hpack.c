@@ -1312,6 +1312,7 @@ done:
 			req->cond.m_date = 0;
 			req->cond.flags &= ~TFW_HTTP_COND_IF_MSINCE;
 		}
+		h2_set_hdr_if_nmatch(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_PRAGMA:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;

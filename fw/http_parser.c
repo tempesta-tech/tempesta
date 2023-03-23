@@ -2853,6 +2853,12 @@ __FSM_STATE(st) {							\
 	return CSTR_NEQ;						\
 }
 
+void h2_set_hdr_if_nmatch(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set && cstate->ifnmatch_etag_any)
+		req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+}
+
 /**
  * Parse ETag if message is a response or If-None-Match if it's a request.
  *
@@ -2912,6 +2918,8 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 				return CSTR_NEQ;
 
 			req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+			parser->cstate.is_set = 1;
+			parser->cstate.ifnmatch_etag_any = 1;
 			__FSM_I_MOVE_fixup(I_EoL, 1, 0);
 		}
 
@@ -6821,7 +6829,7 @@ void
 h2_set_hdr_authority(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (cstate->is_set)
-		req->host_port = cstate->hdr_authority.port;
+		req->host_port = cstate->authority_port;
 }
 
 /*
@@ -6900,7 +6908,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
 			req->host_port = parser->_acc;
-			parser->cstate.hdr_authority.port = parser->_acc;
+			parser->cstate.authority_port = parser->_acc;
 			parser->cstate.is_set = 1;
 			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_A_Port, __fsm_sz, {
 				if (req->host_port)
@@ -6909,7 +6917,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			}, TFW_STR_VALUE);
 		default:
 			req->host_port = parser->_acc;
-			parser->cstate.hdr_authority.port = parser->_acc;
+			parser->cstate.authority_port = parser->_acc;
 			parser->cstate.is_set = 1;
 			parser->_acc = 0;
 			if (!req->host_port)
@@ -6931,7 +6939,7 @@ STACK_FRAME_NON_STANDARD(__h2_req_parse_authority);
 void
 h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
-	if (cstate->is_set && cstate->hdr_accept.text_html)
+	if (cstate->is_set && cstate->accept_text_html)
 		__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 }
 
@@ -6987,7 +6995,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
 		H2_TRY_STR_LAMBDA("html", {
 			parser->cstate.is_set = 1;
-			parser->cstate.hdr_accept.text_html = 1;
+			parser->cstate.accept_text_html = 1;
 			h2_set_hdr_accept(req, &parser->cstate);
 			__FSM_EXIT(CSTR_EQ);
 		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
@@ -7897,6 +7905,8 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 				return CSTR_NEQ;
 
 			req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+			parser->cstate.is_set = 1;
+			parser->cstate.ifnmatch_etag_any = 1;
 			__FSM_H2_I_MOVE_fixup(I_EoL, 1, 0);
 		}
 
@@ -8232,7 +8242,7 @@ h2_set_hdr_if_mod_since(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 	if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
 		return T_DROP;
 	if (cstate->is_set) {
-		req->cond.m_date = cstate->hdr_if_msince.date;
+		req->cond.m_date = cstate->if_msince_date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 	}
 	return T_OK;
@@ -8283,7 +8293,7 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 
 	if (r >= 0) {
 		parser->cstate.is_set = 1;
-		parser->cstate.hdr_if_msince.date = parser->_date;
+		parser->cstate.if_msince_date = parser->_date;
 		h2_set_hdr_if_mod_since(req, &parser->cstate);
 
 		return CSTR_EQ;

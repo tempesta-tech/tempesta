@@ -157,15 +157,10 @@ typedef enum {
  */
 typedef struct {
 	union {
-		struct {
-			unsigned char	    text_html;
-		} hdr_accept;
-		struct {
-			long		    date;
-		} hdr_if_msince;
-		struct {
-			unsigned long	    port;
-		} hdr_authority;
+		unsigned char	    accept_text_html;
+		long		    if_msince_date;
+		unsigned long	    authority_port;
+		unsigned char	    ifnmatch_etag_any;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;
