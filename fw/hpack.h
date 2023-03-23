@@ -150,6 +150,22 @@ typedef enum {
 } TfwHPackTag;
 
 /**
+ * This strucutre holds reusable parsed information from different HTTP
+ * headers.
+ *
+ * @is_set	- boolean flag indicating that the state is set
+ */
+typedef struct {
+	union {
+		unsigned char	    accept_text_html;
+		long		    if_msince_date;
+		unsigned long	    authority_port;
+		unsigned char	    ifnmatch_etag_any;
+	};
+	unsigned char		is_set;
+} TfwCachedHeaderState;
+
+/**
  * Representation of the entry in HPack decoder index.
  *
  * @hdr		- pointer to the header data descriptor;
@@ -158,6 +174,8 @@ typedef enum {
  * @tag		- tag of the indexed header;
  * @last	- flag bit indicating that corresponding header is the last on
  *		  the page.
+ * @cstate	- part of the parser state for reusage with headers
+ *		  stored in hpack dynamic table without re-parsing them.
  */
 typedef struct {
 	TfwStr			*hdr;
@@ -165,6 +183,7 @@ typedef struct {
 	unsigned long		name_num;
 	unsigned int		tag;
 	unsigned char		last : 1;
+	TfwCachedHeaderState	cstate;
 } TfwHPackEntry;
 
 /**
