@@ -1166,35 +1166,185 @@ do {						\
 } while (0)
 
 /**
- * Copies http *chunked* body from plain or compound TfwStr @src to TdbRec @trec.
- * The copied data does not contain the chunked encoding descriptors.
- * @src is copied
- * @return number of copied bytes on success and negative value otherwise.
+ * Copies http *chunked* body to TdbRec @trec. The copied data does not
+ * contain the chunked encoding descriptors.
+ *
+ * @body basically used for validation.
+ * @cut TfwStr containing chunked descriptors. Used as beginning of the body.
+ * @return zero on success and negative value otherwise.
  */
 static int
 tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
-			       TfwStr *src, size_t *tot_len)
+			       TfwStr *body, TfwStr *cut, size_t *tot_len)
 {
 	long n;
-	TfwStr *c, *end;
+	TfwMsgIter it;
+	TfwStr *tmp;
+	char *curr, *stop, *begin, *end, *prev_end = NULL;
+	int stop_len, c_chunk = 0;
 
-	BUG_ON(TFW_STR_DUP(src));
+	BUG_ON(TFW_STR_DUP(body));
 
-	if (unlikely(!src->len))
+	/* Body has only zero chunk. */
+	if (unlikely(!body->len))
 		return 0;
 
-	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
-		if (c->flags & TFW_STR_CUT)
-			continue;
+	if (unlikely(!cut->len))
+		return -EINVAL;
 
-		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
+	/*
+	 * If we have cut-chunks less then two and body is not empty it means
+	 * parser is broken.
+	 */
+	BUG_ON(cut->nchunks < 2 && body->len > 0);
+
+	it.skb = cut->skb;
+	it.skb_head = cut->skb;
+	it.frag = -(!!skb_headlen(it.skb));
+
+	tmp = __TFW_STR_CH(cut, c_chunk);
+	curr = tmp->data;
+
+	stop = curr;
+	stop_len = tmp->len;
+
+	while (true) {
+		if (it.frag == -1) {
+			begin = it.skb->data;
+			end = begin + skb_headlen(it.skb);
+		} else {
+			skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
+
+			begin = skb_frag_address(f);
+			end = begin + skb_frag_size(f);
+		}
+
+		/* Previous fragment is fully copied. */
+		if (curr == prev_end)
+			curr = begin;
+rep:
+		/* Stop is found. Get next stop. */
+		if (curr == stop) {
+			if (++c_chunk >= cut->nchunks)
+				return 0;
+			curr += stop_len;
+			tmp = __TFW_STR_CH(cut, c_chunk);
+			stop = tmp->data;
+			stop_len = tmp->len;
+		}
+
+		if ((begin <= curr) && (end > curr)) {
+			TfwStr chunk = {.len = 0};
+
+			/* Stop found in current frag. */
+			if ((begin <= stop) && (end >= stop)) {
+				chunk.data = curr;
+				chunk.len = stop - curr;
+				curr = stop;
+			} else {
+				/* Stop not found. Copy whole frag. */
+				chunk.data = curr;
+				chunk.len = end - curr;
+				curr = end;
+			}
+
+			if (chunk.len) {
+				if ((n = tfw_cache_strcpy(p, trec, &chunk,
+							  *tot_len)) < 0)
+				{
+					T_ERR("Cache: cannot copy chunk of HTTP body\n");
+					return -ENOMEM;
+				}
+
+				*tot_len -= n;
+				*acc_len += n;
+			}
+		}
+
+		if (curr != end)
+			goto rep;
+
+		prev_end = end;
+
+		it.frag++;
+		if (it.frag >= skb_shinfo(it.skb)->nr_frags) {
+			it.skb = it.skb->next;
+			if (it.skb == it.skb_head)
+				return 0;
+
+			it.frag = -(!!skb_headlen(it.skb));
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Copies http body to TdbRec @trec.
+ *
+ * @body Http response body.
+ * @return zero on success and negative value otherwise.
+ */
+static int
+tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
+		       TfwStr *body, size_t *tot_len)
+{
+	long n;
+	TfwMsgIter it;
+	TfwStr chunk;
+
+	BUG_ON(TFW_STR_DUP(body));
+
+	if (unlikely(!body->len))
+		return 0;
+
+	it.skb_head = body->skb;
+	it.skb = body->skb;
+	it.frag = -1;
+
+	/* Move to the beginning of body. */
+	tfw_http_iter_set_at(&it, body->data);
+	chunk.data = body->data;
+
+	if (it.frag == -1) {
+		unsigned int size = skb_headlen(it.skb);
+
+		chunk.len = (char*)(it.skb->data + size) - chunk.data;
+	} else {
+		skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
+		unsigned int size = skb_frag_size(f);
+
+		chunk.len = (char*)(skb_frag_address(f) + size) - chunk.data;
+	}
+
+	do {
+		if ((n = tfw_cache_strcpy(p, trec, &chunk, *tot_len)) < 0) {
 			T_ERR("Cache: cannot copy chunk of HTTP body\n");
 			return -ENOMEM;
 		}
 
 		*tot_len -= n;
 		*acc_len += n;
-	}
+
+		it.frag++;
+		if (it.frag >= skb_shinfo(it.skb)->nr_frags) {
+			it.skb = it.skb->next;
+			if (it.skb == it.skb_head)
+				return 0;
+
+			it.frag = -(!!skb_headlen(it.skb));
+		}
+
+		if (it.frag == -1) {
+			chunk.data = it.skb->data;
+			chunk.len = skb_headlen(it.skb);
+		} else {
+			skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
+
+			chunk.data = skb_frag_address(f);
+			chunk.len = skb_frag_size(f);
+		}
+	} while (true);
 
 	return 0;
 }
@@ -1471,7 +1621,7 @@ tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		},
 		.nchunks = 1
 	};
-	unsigned long body_len = resp->body.len - resp->stream->parser.cut_len;
+	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 
 	val.chunks->len = tfw_ultoa(body_len, val.chunks->data,
 				    TFW_ULTOA_BUF_SIZ);
@@ -1824,10 +1974,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->body = TDB_OFF(db->hdr, p);
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
 		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
-						   &resp->body, &tot_len);
+						   &resp->body,
+						   &resp->stream->parser.cut,
+						   &tot_len);
 	else
-		r = tfw_cache_h2_copy_str(&ce->body_len, &p, &trec, &resp->body,
-					  &tot_len);
+		r = tfw_cache_h2_copy_body(&ce->body_len, &p, &trec,
+					   &resp->body, &tot_len);
 
 	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy HTTP body\n");
@@ -2099,10 +2251,7 @@ __cache_entry_size(TfwHttpResp *resp)
 			   + tfw_hpack_int_size(via_sz, 0x7F) + via_sz;
 
 	/* Add body size. */
-	res_size += resp->body.len;
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-		res_size -= resp->stream->parser.cut_len;
+	res_size += TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 
 	return res_size;
 err:

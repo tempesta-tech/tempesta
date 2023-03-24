@@ -1894,7 +1894,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "0\r\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 8);
+		EXPECT_EQ(resp->stream->parser.cut.len, 8);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 
@@ -1908,7 +1908,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "Age: 1\r\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 8);
+		EXPECT_EQ(resp->stream->parser.cut.len, 8);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 
@@ -1921,7 +1921,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "0\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 5);
+		EXPECT_EQ(resp->stream->parser.cut.len, 5);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 
@@ -1935,7 +1935,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "Age: 1\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 6);
+		EXPECT_EQ(resp->stream->parser.cut.len, 6);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 
@@ -1948,7 +1948,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "0\r\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 16);
+		EXPECT_EQ(resp->stream->parser.cut.len, 16);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 
@@ -1959,7 +1959,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "0\r\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 3);
+		EXPECT_EQ(resp->stream->parser.cut.len, 3);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 	/* Chunked response */
@@ -1969,7 +1969,7 @@ TEST(http1_parser, chunked_cut_len)
 		 "000\r\n"
 		 "\r\n")
 	{
-		EXPECT_EQ(resp->stream->parser.cut_len, 5);
+		EXPECT_EQ(resp->stream->parser.cut.len, 5);
 		EXPECT_EQ(tfw_str_eolen(&resp->body), 2);
 	}
 }

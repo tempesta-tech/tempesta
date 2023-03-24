@@ -274,9 +274,6 @@ int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 int
 ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
                            size_t head, size_t trail);
-int
-ss_skb_cutoff_data_flagged(struct sk_buff *skb_head, const TfwStr *str,
-			   unsigned short flag, int tail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);

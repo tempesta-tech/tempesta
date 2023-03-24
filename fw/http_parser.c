@@ -274,28 +274,9 @@ do {									\
 
 /*
  * __FSM_I_* macros are intended to help with parsing of message
- * body or header values. That is done with separate, nested, or
- * interior FSMs, and so _I_ in the name means "interior" FSM.
+ * header values. That is done with separate, nested, or interior
+ * FSMs, and so _I_ in the name means "interior" FSM.
  */
-#define __FSM_I_MOVE_body(to, n, flag)					\
-do {									\
-	/* 								\
-	 * Due to we don't store cut-chunks separately we need to       \
-	 * store total length of cut-chunks to use it during calculating\
-	 * cache record size and in other places where we need to have  \
-	 * size of body and cut-chunks. 				\
-	 */ 								\
-	parser->cut_len += n * !!(flag & TFW_STR_CUT);			\
-	p += n;								\
-	if (unlikely(__data_off(p) >= len)) {				\
-		tfw_str_updlen(&msg->body, p);				\
-		__msg_field_chunk_flags(&msg->body, flag); 		\
-		parser->_i_st = &&to;					\
-		__FSM_EXIT(TFW_POSTPONE);				\
-	}								\
-	goto to;							\
-} while (0)
-
 #define __FSM_I_field_chunk_flags(field, flag)				\
 	__msg_field_chunk_flags(field, flag)
 
@@ -1013,27 +994,25 @@ __parse_check_encodings(TfwHttpResp *resp)
 	return T_OK;
 }
 
-static int
-__parse_body(TfwHttpMsg *hm, unsigned char *data, size_t len)
-{
-	int r = CSTR_NEQ;
-	const unsigned short flag = TFW_CONN_TYPE(hm->conn) & Conn_Srv ?
-							   TFW_STR_CUT : 0;
-	__FSM_DECLARE_VARS(hm);
-
-#define TFW_BODY_OPEN_CHUNK()						\
+#define __FSM_I_MOVE_body_lambda(to, n, lambda)				\
 do {									\
-	TfwStr *ch = tfw_str_add_compound(msg->pool, &msg->body);	\
-									\
-	if (!ch) { 							\
-		T_WARN("Cannot grow HTTP data string\n"); 		\
-		return CSTR_NEQ; 					\
-	} 								\
-	__msg_field_open(ch, p); 					\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		lambda;							\
+		parser->_i_st = &&to;					\
+		__FSM_EXIT(TFW_POSTPONE);				\
+	}								\
+	goto to;							\
 } while (0)
 
-	if (!TFW_STR_EMPTY(TFW_STR_CURR(&msg->body)))
-		TFW_BODY_OPEN_CHUNK();
+#define __FSM_I_MOVE_body_nf(to, n)					\
+	__FSM_I_MOVE_body_lambda(to, n, {})
+
+static int
+__req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
 
@@ -1050,16 +1029,15 @@ do {									\
 		__fsm_sz = min_t(long, parser->to_read, __data_remain(p));
 		parser->to_read -= __fsm_sz;
 		if (parser->to_read)
-			__FSM_I_MOVE_body(I_BodyReadData, __fsm_sz, false);
+			__FSM_I_MOVE_body_nf(I_BodyReadData, __fsm_sz);
 
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {
 			parser->to_read = -1;
-			__FSM_I_MOVE_body(I_ChunkDataEnd, __fsm_sz, false);
+			__FSM_I_MOVE_body_nf(I_BodyEoL, __fsm_sz);
 		}
 
 		/* We've fully read Content-Length bytes. */
 		p += __fsm_sz;
-		tfw_str_updlen(&msg->body, p);
 		return __data_off(p);
 	}
 
@@ -1079,7 +1057,7 @@ do {									\
 		       __fsm_sz, __fsm_n, parser->_acc);
 		switch (__fsm_n) {
 		case CSTR_POSTPONE:
-			__FSM_I_MOVE_body(I_BodyChunkLen, __fsm_sz, flag);
+			__FSM_I_MOVE_body_nf(I_BodyChunkLen, __fsm_sz);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			__FSM_EXIT(TFW_BLOCK);
@@ -1087,29 +1065,19 @@ do {									\
 			parser->to_read = parser->_acc;
 			parser->_acc = 0;
 			parser->_cnt = 0;
-			__FSM_I_MOVE_body(I_BodyChunkExt, __fsm_n, flag);
+			__FSM_I_MOVE_body_nf(I_BodyChunkExt, __fsm_n);
 		}
 	}
 
 	__FSM_STATE(I_BodyChunkExt) {
 		if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))
-			__FSM_I_MOVE_body(I_BodyChunkExt, 1, flag);
-		__FSM_JMP(I_BodyEoL);
-	}
-
-	/* Fixup chunked body data-part */
-	__FSM_STATE(I_ChunkDataEnd) {
-		/* Don't fixup chunk twice after resuming parsing. */
-		if (__data_off(p) > 0) {
-			tfw_str_updlen(&msg->body, p);
-			TFW_BODY_OPEN_CHUNK();
-		}
+			__FSM_I_MOVE_body_nf(I_BodyChunkExt, 1);
 		/* Fall through. */
 	}
 
 	__FSM_STATE(I_BodyEoL) {
 		if (likely(c == '\r'))
-			__FSM_I_MOVE_body(I_BodyCR, 1, flag);
+			__FSM_I_MOVE_body_nf(I_BodyCR, 1);
 		/* Fall through. */
 	}
 
@@ -1117,28 +1085,157 @@ do {									\
 		if (unlikely(c != '\n'))
 			__FSM_EXIT(TFW_BLOCK);
 		if (parser->to_read == -1)
-			__FSM_I_MOVE_body(I_BodyChunked, 1, flag);
+			__FSM_I_MOVE_body_nf(I_BodyChunked, 1);
 		else if (parser->to_read > 0)
 			/* We know size of chunk, parse data. */
-			__FSM_I_MOVE_body(I_BodyDescEnd, 1, flag);
+			__FSM_I_MOVE_body_nf(I_BodyReadData, 1);
 
 		/*
 		 * We've fully read the chunked body.
 		 * Add everything and the current character.
 		 */
-		parser->cut_len += !!(flag & TFW_STR_CUT);
-		tfw_str_updlen(&msg->body, ++p);
-		__msg_field_chunk_flags(&msg->body, flag);
+		return __data_off(++p);
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__req_parse_body);
+
+static int
+__resp_parse_body(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(resp);
+
+#define TFW_BODY_OPEN_CHUNK()						\
+do {									\
+	TfwStr *ch = tfw_str_add_compound(msg->pool, &parser->cut);	\
+									\
+	if (!ch) { 							\
+		T_WARN("Cannot grow HTTP data string\n"); 		\
+		return CSTR_NEQ; 					\
+	} 								\
+	__msg_field_open(ch, p); 					\
+} while (0)
+
+#define __FSM_I_MOVE_cut_fixup(to, n)					\
+	__FSM_I_MOVE_body_lambda(to, n, {				\
+		tfw_str_updlen(&parser->cut, p);			\
+	})
+
+	if (!TFW_STR_EMPTY(TFW_STR_CURR(&parser->cut)))
+		TFW_BODY_OPEN_CHUNK();
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_BodyParseInit) {
+		/* For chunked body need parse @to_read from chunk descriptor. */
+		if (parser->to_read == -1)
+			__FSM_JMP(I_BodyChunked);
+	}
+
+	__FSM_STATE(I_BodyReadData) {
+		BUG_ON(parser->to_read < 0);
+		T_DBG3("read body: to_read=%ld\n", parser->to_read);
+
+		if (!parser->body_start_data) {
+			parser->body_start_data = p;
+			parser->body_start_skb =
+				ss_skb_peek_tail(&msg->msg.skb_head);
+		}
+		__fsm_sz = min_t(long, parser->to_read, __data_remain(p));
+		parser->to_read -= __fsm_sz;
+		if (parser->to_read)
+			__FSM_I_MOVE_body_nf(I_BodyReadData, __fsm_sz);
+
+		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {
+			parser->to_read = -1;
+			__FSM_I_MOVE_body_nf(I_ChunkDataEnd, __fsm_sz);
+		}
+
+		/* We've fully read Content-Length bytes. */
+		p += __fsm_sz;
+		return __data_off(p);
+	}
+
+	__FSM_STATE(I_BodyChunked) {
+		/* Prevent @parse_int_hex false positives. */
+		if (!isxdigit(c))
+			__FSM_EXIT(TFW_BLOCK);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_BodyChunkLen) {
+		__fsm_sz = __data_remain(p);
+		/* Read next chunk length. */
+		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc,
+					&parser->_cnt);
+		T_DBG3("data chunk: remain_len=%zu ret=%d to_read=%lu\n",
+		       __fsm_sz, __fsm_n, parser->_acc);
+		switch (__fsm_n) {
+		case CSTR_POSTPONE:
+			__FSM_I_MOVE_cut_fixup(I_BodyChunkLen, __fsm_sz);
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			__FSM_EXIT(TFW_BLOCK);
+		default:
+			parser->to_read = parser->_acc;
+			parser->_acc = 0;
+			parser->_cnt = 0;
+			__FSM_I_MOVE_cut_fixup(I_BodyChunkExt, __fsm_n);
+		}
+	}
+
+	__FSM_STATE(I_BodyChunkExt) {
+		if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))
+			__FSM_I_MOVE_cut_fixup(I_BodyChunkExt, 1);
+		__FSM_JMP(I_BodyEoL);
+	}
+
+	/* Fixup chunked body data-part */
+	__FSM_STATE(I_ChunkDataEnd) {
+		/* Don't fixup chunk after resuming parsing. */
+		if (!TFW_STR_EMPTY(TFW_STR_CURR(&parser->cut)))
+			TFW_BODY_OPEN_CHUNK();
+		else
+			/*
+			 * Need to reopen field, because last chunks points to
+			 * address before data-part. Without reopening it
+			 * leads to fixuping data-part.
+			 */
+			__msg_field_open(TFW_STR_CURR(&parser->cut), p);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_BodyEoL) {
+		if (likely(c == '\r'))
+			__FSM_I_MOVE_cut_fixup(I_BodyCR, 1);
+		/* Fall through. */
+	}
+
+	__FSM_STATE(I_BodyCR) {
+		if (unlikely(c != '\n'))
+			__FSM_EXIT(TFW_BLOCK);
+		if (parser->to_read == -1)
+			__FSM_I_MOVE_cut_fixup(I_BodyChunked, 1);
+		else if (parser->to_read > 0)
+			/* We know size of chunk, parse data. */
+			__FSM_I_MOVE_cut_fixup(I_BodyDescEnd, 1);
+
+		/*
+		 * We've fully read the chunked body.
+		 * Add everything and the current character.
+		 */
+		tfw_str_updlen(&parser->cut, ++p);
 		return __data_off(p);
 	}
 
 	/* Fixup parsed chunk size */
 	__FSM_STATE(I_BodyDescEnd) {
-		/* Don't fixup chunk twice after resuming parsing. */
+		/* Don't fixup chunk after resuming parsing. */
 		if (__data_off(p) > 0) {
-			tfw_str_updlen(&msg->body, p);
-			__msg_field_chunk_flags(&msg->body, flag);
-			TFW_BODY_OPEN_CHUNK();
+			tfw_str_updlen(&parser->cut, p);
 		}
 		__FSM_JMP(I_BodyReadData);
 	}
@@ -1146,8 +1243,12 @@ done:
 	return r;
 
 #undef TFW_BODY_OPEN_CHUNK
+#undef __FSM_I_MOVE_cut_fixup
 }
-STACK_FRAME_NON_STANDARD(__parse_body);
+STACK_FRAME_NON_STANDARD(__resp_parse_body);
+
+#undef __FSM_I_MOVE_body_nf
+#undef __FSM_I_MOVE_body_lambda
 
 /*
  * Helping state identifiers used to define which jump address an FSM should
@@ -1602,22 +1703,28 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_BodyStart, __VA_ARGS__) {				\
 	__msg_field_open(&msg->body, p);				\
+	__msg_field_open(&parser->cut, p);				\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyParse, __VA_ARGS__) {				\
 	__fsm_sz = __data_remain(p);					\
-	__fsm_n = __parse_body(msg, p, __fsm_sz);			\
-	T_DBG3("parse body: ret=%d data_len=%lu", __fsm_n, __fsm_sz);	\
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
+		__fsm_n = __resp_parse_body((TfwHttpResp*)msg, p, __fsm_sz);\
+	else								\
+		__fsm_n = __req_parse_body((TfwHttpReq*)msg, p, __fsm_sz);\
+	T_DBG3("body parsed: ret=%d data_len=%lu", __fsm_n, __fsm_sz);	\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		parser->state = &&RGen_BodyParse;			\
 		p += __fsm_sz;						\
+		msg->body.len += __fsm_sz;				\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
 		TFW_PARSER_BLOCK(RGen_BodyParse);			\
 	default:							\
 		p += __fsm_n;						\
+		msg->body.len += __fsm_n;				\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		if (!test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {	\
 			__FSM_EXIT(TFW_PASS);				\
