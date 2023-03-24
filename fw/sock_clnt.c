@@ -254,6 +254,12 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		}
 	}
 
+	if (flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING) {
+		tfw_hpack_set_rbuf_size(tbl, skb_priv);
+		h2->rsettings.hdr_tbl_sz = tbl->window;
+		skb_clear_tfw_flag(skb, SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING);
+	}
+
 	/*
 	 * We should write new hpack dynamic table size at the
 	 * beginning of the first header block.

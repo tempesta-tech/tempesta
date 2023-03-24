@@ -27,6 +27,7 @@
 #include "procfs.h"
 #include "http.h"
 #include "http_frame.h"
+#include "sync_socket.h"
 
 #define FRAME_PREFACE_CLI_MAGIC		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define FRAME_PREFACE_CLI_MAGIC_LEN	24
@@ -300,6 +301,14 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 
 	if (close)
 		msg.ss_flags |= SS_F_CONN_CLOSE;
+
+	if (hdr->flags == HTTP2_F_ACK &&
+	    (ctx->new_settings.flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING))
+	{
+		skb_set_tfw_flags(it.skb, SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING);
+		skb_set_tfw_cb(it.skb, ctx->new_settings.hdr_tbl_sz);
+		ctx->new_settings.flags &= ~SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING;
+	}
 
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
 		goto err;
@@ -1061,9 +1070,9 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		dest->hdr_tbl_sz = min_t(unsigned int,
-					 val, HPACK_ENC_TABLE_MAX_SIZE);
-		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
+		ctx->new_settings.flags |= SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING;
+		ctx->new_settings.hdr_tbl_sz = min_t(unsigned int,
+						     val, HPACK_ENC_TABLE_MAX_SIZE);
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:

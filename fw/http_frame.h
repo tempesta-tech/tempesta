@@ -179,6 +179,10 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
+ * @new_settings	- struct which contains flags and new settings, which
+ *			  should be applyed in `xmit` callback. Currently it
+ *			  is used only for new hpack dynamic table size, but
+ *			  can be wide later.
  *
  * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
  * (instead of separate HPACK context for each stream), since frames from other
@@ -208,6 +212,10 @@ typedef struct {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
+	struct {
+		unsigned short flags;
+		unsigned int hdr_tbl_sz;
+	} new_settings;
 } TfwH2Ctx;
 
 typedef struct tfw_conn_t TfwConn;
@@ -220,7 +228,7 @@ int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 unsigned int tfw_h2_stream_id(TfwHttpReq *req);
 unsigned int tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
-                                   unsigned char flags);
+				   unsigned char flags);
 unsigned int tfw_h2_stream_id_unlink(TfwHttpReq *req, bool send_rst,
 				     bool move_to_closed);
 int tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
