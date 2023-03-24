@@ -751,7 +751,8 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
  */
 static int
 tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
-		    TfwMsgParseIter *__restrict it)
+		    TfwMsgParseIter *__restrict it,
+		    const TfwCachedHeaderState *__restrict cstate)
 {
 	int r;
 	bool new_page;
@@ -900,6 +901,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	}
 
 	entry = entries + curr;
+	entry->cstate = *cstate;
 	if ((r = tfw_hpack_set_entry(tbl->h_pool, it, entry, &new_page)))
 		return r;
 	/*
@@ -1263,12 +1265,14 @@ done:
 		break;
 	case TFW_TAG_HDR_H2_AUTHORITY:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_AUTHORITY;
+		h2_set_hdr_authority(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_H2_PATH:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_PATH;
 		break;
 	case TFW_TAG_HDR_ACCEPT:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_accept(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_AUTHORIZATION:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
@@ -1293,20 +1297,22 @@ done:
 		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
-		/* We need to parse port part of the header again
-		 * to fill @req->host_port
-		 */
-		tfw_idx_hdr_parse_host_port(req, entry->hdr);
+		h2_set_hdr_authority(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		/* When 'if-modified-since' hdr is taken from HPACK dyn table,
-		 * we need to parse date once again to fill @req->cond.m_date.
-		 */
-		tfw_idx_hdr_parse_if_mod_since(req, entry->hdr);
+		if (h2_set_hdr_if_mod_since(req, &entry->cstate))
+			return T_DROP;
 		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
+		/* Prefer IF_NONE_MATCH over IF_MSINCE like in
+		 * __h2_req_parse_if_nmatch */
+		if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE) {
+			req->cond.m_date = 0;
+			req->cond.flags &= ~TFW_HTTP_COND_IF_MSINCE;
+		}
+		h2_set_hdr_if_nmatch(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_PRAGMA:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
@@ -1363,6 +1369,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		case HPACK_STATE_READY:
 		{
 			unsigned char c = *src++;
+			req->stream->parser.cstate.is_set = 0;
 
 			if (c & 0x80) { /* RFC 7541 6.1 */
 				T_DBG3("%s: > Indexed Header Field\n", __func__);
@@ -1577,7 +1584,8 @@ get_value_text:
 				HPACK_PROCESS_STRING(m_len, true);
 
 			if (state & HPACK_FLAGS_ADD
-			    && tfw_hpack_add_index(&hp->dec_tbl, it))
+			    && tfw_hpack_add_index(&hp->dec_tbl, it,
+			                           &req->stream->parser.cstate))
 			{
 				r = T_DROP;
 				goto out;

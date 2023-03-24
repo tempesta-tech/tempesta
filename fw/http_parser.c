@@ -2853,6 +2853,12 @@ __FSM_STATE(st) {							\
 	return CSTR_NEQ;						\
 }
 
+void h2_set_hdr_if_nmatch(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set && cstate->ifnmatch_etag_any)
+		req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+}
+
 /**
  * Parse ETag if message is a response or If-None-Match if it's a request.
  *
@@ -2912,6 +2918,8 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 				return CSTR_NEQ;
 
 			req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+			parser->cstate.is_set = 1;
+			parser->cstate.ifnmatch_etag_any = 1;
 			__FSM_I_MOVE_fixup(I_EoL, 1, 0);
 		}
 
@@ -6816,6 +6824,14 @@ do {										\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
 		str, fld, {}, fin1, fin2, curr_st, next_st, 0)
 
+/* Note: this method isn't called from __h2_req_parse_authority */
+void
+h2_set_hdr_authority(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set)
+		req->host_port = cstate->authority_port;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	HTTP/2 request parsing
@@ -6892,6 +6908,8 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
 			req->host_port = parser->_acc;
+			parser->cstate.authority_port = parser->_acc;
+			parser->cstate.is_set = 1;
 			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_A_Port, __fsm_sz, {
 				if (req->host_port)
 					__FSM_EXIT(CSTR_EQ);
@@ -6899,6 +6917,8 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			}, TFW_STR_VALUE);
 		default:
 			req->host_port = parser->_acc;
+			parser->cstate.authority_port = parser->_acc;
+			parser->cstate.is_set = 1;
 			parser->_acc = 0;
 			if (!req->host_port)
 				return CSTR_NEQ;
@@ -6915,6 +6935,13 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_authority);
+
+void
+h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set && cstate->accept_text_html)
+		__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+}
 
 static int
 __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
@@ -6967,7 +6994,9 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
 		H2_TRY_STR_LAMBDA("html", {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			parser->cstate.is_set = 1;
+			parser->cstate.accept_text_html = 1;
+			h2_set_hdr_accept(req, &parser->cstate);
 			__FSM_EXIT(CSTR_EQ);
 		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
@@ -7876,6 +7905,8 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 				return CSTR_NEQ;
 
 			req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+			parser->cstate.is_set = 1;
+			parser->cstate.ifnmatch_etag_any = 1;
 			__FSM_H2_I_MOVE_fixup(I_EoL, 1, 0);
 		}
 
@@ -8205,6 +8236,18 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_parse_http_date);
 
+int
+h2_set_hdr_if_mod_since(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
+		return T_DROP;
+	if (cstate->is_set) {
+		req->cond.m_date = cstate->if_msince_date;
+		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
+	}
+	return T_OK;
+}
+
 static int
 __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 			 bool fin)
@@ -8249,8 +8292,9 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	}
 
 	if (r >= 0) {
-		req->cond.m_date = parser->_date;
-		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
+		parser->cstate.is_set = 1;
+		parser->cstate.if_msince_date = parser->_date;
+		h2_set_hdr_if_mod_since(req, &parser->cstate);
 
 		return CSTR_EQ;
 	}
@@ -10508,29 +10552,6 @@ tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr)
 		T_DBG3("%s: got port: %lu\n", __func__, host_port);
 		req->host_port = host_port;
 	}
-}
-
-void
-tfw_idx_hdr_parse_if_mod_since(TfwHttpReq *req, TfwStr *hdr)
-{
-	TfwStr *c, *end;
-	TfwHttpParser *parser;
-	int ret = CSTR_NEQ;
-
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
-		if (c->flags & TFW_STR_HDR_VALUE) {
-			ret = __h2_req_parse_if_msince((TfwHttpMsg *)req,
-					c->data, c->len, true);
-			T_DBG3("%s: __h2_req_parse_if_msince ret=%d\n",
-				__func__, ret);
-		}
-	}
-
-	/* Parser internal state has to be reset */
-	parser = &((TfwHttpMsg *)req)->stream->parser;
-	parser->_i_st = NULL;
-
-	T_DBG3("%s: req->cond.m_date: %lu\n", __func__, req->cond.m_date);
 }
 
 enum {

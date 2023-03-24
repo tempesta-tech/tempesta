@@ -76,6 +76,7 @@ do {								\
 
 static TfwH2Ctx ctx;
 static TfwHttpReq *test_req;
+static TfwCachedHeaderState dummy_cstate;
 
 static inline TfwHttpReq *
 test_hpack_req_alloc(void)
@@ -237,21 +238,21 @@ TEST(hpack, dec_table_dynamic)
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s1;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	test_h2_hdr_name(s2, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_X_FORWARDED_FOR;
 	*it->parsed_hdr = *s2;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	test_h2_hdr_name(s3, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s3;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
@@ -306,14 +307,14 @@ TEST(hpack, dec_table_dynamic_inc)
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s1;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	test_h2_hdr_name(s2, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s2;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
@@ -330,14 +331,14 @@ TEST(hpack, dec_table_dynamic_inc)
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_CACHE_CONTROL;
 	*it->parsed_hdr = *s3;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	test_h2_hdr_name(s4, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s4;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
@@ -354,7 +355,7 @@ TEST(hpack, dec_table_dynamic_inc)
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s5;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 	/* Verify the correctness of the indexes order. */
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 66);
@@ -426,7 +427,7 @@ TEST(hpack, dec_table_wrap)
 			HDR_COMPOUND_STR(s, hdr, s_value);
 
 			*it->parsed_hdr = *s;
-			EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+			EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it, &dummy_cstate));
 
 		}
 
