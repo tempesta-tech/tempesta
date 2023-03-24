@@ -4803,21 +4803,6 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 	return 0;
 }
 
-static TfwStr*
-__tfw_h2_get_body_start(TfwHttpResp* resp)
-{
-	TfwStr *c, *end;
-
-	TFW_STR_FOR_EACH_CHUNK(c, &resp->body, end) {
-		/* Skip chunking data such as chunk size and extension */
-		if (!(c->flags & TFW_STR_CUT))
-			return c;
-		continue;
-	}
-
-	return NULL;
-}
-
 /**
  * Split response into http/2 frames with respect to remote peer MAX_FRAME_SIZE
  * settings. Both HEADERS and DATA frames require framing or peer will reject
@@ -4852,7 +4837,6 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	int r;
 	char *data;
 	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	TfwStr *h2_body = NULL;
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwFrameHdr frame_hdr = {.stream_id = stream_id};
 	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
@@ -4921,13 +4905,14 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	if (b_len > max_sz) {
 		/*
 		 * TODO: #498 and maybe #488 : iterate over the chunks only once
-		 * TODO: #1394 make only one memory allocation for hopefully
+		 * and remove @body_start_* which become unnecessary.
+		 * TODO: #1103 make only one memory allocation for hopefully
 		 * all the HTTP/2 frames headers instead of dealing with skb
 		 * framing with every small header
 		 */
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-			data = h2_body->data;
-			iter->skb = h2_body->skb;
+			data = resp->stream->parser.body_start_data;
+			iter->skb = resp->stream->parser.body_start_skb;
 		} else {
 			data = TFW_STR_CHUNK(&resp->body, 0)->data;
 			iter->skb = resp->body.skb;

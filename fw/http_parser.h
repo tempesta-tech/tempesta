@@ -103,9 +103,11 @@ typedef struct {
  * @_date	- currently parsed http date value;
  * @month_int	- accumulator for parsing of month;
  * @cc_dir_flag	- designates an uncommitted directive currently being processed.
- * @cut_len	- the length of all data in http chunked body to be cutted
- *		  during HTTP1 to HTTP2 transformation and ignored during
- *		  caching;
+ * @body_start_data - beginning of body used during HTTP1 to HTTP2 body
+ * 		  transformation. Must be deprecated when new cutting strategy
+ * 		  will be implemented;
+ * @cut		- descriptors of http chunked body to be cutted during HTTP1 to
+ *		  HTTP2 transformation and ignored during caching;
  */
 typedef struct {
 	unsigned short			to_go;
@@ -136,7 +138,9 @@ typedef struct {
 		unsigned int		month_int;
 		unsigned int		cc_dir_flag;
 	};
-	unsigned long			cut_len;
+	char *body_start_data;
+	struct sk_buff *body_start_skb;
+	TfwStr				cut;
 	TfwStr				_tmp_chunk;
 	TfwStr				hdr;
 	TfwHttpHbhHdrs			hbh_parser;

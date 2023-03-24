@@ -590,7 +590,7 @@ typedef struct {
 
 #define TFW_HTTP_RESP_CUT_BODY_SZ(r) 					\
 	(r)->stream ? 							\
-	(r)->body.len - (r)->stream->parser.cut_len : 			\
+	(r)->body.len - (r)->stream->parser.cut.len : 			\
 	(r)->body.len
 
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\

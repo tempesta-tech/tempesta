@@ -1021,12 +1021,12 @@ tfw_http_msg_del_flagged_body(TfwHttpMsg *hm)
 {
 	int r;
 
-	r = ss_skb_cutoff_data_flagged(hm->msg.skb_head, &hm->body,
-				       TFW_STR_CUT, tfw_str_eolen(&hm->body));
+	r = ss_skb_cutoff_data(hm->body.skb, &hm->stream->parser.cut, 0,
+			       tfw_str_eolen(&hm->body));
 	if (unlikely(r))
 		return r;
 
-	hm->msg.len -= hm->stream->parser.cut_len;
+	hm->msg.len -= hm->stream->parser.cut.len;
 	TFW_STR_INIT(&hm->body);
 
 	return 0;
