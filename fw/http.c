@@ -2530,6 +2530,9 @@ tfw_http_req_destruct(void *msg)
 
 	if (req->peer)
 		tfw_client_put(req->peer);
+
+	if (req->old_head)
+		ss_skb_queue_purge(&req->old_head);
 }
 
 /**
@@ -3922,6 +3925,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	T_DBG3("%s: req [%p] converted to http1.1\n", __func__, req);
 
 	old_head = req->msg.skb_head;
+	req->old_head = old_head;
 	req->msg.skb_head = new_head;
 
 	/* Http chains might add a mark for the message, keep it. */
@@ -3960,7 +3964,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			ss_skb_queue_append(&old_head, trailer);
 		}
 	}
-	ss_skb_queue_purge(&old_head);
 
 	return 0;
 err:
