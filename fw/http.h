@@ -434,6 +434,8 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
+ * @old_head	- Original request head. Required for keep request data until
+ * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
@@ -464,6 +466,7 @@ struct tfw_http_req_t {
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
+	struct sk_buff		*old_head;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
