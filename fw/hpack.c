@@ -3639,6 +3639,29 @@ tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
 	return tfw_hpack_str_expand_raw(mit, it, skb_head, str, in_huffman);
 }
 
+static inline int
+tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
+		    bool use_pool)
+{
+	TfwHttpTransIter *mit = &resp->mit;
+	TfwMsgIter *iter = &mit->iter;
+	struct sk_buff **skb_head = &resp->msg.skb_head;
+	const TfwStr s_idx = {
+		.data = idx->buf,
+		.len = idx->sz,
+	};
+
+	T_DBG3("%s: idx, acc_len=%lu, s_idx.len=%lu, s_idx.data='%.*s'\n",
+	       __func__, mit->acc_len, s_idx.len, (int)s_idx.len,
+	       s_idx.data);
+
+	if (use_pool)
+		return tfw_http_msg_expand_from_pool(mit, resp->pool, &s_idx);
+
+	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
+					&mit->start_off);
+}
+
 /*
  * Add header @hdr in HTTP/2 HPACK format with metadata @idx into the
  * response @resp using @resp->pool.
@@ -3651,20 +3674,13 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwHPackInt vlen;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwStr s_name = {}, s_val = {}, s_vlen = {};
-	const TfwStr s_idx = {
-		.data = idx->buf,
-		.len = idx->sz,
-	};
-
-	T_DBG3("%s: s_idx->len=%lu, s_idx->data='%.*s'\n",
-	       __func__, s_idx.len, (int)s_idx.len, s_idx.data);
-
-	r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_idx);
-	if (unlikely(r))
-		return r;
 
 	if (!hdr)
-		return 0;
+		return -EINVAL;
+
+	r = tfw_hpack_write_idx(resp, idx, true);
+	if (unlikely(r))
+		return r;
 
 	if (WARN_ON_ONCE(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)))
 		return -EINVAL;
@@ -3721,24 +3737,16 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwMsgIter *iter = &mit->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	TfwStr s_val;
-	TfwStr idx_str = {
-		.data = idx->buf,
-		.len = idx->sz,
-	};
 
-	ret = tfw_http_msg_expand_data(iter, skb_head, &idx_str,
-				       &mit->start_off);
+	if (!hdr)
+		return -EINVAL;
+
+	ret = tfw_hpack_write_idx(resp, idx, false);
+
 	if (unlikely(ret))
 		return ret;
 
-	mit->acc_len += idx_str.len;
-
-	T_DBG3("%s: idx, acc_len=%lu, idx_str.len=%lu, idx_str.data='%.*s'\n",
-	       __func__, mit->acc_len, idx_str.len, (int)idx_str.len,
-	       idx_str.data);
-
-	if (!hdr)
-		return 0;
+	mit->acc_len += idx->sz;
 
 	if (unlikely(!name_indexed)) {
 		ret = tfw_hpack_str_expand(mit, iter, skb_head,
@@ -3830,9 +3838,13 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		WARN_ON_ONCE(!index);
 
 		write_int(index, 0x7F, 0x80, &idx);
-		hdr = NULL;
 
-		goto encode;
+		r = tfw_hpack_write_idx(resp, &idx, use_pool);
+		if (unlikely(r))
+			return r;
+
+		resp->mit.acc_len += idx.sz * !use_pool;
+		return r;
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
