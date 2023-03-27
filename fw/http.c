@@ -4863,13 +4863,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 			TfwHttpMsg *hm = (TfwHttpMsg*)resp;
 
-			/* Save beginning of body before modifying */
-			if (b_len > max_sz) {
-				h2_body = __tfw_h2_get_body_start(resp);
-				BUG_ON(!h2_body);
-			}
-
-			r = tfw_http_msg_del_flagged_body(hm);
+			r = tfw_http_msg_cutoff_body_chunks(hm);
 			if (unlikely(r))
 				return r;
 		}

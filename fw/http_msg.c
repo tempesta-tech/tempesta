@@ -1017,7 +1017,7 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
  * WARNING: After this call TfwHttpMsg->body MUST not be used.
  */
 int
-tfw_http_msg_del_flagged_body(TfwHttpMsg *hm)
+tfw_http_msg_cutoff_body_chunks(TfwHttpMsg *hm)
 {
 	int r;
 
