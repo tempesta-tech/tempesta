@@ -28,10 +28,13 @@ p_kern_hash = subprocess.Popen(
     )
 output, err = p_kern_hash.communicate()
 current_patch_hash = output.decode("utf-8").strip()[:7]
-current_kernel_hash = os.uname().release.strip().split('.')[1][:7]
+current_kernel_hash = os.uname().release.strip().split('-')[-1][:7]
 
-if not current_patch_hash == current_kernel_hash:
+if current_patch_hash == current_kernel_hash:
+    print('Same kernel version installed')
 
+else:
+    print('New kernel version found')
     # Step 0: Check if kernel already present in repo
     with subprocess.Popen(["apt-get", "update"],
                           stdout=subprocess.PIPE) as p:
