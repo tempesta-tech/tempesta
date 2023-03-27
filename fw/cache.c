@@ -2090,7 +2090,7 @@ te_codings_size(TfwHttpResp *resp)
 
 	TFW_STR_FOR_EACH_DUP(dup, te_hdr, end_dup) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
-			if (!(chunk->flags & TFW_STR_CUT))
+			if (!(chunk->flags & TFW_STR_NAME))
 				continue;
 
 			if (!first)
