@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2022 Tempesta Technologies, INC.
+# Copyright (C) 2015-2023 Tempesta Technologies, INC.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -26,7 +26,3 @@ obj-m += unit/
 obj-m += tfw_fuzzer.o
 tfw_fuzzer-objs = \
 	fuzzer.o
-
-obj-m += tfw_bomber.o
-tfw_bomber-objs = \
-	bomber.o
