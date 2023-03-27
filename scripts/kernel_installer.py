@@ -16,6 +16,19 @@ if os.geteuid() != 0:
     print("You aren't root")
     os._exit(1)
 
+def add_repo(file_path: str, string_to_add: str) -> None:
+    # Add tempesta repo if not present
+    with open(file_path, "r+") as file:
+        lines = file.readlines()
+        if string_to_add + "\n" not in lines:
+            file.write("\n" + string_to_add)
+    # Also add GPG key
+    print('Add GPG key')
+    os.system('apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 36E626F4BEBEB6A8')
+
+add_repo('/etc/apt/sources.list',
+                   'deb http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/ focal main')
+
 script_path = os.path.dirname(os.path.realpath(__file__))
 tempesta_path = os.path.dirname(script_path)
 
@@ -56,6 +69,8 @@ else:
             print('Need to get another version of kernel')
             print(f'{current_patch_hash} != {current_kernel_hash}')
             
+            
+
             # Step 1: Download sources
             print('Step 1: Downloading 5.10.35 sources...')
             url = 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/snapshot/linux-5.10.35.tar.gz'
