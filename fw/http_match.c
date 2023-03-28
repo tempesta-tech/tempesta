@@ -544,6 +544,14 @@ do_eval(TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			clear_bit(rule->act.flg.fid, req->flags);
 		return false;
 	}
+
+	/*
+	 * Evaluate cache time adjustment
+	 */
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_CACHE_TTL) {
+		req->cache_ctl.default_ttl = rule->act.cache_ttl;
+		return false;
+	}
 	return true;
 }
 

@@ -166,6 +166,8 @@ typedef struct {
 	unsigned int	s_maxage;
 	unsigned int	max_stale;
 	unsigned int	min_fresh;
+	/* Default TTL inferred from HTTP tables or global constant */
+	unsigned int	default_ttl;
 	long		timestamp;
 	long		age;
 	long		expires;

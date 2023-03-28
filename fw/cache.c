@@ -516,8 +516,7 @@ tfw_cache_calc_lifetime(TfwHttpResp *resp)
 	else if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
 		lifetime = resp->cache_ctl.expires - resp->date;
 	else
-		/* For now, set "unlimited" lifetime in this case. */
-		lifetime = UINT_MAX;	/* TODO: Heuristic lifetime. */
+		lifetime = req->cache_ctl.default_ttl;
 
 	return lifetime;
 }

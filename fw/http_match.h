@@ -75,6 +75,7 @@ typedef enum {
 	TFW_HTTP_MATCH_ACT_REDIR,
 	TFW_HTTP_MATCH_ACT_BLOCK,
 	TFW_HTTP_MATCH_ACT_FLAG,
+	TFW_HTTP_MATCH_ACT_CACHE_TTL,
 	_TFW_HTTP_MATCH_ACT_COUNT
 } tfw_http_rule_act_t;
 
@@ -112,6 +113,7 @@ typedef struct {
 			unsigned int fid;
 			bool set;
 		} flg;
+		unsigned int cache_ttl;
 	};
 } TfwHttpAction;
 
