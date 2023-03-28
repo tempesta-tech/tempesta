@@ -1338,22 +1338,28 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 	bool np;
 	char* addr;
 	TfwMsgIter *it = &mit->iter;
-	struct skb_shared_info *si = skb_shinfo(it->skb);
+	struct sk_buff *skb = it->skb;
+	struct skb_shared_info *si = skb_shinfo(skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
 		return -ENOMEM;
 
-	if (np) {
-		r = ss_skb_add_frag(it->skb_head, it->skb, addr, ++it->frag,
-				    size);
+	if (np || it->frag == -1) {
+		r = ss_skb_add_frag(it->skb_head, skb, addr, ++it->frag, size);
 		if (unlikely(r))
 			return r;
+
+		if (it->frag == MAX_SKB_FRAGS - 1) {
+			it->frag = -1;
+			if (skb != it->skb_head)
+				it->skb = it->skb->next;
+		}
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
 
-	ss_skb_adjust_data_len(it->skb, size);
+	ss_skb_adjust_data_len(skb, size);
 	mit->curr_ptr = addr;
 
 	return 0;
@@ -1378,6 +1384,7 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
+	BUG_ON(mit->iter.frag > 0);
 
 	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
 	if (room < MIN_HDR_FRAG_SIZE)
@@ -1411,15 +1418,18 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
-	unsigned int room, n_copy, rlen, off;
+	unsigned int room, skb_room, n_copy, rlen, off;
 	int r;
+	TfwMsgIter *it = &mit->iter;
 
-	BUG_ON(mit->iter.frag < 0);
+	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
 	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 		rlen = c->len;
 
 		while (rlen) {
+			unsigned char nr_frags;
+
 			room = TFW_POOL_CHUNK_ROOM(pool);
 			BUG_ON(room < 0);
 
@@ -1429,6 +1439,27 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 			 */
 			n_copy = room == 0 ? rlen : min(room, rlen);
 			off = c->len - rlen;
+			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
+			nr_frags = skb_shinfo(it->skb)->nr_frags;
+
+			if (skb_room == 0 || (it->skb == it->skb_head
+					      && it->frag == -1
+					      && nr_frags == MAX_SKB_FRAGS))
+			{
+				struct sk_buff *nskb;
+
+				nskb = ss_skb_alloc(0);
+				if (!nskb)
+					return -ENOMEM;
+				skb_shinfo(nskb)->tx_flags =
+					skb_shinfo(it->skb)->tx_flags;
+				ss_skb_insert_after(it->skb, nskb);
+				it->frag = -1;
+				it->skb = nskb;
+				skb_room = SS_SKB_MAX_DATA_LEN;
+			}
+
+			n_copy = min(n_copy, skb_room);
 
 			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy);
 			if (unlikely(r))

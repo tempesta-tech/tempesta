@@ -173,21 +173,6 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it, int *fragn)
 	}
 }
 
-/*
- * Insert @nskb in the list after @skb. Note that standard
- * kernel 'skb_insert()' function does not suit here, as it
- * works with 'sk_buff_head' structure with additional fields
- * @qlen and @lock; we don't need these fields for our skb
- * list, so a custom function had been introduced.
- */
-static inline void
-__skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
-{
-	nskb->next = skb->next;
-	nskb->prev = skb;
-	nskb->next->prev = skb->next = nskb;
-}
-
 /**
  * Similar to skb_shift().
  * Make room for @n fragments starting with slot @from.
@@ -237,7 +222,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (nskb == NULL)
 				return -ENOMEM;
 			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
-			__skb_insert_after(skb, nskb);
+			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
@@ -1619,8 +1604,6 @@ ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 	if (unlikely(r))
 		return r;
 
-	/* Will fall with sysctl_max_frags != MAX_SKB_FRAGS? */
-	skb = (frag_idx < MAX_SKB_FRAGS - 1) ? skb : skb->next;
 	__skb_fill_page_desc(skb, frag_idx, page, offset, frag_sz);
 	__skb_frag_ref(&skb_shinfo(skb)->frags[frag_idx]);
 
