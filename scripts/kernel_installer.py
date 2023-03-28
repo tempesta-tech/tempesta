@@ -164,7 +164,7 @@ else:
                 print(line, end='')
 
     print('Kernel installed, now need to reboot')
-    if args.reboot:
-        subprocess.Popen(['sudo', '-S', 'reboot'], stdout=subprocess.PIPE)
+    # if args.reboot:
+    #     subprocess.Popen(['sudo', '-S', 'reboot'], stdout=subprocess.PIPE)
 
     sys.exit(1)
