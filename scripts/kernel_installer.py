@@ -3,9 +3,9 @@
 import subprocess, requests, tarfile, shutil, os, glob, argparse
 
 parser = argparse.ArgumentParser(description='Kernel install script for tempesta-fw')
-parser.add_argument('--reboot', type=bool, default=None,
+parser.add_argument('--reboot', type=bool, default=True,
                     help='Reboot flag. Reboot at finish if present')
-parser.add_argument('--make_default', type=bool, default=None,
+parser.add_argument('--make_default', type=bool, default=True,
                     help='Set kernel as default.')
 parser.add_argument('--registry_creds', type=str, default=None,
                     help='Registry credentials. If provided deb packages will bu pushed')
