@@ -1,6 +1,6 @@
 #! /usr/bin/python3
 
-import subprocess, requests, tarfile, shutil, os, glob, argparse
+import subprocess, requests, tarfile, shutil, os, glob, argparse, sys
 
 parser = argparse.ArgumentParser(description='Kernel install script for tempesta-fw')
 parser.add_argument('--reboot', type=bool, default=True,
@@ -45,7 +45,7 @@ current_kernel_hash = os.uname().release.strip().split('-')[-1][:7]
 
 if current_patch_hash == current_kernel_hash:
     print('Same kernel version installed')
-
+    sys.exit(0)
 else:
     print('New kernel version found')
     # Step 0: Check if kernel already present in repo
@@ -163,6 +163,8 @@ else:
             for line in updategrub.stdout:
                 print(line, end='')
 
+    print('Kernel installed, now need to reboot')
     if args.reboot:
-        print('Kernel installed, now need to reboot')
         subprocess.Popen(['sudo', '-S', 'reboot'], stdout=subprocess.PIPE)
+
+    sys.exit(1)
