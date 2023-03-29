@@ -376,3 +376,5 @@ void do_access_log(TfwHttpResp *resp)
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
 {
 }
+
+unsigned int cache_default_ttl = 60;

@@ -212,6 +212,8 @@ static struct {
 	const char *db_path;
 } cache_cfg __read_mostly;
 
+unsigned int cache_default_ttl;
+
 /* Cache modes. */
 enum {
 	TFW_CACHE_NONE = 0,
@@ -2989,6 +2991,12 @@ static TfwCfgSpec tfw_cache_specs[] = {
 		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
+	},
+	{
+		.name = "cache_ttl",
+		.deflt = "60",
+		.handler = tfw_cfg_set_int,
+		.dest = &cache_default_ttl,
 	},
 	{ 0 }
 };

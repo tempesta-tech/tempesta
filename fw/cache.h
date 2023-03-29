@@ -26,4 +26,6 @@
 bool tfw_cache_msg_cacheable(TfwHttpReq *req);
 int tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action);
 
+extern unsigned int cache_default_ttl;
+
 #endif /* __TFW_CACHE_H__ */
