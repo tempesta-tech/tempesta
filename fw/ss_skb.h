@@ -229,6 +229,36 @@ ss_skb_frags_move(struct sk_buff *skb, unsigned int new_pos,
 	memmove(&si->frags[new_pos], &si->frags[old_pos], cnt * sizeof(skb_frag_t));
 }
 
+static inline int
+ss_skb_find_frag_by_offset(struct sk_buff *skb, char *off, int *frag)
+{
+	char *begin, *end;
+	unsigned char i;
+
+	if (skb_headlen(skb)) {
+		begin = skb->data;
+		end = begin + skb_headlen(skb);
+
+		if ((begin <= off) && (end >= off)) {
+			*frag = -1;
+			return 0;
+		}
+	}
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+
+		begin = skb_frag_address(f);
+		end = begin + skb_frag_size(f);
+
+		if ((begin <= off) && (end >= off)) {
+			*frag = i;
+			return 0;
+		}
+	}
+
+	return -E2BIG;
+}
+
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
@@ -247,7 +277,7 @@ int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 int
 ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
 			   size_t head, size_t trail);
-int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
+int ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 

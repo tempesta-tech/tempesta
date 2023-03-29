@@ -1026,12 +1026,14 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
  * ('uri_path', 'host' etc).
  */
 int
-ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
-		   int tail)
+ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 {
 	int r;
 	TfwStr it = {};
-	const TfwStr *c, *end;
+	struct sk_buff *skb, *next;
+	TfwStr *c, *cc, *end;
+	unsigned int next_len;
+	bool update;
 	int _;
 
 	BUG_ON(tail < 0);
@@ -1042,12 +1044,48 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 			skip -= c->len;
 			continue;
 		}
+
+		skb = c->skb;
+		if (skb->next != skb_head) {
+			next = skb->next;
+			next_len = next->len;
+		} else {
+			next = 0;
+		}
+
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, c->skb, c->data + skip,
 				 skip - c->len, &it, &_);
 		if (r < 0)
 			return r;
 		BUG_ON(r != c->len - skip);
+
+		/*
+		 * No new skb was allocated and no fragments from current
+		 * skb were moved to the next one.
+		 */
+		if (likely(skb->next == next
+			   && (!next || next->len == next_len)))
+			continue;
+
+		/* Check if the new skb was allocated and update next skb. */
+		next = skb->next != next ? skb->next : next;
+
+		/*
+		 * TODO #1852 We should get rid of this function at all, because
+		 * the code below can be very heavy if we have a lot of chunks.
+		 */
+		update = false;
+		for ((cc) = (TfwStr *)(c + 1); (cc) < end; ++(cc)) {
+			if (cc->skb != c->skb)
+				break;
+			if (!update &&
+			    !ss_skb_find_frag_by_offset(cc->skb, cc->data, &_))
+				continue;
+			cc->skb = next;
+			update = true;
+		}
+
 		skip = 0;
 	}
 
