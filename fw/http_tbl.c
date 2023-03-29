@@ -496,7 +496,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
 		if (action[0] == '$' && action_val) {
 			rule->act.flg.set = action_val[0] == '0';
-		} else if (action && *action) {
+		} else if (action_val && *action_val) {
 			rule->act.flg.set = action_val[0] == '1';
 		} else {
 			rule->act.flg.set = 1;
