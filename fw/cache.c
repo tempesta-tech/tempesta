@@ -2994,7 +2994,7 @@ static TfwCfgSpec tfw_cache_specs[] = {
 	},
 	{
 		.name = "cache_ttl",
-		.deflt = "60",
+		.deflt = "2147483647",
 		.handler = tfw_cfg_set_int,
 		.dest = &cache_default_ttl,
 	},
