@@ -491,10 +491,17 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_MARK;
 	}
-	else if (!strcasecmp(action, "disable_cache")) {
-			rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
+	else if (!strcasecmp(action, "disable_cache")
+		 || !strcasecmp(action, "$cache")) {
+		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
+		if (action[0] == '$' && action) {
+			rule->act.flg.set = action[0] == '1';
+		} else if (action && *action) {
+			rule->act.flg.set = action[0] != '1';
+		} else {
 			rule->act.flg.set = 1;
-			rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
+		}
+		rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
 	}
 	else if (!strcasecmp(action, "cache_ttl")) {
 		if (tfw_cfg_parse_uint(action_val, &act_val_parsed) != 0) {
