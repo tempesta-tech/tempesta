@@ -494,10 +494,10 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	else if (!strcasecmp(action, "disable_cache")
 		 || !strcasecmp(action, "$cache")) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
-		if (action[0] == '$' && action) {
-			rule->act.flg.set = action[0] == '1';
+		if (action[0] == '$' && action_val) {
+			rule->act.flg.set = action_val[0] == '0';
 		} else if (action && *action) {
-			rule->act.flg.set = action[0] != '1';
+			rule->act.flg.set = action_val[0] == '1';
 		} else {
 			rule->act.flg.set = 1;
 		}
