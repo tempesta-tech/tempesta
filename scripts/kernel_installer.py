@@ -47,7 +47,7 @@ if current_patch_hash == current_kernel_hash:
     print('Same kernel version installed')
     sys.exit(0)
 else:
-    print('New kernel version found')
+    print('New kernel version is required')
     # Step 0: Check if kernel already present in repo
     with subprocess.Popen(["apt-get", "update"],
                           stdout=subprocess.PIPE) as p:
