@@ -73,7 +73,7 @@ else:
 
             # Step 1: Download sources
             print('Step 1: Downloading 5.10.35 sources...')
-            url = 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/snapshot/linux-5.10.35.tar.gz'
+            url = 'http://tempesta-vm.cloud.cherryservers.net:8081/repository/maven-releases/tempesta/linux-kernel-source/5.10.35/linux-kernel-source-5.10.35.tar.gz'
             r = requests.get(url, allow_redirects=True)
             open('download.tar.gz', 'wb').write(r.content)
             print('Done')
