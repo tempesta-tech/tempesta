@@ -66,7 +66,7 @@ else:
 
         # Else - Run local build
         else:
-            print('Need to get another version of kernel')
+            print('Need build new kernel image')
             print(f'{current_patch_hash} != {current_kernel_hash}')
             
             
