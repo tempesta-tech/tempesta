@@ -212,6 +212,8 @@ static struct {
 	const char *db_path;
 } cache_cfg __read_mostly;
 
+unsigned int cache_default_ttl;
+
 /* Cache modes. */
 enum {
 	TFW_CACHE_NONE = 0,
@@ -516,8 +518,7 @@ tfw_cache_calc_lifetime(TfwHttpResp *resp)
 	else if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
 		lifetime = resp->cache_ctl.expires - resp->date;
 	else
-		/* For now, set "unlimited" lifetime in this case. */
-		lifetime = UINT_MAX;	/* TODO: Heuristic lifetime. */
+		lifetime = req->cache_ctl.default_ttl;
 
 	return lifetime;
 }
@@ -2990,6 +2991,12 @@ static TfwCfgSpec tfw_cache_specs[] = {
 		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
+	},
+	{
+		.name = "cache_ttl",
+		.deflt = "2147483647",
+		.handler = tfw_cfg_set_int,
+		.dest = &cache_default_ttl,
 	},
 	{ 0 }
 };

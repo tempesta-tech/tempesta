@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,5 +25,7 @@
 
 bool tfw_cache_msg_cacheable(TfwHttpReq *req);
 int tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action);
+
+extern unsigned int cache_default_ttl;
 
 #endif /* __TFW_CACHE_H__ */

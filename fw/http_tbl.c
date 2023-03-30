@@ -83,7 +83,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -491,24 +491,36 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_MARK;
 	}
-	else if (strlen(action) && action[0] == '$') {
-		if (!strcasecmp(action, "$cache")) {
-			tfw_cfg_parse_uint(action_val, &act_val_parsed);
-			if (act_val_parsed != 1 && act_val_parsed != 0) {
-				T_ERR_NL("http_tbl: '$cache' action value "
-					 "must 0 or 1: '%s'\n",
-					 action_val);
-				return -EINVAL;
-			}
-			rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
-			rule->act.flg.set = (act_val_parsed == 0);
-			rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
+	else if (!strcasecmp(action, "cache_disable")) {
+		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
+		rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
+		if (action_val && *action_val) {
+			rule->act.flg.set = action_val[0] == '1';
 		} else {
-			T_ERR_NL("http_tbl: only '$cache' flag setting action "
-				 "supported for now: '%s'\n",
-				 action);
+			rule->act.flg.set = 1;
+		}
+	}
+	/* Legacy for merging #1851 without breaking tests */
+	else if (!strcasecmp(action, "$cache")) {
+		tfw_cfg_parse_uint(action_val, &act_val_parsed);
+		if (act_val_parsed != 1 && act_val_parsed != 0) {
+			T_ERR_NL("http_tbl: '$cache' action value "
+					"must 0 or 1: '%s'\n",
+					action_val);
 			return -EINVAL;
 		}
+		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
+		rule->act.flg.set = (act_val_parsed == 0);
+		rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
+	}
+	else if (!strcasecmp(action, "cache_ttl")) {
+		if (tfw_cfg_parse_uint(action_val, &act_val_parsed) != 0) {
+			T_ERR_NL("http_tbl: invalid 'cache_ttl' value: '%s'\n",
+					action_val);
+			return -EINVAL;
+		}
+		rule->act.type = TFW_HTTP_MATCH_ACT_CACHE_TTL;
+		rule->act.cache_ttl = act_val_parsed;
 	}
 	else if (action && action_val &&
 		 !tfw_cfg_parse_uint(action, &rule->act.redir.resp_code))

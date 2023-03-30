@@ -2584,6 +2584,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	hm->conn = conn;
 	tfw_connection_get(conn);
 	hm->stream = stream;
+	hm->cache_ctl.default_ttl = cache_default_ttl;
 
 	if (type & Conn_Clnt)
 		tfw_http_init_parser_req((TfwHttpReq *)hm);

@@ -51,7 +51,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -542,6 +542,14 @@ do_eval(TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			set_bit(rule->act.flg.fid, req->flags);
 		else
 			clear_bit(rule->act.flg.fid, req->flags);
+		return false;
+	}
+
+	/*
+	 * Evaluate cache time adjustment
+	 */
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_CACHE_TTL) {
+		req->cache_ctl.default_ttl = rule->act.cache_ttl;
 		return false;
 	}
 	return true;

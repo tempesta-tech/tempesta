@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -75,6 +75,7 @@ typedef enum {
 	TFW_HTTP_MATCH_ACT_REDIR,
 	TFW_HTTP_MATCH_ACT_BLOCK,
 	TFW_HTTP_MATCH_ACT_FLAG,
+	TFW_HTTP_MATCH_ACT_CACHE_TTL,
 	_TFW_HTTP_MATCH_ACT_COUNT
 } tfw_http_rule_act_t;
 
@@ -112,6 +113,7 @@ typedef struct {
 			unsigned int fid;
 			bool set;
 		} flg;
+		unsigned int cache_ttl;
 	};
 } TfwHttpAction;
 
