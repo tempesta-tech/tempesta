@@ -11,6 +11,9 @@ parser.add_argument('--make_default', type=bool, default=True,
                     help='Set kernel as default.')
 parser.add_argument('--registry_creds', type=str, default=None,
                     help='Registry credentials. If provided deb packages will bu pushed')
+parser.add_argument('--registry', type=str, default=None,
+                    help='Registry URL.')
+
 args = parser.parse_args()
 
 # Check root
@@ -131,7 +134,7 @@ else:
                 for file in glob.glob('*.deb'):
                     os.system(f'curl -u "{args.registry_creds}" \
                             -H "Content-Type: multipart/form-data" --data-binary \
-                            "@./{file}" http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/')
+                            "@./{file}" {args.registry}')
 
             # Step 6: Install and reboot
             os.system('sudo dpkg -i *.deb')
