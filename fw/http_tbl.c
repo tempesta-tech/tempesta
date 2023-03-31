@@ -500,19 +500,6 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			rule->act.flg.set = 1;
 		}
 	}
-	/* Legacy for merging #1851 without breaking tests */
-	else if (!strcasecmp(action, "$cache")) {
-		tfw_cfg_parse_uint(action_val, &act_val_parsed);
-		if (act_val_parsed != 1 && act_val_parsed != 0) {
-			T_ERR_NL("http_tbl: '$cache' action value "
-					"must 0 or 1: '%s'\n",
-					action_val);
-			return -EINVAL;
-		}
-		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
-		rule->act.flg.set = (act_val_parsed == 0);
-		rule->act.flg.fid = TFW_HTTP_B_CHAIN_NO_CACHE;
-	}
 	else if (!strcasecmp(action, "cache_ttl")) {
 		if (tfw_cfg_parse_uint(action_val, &act_val_parsed) != 0) {
 			T_ERR_NL("http_tbl: invalid 'cache_ttl' value: '%s'\n",
