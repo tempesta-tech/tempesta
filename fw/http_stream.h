@@ -102,12 +102,15 @@ typedef enum {
  * Last http2 response info, used to prepare frames
  * in `xmit` callbacks.
  *
- * @h_len	- length of headers in htt2 response;
- * @b_len	- length of body in htt2 response;
+ * @h_len		- length of headers in htt2 response;
+ * @b_len		- length of body in htt2 response;
+ * @wait_for_init	- flag indicates, that stream is waited for
+ * 			  xmit initialization;
  */
 typedef struct {
 	unsigned long h_len;
 	unsigned long b_len;
+	bool wait_for_init;
 } TfwHttpXmit;
 
 /**
@@ -136,6 +139,7 @@ typedef struct {
  * @state	- stream's current state;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
  * @loc_wnd	- stream's current flow controlled window;
+ * @rem_wnd	- streams's current flow controlled window for remote client;
  * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
@@ -148,7 +152,8 @@ struct tfw_http_stream_t {
 	unsigned int		id;
 	int			state;
 	spinlock_t		st_lock;
-	unsigned int		loc_wnd;
+	long int		loc_wnd;
+	long int		rem_wnd;
 	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
@@ -175,7 +180,8 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
 				  TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
-			     unsigned short weight, unsigned int wnd);
+			     unsigned short weight, long int loc_wnd,
+			     long int rem_wnd);
 void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			   TfwStream **dep);
@@ -192,6 +198,7 @@ tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
 {
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
+	stream->xmit.wait_for_init = false;
 }
 
 static inline bool

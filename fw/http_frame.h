@@ -156,6 +156,7 @@ typedef struct {
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
+ * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
  * @__off		- offset to reinitialize processing context;
@@ -198,7 +199,8 @@ typedef struct {
 	TfwStreamQueue	hclosed_streams;
 	TfwStreamQueue	closed_streams;
 	unsigned int	lstream_id;
-	unsigned int	loc_wnd;
+	long int	loc_wnd;
+	long int	rem_wnd;
 	TfwHPack	hpack;
 	char		__off[0];
 	struct sk_buff	*skb_head;

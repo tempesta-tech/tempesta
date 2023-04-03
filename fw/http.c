@@ -4927,19 +4927,25 @@ tfw_h2_prepare_frame_flags(TfwStream *stream, TfwFrameType type, bool end)
 }
 
 static unsigned int
-tfw_h2_calc_frame_length(struct sock *sk, struct sk_buff *skb, TfwFrameType type,
-			 unsigned int max_frame_sz, unsigned int limit,
-			 unsigned int len, unsigned int processed,
-			 unsigned int *nskbs)
+tfw_h2_calc_frame_length(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
+			 TfwStream *stream, TfwFrameType type,
+			 unsigned int limit, unsigned int len,
+			 unsigned int processed, unsigned int *nskbs)
 {
 	unsigned  char tls_type =  skb_tfw_tls_type(skb);
 	unsigned short clear_flag = (type == HTTP2_DATA ?
 		SS_F_HTTT2_FRAME_DATA :  SS_F_HTTT2_FRAME_HEADERS);
 	unsigned short other_flag = (type == HTTP2_DATA ?
 		SS_F_HTTT2_FRAME_HEADERS : SS_F_HTTT2_FRAME_DATA);
-	unsigned int max_sz = min3(max_frame_sz, limit, len);
+	unsigned int max_sz = min3(ctx->rsettings.max_frame_sz, limit, len);
 	unsigned int frame_sz = skb->len - FRAME_HEADER_SIZE - processed;
 	struct sk_buff *next = skb, *skb_tail = skb;
+
+	if (type == HTTP2_DATA) {
+		BUG_ON(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0);
+		max_sz = min3(max_sz, (unsigned int)ctx->rem_wnd,
+			      (unsigned int)stream->rem_wnd);
+	}
 
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
@@ -4971,7 +4977,6 @@ tfw_h2_make_frames(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
 {
 	int r = 0;
 	char *data;
-	unsigned int max_frame_sz = ctx->rsettings.max_frame_sz;
 	unsigned char buf[FRAME_HEADER_SIZE];
 	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
 	TfwMsgIter it = {
@@ -5004,14 +5009,17 @@ tfw_h2_make_frames(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
 
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	frame_hdr.length = tfw_h2_calc_frame_length(sk, skb, type,
-						    max_frame_sz, limit,
-						    *len, *processed,
+	frame_hdr.length = tfw_h2_calc_frame_length(sk, skb, ctx, stream, type,
+						    limit, *len, *processed,
 						    nskbs);
 	frame_hdr.flags = tfw_h2_prepare_frame_flags(stream, type,
 						     *len == frame_hdr.length);
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
+	if (type == HTTP2_DATA) {
+		ctx->rem_wnd -= frame_hdr.length;
+		stream->rem_wnd -= frame_hdr.length;
+	}
 	*processed += frame_hdr.length + FRAME_HEADER_SIZE;
 	*len -= frame_hdr.length;
 	*end = !(*len);

@@ -27,6 +27,7 @@
 #include "procfs.h"
 #include "http.h"
 #include "http_frame.h"
+#include "http_stream.h"
 #include "sync_socket.h"
 
 #define FRAME_PREFACE_CLI_MAGIC		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
@@ -229,6 +230,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = MAX_WND_SIZE;
+	ctx->rem_wnd = DEF_WND_SIZE;
+
 	spin_lock_init(&ctx->lock);
 	INIT_LIST_HEAD(&hclosed_streams->list);
 	INIT_LIST_HEAD(&closed_streams->list);
@@ -242,7 +245,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	 * We ignore client's window size until #498, so currently
 	 * we set it to maximum allowed value.
 	 */
-	lset->wnd_sz = rset->wnd_sz = MAX_WND_SIZE;
+	lset->wnd_sz = MAX_WND_SIZE;
+	rset->wnd_sz = DEF_WND_SIZE;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
@@ -579,7 +583,8 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 		return NULL;
 
 	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
-				      ctx->lsettings.wnd_sz);
+				   ctx->lsettings.wnd_sz,
+				   ctx->rsettings.wnd_sz);
 	if (!stream)
 		return NULL;
 
@@ -992,22 +997,53 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 }
 
 static int
+tfw_h2_increment_wnd_sz(long int *window, unsigned int wnd_incr)
+{
+	long int new_window = *window + wnd_incr;
+	/*
+	 * According to RFC 9113 6.9.1
+	 * A sender MUST NOT allow a flow-control window to exceed 2^31-1 octets.
+	 * If a sender receives a WINDOW_UPDATE that causes a flow-control
+	 * window to exceed this maximum, it MUST terminate either the stream
+	 * or the connection, as appropriate. For streams, the sender sends a
+	 * RST_STREAM with an error code of FLOW_CONTROL_ERROR; for the
+	 * connection, a GOAWAY frame with an error code of FLOW_CONTROL_ERROR
+	 * is sent.
+	 */
+	if (new_window > MAX_WND_SIZE)
+		return T_DROP;
+	*window = new_window;
+	return 0;
+}
+
+static int
 tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 {
 	unsigned int wnd_incr;
 	TfwFrameHdr *hdr = &ctx->hdr;
+	TfwH2Err err_code = HTTP2_ECODE_PROTO;
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (wnd_incr) {
-		/*
-		 * TODO #498: apply new window size for entire connection or
-		 * particular stream.
-		 */
+		TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+		long int *window = ctx->cur_stream ?
+			&ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
+		int size, mss;
+
+		if (tfw_h2_increment_wnd_sz(window, wnd_incr)) {
+			err_code = HTTP2_ECODE_FLOW;
+			goto fail;
+		}
+
+		mss = tcp_send_mss(((TfwConn *)conn)->sk, &size, MSG_DONTWAIT);
+		tcp_push(((TfwConn *)conn)->sk, MSG_DONTWAIT, mss,
+			 TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
 		return T_OK;
 	}
 
+fail:
 	if (!ctx->cur_stream) {
-		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		tfw_h2_conn_terminate(ctx, err_code);
 		return T_DROP;
 	}
 
@@ -1015,7 +1051,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 		return T_OK;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
-				   HTTP2_ECODE_PROTO);
+				   err_code);
 }
 
 static inline int
@@ -1062,11 +1098,33 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 	tfw_h2_current_stream_remove(ctx);
 }
 
+static void
+tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
+{
+	TfwStream *stream, *next;
+
+	/*
+	 * Order is no matter, use default funtion from the Linux kernel.
+	 * According to RFC 9113 6.9.2
+	 * When the value of SETTINGS_INITIAL_WINDOW_SIZE changes, a receiver
+	 * MUST adjust the size of all stream flow-control windows that it
+	 * maintains by the difference between the new value and the old value.
+	 * A change to SETTINGS_INITIAL_WINDOW_SIZE can cause the available
+	 * space in a flow-control window to become negative.
+	 */
+	rbtree_postorder_for_each_entry_safe(stream, next,
+					     &ctx->sched.streams, node)
+		if (stream->state == HTTP2_STREAM_OPENED ||
+		    stream->state == HTTP2_STREAM_REM_HALF_CLOSED)
+			stream->rem_wnd += delta;
+}
+
 static int
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
 	TfwSettings *dest = &ctx->rsettings;
+	long int delta;
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
@@ -1088,6 +1146,9 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
 		if (val > MAX_WND_SIZE)
 			return T_BAD;
+
+		delta = dest->wnd_sz - val;
+		tfw_h2_apply_wnd_sz_change(ctx, delta);
 		dest->wnd_sz = val;
 		break;
 
@@ -1257,11 +1318,11 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	BUG_ON(!stream);
 	if (hdr->length > stream->loc_wnd)
 		T_WARN("Stream flow control window exceeded: frame payload %d,"
-		       " current window %u\n", hdr->length, stream->loc_wnd);
+		       " current window %ld\n", hdr->length, stream->loc_wnd);
 
 	if(hdr->length > ctx->loc_wnd)
 		T_WARN("Connection flow control window exceeded: frame payload"
-		       " %d, current window %u\n", hdr->length, ctx->loc_wnd);
+		       " %d, current window %ld\n", hdr->length, ctx->loc_wnd);
 
 	stream->loc_wnd -= hdr->length;
 	ctx->loc_wnd -= hdr->length;

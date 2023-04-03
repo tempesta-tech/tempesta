@@ -323,7 +323,8 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		bool headers_was_done = skb_tfw_flags(skb) &
 			SS_F_HTTT2_FRAME_HEADERS_DONE;
 
-		if (*limit - processed <= FRAME_HEADER_SIZE) {
+		if (stream->rem_wnd <= 0 || h2->rem_wnd <= 0
+		    || *limit - processed <= FRAME_HEADER_SIZE) {
 			r = headers_was_done ? 0 : -ENOMEM;
 			goto update_limit;
 		}
