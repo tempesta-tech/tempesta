@@ -28,6 +28,9 @@
 #include "addr.h"
 #include "ss_skb.h"
 
+/* Minimum acceptable MSS value for the connection */
+#define SS_CONN_MIN_MSS		(34 + 8) /* TLS_MAX_OVERHEAD + 8 bytes */
+
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
 	const struct ss_hooks	*hooks;

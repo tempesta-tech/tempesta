@@ -900,6 +900,23 @@ out:
 }
 
 /*
+ * Report MTU of the underlying net_device this @sock currently
+ * works with (provided by corresponding struct dst_entry).
+ * This @dst_entry might change at any time, e.g. the routing tables
+ * have been altered.
+ */
+static void
+ss_netdev_mtu_report(struct sock *sk)
+{
+	const struct dst_entry *dst = __sk_dst_get(sk);
+	if (dst) {
+		T_WARN("[%d] sk %pK dev %s mtu %d\n", smp_processor_id(),
+		       sk, dst->dev->name, dst->dev->mtu);
+	}
+}
+
+
+/*
  * ------------------------------------------------------------------------
  *  	Socket callbacks
  * ------------------------------------------------------------------------
@@ -986,6 +1003,7 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
+	int mss_now;
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
@@ -1026,6 +1044,27 @@ ss_tcp_state_change(struct sock *sk)
 			ss_do_close(sk, 0);
 			sock_put(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
+			return;
+		}
+
+		/*
+		 * Perform MSS check during connection initialization.
+		 */
+		mss_now = tcp_current_mss(sk);
+		if (unlikely(mss_now < SS_CONN_MIN_MSS)) {
+			T_WARN_NL("[%d] sk %pK: failed to initialize new %s "
+				  "connection due to low MSS of the link (%d)\n",
+				  smp_processor_id(), sk,
+				  is_srv_sock ? "server" : "client", mss_now);
+			ss_netdev_mtu_report(sk);
+
+			if (!is_srv_sock)
+				ss_linkerror(sk);
+			ss_active_guard_exit(SS_V_ACT_NEWCONN);
+			
+			if (is_srv_sock) {
+				/* tfw_sock_srv_disconnect((TfwConn *)sk->sk_user_data); */
+			}
 			return;
 		}
 
