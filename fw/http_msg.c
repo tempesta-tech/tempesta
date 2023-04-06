@@ -1492,36 +1492,57 @@ tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
 	return __tfw_http_msg_expand_from_pool(mit, pool, str, tfw_cstrtolower);
 }
 
-static void
-__tfw_h2_msg_shrink_frags(TfwMsgIter *it, const char *body,
-			  TfwHttpRespCleanup *cleanup)
+static inline void
+__tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
+			TfwHttpRespCleanup *cleanup)
 {
-	struct skb_shared_info *si = skb_shinfo(it->skb);
-	skb_frag_t *frag = &si->frags[it->frag];
-	char* frag_addr = skb_frag_address(frag);
-	int len;
 	int i;
+	int len;
+	struct page *page;
+	struct skb_shared_info *si = skb_shinfo(skb);
 
-	/* Delete all fragments from skb. We will use this skb as skb_head. */
-	if (!body) {
-		for (i = 0; i < si->nr_frags; i++) {
-			struct page *pg = skb_frag_page(&si->frags[i]);
-
-			cleanup->pages[i] = compound_head(pg);
-		}
-		len = it->skb->data_len;
-		cleanup->pages_sz = si->nr_frags;
-		si->nr_frags = 0;
-		it->frag = 0;
-		ss_skb_adjust_data_len(it->skb, -len);
-	} else if (frag_addr != body) {
-		/* Start of body it's not start of frag. Shrink frag.*/
-		len = body - frag_addr;
-		/* Add offset and decrease fragment's size */
-		skb_frag_off_add(frag, len);
-		skb_frag_size_sub(frag, len);
-		ss_skb_adjust_data_len(it->skb, -len);
+	for (i = 0; i < frag_idx; i++) {
+		page = skb_frag_page(&si->frags[i]);
+		cleanup->pages[i] = compound_head(page);
+		cleanup->pages_sz++;
+		len = skb_frag_size(&si->frags[i]);
+		ss_skb_adjust_data_len(skb, -len);
+		si->nr_frags--;
 	}
+
+	memmove(&si->frags, &si->frags[frag_idx],
+		(si->nr_frags) * sizeof(skb_frag_t));
+}
+
+static inline void
+__tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
+{
+	int i;
+	struct page *page;
+	struct skb_shared_info *si = skb_shinfo(skb);
+	int len;
+
+	for (i = 0; i < si->nr_frags; i++) {
+		page = skb_frag_page(&si->frags[i]);
+		cleanup->pages[i] = compound_head(page);
+	}
+
+	len = skb->data_len;
+	cleanup->pages_sz = si->nr_frags;
+	si->nr_frags = 0;
+	ss_skb_adjust_data_len(skb, -len);
+}
+
+static inline void
+__tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
+{
+	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
+	const int len = nbegin - (char*)skb_frag_address(frag);
+
+	/* Add offset and decrease fragment's size */
+	skb_frag_off_add(frag, len);
+	skb_frag_size_sub(frag, len);
+	ss_skb_adjust_data_len(skb, -len);
 }
 
 /*
@@ -1537,7 +1558,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 	TfwMsgIter *it = &resp->mit.iter;
 	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
 	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
-	char *off = resp->body.len ? body : crlf->data + crlf->len;
+	char *off = body ? body : crlf->data + crlf->len;
 
 	do {
 		unsigned char i;
@@ -1561,11 +1582,38 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			begin = skb_frag_address(f);
 			end = begin + skb_frag_size(f);
 
-			if ((begin <= off) && (end >= off)) {
-				it->frag = i;
-				__tfw_h2_msg_shrink_frags(it, body, cleanup);
+			if (begin > off || end < off)
+				continue;
+
+			/*
+			 * If body exists and headers ends in current skb that
+			 * has only one fragment and contains only headers
+			 * just remove the fragment from skb and continue
+			 * to use this skb as head. If response doesn't have
+			 * body simply remove all fragments from skb where
+			 * LF is located.
+			 */
+			if (!body || (si->nr_frags == 1 && off == end)) {
+				__tfw_h2_msg_rm_all_frags(it->skb, cleanup);
 				goto end;
+			} else if (off != begin) {
+				/*
+				 * Fragment contains headers and body.
+				 * Set beginning of frag as beginning of body.
+				 */
+
+				__tfw_h2_msg_shrink_frag(it->skb, i, off);
 			}
+
+			/*
+			 * If body not in zero fragment save previous
+			 * fragments for later cleanup and remove them
+			 * from skb.
+			 */
+			if (i >= 1)
+				__tfw_h2_msg_move_frags(it->skb, i, cleanup);
+
+			goto end;
 		}
 
 		skb = it->skb;
@@ -1578,27 +1626,6 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 end:
 	/* Pointer to data or CRLF not found in skbs. */
 	BUG_ON(!it->skb_head || !it->skb);
-
-	/*
-	 * If body not in first fragment save previous fragments for later
-	 * cleanup and remove them from skb.
-	 */
-	if (it->frag >= 1) {
-		int i;
-		int len;
-		struct skb_shared_info *si = skb_shinfo(it->skb);
-
-		for (i = 0; i < it->frag; i++) {
-			cleanup->pages[i] = skb_frag_page(&si->frags[i]);
-			cleanup->pages_sz++;
-			len = skb_frag_size(&si->frags[i]);
-			ss_skb_adjust_data_len(it->skb, -len);
-			si->nr_frags--;
-		}
-
-		memmove(&si->frags, &si->frags[it->frag],
-			(si->nr_frags) * sizeof(skb_frag_t));
-	}
 
 	/* Trim skb linear data. This is ugly hotfix and must be removed after
 	 * implementation of #1703 */
