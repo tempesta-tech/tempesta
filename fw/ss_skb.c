@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -173,21 +173,6 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it, int *fragn)
 	}
 }
 
-/*
- * Insert @nskb in the list after @skb. Note that standard
- * kernel 'skb_insert()' function does not suit here, as it
- * works with 'sk_buff_head' structure with additional fields
- * @qlen and @lock; we don't need these fields for our skb
- * list, so a custom function had been introduced.
- */
-static inline void
-__skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
-{
-	nskb->next = skb->next;
-	nskb->prev = skb;
-	nskb->next->prev = skb->next = nskb;
-}
-
 /**
  * Similar to skb_shift().
  * Make room for @n fragments starting with slot @from.
@@ -212,7 +197,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 
 		/* Going out if the @skb is prohibied by the caller. */
 		if (!skb_head)
-			return -ENOMEM;
+			return -EINVAL;
 
 		/*
 		 * The number of page fragments that don't fit in the SKB
@@ -237,7 +222,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (nskb == NULL)
 				return -ENOMEM;
 			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
-			__skb_insert_after(skb, nskb);
+			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
@@ -1607,106 +1592,20 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 	return out_frags;
 }
 
-/**
- * Evict extra data between @curr and @stop pointers, beginning from the @skb
- * and the @frag_idx fragment.
- */
 int
-ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
-		      int frag_idx, char *curr, const char *stop)
+ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
+		int frag_idx, size_t frag_sz)
 {
-	TfwStr it;
-	long offset;
-	int size, ret;
-	const char *addr;
+	int r;
+	struct page *page = virt_to_page(addr);
+	int offset = addr - (char*)page_address(page);
 
-	if (frag_idx >= 0) {
-		skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
+	r = __extend_pgfrags(skb_head, skb, frag_idx, 1);
+	if (unlikely(r))
+		return r;
 
-		size = skb_frag_size(frag);
-		addr = skb_frag_address(frag);
-	} else {
-		size = skb_headlen(skb);
-		addr = skb->data;
-	}
-
-	offset = curr - addr;
-
-	for (;;) {
-		int len, tail = 0;
-		long stop_offset = stop - addr;
-
-		if (WARN_ON_ONCE(offset < 0 || offset >= size))
-			return -EINVAL;
-
-		len = size - offset;
-
-		/*
-		 * We found the stop pointer; evict the delta between @curr and
-		 * @stop, and exit.
-		 */
-		if (stop_offset >= 0 && stop_offset <= size) {
-			if (WARN_ON_ONCE(curr > stop))
-				return -EINVAL;
-
-			if (curr == stop)
-				return 0;
-
-			tail = len;
-			len -= size - stop_offset;
-		}
-
-		T_DBG3("%s: frag_idx=%d, size=%d, offset=%ld, stop_offset=%ld,"
-		       " len=%d, tail=%d\n", __func__, frag_idx, size, offset,
-		       stop_offset, len, tail);
-
-		if (frag_idx >= 0)
-			ret = __split_pgfrag_del_w_frag(skb_head, skb, frag_idx,
-							offset, len, &it,
-							&frag_idx);
-		else
-			ret =  __split_linear_data(skb_head, skb, curr, -len,
-						   &it, &frag_idx);
-
-		if (unlikely(ret))
-			return ret;
-
-		if (tail)
-			return 0;
-
-		/*
-		 * While searching for a place to put the remaining data
-		 * there might be the case when we would either use existing
-		 * @sk_buff->next of the current SKB or completely new SKB,
-		 * which would be allocated and inserted right after the current one.
-		 * When this happens, we need to reacquire the correct @skb.
-		 * See __split_pgfrag_del_w_frag() / __split_linear_data() for details.
-		 */
-		if (skb != it.skb) {
-                        if (WARN_ON_ONCE(skb_head == it.skb))
-                                return -EINVAL;
-                        skb = it.skb; 
-                }
-
-		/*
-		 * The extra space is evicted from current fragment (or from skb
-		 * head space), but the stop pointer is not reached yet. Move to
-		 * the next fragment (or skb).
-		 */
-		if (frag_idx >= 0 && frag_idx < skb_shinfo(skb)->nr_frags) {
-			skb_frag_t *frag;
-
-			frag = &skb_shinfo(skb)->frags[frag_idx];
-			size = skb_frag_size(frag);
-			addr = curr = skb_frag_address(frag);
-		}
-		else {
-			size = skb_headlen(skb);
-			addr = curr = skb->data;
-		}
-
-		offset = 0;
-	}
+	__skb_fill_page_desc(skb, frag_idx, page, offset, frag_sz);
+	__skb_frag_ref(&skb_shinfo(skb)->frags[frag_idx]);
 
 	return 0;
 }

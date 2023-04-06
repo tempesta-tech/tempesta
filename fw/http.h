@@ -495,22 +495,6 @@ struct tfw_http_req_t {
 #define TFW_D_IDX_BITS		4
 
 /**
- * Representation of operation with the next header (in order of headers in the
- * message) during HTTP/1.1=>HTTP/2 transformation process.
- *
- * @s_hdr	- source header for transformation;
- * @off		- offset of not copied data from last processed @chunk;
- * @chunk	- last chunk to be processed from @s_hdr;
- * @op		- transformation operation which should be executed.
- */
-typedef struct {
-	TfwStr		s_hdr;
-	unsigned long	off;
-	unsigned int	chunk;
-	TfwH2TransOp	op;
-} TfwNextHdrOp;
-
-/**
  * The indirection map entry.
  *
  * @idx		- header index in @h_tbl;
@@ -543,24 +527,20 @@ typedef struct {
  * @map		- indirection map for tracking headers order in skb;
  * @start_off	- initial offset during copying response data into
  *		  skb (for subsequent insertion of HTTP/2 frame header);
- * @curr	- current header index in the @map;
- * @next	- operation (with necessary attributes) which should be executed
- *		  with next header;
  * @found	- bit mask of configured headers found in the message.
  * @curr_ptr	- pointer in the skb to write the current header;
- * @bnd		- pointer to the boundary data (which should not be
- *		  overwritten);
+ * @frame_head	- pointer to reserved space for frame header. Used during
+ * 		  http2 framing. Simplifies framing of paged SKBs.
+ * 		  Framing function may not worry about paged and liner SKBs.
  * @iter	- skb expansion iterator;
  * @acc_len	- accumulated length of transformed message.
  */
 typedef struct {
 	TfwHttpHdrMap	*map;
 	unsigned int	start_off;
-	unsigned int	curr;
-	TfwNextHdrOp	next;
 	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
 	char		*curr_ptr;
-	char		*bnd;
+	char		*frame_head;
 	TfwMsgIter	iter;
 	unsigned long	acc_len;
 } TfwHttpTransIter;
@@ -586,6 +566,20 @@ struct tfw_http_resp_t {
 	TfwStr			no_cache_tokens;
 	TfwStr			private_tokens;
 };
+
+/**
+ * Represents the data that should be cleaned up after HTTP1 -> HTTP2 response
+ * transformation.
+ *
+ * @skb_head	- head of skb list that must be freed;
+ * @pages	- pages that must be freed;
+ * @pages_sz	- current number of @pages;
+ */
+typedef struct {
+	struct sk_buff *skb_head;
+	struct page *pages[MAX_SKB_FRAGS];
+	unsigned char pages_sz;
+} TfwHttpRespCleanup;
 
 #define TFW_HDR_MAP_INIT_CNT		32
 #define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
@@ -723,12 +717,12 @@ int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
 void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
-int tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache);
+int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache);
 int tfw_h2_set_stale_warn(TfwHttpResp *resp);
 int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			     bool cache);
 int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
-			     TfwH2TransOp op, bool cache);
+			     bool use_pool, bool cache);
 /*
  * Functions to send an HTTP error response to a client.
  */

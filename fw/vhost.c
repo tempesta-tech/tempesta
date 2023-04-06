@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -760,8 +760,8 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 	desc->hdr = hdr;
 	desc->append = append;
 	desc->hid = (mod_type == TFW_VHOST_HDRMOD_RESP)
-			? tfw_http_msg_resp_spec_hid(hdr)
-			: tfw_http_msg_req_spec_hid(hdr);
+			? tfw_http_msg_resp_spec_hid(TFW_STR_CHUNK(hdr, 0))
+			: tfw_http_msg_req_spec_hid(TFW_STR_CHUNK(hdr, 0));
 	++h_mods->sz;
 
 	return 0;

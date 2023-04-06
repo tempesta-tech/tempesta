@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -166,6 +166,21 @@ ss_skb_queue_split(struct sk_buff *skb_head, struct sk_buff *skb)
 	skb_head->prev = prev;
 }
 
+/*
+ * Insert @nskb in the list after @skb. Note that standard
+ * kernel 'skb_insert()' function does not suit here, as it
+ * works with 'sk_buff_head' structure with additional fields
+ * @qlen and @lock; we don't need these fields for our skb
+ * list, so a custom function had been introduced.
+ */
+static inline void
+ss_skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
+{
+	nskb->next = skb->next;
+	nskb->prev = skb;
+	nskb->next->prev = skb->next = nskb;
+}
+
 /**
  * Almost a copy of standard skb_dequeue() except it works with skb list
  * instead of sk_buff_head. Several crucial data include skb list and we don't
@@ -274,7 +289,6 @@ void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
                                    struct page ***old_pages);
-int ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
-			  int frag_num, char *curr, const char *stop);
-
+int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
+		    int frag_idx, size_t frag_sz);
 #endif /* __TFW_SS_SKB_H__ */

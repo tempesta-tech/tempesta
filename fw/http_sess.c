@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -425,10 +425,8 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	      PR_TFW_STR(&sticky->name), len, buf);
 
 	if (to_h2) {
-		TfwH2TransOp op = cache ? TFW_H2_TRANS_EXPAND : TFW_H2_TRANS_ADD;
-
 		set_cookie.hpack_idx = 55;
-		r = tfw_hpack_encode(resp, &set_cookie, op, !cache);
+		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache);
 	}
 	else if (cache) {
 		TfwHttpTransIter *mit = &resp->mit;

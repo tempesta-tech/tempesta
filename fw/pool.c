@@ -25,7 +25,7 @@
  *    be immediately freed to keep stack-like memory management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -71,6 +71,7 @@ tfw_pool_alloc_pages(unsigned int order)
 {
 	unsigned int *pgn;
 	unsigned long pg_res;
+	gfp_t flags;
 
 	preempt_disable();
 
@@ -86,19 +87,22 @@ tfw_pool_alloc_pages(unsigned int order)
 	}
 	preempt_enable();
 
-	return __get_free_pages(GFP_ATOMIC, order);
+	flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
+	return __get_free_pages(flags, order);
 }
 
 static void
 tfw_pool_free_pages(unsigned long addr, unsigned int order)
 {
 	unsigned int *pgn;
+	int refcnt;
 
 	preempt_disable();
 
 	pgn = this_cpu_ptr(&pg_next);
+	refcnt = page_count(virt_to_page(addr));
 
-	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order)) {
+	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order && refcnt == 1)) {
 		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
 		++*pgn;
 
@@ -108,7 +112,7 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 	}
 	preempt_enable();
 
-	free_pages(addr, order);
+	put_page(compound_head(virt_to_page(addr)));
 }
 
 void *

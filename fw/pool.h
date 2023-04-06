@@ -4,7 +4,7 @@
  * Memory pool.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
 #define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
 #define TFW_POOL_CHUNK_END(p)	((void *)TFW_POOL_CHUNK_BASE((p)->curr) + (p)->off)
+#define TFW_POOL_CHUNK_ROOM(p)	(TFW_POOL_CHUNK_SZ((p)) - (p)->off)
 #define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
 #define TFW_POOL_ALIGN_PTR(p)	((void *)TFW_POOL_ALIGN_SZ((unsigned long)p))
 
