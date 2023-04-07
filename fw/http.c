@@ -4859,7 +4859,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	tfw_h2_pack_frame_header(mit->frame_head, &frame_hdr);
 
 	/* Add first DATA frame */
-	if (!local_response && b_len) {
+	if (!local_response) {
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 			TfwHttpMsg *hm = (TfwHttpMsg*)resp;
 
@@ -4868,16 +4868,18 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 				return r;
 		}
 
-		frame_hdr.length = min(max_sz, b_len);
-		frame_hdr.type = HTTP2_DATA;
-		frame_hdr.flags = (frame_hdr.length == b_len)
-				   ? HTTP2_F_END_STREAM : 0;
-		tfw_h2_pack_frame_header(buf, &frame_hdr);
+		if (b_len > 0) {
+			frame_hdr.length = min(max_sz, b_len);
+			frame_hdr.type = HTTP2_DATA;
+			frame_hdr.flags = (frame_hdr.length == b_len)
+					   ? HTTP2_F_END_STREAM : 0;
+			tfw_h2_pack_frame_header(buf, &frame_hdr);
 
-		r = tfw_http_msg_expand_from_pool(mit, resp->pool,
-						  &frame_hdr_str);
-		if (unlikely(r))
-			return r;
+			r = tfw_http_msg_expand_from_pool(mit, resp->pool,
+							  &frame_hdr_str);
+			if (unlikely(r))
+				return r;
+		}
 	}
 
 	/* Add CONTINATION frames. */
