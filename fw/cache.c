@@ -1186,7 +1186,7 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	BUG_ON(TFW_STR_DUP(body));
 
 	/* Body has only zero chunk. */
-	if (unlikely(!body->len))
+	if (unlikely(!body->len || body->len == cut->len))
 		return 0;
 
 	if (unlikely(!cut->len))
