@@ -216,19 +216,6 @@ ss_skb_alloc(size_t n)
 	return skb;
 }
 
-/* Move @cnt existing fragment descriptors within the SKB.
- */
-static inline void
-ss_skb_frags_move(struct sk_buff *skb, unsigned int new_pos,
-		  unsigned int old_pos, unsigned int cnt)
-{
-	struct skb_shared_info *si = skb_shinfo(skb);
-	if (WARN_ON(!si->nr_frags))
-		return;
-	BUG_ON(new_pos + cnt > MAX_SKB_FRAGS);
-	memmove(&si->frags[new_pos], &si->frags[old_pos], cnt * sizeof(skb_frag_t));
-}
-
 static inline int
 ss_skb_find_frag_by_offset(struct sk_buff *skb, char *off, int *frag)
 {
@@ -257,6 +244,26 @@ ss_skb_find_frag_by_offset(struct sk_buff *skb, char *off, int *frag)
 	}
 
 	return -E2BIG;
+}
+
+static inline void
+ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
+		  unsigned count)
+{
+	struct skb_shared_info *si = skb_shinfo(skb);
+	struct skb_shared_info *nsi = skb_shinfo(nskb);
+	skb_frag_t *f;
+	unsigned int i = 0, e_size = 0;
+
+	while (i++ < count) {
+		f = &si->frags[from++];
+		skb_shinfo(nskb)->frags[nsi->nr_frags++] = *f;
+		si->nr_frags--;
+		e_size += skb_frag_size(f);
+	}
+
+	ss_skb_adjust_data_len(skb, -e_size);
+	ss_skb_adjust_data_len(nskb, e_size);
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)

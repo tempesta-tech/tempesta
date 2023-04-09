@@ -1413,14 +1413,15 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
  * new paged fragment using @pool if room in current pool's chunk is not enough.
  */
 static int
-__tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
-				const TfwStr *str,
+__tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off;
 	int r;
+	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
+	TfwPool* pool = resp->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
@@ -1447,10 +1448,35 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 					      && nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb;
+				struct sk_buff **body;
+				char *p;
+
+				if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+					TfwStream *stream = resp->stream;
+
+					p = stream->parser.body_start_data;
+					body = &stream->parser.body_start_skb;
+				} else {
+					p = TFW_STR_CHUNK(&resp->body, 0)->data;
+					body = &resp->body.skb;
+				}
 
 				nskb = ss_skb_alloc(0);
 				if (!nskb)
 					return -ENOMEM;
+
+				if (*body == it->skb) {
+					int frag;
+
+					if ((r = ss_skb_find_frag_by_offset(*body, p, &frag)))
+						return r;
+					if (it->frag + 1 <= frag)
+						*body = nskb;
+				}
+
+				ss_skb_move_frags(it->skb, nskb, it->frag + 1,
+						  nr_frags - it->frag - 1);
+
 				skb_shinfo(nskb)->tx_flags =
 					skb_shinfo(it->skb)->tx_flags;
 				ss_skb_insert_after(it->skb, nskb);
@@ -1479,17 +1505,15 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 }
 
 int
-tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
-			      const TfwStr *str)
+tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(mit, pool, str, memcpy_fast);
+	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
-				 const TfwStr *str)
+tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(mit, pool, str, tfw_cstrtolower);
+	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower);
 }
 
 static inline void

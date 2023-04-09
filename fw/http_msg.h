@@ -172,10 +172,8 @@ void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src, unsigned int *start_off);
 int tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool);
-int tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
-				  const TfwStr *str);
-int tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
-				     const TfwStr *str);
+int tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str);
+int tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_write_data_pool(TfwHttpTransIter *mit, TfwPool* pool,

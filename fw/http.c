@@ -4884,8 +4884,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 					   ? HTTP2_F_END_STREAM : 0;
 			tfw_h2_pack_frame_header(buf, &frame_hdr);
 
-			r = tfw_http_msg_expand_from_pool(mit, resp->pool,
-							  &frame_hdr_str);
+			r = tfw_http_msg_expand_from_pool(resp, &frame_hdr_str);
 			if (unlikely(r))
 				return r;
 		}
