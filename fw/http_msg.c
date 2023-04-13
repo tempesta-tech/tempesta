@@ -1551,9 +1551,10 @@ __tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
  * At this point we can't free SKBs, because data that they contain used
  * as source for message trasformation.
  */
-void
+int
 tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 {
+	int i, ret;
 	char *begin, *end;
 	TfwMsgIter *it = &resp->mit.iter;
 	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
@@ -1561,7 +1562,6 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 	char *off = body ? body : crlf->data + crlf->len;
 
 	do {
-		unsigned char i;
 		struct sk_buff *skb;
 		struct skb_shared_info *si = skb_shinfo(it->skb);
 
@@ -1571,11 +1571,18 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 
 			if ((begin <= off) && (end >= off)) {
 				it->frag = -1;
-				/* TODO: Handle this case, most likely for low MTU
-				 * it will be implemented as part of #1703 */
-				return;
+				/* We would end up here if the start of the body or
+				 * the end of CRLF lies within the linear data area
+				 * of the current @it->skb
+				 */
+				ret = ss_skb_linear_transform(it->skb_head,
+							      it->skb, body);
+				if (unlikely(ret))
+					return ret;
+				break;
 			}
 		}
+
 		for (i = 0; i < si->nr_frags; i++) {
 			skb_frag_t *f = &si->frags[i];
 
@@ -1620,22 +1627,19 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 		it->skb = it->skb->next;
 		ss_skb_unlink(&it->skb_head, skb);
 		ss_skb_queue_tail(&cleanup->skb_head, skb);
-
 	} while (it->skb != NULL);
 
 end:
 	/* Pointer to data or CRLF not found in skbs. */
 	BUG_ON(!it->skb_head || !it->skb);
 
-	/* Trim skb linear data. This is ugly hotfix and must be removed after
-	 * implementation of #1703 */
-	it->skb->len -= skb_headlen(it->skb);
-
 	it->skb_head = it->skb;
 	resp->msg.skb_head = it->skb;
 
 	/* Start from zero fragment */
 	it->frag = -1;
+
+	return 0;
 }
 
 /**

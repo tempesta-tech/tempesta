@@ -23,6 +23,11 @@
 #include <linux/slab.h>
 #include <linux/rwsem.h>
 
+#undef DEBUG
+#if DBG_SRV > 0
+#define DEBUG DBG_SRV
+#endif
+
 #include "lib/hash.h"
 #include "apm.h"
 #include "client.h"

@@ -20,6 +20,11 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
+#undef DEBUG
+#if DBG_VHOST > 0
+#define DEBUG DBG_VHOST
+#endif
+
 #include "tempesta_fw.h"
 #include "hash.h"
 #include "http.h"

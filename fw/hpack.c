@@ -2556,13 +2556,9 @@ tfw_hpack_write(const TfwStr *h_field, char *out_buf)
 	return out_buf;
 }
 
-#ifdef DEBUG
+#if defined(DEBUG) && (DEBUG >= 4)
 #define T_DBG_PRINT_HPACK_RBTREE(tbl) tfw_hpack_rbtree_print(tbl)
-#else
-#define T_DBG_PRINT_HPACK_RBTREE(tbl)
-#endif
 
-#ifdef DEBUG
 /* Debug functions for printing red-black tree. */
 static void
 tfw_hpack_rbtree_print_level(TfwHPackETbl *__restrict tbl,
@@ -2576,7 +2572,7 @@ tfw_hpack_rbtree_print_level(TfwHPackETbl *__restrict tbl,
 		tfw_hpack_rbtree_print_level(tbl, left, level + 1, pr_level);
 		tfw_hpack_rbtree_print_level(tbl, right, level + 1, pr_level);
 	} else if (root) {
-		T_DBG3("level (%u): rindex %lu hdr_len %hu color %hu "
+		T_DBGV("level (%u): rindex %lu hdr_len %hu color %hu "
 		       "parent %hd  left %hd right %hd | hdr %.*s",
 		       level, root->rindex, root->hdr_len, root->color,
 		       root->parent, root->left, root->right,
@@ -2604,15 +2600,17 @@ tfw_hpack_rbtree_print(TfwHPackETbl *__restrict tbl)
 {
 	unsigned int pr_level, max_level;
 
-	T_DBG3("hpack rbtree:\n");
-	T_DBG3("first %p last %p rb_len %hu rb_size %hu size %hu\n",
+	T_DBGV("hpack rbtree:\n");
+	T_DBGV("first %p last %p rb_len %hu rb_size %hu size %hu\n",
 	       tbl->first, tbl->last, tbl->rb_len, tbl->rb_size, tbl->size);
-	T_DBG3("window %hu rbuf %p root %p idx_acc %lu\n",
+	T_DBGV("window %hu rbuf %p root %p idx_acc %lu\n",
 	       tbl->window, tbl->rbuf, tbl->root, tbl->idx_acc);
 	max_level = tfw_hpack_rbtree_cacl_level(tbl, tbl->root);
 	for (pr_level = 0; pr_level < max_level; ++pr_level)
 		tfw_hpack_rbtree_print_level(tbl, tbl->root, 0, pr_level);
 }
+#else
+#define T_DBG_PRINT_HPACK_RBTREE(tbl)
 #endif
 
 /*

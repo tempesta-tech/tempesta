@@ -506,10 +506,10 @@ index 0dcd51fee..9a09576a8 100644
  struct kvec;
  
 diff --git a/include/linux/netdevice.h b/include/linux/netdevice.h
-index e37480b5f..617f4e76b 100644
+index e37480b5f..8236d5929 100644
 --- a/include/linux/netdevice.h
 +++ b/include/linux/netdevice.h
-@@ -154,11 +154,32 @@ static inline bool dev_xmit_complete(int rc)
+@@ -154,11 +154,22 @@ static inline bool dev_xmit_complete(int rc)
  # define LL_MAX_HEADER 32
  #endif
  
@@ -521,26 +521,16 @@ index e37480b5f..617f4e76b 100644
 + * to allocate 16 more bytes (5 - TLS header, 8 - IV, 3 - alignment).
 + */
 +#define TLS_MAX_HDR		16
-+/*
-+ * For fast transformation of HTTP/1.1 responses into HTTP/2 format, Tempesta
-+ * uses zero-copy in-place rewriting of the response data, right in original
-+ * skb. HTTP/2 data is almost always smaller of its source HTTP/1.1 data, but
-+ * for the sake of robustness we use 32-byte initial offset in front of skb
-+ * data. Thus, in order to guarantee the stack headers to fit, we should
-+ * increase the total space for them.
-+ */
-+#define HTTP2_MAX_OFFSET	32
 +#else
 +#define TLS_MAX_HDR		0
-+#define HTTP2_MAX_OFFSET	0
 +#endif
  #if !IS_ENABLED(CONFIG_NET_IPIP) && !IS_ENABLED(CONFIG_NET_IPGRE) && \
      !IS_ENABLED(CONFIG_IPV6_SIT) && !IS_ENABLED(CONFIG_IPV6_TUNNEL)
 -#define MAX_HEADER LL_MAX_HEADER
-+#define MAX_HEADER (LL_MAX_HEADER + TLS_MAX_HDR + HTTP2_MAX_OFFSET)
++#define MAX_HEADER (LL_MAX_HEADER + TLS_MAX_HDR)
  #else
 -#define MAX_HEADER (LL_MAX_HEADER + 48)
-+#define MAX_HEADER (LL_MAX_HEADER + 48 + TLS_MAX_HDR + HTTP2_MAX_OFFSET)
++#define MAX_HEADER (LL_MAX_HEADER + 48 + TLS_MAX_HDR)
  #endif
  
  /*
@@ -2040,6 +2030,64 @@ index 45fb450b4..48da5be43 100644
  	}
  
  	offset++;
+diff --git a/net/ipv4/ip_output.c b/net/ipv4/ip_output.c
+index 97975bed4..672f21290 100644
+--- a/net/ipv4/ip_output.c
++++ b/net/ipv4/ip_output.c
+@@ -82,6 +82,9 @@
+ #include <linux/netfilter_bridge.h>
+ #include <linux/netlink.h>
+ #include <linux/tcp.h>
++#ifdef CONFIG_SECURITY_TEMPESTA
++#include <net/tcp.h>
++#endif
+ 
+ static int
+ ip_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
+@@ -702,7 +705,31 @@ struct sk_buff *ip_frag_next(struct sk_buff *skb, struct ip_frag_state *state)
+ 	}
+ 
+ 	/* Allocate buffer */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * Since Tempesta FW tries to reuse incoming SKBs containing the response
++	 * from the backend, sometimes we might encounter an SKB with quite a small
++	 * head room, which is not big enough to accommodate all the transport headers
++	 * and TLS overhead.
++	 * It usually the case when working over loopback, tun/tap, bridge or similar
++	 * interfaces with small MTU. The issue is specific to aforementioned ifaces
++	 * because the outgoing SKB would be injected back to the stack.
++	 * In order not to reallocate sk_buffs' headroom on RX path,
++	 * allocate and reserve a little bit more memory on TX path.
++	 * Even though it would introduce some memory overhead, it's still
++	 * cheaper than doing transformation.
++	 *
++	 * It seems like no such actions are required for IPv6 counterparts:
++	 * ip6_fragment() / ip6_frag_next() due to the fact that the
++	 * lowest acceptable MTU (1280) is sufficient to fit all the headers.
++	 *
++	 * When receiving SKBs from the outter world, the NIC driver should
++	 * allocate and reserve all necessary space by itself.
++	 */
++	skb2 = alloc_skb(len + state->hlen + MAX_TCP_HEADER, GFP_ATOMIC);
++#else
+ 	skb2 = alloc_skb(len + state->hlen + state->ll_rs, GFP_ATOMIC);
++#endif
+ 	if (!skb2)
+ 		return ERR_PTR(-ENOMEM);
+ 
+@@ -711,7 +738,11 @@ struct sk_buff *ip_frag_next(struct sk_buff *skb, struct ip_frag_state *state)
+ 	 */
+ 
+ 	ip_copy_metadata(skb2, skb);
++#ifdef CONFIG_SECURITY_TEMPESTA
++	skb_reserve(skb2, MAX_TCP_HEADER);
++#else
+ 	skb_reserve(skb2, state->ll_rs);
++#endif
+ 	skb_put(skb2, len + state->hlen);
+ 	skb_reset_network_header(skb2);
+ 	skb2->transport_header = skb2->network_header + state->hlen;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
 index 2384ac048..920b1f01f 100644
 --- a/net/ipv4/tcp.c
