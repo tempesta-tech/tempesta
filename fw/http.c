@@ -4991,6 +4991,11 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
+
+	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
+	       req, resp);
+	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
+
 	tfw_http_resp_fwd(resp);
 }
 
@@ -5322,7 +5327,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	WARN_ON_ONCE(mit->acc_len);
 	tfw_h2_msg_transform_setup(mit, resp->msg.skb_head, true);
 
-	tfw_h2_msg_cutoff_headers(resp, &cleanup);
+	if (tfw_h2_msg_cutoff_headers(resp, &cleanup))
+		goto clean;
 
 	/*
 	 * Alloc room for frame header. After this call resp->pool
@@ -5384,6 +5390,10 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
 	if (unlikely(r))
 		goto clean;
+
+	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
+	       req, resp);
+	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
 	tfw_h2_resp_fwd(resp);
 
@@ -6698,7 +6708,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 		       stream->msg, conn);
 	}
 
-	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
+	T_DBG2("Add skb %pK to message %pK\n", skb, stream->msg);
 	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)

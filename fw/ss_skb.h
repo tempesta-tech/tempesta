@@ -256,6 +256,19 @@ ss_skb_alloc(size_t n)
 	return skb;
 }
 
+/* Move @cnt existing fragment descriptors within the SKB.
+ */
+static inline void
+ss_skb_frags_move(struct sk_buff *skb, unsigned int new_pos,
+		  unsigned int old_pos, unsigned int cnt)
+{
+	struct skb_shared_info *si = skb_shinfo(skb);
+	if (WARN_ON(!si->nr_frags))
+		return;
+	BUG_ON(new_pos + cnt > MAX_SKB_FRAGS);
+	memmove(&si->frags[new_pos], &si->frags[old_pos], cnt * sizeof(skb_frag_t));
+}
+
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
@@ -288,4 +301,30 @@ int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
                                    struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 		    int frag_idx, size_t frag_sz);
+int
+ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			unsigned char *split_point);
+
+#if defined(DEBUG) && (DEBUG >= 4)
+#define ss_skb_queue_for_each_do(queue, lambda)		\
+do {							\
+	int i = 0;					\
+	struct sk_buff *skb = *queue;			\
+	if (likely(skb)) {				\
+		do {					\
+			lambda;				\
+			skb = skb->next;		\
+		} while (skb != *queue);		\
+	}						\
+} while(0)
+
+#define SS_SKB_QUEUE_DUMP(queue)			\
+	ss_skb_queue_for_each_do(queue, {		\
+		pr_debug("#%2d skb => %pK\n", i++, skb);	\
+		skb_dump(KERN_DEBUG, skb, true);	\
+	});
+#else
+#define SS_SKB_QUEUE_DUMP(...)
+#endif
+
 #endif /* __TFW_SS_SKB_H__ */

@@ -111,7 +111,6 @@ tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
 {
 	TfwMsgIter *iter = &mit->iter;
 
-	BUILD_BUG_ON(HTTP2_MAX_OFFSET <= FRAME_HEADER_SIZE);
 	BUG_ON(!skb);
 	BUG_ON(mit->frame_head);
 
@@ -181,7 +180,7 @@ int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_write_data_pool(TfwHttpTransIter *mit, TfwPool* pool,
 			       const TfwStr *str, bool add_frag, bool has_body);
-void tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
+int tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
 int tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data);
 
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\

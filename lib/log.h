@@ -45,7 +45,8 @@ enum {
  *   -DDEBUG=2 - same as above, but also enables T_DBG2().
  *   -DDEBUG=3 - same as above plus T_DBG3().
  *   ...etc
- * Currently there are only 3 levels:
+ *
+ * Currently there are only 4 levels:
  *   1 [USER]    - information required to understand system behavior under
  *                 some load, only key events (e.g. new connections) should
  *                 be logged. The events could not be logged on normal level,
@@ -55,9 +56,11 @@ enum {
  *   2 [SUPPORT] - key events at lower (component) levels (e.g. TDB or SS).
  *                 Only events required for technical support should be logged
  *                 on this level;
- *   3 [DEVELOP] - verbose logging, used for engineer debugging internal
+ *   3 [DEVELOP] - extended logging, used for engineer debugging internal
  *                 algorithms and so on. Typically for single slow connection
  *                 cases.
+ *   4 [VERBOSE] - all of the above + verbose dumping of internal structures
+ *                 content, e.g. SKB queues, rbtree, etc.
  */
 #define __BNR		"[tempesta " BANNER "] "
 #define __T_DBG1(...) 	pr_debug(__BNR "  " __VA_ARGS__)
@@ -76,7 +79,7 @@ enum {
 #define T_DBG2(...)
 #endif
 
-#if defined(DEBUG) && (DEBUG == 3)
+#if defined(DEBUG) && (DEBUG >= 3)
 #define T_DBG3(...)	__T_DBG3(__VA_ARGS__)
 
 #define T_DBG3_BUF(str, buf, len)					\
@@ -135,6 +138,12 @@ do {									\
 #define T_ERR_NL(...)	pr_err(__BNR "ERROR: " __VA_ARGS__)
 #define T_WARN_NL(...)	pr_warn(__BNR "Warning: " __VA_ARGS__)
 #define T_LOG_NL(...)	pr_info(__BNR __VA_ARGS__)
+#endif
+
+#if defined(DEBUG) && (DEBUG >= 4)
+#define T_DBGV(...)	pr_debug(__BNR "#     " __VA_ARGS__)
+#else
+#define T_DBGV(...)
 #endif
 
 #endif /* __LIB_LOG_H__ */

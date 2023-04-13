@@ -1571,3 +1571,30 @@ ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 
 	return 0;
 }
+
+/* Using @split_point transform the remaining linear portion of original @skb
+ * to the first fragment of the same SKB. Existing fragments of @skb
+ * would moved to next SKB if necessary inside __split_linear_data().
+ */
+int
+ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			unsigned char *split_point)
+{
+	int fpos, r;
+	TfwStr _;
+
+	if (!split_point) {
+		/* Usage of linear portion of SKB is not expected */
+		ss_skb_put(skb, -skb_headlen(skb));
+		skb->tail_lock = 1;
+	} else {
+		unsigned int off = split_point - skb->data;
+
+		r = __split_linear_data(skb_head, skb, split_point, 0, &_, &fpos);
+		if (unlikely(r))
+			return r;
+		ss_skb_put(skb, -off);
+	}
+	return 0;
+}
+
