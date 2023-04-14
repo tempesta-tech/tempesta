@@ -756,21 +756,7 @@ do { 								\
 	if (!cl_len)
 		return TFW_BLOCK;
 
-	if (req->host.len) {
-		host = req->host;
-	} else {
-		/* Invalid id value */
-		unsigned id = TFW_HTTP_HDR_NUM;
-
-		if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
-			id = TFW_HTTP_HDR_H2_AUTHORITY;
-		else if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
-			id = TFW_HTTP_HDR_HOST;
-
-		if (id != TFW_HTTP_HDR_NUM)
-			tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[id],
-						 id, &host);
-	}
+	host = req->host;
 
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
 	len = host.len + req->uri_path.len + body_len;
@@ -1501,8 +1487,6 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 	TfwStr *c, *end, *c2, *end2;
 	char *status_line;
 	size_t i = 0;
-	TfwStr *hdr;
-	TfwStr hdr_val;
 
 	tfw_http_prep_date(date_val);
 
@@ -1541,16 +1525,7 @@ do {									\
 			TFW_STRCPY(&req->uri_path);
 			break;
 		case TFW_HTTP_REDIR_HOST:
-			if (req->host.len) {
-				hdr_val = req->host;
-			} else {
-				hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
-				tfw_http_msg_clnthdr_val(req, hdr,
-							 TFW_HTTP_HDR_HOST,
-							 &hdr_val);
-			}
-
-			TFW_STRCPY(&hdr_val);
+			TFW_STRCPY(&req->host);
 			break;
 		default:
 			BUG();
@@ -5645,6 +5620,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	TfwHttpActionResult res;
 
 	BUG_ON(!stream->msg);
+	pr_info(">>> tfw_http_req_process");
 
 	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);

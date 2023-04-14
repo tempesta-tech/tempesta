@@ -439,7 +439,10 @@ typedef struct {
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
- * @host	- host in URI, may differ from Host header;
+ * @host	- host that was picked from request URI, Host or HTTP/2
+ *		  authority header;
+ * @uri_host	- points to host if request URI contained hostname, NULL
+ *		  otherwise;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @mark	- special hash mark for redirects handling in session module;
  * @multipart_boundary_raw - multipart boundary as is, maybe with escaped chars;
@@ -470,6 +473,7 @@ struct tfw_http_req_t {
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
+	TfwStr			*uri_host;
 	TfwStr			host;
 	TfwStr			uri_path;
 	TfwStr			mark;
