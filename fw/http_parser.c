@@ -10684,12 +10684,6 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	req->body.flags |= TFW_STR_COMPLETE;
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
-	if (!TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
-				&req->host);
-	else
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST],
-				&req->host);
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PATH],
 			 &req->uri_path);
 

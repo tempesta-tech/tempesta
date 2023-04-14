@@ -5604,6 +5604,24 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
+static void
+extract_req_host(TfwHttpReq *req)
+{
+	int hid = 0;
+	TfwHttpHdrTbl *ht = req->h_tbl;
+	if (TFW_MSG_H2(req)) {
+		if (!TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
+			hid = TFW_HTTP_HDR_H2_AUTHORITY;
+		else
+			hid = TFW_HTTP_HDR_HOST;
+	} else {
+		if (TFW_STR_EMPTY(&req->host))
+			hid = TFW_HTTP_HDR_HOST;
+	}
+	if (hid)
+		__h2_msg_hdr_val(&ht->tbl[hid], &req->host);
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -5744,6 +5762,7 @@ next_msg:
 		}
 	}
 
+	extract_req_host(req);
 	/*
 	 * The message is fully parsed, the rest of the data in the
 	 * stream may represent another request or its part.
