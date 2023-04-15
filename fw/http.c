@@ -572,19 +572,19 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	};
 	TfwStr *body = NULL;
 
+	BUG_ON(!resp->req);
 	if (!stream_id) {
-		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-						   HTTP2_F_END_STREAM);
-		if (unlikely(!stream_id)) {
-			return -ENOENT;
-		}
+		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS,
+						  HTTP2_F_END_STREAM);
+		if (unlikely(!stream_id))
+			return -EPIPE;
 	}
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
 	r = tfw_h2_resp_status_write(resp, status, false, false);
 	if (unlikely(r))
-		return r;
+		goto out;
 
 	/*
 	 * Form and write HTTP/2 response headers excluding "\r\n", ':'
@@ -610,7 +610,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			r = tfw_hpack_encode(resp, __TFW_STR_CH(&hdr, 0),
 					     false, false);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			write_int(val->len, 0x7F, 0, &vlen);
 			s_vlen.data = vlen.buf;
@@ -619,11 +619,11 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			r = tfw_http_msg_expand_data(iter, skb_head, &s_vlen,
 						     NULL);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			r = tfw_http_msg_expand_data(iter, skb_head, val, NULL);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			hdrs_len += s_vlen.len + val->len;
 		} else {
@@ -634,7 +634,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			hdr.hpack_idx = name->hpack_idx;
 
 			if ((r = tfw_hpack_encode(resp, &hdr, false, true)))
-				return r;
+				goto out;
 		}
 	}
 
@@ -647,7 +647,12 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	hdrs_len += mit->acc_len;
 
 	body = TFW_STR_BODY_CH(msg);
-	return tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+
+	r = tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+
+out:
+	tfw_h2_stream_id_unlink(req, false, true);
+	return r;
 }
 
 /*
@@ -955,7 +960,7 @@ static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_stream_id_close(req, _HTTP2_UNDEFINED, 0);
+		tfw_h2_stream_id_unlink(req, false, true);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
@@ -2721,7 +2726,7 @@ tfw_http_conn_release(TfwConn *conn)
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (TFW_MSG_H2(req)) {
-			tfw_h2_stream_id_close(req, _HTTP2_UNDEFINED, 0);
+			tfw_h2_stream_id_unlink(req, false, true);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -4796,6 +4801,10 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 				   copy + FRAME_HEADER_SIZE);
 		ss_skb_adjust_data_len(it->skb, copy + FRAME_HEADER_SIZE);
 
+		BUG_ON(!stream_id);
+		skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+		skb_set_tfw_cb(it->skb, stream_id);
+
 		if (it->frag + 1 == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
 		{
@@ -4935,7 +4944,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 /**
  * Frame forwarded response.
  */
-int
+static int
 tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 		     unsigned long h_len)
 {
@@ -4947,7 +4956,7 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
  */
 int
 tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-		       unsigned long h_len, const TfwStr *body)
+		        unsigned long h_len, const TfwStr *body)
 {
 	int r;
 
@@ -5062,9 +5071,9 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * can just send error response, leave the connection alive and
 	 * drop request's corresponding stream; in this case stream either
 	 * is already in locally closed state (switched in
-	 * @tfw_h2_stream_id_close() during failed proxy/internal response
+	 * @tfw_h2_stream_id_send() during failed proxy/internal response
 	 * creation) or will be switched into locally closed state in
-	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_close() if no error
+	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_send() if no error
 	 * response is needed) below; remotely (i.e. on client side) stream
 	 * will be closed - due to END_STREAM flag set in the last frame of
 	 * error response; in case of attack we must close entire connection,
@@ -5085,7 +5094,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	  * remote peer (via RST_STREAM frame), that the stream has entered
 	  * into closed state (RFC 7540 section 6.4).
 	  */
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_RST_STREAM, 0);
+	stream_id = tfw_h2_stream_id_unlink(req, true, true);
 	if (stream_id && !attack)
 		tfw_h2_send_rst_stream(ctx, stream_id, HTTP2_ECODE_CANCEL);
 
@@ -5287,12 +5296,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
 
-	/*
-	 * Get ID of corresponding stream to prepare/send HTTP/2 response, and
-	 * unlink request from the stream.
-	 */
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					   HTTP2_F_END_STREAM);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+					  HTTP2_F_END_STREAM);
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -5395,6 +5400,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
+	tfw_h2_stream_id_unlink(req, false, true);
 	tfw_h2_resp_fwd(resp);
 
 	__tfw_h2_resp_cleanup(&cleanup);

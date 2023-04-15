@@ -3772,6 +3772,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
+	struct sk_buff *prev = resp->mit.iter.skb;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3808,7 +3809,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			return r;
 
 		resp->mit.acc_len += idx.sz * !use_pool;
-		return r;
+		goto set_skb_priv;
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3838,9 +3839,28 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 encode:
 	if (use_pool)
-		return tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
+		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
 	else
-		return tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+set_skb_priv:
+	BUG_ON(!resp->req);
+	if (likely(!r) && resp->req->stream) {
+		struct sk_buff *skb = prev;
+
+		/*
+		 * Very long headers can be located in several skbs,
+		 * mark them all.
+		 */
+		while(skb && skb != resp->mit.iter.skb) {
+			skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS);
+			skb_set_tfw_cb(skb, resp->req->stream->id);
+			skb = skb->next;
+		}
+
+		skb_set_tfw_flags(resp->mit.iter.skb, SS_F_HTTT2_FRAME_HEADERS);
+		skb_set_tfw_cb(resp->mit.iter.skb, resp->req->stream->id);
+	}
+	return r;
 }
 
 int

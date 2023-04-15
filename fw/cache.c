@@ -840,8 +840,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (unlikely(r))
 			goto err_setup;
 	} else {
-		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-						   HTTP2_F_END_STREAM);
+		stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+						  HTTP2_F_END_STREAM);
 		if (unlikely(!stream_id))
 			goto err_setup;
 
@@ -889,6 +889,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
 		goto err_setup;
 
+	tfw_h2_stream_id_unlink(req, false, true);
 	tfw_h2_resp_fwd(resp);
 
 	return;
@@ -2520,6 +2521,10 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 						    h2, !body_sz);
 			if (r)
 				return r;
+			if (stream_id) {
+				skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+				skb_set_tfw_cb(it->skb, stream_id);
+			}
 		}
 		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
@@ -2807,8 +2812,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * the backend), thus the stream will be finished.
 	 */
 	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					    HTTP2_F_END_STREAM);
+		id = tfw_h2_stream_id_unlink(req, false, true);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);

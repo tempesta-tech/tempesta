@@ -741,15 +741,13 @@ tfw_h2_stream_id(TfwHttpReq *req)
 }
 
 /*
- * Get stream ID for upper layer to prepare and send frame with response to
- * client, and process stream FSM for the frame (of type specified in @type
- * and with flags set in @flags). This procedure also unlinks request from
- * corresponding stream (if linked) and moves the stream to the queue of
- * closed streams (if it is not contained there yet).
+ * Get stream ID for upper layer to prepare and send frame with response
+ * to client. This procedure also unlinks request from corresponding
+ * stream (if linked) and moves the stream to the queue of closed streams
+ * (if it is not contained there yet and if it is necessary).
  */
 unsigned int
-tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
-		       unsigned char flags)
+tfw_h2_stream_id_unlink(TfwHttpReq *req, bool send_rst, bool move_to_closed)
 {
 	TfwStream *stream;
 	unsigned int id = 0;
@@ -763,23 +761,53 @@ tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
 		return 0;
 	}
 
-	if (type < _HTTP2_UNDEFINED &&
-	    !STREAM_SEND_PROCESS(stream, type, flags))
-	{
-		id = stream->id;
-	}
+	if (send_rst)
+		STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0);
 
+	id = stream->id;
 	req->stream = NULL;
 	stream->msg = NULL;
 
-	T_DBG3("%s: ctx [%p], strm [%p] added to closed streams list\n",
-	       __func__, ctx, stream);
-
-	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+	if (move_to_closed) {
+		T_DBG3("%s: ctx [%p], strm [%p] added to closed streams list\n",
+		       __func__, ctx, stream);
+		__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+	}
 
 	spin_unlock(&ctx->lock);
 
 	return id;
+}
+
+unsigned int
+tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
+		      unsigned char flags)
+{
+	TfwStream *stream;
+	unsigned int id = 0;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+
+	spin_lock(&ctx->lock);
+
+	stream = req->stream;
+	if (!stream) {
+		spin_unlock(&ctx->lock);
+		return 0;
+	}
+
+	if (!STREAM_SEND_PROCESS(stream, type, flags))
+		id = stream->id;
+
+	if (!id) {
+		req->stream = NULL;
+		stream->msg = NULL;
+		__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+	}
+
+	spin_unlock(&ctx->lock);
+
+	return id;
+
 }
 
 /*
