@@ -1496,20 +1496,19 @@ static inline void
 __tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
 			TfwHttpRespCleanup *cleanup)
 {
-	int i;
-	int len;
+	int i, len;
 	struct page *page;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	for (i = 0; i < frag_idx; i++) {
+	for (i = 0, len = 0; i < frag_idx; i++) {
 		page = skb_frag_page(&si->frags[i]);
 		cleanup->pages[i] = compound_head(page);
 		cleanup->pages_sz++;
-		len = skb_frag_size(&si->frags[i]);
-		ss_skb_adjust_data_len(skb, -len);
-		si->nr_frags--;
+		len += skb_frag_size(&si->frags[i]);
 	}
 
+	si->nr_frags -= frag_idx;
+	ss_skb_adjust_data_len(skb, -len);
 	memmove(&si->frags, &si->frags[frag_idx],
 		(si->nr_frags) * sizeof(skb_frag_t));
 }
@@ -1517,10 +1516,9 @@ __tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
 static inline void
 __tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
 {
-	int i;
+	int i, len;
 	struct page *page;
 	struct skb_shared_info *si = skb_shinfo(skb);
-	int len;
 
 	for (i = 0; i < si->nr_frags; i++) {
 		page = skb_frag_page(&si->frags[i]);
@@ -1608,7 +1606,6 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
-
 				__tfw_h2_msg_shrink_frag(it->skb, i, off);
 			}
 
