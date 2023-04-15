@@ -79,7 +79,7 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 * In the sending flow this FSM procedure intended only for
 		 * HEADERS, DATA and RST_STREAM frames processing.
 		 */
-		BUG_ON(!(flags & HTTP2_F_END_STREAM)
+		BUG_ON(type != HTTP2_HEADERS && type != HTTP2_DATA
 		       && type != HTTP2_RST_STREAM);
 		/*
 		 * Usually we would send HEADERS/CONTINUATION or DATA frames
@@ -234,10 +234,10 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		break;
 
 	case HTTP2_STREAM_REM_HALF_CLOSED:
-		if (send && (type == HTTP2_RST_STREAM
-			     || flags & HTTP2_F_END_STREAM))
-		{
-			stream->state = HTTP2_STREAM_REM_CLOSED;
+		if (send) {
+			if (type == HTTP2_RST_STREAM
+			    || flags & HTTP2_F_END_STREAM)
+				stream->state = HTTP2_STREAM_REM_CLOSED;
 			break;
 		}
 		/*

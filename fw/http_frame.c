@@ -219,7 +219,8 @@ tfw_h2_cleanup(void)
 int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
-	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
+	TfwStreamQueue *hclosed_streams = &ctx->hclosed_streams;
+	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
@@ -229,6 +230,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	ctx->loc_wnd = MAX_WND_SIZE;
 	spin_lock_init(&ctx->lock);
 	INIT_LIST_HEAD(&hclosed_streams->list);
+	INIT_LIST_HEAD(&closed_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -597,6 +599,56 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 }
 
 /*
+ * Del stream from queue.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static inline void
+__tfw_h2_stream_del_tfw_stream_queue(TfwStream *stream)
+{
+	if(list_empty(&stream->hcl_node))
+		return;
+
+	BUG_ON(!stream->queue);
+	BUG_ON(!stream->queue->num);
+
+	list_del_init(&stream->hcl_node);
+	--stream->queue->num;
+	stream->queue = NULL;
+}
+
+/*
+ * Add stream to queue.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static inline void
+__tfw_h2_stream_add_tfw_stream_queue(TfwStreamQueue *queue, TfwStream *stream)
+{
+	if (!list_empty(&stream->hcl_node))
+		return;
+
+	list_add_tail(&stream->hcl_node, &queue->list);
+	stream->queue = queue;
+	++stream->queue->num;
+}
+
+/*
+ * Move stream from one queue to another.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static inline void
+__tfw_h2_stream_move_tfw_stream_queue(TfwStreamQueue *queue, TfwStream *stream)
+{
+	__tfw_h2_stream_del_tfw_stream_queue(stream);
+	__tfw_h2_stream_add_tfw_stream_queue(queue, stream);
+}
+
+/*
  * Unlink the stream from a corresponding request (if linked) and from special
  * queue of closed streams (if it is contained there).
  *
@@ -608,10 +660,7 @@ __tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
 
-	if (!list_empty(&stream->hcl_node)) {
-		list_del_init(&stream->hcl_node);
-		--ctx->hclosed_streams.num;
-	}
+	__tfw_h2_stream_del_tfw_stream_queue(stream);
 
 	if (hmreq) {
 		hmreq->stream = NULL;
@@ -673,28 +722,46 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	sched->streams = RB_ROOT;
 }
 
-/*
- * Add stream to special queue of closed streams.
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static inline void
-__tfw_h2_stream_add_closed(TfwClosedQueue *hclosed_streams, TfwStream *stream)
-{
-	if (!list_empty(&stream->hcl_node))
-		return;
-
-	list_add_tail(&stream->hcl_node, &hclosed_streams->list);
-	++hclosed_streams->num;
-}
-
 static inline void
 tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	spin_lock(&ctx->lock);
-	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+	__tfw_h2_stream_add_tfw_stream_queue(&ctx->closed_streams, stream);
 	spin_unlock(&ctx->lock);
+}
+
+int
+tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
+{
+	TfwStreamQueue *queue;
+	unsigned char flags = 0;
+	TfwStreamFsmRes r;
+
+	if (!stream->xmit.h_len) {
+		queue = &ctx->hclosed_streams;
+		flags |= HTTP2_F_END_HEADERS;
+	}
+	if (!stream->xmit.b_len) {
+		queue = &ctx->closed_streams;
+		flags |= HTTP2_F_END_STREAM;
+	}
+	if (type == HTTP2_RST_STREAM)
+		queue = &ctx->closed_streams;
+
+	spin_lock(&ctx->lock);
+	r = STREAM_SEND_PROCESS(stream, type, flags);
+	/*
+	 * This function is called from `xmit` callback and
+	 * there is a chance that the stream is already in
+	 * closed state and `STREAM_SEND_PROCESS` return
+	 * not STREAM_FSM_RES_OK. We should not drop
+	 * connection or skb in this case.
+	 */
+	if (r != STREAM_FSM_RES_TERM_CONN)
+		__tfw_h2_stream_move_tfw_stream_queue(queue, stream);
+	spin_unlock(&ctx->lock);
+
+	return r != STREAM_FSM_RES_TERM_CONN ? 0 : -EINVAL;
 }
 
 /*
@@ -771,7 +838,8 @@ tfw_h2_stream_id_unlink(TfwHttpReq *req, bool send_rst, bool move_to_closed)
 	if (move_to_closed) {
 		T_DBG3("%s: ctx [%p], strm [%p] added to closed streams list\n",
 		       __func__, ctx, stream);
-		__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+		__tfw_h2_stream_add_tfw_stream_queue(&ctx->closed_streams,
+						     stream);
 	}
 
 	spin_unlock(&ctx->lock);
@@ -801,7 +869,8 @@ tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
 	if (!id) {
 		req->stream = NULL;
 		stream->msg = NULL;
-		__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+		__tfw_h2_stream_add_tfw_stream_queue(&ctx->closed_streams,
+						     stream);
 	}
 
 	spin_unlock(&ctx->lock);
@@ -819,24 +888,25 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 {
 	TfwStream *cur;
 	unsigned int max_streams = ctx->lsettings.max_streams;
-	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
+	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 
 	T_DBG3("%s: ctx [%p] max_streams %u\n", __func__, ctx, max_streams);
 
 	while (1) {
 		spin_lock(&ctx->lock);
 
-		if (hclosed_streams->num <= TFW_MAX_CLOSED_STREAMS
+		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS
 		    || (max_streams == ctx->streams_num
-			&& hclosed_streams->num))
+			&& closed_streams->num))
 		{
 			spin_unlock(&ctx->lock);
 			break;
 		}
 
-		BUG_ON(list_empty(&hclosed_streams->list));
-		cur = list_first_entry(&hclosed_streams->list, TfwStream,
+		BUG_ON(list_empty(&closed_streams->list));
+		cur = list_first_entry(&closed_streams->list, TfwStream,
 				       hcl_node);
+		BUG_ON(cur->xmit.h_len || cur->xmit.b_len);
 		__tfw_h2_stream_unlink(ctx, cur);
 
 		spin_unlock(&ctx->lock);
@@ -1147,7 +1217,7 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	 * CONTINUATION and DATA frames from this stream (not pass upstairs);
 	 * to achieve such behavior (to avoid removing of such closed streams
 	 * right away), streams in these states are temporary stored in special
-	 * queue @TfwClosedQueue.
+	 * queue @TfwStreamQueue.
 	 */
 	if (ctx->lstream_id >= hdr->stream_id) {
 		T_DBG("Invalid ID of new stream: %u stream is"

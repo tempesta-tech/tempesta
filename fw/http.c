@@ -575,8 +575,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	BUG_ON(!resp->req);
 	if (!stream_id) {
-		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS,
-						  HTTP2_F_END_STREAM);
+		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS, 0);
 		if (unlikely(!stream_id))
 			return -EPIPE;
 	}
@@ -652,7 +651,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	r = tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
 
 out:
-	tfw_h2_stream_id_unlink(req, false, true);
+	tfw_h2_stream_id_unlink(req, false, r);
 	return r;
 }
 
@@ -5377,8 +5376,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
 
-	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
-					  HTTP2_F_END_STREAM);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS, 0);
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -5481,7 +5479,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	tfw_h2_stream_id_unlink(req, false, true);
+	tfw_h2_stream_id_unlink(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	__tfw_h2_resp_cleanup(&cleanup);

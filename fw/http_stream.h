@@ -111,10 +111,27 @@ typedef struct {
 } TfwHttpXmit;
 
 /**
+ * Limited queue for temporary storage of half-closed or pending half-closed
+ * streams.
+ * This structure provides the possibility of temporary existing in memory -
+ * for streams which are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
+ * states (see RFC 7540, section 5.1, the 'closed' paragraph). Note, that
+ * streams in HTTP2_STREAM_CLOSED state are not stored in this queue and must
+ * be removed right away.
+ *
+ * @list		- list of streams which are in closed state;
+ * @num			- number of streams in the list;
+ */
+typedef struct {
+	struct list_head	list;
+	unsigned long		num;
+} TfwStreamQueue;
+
+/**
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @hcl_node	- entry in queue of half-closed streams;
+ * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
@@ -122,6 +139,7 @@ typedef struct {
  * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
+ * @queue	- queue of half-closed or closed streams or NULL;
  * @xmit	- last http2 response info, used in `xmit` callbacks;
  */
 struct tfw_http_stream_t {
@@ -134,6 +152,7 @@ struct tfw_http_stream_t {
 	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
+	TfwStreamQueue		*queue;
 	TfwHttpXmit		xmit;
 };
 

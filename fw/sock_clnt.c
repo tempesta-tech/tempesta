@@ -305,8 +305,12 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (headers_end)
+		if (headers_end) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_HEADERS);
+			r = tfw_h2_stream_process(h2, stream, HTTP2_HEADERS);
+			if (unlikely(r))
+				goto ret;
+		}
 	}
 
 	if (FRAME_DATA_SHOULD_BE_MADE(flags)) {
@@ -336,8 +340,12 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (data_end)
+		if (data_end) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
+			r = tfw_h2_stream_process(h2, stream, HTTP2_DATA);
+			if (unlikely(r))
+				goto ret;
+		}
 	}
 
 update_limit:
@@ -362,13 +370,16 @@ ret:
 		r = r ? r : -ENOMEM;
 	}
 
-	if (unlikely(r) && r != -ENOMEM)
+	if (unlikely(r) && r != -ENOMEM) {
+		if (stream)
+			tfw_h2_stream_process(h2, stream, HTTP2_RST_STREAM);
 		/*
 		 * We can not send unencrypted data and can not normally close
 		 * the socket with FIN since we're in progress on sending from
 		 * the write queue.
 		 */
 		ss_close(sk, SS_F_ABORT);
+	}
 
 	return r;
 
