@@ -524,14 +524,14 @@ tfw_listen_sock_del_all(void)
 	TfwListenSock *ls, *tmp;
 
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
-			if (ls->sk)
-				/*
-				 * If error occurred during starting module,
-				 * release sockets which were bound.
-				 */
-				ss_release(ls->sk);
-			list_del(&ls->list);
-			kfree(ls);
+		if (ls->sk)
+			/*
+			 * If error occurred during starting module,
+			 * release sockets which were bound.
+			 */
+			ss_release(ls->sk);
+		list_del(&ls->list);
+		kfree(ls);
 	}
 
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
