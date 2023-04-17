@@ -5608,18 +5608,22 @@ static void
 extract_req_host(TfwHttpReq *req)
 {
 	int hid = 0;
-	TfwHttpHdrTbl *ht = req->h_tbl;
+	TfwStr *hdrs = req->h_tbl->tbl;
+
 	if (TFW_MSG_H2(req)) {
-		if (!TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
+		if (!TFW_STR_EMPTY(&hdrs[TFW_HTTP_HDR_H2_AUTHORITY]))
 			hid = TFW_HTTP_HDR_H2_AUTHORITY;
 		else
 			hid = TFW_HTTP_HDR_HOST;
+		__h2_msg_hdr_val(&hdrs[hid], &req->host);
 	} else {
-		if (TFW_STR_EMPTY(&req->host))
+		if (TFW_STR_EMPTY(&req->host)) {
 			hid = TFW_HTTP_HDR_HOST;
+			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
+						 TFW_HTTP_HDR_HOST,
+						 &req->host);
+		}
 	}
-	if (hid)
-		__h2_msg_hdr_val(&ht->tbl[hid], &req->host);
 }
 
 /**
