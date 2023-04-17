@@ -5683,6 +5683,10 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BAD;
+	case TFW_BAD:
+		tfw_http_req_parse_block(req, 403,
+			"frang: Request authority is unknown");
+		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
