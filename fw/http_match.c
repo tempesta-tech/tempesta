@@ -231,18 +231,16 @@ match_host_forwarded(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	const TfwStr *host = &req->host;
-
 	/*
 	 * TODO #1630: replace with a single condition
 	 * on the authority special header.
 	 */
-	if (host->len > 0) {
+	if (req->uri_host && req->uri_host->len > 0) {
 		/*
 		 * RFC 7230 5.4: Host header must
 		 * be ignored when URI is absolute.
 		 */
-		return host_val_eq(host, rule);
+		return host_val_eq(req->uri_host, rule);
 	} else if (req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY].len > 0) {
 		return hdr_val_eq(req, rule, TFW_HTTP_HDR_H2_AUTHORITY);
 	}
