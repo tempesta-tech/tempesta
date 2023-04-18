@@ -238,6 +238,20 @@ int tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
+int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
+			       TfwH2Ctx *ctx, TfwStream *stream,
+			       unsigned int mss_now, unsigned int limit,
+			       unsigned int *t_tz);
+int tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
+			    TfwH2Ctx *ctx, TfwStream *stream,
+			    unsigned int mss_now, unsigned int limit,
+			    unsigned int *t_tz);
+int tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
+			       TfwStream *stream, unsigned int mss_now,
+			       TfwMsgIter *it, char **data,
+			       const TfwStr *frame_hdr_str,
+			       unsigned int *t_tz);
+
 static inline void
 tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 {

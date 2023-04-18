@@ -3769,7 +3769,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
-	struct sk_buff *prev = resp->mit.iter.skb;
+	struct sk_buff *skb = resp->mit.iter.skb;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3842,13 +3842,11 @@ encode:
 set_skb_priv:
 	BUG_ON(!resp->req);
 	if (likely(!r) && resp->req->stream) {
-		struct sk_buff *skb = prev;
-
 		/*
 		 * Very long headers can be located in several skbs,
 		 * mark them all.
 		 */
-		while(skb && skb != resp->mit.iter.skb) {
+		while(skb && unlikely(skb != resp->mit.iter.skb)) {
 			skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS);
 			skb_set_tfw_cb(skb, resp->req->stream->id);
 			skb = skb->next;

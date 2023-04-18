@@ -50,59 +50,69 @@ tfw_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
 		tcb_next->end_seq++;
 }
 
+/*
+ * Setup all necessary fields for a new skb and insert it in the
+ * sk write queue. There is a case when we allocate new skb during
+ * processing skb in `xmit` callback. We should setup this new skb
+ * and insert it into skb write queue in right way. Most of code
+ * below was taken from `tso_fragment/tcp_fragment` functions,
+ * besides using `tfw_tcp_propagate_dseq`.
+ */
 void
 tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
-		      unsigned int mss_now, bool tcp_fragment)
+		      struct sk_buff *nskb, unsigned int mss_now)
 {
-	struct sk_buff *next;
-	struct tcp_skb_cb *tcb_next, *tcb = TCP_SKB_CB(skb);
+	struct tcp_skb_cb *tcb_nskb = TCP_SKB_CB(nskb), *tcb = TCP_SKB_CB(skb);
 	int old_factor;
 	u8 flags;
+	const bool tcp_fragment = skb->len != skb->data_len;
 
-	if (tcp_skb_is_last(sk, skb))
-		return;
-
-	next = skb_queue_next(&sk->sk_write_queue, skb);
-	tcb_next = TCP_SKB_CB(next);
-
-	/*
-	 * All code below was taken from `tso_fragment/tcp_fragment`
-	 * functions, besides using `tfw_tcp_propagate_dseq`.
-	 */
-	tfw_tcp_propagate_dseq(sk, skb);
+	INIT_LIST_HEAD(&nskb->tcp_tsorted_anchor);
+	skb_shinfo(nskb)->tx_flags = 0;
+	memset(TCP_SKB_CB(nskb), 0, sizeof(struct tcp_skb_cb));
 
 	/* PSH and FIN should only be set in the second packet. */
 	flags = tcb->tcp_flags;
 	tcb->tcp_flags = flags & ~(TCPHDR_FIN | TCPHDR_PSH);
-	tcb_next->tcp_flags = flags;
+	tcb_nskb->tcp_flags = flags;
 
-	tcb_next->sacked = tcp_fragment ? TCP_SKB_CB(skb)->sacked : 0;
+	/* Correct the sequence numbers. */
+	tcb_nskb->seq = tcb->end_seq;
+	tcb_nskb->end_seq = tcb_nskb->seq + nskb->len;
+	if (tcb_nskb->tcp_flags & TCPHDR_FIN)
+		tcb_nskb->end_seq++;
 
-	tcp_skb_fragment_eor(skb, next);
+	tcb_nskb->sacked = tcp_fragment ? TCP_SKB_CB(skb)->sacked : 0;
+
+	tcp_skb_fragment_eor(skb, nskb);
 		
-	next->ip_summed = CHECKSUM_PARTIAL;
+	nskb->ip_summed = CHECKSUM_PARTIAL;
 	if (tcp_fragment)
-		next->tstamp = skb->tstamp;
-	tcp_fragment_tstamp(skb, next);
+		nskb->tstamp = skb->tstamp;
+	tcp_fragment_tstamp(skb, nskb);
 
 	old_factor = tcp_skb_pcount(skb);
 	/* Fix up tso_factor for both original and new SKB.  */
 	tcp_set_skb_tso_segs(skb, mss_now);
-	tcp_set_skb_tso_segs(next, mss_now);
+	tcp_set_skb_tso_segs(nskb, mss_now);
 
 	if (tcp_fragment) {
 		struct tcp_sock *tp = tcp_sk(sk);
 
-		tcb_next->tx = tcb->tx;
+		tcb_nskb->tx = tcb->tx;
 		/*
 		 * If this packet has been sent out already, we must
 		 * adjust the various packet counters.
 		 */
-		if (!before(tp->snd_nxt, tcb_next->end_seq)) {
+		if (!before(tp->snd_nxt, tcb_nskb->end_seq)) {
 			int diff = old_factor - tcp_skb_pcount(skb) -
-				tcp_skb_pcount(next);
+				tcp_skb_pcount(nskb);
 			if (diff)
 				tcp_adjust_pcount(sk, skb, diff);
 		}
 	}
+
+	/* Link nskb into the send queue. */
+	__skb_header_release(nskb);
+	__skb_queue_after(&sk->sk_write_queue, skb, nskb);
 }

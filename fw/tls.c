@@ -231,7 +231,6 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
-	bool tcp_fragment = (skb->len != skb->data_len);
 
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
@@ -308,10 +307,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		sgt.nents += r;
 		out_sgt.nents += r;
 
-		skb_tail->sk = sk;
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    TTLS_TAG_LEN);
-		skb_tail->sk = NULL;
 		if (r < 0)
 			goto out;
 	}
@@ -334,10 +331,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		t_sz = skb_tail->truesize - t_sz;
 	}
 	else {
-		WARN_ON_ONCE(skb_tail->next->len != TTLS_TAG_LEN);
+		struct sk_buff *tail_next = skb_tail->next;
+
+		WARN_ON_ONCE(tail_next->len != TTLS_TAG_LEN);
 		WARN_ON_ONCE(skb_tail->truesize != t_sz);
 
-		tfw_tcp_setup_new_skb(sk, skb_tail, mss_now, tcp_fragment);
+		/* Remove skb since it must be inserted into sk write queue. */
+		ss_skb_remove(tail_next);
+		tfw_tcp_setup_new_skb(sk, skb_tail, tail_next, mss_now);
 
 		/*
 		 * A new skb is added to the socket wmem.
@@ -345,9 +346,9 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		 * pcount for a new skb is zero, to tcp_write_xmit() will
 		 * set TSO segs to proper value on next iteration.
 		 */
-		t_sz = skb_tail->next->truesize;
+		t_sz = tail_next->truesize;
 
-		skb_tail = skb_tail->next;
+		skb_tail = tail_next;
 		skb_set_tfw_tls_type(skb_tail, type);
 	}
 

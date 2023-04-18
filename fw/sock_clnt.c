@@ -175,15 +175,11 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	unsigned short flags = skb_tfw_flags(skb);
 	unsigned int skb_priv = skb_tfw_cb(skb);
 	TfwStream *stream = tfw_h2_find_stream(&h2->sched, skb_priv);
-	unsigned int processed = 0, truesize = 0, tmp_truesize = 0;
-	bool headers_end = false, data_end = false;
+	unsigned int truesize = 0, tmp_truesize = 0;
 	int r = 0;
 
 	/* Avoid adding data to linear part of skb. */
 	skb->tail_lock = 1;
-	/* We use skb->sk when we allocate new skb and insert it after current. */
-	BUG_ON(skb->sk);
-	skb->sk = sk;
 
 #define FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
 	((flags & SS_F_HTTT2_FRAME_HEADERS)				\
@@ -212,43 +208,23 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 			goto ret;
 		}
 		BUG_ON(FRAME_ALREADY_PREPARED(flags));
-		*nskbs = 1;
-	} else if (FRAME_ALREADY_PREPARED(flags)) {
-		struct sk_buff *next = skb;
-
-		/*
-		 * Do not fragment already prepared skb, wait for appropriate
-		 * limit.
-		 */
-		if (skb->len > *limit) {
-			r = -ENOMEM;
-			goto ret;
-		}
-
-		/*
-		 * All previously prepared skbs can be encrypted in one tls
-		 * record.
-		 */
-		*nskbs = 1;
-		while (!tcp_skb_is_last(sk, next)) {
-			next = skb_queue_next(&sk->sk_write_queue, next);
-			if (!FRAME_ALREADY_PREPARED(skb_tfw_flags(next)))
-				break;
-			(*nskbs)++;
-		}
+		stream->xmit.nskbs = 1;
 	} else {
 		struct sk_buff *next = skb;
+		unsigned short flags;
 
+		BUG_ON(FRAME_ALREADY_PREPARED(flags));
 		/*
-		 * Here we deal with skbs which are not contain HEADERS or
+		 * Here we deal with skbs which do not contain HEADERS or
 		 * DATA frames. They should be encrypted in separate tls
 		 * record.
 		 */
 		*nskbs = 1;
 		while (!tcp_skb_is_last(sk, next)) {
 			next = skb_queue_next(&sk->sk_write_queue, next);
-			if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)
-			    || FRAME_ALREADY_PREPARED(skb_tfw_flags(next)))
+			flags = skb_tfw_flags(next);
+
+			if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags))
 				break;
 			(*nskbs)++;
 		}
@@ -268,8 +244,6 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	    !(flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED)
 	    && FRAME_HEADERS_SHOULD_BE_MADE(flags))
 	{
-#define HPACK_TBL_BYTES_SZ_MAX 3
-
 		r = tfw_hpack_enc_tbl_write_sz(tbl, sk, skb, stream,
 					       mss_now, &tmp_truesize);
 		if (unlikely(r)) {
@@ -280,23 +254,20 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 
 		flags |= (tmp_truesize ? SS_F_HTTT2_HPACK_TBL_SZ_ENCODED : 0);
 		skb_set_tfw_flags(skb, flags);
-
-#undef  HPACK_TBL_BYTES_SZ_MAX
 	}
 
 	truesize += tmp_truesize;
 	tmp_truesize = 0;
 
 	if (FRAME_HEADERS_SHOULD_BE_MADE(flags)) {
-		if (*limit - processed <= FRAME_HEADER_SIZE) {
+		if (*limit - stream->xmit.processed <= FRAME_HEADER_SIZE) {
 			r = -ENOMEM;
 			goto ret;
 		}
 
 		r = tfw_h2_make_headers_frames(sk, skb, h2, stream, mss_now,
-					       *limit - processed, &processed,
-					       &headers_end, &tmp_truesize,
-					       nskbs);
+					       *limit - stream->xmit.processed,
+					       &tmp_truesize);
 		if (unlikely(r)) {
 			T_WARN("%s: failed to make headers frames (%d)",
 			       __func__, r);
@@ -311,7 +282,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (headers_end) {
+		if (!stream->xmit.h_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_HEADERS);
 			r = tfw_h2_stream_process(h2, stream, HTTP2_HEADERS);
 			if (unlikely(r))
@@ -324,14 +295,14 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 			SS_F_HTTT2_FRAME_HEADERS_DONE;
 
 		if (stream->rem_wnd <= 0 || h2->rem_wnd <= 0
-		    || *limit - processed <= FRAME_HEADER_SIZE) {
+		    || *limit - stream->xmit.processed <= FRAME_HEADER_SIZE) {
 			r = headers_was_done ? 0 : -ENOMEM;
 			goto update_limit;
 		}
 
 		r = tfw_h2_make_data_frames(sk, skb, h2, stream, mss_now,
-					    *limit - processed, &processed,
-					    &data_end, &tmp_truesize, nskbs);
+					    *limit - stream->xmit.processed,
+					    &tmp_truesize);
 		if (unlikely(r)) {
 			T_WARN("%s: failed to make data frames (%d)",
 			       __func__, r);
@@ -347,7 +318,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (data_end) {
+		if (!stream->xmit.b_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
 			r = tfw_h2_stream_process(h2, stream, HTTP2_DATA);
 			if (unlikely(r))
@@ -356,13 +327,19 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	}
 
 update_limit:
-	if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags) && (*nskbs == 1))
-		*limit = processed;
+	if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)
+	    && stream && stream->xmit.nskbs == 1)
+		*limit = stream->xmit.processed;
 
 ret:
 	/* Should be zero when skb is passed to the kernel code. */
-	skb->sk = NULL;
 	skb->tail_lock = 0;
+	/* Reinit stream xmit context. */
+	if (stream) {
+		*nskbs = !r ? stream->xmit.nskbs : 0;
+		tfw_h2_stream_xmit_reinit(&stream->xmit);
+	}
+
 	/*
 	 * Since we add some data to skb, we should adjust the socket write
 	 * memory both in case of success and in case of failure.
@@ -454,14 +431,7 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		tbl = &h2->hpack.enc_tbl;
 	}
 
-	/* We use skb->sk when we allocate new skb and insert it after current. */
-	BUG_ON(skb->sk);
-	skb->sk = sk;
-
 	r = tfw_tls_encrypt(sk, skb, mss_now, limit, nskbs);
-
-	/* Should be zero when skb is passed to the kernel code. */
-	skb->sk = NULL;
 
 	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
 		tfw_hpack_enc_tbl_write_sz_release(tbl, r);

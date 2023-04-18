@@ -1411,6 +1411,9 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 /*
  * Expand message by @str increasing size of current paged fragment or add
  * new paged fragment using @pool if room in current pool's chunk is not enough.
+ * This function is called only for adding new response headers. If skb lenght
+ * limit is reached, this function moves body fragments to the new skb and
+ * update pointer to the body skb.
  */
 static int
 __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
@@ -1443,12 +1446,11 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
-			if (skb_room == 0 || (it->skb == it->skb_head
-					      && it->frag == -1
-					      && nr_frags == MAX_SKB_FRAGS))
+			if (unlikely(skb_room == 0 ||
+			    (it->skb == it->skb_head && it->frag == -1
+			     && nr_frags == MAX_SKB_FRAGS)))
 			{
-				struct sk_buff *nskb;
-				struct sk_buff **body;
+				struct sk_buff *nskb, **body;
 				char *p;
 
 				if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {

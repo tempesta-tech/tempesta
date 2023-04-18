@@ -88,6 +88,13 @@ ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
 }
 
 static inline void
+ss_skb_remove(struct sk_buff *skb)
+{
+	skb->prev->next = skb->next;
+	skb->next->prev = skb->prev;
+}
+
+static inline void
 ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	WARN_ON_ONCE(!skb->prev || !skb->next);
@@ -95,8 +102,7 @@ ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 	if (skb->next == skb) {
 		*skb_head = NULL;
 	} else {
-		skb->prev->next = skb->next;
-		skb->next->prev = skb->prev;
+		ss_skb_remove(skb);
 		/* If this is head skb and not last, set head to the next skb. */
 		if (*skb_head == skb)
 			*skb_head = skb->next;
@@ -253,7 +259,7 @@ ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
 	struct skb_shared_info *si = skb_shinfo(skb);
 	struct skb_shared_info *nsi = skb_shinfo(nskb);
 	skb_frag_t *f;
-	unsigned int i = 0, e_size = 0;
+	int i = 0, e_size = 0;
 
 	while (i++ < count) {
 		f = &si->frags[from++];

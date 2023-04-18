@@ -37,7 +37,6 @@
 #include "addr.h"
 #include "procfs.h"
 #include "ss_skb.h"
-#include "sync_socket.h"
 
 /**
  * Get @skb's source address and port as a string, e.g. "127.0.0.1", "::1".
@@ -223,18 +222,11 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			 * If skb->sk is set, we use functions from the Linux kernel
 			 * to allocate and insert skb.
 			 */
-			nskb = !skb->sk ? ss_skb_alloc(0) :
-				sk_stream_alloc_skb(skb->sk, 0, GFP_ATOMIC,
-						    true);
+			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
 			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
-			if (!skb->sk) {
-				ss_skb_insert_after(skb, nskb);
-			} else {
-				__skb_header_release(nskb);
-				__skb_queue_after(&skb->sk->sk_write_queue, skb, nskb);
-			}
+			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
@@ -1031,6 +1023,7 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 
 	return 0;
 }
+
 /**
  * Cut off @str->len data bytes from underlying skbs skipping the first
  * @skip bytes, and also cut off @tail bytes after @str.
@@ -1062,7 +1055,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 			next = skb->next;
 			next_len = next->len;
 		} else {
-			next = 0;
+			next = NULL;
 		}
 
 		bzero_fast(&it, sizeof(TfwStr));
@@ -1072,6 +1065,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 			return r;
 		BUG_ON(r != c->len - skip);
 
+		skip = 0;
 		/*
 		 * No new skb was allocated and no fragments from current
 		 * skb were moved to the next one.
@@ -1088,7 +1082,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		 * the code below can be very heavy if we have a lot of chunks.
 		 */
 		update = false;
-		for ((cc) = (TfwStr *)(c + 1); (cc) < end; ++(cc)) {
+		for (cc = (TfwStr *)(c + 1); cc < end; ++cc) {
 			if (cc->skb != c->skb)
 				break;
 			if (!update &&
@@ -1097,8 +1091,6 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 			cc->skb = next;
 			update = true;
 		}
-
-		skip = 0;
 	}
 
 	BUG_ON(it.data == NULL);

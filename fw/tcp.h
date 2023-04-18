@@ -24,6 +24,6 @@
 
 void tfw_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb);
 void tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
-			   unsigned int mss_now, bool tcp_fragment);
+                           struct sk_buff *nskb, unsigned int mss_now);
 
 #endif /* __TFW_TCP_H__ */

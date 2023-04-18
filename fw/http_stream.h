@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 
 #include "msg.h"
 #include "http_parser.h"
+#include "lib/str.h"
 
 /**
  * States for HTTP/2 streams processing.
@@ -102,15 +103,19 @@ typedef enum {
  * Last http2 response info, used to prepare frames
  * in `xmit` callbacks.
  *
- * @h_len		- length of headers in htt2 response;
- * @b_len		- length of body in htt2 response;
- * @wait_for_init	- flag indicates, that stream is waited for
- * 			  xmit initialization;
+ * @h_len		- length of headers in http2 response;
+ * @b_len		- length of body in http2 response;
+ * @__off		- offset to reinitialize processing context;
+ * @processed		- count of bytes, processed during prepare xmit
+ * 			  callback;
+ * @nskbs		- count of skbs processed during prepare xmit callback;
  */
 typedef struct {
 	unsigned long h_len;
 	unsigned long b_len;
-	bool wait_for_init;
+	char __off[0];
+	unsigned int processed;
+	unsigned int nskbs;
 } TfwHttpXmit;
 
 /**
@@ -193,12 +198,18 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline void
+tfw_h2_stream_xmit_reinit(TfwHttpXmit *xmit)
+{
+	bzero_fast(xmit->__off, sizeof(*xmit) - offsetof(TfwHttpXmit, __off));
+}
+
+static inline void
 tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
 			    unsigned long b_len)
 {
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
-	stream->xmit.wait_for_init = false;
+	tfw_h2_stream_xmit_reinit(&stream->xmit);
 }
 
 static inline bool
