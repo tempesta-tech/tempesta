@@ -138,8 +138,8 @@ typedef struct {
 		unsigned int		month_int;
 		unsigned int		cc_dir_flag;
 	};
-	char *body_start_data;
-	struct sk_buff *body_start_skb;
+	char				*body_start_data;
+	struct sk_buff			*body_start_skb;
 	TfwStr				cut;
 	TfwStr				_tmp_chunk;
 	TfwStr				hdr;
