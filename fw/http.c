@@ -5684,7 +5684,7 @@ next_msg:
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BAD;
 	case TFW_BAD:
-		tfw_http_req_parse_block(req, 403,
+		tfw_http_req_parse_drop(req, 403,
 			"frang: Request authority is unknown");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
