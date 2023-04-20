@@ -725,7 +725,6 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	char *body_val = NULL;
 	const TfwStr *proto =
 		&protos[!!(TFW_CONN_PROTO(req->conn) & TFW_FSM_HTTPS)];
-	TfwStr host;
 	size_t cl_len, len, remaining, body_len = body ? body->len : 0;
 	char *status_line = tfw_http_resp_status_line(status);
 	int r;
@@ -756,10 +755,8 @@ do { 								\
 	if (!cl_len)
 		return TFW_BLOCK;
 
-	host = req->host;
-
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
-	len = host.len + req->uri_path.len + body_len;
+	len = req->host.len + req->uri_path.len + body_len;
 	if (likely(len) < remaining) {
 		p = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE) + cl_len;
 	} else {
@@ -772,10 +769,10 @@ do { 								\
 		remaining = len + 1;
 	}
 
-	if (host.len) {
+	if (req->host.len) {
 		url.chunks[url.nchunks++] = *proto;
 		url.len += proto->len;
-		TFW_ADD_URL_CHUNK(&host);
+		TFW_ADD_URL_CHUNK(&req->host);
 	}
 
 	if (rmark->len) {
@@ -5611,12 +5608,20 @@ extract_req_host(TfwHttpReq *req)
 	TfwStr *hdrs = req->h_tbl->tbl;
 
 	if (TFW_MSG_H2(req)) {
+		/* RFC 9113, sec-8.3.1:
+		 * The recipient of an HTTP/2 request MUST NOT use
+		 * the Host header field to determine the target
+		 * URI if ":authority" is present.*/
 		if (!TFW_STR_EMPTY(&hdrs[TFW_HTTP_HDR_H2_AUTHORITY]))
 			hid = TFW_HTTP_HDR_H2_AUTHORITY;
 		else
 			hid = TFW_HTTP_HDR_HOST;
 		__h2_msg_hdr_val(&hdrs[hid], &req->host);
 	} else {
+		/* req->host can be only filled by HTTP/1.x parser from
+		 * absoluteURI, so we act as RFC 7230, sec-5.4 says:
+		 * Host header must be ignored when URI is absolute.
+		 */
 		if (TFW_STR_EMPTY(&req->host)) {
 			hid = TFW_HTTP_HDR_HOST;
 			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
@@ -5642,7 +5647,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	TfwHttpActionResult res;
 
 	BUG_ON(!stream->msg);
-	pr_info(">>> tfw_http_req_process");
 
 	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
