@@ -5619,8 +5619,12 @@ extract_req_host(TfwHttpReq *req)
 		__h2_msg_hdr_val(&hdrs[hid], &req->host);
 	} else {
 		/* req->host can be only filled by HTTP/1.x parser from
-		 * absoluteURI, so we act as RFC 7230, sec-5.4 says:
-		 * Host header must be ignored when URI is absolute.
+		 * absoluteURI, so we act as describen by RFC 9112, sec-3.2.2
+		 * (https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2):
+		 * When an origin server receives a request with an
+		 * absolute-form of request-target, the origin server
+		 * MUST ignore the received Host header field (if any)
+		 * and instead use the host information of the request-target.
 		 */
 		if (TFW_STR_EMPTY(&req->host)) {
 			hid = TFW_HTTP_HDR_HOST;
