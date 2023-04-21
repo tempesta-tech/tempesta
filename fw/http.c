@@ -5654,10 +5654,11 @@ validate_authority_rfc9113(TfwHttpReq *req)
 	 * a Host header field that identifies an entity that differs
 	 * from the entity in the ":authority" pseudo-header field.
 	 * */
-	TfwStr *authority = &req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
-	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
-	return TFW_STR_EMPTY(authority) || TFW_STR_EMPTY(host)
-		|| tfw_strcmp(authority, host) == 0;
+	TfwStr authority, host;
+	__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY], &authority);
+	__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
+	return TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
+		|| tfw_strcmp(&authority, &host) == 0;
 }
 
 /**
