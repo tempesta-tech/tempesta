@@ -220,6 +220,7 @@ typedef struct {
  *		  to absence of the next fragment;
  * @index	- saved index value, used when decoding is interrupted due to
  *		  absence of the next fragment;
+ * @offset	- current offset in hpack ht_decode table;
  */
 typedef struct {
 	TfwHPackETbl		enc_tbl;
@@ -232,6 +233,7 @@ typedef struct {
 	unsigned int		state;
 	unsigned int		shift;
 	unsigned long		index;
+	unsigned int		offset;
 } TfwHPack;
 
 /**

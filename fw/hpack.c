@@ -232,7 +232,7 @@ do {								\
 			goto out;				\
 		}						\
 		__c = *src++;					\
-		x = (__c & 127) << __m | x;			\
+		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_LIMIT) {			\
 			r = T_DROP;				\
@@ -588,7 +588,11 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 	SET_NEXT();
 	for (;;) {
-		offset = 0;
+		offset = hp->offset;
+		hp->offset = 0;
+		if (offset)
+			goto ht_small;
+
 		for (;;) {
 			int shift;
 			unsigned int i;
@@ -637,6 +641,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			}
 		}
 		hp->curr += HT_NBITS - HT_MBITS;
+ht_small:
 		/*
 		 * With various optimization options, the anonymous block here
 		 * leads to the generation of more efficient code.
@@ -649,6 +654,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
+					hp->offset = offset;
 					return T_POSTPONE;
 				} else {
 					return huffman_decode_tail_s(hp, req,
