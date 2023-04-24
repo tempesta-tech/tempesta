@@ -320,6 +320,8 @@ enum {
 	 * not enclosed in double quotes.
 	 */
 	TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
+	/* Request URI is absolute (HTTP/1.x only) */
+	TFW_HTTP_B_ABSOLUTE_URI,
 
 	_TFW_HTTP_FLAGS_NUM
 };
@@ -441,8 +443,6 @@ typedef struct {
  * @userinfo	- userinfo in URI, not mandatory;
  * @host	- host that was picked from request URI, Host or HTTP/2
  *		  authority header;
- * @uri_host	- points to host if request URI contained hostname, NULL
- *		  otherwise;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @mark	- special hash mark for redirects handling in session module;
  * @multipart_boundary_raw - multipart boundary as is, maybe with escaped chars;
@@ -473,7 +473,6 @@ struct tfw_http_req_t {
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
-	TfwStr			*uri_host;
 	TfwStr			host;
 	TfwStr			uri_path;
 	TfwStr			mark;

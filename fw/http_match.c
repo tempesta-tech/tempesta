@@ -241,7 +241,7 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 * RFC 7230 5.4: Host header must
 	 * be ignored when URI is absolute.
 	 */
-	if (req->uri_host)
+	if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags))
 		return false;
 	/* For non-absolute URI also check Forwarded header */
 	return match_host_forwarded(req, rule);

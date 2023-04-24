@@ -5644,7 +5644,7 @@ check_authority_correctness(TfwHttpReq *req)
 		 * A client MUST send a Host header field in an HTTP/1.1
 		 * request even if the request-target is in the absolute-form
 		 */
-		return req->uri_host ||
+		return test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags) ||
 			!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);
 	case TFW_HTTP_VER_20: {
 		TfwStr authority, host;
