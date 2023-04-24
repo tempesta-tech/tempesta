@@ -5636,29 +5636,34 @@ extract_req_host(TfwHttpReq *req)
 }
 
 static bool
-validate_authority_rfc9112(TfwHttpReq *req)
+check_authority_correctness(TfwHttpReq *req)
 {
-	/* https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2
-	 * A client MUST send a Host header field in an HTTP/1.1
-	 * request even if the request-target is in the absolute-form
-	 */
-	return req->uri_host ||
-		!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);
-}
-
-static bool
-validate_authority_rfc9113(TfwHttpReq *req)
-{
-	/* https://datatracker.ietf.org/doc/html/rfc9113#section-8.3.1
-	 * A server SHOULD treat a request as malformed if it contains
-	 * a Host header field that identifies an entity that differs
-	 * from the entity in the ":authority" pseudo-header field.
-	 * */
-	TfwStr authority, host;
-	__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY], &authority);
-	__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
-	return TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
-		|| tfw_strcmp(&authority, &host) == 0;
+	switch (req->version) {
+	case TFW_HTTP_VER_11:
+		/* https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2
+		 * A client MUST send a Host header field in an HTTP/1.1
+		 * request even if the request-target is in the absolute-form
+		 */
+		return req->uri_host ||
+			!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);
+	case TFW_HTTP_VER_20: {
+		TfwStr authority, host;
+		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
+		                 &authority);
+		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
+		/* no-authority case */
+		if (TFW_STR_EMPTY(&authority) && TFW_STR_EMPTY(&host))
+			return false;
+		/* https://datatracker.ietf.org/doc/html/rfc9113#section-8.3.1
+		 * A server SHOULD treat a request as malformed if it contains
+		 * a Host header field that identifies an entity that differs
+		 * from the entity in the ":authority" pseudo-header field.
+		 */
+		return TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
+			|| tfw_strcmp(&authority, &host) == 0;
+		}
+	}
+	return true;
 }
 
 /**
@@ -5805,22 +5810,10 @@ next_msg:
 	}
 
 	extract_req_host(req);
-	switch (req->version) {
-	case TFW_HTTP_VER_11:
-		if (!validate_authority_rfc9112(req)) {
-			tfw_http_req_parse_drop(req, 400,
-						"Missing Host header");
-			return TFW_BLOCK;
-		}
-		break;
-	case TFW_HTTP_VER_20:
-		if (!validate_authority_rfc9113(req)) {
-			tfw_http_req_parse_drop(req, 400,
-		                                ":authority and Host headers"
-		                                " are not equal");
-			return TFW_BLOCK;
-		}
-		break;
+	if (!check_authority_correctness(req))
+	{
+		tfw_http_req_parse_drop(req, 400, "Invalid authority");
+		return TFW_BLOCK;
 	}
 	/*
 	 * The message is fully parsed, the rest of the data in the
