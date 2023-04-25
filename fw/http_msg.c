@@ -1349,12 +1349,6 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 		r = ss_skb_add_frag(it->skb_head, skb, addr, ++it->frag, size);
 		if (unlikely(r))
 			return r;
-
-		if (it->frag == MAX_SKB_FRAGS - 1) {
-			it->frag = -1;
-			if (skb != it->skb_head)
-				it->skb = it->skb->next;
-		}
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
@@ -1446,9 +1440,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
-			if (unlikely(skb_room == 0 ||
-			    (it->skb == it->skb_head && it->frag == -1
-			     && nr_frags == MAX_SKB_FRAGS)))
+			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb, **body;
 				char *p;
@@ -1472,19 +1464,26 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 					if ((r = ss_skb_find_frag_by_offset(*body, p, &frag)))
 						return r;
-					if (it->frag + 1 <= frag)
-						*body = nskb;
+					/* Move body to the next skb. */
+					ss_skb_move_frags(it->skb, nskb, frag,
+							  nr_frags - frag);
+					*body = nskb;
 				}
-
-				ss_skb_move_frags(it->skb, nskb, it->frag + 1,
-						  nr_frags - it->frag - 1);
 
 				skb_shinfo(nskb)->tx_flags =
 					skb_shinfo(it->skb)->tx_flags;
 				ss_skb_insert_after(it->skb, nskb);
+				/*
+				 * If body is located in the zero fragment and
+				 * takes all SS_SKB_MAX_DATA_LEN bytes, we move
+				 * it to the next skb and continue use current
+				 * skb.
+				 */
+				if (likely(nskb->len < SS_SKB_MAX_DATA_LEN))
+					it->skb = nskb;
+
 				it->frag = -1;
-				it->skb = nskb;
-				skb_room = SS_SKB_MAX_DATA_LEN;
+				skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			}
 
 			n_copy = min(n_copy, skb_room);
