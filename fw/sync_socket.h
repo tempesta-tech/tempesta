@@ -142,11 +142,6 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 #define __SS_F_RST			0x10
 #define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
 
-enum {
-	/* This skb contains start of http2 frame. */
-	SS_F_HTTP2_FRAME_START	=	0x01,
-};
-
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)
 #define SS_SKB_F2TYPE(f)		((f) >> 8)

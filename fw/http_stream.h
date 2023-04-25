@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 
 #include "msg.h"
 #include "http_parser.h"
+#include "lib/str.h"
 
 /**
  * States for HTTP/2 streams processing.
@@ -99,29 +100,71 @@ typedef enum {
 } TfwH2Err;
 
 /**
+ * Last http2 response info, used to prepare frames
+ * in `xmit` callbacks.
+ *
+ * @h_len		- length of headers in http2 response;
+ * @b_len		- length of body in http2 response;
+ * @__off		- offset to reinitialize processing context;
+ * @processed		- count of bytes, processed during prepare xmit
+ * 			  callback;
+ * @nskbs		- count of skbs processed during prepare xmit callback;
+ */
+typedef struct {
+	unsigned long h_len;
+	unsigned long b_len;
+	char __off[0];
+	unsigned int processed;
+	unsigned int nskbs;
+} TfwHttpXmit;
+
+/**
+ * Limited queue for temporary storage of half-closed or pending half-closed
+ * streams.
+ * This structure provides the possibility of temporary existing in memory -
+ * for streams which are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
+ * states (see RFC 7540, section 5.1, the 'closed' paragraph). Note, that
+ * streams in HTTP2_STREAM_CLOSED state are not stored in this queue and must
+ * be removed right away.
+ *
+ * @list		- list of streams which are in closed state;
+ * @num			- number of streams in the list;
+ */
+typedef struct {
+	struct list_head	list;
+	unsigned long		num;
+} TfwStreamQueue;
+
+/**
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @hcl_node	- entry in queue of half-closed streams;
+ * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
  * @loc_wnd	- stream's current flow controlled window;
+ * @rem_wnd	- streams's current flow controlled window for remote client;
  * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
+ * @queue	- queue of half-closed or closed streams or NULL;
+ * @xmit	- last http2 response info, used in `xmit` callbacks;
  */
-typedef struct {
+struct tfw_http_stream_t {
 	struct rb_node		node;
 	struct list_head	hcl_node;
 	unsigned int		id;
 	int			state;
 	spinlock_t		st_lock;
-	unsigned int		loc_wnd;
+	long int		loc_wnd;
+	long int		rem_wnd;
 	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
-} TfwStream;
+	TfwStreamQueue		*queue;
+	TfwHttpXmit		xmit;
+};
 
 /**
  * Scheduler for stream's processing distribution based on dependency/priority
@@ -142,7 +185,8 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
 				  TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
-			     unsigned short weight, unsigned int wnd);
+			     unsigned short weight, long int loc_wnd,
+			     long int rem_wnd);
 void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			   TfwStream **dep);
@@ -152,6 +196,21 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+
+static inline void
+tfw_h2_stream_xmit_reinit(TfwHttpXmit *xmit)
+{
+	bzero_fast(xmit->__off, sizeof(*xmit) - offsetof(TfwHttpXmit, __off));
+}
+
+static inline void
+tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
+			    unsigned long b_len)
+{
+	stream->xmit.h_len = h_len;
+	stream->xmit.b_len = b_len;
+	tfw_h2_stream_xmit_reinit(&stream->xmit);
+}
 
 static inline bool
 tfw_h2_strm_req_is_compl(TfwStream *stream)

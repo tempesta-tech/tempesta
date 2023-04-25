@@ -404,9 +404,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 		ss_skb_init_for_xmit(skb);
 		if (flags & SS_F_ENCRYPT) {
-			ss_skb_set_tls_type(skb, SS_SKB_F2TYPE(flags));
+			skb_set_tfw_tls_type(skb, SS_SKB_F2TYPE(flags));
 			if (skb == head)
-				ss_skb_set_flags(skb, SS_F_HTTP2_FRAME_START);
+				skb_set_tfw_flags(skb, SS_F_HTTP2_FRAME_START);
 		}
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
@@ -415,7 +415,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		       " truesize=%u mark=%u tls_type=%x\n",
 		       smp_processor_id(), __func__, sk,
 		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
-		       ss_skb_tls_type(skb));
+		       skb_tfw_tls_type(skb));
 
 		ss_forced_mem_schedule(sk, skb->truesize);
 		skb_entail(sk, skb);

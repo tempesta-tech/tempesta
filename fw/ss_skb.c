@@ -57,8 +57,8 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 	const struct iphdr *ih4 = ip_hdr(skb);
 	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
 	TfwAddr addr = (ih6->version == 6)
-	                ? tfw_addr_new_v6(&ih6->saddr, 0)
-	                : tfw_addr_new_v4(ih4->saddr, 0);
+			? tfw_addr_new_v6(&ih6->saddr, 0)
+			: tfw_addr_new_v4(ih4->saddr, 0);
 
 	return tfw_addr_fmt(&addr, TFW_NO_PORT, out_buf);
 }
@@ -218,6 +218,10 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (r)
 				return r;
 		} else {
+			/*
+			 * If skb->sk is set, we use functions from the Linux kernel
+			 * to allocate and insert skb.
+			 */
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
@@ -947,9 +951,9 @@ multi_buffs:
 		head -= skb->len;
 		/* We do not use ss_skb_unlink() here and in
 		 * the similar loop for tail below to prevent
-	 	 * removing the last skb in the list and to skip
-	 	 * unneccessary checks and actions inside the func.
-	 	 */
+		 * removing the last skb in the list and to skip
+		 * unneccessary checks and actions inside the func.
+		 */
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
 		*skb_list_head = skb_hd = skb->next;
@@ -1019,6 +1023,7 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 
 	return 0;
 }
+
 /**
  * Cut off @str->len data bytes from underlying skbs skipping the first
  * @skip bytes, and also cut off @tail bytes after @str.
@@ -1026,12 +1031,14 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
  * ('uri_path', 'host' etc).
  */
 int
-ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
-		   int tail)
+ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 {
 	int r;
 	TfwStr it = {};
-	const TfwStr *c, *end;
+	struct sk_buff *skb, *next;
+	TfwStr *c, *cc, *end;
+	unsigned int next_len;
+	bool update;
 	int _;
 
 	BUG_ON(tail < 0);
@@ -1042,13 +1049,48 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 			skip -= c->len;
 			continue;
 		}
+
+		skb = c->skb;
+		if (skb->next != skb_head) {
+			next = skb->next;
+			next_len = next->len;
+		} else {
+			next = NULL;
+		}
+
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, c->skb, c->data + skip,
 				 skip - c->len, &it, &_);
 		if (r < 0)
 			return r;
 		BUG_ON(r != c->len - skip);
+
 		skip = 0;
+		/*
+		 * No new skb was allocated and no fragments from current
+		 * skb were moved to the next one.
+		 */
+		if (likely(skb->next == next
+			   && (!next || next->len == next_len)))
+			continue;
+
+		/* Check if the new skb was allocated and update next skb. */
+		next = skb->next != next ? skb->next : next;
+
+		/*
+		 * TODO #1852 We should get rid of this function at all, because
+		 * the code below can be very heavy if we have a lot of chunks.
+		 */
+		update = false;
+		for (cc = (TfwStr *)(c + 1); cc < end; ++cc) {
+			if (cc->skb != c->skb)
+				break;
+			if (!update &&
+			    !ss_skb_find_frag_by_offset(cc->skb, cc->data, &_))
+				continue;
+			cc->skb = next;
+			update = true;
+		}
 	}
 
 	BUG_ON(it.data == NULL);
@@ -1277,7 +1319,12 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	}
 
 	skb->skb_mstamp_ns = 0;
-	skb->dev = NULL;
+	/*
+	 * Do not clear skb->dev in case if it is used for private
+	 * tempesta data.
+	 */
+	if (!skb_tfw_is_present(skb))
+		skb->dev = NULL;
 	bzero_fast(skb->cb, sizeof(skb->cb));
 	nf_reset_ct(skb);
 	skb->mac_len = 0;
@@ -1499,7 +1546,7 @@ EXPORT_SYMBOL(ss_skb_dump);
  */
 int
 ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
-                               struct page ***old_pages)
+			       struct page ***old_pages)
 {
 	unsigned int head_data_len = skb_headlen(skb);
 	unsigned int out_frags = 0;

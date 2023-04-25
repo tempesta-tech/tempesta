@@ -572,19 +572,18 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	};
 	TfwStr *body = NULL;
 
+	BUG_ON(!resp->req);
 	if (!stream_id) {
-		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-						   HTTP2_F_END_STREAM);
-		if (unlikely(!stream_id)) {
-			return -ENOENT;
-		}
+		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS, 0);
+		if (unlikely(!stream_id))
+			return -EPIPE;
 	}
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
 	r = tfw_h2_resp_status_write(resp, status, false, false);
 	if (unlikely(r))
-		return r;
+		goto out;
 
 	/*
 	 * Form and write HTTP/2 response headers excluding "\r\n", ':'
@@ -610,7 +609,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			r = tfw_hpack_encode(resp, __TFW_STR_CH(&hdr, 0),
 					     false, false);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			write_int(val->len, 0x7F, 0, &vlen);
 			s_vlen.data = vlen.buf;
@@ -619,11 +618,11 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			r = tfw_http_msg_expand_data(iter, skb_head, &s_vlen,
 						     NULL);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			r = tfw_http_msg_expand_data(iter, skb_head, val, NULL);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			hdrs_len += s_vlen.len + val->len;
 		} else {
@@ -634,7 +633,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			hdr.hpack_idx = name->hpack_idx;
 
 			if ((r = tfw_hpack_encode(resp, &hdr, false, true)))
-				return r;
+				goto out;
 		}
 	}
 
@@ -647,7 +646,12 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	hdrs_len += mit->acc_len;
 
 	body = TFW_STR_BODY_CH(msg);
-	return tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+
+	r = tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+
+out:
+	tfw_h2_stream_id_unlink(req, false, r);
+	return r;
 }
 
 /*
@@ -955,7 +959,7 @@ static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_stream_id_close(req, _HTTP2_UNDEFINED, 0);
+		tfw_h2_stream_id_unlink(req, false, true);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
@@ -1108,7 +1112,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
  */
 static void
 tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
-	              unsigned int stream_id)
+		 unsigned int stream_id)
 {
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
@@ -2721,7 +2725,7 @@ tfw_http_conn_release(TfwConn *conn)
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (TFW_MSG_H2(req)) {
-			tfw_h2_stream_id_close(req, _HTTP2_UNDEFINED, 0);
+			tfw_h2_stream_id_unlink(req, false, true);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -3067,7 +3071,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 		}
 		else {
 			r = TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
-					         TFW_HTTP_HDR_CONNECTION);
+						 TFW_HTTP_HDR_CONNECTION);
 		}
 	}
 
@@ -3719,7 +3723,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * requests with Transfer-Encoding are blocked.
 	 */
 	bool need_cl = req->body.len &&
-	               TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
+		       TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
 
 	if (need_cl) {
 		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
@@ -4402,7 +4406,7 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
 			if (!(chunk->flags & TFW_STR_NAME))
-		                continue;
+				continue;
 
 			if (sep) {
 				buf[len] = ',';
@@ -4420,7 +4424,7 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 				chunk++;
 			}
 
-		        sep = 1;
+			sep = 1;
 		}
 	}
 
@@ -4702,39 +4706,6 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	return 0;
 }
 
-static int
-__tfw_h2_make_frames(unsigned long len, char *data, TfwMsgIter *iter,
-		     unsigned long max_sz, const TfwStr* frame_hdr_str,
-		     TfwFrameHdr *frame_hdr, unsigned char hdr_flags)
-{
-	int r;
-	unsigned long skew = 0;
-
-	do {
-		r = tfw_msg_iter_move(iter, (unsigned char **)&data,
-				      max_sz + skew);
-		if (r)
-			return r;
-
-		/*
-		 * Each frame header is inserted before given data pointer,
-		 * skip it. Exception - first move operation: @data is set right
-		 * after frame header.
-		 */
-		skew = frame_hdr_str->len;
-
-		frame_hdr->length = min(max_sz, len);
-		len -= frame_hdr->length;
-		frame_hdr->flags = len ?  0 : hdr_flags;
-		tfw_h2_pack_frame_header(frame_hdr_str->data, frame_hdr);
-
-		r = tfw_http_msg_insert(iter, &data, frame_hdr_str);
-		if (unlikely(r))
-			return r;
-	} while (len);
-
-	return 0;
-}
 /**
  * Split response body stored locally. Allocate a new skb and put body there
  * by fragments. Every skb fragment has size of single page and has frame
@@ -4750,8 +4721,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 {
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
-	size_t len, max_copy = PAGE_SIZE - FRAME_HEADER_SIZE;
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
+	size_t len, max_copy = PAGE_SIZE;
 	char *data;
 	int r;
 
@@ -4780,21 +4750,21 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		size_t copy = min(len, max_copy);
 
 		len -= copy;
-		frame_hdr.flags = len ? 0 : HTTP2_F_END_STREAM;
-		frame_hdr.length = copy;
 
 		if (!(page = alloc_page(GFP_ATOMIC))) {
 			return -ENOMEM;
 		}
 		p = page_address(page);
-		tfw_h2_pack_frame_header(p, &frame_hdr);
-		memcpy_fast(p + FRAME_HEADER_SIZE, data, copy);
+		memcpy_fast(p, data, copy);
 		data += copy;
 
 		++it->frag;
-		skb_fill_page_desc(it->skb, it->frag, page, 0,
-				   copy + FRAME_HEADER_SIZE);
-		ss_skb_adjust_data_len(it->skb, copy + FRAME_HEADER_SIZE);
+		skb_fill_page_desc(it->skb, it->frag, page, 0, copy);
+		ss_skb_adjust_data_len(it->skb, copy);
+
+		BUG_ON(!stream_id);
+		skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+		skb_set_tfw_cb(it->skb, stream_id);
 
 		if (it->frag + 1 == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
@@ -4807,139 +4777,38 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 }
 
 /**
- * Split response into http/2 frames with respect to remote peer MAX_FRAME_SIZE
- * settings. Both HEADERS and DATA frames require framing or peer will reject
- * the message or entire connection.
- *
- * @resp		- response to be framed.
- * @stream_id		- HTTP/2 stream id.
- * @h_len		- total length of HTTP headers.
- * @local_response	- response is generated locally by Tempesta,
- *			  all foreign responses represents responses converted
- *			  from h1 to h2 and require some additional processing.
- * @local_body		- locally generated response has a body which not yet
- *			  added into response and even not addressed by
- *			  resp->body.
- *
- * WARNING: this function manually inserts fragments containing h2 frame headers
- * (9 bytes each), which are NOT tracked by the @resp handler and cannot be
- * addressed and modified directly. This function must be the LAST step before
- * message is pushed into network. No stream id modification, no header
- * adjustments are allowed after the call.
- *
- * There are two cases when message can be modified:
- * 1. Body addition for locally generated responses, which add body
- * fragment-by-fragment with required framing information.
- * 2. Cutting "chunked body" information from response.
- */
-static int
-tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
-		   unsigned long h_len, bool local_response,
-		   bool local_body)
-{
-	int r;
-	char *data;
-	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	unsigned char buf[FRAME_HEADER_SIZE];
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id};
-	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &mit->iter;
-	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
-	unsigned long max_sz = ctx->rsettings.max_frame_sz;
-	unsigned char fr_flags = (b_len || local_body) ? 0 : HTTP2_F_END_STREAM;
-
-	T_DBG2("%s: frame response with: max_frame_size=%lu, body_len=%lu"
-	       " headers_len=%lu \n", __func__, max_sz, b_len, h_len);
-
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.length = min(max_sz, h_len);
-	frame_hdr.flags = fr_flags;
-	frame_hdr.flags |= (h_len <= max_sz) ? HTTP2_F_END_HEADERS : 0;
-	tfw_h2_pack_frame_header(mit->frame_head, &frame_hdr);
-
-	/* Add first DATA frame */
-	if (!local_response) {
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-			TfwHttpMsg *hm = (TfwHttpMsg*)resp;
-
-			r = tfw_http_msg_cutoff_body_chunks(hm);
-			if (unlikely(r))
-				return r;
-		}
-
-		if (b_len > 0) {
-			frame_hdr.length = min(max_sz, b_len);
-			frame_hdr.type = HTTP2_DATA;
-			frame_hdr.flags = (frame_hdr.length == b_len)
-					   ? HTTP2_F_END_STREAM : 0;
-			tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-			r = tfw_http_msg_expand_from_pool(mit, resp->pool,
-							  &frame_hdr_str);
-			if (unlikely(r))
-				return r;
-		}
-	}
-
-	/* Add CONTINATION frames. */
-	if (h_len > max_sz) {
-		iter->skb = iter->skb_head;
-		data = mit->frame_head + FRAME_HEADER_SIZE;
-
-		h_len -= max_sz;
-		frame_hdr.type = HTTP2_CONTINUATION;
-		mit->iter.frag = 0;
-		r = __tfw_h2_make_frames(h_len, data, iter, max_sz,
-					 &frame_hdr_str, &frame_hdr,
-					 HTTP2_F_END_HEADERS);
-		if (unlikely(r))
-			return r;
-	}
-
-	if (local_response)
-		return 0;
-
-	/* Add more frame headers for DATA block. */
-	if (b_len > max_sz) {
-		/*
-		 * TODO: #498 and maybe #488 : iterate over the chunks only once
-		 * and remove @body_start_* which become unnecessary.
-		 * TODO: #1103 make only one memory allocation for hopefully
-		 * all the HTTP/2 frames headers instead of dealing with skb
-		 * framing with every small header
-		 */
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-			data = resp->stream->parser.body_start_data;
-			iter->skb = resp->stream->parser.body_start_skb;
-		} else {
-			data = TFW_STR_CHUNK(&resp->body, 0)->data;
-			iter->skb = resp->body.skb;
-		}
-
-		if ((r = tfw_http_iter_set_at(iter, data)))
-			return r;
-
-		b_len -= max_sz;
-		frame_hdr.type = HTTP2_DATA;
-		r = __tfw_h2_make_frames(b_len, data, iter, max_sz,
-					 &frame_hdr_str, &frame_hdr,
-					 HTTP2_F_END_STREAM);
-		if (unlikely(r))
-			return r;
-	}
-
-	return 0;
-}
-
-/**
  * Frame forwarded response.
  */
-int
+static int
 tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 		     unsigned long h_len)
 {
-	return tfw_h2_make_frames(resp, stream_id, h_len, false, false);
+	int r = 0;
+	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	TfwMsgIter iter = {.frag = -1, .skb_head = resp->msg.skb_head};
+
+	BUG_ON(!resp->req);
+	
+	if(!resp->req->stream)
+		return -EPIPE;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		r = tfw_http_msg_cutoff_body_chunks((TfwHttpMsg*)resp);
+		if (unlikely(r))
+			return r;
+	}
+
+	if (b_len) {
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+			iter.skb = resp->stream->parser.body_start_skb;
+		else
+			iter.skb = resp->body.skb;
+		tfw_msg_iter_set_skb_priv(&iter, stream_id,
+					  SS_F_HTTT2_FRAME_DATA);
+	}
+
+	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
+	return 0;
 }
 
 /**
@@ -4947,16 +4816,22 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
  */
 int
 tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-		       unsigned long h_len, const TfwStr *body)
+		        unsigned long h_len, const TfwStr *body)
 {
-	int r;
+	int r = 0;
+	unsigned long b_len = body ? body->len : 0;
 
-	r = tfw_h2_make_frames(resp, stream_id, h_len, true,
-			       body ? body->len : false);
-	if (r)
+	BUG_ON(!resp->req);
+
+	if(!resp->req->stream)
+		return -EPIPE;
+
+	r = tfw_h2_append_predefined_body(resp, stream_id, body);
+	if (unlikely(r))
 		return r;
 
-	return tfw_h2_append_predefined_body(resp, stream_id, body);
+	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
+	return r;
 }
 
 static void
@@ -5062,9 +4937,9 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * can just send error response, leave the connection alive and
 	 * drop request's corresponding stream; in this case stream either
 	 * is already in locally closed state (switched in
-	 * @tfw_h2_stream_id_close() during failed proxy/internal response
+	 * @tfw_h2_stream_id_send() during failed proxy/internal response
 	 * creation) or will be switched into locally closed state in
-	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_close() if no error
+	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_send() if no error
 	 * response is needed) below; remotely (i.e. on client side) stream
 	 * will be closed - due to END_STREAM flag set in the last frame of
 	 * error response; in case of attack we must close entire connection,
@@ -5085,7 +4960,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	  * remote peer (via RST_STREAM frame), that the stream has entered
 	  * into closed state (RFC 7540 section 6.4).
 	  */
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_RST_STREAM, 0);
+	stream_id = tfw_h2_stream_id_unlink(req, true, true);
 	if (stream_id && !attack)
 		tfw_h2_send_rst_stream(ctx, stream_id, HTTP2_ECODE_CANCEL);
 
@@ -5287,12 +5162,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
 
-	/*
-	 * Get ID of corresponding stream to prepare/send HTTP/2 response, and
-	 * unlink request from the stream.
-	 */
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					   HTTP2_F_END_STREAM);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS, 0);
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -5395,6 +5265,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
+	tfw_h2_stream_id_unlink(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	__tfw_h2_resp_cleanup(&cleanup);

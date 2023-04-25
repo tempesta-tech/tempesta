@@ -49,46 +49,6 @@ enum {
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
 			   unsigned int *read);
 
-static inline unsigned char
-ss_skb_flags(struct sk_buff *skb)
-{
-	return tempesta_skb_get_cb_val(skb, TEMPESTA_SKB_FLAG_OFF,
-				       TEMPESTA_SKB_FLAG_MAX);
-}
-
-static inline void
-ss_skb_set_flags(struct sk_buff *skb, unsigned char flags)
-{
-	return tempesta_skb_set_cb_val(skb, flags, TEMPESTA_SKB_FLAG_OFF);
-}
-
-static inline void
-ss_skb_clear_flags(struct sk_buff *skb)
-{
-	return tempesta_skb_clear_cb_val(skb, TEMPESTA_SKB_FLAG_MAX,
-					 TEMPESTA_SKB_FLAG_OFF);
-}
-
-static inline unsigned char
-ss_skb_tls_type(struct sk_buff *skb)
-{
-	return tempesta_skb_get_cb_val(skb, TEMPESTA_TLS_SKB_TYPE_OFF,
-				       TEMPESTA_TLS_SKB_TYPE_MAX);
-}
-
-static inline void
-ss_skb_set_tls_type(struct sk_buff *skb, unsigned char type)
-{
-	return tempesta_skb_set_cb_val(skb, type, TEMPESTA_TLS_SKB_TYPE_OFF);
-}
-
-static inline void
-ss_skb_clear_type(struct sk_buff *skb)
-{
-	return tempesta_skb_clear_cb_val(skb, TEMPESTA_TLS_SKB_TYPE_MAX,
-					 TEMPESTA_TLS_SKB_TYPE_OFF);
-}
-
 /**
  * Add new _single_ @skb to the queue in FIFO order.
  */
@@ -128,6 +88,13 @@ ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
 }
 
 static inline void
+ss_skb_remove(struct sk_buff *skb)
+{
+	skb->prev->next = skb->next;
+	skb->next->prev = skb->prev;
+}
+
+static inline void
 ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	WARN_ON_ONCE(!skb->prev || !skb->next);
@@ -135,8 +102,7 @@ ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 	if (skb->next == skb) {
 		*skb_head = NULL;
 	} else {
-		skb->prev->next = skb->next;
-		skb->next->prev = skb->prev;
+		ss_skb_remove(skb);
 		/* If this is head skb and not last, set head to the next skb. */
 		if (*skb_head == skb)
 			*skb_head = skb->next;
@@ -256,17 +222,54 @@ ss_skb_alloc(size_t n)
 	return skb;
 }
 
-/* Move @cnt existing fragment descriptors within the SKB.
- */
+static inline int
+ss_skb_find_frag_by_offset(struct sk_buff *skb, char *off, int *frag)
+{
+	char *begin, *end;
+	unsigned char i;
+
+	if (skb_headlen(skb)) {
+		begin = skb->data;
+		end = begin + skb_headlen(skb);
+
+		if ((begin <= off) && (end >= off)) {
+			*frag = -1;
+			return 0;
+		}
+	}
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+
+		begin = skb_frag_address(f);
+		end = begin + skb_frag_size(f);
+
+		if ((begin <= off) && (end >= off)) {
+			*frag = i;
+			return 0;
+		}
+	}
+
+	return -E2BIG;
+}
+
 static inline void
-ss_skb_frags_move(struct sk_buff *skb, unsigned int new_pos,
-		  unsigned int old_pos, unsigned int cnt)
+ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
+		  unsigned count)
 {
 	struct skb_shared_info *si = skb_shinfo(skb);
-	if (WARN_ON(!si->nr_frags))
-		return;
-	BUG_ON(new_pos + cnt > MAX_SKB_FRAGS);
-	memmove(&si->frags[new_pos], &si->frags[old_pos], cnt * sizeof(skb_frag_t));
+	struct skb_shared_info *nsi = skb_shinfo(nskb);
+	skb_frag_t *f;
+	int i = 0, e_size = 0;
+
+	while (i++ < count) {
+		f = &si->frags[from++];
+		skb_shinfo(nskb)->frags[nsi->nr_frags++] = *f;
+		si->nr_frags--;
+		e_size += skb_frag_size(f);
+	}
+
+	ss_skb_adjust_data_len(skb, -e_size);
+	ss_skb_adjust_data_len(nskb, e_size);
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
@@ -286,8 +289,8 @@ int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
 int
 ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
-                           size_t head, size_t trail);
-int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
+			   size_t head, size_t trail);
+int ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 
@@ -298,7 +301,7 @@ int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
-                                   struct page ***old_pages);
+				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 		    int frag_idx, size_t frag_sz);
 int

@@ -300,8 +300,9 @@ int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 				  unsigned char *__restrict src, unsigned long n,
 				  TfwDecodeCacheIter *__restrict cd_iter);
 void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
-int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff * __restrict skb,
-			       unsigned int *bytes_wtitten);
+int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
+			       struct sk_buff *skb, TfwStream *stream,
+			       unsigned int mss_now, unsigned int *t_tz);
 void tfw_hpack_enc_tbl_write_sz_release(TfwHPackETbl *__restrict tbl, int r);
 
 static inline unsigned int

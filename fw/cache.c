@@ -840,8 +840,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (unlikely(r))
 			goto err_setup;
 	} else {
-		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-						   HTTP2_F_END_STREAM);
+		stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS, 0);
 		if (unlikely(!stream_id))
 			goto err_setup;
 
@@ -889,6 +888,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
 		goto err_setup;
 
+	tfw_h2_stream_id_unlink(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	return;
@@ -1175,13 +1175,14 @@ do {						\
  */
 static int
 tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
-			       TfwStr *body, TfwStr *cut, size_t *tot_len)
+			       TfwHttpResp *resp, TfwStr *cut, size_t *tot_len)
 {
 	long n;
 	TfwMsgIter it;
 	TfwStr *tmp;
 	char *curr, *stop, *begin, *end, *prev_end = NULL;
 	int stop_len, c_chunk = 0;
+	TfwStr *body = &resp->body;
 
 	BUG_ON(TFW_STR_DUP(body));
 
@@ -1199,7 +1200,7 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	BUG_ON(cut->nchunks < 2 && body->len > 0);
 
 	it.skb = cut->skb;
-	it.skb_head = cut->skb;
+	it.skb_head = resp->msg.skb_head;
 	it.frag = -(!!skb_headlen(it.skb));
 
 	tmp = __TFW_STR_CH(cut, c_chunk);
@@ -1287,18 +1288,19 @@ rep:
  */
 static int
 tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
-		       TfwStr *body, size_t *tot_len)
+		       TfwHttpResp *resp, size_t *tot_len)
 {
 	long n;
 	TfwMsgIter it;
 	TfwStr chunk;
+	TfwStr *body = &resp->body;
 
 	BUG_ON(TFW_STR_DUP(body));
 
 	if (unlikely(!body->len))
 		return 0;
 
-	it.skb_head = body->skb;
+	it.skb_head = resp->msg.skb_head;
 	it.skb = body->skb;
 	it.frag = -1;
 
@@ -1357,9 +1359,9 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
  */
 static int
 tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
-                             TfwStr *src, size_t *tot_len,
-                             long cache_strcpy(char **p, TdbVRec **trec,
-                                               TfwStr *src, size_t tot_len))
+			     TfwStr *src, size_t *tot_len,
+			     long cache_strcpy(char **p, TdbVRec **trec,
+					       TfwStr *src, size_t tot_len))
 {
 	long n;
 	TfwStr *c, *end;
@@ -1384,18 +1386,18 @@ tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
 
 static int
 tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
-                      TfwStr *src, size_t *tot_len)
+		      TfwStr *src, size_t *tot_len)
 {
 	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
-	                                    tfw_cache_strcpy);
+					    tfw_cache_strcpy);
 }
 
 static int
 tfw_cache_h2_copy_str_lc(unsigned int *acc_len, char **p, TdbVRec **trec,
-                         TfwStr *src, size_t *tot_len)
+			 TfwStr *src, size_t *tot_len)
 {
 	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
-	                                    tfw_cache_strcpy_lc);
+					    tfw_cache_strcpy_lc);
 }
 
 static inline int
@@ -1425,10 +1427,10 @@ tfw_cache_copy_str_with_extra_quotes(TfwCacheEntry *ce, char **p, TdbVRec **trec
 {
 #define ADD_ETAG_QUOTE(flag)                                            \
 do {                                                                    \
-        TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
-        if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
-                                  tot_len))                             \
-                return -ENOMEM;                                         \
+	TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
+	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
+				  tot_len))                             \
+		return -ENOMEM;                                         \
 } while(0)
 
 	if (need_extra_quotes)
@@ -1518,7 +1520,7 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			    || tfw_cache_h2_copy_int(&ce->hdr_len, s_nm.len,
 						     0x7f, p, trec, tot_len)
 			    || tfw_cache_h2_copy_str_lc(&ce->hdr_len, p, trec,
-			                                &s_nm, tot_len))
+							&s_nm, tot_len))
 				return -ENOMEM;
 		}
 
@@ -1974,12 +1976,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->body = TDB_OFF(db->hdr, p);
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
 		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
-						   &resp->body,
+						   resp,
 						   &resp->stream->parser.cut,
 						   &tot_len);
 	else
 		r = tfw_cache_h2_copy_body(&ce->body_len, &p, &trec,
-					   &resp->body, &tot_len);
+					   resp, &tot_len);
 
 	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy HTTP body\n");
@@ -2422,16 +2424,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
  * Add page from cache into response.
  */
 static int
-tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
-			bool h2, bool last_frag)
+tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
+			bool last_frag)
 {
 	int off;
 	struct page *page;
 
-	/*
-	 * @sz is guarantied to be bigger than FRAME_HEADER_SIZE if frame header
-	 * is stored in cache before data. True for first fragment.
-	 */
 	if (h2) {
 		char *new_p;
 		if (!(page = alloc_page(GFP_ATOMIC))) {
@@ -2439,11 +2437,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
 		}
 		new_p = page_address(page);
 		off = 0;
-		frame_hdr->flags = last_frag ? HTTP2_F_END_STREAM : 0;
-		frame_hdr->length = sz;
-		memcpy_fast(new_p + FRAME_HEADER_SIZE, p, sz);
-		sz += FRAME_HEADER_SIZE;
-		tfw_h2_pack_frame_header(new_p, frame_hdr);
+		memcpy_fast(new_p, p, sz);
 	}
 	else {
 		off = ((unsigned long)p & ~PAGE_MASK);
@@ -2486,7 +2480,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 			  unsigned long body_sz, bool h2, unsigned int stream_id)
 {
 	int r;
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
 	bool sh_frag = h2 ? false : true;
 
 	if (WARN_ON_ONCE(!it->skb_head))
@@ -2516,10 +2509,14 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 		if (f_size) {
 			f_size = min(body_sz, (unsigned long)f_size);
 			body_sz -= f_size;
-			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
-						    h2, !body_sz);
+			r = tfw_cache_add_body_page(it, p, f_size, h2,
+						    !body_sz);
 			if (r)
 				return r;
+			if (stream_id) {
+				skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+				skb_set_tfw_cb(it->skb, stream_id);
+			}
 		}
 		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
@@ -2807,8 +2804,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * the backend), thus the stream will be finished.
 	 */
 	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					    HTTP2_F_END_STREAM);
+		id = tfw_h2_stream_id_unlink(req, false, false);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);

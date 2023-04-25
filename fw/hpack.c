@@ -3619,7 +3619,7 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 	       s_idx.data);
 
 	if (use_pool)
-		return tfw_http_msg_expand_from_pool(mit, resp->pool, &s_idx);
+		return tfw_http_msg_expand_from_pool(resp, &s_idx);
 
 	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
 					&mit->start_off);
@@ -3635,7 +3635,6 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 {
 	int r;
 	TfwHPackInt vlen;
-	TfwHttpTransIter *mit = &resp->mit;
 	TfwStr s_name = {}, s_val = {}, s_vlen = {};
 
 	if (!hdr)
@@ -3659,16 +3658,14 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		s_nlen.data = nlen.buf;
 		s_nlen.len = nlen.sz;
 
-		r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_nlen);
+		r = tfw_http_msg_expand_from_pool(resp, &s_nlen);
 		if (unlikely(r))
 			return r;
 
 		if (trans)
-			r = tfw_http_msg_expand_from_pool_lc(mit, resp->pool,
-							     &s_name);
+			r = tfw_http_msg_expand_from_pool_lc(resp, &s_name);
 		else
-			r = tfw_http_msg_expand_from_pool(mit, resp->pool,
-							  &s_name);
+			r = tfw_http_msg_expand_from_pool(resp, &s_name);
 		if (unlikely(r))
 			return r;
 	}
@@ -3677,12 +3674,12 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	s_vlen.data = vlen.buf;
 	s_vlen.len = vlen.sz;
 
-	r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_vlen);
+	r = tfw_http_msg_expand_from_pool(resp, &s_vlen);
 
 	if (unlikely(r))
 		return r;
 	if (!TFW_STR_EMPTY(&s_val))
-		r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_val);
+		r = tfw_http_msg_expand_from_pool(resp, &s_val);
 
 	return r;
 }
@@ -3772,6 +3769,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
+	struct sk_buff *skb = resp->mit.iter.skb;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3808,7 +3806,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			return r;
 
 		resp->mit.acc_len += idx.sz * !use_pool;
-		return r;
+		goto set_skb_priv;
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3838,9 +3836,26 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 encode:
 	if (use_pool)
-		return tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
+		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
 	else
-		return tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+set_skb_priv:
+	BUG_ON(!resp->req);
+	if (likely(!r) && resp->req->stream) {
+		/*
+		 * Very long headers can be located in several skbs,
+		 * mark them all.
+		 */
+		while(skb && unlikely(skb != resp->mit.iter.skb)) {
+			skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS);
+			skb_set_tfw_cb(skb, resp->req->stream->id);
+			skb = skb->next;
+		}
+
+		skb_set_tfw_flags(resp->mit.iter.skb, SS_F_HTTT2_FRAME_HEADERS);
+		skb_set_tfw_cb(resp->mit.iter.skb, resp->req->stream->id);
+	}
+	return r;
 }
 
 int
@@ -3899,23 +3914,19 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 }
 
 int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
-			   unsigned int *bytes_wtitten)
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
+			   struct sk_buff *skb, TfwStream *stream,
+			   unsigned int mss_now, unsigned int *t_tz)
 {
-	TfwMsgIter it = { .frag = -1, .skb = skb, .skb_head = skb};
+	TfwMsgIter it = {
+		.skb = skb,
+		.skb_head = ((struct sk_buff *)&sk->sk_write_queue),
+		.frag = -1
+	};
 	TfwStr new_size = {};
 	TfwHPackInt tmp = {};
-	TfwFrameHdr hdr = {};
-	char *data = skb->data;
+	char *data;
 	int r = 0;
-
-	/*
-	 * Check header type. Sometimes because of skb splitting,
-	 * headers data can present here, but HTTP2_HEADERS code
-	 * (0x01) is not valid for headers data.
-	 */
-	if (skb->data[3] != HTTP2_HEADERS)
-		return 0;
 
 	/*
 	 * We should encode hpack dynamic table size, only in case when
@@ -3926,20 +3937,18 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
 		new_size.data = tmp.buf;
 		new_size.len = tmp.sz;
 	
-		r = tfw_msg_iter_move(&it, (unsigned char **)&data,
-				      FRAME_HEADER_SIZE);
+		data = tfw_http_iter_set_at_skb(&it, skb, FRAME_HEADER_SIZE);
+		if (!data) {
+			r = -E2BIG;
+			goto finish;
+		}
+
+		r = tfw_h2_insert_frame_header(sk, skb, stream, mss_now, &it,
+					       &data, &new_size, t_tz);
 		if (unlikely(r))
 			goto finish;
 
-		r = tfw_http_msg_insert(&it, &data, &new_size);
-		if (unlikely(r))
-			goto finish;
-
-		tfw_h2_unpack_frame_header(&hdr, skb->data);
-		hdr.length += tmp.sz;
-		tfw_h2_pack_frame_header(skb->data, &hdr);
-
-		*bytes_wtitten = tmp.sz;
+		stream->xmit.h_len += tmp.sz;
 	}
 
 finish:
