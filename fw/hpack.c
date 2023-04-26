@@ -131,9 +131,6 @@ static const TfwHPackEntry static_table[] ____cacheline_aligned = {
 
 #define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(static_table[0]))
 
-/* Limit for the HPACK variable-length integer. */
-#define HPACK_LIMIT			(1 << 20)
-
 /*
  * Estimated overhead associated with an encoder/decoder index entry (see
  * RFC 7541 section 4.1 for details).
@@ -181,6 +178,42 @@ do {								\
 	state |= (new);						\
 } while (0)
 
+/* Return static index of header by its name. Ignores pseudo-headers. */
+unsigned short
+tfw_hpack_find_hdr_idx(const TfwStr *hdr)
+{
+	unsigned short start = HPACK_S_TABLE_REGULAR,
+		       end = ARRAY_SIZE(static_table);
+	int result, fc;
+	const TfwStr *h;
+
+	if (!TFW_STR_DUP(hdr))
+		h = hdr;
+	else
+		h = hdr->chunks;
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->data));
+
+	while (start < end) {
+		unsigned short mid = start + (end - start) / 2;
+		const TfwStr *sh = static_table[mid].hdr;
+		int sc = *(unsigned char *)sh->chunks->data;
+
+		result = fc - sc;
+		if (!result)
+			result = tfw_stricmpspn(h, sh, ':');
+
+		if (result < 0)
+			end = mid;
+		else if (result > 0)
+			start = mid + 1;
+		else
+			/* Static table starts from first index */
+			return mid + 1;
+	}
+
+	return 0;
+}
+
 /*
  * Flexible integer decoding as specified in the HPACK RFC-7541. If the
  * variable-length integer greater than defined limit, this is the malformed
@@ -200,7 +233,7 @@ do {								\
 		__c = *src++;					\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
-		if ((x) > HPACK_LIMIT) {			\
+		if ((x) > HPACK_INT_LIMIT) {			\
 			r = T_DROP;				\
 			goto out;				\
 		}						\
@@ -221,7 +254,7 @@ do {								\
 	WARN_ON_ONCE(!x);					\
 	x += (__c & 127) << __m;				\
 	__m += 7;						\
-	if ((x) > HPACK_LIMIT) {				\
+	if ((x) > HPACK_INT_LIMIT) {				\
 		r = T_DROP;					\
 		goto out;					\
 	}							\
@@ -234,7 +267,7 @@ do {								\
 		__c = *src++;					\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
-		if ((x) > HPACK_LIMIT) {			\
+		if ((x) > HPACK_INT_LIMIT) {			\
 			r = T_DROP;				\
 			goto out;				\
 		}						\
