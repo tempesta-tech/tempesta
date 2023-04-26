@@ -30,6 +30,11 @@
 #define HPACK_TABLE_DEF_SIZE		4096
 #define HPACK_ENC_TABLE_MAX_SIZE	HPACK_TABLE_DEF_SIZE
 
+/* Limit for the HPACK variable-length integer. */
+#define HPACK_INT_LIMIT			(1 << 20)
+
+/* Static table offset where starts regular headers (not pseudo-headers) */
+#define HPACK_S_TABLE_REGULAR		14
 /**
  * Red-black tree node representation in the ring buffer.
  * Note, the field @hdr_len use only 15 bits and the 16th bit of unsigned
@@ -325,4 +330,25 @@ tfw_hpack_int_size(unsigned long index, unsigned short max)
 	return size;
 }
 
+static inline int
+tfw_hpack_decode_int(char **p, const char *last, unsigned int *val)
+{
+	char *src = *p;
+	unsigned int c, m = 0;
+
+	do {
+		if (src >= last)
+			return 0;
+		c = *src++;
+		*val += (c & 127) << m;
+		m += 7;
+		if (*val > HPACK_INT_LIMIT)
+			return -EINVAL;
+	} while (c > 127);
+
+	*p = src;
+
+	return 0;
+}
+unsigned short tfw_hpack_find_hdr_idx(const TfwStr *hdr);
 #endif /* __TFW_HPACK_H__ */
