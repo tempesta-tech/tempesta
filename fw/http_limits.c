@@ -662,17 +662,33 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		 */
 		if (TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
                     || tfw_strcmp(&authority, &host) != 0)
-                        return false;
+			frang_msg("Request :authority differs from Host",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+                        return TFW_BLOCK;
                 }
                 fallthrough;
 	case TFW_HTTP_VER_11:
                 /* Validate Forwarded header against picked authority
-                 * information */
+                 * information. This is common HTTP/1.1, HTTP/2 check. */
 		if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
 		    && frang_assert_host_header(&req->host, &fwd_trim)) {
 			frang_msg("Request authority differs from forwarded",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
+		}
+		/* This is pure HTTP/1.1 check, that would never trigger for
+		 * HTTP/2 because it cannot have an absolute URI */
+		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
+			TfwStr host;
+			tfw_http_msg_clnthdr_val(req,
+						&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+						TFW_HTTP_HDR_HOST, &host);
+			if (tfw_strcmp(&req->host, &host) != 0) {
+				frang_msg("Request host from absolute URI differs"
+					  " from Host header",
+					&FRANG_ACC2CLI(ra)->addr, "\n");
+				return TFW_BLOCK;
+			}
 		}
 		break;
 	/*
