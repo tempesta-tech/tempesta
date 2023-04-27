@@ -1311,6 +1311,12 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+	/*
+	 * TODO #1859:
+	 * This is hotfix to prevent crash when kernel
+	 * pass this skb to `skb_put`. Should be removed.
+	 */
+	skb->tail_lock = 0;
 
 	if (!skb_transport_header_was_set(skb)) {
 		/* Quick path for new skbs. */
