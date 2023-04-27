@@ -98,12 +98,16 @@ struct tfw_hdr_mods_desc_t {
 /**
  * Headers modification before forwarding HTTP message.
  *
- * @sz		- Number of headers to modify;
+ * @sz		- Total number of headers to modify;
+ * @spec_num	- Number of special headers to modify;
  * @hdrs	- Headers to modify;
+ * @spec_hdrs	- Lookup table of special headers;
  */
 struct tfw_hdr_mods_t {
 	size_t		sz;
+	size_t		spec_num;
 	TfwHdrModsDesc	*hdrs;
+	TfwHdrModsDesc	**spec_hdrs;
 };
 
 enum {
