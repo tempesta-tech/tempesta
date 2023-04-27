@@ -645,9 +645,29 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	BUG_ON(!req->h_tbl);
 
 	switch (req->version) {
-	/* host/authority equality is enforced in check_authority_correctness */
-	case TFW_HTTP_VER_20:
+	/* Note: host/authority equality is enforced in
+         * check_authority_correctness() */
+	case TFW_HTTP_VER_20: {
+		TfwStr authority, host;
+		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
+		                 &authority);
+		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
+		/* https://datatracker.ietf.org/doc/html/rfc9113#section-8.3.1
+		 * A server SHOULD treat a request as malformed if it contains
+		 * a Host header field that identifies an entity that differs
+		 * from the entity in the ":authority" pseudo-header field.
+                 *
+                 * Note: check_authority_correctness() already ensures that
+                 * at least one of :authority or Host headers are not empty.
+		 */
+		if (TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
+                    || tfw_strcmp(&authority, &host) != 0)
+                        return false;
+                }
+                fallthrough;
 	case TFW_HTTP_VER_11:
+                /* Validate Forwarded header against picked authority
+                 * information */
 		if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
 		    && frang_assert_host_header(&req->host, &fwd_trim)) {
 			frang_msg("Request authority differs from forwarded",
@@ -677,7 +697,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	}
 
 	/* Check that host header is not a IP address. */
-	if (!tfw_addr_pton(&req->host, &addr)) {
+	if (!TFW_STR_EMPTY(&req->host) && !tfw_addr_pton(&req->host, &addr)) {
 		frang_msg("Host header field contains IP address",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return TFW_BLOCK;

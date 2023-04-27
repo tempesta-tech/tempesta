@@ -209,42 +209,13 @@ host_val_eq(const TfwStr* host, const TfwHttpMatchRule *rule)
 	return tfw_rule_str_match(host, arg->str, arg->len, flags, rule->op);
 }
 
-static bool
-match_host_forwarded(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
-{
-	TfwStr host, *dup, *end;
-	TfwStr* hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
-
-	TFW_STR_INIT(&host);
-	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if (tfw_http_search_host_forwarded(dup, &host)) {
-			if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
-				return true;
-			if (host_val_eq(&host, rule))
-				return true;
-		}
-	}
-
-	return false;
-}
-
 /* This function is invoked after extract_req_host() has done its job, so we
  * rely on req->host being appropriately picked between absoluteURI,
  * Host and Authority headers. */
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	if (host_val_eq(&req->host, rule))
-		return true;
-	/* Detect if we had an absolute URI which MUST override any other
-	 * headers according to
-	 * RFC 7230 5.4: Host header must
-	 * be ignored when URI is absolute.
-	 */
-	if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags))
-		return false;
-	/* For non-absolute URI also check Forwarded header */
-	return match_host_forwarded(req, rule);
+	return host_val_eq(&req->host, rule);
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\

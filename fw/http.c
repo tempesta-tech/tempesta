@@ -5644,24 +5644,13 @@ check_authority_correctness(TfwHttpReq *req)
 		 * A client MUST send a Host header field in an HTTP/1.1
 		 * request even if the request-target is in the absolute-form
 		 */
-		return test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags) ||
-			!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);
-	case TFW_HTTP_VER_20: {
-		TfwStr authority, host;
-		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
-		                 &authority);
-		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
-		/* no-authority case */
-		if (TFW_STR_EMPTY(&authority) && TFW_STR_EMPTY(&host))
+		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags) &&
+		    TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
 			return false;
-		/* https://datatracker.ietf.org/doc/html/rfc9113#section-8.3.1
-		 * A server SHOULD treat a request as malformed if it contains
-		 * a Host header field that identifies an entity that differs
-		 * from the entity in the ":authority" pseudo-header field.
-		 */
-		return TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
-			|| tfw_strcmp(&authority, &host) == 0;
-		}
+		fallthrough;
+	case TFW_HTTP_VER_20:
+		/* HTTP/1.1 and HTTP/2 requires authority information */
+		return !TFW_STR_EMPTY(&req->host);
 	}
 	return true;
 }
