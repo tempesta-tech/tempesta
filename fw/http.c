@@ -3342,7 +3342,7 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 			 * processed it during cache reading, or if the header
 			 * is configured for deletion (without value chunk).
 			 */
-			if (test_bit(i, mit->found) || h_mdf.nchunks < 3)
+			if (h_mdf.nchunks < 3)
 				continue;
 			/* h_mdf->eolen is ignored, add explicit CRLF. */
 			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
@@ -4576,7 +4576,6 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			 bool cache)
 {
 	unsigned int i;
-	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
 
 	if (!h_mods)
@@ -4588,8 +4587,7 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 		unsigned short hid = desc->hid;
 
 		/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
-		if (test_bit(i, mit->found)
-		    || (TFW_STR_CHUNK(desc->hdr, 1) == NULL))
+		if (TFW_STR_CHUNK(desc->hdr, 1) == NULL)
 			continue;
 
 		if (unlikely(desc->append && !TFW_STR_EMPTY(&ht->tbl[hid])
@@ -4612,19 +4610,27 @@ static bool
 tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 {
 	unsigned int idx;
+	const TfwHdrModsDesc *desc;
 
 	if (!h_mods)
 		return false;
 
-	for (idx = 0; idx < h_mods->sz; ++idx) {
-		TfwHdrModsDesc *desc = &h_mods->hdrs[idx];
+	/* Fast path for special headers */
+	if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW) {
+		desc = h_mods->spec_hdrs[hid];
+		/* Skip only resp_hdr_set headers */
+		return desc ? !desc->append : false;
+	}
 
-		if (!desc->append && ((hid >= TFW_HTTP_HDR_RAW
-				       && !__hdr_name_cmp(hdr, desc->hdr))
-				      || hid == desc->hid))
-		{
+	for (idx = h_mods->spec_num; idx < h_mods->sz; ++idx) {
+		/* Don't touch pseudo-headers. */
+		if (hdr->hpack_idx > 0
+		    && hdr->hpack_idx <= HPACK_S_TABLE_REGULAR)
+			return false;
+
+		desc = &h_mods->hdrs[idx];
+		if (!desc->append && !__hdr_name_cmp(hdr, desc->hdr))
 			return true;
-		}
 	}
 
 	return false;
