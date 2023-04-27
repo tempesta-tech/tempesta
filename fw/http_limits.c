@@ -645,8 +645,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	BUG_ON(!req->h_tbl);
 
 	switch (req->version) {
-	/* Note: host/authority equality is enforced in
-         * check_authority_correctness() */
 	case TFW_HTTP_VER_20: {
 		TfwStr authority, host;
 		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
@@ -677,7 +675,8 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			return TFW_BLOCK;
 		}
 		/* This is pure HTTP/1.1 check, that would never trigger for
-		 * HTTP/2 because it cannot have an absolute URI */
+		 * HTTP/2 because it cannot have an absolute URI.
+		 * Also this MUST be removed after #1870 is complete*/
 		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
 			TfwStr host;
 			tfw_http_msg_clnthdr_val(req,
