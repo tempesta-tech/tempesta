@@ -1093,7 +1093,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		*/
 
 		/* Ensure presence and the value of Host: header field. */
-		if (f_cfg->http_host_required
+		if (f_cfg->http_strict_host_checking
 		    && (r = frang_http_host_check(req, ra)))
 		{
 			T_FSM_EXIT();
