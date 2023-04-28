@@ -638,6 +638,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	TfwAddr addr;
 	unsigned short port;
 	unsigned short real_port;
+	TfwStr authority, host;
 	TfwStr prim_trim = { 0 }, prim_name = { 0 }, /* primary source */
 	       fwd_trim = { 0 },  fwd_name = { 0 };
 
@@ -645,8 +646,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	BUG_ON(!req->h_tbl);
 
 	switch (req->version) {
-	case TFW_HTTP_VER_20: {
-		TfwStr authority, host;
+	case TFW_HTTP_VER_20:
 		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
 		                 &authority);
 		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
@@ -659,7 +659,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
                  * at least one of :authority or Host headers are not empty.
 		 */
 		if (!TFW_STR_EMPTY(&authority) && !TFW_STR_EMPTY(&host)
-                    && tfw_strcmp(&authority, &host) != 0)
+                    && tfw_strcmp(&authority, &host) != 0) {
 			frang_msg("Request :authority differs from Host",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
                         return TFW_BLOCK;
