@@ -6749,8 +6749,6 @@ cleanup:
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
 {
-	TfwStr host;
-
 	if (req->hash)
 		return req->hash;
 
@@ -6759,10 +6757,8 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &host);
-	if (!TFW_STR_EMPTY(&host))
-		req->hash ^= tfw_hash_str(&host);
+	if (!TFW_STR_EMPTY(&req->host))
+		req->hash ^= tfw_hash_str(&req->host);
 
 	return req->hash;
 }
