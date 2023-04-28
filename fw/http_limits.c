@@ -658,8 +658,8 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
                  * Note: check_authority_correctness() already ensures that
                  * at least one of :authority or Host headers are not empty.
 		 */
-		if (TFW_STR_EMPTY(&authority) || TFW_STR_EMPTY(&host)
-                    || tfw_strcmp(&authority, &host) != 0)
+		if (!TFW_STR_EMPTY(&authority) && !TFW_STR_EMPTY(&host)
+                    && tfw_strcmp(&authority, &host) != 0)
 			frang_msg("Request :authority differs from Host",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
                         return TFW_BLOCK;
