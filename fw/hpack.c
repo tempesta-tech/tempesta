@@ -219,7 +219,7 @@ tfw_hpack_find_hdr_idx(const TfwStr *hdr)
  * variable-length integer greater than defined limit, this is the malformed
  * request and we should drop the parsing process.
  */
-#define GET_FLEXIBLE_lambda(x, new_state, lambda)		\
+#define GET_FLEXIBLE(x, new_state)				\
 do {								\
 	unsigned int __m = 0;					\
 	unsigned int __c;					\
@@ -227,7 +227,6 @@ do {								\
 		if (src >= last) {				\
 			hp->shift = __m;			\
 			NEXT_STATE(new_state);			\
-			lambda;					\
 			goto out;				\
 		}						\
 		__c = *src++;					\
@@ -240,14 +239,11 @@ do {								\
 	} while (__c > 127);					\
 } while (0)
 
-#define GET_FLEXIBLE(x, new_state)				\
-	GET_FLEXIBLE_lambda(x, new_state, {})
-
 /* Continue decoding after interruption due to absence of the next fragment.
  * If the variable-length integer greater than defined limit, this is the
  * malformed request and we should drop the parsing process.
  */
-#define GET_CONTINUE_lambda(x, lambda)				\
+#define GET_CONTINUE(x)						\
 do {								\
 	unsigned int __m = hp->shift;				\
 	unsigned int __c = *src++;				\
@@ -261,7 +257,6 @@ do {								\
 	while (__c > 127) {					\
 		if (src >= last) {				\
 			hp->shift = __m;			\
-			lambda;					\
 			goto out;				\
 		}						\
 		__c = *src++;					\
@@ -272,11 +267,7 @@ do {								\
 			goto out;				\
 		}						\
 	}							\
-	lambda;							\
 } while (0)
-
-#define GET_CONTINUE(x)						\
-	GET_CONTINUE_lambda(x, {})
 
 #define SET_NEXT()						\
 do {								\

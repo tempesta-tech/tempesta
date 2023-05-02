@@ -837,7 +837,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 	tfw_cache_write_actor_t *write_actor;
 	TfwCStr *s = (TfwCStr *)*p;
 	TfwHttpReq *req = resp->req;
-	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip};
+	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip };
 	int d, dn, r = 0;
 
 	BUG_ON(!req);
