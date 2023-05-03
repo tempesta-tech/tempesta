@@ -5712,8 +5712,8 @@ next_msg:
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BAD;
 	case TFW_BAD:
-		tfw_http_req_parse_drop(req, 403,
-			"frang: Request authority is unknown");
+		tfw_http_req_parse_drop(req, 400,
+			"Invalid authority");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
