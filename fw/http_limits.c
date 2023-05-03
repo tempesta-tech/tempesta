@@ -685,7 +685,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			if (tfw_strcmp(&req->host, &host) != 0) {
 				frang_msg("Request host from absolute URI differs"
 					  " from Host header",
-					&FRANG_ACC2CLI(ra)->addr, "\n");
+					  &FRANG_ACC2CLI(ra)->addr, "\n");
 				return TFW_BLOCK;
 			}
 		}

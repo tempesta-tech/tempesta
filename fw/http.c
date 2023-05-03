@@ -5627,7 +5627,6 @@ extract_req_host(TfwHttpReq *req)
 		 * and instead use the host information of the request-target.
 		 */
 		if (TFW_STR_EMPTY(&req->host)) {
-			hid = TFW_HTTP_HDR_HOST;
 			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
 						 TFW_HTTP_HDR_HOST,
 						 &req->host);
