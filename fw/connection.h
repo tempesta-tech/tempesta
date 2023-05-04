@@ -478,6 +478,7 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 	sk->sk_state_change = NULL;
 	sk->sk_prepare_xmit = NULL;
 	sk->sk_write_xmit = NULL;
+	sk->sk_destroy_cb = NULL;
 
 	sk->sk_user_data = NULL;
 }

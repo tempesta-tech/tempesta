@@ -794,10 +794,10 @@ index 000000000..8e9b6af75
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 261195598..afbffef91 100644
+index 261195598..456f6bd50 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
-@@ -506,6 +506,18 @@ struct sock {
+@@ -506,6 +506,19 @@ struct sock {
  	void			(*sk_state_change)(struct sock *sk);
  	void			(*sk_data_ready)(struct sock *sk);
  	void			(*sk_write_space)(struct sock *sk);
@@ -812,11 +812,12 @@ index 261195598..afbffef91 100644
 +						 unsigned int mss_now,
 +						 unsigned int limit,
 +						 unsigned int skbs);
++	void			(*sk_destroy_cb)(struct sock *sk);
 +#endif
  	void			(*sk_error_report)(struct sock *sk);
  	int			(*sk_backlog_rcv)(struct sock *sk,
  						  struct sk_buff *skb);
-@@ -861,6 +873,9 @@ enum sock_flags {
+@@ -861,6 +874,9 @@ enum sock_flags {
  	SOCK_TXTIME,
  	SOCK_XDP, /* XDP is attached */
  	SOCK_TSTAMP_NEW, /* Indicates 64 bit timestamps always */
@@ -826,7 +827,24 @@ index 261195598..afbffef91 100644
  };
  
  #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
-@@ -1915,8 +1930,7 @@ static inline bool sk_rethink_txhash(struct sock *sk)
+@@ -1081,6 +1097,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
+ 		__rc;							\
+ 	})
+ 
++/**
++ * sk_stream_closing - Return 1 if we still have things to send in our buffers.
++ * @sk: socket to verify
++ */
++static inline int sk_stream_closing(struct sock *sk)
++{
++	return (1 << sk->sk_state) &
++	       (TCPF_FIN_WAIT1 | TCPF_CLOSING | TCPF_LAST_ACK);
++}
++
+ int sk_stream_wait_connect(struct sock *sk, long *timeo_p);
+ int sk_stream_wait_memory(struct sock *sk, long *timeo_p);
+ void sk_stream_wait_close(struct sock *sk, long timeo_p);
+@@ -1915,8 +1941,7 @@ static inline bool sk_rethink_txhash(struct sock *sk)
  static inline struct dst_entry *
  __sk_dst_get(struct sock *sk)
  {
@@ -2046,6 +2064,27 @@ index 1301ea694..b36b9bde9 100644
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end = size;
  #else
+diff --git a/net/core/stream.c b/net/core/stream.c
+index 4f1d4aa5f..47ce31da5 100644
+--- a/net/core/stream.c
++++ b/net/core/stream.c
+@@ -83,16 +83,6 @@ int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
+ }
+ EXPORT_SYMBOL(sk_stream_wait_connect);
+ 
+-/**
+- * sk_stream_closing - Return 1 if we still have things to send in our buffers.
+- * @sk: socket to verify
+- */
+-static inline int sk_stream_closing(struct sock *sk)
+-{
+-	return (1 << sk->sk_state) &
+-	       (TCPF_FIN_WAIT1 | TCPF_CLOSING | TCPF_LAST_ACK);
+-}
+-
+ void sk_stream_wait_close(struct sock *sk, long timeout)
+ {
+ 	if (timeout) {
 diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
 index 1dfa561e8..2ba1ce470 100644
 --- a/net/ipv4/inet_connection_sock.c
@@ -2138,7 +2177,7 @@ index 97975bed4..672f21290 100644
  	skb_reset_network_header(skb2);
  	skb2->transport_header = skb2->network_header + state->hlen;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
-index 2384ac048..920b1f01f 100644
+index 2384ac048..9939c65e5 100644
 --- a/net/ipv4/tcp.c
 +++ b/net/ipv4/tcp.c
 @@ -322,6 +322,7 @@ DEFINE_STATIC_KEY_FALSE(tcp_rx_skb_cache_key);
@@ -2261,6 +2300,24 @@ index 2384ac048..920b1f01f 100644
  
  int tcp_disconnect(struct sock *sk, int flags)
  {
+@@ -4052,10 +4070,15 @@ void tcp_done(struct sock *sk)
+ 
+ 	sk->sk_shutdown = SHUTDOWN_MASK;
+ 
+-	if (!sock_flag(sk, SOCK_DEAD))
++	if (!sock_flag(sk, SOCK_DEAD)) {
+ 		sk->sk_state_change(sk);
+-	else
++	} else {
++#ifdef CONFIG_SECURITY_TEMPESTA
++		if (sk->sk_destroy_cb)
++			sk->sk_destroy_cb(sk);
++#endif
+ 		inet_csk_destroy_sock(sk);
++	}
+ }
+ EXPORT_SYMBOL_GPL(tcp_done);
+ 
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
 index fac5c1469..623d4f33e 100644
 --- a/net/ipv4/tcp_input.c
@@ -2321,7 +2378,7 @@ index ab8ed0fc4..e260a0af6 100644
  		goto put_and_exit;
  	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash),
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..96baffec4 100644
+index f99494637..1c8fbe94a 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2620,7 +2677,15 @@ index f99494637..96baffec4 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3454,6 +3571,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -3421,6 +3538,7 @@ void tcp_send_fin(struct sock *sk)
+ 	}
+ 	__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
+ }
++EXPORT_SYMBOL(tcp_send_fin);
+ 
+ /* We get here when a process closes a file descriptor (either due to
+  * an explicit close() or as a byproduct of exit()'ing) and there
+@@ -3454,6 +3572,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  	 */
  	trace_tcp_send_reset(sk, NULL);
  }
@@ -2628,7 +2693,7 @@ index f99494637..96baffec4 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
-@@ -4030,6 +4148,9 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4030,6 +4149,9 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  
  	skb = tcp_send_head(sk);
  	if (skb && before(TCP_SKB_CB(skb)->seq, tcp_wnd_end(tp))) {
@@ -2638,7 +2703,7 @@ index f99494637..96baffec4 100644
  		int err;
  		unsigned int mss = tcp_current_mss(sk);
  		unsigned int seg_size = tcp_wnd_end(tp) - TCP_SKB_CB(skb)->seq;
-@@ -4037,6 +4158,12 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4037,6 +4159,12 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  		if (before(tp->pushed_seq, TCP_SKB_CB(skb)->end_seq))
  			tp->pushed_seq = TCP_SKB_CB(skb)->end_seq;
  
@@ -2651,7 +2716,7 @@ index f99494637..96baffec4 100644
  		/* We are probing the opening of a window
  		 * but the window size is != 0
  		 * must have been a result SWS avoidance ( sender )
-@@ -4052,6 +4179,13 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4052,6 +4180,13 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  			tcp_set_skb_tso_segs(skb, mss);
  
  		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;

@@ -598,41 +598,8 @@ ss_do_close(struct sock *sk, int flags)
 		}
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
-	}
-	else if (tcp_close_state(sk)) {
-		/* The code below is taken from tcp_send_fin(), 5.10.35. */
-		struct sk_buff *skb, *tskb, *tail;
-		struct tcp_sock *tp = tcp_sk(sk);
-
-		tskb = tail = tcp_write_queue_tail(sk);
-		if (!tskb && tcp_under_memory_pressure(sk))
-			tskb = skb_rb_last(&sk->tcp_rtx_queue);
-
-		if (tskb) {
-			/* Send FIN with data if we have any. */
-			TCP_SKB_CB(tskb)->tcp_flags |= TCPHDR_FIN;
-			TCP_SKB_CB(tskb)->end_seq++;
-			tp->write_seq++;
-			if (!tail) {
-				WRITE_ONCE(tp->snd_nxt, tp->snd_nxt + 1);
-				goto adjudge_to_death;
-			}
-		}
-		else {
-			/* No data to send in the socket, allocate new skb. */
-			skb = alloc_skb_fclone(MAX_TCP_HEADER, sk->sk_allocation);
-			if (unlikely(!skb)) {
-				T_WARN("can't send FIN due to bad alloc");
-				goto adjudge_to_death;
-			}
-			INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
-			skb_reserve(skb, MAX_TCP_HEADER);
-			ss_forced_mem_schedule(sk, skb->truesize);
-			tcp_init_nondata_skb(skb, tp->write_seq,
-					     TCPHDR_ACK | TCPHDR_FIN);
-			tcp_queue_skb(sk, skb);
-		}
-		__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
+	} else if (tcp_close_state(sk)) {
+		tcp_send_fin(sk);
 	}
 
 adjudge_to_death:
@@ -1093,6 +1060,12 @@ ss_tcp_state_change(struct sock *sk)
 	}
 }
 
+static void
+ss_tcp_destroy_cb(struct sock *sk)
+{
+	ss_conn_drop_guard_exit(sk);
+}
+
 /**
  * Make data socket serviced by synchronous sockets.
  *
@@ -1113,6 +1086,7 @@ ss_set_callbacks(struct sock *sk)
 
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
+	sk->sk_destroy_cb = ss_tcp_destroy_cb;
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 
@@ -1390,8 +1364,14 @@ static void
 __sk_close_locked(struct sock *sk, int flags)
 {
 	ss_do_close(sk, flags);
+	if (!sk_stream_closing(sk)) {
+		ss_conn_drop_guard_exit(sk);
+	} else {
+		BUG_ON(!sock_flag(sk, SOCK_DEAD));
+		if (sk->sk_user_data)
+			SS_CONN_TYPE(sk) |= Conn_Closed;
+	}
 	bh_unlock_sock(sk);
-	ss_conn_drop_guard_exit(sk);
 	sock_put(sk); /* paired with ss_do_close() */
 }
 
@@ -1415,6 +1395,9 @@ ss_tx_action(void)
 
 		bh_lock_sock(sk);
 		if (sock_flag(sk, SOCK_DEAD)) {
+			if (sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closed)
+			    && (sw.flags & __SS_F_FORCE))
+				ss_conn_drop_guard_exit(sk);
 			/* We've closed the socket on earlier job. */
 			bh_unlock_sock(sk);
 			goto dead_sock;
