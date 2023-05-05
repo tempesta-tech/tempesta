@@ -17,8 +17,18 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+# if intcmp is supported use it
+ifeq ($(intcmp 1,0,,,y),y)
+test-gt = $(intcmp $(strip $1)0, $(strip $2)0,,,y)
+else
+test-gt = $(shell test $(strip $1)0 -gt $(strip $2)0 && echo y)
+endif
+
 TFW_CFLAGS = $(DEFINES) -Werror
 ifdef DEBUG
+	ifeq ($(call test-gt, 1, $(DEBUG)), y)
+		ERROR = "DEBUG must be greater than 0"
+	endif
 	TFW_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
