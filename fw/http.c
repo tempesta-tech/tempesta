@@ -3640,8 +3640,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwMsgParseIter *pit = &req->pit;
 	ssize_t h1_hdrs_sz;
 	TfwHttpHdrTbl *ht = req->h_tbl;
-	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
-	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
+	bool auth, host;
 	size_t pseudo_num;
 	TfwStr meth = {}, host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
@@ -3705,15 +3704,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
-
-	/* H2 client may use either authority or host header but at least one
-	 * is required for correct conversion.
-	 */
-	if (!auth && !host) {
-		T_WARN("Cant convert h2 request to http/1.1: no authority "
-		       "found\n");
-		return -EINVAL;
-	}
 
 	/*
 	 * First apply message modifications defined by admin in configuration
@@ -5602,7 +5592,7 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 }
 
 static void
-extract_req_host(TfwHttpReq *req)
+__extract_request_authority(TfwHttpReq *req)
 {
 	int hid = 0;
 	TfwStr *hdrs = req->h_tbl->tbl;
@@ -5635,7 +5625,7 @@ extract_req_host(TfwHttpReq *req)
 }
 
 static bool
-check_authority_correctness(TfwHttpReq *req)
+__check_authority_correctness(TfwHttpReq *req)
 {
 	switch (req->version) {
 	case TFW_HTTP_VER_11:
@@ -5652,6 +5642,19 @@ check_authority_correctness(TfwHttpReq *req)
 		return !TFW_STR_EMPTY(&req->host);
 	}
 	return true;
+}
+
+static int
+tfw_http_req_process_authority_host(TfwHttpReq *req)
+{
+	__extract_request_authority(req);
+
+	if (!__check_authority_correctness(req)) {
+		tfw_http_req_parse_drop(req, 400, "Invalid authority");
+		return TFW_BLOCK;
+	}
+
+	return 0;
 }
 
 /**
@@ -5797,12 +5800,9 @@ next_msg:
 		}
 	}
 
-	extract_req_host(req);
-	if (!check_authority_correctness(req))
-	{
-		tfw_http_req_parse_drop(req, 400, "Invalid authority");
-		return TFW_BLOCK;
-	}
+	if ((r = tfw_http_req_process_authority_host(req)))
+		return r;
+
 	/*
 	 * The message is fully parsed, the rest of the data in the
 	 * stream may represent another request or its part.
