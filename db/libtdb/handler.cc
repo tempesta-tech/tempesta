@@ -189,7 +189,7 @@ TdbHndl::msg_send(std::function<void (nlmsghdr *)> msg_build_cb)
  * ------------------------------------------------------------------------
  */
 void
-TdbHndl::alloc_trx_frame() noexcept
+TdbHndl::alloc_trx_frame()
 {
 	trx_.init();
 

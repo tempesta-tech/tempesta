@@ -103,7 +103,7 @@ public:
 private:
 	void advance_frame_offset(unsigned int &off) noexcept;
 	void lazy_buffer_alloc();
-	void alloc_trx_frame() noexcept;
+	void alloc_trx_frame();
 	void send_to_kernel();
 
 	void msg_recv(std::function<bool (nlmsghdr *)> msg_cb);
