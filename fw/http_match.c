@@ -209,51 +209,13 @@ host_val_eq(const TfwStr* host, const TfwHttpMatchRule *rule)
 	return tfw_rule_str_match(host, arg->str, arg->len, flags, rule->op);
 }
 
-static bool
-match_host_forwarded(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
-{
-	TfwStr host, *dup, *end;
-	TfwStr* hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
-
-	TFW_STR_INIT(&host);
-	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if (tfw_http_search_host_forwarded(dup, &host)) {
-			if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
-				return true;
-			if (host_val_eq(&host, rule))
-				return true;
-		}
-	}
-
-	return false;
-}
-
+/* This function is invoked after extract_req_host() has done its job, so we
+ * rely on req->host being appropriately picked between absoluteURI,
+ * Host and Authority headers. */
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	const TfwStr *host = &req->host;
-
-	/*
-	 * TODO #1630: replace with a single condition
-	 * on the authority special header.
-	 */
-	if (host->len > 0) {
-		/*
-		 * RFC 7230 5.4: Host header must
-		 * be ignored when URI is absolute.
-		 */
-		return host_val_eq(host, rule);
-	} else if (req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY].len > 0) {
-		return hdr_val_eq(req, rule, TFW_HTTP_HDR_H2_AUTHORITY);
-	}
-
-	if (hdr_val_eq(req, rule, TFW_HTTP_HDR_HOST))
-		return true;
-
-	if (match_host_forwarded(req, rule))
-		return true;
-
-	return false;
+	return host_val_eq(&req->host, rule);
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\

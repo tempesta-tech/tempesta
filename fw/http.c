@@ -725,7 +725,6 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	char *body_val = NULL;
 	const TfwStr *proto =
 		&protos[!!(TFW_CONN_PROTO(req->conn) & TFW_FSM_HTTPS)];
-	TfwStr host;
 	size_t cl_len, len, remaining, body_len = body ? body->len : 0;
 	char *status_line = tfw_http_resp_status_line(status);
 	int r;
@@ -756,24 +755,8 @@ do { 								\
 	if (!cl_len)
 		return TFW_BLOCK;
 
-	if (req->host.len) {
-		host = req->host;
-	} else {
-		/* Invalid id value */
-		unsigned id = TFW_HTTP_HDR_NUM;
-
-		if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
-			id = TFW_HTTP_HDR_H2_AUTHORITY;
-		else if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
-			id = TFW_HTTP_HDR_HOST;
-
-		if (id != TFW_HTTP_HDR_NUM)
-			tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[id],
-						 id, &host);
-	}
-
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
-	len = host.len + req->uri_path.len + body_len;
+	len = req->host.len + req->uri_path.len + body_len;
 	if (likely(len) < remaining) {
 		p = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE) + cl_len;
 	} else {
@@ -786,10 +769,10 @@ do { 								\
 		remaining = len + 1;
 	}
 
-	if (host.len) {
+	if (req->host.len) {
 		url.chunks[url.nchunks++] = *proto;
 		url.len += proto->len;
-		TFW_ADD_URL_CHUNK(&host);
+		TFW_ADD_URL_CHUNK(&req->host);
 	}
 
 	if (rmark->len) {
@@ -1501,8 +1484,6 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 	TfwStr *c, *end, *c2, *end2;
 	char *status_line;
 	size_t i = 0;
-	TfwStr *hdr;
-	TfwStr hdr_val;
 
 	tfw_http_prep_date(date_val);
 
@@ -1541,16 +1522,7 @@ do {									\
 			TFW_STRCPY(&req->uri_path);
 			break;
 		case TFW_HTTP_REDIR_HOST:
-			if (req->host.len) {
-				hdr_val = req->host;
-			} else {
-				hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
-				tfw_http_msg_clnthdr_val(req, hdr,
-							 TFW_HTTP_HDR_HOST,
-							 &hdr_val);
-			}
-
-			TFW_STRCPY(&hdr_val);
+			TFW_STRCPY(&req->host);
 			break;
 		default:
 			BUG();
@@ -3668,8 +3640,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwMsgParseIter *pit = &req->pit;
 	ssize_t h1_hdrs_sz;
 	TfwHttpHdrTbl *ht = req->h_tbl;
-	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
-	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
+	bool auth, host;
 	size_t pseudo_num;
 	TfwStr meth = {}, host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
@@ -3733,15 +3704,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
-
-	/* H2 client may use either authority or host header but at least one
-	 * is required for correct conversion.
-	 */
-	if (!auth && !host) {
-		T_WARN("Cant convert h2 request to http/1.1: no authority "
-		       "found\n");
-		return -EINVAL;
-	}
 
 	/*
 	 * First apply message modifications defined by admin in configuration
@@ -5629,6 +5591,72 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
+static void
+__extract_request_authority(TfwHttpReq *req)
+{
+	int hid = 0;
+	TfwStr *hdrs = req->h_tbl->tbl;
+
+	if (TFW_MSG_H2(req)) {
+		/* RFC 9113, sec-8.3.1:
+		 * The recipient of an HTTP/2 request MUST NOT use
+		 * the Host header field to determine the target
+		 * URI if ":authority" is present.*/
+		if (!TFW_STR_EMPTY(&hdrs[TFW_HTTP_HDR_H2_AUTHORITY]))
+			hid = TFW_HTTP_HDR_H2_AUTHORITY;
+		else
+			hid = TFW_HTTP_HDR_HOST;
+		__h2_msg_hdr_val(&hdrs[hid], &req->host);
+	} else {
+		/* req->host can be only filled by HTTP/1.x parser from
+		 * absoluteURI, so we act as described by RFC 9112, sec-3.2.2
+		 * (https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2):
+		 * When an origin server receives a request with an
+		 * absolute-form of request-target, the origin server
+		 * MUST ignore the received Host header field (if any)
+		 * and instead use the host information of the request-target.
+		 */
+		if (TFW_STR_EMPTY(&req->host)) {
+			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
+						 TFW_HTTP_HDR_HOST,
+						 &req->host);
+		}
+	}
+}
+
+static bool
+__check_authority_correctness(TfwHttpReq *req)
+{
+	switch (req->version) {
+	case TFW_HTTP_VER_11:
+		/* https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2
+		 * A client MUST send a Host header field in an HTTP/1.1
+		 * request even if the request-target is in the absolute-form
+		 */
+		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags) &&
+		    TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
+			return false;
+		fallthrough;
+	case TFW_HTTP_VER_20:
+		/* HTTP/1.1 and HTTP/2 requires authority information */
+		return !TFW_STR_EMPTY(&req->host);
+	}
+	return true;
+}
+
+static int
+tfw_http_req_process_authority_host(TfwHttpReq *req)
+{
+	__extract_request_authority(req);
+
+	if (!__check_authority_correctness(req)) {
+		tfw_http_req_parse_drop(req, 400, "Invalid authority");
+		return TFW_BLOCK;
+	}
+
+	return 0;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -5685,6 +5713,10 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BAD;
+	case TFW_BAD:
+		tfw_http_req_parse_drop(req, 400,
+			"Invalid authority");
+		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -5767,6 +5799,9 @@ next_msg:
 			return TFW_BLOCK;
 		}
 	}
+
+	if ((r = tfw_http_req_process_authority_host(req)))
+		return r;
 
 	/*
 	 * The message is fully parsed, the rest of the data in the
@@ -6713,8 +6748,6 @@ cleanup:
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
 {
-	TfwStr host;
-
 	if (req->hash)
 		return req->hash;
 
@@ -6723,10 +6756,8 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &host);
-	if (!TFW_STR_EMPTY(&host))
-		req->hash ^= tfw_hash_str(&host);
+	if (!TFW_STR_EMPTY(&req->host))
+		req->hash ^= tfw_hash_str(&req->host);
 
 	return req->hash;
 }

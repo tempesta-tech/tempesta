@@ -1556,7 +1556,14 @@ get_value:
 
 			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
-				r = T_DROP;
+				switch (req->pit.tag) {
+				case TFW_TAG_HDR_HOST:
+				case TFW_TAG_HDR_H2_AUTHORITY:
+					r = T_BAD;
+					break;
+				default:
+					r = T_DROP;
+				}
 				goto out;
 			}
 

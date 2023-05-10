@@ -969,22 +969,15 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
-	TfwStr host_val, *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 
 	if ((req->method != TFW_HTTP_METH_PURGE) && (ce->method != req->method))
 		return false;
 
-	/*
-	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
-	 * strict comparison.
-	 */
-	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
-
-	if (req->uri_path.len + host_val.len != ce->key_len)
+	if (req->uri_path.len + req->host.len != ce->key_len)
 		return false;
 
 	t_off = CE_BODY_SIZE;
-	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &host_val, u_end, h_start,
+	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->host, u_end, h_start,
 			      h_end)
 	{
 		if (!trec)
@@ -1812,7 +1805,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	long n, etag_off = 0;
 	TfwHttpReq *req = resp->req;
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
-	TfwStr h_val, *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	TfwStr val_srv = TFW_STR_STRING(TFW_SERVER);
 	TfwStr val_via = {
 		.chunks = (TfwStr []) {
@@ -1840,8 +1832,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
 	 * strict comparison.
 	 */
-	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &h_val);
-	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &h_val, end1, h, end2) {
+	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->host, end1, h, end2) {
 		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
 			T_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
@@ -2116,18 +2107,16 @@ __cache_entry_size(TfwHttpResp *resp)
 {
 #define INDEX_SZ 2
 
-	TfwStr host_val, *hdr, *hdr_end;
+	TfwStr *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
 	long size, res_size = CE_BODY_SIZE;
-	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
 	TfwCaTokenArray hdr_del_tokens =
 			tfw_vhost_get_capo_hdr_del(req->location, req->vhost);
 	/* Add compound key size */
 	res_size += req->uri_path.len;
-	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
-	res_size += host_val.len;
+	res_size += req->host.len;
 
 	/*
 	 * Add the length of ':status' pseudo-header: one byte if fully indexed,

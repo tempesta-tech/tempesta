@@ -5870,6 +5870,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	 */
 	__FSM_STATE(Req_UriAuthorityStart, cold) {
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			__set_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags);
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (likely(c == '/')) {
@@ -5883,6 +5884,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			req->host.flags |= TFW_STR_COMPLETE;
 			__FSM_JMP(Req_UriMark);
 		} else if (c == '[') {
+			__set_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags);
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
@@ -10682,8 +10684,6 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	req->body.flags |= TFW_STR_COMPLETE;
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
-	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
-			 &req->host);
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PATH],
 			 &req->uri_path);
 

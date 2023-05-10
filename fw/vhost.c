@@ -2206,14 +2206,14 @@ tfw_cfgop_frang_hdr_cnt(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_frang_host_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_strict_host_checking(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_host_required)
+	if (ce->dflt_value && cfg->http_strict_host_checking)
 		return 0;
-	cs->dest = &cfg->http_host_required;
+	cs->dest = &cfg->http_strict_host_checking;
 	r = tfw_cfg_set_bool(cs, ce);
 	cs->dest = NULL;
 	return r;
@@ -2807,9 +2807,9 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "http_host_required",
+		.name = "http_strict_host_checking",
 		.deflt = "true",
-		.handler = tfw_cfgop_frang_host_required,
+		.handler = tfw_cfgop_frang_strict_host_checking,
 		.allow_reconfig = true,
 	},
 	{
@@ -2959,9 +2959,9 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "http_host_required",
+		.name = "http_strict_host_checking",
 		.deflt = "true",
-		.handler = tfw_cfgop_frang_host_required,
+		.handler = tfw_cfgop_frang_strict_host_checking,
 		.allow_reconfig = true,
 	},
 	{
