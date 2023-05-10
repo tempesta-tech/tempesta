@@ -679,6 +679,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		 * Also this MUST be removed after #1870 is complete*/
 		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
 			TfwStr host;
+
 			tfw_http_msg_clnthdr_val(req,
 						&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 						TFW_HTTP_HDR_HOST, &host);
