@@ -2591,6 +2591,20 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	if (unlikely(!hm))
 		return NULL;
 
+	if (TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2 && type & Conn_Clnt) {
+		TfwHttpReq *req_prev;
+		TfwCliConn *cli_conn = (TfwCliConn *)conn;
+		struct list_head *seq_queue = &cli_conn->seq_queue;
+
+		req_prev = list_empty(seq_queue) ? NULL :
+			list_last_entry(seq_queue, TfwHttpReq, msg.seq_list);
+		if (req_prev && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+					 req_prev->flags))
+		{
+			goto clean;
+		}
+	}
+
 	hm->conn = conn;
 	tfw_connection_get(conn);
 	hm->stream = stream;
@@ -4143,6 +4157,12 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		T_DBG2("%s: The client was disconnected, drop resp and req: "
 		       "conn=[%p]\n",
 			 __func__, cli_conn);
+		/*
+		 * Put the websocket server connection when client connection is
+		 * lost after successful upgrade request.
+		 */
+		if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
+			tfw_connection_put(cli_conn->pair);
 		tfw_connection_close(req->conn, true);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -4847,9 +4867,17 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	 * cache it can be dropped.
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
+		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+
 		T_DBG2("%s: resp=[%p] dropped: client disconnected\n",
 		       __func__, resp);
 		tfw_http_resp_pair_free(req);
+		/*
+		 * Put the websocket server connection when client connection is
+		 * lost after successful upgrade request.
+		 */
+		if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
+			tfw_connection_put(cli_conn->pair);
 		return;
 	}
 	/*
@@ -5777,6 +5805,9 @@ next_msg:
 	 */
 	if (parsed < skb->len) {
 		WARN_ON_ONCE(TFW_MSG_H2(req));
+		/* Don't pipeline anything after UPGRADE request. */
+		if (test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags))
+			return TFW_BLOCK;
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -6501,6 +6532,9 @@ next_msg:
 	 * connection and its corresponding freeing.
 	 */
 	if (websocket) {
+		/* Don't upgrade if client connection has been closed. */
+		if (test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags))
+			return TFW_BAD;
 		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
 		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
