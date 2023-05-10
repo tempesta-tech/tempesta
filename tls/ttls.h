@@ -540,6 +540,10 @@ typedef struct tls_handshake_t TlsHandshake;
  * @nb_zero	-  # of 0-length encrypted messages;
  * @client_auth	- flag for client authentication (client side only);
  * @hostname	- expected peer CN for verification (and SNI if available);
+ * @sni		- stored name from SNI extension. Could be NULL, dynamically
+ *		  allocated or point to static buffer. Not NUL-terminated.
+ * @sni_len	- length of the SNI string
+ * @sni_buf	- static buffer for server name
  */
 typedef struct ttls_context {
 	struct sock		*sk;
@@ -550,6 +554,7 @@ typedef struct ttls_context {
 	const ttls_alpn_proto	*alpn_chosen;
 
 	unsigned int		state;
+	unsigned int		sni_len;
 
 	TlsIOCtx		io_in;
 	TlsIOCtx		io_out;
@@ -560,6 +565,8 @@ typedef struct ttls_context {
 	unsigned int		nb_zero;
 	int			client_auth;
 	char			*hostname;
+	char			*sni;
+	char			sni_buf[64];
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);

@@ -5627,6 +5627,18 @@ __extract_request_authority(TfwHttpReq *req)
 static bool
 __check_authority_correctness(TfwHttpReq *req)
 {
+	int conn_type = TFW_CONN_TYPE(req->conn)
+			& (TFW_FSM_HTTPS | TFW_FSM_WEBSOCKET);
+	if (conn_type == TFW_FSM_HTTPS) {
+		TlsCtx *tctx = tfw_tls_context(req->conn);
+
+		if (likely(tctx->sni != NULL) &&
+		    unlikely(!tfw_str_eq_cstr(&req->host,
+		                              tctx->sni, tctx->sni_len, 0))) {
+			return false;
+		}
+	}
+
 	switch (req->version) {
 	case TFW_HTTP_VER_11:
 		/* https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2

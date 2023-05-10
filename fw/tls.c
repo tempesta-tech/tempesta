@@ -564,6 +564,8 @@ tfw_tls_conn_dtor(void *c)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
+		if (tls->sni && tls->sni != tls->sni_buf)
+			kfree(tls->sni);
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
 			kfree_skb(skb);
 		while ((skb = ss_skb_dequeue(&tls->io_out.skb_list)))
@@ -819,6 +821,22 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			SNI_WARN("unknown server name '%.*s', reject connection.\n",
 				 PR_TFW_STR(&srv_name));
 			return -ENOENT;
+		}
+
+		/* Save server name for later validation with authority from requests */
+		if (likely(len <= sizeof(ctx->sni_buf))) {
+			ctx->sni_len = len;
+			ctx->sni = ctx->sni_buf;
+			memcpy_fast(ctx->sni_buf, data, len);
+		} else {
+			ctx->sni = kmalloc(len, GFP_KERNEL | GFP_NOWAIT);
+			if (unlikely(ctx->sni == NULL)) {
+				/* this is non-fatal, just warn about it */
+				SNI_WARN("Unable to allocate %zu bytes for server_name", len);
+			} else {
+				ctx->sni_len = len;
+				memcpy_fast(ctx->sni, data, len);
+			}
 		}
 	}
 	/*
