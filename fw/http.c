@@ -6650,7 +6650,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 int
 tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
-	TfwStream *stream = &((TfwConn *)conn)->stream;
+	TfwStream *stream = &conn->stream;
 
 	WARN_ON_ONCE(TFW_CONN_TLS(conn) && tfw_tls_context(conn)->alpn_chosen
 		     && tfw_tls_context(conn)->alpn_chosen->id
