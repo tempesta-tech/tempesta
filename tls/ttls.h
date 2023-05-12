@@ -554,6 +554,7 @@ typedef struct ttls_context {
 	const ttls_alpn_proto	*alpn_chosen;
 
 	unsigned int		state;
+	/* Invariant: if sni_len > sizeof(sni_buf), then sni != NULL */
 	unsigned int		sni_len;
 
 	TlsIOCtx		io_in;
@@ -565,8 +566,10 @@ typedef struct ttls_context {
 	unsigned int		nb_zero;
 	int			client_auth;
 	char			*hostname;
-	char			*sni;
-	char			sni_buf[64];
+	union {
+		char		*sni;
+		char		sni_buf[4];
+	};
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);

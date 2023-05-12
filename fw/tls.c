@@ -564,7 +564,7 @@ tfw_tls_conn_dtor(void *c)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
-		if (tls->sni && tls->sni != tls->sni_buf)
+		if (tls->sni_len > sizeof(tls->sni_buf))
 			kfree(tls->sni);
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
 			kfree_skb(skb);
@@ -829,7 +829,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			ctx->sni = ctx->sni_buf;
 			memcpy_fast(ctx->sni_buf, data, len);
 		} else {
-			ctx->sni = kmalloc(len, GFP_KERNEL | GFP_NOWAIT);
+			ctx->sni = kmalloc(len, GFP_ATOMIC);
 			if (unlikely(ctx->sni == NULL)) {
 				/* this is non-fatal, just warn about it */
 				SNI_WARN("Unable to allocate %zu bytes for server_name", len);
