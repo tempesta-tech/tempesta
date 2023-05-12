@@ -2591,20 +2591,6 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	if (unlikely(!hm))
 		return NULL;
 
-	if (TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2 && type & Conn_Clnt) {
-		TfwHttpReq *req_prev;
-		TfwCliConn *cli_conn = (TfwCliConn *)conn;
-		struct list_head *seq_queue = &cli_conn->seq_queue;
-
-		req_prev = list_empty(seq_queue) ? NULL :
-			list_last_entry(seq_queue, TfwHttpReq, msg.seq_list);
-		if (req_prev && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
-					 req_prev->flags))
-		{
-			goto clean;
-		}
-	}
-
 	hm->conn = conn;
 	tfw_connection_get(conn);
 	hm->stream = stream;
@@ -4121,6 +4107,13 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	}
 }
 
+static inline void
+__tfw_http_ws_connection_put(TfwCliConn *cli_conn)
+{
+	if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
+		tfw_connection_put(cli_conn->pair);
+}
+
 /*
  * Mark @resp as ready to transmit. Then, starting with the first request
  * in @seq_queue, pick consecutive requests that have response ready to
@@ -4161,8 +4154,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		 * Put the websocket server connection when client connection is
 		 * lost after successful upgrade request.
 		 */
-		if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
-			tfw_connection_put(cli_conn->pair);
+		__tfw_http_ws_connection_put(cli_conn);
 		tfw_connection_close(req->conn, true);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -4867,8 +4859,6 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	 * cache it can be dropped.
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
-		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-
 		T_DBG2("%s: resp=[%p] dropped: client disconnected\n",
 		       __func__, resp);
 		tfw_http_resp_pair_free(req);
@@ -4876,8 +4866,8 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 		 * Put the websocket server connection when client connection is
 		 * lost after successful upgrade request.
 		 */
-		if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
-			tfw_connection_put(cli_conn->pair);
+		__tfw_http_ws_connection_put((TfwCliConn *)req->conn);
+
 		return;
 	}
 	/*
@@ -5806,8 +5796,13 @@ next_msg:
 	if (parsed < skb->len) {
 		WARN_ON_ONCE(TFW_MSG_H2(req));
 		/* Don't pipeline anything after UPGRADE request. */
-		if (test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags))
+		if (test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_http_req_parse_block(req, 400, "Request dropped: "
+						 "Pipelined request received "
+						 "after UPGRADE request");
 			return TFW_BLOCK;
+		}
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -6532,9 +6527,6 @@ next_msg:
 	 * connection and its corresponding freeing.
 	 */
 	if (websocket) {
-		/* Don't upgrade if client connection has been closed. */
-		if (test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags))
-			return TFW_BAD;
 		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
 		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
@@ -6590,6 +6582,26 @@ bad_msg:
 	return TFW_BLOCK;
 }
 
+static inline int
+__tfw_upgrade_in_queue(TfwCliConn *cli_conn)
+{
+	TfwHttpReq *req_prev;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+
+	req_prev = list_empty(seq_queue) ? NULL :
+		list_last_entry(seq_queue, TfwHttpReq, msg.seq_list);
+	if (req_prev && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				 req_prev->flags))
+	{
+		T_WARN_ADDR("Request dropped: Pipelined request received after "
+			    "UPGRADE request", &cli_conn->peer->addr,
+			    TFW_NO_PORT);
+		return TFW_BAD;
+	}
+
+	return TFW_PASS;
+}
+
 /**
  * @return status (application logic decision) of the message processing.
  */
@@ -6597,17 +6609,19 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb)
 {
-	int r;
+	int r = TFW_BAD;
 	TfwHttpMsg *req;
 
 	if (WARN_ON_ONCE(!stream))
-		return TFW_BAD;
+		goto err;
 	if (unlikely(!stream->msg)) {
-		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
-		if (!stream->msg) {
-			__kfree_skb(skb);
-			return TFW_BAD;
+		if (TFW_CONN_TYPE(conn) & Conn_Clnt
+		    && (r = __tfw_upgrade_in_queue((TfwCliConn *)conn))) {
+			goto err;
 		}
+		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
+		if (!stream->msg)
+			goto err;
 		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg, skb);
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
@@ -6635,6 +6649,10 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
 	}
 
+	return r;
+
+err:
+	__kfree_skb(skb);
 	return r;
 }
 
