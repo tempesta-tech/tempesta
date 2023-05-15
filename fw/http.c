@@ -5643,7 +5643,8 @@ __check_authority_correctness(TfwHttpReq *req)
 		if (likely(tctx->sni_len != 0) &&
 		    unlikely(!tfw_str_eq_cstr(&req->host,
 		                              __get_sni_from_tls_ctx(tctx),
-					      tctx->sni_len, 0))) {
+		                              tctx->sni_len,
+		                              TFW_STR_EQ_CASEI))) {
 			return false;
 		}
 	}
