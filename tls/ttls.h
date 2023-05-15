@@ -516,6 +516,9 @@ typedef struct {
 /* Declarations of internal TLS data structures. */
 typedef struct tls_handshake_t TlsHandshake;
 
+/* Maximum allowed length of the server name */
+#define MAX_SNI_LEN 4096
+
 /**
  * TLS context.
  *

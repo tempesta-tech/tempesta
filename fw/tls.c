@@ -799,6 +799,12 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	if (WARN_ON_ONCE(ctx->peer_conf))
 		return -EBUSY;
 
+	if (unlikely(len > MAX_SNI_LEN)) {
+		SNI_WARN("Offered too long SNI: %zu bytes (%u max)",
+		         len, MAX_SNI_LEN);
+		return -ENOENT;
+	}
+
 	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
 
@@ -829,6 +835,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			ctx->sni = ctx->sni_buf;
 			memcpy_fast(ctx->sni_buf, data, len);
 		} else {
+			/* len is guaranteed to be <= MAX_SNI_LEN here */
 			ctx->sni = kmalloc(len, GFP_ATOMIC);
 			if (unlikely(ctx->sni == NULL)) {
 				/* this is non-fatal, just warn about it */
