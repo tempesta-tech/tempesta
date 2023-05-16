@@ -571,7 +571,7 @@ typedef struct ttls_context {
 	char			*hostname;
 	union {
 		char		*sni;
-		char		sni_buf[4];
+		char		sni_buf[32];
 	};
 } TlsCtx;
 
