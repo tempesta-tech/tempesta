@@ -392,6 +392,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	}
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
+	skb->truesize += tail_len;
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
