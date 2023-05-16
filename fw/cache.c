@@ -783,19 +783,10 @@ tfw_cache_skip_hdr(TfwCStr *str, char *p, const TfwHdrMods *h_mods)
 	if (str->idx) {
 		unsigned short hpack_idx = str->idx;
 
-		if (hpack_idx <= HPACK_S_TABLE_REGULAR)
+		if (hpack_idx <= HPACK_STATIC_TABLE_REGULAR)
 			return false;
 
-		for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
-			desc = &h_mods->hdrs[i];
-			if (desc->append)
-				continue;
-
-			if (desc->hdr->hpack_idx == hpack_idx)
-				return true;
-		}
-
-		return false;
+		return test_bit(hpack_idx, h_mods->s_tbl);
 	}
 
 	p++;

@@ -102,12 +102,15 @@ struct tfw_hdr_mods_desc_t {
  * @spec_num	- Number of special headers to modify;
  * @hdrs	- Headers to modify;
  * @spec_hdrs	- Lookup table of special headers;
+ * @s_tbl	- Bitmap of headers from static table. Static table index
+ * 		  equals to bit number of the bitmap;
  */
 struct tfw_hdr_mods_t {
 	size_t		sz;
 	size_t		spec_num;
 	TfwHdrModsDesc	*hdrs;
 	TfwHdrModsDesc	**spec_hdrs;
+	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES);
 };
 
 enum {

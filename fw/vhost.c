@@ -782,6 +782,8 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 	desc->hdr = hdr;
 	desc->append = append;
 	++h_mods->sz;
+	if (!append)
+		set_bit(hdr->hpack_idx, h_mods->s_tbl);
 
 	return 0;
 }

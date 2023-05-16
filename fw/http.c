@@ -4622,12 +4622,15 @@ tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 		return desc ? !desc->append : false;
 	}
 
-	for (idx = h_mods->spec_num; idx < h_mods->sz; ++idx) {
+	if (hdr->hpack_idx > 0) {
 		/* Don't touch pseudo-headers. */
-		if (hdr->hpack_idx > 0
-		    && hdr->hpack_idx <= HPACK_S_TABLE_REGULAR)
+		if (hdr->hpack_idx <= HPACK_STATIC_TABLE_REGULAR)
 			return false;
 
+		return test_bit(hdr->hpack_idx, h_mods->s_tbl);
+	}
+
+	for (idx = h_mods->spec_num; idx < h_mods->sz; ++idx) {
 		desc = &h_mods->hdrs[idx];
 		if (!desc->append && !__hdr_name_cmp(hdr, desc->hdr))
 			return true;
