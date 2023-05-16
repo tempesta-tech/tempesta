@@ -37,6 +37,7 @@
 #include "x509_crl.h"
 #include "dhm.h"
 #include "ecdh.h"
+#include "fw/http_types.h"
 
 /* The requested feature is not available. */
 #define TTLS_ERR_FEATURE_UNAVAILABLE		-0x7080
@@ -540,6 +541,7 @@ typedef struct tls_handshake_t TlsHandshake;
  * @nb_zero	-  # of 0-length encrypted messages;
  * @client_auth	- flag for client authentication (client side only);
  * @hostname	- expected peer CN for verification (and SNI if available);
+ * @vhost	- vhost selected by SNI
  */
 typedef struct ttls_context {
 	struct sock		*sk;
@@ -560,6 +562,7 @@ typedef struct ttls_context {
 	unsigned int		nb_zero;
 	int			client_auth;
 	char			*hostname;
+	TfwVhost		*vhost;
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);

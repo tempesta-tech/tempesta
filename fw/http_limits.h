@@ -169,6 +169,7 @@ struct frang_global_cfg_t {
  * @http_trailer_split  - Allow the same header appear in both
  *			  request header part and chunked trailer part;
  * @http_method_override - Allow method override in request headers.
+ * @http_allow_domain_fronting - Allow SNI/authority mismatch
  */
 struct frang_vhost_cfg_t {
 	unsigned long		http_methods_mask;
@@ -182,6 +183,7 @@ struct frang_vhost_cfg_t {
 
 	bool			http_ct_required;
 	bool			http_strict_host_checking;
+	bool			http_allow_domain_fronting;
 	bool			http_trailer_split;
 	bool			http_method_override;
 };

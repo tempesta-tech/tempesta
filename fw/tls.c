@@ -851,6 +851,8 @@ found:
 	}
 	/* Save processed server name as hash. */
 	ctx->sni_hash = len ? hash_calc(data, len) : 0;
+	/* Save vhost that had been selected by SNI */
+	ctx->vhost = vhost;
 
 	return 0;
 }

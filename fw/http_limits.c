@@ -688,6 +688,28 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return TFW_PASS;
 }
 
+static int
+frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
+{
+	TlsCtx *tctx;
+
+	if ((TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS) == 0)
+		return TFW_PASS;
+
+	tctx = tfw_tls_context(req->conn);
+
+	if (tctx->vhost != req->vhost) {
+		frang_msg("vhost by SNI doesn't match vhost"
+		          " by authority",
+		          &FRANG_ACC2CLI(ra)->addr,
+		          "('%.*s' vs '%.*s')\n",
+		          PR_TFW_STR(&tctx->vhost->name),
+		          PR_TFW_STR(&req->vhost->name));
+		return TFW_BLOCK;
+	}
+	return TFW_PASS;
+}
+
 /*
  * The GFSM states aren't hookable, so don't open the states definitions and
  * only start and finish states are present.
@@ -1047,6 +1069,12 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		/* Ensure presence and the value of Host: header field. */
 		if (f_cfg->http_strict_host_checking
 		    && (r = frang_http_host_check(req, ra)))
+		{
+			T_FSM_EXIT();
+		}
+		/* Optional protection against domain fronting attacks */
+		if (!f_cfg->http_allow_domain_fronting
+		    && (r = frang_http_domain_fronting_check(req, ra)))
 		{
 			T_FSM_EXIT();
 		}
