@@ -5624,31 +5624,9 @@ __extract_request_authority(TfwHttpReq *req)
 	}
 }
 
-static char*
-__get_sni_from_tls_ctx(TlsCtx *tctx)
-{
-	return likely(tctx->sni_len <= sizeof(tctx->sni_buf))
-		? tctx->sni_buf
-		: tctx->sni;
-}
-
 static bool
 __check_authority_correctness(TfwHttpReq *req)
 {
-	int conn_type = TFW_CONN_TYPE(req->conn)
-			& (TFW_FSM_HTTPS | TFW_FSM_WEBSOCKET);
-	if (conn_type == TFW_FSM_HTTPS) {
-		TlsCtx *tctx = tfw_tls_context(req->conn);
-
-		if (likely(tctx->sni_len != 0) &&
-		    unlikely(!tfw_str_eq_cstr(&req->host,
-		                              __get_sni_from_tls_ctx(tctx),
-		                              tctx->sni_len,
-		                              TFW_STR_EQ_CASEI))) {
-			return false;
-		}
-	}
-
 	switch (req->version) {
 	case TFW_HTTP_VER_11:
 		/* https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2

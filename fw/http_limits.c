@@ -738,6 +738,40 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return TFW_PASS;
 }
 
+static char*
+__get_sni_from_tls_ctx(TlsCtx *tctx)
+{
+	return likely(tctx->sni_len <= sizeof(tctx->sni_buf))
+		? tctx->sni_buf
+		: tctx->sni;
+}
+
+static int
+frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
+{
+	TlsCtx *tctx;
+
+	if ((TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS) == 0)
+		return TFW_PASS;
+
+	tctx = tfw_tls_context(req->conn);
+
+	if (likely(tctx->sni_len != 0) &&
+	    unlikely(!tfw_str_eq_cstr(&req->host,
+	                              __get_sni_from_tls_ctx(tctx),
+	                              tctx->sni_len,
+	                              TFW_STR_EQ_CASEI))) {
+		frang_msg("SNI doesn't match the request authority",
+		          &FRANG_ACC2CLI(ra)->addr,
+		          " ('%.*s' vs '%.*s')\n",
+		          (int)tctx->sni_len, __get_sni_from_tls_ctx(tctx),
+		          (int)req->host.len, req->host.data);
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
 /*
  * The GFSM states aren't hookable, so don't open the states definitions and
  * only start and finish states are present.
@@ -1096,6 +1130,12 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		/* Ensure presence and the value of Host: header field. */
 		if (f_cfg->http_strict_host_checking
 		    && (r = frang_http_host_check(req, ra)))
+		{
+			T_FSM_EXIT();
+		}
+		/* Optional protection against domain fronting attacks */
+		if (!f_cfg->http_allow_domain_fronting
+		    && (r = frang_http_domain_fronting_check(req, ra)))
 		{
 			T_FSM_EXIT();
 		}
