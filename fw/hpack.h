@@ -33,8 +33,11 @@
 /* Limit for the HPACK variable-length integer. */
 #define HPACK_INT_LIMIT			(1 << 20)
 
+/* Static table size. Defined by RFC 7541. */
+#define HPACK_STATIC_ENTRIES		61
+
 /* Static table offset where starts regular headers (not pseudo-headers) */
-#define HPACK_S_TABLE_REGULAR		14
+#define HPACK_STATIC_TABLE_REGULAR	14
 /**
  * Red-black tree node representation in the ring buffer.
  * Note, the field @hdr_len use only 15 bits and the 16th bit of unsigned

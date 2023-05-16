@@ -129,8 +129,6 @@ static const TfwHPackEntry static_table[] ____cacheline_aligned = {
 	HP_ENTRY_NAME("www-authenticate",	TFW_TAG_HDR_RAW)
 };
 
-#define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(static_table[0]))
-
 /*
  * Estimated overhead associated with an encoder/decoder index entry (see
  * RFC 7541 section 4.1 for details).
@@ -182,7 +180,7 @@ do {								\
 unsigned short
 tfw_hpack_find_hdr_idx(const TfwStr *hdr)
 {
-	unsigned short start = HPACK_S_TABLE_REGULAR,
+	unsigned short start = HPACK_STATIC_TABLE_REGULAR,
 		       end = ARRAY_SIZE(static_table);
 	int result, fc;
 	const TfwStr *h;
@@ -1101,6 +1099,8 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	TfwHPackETbl *et = &hp->enc_tbl;
 	TfwHPackDTbl *dt = &hp->dec_tbl;
 
+	BUILD_BUG_ON((sizeof(static_table) / sizeof(static_table[0])) !=
+		HPACK_STATIC_ENTRIES);
 	BUILD_BUG_ON(sizeof(TfwHPackNode) > HPACK_ENTRY_OVERHEAD
 		     || HPACK_ENC_TABLE_MAX_SIZE > SHRT_MAX);
 
