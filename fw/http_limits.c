@@ -699,12 +699,22 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	tctx = tfw_tls_context(req->conn);
 
 	if (tctx->vhost != req->vhost) {
+		BasicStr tls_name, req_name;
+		static BasicStr null_name = {"NULL", 4};
+
+		/* Special case of default vhosts */
+		if (req->vhost == NULL
+		    && tfw_vhost_is_default(tctx->vhost))
+			return TFW_PASS;
+
+		tls_name = tctx->vhost ? tctx->vhost->name : null_name;
+		req_name = req->vhost ? req->vhost->name : null_name;
 		frang_msg("vhost by SNI doesn't match vhost"
 		          " by authority",
 		          &FRANG_ACC2CLI(ra)->addr,
-		          "('%.*s' vs '%.*s')\n",
-		          PR_TFW_STR(&tctx->vhost->name),
-		          PR_TFW_STR(&req->vhost->name));
+		          " ('%.*s' vs '%.*s')\n",
+		          PR_TFW_STR(&tls_name),
+		          PR_TFW_STR(&req_name));
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
