@@ -1369,7 +1369,7 @@ __sk_close_locked(struct sock *sk, int flags)
 	} else {
 		BUG_ON(!sock_flag(sk, SOCK_DEAD));
 		if (sk->sk_user_data)
-			SS_CONN_TYPE(sk) |= Conn_Closed;
+			SS_CONN_TYPE(sk) |= Conn_Closing;
 	}
 	bh_unlock_sock(sk);
 	sock_put(sk); /* paired with ss_do_close() */
@@ -1395,7 +1395,7 @@ ss_tx_action(void)
 
 		bh_lock_sock(sk);
 		if (sock_flag(sk, SOCK_DEAD)) {
-			if (sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closed)
+			if (sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closing)
 			    && (sw.flags & __SS_F_FORCE))
 				ss_conn_drop_guard_exit(sk);
 			/* We've closed the socket on earlier job. */

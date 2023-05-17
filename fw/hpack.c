@@ -590,7 +590,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	for (;;) {
 		offset = hp->offset;
 		hp->offset = 0;
-		if (offset)
+		if (offset >= HT_SMALL)
 			goto ht_small;
 
 		for (;;) {
@@ -601,6 +601,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
+					hp->offset = offset;
 					return T_POSTPONE;
 				} else {
 					/*
