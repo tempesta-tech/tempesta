@@ -3042,6 +3042,12 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "http_allow_domain_fronting",
+		.deflt = "true",
+		.handler = tfw_cfgop_frang_allow_domain_fronting,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "http_ct_required",
 		.deflt = "false",
 		.handler = tfw_cfgop_frang_ct_required,

@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -699,22 +699,24 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	tctx = tfw_tls_context(req->conn);
 
 	if (tctx->vhost != req->vhost) {
+		TfwVhost *tls_vhost = tctx->vhost;
 		BasicStr tls_name, req_name;
 		static BasicStr null_name = {"NULL", 4};
 
+		/* An exotic case where TLS connection hasn't assigned
+		 * any vhost to the TlsCtx */
+		if (unlikely(tls_vhost == NULL))
+			return TFW_PASS;
 		/* Special case of default vhosts */
 		if (req->vhost == NULL
-		    && tfw_vhost_is_default(tctx->vhost))
+		    && tfw_vhost_is_default(tls_vhost))
 			return TFW_PASS;
 
-		tls_name = tctx->vhost ? tctx->vhost->name : null_name;
+		tls_name = tctx->vhost ? tls_vhost->name : null_name;
 		req_name = req->vhost ? req->vhost->name : null_name;
-		frang_msg("vhost by SNI doesn't match vhost"
-		          " by authority",
-		          &FRANG_ACC2CLI(ra)->addr,
-		          " ('%.*s' vs '%.*s')\n",
-		          PR_TFW_STR(&tls_name),
-		          PR_TFW_STR(&req_name));
+		frang_msg("vhost by SNI doesn't match vhost by authority",
+		          &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
+		          PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
