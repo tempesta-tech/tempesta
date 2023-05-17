@@ -106,8 +106,8 @@ struct tfw_hdr_mods_desc_t {
  * 		  equals to bit number of the bitmap;
  */
 struct tfw_hdr_mods_t {
-	size_t		sz;
-	size_t		spec_num;
+	unsigned int	sz;
+	unsigned int	spec_num;
 	TfwHdrModsDesc	*hdrs;
 	TfwHdrModsDesc	**spec_hdrs;
 	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES);
