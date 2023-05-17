@@ -2885,7 +2885,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	},
 	{
 		.name = "http_allow_domain_fronting",
-		.deflt = "false",
+		.deflt = "true",
 		.handler = tfw_cfgop_frang_allow_domain_fronting,
 		.allow_reconfig = true,
 	},
