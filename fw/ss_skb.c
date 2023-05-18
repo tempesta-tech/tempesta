@@ -145,7 +145,6 @@ __skb_data_address(struct sk_buff *skb, int *fragn)
 		return NULL;
 	if (skb_headlen(skb))
 		return skb->data;
-	WARN_ON_ONCE(!skb_is_nonlinear(skb));
 	if (skb_shinfo(skb)->nr_frags) {
 		*fragn = 0;
 		return skb_frag_address(&skb_shinfo(skb)->frags[0]);
@@ -750,7 +749,7 @@ done:
 
 	if (ret < 0)
 		return ret;
-	if ((it->data == NULL) || (it->skb == NULL))
+	if ((it->data == NULL && len >= 0) || (it->skb == NULL))
 		return -EFAULT;
 	it->len = max(0, len);
 
@@ -1018,7 +1017,10 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 			return r;
 		}
 		BUG_ON(r > len);
+
 		len -= r;
+		skb = it.skb;
+		ptr = it.data;
 	}
 
 	return 0;
@@ -1038,7 +1040,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 	struct sk_buff *skb, *next;
 	TfwStr *c, *cc, *end;
 	unsigned int next_len;
-	bool update;
+	bool update, is_single;
 	int _;
 
 	BUG_ON(tail < 0);
@@ -1051,11 +1053,14 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		}
 
 		skb = c->skb;
-		if (skb->next != skb_head) {
+		is_single = (skb == skb_head && skb->next == skb_head);
+
+		if (skb->next) {
 			next = skb->next;
 			next_len = next->len;
 		} else {
 			next = NULL;
+			next_len = 0;
 		}
 
 		bzero_fast(&it, sizeof(TfwStr));
@@ -1066,12 +1071,13 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		BUG_ON(r != c->len - skip);
 
 		skip = 0;
+
 		/*
 		 * No new skb was allocated and no fragments from current
 		 * skb were moved to the next one.
 		 */
 		if (likely(skb->next == next
-			   && (!next || next->len == next_len)))
+			   && (is_single || !next || next->len == next_len)))
 			continue;
 
 		/* Check if the new skb was allocated and update next skb. */
