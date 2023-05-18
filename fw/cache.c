@@ -826,16 +826,27 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 			 bool skip)
 {
 	tfw_cache_write_actor_t *write_actor;
-	TfwCStr *s = (TfwCStr *)*p;
+	TfwCStr *s;
 	TfwHttpReq *req = resp->req;
 	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip };
 	int d, dn, r = 0;
+
+/* Go to the next chunk if we at the end of current. */
+#define NEXT_CHUNK()							\
+do {									\
+	if (*p - (*trec)->data == (*trec)->len) {			\
+		*trec = tdb_next_rec_chunk(db, (*trec));		\
+		*p = (*trec)->data;					\
+	}								\
+} while (0)
 
 	BUG_ON(!req);
 
 	write_actor = !TFW_MSG_H2(req) ? tfw_cache_h2_decode_write
 				       : tfw_cache_h2_write;
 
+	NEXT_CHUNK();
+	s = (TfwCStr *)*p;
 	*p += TFW_CSTR_HDRLEN;
 	BUG_ON(*p > (*trec)->data + (*trec)->len);
 
@@ -855,6 +866,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 	/* Process duplicated headers. */
 	dn = s->len;
 	for (d = 0; d < dn; ++d) {
+		NEXT_CHUNK();
 		s = (TfwCStr *)*p;
 		BUG_ON(s->flags & TFW_CSTR_DUPLICATE);
 		*p += TFW_CSTR_HDRLEN;
