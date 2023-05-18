@@ -326,26 +326,5 @@ tfw_hpack_int_size(unsigned long index, unsigned short max)
 
 	return size;
 }
-
-static inline int
-tfw_hpack_decode_int(char **p, const char *last, unsigned int *val)
-{
-	char *src = *p;
-	unsigned int c, m = 0;
-
-	do {
-		if (src >= last)
-			return 0;
-		c = *src++;
-		*val += (c & 127) << m;
-		m += 7;
-		if (*val > HPACK_INT_LIMIT)
-			return -EINVAL;
-	} while (c > 127);
-
-	*p = src;
-
-	return 0;
-}
 unsigned short tfw_hpack_find_hdr_idx(const TfwStr *hdr);
 #endif /* __TFW_HPACK_H__ */
