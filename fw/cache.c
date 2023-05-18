@@ -187,12 +187,15 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
  * String header for cache entries used for TfwStr serialization.
  *
  * @flags	- TFW_CSTR_DUPLICATE and TFW_CSTR_HPACK_IDX or zero;
- * @len		- string length or number of duplicates;
+ * @name_len	- Header name length. Used for raw headers;
+ * @name_len_sz	- HPACK int size of @name_len;
  * @idx		- HPACK static index or index of special header;
  */
 typedef struct {
 	unsigned long	flags : 8,
-			len : 48,
+			name_len: 11,
+			name_len_sz : 2,
+			len : 35,
 			idx : 8;
 } TfwCStr;
 
@@ -766,12 +769,16 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 }
 
 static bool
-tfw_cache_skip_hdr(TfwCStr *str, char *p, const TfwHdrMods *h_mods)
+tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
 {
-	unsigned int len, i;
+	unsigned int i;
 	const TfwHdrModsDesc *desc;
-	const char *last = p + str->len;
-	TfwStr hdr = {};
+	/*
+	 * Move to beggining of the header name. Skip first byte of HPACK
+	 * string and name length size.
+	 */
+	TfwStr hdr = { .data = p + str->name_len_sz + 1,
+		       .len  = str->name_len };
 
 	/* Fast path for special headers */
 	if (str->flags & TFW_CSTR_SPEC_IDX) {
@@ -788,22 +795,6 @@ tfw_cache_skip_hdr(TfwCStr *str, char *p, const TfwHdrMods *h_mods)
 
 		return test_bit(hpack_idx, h_mods->s_tbl);
 	}
-
-	p++;
-	len = *p++ & 0x7F;
-
-	if (unlikely(len == 0))
-		return true;
-
-	if (unlikely(len == 0x7F)
-	    && unlikely(tfw_hpack_decode_int(&p, last, &len)))
-	{
-		T_WARN("Error while decoding hpack int");
-		return true;
-	}
-
-	hdr.data = p;
-	hdr.len = len;
 
 	for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
 		desc = &h_mods->hdrs[i];
@@ -1226,11 +1217,13 @@ do {						\
 	ce->hdr_len += TFW_CSTR_HDRLEN;		\
 } while (0)
 
-#define CSTR_WRITE_HDR(f, l, i)			\
-do {						\
-	cs->flags = f;				\
-	cs->len = l;				\
-	cs->idx = i;				\
+#define CSTR_WRITE_HDR(f, l, nl, i)			\
+do {							\
+	cs->flags = f;					\
+	cs->len = l;					\
+	cs->name_len = nl;				\
+	cs->name_len_sz = tfw_hpack_int_size(nl, 0x7f);	\
+	cs->idx = i;					\
 } while (0)
 
 /**
@@ -1549,9 +1542,11 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index) +
 			2 * need_extra_quotes;
 
-		/* Don't split short strings. */
+		/* Don't split short strings and header name. */
 		if (sizeof(TfwCStr) + h_len <= L1_CACHE_BYTES)
 			n += h_len;
+		else
+			n += s_nm.len;
 	}
 
 	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
@@ -1564,9 +1559,9 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 		CSTR_MOVE_HDR();
 		if (hid >= TFW_HTTP_HDR_REGULAR  && hid < TFW_HTTP_HDR_RAW)
 			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX | TFW_CSTR_DUPLICATE,
-				       hdr->nchunks, hid);
+				       hdr->nchunks, 0, hid);
 		else
-			CSTR_WRITE_HDR(TFW_CSTR_DUPLICATE, hdr->nchunks,
+			CSTR_WRITE_HDR(TFW_CSTR_DUPLICATE, hdr->nchunks, 0,
 				       st_index);
 	}
 
@@ -1578,6 +1573,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			TFW_STR_INIT(&s_val);
 			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
 			st_index = dup->hpack_idx;
+			*p = tdb_entry_get_room(node_db(), trec, *p,
+						n + s_nm.len, *tot_len);
 		}
 		CSTR_MOVE_HDR();
 		prev_len = ce->hdr_len;
@@ -1607,9 +1604,10 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 
 		if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW)
 			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX,
-				       ce->hdr_len - prev_len, hid);
+				       ce->hdr_len - prev_len, 0, hid);
 		else
-			CSTR_WRITE_HDR(0, ce->hdr_len - prev_len, st_index);
+			CSTR_WRITE_HDR(0, ce->hdr_len - prev_len, s_nm.len,
+				       st_index);
 	}
 
 	T_DBG3("%s: p=[%p], trec=[%p], ce->hdr_len='%u', tot_len='%zu'\n",
@@ -1660,7 +1658,7 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, val, tot_len))
 		return -ENOMEM;
 
-	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, st_idx);
+	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, 0, st_idx);
 
 	return ce->hdr_len - prev_len;
 }

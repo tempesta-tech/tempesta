@@ -3338,9 +3338,8 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 			TfwHttpTransIter *mit = &resp->mit;
 			TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 			/*
-			 * Skip the configured header if we have already
-			 * processed it during cache reading, or if the header
-			 * is configured for deletion (without value chunk).
+			 * Skip the configured header if the header is
+			 * configured for deletion (without value chunk).
 			 */
 			if (h_mdf.nchunks < 3)
 				continue;
