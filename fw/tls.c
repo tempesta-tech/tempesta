@@ -817,9 +817,14 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 
 		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
 			SNI_WARN("unknown server name '%.*s', reject connection.\n",
-				 PR_TFW_STR(&srv_name));
+				 (int)len, data);
 			return -ENOENT;
 		}
+		/* Save vhost that had been selected by SNI */
+		ctx->vhost = vhost;
+	} else {
+		/* No SNI => no vhost for later frang checks */
+		ctx->vhost = NULL;
 	}
 	/*
 	 * If accurate vhost is not found or client doesn't send sni extension,
@@ -851,8 +856,6 @@ found:
 	}
 	/* Save processed server name as hash. */
 	ctx->sni_hash = len ? hash_calc(data, len) : 0;
-	/* Save vhost that had been selected by SNI */
-	ctx->vhost = vhost;
 
 	return 0;
 }

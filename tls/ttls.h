@@ -540,7 +540,8 @@ typedef struct tls_handshake_t TlsHandshake;
  * @nb_zero	-  # of 0-length encrypted messages;
  * @client_auth	- flag for client authentication (client side only);
  * @hostname	- expected peer CN for verification (and SNI if available);
- * @vhost	- vhost selected by SNI (TfwVhost)
+ * @vhost	- vhost selected by SNI (TfwVhost*), NULL if no SNI extension
+ *		  had been sent by the client
  */
 typedef struct ttls_context {
 	struct sock		*sk;

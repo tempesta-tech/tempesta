@@ -586,6 +586,49 @@ frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
 	*name_only = hdr_name;
 }
 
+static bool
+frang_assert_host_header(const TfwStr *l, const TfwStr *r)
+{
+	if (TFW_STR_EMPTY(l) || TFW_STR_EMPTY(r))
+		return false;
+
+	return tfw_strcmp(l, r);
+}
+
+static int
+frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
+{
+	TlsCtx *tctx;
+
+	if ((TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS) == 0)
+		return TFW_PASS;
+
+	tctx = tfw_tls_context(req->conn);
+
+	if (tctx->vhost != req->vhost) {
+		TfwVhost *tls_vhost = tctx->vhost;
+		BasicStr tls_name, req_name;
+		static BasicStr null_name = {"NULL", 4};
+
+		/* An exotic case where TLS connection hasn't assigned
+		 * any vhost to the TlsCtx */
+		if (unlikely(tls_vhost == NULL))
+			return TFW_PASS;
+		/* Special case of default vhosts */
+		if (req->vhost == NULL
+		    && tfw_vhost_is_default(tls_vhost))
+			return TFW_PASS;
+
+		tls_name = tctx->vhost ? tls_vhost->name : null_name;
+		req_name = req->vhost ? req->vhost->name : null_name;
+		frang_msg("vhost by SNI doesn't match vhost by authority",
+		          &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
+		          PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
+		return TFW_BLOCK;
+	}
+	return TFW_PASS;
+}
+
 /**
  * Require host header in HTTP request (RFC 7230 5.4).
  * Block HTTP/1.1 requests w/o host header,
@@ -685,41 +728,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		return TFW_BLOCK;
 	}
 
-	return TFW_PASS;
-}
-
-static int
-frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
-{
-	TlsCtx *tctx;
-
-	if ((TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS) == 0)
-		return TFW_PASS;
-
-	tctx = tfw_tls_context(req->conn);
-
-	if (tctx->vhost != req->vhost) {
-		TfwVhost *tls_vhost = tctx->vhost;
-		BasicStr tls_name, req_name;
-		static BasicStr null_name = {"NULL", 4};
-
-		/* An exotic case where TLS connection hasn't assigned
-		 * any vhost to the TlsCtx */
-		if (unlikely(tls_vhost == NULL))
-			return TFW_PASS;
-		/* Special case of default vhosts */
-		if (req->vhost == NULL
-		    && tfw_vhost_is_default(tls_vhost))
-			return TFW_PASS;
-
-		tls_name = tctx->vhost ? tls_vhost->name : null_name;
-		req_name = req->vhost ? req->vhost->name : null_name;
-		frang_msg("vhost by SNI doesn't match vhost by authority",
-		          &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
-		          PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
-		return TFW_BLOCK;
-	}
-	return TFW_PASS;
+	return frang_http_domain_fronting_check(req, ra);
 }
 
 /*
@@ -1081,12 +1090,6 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		/* Ensure presence and the value of Host: header field. */
 		if (f_cfg->http_strict_host_checking
 		    && (r = frang_http_host_check(req, ra)))
-		{
-			T_FSM_EXIT();
-		}
-		/* Optional protection against domain fronting attacks */
-		if (!f_cfg->http_allow_domain_fronting
-		    && (r = frang_http_domain_fronting_check(req, ra)))
 		{
 			T_FSM_EXIT();
 		}

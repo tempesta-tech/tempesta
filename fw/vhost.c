@@ -2271,20 +2271,6 @@ tfw_cfgop_frang_strict_host_checking(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_frang_allow_domain_fronting(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
-
-	if (ce->dflt_value && cfg->http_allow_domain_fronting)
-		return 0;
-	cs->dest = &cfg->http_allow_domain_fronting;
-	r = tfw_cfg_set_bool(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
 tfw_cfgop_frang_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
@@ -2884,12 +2870,6 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "http_allow_domain_fronting",
-		.deflt = "true",
-		.handler = tfw_cfgop_frang_allow_domain_fronting,
-		.allow_reconfig = true,
-	},
-	{
 		.name = "http_ct_required",
 		.deflt = "false",
 		.handler = tfw_cfgop_frang_ct_required,
@@ -3039,12 +3019,6 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.name = "http_strict_host_checking",
 		.deflt = "true",
 		.handler = tfw_cfgop_frang_strict_host_checking,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_allow_domain_fronting",
-		.deflt = "true",
-		.handler = tfw_cfgop_frang_allow_domain_fronting,
 		.allow_reconfig = true,
 	},
 	{
