@@ -963,6 +963,9 @@ tfw_http_search_host_forwarded(const TfwStr *hdr, TfwStr *host_val)
 {
 	TfwStr *chunk, *end;
 	char stop = ';';
+	char *host[] = {"host=", "ost=", "st=", "t=", "="};
+	unsigned pos = 0;
+	unsigned len;
 
 	if (TFW_STR_EMPTY(hdr))
 		return false;
@@ -972,16 +975,24 @@ tfw_http_search_host_forwarded(const TfwStr *hdr, TfwStr *host_val)
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
 
-		if (tfw_str_eq_cstr(chunk, "host=", 5, TFW_HTTP_MATCH_O_EQ)) {
-			++chunk;
-			if (!(chunk->flags & TFW_STR_VALUE)) {
-			/* Skip quote and collect until next quote */
-				++chunk;
-				stop = '"';
-			}
-			tfw_str_collect_cmp(chunk, end, host_val, &stop);
+		BUG_ON(pos >= ARRAY_SIZE(host));
+		len = min(chunk->len, ARRAY_SIZE(host) - pos);
 
-			return true;
+		if (tfw_str_eq_cstr(chunk, host[pos], len, TFW_HTTP_MATCH_O_EQ)) {
+			pos += len;
+			if (pos == ARRAY_SIZE(host)) {
+				++chunk;
+				if (!(chunk->flags & TFW_STR_VALUE)) {
+				/* Skip quote and collect until next quote */
+					++chunk;
+					stop = '"';
+				}
+				tfw_str_collect_cmp(chunk, end, host_val, &stop);
+
+				return true;
+			}
+		} else {
+			pos = 0;
 		}
 	}
 
