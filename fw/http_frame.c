@@ -767,7 +767,7 @@ tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	 * closed queue.
 	 */
 	if (!stream->xmit.b_len) {
-		BUG_ON(stream->xmit.h_len);
+		WARN_ON_ONCE(stream->xmit.h_len);
 		queue = &ctx->closed_streams;
 		flags |= HTTP2_F_END_STREAM;
 	}
