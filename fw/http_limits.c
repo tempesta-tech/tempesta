@@ -920,6 +920,9 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	const TfwStr *field, *end, *dup, *dup_end;
 
+	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
+		return TFW_POSTPONE;
+
 	if (!test_bit(TFW_HTTP_B_CHUNKED_TRAILER, req->flags))
 		return TFW_PASS;
 	/*
@@ -938,8 +941,6 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	if (r)
 		return r;
 
-	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
-		return TFW_POSTPONE;
 	/*
 	 * Block request if the same header appear in both main and trailer
 	 * headers part. Some intermediates doesn't read trailers, so request
