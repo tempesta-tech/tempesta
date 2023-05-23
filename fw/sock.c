@@ -1060,12 +1060,6 @@ ss_tcp_state_change(struct sock *sk)
 	}
 }
 
-static void
-ss_tcp_destroy_cb(struct sock *sk)
-{
-	ss_conn_drop_guard_exit(sk);
-}
-
 /**
  * Make data socket serviced by synchronous sockets.
  *
@@ -1086,7 +1080,7 @@ ss_set_callbacks(struct sock *sk)
 
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_destroy_cb = ss_tcp_destroy_cb;
+	sk->sk_destroy_cb = ss_conn_drop_guard_exit;
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 

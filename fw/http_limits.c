@@ -526,38 +526,6 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 }
 
 /**
- * Get first host value from Forwarded header.
- *
- * Use first value, i.e it more likly will be value with origin host.
- *
- * @req		- request handle;
- * @trimmed	- trimmed host value without spaces.
- * @name_only	- host value without port component.
- * @return	- false if "host=" if not exists in header otherwise true.
- */
-static bool
-frang_get_host_forwarded(const TfwHttpReq *req, TfwStr *trimmed,
-			 TfwStr *name_only)
-{
-	TfwStr raw_val = req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
-	TfwStr  *dup, *end;
-	TfwStr fwd_host = { 0 };
-
-	if (TFW_STR_EMPTY(&raw_val))
-		return false;
-
-	TFW_STR_FOR_EACH_DUP(dup, &raw_val, end) {
-		if (tfw_http_search_host_forwarded(dup, &fwd_host)) {
-			*trimmed = fwd_host;
-			*name_only = fwd_host;
-			return true;
-		}
-	}
-
-	return false;
-}
-
-/**
  * Get Host value. Host can be defined:
  * - in h2 requests in Host header, in authority pseudo header. The latter SHOULD
  *   be used, but RFC 7540 still allows to use Host header.
@@ -618,15 +586,6 @@ frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
 	*name_only = hdr_name;
 }
 
-static bool
-frang_assert_host_header(const TfwStr *l, const TfwStr *r)
-{
-	if (TFW_STR_EMPTY(l) || TFW_STR_EMPTY(r))
-		return false;
-
-	return tfw_strcmp(l, r);
-}
-
 /**
  * Require host header in HTTP request (RFC 7230 5.4).
  * Block HTTP/1.1 requests w/o host header,
@@ -639,8 +598,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	unsigned short port;
 	unsigned short real_port;
 	TfwStr authority, host;
-	TfwStr prim_trim = { 0 }, prim_name = { 0 }, /* primary source */
-	       fwd_trim = { 0 },  fwd_name = { 0 };
+	TfwStr prim_trim = { 0 }, prim_name = { 0 }; /* primary source */
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
@@ -664,16 +622,8 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
                         return TFW_BLOCK;
                 }
-                fallthrough;
+                break;
 	case TFW_HTTP_VER_11:
-                /* Validate Forwarded header against picked authority
-                 * information. This is common HTTP/1.1, HTTP/2 check. */
-		if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
-		    && frang_assert_host_header(&req->host, &fwd_trim)) {
-			frang_msg("Request authority differs from forwarded",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
 		/* This is pure HTTP/1.1 check, that would never trigger for
 		 * HTTP/2 because it cannot have an absolute URI.
 		 * Also this MUST be removed after #1870 is complete*/

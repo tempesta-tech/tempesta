@@ -215,12 +215,12 @@ typedef struct {
  * @curr	- current shift in Huffman decoding context;
  * @hctx	- current Huffman decoding context;
  * @__off	- offset to reinitialize processing context;
+ * @offset	- current offset in hpack ht_decode table;
  * @state	- current state;
  * @shift	- current shift, used when integer decoding interrupted due
  *		  to absence of the next fragment;
  * @index	- saved index value, used when decoding is interrupted due to
  *		  absence of the next fragment;
- * @offset	- current offset in hpack ht_decode table;
  */
 typedef struct {
 	TfwHPackETbl		enc_tbl;
@@ -230,10 +230,10 @@ typedef struct {
 	int			curr;
 	unsigned short		hctx;
 	char			__off[0];
+	unsigned short		offset;
 	unsigned int		state;
 	unsigned int		shift;
-	unsigned long		index;
-	unsigned int		offset;
+	unsigned int		index;
 } TfwHPack;
 
 /**

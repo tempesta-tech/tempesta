@@ -1055,14 +1055,8 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 
 		skb = c->skb;
 		is_single = (skb == skb_head && skb->next == skb_head);
-
-		if (skb->next) {
-			next = skb->next;
-			next_len = next->len;
-		} else {
-			next = NULL;
-			next_len = 0;
-		}
+		next = skb->next;
+		next_len = next->len;
 
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, c->skb, c->data + skip,
@@ -1078,7 +1072,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		 * skb were moved to the next one.
 		 */
 		if (likely(skb->next == next
-			   && (is_single || !next || next->len == next_len)))
+			   && (is_single || next->len == next_len)))
 			continue;
 
 		/* Check if the new skb was allocated and update next skb. */
