@@ -798,6 +798,9 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		return -EBUSY;
 
 	if (data && len) {
+		/* Data comes as a copy from temporary buffer tls_handshake_t::ext
+		 * See ttls_parse_client_hello() for details */
+		tfw_cstrtolower(srv_name.data, srv_name.data, len);
 		vhost = tfw_vhost_lookup(&srv_name);
 
 		if (unlikely(vhost && tfw_vhost_is_default(vhost))) {
