@@ -1925,26 +1925,20 @@ tfw_vhost_add(TfwVhost *vhost)
  * Called on (re-)configuration time in process context.
  */
 void
-tfw_vhost_add_sni_map(const BasicStr *cn, const char *hname, int hlen)
+tfw_vhost_add_sni_map(const BasicStr *cn, TfwVhost *vhost)
 {
 	unsigned long key = basic_hash_str(cn);
 	TfwSVHMap *svhm;
 	int n = sizeof(*svhm) + cn->len;
-	const BasicStr ns = {.data = (char *)hname, .len = hlen};
 
 	if (!(svhm = kmalloc(n, GFP_KERNEL))) {
-		T_WARN("Cannot allocate mapping for SAN/CN %.*s -> %s\n",
-		       (int)cn->len, cn->data, hname);
+		T_WARN("Cannot allocate mapping for SAN/CN %.*s -> %.*s\n",
+		       (int)cn->len, cn->data,
+		       (int)vhost->name.len, vhost->name.data);
 		return;
 	}
 
-	svhm->vhost = __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
-					 tfw_vhost_name_match);
-	if (!svhm->vhost) {
-		T_WARN("Cannot find vhost %s\n", hname);
-		kfree(svhm);
-		return;
-	}
+	svhm->vhost = vhost;
 	INIT_HLIST_NODE(&svhm->hlist);
 	svhm->sni_len = cn->len;
 	memcpy(svhm->sni, cn->data, cn->len);

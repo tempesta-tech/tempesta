@@ -143,8 +143,8 @@ int ttls_x509_crt_check_extended_key_usage(const TlsX509Crt *crt,
 
 int ttls_x509_process_san(const TlsX509Crt *crt,
 			  int (*process_cn)(const ttls_x509_buf *,
-					    const char *, int),
-			  const char *name, int len);
+					    void *arg),
+			  void *process_arg);
 
 TlsX509Crt *ttls_x509_crt_alloc(void);
 void ttls_x509_crt_init(TlsX509Crt *crt);

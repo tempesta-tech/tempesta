@@ -1792,8 +1792,8 @@ exit:
 
 int
 ttls_x509_process_san(const TlsX509Crt *crt,
-		      int (*process_cn)(const ttls_x509_buf *, const char *, int),
-		      const char *hname, int hlen)
+		      int (*process_cn)(const ttls_x509_buf *, void *arg),
+		      void *process_arg)
 {
 	int r = TTLS_X509_BADCERT_CN_MISMATCH;
 	const ttls_x509_name *name;
@@ -1806,14 +1806,14 @@ ttls_x509_process_san(const TlsX509Crt *crt,
 			/* Just skip non-dNSName records. */
 			if (san_type != TTLS_X509_SAN_DNS_NAME)
 				continue;
-			if (!process_cn(&cur->buf, hname, hlen))
+			if (!process_cn(&cur->buf, process_arg))
 				r = 0;
 		}
 	} else {
 		for (name = &crt->subject; name; name = name->next) {
 			if (TTLS_OID_CMP(TTLS_OID_AT_CN, &name->oid))
 				continue;
-			if (!process_cn(&name->val, hname, hlen))
+			if (!process_cn(&name->val, process_arg))
 				r = 0;
 		}
 	}
