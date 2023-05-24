@@ -616,7 +616,7 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 			return TFW_PASS;
 		/* Special case of default vhosts */
 		if (req->vhost == NULL
-		    && tfw_vhost_is_default(tls_vhost))
+		    || tfw_vhost_is_default(tls_vhost))
 			return TFW_PASS;
 
 		tls_name = tctx->vhost ? tls_vhost->name : null_name;
