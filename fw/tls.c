@@ -766,7 +766,7 @@ fw_tls_apply_sni_wildcard(BasicStr *name)
 	n = name->data + name->len - p;
 
 	/* The resulting name must be lower than a top level domain. */
-	if (n < 3 || !strnchr(p + 1, n, '.'))
+	if (n < 2)
 		return -ENOENT;
 
 	/*
@@ -810,8 +810,12 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			return -ENOENT;
 		}
 
+		/* Look for non-wildcard SAN */
+		if (!vhost && (vhost = tfw_vhost_lookup_sni(&srv_name)))
+			goto found;
+
 		/*
-		 * Try wildcard SANs if the SNI requests 3rd-level or
+		 * Try wildcard SANs if the SNI requests 2nd-level or
 		 * lower domain.
 		 */
 		if (!vhost && !fw_tls_apply_sni_wildcard(&srv_name))
