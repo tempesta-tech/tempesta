@@ -812,7 +812,10 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 
 		/* Look for non-wildcard SAN */
 		if (!vhost && (vhost = tfw_vhost_lookup_sni(&srv_name)))
+		{
+			ctx->vhost = vhost;
 			goto found;
+		}
 
 		/*
 		 * Try wildcard SANs if the SNI requests 2nd-level or
@@ -820,7 +823,10 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		 */
 		if (!vhost && !fw_tls_apply_sni_wildcard(&srv_name))
 			if ((vhost = tfw_vhost_lookup_sni(&srv_name)))
+			{
+				ctx->vhost = vhost;
 				goto found;
+			}
 
 		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
 			SNI_WARN("unknown server name '%.*s', reject connection.\n",
