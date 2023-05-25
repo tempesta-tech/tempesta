@@ -9531,6 +9531,14 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_FIN(Req_HdrPragmaV, 6,
 					     TFW_TAG_HDR_PRAGMA);
 			__FSM_H2_OTHER_n(4);
+		/* proxy-connection */
+		case TFW_CHAR4_INT('p', 'r', 'o', 'x'):
+			if (unlikely(!__data_available(p, 16)))
+				__FSM_H2_DROP(Req_HdrProxyConnection);
+			if (C8_INT(p + 4, 'y', '-', 'c', 'o', 'n', 'n', 'e', 'c')
+			    || C4_INT(p + 12, 't', 'i', 'o', 'n'))
+				__FSM_H2_DROP(Req_HdrProxyConnection);
+			__FSM_H2_OTHER_n(4);
 		/* transfer-encoding */
 		case TFW_CHAR4_INT('t', 'r', 'a', 'n'):
 			if (unlikely(!__data_available(p, 17)))
@@ -10115,11 +10123,35 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_DROP(Req_HdrKeep_Aliv, 'e');
 
 	__FSM_H2_TX_AF(Req_HdrP, 'r', Req_HdrPr);
-	__FSM_H2_TX_AF(Req_HdrPr, 'a', Req_HdrPra);
+	__FSM_STATE(Req_HdrPr, cold) {
+		switch (c) {
+		case 'a':
+			__FSM_H2_NEXT(Req_HdrPra);
+		case 'o':
+			__FSM_H2_NEXT(Req_HdrPro);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
 	__FSM_H2_TX_AF(Req_HdrPra, 'g', Req_HdrPrag);
 	__FSM_H2_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm);
 	__FSM_H2_TX_AF_FIN(Req_HdrPragm, 'a', Req_HdrPragmaV,
 			   TFW_TAG_HDR_PRAGMA);
+
+	__FSM_H2_TX_AF(Req_HdrPro, 'x', Req_HdrProx);
+	__FSM_H2_TX_AF(Req_HdrProx, 'y', Req_HdrProxy);
+	__FSM_H2_TX_AF(Req_HdrProxy, '_', Req_HdrProxy_);
+	__FSM_H2_TX_AF(Req_HdrProxy_, 'c', Req_HdrProxy_C);
+	__FSM_H2_TX_AF(Req_HdrProxy_C, 'o', Req_HdrProxy_Co);
+	__FSM_H2_TX_AF(Req_HdrProxy_Co, 'n', Req_HdrProxy_Con);
+	__FSM_H2_TX_AF(Req_HdrProxy_Con, 'n', Req_HdrProxy_Conn);
+	__FSM_H2_TX_AF(Req_HdrProxy_Conn, 'e', Req_HdrProxy_Conne);
+	__FSM_H2_TX_AF(Req_HdrProxy_Conne, 'c', Req_HdrProxy_Connec);
+	__FSM_H2_TX_AF(Req_HdrProxy_Connec, 't', Req_HdrProxy_Connect);
+	__FSM_H2_TX_AF(Req_HdrProxy_Connect, 'i', Req_HdrProxy_Connecti);
+	__FSM_H2_TX_AF(Req_HdrProxy_Connecti, 'o', Req_HdrProxy_Connectio);
+	__FSM_H2_TX_AF_DROP(Req_HdrProxy_Connectio, 'n');
 
 	__FSM_H2_TX_AF(Req_HdrR, 'e', Req_HdrRe);
 	__FSM_H2_TX_AF(Req_HdrRe, 'f', Req_HdrRef);
