@@ -9566,6 +9566,13 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_FIN(Req_HdrUser_AgentV, 10,
 					     TFW_TAG_HDR_USER_AGENT);
 			__FSM_H2_OTHER_n(4);
+		/* upgrade */
+		case TFW_CHAR4_INT('u', 'p', 'g', 'r'):
+			if (unlikely(!__data_available(p, 7)))
+				__FSM_H2_NEXT_n(Req_HdrUpgr, 4);
+			if (C4_INT(p + 3, 'r', 'a', 'd', 'e'))
+				__FSM_H2_DROP(Req_HdrUpgrade);
+			__FSM_H2_OTHER_n(4);
 		/* x-forwarded-for */
 		case TFW_CHAR4_INT('x', '-', 'f', 'o'):
 			if (unlikely(!__data_available(p, 15)))
@@ -10268,7 +10275,16 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_FIN(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
 			   TFW_TAG_HDR_RAW);
 
-	__FSM_H2_TX_AF(Req_HdrU, 's', Req_HdrUs);
+	__FSM_STATE(Req_HdrU, cold) {
+		switch (c) {
+		case 's':
+			__FSM_H2_NEXT(Req_HdrUs);
+		case 'p':
+			__FSM_H2_NEXT(Req_HdrUp);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 	__FSM_H2_TX_AF(Req_HdrUs, 'e', Req_HdrUse);
 	__FSM_H2_TX_AF(Req_HdrUse, 'r', Req_HdrUser);
 	__FSM_H2_TX_AF(Req_HdrUser, '-', Req_HdrUser_);
@@ -10278,6 +10294,12 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen);
 	__FSM_H2_TX_AF_FIN(Req_HdrUser_Agen, 't', Req_HdrUser_AgentV,
 			   TFW_TAG_HDR_USER_AGENT);
+
+	__FSM_H2_TX_AF(Req_HdrUp, 'g', Req_HdrUpg);
+	__FSM_H2_TX_AF(Req_HdrUpg, 'r', Req_HdrUpgr);
+	__FSM_H2_TX_AF(Req_HdrUpgr, 'a', Req_HdrUpgra);
+	__FSM_H2_TX_AF(Req_HdrUpgra, 'd', Req_HdrUpgrad);
+	__FSM_H2_TX_AF_DROP(Req_HdrUpgrad, 'e');
 
 	__FSM_H2_TX_AF(Req_HdrCoo, 'k', Req_HdrCook);
 	__FSM_H2_TX_AF(Req_HdrCook, 'i', Req_HdrCooki);
