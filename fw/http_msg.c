@@ -1403,6 +1403,41 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 }
 
 /*
+ * Move body to @nskb if body located in current skb.
+ */
+static inline int
+__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
+{
+	TfwMsgIter *it = &resp->mit.iter;
+	struct sk_buff **body;
+	int r, frag;
+	char *p;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		TfwStream *stream = resp->stream;
+
+		p = stream->parser.body_start_data;
+		body = &stream->parser.body_start_skb;
+	} else {
+		p = TFW_STR_CHUNK(&resp->body, 0)->data;
+		body = &resp->body.skb;
+	}
+
+	if (*body != it->skb)
+		return 0;
+
+	if ((r = ss_skb_find_frag_by_offset(*body, p, &frag)))
+		return r;
+
+	/* Move body to the next skb. */
+	ss_skb_move_frags(it->skb, nskb, frag,
+			  skb_shinfo(it->skb)->nr_frags - frag);
+	*body = nskb;
+
+	return 0;
+}
+
+/*
  * Expand message by @str increasing size of current paged fragment or add
  * new paged fragment using @pool if room in current pool's chunk is not enough.
  * This function is called only for adding new response headers. If skb lenght
@@ -1442,32 +1477,18 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
-				struct sk_buff *nskb, **body;
-				char *p;
+				struct sk_buff *nskb = ss_skb_alloc(0);
 
-				if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-					TfwStream *stream = resp->stream;
-
-					p = stream->parser.body_start_data;
-					body = &stream->parser.body_start_skb;
-				} else {
-					p = TFW_STR_CHUNK(&resp->body, 0)->data;
-					body = &resp->body.skb;
-				}
-
-				nskb = ss_skb_alloc(0);
 				if (!nskb)
 					return -ENOMEM;
 
-				if (*body == it->skb) {
-					int frag;
-
-					if ((r = ss_skb_find_frag_by_offset(*body, p, &frag)))
+				if (resp->body.len > 0) {
+					r = __tfw_http_msg_move_body(resp,
+								     nskb);
+					if (unlikely(r)) {
+						T_WARN("Error during moving body");
 						return r;
-					/* Move body to the next skb. */
-					ss_skb_move_frags(it->skb, nskb, frag,
-							  nr_frags - frag);
-					*body = nskb;
+					}
 				}
 
 				skb_shinfo(nskb)->tx_flags =
