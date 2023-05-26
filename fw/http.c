@@ -5164,9 +5164,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 			dup->flags |= TFW_STR_HBH_HDR;
 	}
 
-	if (TFW_MSG_H2(resp->req))
-		resp->h_tbl->tbl[TFW_HTTP_HDR_UPGRADE].flags |= TFW_STR_HBH_HDR;
-
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
 		r = tfw_http_resp_copy_encodings(resp, &codings, RESP_BUF_LEN);
 		if (unlikely(r))

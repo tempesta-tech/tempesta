@@ -3770,6 +3770,8 @@ __parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	parser->hdr.flags |= TFW_STR_HBH_HDR;
+
 	/*
 	 * Here we build a header value string manually to split it in chunks:
 	 * next chunk starts after ',' or ' ' list delimiter and '/' delimiter.
