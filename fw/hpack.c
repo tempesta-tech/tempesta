@@ -232,7 +232,7 @@ do {								\
 			goto out;				\
 		}						\
 		__c = *src++;					\
-		x = (__c & 127) << __m | x;			\
+		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_LIMIT) {			\
 			r = T_DROP;				\
@@ -465,7 +465,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 
 static int
 huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
-		    unsigned int offset)
+		    unsigned short offset)
 {
 	char sym;
 	unsigned int i;
@@ -483,7 +483,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
 		shift = ht_decode[offset + i].shift;
 		T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu,"
-		       " i=%u, shift=%d, offset=%u\n", __func__,
+		       " i=%u, shift=%d, offset=%hu\n", __func__,
 		       hp->curr, hp->hctx, hp->length, i, shift, offset);
 		if (likely(shift > 0)) {
 			if (shift <= hp->curr + HT_NBITS) {
@@ -539,7 +539,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 static int
 huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
-		      unsigned int offset)
+		      unsigned short offset)
 {
 	char sym;
 	int shift;
@@ -552,7 +552,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	shift = ht_decode[offset + i].shift;
 
 	T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu, i=%u,"
-	       " shift=%d, offset=%u\n", __func__, hp->curr, hp->hctx,
+	       " shift=%d, offset=%hu\n", __func__, hp->curr, hp->hctx,
 	       hp->length, i, shift, offset);
 
 	if (likely(shift > 0)) {
@@ -579,7 +579,7 @@ static int
 tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		   const unsigned char *__restrict src, unsigned long n)
 {
-	unsigned int offset;
+	unsigned short offset;
 	const unsigned char *last = src + n;
 
 	WARN_ON_ONCE(n > hp->length);
@@ -588,7 +588,11 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 	SET_NEXT();
 	for (;;) {
-		offset = 0;
+		offset = hp->offset;
+		hp->offset = 0;
+		if (offset >= HT_SMALL)
+			goto ht_small;
+
 		for (;;) {
 			int shift;
 			unsigned int i;
@@ -597,6 +601,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
+					hp->offset = offset;
 					return T_POSTPONE;
 				} else {
 					/*
@@ -612,7 +617,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			offset = ht_decode[offset + i].offset;
 			T_DBG3("%s: shift, hp->curr=%d, hp->hctx=%hx,"
 			       " hp->length=%lu, n=%lu, to_parse=%lu, i=%u,"
-			       " shift=%d, offset=%u, offset=%c\n", __func__,
+			       " shift=%d, offset=%hu, offset=%c\n", __func__,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
@@ -637,6 +642,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			}
 		}
 		hp->curr += HT_NBITS - HT_MBITS;
+ht_small:
 		/*
 		 * With various optimization options, the anonymous block here
 		 * leads to the generation of more efficient code.
@@ -649,6 +655,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
+					hp->offset = offset;
 					return T_POSTPONE;
 				} else {
 					return huffman_decode_tail_s(hp, req,
@@ -660,7 +667,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			offset = ht_decode[offset + i].offset;
 			T_DBG3("%s: short shift, hp->curr=%d, hp->hctx=%hx,"
 			       " hp->length=%lu, n=%lu, to_parse=%lu, i=%u,"
-			       " shift=%d, offset=%u, offset=%c\n", __func__,
+			       " shift=%d, offset=%hu, offset=%c\n", __func__,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
@@ -971,7 +978,7 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 }
 
 static const TfwHPackEntry *
-tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
+tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned int index)
 {
 	const TfwHPackEntry *entry = NULL;
 
@@ -989,7 +996,7 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 		} else {
 			curr += tbl->length - index;
 		}
-		T_DBG3("%s: tbl->length=%u, tbl->curr=%u, curr=%u, index=%lu\n",
+		T_DBG3("%s: tbl->length=%u, tbl->curr=%u, curr=%u, index=%u\n",
 		      __func__, tbl->length, tbl->curr, curr, index);
 
 		entry = tbl->entries + curr;
@@ -1005,7 +1012,7 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 }
 
 static int
-tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
+tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned int new_size)
 {
 	TfwHPackDTbl *tbl = &hp->dec_tbl;
 	unsigned int size = tbl->size;
@@ -1026,7 +1033,7 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
 			early += length - count;
 		}
 		T_DBG3("%s: tbl->curr=%u, early=%u, count=%u, length=%u,"
-		       " new_size=%lu\n", __func__, tbl->curr, early, count,
+		       " new_size=%u\n", __func__, tbl->curr, early, count,
 		       length, new_size);
 		cp = entries + early;
 		do {
@@ -1385,7 +1392,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 					goto out;
 				}
 
-				T_DBG3("%s: decoded index: %lu\n", __func__,
+				T_DBG3("%s: decoded index: %u\n", __func__,
 				       hp->index);
 
 				NEXT_STATE(HPACK_STATE_ALL_INDEXED);
@@ -1400,7 +1407,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 				if (hp->index == 0x3F) {
 index:
 					GET_FLEXIBLE(hp->index, HPACK_STATE_INDEX);
-					T_DBG3("%s: decoded index: %lu\n",
+					T_DBG3("%s: decoded index: %u\n",
 					       __func__, hp->index);
 					NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 					goto get_indexed_name;
@@ -1414,7 +1421,7 @@ index:
 					GET_FLEXIBLE(hp->index,
 						     HPACK_STATE_DT_SZ_UPD);
 
-				T_DBG3("%s: decoded new size: %lu\n", __func__,
+				T_DBG3("%s: decoded new size: %u\n", __func__,
 				       hp->index);
 
 				NEXT_STATE(HPACK_STATE_DT_SZ_UPD);
@@ -1459,7 +1466,7 @@ index:
 				goto out;
 
 			if (hp->index) {
-				T_DBG3("%s: decoded index: %lu\n", __func__,
+				T_DBG3("%s: decoded index: %u\n", __func__,
 				       hp->index);
 				goto get_indexed_name;
 			}
@@ -1519,7 +1526,7 @@ get_name_text:
 		{
 			const TfwHPackEntry *entry;
 get_indexed_name:
-			T_DBG3("%s: decode indexed (%lu) header name...\n",
+			T_DBG3("%s: decode indexed (%u) header name...\n",
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
@@ -1618,7 +1625,7 @@ get_value_text:
 		{
 			const TfwHPackEntry *entry;
 get_all_indexed:
-			T_DBG3("%s: get entire header by index: %lu\n", __func__,
+			T_DBG3("%s: get entire header by index: %u\n", __func__,
 			       hp->index);
 
 			WARN_ON_ONCE(!(state & HPACK_FLAGS_NO_VALUE));
@@ -1653,7 +1660,7 @@ get_all_indexed:
 		}
 		case HPACK_STATE_INDEX:
 			GET_CONTINUE(hp->index);
-			T_DBG3("%s: index finally decoded: %lu\n", __func__,
+			T_DBG3("%s: index finally decoded: %u\n", __func__,
 			       hp->index);
 			if (state & HPACK_FLAGS_NO_VALUE) {
 				NEXT_STATE(HPACK_STATE_ALL_INDEXED);
@@ -1669,7 +1676,7 @@ get_all_indexed:
 
 		case HPACK_STATE_DT_SZ_UPD:
 			GET_CONTINUE(hp->index);
-			T_DBG3("%s: new dyn table size finally decoded: %lu\n",
+			T_DBG3("%s: new dyn table size finally decoded: %u\n",
 			       __func__, hp->index);
 set_tbl_size:
 			if (tfw_hpack_set_length(hp, hp->index)) {
@@ -1834,7 +1841,7 @@ do {									\
 			});
 		}
 
-		T_DBG3("%s: name index: %lu\n", __func__, hp->index);
+		T_DBG3("%s: name index: %u\n", __func__, hp->index);
 
 		FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
 
@@ -1884,7 +1891,7 @@ do {									\
 	{
 		const TfwHPackEntry *entry;
 get_indexed_name:
-		T_DBG3("%s: decode indexed (%lu) header name...\n",
+		T_DBG3("%s: decode indexed (%u) header name...\n",
 		       __func__, hp->index);
 		if (WARN_ON_ONCE(!hp->index
 				 || hp->index > HPACK_STATIC_ENTRIES))
@@ -2093,7 +2100,7 @@ get_value_text:
 		GET_CONTINUE_lambda(hp->index, {
 			FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
 		});
-		T_DBG3("%s: index finally decoded: %lu\n", __func__, hp->index);
+		T_DBG3("%s: index finally decoded: %u\n", __func__, hp->index);
 
 		NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 
