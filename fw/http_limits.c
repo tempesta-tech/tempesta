@@ -612,8 +612,10 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 
 		/* An exotic case where TLS connection hasn't assigned
 		 * any vhost to the TlsCtx */
-		if (unlikely(tls_vhost == NULL))
-			return TFW_PASS;
+		if (unlikely(tls_vhost == NULL)) {
+			frang_msg("client hasn't sent SNI", &FRANG_ACC2CLI(ra)->addr, "\n");
+			return TFW_BLOCK;
+		}
 		/* Special case of default vhosts */
 		if (req->vhost == NULL
 		    || tfw_vhost_is_default(tls_vhost))
