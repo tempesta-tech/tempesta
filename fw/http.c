@@ -2642,6 +2642,12 @@ tfw_http_conn_close(TfwConn *conn, bool sync)
 	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
 }
 
+static void
+tfw_http_conn_abort(TfwConn *c)
+{
+	ss_close(c->sk, SS_F_ABORT_FORCE);
+}
+
 /*
  * Connection with a peer is released.
  *
@@ -6818,6 +6824,7 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_repair	= tfw_http_conn_repair,
 	.conn_close	= tfw_http_conn_close,
+	.conn_abort	= tfw_http_conn_abort,
 	.conn_drop	= tfw_http_conn_drop,
 	.conn_release	= tfw_http_conn_release,
 	.conn_send	= tfw_http_conn_send,

@@ -182,12 +182,10 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	skb->tail_lock = 1;
 
 #define FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
-	((flags & SS_F_HTTT2_FRAME_HEADERS)				\
-	 && !(flags & SS_F_HTTT2_FRAME_HEADERS_DONE))
+	(flags & SS_F_HTTT2_FRAME_HEADERS)
 
 #define FRAME_DATA_SHOULD_BE_MADE(flags)				\
-	((flags & SS_F_HTTT2_FRAME_DATA)				\
-	 && !(flags & SS_F_HTTT2_FRAME_DATA_DONE))
+	(flags & SS_F_HTTT2_FRAME_DATA)
 
 #define FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)			\
 	(FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
@@ -196,24 +194,46 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 #define FRAME_ALREADY_PREPARED(flags)					\
 	(flags & SS_F_HTTP2_FRAME_PREPARED)
 
-	if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)) {
-		if (!stream) {
-			T_WARN("%s: stream with id (%u) already closed",
-			       __func__, skb_priv);
-			/*
-			 * We don't purge tcp queue, because we can still
-			 * send data for other streams.
-			 */
-			r = -EPIPE;
+#define FRAME_ALREADY_DONE(flags)					\
+	((flags & SS_F_HTTT2_FRAME_HEADERS_DONE)			\
+	 || (flags & SS_F_HTTT2_FRAME_DATA_DONE))
+
+#define CHECK_STREAM_IS_PRESENT(stream)					\
+	if (!stream) {							\
+		T_WARN("%s: stream with id (%u) already closed",	\
+		       __func__, skb_priv);				\
+		/*							\
+		 * We don't purge tcp queue, because we can still	\
+		 * send data for other streams.				\
+		 */							\
+		r = -EPIPE;						\
+		goto ret;						\
+	}
+
+	BUG_ON(FRAME_ALREADY_PREPARED(flags));
+
+	/*
+	 * If some error occurs between `tcp_tfw_sk_prepare_xmit` and
+	 * `tcp_tfw_sk_write_xmit`, skb which was already processed will
+	 * be passed to this function again. We should not process this
+	 * skb, just update limit according to already processed bytes.
+	 */
+	if (FRAME_ALREADY_DONE(flags)) {
+		CHECK_STREAM_IS_PRESENT(stream);
+		if (*limit < stream->xmit.processed) {
+			r = -ENOMEM;
 			goto ret;
 		}
-		BUG_ON(FRAME_ALREADY_PREPARED(flags));
+		stream->xmit.nskbs = 1;
+		goto update_limit;
+	} else if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)) {
+		CHECK_STREAM_IS_PRESENT(stream);
+		tfw_h2_stream_xmit_reinit(&stream->xmit);
 		stream->xmit.nskbs = 1;
 	} else {
 		struct sk_buff *next = skb;
 		unsigned short flags;
 
-		BUG_ON(FRAME_ALREADY_PREPARED(flags));
 		/*
 		 * Here we deal with skbs which do not contain HEADERS or
 		 * DATA frames. They should be encrypted in separate tls
@@ -229,6 +249,8 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 			(*nskbs)++;
 		}
 	}
+
+	BUG_ON(FRAME_ALREADY_DONE(flags));
 
 	if (flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING) {
 		tfw_hpack_set_rbuf_size(tbl, skb_priv);
@@ -335,10 +357,8 @@ ret:
 	/* Should be zero when skb is passed to the kernel code. */
 	skb->tail_lock = 0;
 	/* Reinit stream xmit context. */
-	if (stream) {
+	if (stream)
 		*nskbs = !r ? stream->xmit.nskbs : 0;
-		tfw_h2_stream_xmit_reinit(&stream->xmit);
-	}
 
 	/*
 	 * Since we add some data to skb, we should adjust the socket write
@@ -367,6 +387,9 @@ ret:
 
 	return r;
 
+#undef CHECK_STREAM_IS_PRESENT
+#undef FRAME_ALREADY_DONE
+#undef FRAME_ALREADY_PREPARED
 #undef FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE
 #undef FRAME_DATA_SHOULD_BE_MADE
 #undef FRAME_HEADERS_SHOULD_BE_MADE

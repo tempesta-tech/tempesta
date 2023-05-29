@@ -170,8 +170,6 @@ int tfw_http_search_cookie(const char *cstr, unsigned long clen,
 		  const TfwStr *cookie, TfwStr *val,
 		  tfw_http_match_op_t op, bool is_resp_hdr);
 
-bool tfw_http_search_host_forwarded(const TfwStr *hdr, TfwStr *host_val);
-
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\
 	int r = 0;							\

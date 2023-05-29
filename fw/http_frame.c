@@ -169,10 +169,9 @@ do {									\
 
 #define SET_TO_READ_VERIFY(ctx, next_state)				\
 do {									\
-	(ctx)->to_read = (ctx)->hdr.length;				\
 	if ((ctx)->hdr.length) {					\
+		SET_TO_READ(ctx);                                       \
 		(ctx)->state = next_state;				\
-		(ctx)->hdr.length = 0;					\
 	} else {							\
 		(ctx)->state = HTTP2_IGNORE_FRAME_DATA;			\
 	}								\
@@ -768,7 +767,7 @@ tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	 * closed queue.
 	 */
 	if (!stream->xmit.b_len) {
-		BUG_ON(stream->xmit.h_len);
+		WARN_ON_ONCE(stream->xmit.h_len);
 		queue = &ctx->closed_streams;
 		flags |= HTTP2_F_END_STREAM;
 	}
@@ -1421,9 +1420,11 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 {
 	TfwH2Err err_code = HTTP2_ECODE_SIZE;
 	TfwFrameHdr *hdr = &ctx->hdr;
+	TfwFrameType hdr_type =
+		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
 
-	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr->type,
-	       __h2_frm_type_n(hdr->type), ctx->state);
+	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
+	       __h2_frm_type_n(hdr_type), ctx->state);
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
@@ -1436,7 +1437,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	 * stream as a connection error (Section 5.4.1) of type PROTOCOL_ERROR.
 	 */
 
-	switch (hdr->type) {
+	switch (hdr_type) {
 	case HTTP2_DATA:
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
@@ -1686,7 +1687,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		 * this procedure. On current stage we just ignore such frames.
 		 */
 		T_DBG("HTTP/2: frame of unknown type '%u' received\n",
-		      hdr->type);
+		      hdr_type);
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		SET_TO_READ(ctx);
 		return T_OK;

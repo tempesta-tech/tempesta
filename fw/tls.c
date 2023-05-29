@@ -663,7 +663,7 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 static void
 tfw_tls_conn_abort(TfwConn *c)
 {
-	ss_close(c->sk, SS_F_ABORT);
+	ss_close(c->sk, SS_F_ABORT_FORCE);
 }
 
 static void
