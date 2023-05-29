@@ -22,6 +22,8 @@
 
 #include "ttls.h"
 
+extern bool tfw_tls_allow_any_sni;
+
 void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
 void tfw_tls_match_any_sni_to_dflt(bool match);

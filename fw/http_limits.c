@@ -603,6 +603,9 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	if ((TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS) == 0)
 		return TFW_PASS;
 
+	if (tfw_tls_allow_any_sni)
+		return TFW_PASS;
+
 	tctx = tfw_tls_context(req->conn);
 
 	if (tctx->vhost != req->vhost) {

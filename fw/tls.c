@@ -40,14 +40,12 @@
 /**
  * Global level TLS configuration.
  *
- * @cfg			- common tls configuration for all vhosts;
- * @allow_any_sni	- If set, all the unknown SNI are matched to default
  *			  vhost.
  */
-static struct {
-	TlsCfg		cfg;
-	bool		allow_any_sni;
-} tfw_tls;
+/** Common tls configuration for all vhosts; */
+static TlsCfg		tfw_tls_cfg;
+/** If set, all the unknown SNI are matched to default vhost. */
+bool		    tfw_tls_allow_any_sni;
 
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
@@ -602,7 +600,7 @@ tfw_tls_conn_init(TfwConn *c)
 	BUG_ON(!(c->proto.type & TFW_FSM_HTTPS));
 
 	tls = tfw_tls_context(c);
-	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
+	if ((r = ttls_ctx_init(tls, &tfw_tls_cfg))) {
 		T_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
@@ -828,7 +826,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 				goto found;
 			}
 
-		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
+		if (unlikely(!vhost && !tfw_tls_allow_any_sni)) {
 			SNI_WARN("unknown server name '%.*s', reject connection.\n",
 				 (int)len, data);
 			return -ENOENT;
@@ -908,9 +906,9 @@ tfw_tls_do_init(void)
 {
 	int r;
 
-	ttls_config_init(&tfw_tls.cfg);
+	ttls_config_init(&tfw_tls_cfg);
 	/* Use cute ECDHE-ECDSA-AES128-GCM-SHA256 by default. */
-	r = ttls_config_defaults(&tfw_tls.cfg, TTLS_IS_SERVER);
+	r = ttls_config_defaults(&tfw_tls_cfg, TTLS_IS_SERVER);
 	if (r) {
 		T_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
@@ -922,7 +920,7 @@ tfw_tls_do_init(void)
 static void
 tfw_tls_do_cleanup(void)
 {
-	ttls_config_free(&tfw_tls.cfg);
+	ttls_config_free(&tfw_tls_cfg);
 }
 
 /*
@@ -961,8 +959,8 @@ tfw_tls_match_any_sni_to_dflt(bool match)
 int
 tfw_tls_cfg_alpn_protos(const char *cfg_str)
 {
-	ttls_alpn_proto *proto0 = &tfw_tls.cfg.alpn_list[0];
-	ttls_alpn_proto *proto1 = &tfw_tls.cfg.alpn_list[1];
+	ttls_alpn_proto *proto0 = &tfw_tls_cfg.alpn_list[0];
+	ttls_alpn_proto *proto1 = &tfw_tls_cfg.alpn_list[1];
 
 	BUILD_BUG_ON(TTLS_ALPN_PROTOS != 2);
 
@@ -1032,7 +1030,7 @@ tfw_tls_cfgend(void)
 static int
 tfw_tls_start(void)
 {
-	tfw_tls.allow_any_sni = allow_any_sni_reconfig;
+	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
 
 	return 0;
 }
