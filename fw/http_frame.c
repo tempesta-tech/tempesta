@@ -735,7 +735,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	sched->streams = RB_ROOT;
 }
 
-static inline void
+void
 tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	spin_lock(&ctx->lock);
@@ -743,25 +743,24 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 	spin_unlock(&ctx->lock);
 }
 
-int
-tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
+TfwStreamFsmRes
+tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
+		      unsigned char type)
 {
 	TfwStreamQueue *queue;
-	unsigned char flags = 0;
-	TfwStreamFsmRes r;
+	TfwStreamFsmRes r = STREAM_FSM_RES_OK;
 
 	if (tfw_h2_stream_is_closed(stream)
 	    || stream->queue == &ctx->closed_streams)
-		return -EINVAL;
+		return STREAM_FSM_RES_TERM_STREAM;
 
+	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
 	/*
 	 * If it is end of headers we move stream to
 	 * half closed queue.
 	 */
-	if (!stream->xmit.h_len) {
+	if (!stream->xmit.h_len)
 		queue = &ctx->hclosed_streams;
-		flags |= HTTP2_F_END_HEADERS;
-	}
 	/*
 	 * If it is also end of data we move stream to
 	 * closed queue.
@@ -769,31 +768,14 @@ tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.b_len) {
 		WARN_ON_ONCE(stream->xmit.h_len);
 		queue = &ctx->closed_streams;
-		flags |= HTTP2_F_END_STREAM;
-	}
-	/*
-	 * If type == HTTP2_RST_STREAM we add
-	 * stream to closed queue regardless of
-	 * stream->xmit.h_len and stream->xmit.b_len.
-	 */
-	if (type == HTTP2_RST_STREAM)
-		queue = &ctx->closed_streams;
-
-	r = STREAM_SEND_PROCESS(stream, type, flags);
-	/*
-	 * This function is called from `xmit` callback and
-	 * there is a chance that the stream is already in
-	 * closed state and `STREAM_SEND_PROCESS` return
-	 * not STREAM_FSM_RES_OK. We should not drop
-	 * connection or skb in this case.
-	 */
-	if (r != STREAM_FSM_RES_TERM_CONN) {
-		spin_lock(&ctx->lock);
-		__tfw_h2_stream_move_queue(queue, stream);
-		spin_unlock(&ctx->lock);
+		r = STREAM_SEND_PROCESS(stream, type, HTTP2_F_END_STREAM);
 	}
 
-	return r != STREAM_FSM_RES_TERM_CONN ? 0 : -EINVAL;
+	spin_lock(&ctx->lock);
+	__tfw_h2_stream_move_queue(queue, stream);
+	spin_unlock(&ctx->lock);
+
+	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
 }
 
 /*
@@ -840,16 +822,15 @@ tfw_h2_stream_id(TfwHttpReq *req)
 }
 
 /*
- * Get stream ID for upper layer to prepare and send frame with response
- * to client. This procedure also unlinks request from corresponding
- * stream (if linked) and moves the stream to the queue of closed streams
+ * Unlink request from corresponding stream (if linked) and
+ * add the stream to the queue of closed streams
  * (if it is not contained there yet and if it is necessary).
  */
-unsigned int
-tfw_h2_stream_id_unlink(TfwHttpReq *req, bool send_rst, bool move_to_closed)
+void
+tfw_h2_stream_unlink_from_req(TfwHttpReq *req,  bool send_rst,
+			      bool move_to_closed)
 {
 	TfwStream *stream;
-	unsigned int id = 0;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	spin_lock(&ctx->lock);
@@ -857,13 +838,12 @@ tfw_h2_stream_id_unlink(TfwHttpReq *req, bool send_rst, bool move_to_closed)
 	stream = req->stream;
 	if (!stream) {
 		spin_unlock(&ctx->lock);
-		return 0;
+		return;
 	}
 
 	if (send_rst)
 		STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0);
 
-	id = stream->id;
 	req->stream = NULL;
 	stream->msg = NULL;
 
@@ -874,8 +854,6 @@ tfw_h2_stream_id_unlink(TfwHttpReq *req, bool send_rst, bool move_to_closed)
 	}
 
 	spin_unlock(&ctx->lock);
-
-	return id;
 }
 
 unsigned int
@@ -897,7 +875,7 @@ tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
 	if (!STREAM_SEND_PROCESS(stream, type, flags))
 		id = stream->id;
 
-	if (!id) {
+	if (unlikely(!id || type == HTTP2_RST_STREAM)) {
 		req->stream = NULL;
 		stream->msg = NULL;
 		__tfw_h2_stream_add_to_queue(&ctx->closed_streams,

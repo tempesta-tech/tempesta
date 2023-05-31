@@ -574,7 +574,8 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	BUG_ON(!resp->req);
 	if (!stream_id) {
-		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS, 0);
+		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS,
+						  HTTP2_F_END_HEADERS);
 		if (unlikely(!stream_id))
 			return -EPIPE;
 	}
@@ -650,7 +651,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	r = tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
 
 out:
-	tfw_h2_stream_id_unlink(req, false, r);
+	tfw_h2_stream_unlink_from_req(req, r, r);
 	return r;
 }
 
@@ -942,7 +943,7 @@ static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_stream_id_unlink(req, false, true);
+		tfw_h2_stream_unlink_from_req(req, true, true);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
@@ -2703,7 +2704,7 @@ tfw_http_conn_release(TfwConn *conn)
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (TFW_MSG_H2(req)) {
-			tfw_h2_stream_id_unlink(req, false, true);
+			tfw_h2_stream_unlink_from_req(req, true, true);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -5003,7 +5004,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	  * remote peer (via RST_STREAM frame), that the stream has entered
 	  * into closed state (RFC 7540 section 6.4).
 	  */
-	stream_id = tfw_h2_stream_id_unlink(req, true, true);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_RST_STREAM, 0);
 	if (stream_id && !attack)
 		tfw_h2_send_rst_stream(ctx, stream_id, HTTP2_ECODE_CANCEL);
 
@@ -5205,7 +5206,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
 
-	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS, 0);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+					  HTTP2_F_END_HEADERS);
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -5308,7 +5310,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	tfw_h2_stream_id_unlink(req, false, false);
+	tfw_h2_stream_unlink_from_req(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	__tfw_h2_resp_cleanup(&cleanup);
