@@ -197,11 +197,27 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		T_WARN("%s: stream with id (%u) already closed",	\
 		       __func__, skb_priv);				\
 		/*							\
-		 * We don't purge tcp queue, because we can still	\
-		 * send data for other streams.				\
+		 * TODO #1196:						\
+		 * Don't purge tcp queue and don't close connection,	\
+		 * because we can still send data for other streams.	\
 		 */							\
 		r = -EPIPE;						\
 		goto ret;						\
+	}
+
+#define H2_PROCESS_STREAM(h2, stream, type)				\
+	r = tfw_h2_stream_process(h2, stream, type);			\
+	if (unlikely(r != STREAM_FSM_RES_OK)) {				\
+		T_WARN("Failed to process stream %d", (int)r);		\
+		/*							\
+		 * TODO #1196:						\
+		 * drop all skbs for corresponding stream if		\
+		 * r == STREAM_FSM_RES_TERM_STREAM.			\
+		 */							\
+		if (r == STREAM_FSM_RES_TERM_CONN) {			\
+			r = -EPIPE;					\
+			goto ret;					\
+		}							\
 	}
 
 	BUG_ON(FRAME_ALREADY_PREPARED(flags));
@@ -290,9 +306,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 */
 		if (!stream->xmit.h_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_HEADERS);
-			r = tfw_h2_stream_process(h2, stream, HTTP2_HEADERS);
-			if (unlikely(r))
-				goto ret;
+			H2_PROCESS_STREAM(h2, stream, HTTP2_HEADERS);
 		}
 	}
 
@@ -327,9 +341,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 */
 		if (!stream->xmit.b_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
-			r = tfw_h2_stream_process(h2, stream, HTTP2_DATA);
-			if (unlikely(r))
-				goto ret;
+			H2_PROCESS_STREAM(h2, stream, HTTP2_DATA);
 		}
 	}
 
@@ -373,7 +385,7 @@ ret:
 
 	if (unlikely(r) && r != -ENOMEM) {
 		if (stream)
-			tfw_h2_stream_process(h2, stream, HTTP2_RST_STREAM);
+			tfw_h2_stream_add_closed(h2, stream);
 		/*
 		 * We can not send unencrypted data and can not normally close
 		 * the socket with FIN since we're in progress on sending from
@@ -387,6 +399,7 @@ ret:
 
 	return r;
 
+#undef H2_PROCESS_STREAM
 #undef CHECK_STREAM_IS_PRESENT
 #undef FRAME_ALREADY_PREPARED
 #undef FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE
