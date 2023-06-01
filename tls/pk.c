@@ -10,7 +10,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -260,6 +260,7 @@ ttls_pk_free(TlsPkCtx *ctx)
 		ctx->pk_info->ctx_free_func(ctx->pk_ctx);
 
 	ttls_mpi_pool_free(ctx->pk_ctx);
+	ttls_pk_init(ctx);
 }
 EXPORT_SYMBOL(ttls_pk_free);
 
