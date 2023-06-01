@@ -21,6 +21,8 @@
 #define __TFW_TLS_H__
 
 #include "ttls.h"
+#include "http_types.h"
+#include "str.h"
 
 extern bool tfw_tls_allow_any_sni;
 
@@ -33,5 +35,7 @@ int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 typedef struct tfw_conn_t TfwConn;
 int tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb);
+
+TfwVhost* tfw_tls_find_vhost_by_name(BasicStr *srv_name);
 
 #endif /* __TFW_TLS_H__ */

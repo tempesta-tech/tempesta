@@ -586,13 +586,30 @@ frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
 	*name_only = hdr_name;
 }
 
-static bool
-frang_assert_host_header(const TfwStr *l, const TfwStr *r)
+static TfwVhost*
+__lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 {
-	if (TFW_STR_EMPTY(l) || TFW_STR_EMPTY(r))
-		return false;
+	char small_buf[64];
+	BasicStr name;
 
-	return tfw_strcmp(l, r);
+	name.len = authority->len;
+	/* Prepare buffer */
+	if (likely(name.len < sizeof(small_buf))) {
+		name.data = small_buf;
+	} else {
+		name.data = tfw_pool_alloc(pool, name.len + 1);
+		if (name.data == NULL) {
+			T_WARN("Can't allocate temporary buffer of %zu bytes for"
+				   " frang_http_domain_fronting_check()", name.len + 1);
+			return NULL;
+		}
+	}
+
+	/* Make linear lower-case name */
+	tfw_str_to_cstr(authority, name.data, name.len + 1);
+	tfw_cstrtolower(name.data, name.data, name.len);
+
+	return tfw_tls_find_vhost_by_name(&name);
 }
 
 static int
@@ -603,33 +620,36 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	if ((TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS) == 0)
 		return TFW_PASS;
 
+	/* Do not perform any SNI<=>authority validation if
+	 * tls_match_any_server_name is set */
 	if (tfw_tls_allow_any_sni)
 		return TFW_PASS;
 
 	tctx = tfw_tls_context(req->conn);
+	/* tfw_tls_sni() has to pick any existing vhost in order to proceed */
+	BUG_ON(tctx->vhost == NULL);
 
 	if (tctx->vhost != req->vhost) {
 		TfwVhost *tls_vhost = tctx->vhost;
 		BasicStr tls_name, req_name;
 		static BasicStr null_name = {"NULL", 4};
 
-		/* An exotic case where TLS connection hasn't assigned
-		 * any vhost to the TlsCtx */
-		if (unlikely(tls_vhost == NULL)) {
-			frang_msg("client hasn't sent SNI", &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
 		/* Special case of default vhosts */
 		if (req->vhost == NULL
-		    || tfw_vhost_is_default(tls_vhost))
+		    && tfw_vhost_is_default(tls_vhost))
 			return TFW_PASS;
 
-		tls_name = tctx->vhost ? tls_vhost->name : null_name;
-		req_name = req->vhost ? req->vhost->name : null_name;
-		frang_msg("vhost by SNI doesn't match vhost by authority",
-		          &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
-		          PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
-		return TFW_BLOCK;
+		/* Last (and slowest case): we have to look for TLS certificate
+		 * by authority and make sure that req->vhost is reachable by
+		 * picked authority name */
+		if (tls_vhost != __lookup_vhost_by_authority(req->pool, &req->host)) {
+			tls_name = tctx->vhost ? tls_vhost->name : null_name;
+			req_name = req->vhost ? req->vhost->name : null_name;
+			frang_msg("vhost by SNI doesn't match vhost by authority",
+					  &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
+					  PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
+			return TFW_BLOCK;
+		}
 	}
 	return TFW_PASS;
 }

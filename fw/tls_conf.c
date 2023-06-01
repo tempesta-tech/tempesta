@@ -125,13 +125,6 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, void *a_vhost)
 
 
 	/*
-	 * Try exact name match.
-	 * SNI with this name will be resolved from the vhost hash table.
-	 */
-	if (sname->len == hlen && !strncasecmp(sname->p, hname, hlen))
-		return 0;
-
-	/*
 	 * Try wildcard match by RFC 2818 3.1:
 	 *
 	 *   Names may contain the wildcard character * which is considered to

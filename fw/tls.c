@@ -752,7 +752,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 #define SNI_WARN(fmt, ...)						\
 	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
 			  T_WARN("client %s requested " fmt, addr_str,	\
-				 __VA_ARGS__))
+				 ## __VA_ARGS__))
 
 static int
 fw_tls_apply_sni_wildcard(BasicStr *name)
@@ -777,6 +777,27 @@ fw_tls_apply_sni_wildcard(BasicStr *name)
 	return 0;
 }
 
+TfwVhost*
+tfw_tls_find_vhost_by_name(BasicStr *srv_name)
+{
+	TfwVhost *vhost;
+
+	/* Look for non-wildcard name */
+	vhost = tfw_vhost_lookup_sni(srv_name);
+	if (vhost)
+		return vhost;
+
+	/*
+	 * Try wildcard SANs if the SNI requests 2nd-level or
+	 * lower domain.
+	 */
+	if (!vhost && !fw_tls_apply_sni_wildcard(srv_name)
+		&& (vhost = tfw_vhost_lookup_sni(srv_name)))
+		return vhost;
+
+	return NULL;
+}
+
 /**
  * Find matching vhost according to server name in SNI extension. The function
  * is also called if there is no SNI extension and fallback to some default
@@ -799,43 +820,16 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		/* Data comes as a copy from temporary buffer tls_handshake_t::ext
 		 * See ttls_parse_client_hello() for details */
 		tfw_cstrtolower(srv_name.data, srv_name.data, len);
-		vhost = tfw_vhost_lookup(&srv_name);
 
-		if (unlikely(vhost && tfw_vhost_is_default(vhost))) {
-			SNI_WARN("default vhost by name '%s', reject connection.\n",
-				 TFW_VH_DFT_NAME);
-			tfw_vhost_put(vhost);
-			return -ENOENT;
-		}
-
-		/* Look for non-wildcard SAN */
-		if (!vhost && (vhost = tfw_vhost_lookup_sni(&srv_name)))
-		{
-			ctx->vhost = vhost;
-			goto found;
-		}
-
-		/*
-		 * Try wildcard SANs if the SNI requests 2nd-level or
-		 * lower domain.
-		 */
-		if (!vhost && !fw_tls_apply_sni_wildcard(&srv_name))
-			if ((vhost = tfw_vhost_lookup_sni(&srv_name)))
-			{
-				ctx->vhost = vhost;
-				goto found;
-			}
-
+		vhost = tfw_tls_find_vhost_by_name(&srv_name);
 		if (unlikely(!vhost && !tfw_tls_allow_any_sni)) {
 			SNI_WARN("unknown server name '%.*s', reject connection.\n",
 				 (int)len, data);
 			return -ENOENT;
 		}
-		/* Save vhost that had been selected by SNI */
-		ctx->vhost = vhost;
-	} else {
-		/* No SNI => no vhost for later frang checks */
-		ctx->vhost = NULL;
+	} else if (!tfw_tls_allow_any_sni) {
+		SNI_WARN("missing server name, reject connection.\n");
+		return -ENOENT;
 	}
 	/*
 	 * If accurate vhost is not found or client doesn't send sni extension,
@@ -845,12 +839,13 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		vhost = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!vhost))
 		return -ENOKEY;
-found:
+
 	/*
 	 * The peer configuration might be taked from the default vhost, which
 	 * is different from @vhost. We put() the virtual host, when @ctx is
 	 * freed.
 	 */
+	ctx->vhost = vhost;
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
 	if (unlikely(!peer_cfg)) {
@@ -866,7 +861,7 @@ found:
 		      PR_TFW_STR(&vhost->name));
 	}
 	/* Save processed server name as hash. */
-	ctx->sni_hash = len ? hash_calc(data, len) : 0;
+	ctx->sni_hash = hash_calc(data, len);
 
 	return 0;
 }
