@@ -147,6 +147,23 @@ ss_skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 	nskb->next->prev = skb->next = nskb;
 }
 
+/*
+ * Insert @nskb in the list before @skb and update @skb_head.
+ */
+static inline void
+ss_skb_insert_before(struct sk_buff **skb_head, struct sk_buff *skb,
+		     struct sk_buff *nskb)
+{
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(nskb->next || nskb->prev);
+	nskb->next = skb;
+	nskb->prev = skb->prev;
+	nskb->next->prev = nskb->prev->next = nskb;
+
+	if (*skb_head == skb)
+		*skb_head = nskb;
+}
+
 /**
  * Almost a copy of standard skb_dequeue() except it works with skb list
  * instead of sk_buff_head. Several crucial data include skb list and we don't
