@@ -5672,8 +5672,8 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
-static void
-__extract_request_authority(TfwHttpReq *req)
+void
+tfw_http_extract_request_authority(TfwHttpReq *req)
 {
 	int hid = 0;
 	TfwStr *hdrs = req->h_tbl->tbl;
@@ -5723,19 +5723,6 @@ __check_authority_correctness(TfwHttpReq *req)
 		return !TFW_STR_EMPTY(&req->host);
 	}
 	return true;
-}
-
-static int
-tfw_http_req_process_authority_host(TfwHttpReq *req)
-{
-	__extract_request_authority(req);
-
-	if (!__check_authority_correctness(req)) {
-		tfw_http_req_parse_drop(req, 400, "Invalid authority");
-		return TFW_BLOCK;
-	}
-
-	return 0;
 }
 
 /**
@@ -5840,6 +5827,7 @@ next_msg:
 				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+				tfw_http_extract_request_authority(req);
 			}
 
 			if (tfw_h2_strm_req_is_compl(req->stream)) {
@@ -5881,8 +5869,10 @@ next_msg:
 		}
 	}
 
-	if ((r = tfw_http_req_process_authority_host(req)))
-		return r;
+	if (!__check_authority_correctness(req)) {
+		tfw_http_req_parse_drop(req, 400, "Invalid authority");
+		return TFW_BLOCK;
+	}
 
 	/*
 	 * The message is fully parsed, the rest of the data in the
