@@ -11820,21 +11820,26 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			if (likely(__data_available(p, 17)
 			           && C4_INT_LCM(p + 1, 'r', 'o', 'x', 'y')))
 			{
-				if (C8_INT_LCM(p + 5, '-', 'c', 'o', 'n', 'n', 'e', 'c', 't')
+				if (C8_INT_LCM(p + 5, '-', 'c', 'o', 'n', 'n',
+					       'e', 'c', 't')
 					&& C4_INT3_LCM(p + 13, 'i', 'o', 'n', ':'))
 				{
 					/* Proxy-Connection */
-					__msg_hdr_chunk_fixup(data, __data_off(p + 16));
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 16));
 					parser->_i_st = &&RGen_HdrOtherV;
 					parser->hdr.flags |= TFW_STR_HBH_HDR;
 					p += 16;
 					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				if (__data_available(p, 19)
-					&& C8_INT_LCM(p + 5, '-', 'a', 'u', 't', 'h', 'e', 'n', 't')
-					&& C8_INT7_LCM(p + 11, 'n', 't', 'i', 'c', 'a', 't', 'e', ':'))
+					&& C8_INT_LCM(p + 5, '-', 'a', 'u', 't',
+						      'h', 'e', 'n', 't')
+					&& C8_INT7_LCM(p + 11, 'n', 't', 'i',
+						       'c', 'a', 't', 'e', ':'))
 				{
-					__msg_hdr_chunk_fixup(data, __data_off(p + 18));
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 18));
 					parser->_i_st = &&RGen_HdrOtherV;
 					__msg_hdr_set_hpack_index(48);
 					p += 18;
