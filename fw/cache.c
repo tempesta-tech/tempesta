@@ -189,6 +189,7 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
  * @flags	- TFW_CSTR_DUPLICATE and TFW_CSTR_HPACK_IDX or zero;
  * @name_len	- Header name length. Used for raw headers;
  * @name_len_sz	- HPACK int size of @name_len;
+ * @len		- Total string length or number of duplicates;
  * @idx		- HPACK static index or index of special header;
  */
 typedef struct {
