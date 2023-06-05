@@ -37,16 +37,11 @@
 #include "vhost.h"
 #include "tcp.h"
 
-/**
- * Global level TLS configuration.
- *
- *			  vhost.
- */
-/** Common tls configuration for all vhosts; */
-static TlsCfg		tfw_tls_cfg;
-/** If set, all the unknown SNI are matched to default vhost. */
-bool		    tfw_tls_allow_any_sni;
+/* Common tls configuration for all vhosts. */
+static TlsCfg tfw_tls_cfg;
 
+/* If set, all the unknown SNI are matched to default vhost. */
+bool tfw_tls_allow_any_sni;
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
 
@@ -792,7 +787,7 @@ tfw_tls_find_vhost_by_name(BasicStr *srv_name)
 	 * lower domain.
 	 */
 	if (!vhost && !fw_tls_apply_sni_wildcard(srv_name)
-		&& (vhost = tfw_vhost_lookup_sni(srv_name)))
+	    && (vhost = tfw_vhost_lookup_sni(srv_name)))
 		return vhost;
 
 	return NULL;
@@ -817,8 +812,10 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		return -EBUSY;
 
 	if (data && len) {
-		/* Data comes as a copy from temporary buffer tls_handshake_t::ext
-		 * See ttls_parse_client_hello() for details */
+		/*
+		 * Data comes as a copy from temporary buffer tls_handshake_t::ext
+		 * See ttls_parse_client_hello() for details.
+		 */
 		tfw_cstrtolower(srv_name.data, srv_name.data, len);
 
 		vhost = tfw_tls_find_vhost_by_name(&srv_name);
@@ -827,7 +824,8 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 				 (int)len, data);
 			return -ENOENT;
 		}
-	} else if (!tfw_tls_allow_any_sni) {
+	}
+	else if (!tfw_tls_allow_any_sni) {
 		SNI_WARN("missing server name, reject connection.\n");
 		return -ENOENT;
 	}

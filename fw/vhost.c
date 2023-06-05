@@ -433,15 +433,6 @@ tfw_vhost_name_match(const BasicStr *vh, const BasicStr *name)
 		&& !strncasecmp(vh->data, name->data, vh->len);
 }
 
-/**
- *  Match vhost to requested name. Can be called in softirq context only.
- */
-static bool
-tfw_vhost_name_match_fast(const BasicStr *vh, const BasicStr *name)
-{
-	return !basic_stricmp_fast(vh, name);
-}
-
 static inline TfwVhost *
 __tfw_vhost_lookup(TfwVhostList *vh_list, const BasicStr *name,
 		   bool (*match_fn)(const BasicStr *, const BasicStr *))
@@ -471,28 +462,6 @@ tfw_vhost_lookup_reconfig(const char *name)
 
 	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
 				  tfw_vhost_name_match);
-}
-
-/**
- * Find vhost in the _running_ configuration, matching name @name. The operation
- * involves fast avx2 operations and can be done only in softirq context.
- * If vhost is found, an additional reference is taken. Caller is responsible to
- * release the reference after use.
- */
-TfwVhost *
-tfw_vhost_lookup(const BasicStr *name)
-{
-	TfwVhost *vhost;
-	TfwVhostList *vhlist;
-
-	rcu_read_lock_bh();
-	vhlist = rcu_dereference_bh(tfw_vhosts);
-	BUG_ON(!vhlist);
-	vhost = __tfw_vhost_lookup(vhlist, name,
-				   tfw_vhost_name_match_fast);
-	rcu_read_unlock_bh();
-
-	return vhost;
 }
 
 /**

@@ -276,7 +276,6 @@ TfwVhost *tfw_vhost_new(const char *name);
 void tfw_vhost_add_sni_map(const BasicStr *cn, TfwVhost *vhost);
 
 TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
-TfwVhost *tfw_vhost_lookup(const BasicStr *name);
 TfwVhost *tfw_vhost_lookup_sni(const BasicStr *name);
 TfwVhost *tfw_vhost_lookup_default(void);
 
