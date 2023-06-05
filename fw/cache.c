@@ -798,7 +798,6 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
 	}
 
 	for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
-		int cmplen;
 		char* mod_hdr_name;
 		size_t mod_hdr_len;
 
@@ -808,9 +807,8 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
 			continue;
 
 		mod_hdr_name = TFW_STR_CHUNK(desc->hdr, 0)->data;
-		cmplen = min(hdr.len, mod_hdr_len);
 
-		if (!tfw_cstricmp(hdr.data, mod_hdr_name, cmplen))
+		if (!tfw_cstricmp(hdr.data, mod_hdr_name, hdr.len))
 			return true;
 	}
 

@@ -192,7 +192,7 @@ tfw_hpack_find_hdr_idx(const TfwStr *hdr)
 	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->data));
 
 	while (start < end) {
-		unsigned short mid = start + (end - start) / 2;
+		unsigned short mid = (start + end) / 2;
 		const TfwStr *sh = static_table[mid].hdr;
 		int sc = *(unsigned char *)sh->chunks->data;
 
