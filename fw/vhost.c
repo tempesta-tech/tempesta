@@ -2429,7 +2429,7 @@ tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		return r;
 
-	tfw_tls_match_any_sni_to_dflt(val);
+	tfw_tls_set_allow_any_sni(val);
 
 	return 0;
 }
