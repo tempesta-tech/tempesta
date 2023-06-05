@@ -8582,6 +8582,27 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+static int
+__h2_req_parse_te(TfwHttpMsg *hm, unsigned char *data, size_t len,
+			       bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_Te) {
+		H2_TRY_STR_LAMBDA("trailers", {
+			__FSM_EXIT(CSTR_EQ);
+		}, I_Te, done);
+		TRY_STR_INIT();
+		__FSM_I_JMP(done);
+	}
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_te);
+
 /**
  * Parse Forwarded header, RFC 7239.
  *
@@ -9824,6 +9845,11 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			     __h2_req_parse_x_forwarded_for,
 			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
 
+	/* 'te' is read, process field-value */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrTeV, msg,
+			     __h2_req_parse_te,
+			     TFW_HTTP_HDR_RAW, 1);
+
 	/* 'forwarded' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrForwardedV, msg,
 			     __h2_req_parse_forwarded,
@@ -10170,7 +10196,20 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_FIN(Req_HdrRefere, 'r', Req_HdrRefererV,
 			   TFW_TAG_HDR_REFERER);
 
-	__FSM_H2_TX_AF(Req_HdrT, 'r', Req_HdrTr);
+	__FSM_STATE(Req_HdrT, cold) {
+		switch (c) {
+		case 'r':
+			__FSM_H2_NEXT(Req_HdrTr);
+		case 'e':
+			if (fin && __data_remain(p) == 1) {
+				__msg_hdr_chunk_fixup(data, len);
+				__FSM_H2_OK(Req_HdrTeV);
+			}
+			fallthrough;
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 	__FSM_H2_TX_AF(Req_HdrTr, 'a', Req_HdrTra);
 	__FSM_H2_TX_AF(Req_HdrTra, 'n', Req_HdrTran);
 	__FSM_H2_TX_AF(Req_HdrTran, 's', Req_HdrTrans);
