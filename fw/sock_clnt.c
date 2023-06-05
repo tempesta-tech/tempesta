@@ -178,9 +178,6 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	unsigned int truesize = 0, tmp_truesize = 0;
 	int r = 0;
 
-	/* Avoid adding data to linear part of skb. */
-	skb->tail_lock = 1;
-
 #define FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
 	(flags & SS_F_HTTT2_FRAME_HEADERS)
 
@@ -354,8 +351,6 @@ update_limit:
 		*limit = stream->xmit.processed;
 
 ret:
-	/* Should be zero when skb is passed to the kernel code. */
-	skb->tail_lock = 0;
 	/* Reinit stream xmit context. */
 	if (stream)
 		*nskbs = !r ? stream->xmit.nskbs : 0;
