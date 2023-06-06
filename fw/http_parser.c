@@ -8596,7 +8596,6 @@ __h2_req_parse_te(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_EQ);
 		}, I_Te, done);
 		TRY_STR_INIT();
-		__FSM_I_JMP(done);
 	}
 done:
 	return r;
@@ -10201,11 +10200,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		case 'r':
 			__FSM_H2_NEXT(Req_HdrTr);
 		case 'e':
-			if (fin && __data_remain(p) == 1) {
-				__msg_hdr_chunk_fixup(data, len);
-				__FSM_H2_OK(Req_HdrTeV);
-			}
-			fallthrough;
+			 __FSM_H2_FIN(Req_HdrTeV, 1, TFW_TAG_HDR_RAW);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
