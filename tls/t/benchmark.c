@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS benchmark for crypto routines
  *
- * Copyright (C) 2020-2021 Tempesta Technologies, INC.
+ * Copyright (C) 2020-2023 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -44,12 +44,14 @@ const TlsEcpGrp CURVE25519_G = {};
 static bool		run_bm;
 static unsigned long	iter;
 
-static void
+static int
 fill_random(unsigned char *buf, size_t bytes)
 {
 	int rd = open("/dev/urandom", O_RDONLY);
-	read(rd, buf, bytes);
+	if (read(rd, buf, bytes) != bytes)
+		return -1;
 	close(rd);
+	return 0;
 }
 
 static void
@@ -145,7 +147,11 @@ bm_ecdsa_sign_p256(void)
 	ttls_mpi_lset(&ctx->Q.Z, 1);
 	ttls_mpi_read_binary(&ctx->d, EC_d, 32);
 
-	fill_random(hash, 32);
+	if (fill_random(hash, 32)) {
+		printf(" Test failed: can't read random bytes from urandom\n");
+		return;
+	}
+
 
 	/*
 	 * The both WolfSSL and OpenSSL benchmark key derivation for ECDH
