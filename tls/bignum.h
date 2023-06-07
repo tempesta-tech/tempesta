@@ -210,6 +210,7 @@ int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 		     const TlsMpi *N, TlsMpi *_RR);
 void ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
 void ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_precompute_RR(TlsMpi *X, const TlsMpi *N);
 
 static inline bool
 ttls_mpi_empty(const TlsMpi *X)
