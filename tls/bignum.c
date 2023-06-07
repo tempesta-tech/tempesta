@@ -44,6 +44,15 @@
 /* Maximum sliding window size in bits used for modular exponentiation. */
 #define MPI_W_SZ		6
 
+void
+ttls_mpi_precompute_RR(TlsMpi *X, const TlsMpi *N)
+{
+	ttls_mpi_alloc(X, N->used * 2 + 2);
+	ttls_mpi_lset(X, 1);
+	ttls_mpi_shift_l(X, X, N->used * 2 * BIL);
+	ttls_mpi_mod_mpi(X, X, N);
+}
+
 /**
  * Allocate an MPI on the stack and initialize it with the required limbs in
  * one shot.
@@ -1228,12 +1237,8 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	 * If 1st call, pre-compute R^2 mod N
 	 */
 	BUG_ON(!RR);
-	if (unlikely(ttls_mpi_empty(RR))) {
-		ttls_mpi_alloc(RR, N->used * 2 + 2);
-		ttls_mpi_lset(RR, 1);
-		ttls_mpi_shift_l(RR, RR, N->used * 2 * BIL);
-		ttls_mpi_mod_mpi(RR, RR, N);
-	}
+	if (unlikely(ttls_mpi_empty(RR)))
+		ttls_mpi_precompute_RR(RR, N);
 
 	/* W[1] = A * R^2 * R^-1 mod N = A * R mod N */
 	if (ttls_mpi_cmp_mpi(A, N) >= 0)
