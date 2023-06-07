@@ -3625,6 +3625,43 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 	return 0;
 }
 
+/** Fuse multiple cookie headers into one.
+ * Works only with TFW_STR_DUP strings. */
+static int
+write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
+{
+	int r = 0;
+	static const DEFINE_TFW_STR(h_cookie, "cookie" S_DLM);
+	static const DEFINE_TFW_STR(val_dlm, "; ");
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
+	TfwStr *dup, *dup_end;
+	const TfwStr *cookie_dlm = &h_cookie;
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TfwStr *chunk, *chunk_end, hval = {};
+
+		if (unlikely(TFW_STR_PLAIN(dup))) {
+			return -EINVAL;
+		}
+
+		hval.chunks = dup->chunks;
+		hval.nchunks = dup->nchunks;
+		hval.len = dup->len;
+		TFW_STR_FOR_EACH_CHUNK(chunk, dup, chunk_end) {
+			if (chunk->flags & TFW_STR_HDR_VALUE)
+				break;
+			hval.chunks++;
+			hval.nchunks--;
+			hval.len -= chunk->len;
+		}
+		r |= tfw_msg_write(it, cookie_dlm);
+		r |= tfw_msg_write(it, &hval);
+		cookie_dlm = &val_dlm;
+	}
+	return r | tfw_msg_write(it, &crlf);
+}
+
+
 /**
  * Transform h2 request to http1.1 request before forward it to backend server.
  * Usually we prefer in-place header modifications avoid copying, but here
@@ -3651,10 +3688,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwStr meth = {}, host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
-	const DEFINE_TFW_STR(sp, " ");
-	const DEFINE_TFW_STR(dlm, S_DLM);
-	const DEFINE_TFW_STR(crlf, S_CRLF);
-	const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
+	static const DEFINE_TFW_STR(sp, " ");
+	static const DEFINE_TFW_STR(dlm, S_DLM);
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
+	static const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
 	char *buf = *this_cpu_ptr(&g_buf);
 	char *xff_end = ss_skb_fmt_src_addr(req->msg.skb_head, buf);
 	const TfwStr h_xff = {
@@ -3786,6 +3823,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	h1_hdrs_sz += h_via.len;
 	h1_hdrs_sz += cl_len;
 
+	/* Adjust header size based on how many cookie headers there were in
+	 * request. */
+	if (TFW_STR_DUP(&ht->tbl[TFW_HTTP_HDR_COOKIE]))
+		h1_hdrs_sz -= (ht->tbl[TFW_HTTP_HDR_COOKIE].nchunks - 1)
+		              * (SLEN("cookie") + SLEN(S_DLM));
+
 	/*
 	 * Conditional substitution/additions of 'content-type' header. This is
 	 * singular header, so we can avoid duplicates processing.
@@ -3837,6 +3880,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		case TFW_HTTP_HDR_CONTENT_TYPE:
 			if (h_ct_replace) {
 				r |= tfw_msg_write(&it, &h_ct);
+				continue;
+			}
+			break;
+		case TFW_HTTP_HDR_COOKIE:
+			if (TFW_STR_DUP(field)) {
+				r |= write_merged_cookie_headers(&ht->tbl[TFW_HTTP_HDR_COOKIE], &it);
 				continue;
 			}
 			break;
@@ -3942,7 +3991,7 @@ err:
 	ss_skb_queue_purge(&new_head);
 	T_DBG3("%s: req [%p] convertation to http1.1 has failed\n",
 	       __func__, req);
-	return r;
+	return -EINVAL;
 }
 
 /*
