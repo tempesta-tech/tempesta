@@ -9553,7 +9553,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_FIN(Req_HdrPragmaV, 6,
 					     TFW_TAG_HDR_PRAGMA);
 			__FSM_H2_OTHER_n(4);
-		/* proxy-connection */
+		/*
+		 * RFC 9113 8.2.2: Treat a request containing connection-specific
+		 * proxy-connection header as malformed.
+		 */
 		case TFW_CHAR4_INT('p', 'r', 'o', 'x'):
 			if (unlikely(!__data_available(p, 16)))
 				__FSM_H2_DROP(Req_HdrProxyConnection);
@@ -9588,7 +9591,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_FIN(Req_HdrUser_AgentV, 10,
 					     TFW_TAG_HDR_USER_AGENT);
 			__FSM_H2_OTHER_n(4);
-		/* upgrade */
+		/*
+		 * RFC 9113 8.2.2: Treat a request containing connection-specific
+		 * upgrade header as malformed.
+		 */
 		case TFW_CHAR4_INT('u', 'p', 'g', 'r'):
 			if (unlikely(!__data_available(p, 7)))
 				__FSM_H2_NEXT_n(Req_HdrUpgr, 4);
