@@ -19,6 +19,7 @@
  */
 #include <linux/hashtable.h>
 #include <linux/slab.h>
+#include <linux/sort.h>
 
 #undef DEBUG
 #if DBG_VHOST > 0
@@ -753,21 +754,36 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 	TfwHdrMods *h_mods = &loc->mod_hdrs[mod_type];
 	TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->sz];
 
-	if (h_mods->sz == TFW_USRHDRS_ARRAY_SZ) {
+	if (unlikely(h_mods->sz == TFW_USRHDRS_ARRAY_SZ)) {
 		T_WARN_NL("Too lot of custom headers, %d supported.\n",
 			  TFW_USRHDRS_ARRAY_SZ);
 		return -EINVAL;
 	}
+
 	if (!(hdr = tfw_http_msg_make_hdr(loc->hdrs_pool, name, value))) {
 		T_WARN_NL("Can't create header.\n");
 		return -ENOMEM;
 	}
-	desc->hdr = hdr;
-	desc->append = append;
+
 	desc->hid = (mod_type == TFW_VHOST_HDRMOD_RESP)
 			? tfw_http_msg_resp_spec_hid(TFW_STR_CHUNK(hdr, 0))
 			: tfw_http_msg_req_spec_hid(TFW_STR_CHUNK(hdr, 0));
+
+	if (desc->hid < TFW_HTTP_HDR_RAW) {
+		if (h_mods->spec_hdrs[desc->hid]) {
+			T_WARN_NL("Duplicated header modification.\n");
+			return -EINVAL;
+		}
+		h_mods->spec_hdrs[desc->hid] = desc;
+		++h_mods->spec_num;
+	}
+
+	hdr->hpack_idx = tfw_hpack_find_hdr_idx(TFW_STR_CHUNK(hdr, 0));
+	desc->hdr = hdr;
+	desc->append = append;
 	++h_mods->sz;
+	if (!append)
+		set_bit(hdr->hpack_idx, h_mods->s_tbl);
 
 	return 0;
 }
@@ -904,6 +920,28 @@ tfw_cfgop_out_resp_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_mod_hdr(cs, ce,
 				 tfw_vhosts_reconfig->vhost_dflt->loc_dflt,
 				 TFW_VHOST_HDRMOD_RESP, false);
+}
+
+static int
+tfw_mod_hdr_cmp(const void *l, const void *r)
+{
+	TfwHdrModsDesc *desc_l = (TfwHdrModsDesc *)l;
+	TfwHdrModsDesc *desc_r = (TfwHdrModsDesc *)r;
+
+	return (int)desc_l->hid - (int)desc_r->hid;
+}
+
+static void
+tfw_mod_hdr_sort(TfwLocation *loc)
+{
+	unsigned short type;
+
+	for (type = 0; type < TFW_VHOST_HDRMOD_NUM; type++) {
+		TfwHdrMods *h_mods = &loc->mod_hdrs[type];
+
+		sort(h_mods->hdrs, h_mods->sz, sizeof(h_mods->hdrs[0]),
+		     tfw_mod_hdr_cmp, NULL);
+	}
 }
 
 /*
@@ -1313,7 +1351,8 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	size_t size = sizeof(FrangVhostCfg)
 		    + sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
-		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
+		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2
+		    + sizeof(TfwHdrModsDesc *) * TFW_HTTP_HDR_RAW * 2;
 
 	if ((argmem = kmalloc(len + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
@@ -1336,9 +1375,20 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->nipdef_sz = 0;
 	loc->hdrs_pool = pool;
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs =
-			(TfwHdrModsDesc *)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
+		(TfwHdrModsDesc *)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
+
+	loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].spec_hdrs =
+		(TfwHdrModsDesc **)(loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs
+				    + TFW_USRHDRS_ARRAY_SZ);
+
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs =
-			loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
+		(TfwHdrModsDesc *)(loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].spec_hdrs
+				   + TFW_HTTP_HDR_RAW);
+
+	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].spec_hdrs =
+		(TfwHdrModsDesc **)(loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs
+				    + TFW_USRHDRS_ARRAY_SZ);
+
 	memcpy((void *)loc->arg, (void *)arg, len + 1);
 
 	return 0;
@@ -1473,6 +1523,7 @@ tfw_cfgop_out_location_finish(TfwCfgSpec *cs)
 {
 	BUG_ON(tfw_vhost_entry);
 	BUG_ON(!tfwcfg_this_location);
+	tfw_mod_hdr_sort(tfwcfg_this_location);
 	tfwcfg_this_location = NULL;
 	return 0;
 }
@@ -2543,7 +2594,7 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 {
-	int r;
+	int r, i;
 
 	BUG_ON(!tfw_vhost_entry);
 	if (!tfw_vhost_entry->loc_dflt->main_sg) {
@@ -2553,6 +2604,12 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 			 tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
+
+	for (i = 0; i < tfw_vhost_entry->loc_sz; i++)
+		tfw_mod_hdr_sort(tfw_vhost_entry->loc + i);
+
+	tfw_mod_hdr_sort(tfw_vhost_entry->loc_dflt);
+
 	if ((r = tfw_tls_cert_cfg_finish(tfw_vhost_entry)))
 		return r;
 	if ((r = tfw_http_sess_cfg_finish(tfw_vhost_entry)))

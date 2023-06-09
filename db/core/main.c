@@ -90,7 +90,7 @@ tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 	if (likely((*r)->data + (*r)->len - curr_ptr >= tail_len))
 		return curr_ptr;
 
-	(*r)->len -= curr_ptr - (*r)->data;
+	(*r)->len = curr_ptr - (*r)->data;
 
 	*r = tdb_htrie_extend_rec(db->hdr, *r, tot_size);
 	return *r ? (*r)->data : NULL;

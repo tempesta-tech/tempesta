@@ -32,6 +32,9 @@
 #include "hpack.h"
 #include "lib/str.h"
 
+/* Max length of http header name. */
+#define HTTP_MAX_HDR_NAME_LEN		1024
+
 /*
  * ------------------------------------------------------------------------
  *	Common HTTP parsing routines
@@ -1544,6 +1547,11 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 			TFW_PARSER_BLOCK(RGen_HdrOtherN);		\
 		}							\
 		__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz));	\
+		if (unlikely(parser->hdr.len > HTTP_MAX_HDR_NAME_LEN)) {\
+			T_WARN("Max header name length %u exceeded.",	\
+			       HTTP_MAX_HDR_NAME_LEN);			\
+			return TFW_BLOCK;				\
+		}							\
 		parser->_i_st = &&RGen_HdrOtherV;			\
 		p += __fsm_sz;						\
 		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
@@ -9664,6 +9672,12 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		 * previous states trying known header names.
 		 */
 		__msg_hdr_chunk_fixup(data, len);
+		if (unlikely(parser->hdr.len > HTTP_MAX_HDR_NAME_LEN)) {
+			T_WARN("Max header name length %u exceeded.",
+			       HTTP_MAX_HDR_NAME_LEN);
+			ret = T_DROP;
+			goto out;
+		}
 		if (unlikely(!fin))
 			__FSM_H2_POSTPONE(RGen_HdrOtherN);
 		it->tag = TFW_TAG_HDR_RAW;

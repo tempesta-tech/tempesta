@@ -178,15 +178,26 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 #define __tfw_dbg_dump_ce(...)
 #endif
 
+/* TfwCStr contains duplicated header. */
+#define TFW_CSTR_DUPLICATE	TFW_STR_DUPLICATE
+/* TfwCStr contains special header and its id. */
+#define TFW_CSTR_SPEC_IDX	0x2
+
 /**
  * String header for cache entries used for TfwStr serialization.
  *
- * @flags	- only TFW_STR_DUPLICATE or zero;
- * @len		- string length or number of duplicates;
+ * @flags	- TFW_CSTR_DUPLICATE and TFW_CSTR_HPACK_IDX or zero;
+ * @name_len	- Header name length. Used for raw headers;
+ * @name_len_sz	- HPACK int size of @name_len;
+ * @len		- Total string length or number of duplicates;
+ * @idx		- HPACK static index or index of special header;
  */
 typedef struct {
 	unsigned long	flags : 8,
-			len : 56;
+			name_len: 11,
+			name_len_sz : 2,
+			len : 35,
+			idx : 8;
 } TfwCStr;
 
 #define TFW_CSTR_MAXLEN		(1UL << 56)
@@ -685,9 +696,7 @@ tfw_cache_h2_decode_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		acc += m_len;
 		*data += m_len;
 		if (acc == len) {
-			bzero_fast(dc_iter->__off,
-				   sizeof(*dc_iter)
-				   - offsetof(TfwDecodeCacheIter, __off));
+			TFW_STR_INIT(&dc_iter->hdr_data);
 			break;
 		}
 
@@ -760,6 +769,52 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 	return 0;
 }
 
+static bool
+tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
+{
+	unsigned int i;
+	const TfwHdrModsDesc *desc;
+	/*
+	 * Move to beggining of the header name. Skip first byte of HPACK
+	 * string and name length size.
+	 */
+	TfwStr hdr = { .data = p + str->name_len_sz + 1,
+		       .len  = str->name_len };
+
+	/* Fast path for special headers */
+	if (str->flags & TFW_CSTR_SPEC_IDX) {
+		desc = h_mods->spec_hdrs[str->idx];
+		/* Skip only resp_hdr_set headers */
+		return desc ? !desc->append : false;
+	}
+
+	if (str->idx) {
+		unsigned short hpack_idx = str->idx;
+
+		if (hpack_idx <= HPACK_STATIC_TABLE_REGULAR)
+			return false;
+
+		return test_bit(hpack_idx, h_mods->s_tbl);
+	}
+
+	for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
+		char* mod_hdr_name;
+		size_t mod_hdr_len;
+
+		desc = &h_mods->hdrs[i];
+		mod_hdr_len = TFW_STR_CHUNK(desc->hdr, 0)->len;
+		if (desc->append || mod_hdr_len != hdr.len)
+			continue;
+
+		mod_hdr_name = TFW_STR_CHUNK(desc->hdr, 0)->data;
+
+		if (!tfw_cstricmp(hdr.data, mod_hdr_name, hdr.len))
+			return true;
+	}
+
+	return false;
+}
+
 /**
  * Write HTTP header to skb data.
  */
@@ -769,32 +824,49 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 			 bool skip)
 {
 	tfw_cache_write_actor_t *write_actor;
-	TfwCStr *s = (TfwCStr *)*p;
+	TfwCStr *s;
 	TfwHttpReq *req = resp->req;
-	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip};
+	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip };
 	int d, dn, r = 0;
+
+/* Go to the next chunk if we at the end of current. */
+#define NEXT_CHUNK()							\
+do {									\
+	if (*p - (*trec)->data == (*trec)->len) {			\
+		*trec = tdb_next_rec_chunk(db, (*trec));		\
+		*p = (*trec)->data;					\
+	}								\
+} while (0)
 
 	BUG_ON(!req);
 
-	write_actor = !TFW_MSG_H2(req) || dc_iter.h_mods
-		? tfw_cache_h2_decode_write
-		: tfw_cache_h2_write;
+	write_actor = !TFW_MSG_H2(req) ? tfw_cache_h2_decode_write
+				       : tfw_cache_h2_write;
 
+	NEXT_CHUNK();
+	s = (TfwCStr *)*p;
 	*p += TFW_CSTR_HDRLEN;
 	BUG_ON(*p > (*trec)->data + (*trec)->len);
 
-	if (likely(!(s->flags & TFW_STR_DUPLICATE))) {
+	if (likely(!(s->flags & TFW_CSTR_DUPLICATE))) {
+		if (!skip && dc_iter.h_mods)
+			dc_iter.skip = tfw_cache_skip_hdr(s, *p, hmods);
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (likely(!r))
 			*acc_len += dc_iter.acc_len;
 		return r;
 	}
 
+	if (!skip && dc_iter.h_mods)
+		dc_iter.skip = tfw_cache_skip_hdr((TfwCStr *)*p,
+						  *p + TFW_CSTR_HDRLEN, hmods);
+
 	/* Process duplicated headers. */
 	dn = s->len;
 	for (d = 0; d < dn; ++d) {
+		NEXT_CHUNK();
 		s = (TfwCStr *)*p;
-		BUG_ON(s->flags);
+		BUG_ON(s->flags & TFW_CSTR_DUPLICATE);
 		*p += TFW_CSTR_HDRLEN;
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (unlikely(r))
@@ -1152,10 +1224,13 @@ do {						\
 	ce->hdr_len += TFW_CSTR_HDRLEN;		\
 } while (0)
 
-#define CSTR_WRITE_HDR(f, l)			\
-do {						\
-	cs->flags = f;				\
-	cs->len = l;				\
+#define CSTR_WRITE_HDR(f, l, nl, i)			\
+do {							\
+	cs->flags = f;					\
+	cs->len = l;					\
+	cs->name_len = nl;				\
+	cs->name_len_sz = tfw_hpack_int_size(nl, 0x7f);	\
+	cs->idx = i;					\
 } while (0)
 
 /**
@@ -1474,9 +1549,11 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index) +
 			2 * need_extra_quotes;
 
-		/* Don't split short strings. */
+		/* Don't split short strings and header name. */
 		if (sizeof(TfwCStr) + h_len <= L1_CACHE_BYTES)
 			n += h_len;
+		else
+			n += s_nm.len;
 	}
 
 	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
@@ -1487,7 +1564,12 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 
 	if (TFW_STR_DUP(hdr)) {
 		CSTR_MOVE_HDR();
-		CSTR_WRITE_HDR(TFW_STR_DUPLICATE, hdr->nchunks);
+		if (hid >= TFW_HTTP_HDR_REGULAR  && hid < TFW_HTTP_HDR_RAW)
+			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX | TFW_CSTR_DUPLICATE,
+				       hdr->nchunks, 0, hid);
+		else
+			CSTR_WRITE_HDR(TFW_CSTR_DUPLICATE, hdr->nchunks, 0,
+				       st_index);
 	}
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
@@ -1498,6 +1580,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			TFW_STR_INIT(&s_val);
 			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
 			st_index = dup->hpack_idx;
+			*p = tdb_entry_get_room(node_db(), trec, *p,
+						n + s_nm.len, *tot_len);
 		}
 		CSTR_MOVE_HDR();
 		prev_len = ce->hdr_len;
@@ -1525,7 +1609,12 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 							    need_extra_quotes))
 			return -ENOMEM;
 
-		CSTR_WRITE_HDR(0, ce->hdr_len - prev_len);
+		if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW)
+			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX,
+				       ce->hdr_len - prev_len, 0, hid);
+		else
+			CSTR_WRITE_HDR(0, ce->hdr_len - prev_len, s_nm.len,
+				       st_index);
 	}
 
 	T_DBG3("%s: p=[%p], trec=[%p], ce->hdr_len='%u', tot_len='%zu'\n",
@@ -1576,7 +1665,7 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, val, tot_len))
 		return -ENOMEM;
 
-	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN);
+	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, 0, st_idx);
 
 	return ce->hdr_len - prev_len;
 }
