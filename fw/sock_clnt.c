@@ -34,6 +34,7 @@
 #include "server.h"
 #include "sync_socket.h"
 #include "tls.h"
+#include "lib/trace.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -378,6 +379,7 @@ ret:
 		 * the write queue.
 		 */
 		ss_close(sk, SS_F_ABORT);
+		trace_tfw_prepare_xmit_fail(skb, r);
 	}
 
 	return r;

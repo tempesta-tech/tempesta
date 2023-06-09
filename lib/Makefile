@@ -16,13 +16,17 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
+mkfile_dir := $(dir $(mkfile_path))
+
 EXTRA_CFLAGS += $(TFW_CFLAGS)
+EXTRA_CFLAGS += -DTFW_LIB_PWD=$(mkfile_dir)
 
 obj-m	= tempesta_lib.o
 
 GCOV_PROFILE := $(TFW_GCOV)
 
-tempesta_lib-objs = hash.o main.o
+tempesta_lib-objs = hash.o main.o trace.o
 ifdef AVX2
 	tempesta_lib-objs += str_simd.o
 endif
