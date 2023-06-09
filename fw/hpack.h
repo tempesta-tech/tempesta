@@ -30,6 +30,14 @@
 #define HPACK_TABLE_DEF_SIZE		4096
 #define HPACK_ENC_TABLE_MAX_SIZE	HPACK_TABLE_DEF_SIZE
 
+/* Limit for the HPACK variable-length integer. */
+#define HPACK_INT_LIMIT			(1 << 20)
+
+/* Static table size. Defined by RFC 7541. */
+#define HPACK_STATIC_ENTRIES		61
+
+/* Static table offset where starts regular headers (not pseudo-headers) */
+#define HPACK_STATIC_TABLE_REGULAR	14
 /**
  * Red-black tree node representation in the ring buffer.
  * Note, the field @hdr_len use only 15 bits and the 16th bit of unsigned
@@ -257,21 +265,15 @@ typedef struct {
  * @skip	- flag to skip particular cached data in order to switch
  *		  between HTTP/2 and HTTP/1.1 resulting representation during
  *		  decoding from HTTP/2-cache;
- * @__off	- offset to reinitialize the iterator non-persistent part;
- * @desc	- pointer to the found header configured to be changed;
  * @acc_len	- accumulated length of the resulting headers part of the
  *		  response;
  * @hdr_data	- header's data currently received from cache;
- * @h2_data	- HTTP/2-specific data currently received from cache.
  */
 typedef struct {
 	TfwHdrMods		*h_mods;
 	bool			skip;
-	char			__off[0];
-	TfwHdrModsDesc		*desc;
 	unsigned long		acc_len;
 	TfwStr			hdr_data;
-	TfwStr			h2_data;
 } TfwDecodeCacheIter;
 
 #define	BUFFER_GET(len, it)					\
@@ -324,5 +326,5 @@ tfw_hpack_int_size(unsigned long index, unsigned short max)
 
 	return size;
 }
-
+unsigned short tfw_hpack_find_hdr_idx(const TfwStr *hdr);
 #endif /* __TFW_HPACK_H__ */
