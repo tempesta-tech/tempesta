@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1944,6 +1944,28 @@ TEST(http2_parser, content_encoding)
 	);
 }
 
+TEST(http2_parser, te)
+{
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("te"), VALUE(TOKEN_ALPHABET)));
+	    HEADERS_FRAME_END();
+	);
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("te"), VALUE("trailers")));
+	    HEADERS_FRAME_END();
+	)
+	{
+	}
+}
+
 TEST(http2_parser, content_type_line_parser)
 {
 #define FOR_REQ_H2_CONTENT_TYPE(content_type)					\
@@ -3425,6 +3447,7 @@ TEST_SUITE_MPART(http2_parser, 4)
 	TEST_RUN(http2_parser, content_encoding);
 	TEST_RUN(http2_parser, content_type_line_parser);
 	TEST_RUN(http2_parser, xff);
+	TEST_RUN(http2_parser, te);
 }
 
 TEST_SUITE_MPART(http2_parser, 5)
