@@ -3778,6 +3778,8 @@ __parse_upgrade(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	parser->hdr.flags |= TFW_STR_HBH_HDR;
+
 	/*
 	 * Here we build a header value string manually to split it in chunks:
 	 * next chunk starts after ',' or ' ' list delimiter and '/' delimiter.
@@ -8588,6 +8590,26 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+static int
+__h2_req_parse_te(TfwHttpMsg *hm, unsigned char *data, size_t len,
+			       bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_Te) {
+		H2_TRY_STR_LAMBDA("trailers", {
+			__FSM_EXIT(CSTR_EQ);
+		}, I_Te, done);
+		TRY_STR_INIT();
+	}
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_te);
+
 /**
  * Parse Forwarded header, RFC 7239.
  *
@@ -9539,6 +9561,17 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_FIN(Req_HdrPragmaV, 6,
 					     TFW_TAG_HDR_PRAGMA);
 			__FSM_H2_OTHER_n(4);
+		/*
+		 * RFC 9113 8.2.2: Treat a request containing connection-specific
+		 * proxy-connection header as malformed.
+		 */
+		case TFW_CHAR4_INT('p', 'r', 'o', 'x'):
+			if (unlikely(!__data_available(p, 16)))
+				__FSM_H2_DROP(Req_HdrProxyConnection);
+			if (C8_INT(p + 4, 'y', '-', 'c', 'o', 'n', 'n', 'e', 'c')
+			    || C4_INT(p + 12, 't', 'i', 'o', 'n'))
+				__FSM_H2_DROP(Req_HdrProxyConnection);
+			__FSM_H2_OTHER_n(4);
 		/* transfer-encoding */
 		case TFW_CHAR4_INT('t', 'r', 'a', 'n'):
 			if (unlikely(!__data_available(p, 17)))
@@ -9565,6 +9598,16 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (C8_INT(p + 2, 'e', 'r', '-', 'a', 'g', 'e', 'n', 't'))
 				__FSM_H2_FIN(Req_HdrUser_AgentV, 10,
 					     TFW_TAG_HDR_USER_AGENT);
+			__FSM_H2_OTHER_n(4);
+		/*
+		 * RFC 9113 8.2.2: Treat a request containing connection-specific
+		 * upgrade header as malformed.
+		 */
+		case TFW_CHAR4_INT('u', 'p', 'g', 'r'):
+			if (unlikely(!__data_available(p, 7)))
+				__FSM_H2_NEXT_n(Req_HdrUpgr, 4);
+			if (C4_INT(p + 3, 'r', 'a', 'd', 'e'))
+				__FSM_H2_DROP(Req_HdrUpgrade);
 			__FSM_H2_OTHER_n(4);
 		/* x-forwarded-for */
 		case TFW_CHAR4_INT('x', '-', 'f', 'o'):
@@ -9820,6 +9863,11 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Forwarded_ForV, msg,
 			     __h2_req_parse_x_forwarded_for,
 			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
+
+	/* 'te' is read, process field-value */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrTeV, msg,
+			     __h2_req_parse_te,
+			     TFW_HTTP_HDR_RAW, 1);
 
 	/* 'forwarded' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrForwardedV, msg,
@@ -10129,11 +10177,35 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_DROP(Req_HdrKeep_Aliv, 'e');
 
 	__FSM_H2_TX_AF(Req_HdrP, 'r', Req_HdrPr);
-	__FSM_H2_TX_AF(Req_HdrPr, 'a', Req_HdrPra);
+	__FSM_STATE(Req_HdrPr, cold) {
+		switch (c) {
+		case 'a':
+			__FSM_H2_NEXT(Req_HdrPra);
+		case 'o':
+			__FSM_H2_NEXT(Req_HdrPro);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
 	__FSM_H2_TX_AF(Req_HdrPra, 'g', Req_HdrPrag);
 	__FSM_H2_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm);
 	__FSM_H2_TX_AF_FIN(Req_HdrPragm, 'a', Req_HdrPragmaV,
 			   TFW_TAG_HDR_PRAGMA);
+
+	__FSM_H2_TX_AF(Req_HdrPro, 'x', Req_HdrProx);
+	__FSM_H2_TX_AF(Req_HdrProx, 'y', Req_HdrProxy);
+	__FSM_H2_TX_AF(Req_HdrProxy, '_', Req_HdrProxy_);
+	__FSM_H2_TX_AF(Req_HdrProxy_, 'c', Req_HdrProxy_C);
+	__FSM_H2_TX_AF(Req_HdrProxy_C, 'o', Req_HdrProxy_Co);
+	__FSM_H2_TX_AF(Req_HdrProxy_Co, 'n', Req_HdrProxy_Con);
+	__FSM_H2_TX_AF(Req_HdrProxy_Con, 'n', Req_HdrProxy_Conn);
+	__FSM_H2_TX_AF(Req_HdrProxy_Conn, 'e', Req_HdrProxy_Conne);
+	__FSM_H2_TX_AF(Req_HdrProxy_Conne, 'c', Req_HdrProxy_Connec);
+	__FSM_H2_TX_AF(Req_HdrProxy_Connec, 't', Req_HdrProxy_Connect);
+	__FSM_H2_TX_AF(Req_HdrProxy_Connect, 'i', Req_HdrProxy_Connecti);
+	__FSM_H2_TX_AF(Req_HdrProxy_Connecti, 'o', Req_HdrProxy_Connectio);
+	__FSM_H2_TX_AF_DROP(Req_HdrProxy_Connectio, 'n');
 
 	__FSM_H2_TX_AF(Req_HdrR, 'e', Req_HdrRe);
 	__FSM_H2_TX_AF(Req_HdrRe, 'f', Req_HdrRef);
@@ -10143,7 +10215,16 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_FIN(Req_HdrRefere, 'r', Req_HdrRefererV,
 			   TFW_TAG_HDR_REFERER);
 
-	__FSM_H2_TX_AF(Req_HdrT, 'r', Req_HdrTr);
+	__FSM_STATE(Req_HdrT, cold) {
+		switch (c) {
+		case 'r':
+			__FSM_H2_NEXT(Req_HdrTr);
+		case 'e':
+			 __FSM_H2_FIN(Req_HdrTeV, 1, TFW_TAG_HDR_RAW);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 	__FSM_H2_TX_AF(Req_HdrTr, 'a', Req_HdrTra);
 	__FSM_H2_TX_AF(Req_HdrTra, 'n', Req_HdrTran);
 	__FSM_H2_TX_AF(Req_HdrTran, 's', Req_HdrTrans);
@@ -10250,7 +10331,16 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_FIN(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
 			   TFW_TAG_HDR_RAW);
 
-	__FSM_H2_TX_AF(Req_HdrU, 's', Req_HdrUs);
+	__FSM_STATE(Req_HdrU, cold) {
+		switch (c) {
+		case 's':
+			__FSM_H2_NEXT(Req_HdrUs);
+		case 'p':
+			__FSM_H2_NEXT(Req_HdrUp);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 	__FSM_H2_TX_AF(Req_HdrUs, 'e', Req_HdrUse);
 	__FSM_H2_TX_AF(Req_HdrUse, 'r', Req_HdrUser);
 	__FSM_H2_TX_AF(Req_HdrUser, '-', Req_HdrUser_);
@@ -10260,6 +10350,12 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen);
 	__FSM_H2_TX_AF_FIN(Req_HdrUser_Agen, 't', Req_HdrUser_AgentV,
 			   TFW_TAG_HDR_USER_AGENT);
+
+	__FSM_H2_TX_AF(Req_HdrUp, 'g', Req_HdrUpg);
+	__FSM_H2_TX_AF(Req_HdrUpg, 'r', Req_HdrUpgr);
+	__FSM_H2_TX_AF(Req_HdrUpgr, 'a', Req_HdrUpgra);
+	__FSM_H2_TX_AF(Req_HdrUpgra, 'd', Req_HdrUpgrad);
+	__FSM_H2_TX_AF_DROP(Req_HdrUpgrad, 'e');
 
 	__FSM_H2_TX_AF(Req_HdrCoo, 'k', Req_HdrCook);
 	__FSM_H2_TX_AF(Req_HdrCook, 'i', Req_HdrCooki);
@@ -11775,19 +11871,34 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			}
 			__FSM_MOVE(Resp_HdrL);
 		case 'p':
-			if (likely(__data_available(p, 19)
-			           && C8_INT_LCM(p + 1, 'r', 'o', 'x', 'y',
-						 '-', 'a', 'u', 't')
-				   && C8_INT_LCM(p + 9, 'h', 'e', 'n', 't',
-						 'i', 'c', 'a', 't')
-				   && TFW_LC(*(p + 17)) == 'e'
-				   && *(p + 18) == ':'))
+			if (likely(__data_available(p, 17)
+			           && C4_INT_LCM(p + 1, 'r', 'o', 'x', 'y')))
 			{
-				__msg_hdr_chunk_fixup(data, __data_off(p + 18));
-				parser->_i_st = &&RGen_HdrOtherV;
-				__msg_hdr_set_hpack_index(48);
-				p += 18;
-				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+				if (C8_INT_LCM(p + 5, '-', 'c', 'o', 'n', 'n',
+					       'e', 'c', 't')
+					&& C4_INT3_LCM(p + 13, 'i', 'o', 'n', ':'))
+				{
+					/* Proxy-Connection */
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 16));
+					parser->_i_st = &&RGen_HdrOtherV;
+					parser->hdr.flags |= TFW_STR_HBH_HDR;
+					p += 16;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+				}
+				if (__data_available(p, 19)
+					&& C8_INT_LCM(p + 5, '-', 'a', 'u', 't',
+						      'h', 'e', 'n', 't')
+					&& C8_INT7_LCM(p + 11, 'n', 't', 'i',
+						       'c', 'a', 't', 'e', ':'))
+				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 18));
+					parser->_i_st = &&RGen_HdrOtherV;
+					__msg_hdr_set_hpack_index(48);
+					p += 18;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+				}
 			}
 			if (likely(__data_available(p, 7))
 			           && C4_INT_LCM(p + 1, 'r', 'a', 'g', 'm')
@@ -12415,7 +12526,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrPro, 'x', Resp_HdrProx);
 	__FSM_TX_AF(Resp_HdrProx, 'y', Resp_HdrProxy);
 	__FSM_TX_AF(Resp_HdrProxy, '-', Resp_HdrProxy_);
-	__FSM_TX_AF(Resp_HdrProxy_, 'a', Resp_HdrProxy_A);
+	__FSM_STATE(Resp_HdrProxy_) {
+		switch (TFW_LC(c)) {
+		case 'a':
+			__FSM_MOVE(Resp_HdrProxy_A);
+		case 'c':
+			__FSM_MOVE(Resp_HdrProxy_C);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
 	__FSM_TX_AF(Resp_HdrProxy_A, 'u', Resp_HdrProxy_Au);
 	__FSM_TX_AF(Resp_HdrProxy_Au, 't', Resp_HdrProxy_Aut);
 	__FSM_TX_AF(Resp_HdrProxy_Aut, 'h', Resp_HdrProxy_Auth);
@@ -12428,6 +12549,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrProxy_Authentica, 't', Resp_HdrProxy_Authenticat);
 	__FSM_TX_AF(Resp_HdrProxy_Authenticat, 'e', Resp_HdrProxy_Authenticate);
 	__FSM_TX_AF_OWS_HP(Resp_HdrProxy_Authenticate, RGen_HdrOtherV, 48);
+
+	__FSM_TX_AF(Resp_HdrProxy_C, 'o', Resp_HdrProxy_Co);
+	__FSM_TX_AF(Resp_HdrProxy_Co, 'n', Resp_HdrProxy_Con);
+	__FSM_TX_AF(Resp_HdrProxy_Con, 'n', Resp_HdrProxy_Conn);
+	__FSM_TX_AF(Resp_HdrProxy_Conn, 'e', Resp_HdrProxy_Conne);
+	__FSM_TX_AF(Resp_HdrProxy_Conne, 'c', Resp_HdrProxy_Connec);
+	__FSM_TX_AF(Resp_HdrProxy_Connec, 't', Resp_HdrProxy_Connect);
+	__FSM_TX_AF(Resp_HdrProxy_Connect, 'i', Resp_HdrProxy_Connecti);
+	__FSM_TX_AF(Resp_HdrProxy_Connecti, 'o', Resp_HdrProxy_Connectio);
+	__FSM_TX_AF(Resp_HdrProxy_Connectio, 'n', Resp_HdrProxy_Connection);
+	__FSM_TX_AF_OWS(Resp_HdrProxy_Connection, RGen_HdrOtherV);
 
 	/* Pragma header processing. */
 	__FSM_TX_AF(Resp_HdrPra, 'g', Resp_HdrPrag);
