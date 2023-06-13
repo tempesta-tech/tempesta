@@ -3624,7 +3624,8 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 	return 0;
 }
 
-/** Fuse multiple cookie headers into one.
+/**
+ * Fuse multiple cookie headers into one.
  * Works only with TFW_STR_DUP strings. */
 static int
 write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
@@ -3639,9 +3640,8 @@ write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TfwStr *chunk, *chunk_end, hval = {};
 
-		if (unlikely(TFW_STR_PLAIN(dup))) {
+		if (unlikely(TFW_STR_PLAIN(dup)))
 			return -EINVAL;
-		}
 
 		hval.chunks = dup->chunks;
 		hval.nchunks = dup->nchunks;
@@ -3883,11 +3883,11 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			}
 			break;
 		case TFW_HTTP_HDR_COOKIE:
-			if (TFW_STR_DUP(field)) {
-				r |= write_merged_cookie_headers(&ht->tbl[TFW_HTTP_HDR_COOKIE], &it);
-				continue;
-			}
-			break;
+			if (!TFW_STR_DUP(field))
+				break;
+			r |= write_merged_cookie_headers(
+					&ht->tbl[TFW_HTTP_HDR_COOKIE], &it);
+			continue;
 		default:
 			break;
 		}
