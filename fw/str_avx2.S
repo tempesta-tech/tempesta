@@ -141,6 +141,12 @@ __C:
 	 */
 	.quad	0xfcfcfcfcfcfcfcf8, 0x7cfcfcd8f4fcfcfc
 	.quad	0xfcfcfcfcfcfcfcf8, 0x7cfcfcd8f4fcfcfc
+	/*
+	 * Token, lower-case only: abcdefghijklmnopqrstuvwxyz
+	 *	  !#$%&'*+-.^_`|~0123456789
+	 */
+	.quad	0xccccccccccc8ccc8, 0x60e444c044c4c8c8
+	.quad	0xccccccccccc8ccc8, 0x60e444c044c4c8c8
 
 /* Helping vector data referenced by value. */
 #define __A			__C(%rip)
@@ -164,6 +170,7 @@ __C:
 #define __NCTL			$__C+0x1e0
 #define __XFF			$__C+0x200
 #define __COOKIE		$__C+0x220
+#define __TOKEN_LC		$__C+0x240
 
 .align 64
 
@@ -356,6 +363,29 @@ etag:
 	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
 	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
 
+/*
+ * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6),
+ * but without upper-case symbols (used in H2 parser)
+ * (Byte representation for __TOKEN_LC).
+ */
+token_lc:
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
 #ifdef DEBUG
 
 dbg_prefix_vec:
@@ -382,6 +412,8 @@ dbg_prefix_vec:
 #define __CUST_XFF_1		$__CUSTOM+0x160
 #define __CUST_COOKIE_0		$__CUSTOM+0x180
 #define __CUST_COOKIE_1		$__CUSTOM+0x1a0
+#define __CUST_TOKEN_LC_0	$__CUSTOM+0x1c0
+#define __CUST_TOKEN_LC_1	$__CUSTOM+0x0e0
 
 .extern __tfw_lct
 
@@ -2321,6 +2353,19 @@ SYM_FUNC_START(tfw_match_token)
 	movq	$custom_token, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_token)
+
+SYM_FUNC_START(tfw_match_token_lc)
+	cmpb	$0, custom_token_enabled(%rip)
+	jne	.match_cust_token_lc
+	movq	__TOKEN_LC, %rcx
+	movq	$token_lc, %rdx
+	jmp	__tfw_strspn_simd
+.match_cust_token_lc:
+	movq	__CUST_TOKEN_LC_0, %rcx
+	movq	__CUST_TOKEN_LC_1, %r8
+	movq	$custom_token_lc, %rdx
+	jmp	__tfw_match_custom
+SYM_FUNC_END(tfw_match_token_lc)
 
 SYM_FUNC_START(tfw_match_qetoken)
 	cmpb	$0, custom_qetoken_enabled(%rip)

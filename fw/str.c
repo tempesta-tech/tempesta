@@ -87,6 +87,7 @@ unsigned char custom_ctext_vchar[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_xff[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_cookie[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_etag[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_token_lc[256] ____cacheline_aligned __read_mostly;
 
 #ifdef AVX2
 
@@ -94,7 +95,7 @@ unsigned char custom_etag[256] ____cacheline_aligned __read_mostly;
  * Custom alphabets (top and bottom ASCII halves) for AVX2 processing:
  * uri, token, qetoken, nctl, ctext_vchar, xff, cookie, etag.
  */
-unsigned char __CUSTOM[16][32] ____cacheline_aligned __read_mostly = {{0}};
+unsigned char __CUSTOM[17][32] ____cacheline_aligned __read_mostly = {{0}};
 
 extern size_t __tfw_match_custom(const char *str, size_t len,
 				 const unsigned char *a,
@@ -164,14 +165,35 @@ void tfw_init_custom_##a_name(const unsigned char *a)			\
 		__init_custom_a(a, custom_##a_name, off);		\
 }									\
 
+/**
+ * This function is hand-writtent because it keeps custom_token/custom_token_lc
+ * in sync */
+void tfw_init_custom_token(const unsigned char *a)
+{
+	custom_token_enabled = !!a;
+	if (!!a) {
+		unsigned i;
+		unsigned char lc[256];
+
+		memcpy(lc, a, 256);
+		for (i = 'A'; i <= 'Z'; i++)
+			lc[i] = 0;
+		__init_custom_a(a, custom_token, 1);
+		__init_custom_a(lc, custom_token_lc, 16);
+	}
+}
+
 TFW_INIT_CUSTOM_A(uri, 0);
-TFW_INIT_CUSTOM_A(token, 1);
+/* TFW_INIT_CUSTOM_A(token, 1) is implemented "by hand" */
 TFW_INIT_CUSTOM_A(qetoken, 2);
 TFW_INIT_CUSTOM_A(nctl, 3);
 TFW_INIT_CUSTOM_A(ctext_vchar, 4);
 TFW_INIT_CUSTOM_A(xff, 5);
 TFW_INIT_CUSTOM_A(cookie, 6);
 TFW_INIT_CUSTOM_A(etag, 7);
+/* token_lc should go here with the off=8, but it is
+ * fused into tfw_init_custom_token(), so if one is going to
+ * add something here, use off=9 */
 
 #else
 /**
@@ -371,6 +393,29 @@ static const unsigned char etag[] = {
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
+/*
+ * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6),
+ * but without upper-case symbols (used in H2 parser)
+ */
+static const unsigned char token_lc[] = {
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 static size_t
 __tfw_match_slow(const char *str, size_t len, const unsigned char *tbl)
 {
@@ -411,9 +456,24 @@ TFW_MATCH(ctext_vchar);
 TFW_MATCH(xff);
 TFW_MATCH(cookie);
 TFW_MATCH(etag);
+TFW_MATCH(token_lc);
+
+void tfw_init_custom_token(const unsigned char a[256])
+{
+	custom_token_enabled = !!a;
+
+	if (!!a) {
+		unsigned i;
+
+		memcpy(custom_token, a, 256);
+		memcpy(custom_token_lc, a, 256);
+		for (i = 'A'; i <= 'Z'; i++)
+			custom_token_lc[i] = 0;
+	}
+}
 
 TFW_INIT_CUSTOM_A(uri);
-TFW_INIT_CUSTOM_A(token);
+/*TFW_INIT_CUSTOM_A(token);*/
 TFW_INIT_CUSTOM_A(qetoken);
 TFW_INIT_CUSTOM_A(nctl);
 TFW_INIT_CUSTOM_A(ctext_vchar);

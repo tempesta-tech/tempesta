@@ -92,6 +92,7 @@
  */
 size_t tfw_match_uri(const char *s, size_t len);
 size_t tfw_match_token(const char *s, size_t len);
+size_t tfw_match_token_lc(const char *s, size_t len);
 size_t tfw_match_qetoken(const char *s, size_t len);
 size_t tfw_match_nctl(const char *s, size_t len);
 size_t tfw_match_ctext_vchar(const char *s, size_t len);
