@@ -58,8 +58,9 @@ enum {
 	CHUNK_ON
 };
 
-#define TOKEN_ALPHABET		"!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQ"	\
-				"RSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~"
+#define TOKEN_ALPHABET_LC	"!#$%&'*+-.0123456789^_`" \
+				"abcdefghijklmnopqrstuvwxyz|~"
+#define TOKEN_ALPHABET		TOKEN_ALPHABET_LC "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #define QETOKEN_ALPHABET	TOKEN_ALPHABET "\"="
 #define OTHER_DELIMETERS	"(),/:;<=>?@[\\]{}"
 #define OBS_TEXT		"\x80\x90\xC8\xAE\xFE\xFF"

@@ -66,9 +66,9 @@ TEST(http2_parser, http2_check_important_fields)
 		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
-		HEADER(WO_IND(NAME("Authorization"),
+		HEADER(WO_IND(NAME("authorization"),
 			    VALUE("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==")));
-		HEADER(WO_IND(NAME("Cache-Control"),
+		HEADER(WO_IND(NAME("cache-control"),
 			    VALUE("max-age=1, dummy, no-store, min-fresh=30")));
 	    HEADERS_FRAME_END();
 	);
@@ -597,9 +597,9 @@ TEST(http2_parser, fills_hdr_tbl_for_req)
 			       "*/*";
 	const char *s_xch = "x-custom-hdr"
 			    "custom header values";
-	const char *s_dummy9 = "Dummy9"
+	const char *s_dummy9 = "dummy9"
 			       "9";
-	const char *s_dummy4 = "Dummy4"
+	const char *s_dummy4 = "dummy4"
 			       "4";
 	const char *s_cc  = "cache-control"
 			    "max-age=1, dummy, no-store, min-fresh=30";
@@ -620,17 +620,17 @@ TEST(http2_parser, fills_hdr_tbl_for_req)
 		HEADER(WO_IND(NAME("accept"), VALUE("*/*")));
 		HEADER(WO_IND(NAME("x-custom-hdr"), VALUE("custom header values")));
 		HEADER(WO_IND(NAME("x-forwarded-for"), VALUE("127.0.0.1, example.com")));
-		HEADER(WO_IND(NAME("Dummy0"), VALUE("0")));
-		HEADER(WO_IND(NAME("Dummy1"), VALUE("1")));
-		HEADER(WO_IND(NAME("Dummy2"), VALUE("2")));
-		HEADER(WO_IND(NAME("Dummy3"), VALUE("3")));
-		HEADER(WO_IND(NAME("Dummy4"), VALUE("4")));
-		HEADER(WO_IND(NAME("Dummy5"), VALUE("5")));
-		HEADER(WO_IND(NAME("Dummy6"), VALUE("6")));
+		HEADER(WO_IND(NAME("dummy0"), VALUE("0")));
+		HEADER(WO_IND(NAME("dummy1"), VALUE("1")));
+		HEADER(WO_IND(NAME("dummy2"), VALUE("2")));
+		HEADER(WO_IND(NAME("dummy3"), VALUE("3")));
+		HEADER(WO_IND(NAME("dummy4"), VALUE("4")));
+		HEADER(WO_IND(NAME("dummy5"), VALUE("5")));
+		HEADER(WO_IND(NAME("dummy6"), VALUE("6")));
 		/* That is done to check table reallocation. */
-		HEADER(WO_IND(NAME("Dummy7"), VALUE("7")));
-		HEADER(WO_IND(NAME("Dummy8"), VALUE("8")));
-		HEADER(WO_IND(NAME("Dummy9"), VALUE("9")));
+		HEADER(WO_IND(NAME("dummy7"), VALUE("7")));
+		HEADER(WO_IND(NAME("dummy8"), VALUE("8")));
+		HEADER(WO_IND(NAME("dummy9"), VALUE("9")));
 		HEADER(WO_IND(NAME("cache-control"),
 		       VALUE("max-age=1, dummy, no-store, min-fresh=30")));
 		HEADER(WO_IND(NAME("pragma"), VALUE("no-cache, fooo ")));
@@ -2700,7 +2700,7 @@ TEST(http2_parser, vchar)
 	TEST_VCHAR_HEADER("user-agent", TFW_HTTP_HDR_USER_AGENT);
 
 	/* RGen_HdrOtherN headers */
-	TEST_VCHAR_HEADER(TOKEN_ALPHABET, TFW_HTTP_HDR_RAW);
+	TEST_VCHAR_HEADER(TOKEN_ALPHABET_LC, TFW_HTTP_HDR_RAW);
 	EXPECT_BLOCK_REQ_H2_HDR("\x09", "dummy");
 	EXPECT_BLOCK_REQ_H2_HDR("\"", "dummy");
 	EXPECT_BLOCK_REQ_H2_HDR(",", "dummy");
@@ -2726,35 +2726,35 @@ TEST(http2_parser, vchar)
 	EXPECT_BLOCK_REQ_H2_HDR("\xFF", "dummy");
 	EXPECT_BLOCK_REQ_H2_HDR("\xFF", "dummy");
 	/* Very long header name */
-	EXPECT_BLOCK_REQ_H2_HDR("Well-Prince-so-Genoa-and-Lucca-are-now-"
-	"just-family-estates-of-the-Buonapartes-But-I-warn-you-if-you-dont-"
+	EXPECT_BLOCK_REQ_H2_HDR("well-prince-so-genoa-and-lucca-are-now-"
+	"just-family-estates-of-the-buonapartes-but-i-warn-you-if-you-dont-"
 	"tell-me-that-this-means-war-if-you-still-try-to-defend-the-infamies-"
-	"and-horrors-perpetrated-by-that-Antichrist-I-really-believe-he-is-"
-	"Antichrist-I-will-have-nothing-more-to-do-with-you-and-you-are-no-"
+	"and-horrors-perpetrated-by-that-antichrist-i-really-believe-he-is-"
+	"antichrist-i-will-have-nothing-more-to-do-with-you-and-you-are-no-"
 	"longer-my-friend-no-longer-my-faithful-slave-as-you-call-yourself!-"
-	"But-how-do-you-do-I-see-I-have-frightened-you-sit-down-and-tell-me-"
-	"all-the-news#It-was-in-July-1805-and-the-speaker-was-the-well-known-"
-	"Anna-Pavlovna-Scherer-maid-of-honor-and-favorite-of-the-Empress-"
-	"Marya-Fedorovna-With-these-words-she-greeted-Prince-Vasili-Kuagin-a-"
+	"but-how-do-you-do-i-see-i-have-frightened-you-sit-down-and-tell-me-"
+	"all-the-news#it-was-in-july-1805-and-the-speaker-was-the-well-known-"
+	"anna-pavlovna-scherer-maid-of-honor-and-favorite-of-the-empress-"
+	"marya-fedorovna-with-these-words-she-greeted-prince-vasili-kuagin-a-"
 	"man-of-high-rank-and-importance-who-was-the-first-to-arrive-at-her-"
-	"reception-Anna-Pavlovna-had-had-a-cough-for-some-days-She-was-as-she-"
-	"said-suffering-from-la-grippe-grippe-being-then-a-new-word-in-St-"
-	"Petersburg-used-only-by-the-elite#All-her-invitations-without-"
-	"exception-written-in-French-and-delivered-by-a-scarlet-liveried-"
-	"footman-that-morning-ran-as-follows#If-you-have-nothing-better-to-do"
-	"-Count-(or-Prince)-and-if-the-prospect-of-spending-an-evening-with-a"
-	"-poor-invalid-is-not-too-terrible-I-shall-be-very-charmed-to-see-you"
-	"-tonight-between-7-and-10-Annette-Scherer#Heavens!-what-a-virulent-"
+	"reception-anna-pavlovna-had-had-a-cough-for-some-days-she-was-as-she-"
+	"said-suffering-from-la-grippe-grippe-being-then-a-new-word-in-st-"
+	"petersburg-used-only-by-the-elite#all-her-invitations-without-"
+	"exception-written-in-french-and-delivered-by-a-scarlet-liveried-"
+	"footman-that-morning-ran-as-follows#if-you-have-nothing-better-to-do"
+	"-count-(or-prince)-and-if-the-prospect-of-spending-an-evening-with-a"
+	"-poor-invalid-is-not-too-terrible-i-shall-be-very-charmed-to-see-you"
+	"-tonight-between-7-and-10-annette-scherer#heavens!-what-a-virulent-"
 	"attack!-replied-the-prince-not-in-the-least-disconcerted-by-this-"
-	"reception-He-had-just-entered-wearing-an-embroidered-court-uniform-"
+	"reception-he-had-just-entered-wearing-an-embroidered-court-uniform-"
 	"knee-breeches-and-shoes-and-had-stars-on-his-breast-and-a-serene-"
-	"expression-on-his-flat-face-He-spoke-in-that-refined-French-in-which"
+	"expression-on-his-flat-face-he-spoke-in-that-refined-french-in-which"
 	"-our-grandfathers-not-only-spoke-but-thought-and-with-the-gentle-"
 	"patronizing-intonation-natural-to-a-man-of-importance-who-had-grown-"
-	"old-in-society-and-at-court-He-went-up-to-Anna-Pavlovna-kissed-her-"
+	"old-in-society-and-at-court-he-went-up-to-anna-pavlovna-kissed-her-"
 	"hand-presenting-to-her-his-bald-scented-and-shining-head-and-"
-	"complacently-seated-himself-on-the-sofa#First-of-all-dear-friend-tell"
-	"-me-how-you-are-Set-your-friends-mind-at-rest-said-he-without-"
+	"complacently-seated-himself-on-the-sofa#first-of-all-dear-friend-tell"
+	"-me-how-you-are-set-your-friends-mind-at-rest-said-he-without-"
 	"altering-his-tone-beneath-the-politeness-and-affected-sympathy-of-"
 	"which-indifference-and-even-irony-could-be-discerned", "dummy");
 
