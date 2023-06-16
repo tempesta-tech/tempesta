@@ -1277,6 +1277,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	/* @buff already accounts @n in truesize. */
 	buff->truesize += skb->len - len - n;
 	skb->truesize -= skb->len - len;
+	buff->mark = skb->mark;
 
 	/*
 	 * Initialize GSO segments counter to let TCP set it according to
