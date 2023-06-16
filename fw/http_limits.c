@@ -649,7 +649,8 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	 */
 	tls_vhost = __lookup_vhost_by_authority(req->pool, &req->host);
 	if (tls_vhost != tctx->vhost) {
-		tls_name = tctx->vhost ? tctx->vhost->name : null_name;
+		tls_name = tctx->vhost ? ((TfwVhost *)tctx->vhost)->name
+				       : null_name;
 		req_name = req->vhost ? req->vhost->name : null_name;
 		frang_msg("vhost by SNI doesn't match vhost by authority",
 			  &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
