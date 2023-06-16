@@ -563,6 +563,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (type == FUZZ_REQ_H2 && frame->subtype == HTTP2_HEADERS) {
 			if (!tfw_http_parse_check_bodyless_meth(req)) {
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+				tfw_http_extract_request_authority(req);
 			} else {
 				r = TFW_BLOCK;
 				break;
@@ -573,8 +574,6 @@ do_split_and_parse(int type, int chunk_mode)
 	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
 		r = tfw_h2_parse_req_finish(req);
 	}
-
-	extract_request_authority(req);
 
 	if (chunk_mode == CHUNK_OFF
 	    || CHUNK_SIZES[chunk_size_index] >= frames_max_sz)
@@ -690,37 +689,4 @@ tfw_http_sess_redir_mark_disable(void)
 	BUG_ON(!hs_mod);
 	hs_mod->stop();
 	hs_mod->cfgstart();
-}
-
-void
-extract_request_authority(TfwHttpReq *req)
-{
-	int hid = 0;
-	TfwStr *hdrs = req->h_tbl->tbl;
-
-	if (TFW_MSG_H2(req)) {
-		/* RFC 9113, sec-8.3.1:
-		 * The recipient of an HTTP/2 request MUST NOT use
-		 * the Host header field to determine the target
-		 * URI if ":authority" is present.*/
-		if (!TFW_STR_EMPTY(&hdrs[TFW_HTTP_HDR_H2_AUTHORITY]))
-			hid = TFW_HTTP_HDR_H2_AUTHORITY;
-		else
-			hid = TFW_HTTP_HDR_HOST;
-		__h2_msg_hdr_val(&hdrs[hid], &req->host);
-	} else {
-		/* req->host can be only filled by HTTP/1.x parser from
-		 * absoluteURI, so we act as described by RFC 9112, sec-3.2.2
-		 * (https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2):
-		 * When an origin server receives a request with an
-		 * absolute-form of request-target, the origin server
-		 * MUST ignore the received Host header field (if any)
-		 * and instead use the host information of the request-target.
-		 */
-		if (TFW_STR_EMPTY(&req->host)) {
-			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
-						 TFW_HTTP_HDR_HOST,
-						 &req->host);
-		}
-	}
 }
