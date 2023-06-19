@@ -1432,7 +1432,11 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 			TTLS_WARN(tls, "cannot make DHM params, %d\n", r);
 			return r;
 		}
-		WARN_ON_ONCE(len > 500);
+		/*
+		 * ttls_dhm_make_params write (256 + 2) + (1 + 2) + (256 + 2)
+		 * bytes.
+		 */
+		WARN_ON_ONCE(len > 519);
 		dig_signed = p;
 		sig_len = len;
 		p += len;
@@ -1512,8 +1516,11 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	n += sig_len;
 	WARN_ON_ONCE(sig_len > 512);
 
-	/* Done with actual work; add handshake header and add the record. */
-	WARN_ON_ONCE(n > 1015);
+	/*
+	 * Done with actual work; add handshake header and add the record
+	 * (519 + 4 + 512).
+	 */
+	WARN_ON_ONCE(n > 1035);
 	io->msglen = TTLS_HS_HDR_LEN + n;
 	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr + TLS_HEADER_SIZE,
 			 TTLS_HS_HDR_LEN + n);
@@ -2020,7 +2027,7 @@ ttls_handshake_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	T_FSM_STATE(TTLS_SERVER_KEY_EXCHANGE) {
 		if ((r = ttls_write_server_key_exchange(tls, sgt, in_buf)))
 			T_FSM_EXIT();
-		CHECK_STATE(1024);
+		CHECK_STATE(1044);
 		/*
 		 * RFC 5246 Certificate Request is optional, so don't request
 		 * a certificate for now since we're unable to properly verify
