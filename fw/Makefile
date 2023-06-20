@@ -22,6 +22,7 @@ export TTLS_CFLAGS TFW_CFLAGS
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
 EXTRA_CFLAGS += -I$(src)/../db/core -I$(src)/../
+EXTRA_AFLAGS += -I$(src)/../
 
 GCOV_PROFILE := $(TFW_GCOV)
 

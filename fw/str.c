@@ -31,6 +31,8 @@
 #include "htype.h"
 #include "str.h"
 
+#include "token_tables.h"
+
 /**
  * Lower case conversion table.
  */
@@ -94,8 +96,12 @@ unsigned char custom_token_lc[256] ____cacheline_aligned __read_mostly;
 /**
  * Custom alphabets (top and bottom ASCII halves) for AVX2 processing:
  * uri, token, qetoken, nctl, ctext_vchar, xff, cookie, etag.
+ *
+ * CUSTOM[x][0] => 2x qword bitmaps of the lower 128 bytes of symbol table
+ * CUSTOM[x][1] => 2x qword bitmaps of the upper 128 bytes of symbol table
  */
-unsigned char __CUSTOM[17][32] ____cacheline_aligned __read_mostly = {{0}};
+unsigned char __CUSTOM[TOKEN_TBL_LAST + 1][2][32] \
+				  ____cacheline_aligned __read_mostly = {{{0}}};
 
 extern size_t __tfw_match_custom(const char *str, size_t len,
 				 const unsigned char *a,
@@ -110,7 +116,8 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 
 	if (custom_ctext_vchar_enabled)
 		r = __tfw_match_custom(str, len, custom_ctext_vchar,
-				       __CUSTOM[8], __CUSTOM[9]);
+				       __CUSTOM[TOKEN_TBL_VCHAR][0],
+					   __CUSTOM[TOKEN_TBL_VCHAR][1]);
 	else
 		r = __tfw_match_ctext_vchar(str, len);
 
@@ -128,7 +135,8 @@ tfw_match_etag(const char *str, size_t len)
 
 	if (custom_etag_enabled)
 		r = __tfw_match_custom(str, len, custom_etag,
-				       __CUSTOM[14], __CUSTOM[15]);
+				       __CUSTOM[TOKEN_TBL_ETAG][0],
+					   __CUSTOM[TOKEN_TBL_ETAG][1]);
 	else
 		r = __tfw_match_etag(str, len);
 
@@ -140,7 +148,7 @@ tfw_match_etag(const char *str, size_t len)
 static void
 __init_custom_a(const unsigned char *cfg_a, unsigned char *a, size_t c_off)
 {
-	unsigned char *a0 = __CUSTOM[c_off * 2], *a1 = __CUSTOM[c_off * 2 + 1];
+	unsigned char *a0 = __CUSTOM[c_off][0], *a1 = __CUSTOM[c_off][1];
 	int i;
 
 	memcpy(a, cfg_a, 256);
@@ -152,9 +160,9 @@ __init_custom_a(const unsigned char *cfg_a, unsigned char *a, size_t c_off)
 		a0[(i & 0xf) + 16 * !!(i & 0x80)] |= 1 << ((i & 0x70) >> 4);
 	}
 	/* Split ASCII table to 2 duplicate halves. */
-	memcpy(a1, &a0[16], 16);
-	memcpy(&a1[16], &a0[16], 16);
-	memcpy(&a0[16], a0, 16);
+	memcpy(a1,       &a0[16],  16);
+	memcpy(&a1[16],  &a0[16],  16);
+	memcpy(&a0[16],  a0,       16);
 }
 
 #define TFW_INIT_CUSTOM_A(a_name, off)					\
@@ -179,21 +187,19 @@ void tfw_init_custom_token(const unsigned char *a)
 		for (i = 'A'; i <= 'Z'; i++)
 			lc[i] = 0;
 		__init_custom_a(a, custom_token, 1);
-		__init_custom_a(lc, custom_token_lc, 16);
+		__init_custom_a(lc, custom_token_lc, 8);
 	}
 }
 
 TFW_INIT_CUSTOM_A(uri, 0);
-/* TFW_INIT_CUSTOM_A(token, 1) is implemented "by hand" */
+/* TFW_INIT_CUSTOM_A(token, 1) is hand-written */
 TFW_INIT_CUSTOM_A(qetoken, 2);
 TFW_INIT_CUSTOM_A(nctl, 3);
 TFW_INIT_CUSTOM_A(ctext_vchar, 4);
 TFW_INIT_CUSTOM_A(xff, 5);
 TFW_INIT_CUSTOM_A(cookie, 6);
 TFW_INIT_CUSTOM_A(etag, 7);
-/* token_lc should go here with the off=8, but it is
- * fused into tfw_init_custom_token(), so if one is going to
- * add something here, use off=9 */
+/* TFW_INIT_CUSTOM_A(token_lc, 8) is hand-written */
 
 #else
 /**
@@ -201,220 +207,20 @@ TFW_INIT_CUSTOM_A(etag, 7);
  * with old systems.
  */
 /*
- * ASCII codes to accept URI string.
- *
  * While we can pack the array, which is 4 cache lines currently,
  * to just half of a cache line using 4 64-bit masks, it's much
  * faster to access the extra cache lines than to the 4 bit operations
  * (uri_a[c >> 6] & (1UL << (c & 0x3f))).
  */
-static const unsigned char uri[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
-	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/*
- * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6).
- */
-static const unsigned char token[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/*
- * Token with DQUOTE and "=".
- */
-static const unsigned char qetoken[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0,
-	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/*
- * ASCII codes to accept HTTP header values
- */
-static const unsigned char nctl[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/*
- * ASCII codes to accept ctext | VCHAR, e.g. User-Agent.
- */
-static const unsigned char ctext_vchar[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-};
-
-/*
- * ASCII codes to accept X-Forwarded-For values.
- */
-static const unsigned char xff[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
-	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/*
- * ASCII codes for Cookie value matching by cookie-octet defined
- * by RFC 6265 4.1.1 as
- *
- * 	%x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E
- * 	; US-ASCII characters excluding CTLs,
- * 	; whitespace DQUOTE, comma, semicolon,
- * 	; and backslash
- *
- * We add DQUOTES to the set since we don't analyzer cookie value
- * grammar.
- */
-static const unsigned char cookie[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/*
- * ASCII codes for Etag value defined by RFC 7232 2.3 as
- *
- *	%x21 / %x23-7E / obs-text
- *	; VCHAR except double quotes, plus obs-text
- */
-static const unsigned char etag[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-};
-
-/*
- * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6),
- * but without upper-case symbols (used in H2 parser)
- */
-static const unsigned char token_lc[] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
+static const unsigned char uri[] = { TOKEN_SYM_URI };
+static const unsigned char token[] = { TOKEN_SYM_TOKEN };
+static const unsigned char qetoken[] = { TOKEN_SYM_QETOKEN };
+static const unsigned char nctl[] = { TOKEN_SYM_NCTL };
+static const unsigned char ctext_vchar[] = { TOKEN_SYM_VCHAR };
+static const unsigned char xff[] = { TOKEN_SYM_XFF };
+static const unsigned char cookie[] = { TOKEN_SYM_COOKIE };
+static const unsigned char etag[] = { TOKEN_SYM_ETAG };
+static const unsigned char token_lc[] = { TOKEN_SYM_TOKEN_LC };
 
 static size_t
 __tfw_match_slow(const char *str, size_t len, const unsigned char *tbl)
@@ -473,13 +279,14 @@ void tfw_init_custom_token(const unsigned char a[256])
 }
 
 TFW_INIT_CUSTOM_A(uri);
-/*TFW_INIT_CUSTOM_A(token);*/
+/*TFW_INIT_CUSTOM_A(token) is hand-written */
 TFW_INIT_CUSTOM_A(qetoken);
 TFW_INIT_CUSTOM_A(nctl);
 TFW_INIT_CUSTOM_A(ctext_vchar);
 TFW_INIT_CUSTOM_A(xff);
 TFW_INIT_CUSTOM_A(cookie);
 TFW_INIT_CUSTOM_A(etag);
+/*TFW_INIT_CUSTOM_A(token_lc) is hand-written */
 
 #endif /* AVX2 */
 

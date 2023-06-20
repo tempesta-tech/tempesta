@@ -23,6 +23,7 @@ tfw_root = $(src)/../../../
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(tfw_root)/fw -I$(tfw_root) \
 		-I$(tfw_root)/fw/t -I$(tfw_root)/db/core
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
+EXTRA_AFLAGS += -I$(tfw_root)
 
 obj-m += tfw_test.o
 
