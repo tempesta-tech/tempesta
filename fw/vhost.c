@@ -433,15 +433,6 @@ tfw_vhost_name_match(const BasicStr *vh, const BasicStr *name)
 		&& !strncasecmp(vh->data, name->data, vh->len);
 }
 
-/**
- *  Match vhost to requested name. Can be called in softirq context only.
- */
-static bool
-tfw_vhost_name_match_fast(const BasicStr *vh, const BasicStr *name)
-{
-	return !basic_stricmp_fast(vh, name);
-}
-
 static inline TfwVhost *
 __tfw_vhost_lookup(TfwVhostList *vh_list, const BasicStr *name,
 		   bool (*match_fn)(const BasicStr *, const BasicStr *))
@@ -471,28 +462,6 @@ tfw_vhost_lookup_reconfig(const char *name)
 
 	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
 				  tfw_vhost_name_match);
-}
-
-/**
- * Find vhost in the _running_ configuration, matching name @name. The operation
- * involves fast avx2 operations and can be done only in softirq context.
- * If vhost is found, an additional reference is taken. Caller is responsible to
- * release the reference after use.
- */
-TfwVhost *
-tfw_vhost_lookup(const BasicStr *name)
-{
-	TfwVhost *vhost;
-	TfwVhostList *vhlist;
-
-	rcu_read_lock_bh();
-	vhlist = rcu_dereference_bh(tfw_vhosts);
-	BUG_ON(!vhlist);
-	vhost = __tfw_vhost_lookup(vhlist, name,
-				   tfw_vhost_name_match_fast);
-	rcu_read_unlock_bh();
-
-	return vhost;
 }
 
 /**
@@ -1925,26 +1894,20 @@ tfw_vhost_add(TfwVhost *vhost)
  * Called on (re-)configuration time in process context.
  */
 void
-tfw_vhost_add_sni_map(const BasicStr *cn, const char *hname, int hlen)
+tfw_vhost_add_sni_map(const BasicStr *cn, TfwVhost *vhost)
 {
 	unsigned long key = basic_hash_str(cn);
 	TfwSVHMap *svhm;
 	int n = sizeof(*svhm) + cn->len;
-	const BasicStr ns = {.data = (char *)hname, .len = hlen};
 
 	if (!(svhm = kmalloc(n, GFP_KERNEL))) {
-		T_WARN("Cannot allocate mapping for SAN/CN %.*s -> %s\n",
-		       (int)cn->len, cn->data, hname);
+		T_WARN("Cannot allocate mapping for SAN/CN %.*s -> %.*s\n",
+		       (int)cn->len, cn->data,
+		       (int)vhost->name.len, vhost->name.data);
 		return;
 	}
 
-	svhm->vhost = __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
-					 tfw_vhost_name_match);
-	if (!svhm->vhost) {
-		T_WARN("Cannot find vhost %s\n", hname);
-		kfree(svhm);
-		return;
-	}
+	svhm->vhost = vhost;
 	INIT_HLIST_NODE(&svhm->hlist);
 	svhm->sni_len = cn->len;
 	memcpy(svhm->sni, cn->data, cn->len);
@@ -2435,7 +2398,7 @@ tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		return r;
 
-	tfw_tls_match_any_sni_to_dflt(val);
+	tfw_tls_set_allow_any_sni(val);
 
 	return 0;
 }

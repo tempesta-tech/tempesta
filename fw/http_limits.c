@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -586,6 +586,81 @@ frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
 	*name_only = hdr_name;
 }
 
+static TfwVhost*
+__lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
+{
+	char small_buf[64];
+	BasicStr name;
+
+	name.len = authority->len;
+	/* Prepare buffer */
+	if (likely(name.len < sizeof(small_buf))) {
+		name.data = small_buf;
+	} else {
+		name.data = tfw_pool_alloc(pool, name.len + 1);
+		if (name.data == NULL) {
+			T_WARN("Can't allocate temporary buffer of %zu bytes for"
+			       " HTTP domain fronting check",
+			       name.len + 1);
+			return NULL;
+		}
+	}
+
+	/* Make linear lower-case name */
+	tfw_str_to_cstr(authority, name.data, name.len + 1);
+	tfw_cstrtolower(name.data, name.data, name.len);
+
+	return tfw_tls_find_vhost_by_name(&name);
+}
+
+static int
+frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
+{
+	TlsCtx *tctx;
+	TfwVhost *tls_vhost;
+	BasicStr tls_name, req_name;
+	static BasicStr null_name = {"NULL", 4};
+
+	if (!(TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS))
+		return TFW_PASS;
+
+	/*
+	 * Do not perform any SNI<=>authority validation if
+	 * tls_match_any_server_name is set.
+	 */
+	if (tfw_tls_allow_any_sni)
+		return TFW_PASS;
+
+	tctx = tfw_tls_context(req->conn);
+	/* tfw_tls_sni() has to pick any existing vhost in order to proceed */
+	BUG_ON(!tctx->vhost);
+
+	if (tctx->vhost == req->vhost)
+		return TFW_PASS;
+
+	/* Special case of default vhosts */
+	if (!req->vhost && tfw_vhost_is_default(tctx->vhost))
+		return TFW_PASS;
+
+	/*
+	 * Last (and slowest case): we have to look for TLS certificate
+	 * by authority and make sure that req->vhost is reachable by
+	 * picked authority name.
+	 */
+	tls_vhost = __lookup_vhost_by_authority(req->pool, &req->host);
+	if (tls_vhost != tctx->vhost) {
+		tls_name = tctx->vhost ? ((TfwVhost *)tctx->vhost)->name
+				       : null_name;
+		req_name = req->vhost ? req->vhost->name : null_name;
+		frang_msg("vhost by SNI doesn't match vhost by authority",
+			  &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
+			  PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
 /**
  * Require host header in HTTP request (RFC 7230 5.4).
  * Block HTTP/1.1 requests w/o host header,
@@ -685,7 +760,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		return TFW_BLOCK;
 	}
 
-	return TFW_PASS;
+	return frang_http_domain_fronting_check(req, ra);
 }
 
 /*

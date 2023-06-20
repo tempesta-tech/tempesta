@@ -669,6 +669,4 @@ TfwStr get_next_str_val(TfwStr *str);
 void tfw_http_sess_redir_mark_enable(void);
 void tfw_http_sess_redir_mark_disable(void);
 
-void extract_request_authority(TfwHttpReq *req);
-
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */

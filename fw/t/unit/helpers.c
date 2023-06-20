@@ -285,7 +285,7 @@ tfw_tls_cfg_configured(bool global)
 }
 
 void
-tfw_tls_match_any_sni_to_dflt(bool match)
+tfw_tls_set_allow_any_sni(bool match)
 {
 }
 

@@ -747,5 +747,6 @@ int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 			    unsigned long h_len, const TfwStr *body);
 int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
+void tfw_http_extract_request_authority(TfwHttpReq *req);
 
 #endif /* __TFW_HTTP_H__ */

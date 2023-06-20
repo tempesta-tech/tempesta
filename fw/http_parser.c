@@ -1597,6 +1597,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 	register TfwStr *tbl = msg->h_tbl->tbl;				\
 									\
 	__set_bit(TFW_HTTP_B_HEADERS_PARSED, msg->flags);		\
+	tfw_http_extract_request_authority(req);			\
 	T_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
 	       msg->flags[0], msg->content_length);			\
 									\

@@ -37,18 +37,11 @@
 #include "vhost.h"
 #include "tcp.h"
 
-/**
- * Global level TLS configuration.
- *
- * @cfg			- common tls configuration for all vhosts;
- * @allow_any_sni	- If set, all the unknown SNI are matched to default
- *			  vhost.
- */
-static struct {
-	TlsCfg		cfg;
-	bool		allow_any_sni;
-} tfw_tls;
+/* Common tls configuration for all vhosts. */
+static TlsCfg tfw_tls_cfg;
 
+/* If set, all the unknown SNI are matched to default vhost. */
+bool tfw_tls_allow_any_sni;
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
 
@@ -602,7 +595,7 @@ tfw_tls_conn_init(TfwConn *c)
 	BUG_ON(!(c->proto.type & TFW_FSM_HTTPS));
 
 	tls = tfw_tls_context(c);
-	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
+	if ((r = ttls_ctx_init(tls, &tfw_tls_cfg))) {
 		T_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
@@ -754,7 +747,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 #define SNI_WARN(fmt, ...)						\
 	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
 			  T_WARN("client %s requested " fmt, addr_str,	\
-				 __VA_ARGS__))
+				 ## __VA_ARGS__))
 
 static int
 fw_tls_apply_sni_wildcard(BasicStr *name)
@@ -766,7 +759,7 @@ fw_tls_apply_sni_wildcard(BasicStr *name)
 	n = name->data + name->len - p;
 
 	/* The resulting name must be lower than a top level domain. */
-	if (n < 3 || !strnchr(p + 1, n, '.'))
+	if (n < 2)
 		return -ENOENT;
 
 	/*
@@ -777,6 +770,27 @@ fw_tls_apply_sni_wildcard(BasicStr *name)
 	name->len = n;
 
 	return 0;
+}
+
+TfwVhost*
+tfw_tls_find_vhost_by_name(BasicStr *srv_name)
+{
+	TfwVhost *vhost;
+
+	/* Look for non-wildcard name */
+	vhost = tfw_vhost_lookup_sni(srv_name);
+	if (vhost)
+		return vhost;
+
+	/*
+	 * Try wildcard SANs if the SNI requests 2nd-level or
+	 * lower domain.
+	 */
+	if (!vhost && !fw_tls_apply_sni_wildcard(srv_name)
+	    && (vhost = tfw_vhost_lookup_sni(srv_name)))
+		return vhost;
+
+	return NULL;
 }
 
 /**
@@ -798,28 +812,22 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		return -EBUSY;
 
 	if (data && len) {
-		vhost = tfw_vhost_lookup(&srv_name);
-
-		if (unlikely(vhost && tfw_vhost_is_default(vhost))) {
-			SNI_WARN("default vhost by name '%s', reject connection.\n",
-				 TFW_VH_DFT_NAME);
-			tfw_vhost_put(vhost);
-			return -ENOENT;
-		}
-
 		/*
-		 * Try wildcard SANs if the SNI requests 3rd-level or
-		 * lower domain.
+		 * Data comes as a copy from temporary buffer tls_handshake_t::ext
+		 * See ttls_parse_client_hello() for details.
 		 */
-		if (!vhost && !fw_tls_apply_sni_wildcard(&srv_name))
-			if ((vhost = tfw_vhost_lookup_sni(&srv_name)))
-				goto found;
+		tfw_cstrtolower(srv_name.data, srv_name.data, len);
 
-		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
+		vhost = tfw_tls_find_vhost_by_name(&srv_name);
+		if (unlikely(!vhost && !tfw_tls_allow_any_sni)) {
 			SNI_WARN("unknown server name '%.*s', reject connection.\n",
-				 PR_TFW_STR(&srv_name));
+				 (int)len, data);
 			return -ENOENT;
 		}
+	}
+	else if (!tfw_tls_allow_any_sni) {
+		SNI_WARN("missing server name, reject connection.\n");
+		return -ENOENT;
 	}
 	/*
 	 * If accurate vhost is not found or client doesn't send sni extension,
@@ -829,12 +837,13 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		vhost = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!vhost))
 		return -ENOKEY;
-found:
+
 	/*
 	 * The peer configuration might be taked from the default vhost, which
 	 * is different from @vhost. We put() the virtual host, when @ctx is
 	 * freed.
 	 */
+	ctx->vhost = vhost;
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
 	if (unlikely(!peer_cfg)) {
@@ -850,7 +859,7 @@ found:
 		      PR_TFW_STR(&vhost->name));
 	}
 	/* Save processed server name as hash. */
-	ctx->sni_hash = len ? hash_calc(data, len) : 0;
+	ctx->sni_hash = hash_calc(data, len);
 
 	return 0;
 }
@@ -890,9 +899,9 @@ tfw_tls_do_init(void)
 {
 	int r;
 
-	ttls_config_init(&tfw_tls.cfg);
+	ttls_config_init(&tfw_tls_cfg);
 	/* Use cute ECDHE-ECDSA-AES128-GCM-SHA256 by default. */
-	r = ttls_config_defaults(&tfw_tls.cfg, TTLS_IS_SERVER);
+	r = ttls_config_defaults(&tfw_tls_cfg, TTLS_IS_SERVER);
 	if (r) {
 		T_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
@@ -904,7 +913,7 @@ tfw_tls_do_init(void)
 static void
 tfw_tls_do_cleanup(void)
 {
-	ttls_config_free(&tfw_tls.cfg);
+	ttls_config_free(&tfw_tls_cfg);
 }
 
 /*
@@ -935,7 +944,7 @@ tfw_tls_cfg_configured(bool global)
 }
 
 void
-tfw_tls_match_any_sni_to_dflt(bool match)
+tfw_tls_set_allow_any_sni(bool match)
 {
 	allow_any_sni_reconfig = match;
 }
@@ -943,8 +952,8 @@ tfw_tls_match_any_sni_to_dflt(bool match)
 int
 tfw_tls_cfg_alpn_protos(const char *cfg_str)
 {
-	ttls_alpn_proto *proto0 = &tfw_tls.cfg.alpn_list[0];
-	ttls_alpn_proto *proto1 = &tfw_tls.cfg.alpn_list[1];
+	ttls_alpn_proto *proto0 = &tfw_tls_cfg.alpn_list[0];
+	ttls_alpn_proto *proto1 = &tfw_tls_cfg.alpn_list[1];
 
 	BUILD_BUG_ON(TTLS_ALPN_PROTOS != 2);
 
@@ -1014,7 +1023,7 @@ tfw_tls_cfgend(void)
 static int
 tfw_tls_start(void)
 {
-	tfw_tls.allow_any_sni = allow_any_sni_reconfig;
+	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
 
 	return 0;
 }

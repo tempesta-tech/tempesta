@@ -5672,24 +5672,27 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
-static void
-__extract_request_authority(TfwHttpReq *req)
+void
+tfw_http_extract_request_authority(TfwHttpReq *req)
 {
 	int hid = 0;
 	TfwStr *hdrs = req->h_tbl->tbl;
 
 	if (TFW_MSG_H2(req)) {
-		/* RFC 9113, sec-8.3.1:
+		/*
+		 * RFC 9113, sec-8.3.1:
 		 * The recipient of an HTTP/2 request MUST NOT use
 		 * the Host header field to determine the target
-		 * URI if ":authority" is present.*/
+		 * URI if ":authority" is present.
+		 */
 		if (!TFW_STR_EMPTY(&hdrs[TFW_HTTP_HDR_H2_AUTHORITY]))
 			hid = TFW_HTTP_HDR_H2_AUTHORITY;
 		else
 			hid = TFW_HTTP_HDR_HOST;
 		__h2_msg_hdr_val(&hdrs[hid], &req->host);
 	} else {
-		/* req->host can be only filled by HTTP/1.x parser from
+		/*
+		 * req->host can be only filled by HTTP/1.x parser from
 		 * absoluteURI, so we act as described by RFC 9112, sec-3.2.2
 		 * (https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2):
 		 * When an origin server receives a request with an
@@ -5697,11 +5700,10 @@ __extract_request_authority(TfwHttpReq *req)
 		 * MUST ignore the received Host header field (if any)
 		 * and instead use the host information of the request-target.
 		 */
-		if (TFW_STR_EMPTY(&req->host)) {
+		if (TFW_STR_EMPTY(&req->host))
 			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
 						 TFW_HTTP_HDR_HOST,
 						 &req->host);
-		}
 	}
 }
 
@@ -5723,19 +5725,6 @@ __check_authority_correctness(TfwHttpReq *req)
 		return !TFW_STR_EMPTY(&req->host);
 	}
 	return true;
-}
-
-static int
-tfw_http_req_process_authority_host(TfwHttpReq *req)
-{
-	__extract_request_authority(req);
-
-	if (!__check_authority_correctness(req)) {
-		tfw_http_req_parse_drop(req, 400, "Invalid authority");
-		return TFW_BLOCK;
-	}
-
-	return 0;
 }
 
 /**
@@ -5840,6 +5829,7 @@ next_msg:
 				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+				tfw_http_extract_request_authority(req);
 			}
 
 			if (tfw_h2_strm_req_is_compl(req->stream)) {
@@ -5870,19 +5860,23 @@ next_msg:
 
 	case TFW_PASS:
 		/*
-		 * The request is fully parsed,
-		 * fall through and process it.
+		 * The request is fully parsed, fall through and process it.
 		 */
-
 		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
 				 && (req->content_length != req->body.len)))
-		{
 			return TFW_BLOCK;
-		}
 	}
 
-	if ((r = tfw_http_req_process_authority_host(req)))
-		return r;
+	/*
+	 * XXX __check_authority_correctness() is called after parsing a whole
+	 * request, including body. For example: if we have a request with
+	 * invalid host/authority it will be dropped only after full parsing
+	 * while it's enough to parse only headers.
+	 */
+	if (!__check_authority_correctness(req)) {
+		tfw_http_req_parse_drop(req, 400, "Invalid authority");
+		return TFW_BLOCK;
+	}
 
 	/*
 	 * The message is fully parsed, the rest of the data in the

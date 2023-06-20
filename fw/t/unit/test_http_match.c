@@ -847,14 +847,14 @@ TEST(http_match, choose_host)
 		 * host from uri must be matched.
 		 */
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr1;
-		extract_request_authority(test_req);
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(1, match_id);
 
 		/* Host specified by Host header */
 		set_tfw_str(&test_req->host, "");
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr1;
-		extract_request_authority(test_req);
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(2, match_id);
 
@@ -865,7 +865,7 @@ TEST(http_match, choose_host)
 		set_tfw_str(&test_req->host, "example.com");
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr1;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
-		extract_request_authority(test_req);
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(1, match_id);
 
@@ -876,7 +876,7 @@ TEST(http_match, choose_host)
 		set_tfw_str(&test_req->host, "");
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr2;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
-		extract_request_authority(test_req);
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(-1, match_id);
 
@@ -890,7 +890,7 @@ TEST(http_match, choose_host)
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY] = hdr5;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr3;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
-		extract_request_authority(test_req);
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(2, match_id);
 	}

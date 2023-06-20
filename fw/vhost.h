@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -273,10 +273,9 @@ TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
 
 TfwVhost *tfw_vhost_new(const char *name);
-void tfw_vhost_add_sni_map(const BasicStr *cn, const char *hname, int hlen);
+void tfw_vhost_add_sni_map(const BasicStr *cn, TfwVhost *vhost);
 
 TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
-TfwVhost *tfw_vhost_lookup(const BasicStr *name);
 TfwVhost *tfw_vhost_lookup_sni(const BasicStr *name);
 TfwVhost *tfw_vhost_lookup_default(void);
 
