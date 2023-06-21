@@ -194,7 +194,7 @@ do {									\
 		SET_TO_READ_VERIFY((ctx), HTTP2_IGNORE_FRAME_DATA);	\
 		if (res == STREAM_FSM_RES_TERM_CONN) {			\
 			tfw_h2_conn_terminate((ctx), err);		\
-			return T_DROP;					\
+			return T_BLOCK;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
 			return tfw_h2_stream_close((ctx),		\
 						   (hdr)->stream_id,	\
@@ -519,7 +519,7 @@ tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
 do {									\
 	if ((ctx)->hdr.length < 0) {					\
 		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_SIZE);		\
-		return T_DROP;						\
+		return T_BLOCK;						\
 	}								\
 } while (0)
 
@@ -974,7 +974,7 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 	if (!ctx->cur_stream) {
 		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
 		if (!ctx->cur_stream)
-			return T_DROP;
+			return T_BLOCK;
 		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
@@ -1002,7 +1002,7 @@ tfw_h2_increment_wnd_sz(long int *window, unsigned int wnd_incr)
 	 * is sent.
 	 */
 	if (new_window > MAX_WND_SIZE)
-		return T_DROP;
+		return T_BLOCK;
 	*window = new_window;
 	return 0;
 }
@@ -1038,7 +1038,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 fail:
 	if (!ctx->cur_stream) {
 		tfw_h2_conn_terminate(ctx, err_code);
-		return T_DROP;
+		return T_BLOCK;
 	}
 
 	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
@@ -1248,7 +1248,7 @@ tfw_h2_first_settings_verify(TfwH2Ctx *ctx)
 
 	if (err_code) {
 		tfw_h2_conn_terminate(ctx, err_code);
-		return T_DROP;
+		return T_BLOCK;
 	}
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
@@ -1287,7 +1287,7 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 		T_DBG("Invalid ID of new stream: %u stream is"
 		      " closed and removed, %u last initiated\n",
 		      hdr->stream_id, ctx->lstream_id);
-		return T_DROP;
+		return T_BLOCK;
 	}
 	/*
 	 * Streams initiated by client must use odd-numbered
@@ -1296,7 +1296,7 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	if (!(hdr->stream_id & 0x1)) {
 		T_DBG("Invalid ID of new stream: initiated by"
 		      " server\n");
-		return T_DROP;
+		return T_BLOCK;
 	}
 
 	return T_OK;
@@ -1325,7 +1325,7 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 		if( tfw_h2_send_wnd_update(ctx, stream->id,
 					   lset->wnd_sz - stream->loc_wnd))
 		{
-			return T_DROP;
+			return T_BLOCK;
 		}
 		stream->loc_wnd = lset->wnd_sz;
 	}
@@ -1334,7 +1334,7 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	if (ctx->loc_wnd <= MAX_WND_SIZE / 2) {
 		if (tfw_h2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
 		{
-			return T_DROP;
+			return T_BLOCK;
 		}
 		ctx->loc_wnd = MAX_WND_SIZE;
 	}
@@ -1440,7 +1440,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		if (tfw_h2_flow_control(ctx))
-			return T_DROP;
+			return T_BLOCK;
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
@@ -1702,7 +1702,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 conn_term:
 	BUG_ON(!err_code);
 	tfw_h2_conn_terminate(ctx, err_code);
-	return T_DROP;
+	return T_BLOCK;
 }
 
 /**
@@ -1726,7 +1726,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 			{
 				T_DBG("Invalid client magic received,"
 					 " connection must be dropped\n");
-				FRAME_FSM_EXIT(T_DROP);
+				FRAME_FSM_EXIT(T_BLOCK);
 			}
 		});
 
@@ -1734,7 +1734,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		    || tfw_h2_send_wnd_update(ctx, 0,
 						 MAX_WND_SIZE - DEF_WND_SIZE))
 		{
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 		}
 
 		FRAME_FSM_MOVE(HTTP2_RECV_FIRST_SETTINGS);
@@ -1744,7 +1744,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(FRAME_HEADER_SIZE);
 
 		if (tfw_h2_first_settings_verify(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
@@ -1758,7 +1758,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		tfw_h2_unpack_frame_header(&ctx->hdr, ctx->rbuf);
 
 		if (tfw_h2_frame_type_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
@@ -1770,7 +1770,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_frame_pad_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
@@ -1782,7 +1782,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_priority_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1791,7 +1791,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_wnd_update_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1802,7 +1802,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		if (!(ctx->hdr.flags & HTTP2_F_ACK)
 		    && tfw_h2_send_ping(ctx))
 		{
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 		}
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1820,13 +1820,13 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_settings_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
 		if (tfw_h2_send_settings_ack(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1835,7 +1835,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_goaway_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_IGNORE_FRAME_DATA);
@@ -1847,7 +1847,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_headers_pri_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
@@ -1859,7 +1859,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_PYLD();
 
 		if (tfw_h2_stream_state_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (unlikely(ctx->to_read)) {
 			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
@@ -1872,7 +1872,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_PYLD();
 
 		if (tfw_h2_headers_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (unlikely(ctx->to_read)) {
 			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
@@ -1885,7 +1885,7 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_PYLD();
 
 		if (tfw_h2_stream_state_process(ctx))
-			FRAME_FSM_EXIT(T_DROP);
+			FRAME_FSM_EXIT(T_BLOCK);
 
 		if (unlikely(ctx->to_read)) {
 			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
@@ -1972,7 +1972,7 @@ next_msg:
 		T_WARN("Unrecognized return code %d during HTTP/2 frame"
 		       " receiving, drop frame\n", r);
 		// fallthrough
-	case T_DROP:
+	case T_BLOCK:
 		T_DBG3("Drop invalid HTTP/2 frame\n");
 		goto out;
 	case T_POSTPONE:
@@ -2009,7 +2009,7 @@ next_msg:
 		nskb = ss_skb_split(skb, parsed);
 		if (unlikely(!nskb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			r = T_DROP;
+			r = T_BLOCK;
 			goto out;
 		}
 	}
@@ -2059,7 +2059,7 @@ next_msg:
 		WARN_ON_ONCE(h2->skb_head != h2->skb_head->next);
 		data_up.skb = h2->skb_head;
 		if (ss_skb_chop_head_tail(NULL, data_up.skb, h2->data_off, 0)) {
-			r = T_DROP;
+			r = T_BLOCK;
 			kfree_skb(nskb);
 			goto out;
 		}
@@ -2067,7 +2067,7 @@ next_msg:
 		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, data_up.skb);
 		/* TODO #1490: Check this place, when working on the task. */
-		if (r) {
+		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
 			kfree_skb(nskb);
 			goto out;
@@ -2086,7 +2086,7 @@ next_msg:
 	}
 
 out:
-	if (r && r != T_POSTPONE)
+	if (r && r != T_POSTPONE && r != T_DROP)
 		tfw_h2_context_reinit(h2, false);
 	ss_skb_queue_purge(&h2->skb_head);
 	return r;

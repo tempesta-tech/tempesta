@@ -35,11 +35,16 @@ enum {
 	 * This code means that we can't finish requested operation due to
 	 * shutdown process, but this isn't error.
 	 */
-	SS_SHUTDOWN	= -4,
+	SS_SHUTDOWN	= -5,
 	/* Generic socket error. */
-	SS_BAD		= -3,
-	/* The packet must be dropped (typically on a security event). */
-	SS_DROP		= -2,
+	SS_BAD		= -4,
+	/* The packet must be dropped, but connection should be alive. */
+	SS_DROP		= -3,
+	/*
+	 * The packet must be blocked with TCP RST (typically on a
+	 * security event).
+	 */
+	SS_BLOCK	= -2,
 	/* The packet should be stashed (made by callback). */
 	SS_POSTPONE	= -1,
 	/* The packet looks good and we can safely pass it. */

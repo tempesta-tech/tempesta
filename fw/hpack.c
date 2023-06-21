@@ -215,7 +215,7 @@ tfw_hpack_find_hdr_idx(const TfwStr *hdr)
 /*
  * Flexible integer decoding as specified in the HPACK RFC-7541. If the
  * variable-length integer greater than defined limit, this is the malformed
- * request and we should drop the parsing process.
+ * request and we should block the parsing process.
  */
 #define GET_FLEXIBLE(x, new_state)				\
 do {								\
@@ -231,7 +231,7 @@ do {								\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_INT_LIMIT) {			\
-			r = T_DROP;				\
+			r = T_BLOCK;				\
 			goto out;				\
 		}						\
 	} while (__c > 127);					\
@@ -239,7 +239,7 @@ do {								\
 
 /* Continue decoding after interruption due to absence of the next fragment.
  * If the variable-length integer greater than defined limit, this is the
- * malformed request and we should drop the parsing process.
+ * malformed request and we should block the parsing process.
  */
 #define GET_CONTINUE(x)						\
 do {								\
@@ -249,7 +249,7 @@ do {								\
 	x += (__c & 127) << __m;				\
 	__m += 7;						\
 	if ((x) > HPACK_INT_LIMIT) {				\
-		r = T_DROP;					\
+		r = T_BLOCK;					\
 		goto out;					\
 	}							\
 	while (__c > 127) {					\
@@ -261,7 +261,7 @@ do {								\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_INT_LIMIT) {			\
-			r = T_DROP;				\
+			r = T_BLOCK;				\
 			goto out;				\
 		}						\
 	}							\
@@ -291,7 +291,7 @@ do {								\
 	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
 		BUFFER_GET(length, it);				\
 		if (!it->pos) {					\
-			r = T_DROP;				\
+			r = T_BLOCK;				\
 			goto out;				\
 		}						\
 		BUFFER_HDR_INIT(length, it);			\
@@ -308,7 +308,7 @@ do {								\
 	if (state & HPACK_FLAGS_HUFFMAN_VALUE) {		\
 		BUFFER_GET(length, it);				\
 		if (!it->pos) {					\
-			r = T_DROP;				\
+			r = T_BLOCK;				\
 			goto out;				\
 		}						\
 		if (!TFW_STR_EMPTY(&it->hdr))			\
@@ -336,7 +336,7 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 		if (unlikely(ret < T_POSTPONE))
 			return ret;
 	}
-	return ret ? T_DROP : T_OK;
+	return ret ? T_BLOCK : T_OK;
 }
 
 static inline int
@@ -374,7 +374,7 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 			return ret;
 		++chunk;
 	}
-	return ret ? T_DROP : T_OK;
+	return ret ? T_BLOCK : T_OK;
 }
 
 #define	HPACK_DECODE_PROCESS_STRING(field, len)			\
@@ -499,7 +499,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			if (likely(offset == 0))
 				return T_OK;
 			else
-				return T_DROP;
+				return T_BLOCK;
 		}
 
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
@@ -511,7 +511,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			if (shift <= hp->curr + HT_NBITS) {
 				sym = (char)ht_decode[offset + i].offset;
 				if (tfw_hpack_huffman_write(sym, req))
-					return T_DROP;
+					return T_BLOCK;
 
 				hp->curr -= shift;
 				offset = 0;
@@ -540,15 +540,15 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			{
 				T_DBG3("%s: unexpected EOS detected\n",
 				       __func__);
-				return T_DROP;
+				return T_BLOCK;
 			}
 
-			return T_DROP;
+			return T_BLOCK;
 		}
 		else {
 			/* @shift must not be zero. */
 			WARN_ON_ONCE(1);
-			return T_DROP;
+			return T_BLOCK;
 		}
 	}
 	if (likely(offset == 0)) {
@@ -556,7 +556,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			return T_OK;
 		}
 	}
-	return T_DROP;
+	return T_BLOCK;
 }
 
 static int
@@ -568,7 +568,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	unsigned int i;
 
 	if (hp->curr == -HT_MBITS)
-		return T_DROP;
+		return T_BLOCK;
 
 	i = (hp->hctx << -hp->curr) & HT_MMASK;
 	shift = ht_decode[offset + i].shift;
@@ -581,7 +581,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		if (likely(shift <= hp->curr + HT_NBITS)) {
 			sym = (char)ht_decode[offset + i].offset;
 			if (tfw_hpack_huffman_write(sym, req))
-				return T_DROP;
+				return T_BLOCK;
 			hp->curr -= shift;
 			return huffman_decode_tail(hp, req, 0);
 		}
@@ -594,7 +594,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		WARN_ON_ONCE(1);
 	}
 
-	return T_DROP;
+	return T_BLOCK;
 }
 
 static int
@@ -644,7 +644,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
 				if (tfw_hpack_huffman_write((char)offset, req))
-					return T_DROP;
+					return T_BLOCK;
 				hp->curr -= shift;
 				offset = 0;
 			}
@@ -694,7 +694,7 @@ ht_small:
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
 				if (tfw_hpack_huffman_write((char)offset, req))
-					return T_DROP;
+					return T_BLOCK;
 				hp->curr -= shift;
 			}
 			else {
@@ -708,7 +708,7 @@ ht_small:
 		}
 	}
 end:
-	return T_DROP;
+	return T_BLOCK;
 }
 
 static int
@@ -1230,7 +1230,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	if (hp->index <= HPACK_STATIC_ENTRIES) {
 		WARN_ON_ONCE(s_hdr->nchunks > 2);
 		if (s_hdr->nchunks != 2)
-			return T_DROP;
+			return T_BLOCK;
 		*d_hdr = *s_hdr;
 		goto done;
 	}
@@ -1286,7 +1286,7 @@ done:
 			req->method = tfw_http_meth_str2id(s_hdr);
 			if (unlikely(req->method == _TFW_HTTP_METH_UNKNOWN)) {
 				WARN_ON_ONCE(1);
-				return T_DROP;
+				return T_BLOCK;
 			}
 		}
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
@@ -1333,7 +1333,7 @@ done:
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		if (h2_set_hdr_if_mod_since(req, &entry->cstate))
-			return T_DROP;
+			return T_BLOCK;
 		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
@@ -1364,9 +1364,9 @@ done:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
 	default:
-		T_WARN("%s: HTTP/2 request dropped: unexpected HPACK entry tag"
+		T_WARN("%s: HTTP/2 request blocked: unexpected HPACK entry tag"
 			" = %d\n", __func__, entry->tag);
-		return T_DROP;
+		return T_BLOCK;
 	}
 
 	return T_OK;
@@ -1412,7 +1412,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 						     HPACK_STATE_INDEX);
 				}
 				else if (unlikely(hp->index == 0)) {
-					r = T_DROP;
+					r = T_BLOCK;
 					goto out;
 				}
 
@@ -1457,7 +1457,7 @@ index:
 					T_DBG3("%s: the code of the header's"
 					       " binary representation is not"
 					       " in prefix form\n", __func__);
-					r = T_DROP;
+					r = T_BLOCK;
 					goto out;
 				}
 
@@ -1513,7 +1513,7 @@ index:
 				GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 			}
 			else if (unlikely(hp->length == 0)) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1555,7 +1555,7 @@ get_indexed_name:
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
 			if (!entry || tfw_hpack_hdr_name_set(hp, req, entry)) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1593,7 +1593,7 @@ get_value:
 					r = T_BAD;
 					break;
 				default:
-					r = T_DROP;
+					r = T_BLOCK;
 				}
 				goto out;
 			}
@@ -1625,7 +1625,7 @@ get_value_text:
 			    && tfw_hpack_add_index(&hp->dec_tbl, it,
 			                           &req->stream->parser.cstate))
 			{
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1639,7 +1639,7 @@ get_value_text:
 			 * above.
 			 */
 			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1657,12 +1657,12 @@ get_all_indexed:
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
 			if (!entry) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
 			if (tfw_hpack_hdr_set(hp, req, entry)) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1676,7 +1676,7 @@ get_all_indexed:
 			 * decoder static/dynamic tables above.
 			 */
 			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1704,7 +1704,7 @@ get_all_indexed:
 			       __func__, hp->index);
 set_tbl_size:
 			if (tfw_hpack_set_length(hp, hp->index)) {
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 			T_DBG3("%s: dyn table size has been changed\n", __func__);
@@ -1731,7 +1731,7 @@ set_tbl_size:
 
 			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
-				r = T_DROP;
+				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1746,7 +1746,7 @@ set_tbl_size:
 
 		default:
 			WARN_ON_ONCE(1);
-			r = T_DROP;
+			r = T_BLOCK;
 			goto out;
 		}
 
@@ -1797,14 +1797,14 @@ do {									\
 	if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp, str, data,  \
 					len, NULL))			\
 	{								\
-		r = T_DROP;						\
+		r = T_BLOCK;						\
 		goto out;						\
 	}
 
 #define EXPAND_STR_DATA(str)						\
 do {									\
 	if (tfw_http_msg_expand_data(it, skb_head, str, NULL)) {	\
-		r = T_DROP;						\
+		r = T_BLOCK;						\
 		goto out;						\
 	}								\
 	dc_iter->acc_len += (str)->len;					\
@@ -1838,7 +1838,7 @@ do {									\
 		 * table, only header's name is allowed to be indexed.
 		 */
 		if (WARN_ON_ONCE(c & 0xF0)) {
-			r = T_DROP;
+			r = T_BLOCK;
 			goto out;
 		}
 
@@ -1874,7 +1874,7 @@ do {									\
 			GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 
 		else if (unlikely(hp->length == 0)) {
-			r = T_DROP;
+			r = T_BLOCK;
 			goto out;
 		}
 
@@ -1895,13 +1895,13 @@ get_indexed_name:
 		if (WARN_ON_ONCE(!hp->index
 				 || hp->index > HPACK_STATIC_ENTRIES))
 		{
-			r = T_DROP;
+			r = T_BLOCK;
 			goto out;
 		}
 
 		entry = static_table + hp->index - 1;
 		if (WARN_ON_ONCE(entry->name_num != 1)) {
-			r = T_DROP;
+			r = T_BLOCK;
 			goto out;
 		}
 
@@ -2025,7 +2025,7 @@ get_value_text:
 
 	default:
 		WARN_ON_ONCE(1);
-		r = T_DROP;
+		r = T_BLOCK;
 		goto out;
 	}
 
