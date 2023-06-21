@@ -205,27 +205,8 @@ dbg_prefix_vec:
  * Custom character alphabets allowed for various HTTP fields.
  */
 .extern __CUSTOM
-
-#define __CUSTOM_ADDR(i) $__CUSTOM+(i*0x40)
-#define __CUST_URI_0		__CUSTOM_ADDR(TOKEN_TBL_URI)
-#define __CUST_URI_1		__CUST_URI_0 + 0x20
-#define __CUST_TOKEN_0		__CUSTOM_ADDR(TOKEN_TBL_TOKEN)
-#define __CUST_TOKEN_1		__CUST_TOKEN_0 + 0x20
-#define __CUST_QETOKEN_0	__CUSTOM_ADDR(TOKEN_TBL_QETOKEN)
-#define __CUST_QETOKEN_1	__CUST_QETOKEN_0 + 0x20
-#define __CUST_NCTL_0		__CUSTOM_ADDR(TOKEN_TBL_NCTL)
-#define __CUST_NCTL_1		__CUST_NCTL_0 + 0x20
-#define __CUST_VCHAR_0		__CUSTOM_ADDR(TOKEN_TBL_VCHAR)
-#define __CUST_VCHAR_1		__CUST_VCHAR_0 + 0x20
-#define __CUST_XFF_0		__CUSTOM_ADDR(TOKEN_TBL_XFF)
-#define __CUST_XFF_1		__CUST_XFF_0 + 0x20
-#define __CUST_COOKIE_0		__CUSTOM_ADDR(TOKEN_TBL_COOKIE)
-#define __CUST_COOKIE_1		__CUST_COOKIE_0 + 0x20
-/* ETAG custom offsets are only used from C code */
-#define __CUST_ETAG_0		__CUSTOM_ADDR(TOKEN_TBL_ETAG)
-#define __CUST_ETAG_1		__CUST_ETAG_0 + 0x20
-#define __CUST_TOKEN_LC_0	__CUSTOM_ADDR(TOKEN_TBL_TOKEN_LC)
-#define __CUST_TOKEN_LC_1	__CUST_TOKEN_LC_0 + 0x20
+#define __CUST_TBL_0(t) $__CUSTOM+(t*0x40)
+#define __CUST_TBL_1(t) $__CUSTOM+(t*0x40+0x20)
 
 .extern __tfw_lct
 
@@ -2147,8 +2128,8 @@ SYM_FUNC_START(tfw_match_uri)
 	movq	$uri, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_uri:
-	movq	__CUST_URI_0, %rcx
-	movq	__CUST_URI_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN), %r8
 	movq	$custom_uri, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_uri)
@@ -2160,8 +2141,8 @@ SYM_FUNC_START(tfw_match_token)
 	movq	$token, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_token:
-	movq	__CUST_TOKEN_0, %rcx
-	movq	__CUST_TOKEN_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN), %r8
 	movq	$custom_token, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_token)
@@ -2173,8 +2154,8 @@ SYM_FUNC_START(tfw_match_token_lc)
 	movq	$token_lc, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_token_lc:
-	movq	__CUST_TOKEN_LC_0, %rcx
-	movq	__CUST_TOKEN_LC_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN_LC), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN_LC), %r8
 	movq	$custom_token_lc, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_token_lc)
@@ -2186,8 +2167,8 @@ SYM_FUNC_START(tfw_match_qetoken)
 	movq	$qetoken, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_qetoken:
-	movq	__CUST_QETOKEN_0, %rcx
-	movq	__CUST_QETOKEN_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_QETOKEN), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_QETOKEN), %r8
 	movq	$custom_qetoken, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_qetoken)
@@ -2199,8 +2180,8 @@ SYM_FUNC_START(tfw_match_nctl)
 	movq	$nctl, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_nctl:
-	movq	__CUST_NCTL_0, %rcx
-	movq	__CUST_NCTL_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_NCTL), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_NCTL), %r8
 	movq	$custom_nctl, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_nctl)
@@ -2212,8 +2193,8 @@ SYM_FUNC_START(tfw_match_xff)
 	movq	$xff, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_xff:
-	movq	__CUST_XFF_0, %rcx
-	movq	__CUST_XFF_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_XFF), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_XFF), %r8
 	movq	$custom_xff, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_xff)
@@ -2225,8 +2206,8 @@ SYM_FUNC_START(tfw_match_cookie)
 	movq	$cookie, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_cookie:
-	movq	__CUST_COOKIE_0, %rcx
-	movq	__CUST_COOKIE_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_COOKIE), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_COOKIE), %r8
 	movq	$custom_cookie, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_cookie)
