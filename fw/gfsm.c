@@ -247,6 +247,8 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 			continue;
 
 		switch (__gfsm_fsm_exec(st, fsm, data)) {
+		case TFW_DROP:
+			BUG();
 		case TFW_BLOCK:
 			r = TFW_BLOCK;
 			goto done;

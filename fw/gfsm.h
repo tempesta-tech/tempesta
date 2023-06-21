@@ -137,13 +137,18 @@ enum {
 	 * and the client who sent the message will be prohibited from further
 	 * communication with a defended server.
 	 */
-	TFW_BLOCK	= SS_DROP,
+	TFW_BLOCK	= SS_BLOCK,
 
-        /*
-         * Same as TFW_BLOCK, but we send FIN not RST in this case
-         * to the client.
-         */
-        TFW_BAD		= SS_BAD,
+	/*
+	 * The message must be dropped. Connection should be alive.
+	 */
+	TFW_DROP        = SS_DROP,
+
+	/*
+	 * Same as TFW_BLOCK, but we send FIN not RST in this case
+	 * to the client.
+	 */
+	TFW_BAD		= SS_BAD,
 
 	/*
 	 * We need more requests (or parts of a request) to make a decision.
