@@ -568,6 +568,7 @@ chunk_size_index = 0;							\
 while (({								\
 	int _err = do_split_and_parse(type, chunk_mode);		\
 	if (_err == TFW_BLOCK || _err == TFW_POSTPONE			\
+	    || _err == TFW_BAD || _err == TFW_DROP			\
 	    || !validate_data_fully_parsed(type, sz_diff))		\
 		TEST_FAIL("can't parse %s (code=%d)\n",			\
 			  (type == FUZZ_REQ	    			\
@@ -591,7 +592,8 @@ while (({								\
 			   || type == FUZZ_REQ_H2			\
 			   ? "request" : "response"));			\
 	__fpu_schedule();						\
-	_err == TFW_BLOCK || _err == TFW_POSTPONE;			\
+	_err == TFW_BLOCK || _err == TFW_POSTPONE ||			\
+	_err == TFW_BAD || _err == TFW_DROP;				\
 }))
 
 #define PRINT_REQ(str)	TEST_LOG("h1 req: [%s]\n", str)

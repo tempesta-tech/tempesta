@@ -128,7 +128,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	for (next = skb->next; skb;
 	     skb = next, next = next ? next->next : NULL)
 	{
-		if (likely(r == T_OK || r == T_POSTPONE)) {
+		if (likely(r == T_OK || r == T_POSTPONE || r == T_DROP)) {
 			skb->next = skb->prev = NULL;
 			if (unlikely(TFW_CONN_PROTO(conn) == TFW_FSM_WS
 				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))

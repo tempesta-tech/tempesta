@@ -26,9 +26,14 @@
  */
 enum {
 	/* Generic error. */
-	T_BAD		= -3,
-	/* The message must be dropped (typically on a security event). */
-	T_DROP		= -2,
+	T_BAD		= -4,
+	/* The message must be dropped. Connection should be alive. */
+	T_DROP          = -3,
+	/*
+	 * The message must be blocked (typically on a security event).
+	 * Tempesta send TCP RST in this case.
+	 */
+	T_BLOCK		= -2,
 	/* The message should be stashed (made by callback). */
 	T_POSTPONE	= -1,
 	/* The message looks good and we can safely pass it. */

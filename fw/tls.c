@@ -94,7 +94,7 @@ next_msg:
 	default:
 		r = T_BAD;
 		fallthrough;
-	case T_DROP:
+	case T_BLOCK:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
 			frang_tls_handler(tls, TTLS_HS_CB_INCOMPLETE);

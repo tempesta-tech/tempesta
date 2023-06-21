@@ -910,8 +910,9 @@ ss_tcp_data_ready(struct sock *sk)
 	switch (ss_tcp_process_data(sk)) {
 	case SS_OK:
 	case SS_POSTPONE:
-		return;
 	case SS_DROP:
+		return;
+	case SS_BLOCK:
 		/*
 		 * Here we do not close the TCP connection immediately.
 		 * If the higher layer decides that there is an attack,
