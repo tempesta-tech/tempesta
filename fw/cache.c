@@ -2846,8 +2846,9 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
  * to actually reserve any space for h2 frame header.
  */
 static int
-tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
-			  unsigned long body_sz, bool h2, bool chunked_body)
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpReq *req,
+			  TfwMsgIter *it,  char *p, unsigned long body_sz,
+			  bool chunked_body)
 {
 #define S_ZERO "0"
 
@@ -2855,8 +2856,9 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * Finish chunked body encoding. Add 0\r\n
 	 * after chunked body.
 	 */
-	bool sh_frag = h2 ? false : true;
 	int r;
+	const bool h2 = TFW_MSG_H2(req), tls = TFW_CONN_TLS(req->conn);
+	const bool sh_frag = h2 ? false : (true & tls);
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
@@ -3170,11 +3172,12 @@ write_body:
 	chunked_body = (ce->flags & TFW_CE_CHUNKED_BODY) && !h2_mode;
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
+
 	if ((ce->body_len || chunked_body)
 	    && req->method != TFW_HTTP_METH_HEAD)
 	{
-		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
-					      h2_mode, chunked_body))
+		if (tfw_cache_build_resp_body(db, trec, req, it, p,
+					      ce->body_len, chunked_body))
 			goto free;
 	}
 	resp->content_length = ce->body_len;
