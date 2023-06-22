@@ -247,8 +247,11 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 			continue;
 
 		switch (__gfsm_fsm_exec(st, fsm, data)) {
-		case T_DROP:
-			BUG();
+		case T_OK:
+			continue;
+		default:
+			/* System should be interpreted as attack here. */
+			fallthrough;
 		case T_BLOCK:
 			r = T_BLOCK;
 			goto done;

@@ -560,7 +560,7 @@ ttls_choose_ciphersuite(TlsCtx *tls)
 			ci = ttls_ciphersuite_from_id(ciphersuites[i]);
 			if (!ci) {
 				TTLS_WARN(tls, "ClientHello: cannot match a ciphersuite\n");
-				return T_BLOCK;
+				return T_BAD;
 			}
 
 			got_common_suite = 1;
@@ -573,12 +573,12 @@ ttls_choose_ciphersuite(TlsCtx *tls)
 		               " (e.g. no suitable certificate), like %s\n", ci->name);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_HANDSHAKE_FAILURE);
-		return T_BLOCK;
+		return T_BAD;
 	} else {
 		TTLS_WARN(tls, "Got no ciphersuites in common\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_HANDSHAKE_FAILURE);
-		return T_BLOCK;
+		return T_BAD;
 	}
 
 have_ciphersuite:

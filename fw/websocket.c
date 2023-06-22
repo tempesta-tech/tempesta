@@ -183,7 +183,7 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	assert_spin_locked(&srv_conn->sk->sk_lock.slock);
 
 	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
-		return T_BLOCK;
+		return -ENOMEM;
 
 	/*
 	 * At the moment we're under the ws_conn->sk->sk_lock, as the function

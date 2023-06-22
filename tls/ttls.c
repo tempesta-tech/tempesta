@@ -215,6 +215,7 @@ err:
 static int
 ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
 {
+	int r = 0;
 	size_t n, copied = 0, off = ttls_payload_off(xfrm);
 	struct sk_buff *skb = io->skb_list;
 
@@ -224,12 +225,12 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
 			continue;
 		}
 		n = min(skb->len - off, TTLS_ALERT_LEN - copied);
-		if (skb_copy_bits(skb, off, &io->alert[copied], n))
-			return T_BLOCK;
+		if ((r = skb_copy_bits(skb, off, &io->alert[copied], n)))
+			return r;
 		copied += n;
 	}
 
-	return skb ? 0 : T_BLOCK;
+	return skb ? 0 : T_BAD;
 }
 
 /**
@@ -931,7 +932,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	if (io->msglen > ttls_max_ciphertext_len(&tls->xfrm)) {
 		T_DBG("bad message length %u\n", io->msglen);
-		return T_BLOCK;
+		return T_BAD;
 	}
 
 	if ((r = __ttls_decrypt(tls, buf))) {
@@ -940,7 +941,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_BAD_RECORD_MAC);
 		T_DBG2("decryption failed: %d", r);
-		return T_BLOCK;
+		return r;
 	}
 
 	/*
@@ -1056,7 +1057,7 @@ ttls_hdr_check(TlsCtx *tls)
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
 
-		return T_BLOCK;
+		return -EINVAL;
 	}
 	/* Drop unexpected ChangeCipherSpec messages. */
 	if (io->msgtype == TTLS_MSG_CHANGE_CIPHER_SPEC
@@ -1064,21 +1065,21 @@ ttls_hdr_check(TlsCtx *tls)
 	    && ttls_state(tls) != TTLS_SERVER_CHANGE_CIPHER_SPEC)
 	{
 		T_DBG("dropping unexpected ChangeCipherSpec\n");
-		return T_BLOCK;
+		return -EINVAL;
 	}
 	/* Check length against bounds of the current transform and version */
 	if (!ttls_xfrm_ready(tls)) {
 		/* Cipher's not ready yet, plaintext limits apply. */
 		if (io->msglen < 1 || io->msglen > TLS_MAX_PAYLOAD_SIZE) {
 			T_DBG("bad message length %u\n", io->msglen);
-			return T_BLOCK;
+			return -EINVAL;
 		}
 	} else {
 		if (io->msglen < tls->xfrm.minlen ||
 		    io->msglen > ttls_max_ciphertext_len(&tls->xfrm))
 		{
 			T_DBG("bad message length %u\n", io->msglen);
-			return T_BLOCK;
+			return -EINVAL;
 		}
 	}
 
@@ -1249,7 +1250,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		{
 			TTLS_WARN(tls, "too short client handshake message: %u\n",
 			      io->hslen);
-			return T_BLOCK;
+			return -EINVAL;
 		}
 
 		/* With TLS we don't handle fragmentation (for now) */
@@ -1780,6 +1781,7 @@ int
 ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		    unsigned int *read)
 {
+	int r;
 	unsigned int n, ct_len;
 	TlsIOCtx *io = &tls->io_in;
 	TlsXfrm *xfrm = &tls->xfrm;
@@ -1811,8 +1813,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (unlikely(io->rlen < ct_len))
 		return T_POSTPONE;
 
-	if (ttls_decrypt(tls, hs->finished))
-		return T_BLOCK;
+	if ((r = ttls_decrypt(tls, hs->finished)))
+		return r;
 	/* Verify the handshake header. */
 	if (unlikely(hs->finished[0] != TTLS_HS_FINISHED
 		     || hs->finished[1] || hs->finished[2]
@@ -2186,7 +2188,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		if (unlikely(!ttls_xfrm_ready(tls))) {
 			if (!(r = ttls_handle_alert(tls)))
 				return T_OK;
-			return T_BAD;
+			return r;
 		}
 		break;
 
@@ -2255,13 +2257,13 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 	if ((r = ttls_decrypt(tls, NULL))) {
 		TTLS_WARN(tls, "TLS cannot decrypt msg on state %x, ret=%d%s\n",
 			  tls->state, r, r == -EBADMSG ? "(bad ciphertext)" : "");
-		return T_BAD;
+		return r;
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
 		if (!(r = ttls_handle_alert(tls)))
 			return T_OK;
-		return T_BAD;
+		return r;
 	}
 
 	return T_OK;

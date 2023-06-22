@@ -117,7 +117,7 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 static int
 tfw_tls_add_cn(const ttls_x509_buf *sname, void *a_vhost)
 {
-	int r = T_BAD;
+	int r = -EINVAL;
 	TfwVhost *vhost = a_vhost;
 	const char *hname = vhost->name.data;
 	int hlen = vhost->name.len;

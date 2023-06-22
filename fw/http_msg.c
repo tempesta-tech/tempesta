@@ -548,6 +548,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 int
 tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 {
+	int r;
 	TfwStr *hdr, *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwHttpParser *parser = &hm->stream->parser;
@@ -582,7 +583,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		 */
 		if (id < TFW_HTTP_HDR_NONSINGULAR) {
 			if (!TFW_MSG_H2(hm) || id != TFW_HTTP_HDR_COOKIE)
-				return T_BLOCK;
+				return -EINVAL;
 		} else if (id != TFW_HTTP_HDR_X_FORWARDED_FOR &&
 			   id != TFW_HTTP_HDR_FORWARDED) {
 			/*
@@ -605,8 +606,8 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {
-		if (tfw_http_msg_grow_hdr_tbl(hm))
-			return T_BLOCK;
+		if ((r = tfw_http_msg_grow_hdr_tbl(hm)))
+			return r;
 
 		ht = hm->h_tbl;
 	}
@@ -621,7 +622,7 @@ duplicate:
 	h = tfw_str_add_duplicate(hm->pool, hdr);
 	if (unlikely(!h)) {
 		T_WARN("Cannot close header %p id=%d\n", &parser->hdr, id);
-		return T_BLOCK;
+		return -ENOMEM;
 	}
 
 done:
@@ -633,8 +634,8 @@ done:
 	 */
 	if (TFW_RESP_TO_H2(hm)
 	    && id > TFW_HTTP_STATUS_LINE
-	    && tfw_h2_hdr_map((TfwHttpResp *)hm, hdr, id))
-		return T_BLOCK;
+	    && (r = tfw_h2_hdr_map((TfwHttpResp *)hm, hdr, id)))
+		return r;
 
 	*h = parser->hdr;
 
@@ -646,7 +647,7 @@ done:
 	if (id == ht->off)
 		ht->off++;
 
-	return T_OK;
+	return 0;
 }
 
 /**
@@ -731,7 +732,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
 	dst = tfw_strcpy_comp_ext(hm->pool, &it, hdr);
 	if (unlikely(!dst))
-		return T_BLOCK;
+		return -ENOMEM;
 
 	/*
 	 * Initialize the header table item by the iterator chunks.
@@ -766,13 +767,13 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	if (r)
 		return r;
 
-	if (tfw_strcat(hm->pool, orig_hdr, &it)) {
+	if ((r = tfw_strcat(hm->pool, orig_hdr, &it))) {
 		T_WARN("Cannot concatenate hdr %.*s with %.*s\n",
 		       PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
-		return T_BLOCK;
+		return r;
 	}
 
-	return tfw_strcpy(append ? &it : orig_hdr, hdr) ? T_BLOCK : 0;
+	return tfw_strcpy(append ? &it : orig_hdr, hdr);
 }
 
 /**
@@ -781,14 +782,15 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 static int
 __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 {
+	int r = 0;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
 
 	/* Delete the underlying data. */
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if (ss_skb_cutoff_data(hm->msg.skb_head, dup, 0,
-				       tfw_str_eolen(dup)))
-			return T_BLOCK;
+		if ((r = ss_skb_cutoff_data(hm->msg.skb_head, dup, 0,
+					    tfw_str_eolen(dup))))
+			return r;
 	};
 
 	/* Delete the header from header table. */
@@ -817,6 +819,7 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 static int
 __hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 {
+	int r;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
 
@@ -829,27 +832,28 @@ __hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 		 * adjustment is needed.
 		 */
 		if (dst->len != hdr->len
-		    && ss_skb_cutoff_data(hm->msg.skb_head, dst, hdr->len, 0))
-			return T_BLOCK;
-		if (tfw_strcpy(dst, hdr))
-			return T_BLOCK;
+		    && (r = ss_skb_cutoff_data(hm->msg.skb_head, dst,
+					       hdr->len, 0)))
+			return r;
+		if ((r = tfw_strcpy(dst, hdr)))
+			return r;
 		goto cleanup;
 	}
 
-	if (__hdr_expand(hm, orig_hdr, hdr, false))
-		return T_BLOCK;
+	if ((r = __hdr_expand(hm, orig_hdr, hdr, false)))
+		return r;
 	dst = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
 
 cleanup:
 	TFW_STR_FOR_EACH_DUP(tmp, orig_hdr, end) {
 		if (tmp != dst
-		    && ss_skb_cutoff_data(hm->msg.skb_head, tmp, 0,
-					  tfw_str_eolen(tmp)))
-			return T_BLOCK;
+		    && (r = ss_skb_cutoff_data(hm->msg.skb_head, tmp, 0,
+					       tfw_str_eolen(tmp))))
+			return r;
 	}
 
 	*orig_hdr = *dst;
-	return T_OK;
+	return 0;
 }
 
 /**
@@ -883,6 +887,7 @@ int
 tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			  bool append)
 {
+	int r;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *orig_hdr = NULL;
 	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
@@ -904,8 +909,8 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			/* Not found, nothing to delete. */
 			return 0;
 		if (hid == ht->size) {
-			if (tfw_http_msg_grow_hdr_tbl(hm))
-				return -ENOMEM;
+			if ((r = tfw_http_msg_grow_hdr_tbl(hm)))
+				return r;
 			ht = hm->h_tbl;
 		}
 		if (hid == ht->off)
