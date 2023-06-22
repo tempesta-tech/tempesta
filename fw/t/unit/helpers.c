@@ -303,6 +303,11 @@ tfw_connection_close(TfwConn *conn, bool sync)
 }
 
 void
+tfw_connection_abort(TfwConn *conn)
+{
+}
+
+void
 tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {
 }
