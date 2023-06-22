@@ -412,10 +412,13 @@ ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
  * @DP	- Output variable for D modulo P-1;
  * @DQ	- Output variable for D modulo Q-1;
  * @QP	- Output variable for the modular inverse of Q modulo P.
+ * @RP	- Output variable for the R^2 modulo P
+ * @RQ	- Output variable for the R^2 modulo Q
  */
-int
+static int
 ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
-		    TlsMpi *DP, TlsMpi *DQ, TlsMpi *QP)
+		    TlsMpi *DP, TlsMpi *DQ, TlsMpi *QP,
+		    TlsMpi *RP, TlsMpi *RQ)
 {
 	TlsMpi *K = ttls_mpi_alloc_stack_init(max(P->used, Q->used));
 
@@ -434,6 +437,12 @@ ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
 	/* QP = Q^{-1} mod P */
 	if (QP)
 		ttls_mpi_inv_mod(QP, Q, P);
+
+	if (RP)
+		ttls_mpi_precompute_RR(RP, P);
+
+	if (RQ)
+		ttls_mpi_precompute_RR(RQ, Q);
 
 	return 0;
 }
@@ -490,6 +499,13 @@ rsa_check_context(const TlsRSACtx *ctx, int is_priv)
 		  ttls_mpi_cmp_int(&ctx->DQ, 0) <= 0 ))
 	{
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
+	}
+
+	if (is_priv &&
+		(ttls_mpi_cmp_int(&ctx->RP, 0) <= 0 ||
+		 ttls_mpi_cmp_int(&ctx->RQ, 0) <= 0))
+	{
+		return TTLS_ERR_RSA_BAD_INPUT_DATA;
 	}
 
 	/* It wouldn't lead to an error if it wasn't satisfied,
@@ -726,7 +742,7 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 	 */
 	if (is_priv) {
 		r = ttls_rsa_deduce_crt(&ctx->P,  &ctx->Q,  &ctx->D, &ctx->DP,
-					&ctx->DQ, &ctx->QP);
+					&ctx->DQ, &ctx->QP, &ctx->RP, &ctx->RQ);
 		if (r)
 			return TTLS_ERR_RSA_BAD_INPUT_DATA + r;
 	}
