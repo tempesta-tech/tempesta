@@ -688,7 +688,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	}
 
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0))
-		return TFW_BLOCK;
+		return TFW_BAD;
 
 	body = TFW_STR_BODY_CH(msg);
 	resp->status = status;
@@ -765,7 +765,7 @@ do { 								\
 		if (!p) {
 			T_WARN("HTTP/2: unable to allocate memory"
 			       " for redirection url\n");
-			return TFW_BLOCK;
+			return TFW_BAD;
 		}
 		remaining = len + 1;
 	}
@@ -5788,7 +5788,7 @@ next_msg:
 	case TFW_BAD:
 		tfw_http_req_parse_drop(req, 400,
 			"Invalid authority");
-		return TFW_BLOCK;
+		return TFW_BAD;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -5877,7 +5877,7 @@ next_msg:
 	 */
 	if (!__check_authority_correctness(req)) {
 		tfw_http_req_parse_drop(req, 400, "Invalid authority");
-		return TFW_BLOCK;
+		return TFW_BAD;
 	}
 
 	/*
@@ -5900,9 +5900,9 @@ next_msg:
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_http_req_parse_block(req, 500,
-						 "Can't split pipelined requests");
-			return TFW_BLOCK;
+			tfw_http_req_parse_drop(req, 500,
+						"Can't split pipelined requests");
+			return TFW_BAD;
 		}
 	} else {
 		skb = NULL;

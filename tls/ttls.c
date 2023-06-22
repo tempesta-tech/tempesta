@@ -225,7 +225,7 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
 		}
 		n = min(skb->len - off, TTLS_ALERT_LEN - copied);
 		if (skb_copy_bits(skb, off, &io->alert[copied], n))
-			return T_BLOCK;
+			return T_BAD;
 		copied += n;
 	}
 

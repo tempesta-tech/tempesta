@@ -964,17 +964,17 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		if (!STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-			return tfw_h2_stream_close(ctx, hdr->stream_id,
-						   &ctx->cur_stream,
-						   HTTP2_ECODE_PROTO);
-		return T_OK;
+		if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+			return T_BAD;
+
+		return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
+					   HTTP2_ECODE_PROTO);
 	}
 
 	if (!ctx->cur_stream) {
 		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
 		if (!ctx->cur_stream)
-			return T_BLOCK;
+			return T_BAD;
 		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
@@ -1042,7 +1042,7 @@ fail:
 	}
 
 	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-		return T_OK;
+		return T_BAD;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   err_code);
@@ -1075,7 +1075,7 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		      " itself\n", hdr->stream_id);
 
 	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-		return T_OK;
+		return T_BAD;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   HTTP2_ECODE_PROTO);
@@ -1322,10 +1322,10 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	ctx->loc_wnd -= hdr->length;
 
 	if (stream->loc_wnd <= lset->wnd_sz / 2) {
-		if( tfw_h2_send_wnd_update(ctx, stream->id,
-					   lset->wnd_sz - stream->loc_wnd))
+		if(tfw_h2_send_wnd_update(ctx, stream->id,
+					  lset->wnd_sz - stream->loc_wnd))
 		{
-			return T_BLOCK;
+			return T_BAD;
 		}
 		stream->loc_wnd = lset->wnd_sz;
 	}
@@ -1334,7 +1334,7 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	if (ctx->loc_wnd <= MAX_WND_SIZE / 2) {
 		if (tfw_h2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
 		{
-			return T_BLOCK;
+			return T_BAD;
 		}
 		ctx->loc_wnd = MAX_WND_SIZE;
 	}
@@ -2009,7 +2009,7 @@ next_msg:
 		nskb = ss_skb_split(skb, parsed);
 		if (unlikely(!nskb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			r = T_BLOCK;
+			r = T_BAD;
 			goto out;
 		}
 	}
@@ -2059,7 +2059,7 @@ next_msg:
 		WARN_ON_ONCE(h2->skb_head != h2->skb_head->next);
 		data_up.skb = h2->skb_head;
 		if (ss_skb_chop_head_tail(NULL, data_up.skb, h2->data_off, 0)) {
-			r = T_BLOCK;
+			r = T_BAD;
 			kfree_skb(nskb);
 			goto out;
 		}

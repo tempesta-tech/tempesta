@@ -606,7 +606,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {
 		if (tfw_http_msg_grow_hdr_tbl(hm))
-			return TFW_BLOCK;
+			return TFW_BAD;
 
 		ht = hm->h_tbl;
 	}
@@ -621,7 +621,7 @@ duplicate:
 	h = tfw_str_add_duplicate(hm->pool, hdr);
 	if (unlikely(!h)) {
 		T_WARN("Cannot close header %p id=%d\n", &parser->hdr, id);
-		return TFW_BLOCK;
+		return TFW_BAD;
 	}
 
 done:
@@ -634,7 +634,7 @@ done:
 	if (TFW_RESP_TO_H2(hm)
 	    && id > TFW_HTTP_STATUS_LINE
 	    && tfw_h2_hdr_map((TfwHttpResp *)hm, hdr, id))
-		return TFW_BLOCK;
+		return TFW_BAD;
 
 	*h = parser->hdr;
 
@@ -731,7 +731,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
 	dst = tfw_strcpy_comp_ext(hm->pool, &it, hdr);
 	if (unlikely(!dst))
-		return TFW_BLOCK;
+		return TFW_BAD;
 
 	/*
 	 * Initialize the header table item by the iterator chunks.
@@ -769,10 +769,10 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	if (tfw_strcat(hm->pool, orig_hdr, &it)) {
 		T_WARN("Cannot concatenate hdr %.*s with %.*s\n",
 		       PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
-		return TFW_BLOCK;
+		return TFW_BAD;
 	}
 
-	return tfw_strcpy(append ? &it : orig_hdr, hdr) ? TFW_BLOCK : 0;
+	return tfw_strcpy(append ? &it : orig_hdr, hdr) ? TFW_BAD : 0;
 }
 
 /**
@@ -788,7 +788,7 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		if (ss_skb_cutoff_data(hm->msg.skb_head, dup, 0,
 				       tfw_str_eolen(dup)))
-			return TFW_BLOCK;
+			return TFW_BAD;
 	};
 
 	/* Delete the header from header table. */
@@ -830,14 +830,14 @@ __hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 		 */
 		if (dst->len != hdr->len
 		    && ss_skb_cutoff_data(hm->msg.skb_head, dst, hdr->len, 0))
-			return TFW_BLOCK;
+			return TFW_BAD;
 		if (tfw_strcpy(dst, hdr))
-			return TFW_BLOCK;
+			return TFW_BAD;
 		goto cleanup;
 	}
 
 	if (__hdr_expand(hm, orig_hdr, hdr, false))
-		return TFW_BLOCK;
+		return TFW_BAD;
 	dst = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
 
 cleanup:
@@ -845,7 +845,7 @@ cleanup:
 		if (tmp != dst
 		    && ss_skb_cutoff_data(hm->msg.skb_head, tmp, 0,
 					  tfw_str_eolen(tmp)))
-			return TFW_BLOCK;
+			return TFW_BAD;
 	}
 
 	*orig_hdr = *dst;
