@@ -26,6 +26,7 @@
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 #include <fw/token_tables.h>
+#include <fw/token_mask.h>
 
 #define CASE	0x2020202020202020
 
@@ -101,53 +102,13 @@ __C:
 	 */
 	.quad	0xa1a1a1a1a1a1a1a1, 0xa1a1a1a1a1a1a1a1
 	.quad	0xa1a1a1a1a1a1a1a1, 0xa1a1a1a1a1a1a1a1
-	/*
-	 * URI-accepted characters, in little endian.
-	 *
-	 * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-	 * !#$%&'*+-._();:@=,/?[]~0123456789
-	 */
-	.quad	0xfcfcfcfcfcf8fcb8, 0x7cd47c547cfcfcfc
-	.quad	0xfcfcfcfcfcf8fcb8, 0x7cd47c547cfcfcfc
-	/*
-	 * Token: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-	 *	  !#$%&'*+-.^_`|~0123456789
-	 */
-	.quad	0xfcfcfcfcfcf8fce8, 0x70f454d054f4f8f8
-	.quad	0xfcfcfcfcfcf8fce8, 0x70f454d054f4f8f8
-	/*
-	 * Token with DQUOTE and "=".
-	 */
-	.quad	0xfcfcfcfcfcfcfce8, 0x70f45cd054f4f8f8
-	.quad	0xfcfcfcfcfcfcfce8, 0x70f45cd054f4f8f8
-	/*
-	 * RFC 7230, Appendix B; RFC 5234, Appendix B.1.:
-	 *
-	 * 	field-value OWS = VCHAR SP HTAB = %x9 %x20-7E
-	 *
-	 * , i.e. non-control characters.
-	 */
-	.quad	0xfcfcfcfcfcfcfcfc, 0x7cfcfcfcfcfcfdfc
-	.quad	0xfcfcfcfcfcfcfcfc, 0x7cfcfcfcfcfcfdfc
-	/*
-	 * Alphabet for X-Forwarded-For Node ID (RFC 7239):
-	 *
-	 *	ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-	 *	0123456789._-[]:
-	 */
-	.quad	0xf8f8f8f8f8f8f8a8, 0x7054745070f8f8f8
-	.quad	0xf8f8f8f8f8f8f8a8, 0x7054745070f8f8f8
-	/*
-	 * Cookie-octet w/ DQUOTE: %x21 %x22-2B %x2D-3A %x3C-5B %x5D-7E
-	 */
-	.quad	0xfcfcfcfcfcfcfcf8, 0x7cfcfcd8f4fcfcfc
-	.quad	0xfcfcfcfcfcfcfcf8, 0x7cfcfcd8f4fcfcfc
-	/*
-	 * Token, lower-case only: abcdefghijklmnopqrstuvwxyz
-	 *	  !#$%&'*+-.^_`|~0123456789
-	 */
-	.quad	0xccccccccccc8ccc8, 0x60e444c044c4c8c8
-	.quad	0xccccccccccc8ccc8, 0x60e444c044c4c8c8
+	__CALC_TOKEN_MASK(TOKEN_SYM_URI)
+	__CALC_TOKEN_MASK(TOKEN_SYM_TOKEN)
+	__CALC_TOKEN_MASK(TOKEN_SYM_QETOKEN)
+	__CALC_TOKEN_MASK(TOKEN_SYM_NCTL)
+	__CALC_TOKEN_MASK(TOKEN_SYM_XFF)
+	__CALC_TOKEN_MASK(TOKEN_SYM_COOKIE)
+	__CALC_TOKEN_MASK(TOKEN_SYM_TOKEN_LC)
 
 /* Helping vector data referenced by value. */
 #define __A			__C(%rip)
