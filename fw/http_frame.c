@@ -1283,12 +1283,8 @@ tfw_h2_first_settings_verify(TfwH2Ctx *ctx)
 }
 
 static inline int
-tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
+tfw_h2_stream_id_verify(unsigned stream_id, unsigned lstream_id)
 {
-	TfwFrameHdr *hdr = &ctx->hdr;
-
-	if (ctx->cur_stream)
-		return T_OK;
 	/*
 	 * If stream ID is not greater than last processed ID, there may be
 	 * two reasons for that:
@@ -1308,17 +1304,17 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	 * right away), streams in these states are temporary stored in special
 	 * queue @TfwStreamQueue.
 	 */
-	if (ctx->lstream_id >= hdr->stream_id) {
+	if (lstream_id >= stream_id) {
 		T_DBG("Invalid ID of new stream: %u stream is"
 		      " closed and removed, %u last initiated\n",
-		      hdr->stream_id, ctx->lstream_id);
+		      stream_id, lstream_id);
 		return T_DROP;
 	}
 	/*
 	 * Streams initiated by client must use odd-numbered
 	 * identifiers (see RFC 7540 section 5.1.1 for details).
 	 */
-	if (!(hdr->stream_id & 0x1)) {
+	if (!(stream_id & 0x1)) {
 		T_DBG("Invalid ID of new stream: initiated by"
 		      " server\n");
 		return T_DROP;
@@ -1482,7 +1478,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		if (tfw_h2_stream_id_verify(ctx)) {
+		if (tfw_h2_stream_id_verify(hdr->stream_id, ctx->lstream_id)) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
