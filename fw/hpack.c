@@ -325,7 +325,7 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 	const TfwStr *c, *end;
 	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *hdr = &it->hdr, *next = it->next;
-	int ret = T_BAD;
+	int ret = -EINVAL;
 
 	WARN_ON_ONCE(next != hdr);
 	TFW_STR_FOR_EACH_CHUNK(c, next, end) {
@@ -336,7 +336,7 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 		if (unlikely(ret < T_POSTPONE))
 			return ret;
 	}
-	return ret ? T_BLOCK : T_OK;
+	return ret;
 }
 
 static inline int
@@ -345,7 +345,7 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 	const TfwStr *chunk, *end;
 	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *hdr = &it->hdr, *next = it->next;
-	int ret = T_BAD;
+	int ret = -EINVAL;
 
 	BUG_ON(TFW_STR_DUP(hdr));
 	if (TFW_STR_PLAIN(hdr)) {
@@ -374,7 +374,7 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 			return ret;
 		++chunk;
 	}
-	return ret ? T_BLOCK : T_OK;
+	return ret;
 }
 
 #define	HPACK_DECODE_PROCESS_STRING(field, len)			\
@@ -1174,13 +1174,13 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		return -EINVAL;
 
 	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
-		return T_BAD;
+		return -ENOMEM;
 
 	d_hdr->len = sz;
 	d_hdr->nchunks = num;
 	d_hdr->flags = s_hdr->flags;
 	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, num * sizeof(TfwStr))))
-		return T_BAD;
+		return -ENOMEM;
 
 	/*
 	 * Since headers in static table cannot be changed, we need to copy only
@@ -1204,7 +1204,7 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 done:
 	it->tag = entry->tag;
 
-	return T_OK;
+	return 0;
 }
 
 static int
@@ -1247,11 +1247,11 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	 * headers (also, see comment above).
 	 */
 	if (!(data = tfw_pool_alloc_not_align(it->pool, s_hdr->len)))
-		return T_BAD;
+		return -ENOMEM;
 
 	d_size = s_hdr->nchunks * sizeof(TfwStr);
 	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, d_size)))
-		return T_BAD;
+		return -ENOMEM;
 
 	d_hdr->len = s_hdr->len;
 	d_hdr->flags = s_hdr->flags;

@@ -687,8 +687,8 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 		msg->len += SLEN(S_CRLF S_F_CONNECTION) + SLEN(S_V_CONN_KA);
 	}
 
-	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0))
-		return T_BLOCK;
+	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0)))
+		return r;
 
 	body = TFW_STR_BODY_CH(msg);
 	resp->status = status;
@@ -754,7 +754,7 @@ do { 								\
 	tfw_http_prep_date(date_val);
 	cl_len = tfw_ultoa(body_len, cl_val, RESP_BUF_LEN - SLEN(S_V_DATE));
 	if (!cl_len)
-		return T_BLOCK;
+		return -E2BIG;
 
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
 	len = req->host.len + req->uri_path.len + body_len;
@@ -765,7 +765,7 @@ do { 								\
 		if (!p) {
 			T_WARN("HTTP/2: unable to allocate memory"
 			       " for redirection url\n");
-			return T_BLOCK;
+			return -ENOMEM;
 		}
 		remaining = len + 1;
 	}
@@ -5788,7 +5788,7 @@ next_msg:
 	case T_BAD:
 		tfw_http_req_parse_drop(req, 400,
 			"Invalid authority");
-		return T_BLOCK;
+		return T_BAD;
 	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -5877,7 +5877,7 @@ next_msg:
 	 */
 	if (!__check_authority_correctness(req)) {
 		tfw_http_req_parse_drop(req, 400, "Invalid authority");
-		return T_BLOCK;
+		return T_BAD;
 	}
 
 	/*
@@ -5900,9 +5900,9 @@ next_msg:
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_http_req_parse_block(req, 500,
-						 "Can't split pipelined requests");
-			return T_BLOCK;
+			tfw_http_req_parse_drop(req, 500,
+						"Can't split pipelined requests");
+			return T_BAD;
 		}
 	} else {
 		skb = NULL;

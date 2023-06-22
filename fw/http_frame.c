@@ -964,17 +964,17 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		if (!STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-			return tfw_h2_stream_close(ctx, hdr->stream_id,
-						   &ctx->cur_stream,
-						   HTTP2_ECODE_PROTO);
-		return T_OK;
+		if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+			return T_BAD;
+
+		return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
+					   HTTP2_ECODE_PROTO);
 	}
 
 	if (!ctx->cur_stream) {
 		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
 		if (!ctx->cur_stream)
-			return T_BLOCK;
+			return -ENOMEM;
 		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
@@ -1002,7 +1002,7 @@ tfw_h2_increment_wnd_sz(long int *window, unsigned int wnd_incr)
 	 * is sent.
 	 */
 	if (new_window > MAX_WND_SIZE)
-		return T_BLOCK;
+		return -EINVAL;
 	*window = new_window;
 	return 0;
 }
@@ -1042,7 +1042,7 @@ fail:
 	}
 
 	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-		return T_OK;
+		return T_BAD;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   err_code);
@@ -1075,7 +1075,7 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		      " itself\n", hdr->stream_id);
 
 	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-		return T_OK;
+		return T_BAD;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   HTTP2_ECODE_PROTO);
@@ -1129,7 +1129,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
 		if (val > 1)
-			return T_BAD;
+			return -EINVAL;
 		dest->push = val;
 		break;
 
@@ -1139,7 +1139,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
 		if (val > MAX_WND_SIZE)
-			return T_BAD;
+			return -EINVAL;
 
 		delta = dest->wnd_sz - val;
 		tfw_h2_apply_wnd_sz_change(ctx, delta);
@@ -1148,7 +1148,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
 		if (val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH)
-			return T_BAD;
+			return -EINVAL;
 		dest->max_frame_sz = val;
 		break;
 
@@ -1161,10 +1161,10 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		 * We should silently ignore unknown identifiers (see
 		 * RFC 7540 section 6.5.2)
 		 */
-		return T_OK;
+		return 0;
 	}
 
-	return T_OK;
+	return 0;
 }
 
 static void
@@ -1182,19 +1182,20 @@ tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
 static int
 tfw_h2_settings_process(TfwH2Ctx *ctx)
 {
+	int r;
 	TfwFrameHdr *hdr = &ctx->hdr;
 	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
 	unsigned int val = ntohl(*(unsigned int *)&ctx->rbuf[2]);
 
 	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
 
-	if (tfw_h2_apply_settings_entry(ctx, id, val))
-		return T_BAD;
+	if ((r = tfw_h2_apply_settings_entry(ctx, id, val)))
+		return r;
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
 
-	return T_OK;
+	return 0;
 }
 
 static int
@@ -1223,7 +1224,7 @@ tfw_h2_goaway_process(TfwH2Ctx *ctx)
 		      " %u, ID of last processed stream: %u\n", err_code,
 		      last_id);
 	SET_TO_READ(ctx);
-	return T_OK;
+	return 0;
 }
 
 static inline int
@@ -1248,13 +1249,13 @@ tfw_h2_first_settings_verify(TfwH2Ctx *ctx)
 
 	if (err_code) {
 		tfw_h2_conn_terminate(ctx, err_code);
-		return T_BLOCK;
+		return -EINVAL;
 	}
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
 
-	return T_OK;
+	return 0;
 }
 
 static inline int
@@ -1263,7 +1264,7 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	TfwFrameHdr *hdr = &ctx->hdr;
 
 	if (ctx->cur_stream)
-		return T_OK;
+		return 0;
 	/*
 	 * If stream ID is not greater than last processed ID, there may be
 	 * two reasons for that:
@@ -1287,7 +1288,7 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 		T_DBG("Invalid ID of new stream: %u stream is"
 		      " closed and removed, %u last initiated\n",
 		      hdr->stream_id, ctx->lstream_id);
-		return T_BLOCK;
+		return -EINVAL;
 	}
 	/*
 	 * Streams initiated by client must use odd-numbered
@@ -1296,15 +1297,16 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	if (!(hdr->stream_id & 0x1)) {
 		T_DBG("Invalid ID of new stream: initiated by"
 		      " server\n");
-		return T_BLOCK;
+		return -EINVAL;
 	}
 
-	return T_OK;
+	return 0;
 }
 
 static inline int
 tfw_h2_flow_control(TfwH2Ctx *ctx)
 {
+	int r;
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwStream *stream = ctx->cur_stream;
 	TfwSettings *lset = &ctx->lsettings;
@@ -1322,24 +1324,25 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	ctx->loc_wnd -= hdr->length;
 
 	if (stream->loc_wnd <= lset->wnd_sz / 2) {
-		if( tfw_h2_send_wnd_update(ctx, stream->id,
-					   lset->wnd_sz - stream->loc_wnd))
+		if((r = tfw_h2_send_wnd_update(ctx, stream->id,
+					       lset->wnd_sz - stream->loc_wnd)))
 		{
-			return T_BLOCK;
+			return r;
 		}
 		stream->loc_wnd = lset->wnd_sz;
 	}
 
 
 	if (ctx->loc_wnd <= MAX_WND_SIZE / 2) {
-		if (tfw_h2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
+		if ((r = tfw_h2_send_wnd_update(ctx, 0,
+						MAX_WND_SIZE - ctx->loc_wnd)))
 		{
-			return T_BLOCK;
+			return r;
 		}
 		ctx->loc_wnd = MAX_WND_SIZE;
 	}
 
-	return T_OK;
+	return 0;
 }
 
 static int
@@ -1355,7 +1358,7 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	if (!hdr->length) {
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		ctx->to_read = 0;
-		return T_OK;
+		return 0;
 	}
 
 	switch (hdr->type) {
@@ -1376,7 +1379,7 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 
 	SET_TO_READ(ctx);
 
-	return T_OK;
+	return 0;
 }
 
 /*
@@ -1393,6 +1396,7 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 static int
 tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 {
+	int r;
 	TfwH2Err err_code = HTTP2_ECODE_SIZE;
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFrameType hdr_type =
@@ -1439,8 +1443,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		if (tfw_h2_flow_control(ctx))
-			return T_BLOCK;
+		if ((r = tfw_h2_flow_control(ctx)))
+			return r;
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
@@ -1449,7 +1453,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			return tfw_h2_recv_padded(ctx);
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
-		return T_OK;
+		return 0;
 
 	case HTTP2_HEADERS:
 		if (!hdr->stream_id) {
@@ -1493,7 +1497,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			return tfw_h2_recv_priority(ctx);
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
-		return T_OK;
+		return 0;
 
 	case HTTP2_PRIORITY:
 		if (!hdr->stream_id) {
@@ -1519,7 +1523,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		}
 		SET_TO_READ(ctx);
-		return T_OK;
+		return 0;
 
 	case HTTP2_WINDOW_UPDATE:
 		if (hdr->length != FRAME_WND_UPDATE_SIZE)
@@ -1560,7 +1564,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		SET_TO_READ(ctx);
-		return T_OK;
+		return 0;
 
 	case HTTP2_SETTINGS:
 		if (hdr->stream_id) {
@@ -1589,7 +1593,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			ctx->to_read = 0;
 		}
 
-		return T_OK;
+		return 0;
 
 	case HTTP2_PUSH_PROMISE:
 		/* Client cannot push (RFC 7540 section 8.2). */
@@ -1606,7 +1610,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_RECV_FRAME_PING;
 		SET_TO_READ(ctx);
-		return T_OK;
+		return 0;
 
 	case HTTP2_RST_STREAM:
 		if (!hdr->stream_id)
@@ -1645,7 +1649,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		SET_TO_READ(ctx);
-		return T_OK;
+		return 0;
 
 	case HTTP2_GOAWAY:
 		if (hdr->stream_id) {
@@ -1658,7 +1662,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		ctx->state = HTTP2_RECV_FRAME_GOAWAY;
 		ctx->to_read = FRAME_GOAWAY_SIZE;
 		hdr->length -= ctx->to_read;
-		return T_OK;
+		return 0;
 
 	case HTTP2_CONTINUATION:
 		if (!hdr->stream_id) {
@@ -1685,7 +1689,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		ctx->plen = ctx->hdr.length;
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
-		return T_OK;
+		return 0;
 
 	default:
 		/*
@@ -1696,13 +1700,13 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		      hdr_type);
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		SET_TO_READ(ctx);
-		return T_OK;
+		return 0;
 	}
 
 conn_term:
 	BUG_ON(!err_code);
 	tfw_h2_conn_terminate(ctx, err_code);
-	return T_BLOCK;
+	return -EINVAL;
 }
 
 /**
@@ -2009,7 +2013,7 @@ next_msg:
 		nskb = ss_skb_split(skb, parsed);
 		if (unlikely(!nskb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			r = T_BLOCK;
+			r = -ENOMEM;
 			goto out;
 		}
 	}
@@ -2058,8 +2062,8 @@ next_msg:
 		 */
 		WARN_ON_ONCE(h2->skb_head != h2->skb_head->next);
 		data_up.skb = h2->skb_head;
-		if (ss_skb_chop_head_tail(NULL, data_up.skb, h2->data_off, 0)) {
-			r = T_BLOCK;
+		if ((r = ss_skb_chop_head_tail(NULL, data_up.skb,
+					       h2->data_off, 0))) {
 			kfree_skb(nskb);
 			goto out;
 		}
