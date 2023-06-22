@@ -289,25 +289,13 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		if (type == HTTP2_PRIORITY)
 			break;
 
-		/* At this point we're likely being in a "half-closed (remote)" state
-		 * with response being sent to the client. This means that we need
-		 * to apply following RFC 9113 rules (sec 5.1)
-		 * 
-		 * If an endpoint receives additional frames, other than
-		 * WINDOW_UPDATE, PRIORITY, or RST_STREAM, for a stream that is
-		 * in this state, it MUST respond with a stream error (Section 5.4.2)
-		 * of type STREAM_CLOSED. */
-		if (!send) {
-			switch (type) {
-			case HTTP2_WINDOW_UPDATE:
-			case HTTP2_RST_STREAM:
-				res = STREAM_FSM_RES_IGNORE;
-				break;
-			default:
-				res = STREAM_FSM_RES_TERM_CONN;
-				*err = HTTP2_ECODE_CLOSED;
-			}
+		if (type == HTTP2_CONTINUATION) {
+			*err = HTTP2_ECODE_PROTO;
+			res = STREAM_FSM_RES_TERM_CONN;
+			break;
 		}
+
+		res = STREAM_FSM_RES_IGNORE;
 
 		break;
 
