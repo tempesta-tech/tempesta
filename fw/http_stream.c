@@ -289,21 +289,37 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		if (type == HTTP2_PRIORITY)
 			break;
 
-		/* At this point we're likely being in a "half-closed (remote)" state
-		 * with response being sent to the client. This means that we need
-		 * to apply following RFC 9113 rules (sec 5.1)
-		 * 
-		 * If an endpoint receives additional frames, other than
-		 * WINDOW_UPDATE, PRIORITY, or RST_STREAM, for a stream that is
-		 * in this state, it MUST respond with a stream error (Section 5.4.2)
-		 * of type STREAM_CLOSED. */
 		if (!send) {
 			switch (type) {
 			case HTTP2_WINDOW_UPDATE:
 			case HTTP2_RST_STREAM:
 				res = STREAM_FSM_RES_IGNORE;
 				break;
+			case HTTP2_HEADERS:
+			case HTTP2_PUSH_PROMISE:
+				/* RFC 9113, sec 5.1.1:
+				 *
+				 * The identifier of a newly established stream MUST be
+				 * numerically greater than all streams that the initiating
+				 * endpoint has opened or reserved. This governs streams that
+				 * are opened using a HEADERS frame and streams that are
+				 * reserved using PUSH_PROMISE. An endpoint that receives an
+				 * unexpected stream identifier MUST respond with a connection
+				 * error (Section 5.4.1) of type PROTOCOL_ERROR.
+				 */
+				res = STREAM_FSM_RES_TERM_CONN;
+				*err = HTTP2_ECODE_PROTO;
+				break;
 			default:
+				/* At this point we're likely being in a "half-closed (remote)"
+				 * state with response being sent to the client. This means
+				 * that we need to apply RFC 9113 rule from sec 5.1:
+				 *
+				 * If an endpoint receives additional frames, other than
+				 * WINDOW_UPDATE, PRIORITY, or RST_STREAM, for a stream that is
+				 * in this state, it MUST respond with a stream error
+				 * (Section 5.4.2) of type STREAM_CLOSED.
+				 */
 				res = STREAM_FSM_RES_TERM_CONN;
 				*err = HTTP2_ECODE_CLOSED;
 			}
