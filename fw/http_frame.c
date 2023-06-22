@@ -1482,12 +1482,12 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-						     hdr->stream_id);
 		if (tfw_h2_stream_id_verify(ctx)) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
+						     hdr->stream_id);
 		/*
 		 * Endpoints must not exceed the limit set by their peer for
 		 * maximum number of concurrent streams (see RFC 7540 section
