@@ -583,8 +583,7 @@ struct tfw_http_resp_t {
 };
 
 /**
- * Represents the data that should be cleaned up after HTTP1 -> HTTP2 response
- * transformation.
+ * Represents the data that should be cleaned up after message transformation.
  *
  * @skb_head	- head of skb list that must be freed;
  * @pages	- pages that must be freed;
@@ -594,7 +593,7 @@ typedef struct {
 	struct sk_buff *skb_head;
 	struct page *pages[MAX_SKB_FRAGS];
 	unsigned char pages_sz;
-} TfwHttpRespCleanup;
+} TfwHttpMsgCleanup;
 
 #define TFW_HDR_MAP_INIT_CNT		32
 #define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
@@ -731,6 +730,7 @@ int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
+int tfw_http_expand_hdr_server(TfwHttpResp *resp);
 void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
 int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache);
