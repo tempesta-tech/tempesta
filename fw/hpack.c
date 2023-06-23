@@ -1877,8 +1877,7 @@ tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 	unsigned int state;
 	int r = T_OK;
 	TfwStr exp_str = {};
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
+	TfwMsgIter *it = &resp->iter;
 	const unsigned char *last = src + n;
 	unsigned char *prev = src;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
@@ -3391,7 +3390,7 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 		    bool use_pool)
 {
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &mit->iter;
+	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	const TfwStr s_idx = {
 		.data = idx->buf,
@@ -3403,7 +3402,8 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 	       s_idx.data);
 
 	if (use_pool)
-		return tfw_http_msg_expand_from_pool(resp, &s_idx);
+		return tfw_h2_msg_expand_from_pool((TfwHttpMsg *)resp,
+						   &s_idx, &resp->mit);
 
 	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
 					&mit->start_off);
@@ -3421,6 +3421,7 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict h_name,
 	int r;
 	TfwHPackInt vlen;
 	TfwStr s_vlen = {};
+	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
 
 	r = tfw_hpack_write_idx(resp, idx, true);
 	if (unlikely(r))
@@ -3434,14 +3435,16 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict h_name,
 		s_nlen.data = nlen.buf;
 		s_nlen.len = nlen.sz;
 
-		r = tfw_http_msg_expand_from_pool(resp, &s_nlen);
+		r = tfw_h2_msg_expand_from_pool(msg, &s_nlen, &resp->mit);
 		if (unlikely(r))
 			return r;
 
 		if (trans)
-			r = tfw_http_msg_expand_from_pool_lc(resp, h_name);
+			r = tfw_h2_msg_expand_from_pool_lc(msg, h_name,
+							   &resp->mit);
 		else
-			r = tfw_http_msg_expand_from_pool(resp, h_name);
+			r = tfw_h2_msg_expand_from_pool(msg, h_name,
+							&resp->mit);
 		if (unlikely(r))
 			return r;
 	}
@@ -3450,12 +3453,12 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict h_name,
 	s_vlen.data = vlen.buf;
 	s_vlen.len = vlen.sz;
 
-	r = tfw_http_msg_expand_from_pool(resp, &s_vlen);
+	r = tfw_h2_msg_expand_from_pool(msg, &s_vlen, &resp->mit);
 	if (unlikely(r))
 		return r;
 
 	if (!TFW_STR_EMPTY(h_val))
-		r = tfw_http_msg_expand_from_pool(resp, h_val);
+		r = tfw_h2_msg_expand_from_pool(msg, h_val, &resp->mit);
 
 	return r;
 }
@@ -3471,7 +3474,7 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	int ret;
 	TfwStr *c, *end;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &mit->iter;
+	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	TfwStr s_val;
 

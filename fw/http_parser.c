@@ -1429,6 +1429,7 @@ do {									\
 	}								\
 	if (c == '\n') {						\
 		if (!msg->crlf.data) {					\
+			mark_spec_hbh(msg);				\
 			/*						\
 			 * Set data and length explicitly for a single	\
 			 * LF w/o calling complex __msg_field_fixup().	\
@@ -4948,9 +4949,10 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 	 * - raw:
 	 *     none;
 	 * - spec:
-	 *     Connection: RFC 7230 6.1.
+	 *     Connection, Keep-alive: RFC 9110 7.6.1.
 	 */
-	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION |
+			 0x1 << TFW_HTTP_HDR_KEEP_ALIVE;
 }
 
 /**
@@ -11892,12 +11894,13 @@ tfw_http_init_parser_resp(TfwHttpResp *resp)
 	 * - raw:
 	 *     none;
 	 * - spec:
-	 *     Connection: RFC 7230 6.1.
+	 *     Connection, Keep-alive: RFC 9110 7.6.1.
 	 *     Server: Server header isn't defined as hop-by-hop by the RFC,
 	 *	       but we don't show protected server to world.
 	 */
-	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
-			 (0x1 << TFW_HTTP_HDR_SERVER);
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION |
+			 0x1 << TFW_HTTP_HDR_KEEP_ALIVE |
+			 0x1 << TFW_HTTP_HDR_SERVER;
 }
 
 /**
