@@ -352,6 +352,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 		.eolen = 2,
 		.nchunks = 3
 	};
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
 
 	/* See comment from tfw_http_sticky_build_redirect(). */
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
@@ -367,21 +368,24 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	else if (cache) {
 		TfwHttpTransIter *mit = &resp->mit;
 		struct sk_buff **skb_head = &resp->msg.skb_head;
-		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 		r = tfw_http_msg_expand_data(&mit->iter, skb_head,
 					     &set_cookie, NULL);
-		if (!r)
-			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
-						     &crlf, NULL);
-	}
-	else {
-		r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
+		if (unlikely(r))
+			goto err;
+		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &crlf, NULL);
+	} else {
+		r = tfw_http_msg_expand_from_pool(resp, &set_cookie);
+		if (unlikely(r))
+			goto err;
+		r = tfw_http_msg_expand_from_pool(resp, &crlf);
 	}
 
-	if (unlikely(r))
-		T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
-		       PR_TFW_STR(&sticky->name), len, buf);
+	return 0;
+
+err:
+	T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
+	       PR_TFW_STR(&sticky->name), len, buf);
 
 	return r;
 }
