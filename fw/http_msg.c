@@ -1098,89 +1098,6 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 	return 0;
 }
 
-void
-tfw_http_msg_del_trailer_hdrs(TfwHttpMsg *hm)
-{
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
-	TfwStr *field, *dup, *dup_end;
-	unsigned int id;
-	bool was_deleted;
-
-	do {
-		hid--;
-		field = &ht->tbl[hid];
-
-		if (TFW_STR_EMPTY(field))
-			continue;
-		was_deleted = true;
-		id = 0;
-		TFW_STR_FOR_EACH_DUP_INIT(dup, field, dup_end);
-
-		/*
-		 * Iterate over all headers with the same hid and
-		 * delete trailers. For example if header is present
-		 * both in headers and trailers delete only trailer
-		 * part.
-		 */
-		while (dup < dup_end) {
-			if (dup->flags & TFW_STR_TRAILER) {
-				if (TFW_STR_DUP(field) && field->nchunks > 1) {
-					unsigned int cn = field->nchunks;
-
-					field->nchunks--;
-					memmove(field->chunks + id,
-						field->chunks + id + 1,
-						(cn - id - 1) * sizeof(TfwStr));
-
-					dup_end = field->chunks + field->nchunks;
-					continue;
-				} else {
-					TFW_STR_INIT(dup);
-				}
-			} else {
-				was_deleted = false;
-			}
-			dup++;
-			id++;
-		}
-
-		/*
-		 * If there are only trailer headers with this hid, remove it
-		 * from the table.
-		 */
-		if (was_deleted)
-			__hdr_del_from_tbl(ht, hid);
-	} while (hid);
-}
-
-/**
- * Remove hop-by-hop headers in the message
- *
- * Connection header should not be removed, tfw_http_set_hdr_connection()
- * optimize removal of the header.
- */
-int
-tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
-{
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
-	int r = 0;
-
-	do {
-		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION
-		    && !(ht->tbl[hid].flags & TFW_STR_TRAILER))
-			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR
-		    || ht->tbl[hid].flags & TFW_STR_TRAILER_HDR)
-			if ((r = __hdr_del(hm, hid)))
-				return r;
-	} while (hid);
-
-	return 0;
-}
-
 /**
  * Remove flagged data and EOL from skb of TfwHttpMsg->body.
  *
@@ -1201,30 +1118,6 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 	TFW_STR_INIT(&resp->body);
 
 	return 0;
-}
-
-/**
- * Add a header, probably duplicated, without any checking of current headers.
- * In case of response transformation from HTTP/1.1 to HTTP/2, for optimization
- * purposes, we use special handling for headers adding (see note for
- * @tfw_http_msg_hdr_xfrm_str() for details).
- */
-int
-tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
-{
-	unsigned int hid;
-	TfwHttpHdrTbl *ht;
-
-	ht = hm->h_tbl;
-	hid = ht->off;
-	if (hid == ht->size) {
-		if (tfw_http_msg_grow_hdr_tbl(hm))
-			return -ENOMEM;
-		ht = hm->h_tbl;
-	}
-	++ht->off;
-
-	return __hdr_add(hm, hdr, hid);
 }
 
 /**
@@ -1522,33 +1415,31 @@ this_chunk:
 	return 0;
 }
 
-static int
-tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
+static char *
+tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
 {
 	int r;
 	bool np;
 	char* addr;
-	TfwMsgIter *it = &mit->iter;
 	struct skb_shared_info *si = skb_shinfo(it->skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
-		return -ENOMEM;
+		return NULL;
 
 	if (np || it->frag == -1) {
 		it->frag++;
 		r = ss_skb_add_frag(it->skb_head, &it->skb, addr,
 				    &it->frag, size);
 		if (unlikely(r))
-			return r;
+			return NULL;
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
 
 	ss_skb_adjust_data_len(it->skb, size);
-	mit->curr_ptr = addr;
 
-	return 0;
+	return addr;
 }
 
 /**
@@ -1561,12 +1452,12 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
  * data, which will split the paged fragment.
  */
 int
-tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
+tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
+				  TfwPool* pool)
 {
 	int r;
 	char* addr;
 	bool np;
-	TfwMsgIter *it = &mit->iter;
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
@@ -1600,7 +1491,7 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 static inline int
 __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 {
-	TfwMsgIter *it = &resp->mit.iter;
+	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **body;
 	int r, frag;
 	char *p;
@@ -1669,15 +1560,16 @@ tfw_http_msg_linear_transform(TfwMsgIter *it)
  * update pointer to the body skb.
  */
 static int
-__tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
+__tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+				unsigned int *copied,
 				void cpy(void *dest, const void *src, size_t n))
 {
-	const TfwStr *c, *end;
-	unsigned int room, skb_room, n_copy, rlen, off;
 	int r;
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
-	TfwPool* pool = resp->pool;
+	char *addr;
+	const TfwStr *c, *end;
+	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
+	TfwMsgIter *it = &hm->iter;
+	TfwPool* pool = hm->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
@@ -1707,11 +1599,12 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
+				TfwHttpResp *resp = (TfwHttpResp *)hm;
 
 				if (!nskb)
 					return -ENOMEM;
 
-				if (resp->body.len > 0) {
+				if (hm->body.len > 0) {
 					r = __tfw_http_msg_move_body(resp,
 								     nskb);
 					if (unlikely(r)) {
@@ -1738,38 +1631,60 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 			n_copy = min(n_copy, skb_room);
 
-			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy);
-			if (unlikely(r))
-				return r;
+			addr = tfw_http_msg_alloc_from_pool(it, pool, n_copy);
+			if (unlikely(!addr))
+				return -ENOMEM;
 
-			cpy(mit->curr_ptr, c->data + off, n_copy);
+			cpy(addr, c->data + off, n_copy);
 			rlen -= n_copy;
-			mit->acc_len += n_copy;
+			acc += n_copy;
 
-			T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr=%pK",
-			       __func__, mit->acc_len,
-			       n_copy, mit->curr_ptr);
+			T_DBG3("%s: n_copy=%u",  __func__, n_copy);
 		}
 	}
+
+	*copied = acc;
 
 	return 0;
 }
 
 int
-tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str)
+tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast);
+	unsigned int n;
+
+	return __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
+tfw_h2_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+			    TfwHttpTransIter *mit)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower);
+	int r;
+	unsigned int n = 0;
+
+	r = __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
+	mit->acc_len += n;
+
+	return r;
+}
+
+int
+tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
+			       TfwHttpTransIter *mit)
+{
+	int r;
+	unsigned int n = 0;
+
+	r = __tfw_http_msg_expand_from_pool(hm, str, &n, tfw_cstrtolower);
+	mit->acc_len += n;
+
+	return r;
 }
 
 static inline void
-__tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
-			TfwHttpRespCleanup *cleanup)
+__tfw_http_msg_move_frags(struct sk_buff *skb, int frag_idx,
+			  TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct page *page;
@@ -1789,7 +1704,7 @@ __tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
 }
 
 static inline void
-__tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
+__tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct page *page;
@@ -1807,7 +1722,7 @@ __tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
 }
 
 static inline void
-__tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
+__tfw_http_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
 {
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
 	const int len = nbegin - (char*)skb_frag_address(frag);
@@ -1819,19 +1734,19 @@ __tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
 }
 
 /*
- * Delete SKBs and paged fragments related to @resp that contains response
+ * Delete SKBs and paged fragments related to @hm that contains message
  * headers. SKBs and fragments will be "unlinked" and placed to @cleanup.
  * At this point we can't free SKBs, because data that they contain used
  * as source for message trasformation.
  */
 int
-tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
+tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 {
 	int i, r = 0;
 	char *begin, *end;
-	TfwMsgIter *it = &resp->mit.iter;
-	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
-	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
+	TfwMsgIter *it = &hm->iter;
+	char* body = TFW_STR_CHUNK(&hm->body, 0)->data;
+	TfwStr *crlf = TFW_STR_LAST(&hm->crlf);
 	char *off = body ? body : crlf->data + (crlf->len - 1);
 
 	do {
@@ -1871,14 +1786,14 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			 * fragments from skb where LF is located.
 			 */
 			if (!body) {
-				__tfw_h2_msg_rm_all_frags(it->skb, cleanup);
+				__tfw_http_msg_rm_all_frags(it->skb, cleanup);
 				goto end;
 			} else if (off != begin) {
 				/*
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
-				__tfw_h2_msg_shrink_frag(it->skb, i, off);
+				__tfw_http_msg_shrink_frag(it->skb, i, off);
 			}
 
 			/*
@@ -1887,7 +1802,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			 * from skb.
 			 */
 			if (i >= 1)
-				__tfw_h2_msg_move_frags(it->skb, i, cleanup);
+				__tfw_http_msg_move_frags(it->skb, i, cleanup);
 
 			goto end;
 		}
@@ -1903,7 +1818,7 @@ end:
 	BUG_ON(!r && (!it->skb_head || !it->skb));
 
 	it->skb_head = it->skb;
-	resp->msg.skb_head = it->skb;
+	hm->msg.skb_head = it->skb;
 
 	/* Start from zero fragment */
 	it->frag = -1;

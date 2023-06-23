@@ -337,6 +337,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	bool to_h2 = TFW_MSG_H2(resp->req);
 	char *name = to_h2 ? S_SET_COOKIE : S_F_SET_COOKIE;
 	unsigned int nm_len = to_h2 ? SLEN(S_SET_COOKIE) : SLEN(S_F_SET_COOKIE);
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	TfwStickyCookie *sticky = resp->req->vhost->cookie;
@@ -352,6 +353,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 		.eolen = 2,
 		.nchunks = 3
 	};
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
 
 	/* See comment from tfw_http_sticky_build_redirect(). */
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
@@ -363,25 +365,30 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	if (to_h2) {
 		set_cookie.hpack_idx = 55;
 		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache);
-	}
-	else if (cache) {
-		TfwHttpTransIter *mit = &resp->mit;
+	} else if (cache) {
+		TfwMsgIter *it = &resp->iter;
 		struct sk_buff **skb_head = &resp->msg.skb_head;
-		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head,
-					     &set_cookie, NULL);
-		if (!r)
-			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
-						     &crlf, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &set_cookie, NULL);
+		if (unlikely(r))
+			goto err;
+		r = tfw_http_msg_expand_data(it, skb_head, &crlf, NULL);
 	}
 	else {
-		r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
+		r = tfw_http_msg_expand_from_pool(hm, &set_cookie);
+		if (unlikely(r))
+			goto err;
+		r = tfw_http_msg_expand_from_pool(hm, &crlf);
 	}
 
 	if (unlikely(r))
-		T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
-		       PR_TFW_STR(&sticky->name), len, buf);
+		goto err;
+
+	return 0;
+
+err:
+	T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
+	       PR_TFW_STR(&sticky->name), len, buf);
 
 	return r;
 }
