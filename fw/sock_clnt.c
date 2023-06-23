@@ -176,6 +176,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	unsigned int skb_priv = skb_tfw_cb(skb);
 	TfwStream *stream = tfw_h2_find_stream(&h2->sched, skb_priv);
 	unsigned int truesize = 0, tmp_truesize = 0;
+	bool headers_was_done = false;
 	int r = 0;
 
 #define FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
@@ -190,10 +191,6 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 
 #define FRAME_ALREADY_PREPARED(flags)					\
 	(flags & SS_F_HTTP2_FRAME_PREPARED)
-
-#define FRAME_ALREADY_DONE(flags)					\
-	((flags & SS_F_HTTT2_FRAME_HEADERS_DONE)			\
-	 || (flags & SS_F_HTTT2_FRAME_DATA_DONE))
 
 #define CHECK_STREAM_IS_PRESENT(stream)					\
 	if (!stream) {							\
@@ -215,15 +212,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	 * be passed to this function again. We should not process this
 	 * skb, just update limit according to already processed bytes.
 	 */
-	if (FRAME_ALREADY_DONE(flags)) {
-		CHECK_STREAM_IS_PRESENT(stream);
-		if (*limit < stream->xmit.processed) {
-			r = -ENOMEM;
-			goto ret;
-		}
-		stream->xmit.nskbs = 1;
-		goto update_limit;
-	} else if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)) {
+	if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)) {
 		CHECK_STREAM_IS_PRESENT(stream);
 		tfw_h2_stream_xmit_reinit(&stream->xmit);
 		stream->xmit.nskbs = 1;
@@ -246,8 +235,6 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 			(*nskbs)++;
 		}
 	}
-
-	BUG_ON(FRAME_ALREADY_DONE(flags));
 
 	if (flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING) {
 		tfw_hpack_set_rbuf_size(tbl, skb_priv);
@@ -295,8 +282,8 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 
 		truesize += tmp_truesize;
 		tmp_truesize = 0;
+		headers_was_done = true;
 
-		skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS_DONE);
 		/*
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
@@ -310,13 +297,12 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	}
 
 	if (FRAME_DATA_SHOULD_BE_MADE(flags)) {
-		bool headers_was_done = skb_tfw_flags(skb) &
-			SS_F_HTTT2_FRAME_HEADERS_DONE;
-
 		if (stream->rem_wnd <= 0 || h2->rem_wnd <= 0
 		    || *limit - stream->xmit.processed <= FRAME_HEADER_SIZE) {
-			r = headers_was_done ? 0 : -ENOMEM;
-			goto update_limit;
+			if (headers_was_done)
+				goto update_limit;
+			r = -ENOMEM;
+			goto ret;
 		}
 
 		r = tfw_h2_make_data_frames(sk, skb, h2, stream, mss_now,
@@ -325,14 +311,16 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		if (unlikely(r)) {
 			T_WARN("%s: failed to make data frames (%d)",
 			       __func__, r);
-			r = (r == -ENOMEM && headers_was_done ? 0 : r);
-			goto update_limit;
+			if (r == -ENOMEM && headers_was_done) {
+				r = 0;
+				goto update_limit;
+			}
+			goto ret;
 		}
 
 		truesize += tmp_truesize;
 		tmp_truesize = 0;
 
-		skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_DATA_DONE);
 		/*
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
@@ -349,6 +337,20 @@ update_limit:
 	if (FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)
 	    && stream && stream->xmit.nskbs == 1)
 		*limit = stream->xmit.processed;
+
+	if (skb->len > *limit) {
+		unsigned short saved_flags = skb_tfw_flags(skb);
+
+		/*
+		 * Hacky way to clear flags of skb that will be created after
+		 * splitting such skb must be with cleared flags, but
+		 * current skb must be with already set flags.
+		 */
+		skb->tfw_cb.flags &= (unsigned short)(~TEMPESTA_SKB_FLAG_CLEAR_MASK);
+		r = tso_fragment(sk, skb, *limit, mss_now,
+				 sk_gfp_mask(sk, GFP_ATOMIC));
+		skb->tfw_cb.flags = saved_flags;
+	}
 
 ret:
 	/* Reinit stream xmit context. */
@@ -380,10 +382,12 @@ ret:
 		ss_close(sk, SS_F_ABORT);
 	}
 
+	if (likely(!r))
+		skb_set_tfw_flags(skb, SS_F_HTTP2_FRAME_PREPARED);
+
 	return r;
 
 #undef CHECK_STREAM_IS_PRESENT
-#undef FRAME_ALREADY_DONE
 #undef FRAME_ALREADY_PREPARED
 #undef FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE
 #undef FRAME_DATA_SHOULD_BE_MADE
