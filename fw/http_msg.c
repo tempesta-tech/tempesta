@@ -1674,8 +1674,8 @@ tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
 }
 
 static inline void
-__tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
-			TfwHttpRespCleanup *cleanup)
+__tfw_http_msg_move_frags(struct sk_buff *skb, int frag_idx,
+			  TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct page *page;
@@ -1695,7 +1695,7 @@ __tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
 }
 
 static inline void
-__tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
+__tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct page *page;
@@ -1713,7 +1713,7 @@ __tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
 }
 
 static inline void
-__tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
+__tfw_http_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
 {
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
 	const int len = nbegin - (char*)skb_frag_address(frag);
@@ -1731,7 +1731,7 @@ __tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
  * as source for message trasformation.
  */
 int
-tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
+tfw_http_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpMsgCleanup* cleanup)
 {
 	int i, ret;
 	char *begin, *end;
@@ -1786,7 +1786,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
-				__tfw_h2_msg_shrink_frag(it->skb, i, off);
+				__tfw_http_msg_shrink_frag(it->skb, i, off);
 			}
 
 			/*
@@ -1795,7 +1795,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			 * from skb.
 			 */
 			if (i >= 1)
-				__tfw_h2_msg_move_frags(it->skb, i, cleanup);
+				__tfw_http_msg_move_frags(it->skb, i, cleanup);
 
 			goto end;
 		}
