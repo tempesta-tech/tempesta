@@ -3,7 +3,7 @@
  *
  * Error injection library.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,17 +31,16 @@ enum errinj_type {
 	ERRINJ_LONG,
 };
 
-enum errinj_state {
-	Errinj_I_S,
-	Errinj_Get_Val,
-	Errinj_Set_Val,
-	Errinj_I_F,
-};
-
+/**
+ * Error injection structure.
+ * 
+ * @name 	- name, used to get/set errinj from userspace tests.
+ * @type 	- Ttpe, e.g. ERRINJ_BOOL, ERRINJ_LONG.
+ * @bparam	- bool value for errinj with type ERRINJ_BOOL.
+ * @lparam	- long value for errinj with type ERRINJ_LONG.
+ */
 struct errinj {
-	/** Name, used to get/set errinj from userspace tests. */
 	const char *name;
-	/** Type, e.g. BOOL, UNT64, DOUBLE */
 	enum errinj_type type;
 	union {
 		/** bool parameter */
@@ -56,10 +55,13 @@ struct errinj {
 /**
  * List of error injections.
  */
-#define ERRINJ_LIST(_) \
-	_(ERRINJ_SELF_TEST, ERRINJ_BOOL, {.bparam = false}) \
+#define ERRINJ_LIST(_)						\
+	_(ERRINJ_SELF_TEST, ERRINJ_BOOL, {.bparam = false})	\
 
-enum errinj_id { ERRINJ_LIST(FIRST_MEMBER), errinj_id_MAX };
+enum errinj_id {
+	ERRINJ_LIST(FIRST_MEMBER),
+	errinj_id_MAX
+};
 extern struct errinj errinjs[];
 
 /**
@@ -86,22 +88,22 @@ str_to_errinj(struct errinj *inj, const char *buf);
 #  define ERROR_INJECT(ID, CODE)
 #  define ERROR_INJECT_COUNTDOWN(ID, CODE)
 #else
-#  define errinj_get(ID, TYPE) \
-	({ \
-		BUG_ON(!(ID >= 0 && ID < errinj_id_MAX)); \
-		BUG_ON(errinjs[ID].type != TYPE); \
-		&errinjs[ID]; \
+#  define errinj_get(ID, TYPE)						\
+	({								\
+		BUG_ON(!(ID >= 0 && ID < errinj_id_MAX));		\
+		BUG_ON(errinjs[ID].type != TYPE);			\
+		&errinjs[ID];						\
 	})
-#  define ERROR_INJECT(ID, CODE) \
-	do { \
-		if (errinj_get(ID, ERRINJ_BOOL)->bparam) \
-			CODE; \
+#  define ERROR_INJECT(ID, CODE)					\
+	do {								\
+		if (errinj_get(ID, ERRINJ_BOOL)->bparam)		\
+			CODE;						\
 	} while (0)
-#  define ERROR_INJECT_COUNTDOWN(ID, CODE)                              \
-	do {                                                            \
-		if (errinj(ID, ERRINJ_INT)->iparam-- == 0) {            \
-			CODE;                                           \
-		}                                                       \
+#  define ERROR_INJECT_COUNTDOWN(ID, CODE)				\
+	do {								\
+		if (errinj(ID, ERRINJ_INT)->iparam-- == 0) {		\
+			CODE;						\
+		}							\
 	} while (0)
 #endif
 
