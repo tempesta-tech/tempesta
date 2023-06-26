@@ -2335,7 +2335,7 @@ index 2384ac048..9939c65e5 100644
  EXPORT_SYMBOL_GPL(tcp_done);
  
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
-index fac5c1469..623d4f33e 100644
+index fac5c1469..f9f8000bf 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
 @@ -728,6 +728,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
@@ -2346,6 +2346,27 @@ index fac5c1469..623d4f33e 100644
  
  /* There is something which you must keep in mind when you analyze the
   * behavior of the tp->ato delayed ack timeout interval.  When a
+@@ -5125,9 +5126,20 @@ tcp_collapse(struct sock *sk, struct sk_buff_head *list, struct rb_root *root,
+ 		int copy = min_t(int, SKB_MAX_ORDER(0, 0), end - start);
+ 		struct sk_buff *nskb;
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++		/*
++		 * This skb can be reused by Tempesta FW. Thus allocate
++		 * space for TCP headers.
++		 */
++		nskb = alloc_skb(copy + MAX_TCP_HEADER, GFP_ATOMIC);
++#else
+ 		nskb = alloc_skb(copy, GFP_ATOMIC);
++#endif
+ 		if (!nskb)
+ 			break;
++#ifdef CONFIG_SECURITY_TEMPESTA
++		skb_reserve(nskb, MAX_TCP_HEADER);
++#endif
+ 
+ 		memcpy(nskb->cb, skb->cb, sizeof(skb->cb));
+ #ifdef CONFIG_TLS_DEVICE
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
 index ab8ed0fc4..e260a0af6 100644
 --- a/net/ipv4/tcp_ipv4.c
