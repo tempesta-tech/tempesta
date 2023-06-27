@@ -750,10 +750,8 @@ tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
 	TfwStreamQueue *queue;
 	TfwStreamFsmRes r = STREAM_FSM_RES_OK;
 
-	if (tfw_h2_stream_is_closed(stream)
-	    || stream->queue == &ctx->closed_streams)
-		return STREAM_FSM_RES_TERM_STREAM;
-
+	BUG_ON (tfw_h2_stream_is_closed(stream)
+		|| stream->queue == &ctx->closed_streams);
 	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
 	/*
 	 * If it is end of headers we move stream to
@@ -914,7 +912,6 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 		BUG_ON(list_empty(&closed_streams->list));
 		cur = list_first_entry(&closed_streams->list, TfwStream,
 				       hcl_node);
-		BUG_ON(cur->xmit.h_len || cur->xmit.b_len);
 		__tfw_h2_stream_unlink(ctx, cur);
 
 		spin_unlock(&ctx->lock);
@@ -1431,8 +1428,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-							hdr->stream_id);
+		ctx->cur_stream =
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
 		/*
 		 * If stream is removed, it had been closed before, so this is
 		 * connection error (see RFC 7540 section 5.1).
@@ -1460,8 +1457,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-						     hdr->stream_id);
+		ctx->cur_stream =
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
 		if (tfw_h2_stream_id_verify(ctx)) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -1504,15 +1501,23 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-							hdr->stream_id);
+		ctx->cur_stream =
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
 		if (hdr->length != FRAME_PRIORITY_SIZE)
 			goto conn_term;
 
-		if (ctx->cur_stream)
+		if (ctx->cur_stream) {
 			STREAM_RECV_PROCESS(ctx, hdr);
-
-		ctx->state = HTTP2_RECV_FRAME_PRIORITY;
+			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
+		} else {
+			/*
+			 * According to RFC 9113 section 5.1:
+			 * PRIORITY frames are allowed in the `closed` state,
+			 * but if the stream was moved to closed queue or was
+			 * already removed from memory, just ignore this frame.
+			 */
+			ctx->state = HTTP2_IGNORE_FRAME_DATA;
+		}
 		SET_TO_READ(ctx);
 		return T_OK;
 
@@ -1529,17 +1534,31 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		if (hdr->stream_id) {
-			ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-								hdr->stream_id);
-			if (!ctx->cur_stream) {
-				err_code = HTTP2_ECODE_CLOSED;
-				goto conn_term;
+			ctx->cur_stream =
+				tfw_h2_find_not_closed_stream(ctx,
+							      hdr->stream_id);
+			if (ctx->cur_stream) {
+				STREAM_RECV_PROCESS(ctx, hdr);
+				ctx->state = HTTP2_RECV_FRAME_WND_UPDATE;
+			} else {
+				/*
+				 * According to RFC 9113 section 5.1:
+				 * An endpoint that sends a frame with the
+				 * END_STREAM flag set or a RST_STREAM frame
+				 * might receive a WINDOW_UPDATE or RST_STREAM
+				 * frame from its peer in the time before the
+				 * peer receives and processes the frame that
+				 * closes the stream.
+				 * But if the stream was moved to closed queue
+				 * or was already removed from memory, just
+				 * ignore this frame.
+				 */
+				ctx->state = HTTP2_IGNORE_FRAME_DATA;
 			}
-
-			STREAM_RECV_PROCESS(ctx, hdr);
+		} else {
+			ctx->state = HTTP2_RECV_FRAME_WND_UPDATE;
 		}
 
-		ctx->state = HTTP2_RECV_FRAME_WND_UPDATE;
 		SET_TO_READ(ctx);
 		return T_OK;
 
@@ -1606,16 +1625,25 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-							hdr->stream_id);
-		if (!ctx->cur_stream) {
-			err_code = HTTP2_ECODE_CLOSED;
-			goto conn_term;
+		ctx->cur_stream =
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
+		if (ctx->cur_stream) {
+			STREAM_RECV_PROCESS(ctx, hdr);
+			ctx->state = HTTP2_RECV_FRAME_RST_STREAM;
+		} else {
+			/*
+			 * According to RFC 9113 section 5.1:
+			 * An endpoint that sends a frame with the END_STREAM
+			 * flag set or a RST_STREAM frame might receive a
+			 * WINDOW_UPDATE or RST_STREAM frame from its peer in
+			 * the time before the peer receives and processes the
+			 * frame that closes the stream.
+			 * But if the stream was moved to closed queue or was
+			 * already removed from memory, just ignore this frame.
+			 */
+			ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		}
 
-		STREAM_RECV_PROCESS(ctx, hdr);
-
-		ctx->state = HTTP2_RECV_FRAME_RST_STREAM;
 		SET_TO_READ(ctx);
 		return T_OK;
 
@@ -1646,8 +1674,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-							hdr->stream_id);
+		ctx->cur_stream =
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
 		if (!ctx->cur_stream) {
 			err_code = HTTP2_ECODE_CLOSED;
 			goto conn_term;
@@ -2277,4 +2305,15 @@ tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
 {
 	return tfw_h2_make_frames(sk, skb, ctx, stream, HTTP2_DATA,
 				  mss_now, limit, t_tz);
+}
+
+TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id)
+{
+	TfwStream *stream;
+
+	stream = tfw_h2_find_stream(&ctx->sched, id);
+	if (!stream || stream->queue == &ctx->closed_streams)
+		return NULL;
+
+	return stream;
 }
