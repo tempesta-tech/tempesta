@@ -174,7 +174,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 	TfwHPackETbl *tbl = &h2->hpack.enc_tbl;
 	unsigned short flags = skb_tfw_flags(skb);
 	unsigned int skb_priv = skb_tfw_cb(skb);
-	TfwStream *stream = tfw_h2_find_stream(&h2->sched, skb_priv);
+	TfwStream *stream = tfw_h2_find_not_closed_stream(h2, skb_priv);
 	unsigned int truesize = 0, tmp_truesize = 0;
 	bool headers_was_done = false;
 	int r = 0;

@@ -228,6 +228,7 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
+TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id);
 unsigned int tfw_h2_stream_id(TfwHttpReq *req);
 unsigned int tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
 				   unsigned char flags);
