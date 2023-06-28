@@ -2376,7 +2376,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	/* TODO #788: revalidate existing entries before inserting a new one. */
+	/* TODO #522: revalidate existing entries before inserting a new one. */
 
 	/*
 	 * Try to place the cached response in single memory chunk.
