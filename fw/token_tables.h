@@ -22,9 +22,12 @@
 
 /*
  * ASCII codes to accept URI string.
+ *
+ * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+ * !#$%&'*+-._();:@=,/?[]~0123456789
  */
 #define TOKEN_TBL_URI	0
-#define TOKEN_SYM_URI   \
+#define TOKEN_SYM_URI                                   \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
@@ -44,9 +47,12 @@
 
 /*
  * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6).
+ * 
+ * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+ * !#$%&'*+-.^_`|~0123456789
  */
 #define TOKEN_TBL_TOKEN	1
-#define	TOKEN_SYM_TOKEN \
+#define	TOKEN_SYM_TOKEN                                 \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, \
@@ -68,7 +74,7 @@
  * Token with DQUOTE and "=".
  */
 #define TOKEN_TBL_QETOKEN   2
-#define TOKEN_SYM_QETOKEN \
+#define TOKEN_SYM_QETOKEN                               \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, \
@@ -88,9 +94,14 @@
 
 /*
  * ASCII codes to accept HTTP header values
+ * 
+ * RFC 7230, Appendix B; RFC 5234, Appendix B.1.:
+ * field-value OWS = VCHAR SP HTAB = %x9 %x20-7E
+ *
+ * i.e. non-control characters.
  */
 #define TOKEN_TBL_NCTL	3
-#define TOKEN_SYM_NCTL \
+#define TOKEN_SYM_NCTL                                  \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
@@ -112,7 +123,7 @@
  * ASCII codes to accept ctext | VCHAR, e.g. User-Agent.
  */
 #define TOKEN_TBL_VCHAR 4
-#define TOKEN_SYM_VCHAR	\
+#define TOKEN_SYM_VCHAR                                 \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
@@ -132,9 +143,12 @@
 
 /*
  * ASCII codes to accept X-Forwarded-For values.
+ *
+ * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+ * 0123456789._-[]:
  */
 #define TOKEN_TBL_XFF	5
-#define TOKEN_SYM_XFF \
+#define TOKEN_SYM_XFF                                   \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, \
@@ -161,11 +175,11 @@
  * 	; whitespace DQUOTE, comma, semicolon,
  * 	; and backslash
  *
- * We add DQUOTES to the set since we don't analyzer cookie value
+ * We add DQUOTES to the set since we don't analyze cookie value
  * grammar.
  */
 #define TOKEN_TBL_COOKIE    6
-#define TOKEN_SYM_COOKIE \
+#define TOKEN_SYM_COOKIE                                \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, \
@@ -190,7 +204,7 @@
  *	; VCHAR except double quotes, plus obs-text
  */
 #define TOKEN_TBL_ETAG	7
-#define TOKEN_SYM_ETAG \
+#define TOKEN_SYM_ETAG                                  \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
@@ -211,9 +225,12 @@
 /*
  * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6),
  * but without upper-case symbols (used in H2 parser)
+ *
+ * abcdefghijklmnopqrstuvwxyz
+ * !#$%&'*+-.^_`|~0123456789
  */
 #define TOKEN_TBL_TOKEN_LC  8
-#define TOKEN_SYM_TOKEN_LC \
+#define TOKEN_SYM_TOKEN_LC                              \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
 	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, \

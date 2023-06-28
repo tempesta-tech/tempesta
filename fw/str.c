@@ -116,8 +116,8 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 
 	if (custom_ctext_vchar_enabled)
 		r = __tfw_match_custom(str, len, custom_ctext_vchar,
-				       __CUSTOM[TOKEN_TBL_VCHAR][0],
-					   __CUSTOM[TOKEN_TBL_VCHAR][1]);
+		                       __CUSTOM[TOKEN_TBL_VCHAR][0],
+		                       __CUSTOM[TOKEN_TBL_VCHAR][1]);
 	else
 		r = __tfw_match_ctext_vchar(str, len);
 
@@ -135,8 +135,8 @@ tfw_match_etag(const char *str, size_t len)
 
 	if (custom_etag_enabled)
 		r = __tfw_match_custom(str, len, custom_etag,
-				       __CUSTOM[TOKEN_TBL_ETAG][0],
-					   __CUSTOM[TOKEN_TBL_ETAG][1]);
+		                       __CUSTOM[TOKEN_TBL_ETAG][0],
+		                       __CUSTOM[TOKEN_TBL_ETAG][1]);
 	else
 		r = __tfw_match_etag(str, len);
 
@@ -175,8 +175,10 @@ void tfw_init_custom_##a_name(const unsigned char *a)			\
 
 /**
  * This function is hand-writtent because it keeps custom_token/custom_token_lc
- * in sync */
-void tfw_init_custom_token(const unsigned char *a)
+ * in sync.
+ */
+void
+tfw_init_custom_token(const unsigned char *a)
 {
 	custom_token_enabled = !!a;
 	if (!!a) {
@@ -212,15 +214,15 @@ TFW_INIT_CUSTOM_A(etag, 7);
  * faster to access the extra cache lines than to the 4 bit operations
  * (uri_a[c >> 6] & (1UL << (c & 0x3f))).
  */
-static const unsigned char uri[] = { TOKEN_SYM_URI };
-static const unsigned char token[] = { TOKEN_SYM_TOKEN };
-static const unsigned char qetoken[] = { TOKEN_SYM_QETOKEN };
-static const unsigned char nctl[] = { TOKEN_SYM_NCTL };
+static const unsigned char uri[]         = { TOKEN_SYM_URI };
+static const unsigned char token[]       = { TOKEN_SYM_TOKEN };
+static const unsigned char qetoken[]     = { TOKEN_SYM_QETOKEN };
+static const unsigned char nctl[]        = { TOKEN_SYM_NCTL };
 static const unsigned char ctext_vchar[] = { TOKEN_SYM_VCHAR };
-static const unsigned char xff[] = { TOKEN_SYM_XFF };
-static const unsigned char cookie[] = { TOKEN_SYM_COOKIE };
-static const unsigned char etag[] = { TOKEN_SYM_ETAG };
-static const unsigned char token_lc[] = { TOKEN_SYM_TOKEN_LC };
+static const unsigned char xff[]         = { TOKEN_SYM_XFF };
+static const unsigned char cookie[]      = { TOKEN_SYM_COOKIE };
+static const unsigned char etag[]        = { TOKEN_SYM_ETAG };
+static const unsigned char token_lc[]    = { TOKEN_SYM_TOKEN_LC };
 
 static size_t
 __tfw_match_slow(const char *str, size_t len, const unsigned char *tbl)
