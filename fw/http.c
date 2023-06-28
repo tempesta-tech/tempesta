@@ -4709,7 +4709,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 				 || TFW_STR_DUP(tgt)))
 			return -EINVAL;
 
-		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%lu\n",
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks,
 		       h_mods ? h_mods->sz : 0);
 

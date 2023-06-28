@@ -535,7 +535,7 @@ index e37480b5f..8236d5929 100644
  
  /*
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index a828cf99c..bef87c1aa 100644
+index a828cf99c..59ebed976 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -232,6 +232,12 @@
@@ -590,7 +590,7 @@ index a828cf99c..bef87c1aa 100644
  	__u8			ipvs_property:1;
  	__u8			inner_protocol_type:1;
  	__u8			remcsum_offload:1;
-@@ -931,6 +950,105 @@ struct sk_buff {
+@@ -931,6 +950,98 @@ struct sk_buff {
  #define SKB_ALLOC_RX		0x02
  #define SKB_ALLOC_NAPI		0x04
  
@@ -608,19 +608,13 @@ index a828cf99c..bef87c1aa 100644
 +	SS_F_HTTT2_FRAME_DATA                   = 0x08,
 +	/* This skb was already prepared. */
 +	SS_F_HTTP2_FRAME_PREPARED               = 0x10,
-+	/* HEADERS frame was already prepared for this skb. */
-+	SS_F_HTTT2_FRAME_HEADERS_DONE		= 0x20,
-+	/* DATA frame was already prepared for this skb. */
-+	SS_F_HTTT2_FRAME_DATA_DONE              = 0x40,
 +	/* This skb acks new hpack dynamic tbl size. */
-+	SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING   = 0x80,
++	SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING   = 0x20,
 +	/*
 +	 * These flags should be cleared when we copy flags
 +	 * from one skb to another one.
 +	 */
 +	TEMPESTA_SKB_FLAG_CLEAR_MASK	= SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING |
-+					  SS_F_HTTT2_FRAME_DATA_DONE |
-+					  SS_F_HTTT2_FRAME_HEADERS_DONE |
 +					  SS_F_HTTT2_HPACK_TBL_SZ_ENCODED |
 +					  SS_F_HTTP2_FRAME_START,
 +};
@@ -681,7 +675,6 @@ index a828cf99c..bef87c1aa 100644
 +skb_copy_tfw_cb(struct sk_buff *dst, struct sk_buff *src)
 +{
 +	dst->dev = src->dev;
-+        dst->tfw_cb.flags &= (unsigned short)(~TEMPESTA_SKB_FLAG_CLEAR_MASK);
 +}
 +
 +static inline void
@@ -696,7 +689,7 @@ index a828cf99c..bef87c1aa 100644
  /**
   * skb_pfmemalloc - Test if the skb was allocated from PFMEMALLOC reserves
   * @skb: buffer
-@@ -1074,6 +1192,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+@@ -1074,6 +1185,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
  bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  		      bool *fragstolen, int *delta_truesize);
  
@@ -704,7 +697,7 @@ index a828cf99c..bef87c1aa 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
  			    int node);
  struct sk_buff *__build_skb(void *data, unsigned int frag_size);
-@@ -2104,7 +2223,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
+@@ -2104,7 +2216,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -716,7 +709,7 @@ index a828cf99c..bef87c1aa 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -2341,6 +2464,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -2341,6 +2457,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -859,7 +852,7 @@ index 261195598..456f6bd50 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 7d66c61d2..e13a74431 100644
+index 7d66c61d2..8ec3cbbfb 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -307,6 +307,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -870,7 +863,16 @@ index 7d66c61d2..e13a74431 100644
  
  #define TCP_INC_STATS(net, field)	SNMP_INC_STATS((net)->mib.tcp_statistics, field)
  #define __TCP_INC_STATS(net, field)	__SNMP_INC_STATS((net)->mib.tcp_statistics, field)
-@@ -653,6 +654,22 @@ static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
+@@ -584,6 +585,8 @@ enum tcp_queue {
+ 	TCP_FRAG_IN_WRITE_QUEUE,
+ 	TCP_FRAG_IN_RTX_QUEUE,
+ };
++int tso_fragment(struct sock *sk, struct sk_buff *skb, unsigned int len,
++		 unsigned int mss_now, gfp_t gfp);
+ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
+ 		 struct sk_buff *skb, u32 len,
+ 		 unsigned int mss_now, gfp_t gfp);
+@@ -653,6 +656,22 @@ static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
  /* tcp.c */
  void tcp_get_info(struct sock *, struct tcp_info *);
  
@@ -2333,7 +2335,7 @@ index 2384ac048..9939c65e5 100644
  EXPORT_SYMBOL_GPL(tcp_done);
  
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
-index fac5c1469..623d4f33e 100644
+index fac5c1469..f9f8000bf 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
 @@ -728,6 +728,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
@@ -2344,6 +2346,27 @@ index fac5c1469..623d4f33e 100644
  
  /* There is something which you must keep in mind when you analyze the
   * behavior of the tp->ato delayed ack timeout interval.  When a
+@@ -5125,9 +5126,20 @@ tcp_collapse(struct sock *sk, struct sk_buff_head *list, struct rb_root *root,
+ 		int copy = min_t(int, SKB_MAX_ORDER(0, 0), end - start);
+ 		struct sk_buff *nskb;
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++		/*
++		 * This skb can be reused by Tempesta FW. Thus allocate
++		 * space for TCP headers.
++		 */
++		nskb = alloc_skb(copy + MAX_TCP_HEADER, GFP_ATOMIC);
++#else
+ 		nskb = alloc_skb(copy, GFP_ATOMIC);
++#endif
+ 		if (!nskb)
+ 			break;
++#ifdef CONFIG_SECURITY_TEMPESTA
++		skb_reserve(nskb, MAX_TCP_HEADER);
++#endif
+ 
+ 		memcpy(nskb->cb, skb->cb, sizeof(skb->cb));
+ #ifdef CONFIG_TLS_DEVICE
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
 index ab8ed0fc4..e260a0af6 100644
 --- a/net/ipv4/tcp_ipv4.c
@@ -2392,7 +2415,7 @@ index ab8ed0fc4..e260a0af6 100644
  		goto put_and_exit;
  	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash),
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..1c8fbe94a 100644
+index f99494637..d3c0ba7cd 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2556,7 +2579,26 @@ index f99494637..1c8fbe94a 100644
  
  /* RFC2861, slow part. Adjust cwnd, after it was not full during one rto.
   * As additional protections, we do not touch cwnd in retransmission phases,
-@@ -2303,6 +2340,11 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
+@@ -2108,8 +2145,8 @@ static bool tcp_snd_wnd_test(const struct tcp_sock *tp,
+  * know that all the data is in scatter-gather pages, and that the
+  * packet has never been sent out before (and thus is not cloned).
+  */
+-static int tso_fragment(struct sock *sk, struct sk_buff *skb, unsigned int len,
+-			unsigned int mss_now, gfp_t gfp)
++int tso_fragment(struct sock *sk, struct sk_buff *skb, unsigned int len,
++		 unsigned int mss_now, gfp_t gfp)
+ {
+ 	int nlen = skb->len - len;
+ 	struct sk_buff *buff;
+@@ -2159,6 +2196,7 @@ static int tso_fragment(struct sock *sk, struct sk_buff *skb, unsigned int len,
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL(tso_fragment);
+ 
+ /* Try to defer sending, if possible, in order to minimize the amount
+  * of TSO splitting we do.  View it as a kind of TSO Nagle test.
+@@ -2303,6 +2341,11 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
  
  		if (unlikely(TCP_SKB_CB(skb)->eor) || tcp_has_tx_tstamp(skb))
  			return false;
@@ -2568,7 +2610,7 @@ index f99494637..1c8fbe94a 100644
  
  		len -= skb->len;
  	}
-@@ -2577,6 +2619,62 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
+@@ -2577,6 +2620,62 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
  		tcp_chrono_set(tp, TCP_CHRONO_BUSY);
  }
  
@@ -2631,7 +2673,7 @@ index f99494637..1c8fbe94a 100644
  /* This routine writes packets to the network.  It advances the
   * send_head.  This happens as incoming acks open up the remote
   * window for us.
-@@ -2601,6 +2699,9 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2601,6 +2700,9 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  	int result;
  	bool is_cwnd_limited = false, is_rwnd_limited = false;
  	u32 max_segs;
@@ -2641,7 +2683,7 @@ index f99494637..1c8fbe94a 100644
  
  	sent_pkts = 0;
  
-@@ -2666,7 +2767,15 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2666,7 +2768,15 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
@@ -2658,7 +2700,7 @@ index f99494637..1c8fbe94a 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2681,7 +2790,14 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2681,7 +2791,14 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  		 */
  		if (TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq)
  			break;
@@ -2674,7 +2716,7 @@ index f99494637..1c8fbe94a 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2866,6 +2982,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2866,6 +2983,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -2682,7 +2724,7 @@ index f99494637..1c8fbe94a 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -3183,7 +3300,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -3183,7 +3301,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  				 cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -2691,7 +2733,7 @@ index f99494637..1c8fbe94a 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3421,6 +3538,7 @@ void tcp_send_fin(struct sock *sk)
+@@ -3421,6 +3539,7 @@ void tcp_send_fin(struct sock *sk)
  	}
  	__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
  }
@@ -2699,7 +2741,7 @@ index f99494637..1c8fbe94a 100644
  
  /* We get here when a process closes a file descriptor (either due to
   * an explicit close() or as a byproduct of exit()'ing) and there
-@@ -3454,6 +3572,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -3454,6 +3573,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  	 */
  	trace_tcp_send_reset(sk, NULL);
  }
@@ -2707,7 +2749,7 @@ index f99494637..1c8fbe94a 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
-@@ -4030,6 +4149,9 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4030,6 +4150,9 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  
  	skb = tcp_send_head(sk);
  	if (skb && before(TCP_SKB_CB(skb)->seq, tcp_wnd_end(tp))) {
@@ -2717,7 +2759,7 @@ index f99494637..1c8fbe94a 100644
  		int err;
  		unsigned int mss = tcp_current_mss(sk);
  		unsigned int seg_size = tcp_wnd_end(tp) - TCP_SKB_CB(skb)->seq;
-@@ -4037,6 +4159,12 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4037,6 +4160,12 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  		if (before(tp->pushed_seq, TCP_SKB_CB(skb)->end_seq))
  			tp->pushed_seq = TCP_SKB_CB(skb)->end_seq;
  
@@ -2730,7 +2772,7 @@ index f99494637..1c8fbe94a 100644
  		/* We are probing the opening of a window
  		 * but the window size is != 0
  		 * must have been a result SWS avoidance ( sender )
-@@ -4052,6 +4180,13 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4052,6 +4181,13 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  			tcp_set_skb_tso_segs(skb, mss);
  
  		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;

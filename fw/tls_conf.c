@@ -163,7 +163,7 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, void *a_vhost)
 	 */
 	tfw_vhost_add_sni_map(&cn, vhost);
 
-	return T_BAD;
+	return r;
 }
 
 /**

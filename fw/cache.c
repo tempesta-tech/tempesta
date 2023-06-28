@@ -728,6 +728,8 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 	if (unlikely(r))
 		return r;
 
+	resp->status = ce->resp_status;
+
 	if (!h2_mode) {
 		char buf[H2_STAT_VAL_LEN];
 		TfwStr s_line = {
@@ -923,6 +925,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			goto err_setup;
 		/* account for :status field itself */
 		h_len++;
+
+		resp->status = 304;
 
 		/*
 		 * Responses built from cache has room for frame header reserved
@@ -2818,6 +2822,7 @@ write_body:
 					      TFW_MSG_H2(req), stream_id))
 			goto free;
 	}
+	resp->content_length = ce->body_len;
 
 	return resp;
 free:
