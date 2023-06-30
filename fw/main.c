@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 #include <asm/fpu/api.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/string.h>
 #include <net/net_namespace.h> /* for sysctl */
 
 #include "tempesta_fw.h"
@@ -31,13 +32,16 @@
 #include "server.h"
 #include "str.h"
 #include "sync_socket.h"
+#include "lib/errinj.h"
+#include "lib/fsm.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
 MODULE_VERSION(TFW_VERSION);
 MODULE_LICENSE("GPL");
 
-#define T_SYSCTL_STBUF_LEN	32UL
+#define T_SYSCTL_STBUF_LEN		32UL
+#define T_SYSCTL_ERRINJ_STBUF_LEN	64UL
 
 typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
@@ -293,7 +297,7 @@ cleanup:
  * Do corresponding actions, but only if the state is changed.
  */
 static int
-tfw_ctlfn_state_change(const char *old_state, const char *new_state)
+tfw_ctlfn_state_change(const char *new_state)
 {
 	T_DBG2("got state via sysctl: %s\n", new_state);
 
@@ -337,29 +341,87 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 		   void *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
+	static char new_state_buf[T_SYSCTL_STBUF_LEN];
+	struct ctl_table tmp = *ctl;
 
 	mutex_lock(&tfw_sysctl_mtx);
 
 	if (is_write) {
-		char new_state_buf[T_SYSCTL_STBUF_LEN];
-		char *new_state, *old_state;
-		size_t copied_data_len = min(T_SYSCTL_STBUF_LEN - 1, *lenp);
-
-		memcpy(new_state_buf, user_buf, copied_data_len);
-
-		new_state_buf[copied_data_len] = 0;
-		new_state = strim(new_state_buf);
-		old_state = ctl->data;
-
-		if ((r = tfw_ctlfn_state_change(old_state, new_state)))
+		char buf[T_SYSCTL_STBUF_LEN];
+		tmp.data = buf;
+		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
 			goto out;
-	}
 
-	r = proc_dostring(ctl, is_write, user_buf, lenp, ppos);
+		if ((r = tfw_ctlfn_state_change(buf)))
+			goto out;
+
+		strlcpy(new_state_buf, buf, T_SYSCTL_STBUF_LEN);
+	} else {
+		tmp.data = new_state_buf;
+		r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos);
+	}
 out:
 	mutex_unlock(&tfw_sysctl_mtx);
 	return r;
 }
+
+#ifdef DBG_ERRINJ
+
+static int
+tfw_cntl_errinj_change(char *errinj)
+{
+	int r;
+	char *name, *val;
+	struct errinj *inj;
+
+	if ((r = errinj_split_name_val(errinj, &name, &val)))
+		return r;
+
+	inj = errinj_by_name(name);
+	if (!inj)
+		return -EINVAL;
+
+	return str_to_errinj(inj, val);
+}
+
+static int
+tfw_ctlfn_errinj_io(struct ctl_table *ctl, int is_write,
+		    void *user_buf, size_t *lenp, loff_t *ppos)
+{
+	int r = 0;
+	static char errinj_buf[T_SYSCTL_ERRINJ_STBUF_LEN];
+	char buf[T_SYSCTL_ERRINJ_STBUF_LEN];
+	struct ctl_table tmp = *ctl;
+	tmp.data = buf;
+
+	mutex_lock(&tfw_sysctl_mtx);
+
+	if (is_write) {
+		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
+			goto out;
+
+		if ((r = tfw_cntl_errinj_change(buf)))
+			goto out;
+
+		strlcpy(errinj_buf, buf, T_SYSCTL_ERRINJ_STBUF_LEN);
+	} else {
+		struct errinj *inj;
+
+		inj = errinj_by_name(errinj_buf);
+		if (inj) {
+			errinj_to_str(inj, buf, sizeof(buf));
+		} else {
+			strlcpy(buf, "NONE", sizeof(buf));
+		}
+
+		r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos);
+	}
+
+out:
+	mutex_unlock(&tfw_sysctl_mtx);
+	return r;
+}
+#endif
 
 /**
  * Wait until all objects of some specific type @obj_name are
@@ -409,6 +471,14 @@ static struct ctl_table tfw_sysctl_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
 	},
+#ifdef DBG_ERRINJ
+	{
+		.procname	= "errinj",
+		.maxlen		= T_SYSCTL_ERRINJ_STBUF_LEN - 1,
+		.mode		= 0644,
+		.proc_handler	= tfw_ctlfn_errinj_io,
+	},
+#endif
 	{}
 };
 

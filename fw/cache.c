@@ -914,7 +914,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (unlikely(r))
 			goto err_setup;
 	} else {
-		stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS, 0);
+		stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+						  HTTP2_F_END_HEADERS);
 		if (unlikely(!stream_id))
 			goto err_setup;
 
@@ -964,7 +965,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
 		goto err_setup;
 
-	tfw_h2_stream_id_unlink(req, false, false);
+	tfw_h2_stream_unlink_from_req(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	return;
@@ -2375,7 +2376,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	/* TODO #788: revalidate existing entries before inserting a new one. */
+	/* TODO #522: revalidate existing entries before inserting a new one. */
 
 	/*
 	 * Try to place the cached response in single memory chunk.
@@ -2887,12 +2888,14 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * the backend), thus the stream will be finished.
 	 */
 	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id_unlink(req, false, false);
+		id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+					   HTTP2_F_END_HEADERS);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			goto put;
 		}
+		tfw_h2_stream_unlink_from_req(req, false, false);
 	}
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
