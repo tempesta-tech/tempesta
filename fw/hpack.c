@@ -1151,7 +1151,6 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
 static inline void
 tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
 {
-	WARN_ON_ONCE(!TFW_STR_EMPTY(it->parsed_hdr));
 	bzero_fast(it->__off,
 		   sizeof(*it) - offsetof(TfwMsgParseIter, __off));
 	bzero_fast(hp->__off,
@@ -1590,6 +1589,16 @@ get_value:
 				switch (req->pit.tag) {
 				case TFW_TAG_HDR_HOST:
 				case TFW_TAG_HDR_H2_AUTHORITY:
+					TfwCachedHeaderState *cstate =
+						&req->stream->parser.cstate;
+
+					if (state & HPACK_FLAGS_ADD
+					    && tfw_hpack_add_index(&hp->dec_tbl,
+								   it, cstate))
+					{
+						r = T_BLOCK;
+						break;
+					}
 					r = T_BAD;
 					break;
 				default:
@@ -1752,6 +1761,7 @@ set_tbl_size:
 
 		T_DBG3("%s: new header added\n", __func__);
 
+		WARN_ON_ONCE(!TFW_STR_EMPTY(it->parsed_hdr));
 		tfw_hpack_reinit(hp, it);
 
 	} while (src < last);
@@ -1761,6 +1771,8 @@ out:
 	WARN_ON_ONCE(src > last);
 	*parsed -= last - src;
 	hp->state = state;
+	if (r && r != T_POSTPONE)
+		tfw_hpack_reinit(hp, it);
 	return r;
 }
 
