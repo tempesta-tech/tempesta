@@ -205,21 +205,6 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		goto ret;						\
 	}
 
-#define H2_PROCESS_STREAM(h2, stream, type)				\
-	r = tfw_h2_stream_process(h2, stream, type);			\
-	if (unlikely(r != STREAM_FSM_RES_OK)) {				\
-		T_WARN("Failed to process stream %d", (int)r);		\
-		/*							\
-		 * TODO #1196:						\
-		 * drop all skbs for corresponding stream if		\
-		 * r == STREAM_FSM_RES_TERM_STREAM.			\
-		 */							\
-		if (r == STREAM_FSM_RES_TERM_CONN) {			\
-			r = -EPIPE;					\
-			goto ret;					\
-		}							\
-	}
-
 	BUG_ON(FRAME_ALREADY_PREPARED(flags));
 
 	/*
@@ -304,10 +289,8 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (!stream->xmit.h_len) {
+		if (!stream->xmit.h_len)
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_HEADERS);
-			H2_PROCESS_STREAM(h2, stream, HTTP2_HEADERS);
-		}
 	}
 
 	if (FRAME_DATA_SHOULD_BE_MADE(flags)) {
@@ -339,9 +322,23 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (!stream->xmit.b_len) {
+		if (!stream->xmit.b_len)
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
-			H2_PROCESS_STREAM(h2, stream, HTTP2_DATA);
+	}
+
+	if (stream && !stream->xmit.h_len && !stream->xmit.b_len) {
+		r = tfw_h2_send_end_of_stream(h2, stream);
+		if (unlikely(r != STREAM_FSM_RES_OK)) {
+			T_WARN("Failed to process stream %d", (int)r);
+			/*
+			 * TODO #1196:
+			 * drop all skbs for corresponding stream if
+			 * r == STREAM_FSM_RES_TERM_STREAM.
+			 */
+			if (r == STREAM_FSM_RES_TERM_CONN) {
+				r = -EPIPE;
+				goto ret;
+			}
 		}
 	}
 
@@ -399,7 +396,6 @@ ret:
 
 	return r;
 
-#undef H2_PROCESS_STREAM
 #undef CHECK_STREAM_IS_PRESENT
 #undef FRAME_ALREADY_PREPARED
 #undef FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE

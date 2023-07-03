@@ -220,7 +220,6 @@ tfw_h2_cleanup(void)
 int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
-	TfwStreamQueue *hclosed_streams = &ctx->hclosed_streams;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
@@ -232,7 +231,6 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	ctx->rem_wnd = DEF_WND_SIZE;
 
 	spin_lock_init(&ctx->lock);
-	INIT_LIST_HEAD(&hclosed_streams->list);
 	INIT_LIST_HEAD(&closed_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
@@ -649,19 +647,6 @@ __tfw_h2_stream_add_to_queue(TfwStreamQueue *queue, TfwStream *stream)
 }
 
 /*
- * Move stream from one queue to another.
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static inline void
-__tfw_h2_stream_move_queue(TfwStreamQueue *queue, TfwStream *stream)
-{
-	__tfw_h2_stream_del_from_queue(stream);
-	__tfw_h2_stream_add_to_queue(queue, stream);
-}
-
-/*
  * Unlink the stream from a corresponding request (if linked) and from special
  * queue of closed streams (if it is contained there).
  *
@@ -744,34 +729,17 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 }
 
 TfwStreamFsmRes
-tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
-		      unsigned char type)
+tfw_h2_send_end_of_stream(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	TfwStreamQueue *queue;
-	TfwStreamFsmRes r = STREAM_FSM_RES_OK;
+	TfwStreamFsmRes r;
 
 	BUG_ON (tfw_h2_stream_is_closed(stream)
 		|| stream->queue == &ctx->closed_streams);
-	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
-	/*
-	 * If it is end of headers we move stream to
-	 * half closed queue.
-	 */
-	if (!stream->xmit.h_len)
-		queue = &ctx->hclosed_streams;
-	/*
-	 * If it is also end of data we move stream to
-	 * closed queue.
-	 */
-	if (!stream->xmit.b_len) {
-		WARN_ON_ONCE(stream->xmit.h_len);
-		queue = &ctx->closed_streams;
-		r = STREAM_SEND_PROCESS(stream, type, HTTP2_F_END_STREAM);
-	}
+	BUG_ON(stream->xmit.h_len || stream->xmit.b_len);
 
-	spin_lock(&ctx->lock);
-	__tfw_h2_stream_move_queue(queue, stream);
-	spin_unlock(&ctx->lock);
+	r = STREAM_SEND_PROCESS(stream, HTTP2_DATA, HTTP2_F_END_STREAM);
+	if (stream->state > HTTP2_STREAM_REM_HALF_CLOSED)
+		tfw_h2_stream_add_closed(ctx, stream);
 
 	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
 }
@@ -793,7 +761,10 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 	if (stream && *stream) {
 		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
 			ctx, *stream, id, err_code);
-		tfw_h2_stream_add_closed(ctx, *stream);
+		if ((*stream)->state > HTTP2_STREAM_REM_HALF_CLOSED)
+			tfw_h2_stream_add_closed(ctx, *stream);
+		else
+			BUG();
 		*stream = NULL;
 	}
 
@@ -873,11 +844,10 @@ tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
 	if (!STREAM_SEND_PROCESS(stream, type, flags))
 		id = stream->id;
 
-	if (unlikely(!id || type == HTTP2_RST_STREAM)) {
+	if (unlikely(!id) || stream->state > HTTP2_STREAM_REM_HALF_CLOSED) {
 		req->stream = NULL;
 		stream->msg = NULL;
-		__tfw_h2_stream_add_to_queue(&ctx->closed_streams,
-					     stream);
+		__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
 	}
 
 	spin_unlock(&ctx->lock);
@@ -1448,7 +1418,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
+		SET_TO_READ_VERIFY(ctx, (ctx->cur_stream->state != HTTP2_STREAM_LOC_CLOSED ?
+				   HTTP2_RECV_DATA : HTTP2_IGNORE_FRAME_DATA));
 		return T_OK;
 
 	case HTTP2_HEADERS:
@@ -1492,7 +1463,9 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		if (hdr->flags & HTTP2_F_PRIORITY)
 			return tfw_h2_recv_priority(ctx);
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
+		SET_TO_READ_VERIFY(ctx, (!ctx->cur_stream ||
+				   ctx->cur_stream->state != HTTP2_STREAM_LOC_CLOSED ?
+				   HTTP2_RECV_HEADER : HTTP2_IGNORE_FRAME_DATA));
 		return T_OK;
 
 	case HTTP2_PRIORITY:
@@ -1684,7 +1657,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
+		SET_TO_READ_VERIFY(ctx, (ctx->cur_stream->state != HTTP2_STREAM_LOC_CLOSED ?
+				   HTTP2_RECV_CONT : HTTP2_IGNORE_FRAME_DATA));
 		return T_OK;
 
 	default:
@@ -2312,8 +2286,12 @@ TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id)
 	TfwStream *stream;
 
 	stream = tfw_h2_find_stream(&ctx->sched, id);
-	if (!stream || stream->queue == &ctx->closed_streams)
+	if (!stream || (stream->queue == &ctx->closed_streams &&
+	    stream->state != HTTP2_STREAM_LOC_CLOSED))
 		return NULL;
+
+	WARN_ON_ONCE(stream->queue == &ctx->closed_streams &&
+		     stream->state != HTTP2_STREAM_LOC_CLOSED);
 
 	return stream;
 }
