@@ -5,7 +5,7 @@
  * description and performance comparison with other implementations at
  * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  *
- * Copyright (C) 2016-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,6 +25,8 @@
 #include <asm/alternative-asm.h>
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
+#include <fw/token_tables.h>
+#include <fw/token_mask.h>
 
 #define CASE	0x2020202020202020
 
@@ -100,47 +102,13 @@ __C:
 	 */
 	.quad	0xa1a1a1a1a1a1a1a1, 0xa1a1a1a1a1a1a1a1
 	.quad	0xa1a1a1a1a1a1a1a1, 0xa1a1a1a1a1a1a1a1
-	/*
-	 * URI-accepted characters, in little endian.
-	 *
-	 * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-	 * !#$%&'*+-._();:@=,/?[]~0123456789
-	 */
-	.quad	0xfcfcfcfcfcf8fcb8, 0x7cd47c547cfcfcfc
-	.quad	0xfcfcfcfcfcf8fcb8, 0x7cd47c547cfcfcfc
-	/*
-	 * Token: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-	 *	  !#$%&'*+-.^_`|~0123456789
-	 */
-	.quad	0xfcfcfcfcfcf8fce8, 0x70f454d054f4f8f8
-	.quad	0xfcfcfcfcfcf8fce8, 0x70f454d054f4f8f8
-	/*
-	 * Token with DQUOTE and "=".
-	 */
-	.quad	0xfcfcfcfcfcfcfce8, 0x70f45cd054f4f8f8
-	.quad	0xfcfcfcfcfcfcfce8, 0x70f45cd054f4f8f8
-	/*
-	 * RFC 7230, Appendix B; RFC 5234, Appendix B.1.:
-	 *
-	 * 	field-value OWS = VCHAR SP HTAB = %x9 %x20-7E
-	 *
-	 * , i.e. non-control characters.
-	 */
-	.quad	0xfcfcfcfcfcfcfcfc, 0x7cfcfcfcfcfcfdfc
-	.quad	0xfcfcfcfcfcfcfcfc, 0x7cfcfcfcfcfcfdfc
-	/*
-	 * Alphabet for X-Forwarded-For Node ID (RFC 7239):
-	 *
-	 *	ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-	 *	0123456789._-[]:
-	 */
-	.quad	0xf8f8f8f8f8f8f8a8, 0x7054745070f8f8f8
-	.quad	0xf8f8f8f8f8f8f8a8, 0x7054745070f8f8f8
-	/*
-	 * Cookie-octet w/ DQUOTE: %x21 %x22-2B %x2D-3A %x3C-5B %x5D-7E
-	 */
-	.quad	0xfcfcfcfcfcfcfcf8, 0x7cfcfcd8f4fcfcfc
-	.quad	0xfcfcfcfcfcfcfcf8, 0x7cfcfcd8f4fcfcfc
+	__CALC_TOKEN_MASK(TOKEN_SYM_URI)
+	__CALC_TOKEN_MASK(TOKEN_SYM_TOKEN)
+	__CALC_TOKEN_MASK(TOKEN_SYM_QETOKEN)
+	__CALC_TOKEN_MASK(TOKEN_SYM_NCTL)
+	__CALC_TOKEN_MASK(TOKEN_SYM_XFF)
+	__CALC_TOKEN_MASK(TOKEN_SYM_COOKIE)
+	__CALC_TOKEN_MASK(TOKEN_SYM_TOKEN_LC)
 
 /* Helping vector data referenced by value. */
 #define __A			__C(%rip)
@@ -164,197 +132,28 @@ __C:
 #define __NCTL			$__C+0x1e0
 #define __XFF			$__C+0x200
 #define __COOKIE		$__C+0x220
+#define __TOKEN_LC		$__C+0x240
 
 .align 64
 
-/*
- * ASCII codes to accept URI string (byte representation for __URI).
- *
- * While we can pack the array, which is 4 cache lines currently,
- * to just half of a cache line using 4 64-bit masks, it's much
- * faster to access the extra cache lines than to the 4 bit operations
- * (uri_a[c >> 6] & (1UL << (c & 0x3f))).
- */
 uri:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-/*
- * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6).
- * (Byte representation for __TOKEN).
- */
+	.byte	TOKEN_SYM_URI
 token:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-/*
- * Token with DQUOTE and "=".
- * (Byte representation for __QETOKEN).
- */
+	.byte	TOKEN_SYM_TOKEN
 qetoken:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-/*
- * ASCII codes to accept HTTP header values
- * (Byte representation for __NCTL above).
- */
+	.byte	TOKEN_SYM_QETOKEN
 nctl:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-/*
- * ASCII codes to accept ctext | VCHAR, e.g. User-Agent.
- */
+	.byte	TOKEN_SYM_NCTL
 ctext_vchar:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-
-/*
- * ASCII codes to accept X-Forwarded-For values
- * (byte representation for __XFF).
- */
+	.byte	TOKEN_SYM_VCHAR
 xff:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-/*
- * ASCII codes for Cookie value matching by cookie-octet defined
- * by RFC 6265 4.1.1 as
- *
- * 	%x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E
- * 	; US-ASCII characters excluding CTLs,
- * 	; whitespace DQUOTE, comma, semicolon,
- * 	; and backslash
- *
- * We add DQUOTES to the set since we don't analyzer cookie value
- * grammar. This is byte representation for __COOKIE above.
- */
+	.byte	TOKEN_SYM_XFF
 cookie:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-/*
- * ASCII codes for Etag value defined by RFC 7232 2.3 as
- *
- *	%x21 / %x23-7E / obs-text
- *	; VCHAR except double quotes, plus obs-text
- */
+	.byte	TOKEN_SYM_COOKIE
 etag:
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	.byte	0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-	.byte	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	.byte	TOKEN_SYM_ETAG
+token_lc:
+	.byte	TOKEN_SYM_TOKEN_LC
 
 #ifdef DEBUG
 
@@ -367,21 +166,8 @@ dbg_prefix_vec:
  * Custom character alphabets allowed for various HTTP fields.
  */
 .extern __CUSTOM
-
-#define __CUST_URI_0		$__CUSTOM
-#define __CUST_URI_1		$__CUSTOM+0x020
-#define __CUST_TOKEN_0		$__CUSTOM+0x040
-#define __CUST_TOKEN_1		$__CUSTOM+0x060
-#define __CUST_QETOKEN_0	$__CUSTOM+0x080
-#define __CUST_QETOKEN_1	$__CUSTOM+0x0a0
-#define __CUST_NCTL_0		$__CUSTOM+0x0c0
-#define __CUST_NCTL_1		$__CUSTOM+0x0e0
-#define __CUST_CTVCHAR_0	$__CUSTOM+0x100
-#define __CUST_CTVCHAR_1	$__CUSTOM+0x120
-#define __CUST_XFF_0		$__CUSTOM+0x140
-#define __CUST_XFF_1		$__CUSTOM+0x160
-#define __CUST_COOKIE_0		$__CUSTOM+0x180
-#define __CUST_COOKIE_1		$__CUSTOM+0x1a0
+#define __CUST_TBL_0(t) $__CUSTOM+(t*0x40)
+#define __CUST_TBL_1(t) $__CUSTOM+(t*0x40+0x20)
 
 .extern __tfw_lct
 
@@ -2303,8 +2089,8 @@ SYM_FUNC_START(tfw_match_uri)
 	movq	$uri, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_uri:
-	movq	__CUST_URI_0, %rcx
-	movq	__CUST_URI_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN), %r8
 	movq	$custom_uri, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_uri)
@@ -2316,11 +2102,24 @@ SYM_FUNC_START(tfw_match_token)
 	movq	$token, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_token:
-	movq	__CUST_TOKEN_0, %rcx
-	movq	__CUST_TOKEN_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN), %r8
 	movq	$custom_token, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_token)
+
+SYM_FUNC_START(tfw_match_token_lc)
+	cmpb	$0, custom_token_enabled(%rip)
+	jne	.match_cust_token_lc
+	movq	__TOKEN_LC, %rcx
+	movq	$token_lc, %rdx
+	jmp	__tfw_strspn_simd
+.match_cust_token_lc:
+	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN_LC), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN_LC), %r8
+	movq	$custom_token_lc, %rdx
+	jmp	__tfw_match_custom
+SYM_FUNC_END(tfw_match_token_lc)
 
 SYM_FUNC_START(tfw_match_qetoken)
 	cmpb	$0, custom_qetoken_enabled(%rip)
@@ -2329,8 +2128,8 @@ SYM_FUNC_START(tfw_match_qetoken)
 	movq	$qetoken, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_qetoken:
-	movq	__CUST_QETOKEN_0, %rcx
-	movq	__CUST_QETOKEN_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_QETOKEN), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_QETOKEN), %r8
 	movq	$custom_qetoken, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_qetoken)
@@ -2342,8 +2141,8 @@ SYM_FUNC_START(tfw_match_nctl)
 	movq	$nctl, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_nctl:
-	movq	__CUST_NCTL_0, %rcx
-	movq	__CUST_NCTL_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_NCTL), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_NCTL), %r8
 	movq	$custom_nctl, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_nctl)
@@ -2355,8 +2154,8 @@ SYM_FUNC_START(tfw_match_xff)
 	movq	$xff, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_xff:
-	movq	__CUST_XFF_0, %rcx
-	movq	__CUST_XFF_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_XFF), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_XFF), %r8
 	movq	$custom_xff, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_xff)
@@ -2368,8 +2167,8 @@ SYM_FUNC_START(tfw_match_cookie)
 	movq	$cookie, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_cookie:
-	movq	__CUST_COOKIE_0, %rcx
-	movq	__CUST_COOKIE_1, %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_COOKIE), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_COOKIE), %r8
 	movq	$custom_cookie, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_cookie)

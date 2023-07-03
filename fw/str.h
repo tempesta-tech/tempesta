@@ -44,7 +44,7 @@
  * the number of chunks in a compound string. Zero means a plain string.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -92,6 +92,7 @@
  */
 size_t tfw_match_uri(const char *s, size_t len);
 size_t tfw_match_token(const char *s, size_t len);
+size_t tfw_match_token_lc(const char *s, size_t len);
 size_t tfw_match_qetoken(const char *s, size_t len);
 size_t tfw_match_nctl(const char *s, size_t len);
 size_t tfw_match_ctext_vchar(const char *s, size_t len);

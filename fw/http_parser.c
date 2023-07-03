@@ -9660,12 +9660,11 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_STATE(RGen_HdrOtherN) {
 		__fsm_n = __data_remain(p);
 		/*
-		 * TODO: RFC 7540, Section 8.1.2:
+		 * RFC 7540, Section 8.1.2:
 		 * A request or response containing uppercase header field
 		 * names MUST be treated as malformed.
-		 * We should use here lower-case matching function.
 		 */
-		__fsm_sz = tfw_match_token(p, __fsm_n);
+		__fsm_sz = tfw_match_token_lc(p, __fsm_n);
 		if (unlikely(__fsm_sz != __fsm_n))
 			__FSM_H2_DROP(RGen_HdrOtherN);
 		/*
