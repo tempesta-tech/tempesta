@@ -1,3 +1,50 @@
+tempesta-fw-dkms (0.7.0) focal; urgency=medium
+
+  * Fix corrupted header location on H2 sticky cookie redirect
+  * Fix crash during tempesta reconfiguration
+  * Safe handling of websockets drop
+  * Delete tempesta-tests.Jenkinsfile
+  * Fix response absence in case of invalid http2 request
+  * HTTP2: report SETTINGS_HEADER_TABLE_SIZE in initial SETTINGS frame.
+  * Fix warning in dmesg in case of error in frame processing
+  * HTTP2: account for :status headers field when sending 304 response
+  * Implement parsing Etag without double quotes
+  * Fix kernel panic in case of small value of SETTINGS_HEADER_TABLE_SIZE
+  * Correctly set TFW_HTTP_B_ACCEPT_HTML bit in req->flags from hpack
+  * Remove outdated and not supported TfwBomber.
+  * Adjustable cache ttl via HTTP tables
+  * Remove "$cache" action related code
+  * Reworked HTTP1 -> HTTP2 message transformation
+  * Fixed chunked body parsing error
+  * Fix warning under heavy segmentation
+  * Fix various problems reported in #1703
+  * Cleanups and style fix
+  * Mekhanik evgenii/flow control 1394 v3
+  * Added restriction to specify DEBUG < 1
+  * Added small hacks to work around tests disabled by #1630
+  * Fixed connection leak on pipelined upgrade request
+  * Fix invalid hpack decoding
+  * Fix BUG_ON in tfw_h2_stream_process.
+  * Remove tail_lock hotfix code.
+  * Fix tls tests build.
+  * Fix incorrect work of ttls_pk_free function
+  * Fixed framing error for resposnses received from cache with header modification
+  * Fixed bug when headers and body after our modifications became shuffled
+  * Do not forward connection-specific headers to/from H1 backend for H2 clients
+  * Merge multiple cookie headers coming from HTTP/2 client into a single Cookie header for HTTP/1.1 backend
+  * Inherit iptables mark when splitting skb
+  * Validate vhost picked by SNI vs vhost picked by authority
+  * Fix race in rsa implementation.
+  * Fix invalid return code in tfw_tls_add_cn
+  * String pattern fixed for T_DBG3 macro
+  * Fixed connections drop under load
+  * Fixed kernel panic under heavy load with low mtu
+  * Fix invalid stream processing
+  * Make HTTP/2 parser reject upper-case headers
+
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 3 Mar 2022 20:13:43 +0500
+
 tempesta-fw-dkms (0.6.8) focal; urgency=medium
 
   * Fix parsing of an empty extension if it comes last in ClientHello.
