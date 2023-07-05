@@ -148,7 +148,7 @@ tfw_install_deps()
 		tfw_confirm
 
 		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
-		        "focal main" >> /etc/apt/sources.list
+		        "jammy main" >> /etc/apt/sources.list
 		apt-get update
 		apt-get dist-upgrade -y
     ;;
