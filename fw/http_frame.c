@@ -169,9 +169,12 @@ do {									\
 
 #define SET_TO_READ_VERIFY(ctx, next_state)				\
 do {									\
+	typeof(next_state) state = (!ctx->cur_stream ||			\
+		ctx->cur_stream->state < HTTP2_STREAM_LOC_CLOSED) ?	\
+		next_state : HTTP2_IGNORE_FRAME_DATA;			\
 	if ((ctx)->hdr.length) {					\
 		SET_TO_READ(ctx);                                       \
-		(ctx)->state = next_state;				\
+		(ctx)->state = state;					\
 	} else {							\
 		(ctx)->state = HTTP2_IGNORE_FRAME_DATA;			\
 	}								\
@@ -220,7 +223,6 @@ tfw_h2_cleanup(void)
 int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
-	TfwStreamQueue *hclosed_streams = &ctx->hclosed_streams;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
@@ -232,7 +234,6 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	ctx->rem_wnd = DEF_WND_SIZE;
 
 	spin_lock_init(&ctx->lock);
-	INIT_LIST_HEAD(&hclosed_streams->list);
 	INIT_LIST_HEAD(&closed_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
@@ -649,19 +650,6 @@ __tfw_h2_stream_add_to_queue(TfwStreamQueue *queue, TfwStream *stream)
 }
 
 /*
- * Move stream from one queue to another.
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static inline void
-__tfw_h2_stream_move_queue(TfwStreamQueue *queue, TfwStream *stream)
-{
-	__tfw_h2_stream_del_from_queue(stream);
-	__tfw_h2_stream_add_to_queue(queue, stream);
-}
-
-/*
  * Unlink the stream from a corresponding request (if linked) and from special
  * queue of closed streams (if it is contained there).
  *
@@ -744,34 +732,23 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 }
 
 TfwStreamFsmRes
-tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
-		      unsigned char type)
+tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 {
-	TfwStreamQueue *queue;
-	TfwStreamFsmRes r = STREAM_FSM_RES_OK;
+	TfwStreamFsmRes r;
+	unsigned char flags = 0;
 
-	BUG_ON (tfw_h2_stream_is_closed(stream)
-		|| stream->queue == &ctx->closed_streams);
 	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
-	/*
-	 * If it is end of headers we move stream to
-	 * half closed queue.
-	 */
-	if (!stream->xmit.h_len)
-		queue = &ctx->hclosed_streams;
-	/*
-	 * If it is also end of data we move stream to
-	 * closed queue.
-	 */
-	if (!stream->xmit.b_len) {
-		WARN_ON_ONCE(stream->xmit.h_len);
-		queue = &ctx->closed_streams;
-		r = STREAM_SEND_PROCESS(stream, type, HTTP2_F_END_STREAM);
-	}
 
-	spin_lock(&ctx->lock);
-	__tfw_h2_stream_move_queue(queue, stream);
-	spin_unlock(&ctx->lock);
+	if (!stream->xmit.h_len && type != HTTP2_DATA)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (!stream->xmit.b_len)
+		flags |= HTTP2_F_END_STREAM;
+
+
+	r = STREAM_SEND_PROCESS(stream, type, flags);
+	if (stream->state > HTTP2_STREAM_REM_HALF_CLOSED)
+		tfw_h2_stream_add_closed(ctx, stream);
 
 	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
 }
@@ -793,7 +770,15 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 	if (stream && *stream) {
 		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
 			ctx, *stream, id, err_code);
-		tfw_h2_stream_add_closed(ctx, *stream);
+		if ((*stream)->state > HTTP2_STREAM_REM_HALF_CLOSED)
+			tfw_h2_stream_add_closed(ctx, *stream);
+		else {
+			/*
+			 * This function is always called after processing
+			 * RST STREAM or stream error.
+			 */
+			BUG();
+		}
 		*stream = NULL;
 	}
 
@@ -820,13 +805,10 @@ tfw_h2_stream_id(TfwHttpReq *req)
 }
 
 /*
- * Unlink request from corresponding stream (if linked) and
- * add the stream to the queue of closed streams
- * (if it is not contained there yet and if it is necessary).
+ * Unlink request from corresponding stream (if linked).
  */
 void
-tfw_h2_stream_unlink_from_req(TfwHttpReq *req,  bool send_rst,
-			      bool move_to_closed)
+tfw_h2_stream_unlink_from_req(TfwHttpReq *req)
 {
 	TfwStream *stream;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
@@ -839,27 +821,21 @@ tfw_h2_stream_unlink_from_req(TfwHttpReq *req,  bool send_rst,
 		return;
 	}
 
-	if (send_rst)
-		STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0);
-
 	req->stream = NULL;
 	stream->msg = NULL;
-
-	if (move_to_closed) {
-		T_DBG3("%s: ctx [%p], strm [%p] added to closed streams list\n",
-		       __func__, ctx, stream);
-		__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
-	}
 
 	spin_unlock(&ctx->lock);
 }
 
-unsigned int
-tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
-		      unsigned char flags)
+/*
+ * Unlink request from corresponding stream (if linked),
+ * send RST STREAM and add stream to closed queue.
+ */
+void
+tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req)
 {
+	TfwStreamFsmRes r;
 	TfwStream *stream;
-	unsigned int id = 0;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	spin_lock(&ctx->lock);
@@ -867,22 +843,18 @@ tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
 	stream = req->stream;
 	if (!stream) {
 		spin_unlock(&ctx->lock);
-		return 0;
+		return;
 	}
 
-	if (!STREAM_SEND_PROCESS(stream, type, flags))
-		id = stream->id;
+	req->stream = NULL;
+	stream->msg = NULL;
 
-	if (unlikely(!id || type == HTTP2_RST_STREAM)) {
-		req->stream = NULL;
-		stream->msg = NULL;
-		__tfw_h2_stream_add_to_queue(&ctx->closed_streams,
-					     stream);
-	}
+	r = STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0);
+	WARN_ON_ONCE(r != STREAM_FSM_RES_OK);
+
+	__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
 
 	spin_unlock(&ctx->lock);
-
-	return id;
 }
 
 /*
@@ -1429,7 +1401,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
+						      true);
 		/*
 		 * If stream is removed, it had been closed before, so this is
 		 * connection error (see RFC 7540 section 5.1).
@@ -1458,7 +1431,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
+						      true);
 		if (tfw_h2_stream_id_verify(ctx)) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -1502,7 +1476,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
+						      true);
 		if (hdr->length != FRAME_PRIORITY_SIZE)
 			goto conn_term;
 
@@ -1536,7 +1511,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		if (hdr->stream_id) {
 			ctx->cur_stream =
 				tfw_h2_find_not_closed_stream(ctx,
-							      hdr->stream_id);
+							      hdr->stream_id,
+							      true);
 			if (ctx->cur_stream) {
 				STREAM_RECV_PROCESS(ctx, hdr);
 				ctx->state = HTTP2_RECV_FRAME_WND_UPDATE;
@@ -1626,7 +1602,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
+						      true);
 		if (ctx->cur_stream) {
 			STREAM_RECV_PROCESS(ctx, hdr);
 			ctx->state = HTTP2_RECV_FRAME_RST_STREAM;
@@ -1675,7 +1652,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id);
+			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
+						      true);
 		if (!ctx->cur_stream) {
 			err_code = HTTP2_ECODE_CLOSED;
 			goto conn_term;
@@ -2307,12 +2285,22 @@ tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
 				  mss_now, limit, t_tz);
 }
 
-TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id)
+TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
+					 bool recv)
 {
 	TfwStream *stream;
 
 	stream = tfw_h2_find_stream(&ctx->sched, id);
-	if (!stream || stream->queue == &ctx->closed_streams)
+	/*
+	 * RFC 9113 section 5.1:
+	 * An endpoint that sends a RST_STREAM frame on a stream that is in
+	 * the "open" or "half-closed (local)" state could receive any type
+	 * of frame.  The peer might have sent or enqueued for sending these
+	 * frames before processing the RST_STREAM frame.
+	 * It is HTTP2_STREAM_LOC_CLOSED state in our implementation.
+	 */
+	if (!stream || (stream->queue == &ctx->closed_streams &&
+	    (!recv || stream->state > HTTP2_STREAM_LOC_CLOSED)))
 		return NULL;
 
 	return stream;
