@@ -240,6 +240,9 @@ tfw_try_distro()
 	Ubuntu[[:space:]]20*)
 		DISTRO="ubuntu-20"
 		;;
+	Ubuntu[[:space:]]22*)
+		DISTRO="ubuntu-22"
+		;;
 	*)
 		echo "Installer does not support $d_name distro!"
 		exit 2
