@@ -146,13 +146,9 @@ typedef struct {
  *			  remote endpoint;
  * @streams_num		- number of the streams initiated by client;
  * @sched		- streams' priority scheduler;
- * @hclosed_streams	- queue of half-closed streams (in
- *			  HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
- *			  states), which are waiting until all it's data will
- *			  be sent or error occured. Then they will be moved to
- * 			  @closed_streams queue for later removal;
- * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED
- * 			  state), which are waiting for removal;
+ * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED or
+ * 			  HTTP2_STREAM_REM_CLOSED state), which are waiting
+ * 			  for removal;
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
@@ -196,7 +192,6 @@ typedef struct {
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
-	TfwStreamQueue	hclosed_streams;
 	TfwStreamQueue	closed_streams;
 	unsigned int	lstream_id;
 	long int	loc_wnd;
@@ -228,15 +223,14 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
-TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id);
+TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
+					 bool recv);
 unsigned int tfw_h2_stream_id(TfwHttpReq *req);
-unsigned int tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
-				   unsigned char flags);
-void tfw_h2_stream_unlink_from_req(TfwHttpReq *req,  bool send_rst,
-				   bool move_to_closed);
+void tfw_h2_stream_unlink_from_req(TfwHttpReq *req);
+void tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
-TfwStreamFsmRes tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
-				      unsigned char type);
+TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
+					   unsigned char type);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 

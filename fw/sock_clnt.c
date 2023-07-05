@@ -166,15 +166,16 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
  * to the second `xmit` callback.
  */
 static int
-tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
-		       unsigned int *limit, unsigned int *nskbs)
+tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
+		       unsigned int mss_now, unsigned int *limit,
+		       unsigned int *nskbs)
 {
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2 = tfw_h2_context(conn);
 	TfwHPackETbl *tbl = &h2->hpack.enc_tbl;
 	unsigned short flags = skb_tfw_flags(skb);
 	unsigned int skb_priv = skb_tfw_cb(skb);
-	TfwStream *stream = tfw_h2_find_not_closed_stream(h2, skb_priv);
+	TfwStream *stream = tfw_h2_find_not_closed_stream(h2, skb_priv, false);
 	unsigned int truesize = 0, tmp_truesize = 0;
 	bool headers_was_done = false;
 	int r = 0;
@@ -205,8 +206,8 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		goto ret;						\
 	}
 
-#define H2_PROCESS_STREAM(h2, stream, type)				\
-	r = tfw_h2_stream_process(h2, stream, type);			\
+#define TFW_H2_STREAM_SEND_PROCESS(h2, stream, type)			\
+	r = tfw_h2_stream_send_process(h2, stream, type);		\
 	if (unlikely(r != STREAM_FSM_RES_OK)) {				\
 		T_WARN("Failed to process stream %d", (int)r);		\
 		/*							\
@@ -306,7 +307,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 */
 		if (!stream->xmit.h_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_HEADERS);
-			H2_PROCESS_STREAM(h2, stream, HTTP2_HEADERS);
+			TFW_H2_STREAM_SEND_PROCESS(h2, stream, HTTP2_HEADERS);
 		}
 	}
 
@@ -341,7 +342,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_no
 		 */
 		if (!stream->xmit.b_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
-			H2_PROCESS_STREAM(h2, stream, HTTP2_DATA);
+			TFW_H2_STREAM_SEND_PROCESS(h2, stream, HTTP2_DATA);
 		}
 	}
 
@@ -399,7 +400,7 @@ ret:
 
 	return r;
 
-#undef H2_PROCESS_STREAM
+#undef TFW_H2_STREAM_SEND_PROCESS
 #undef CHECK_STREAM_IS_PRESENT
 #undef FRAME_ALREADY_PREPARED
 #undef FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE

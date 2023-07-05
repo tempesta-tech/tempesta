@@ -257,7 +257,7 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 */
 		if (type == HTTP2_RST_STREAM)
 		{
-			stream->state = HTTP2_STREAM_CLOSED;
+			stream->state = HTTP2_STREAM_LOC_CLOSED;
 		}
 		else if (type != HTTP2_PRIORITY && type != HTTP2_WINDOW_UPDATE) {
 			res = STREAM_FSM_RES_IGNORE;
