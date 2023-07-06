@@ -256,7 +256,7 @@ tfw_set_grub_default()
 		return
 	fi
 
-	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35- | head -n1 | cut -d "'" -f 2`
+	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35.tfw | head -n1 | cut -d "'" -f 2`
 	entry=`grep menuentry /boot/grub/grub.cfg | grep tempesta | head -n1 | cut -d "'" -f 2`
 	if [[ ! "$entry" && ! "$u_entry" ]]; then
 		echo "Error: Can't find Tempesta patched kernel in /boot/grub/grub.cfg!"
