@@ -2271,7 +2271,7 @@ tfw_hpack_node_compare(const TfwStr *__restrict h_name,
 		return (int)len - (int)node->hdr_len;
 
 	/* Case-sensitive comparison of values */
-	TFW_STR_FOR_EACH_CHUNK(c, h_name, end) {
+	TFW_STR_FOR_EACH_CHUNK(c, h_val, end) {
 		if (!c->len)
 			continue;
 
@@ -2720,7 +2720,7 @@ tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 
 	/* hdr isn't changed, it's const correctess that is difficult
 	 * to follow */
-	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, true);
+	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, false);
 	while (node) {
 		parent = node;
 		res = tfw_hpack_node_compare(&h_name, &h_val, node, &nm_node);
