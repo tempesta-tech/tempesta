@@ -5035,7 +5035,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 *   that an illegal request took place, send the response and
 	 *   close client connection.
 	 */
-	if (!on_req_recv_event || attack) {
+	if (attack) {
 		tfw_http_req_set_conn_close(req);
 		r = TFW_BAD;
 	}
@@ -5120,14 +5120,25 @@ tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg)
 }
 
 /**
+ * Unintentional error happen during request or response processing. Caller
+ * function is not a part of ss_tcp_data_ready() function and manual connection
+ * close will be performed.
+ */
+static inline int
+tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg)
+{
+	return tfw_http_cli_error_resp_and_log(req, status, msg, false, false);
+}
+
+/**
  * Attack is detected during request or response processing. Caller function is
  * not a part of ss_tcp_data_ready() function and manual connection close
  * will be performed.
  */
-static inline void
+static inline int
 tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
+	return tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
 
 static void
@@ -6413,6 +6424,10 @@ next_msg:
 	default:
 		T_ERR("Unrecognized HTTP response parser return code, %d\n", r);
 		fallthrough;
+	case TFW_DROP:
+		T_DBG2("Drop invalid HTTP response\n");
+		TFW_INC_STAT_BH(serv.msgs_parserr);
+		goto bad_msg;
 	case TFW_BLOCK:
 		/*
 		 * The response has not been fully parsed. There's no
@@ -6424,6 +6439,7 @@ next_msg:
 		 */
 		T_DBG2("Block invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
+		filtout = true;
 		goto bad_msg;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
@@ -6617,11 +6633,11 @@ bad_msg:
 	tfw_http_popreq(hmresp, false);
 	/* The response is freed by tfw_http_req_parse_block/drop(). */
 	if (filtout)
-		r = tfw_http_req_parse_block(bad_req, 502, "response blocked: "
-					     "filtered out");
+		r = tfw_http_req_block(bad_req, 502,
+				       "response blocked: filtered out");
 	else
-		r = tfw_http_req_parse_drop(bad_req, 502, "response dropped: "
-					    "processing error");
+		r = tfw_http_req_drop(bad_req, 502,
+				      "response dropped: processing error");
 	return r;
 }
 

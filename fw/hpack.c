@@ -389,7 +389,7 @@ do {								\
 	hp->hctx = 0;						\
 	tfw_huffman_init(hp);					\
 	if ((r = __hpack_process_hdr_##field(req)))		\
-		goto out;					\
+		goto add_index_and_drop;			\
 	T_DBG3("%s: processed decoded, tail=%lu\n", __func__,	\
 	       last - src);					\
 } while (0)
@@ -404,7 +404,7 @@ do {								\
 	       " hp->length=%lu\n", __func__, len, n,		\
 	       last - src, hp->length);				\
 	if (r)							\
-		goto  out;					\
+		goto  add_index_and_drop;			\
 	WARN_ON_ONCE(hp->length);				\
 } while (0)
 
@@ -1025,9 +1025,6 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned int index)
 		WARN_ON_ONCE(!entry->name_num);
 	}
 
-	if (entry && !tfw_hpack_entry_tag_valid(entry->tag))
-		entry = NULL;
-
 	WARN_ON_ONCE(entry && (!entry->hdr || !entry->hdr->nchunks));
 
 	return entry;
@@ -1170,7 +1167,7 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
 	if (WARN_ON_ONCE(!num || num > s_hdr->nchunks))
-		return -EINVAL;
+		return T_BAD;
 
 	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
 		return T_BAD;
@@ -1380,6 +1377,10 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		 unsigned long n,  TfwHttpReq *__restrict req,
 		 unsigned int *__restrict parsed)
 {
+	TfwStr empty = {
+		.chunks = (TfwStr []){ {} },
+		.nchunks = 1
+	};
 	unsigned int state;
 	int r = T_POSTPONE;
 	TfwMsgParseIter *it = &req->pit;
@@ -1511,10 +1512,8 @@ index:
 			if (unlikely(hp->length == 0x7F)) {
 				GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 			}
-			else if (unlikely(hp->length == 0)) {
-				r = T_BLOCK;
-				goto out;
-			}
+			else if (unlikely(hp->length == 0))
+				goto add_index_and_drop;
 
 			T_DBG3("%s: name length: %lu\n", __func__, hp->length);
 
@@ -1553,10 +1552,16 @@ get_indexed_name:
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
-			if (!entry || tfw_hpack_hdr_name_set(hp, req, entry)) {
+			if (!entry) {
 				r = T_BLOCK;
 				goto out;
+			} else if (!tfw_hpack_entry_tag_valid(entry->tag)) {
+				r = T_DROP;
+				goto out;
 			}
+
+			if ((r = tfw_hpack_hdr_name_set(hp, req, entry)))
+				goto out;
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -1589,18 +1594,7 @@ get_value:
 				switch (req->pit.tag) {
 				case TFW_TAG_HDR_HOST:
 				case TFW_TAG_HDR_H2_AUTHORITY:
-					TfwCachedHeaderState *cstate =
-						&req->stream->parser.cstate;
-
-					if (state & HPACK_FLAGS_ADD
-					    && tfw_hpack_add_index(&hp->dec_tbl,
-								   it, cstate))
-					{
-						r = T_BLOCK;
-						break;
-					}
-					r = T_BAD;
-					break;
+					goto add_index_and_drop;
 				default:
 					r = T_BLOCK;
 				}
@@ -1647,10 +1641,8 @@ get_value_text:
 			 * must be determined during headers' field processing
 			 * above.
 			 */
-			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
-				r = T_BLOCK;
+			if ((r = tfw_http_msg_hdr_close((TfwHttpMsg *)req)))
 				goto out;
-			}
 
 			break;
 		}
@@ -1668,12 +1660,13 @@ get_all_indexed:
 			if (!entry) {
 				r = T_BLOCK;
 				goto out;
-			}
-
-			if (tfw_hpack_hdr_set(hp, req, entry)) {
-				r = T_BLOCK;
+			} else if (!tfw_hpack_entry_tag_valid(entry->tag)) {
+				r = T_DROP;
 				goto out;
 			}
+
+			if ((r = tfw_hpack_hdr_set(hp, req, entry)))
+				goto out;
 
 			it->hdrs_len += it->parsed_hdr->len;
 			++it->hdrs_cnt;
@@ -1684,10 +1677,8 @@ get_all_indexed:
 			 * and @parser->_hdr_tag must be determined from the
 			 * decoder static/dynamic tables above.
 			 */
-			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
-				r = T_BLOCK;
+			if ((r = tfw_http_msg_hdr_close((TfwHttpMsg *)req)))
 				goto out;
-			}
 
 			break;
 		}
@@ -1767,6 +1758,15 @@ set_tbl_size:
 	} while (src < last);
 
 	return T_OK;
+
+add_index_and_drop:
+	req->stream->parser.hdr = empty;
+	if (state & HPACK_FLAGS_ADD
+	    && tfw_hpack_add_index(&hp->dec_tbl, it,
+	                           &req->stream->parser.cstate))
+		r = T_BLOCK;
+	else
+		r = T_DROP;
 out:
 	WARN_ON_ONCE(src > last);
 	*parsed -= last - src;
@@ -2003,7 +2003,7 @@ get_value_text:
 	case HPACK_STATE_INDEX:
 		prev = src;
 		GET_CONTINUE(hp->index);
-		T_DBG3("%s: index finally decoded: %lu\n", __func__, hp->index);
+		T_DBG3("%s: index finally decoded: %u\n", __func__, hp->index);
 
 		NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 

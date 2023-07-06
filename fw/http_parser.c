@@ -156,7 +156,7 @@ do {									\
  * The standard format printing deals with non-printable characters, so it's
  * safe to print the attack payload as is.
  */
-#define TFW_PARSER_BLOCK(st)						\
+#define TFW_PARSER_DROP(st)						\
 do {									\
 	register unsigned int __p_o = min_t(unsigned int, 8, p - data);	\
 	register unsigned int __p_n = min_t(unsigned int, 48,		\
@@ -164,7 +164,7 @@ do {									\
 	T_WARN("Parser error: state=" #st " input(-%d)=%#x('%.*s')"	\
 	       " data_len=%u off=%lu\n",				\
 	       __p_o, (char)c, __p_n, p - __p_o, len, p - data);	\
-	return TFW_BLOCK;						\
+	return TFW_DROP;						\
 } while (0)
 
 #define __FSM_START(s)							\
@@ -433,14 +433,14 @@ do {									\
 __FSM_STATE(st, __VA_ARGS__) {						\
 	if (likely(condition))						\
 		__FSM_MOVE_f(st_next, field);				\
-	TFW_PARSER_BLOCK(st);						\
+	TFW_PARSER_DROP(st);						\
 }
 
 #define __FSM_TX_COND_nofixup(st, condition, st_next, ...)		\
 __FSM_STATE(st, __VA_ARGS__) {						\
 	if (likely(condition))						\
 		__FSM_MOVE_nofixup(st_next);				\
-	TFW_PARSER_BLOCK(st);						\
+	TFW_PARSER_DROP(st);						\
 }
 
 /* Automaton transition from state @st to @st_next on character @ch. */
@@ -566,8 +566,8 @@ __FSM_STATE(st) {							\
 
 #define CSTR_EQ			0
 #define CSTR_POSTPONE		TFW_POSTPONE	/* -1 */
-#define CSTR_NEQ		TFW_BLOCK	/* -2 */
-#define CSTR_BADLEN		-3
+#define CSTR_NEQ		TFW_DROP	/* -3 */
+#define CSTR_BADLEN		-6
 
 /**
  * Compare a mixed pair of strings with the string @str of length @str_len where
@@ -980,7 +980,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
  * Check whether response contains Content-Encoding and Transfer-Encoding
  * other than chunked.
  *
- * Return T_BLOCK on success.
+ * Return T_DROP on success.
  */
 static int
 __parse_check_encodings(TfwHttpResp *resp)
@@ -991,7 +991,7 @@ __parse_check_encodings(TfwHttpResp *resp)
 	    && !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_ENCODING])) {
 		T_WARN("Content-Encoding and Transfer-Encoding other than"
 		       " chunked not allowed to be in same response.\n");
-			return T_BLOCK;
+			return T_DROP;
 	}
 
 	return T_OK;
@@ -1047,7 +1047,7 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(I_BodyChunked) {
 		/* Prevent @parse_int_hex false positives. */
 		if (!isxdigit(c))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 		/* Fall through. */
 	}
 
@@ -1063,7 +1063,7 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE_body_nf(I_BodyChunkLen, __fsm_sz);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 		default:
 			parser->to_read = parser->_acc;
 			parser->_acc = 0;
@@ -1086,7 +1086,7 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_BodyCR) {
 		if (unlikely(c != '\n'))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 		if (parser->to_read == -1)
 			__FSM_I_MOVE_body_nf(I_BodyChunked, 1);
 		else if (parser->to_read > 0)
@@ -1165,7 +1165,7 @@ do {									\
 	__FSM_STATE(I_BodyChunked) {
 		/* Prevent @parse_int_hex false positives. */
 		if (!isxdigit(c))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 		/* Fall through. */
 	}
 
@@ -1181,7 +1181,7 @@ do {									\
 			__FSM_I_MOVE_cut_fixup(I_BodyChunkLen, __fsm_sz);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 		default:
 			parser->to_read = parser->_acc;
 			parser->_acc = 0;
@@ -1219,7 +1219,7 @@ do {									\
 
 	__FSM_STATE(I_BodyCR) {
 		if (unlikely(c != '\n'))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 		if (parser->to_read == -1)
 			__FSM_I_MOVE_cut_fixup(I_BodyChunked, 1);
 		else if (parser->to_read > 0)
@@ -1363,19 +1363,19 @@ __FSM_STATE(RGen_EoL, hot) {						\
 		if (parser->hdr.data) {					\
 			tfw_str_set_eolen(&parser->hdr, 1);		\
 			if (tfw_http_msg_hdr_close(msg))		\
-				TFW_PARSER_BLOCK(RGen_EoL);		\
+				TFW_PARSER_DROP(RGen_EoL);		\
 		}							\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
 	}								\
-	TFW_PARSER_BLOCK(RGen_EoL);					\
+	TFW_PARSER_DROP(RGen_EoL);					\
 }									\
 __FSM_STATE(RGen_CR, hot) {						\
 	if (unlikely(c != '\n'))					\
-		TFW_PARSER_BLOCK(RGen_CR);				\
+		TFW_PARSER_DROP(RGen_CR);				\
 	if (parser->hdr.data) {						\
 		tfw_str_set_eolen(&parser->hdr, 2);			\
 		if (tfw_http_msg_hdr_close(msg))			\
-			TFW_PARSER_BLOCK(RGen_CR);			\
+			TFW_PARSER_DROP(RGen_CR);			\
 	}								\
 	/* Process next header if any. */				\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
@@ -1418,7 +1418,7 @@ do {									\
 #define RGEN_CRLF()							\
 __FSM_STATE(RGen_CRLFCR, hot) {						\
 	if (unlikely(c != '\n'))					\
-		TFW_PARSER_BLOCK(RGen_CRLFCR);				\
+		TFW_PARSER_DROP(RGen_CRLFCR);				\
 	mark_spec_hbh(msg);						\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.data);				\
@@ -1455,7 +1455,7 @@ __FSM_STATE(st_curr) {							\
 	 */								\
 	if (id < TFW_HTTP_HDR_NONSINGULAR				\
 	    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
-		TFW_PARSER_BLOCK(st_curr);				\
+		TFW_PARSER_DROP(st_curr);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	T_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
 	       " id=%d\n", __fsm_n, __fsm_sz, id);			\
@@ -1467,7 +1467,7 @@ __FSM_STATE(st_curr) {							\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
-		TFW_PARSER_BLOCK(st_curr);				\
+		TFW_PARSER_DROP(st_curr);				\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
@@ -1475,7 +1475,7 @@ __FSM_STATE(st_curr) {							\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
 		r = process_trailer_hdr(msg, &parser->hdr, id);		\
 		if (r < 0 && r != CSTR_POSTPONE)			\
-			TFW_PARSER_BLOCK(st_curr);			\
+			TFW_PARSER_DROP(st_curr);			\
 		parser->_i_st = &&RGen_EoL;				\
 		parser->_hdr_tag = id;					\
 		parser->_acc = 0;					\
@@ -1505,7 +1505,7 @@ __FSM_STATE(st_curr) {							\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
-		TFW_PARSER_BLOCK(st_curr);				\
+		TFW_PARSER_DROP(st_curr);				\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
@@ -1515,7 +1515,7 @@ __FSM_STATE(st_curr) {							\
 		r = process_trailer_hdr(msg, &parser->hdr,		\
 					TFW_HTTP_HDR_RAW);		\
 		if (r < 0 && r != CSTR_POSTPONE)			\
-			TFW_PARSER_BLOCK(st_curr);			\
+			TFW_PARSER_DROP(st_curr);			\
 		parser->_i_st = &&RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
 		parser->_acc = 0;					\
@@ -1544,19 +1544,19 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 		if (unlikely(!__fsm_sz && TFW_STR_EMPTY(&parser->hdr)	\
 			     && p == (unsigned char *)parser->hdr.data))\
 		{							\
-			TFW_PARSER_BLOCK(RGen_HdrOtherN);		\
+			TFW_PARSER_DROP(RGen_HdrOtherN);		\
 		}							\
 		__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz));	\
 		if (unlikely(parser->hdr.len > HTTP_MAX_HDR_NAME_LEN)) {\
 			T_WARN("Max header name length %u exceeded.",	\
 			       HTTP_MAX_HDR_NAME_LEN);			\
-			return TFW_BLOCK;				\
+			return TFW_DROP;				\
 		}							\
 		parser->_i_st = &&RGen_HdrOtherV;			\
 		p += __fsm_sz;						\
 		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
 	}								\
-	TFW_PARSER_BLOCK(RGen_HdrOtherN);				\
+	TFW_PARSER_DROP(RGen_HdrOtherN);				\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
 	/*								\
@@ -1566,12 +1566,12 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__FSM_MATCH_MOVE_pos_f(ctext_vchar, RGen_HdrOtherV,		\
 			       &msg->stream->parser.hdr, 0);		\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
-		TFW_PARSER_BLOCK(RGen_HdrOtherV);			\
+		TFW_PARSER_DROP(RGen_HdrOtherV);			\
 	__msg_hdr_chunk_fixup(p, __fsm_sz);				\
 	mark_raw_hbh(msg, &parser->hdr);				\
 	r = process_trailer_hdr(msg, &parser->hdr, TFW_HTTP_HDR_RAW);	\
 	if (r < 0 && r != CSTR_POSTPONE)				\
-		TFW_PARSER_BLOCK(st_curr);				\
+		TFW_PARSER_DROP(st_curr);				\
 	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
 	__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);			\
 }
@@ -1581,14 +1581,14 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	       " %s considered as attempt to %s attack.\n", msg_type,   \
 		attack_type)
 
-#define BLOCK_REQUEST_SMUGGLING() {					\
+#define DROP_REQUEST_SMUGGLING() {					\
 	WARN_BODY_ATTACK("request", "Request smuggling");		\
-	FSM_EXIT(TFW_BLOCK);						\
+	FSM_EXIT(TFW_DROP);						\
 }
 
-#define BLOCK_RESPONSE_SPLITTING() {					\
+#define DROP_RESPONSE_SPLITTING() {					\
 	WARN_BODY_ATTACK("reponse", "Response splitting");		\
-	FSM_EXIT(TFW_BLOCK); 						\
+	FSM_EXIT(TFW_DROP); 						\
 }
 
 /* Process according RFC 9112 6.3 */
@@ -1609,7 +1609,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		 * Response Splitting.					\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
-			BLOCK_REQUEST_SMUGGLING();			\
+			DROP_REQUEST_SMUGGLING();			\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
@@ -1617,11 +1617,11 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		 * there's NO "chunked" coding, then send 400 response	\
 		 * (Bad Request) and close the connection.		\
 		 */							\
-		TFW_PARSER_BLOCK(RGen_BodyInit);			\
+		TFW_PARSER_DROP(RGen_BodyInit);			\
 	}								\
 									\
 	if (tfw_http_parse_check_bodyless_meth(req))			\
-		FSM_EXIT(TFW_BLOCK);					\
+		FSM_EXIT(TFW_DROP);					\
 									\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
@@ -1647,14 +1647,14 @@ __FSM_STATE(RGen_BodyInit) {						\
 		goto no_body;						\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
 		/* 							\
-		 * Block response which has Content-Encoding and 	\
+		 * Drop response which has Content-Encoding and 	\
 		 * Transfer-Encoding other than chunked 		\
 		 */ 							\
 		if (__parse_check_encodings(resp))			\
-			FSM_EXIT(TFW_BLOCK);				\
+			FSM_EXIT(TFW_DROP);				\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {\
 			/*						\
-			 * Block responses which have transfer-encoding	\
+			 * Drop responses which have transfer-encoding	\
 			 * *chunked* and content-length. According to	\
 			 * RFC 9112 6.3 p.3, more strict scenario has	\
 			 * been implemented to exclude attempts of HTTP	\
@@ -1663,7 +1663,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 			 * to be used with content-length header.	\
 			 */						\
 			if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))	\
-				BLOCK_RESPONSE_SPLITTING();		\
+				DROP_RESPONSE_SPLITTING();		\
 			if (msg->content_length == 0)			\
 				goto no_body;				\
 			parser->to_read = msg->content_length;		\
@@ -1730,7 +1730,7 @@ __FSM_STATE(RGen_BodyParse, __VA_ARGS__) {				\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
-		TFW_PARSER_BLOCK(RGen_BodyParse);			\
+		TFW_PARSER_DROP(RGen_BodyParse);			\
 	default:							\
 		p += __fsm_n;						\
 		msg->body.len += __fsm_n;				\
@@ -2716,13 +2716,13 @@ done:
  * calculations.
  *
  * Parser detects overflow when parsing delta-seconds,
- * but blocks such messages because it's a rare case.
+ * but drops such messages because it's a rare case.
  */
 static int
 __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 {
 	/* Very similar to __resp_parse_cache_control */
-	int r = TFW_BLOCK;
+	int r = TFW_DROP;
 	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
@@ -2744,7 +2744,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Req_I_CC_start_Comma) {
@@ -2753,7 +2753,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value and double commas */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Req_I_CC) {
@@ -2889,7 +2889,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE(Req_I_After_Comma);
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Req_I_After_Comma) {
@@ -2906,7 +2906,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 done:
@@ -4280,7 +4280,7 @@ do {									\
 		if (likely(c == '['))
 			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_v6_Quoted_Start, 1,
 					   TFW_STR_VALUE);
-		/* Block empty quotes */
+		/* Drop empty quotes */
 		if (unlikely(c == '"'))
 			return CSTR_NEQ;
 		/* Fall through */
@@ -4303,7 +4303,7 @@ do {									\
 	}
 
 	__FSM_STATE(Req_I_Fwd_Host_v6_Quoted_Start) {
-		/* Block empty braces */
+		/* Drop empty braces */
 		if (unlikely(c == ']'))
 			return CSTR_NEQ;
 		/* Fall through */
@@ -4413,7 +4413,7 @@ do {									\
 	}
 
 	__FSM_STATE(Req_I_Fwd_Proto_Quoted_Start) {
-		/* Block empty quotes */
+		/* Drop empty quotes */
 		if (unlikely(c == '"'))
 			return CSTR_NEQ;
 		/* Fall through */
@@ -4860,7 +4860,7 @@ tfw_http_init_parser_req(TfwHttpReq *req)
  * DELETE, TRACE and CONNECT requests has no defined semantics
  * and implementations can reject it. We do this respecting overrides.
  *
- * Return T_BLOCK if request contains Content-Length or Content-Type field
+ * Return T_DROP if request contains Content-Length or Content-Type field
  * for bodyless method.
  */
 int
@@ -4879,7 +4879,7 @@ tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
 		{
 			T_WARN("Content-Length or Content-Type not allowed to"
 			       " be used with such (overridden) method\n");
-			return T_BLOCK;
+			return T_DROP;
 		}
 	}
 
@@ -4890,7 +4890,7 @@ int
 tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		   unsigned int *parsed)
 {
-	int r = TFW_BLOCK;
+	int r = T_DROP;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
 	*parsed = 0;
@@ -4904,7 +4904,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 	/* The parser accepts 1 optional CRLF or LF before the request line.
 	 * The parser stores the fact of presense of it for subsequent
-	 * stripping. The parser blocks the request if it contains additional
+	 * stripping. The parser drops the request if it contains additional
 	 * CRLFs before the request line.
 	 */
 	__FSM_STATE(Req_0, hot) {
@@ -4926,7 +4926,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 				  req->flags);
 			__FSM_MOVE_nofixup(Req_Method);
 		}
-		TFW_PARSER_BLOCK(Req_0_Wait_LF);
+		TFW_PARSER_DROP(Req_0_Wait_LF);
 	}
 
 	/* ----------------    Request Line    ---------------- */
@@ -4963,7 +4963,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	 */
 	__FSM_STATE(Req_MUSpace) {
 		if (unlikely(c != ' '))
-			TFW_PARSER_BLOCK(Req_MUSpace);
+			TFW_PARSER_DROP(Req_MUSpace);
 		__FSM_MOVE_nofixup(Req_Uri);
 	}
 
@@ -4994,7 +4994,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			__FSM_EXIT(TFW_POSTPONE);
 		}
 		if (__fsm_n < 0)
-			TFW_PARSER_BLOCK(Req_UriMark);
+			TFW_PARSER_DROP(Req_UriMark);
 
 		parser->_i_st = NULL;
 		if (TFW_STR_EMPTY(&req->mark)) {
@@ -5017,7 +5017,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_BLOCK(Req_UriMarkEnd);
+		TFW_PARSER_DROP(Req_UriMarkEnd);
 	}
 
 	/*
@@ -5044,7 +5044,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		}
 		__FSM_MATCH_MOVE_pos_f(uri, Req_UriAbsPath, &req->uri_path, 0);
 		if (unlikely(*(p + __fsm_sz) != ' '))
-			TFW_PARSER_BLOCK(Req_UriAbsPath);
+			TFW_PARSER_DROP(Req_UriAbsPath);
 		__msg_field_finish_pos(&req->uri_path, p, __fsm_sz);
 		__FSM_MOVE_nofixup_n(Req_HttpVer, __fsm_sz + 1);
 	}
@@ -5055,7 +5055,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			/* Slow path. */
 			if (c == 'H')
 				__FSM_MOVE_nofixup(Req_HttpVerT1);
-			TFW_PARSER_BLOCK(Req_HttpVer);
+			TFW_PARSER_DROP(Req_HttpVer);
 		}
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
@@ -5066,7 +5066,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			req->version = TFW_HTTP_VER_10;
 			__FSM_MOVE_nofixup_n(RGen_EoL, 8);
 		default:
-			TFW_PARSER_BLOCK(Req_HttpVer);
+			TFW_PARSER_DROP(Req_HttpVer);
 		}
 	}
 
@@ -5793,11 +5793,11 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_EXIT(TFW_POSTPONE);
 		}
 		if (unlikely(req->method != _TFW_HTTP_METH_UNKNOWN))
-			TFW_PARSER_BLOCK(Req_MethodUnknown);
+			TFW_PARSER_DROP(Req_MethodUnknown);
 			/* if neither here nor earlier we did not
 			 * assign the _TFW_HTTP_METH_UNKNOWN
 			 * then there is zero-length method name
-			 * and the request must be blocked.
+			 * and the request must be dropped.
 			 */
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
@@ -5820,7 +5820,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		else if (TFW_LC(c) == 'w')
 			__FSM_MOVE_nofixup(Req_UriSchW);
 
-		TFW_PARSER_BLOCK(Req_UriAbsoluteForm);
+		TFW_PARSER_DROP(Req_UriAbsoluteForm);
 	}
 
 	/* process URI scheme */
@@ -5835,7 +5835,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 's':
 			__FSM_MOVE_nofixup(Req_UriSchHttps);
 		}
-		TFW_PARSER_BLOCK(Req_UriSchHttp);
+		TFW_PARSER_DROP(Req_UriSchHttp);
 	}
 	/* http */
 	__FSM_TX_nofixup(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash,
@@ -5857,7 +5857,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 's':
 			__FSM_MOVE_nofixup(Req_UriSchWss);
 		}
-		TFW_PARSER_BLOCK(Req_UriSchWs);
+		TFW_PARSER_DROP(Req_UriSchWs);
 	}
 	/* ws */
 	__FSM_TX_nofixup(Req_UriSchWsColon, '/', Req_UriSchWsColonSlash, cold);
@@ -5899,7 +5899,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
-		TFW_PARSER_BLOCK(Req_UriAuthorityStart);
+		TFW_PARSER_DROP(Req_UriAuthorityStart);
 	}
 
 	__FSM_STATE(Req_UriAuthority, cold) {
@@ -5907,7 +5907,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			if (unlikely(c == '@')) {
 				if (!TFW_STR_EMPTY(&req->userinfo)) {
 					T_DBG("Second '@' in authority\n");
-					TFW_PARSER_BLOCK(Req_UriAuthority);
+					TFW_PARSER_DROP(Req_UriAuthority);
 				}
 				T_DBG3("Authority contains userinfo\n");
 				/* copy current host to userinfo */
@@ -5929,7 +5929,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		} else if(c == ']') {
 			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
 		}
-		TFW_PARSER_BLOCK(Req_UriAuthorityIPv6);
+		TFW_PARSER_DROP(Req_UriAuthorityIPv6);
 	}
 
 	__FSM_STATE(Req_UriAuthorityResetHost, cold) {
@@ -5956,7 +5956,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
+		TFW_PARSER_DROP(Req_UriAuthorityEnd);
 	}
 
 	/* Host port in URI */
@@ -5970,7 +5970,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_BLOCK(Req_UriPort);
+		TFW_PARSER_DROP(Req_UriPort);
 	}
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
@@ -5989,7 +5989,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			req->version = TFW_HTTP_VER_10;
 			__FSM_MOVE_nofixup(RGen_EoL);
 		default:
-			TFW_PARSER_BLOCK(Req_HttpVer12);
+			TFW_PARSER_DROP(Req_HttpVer12);
 		}
 	}
 
@@ -6383,13 +6383,13 @@ do {									\
 	goto out;							\
 } while (0)
 
-#define __FSM_H2_BLOCK(st)						\
+#define __FSM_H2_DROP(st)						\
 do {									\
-	T_WARN("HTTP/2 request blocked: state=" #st " input=%#x('%.*s')," \
+	T_WARN("HTTP/2 request dropped: state=" #st " input=%#x('%.*s')," \
 	       " len=%lu, off=%lu\n", (char)c,				\
 	       min(16U, (unsigned int)(data + len - p)), p,		\
 	       len, p - data);						\
-	ret = T_BLOCK;							\
+	ret = T_DROP;							\
 	goto out;							\
 } while (0)
 
@@ -6404,7 +6404,7 @@ do {									\
 		ret = false;						\
 	}								\
 	/*								\
-	 * Pseudo-headers must appear in the header block before	\
+	 * Pseudo-headers must appear in the header drop before		\
 	 * regular headers; also, exactly one instance of ':method',	\
 	 * ':scheme' and ':path' pseudo-headers must be contained in	\
 	 * the request (see RFC 7540 section 8.1.2.1 and section	\
@@ -6522,7 +6522,7 @@ do {									\
 			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
 			__FSM_H2_POSTPONE(st_next);			\
 		}							\
-		__FSM_H2_BLOCK(st_curr);				\
+		__FSM_H2_DROP(st_curr);					\
 	});								\
 	goto st_next;							\
 } while (0)
@@ -6533,7 +6533,7 @@ do {									\
 	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(st_next);			\
-		__FSM_H2_BLOCK(st_curr);				\
+		__FSM_H2_DROP(st_curr);					\
 	});								\
 	goto st_next;							\
 } while (0)
@@ -6543,12 +6543,12 @@ do {									\
 	p += n;								\
 	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		if (unlikely(!fin))					\
-			__FSM_H2_BLOCK(st);				\
+			__FSM_H2_DROP(st);				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
 		__FSM_H2_HDR_COMPLETE(st);				\
 	});								\
-	__FSM_H2_BLOCK(st);						\
+	__FSM_H2_DROP(st);						\
 } while (0)
 
 #define __FSM_H2_METHOD_MOVE(st_curr, n, st_next)			\
@@ -6587,14 +6587,14 @@ do {									\
 	__FSM_STATE(st, cold) {						\
 		if (likely(TFW_LC(c) == (ch)))				\
 			__FSM_H2_PSHDR_MOVE_DROP(st, 1, st_next);	\
-		__FSM_H2_BLOCK(st);					\
+		__FSM_H2_DROP(st);					\
 	}
 
 #define __FSM_H2_SCHEME_STATE_COMPLETE(st, ch)				\
 	__FSM_STATE(st, cold) {						\
 		if (likely(TFW_LC(c) == (ch)))				\
 			__FSM_H2_PSHDR_COMPLETE(st, 1);			\
-		__FSM_H2_BLOCK(st);					\
+		__FSM_H2_DROP(st);					\
 	}
 
 #define __FSM_H2_METH_STATE_MOVE(st, ch, st_next)			\
@@ -6620,7 +6620,7 @@ do {									\
 __FSM_STATE(st_curr) {							\
 	BUG_ON(p != data);						\
 	if (!H2_MSG_VERIFY(hid))					\
-		__FSM_H2_BLOCK(st_curr);				\
+		__FSM_H2_DROP(st_curr);					\
 	if (!parser->_i_st)						\
 		TRY_STR_INIT();						\
 	__fsm_n = func(hm, p, len, fin);				\
@@ -6640,11 +6640,11 @@ __FSM_STATE(st_curr) {							\
 		__FSM_H2_POSTPONE(st_curr);				\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
-		__FSM_H2_BLOCK(st_curr);				\
+		__FSM_H2_DROP(st_curr);					\
 	default:							\
 		/* Unexpected values. */				\
 		WARN_ON_ONCE(1);					\
-		__FSM_H2_BLOCK(st_curr);				\
+		__FSM_H2_DROP(st_curr);					\
 	}								\
 }
 
@@ -6669,7 +6669,7 @@ __FSM_STATE(st, cold) {							\
 #define __FSM_H2_TX_AF_DROP(st, ch)					\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ch))						\
-		__FSM_H2_BLOCK(st);					\
+		__FSM_H2_DROP(st);					\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
@@ -6683,14 +6683,14 @@ __FSM_STATE(st, cold) {							\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ch))						\
 		__FSM_H2_NEXT(st_next);					\
-	__FSM_H2_BLOCK(st);						\
+	__FSM_H2_DROP(st);						\
 }
 
 #define __FSM_H2_TXD_AF_FIN(st, ch, st_next, tag)			\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ch))						\
 		__FSM_H2_FIN(st_next, 1, tag);				\
-	__FSM_H2_BLOCK(st);						\
+	__FSM_H2_DROP(st);						\
 }
 
 #define	__FSM_H2_REQ_NEXT_STATE(v_stage)				\
@@ -6738,7 +6738,7 @@ __FSM_STATE(st, cold) {							\
 		case TFW_TAG_HDR_RAW:					\
 			goto RGen_HdrOtherV;				\
 		default:						\
-			__FSM_H2_BLOCK(Req_HdrForbidden);		\
+			__FSM_H2_DROP(Req_HdrForbidden);		\
 		}							\
 	}
 
@@ -7335,7 +7335,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Req_I_CC_start_Comma) {
@@ -7344,7 +7344,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value and double commas */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Req_I_CC) {
@@ -7508,7 +7508,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == ',')
 			__FSM_H2_I_MOVE_RESET_ACC(Req_I_After_Comma, 1);
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Req_I_After_Comma) {
@@ -7520,7 +7520,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			parser->cc_dir_flag = 0;
 			__FSM_I_JMP(Req_I_CC);
 		}
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 done:
@@ -8413,7 +8413,7 @@ int
 h2_set_hdr_if_mod_since(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
-		return T_BLOCK;
+		return T_DROP;
 	if (cstate->is_set) {
 		req->cond.m_date = cstate->if_msince_date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
@@ -8886,7 +8886,7 @@ do {									   \
 		if (likely(c == '['))
 			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_H_v6_Quoted_Start,
 						  1, TFW_STR_VALUE);
-		/* Block empty quotes */
+		/* Drop empty quotes */
 		if (unlikely(c == '"'))
 			return CSTR_NEQ;
 		/* Fall through */
@@ -8909,7 +8909,7 @@ do {									   \
 	}
 
 	__FSM_STATE(Req_I_Fwd_H_v6_Quoted_Start) {
-		/* Block empty braces */
+		/* Drop empty braces */
 		if (unlikely(c == ']'))
 			return CSTR_NEQ;
 		/* Fall through */
@@ -9020,7 +9020,7 @@ do {									   \
 	}
 
 	__FSM_STATE(Req_I_Fwd_Proto_Quoted_Start) {
-		/* Block empty quotes */
+		/* Drop empty quotes */
 		if (unlikely(c == '"'))
 			return CSTR_NEQ;
 		/* Fall through */
@@ -9424,7 +9424,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (C8_INT(p + 2, 'u', 't', 'h', 'o', 'r', 'i', 't', 'y'))
 				__FSM_H2_FIN(Req_HdrPsAuthorityV, 10,
 					     TFW_TAG_HDR_H2_AUTHORITY);
-			__FSM_H2_BLOCK(RGen_Hdr);
+			__FSM_H2_DROP(RGen_Hdr);
 		/* :method */
 		case TFW_CHAR4_INT(':', 'm', 'e', 't'):
 			if (unlikely(!__data_available(p, 7)))
@@ -9432,7 +9432,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (C4_INT(p + 3, 't', 'h', 'o', 'd'))
 				__FSM_H2_FIN(Req_HdrPsMethodV, 7,
 					     TFW_TAG_HDR_H2_METHOD);
-			__FSM_H2_BLOCK(RGen_Hdr);
+			__FSM_H2_DROP(RGen_Hdr);
 		/* :scheme */
 		case TFW_CHAR4_INT(':', 's', 'c', 'h'):
 			if (unlikely(!__data_available(p, 7)))
@@ -9440,7 +9440,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (C4_INT(p + 3, 'h', 'e', 'm', 'e'))
 				__FSM_H2_FIN(Req_HdrPsSchemeV, 7,
 					     TFW_TAG_HDR_H2_SCHEME);
-			__FSM_H2_BLOCK(RGen_Hdr);
+			__FSM_H2_DROP(RGen_Hdr);
 		/* :path */
 		case TFW_CHAR4_INT(':', 'p', 'a', 't'):
 			if (unlikely(!__data_available(p, 5)))
@@ -9448,7 +9448,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (*(p + 4) == 'h')
 				__FSM_H2_FIN(Req_HdrPsPathV, 5,
 					     TFW_TAG_HDR_H2_PATH);
-			__FSM_H2_BLOCK(RGen_Hdr);
+			__FSM_H2_DROP(RGen_Hdr);
 		/* accept */
 		case TFW_CHAR4_INT('a', 'c', 'c', 'e'):
 			if (unlikely(!__data_available(p, 6)))
@@ -9484,7 +9484,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (unlikely(!__data_available(p, 10)))
 				__FSM_H2_NEXT_n(Req_HdrConn, 4);
 			if (C8_INT(p + 2, 'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'))
-				__FSM_H2_BLOCK(Req_HdrConnection);
+				__FSM_H2_DROP(Req_HdrConnection);
 			__FSM_H2_OTHER_n(4);
 		/* content-* */
 		case TFW_CHAR4_INT('c', 'o', 'n', 't'):
@@ -9552,7 +9552,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (unlikely(!__data_available(p, 10)))
 				__FSM_H2_NEXT_n(Req_HdrKeep, 4);
 			if (C8_INT(p + 2, 'e', 'p', '-', 'a', 'l', 'i', 'v', 'e'))
-				__FSM_H2_BLOCK(Req_HdrKeep_Alive);
+				__FSM_H2_DROP(Req_HdrKeep_Alive);
 			__FSM_H2_OTHER_n(4);
 		/* pragma */
 		case TFW_CHAR4_INT('p', 'r', 'a', 'g'):
@@ -9568,10 +9568,10 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		 */
 		case TFW_CHAR4_INT('p', 'r', 'o', 'x'):
 			if (unlikely(!__data_available(p, 16)))
-				__FSM_H2_BLOCK(Req_HdrProxyConnection);
+				__FSM_H2_DROP(Req_HdrProxyConnection);
 			if (C8_INT(p + 4, 'y', '-', 'c', 'o', 'n', 'n', 'e', 'c')
 			    || C4_INT(p + 12, 't', 'i', 'o', 'n'))
-				__FSM_H2_BLOCK(Req_HdrProxyConnection);
+				__FSM_H2_DROP(Req_HdrProxyConnection);
 			__FSM_H2_OTHER_n(4);
 		/* transfer-encoding */
 		case TFW_CHAR4_INT('t', 'r', 'a', 'n'):
@@ -9581,7 +9581,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			    &&  C8_INT(p + 9, 'e', 'n', 'c', 'o', 'd', 'i', 'n',
 				       'g'))
 			{
-				__FSM_H2_BLOCK(Req_HdrTransfer_Encoding);
+				__FSM_H2_DROP(Req_HdrTransfer_Encoding);
 			}
 			__FSM_H2_OTHER_n(4);
 		/* referer */
@@ -9608,7 +9608,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			if (unlikely(!__data_available(p, 7)))
 				__FSM_H2_NEXT_n(Req_HdrUpgr, 4);
 			if (C4_INT(p + 3, 'r', 'a', 'd', 'e'))
-				__FSM_H2_BLOCK(Req_HdrUpgrade);
+				__FSM_H2_DROP(Req_HdrUpgrade);
 			__FSM_H2_OTHER_n(4);
 		/* x-forwarded-for */
 		case TFW_CHAR4_INT('x', '-', 'f', 'o'):
@@ -9666,7 +9666,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		 */
 		__fsm_sz = tfw_match_token_lc(p, __fsm_n);
 		if (unlikely(__fsm_sz != __fsm_n))
-			__FSM_H2_BLOCK(RGen_HdrOtherN);
+			__FSM_H2_DROP(RGen_HdrOtherN);
 		/*
 		 * Use (data, len) instead of (p, __fsm_n) since we moved p in
 		 * previous states trying known header names.
@@ -9675,7 +9675,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		if (unlikely(parser->hdr.len > HTTP_MAX_HDR_NAME_LEN)) {
 			T_WARN("Max header name length %u exceeded.",
 			       HTTP_MAX_HDR_NAME_LEN);
-			ret = T_BLOCK;
+			ret = T_DROP;
 			goto out;
 		}
 		if (unlikely(!fin))
@@ -9688,7 +9688,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(Req_HdrPsMethodV, hot) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_METHOD))
-			__FSM_H2_BLOCK(Req_HdrPsMethodV);
+			__FSM_H2_DROP(Req_HdrPsMethodV);
 
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		if (likely(__data_available(p, 3)
@@ -9710,7 +9710,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(Req_HdrPsSchemeV, hot) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_SCHEME))
-			__FSM_H2_BLOCK(Req_HdrPsSchemeV);
+			__FSM_H2_DROP(Req_HdrPsSchemeV);
 
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_SCHEME;
 		if (likely(__data_available(p, 5)
@@ -9724,7 +9724,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(Req_HdrPsPathV, hot) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_PATH))
-			__FSM_H2_BLOCK(Req_HdrPsPathV);
+			__FSM_H2_DROP(Req_HdrPsPathV);
 
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_PATH;
 		if (likely(c == '/'))
@@ -9736,14 +9736,14 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				     && req->method != TFW_HTTP_METH_OPTIONS)
 				    || !fin)
 				{
-					__FSM_H2_BLOCK(Req_HdrPsPathV);
+					__FSM_H2_DROP(Req_HdrPsPathV);
 				}
 				__msg_hdr_chunk_fixup(data, len);
 				__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
 				__FSM_H2_HDR_COMPLETE(Req_HdrPsPathV);
 			});
 		}
-		__FSM_H2_BLOCK(Req_HdrPsPathV);
+		__FSM_H2_DROP(Req_HdrPsPathV);
 	}
 
 	__FSM_STATE(Req_Mark, hot) {
@@ -9757,7 +9757,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		if (__fsm_n == CSTR_POSTPONE)
 			__FSM_H2_POSTPONE(Req_Mark);
 		if (__fsm_n < 0) {
-			__FSM_H2_BLOCK(Req_Mark);
+			__FSM_H2_DROP(Req_Mark);
 		}
 		parser->_i_st = NULL;
 
@@ -9778,14 +9778,14 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_STATE(Req_MarkEnd, hot) {
 		if (likely(c == '/'))
 			__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_MarkEnd, 1, Req_Path);
-		__FSM_H2_BLOCK(Req_MarkEnd);
+		__FSM_H2_DROP(Req_MarkEnd);
 	}
 
 	__FSM_STATE(Req_Path) {
 		__fsm_n = __data_remain(p);
 		__fsm_sz = tfw_match_uri(p, __fsm_n);
 		if (likely(__fsm_sz != __fsm_n))
-			__FSM_H2_BLOCK(Req_Path);
+			__FSM_H2_DROP(Req_Path);
 		__msg_hdr_chunk_fixup(p, __fsm_sz);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
 		if (unlikely(!fin))
@@ -9882,12 +9882,12 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(RGen_HdrOtherV) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_RAW))
-			__FSM_H2_BLOCK(RGen_HdrOtherV);
+			__FSM_H2_DROP(RGen_HdrOtherV);
 
 		__fsm_n = __data_remain(p);
 		__fsm_sz = tfw_match_ctext_vchar(p, __fsm_n);
 		if (unlikely(__fsm_sz != __fsm_n))
-			__FSM_H2_BLOCK(RGen_HdrOtherV);
+			__FSM_H2_DROP(RGen_HdrOtherV);
 
 		__msg_hdr_chunk_fixup(data, len);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
@@ -9919,7 +9919,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__msg_hdr_chunk_fixup(data, len);
 				__FSM_H2_POSTPONE(Req_HdrPseudo);
 			}
-			__FSM_H2_BLOCK(Req_Hdr);
+			__FSM_H2_DROP(Req_Hdr);
 		case 'a':
 			__FSM_H2_NEXT(Req_HdrA);
 		case 'c':
@@ -9958,7 +9958,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		case 's':
 			__FSM_H2_NEXT(Req_HdrPsS);
 		default:
-			__FSM_H2_BLOCK(Req_HdrPseudo);
+			__FSM_H2_DROP(Req_HdrPseudo);
 		}
 	}
 
@@ -10628,7 +10628,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			req->method = _TFW_HTTP_METH_UNKNOWN;
 			__FSM_H2_HDR_COMPLETE(Req_MethodUnknown);
 		}
-		__FSM_H2_BLOCK(Req_MethodUnknown);
+		__FSM_H2_DROP(Req_MethodUnknown);
 	}
 
 	/* Improbable states of scheme value processing. */
@@ -10656,7 +10656,7 @@ tfw_h2_parse_body(char *data, unsigned int len, TfwHttpReq *req,
 
 	if (parser->to_read == -1) {
 		if (WARN_ON_ONCE(!ctx->plen))
-			return T_BLOCK;
+			return T_DROP;
 
 		parser->to_read = ctx->plen;
 
@@ -10683,7 +10683,7 @@ tfw_h2_parse_body(char *data, unsigned int len, TfwHttpReq *req,
 	       parser->to_read, m_len, len);
 
 	if (tfw_http_msg_add_str_data(msg, &req->body, data, m_len))
-		return T_BLOCK;
+		return T_DROP;
 
 	parser->to_read = -1;
 	ret = T_OK;
@@ -10728,7 +10728,7 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		    test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
 		    !(ctx->hdr.flags & HTTP2_F_END_STREAM))
 		{
-			return T_BLOCK;
+			return T_DROP;
 		}
 
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
@@ -10738,7 +10738,7 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		     TFW_HTTP_IS_METH_BODYLESS(req->method_override))
 		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
 		{
-			return T_BLOCK;
+			return T_DROP;
 		}
 
 		r = tfw_h2_parse_body(data, len, req, parsed);
@@ -10746,7 +10746,7 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	default:
 		WARN(1, "%s: h2 ctx %p req %p, illegal frame type %d(%s)\n", __func__, ctx,
 		     req, ctx->hdr.type, __h2_frm_type_n(ctx->hdr.type));
-		return T_BLOCK;
+		return T_DROP;
 	}
 
 	return (r == T_OK) ? T_POSTPONE : r;
@@ -10763,7 +10763,7 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 
 	if (unlikely(!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
-		return T_BLOCK;
+		return T_DROP;
 
 	/*
 	 * TFW_HTTP_B_H2_HDRS_FULL flag is set on first TFW_HTTP_HDR_REGULAR
@@ -10774,13 +10774,13 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME])
 			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_PATH]))))
 	{
-		return T_BLOCK;
+		return T_DROP;
 	}
 
 	if (req->content_length
 	    && req->content_length != req->body.len)
 	{
-		return T_BLOCK;
+		return T_DROP;
 	}
 	/*
 	 * RFC 7540 8.1.2.6: A request or response that includes a payload
@@ -10942,7 +10942,7 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 * calculations.
 		 *
 		 * Parser detects overflow when parsing delta-seconds,
-		 * but blocks such messages because it's a rare case.
+		 * but drops such messages because it's a rare case.
 		 */
 		if (__fsm_n < 0)
 			return __fsm_n;
@@ -10994,7 +10994,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Resp_I_CC);
 		/* Forbid empty header value */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Resp_I_CC_start_Comma) {
@@ -11004,7 +11004,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Resp_I_CC);
 		/* Forbid empty header value and double commas */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Resp_I_CC) {
@@ -11093,7 +11093,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_CC_Dir_Opening_Quote) {
 		if (c != '"')
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 
 		__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_Token, 1, 0);
 	}
@@ -11116,7 +11116,7 @@ do {										\
 				" no-cache/private directives",			\
 				&resp->conn->peer->addr,			\
 				TFW_WITH_PORT, resp->status);			\
-		__FSM_EXIT(TFW_BLOCK);						\
+		__FSM_EXIT(TFW_DROP);						\
 	}									\
 } while (0)
 		TfwStr *tokens;
@@ -11144,11 +11144,11 @@ do {										\
 		if (c == '"')
 			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, 0);
 		/*
-		 * if (IS_TOKEN(c)) then block too, because tokens should be
+		 * if (IS_TOKEN(c)) then drop too, because tokens should be
 		 * separated by commas.
-		 * Block on CRLF, because the double-quote should be closed.
+		 * Drop on CRLF, because the double-quote should be closed.
 		 */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Resp_I_CC_Dir_Arg_Comma) {
@@ -11163,7 +11163,7 @@ do {										\
 		 * Two consecutive commas in arguments not allowed,
 		 * just like in Cache-Control directives.
 		 */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Resp_I_CC_s) {
@@ -11184,7 +11184,7 @@ do {										\
 		 * directives), the directive's value is considered invalid.
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
@@ -11208,7 +11208,7 @@ do {										\
 		 * directives), the directive's value is considered invalid.
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(TFW_DROP);
 
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
@@ -11243,7 +11243,7 @@ do {										\
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 	__FSM_STATE(Resp_I_After_Comma) {
@@ -11259,7 +11259,7 @@ do {										\
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
 		/* Two consecutive commas not allowed */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(TFW_DROP);
 	}
 
 done:
@@ -11533,7 +11533,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
 	if (!test_bit(TFW_HTTP_B_UNLIMITED, hm->flags))
-		return TFW_BLOCK;
+		return TFW_DROP;
 
 	/*
 	 * If response has no framing information, end of response is indicated
@@ -11582,7 +11582,7 @@ int
 tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 		    unsigned int *parsed)
 {
-	int r = TFW_BLOCK;
+	int r = TFW_DROP;
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
 	*parsed = 0;
@@ -11610,7 +11610,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				tfw_http_msg_hdr_open(msg, p);
 				__FSM_MOVE(Resp_HttpVerT1);
 			}
-			TFW_PARSER_BLOCK(Resp_HttpVer);
+			TFW_PARSER_DROP(Resp_HttpVer);
 		}
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
@@ -11620,7 +11620,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				tfw_http_msg_hdr_open(msg, p);
 				__FSM_MOVE_n(Resp_StatusCodeBeg, 9);
 			}
-			TFW_PARSER_BLOCK(Resp_HttpVer);
+			TFW_PARSER_DROP(Resp_HttpVer);
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
 			resp->version = TFW_HTTP_VER_10;
 			if (*(p + 8) == ' ') {
@@ -11629,7 +11629,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			}
 			/* fall through */
 		default:
-			TFW_PARSER_BLOCK(Resp_HttpVer);
+			TFW_PARSER_DROP(Resp_HttpVer);
 		}
 	}
 
@@ -11646,7 +11646,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			/* bad status value */
-			TFW_PARSER_BLOCK(Resp_StatusCode);
+			TFW_PARSER_DROP(Resp_StatusCode);
 		default:
 			/* Status code is fully parsed, move forward. */
 			resp->status = parser->_acc;
@@ -11683,7 +11683,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			p += __fsm_sz;
 			__FSM_JMP(RGen_EoL);
 		}
-		TFW_PARSER_BLOCK(Resp_ReasonPhrase);
+		TFW_PARSER_DROP(Resp_ReasonPhrase);
 	}
 
 	/* ----------------    Header Lines    ---------------- */
@@ -12215,7 +12215,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			resp->version = TFW_HTTP_VER_10;
 			__FSM_MOVE(Resp_SSpace);
 		default:
-			TFW_PARSER_BLOCK(Resp_HttpVer12);
+			TFW_PARSER_DROP(Resp_HttpVer12);
 		}
 	}
 	__FSM_TX(Resp_SSpace, ' ', Resp_StatusCodeBeg);

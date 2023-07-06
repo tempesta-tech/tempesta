@@ -850,7 +850,7 @@ tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req)
 	stream->msg = NULL;
 
 	r = STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0);
-	WARN_ON_ONCE(r != STREAM_FSM_RES_OK);
+	WARN_ON_ONCE(r != STREAM_FSM_RES_OK && r != STREAM_FSM_RES_IGNORE);
 
 	__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
 

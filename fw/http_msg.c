@@ -582,7 +582,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		 */
 		if (id < TFW_HTTP_HDR_NONSINGULAR) {
 			if (!TFW_MSG_H2(hm) || id != TFW_HTTP_HDR_COOKIE)
-				return TFW_BLOCK;
+				return TFW_DROP;
 		} else if (id != TFW_HTTP_HDR_X_FORWARDED_FOR &&
 			   id != TFW_HTTP_HDR_FORWARDED) {
 			/*
