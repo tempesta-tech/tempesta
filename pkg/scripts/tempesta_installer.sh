@@ -57,9 +57,9 @@ usage()
 # our needs.
 tfw_download()
 {
-        release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
+        release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_TEMPESTA/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
 	if [[ ! "$release_tag" ]]; then
-		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
+		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_TEMPESTA"
 		#TODO: show next line only if received 403 status code.
 		echo "Or may be Github API rate limit exceeded."
 		exit 2
