@@ -2239,15 +2239,9 @@ tfw_hpack_node_compare(const TfwStr *__restrict h_name,
 	if (h_name->len != node->name_len)
 		return (int)h_name->len - (int)node->name_len;
 
-	len = h_name->len + h_val->len;
-	if (len != node->hdr_len)
-		return (int)len - (int)node->hdr_len;
-
-	/* At this point we've ensured that length of header and
-	 * value parts are the same, and we use it below to avoid
-	 * comparison between lengths */
-
-	/* Optimistically case-insensitive comparison of names */
+	/* Optimistically case-insensitive comparison of names.
+	 * NOTE: we know that header name lengths match, so no
+	 * additional adjustments to string chunk lengths. */
 	np = node->hdr;
 	TFW_STR_FOR_EACH_CHUNK(c, h_name, end) {
 		if (!c->len)
@@ -2268,6 +2262,13 @@ tfw_hpack_node_compare(const TfwStr *__restrict h_name,
 			len--;
 		}
 	}
+
+	if (nm_node)
+		*nm_node = node;
+	
+	len = h_name->len + h_val->len;
+	if (len != node->hdr_len)
+		return (int)len - (int)node->hdr_len;
 
 	/* Case-sensitive comparison of values */
 	TFW_STR_FOR_EACH_CHUNK(c, h_name, end) {
