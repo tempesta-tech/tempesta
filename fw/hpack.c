@@ -231,7 +231,7 @@ do {								\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_INT_LIMIT) {			\
-			r = T_BLOCK;				\
+			r = -ERANGE;				\
 			goto out;				\
 		}						\
 	} while (__c > 127);					\
@@ -249,7 +249,7 @@ do {								\
 	x += (__c & 127) << __m;				\
 	__m += 7;						\
 	if ((x) > HPACK_INT_LIMIT) {				\
-		r = T_BLOCK;					\
+		r = -ERANGE;					\
 		goto out;					\
 	}							\
 	while (__c > 127) {					\
@@ -261,7 +261,7 @@ do {								\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_INT_LIMIT) {			\
-			r = T_BLOCK;				\
+			r = -ERANGE;				\
 			goto out;				\
 		}						\
 	}							\
@@ -291,7 +291,7 @@ do {								\
 	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
 		BUFFER_GET(length, it);				\
 		if (!it->pos) {					\
-			r = T_BLOCK;				\
+			r = -ENOMEM;				\
 			goto out;				\
 		}						\
 		BUFFER_HDR_INIT(length, it);			\
@@ -308,7 +308,7 @@ do {								\
 	if (state & HPACK_FLAGS_HUFFMAN_VALUE) {		\
 		BUFFER_GET(length, it);				\
 		if (!it->pos) {					\
-			r = T_BLOCK;				\
+			r = -ENOMEM;				\
 			goto out;				\
 		}						\
 		if (!TFW_STR_EMPTY(&it->hdr))			\
@@ -491,6 +491,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 {
 	char sym;
 	unsigned int i;
+	int r;
 
 	for (;;) {
 		int shift;
@@ -499,7 +500,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			if (likely(offset == 0))
 				return T_OK;
 			else
-				return T_BLOCK;
+				return -ERANGE;
 		}
 
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
@@ -510,8 +511,8 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		if (likely(shift > 0)) {
 			if (shift <= hp->curr + HT_NBITS) {
 				sym = (char)ht_decode[offset + i].offset;
-				if (tfw_hpack_huffman_write(sym, req))
-					return T_BLOCK;
+				if ((r = tfw_hpack_huffman_write(sym, req)))
+					return r;
 
 				hp->curr -= shift;
 				offset = 0;
@@ -527,7 +528,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			if (likely(offset == 0)) {
 				if ((i ^ (HT_EOS_HIGH >> 1)) <
 				    (1U << -hp->curr)) {
-					return T_OK;
+					return 0;
 				}
 			}
 			/*
@@ -540,15 +541,15 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			{
 				T_DBG3("%s: unexpected EOS detected\n",
 				       __func__);
-				return T_BLOCK;
+				return -ERANGE;
 			}
 
-			return T_BLOCK;
+			return -ERANGE;
 		}
 		else {
 			/* @shift must not be zero. */
 			WARN_ON_ONCE(1);
-			return T_BLOCK;
+			return -ERANGE;
 		}
 	}
 	if (likely(offset == 0)) {
@@ -556,7 +557,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			return T_OK;
 		}
 	}
-	return T_BLOCK;
+	return -ERANGE;
 }
 
 static int
@@ -565,10 +566,11 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 {
 	char sym;
 	int shift;
-	unsigned int i;
+	unsigned int i, r;
+
 
 	if (hp->curr == -HT_MBITS)
-		return T_BLOCK;
+		return -ERANGE;
 
 	i = (hp->hctx << -hp->curr) & HT_MMASK;
 	shift = ht_decode[offset + i].shift;
@@ -580,8 +582,8 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	if (likely(shift > 0)) {
 		if (likely(shift <= hp->curr + HT_NBITS)) {
 			sym = (char)ht_decode[offset + i].offset;
-			if (tfw_hpack_huffman_write(sym, req))
-				return T_BLOCK;
+			if ((r = tfw_hpack_huffman_write(sym, req)))
+				return r;
 			hp->curr -= shift;
 			return huffman_decode_tail(hp, req, 0);
 		}
@@ -594,7 +596,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		WARN_ON_ONCE(1);
 	}
 
-	return T_BLOCK;
+	return -ERANGE;
 }
 
 static int
@@ -603,10 +605,11 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 {
 	unsigned short offset;
 	const unsigned char *last = src + n;
+	int r;
 
 	WARN_ON_ONCE(n > hp->length);
 	if (unlikely(!n))
-		return T_OK;
+		return 0;
 
 	SET_NEXT();
 	for (;;) {
@@ -643,8 +646,9 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
-				if (tfw_hpack_huffman_write((char)offset, req))
-					return T_BLOCK;
+				if ((r = tfw_hpack_huffman_write((char)offset,
+								 req)))
+					return r;
 				hp->curr -= shift;
 				offset = 0;
 			}
@@ -693,8 +697,9 @@ ht_small:
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
-				if (tfw_hpack_huffman_write((char)offset, req))
-					return T_BLOCK;
+				if ((r = tfw_hpack_huffman_write((char)offset,
+								 req)))
+					return r;
 				hp->curr -= shift;
 			}
 			else {
@@ -708,7 +713,7 @@ ht_small:
 		}
 	}
 end:
-	return T_BLOCK;
+	return -ERANGE;
 }
 
 static int
@@ -1217,6 +1222,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	const TfwStr *s, *end, *s_hdr = entry->hdr;
 	TfwHttpParser *parser = &req->stream->parser;
 	TfwStr *d, *d_hdr = &parser->hdr;
+	int r;
 
 	WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr));
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
@@ -1230,7 +1236,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	if (hp->index <= HPACK_STATIC_ENTRIES) {
 		WARN_ON_ONCE(s_hdr->nchunks > 2);
 		if (s_hdr->nchunks != 2)
-			return T_BLOCK;
+			return -EINVAL;
 		*d_hdr = *s_hdr;
 		goto done;
 	}
@@ -1286,7 +1292,7 @@ done:
 			req->method = tfw_http_meth_str2id(s_hdr);
 			if (unlikely(req->method == _TFW_HTTP_METH_UNKNOWN)) {
 				WARN_ON_ONCE(1);
-				return T_BLOCK;
+				return -EINVAL;
 			}
 		}
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
@@ -1332,8 +1338,8 @@ done:
 		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		if (h2_set_hdr_if_mod_since(req, &entry->cstate))
-			return T_BLOCK;
+		if ((r = h2_set_hdr_if_mod_since(req, &entry->cstate)))
+			return r;
 		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
@@ -1366,10 +1372,10 @@ done:
 	default:
 		T_WARN("%s: HTTP/2 request blocked: unexpected HPACK entry tag"
 			" = %d\n", __func__, entry->tag);
-		return T_BLOCK;
+		return -EINVAL;
 	}
 
-	return T_OK;
+	return 0;
 }
 
 
@@ -1412,7 +1418,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 						     HPACK_STATE_INDEX);
 				}
 				else if (unlikely(hp->index == 0)) {
-					r = T_BLOCK;
+					r = -EINVAL;
 					goto out;
 				}
 
@@ -1457,7 +1463,7 @@ index:
 					T_DBG3("%s: the code of the header's"
 					       " binary representation is not"
 					       " in prefix form\n", __func__);
-					r = T_BLOCK;
+					r = -EINVAL;
 					goto out;
 				}
 
@@ -1513,7 +1519,7 @@ index:
 				GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 			}
 			else if (unlikely(hp->length == 0)) {
-				r = T_BLOCK;
+				r = -EINVAL;
 				goto out;
 			}
 
@@ -1554,10 +1560,13 @@ get_indexed_name:
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
-			if (!entry || tfw_hpack_hdr_name_set(hp, req, entry)) {
-				r = T_BLOCK;
+			if (!entry) {
+				r = -EINVAL;
 				goto out;
 			}
+
+			if ((r = tfw_hpack_hdr_name_set(hp, req, entry)))
+				goto out;
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -1586,15 +1595,7 @@ get_value:
 			T_DBG3("%s: value length: %lu\n", __func__, hp->length);
 
 			if (unlikely(!hp->length)) {
-				T_DBG3("%s: zero-length value\n", __func__);
-				switch (req->pit.tag) {
-				case TFW_TAG_HDR_HOST:
-				case TFW_TAG_HDR_H2_AUTHORITY:
-					r = T_BAD;
-					break;
-				default:
-					r = T_BLOCK;
-				}
+				r = -EINVAL;
 				goto out;
 			}
 
@@ -1622,10 +1623,9 @@ get_value_text:
 				HPACK_PROCESS_STRING(m_len, true);
 
 			if (state & HPACK_FLAGS_ADD
-			    && tfw_hpack_add_index(&hp->dec_tbl, it,
-			                           &req->stream->parser.cstate))
+			    && (r = tfw_hpack_add_index(&hp->dec_tbl, it,
+							&req->stream->parser.cstate)))
 			{
-				r = T_BLOCK;
 				goto out;
 			}
 
@@ -1638,10 +1638,8 @@ get_value_text:
 			 * must be determined during headers' field processing
 			 * above.
 			 */
-			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
-				r = T_BLOCK;
+			if ((r = tfw_http_msg_hdr_close((TfwHttpMsg *)req)))
 				goto out;
-			}
 
 			break;
 		}
@@ -1657,14 +1655,12 @@ get_all_indexed:
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
 			if (!entry) {
-				r = T_BLOCK;
+				r = -EINVAL;
 				goto out;
 			}
 
-			if (tfw_hpack_hdr_set(hp, req, entry)) {
-				r = T_BLOCK;
+			if ((r = tfw_hpack_hdr_set(hp, req, entry)))
 				goto out;
-			}
 
 			it->hdrs_len += it->parsed_hdr->len;
 			++it->hdrs_cnt;
@@ -1675,10 +1671,8 @@ get_all_indexed:
 			 * and @parser->_hdr_tag must be determined from the
 			 * decoder static/dynamic tables above.
 			 */
-			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
-				r = T_BLOCK;
+			if ((r = tfw_http_msg_hdr_close((TfwHttpMsg *)req)))
 				goto out;
-			}
 
 			break;
 		}
@@ -1703,10 +1697,8 @@ get_all_indexed:
 			T_DBG3("%s: new dyn table size finally decoded: %u\n",
 			       __func__, hp->index);
 set_tbl_size:
-			if (tfw_hpack_set_length(hp, hp->index)) {
-				r = T_BLOCK;
+			if ((r = tfw_hpack_set_length(hp, hp->index)))
 				goto out;
-			}
 			T_DBG3("%s: dyn table size has been changed\n", __func__);
 			break;
 
@@ -1731,7 +1723,7 @@ set_tbl_size:
 
 			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
-				r = T_BLOCK;
+				r = -EINVAL;
 				goto out;
 			}
 
@@ -1746,7 +1738,7 @@ set_tbl_size:
 
 		default:
 			WARN_ON_ONCE(1);
-			r = T_BLOCK;
+			r = -EINVAL;
 			goto out;
 		}
 
@@ -1794,19 +1786,16 @@ do {									\
 } while (0)
 
 #define FIXUP_DATA(str, data, len)					\
-	if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp, str, data,  \
-					len, NULL))			\
+	if ((r = __tfw_http_msg_add_str_data((TfwHttpMsg *)resp, str,	\
+					     data, len, NULL)))		\
 	{								\
-		r = T_BLOCK;						\
 		goto out;						\
 	}
 
 #define EXPAND_STR_DATA(str)						\
 do {									\
-	if (tfw_http_msg_expand_data(it, skb_head, str, NULL)) {	\
-		r = T_BLOCK;						\
+	if ((r = tfw_http_msg_expand_data(it, skb_head, str, NULL)))	\
 		goto out;						\
-	}								\
 	dc_iter->acc_len += (str)->len;					\
 } while (0)
 
@@ -1838,7 +1827,7 @@ do {									\
 		 * table, only header's name is allowed to be indexed.
 		 */
 		if (WARN_ON_ONCE(c & 0xF0)) {
-			r = T_BLOCK;
+			r = -EINVAL;
 			goto out;
 		}
 
@@ -1874,7 +1863,7 @@ do {									\
 			GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 
 		else if (unlikely(hp->length == 0)) {
-			r = T_BLOCK;
+			r = -EINVAL;
 			goto out;
 		}
 
@@ -1895,13 +1884,13 @@ get_indexed_name:
 		if (WARN_ON_ONCE(!hp->index
 				 || hp->index > HPACK_STATIC_ENTRIES))
 		{
-			r = T_BLOCK;
+			r = -EINVAL;
 			goto out;
 		}
 
 		entry = static_table + hp->index - 1;
 		if (WARN_ON_ONCE(entry->name_num != 1)) {
-			r = T_BLOCK;
+			r = -EINVAL;
 			goto out;
 		}
 
@@ -1991,7 +1980,7 @@ get_value_text:
 	case HPACK_STATE_INDEX:
 		prev = src;
 		GET_CONTINUE(hp->index);
-		T_DBG3("%s: index finally decoded: %lu\n", __func__, hp->index);
+		T_DBG3("%s: index finally decoded: %u\n", __func__, hp->index);
 
 		NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 
@@ -2025,7 +2014,7 @@ get_value_text:
 
 	default:
 		WARN_ON_ONCE(1);
-		r = T_BLOCK;
+		r = -EINVAL;
 		goto out;
 	}
 

@@ -705,9 +705,10 @@ tfw_http_msg_header_table_size(void)
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb);
+int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
+			 struct sk_buff **next);
 int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
-				 struct sk_buff *skb);
+				 struct sk_buff *skb, struct sk_buff **next);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);

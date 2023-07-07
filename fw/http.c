@@ -5726,7 +5726,8 @@ __check_authority_correctness(TfwHttpReq *req)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
+tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
+		     struct sk_buff **splitted)
 {
 	ss_skb_actor_t *actor;
 	unsigned int parsed;
@@ -5769,18 +5770,21 @@ next_msg:
 	data_up.resp = NULL;
 
 	switch (r) {
+	case T_DROP:
 	default:
-		T_ERR("Unrecognized HTTP request parser return code, %d\n", r);
-		fallthrough;
-	case T_BLOCK:
-		T_DBG2("Block invalid HTTP request\n");
-		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_block(req, 400,
-				"failed to parse request");
+		/*
+		 * System errors, memory allocation, invalid arguments
+		 * and so on.
+		 */
 	case T_BAD:
 		T_DBG2("Drop invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		return tfw_http_req_parse_drop_with_fin(req, 400,
+			"failed to parse request");
+	case T_BLOCK:
+		T_DBG2("Block invalid HTTP request\n");
+		TFW_INC_STAT_BH(clnt.msgs_parserr);
+		return tfw_http_req_parse_block(req, 400,
 				"failed to parse request");
 	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
@@ -5859,16 +5863,6 @@ next_msg:
 	}
 
 	/*
-	 * XXX __check_authority_correctness() is called after parsing a whole
-	 * request, including body. For example: if we have a request with
-	 * invalid host/authority it will be dropped only after full parsing
-	 * while it's enough to parse only headers.
-	 */
-	if (!__check_authority_correctness(req))
-		return tfw_http_req_parse_drop(req, 400, "Invalid authority");
-
-
-	/*
 	 * The message is fully parsed, the rest of the data in the
 	 * stream may represent another request or its part.
 	 * If skb splitting has failed, the request can't be forwarded
@@ -5895,8 +5889,20 @@ next_msg:
 		skb = NULL;
 	}
 
+	/*
+	 * XXX __check_authority_correctness() is called after parsing a whole
+	 * request, including body. For example: if we have a request with
+	 * invalid host/authority it will be dropped only after full parsing
+	 * while it's enough to parse only headers.
+	 */
+	if (!__check_authority_correctness(req)) {
+		*splitted = skb;
+		return tfw_http_req_parse_drop(req, 400, "Invalid authority");
+	}
+
 	if ((r = tfw_http_req_client_link(conn, req))) {
-		return tfw_http_req_parse_block(req, 400, "request dropped: "
+		*splitted = skb;
+		return tfw_http_req_parse_drop(req, 400, "request dropped: "
 				"incorrect X-Forwarded-For header");
 	}
 	/*
@@ -6443,9 +6449,16 @@ next_msg:
 	data_up.resp = (TfwMsg *)hmresp;
 
 	switch (r) {
+	case T_DROP:
 	default:
-		T_ERR("Unrecognized HTTP response parser return code, %d\n", r);
-		fallthrough;
+		/*
+		 * System errors, memory allocation, invalid arguments
+		 * and so on.
+		 */
+	case T_BAD:
+		T_DBG2("Drop invalid HTTP response\n");
+		TFW_INC_STAT_BH(serv.msgs_parserr);
+		goto bad_msg;
 	case T_BLOCK:
 		/*
 		 * The response has not been fully parsed. There's no
@@ -6457,6 +6470,7 @@ next_msg:
 		 */
 		T_DBG2("Block invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
+		filtout = true;
 		goto bad_msg;
 	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
@@ -6683,7 +6697,7 @@ __tfw_upgrade_in_queue(TfwCliConn *cli_conn)
  */
 int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
-			     struct sk_buff *skb)
+			     struct sk_buff *skb, struct sk_buff **next)
 {
 	int r = T_BAD;
 	TfwHttpMsg *req;
@@ -6707,7 +6721,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
-		return tfw_http_req_process(conn, stream, skb);
+		return tfw_http_req_process(conn, stream, skb, next);
 
 	/* That is paired request, it may be freed after resp processing,
 	 * so we cannot move it iside `if` clause. */
@@ -6741,7 +6755,8 @@ err:
  * returned an error code on. The rest of skbs are freed by us.
  */
 int
-tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
+tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
+		     struct sk_buff **next)
 {
 	TfwStream *stream = &conn->stream;
 
@@ -6751,8 +6766,8 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
 		     && TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2);
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
-		return tfw_h2_frame_process(conn, skb);
-	return tfw_http_msg_process_generic(conn, stream, skb);
+		return tfw_h2_frame_process(conn, skb, next);
+	return tfw_http_msg_process_generic(conn, stream, skb, next);
 }
 
 /**

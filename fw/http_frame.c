@@ -197,7 +197,7 @@ do {									\
 		SET_TO_READ_VERIFY((ctx), HTTP2_IGNORE_FRAME_DATA);	\
 		if (res == STREAM_FSM_RES_TERM_CONN) {			\
 			tfw_h2_conn_terminate((ctx), err);		\
-			return T_BLOCK;					\
+			return T_BAD;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
 			return tfw_h2_stream_close((ctx),		\
 						   (hdr)->stream_id,	\
@@ -520,7 +520,7 @@ tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
 do {									\
 	if ((ctx)->hdr.length < 0) {					\
 		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_SIZE);		\
-		return T_BLOCK;						\
+		return -EINVAL;						\
 	}								\
 } while (0)
 
@@ -1010,7 +1010,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 fail:
 	if (!ctx->cur_stream) {
 		tfw_h2_conn_terminate(ctx, err_code);
-		return T_BLOCK;
+		return T_BAD;
 	}
 
 	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
@@ -1694,7 +1694,7 @@ static int
 tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		  unsigned int *read)
 {
-	int n, r = T_POSTPONE;
+	int n, ret, r = T_POSTPONE;
 	unsigned char *p = buf;
 	TfwH2Ctx *ctx = data;
 	T_FSM_INIT(ctx->state, "HTTP/2 Frame Receive");
@@ -1707,16 +1707,16 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 					p, n))
 			{
 				T_DBG("Invalid client magic received,"
-					 " connection must be dropped\n");
-				FRAME_FSM_EXIT(T_BLOCK);
+				      " connection must be dropped\n");
+				FRAME_FSM_EXIT(T_BAD);
 			}
 		});
 
-		if (tfw_h2_send_settings_init(ctx)
-		    || tfw_h2_send_wnd_update(ctx, 0,
-						 MAX_WND_SIZE - DEF_WND_SIZE))
+		if ((ret = tfw_h2_send_settings_init(ctx)) ||
+		    (ret = tfw_h2_send_wnd_update(ctx, 0,
+						  MAX_WND_SIZE - DEF_WND_SIZE)))
 		{
-			FRAME_FSM_EXIT(T_BLOCK);
+			FRAME_FSM_EXIT(ret);
 		}
 
 		FRAME_FSM_MOVE(HTTP2_RECV_FIRST_SETTINGS);
@@ -1725,8 +1725,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FIRST_SETTINGS) {
 		FRAME_FSM_READ_SRVC(FRAME_HEADER_SIZE);
 
-		if (tfw_h2_first_settings_verify(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_first_settings_verify(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
@@ -1739,8 +1739,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 
 		tfw_h2_unpack_frame_header(&ctx->hdr, ctx->rbuf);
 
-		if (tfw_h2_frame_type_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_frame_type_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
@@ -1751,8 +1751,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_PADDED) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_h2_frame_pad_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_frame_pad_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
@@ -1763,8 +1763,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_PRIORITY) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_h2_priority_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_priority_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1772,8 +1772,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_WND_UPDATE) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_h2_wnd_update_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_wnd_update_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1782,9 +1782,9 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (!(ctx->hdr.flags & HTTP2_F_ACK)
-		    && tfw_h2_send_ping(ctx))
+		    && (ret = tfw_h2_send_ping(ctx)))
 		{
-			FRAME_FSM_EXIT(T_BLOCK);
+			FRAME_FSM_EXIT(ret);
 		}
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1801,14 +1801,14 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_SETTINGS) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_h2_settings_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_settings_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
-		if (tfw_h2_send_settings_ack(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_send_settings_ack(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1816,8 +1816,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_GOAWAY) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_h2_goaway_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_goaway_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_IGNORE_FRAME_DATA);
@@ -1828,8 +1828,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_HEADER_PRI) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_h2_headers_pri_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_headers_pri_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
@@ -1840,8 +1840,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_DATA) {
 		FRAME_FSM_READ_PYLD();
 
-		if (tfw_h2_stream_state_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_stream_state_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (unlikely(ctx->to_read)) {
 			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
@@ -1853,8 +1853,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_HEADER) {
 		FRAME_FSM_READ_PYLD();
 
-		if (tfw_h2_headers_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_headers_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (unlikely(ctx->to_read)) {
 			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
@@ -1866,8 +1866,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_CONT) {
 		FRAME_FSM_READ_PYLD();
 
-		if (tfw_h2_stream_state_process(ctx))
-			FRAME_FSM_EXIT(T_BLOCK);
+		if ((ret = tfw_h2_stream_state_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		if (unlikely(ctx->to_read)) {
 			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
@@ -1934,7 +1934,7 @@ tfw_h2_context_reinit(TfwH2Ctx *ctx, bool postponed)
 }
 
 int
-tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb)
+tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
 {
 	int r;
 	bool postponed;
@@ -1951,11 +1951,10 @@ next_msg:
 
 	switch (r) {
 	default:
-		T_WARN("Unrecognized return code %d during HTTP/2 frame"
-		       " receiving, drop frame\n", r);
-		// fallthrough
+	case T_DROP:
+	case T_BAD:
 	case T_BLOCK:
-		T_DBG3("Drop invalid HTTP/2 frame\n");
+		T_DBG3("Drop invalid HTTP/2 frame and close connection\n");
 		goto out;
 	case T_POSTPONE:
 		/*
@@ -2047,7 +2046,8 @@ next_msg:
 		}
 		h2->data_off = 0;
 		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
-		r = tfw_http_msg_process_generic(c, h2->cur_stream, data_up.skb);
+		r = tfw_http_msg_process_generic(c, h2->cur_stream,
+						 data_up.skb, next);
 		/* TODO #1490: Check this place, when working on the task. */
 		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
