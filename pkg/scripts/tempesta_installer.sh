@@ -97,6 +97,11 @@ tfw_install_packages()
     echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
     mkdir -p $DOWNLOAD_DIR/$repo
     ;;
+	"ubuntu-22")
+    repo=""
+    echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
+    mkdir -p $DOWNLOAD_DIR/$repo
+    ;;
   *)
 		;;
   esac
@@ -125,7 +130,7 @@ tfw_install_deps()
 		apt-get update
 		apt-get -t jessie-backports dist-upgrade -y
 		;;
-        "ubuntu-20")
+	"ubuntu-20")
         echo ""
 		echo "Installation on Ubuntu 20 LTS requires updating system from"
 		echo "jessie-backports repository before installing TempestaFW."
@@ -133,6 +138,17 @@ tfw_install_deps()
 
 		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
 		        "focal main" >> /etc/apt/sources.list
+		apt-get update
+		apt-get dist-upgrade -y
+    ;;
+	"ubuntu-22")
+        echo ""
+		echo "Installation on Ubuntu 22 LTS requires updating system from"
+		echo "jessie-backports repository before installing TempestaFW."
+		tfw_confirm
+
+		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
+		        "jammy main" >> /etc/apt/sources.list
 		apt-get update
 		apt-get dist-upgrade -y
     ;;
@@ -224,6 +240,9 @@ tfw_try_distro()
 	Ubuntu[[:space:]]20*)
 		DISTRO="ubuntu-20"
 		;;
+	Ubuntu[[:space:]]22*)
+		DISTRO="ubuntu-22"
+		;;
 	*)
 		echo "Installer does not support $d_name distro!"
 		exit 2
@@ -237,7 +256,7 @@ tfw_set_grub_default()
 		return
 	fi
 
-	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35+ | head -n1 | cut -d "'" -f 2`
+	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35- | head -n1 | cut -d "'" -f 2`
 	entry=`grep menuentry /boot/grub/grub.cfg | grep tempesta | head -n1 | cut -d "'" -f 2`
 	if [[ ! "$entry" && ! "$u_entry" ]]; then
 		echo "Error: Can't find Tempesta patched kernel in /boot/grub/grub.cfg!"
