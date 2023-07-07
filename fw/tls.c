@@ -92,6 +92,7 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
+	case T_BAD:
 		r = T_BAD;
 		fallthrough;
 	case T_BLOCK:

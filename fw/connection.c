@@ -121,7 +121,7 @@ int
 tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
 	int r = T_OK;
-	struct sk_buff *next;
+	struct sk_buff *next, *splitted;
 
 	if (skb->prev)
 		skb->prev->next = NULL;
@@ -129,12 +129,23 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	     skb = next, next = next ? next->next : NULL)
 	{
 		if (likely(r == T_OK || r == T_POSTPONE || r == T_DROP)) {
-			skb->next = skb->prev = NULL;
+			splitted = skb->next = skb->prev = NULL;
 			if (unlikely(TFW_CONN_PROTO(conn) == TFW_FSM_WS
 				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))
 				r = tfw_ws_msg_process(conn, skb);
 			else
-				r = tfw_http_msg_process(conn, skb);
+				r = tfw_http_msg_process(conn, skb, &splitted);
+			if (r == T_DROP && splitted) {
+				/*
+				 * In the case when the current skb contains
+				 * multiple requests, we split this skb along
+				 * the request boundary. If the request was
+				 * dropped we save skb with the next request
+				 * in the `splitted` pointer.
+				 */
+				splitted->next = next;
+				next = splitted;
+			}
 		} else {
 			__kfree_skb(skb);
 		}
