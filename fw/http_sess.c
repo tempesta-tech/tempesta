@@ -640,7 +640,7 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 			 * e.g. send an HTTP responce in case of
 			 * `block_action attack reply`.
 			 */
-			tfw_filter_block_ip(&req->conn->peer->addr);
+			tfw_filter_block_ip((TfwClient *)req->conn->peer);
 			return TFW_HTTP_SESS_VIOLATE;
 		}
 		bzero_fast(mv->hmac, sizeof(mv->hmac));

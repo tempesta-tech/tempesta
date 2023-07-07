@@ -685,7 +685,7 @@ tfw_cli_conn_close_all(void *data)
  * connections, trying to cause a work queue overrun and delay security events
  * handlers. To detach attackers efficiently, we have to use synchronous close.
  */
-static int
+int
 tfw_cli_conn_abort_all(void *data)
 {
 	return tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_abort_cb);
