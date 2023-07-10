@@ -1017,16 +1017,16 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
  * WARNING: After this call TfwHttpMsg->body MUST not be used.
  */
 int
-tfw_http_msg_del_flagged_body(TfwHttpMsg *hm)
+tfw_http_msg_cutoff_body_chunks(TfwHttpMsg *hm)
 {
 	int r;
 
-	r = ss_skb_cutoff_data_flagged(hm->msg.skb_head, &hm->body,
-				       TFW_STR_CUT, tfw_str_eolen(&hm->body));
+	r = ss_skb_cutoff_data(hm->body.skb, &hm->stream->parser.cut, 0,
+			       tfw_str_eolen(&hm->body));
 	if (unlikely(r))
 		return r;
 
-	hm->msg.len -= hm->stream->parser.cut_len;
+	hm->msg.len -= hm->stream->parser.cut.len;
 	TFW_STR_INIT(&hm->body);
 
 	return 0;
@@ -1349,12 +1349,6 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 		r = ss_skb_add_frag(it->skb_head, skb, addr, ++it->frag, size);
 		if (unlikely(r))
 			return r;
-
-		if (it->frag == MAX_SKB_FRAGS - 1) {
-			it->frag = -1;
-			if (skb != it->skb_head)
-				it->skb = it->skb->next;
-		}
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
@@ -1409,20 +1403,98 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 }
 
 /*
+ * Move body to @nskb if body located in current skb.
+ */
+static inline int
+__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
+{
+	TfwMsgIter *it = &resp->mit.iter;
+	struct sk_buff **body;
+	int r, frag;
+	char *p;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		TfwStream *stream = resp->stream;
+
+		p = stream->parser.body_start_data;
+		body = &stream->parser.body_start_skb;
+	} else {
+		p = TFW_STR_CHUNK(&resp->body, 0)->data;
+		body = &resp->body.skb;
+	}
+
+	if (*body != it->skb)
+		return 0;
+
+	if ((r = ss_skb_find_frag_by_offset(*body, p, &frag)))
+		return r;
+
+	/* Move body to the next skb. */
+	ss_skb_move_frags(it->skb, nskb, frag,
+			  skb_shinfo(it->skb)->nr_frags - frag);
+	*body = nskb;
+
+	return 0;
+}
+
+static inline int
+__tfw_http_msg_linear_transform(TfwMsgIter *it)
+{
+	/*
+	 * There is no sense to move linear part if next skb has linear
+	 * part as well and current skb has max frags.
+	 */
+	if (skb_shinfo(it->skb)->nr_frags == MAX_SKB_FRAGS
+	    && skb_headlen(it->skb->next))
+	{
+		struct sk_buff *nskb = ss_skb_alloc(0);
+
+		if (!nskb)
+			return -ENOMEM;
+
+		skb_shinfo(nskb)->tx_flags = skb_shinfo(it->skb)->tx_flags;
+		ss_skb_insert_before(&it->skb_head, it->skb, nskb);
+		it->skb = nskb;
+		it->frag = -1;
+
+		return 0;
+	} else {
+		return ss_skb_linear_transform(it->skb_head, it->skb,
+					       it->skb->data);
+	}
+}
+
+/*
  * Expand message by @str increasing size of current paged fragment or add
  * new paged fragment using @pool if room in current pool's chunk is not enough.
+ * This function is called only for adding new response headers. If skb lenght
+ * limit is reached, this function moves body fragments to the new skb and
+ * update pointer to the body skb.
  */
 static int
-__tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
-				const TfwStr *str,
+__tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off;
 	int r;
+	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
+	TfwPool* pool = resp->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
+
+	/*
+	 * Move linear data to paged fragment before inserting data into skb.
+	 * We must do it, because we want to insert new data "before" linear.
+	 * For instance: We want to insert headers. Linear data contains part
+	 * of the body, if we insert headers without moving linear part,
+	 * headers will be inserted after the body or between the body chunks.
+	 */
+	if (skb_headlen(it->skb)) {
+		if (unlikely((r = __tfw_http_msg_linear_transform(it))))
+			return r;
+	}
 
 	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 		rlen = c->len;
@@ -1442,21 +1514,36 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
-			if (skb_room == 0 || (it->skb == it->skb_head
-					      && it->frag == -1
-					      && nr_frags == MAX_SKB_FRAGS))
+			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
-				struct sk_buff *nskb;
+				struct sk_buff *nskb = ss_skb_alloc(0);
 
-				nskb = ss_skb_alloc(0);
 				if (!nskb)
 					return -ENOMEM;
+
+				if (resp->body.len > 0) {
+					r = __tfw_http_msg_move_body(resp,
+								     nskb);
+					if (unlikely(r)) {
+						T_WARN("Error during moving body");
+						return r;
+					}
+				}
+
 				skb_shinfo(nskb)->tx_flags =
 					skb_shinfo(it->skb)->tx_flags;
 				ss_skb_insert_after(it->skb, nskb);
+				/*
+				 * If body is located in the zero fragment and
+				 * takes all SS_SKB_MAX_DATA_LEN bytes, we move
+				 * it to the next skb and continue use current
+				 * skb.
+				 */
+				if (likely(nskb->len < SS_SKB_MAX_DATA_LEN))
+					it->skb = nskb;
+
 				it->frag = -1;
-				it->skb = nskb;
-				skb_room = SS_SKB_MAX_DATA_LEN;
+				skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			}
 
 			n_copy = min(n_copy, skb_room);
@@ -1479,49 +1566,66 @@ __tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
 }
 
 int
-tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
-			      const TfwStr *str)
+tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(mit, pool, str, memcpy_fast);
+	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
-				 const TfwStr *str)
+tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(mit, pool, str, tfw_cstrtolower);
+	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower);
 }
 
-static void
-__tfw_h2_msg_shrink_frags(TfwMsgIter *it, const char *body,
-			  TfwHttpRespCleanup *cleanup)
+static inline void
+__tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
+			TfwHttpRespCleanup *cleanup)
 {
-	struct skb_shared_info *si = skb_shinfo(it->skb);
-	skb_frag_t *frag = &si->frags[it->frag];
-	char* frag_addr = skb_frag_address(frag);
-	int len;
-	int i;
+	int i, len;
+	struct page *page;
+	struct skb_shared_info *si = skb_shinfo(skb);
 
-	/* Delete all fragments from skb. We will use this skb as skb_head. */
-	if (!body) {
-		for (i = 0; i < si->nr_frags; i++) {
-			struct page *pg = skb_frag_page(&si->frags[i]);
-
-			cleanup->pages[i] = compound_head(pg);
-		}
-		len = it->skb->data_len;
-		cleanup->pages_sz = si->nr_frags;
-		si->nr_frags = 0;
-		it->frag = 0;
-		ss_skb_adjust_data_len(it->skb, -len);
-	} else if (frag_addr != body) {
-		/* Start of body it's not start of frag. Shrink frag.*/
-		len = body - frag_addr;
-		/* Add offset and decrease fragment's size */
-		skb_frag_off_add(frag, len);
-		skb_frag_size_sub(frag, len);
-		ss_skb_adjust_data_len(it->skb, -len);
+	for (i = 0, len = 0; i < frag_idx; i++) {
+		page = skb_frag_page(&si->frags[i]);
+		cleanup->pages[i] = compound_head(page);
+		cleanup->pages_sz++;
+		len += skb_frag_size(&si->frags[i]);
 	}
+
+	si->nr_frags -= frag_idx;
+	ss_skb_adjust_data_len(skb, -len);
+	memmove(&si->frags, &si->frags[frag_idx],
+		(si->nr_frags) * sizeof(skb_frag_t));
+}
+
+static inline void
+__tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
+{
+	int i, len;
+	struct page *page;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	for (i = 0; i < si->nr_frags; i++) {
+		page = skb_frag_page(&si->frags[i]);
+		cleanup->pages[i] = compound_head(page);
+	}
+
+	len = skb->data_len;
+	cleanup->pages_sz = si->nr_frags;
+	si->nr_frags = 0;
+	ss_skb_adjust_data_len(skb, -len);
+}
+
+static inline void
+__tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
+{
+	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
+	const int len = nbegin - (char*)skb_frag_address(frag);
+
+	/* Add offset and decrease fragment's size */
+	skb_frag_off_add(frag, len);
+	skb_frag_size_sub(frag, len);
+	ss_skb_adjust_data_len(skb, -len);
 }
 
 /*
@@ -1530,17 +1634,17 @@ __tfw_h2_msg_shrink_frags(TfwMsgIter *it, const char *body,
  * At this point we can't free SKBs, because data that they contain used
  * as source for message trasformation.
  */
-void
+int
 tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 {
+	int i, ret;
 	char *begin, *end;
 	TfwMsgIter *it = &resp->mit.iter;
 	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
 	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
-	char *off = resp->body.len ? body : crlf->data + crlf->len;
+	char *off = body ? body : crlf->data + crlf->len;
 
 	do {
-		unsigned char i;
 		struct sk_buff *skb;
 		struct skb_shared_info *si = skb_shinfo(it->skb);
 
@@ -1550,65 +1654,74 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 
 			if ((begin <= off) && (end >= off)) {
 				it->frag = -1;
-				/* TODO: Handle this case, most likely for low MTU
-				 * it will be implemented as part of #1703 */
-				return;
+				/* We would end up here if the start of the body or
+				 * the end of CRLF lies within the linear data area
+				 * of the current @it->skb
+				 */
+				ret = ss_skb_linear_transform(it->skb_head,
+							      it->skb, body);
+				if (unlikely(ret))
+					return ret;
+				break;
 			}
 		}
+
 		for (i = 0; i < si->nr_frags; i++) {
 			skb_frag_t *f = &si->frags[i];
 
 			begin = skb_frag_address(f);
 			end = begin + skb_frag_size(f);
 
-			if ((begin <= off) && (end >= off)) {
-				it->frag = i;
-				__tfw_h2_msg_shrink_frags(it, body, cleanup);
+			if (begin > off || end < off)
+				continue;
+
+			/*
+			 * If body exists and headers ends in current skb that
+			 * has only one fragment and contains only headers
+			 * just remove the fragment from skb and continue
+			 * to use this skb as head. If response doesn't have
+			 * body simply remove all fragments from skb where
+			 * LF is located.
+			 */
+			if (!body || (si->nr_frags == 1 && off == end)) {
+				__tfw_h2_msg_rm_all_frags(it->skb, cleanup);
 				goto end;
+			} else if (off != begin) {
+				/*
+				 * Fragment contains headers and body.
+				 * Set beginning of frag as beginning of body.
+				 */
+				__tfw_h2_msg_shrink_frag(it->skb, i, off);
 			}
+
+			/*
+			 * If body not in zero fragment save previous
+			 * fragments for later cleanup and remove them
+			 * from skb.
+			 */
+			if (i >= 1)
+				__tfw_h2_msg_move_frags(it->skb, i, cleanup);
+
+			goto end;
 		}
 
 		skb = it->skb;
 		it->skb = it->skb->next;
 		ss_skb_unlink(&it->skb_head, skb);
 		ss_skb_queue_tail(&cleanup->skb_head, skb);
-
 	} while (it->skb != NULL);
 
 end:
 	/* Pointer to data or CRLF not found in skbs. */
 	BUG_ON(!it->skb_head || !it->skb);
 
-	/*
-	 * If body not in first fragment save previous fragments for later
-	 * cleanup and remove them from skb.
-	 */
-	if (it->frag >= 1) {
-		int i;
-		int len;
-		struct skb_shared_info *si = skb_shinfo(it->skb);
-
-		for (i = 0; i < it->frag; i++) {
-			cleanup->pages[i] = skb_frag_page(&si->frags[i]);
-			cleanup->pages_sz++;
-			len = skb_frag_size(&si->frags[i]);
-			ss_skb_adjust_data_len(it->skb, -len);
-			si->nr_frags--;
-		}
-
-		memmove(&si->frags, &si->frags[it->frag],
-			(si->nr_frags) * sizeof(skb_frag_t));
-	}
-
-	/* Trim skb linear data. This is ugly hotfix and must be removed after
-	 * implementation of #1703 */
-	it->skb->len -= skb_headlen(it->skb);
-
 	it->skb_head = it->skb;
 	resp->msg.skb_head = it->skb;
 
 	/* Start from zero fragment */
 	it->frag = -1;
+
+	return 0;
 }
 
 /**

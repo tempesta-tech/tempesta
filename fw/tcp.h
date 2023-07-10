@@ -1,7 +1,7 @@
 /**
- *		Tempesta FW
+ *		TCP Socket API.
  *
- * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,20 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_HTTP_TYPES_H__
-#define __TFW_HTTP_TYPES_H__
+#ifndef __TFW_TCP_H__
+#define __TFW_TCP_H__
 
-/* Forward declaration of common HTTP types. */
-typedef struct tfw_http_sess_t		TfwHttpSess;
-typedef struct tfw_http_msg_t		TfwHttpMsg;
-typedef struct tfw_http_req_t		TfwHttpReq;
-typedef struct tfw_http_resp_t		TfwHttpResp;
-typedef struct tfw_vhost_t		TfwVhost;
-typedef struct tfw_hdr_mods_desc_t	TfwHdrModsDesc;
-typedef struct tfw_hdr_mods_t		TfwHdrMods;
-typedef struct frang_global_cfg_t	FrangGlobCfg;
-typedef struct frang_vhost_cfg_t	FrangVhostCfg;
-typedef struct tfw_http_cookie_t	TfwStickyCookie;
-typedef struct tfw_http_stream_t        TfwStream;
+#include <linux/skbuff.h>
 
-#endif /* __TFW_HTTP_TYPES_H__ */
+void tfw_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb);
+void tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
+                           struct sk_buff *nskb, unsigned int mss_now);
+
+#endif /* __TFW_TCP_H__ */

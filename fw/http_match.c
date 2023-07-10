@@ -209,51 +209,13 @@ host_val_eq(const TfwStr* host, const TfwHttpMatchRule *rule)
 	return tfw_rule_str_match(host, arg->str, arg->len, flags, rule->op);
 }
 
-static bool
-match_host_forwarded(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
-{
-	TfwStr host, *dup, *end;
-	TfwStr* hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
-
-	TFW_STR_INIT(&host);
-	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if (tfw_http_search_host_forwarded(dup, &host)) {
-			if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
-				return true;
-			if (host_val_eq(&host, rule))
-				return true;
-		}
-	}
-
-	return false;
-}
-
+/* This function is invoked after extract_req_host() has done its job, so we
+ * rely on req->host being appropriately picked between absoluteURI,
+ * Host and Authority headers. */
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	const TfwStr *host = &req->host;
-
-	/*
-	 * TODO #1630: replace with a single condition
-	 * on the authority special header.
-	 */
-	if (host->len > 0) {
-		/*
-		 * RFC 7230 5.4: Host header must
-		 * be ignored when URI is absolute.
-		 */
-		return host_val_eq(host, rule);
-	} else if (req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY].len > 0) {
-		return hdr_val_eq(req, rule, TFW_HTTP_HDR_H2_AUTHORITY);
-	}
-
-	if (hdr_val_eq(req, rule, TFW_HTTP_HDR_HOST))
-		return true;
-
-	if (match_host_forwarded(req, rule))
-		return true;
-
-	return false;
+	return host_val_eq(&req->host, rule);
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\
@@ -990,38 +952,4 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 	tfw_str_collect_cmp(chunk, end, val, ";");
 
 	return 1;
-}
-
-/*
- * Search value of "host" param in `Forwarded` header.
- * Value will be saved into @host_val in form "host:port"
- */
-bool
-tfw_http_search_host_forwarded(const TfwStr *hdr, TfwStr *host_val)
-{
-	TfwStr *chunk, *end;
-	char stop = ';';
-
-	if (TFW_STR_EMPTY(hdr))
-		return false;
-
-	end = hdr->chunks + hdr->nchunks;
-	for (chunk = hdr->chunks; chunk < end; ++chunk) {
-		if (!(chunk->flags & TFW_STR_NAME))
-			continue;
-
-		if (tfw_str_eq_cstr(chunk, "host=", 5, TFW_HTTP_MATCH_O_EQ)) {
-			++chunk;
-			if (!(chunk->flags & TFW_STR_VALUE)) {
-			/* Skip quote and collect until next quote */
-				++chunk;
-				stop = '"';
-			}
-			tfw_str_collect_cmp(chunk, end, host_val, &stop);
-
-			return true;
-		}
-	}
-
-	return false;
 }

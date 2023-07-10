@@ -572,19 +572,19 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	};
 	TfwStr *body = NULL;
 
+	BUG_ON(!resp->req);
 	if (!stream_id) {
-		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-						   HTTP2_F_END_STREAM);
-		if (unlikely(!stream_id)) {
-			return -ENOENT;
-		}
+		stream_id = tfw_h2_stream_id_send(resp->req, HTTP2_HEADERS,
+						  HTTP2_F_END_HEADERS);
+		if (unlikely(!stream_id))
+			return -EPIPE;
 	}
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
 	r = tfw_h2_resp_status_write(resp, status, false, false);
 	if (unlikely(r))
-		return r;
+		goto out;
 
 	/*
 	 * Form and write HTTP/2 response headers excluding "\r\n", ':'
@@ -610,7 +610,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			r = tfw_hpack_encode(resp, __TFW_STR_CH(&hdr, 0),
 					     false, false);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			write_int(val->len, 0x7F, 0, &vlen);
 			s_vlen.data = vlen.buf;
@@ -619,11 +619,11 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			r = tfw_http_msg_expand_data(iter, skb_head, &s_vlen,
 						     NULL);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			r = tfw_http_msg_expand_data(iter, skb_head, val, NULL);
 			if (unlikely(r))
-				return r;
+				goto out;
 
 			hdrs_len += s_vlen.len + val->len;
 		} else {
@@ -634,7 +634,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 			hdr.hpack_idx = name->hpack_idx;
 
 			if ((r = tfw_hpack_encode(resp, &hdr, false, true)))
-				return r;
+				goto out;
 		}
 	}
 
@@ -647,7 +647,12 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	hdrs_len += mit->acc_len;
 
 	body = TFW_STR_BODY_CH(msg);
-	return tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+
+	r = tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+
+out:
+	tfw_h2_stream_unlink_from_req(req, r, r);
+	return r;
 }
 
 /*
@@ -721,7 +726,6 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	char *body_val = NULL;
 	const TfwStr *proto =
 		&protos[!!(TFW_CONN_PROTO(req->conn) & TFW_FSM_HTTPS)];
-	TfwStr host;
 	size_t cl_len, len, remaining, body_len = body ? body->len : 0;
 	char *status_line = tfw_http_resp_status_line(status);
 	int r;
@@ -752,24 +756,8 @@ do { 								\
 	if (!cl_len)
 		return TFW_BLOCK;
 
-	if (req->host.len) {
-		host = req->host;
-	} else {
-		/* Invalid id value */
-		unsigned id = TFW_HTTP_HDR_NUM;
-
-		if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY]))
-			id = TFW_HTTP_HDR_H2_AUTHORITY;
-		else if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
-			id = TFW_HTTP_HDR_HOST;
-
-		if (id != TFW_HTTP_HDR_NUM)
-			tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[id],
-						 id, &host);
-	}
-
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
-	len = host.len + req->uri_path.len + body_len;
+	len = req->host.len + req->uri_path.len + body_len;
 	if (likely(len) < remaining) {
 		p = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE) + cl_len;
 	} else {
@@ -782,10 +770,10 @@ do { 								\
 		remaining = len + 1;
 	}
 
-	if (host.len) {
+	if (req->host.len) {
 		url.chunks[url.nchunks++] = *proto;
 		url.len += proto->len;
-		TFW_ADD_URL_CHUNK(&host);
+		TFW_ADD_URL_CHUNK(&req->host);
 	}
 
 	if (rmark->len) {
@@ -955,7 +943,7 @@ static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_stream_id_close(req, _HTTP2_UNDEFINED, 0);
+		tfw_h2_stream_unlink_from_req(req, true, true);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
@@ -1108,7 +1096,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
  */
 static void
 tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
-	              unsigned int stream_id)
+		 unsigned int stream_id)
 {
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
@@ -1497,8 +1485,6 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 	TfwStr *c, *end, *c2, *end2;
 	char *status_line;
 	size_t i = 0;
-	TfwStr *hdr;
-	TfwStr hdr_val;
 
 	tfw_http_prep_date(date_val);
 
@@ -1537,16 +1523,7 @@ do {									\
 			TFW_STRCPY(&req->uri_path);
 			break;
 		case TFW_HTTP_REDIR_HOST:
-			if (req->host.len) {
-				hdr_val = req->host;
-			} else {
-				hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
-				tfw_http_msg_clnthdr_val(req, hdr,
-							 TFW_HTTP_HDR_HOST,
-							 &hdr_val);
-			}
-
-			TFW_STRCPY(&hdr_val);
+			TFW_STRCPY(&req->host);
 			break;
 		default:
 			BUG();
@@ -2530,6 +2507,9 @@ tfw_http_req_destruct(void *msg)
 
 	if (req->peer)
 		tfw_client_put(req->peer);
+
+	if (req->old_head)
+		ss_skb_queue_purge(&req->old_head);
 }
 
 /**
@@ -2663,6 +2643,12 @@ tfw_http_conn_close(TfwConn *conn, bool sync)
 	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
 }
 
+static void
+tfw_http_conn_abort(TfwConn *c)
+{
+	ss_close(c->sk, SS_F_ABORT_FORCE);
+}
+
 /*
  * Connection with a peer is released.
  *
@@ -2718,7 +2704,7 @@ tfw_http_conn_release(TfwConn *conn)
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (TFW_MSG_H2(req)) {
-			tfw_h2_stream_id_close(req, _HTTP2_UNDEFINED, 0);
+			tfw_h2_stream_unlink_from_req(req, true, true);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -3064,7 +3050,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 		}
 		else {
 			r = TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
-					         TFW_HTTP_HDR_CONNECTION);
+						 TFW_HTTP_HDR_CONNECTION);
 		}
 	}
 
@@ -3353,11 +3339,10 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 			TfwHttpTransIter *mit = &resp->mit;
 			TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 			/*
-			 * Skip the configured header if we have already
-			 * processed it during cache reading, or if the header
-			 * is configured for deletion (without value chunk).
+			 * Skip the configured header if the header is
+			 * configured for deletion (without value chunk).
 			 */
-			if (test_bit(i, mit->found) || h_mdf.nchunks < 3)
+			if (h_mdf.nchunks < 3)
 				continue;
 			/* h_mdf->eolen is ignored, add explicit CRLF. */
 			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
@@ -3641,6 +3626,43 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 }
 
 /**
+ * Fuse multiple cookie headers into one.
+ * Works only with TFW_STR_DUP strings. */
+static int
+write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
+{
+	int r = 0;
+	static const DEFINE_TFW_STR(h_cookie, "cookie" S_DLM);
+	static const DEFINE_TFW_STR(val_dlm, "; ");
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
+	TfwStr *dup, *dup_end;
+	const TfwStr *cookie_dlm = &h_cookie;
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TfwStr *chunk, *chunk_end, hval = {};
+
+		if (unlikely(TFW_STR_PLAIN(dup)))
+			return -EINVAL;
+
+		hval.chunks = dup->chunks;
+		hval.nchunks = dup->nchunks;
+		hval.len = dup->len;
+		TFW_STR_FOR_EACH_CHUNK(chunk, dup, chunk_end) {
+			if (chunk->flags & TFW_STR_HDR_VALUE)
+				break;
+			hval.chunks++;
+			hval.nchunks--;
+			hval.len -= chunk->len;
+		}
+		r |= tfw_msg_write(it, cookie_dlm);
+		r |= tfw_msg_write(it, &hval);
+		cookie_dlm = &val_dlm;
+	}
+	return r | tfw_msg_write(it, &crlf);
+}
+
+
+/**
  * Transform h2 request to http1.1 request before forward it to backend server.
  * Usually we prefer in-place header modifications avoid copying, but here
  * we have to insert a lot of information into header, like delimiters between
@@ -3661,16 +3683,15 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwMsgParseIter *pit = &req->pit;
 	ssize_t h1_hdrs_sz;
 	TfwHttpHdrTbl *ht = req->h_tbl;
-	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
-	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
+	bool auth, host;
 	size_t pseudo_num;
 	TfwStr meth = {}, host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
-	const DEFINE_TFW_STR(sp, " ");
-	const DEFINE_TFW_STR(dlm, S_DLM);
-	const DEFINE_TFW_STR(crlf, S_CRLF);
-	const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
+	static const DEFINE_TFW_STR(sp, " ");
+	static const DEFINE_TFW_STR(dlm, S_DLM);
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
+	static const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
 	char *buf = *this_cpu_ptr(&g_buf);
 	char *xff_end = ss_skb_fmt_src_addr(req->msg.skb_head, buf);
 	const TfwStr h_xff = {
@@ -3716,7 +3737,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * requests with Transfer-Encoding are blocked.
 	 */
 	bool need_cl = req->body.len &&
-	               TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
+		       TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
 
 	if (need_cl) {
 		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
@@ -3726,15 +3747,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
-
-	/* H2 client may use either authority or host header but at least one
-	 * is required for correct conversion.
-	 */
-	if (!auth && !host) {
-		T_WARN("Cant convert h2 request to http/1.1: no authority "
-		       "found\n");
-		return -EINVAL;
-	}
 
 	/*
 	 * First apply message modifications defined by admin in configuration
@@ -3811,6 +3823,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	h1_hdrs_sz += h_via.len;
 	h1_hdrs_sz += cl_len;
 
+	/* Adjust header size based on how many cookie headers there were in
+	 * request. */
+	if (TFW_STR_DUP(&ht->tbl[TFW_HTTP_HDR_COOKIE]))
+		h1_hdrs_sz -= (ht->tbl[TFW_HTTP_HDR_COOKIE].nchunks - 1)
+		              * (SLEN("cookie") + SLEN(S_DLM));
+
 	/*
 	 * Conditional substitution/additions of 'content-type' header. This is
 	 * singular header, so we can avoid duplicates processing.
@@ -3865,6 +3883,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 				continue;
 			}
 			break;
+		case TFW_HTTP_HDR_COOKIE:
+			if (!TFW_STR_DUP(field))
+				break;
+			r |= write_merged_cookie_headers(
+					&ht->tbl[TFW_HTTP_HDR_COOKIE], &it);
+			continue;
 		default:
 			break;
 		}
@@ -3922,6 +3946,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	T_DBG3("%s: req [%p] converted to http1.1\n", __func__, req);
 
 	old_head = req->msg.skb_head;
+	req->old_head = old_head;
 	req->msg.skb_head = new_head;
 
 	/* Http chains might add a mark for the message, keep it. */
@@ -3960,14 +3985,13 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			ss_skb_queue_append(&old_head, trailer);
 		}
 	}
-	ss_skb_queue_purge(&old_head);
 
 	return 0;
 err:
 	ss_skb_queue_purge(&new_head);
 	T_DBG3("%s: req [%p] convertation to http1.1 has failed\n",
 	       __func__, req);
-	return r;
+	return -EINVAL;
 }
 
 /*
@@ -4100,6 +4124,13 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	}
 }
 
+static inline void
+__tfw_http_ws_connection_put(TfwCliConn *cli_conn)
+{
+	if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
+		tfw_connection_put(cli_conn->pair);
+}
+
 /*
  * Mark @resp as ready to transmit. Then, starting with the first request
  * in @seq_queue, pick consecutive requests that have response ready to
@@ -4136,6 +4167,11 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		T_DBG2("%s: The client was disconnected, drop resp and req: "
 		       "conn=[%p]\n",
 			 __func__, cli_conn);
+		/*
+		 * Put the websocket server connection when client connection is
+		 * lost after successful upgrade request.
+		 */
+		__tfw_http_ws_connection_put(cli_conn);
 		tfw_connection_close(req->conn, true);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -4399,7 +4435,7 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
 			if (!(chunk->flags & TFW_STR_NAME))
-		                continue;
+				continue;
 
 			if (sep) {
 				buf[len] = ',';
@@ -4417,7 +4453,7 @@ tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst, size_t max_len)
 				chunk++;
 			}
 
-		        sep = 1;
+			sep = 1;
 		}
 	}
 
@@ -4589,7 +4625,6 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			 bool cache)
 {
 	unsigned int i;
-	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
 
 	if (!h_mods)
@@ -4601,8 +4636,7 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 		unsigned short hid = desc->hid;
 
 		/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
-		if (test_bit(i, mit->found)
-		    || (TFW_STR_CHUNK(desc->hdr, 1) == NULL))
+		if (TFW_STR_CHUNK(desc->hdr, 1) == NULL)
 			continue;
 
 		if (unlikely(desc->append && !TFW_STR_EMPTY(&ht->tbl[hid])
@@ -4625,19 +4659,30 @@ static bool
 tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 {
 	unsigned int idx;
+	const TfwHdrModsDesc *desc;
 
 	if (!h_mods)
 		return false;
 
-	for (idx = 0; idx < h_mods->sz; ++idx) {
-		TfwHdrModsDesc *desc = &h_mods->hdrs[idx];
+	/* Fast path for special headers */
+	if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW) {
+		desc = h_mods->spec_hdrs[hid];
+		/* Skip only resp_hdr_set headers */
+		return desc ? !desc->append : false;
+	}
 
-		if (!desc->append && ((hid >= TFW_HTTP_HDR_RAW
-				       && !__hdr_name_cmp(hdr, desc->hdr))
-				      || hid == desc->hid))
-		{
+	if (hdr->hpack_idx > 0) {
+		/* Don't touch pseudo-headers. */
+		if (hdr->hpack_idx <= HPACK_STATIC_TABLE_REGULAR)
+			return false;
+
+		return test_bit(hdr->hpack_idx, h_mods->s_tbl);
+	}
+
+	for (idx = h_mods->spec_num; idx < h_mods->sz; ++idx) {
+		desc = &h_mods->hdrs[idx];
+		if (!desc->append && !__hdr_name_cmp(hdr, desc->hdr))
 			return true;
-		}
 	}
 
 	return false;
@@ -4665,7 +4710,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 				 || TFW_STR_DUP(tgt)))
 			return -EINVAL;
 
-		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%lu\n",
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks,
 		       h_mods ? h_mods->sz : 0);
 
@@ -4699,39 +4744,6 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	return 0;
 }
 
-static int
-__tfw_h2_make_frames(unsigned long len, char *data, TfwMsgIter *iter,
-		     unsigned long max_sz, const TfwStr* frame_hdr_str,
-		     TfwFrameHdr *frame_hdr, unsigned char hdr_flags)
-{
-	int r;
-	unsigned long skew = 0;
-
-	do {
-		r = tfw_msg_iter_move(iter, (unsigned char **)&data,
-				      max_sz + skew);
-		if (r)
-			return r;
-
-		/*
-		 * Each frame header is inserted before given data pointer,
-		 * skip it. Exception - first move operation: @data is set right
-		 * after frame header.
-		 */
-		skew = frame_hdr_str->len;
-
-		frame_hdr->length = min(max_sz, len);
-		len -= frame_hdr->length;
-		frame_hdr->flags = len ?  0 : hdr_flags;
-		tfw_h2_pack_frame_header(frame_hdr_str->data, frame_hdr);
-
-		r = tfw_http_msg_insert(iter, &data, frame_hdr_str);
-		if (unlikely(r))
-			return r;
-	} while (len);
-
-	return 0;
-}
 /**
  * Split response body stored locally. Allocate a new skb and put body there
  * by fragments. Every skb fragment has size of single page and has frame
@@ -4747,8 +4759,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 {
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
-	size_t len, max_copy = PAGE_SIZE - FRAME_HEADER_SIZE;
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
+	size_t len, max_copy = PAGE_SIZE;
 	char *data;
 	int r;
 
@@ -4777,21 +4788,21 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		size_t copy = min(len, max_copy);
 
 		len -= copy;
-		frame_hdr.flags = len ? 0 : HTTP2_F_END_STREAM;
-		frame_hdr.length = copy;
 
 		if (!(page = alloc_page(GFP_ATOMIC))) {
 			return -ENOMEM;
 		}
 		p = page_address(page);
-		tfw_h2_pack_frame_header(p, &frame_hdr);
-		memcpy_fast(p + FRAME_HEADER_SIZE, data, copy);
+		memcpy_fast(p, data, copy);
 		data += copy;
 
 		++it->frag;
-		skb_fill_page_desc(it->skb, it->frag, page, 0,
-				   copy + FRAME_HEADER_SIZE);
-		ss_skb_adjust_data_len(it->skb, copy + FRAME_HEADER_SIZE);
+		skb_fill_page_desc(it->skb, it->frag, page, 0, copy);
+		ss_skb_adjust_data_len(it->skb, copy);
+
+		BUG_ON(!stream_id);
+		skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+		skb_set_tfw_cb(it->skb, stream_id);
 
 		if (it->frag + 1 == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
@@ -4803,159 +4814,39 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 	return 0;
 }
 
-static TfwStr*
-__tfw_h2_get_body_start(TfwHttpResp* resp)
-{
-	TfwStr *c, *end;
-
-	TFW_STR_FOR_EACH_CHUNK(c, &resp->body, end) {
-		/* Skip chunking data such as chunk size and extension */
-		if (!(c->flags & TFW_STR_CUT))
-			return c;
-		continue;
-	}
-
-	return NULL;
-}
-
-/**
- * Split response into http/2 frames with respect to remote peer MAX_FRAME_SIZE
- * settings. Both HEADERS and DATA frames require framing or peer will reject
- * the message or entire connection.
- *
- * @resp		- response to be framed.
- * @stream_id		- HTTP/2 stream id.
- * @h_len		- total length of HTTP headers.
- * @local_response	- response is generated locally by Tempesta,
- *			  all foreign responses represents responses converted
- *			  from h1 to h2 and require some additional processing.
- * @local_body		- locally generated response has a body which not yet
- *			  added into response and even not addressed by
- *			  resp->body.
- *
- * WARNING: this function manually inserts fragments containing h2 frame headers
- * (9 bytes each), which are NOT tracked by the @resp handler and cannot be
- * addressed and modified directly. This function must be the LAST step before
- * message is pushed into network. No stream id modification, no header
- * adjustments are allowed after the call.
- *
- * There are two cases when message can be modified:
- * 1. Body addition for locally generated responses, which add body
- * fragment-by-fragment with required framing information.
- * 2. Cutting "chunked body" information from response.
- */
-static int
-tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
-		   unsigned long h_len, bool local_response,
-		   bool local_body)
-{
-	int r;
-	char *data;
-	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	TfwStr *h2_body = NULL;
-	unsigned char buf[FRAME_HEADER_SIZE];
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id};
-	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &mit->iter;
-	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
-	unsigned long max_sz = ctx->rsettings.max_frame_sz;
-	unsigned char fr_flags = (b_len || local_body) ? 0 : HTTP2_F_END_STREAM;
-
-	T_DBG2("%s: frame response with: max_frame_size=%lu, body_len=%lu"
-	       " headers_len=%lu \n", __func__, max_sz, b_len, h_len);
-
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.length = min(max_sz, h_len);
-	frame_hdr.flags = fr_flags;
-	frame_hdr.flags |= (h_len <= max_sz) ? HTTP2_F_END_HEADERS : 0;
-	tfw_h2_pack_frame_header(mit->frame_head, &frame_hdr);
-
-	/* Add first DATA frame */
-	if (!local_response && b_len) {
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-			TfwHttpMsg *hm = (TfwHttpMsg*)resp;
-
-			/* Save beginning of body before modifying */
-			if (b_len > max_sz) {
-				h2_body = __tfw_h2_get_body_start(resp);
-				BUG_ON(!h2_body);
-			}
-
-			r = tfw_http_msg_del_flagged_body(hm);
-			if (unlikely(r))
-				return r;
-		}
-
-		frame_hdr.length = min(max_sz, b_len);
-		frame_hdr.type = HTTP2_DATA;
-		frame_hdr.flags = (frame_hdr.length == b_len)
-				   ? HTTP2_F_END_STREAM : 0;
-		tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-		r = tfw_http_msg_expand_from_pool(mit, resp->pool,
-						  &frame_hdr_str);
-		if (unlikely(r))
-			return r;
-	}
-
-	/* Add CONTINATION frames. */
-	if (h_len > max_sz) {
-		iter->skb = iter->skb_head;
-		data = mit->frame_head + FRAME_HEADER_SIZE;
-
-		h_len -= max_sz;
-		frame_hdr.type = HTTP2_CONTINUATION;
-		mit->iter.frag = 0;
-		r = __tfw_h2_make_frames(h_len, data, iter, max_sz,
-					 &frame_hdr_str, &frame_hdr,
-					 HTTP2_F_END_HEADERS);
-		if (unlikely(r))
-			return r;
-	}
-
-	if (local_response)
-		return 0;
-
-	/* Add more frame headers for DATA block. */
-	if (b_len > max_sz) {
-		/*
-		 * TODO: #498 and maybe #488 : iterate over the chunks only once
-		 * TODO: #1394 make only one memory allocation for hopefully
-		 * all the HTTP/2 frames headers instead of dealing with skb
-		 * framing with every small header
-		 */
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-			data = h2_body->data;
-			iter->skb = h2_body->skb;
-		} else {
-			data = TFW_STR_CHUNK(&resp->body, 0)->data;
-			iter->skb = resp->body.skb;
-		}
-
-		if ((r = tfw_http_iter_set_at(iter, data)))
-			return r;
-
-		b_len -= max_sz;
-		frame_hdr.type = HTTP2_DATA;
-		r = __tfw_h2_make_frames(b_len, data, iter, max_sz,
-					 &frame_hdr_str, &frame_hdr,
-					 HTTP2_F_END_STREAM);
-		if (unlikely(r))
-			return r;
-	}
-
-	return 0;
-}
-
 /**
  * Frame forwarded response.
  */
-int
+static int
 tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 		     unsigned long h_len)
 {
-	return tfw_h2_make_frames(resp, stream_id, h_len, false, false);
+	int r = 0;
+	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	TfwMsgIter iter = {.frag = -1, .skb_head = resp->msg.skb_head};
+
+	BUG_ON(!resp->req);
+	
+	if(!resp->req->stream)
+		return -EPIPE;
+
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		r = tfw_http_msg_cutoff_body_chunks((TfwHttpMsg*)resp);
+		if (unlikely(r))
+			return r;
+	}
+
+	if (b_len) {
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+			iter.skb = resp->stream->parser.body_start_skb;
+		else
+			iter.skb = resp->body.skb;
+		tfw_msg_iter_set_skb_priv(&iter, stream_id,
+					  SS_F_HTTT2_FRAME_DATA);
+	}
+
+	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
+	return 0;
 }
 
 /**
@@ -4963,16 +4854,22 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
  */
 int
 tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-		       unsigned long h_len, const TfwStr *body)
+		        unsigned long h_len, const TfwStr *body)
 {
-	int r;
+	int r = 0;
+	unsigned long b_len = body ? body->len : 0;
 
-	r = tfw_h2_make_frames(resp, stream_id, h_len, true,
-			       body ? body->len : false);
-	if (r)
+	BUG_ON(!resp->req);
+
+	if(!resp->req->stream)
+		return -EPIPE;
+
+	r = tfw_h2_append_predefined_body(resp, stream_id, body);
+	if (unlikely(r))
 		return r;
 
-	return tfw_h2_append_predefined_body(resp, stream_id, body);
+	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
+	return r;
 }
 
 static void
@@ -4991,6 +4888,12 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 		T_DBG2("%s: resp=[%p] dropped: client disconnected\n",
 		       __func__, resp);
 		tfw_http_resp_pair_free(req);
+		/*
+		 * Put the websocket server connection when client connection is
+		 * lost after successful upgrade request.
+		 */
+		__tfw_http_ws_connection_put((TfwCliConn *)req->conn);
+
 		return;
 	}
 	/*
@@ -5007,6 +4910,11 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
+
+	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
+	       req, resp);
+	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
+
 	tfw_http_resp_fwd(resp);
 }
 
@@ -5073,9 +4981,9 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * can just send error response, leave the connection alive and
 	 * drop request's corresponding stream; in this case stream either
 	 * is already in locally closed state (switched in
-	 * @tfw_h2_stream_id_close() during failed proxy/internal response
+	 * @tfw_h2_stream_id_send() during failed proxy/internal response
 	 * creation) or will be switched into locally closed state in
-	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_close() if no error
+	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_send() if no error
 	 * response is needed) below; remotely (i.e. on client side) stream
 	 * will be closed - due to END_STREAM flag set in the last frame of
 	 * error response; in case of attack we must close entire connection,
@@ -5096,7 +5004,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	  * remote peer (via RST_STREAM frame), that the stream has entered
 	  * into closed state (RFC 7540 section 6.4).
 	  */
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_RST_STREAM, 0);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_RST_STREAM, 0);
 	if (stream_id && !attack)
 		tfw_h2_send_rst_stream(ctx, stream_id, HTTP2_ECODE_CANCEL);
 
@@ -5298,12 +5206,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
 
-	/*
-	 * Get ID of corresponding stream to prepare/send HTTP/2 response, and
-	 * unlink request from the stream.
-	 */
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					   HTTP2_F_END_STREAM);
+	stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+					  HTTP2_F_END_HEADERS);
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -5338,7 +5242,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	WARN_ON_ONCE(mit->acc_len);
 	tfw_h2_msg_transform_setup(mit, resp->msg.skb_head, true);
 
-	tfw_h2_msg_cutoff_headers(resp, &cleanup);
+	if (tfw_h2_msg_cutoff_headers(resp, &cleanup))
+		goto clean;
 
 	/*
 	 * Alloc room for frame header. After this call resp->pool
@@ -5401,6 +5306,11 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(r))
 		goto clean;
 
+	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
+	       req, resp);
+	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
+
+	tfw_h2_stream_unlink_from_req(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	__tfw_h2_resp_cleanup(&cleanup);
@@ -5764,6 +5674,61 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	return hmsib;
 }
 
+void
+tfw_http_extract_request_authority(TfwHttpReq *req)
+{
+	int hid = 0;
+	TfwStr *hdrs = req->h_tbl->tbl;
+
+	if (TFW_MSG_H2(req)) {
+		/*
+		 * RFC 9113, sec-8.3.1:
+		 * The recipient of an HTTP/2 request MUST NOT use
+		 * the Host header field to determine the target
+		 * URI if ":authority" is present.
+		 */
+		if (!TFW_STR_EMPTY(&hdrs[TFW_HTTP_HDR_H2_AUTHORITY]))
+			hid = TFW_HTTP_HDR_H2_AUTHORITY;
+		else
+			hid = TFW_HTTP_HDR_HOST;
+		__h2_msg_hdr_val(&hdrs[hid], &req->host);
+	} else {
+		/*
+		 * req->host can be only filled by HTTP/1.x parser from
+		 * absoluteURI, so we act as described by RFC 9112, sec-3.2.2
+		 * (https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2):
+		 * When an origin server receives a request with an
+		 * absolute-form of request-target, the origin server
+		 * MUST ignore the received Host header field (if any)
+		 * and instead use the host information of the request-target.
+		 */
+		if (TFW_STR_EMPTY(&req->host))
+			tfw_http_msg_clnthdr_val(req, &hdrs[TFW_HTTP_HDR_HOST],
+						 TFW_HTTP_HDR_HOST,
+						 &req->host);
+	}
+}
+
+static bool
+__check_authority_correctness(TfwHttpReq *req)
+{
+	switch (req->version) {
+	case TFW_HTTP_VER_11:
+		/* https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.2
+		 * A client MUST send a Host header field in an HTTP/1.1
+		 * request even if the request-target is in the absolute-form
+		 */
+		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags) &&
+		    TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]))
+			return false;
+		fallthrough;
+	case TFW_HTTP_VER_20:
+		/* HTTP/1.1 and HTTP/2 requires authority information */
+		return !TFW_STR_EMPTY(&req->host);
+	}
+	return true;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -5820,6 +5785,10 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BAD;
+	case TFW_BAD:
+		tfw_http_req_parse_drop(req, 400,
+			"Invalid authority");
+		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -5862,6 +5831,7 @@ next_msg:
 				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+				tfw_http_extract_request_authority(req);
 			}
 
 			if (tfw_h2_strm_req_is_compl(req->stream)) {
@@ -5892,15 +5862,22 @@ next_msg:
 
 	case TFW_PASS:
 		/*
-		 * The request is fully parsed,
-		 * fall through and process it.
+		 * The request is fully parsed, fall through and process it.
 		 */
-
 		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
 				 && (req->content_length != req->body.len)))
-		{
 			return TFW_BLOCK;
-		}
+	}
+
+	/*
+	 * XXX __check_authority_correctness() is called after parsing a whole
+	 * request, including body. For example: if we have a request with
+	 * invalid host/authority it will be dropped only after full parsing
+	 * while it's enough to parse only headers.
+	 */
+	if (!__check_authority_correctness(req)) {
+		tfw_http_req_parse_drop(req, 400, "Invalid authority");
+		return TFW_BLOCK;
 	}
 
 	/*
@@ -5912,6 +5889,14 @@ next_msg:
 	 */
 	if (parsed < skb->len) {
 		WARN_ON_ONCE(TFW_MSG_H2(req));
+		/* Don't pipeline anything after UPGRADE request. */
+		if (test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_http_req_parse_block(req, 400, "Request dropped: "
+						 "Pipelined request received "
+						 "after UPGRADE request");
+			return TFW_BLOCK;
+		}
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -6691,6 +6676,26 @@ bad_msg:
 	return TFW_BLOCK;
 }
 
+static inline int
+__tfw_upgrade_in_queue(TfwCliConn *cli_conn)
+{
+	TfwHttpReq *req_prev;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+
+	req_prev = list_empty(seq_queue) ? NULL :
+		list_last_entry(seq_queue, TfwHttpReq, msg.seq_list);
+	if (req_prev && test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				 req_prev->flags))
+	{
+		T_WARN_ADDR("Request dropped: Pipelined request received after "
+			    "UPGRADE request", &cli_conn->peer->addr,
+			    TFW_NO_PORT);
+		return TFW_BAD;
+	}
+
+	return TFW_PASS;
+}
+
 /**
  * @return status (application logic decision) of the message processing.
  */
@@ -6698,23 +6703,25 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb)
 {
-	int r;
+	int r = TFW_BAD;
 	TfwHttpMsg *req;
 
 	if (WARN_ON_ONCE(!stream))
-		return TFW_BAD;
+		goto err;
 	if (unlikely(!stream->msg)) {
-		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
-		if (!stream->msg) {
-			__kfree_skb(skb);
-			return TFW_BAD;
+		if (TFW_CONN_TYPE(conn) & Conn_Clnt
+		    && (r = __tfw_upgrade_in_queue((TfwCliConn *)conn))) {
+			goto err;
 		}
+		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
+		if (!stream->msg)
+			goto err;
 		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg, skb);
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
 	}
 
-	T_DBG2("Add skb %p to message %p\n", skb, stream->msg);
+	T_DBG2("Add skb %pK to message %pK\n", skb, stream->msg);
 	ss_skb_queue_tail(&stream->msg->skb_head, skb);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
@@ -6737,6 +6744,10 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	}
 
 	return r;
+
+err:
+	__kfree_skb(skb);
+	return r;
 }
 
 /**
@@ -6750,7 +6761,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 int
 tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
-	TfwStream *stream = &((TfwConn *)conn)->stream;
+	TfwStream *stream = &conn->stream;
 
 	WARN_ON_ONCE(TFW_CONN_TLS(conn) && tfw_tls_context(conn)->alpn_chosen
 		     && tfw_tls_context(conn)->alpn_chosen->id
@@ -6848,8 +6859,6 @@ cleanup:
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
 {
-	TfwStr host;
-
 	if (req->hash)
 		return req->hash;
 
@@ -6858,10 +6867,8 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &host);
-	if (!TFW_STR_EMPTY(&host))
-		req->hash ^= tfw_hash_str(&host);
+	if (!TFW_STR_EMPTY(&req->host))
+		req->hash ^= tfw_hash_str(&req->host);
 
 	return req->hash;
 }
@@ -6870,6 +6877,7 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_repair	= tfw_http_conn_repair,
 	.conn_close	= tfw_http_conn_close,
+	.conn_abort	= tfw_http_conn_abort,
 	.conn_drop	= tfw_http_conn_drop,
 	.conn_release	= tfw_http_conn_release,
 	.conn_send	= tfw_http_conn_send,

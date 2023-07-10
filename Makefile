@@ -17,8 +17,18 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+# if intcmp is supported use it
+ifeq ($(intcmp 1,0,,,y),y)
+test-gt = $(intcmp $(strip $1)0, $(strip $2)0,,,y)
+else
+test-gt = $(shell test $(strip $1)0 -gt $(strip $2)0 && echo y)
+endif
+
 TFW_CFLAGS = $(DEFINES) -Werror
 ifdef DEBUG
+	ifeq ($(call test-gt, 1, $(DEBUG)), y)
+		ERROR = "DEBUG must be greater than 0"
+	endif
 	TFW_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
@@ -68,7 +78,10 @@ DBG_HTTP_SESS ?= 0
 DBG_HTTP_STREAM ?= 0
 DBG_HPACK ?= 0
 DBG_CACHE ?= 0
+DBG_SRV ?= 0
+DBG_VHOST ?= 0
 DBG_TEST ?= 0
+DBG_ERRINJ ?= 0
 TFW_CFLAGS += -DDBG_CFG=$(DBG_CFG) -DDBG_HTTP_PARSER=$(DBG_HTTP_PARSER)
 TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_TLS=$(DBG_TLS) -DDBG_WS=$(DBG_WS)
 TFW_CFLAGS += -DDBG_APM=$(DBG_APM) -DDBG_GFSM=$(DBG_GFSM) -DDBG_HTTP=$(DBG_HTTP)
@@ -76,7 +89,8 @@ TFW_CFLAGS += -DDBG_HTTP_FRAME=$(DBG_HTTP_FRAME)
 TFW_CFLAGS += -DDBG_HTTP_SESS=$(DBG_HTTP_SESS)
 TFW_CFLAGS += -DDBG_HTTP_STREAM=$(DBG_HTTP_STREAM)
 TFW_CFLAGS += -DDBG_HPACK=$(DBG_HPACK) -DDBG_CACHE=$(DBG_CACHE)
-TFW_CFLAGS += -DDBG_TEST=$(DBG_TEST)
+TFW_CFLAGS += -DDBG_SRV=$(DBG_SRV) -DDBG_VHOST=$(DBG_VHOST) -DDBG_TEST=$(DBG_TEST)
+TFW_CFLAGS += -DDBG_ERRINJ=$(DBG_ERRINJ)
 
 # By default Tempesta TLS randomizes elliptic curve points using RDRAND
 # instruction, which provides a high speed random numbers generator.

@@ -379,8 +379,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 		 */
 		TFW_INC_STAT_BH(serv.conn_disconnects);
 		tfw_connection_drop(conn);
-		tfw_connection_put(conn);
-		return;
+		goto end;
 	}
 
 	/**
@@ -403,6 +402,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 		tfw_connection_drop(conn);
 	}
 
+end:
 	tfw_connection_unlink_from_sk(sk);
 	tfw_connection_put(conn);
 }
@@ -412,6 +412,14 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_drop	= tfw_sock_srv_connect_drop,
 	.connection_recv	= tfw_connection_recv,
 };
+
+static int
+tfw_sock_srv_abort(TfwConn *conn)
+{
+	if (conn->sk)
+		tfw_connection_abort(conn);
+	return 0;
+}
 
 /**
  * Close a server connection, or stop attempts to connect if a connection
@@ -562,6 +570,12 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
 		tfw_sock_srv_connect_one(srv, srv_conn);
 	}
+}
+
+static int
+tfw_sock_srv_abort_srv(TfwServer *srv)
+{
+	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_abort);
 }
 
 /**
@@ -2210,6 +2224,13 @@ tfw_sock_srv_stop(void)
 	tfw_sg_for_each_srv_reconfig(tfw_sock_srv_disconnect_srv);
 	tfw_sock_srv_grace_shutdown_now();
 	tfw_sg_for_each_srv(NULL, tfw_sock_srv_disconnect_srv);
+	/*
+	 * Wait until all connections will be shutdowned gracefully
+	 * and abort all pending connections.
+	 */
+	if (!ss_synchronize())
+		tfw_sg_for_each_srv(NULL, tfw_sock_srv_abort_srv);
+
 	tfw_sg_release_all();
 }
 

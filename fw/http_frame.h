@@ -138,22 +138,6 @@ typedef struct {
 } TfwSettings;
 
 /**
- * Limited queue for temporary storage of half-closed streams. This structure
- * provides the possibility of temporary existing in memory - for streams which
- * are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED states (see RFC
- * 7540, section 5.1, the 'closed' paragraph). Note, that streams in
- * HTTP2_STREAM_CLOSED state are not stored in this queue and must be removed
- * right away.
- *
- * @list		- list of streams which are in closed state;
- * @num			- number of streams in the list;
- */
-typedef struct {
-	struct list_head	list;
-	unsigned long		num;
-} TfwClosedQueue;
-
-/**
  * Context for HTTP/2 frames processing.
  *
  * @lock		- spinlock to protect stream-request linkage;
@@ -164,10 +148,15 @@ typedef struct {
  * @sched		- streams' priority scheduler;
  * @hclosed_streams	- queue of half-closed streams (in
  *			  HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
- *			  states), which are waiting for removal;
+ *			  states), which are waiting until all it's data will
+ *			  be sent or error occured. Then they will be moved to
+ * 			  @closed_streams queue for later removal;
+ * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED
+ * 			  state), which are waiting for removal;
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
+ * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
  * @__off		- offset to reinitialize processing context;
@@ -191,6 +180,10 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
+ * @new_settings	- struct which contains flags and new settings, which
+ *			  should be applyed in `xmit` callback. Currently it
+ *			  is used only for new hpack dynamic table size, but
+ *			  can be wide later.
  *
  * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
  * (instead of separate HPACK context for each stream), since frames from other
@@ -203,9 +196,11 @@ typedef struct {
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
-	TfwClosedQueue	hclosed_streams;
+	TfwStreamQueue	hclosed_streams;
+	TfwStreamQueue	closed_streams;
 	unsigned int	lstream_id;
-	unsigned int	loc_wnd;
+	long int	loc_wnd;
+	long int	rem_wnd;
 	TfwHPack	hpack;
 	char		__off[0];
 	struct sk_buff	*skb_head;
@@ -219,6 +214,10 @@ typedef struct {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
+	struct {
+		unsigned short flags;
+		unsigned int hdr_tbl_sz;
+	} new_settings;
 } TfwH2Ctx;
 
 typedef struct tfw_conn_t TfwConn;
@@ -229,11 +228,31 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
+TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id);
 unsigned int tfw_h2_stream_id(TfwHttpReq *req);
-unsigned int tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
-				    unsigned char flags);
+unsigned int tfw_h2_stream_id_send(TfwHttpReq *req, unsigned char type,
+				   unsigned char flags);
+void tfw_h2_stream_unlink_from_req(TfwHttpReq *req,  bool send_rst,
+				   bool move_to_closed);
+void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
+TfwStreamFsmRes tfw_h2_stream_process(TfwH2Ctx *ctx, TfwStream *stream,
+				      unsigned char type);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
+
+int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
+			       TfwH2Ctx *ctx, TfwStream *stream,
+			       unsigned int mss_now, unsigned int limit,
+			       unsigned int *t_tz);
+int tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
+			    TfwH2Ctx *ctx, TfwStream *stream,
+			    unsigned int mss_now, unsigned int limit,
+			    unsigned int *t_tz);
+int tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
+			       TfwStream *stream, unsigned int mss_now,
+			       TfwMsgIter *it, char **data,
+			       const TfwStr *frame_hdr_str,
+			       unsigned int *t_tz);
 
 static inline void
 tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
@@ -254,13 +273,13 @@ tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 static inline void
 tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 {
-        hdr->length = ntohl(*(int *)buf) >> 8;
-        hdr->type = buf[3];
-        hdr->flags = buf[4];
-        hdr->stream_id = ntohl(*(unsigned int *)&buf[5]) & FRAME_STREAM_ID_MASK;
+	hdr->length = ntohl(*(int *)buf) >> 8;
+	hdr->type = buf[3];
+	hdr->flags = buf[4];
+	hdr->stream_id = ntohl(*(unsigned int *)&buf[5]) & FRAME_STREAM_ID_MASK;
 
-        T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
-               __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
+	T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
+	       __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
 }
 
 #endif /* __HTTP_FRAME__ */

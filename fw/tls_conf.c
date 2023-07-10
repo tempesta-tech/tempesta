@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,29 +112,17 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
  * Validate the vhost name @hname against all SANs from the certificate and
  * add the SANs for fast matching against SNI in run-time.
  *
- * @hname is a zero-terminated string.
+ * @a_vhost is a pointer to the TfwVhost.
  */
 static int
-tfw_tls_add_cn(const ttls_x509_buf *sname, const char *hname, int hlen)
+tfw_tls_add_cn(const ttls_x509_buf *sname, void *a_vhost)
 {
 	int r = T_BAD;
+	TfwVhost *vhost = a_vhost;
+	const char *hname = vhost->name.data;
+	int hlen = vhost->name.len;
 	BasicStr cn = {.data = sname->p, .len = sname->len};
 
-	/*
-	 * If the host name is "default", then any SAN is good and we
-	 * place the certificate by '*' instead of the SAN.
-	 * Any SNI can be matched with the certificate regardless its SAN/CN.
-	 */
-	if (hlen == SLEN(TFW_VH_DFT_NAME)
-	    && !strncmp(hname, TFW_VH_DFT_NAME, hlen))
-		return 0;
-
-	/*
-	 * Try exact name match.
-	 * SNI with this name will be resolved from the vhost hash table.
-	 */
-	if (sname->len == hlen && !strncasecmp(sname->p, hname, hlen))
-		return 0;
 
 	/*
 	 * Try wildcard match by RFC 2818 3.1:
@@ -173,9 +161,9 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, const char *hname, int hlen)
 	 * Add the full SAN/CN entry or chopped wildcard (e.g. ".a.org" for
 	 * "*.a.org") for SNI resolving into the vhost name.
 	 */
-	tfw_vhost_add_sni_map(&cn, hname, hlen);
+	tfw_vhost_add_sni_map(&cn, vhost);
 
-	return T_BAD;
+	return r;
 }
 
 /**
@@ -214,9 +202,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		goto err;
 	}
 
-	if (ttls_x509_process_san(&conf->crt, tfw_tls_add_cn,
-				  vhost->name.data, vhost->name.len))
-	{
+	if (ttls_x509_process_san(&conf->crt, tfw_tls_add_cn, vhost)) {
 		/* None of the SANs match the vhost. */
 		T_WARN("Vhost %s doesn't have certificate with matching SAN/CN.\n"
 		       "    Maybe that's fine, but it's worth checking the\n"

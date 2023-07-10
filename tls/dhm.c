@@ -121,6 +121,8 @@ ttls_dhm_load(TlsDHMCtx *ctx)
 	ttls_mpi_read_binary(&ctx->G, ttls_dhm_rfc3526_modp_2048_g,
 			     sizeof(ttls_dhm_rfc3526_modp_2048_g));
 	ctx->len = ttls_mpi_size(&ctx->P);
+	ttls_mpi_alloc(&ctx->GX, ctx->P.used + 1);
+	ttls_mpi_alloc(&ctx->K, ctx->P.used + 1);
 }
 
 /*
@@ -394,10 +396,10 @@ ttls_dhm_calc_secret(TlsDHMCtx *ctx, unsigned char *output, size_t output_size,
 	if ((r = dhm_check_range(&ctx->GY, &ctx->P)))
 		return r;
 
-	GYb = ttls_mpi_alloc_stack_init(ctx->GY.used + ctx->Vi.used);
-
 	/* Blind peer's value */
 	MPI_CHK(dhm_update_blinding(ctx));
+
+	GYb = ttls_mpi_alloc_stack_init(ctx->GY.used + ctx->Vi.used);
 	ttls_mpi_mul_mpi(GYb, &ctx->GY, &ctx->Vi);
 	ttls_mpi_mod_mpi(GYb, GYb, &ctx->P);
 

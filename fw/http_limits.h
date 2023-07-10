@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -164,7 +164,8 @@ struct frang_global_cfg_t {
  * @http_resp_code_block - Response status codes and maximum number of each
  *			   code before client connection is closed.
  * @http_ct_required	- Header 'Content-Type:' is required;
- * @http_host_required	- Header 'Host:' is required;
+ * @http_strict_host_checking - Enforce equality of absolute_uri,
+ *			  Host and :authority;
  * @http_trailer_split  - Allow the same header appear in both
  *			  request header part and chunked trailer part;
  * @http_method_override - Allow method override in request headers.
@@ -180,7 +181,7 @@ struct frang_vhost_cfg_t {
 	FrangHttpRespCodeBlock	*http_resp_code_block;
 
 	bool			http_ct_required;
-	bool			http_host_required;
+	bool			http_strict_host_checking;
 	bool			http_trailer_split;
 	bool			http_method_override;
 };

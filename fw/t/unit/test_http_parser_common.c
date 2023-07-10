@@ -563,6 +563,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (type == FUZZ_REQ_H2 && frame->subtype == HTTP2_HEADERS) {
 			if (!tfw_http_parse_check_bodyless_meth(req)) {
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
+				tfw_http_extract_request_authority(req);
 			} else {
 				r = TFW_BLOCK;
 				break;
@@ -689,4 +690,3 @@ tfw_http_sess_redir_mark_disable(void)
 	hs_mod->stop();
 	hs_mod->cfgstart();
 }
-

@@ -50,6 +50,11 @@ enum {
 	 * only for client connections).
 	 */
 	Conn_Stop		= 0x1 << __Flag_Bits,
+	/*
+	 * Connection is in special state: it socket is DEAD
+	 * and wait until ACK to our FIN come.
+	 */
+	Conn_Closing		= 0x2 << __Flag_Bits,
 };
 
 typedef struct tfw_conn_t TfwConn;
@@ -141,11 +146,8 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 /* Close with TCP RST (connection abort). */
 #define __SS_F_RST			0x10
 #define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
-
-enum {
-	/* This skb contains start of http2 frame. */
-	SS_F_HTTP2_FRAME_START	=	0x01,
-};
+#define __SS_F_FORCE			0x20
+#define SS_F_ABORT_FORCE		(SS_F_ABORT | __SS_F_FORCE)
 
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)

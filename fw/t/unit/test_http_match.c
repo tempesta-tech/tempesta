@@ -26,6 +26,7 @@
 #include "test.h"
 #include "helpers.h"
 #include "tfw_str_helper.h"
+#include "test_http_parser_common.h"
 
 #include "http_match.c"
 
@@ -186,6 +187,7 @@ test_chain_match(void)
 static void
 set_tfw_str(TfwStr *str, const char *cstr)
 {
+	memset(str, 0, sizeof(TfwStr));
 	str->data = (void *)cstr;
 	str->len = strlen(cstr);
 }
@@ -769,9 +771,36 @@ TEST(http_match, choose_host)
 		int match_id;
 
 		/* Special headers must be compound */
-		TFW_STR2(hdr1, "Host: ", "example.eu");
-		TFW_STR2(hdr2, "Host: ", "example.de");
-		TFW_STR2(hdr3, "Host: ", "example.net");
+		TfwStr hdr1	= {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "example.eu", .len = 10,
+				  .flags = TFW_STR_HDR_VALUE | TFW_STR_VALUE },
+			},
+			.len = 15,
+			.nchunks = 2
+		};
+
+		TfwStr hdr2	= {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "example.de", .len = 10,
+				  .flags = TFW_STR_HDR_VALUE | TFW_STR_VALUE },
+			},
+			.len = 15,
+			.nchunks = 2
+		};
+
+		TfwStr hdr3	= {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "example.net", .len = 11,
+				  .flags = TFW_STR_HDR_VALUE | TFW_STR_VALUE },
+			},
+			.len = 16,
+			.nchunks = 2
+		};
+
 		TfwStr hdr4     = {
 			.chunks = (TfwStr []) {
 				{ .data = "Forwarded:" , .len = 10 },
@@ -808,7 +837,6 @@ TEST(http_match, choose_host)
 		/* Host not specified. */
 		match_id = test_chain_match();
 		EXPECT_EQ(-1, match_id);
-
 		/* Host specified by URI. */
 		set_tfw_str(&test_req->host, "example.com");
 		match_id = test_chain_match();
@@ -818,13 +846,15 @@ TEST(http_match, choose_host)
 		 * Host specified by URI and Host header
 		 * host from uri must be matched.
 		 */
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr1;
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(1, match_id);
 
 		/* Host specified by Host header */
 		set_tfw_str(&test_req->host, "");
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr1;
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(2, match_id);
 
@@ -833,20 +863,22 @@ TEST(http_match, choose_host)
 		 * and URI. Host from uri must be matched.
 		 */
 		set_tfw_str(&test_req->host, "example.com");
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr1;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(1, match_id);
 
 		/*
 		 * Host specified by Host and Forwarded headers.
-		 * Host from Forwarded header must be matched.
+		 * Host from Forwarded header must NOT be matched.
 		 */
 		set_tfw_str(&test_req->host, "");
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr2;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr2;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
-		EXPECT_EQ(3, match_id);
+		EXPECT_EQ(-1, match_id);
 
 		/*
 		 * HTTP2!
@@ -856,8 +888,9 @@ TEST(http_match, choose_host)
 		__set_bit(TFW_HTTP_B_H2, test_req->flags);
 		set_tfw_str(&test_req->host, "");
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY] = hdr5;
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr3;
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = hdr3;
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED] = hdr4;
+		tfw_http_extract_request_authority(test_req);
 		match_id = test_chain_match();
 		EXPECT_EQ(2, match_id);
 	}

@@ -57,8 +57,8 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 	const struct iphdr *ih4 = ip_hdr(skb);
 	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
 	TfwAddr addr = (ih6->version == 6)
-	                ? tfw_addr_new_v6(&ih6->saddr, 0)
-	                : tfw_addr_new_v4(ih4->saddr, 0);
+			? tfw_addr_new_v6(&ih6->saddr, 0)
+			: tfw_addr_new_v4(ih4->saddr, 0);
 
 	return tfw_addr_fmt(&addr, TFW_NO_PORT, out_buf);
 }
@@ -145,7 +145,6 @@ __skb_data_address(struct sk_buff *skb, int *fragn)
 		return NULL;
 	if (skb_headlen(skb))
 		return skb->data;
-	WARN_ON_ONCE(!skb_is_nonlinear(skb));
 	if (skb_shinfo(skb)->nr_frags) {
 		*fragn = 0;
 		return skb_frag_address(&skb_shinfo(skb)->frags[0]);
@@ -218,6 +217,10 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (r)
 				return r;
 		} else {
+			/*
+			 * If skb->sk is set, we use functions from the Linux kernel
+			 * to allocate and insert skb.
+			 */
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
@@ -389,6 +392,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	}
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
+	skb->truesize += tail_len;
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
@@ -746,7 +750,7 @@ done:
 
 	if (ret < 0)
 		return ret;
-	if ((it->data == NULL) || (it->skb == NULL))
+	if ((it->data == NULL && len >= 0) || (it->skb == NULL))
 		return -EFAULT;
 	it->len = max(0, len);
 
@@ -947,9 +951,9 @@ multi_buffs:
 		head -= skb->len;
 		/* We do not use ss_skb_unlink() here and in
 		 * the similar loop for tail below to prevent
-	 	 * removing the last skb in the list and to skip
-	 	 * unneccessary checks and actions inside the func.
-	 	 */
+		 * removing the last skb in the list and to skip
+		 * unneccessary checks and actions inside the func.
+		 */
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
 		*skb_list_head = skb_hd = skb->next;
@@ -1014,11 +1018,15 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 			return r;
 		}
 		BUG_ON(r > len);
+
 		len -= r;
+		skb = it.skb;
+		ptr = it.data;
 	}
 
 	return 0;
 }
+
 /**
  * Cut off @str->len data bytes from underlying skbs skipping the first
  * @skip bytes, and also cut off @tail bytes after @str.
@@ -1026,12 +1034,14 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
  * ('uri_path', 'host' etc).
  */
 int
-ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
-		   int tail)
+ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 {
 	int r;
 	TfwStr it = {};
-	const TfwStr *c, *end;
+	struct sk_buff *skb, *next;
+	TfwStr *c, *cc, *end;
+	unsigned int next_len;
+	bool update, is_single;
 	int _;
 
 	BUG_ON(tail < 0);
@@ -1042,51 +1052,46 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 			skip -= c->len;
 			continue;
 		}
+
+		skb = c->skb;
+		is_single = (skb == skb_head && skb->next == skb_head);
+		next = skb->next;
+		next_len = next->len;
+
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, c->skb, c->data + skip,
 				 skip - c->len, &it, &_);
 		if (r < 0)
 			return r;
 		BUG_ON(r != c->len - skip);
+
 		skip = 0;
-	}
 
-	BUG_ON(it.data == NULL);
-	BUG_ON(it.skb == NULL);
-
-	/* Cut off the tail. */
-	if (tail > 0)
-		return __ss_skb_cutoff(skb_head, it.skb, it.data, tail);
-
-	return 0;
-}
-
-/**
- * Cut off @str->len data bytes from underlying skbs skipping chunks
- * that doesn't have @flag, and also cut off @tail bytes after @str.
- * @str can be an HTTP header or other parsed part of HTTP message
- * ('uri_path', 'host' etc).
- */
-int
-ss_skb_cutoff_data_flagged(struct sk_buff *skb_head, const TfwStr *str,
-			   unsigned short flag, int tail)
-{
-	int r;
-	TfwStr it = {};
-	const TfwStr *c, *end;
-	int _;
-
-	BUG_ON(tail < 0);
-
-	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
-		if (!(c->flags & flag))
+		/*
+		 * No new skb was allocated and no fragments from current
+		 * skb were moved to the next one.
+		 */
+		if (likely(skb->next == next
+			   && (is_single || next->len == next_len)))
 			continue;
 
-		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, c->skb, c->data,
-				 -c->len, &it, &_);
-		if (r < 0)
-			return r;
+		/* Check if the new skb was allocated and update next skb. */
+		next = skb->next != next ? skb->next : next;
+
+		/*
+		 * TODO #1852 We should get rid of this function at all, because
+		 * the code below can be very heavy if we have a lot of chunks.
+		 */
+		update = false;
+		for (cc = (TfwStr *)(c + 1); cc < end; ++cc) {
+			if (cc->skb != c->skb)
+				break;
+			if (!update &&
+			    !ss_skb_find_frag_by_offset(cc->skb, cc->data, &_))
+				continue;
+			cc->skb = next;
+			update = true;
+		}
 	}
 
 	BUG_ON(it.data == NULL);
@@ -1272,6 +1277,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	/* @buff already accounts @n in truesize. */
 	buff->truesize += skb->len - len - n;
 	skb->truesize -= skb->len - len;
+	buff->mark = skb->mark;
 
 	/*
 	 * Initialize GSO segments counter to let TCP set it according to
@@ -1315,7 +1321,12 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	}
 
 	skb->skb_mstamp_ns = 0;
-	skb->dev = NULL;
+	/*
+	 * Do not clear skb->dev in case if it is used for private
+	 * tempesta data.
+	 */
+	if (!skb_tfw_is_present(skb))
+		skb->dev = NULL;
 	bzero_fast(skb->cb, sizeof(skb->cb));
 	nf_reset_ct(skb);
 	skb->mac_len = 0;
@@ -1537,7 +1548,7 @@ EXPORT_SYMBOL(ss_skb_dump);
  */
 int
 ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
-                               struct page ***old_pages)
+			       struct page ***old_pages)
 {
 	unsigned int head_data_len = skb_headlen(skb);
 	unsigned int out_frags = 0;
@@ -1609,3 +1620,30 @@ ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
 
 	return 0;
 }
+
+/* Using @split_point transform the remaining linear portion of original @skb
+ * to the first fragment of the same SKB. Existing fragments of @skb
+ * would moved to next SKB if necessary inside __split_linear_data().
+ */
+int
+ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			unsigned char *split_point)
+{
+	int fpos, r;
+	TfwStr _;
+
+	if (!split_point) {
+		/* Usage of linear portion of SKB is not expected */
+		ss_skb_put(skb, -skb_headlen(skb));
+		skb->tail_lock = 1;
+	} else {
+		unsigned int off = split_point - skb->data;
+
+		r = __split_linear_data(skb_head, skb, split_point, 0, &_, &fpos);
+		if (unlikely(r))
+			return r;
+		ss_skb_put(skb, -off);
+	}
+	return 0;
+}
+

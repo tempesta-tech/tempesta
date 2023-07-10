@@ -129,11 +129,6 @@ static const TfwHPackEntry static_table[] ____cacheline_aligned = {
 	HP_ENTRY_NAME("www-authenticate",	TFW_TAG_HDR_RAW)
 };
 
-#define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(static_table[0]))
-
-/* Limit for the HPACK variable-length integer. */
-#define HPACK_LIMIT			(1 << 20)
-
 /*
  * Estimated overhead associated with an encoder/decoder index entry (see
  * RFC 7541 section 4.1 for details).
@@ -181,12 +176,48 @@ do {								\
 	state |= (new);						\
 } while (0)
 
+/* Return static index of header by its name. Ignores pseudo-headers. */
+unsigned short
+tfw_hpack_find_hdr_idx(const TfwStr *hdr)
+{
+	unsigned short start = HPACK_STATIC_TABLE_REGULAR,
+		       end = ARRAY_SIZE(static_table);
+	int result, fc;
+	const TfwStr *h;
+
+	if (!TFW_STR_DUP(hdr))
+		h = hdr;
+	else
+		h = hdr->chunks;
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->data));
+
+	while (start < end) {
+		unsigned short mid = (start + end) / 2;
+		const TfwStr *sh = static_table[mid].hdr;
+		int sc = *(unsigned char *)sh->chunks->data;
+
+		result = fc - sc;
+		if (!result)
+			result = tfw_stricmpspn(h, sh, ':');
+
+		if (result < 0)
+			end = mid;
+		else if (result > 0)
+			start = mid + 1;
+		else
+			/* Static table starts from first index */
+			return mid + 1;
+	}
+
+	return 0;
+}
+
 /*
  * Flexible integer decoding as specified in the HPACK RFC-7541. If the
  * variable-length integer greater than defined limit, this is the malformed
  * request and we should drop the parsing process.
  */
-#define GET_FLEXIBLE_lambda(x, new_state, lambda)		\
+#define GET_FLEXIBLE(x, new_state)				\
 do {								\
 	unsigned int __m = 0;					\
 	unsigned int __c;					\
@@ -194,56 +225,47 @@ do {								\
 		if (src >= last) {				\
 			hp->shift = __m;			\
 			NEXT_STATE(new_state);			\
-			lambda;					\
 			goto out;				\
 		}						\
 		__c = *src++;					\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
-		if ((x) > HPACK_LIMIT) {			\
+		if ((x) > HPACK_INT_LIMIT) {			\
 			r = T_DROP;				\
 			goto out;				\
 		}						\
 	} while (__c > 127);					\
 } while (0)
 
-#define GET_FLEXIBLE(x, new_state)				\
-	GET_FLEXIBLE_lambda(x, new_state, {})
-
 /* Continue decoding after interruption due to absence of the next fragment.
  * If the variable-length integer greater than defined limit, this is the
  * malformed request and we should drop the parsing process.
  */
-#define GET_CONTINUE_lambda(x, lambda)				\
+#define GET_CONTINUE(x)						\
 do {								\
 	unsigned int __m = hp->shift;				\
 	unsigned int __c = *src++;				\
 	WARN_ON_ONCE(!x);					\
 	x += (__c & 127) << __m;				\
 	__m += 7;						\
-	if ((x) > HPACK_LIMIT) {				\
+	if ((x) > HPACK_INT_LIMIT) {				\
 		r = T_DROP;					\
 		goto out;					\
 	}							\
 	while (__c > 127) {					\
 		if (src >= last) {				\
 			hp->shift = __m;			\
-			lambda;					\
 			goto out;				\
 		}						\
 		__c = *src++;					\
-		x = (__c & 127) << __m | x;			\
+		x += (__c & 127) << __m;			\
 		__m += 7;					\
-		if ((x) > HPACK_LIMIT) {			\
+		if ((x) > HPACK_INT_LIMIT) {			\
 			r = T_DROP;				\
 			goto out;				\
 		}						\
 	}							\
-	lambda;							\
 } while (0)
-
-#define GET_CONTINUE(x)						\
-	GET_CONTINUE_lambda(x, {})
 
 #define SET_NEXT()						\
 do {								\
@@ -465,7 +487,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 
 static int
 huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
-		    unsigned int offset)
+		    unsigned short offset)
 {
 	char sym;
 	unsigned int i;
@@ -483,7 +505,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
 		shift = ht_decode[offset + i].shift;
 		T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu,"
-		       " i=%u, shift=%d, offset=%u\n", __func__,
+		       " i=%u, shift=%d, offset=%hu\n", __func__,
 		       hp->curr, hp->hctx, hp->length, i, shift, offset);
 		if (likely(shift > 0)) {
 			if (shift <= hp->curr + HT_NBITS) {
@@ -539,7 +561,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 static int
 huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
-		      unsigned int offset)
+		      unsigned short offset)
 {
 	char sym;
 	int shift;
@@ -552,7 +574,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	shift = ht_decode[offset + i].shift;
 
 	T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu, i=%u,"
-	       " shift=%d, offset=%u\n", __func__, hp->curr, hp->hctx,
+	       " shift=%d, offset=%hu\n", __func__, hp->curr, hp->hctx,
 	       hp->length, i, shift, offset);
 
 	if (likely(shift > 0)) {
@@ -579,7 +601,7 @@ static int
 tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		   const unsigned char *__restrict src, unsigned long n)
 {
-	unsigned int offset;
+	unsigned short offset;
 	const unsigned char *last = src + n;
 
 	WARN_ON_ONCE(n > hp->length);
@@ -588,7 +610,11 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 	SET_NEXT();
 	for (;;) {
-		offset = 0;
+		offset = hp->offset;
+		hp->offset = 0;
+		if (offset >= HT_SMALL)
+			goto ht_small;
+
 		for (;;) {
 			int shift;
 			unsigned int i;
@@ -597,6 +623,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
+					hp->offset = offset;
 					return T_POSTPONE;
 				} else {
 					/*
@@ -612,7 +639,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			offset = ht_decode[offset + i].offset;
 			T_DBG3("%s: shift, hp->curr=%d, hp->hctx=%hx,"
 			       " hp->length=%lu, n=%lu, to_parse=%lu, i=%u,"
-			       " shift=%d, offset=%u, offset=%c\n", __func__,
+			       " shift=%d, offset=%hu, offset=%c\n", __func__,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
@@ -637,6 +664,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			}
 		}
 		hp->curr += HT_NBITS - HT_MBITS;
+ht_small:
 		/*
 		 * With various optimization options, the anonymous block here
 		 * leads to the generation of more efficient code.
@@ -649,6 +677,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
+					hp->offset = offset;
 					return T_POSTPONE;
 				} else {
 					return huffman_decode_tail_s(hp, req,
@@ -660,7 +689,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			offset = ht_decode[offset + i].offset;
 			T_DBG3("%s: short shift, hp->curr=%d, hp->hctx=%hx,"
 			       " hp->length=%lu, n=%lu, to_parse=%lu, i=%u,"
-			       " shift=%d, offset=%u, offset=%c\n", __func__,
+			       " shift=%d, offset=%hu, offset=%c\n", __func__,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
 			if (likely(shift > 0)) {
@@ -971,7 +1000,7 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 }
 
 static const TfwHPackEntry *
-tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
+tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned int index)
 {
 	const TfwHPackEntry *entry = NULL;
 
@@ -989,7 +1018,7 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 		} else {
 			curr += tbl->length - index;
 		}
-		T_DBG3("%s: tbl->length=%u, tbl->curr=%u, curr=%u, index=%lu\n",
+		T_DBG3("%s: tbl->length=%u, tbl->curr=%u, curr=%u, index=%u\n",
 		      __func__, tbl->length, tbl->curr, curr, index);
 
 		entry = tbl->entries + curr;
@@ -1005,7 +1034,7 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 }
 
 static int
-tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
+tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned int new_size)
 {
 	TfwHPackDTbl *tbl = &hp->dec_tbl;
 	unsigned int size = tbl->size;
@@ -1026,7 +1055,7 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
 			early += length - count;
 		}
 		T_DBG3("%s: tbl->curr=%u, early=%u, count=%u, length=%u,"
-		       " new_size=%lu\n", __func__, tbl->curr, early, count,
+		       " new_size=%u\n", __func__, tbl->curr, early, count,
 		       length, new_size);
 		cp = entries + early;
 		do {
@@ -1070,6 +1099,8 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	TfwHPackETbl *et = &hp->enc_tbl;
 	TfwHPackDTbl *dt = &hp->dec_tbl;
 
+	BUILD_BUG_ON((sizeof(static_table) / sizeof(static_table[0])) !=
+		HPACK_STATIC_ENTRIES);
 	BUILD_BUG_ON(sizeof(TfwHPackNode) > HPACK_ENTRY_OVERHEAD
 		     || HPACK_ENC_TABLE_MAX_SIZE > SHRT_MAX);
 
@@ -1385,7 +1416,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 					goto out;
 				}
 
-				T_DBG3("%s: decoded index: %lu\n", __func__,
+				T_DBG3("%s: decoded index: %u\n", __func__,
 				       hp->index);
 
 				NEXT_STATE(HPACK_STATE_ALL_INDEXED);
@@ -1400,7 +1431,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 				if (hp->index == 0x3F) {
 index:
 					GET_FLEXIBLE(hp->index, HPACK_STATE_INDEX);
-					T_DBG3("%s: decoded index: %lu\n",
+					T_DBG3("%s: decoded index: %u\n",
 					       __func__, hp->index);
 					NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 					goto get_indexed_name;
@@ -1414,7 +1445,7 @@ index:
 					GET_FLEXIBLE(hp->index,
 						     HPACK_STATE_DT_SZ_UPD);
 
-				T_DBG3("%s: decoded new size: %lu\n", __func__,
+				T_DBG3("%s: decoded new size: %u\n", __func__,
 				       hp->index);
 
 				NEXT_STATE(HPACK_STATE_DT_SZ_UPD);
@@ -1459,7 +1490,7 @@ index:
 				goto out;
 
 			if (hp->index) {
-				T_DBG3("%s: decoded index: %lu\n", __func__,
+				T_DBG3("%s: decoded index: %u\n", __func__,
 				       hp->index);
 				goto get_indexed_name;
 			}
@@ -1519,7 +1550,7 @@ get_name_text:
 		{
 			const TfwHPackEntry *entry;
 get_indexed_name:
-			T_DBG3("%s: decode indexed (%lu) header name...\n",
+			T_DBG3("%s: decode indexed (%u) header name...\n",
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
@@ -1556,7 +1587,14 @@ get_value:
 
 			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
-				r = T_DROP;
+				switch (req->pit.tag) {
+				case TFW_TAG_HDR_HOST:
+				case TFW_TAG_HDR_H2_AUTHORITY:
+					r = T_BAD;
+					break;
+				default:
+					r = T_DROP;
+				}
 				goto out;
 			}
 
@@ -1611,7 +1649,7 @@ get_value_text:
 		{
 			const TfwHPackEntry *entry;
 get_all_indexed:
-			T_DBG3("%s: get entire header by index: %lu\n", __func__,
+			T_DBG3("%s: get entire header by index: %u\n", __func__,
 			       hp->index);
 
 			WARN_ON_ONCE(!(state & HPACK_FLAGS_NO_VALUE));
@@ -1646,7 +1684,7 @@ get_all_indexed:
 		}
 		case HPACK_STATE_INDEX:
 			GET_CONTINUE(hp->index);
-			T_DBG3("%s: index finally decoded: %lu\n", __func__,
+			T_DBG3("%s: index finally decoded: %u\n", __func__,
 			       hp->index);
 			if (state & HPACK_FLAGS_NO_VALUE) {
 				NEXT_STATE(HPACK_STATE_ALL_INDEXED);
@@ -1662,7 +1700,7 @@ get_all_indexed:
 
 		case HPACK_STATE_DT_SZ_UPD:
 			GET_CONTINUE(hp->index);
-			T_DBG3("%s: new dyn table size finally decoded: %lu\n",
+			T_DBG3("%s: new dyn table size finally decoded: %u\n",
 			       __func__, hp->index);
 set_tbl_size:
 			if (tfw_hpack_set_length(hp, hp->index)) {
@@ -1728,7 +1766,7 @@ out:
 
 /*
  * Modified version of HPACK decoder FSM - for cache entries processing,
- * HTTP/2-headers decoding (either into HTTP/2 or HTTP/1.1 format) and skb
+ * HTTP/2-headers decoding (into HTTP/1.1 format) and skb
  * expanding at once; only static indexing is allowed, no service HPACK codes,
  * no Huffman decoding and no parsing; only a limited subset of HPACK decoder
  * FSM states is used.
@@ -1745,8 +1783,8 @@ tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 	TfwStr exp_str = {};
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
-	bool h2_mode = TFW_MSG_H2(resp->req);
-	const unsigned char *prev, *last = src + n;
+	const unsigned char *last = src + n;
+	unsigned char *prev = src;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 
 #define GET_NEXT_DATA(cond)						\
@@ -1763,12 +1801,6 @@ do {									\
 		goto out;						\
 	}
 
-#define FIXUP_H2_DATA(str, data, len)					\
-do {									\
-	if (h2_mode)							\
-		FIXUP_DATA(str, data, len);				\
-} while (0)
-
 #define EXPAND_STR_DATA(str)						\
 do {									\
 	if (tfw_http_msg_expand_data(it, skb_head, str, NULL)) {	\
@@ -1783,12 +1815,6 @@ do {									\
 	exp_str.data = ptr;						\
 	exp_str.len = length;						\
 	EXPAND_STR_DATA(&exp_str);					\
-} while (0)
-
-#define EXPAND_H2_DATA(data, len)					\
-do {									\
-	if (h2_mode)							\
-		EXPAND_DATA(data, len);					\
 } while (0)
 
 	WARN_ON_ONCE(!n);
@@ -1819,17 +1845,10 @@ do {									\
 		T_DBG3("%s: reference with value...\n", __func__);
 
 		hp->index = c & 0x0F;
-		if (hp->index == 0x0F) {
-			GET_FLEXIBLE_lambda(hp->index,
-				HPACK_STATE_INDEX, {
-				FIXUP_H2_DATA(&dc_iter->h2_data, src,
-					      src - prev);
-			});
-		}
+		if (hp->index == 0x0F)
+			GET_FLEXIBLE(hp->index, HPACK_STATE_INDEX);
 
-		T_DBG3("%s: name index: %lu\n", __func__, hp->index);
-
-		FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
+		T_DBG3("%s: name index: %u\n", __func__, hp->index);
 
 		NEXT_STATE(hp->index
 			   ? HPACK_STATE_INDEXED_NAME_TEXT
@@ -1851,21 +1870,15 @@ do {									\
 		WARN_ON_ONCE(c & 0x80);
 
 		hp->length = c & 0x7F;
-		if (unlikely(hp->length == 0x7F)) {
-			GET_FLEXIBLE_lambda(hp->length,
-				HPACK_STATE_NAME_LENGTH, {
-				FIXUP_H2_DATA(&dc_iter->h2_data, src,
-					      src - prev);
-			});
-		}
+		if (unlikely(hp->length == 0x7F))
+			GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
+
 		else if (unlikely(hp->length == 0)) {
 			r = T_DROP;
 			goto out;
 		}
 
 		T_DBG3("%s: name length: %lu\n", __func__, hp->length);
-
-		FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
 
 		NEXT_STATE(HPACK_STATE_NAME_TEXT);
 
@@ -1877,7 +1890,7 @@ do {									\
 	{
 		const TfwHPackEntry *entry;
 get_indexed_name:
-		T_DBG3("%s: decode indexed (%lu) header name...\n",
+		T_DBG3("%s: decode indexed (%u) header name...\n",
 		       __func__, hp->index);
 		if (WARN_ON_ONCE(!hp->index
 				 || hp->index > HPACK_STATIC_ENTRIES))
@@ -1895,18 +1908,17 @@ get_indexed_name:
 		dc_iter->hdr_data.len = entry->name_len;
 		dc_iter->hdr_data.data = __TFW_STR_CH(entry->hdr, 0)->data;
 
-		goto check_name_text;
+		goto write_name_text;
 
 	}
 	case HPACK_STATE_NAME_TEXT:
 	{
-		int i;
-		TfwHdrMods *h_mods;
 		unsigned long m_len;
 get_name_text:
 		m_len = min((unsigned long)(last - src), hp->length);
 
-		T_DBG3("%s: decoding header name, m_len=%lu\n", __func__, m_len);
+		T_DBG3("%s: decoding header name, m_len=%lu\n", __func__,
+		       m_len);
 
 		FIXUP_DATA(&dc_iter->hdr_data, src, m_len);
 
@@ -1914,49 +1926,12 @@ get_name_text:
 		src += m_len;
 
 		GET_NEXT_DATA(hp->length);
-check_name_text:
-		i = 0;
-		h_mods = dc_iter->h_mods;
-		WARN_ON_ONCE(dc_iter->desc);
-		if (h_mods) {
-			for (; i < h_mods->sz; ++i) {
-				TfwHdrModsDesc *d = &h_mods->hdrs[i];
 
-				if (!__hdr_name_cmp(&dc_iter->hdr_data, d->hdr))
-				{
-					dc_iter->desc = d;
-					break;
-				}
-			}
-		}
-
-		if (dc_iter->desc) {
-			/* All duplicate headers must be skipped by caller. */
-			WARN_ON_ONCE(test_bit(i, mit->found));
-			__set_bit(i, mit->found);
-			/*
-			 * Header modifications format: 0 chunk - header name,
-			 * optional 1st chunk - header value. If the value is
-			 * empty, then the header is about to be removed,
-			 * don't write it.
-			 */
-
-			/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
-			if (TFW_STR_CHUNK(dc_iter->desc->hdr, 1) == NULL) {
-				dc_iter->skip = true;
-				goto out;
-			}
-
-		}
-
-		if (h2_mode)
-			EXPAND_STR_DATA(&dc_iter->h2_data);
-
+write_name_text:
 		EXPAND_STR_DATA(&dc_iter->hdr_data);
-		TFW_STR_INIT(&dc_iter->hdr_data);
+		EXPAND_DATA(S_DLM, SLEN(S_DLM));
 
-		if (!h2_mode)
-			EXPAND_DATA(S_DLM, SLEN(S_DLM));
+		TFW_STR_INIT(&dc_iter->hdr_data);
 
 		T_DBG3("%s: name copied, n=%lu, tail=%lu, hp->length=%lu\n",
 		       __func__, n, last - src, hp->length);
@@ -1977,16 +1952,9 @@ check_name_text:
 
 		hp->length = c & 0x7F;
 		if (unlikely(hp->length == 0x7F))
-			GET_FLEXIBLE_lambda(hp->length,
-				HPACK_STATE_VALUE_LENGTH, {
-				if (!dc_iter->desc)
-					EXPAND_H2_DATA(src, src - prev);
-			});
+			GET_FLEXIBLE(hp->length, HPACK_STATE_VALUE_LENGTH);
 
 		T_DBG3("%s: value length: %lu\n", __func__, hp->length);
-
-		if (!dc_iter->desc)
-			EXPAND_H2_DATA(src, src - prev);
 
 		NEXT_STATE(HPACK_STATE_VALUE_TEXT);
 
@@ -1996,9 +1964,7 @@ check_name_text:
 			 * HPACK_STATE_VALUE_TEXT, but still need to write CRLF
 			 * at the end of the header line for a correct HTTP/1.
 			 */
-			if (!h2_mode)
-				EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
-
+			EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
 			goto out;
 		}
 
@@ -2011,81 +1977,20 @@ get_value_text:
 		T_DBG3("%s: decode header value...\n", __func__);
 		m_len = min((unsigned long)(last - src), hp->length);
 
-		if (dc_iter->desc && dc_iter->desc->append && h2_mode) {
-			/*
-			 * If the header value must be appended, we need to
-			 * collect the value for HTTP/2-header, since it should
-			 * be re-encoded in this case.
-			 */
-			FIXUP_DATA(&dc_iter->hdr_data, src, m_len);
-		}
-		else if (!dc_iter->desc || dc_iter->desc->append) {
-			EXPAND_DATA(src, m_len);
-		}
+		EXPAND_DATA(src, m_len);
 
 		hp->length -= m_len;
 		src += m_len;
 
 		GET_NEXT_DATA(hp->length);
 
-		if (dc_iter->desc) {
-			TfwStr *val, *h = dc_iter->desc->hdr;
-			/*
-			 * Header value is stored in chunk 1, see
-			 * tfw_cfgop_mod_hdr_add().
-			 */
-			TfwStr n_val = {
-				.chunks = (TfwStr []){
-					{ .data = ", ", .len = 2 },
-					{ .data = __TFW_STR_CH(h, 1)->data,
-					  .len = __TFW_STR_CH(h, 1)->len }
-				},
-				.len = __TFW_STR_CH(h, 1)->len + 2,
-				.nchunks = 2
-			};
-
-			dc_iter->skip = true;
-
-			if (h2_mode) {
-				TfwHPackInt vlen;
-
-				if (dc_iter->desc->append) {
-					val = &dc_iter->hdr_data;
-					if (tfw_strcat(resp->pool, val, &n_val))
-					{
-						r = T_DROP;
-						goto out;
-					}
-				}
-				else {
-					val = __TFW_STR_CH(&n_val, 1);
-				}
-
-				write_int(val->len, 0x7F, 0, &vlen);
-
-				EXPAND_DATA(vlen.buf, vlen.sz);
-				EXPAND_STR_DATA(val);
-
-				break;
-			}
-
-			val = dc_iter->desc->append
-				? &n_val
-				: __TFW_STR_CH(&n_val, 1);
-
-			EXPAND_STR_DATA(val);
-		}
-
-		if (!h2_mode)
-			EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
+		EXPAND_DATA(S_CRLF, SLEN(S_CRLF));
 
 		break;
 	}
 	case HPACK_STATE_INDEX:
 		prev = src;
-		GET_CONTINUE_lambda(hp->index, {
-			FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
-		});
+		GET_CONTINUE(hp->index);
 		T_DBG3("%s: index finally decoded: %lu\n", __func__, hp->index);
 
 		NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
@@ -2096,9 +2001,7 @@ get_value_text:
 
 	case HPACK_STATE_NAME_LENGTH:
 		prev = src;
-		GET_CONTINUE_lambda(hp->length, {
-			FIXUP_H2_DATA(&dc_iter->h2_data, src, src - prev);
-		});
+		GET_CONTINUE(hp->length);
 		T_DBG3("%s: name length finally decoded: %lu\n", __func__,
 		       hp->length);
 
@@ -2110,10 +2013,7 @@ get_value_text:
 
 	case HPACK_STATE_VALUE_LENGTH:
 		prev = src;
-		GET_CONTINUE_lambda(hp->length, {
-			if (!dc_iter->desc)
-				EXPAND_H2_DATA(src, src - prev);
-		});
+		GET_CONTINUE(hp->length);
 		T_DBG3("%s: value length finally decoded: %lu\n", __func__,
 		       hp->length);
 
@@ -2141,10 +2041,8 @@ out:
 
 #undef GET_NEXT_DATA
 #undef FIXUP_DATA
-#undef FIXUP_H2_DATA
 #undef EXPAND_STR_DATA
 #undef EXPAND_DATA
-#undef EXPAND_H2_DATA
 }
 
 /**
@@ -2556,13 +2454,9 @@ tfw_hpack_write(const TfwStr *h_field, char *out_buf)
 	return out_buf;
 }
 
-#ifdef DEBUG
+#if defined(DEBUG) && (DEBUG >= 4)
 #define T_DBG_PRINT_HPACK_RBTREE(tbl) tfw_hpack_rbtree_print(tbl)
-#else
-#define T_DBG_PRINT_HPACK_RBTREE(tbl)
-#endif
 
-#ifdef DEBUG
 /* Debug functions for printing red-black tree. */
 static void
 tfw_hpack_rbtree_print_level(TfwHPackETbl *__restrict tbl,
@@ -2576,7 +2470,7 @@ tfw_hpack_rbtree_print_level(TfwHPackETbl *__restrict tbl,
 		tfw_hpack_rbtree_print_level(tbl, left, level + 1, pr_level);
 		tfw_hpack_rbtree_print_level(tbl, right, level + 1, pr_level);
 	} else if (root) {
-		T_DBG3("level (%u): rindex %lu hdr_len %hu color %hu "
+		T_DBGV("level (%u): rindex %lu hdr_len %hu color %hu "
 		       "parent %hd  left %hd right %hd | hdr %.*s",
 		       level, root->rindex, root->hdr_len, root->color,
 		       root->parent, root->left, root->right,
@@ -2604,15 +2498,17 @@ tfw_hpack_rbtree_print(TfwHPackETbl *__restrict tbl)
 {
 	unsigned int pr_level, max_level;
 
-	T_DBG3("hpack rbtree:\n");
-	T_DBG3("first %p last %p rb_len %hu rb_size %hu size %hu\n",
+	T_DBGV("hpack rbtree:\n");
+	T_DBGV("first %p last %p rb_len %hu rb_size %hu size %hu\n",
 	       tbl->first, tbl->last, tbl->rb_len, tbl->rb_size, tbl->size);
-	T_DBG3("window %hu rbuf %p root %p idx_acc %lu\n",
+	T_DBGV("window %hu rbuf %p root %p idx_acc %lu\n",
 	       tbl->window, tbl->rbuf, tbl->root, tbl->idx_acc);
 	max_level = tfw_hpack_rbtree_cacl_level(tbl, tbl->root);
 	for (pr_level = 0; pr_level < max_level; ++pr_level)
 		tfw_hpack_rbtree_print_level(tbl, tbl->root, 0, pr_level);
 }
+#else
+#define T_DBG_PRINT_HPACK_RBTREE(tbl)
 #endif
 
 /*
@@ -3621,7 +3517,7 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 	       s_idx.data);
 
 	if (use_pool)
-		return tfw_http_msg_expand_from_pool(mit, resp->pool, &s_idx);
+		return tfw_http_msg_expand_from_pool(resp, &s_idx);
 
 	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
 					&mit->start_off);
@@ -3637,7 +3533,6 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 {
 	int r;
 	TfwHPackInt vlen;
-	TfwHttpTransIter *mit = &resp->mit;
 	TfwStr s_name = {}, s_val = {}, s_vlen = {};
 
 	if (!hdr)
@@ -3661,16 +3556,14 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		s_nlen.data = nlen.buf;
 		s_nlen.len = nlen.sz;
 
-		r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_nlen);
+		r = tfw_http_msg_expand_from_pool(resp, &s_nlen);
 		if (unlikely(r))
 			return r;
 
 		if (trans)
-			r = tfw_http_msg_expand_from_pool_lc(mit, resp->pool,
-							     &s_name);
+			r = tfw_http_msg_expand_from_pool_lc(resp, &s_name);
 		else
-			r = tfw_http_msg_expand_from_pool(mit, resp->pool,
-							  &s_name);
+			r = tfw_http_msg_expand_from_pool(resp, &s_name);
 		if (unlikely(r))
 			return r;
 	}
@@ -3679,12 +3572,12 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	s_vlen.data = vlen.buf;
 	s_vlen.len = vlen.sz;
 
-	r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_vlen);
+	r = tfw_http_msg_expand_from_pool(resp, &s_vlen);
 
 	if (unlikely(r))
 		return r;
 	if (!TFW_STR_EMPTY(&s_val))
-		r = tfw_http_msg_expand_from_pool(mit, resp->pool, &s_val);
+		r = tfw_http_msg_expand_from_pool(resp, &s_val);
 
 	return r;
 }
@@ -3774,6 +3667,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
+	struct sk_buff *skb = resp->mit.iter.skb;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3810,7 +3704,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			return r;
 
 		resp->mit.acc_len += idx.sz * !use_pool;
-		return r;
+		goto set_skb_priv;
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3840,9 +3734,26 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 encode:
 	if (use_pool)
-		return tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
+		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
 	else
-		return tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+set_skb_priv:
+	BUG_ON(!resp->req);
+	if (likely(!r) && resp->req->stream) {
+		/*
+		 * Very long headers can be located in several skbs,
+		 * mark them all.
+		 */
+		while(skb && unlikely(skb != resp->mit.iter.skb)) {
+			skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS);
+			skb_set_tfw_cb(skb, resp->req->stream->id);
+			skb = skb->next;
+		}
+
+		skb_set_tfw_flags(resp->mit.iter.skb, SS_F_HTTT2_FRAME_HEADERS);
+		skb_set_tfw_cb(resp->mit.iter.skb, resp->req->stream->id);
+	}
+	return r;
 }
 
 int
@@ -3901,23 +3812,19 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 }
 
 int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
-			   unsigned int *bytes_wtitten)
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
+			   struct sk_buff *skb, TfwStream *stream,
+			   unsigned int mss_now, unsigned int *t_tz)
 {
-	TfwMsgIter it = { .frag = -1, .skb = skb, .skb_head = skb};
+	TfwMsgIter it = {
+		.skb = skb,
+		.skb_head = ((struct sk_buff *)&sk->sk_write_queue),
+		.frag = -1
+	};
 	TfwStr new_size = {};
 	TfwHPackInt tmp = {};
-	TfwFrameHdr hdr = {};
-	char *data = skb->data;
+	char *data;
 	int r = 0;
-
-	/*
-	 * Check header type. Sometimes because of skb splitting,
-	 * headers data can present here, but HTTP2_HEADERS code
-	 * (0x01) is not valid for headers data.
-	 */
-	if (skb->data[3] != HTTP2_HEADERS)
-		return 0;
 
 	/*
 	 * We should encode hpack dynamic table size, only in case when
@@ -3928,20 +3835,18 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sk_buff *skb,
 		new_size.data = tmp.buf;
 		new_size.len = tmp.sz;
 	
-		r = tfw_msg_iter_move(&it, (unsigned char **)&data,
-				      FRAME_HEADER_SIZE);
+		data = tfw_http_iter_set_at_skb(&it, skb, FRAME_HEADER_SIZE);
+		if (!data) {
+			r = -E2BIG;
+			goto finish;
+		}
+
+		r = tfw_h2_insert_frame_header(sk, skb, stream, mss_now, &it,
+					       &data, &new_size, t_tz);
 		if (unlikely(r))
 			goto finish;
 
-		r = tfw_http_msg_insert(&it, &data, &new_size);
-		if (unlikely(r))
-			goto finish;
-
-		tfw_h2_unpack_frame_header(&hdr, skb->data);
-		hdr.length += tmp.sz;
-		tfw_h2_pack_frame_header(skb->data, &hdr);
-
-		*bytes_wtitten = tmp.sz;
+		stream->xmit.h_len += tmp.sz;
 	}
 
 finish:

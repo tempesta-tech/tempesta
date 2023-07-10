@@ -320,6 +320,8 @@ enum {
 	 * not enclosed in double quotes.
 	 */
 	TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
+	/* Request URI is absolute (HTTP/1.x only) */
+	TFW_HTTP_B_ABSOLUTE_URI,
 
 	_TFW_HTTP_FLAGS_NUM
 };
@@ -434,10 +436,13 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
+ * @old_head	- Original request head. Required for keep request data until
+ * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
- * @host	- host in URI, may differ from Host header;
+ * @host	- host that was picked from request URI, Host or HTTP/2
+ *		  authority header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @mark	- special hash mark for redirects handling in session module;
  * @multipart_boundary_raw - multipart boundary as is, maybe with escaped chars;
@@ -464,6 +469,7 @@ struct tfw_http_req_t {
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
+	struct sk_buff		*old_head;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
@@ -527,7 +533,6 @@ typedef struct {
  * @map		- indirection map for tracking headers order in skb;
  * @start_off	- initial offset during copying response data into
  *		  skb (for subsequent insertion of HTTP/2 frame header);
- * @found	- bit mask of configured headers found in the message.
  * @curr_ptr	- pointer in the skb to write the current header;
  * @frame_head	- pointer to reserved space for frame header. Used during
  * 		  http2 framing. Simplifies framing of paged SKBs.
@@ -538,7 +543,6 @@ typedef struct {
 typedef struct {
 	TfwHttpHdrMap	*map;
 	unsigned int	start_off;
-	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
 	char		*curr_ptr;
 	char		*frame_head;
 	TfwMsgIter	iter;
@@ -590,7 +594,7 @@ typedef struct {
 
 #define TFW_HTTP_RESP_CUT_BODY_SZ(r) 					\
 	(r)->stream ? 							\
-	(r)->body.len - (r)->stream->parser.cut_len : 			\
+	(r)->body.len - (r)->stream->parser.cut.len : 			\
 	(r)->body.len
 
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
@@ -739,11 +743,10 @@ unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
 				 bool inplace);
 unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 			      unsigned short st_index);
-int tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
-			  unsigned long h_len);
 int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 			    unsigned long h_len, const TfwStr *body);
 int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
+void tfw_http_extract_request_authority(TfwHttpReq *req);
 
 #endif /* __TFW_HTTP_H__ */

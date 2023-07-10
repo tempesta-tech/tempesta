@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -111,7 +111,6 @@ tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
 {
 	TfwMsgIter *iter = &mit->iter;
 
-	BUILD_BUG_ON(HTTP2_MAX_OFFSET <= FRAME_HEADER_SIZE);
 	BUG_ON(!skb);
 	BUG_ON(mit->frame_head);
 
@@ -160,7 +159,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
-int tfw_http_msg_del_flagged_body(TfwHttpMsg *hm);
+int tfw_http_msg_cutoff_body_chunks(TfwHttpMsg *hm);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
 		       unsigned int tx_flags);
@@ -173,15 +172,13 @@ void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src, unsigned int *start_off);
 int tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool);
-int tfw_http_msg_expand_from_pool(TfwHttpTransIter *mit, TfwPool* pool,
-				  const TfwStr *str);
-int tfw_http_msg_expand_from_pool_lc(TfwHttpTransIter *mit, TfwPool* pool,
-				     const TfwStr *str);
+int tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str);
+int tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_write_data_pool(TfwHttpTransIter *mit, TfwPool* pool,
 			       const TfwStr *str, bool add_frag, bool has_body);
-void tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
+int tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
 int tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data);
 
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\

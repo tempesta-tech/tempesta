@@ -178,15 +178,26 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 #define __tfw_dbg_dump_ce(...)
 #endif
 
+/* TfwCStr contains duplicated header. */
+#define TFW_CSTR_DUPLICATE	TFW_STR_DUPLICATE
+/* TfwCStr contains special header and its id. */
+#define TFW_CSTR_SPEC_IDX	0x2
+
 /**
  * String header for cache entries used for TfwStr serialization.
  *
- * @flags	- only TFW_STR_DUPLICATE or zero;
- * @len		- string length or number of duplicates;
+ * @flags	- TFW_CSTR_DUPLICATE and TFW_CSTR_HPACK_IDX or zero;
+ * @name_len	- Header name length. Used for raw headers;
+ * @name_len_sz	- HPACK int size of @name_len;
+ * @len		- Total string length or number of duplicates;
+ * @idx		- HPACK static index or index of special header;
  */
 typedef struct {
 	unsigned long	flags : 8,
-			len : 56;
+			name_len: 11,
+			name_len_sz : 2,
+			len : 35,
+			idx : 8;
 } TfwCStr;
 
 #define TFW_CSTR_MAXLEN		(1UL << 56)
@@ -685,9 +696,7 @@ tfw_cache_h2_decode_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		acc += m_len;
 		*data += m_len;
 		if (acc == len) {
-			bzero_fast(dc_iter->__off,
-				   sizeof(*dc_iter)
-				   - offsetof(TfwDecodeCacheIter, __off));
+			TFW_STR_INIT(&dc_iter->hdr_data);
 			break;
 		}
 
@@ -718,6 +727,8 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 	r = tfw_cache_h2_write(db, trec, resp, p, ce->status_len, &dc_iter);
 	if (unlikely(r))
 		return r;
+
+	resp->status = ce->resp_status;
 
 	if (!h2_mode) {
 		char buf[H2_STAT_VAL_LEN];
@@ -760,6 +771,52 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 	return 0;
 }
 
+static bool
+tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
+{
+	unsigned int i;
+	const TfwHdrModsDesc *desc;
+	/*
+	 * Move to beggining of the header name. Skip first byte of HPACK
+	 * string and name length size.
+	 */
+	TfwStr hdr = { .data = p + str->name_len_sz + 1,
+		       .len  = str->name_len };
+
+	/* Fast path for special headers */
+	if (str->flags & TFW_CSTR_SPEC_IDX) {
+		desc = h_mods->spec_hdrs[str->idx];
+		/* Skip only resp_hdr_set headers */
+		return desc ? !desc->append : false;
+	}
+
+	if (str->idx) {
+		unsigned short hpack_idx = str->idx;
+
+		if (hpack_idx <= HPACK_STATIC_TABLE_REGULAR)
+			return false;
+
+		return test_bit(hpack_idx, h_mods->s_tbl);
+	}
+
+	for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
+		char* mod_hdr_name;
+		size_t mod_hdr_len;
+
+		desc = &h_mods->hdrs[i];
+		mod_hdr_len = TFW_STR_CHUNK(desc->hdr, 0)->len;
+		if (desc->append || mod_hdr_len != hdr.len)
+			continue;
+
+		mod_hdr_name = TFW_STR_CHUNK(desc->hdr, 0)->data;
+
+		if (!tfw_cstricmp(hdr.data, mod_hdr_name, hdr.len))
+			return true;
+	}
+
+	return false;
+}
+
 /**
  * Write HTTP header to skb data.
  */
@@ -769,32 +826,49 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 			 bool skip)
 {
 	tfw_cache_write_actor_t *write_actor;
-	TfwCStr *s = (TfwCStr *)*p;
+	TfwCStr *s;
 	TfwHttpReq *req = resp->req;
-	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip};
+	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip };
 	int d, dn, r = 0;
+
+/* Go to the next chunk if we at the end of current. */
+#define NEXT_CHUNK()							\
+do {									\
+	if (*p - (*trec)->data == (*trec)->len) {			\
+		*trec = tdb_next_rec_chunk(db, (*trec));		\
+		*p = (*trec)->data;					\
+	}								\
+} while (0)
 
 	BUG_ON(!req);
 
-	write_actor = !TFW_MSG_H2(req) || dc_iter.h_mods
-		? tfw_cache_h2_decode_write
-		: tfw_cache_h2_write;
+	write_actor = !TFW_MSG_H2(req) ? tfw_cache_h2_decode_write
+				       : tfw_cache_h2_write;
 
+	NEXT_CHUNK();
+	s = (TfwCStr *)*p;
 	*p += TFW_CSTR_HDRLEN;
 	BUG_ON(*p > (*trec)->data + (*trec)->len);
 
-	if (likely(!(s->flags & TFW_STR_DUPLICATE))) {
+	if (likely(!(s->flags & TFW_CSTR_DUPLICATE))) {
+		if (!skip && dc_iter.h_mods)
+			dc_iter.skip = tfw_cache_skip_hdr(s, *p, hmods);
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (likely(!r))
 			*acc_len += dc_iter.acc_len;
 		return r;
 	}
 
+	if (!skip && dc_iter.h_mods)
+		dc_iter.skip = tfw_cache_skip_hdr((TfwCStr *)*p,
+						  *p + TFW_CSTR_HDRLEN, hmods);
+
 	/* Process duplicated headers. */
 	dn = s->len;
 	for (d = 0; d < dn; ++d) {
+		NEXT_CHUNK();
 		s = (TfwCStr *)*p;
-		BUG_ON(s->flags);
+		BUG_ON(s->flags & TFW_CSTR_DUPLICATE);
 		*p += TFW_CSTR_HDRLEN;
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (unlikely(r))
@@ -840,8 +914,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (unlikely(r))
 			goto err_setup;
 	} else {
-		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-						   HTTP2_F_END_STREAM);
+		stream_id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+						  HTTP2_F_END_HEADERS);
 		if (unlikely(!stream_id))
 			goto err_setup;
 
@@ -852,6 +926,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			goto err_setup;
 		/* account for :status field itself */
 		h_len++;
+
+		resp->status = 304;
 
 		/*
 		 * Responses built from cache has room for frame header reserved
@@ -889,6 +965,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
 		goto err_setup;
 
+	tfw_h2_stream_unlink_from_req(req, false, false);
 	tfw_h2_resp_fwd(resp);
 
 	return;
@@ -969,22 +1046,15 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
-	TfwStr host_val, *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 
 	if ((req->method != TFW_HTTP_METH_PURGE) && (ce->method != req->method))
 		return false;
 
-	/*
-	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
-	 * strict comparison.
-	 */
-	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
-
-	if (req->uri_path.len + host_val.len != ce->key_len)
+	if (req->uri_path.len + req->host.len != ce->key_len)
 		return false;
 
 	t_off = CE_BODY_SIZE;
-	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &host_val, u_end, h_start,
+	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->host, u_end, h_start,
 			      h_end)
 	{
 		if (!trec)
@@ -1159,42 +1229,197 @@ do {						\
 	ce->hdr_len += TFW_CSTR_HDRLEN;		\
 } while (0)
 
-#define CSTR_WRITE_HDR(f, l)			\
-do {						\
-	cs->flags = f;				\
-	cs->len = l;				\
+#define CSTR_WRITE_HDR(f, l, nl, i)			\
+do {							\
+	cs->flags = f;					\
+	cs->len = l;					\
+	cs->name_len = nl;				\
+	cs->name_len_sz = tfw_hpack_int_size(nl, 0x7f);	\
+	cs->idx = i;					\
 } while (0)
 
 /**
- * Copies http *chunked* body from plain or compound TfwStr @src to TdbRec @trec.
- * The copied data does not contain the chunked encoding descriptors.
- * @src is copied
- * @return number of copied bytes on success and negative value otherwise.
+ * Copies http *chunked* body to TdbRec @trec. The copied data does not
+ * contain the chunked encoding descriptors.
+ *
+ * @body basically used for validation.
+ * @cut TfwStr containing chunked descriptors. Used as beginning of the body.
+ * @return zero on success and negative value otherwise.
  */
 static int
 tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
-			       TfwStr *src, size_t *tot_len)
+			       TfwHttpResp *resp, TfwStr *cut, size_t *tot_len)
 {
 	long n;
-	TfwStr *c, *end;
+	TfwMsgIter it;
+	TfwStr *tmp;
+	char *curr, *stop, *begin, *end, *prev_end = NULL;
+	int stop_len, c_chunk = 0;
+	TfwStr *body = &resp->body;
 
-	BUG_ON(TFW_STR_DUP(src));
+	BUG_ON(TFW_STR_DUP(body));
 
-	if (unlikely(!src->len))
+	/* Body has only zero chunk. */
+	if (unlikely(!body->len || body->len == cut->len))
 		return 0;
 
-	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
-		if (c->flags & TFW_STR_CUT)
-			continue;
+	if (unlikely(!cut->len))
+		return -EINVAL;
 
-		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
+	/*
+	 * If we have cut-chunks less then two and body is not empty it means
+	 * parser is broken.
+	 */
+	BUG_ON(cut->nchunks < 2 && body->len > 0);
+
+	it.skb = cut->skb;
+	it.skb_head = resp->msg.skb_head;
+	it.frag = -(!!skb_headlen(it.skb));
+
+	tmp = __TFW_STR_CH(cut, c_chunk);
+	curr = tmp->data;
+
+	stop = curr;
+	stop_len = tmp->len;
+
+	while (true) {
+		if (it.frag == -1) {
+			begin = it.skb->data;
+			end = begin + skb_headlen(it.skb);
+		} else {
+			skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
+
+			begin = skb_frag_address(f);
+			end = begin + skb_frag_size(f);
+		}
+
+		/* Previous fragment is fully copied. */
+		if (curr == prev_end)
+			curr = begin;
+rep:
+		/* Stop is found. Get next stop. */
+		if (curr == stop) {
+			if (++c_chunk >= cut->nchunks)
+				return 0;
+			curr += stop_len;
+			tmp = __TFW_STR_CH(cut, c_chunk);
+			stop = tmp->data;
+			stop_len = tmp->len;
+		}
+
+		if ((begin <= curr) && (end > curr)) {
+			TfwStr chunk = {.len = 0};
+
+			/* Stop found in current frag. */
+			if ((begin <= stop) && (end >= stop)) {
+				chunk.data = curr;
+				chunk.len = stop - curr;
+				curr = stop;
+			} else {
+				/* Stop not found. Copy whole frag. */
+				chunk.data = curr;
+				chunk.len = end - curr;
+				curr = end;
+			}
+
+			if (chunk.len) {
+				if ((n = tfw_cache_strcpy(p, trec, &chunk,
+							  *tot_len)) < 0)
+				{
+					T_ERR("Cache: cannot copy chunk of HTTP body\n");
+					return -ENOMEM;
+				}
+
+				*tot_len -= n;
+				*acc_len += n;
+			}
+		}
+
+		if (curr != end)
+			goto rep;
+
+		prev_end = end;
+
+		it.frag++;
+		if (it.frag >= skb_shinfo(it.skb)->nr_frags) {
+			it.skb = it.skb->next;
+			if (it.skb == it.skb_head)
+				return 0;
+
+			it.frag = -(!!skb_headlen(it.skb));
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Copies http body to TdbRec @trec.
+ *
+ * @body Http response body.
+ * @return zero on success and negative value otherwise.
+ */
+static int
+tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
+		       TfwHttpResp *resp, size_t *tot_len)
+{
+	long n;
+	TfwMsgIter it;
+	TfwStr chunk;
+	TfwStr *body = &resp->body;
+
+	BUG_ON(TFW_STR_DUP(body));
+
+	if (unlikely(!body->len))
+		return 0;
+
+	it.skb_head = resp->msg.skb_head;
+	it.skb = body->skb;
+	it.frag = -1;
+
+	/* Move to the beginning of body. */
+	tfw_http_iter_set_at(&it, body->data);
+	chunk.data = body->data;
+
+	if (it.frag == -1) {
+		unsigned int size = skb_headlen(it.skb);
+
+		chunk.len = (char*)(it.skb->data + size) - chunk.data;
+	} else {
+		skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
+		unsigned int size = skb_frag_size(f);
+
+		chunk.len = (char*)(skb_frag_address(f) + size) - chunk.data;
+	}
+
+	do {
+		if ((n = tfw_cache_strcpy(p, trec, &chunk, *tot_len)) < 0) {
 			T_ERR("Cache: cannot copy chunk of HTTP body\n");
 			return -ENOMEM;
 		}
 
 		*tot_len -= n;
 		*acc_len += n;
-	}
+
+		it.frag++;
+		if (it.frag >= skb_shinfo(it.skb)->nr_frags) {
+			it.skb = it.skb->next;
+			if (it.skb == it.skb_head)
+				return 0;
+
+			it.frag = -(!!skb_headlen(it.skb));
+		}
+
+		if (it.frag == -1) {
+			chunk.data = it.skb->data;
+			chunk.len = skb_headlen(it.skb);
+		} else {
+			skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
+
+			chunk.data = skb_frag_address(f);
+			chunk.len = skb_frag_size(f);
+		}
+	} while (true);
 
 	return 0;
 }
@@ -1207,9 +1432,9 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
  */
 static int
 tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
-                             TfwStr *src, size_t *tot_len,
-                             long cache_strcpy(char **p, TdbVRec **trec,
-                                               TfwStr *src, size_t tot_len))
+			     TfwStr *src, size_t *tot_len,
+			     long cache_strcpy(char **p, TdbVRec **trec,
+					       TfwStr *src, size_t tot_len))
 {
 	long n;
 	TfwStr *c, *end;
@@ -1234,18 +1459,18 @@ tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
 
 static int
 tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
-                      TfwStr *src, size_t *tot_len)
+		      TfwStr *src, size_t *tot_len)
 {
 	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
-	                                    tfw_cache_strcpy);
+					    tfw_cache_strcpy);
 }
 
 static int
 tfw_cache_h2_copy_str_lc(unsigned int *acc_len, char **p, TdbVRec **trec,
-                         TfwStr *src, size_t *tot_len)
+			 TfwStr *src, size_t *tot_len)
 {
 	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
-	                                    tfw_cache_strcpy_lc);
+					    tfw_cache_strcpy_lc);
 }
 
 static inline int
@@ -1275,10 +1500,10 @@ tfw_cache_copy_str_with_extra_quotes(TfwCacheEntry *ce, char **p, TdbVRec **trec
 {
 #define ADD_ETAG_QUOTE(flag)                                            \
 do {                                                                    \
-        TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
-        if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
-                                  tot_len))                             \
-                return -ENOMEM;                                         \
+	TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
+	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
+				  tot_len))                             \
+		return -ENOMEM;                                         \
 } while(0)
 
 	if (need_extra_quotes)
@@ -1329,9 +1554,11 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index) +
 			2 * need_extra_quotes;
 
-		/* Don't split short strings. */
+		/* Don't split short strings and header name. */
 		if (sizeof(TfwCStr) + h_len <= L1_CACHE_BYTES)
 			n += h_len;
+		else
+			n += s_nm.len;
 	}
 
 	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
@@ -1342,7 +1569,12 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 
 	if (TFW_STR_DUP(hdr)) {
 		CSTR_MOVE_HDR();
-		CSTR_WRITE_HDR(TFW_STR_DUPLICATE, hdr->nchunks);
+		if (hid >= TFW_HTTP_HDR_REGULAR  && hid < TFW_HTTP_HDR_RAW)
+			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX | TFW_CSTR_DUPLICATE,
+				       hdr->nchunks, 0, hid);
+		else
+			CSTR_WRITE_HDR(TFW_CSTR_DUPLICATE, hdr->nchunks, 0,
+				       st_index);
 	}
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
@@ -1353,6 +1585,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			TFW_STR_INIT(&s_val);
 			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
 			st_index = dup->hpack_idx;
+			*p = tdb_entry_get_room(node_db(), trec, *p,
+						n + s_nm.len, *tot_len);
 		}
 		CSTR_MOVE_HDR();
 		prev_len = ce->hdr_len;
@@ -1368,7 +1602,7 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			    || tfw_cache_h2_copy_int(&ce->hdr_len, s_nm.len,
 						     0x7f, p, trec, tot_len)
 			    || tfw_cache_h2_copy_str_lc(&ce->hdr_len, p, trec,
-			                                &s_nm, tot_len))
+							&s_nm, tot_len))
 				return -ENOMEM;
 		}
 
@@ -1380,7 +1614,12 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 							    need_extra_quotes))
 			return -ENOMEM;
 
-		CSTR_WRITE_HDR(0, ce->hdr_len - prev_len);
+		if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW)
+			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX,
+				       ce->hdr_len - prev_len, 0, hid);
+		else
+			CSTR_WRITE_HDR(0, ce->hdr_len - prev_len, s_nm.len,
+				       st_index);
 	}
 
 	T_DBG3("%s: p=[%p], trec=[%p], ce->hdr_len='%u', tot_len='%zu'\n",
@@ -1431,7 +1670,7 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, val, tot_len))
 		return -ENOMEM;
 
-	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN);
+	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, 0, st_idx);
 
 	return ce->hdr_len - prev_len;
 }
@@ -1471,7 +1710,7 @@ tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		},
 		.nchunks = 1
 	};
-	unsigned long body_len = resp->body.len - resp->stream->parser.cut_len;
+	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 
 	val.chunks->len = tfw_ultoa(body_len, val.chunks->data,
 				    TFW_ULTOA_BUF_SIZ);
@@ -1660,7 +1899,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	long n, etag_off = 0;
 	TfwHttpReq *req = resp->req;
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
-	TfwStr h_val, *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	TfwStr val_srv = TFW_STR_STRING(TFW_SERVER);
 	TfwStr val_via = {
 		.chunks = (TfwStr []) {
@@ -1688,8 +1926,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
 	 * strict comparison.
 	 */
-	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &h_val);
-	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &h_val, end1, h, end2) {
+	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->host, end1, h, end2) {
 		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
 			T_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
@@ -1824,10 +2061,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->body = TDB_OFF(db->hdr, p);
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
 		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
-						   &resp->body, &tot_len);
+						   resp,
+						   &resp->stream->parser.cut,
+						   &tot_len);
 	else
-		r = tfw_cache_h2_copy_str(&ce->body_len, &p, &trec, &resp->body,
-					  &tot_len);
+		r = tfw_cache_h2_copy_body(&ce->body_len, &p, &trec,
+					   resp, &tot_len);
 
 	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy HTTP body\n");
@@ -1938,7 +2177,7 @@ te_codings_size(TfwHttpResp *resp)
 
 	TFW_STR_FOR_EACH_DUP(dup, te_hdr, end_dup) {
 		TFW_STR_FOR_EACH_CHUNK(chunk, dup, end) {
-			if (!(chunk->flags & TFW_STR_CUT))
+			if (!(chunk->flags & TFW_STR_NAME))
 				continue;
 
 			if (!first)
@@ -1962,18 +2201,16 @@ __cache_entry_size(TfwHttpResp *resp)
 {
 #define INDEX_SZ 2
 
-	TfwStr host_val, *hdr, *hdr_end;
+	TfwStr *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
 	long size, res_size = CE_BODY_SIZE;
-	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
 	TfwCaTokenArray hdr_del_tokens =
 			tfw_vhost_get_capo_hdr_del(req->location, req->vhost);
 	/* Add compound key size */
 	res_size += req->uri_path.len;
-	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
-	res_size += host_val.len;
+	res_size += req->host.len;
 
 	/*
 	 * Add the length of ':status' pseudo-header: one byte if fully indexed,
@@ -2099,10 +2336,7 @@ __cache_entry_size(TfwHttpResp *resp)
 			   + tfw_hpack_int_size(via_sz, 0x7F) + via_sz;
 
 	/* Add body size. */
-	res_size += resp->body.len;
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-		res_size -= resp->stream->parser.cut_len;
+	res_size += TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 
 	return res_size;
 err:
@@ -2142,7 +2376,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	/* TODO #788: revalidate existing entries before inserting a new one. */
+	/* TODO #522: revalidate existing entries before inserting a new one. */
 
 	/*
 	 * Try to place the cached response in single memory chunk.
@@ -2273,16 +2507,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
  * Add page from cache into response.
  */
 static int
-tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
-			bool h2, bool last_frag)
+tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
+			bool last_frag)
 {
 	int off;
 	struct page *page;
 
-	/*
-	 * @sz is guarantied to be bigger than FRAME_HEADER_SIZE if frame header
-	 * is stored in cache before data. True for first fragment.
-	 */
 	if (h2) {
 		char *new_p;
 		if (!(page = alloc_page(GFP_ATOMIC))) {
@@ -2290,11 +2520,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
 		}
 		new_p = page_address(page);
 		off = 0;
-		frame_hdr->flags = last_frag ? HTTP2_F_END_STREAM : 0;
-		frame_hdr->length = sz;
-		memcpy_fast(new_p + FRAME_HEADER_SIZE, p, sz);
-		sz += FRAME_HEADER_SIZE;
-		tfw_h2_pack_frame_header(new_p, frame_hdr);
+		memcpy_fast(new_p, p, sz);
 	}
 	else {
 		off = ((unsigned long)p & ~PAGE_MASK);
@@ -2337,7 +2563,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 			  unsigned long body_sz, bool h2, unsigned int stream_id)
 {
 	int r;
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
 	bool sh_frag = h2 ? false : true;
 
 	if (WARN_ON_ONCE(!it->skb_head))
@@ -2367,10 +2592,14 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 		if (f_size) {
 			f_size = min(body_sz, (unsigned long)f_size);
 			body_sz -= f_size;
-			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
-						    h2, !body_sz);
+			r = tfw_cache_add_body_page(it, p, f_size, h2,
+						    !body_sz);
 			if (r)
 				return r;
+			if (stream_id) {
+				skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+				skb_set_tfw_cb(it->skb, stream_id);
+			}
 		}
 		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
@@ -2594,6 +2823,7 @@ write_body:
 					      TFW_MSG_H2(req), stream_id))
 			goto free;
 	}
+	resp->content_length = ce->body_len;
 
 	return resp;
 free:
@@ -2658,13 +2888,14 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * the backend), thus the stream will be finished.
 	 */
 	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					    HTTP2_F_END_STREAM);
+		id = tfw_h2_stream_id_send(req, HTTP2_HEADERS,
+					   HTTP2_F_END_HEADERS);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			goto put;
 		}
+		tfw_h2_stream_unlink_from_req(req, false, false);
 	}
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))

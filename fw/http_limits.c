@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -526,38 +526,6 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 }
 
 /**
- * Get first host value from Forwarded header.
- *
- * Use first value, i.e it more likly will be value with origin host.
- *
- * @req		- request handle;
- * @trimmed	- trimmed host value without spaces.
- * @name_only	- host value without port component.
- * @return	- false if "host=" if not exists in header otherwise true.
- */
-static bool
-frang_get_host_forwarded(const TfwHttpReq *req, TfwStr *trimmed,
-			 TfwStr *name_only)
-{
-	TfwStr raw_val = req->h_tbl->tbl[TFW_HTTP_HDR_FORWARDED];
-	TfwStr  *dup, *end;
-	TfwStr fwd_host = { 0 };
-
-	if (TFW_STR_EMPTY(&raw_val))
-		return false;
-
-	TFW_STR_FOR_EACH_DUP(dup, &raw_val, end) {
-		if (tfw_http_search_host_forwarded(dup, &fwd_host)) {
-			*trimmed = fwd_host;
-			*name_only = fwd_host;
-			return true;
-		}
-	}
-
-	return false;
-}
-
-/**
  * Get Host value. Host can be defined:
  * - in h2 requests in Host header, in authority pseudo header. The latter SHOULD
  *   be used, but RFC 7540 still allows to use Host header.
@@ -618,13 +586,79 @@ frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
 	*name_only = hdr_name;
 }
 
-static bool
-frang_assert_host_header(const TfwStr *l, const TfwStr *r)
+static TfwVhost*
+__lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 {
-	if (TFW_STR_EMPTY(l) || TFW_STR_EMPTY(r))
-		return false;
+	char small_buf[64];
+	BasicStr name;
 
-	return tfw_strcmp(l, r);
+	name.len = authority->len;
+	/* Prepare buffer */
+	if (likely(name.len < sizeof(small_buf))) {
+		name.data = small_buf;
+	} else {
+		name.data = tfw_pool_alloc(pool, name.len + 1);
+		if (name.data == NULL) {
+			T_WARN("Can't allocate temporary buffer of %zu bytes for"
+			       " HTTP domain fronting check",
+			       name.len + 1);
+			return NULL;
+		}
+	}
+
+	/* Make linear lower-case name */
+	tfw_str_to_cstr(authority, name.data, name.len + 1);
+	tfw_cstrtolower(name.data, name.data, name.len);
+
+	return tfw_tls_find_vhost_by_name(&name);
+}
+
+static int
+frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
+{
+	TlsCtx *tctx;
+	TfwVhost *tls_vhost;
+	BasicStr tls_name, req_name;
+	static BasicStr null_name = {"NULL", 4};
+
+	if (!(TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS))
+		return TFW_PASS;
+
+	/*
+	 * Do not perform any SNI<=>authority validation if
+	 * tls_match_any_server_name is set.
+	 */
+	if (tfw_tls_allow_any_sni)
+		return TFW_PASS;
+
+	tctx = tfw_tls_context(req->conn);
+	/* tfw_tls_sni() has to pick any existing vhost in order to proceed */
+	BUG_ON(!tctx->vhost);
+
+	if (tctx->vhost == req->vhost)
+		return TFW_PASS;
+
+	/* Special case of default vhosts */
+	if (!req->vhost && tfw_vhost_is_default(tctx->vhost))
+		return TFW_PASS;
+
+	/*
+	 * Last (and slowest case): we have to look for TLS certificate
+	 * by authority and make sure that req->vhost is reachable by
+	 * picked authority name.
+	 */
+	tls_vhost = __lookup_vhost_by_authority(req->pool, &req->host);
+	if (tls_vhost != tctx->vhost) {
+		tls_name = tctx->vhost ? ((TfwVhost *)tctx->vhost)->name
+				       : null_name;
+		req_name = req->vhost ? req->vhost->name : null_name;
+		frang_msg("vhost by SNI doesn't match vhost by authority",
+			  &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
+			  PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
 }
 
 /**
@@ -638,73 +672,48 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	TfwAddr addr;
 	unsigned short port;
 	unsigned short real_port;
-	TfwStr prim_trim = { 0 }, prim_name = { 0 }, /* primary source */
-	       sec_trim = { 0 },  sec_name = { 0 },  /* secondary source */
-	       fwd_trim = { 0 },  fwd_name = { 0 },
-	       *val_trim = NULL;  /* effective source */
+	TfwStr authority, host;
+	TfwStr prim_trim = { 0 }, prim_name = { 0 }; /* primary source */
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
 
 	switch (req->version) {
-	/*
-	 * In h2 protocol the Host: header is not required and :authority
-	 * pseudo-header should be used instead. But this is "SHOULD"
-	 * requirement and a request may has missing :authority and existing
-	 * Host: header. Block request if none defined or their values are
-	 * not identical.
-	 */
 	case TFW_HTTP_VER_20:
-		frang_get_host_header(req, TFW_HTTP_HDR_H2_AUTHORITY,
-				      &prim_trim, &prim_name);
-		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
-				      &sec_trim, &sec_name);
-		val_trim = &prim_trim;
-		if (unlikely(TFW_STR_EMPTY(val_trim))) {
-			val_trim = &sec_trim;
-			if (unlikely(TFW_STR_EMPTY(val_trim))) {
-				frang_msg("Request authority is unknown",
+		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
+		                 &authority);
+		__h2_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST], &host);
+		/* https://datatracker.ietf.org/doc/html/rfc9113#section-8.3.1
+		 * A server SHOULD treat a request as malformed if it contains
+		 * a Host header field that identifies an entity that differs
+		 * from the entity in the ":authority" pseudo-header field.
+                 *
+                 * Note: check_authority_correctness() already ensures that
+                 * at least one of :authority or Host headers are not empty.
+		 */
+		if (!TFW_STR_EMPTY(&authority) && !TFW_STR_EMPTY(&host)
+                    && tfw_strcmp(&authority, &host) != 0) {
+			frang_msg("Request :authority differs from Host",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
+                        return TFW_BLOCK;
+                }
+                break;
+	case TFW_HTTP_VER_11:
+		/* This is pure HTTP/1.1 check, that would never trigger for
+		 * HTTP/2 because it cannot have an absolute URI.
+		 * Also this MUST be removed after #1870 is complete*/
+		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
+			TfwStr host;
+
+			tfw_http_msg_clnthdr_val(req,
+						&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+						TFW_HTTP_HDR_HOST, &host);
+			if (tfw_strcmp(&req->host, &host) != 0) {
+				frang_msg("Request host from absolute URI differs"
+					  " from Host header",
 					  &FRANG_ACC2CLI(ra)->addr, "\n");
 				return TFW_BLOCK;
 			}
-		}
-		else if (frang_assert_host_header(&prim_trim, &sec_trim)) {
-			frang_msg("Request authority differs between headers",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
-		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
-			 && frang_assert_host_header(&prim_trim, &fwd_trim)) {
-			frang_msg("Request authority differs from forwarded",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
-		break;
-	/*
-	 * In http/1.1 host header and authority defined in URI must always be
-	 * identical.
-	 */
-	case TFW_HTTP_VER_11:
-		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
-				      &prim_trim, &prim_name);
-		frang_get_host_header(req, -1,
-				      &sec_trim, &sec_name);
-		val_trim = &prim_trim;
-		if (unlikely(TFW_STR_EMPTY(val_trim))) {
-			frang_msg("Request authority is unknown",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
-		else if (frang_assert_host_header(&prim_trim, &sec_trim)) {
-			frang_msg("Request authority in URI differs from host header",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
-		else if (frang_get_host_forwarded(req, &fwd_trim, &fwd_name)
-			 && frang_assert_host_header(&prim_trim, &fwd_trim)) {
-			frang_msg("Request authority in URI differs from forwarded",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
 		}
 		break;
 	/*
@@ -729,7 +738,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	}
 
 	/* Check that host header is not a IP address. */
-	if (!tfw_addr_pton(val_trim, &addr)) {
+	if (!TFW_STR_EMPTY(&req->host) && !tfw_addr_pton(&req->host, &addr)) {
 		frang_msg("Host header field contains IP address",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return TFW_BLOCK;
@@ -751,7 +760,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		return TFW_BLOCK;
 	}
 
-	return TFW_PASS;
+	return frang_http_domain_fronting_check(req, ra);
 }
 
 /*
@@ -936,6 +945,9 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	const TfwStr *field, *end, *dup, *dup_end;
 
+	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
+		return TFW_POSTPONE;
+
 	if (!test_bit(TFW_HTTP_B_CHUNKED_TRAILER, req->flags))
 		return TFW_PASS;
 	/*
@@ -954,8 +966,6 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	if (r)
 		return r;
 
-	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
-		return TFW_POSTPONE;
 	/*
 	 * Block request if the same header appear in both main and trailer
 	 * headers part. Some intermediates doesn't read trailers, so request
@@ -1110,7 +1120,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		*/
 
 		/* Ensure presence and the value of Host: header field. */
-		if (f_cfg->http_host_required
+		if (f_cfg->http_strict_host_checking
 		    && (r = frang_http_host_check(req, ra)))
 		{
 			T_FSM_EXIT();

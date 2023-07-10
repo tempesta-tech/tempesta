@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #include "lib/str.h"
 #include "msg.h"
 #include "http_msg.h"
+#include "ss_skb.h"
 
 /**
  * Fill up an HTTP message by iterator @it with data from string @data.
@@ -86,35 +87,50 @@ tfw_msg_iter_append_skb(TfwMsgIter *it)
  */
 int tfw_http_iter_set_at(TfwMsgIter *it, char *off)
 {
-	char *begin, *end;
-	unsigned char i;
-
 	do {
-		if (skb_headlen(it->skb)) {
-			begin = it->skb->data;
-			end = begin + skb_headlen(it->skb);
-
-			if ((begin <= off) && (end >= off)) {
-				it->frag = -1;
-				return 0;
-			}
-		}
-		for (i = 0; i < skb_shinfo(it->skb)->nr_frags; i++) {
-			skb_frag_t *f = &skb_shinfo(it->skb)->frags[i];
-
-			begin = skb_frag_address(f);
-			end = begin + skb_frag_size(f);
-
-			if ((begin <= off) && (end >= off)) {
-				it->frag = i;
-				return 0;
-			}
-		}
+		if (!ss_skb_find_frag_by_offset(it->skb, off, &it->frag))
+			return 0;
 		it->skb = it->skb->next;
 
 	} while (it->skb != it->skb_head);
 
 	return -E2BIG;
+}
+
+char *
+tfw_http_iter_set_at_skb(TfwMsgIter *it, struct sk_buff *skb,
+			 unsigned long off)
+{
+	char *begin, *end;
+	unsigned long d;
+	unsigned char i;
+
+	if (skb_headlen(it->skb)) {
+		begin = it->skb->data;
+		end = begin + skb_headlen(it->skb);
+
+		if (begin + off <= end) {
+			it->frag = -1;
+			return begin + off;
+		}
+		off -= skb_headlen(it->skb);
+	}
+
+	for (i = 0; i < skb_shinfo(it->skb)->nr_frags; i++) {
+		skb_frag_t *f = &skb_shinfo(it->skb)->frags[i];
+
+		begin = skb_frag_address(f);
+		end = begin + skb_frag_size(f);
+		d = end - begin;
+		if (off >= d) {
+			off -= d;
+			continue;
+		}
+		it->frag = i;
+		return begin + off;
+	}
+
+	return NULL;
 }
 
 /**

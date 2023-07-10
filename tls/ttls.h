@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -540,6 +540,8 @@ typedef struct tls_handshake_t TlsHandshake;
  * @nb_zero	-  # of 0-length encrypted messages;
  * @client_auth	- flag for client authentication (client side only);
  * @hostname	- expected peer CN for verification (and SNI if available);
+ * @vhost	- vhost selected by SNI (TfwVhost*), NULL if no SNI extension
+ *		  had been sent by the client
  */
 typedef struct ttls_context {
 	struct sock		*sk;
@@ -560,6 +562,7 @@ typedef struct ttls_context {
 	unsigned int		nb_zero;
 	int			client_auth;
 	char			*hostname;
+	void			*vhost;
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
