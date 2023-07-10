@@ -1445,14 +1445,14 @@ TEST(hpack, enc_table_index)
 	 * Prepare encoder dynamic index: add headers into the appropriate
 	 * positions of ring buffer and corresponding red-black tree.
 	 */
-	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, true));
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1461,7 +1461,7 @@ TEST(hpack, enc_table_index)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1474,7 +1474,7 @@ TEST(hpack, enc_table_index)
 	 */
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(node);
@@ -1487,7 +1487,7 @@ TEST(hpack, enc_table_index)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(node);
@@ -1500,7 +1500,7 @@ TEST(hpack, enc_table_index)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(node);
@@ -1582,12 +1582,12 @@ TEST(hpack, enc_table_rbtree)
 	 * node insertion, and the re-balancing procedure must be performed
 	 * during the 3rd call of @tfw_hpack_add_node() function.
 	 */
-	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, true));
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s1, &n1, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s1, &n1, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n1);
@@ -1598,7 +1598,7 @@ TEST(hpack, enc_table_rbtree)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1612,14 +1612,14 @@ TEST(hpack, enc_table_rbtree)
 		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl, true));
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &n2, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s2, &n2, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n2);
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1633,7 +1633,7 @@ TEST(hpack, enc_table_rbtree)
 		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl, true));
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &n3, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s3, &n3, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n3);
@@ -1685,7 +1685,7 @@ TEST(hpack, enc_table_rbtree)
 	 */
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s4, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s4, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1699,7 +1699,7 @@ TEST(hpack, enc_table_rbtree)
 		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl, true));
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s4, &n4, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s4, &n4, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n4);
@@ -1736,7 +1736,7 @@ TEST(hpack, enc_table_rbtree)
 	 */
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s5, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s5, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1750,7 +1750,7 @@ TEST(hpack, enc_table_rbtree)
 		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl, true));
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s5, &n5, &pl);
+	res = tfw_hpack_rbtree_find(tbl, s5, &n5, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n5);
@@ -1936,7 +1936,7 @@ TEST(hpack, enc_table_eviction)
 	f_hdr = make_compound_str("HeaderFirst");
 	collect_compound_str(f_hdr, col, 0);
 	collect_compound_str(f_hdr, f_hdr_val, 0);
-	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, f_hdr, &pl, true));
@@ -1960,7 +1960,7 @@ TEST(hpack, enc_table_eviction)
 		if (new_size > tbl->window)
 			break;
 
-		res = tfw_hpack_rbtree_find(tbl, filler, &node, &pl);
+		res = tfw_hpack_rbtree_find(tbl, filler, &node, &pl, true);
 		EXPECT_GT(res, HPACK_IDX_ST_FOUND);
 		EXPECT_NULL(node);
 		EXPECT_OK(tfw_hpack_add_node(tbl, filler, &pl, true));
@@ -1969,7 +1969,7 @@ TEST(hpack, enc_table_eviction)
 		i++;
 	}
 
-	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
@@ -1978,25 +1978,25 @@ TEST(hpack, enc_table_eviction)
 	collect_compound_str(l_hdr, col, 0);
 	collect_compound_str(l_hdr, l_hdr_val, 0);
 
-	res = tfw_hpack_rbtree_find(tbl, l_hdr, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, l_hdr, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, l_hdr, &pl, true));
 	bzero_fast(&pl, sizeof(pl));
 
 	/* first header must not present. */
-	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl, true);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 }
 
 #define ADD_NODE(s, n)								\
 do {										\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl, true);			\
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);					\
 	EXPECT_NULL(n);								\
 	EXPECT_OK(tfw_hpack_add_node(tbl, s, &pl, true));			\
 	bzero_fast(&pl, sizeof(pl));						\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl, true);			\
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);					\
 	EXPECT_NULL(pl.parent);							\
 	EXPECT_NOT_NULL(n);							\
