@@ -2720,7 +2720,7 @@ tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 
 	/* hdr isn't changed, it's const correctess that is difficult
 	 * to follow */
-	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, false);
+	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, true);
 	while (node) {
 		parent = node;
 		res = tfw_hpack_node_compare(&h_name, &h_val, node, &nm_node);
