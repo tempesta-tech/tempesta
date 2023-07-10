@@ -2710,7 +2710,8 @@ static TfwHPackETblRes
 tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 		      const TfwStr *__restrict hdr,
 		      const TfwHPackNode **__restrict out_node,
-		      TfwHPackNodeIter *__restrict out_place)
+		      TfwHPackNodeIter *__restrict out_place,
+		      bool spcolon)
 {
 	int res;
 	TfwHPackNode *parent = NULL;
@@ -2720,7 +2721,7 @@ tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 
 	/* hdr isn't changed, it's const correctess that is difficult
 	 * to follow */
-	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, true);
+	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, spcolon);
 	while (node) {
 		parent = node;
 		res = tfw_hpack_node_compare(&h_name, &h_val, node, &nm_node);
@@ -2898,7 +2899,8 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
 		      TfwStr *__restrict hdr,
 		      TfwHPackNode *__restrict del_list[],
 		      TfwHPackNodeIter *__restrict place,
-		      TfwHPackETblIter *__restrict iter)
+		      TfwHPackETblIter *__restrict iter,
+		      bool spcolon)
 {
 	int i;
 	bool was_del = false;
@@ -2920,7 +2922,7 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
 	 * deleting a node with less than two children.
 	 */
 	if (was_del) {
-		res = tfw_hpack_rbtree_find(tbl, hdr, &node, place);
+		res = tfw_hpack_rbtree_find(tbl, hdr, &node, place, spcolon);
 		WARN_ON_ONCE(res == HPACK_IDX_ST_FOUND);
 	}
 
@@ -3047,7 +3049,7 @@ commit:
 	it.last->name_len = s_nm.len;
 	it.last->rindex = ++tbl->idx_acc;
 
-	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
+	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it, spcolon);
 
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
 	if (!TFW_STR_EMPTY(&s_val))
@@ -3085,7 +3087,7 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	    && atomic64_read(&tbl->guard) < 0)
 		goto out;
 
-	res = tfw_hpack_rbtree_find(tbl, hdr, &node, &place);
+	res = tfw_hpack_rbtree_find(tbl, hdr, &node, &place, spcolon);
 
 	WARN_ON_ONCE(!node && res != HPACK_IDX_ST_NOT_FOUND);
 
