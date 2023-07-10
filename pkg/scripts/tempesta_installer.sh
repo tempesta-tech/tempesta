@@ -61,8 +61,6 @@ tfw_download()
 	if [[ ! "$release_tag" ]]; then
 		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_TEMPESTA"
 		#TODO: show next line only if received 403 status code.
-		echo "Or may be Github API rate limit exceeded."
-		exit 2
 	fi
 
 	uri="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/releases/tags/${release_tag}"
@@ -71,8 +69,16 @@ tfw_download()
 		echo "Can't download file $2 from release ${release_tag} in repo:"
 		echo "https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
 		#TODO: show next line only if received 403 status code.
-		echo "Or may be Github API rate limit exceeded."
-		exit 2
+		echo "Or may be Github API rate limit exceeded. Fallback download from repo instead github.com"
+		fall_links=("http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/l/linux-headers-5.10.35.tfw-4c9ba16/linux-headers-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/l/linux-image-5.10.35.tfw-4c9ba16/linux-image-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/l/linux-libc-dev/linux-libc-dev_5.10.35.tfw-4c9ba16-1_amd64.deb"
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/t/tempesta-fw-dkms/tempesta-fw-dkms_0.7.0_amd64.deb -O tempesta-fw-dkms.deb")
+
+		for file in ${fall_links[@]}
+		do
+			wget -q --show-progress -P $DOWNLOAD_DIR/$repo $file
+		done
 	fi
 
 	for file in ${links}
