@@ -465,13 +465,9 @@ pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
 		if (!r) {
 			if ((r = pk_get_ecparams(&p, p + len, &params))
 			    || (r = pk_use_ecparams(&params, &eck->grp)))
-			{
-				ttls_ecp_keypair_free(eck);
 				return r;
-			}
 		}
 		else if (r != TTLS_ERR_ASN1_UNEXPECTED_TAG) {
-			ttls_ecp_keypair_free(eck);
 			return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		}
 
@@ -505,7 +501,6 @@ pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
 			}
 		}
 		else if (r != TTLS_ERR_ASN1_UNEXPECTED_TAG) {
-			ttls_ecp_keypair_free(eck);
 			return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		}
 	}
