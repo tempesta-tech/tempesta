@@ -112,14 +112,6 @@ ttls_ecp_keypair_init(TlsEcpKeypair *key)
 }
 
 void
-ttls_ecp_keypair_free(TlsEcpKeypair *key)
-{
-	if (WARN_ON_ONCE(!key))
-		return;
-	ttls_mpi_pool_free(key);
-}
-
-void
 ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q)
 {
 	ttls_mpi_copy(&P->X, &Q->X);
