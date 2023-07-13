@@ -208,7 +208,6 @@ const TlsEcpCurveInfo *ttls_ecp_curve_info_from_tls_id(uint16_t tls_id);
 
 void ttls_ecp_point_init(TlsEcpPoint *pt);
 void ttls_ecp_keypair_init(TlsEcpKeypair *key);
-void ttls_ecp_keypair_free(TlsEcpKeypair *key);
 
 void ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
 

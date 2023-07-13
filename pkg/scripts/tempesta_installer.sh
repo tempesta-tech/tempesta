@@ -57,12 +57,10 @@ usage()
 # our needs.
 tfw_download()
 {
-        release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
+        release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_TEMPESTA/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
 	if [[ ! "$release_tag" ]]; then
-		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
+		echo "Can't find latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_TEMPESTA"
 		#TODO: show next line only if received 403 status code.
-		echo "Or may be Github API rate limit exceeded."
-		exit 2
 	fi
 
 	uri="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/releases/tags/${release_tag}"
@@ -71,8 +69,16 @@ tfw_download()
 		echo "Can't download file $2 from release ${release_tag} in repo:"
 		echo "https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
 		#TODO: show next line only if received 403 status code.
-		echo "Or may be Github API rate limit exceeded."
-		exit 2
+		echo "Or may be Github API rate limit exceeded. Fallback download from repo instead github.com"
+		fall_links=("http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/l/linux-headers-5.10.35.tfw-4c9ba16/linux-headers-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/l/linux-image-5.10.35.tfw-4c9ba16/linux-image-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/l/linux-libc-dev/linux-libc-dev_5.10.35.tfw-4c9ba16-1_amd64.deb"
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta-release/pool/t/tempesta-fw-dkms/tempesta-fw-dkms_0.7.0_amd64.deb -O tempesta-fw-dkms.deb")
+
+		for file in ${fall_links[@]}
+		do
+			wget -q --show-progress -P $DOWNLOAD_DIR/$repo $file
+		done
 	fi
 
 	for file in ${links}
@@ -93,6 +99,11 @@ tfw_install_packages()
     mkdir -p $DOWNLOAD_DIR/$repo
     ;;
 	"ubuntu-20")
+    repo=""
+    echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
+    mkdir -p $DOWNLOAD_DIR/$repo
+    ;;
+	"ubuntu-22")
     repo=""
     echo "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
     mkdir -p $DOWNLOAD_DIR/$repo
@@ -125,7 +136,7 @@ tfw_install_deps()
 		apt-get update
 		apt-get -t jessie-backports dist-upgrade -y
 		;;
-        "ubuntu-20")
+	"ubuntu-20")
         echo ""
 		echo "Installation on Ubuntu 20 LTS requires updating system from"
 		echo "jessie-backports repository before installing TempestaFW."
@@ -133,6 +144,17 @@ tfw_install_deps()
 
 		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
 		        "focal main" >> /etc/apt/sources.list
+		apt-get update
+		apt-get dist-upgrade -y
+    ;;
+	"ubuntu-22")
+        echo ""
+		echo "Installation on Ubuntu 22 LTS requires updating system from"
+		echo "jessie-backports repository before installing TempestaFW."
+		tfw_confirm
+
+		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
+		        "jammy main" >> /etc/apt/sources.list
 		apt-get update
 		apt-get dist-upgrade -y
     ;;
@@ -224,6 +246,9 @@ tfw_try_distro()
 	Ubuntu[[:space:]]20*)
 		DISTRO="ubuntu-20"
 		;;
+	Ubuntu[[:space:]]22*)
+		DISTRO="ubuntu-22"
+		;;
 	*)
 		echo "Installer does not support $d_name distro!"
 		exit 2
@@ -237,7 +262,7 @@ tfw_set_grub_default()
 		return
 	fi
 
-	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35+ | head -n1 | cut -d "'" -f 2`
+	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35.tfw | head -n1 | cut -d "'" -f 2`
 	entry=`grep menuentry /boot/grub/grub.cfg | grep tempesta | head -n1 | cut -d "'" -f 2`
 	if [[ ! "$entry" && ! "$u_entry" ]]; then
 		echo "Error: Can't find Tempesta patched kernel in /boot/grub/grub.cfg!"
