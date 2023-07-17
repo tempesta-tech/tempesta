@@ -1668,6 +1668,9 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 				if (unlikely(ret))
 					return ret;
 				break;
+			} else {
+				ss_skb_put(it->skb, -skb_headlen(it->skb));
+				it->skb->tail_lock = 1;
 			}
 		}
 
