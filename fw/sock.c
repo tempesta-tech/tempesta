@@ -751,6 +751,12 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		WARN_ON_ONCE(skb_has_frag_list(skb));
 		WARN_ON_ONCE(skb->sk);
 
+		/*
+		 * Some SKBs may have dev, however tempesta uses dev to store
+		 * own flags, thus clear it.
+		 */
+		skb->dev = NULL;
+
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
 			__kfree_skb(skb);
