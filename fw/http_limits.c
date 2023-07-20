@@ -586,6 +586,10 @@ frang_get_host_header(const TfwHttpReq *req, int hid, TfwStr *trimmed,
 	*name_only = hdr_name;
 }
 
+/**
+ * Fin vhost by authority, increment vhost reference counter.
+ * It is a caller responsibility to put vhost reference counter.
+ */
 static TfwVhost*
 __lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 {
@@ -655,9 +659,11 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 		frang_msg("vhost by SNI doesn't match vhost by authority",
 			  &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
 			  PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
+		tfw_vhost_put(tls_vhost);
 		return TFW_BLOCK;
 	}
 
+	tfw_vhost_put(tls_vhost);
 	return TFW_PASS;
 }
 

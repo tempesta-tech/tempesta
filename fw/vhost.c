@@ -452,8 +452,8 @@ __tfw_vhost_lookup(TfwVhostList *vh_list, const BasicStr *name,
 /**
  * Find vhost named @name in the _currently parsed and not yet applied_
  * configuration. The operation is safe to use in process context.
- * If vhost is found, an additional reference is taken. Caller is responsible to
- * release the reference after use.
+ * If vhost is found, an additional reference is taken. Caller is responsible
+ * to release the reference after use.
  */
 TfwVhost *
 tfw_vhost_lookup_reconfig(const char *name)
@@ -465,7 +465,8 @@ tfw_vhost_lookup_reconfig(const char *name)
 }
 
 /**
- * Lookup vhost by an SNI wildcard.
+ * Lookup vhost by an SNI wildcard. It is a caller responsibility to
+ * release the vhost reference after use.
  */
 TfwVhost *
 tfw_vhost_lookup_sni(const BasicStr *name)
@@ -494,6 +495,7 @@ tfw_vhost_lookup_sni(const BasicStr *name)
 /**
  * Get default vhost in the running configuration. Default vhost is special
  * entity that contains default policies if more precise vhost cannot be found.
+ * It is a caller responsibility to release the vhost reference after use.
  */
 TfwVhost *
 tfw_vhost_lookup_default(void)
@@ -1913,6 +1915,7 @@ tfw_vhost_add_sni_map(const BasicStr *cn, TfwVhost *vhost)
 	memcpy(svhm->sni, cn->data, cn->len);
 
 	hash_add(tfw_vhosts_reconfig->sni_vh_map, &svhm->hlist, key);
+	tfw_vhost_get(vhost);
 }
 
 static const TfwCfgEnum frang_http_methods_enum[] = {
