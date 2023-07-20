@@ -2188,12 +2188,6 @@ do {									\
 #define HPACK_NODE_NEXT(node)						\
 	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
 
-typedef enum {
-	HPACK_HDR_NAME_SEARCH		= 0,
-	HPACK_HDR_NAME_FOUND,
-	HPACK_HDR_VALUE_FOUND
-} TfwHPackCmpStates;
-
 #define HP_CHAR(p)			(*(unsigned char *)(p))
 
 #define CHAR_LC(p)			(HP_CHAR(p) | 0x20)
