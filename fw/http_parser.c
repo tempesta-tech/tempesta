@@ -12652,8 +12652,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrSet_Cooki, 'e', Resp_HdrSet_Cookie);
 	__FSM_TX_AF_OWS_HP(Resp_HdrSet_Cookie, Resp_HdrSet_CookieV, 55);
 
-	/* Transfer-Encoding header processing. */
-	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr);
+	/* Transfer-Encoding/Te header processing. */
+	__FSM_STATE(Resp_HdrT, cold) {
+		switch (c) {
+		case 'e':
+			__FSM_MOVE(Resp_HdrTe);
+		case 'r':
+			__FSM_MOVE(Resp_HdrTr);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 	__FSM_TX_AF(Resp_HdrTr, 'a', Resp_HdrTra);
 	__FSM_TX_AF(Resp_HdrTra, 'n', Resp_HdrTran);
 	__FSM_TX_AF(Resp_HdrTran, 's', Resp_HdrTrans);
@@ -12670,6 +12679,25 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrTransfer_Encodi, 'n', Resp_HdrTransfer_Encodin);
 	__FSM_TX_AF(Resp_HdrTransfer_Encodin, 'g', Resp_HdrTransfer_Encoding);
 	__FSM_TX_AF_OWS(Resp_HdrTransfer_Encoding, Resp_HdrTransfer_EncodingV);
+
+	/* Te is a connection-specific header and MUST be "silenced"
+	 * RFC 9113, section 8.2.2:
+	 * 
+	 * An intermediary transforming an HTTP/1.x message to HTTP/2
+	 * MUST remove connection-specific header fields as discussed
+	 * in Section 7.6.1 of [HTTP], or their messages will be treated
+	 * by other HTTP/2 endpoints as malformed (Section 8.1.1).
+	 */
+	__FSM_STATE(Resp_HdrTe) {
+		if (likely(c == ':')) {
+			__msg_hdr_chunk_fixup(data, __data_off(p));
+			parser->_i_st = &&RGen_HdrOtherV;
+			if (TFW_MSG_H2(msg->req))
+				parser->hdr.flags |= TFW_STR_HBH_HDR;
+			__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+		}
+		__FSM_JMP(RGen_HdrOtherN);
+	}
 
 	__FSM_STATE(Resp_HdrV) {
 		switch (TFW_LC(c)) {
