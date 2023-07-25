@@ -10,6 +10,8 @@ drop-in-replacement for the whole web server frontend infrastructure: an HTTPS
 load balancer, a web accelerator, a DDoS mitigation system, and a web application
 firewall (WAF).
 
+
+
 **Tempesta FW** is the first and only hybrid of a Web accelerator and a multi-layer
 firewall. This unique architecture provides
 [seamless integration](https://github.com/tempesta-tech/tempesta/wiki/HTTP-tables)
