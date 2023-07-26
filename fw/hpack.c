@@ -2704,23 +2704,19 @@ tfw_hpack_rbtree_add(TfwHPackETbl *__restrict tbl, TfwHPackNode *__restrict new,
  */
 static TfwHPackETblRes
 tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
-		      const TfwStr *__restrict hdr,
+		      const TfwStr *__restrict h_name,
+		      const TfwStr *__restrict h_val,
 		      const TfwHPackNode **__restrict out_node,
-		      TfwHPackNodeIter *__restrict out_place,
-		      bool spcolon)
+		      TfwHPackNodeIter *__restrict out_place)
 {
 	int res;
 	TfwHPackNode *parent = NULL;
 	TfwHPackNode *node = tbl->root;
 	const TfwHPackNode *nm_node = NULL;
-	TfwStr h_name = {}, h_val = {};
 
-	/* hdr isn't changed, it's const correctess that is difficult
-	 * to follow */
-	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, spcolon);
 	while (node) {
 		parent = node;
-		res = tfw_hpack_node_compare(&h_name, &h_val, node, &nm_node);
+		res = tfw_hpack_node_compare(h_name, h_val, node, &nm_node);
 
 		if (res < 0)
 			node = HPACK_NODE_COND(tbl, node->left);
@@ -2892,11 +2888,11 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 
 static inline void
 tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
-		      TfwStr *__restrict hdr,
+		      const TfwStr *__restrict h_name,
+		      const TfwStr *__restrict h_val,
 		      TfwHPackNode *__restrict del_list[],
 		      TfwHPackNodeIter *__restrict place,
-		      TfwHPackETblIter *__restrict iter,
-		      bool spcolon)
+		      TfwHPackETblIter *__restrict iter)
 {
 	int i;
 	bool was_del = false;
@@ -2918,7 +2914,7 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
 	 * deleting a node with less than two children.
 	 */
 	if (was_del) {
-		res = tfw_hpack_rbtree_find(tbl, hdr, &node, place, spcolon);
+		res = tfw_hpack_rbtree_find(tbl, h_name, h_val, &node, place);
 		WARN_ON_ONCE(res == HPACK_IDX_ST_FOUND);
 	}
 
@@ -3045,7 +3041,7 @@ commit:
 	it.last->name_len = s_nm.len;
 	it.last->rindex = ++tbl->idx_acc;
 
-	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it, spcolon);
+	tfw_hpack_rbuf_commit(tbl, &s_nm, &s_val, del_list, place, &it);
 
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
 	if (!TFW_STR_EMPTY(&s_val))
@@ -3061,6 +3057,8 @@ commit:
  * encoder dynamic table with potentially concurrent access from different
  * threads, so lock is used to protect the find/add/erase operations inside
  * this procedure.
+ * 
+ * TODO: get rid of tfw_http_hdr_split and related safety checks
  */
 static TfwHPackETblRes
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
@@ -3072,6 +3070,7 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	TfwHPackNodeIter place = {};
 	const TfwHPackNode *node = NULL;
 	TfwHPackETblRes res = HPACK_IDX_ST_NOT_FOUND;
+	TfwStr h_name = {}, h_val = {};
 
 	BUILD_BUG_ON(HPACK_IDX_ST_MASK < _HPACK_IDX_ST_NUM - 1);
 	if (WARN_ON_ONCE(!hdr))
@@ -3083,7 +3082,10 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	    && atomic64_read(&tbl->guard) < 0)
 		goto out;
 
-	res = tfw_hpack_rbtree_find(tbl, hdr, &node, &place, spcolon);
+	tfw_http_hdr_split(hdr, &h_name, &h_val, spcolon);
+	if (WARN_ON_ONCE(TFW_STR_EMPTY(&h_name)))
+		return -EINVAL;
+	res = tfw_hpack_rbtree_find(tbl, &h_name, &h_val, &node, &place);
 
 	WARN_ON_ONCE(!node && res != HPACK_IDX_ST_NOT_FOUND);
 
