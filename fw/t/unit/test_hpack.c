@@ -143,7 +143,7 @@ test_h2_hdr_name(TfwStr *hdr, TfwStr *out_name)
 static int
 validator_walk(TfwHPackETbl *tree, TfwHPackNode *n,
                int black_path_acc, int *black_path_len,
-			   const char *loc)
+               const char *loc)
 {
 	int r = 0;
 	TfwHPackNode *left, *right, *parent;

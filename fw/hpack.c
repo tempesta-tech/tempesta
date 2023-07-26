@@ -2213,18 +2213,20 @@ do {									\
  * node and return positive/negative/zero depending on their
  * relation.
  * 
- * The order geven by this function is a bit weird:
- * (hdr_name_len, total_hdr_len, weird_strcmp)
+ * The order geven by this function is the following:
+ * (hdr_name_len, total_hdr_len, special_strcmp)
+ * where hdr_name_len and total_hdr_len are compared as integers.
  * 
- * Where weird_strcmp is case-insensitive for header names,
- * case-sensitive for header values and in both cases it uses SIMD-like
- * tricks, so don't expect strict alphabetical order!
+ * Where special_strcmp is case-insensitive for header names,
+ * case-sensitive for header values and in both cases it compares
+ * multiple characters per instruction, so don't expect strict
+ * alphabetical order!
  */
 static int
 tfw_hpack_node_compare(const TfwStr *__restrict h_name,
                        const TfwStr *__restrict h_val,
-		       const TfwHPackNode *__restrict node,
-		       const TfwHPackNode **__restrict nm_node)
+                       const TfwHPackNode *__restrict node,
+                       const TfwHPackNode **__restrict nm_node)
 {
 	unsigned len;
 	const char *np, *p;
