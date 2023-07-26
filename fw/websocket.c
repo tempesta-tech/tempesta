@@ -150,10 +150,17 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	 */
 	conn->sk->sk_user_data = conn;
 
-	/* Connection destructor does failover for server connections */
 	srv_conn->sk = NULL;
-	if (srv_conn->destructor)
-		srv_conn->destructor(srv_conn);
+	/*
+	 * Connection destructor does failover for server connections.
+	 * There is no problem here that we have srv_conn reference counter
+	 * equal to zero, because srv->conn->sk is NULL. If connection will
+	 * be reestablished `tfw_sock_srv_connect_try` will be called and
+	 * we set new sk and not 0 reference counter to this connection,
+	 * ohterwise ss_close finished imidiatly and we never drop this
+	 * connection again.
+	 */
+	tfw_connection_put((TfwConn *)srv_conn);
 
 	return conn;
 }
