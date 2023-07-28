@@ -49,6 +49,7 @@
  *
  * @rindex	- index (in reverse form) of stored header string in the
  *		  encoder dynamic table;
+ * @name_len	- length of the header name;
  * @hdr_len	- length of stored header string;
  * @color	- RBTree color flag;
  * @parent	- parent node offset in the ring buffer (in bytes);
@@ -58,6 +59,7 @@
  */
 typedef struct {
 	unsigned long		rindex;
+	unsigned short		name_len;
 	unsigned short		hdr_len	: 15;
 	unsigned short		color	: 1;
 	short			parent;

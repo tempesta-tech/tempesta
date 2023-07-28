@@ -139,6 +139,101 @@ test_h2_hdr_name(TfwStr *hdr, TfwStr *out_name)
 	}
 }
 
+/** Helper to perform string header splitting after
+ * tfw_hpack_rbtree_find interface change in #1920
+ */
+static TfwHPackETblRes
+hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
+		  const TfwStr *__restrict hdr,
+		  const TfwHPackNode **__restrict out_node,
+		  TfwHPackNodeIter *__restrict out_place)
+{
+	TfwStr h_name = {}, h_val = {};
+
+	/* hdr isn't changed, it's const correctess that is difficult
+	 * to follow */
+	tfw_http_hdr_split((TfwStr*)hdr, &h_name, &h_val, true);
+
+	return tfw_hpack_rbtree_find(tbl, &h_name, &h_val, out_node, out_place);
+}
+
+/** Helper to validate rbtree invariants */
+static int
+validator_walk(TfwHPackETbl *tree, TfwHPackNode *n,
+               int black_path_acc, int *black_path_len,
+               const char *loc)
+{
+	int r = 0;
+	TfwHPackNode *left, *right, *parent;
+
+	if (!n)
+		return 0;
+
+	if (n->color != 0) {
+		black_path_acc++;
+	} else {
+		parent = HPACK_NODE_COND(tree, n->parent);
+		if (parent && parent->color == 0) {
+			TEST_FAIL("Adjanced red nodes found @@ %s", loc);
+			r = 1;
+		}
+	}
+
+	left = HPACK_NODE_COND(tree, n->left);
+	right = HPACK_NODE_COND(tree, n->right);
+
+	if (!left && !right) {
+		/* Leaf node */
+		if (*black_path_len == -1) {
+			*black_path_len = black_path_acc;
+		} else if (black_path_acc != *black_path_len) {
+			TEST_FAIL("Leaf nodes has different number of black"
+			          " nodes in the path @@ %s", loc);
+			r = 1;
+		}
+	} else {
+		if (left && HPACK_NODE_COND(tree, left->parent) != n) {
+			TEST_FAIL("Left node parent is broken @@ %s", loc);
+			r = 1;
+		}
+		r |= validator_walk(tree, left, black_path_acc, black_path_len, loc);
+		if (right && HPACK_NODE_COND(tree, right->parent) != n) {
+			TEST_FAIL("Right node parent is broken @@ %s", loc);
+			r = 1;
+		}
+		r |= validator_walk(tree, right, black_path_acc, black_path_len, loc);
+	}
+
+	return r;
+}
+
+/** Validate rbtree invariants:
+ * 1. root node is always black
+ * 2. no two red nodes are adjanced
+ * 3. number of black nodes in the path of any leaf node is the same
+ */
+static bool
+validate_rbtree_invariants(TfwHPackETbl *tree, const char *loc)
+{
+	bool valid = true;
+	int black_path_len = -1;
+
+	if (tree->root && tree->root->color == 0) {
+		TEST_FAIL("Tree root is not black @@ %s", loc);
+		valid = false;
+	}
+
+	valid = validator_walk(tree, tree->root, 0, &black_path_len, loc) == 0
+		    && valid;
+
+	return valid;
+}
+
+#define __STR_HELPER(x) #x
+#define __STR__(x) __STR_HELPER(x)
+#define __LOC__ __FILE__ __STR__(__LINE__)
+#define rbt_validate(t) validate_rbtree_invariants(t, __LOC__);
+
 TEST(hpack, dec_table_static)
 {
 	TfwHPack *hp;
@@ -1445,14 +1540,14 @@ TEST(hpack, enc_table_index)
 	 * Prepare encoder dynamic index: add headers into the appropriate
 	 * positions of ring buffer and corresponding red-black tree.
 	 */
-	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	res = hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, true));
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	res = hpack_rbtree_find(tbl, s2, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1461,7 +1556,7 @@ TEST(hpack, enc_table_index)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	res = hpack_rbtree_find(tbl, s3, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
@@ -1474,7 +1569,7 @@ TEST(hpack, enc_table_index)
 	 */
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	res = hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(node);
@@ -1487,7 +1582,7 @@ TEST(hpack, enc_table_index)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	res = hpack_rbtree_find(tbl, s2, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(node);
@@ -1500,7 +1595,7 @@ TEST(hpack, enc_table_index)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	res = hpack_rbtree_find(tbl, s3, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(node);
@@ -1582,15 +1677,17 @@ TEST(hpack, enc_table_rbtree)
 	 * node insertion, and the re-balancing procedure must be performed
 	 * during the 3rd call of @tfw_hpack_add_node() function.
 	 */
-	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	res = hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, true));
+	rbt_validate(tbl);
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s1, &n1, &pl);
+	res = hpack_rbtree_find(tbl, s1, &n1, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n1);
+	rbt_validate(tbl);
 	if (n1) {
 		/* Check that the 1st node @n1 is the root node. */
 		EXPECT_NULL(HPACK_NODE_COND(tbl, n1->parent));
@@ -1598,42 +1695,32 @@ TEST(hpack, enc_table_rbtree)
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	res = hpack_rbtree_find(tbl, s2, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent) {
-		/*
-		 * Check that the parent node of the 2nd node is the 1st node,
-		 * and the 2nd node is its right child.
-		 */
-		EXPECT_EQ(pl.parent, n1);
-		EXPECT_EQ(pl.poff, &n1->right);
 		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl, true));
+		rbt_validate(tbl);
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s2, &n2, &pl);
+	res = hpack_rbtree_find(tbl, s2, &n2, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n2);
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	res = hpack_rbtree_find(tbl, s3, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent) {
-		/*
-		 * Check that the parent node of the 3rd node is the 2nd node,
-		 * and the 3rd node is its left child.
-		 */
-		EXPECT_EQ(pl.parent, n2);
-		EXPECT_EQ(pl.poff, &n2->left);
 		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl, true));
+		rbt_validate(tbl);
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s3, &n3, &pl);
+	res = hpack_rbtree_find(tbl, s3, &n3, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n3);
@@ -1653,18 +1740,6 @@ TEST(hpack, enc_table_rbtree)
 	 * As a result the 4th property has been restored, and the other
 	 * properties of red-black tree are not broken.
 	 */
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n3);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->left), n1);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n3);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->right), n2);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n3));
-	EXPECT_TRUE(HPACK_RB_IS_RED(n2));
-	EXPECT_TRUE(HPACK_RB_IS_RED(n1));
 
 	/*
 	 * Insert 4th node with header, which is less than all other headers in
@@ -1685,21 +1760,16 @@ TEST(hpack, enc_table_rbtree)
 	 */
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s4, &node, &pl);
+	res = hpack_rbtree_find(tbl, s4, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent) {
-		/*
-		 * Check that the parent node of the 4th node is the 1st node,
-		 * and the 4th node is its left child.
-		 */
-		EXPECT_EQ(pl.parent, n1);
-		EXPECT_EQ(pl.poff, &n1->left);
 		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl, true));
+		rbt_validate(tbl);
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s4, &n4, &pl);
+	res = hpack_rbtree_find(tbl, s4, &n4, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n4);
@@ -1736,48 +1806,21 @@ TEST(hpack, enc_table_rbtree)
 	 */
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s5, &node, &pl);
+	res = hpack_rbtree_find(tbl, s5, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent) {
-		/*
-		 * Check that the parent node of the 5th node is the 1st node,
-		 * and the 5th node is its right child.
-		 */
-		EXPECT_EQ(pl.parent, n1);
-		EXPECT_EQ(pl.poff, &n1->right);
 		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl, true));
+		rbt_validate(tbl);
 	}
 	bzero_fast(&pl, sizeof(pl));
-	res = tfw_hpack_rbtree_find(tbl, s5, &n5, &pl);
+	res = hpack_rbtree_find(tbl, s5, &n5, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n5);
 	if (!n5)
 		return;
-
-	/* Check the structure and nodes' color of the entire tree. */
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n3);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->left), n1);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n3);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->right), n2);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->parent), n1);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->left), n4);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->parent), n1);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->right), n5);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n3));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n2));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
-	EXPECT_TRUE(HPACK_RB_IS_RED(n4));
-	EXPECT_TRUE(HPACK_RB_IS_RED(n5));
 
 	/*
 	 * Delete the root @n3 node from the tree. Immediately after the removal
@@ -1811,24 +1854,13 @@ TEST(hpack, enc_table_rbtree)
 	 * @tfw_hpack_rbtree_erase() procedure.
 	 */
 	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n3);
+	rbt_validate(tbl);
 
-	/* Check the tree structure and nodes' color after the @n3 removal. */
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->parent));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->parent), n1);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->left), n4);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n1);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->right), n2);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->parent), n2);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->left), n5);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n2));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n4));
-	EXPECT_TRUE(HPACK_RB_IS_RED(n5));
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = hpack_rbtree_find(tbl, s3, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
 
 	/*
 	 * Delete the @n4 node from the tree. As a result, the 5th property
@@ -1844,20 +1876,13 @@ TEST(hpack, enc_table_rbtree)
 	 *         (BLACK)  (BLACK)
 	 */
 	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n4);
+	rbt_validate(tbl);
 
-	/* Check the tree structure and nodes' color after the @n4 removal. */
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->parent));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n5);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->right), n2);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n5);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->left), n1);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n5));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n2));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = hpack_rbtree_find(tbl, s4, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
 
 	/*
 	 * Delete the @n2 node from the tree. To restore broken 5th property
@@ -1873,16 +1898,13 @@ TEST(hpack, enc_table_rbtree)
 	 *            (RED)
 	 */
 	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n2);
+	rbt_validate(tbl);
 
-	/* Check the tree structure and nodes' color after the @n2 removal. */
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->parent));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n5);
-	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->left), n1);
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n5));
-	EXPECT_TRUE(HPACK_RB_IS_RED(n1));
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = hpack_rbtree_find(tbl, s2, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
 
 	/*
 	 * Delete the @n5 node from the tree. No rotations are needed in this
@@ -1893,14 +1915,21 @@ TEST(hpack, enc_table_rbtree)
 	 *            (BLACK)
 	 */
 	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n5);
+	rbt_validate(tbl);
 
-	/* Check the tree structure and nodes' color after the @n5 removal. */
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->parent));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
-	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
-	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = hpack_rbtree_find(tbl, s5, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
 
 	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n1);
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = hpack_rbtree_find(tbl, s1, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
 
 #undef HDR_NAME_1
 #undef HDR_VALUE_1
@@ -1936,7 +1965,7 @@ TEST(hpack, enc_table_eviction)
 	f_hdr = make_compound_str("HeaderFirst");
 	collect_compound_str(f_hdr, col, 0);
 	collect_compound_str(f_hdr, f_hdr_val, 0);
-	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	res = hpack_rbtree_find(tbl, f_hdr, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, f_hdr, &pl, true));
@@ -1960,7 +1989,7 @@ TEST(hpack, enc_table_eviction)
 		if (new_size > tbl->window)
 			break;
 
-		res = tfw_hpack_rbtree_find(tbl, filler, &node, &pl);
+		res = hpack_rbtree_find(tbl, filler, &node, &pl);
 		EXPECT_GT(res, HPACK_IDX_ST_FOUND);
 		EXPECT_NULL(node);
 		EXPECT_OK(tfw_hpack_add_node(tbl, filler, &pl, true));
@@ -1969,7 +1998,7 @@ TEST(hpack, enc_table_eviction)
 		i++;
 	}
 
-	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	res = hpack_rbtree_find(tbl, f_hdr, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
@@ -1978,25 +2007,25 @@ TEST(hpack, enc_table_eviction)
 	collect_compound_str(l_hdr, col, 0);
 	collect_compound_str(l_hdr, l_hdr_val, 0);
 
-	res = tfw_hpack_rbtree_find(tbl, l_hdr, &node, &pl);
+	res = hpack_rbtree_find(tbl, l_hdr, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
 	EXPECT_OK(tfw_hpack_add_node(tbl, l_hdr, &pl, true));
 	bzero_fast(&pl, sizeof(pl));
 
 	/* first header must not present. */
-	res = tfw_hpack_rbtree_find(tbl, f_hdr, &node, &pl);
+	res = hpack_rbtree_find(tbl, f_hdr, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 }
 
 #define ADD_NODE(s, n)								\
 do {										\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	res = hpack_rbtree_find(tbl, s, &n, &pl);				\
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);					\
 	EXPECT_NULL(n);								\
 	EXPECT_OK(tfw_hpack_add_node(tbl, s, &pl, true));			\
 	bzero_fast(&pl, sizeof(pl));						\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	res = hpack_rbtree_find(tbl, s, &n, &pl);				\
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);					\
 	EXPECT_NULL(pl.parent);							\
 	EXPECT_NOT_NULL(n);							\
