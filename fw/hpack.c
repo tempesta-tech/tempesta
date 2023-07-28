@@ -3058,7 +3058,7 @@ commit:
  * threads, so lock is used to protect the find/add/erase operations inside
  * this procedure.
  * 
- * TODO: get rid of tfw_http_hdr_split and related safety checks
+ * TODO #1411: get rid of tfw_http_hdr_split and related safety checks
  */
 static TfwHPackETblRes
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
