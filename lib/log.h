@@ -22,12 +22,15 @@
 
 /*
  * Return codes.
- * TODO: move all the Tempesta return codes to this enum.
  */
 enum {
-	/* Generic error. */
+	/* Generic error. Connection should be closed with TCP_FIN. */
 	T_BAD		= -4,
-	/* The message must be dropped. Connection should be alive. */
+	/*
+	 * The message must be dropped. Connection should be alive or closed
+	 * with TCP FIN depending on whether we can communicate with this
+	 * client or not.
+	 */
 	T_DROP          = -3,
 	/*
 	 * The message must be blocked (typically on a security event).

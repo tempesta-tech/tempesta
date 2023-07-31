@@ -688,7 +688,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	}
 
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0))
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	body = TFW_STR_BODY_CH(msg);
 	resp->status = status;
@@ -754,7 +754,7 @@ do { 								\
 	tfw_http_prep_date(date_val);
 	cl_len = tfw_ultoa(body_len, cl_val, RESP_BUF_LEN - SLEN(S_V_DATE));
 	if (!cl_len)
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
 	len = req->host.len + req->uri_path.len + body_len;
@@ -765,7 +765,7 @@ do { 								\
 		if (!p) {
 			T_WARN("HTTP/2: unable to allocate memory"
 			       " for redirection url\n");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		remaining = len + 1;
 	}
@@ -5127,7 +5127,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 
 /**
  * Unintentional error happen during request parsing. Stop the client connection
- * from receiving new requests. Caller must return TFW_BAD to the
+ * from receiving new requests. Caller must return T_BAD to the
  * ss_tcp_data_ready() function for propper connection close with FIN after
  * sending all pending responses.
  */
@@ -5139,7 +5139,7 @@ tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg)
 
 /**
  * Attack is detected during request parsing.
- * Caller must return TFW_BLOCK to the ss_tcp_data_ready() function for
+ * Caller must return T_BLOCK to the ss_tcp_data_ready() function for
  * propper connection close.
  */
 static inline void
@@ -5567,7 +5567,7 @@ tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 	s_ip = tfw_http_get_ip_from_xff(req);
 	if (!TFW_STR_EMPTY(&s_ip)) {
 		if (tfw_addr_pton(&s_ip, &addr) != 0)
-			return TFW_BLOCK;
+			return T_BLOCK;
 
 		conn_cli = (TfwClient *)conn->peer;
 		ua = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
@@ -5741,7 +5741,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
 	TfwFsmData data_up;
-	int r = TFW_BLOCK;
+	int r = T_BLOCK;
 	TfwHttpActionResult res;
 
 	BUG_ON(!stream->msg);
@@ -5780,25 +5780,25 @@ next_msg:
 	default:
 		T_ERR("Unrecognized HTTP request parser return code, %d\n", r);
 		fallthrough;
-	case TFW_BLOCK:
+	case T_BLOCK:
 		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
-		return TFW_BAD;
-	case TFW_BAD:
+		return T_BAD;
+	case T_BAD:
 		tfw_http_req_parse_drop(req, 400,
 			"Invalid authority");
-		return TFW_BLOCK;
-	case TFW_POSTPONE:
+		return T_BLOCK;
+	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
-			 * The parser should only return TFW_POSTPONE if it ate
+			 * The parser should only return T_POSTPONE if it ate
 			 * all available data, but that weren't enough.
 			 */
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			tfw_http_req_parse_block(req, 500,
 				"Request parsing inconsistency");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		if (TFW_MSG_H2(req)) {
 			TfwH2Ctx *ctx = tfw_h2_context(conn);
@@ -5807,7 +5807,7 @@ next_msg:
 			 * it has been fully parsed.
 			 */
 			if (unlikely(ctx->to_read))
-				return TFW_PASS;
+				return T_OK;
 
 			/* If the parser met END_HEADERS flag we can be sure
 			 * that we get and processed all headers.
@@ -5827,7 +5827,7 @@ next_msg:
 						"Request contains Content-Length"
 						" or Content-Type field"
 						" for bodyless method");
-					return TFW_BLOCK;
+					return T_BLOCK;
 				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
@@ -5840,33 +5840,33 @@ next_msg:
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_http_req_parse_block(req, 500,
 					"Request parsing inconsistency");
-				return TFW_BLOCK;
+				return T_BLOCK;
 			}
 		}
 
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);
 		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
-		if (r == TFW_BLOCK) {
+		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			tfw_http_req_parse_block(req, 403,
 				"postponed request has been filtered out");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		/*
-		 * TFW_POSTPONE status means that parsing succeeded
+		 * T_POSTPONE status means that parsing succeeded
 		 * but more data is needed to complete it. Lower layers
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return TFW_PASS;
+		return T_OK;
 
-	case TFW_PASS:
+	case T_OK:
 		/*
 		 * The request is fully parsed, fall through and process it.
 		 */
 		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
 				 && (req->content_length != req->body.len)))
-			return TFW_BLOCK;
+			return T_BLOCK;
 	}
 
 	/*
@@ -5877,7 +5877,7 @@ next_msg:
 	 */
 	if (!__check_authority_correctness(req)) {
 		tfw_http_req_parse_drop(req, 400, "Invalid authority");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	/*
@@ -5895,14 +5895,14 @@ next_msg:
 			tfw_http_req_parse_block(req, 400, "Request dropped: "
 						 "Pipelined request received "
 						 "after UPGRADE request");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			tfw_http_req_parse_block(req, 500,
 						 "Can't split pipelined requests");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 	} else {
 		skb = NULL;
@@ -5938,7 +5938,7 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 403,
 			"request has been filtered out via http table");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 	if (res.type == TFW_HTTP_RES_VHOST) {
 		req->vhost = res.vhost;
@@ -5985,16 +5985,16 @@ next_msg:
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 	/* Don't accept any following requests from the peer. */
-	if (r == TFW_BLOCK) {
+	if (r == T_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 403,
 			"parsed request has been filtered out");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	if (res.type == TFW_HTTP_RES_REDIR) {
 		tfw_http_req_redir(req, res.redir.resp_code, &res.redir);
-		return TFW_PASS;
+		return T_OK;
 	}
 
 	/*
@@ -6015,7 +6015,7 @@ next_msg:
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 503, NULL);
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
@@ -6026,13 +6026,13 @@ next_msg:
 		tfw_http_req_parse_block(req, 503,
 			"request dropped: can't send JS challenge since a"
 			" non-challengeable resource (e.g. image) was requested");
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	default:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		tfw_http_req_parse_block(req, 500,
 			"request dropped: internal error in Sticky module");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
@@ -6064,7 +6064,7 @@ next_msg:
 		{
 			tfw_http_req_parse_block(req, 400,
 				"request dropped: unsafe method override");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		req->method = req->method_override;
 	}
@@ -6254,14 +6254,14 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, data);
 	T_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
-	if (r == TFW_BLOCK)
+	if (r == T_BLOCK)
 		goto error;
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data);
 	T_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
-	if (r == TFW_PASS)
-		return TFW_PASS;
+	if (r == T_OK)
+		return T_OK;
 
 error:
 	tfw_http_popreq(hmresp, false);
@@ -6318,7 +6318,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 	/*
 	 * This hook isn't in tfw_http_resp_fwd() because responses from the
@@ -6331,7 +6331,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 		/* The response is freed by tfw_http_req_block(). */
 		tfw_http_req_block(req, 403, "response blocked: filtered out");
 		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	/*
@@ -6351,7 +6351,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 		return r;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /*
@@ -6401,7 +6401,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	data.req = NULL;
 	data.resp = (TfwMsg *)hm;
 
-	if (tfw_http_resp_gfsm(hm, &data) != TFW_PASS)
+	if (tfw_http_resp_gfsm(hm, &data) != T_OK)
 		return;
 
 	tfw_http_resp_cache(hm);
@@ -6414,7 +6414,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 static int
 tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
-	int r = TFW_BLOCK;
+	int r = T_BLOCK;
 	unsigned int chunks_unused, parsed;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
@@ -6464,7 +6464,7 @@ next_msg:
 	default:
 		T_ERR("Unrecognized HTTP response parser return code, %d\n", r);
 		fallthrough;
-	case TFW_BLOCK:
+	case T_BLOCK:
 		/*
 		 * The response has not been fully parsed. There's no
 		 * choice but report a critical error. The lower layer
@@ -6476,10 +6476,10 @@ next_msg:
 		T_DBG2("Block invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		goto bad_msg;
-	case TFW_POSTPONE:
+	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
-			 * The parser should only return TFW_POSTPONE if it ate
+			 * The parser should only return T_POSTPONE if it ate
 			 * all available data, but that weren't enough.
 			 */
 			TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -6488,20 +6488,20 @@ next_msg:
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
 				  &data_up);
 		T_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
-		if (r == TFW_BLOCK) {
+		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(serv.msgs_filtout);
 			filtout = true;
 			goto bad_msg;
 		}
 
 		/*
-		 * TFW_POSTPONE status means that parsing succeeded
+		 * T_POSTPONE status means that parsing succeeded
 		 * but more data is needed to complete it. Lower layers
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return TFW_PASS;
-	case TFW_PASS:
+		return T_OK;
+	case T_OK:
 		/*
 		 * The response is fully parsed, fall through and
 		 * process it. If the response has broken length, then
@@ -6554,7 +6554,7 @@ next_msg:
 	 * event.
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r < TFW_PASS)) {
+	if (unlikely(r < T_OK)) {
 		filtout = true;
 		goto bad_msg;
 	}
@@ -6608,8 +6608,8 @@ next_msg:
 	 * then the response and the paired request had been handled.
 	 * Keep the server connection open for data exchange.
 	 */
-	if (unlikely(r != TFW_PASS)) {
-		r = TFW_PASS;
+	if (unlikely(r != T_OK)) {
+		r = T_OK;
 		goto next_resp;
 	}
 
@@ -6622,8 +6622,8 @@ next_msg:
 	 */
 	if (websocket) {
 		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
-		if (unlikely(r < TFW_PASS))
-			return TFW_BLOCK;
+		if (unlikely(r < T_OK))
+			return T_BLOCK;
 	}
 
 	/*
@@ -6632,8 +6632,8 @@ next_msg:
 	 * @hmsib is not attached to the connection yet.
 	 */
 	r = tfw_http_resp_cache(hmresp);
-	if (unlikely(r < TFW_PASS))
-		return TFW_BLOCK;
+	if (unlikely(r < T_OK))
+		return T_BLOCK;
 
 next_resp:
 	if (skb && websocket)
@@ -6651,7 +6651,7 @@ next_resp:
 		 * Creation of sibling response has failed, close
 		 * the connection to recover.
 		 */
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	return r;
@@ -6673,7 +6673,7 @@ bad_msg:
 	else
 		tfw_http_req_drop(bad_req, 502,
 				  "response dropped: processing error");
-	return TFW_BLOCK;
+	return T_BLOCK;
 }
 
 static inline int
@@ -6690,10 +6690,10 @@ __tfw_upgrade_in_queue(TfwCliConn *cli_conn)
 		T_WARN_ADDR("Request dropped: Pipelined request received after "
 			    "UPGRADE request", &cli_conn->peer->addr,
 			    TFW_NO_PORT);
-		return TFW_BAD;
+		return T_BAD;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /**
@@ -6703,7 +6703,7 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb)
 {
-	int r = TFW_BAD;
+	int r = T_BAD;
 	TfwHttpMsg *req;
 
 	if (WARN_ON_ONCE(!stream))

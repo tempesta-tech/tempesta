@@ -183,7 +183,7 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	assert_spin_locked(&srv_conn->sk->sk_lock.slock);
 
 	if (!(ws_conn = tfw_ws_srv_new_steal_sk(srv_conn)))
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	/*
 	 * At the moment we're under the ws_conn->sk->sk_lock, as the function
@@ -207,7 +207,7 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	/* Now websocket hooks will be called on the connection. */
 	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /**

@@ -134,7 +134,7 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	}
 
 	/*
-	 * Increment connection counters even when we return TFW_BLOCK.
+	 * Increment connection counters even when we return T_BLOCK.
 	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
 	 * frang_conn_close() is also called. @conn_curr is decremented
 	 * there, but @conn_new is not changed. We count both failed
@@ -147,13 +147,13 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	if (conf->conn_max && ra->conn_curr > conf->conn_max) {
 		frang_limmsg("connections max num.", ra->conn_curr,
 			     conf->conn_max, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	if (conf->conn_burst && ra->history[i].conn_new > conf->conn_burst) {
 		frang_limmsg("new connections burst", ra->history[i].conn_new,
 			     conf->conn_burst, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	/* Collect current connection sum. */
@@ -163,10 +163,10 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	if (conf->conn_rate && csum > conf->conn_rate) {
 		frang_limmsg("new connections rate", csum, conf->conn_rate,
 			     &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 static void
@@ -181,7 +181,7 @@ __frang_init_acc(void *data)
 static int
 frang_conn_new(struct sock *sk)
 {
-	int r = TFW_BLOCK;
+	int r = T_BLOCK;
 	FrangAcc *ra;
 	TfwClient *cli;
 	TfwAddr addr;
@@ -196,14 +196,14 @@ frang_conn_new(struct sock *sk)
 	 * from other module, take care of probable null-dereferences.
 	 */
 	if (WARN_ON_ONCE(!dflt_vh))
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	ss_getpeername(sk, &addr);
 	cli = tfw_client_obtain(addr, NULL, NULL, __frang_init_acc);
 	if (unlikely(!cli)) {
 		T_ERR("can't obtain a client for frang accounting\n");
 		tfw_vhost_put(dflt_vh);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	ra = FRANG_CLI2ACC(cli);
@@ -236,7 +236,7 @@ frang_conn_new(struct sock *sk)
 	 * for a single client is absolutely straight-forward.
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
-	if (r == TFW_BLOCK && dflt_vh->frang_gconf->ip_block) {
+	if (r == T_BLOCK && dflt_vh->frang_gconf->ip_block) {
 		tfw_filter_block_ip(&cli->addr);
 		tfw_client_put(cli);
 	}
@@ -286,7 +286,7 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	int i = ts % FRANG_FREQ;
 
 	if (!req_burst && !req_rate)
-		return TFW_PASS;
+		return T_OK;
 
 	if (ra->history[i].ts != ts) {
 		ra->history[i].ts = ts;
@@ -298,7 +298,7 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	if (req_burst && ra->history[i].req > req_burst) {
 		frang_limmsg("requests burst", ra->history[i].req,
 			     req_burst, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
@@ -307,10 +307,10 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	if (req_rate && rsum > req_rate) {
 		frang_limmsg("request rate", rsum, req_rate,
 			     &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 static int
@@ -319,10 +319,10 @@ frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
 	if (req->uri_path.len > uri_len) {
 		frang_limmsg("HTTP URI length", req->uri_path.len,
 			     uri_len, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /**
@@ -351,10 +351,10 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 	if (hdr_cnt && req->h_tbl->cnt > hdr_cnt) {
 		frang_limmsg("HTTP headers number", req->h_tbl->cnt,
 			     hdr_cnt, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 	if (!field_len)
-		return TFW_PASS;
+		return T_OK;
 
 	FOR_EACH_HDR_FIELD(field, end, req) {
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
@@ -362,12 +362,12 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 				frang_limmsg("HTTP field length",
 					     dup->len, field_len,
 					     &FRANG_ACC2CLI(ra)->addr);
-				return TFW_BLOCK;
+				return T_BLOCK;
 			}
 		}
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 static int
@@ -380,7 +380,7 @@ frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len
 		frang_limmsg("HTTP in-progress field length",
 			     parser->hdr.len, field_len,
 			     &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	return __frang_http_field_len(req, ra, field_len, hdr_cnt);
@@ -394,9 +394,9 @@ frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
 	if (!(m_mask & mbit)) {
 		frang_msg("restricted HTTP method", &FRANG_ACC2CLI(ra)->addr,
 			  ": %u (%#lxu)\n", req->method, mbit);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
-	return TFW_PASS;
+	return T_OK;
 }
 
 static int
@@ -406,16 +406,16 @@ frang_http_methods_override(const TfwHttpReq *req, FrangAcc *ra,
 	unsigned long mbit = (1UL << req->method_override);
 
 	if (!req->method_override)
-		return TFW_PASS;
+		return T_OK;
 	if (!f_cfg->http_method_override
 	    || (f_cfg->http_methods_mask && !(f_cfg->http_methods_mask & mbit)))
 	{
 		frang_msg("restricted overridden HTTP method",
 			  &FRANG_ACC2CLI(ra)->addr, ": %u (%#lxu)\n",
 			  req->method_override, mbit);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
-	return TFW_PASS;
+	return T_OK;
 }
 
 static int
@@ -445,7 +445,7 @@ frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
 			frang_msg("upgrade request without connection option",
 				  &FRANG_ACC2CLI(ra)->addr, ": protocol: %s\n",
 				  "websocket");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		if (req->version < TFW_HTTP_VER_11)
 		{
@@ -454,10 +454,10 @@ frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
 		}
 		break;
 	default:
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 static int
@@ -467,12 +467,12 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 	FrangCtVal *curr;
 
 	if (req->method != TFW_HTTP_METH_POST)
-		return TFW_PASS;
+		return T_OK;
 
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE])) {
 		frang_msg("Content-Type header field", &FRANG_ACC2CLI(ra)->addr,
 			  " is missed\n");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	if (!ct_vals) {
@@ -480,7 +480,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 		 * Configuration does not provide a list of allowed types for
 		 * Content-Type, so everything is permitted.
 		 */
-		return TFW_PASS;
+		return T_OK;
 	}
 
 	tfw_http_msg_clnthdr_val(req,
@@ -509,7 +509,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 	for (curr = ct_vals->vals; curr->str; ++curr) {
 		if (tfw_str_eq_cstr(&field, curr->str, curr->len,
 				    TFW_STR_EQ_PREFIX_CASEI))
-			return TFW_PASS;
+			return T_OK;
 	}
 
 	/* Take first chunk only for logging. */
@@ -522,7 +522,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 	}
 
-	return TFW_BLOCK;
+	return T_BLOCK;
 }
 
 /**
@@ -626,25 +626,25 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	static BasicStr null_name = {"NULL", 4};
 
 	if (!(TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS))
-		return TFW_PASS;
+		return T_OK;
 
 	/*
 	 * Do not perform any SNI<=>authority validation if
 	 * tls_match_any_server_name is set.
 	 */
 	if (tfw_tls_allow_any_sni)
-		return TFW_PASS;
+		return T_OK;
 
 	tctx = tfw_tls_context(req->conn);
 	/* tfw_tls_sni() has to pick any existing vhost in order to proceed */
 	BUG_ON(!tctx->vhost);
 
 	if (tctx->vhost == req->vhost)
-		return TFW_PASS;
+		return T_OK;
 
 	/* Special case of default vhosts */
 	if (!req->vhost && tfw_vhost_is_default(tctx->vhost))
-		return TFW_PASS;
+		return T_OK;
 
 	/*
 	 * Last (and slowest case): we have to look for TLS certificate
@@ -660,11 +660,11 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 			  &FRANG_ACC2CLI(ra)->addr, " ('%.*s' vs '%.*s')\n",
 			  PR_TFW_STR(&tls_name), PR_TFW_STR(&req_name));
 		tfw_vhost_put(tls_vhost);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	tfw_vhost_put(tls_vhost);
-	return TFW_PASS;
+	return T_OK;
 }
 
 /**
@@ -701,7 +701,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
                     && tfw_strcmp(&authority, &host) != 0) {
 			frang_msg("Request :authority differs from Host",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
-                        return TFW_BLOCK;
+                        return T_BLOCK;
                 }
                 break;
 	case TFW_HTTP_VER_11:
@@ -718,7 +718,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				frang_msg("Request host from absolute URI differs"
 					  " from Host header",
 					  &FRANG_ACC2CLI(ra)->addr, "\n");
-				return TFW_BLOCK;
+				return T_BLOCK;
 			}
 		}
 		break;
@@ -735,19 +735,19 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		frang_get_host_header(req, TFW_HTTP_HDR_HOST,
 				      &prim_trim, &prim_name);
 		if (TFW_STR_EMPTY(&req->host) && TFW_STR_EMPTY(&prim_trim))
-			return TFW_PASS;
+			return T_OK;
 		frang_msg("Host header field in protocol prior to HTTP/1.1",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	default:
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	/* Check that host header is not a IP address. */
 	if (!TFW_STR_EMPTY(&req->host) && !tfw_addr_pton(&req->host, &addr)) {
 		frang_msg("Host header field contains IP address",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 	/* Check that SNI for TLS connection matches host header. */
 	if (TFW_CONN_TLS(req->conn))
@@ -763,7 +763,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		frang_msg("port from host header doesn't match real port",
 			  &FRANG_ACC2CLI(ra)->addr, ": %d (%d)\n", port,
 			  real_port);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
 	return frang_http_domain_fronting_check(req, ra);
@@ -853,9 +853,9 @@ frang_http_req_incomplete_hdrs_check(FrangAcc *ra, TfwFsmData *data,
 		goto block;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 block:
-	return TFW_BLOCK;
+	return T_BLOCK;
 }
 
 static int
@@ -873,7 +873,7 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 
 	/* CLRF after headers was parsed, but the body didn't arrive yet. */
 	if (TFW_STR_EMPTY(&req->body))
-		return TFW_PASS;
+		return T_OK;
 	/*
 	 * Ensure that HTTP request body is coming without delays.
 	 * The timeout is between chunks of the body, so reset
@@ -906,9 +906,9 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 		goto block;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 block:
-	return TFW_BLOCK;
+	return T_BLOCK;
 }
 
 /*
@@ -947,15 +947,15 @@ static int
 frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 			     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
 {
-	int r = TFW_PASS;
+	int r = T_OK;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	const TfwStr *field, *end, *dup, *dup_end;
 
 	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
-		return TFW_POSTPONE;
+		return T_POSTPONE;
 
 	if (!test_bit(TFW_HTTP_B_CHUNKED_TRAILER, req->flags))
-		return TFW_PASS;
+		return T_OK;
 	/*
 	 * Don't use special settings for the trailer part, keep on
 	 * using body limits.
@@ -964,7 +964,7 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
 		frang_msg("duplicate header field found",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 	if (!r)
 		r = frang_http_field_len(req, ra, f_cfg->http_field_len,
@@ -983,7 +983,7 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	 * @H2_MSG_VERIFY(), we have already verified that.
 	 */
 	if (f_cfg->http_trailer_split)
-		return TFW_PASS;
+		return T_OK;
 
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
 		int trailers = 0, dups = 0;
@@ -995,7 +995,7 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 			frang_msg("HTTP field appear in header and trailer "
 				  "for client %p",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 	}
 
@@ -1006,14 +1006,14 @@ static int
 frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		       TfwVhost *dvh)
 {
-	int r = TFW_PASS;
+	int r = T_OK;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	FrangVhostCfg *f_cfg = NULL;
 	FrangGlobCfg *fg_cfg = NULL;
 	T_FSM_INIT(Frang_Req_0, "frang");
 
 	if (WARN_ON_ONCE(!ra))
-		return TFW_BLOCK;
+		return T_BLOCK;
 	/*
 	 * If a request is detached from stream before frang callback
 	 * happen, it usually means that a response is already created and bound
@@ -1027,7 +1027,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	 * already closed streams is required.
 	 */
 	if (WARN_ON_ONCE(!req->stream))
-		return req->resp ? TFW_PASS : TFW_BLOCK;
+		return req->resp ? T_OK : T_BLOCK;
 	frang_dbg("check request for client %s, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, ra);
 
@@ -1044,7 +1044,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		f_cfg = dvh->loc_dflt->frang_cfg;
 	}
 	if (WARN_ON_ONCE(!fg_cfg || !f_cfg))
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	spin_lock(&ra->lock);
 
@@ -1109,7 +1109,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
 			frang_msg("duplicate header field found",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			r = TFW_BLOCK;
+			r = T_BLOCK;
 			T_FSM_EXIT();
 		}
 		r = frang_http_field_len(req, ra, f_cfg->http_field_len,
@@ -1209,13 +1209,13 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 		ra = FRANG_CLI2ACC(req->peer);
 
 	if (test_bit(TFW_HTTP_B_WHITELIST, ((TfwHttpReq *)data->req)->flags))
-		return TFW_PASS;
+		return T_OK;
 
 	dvh = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!dvh))
-		return TFW_BLOCK;
+		return T_BLOCK;
 	r = frang_http_req_process(ra, conn, data, dvh);
-	if (r == TFW_BLOCK && dvh->frang_gconf->ip_block)
+	if (r == T_BLOCK && dvh->frang_gconf->ip_block)
 		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
 	tfw_vhost_put(dvh);
 
@@ -1233,10 +1233,10 @@ frang_resp_process(TfwHttpResp *resp)
 	TfwAddr *cli_addr = NULL;
 	TfwLocation *loc = req->location ? : req->vhost->loc_dflt;
 	unsigned long body_len = loc->frang_cfg->http_body_len;
-	int r = TFW_PASS;
+	int r = T_OK;
 
 	if (!body_len)
-		return TFW_PASS;
+		return T_OK;
 
 	if (likely(req->conn)) {
 		if (req->peer)
@@ -1256,7 +1256,7 @@ frang_resp_process(TfwHttpResp *resp)
 					   resp->body.len, body_len,
 					   "Health Monitor");
 		}
-		r = TFW_BLOCK;
+		r = T_BLOCK;
 	}
 
 	return r;
@@ -1296,17 +1296,17 @@ frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
 	if (cnt > resp_cblk->limit) {
 		frang_limmsg("http_resp_code_block limit", cnt,
 			     resp_cblk->limit, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
+		return T_BLOCK;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /**
  * Block client connection if not allowed response code appears too frequently
  * in responses for that client. Called from tfw_http_resp_fwd() by
  * tfw_gfsm_move().
- * Always returns TFW_PASS because there is no error in processing response,
+ * Always returns T_OK because there is no error in processing response,
  * client may do something illegal and is to be blocked. Allow upper levels
  * to continue working with the response and the server connection.
  */
@@ -1326,7 +1326,7 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	 * attached.
 	 */
 	if (unlikely(!resp->req->conn) || !conf)
-		return TFW_PASS;
+		return T_OK;
 
 	ra = (FrangAcc *)req->conn->sk->sk_security;
 	if (req->peer)
@@ -1336,7 +1336,7 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 
 	if (!tfw_http_resp_code_range(resp->status)
 	    || !test_bit(HTTP_CODE_BIT_NUM(resp->status), conf->codes))
-		return TFW_PASS;
+		return T_OK;
 
 	spin_lock(&ra->lock);
 	/*
@@ -1350,7 +1350,7 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
 
-	if (r == TFW_BLOCK) {
+	if (r == T_BLOCK) {
 		/* Default vhost has no 'vhost_dflt' member set. */
 		FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
 				? req->vhost->vhost_dflt->frang_gconf
@@ -1366,7 +1366,7 @@ static int
 frang_resp_handler(TfwConn *conn, TfwFsmData *data)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)data->resp;
-	int r = TFW_PASS;
+	int r = T_OK;
 
 	switch (TFW_GFSM_STATE(&conn->state)) {
 
@@ -1382,7 +1382,7 @@ frang_resp_handler(TfwConn *conn, TfwFsmData *data)
 		break;
 	}
 
-	if (r != TFW_PASS)
+	if (r != T_OK)
 		return r;
 	r = tfw_gfsm_move(&conn->state, TFW_FRANG_RESP_FSM_DONE, data);
 
@@ -1412,7 +1412,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		break;
 	default:
 		WARN_ONCE(1, "Frang: unknown tls state\n");
-		return TFW_BLOCK;
+		return T_BLOCK;
 		break;
 	}
 
@@ -1430,7 +1430,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 			frang_limmsg("new TLS connections rate", sum_new,
 				     conf->tls_new_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		if (conf->tls_new_conn_burst
 		    && sum_new > conf->tls_new_conn_burst)
@@ -1438,7 +1438,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 			frang_limmsg("new TLS connections burst", sum_new,
 				     conf->tls_new_conn_burst,
 				     &FRANG_ACC2CLI(ra)->addr);
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		break;
 	case TTLS_HS_CB_INCOMPLETE:
@@ -1449,14 +1449,14 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 				     sum_incomplete,
 				     conf->tls_incomplete_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
-			return TFW_BLOCK;
+			return T_BLOCK;
 		}
 		break;
 	default:
 		break;
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 int
@@ -1468,12 +1468,12 @@ frang_tls_handler(TlsCtx *tls, int state)
 	int r;
 
 	if (WARN_ON_ONCE(!dflt_vh))
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	spin_lock(&ra->lock);
 
 	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, state);
-	if (r == TFW_BLOCK && dflt_vh->frang_gconf->ip_block)
+	if (r == T_BLOCK && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
 
 	spin_unlock(&ra->lock);
@@ -1514,7 +1514,7 @@ tfw_classify_conn_estab(struct sock *sk)
 	if (test_bit(tfw_addr_get_sk_sport(sk), tfw_inports))
 		return frang_conn_new(sk);
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /**
@@ -1524,7 +1524,7 @@ tfw_classify_conn_estab(struct sock *sk)
 static int
 tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 {
-	return TFW_PASS;
+	return T_OK;
 }
 
 /*
