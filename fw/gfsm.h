@@ -123,41 +123,6 @@ enum {
 	TFW_GFSM_HOOK_PRIORITY_ANY	= TFW_GFSM_HOOK_PRIORITY_NUM
 };
 
-/*
- * Hooks return codes.
- */
-enum {
-	/*
-	 * Current message looks good and we can safely pass it.
-	 */
-	TFW_PASS	= SS_OK,
-
-	/*
-	 * The message must be blocked. Also, all packets associated with it
-	 * and the client who sent the message will be prohibited from further
-	 * communication with a defended server.
-	 */
-	TFW_BLOCK	= SS_BLOCK,
-
-	/*
-	 * The message must be dropped. Connection should be alive.
-	 */
-	TFW_DROP        = SS_DROP,
-
-	/*
-	 * Same as TFW_BLOCK, but we send FIN, not RST, in this case
-	 * to the client.
-	 */
-	TFW_BAD		= SS_BAD,
-
-	/*
-	 * We need more requests (or parts of a request) to make a decision.
-	 * Current message must be stashed and will be sent to the destination
-	 * (if it is deemed innocent) with subsequent message/packets at once.
-	 */
-	TFW_POSTPONE	= SS_POSTPONE,
-};
-
 /**
  * An input data for a subroutine (FSM) to process.
  *

@@ -164,7 +164,7 @@ do {									\
 	T_WARN("Parser error: state=" #st " input(-%d)=%#x('%.*s')"	\
 	       " data_len=%u off=%lu\n",				\
 	       __p_o, (char)c, __p_n, p - __p_o, len, p - data);	\
-	return TFW_BLOCK;						\
+	return T_BLOCK;							\
 } while (0)
 
 #define __FSM_START(s)							\
@@ -200,7 +200,7 @@ do {									\
 
 #define __FSM_FINISH(m)							\
 done:									\
-	if (r == TFW_PASS)						\
+	if (r == T_OK)							\
 		__set_bit(TFW_HTTP_B_FULLY_PARSED, msg->flags);		\
 	/* Remaining number of bytes to process in the data chunk. */	\
 	*parsed = __data_off(p);
@@ -210,7 +210,7 @@ do {									\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		parser->state = &&to; /* start from state @to next time */\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 	goto to;							\
 } while (0)
@@ -223,7 +223,7 @@ do {									\
 		/* Close currently parsed field chunk. */		\
 		BUG_ON(!(field)->data);					\
 		__msg_field_fixup(field, data + len);			\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 	goto to;							\
 } while (0)
@@ -251,7 +251,7 @@ do {									\
 		__msg_field_chunk_flags(field, flag);			\
 		parser->state = &&to;					\
 		p += __fsm_sz;						\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 } while (0)
 
@@ -270,7 +270,7 @@ do {									\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		parser->state = &&to;					\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 	goto to;							\
 } while (0)
@@ -296,7 +296,7 @@ do {									\
 		__msg_hdr_chunk_fixup(data, len);			\
 		if (flag)						\
 			__msg_chunk_flags(flag);			\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 	goto *to;							\
 } while (0)
@@ -324,7 +324,7 @@ do {									\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		parser->_i_st = &&to;					\
-		r = TFW_POSTPONE;					\
+		r = T_POSTPONE;						\
 		finish;							\
 		__FSM_EXIT(r); /* let finish update the @r */		\
 	}								\
@@ -341,7 +341,7 @@ do {									\
  * generating efficient key/value pairs.
  *
  * Normal MOVE macros fixup @data if there is not enough data and we're going to
- * return TFW_POSTPONE. We can not use @p since we don't know how many states we
+ * return T_POSTPONE. We can not use @p since we don't know how many states we
  * executed on the current chunk, so we have no length of currently matched data.
  * In other words if you call a fixup function first and next you do normal
  * movement, then you might see the same data twice in the parsed data.
@@ -404,7 +404,7 @@ do {									\
 	parser->_i_st = &&to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len))				\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	goto to;							\
 } while (0)
 
@@ -419,7 +419,7 @@ do {									\
 		__msg_hdr_chunk_fixup(p, __fsm_sz);			\
 		__FSM_I_chunk_flags(flag);				\
 		parser->_i_st = &&to;					\
-		r = TFW_POSTPONE;					\
+		r = T_POSTPONE;						\
 		finish;							\
 		__FSM_EXIT(r);						\
 	}								\
@@ -565,8 +565,8 @@ __FSM_STATE(st) {							\
 #define IN_ALPHABET(c, a)	(a[c >> 6] & (1UL << (c & 0x3f)))
 
 #define CSTR_EQ			0
-#define CSTR_POSTPONE		TFW_POSTPONE	/* -1 */
-#define CSTR_NEQ		TFW_BLOCK	/* -2 */
+#define CSTR_POSTPONE		T_POSTPONE	/* -1 */
+#define CSTR_NEQ		T_BLOCK		/* -2 */
 #define CSTR_BADLEN		-3
 
 /**
@@ -1003,7 +1003,7 @@ do {									\
 	if (unlikely(__data_off(p) >= len)) {				\
 		lambda;							\
 		parser->_i_st = &&to;					\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 	goto to;							\
 } while (0)
@@ -1047,7 +1047,7 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(I_BodyChunked) {
 		/* Prevent @parse_int_hex false positives. */
 		if (!isxdigit(c))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 		/* Fall through. */
 	}
 
@@ -1063,7 +1063,7 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE_body_nf(I_BodyChunkLen, __fsm_sz);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 		default:
 			parser->to_read = parser->_acc;
 			parser->_acc = 0;
@@ -1086,7 +1086,7 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_BodyCR) {
 		if (unlikely(c != '\n'))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 		if (parser->to_read == -1)
 			__FSM_I_MOVE_body_nf(I_BodyChunked, 1);
 		else if (parser->to_read > 0)
@@ -1165,7 +1165,7 @@ do {									\
 	__FSM_STATE(I_BodyChunked) {
 		/* Prevent @parse_int_hex false positives. */
 		if (!isxdigit(c))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 		/* Fall through. */
 	}
 
@@ -1181,7 +1181,7 @@ do {									\
 			__FSM_I_MOVE_cut_fixup(I_BodyChunkLen, __fsm_sz);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 		default:
 			parser->to_read = parser->_acc;
 			parser->_acc = 0;
@@ -1219,7 +1219,7 @@ do {									\
 
 	__FSM_STATE(I_BodyCR) {
 		if (unlikely(c != '\n'))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 		if (parser->to_read == -1)
 			__FSM_I_MOVE_cut_fixup(I_BodyChunked, 1);
 		else if (parser->to_read > 0)
@@ -1408,7 +1408,7 @@ do {									\
 			__FSM_JMP(RGen_BodyInit);			\
 		}							\
 		parser->state = &&RGen_Hdr;				\
-		FSM_EXIT(TFW_PASS);					\
+		FSM_EXIT(T_OK);						\
 	}								\
 } while (0)
 
@@ -1431,7 +1431,7 @@ __FSM_STATE(RGen_CRLFCR, hot) {						\
 	 * not be stored in cache. */					\
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv)			\
 		tfw_str_set_eolen(&msg->body, 2);			\
-	FSM_EXIT(TFW_PASS);						\
+	FSM_EXIT(T_OK);							\
 }
 
 /*
@@ -1464,7 +1464,7 @@ __FSM_STATE(st_curr) {							\
 		/* The automaton state keeping is handled in @func. */	\
 		p += __fsm_sz;						\
 		parser->state = &&st_curr;				\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
 		TFW_PARSER_BLOCK(st_curr);				\
@@ -1502,7 +1502,7 @@ __FSM_STATE(st_curr) {							\
 		/* The automaton state keeping is handled in @func. */	\
 		p += __fsm_sz;						\
 		parser->state = &&st_curr;				\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
 		TFW_PARSER_BLOCK(st_curr);				\
@@ -1550,7 +1550,7 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 		if (unlikely(parser->hdr.len > HTTP_MAX_HDR_NAME_LEN)) {\
 			T_WARN("Max header name length %u exceeded.",	\
 			       HTTP_MAX_HDR_NAME_LEN);			\
-			return TFW_BLOCK;				\
+			return T_BLOCK;					\
 		}							\
 		parser->_i_st = &&RGen_HdrOtherV;			\
 		p += __fsm_sz;						\
@@ -1583,12 +1583,12 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 
 #define BLOCK_REQUEST_SMUGGLING() {					\
 	WARN_BODY_ATTACK("request", "Request smuggling");		\
-	FSM_EXIT(TFW_BLOCK);						\
+	FSM_EXIT(T_BLOCK);						\
 }
 
 #define BLOCK_RESPONSE_SPLITTING() {					\
 	WARN_BODY_ATTACK("reponse", "Response splitting");		\
-	FSM_EXIT(TFW_BLOCK); 						\
+	FSM_EXIT(T_BLOCK); 						\
 }
 
 /* Process according RFC 9112 6.3 */
@@ -1621,7 +1621,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 	}								\
 									\
 	if (tfw_http_parse_check_bodyless_meth(req))			\
-		FSM_EXIT(TFW_BLOCK);					\
+		FSM_EXIT(T_BLOCK);					\
 									\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
@@ -1630,7 +1630,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 	/* There is no body. */						\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	parser->state = &&RGen_BodyInit;				\
-	FSM_EXIT(TFW_PASS);						\
+	FSM_EXIT(T_OK);							\
 }
 
 /* Process according RFC 9112 6.3 */
@@ -1651,7 +1651,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 * Transfer-Encoding other than chunked 		\
 		 */ 							\
 		if (__parse_check_encodings(resp))			\
-			FSM_EXIT(TFW_BLOCK);				\
+			FSM_EXIT(T_BLOCK);				\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {\
 			/*						\
 			 * Block responses which have transfer-encoding	\
@@ -1696,7 +1696,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 no_body:								\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	parser->state = &&RGen_BodyInit;				\
-	FSM_EXIT(TFW_PASS);						\
+	FSM_EXIT(T_OK);							\
 }
 
 #define TFW_HTTP_PARSE_BODY_UNLIM()					\
@@ -1727,7 +1727,7 @@ __FSM_STATE(RGen_BodyParse, __VA_ARGS__) {				\
 		parser->state = &&RGen_BodyParse;			\
 		p += __fsm_sz;						\
 		msg->body.len += __fsm_sz;				\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
 		TFW_PARSER_BLOCK(RGen_BodyParse);			\
@@ -1736,11 +1736,11 @@ __FSM_STATE(RGen_BodyParse, __VA_ARGS__) {				\
 		msg->body.len += __fsm_n;				\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		if (!test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {	\
-			__FSM_EXIT(TFW_PASS);				\
+			__FSM_EXIT(T_OK);				\
 		} else if (unlikely(__data_off(p) >= len)) {		\
 			/* Chunked body parsed. Wait for trailer. */	\
 			parser->state = &&RGen_Hdr;			\
-			__FSM_EXIT(TFW_POSTPONE);			\
+			__FSM_EXIT(T_POSTPONE);				\
 		}							\
 		/* Process the trailer-part. */				\
 		__FSM_JMP(RGen_Hdr);					\
@@ -1763,7 +1763,7 @@ __FSM_STATE(RGen_LWS, hot) {						\
 		__msg_chunk_flags(TFW_STR_OWS);				\
 		p += __fsm_sz;						\
 		parser->state = &&RGen_LWS;				\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(T_POSTPONE);					\
 	}								\
 	BUG_ON(__fsm_n < 0);						\
 	if (__fsm_n) {							\
@@ -2722,7 +2722,7 @@ static int
 __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 {
 	/* Very similar to __resp_parse_cache_control */
-	int r = TFW_BLOCK;
+	int r = T_BLOCK;
 	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
@@ -2744,7 +2744,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_CC_start_Comma) {
@@ -2753,7 +2753,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value and double commas */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_CC) {
@@ -2889,7 +2889,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE(Req_I_After_Comma);
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_After_Comma) {
@@ -2906,7 +2906,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 done:
@@ -3228,7 +3228,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 			parser->_i_st = &&Req_I_H_End;
 			p += 1;
 			if (unlikely(__data_off(p) >= len))
-				__FSM_EXIT(TFW_POSTPONE);
+				__FSM_EXIT(T_POSTPONE);
 			goto Req_I_H_End;
 		}
 		return CSTR_NEQ;
@@ -4067,7 +4067,7 @@ do {									\
 		parser->_i_st = &&to;					\
 		tfw_str_updlen(&parser->hdr, p);			\
 		if (unlikely(__data_off(p) >= len))			\
-			__FSM_EXIT(TFW_POSTPONE); 			\
+			__FSM_EXIT(T_POSTPONE); 			\
 		goto to; 						\
 	}								\
 	__FSM_I_MOVE_fixup(to, 1, flag);				\
@@ -4090,7 +4090,7 @@ do {									\
 	if (unlikely(__data_off(p) >= len)) {				\
 		parser->_i_st = &&to;					\
 		tfw_str_updlen(&parser->hdr, p);			\
-		__FSM_EXIT(TFW_POSTPONE); 				\
+		__FSM_EXIT(T_POSTPONE); 				\
 	} 								\
 	goto to; 							\
 } while (0)
@@ -4103,7 +4103,7 @@ do {									\
 	__msg_field_fixup_pos(&parser->hdr, p, n);			\
 	__FSM_I_field_chunk_flags(&parser->hdr, flag);			\
 	parser->_i_st = &&to;						\
-	__FSM_EXIT(TFW_POSTPONE);					\
+	__FSM_EXIT(T_POSTPONE);						\
 } while (0)
 
 /*
@@ -4890,7 +4890,7 @@ int
 tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		   unsigned int *parsed)
 {
-	int r = TFW_BLOCK;
+	int r = T_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
 	*parsed = 0;
@@ -4991,7 +4991,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		if (__fsm_n == CSTR_POSTPONE) {
 			p += __fsm_sz;
 			parser->state = &&Req_UriMark;
-			__FSM_EXIT(TFW_POSTPONE);
+			__FSM_EXIT(T_POSTPONE);
 		}
 		if (__fsm_n < 0)
 			TFW_PARSER_BLOCK(Req_UriMark);
@@ -5790,7 +5790,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		}
 		if (unlikely(__fsm_sz == __fsm_n)) {
 			parser->state = &&Req_MethodUnknown;
-			__FSM_EXIT(TFW_POSTPONE);
+			__FSM_EXIT(T_POSTPONE);
 		}
 		if (unlikely(req->method != _TFW_HTTP_METH_UNKNOWN))
 			TFW_PARSER_BLOCK(Req_MethodUnknown);
@@ -7064,7 +7064,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 			if (unlikely(__data_off(p) >= len)) {
 				if (fin)
 					__FSM_EXIT(CSTR_EQ);
-				__FSM_EXIT(TFW_POSTPONE);
+				__FSM_EXIT(T_POSTPONE);
 			}
 			goto Req_I_A_End;
 		}
@@ -7335,7 +7335,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_CC_start_Comma) {
@@ -7344,7 +7344,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		/* Forbid empty header value and double commas */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_CC) {
@@ -7508,7 +7508,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == ',')
 			__FSM_H2_I_MOVE_RESET_ACC(Req_I_After_Comma, 1);
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Req_I_After_Comma) {
@@ -7520,7 +7520,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			parser->cc_dir_flag = 0;
 			__FSM_I_JMP(Req_I_CC);
 		}
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 done:
@@ -8658,7 +8658,7 @@ do {									   \
 		if (unlikely(__data_off(p) >= len)) {			   \
 			if(likely(fin))					   \
 				__FSM_EXIT(ret);			   \
-			__FSM_EXIT(TFW_POSTPONE);			   \
+			__FSM_EXIT(T_POSTPONE);				   \
 		}							   \
 		goto to; 						   \
 	}								   \
@@ -8686,7 +8686,7 @@ do {									   \
 			__FSM_EXIT(ret);				   \
 		parser->_i_st = &&to;					   \
 		tfw_str_updlen(&parser->hdr, p);			   \
-		__FSM_EXIT(TFW_POSTPONE); 				   \
+		__FSM_EXIT(T_POSTPONE); 				   \
 	} 								   \
 	goto to; 							   \
 } while (0)
@@ -8701,7 +8701,7 @@ do {									   \
 	parser->_i_st = &&to;						   \
 	if (fin) 							   \
 		lambda;							   \
-	__FSM_EXIT(TFW_POSTPONE);					   \
+	__FSM_EXIT(T_POSTPONE);						   \
 } while (0)
 
 #define __FSM_H2_I_FWD_EQ_fixup(to, n, flag)				   \
@@ -10994,7 +10994,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Resp_I_CC);
 		/* Forbid empty header value */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Resp_I_CC_start_Comma) {
@@ -11004,7 +11004,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Resp_I_CC);
 		/* Forbid empty header value and double commas */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Resp_I_CC) {
@@ -11093,7 +11093,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_CC_Dir_Opening_Quote) {
 		if (c != '"')
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 
 		__FSM_I_MOVE_fixup(Resp_I_CC_Dir_Arg_Token, 1, 0);
 	}
@@ -11116,7 +11116,7 @@ do {										\
 				" no-cache/private directives",			\
 				&resp->conn->peer->addr,			\
 				TFW_WITH_PORT, resp->status);			\
-		__FSM_EXIT(TFW_BLOCK);						\
+		__FSM_EXIT(T_BLOCK);						\
 	}									\
 } while (0)
 		TfwStr *tokens;
@@ -11148,7 +11148,7 @@ do {										\
 		 * separated by commas.
 		 * Block on CRLF, because the double-quote should be closed.
 		 */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Resp_I_CC_Dir_Arg_Comma) {
@@ -11163,7 +11163,7 @@ do {										\
 		 * Two consecutive commas in arguments not allowed,
 		 * just like in Cache-Control directives.
 		 */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Resp_I_CC_s) {
@@ -11184,7 +11184,7 @@ do {										\
 		 * directives), the directive's value is considered invalid.
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
@@ -11208,7 +11208,7 @@ do {										\
 		 * directives), the directive's value is considered invalid.
 		 */
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE))
-			__FSM_EXIT(TFW_BLOCK);
+			__FSM_EXIT(T_BLOCK);
 
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
@@ -11243,7 +11243,7 @@ do {										\
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
 
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 	__FSM_STATE(Resp_I_After_Comma) {
@@ -11259,7 +11259,7 @@ do {										\
 		if (IS_CRLF(c))
 			__FSM_EXIT(__data_processed(p));
 		/* Two consecutive commas not allowed */
-		__FSM_EXIT(TFW_BLOCK);
+		__FSM_EXIT(T_BLOCK);
 	}
 
 done:
@@ -11533,7 +11533,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
 	if (!test_bit(TFW_HTTP_B_UNLIMITED, hm->flags))
-		return TFW_BLOCK;
+		return T_BLOCK;
 
 	/*
 	 * If response has no framing information, end of response is indicated
@@ -11543,7 +11543,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 	hm->body.flags |= TFW_STR_COMPLETE;
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 void
@@ -11582,7 +11582,7 @@ int
 tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 		    unsigned int *parsed)
 {
-	int r = TFW_BLOCK;
+	int r = T_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
 	*parsed = 0;

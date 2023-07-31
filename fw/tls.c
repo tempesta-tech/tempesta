@@ -103,7 +103,7 @@ next_msg:
 	case T_POSTPONE:
 		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
-		return TFW_PASS;
+		return T_OK;
 	case T_OK:
 		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
@@ -166,7 +166,7 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		if (r == TFW_BLOCK || r == TFW_BAD) {
+		if (r == T_BLOCK || r == T_BAD) {
 			kfree_skb(nskb);
 			return r;
 		}

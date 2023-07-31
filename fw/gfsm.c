@@ -212,7 +212,7 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 int
 tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 {
-	int r = TFW_PASS, p, fsm;
+	int r = T_OK, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
 	unsigned long mask = 1 << (state & TFW_GFSM_STATE_MASK);
 	unsigned char curr_st = st->curr;
@@ -247,17 +247,17 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 			continue;
 
 		switch (__gfsm_fsm_exec(st, fsm, data)) {
-		case TFW_DROP:
+		case T_DROP:
 			BUG();
-		case TFW_BLOCK:
-			r = TFW_BLOCK;
+		case T_BLOCK:
+			r = T_BLOCK;
 			goto done;
-		case TFW_POSTPONE:
+		case T_POSTPONE:
 			/*
 			 * Postpone processing if at least one FSM
 			 * needs more data.
 			 */
-			r = TFW_POSTPONE;
+			r = T_POSTPONE;
 		}
 	}
 done:

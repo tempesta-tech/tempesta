@@ -328,7 +328,7 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 	uint32_t pos = 0;
 	unsigned int parsed;
 	uint32_t __cs;
-	int r = TFW_PASS;
+	int r = T_OK;
 	uint32_t chunk_cnt;
 	TfwHttpMsg *hm;
 	uint32_t cidx;
@@ -376,8 +376,8 @@ split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 		TEST_DBG3("%s: < parser ret %d, pos %u, msg len %zu\n", __func__,
 				r, pos, hm->msg.len);
 
-		BUILD_BUG_ON((int)TFW_POSTPONE != (int)T_POSTPONE);
-		if (r != TFW_POSTPONE)
+		BUILD_BUG_ON((int)T_POSTPONE != (int)T_POSTPONE);
+		if (r != T_POSTPONE)
 			goto complete;
 	}
 
@@ -541,7 +541,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (type == FUZZ_REQ_H2
 		    && frame->subtype == HTTP2_DATA
 		    && !frame->len) {
-			r = TFW_POSTPONE;
+			r = T_POSTPONE;
 		} else {
 			r = split_and_parse_n(frame->str, type, frame->len,
 						chunk_size, &chunks);
@@ -557,7 +557,7 @@ do_split_and_parse(int type, int chunk_mode)
 			}
 		}
 
-		if (r != TFW_POSTPONE)
+		if (r != T_POSTPONE)
 			break;
 
 		if (type == FUZZ_REQ_H2 && frame->subtype == HTTP2_HEADERS) {
@@ -565,13 +565,13 @@ do_split_and_parse(int type, int chunk_mode)
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
 				tfw_http_extract_request_authority(req);
 			} else {
-				r = TFW_BLOCK;
+				r = T_BLOCK;
 				break;
 			}
 		}
 	});
 
-	if (type == FUZZ_REQ_H2 && r == TFW_POSTPONE) {
+	if (type == FUZZ_REQ_H2 && r == T_POSTPONE) {
 		r = tfw_h2_parse_req_finish(req);
 	}
 

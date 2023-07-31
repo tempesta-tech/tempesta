@@ -107,12 +107,12 @@ tfw_filter_check_ip(struct in6_addr *addr)
 		const TfwFRule *rule = (TfwFRule *)iter.rec->data;
 		if (!memcmp_fast(&rule->addr, addr, sizeof(*addr))) {
 			tdb_rec_put(iter.rec);
-			return rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+			return rule->action == TFW_F_DROP ? T_BLOCK : T_OK;
 		}
 		tdb_rec_next(ip_filter_db, &iter);
 	}
 
-	return TFW_PASS;
+	return T_OK;
 }
 
 /*
@@ -157,7 +157,7 @@ tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
 
 	ipv6_addr_set_v4mapped(ih->saddr, &addr6);
 
-	if (tfw_filter_check_ip(&addr6) == TFW_BLOCK)
+	if (tfw_filter_check_ip(&addr6) == T_BLOCK)
 		return NF_DROP;
 
 	return NF_ACCEPT;
@@ -229,7 +229,7 @@ tfw_ipv6_nf_hook(void *priv, struct sk_buff *skb,
 	if (!ih)
 		return NF_DROP;
 
-	if (tfw_filter_check_ip(&ih->saddr) == TFW_BLOCK)
+	if (tfw_filter_check_ip(&ih->saddr) == T_BLOCK)
 		return NF_DROP;
 
 	return NF_ACCEPT;

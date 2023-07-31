@@ -25,6 +25,7 @@
 #include <linux/skbuff.h>
 
 #include "str.h"
+#include "lib/log.h"
 
 /**
  * Responses from socket hook functions.
@@ -37,18 +38,18 @@ enum {
 	 */
 	SS_SHUTDOWN	= -5,
 	/* Generic socket error. */
-	SS_BAD		= -4,
+	SS_BAD		= T_BAD,
 	/* The packet must be dropped, but connection should be alive. */
-	SS_DROP		= -3,
+	SS_DROP		= T_DROP,
 	/*
 	 * The packet must be blocked with TCP RST (typically on a
 	 * security event).
 	 */
-	SS_BLOCK	= -2,
+	SS_BLOCK	= T_BLOCK,
 	/* The packet should be stashed (made by callback). */
-	SS_POSTPONE	= -1,
+	SS_POSTPONE	= T_POSTPONE,
 	/* The packet looks good and we can safely pass it. */
-	SS_OK		= 0,
+	SS_OK		= T_OK,
 };
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
