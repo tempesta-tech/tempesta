@@ -2188,87 +2188,14 @@ do {									\
 #define HPACK_NODE_NEXT(node)						\
 	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
 
-typedef enum {
-	HPACK_HDR_NAME_SEARCH		= 0,
-	HPACK_HDR_NAME_FOUND,
-	HPACK_HDR_VALUE_FOUND
-} TfwHPackCmpStates;
-
-#define HP_SH(p)			(*(unsigned short *)(p))
 #define HP_CHAR(p)			(*(unsigned char *)(p))
 
-#define SH_LC(p)			(HP_SH(p) | 0x2020)
 #define CHAR_LC(p)			(HP_CHAR(p) | 0x20)
 
 #define INT_LE(p)							\
 	((p)[0] << 24 | (p)[1] << 16 | (p)[2] << 8 | (p)[3])
-#define SH_LE(p)							\
-	((p)[0] << 8 | (p)[1])
 
 #define INT_LE_LC(p)			(INT_LE(p) | 0x20202020)
-#define SH_LE_LC(p)			(SH_LE(p) | 0x2020)
-
-/*
- * Processing header's OWS during comparison with values stored in encoder
- * dynamic index. Note that in switch '-1' branch for @idx - all characters
- * in processed part of @data are the OWS (or ':' in case of header's name
- * processing), thus mismatching is dummy and we can continue the comparison
- * procedure.
- */
-#define HPACK_HDR_OWS_PROCESS(part_len, ret)				\
-({									\
-	bool found = false;						\
-	short idx = (part_len) - 1;					\
-									\
-	BUG_ON(len < (part_len));					\
-	if (state != HPACK_HDR_NAME_SEARCH				\
-	    && (state != HPACK_HDR_VALUE_FOUND || chunk != TFW_STR_LAST(hdr)\
-		|| len != (part_len)))					\
-		return ret;						\
-									\
-	while ((data[idx] == ' ' || data[idx] == '\t') && idx >= 0)	\
-	     --idx;							\
-	if (state == HPACK_HDR_NAME_SEARCH && idx >= 0 && data[idx] == ':') {\
-		found = true;						\
-		--idx;							\
-	}								\
-	if (idx == (part_len) - 1)					\
-		return ret;						\
-	T_DBG3("%s: ows, state=%d, part_len=%d, ret=%d, idx=%u,"	\
-	       " pos='%.*s', data='%.*s'\n", __func__, state, part_len,	\
-	       ret, idx, idx + 1, pos, idx + 1, data);			\
-	switch (idx) {							\
-	case 1:								\
-		fallthrough;						\
-	case 2:								\
-		if (state == HPACK_HDR_NAME_SEARCH) {			\
-			if (SH_LC(pos) != SH_LC(data))			\
-				return ret;				\
-		}							\
-		else if (HP_SH(pos) != HP_SH(data)) {			\
-			return ret;					\
-		}							\
-		if (idx == 1)						\
-			break;						\
-		fallthrough;						\
-	case 0:								\
-		if (state == HPACK_HDR_NAME_SEARCH) {			\
-			if (CHAR_LC(pos + idx) == CHAR_LC(data + idx))	\
-				break;					\
-		}							\
-		else if (HP_CHAR(pos + idx) == HP_CHAR(data + idx)) {	\
-			break;						\
-		}							\
-		return ret;						\
-	case -1:							\
-		break;							\
-	default:							\
-		BUG();							\
-	}								\
-	if (found)							\
-		state = HPACK_HDR_NAME_FOUND;				\
-	idx;								\
-})
 
 #define HPACK_NODE_GET_INDEX(tbl, node)					\
 ({									\
@@ -2281,150 +2208,86 @@ typedef enum {
 	idx;								\
 })
 
+/*
+ * Compare split header/value against values stored inside
+ * node and return positive/negative/zero depending on their
+ * relation.
+ * 
+ * The order geven by this function is the following:
+ * (hdr_name_len, total_hdr_len, special_strcmp)
+ * where hdr_name_len and total_hdr_len are compared as integers.
+ * 
+ * Where special_strcmp is case-insensitive for header names,
+ * case-sensitive for header values and in both cases it compares
+ * multiple characters per instruction, so don't expect strict
+ * alphabetical order!
+ */
 static int
-tfw_hpack_node_compare(const TfwStr *__restrict hdr,
-		       const TfwHPackNode *__restrict node,
-		       const TfwHPackNode **__restrict nm_node)
+tfw_hpack_node_compare(const TfwStr *__restrict h_name,
+                       const TfwStr *__restrict h_val,
+                       const TfwHPackNode *__restrict node,
+                       const TfwHPackNode **__restrict nm_node)
 {
-	short i;
-	const TfwStr *chunk, *end;
-	unsigned long k, hlen = hdr->len;
-	unsigned short len, min_len = 0, node_hlen = node->hdr_len;
-	const char *pos = node->hdr;
-	TfwHPackCmpStates state = HPACK_HDR_NAME_SEARCH;
+	unsigned len;
+	const char *np, *p;
+	const TfwStr *c, *end;
+	
+	if (h_name->len != node->name_len)
+		return (int)h_name->len - (int)node->name_len;
 
-#define HDR_PART_SHIFT(t_part, s_part)					\
-do {									\
-	pos += t_part;							\
-	node_hlen -= t_part;						\
-	data += s_part;							\
-	len -= s_part;							\
-} while (0)
-
-#define HDR_PART_COMPARE(part_len, ret)					\
-do {									\
-	i = HPACK_HDR_OWS_PROCESS(part_len, ret);			\
-	T_DBG3("%s: ows processing, part_len=%u, state=%d, *nm_node=[%p]," \
-	       " node->hdr_len=%hu, node_hlen=%hu, pos='%.*s', len=%hu," \
-	       " data='%.*s'\n", __func__, part_len, state, *nm_node,	\
-	       node->hdr_len, node_hlen, node_hlen, pos, len,		\
-	       len, data);						\
-	HDR_PART_SHIFT(i + 1, part_len);				\
-	if (state == HPACK_HDR_NAME_FOUND) {				\
-		if (!*nm_node)						\
-			*nm_node = node;				\
-		hlen -=	chunk->len - min_len;				\
-		goto chunk_end;						\
-	}								\
-} while (0)
-
-#define SHIFT(n)	HDR_PART_SHIFT(n, n)
-
-	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
-		const char *data = chunk->data;
-
-		if (!chunk->len)
+	/* Optimistically case-insensitive comparison of names.
+	 * NOTE: we know that header name lengths match, so no
+	 * additional adjustments to string chunk lengths. */
+	np = node->hdr;
+	TFW_STR_FOR_EACH_CHUNK(c, h_name, end) {
+		if (!c->len)
 			continue;
 
-		T_DBG3("%s: state=%d, hlen=%lu, node_hlen=%hu, pos='%.*s',"
-		       " chunk->len=%lu, chunk->data='%.*s'\n", __func__, state,
-		       hlen, node_hlen, node_hlen, pos, chunk->len,
-		       (int)chunk->len, data);
-
-		if (state == HPACK_HDR_NAME_FOUND) {
-			if (unlikely(data[0] == ' ' || data[0] == '\t')) {
-				hlen -= chunk->len;
-				continue;
-			}
-			state = HPACK_HDR_VALUE_FOUND;
+		/* Skip 4-byte equal blocks. */
+		for (p = c->data, len = c->len; len >= 4; len -= 4) {
+			if (INT_LE_LC(p) != INT_LE_LC(np))
+				return INT_LE_LC(p) - INT_LE_LC(np);
+			p += 4;
+			np += 4;
 		}
-
-		len = min_len = min((unsigned long)node_hlen, chunk->len);
-		hlen -= min_len;
-		while (len >= 4) {
-			if (state == HPACK_HDR_NAME_SEARCH) {
-				if (INT_LE_LC(pos) > INT_LE_LC(data))
-					HDR_PART_COMPARE(4, -1);
-				else if (INT_LE_LC(pos) < INT_LE_LC(data))
-					HDR_PART_COMPARE(4, 1);
-				else
-					SHIFT(4);
-			}
-			else {
-				if (INT_LE(pos) > INT_LE(data))
-					HDR_PART_COMPARE(4, -1);
-				else if (INT_LE(pos) < INT_LE(data))
-					HDR_PART_COMPARE(4, 1);
-				else
-					SHIFT(4);
-			}
+		while (len) {
+			if (CHAR_LC(p) != CHAR_LC(np))
+				return CHAR_LC(p) - CHAR_LC(np);
+			p++;
+			np++;
+			len--;
 		}
-		while (len >= 2) {
-			if (state == HPACK_HDR_NAME_SEARCH) {
-				if (SH_LE_LC(pos) > SH_LE_LC(data))
-					HDR_PART_COMPARE(2, -1);
-				else if (SH_LE_LC(pos) < SH_LE_LC(data))
-					HDR_PART_COMPARE(2, 1);
-				else
-					SHIFT(2);
-			}
-			else {
-				if (SH_LE(pos) > SH_LE(data))
-					HDR_PART_COMPARE(2, -1);
-				else if (SH_LE(pos) < SH_LE(data))
-					HDR_PART_COMPARE(2, 1);
-				else
-					SHIFT(2);
-			}
-		}
-		if (len) {
-			if (state == HPACK_HDR_NAME_SEARCH) {
-				if (CHAR_LC(pos) > CHAR_LC(data))
-					HDR_PART_COMPARE(1, -1);
-				else if (CHAR_LC(pos) < CHAR_LC(data))
-					HDR_PART_COMPARE(1, 1);
-				else
-					SHIFT(1);
-			}
-			else {
-				if (HP_CHAR(pos) > HP_CHAR(data))
-					HDR_PART_COMPARE(1, -1);
-				else if (HP_CHAR(pos) < HP_CHAR(data))
-					HDR_PART_COMPARE(1, 1);
-				else
-					SHIFT(1);
-			}
-		}
-chunk_end:
-		if (!node_hlen)
-			break;
 	}
 
-	/* @node is longer than @hdr. */
-	if (node_hlen)
-		return -1;
+	if (nm_node)
+		*nm_node = node;
+	
+	len = h_name->len + h_val->len;
+	if (len != node->hdr_len)
+		return (int)len - (int)node->hdr_len;
 
-	/*
-	 * The header may have empty value and in this case @hdr may have
-	 * stripped spaces and ':' so we may fall here with matching the header
-	 * name only, but in HPACK_HDR_NAME_SEARCH state, so we need to check the
-	 * rest of the chunk whether it's a prefix of @node.
-	 *
-	 * If we have matched @node_hlen characters of header, and the remained
-	 * characters are OWS, then the entire header should be considered
-	 * matched.
-	 */
-	for (k = min_len; chunk < end; ++chunk, k = 0) {
-		for ( ; k < chunk->len; ++k)
-			if (chunk->data[k] != ' ' && chunk->data[k] != '\t')
-				return 1;
+	/* Case-sensitive comparison of values */
+	TFW_STR_FOR_EACH_CHUNK(c, h_val, end) {
+		if (!c->len)
+			continue;
+
+		/* Skip 4-byte equal blocks. */
+		for (p = c->data, len = c->len; len >= 4; len -= 4) {
+			if (INT_LE(p) != INT_LE(np))
+				return INT_LE(p) - INT_LE(np);
+			p += 4;
+			np += 4;
+		}
+		while (len) {
+			if (HP_CHAR(p) != HP_CHAR(np))
+				return HP_CHAR(p) - HP_CHAR(np);
+			p++;
+			np++;
+			len--;
+		}
 	}
 
 	return 0;
-
-#undef HDR_PART_SHIFT
-#undef HDR_PART_COMPARE
-#undef SHIFT
 }
 
 /*
@@ -2841,7 +2704,8 @@ tfw_hpack_rbtree_add(TfwHPackETbl *__restrict tbl, TfwHPackNode *__restrict new,
  */
 static TfwHPackETblRes
 tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
-		      const TfwStr *__restrict hdr,
+		      const TfwStr *__restrict h_name,
+		      const TfwStr *__restrict h_val,
 		      const TfwHPackNode **__restrict out_node,
 		      TfwHPackNodeIter *__restrict out_place)
 {
@@ -2852,7 +2716,7 @@ tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 
 	while (node) {
 		parent = node;
-		res = tfw_hpack_node_compare(hdr, node, &nm_node);
+		res = tfw_hpack_node_compare(h_name, h_val, node, &nm_node);
 
 		if (res < 0)
 			node = HPACK_NODE_COND(tbl, node->left);
@@ -3024,7 +2888,8 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 
 static inline void
 tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
-		      TfwStr *__restrict hdr,
+		      const TfwStr *__restrict h_name,
+		      const TfwStr *__restrict h_val,
 		      TfwHPackNode *__restrict del_list[],
 		      TfwHPackNodeIter *__restrict place,
 		      TfwHPackETblIter *__restrict iter)
@@ -3049,7 +2914,7 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
 	 * deleting a node with less than two children.
 	 */
 	if (was_del) {
-		res = tfw_hpack_rbtree_find(tbl, hdr, &node, place);
+		res = tfw_hpack_rbtree_find(tbl, h_name, h_val, &node, place);
 		WARN_ON_ONCE(res == HPACK_IDX_ST_FOUND);
 	}
 
@@ -3173,9 +3038,10 @@ commit:
 	it.size += node_size;
 	it.rb_len += node_len;
 	it.last->hdr_len = hdr_len;
+	it.last->name_len = s_nm.len;
 	it.last->rindex = ++tbl->idx_acc;
 
-	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
+	tfw_hpack_rbuf_commit(tbl, &s_nm, &s_val, del_list, place, &it);
 
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
 	if (!TFW_STR_EMPTY(&s_val))
@@ -3191,6 +3057,8 @@ commit:
  * encoder dynamic table with potentially concurrent access from different
  * threads, so lock is used to protect the find/add/erase operations inside
  * this procedure.
+ * 
+ * TODO #1411: get rid of tfw_http_hdr_split and related safety checks
  */
 static TfwHPackETblRes
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
@@ -3202,6 +3070,7 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	TfwHPackNodeIter place = {};
 	const TfwHPackNode *node = NULL;
 	TfwHPackETblRes res = HPACK_IDX_ST_NOT_FOUND;
+	TfwStr h_name = {}, h_val = {};
 
 	BUILD_BUG_ON(HPACK_IDX_ST_MASK < _HPACK_IDX_ST_NUM - 1);
 	if (WARN_ON_ONCE(!hdr))
@@ -3213,7 +3082,10 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	    && atomic64_read(&tbl->guard) < 0)
 		goto out;
 
-	res = tfw_hpack_rbtree_find(tbl, hdr, &node, &place);
+	tfw_http_hdr_split(hdr, &h_name, &h_val, spcolon);
+	if (WARN_ON_ONCE(TFW_STR_EMPTY(&h_name)))
+		return -EINVAL;
+	res = tfw_hpack_rbtree_find(tbl, &h_name, &h_val, &node, &place);
 
 	WARN_ON_ONCE(!node && res != HPACK_IDX_ST_NOT_FOUND);
 
