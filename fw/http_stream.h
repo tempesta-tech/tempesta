@@ -227,7 +227,8 @@ tfw_h2_stream_is_closed(TfwStream *stream)
 }
 
 static inline TfwStreamFsmRes
-STREAM_SEND_PROCESS(TfwStream *stream, unsigned char type, unsigned char flags)
+tfw_h2_stream_fsm_ignore_err(TfwStream *stream, unsigned char type,
+			     unsigned char flags)
 {
 	TfwH2Err err;
 
