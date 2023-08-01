@@ -745,8 +745,7 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.b_len)
 		flags |= HTTP2_F_END_STREAM;
 
-
-	r = STREAM_SEND_PROCESS(stream, type, flags);
+	r = tfw_h2_stream_fsm_ignore_err(stream, type, flags);
 	if (stream->state > HTTP2_STREAM_REM_HALF_CLOSED)
 		tfw_h2_stream_add_closed(ctx, stream);
 
@@ -849,7 +848,7 @@ tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req)
 	req->stream = NULL;
 	stream->msg = NULL;
 
-	r = STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0);
+	r = tfw_h2_stream_fsm_ignore_err(stream, HTTP2_RST_STREAM, 0);
 	WARN_ON_ONCE(r != STREAM_FSM_RES_OK && r != STREAM_FSM_RES_IGNORE);
 
 	__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
@@ -936,7 +935,8 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+		if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream,
+						 HTTP2_RST_STREAM, 0))
 			return T_BAD;
 
 		return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
@@ -1013,7 +1013,7 @@ fail:
 		return T_BLOCK;
 	}
 
-	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
 		return T_BAD;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
@@ -1046,7 +1046,7 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
 		return T_BAD;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,

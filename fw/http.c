@@ -4983,7 +4983,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 					    !on_req_recv_event);
 	} else {
-		if (STREAM_SEND_PROCESS(stream, HTTP2_RST_STREAM, 0))
+		if (tfw_h2_stream_fsm_ignore_err(stream, HTTP2_RST_STREAM, 0))
 			return T_BAD;
 		tfw_h2_send_rst_stream(ctx, stream->id, HTTP2_ECODE_PROTO);
 	}
