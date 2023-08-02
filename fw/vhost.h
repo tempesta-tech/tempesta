@@ -248,9 +248,15 @@ tfw_vhost_get(TfwVhost *vhost)
 static inline void
 tfw_vhost_put(TfwVhost *vhost)
 {
+	s64 refcnt;
+
 	if (unlikely(!vhost))
 		return;
-	if (likely(atomic64_dec_return(&vhost->refcnt)))
+
+	refcnt = atomic64_dec_return(&vhost->refcnt);
+	BUG_ON(refcnt < 0);
+
+	if (likely(refcnt))
 		return;
 	tfw_vhost_destroy(vhost);
 }
