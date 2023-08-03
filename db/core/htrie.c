@@ -560,21 +560,21 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 		o = (*node)->shifts[TDB_HTRIE_IDX(key, *bits)];
 
-		BUG_ON(o
-		       && (TDB_DI2O(o & ~TDB_HTRIE_DBIT)
-				< TDB_HDR_SZ(dbh) + sizeof(TdbExt)
-			   || TDB_DI2O(o & ~TDB_HTRIE_DBIT)
-				> dbh->dbsz));
-
 		if (o & TDB_HTRIE_DBIT) {
+			BUG_ON(TDB_DI2O(o & ~TDB_HTRIE_DBIT)
+				< TDB_HDR_SZ(dbh) + sizeof(TdbExt)
+			       || TDB_DI2O(o & ~TDB_HTRIE_DBIT)
+				> dbh->dbsz);
 			/* We're at a data pointer - resolve it. */
 			*bits += TDB_HTRIE_BITS;
 			o ^= TDB_HTRIE_DBIT;
 			BUG_ON(!o);
+
 			return TDB_DI2O(o);
 		} else {
 			if (!o)
 				return 0; /* cannot descend deeper */
+			BUG_ON(TDB_II2O(o) > dbh->dbsz);
 			*node = TDB_PTR(dbh, TDB_II2O(o));
 			*bits += TDB_HTRIE_BITS;
 		}
