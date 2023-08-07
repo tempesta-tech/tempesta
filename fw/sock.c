@@ -193,6 +193,8 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	if (sk->sk_user_data)
+		SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
 }
@@ -539,6 +541,74 @@ err:
 }
 EXPORT_SYMBOL(ss_send);
 
+static inline bool
+ss_is_closing(struct sock *sk)
+{
+	return sk->sk_user_data && SS_CONN_TYPE(sk) & Conn_Closing;
+}
+
+/**
+ * Seconf half of ss_do_close() function.
+ *
+ * The main change between ss_do_close() and tcp_close() function is that
+ * tcp_close() function waits until socket sends all pending data, receives
+ * ack to FIN and moves to TCPF_FIN_WAIT2 state. Since ss_do_close is called
+ * from softirq context it can't sleep and wait for sending all pending data.
+ * So we divide closing procedure into two steps.
+ */
+static void
+ss_finish_closing(struct sock *sk, int flags)
+{
+	assert_spin_locked(&sk->sk_lock.slock);
+
+	sk->sk_lock.owned = 1;
+
+	sock_hold(sk);
+	sock_orphan(sk);
+
+	tcp_release_cb(sk);
+	sk->sk_lock.owned = 0;
+	if (waitqueue_active(&sk->sk_lock.wq))
+		wake_up(&sk->sk_lock.wq);
+
+	percpu_counter_inc(sk->sk_prot->orphan_count);
+
+	if (sk->sk_state == TCP_FIN_WAIT2) {
+		const int tmo = tcp_fin_time(sk);
+		if (tmo > TCP_TIMEWAIT_LEN) {
+			inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
+		} else {
+			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
+			return;
+		}
+	}
+	if (sk->sk_state != TCP_CLOSE) {
+		sk_mem_reclaim(sk);
+		if (tcp_check_oom(sk, 0)) {
+			tcp_set_state(sk, TCP_CLOSE);
+			tcp_send_active_reset(sk, GFP_ATOMIC);
+			__NET_INC_STATS(sock_net(sk),
+					LINUX_MIB_TCPABORTONMEMORY);
+		}
+	}
+	if (sk->sk_state == TCP_CLOSE) {
+		struct request_sock *req;
+
+		req = rcu_dereference_protected(tcp_sk(sk)->fastopen_rsk,
+						lockdep_sock_is_held(sk));
+		if (req)
+			reqsk_fastopen_remove(sk, req, false);
+		if (flags & __SS_F_RST)
+			/*
+			 * Evict all data for transmission since we might never
+			 * have enough window from the malicious/misbehaving client.
+			 * Receive queue is purged in inet_csk_destroy_sock().
+			 */
+			tcp_write_queue_purge(sk);
+		inet_csk_destroy_sock(sk);
+	}
+}
+
 /**
  * This is main body of the socket close function in Sync Sockets.
  *
@@ -556,7 +626,7 @@ EXPORT_SYMBOL(ss_send);
  *
  * Called with locked socket.
  */
-static void
+static int
 ss_do_close(struct sock *sk, int flags)
 {
 	struct sk_buff *skb;
@@ -609,6 +679,7 @@ ss_do_close(struct sock *sk, int flags)
 		}
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
+		goto adjudge_to_death;
 	} else if (tcp_close_state(sk)) {
 		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 		if (sk->sk_fill_write_queue)
@@ -616,60 +687,15 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_fin(sk);
 	}
 
+	if (sk_stream_closing(sk)) {
+		sk->sk_lock.owned = 0;
+		return 1;
+	}
+
 adjudge_to_death:
-	sock_hold(sk);
-	sock_orphan(sk);
-
-	/*
-	 * An adoption of release_sock() for our sleep-less tcp_close() version.
-	 *
-	 * SS sockets are processed in softirq only,
-	 * so backlog queue should be empty.
-	 */
-	WARN_ON(sk->sk_backlog.tail);
-	tcp_release_cb(sk);
-	sk->sk_lock.owned = 0;
-	if (waitqueue_active(&sk->sk_lock.wq))
-		wake_up(&sk->sk_lock.wq);
-
-	percpu_counter_inc(sk->sk_prot->orphan_count);
-
-	if (sk->sk_state == TCP_FIN_WAIT2) {
-		const int tmo = tcp_fin_time(sk);
-		if (tmo > TCP_TIMEWAIT_LEN) {
-			inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
-		} else {
-			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
-			return;
-		}
-	}
-	if (sk->sk_state != TCP_CLOSE) {
-		sk_mem_reclaim(sk);
-		if (tcp_check_oom(sk, 0)) {
-			tcp_set_state(sk, TCP_CLOSE);
-			tcp_send_active_reset(sk, GFP_ATOMIC);
-			__NET_INC_STATS(sock_net(sk),
-					LINUX_MIB_TCPABORTONMEMORY);
-		}
-	}
-	if (sk->sk_state == TCP_CLOSE) {
-		struct request_sock *req;
-
-		req = rcu_dereference_protected(tcp_sk(sk)->fastopen_rsk,
-						lockdep_sock_is_held(sk));
-		if (req)
-			reqsk_fastopen_remove(sk, req, false);
-		if (flags & __SS_F_RST)
-			/*
-			 * Evict all data for transmission since we might never
-			 * have enough window from the malicious/misbehaving client.
-			 * Receive queue is purged in inet_csk_destroy_sock().
-			 */
-			tcp_write_queue_purge(sk);
-		inet_csk_destroy_sock(sk);
-	}
+	ss_finish_closing(sk, flags);
+	return 0;
 }
-
 /**
  * This function is for internal Sync Sockets use only. It's called under the
  * socket lock taken by the kernel, and in the context of the socket that is
@@ -682,7 +708,10 @@ adjudge_to_death:
 static void
 ss_linkerror(struct sock *sk)
 {
-	ss_do_close(sk, 0);
+	if (ss_is_closing(sk))
+		ss_finish_closing(sk, 0);
+	else if (ss_do_close(sk, 0))
+		ss_finish_closing(sk, 0);
 	ss_conn_drop_guard_exit(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
@@ -992,7 +1021,12 @@ ss_tcp_state_change(struct sock *sk)
 		 * it on our own without calling upper layer hooks.
 		 */
 		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
-			ss_do_close(sk, 0);
+			/*
+			 * Close socket finally without waiting for ack
+			 * to FIN.
+			 */
+			if (ss_do_close(sk, 0))
+				ss_finish_closing(sk, 0);
 			sock_put(sk);
 			/*
 			 * The case of a connect to an upstream server that
@@ -1005,7 +1039,12 @@ ss_tcp_state_change(struct sock *sk)
 		}
 
 		if (!is_srv_sock && ss_active_guard_enter(SS_V_ACT_LIVECONN)) {
-			ss_do_close(sk, 0);
+			/*
+			 * Close socket finally without waiting for ack
+			 * to FIN.
+			 */
+			if (ss_do_close(sk, 0))
+				ss_finish_closing(sk, 0);
 			sock_put(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
@@ -1055,6 +1094,17 @@ ss_tcp_state_change(struct sock *sk)
 		 * done after all pending data has been sent.
 		 */
 		ss_close(sk, SS_F_SYNC);
+	} else if (sk->sk_state == TCP_FIN_WAIT2) {
+		WARN_ON(!ss_is_closing(sk));
+
+		/*
+		 * Our closing procedure is splitted into two steps. In the
+		 * first step we send TCP FIN, then we wait until FIN from
+		 * remote side is come. Remote FIN move socket to TCP_FIN_WAIT2
+		 * state and we finish closing socket here.
+		 */
+		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
+		ss_linkerror(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
@@ -1095,7 +1145,6 @@ ss_set_callbacks(struct sock *sk)
 
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_destroy_cb = ss_conn_drop_guard_exit;
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 
@@ -1372,16 +1421,20 @@ EXPORT_SYMBOL(ss_getpeername);
 static void
 __sk_close_locked(struct sock *sk, int flags)
 {
-	ss_do_close(sk, flags);
-	if (!sk_stream_closing(sk)) {
+	bool socket_is_closed = !ss_do_close(sk, flags);
+
+	if (socket_is_closed)
 		ss_conn_drop_guard_exit(sk);
-	} else {
-		BUG_ON(!sock_flag(sk, SOCK_DEAD));
-		if (sk->sk_user_data)
-			SS_CONN_TYPE(sk) |= Conn_Closing;
-	}
+	else if (sk->sk_user_data)
+		SS_CONN_TYPE(sk) |= Conn_Closing;
 	bh_unlock_sock(sk);
-	sock_put(sk); /* paired with ss_do_close() */
+
+	if (socket_is_closed)
+		/*
+		 * paired with sock_hold from fully
+		 * completed ss_do_close()
+		 */
+		sock_put(sk);
 }
 
 static void
@@ -1403,11 +1456,14 @@ ss_tx_action(void)
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
+
 		if (sock_flag(sk, SOCK_DEAD)) {
-			if (sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closing)
-			    && (sw.flags & __SS_F_FORCE))
-				ss_conn_drop_guard_exit(sk);
+			WARN_ON_ONCE(ss_is_closing(sk));
 			/* We've closed the socket on earlier job. */
+			bh_unlock_sock(sk);
+			goto dead_sock;
+		} else if (ss_is_closing(sk) && (sw.flags & __SS_F_FORCE)) {
+			ss_linkerror(sk);
 			bh_unlock_sock(sk);
 			goto dead_sock;
 		}
