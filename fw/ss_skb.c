@@ -1308,7 +1308,6 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
-	WARN_ON_ONCE(skb->next || skb->prev);
 	WARN_ON_ONCE(skb->sk);
 
 	skb_dst_drop(skb);

@@ -78,6 +78,9 @@ typedef struct ss_hooks {
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb);
+
+	/* Push skb to the socket write queue. */
+	int (*connection_push)(TfwConn *conn, struct sk_buff *skb);
 } SsHooks;
 
 /**
@@ -169,6 +172,7 @@ void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
 void ss_get_stat(SsStat *stat);
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb);
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
