@@ -176,10 +176,6 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
- * @new_settings	- struct which contains flags and new settings, which
- *			  should be applyed in `xmit` callback. Currently it
- *			  is used only for new hpack dynamic table size, but
- *			  can be wide later.
  *
  * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
  * (instead of separate HPACK context for each stream), since frames from other
@@ -209,10 +205,6 @@ typedef struct {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
-	struct {
-		unsigned short flags;
-		unsigned int hdr_tbl_sz;
-	} new_settings;
 } TfwH2Ctx;
 
 typedef struct tfw_conn_t TfwConn;
@@ -235,19 +227,9 @@ TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
-int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
-			       TfwH2Ctx *ctx, TfwStream *stream,
-			       unsigned int mss_now, unsigned int limit,
-			       unsigned int *t_tz);
-int tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
-			    TfwH2Ctx *ctx, TfwStream *stream,
-			    unsigned int mss_now, unsigned int limit,
-			    unsigned int *t_tz);
-int tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
-			       TfwStream *stream, unsigned int mss_now,
-			       TfwMsgIter *it, char **data,
-			       const TfwStr *frame_hdr_str,
-			       unsigned int *t_tz);
+int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size,
+		       unsigned int mss, bool *data_is_available);
+void tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx);
 
 static inline void
 tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)

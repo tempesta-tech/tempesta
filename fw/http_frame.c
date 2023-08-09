@@ -306,14 +306,6 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	if (close)
 		msg.ss_flags |= SS_F_CONN_CLOSE;
 
-	if (hdr->flags == HTTP2_F_ACK &&
-	    (ctx->new_settings.flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING))
-	{
-		skb_set_tfw_flags(it.skb, SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING);
-		skb_set_tfw_cb(it.skb, ctx->new_settings.hdr_tbl_sz);
-		ctx->new_settings.flags &= ~SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING;
-	}
-
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
 		goto err;
 	/*
@@ -711,7 +703,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_unlink(ctx, cur);
-
+		tfw_h2_stream_purge_send_queue(cur);
 		/* The streams tree is about to be destroyed and
 		 * we don't want to trigger rebalancing.
 		 * No further actions regarding streams dependencies/prio
@@ -1001,8 +993,8 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 		if (*window > 0) {
 			mss = tcp_send_mss(((TfwConn *)conn)->sk, &size,
 					   MSG_DONTWAIT);
-			tcp_push(((TfwConn *)conn)->sk, MSG_DONTWAIT, mss,
-				 TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
+			__tcp_push_pending_frames(((TfwConn *)conn)->sk, mss,
+						  TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
 		}
 		return T_OK;
 	}
@@ -1094,9 +1086,9 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		ctx->new_settings.flags |= SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING;
-		ctx->new_settings.hdr_tbl_sz = min_t(unsigned int,
-						     val, HPACK_ENC_TABLE_MAX_SIZE);
+		dest->hdr_tbl_sz = min_t(unsigned int,
+					 val, HPACK_ENC_TABLE_MAX_SIZE);
+		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
@@ -2074,224 +2066,353 @@ out:
 	return r;
 }
 
-int
-tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
-			   TfwStream *stream, unsigned int mss_now,
-			   TfwMsgIter *it, char **data,
-			   const TfwStr *frame_hdr_str,
-			   unsigned int *t_tz)
+static inline unsigned int
+tfw_h2_calc_frame_length(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
+			 unsigned int len, unsigned int avail_size,
+			 unsigned int mss)
 {
-	struct sk_buff *next = NULL;
-	unsigned len = skb->len, next_len = 0;
-	unsigned int truesize = skb->truesize, next_truesize = 0;
-	unsigned long clear_mask;
-	long tmp_t_tz, delta;
-	int r;
+	unsigned int length;
 
-#define __ADJUST_SKB_LEN_CHANGE(sk, skb, olen)				\
-	delta = (long)skb->len - (long)olen;				\
-	TCP_SKB_CB(skb)->end_seq += delta;				\
-	tcp_sk(sk)->write_seq += delta;
+	length = min(min(ctx->rsettings.max_frame_sz, len),
+		     min(avail_size, mss));
 
-	if (likely(!tcp_skb_is_last(sk, skb))) {
-		next = skb_queue_next(&sk->sk_write_queue, skb);
-		next_len = next->len;
-		next_truesize = next->truesize;
+	if (type == HTTP2_DATA) {
+		length = min3(length, (unsigned int)ctx->rem_wnd,
+			      (unsigned int)stream->rem_wnd);
 	}
 
-	r = tfw_http_msg_insert(it, data, frame_hdr_str);
-	if (unlikely(r))
-		return r;
-
-	__ADJUST_SKB_LEN_CHANGE(sk, skb, len);
-	tmp_t_tz = (long)skb->truesize - (long)truesize;
-	/*
-	 * If all HEADERS are located in current skb, we should clear
-	 * an appropriate flag in the next skb.
-	 */
-	clear_mask = (skb->len - FRAME_HEADER_SIZE >= stream->xmit.h_len ?
-		SS_F_HTTT2_FRAME_HEADERS : 0);
-
-	if (!tcp_skb_is_last(sk, skb)
-	    && skb->next != next) {
-		/* New skb was allocated during data insertion. */
-		next = skb->next;
-		/* Remove skb since it must be inserted into sk write queue. */
-		ss_skb_remove(next);
-
-		tcp_sk(sk)->write_seq += next->len;
-
-		tfw_tcp_setup_new_skb(sk, skb, next, mss_now);
-		skb_copy_tfw_cb(next, skb);
-		skb_clear_tfw_flag(next, clear_mask);
-		tmp_t_tz += next->truesize;
-	} else if (next && next->len != next_len) {
-		/* Some frags from current skb was moved to the next skb. */
-		BUG_ON(next->len < next_len);
-		__ADJUST_SKB_LEN_CHANGE(sk, next, next_len);
-
-		tfw_tcp_propagate_dseq(sk, skb);
-		skb_copy_tfw_cb(next, skb);
-		skb_clear_tfw_flag(next, clear_mask);
-		tmp_t_tz += (long)next->truesize - (long)next_truesize;
-	} else {
-		tfw_tcp_propagate_dseq(sk, skb);
-	}
-
-	BUG_ON(tmp_t_tz < 0);
-	*t_tz = tmp_t_tz;
-
-	return r;
-
-#undef __ADJUST_SKB_LEN_CHANGE
+	return length;
 }
 
-static unsigned char
-tfw_h2_prepare_frame_flags(TfwStream *stream, TfwFrameType type, bool end)
+static inline char
+tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 {
-	unsigned char flags;
-
 	switch (type) {
 	case HTTP2_HEADERS:
+		return stream->xmit.h_len ?
+			(stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM) :
+			(stream->xmit.b_len ? HTTP2_F_END_HEADERS :
+			 HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM);
 	case HTTP2_CONTINUATION:
-		flags = stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM;
-		flags |= end ? HTTP2_F_END_HEADERS : 0;
-		break;
+		return stream->xmit.h_len ? 0 : HTTP2_F_END_HEADERS;
 	case HTTP2_DATA:
-		flags = end ? HTTP2_F_END_STREAM : 0;
-		break;
+		return stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM;
 	default:
 		BUG();
 	};
 
-	return flags;
+	return 0;
 }
 
-static unsigned int
-tfw_h2_calc_frame_length(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
-			 TfwStream *stream, TfwFrameType type,
-			 unsigned int limit, unsigned int len)
+static inline TfwStreamXmitState
+tfw_h2_calc_stream_xmit_state(TfwStream *stream)
 {
-	unsigned  char tls_type =  skb_tfw_tls_type(skb);
-	unsigned short clear_flag = (type == HTTP2_DATA ?
-		SS_F_HTTT2_FRAME_DATA :  SS_F_HTTT2_FRAME_HEADERS);
-	unsigned short other_flag = (type == HTTP2_DATA ?
-		SS_F_HTTT2_FRAME_HEADERS : SS_F_HTTT2_FRAME_DATA);
-	unsigned int max_sz = min3(ctx->rsettings.max_frame_sz, limit, len);
-	unsigned int frame_sz = skb->len - FRAME_HEADER_SIZE -
-		stream->xmit.processed;
-	struct sk_buff *next = skb, *skb_tail = skb;
+	return stream->xmit.h_len ? HTTP2_MAKE_CONTINUATION_FRAMES :
+		stream->xmit.b_len ? HTTP2_MAKE_DATA_FRAMES :
+		HTTP2_MAKE_FRAMES_FINISH;
+}
 
+static inline int
+tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	struct sock *sk = ((TfwConn *)conn)->sk;
+	struct sk_buff *skb, *split;
+	char *data;
+
+	while (len) {
+		skb = ss_skb_dequeue(&stream->xmit.skb_head);
+		BUG_ON(!skb);
+
+		data = ss_skb_data_ptr_by_offset(skb, 0);
+		BUG_ON(!data);
+
+		if (skb->len > len) {
+			split = ss_skb_split(skb, len);
+			if (!split)
+				return -ENOMEM;
+
+			skb_set_tfw_tls_type(split, skb_tfw_tls_type(skb));
+			ss_skb_queue_head(&stream->xmit.skb_head, split);
+		}
+		len -= skb->len;
+		ss_skb_entail(sk, skb);
+	}
+	return 0;
+}
+
+static inline int
+tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
+			   TfwFrameType type, unsigned int mss,
+			   unsigned long *avail_size, unsigned long *len)
+{
+	TfwMsgIter it = {
+		.skb_head = stream->xmit.skb_head,
+		.skb = stream->xmit.skb_head,
+		.frag = -1
+	};
+	unsigned char buf[FRAME_HEADER_SIZE];
+	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
+	TfwFrameHdr frame_hdr = {};
+	unsigned int length;
+	char *data;
+	int r;
+
+
+	if (type == HTTP2_DATA && skb_headlen(stream->xmit.skb_head)) {
+		if ((r = tfw_http_msg_linear_transform(&it)))
+			return r;
+		stream->xmit.skb_head = it.skb_head;
+	}
+
+	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head, 0);
+	BUG_ON(!data);
+
+	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
+		struct sk_buff *next = it.skb->next;
+		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str)))
+			return r;
+		if (next != it.skb->next) {
+			skb_set_tfw_tls_type(it.skb->next,
+					     skb_tfw_tls_type(it.skb));
+		}
+	}
+
+	length = tfw_h2_calc_frame_length(ctx, stream, type, *len,
+					  *avail_size, mss);
+	*len -= length;
 	if (type == HTTP2_DATA) {
-		BUG_ON(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0);
-		max_sz = min3(max_sz, (unsigned int)ctx->rem_wnd,
-			      (unsigned int)stream->rem_wnd);
+		ctx->rem_wnd -= length;
+		stream->rem_wnd -= length;
 	}
 
-	while (!tcp_skb_is_last(sk, skb_tail)) {
-		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
+	frame_hdr.length = length;
+	frame_hdr.stream_id = stream->id;
+	frame_hdr.type = type;
+	frame_hdr.flags = tf2_h2_calc_frame_flags(stream, type);
 
-		if (frame_sz + next->len > max_sz)
+	tfw_h2_pack_frame_header(data, &frame_hdr);
+
+	if (!(*len)) {
+		TfwStreamFsmRes res;
+
+		res = tfw_h2_stream_send_process(ctx, stream, type == HTTP2_DATA ?
+						 HTTP2_DATA : HTTP2_HEADERS);
+		switch (res) {
+		case STREAM_FSM_RES_OK:
 			break;
-		/* Don't put different message types into the same frame. */
-		if (skb_tfw_tls_type(next) != tls_type)
-			break;
-		/* Don't agregate skbs with different frame types. */
-		if (skb_tfw_flags(next) & other_flag)
-			break;
-		skb_clear_tfw_flag(next, clear_flag);
-		skb_set_tfw_flags(next, SS_F_HTTP2_FRAME_PREPARED);
-		stream->xmit.nskbs++;
-		frame_sz += next->len;
-		skb_tail = next;
+		case STREAM_FSM_RES_TERM_STREAM:
+		case STREAM_FSM_RES_IGNORE:
+			tfw_h2_stream_purge_send_queue(stream);
+			return 0;
+		case STREAM_FSM_RES_TERM_CONN:
+			return -EPIPE;
+		}
 	}
 
-	return min(max_sz, frame_sz);
+	*avail_size -= length;
+	return tfw_h2_entail_stream_skb(ctx, stream,
+					length + FRAME_HEADER_SIZE);
+}
+
+#if defined(DEBUG) && (DEBUG >= 4)
+#define TFW_H2_CHECK_MAKING_FRAMES(stream)				\
+	do {								\
+		struct sk_buff *skb = stream->xmit.skb_head;		\
+		unsigned long length = 0;				\
+									\
+		if (skb) {						\
+			do {						\
+				length += skb->len;			\
+				skb = skb->next;			\
+			} while (skb != stream->xmit.skb_head);		\
+		}							\
+		BUG_ON(length != stream->xmit.h_len + stream->xmit.b_len); \
+	} while(0)
+#else
+#define TFW_H2_CHECK_MAKING_FRAMES(stream)
+#endif
+
+static int
+tfw_h2_make_frames_for_stream(TfwH2Ctx *ctx, TfwStream *stream,
+			      unsigned long *avail_size, unsigned int mss)
+{
+	int r = 0;
+	TfwFrameType frame_type;
+	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
+
+#define ADJUST_AVAILABLE_SIZE(size, type)				\
+do {									\
+	if (size <= FRAME_HEADER_SIZE)					\
+		T_FSM_EXIT();						\
+	size -= FRAME_HEADER_SIZE;					\
+	frame_type = type;						\
+} while(0)
+
+	T_FSM_START(stream->xmit.state) {
+
+	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
+		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_HEADERS);
+		if (unlikely(ctx->hpack.enc_tbl.ack_sent)) {
+			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
+						       stream);
+			if (unlikely(r < 0)) {
+				T_WARN("Failed to encode hpack dynamic"
+				       "table size %d", r);
+				return r;
+			}
+			ctx->hpack.enc_tbl.ack_sent = false;
+		}
+
+		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+					       mss, avail_size,
+					       &stream->xmit.h_len);
+		if (unlikely(r)) {
+			T_WARN("Failed to make headers frame %d", r);
+			return r;
+		}
+
+		TFW_H2_CHECK_MAKING_FRAMES(stream);
+
+		stream->xmit.state = tfw_h2_calc_stream_xmit_state(stream);
+		T_FSM_NEXT();
+	}
+
+	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
+		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_CONTINUATION);
+		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+					       mss, avail_size,
+					       &stream->xmit.h_len);
+		if (unlikely(r)) {
+			T_WARN("Failed to make continuation frame %d", r);
+			return r;
+		}
+
+		TFW_H2_CHECK_MAKING_FRAMES(stream);
+
+		stream->xmit.state = tfw_h2_calc_stream_xmit_state(stream);
+		T_FSM_NEXT();
+	}
+
+	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
+		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_DATA);
+		if (!ctx->rem_wnd || !stream->rem_wnd)
+			T_FSM_EXIT();
+		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+					       mss, avail_size,
+					       &stream->xmit.b_len);
+		if (unlikely (r)) {
+			T_WARN("Failed to make data frame %d", r);
+			return r;
+		}
+
+		TFW_H2_CHECK_MAKING_FRAMES(stream);
+
+		stream->xmit.state = tfw_h2_calc_stream_xmit_state(stream);
+		T_FSM_NEXT();
+	}
+
+	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
+		BUG_ON(stream->xmit.h_len || stream->xmit.b_len
+		       || stream->xmit.skb_head);
+		T_FSM_EXIT();
+	}
+
+	}
+
+	T_FSM_FINISH(r, stream->xmit.state);
+
+	return r;
+
+#undef ADJUST_AVAILABLE_SIZE
 }
 
 static int
-tfw_h2_make_frames(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
-		   TfwStream *stream, TfwFrameType type, unsigned int mss_now,
-		   unsigned int limit, unsigned int *t_tz)
+__tfw_h2_make_frames(TfwH2Ctx *ctx, struct rb_node *node,
+		     unsigned long *avail_size, unsigned int mss)
 {
-	int r = 0;
-	char *data;
-	unsigned char buf[FRAME_HEADER_SIZE];
-	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
-	TfwMsgIter it = {
-		.skb = skb,
-		.skb_head = ((struct sk_buff *)&sk->sk_write_queue),
-		.frag = -1
-	};
-	TfwFrameHdr frame_hdr = {};
-	unsigned long *len = (type == HTTP2_DATA ?
-		&stream->xmit.b_len : &stream->xmit.h_len);
+	int r;
 
-	if (WARN_ON_ONCE(limit <= FRAME_HEADER_SIZE))
-		return -EINVAL;
+	if (node && (*avail_size > FRAME_HEADER_SIZE)) {
+		TfwStream *stream = rb_entry(node, TfwStream, node);
+		if (stream->xmit.skb_head) {
+			BUG_ON(!stream->xmit.h_len && !stream->xmit.b_len);
+			if ((r = tfw_h2_make_frames_for_stream(ctx, stream,
+							       avail_size,
+							       mss)))
+				return r;
+		}
 
-	data = tfw_http_iter_set_at_skb(&it, skb, stream->xmit.processed);
-	if (!data)
-		return -E2BIG;
-
-	if (type != HTTP2_HEADERS) {
-		/*
-		 * Insert empty header first, because if some fragments will
-		 * be moved from current skb to the next one, skb length will
-		 * be changed.
-		 */
-		r = tfw_h2_insert_frame_header(sk, skb, stream, mss_now, &it,
-					       &data, &frame_hdr_str, t_tz);
-		if (unlikely(r))
+		if ((r = __tfw_h2_make_frames(ctx, node->rb_left, avail_size,
+					      mss)))
+			return r;
+		if ((r = __tfw_h2_make_frames(ctx, node->rb_right, avail_size,
+					      mss)))
 			return r;
 	}
-
-	limit -= FRAME_HEADER_SIZE;
-
-	frame_hdr.stream_id = stream->id;
-	frame_hdr.type = type;
-	frame_hdr.length = tfw_h2_calc_frame_length(sk, skb, ctx, stream,
-						    type, limit, *len);
-	frame_hdr.flags = tfw_h2_prepare_frame_flags(stream, type,
-						     *len == frame_hdr.length);
-	tfw_h2_pack_frame_header(data, &frame_hdr);
-
-	if (type == HTTP2_DATA) {
-		ctx->rem_wnd -= frame_hdr.length;
-		stream->rem_wnd -= frame_hdr.length;
-	}
-	stream->xmit.processed += frame_hdr.length + FRAME_HEADER_SIZE;
-	*len -= frame_hdr.length;
 
 	return 0;
 }
 
-int
-tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
-			   TfwH2Ctx *ctx, TfwStream *stream,
-			   unsigned int mss_now, unsigned int limit,
-			   unsigned int *t_tz)
+/**
+ * TODO0 #1196 A very inefficient functiom, should be reworked when an efficient
+ * stream prioritization data structure will be implemented.
+ */
+static void
+__tfw_h2_check_available_data(struct rb_node *node, bool *data_is_available)
 {
-	TfwFrameType type = skb_tfw_flags(skb) & SS_F_HTTP2_FRAME_START ?
-		HTTP2_HEADERS : HTTP2_CONTINUATION;
-
-	return tfw_h2_make_frames(sk, skb, ctx, stream, type,
-				  mss_now, limit, t_tz);
+	if (node) {
+		TfwStream *stream = rb_entry(node, TfwStream, node);
+		if (stream->xmit.skb_head) {
+			*data_is_available = true;
+			return;
+		}
+		__tfw_h2_check_available_data(node->rb_left, data_is_available);
+		__tfw_h2_check_available_data(node->rb_right, data_is_available);
+	}
 }
 
 int
-tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
-			TfwH2Ctx *ctx, TfwStream *stream,
-			unsigned int mss_now, unsigned int limit,
-			unsigned int *t_tz)
+tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size, unsigned int mss,
+		   bool *data_is_available)
 {
-	return tfw_h2_make_frames(sk, skb, ctx, stream, HTTP2_DATA,
-				  mss_now, limit, t_tz);
+	TfwStreamSched *sched = &ctx->sched;
+	struct rb_node *root = sched->streams.rb_node;
+	int r;
+
+	BUG_ON(mss <= FRAME_HEADER_SIZE);
+
+	if (unlikely(r = __tfw_h2_make_frames(ctx, root, &avail_size,
+					      mss - FRAME_HEADER_SIZE)))
+		return r;
+
+	__tfw_h2_check_available_data(root, data_is_available);
+	return 0;
+}
+
+static void
+__tfw_h2_purge_stream_send_queue(struct rb_node *node)
+{
+	if (node) {
+		TfwStream *stream = rb_entry(node, TfwStream, node);
+		if (stream->xmit.skb_head)
+			tfw_h2_stream_purge_send_queue(stream);
+		__tfw_h2_purge_stream_send_queue(node->rb_left);
+		__tfw_h2_purge_stream_send_queue(node->rb_right);
+	}
+}
+
+void
+tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx)
+{
+	TfwStreamSched *sched = &ctx->sched;
+	struct rb_node *root = sched->streams.rb_node;
+
+	__tfw_h2_purge_stream_send_queue(root);
 }
 
 TfwStream *
-tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
-					 bool recv)
+tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id, bool recv)
 {
 	TfwStream *stream;
 

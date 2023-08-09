@@ -476,8 +476,8 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 
 	sk->sk_data_ready = NULL;
 	sk->sk_state_change = NULL;
-	sk->sk_prepare_xmit = NULL;
 	sk->sk_write_xmit = NULL;
+	sk->sk_fill_write_queue = NULL;
 	sk->sk_destroy_cb = NULL;
 
 	sk->sk_user_data = NULL;
@@ -560,6 +560,7 @@ void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
 int tfw_connection_recv(TfwConn *conn, struct sk_buff *skb);
+int tfw_connection_push(TfwConn *conn, struct sk_buff *skb);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConn *conn);

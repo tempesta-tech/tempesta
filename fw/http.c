@@ -4810,7 +4810,6 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		ss_skb_adjust_data_len(it->skb, copy);
 
 		BUG_ON(!stream_id);
-		skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
 		skb_set_tfw_cb(it->skb, stream_id);
 
 		if (it->frag + 1 == MAX_SKB_FRAGS
@@ -4850,8 +4849,7 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 			iter.skb = resp->stream->parser.body_start_skb;
 		else
 			iter.skb = resp->body.skb;
-		tfw_msg_iter_set_skb_priv(&iter, stream_id,
-					  SS_F_HTTT2_FRAME_DATA);
+		tfw_msg_iter_set_skb_stream_id(&iter, stream_id);
 	}
 
 	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);

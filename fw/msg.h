@@ -100,20 +100,14 @@ int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
 		       size_t data_len, unsigned int tx_flags);
 int tfw_msg_iter_append_skb(TfwMsgIter *it);
 int tfw_http_iter_set_at(TfwMsgIter *it, char *off);
-char *tfw_http_iter_set_at_skb(TfwMsgIter *it, struct sk_buff *skb,
-		               unsigned long off);
 int tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz);
 
 static inline void
-tfw_msg_iter_set_skb_priv(TfwMsgIter *it, unsigned int priv,
-                          unsigned short flags)
+tfw_msg_iter_set_skb_stream_id(TfwMsgIter *it, unsigned int stream_id)
 {
         struct sk_buff *skb = it->skb;
         do {
-                if (flags)
-                        skb_set_tfw_flags(skb, flags);
-                if (priv)
-                        skb_set_tfw_cb(skb, priv);
+                skb_set_tfw_cb(skb, stream_id);
                 skb = skb->next;
         } while (skb != it->skb_head);
 }
