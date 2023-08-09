@@ -23,6 +23,7 @@
 #define __TFW_SS_SKB_H__
 
 #include <linux/skbuff.h>
+#include <net/tcp.h>
 
 #include "str.h"
 #include "lib/log.h"
@@ -52,8 +53,30 @@ enum {
 	SS_OK		= T_OK,
 };
 
+struct ss_skb_cb {
+	void 		*opaque_data;
+	bool		is_head;
+};
+
+#define SS_SKB_CB(skb) ((struct ss_skb_cb *)&((skb)->cb[0]))
+
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
 			   unsigned int *read);
+
+static inline void
+ss_skb_set_head_tls_type(struct sk_buff *skb_head, unsigned char tls_type)
+{
+	skb_set_tfw_tls_type(skb_head, tls_type);
+	SS_SKB_CB(skb_head)->is_head = true;
+}
+
+static inline void
+ss_skb_set_head_tls_type_and_mark(struct sk_buff *skb_head,
+				  unsigned char tls_type, unsigned int mark)
+{
+	ss_skb_set_head_tls_type(skb_head, tls_type);
+	skb_head->mark = mark;
+}
 
 /**
  * Add new _single_ @skb to the queue in FIFO order.
@@ -168,6 +191,19 @@ ss_skb_insert_before(struct sk_buff **skb_head, struct sk_buff *skb,
 
 	if (*skb_head == skb)
 		*skb_head = nskb;
+}
+
+static inline void
+ss_skb_queue_head(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(skb->next || skb->prev);
+	if (!*skb_head) {
+		*skb_head = skb;
+		skb->prev = skb->next = skb;
+		return;
+	}
+	ss_skb_insert_before(skb_head, *skb_head, skb);
 }
 
 /**
@@ -293,6 +329,39 @@ ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
 
 	ss_skb_adjust_data_len(skb, -e_size);
 	ss_skb_adjust_data_len(nskb, e_size);
+}
+
+static inline char *
+ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
+{
+	char *begin, *end;
+	unsigned long d;
+	unsigned char i;
+
+	if (skb_headlen(skb)) {
+		begin = skb->data;
+		end = begin + skb_headlen(skb);
+
+		if (begin + off <= end)
+			return begin + off;
+		off -= skb_headlen(skb);
+	}
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+
+		begin = skb_frag_address(f);
+		end = begin + skb_frag_size(f);
+		d = end - begin;
+
+		if (off >= d) {
+			off -= d;
+			continue;
+		}
+		return begin + off;
+	}
+
+	return NULL;
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)

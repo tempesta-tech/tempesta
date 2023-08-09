@@ -176,8 +176,7 @@ enum {
 int tfw_http_sess_obtain(TfwHttpReq *req);
 void tfw_http_sess_learn(TfwHttpResp *resp);
 int tfw_http_sess_req_process(TfwHttpReq *req);
-int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
-                               unsigned int stream_id);
+int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache);
 void tfw_http_sess_put(TfwHttpSess *sess);
 void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
 
