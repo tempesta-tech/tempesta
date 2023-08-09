@@ -587,7 +587,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
-	r = tfw_h2_resp_status_write(resp, status, false, false);
+	r = tfw_h2_resp_status_write(resp, status, false, true);
 	if (unlikely(r))
 		goto out;
 
@@ -638,7 +638,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 				  __TFW_STR_CH(&hdr, 1)->len;
 			hdr.hpack_idx = name->hpack_idx;
 
-			if ((r = tfw_hpack_encode(resp, &hdr, false, true)))
+			if ((r = tfw_hpack_encode(resp, &hdr, false, false)))
 				goto out;
 		}
 	}
@@ -965,7 +965,7 @@ tfw_http_conn_req_clean(TfwHttpReq *req)
 /*
  * Free the request and the paired response.
  */
-static inline void
+void
 tfw_http_resp_pair_free(TfwHttpReq *req)
 {
 	tfw_http_conn_msg_free(req->pair);
@@ -1068,7 +1068,7 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 }
 
 void
-tfw_h2_resp_fwd(TfwHttpResp *resp)
+tfw_h2_resp_fwd(TfwHttpResp *resp, bool delete_in_xmit)
 {
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
@@ -1089,7 +1089,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
-	tfw_http_resp_pair_free(req);
+	if (!delete_in_xmit)
+		tfw_http_resp_pair_free(req);
 }
 
 /*
@@ -1116,7 +1117,7 @@ tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
 		goto err_setup;
 
 	/* Send resulting HTTP/2 response and release HPACK encoder index. */
-	tfw_h2_resp_fwd(resp);
+	tfw_h2_resp_fwd(resp, false);
 
 	return;
 
@@ -4763,8 +4764,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
  * processing thus no chunked body allowed, only plain TfwStr is accepted there.
  */
 static int
-tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
-			      const TfwStr *body)
+tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 {
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *it = &mit->iter;
@@ -4809,10 +4809,6 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		skb_fill_page_desc(it->skb, it->frag, page, 0, copy);
 		ss_skb_adjust_data_len(it->skb, copy);
 
-		BUG_ON(!stream_id);
-		skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
-		skb_set_tfw_cb(it->skb, stream_id);
-
 		if (it->frag + 1 == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
 		{
@@ -4827,34 +4823,16 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
  * Frame forwarded response.
  */
 static int
-tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
-		     unsigned long h_len)
+tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id)
 {
-	int r = 0;
-	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	TfwMsgIter iter = {.frag = -1, .skb_head = resp->msg.skb_head};
-
 	BUG_ON(!resp->req);
 	
 	if(!resp->req->stream)
 		return -EPIPE;
 
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		r = tfw_http_msg_cutoff_body_chunks(resp);
-		if (unlikely(r))
-			return r;
-	}
-
-	if (b_len) {
-		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-			iter.skb = resp->body_start_skb;
-		else
-			iter.skb = resp->body.skb;
-		tfw_msg_iter_set_skb_priv(&iter, stream_id,
-					  SS_F_HTTT2_FRAME_DATA);
-	}
-
-	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
+	skb_set_tfw_cb(resp->msg.skb_head, stream_id);
+	tfw_h2_stream_init_for_xmit(resp->req->stream, resp,
+				    HTTP2_ENCODE_HEADERS, 0, 0);
 	return 0;
 }
 
@@ -4863,7 +4841,7 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
  */
 int
 tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-		        unsigned long h_len, const TfwStr *body)
+			unsigned long h_len, const TfwStr *body)
 {
 	int r = 0;
 	unsigned long b_len = body ? body->len : 0;
@@ -4873,11 +4851,13 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 	if(!resp->req->stream)
 		return -EPIPE;
 
-	r = tfw_h2_append_predefined_body(resp, stream_id, body);
+	r = tfw_h2_append_predefined_body(resp, body);
 	if (unlikely(r))
 		return r;
 
-	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
+	skb_set_tfw_cb(resp->msg.skb_head, stream_id);
+	tfw_h2_stream_init_for_xmit(resp->req->stream, NULL,
+				    HTTP2_MAKE_HEADERS_FRAMES, h_len, b_len);
 	return r;
 }
 
@@ -5176,20 +5156,10 @@ __tfw_h2_resp_cleanup(TfwHttpRespCleanup *cleanup)
 		put_page(cleanup->pages[i]);
 }
 
-/*
- * TODO: RFC 7540 8.1.2
- *    However, header field names MUST be converted to lowercase prior to
- *    their encoding in HTTP/2. A request or response containing uppercase
- *    header field names MUST be treated as malformed (Section 8.1.2.6).
- *
- * Major browsers and curl ignore that RFC requirement an work well. But
- * that is definitely an RFC violation and implementation specific behaviour.
- */
-static void
-tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
+int
+tfw_h2_encode_headers(TfwHttpResp *resp)
 {
 	int r;
-	unsigned int stream_id;
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
@@ -5198,10 +5168,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
-
-	stream_id = tfw_h2_stream_id(req);
-	if (unlikely(!stream_id))
-		goto out;
 
 	/*
 	 * Accordingly to RFC 9113 8.2.2 connection-specific headers can't
@@ -5294,22 +5260,52 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
-	if (unlikely(r))
-		goto clean;
-
 	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	tfw_h2_stream_unlink_from_req(req);
-	tfw_h2_resp_fwd(resp);
-
+	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	__tfw_h2_resp_cleanup(&cleanup);
+	return 0;
+
+clean:
+	__tfw_h2_resp_cleanup(&cleanup);
+	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
+
+	return r;
+}
+
+/*
+ * TODO: RFC 7540 8.1.2
+ *    However, header field names MUST be converted to lowercase prior to
+ *    their encoding in HTTP/2. A request or response containing uppercase
+ *    header field names MUST be treated as malformed (Section 8.1.2.6).
+ *
+ * Major browsers and curl ignore that RFC requirement an work well. But
+ * that is definitely an RFC violation and implementation specific behaviour.
+ */
+static void
+tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
+{
+	int r;
+	unsigned int stream_id;
+	TfwHttpReq *req = resp->req;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+
+	stream_id = tfw_h2_stream_id(req);
+	if (unlikely(!stream_id))
+		goto out;
+
+	r = tfw_h2_frame_fwd_resp(resp, stream_id);
+	if (unlikely(r))
+		goto clean;
+
+	tfw_h2_stream_unlink_from_req(req);
+	tfw_h2_resp_fwd(resp, true);
 
 	return;
 clean:
-	__tfw_h2_resp_cleanup(&cleanup);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
 		T_WARN_ADDR_STATUS("response dropped: processing error",
@@ -5337,7 +5333,7 @@ tfw_http_req_cache_service(TfwHttpResp *resp)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	if (TFW_MSG_H2(req))
-		tfw_h2_resp_fwd(resp);
+		tfw_h2_resp_fwd(resp, false);
 	else
 		tfw_http_resp_fwd(resp);
 
@@ -6074,7 +6070,7 @@ next_msg:
 	 */
 	if (unlikely(req->resp)) {
 		if (TFW_MSG_H2(req))
-			tfw_h2_resp_fwd(req->resp);
+			tfw_h2_resp_fwd(req->resp, false);
 		else
 			tfw_http_resp_fwd(req->resp);
 	}

@@ -37,6 +37,7 @@
 #include "sync_socket.h"
 #include "tempesta_fw.h"
 #include "work_queue.h"
+#include "connection.h"
 
 typedef enum {
 	SS_SEND,
@@ -365,16 +366,36 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	sk_memory_allocated_add(sk, amt);
 }
 
+void
+ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+	      unsigned char tls_type)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	skb->mark = mark;
+	skb_set_tfw_tls_type(skb, tls_type);
+	ss_skb_init_for_xmit(skb);
+	ss_forced_mem_schedule(sk, skb->truesize);
+	skb_entail(sk, skb);
+	tp->write_seq += skb->len;
+	TCP_SKB_CB(skb)->end_seq += skb->len;
+}
+
 /**
  * @skb_head can be invalid after the function call, don't try to use it.
  */
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct sk_buff *skb, *head = *skb_head;
+	struct sk_buff *skb;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	unsigned int mark = (*skb_head)->mark;
+	unsigned char tls_type = flags & SS_F_ENCRYPT ?
+		SS_SKB_F2TYPE(flags) : 0;
+	TfwConn *conn = (TfwConn *)sk->sk_user_data;
+	TfwH2Ctx *h2 = NULL;
+	TfwStream *stream = NULL;
+	unsigned int stream_id;
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d mss=%d size=%d\n",
@@ -383,11 +404,28 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	       sk->sk_state, mss, size);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
-	if (unlikely(!ss_sock_active(sk))) {
+	if (unlikely(!conn || !ss_sock_active(sk))) {
 		ss_skb_queue_purge(skb_head);
 		return;
 	}
 
+	if (TFW_CONN_PROTO(conn) != TFW_FSM_H2)
+		goto do_send;
+
+	h2 = tfw_h2_context(conn);
+
+	if ((stream_id = skb_tfw_cb(*skb_head))) {
+		stream = tfw_h2_find_not_closed_stream(h2, stream_id, false);
+		if (!stream) {
+			ss_skb_queue_purge(skb_head);
+			return;
+		}
+		BUG_ON(stream->xmit.skb_head);
+		stream->xmit.mark = mark;
+		stream->xmit.tls_type = tls_type;
+	}
+
+do_send:
 	while ((skb = ss_skb_dequeue(skb_head))) {
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
@@ -402,31 +440,38 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			continue;
 		}
 
-		ss_skb_init_for_xmit(skb);
-		if (flags & SS_F_ENCRYPT) {
-			skb_set_tfw_tls_type(skb, SS_SKB_F2TYPE(flags));
-			if (skb == head)
-				skb_set_tfw_flags(skb, SS_F_HTTP2_FRAME_START);
+		if (!stream) {
+			if (h2 && unlikely(h2->hpack.enc_tbl.wnd_changed &&
+					  !h2->hpack.enc_tbl.ack_sent))
+			{
+				TfwFrameHdr hdr;
+				char *data = ss_skb_data_ptr_by_offset(skb, 0);
+
+				tfw_h2_unpack_frame_header(&hdr, data);
+				if (hdr.type == HTTP2_SETTINGS &&
+				    hdr.flags == HTTP2_F_ACK)
+					h2->hpack.enc_tbl.ack_sent = true;
+			}
+			ss_skb_entail(sk, skb, mark, tls_type);
+		} else {
+			ss_skb_queue_tail(&stream->xmit.skb_head, skb);
 		}
-		/* Propagate mark of message head skb.*/
-		skb->mark = mark;
 
 		T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 		       " truesize=%u mark=%u tls_type=%x\n",
 		       smp_processor_id(), __func__, sk,
 		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
 		       skb_tfw_tls_type(skb));
-
-		ss_forced_mem_schedule(sk, skb->truesize);
-		skb_entail(sk, skb);
-
-		tp->write_seq += skb->len;
-		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state, flags);
+
+	if (stream && !stream->xmit.is_blocked) {
+		tfw_h2_sched_activate_stream(stream);
+		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+	}
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to
@@ -435,7 +480,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (flags & SS_F_CONN_CLOSE)
 		return;
 
-	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
+	__tcp_push_pending_frames(sk, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
 }
 
 /**
@@ -599,6 +644,9 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
+		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+		if (sk->sk_fill_write_queue)
+			sk->sk_fill_write_queue(sk, mss, false);
 		tcp_send_fin(sk);
 	}
 

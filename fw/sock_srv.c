@@ -410,7 +410,7 @@ end:
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_drop,
-	.connection_recv	= tfw_connection_recv,
+	.connection_recv	= tfw_connection_recv
 };
 
 static int

@@ -965,7 +965,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto err_setup;
 
 	tfw_h2_stream_unlink_from_req(req);
-	tfw_h2_resp_fwd(resp);
+	tfw_h2_resp_fwd(resp, false);
 
 	return;
 err_setup:
@@ -2557,7 +2557,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
  */
 static int
 tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
-			  unsigned long body_sz, bool h2, unsigned int stream_id)
+			  unsigned long body_sz, bool h2)
 {
 	int r;
 	bool sh_frag = h2 ? false : true;
@@ -2593,10 +2593,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 						    !body_sz);
 			if (r)
 				return r;
-			if (stream_id) {
-				skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
-				skb_set_tfw_cb(it->skb, stream_id);
-			}
 		}
 		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
@@ -2817,7 +2813,7 @@ write_body:
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (ce->body_len) {
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
-					      TFW_MSG_H2(req), stream_id))
+					      TFW_MSG_H2(req)))
 			goto free;
 	}
 	resp->content_length = ce->body_len;

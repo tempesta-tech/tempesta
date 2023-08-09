@@ -50,6 +50,14 @@ typedef enum {
 	HTTP2_STREAM_CLOSED
 } TfwStreamState;
 
+typedef enum {
+	HTTP2_ENCODE_HEADERS,
+	HTTP2_MAKE_HEADERS_FRAMES,
+	HTTP2_MAKE_CONTINUATION_FRAMES,
+	HTTP2_MAKE_DATA_FRAMES,
+	HTTP2_MAKE_FRAMES_FINISH
+} TfwStreamXmitState;
+
 static const char *__tfw_strm_st_names[] = {
 	[HTTP2_STREAM_LOC_RESERVED]	= "HTTP2_STREAM_LOC_RESERVED",
 	[HTTP2_STREAM_REM_RESERVED]	= "HTTP2_STREAM_REM_RESERVED",
@@ -105,19 +113,23 @@ typedef enum {
  * Last http2 response info, used to prepare frames
  * in `xmit` callbacks.
  *
+ * @resp		- responce, that shmust be sent.
+ * @skb_head		- head of skb list that must be sent.
  * @h_len		- length of headers in http2 response;
  * @b_len		- length of body in http2 response;
- * @__off		- offset to reinitialize processing context;
- * @processed		- count of bytes, processed during prepare xmit
- * 			  callback;
- * @nskbs		- count of skbs processed during prepare xmit callback;
+ * @mark		- mark of the resp skb_head;
+ * @tls_type		- tls type for skbs;
+ * @state		- current stream xmit state (what type of
+ * 			  frame should be made for this stream);
  */
 typedef struct {
+	TfwHttpResp *resp;
+	struct sk_buff *skb_head;
 	unsigned long h_len;
 	unsigned long b_len;
-	char __off[0];
-	unsigned int processed;
-	unsigned int nskbs;
+	unsigned int mark;
+	unsigned char tls_type;
+	TfwStreamXmitState state;
 } TfwHttpXmit;
 
 /**
@@ -200,18 +212,22 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline void
-tfw_h2_stream_xmit_reinit(TfwHttpXmit *xmit)
+tfw_h2_stream_init_for_xmit(TfwStream *stream, TfwHttpResp*resp,
+			    TfwStreamXmitState state, unsigned long h_len,
+			    unsigned long b_len)
 {
-	bzero_fast(xmit->__off, sizeof(*xmit) - offsetof(TfwHttpXmit, __off));
+	stream->xmit.resp = resp;
+	stream->xmit.skb_head = NULL;
+	stream->xmit.h_len = h_len;
+	stream->xmit.b_len = b_len;
+	stream->xmit.state = state;
 }
 
 static inline void
-tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
-			    unsigned long b_len)
+tfw_h2_stream_purge_send_queue(TfwStream *stream)
 {
-	stream->xmit.h_len = h_len;
-	stream->xmit.b_len = b_len;
-	tfw_h2_stream_xmit_reinit(&stream->xmit);
+	ss_skb_queue_purge(&stream->xmit.skb_head);
+	stream->xmit.h_len = stream->xmit.b_len = 0;
 }
 
 static inline bool
