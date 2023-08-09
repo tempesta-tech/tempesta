@@ -393,7 +393,7 @@ tfw_http_sticky_calc(TfwHttpReq *req, StickyVal *sv)
  * to the HTTP response' header block.
  */
 static int
-tfw_http_sticky_add(TfwHttpResp *resp, bool cache, unsigned int stream_id)
+tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 {
 	int r;
 	static const unsigned int len = sizeof(StickyVal) * 2;
@@ -426,8 +426,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache, unsigned int stream_id)
 
 	if (to_h2) {
 		set_cookie.hpack_idx = 55;
-		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache,
-				     stream_id);
+		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache);
 	}
 	else if (cache) {
 		TfwHttpTransIter *mit = &resp->mit;
@@ -837,8 +836,7 @@ tfw_http_sess_req_process(TfwHttpReq *req)
  * Add Tempesta sticky cookie to an HTTP response if needed.
  */
 int
-tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
-			   unsigned int stream_id)
+tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache)
 {
 	TfwHttpReq *req = resp->req;
 	TfwStickyCookie *sticky = req->vhost->cookie;
@@ -859,7 +857,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
 	 */
 	if (test_bit(TFW_HTTP_B_HAS_STICKY, req->flags))
 		return 0;
-	return tfw_http_sticky_add(resp, cache, stream_id);
+	return tfw_http_sticky_add(resp, cache);
 }
 
 /**
