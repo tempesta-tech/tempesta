@@ -90,13 +90,7 @@ typedef struct {
  *
  * @window	- maximum pseudo-length of the dynamic table (in bytes); this
  *		  value used as threshold to flushing old entries;
- * @wnd_changed	- flag indicates, that window was changed by settings update,
- * 		- can be in three states:
- * 		- 0 in case when window size isn't changed.
- * 		- 1 in case when window size is changed and it should be written
- * 		  into the first response, before the first header block.
- * 		- -1 in case when window size is written into the first response,
- * 		  but this response was not sent to a client yet.
+ * @wnd_changed - flag indicates, that window was changed by settings update;
  * @rbuf	- pointer to the ring buffer;
  * @root	- pointer to the root node of binary tree;
  * @pool	- memory pool for dynamic table;
@@ -109,7 +103,7 @@ typedef struct {
 typedef struct {
 	TFW_HPACK_ETBL_COMMON;
 	unsigned short		window;
-	atomic_t		wnd_changed;
+	bool			wnd_changed;
 	char			*rbuf;
 	TfwHPackNode		*root;
 	TfwPool			*pool;
@@ -314,10 +308,9 @@ void write_int(unsigned long index, unsigned short max, unsigned short mask,
 	       TfwHPackInt *__restrict res_idx);
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
-int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-			unsigned int stream_id);
+int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr);
 int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		     bool use_pool, bool dyn_indexing, unsigned int stream_id);
+		     bool use_pool, bool dyn_indexing);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 			     unsigned short new_size);
 int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
@@ -328,10 +321,7 @@ int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 				  unsigned char *__restrict src, unsigned long n,
 				  TfwDecodeCacheIter *__restrict cd_iter);
 void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
-int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
-			       struct sk_buff *skb, TfwStream *stream,
-			       unsigned int mss_now, unsigned int *t_tz);
-void tfw_hpack_enc_tbl_write_sz_release(TfwHPackETbl *__restrict tbl, int r);
+int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream);
 
 static inline unsigned int
 tfw_hpack_int_size(unsigned long index, unsigned short max)
