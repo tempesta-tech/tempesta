@@ -34,7 +34,7 @@ enum {
          *
          * CONN_KA: 'Connection:' header contains 'keep-alive' term. The flag
          * is not set for HTTP/1.1 connections which are persistent by default.
-         * CONN_EXTRA: 'Connection:' header contains additional terms.
+         * CONN_EXTRA: 'Connection:' header contains additional terms.(NOT used)
          *
          * CONN_CLOSE and CONN_KA flags are mutual exclusive.
          */

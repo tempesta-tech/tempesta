@@ -337,6 +337,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	bool to_h2 = TFW_MSG_H2(resp->req);
 	char *name = to_h2 ? S_SET_COOKIE : S_F_SET_COOKIE;
 	unsigned int nm_len = to_h2 ? SLEN(S_SET_COOKIE) : SLEN(S_F_SET_COOKIE);
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	TfwStickyCookie *sticky = resp->req->vhost->cookie;
@@ -375,10 +376,10 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 			goto err;
 		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &crlf, NULL);
 	} else {
-		r = tfw_http_msg_expand_from_pool(resp, &set_cookie);
+		r = tfw_http_msg_expand_from_pool(hm, &set_cookie);
 		if (unlikely(r))
 			goto err;
-		r = tfw_http_msg_expand_from_pool(resp, &crlf);
+		r = tfw_http_msg_expand_from_pool(hm, &crlf);
 	}
 
 	return 0;
