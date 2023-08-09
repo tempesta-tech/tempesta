@@ -97,42 +97,6 @@ int tfw_http_iter_set_at(TfwMsgIter *it, char *off)
 	return -E2BIG;
 }
 
-char *
-tfw_http_iter_set_at_skb(TfwMsgIter *it, struct sk_buff *skb,
-			 unsigned long off)
-{
-	char *begin, *end;
-	unsigned long d;
-	unsigned char i;
-
-	if (skb_headlen(it->skb)) {
-		begin = it->skb->data;
-		end = begin + skb_headlen(it->skb);
-
-		if (begin + off <= end) {
-			it->frag = -1;
-			return begin + off;
-		}
-		off -= skb_headlen(it->skb);
-	}
-
-	for (i = 0; i < skb_shinfo(it->skb)->nr_frags; i++) {
-		skb_frag_t *f = &skb_shinfo(it->skb)->frags[i];
-
-		begin = skb_frag_address(f);
-		end = begin + skb_frag_size(f);
-		d = end - begin;
-		if (off >= d) {
-			off -= d;
-			continue;
-		}
-		it->frag = i;
-		return begin + off;
-	}
-
-	return NULL;
-}
-
 /**
  * Move message iterator from @data pointer by @sz symbols right.
  * @sz must be less than remaining message size, otherwise an error will be

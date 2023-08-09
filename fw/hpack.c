@@ -3617,17 +3617,16 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  */
 static int
 __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		   bool use_pool, bool dyn_indexing, bool trans,
-		   unsigned int stream_id)
+		   bool use_pool, bool dyn_indexing, bool trans)
 {
 	TfwHPackInt idx;
 	bool st_full_index;
 	unsigned short st_index, index = 0;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(resp->req->conn);
+	TfwConn *conn = resp->req->conn;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
-	struct sk_buff *skb = resp->mit.iter.skb;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3640,6 +3639,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	T_DBG_PRINT_HPACK_RBTREE(tbl);
 
 	if (!st_full_index && dyn_indexing) {
+		assert_spin_locked(&conn->sk->sk_lock.slock);
 		r = tfw_hpack_encoder_index(tbl, hdr, &index, resp->flags,
 					    trans);
 		if (r < 0)
@@ -3664,7 +3664,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			return r;
 
 		resp->mit.acc_len += idx.sz * !use_pool;
-		goto set_skb_priv;
+		return 0;
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3697,30 +3697,14 @@ encode:
 		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
 	else
 		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
-set_skb_priv:
-	if (likely(!r) && stream_id) {
-		/*
-		 * Very long headers can be located in several skbs,
-		 * mark them all.
-		 */
-		while(skb && unlikely(skb != resp->mit.iter.skb)) {
-			skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS);
-			skb_set_tfw_cb(skb, stream_id);
-			skb = skb->next;
-		}
-
-		skb_set_tfw_flags(resp->mit.iter.skb, SS_F_HTTT2_FRAME_HEADERS);
-		skb_set_tfw_cb(resp->mit.iter.skb, stream_id);
-	}
 	return r;
 }
 
 int
 tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		 bool use_pool, bool dyn_indexing, unsigned int stream_id)
+		 bool use_pool, bool dyn_indexing)
 {
-	return __tfw_hpack_encode(resp, hdr, use_pool, dyn_indexing, false,
-				  stream_id);
+	return __tfw_hpack_encode(resp, hdr, use_pool, dyn_indexing, false);
 }
 
 /*
@@ -3728,10 +3712,9 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  * into the HTTP/2 HPACK format.
  */
 int
-tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		    unsigned int stream_id)
+tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
 {
-	return __tfw_hpack_encode(resp, hdr, true, true, true, stream_id);
+	return __tfw_hpack_encode(resp, hdr, true, true, true);
 }
 
 void
@@ -3757,7 +3740,7 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 	 * size that occurs in that interval MUST be signaled in a dynamic
 	 * table size update.
 	 */
-	if (tbl->window != new_size && (likely(!atomic_read(&tbl->wnd_changed))
+	if (tbl->window != new_size && (likely(!tbl->wnd_changed)
 	    || unlikely(!tbl->window) || new_size < tbl->window))
 	{
 		if (tbl->size > new_size)
@@ -3766,20 +3749,18 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 		WARN_ON_ONCE(tbl->rb_len > tbl->size);
 
 		tbl->window = new_size;
-		atomic_set(&tbl->wnd_changed, 1);
+		tbl->wnd_changed = true;
 	}
 
 	spin_unlock(&tbl->lock);
 }
 
 int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
-			   struct sk_buff *skb, TfwStream *stream,
-			   unsigned int mss_now, unsigned int *t_tz)
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 {
 	TfwMsgIter it = {
-		.skb = skb,
-		.skb_head = ((struct sk_buff *)&sk->sk_write_queue),
+		.skb = stream->xmit.skb_head,
+		.skb_head = stream->xmit.skb_head,
 		.frag = -1
 	};
 	TfwStr new_size = {};
@@ -3787,51 +3768,27 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
 	char *data;
 	int r = 0;
 
-	/*
-	 * We should encode hpack dynamic table size, only in case when
-	 * it was changed and only once.
-	 */
-	if (unlikely(atomic_cmpxchg(&tbl->wnd_changed, 1, -1) == 1)) {
-		write_int(tbl->window, 0x1F, 0x20, &tmp);
-		new_size.data = tmp.buf;
-		new_size.len = tmp.sz;
-	
-		data = tfw_http_iter_set_at_skb(&it, skb, FRAME_HEADER_SIZE);
-		if (!data) {
-			r = -E2BIG;
-			goto finish;
-		}
+	spin_lock(&tbl->lock);
 
-		r = tfw_h2_insert_frame_header(sk, skb, stream, mss_now, &it,
-					       &data, &new_size, t_tz);
-		if (unlikely(r))
-			goto finish;
+	WARN_ON_ONCE(!tbl->wnd_changed);
 
-		stream->xmit.h_len += tmp.sz;
-	}
+	write_int(tbl->window, 0x1F, 0x20, &tmp);
+	new_size.data = tmp.buf;
+	new_size.len = tmp.sz;
+
+	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
+					 FRAME_HEADER_SIZE);
+	BUG_ON(!data);
+
+	r = tfw_http_msg_insert(&it, &data, &new_size);
+	if (unlikely(r))
+		goto finish;
+
+	stream->xmit.h_len += tmp.sz;
+	tbl->wnd_changed = false;
 
 finish:
-	if (unlikely(r))
-		/*
-		 * In case of error we should restore value of `wnd_changed`
-		 * flag.
-		 */
-		atomic_set(&tbl->wnd_changed, 1);
+	spin_unlock(&tbl->lock);
 	return r;	
 }
 
-void
-tfw_hpack_enc_tbl_write_sz_release(TfwHPackETbl *__restrict tbl, int r)
-{
-	/*
-	 * Before calling this function, we should check that we encode
-	 * new dynamic table size into the frame, so `old` can have only
-	 * two values (-1 in most of all cases, since we set it previosly
-	 * or 1 if changing of dynamic table size was occured, before this
-	 * function is called).
-	 * We should change this flag only if it wasn't changed by
-	 * `tfw_hpack_set_rbuf_size` function.
-	 */
-	int old = atomic_cmpxchg(&tbl->wnd_changed, -1, r == 0 ? 0 : 1);
-	WARN_ON_ONCE(!old);
-}

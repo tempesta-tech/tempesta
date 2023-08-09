@@ -23,6 +23,7 @@
 #define __TFW_SS_SKB_H__
 
 #include <linux/skbuff.h>
+#include <net/tcp.h>
 
 #include "str.h"
 #include "lib/log.h"
@@ -50,6 +51,52 @@ enum {
 	/* The packet looks good and we can safely pass it. */
 	SS_OK		  = T_OK,
 };
+
+/*
+ * Tempesta FW sk_buff private data.
+ * @opaque_data - pointer to some private data (typically http response);
+ * @destructor	- destructor of the opaque data, should be set if data is
+ *                not NULL
+ * @do_send	- callback to special handling this skb before sending;
+ * @stream_id	- id of sender stream;
+ */
+struct tfw_skb_cb {
+	void 			*opaque_data;
+	void 			(*destructor)(void *opaque_data);
+	int 			(*do_send)(void *conn, struct sk_buff **skb_head,
+					   int flags);
+	unsigned int 		stream_id;
+};
+
+#define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
+
+static inline void
+ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
+{
+	void *opaque_data = TFW_SKB_CB(skb_head)->opaque_data;
+	void (*destructor)(void *) = TFW_SKB_CB(skb_head)->destructor;
+
+	BUILD_BUG_ON(sizeof(struct tfw_skb_cb) >
+		     sizeof(((struct sk_buff *)(0))->cb));
+
+	if (opaque_data) {
+		BUG_ON(!destructor);
+		destructor(opaque_data);
+	}
+}
+
+static inline int
+ss_skb_do_send(void *conn, struct sk_buff **skb_head, int flags)
+{
+	int (*do_send)(void *conn, struct sk_buff **skb_head, int flags) =
+		TFW_SKB_CB(*skb_head)->do_send;
+	int r = 0;
+
+	if (do_send)
+		r = do_send(conn, skb_head, flags);
+
+	return r;
+}
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
 			   unsigned int *read);
@@ -167,6 +214,19 @@ ss_skb_insert_before(struct sk_buff **skb_head, struct sk_buff *skb,
 
 	if (*skb_head == skb)
 		*skb_head = nskb;
+}
+
+static inline void
+ss_skb_queue_head(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(skb->next || skb->prev);
+	if (!*skb_head) {
+		*skb_head = skb;
+		skb->prev = skb->next = skb;
+		return;
+	}
+	ss_skb_insert_before(skb_head, *skb_head, skb);
 }
 
 /**
@@ -292,6 +352,39 @@ ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
 
 	ss_skb_adjust_data_len(skb, -e_size);
 	ss_skb_adjust_data_len(nskb, e_size);
+}
+
+static inline char *
+ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
+{
+	char *begin, *end;
+	unsigned long d;
+	unsigned char i;
+
+	if (skb_headlen(skb)) {
+		begin = skb->data;
+		end = begin + skb_headlen(skb);
+
+		if (begin + off <= end)
+			return begin + off;
+		off -= skb_headlen(skb);
+	}
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+
+		begin = skb_frag_address(f);
+		end = begin + skb_frag_size(f);
+		d = end - begin;
+
+		if (off >= d) {
+			off -= d;
+			continue;
+		}
+		return begin + off;
+	}
+
+	return NULL;
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)

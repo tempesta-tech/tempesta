@@ -237,7 +237,7 @@ next_msg:
  */
 int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
-		unsigned int limit, unsigned int nskbs)
+		unsigned int limit)
 {
 	/*
 	 * TODO #1103 currently even trivial 500-bytes HTTP message generates
@@ -246,7 +246,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 #define AUTO_SEGS_N	8
 
 	int r = -ENOMEM;
-	unsigned int head_sz, len, frags, t_sz, out_frags, i = 0;
+	unsigned int head_sz, len, frags, t_sz, out_frags;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -291,7 +291,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	tcb->end_seq += head_sz;
 
 	/* Try to aggregate several skbs into one TLS record. */
-	while (!tcp_skb_is_last(sk, skb_tail) && i++ < nskbs - 1) {
+	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
@@ -513,6 +513,28 @@ tfw_tls_close_msg_flags(TlsIOCtx *io)
 	return flags;
 }
 
+static inline int
+tfw_tls_do_send_alert(void *conn, struct sk_buff **skb_head, int flags)
+{
+	TfwH2Ctx *ctx;
+	unsigned char tls_type = flags & SS_F_ENCRYPT ?
+		SS_SKB_F2TYPE(flags) : 0;
+
+	if (TFW_CONN_PROTO((TfwConn *)conn) != TFW_FSM_H2)
+		return 0;
+
+	ctx = tfw_h2_context_safe((TfwConn *)conn);
+	if (!ctx)
+		return 0;
+	/* Can be equal to zero if ttls_xfrm_need_encrypt return false. */
+	if (tls_type)
+		skb_set_tfw_tls_type(*skb_head, tls_type);
+
+	swap(ctx->tls_alert, *skb_head);
+	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
+	return 0;
+}
+
 /**
  * Callback function which is called by TLS module under tls->lock when it
  * initiates a record transmission, e.g. alert or a handshake message.
@@ -589,6 +611,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL)) {
 		TFW_CONN_TYPE(((TfwConn *)conn)) |= Conn_Stop;
 		flags |= tfw_tls_close_msg_flags(io);
+		TFW_SKB_CB(io->skb_list)->do_send = tfw_tls_do_send_alert;
 	}
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);

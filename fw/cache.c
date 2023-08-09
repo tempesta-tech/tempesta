@@ -1018,8 +1018,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 
 		resp->mit.start_off = FRAME_HEADER_SIZE;
 
-		r = tfw_h2_resp_status_write(resp, 304, false, true,
-					     stream_id);
+		r = tfw_h2_resp_status_write(resp, 304, false, true);
 		if (unlikely(r))
 			goto err_setup;
 		/* account for :status field itself */
@@ -1060,7 +1059,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		return;
 	}
 
-	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
+	if (tfw_h2_frame_local_resp(resp, h_len, NULL))
 		goto err_setup;
 
 	tfw_h2_req_unlink_stream(req);
@@ -2666,7 +2665,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
  */
 static int
 tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
-			  unsigned long body_sz, bool h2, unsigned int stream_id)
+			  unsigned long body_sz, bool h2)
 {
 	int r;
 	bool sh_frag = h2 ? false : true;
@@ -2702,10 +2701,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 						    !body_sz);
 			if (r)
 				return r;
-			if (stream_id) {
-				skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
-				skb_set_tfw_cb(it->skb, stream_id);
-			}
 		}
 		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
@@ -2728,8 +2723,7 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 }
 
 static int
-tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce,
-		      unsigned int stream_id)
+tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
 {
 	int r;
 	size_t digs;
@@ -2760,8 +2754,7 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce,
 
 	if (to_h2) {
 		h_age.hpack_idx = 21;
-		if ((r = tfw_hpack_encode(resp, &h_age, false, false,
-					  stream_id)))
+		if ((r = tfw_hpack_encode(resp, &h_age, false, false)))
 			goto err;
 	} else {
 		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
@@ -2803,8 +2796,7 @@ err:
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
-		     unsigned int stream_id)
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 {
 	int h;
 	TfwStr dummy_body = { 0 };
@@ -2863,14 +2855,14 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	 * Set 'set-cookie' header if needed, for HTTP/2 or HTTP/1.1
 	 * response.
 	 */
-	if (tfw_http_sess_resp_process(resp, true, stream_id))
+	if (tfw_http_sess_resp_process(resp, true))
 		goto free;
 	/*
 	 * RFC 7234 p.4 Constructing Responses from Caches:
 	 * When a stored response is used to satisfy a request without
 	 * validation, a cache MUST generate an Age header field.
 	 */
-	if (tfw_cache_set_hdr_age(resp, ce, stream_id))
+	if (tfw_cache_set_hdr_age(resp, ce))
 		goto free;
 
 	if (!TFW_MSG_H2(req)) {
@@ -2898,11 +2890,11 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	}
 
 	/* Set additional headers for HTTP/2 response. */
-	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true, stream_id)
+	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true)
 	    || (lifetime > ce->lifetime
-		&& tfw_h2_set_stale_warn(resp, stream_id))
+		&& tfw_h2_set_stale_warn(resp))
 	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
-		&& tfw_h2_add_hdr_date(resp, true, stream_id)))
+		&& tfw_h2_add_hdr_date(resp, true)))
 		goto free;
 
 	h_len += mit->acc_len;
@@ -2923,7 +2915,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	 * send content in the response.
 	 */
 	dummy_body.len = req->method != TFW_HTTP_METH_HEAD ? ce->body_len : 0;
-	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, &dummy_body))
+	if (tfw_h2_frame_local_resp(resp, h_len, &dummy_body))
 		goto free;
 	it->skb = ss_skb_peek_tail(&it->skb_head);
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
@@ -2933,7 +2925,7 @@ write_body:
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (ce->body_len && req->method != TFW_HTTP_METH_HEAD) {
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
-					      TFW_MSG_H2(req), stream_id))
+					      TFW_MSG_H2(req)))
 			goto free;
 	}
 	resp->content_length = ce->body_len;
@@ -2994,8 +2986,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	resp = tfw_cache_build_resp(req, ce, lifetime, id);
-
+	resp = tfw_cache_build_resp(req, ce, lifetime);
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will
