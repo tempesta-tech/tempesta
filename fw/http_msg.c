@@ -1023,31 +1023,6 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 }
 
 /**
- * Remove hop-by-hop headers in the message
- *
- * Connection header should not be removed, tfw_http_set_hdr_connection()
- * optimize removal of the header.
- */
-int
-tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
-{
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
-	int r = 0;
-
-	do {
-		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
-			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
-			if ((r = __hdr_del(hm, hid)))
-				return r;
-	} while (hid);
-
-	return 0;
-}
-
-/**
  * Remove flagged data and EOL from skb of TfwHttpMsg->body.
  *
  * WARNING: After this call TfwHttpMsg->body MUST not be used.
@@ -1067,30 +1042,6 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 	TFW_STR_INIT(&resp->body);
 
 	return 0;
-}
-
-/**
- * Add a header, probably duplicated, without any checking of current headers.
- * In case of response transformation from HTTP/1.1 to HTTP/2, for optimization
- * purposes, we use special handling for headers adding (see note for
- * @tfw_http_msg_hdr_xfrm_str() for details).
- */
-int
-tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
-{
-	unsigned int hid;
-	TfwHttpHdrTbl *ht;
-
-	ht = hm->h_tbl;
-	hid = ht->off;
-	if (hid == ht->size) {
-		if (tfw_http_msg_grow_hdr_tbl(hm))
-			return -ENOMEM;
-		ht = hm->h_tbl;
-	}
-	++ht->off;
-
-	return __hdr_add(hm, hdr, hid);
 }
 
 /**
@@ -1441,7 +1392,7 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
  * Move body to @nskb if body located in current skb.
  */
 static inline int
-__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
+__tfw_http_msg_move_body(TfwHttpMsg *resp, struct sk_buff *nskb)
 {
 	TfwMsgIter *it = &resp->mit.iter;
 	struct sk_buff **body;
@@ -1505,15 +1456,15 @@ __tfw_http_msg_linear_transform(TfwMsgIter *it)
  * update pointer to the body skb.
  */
 static int
-__tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
+__tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	int r;
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off;
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &resp->iter;
-	TfwPool* pool = resp->pool;
+	TfwHttpTransIter *mit = &hm->mit;
+	TfwMsgIter *it = &hm->iter;
+	TfwPool* pool = hm->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
@@ -1554,8 +1505,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 				if (!nskb)
 					return -ENOMEM;
 
-				if (resp->body.len > 0) {
-					r = __tfw_http_msg_move_body(resp,
+				if (hm->body.len > 0) {
+					r = __tfw_http_msg_move_body(hm,
 								     nskb);
 					if (unlikely(r)) {
 						T_WARN("Error during moving body");
@@ -1601,15 +1552,15 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 }
 
 int
-tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str)
+tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast);
+	return __tfw_http_msg_expand_from_pool(hm, str, memcpy_fast);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
+tfw_http_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower);
+	return __tfw_http_msg_expand_from_pool(hm, str, tfw_cstrtolower);
 }
 
 static inline void
@@ -1664,19 +1615,19 @@ __tfw_http_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin
 }
 
 /*
- * Delete SKBs and paged fragments related to @resp that contains response
+ * Delete SKBs and paged fragments related to @hm that contains message
  * headers. SKBs and fragments will be "unlinked" and placed to @cleanup.
  * At this point we can't free SKBs, because data that they contain used
  * as source for message trasformation.
  */
 int
-tfw_http_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpMsgCleanup* cleanup)
+tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 {
 	int i, ret;
 	char *begin, *end;
-	TfwMsgIter *it = &resp->mit.iter;
-	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
-	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
+	TfwMsgIter *it = &hm->mit.iter;
+	char* body = TFW_STR_CHUNK(&hm->body, 0)->data;
+	TfwStr *crlf = TFW_STR_LAST(&hm->crlf);
 	char *off = body ? body : crlf->data + crlf->len;
 
 	do {
@@ -1754,7 +1705,7 @@ end:
 	BUG_ON(!it->skb_head || !it->skb);
 
 	it->skb_head = it->skb;
-	resp->msg.skb_head = it->skb;
+	hm->msg.skb_head = it->skb;
 
 	/* Start from zero fragment */
 	it->frag = -1;
