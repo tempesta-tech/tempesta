@@ -176,6 +176,10 @@ typedef struct {
  *			  flag;
  * @sent_settings	- the settings were sent, when ack will be received
  * 			  we should apply these local settings.
+ * @new_settings	- new settings to apply when ack is pushed to socket
+ * 			  write queue;
+ * @final_data		- pointer to the head of the final data (goaway and
+ * 			  tls alert).
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -197,10 +201,6 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
- * @new_settings	- struct which contains flags and new settings, which
- *			  should be applyed in `xmit` callback. Currently it
- *			  is used only for new hpack dynamic table size, but
- *			  can be wide later.
  *
  * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
  * (instead of separate HPACK context for each stream), since frames from other
@@ -221,6 +221,8 @@ typedef struct tfw_h2_ctx_t {
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
 	bool		sent_settings[_HTTP2_SETTINGS_MAX];
+	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
+	struct sk_buff	*final_data;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
@@ -233,10 +235,6 @@ typedef struct tfw_h2_ctx_t {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
-	struct {
-		unsigned short flags;
-		unsigned int hdr_tbl_sz;
-	} new_settings;
 } TfwH2Ctx;
 
 typedef struct tfw_conn_t TfwConn;
@@ -247,6 +245,7 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 			 struct sk_buff **next);
+void tfw_h2_apply_new_settings(TfwH2Ctx *ctx);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 					 bool recv);
@@ -257,19 +256,8 @@ void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
-int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
-			       TfwH2Ctx *ctx, TfwStream *stream,
-			       unsigned int mss_now, unsigned int limit,
-			       unsigned int *t_tz);
-int tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
-			    TfwH2Ctx *ctx, TfwStream *stream,
-			    unsigned int mss_now, unsigned int limit,
-			    unsigned int *t_tz);
-int tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
-			       TfwStream *stream, unsigned int mss_now,
-			       TfwMsgIter *it, char **data,
-			       const TfwStr *frame_hdr_str,
-			       unsigned int *t_tz);
+int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long wnd_awail,
+		       unsigned int mss, bool *data_is_available);
 
 static inline void
 tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
