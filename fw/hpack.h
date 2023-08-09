@@ -90,13 +90,8 @@ typedef struct {
  *
  * @window	- maximum pseudo-length of the dynamic table (in bytes); this
  *		  value used as threshold to flushing old entries;
- * @wnd_changed	- flag indicates, that window was changed by settings update,
- * 		- can be in three states:
- * 		- 0 in case when window size isn't changed.
- * 		- 1 in case when window size is changed and it should be written
- * 		  into the first response, before the first header block.
- * 		- -1 in case when window size is written into the first response,
- * 		  but this response was not sent to a client yet.
+ * @wnd_changed - flag indicates, that window was changed by settings update;
+ * @ack_sent	- flag indicates, that ack for window change was sent;
  * @rbuf	- pointer to the ring buffer;
  * @root	- pointer to the root node of binary tree;
  * @pool	- memory pool for dynamic table;
@@ -109,7 +104,8 @@ typedef struct {
 typedef struct {
 	TFW_HPACK_ETBL_COMMON;
 	unsigned short		window;
-	atomic_t		wnd_changed;
+	bool			wnd_changed;
+	bool			ack_sent;
 	char			*rbuf;
 	TfwHPackNode		*root;
 	TfwPool			*pool;
@@ -306,10 +302,7 @@ int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 				  unsigned char *__restrict src, unsigned long n,
 				  TfwDecodeCacheIter *__restrict cd_iter);
 void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
-int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, struct sock *sk,
-			       struct sk_buff *skb, TfwStream *stream,
-			       unsigned int mss_now, unsigned int *t_tz);
-void tfw_hpack_enc_tbl_write_sz_release(TfwHPackETbl *__restrict tbl, int r);
+int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream);
 
 static inline unsigned int
 tfw_hpack_int_size(unsigned long index, unsigned short max)

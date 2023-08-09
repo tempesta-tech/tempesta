@@ -170,6 +170,19 @@ ss_skb_insert_before(struct sk_buff **skb_head, struct sk_buff *skb,
 		*skb_head = nskb;
 }
 
+static inline void
+ss_skb_queue_head(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(skb->next || skb->prev);
+	if (!*skb_head) {
+		*skb_head = skb;
+		skb->prev = skb->next = skb;
+		return;
+	}
+	ss_skb_insert_before(skb_head, *skb_head, skb);
+}
+
 /**
  * Almost a copy of standard skb_dequeue() except it works with skb list
  * instead of sk_buff_head. Several crucial data include skb list and we don't
@@ -293,6 +306,39 @@ ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
 
 	ss_skb_adjust_data_len(skb, -e_size);
 	ss_skb_adjust_data_len(nskb, e_size);
+}
+
+static inline char *
+ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
+{
+	char *begin, *end;
+	unsigned long d;
+	unsigned char i;
+
+	if (skb_headlen(skb) || !skb_shinfo(skb)->nr_frags) {
+		begin = skb->data;
+		end = begin + skb_headlen(skb);
+
+		if (begin + off <= end)
+			return begin + off;
+		off -= skb_headlen(skb);
+	}
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+
+		begin = skb_frag_address(f);
+		end = begin + skb_frag_size(f);
+		d = end - begin;
+
+		if (off >= d) {
+			off -= d;
+			continue;
+		}
+		return begin + off;
+	}
+
+	return NULL;
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)

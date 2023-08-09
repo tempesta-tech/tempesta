@@ -161,6 +161,11 @@ ss_stop(void)
 {
 }
 
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb)
+{
+
+}
+
 void
 tfw_client_set_expires_time(unsigned int expires_time)
 {

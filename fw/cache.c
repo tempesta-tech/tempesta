@@ -2595,10 +2595,8 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 						    !body_sz);
 			if (r)
 				return r;
-			if (stream_id) {
-				skb_set_tfw_flags(it->skb, SS_F_HTTT2_FRAME_DATA);
+			if (stream_id)
 				skb_set_tfw_cb(it->skb, stream_id);
-			}
 		}
 		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
