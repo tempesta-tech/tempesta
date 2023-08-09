@@ -795,7 +795,7 @@ int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
-void tfw_h2_resp_fwd(TfwHttpResp *resp);
+void tfw_h2_resp_fwd(TfwHttpResp *resp, bool should_free);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
 int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache);
 int tfw_h2_set_stale_warn(TfwHttpResp *resp);
@@ -803,6 +803,7 @@ int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			     bool cache);
 int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 			     bool use_pool, bool cache);
+int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
 /*
  * Functions to send an HTTP error response to a client.
  */
@@ -811,6 +812,7 @@ int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
+void tfw_http_resp_pair_free(TfwHttpReq *req);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
