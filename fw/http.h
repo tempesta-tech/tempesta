@@ -340,6 +340,19 @@ typedef struct {
 } TfwHttpCond;
 
 /**
+ * Represents the data that should be cleaned up after message transformation.
+ *
+ * @skb_head	- head of skb list that must be freed;
+ * @pages	- pages that must be freed;
+ * @pages_sz	- current number of @pages;
+ */
+typedef struct {
+	struct sk_buff *skb_head;
+	struct page *pages[MAX_SKB_FRAGS];
+	unsigned char pages_sz;
+} TfwHttpMsgCleanup;
+
+/**
  * HTTP Request.
  *
  * @vhost	- virtual host for the request;
@@ -352,6 +365,8 @@ typedef struct {
  * 		  the response is sent to the client;
  * @stale_ce	- Stale cache entry retrieved from the cache. Must be assigned
  *		  only when "cache_use_stale" is configured;
+ * @cleanup	- Original request data. Required for keep request data until
+ * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
@@ -388,6 +403,7 @@ struct tfw_http_req_t {
 	TfwClient		*peer;
 	struct sk_buff		*old_head;
 	void			*stale_ce;
+	TfwHttpMsgCleanup	*cleanup;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	HttpJa5h		ja5h;
@@ -502,19 +518,6 @@ struct tfw_http_resp_t {
 	TfwStr			cut;
 	int			trailers_len;
 };
-
-/**
- * Represents the data that should be cleaned up after message transformation.
- *
- * @skb_head	- head of skb list that must be freed;
- * @pages	- pages that must be freed;
- * @pages_sz	- current number of @pages;
- */
-typedef struct {
-	struct sk_buff *skb_head;
-	struct page *pages[MAX_SKB_FRAGS];
-	unsigned char pages_sz;
-} TfwHttpMsgCleanup;
 
 #define TFW_HDR_MAP_INIT_CNT		32
 #define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
@@ -751,7 +754,8 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
-int tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache);
+int tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods,
+			bool from_cache);
 int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
@@ -791,5 +795,33 @@ void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
 int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
+
+static inline const BasicStr *
+tfw_http_method_id2str(int id)
+{
+#define STR_METHOD(name) [TFW_HTTP_METH_ ## name] = { #name, sizeof(#name) - 1 }
+
+	static BasicStr http_methods[] = {
+		STR_METHOD(COPY),
+		STR_METHOD(DELETE),
+		STR_METHOD(GET),
+		STR_METHOD(HEAD),
+		STR_METHOD(LOCK),
+		STR_METHOD(MKCOL),
+		STR_METHOD(MOVE),
+		STR_METHOD(OPTIONS),
+		STR_METHOD(PATCH),
+		STR_METHOD(POST),
+		STR_METHOD(PROPFIND),
+		STR_METHOD(PROPPATCH),
+		STR_METHOD(PUT),
+		STR_METHOD(TRACE),
+		STR_METHOD(UNLOCK),
+		STR_METHOD(PURGE),
+	};
+
+#undef STR_METHOD
+	return &http_methods[id];
+}
 
 #endif /* __TFW_HTTP_H__ */
