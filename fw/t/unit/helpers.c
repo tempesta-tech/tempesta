@@ -174,6 +174,17 @@ ss_stop(void)
 {
 }
 
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+		   unsigned char tls_type)
+{
+}
+
+void ss_skb_head_entail(struct sock *sk, struct sk_buff **skb,
+			unsigned int mark, unsigned char tls_type)
+{
+}
+
+
 void
 tfw_client_set_expires_time(unsigned int expires_time)
 {
@@ -425,6 +436,12 @@ int
 frang_sticky_cookie_handler(TfwHttpReq *req)
 {
 	return T_OK;
+}
+
+bool
+ttls_xfrm_need_encrypt(TlsCtx *tls)
+{
+	return true;
 }
 
 unsigned int cache_default_ttl = 60;
