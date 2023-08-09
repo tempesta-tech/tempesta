@@ -38,6 +38,7 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "http_limits.h"
+#include "http.h" // for tfw_http_resp_pair_free_and_put_conn() only
 
 typedef enum {
 	SS_SEND,
@@ -371,16 +372,29 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	sk_memory_allocated_add(sk, amt);
 }
 
+void
+ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+	      unsigned char tls_type)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	skb->mark = mark;
+	skb_set_tfw_tls_type(skb, tls_type);
+	ss_skb_init_for_xmit(skb);
+	ss_forced_mem_schedule(sk, skb->truesize);
+	skb_entail(sk, skb);
+	tp->write_seq += skb->len;
+	TCP_SKB_CB(skb)->end_seq += skb->len;
+}
+
 /**
  * @skb_head can be invalid after the function call, don't try to use it.
  */
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct sk_buff *skb, *head = *skb_head;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-	unsigned int mark = (*skb_head)->mark;
+	void *conn = sk->sk_user_data;
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d mss=%d size=%d\n",
@@ -389,45 +403,18 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	       sk->sk_state, mss, size);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
-	if (unlikely(!ss_sock_active(sk))) {
+	if (unlikely(!conn || !ss_sock_active(sk))) {
+		void *resp = SS_SKB_CB(*skb_head)->opaque_data;
+		if (resp)
+			tfw_http_resp_pair_free_and_put_conn(resp);
+
 		ss_skb_queue_purge(skb_head);
 		return;
 	}
 
-	while ((skb = ss_skb_dequeue(skb_head))) {
-		/*
-		 * Zero-sized SKBs may appear when the message headers (or any
-		 * other contents) are modified or deleted by Tempesta. Drop
-		 * these SKBs.
-		 */
-		if (!skb->len) {
-			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
-			       smp_processor_id(), __func__,
-			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
-			continue;
-		}
-
-		ss_skb_init_for_xmit(skb);
-		if (flags & SS_F_ENCRYPT) {
-			skb_set_tfw_tls_type(skb, SS_SKB_F2TYPE(flags));
-			if (skb == head)
-				skb_set_tfw_flags(skb, SS_F_HTTP2_FRAME_START);
-		}
-		/* Propagate mark of message head skb.*/
-		skb->mark = mark;
-
-		T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
-		       " truesize=%u mark=%u tls_type=%x\n",
-		       smp_processor_id(), __func__, sk,
-		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
-		       skb_tfw_tls_type(skb));
-
-		ss_forced_mem_schedule(sk, skb->truesize);
-		skb_entail(sk, skb);
-
-		tp->write_seq += skb->len;
-		TCP_SKB_CB(skb)->end_seq += skb->len;
+	if (SS_CALL(connection_do_send, conn, skb_head, flags)) {
+		ss_skb_queue_purge(skb_head);
+		return;
 	}
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
@@ -441,7 +428,13 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (flags & SS_F_CONN_CLOSE)
 		return;
 
-	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
+	if (!tcp_sk(sk)->packets_out
+	    && sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+		tcp_push_pending_frames(sk);
+	} else if (!sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+		__tcp_push_pending_frames(sk, mss,
+					  TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
+	}
 }
 
 /**
@@ -605,6 +598,13 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
+		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+		/*
+		 * We should move all skbs from our priority structure
+		 * to socket sent queue, before send TCP FIN.
+		 */
+		if (sk->sk_fill_write_queue)
+			sk->sk_fill_write_queue(sk, mss, false);
 		tcp_send_fin(sk);
 	}
 
@@ -781,6 +781,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		 * own flags, thus clear it.
 		 */
 		skb->dev = NULL;
+		bzero_fast(skb->cb, sizeof(skb->cb));
 
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
@@ -990,6 +991,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -1414,7 +1416,8 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
-	tcp_shutdown(sk, SEND_SHUTDOWN);
+	if (!sock_flag(sk, SOCK_TEMPESTA_HAS_DATA))
+		tcp_shutdown(sk, SEND_SHUTDOWN);
 	if (sk->sk_user_data)
 		SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
@@ -1442,6 +1445,7 @@ ss_tx_action(void)
 	budget = max(10UL, ss_wq_local_size(wq));
 	while ((!ss_active() || budget--) && !ss_wq_pop(wq, &sw, &ticket)) {
 		struct sock *sk = sw.sk;
+		void *resp;
 
 		bh_lock_sock(sk);
 		/*
@@ -1541,6 +1545,9 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
+		if (sw.skb_head && (resp = SS_SKB_CB(sw.skb_head)->opaque_data))
+			tfw_http_resp_pair_free_and_put_conn(resp);
+
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
 			kfree_skb(skb);
 	}
