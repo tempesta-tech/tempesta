@@ -5559,7 +5559,7 @@ tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 	s_ip = tfw_http_get_ip_from_xff(req);
 	if (!TFW_STR_EMPTY(&s_ip)) {
 		if (tfw_addr_pton(&s_ip, &addr) != 0)
-			return T_BLOCK;
+			return -EINVAL;
 
 		conn_cli = (TfwClient *)conn->peer;
 		ua = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
@@ -5819,7 +5819,7 @@ next_msg:
 			 */
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
 				if (unlikely(tfw_http_parse_check_bodyless_meth(req))) {
-					return tfw_http_req_parse_block(req, 400,
+					return tfw_http_req_parse_drop_with_fin(req, 400,
 							"Request contains Content-Length"
 							" or Content-Type field"
 							" for bodyless method");
@@ -5833,7 +5833,7 @@ next_msg:
 				if (likely(!tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
-				return	tfw_http_req_parse_block(req, 500,
+				return	tfw_http_req_parse_drop_with_fin(req, 500,
 						"Request parsing inconsistency");
 			}
 		}
@@ -5858,8 +5858,11 @@ next_msg:
 		 * The request is fully parsed, fall through and process it.
 		 */
 		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
-				 && (req->content_length != req->body.len)))
-			return T_BLOCK;
+				 && (req->content_length != req->body.len))) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			return tfw_http_req_parse_drop_with_fin(req, 500,
+				"Request parsing inconsistency");
+		}
 	}
 
 	/*
@@ -6618,8 +6621,8 @@ next_msg:
 	 */
 	if (websocket) {
 		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
-		if (unlikely(r < T_OK))
-			return T_BLOCK;
+		if (unlikely(r != T_OK))
+			return r;
 	}
 
 	/*
@@ -6628,8 +6631,8 @@ next_msg:
 	 * @hmsib is not attached to the connection yet.
 	 */
 	r = tfw_http_resp_cache(hmresp);
-	if (unlikely(r < T_OK))
-		return T_BLOCK;
+	if (unlikely(r != T_OK))
+		return r;
 
 next_resp:
 	if (skb && websocket)
@@ -6647,7 +6650,7 @@ next_resp:
 		 * Creation of sibling response has failed, close
 		 * the connection to recover.
 		 */
-		return T_BLOCK;
+		return T_BAD;
 	}
 
 	return r;

@@ -565,9 +565,9 @@ __FSM_STATE(st) {							\
 #define IN_ALPHABET(c, a)	(a[c >> 6] & (1UL << (c & 0x3f)))
 
 #define CSTR_EQ			0
-#define CSTR_POSTPONE		T_POSTPONE	/* -1 */
-#define CSTR_NEQ		T_DROP		/* -3 */
-#define CSTR_BADLEN		-4
+#define CSTR_POSTPONE		T_POSTPONE	/* -MAX_ERRNO + 1 */
+#define CSTR_NEQ		T_DROP		/* -MAX_ERRNO + 3 */
+#define CSTR_BADLEN		CSTR_NEQ + 1
 
 /**
  * Compare a mixed pair of strings with the string @str of length @str_len where

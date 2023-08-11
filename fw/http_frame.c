@@ -937,7 +937,7 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream,
 						 HTTP2_RST_STREAM, 0))
-			return T_BAD;
+			return -EPERM;
 
 		return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 					   HTTP2_ECODE_PROTO);
@@ -1010,11 +1010,11 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 fail:
 	if (!ctx->cur_stream) {
 		tfw_h2_conn_terminate(ctx, err_code);
-		return T_BAD;
+		return -EPIPE;
 	}
 
 	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-		return T_BAD;
+		return -EPERM;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   err_code);
@@ -1047,7 +1047,7 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		      " itself\n", hdr->stream_id);
 
 	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
-		return T_BAD;
+		return -EPERM;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   HTTP2_ECODE_PROTO);

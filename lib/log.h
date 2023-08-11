@@ -20,25 +20,31 @@
 #ifndef __LIB_LOG_H__
 #define __LIB_LOG_H__
 
+#ifdef __KERNEL__
+#include <linux/err.h>
+#else
+#define MAX_ERRNO 4095
+#endif
+
 /*
  * Return codes.
  */
 enum {
 	/* Generic error. Connection should be closed with TCP_FIN. */
-	T_BAD		= -4,
+	T_BAD		= -MAX_ERRNO + 4,
 	/*
 	 * The message must be dropped. Connection should be alive or closed
 	 * with TCP FIN depending on whether we can communicate with this
 	 * client or not.
 	 */
-	T_DROP          = -3,
+	T_DROP          = -MAX_ERRNO + 3,
 	/*
 	 * The message must be blocked (typically on a security event).
 	 * Tempesta send TCP RST in this case.
 	 */
-	T_BLOCK		= -2,
+	T_BLOCK		= -MAX_ERRNO + 2,
 	/* The message should be stashed (made by callback). */
-	T_POSTPONE	= -1,
+	T_POSTPONE	= -MAX_ERRNO + 1,
 	/* The message looks good and we can safely pass it. */
 	T_OK		= 0,
 };

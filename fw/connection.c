@@ -151,7 +151,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 		}
 	}
 
-	return r >= T_BAD ? r : T_BAD;
+	return r <= T_BAD || r == T_OK ? r : T_BAD;
 }
 
 void
