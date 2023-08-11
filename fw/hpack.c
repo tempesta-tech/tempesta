@@ -333,7 +333,7 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 
 		WARN_ON_ONCE(ret == T_OK);
 		ret = tfw_h2_parse_req_hdr(c->data, c->len, req, last, false);
-		if (unlikely(ret < T_POSTPONE))
+		if (unlikely(ret != T_POSTPONE))
 			return ret;
 	}
 	return ret;
@@ -370,7 +370,7 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 		WARN_ON_ONCE(ret == T_OK);
 		ret = tfw_h2_parse_req_hdr(chunk->data, chunk->len,
 					   req, last, true);
-		if (unlikely(ret < T_POSTPONE))
+		if (unlikely(ret != T_POSTPONE))
 			return ret;
 		++chunk;
 	}

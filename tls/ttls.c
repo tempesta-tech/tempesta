@@ -932,7 +932,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	if (io->msglen > ttls_max_ciphertext_len(&tls->xfrm)) {
 		T_DBG("bad message length %u\n", io->msglen);
-		return T_BAD;
+		return -EINVAL;
 	}
 
 	if ((r = __ttls_decrypt(tls, buf))) {
@@ -2239,7 +2239,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		 */
 		if (unlikely(tls->state != TTLS_HANDSHAKE_OVER)) {
 			TTLS_WARN(tls, "TLS context isn't ready after handshake\n");
-			return T_BAD;
+			return -EPERM;
 		}
 		break;
 	}
