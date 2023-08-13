@@ -9378,6 +9378,12 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_mark);
 
+/**
+ * TODO: this function aggregates states for header name and value parsing,
+ * while the caller knows exactly what it parses from HPACK layer, so we just
+ * loose performance on larger FSM. Need to split the function to values and
+ * name parsers.
+ */
 int
 tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 		     bool fin, bool value_stage)
