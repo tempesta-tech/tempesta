@@ -65,6 +65,7 @@ typedef enum {
 	HTTP2_RECV_FRAME_GOAWAY,
 	HTTP2_RECV_FRAME_PADDED,
 	HTTP2_RECV_HEADER_PRI,
+	HTTP2_RECV_PRIORITY_UPDATE,
 	HTTP2_IGNORE_FRAME_DATA,
 	__HTTP2_RECV_FRAME_APP,
 	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,
@@ -83,8 +84,12 @@ typedef enum {
 	HTTP2_SETTINGS_MAX_STREAMS,
 	HTTP2_SETTINGS_INIT_WND_SIZE,
 	HTTP2_SETTINGS_MAX_FRAME_SIZE,
-	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE
+	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE,
+	HTTP2_SETTINGS_NO_RFC7540_PRIORITIES = 0x09
 } TfwSettingsId;
+
+#define HTTP2_DEF_URGENCY	3
+#define HTTP2_DEF_INCREMENTAL	0
 
 #define __FRAME_FSM_EXIT()						\
 do {									\
@@ -205,6 +210,18 @@ do {									\
 	}								\
 })
 
+static inline void
+tfw_h2_context_init_sched(TfwH2Ctx *ctx)
+{
+	TfwStreamSched *sched = &ctx->sched;
+	unsigned int i;
+
+	for (i = 0; i <= HTTP2_MIN_URGENCY; i++) {
+		INIT_LIST_HEAD(&sched->array[i].incr);
+		INIT_LIST_HEAD(&sched->array[i].non_incr);
+	}
+}
+
 int
 tfw_h2_init(void)
 {
@@ -230,8 +247,10 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = MAX_WND_SIZE;
 	ctx->rem_wnd = DEF_WND_SIZE;
+	ctx->rfc7540_priorities = true;
 
 	spin_lock_init(&ctx->lock);
+	tfw_h2_context_init_sched(ctx);
 	INIT_LIST_HEAD(&hclosed_streams->list);
 	INIT_LIST_HEAD(&closed_streams->list);
 
@@ -258,11 +277,51 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 }
 
 static inline void
+tfw_h2_remove_stream_sched(TfwStreamSched *sched, TfwStream *stream)
+{
+	list_del_init(&stream->sched_node);
+}
+
+static inline void
+tfw_h2_add_stream_sched(TfwStreamSched *sched, TfwStream *stream)
+{
+	TfwStreamSchedEntry *entry;
+
+	BUG_ON(stream->urgency > HTTP2_MIN_URGENCY);
+
+	entry = &sched->array[stream->urgency];
+	if (stream->incr)
+		list_add_tail(&stream->sched_node, &entry->incr);
+	else
+		list_add_tail(&stream->sched_node, &entry->non_incr);
+}
+
+static inline void
+tfw_h2_change_stream_sched(TfwStreamSched *sched, TfwStream *stream)
+{
+	tfw_h2_remove_stream_sched(sched, stream);
+	tfw_h2_add_stream_sched(sched, stream);
+}
+
+static void
+tfw_h2_stop_stream(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	tfw_h2_remove_stream_sched(&ctx->sched, stream);
+	rb_erase(&stream->node, &ctx->streams);
+}
+
+static inline void
 tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 {
 	pri->stream_id = ntohl(*(unsigned int *)buf) & FRAME_STREAM_ID_MASK;
 	pri->exclusive = (buf[0] & 0x80) > 0;
 	pri->weight = buf[4] + 1;
+}
+
+static inline void
+tfw_h2_unpack_9218_priority(TfwFramePriUpdate *pri, const unsigned char *buf)
+{
+	
 }
 
 /**
@@ -293,7 +352,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 
 	tfw_h2_pack_frame_header(buf, hdr);
 
-	T_DBG2("Preparing HTTP/2 message with %lu bytes data\n", data->len);
+	T_WARN("Preparing HTTP/2 message with %lu bytes data\n", data->len);
 
 	msg.len = data->len;
 	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len, 0)))
@@ -301,6 +360,8 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 
 	if ((r = tfw_msg_write(&it, data)))
 		goto err;
+
+	T_WARN("AAAAAAAAAAAAAAAAAAAAAA %lu", data->len);
 
 	if (close)
 		msg.ss_flags |= SS_F_CONN_CLOSE;
@@ -417,6 +478,9 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
+
+	//field[2].key = htons(HTTP2_SETTINGS_NO_RFC7540_PRIORITIES);
+	//field[2].value = htonl(1);
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
@@ -566,27 +630,22 @@ tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 static TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 {
-	TfwStream *stream, *dep = NULL;
-	TfwFramePri *pri = &ctx->priority;
-	bool excl = pri->exclusive;
+	TfwStream *stream = NULL;
 
-	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
-		return NULL;
-
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
-				   ctx->lsettings.wnd_sz,
+	stream = tfw_h2_add_stream(&ctx->streams, id, HTTP2_DEF_URGENCY,
+				   HTTP2_DEF_INCREMENTAL, ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
 	if (!stream)
 		return NULL;
 
-	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
+	tfw_h2_add_stream_sched(&ctx->sched, stream);
 
 	++ctx->streams_num;
 
-	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
-	       "added strm [%p] id %u weight %u\n",
-	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
-	       stream, id, stream->weight);
+	T_DBG3("%s: ctx [%p] (streams_num %lu, prio strm id %u, prio strm [%p],"
+	       " incremental %u)\nadded strm [%p] id %u urgency %u\n",
+	       __func__, ctx, ctx->streams_num, prio.stream_id, dep,
+	       prio.ncremental, stream, id, stream->urgency);
 
 	return stream;
 }
@@ -594,11 +653,11 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 static inline void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
+	T_DBG3("%s: strm [%p] id %u state %d(%s) urgency %u, ctx streams num %lu\n",
 	       __func__, stream, stream->id, stream->state,
-	       __h2_strm_st_n(stream->state), stream->weight,
+	       __h2_strm_st_n(stream->state), stream->urgency,
 	       ctx->streams_num);
-	tfw_h2_stop_stream(&ctx->sched, stream);
+	tfw_h2_stop_stream(ctx, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;
 }
@@ -707,13 +766,12 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 {
 	TfwStream *cur, *next;
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
 
-	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
+	T_DBG3("%s: ctx [%p] conn %p\n", __func__, ctx, conn);
 
-	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
+	rbtree_postorder_for_each_entry_safe(cur, next, &ctx->streams, node) {
 		tfw_h2_stream_unlink(ctx, cur);
 		tfw_h2_stream_purge_send_queue(cur);
 		/* The streams tree is about to be destroyed and
@@ -724,7 +782,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		tfw_h2_delete_stream(cur);
 		--ctx->streams_num;
 	}
-	sched->streams = RB_ROOT;
+	ctx->streams = RB_ROOT;
 }
 
 void
@@ -1042,10 +1100,6 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
 		       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
 		       pri->weight, pri->exclusive);
-
-		tfw_h2_change_stream_dep(&ctx->sched, hdr->stream_id,
-					 pri->stream_id, pri->weight,
-					 pri->exclusive);
 		return T_OK;
 	}
 
@@ -1054,13 +1108,38 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	 * details).
 	 */
 	T_DBG("Invalid dependency: new stream with %u depends on"
-		      " itself\n", hdr->stream_id);
+	      " itself\n", hdr->stream_id);
 
 	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
 		return T_OK;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
 				   HTTP2_ECODE_PROTO);
+}
+
+static inline int
+tfw_h2_priority_9218_process(TfwH2Ctx *ctx)
+{
+	TfwStream *stream;
+	TfwFramePriUpdate prio;
+
+	tfw_h2_unpack_9218_priority(&prio, ctx->rbuf);
+	if (!prio.stream_id) {
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		return T_DROP;
+	}
+
+	stream = tfw_h2_find_stream(&ctx->streams, prio.stream_id);
+	if (!stream) {
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		return T_DROP;
+	}
+
+	stream->urgency = prio.urgency;
+	stream->incr = prio.incremental;
+	tfw_h2_change_stream_sched(&ctx->sched, stream);
+
+	return T_OK;
 }
 
 static inline void
@@ -1088,8 +1167,7 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 	 * A change to SETTINGS_INITIAL_WINDOW_SIZE can cause the available
 	 * space in a flow-control window to become negative.
 	 */
-	rbtree_postorder_for_each_entry_safe(stream, next,
-					     &ctx->sched.streams, node)
+	rbtree_postorder_for_each_entry_safe(stream, next, &ctx->streams, node)
 		if (stream->state == HTTP2_STREAM_OPENED ||
 		    stream->state == HTTP2_STREAM_REM_HALF_CLOSED)
 			stream->rem_wnd += delta;
@@ -1138,6 +1216,22 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		dest->max_lhdr_sz = val;
 		break;
 
+	case HTTP2_SETTINGS_NO_RFC7540_PRIORITIES:
+		/*
+		 * According to RFC 9218 2.1:
+		 * The value of SETTINGS_NO_RFC7540_PRIORITIES MUST be 0 or 1.
+		 * Any value other than 0 or 1 MUST be treated as a connection
+		 * error. If endpoints use SETTINGS_NO_RFC7540_PRIORITIES,
+		 * they MUST send it in the first SETTINGS frame. Senders MUST
+		 * NOT change the SETTINGS_NO_RFC7540_PRIORITIES value after
+		 * the first SETTINGS frame.
+		 */
+		if ((val != 0 && val != 1) || ctx->settings_updated)
+			return T_BAD;
+
+		ctx->rfc7540_priorities = val;
+		break;
+
 	default:
 		/*
 		 * We should silently ignore unknown identifiers (see
@@ -1146,6 +1240,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		return T_OK;
 	}
 
+	ctx->settings_updated = true;
 	return T_OK;
 }
 
@@ -1669,6 +1764,16 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
 		return T_OK;
 
+	case HTTP2_PRIORITY_UPDATE:
+		if (hdr->stream_id) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
+
+		ctx->state = HTTP2_RECV_PRIORITY_UPDATE;
+		SET_TO_READ(ctx);
+		return T_OK;
+
 	default:
 		/*
 		 * Possible extension types of frames are not covered (yet) in
@@ -1764,6 +1869,15 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_h2_priority_process(ctx))
+			FRAME_FSM_EXIT(T_DROP);
+
+		FRAME_FSM_EXIT(T_OK);
+	}
+
+	T_FSM_STATE(HTTP2_RECV_PRIORITY_UPDATE) {
+		FRAME_FSM_READ_SRVC(ctx->to_read);
+
+		if (tfw_h2_priority_9218_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1876,6 +1990,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		FRAME_FSM_EXIT(T_OK);
 	}
 
+
+
 	/* This is the special state intended to handle edge cases
 	 * when H2 frame crosses sk_buff boundary and/or fragment boundary
 	 */
@@ -1900,6 +2016,27 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 
 	return r;
 }
+
+#if 0
+void
+tfw_h2_add_stream_prio(TfwStreamSched *sched, TfwStream *stream)
+{
+	TODO 1196
+}
+
+void
+tfw_h2_change_stream_prio(TfwStreamSched *sched, TfwStream *stream,
+			  unsigned short urgency, bool incremental)
+{
+	TODO 1196
+}
+
+void
+tfw_h2_remove_stream_prio(TfwStreamSched *sched, TfwStream *stream)
+{
+	TODO 1196
+}
+#endif
 
 /*
  * Re-initialization of HTTP/2 framing context. Due to passing frames to
@@ -2363,8 +2500,7 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, struct rb_node *node,
 }
 
 /**
- * TODO0 #1196 A very inefficient functiom, should be reworked when an efficient
- * stream prioritization data structure will be implemented.
+ * TODO 1196
  */
 static void
 __tfw_h2_check_available_data(struct rb_node *node, bool * data_is_available)
@@ -2384,8 +2520,7 @@ int
 tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size, unsigned int mss,
 		   bool *data_is_available)
 {
-	TfwStreamSched *sched = &ctx->sched;
-	struct rb_node *root = sched->streams.rb_node;
+	struct rb_node *root = ctx->streams.rb_node;
 	int r;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
@@ -2413,8 +2548,7 @@ __tfw_h2_purge_stream_send_queue(struct rb_node *node)
 void
 tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx)
 {
-	TfwStreamSched *sched = &ctx->sched;
-	struct rb_node *root = sched->streams.rb_node;
+	struct rb_node *root = ctx->streams.rb_node;
 
 	__tfw_h2_purge_stream_send_queue(root);
 }
@@ -2423,7 +2557,7 @@ TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id)
 {
 	TfwStream *stream;
 
-	stream = tfw_h2_find_stream(&ctx->sched, id);
+	stream = tfw_h2_find_stream(&ctx->streams, id);
 	if (!stream || stream->queue == &ctx->closed_streams)
 		return NULL;
 

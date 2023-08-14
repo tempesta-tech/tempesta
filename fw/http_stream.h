@@ -147,12 +147,15 @@ typedef struct {
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
  * @hcl_node	- entry in queue of half-closed or closed streams;
+ * @sched_node	- entry in per-connection streams scheduler;
  * @id		- stream ID;
  * @state	- stream's current state;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
  * @loc_wnd	- stream's current flow controlled window;
  * @rem_wnd	- streams's current flow controlled window for remote client;
- * @weight	- stream's priority weight;
+ * @urgency	- stream's priority urgency;
+ * @incr	- flag indicating whether streams with the same urgency
+ *		  should be served concurrently or in the order;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
@@ -161,48 +164,30 @@ typedef struct {
 struct tfw_http_stream_t {
 	struct rb_node		node;
 	struct list_head	hcl_node;
+	struct list_head	sched_node;
 	unsigned int		id;
 	int			state;
 	spinlock_t		st_lock;
 	long int		loc_wnd;
 	long int		rem_wnd;
-	unsigned short		weight;
+	unsigned short		urgency;
+	unsigned char		incr;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
 	TfwHttpXmit		xmit;
 };
 
-/**
- * Scheduler for stream's processing distribution based on dependency/priority
- * values.
- * TODO: the structure is not completed yet and should be finished in context
- * of #1196.
- *
- * @streams	- root red-black tree entry for per-connection streams' storage;
- */
-typedef struct {
-	struct rb_root streams;
-} TfwStreamSched;
-
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
 				  unsigned char flags, bool send,
 				  TfwH2Err *err);
-TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
-			     unsigned short weight, long int loc_wnd,
-			     long int rem_wnd);
+TfwStream *tfw_h2_find_stream(struct rb_root *root, unsigned int id);
+TfwStream *tfw_h2_add_stream(struct rb_root *root, unsigned int id,
+			     unsigned short urgency, unsigned char incremental,
+			     long int loc_wnd, long int rem_wnd);
 void tfw_h2_delete_stream(TfwStream *stream);
-int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
-			   TfwStream **dep);
-void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
-			   TfwStream *dep, bool excl);
-void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			      unsigned int new_dep, unsigned short new_weight,
-			      bool excl);
-void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline void
 tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,

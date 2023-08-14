@@ -45,21 +45,23 @@ typedef enum {
 	HTTP2_GOAWAY,
 	HTTP2_WINDOW_UPDATE,
 	HTTP2_CONTINUATION,
+	HTTP2_PRIORITY_UPDATE,
 	_HTTP2_UNDEFINED
 } TfwFrameType;
 
 static const char *__tfw_h2_frm_names[] = {
-	[HTTP2_DATA]	      = "DATA",
-	[HTTP2_HEADERS]	      = "HEADERS",
-	[HTTP2_PRIORITY]      = "PRIORITY",
-	[HTTP2_RST_STREAM]    = "RST_STREAM",
-	[HTTP2_SETTINGS]      = "SETTINGS",
-	[HTTP2_PUSH_PROMISE]  = "PUSH_PROMISE",
-	[HTTP2_PING]	      = "PING",
-	[HTTP2_GOAWAY]	      = "GOAWAY",
-	[HTTP2_WINDOW_UPDATE] = "WINDOW_UPDATE",
-	[HTTP2_CONTINUATION]  = "CONTINUATION",
-	[_HTTP2_UNDEFINED]    = "< UNDEF >",
+	[HTTP2_DATA]	      	= "DATA",
+	[HTTP2_HEADERS]	      	= "HEADERS",
+	[HTTP2_PRIORITY]      	= "PRIORITY",
+	[HTTP2_RST_STREAM]    	= "RST_STREAM",
+	[HTTP2_SETTINGS]      	= "SETTINGS",
+	[HTTP2_PUSH_PROMISE]  	= "PUSH_PROMISE",
+	[HTTP2_PING]	      	= "PING",
+	[HTTP2_GOAWAY]	      	= "GOAWAY",
+	[HTTP2_WINDOW_UPDATE] 	= "WINDOW_UPDATE",
+	[HTTP2_CONTINUATION]  	= "CONTINUATION",
+	[HTTP2_PRIORITY_UPDATE] = "PRIORITY_UPDATE",
+	[_HTTP2_UNDEFINED]    	= "< UNDEF >",
 };
 
 static inline const char *
@@ -112,6 +114,22 @@ typedef struct {
 	unsigned char	exclusive;
 } TfwFramePri;
 
+
+/**
+ * Unpacked data from priority update payload of frames (RFC 9218 section 7.1).
+ *
+ * @stream_id		- id for the stream that is the target of the
+ *			  priority update;
+ * @urgency		- new stream's urgency;
+ * @incremental		- flag indicating whether streams with the same urgency
+ *			  should be served concurrently or in the order;
+ */
+typedef struct {
+	unsigned int	stream_id;
+	unsigned short	urgency;
+	unsigned char	incremental;
+} TfwFramePriUpdate;
+
 /**
  * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
  * section 6.5.2).
@@ -138,6 +156,32 @@ typedef struct {
 } TfwSettings;
 
 /**
+ * Minimal value of urgency according to RFC 9218.
+ */
+#define HTTP2_MIN_URGENCY 7
+
+/**
+ * Scheduler for the streams with the same urgency.
+ *
+ * @incr		- list head of incremental streams;
+ * @non_incr		- list head of non incremental streams;
+ */
+typedef struct {
+	struct list_head incr;
+	struct list_head non_incr;
+} TfwStreamSchedEntry;
+
+/**
+ * Scheduler for http2 streams.
+ *
+ * @array		- array of streams, each entry corresponds
+ * 			  to streams with the same urgency.
+ */
+typedef struct {
+	TfwStreamSchedEntry array[HTTP2_MIN_URGENCY + 1];
+} TfwStreamSched;
+
+/**
  * Context for HTTP/2 frames processing.
  *
  * @lock		- spinlock to protect stream-request linkage;
@@ -145,7 +189,8 @@ typedef struct {
  * @rsettings		- settings for HTTP/2 connection received from the
  *			  remote endpoint;
  * @streams_num		- number of the streams initiated by client;
- * @sched		- streams' priority scheduler;
+ * @streams		- red black tree stream storage;
+ * @sched		- streams scheduler;
  * @hclosed_streams	- queue of half-closed streams (in
  *			  HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
  *			  states), which are waiting until all it's data will
@@ -155,6 +200,10 @@ typedef struct {
  * 			  state), which are waiting for removal;
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
+ * @rfc7540_priorities	- flag, which indicate if client use priority frames
+ * 			  according to RFC750 or not;
+ * @settings_updated	- flag, which indicate that first settings frame was
+ * 			- received and processed;
  * @loc_wnd		- connection's current flow controlled window;
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
@@ -191,10 +240,13 @@ typedef struct {
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
+	struct rb_root	streams;
 	TfwStreamSched	sched;
 	TfwStreamQueue	hclosed_streams;
 	TfwStreamQueue	closed_streams;
 	unsigned int	lstream_id;
+	bool		rfc7540_priorities;
+	bool		settings_updated;
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;

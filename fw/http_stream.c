@@ -25,8 +25,6 @@
 #endif
 #include "http_frame.h"
 
-#define HTTP2_DEF_WEIGHT	16
-
 static struct kmem_cache *stream_cache;
 
 int
@@ -380,23 +378,25 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 }
 
 static inline void
-tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
-		   long int loc_wnd, long int rem_wnd)
+tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short urgency,
+		   unsigned char incr, long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	INIT_LIST_HEAD(&stream->hcl_node);
+	INIT_LIST_HEAD(&stream->sched_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_OPENED;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
-	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+	stream->urgency = urgency;
+	stream->incr = incr;
 }
 
 TfwStream *
-tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
+tfw_h2_find_stream(struct rb_root *root, unsigned int id)
 {
-	struct rb_node *node = sched->streams.rb_node;
+	struct rb_node *node = root->rb_node;
 
 	while (node) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
@@ -413,11 +413,11 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 }
 
 TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
-		  long int loc_wnd, long int rem_wnd)
+tfw_h2_add_stream(struct rb_root *root, unsigned int id, unsigned short urgency,
+		  unsigned char incr, long int loc_wnd, long int rem_wnd)
 {
 	TfwStream *new_stream;
-	struct rb_node **new = &sched->streams.rb_node;
+	struct rb_node **new = &root->rb_node;
 	struct rb_node *parent = NULL;
 
 	while (*new) {
@@ -438,10 +438,10 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, id, urgency, incr, loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
-	rb_insert_color(&new_stream->node, &sched->streams);
+	rb_insert_color(&new_stream->node, root);
 
 	return new_stream;
 }
@@ -450,51 +450,4 @@ void
 tfw_h2_delete_stream(TfwStream *stream)
 {
 	kmem_cache_free(stream_cache, stream);
-}
-
-int
-tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id, TfwStream **dep)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-	return 0;
-}
-
-void
-tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream, TfwStream *dep,
-		      bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-void
-tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			 unsigned int new_dep, unsigned short new_weight,
-			 bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-static void
-tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-void
-tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
-{
-	tfw_h2_remove_stream_dep(sched, stream);
-	rb_erase(&stream->node, &sched->streams);
 }
