@@ -220,6 +220,7 @@ tfw_h2_context_init_sched(TfwH2Ctx *ctx)
 		INIT_LIST_HEAD(&sched->array[i].incr);
 		INIT_LIST_HEAD(&sched->array[i].non_incr);
 	}
+	sched->non_empty = 0;
 }
 
 int
@@ -276,10 +277,24 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	tfw_hpack_clean(&ctx->hpack);
 }
 
+static inline bool
+tfw_h2_stream_sched_is_empty(TfwStreamSched *sched)
+{
+	return !sched->non_empty;
+}
+
 static inline void
 tfw_h2_remove_stream_sched(TfwStreamSched *sched, TfwStream *stream)
 {
+	TfwStreamSchedEntry *entry;
+
+	BUG_ON(stream->urgency > HTTP2_MIN_URGENCY);
+
+	entry = &sched->array[stream->urgency];
 	list_del_init(&stream->sched_node);
+
+	if (list_empty(&entry->incr) && list_empty(&entry->non_incr))
+		sched->non_empty &= ~(1 << stream->urgency);
 }
 
 static inline void
@@ -294,6 +309,8 @@ tfw_h2_add_stream_sched(TfwStreamSched *sched, TfwStream *stream)
 		list_add_tail(&stream->sched_node, &entry->incr);
 	else
 		list_add_tail(&stream->sched_node, &entry->non_incr);
+
+	sched->non_empty |= (1 << stream->urgency);
 }
 
 static inline void
@@ -2460,6 +2477,8 @@ do {									\
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
 		BUG_ON(stream->xmit.h_len || stream->xmit.b_len
 		       || stream->xmit.skb_head);
+
+		tfw_h2_remove_stream_sched(&ctx->sched, stream);
 		T_FSM_EXIT();
 	}
 
@@ -2473,84 +2492,77 @@ do {									\
 }
 
 static int
-__tfw_h2_make_frames(TfwH2Ctx *ctx, struct rb_node *node,
-		     unsigned long *avail_size, unsigned int mss)
+__tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 {
 	int r;
 
-	if (node && (*avail_size > FRAME_HEADER_SIZE)) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head) {
-			BUG_ON(!stream->xmit.h_len && !stream->xmit.b_len);
-			if ((r = tfw_h2_make_frames_for_stream(ctx, stream,
-							       avail_size,
-							       mss)))
+	T_WARN("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
+	while (!tfw_h2_stream_sched_is_empty(&ctx->sched)
+	       && (*avail_size > FRAME_HEADER_SIZE))
+	{
+		unsigned int i = __builtin_ffs(ctx->sched.non_empty) - 1;
+		TfwStreamSchedEntry *entry = &ctx->sched.array[i];
+		struct list_head *cur, *tmp;
+
+		list_for_each_safe(cur, tmp, &entry->incr) {
+			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
+			r = tfw_h2_make_frames_for_stream(ctx, stream, avail_size, mss);
+			if (unlikely(r))
 				return r;
+			if (*avail_size < FRAME_HEADER_SIZE)
+				return 0;
 		}
 
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_left, avail_size,
-					      mss)))
-			return r;
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_right, avail_size,
-					      mss)))
-			return r;
+		list_for_each_safe(cur, tmp, &entry->non_incr) {
+			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
+			r = tfw_h2_make_frames_for_stream(ctx, stream, avail_size, mss);
+			if (unlikely(r))
+				return r;
+			if (*avail_size < FRAME_HEADER_SIZE)
+				return 0;
+		}
 	}
 
+	T_WARN("AAAAAAAAAAAAAAAAAAAAAA AAAAAAAAAAAAAAAAAAAAAA");
 	return 0;
-}
-
-/**
- * TODO 1196
- */
-static void
-__tfw_h2_check_available_data(struct rb_node *node, bool * data_is_available)
-{
-	if (node) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head) {
-			*data_is_available = true;
-			return;
-		}
-		__tfw_h2_check_available_data(node->rb_left, data_is_available);
-		__tfw_h2_check_available_data(node->rb_right, data_is_available);
-	}
 }
 
 int
 tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size, unsigned int mss,
 		   bool *data_is_available)
 {
-	struct rb_node *root = ctx->streams.rb_node;
 	int r;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
 
-	if (unlikely(r = __tfw_h2_make_frames(ctx, root, &avail_size,
+	if (unlikely(r = __tfw_h2_make_frames(ctx, &avail_size,
 					      mss - FRAME_HEADER_SIZE)))
 		return r;
 
-	__tfw_h2_check_available_data(root, data_is_available);
+	*data_is_available = !tfw_h2_stream_sched_is_empty(&ctx->sched);
 	return 0;
-}
-
-static void
-__tfw_h2_purge_stream_send_queue(struct rb_node *node)
-{
-	if (node) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head)
-			tfw_h2_stream_purge_send_queue(stream);
-		__tfw_h2_purge_stream_send_queue(node->rb_left);
-		__tfw_h2_purge_stream_send_queue(node->rb_right);
-	}
 }
 
 void
 tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx)
 {
-	struct rb_node *root = ctx->streams.rb_node;
+	unsigned int i;
 
-	__tfw_h2_purge_stream_send_queue(root);
+	for (i = 0; i <= HTTP2_MIN_URGENCY; i++) {
+		TfwStreamSchedEntry *entry = &ctx->sched.array[i];
+		struct list_head *cur, *tmp;
+
+		list_for_each_safe(cur, tmp, &entry->incr) {
+			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
+			tfw_h2_stream_purge_send_queue(stream);
+			tfw_h2_remove_stream_sched(&ctx->sched, stream);
+		}
+		list_for_each_safe(cur, tmp, &entry->non_incr) {
+			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
+			tfw_h2_stream_purge_send_queue(stream);
+			tfw_h2_remove_stream_sched(&ctx->sched, stream);
+		}
+	}
 }
 
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id)

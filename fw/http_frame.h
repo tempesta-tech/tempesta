@@ -174,10 +174,12 @@ typedef struct {
 /**
  * Scheduler for http2 streams.
  *
+ * @non_empty		- bit field of non empty entries;
  * @array		- array of streams, each entry corresponds
  * 			  to streams with the same urgency.
  */
 typedef struct {
+	unsigned int non_empty; 
 	TfwStreamSchedEntry array[HTTP2_MIN_URGENCY + 1];
 } TfwStreamSched;
 
