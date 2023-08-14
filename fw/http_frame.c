@@ -220,6 +220,7 @@ tfw_h2_context_init_sched(TfwH2Ctx *ctx)
 		INIT_LIST_HEAD(&sched->array[i].incr);
 		INIT_LIST_HEAD(&sched->array[i].non_incr);
 	}
+	INIT_LIST_HEAD(&sched->blocked);
 	sched->non_empty = 0;
 }
 
@@ -318,6 +319,20 @@ tfw_h2_change_stream_sched(TfwStreamSched *sched, TfwStream *stream)
 {
 	tfw_h2_remove_stream_sched(sched, stream);
 	tfw_h2_add_stream_sched(sched, stream);
+}
+
+static inline void
+tfw_h2_stream_remove_blocked(TfwStreamSched *sched, TfwStream *stream)
+{
+	list_del_init(&stream->sched_node);
+	tfw_h2_add_stream_sched(sched, stream);
+}
+
+static inline void
+tfw_h2_stream_add_blocked(TfwStreamSched *sched, TfwStream *stream)
+{
+	tfw_h2_remove_stream_sched(sched, stream);
+	list_add_tail(&stream->sched_node, &sched->blocked);
 }
 
 static void
@@ -2458,8 +2473,10 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
 		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_DATA);
-		if (!ctx->rem_wnd || !stream->rem_wnd)
+		if (!ctx->rem_wnd || !stream->rem_wnd) {
+			tfw_h2_stream_add_blocked(&ctx->sched, stream);
 			T_FSM_EXIT();
+		}
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
 					       mss, avail_size,
 					       &stream->xmit.b_len);
@@ -2478,6 +2495,7 @@ do {									\
 		BUG_ON(stream->xmit.h_len || stream->xmit.b_len
 		       || stream->xmit.skb_head);
 
+		T_WARN("REMOVE SCHED %px", stream);
 		tfw_h2_remove_stream_sched(&ctx->sched, stream);
 		T_FSM_EXIT();
 	}
@@ -2506,7 +2524,10 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 
 		list_for_each_safe(cur, tmp, &entry->incr) {
 			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
+
+			T_WARN("INCR stream %px", stream);
 			r = tfw_h2_make_frames_for_stream(ctx, stream, avail_size, mss);
+			T_WARN("INCR stream %px AFTER %d avail_size %lu", stream, r, *avail_size);
 			if (unlikely(r))
 				return r;
 			if (*avail_size < FRAME_HEADER_SIZE)
@@ -2515,7 +2536,10 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 
 		list_for_each_safe(cur, tmp, &entry->non_incr) {
 			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
+
+			T_WARN("NON INCR stream %px", stream);
 			r = tfw_h2_make_frames_for_stream(ctx, stream, avail_size, mss);
+			T_WARN("NON INCR stream %px AFTER %d avail_size %lu | empty %d", stream, r, *avail_size, list_empty( &entry->non_incr));
 			if (unlikely(r))
 				return r;
 			if (*avail_size < FRAME_HEADER_SIZE)
