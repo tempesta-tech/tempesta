@@ -291,6 +291,7 @@ int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size,
 		       unsigned int mss, bool *data_is_available);
 void tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx);
+void tfw_h2_add_stream_sched(TfwStreamSched *sched, TfwStream *stream);
 
 static inline void
 tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)

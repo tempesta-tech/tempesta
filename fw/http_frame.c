@@ -298,7 +298,7 @@ tfw_h2_remove_stream_sched(TfwStreamSched *sched, TfwStream *stream)
 		sched->non_empty &= ~(1 << stream->urgency);
 }
 
-static inline void
+void
 tfw_h2_add_stream_sched(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *entry;
@@ -324,6 +324,7 @@ tfw_h2_change_stream_sched(TfwStreamSched *sched, TfwStream *stream)
 static inline void
 tfw_h2_stream_remove_blocked(TfwStreamSched *sched, TfwStream *stream)
 {
+	stream->is_blocked = false;
 	list_del_init(&stream->sched_node);
 	tfw_h2_add_stream_sched(sched, stream);
 }
@@ -331,6 +332,7 @@ tfw_h2_stream_remove_blocked(TfwStreamSched *sched, TfwStream *stream)
 static inline void
 tfw_h2_stream_add_blocked(TfwStreamSched *sched, TfwStream *stream)
 {
+	stream->is_blocked = true;
 	tfw_h2_remove_stream_sched(sched, stream);
 	list_add_tail(&stream->sched_node, &sched->blocked);
 }
@@ -384,7 +386,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 
 	tfw_h2_pack_frame_header(buf, hdr);
 
-	T_WARN("Preparing HTTP/2 message with %lu bytes data\n", data->len);
+	T_DBG2("Preparing HTTP/2 message with %lu bytes data\n", data->len);
 
 	msg.len = data->len;
 	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len, 0)))
@@ -392,8 +394,6 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 
 	if ((r = tfw_msg_write(&it, data)))
 		goto err;
-
-	T_WARN("AAAAAAAAAAAAAAAAAAAAAA %lu", data->len);
 
 	if (close)
 		msg.ss_flags |= SS_F_CONN_CLOSE;
@@ -669,8 +669,6 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 				   ctx->rsettings.wnd_sz);
 	if (!stream)
 		return NULL;
-
-	tfw_h2_add_stream_sched(&ctx->sched, stream);
 
 	++ctx->streams_num;
 
@@ -1099,6 +1097,10 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 		}
 
 		if (*window > 0) {
+			if (ctx->cur_stream
+			    && tfw_h2_stream_is_blocked(ctx->cur_stream))
+				tfw_h2_stream_remove_blocked(&ctx->sched,
+							     ctx->cur_stream);
 			mss = tcp_send_mss(((TfwConn *)conn)->sk, &size,
 					   MSG_DONTWAIT);
 			__tcp_push_pending_frames(((TfwConn *)conn)->sk, mss,
@@ -2495,7 +2497,6 @@ do {									\
 		BUG_ON(stream->xmit.h_len || stream->xmit.b_len
 		       || stream->xmit.skb_head);
 
-		T_WARN("REMOVE SCHED %px", stream);
 		tfw_h2_remove_stream_sched(&ctx->sched, stream);
 		T_FSM_EXIT();
 	}
@@ -2514,7 +2515,6 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 {
 	int r;
 
-	T_WARN("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
 	while (!tfw_h2_stream_sched_is_empty(&ctx->sched)
 	       && (*avail_size > FRAME_HEADER_SIZE))
 	{
@@ -2525,9 +2525,7 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 		list_for_each_safe(cur, tmp, &entry->incr) {
 			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
 
-			T_WARN("INCR stream %px", stream);
 			r = tfw_h2_make_frames_for_stream(ctx, stream, avail_size, mss);
-			T_WARN("INCR stream %px AFTER %d avail_size %lu", stream, r, *avail_size);
 			if (unlikely(r))
 				return r;
 			if (*avail_size < FRAME_HEADER_SIZE)
@@ -2537,9 +2535,7 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 		list_for_each_safe(cur, tmp, &entry->non_incr) {
 			TfwStream *stream = list_entry(cur, TfwStream, sched_node);
 
-			T_WARN("NON INCR stream %px", stream);
 			r = tfw_h2_make_frames_for_stream(ctx, stream, avail_size, mss);
-			T_WARN("NON INCR stream %px AFTER %d avail_size %lu | empty %d", stream, r, *avail_size, list_empty( &entry->non_incr));
 			if (unlikely(r))
 				return r;
 			if (*avail_size < FRAME_HEADER_SIZE)
@@ -2547,7 +2543,6 @@ __tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long *avail_size, unsigned int mss)
 		}
 	}
 
-	T_WARN("AAAAAAAAAAAAAAAAAAAAAA AAAAAAAAAAAAAAAAAAAAAA");
 	return 0;
 }
 

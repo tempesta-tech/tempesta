@@ -156,6 +156,7 @@ typedef struct {
  * @urgency	- stream's priority urgency;
  * @incr	- flag indicating whether streams with the same urgency
  *		  should be served concurrently or in the order;
+ * is_blocked	- stream is blocked;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
@@ -172,6 +173,7 @@ struct tfw_http_stream_t {
 	long int		rem_wnd;
 	unsigned short		urgency;
 	unsigned char		incr;
+	bool			is_blocked;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
@@ -197,6 +199,12 @@ tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
 	stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
+}
+
+static inline bool
+tfw_h2_stream_is_blocked(TfwStream *stream)
+{
+	return stream->is_blocked;
 }
 
 static inline void

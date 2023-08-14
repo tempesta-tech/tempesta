@@ -175,7 +175,11 @@ tfw_connection_push(TfwConn *conn, struct sk_buff *skb)
 	if (!stream)
 		return -EPIPE;
 
+	T_WARN("tfw_connection_push %px", stream);
 	ss_skb_queue_tail(&stream->xmit.skb_head, skb);
+	T_WARN("tfw_connection_push %px AAA %p %d", stream, stream->xmit.skb_head, list_empty(&stream->sched_node));
+	if (list_empty(&stream->sched_node))
+		tfw_h2_add_stream_sched(&h2->sched, stream);
 	sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
 
 	return 0;

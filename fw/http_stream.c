@@ -391,6 +391,7 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short urgency,
 	stream->rem_wnd = rem_wnd;
 	stream->urgency = urgency;
 	stream->incr = incr;
+	stream->is_blocked = false;
 }
 
 TfwStream *
