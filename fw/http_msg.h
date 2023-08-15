@@ -106,12 +106,9 @@ tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
 }
 
 static inline void
-tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb)
+tfw_msg_transform_setup(TfwMsgIter *iter, struct sk_buff *skb)
 {
-	TfwMsgIter *iter = &mit->iter;
-
 	BUG_ON(!skb);
-	BUG_ON(mit->frame_head);
 
 	iter->frag = -1;
 	iter->skb = skb;
@@ -168,9 +165,13 @@ int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src, unsigned int *start_off);
-int tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool);
+int tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
+				      TfwPool* pool);
 int tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str);
-int tfw_http_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str);
+int tfw_h2_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+				TfwHttpTransIter *mit);
+int tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
+				   TfwHttpTransIter *mit);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup);

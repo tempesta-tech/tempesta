@@ -432,14 +432,13 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 		if (unlikely(r))
 			goto err;
 	} else if (cache) {
-		TfwHttpTransIter *mit = &resp->mit;
+		TfwMsgIter *it = &resp->iter;
 		struct sk_buff **skb_head = &resp->msg.skb_head;
 
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head,
-					     &set_cookie, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &set_cookie, NULL);
 		if (unlikely(r))
 			goto err;
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &crlf, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &crlf, NULL);
 	} else {
 		r = tfw_http_msg_expand_from_pool(hm, &set_cookie);
 		if (unlikely(r))
