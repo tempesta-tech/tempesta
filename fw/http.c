@@ -626,7 +626,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 		__TFW_STR_CH(&hdr, 0)->len = name->len - SLEN(S_CRLF) - 2;
 
 		if (__TFW_STR_CH(msg, i + 1)->nchunks) {
-			TfwMsgIter *iter = &mit->iter;
+			TfwMsgIter *iter = &resp->iter;
 			struct sk_buff **skb_head = &resp->msg.skb_head;
 			TfwHPackInt vlen;
 			TfwStr s_vlen = {};
@@ -667,7 +667,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	 * Responses built locally has room for frame header reserved
 	 * in SKB linear data.
 	 */
-	mit->frame_head = mit->iter.skb->data;
+	mit->frame_head = resp->iter.skb->data;
 
 	hdrs_len += mit->acc_len;
 
@@ -3098,7 +3098,6 @@ int
 tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 {
 	TfwHttpReq *req = resp->req;
-	TfwHttpTransIter *mit = &resp->mit;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	bool proxy_close = test_bit(TFW_HTTP_B_CONN_CLOSE, resp->flags)
 		&& (status / 100 == 4);
@@ -3136,7 +3135,7 @@ tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 		tfw_http_req_set_conn_close(req);
 
 	return add_h_conn
-		? tfw_http_msg_expand_data(&mit->iter, skb_head, &h_conn, NULL)
+		? tfw_http_msg_expand_data(&resp->iter, skb_head, &h_conn, NULL)
 		: 0;
 }
 
@@ -3195,7 +3194,6 @@ tfw_http_expand_stale_warn(TfwHttpResp *resp)
 {
 	/* TODO: adjust for #865 */
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	TfwHttpTransIter *mit = &resp->mit;
 	TfwStr wh = {
 		.chunks = (TfwStr []){
 			{ .data = S_WARN, .len = SLEN(S_WARN) },
@@ -3207,7 +3205,7 @@ tfw_http_expand_stale_warn(TfwHttpResp *resp)
 		.nchunks = 4,
 	};
 
-	return tfw_http_msg_expand_data(&mit->iter, skb_head, &wh, NULL);
+	return tfw_http_msg_expand_data(&resp->iter, skb_head, &wh, NULL);
 }
 
 static inline int
@@ -3215,7 +3213,6 @@ __tfw_http_add_hdr_date(TfwHttpResp *resp, bool cache)
 {
 	int r;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	TfwHttpTransIter *mit = &resp->mit;
 	char *date = *this_cpu_ptr(&g_buf);
 	TfwStr h_date = {
 		.chunks = (TfwStr []) {
@@ -3232,7 +3229,7 @@ __tfw_http_add_hdr_date(TfwHttpResp *resp, bool cache)
 	if (!cache)
 		r = tfw_http_msg_expand_from_pool((TfwHttpMsg *)resp, &h_date);
 	else
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &h_date,
+		r = tfw_http_msg_expand_data(&resp->iter, skb_head, &h_date,
 					     NULL);
 
 	if (unlikely(r))
@@ -3266,14 +3263,13 @@ __tfw_http_add_hdr_server(TfwHttpResp *resp, bool cache)
 {
 	int r;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	TfwHttpTransIter *mit = &resp->mit;
 	static char s_server[] = S_F_SERVER TFW_NAME "/" TFW_VERSION S_CRLF;
 	TfwStr hdr = { .data = s_server, .len = SLEN(s_server) };
 
 	if (!cache)
 		r = tfw_http_msg_expand_from_pool((TfwHttpMsg *)resp, &hdr);
 	else
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &hdr, NULL);
+		r = tfw_http_msg_expand_data(&resp->iter, skb_head, &hdr, NULL);
 
 	if (unlikely(r))
 		T_ERR("Unable to add Server: header to resp [%p]\n", resp);
@@ -3331,13 +3327,13 @@ __tfw_http_add_hdr_via(TfwHttpMsg *hm, int http_version, bool from_cache)
 						  &TFW_STR_STRING(S_CRLF));
 	} else {
 		struct sk_buff **skb_head = &hm->msg.skb_head;
-		TfwHttpTransIter *mit = &((TfwHttpResp *)hm)->mit;
+		TfwMsgIter *it = &hm->iter;
 		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &rh, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &rh, NULL);
 		if (unlikely(r))
 			goto err;
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &crlf, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &crlf, NULL);
 	}
 
 	if (unlikely(r))
@@ -4295,12 +4291,12 @@ tfw_h1_purge_resp_clean(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 static int
 tfw_http_adjust_resp(TfwHttpResp *resp)
 {
-	int r, hdr_start = TFW_HTTP_HDR_CONTENT_LENGTH;;
+	int r, hdr_start = TFW_HTTP_HDR_CONTENT_LENGTH;
 	TfwHttpReq *req = resp->req;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	unsigned long conn_flg = 0;
 	TfwHttpMsgCleanup cleanup = {};
-	TfwHttpTransIter *mit = &resp->mit;
+	TfwMsgIter *iter = &resp->iter;
 	TfwStr *pos, *end, *s_line = &resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
 	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
@@ -4336,13 +4332,13 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			if (unlikely(r))
 				goto clean;
 
-			tfw_h2_msg_transform_setup(mit, resp->msg.skb_head);
+			tfw_msg_transform_setup(iter, resp->msg.skb_head);
 		} else {
 			/*
 			 * When response doesn't have body, just remove
 			 * headers and use current skb as skb head.
 			 */
-			tfw_h2_msg_transform_setup(mit, resp->msg.skb_head);
+			tfw_msg_transform_setup(iter, resp->msg.skb_head);
 
 			r = tfw_http_msg_cutoff_headers(hm, &cleanup);
 			if (unlikely(r))
@@ -4367,7 +4363,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		hdr_start = TFW_HTTP_HDR_CONTENT_TYPE;
 	} else {
 		/* Response for regular request. */
-		tfw_h2_msg_transform_setup(mit, resp->msg.skb_head);
+		tfw_msg_transform_setup(iter, resp->msg.skb_head);
 		r = tfw_http_msg_cutoff_headers(hm, &cleanup);
 		if (unlikely(r))
 			goto clean;
@@ -5067,8 +5063,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 static int
 tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 {
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
+	TfwMsgIter *it = &resp->iter;
 	size_t len, max_copy = PAGE_SIZE;
 	char *data;
 	int r;
@@ -5576,7 +5571,8 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	 * adjusting of particular headers.
 	 */
 	WARN_ON_ONCE(mit->acc_len);
-	tfw_h2_msg_transform_setup(mit, resp->msg.skb_head);
+	BUG_ON(mit->frame_head);
+	tfw_msg_transform_setup(&resp->iter, resp->msg.skb_head);
 
 	r = tfw_http_msg_cutoff_headers((TfwHttpMsg *)resp, &cleanup);
 	if (unlikely(r))
@@ -5586,7 +5582,7 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	 * Alloc room for frame header. After this call resp->pool
 	 * must be used only as skb paged data.
 	 */
-	r = tfw_http_msg_setup_transform_pool(mit, resp->pool);
+	r = tfw_http_msg_setup_transform_pool(mit, &resp->iter, resp->pool);
 	if (unlikely(r))
 		goto clean;
 

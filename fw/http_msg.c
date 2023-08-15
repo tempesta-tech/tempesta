@@ -1424,16 +1424,16 @@ tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
  * data, which will split the paged fragment.
  */
 int
-tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
+tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
+				  TfwPool* pool)
 {
 	int r;
 	char* addr;
 	bool np;
-	TfwMsgIter *it = &mit->iter;
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
-	BUG_ON(mit->iter.frag > 0);
+	BUG_ON(it->frag > 0);
 
 	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
 	if (room < MIN_HDR_FRAG_SIZE)
@@ -1464,7 +1464,7 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 static inline int
 __tfw_http_msg_move_body(TfwHttpMsg *resp, struct sk_buff *nskb)
 {
-	TfwMsgIter *it = &resp->mit.iter;
+	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **body;
 	int r, frag;
 	char *p;
@@ -1534,12 +1534,13 @@ tfw_http_msg_linear_transform(TfwMsgIter *it)
  */
 static int
 __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+				unsigned int *copied,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	int r;
+	char *addr;
 	const TfwStr *c, *end;
-	unsigned int room, skb_room, n_copy, rlen, off;
-	TfwHttpTransIter *mit = &hm->mit;
+	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
 	TfwMsgIter *it = &hm->iter;
 	TfwPool* pool = hm->pool;
 
@@ -1602,21 +1603,19 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 
 			n_copy = min(n_copy, skb_room);
 
-			mit->curr_ptr = tfw_http_msg_alloc_from_pool(it, pool,
-								     n_copy);
-			if (unlikely(!mit->curr_ptr))
+			addr = tfw_http_msg_alloc_from_pool(it, pool, n_copy);
+			if (unlikely(!addr))
 				return r;
 
-			cpy(mit->curr_ptr, c->data + off, n_copy);
+			cpy(addr, c->data + off, n_copy);
 			rlen -= n_copy;
-			mit->acc_len += n_copy;
-			mit->curr_ptr += n_copy;
+			acc += n_copy;
 
-			T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr=%pK",
-			       __func__, mit->acc_len,
-			       n_copy, mit->curr_ptr);
+			T_DBG3("%s: n_copy=%u",  __func__, n_copy,);
 		}
 	}
+
+	*copied = acc;
 
 	return 0;
 }
@@ -1624,13 +1623,35 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 int
 tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(hm, str, memcpy_fast);
+	unsigned int n;
+
+	return __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str)
+tfw_h2_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+			    TfwHttpTransIter *mit)
 {
-	return __tfw_http_msg_expand_from_pool(hm, str, tfw_cstrtolower);
+	int r;
+	unsigned int n;
+
+	r = __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
+	mit->acc_len += n;
+
+	return r;
+}
+
+int
+tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
+			       TfwHttpTransIter *mit)
+{
+	int r;
+	unsigned int n;
+
+	r = __tfw_http_msg_expand_from_pool(hm, str, &n, tfw_cstrtolower);
+	mit->acc_len += n;
+
+	return r;
 }
 
 static inline void
@@ -1695,7 +1716,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 {
 	int i, r = 0;
 	char *begin, *end;
-	TfwMsgIter *it = &hm->mit.iter;
+	TfwMsgIter *it = &hm->iter;
 	char* body = TFW_STR_CHUNK(&hm->body, 0)->data;
 	TfwStr *crlf = TFW_STR_LAST(&hm->crlf);
 	char *off = body ? body : crlf->data + (crlf->len - 1);

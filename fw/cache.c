@@ -784,7 +784,7 @@ tfw_cache_h2_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp, char **data,
 	TfwStr c = { 0 };
 	TdbVRec *tr = *trec;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
+	TfwMsgIter *it = &resp->iter;
 	int r = 0, copied = 0;
 
 	while (1)  {
@@ -860,7 +860,7 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 		     TdbVRec **trec, char **p, unsigned long *acc_len)
 {
 	int r;
-	TfwMsgIter *it = &resp->mit.iter;
+	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	bool h2_mode = TFW_MSG_H2(resp->req);
 	TfwDecodeCacheIter dc_iter = {};
@@ -1053,7 +1053,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err_create;
 
-	it = &resp->mit.iter;
+	it = &resp->iter;
 	skb_head = &resp->msg.skb_head;
 
 	if (!TFW_MSG_H2(req)) {
@@ -2858,7 +2858,6 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce, long age)
 	int r;
 	size_t digs;
 	bool to_h2 = TFW_MSG_H2(resp->req);
-	TfwHttpTransIter *mit = &resp->mit;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
 	char *name = to_h2 ? "age" : "age" S_DLM;
@@ -2886,11 +2885,11 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce, long age)
 		if ((r = tfw_hpack_encode(resp, &h_age, false, false)))
 			goto err;
 	} else {
-		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+		if ((r = tfw_http_msg_expand_data(&resp->iter, skb_head,
 						  &h_age, NULL)))
 			goto err;
 
-		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+		if ((r = tfw_http_msg_expand_data(&resp->iter, skb_head,
 						  &g_crlf, NULL)))
 			goto err;
 	}
@@ -2978,7 +2977,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
 	WARN_ON_ONCE(mit->acc_len);
-	it = &mit->iter;
+	it = &resp->iter;
 
 	/*
 	 * Set 'set-cookie' header if needed, for HTTP/2 or HTTP/1.1
