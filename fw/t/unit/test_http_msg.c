@@ -103,7 +103,7 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 		return NULL;
 
 	skb->next = skb->prev = skb;
-	it = &hmresp->mit.iter;
+	it = &hmresp->iter;
 	it->skb = it->skb_head = skb;
 	it->frag = -1;
 
@@ -149,7 +149,7 @@ TEST(http_msg, expand_from_pool)
 	if (!resp)
 		return;
 
-	it = &resp->mit.iter;
+	it = &resp->iter;
 
 	EXPECT_FALSE(it->skb->data_len == head->len + hdr->len + pgd->len);
 	tfw_http_msg_expand_from_pool((TfwHttpMsg *)resp, hdr);
@@ -197,7 +197,7 @@ do {									\
 	if (!resp)
 		return;
 
-	it = &resp->mit.iter;
+	it = &resp->iter;
 
 	EXPECT_FALSE(it->skb->data_len == skbsz);
 	tfw_http_msg_expand_from_pool((TfwHttpMsg *)resp, &hdr);
