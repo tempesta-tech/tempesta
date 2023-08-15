@@ -3452,6 +3452,43 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 }
 
 /**
+ * Add Host header to request.
+ *
+ * RFC 9112 section 3.2.2
+ *
+ * When a proxy receives a request with an absolute-form of
+ * request-target, the proxy MUST ignore the received Host header field
+ * if any) and instead replace it with the host information of the
+ * request-target. A proxy that forwards such a request MUST generate
+ * a new Host field value based on the received request-target rather
+ * than forward the received Host field value.
+ */
+static int
+tfw_http_add_hdr_host(TfwHttpReq *req)
+{
+	int r;
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	static const DEFINE_TFW_STR(host_n, "Host: ");
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
+	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+
+	if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
+		r = tfw_http_msg_expand_from_pool(hm, &host_n);
+		if (unlikely(r))
+			return r;
+		r = tfw_http_msg_expand_from_pool(hm, &req->host);
+		if (unlikely(r))
+			return r;
+	} else {
+		r = tfw_http_msg_expand_from_pool(hm, host);
+		if (unlikely(r))
+			return r;
+	}
+
+	return tfw_http_msg_expand_from_pool(hm, &crlf);
+}
+
+/**
  * Adjust the request before proxying it to real server.
  */
 static int
@@ -3462,6 +3499,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	TfwHttpMsgCleanup *cleanup = req->cleanup;
 	const BasicStr *s_meth;
 	TfwStr *pos, *end, meth = {};
+	static const DEFINE_TFW_STR(slash, "/");
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
@@ -3494,7 +3532,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
+	if (TFW_STR_EMPTY(&req->uri_path))
+		r = tfw_http_msg_expand_from_pool(hm, &slash);
+	else
+		r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
+
 	if (unlikely(r))
 		goto clean;
 
@@ -3502,7 +3544,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (unlikely(r))
 		goto clean;
 
-	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_HOST) {
+	r = tfw_http_add_hdr_host(req);
+	if (unlikely(r))
+		goto clean;
+
+	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_CONTENT_LENGTH) {
 		int hid = pos - hm->h_tbl->tbl;
 		TfwStr *dup, *dup_end, *hdr = pos;
 
