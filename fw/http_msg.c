@@ -1520,33 +1520,31 @@ this_chunk:
 	return 0;
 }
 
-static int
-tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
+static char *
+tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
 {
 	int r;
 	bool np;
 	char* addr;
-	TfwMsgIter *it = &mit->iter;
 	struct skb_shared_info *si = skb_shinfo(it->skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
-		return -ENOMEM;
+		return NULL;
 
 	if (np || it->frag == -1) {
 		it->frag++;
 		r = ss_skb_add_frag(it->skb_head, &it->skb, addr,
 				    &it->frag, size);
 		if (unlikely(r))
-			return r;
+			return NULL;
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
 
 	ss_skb_adjust_data_len(it->skb, size);
-	mit->curr_ptr = addr;
 
-	return 0;
+	return addr;
 }
 
 /**
@@ -1670,11 +1668,11 @@ static int
 __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 				void cpy(void *dest, const void *src, size_t n))
 {
+	int r;
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off;
-	int r;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
+	TfwMsgIter *it = &resp->iter;
 	TfwPool* pool = resp->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
@@ -1736,13 +1734,15 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 			n_copy = min(n_copy, skb_room);
 
-			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy);
-			if (unlikely(r))
+			mit->curr_ptr = tfw_http_msg_alloc_from_pool(it, pool,
+								     n_copy);
+			if (unlikely(!mit->curr_ptr))
 				return r;
 
 			cpy(mit->curr_ptr, c->data + off, n_copy);
 			rlen -= n_copy;
 			mit->acc_len += n_copy;
+			mit->curr_ptr += n_copy;
 
 			T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr=%pK",
 			       __func__, mit->acc_len,

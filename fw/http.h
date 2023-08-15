@@ -272,6 +272,7 @@ typedef struct {
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @iter		- skb expansion iterator;
  * @content_length	- the value of Content-Length header field;
  * @flags		- message related flags. The flags are tested
  *			  concurrently, but concurrent updates aren't
@@ -300,6 +301,7 @@ typedef struct {
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
 	unsigned int	keep_alive;					\
+	TfwMsgIter	iter;						\
 	unsigned long	content_length;					\
 	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\
@@ -457,7 +459,6 @@ typedef struct {
  * @frame_head	- pointer to reserved space for frame header. Used during
  * 		  http2 framing. Simplifies framing of paged SKBs.
  * 		  Framing function may not worry about paged and liner SKBs.
- * @iter	- skb expansion iterator;
  * @acc_len	- accumulated length of transformed message.
  */
 typedef struct {
@@ -465,7 +466,6 @@ typedef struct {
 	unsigned int	start_off;
 	char		*curr_ptr;
 	char		*frame_head;
-	TfwMsgIter	iter;
 	unsigned long	acc_len;
 } TfwHttpTransIter;
 
