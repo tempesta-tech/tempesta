@@ -366,17 +366,16 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache, unsigned int stream_id)
 		set_cookie.hpack_idx = 55;
 		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache,
 				     stream_id);
-	}
-	else if (cache) {
-		TfwHttpTransIter *mit = &resp->mit;
+	} else if (cache) {
+		TfwMsgIter *it = &resp->iter;
 		struct sk_buff **skb_head = &resp->msg.skb_head;
 
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head,
-					     &set_cookie, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &set_cookie, NULL);
 		if (unlikely(r))
 			goto err;
-		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &crlf, NULL);
-	} else {
+		r = tfw_http_msg_expand_data(it, skb_head, &crlf, NULL);
+	}
+	else {
 		r = tfw_http_msg_expand_from_pool(hm, &set_cookie);
 		if (unlikely(r))
 			goto err;
