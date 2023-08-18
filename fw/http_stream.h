@@ -37,6 +37,7 @@
  * is just a stream that has not been created yet.
  */
 typedef enum {
+	HTTP2_STREAM_IDLE,
 	HTTP2_STREAM_LOC_RESERVED,
 	HTTP2_STREAM_REM_RESERVED,
 	HTTP2_STREAM_OPENED,
@@ -63,6 +64,7 @@ typedef enum {
 } TfwStreamXmitState;
 
 static const char *__tfw_strm_st_names[] = {
+	[HTTP2_STREAM_IDLE]		= "HTTP2_STREAM_IDLE",
 	[HTTP2_STREAM_LOC_RESERVED]	= "HTTP2_STREAM_LOC_RESERVED",
 	[HTTP2_STREAM_REM_RESERVED]	= "HTTP2_STREAM_REM_RESERVED",
 	[HTTP2_STREAM_OPENED]	    	= "HTTP2_STREAM_OPENED",
@@ -196,9 +198,9 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
-			     unsigned short weight, long int loc_wnd,
-			     long int rem_wnd);
+TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state,
+			     unsigned int id, unsigned short weight,
+			     long int loc_wnd, long int rem_wnd);
 void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			   TfwStream **dep);
