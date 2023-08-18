@@ -224,6 +224,7 @@ int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
+	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
@@ -235,6 +236,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	spin_lock_init(&ctx->lock);
 	INIT_LIST_HEAD(&closed_streams->list);
+	INIT_LIST_HEAD(&idle_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -559,49 +561,20 @@ tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 }
 
 /*
- * Create a new stream and add it to the streams storage and to the dependency
- * tree. Note, that we do not need to protect the streams storage in @sched from
- * concurrent access, since all operations with it (adding, searching and
- * deletion) are done only in receiving flow of Frame layer.
+ * Add stream to queue.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
  */
-static TfwStream *
-tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
-{
-	TfwStream *stream, *dep = NULL;
-	TfwFramePri *pri = &ctx->priority;
-	bool excl = pri->exclusive;
-
-	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
-		return NULL;
-
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
-				   ctx->lsettings.wnd_sz,
-				   ctx->rsettings.wnd_sz);
-	if (!stream)
-		return NULL;
-
-	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
-
-	++ctx->streams_num;
-
-	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
-	       "added strm [%p] id %u weight %u\n",
-	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
-	       stream, id, stream->weight);
-
-	return stream;
-}
-
 static inline void
-tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
+__tfw_h2_stream_add_to_queue(TfwStreamQueue *queue, TfwStream *stream)
 {
-	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
-	       __func__, stream, stream->id, stream->state,
-	       __h2_strm_st_n(stream->state), stream->weight,
-	       ctx->streams_num);
-	tfw_h2_stop_stream(&ctx->sched, stream);
-	tfw_h2_delete_stream(stream);
-	--ctx->streams_num;
+	if (!list_empty(&stream->hcl_node))
+		return;
+
+	list_add_tail(&stream->hcl_node, &queue->list);
+	stream->queue = queue;
+	++stream->queue->num;
 }
 
 /*
@@ -624,21 +597,102 @@ __tfw_h2_stream_del_from_queue(TfwStream *stream)
 	stream->queue = NULL;
 }
 
-/*
- * Add stream to queue.
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static inline void
-__tfw_h2_stream_add_to_queue(TfwStreamQueue *queue, TfwStream *stream)
+static void
+tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 {
-	if (!list_empty(&stream->hcl_node))
-		return;
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	struct list_head *pos, *prev = &ctx->idle_streams.list;
+	bool found = false;
 
-	list_add_tail(&stream->hcl_node, &queue->list);
-	stream->queue = queue;
-	++stream->queue->num;
+	/*
+	 * We add and remove streams from idle queue under
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	/*
+	 * Found first idle stream with id less than new idle
+	 * stream, then insert new stream before this stream.
+	 */
+	list_for_each(pos, &ctx->idle_streams.list) {
+		TfwStream *stream = list_entry(pos, TfwStream, hcl_node);
+
+		if (idle->id > stream->id) {
+			found = true;
+			break;
+		}
+		prev = &stream->hcl_node;
+	}
+
+	if (found) {
+		list_add(&idle->hcl_node, prev);
+		idle->queue = &ctx->idle_streams;
+		++idle->queue->num;
+	} else {
+		__tfw_h2_stream_add_to_queue(&ctx->idle_streams, idle);
+	}
+}
+
+static void
+tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	/*
+	 * We add and remove streams from idle queue under
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	__tfw_h2_stream_del_from_queue(stream);
+}
+
+/*
+ * Create a new stream and add it to the streams storage and to the dependency
+ * tree. Note, that we do not need to protect the streams storage in @sched from
+ * concurrent access, since all operations with it (adding, searching and
+ * deletion) are done only in receiving flow of Frame layer.
+ */
+static TfwStream *
+tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
+{
+	TfwStream *stream, *dep = NULL;
+	TfwFramePri *pri = &ctx->priority;
+	bool excl = pri->exclusive;
+
+	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
+		return NULL;
+
+	stream = tfw_h2_add_stream(&ctx->sched, state, id, pri->weight,
+				   ctx->lsettings.wnd_sz,
+				   ctx->rsettings.wnd_sz);
+	if (!stream)
+		return NULL;
+
+	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
+
+	if (state == HTTP2_STREAM_IDLE)
+		tfw_h2_stream_add_idle(ctx, stream);
+
+	++ctx->streams_num;
+
+	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
+	       "added strm [%p] id %u weight %u\n",
+	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
+	       stream, id, stream->weight);
+
+	return stream;
+}
+
+static inline void
+tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
+	       __func__, stream, stream->id, stream->state,
+	       __h2_strm_st_n(stream->state), stream->weight,
+	       ctx->streams_num);
+	tfw_h2_stop_stream(&ctx->sched, stream);
+	tfw_h2_delete_stream(stream);
+	--ctx->streams_num;
 }
 
 /*
@@ -914,6 +968,7 @@ static int
 tfw_h2_headers_process(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
+	int r;
 
 	T_DBG3("%s: stream->id=%u, cur_stream=[%p]\n", __func__,
 	       hdr->stream_id, ctx->cur_stream);
@@ -936,9 +991,15 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 	}
 
 	if (!ctx->cur_stream) {
-		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
+		ctx->cur_stream = tfw_h2_stream_create(ctx, HTTP2_STREAM_OPENED,
+						       hdr->stream_id);
 		if (!ctx->cur_stream)
 			return -ENOMEM;
+		ctx->lstream_id = hdr->stream_id;
+	} else if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
+		if ((r = tfw_h2_stream_state_process(ctx)))
+			return r;
+		tfw_h2_stream_remove_idle(ctx, ctx->cur_stream);
 		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
@@ -1029,6 +1090,18 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 					 pri->stream_id, pri->weight,
 					 pri->exclusive);
 		return T_OK;
+	}
+
+	if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
+		/*
+		 * According to RFC 7540 we should response with stream
+		 * error of type PROTOCOL ERROR here, but we can't send
+		 * RST_STREAM for idle stream.
+		 * RFC 7540 doesn't describe this case, so terminate
+		 * connection.
+		 */
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		return T_BAD;
 	}
 
 	/*
@@ -1346,6 +1419,36 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+/**
+ * According to RFC 7540 section 5.1.1:
+ * The first use of a new stream identifier implicitly closes all
+ * streams in the "idle" state that might have been initiated by that
+ * peer with a lower-valued stream identifier.
+ */
+static void
+tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwStream *stream, *tmp;
+
+	/*
+	 * We add and remove streams from idle queue under
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
+					 hcl_node)
+	{
+		if (id <= stream->id)
+			break;
+
+		__tfw_h2_stream_del_from_queue(stream);
+		stream->state = HTTP2_STREAM_REM_CLOSED;
+		tfw_h2_stream_add_closed(ctx, stream);
+	}
+}
+
 /*
  * Initial processing of received frames: verification and handling of
  * frame header; also, stream states are processed here - during receiving
@@ -1433,6 +1536,9 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
+
+		tfw_h2_remove_idle_streams(ctx, hdr->stream_id);
+
 		/*
 		 * Endpoints must not exceed the limit set by their peer for
 		 * maximum number of concurrent streams (see RFC 7540 section
@@ -1472,20 +1578,32 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
-						      true);
+			tfw_h2_find_stream(&ctx->sched, hdr->stream_id);
 		if (hdr->length != FRAME_PRIORITY_SIZE)
 			goto conn_term;
 
 		if (ctx->cur_stream) {
 			STREAM_RECV_PROCESS(ctx, hdr);
 			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
+		} else if (hdr->stream_id > ctx->lstream_id) {
+			/*
+			 * According to RFC 7540 section 6.3:
+			 * Priority frame can be sent in any stream state,
+			 * including idle or closed streams.
+			 */
+			ctx->cur_stream =
+				tfw_h2_stream_create(ctx, HTTP2_STREAM_IDLE,
+						     hdr->stream_id);
+			if (!ctx->cur_stream)
+				return -ENOMEM;
+			STREAM_RECV_PROCESS(ctx, hdr);
+			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
 		} else {
 			/*
 			 * According to RFC 9113 section 5.1:
 			 * PRIORITY frames are allowed in the `closed` state,
-			 * but if the stream was moved to closed queue or was
-			 * already removed from memory, just ignore this frame.
+			 * but if the stream was already removed from memory,
+			 * just ignore this frame.
 			 */
 			ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		}
