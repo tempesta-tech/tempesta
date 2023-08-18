@@ -2794,6 +2794,8 @@ tfw_http_conn_drop(TfwConn *conn)
 
 	T_DBG2("%s: conn=[%p]\n", __func__, conn);
 
+	assert_spin_locked(&conn->sk->sk_lock.slock);
+
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		if (h2_mode)
 			tfw_h2_conn_streams_cleanup(tfw_h2_context(conn));

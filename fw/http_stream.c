@@ -106,6 +106,22 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 	}
 
 	switch (stream->state) {
+	case HTTP2_STREAM_IDLE:
+		/* We don't processed sending headers for idle streams. */
+		BUG_ON(send);
+		if (type == HTTP2_HEADERS) {
+			stream->state = HTTP2_STREAM_OPENED;
+		} else if (type != HTTP2_PRIORITY) {
+			/*
+			 * TODO receiving of HTTP2_PUSH_PROMISE switched stream to
+			 * HTTP2_STREAM_REM_RESERVED state.
+			 */
+			*err = HTTP2_ECODE_PROTO;
+			res = STREAM_FSM_RES_TERM_CONN;
+		}
+
+		break;
+
 	case HTTP2_STREAM_LOC_RESERVED:
 	case HTTP2_STREAM_REM_RESERVED:
 		/*
@@ -380,14 +396,14 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 }
 
 static inline void
-tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
-		   long int loc_wnd, long int rem_wnd)
+tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
+		   unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
-	stream->state = HTTP2_STREAM_OPENED;
+	stream->state = state;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
@@ -413,8 +429,8 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 }
 
 TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
-		  long int loc_wnd, long int rem_wnd)
+tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state, unsigned int id,
+		  unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	TfwStream *new_stream;
 	struct rb_node **new = &sched->streams.rb_node;
@@ -438,7 +454,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, state, id, weight, loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
