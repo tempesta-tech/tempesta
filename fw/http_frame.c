@@ -1113,7 +1113,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		if (val > MAX_WND_SIZE)
 			return -EINVAL;
 
-		delta = dest->wnd_sz - val;
+		delta = (long int)val - (long int)dest->wnd_sz;
 		tfw_h2_apply_wnd_sz_change(ctx, delta);
 		dest->wnd_sz = val;
 		break;
