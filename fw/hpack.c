@@ -332,7 +332,7 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 		bool last = c + 1 == end;
 
 		WARN_ON_ONCE(ret == T_OK);
-		ret = tfw_h2_parse_req_hdr(c->data, c->len, req, last, false);
+		ret = tfw_h2_parse_req_hdr_name(c->data, c->len, req, last);
 		if (unlikely(ret != T_POSTPONE))
 			return ret;
 	}
@@ -368,8 +368,8 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 		bool last = chunk + 1 == end;
 
 		WARN_ON_ONCE(ret == T_OK);
-		ret = tfw_h2_parse_req_hdr(chunk->data, chunk->len,
-					   req, last, true);
+		ret = tfw_h2_parse_req_hdr_val(chunk->data, chunk->len, req,
+					       last);
 		if (unlikely(ret != T_POSTPONE))
 			return ret;
 		++chunk;
@@ -394,11 +394,10 @@ do {								\
 	       last - src);					\
 } while (0)
 
-#define HPACK_PROCESS_STRING(len, value_stage)			\
+#define HPACK_PROCESS_STRING(field, len)			\
 do {								\
 	hp->length -= len;					\
-	r = tfw_h2_parse_req_hdr(src, len, req, !hp->length,	\
-				 value_stage);			\
+	r = tfw_h2_parse_req_hdr_##field(src, len, req, !hp->length);\
 	src += len;						\
 	T_DBG3("%s: processed plain, len=%lu, n=%lu, tail=%lu,"	\
 	       " hp->length=%lu\n", __func__, len, n,		\
@@ -1543,7 +1542,7 @@ get_name_text:
 			if (state & HPACK_FLAGS_HUFFMAN_NAME)
 				HPACK_DECODE_PROCESS_STRING(name, m_len);
 			else
-				HPACK_PROCESS_STRING(m_len, false);
+				HPACK_PROCESS_STRING(name, m_len);
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -1620,7 +1619,7 @@ get_value_text:
 			if (state & HPACK_FLAGS_HUFFMAN_VALUE)
 				HPACK_DECODE_PROCESS_STRING(value, m_len);
 			else
-				HPACK_PROCESS_STRING(m_len, true);
+				HPACK_PROCESS_STRING(val, m_len);
 
 			if (state & HPACK_FLAGS_ADD
 			    && (r = tfw_hpack_add_index(&hp->dec_tbl, it,
