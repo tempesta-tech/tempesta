@@ -229,7 +229,7 @@ TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
-int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size,
+int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail,
 		       unsigned int mss, bool *data_is_available);
 void tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx);
 

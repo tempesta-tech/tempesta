@@ -183,7 +183,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
 	bool h2_mode, data_is_available = false;
-	unsigned long cwnd_avail, size_avail = ULONG_MAX;
+	unsigned long cwnd_avail, cwnd_avail_in_bytes = ULONG_MAX;
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -227,11 +227,11 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 	if (with_limit) {
 		cwnd_avail = (tp->snd_cwnd > tp->packets_out ?
 			tp->snd_cwnd - tp->packets_out : 0);
-		size_avail = cwnd_avail * mss_now;
+		cwnd_avail_in_bytes = cwnd_avail * mss_now;
 	}
 
-	if (unlikely(r = tfw_h2_make_frames(h2, size_avail, mss_now,
-					    &data_is_available)))
+	if (unlikely(r = tfw_h2_make_frames(h2, cwnd_avail_in_bytes,
+					    mss_now, &data_is_available)))
 		goto err_kill_sock;
 
 	if (!data_is_available)

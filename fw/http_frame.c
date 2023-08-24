@@ -2186,13 +2186,13 @@ out:
 
 static inline unsigned int
 tfw_h2_calc_frame_length(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
-			 unsigned int len, unsigned int avail_size,
+			 unsigned int len, unsigned int cwnd_awail,
 			 unsigned int mss)
 {
 	unsigned int length;
 
 	length = min(min(ctx->rsettings.max_frame_sz, len),
-		     min(avail_size, mss));
+		     min(cwnd_awail, mss));
 
 	if (type == HTTP2_DATA) {
 		length = min3(length, (unsigned int)ctx->rem_wnd,
@@ -2262,7 +2262,7 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 static inline int
 tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 			   TfwFrameType type, unsigned int mss,
-			   unsigned long *avail_size, unsigned long *len)
+			   unsigned long *cwnd_awail, unsigned long *len)
 {
 	TfwMsgIter it = {
 		.skb_head = stream->xmit.skb_head,
@@ -2297,7 +2297,7 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 	}
 
 	length = tfw_h2_calc_frame_length(ctx, stream, type, *len,
-					  *avail_size, mss);
+					  *cwnd_awail, mss);
 	*len -= length;
 	if (type == HTTP2_DATA) {
 		ctx->rem_wnd -= length;
@@ -2328,7 +2328,7 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 		}
 	}
 
-	*avail_size -= length;
+	*cwnd_awail -= length;
 	return tfw_h2_entail_stream_skb(ctx, stream,
 					length + FRAME_HEADER_SIZE);
 }
@@ -2353,24 +2353,24 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 
 static int
 tfw_h2_make_frames_for_stream(TfwH2Ctx *ctx, TfwStream *stream,
-			      unsigned long *avail_size, unsigned int mss)
+			      unsigned long *cwnd_awail, unsigned int mss)
 {
 	int r = 0;
 	TfwFrameType frame_type;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
-#define ADJUST_AVAILABLE_SIZE(size, type)				\
+#define ADJUST_AVAILABLE_CWND(cwnd, type)				\
 do {									\
-	if (size <= FRAME_HEADER_SIZE)					\
+	if (cwnd <= FRAME_HEADER_SIZE)					\
 		T_FSM_EXIT();						\
-	size -= FRAME_HEADER_SIZE;					\
+	cwnd -= FRAME_HEADER_SIZE;					\
 	frame_type = type;						\
 } while(0)
 
 	T_FSM_START(stream->xmit.state) {
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_HEADERS);
+		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_HEADERS);
 		if (unlikely(ctx->hpack.enc_tbl.ack_sent)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream);
@@ -2383,7 +2383,7 @@ do {									\
 		}
 
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
-					       mss, avail_size,
+					       mss, cwnd_awail,
 					       &stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
@@ -2397,9 +2397,9 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_CONTINUATION);
+		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
-					       mss, avail_size,
+					       mss, cwnd_awail,
 					       &stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
@@ -2413,11 +2413,11 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		ADJUST_AVAILABLE_SIZE(*avail_size, HTTP2_DATA);
 		if (!ctx->rem_wnd || !stream->rem_wnd)
 			T_FSM_EXIT();
+		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
-					       mss, avail_size,
+					       mss, cwnd_awail,
 					       &stream->xmit.b_len);
 		if (unlikely (r)) {
 			T_WARN("Failed to make data frame %d", r);
@@ -2447,24 +2447,24 @@ do {									\
 
 static int
 __tfw_h2_make_frames(TfwH2Ctx *ctx, struct rb_node *node,
-		     unsigned long *avail_size, unsigned int mss)
+		     unsigned long *cwnd_awail, unsigned int mss)
 {
 	int r;
 
-	if (node && (*avail_size > FRAME_HEADER_SIZE)) {
+	if (node && (*cwnd_awail > FRAME_HEADER_SIZE)) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
 		if (stream->xmit.skb_head) {
 			BUG_ON(!stream->xmit.h_len && !stream->xmit.b_len);
 			if ((r = tfw_h2_make_frames_for_stream(ctx, stream,
-							       avail_size,
+							       cwnd_awail,
 							       mss)))
 				return r;
 		}
 
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_left, avail_size,
+		if ((r = __tfw_h2_make_frames(ctx, node->rb_left, cwnd_awail,
 					      mss)))
 			return r;
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_right, avail_size,
+		if ((r = __tfw_h2_make_frames(ctx, node->rb_right, cwnd_awail,
 					      mss)))
 			return r;
 	}
@@ -2491,7 +2491,7 @@ __tfw_h2_check_available_data(struct rb_node *node, bool *data_is_available)
 }
 
 int
-tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size, unsigned int mss,
+tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
@@ -2500,7 +2500,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long avail_size, unsigned int mss,
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
 
-	if (unlikely(r = __tfw_h2_make_frames(ctx, root, &avail_size,
+	if (unlikely(r = __tfw_h2_make_frames(ctx, root, &cwnd_awail,
 					      mss - FRAME_HEADER_SIZE)))
 		return r;
 
