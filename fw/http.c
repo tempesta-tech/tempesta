@@ -4878,7 +4878,7 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 		return r;
 
 	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
-	return r;
+	return 0;
 }
 
 static void

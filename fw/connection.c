@@ -157,6 +157,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 int
 tfw_connection_push(TfwConn *conn, struct sk_buff *skb)
 {
+	bool queue_was_empty;
 	unsigned int stream_id;
 	TfwStream *stream;
 	TfwH2Ctx *h2;
@@ -186,8 +187,13 @@ tfw_connection_push(TfwConn *conn, struct sk_buff *skb)
 	if (!stream)
 		return -EPIPE;
 
+	queue_was_empty = !stream->xmit.skb_head;
 	ss_skb_queue_tail(&stream->xmit.skb_head, skb);
-	sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
+
+	if (queue_was_empty && !stream->xmit.is_blocked) {
+		tfw_h2_sched_activate_stream(stream);
+		sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
+	}
 
 	return 0;
 

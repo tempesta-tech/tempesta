@@ -20,8 +20,7 @@
 #ifndef __HTTP_STREAM__
 #define __HTTP_STREAM__
 
-#include <linux/rbtree.h>
-
+#include "http_stream_sched.h"
 #include "msg.h"
 #include "http_parser.h"
 #include "lib/str.h"
@@ -119,12 +118,14 @@ typedef enum {
  * @b_len		- length of body in http2 response;
  * @state		- current stream xmit state (what type of
  * 			  frame should be made for this stream);
+ * @is_blocked		- stream is blocked;
  */
 typedef struct {
 	struct sk_buff *skb_head;
 	unsigned long h_len;
 	unsigned long b_len;
 	TfwStreamXmitState state;
+	bool is_blocked;
 } TfwHttpXmit;
 
 /**
@@ -148,6 +149,8 @@ typedef struct {
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
+ * @link	- entry in per-connection priority storage;
+ * @sched	- scheduler for child streams;
  * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
@@ -162,6 +165,8 @@ typedef struct {
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
+	TfwStreamSchedEntryLink link;
+	TfwStreamSchedEntry	sched;
 	struct list_head	hcl_node;
 	unsigned int		id;
 	int			state;
@@ -175,18 +180,6 @@ struct tfw_http_stream_t {
 	TfwHttpXmit		xmit;
 };
 
-/**
- * Scheduler for stream's processing distribution based on dependency/priority
- * values.
- * TODO: the structure is not completed yet and should be finished in context
- * of #1196.
- *
- * @streams	- root red-black tree entry for per-connection streams' storage;
- */
-typedef struct {
-	struct rb_root streams;
-} TfwStreamSched;
-
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
@@ -197,14 +190,25 @@ TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state,
 			     unsigned int id, unsigned short weight,
 			     long int loc_wnd, long int rem_wnd);
 void tfw_h2_delete_stream(TfwStream *stream);
-int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
-			   TfwStream **dep);
-void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
-			   TfwStream *dep, bool excl);
-void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			      unsigned int new_dep, unsigned short new_weight,
-			      bool excl);
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+
+static inline bool
+tfw_h2_stream_is_active(TfwStream *stream)
+{
+	return stream->xmit.skb_head && !stream->xmit.is_blocked;
+}
+
+static inline void
+tfw_h2_stream_try_unblock(TfwStream *stream)
+{
+	bool stream_was_blocked = stream->xmit.is_blocked;
+
+	if (stream->rem_wnd > 0) {
+		stream->xmit.is_blocked = false;
+		if (stream->xmit.skb_head && stream_was_blocked)
+			tfw_h2_sched_activate_stream(stream);
+	}
+}
 
 static inline void
 tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
@@ -214,6 +218,7 @@ tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
 	stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
+	stream->xmit.is_blocked = false;
 }
 
 static inline void
