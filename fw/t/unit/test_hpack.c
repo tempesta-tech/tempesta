@@ -20,6 +20,7 @@
 #include "hpack.c"
 #define tfw_connection_send(a, b) 0
 #include "http_stream.c"
+#include "http_stream_sched.c"
 #include "http_frame.c"
 #include "http.c"
 
