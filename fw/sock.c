@@ -470,8 +470,10 @@ do_send:
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state, flags);
 
-	if (stream)
+	if (stream && !stream->xmit.is_blocked) {
+		tfw_h2_sched_activate_stream(stream);
 		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+	}
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to

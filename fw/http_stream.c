@@ -423,6 +423,8 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
 		   unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
+	tfw_h2_init_stream_sched_link(&stream->link);
+	tfw_h2_init_stream_sched_entry(&stream->sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
@@ -491,52 +493,13 @@ tfw_h2_delete_stream(TfwStream *stream)
 	kmem_cache_free(stream_cache, stream);
 }
 
-int
-tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id, TfwStream **dep)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-	return 0;
-}
-
-void
-tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream, TfwStream *dep,
-		      bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-void
-tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			 unsigned int new_dep, unsigned short new_weight,
-			 bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-static void
-tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
 void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 
 	tf2_h2_conn_reset_stream_on_close(ctx, stream);
-	tfw_h2_remove_stream_dep(sched, stream);
+	tfw_h2_remove_stream_dep(stream);
 	rb_erase(&stream->node, &sched->streams);
 }
+
