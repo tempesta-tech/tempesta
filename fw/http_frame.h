@@ -156,6 +156,7 @@ typedef struct {
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
+ * @cur_xmit_stream	- stream for which headers are currently being made;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -195,6 +196,7 @@ typedef struct {
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
+	TfwStream	*cur_xmit_stream;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
