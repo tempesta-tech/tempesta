@@ -24,6 +24,7 @@
 #define DEBUG DBG_HTTP_STREAM
 #endif
 #include "http_frame.h"
+#include "connection.h"
 
 #define HTTP2_DEF_WEIGHT	16
 
@@ -473,6 +474,12 @@ tfw_h2_delete_stream(TfwStream *stream)
 void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
+	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
 	tfw_h2_remove_stream_dep(stream);
 	rb_erase(&stream->node, &sched->streams);
 }
