@@ -162,6 +162,9 @@ tfw_connection_push(TfwConn *conn, struct sk_buff *skb)
 	TfwStream *stream;
 	TfwH2Ctx *h2;
 
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
 	if (TFW_CONN_PROTO(conn) != TFW_FSM_H2)
 		goto push_tail;
 

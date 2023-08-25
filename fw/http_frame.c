@@ -607,7 +607,7 @@ tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 	bool found = false;
 
 	/*
-	 * We add and remove streams from idle queue under
+	 * We add and remove streams from idle queue under the
 	 * socket lock.
 	 */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -641,7 +641,7 @@ tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
 	/*
-	 * We add and remove streams from idle queue under
+	 * We add and remove streams from idle queue under the
 	 * socket lock.
 	 */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -657,10 +657,14 @@ tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 static TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 {
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStream *stream;
 	TfwStreamSchedEntry *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
+
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep);
 
@@ -1055,8 +1059,11 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			goto fail;
 		}
 
-		if (ctx->cur_stream)
+		if (ctx->cur_stream) {
+			/* We should call all scheduler functions under the socket lock. */
+			assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 			tfw_h2_stream_try_unblock(ctx->cur_stream);
+		}
 
 		if (*window > 0) {
 			mss = tcp_send_mss(((TfwConn *)conn)->sk, &size,
@@ -1083,10 +1090,14 @@ fail:
 static inline int
 tfw_h2_priority_process(TfwH2Ctx *ctx)
 {
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFramePri *pri = &ctx->priority;
 
 	tfw_h2_unpack_priority(pri, ctx->rbuf);
+
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	if (pri->stream_id != hdr->stream_id) {
 		T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
@@ -1139,8 +1150,11 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStream *stream, *next;
 
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 	/*
 	 * Order is no matter, use default funtion from the Linux kernel.
 	 * According to RFC 9113 6.9.2
@@ -1441,7 +1455,7 @@ tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 	TfwStream *stream, *tmp;
 
 	/*
-	 * We add and remove streams from idle queue under
+	 * We add and remove streams from idle queue under the
 	 * socket lock.
 	 */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -2460,12 +2474,16 @@ int
 tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		   bool *data_is_available)
 {
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
 	TfwStream *stream;
 	int r = 0;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
+
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail >= FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
