@@ -240,6 +240,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&closed_streams->list);
 	INIT_LIST_HEAD(&idle_streams->list);
 
+	tfw_h2_init_stream_sched(&ctx->sched);
+
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
@@ -657,12 +659,12 @@ tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 static TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 {
-	TfwStream *stream, *dep = NULL;
+	TfwStream *stream;
+	TfwStreamSchedEntry *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
 
-	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
-		return NULL;
+	tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep);
 
 	stream = tfw_h2_add_stream(&ctx->sched, state, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
@@ -670,8 +672,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 	if (!stream)
 		return NULL;
 
-	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
-
+	tfw_h2_add_stream_dep(stream, dep, excl);
 	if (state == HTTP2_STREAM_IDLE)
 		tfw_h2_stream_add_idle(ctx, stream);
 
@@ -757,8 +758,11 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 			tfw_http_resp_pair_free(resp->req);
 			stream->xmit.resp = NULL;
 		}
-		if (stream->xmit.skb_head)
+		if (stream->xmit.skb_head) {
+			tfw_h2_stream_sched_remove(stream);
 			tfw_h2_stream_purge_send_queue(stream);
+		}
+
 		__tfw_h2_destroy_stream_send_queue(node->rb_left);
 		__tfw_h2_destroy_stream_send_queue(node->rb_right);
 	}
@@ -767,10 +771,15 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 static void
 tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 {
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStreamSched *sched = &ctx->sched;
 	struct rb_node *root = sched->streams.rb_node;
 
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
 	__tfw_h2_destroy_stream_send_queue(root);
+	ctx->cur_xmit_stream = NULL;
 }
 
 void
@@ -781,6 +790,9 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
+
+	/* We should call all scheduler functions under the socket lock. */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
 
@@ -1085,6 +1097,9 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			goto fail;
 		}
 
+		if (ctx->cur_stream)
+			tfw_h2_stream_try_unblock(ctx->cur_stream);
+
 		if (*window > 0) {
 			mss = tcp_send_mss(((TfwConn *)conn)->sk, &size,
 					   MSG_DONTWAIT);
@@ -1183,8 +1198,10 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 					     &ctx->sched.streams, node) {
 		TfwStreamState state = tfw_h2_get_stream_state(stream);
 		if (state == HTTP2_STREAM_OPENED ||
-		    state == HTTP2_STREAM_REM_HALF_CLOSED)
+		    state == HTTP2_STREAM_REM_HALF_CLOSED) {
 			stream->rem_wnd += delta;
+			tfw_h2_stream_try_unblock(stream);
+		}
 	}
 }
 
@@ -2362,6 +2379,7 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 		case STREAM_FSM_RES_OK:
 			break;
 		case STREAM_FSM_RES_TERM_STREAM:
+			BUG_ON(ctx->cur_xmit_stream);
 			tfw_h2_stream_purge_send_queue(stream);
 			return 0;
 		case STREAM_FSM_RES_TERM_CONN:
@@ -2401,8 +2419,12 @@ tfw_h2_make_frames_for_stream(TfwH2Ctx *ctx, TfwStream *stream,
 
 #define ADJUST_AVAILABLE_CWND(cwnd, type)				\
 do {									\
-	if (cwnd <= FRAME_HEADER_SIZE)					\
+	if (cwnd <= FRAME_HEADER_SIZE) {				\
+		if (type == HTTP2_HEADERS				\
+		    || type == HTTP2_CONTINUATION)			\
+			ctx->cur_xmit_stream = stream;			\
 		T_FSM_EXIT();						\
+	}								\
 	cwnd -= FRAME_HEADER_SIZE;					\
 	frame_type = type;						\
 } while(0)
@@ -2483,8 +2505,10 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (!ctx->rem_wnd || !stream->rem_wnd)
+		if (!ctx->rem_wnd || !stream->rem_wnd) {
+			stream->xmit.is_blocked = !stream->rem_wnd;
 			T_FSM_EXIT();
+		}
 		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
 							mss, cwnd_awail,
@@ -2517,68 +2541,40 @@ do {									\
 #undef ADJUST_AVAILABLE_SIZE
 }
 
-static int
-__tfw_h2_make_frames(TfwH2Ctx *ctx, struct rb_node *node,
-		     unsigned long *cwnd_awail, unsigned int mss)
-{
-	int r;
-
-	if (node && (*cwnd_awail > FRAME_HEADER_SIZE)) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head) {
-			BUG_ON(!stream->xmit.h_len && !stream->xmit.b_len &&
-			       stream->xmit.state > HTTP2_ENCODE_HEADERS);
-			if ((r = tfw_h2_make_frames_for_stream(ctx, stream,
-							       cwnd_awail,
-							       mss)))
-				return r;
-		}
-
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_left, cwnd_awail,
-					      mss)))
-			return r;
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_right, cwnd_awail,
-					      mss)))
-			return r;
-	}
-
-	return 0;
-}
-
-/**
- * TODO0 #1196 A very inefficient functiom, should be reworked when an efficient
- * stream prioritization data structure will be implemented.
- */
-static void
-__tfw_h2_check_available_data(struct rb_node *node, bool *data_is_available)
-{
-	if (node) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head) {
-			*data_is_available = true;
-			return;
-		}
-		__tfw_h2_check_available_data(node->rb_left, data_is_available);
-		__tfw_h2_check_available_data(node->rb_right, data_is_available);
-	}
-}
-
 int
 tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	struct rb_node *root = sched->streams.rb_node;
-	int r;
+	TfwStreamSchedEntry *parent;
+	TfwStream *stream;
+	int r = 0;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
 
-	if (unlikely(r = __tfw_h2_make_frames(ctx, root, &cwnd_awail,
-					      mss - FRAME_HEADER_SIZE)))
-		return r;
+	while (tfw_h2_stream_sched_is_active(&sched->root)
+	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
+	{
+		if (ctx->cur_xmit_stream) {
+			stream = ctx->cur_xmit_stream;
+			parent = stream->sched.parent;
+			ctx->cur_xmit_stream = NULL;
+			tfw_h2_stream_sched_remove(stream);
+		} else {
+			stream = tfw_h2_sched_stream_dequeue(&sched->root, &parent);
+		}
+		/*
+		 * If root scheduler is active we always can find
+		 * active stream.
+		 */
+		BUG_ON(!stream);
+		r = tfw_h2_make_frames_for_stream(ctx, stream, &cwnd_awail,
+						  mss);
+		tfw_h2_sched_stream_enqueue(stream, parent);
+	}
 
-	__tfw_h2_check_available_data(root, data_is_available);
-	return 0;
+	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);
+	return r;
 }
 
 TfwStream *
