@@ -6365,7 +6365,7 @@ STACK_FRAME_NON_STANDARD(tfw_http_parse_req);
 #define __FSM_H2_HDR_NAME_DONE(h_tag)					\
 do {									\
 	T_DBG3("%s: parsed, value_tag=%d input=%#x('%.*s'),"		\
-	       " len=%lu, off=%lu\n", __func__, tag, (char)c,		\
+	       " len=%lu, off=%lu\n", __func__, h_tag, (char)c,		\
 	       min(16U, (unsigned int)(data + len - p)), p, len,	\
 	       p - data);						\
 	it->tag = h_tag;						\
@@ -6660,13 +6660,6 @@ __FSM_STATE(st, cold) {							\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ch))						\
 		__FSM_H2_HDR_NAME_FIN(1, tag);				\
-	__FSM_JMP(RGen_HdrOtherN);					\
-}
-
-#define __FSM_H2_TX_AF_DROP(st, ch)					\
-__FSM_STATE(st, cold) {							\
-	if (likely(c == ch))						\
-		__FSM_H2_DROP(st);					\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
@@ -9326,10 +9319,25 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_mark);
 
+/**
+ * @fin is true if HAPCK doesn't have any more data for the FSM, i.e. we reached
+ * the end of the header name.
+ */
 int
 tfw_h2_parse_req_hdr_name(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			  bool fin)
 {
+/*
+ * Macros to control the exact length of prohibited headers matching. */
+#define __name_len_eq(num)		(fin && num == __data_remain(p))
+
+#define __FSM_H2_TX_AF_DROP(st, ch)					\
+__FSM_STATE(st, cold) {							\
+	if (__name_len_eq(1) && c == ch)				\
+		__FSM_H2_DROP(st);					\
+	__FSM_JMP(RGen_HdrOtherN);					\
+}
+
 	int ret = T_OK;
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
@@ -9414,28 +9422,34 @@ tfw_h2_parse_req_hdr_name(unsigned char *data, unsigned long len, TfwHttpReq *re
 						TFW_TAG_HDR_CACHE_CONTROL);
 			}
 			__FSM_H2_OTHER_n(4);
-		/* connection */
+		/* Explicitly prohibit `connection` header in requests. */
 		case TFW_CHAR4_INT('c', 'o', 'n', 'n'):
-			if (unlikely(!__data_available(p, 10)))
+			if (unlikely(!__name_len_eq(10)))
 				__FSM_H2_NEXT_n(Req_HdrConn, 4);
 			if (C8_INT(p + 2, 'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'))
 				__FSM_H2_DROP(Req_HdrConnection);
 			__FSM_H2_OTHER_n(4);
 		/* content-* */
 		case TFW_CHAR4_INT('c', 'o', 'n', 't'):
-			if (unlikely(!__data_available(p, 14)))
+			if (unlikely(!__data_available(p, 12)))
 				__FSM_H2_NEXT_n(Req_HdrCont, 4);
 			if (C8_INT(p + 4, 'e', 'n', 't', '-', 't', 'y', 'p', 'e'))
 				__FSM_H2_HDR_NAME_FIN(12,
 						TFW_TAG_HDR_CONTENT_TYPE);
-			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'e', 'n', 'c', 'o')
-			    && C4_INT(p + 12,  'd', 'i', 'n', 'g'))
-				__FSM_H2_HDR_NAME_FIN(16,
-						TFW_TAG_HDR_CONTENT_ENCODING);
+
+			if (unlikely(!__data_available(p, 14)))
+				__FSM_H2_NEXT_n(Req_HdrCont, 4);
 			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'l', 'e', 'n', 'g')
 			    && C4_INT(p + 10,  'n', 'g', 't', 'h'))
 				__FSM_H2_HDR_NAME_FIN(14,
 						TFW_TAG_HDR_CONTENT_LENGTH);
+
+			if (unlikely(!__data_available(p, 16)))
+				__FSM_H2_NEXT_n(Req_HdrCont, 4);
+			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'e', 'n', 'c', 'o')
+			    && C4_INT(p + 12,  'd', 'i', 'n', 'g'))
+				__FSM_H2_HDR_NAME_FIN(16,
+						TFW_TAG_HDR_CONTENT_ENCODING);
 			__FSM_H2_OTHER_n(4);
 		/* cookie */
 		case TFW_CHAR4_INT('c', 'o', 'o', 'k'):
@@ -9481,9 +9495,9 @@ tfw_h2_parse_req_hdr_name(unsigned char *data, unsigned long len, TfwHttpReq *re
 						TFW_TAG_HDR_IF_NONE_MATCH);
 			}
 			__FSM_H2_OTHER_n(4);
-		/* keep-alive */
+		/* Explicitly prohibit `keep-alive` header */
 		case TFW_CHAR4_INT('k', 'e', 'e', 'p'):
-			if (unlikely(!__data_available(p, 10)))
+			if (unlikely(!__name_len_eq(10)))
 				__FSM_H2_NEXT_n(Req_HdrKeep, 4);
 			if (C8_INT(p + 2, 'e', 'p', '-', 'a', 'l', 'i', 'v', 'e'))
 				__FSM_H2_DROP(Req_HdrKeep_Alive);
@@ -9500,19 +9514,19 @@ tfw_h2_parse_req_hdr_name(unsigned char *data, unsigned long len, TfwHttpReq *re
 		 * proxy-connection header as malformed.
 		 */
 		case TFW_CHAR4_INT('p', 'r', 'o', 'x'):
-			if (unlikely(!__data_available(p, 16)))
-				__FSM_H2_DROP(Req_HdrProxyConnection);
+			if (unlikely(!__name_len_eq(16)))
+				__FSM_H2_NEXT_n(Req_HdrProx, 4);
 			if (C8_INT(p + 4, 'y', '-', 'c', 'o', 'n', 'n', 'e', 'c')
-			    || C4_INT(p + 12, 't', 'i', 'o', 'n'))
+			    && C4_INT(p + 12, 't', 'i', 'o', 'n'))
 				__FSM_H2_DROP(Req_HdrProxyConnection);
 			__FSM_H2_OTHER_n(4);
 		/* Explicitly prohibit transfer-encoding in requests. */
 		case TFW_CHAR4_INT('t', 'r', 'a', 'n'):
-			if (unlikely(!__data_available(p, 17)))
+			if (unlikely(!__name_len_eq(17)))
 				__FSM_H2_NEXT_n(Req_HdrTran, 4);
 			if (C8_INT(p + 1,  'r', 'a', 'n', 's', 'f', 'e', 'r', '-')
-			    &&  C8_INT(p + 9, 'e', 'n', 'c', 'o', 'd', 'i', 'n',
-				       'g'))
+			    && C8_INT(p + 9, 'e', 'n', 'c', 'o', 'd', 'i', 'n',
+				      'g'))
 			{
 				__FSM_H2_DROP(Req_HdrTransfer_Encoding);
 			}
@@ -9536,7 +9550,7 @@ tfw_h2_parse_req_hdr_name(unsigned char *data, unsigned long len, TfwHttpReq *re
 		 * upgrade header as malformed.
 		 */
 		case TFW_CHAR4_INT('u', 'p', 'g', 'r'):
-			if (unlikely(!__data_available(p, 7)))
+			if (unlikely(!__name_len_eq(7)))
 				__FSM_H2_NEXT_n(Req_HdrUpgr, 4);
 			if (C4_INT(p + 3, 'r', 'a', 'd', 'e'))
 				__FSM_H2_DROP(Req_HdrUpgrade);
@@ -10059,9 +10073,15 @@ tfw_h2_parse_req_hdr_name(unsigned char *data, unsigned long len, TfwHttpReq *re
 
 out:
 	return ret;
+#undef __FSM_H2_TX_AF_DROP
+#undef __name_len_eq
 }
 STACK_FRAME_NON_STANDARD(tfw_h2_parse_req_hdr_name);
 
+/**
+ * @fin is true if HAPCK doesn't have any more data for the FSM, i.e. we reached
+ * the end of the header value.
+ */
 int
 tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req,
 			 bool fin)
