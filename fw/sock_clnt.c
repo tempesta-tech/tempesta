@@ -46,6 +46,8 @@ static struct kmem_cache *tfw_https_conn_cache;
 static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
+unsigned int tfw_cli_max_concurrent_streams;
+
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
@@ -951,6 +953,22 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_cfgop_max_concurrent_streams(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	if ((r = tfw_cfg_check_val_n(ce, 1)))
+		return -EINVAL;
+
+	if ((r = tfw_cfg_parse_uint(ce->vals[0], &tfw_cli_max_concurrent_streams))) {
+		T_ERR_NL("Unable to parse 'max_concurrent_streams' value: '%s'\n",
+			 ce->vals[0] ? : "No value specified");
+		return -EINVAL;
+	}
+
+	return 0;
+}
 
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
@@ -1152,6 +1170,14 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.handler = tfw_cfgop_keepalive_timeout,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = false,
+	},
+	{
+		.name = "max_concurrent_streams",
+		.deflt = "100",
+		.handler = tfw_cfgop_max_concurrent_streams,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_repeat = false,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
