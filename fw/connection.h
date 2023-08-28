@@ -555,6 +555,8 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 	return r;
 }
 
+extern unsigned int tfw_cli_max_concurrent_streams;
+
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
