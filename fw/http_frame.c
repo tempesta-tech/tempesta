@@ -242,7 +242,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
-	lset->max_streams = rset->max_streams = 0xffffffff;
+	lset->max_streams = tfw_cli_max_concurrent_streams;
+	rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
 	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
 	/*
@@ -396,7 +397,7 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	struct {
 		unsigned short key;
 		unsigned int value;
-	} __attribute__((packed)) field[2];
+	} __attribute__((packed)) field[3];
 
 	TfwStr data = {
 		.chunks = (TfwStr []){
@@ -422,6 +423,9 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
+
+	field[2].key   = htons(HTTP2_SETTINGS_MAX_STREAMS);
+	field[2].value = htonl(ctx->lsettings.max_streams);
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
@@ -1492,6 +1496,20 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
 
+#define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
+do {									\
+	unsigned int max_streams = ctx->lsettings.max_streams;		\
+									\
+	tfw_h2_closed_streams_shrink(ctx);				\
+									\
+	if (max_streams == ctx->streams_num) {				\
+		T_DBG("Max streams number exceeded: %lu\n",		\
+		      ctx->streams_num);				\
+		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
+		ACTION;							\
+	}								\
+} while(0)
+
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
 
@@ -1567,20 +1585,11 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		 * maximum number of concurrent streams (see RFC 7540 section
 		 * 5.1.2 for details).
 		 */
-		if (!ctx->cur_stream) {
-			unsigned int max_streams = ctx->lsettings.max_streams;
-
-			WARN_ON_ONCE(max_streams < ctx->streams_num);
-			tfw_h2_closed_streams_shrink(ctx);
-
-			if (max_streams == ctx->streams_num) {
-				T_DBG("Max streams number exceeded: %lu\n",
-				      ctx->streams_num);
-				SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);
+		if (!ctx->cur_stream)
+			VERIFY_MAX_CONCURRENT_STREAMS(ctx, {
 				return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
 							      HTTP2_ECODE_REFUSED);
-			}
-		}
+			});
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
@@ -1609,6 +1618,10 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			STREAM_RECV_PROCESS(ctx, hdr);
 			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
 		} else if (hdr->stream_id > ctx->lstream_id) {
+			VERIFY_MAX_CONCURRENT_STREAMS(ctx, {
+				err_code = HTTP2_ECODE_PROTO;
+				goto conn_term;
+			});
 			/*
 			 * According to RFC 7540 section 6.3:
 			 * Priority frame can be sent in any stream state,
@@ -1818,6 +1831,8 @@ conn_term:
 	BUG_ON(!err_code);
 	tfw_h2_conn_terminate(ctx, err_code);
 	return -EINVAL;
+
+#undef VERIFY_MAX_CONCURRENT_STREAMS
 }
 
 /**
