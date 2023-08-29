@@ -1321,12 +1321,6 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	}
 
 	skb->skb_mstamp_ns = 0;
-	/*
-	 * Do not clear skb->dev in case if it is used for private
-	 * tempesta data.
-	 */
-	if (!skb_tfw_is_present(skb))
-		skb->dev = NULL;
 	bzero_fast(skb->cb, sizeof(skb->cb));
 	nf_reset_ct(skb);
 	skb->mac_len = 0;
