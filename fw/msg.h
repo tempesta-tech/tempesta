@@ -78,7 +78,7 @@ typedef struct {
  *		- parsed next;
  * @nm_len	- length of the decoded header's name;
  * @nm_num	- chunks number of the decoded header's name;
- * @hdr_tag	- tag of currently processed decoded header.
+ * @tag		- tag of currently processed decoded header.
  */
 typedef struct {
 	TfwPool		*pool;
