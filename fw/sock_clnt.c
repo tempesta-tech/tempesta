@@ -45,6 +45,7 @@ static struct kmem_cache *tfw_h1_conn_cache;
 static struct kmem_cache *tfw_https_conn_cache;
 static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
+static bool tfw_cli_latency_optimized_write;
 
 unsigned int tfw_cli_max_concurrent_streams;
 
@@ -226,7 +227,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 		mss_now = UINT_MAX;
 		with_limit = false;
 	}
-	if (with_limit) {
+	if (with_limit && tfw_cli_latency_optimized_write) {
 		cwnd_avail = (tp->snd_cwnd > tp->packets_out ?
 			tp->snd_cwnd - tp->packets_out : 0);
 		cwnd_avail_in_bytes = cwnd_avail * mss_now;
@@ -721,7 +722,7 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cli_cfg_ka_timeout < 0) {
 		T_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			 "Value less the zero");
+			 "Value less then zero");
 		return -EINVAL;
 	}
 
@@ -743,6 +744,20 @@ tfw_cfgop_max_concurrent_streams(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	return 0;
+}
+
+static int
+tfw_cfgop_latency_optimized_write(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	if (ce->dflt_value && tfw_cli_latency_optimized_write)
+		return 0;
+
+	cs->dest = &tfw_cli_latency_optimized_write;
+	r = tfw_cfg_set_bool(cs, ce);
+	cs->dest = NULL;
+	return r;
 }
 
 static void
@@ -950,6 +965,14 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.name = "max_concurrent_streams",
 		.deflt = "100",
 		.handler = tfw_cfgop_max_concurrent_streams,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "latency_optimized_write",
+		.deflt = "true",
+		.handler = tfw_cfgop_latency_optimized_write,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = false,
 		.allow_reconfig = true,
