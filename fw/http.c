@@ -3091,8 +3091,7 @@ tfw_http_req_set_conn_close(TfwHttpReq *req)
  * Expand HTTP/1.1 response with hop-by-hop headers. It is implied that this
  * procedure should be used only for cases when original hop-by-hop headers
  * is already removed from the response: e.g. creation HTTP/1.1-response from
- * the cache (see also comments for tfw_http_set_hdr_connection(),
- * tfw_http_set_hdr_keep_alive() and tfw_http_adjust_resp()).
+ * the cache.
  */
 int
 tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
@@ -3578,7 +3577,7 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 						     NULL);
 			if (unlikely(r))
 				return r;
-			r |= tfw_http_msg_expand_data(it, skb_head, &crlf,
+			r = tfw_http_msg_expand_data(it, skb_head, &crlf,
 						      NULL);
 		} else {
 			r = tfw_http_msg_expand_from_pool(hm, &h_mdf);
@@ -3674,7 +3673,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			if (unlikely(r))
 				goto clean;
 
-			tfw_http_msg_expand_from_pool(hm, &crlf);
+			r = tfw_http_msg_expand_from_pool(hm, &crlf);
 			if (unlikely(r))
 				goto clean;
 		}
@@ -4328,7 +4327,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 
 		/* Clean current reponse skb_head if body is exists. */
 		if (resp->body.len > 0) {
-			tfw_h1_purge_resp_clean(resp, &cleanup);
+			r = tfw_h1_purge_resp_clean(resp, &cleanup);
 			if (unlikely(r))
 				goto clean;
 
@@ -4394,7 +4393,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
 				goto clean;
-			tfw_http_msg_expand_from_pool(hm, &crlf);
+			r = tfw_http_msg_expand_from_pool(hm, &crlf);
 			if (unlikely(r))
 				goto clean;
 		}
@@ -4663,7 +4662,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 }
 
 /*
- * Same as @tfw_http_set_hdr_date(), but intended for usage in HTTP/1.1=>HTTP/2
+ * Same as @tfw_http_add_hdr_date(), but intended for usage in HTTP/1.1=>HTTP/2
  * transformation and for building response from cache.
  */
 int
