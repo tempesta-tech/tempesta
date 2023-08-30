@@ -429,8 +429,6 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 	if (to_h2) {
 		set_cookie.hpack_idx = 55;
 		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache);
-		if (unlikely(r))
-			goto err;
 	} else if (cache) {
 		TfwMsgIter *it = &resp->iter;
 		struct sk_buff **skb_head = &resp->msg.skb_head;
@@ -445,6 +443,9 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 			goto err;
 		r = tfw_http_msg_expand_from_pool(hm, &crlf);
 	}
+
+	if (unlikely(r))
+		goto err;
 
 	return 0;
 

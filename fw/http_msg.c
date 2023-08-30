@@ -1503,7 +1503,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 
 			addr = tfw_http_msg_alloc_from_pool(it, pool, n_copy);
 			if (unlikely(!addr))
-				return r;
+				return -ENOMEM;
 
 			cpy(addr, c->data + off, n_copy);
 			rlen -= n_copy;
@@ -1531,7 +1531,7 @@ tfw_h2_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			    TfwHttpTransIter *mit)
 {
 	int r;
-	unsigned int n;
+	unsigned int n = 0;
 
 	r = __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
 	mit->acc_len += n;
@@ -1544,7 +1544,7 @@ tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
 			       TfwHttpTransIter *mit)
 {
 	int r;
-	unsigned int n;
+	unsigned int n = 0;
 
 	r = __tfw_http_msg_expand_from_pool(hm, str, &n, tfw_cstrtolower);
 	mit->acc_len += n;
