@@ -344,31 +344,36 @@ tfw_h2_sched_stream_dequeue(TfwStreamSchedEntry *entry,
 
 	BUG_ON(!entry->bits);
 
-	zeroes =  __builtin_clzll(entry->bits);
-	anchor = entry->anchors + zeroes;
+	while (true) {
+		zeroes =  __builtin_clzll(entry->bits);
+		anchor = entry->anchors + zeroes;
 
-	/*
-	 * This function should be called only after checking that
-	 * entry scheduler is active.
-	 */
-	BUG_ON(!anchor->active_cnt || list_empty(&anchor->head));
-
-	link = list_entry(anchor->head.next, TfwStreamSchedEntryLink, node);
-	stream = container_of(link, TfwStream, link);
-
-	if (tfw_h2_stream_is_active(stream)) {
-		*parent = entry;
-		tfw_h2_stream_schred_remove(stream);
-		return stream;
-	} else if (tfw_h2_stream_sched_is_active(&stream->sched)) {
 		/*
-		 * This stream is blocked, but have active childs, try
-		 * to use on of them.
+		 * This function should be called only after checking that
+		 * entry scheduler is active.
 		 */
-		*parent = stream->sched.parent;
-		tfw_h2_stream_schred_remove(stream);
-		tfw_h2_sched_stream_enqueue(stream, *parent);
-		return tfw_h2_sched_stream_dequeue(&stream->sched, parent);
+		BUG_ON(!anchor->active_cnt || list_empty(&anchor->head));
+
+		link = list_entry(anchor->head.next, TfwStreamSchedEntryLink,
+				  node);
+		stream = container_of(link, TfwStream, link);
+
+		if (tfw_h2_stream_is_active(stream)) {
+			*parent = entry;
+			tfw_h2_stream_schred_remove(stream);
+			return stream;
+		} else if (tfw_h2_stream_sched_is_active(&stream->sched)) {
+			/*
+			 * This stream is blocked, but have active childs, try
+			 * to use on of them.
+			 */
+			*parent = stream->sched.parent;
+			tfw_h2_stream_schred_remove(stream);
+			tfw_h2_sched_stream_enqueue(stream, *parent);
+			entry = &stream->sched;
+		} else {
+			break;
+		}
 	}
 
 	return NULL;
