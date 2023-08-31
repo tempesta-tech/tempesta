@@ -3646,8 +3646,9 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	int r, cl_sz = sizeof(TfwHttpMsgCleanup);
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	TfwHttpMsgCleanup *cleanup = req->cleanup;
-	const BasicStr *s_meth;
-	TfwStr *pos, *end, meth = {};
+	TfwStr *pos, *end;
+	const TfwStr *meth;
+	static const DEFINE_TFW_STR(meth_get, "GET");
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
@@ -3665,14 +3666,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
 		/* Rewrite PURGE to GET */
-		s_meth = tfw_http_method_id2str(TFW_HTTP_METH_GET);
+		meth = &meth_get;
 	else
-		s_meth = tfw_http_method_id2str(req->method);
+		meth = &hm->h_tbl->tbl[TFW_HTTP_METHOD];
 
-	meth.data = s_meth->data;
-	meth.len = s_meth->len;
-
-	r = tfw_http_msg_expand_from_pool(hm, &meth);
+	r = tfw_http_msg_expand_from_pool(hm, meth);
 	if (unlikely(r))
 		goto clean;
 

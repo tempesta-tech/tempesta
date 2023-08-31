@@ -492,11 +492,15 @@ __FSM_STATE(st, cold) {							\
 		__msg_hdr_set_hpack_index(hp_idx);			\
 	})
 
+#define __FSM_METH_fixup_finish(curr_st, n)				\
+	__msg_hdr_chunk_fixup(data, __data_off(p + n));			\
+	tfw_http_msg_method_close(msg);					\
+
 /* Used for improbable states only, so use cold label. */
 #define __FSM_METH_MOVE(st, ch, st_next)				\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == (ch)))						\
-		__FSM_MOVE_nofixup(st_next);				\
+		__FSM_MOVE(st_next);					\
 	__FSM_JMP(Req_MethodUnknown);					\
 }
 
@@ -505,6 +509,7 @@ __FSM_STATE(st, cold) {							\
 	if (unlikely(c != (ch)))					\
 		__FSM_JMP(Req_MethodUnknown);				\
 	req->method = (m_type);						\
+	__FSM_METH_fixup_finish(st, 1);					\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
 
@@ -5029,6 +5034,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method, hot) {
+		parser->_hdr_tag = TFW_HTTP_METHOD;
+		/* 
+		 * Open header manually. HTTP method is not a header, storing
+		 * it in @msg->h_tbl it's only optimization to not introduce
+		 * new field into TfwHttpReq. Using @tfw_http_msg_hdr_open
+		 * leads to wrong headers counting.
+		 */
+		__msg_field_open(&msg->stream->parser.hdr, p);
+
 		if (likely(__data_available(p, 9))) {
 			/*
 			 * Move most frequent methods forward and do not use
@@ -5042,10 +5056,12 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			 */
 			if (PI(p) == TFW_CHAR4_INT('G', 'E', 'T', ' ')) {
 				req->method = TFW_HTTP_METH_GET;
+				__FSM_METH_fixup_finish(Req_Method, 3);
 				__FSM_MOVE_nofixup_n(Req_Uri, 4);
 			}
 			if (PI(p) == TFW_CHAR4_INT('P', 'O', 'S', 'T')) {
 				req->method = TFW_HTTP_METH_POST;
+				__FSM_METH_fixup_finish(Req_Method, 4);
 				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
 			}
 			goto Req_Method_RareMethods;
@@ -5627,6 +5643,7 @@ Req_Method_RareMethods: __attribute__((cold))
 do {									\
 	req->method = TFW_HTTP_METH_##meth;				\
 	__fsm_n += step_inc;						\
+	__FSM_METH_fixup_finish(Req_Method_RareMethods, __fsm_n);	\
 	goto match_meth;						\
 } while (0)
 
@@ -5639,21 +5656,21 @@ do {									\
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(PURGE, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
+		__FSM_MOVE_n(Req_MethPurg, 4);
 	case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
 		__MATCH_METH(COPY, 0);
 	case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
 		if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
 			__MATCH_METH(DELETE, 2);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethDele, 4);
+		__FSM_MOVE_n(Req_MethDele, 4);
 	case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
 		__MATCH_METH(LOCK, 0);
 	case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
 		if (likely(*(p + 4) == 'L'))
 			__MATCH_METH(MKCOL, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
+		__FSM_MOVE_n(Req_MethMkco, 4);
 	case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
 		__MATCH_METH(MOVE, 0);
 	case TFW_CHAR4_INT('O', 'P', 'T', 'I'):
@@ -5661,15 +5678,16 @@ do {									\
 			 == TFW_CHAR4_INT('O', 'N', 'S', ' ')))
 		{
 			req->method = TFW_HTTP_METH_OPTIONS;
-			__FSM_MOVE_nofixup_n(Req_Uri, 8);
+			__FSM_METH_fixup_finish(Req_Method_RareMethods, 8);
+			__FSM_MOVE_n(Req_Uri, 8);
 		}
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
+		__FSM_MOVE_n(Req_MethOpti, 4);
 	case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
 		if (likely(*(p + 4) == 'H'))
 			__MATCH_METH(PATCH, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
+		__FSM_MOVE_n(Req_MethPatc, 4);
 	case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
 		if (likely(*((unsigned int *)p + 1)
 			  == TFW_CHAR4_INT('F', 'I', 'N', 'D')))
@@ -5683,20 +5701,21 @@ do {									\
 			__MATCH_METH(PROPPATCH, 5);
 		}
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethProp, 4);
+		__FSM_MOVE_n(Req_MethProp, 4);
 	case TFW_CHAR4_INT('P', 'U', 'T', ' '):
 		req->method = TFW_HTTP_METH_PUT;
-		__FSM_MOVE_nofixup_n(Req_Uri, 4);
+		__FSM_METH_fixup_finish(Req_Method_RareMethods, 4);
+		__FSM_MOVE_n(Req_Uri, 4);
 	case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(TRACE, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
+		__FSM_MOVE_n(Req_MethTrac, 4);
 	case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
 		if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
 			__MATCH_METH(UNLOCK, 2);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
+		__FSM_MOVE_n(Req_MethUnlo, 4);
 	default:
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5709,34 +5728,34 @@ Req_Method_1CharStep: __attribute__((cold))
 	switch (c) {
 	case 'G':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethG);
+		__FSM_MOVE(Req_MethG);
 	case 'H':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethH);
+		__FSM_MOVE(Req_MethH);
 	case 'P':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethP);
+		__FSM_MOVE(Req_MethP);
 	case 'C':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethC);
+		__FSM_MOVE(Req_MethC);
 	case 'D':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethD);
+		__FSM_MOVE(Req_MethD);
 	case 'L':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethL);
+		__FSM_MOVE(Req_MethL);
 	case 'M':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethM);
+		__FSM_MOVE(Req_MethM);
 	case 'O':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethO);
+		__FSM_MOVE(Req_MethO);
 	case 'T':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethT);
+		__FSM_MOVE(Req_MethT);
 	case 'U':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethU);
+		__FSM_MOVE(Req_MethU);
 	}
 	__FSM_JMP(Req_MethodUnknown);
 
@@ -5750,13 +5769,13 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethP, cold) {
 		switch (c) {
 		case 'O':
-			__FSM_MOVE_nofixup(Req_MethPo);
+			__FSM_MOVE(Req_MethPo);
 		case 'A':
-			__FSM_MOVE_nofixup(Req_MethPa);
+			__FSM_MOVE(Req_MethPa);
 		case 'R':
-			__FSM_MOVE_nofixup(Req_MethPr);
+			__FSM_MOVE(Req_MethPr);
 		case 'U':
-			__FSM_MOVE_nofixup(Req_MethPu);
+			__FSM_MOVE(Req_MethPu);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5773,9 +5792,9 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethProp, cold) {
 		switch (c) {
 		case 'F':
-			__FSM_MOVE_nofixup(Req_MethPropf);
+			__FSM_MOVE(Req_MethPropf);
 		case 'P':
-			__FSM_MOVE_nofixup(Req_MethPropp);
+			__FSM_MOVE(Req_MethPropp);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5792,14 +5811,16 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethPu, cold) {
 		switch (c) {
 		case 'R':
-			__FSM_MOVE_nofixup(Req_MethPur);
+			__FSM_MOVE(Req_MethPur);
 		case 'T':
 			/* PUT */
 			req->method = TFW_HTTP_METH_PUT;
-			__FSM_MOVE_nofixup(Req_MUSpace);
+			__FSM_METH_fixup_finish(Req_MethPu, 1);
+			__FSM_MOVE_nofixup_n(Req_MUSpace, 1);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
+
 	/* PURGE */
 	__FSM_METH_MOVE(Req_MethPur, 'G', Req_MethPurg);
 	__FSM_METH_MOVE_finish(Req_MethPurg, 'E', TFW_HTTP_METH_PURGE);
@@ -5825,9 +5846,9 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethM, cold) {
 		switch (c) {
 		case 'K':
-			__FSM_MOVE_nofixup(Req_MethMk);
+			__FSM_MOVE(Req_MethMk);
 		case 'O':
-			__FSM_MOVE_nofixup(Req_MethMo);
+			__FSM_MOVE(Req_MethMo);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5862,6 +5883,8 @@ Req_Method_1CharStep: __attribute__((cold))
 		__fsm_sz = tfw_match_token(p, __fsm_n);
 		if (likely(__fsm_sz)) {
 			req->method = _TFW_HTTP_METH_UNKNOWN;
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__msg_chunk_flags(TFW_STR_VALUE);
 			p += __fsm_sz;
 		}
 		if (unlikely(__fsm_sz == __fsm_n)) {
@@ -5877,6 +5900,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			 * then there is zero-length method name
 			 * and the request must be dropped.
 			 */
+		tfw_http_msg_method_close(msg);
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
