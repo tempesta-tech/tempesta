@@ -199,8 +199,9 @@ typedef struct {
  */
 typedef enum {
 	TFW_HTTP_STATUS_LINE,
+	TFW_HTTP_METHOD = TFW_HTTP_STATUS_LINE,
 	TFW_HTTP_HDR_H2_STATUS = TFW_HTTP_STATUS_LINE,
-	TFW_HTTP_HDR_H2_METHOD = TFW_HTTP_HDR_H2_STATUS,
+	TFW_HTTP_HDR_H2_METHOD = TFW_HTTP_METHOD,
 	TFW_HTTP_HDR_H2_SCHEME,
 	TFW_HTTP_HDR_H2_AUTHORITY,
 	TFW_HTTP_HDR_H2_PATH,
@@ -366,7 +367,7 @@ typedef struct {
  * 		  the response is sent to the client;
  * @stale_ce	- Stale cache entry retrieved from the cache. Must be assigned
  *		  only when "cache_use_stale" is configured;
- * @cleanup	- Original request data. Required for keep request data until
+ * @cleanup	- Original request data. Required for keeping request data until
  * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
@@ -796,33 +797,5 @@ void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
 int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
-
-static inline const BasicStr *
-tfw_http_method_id2str(int id)
-{
-#define STR_METHOD(name) [TFW_HTTP_METH_ ## name] = { #name, sizeof(#name) - 1 }
-
-	static BasicStr http_methods[] = {
-		STR_METHOD(COPY),
-		STR_METHOD(DELETE),
-		STR_METHOD(GET),
-		STR_METHOD(HEAD),
-		STR_METHOD(LOCK),
-		STR_METHOD(MKCOL),
-		STR_METHOD(MOVE),
-		STR_METHOD(OPTIONS),
-		STR_METHOD(PATCH),
-		STR_METHOD(POST),
-		STR_METHOD(PROPFIND),
-		STR_METHOD(PROPPATCH),
-		STR_METHOD(PUT),
-		STR_METHOD(TRACE),
-		STR_METHOD(UNLOCK),
-		STR_METHOD(PURGE),
-	};
-
-#undef STR_METHOD
-	return &http_methods[id];
-}
 
 #endif /* __TFW_HTTP_H__ */
