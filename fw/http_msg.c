@@ -1611,7 +1611,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			rlen -= n_copy;
 			acc += n_copy;
 
-			T_DBG3("%s: n_copy=%u",  __func__, n_copy,);
+			T_DBG3("%s: n_copy=%u",  __func__, n_copy);
 		}
 	}
 
