@@ -960,18 +960,15 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	return 0;
 }
 
-/*
- * When header name and/or value is taken from either
- * static or dynamic table, check if entry tag is valid
- * (i.e. this header is valid for request)
+/**
+ * When header name and/or value is taken from either static or dynamic table,
+ * check if entry tag is valid (i.e. this header is valid for request).
  * Valid pseudo-headers for requests/responses are defined
  * in RFC 7540 8.1.2.3/8.1.2.4
  */
 static bool
-tfw_hpack_entry_tag_valid(unsigned int entry_tag)
+tfw_hpack_entry_tag_valid(TfwHPackTag entry_tag)
 {
-	bool is_valid = false;
-
 	switch (entry_tag) {
 	case TFW_TAG_HDR_H2_METHOD:
 	case TFW_TAG_HDR_H2_SCHEME:
@@ -993,14 +990,15 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 	case TFW_TAG_HDR_X_FORWARDED_FOR:
 	case TFW_TAG_HDR_USER_AGENT:
 	case TFW_TAG_HDR_TRANSFER_ENCODING:
+	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
 	case TFW_TAG_HDR_RAW:
-		is_valid = true;
-		break;
+		return true;
+
 	default:
-		T_DBG3("%s: HPACK entry tag (%d) is not valid for HTTP/2 req\n",
-			__func__, entry_tag);
+		T_DBG("%s: HPACK entry tag (%d) is not valid for HTTP/2 req\n",
+		      __func__, entry_tag);
+		return false;
 	}
-	return is_valid;
 }
 
 static const TfwHPackEntry *
@@ -1030,7 +1028,7 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned int index)
 	}
 
 	if (entry && !tfw_hpack_entry_tag_valid(entry->tag))
-		entry = NULL;
+		return NULL;
 
 	WARN_ON_ONCE(entry && (!entry->hdr || !entry->hdr->nchunks));
 
@@ -1310,12 +1308,6 @@ done:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		h2_set_hdr_accept(req, &entry->cstate);
 		break;
-	case TFW_TAG_HDR_AUTHORIZATION:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
-	case TFW_TAG_HDR_CACHE_CONTROL:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
 	case TFW_TAG_HDR_CONTENT_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_ENCODING;
 		break;
@@ -1350,9 +1342,6 @@ done:
 		}
 		h2_set_hdr_if_nmatch(req, &entry->cstate);
 		break;
-	case TFW_TAG_HDR_PRAGMA:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
 	case TFW_TAG_HDR_REFERER:
 		parser->_hdr_tag = TFW_HTTP_HDR_REFERER;
 		break;
@@ -1365,6 +1354,10 @@ done:
 	case TFW_TAG_HDR_TRANSFER_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_TRANSFER_ENCODING;
 		break;
+	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
+	case TFW_TAG_HDR_AUTHORIZATION:
+	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_PRAGMA:
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;

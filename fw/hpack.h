@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -162,10 +162,10 @@ typedef enum {
  */
 typedef struct {
 	union {
-		unsigned char	    accept_text_html;
-		long		    if_msince_date;
-		unsigned long	    authority_port;
-		unsigned char	    ifnmatch_etag_any;
+		unsigned char	accept_text_html;
+		long		if_msince_date;
+		unsigned long	authority_port;
+		unsigned char	ifnmatch_etag_any;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;
@@ -186,7 +186,7 @@ typedef struct {
 	TfwStr			*hdr;
 	unsigned long		name_len;
 	unsigned long		name_num;
-	unsigned int		tag;
+	TfwHPackTag		tag;
 	unsigned char		last : 1;
 	TfwCachedHeaderState	cstate;
 } TfwHPackEntry;

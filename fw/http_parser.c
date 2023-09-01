@@ -6394,42 +6394,48 @@ do {									\
 	goto out;							\
 } while (0)
 
-#define H2_MSG_VERIFY(hid)						\
-({									\
-	bool ret = true;						\
-	TfwStr *tbl = msg->h_tbl->tbl;					\
-	if (unlikely(hid < TFW_HTTP_HDR_NONSINGULAR			\
-		     && hid != TFW_HTTP_HDR_COOKIE			\
-		     && !TFW_STR_EMPTY(&tbl[hid])))			\
-	{								\
-		ret = false;						\
-	}								\
-	/*								\
-	 * Pseudo-headers must appear in the header block before	\
-	 * regular headers; also, exactly one instance of ':method',	\
-	 * ':scheme' and ':path' pseudo-headers must be contained in	\
-	 * the request (see RFC 7540 section 8.1.2.1 and section	\
-	 * 8.1.2.3 for details).					\
-	 */								\
-	if (test_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags)		\
-	    && hid == TFW_HTTP_HDR_H2_AUTHORITY)			\
-	{								\
-		ret = false;						\
-	}								\
-	if (!test_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags)		\
-	    && hid >= TFW_HTTP_HDR_REGULAR)				\
-	{								\
-		if (TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_H2_METHOD])		\
-		    || TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_H2_SCHEME])	\
-		    || TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_H2_PATH]))	\
-		{							\
-			ret = false;					\
-		} else {						\
-			__set_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags);	\
-		}							\
-	}								\
-	ret;								\
-})
+static bool
+__h2_msg_verify(TfwHttpReq *req, tfw_http_hdr_t hid)
+{
+	TfwHttpMsg *msg = (TfwHttpMsg *)req;
+	TfwStr *tbl = msg->h_tbl->tbl;
+	bool ret = true;
+
+	if (unlikely(hid < TFW_HTTP_HDR_NONSINGULAR
+		     && hid != TFW_HTTP_HDR_COOKIE
+		     && !TFW_STR_EMPTY(&tbl[hid])))
+	{
+		ret = false;
+	}
+
+	/*
+	 * Pseudo-headers must appear in the header block before
+	 * regular headers; also, exactly one instance of ':method',
+	 * ':scheme' and ':path' pseudo-headers must be contained in
+	 * the request (see RFC 7540 section 8.1.2.1 and section
+	 * 8.1.2.3 for details).
+	 */
+	else if (test_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags)
+		 && hid == TFW_HTTP_HDR_H2_AUTHORITY)
+	{
+		ret = false;
+	}
+
+	if (!test_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags)
+	    && hid >= TFW_HTTP_HDR_REGULAR)
+	{
+		if (TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_H2_METHOD])
+		    || TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_H2_SCHEME])
+		    || TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_H2_PATH]))
+		{
+			ret = false;
+		} else {
+			__set_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags);
+		}
+	}
+
+	return ret;
+}
 
 #define __FSM_H2_HDR_NAME_FIN(n, h_tag)					\
 do {									\
@@ -6616,7 +6622,7 @@ do {									\
 #define TFW_H2_PARSE_HDR_VAL(st_curr, hm, func, hid, saveval)		\
 __FSM_STATE(st_curr) {							\
 	BUG_ON(p != data);						\
-	if (!H2_MSG_VERIFY(hid))					\
+	if (!__h2_msg_verify(req, hid))					\
 		__FSM_H2_DROP(st_curr);					\
 	if (!parser->_i_st)						\
 		TRY_STR_INIT();						\
@@ -10103,7 +10109,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 
 	case TFW_TAG_HDR_H2_METHOD:
 	__FSM_STATE(Req_HdrPsMethodV, hot) {
-		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_METHOD))
+		if (!__h2_msg_verify(req, TFW_HTTP_HDR_H2_METHOD))
 			__FSM_H2_DROP(Req_HdrPsMethodV);
 
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
@@ -10126,7 +10132,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 
 	case TFW_TAG_HDR_H2_SCHEME:
 	__FSM_STATE(Req_HdrPsSchemeV, hot) {
-		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_SCHEME))
+		if (!__h2_msg_verify(req, TFW_HTTP_HDR_H2_SCHEME))
 			__FSM_H2_DROP(Req_HdrPsSchemeV);
 
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_SCHEME;
@@ -10141,7 +10147,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 
 	case TFW_TAG_HDR_H2_PATH:
 	__FSM_STATE(Req_HdrPsPathV, hot) {
-		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_H2_PATH))
+		if (!__h2_msg_verify(req, TFW_HTTP_HDR_H2_PATH))
 			__FSM_H2_DROP(Req_HdrPsPathV);
 
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_PATH;
@@ -10315,7 +10321,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 
 	case TFW_TAG_HDR_RAW:
 	__FSM_STATE(RGen_HdrOtherV) {
-		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_RAW))
+		if (!__h2_msg_verify(req, TFW_HTTP_HDR_RAW))
 			__FSM_H2_DROP(RGen_HdrOtherV);
 
 		__fsm_n = __data_remain(p);
