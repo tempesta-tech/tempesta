@@ -1017,17 +1017,17 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
  * WARNING: After this call TfwHttpMsg->body MUST not be used.
  */
 int
-tfw_http_msg_cutoff_body_chunks(TfwHttpMsg *hm)
+tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 {
 	int r;
 
-	r = ss_skb_cutoff_data(hm->body.skb, &hm->stream->parser.cut, 0,
-			       tfw_str_eolen(&hm->body));
+	r = ss_skb_cutoff_data(resp->body.skb, &resp->cut, 0,
+			       tfw_str_eolen(&resp->body));
 	if (unlikely(r))
 		return r;
 
-	hm->msg.len -= hm->stream->parser.cut.len;
-	TFW_STR_INIT(&hm->body);
+	resp->msg.len -= resp->cut.len;
+	TFW_STR_INIT(&resp->body);
 
 	return 0;
 }
@@ -1414,10 +1414,8 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 	char *p;
 
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		TfwStream *stream = resp->stream;
-
-		p = stream->parser.body_start_data;
-		body = &stream->parser.body_start_skb;
+		p = resp->body_start_data;
+		body = &resp->body_start_skb;
 	} else {
 		p = TFW_STR_CHUNK(&resp->body, 0)->data;
 		body = &resp->body.skb;

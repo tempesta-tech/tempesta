@@ -1113,7 +1113,7 @@ __resp_parse_body(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 #define TFW_BODY_OPEN_CHUNK()						\
 do {									\
-	TfwStr *ch = tfw_str_add_compound(msg->pool, &parser->cut);	\
+	TfwStr *ch = tfw_str_add_compound(msg->pool, &resp->cut);	\
 									\
 	if (!ch) { 							\
 		T_WARN("Cannot grow HTTP data string\n"); 		\
@@ -1124,10 +1124,10 @@ do {									\
 
 #define __FSM_I_MOVE_cut_fixup(to, n)					\
 	__FSM_I_MOVE_body_lambda(to, n, {				\
-		tfw_str_updlen(&parser->cut, p);			\
+		tfw_str_updlen(&resp->cut, p);				\
 	})
 
-	if (!TFW_STR_EMPTY(TFW_STR_CURR(&parser->cut)))
+	if (!TFW_STR_EMPTY(TFW_STR_CURR(&resp->cut)))
 		TFW_BODY_OPEN_CHUNK();
 
 	__FSM_START(parser->_i_st);
@@ -1142,9 +1142,9 @@ do {									\
 		BUG_ON(parser->to_read < 0);
 		T_DBG3("read body: to_read=%ld\n", parser->to_read);
 
-		if (!parser->body_start_data) {
-			parser->body_start_data = p;
-			parser->body_start_skb =
+		if (!resp->body_start_data) {
+			resp->body_start_data = p;
+			resp->body_start_skb =
 				ss_skb_peek_tail(&msg->msg.skb_head);
 		}
 		__fsm_sz = min_t(long, parser->to_read, __data_remain(p));
@@ -1199,7 +1199,7 @@ do {									\
 	/* Fixup chunked body data-part */
 	__FSM_STATE(I_ChunkDataEnd) {
 		/* Don't fixup chunk after resuming parsing. */
-		if (!TFW_STR_EMPTY(TFW_STR_CURR(&parser->cut)))
+		if (!TFW_STR_EMPTY(TFW_STR_CURR(&resp->cut)))
 			TFW_BODY_OPEN_CHUNK();
 		else
 			/*
@@ -1207,7 +1207,7 @@ do {									\
 			 * address before data-part. Without reopening it
 			 * leads to fixuping data-part.
 			 */
-			__msg_field_open(TFW_STR_CURR(&parser->cut), p);
+			__msg_field_open(TFW_STR_CURR(&resp->cut), p);
 		/* Fall through. */
 	}
 
@@ -1230,7 +1230,7 @@ do {									\
 		 * We've fully read the chunked body.
 		 * Add everything and the current character.
 		 */
-		tfw_str_updlen(&parser->cut, ++p);
+		tfw_str_updlen(&resp->cut, ++p);
 		return __data_off(p);
 	}
 
@@ -1238,7 +1238,7 @@ do {									\
 	__FSM_STATE(I_BodyDescEnd) {
 		/* Don't fixup chunk after resuming parsing. */
 		if (__data_off(p) > 0) {
-			tfw_str_updlen(&parser->cut, p);
+			tfw_str_updlen(&resp->cut, p);
 		}
 		__FSM_JMP(I_BodyReadData);
 	}
@@ -1708,11 +1708,12 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 	__FSM_MOVE_nf(Resp_BodyUnlimRead, __data_remain(p), &msg->body); \
 }
 
-#define TFW_HTTP_PARSE_BODY(...)					\
+#define TFW_HTTP_PARSE_BODY(response, ...)				\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_BodyStart, __VA_ARGS__) {				\
 	__msg_field_open(&msg->body, p);				\
-	__msg_field_open(&parser->cut, p);				\
+	if (response)							\
+		__msg_field_open(&((TfwHttpResp *)msg)->cut, p);	\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyParse, __VA_ARGS__) {				\
@@ -5521,7 +5522,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	 * Most requests do not have body, so move body parser after the end.
 	 */
 	TFW_HTTP_INIT_REQ_BODY_PARSING();
-	TFW_HTTP_PARSE_BODY(cold);
+	TFW_HTTP_PARSE_BODY(false, cold);
 
 	/*
 	 * ----------------    Slow path    ----------------
@@ -12194,7 +12195,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	/* ----------------    Response body    ---------------- */
 
 	TFW_HTTP_INIT_RESP_BODY_PARSING();
-	TFW_HTTP_PARSE_BODY();
+	TFW_HTTP_PARSE_BODY(true);
 	TFW_HTTP_PARSE_BODY_UNLIM();
 
 	/* ----------------    Improbable states    ---------------- */
