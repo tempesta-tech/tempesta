@@ -396,6 +396,7 @@ typedef struct {
 	TfwStr		crlf;						\
 	TfwStr		body;
 
+
 static inline void
 tfw_http_copy_flags(unsigned long *to, unsigned long *from)
 {
@@ -559,6 +560,13 @@ typedef struct {
  * @no_cache_tokens - tokens for cache-control directive e.g.
  *		      Cache-Control: no-cache="token1, token2"
  * @private_tokens  - similar to @no_cache_tokens but for private="tokens"
+ * @body_start_data - beginning of body used during HTTP1 to HTTP2 body
+ *		      transformation. Must be deprecated when new cutting
+ *		      strategy will be implemented (TODO #1852);
+ * @body_start_skb  - skb with start of the body;
+ * @cut 	    - descriptors of http chunked body to be cut during
+ *		      HTTP1 to HTTP2 transformation and ignored during
+ *		      caching;
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
@@ -569,6 +577,9 @@ struct tfw_http_resp_t {
 	TfwHttpTransIter	mit;
 	TfwStr			no_cache_tokens;
 	TfwStr			private_tokens;
+	char			*body_start_data;
+	struct sk_buff		*body_start_skb;
+	TfwStr			cut;
 };
 
 /**
@@ -594,7 +605,7 @@ typedef struct {
 
 #define TFW_HTTP_RESP_CUT_BODY_SZ(r) 					\
 	(r)->stream ? 							\
-	(r)->body.len - (r)->stream->parser.cut.len : 			\
+	(r)->body.len - (r)->cut.len : 					\
 	(r)->body.len
 
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
