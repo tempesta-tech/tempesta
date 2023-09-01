@@ -2061,9 +2061,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->body = TDB_OFF(db->hdr, p);
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
 		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
-						   resp,
-						   &resp->stream->parser.cut,
-						   &tot_len);
+						   resp, &resp->cut, &tot_len);
 	else
 		r = tfw_cache_h2_copy_body(&ce->body_len, &p, &trec,
 					   resp, &tot_len);

@@ -4831,14 +4831,14 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 		return -EPIPE;
 
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		r = tfw_http_msg_cutoff_body_chunks((TfwHttpMsg*)resp);
+		r = tfw_http_msg_cutoff_body_chunks(resp);
 		if (unlikely(r))
 			return r;
 	}
 
 	if (b_len) {
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-			iter.skb = resp->stream->parser.body_start_skb;
+			iter.skb = resp->body_start_skb;
 		else
 			iter.skb = resp->body.skb;
 		tfw_msg_iter_set_skb_priv(&iter, stream_id,
