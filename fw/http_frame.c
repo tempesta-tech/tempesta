@@ -767,9 +767,10 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
 
+	tfw_h2_destroy_stream_send_queue(ctx);
+
 	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_unlink(ctx, cur);
-		tfw_h2_stream_purge_send_queue(cur);
 		/* The streams tree is about to be destroyed and
 		 * we don't want to trigger rebalancing.
 		 * No further actions regarding streams dependencies/prio
@@ -2359,6 +2360,7 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 			break;
 		case STREAM_FSM_RES_TERM_STREAM:
 		case STREAM_FSM_RES_IGNORE:
+			BUG_ON(ctx->cur_xmit_stream);
 			tfw_h2_stream_purge_send_queue(stream);
 			return 0;
 		case STREAM_FSM_RES_TERM_CONN:
@@ -2399,8 +2401,12 @@ tfw_h2_make_frames_for_stream(TfwH2Ctx *ctx, TfwStream *stream,
 
 #define ADJUST_AVAILABLE_CWND(cwnd, type)				\
 do {									\
-	if (cwnd <= FRAME_HEADER_SIZE)					\
+	if (cwnd <= FRAME_HEADER_SIZE) {				\
+		if (type == HTTP2_HEADERS				\
+		    || type == HTTP2_CONTINUATION)			\
+			ctx->cur_xmit_stream = stream;			\
 		T_FSM_EXIT();						\
+	}								\
 	cwnd -= FRAME_HEADER_SIZE;					\
 	frame_type = type;						\
 } while(0)
@@ -2503,7 +2509,14 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail >= FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
 	{
-		stream = tfw_h2_sched_stream_dequeue(&sched->root, &parent);
+		if (ctx->cur_xmit_stream) {
+			stream = ctx->cur_xmit_stream;
+			parent = stream->sched.parent;
+			ctx->cur_xmit_stream = NULL;
+			tfw_h2_stream_schred_remove(stream);
+		} else {
+			stream = tfw_h2_sched_stream_dequeue(&sched->root, &parent);
+		}
 		/*
 		 * If root scheduler is active we always can find
 		 * active stream.
@@ -2519,24 +2532,22 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 }
 
 static void
-__tfw_h2_purge_stream_send_queue(struct rb_node *node)
+__tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 {
 	if (node) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
-		TfwStreamSchedEntry *parent = stream->sched.parent;
 
 		if (stream->xmit.skb_head) {
 			tfw_h2_stream_schred_remove(stream);
 			tfw_h2_stream_purge_send_queue(stream);
-			tfw_h2_sched_stream_enqueue(stream, parent);
 		}
-		__tfw_h2_purge_stream_send_queue(node->rb_left);
-		__tfw_h2_purge_stream_send_queue(node->rb_right);
+		__tfw_h2_destroy_stream_send_queue(node->rb_left);
+		__tfw_h2_destroy_stream_send_queue(node->rb_right);
 	}
 }
 
 void
-tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx)
+tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStreamSched *sched = &ctx->sched;
@@ -2545,7 +2556,8 @@ tfw_h2_purge_stream_send_queue(TfwH2Ctx *ctx)
 	/* We should call all scheduler functions under the socket lock. */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
-	__tfw_h2_purge_stream_send_queue(root);
+	__tfw_h2_destroy_stream_send_queue(root);
+	ctx->cur_xmit_stream = NULL;
 }
 
 TfwStream *

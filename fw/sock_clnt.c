@@ -244,7 +244,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 
 err_kill_sock:
 	/* Purge connection private write queue and close socket. */
-	tfw_h2_purge_stream_send_queue(h2);
+	tfw_h2_destroy_stream_send_queue(h2);
 	ss_close(sk, SS_F_ABORT);
 	return r;
 err_purge_tcp_write_queue:
