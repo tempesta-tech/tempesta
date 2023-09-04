@@ -543,6 +543,63 @@ TEST(http2_parser, mangled_messages)
 	);
 }
 
+TEST(http2_parser, header_prefix_confusion)
+{
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("upgrade"), VALUE("h2c, quic")));
+	    HEADERS_FRAME_END();
+	);
+
+	/*
+	 * RFC 9113 8.3: "Endpoints MUST treat a request or response that
+	 * contains undefined or invalid pseudo-header fields as malformed
+	 * (Section 8.1.1).", so we allow :authorityx pseudo-header but
+	 * must not confuse it with :authority.
+	 */
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME(":authorityx"), VALUE("192.168.1.1:4433")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_TRUE(TFW_STR_EMPTY(&req->host));
+		EXPECT_ZERO(req->host_port);
+	}
+
+	/*
+	 * Do not confuse profibited `Proxy-Connection`, `Transfer-Encoding`
+	 * headers with headers with the same prefixes and the same or different
+	 * lengths.
+	 */
+#define DO_NOT_CONFUSE_PROHIBITED_HEADER(name)				\
+	FOR_REQ_H2(							\
+	    HEADERS_FRAME_BEGIN();					\
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));		\
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));	\
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));		\
+		HEADER(WO_IND(NAME(name), VALUE("bar")));		\
+	    HEADERS_FRAME_END();					\
+	)
+
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("upgrade-insecure-requests");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("connection!");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("proxy-connection!");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("proxy-con!ection");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("proxy-connectio");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("tran!fer-encoding");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("transfer-encodin");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("keep-aliv!");
+	DO_NOT_CONFUSE_PROHIBITED_HEADER("keep-alivex");
+#undef DO_NOT_CONFUSE_PROHIBITED_HEADER
+}
+
 /**
  * Test for allowed characters in different parts of HTTP message.
  */
@@ -3420,6 +3477,7 @@ TEST_SUITE_MPART(http2_parser, 0)
 TEST_SUITE_MPART(http2_parser, 1)
 {
 	TEST_RUN(http2_parser, mangled_messages);
+	TEST_RUN(http2_parser, header_prefix_confusion);
 	TEST_RUN(http2_parser, alphabets);
 	TEST_RUN(http2_parser, fills_hdr_tbl_for_req);
 	TEST_MPART_RUN(http2_parser, cache_control);
