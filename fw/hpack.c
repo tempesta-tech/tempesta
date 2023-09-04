@@ -332,7 +332,7 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 		bool last = c + 1 == end;
 
 		WARN_ON_ONCE(ret == T_OK);
-		ret = tfw_h2_parse_req_hdr(c->data, c->len, req, last, false);
+		ret = tfw_h2_parse_req_hdr_name(c->data, c->len, req, last);
 		if (unlikely(ret != T_POSTPONE))
 			return ret;
 	}
@@ -368,8 +368,8 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 		bool last = chunk + 1 == end;
 
 		WARN_ON_ONCE(ret == T_OK);
-		ret = tfw_h2_parse_req_hdr(chunk->data, chunk->len,
-					   req, last, true);
+		ret = tfw_h2_parse_req_hdr_val(chunk->data, chunk->len, req,
+					       last);
 		if (unlikely(ret != T_POSTPONE))
 			return ret;
 		++chunk;
@@ -394,11 +394,10 @@ do {								\
 	       last - src);					\
 } while (0)
 
-#define HPACK_PROCESS_STRING(len, value_stage)			\
+#define HPACK_PROCESS_STRING(field, len)			\
 do {								\
 	hp->length -= len;					\
-	r = tfw_h2_parse_req_hdr(src, len, req, !hp->length,	\
-				 value_stage);			\
+	r = tfw_h2_parse_req_hdr_##field(src, len, req, !hp->length);\
 	src += len;						\
 	T_DBG3("%s: processed plain, len=%lu, n=%lu, tail=%lu,"	\
 	       " hp->length=%lu\n", __func__, len, n,		\
@@ -961,18 +960,15 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	return 0;
 }
 
-/*
- * When header name and/or value is taken from either
- * static or dynamic table, check if entry tag is valid
- * (i.e. this header is valid for request)
+/**
+ * When header name and/or value is taken from either static or dynamic table,
+ * check if entry tag is valid (i.e. this header is valid for request).
  * Valid pseudo-headers for requests/responses are defined
  * in RFC 7540 8.1.2.3/8.1.2.4
  */
 static bool
-tfw_hpack_entry_tag_valid(unsigned int entry_tag)
+tfw_hpack_entry_tag_valid(TfwHPackTag entry_tag)
 {
-	bool is_valid = false;
-
 	switch (entry_tag) {
 	case TFW_TAG_HDR_H2_METHOD:
 	case TFW_TAG_HDR_H2_SCHEME:
@@ -994,14 +990,15 @@ tfw_hpack_entry_tag_valid(unsigned int entry_tag)
 	case TFW_TAG_HDR_X_FORWARDED_FOR:
 	case TFW_TAG_HDR_USER_AGENT:
 	case TFW_TAG_HDR_TRANSFER_ENCODING:
+	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
 	case TFW_TAG_HDR_RAW:
-		is_valid = true;
-		break;
+		return true;
+
 	default:
-		T_DBG3("%s: HPACK entry tag (%d) is not valid for HTTP/2 req\n",
-			__func__, entry_tag);
+		T_DBG("%s: HPACK entry tag (%d) is not valid for HTTP/2 req\n",
+		      __func__, entry_tag);
+		return false;
 	}
-	return is_valid;
 }
 
 static const TfwHPackEntry *
@@ -1031,7 +1028,7 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned int index)
 	}
 
 	if (entry && !tfw_hpack_entry_tag_valid(entry->tag))
-		entry = NULL;
+		return NULL;
 
 	WARN_ON_ONCE(entry && (!entry->hdr || !entry->hdr->nchunks));
 
@@ -1311,12 +1308,6 @@ done:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		h2_set_hdr_accept(req, &entry->cstate);
 		break;
-	case TFW_TAG_HDR_AUTHORIZATION:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
-	case TFW_TAG_HDR_CACHE_CONTROL:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
 	case TFW_TAG_HDR_CONTENT_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_ENCODING;
 		break;
@@ -1351,9 +1342,6 @@ done:
 		}
 		h2_set_hdr_if_nmatch(req, &entry->cstate);
 		break;
-	case TFW_TAG_HDR_PRAGMA:
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		break;
 	case TFW_TAG_HDR_REFERER:
 		parser->_hdr_tag = TFW_HTTP_HDR_REFERER;
 		break;
@@ -1366,6 +1354,10 @@ done:
 	case TFW_TAG_HDR_TRANSFER_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_TRANSFER_ENCODING;
 		break;
+	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
+	case TFW_TAG_HDR_AUTHORIZATION:
+	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_PRAGMA:
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
@@ -1543,7 +1535,7 @@ get_name_text:
 			if (state & HPACK_FLAGS_HUFFMAN_NAME)
 				HPACK_DECODE_PROCESS_STRING(name, m_len);
 			else
-				HPACK_PROCESS_STRING(m_len, false);
+				HPACK_PROCESS_STRING(name, m_len);
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -1620,7 +1612,7 @@ get_value_text:
 			if (state & HPACK_FLAGS_HUFFMAN_VALUE)
 				HPACK_DECODE_PROCESS_STRING(value, m_len);
 			else
-				HPACK_PROCESS_STRING(m_len, true);
+				HPACK_PROCESS_STRING(val, m_len);
 
 			if (state & HPACK_FLAGS_ADD
 			    && (r = tfw_hpack_add_index(&hp->dec_tbl, it,
