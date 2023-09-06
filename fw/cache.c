@@ -1252,7 +1252,7 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	long n;
 	TfwMsgIter it;
 	TfwStr *tmp;
-	char *curr, *stop, *begin, *end, *prev_end = NULL;
+	char *curr = NULL, *stop, *begin, *end, *prev_end = NULL;
 	int stop_len, c_chunk = 0;
 	TfwStr *body = &resp->body;
 
@@ -1275,10 +1275,9 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	it.skb_head = resp->msg.skb_head;
 	it.frag = -(!!skb_headlen(it.skb));
 
+	/* Skip frags and chunks with headers. */
 	tmp = __TFW_STR_CH(cut, c_chunk);
-	curr = tmp->data;
-
-	stop = curr;
+	curr = stop = tmp->data;
 	stop_len = tmp->len;
 
 	while (true) {
@@ -1292,12 +1291,29 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 			end = begin + skb_frag_size(f);
 		}
 
-		/* Previous fragment is fully copied. */
-		if (curr == prev_end)
+		if (likely(!curr)) {
+			/* Previous fragment is fully copied. */
 			curr = begin;
-rep:
-		/* Stop is found. Get next stop. */
-		if (curr == stop) {
+		}
+		else if (curr == prev_end) {
+			/* Chunk descriptor is at the end of the last frag. */
+			if (stop == begin) {
+				/*
+				 * New frags starts from the suffix of the chunk
+				 * descriptor...
+				 */
+				curr = stop;
+				goto continue_curr_frag;
+			}
+			/*
+			 * ...otherwise we start copying from the beginning of
+			 * the new frag.
+			 */
+			curr = begin;
+		}
+		else if (curr == stop) {
+continue_curr_frag:
+			/* Stop is reached, get the next stop. */
 			if (++c_chunk >= cut->nchunks)
 				return 0;
 			curr += stop_len;
@@ -1305,12 +1321,16 @@ rep:
 			stop = tmp->data;
 			stop_len = tmp->len;
 		}
+		/*
+		 * ...otherwise curr = stop + stop_len, i.e. we still didn't
+		 * reach the place where we should start copying.
+		 */
 
-		if ((begin <= curr) && (end > curr)) {
+		if (likely(begin <= curr && curr < end)) {
 			TfwStr chunk = {.len = 0};
 
 			/* Stop found in current frag. */
-			if ((begin <= stop) && (end >= stop)) {
+			if (begin <= stop && stop <= end) {
 				chunk.data = curr;
 				chunk.len = stop - curr;
 				curr = stop;
@@ -1318,13 +1338,12 @@ rep:
 				/* Stop not found. Copy whole frag. */
 				chunk.data = curr;
 				chunk.len = end - curr;
-				curr = end;
+				curr = NULL;
 			}
 
-			if (chunk.len) {
-				if ((n = tfw_cache_strcpy(p, trec, &chunk,
-							  *tot_len)) < 0)
-				{
+			if (likely(chunk.len)) {
+				n = tfw_cache_strcpy(p, trec, &chunk, *tot_len);
+				if (unlikely(n < 0)) {
 					T_ERR("Cache: cannot copy chunk of HTTP body\n");
 					return -ENOMEM;
 				}
@@ -1332,10 +1351,10 @@ rep:
 				*tot_len -= n;
 				*acc_len += n;
 			}
-		}
 
-		if (curr != end)
-			goto rep;
+			if (curr)
+				goto continue_curr_frag;
+		}
 
 		prev_end = end;
 
