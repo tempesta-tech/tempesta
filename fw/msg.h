@@ -102,16 +102,6 @@ int tfw_msg_iter_append_skb(TfwMsgIter *it);
 int tfw_http_iter_set_at(TfwMsgIter *it, char *off);
 int tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz);
 
-static inline void
-tfw_msg_iter_set_skb_stream_id(TfwMsgIter *it, unsigned int stream_id)
-{
-        struct sk_buff *skb = it->skb;
-        do {
-                skb_set_tfw_cb(skb, stream_id);
-                skb = skb->next;
-        } while (skb != it->skb_head);
-}
-
 static inline int
 tfw_msg_iter_next_data_frag(TfwMsgIter *it)
 {

@@ -2289,11 +2289,11 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 			if (!split)
 				return -ENOMEM;
 
-			skb_set_tfw_tls_type(split, skb_tfw_tls_type(skb));
 			ss_skb_queue_head(&stream->xmit.skb_head, split);
 		}
 		len -= skb->len;
-		ss_skb_entail(sk, skb);
+		ss_skb_entail(sk, skb, stream->xmit.mark,
+			      stream->xmit.tls_type);
 	}
 	return 0;
 }
@@ -2326,13 +2326,8 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 	BUG_ON(!data);
 
 	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
-		struct sk_buff *next = it.skb->next;
 		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str)))
 			return r;
-		if (next != it.skb->next) {
-			skb_set_tfw_tls_type(it.skb->next,
-					     skb_tfw_tls_type(it.skb));
-		}
 	}
 
 	length = tfw_h2_calc_frame_length(ctx, stream, type, *len,
@@ -2378,7 +2373,6 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream,
 	do {								\
 		struct sk_buff *skb = stream->xmit.skb_head;		\
 		unsigned long length = 0;				\
-									\
 		if (skb) {						\
 			do {						\
 				length += skb->len;			\
@@ -2412,6 +2406,36 @@ do {									\
 } while(0)
 
 	T_FSM_START(stream->xmit.state) {
+
+	T_FSM_STATE(HTTP2_ENCODE_HEADERS) {
+		TfwHttpResp *resp = stream->xmit.resp;
+
+		BUG_ON(!resp);
+		((TfwMsg *)resp)->skb_head = stream->xmit.skb_head;
+		r = tfw_h2_encode_headers(resp);
+		if (unlikely(r)) {
+			T_WARN("Failed to encode headers");
+			return r;
+		}
+
+		stream->xmit.h_len = resp->mit.acc_len;
+		stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+		stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
+
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+			r = tfw_http_msg_cutoff_body_chunks(resp);
+				if (unlikely(r))
+					return r;
+		}
+
+		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
+
+		((TfwMsg *)resp)->skb_head = NULL;
+		tfw_http_resp_pair_free(resp->req);
+		stream->xmit.resp = NULL;
+
+		T_FSM_NEXT();
+	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
 		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_HEADERS);
@@ -2477,8 +2501,10 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
-		BUG_ON(stream->xmit.h_len || stream->xmit.b_len
-		       || stream->xmit.skb_head);
+		TFW_H2_CHECK_MAKING_FRAMES(stream);
+
+		ss_skb_queue_purge(&stream->xmit.skb_head);
+
 		T_FSM_EXIT();
 	}
 
@@ -2536,6 +2562,12 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 {
 	if (node) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
+		TfwHttpResp*resp = stream->xmit.resp;
+
+		if (resp) {
+			tfw_http_resp_pair_free(resp->req);
+			stream->xmit.resp = NULL;
+		}
 
 		if (stream->xmit.skb_head) {
 			tfw_h2_stream_schred_remove(stream);

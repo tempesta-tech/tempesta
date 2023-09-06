@@ -51,6 +51,7 @@ typedef enum {
 } TfwStreamState;
 
 typedef enum {
+	HTTP2_ENCODE_HEADERS,
 	HTTP2_MAKE_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
 	HTTP2_MAKE_DATA_FRAMES,
@@ -113,17 +114,23 @@ typedef enum {
  * Last http2 response info, used to prepare frames
  * in `xmit` callbacks.
  *
+ * @resp		- responce, that shmust be sent.
  * @skb_head		- head of skb list that must be sent.
  * @h_len		- length of headers in http2 response;
  * @b_len		- length of body in http2 response;
+ * @mark		- mark of the resp skb_head;
+ * @tls_type		- tls type for skbs;
  * @state		- current stream xmit state (what type of
  * 			  frame should be made for this stream);
  * @is_blocked		- stream is blocked;
  */
 typedef struct {
+	TfwHttpResp *resp;
 	struct sk_buff *skb_head;
 	unsigned long h_len;
 	unsigned long b_len;
+	unsigned int mark;
+	unsigned char tls_type;
 	TfwStreamXmitState state;
 	bool is_blocked;
 } TfwHttpXmit;
@@ -211,13 +218,15 @@ tfw_h2_stream_try_unblock(TfwStream *stream)
 }
 
 static inline void
-tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
+tfw_h2_stream_init_for_xmit(TfwStream *stream, TfwHttpResp*resp,
+			    TfwStreamXmitState state, unsigned long h_len,
 			    unsigned long b_len)
 {
+	stream->xmit.resp = resp;
 	stream->xmit.skb_head = NULL;
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
-	stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
+	stream->xmit.state = state;
 	stream->xmit.is_blocked = false;
 }
 

@@ -3516,11 +3516,11 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	TfwHPackInt idx;
 	bool st_full_index;
 	unsigned short st_index, index = 0;
-	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
+	TfwConn *conn = resp->req->conn;
+	TfwH2Ctx *ctx = tfw_h2_context(conn);
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
-	struct sk_buff *skb = resp->mit.iter.skb;
 
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
@@ -3533,6 +3533,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	T_DBG_PRINT_HPACK_RBTREE(tbl);
 
 	if (!st_full_index && dyn_indexing) {
+		assert_spin_locked(&conn->sk->sk_lock.slock);
 		r = tfw_hpack_encoder_index(tbl, hdr, &index, resp->flags,
 					    trans);
 		if (r < 0)
@@ -3557,7 +3558,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 			return r;
 
 		resp->mit.acc_len += idx.sz * !use_pool;
-		goto set_skb_stream_id;
+		return 0;
 	}
 
 	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
@@ -3590,19 +3591,7 @@ encode:
 		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
 	else
 		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
-set_skb_stream_id:
-	BUG_ON(!resp->req);
-	if (likely(!r) && resp->req->stream) {
-		/*
-		 * Very long headers can be located in several skbs,
-		 * mark them all.
-		 */
-		while(skb && unlikely(skb != resp->mit.iter.skb)) {
-			skb_set_tfw_cb(skb, resp->req->stream->id);
-			skb = skb->next;
-		}
-		skb_set_tfw_cb(resp->mit.iter.skb, resp->req->stream->id);
-	}
+
 	return r;
 }
 

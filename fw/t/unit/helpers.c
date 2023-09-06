@@ -163,7 +163,8 @@ ss_stop(void)
 {
 }
 
-void ss_skb_entail(struct sock *sk, struct sk_buff *skb)
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+		   unsigned char tls_type)
 {
 
 }

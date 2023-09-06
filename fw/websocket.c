@@ -69,8 +69,7 @@ tfw_ws_srv_ss_hook_drop(struct sock *sk)
 static const SsHooks tfw_ws_srv_ss_hooks = {
 	.connection_new		= NULL,
 	.connection_drop	= tfw_ws_srv_ss_hook_drop,
-	.connection_recv	= tfw_connection_recv,
-	.connection_push	= tfw_connection_push,
+	.connection_recv	= tfw_connection_recv
 };
 
 /**

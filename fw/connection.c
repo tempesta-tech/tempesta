@@ -154,57 +154,6 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	return r <= T_BAD || r == T_OK ? r : T_BAD;
 }
 
-int
-tfw_connection_push(TfwConn *conn, struct sk_buff *skb)
-{
-	bool queue_was_empty;
-	unsigned int stream_id;
-	TfwStream *stream;
-	TfwH2Ctx *h2;
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-
-	if (TFW_CONN_PROTO(conn) != TFW_FSM_H2)
-		goto push_tail;
-
-	h2 = tfw_h2_context(conn);
-
-	stream_id = skb_tfw_cb(skb);
-	if (!stream_id) {
-		if (unlikely(h2->hpack.enc_tbl.wnd_changed &&
-			     !h2->hpack.enc_tbl.ack_sent))
-		{
-			TfwFrameHdr hdr;
-			char *data = ss_skb_data_ptr_by_offset(skb, 0);
-
-			tfw_h2_unpack_frame_header(&hdr, data);
-			if (hdr.type == HTTP2_SETTINGS &&
-			    hdr.flags == HTTP2_F_ACK)
-				h2->hpack.enc_tbl.ack_sent = true;
-		}
-		goto push_tail;
-	}
-
-	stream = tfw_h2_find_not_closed_stream(h2, stream_id, false);
-	if (!stream)
-		return -EPIPE;
-
-	queue_was_empty = !stream->xmit.skb_head;
-	ss_skb_queue_tail(&stream->xmit.skb_head, skb);
-
-	if (queue_was_empty && !stream->xmit.is_blocked) {
-		tfw_h2_sched_activate_stream(stream);
-		sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
-	}
-
-	return 0;
-
-push_tail:
-	ss_skb_entail(conn->sk, skb);
-	return 0;
-}
-
 void
 tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {
