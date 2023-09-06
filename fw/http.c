@@ -1071,7 +1071,6 @@ void
 tfw_h2_resp_fwd(TfwHttpResp *resp, bool delete_in_xmit)
 {
 	TfwHttpReq *req = resp->req;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	tfw_connection_get(req->conn);
 	do_access_log(resp);
@@ -1086,8 +1085,6 @@ tfw_h2_resp_fwd(TfwHttpResp *resp, bool delete_in_xmit)
 	}
 
 	tfw_connection_put(req->conn);
-
-	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
 	if (!delete_in_xmit)
 		tfw_http_resp_pair_free(req);
@@ -1108,7 +1105,6 @@ static void
 tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
 		 unsigned int stream_id)
 {
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
 	if (unlikely(!resp))
 		goto err;
@@ -1124,8 +1120,6 @@ tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
 err_setup:
 	T_DBG("%s: HTTP/2 response message transformation error: conn=[%p]\n",
 	      __func__, req->conn);
-
-	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 err:
@@ -5163,7 +5157,6 @@ tfw_h2_encode_headers(TfwHttpResp *resp)
 {
 	int r;
 	TfwHttpReq *req = resp->req;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpRespCleanup cleanup = {};
 	TfwStr codings = {.data = *this_cpu_ptr(&g_te_buf), .len = 0};
@@ -5266,14 +5259,12 @@ tfw_h2_encode_headers(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	__tfw_h2_resp_cleanup(&cleanup);
 	return 0;
 
 clean:
 	__tfw_h2_resp_cleanup(&cleanup);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
 	return r;
 }
@@ -5293,7 +5284,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	int r;
 	unsigned int stream_id;
 	TfwHttpReq *req = resp->req;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	stream_id = tfw_h2_stream_id(req);
 	if (unlikely(!stream_id))
@@ -5314,7 +5304,6 @@ clean:
 				   &req->conn->peer->addr,
 				   TFW_NO_PORT, 500);
 	tfw_h2_send_err_resp(req, 500, stream_id);
-	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
 	return;
