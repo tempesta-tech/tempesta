@@ -3139,8 +3139,7 @@ tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 }
 
 /**
- * Remove Connection header from HTTP message @msg if @conn_flg is zero,
- * and replace or set a new header value otherwise.
+ * Add Connection header to HTTP message @msg depending on @conn_flg.
  *
  * SKBs may be shared by several HTTP messages. A shared SKB is not copied
  * but safely modified. Thus, a shared SKB is still owned by one CPU.
@@ -3510,7 +3509,7 @@ tfw_http_hdr_sub(unsigned short hid, const TfwStr *hdr,
  * message.
  *
  * @hm		- Message to be updated;
- * @is_resp	- Message represents response, not request;
+ * @h_mods	- Headers modification info;
  * @from_cache	- The response is created from cache, not applied to requests.
  */
 int
