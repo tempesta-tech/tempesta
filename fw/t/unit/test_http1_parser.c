@@ -73,12 +73,6 @@
 
 TEST(http1_parser, leading_eol)
 {
-	FOR_REQ(EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 0);
-	FOR_REQ("\n" EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 1);
-	FOR_REQ("\r\n" EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 2);
 	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);

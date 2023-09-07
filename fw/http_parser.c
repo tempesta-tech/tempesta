@@ -5009,24 +5009,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	 * CRLFs before the request line.
 	 */
 	__FSM_STATE(Req_0, hot) {
-		if (unlikely(c == '\r')) {
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR,
-				  req->flags);
+		if (unlikely(c == '\r'))
 			__FSM_MOVE_nofixup(Req_0_Wait_LF);
-		}
-		if (unlikely(c == '\n')) {
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
-				  req->flags);
+
+		if (unlikely(c == '\n'))
 			__FSM_MOVE_nofixup(Req_Method);
-		}
+
 		__FSM_JMP(Req_Method);
 	}
 	__FSM_STATE(Req_0_Wait_LF) {
-		if (likely(c == '\n')) 	{
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
-				  req->flags);
+		if (likely(c == '\n'))
 			__FSM_MOVE_nofixup(Req_Method);
-		}
+
 		TFW_PARSER_DROP(Req_0_Wait_LF);
 	}
 
