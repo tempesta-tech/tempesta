@@ -658,14 +658,6 @@ do {									\
 
 void test_string_split(const TfwStr *expected, const TfwStr *parsed);
 
-static inline int
-number_to_strip(TfwHttpReq *req)
-{
-	return
-		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
-		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
-}
-
 TfwStr get_next_str_val(TfwStr *str);
 
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */
