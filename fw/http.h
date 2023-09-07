@@ -473,7 +473,6 @@ typedef struct {
  * @map		- indirection map for tracking headers order in skb;
  * @start_off	- initial offset during copying response data into
  *		  skb (for subsequent insertion of HTTP/2 frame header);
- * @curr_ptr	- pointer in the skb to write the current header;
  * @frame_head	- pointer to reserved space for frame header. Used during
  * 		  http2 framing. Simplifies framing of paged SKBs.
  * 		  Framing function may not worry about paged and liner SKBs.
@@ -482,7 +481,6 @@ typedef struct {
 typedef struct {
 	TfwHttpHdrMap	*map;
 	unsigned int	start_off;
-	char		*curr_ptr;
 	char		*frame_head;
 	unsigned long	acc_len;
 } TfwHttpTransIter;
