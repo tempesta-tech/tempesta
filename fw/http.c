@@ -3001,7 +3001,6 @@ tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 {
-	int r;
 	static const DEFINE_TFW_STR(conn_close, "connection: close\r\n");
 	static const DEFINE_TFW_STR(conn_ka_up, "connection: keep-alive, \
 				    upgrade\r\n");
@@ -3023,19 +3022,17 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
 		    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
 		{
-			r = tfw_http_msg_expand_from_pool(hm, &conn_ka_up);
+			return tfw_http_msg_expand_from_pool(hm, &conn_ka_up);
 		} else {
-			r = tfw_http_msg_expand_from_pool(hm, &conn_ka);
+			return tfw_http_msg_expand_from_pool(hm, &conn_ka);
 		}
-	} else {
-		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
+	} else if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, hm->flags)
 		    && test_bit(TFW_HTTP_B_CONN_UPGRADE, hm->flags))
-		{
-			r = tfw_http_msg_expand_from_pool(hm, &conn_up);
-		}
+	{
+		return tfw_http_msg_expand_from_pool(hm, &conn_up);
 	}
 
-	return r;
+	return 0;
 }
 
 /*
