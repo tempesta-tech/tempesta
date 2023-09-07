@@ -1480,7 +1480,6 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
 
 	ss_skb_adjust_data_len(it->skb, FRAME_HEADER_SIZE);
 	mit->frame_head = addr;
-	mit->curr_ptr = addr + FRAME_HEADER_SIZE;
 
 	return 0;
 }
