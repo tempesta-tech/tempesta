@@ -290,7 +290,13 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != SS_SHUTDOWN)
 			T_ERR("Unable to initiate a connect to server: %d\n",
 				r);
+		/*
+		 * Dropping connection should be called under the socket
+		 * lock.
+		 */
+		spin_lock(&sk->sk_lock.slock);
 		SS_CALL(connection_drop, sk);
+		spin_unlock(&sk->sk_lock.slock);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
 }
