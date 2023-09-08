@@ -761,6 +761,8 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 		TfwHttpResp*resp = stream->xmit.resp;
 
 		if (resp) {
+			BUG_ON(!resp->req || !resp->req->conn);
+			tfw_connection_put(resp->req->conn);
 			tfw_http_resp_pair_free(resp->req);
 			stream->xmit.resp = NULL;
 		}
@@ -2319,6 +2321,14 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
 		BUG_ON(!skb);
 
+		if (!skb->len) {
+			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
+			       smp_processor_id(), __func__,
+			       skb, skb->data_len, skb->len);
+			kfree_skb(skb);
+			continue;
+		}
+
 		data = ss_skb_data_ptr_by_offset(skb, 0);
 		BUG_ON(!data);
 
@@ -2330,6 +2340,7 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 			ss_skb_queue_head(&stream->xmit.skb_head, split);
 		}
 		len -= skb->len;
+
 		ss_skb_entail(sk, skb, stream->xmit.mark,
 			      stream->xmit.tls_type);
 	}
@@ -2456,8 +2467,9 @@ do {									\
 	T_FSM_STATE(HTTP2_ENCODE_HEADERS) {
 		TfwHttpResp *resp = stream->xmit.resp;
 
-		BUG_ON(!resp);
+		BUG_ON(!resp || !resp->req || !resp->req->conn);
 		((TfwMsg *)resp)->skb_head = stream->xmit.skb_head;
+
 		r = tfw_h2_resp_encode_headers(resp);
 		if (unlikely(r)) {
 			T_WARN("Failed to encode headers");
@@ -2475,8 +2487,9 @@ do {									\
 		}
 
 		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
-
 		((TfwMsg *)resp)->skb_head = NULL;
+
+		tfw_connection_put(resp->req->conn);
 		tfw_http_resp_pair_free(resp->req);
 		stream->xmit.resp = NULL;
 
@@ -2548,6 +2561,7 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
+		BUG_ON(stream->xmit.resp);
 
 		ss_skb_queue_purge(&stream->xmit.skb_head);
 
