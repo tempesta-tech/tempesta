@@ -1084,15 +1084,16 @@ tfw_h2_resp_fwd(TfwHttpResp *resp, bool should_free)
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(req->conn, true);
+		should_free = true;
 	}
 	else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
 
-	tfw_connection_put(req->conn);
-
-	if (should_free)
+	if (should_free) {
+		tfw_connection_put(req->conn);
 		tfw_http_resp_pair_free(req);
+	}
 }
 
 /*

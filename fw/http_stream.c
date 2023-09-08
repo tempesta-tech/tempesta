@@ -25,6 +25,7 @@
 #endif
 #include "http_frame.h"
 #include "connection.h"
+#include "http.h"
 
 #define HTTP2_DEF_WEIGHT	16
 
@@ -476,9 +477,19 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwHttpResp*resp = stream->xmit.resp;
 
 	/* We should call all scheduler functions under the socket lock. */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	if (resp) {
+		BUG_ON(!resp->req || !resp->req->conn);
+		tfw_connection_put(resp->req->conn);
+		tfw_http_resp_pair_free(resp->req);
+		stream->xmit.resp = NULL;
+	}
+	if (stream->xmit.skb_head)
+		tfw_h2_stream_purge_send_queue(stream);
 
 	tfw_h2_remove_stream_dep(stream);
 	rb_erase(&stream->node, &sched->streams);
