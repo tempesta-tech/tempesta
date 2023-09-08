@@ -2745,9 +2745,6 @@ tfw_http_req_destruct(void *msg)
 	if (req->peer)
 		tfw_client_put(req->peer);
 
-	if (req->old_head)
-		ss_skb_queue_purge(&req->old_head);
-
 	if (req->stale_ce)
 		tfw_cache_put_entry(req->node, req->stale_ce);
 
@@ -3643,9 +3640,8 @@ err:
 static int
 tfw_h1_adjust_req(TfwHttpReq *req)
 {
-	int r, cl_sz = sizeof(TfwHttpMsgCleanup);
+	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
-	TfwHttpMsgCleanup *cleanup = req->cleanup;
 	TfwStr *pos, *end;
 	const TfwStr *meth;
 	static const DEFINE_TFW_STR(meth_get, "GET");
@@ -3656,11 +3652,13 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_REQ);
 
-	cleanup = (TfwHttpMsgCleanup *)tfw_pool_alloc(hm->pool, cl_sz);
-	memset(cleanup, 0, cl_sz);
+	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
+	if (unlikely(!req->cleanup))
+		return -ENOMEM;
+	memset(req->cleanup, 0, sizeof(TfwHttpMsgCleanup));
 
 	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
-	r = tfw_http_msg_cutoff_headers(hm, cleanup);
+	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
 	if (unlikely(r))
 		goto clean;
 
@@ -3757,7 +3755,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	return r;
 
 clean:
-	__tfw_http_msg_cleanup(cleanup);
+	__tfw_http_msg_cleanup(req->cleanup);
 
 	return r;
 }
@@ -4073,6 +4071,11 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	bool need_cl = req->body.len &&
 		       TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
 
+	req->cleanup = tfw_pool_alloc(req->pool, sizeof(TfwHttpMsgCleanup));
+	if (unlikely(!req->cleanup))
+		return -ENOMEM;
+	memset(req->cleanup, 0, sizeof(TfwHttpMsgCleanup));
+
 	if (need_cl) {
 		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
 		if (!cl_data_len)
@@ -4318,7 +4321,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	T_DBG3("%s: req [%p] converted to http1.1\n", __func__, req);
 
 	old_head = req->msg.skb_head;
-	req->old_head = old_head;
+	req->cleanup->skb_head = old_head;
 	req->msg.skb_head = new_head;
 
 	/* Http chains might add a mark for the message, keep it. */
@@ -4362,9 +4365,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 
 err:
 	ss_skb_queue_purge(&new_head);
-	T_DBG3("%s: req [%px] convertation to http1.1 has failed"
+	__tfw_http_msg_cleanup(req->cleanup);
+	T_DBG3("%s: req [%p] convertation to http1.1 has failed"
 	       " with result (%d)\n", __func__, req, r);
-	return r;
+	return -EINVAL;
 }
 
 /*

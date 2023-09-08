@@ -363,8 +363,6 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
- * @old_head	- Original request head. Required for keep request data until
- * 		  the response is sent to the client;
  * @stale_ce	- Stale cache entry retrieved from the cache. Must be assigned
  *		  only when "cache_use_stale" is configured;
  * @cleanup	- Original request data. Required for keeping request data until
@@ -403,7 +401,6 @@ struct tfw_http_req_t {
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
-	struct sk_buff		*old_head;
 	void			*stale_ce;
 	TfwHttpMsgCleanup	*cleanup;
 	TfwHttpCond		cond;
