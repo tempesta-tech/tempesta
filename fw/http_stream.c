@@ -469,6 +469,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state, unsigned int id,
 void
 tfw_h2_delete_stream(TfwStream *stream)
 {
+	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
 	kmem_cache_free(stream_cache, stream);
 }
 
@@ -483,9 +484,7 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	if (resp) {
-		BUG_ON(!resp->req || !resp->req->conn);
-		tfw_connection_put(resp->req->conn);
-		tfw_http_resp_pair_free(resp->req);
+		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 	}
 	if (stream->xmit.skb_head)

@@ -971,11 +971,21 @@ tfw_http_conn_req_clean(TfwHttpReq *req)
 /*
  * Free the request and the paired response.
  */
-void
+static inline void
 tfw_http_resp_pair_free(TfwHttpReq *req)
 {
 	tfw_http_conn_msg_free(req->pair);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+}
+
+void
+tfw_http_resp_pair_free_and_put_conn(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+
+	BUG_ON(!req || !req->conn);
+	tfw_connection_put(req->conn);
+	tfw_http_resp_pair_free(req);
 }
 
 /*
@@ -1074,27 +1084,27 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 }
 
 void
-tfw_h2_resp_fwd(TfwHttpResp *resp, bool should_free)
+tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
+	TfwConn *conn = req->conn;
+	bool resp_in_xmit = test_bit(TFW_HTTP_B_RESP_XMIT, resp->flags);
 
-	tfw_connection_get(req->conn);
+	tfw_connection_get(conn);
 	do_access_log(resp);
 
-	if (tfw_cli_conn_send((TfwCliConn *)req->conn, (TfwMsg *)resp)) {
+	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		tfw_connection_close(req->conn, true);
-		should_free = true;
-	}
-	else {
+		tfw_connection_close(conn, true);
+		/* We can't send response, so we can should free it here. */
+		resp_in_xmit = false;
+	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
 
-	if (should_free) {
-		tfw_connection_put(req->conn);
-		tfw_http_resp_pair_free(req);
-	}
+	if (!resp_in_xmit)
+		tfw_http_resp_pair_free_and_put_conn(resp);
 }
 
 /*
@@ -1120,7 +1130,7 @@ tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
 		goto err_setup;
 
 	/* Send resulting HTTP/2 response and release HPACK encoder index. */
-	tfw_h2_resp_fwd(resp, true);
+	tfw_h2_resp_fwd(resp);
 
 	return;
 
@@ -4822,6 +4832,17 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 	return 0;
 }
 
+static inline void
+tfw_h2_resp_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
+			  unsigned long h_len, unsigned long b_len)
+{
+	resp->stream_for_xmit = resp->req->stream;
+	if (state == HTTP2_ENCODE_HEADERS)
+		set_bit(TFW_HTTP_B_RESP_XMIT, resp->flags);
+	skb_set_tfw_cb_ptr(((TfwMsg *)resp)->skb_head, resp);
+	tfw_h2_stream_init_for_xmit(resp->req->stream, state, h_len, b_len);
+}
+
 /**
  * Frame forwarded response.
  */
@@ -4833,9 +4854,7 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id)
 	if(!resp->req->stream)
 		return -EPIPE;
 
-	skb_set_tfw_cb(resp->msg.skb_head, stream_id);
-	tfw_h2_stream_init_for_xmit(resp->req->stream, resp,
-				    HTTP2_ENCODE_HEADERS, 0, 0);
+	tfw_h2_resp_init_for_xmit(resp, HTTP2_ENCODE_HEADERS, 0, 0);
 	return 0;
 }
 
@@ -4858,9 +4877,8 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 	if (unlikely(r))
 		return r;
 
-	skb_set_tfw_cb(resp->msg.skb_head, stream_id);
-	tfw_h2_stream_init_for_xmit(resp->req->stream, NULL,
-				    HTTP2_MAKE_HEADERS_FRAMES, h_len, b_len);
+	tfw_h2_resp_init_for_xmit(resp, HTTP2_MAKE_HEADERS_FRAMES,
+				  h_len, b_len);
 	return r;
 }
 
@@ -5299,7 +5317,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		goto clean;
 
 	tfw_h2_stream_unlink_from_req(req);
-	tfw_h2_resp_fwd(resp, false);
+	tfw_h2_resp_fwd(resp);
 
 	return;
 clean:
@@ -5329,7 +5347,7 @@ tfw_http_req_cache_service(TfwHttpResp *resp)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	if (TFW_MSG_H2(req))
-		tfw_h2_resp_fwd(resp, true);
+		tfw_h2_resp_fwd(resp);
 	else
 		tfw_http_resp_fwd(resp);
 
@@ -6066,7 +6084,7 @@ next_msg:
 	 */
 	if (unlikely(req->resp)) {
 		if (TFW_MSG_H2(req))
-			tfw_h2_resp_fwd(req->resp, true);
+			tfw_h2_resp_fwd(req->resp);
 		else
 			tfw_http_resp_fwd(req->resp);
 	}
