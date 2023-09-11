@@ -25,7 +25,7 @@
 
 #include <linux/skbuff.h>
 
-#include "sync_socket.h"
+#include "str.h"
 
 /**
  * @seq_list	- member in the ordered queue of messages;

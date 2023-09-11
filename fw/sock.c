@@ -38,6 +38,7 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "connection.h"
+#include "http.h"
 
 typedef enum {
 	SS_SEND,
@@ -397,7 +398,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	TfwConn *conn = (TfwConn *)sk->sk_user_data;
 	TfwH2Ctx *h2 = NULL;
 	TfwStream *stream = NULL;
-	unsigned int stream_id;
+	TfwHttpResp *resp = skb_get_tfw_cb_ptr(*skb_head);
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d mss=%d size=%d\n",
@@ -407,6 +408,8 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!conn || !ss_sock_active(sk))) {
+		if (resp)
+			tfw_http_resp_pair_free_and_put_conn(resp);
 		ss_skb_queue_purge(skb_head);
 		return;
 	}
@@ -416,13 +419,12 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	h2 = tfw_h2_context(conn);
 
-	if ((stream_id = skb_tfw_cb(*skb_head))) {
-		stream = tfw_h2_find_not_closed_stream(h2, stream_id, false);
-		if (!stream) {
-			ss_skb_queue_purge(skb_head);
-			return;
-		}
-		BUG_ON(stream->xmit.skb_head);
+	if (resp) {
+		stream = resp->stream_for_xmit;
+
+		BUG_ON(!stream || stream->xmit.skb_head);
+		if (test_bit(TFW_HTTP_B_RESP_XMIT, resp->flags))
+			stream->xmit.resp = resp;
 		stream->xmit.mark = mark;
 		stream->xmit.tls_type = tls_type;
 	}
@@ -1043,6 +1045,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -1498,6 +1501,7 @@ ss_tx_action(void)
 	budget = max(10UL, ss_wq_local_size(wq));
 	while ((!ss_active() || budget--) && !ss_wq_pop(wq, &sw, &ticket)) {
 		struct sock *sk = sw.sk;
+		TfwHttpResp *resp;
 
 		bh_lock_sock(sk);
 
@@ -1563,6 +1567,11 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
+		if (sw.skb_head && (resp = skb_get_tfw_cb_ptr(sw.skb_head))) {
+			if (resp)
+				tfw_http_resp_pair_free_and_put_conn(resp);
+		}
+
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
 			kfree_skb(skb);
 	}

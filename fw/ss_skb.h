@@ -23,6 +23,7 @@
 #define __TFW_SS_SKB_H__
 
 #include <linux/skbuff.h>
+#include <net/tcp.h>
 
 #include "str.h"
 #include "lib/log.h"
