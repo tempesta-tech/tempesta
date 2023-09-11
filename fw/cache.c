@@ -965,7 +965,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto err_setup;
 
 	tfw_h2_stream_unlink_from_req(req);
-	tfw_h2_resp_fwd(resp, true);
+	tfw_h2_resp_fwd(resp);
 
 	return;
 err_setup:
