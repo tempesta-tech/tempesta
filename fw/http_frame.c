@@ -761,9 +761,7 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 		TfwHttpResp*resp = stream->xmit.resp;
 
 		if (resp) {
-			BUG_ON(!resp->req || !resp->req->conn);
-			tfw_connection_put(resp->req->conn);
-			tfw_http_resp_pair_free(resp->req);
+			tfw_http_resp_pair_free_and_put_conn(resp);
 			stream->xmit.resp = NULL;
 		}
 		if (stream->xmit.skb_head) {
@@ -2489,8 +2487,7 @@ do {									\
 		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
 		((TfwMsg *)resp)->skb_head = NULL;
 
-		tfw_connection_put(resp->req->conn);
-		tfw_http_resp_pair_free(resp->req);
+		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 
 		T_FSM_NEXT();

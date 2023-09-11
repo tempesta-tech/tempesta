@@ -313,6 +313,8 @@ enum {
 	TFW_HTTP_B_HDR_LMODIFIED,
 	/* Response is fully processed and ready to be forwarded to the client. */
 	TFW_HTTP_B_RESP_READY,
+	/* Response should be alive, since it is used in xmit callback. */
+	TFW_HTTP_B_RESP_XMIT,
 	/*
 	 * Response has header 'Etag: ' and this header is
 	 * not enclosed in double quotes.
@@ -565,6 +567,7 @@ typedef struct {
  * @cut 	    - descriptors of http chunked body to be cut during
  *		      HTTP1 to HTTP2 transformation and ignored during
  *		      caching;
+ * @stream	    - stream in which the response is sent;
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
@@ -578,6 +581,7 @@ struct tfw_http_resp_t {
 	char			*body_start_data;
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
+	TfwStream		*stream_for_xmit;
 };
 
 /**
@@ -729,7 +733,7 @@ int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
-void tfw_h2_resp_fwd(TfwHttpResp *resp, bool should_free);
+void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
 int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache);
 int tfw_h2_set_stale_warn(TfwHttpResp *resp);
@@ -746,7 +750,7 @@ int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
-void tfw_http_resp_pair_free(TfwHttpReq *req);
+void tfw_http_resp_pair_free_and_put_conn(TfwHttpResp *resp);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
