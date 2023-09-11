@@ -630,9 +630,15 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
 
+	if (AAA)
+		T_WARN("tfw_tls_conn_close %px", tls);
+
 	spin_lock(&tls->lock);
 	r = ttls_close_notify(tls);
 	spin_unlock(&tls->lock);
+
+	if (AAA)
+		T_WARN("RRR %d", r);
 
 	/*
 	 * Once the TLS close notify alert is going to be sent by

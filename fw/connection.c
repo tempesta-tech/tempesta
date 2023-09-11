@@ -69,6 +69,10 @@ tfw_connection_repair(TfwConn *conn)
 int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
+	if (AAA) {
+		T_WARN("AAA %px !!!!!!", conn);
+		T_WARN("AAA %d !!!!!!", TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn)));
+	}
 	return TFW_CONN_HOOK_CALL(conn, conn_close, sync);
 }
 

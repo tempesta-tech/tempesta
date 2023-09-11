@@ -38,6 +38,9 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "connection.h"
+#include "http.h"
+
+int AAA;
 
 typedef enum {
 	SS_SEND,
@@ -86,13 +89,13 @@ typedef struct {
 } SsCblNode;
 
 /* Socket states are needed at high support levels. */
-#if defined(DEBUG) && (DEBUG >= 2)
+//#if defined(DEBUG) && (DEBUG >= 2)
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
 	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
 	"Close Wait",	"Last ACK",	"Listen",	"Closing"
 };
-#endif
+//#endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
 #define TFW_VALIDATE_SK_LOCK_OWNER(sk)	\
@@ -194,6 +197,8 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	if (AAA)
+		T_WARN("EXIT %px %px", sk, sk->sk_user_data);
 	if (sk->sk_user_data)
 		SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
@@ -397,7 +402,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	TfwConn *conn = (TfwConn *)sk->sk_user_data;
 	TfwH2Ctx *h2 = NULL;
 	TfwStream *stream = NULL;
-	unsigned int stream_id;
+	//unsigned int stream_id;
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d mss=%d size=%d\n",
@@ -407,6 +412,16 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!conn || !ss_sock_active(sk))) {
+		TfwHttpResp *resp = ((TfwHttpResp * )(*skb_head)->dev);
+
+		if (resp && resp->xmit_flags) {
+			TfwConn *conn = resp->req->conn;
+
+			T_WARN("ss_do_send ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ %px %px %d BBB", sk, conn, atomic_read(&conn->refcnt));
+			tfw_connection_put(resp->req->conn);
+			tfw_http_resp_pair_free(resp->req);
+			T_WARN("ss_do_send ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ %px %px %d AAA", sk, conn, atomic_read(&conn->refcnt));
+		}
 		ss_skb_queue_purge(skb_head);
 		return;
 	}
@@ -416,13 +431,12 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	h2 = tfw_h2_context(conn);
 
-	if ((stream_id = skb_tfw_cb(*skb_head))) {
-		stream = tfw_h2_find_not_closed_stream(h2, stream_id, false);
-		if (!stream) {
-			ss_skb_queue_purge(skb_head);
-			return;
-		}
-		BUG_ON(stream->xmit.skb_head);
+	if ((*skb_head)->dev) {
+		TfwHttpResp *resp = (TfwHttpResp *)(*skb_head)->dev;
+		stream = resp->xmit;
+		
+		BUG_ON(!stream || stream->xmit.skb_head);
+		stream->xmit.resp = resp->xmit_flags ? resp : NULL;
 		stream->xmit.mark = mark;
 		stream->xmit.tls_type = tls_type;
 	}
@@ -519,7 +533,17 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * avoid expensive work queue operations.
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
+		TfwHttpResp *resp = ((TfwHttpResp * )(*skb_head)->dev)
+
 		T_DBG2("Attempt to send on inactive socket %p\n", sk);
+		if (resp && resp->xmit_flags) {
+			TfwConn *conn = resp->req->conn;
+
+			T_WARN("ss_send ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ %px %px %d BBB", sk, conn, atomic_read(&conn->refcnt));
+			tfw_connection_put(resp->req->conn);
+			tfw_http_resp_pair_free(resp->req);
+			T_WARN("ss_send ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ %px %px %d AAA", sk, conn, atomic_read(&conn->refcnt));
+		}
 		ss_skb_queue_purge(skb_head);
 		return -EBADF;
 	}
@@ -666,7 +690,7 @@ ss_do_close(struct sock *sk, int flags)
 	struct sk_buff *skb;
 	int data_was_unread = 0;
 
-	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
+	T_WARN("[%d]: Close socket %px (%s): account=%d refcnt=%u\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -1041,8 +1065,9 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	T_DBG3("[%d]: %s: sk=%p state=%s\n",
-	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	if (AAA)
+		T_WARN("[%d]: %s: sk=%px state=%s\n",
+	       		smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -1563,6 +1588,19 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
+		if (sw.skb_head) {
+			TfwHttpResp *resp = (TfwHttpResp *)sw.skb_head->dev;
+
+			if (resp) {
+				TfwConn *conn = resp->req->conn;
+
+				T_WARN("ss_do_send QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ %px %px %d BBB", sk, conn, atomic_read(&conn->refcnt));
+				tfw_connection_put(conn);
+				tfw_http_resp_pair_free(resp->req);
+				T_WARN("ss_do_send QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ %px %px %d AAA", sk, conn, atomic_read(&conn->refcnt));
+			}
+		}
+
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
 			kfree_skb(skb);
 	}

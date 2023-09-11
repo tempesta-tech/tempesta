@@ -469,6 +469,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state, unsigned int id,
 void
 tfw_h2_delete_stream(TfwStream *stream)
 {
+	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
 	kmem_cache_free(stream_cache, stream);
 }
 

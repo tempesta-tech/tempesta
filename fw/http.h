@@ -578,6 +578,8 @@ struct tfw_http_resp_t {
 	char			*body_start_data;
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
+	TfwStream		*xmit;
+	int			xmit_flags;
 };
 
 /**

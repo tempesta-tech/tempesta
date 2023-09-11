@@ -1076,22 +1076,24 @@ void
 tfw_h2_resp_fwd(TfwHttpResp *resp, bool should_free)
 {
 	TfwHttpReq *req = resp->req;
+	TfwConn *conn = req->conn;
 
-	tfw_connection_get(req->conn);
+	tfw_connection_get(conn);
 	do_access_log(resp);
 
-	if (tfw_cli_conn_send((TfwCliConn *)req->conn, (TfwMsg *)resp)) {
-		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
+	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
+		T_WARN("%s: cannot send data to client via HTTP/2 sock %px conn %px\n", __func__, conn->sk, conn);
+		AAA = 1;
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		tfw_connection_close(req->conn, true);
-		should_free = true;
+		T_WARN("REQ CONN %px", conn);
+		tfw_connection_close(conn, true);
 	}
 	else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
 
 	if (should_free) {
-		tfw_connection_put(req->conn);
+		tfw_connection_put(conn);
 		tfw_http_resp_pair_free(req);
 	}
 }
@@ -2793,7 +2795,8 @@ tfw_http_conn_drop(TfwConn *conn)
 {
 	bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+	if (AAA)
+		T_WARN("%s: conn=[%px] %d %d\n", __func__, conn, TFW_CONN_TYPE(conn) & Conn_Clnt, h2_mode);
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
 
@@ -4832,8 +4835,10 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id)
 	if(!resp->req->stream)
 		return -EPIPE;
 
-	skb_set_tfw_cb(resp->msg.skb_head, stream_id);
-	tfw_h2_stream_init_for_xmit(resp->req->stream, resp,
+	resp->msg.skb_head->dev = (void *)resp;
+	resp->xmit = resp->req->stream;
+	resp->xmit_flags = 1;
+	tfw_h2_stream_init_for_xmit(resp->req->stream,
 				    HTTP2_ENCODE_HEADERS, 0, 0);
 	return 0;
 }
@@ -4857,8 +4862,10 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 	if (unlikely(r))
 		return r;
 
-	skb_set_tfw_cb(resp->msg.skb_head, stream_id);
-	tfw_h2_stream_init_for_xmit(resp->req->stream, NULL,
+	resp->msg.skb_head->dev = (void *)resp;
+	resp->xmit = resp->req->stream;
+	resp->xmit_flags = 0;
+	tfw_h2_stream_init_for_xmit(resp->req->stream,
 				    HTTP2_MAKE_HEADERS_FRAMES, h_len, b_len);
 	return r;
 }

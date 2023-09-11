@@ -31,6 +31,8 @@
 #include "http_frame.h"
 #include "tls.h"
 
+extern int AAA;
+
 /*
  * Flag bits definition for SsProto.type field.
  * NOTE: There are also flags definition for this

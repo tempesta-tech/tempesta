@@ -218,11 +218,10 @@ tfw_h2_stream_try_unblock(TfwStream *stream)
 }
 
 static inline void
-tfw_h2_stream_init_for_xmit(TfwStream *stream, TfwHttpResp*resp,
+tfw_h2_stream_init_for_xmit(TfwStream *stream,
 			    TfwStreamXmitState state, unsigned long h_len,
 			    unsigned long b_len)
 {
-	stream->xmit.resp = resp;
 	stream->xmit.skb_head = NULL;
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;

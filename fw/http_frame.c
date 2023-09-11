@@ -754,12 +754,15 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 }
 
 static void
-__tfw_h2_destroy_stream_send_queue(struct rb_node *node)
+__tfw_h2_destroy_stream_send_queue(struct rb_node *node, int *xxx)
 {
 	if (node) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
 		TfwHttpResp*resp = stream->xmit.resp;
 
+		(*xxx)++;
+		if (AAA)
+			T_WARN("__tfw_h2_destroy_stream_send_queue %px %u %px %px", stream, stream->id, resp, stream->xmit.skb_head);
 		if (resp) {
 			BUG_ON(!resp->req || !resp->req->conn);
 			tfw_connection_put(resp->req->conn);
@@ -771,8 +774,8 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 			tfw_h2_stream_purge_send_queue(stream);
 		}
 
-		__tfw_h2_destroy_stream_send_queue(node->rb_left);
-		__tfw_h2_destroy_stream_send_queue(node->rb_right);
+		__tfw_h2_destroy_stream_send_queue(node->rb_left, xxx);
+		__tfw_h2_destroy_stream_send_queue(node->rb_right, xxx);
 	}
 }
 
@@ -782,11 +785,14 @@ tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStreamSched *sched = &ctx->sched;
 	struct rb_node *root = sched->streams.rb_node;
+	int xxx = 0;
 
 	/* We should call all scheduler functions under the socket lock. */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
-	__tfw_h2_destroy_stream_send_queue(root);
+	__tfw_h2_destroy_stream_send_queue(root, &xxx);
+	if (AAA)
+		T_WARN("XXX %d", xxx);
 	ctx->cur_xmit_stream = NULL;
 }
 
@@ -802,7 +808,8 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	/* We should call all scheduler functions under the socket lock. */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
-	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
+	if (AAA)
+		T_WARN("%s: ctx [%px] conn %px sched %px %d\n", __func__, ctx, conn, sched, atomic_read(&((TfwConn *)conn)->refcnt));
 
 	tfw_h2_destroy_stream_send_queue(ctx);
 
@@ -818,6 +825,9 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;
+
+	if (AAA)
+		T_WARN("AFTER %s: ctx [%px] conn %px sched %px %d\n", __func__, ctx, conn, sched, atomic_read(&((TfwConn *)conn)->refcnt));
 }
 
 void
@@ -2489,6 +2499,8 @@ do {									\
 		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
 		((TfwMsg *)resp)->skb_head = NULL;
 
+		if (AAA)
+			T_WARN("PUT %px AAAAAAAA", resp->req->conn);
 		tfw_connection_put(resp->req->conn);
 		tfw_http_resp_pair_free(resp->req);
 		stream->xmit.resp = NULL;
