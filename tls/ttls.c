@@ -45,6 +45,20 @@ MODULE_DESCRIPTION("Tempesta TLS");
 MODULE_VERSION("0.3.2");
 MODULE_LICENSE("GPL");
 
+/*
+ * L parameter for CCM algorithm (see NIST SP800-38C, RFC 3610 and OpenSSL's
+ * crypto/modes/ccm128.c and mbed TLS's library/ccm.c).
+ * The NIST defines it as q, the maximum payload length in octets, i.e. payload
+ * must be shorter than 2 ** (8 * (q - 1)). Since TLS operates with records not
+ * more than 16KB, L (or q) is always 3.
+ * Invariant: IV len = 15 - L = 12.
+ * IV encoding:
+ *   byte 0 (xfrm->fixed_shift): L - 1 value (2)
+ *   bytes 1 - 15-L (xfrm->fixed_ivlen): nonce (peer's IV)
+ *   bytes 16-L - 16: sequence number (the counter)
+ */
+#define TTLS_CCM_L 				3
+
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 
 static struct kmem_cache *ttls_hs_cache = NULL;
@@ -645,6 +659,7 @@ ttls_derive_keys(TlsCtx *tls)
 		mac_key_len = 0;
 		xfrm->ivlen = 12;
 		xfrm->fixed_ivlen = 4;
+		xfrm->fixed_shift = (ci->mode == TTLS_MODE_CCM ? 1 : 0);
 		WARN_ON_ONCE(ttls_expiv_len(xfrm) != TTLS_IV_LEN);
 		/* Minimum length is expicit IV + tag */
 		xfrm->minlen = ttls_expiv_len(xfrm) + TTLS_TAG_LEN;
@@ -681,8 +696,11 @@ ttls_derive_keys(TlsCtx *tls)
 		mac_enc = keyblk;
 		mac_dec = keyblk + mac_key_len;
 		iv_copy_len = xfrm->fixed_ivlen ? : xfrm->ivlen;
-		memcpy_fast(xfrm->iv_enc, key2 + xfrm->keylen, iv_copy_len);
-		memcpy_fast(xfrm->iv_dec, key2 + xfrm->keylen + iv_copy_len,
+		memcpy_fast(xfrm->iv_enc + xfrm->fixed_shift,
+			    key2 + xfrm->keylen,
+			    iv_copy_len);
+		memcpy_fast(xfrm->iv_dec + xfrm->fixed_shift,
+			    key2 + xfrm->keylen + iv_copy_len,
 			    iv_copy_len);
 	} else {
 		key1 = keyblk + mac_key_len * 2 + xfrm->keylen;
@@ -690,10 +708,17 @@ ttls_derive_keys(TlsCtx *tls)
 		mac_enc = keyblk + mac_key_len;
 		mac_dec = keyblk;
 		iv_copy_len = xfrm->fixed_ivlen ? : xfrm->ivlen;
-		memcpy_fast(xfrm->iv_dec, key1 + xfrm->keylen, iv_copy_len);
-		memcpy_fast(xfrm->iv_enc, key1 + xfrm->keylen + iv_copy_len,
+		memcpy_fast(xfrm->iv_dec + xfrm->fixed_shift,
+			    key1 + xfrm->keylen,
+			    iv_copy_len);
+		memcpy_fast(xfrm->iv_enc + xfrm->fixed_shift,
+			    key1 + xfrm->keylen + iv_copy_len,
 			    iv_copy_len);
 	}
+
+	if (ci->mode == TTLS_MODE_CCM)
+		xfrm->iv_dec[0] = xfrm->iv_enc[0] = TTLS_CCM_L - 1;
+
 	T_DBG3_BUF("derive keys: IV_enc fixed", xfrm->iv_enc, iv_copy_len);
 	T_DBG3_BUF("derive keys: key_enc", key1, ci->key_len);
 	T_DBG3_BUF("derive keys: IV_dec fixed", xfrm->iv_dec, iv_copy_len);
@@ -810,7 +835,7 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt)
 		return -ENOMEM;
 	}
 
-	*(long *)(xfrm->iv_enc + xfrm->fixed_ivlen) = iv;
+	*(long *)(xfrm->iv_enc + xfrm->fixed_shift + xfrm->fixed_ivlen) = iv;
 	T_DBG3_BUF("IV used", xfrm->iv_enc, xfrm->ivlen);
 
 	elen = ttls_msg2crypt_len(io, xfrm);
@@ -880,7 +905,8 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	dec_msglen = io->msglen - expiv_len - TTLS_TAG_LEN;
 
-	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv, sizeof(io->iv));
+	memcpy_fast(xfrm->iv_dec + xfrm->fixed_shift + xfrm->fixed_ivlen,
+		    io->iv, sizeof(io->iv));
 	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + TTLS_TAG_LEN, buf,
 				     &sg, &sgn);
 	if (!req)

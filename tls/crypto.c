@@ -67,9 +67,6 @@ ttls_cipher_setup(TlsCipherCtx *ctx, const TlsCipherInfo *ci,
 		return r;
 	}
 
-	/* See IV definitions for all cipher suites at the below. */
-	WARN_ON_ONCE(crypto_aead_ivsize(ctx->cipher_ctx) != 12);
-
 	ctx->cipher_info = ci;
 
 	return 0;
@@ -108,7 +105,7 @@ static TlsCipherInfo aes_128_ccm_info = {
 	16,
 	"AES-128-CCM",
 	"ccm(aes)",
-	12,
+	16,
 };
 
 static TlsCipherInfo aes_192_ccm_info = {
@@ -117,7 +114,7 @@ static TlsCipherInfo aes_192_ccm_info = {
 	24,
 	"AES-192-CCM",
 	"ccm(aes)",
-	12,
+	16,
 };
 
 static TlsCipherInfo aes_256_ccm_info = {
@@ -126,7 +123,7 @@ static TlsCipherInfo aes_256_ccm_info = {
 	32,
 	"AES-256-CCM",
 	"ccm(aes)",
-	12,
+	16,
 };
 
 static TlsCipherDef ttls_ciphers[] = {

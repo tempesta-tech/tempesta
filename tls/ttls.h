@@ -307,7 +307,8 @@ typedef struct {
  * @keylen		- symmetric key length (bytes);
  * @minlen		- min. ciphertext length;
  * @ivlen		- IV length;
- * @fixed_ivlen		- fixed part of IV (AEAD);
+ * @fixed_ivlen 	- fixed part of IV (AEAD);
+ * @fixed_shift 	- fied shift to copy fixed IV;
  * @maclen		- MAC length;
  * @iv_enc		- IV for encryption;
  * @iv_dec		- IV for decryption;
@@ -322,6 +323,7 @@ typedef struct {
 	unsigned int			minlen;
 	unsigned char			ivlen;
 	unsigned char			fixed_ivlen;
+	unsigned char                   fixed_shift;
 	unsigned char			maclen;
 	unsigned char			iv_enc[16];
 	unsigned char			iv_dec[16];
