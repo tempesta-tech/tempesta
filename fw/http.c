@@ -4837,8 +4837,7 @@ tfw_h2_resp_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 			  unsigned long h_len, unsigned long b_len)
 {
 	resp->stream_for_xmit = resp->req->stream;
-	if (state == HTTP2_ENCODE_HEADERS)
-		set_bit(TFW_HTTP_B_RESP_XMIT, resp->flags);
+	set_bit(TFW_HTTP_B_RESP_XMIT, resp->flags);
 	skb_set_tfw_cb_ptr(((TfwMsg *)resp)->skb_head, resp);
 	tfw_h2_stream_init_for_xmit(resp->req->stream, state, h_len, b_len);
 }
@@ -4877,8 +4876,7 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 	if (unlikely(r))
 		return r;
 
-	tfw_h2_resp_init_for_xmit(resp, HTTP2_MAKE_HEADERS_FRAMES,
-				  h_len, b_len);
+	tfw_h2_resp_init_for_xmit(resp, HTTP2_RELEASE_RESPONSE, h_len, b_len);
 	return r;
 }
 

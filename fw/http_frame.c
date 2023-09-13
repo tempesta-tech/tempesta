@@ -2476,8 +2476,6 @@ do {									\
 
 		stream->xmit.h_len = resp->mit.acc_len;
 		stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-		stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
-
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 			r = tfw_http_msg_cutoff_body_chunks(resp);
 				if (unlikely(r))
@@ -2487,8 +2485,19 @@ do {									\
 		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
 		((TfwMsg *)resp)->skb_head = NULL;
 
+		stream->xmit.state = HTTP2_RELEASE_RESPONSE;
+
+		T_FSM_NEXT();
+	}
+
+	T_FSM_STATE(HTTP2_RELEASE_RESPONSE) {
+		TfwHttpResp *resp = stream->xmit.resp;
+
+		BUG_ON(!resp || !resp->req || !resp->req->conn);
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
+
+		stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
 
 		T_FSM_NEXT();
 	}
