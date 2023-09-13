@@ -963,17 +963,15 @@ static void
 tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 {
 	TfwStream *cur;
-	unsigned int max_streams = ctx->lsettings.max_streams;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 
-	T_DBG3("%s: ctx [%p] max_streams %u\n", __func__, ctx, max_streams);
+	T_DBG3("%s: ctx [%p] closed_streams num %u\n", __func__,
+	       ctx, closed_streams->num);
 
 	while (1) {
 		spin_lock(&ctx->lock);
 
-		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS
-		    || (max_streams == ctx->streams_num
-			&& closed_streams->num))
+		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS)
 		{
 			spin_unlock(&ctx->lock);
 			break;
