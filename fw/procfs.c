@@ -75,6 +75,8 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(serv.conn_established);
 		SADD(serv.conn_restricted);
 		SADD(serv.rx_bytes);
+		SADD(serv.tls_hs_successful);
+		SADD(serv.tls_hs_failed);
 	}
 #undef SADD
 }
@@ -151,6 +153,8 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRNE("Server connections active\t\t", serv_conn_active);
 	SPRNE("Server connections schedulable\t\t", serv_conn_sched);
 	SPRN("Server RX bytes\t\t\t\t", serv.rx_bytes);
+	SPRN("Server successful TLS handshakes\t", serv.tls_hs_successful);
+	SPRN("Server failed TLS handshakes\t\t", serv.tls_hs_failed);
 
 	return 0;
 #undef SPRN

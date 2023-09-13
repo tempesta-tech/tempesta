@@ -94,6 +94,8 @@ next_msg:
 	default:
 	case T_BAD:
 		r = T_BAD;
+		if (tls->conf->endpoint == TTLS_IS_SERVER)
+			TFW_INC_STAT_BH(serv.tls_hs_failed);
 		fallthrough;
 	case T_BLOCK:
 		spin_unlock(&tls->lock);
@@ -865,6 +867,16 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	return 0;
 }
 
+static inline int
+tfw_tls_over(TlsCtx *tls, int state)
+{
+	if (state == TTLS_HS_CB_FINISHED_NEW
+	    || state == TTLS_HS_CB_FINISHED_RESUMED)
+		TFW_INC_STAT_BH(serv.tls_hs_successful);
+
+	return frang_tls_handler(tls, state);
+}
+
 static unsigned long
 ttls_cli_id(TlsCtx *tls, unsigned long hash)
 {
@@ -1056,7 +1068,7 @@ tfw_tls_init(void)
 	if (r)
 		return -EINVAL;
 
-	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, frang_tls_handler,
+	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_over,
 				ttls_cli_id, tfw_tls_alpn_match);
 
 	if ((r = tfw_h2_init()))
