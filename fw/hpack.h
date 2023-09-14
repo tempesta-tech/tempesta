@@ -91,7 +91,6 @@ typedef struct {
  * @window	- maximum pseudo-length of the dynamic table (in bytes); this
  *		  value used as threshold to flushing old entries;
  * @wnd_changed - flag indicates, that window was changed by settings update;
- * @ack_sent	- flag indicates, that ack for window change was sent;
  * @rbuf	- pointer to the ring buffer;
  * @root	- pointer to the root node of binary tree;
  * @pool	- memory pool for dynamic table;
@@ -102,7 +101,6 @@ typedef struct {
 	TFW_HPACK_ETBL_COMMON;
 	unsigned short		window;
 	bool			wnd_changed;
-	bool			ack_sent;
 	char			*rbuf;
 	TfwHPackNode		*root;
 	TfwPool			*pool;
