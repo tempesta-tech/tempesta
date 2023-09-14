@@ -787,7 +787,6 @@ tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	__tfw_h2_destroy_stream_send_queue(root);
-	ctx->cur_xmit_stream = NULL;
 }
 
 void
@@ -2417,7 +2416,6 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 		case STREAM_FSM_RES_OK:
 			break;
 		case STREAM_FSM_RES_TERM_STREAM:
-			BUG_ON(ctx->cur_xmit_stream);
 			tfw_h2_stream_purge_send_queue(stream);
 			return 0;
 		case STREAM_FSM_RES_TERM_CONN:
@@ -2453,18 +2451,33 @@ tfw_h2_make_frames_for_stream(TfwH2Ctx *ctx, TfwStream *stream,
 {
 	int r = 0;
 	TfwFrameType frame_type;
+	unsigned long tmp_cwnd_awail = ULONG_MAX;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 #define ADJUST_AVAILABLE_CWND(cwnd, type)				\
 do {									\
-	if (cwnd <= FRAME_HEADER_SIZE) {				\
-		if (type == HTTP2_HEADERS				\
-		    || type == HTTP2_CONTINUATION)			\
-			ctx->cur_xmit_stream = stream;			\
+	if (cwnd <= FRAME_HEADER_SIZE)					\
 		T_FSM_EXIT();						\
-	}								\
 	cwnd -= FRAME_HEADER_SIZE;					\
 	frame_type = type;						\
+} while(0)
+
+/*
+ * We can't break making headers because of exceeding available cwnd,
+ * since there is a chance that some other frames will be sent in
+ * between sending headers. This is prohibited by RFC and leads to
+ * connection closing by client. So we adjust cwnd in temporary variable
+ * and recalculate real cwnd when we start making DATA frames or when we
+ * finish making frames for current stream.
+ */
+#define ADJUST_TMP_AVAILABLE_CWND(cwnd, tmp_cwnd)			\
+do {									\
+	if (tmp_cwnd != ULONG_MAX) {					\
+		unsigned long delta = ULONG_MAX - tmp_cwnd;		\
+		*cwnd_awail = (*cwnd_awail > delta ?			\
+			*cwnd_awail - delta : 0);			\
+		tmp_cwnd = ULONG_MAX;					\
+	}								\
 } while(0)
 
 	T_FSM_START(stream->xmit.state) {
@@ -2510,7 +2523,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_HEADERS);
+		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_HEADERS);
 		if (unlikely(ctx->hpack.enc_tbl.ack_sent)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream);
@@ -2523,7 +2536,7 @@ do {									\
 		}
 
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
-							mss, cwnd_awail,
+							mss, &tmp_cwnd_awail,
 							&stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
@@ -2537,9 +2550,9 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_CONTINUATION);
+		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
-							mss, cwnd_awail,
+							mss, &tmp_cwnd_awail,
 							&stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
@@ -2557,6 +2570,8 @@ do {									\
 			stream->xmit.is_blocked = !stream->rem_wnd;
 			T_FSM_EXIT();
 		}
+
+		ADJUST_TMP_AVAILABLE_CWND(*cwnd_awail, tmp_cwnd_awail);
 		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
 							mss, cwnd_awail,
@@ -2577,6 +2592,7 @@ do {									\
 		BUG_ON(stream->xmit.resp);
 
 		ss_skb_queue_purge(&stream->xmit.skb_head);
+		ADJUST_TMP_AVAILABLE_CWND(*cwnd_awail, tmp_cwnd_awail);
 
 		T_FSM_EXIT();
 	}
@@ -2587,6 +2603,7 @@ do {									\
 
 	return r;
 
+#undef ADJUST_TMP_AVAILABLE_CWND
 #undef ADJUST_AVAILABLE_SIZE
 }
 
@@ -2608,14 +2625,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
 	{
-		if (ctx->cur_xmit_stream) {
-			stream = ctx->cur_xmit_stream;
-			parent = stream->sched.parent;
-			ctx->cur_xmit_stream = NULL;
-			tfw_h2_stream_sched_remove(stream);
-		} else {
-			stream = tfw_h2_sched_stream_dequeue(&sched->root, &parent);
-		}
+		stream = tfw_h2_sched_stream_dequeue(&sched->root, &parent);
 		/*
 		 * If root scheduler is active we always can find
 		 * active stream.

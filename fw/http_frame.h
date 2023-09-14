@@ -161,7 +161,6 @@ typedef struct {
  * @cur_recv_headers	- stream for which we have already started receiving
  *			  headers, but have not yet received the END_HEADERS
  *			  flag;
- * @cur_xmit_stream	- stream for which headers are currently being made;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -203,7 +202,6 @@ typedef struct tfw_h2_ctx_t {
 	TfwHPack	hpack;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
-	TfwStream	*cur_xmit_stream;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
