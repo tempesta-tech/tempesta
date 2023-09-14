@@ -73,19 +73,6 @@ typedef enum {
 	HTTP2_RECV_APP_DATA_POST
 } TfwFrameState;
 
-/**
- * IDs for SETTINGS parameters of HTTP/2 connection (RFC 7540
- * section 6.5.2).
- */
-typedef enum {
-	HTTP2_SETTINGS_TABLE_SIZE	= 0x01,
-	HTTP2_SETTINGS_ENABLE_PUSH,
-	HTTP2_SETTINGS_MAX_STREAMS,
-	HTTP2_SETTINGS_INIT_WND_SIZE,
-	HTTP2_SETTINGS_MAX_FRAME_SIZE,
-	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE
-} TfwSettingsId;
-
 #define __FRAME_FSM_EXIT()						\
 do {									\
 	ctx->rlen = 0;							\
@@ -1211,25 +1198,22 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 		}
 }
 
-static int
+static void
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwSettings *dest = &ctx->rsettings;
 	long int delta;
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 		dest->hdr_tbl_sz = min_t(unsigned int,
 					 val, HPACK_ENC_TABLE_MAX_SIZE);
 		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
-		if (val > 1)
-			return -EINVAL;
+		BUG_ON(val > 1);
 		dest->push = val;
 		break;
 
@@ -1238,17 +1222,14 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		break;
 
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
-		if (val > MAX_WND_SIZE)
-			return -EINVAL;
-
+		BUG_ON(val > MAX_WND_SIZE);
 		delta = (long int)val - (long int)dest->wnd_sz;
 		tfw_h2_apply_wnd_sz_change(ctx, delta);
 		dest->wnd_sz = val;
 		break;
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
-		if (val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH)
-			return -EINVAL;
+		BUG_ON(val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH);
 		dest->max_frame_sz = val;
 		break;
 
@@ -1261,10 +1242,95 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		 * We should silently ignore unknown identifiers (see
 		 * RFC 7540 section 6.5.2)
 		 */
-		return 0;
+		break;
+	}
+}
+
+static int
+tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	switch (id) {
+	case HTTP2_SETTINGS_TABLE_SIZE:
+		break;
+
+	case HTTP2_SETTINGS_ENABLE_PUSH:
+		if (val > 1)
+			return -EINVAL;
+		break;
+
+	case HTTP2_SETTINGS_MAX_STREAMS:
+		break;
+
+	case HTTP2_SETTINGS_INIT_WND_SIZE:
+		if (val > MAX_WND_SIZE)
+			return -EINVAL;
+		break;
+
+	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
+		if (val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH)
+			return -EINVAL;
+		break;
+
+	case HTTP2_SETTINGS_MAX_HDR_LIST_SIZE:
+		break;
+
+	default:
+		/*
+		 * We should silently ignore unknown identifiers (see
+		 * RFC 7540 section 6.5.2)
+		 */
+		break;
 	}
 
 	return 0;
+}
+
+/**
+ * Flags indicates that appropriate SETTINGS parameter is waited for
+ * update.
+ */
+static const unsigned char
+ctx_new_settings_flags[] = {
+	[HTTP2_SETTINGS_TABLE_SIZE]		= 0x01,
+	[HTTP2_SETTINGS_ENABLE_PUSH]		= 0x02,
+	[HTTP2_SETTINGS_MAX_STREAMS]		= 0x04,
+	[HTTP2_SETTINGS_INIT_WND_SIZE]		= 0x08,
+	[HTTP2_SETTINGS_MAX_FRAME_SIZE] 	= 0x10,
+	[HTTP2_SETTINGS_MAX_HDR_LIST_SIZE]	= 0x20
+};
+
+static void
+tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	if (id < _HTTP2_SETTINGS_MAX) {
+		ctx->new_settings.settings[id] = val;
+		ctx->new_settings.flags |= ctx_new_settings_flags[id];
+	}
+}
+
+void
+tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	unsigned int id;
+
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	for (id = HTTP2_SETTINGS_TABLE_SIZE; id < _HTTP2_SETTINGS_MAX; id++) {
+		if (ctx->new_settings.flags & ctx_new_settings_flags[id]) {
+			unsigned int val = ctx->new_settings.settings[id];
+			tfw_h2_apply_settings_entry(ctx, id, val);
+		}
+	}
+	ctx->new_settings.flags = 0;
 }
 
 static void
@@ -1289,8 +1355,10 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 
 	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
 
-	if ((r = tfw_h2_apply_settings_entry(ctx, id, val)))
+	if ((r = tfw_h2_check_settings_entry(ctx, id, val)))
 		return r;
+
+	tfw_h2_save_settings_entry(ctx, id, val);
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
@@ -2515,7 +2583,7 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
 		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_HEADERS);
-		if (unlikely(ctx->hpack.enc_tbl.ack_sent)) {
+		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream);
 			if (unlikely(r < 0)) {
@@ -2523,7 +2591,6 @@ do {									\
 				       "table size %d", r);
 				return r;
 			}
-			ctx->hpack.enc_tbl.ack_sent = false;
 		}
 
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
