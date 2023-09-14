@@ -445,17 +445,8 @@ do_send:
 		}
 
 		if (!stream) {
-			if (h2 && unlikely(h2->hpack.enc_tbl.wnd_changed &&
-					  !h2->hpack.enc_tbl.ack_sent))
-			{
-				TfwFrameHdr hdr;
-				char *data = ss_skb_data_ptr_by_offset(skb, 0);
-
-				tfw_h2_unpack_frame_header(&hdr, data);
-				if (hdr.type == HTTP2_SETTINGS &&
-				    hdr.flags == HTTP2_F_ACK)
-					h2->hpack.enc_tbl.ack_sent = true;
-			}
+			if (h2 && unlikely(h2->new_settings.flags))
+				tfw_h2_apply_new_settings(h2);
 			ss_skb_entail(sk, skb, mark, tls_type);
 		} else {
 			ss_skb_queue_tail(&stream->xmit.skb_head, skb);
