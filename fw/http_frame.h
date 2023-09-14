@@ -48,6 +48,20 @@ typedef enum {
 	_HTTP2_UNDEFINED
 } TfwFrameType;
 
+/**
+ * IDs for SETTINGS parameters of HTTP/2 connection (RFC 7540
+ * section 6.5.2).
+ */
+typedef enum {
+	HTTP2_SETTINGS_TABLE_SIZE	= 0x01,
+	HTTP2_SETTINGS_ENABLE_PUSH,
+	HTTP2_SETTINGS_MAX_STREAMS,
+	HTTP2_SETTINGS_INIT_WND_SIZE,
+	HTTP2_SETTINGS_MAX_FRAME_SIZE,
+	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE,
+	_HTTP2_SETTINGS_MAX,
+} TfwSettingsId;
+
 static const char *__tfw_h2_frm_names[] = {
 	[HTTP2_DATA]	      = "DATA",
 	[HTTP2_HEADERS]	      = "HEADERS",
@@ -156,6 +170,8 @@ typedef struct {
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
+ * @new_settings	- new settings to apply when ack is pushed to socket
+ * 			  write queue;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -195,6 +211,10 @@ typedef struct {
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
+	struct {
+		unsigned int settings[_HTTP2_SETTINGS_MAX];
+		unsigned char flags;
+	} new_settings;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
@@ -217,6 +237,7 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 			 struct sk_buff **next);
+void tfw_h2_apply_new_settings(TfwH2Ctx *ctx);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 					 bool recv);
