@@ -67,7 +67,7 @@ tfw_tls_connection_lost(TfwConn *conn)
 	TlsCtx *tls = &((TfwTlsConn *)conn)->tls;
 
 	if (!ttls_hs_done(tls))
-		frang_tls_handler(tls, TTLS_HS_CB_FINISHED_RESUMED);
+		frang_tls_handler(tls, TTLS_HS_CB_INCOMPLETE);
 }
 
 int
@@ -99,8 +99,6 @@ next_msg:
 		fallthrough;
 	case T_BLOCK:
 		spin_unlock(&tls->lock);
-		if (!ttls_hs_done(tls))
-			frang_tls_handler(tls, TTLS_HS_CB_INCOMPLETE);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:
