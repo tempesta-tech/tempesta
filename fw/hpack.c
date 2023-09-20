@@ -1300,10 +1300,6 @@ done:
 			 * RFC 7541 6.2.1
 			 * */
 			req->method = tfw_http_meth_str2id(s_hdr);
-			if (unlikely(req->method == _TFW_HTTP_METH_UNKNOWN)) {
-				WARN_ON_ONCE(1);
-				return -EINVAL;
-			}
 		}
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		break;
