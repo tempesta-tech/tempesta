@@ -10987,8 +10987,6 @@ enum {
 
 /**
  * Obtain HTTP method id from TfwStr chunked string.
- * Code here relies on http parser, which should
- * filter out illegal 'method' headers.
  * Used exclusively by HPACK related code.
  */
 unsigned char
@@ -11021,7 +11019,6 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 		case 'P':
 			return TFW_HTTP_METH_POST;
 		default:
-			WARN_ON(1);
 			return _TFW_HTTP_METH_UNKNOWN;
 		}
 	case TFW_HTTP_MLEN_5C:
@@ -11040,7 +11037,6 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 				? TFW_HTTP_METH_PATCH
 				: TFW_HTTP_METH_PURGE;
 		default:
-			WARN_ON(1);
 			return _TFW_HTTP_METH_UNKNOWN;
 		}
 	case TFW_HTTP_MLEN_6C:
