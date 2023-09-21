@@ -3550,10 +3550,10 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 		}
 
 		h_mdf.chunks[0] = desc->hdr->chunks[0];
-			if (desc->hdr->nchunks == 2) {
-				h_mdf.chunks[2] = desc->hdr->chunks[1];
-				h_mdf.nchunks += 1;
-			}
+		if (desc->hdr->nchunks == 2) {
+			h_mdf.chunks[2] = desc->hdr->chunks[1];
+			h_mdf.nchunks += 1;
+		}
 		h_mdf.len += desc->hdr->len;
 		h_mdf.flags = desc->hdr->flags;
 		h_mdf.eolen += desc->hdr->eolen;
