@@ -358,7 +358,7 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
- * @cleanup	- Original request data. Required for keep request data until
+ * @cleanup	- Original request data. Required for keeping request data until
  * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
@@ -771,33 +771,5 @@ int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
-
-static inline const BasicStr *
-tfw_http_method_id2str(int id)
-{
-#define STR_METHOD(name) [TFW_HTTP_METH_ ## name] = { #name, sizeof(#name) - 1 }
-
-	static BasicStr http_methods[] = {
-		STR_METHOD(COPY),
-		STR_METHOD(DELETE),
-		STR_METHOD(GET),
-		STR_METHOD(HEAD),
-		STR_METHOD(LOCK),
-		STR_METHOD(MKCOL),
-		STR_METHOD(MOVE),
-		STR_METHOD(OPTIONS),
-		STR_METHOD(PATCH),
-		STR_METHOD(POST),
-		STR_METHOD(PROPFIND),
-		STR_METHOD(PROPPATCH),
-		STR_METHOD(PUT),
-		STR_METHOD(TRACE),
-		STR_METHOD(UNLOCK),
-		STR_METHOD(PURGE),
-	};
-
-#undef STR_METHOD
-	return &http_methods[id];
-}
 
 #endif /* __TFW_HTTP_H__ */
