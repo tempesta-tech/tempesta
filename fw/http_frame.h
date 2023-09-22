@@ -193,6 +193,7 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
+ * __scheds		- pointer to the memory for the streams schedulers;
  *
  * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
  * (instead of separate HPACK context for each stream), since frames from other
@@ -227,6 +228,7 @@ typedef struct {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
+	unsigned char	*__scheds[0];
 } TfwH2Ctx;
 
 typedef struct tfw_conn_t TfwConn;

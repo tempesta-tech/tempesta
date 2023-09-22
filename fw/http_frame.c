@@ -214,8 +214,10 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
+	unsigned long h2_size = sizeof(TfwH2Conn) +
+		tfw_cli_max_concurrent_streams * sizeof(TfwStreamSchedEntry);
 
-	bzero_fast(ctx, sizeof(*ctx));
+	bzero_fast(ctx, h2_size);
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = MAX_WND_SIZE;

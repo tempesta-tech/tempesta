@@ -34,6 +34,7 @@
 #include "server.h"
 #include "sync_socket.h"
 #include "tls.h"
+#include "http_stream_sched.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -48,6 +49,7 @@ static int tfw_cli_cfg_ka_timeout = -1;
 static bool tfw_cli_latency_optimized_write;
 
 unsigned int tfw_cli_max_concurrent_streams;
+
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -994,6 +996,8 @@ TfwMod tfw_sock_clnt_mod  = {
 int
 tfw_sock_clnt_init(void)
 {
+	unsigned long h2_size = sizeof(TfwH2Conn) +
+		tfw_cli_max_concurrent_streams * sizeof(TfwStreamSchedEntry);
 	/*
 	 * Check that flags for SS layer and Connection
 	 * layer are not overlapping.
@@ -1017,7 +1021,7 @@ tfw_sock_clnt_init(void)
 	}
 
 	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
-					      sizeof(TfwH2Conn), 0, 0, NULL);
+					      h2_size, 0, 0, NULL);
 	if (!tfw_h2_conn_cache) {
 		kmem_cache_destroy(tfw_https_conn_cache);
 		kmem_cache_destroy(tfw_h1_conn_cache);
