@@ -1391,7 +1391,7 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
  * Move body to @nskb if body located in current skb.
  */
 static inline int
-__tfw_http_msg_move_body(TfwHttpMsg *resp, struct sk_buff *nskb)
+__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 {
 	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **body;
@@ -1501,12 +1501,13 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
+				TfwHttpResp *resp = (TfwHttpResp *)hm;
 
 				if (!nskb)
 					return -ENOMEM;
 
 				if (hm->body.len > 0) {
-					r = __tfw_http_msg_move_body(hm,
+					r = __tfw_http_msg_move_body(resp,
 								     nskb);
 					if (unlikely(r)) {
 						T_WARN("Error during moving body");
