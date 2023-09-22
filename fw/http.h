@@ -435,9 +435,9 @@ typedef struct {
  * @pages_sz	- current number of @pages;
  */
 typedef struct {
-	struct sk_buff *skb_head;
-	struct page *pages[MAX_SKB_FRAGS];
-	unsigned char pages_sz;
+	struct sk_buff	*skb_head;
+	struct page	*pages[MAX_SKB_FRAGS];
+	unsigned char	pages_sz;
 } TfwHttpMsgCleanup;
 
 /**
