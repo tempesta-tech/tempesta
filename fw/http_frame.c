@@ -2691,7 +2691,9 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		BUG_ON(!stream);
 		r = tfw_h2_make_frames_for_stream(ctx, stream, &cwnd_awail,
 						  mss);
-		tfw_h2_sched_stream_enqueue(stream, parent);
+
+		parent->deficit = stream->active.key + 65536 / stream->weight;
+		tfw_h2_sched_stream_enqueue(stream, parent, parent->deficit);
 	}
 
 	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);

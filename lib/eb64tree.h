@@ -29,16 +29,14 @@
 
 #include "ebtree.h"
 
+#include <linux/types.h>
+
 
 /* Return the structure of type <type> whose member <member> points to <ptr> */
 #define eb64_entry(ptr, type, member) container_of(ptr, type, member)
 
 #define EB64_ROOT	EB_ROOT
 #define EB64_TREE_HEAD	EB_TREE_HEAD
-
-/* These types may sometimes already be defined */
-typedef unsigned long long u64;
-typedef   signed long long s64;
 
 /* This structure carries a node, a leaf, and a key. It must start with the
  * eb_node so that it can be cast into an eb_node. We could also have put some

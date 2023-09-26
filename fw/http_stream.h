@@ -158,7 +158,10 @@ typedef struct {
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @link	- entry in per-connection priority storage;
+ * @active	- entry in per-connection priority storage (for active
+ *		  streams);
+ * @inactive	- entry in per-connection priority storage (for inactive
+ *		  streams);
  * @sched	- scheduler for child streams;
  * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
@@ -174,7 +177,8 @@ typedef struct {
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
-	TfwStreamSchedEntryLink link;
+	struct eb64_node 	active;
+	struct list_head 	inactive;
 	TfwStreamSchedEntry	sched;
 	struct list_head	hcl_node;
 	unsigned int		id;

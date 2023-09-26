@@ -402,7 +402,8 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
 		   unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
-	tfw_h2_init_stream_sched_link(&stream->link);
+	bzero_fast(&stream->active, sizeof(stream->active));
+	INIT_LIST_HEAD(&stream->inactive);
 	tfw_h2_init_stream_sched_entry(&stream->sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
