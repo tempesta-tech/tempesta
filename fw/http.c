@@ -1623,8 +1623,11 @@ tfw_http_hm_control(TfwHttpResp *resp)
 		return;
 
 	if (!tfw_srv_suspended(srv) ||
-	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, srv->apmref))
+	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, resp->msg.skb_head,
+				  srv->apmref))
+	{
 		return;
+	}
 
 	tfw_srv_mark_alive(srv);
 }

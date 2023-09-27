@@ -714,6 +714,78 @@ tfw_http_msg_header_table_size(void)
 	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 1;
 }
 
+/**
+ * Initialize body iterator. Should be used as helper for iterating over
+ * HTTP message body.
+ *
+ * @it		- Generic message iterator that be used as body iterator.
+ * @chunk	- Current body chunk to init.
+ * @body_start	- Position in sk_buff @start to start itarating.
+ * @start	- sk_buff to start with.
+ * @end		- sk_buff where stop itarating. Usually skb_head of message.
+ */
+static inline int
+tfw_body_iter_init(TfwMsgIter* it, TfwStr* chunk, char* body_start,
+		   struct sk_buff* start, struct sk_buff* end)
+{
+	int r;
+
+	it->skb_head = end;
+	it->skb = start;
+	it->frag = -1;
+
+	/* Set starting position. */
+	r = ss_skb_find_frag_by_offset(it->skb, body_start, &it->frag);
+	if (unlikely(r))
+		return r;
+
+	if (it->frag == -1) {
+		unsigned int size = skb_headlen(it->skb);
+
+		chunk->len = (char*)(it->skb->data + size) - body_start;
+	} else {
+		skb_frag_t *f = &skb_shinfo(it->skb)->frags[it->frag];
+		unsigned int size = skb_frag_size(f);
+
+		chunk->len = (char*)(skb_frag_address(f) + size) - body_start;
+	}
+
+	chunk->data = body_start;
+
+	return 0;
+}
+
+/**
+ * Move to next body @chunk for iterator @it.
+ */
+static inline void
+tfw_body_iter_next(TfwMsgIter* it, TfwStr* chunk)
+{
+	if (++it->frag >= skb_shinfo(it->skb)->nr_frags) {
+		it->skb = it->skb->next;
+		if (it->skb == it->skb_head) {
+			chunk->data = NULL;
+			chunk->len = 0;
+			return;
+		}
+
+		it->frag = -(!!skb_headlen(it->skb));
+	}
+
+	if (it->frag == -1) {
+		chunk->data = it->skb->data;
+		chunk->len = skb_headlen(it->skb);
+	} else {
+		skb_frag_t *f = &skb_shinfo(it->skb)->frags[it->frag];
+
+		chunk->data = skb_frag_address(f);
+		chunk->len = skb_frag_size(f);
+	}
+}
+
+#define TFW_BODY_ITER_WALK(it, c)					\
+	for (; (c)->data; tfw_body_iter_next((it), (c)))
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
