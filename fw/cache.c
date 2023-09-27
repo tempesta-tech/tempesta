@@ -1384,7 +1384,7 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	long n;
 	int r;
 	TfwMsgIter it;
-	TfwStr chunk;
+	TfwStr chunk = {0};
 	TfwStr *body = &resp->body;
 
 	BUG_ON(TFW_STR_DUP(body));
@@ -1392,27 +1392,13 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	if (unlikely(!body->len))
 		return 0;
 
-	it.skb_head = resp->msg.skb_head;
-	it.skb = body->skb;
-	it.frag = -1;
-
-	/* Move to the beginning of body. */
-	if ((r = ss_skb_find_frag_by_offset(it.skb, body->data, &it.frag)))
+	r = tfw_body_iter_init(&it, &chunk, body->data, body->skb,
+			       resp->msg.skb_head);
+	if (unlikely(r))
 		return r;
-	chunk.data = body->data;
 
-	if (it.frag == -1) {
-		unsigned int size = skb_headlen(it.skb);
-
-		chunk.len = (char*)(it.skb->data + size) - chunk.data;
-	} else {
-		skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
-		unsigned int size = skb_frag_size(f);
-
-		chunk.len = (char*)(skb_frag_address(f) + size) - chunk.data;
-	}
-
-	do {
+	TFW_BODY_ITER_WALK(&it, &chunk)
+	{
 		if ((n = tfw_cache_strcpy(p, trec, &chunk, *tot_len)) < 0) {
 			T_ERR("Cache: cannot copy chunk of HTTP body\n");
 			return -ENOMEM;
@@ -1420,26 +1406,7 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 
 		*tot_len -= n;
 		*acc_len += n;
-
-		it.frag++;
-		if (it.frag >= skb_shinfo(it.skb)->nr_frags) {
-			it.skb = it.skb->next;
-			if (it.skb == it.skb_head)
-				return 0;
-
-			it.frag = -(!!skb_headlen(it.skb));
-		}
-
-		if (it.frag == -1) {
-			chunk.data = it.skb->data;
-			chunk.len = skb_headlen(it.skb);
-		} else {
-			skb_frag_t *f = &skb_shinfo(it.skb)->frags[it.frag];
-
-			chunk.data = skb_frag_address(f);
-			chunk.len = skb_frag_size(f);
-		}
-	} while (true);
+	}
 
 	WARN_ON(*acc_len != body->len);
 
