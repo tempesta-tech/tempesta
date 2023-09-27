@@ -403,7 +403,7 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
 {
 	RB_CLEAR_NODE(&stream->node);
 	bzero_fast(&stream->active, sizeof(stream->active));
-	INIT_LIST_HEAD(&stream->inactive);
+	INIT_LIST_HEAD(&stream->blocked);
 	tfw_h2_init_stream_sched_entry(&stream->sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
@@ -491,7 +491,8 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	if (stream->xmit.skb_head)
 		tfw_h2_stream_purge_send_queue(stream);
 
-	tfw_h2_remove_stream_dep(stream);
+	T_WARN("STOP STREAM %px %u", stream, stream->id);
+	tfw_h2_remove_stream_dep(sched, stream);
 	rb_erase(&stream->node, &sched->streams);
 }
 

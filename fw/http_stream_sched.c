@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,71 +20,150 @@
 #include "http_stream_sched.h"
 #include "http_stream.h"
 
+/**
+ * Remove stream from the list of the list of the blocked streams
+ * and insert it in the ebtree of active streams. Should be called
+ * only for active streams or the streams with active childs, which
+ * is not already in the ebtree of active streams.
+ */
 static void
-tfw_h2_stream_sched_add_active_cnt(TfwStream *stream)
+tfw_h2_stream_sched_insert_active(TfwStream *stream, u64 deficit)
+{
+	TfwStreamSchedEntry *parent = stream->sched.parent;
+
+	BUG_ON(!parent || (!tfw_h2_stream_is_active(stream) &&
+	       !tfw_h2_stream_sched_is_active(&stream->sched)));
+	BUG_ON(stream->active.node.leaf_p);
+	
+	list_del_init(&stream->blocked);
+	stream->active.key = deficit;
+	eb64_insert(&parent->root, &stream->active);
+}
+
+/**
+ * Remove stream from the ebtree of active streams and insert
+ * it in the list of the blocked streams. Should be called
+ * only for the blocked streams and the streams without active
+ * childs, which is not already in the blocked list.
+ */
+static void
+tfw_h2_stream_sched_insert_blocked(TfwStream *stream)
+{
+	TfwStreamSchedEntry *parent = stream->sched.parent;
+
+	BUG_ON(!parent || tfw_h2_stream_is_active(stream)
+	       || tfw_h2_stream_sched_is_active(&stream->sched));
+	BUG_ON(!list_empty(&stream->blocked));
+
+	eb64_delete(&stream->active);
+	list_add(&stream->blocked, &parent->blocked);
+}
+
+static u64
+tfw_h2_stream_sched_calc_new_deficit(TfwStreamSched *sched, TfwStream *stream)
+{
+	u64 min_deficit = eb_is_empty(&sched->root.root) ?
+		0 : eb64_first(&sched->root.root)->key;
+	return min_deficit + 65536 / stream->weight;
+}
+
+static void
+tfw_h2_stream_sched_propagate_add_active_cnt(TfwStreamSched *sched,
+					     TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	bool stream_is_active = tfw_h2_stream_is_active(stream);
 	long int active_cnt =
 		stream->sched.active_cnt + (stream_is_active ? 1 : 0);
 
-	while (parent) {
+
+	BUG_ON(!parent);
+
+	T_WARN("parent sched %px root sched %px", parent, &sched->root);
+	while (true) {
+		parent->active_cnt += active_cnt;
+		if (parent == &sched->root)
+			break;
+
+		T_WARN("tfw_h2_stream_sched_propagate_add_active_cnt 111");
+		stream = container_of(parent, TfwStream, sched);
+		parent = stream->sched.parent;
+		if (!parent)
+			break;
+
+		T_WARN("tfw_h2_stream_sched_propagate_add_active_cnt 222 stream %px id %u parent sched %px", stream, stream->id, parent);
+
 		if (tfw_h2_stream_is_active(stream)
 		    || tfw_h2_stream_sched_is_active(&stream->sched)) {
-		    	if (!list_empty(&stream->inactive))
-				list_del_init(&stream->inactive);
-			if (stream->active.node.leaf_p == NULL)
-				eb64_insert(&parent->root, &stream->active);
-		} else {
-			if (list_empty(&stream->inactive)) {
-				eb64_delete(&stream->active);
-				list_add(&stream->inactive, &parent->inactive);
-			} else {
-				BUG_ON(stream->active.node.leaf_p);
-			}
+		    	if (!stream->active.node.leaf_p) {
+				u64 deficit;
+				BUG_ON(list_empty(&stream->blocked));
+				/*
+				 * Insert new activated stream to the ebtree.
+				 * deficit = min_deficit + constant / weight.
+				 */
+				deficit = tfw_h2_stream_sched_calc_new_deficit(sched, stream);
+				tfw_h2_stream_sched_insert_active(stream,
+								  deficit);
+		    	}
 		}
-
-		parent->active_cnt += active_cnt;
-		stream = container_of(parent, TfwStream, sched);
-		parent = stream->sched.parent;
 	}
 }
 
 static void
-tfw_h2_stream_sched_dec_active_cnt(TfwStream *stream)
+tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
+					     TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	bool stream_is_active = tfw_h2_stream_is_active(stream);
 	long int active_cnt =
 		stream->sched.active_cnt + (stream_is_active ? 1 : 0);
-	bool first = true;
 
-	while (parent) {
-		if (!first && !tfw_h2_stream_is_active(stream)
-		    && !tfw_h2_stream_sched_is_active(&stream->sched)) {
-			if (list_empty(&stream->inactive)) {
-				eb64_delete(&stream->active);
-				list_add(&stream->inactive, &parent->inactive);
-			} else {
-				BUG_ON(stream->active.node.leaf_p);
-			}
-		}
+	/*
+	 * Each stream has parent, it can be other strean or
+	 * the scheduler itself.
+	 */
+	BUG_ON(!parent);
 
-		first = false;
+	while (true) {
 		parent->active_cnt -= active_cnt;
+		if (parent == &sched->root)
+			break;
+
 		stream = container_of(parent, TfwStream, sched);
 		parent = stream->sched.parent;
+		if (!parent)
+			break;
+
+		if (!tfw_h2_stream_is_active(stream)
+		    && !tfw_h2_stream_sched_is_active(&stream->sched)) {
+			if (stream->active.node.leaf_p) {
+				BUG_ON(!list_empty(&stream->blocked));
+				/*
+				 * If stream is not active and have no active
+				 * childs move it to the blocked list.
+				 */
+				tfw_h2_stream_sched_insert_blocked(stream);
+			}
+		}
 	}
 }
 
+/**
+ * Remove stream from the scheduler. Since this function is
+ * used when we delete stream also we should explicitly remove
+ * stream both from active tree and blocked list. It is a caller
+ * responsibility to add stream again to the scheduler if it is
+ * necessary with appropriate deficite.
+ */
 void
-tfw_h2_stream_sched_remove(TfwStream *stream)
+tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	
 	eb64_delete(&stream->active);
-	list_del_init(&stream->inactive);
-	tfw_h2_stream_sched_dec_active_cnt(stream);
+	list_del_init(&stream->blocked);
+	tfw_h2_stream_sched_propagate_dec_active_cnt(sched, stream);
 	stream->sched.parent = NULL;
 	parent->total_weight -= stream->weight;
 }
@@ -110,66 +189,88 @@ tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 		*dep = &sched->root;
 }
 
+static inline void
+tfw_h2_stream_sched_move_child(TfwStreamSched *sched, TfwStream *child,
+			       TfwStreamSchedEntry *parent)
+{
+	u64 deficit;
+
+	tfw_h2_stream_sched_remove(sched, child);
+	deficit = tfw_h2_stream_sched_calc_new_deficit(sched, child);
+	tfw_h2_sched_stream_enqueue(sched, child, parent, deficit);
+}
+
 void
-tfw_h2_add_stream_dep(TfwStream *stream, TfwStreamSchedEntry *dep, bool excl)
+tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
+		      TfwStreamSchedEntry *dep, bool excl)
 {
 	struct list_head *cur, *tmp;
+	u64 deficit = tfw_h2_stream_sched_calc_new_deficit(sched, stream);
 
+	T_WARN("tfw_h2_add_stream_dep id %u dep %px excl %d", stream->id, dep, excl);
 	if (!excl) {
-		return tfw_h2_sched_stream_enqueue(stream, dep,
-						   dep->deficit + 65536 / stream->weight);
+		tfw_h2_sched_stream_enqueue(sched, stream, dep, deficit);
+		return;
 	}
 
-	list_for_each_safe(cur, tmp, &dep->inactive) {
-		TfwStream *child = container_of(cur, TfwStream, inactive);
-
-		tfw_h2_stream_sched_remove(child);
-		tfw_h2_sched_stream_enqueue(child, &stream->sched,
-					    stream->sched.deficit + 65536 / child->weight);
+	/*
+	 * RFC 7540 5.3.1:
+	 * An exclusive flag allows for the insertion of a new level of
+	 * dependencies. The exclusive flag causes the stream to become the
+	 * sole dependency of its parent stream, causing other dependencies
+	 * to become dependent on the exclusive stream.
+	 */
+	list_for_each_safe(cur, tmp, &dep->blocked) {
+		TfwStream *child = container_of(cur, TfwStream, blocked);
+		T_WARN("tfw_h2_add_stream_dep child id %u parent id %u sched %px parent %px dep %px dep parent %px", child->id, stream->id, &stream->sched, stream->sched.parent, dep, dep->parent);
+		tfw_h2_stream_sched_move_child(sched, child, &stream->sched);
 	}
 
 	while (!eb_is_empty(&dep->root)) {
 		struct eb64_node *node = eb64_first(&stream->sched.root);
 		TfwStream *child = eb64_entry(node, TfwStream, active);
-
-		tfw_h2_stream_sched_remove(child);
-		tfw_h2_sched_stream_enqueue(child, &stream->sched,
-					    stream->sched.deficit + 65536 / child->weight);
+		T_WARN("tfw_h2_add_stream_dep child id %u parent id %u sched %px parent %px dep %px dep parent %px", child->id, stream->id, &stream->sched, stream->sched.parent, dep, dep->parent);
+		tfw_h2_stream_sched_move_child(sched, child, &stream->sched);
 	}
 
-	dep->deficit = 0;
-	return tfw_h2_sched_stream_enqueue(stream, dep,
-					   65536 / stream->weight);
+	tfw_h2_sched_stream_enqueue(sched, stream, dep, deficit);
 }
 
 void
-tfw_h2_remove_stream_dep(TfwStream *stream)
+tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 {
 	struct list_head *cur, *tmp;
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	size_t total_weight = stream->sched.total_weight;
 	unsigned short new_weight;
 
+	T_WARN("tfw_h2_remove_stream_dep !!! %u %px %px", stream->id, parent, parent->parent);
 	/* Remove stream from the parent scheduler. */
-	tfw_h2_stream_sched_remove(stream);
+	tfw_h2_stream_sched_remove(sched, stream);
 
-	list_for_each_safe(cur, tmp, &stream->sched.inactive) {
-		TfwStream *child = container_of(cur, TfwStream, inactive);
-
-		tfw_h2_stream_sched_remove(child);
-		new_weight = child->weight *
-			stream->weight / total_weight;
-		child->weight = new_weight > 0 ? new_weight : 1;
-		tfw_h2_sched_stream_enqueue(child, parent,
-					    parent->deficit + 65536 / child->weight);
-	}
-
+	T_WARN("tfw_h2_remove_stream_dep !!! %u AAA", stream->id);
 	/*
 	 * According to RFC 7540 section 5.3.4:
 	 * If the parent stream is removed from the tree, the weight of the
 	 * parent stream is divided between it's childs according to there
 	 * weights.
 	 */
+	list_for_each_safe(cur, tmp, &stream->sched.blocked) {
+		TfwStream *child = container_of(cur, TfwStream, blocked);
+
+		/*
+		 * Remove childs of the removed stream, recalculate there
+		 * weights and add them to the scheduler of the parent of
+		 * the removed stream.
+		 */
+		new_weight = child->weight *
+			stream->weight / total_weight;
+		child->weight = new_weight > 0 ? new_weight : 1;
+		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px", child->id, parent, parent->parent);
+		tfw_h2_stream_sched_move_child(sched, child, parent);
+		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px ZZZ", child->id, parent, parent->parent);
+	}
+
 	while (!eb_is_empty(&stream->sched.root)) {
 		struct eb64_node *node = eb64_first(&stream->sched.root);
 		TfwStream *child = eb64_entry(node, TfwStream, active);
@@ -177,32 +278,34 @@ tfw_h2_remove_stream_dep(TfwStream *stream)
 		/*
 		 * Remove childs of the removed stream, recalculate there
 		 * weights and add them to the scheduler of the parent of
-		 * the removed stream. 
+		 * the removed stream.
 		 */
-		tfw_h2_stream_sched_remove(child);
 		new_weight = child->weight *
 			stream->weight / total_weight;
 		child->weight = new_weight > 0 ? new_weight : 1;
-		tfw_h2_sched_stream_enqueue(child, parent, parent->deficit + 65536 / child->weight);
+		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px", child->id, parent, parent->parent);
+		tfw_h2_stream_sched_move_child(sched, child, parent);
+		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px ZZZ 111", child->id, parent, parent->parent);
 	}
+
+	BUG_ON(stream->sched.active_cnt);
 }
 
 /**
  * Check if the stream is now depends from it's child.
  */
 static bool
-tfw_h2_is_stream_depend_from_child(TfwStream *stream, TfwStream *new_parent)
+tfw_h2_is_stream_depend_on_child(TfwStreamSched *sched, TfwStream *stream,
+				 TfwStreamSchedEntry *new_parent)
 {
-	TfwStreamSchedEntry *parent = new_parent->sched.parent;
+	TfwStreamSchedEntry *parent = new_parent->parent;
+	TfwStream *next;
 
-	while (parent) {
-		TfwStream *next = container_of(parent, TfwStream, sched);
-
+	while (parent && parent != &sched->root) {
+		next = container_of(parent, TfwStream, sched);
 		if (next == stream)
 			return true;
-
-		new_parent = next;
-		parent = new_parent->sched.parent;
+		parent = parent->parent;
 	}
 
 	return false;
@@ -215,7 +318,7 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 {
 	TfwStreamSchedEntry *old_parent, *new_parent;
 	TfwStream *stream, *np;
-	bool is_stream_depends_from_child;
+	bool is_stream_depends_on_child;
 
 	stream = tfw_h2_find_stream(sched, stream_id);
 	BUG_ON(!stream);
@@ -224,12 +327,10 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 
 	tfw_h2_find_stream_dep(sched, new_dep, &new_parent);
 
-	is_stream_depends_from_child =
-		tfw_h2_is_stream_depend_from_child(stream,
-						   container_of(new_parent,
-						   		TfwStream,
-						   		sched));
-	if (!is_stream_depends_from_child) {
+	is_stream_depends_on_child =
+		tfw_h2_is_stream_depend_on_child(sched, stream, new_parent);
+
+	if (!is_stream_depends_on_child) {
 		/*
 		 * If stream is not dependent from it's child, just remove
 		 * this stream change it's weight and add stream to the
@@ -242,9 +343,9 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 		 * 3. Insert stream in the dependency tree as a
 		 *    child of the new parent.
 		 */
-		tfw_h2_stream_sched_remove(stream);
+		tfw_h2_stream_sched_remove(sched, stream);
 		stream->weight = new_weight;
-		tfw_h2_add_stream_dep(stream, new_parent, excl);
+		tfw_h2_add_stream_dep(sched, stream, new_parent, excl);
 	} else {
 		/*
 		 * If stream is dependent from it's child, remove this
@@ -262,46 +363,71 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 		BUG_ON(new_parent == &sched->root);
 		np = container_of(new_parent, TfwStream, sched);
 
-		tfw_h2_stream_sched_remove(np);
-		tfw_h2_stream_sched_remove(stream);
+		tfw_h2_stream_sched_remove(sched, np);
+		tfw_h2_stream_sched_remove(sched, stream);
 		stream->weight = new_weight;
-		tfw_h2_add_stream_dep(np, old_parent, false);
-		tfw_h2_add_stream_dep(stream, new_parent, excl);
+		tfw_h2_add_stream_dep(sched, np, old_parent, false);
+		tfw_h2_add_stream_dep(sched, stream, new_parent, excl);
 	}
 
 }
 
 void
-tfw_h2_sched_stream_enqueue(TfwStream *stream, TfwStreamSchedEntry *parent,
-			    u64 deficit)
+tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
+			    TfwStreamSchedEntry *parent, u64 deficit)
 {
 	parent->total_weight += stream->weight;
-	stream->active.key = deficit;
 	stream->sched.parent = parent;
-	tfw_h2_stream_sched_add_active_cnt(stream);
+
+	T_WARN("tfw_h2_sched_stream_enqueue id %u deficit %llu", stream->id, deficit);
+
+	/*
+	 * This function should be called only for new created streams or
+	 * streams which were previously removed from the scheduler.
+	 */
+	BUG_ON(stream->active.node.leaf_p);
+	BUG_ON(!list_empty(&stream->blocked));
+
+	T_WARN("tfw_h2_sched_stream_enqueue id %u deficit %llu 111", stream->id, deficit);
+
+	if (tfw_h2_stream_is_active(stream)
+	    || tfw_h2_stream_sched_is_active(&stream->sched)) {
+		tfw_h2_stream_sched_insert_active(stream, deficit);
+	} else {
+		list_add(&stream->blocked, &parent->blocked);
+	}
+
+	T_WARN("tfw_h2_sched_stream_enqueue id %u deficit %llu 222", stream->id, deficit);
+
+	tfw_h2_stream_sched_propagate_add_active_cnt(sched, stream);
+
+	T_WARN("tfw_h2_sched_stream_enqueue id %u deficit %llu 333", stream->id, deficit);
 }
 
 TfwStream *
-tfw_h2_sched_stream_dequeue(TfwStreamSchedEntry *entry,
-			    TfwStreamSchedEntry **parent)
+tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 {
+	TfwStreamSchedEntry *entry = &sched->root;
 	struct eb64_node *node = eb64_first(&entry->root);
+	u64 deficit;
 
 	while (node) {
 		TfwStream *stream = eb64_entry(node, TfwStream, active);
 
 		if (tfw_h2_stream_is_active(stream)) {
 			*parent = entry;
-			tfw_h2_stream_sched_remove(stream);
+			tfw_h2_stream_sched_remove(sched, stream);
 			return stream;
 		} else if (tfw_h2_stream_sched_is_active(&stream->sched)) {
 			/*
 			 * This stream is blocked, but have active childs, try
-			 * to use on of them.
+			 * to use one of them.
 			 */
 			*parent = stream->sched.parent;
-			tfw_h2_stream_sched_remove(stream);
-			tfw_h2_sched_stream_enqueue(stream, *parent, stream->active.key + 65536 / stream->weight);
+			tfw_h2_stream_sched_remove(sched, stream);
+			deficit = tfw_h2_stream_recalc_deficit(stream);
+			tfw_h2_sched_stream_enqueue(sched, stream, *parent,
+						    deficit);
 			entry = &stream->sched;
 			node = eb64_first(&entry->root);
 		} else {
@@ -313,20 +439,44 @@ tfw_h2_sched_stream_dequeue(TfwStreamSchedEntry *entry,
 }
 
 void
-tfw_h2_sched_activate_stream(TfwStream *stream)
+tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched.parent;
+	u64 deficit;
 
 	BUG_ON(!tfw_h2_stream_is_active(stream));
+	BUG_ON(!parent);
 
-	while (parent) {
-	    	if (!list_empty(&stream->inactive))
-			list_del_init(&stream->inactive);
-		if (stream->active.node.leaf_p == NULL)
-			eb64_insert(&parent->root, &stream->active);		
+	T_WARN("tfw_h2_sched_activate_stream id %u", stream->id);
 
+	if (!stream->active.node.leaf_p) {
+		/*
+		 * If stream was not activated early insert it to
+		 * the ebtree.
+		 * deficit = min_deficit + constant / weight.
+		 */
+		deficit = tfw_h2_stream_sched_calc_new_deficit(sched, stream);
+		tfw_h2_stream_sched_insert_active(stream, deficit);
+	}
+
+	while (true) {
 		parent->active_cnt += 1;
+		if (parent == &sched->root)
+			break;	
+
 		stream = container_of(parent, TfwStream, sched);
 		parent = stream->sched.parent;
+		BUG_ON(!parent);
+
+		if (!stream->active.node.leaf_p) {
+			BUG_ON(list_empty(&stream->blocked));
+			/*
+			 * Insert new activated stream to the ebtree.
+			 * deficit = min_deficit + constant / weight.
+			 */
+			deficit = tfw_h2_stream_sched_calc_new_deficit(sched,
+								       stream);
+		    	tfw_h2_stream_sched_insert_active(stream, deficit);
+		}
 	}
 }

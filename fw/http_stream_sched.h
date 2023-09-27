@@ -26,22 +26,20 @@
 #include "lib/eb64tree.h"
 #include "http_types.h"
 
-#define TFW_STREAM_SCHED_ENTRY_COUNT 64
-
 /**
- * @deficit	 - minimal deficit in heap; 
  * @total_weight - total weight of the streams for this scheduler;
  * @active_cnt	 - count of active child streams for this scheduler;
  * @parent	 - parent scheduler;
  * @root	 - root of the scheduler ebtree;
+ * @blocked	 - list of the blocked streams (because of exhaustion
+ *		   of HTTP2 window or awailable data to sent);
  */ 
 typedef struct tfw_stream_sched_entry_t {
-	u64 deficit;
 	u64 total_weight;
 	long int active_cnt;
 	struct tfw_stream_sched_entry_t *parent;
 	struct eb_root root;
-	struct list_head inactive;
+	struct list_head blocked;
 } TfwStreamSchedEntry;
 
 /**
@@ -58,18 +56,19 @@ typedef struct tfw_stream_sched_t {
 
 void tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			    TfwStreamSchedEntry **dep);
-void tfw_h2_add_stream_dep(TfwStream *stream, TfwStreamSchedEntry *dep, bool excl);
-void tfw_h2_remove_stream_dep(TfwStream *stream);
+void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
+			   TfwStreamSchedEntry *dep, bool excl);
+void tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
 
-void tfw_h2_stream_sched_remove(TfwStream *stream);
-void tfw_h2_sched_stream_enqueue(TfwStream *stream, TfwStreamSchedEntry *parent,
-				 u64 deficit);
-TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSchedEntry *entry,
+void tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
+				 TfwStreamSchedEntry *parent, u64 deficit);
+TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSched *sched,
 				       TfwStreamSchedEntry **parent);
-void tfw_h2_sched_activate_stream(TfwStream *stream);
+void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline bool
 tfw_h2_stream_sched_is_active(TfwStreamSchedEntry *sched)
@@ -80,10 +79,10 @@ tfw_h2_stream_sched_is_active(TfwStreamSchedEntry *sched)
 static inline void
 tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
 {
-	entry->deficit = entry->total_weight = entry->active_cnt = 0;
+	entry->total_weight = entry->active_cnt = 0;
 	entry->parent = NULL;
 	entry->root = EB_ROOT;
-	INIT_LIST_HEAD(&entry->inactive);
+	INIT_LIST_HEAD(&entry->blocked);
 }
 
 static inline void
