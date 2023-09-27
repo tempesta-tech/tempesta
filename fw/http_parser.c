@@ -1705,7 +1705,8 @@ __FSM_STATE(Resp_BodyUnlimStart) {					\
 	/* fall through */						\
 }									\
 __FSM_STATE(Resp_BodyUnlimRead) {					\
-	__FSM_MOVE_nf(Resp_BodyUnlimRead, __data_remain(p), &msg->body); \
+	msg->body.len += __data_remain(p);				\
+	__FSM_MOVE_nofixup_n(Resp_BodyUnlimRead, __data_remain(p));	\
 }
 
 #define TFW_HTTP_PARSE_BODY(response, ...)				\
