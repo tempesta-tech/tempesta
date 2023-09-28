@@ -412,8 +412,6 @@ struct tfw_http_msg_t {
 	TFW_HTTP_MSG_COMMON;
 };
 
-#define __MSG_STR_START(m)		(&(m)->crlf)
-
 #define TFW_HTTP_COND_IF_MSINCE		0x0001
 #define TFW_HTTP_COND_ETAG_ANY		0x0002
 #define TFW_HTTP_COND_ETAG_LIST		0x0004
@@ -495,9 +493,6 @@ struct tfw_http_req_t {
 	unsigned char		method;
 	unsigned char		method_override;
 };
-
-#define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
-#define TFW_HTTP_REQ_STR_END(r)		((&(r)->uri_path) + 1)
 
 #define TFW_IDX_BITS		12
 #define TFW_D_IDX_BITS		4
@@ -600,9 +595,6 @@ typedef struct {
 #define TFW_HDR_MAP_INIT_CNT		32
 #define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
 					 + sizeof(TfwHdrIndex) * (cnt))
-
-#define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
-#define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
 
 #define TFW_HTTP_RESP_CUT_BODY_SZ(r) 					\
 	(r)->stream ? 							\
