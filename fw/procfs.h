@@ -57,9 +57,15 @@ typedef struct {
 	u64	conn_disconnects;					\
 	u64	rx_bytes;
 
+/*
+ * @tls_hs_successul	- The number of successfull TLS handshakes.
+ * @tls_hs_failed	- The number of failed TLS handshakes.
+ */
 typedef struct {
 	TFW_STAT_COMMON;
 	u64	conn_restricted;
+	u64	tls_hs_successful;
+	u64	tls_hs_failed;
 } TfwSrvStat;
 
 /*

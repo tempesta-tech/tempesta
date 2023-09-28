@@ -38,6 +38,7 @@
 #include "filter.h"
 #include "gfsm.h"
 #include "http_msg.h"
+#include "procfs.h"
 #include "vhost.h"
 #include "log.h"
 #include "hash.h"

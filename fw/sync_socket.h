@@ -66,7 +66,7 @@ typedef struct ss_hooks {
 
 	/*
 	 * Intentional socket closing when the socket is already closed (i.e. there
-	 * could not be ingress data on it) and we can safely do some clenup stuff
+	 * could not be ingress data on it) and we can safely do some cleanup stuff
 	 * or error on TCP connection (on Linux TCP socket layer) associated with
 	 * the socket or at application (data processing) layer, i.e. unintentional
 	 * connection closing.
