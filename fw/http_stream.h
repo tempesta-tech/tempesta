@@ -158,7 +158,8 @@ typedef struct {
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @link	- entry in per-connection priority storage;
+ * @active	- entry in per-connection priority storage of active streams;
+ * @blocked	- entry in per-connection priority storage of blocked streams;
  * @sched	- scheduler for child streams;
  * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
@@ -174,7 +175,8 @@ typedef struct {
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
-	TfwStreamSchedEntryLink link;
+	struct eb64_node 	active;
+	struct list_head 	blocked;
 	TfwStreamSchedEntry	sched;
 	struct list_head	hcl_node;
 	unsigned int		id;
@@ -208,14 +210,14 @@ tfw_h2_stream_is_active(TfwStream *stream)
 }
 
 static inline void
-tfw_h2_stream_try_unblock(TfwStream *stream)
+tfw_h2_stream_try_unblock(TfwStreamSched *sched, TfwStream *stream)
 {
 	bool stream_was_blocked = stream->xmit.is_blocked;
 
 	if (stream->rem_wnd > 0) {
 		stream->xmit.is_blocked = false;
 		if (stream->xmit.skb_head && stream_was_blocked)
-			tfw_h2_sched_activate_stream(stream);
+			tfw_h2_sched_activate_stream(sched, stream);
 	}
 }
 
@@ -257,6 +259,30 @@ tfw_h2_stream_fsm_ignore_err(TfwStream *stream, unsigned char type,
 	TfwH2Err err;
 
 	return tfw_h2_stream_fsm(stream, type, flags, true, &err);
+}
+
+static inline u64
+tfw_h2_stream_default_deficit(TfwStream *stream)
+{
+	return 65536 / stream->weight;
+}
+
+static inline u64
+tfw_h2_stream_recalc_deficit(TfwStream *stream)
+{
+	/*
+	 * This function should be called only for streams,
+	 * which were removed from scheduler.
+	 */
+	BUG_ON(stream->active.node.leaf_p || !list_empty(&stream->blocked));
+	/* deficit = last_deficit + constant / weight */
+	return stream->active.key + tfw_h2_stream_default_deficit(stream);
+}
+
+static inline bool
+tfw_h2_stream_has_default_deficit(TfwStream *stream)
+{
+	return stream->active.key == tfw_h2_stream_default_deficit(stream);
 }
 
 #endif /* __HTTP_STREAM__ */
