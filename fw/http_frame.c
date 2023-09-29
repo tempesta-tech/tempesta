@@ -1189,7 +1189,6 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 	 * A change to SETTINGS_INITIAL_WINDOW_SIZE can cause the available
 	 * space in a flow-control window to become negative.
 	 */
-	T_WARN("tfw_h2_apply_wnd_sz_change !!! %ld", delta);
 	rbtree_postorder_for_each_entry_safe(stream, next,
 					     &ctx->sched.streams, node)
 		if (stream->state == HTTP2_STREAM_OPENED ||
@@ -2545,7 +2544,6 @@ do {									\
 	T_FSM_STATE(HTTP2_ENCODE_HEADERS) {
 		TfwHttpResp *resp = stream->xmit.resp;
 
-		T_WARN("HTTP2_ENCODE_HEADERS %u", stream->id);
 		BUG_ON(!resp || !resp->req || !resp->req->conn);
 		((TfwMsg *)resp)->skb_head = stream->xmit.skb_head;
 
@@ -2574,7 +2572,6 @@ do {									\
 	T_FSM_STATE(HTTP2_RELEASE_RESPONSE) {
 		TfwHttpResp *resp = stream->xmit.resp;
 
-		T_WARN("HTTP2_RELEASE_RESPONSE %u", stream->id);
 		BUG_ON(!resp || !resp->req || !resp->req->conn);
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
@@ -2585,7 +2582,6 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		T_WARN("HTTP2_MAKE_HEADERS_FRAMES %u", stream->id);
 		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_HEADERS);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
@@ -2612,7 +2608,6 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		T_WARN("HTTP2_MAKE_CONTINUATION_FRAMES %u", stream->id);
 		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
 							mss, &tmp_cwnd_awail,
@@ -2629,7 +2624,6 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		T_WARN("HTTP2_MAKE_DATA_FRAMES %u | %lu %lu", stream->id, ctx->rem_wnd, stream->rem_wnd);
 		if (!ctx->rem_wnd || !stream->rem_wnd) {
 			stream->xmit.is_blocked = !stream->rem_wnd;
 			T_FSM_EXIT();
@@ -2652,7 +2646,6 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
-		T_WARN("HTTP2_MAKE_FRAMES_FINISH %u", stream->id);
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
 		BUG_ON(stream->xmit.resp);
 
@@ -2691,9 +2684,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail >= FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
 	{
-		T_WARN("tfw_h2_sched_stream_dequeue BEFORE");
 		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
-		T_WARN("tfw_h2_sched_stream_dequeue AFTER id %u", stream->id);
 		/*
 		 * If root scheduler is active we always can find
 		 * active stream.
@@ -2702,11 +2693,9 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		r = tfw_h2_make_frames_for_stream(ctx, stream, &cwnd_awail,
 						  mss);
 
-		T_WARN("tfw_h2_sched_stream_enqueue BEFORE id %u", stream->id);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent,
 					    deficit);
-		T_WARN("tfw_h2_sched_stream_enqueue AFTER");
 	}
 
 	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);

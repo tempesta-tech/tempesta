@@ -491,7 +491,6 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	if (stream->xmit.skb_head)
 		tfw_h2_stream_purge_send_queue(stream);
 
-	T_WARN("STOP STREAM %px %u", stream, stream->id);
 	tfw_h2_remove_stream_dep(sched, stream);
 	rb_erase(&stream->node, &sched->streams);
 }

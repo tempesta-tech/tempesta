@@ -65,7 +65,6 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 	TfwStream *prio;
 	struct list_head *cur;
 
-	T_WARN("tfw_h2_stream_sched_min_deficit BEGIN");
 	/*
 	 * First of all check active streams in the scheduler.
 	 * If there are any active streams new stream is inserted
@@ -90,11 +89,9 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 	 */ 
 	prio = !list_empty(&parent->blocked) ?
 		list_first_entry(&parent->blocked, TfwStream, blocked) : NULL;
-	T_WARN("tfw_h2_stream_sched_min_deficit PRIO BLOCKED %px id %u deficit %llu", prio, prio ? prio->id : 0, prio ? prio->active.key : 0);
 	if (likely((prio && tfw_h2_stream_has_default_deficit(prio)) || !prio))
 		return 0;
 
-	T_WARN("LONG PATH !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 	/*
 	 * Long path, we are here only in two cases:
 	 * 1. If priority tree is rebuld (in this case we already have O(n),
@@ -107,12 +104,10 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 	list_for_each(cur, &parent->blocked) {
 		TfwStream *blocked = container_of(cur, TfwStream, blocked);
 
-		T_WARN("LONG PATH id %u deficit %llu id %u deficit%llu", prio->id, prio->active.key, blocked->id, blocked->active.key);
 		if (blocked->active.key < prio->active.key)
 			prio  = blocked;
 	}
 
-	T_WARN("AAAAAAAAAAAAAAA %u %llu", prio->id, prio->active.key);
 	return prio->active.key;
 }
 
@@ -142,7 +137,6 @@ tfw_h2_stream_sched_propagate_add_active_cnt(TfwStreamSched *sched,
 		    || tfw_h2_stream_sched_is_active(&stream->sched)) {
 		    	if (!stream->active.node.leaf_p) {
 				BUG_ON(list_empty(&stream->blocked));
-				T_WARN("tfw_h2_stream_sched_propagate_add_active_cnt id %u deficit %llu", stream->id, stream->active.key);
 				tfw_h2_stream_sched_insert_active(stream,
 								  stream->active.key);
 		    	}
@@ -183,7 +177,6 @@ tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
 				 * If stream is not active and have no active
 				 * childs move it to the blocked list.
 				 */
-				T_WARN("tfw_h2_stream_sched_propagate_dec_active_cnt id %u", stream->id);
 				tfw_h2_stream_sched_insert_blocked(stream);
 			}
 		}
@@ -204,7 +197,6 @@ tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 	
 	eb64_delete(&stream->active);
 	list_del_init(&stream->blocked);
-	T_WARN("tfw_h2_stream_sched_remove id %u", stream->id);
 	tfw_h2_stream_sched_propagate_dec_active_cnt(sched, stream);
 	stream->sched.parent = NULL;
 	parent->total_weight -= stream->weight;
@@ -270,8 +262,6 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 	min_deficit = !stream_has_childs ? 0 :
 		tfw_h2_stream_sched_min_deficit(&stream->sched);
 
-	T_WARN("tfw_h2_add_stream_dep has_childs %d min_deficit %llu", stream_has_childs, min_deficit);
-
 	/*
 	 * RFC 7540 5.3.1:
 	 * An exclusive flag allows for the insertion of a new level of
@@ -284,7 +274,6 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 
 		deficit = !stream_has_childs ? child->active.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
-		T_WARN("tfw_h2_add_stream_dep child id %u deficit %llu", child->id, deficit);
 		tfw_h2_stream_sched_move_child(sched, child, &stream->sched,
 					       deficit);
 	}
@@ -295,7 +284,6 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 
 		deficit = !stream_has_childs ? child->active.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
-		T_WARN("tfw_h2_add_stream_dep child id %u deficit %llu", child->id, deficit);
 		tfw_h2_stream_sched_move_child(sched, child, &stream->sched,
 					       deficit);
 	}
@@ -316,11 +304,8 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	bool parent_has_childs;
 	u64 deficit;
 
-	T_WARN("tfw_h2_remove_stream_dep !!! %u %px %px", stream->id, parent, parent->parent);
 	/* Remove stream from the parent scheduler. */
 	tfw_h2_stream_sched_remove(sched, stream);
-
-	T_WARN("tfw_h2_remove_stream_dep !!! %u AAA", stream->id);
 
 	/*
 	 * Here we move childs of the removed stream to the parent
@@ -350,11 +335,9 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		new_weight = child->weight *
 			stream->weight / total_weight;
 		child->weight = new_weight > 0 ? new_weight : 1;
-		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px", child->id, parent, parent->parent);
 		deficit = !parent_has_childs ?
 			child->active.key : stream->active.key;
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
-		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px ZZZ", child->id, parent, parent->parent);
 	}
 
 	while (!eb_is_empty(&stream->sched.active)) {
@@ -376,9 +359,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		 */
 		deficit = !parent_has_childs ?
 			child->active.key : stream->active.key;
-		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px", child->id, parent, parent->parent);
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
-		T_WARN("tfw_h2_remove_stream_dep !!! child id %u BBB parent %px %px ZZZ 111", child->id, parent, parent->parent);
 	}
 
 	BUG_ON(stream->sched.active_cnt);
@@ -481,10 +462,8 @@ tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
 
 	if (tfw_h2_stream_is_active(stream)
 	    || tfw_h2_stream_sched_is_active(&stream->sched)) {
-	    	T_WARN("tfw_h2_sched_stream_enqueue ACTIVE id %u deficit %llu", stream->id, deficit);
 		tfw_h2_stream_sched_insert_active(stream, deficit);
 	} else {
-		T_WARN("tfw_h2_sched_stream_enqueue BLOCKED id %u deficit %llu", stream->id, deficit);
 		stream->active.key = deficit;
 		list_add(&stream->blocked, &parent->blocked);
 	}
@@ -512,14 +491,10 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 			 * to use one of them.
 			 */
 			*parent = stream->sched.parent;
-			T_WARN("tfw_h2_sched_stream_dequeue REMOVE BEFORE id %u", stream->id);
 			tfw_h2_stream_sched_remove(sched, stream);
-			T_WARN("tfw_h2_sched_stream_dequeue REMOVE AFTER id %u", stream->id);
 			deficit = tfw_h2_stream_recalc_deficit(stream);
-			T_WARN("tfw_h2_sched_stream_dequeue ENQEUE BEFORE id %u", stream->id);
 			tfw_h2_sched_stream_enqueue(sched, stream, *parent,
 						    deficit);
-			T_WARN("tfw_h2_sched_stream_dequeue ENQEUE AFTER id %u", stream->id);
 			entry = &stream->sched;
 			node = eb64_first(&entry->active);
 		} else {
@@ -538,8 +513,6 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 	BUG_ON(!tfw_h2_stream_is_active(stream));
 	BUG_ON(!parent);
 
-	T_WARN("tfw_h2_sched_activate_stream id %u", stream->id);
-
 	if (!stream->active.node.leaf_p)
 		tfw_h2_stream_sched_insert_active(stream, stream->active.key);
 
@@ -554,7 +527,6 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 
 		if (!stream->active.node.leaf_p) {
 			BUG_ON(list_empty(&stream->blocked));
-			T_WARN("tfw_h2_sched_activate_stream id %u deficit %llu", stream->id, stream->active.key);
 		    	tfw_h2_stream_sched_insert_active(stream, stream->active.key);
 		}
 	}
