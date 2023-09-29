@@ -667,7 +667,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 	if (!stream)
 		return NULL;
 
-	tfw_h2_add_stream_dep(stream, dep, excl);
+	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
 	if (state == HTTP2_STREAM_IDLE)
 		tfw_h2_stream_add_idle(ctx, stream);
 
@@ -743,7 +743,7 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 }
 
 static void
-__tfw_h2_destroy_stream_send_queue(struct rb_node *node)
+__tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx, struct rb_node *node)
 {
 	if (node) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
@@ -754,12 +754,12 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 			stream->xmit.resp = NULL;
 		}
 		if (stream->xmit.skb_head) {
-			tfw_h2_stream_sched_remove(stream);
+			tfw_h2_stream_sched_remove(&ctx->sched, stream);
 			tfw_h2_stream_purge_send_queue(stream);
 		}
 
-		__tfw_h2_destroy_stream_send_queue(node->rb_left);
-		__tfw_h2_destroy_stream_send_queue(node->rb_right);
+		__tfw_h2_destroy_stream_send_queue(ctx, node->rb_left);
+		__tfw_h2_destroy_stream_send_queue(ctx, node->rb_right);
 	}
 }
 
@@ -773,7 +773,7 @@ tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 	/* We should call all scheduler functions under the socket lock. */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
-	__tfw_h2_destroy_stream_send_queue(root);
+	__tfw_h2_destroy_stream_send_queue(ctx, root);
 }
 
 void
@@ -1092,7 +1092,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 		if (ctx->cur_stream) {
 			/* We should call all scheduler functions under the socket lock. */
 			assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-			tfw_h2_stream_try_unblock(ctx->cur_stream);
+			tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
 		}
 
 		if (*window > 0) {
@@ -1202,7 +1202,7 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 		if (state == HTTP2_STREAM_OPENED ||
 		    state == HTTP2_STREAM_REM_HALF_CLOSED) {
 			stream->rem_wnd += delta;
-			tfw_h2_stream_try_unblock(stream);
+			tfw_h2_stream_try_unblock(&ctx->sched, stream);
 		}
 	}
 }
@@ -2682,6 +2682,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
 	TfwStream *stream;
+	u64 deficit;
 	int r = 0;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
@@ -2692,7 +2693,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
 	{
-		stream = tfw_h2_sched_stream_dequeue(&sched->root, &parent);
+		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
 		/*
 		 * If root scheduler is active we always can find
 		 * active stream.
@@ -2700,7 +2701,10 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		BUG_ON(!stream);
 		r = tfw_h2_make_frames_for_stream(ctx, stream, &cwnd_awail,
 						  mss);
-		tfw_h2_sched_stream_enqueue(stream, parent);
+
+		deficit = tfw_h2_stream_recalc_deficit(stream);
+		tfw_h2_sched_stream_enqueue(sched, stream, parent,
+					    deficit);
 	}
 
 	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);
