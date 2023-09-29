@@ -2691,7 +2691,9 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail >= FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
 	{
+		T_WARN("tfw_h2_sched_stream_dequeue BEFORE");
 		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
+		T_WARN("tfw_h2_sched_stream_dequeue AFTER id %u", stream->id);
 		/*
 		 * If root scheduler is active we always can find
 		 * active stream.
@@ -2700,9 +2702,11 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		r = tfw_h2_make_frames_for_stream(ctx, stream, &cwnd_awail,
 						  mss);
 
+		T_WARN("tfw_h2_sched_stream_enqueue BEFORE id %u", stream->id);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent,
 					    deficit);
+		T_WARN("tfw_h2_sched_stream_enqueue AFTER");
 	}
 
 	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);

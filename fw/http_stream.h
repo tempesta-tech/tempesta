@@ -262,6 +262,12 @@ tfw_h2_stream_fsm_ignore_err(TfwStream *stream, unsigned char type,
 }
 
 static inline u64
+tfw_h2_stream_default_deficit(TfwStream *stream)
+{
+	return 65536 / stream->weight;
+}
+
+static inline u64
 tfw_h2_stream_recalc_deficit(TfwStream *stream)
 {
 	/*
@@ -270,7 +276,13 @@ tfw_h2_stream_recalc_deficit(TfwStream *stream)
 	 */
 	BUG_ON(stream->active.node.leaf_p || !list_empty(&stream->blocked));
 	/* deficit = last_deficit + constant / weight */
-	return stream->active.key + 65536 / stream->weight;
+	return stream->active.key + tfw_h2_stream_default_deficit(stream);
+}
+
+static inline bool
+tfw_h2_stream_has_default_deficit(TfwStream *stream)
+{
+	return stream->active.key == tfw_h2_stream_default_deficit(stream);
 }
 
 #endif /* __HTTP_STREAM__ */

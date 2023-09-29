@@ -30,7 +30,7 @@
  * @total_weight - total weight of the streams for this scheduler;
  * @active_cnt	 - count of active child streams for this scheduler;
  * @parent	 - parent scheduler;
- * @root	 - root of the scheduler ebtree;
+ * @active	 - root of the active streams scheduler ebtree;
  * @blocked	 - list of the blocked streams (because of exhaustion
  *		   of HTTP2 window or awailable data to sent);
  */ 
@@ -38,7 +38,7 @@ typedef struct tfw_stream_sched_entry_t {
 	u64 total_weight;
 	long int active_cnt;
 	struct tfw_stream_sched_entry_t *parent;
-	struct eb_root root;
+	struct eb_root active;
 	struct list_head blocked;
 } TfwStreamSchedEntry;
 
@@ -81,7 +81,7 @@ tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
 {
 	entry->total_weight = entry->active_cnt = 0;
 	entry->parent = NULL;
-	entry->root = EB_ROOT;
+	entry->active = EB_ROOT;
 	INIT_LIST_HEAD(&entry->blocked);
 }
 
