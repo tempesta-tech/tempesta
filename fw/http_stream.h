@@ -154,11 +154,18 @@ typedef struct {
 	unsigned long		num;
 } TfwStreamQueue;
 
+typedef enum {
+	HTTP2_STREAM_SCHED_STATE_UNKNOWN,
+	HTTP2_STREAM_SCHED_STATE_BLOCKED,
+	HTTP2_STREAM_SCHED_STATE_ACTIVE,
+} TfwStreamSchedState;
+
 /**
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @link	- entry in per-connection priority storage;
+ * @sched_node	- entry in per-connection priority storage of active streams;
+ * sched_state	- state of stream in the per-connection scheduler;
  * @sched	- scheduler for child streams;
  * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
@@ -174,7 +181,10 @@ typedef struct {
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
-	TfwStreamSchedEntryLink link;
+	struct {
+		struct eb64_node    sched_node;
+		TfwStreamSchedState sched_state;
+	};
 	TfwStreamSchedEntry	sched;
 	struct list_head	hcl_node;
 	unsigned int		id;
@@ -208,14 +218,14 @@ tfw_h2_stream_is_active(TfwStream *stream)
 }
 
 static inline void
-tfw_h2_stream_try_unblock(TfwStream *stream)
+tfw_h2_stream_try_unblock(TfwStreamSched *sched, TfwStream *stream)
 {
 	bool stream_was_blocked = stream->xmit.is_blocked;
 
 	if (stream->rem_wnd > 0) {
 		stream->xmit.is_blocked = false;
 		if (stream->xmit.skb_head && stream_was_blocked)
-			tfw_h2_sched_activate_stream(stream);
+			tfw_h2_sched_activate_stream(sched, stream);
 	}
 }
 
@@ -257,6 +267,31 @@ tfw_h2_stream_fsm_ignore_err(TfwStream *stream, unsigned char type,
 	TfwH2Err err;
 
 	return tfw_h2_stream_fsm(stream, type, flags, true, &err);
+}
+
+static inline u64
+tfw_h2_stream_default_deficit(TfwStream *stream)
+{
+	return 65536 / stream->weight;
+}
+
+static inline u64
+tfw_h2_stream_recalc_deficit(TfwStream *stream)
+{
+	/*
+	 * This function should be called only for streams,
+	 * which were removed from scheduler.
+	 */
+	BUG_ON(stream->sched_node.node.leaf_p ||
+	       stream->sched_state != HTTP2_STREAM_SCHED_STATE_UNKNOWN);
+	/* deficit = last_deficit + constant / weight */
+	return stream->sched_node.key + tfw_h2_stream_default_deficit(stream);
+}
+
+static inline bool
+tfw_h2_stream_has_default_deficit(TfwStream *stream)
+{
+	return stream->sched_node.key == tfw_h2_stream_default_deficit(stream);
 }
 
 #endif /* __HTTP_STREAM__ */
