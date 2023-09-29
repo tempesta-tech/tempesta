@@ -23,45 +23,22 @@
 #include <linux/rbtree.h>
 #include <linux/list.h>
 
+#include "lib/eb64tree.h"
 #include "http_types.h"
 
-#define TFW_STREAM_SCHED_ENTRY_COUNT 64
-
 /**
- * @node	- entry in appropriate scheduler anchor;
- * @deficit	- value which used in calculation of the offset of
- *		  the stream in the priority array;
- * @offset	- offset of the stream in the priority array;
- */
-typedef struct tfw_stream_sched_entry_link_t {
-	struct list_head node;
-	size_t deficit;
-	size_t offset;
-} TfwStreamSchedEntryLink;
-
-/**
- * @active_cnt	- count of active streams for this anchor;
- * @head	- list head of the streams
- */
-typedef struct tfw_stream_sched_entry_anchor_t {
-	long int active_cnt;
-	struct list_head head;
-} TfwStreamSchedEntryAnchor;
-
-/**
- * @bits	 - bitfield for fast determination of the first
- *		   active anchor;
  * @total_weight - total weight of the streams for this scheduler;
  * @active_cnt	 - count of active child streams for this scheduler;
  * @parent	 - parent scheduler;
- * @anchors	 - array of the list of streams;
+ * @active	 - root of the active streams scheduler ebtree;
+ * @blocked	 - root of the blocked streams scheduler ebtree;
  */ 
 typedef struct tfw_stream_sched_entry_t {
-	unsigned long bits;
-	size_t total_weight;
+	u64 total_weight;
 	long int active_cnt;
 	struct tfw_stream_sched_entry_t *parent;
-	TfwStreamSchedEntryAnchor anchors[TFW_STREAM_SCHED_ENTRY_COUNT];
+	struct eb_root active;
+	struct eb_root blocked;
 } TfwStreamSchedEntry;
 
 /**
@@ -78,18 +55,19 @@ typedef struct tfw_stream_sched_t {
 
 void tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			    TfwStreamSchedEntry **dep);
-void tfw_h2_add_stream_dep(TfwStream *stream, TfwStreamSchedEntry *dep, bool excl);
-void tfw_h2_remove_stream_dep(TfwStream *stream);
+void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
+			   TfwStreamSchedEntry *dep, bool excl);
+void tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
 
-void tfw_h2_stream_sched_remove(TfwStream *stream);
-void tfw_h2_sched_stream_enqueue(TfwStream *stream,
-				 TfwStreamSchedEntry *parent);
-TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSchedEntry *entry,
+void tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
+				 TfwStreamSchedEntry *parent, u64 deficit);
+TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSched *sched,
 				       TfwStreamSchedEntry **parent);
-void tfw_h2_sched_activate_stream(TfwStream *stream);
+void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline bool
 tfw_h2_stream_sched_is_active(TfwStreamSchedEntry *sched)
@@ -98,28 +76,11 @@ tfw_h2_stream_sched_is_active(TfwStreamSchedEntry *sched)
 }
 
 static inline void
-tfw_h2_init_stream_sched_link(TfwStreamSchedEntryLink *link)
-{
-	link->deficit = link->offset = 0;
-	INIT_LIST_HEAD(&link->node);
-}
-
-static inline void
-tfw_h2_init_stream_sched_entry_anchor(TfwStreamSchedEntryAnchor *anchor)
-{
-	anchor->active_cnt = 0;
-	INIT_LIST_HEAD(&anchor->head);
-}
-
-static inline void
 tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
 {
-	size_t i;
-
-	entry->bits = entry->total_weight = entry->active_cnt = 0;
+	entry->total_weight = entry->active_cnt = 0;
 	entry->parent = NULL;
-	for (i = 0; i < TFW_STREAM_SCHED_ENTRY_COUNT; i++)
-		tfw_h2_init_stream_sched_entry_anchor(&entry->anchors[i]);
+	entry->blocked = entry->active = EB_ROOT;
 }
 
 static inline void

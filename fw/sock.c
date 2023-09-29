@@ -464,7 +464,7 @@ do_send:
 	       sk, tcp_send_head(sk), sk->sk_state, flags);
 
 	if (stream && !stream->xmit.is_blocked) {
-		tfw_h2_sched_activate_stream(stream);
+		tfw_h2_sched_activate_stream(&h2->sched, stream);
 		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 	}
 

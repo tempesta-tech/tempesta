@@ -425,7 +425,8 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
 		   unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
-	tfw_h2_init_stream_sched_link(&stream->link);
+	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
+	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
 	tfw_h2_init_stream_sched_entry(&stream->sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
@@ -514,7 +515,7 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 		tfw_h2_stream_purge_send_queue(stream);
 
 	tf2_h2_conn_reset_stream_on_close(ctx, stream);
-	tfw_h2_remove_stream_dep(stream);
+	tfw_h2_remove_stream_dep(sched, stream);
 	rb_erase(&stream->node, &sched->streams);
 }
 
