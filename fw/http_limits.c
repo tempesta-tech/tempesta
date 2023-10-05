@@ -599,8 +599,16 @@ __lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 {
 	char small_buf[64];
 	BasicStr name;
+	const TfwStr *chunk, *_;
 
-	name.len = authority->len;
+	name.len = 0;
+	/* Cut port from authority. */
+	TFW_STR_FOR_EACH_CHUNK(chunk, authority, _) {
+		if (!(chunk->flags & TFW_STR_VALUE))
+			break;
+		name.len += chunk->len;
+	}
+
 	/* Prepare buffer */
 	if (likely(name.len < sizeof(small_buf))) {
 		name.data = small_buf;
