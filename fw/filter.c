@@ -72,8 +72,9 @@ tfw_ipv6_hash(const struct in6_addr *addr)
 }
 
 void
-tfw_filter_block_ip(const TfwAddr *addr)
+tfw_filter_block_ip(const TfwClient *cli)
 {
+	const TfwAddr *addr = &cli->addr;
 	TfwFRule rule = {
 		.addr	= addr->sin6_addr,
 		.action	= TFW_F_DROP,
@@ -82,6 +83,8 @@ tfw_filter_block_ip(const TfwAddr *addr)
 	size_t len = sizeof(rule);
 
 	T_DBG_ADDR("filter: block", addr, TFW_NO_PORT);
+
+	tfw_cli_conn_abort_all((void *)cli);
 
 	/* TODO create records on all NUMA nodes. */
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {

@@ -58,7 +58,7 @@
  *         listen 10.0.0.1:80 192.168.0.1:80 :8080 proto=http;
  *         listen :443 [::0]:443 proto=https;
  *     }
- * This is not a real configuration, but it is synthetically correct.
+ * This is not a real configuration, but it is syntactically correct.
  * If it's parsed, the parser would produce the following three entries:
  *  1. TfwCfgEntry {
  *         .name = "server",

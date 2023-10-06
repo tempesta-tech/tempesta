@@ -50,6 +50,9 @@
  * ------------------------------------------------------------------------
  */
 
+/**
+ * @ts	- Timestamp in seconds/8 (125 ms).
+ */
 typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
@@ -238,7 +241,7 @@ frang_conn_new(struct sock *sk)
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
 	if (r == T_BLOCK && dflt_vh->frang_gconf->ip_block) {
-		tfw_filter_block_ip(&cli->addr);
+		tfw_filter_block_ip(cli);
 		tfw_client_put(cli);
 	}
 
@@ -1225,7 +1228,7 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 		return T_BLOCK;
 	r = frang_http_req_process(ra, conn, data, dvh);
 	if (r == T_BLOCK && dvh->frang_gconf->ip_block)
-		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
+		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 	tfw_vhost_put(dvh);
 
 	return r;
@@ -1365,7 +1368,7 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 				? req->vhost->vhost_dflt->frang_gconf
 				: req->vhost->frang_gconf;
 		if (fg_cfg->ip_block)
-			tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
+			tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 	}
 
 	return r;
@@ -1413,6 +1416,15 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 	switch (hs_state) {
 	case TTLS_HS_CB_FINISHED_NEW:
 		ra->history[i].tls_sess_new++;
+
+		if (conf->tls_new_conn_burst
+		    && ra->history[i].tls_sess_new > conf->tls_new_conn_burst)
+		{
+			frang_limmsg("new TLS connections burst", ra->history[i].tls_sess_new,
+				     conf->tls_new_conn_burst,
+				     &FRANG_ACC2CLI(ra)->addr);
+			return T_BLOCK;
+		}
 		break;
 	case TTLS_HS_CB_FINISHED_RESUMED:
 		break;
@@ -1438,14 +1450,6 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		{
 			frang_limmsg("new TLS connections rate", sum_new,
 				     conf->tls_new_conn_rate,
-				     &FRANG_ACC2CLI(ra)->addr);
-			return T_BLOCK;
-		}
-		if (conf->tls_new_conn_burst
-		    && sum_new > conf->tls_new_conn_burst)
-		{
-			frang_limmsg("new TLS connections burst", sum_new,
-				     conf->tls_new_conn_burst,
 				     &FRANG_ACC2CLI(ra)->addr);
 			return T_BLOCK;
 		}
@@ -1483,7 +1487,7 @@ frang_tls_handler(TlsCtx *tls, int state)
 
 	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, state);
 	if (r == T_BLOCK && dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
+		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 
 	spin_unlock(&ra->lock);
 	tfw_vhost_put(dflt_vh);

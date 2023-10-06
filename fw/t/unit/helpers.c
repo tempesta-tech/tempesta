@@ -230,7 +230,7 @@ tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
 }
 
 void
-tfw_filter_block_ip(const TfwAddr *addr)
+tfw_filter_block_ip(const TfwClient *cli)
 {
 }
 
@@ -319,6 +319,12 @@ tfw_connection_hooks_unregister(int type)
 
 TfwHdrMods*
 tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
+{
+	return NULL;
+}
+
+TfwVhost *
+tfw_vhost_lookup_default(void)
 {
 	return NULL;
 }

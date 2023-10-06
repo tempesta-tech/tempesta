@@ -21,8 +21,8 @@
 #ifndef __TFW_FILTER_H__
 #define __TFW_FILTER_H__
 
-#include "addr.h"
+#include "client.h"
 
-void tfw_filter_block_ip(const TfwAddr *addr);
+void tfw_filter_block_ip(const TfwClient *cli);
 
 #endif /* __TFW_FILTER_H__ */

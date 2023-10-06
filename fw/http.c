@@ -111,6 +111,7 @@
 #include "tls.h"
 #include "apm.h"
 #include "access_log.h"
+#include "vhost.h"
 #include "websocket.h"
 
 #include "sync_socket.h"
@@ -6883,6 +6884,24 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_send	= tfw_http_conn_send,
 };
 
+static int
+tfw_http_start(void)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	bool misconfiguration = tfw_blk_flags & TFW_BLK_ATT_REPLY
+			 && dflt_vh && dflt_vh->frang_gconf->ip_block;
+	tfw_vhost_put(dflt_vh);
+
+	if (misconfiguration) {
+		T_WARN_NL("Directive 'block action' can't be set to\n"
+			  "    'attack reply' if 'ip_block' from 'frang_limits' group is 'on'\n"
+			  "    (this is misconfiguration, see the wiki).\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	configuration handling
@@ -7458,6 +7477,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 
 TfwMod tfw_http_mod  = {
 	.name	= "http",
+	.start = tfw_http_start,
 	.specs	= tfw_http_specs,
 };
 

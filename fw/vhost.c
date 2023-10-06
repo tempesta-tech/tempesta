@@ -2707,7 +2707,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "connection_rate",
+		.name = "tcp_connection_rate",
 		.deflt = "0",
 		.handler = tfw_cfgop_frang_glob_set_int,
 		.dest = &tfw_frang_glob_reconfig.conn_rate,
@@ -2717,7 +2717,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "connection_burst",
+		.name = "tcp_connection_burst",
 		.deflt = "0",
 		.handler = tfw_cfgop_frang_glob_set_int,
 		.dest = &tfw_frang_glob_reconfig.conn_burst,
@@ -2727,7 +2727,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "concurrent_connections",
+		.name = "concurrent_tcp_connections",
 		.deflt = "0",
 		.handler = tfw_cfgop_frang_glob_set_int,
 		.dest = &tfw_frang_glob_reconfig.conn_max,
@@ -2897,19 +2897,19 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.allow_none = true,
 	},
 	{
-		.name = "connection_rate",
+		.name = "tcp_connection_rate",
 		.handler = tfw_cfgop_frang_glob_in_vhost,
 		.allow_reconfig = true,
 		.allow_none = true,
 	},
 	{
-		.name = "connection_burst",
+		.name = "tcp_connection_burst",
 		.handler = tfw_cfgop_frang_glob_in_vhost,
 		.allow_reconfig = true,
 		.allow_none = true,
 	},
 	{
-		.name = "concurrent_connections",
+		.name = "concurrent_tcp_connections",
 		.handler = tfw_cfgop_frang_glob_in_vhost,
 		.allow_reconfig = true,
 		.allow_none = true,

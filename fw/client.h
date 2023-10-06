@@ -43,6 +43,7 @@ int tfw_client_for_each(int (*fn)(void *));
 void tfw_client_set_expires_time(unsigned int expires_time);
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
+int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
