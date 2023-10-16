@@ -236,8 +236,8 @@ typedef struct {
  * HTTP/2 connection.
  */
 typedef struct {
-	TfwTlsConn	tls_conn;
-	TfwH2Ctx	h2;
+	TfwTlsConn		tls_conn;
+	TfwH2Ctx		h2;
 } TfwH2Conn;
 
 #define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
