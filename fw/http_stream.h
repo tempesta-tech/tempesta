@@ -112,25 +112,27 @@ typedef enum {
  * Last http2 response info, used to prepare frames
  * in `xmit` callbacks.
  *
- * @resp		- responce, that shmust be sent.
+ * @resp		- responce, that should be sent.
  * @skb_head		- head of skb list that must be sent.
  * @h_len		- length of headers in http2 response;
  * @b_len		- length of body in http2 response;
  * @mark		- mark of the resp skb_head;
  * @tls_type		- tls type for skbs;
- * @state		- current stream xmit state (what type of
- * 			  frame should be made for this stream);
- * @is_blocked  	- stream is blocked;
+ * @state		- type of operation should be made for this
+ *			  stream (encoding headers or making frame
+ *			  with appropriate type);
+ * @is_blocked  	- stream is blocked, because of exceeding of
+ *			  HTTP window;
  */
 typedef struct {
-	TfwHttpResp *resp;
-	struct sk_buff *skb_head;
-	unsigned long h_len;
-	unsigned long b_len;
-	unsigned int mark;
-	unsigned char tls_type;
-	TfwStreamXmitState state;
-	bool is_blocked;
+	TfwHttpResp		*resp;
+	struct sk_buff		*skb_head;
+	unsigned long		h_len;
+	unsigned long		b_len;
+	unsigned int		mark;
+	unsigned char		tls_type;
+	TfwStreamXmitState	state;
+	bool			is_blocked;
 } TfwHttpXmit;
 
 /**

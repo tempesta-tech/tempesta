@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2023 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,30 +31,35 @@
 /**
  * @total_weight  - total weight of the streams for this scheduler;
  * @active_cnt	  - count of active child streams for this scheduler;
+ * @owner	  - stream that owns this scheduler
  * @parent	  - parent scheduler;
  * @active	  - root of the active streams scheduler ebtree;
  * @blocked	  - root of the blocked streams scheduler ebtree;
  * @in_empty_list - entry in list of empty schedulers;
  */ 
 typedef struct tfw_stream_sched_entry_t {
-	u64 total_weight;
-	long int active_cnt;
-	TfwStream *owner;
+	u64				total_weight;
+	long int			active_cnt;
+	TfwStream			*owner;
 	struct tfw_stream_sched_entry_t *parent;
-	struct eb_root active;
-	struct eb_root blocked;
-	struct list_head in_empty_list;
+	struct eb_root			active;
+	struct eb_root			blocked;
+	struct list_head		in_empty_list;
 } TfwStreamSchedEntry;
 
 /**
  * Scheduler for stream's processing distribution based on dependency/priority
  * values.
  *
- * @streams	- root red-black tree entry for per-connection streams storage;
- * @root	- root scheduler of per-connection priority tree;
- * @storage	- pointer to the place where additional streams schedulers
- *		  (if count of max concurent streams > 100) are located;
- * @empty	- list of unused schedulers;
+ * @stream		- root red-black tree entry for per-connection streams
+ *			  storage;
+ * @root		- root scheduler of per-connection priority tree;
+ * @sched_storage	- storage of schedulers for MAX_CONCURENT_STREAMS_DEF
+ *			  streams;
+ * @extra_sched_storage - pointer to the place where additional streams
+ *			  schedulers (if count of max concurent streams > 100)
+ *			  are located;
+ * @empty		- list of unused schedulers;
  */
 typedef struct tfw_stream_sched_t {
 	struct rb_root		streams;

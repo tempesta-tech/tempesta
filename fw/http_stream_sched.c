@@ -39,7 +39,7 @@ tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
 /**
  * Remove stream from the list of the list of the blocked streams
  * and insert it in the ebtree of active streams. Should be called
- * only for active streams or the streams with active childs, which
+ * only for active streams or the streams with active children, which
  * is not already in the ebtree of active streams.
  */
 static void
@@ -61,7 +61,7 @@ tfw_h2_stream_sched_insert_active(TfwStream *stream, u64 deficit)
  * Remove stream from the ebtree of active streams and insert
  * it in the list of the blocked streams. Should be called
  * only for the blocked streams and the streams without active
- * childs, which is not already in the blocked list.
+ * children, which is not already in the blocked list.
  */
 static void
 tfw_h2_stream_sched_insert_blocked(TfwStream *stream, u64 deficit)
@@ -227,7 +227,7 @@ tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 }
 
 static inline bool
-tfw_h2_stream_sched_has_childs(TfwStreamSchedEntry *entry)
+tfw_h2_stream_sched_has_children(TfwStreamSchedEntry *entry)
 {
 	return !eb_is_empty(&entry->active) || !eb_is_empty(&entry->blocked);
 }
@@ -245,7 +245,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		      TfwStreamSchedEntry *dep, bool excl)
 {
 	u64 deficit, min_deficit;
-	bool stream_has_childs;
+	bool stream_has_children;
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 
@@ -257,13 +257,13 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 	}
 
 	/*
-	 * Here we move childs of dep scheduler to the current stream
-	 * scheduler. If current stream scheduler has no childs we move
-	 * dep childs as is (saving there deficit in the priority WFQ).
+	 * Here we move children of dep scheduler to the current stream
+	 * scheduler. If current stream scheduler has no children we move
+	 * dep children as is (saving there deficit in the priority WFQ).
 	 * Otherwise we calculate 
 	 */
-	stream_has_childs = tfw_h2_stream_sched_has_childs(stream->sched);
-	min_deficit = !stream_has_childs ? 0 :
+	stream_has_children = tfw_h2_stream_sched_has_children(stream->sched);
+	min_deficit = !stream_has_children ? 0 :
 		tfw_h2_stream_sched_min_deficit(stream->sched);
 
 	/*
@@ -277,7 +277,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		struct eb64_node *node = eb64_first(&dep->blocked);
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
 
-		deficit = !stream_has_childs ? child->sched_node.key :
+		deficit = !stream_has_children ? child->sched_node.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
 		tfw_h2_stream_sched_move_child(sched, child, stream->sched,
 					       deficit);
@@ -287,13 +287,13 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		struct eb64_node *node = eb64_first(&dep->active);
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
 
-		deficit = !stream_has_childs ? child->sched_node.key :
+		deficit = !stream_has_children ? child->sched_node.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
 		tfw_h2_stream_sched_move_child(sched, child, stream->sched,
 					       deficit);
 	}
 
-	BUG_ON(tfw_h2_stream_sched_has_childs(dep));
+	BUG_ON(tfw_h2_stream_sched_has_children(dep));
 	/* Stream is the only one in dep scheduler, use default deficit. */
 	tfw_h2_sched_stream_enqueue(sched, stream, dep,
 				    tfw_h2_stream_default_deficit(stream));
@@ -305,7 +305,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	TfwStreamSchedEntry *parent = stream->sched->parent;
 	size_t total_weight = stream->sched->total_weight;
 	unsigned short new_weight;
-	bool parent_has_childs;
+	bool parent_has_children;
 	u64 deficit;
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
@@ -314,20 +314,20 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	tfw_h2_stream_sched_remove(sched, stream);
 
 	/*
-	 * Here we move childs of the removed stream to the parent
-	 * scheduler. If parent scheduler has no childs we move
-	 * current removed stream childs as is (saving there deficit
+	 * Here we move children of the removed stream to the parent
+	 * scheduler. If parent scheduler has no children we move
+	 * current removed stream children as is (saving there deficit
 	 * in the priority WFQ). Otherwise we put them in the parent
 	 * scheduler with current removed stream deficit. We can't
-	 * save childs deficit, because it has no matter for the
+	 * save children deficit, because it has no matter for the
 	 * parent scheduler WFQ.
 	 */
-	parent_has_childs = tfw_h2_stream_sched_has_childs(parent);
+	parent_has_children = tfw_h2_stream_sched_has_children(parent);
 
 	/*
 	 * According to RFC 7540 section 5.3.4:
 	 * If the parent stream is removed from the tree, the weight of the
-	 * parent stream is divided between it's childs according to there
+	 * parent stream is divided between it's children according to there
 	 * weights.
 	 */
 	while (!eb_is_empty(&stream->sched->blocked)) {
@@ -335,14 +335,14 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
 
 		/*
-		 * Remove childs of the removed stream, recalculate there
+		 * Remove children of the removed stream, recalculate there
 		 * weights and add them to the scheduler of the parent of
 		 * the removed stream.
 		 */
 		new_weight = child->weight *
 			stream->weight / total_weight;
 		child->weight = new_weight > 0 ? new_weight : 1;
-		deficit = !parent_has_childs ?
+		deficit = !parent_has_children ?
 			child->sched_node.key : stream->sched_node.key;
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
 	}
@@ -352,14 +352,14 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
 
 		/*
-		 * Remove childs of the removed stream, recalculate there
+		 * Remove children of the removed stream, recalculate there
 		 * weights and add them to the scheduler of the parent of
 		 * the removed stream.
 		 */
 		new_weight = child->weight *
 			stream->weight / total_weight;
 		child->weight = new_weight > 0 ? new_weight : 1;
-		deficit = !parent_has_childs ?
+		deficit = !parent_has_children ?
 			child->sched_node.key : stream->sched_node.key;
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
 	}
@@ -493,7 +493,7 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 			return stream;
 		} else if (tfw_h2_stream_sched_is_active(stream->sched)) {
 			/*
-			 * This stream is blocked, but have active childs, try
+			 * This stream is blocked, but have active children, try
 			 * to use one of them.
 			 */
 			*parent = stream->sched->parent;
