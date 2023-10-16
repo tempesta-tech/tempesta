@@ -2347,14 +2347,6 @@ tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 	return 0;
 }
 
-static inline TfwStreamXmitState
-tfw_h2_calc_stream_xmit_state(TfwStream *stream)
-{
-	return stream->xmit.h_len ? HTTP2_MAKE_CONTINUATION_FRAMES :
-		stream->xmit.b_len ? HTTP2_MAKE_DATA_FRAMES :
-		HTTP2_MAKE_FRAMES_FINISH;
-}
-
 static inline int
 tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 {
@@ -2393,6 +2385,16 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 	return 0;
 }
 
+static void
+tfw_h2_strean_del_empty_skbs(TfwStream *stream)
+{
+	while (stream->xmit.skb_head && unlikely(!stream->xmit.skb_head->len)) {
+		struct sk_buff *skb = ss_skb_dequeue(&stream->xmit.skb_head);
+		BUG_ON(!skb);
+		kfree_skb(skb);
+	}
+}
+
 static inline int
 tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 				    TfwFrameType type, unsigned int mss,
@@ -2417,6 +2419,9 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 		stream->xmit.skb_head = it.skb_head;
 	}
 
+	tfw_h2_strean_del_empty_skbs(stream);
+	it.skb = it.skb_head = stream->xmit.skb_head;
+
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head, 0);
 	BUG_ON(!data);
 
@@ -2426,7 +2431,7 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 	}
 
 	length = tfw_h2_calc_frame_length(ctx, stream, type, *len,
-					  *cwnd_awail, mss);
+					  *cwnd_awail, mss - FRAME_HEADER_SIZE);
 	*len -= length;
 	if (type == HTTP2_DATA) {
 		ctx->rem_wnd -= length;
@@ -2488,8 +2493,8 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 #endif
 
 static int
-tfw_h2_make_frames_for_stream(TfwH2Ctx *ctx, TfwStream *stream,
-			      unsigned long *cwnd_awail, unsigned int mss)
+tfw_h2_stream_xmit_process(TfwH2Ctx *ctx, TfwStream *stream,
+			   unsigned long *cwnd_awail, unsigned int mss)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2504,6 +2509,22 @@ do {									\
 	frame_type = type;						\
 } while(0)
 
+#define XMIT_FSM_JMP(stream, st)					\
+do {									\
+	stream->xmit.state = st;					\
+	T_FSM_JMP(st);							\
+} while(0)
+
+#define XMIT_FSM_NEXT(stream)						\
+do {									\
+	if (stream->xmit.h_len)						\
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_CONTINUATION_FRAMES);	\
+	else if (stream->xmit.b_len)					\
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_DATA_FRAMES);		\
+	else								\
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_FRAMES_FINISH);		\
+} while(0)
+
 /*
  * We can't break making headers because of exceeding available cwnd,
  * since there is a chance that some other frames will be sent in
@@ -2512,13 +2533,12 @@ do {									\
  * and recalculate real cwnd when we start making DATA frames or when we
  * finish making frames for current stream.
  */
-#define ADJUST_TMP_AVAILABLE_CWND(cwnd, tmp_cwnd)			\
+#define ADJUST_TMP_AVAILABLE_CWND(stream, cwnd, tmp_cwnd)		\
 do {									\
-	if (tmp_cwnd != ULONG_MAX) {					\
+	if (!stream->xmit.h_len) {					\
 		unsigned long delta = ULONG_MAX - tmp_cwnd;		\
 		*cwnd_awail = (*cwnd_awail > delta ?			\
 			*cwnd_awail - delta : 0);			\
-		tmp_cwnd = ULONG_MAX;					\
 	}								\
 } while(0)
 
@@ -2547,9 +2567,7 @@ do {									\
 		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
 		((TfwMsg *)resp)->skb_head = NULL;
 
-		stream->xmit.state = HTTP2_RELEASE_RESPONSE;
-
-		T_FSM_NEXT();
+		XMIT_FSM_JMP(stream, HTTP2_RELEASE_RESPONSE);
 	}
 
 	T_FSM_STATE(HTTP2_RELEASE_RESPONSE) {
@@ -2559,14 +2577,13 @@ do {									\
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 
-		stream->xmit.state = HTTP2_MAKE_HEADERS_FRAMES;
-
-		T_FSM_NEXT();
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_HEADERS_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
 		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_HEADERS);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
+			tfw_h2_strean_del_empty_skbs(stream);
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream);
 			if (unlikely(r < 0)) {
@@ -2584,10 +2601,9 @@ do {									\
 			return r;
 		}
 
+		ADJUST_TMP_AVAILABLE_CWND(stream, *cwnd_awail, tmp_cwnd_awail);
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-
-		stream->xmit.state = tfw_h2_calc_stream_xmit_state(stream);
-		T_FSM_NEXT();
+		XMIT_FSM_NEXT(stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
@@ -2600,10 +2616,9 @@ do {									\
 			return r;
 		}
 
+		ADJUST_TMP_AVAILABLE_CWND(stream, *cwnd_awail, tmp_cwnd_awail);
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-
-		stream->xmit.state = tfw_h2_calc_stream_xmit_state(stream);
-		T_FSM_NEXT();
+		XMIT_FSM_NEXT(stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
@@ -2612,7 +2627,6 @@ do {									\
 			T_FSM_EXIT();
 		}
 
-		ADJUST_TMP_AVAILABLE_CWND(*cwnd_awail, tmp_cwnd_awail);
 		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
 							mss, cwnd_awail,
@@ -2623,9 +2637,7 @@ do {									\
 		}
 
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-
-		stream->xmit.state = tfw_h2_calc_stream_xmit_state(stream);
-		T_FSM_NEXT();
+		XMIT_FSM_NEXT(stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
@@ -2633,7 +2645,6 @@ do {									\
 		BUG_ON(stream->xmit.resp);
 
 		ss_skb_queue_purge(&stream->xmit.skb_head);
-		ADJUST_TMP_AVAILABLE_CWND(*cwnd_awail, tmp_cwnd_awail);
 
 		T_FSM_EXIT();
 	}
@@ -2645,6 +2656,8 @@ do {									\
 	return r;
 
 #undef ADJUST_TMP_AVAILABLE_CWND
+#undef XMIT_FSM_NEXT
+#undef XMIT_FSM_JMP
 #undef ADJUST_AVAILABLE_SIZE
 }
 
@@ -2669,8 +2682,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_make_frames_for_stream(ctx, stream, &cwnd_awail,
-						  mss);
+		r = tfw_h2_stream_xmit_process(ctx, stream, &cwnd_awail, mss);
 
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent,

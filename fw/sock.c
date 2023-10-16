@@ -1558,10 +1558,8 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
-		if (sw.skb_head && (resp = skb_get_tfw_cb_ptr(sw.skb_head))) {
-			if (resp)
-				tfw_http_resp_pair_free_and_put_conn(resp);
-		}
+		if (sw.skb_head && (resp = skb_get_tfw_cb_ptr(sw.skb_head)))
+			tfw_http_resp_pair_free_and_put_conn(resp);
 
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
 			kfree_skb(skb);
