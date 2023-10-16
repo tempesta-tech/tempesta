@@ -26,19 +26,24 @@
 #include "lib/eb64tree.h"
 #include "http_types.h"
 
+#define MAX_CONCURENT_STREAMS_DEF 100
+
 /**
- * @total_weight - total weight of the streams for this scheduler;
- * @active_cnt	 - count of active child streams for this scheduler;
- * @parent	 - parent scheduler;
- * @active	 - root of the active streams scheduler ebtree;
- * @blocked	 - root of the blocked streams scheduler ebtree;
+ * @total_weight  - total weight of the streams for this scheduler;
+ * @active_cnt	  - count of active child streams for this scheduler;
+ * @parent	  - parent scheduler;
+ * @active	  - root of the active streams scheduler ebtree;
+ * @blocked	  - root of the blocked streams scheduler ebtree;
+ * @in_empty_list - entry in list of empty schedulers;
  */ 
 typedef struct tfw_stream_sched_entry_t {
 	u64 total_weight;
 	long int active_cnt;
+	TfwStream *owner;
 	struct tfw_stream_sched_entry_t *parent;
 	struct eb_root active;
 	struct eb_root blocked;
+	struct list_head in_empty_list;
 } TfwStreamSchedEntry;
 
 /**
@@ -47,12 +52,22 @@ typedef struct tfw_stream_sched_entry_t {
  *
  * @streams	- root red-black tree entry for per-connection streams storage;
  * @root	- root scheduler of per-connection priority tree;
+ * @storage	- pointer to the place where additional streams schedulers
+ *		  (if count of max concurent streams > 100) are located;
+ * @empty	- list of unused schedulers;
  */
 typedef struct tfw_stream_sched_t {
-	struct rb_root streams;
-	TfwStreamSchedEntry root;
+	struct rb_root		streams;
+	TfwStreamSchedEntry	root;
+	TfwStreamSchedEntry	sched_storage[MAX_CONCURENT_STREAMS_DEF];
+	struct page		*extra_sched_storage;
+	unsigned int		extra_order;
+	struct list_head	empty;
 } TfwStreamSched;
 
+int tfw_h2_stream_sched_init(TfwStreamSched *sched,
+			     unsigned int max_concurent_streams);
+void tfw_h2_stream_sched_clean(TfwStreamSched *sched);
 void tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			    TfwStreamSchedEntry **dep);
 void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
@@ -75,19 +90,33 @@ tfw_h2_stream_sched_is_active(TfwStreamSchedEntry *sched)
 	return sched->active_cnt;
 }
 
-static inline void
-tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
+static inline TfwStreamSchedEntry *
+tfw_h2_alloc_stream_sched_entry(TfwStreamSched *sched)
 {
-	entry->total_weight = entry->active_cnt = 0;
-	entry->parent = NULL;
-	entry->blocked = entry->active = EB_ROOT;
+	struct list_head *next;
+
+	if (list_empty(&sched->empty))
+		return NULL;
+	next = sched->empty.next;
+	list_del_init(next);
+
+	return list_entry(next, TfwStreamSchedEntry, in_empty_list);	
 }
 
 static inline void
-tfw_h2_init_stream_sched(TfwStreamSched *sched)
+tfw_h2_free_stream_sched_entry(TfwStreamSched *sched,
+			       TfwStreamSchedEntry *entry)
 {
-	sched->streams = RB_ROOT;
-	tfw_h2_init_stream_sched_entry(&sched->root);
+	list_add(&entry->in_empty_list, &sched->empty);
+}
+
+static inline void
+tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry, TfwStream *owner)
+{
+	entry->total_weight = entry->active_cnt = 0;
+	entry->owner = owner;
+	entry->parent = NULL;
+	entry->blocked = entry->active = EB_ROOT;
 }
 
 #endif /* __HTTP_STREAM_SCHED__ */
