@@ -421,13 +421,16 @@ finish:
 }
 
 static inline void
-tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
-		   unsigned short weight, long int loc_wnd, long int rem_wnd)
+tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched, TfwStreamState state,
+		   unsigned int id, unsigned short weight, long int loc_wnd,
+		   long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
-	tfw_h2_init_stream_sched_entry(&stream->sched);
+	stream->sched = tfw_h2_alloc_stream_sched_entry(sched);
+	BUG_ON(!stream->sched);
+	tfw_h2_init_stream_sched_entry(stream->sched, stream);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
@@ -482,7 +485,8 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state, unsigned int id,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, state, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, sched, state, id, weight,
+			   loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
@@ -500,12 +504,7 @@ tfw_h2_delete_stream(TfwStream *stream)
 void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
-	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	TfwHttpResp*resp = stream->xmit.resp;
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	TfwHttpResp *resp = stream->xmit.resp;
 
 	if (resp) {
 		tfw_http_resp_pair_free_and_put_conn(resp);
@@ -516,6 +515,7 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 
 	tf2_h2_conn_reset_stream_on_close(ctx, stream);
 	tfw_h2_remove_stream_dep(sched, stream);
+	tfw_h2_free_stream_sched_entry(sched, stream->sched);
 	rb_erase(&stream->node, &sched->streams);
 }
 

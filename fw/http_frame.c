@@ -212,6 +212,7 @@ tfw_h2_cleanup(void)
 int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
+	int r;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
@@ -227,7 +228,9 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&closed_streams->list);
 	INIT_LIST_HEAD(&idle_streams->list);
 
-	tfw_h2_init_stream_sched(&ctx->sched);
+	if ((r = tfw_h2_stream_sched_init(&ctx->sched,
+					  tfw_cli_max_concurrent_streams)))
+		return r;
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -249,6 +252,7 @@ void
 tfw_h2_context_clear(TfwH2Ctx *ctx)
 {
 	WARN_ON_ONCE(ctx->streams_num);
+	tfw_h2_stream_sched_clean(&ctx->sched);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
@@ -650,14 +654,10 @@ tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 static TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStream *stream;
 	TfwStreamSchedEntry *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep);
 
@@ -766,12 +766,8 @@ __tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx, struct rb_node *node)
 static void
 tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStreamSched *sched = &ctx->sched;
 	struct rb_node *root = sched->streams.rb_node;
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	__tfw_h2_destroy_stream_send_queue(ctx, root);
 }
@@ -784,9 +780,6 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
 
@@ -1089,11 +1082,8 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			goto fail;
 		}
 
-		if (ctx->cur_stream) {
-			/* We should call all scheduler functions under the socket lock. */
-			assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+		if (ctx->cur_stream)
 			tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
-		}
 
 		if (*window > 0) {
 			mss = tcp_send_mss(((TfwConn *)conn)->sk, &size,
@@ -1121,14 +1111,10 @@ fail:
 static inline int
 tfw_h2_priority_process(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFramePri *pri = &ctx->priority;
 
 	tfw_h2_unpack_priority(pri, ctx->rbuf);
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	if (pri->stream_id != hdr->stream_id) {
 		T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
@@ -1182,11 +1168,8 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStream *stream, *next;
 
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 	/*
 	 * Order is no matter, use default funtion from the Linux kernel.
 	 * According to RFC 9113 6.9.2
@@ -2678,7 +2661,6 @@ int
 tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		   bool *data_is_available)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
 	TfwStream *stream;
@@ -2686,9 +2668,6 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	int r = 0;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
-
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd && !r)

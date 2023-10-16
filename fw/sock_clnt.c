@@ -959,7 +959,7 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 	},
 	{
 		.name = "max_concurrent_streams",
-		.deflt = "200",
+		.deflt = "100",
 		.handler = tfw_cfgop_max_concurrent_streams,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = false,
