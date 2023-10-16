@@ -179,14 +179,25 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	return r;
 }
 
+static inline unsigned long
+tfw_sk_calc_cwnd_awail(struct sock *sk, unsigned int mss_now)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	unsigned int in_flight = tcp_packets_in_flight(tp);
+	unsigned int qlen = skb_queue_len(&sk->sk_write_queue);
+	unsigned int cwnd = tp->snd_cwnd;
+
+	return in_flight + qlen < cwnd ?
+		mss_now * (cwnd - in_flight - qlen) : 0;
+}
+
 static int
 tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
 	bool h2_mode, data_is_available = false;
-	unsigned long cwnd_avail, cwnd_avail_in_bytes = ULONG_MAX;
+	unsigned long cwnd_awail = ULONG_MAX;
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -199,6 +210,13 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 		r = -EPIPE;
 		goto err_purge_tcp_write_queue;
 	}
+
+	/*
+	 * This can be possible with very low MTU. Nothing to do, because
+	 * `tcp_write_xmit` break the loop if linit is so small.
+	 */
+	if (unlikely(mss_now < TLS_MAX_OVERHEAD))
+		return 0;
 
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
 	if (!h2_mode)
@@ -227,14 +245,11 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 		mss_now = UINT_MAX;
 		with_limit = false;
 	}
-	if (with_limit && tfw_cli_latency_optimized_write) {
-		cwnd_avail = (tp->snd_cwnd > tp->packets_out ?
-			tp->snd_cwnd - tp->packets_out : 0);
-		cwnd_avail_in_bytes = cwnd_avail * mss_now;
-	}
+	if (with_limit && tfw_cli_latency_optimized_write)
+		cwnd_awail = tfw_sk_calc_cwnd_awail(sk, mss_now);
 
-	if (unlikely(r = tfw_h2_make_frames(h2, cwnd_avail_in_bytes,
-					    mss_now, &data_is_available)))
+	if (unlikely(r = tfw_h2_make_frames(h2, cwnd_awail, mss_now,
+					    &data_is_available)))
 		goto err_kill_sock;
 
 	if (!data_is_available)
@@ -733,9 +748,10 @@ tfw_cfgop_max_concurrent_streams(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if ((r = tfw_cfg_check_val_n(ce, 1)))
 		return -EINVAL;
 
-	if ((r = tfw_cfg_parse_uint(ce->vals[0], &tfw_cli_max_concurrent_streams))) {
-		T_ERR_NL("Unable to parse 'max_concurrent_streams' value: '%s'\n",
-			 ce->vals[0] ? : "No value specified");
+	if ((r = tfw_cfg_parse_uint(ce->vals[0],
+				    &tfw_cli_max_concurrent_streams))) {
+		T_ERR_NL("Unable to parse 'max_concurrent_streams' value: "
+			 "%s'\n", ce->vals[0] ? : "No value specified");
 		return -EINVAL;
 	}
 

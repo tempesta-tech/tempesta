@@ -316,13 +316,6 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 	unsigned long d;
 	unsigned char i;
 
-	/*
-	 * For zero sized skb we return pointer to skb data if requested
-	 * offset is also equal to zero.
-	 */
-	if (skb_headlen(skb) == 0 && !skb_shinfo(skb)->nr_frags && !off)
-		return skb->data;
-
 	if (skb_headlen(skb)) {
 		begin = skb->data;
 		end = begin + skb_headlen(skb);
