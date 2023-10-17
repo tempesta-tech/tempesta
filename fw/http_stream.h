@@ -117,10 +117,10 @@ typedef enum {
  * @h_len		- length of headers in http2 response;
  * @b_len		- length of body in http2 response;
  * @mark		- mark of the resp skb_head;
- * @tls_type		- tls type for skbs;
  * @state		- type of operation should be made for this
  *			  stream (encoding headers or making frame
  *			  with appropriate type);
+ * @tls_type		- tls type for skbs;
  * @is_blocked  	- stream is blocked, because of exceeding of
  *			  HTTP window;
  */
@@ -130,8 +130,8 @@ typedef struct {
 	unsigned long		h_len;
 	unsigned long		b_len;
 	unsigned int		mark;
-	unsigned char		tls_type;
 	TfwStreamXmitState	state;
+	unsigned char		tls_type;
 	bool			is_blocked;
 } TfwHttpXmit;
 
@@ -163,38 +163,36 @@ typedef enum {
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
  * @sched_node	- entry in per-connection priority storage of active streams;
- * sched_state	- state of stream in the per-connection scheduler;
  * @sched	- scheduler for child streams;
- * @hcl_node	- entry in queue of half-closed or closed streams;
+ * sched_state	- state of stream in the per-connection scheduler;
  * @id		- stream ID;
- * @state	- stream's current state;
+ * @hcl_node	- entry in queue of half-closed or closed streams;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
+ * @state	- stream's current state;
  * @loc_wnd	- stream's current flow controlled window;
  * @rem_wnd	- streams's current flow controlled window for remote client;
- * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
  * @xmit	- last http2 response info, used in `xmit` callbacks;
+ * @weight	- stream's priority weight;
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
-	struct {
-		struct eb64_node    sched_node;
-		TfwStreamSchedState sched_state;
-	};
+	struct eb64_node	sched_node;
 	TfwStreamSchedEntry	*sched;
-	struct list_head	hcl_node;
+	TfwStreamSchedState	sched_state;
 	unsigned int		id;
-	int			state;
+	struct list_head	hcl_node;
 	spinlock_t		st_lock;
+	int			state;
 	long int		loc_wnd;
 	long int		rem_wnd;
-	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
 	TfwHttpXmit		xmit;
+	unsigned short		weight;
 };
 
 typedef struct tfw_h2_ctx_t TfwH2Ctx;

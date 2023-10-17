@@ -158,14 +158,14 @@ typedef struct {
  * @lsettings		- local settings for HTTP/2 connection;
  * @rsettings		- settings for HTTP/2 connection received from the
  *			  remote endpoint;
+ * @lstream_id		- ID of last stream initiated by client and processed on
+ *			  the server side;
  * @streams_num		- number of the streams initiated by client;
  * @sched		- streams' priority scheduler;
  * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED or
  * 			  HTTP2_STREAM_REM_CLOSED state), which are waiting
  * 			  for removal;
  * @idle_streams	- queue of idle streams (in HTTP2_STREAM_IDLE) state;
- * @lstream_id		- ID of last stream initiated by client and processed on
- *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
@@ -176,7 +176,7 @@ typedef struct {
  *			  headers, but have not yet received the END_HEADERS
  *			  flag;
  * @new_settings	- new settings to apply when ack is pushed to socket
- * 			  write queue;
+ * 			  write queue, first item in array is used as flags;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -208,20 +208,17 @@ typedef struct tfw_h2_ctx_t {
 	spinlock_t	lock;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
+	unsigned int	lstream_id;
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
 	TfwStreamQueue	closed_streams;
 	TfwStreamQueue	idle_streams;
-	unsigned int	lstream_id;
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
-	struct {
-		unsigned int settings[_HTTP2_SETTINGS_MAX];
-		unsigned char flags;
-	} new_settings;
+	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
