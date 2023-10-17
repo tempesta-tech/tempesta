@@ -445,7 +445,7 @@ do_send:
 		}
 
 		if (!stream) {
-			if (h2 && unlikely(h2->new_settings.flags))
+			if (h2 && unlikely(h2->new_settings[0]))
 				tfw_h2_apply_new_settings(h2);
 			ss_skb_entail(sk, skb, mark, tls_type);
 		} else {
