@@ -657,8 +657,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
 
-	tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep);
-
+	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
 	stream = tfw_h2_add_stream(&ctx->sched, state, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
