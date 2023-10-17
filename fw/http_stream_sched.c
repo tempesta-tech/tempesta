@@ -21,8 +21,6 @@
 #include "http_stream.h"
 #include "connection.h"
 
-#define tfw_h2_sched_to_conn(sched) container_of(container_of(sched, TfwH2Ctx, sched), TfwH2Conn, h2)
-
 static inline void
 tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
 {
@@ -78,6 +76,11 @@ tfw_h2_stream_sched_insert_blocked(TfwStream *stream, u64 deficit)
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_BLOCKED;
 }
 
+/**
+ * Calculate minimum deficit for the current scheduler.
+ * New stream is inserted in the scheduler with
+ * deficit =  min_deficit + 65536 / stream->weight.
+ */
 static u64
 tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 {
@@ -110,6 +113,12 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 	return 0;
 }
 
+/**
+ * Recalculate count of active streams for parent schedulers, when
+ * new stream is added to the priority tree. If parent scheduler
+ * is activated in this function, insert appropriate parent stream
+ * in the tree of active streams.
+ */
 static void
 tfw_h2_stream_sched_propagate_add_active_cnt(TfwStreamSched *sched,
 					     TfwStream *stream)
@@ -146,6 +155,12 @@ tfw_h2_stream_sched_propagate_add_active_cnt(TfwStreamSched *sched,
 	}
 }
 
+/**
+ * Recalculate count of active streams for parent schedulers, when
+ * new stream is removed from the priority tree. If parent scheduler
+ * is deactivated in this function, remove appropriate parent stream
+ * from the tree of active streams.
+ */
 static void
 tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
 					     TfwStream *stream)
@@ -185,9 +200,9 @@ tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
 /**
  * Remove stream from the scheduler. Since this function is
  * used when we delete stream also we should explicitly remove
- * stream both from active tree and blocked list. It is a caller
- * responsibility to add stream again to the scheduler if it is
- * necessary with appropriate deficite.
+ * stream both from the tree. It is a caller responsibility
+ * to add stream again to the scheduler if it is necessary
+ * with appropriate deficite.
  */
 void
 tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
@@ -203,18 +218,20 @@ tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 	parent->total_weight -= stream->weight;
 }
 
-void
-tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
-		       TfwStreamSchedEntry **dep)
+/**
+ * Find parent scheduler by id of the parent stream. If id == 0 or
+ * we can't find parent stream return root scheduler according to
+ * RFC 7540 5.3.1.
+ */
+TfwStreamSchedEntry *
+tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id)
 {
-	*dep = NULL;
-
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 
 	if (id) {
 		TfwStream *stream = tfw_h2_find_stream(sched, id);
 		if (stream)
-			*dep = stream->sched;
+			return stream->sched;
 	}
 	/*
 	 * RFC 7540 5.3.1:
@@ -222,8 +239,7 @@ tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 	 * as a stream in the "idle" state -- results in that stream being
 	 * given a default priority.
 	 */
-	if (!(*dep))
-		*dep = &sched->root;
+	return &sched->root;
 }
 
 static inline bool
@@ -240,6 +256,10 @@ tfw_h2_stream_sched_move_child(TfwStreamSched *sched, TfwStream *child,
 	tfw_h2_sched_stream_enqueue(sched, child, parent, deficit);
 }
 
+/**
+ * Add stream to the scheduler tree. @dep is a parent of new
+ * added stream.
+ */
 void
 tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		      TfwStreamSchedEntry *dep, bool excl)
@@ -260,7 +280,8 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 	 * Here we move children of dep scheduler to the current stream
 	 * scheduler. If current stream scheduler has no children we move
 	 * dep children as is (saving there deficit in the priority WFQ).
-	 * Otherwise we calculate 
+	 * Otherwise we calculate minimal deficit of the scheduler and use
+	 * it as a base of new children deficit.
 	 */
 	stream_has_children = tfw_h2_stream_sched_has_children(stream->sched);
 	min_deficit = !stream_has_children ? 0 :
@@ -299,6 +320,10 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 				    tfw_h2_stream_default_deficit(stream));
 }
 
+/**
+ * Remove stream from the dependency tree. Move it's children to its
+ * parent scheduler according RFC 7540.
+ */
 void
 tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 {
@@ -403,7 +428,7 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 	old_parent = stream->sched->parent;
 	BUG_ON(!old_parent);
 
-	tfw_h2_find_stream_dep(sched, new_dep, &new_parent);
+	new_parent = tfw_h2_find_stream_dep(sched, new_dep);
 
 	is_stream_depends_on_child =
 		tfw_h2_is_stream_depend_on_child(sched, stream, new_parent);
@@ -427,8 +452,10 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 	} else {
 		/*
 		 * If stream is dependent from it's child, remove this
-		 * child from the dependency tree, put it to the location
-		 * of the current stream and then add stream to this stream.
+		 * child from the dependency tree, put this child to the
+		 * location of the current stream and then add current
+		 * stream as a child of the new parent (which was a child
+		 * of current stream).
 		 * (See RFC 7540 section 5.3.3).
 		 * The order of calling next functions is important:
 		 * 1. Remove new parent, which is a child of current stream.
@@ -504,13 +531,22 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 			entry = stream->sched;
 			node = eb64_first(&entry->active);
 		} else {
-			break;
+			/*
+			 * Since node is in active tree it should be active or
+			 * has active children.
+			 */
+			BUG();
 		}
 	}
 
 	return NULL;
 }
 
+/**
+ * Activate and insert stream which was previosly blocked, because
+ * of exceeding of HTTP remote window. Activate parent schedulers
+ * and streams if necessary.
+ */
 void
 tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 {
@@ -540,6 +576,12 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 	}
 }
 
+/**
+ * Streams schedulers are located one by one from the @base
+ * address. Add them to the list of empty schedulers. When
+ * we allocate new stream we remove first empty scheduler
+ * from this list.
+ */
 static inline void
 tfw_h2_stream_sched_init_storage(TfwStreamSched *sched,
 				 TfwStreamSchedEntry *base,
@@ -555,6 +597,11 @@ tfw_h2_stream_sched_init_storage(TfwStreamSched *sched,
 	}
 }
 
+/**
+ * Initialize root scheduler. Allocate place for streams schedulers
+ * if count of count max concurrent streams is greater than default
+ * value (100).
+ */
 int
 tfw_h2_stream_sched_init(TfwStreamSched *sched,
 			 unsigned int max_concurent_streams)
@@ -566,6 +613,11 @@ tfw_h2_stream_sched_init(TfwStreamSched *sched,
 	tfw_h2_stream_sched_init_storage(sched, sched->sched_storage,
 					 MAX_CONCURENT_STREAMS_DEF);
 
+	/*
+	 * Place for first 100 schedulers is allocated with connection
+	 * structure. If count of max concurrent streams is greater we
+	 * should allocate place for extra necessary schedulers.
+	 */
 	if (max_concurent_streams > MAX_CONCURENT_STREAMS_DEF) {
 		unsigned extra_streams =
 			max_concurent_streams - MAX_CONCURENT_STREAMS_DEF;
