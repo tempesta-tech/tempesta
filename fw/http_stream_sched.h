@@ -74,8 +74,8 @@ typedef struct tfw_stream_sched_t {
 int tfw_h2_stream_sched_init(TfwStreamSched *sched,
 			     unsigned int max_concurent_streams);
 void tfw_h2_stream_sched_clean(TfwStreamSched *sched);
-void tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
-			    TfwStreamSchedEntry **dep);
+TfwStreamSchedEntry * tfw_h2_find_stream_dep(TfwStreamSched *sched,
+					     unsigned int id);
 void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 			   TfwStreamSchedEntry *dep, bool excl);
 void tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
