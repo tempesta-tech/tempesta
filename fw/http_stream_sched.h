@@ -60,14 +60,15 @@ typedef struct tfw_stream_sched_entry_t {
  *			  schedulers (if count of max concurent streams > 100)
  *			  are located;
  * @empty		- list of unused schedulers;
+ * @extra_order		- order of allocated pages for extra streams.
  */
 typedef struct tfw_stream_sched_t {
 	struct rb_root		streams;
 	TfwStreamSchedEntry	root;
 	TfwStreamSchedEntry	sched_storage[MAX_CONCURENT_STREAMS_DEF];
 	struct page		*extra_sched_storage;
-	unsigned int		extra_order;
 	struct list_head	empty;
+	unsigned int		extra_order;
 } TfwStreamSched;
 
 int tfw_h2_stream_sched_init(TfwStreamSched *sched,

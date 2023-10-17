@@ -1293,9 +1293,9 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
-	if (id < _HTTP2_SETTINGS_MAX) {
-		ctx->new_settings.settings[id] = val;
-		ctx->new_settings.flags |= ctx_new_settings_flags[id];
+	if (id > 0 && id < _HTTP2_SETTINGS_MAX) {
+		ctx->new_settings[id] = val;
+		ctx->new_settings[0] |= ctx_new_settings_flags[id];
 	}
 }
 
@@ -1308,12 +1308,12 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	for (id = HTTP2_SETTINGS_TABLE_SIZE; id < _HTTP2_SETTINGS_MAX; id++) {
-		if (ctx->new_settings.flags & ctx_new_settings_flags[id]) {
-			unsigned int val = ctx->new_settings.settings[id];
+		if (ctx->new_settings[0] & ctx_new_settings_flags[id]) {
+			unsigned int val = ctx->new_settings[id];
 			tfw_h2_apply_settings_entry(ctx, id, val);
 		}
 	}
-	ctx->new_settings.flags = 0;
+	ctx->new_settings[0] = 0;
 }
 
 static void
