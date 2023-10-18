@@ -125,6 +125,7 @@ typedef enum {
  *			  if we send some service frames (for
  *			  example RST STREAM after all pending data);
  * @is_blocked		- stream is blocked;
+ * @is_progressive	- stream has benefit from processing in parallel;
  */
 typedef struct {
 	TfwHttpResp 		*resp;
@@ -136,6 +137,7 @@ typedef struct {
 	TfwStreamXmitState	state;
 	unsigned int		frame_length;
 	bool			is_blocked;
+	bool			is_progressive;
 } TfwHttpXmit;
 
 /**
@@ -218,7 +220,8 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
-				unsigned long h_len, unsigned long b_len);
+				unsigned long h_len, unsigned long b_len,
+				bool is_progressive);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
 					   unsigned char type);
