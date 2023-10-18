@@ -54,6 +54,9 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwHttpResp*resp = stream->xmit.resp;
 
+	if (ctx->cur_xmit_stream == stream)
+		ctx->cur_xmit_stream = NULL;
+
 	if (resp) {
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
@@ -758,7 +761,8 @@ tfw_h2_delete_stream(TfwStream *stream)
 
 int
 tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
-			    unsigned long h_len, unsigned long b_len)
+			    unsigned long h_len, unsigned long b_len,
+			    bool is_progressive)
 {
 	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	TfwStream *stream;
@@ -783,6 +787,7 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	stream->xmit.state = state;
 	stream->xmit.frame_length = 0;
 	stream->xmit.is_blocked = false;
+	stream->xmit.is_progressive = is_progressive;
 
 	spin_unlock(&ctx->lock);
 
