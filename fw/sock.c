@@ -420,9 +420,20 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	h2 = tfw_h2_context(conn);
 
 	if (resp) {
-		stream = resp->stream_for_xmit;
+		stream = tfw_h2_find_not_closed_stream(h2, resp->stream_id, false);
+		/*
+		 * Very unlikely case. We check that stream is active, before
+		 * calling ss_send, but there is a very small chance, that
+		 * stream will be canceled by RST STREAM from the client
+		 * before ss_do_send will be called.
+		 */
+		if (unlikely(!stream)) {
+			tfw_http_resp_pair_free_and_put_conn(resp);
+			ss_skb_queue_purge(skb_head);
+			return;
+		}
 
-		BUG_ON(!stream || stream->xmit.skb_head);
+		BUG_ON(stream->xmit.skb_head);
 		if (test_bit(TFW_HTTP_B_RESP_XMIT, resp->flags))
 			stream->xmit.resp = resp;
 		stream->xmit.mark = mark;

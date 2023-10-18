@@ -961,7 +961,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		return;
 	}
 
-	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
+	if (tfw_h2_frame_local_resp(resp, h_len, NULL))
 		goto err_setup;
 
 	tfw_h2_stream_unlink_from_req(req);
@@ -2707,8 +2707,7 @@ err:
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
-		     unsigned int stream_id)
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 {
 	int h;
 	TfwStr dummy_body = { 0 };
@@ -2822,7 +2821,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	 * just indicate that we have body for correct framing.
 	 */
 	dummy_body.len = ce->body_len;
-	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, &dummy_body))
+	if (tfw_h2_frame_local_resp(resp, h_len, &dummy_body))
 		goto free;
 	it->skb = ss_skb_peek_tail(&it->skb_head);
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
@@ -2892,7 +2891,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	resp = tfw_cache_build_resp(req, ce, lifetime, id);
+	resp = tfw_cache_build_resp(req, ce, lifetime);
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will

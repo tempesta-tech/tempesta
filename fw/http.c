@@ -584,13 +584,6 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 	};
 	TfwStr *body = NULL;
 
-	BUG_ON(!resp->req);
-	if (!stream_id) {
-		stream_id = tfw_h2_stream_id(resp->req);
-		if (unlikely(!stream_id))
-			return -EPIPE;
-	}
-
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
 	r = tfw_h2_resp_status_write(resp, status, false, true);
@@ -659,7 +652,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	body = TFW_STR_BODY_CH(msg);
 
-	r = tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
+	r = tfw_h2_frame_local_resp(resp, hdrs_len, body);
 
 out:
 	if (r)
@@ -4832,28 +4825,36 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 	return 0;
 }
 
-static inline void
+static int
 tfw_h2_resp_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 			  unsigned long h_len, unsigned long b_len)
 {
-	resp->stream_for_xmit = resp->req->stream;
+	TfwH2Ctx *ctx;
+
+	BUG_ON(!resp->req);
+	BUG_ON(!resp->req->conn);
+
+	ctx = tfw_h2_context(resp->req->conn);
+
+	/*
+	 * Stream may be deleting on other cpu if client sends RST STREAM
+	 * and this function is executed from cache WQ. So we work with
+	 * req->stream under the lock.
+	 */
+	spin_lock(&ctx->lock);
+
+	if(!resp->req->stream) {
+		spin_unlock(&ctx->lock);
+		return -EPIPE;
+	}
+
+	resp->stream_id = resp->req->stream->id;
 	set_bit(TFW_HTTP_B_RESP_XMIT, resp->flags);
 	skb_set_tfw_cb_ptr(((TfwMsg *)resp)->skb_head, resp);
 	tfw_h2_stream_init_for_xmit(resp->req->stream, state, h_len, b_len);
-}
 
-/**
- * Frame forwarded response.
- */
-static int
-tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id)
-{
-	BUG_ON(!resp->req);
-	
-	if(!resp->req->stream)
-		return -EPIPE;
+	spin_unlock(&ctx->lock);
 
-	tfw_h2_resp_init_for_xmit(resp, HTTP2_ENCODE_HEADERS, 0, 0);
 	return 0;
 }
 
@@ -4861,23 +4862,21 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id)
  * Frame response generated locally.
  */
 int
-tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-			unsigned long h_len, const TfwStr *body)
+tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned long h_len,
+			const TfwStr *body)
 {
 	int r = 0;
 	unsigned long b_len = body ? body->len : 0;
 
-	BUG_ON(!resp->req);
-
-	if(!resp->req->stream)
-		return -EPIPE;
+	r = tfw_h2_resp_init_for_xmit(resp, HTTP2_RELEASE_RESPONSE, h_len, b_len);
+	if (unlikely(r))
+		return r;
 
 	r = tfw_h2_append_predefined_body(resp, body);
 	if (unlikely(r))
 		return r;
 
-	tfw_h2_resp_init_for_xmit(resp, HTTP2_RELEASE_RESPONSE, h_len, b_len);
-	return r;
+	return 0;
 }
 
 static void
@@ -5303,29 +5302,18 @@ static void
 tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	int r;
-	unsigned int stream_id;
 	TfwHttpReq *req = resp->req;
 
-	stream_id = tfw_h2_stream_id(req);
-	if (unlikely(!stream_id))
-		goto out;
-
-	r = tfw_h2_frame_fwd_resp(resp, stream_id);
+	/*
+	 * This function can be failed only if stream is
+	 * already closed and deleted.
+	 */
+	r = tfw_h2_resp_init_for_xmit(resp, HTTP2_ENCODE_HEADERS, 0, 0);
 	if (unlikely(r))
-		goto clean;
+		goto out;
 
 	tfw_h2_stream_unlink_from_req(req);
 	tfw_h2_resp_fwd(resp);
-
-	return;
-clean:
-	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
-		T_WARN_ADDR_STATUS("response dropped: processing error",
-				   &req->conn->peer->addr,
-				   TFW_NO_PORT, 500);
-	tfw_h2_send_err_resp(req, 500, stream_id);
-	TFW_INC_STAT_BH(serv.msgs_otherr);
 
 	return;
 out:
