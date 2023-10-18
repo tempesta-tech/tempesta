@@ -467,7 +467,7 @@ typedef struct {
  * @cut 	    - descriptors of http chunked body to be cut during
  *		      HTTP1 to HTTP2 transformation and ignored during
  *		      caching;
- * @stream	    - stream in which the response is sent;
+ * @stream_id	    - id of stream in which the response is sent;
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
@@ -481,7 +481,7 @@ struct tfw_http_resp_t {
 	char			*body_start_data;
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
-	TfwStream		*stream_for_xmit;
+	unsigned int		stream_id;
 };
 
 /**
@@ -728,8 +728,8 @@ unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
 				 bool inplace);
 unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 			      unsigned short st_index);
-int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-			    unsigned long h_len, const TfwStr *body);
+int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned long h_len,
+			    const TfwStr *body);
 int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
 void tfw_http_extract_request_authority(TfwHttpReq *req);
