@@ -2517,20 +2517,21 @@ do {									\
 	frame_type = type;						\
 } while(0)
 
-#define XMIT_FSM_JMP(stream, st)					\
+#define XMIT_FSM_JMP(ctx, stream, st)					\
 do {									\
 	stream->xmit.state = st;					\
+	ctx->cur_xmit_stream = stream;					\
 	T_FSM_JMP(st);							\
 } while(0)
 
-#define XMIT_FSM_NEXT(stream)						\
+#define XMIT_FSM_NEXT(ctx, stream)					\
 do {									\
 	if (stream->xmit.h_len)						\
-		XMIT_FSM_JMP(stream, HTTP2_MAKE_CONTINUATION_FRAMES);	\
+		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_CONTINUATION_FRAMES); \
 	else if (stream->xmit.b_len)					\
-		XMIT_FSM_JMP(stream, HTTP2_MAKE_DATA_FRAMES);		\
+		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_DATA_FRAMES);	\
 	else								\
-		XMIT_FSM_JMP(stream, HTTP2_MAKE_FRAMES_FINISH);		\
+		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_FRAMES_FINISH);	\
 } while(0)
 
 /*
@@ -2575,7 +2576,7 @@ do {									\
 		stream->xmit.skb_head = ((TfwMsg *)resp)->skb_head;
 		((TfwMsg *)resp)->skb_head = NULL;
 
-		XMIT_FSM_JMP(stream, HTTP2_RELEASE_RESPONSE);
+		XMIT_FSM_JMP(ctx, stream, HTTP2_RELEASE_RESPONSE);
 	}
 
 	T_FSM_STATE(HTTP2_RELEASE_RESPONSE) {
@@ -2585,7 +2586,7 @@ do {									\
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 
-		XMIT_FSM_JMP(stream, HTTP2_MAKE_HEADERS_FRAMES);
+		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_HEADERS_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
@@ -2611,7 +2612,7 @@ do {									\
 
 		ADJUST_TMP_AVAILABLE_CWND(stream, *cwnd_awail, tmp_cwnd_awail);
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-		XMIT_FSM_NEXT(stream);
+		XMIT_FSM_NEXT(ctx, stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
@@ -2626,7 +2627,7 @@ do {									\
 
 		ADJUST_TMP_AVAILABLE_CWND(stream, *cwnd_awail, tmp_cwnd_awail);
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-		XMIT_FSM_NEXT(stream);
+		XMIT_FSM_NEXT(ctx, stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
@@ -2645,7 +2646,7 @@ do {									\
 		}
 
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-		XMIT_FSM_NEXT(stream);
+		XMIT_FSM_NEXT(ctx, stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
@@ -2653,6 +2654,7 @@ do {									\
 		BUG_ON(stream->xmit.resp);
 
 		ss_skb_queue_purge(&stream->xmit.skb_head);
+		ctx->cur_xmit_stream = NULL;
 
 		T_FSM_EXIT();
 	}
@@ -2682,7 +2684,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
 
 	while (tfw_h2_stream_sched_is_active(&sched->root)
-	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
+	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd)
 	{
 		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
 		/*
@@ -2690,11 +2692,30 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
+
+		if (ctx->cur_xmit_stream && !ctx->cur_xmit_stream->xmit.is_blocked &&
+		    ctx->cur_xmit_stream->sched->parent == parent &&
+		    ctx->cur_xmit_stream->weight == stream->weight) {
+			tfw_h2_sched_stream_enqueue(sched, stream, parent,
+						    stream->sched_node.key);
+			tfw_h2_stream_sched_remove(sched, ctx->cur_xmit_stream);
+			stream = ctx->cur_xmit_stream;
+		}
+
 		r = tfw_h2_stream_xmit_process(ctx, stream, &cwnd_awail, mss);
 
+		/*
+		 * We should put stream back to the priority tree even
+		 * if an error occurs.
+		 */
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent,
 					    deficit);
+
+		if (unlikely(r)) {
+			ctx->cur_xmit_stream = NULL;
+			break;
+		}
 	}
 
 	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);

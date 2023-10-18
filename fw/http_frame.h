@@ -211,6 +211,7 @@ typedef struct tfw_h2_ctx_t {
 	TfwSettings	rsettings;
 	unsigned int	lstream_id;
 	unsigned long	streams_num;
+	TfwStream	*cur_xmit_stream;
 	TfwStreamSched	sched;
 	TfwStreamQueue	closed_streams;
 	TfwStreamQueue	idle_streams;
