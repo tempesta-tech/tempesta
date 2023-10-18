@@ -170,6 +170,7 @@ typedef struct {
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
+ * @cur_xmit_stream	- stream in which the response is sent.
  * @cur_send_headers	- stream for which we have already started sending
  *			  headers, but have not yet sent the END_HEADERS flag;
  * @cur_recv_headers	- stream for which we have already started receiving
@@ -218,6 +219,7 @@ typedef struct tfw_h2_ctx_t {
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
+	TfwStream	*cur_xmit_stream;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
 	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
