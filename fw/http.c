@@ -4849,6 +4849,7 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned long h_len,
 			const TfwStr *body)
 {
 	unsigned long b_len = body ? body->len : 0;
+	bool is_progessive = test_bit(TFW_HTTP_B_RESP_PROGRESSIVE, resp->flags);
 	int r;
 
 	r = tfw_h2_append_predefined_body(resp, body);
@@ -4856,7 +4857,7 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned long h_len,
 		return r;
 
 	return tfw_h2_stream_init_for_xmit(resp, HTTP2_RELEASE_RESPONSE,
-					   h_len, b_len);
+					   h_len, b_len, is_progessive);
 }
 
 static void
@@ -5339,13 +5340,15 @@ static void
 tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
+	bool is_progessive = test_bit(TFW_HTTP_B_RESP_PROGRESSIVE, resp->flags);
 	int r;
 
 	/*
 	 * This function can be failed only if stream is
 	 * already closed and deleted.
 	 */
-	r = tfw_h2_stream_init_for_xmit(resp, HTTP2_ENCODE_HEADERS, 0, 0);
+	r = tfw_h2_stream_init_for_xmit(resp, HTTP2_ENCODE_HEADERS,
+					0, 0, is_progessive);
 	if (unlikely(r))
 		goto out;
 

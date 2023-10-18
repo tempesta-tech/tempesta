@@ -2012,11 +2012,119 @@ static int
 __resp_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
+	TfwHttpResp *resp = (TfwHttpResp *)hm;
 	__FSM_DECLARE_VARS(hm);
+
+#define __FSM_I_TX_AF(st, ch, st_next)					\
+__FSM_STATE(st, cold) {							\
+	if (likely(TFW_LC(c) == ch))					\
+		__FSM_I_MOVE(st_next);					\
+	/* It should be checked in st_fallback if `c` is allowed */	\
+	__FSM_JMP(I_ContTypeOther);					\
+}
 
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(I_ContType) {
+		switch (c) {
+		case 'i':
+			if (likely(__data_available(p, 6)
+				   && (C4_INT(p + 1, 'm', 'a', 'g', 'e'))
+				   && *(p + 5) == '/')) {
+				__FSM_I_MOVE_n(I_ContTypeImageSubtype, 6);
+			}
+			__FSM_I_MOVE(I_ContTypeI);
+		case 'v':
+			if (likely(__data_available(p, 6)
+				   && (C4_INT(p + 1, 'i', 'd', 'e', 'o'))
+				   && *(p + 5) == '/')) {
+				__FSM_I_MOVE_n(I_ContTypeVideoSubtype, 6);
+			}
+			__FSM_I_MOVE(I_ContTypeV);
+		case 'a':
+			if (likely(__data_available(p, 6)
+				   && (C4_INT(p + 1, 'u', 'd', 'i', 'o'))
+				   && *(p + 5) == '/')) {
+				__FSM_I_MOVE_n(I_ContTypeAudioSubtype, 6);
+			}
+			__FSM_I_MOVE(I_ContTypeA);
+		default:
+			__FSM_I_JMP(I_ContTypeOther);
+		}
+	}
+
+	__FSM_I_TX_AF(I_ContTypeI, 'm', I_ContTypeIm);
+	__FSM_I_TX_AF(I_ContTypeIm, 'a', I_ContTypeIma);
+	__FSM_I_TX_AF(I_ContTypeIma, 'g', I_ContTypeImag);
+	__FSM_I_TX_AF(I_ContTypeImag, 'e', I_ContTypeImage);
+	__FSM_I_TX_AF(I_ContTypeImage, '/', I_ContTypeImageSubtype);
+
+	__FSM_STATE(I_ContTypeImageSubtype) {
+		switch (c) {
+		case 'j':
+			if (likely(__data_available(p, 4)
+			    && (C4_INT(p, 'j', 'p', 'e', 'g'))))
+				/*
+				 * There is a special MIME type for progressive
+				 * jpegs, but  usually jpegs is also progressive.
+				 */
+				__FSM_I_MOVE_n(I_ContTypeImageSubtypePjpeg, 4);
+			__FSM_I_MOVE(I_ContTypeImageSubtypePj);
+		case 'p':
+			if (__data_available(p, 5)
+			   && (C4_INT(p + 1, 'j', 'p', 'e', 'g')))
+				__FSM_I_MOVE_n(I_ContTypeImageSubtypePjpeg, 5);
+			__FSM_I_MOVE(I_ContTypeImageSubtypeP);
+		default:
+			__FSM_I_JMP(I_ContTypeOther);
+		}
+	}
+
+	__FSM_I_TX_AF(I_ContTypeImageSubtypeP, 'j', I_ContTypeImageSubtypePj);
+	__FSM_I_TX_AF(I_ContTypeImageSubtypePj, 'p', I_ContTypeImageSubtypePjp);
+	__FSM_I_TX_AF(I_ContTypeImageSubtypePjp, 'e', I_ContTypeImageSubtypePjpe);
+	__FSM_I_TX_AF(I_ContTypeImageSubtypePjpe, 'g', I_ContTypeImageSubtypePjpeg);
+
+	__FSM_STATE(I_ContTypeImageSubtypePjpeg) {
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			__set_bit(TFW_HTTP_B_RESP_PROGRESSIVE, resp->flags);
+			return __data_off(p + __fsm_sz);
+		}
+		__FSM_I_JMP(I_ContTypeOther);
+	}
+
+
+	__FSM_I_TX_AF(I_ContTypeV, 'i', I_ContTypeVi);
+	__FSM_I_TX_AF(I_ContTypeVi, 'd', I_ContTypeVid);
+	__FSM_I_TX_AF(I_ContTypeVid, 'e', I_ContTypeVide);
+	__FSM_I_TX_AF(I_ContTypeVide, 'o', I_ContTypeVideo);
+	__FSM_I_TX_AF(I_ContTypeVideo, '/', I_ContTypeVideoSubtype);
+
+	__FSM_STATE(I_ContTypeVideoSubtype) {
+		/* All video formats has benefit from processing in parallel. */
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			__set_bit(TFW_HTTP_B_RESP_PROGRESSIVE, resp->flags);
+			return __data_off(p + __fsm_sz);
+		}
+		__FSM_I_JMP(I_ContTypeOther);
+	}
+
+	__FSM_I_TX_AF(I_ContTypeA, 'u', I_ContTypeAu);
+	__FSM_I_TX_AF(I_ContTypeAu, 'd', I_ContTypeAud);
+	__FSM_I_TX_AF(I_ContTypeAud, 'i', I_ContTypeAudi);
+	__FSM_I_TX_AF(I_ContTypeAudi, 'o', I_ContTypeAudio);
+	__FSM_I_TX_AF(I_ContTypeAudio, '/', I_ContTypeAudioSubtype);
+
+	__FSM_STATE(I_ContTypeAudioSubtype) {
+		/* All audio formats has benefit from processing in parallel. */
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			__set_bit(TFW_HTTP_B_RESP_PROGRESSIVE, resp->flags);
+			return __data_off(p + __fsm_sz);
+		}
+		__FSM_I_JMP(I_ContTypeOther);
+	}
+
+	__FSM_STATE(I_ContTypeOther) {
 		/*
 		 * Just eat the header value: we're interested in
 		 * type "/" subtype only and they're at begin of the value.
@@ -2034,7 +2142,7 @@ __resp_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 *
 		 * , so this is essentially ctext | VCHAR.
 		 */
-		__FSM_I_MATCH_MOVE(ctext_vchar, I_ContType);
+		__FSM_I_MATCH_MOVE(ctext_vchar, I_ContTypeOther);
 		if (IS_CRLF(*(p + __fsm_sz)))
 			return __data_off(p + __fsm_sz);
 		return CSTR_NEQ;
@@ -2042,7 +2150,10 @@ __resp_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 done:
 	return r;
+
+#undef __FSM_I_TX_AF
 }
+STACK_FRAME_NON_STANDARD(__resp_parse_content_type);
 
 static int
 __strdup_multipart_boundaries(TfwHttpReq *req)
