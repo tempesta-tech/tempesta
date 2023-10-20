@@ -582,10 +582,10 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
  * we allocate new stream we remove first empty scheduler
  * from this list.
  */
-static inline void
-tfw_h2_stream_sched_init_storage(TfwStreamSched *sched,
-				 TfwStreamSchedEntry *base,
-				 unsigned int count)
+void
+tfw_h2_stream_sched_init_entry_storage(TfwStreamSched *sched,
+				       TfwStreamSchedEntry *base,
+				       unsigned int count)
 {
 	TfwStreamSchedEntry *p;
 	unsigned int i;
@@ -595,55 +595,4 @@ tfw_h2_stream_sched_init_storage(TfwStreamSched *sched,
 		INIT_LIST_HEAD(&p->in_empty_list);
 		list_add_tail(&p->in_empty_list, &sched->empty);
 	}
-}
-
-/**
- * Initialize root scheduler. Allocate place for streams schedulers
- * if count of count max concurrent streams is greater than default
- * value (100).
- */
-int
-tfw_h2_stream_sched_init(TfwStreamSched *sched,
-			 unsigned int max_concurent_streams)
-{
-	sched->streams = RB_ROOT;
-	tfw_h2_init_stream_sched_entry(&sched->root, NULL);
-	INIT_LIST_HEAD(&sched->empty);
-
-	tfw_h2_stream_sched_init_storage(sched, sched->sched_storage,
-					 MAX_CONCURENT_STREAMS_DEF);
-
-	/*
-	 * Place for first 100 schedulers is allocated with connection
-	 * structure. If count of max concurrent streams is greater we
-	 * should allocate place for extra necessary schedulers.
-	 */
-	if (max_concurent_streams > MAX_CONCURENT_STREAMS_DEF) {
-		unsigned extra_streams =
-			max_concurent_streams - MAX_CONCURENT_STREAMS_DEF;
-		unsigned long extra_sz =
-			extra_streams * sizeof(TfwStreamSchedEntry);
-		void *addr;
-
-		sched->extra_order = get_order(extra_sz);
-		sched->extra_sched_storage = alloc_pages(GFP_ATOMIC,
-							 sched->extra_order);
-		if (!sched->extra_sched_storage)
-			return -ENOMEM;
-
-		addr = page_address(sched->extra_sched_storage);
-		tfw_h2_stream_sched_init_storage(sched, addr, extra_streams);
-	} else {
-		sched->extra_order = 0;
-		sched->extra_sched_storage = NULL;
-	}
-
-	return 0;
-}
-
-void
-tfw_h2_stream_sched_clean(TfwStreamSched *sched)
-{
-	if (sched->extra_sched_storage)
-		__free_pages(sched->extra_sched_storage, sched->extra_order);
 }

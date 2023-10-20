@@ -206,12 +206,15 @@ typedef struct {
 	unsigned int	lstream_id;
 	unsigned long	streams_num;
 	TfwStream	*cur_xmit_stream;
+	struct page	**extra_sched_entries;
 	TfwStreamSched	sched;
 	TfwStreamQueue	closed_streams;
 	TfwStreamQueue	idle_streams;
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
+	unsigned int	extra_sched_entries_count;
+	unsigned int	extra_sched_entries_max_count;
 	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
 	char		__off[0];
 	struct sk_buff	*skb_head;

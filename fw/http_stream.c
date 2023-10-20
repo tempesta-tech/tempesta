@@ -397,7 +397,7 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 	return res;
 }
 
-static inline void
+static inline int
 tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched, TfwStreamState state,
 		   unsigned int id, unsigned short weight, long int loc_wnd,
 		   long int rem_wnd)
@@ -406,7 +406,24 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched, TfwStreamState stat
 	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
 	stream->sched = tfw_h2_alloc_stream_sched_entry(sched);
+
+	if (!stream->sched) {
+		TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
+		unsigned int count = ctx->extra_sched_entries_count;
+		struct page *pg;
+
+		BUG_ON(ctx->extra_sched_entries_max_count == count);
+		pg = alloc_pages(GFP_ATOMIC, 0);
+		if (!pg)
+			return -ENOMEM;
+		tfw_h2_stream_sched_init_entry_storage(sched, page_address(pg),
+						       PAGE_SIZE / sizeof(TfwStreamSchedEntry));
+		ctx->extra_sched_entries[ctx->extra_sched_entries_count++] = pg;
+		stream->sched = tfw_h2_alloc_stream_sched_entry(sched);
+	}
+
 	BUG_ON(!stream->sched);
+
 	tfw_h2_init_stream_sched_entry(stream->sched, stream);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
@@ -415,6 +432,8 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched, TfwStreamState stat
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+
+	return 0;
 }
 
 TfwStream *
