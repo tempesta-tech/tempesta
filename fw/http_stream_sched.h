@@ -26,8 +26,6 @@
 #include "lib/eb64tree.h"
 #include "http_types.h"
 
-#define MAX_CONCURENT_STREAMS_DEF 100
-
 /**
  * @total_weight  - total weight of the streams for this scheduler;
  * @active_cnt	  - count of active child streams for this scheduler;
@@ -54,26 +52,17 @@ typedef struct tfw_stream_sched_entry_t {
  * @stream		- root red-black tree entry for per-connection streams
  *			  storage;
  * @root		- root scheduler of per-connection priority tree;
- * @sched_storage	- storage of schedulers for MAX_CONCURENT_STREAMS_DEF
- *			  streams;
- * @extra_sched_storage - pointer to the place where additional streams
- *			  schedulers (if count of max concurent streams > 100)
- *			  are located;
  * @empty		- list of unused schedulers;
- * @extra_order		- order of allocated pages for extra streams.
  */
 typedef struct tfw_stream_sched_t {
 	struct rb_root		streams;
 	TfwStreamSchedEntry	root;
-	TfwStreamSchedEntry	sched_storage[MAX_CONCURENT_STREAMS_DEF];
-	struct page		*extra_sched_storage;
 	struct list_head	empty;
-	unsigned int		extra_order;
 } TfwStreamSched;
 
-int tfw_h2_stream_sched_init(TfwStreamSched *sched,
-			     unsigned int max_concurent_streams);
-void tfw_h2_stream_sched_clean(TfwStreamSched *sched);
+void tfw_h2_stream_sched_init_entry_storage(TfwStreamSched *sched,
+					    TfwStreamSchedEntry *base,
+					    unsigned int count);
 TfwStreamSchedEntry * tfw_h2_find_stream_dep(TfwStreamSched *sched,
 					     unsigned int id);
 void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
@@ -124,5 +113,14 @@ tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry, TfwStream *owner)
 	entry->parent = NULL;
 	entry->blocked = entry->active = EB_ROOT;
 }
+
+static inline void
+tfw_h2_stream_sched_init(TfwStreamSched *sched)
+{
+	sched->streams = RB_ROOT;
+	tfw_h2_init_stream_sched_entry(&sched->root, NULL);
+	INIT_LIST_HEAD(&sched->empty);
+}
+
 
 #endif /* __HTTP_STREAM_SCHED__ */
