@@ -94,8 +94,8 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 	 * if it was scheduled at least one time.
 	 */
 	prio = !eb_is_empty(&parent->active) ?
-		eb64_entry(eb64_first(&parent->active), TfwStream, sched_node) :
-		NULL;
+		eb64_entry(eb64_first(&parent->active), TfwStream,
+			   sched_node) : NULL;
 	if (prio) {
 		return tfw_h2_stream_has_default_deficit(prio) ?
 			0 : prio->sched_node.key;
@@ -103,8 +103,8 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 
 	/* Same for blocked streams. */
 	prio = !eb_is_empty(&parent->blocked) ?
-		eb64_entry(eb64_first(&parent->blocked), TfwStream, sched_node) :
-		NULL;
+		eb64_entry(eb64_first(&parent->blocked), TfwStream,
+			   sched_node) : NULL;
 	if (prio) {
 		return tfw_h2_stream_has_default_deficit(prio) ?
 			0 : prio->sched_node.key;
@@ -148,9 +148,11 @@ tfw_h2_stream_sched_propagate_add_active_cnt(TfwStreamSched *sched,
 			break;
 
 		if (need_activate && !tfw_h2_stream_is_active(stream)) {
-			BUG_ON(stream->sched_state != HTTP2_STREAM_SCHED_STATE_BLOCKED);
-			tfw_h2_stream_sched_insert_active(stream,
-							  stream->sched_node.key);
+			u64 deficit = stream->sched_node.key;
+
+			BUG_ON(stream->sched_state !=
+			       HTTP2_STREAM_SCHED_STATE_BLOCKED);
+			tfw_h2_stream_sched_insert_active(stream, deficit);
 		}
 	}
 }
@@ -190,9 +192,11 @@ tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
 
 		if (!tfw_h2_stream_is_active(stream)
 		    && !tfw_h2_stream_sched_is_active(stream->sched)) {
-		    	BUG_ON(stream->sched_state != HTTP2_STREAM_SCHED_STATE_ACTIVE);
-			tfw_h2_stream_sched_insert_blocked(stream,
-							   stream->sched_node.key);
+		    	u64 deficit = stream->sched_node.key;
+
+		    	BUG_ON(stream->sched_state !=
+		    	       HTTP2_STREAM_SCHED_STATE_ACTIVE);
+			tfw_h2_stream_sched_insert_blocked(stream, deficit);
 		}
 	}
 }
@@ -520,8 +524,8 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 			return stream;
 		} else if (tfw_h2_stream_sched_is_active(stream->sched)) {
 			/*
-			 * This stream is blocked, but have active children, try
-			 * to use one of them.
+			 * This stream is blocked, but have active children,
+			 * try to use one of them.
 			 */
 			*parent = stream->sched->parent;
 			tfw_h2_stream_sched_remove(sched, stream);
@@ -551,14 +555,17 @@ void
 tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched->parent;
+	u64 deficit;
 
 	BUG_ON(!tfw_h2_stream_is_active(stream));
 	BUG_ON(!parent);
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 
-	if (!tfw_h2_stream_sched_is_active(stream->sched))
-		tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
+	if (!tfw_h2_stream_sched_is_active(stream->sched)) {
+		deficit = stream->sched_node.key;
+		tfw_h2_stream_sched_insert_active(stream, deficit);
+	}
 
 	while (true) {
 		bool need_activate = !tfw_h2_stream_sched_is_active(parent);
@@ -571,8 +578,10 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 		parent = stream->sched->parent;
 		BUG_ON(!parent);
 
-		if (need_activate && !tfw_h2_stream_is_active(stream))
-		    	tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
+		if (need_activate && !tfw_h2_stream_is_active(stream)) {
+			deficit = stream->sched_node.key;
+		    	tfw_h2_stream_sched_insert_active(stream, deficit);
+		}
 	}
 }
 

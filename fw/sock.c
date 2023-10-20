@@ -165,8 +165,8 @@ ss_active_guard_enter(unsigned long val)
 	atomic64_t *acnt = this_cpu_ptr(&__ss_act_cnt);
 
 	/*
-	 * Don't race with ss_wait_newconn() and ss_synchronize() on the __ss_act_cnt
-	 * if we commited to shutdown.
+	 * Don't race with ss_wait_newconn() and ss_synchronize() on the
+	 * __ss_act_cnt if we commited to shutdown.
 	 */
 	if (unlikely(!READ_ONCE(__ss_active)))
 		return SS_BAD;
@@ -420,7 +420,8 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	h2 = tfw_h2_context(conn);
 
 	if (resp) {
-		stream = tfw_h2_find_not_closed_stream(h2, resp->stream_id, false);
+		stream = tfw_h2_find_not_closed_stream(h2, resp->stream_id,
+						       false);
 		/*
 		 * Very unlikely case. We check that stream is active, before
 		 * calling ss_send, but there is a very small chance, that
@@ -614,7 +615,8 @@ ss_finish_closing(struct sock *sk, int flags)
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
 		if (tmo > TCP_TIMEWAIT_LEN) {
-			inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
+			const int delta = tmo - TCP_TIMEWAIT_LEN;
+			inet_csk_reset_keepalive_timer(sk, delta);
 		} else {
 			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
 			return;
@@ -639,8 +641,9 @@ ss_finish_closing(struct sock *sk, int flags)
 		if (flags & __SS_F_RST)
 			/*
 			 * Evict all data for transmission since we might never
-			 * have enough window from the malicious/misbehaving client.
-			 * Receive queue is purged in inet_csk_destroy_sock().
+			 * have enough window from the malicious/misbehaving
+			 * client. Receive queue is purged in
+			 * inet_csk_destroy_sock().
 			 */
 			tcp_write_queue_purge(sk);
 		inet_csk_destroy_sock(sk);
@@ -1383,9 +1386,10 @@ ss_connect(struct sock *sk, const TfwAddr *addr, int flags)
 	bh_unlock_sock(sk);
 
 	/*
-	 * If connect() successfully returns, then the socket is living somewhere
-	 * in TCP code and it will move to established or closed state.
-	 * So we decrement __ss_act_cnt when the socket die, no need to do this now.
+	 * If connect() successfully returns, then the socket is living
+	 * somewhere in TCP code and it will move to established or closed
+	 * state. So we decrement __ss_act_cnt when the socket die, no need
+	 * to do this now.
 	 */
 	if (unlikely(r))
 		ss_active_guard_exit(SS_V_ACT_LIVECONN);
@@ -1524,9 +1528,10 @@ ss_tx_action(void)
 			 * Don't make TSQ spin on the lock while we're working
 			 * with the socket.
 			 *
-			 * Socket is locked and this synchronizes possible socket
-			 * closing with tcp_tasklet_func(): we must clear the
-			 * TSQ deffered flag with sk->sk_lock.owned = 1.
+			 * Socket is locked and this synchronizes possible
+			 * socket closing with tcp_tasklet_func(): we must
+			 * clear the TSQ deffered flag with
+			 * sk->sk_lock.owned = 1.
 			 *
 			 * Set sk->sk_lock.owned = 0 if no closing is required,
 			 * otherwise ss_do_close() does this.
@@ -1554,7 +1559,8 @@ ss_tx_action(void)
 			 * never allocated.
 			 */
 			if (!((1 << sk->sk_state)
-			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT | TCPF_CLOSE_WAIT)))
+			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT |
+			      	 TCPF_CLOSE_WAIT)))
 			{
 				T_DBG2("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
@@ -1824,8 +1830,8 @@ tfw_sync_socket_init(void)
 		r = tfw_wq_init(wq, max_t(unsigned int, TFW_DFLT_QSZ, __wq_size),
 				cpu_to_node(cpu));
 		if (r) {
-			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work queue for CPU #%d\n",
-				 __func__, cpu);
+			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work queue "
+				 "for CPU #%d\n", __func__, cpu);
 			kmem_cache_destroy(ss_cbacklog_cache);
 			return r;
 		}

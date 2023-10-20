@@ -213,17 +213,17 @@ static inline int
 tfw_h2_context_init_sched_enry_stoarge(TfwH2Ctx *ctx)
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	unsigned int def_sched_entry_count =
-		(2 * PAGE_SIZE - sizeof(TfwH2Conn)) / sizeof(TfwStreamSchedEntry);
+	unsigned int def_sched_entry_count = 
+		(2 * PAGE_SIZE - sizeof(TfwH2Conn)) /
+		sizeof(TfwStreamSchedEntry);
 	unsigned int extra_sched_entry_count =
 		tfw_cli_max_concurrent_streams > def_sched_entry_count ?
-			tfw_cli_max_concurrent_streams - def_sched_entry_count :
-			0;
+		tfw_cli_max_concurrent_streams - def_sched_entry_count : 0;
 	TfwStreamSchedEntry *base =
 		(TfwStreamSchedEntry *)((char *)conn + sizeof(TfwH2Conn));
 
 	/*
-	 * We allocate PAGE_SIZE bytes for each TfwH2Conn, and
+	 * We allocate 2 * PAGE_SIZE bytes for each TfwH2Conn, and
 	 * use free memory after TfwH2Conn structure for sched
 	 * entries.
 	 */
@@ -231,11 +231,10 @@ tfw_h2_context_init_sched_enry_stoarge(TfwH2Ctx *ctx)
 					       def_sched_entry_count);
 
 	if (extra_sched_entry_count) {
-		unsigned int sched_per_page = PAGE_SIZE / sizeof(TfwStreamSchedEntry);
-		unsigned int cnt = extra_sched_entry_count / sched_per_page +
-			(extra_sched_entry_count % sched_per_page ? 1 : 0);
+		unsigned int cnt = extra_sched_entry_count / SCHED_PER_PAGE +
+			(extra_sched_entry_count % SCHED_PER_PAGE ? 1 : 0);
 
-		ctx->extra_sched_entries = kzalloc(cnt * sizeof (struct page *),
+		ctx->extra_sched_entries = kzalloc(cnt * sizeof(struct page *),
 						   GFP_ATOMIC);
 		if (!ctx->extra_sched_entries)
 			return -ENOMEM;
@@ -782,7 +781,8 @@ tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 static inline void
 tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 {
-	T_DBG3("%s: ctx [%p] ctx->cur_stream %p\n", __func__, ctx, ctx->cur_stream);
+	T_DBG3("%s: ctx [%p] ctx->cur_stream %p\n", __func__,
+	       ctx, ctx->cur_stream);
 	tfw_h2_stream_unlink(ctx, ctx->cur_stream);
 	tfw_h2_stream_clean(ctx, ctx->cur_stream);
 	ctx->cur_stream = NULL;
@@ -1063,7 +1063,8 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 						 HTTP2_RST_STREAM, 0))
 			return -EPERM;
 
-		return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
+		return tfw_h2_stream_close(ctx, hdr->stream_id,
+					   &ctx->cur_stream,
 					   HTTP2_ECODE_PROTO);
 	}
 
