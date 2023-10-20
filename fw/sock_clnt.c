@@ -141,10 +141,10 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 	/*
-	 * The lock is needed because the timer deletion was moved from release() to
-	 * drop(). While release() is called when there are no other users, there is
-	 * no such luxury with drop() and the connection can still be used due to
-	 * lingering threads.
+	 * The lock is needed because the timer deletion was moved from
+	 * release() to drop(). While release() is called when there are
+	 * no other users, there is no such luxury with drop() and the
+	 * connection can still be used due to lingering threads.
 	 */
 	spin_lock(&cli_conn->timer_lock);
 	if (timer_pending(&cli_conn->timer))
@@ -601,11 +601,11 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	 *
 	 * We use static SsProto's for sk_user_data for listening sockets.
 	 * This way initialization of passively open sockets doesn't depend
-	 * on the listening socket, which might be closed during a new connection
-	 * establishing.
+	 * on the listening socket, which might be closed during a new
+	 * connection establishing.
 	 *
-	 * When a listening socket is closed, the children sockets might live for
-	 * an unlimited time.
+	 * When a listening socket is closed, the children sockets might live
+	 * for an unlimited time.
 	 */
 	ls->sk = sk;
 	sk->sk_user_data = (SsProto *)tfw_sock_clnt_proto(ls->proto.type);
@@ -856,7 +856,8 @@ tfw_sock_clnt_start(void)
 		/*
 		 * Paired with tfw_classify_conn_estab(): firstly add the port
 		 * to the bitmap and then move it to the listen state to
-		 * guarantee that the HTTP limits initialization code was called.
+		 * guarantee that the HTTP limits initialization code was
+		 * called.
 		 */
 		tfw_classifier_add_inport(tfw_addr_port(&ls->addr));
 
@@ -1026,7 +1027,8 @@ tfw_sock_clnt_init(void)
 		return -ENOMEM;
 
 	tfw_https_conn_cache = kmem_cache_create("tfw_https_conn_cache",
-						 sizeof(TfwTlsConn), 0, 0, NULL);
+						 sizeof(TfwTlsConn), 0, 0,
+						 NULL);
 	if (!tfw_https_conn_cache) {
 		kmem_cache_destroy(tfw_h1_conn_cache);
 		return -ENOMEM;

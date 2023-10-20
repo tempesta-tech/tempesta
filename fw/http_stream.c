@@ -148,8 +148,8 @@ do {									\
 			stream->state = HTTP2_STREAM_OPENED;
 		} else if (type != HTTP2_PRIORITY) {
 			/*
-			 * TODO receiving of HTTP2_PUSH_PROMISE switched stream to
-			 * HTTP2_STREAM_REM_RESERVED state.
+			 * TODO receiving of HTTP2_PUSH_PROMISE switched stream
+			 * to HTTP2_STREAM_REM_RESERVED state.
 			 */
 			*err = HTTP2_ECODE_PROTO;
 			res = STREAM_FSM_RES_TERM_CONN;
@@ -421,8 +421,9 @@ finish:
 }
 
 static inline int
-tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched, TfwStreamState state,
-		   unsigned int id, unsigned short weight, long int loc_wnd,
+tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched,
+		   TfwStreamState state, unsigned int id,
+		   unsigned short weight, long int loc_wnd,
 		   long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
@@ -440,7 +441,7 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched, TfwStreamState stat
 		if (!pg)
 			return -ENOMEM;
 		tfw_h2_stream_sched_init_entry_storage(sched, page_address(pg),
-						       PAGE_SIZE / sizeof(TfwStreamSchedEntry));
+						       SCHED_PER_PAGE);
 		ctx->extra_sched_entries[ctx->extra_sched_entries_count++] = pg;
 		stream->sched = tfw_h2_alloc_stream_sched_entry(sched);
 	}

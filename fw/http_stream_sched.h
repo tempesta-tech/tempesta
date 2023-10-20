@@ -60,6 +60,8 @@ typedef struct tfw_stream_sched_t {
 	struct list_head	empty;
 } TfwStreamSched;
 
+#define SCHED_PER_PAGE (PAGE_SIZE / sizeof(TfwStreamSchedEntry))
+
 void tfw_h2_stream_sched_init_entry_storage(TfwStreamSched *sched,
 					    TfwStreamSchedEntry *base,
 					    unsigned int count);
