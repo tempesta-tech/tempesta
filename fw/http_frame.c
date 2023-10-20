@@ -2675,7 +2675,7 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
 
 	while (tfw_h2_stream_sched_is_active(&sched->root)
-	       && cwnd_awail >= FRAME_HEADER_SIZE && ctx->rem_wnd)
+	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd)
 	{
 		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
 		/*
