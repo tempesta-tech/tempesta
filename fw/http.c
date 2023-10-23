@@ -4834,7 +4834,9 @@ tfw_h2_resp_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	resp->stream_id = resp->req->stream->id;
 	set_bit(TFW_HTTP_B_RESP_XMIT, resp->flags);
 	skb_set_tfw_cb_ptr(((TfwMsg *)resp)->skb_head, resp);
-	tfw_h2_stream_init_for_xmit(resp->req->stream, state, h_len, b_len);
+	tfw_h2_stream_init_for_xmit(resp->req->stream, state, h_len, b_len,
+				    test_bit(TFW_HTTP_B_RESP_PROGRESSIVE,
+					     resp->flags));
 
 	spin_unlock(&ctx->lock);
 

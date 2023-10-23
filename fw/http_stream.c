@@ -527,6 +527,9 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwHttpResp *resp = stream->xmit.resp;
 
+	if (ctx->cur_xmit_stream == stream)
+		ctx->cur_xmit_stream = NULL;
+
 	if (resp) {
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
