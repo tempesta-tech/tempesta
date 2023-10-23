@@ -314,6 +314,8 @@ enum {
 	TFW_HTTP_B_RESP_READY,
 	/* Response should be alive, since it is used in xmit callback. */
 	TFW_HTTP_B_RESP_XMIT,
+	/* Response stream has benefit from processing in parallel. */
+	TFW_HTTP_B_RESP_PROGRESSIVE,
 	/*
 	 * Response has header 'Etag: ' and this header is
 	 * not enclosed in double quotes.

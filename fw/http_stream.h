@@ -123,6 +123,7 @@ typedef enum {
  * @tls_type		- tls type for skbs;
  * @is_blocked  	- stream is blocked, because of exceeding of
  *			  HTTP window;
+ * @is_progressive	- stream has benefit from processing in parallel;
  */
 typedef struct {
 	TfwHttpResp		*resp;
@@ -133,6 +134,7 @@ typedef struct {
 	TfwStreamXmitState	state;
 	unsigned char		tls_type;
 	bool			is_blocked;
+	bool			is_progressive;
 } TfwHttpXmit;
 
 /**
@@ -260,7 +262,8 @@ tfw_h2_stream_try_unblock(TfwStreamSched *sched, TfwStream *stream)
 
 static inline void
 tfw_h2_stream_init_for_xmit(TfwStream *stream, TfwStreamXmitState state,
-			    unsigned long h_len, unsigned long b_len)
+			    unsigned long h_len, unsigned long b_len,
+			    bool is_progressive)
 {
 	stream->xmit.resp = NULL;
 	stream->xmit.skb_head = NULL;
@@ -268,6 +271,7 @@ tfw_h2_stream_init_for_xmit(TfwStream *stream, TfwStreamXmitState state,
 	stream->xmit.b_len = b_len;
 	stream->xmit.state = state;
 	stream->xmit.is_blocked = false;
+	stream->xmit.is_progressive = is_progressive;
 }
 
 static inline void

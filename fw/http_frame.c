@@ -2742,7 +2742,18 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		 */
 		BUG_ON(!stream);
 
-		if (ctx->cur_xmit_stream && !ctx->cur_xmit_stream->xmit.is_blocked &&
+		/*
+		 * There are not so much resources that have benefit from
+		 * processing in parallel (progressive images, video, audio).
+		 * If the next stream, which is returned by the scheduler
+		 * algorithm has the same weight and parent that current stream
+		 * and both streams are not progressive, we don't switch to the
+		 * new stream.
+		 */
+		if (ctx->cur_xmit_stream &&
+		    !ctx->cur_xmit_stream->xmit.is_progressive &&
+		    !stream->xmit.is_progressive &&
+		    !ctx->cur_xmit_stream->xmit.is_blocked &&
 		    ctx->cur_xmit_stream->sched->parent == parent &&
 		    ctx->cur_xmit_stream->weight == stream->weight) {
 			tfw_h2_sched_stream_enqueue(sched, stream, parent,
