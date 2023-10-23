@@ -1383,6 +1383,7 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 		       TfwHttpResp *resp, size_t *tot_len)
 {
 	long n;
+	int r;
 	TfwMsgIter it;
 	TfwStr chunk;
 	TfwStr *body = &resp->body;
@@ -1397,7 +1398,8 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	it.frag = -1;
 
 	/* Move to the beginning of body. */
-	tfw_http_iter_set_at(&it, body->data);
+	if ((r = ss_skb_find_frag_by_offset(it.skb, body->data, &it.frag)))
+		return r;
 	chunk.data = body->data;
 
 	if (it.frag == -1) {
@@ -1439,6 +1441,8 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 			chunk.len = skb_frag_size(f);
 		}
 	} while (true);
+
+	WARN_ON(*acc_len != body->len);
 
 	return 0;
 }

@@ -370,7 +370,8 @@ typedef struct {
  * @conn		- connection which the message was received on;
  * @destructor		- called when a connection is destroyed;
  * @crlf		- pointer to CRLF between headers and body;
- * @body		- pointer to the body of a message;
+ * @body		- contains start of the body of a message and length of
+ * 			  whole body. Do not use as regular TfwStr;
  *
  * TfwStr members must be the last for efficient scanning.
  *
