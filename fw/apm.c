@@ -1241,11 +1241,26 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 		atomic64_inc(&hmctl->rcount);
 }
 
+static inline u32
+__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
+		     TfwStr *body)
+{
+	u32 crc = 0;
+
+	TFW_BODY_ITER_WALK(it, chunk)
+		crc = crc32(crc, chunk->data, chunk->len);
+
+	return crc;
+}
+
 bool
-tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
+tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
+		     void *apmref)
 {
 	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
 	u32 crc32 = 0;
+	TfwMsgIter it;
+	TfwStr chunk = {0};
 
 	BUG_ON(!hm);
 	if (hm->codes && !test_bit(HTTP_CODE_BIT_NUM(status), hm->codes)) {
@@ -1260,14 +1275,22 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
 		return true;
 	}
 
+	if (unlikely(tfw_body_iter_init(&it, &chunk, body->data, body->skb,
+					skb_head)))
+	{
+		T_WARN_NL("Invalid body. Health monitor '%s': status '%d' \n",
+			  hm->name, status);
+		return false;
+	}
+
 	/*
 	 * Special case for 'auto' monitor: generate crc32
 	 * from body of first response and store it into monitor.
 	 */
 	if (!hm->crc32 && hm->auto_crc) {
-		hm->crc32 = tfw_str_crc32_calc(body);
+		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
 	} else if (hm->crc32) {
-		crc32 = tfw_str_crc32_calc(body);
+		crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
 		if (hm->crc32 != crc32)
 			goto crc_err;
 	}
