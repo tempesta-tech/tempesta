@@ -114,6 +114,7 @@ typedef enum {
 	TFW_HTTP_METH_PURGE,
 	/* Unknown method, passed to upstream without additional processing. */
 	_TFW_HTTP_METH_UNKNOWN,
+	_TFW_HTTP_METH_INCOMPLETE,
 	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
