@@ -5552,8 +5552,6 @@ do {									\
 	__fsm_n += step_inc;						\
 	goto match_meth;						\
 } while (0)
-#define __MK_METH_UNKNOWN()						\
-do { req->method = _TFW_HTTP_METH_UNKNOWN; } while (0)
 
 	__fsm_n = 4;
 	switch (PI(p)) {
@@ -5563,21 +5561,21 @@ do { req->method = _TFW_HTTP_METH_UNKNOWN; } while (0)
 	case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(PURGE, 1);
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
 	case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
 		__MATCH_METH(COPY, 0);
 	case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
 		if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
 			__MATCH_METH(DELETE, 2);
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethDele, 4);
 	case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
 		__MATCH_METH(LOCK, 0);
 	case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
 		if (likely(*(p + 4) == 'L'))
 			__MATCH_METH(MKCOL, 1);
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
 	case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
 		__MATCH_METH(MOVE, 0);
@@ -5588,12 +5586,12 @@ do { req->method = _TFW_HTTP_METH_UNKNOWN; } while (0)
 			req->method = TFW_HTTP_METH_OPTIONS;
 			__FSM_MOVE_nofixup_n(Req_Uri, 8);
 		}
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
 	case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
 		if (likely(*(p + 4) == 'H'))
 			__MATCH_METH(PATCH, 1);
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
 	case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
 		if (likely(*((unsigned int *)p + 1)
@@ -5607,7 +5605,7 @@ do { req->method = _TFW_HTTP_METH_UNKNOWN; } while (0)
 		{
 			__MATCH_METH(PROPPATCH, 5);
 		}
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethProp, 4);
 	case TFW_CHAR4_INT('P', 'U', 'T', ' '):
 		req->method = TFW_HTTP_METH_PUT;
@@ -5615,12 +5613,12 @@ do { req->method = _TFW_HTTP_METH_UNKNOWN; } while (0)
 	case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(TRACE, 1);
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
 	case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
 		if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
 			__MATCH_METH(UNLOCK, 2);
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
 	default:
 		__FSM_JMP(Req_MethodUnknown);
@@ -5633,38 +5631,37 @@ match_meth:
 Req_Method_1CharStep: __attribute__((cold))
 	switch (c) {
 	case 'G':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethG);
 	case 'H':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethH);
 	case 'P':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethP);
 	case 'C':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethC);
 	case 'D':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethD);
 	case 'L':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethL);
 	case 'M':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethM);
 	case 'O':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethO);
 	case 'T':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethT);
 	case 'U':
-		__MK_METH_UNKNOWN();
+		req->method = _TFW_HTTP_METH_INCOMPLETE;
 		__FSM_MOVE_nofixup(Req_MethU);
 	}
 	__FSM_JMP(Req_MethodUnknown);
-#undef __MK_METH_UNKNOWN						\
 
 	/* ----------------    Improbable states    ---------------- */
 
@@ -5794,8 +5791,10 @@ Req_Method_1CharStep: __attribute__((cold))
 			parser->state = &&Req_MethodUnknown;
 			__FSM_EXIT(TFW_POSTPONE);
 		}
-		if (unlikely(req->method != _TFW_HTTP_METH_UNKNOWN))
+		if (unlikely(req->method != _TFW_HTTP_METH_UNKNOWN &&
+			     req->method != _TFW_HTTP_METH_INCOMPLETE))
 			TFW_PARSER_BLOCK(Req_MethodUnknown);
+		req->method = _TFW_HTTP_METH_UNKNOWN;
 			/* if neither here nor earlier we did not
 			 * assign the _TFW_HTTP_METH_UNKNOWN
 			 * then there is zero-length method name
