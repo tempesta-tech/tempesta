@@ -33,8 +33,8 @@ performance characteristics in comparison with TCP servers on top of common
 Socket API or even DPDK or other kernel bypass technology.
 
 We do our best to keep the kernel modifications as small as possible. Current
-[patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.14.32.patch)
-is just about 2,700 lines.
+[patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-5.10.35.patch)
+is just about 3,100 lines.
 
 
 ## Current state
