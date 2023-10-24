@@ -1094,7 +1094,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	/* Ensure that HTTP request method is one of those defined by a user. */
 	T_FSM_STATE(Frang_Req_Hdr_Method) {
 		if (f_cfg->http_methods_mask) {
-			if (req->method == _TFW_HTTP_METH_NONE) {
+			if (req->method == _TFW_HTTP_METH_NONE ||
+			    req->method == _TFW_HTTP_METH_INCOMPLETE) {
 				T_FSM_EXIT();
 			}
 			r = frang_http_methods(req, ra,
