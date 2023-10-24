@@ -605,179 +605,6 @@ tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 	return T_OK;
 }
 
-/*
- * Add stream to queue.
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static inline void
-__tfw_h2_stream_add_to_queue(TfwStreamQueue *queue, TfwStream *stream)
-{
-	if (!list_empty(&stream->hcl_node))
-		return;
-
-	list_add_tail(&stream->hcl_node, &queue->list);
-	stream->queue = queue;
-	++stream->queue->num;
-}
-
-/*
- * Del stream from queue.
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static inline void
-__tfw_h2_stream_del_from_queue(TfwStream *stream)
-{
-	if(list_empty(&stream->hcl_node))
-		return;
-
-	BUG_ON(!stream->queue);
-	BUG_ON(!stream->queue->num);
-
-	list_del_init(&stream->hcl_node);
-	--stream->queue->num;
-	stream->queue = NULL;
-}
-
-static void
-tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
-{
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	struct list_head *pos, *prev = &ctx->idle_streams.list;
-	bool found = false;
-
-	/*
-	 * We add and remove streams from idle queue under the
-	 * socket lock.
-	 */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-
-	/*
-	 * Found first idle stream with id less than new idle
-	 * stream, then insert new stream before this stream.
-	 */
-	list_for_each(pos, &ctx->idle_streams.list) {
-		TfwStream *stream = list_entry(pos, TfwStream, hcl_node);
-
-		if (idle->id > stream->id) {
-			found = true;
-			break;
-		}
-		prev = &stream->hcl_node;
-	}
-
-	if (found) {
-		list_add(&idle->hcl_node, prev);
-		idle->queue = &ctx->idle_streams;
-		++idle->queue->num;
-	} else {
-		__tfw_h2_stream_add_to_queue(&ctx->idle_streams, idle);
-	}
-}
-
-static void
-tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
-{
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-
-	/*
-	 * We add and remove streams from idle queue under the
-	 * socket lock.
-	 */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-	__tfw_h2_stream_del_from_queue(stream);
-}
-
-/*
- * Create a new stream and add it to the streams storage and to the dependency
- * tree. Note, that we do not need to protect the streams storage in @sched from
- * concurrent access, since all operations with it (adding, searching and
- * deletion) are done only in receiving flow of Frame layer.
- */
-static TfwStream *
-tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
-{
-	TfwStream *stream;
-	TfwStreamSchedEntry *dep = NULL;
-	TfwFramePri *pri = &ctx->priority;
-	bool excl = pri->exclusive;
-
-	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
-	stream = tfw_h2_add_stream(&ctx->sched, state, id, pri->weight,
-				   ctx->lsettings.wnd_sz,
-				   ctx->rsettings.wnd_sz);
-	if (!stream)
-		return NULL;
-
-	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
-	if (state == HTTP2_STREAM_IDLE)
-		tfw_h2_stream_add_idle(ctx, stream);
-
-	++ctx->streams_num;
-
-	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
-	       "added strm [%p] id %u weight %u\n",
-	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
-	       stream, id, stream->weight);
-
-	return stream;
-}
-
-static inline void
-tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
-{
-	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
-	       __func__, stream, stream->id, stream->state,
-	       __h2_strm_st_n(stream->state), stream->weight,
-	       ctx->streams_num);
-	tfw_h2_stop_stream(&ctx->sched, stream);
-	tfw_h2_delete_stream(stream);
-	--ctx->streams_num;
-}
-
-/*
- * Unlink the stream from a corresponding request (if linked) and from special
- * queue of closed streams (if it is contained there).
- *
- * NOTE: call to this procedure should be protected by special lock for
- * Stream linkage protection.
- */
-static void
-__tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
-{
-	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
-
-	__tfw_h2_stream_del_from_queue(stream);
-
-	if (hmreq) {
-		hmreq->stream = NULL;
-		/*
-		 * If the request is linked with a stream, but not complete yet,
-		 * it must be deleted right here to avoid leakage, because in
-		 * this case it is not used anywhere yet. When request is
-		 * assembled and complete, it will be removed (due to some
-		 * processing error) in @tfw_http_req_process(), or in other
-		 * cases controlled by server connection side (after adding to
-		 * @fwd_queue): successful response sending, eviction etc.
-		 */
-		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
-			tfw_http_conn_msg_free(hmreq);
-	}
-}
-
-static inline void
-tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
-{
-	spin_lock(&ctx->lock);
-
-	__tfw_h2_stream_unlink(ctx, stream);
-
-	spin_unlock(&ctx->lock);
-}
-
 static inline void
 tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 {
@@ -843,35 +670,6 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;
-}
-
-void
-tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
-{
-	spin_lock(&ctx->lock);
-	__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
-	spin_unlock(&ctx->lock);
-}
-
-TfwStreamFsmRes
-tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
-{
-	TfwStreamFsmRes r;
-	unsigned char flags = 0;
-
-	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
-
-	if (!stream->xmit.h_len && type != HTTP2_DATA)
-		flags |= HTTP2_F_END_HEADERS;
-
-	if (!stream->xmit.b_len)
-		flags |= HTTP2_F_END_STREAM;
-
-	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
-	if (tfw_h2_get_stream_state(stream) > HTTP2_STREAM_REM_HALF_CLOSED)
-		tfw_h2_stream_add_closed(ctx, stream);
-
-	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
 }
 
 /*
@@ -975,7 +773,7 @@ tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req)
 	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_RST_STREAM, 0);
 	WARN_ON_ONCE(r != STREAM_FSM_RES_OK && r != STREAM_FSM_RES_IGNORE);
 
-	__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
+	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams, stream);
 
 	spin_unlock(&ctx->lock);
 }
@@ -1005,7 +803,7 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 		BUG_ON(list_empty(&closed_streams->list));
 		cur = list_first_entry(&closed_streams->list, TfwStream,
 				       hcl_node);
-		__tfw_h2_stream_unlink(ctx, cur);
+		tfw_h2_stream_unlink_nolock(ctx, cur);
 
 		spin_unlock(&ctx->lock);
 
@@ -1614,7 +1412,7 @@ tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 		if (id <= stream->id)
 			break;
 
-		__tfw_h2_stream_del_from_queue(stream);
+		tfw_h2_stream_del_from_queue_nolock(stream);
 		stream->state = HTTP2_STREAM_REM_CLOSED;
 		tfw_h2_stream_add_closed(ctx, stream);
 	}

@@ -208,8 +208,19 @@ TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state,
 			     unsigned int id, unsigned short weight,
 			     long int loc_wnd, long int rem_wnd);
+TfwStream *tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state,
+				unsigned int id);
+void tfw_h2_stream_add_to_queue_nolock(TfwStreamQueue *queue,
+				       TfwStream *stream);
+void tfw_h2_stream_del_from_queue_nolock(TfwStream *stream);
+void tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_delete_stream(TfwStream *stream);
-void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
+void tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream);
+void tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream);
+void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
+TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
+					   unsigned char type);
 
 static inline TfwStreamState
 tfw_h2_get_stream_state(TfwStream *stream)
