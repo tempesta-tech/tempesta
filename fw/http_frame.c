@@ -170,7 +170,8 @@ do {									\
 #define SET_TO_READ_VERIFY(ctx, next_state)				\
 do {									\
 	typeof(next_state) state = (!ctx->cur_stream ||			\
-		ctx->cur_stream->state < HTTP2_STREAM_LOC_CLOSED) ?	\
+		tfw_h2_get_stream_state(ctx->cur_stream) <		\
+		HTTP2_STREAM_LOC_CLOSED) ?				\
 		next_state : HTTP2_IGNORE_FRAME_DATA;			\
 	if ((ctx)->hdr.length) {					\
 		SET_TO_READ(ctx);                                       \
@@ -186,14 +187,15 @@ do {									\
 #define STREAM_RECV_PROCESS(ctx, hdr)					\
 ({									\
 	TfwStreamFsmRes res;						\
+	TfwStreamState s;						\
 	TfwH2Err err = HTTP2_ECODE_NO_ERROR;				\
 	BUG_ON(!(ctx)->cur_stream);					\
-	if ((res = tfw_h2_stream_fsm((ctx)->cur_stream, (hdr)->type,	\
+	if ((res = tfw_h2_stream_fsm((ctx), (ctx)->cur_stream, (hdr)->type, \
 				     (hdr)->flags, false, &err)))	\
 	{								\
+		s = tfw_h2_get_stream_state((ctx)->cur_stream);		\
 		T_DBG3("stream recv processed: result=%d, state=%d, id=%u," \
-		       " err=%d\n", res, (ctx)->cur_stream->state,	\
-		       (ctx)->cur_stream->id, err);			\
+		       " err=%d\n", res, s, (ctx)->cur_stream->id, err); \
 		SET_TO_READ_VERIFY((ctx), HTTP2_IGNORE_FRAME_DATA);	\
 		if (res == STREAM_FSM_RES_TERM_CONN) {			\
 			tfw_h2_conn_terminate((ctx), err);		\
@@ -603,10 +605,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 static inline void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
-	       __func__, stream, stream->id, stream->state,
-	       __h2_strm_st_n(stream->state), stream->weight,
-	       ctx->streams_num);
+	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx "
+	       "streams num %lu\n",  __func__, stream, stream->id,
+	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
+	       stream->weight, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;
@@ -745,8 +747,8 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.b_len)
 		flags |= HTTP2_F_END_STREAM;
 
-	r = tfw_h2_stream_fsm_ignore_err(stream, type, flags);
-	if (stream->state > HTTP2_STREAM_REM_HALF_CLOSED)
+	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
+	if (tfw_h2_get_stream_state(stream) > HTTP2_STREAM_REM_HALF_CLOSED)
 		tfw_h2_stream_add_closed(ctx, stream);
 
 	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
@@ -769,9 +771,11 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 	if (stream && *stream) {
 		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
 			ctx, *stream, id, err_code);
-		if ((*stream)->state > HTTP2_STREAM_REM_HALF_CLOSED)
+		tf2_h2_conn_reset_stream_on_close(ctx, *stream);
+		if (tfw_h2_get_stream_state(*stream) >
+		    HTTP2_STREAM_REM_HALF_CLOSED) {
 			tfw_h2_stream_add_closed(ctx, *stream);
-		else {
+		} else {
 			/*
 			 * This function is always called after processing
 			 * RST STREAM or stream error.
@@ -848,7 +852,7 @@ tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req)
 	req->stream = NULL;
 	stream->msg = NULL;
 
-	r = tfw_h2_stream_fsm_ignore_err(stream, HTTP2_RST_STREAM, 0);
+	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_RST_STREAM, 0);
 	WARN_ON_ONCE(r != STREAM_FSM_RES_OK && r != STREAM_FSM_RES_IGNORE);
 
 	__tfw_h2_stream_add_to_queue(&ctx->closed_streams, stream);
@@ -899,8 +903,9 @@ tfw_h2_check_closed_stream(TfwH2Ctx *ctx)
 	BUG_ON(!ctx->cur_stream);
 
 	T_DBG3("%s: strm [%p] id %u state %d(%s), streams_num %lu\n",
-	       __func__, ctx->cur_stream, ctx->cur_stream->id, ctx->cur_stream->state,
-	       __h2_strm_st_n(ctx->cur_stream->state), ctx->streams_num);
+	       __func__, ctx->cur_stream, ctx->cur_stream->id,
+	       tfw_h2_get_stream_state(ctx->cur_stream),
+	       __h2_strm_st_n(ctx->cur_stream), ctx->streams_num);
 
 	if (tfw_h2_stream_is_closed(ctx->cur_stream))
 		tfw_h2_current_stream_remove(ctx);
@@ -935,7 +940,7 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream,
+		if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
 						 HTTP2_RST_STREAM, 0))
 			return -EPERM;
 
@@ -1013,7 +1018,8 @@ fail:
 		return -EPIPE;
 	}
 
-	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
+					 HTTP2_RST_STREAM, 0))
 		return -EPERM;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
@@ -1046,7 +1052,8 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-	if (tfw_h2_stream_fsm_ignore_err(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
+					 HTTP2_RST_STREAM, 0))
 		return -EPERM;
 
 	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
@@ -1079,10 +1086,12 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 	 * space in a flow-control window to become negative.
 	 */
 	rbtree_postorder_for_each_entry_safe(stream, next,
-					     &ctx->sched.streams, node)
-		if (stream->state == HTTP2_STREAM_OPENED ||
-		    stream->state == HTTP2_STREAM_REM_HALF_CLOSED)
+					     &ctx->sched.streams, node) {
+		TfwStreamState state = tfw_h2_get_stream_state(stream);
+		if (state == HTTP2_STREAM_OPENED ||
+		    state == HTTP2_STREAM_REM_HALF_CLOSED)
 			stream->rem_wnd += delta;
+	}
 }
 
 static int
@@ -2305,7 +2314,8 @@ tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 	 * It is HTTP2_STREAM_LOC_CLOSED state in our implementation.
 	 */
         if (!stream || (stream->queue == &ctx->closed_streams
-                        && (!recv || stream->state > HTTP2_STREAM_LOC_CLOSED)))
+                        && (!recv || tfw_h2_get_stream_state(stream) >
+			    HTTP2_STREAM_LOC_CLOSED)))
 		return NULL;
 
 	return stream;

@@ -424,7 +424,7 @@ test_case_parse_prepare_h2(void)
 {
 	tfw_h2_context_init(&conn.h2);
 	conn.h2.hdr.type = HTTP2_HEADERS;
-	stream.state = HTTP2_STREAM_REM_HALF_CLOSED;
+	tfw_h2_set_stream_state(&stream, HTTP2_STREAM_REM_HALF_CLOSED);
 }
 
 /**
