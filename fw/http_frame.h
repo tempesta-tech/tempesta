@@ -155,6 +155,11 @@ typedef struct {
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
+ * @cur_send_headers	- stream for which we have already started sending
+ *			  headers, but have not yet sent the END_HEADERS flag;
+ * @cur_recv_headers	- stream for which we have already started receiving
+ *			  headers, but have not yet received the END_HEADERS
+ *			  flag;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -186,7 +191,7 @@ typedef struct {
  * streams cannot occur between the HEADERS/CONTINUATION frames of particular
  * stream (RFC 7540, sections 6.2, 6.10, 8.1).
  */
-typedef struct {
+typedef struct tfw_h2_ctx_t {
 	spinlock_t	lock;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
@@ -197,6 +202,8 @@ typedef struct {
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
+	TfwStream	*cur_send_headers;
+	TfwStream	*cur_recv_headers;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
@@ -275,6 +282,15 @@ tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 
 	T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
 	       __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
+}
+
+static inline void
+tf2_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	if (ctx->cur_send_headers == stream)
+		ctx->cur_send_headers = NULL;
+	if (ctx->cur_recv_headers == stream)
+		ctx->cur_recv_headers = NULL;
 }
 
 #endif /* __HTTP_FRAME__ */

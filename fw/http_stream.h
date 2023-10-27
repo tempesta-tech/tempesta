@@ -32,17 +32,14 @@
  * NOTE: there is no exact matching between these states and states from
  * RFC 7540 (section 5.1), since several intermediate states were added in
  * current implementation to handle some edge states which are not mentioned
- * explicitly in RFC (e.g. additional continuation states, and special kinds
- * of closed state). Besides, there is no explicit 'idle' state here, since
- * in current implementation idle stream is just a stream that has not been
- * created yet.
+ * explicitly in RFC (special kinds of closed state). Besides, there is no
+ * explicit 'idle' state here, since in current implementation idle stream
+ * is just a stream that has not been created yet.
  */
 typedef enum {
 	HTTP2_STREAM_LOC_RESERVED,
 	HTTP2_STREAM_REM_RESERVED,
 	HTTP2_STREAM_OPENED,
-	HTTP2_STREAM_CONT,
-	HTTP2_STREAM_CONT_CLOSED,
 	HTTP2_STREAM_LOC_HALF_CLOSED,
 	HTTP2_STREAM_REM_HALF_CLOSED,
 	HTTP2_STREAM_LOC_CLOSED,
@@ -50,24 +47,23 @@ typedef enum {
 	HTTP2_STREAM_CLOSED
 } TfwStreamState;
 
+enum {
+	HTTP2_STREAM_STATE_MASK = 0x7,
+	HTTP2_STREAM_FLAGS_OFFSET = 0x3,
+	HTTP2_STREAM_SEND_END_OF_STREAM = 0x1 << HTTP2_STREAM_FLAGS_OFFSET,
+	HTTP2_STREAM_RECV_END_OF_STREAM = 0x2 << HTTP2_STREAM_FLAGS_OFFSET,
+};
+
 static const char *__tfw_strm_st_names[] = {
 	[HTTP2_STREAM_LOC_RESERVED]	= "HTTP2_STREAM_LOC_RESERVED",
 	[HTTP2_STREAM_REM_RESERVED]	= "HTTP2_STREAM_REM_RESERVED",
 	[HTTP2_STREAM_OPENED]	    	= "HTTP2_STREAM_OPENED",
-	[HTTP2_STREAM_CONT]	    	= "HTTP2_STREAM_CONT",
-	[HTTP2_STREAM_CONT_CLOSED]  	= "HTTP2_STREAM_CONT_CLOSED",
 	[HTTP2_STREAM_LOC_HALF_CLOSED]	= "HTTP2_STREAM_LOC_HALF_CLOSED",
 	[HTTP2_STREAM_REM_HALF_CLOSED]	= "HTTP2_STREAM_REM_HALF_CLOSED",
 	[HTTP2_STREAM_LOC_CLOSED]	= "HTTP2_STREAM_LOC_CLOSED",
 	[HTTP2_STREAM_REM_CLOSED]	= "HTTP2_STREAM_REM_CLOSED",
 	[HTTP2_STREAM_CLOSED]		= "HTTP2_STREAM_CLOSED",
 };
-
-static inline const char *
-__h2_strm_st_n(TfwStreamState state)
-{
-	return __tfw_strm_st_names[state];
-}
 
 /**
  * Final statuses of Stream FSM processing.
@@ -180,11 +176,13 @@ typedef struct {
 	struct rb_root streams;
 } TfwStreamSched;
 
+typedef struct tfw_h2_ctx_t TfwH2Ctx;
+
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
-TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
-				  unsigned char flags, bool send,
-				  TfwH2Err *err);
+TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
+				  unsigned char type, unsigned char flags,
+				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
 			     unsigned short weight, long int loc_wnd,
@@ -198,6 +196,37 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+
+static inline TfwStreamState
+tfw_h2_get_stream_state(TfwStream *stream)
+{
+	return stream->state & HTTP2_STREAM_STATE_MASK;
+}
+
+static inline void
+tfw_h2_set_stream_state(TfwStream *stream, TfwStreamState state)
+{
+	stream->state &= ~HTTP2_STREAM_STATE_MASK;
+	stream->state |= state;
+}
+
+static inline bool
+tfw_h2_stream_is_eos_sent(TfwStream *stream)
+{
+	return stream->state & HTTP2_STREAM_SEND_END_OF_STREAM;
+}
+
+static inline bool
+tfw_h2_stream_is_eos_received(TfwStream *stream)
+{
+	return stream->state & HTTP2_STREAM_RECV_END_OF_STREAM;
+}
+
+static inline const char *
+__h2_strm_st_n(TfwStream *stream)
+{
+	return __tfw_strm_st_names[tfw_h2_get_stream_state(stream)];
+}
 
 static inline void
 tfw_h2_stream_xmit_reinit(TfwHttpXmit *xmit)
@@ -217,22 +246,22 @@ tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
 static inline bool
 tfw_h2_strm_req_is_compl(TfwStream *stream)
 {
-	return stream->state == HTTP2_STREAM_REM_HALF_CLOSED;
+	return tfw_h2_get_stream_state(stream) == HTTP2_STREAM_REM_HALF_CLOSED;
 }
 
 static inline bool
 tfw_h2_stream_is_closed(TfwStream *stream)
 {
-	return stream->state == HTTP2_STREAM_CLOSED;
+	return tfw_h2_get_stream_state(stream) == HTTP2_STREAM_CLOSED;
 }
 
 static inline TfwStreamFsmRes
-tfw_h2_stream_fsm_ignore_err(TfwStream *stream, unsigned char type,
-			     unsigned char flags)
+tfw_h2_stream_fsm_ignore_err(TfwH2Ctx *ctx, TfwStream *stream,
+			     unsigned char type, unsigned char flags)
 {
 	TfwH2Err err;
 
-	return tfw_h2_stream_fsm(stream, type, flags, true, &err);
+	return tfw_h2_stream_fsm(ctx, stream, type, flags, true, &err);
 }
 
 #endif /* __HTTP_STREAM__ */
