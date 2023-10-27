@@ -430,8 +430,11 @@ tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	*nskbs = UINT_MAX;
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
-	if (h2_mode)
-		return tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
+	if (h2_mode) {
+		r = tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
+		if (unlikely(r && r != -ENOMEM))
+			goto err_purge_tcp_write_queue;
+	}
 
 	return r;
 
