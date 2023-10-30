@@ -1257,14 +1257,10 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		 * we find a live record early, so we take an extra read lock
 		 * here.
 		 */
-		/* TODO #522: replace a cache entry on a new entry insertion
-		 * (e.g. the bucket can not contain both the stale and fresh
-		 * entries) and rework the loop. */
-		if (tfw_cache_entry_key_eq(db, req, ce, false)) {
-			if (tfw_cache_entry_is_live(req, ce)
-			    && (!ce_best
-				|| tfw_cache_entry_age(ce)
-				   < tfw_cache_entry_age(ce_best)))
+		if (tfw_cache_entry_key_eq(db, req, ce)) {
+			if (!ce_best
+				   || tfw_cache_entry_age(ce)
+				      < tfw_cache_entry_age(ce_best))
 			{
 				if (ce_best)
 					tdb_rec_put(ce_best);
@@ -2470,6 +2466,12 @@ err:
 #undef STATIC_INDEX_SZ
 }
 
+static bool
+tfw_cache_rec_eq_req(void *rec, void *req)
+{
+	return tfw_cache_entry_key_eq(node_db(), req, rec);
+}
+
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
@@ -2500,7 +2502,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	/* TODO #522: revalidate existing entries before inserting a new one. */
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req);
 
 	/*
 	 * Try to place the cached response in single memory chunk.
@@ -2594,6 +2596,44 @@ out:
 	action((TfwHttpMsg *)resp);
 }
 
+/*
+ * Invalidate all cache entries that match the request. This is implemented by
+ * making the entries stale.
+ */
+static int
+tfw_cache_purge_invalidate(TfwHttpReq *req)
+{
+	TdbIter iter;
+	TDB *db = node_db();
+	TfwCacheEntry *ce = NULL;
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		return 0;
+
+	ce = (TfwCacheEntry *)iter.rec;
+	do {
+		if (tfw_cache_entry_key_eq(db, req, ce))
+			ce->lifetime = 0;
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+	} while (ce);
+
+	return 0;
+}
+
+static int
+tfw_cache_purge_immediate(TfwHttpReq *req)
+{
+	TDB *db = node_db();
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req);
+
+	return 0;
+}
+
 /**
  * Process PURGE request method according to the configuration. Send a response,
  * unless there are no errors *and* we're also told to refresh the cache.
@@ -2618,10 +2658,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		return -EINVAL;
 	}
 
-	/* Only "invalidate" option is implemented at this time. */
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
 		ret = tfw_cache_invalidate(req);
+		break;
+	case TFW_D_CACHE_PURGE_IMMEDIATE:
+		ret = tfw_cache_purge_immediate(req);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
