@@ -4,7 +4,7 @@
  * Generic storage layer.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2024 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -37,10 +37,12 @@
  *		    TdbHdr->i_wcl and TdbHdr->d_wcl are the global values for
  *		    the variable. The variables are initialized in runtime,
  *		    so we lose some free space on system restart.
+ * @freelist	  - pre-CPU freelist of blocks.
  */
 typedef struct {
 	unsigned long	i_wcl;
 	unsigned long	d_wcl;
+	unsigned long	freelist;
 } TdbPerCpu;
 
 /**
@@ -193,6 +195,8 @@ typedef struct {
 TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
+int tdb_entry_remove(TDB *db, unsigned long key, bool (*eq_cb)(void *, void *),
+		     void *data);
 void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);
