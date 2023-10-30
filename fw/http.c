@@ -1648,6 +1648,12 @@ tfw_http_marks_cmp(const void *l, const void *r)
 	return (m1 < m2) ? -1 : (m1 > m2);
 }
 
+bool tfw_http_mark_is_in_whitlist(unsigned int mark)
+{
+	return !!bsearch(&mark, tfw_wl_marks.mrks, tfw_wl_marks.sz,
+			 sizeof(tfw_wl_marks.mrks[0]), tfw_http_marks_cmp);
+}
+
 static inline void
 tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
 			 const struct sk_buff *skb)
@@ -1655,13 +1661,9 @@ tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
 	if (!tfw_wl_marks.mrks || !(TFW_CONN_TYPE(conn) & Conn_Clnt))
 		return;
 
-	if (bsearch(&skb->mark, tfw_wl_marks.mrks, tfw_wl_marks.sz,
-		    sizeof(tfw_wl_marks.mrks[0]), tfw_http_marks_cmp))
-	{
+	if (tfw_http_mark_is_in_whitlist(skb->mark))
 		__set_bit(TFW_HTTP_B_WHITELIST, msg->flags);
-	}
 }
-
 
 /*
  * Forwarding of requests to a back end server is run under a lock
