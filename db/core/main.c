@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -77,6 +77,19 @@ tdb_entry_add(TDB *db, TdbVRec *r, size_t size)
 	return tdb_htrie_extend_rec(db->hdr, r, size);
 }
 EXPORT_SYMBOL(tdb_entry_add);
+
+/**
+ * Remove TDB entries by @key using @eq_cb for comparing entry with @data.
+ *
+ * @return ENOENT if entry not exists.
+ */
+int
+tdb_entry_remove(TDB *db, unsigned long key, bool (*eq_cb)(void *, void *),
+		 void *data)
+{
+	return tdb_htrie_remove(db->hdr, key, eq_cb, data);
+}
+EXPORT_SYMBOL(tdb_entry_remove);
 
 /**
  * Check available room in @trec and allocate new record if it's not enough.
