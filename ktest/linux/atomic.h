@@ -65,6 +65,12 @@ atomic_dec_and_test(atomic_t *v)
 	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST) == 0;
 }
 
+static inline int
+atomic_dec_return(atomic_t *v)
+{
+	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
+}
+
 typedef struct {
 	long counter;
 } atomic64_t;
