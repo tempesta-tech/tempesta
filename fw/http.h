@@ -826,5 +826,6 @@ int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
 void tfw_http_extract_request_authority(TfwHttpReq *req);
+bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 
 #endif /* __TFW_HTTP_H__ */
