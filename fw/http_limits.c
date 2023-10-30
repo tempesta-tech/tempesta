@@ -183,22 +183,26 @@ __frang_init_acc(void *data)
 }
 
 static int
-frang_conn_new(struct sock *sk)
+frang_conn_new(struct sock *sk, struct sk_buff *skb)
 {
 	int r = T_BLOCK;
 	FrangAcc *ra;
 	TfwClient *cli;
 	TfwAddr addr;
-	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	TfwVhost *dflt_vh;
 
 	/* The new socket is allocated by inet_csk_clone_lock(). */
 	assert_spin_locked(&sk->sk_lock.slock);
+
+	if (tfw_http_mark_is_in_whitlist(skb->mark))
+		return T_OK;
 
 	/*
 	 * Default vhost configuration stores global frang settings, it's always
 	 * available even on reload under heavy load. But the pointer comes
 	 * from other module, take care of probable null-dereferences.
 	 */
+	dflt_vh = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!dflt_vh))
 		return T_BLOCK;
 
@@ -1520,10 +1524,10 @@ tfw_classifier_cleanup_inport(void)
 }
 
 static int
-tfw_classify_conn_estab(struct sock *sk)
+tfw_classify_conn_estab(struct sock *sk, struct sk_buff *skb)
 {
 	if (test_bit(tfw_addr_get_sk_sport(sk), tfw_inports))
-		return frang_conn_new(sk);
+		return frang_conn_new(sk, skb);
 
 	return T_OK;
 }
