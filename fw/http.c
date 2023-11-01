@@ -143,6 +143,10 @@ static struct {
 	unsigned int	sz;
 } tfw_wl_marks;
 
+static unsigned int max_header_size = UINT_MAX;
+static unsigned int max_headers_count = UINT_MAX;
+unsigned int max_header_list_size = UINT_MAX;
+
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 #define S_HTTPS			"https://"
@@ -7131,6 +7135,34 @@ tfw_http_msg_body_dup(const char *filename, size_t *len)
 	return __tfw_http_msg_body_dup(filename, NULL, len, &b_off);
 }
 
+bool
+tfw_http_check_header_size(TfwHttpMsg *hm)
+{
+	TfwHttpParser *parser = &hm->stream->parser;
+
+	return max_header_size == UINT_MAX ||
+		(TFW_MSG_H2(hm) ? 32 : 0) + parser->hdr.len <= max_header_size;
+}
+
+bool
+tfw_http_check_headers_count(TfwHttpMsg *hm)
+{
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+
+	return max_headers_count == UINT_MAX ||
+		req->headers_cnt + 1 <= max_headers_count;
+}
+
+bool
+tfw_http_check_header_list_size(TfwHttpMsg *hm)
+{
+	TfwHttpParser *parser = &hm->stream->parser;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+
+	return max_header_list_size == UINT_MAX ||
+		(TFW_MSG_H2(hm) ? 32 : 0)  + req->header_list_sz +
+		parser->hdr.len <= max_header_list_size;
+}
 
 /**
  * Set message body for predefined response with corresponding code.
@@ -7350,11 +7382,14 @@ tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)		\
 {									\
 	int r;								\
 	unsigned char a[256] = {};					\
+									\
 	if ((r = __cfgop_brange_hndl(cs, ce, a)))			\
 		return r;						\
 	tfw_init_custom_##name(a);					\
+									\
 	return 0;							\
 }									\
+									\
 static void								\
 tfw_cfgop_cleanup_brange_##name(TfwCfgSpec *cs)				\
 {									\
@@ -7369,6 +7404,43 @@ TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar);
 TFW_HTTP_CFG_CUSTOM_BRANGE(xff);
 TFW_HTTP_CFG_CUSTOM_BRANGE(cookie);
 TFW_HTTP_CFG_CUSTOM_BRANGE(etag);
+
+#undef TFW_HTTP_CFG_CUSTOM_BRANGE
+
+#define TFW_HTTP_CFG_MAX(name)						\
+static int								\
+tfw_cfgop_max_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)			\
+{									\
+	int r;								\
+									\
+	if (tfw_cfg_check_val_n(ce, 1))					\
+		return -EINVAL;						\
+	if (ce->attr_n) {						\
+		T_ERR_NL("Unexpected attributes\n");			\
+		return -EINVAL;						\
+	}								\
+									\
+	r = tfw_cfg_parse_uint(ce->vals[0], &max_##name);		\
+	if (unlikely(r)) {						\
+		T_ERR_NL("Unable to parse '%s' value: '%s'\n",		\
+			 #name, ce->vals[0]);				\
+		return -EINVAL;						\
+	}								\
+									\
+	return 0;							\
+}									\
+									\
+static void								\
+tfw_cfgop_cleanup_max_##name(TfwCfgSpec *cs)				\
+{									\
+	max_##name = UINT_MAX;						\
+}
+
+TFW_HTTP_CFG_MAX(header_size);
+TFW_HTTP_CFG_MAX(headers_count);
+TFW_HTTP_CFG_MAX(header_list_size);
+
+#undef TFW_HTTP_CFG_MAX
 
 static TfwCfgSpec tfw_http_specs[] = {
 	{
@@ -7449,6 +7521,27 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_brange_etag,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_brange_etag,
+	},
+	{
+		.name = "http_max_header_size",
+		.deflt = NULL,
+		.handler = tfw_cfgop_max_header_size,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_max_header_size,
+	},
+	{
+		.name = "http_max_headers_count",
+		.deflt = NULL,
+		.handler = tfw_cfgop_max_headers_count,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_max_headers_count,
+	},
+	{
+		.name = "http_max_header_list_size",
+		.deflt = NULL,
+		.handler = tfw_cfgop_max_header_list_size,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
 	},
 	{ 0 }
 };
