@@ -142,6 +142,13 @@ static struct {
 	unsigned int	sz;
 } tfw_wl_marks;
 
+/**
+ * Usually we store all limits in the frang, but this
+ * limit is described in RFC 9113 6.5.2, so we place it
+ * here, because it refers to HTTP layer.
+ */
+unsigned int max_header_list_size = 0;
+
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 #define S_HTTPS			"https://"
@@ -7137,7 +7144,6 @@ tfw_http_msg_body_dup(const char *filename, size_t *len)
 	return __tfw_http_msg_body_dup(filename, NULL, len, &b_off);
 }
 
-
 /**
  * Set message body for predefined response with corresponding code.
  */
@@ -7356,11 +7362,14 @@ tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)		\
 {									\
 	int r;								\
 	unsigned char a[256] = {};					\
+									\
 	if ((r = __cfgop_brange_hndl(cs, ce, a)))			\
 		return r;						\
 	tfw_init_custom_##name(a);					\
+									\
 	return 0;							\
 }									\
+									\
 static void								\
 tfw_cfgop_cleanup_brange_##name(TfwCfgSpec *cs)				\
 {									\
@@ -7375,6 +7384,36 @@ TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar);
 TFW_HTTP_CFG_CUSTOM_BRANGE(xff);
 TFW_HTTP_CFG_CUSTOM_BRANGE(cookie);
 TFW_HTTP_CFG_CUSTOM_BRANGE(etag);
+
+#undef TFW_HTTP_CFG_CUSTOM_BRANGE
+
+static int
+tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	if (tfw_cfg_check_val_n(ce, 1))
+		return -EINVAL;
+	if (ce->attr_n) {
+		T_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	r = tfw_cfg_parse_uint(ce->vals[0], &max_header_list_size);
+	if (unlikely(r)) {
+		T_ERR_NL("Unable to parse 'max_header_list_size' value: '%s'\n",
+			 ce->vals[0]);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
+{
+	max_header_list_size = 0;
+}
 
 static TfwCfgSpec tfw_http_specs[] = {
 	{
@@ -7455,6 +7494,13 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_brange_etag,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_brange_etag,
+	},
+	{
+		.name = "http_max_header_list_size",
+		.deflt = NULL,
+		.handler = tfw_cfgop_max_header_list_size,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
 	},
 	{ 0 }
 };

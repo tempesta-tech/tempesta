@@ -2181,20 +2181,6 @@ tfw_cfgop_frang_uri_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_frang_field_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
-
-	if (ce->dflt_value && cfg->http_field_len)
-		return 0;
-	cs->dest = &cfg->http_field_len;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
 tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
@@ -2204,6 +2190,20 @@ tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return 0;
 	cs->dest = &cfg->http_body_len;
 	r = tfw_cfg_set_long(cs, ce);
+	cs->dest = NULL;
+	return r;
+}
+
+static int
+tfw_cfgop_frang_hdr_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+
+	if (ce->dflt_value && cfg->http_hdr_len)
+		return 0;
+	cs->dest = &cfg->http_hdr_len;
+	r = tfw_cfg_set_int(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
@@ -2812,15 +2812,15 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "http_field_len",
-		.deflt = "0",
-		.handler = tfw_cfgop_frang_field_len,
-		.allow_reconfig = true,
-	},
-	{
 		.name = "http_body_len",
 		.deflt = "1073741824", /* 1 Gb. */
 		.handler = tfw_cfgop_frang_body_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_hdr_len",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_hdr_len,
 		.allow_reconfig = true,
 	},
 	{
@@ -2964,15 +2964,15 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "http_field_len",
-		.deflt = "0",
-		.handler = tfw_cfgop_frang_field_len,
-		.allow_reconfig = true,
-	},
-	{
 		.name = "http_body_len",
 		.deflt = "1073741824", /* 1 Gb. */
 		.handler = tfw_cfgop_frang_body_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_hdr_len",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_hdr_len,
 		.allow_reconfig = true,
 	},
 	{
