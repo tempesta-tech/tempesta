@@ -383,67 +383,6 @@ frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
 	return T_OK;
 }
 
-/**
- * Check all parsed headers in request headers table.
- * We observe all headers many times, actually on each data chunk.
- * However, the check is relatively fast, so that should be Ok.
- * It's necessary to run the checks on each data chunk to prevent memory
- * exhausting DoS attack on many large header fields, since we don't know
- * which headers were read on each data chunk.
- *
- * TODO #1346: we should recognize inadequately long header fields as early
- * as possible, to avoid resources wasting on malformed requests processing;
- * this is especially important in case of Huffman decoding (during processing
- * of HTTP/2 header fields), since Huffman decoding is an extremely expensive
- * operation; thus, we need to check @http_field_len HTTP limit before we go
- * to further parsing/decoding, and it seems that the most simple and effective
- * way to achieve that - is to embed a hook into HTTP-parsers (or in case of
- * HTTP/2, into HPACK-decoder) directly to catch the long headers immediately.
- */
-static int
-__frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
-		       unsigned int field_len,  unsigned int hdr_cnt)
-{
-	const TfwStr *field, *end, *dup, *dup_end;
-
-	if (hdr_cnt && req->h_tbl->cnt > hdr_cnt) {
-		frang_limmsg("HTTP headers number", req->h_tbl->cnt,
-			     hdr_cnt, &FRANG_ACC2CLI(ra)->addr);
-		return T_BLOCK;
-	}
-	if (!field_len)
-		return T_OK;
-
-	FOR_EACH_HDR_FIELD(field, end, req) {
-		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
-			if (dup->len > field_len) {
-				frang_limmsg("HTTP field length",
-					     dup->len, field_len,
-					     &FRANG_ACC2CLI(ra)->addr);
-				return T_BLOCK;
-			}
-		}
-	}
-
-	return T_OK;
-}
-
-static int
-frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len,
-		     unsigned int hdr_cnt)
-{
-	TfwHttpParser *parser = &req->stream->parser;
-
-	if (field_len && (parser->hdr.len > field_len)) {
-		frang_limmsg("HTTP in-progress field length",
-			     parser->hdr.len, field_len,
-			     &FRANG_ACC2CLI(ra)->addr);
-		return T_BLOCK;
-	}
-
-	return __frang_http_field_len(req, ra, field_len, hdr_cnt);
-}
-
 static int
 frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
 {
@@ -1032,9 +971,6 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return T_BLOCK;
 	}
-	if (!r)
-		r = frang_http_field_len(req, ra, f_cfg->http_field_len,
-					 f_cfg->http_hdr_cnt);
 	if (r)
 		return r;
 
@@ -1179,11 +1115,6 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 			r = T_BLOCK;
 			T_FSM_EXIT();
 		}
-		r = frang_http_field_len(req, ra, f_cfg->http_field_len,
-					 f_cfg->http_hdr_cnt);
-		if (r)
-			T_FSM_EXIT();
-
 		/* Headers are not fully parsed yet. */
 		if (!test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
 			__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_Check);
