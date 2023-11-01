@@ -242,7 +242,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
-	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
+	lset->max_lhdr_sz = max_header_list_size;
+	rset->max_lhdr_sz = UINT_MAX;
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
@@ -396,15 +397,35 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 static inline int
 tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
+	unsigned int extra_field_no = 0;
 	struct {
 		unsigned short key;
 		unsigned int value;
 	} __attribute__((packed)) field[2];
 
+	struct {
+		unsigned short key;
+		unsigned int value;
+	} __attribute__((packed)) extra_field[1];
+
+#define TFW_ADD_EXTRA_SETTING(k, v)					\
+do {									\
+	extra_field[extra_field_no].key = k;				\
+	extra_field[extra_field_no].value = v;				\
+	data.chunks[data.nchunks].data =				\
+		(unsigned char *)&extra_field[extra_field_no];		\
+	data.chunks[data.nchunks].len = sizeof(extra_field[0]);		\
+	data.len += data.chunks[data.nchunks].len;			\
+	hdr.length += data.chunks[data.nchunks].len;			\
+	data.nchunks++;							\
+	extra_field_no++;						\
+} while(0)
+
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = (unsigned char*)field, .len = sizeof(field) },
+			{ .data = (unsigned char *)field, .len = sizeof(field) },
+			{},
 		},
 		.len = sizeof(field),
 		.nchunks = 2
@@ -426,7 +447,14 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
 
+	if (ctx->lsettings.max_lhdr_sz != UINT_MAX) {
+		TFW_ADD_EXTRA_SETTING(HTTP2_SETTINGS_INIT_WND_SIZE,
+				      ctx->lsettings.max_lhdr_sz);
+	}
+
 	return tfw_h2_send_frame(ctx, &hdr, &data);
+
+#undef TFW_ADD_EXTRA_SETTING
 }
 
 static inline int

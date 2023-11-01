@@ -553,12 +553,19 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwHttpParser *parser = &hm->stream->parser;
 	unsigned int id = parser->_hdr_tag;
+	bool is_srv_conn = TFW_CONN_TYPE(hm->conn) & Conn_Srv;
 
 	BUG_ON(parser->hdr.flags & TFW_STR_DUPLICATE);
 	BUG_ON(id > TFW_HTTP_HDR_RAW);
 
 	/* Close just parsed header. */
 	parser->hdr.flags |= TFW_STR_COMPLETE;
+
+	if (!is_srv_conn &&
+	    (!tfw_http_check_header_size(hm) ||
+	     !tfw_http_check_headers_count(hm) ||
+	     !tfw_http_check_header_list_size(hm)))
+		return -EPERM;
 
 	/* Quick path for special headers. */
 	if (likely(id < TFW_HTTP_HDR_RAW)) {
@@ -638,6 +645,17 @@ done:
 		return r;
 
 	*h = parser->hdr;
+	/*
+	 * Adjust extra 32 extra bytes which are considered the "maximum"
+	 * overhead that would be required to represent each entry in the
+	 * hpack table.
+	 */
+	if (!is_srv_conn) {
+		TfwHttpReq *req = (TfwHttpReq *)hm;
+
+		req->header_list_sz += h->len + (TFW_MSG_H2(hm) ? 32 : 0);
+		req->headers_cnt++;
+	}
 
 	TFW_STR_INIT(&parser->hdr);
 	T_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",
