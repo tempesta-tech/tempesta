@@ -7235,6 +7235,20 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_accept);
 
+#define __SET_CACHE_CTL_FLAG(flag)					\
+do {									\
+	req->cache_ctl.flags |= flag;					\
+	parser->cstate.cache_ctl.flags |= flag;				\
+	parser->cstate.is_set = 1;					\
+} while(0)
+
+#define __SET_CACHE_CTL_FIELD(field, val, flag)				\
+do {									\
+	req->cache_ctl.field = val;					\
+	parser->cstate.cache_ctl.field = val;				\
+	__SET_CACHE_CTL_FLAG(flag);					\
+} while(0)
+
 static int
 __h2_req_parse_authorization(TfwHttpReq *req, unsigned char *data, size_t len,
 			     bool fin)
@@ -7250,13 +7264,54 @@ __h2_req_parse_authorization(TfwHttpReq *req, unsigned char *data, size_t len,
 		 * so almost any character can appear in the field.
 		 */
 		__FSM_H2_I_MATCH_MOVE_LAMBDA(ctext_vchar, Req_I_Auth, {
-			req->cache_ctl.flags |=	TFW_HTTP_CC_HDR_AUTHORIZATION;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_HDR_AUTHORIZATION);
 		});
 		return CSTR_NEQ;
 	}
 
 done:
 	return r;
+}
+
+static inline void
+__h2_dump_state_cache_ctl(const TfwCachedHeaderState *cstate)
+{
+	T_DBG3("%s: max_age %u max_stale %u min_fresh %u flags %u", __func__,
+	       cstate->cache_ctl.max_age, cstate->cache_ctl.max_stale,
+	       cstate->cache_ctl.min_fresh, cstate->cache_ctl.flags);
+}
+
+void
+h2_set_hdr_cache_control(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+#define SET_HDR_CACHE_CONTROL_FIELD(field, flag)			\
+do {									\
+	if (cstate->cache_ctl.flags & flag)				\
+		req->cache_ctl.field = cstate->cache_ctl.field;		\
+} while(0)
+
+	if (cstate->is_set) {
+		__h2_dump_state_cache_ctl(cstate);
+		BUG_ON((req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE) ||
+		       (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE) ||
+		       (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH));
+		SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
+		SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
+		SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
+		req->cache_ctl.flags |= cstate->cache_ctl.flags;
+	}
+
+#undef SET_HDR_CACHE_CONTROL_FIELD
+}
+
+void
+h2_set_hdr_authorization(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set &
+	    cstate->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION) {
+		BUG_ON(req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION);
+		req->cache_ctl.flags |= TFW_HTTP_CC_HDR_AUTHORIZATION;
+	}
 }
 
 static int
@@ -7315,8 +7370,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_EXIT(CSTR_NEQ);
 		}, Req_I_CC_m, Req_I_CC_MinFreshVBeg);
 		H2_TRY_STR_LAMBDA("max-stale", {
-			req->cache_ctl.max_stale = UINT_MAX;
-			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+			__SET_CACHE_CTL_FIELD(max_stale, UINT_MAX,
+					      TFW_HTTP_CC_MAX_STALE);
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_m, Req_I_CC_MaxStale);
 		TRY_STR_INIT();
@@ -7327,19 +7382,19 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		H2_TRY_STR_2LAMBDA("no-cache", {
 			parser->cc_dir_flag = TFW_HTTP_CC_NO_CACHE;
 		}, {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_NO_CACHE);
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		H2_TRY_STR_2LAMBDA("no-store", {
 			parser->cc_dir_flag = TFW_HTTP_CC_NO_STORE;
 		}, {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_NO_STORE);
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		H2_TRY_STR_2LAMBDA("no-transform", {
 			parser->cc_dir_flag = TFW_HTTP_CC_NO_TRANSFORM;
 		}, {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_NO_TRANSFORM);
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_n, Req_I_CC_Flag);
 		TRY_STR_INIT();
@@ -7350,7 +7405,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		H2_TRY_STR_2LAMBDA("only-if-cached", {
 			parser->_acc = TFW_HTTP_CC_OIFCACHED;
 		}, {
-			req->cache_ctl.flags |= TFW_HTTP_CC_OIFCACHED;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_OIFCACHED);
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_o, Req_I_CC_Flag);
 		TRY_STR_INIT();
@@ -7359,7 +7414,7 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_CC_Flag) {
 		if (IS_WS(c) || c == ',') {
-			req->cache_ctl.flags |= parser->cc_dir_flag;
+			__SET_CACHE_CTL_FLAG(parser->cc_dir_flag);
 			__FSM_I_JMP(Req_I_EoT);
 		}
 		__FSM_I_JMP(Req_I_CC_Ext);
@@ -7372,8 +7427,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE) {
 			if (likely(fin)) {
-				req->cache_ctl.max_age = parser->_acc;
-				req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
+				__SET_CACHE_CTL_FIELD(max_age, parser->_acc,
+						      TFW_HTTP_CC_MAX_AGE);
 				parser->_acc = 0;
 				return CSTR_EQ;
 			}
@@ -7382,8 +7437,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		}
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.max_age = parser->_acc;
-		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
+		__SET_CACHE_CTL_FIELD(max_age, parser->_acc,
+				      TFW_HTTP_CC_MAX_AGE);
 		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_n);
 	}
 
@@ -7394,8 +7449,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE) {
 			if (likely(fin)) {
-				req->cache_ctl.min_fresh = parser->_acc;
-				req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
+				__SET_CACHE_CTL_FIELD(min_fresh, parser->_acc,
+						      TFW_HTTP_CC_MIN_FRESH);
 				parser->_acc = 0;
 				return CSTR_EQ;
 			}
@@ -7404,8 +7459,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		}
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.min_fresh = parser->_acc;
-		req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
+		__SET_CACHE_CTL_FIELD(min_fresh, parser->_acc,
+				      TFW_HTTP_CC_MIN_FRESH);
 		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_n);
 	}
 
@@ -7413,8 +7468,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == '=')
 			__FSM_H2_I_MOVE_NEQ(Req_I_CC_MaxStaleVBeg);
 		if (IS_WS(c) || c == ',') {
-			req->cache_ctl.max_stale = UINT_MAX;
-			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+			__SET_CACHE_CTL_FIELD(max_stale, UINT_MAX,
+					      TFW_HTTP_CC_MAX_STALE);
 			__FSM_I_JMP(Req_I_EoT);
 		}
 		__FSM_I_JMP(Req_I_CC_Ext);
@@ -7427,8 +7482,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE) {
 			if (likely(fin)) {
-				req->cache_ctl.max_stale = parser->_acc;
-				req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+				__SET_CACHE_CTL_FIELD(max_stale, parser->_acc,
+						      TFW_HTTP_CC_MAX_STALE);
 				parser->_acc = 0;
 				return CSTR_EQ;
 			}
@@ -7437,8 +7492,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 		}
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.max_stale = parser->_acc;
-		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+		__SET_CACHE_CTL_FIELD(max_stale, parser->_acc,
+				      TFW_HTTP_CC_MAX_STALE);
 		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_n);
 	}
 
@@ -7477,6 +7532,9 @@ done:
 #undef __FSM_H2_I_MOVE_RESET_ACC
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_cache_control);
+
+#undef __SET_CACHE_CTL_FIELD
+#undef __SET_CACHE_CTL_FLAG
 
 /* Parse Content-Encoding header value, RFC 9110 8.4. */
 static int
@@ -8415,9 +8473,7 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	if (r >= 0) {
 		parser->cstate.is_set = 1;
 		parser->cstate.if_msince_date = parser->_date;
-		h2_set_hdr_if_mod_since(req, &parser->cstate);
-
-		return CSTR_EQ;
+		return h2_set_hdr_if_mod_since(req, &parser->cstate);
 	}
 
 	return r;
