@@ -1354,9 +1354,15 @@ done:
 	case TFW_TAG_HDR_TRANSFER_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_TRANSFER_ENCODING;
 		break;
-	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
-	case TFW_TAG_HDR_AUTHORIZATION:
 	case TFW_TAG_HDR_CACHE_CONTROL:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_cache_control(req, &entry->cstate);
+		break;
+	case TFW_TAG_HDR_AUTHORIZATION:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_authorization(req, &entry->cstate);
+		break;
+	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
 	case TFW_TAG_HDR_PRAGMA:
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;

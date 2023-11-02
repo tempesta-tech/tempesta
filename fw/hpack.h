@@ -166,6 +166,12 @@ typedef struct {
 		long		if_msince_date;
 		unsigned long	authority_port;
 		unsigned char	ifnmatch_etag_any;
+		struct {
+			unsigned int flags;
+			unsigned int max_age;
+			unsigned int max_stale;
+			unsigned int min_fresh;
+		} cache_ctl;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;
