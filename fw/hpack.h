@@ -172,6 +172,7 @@ typedef struct {
 			unsigned int max_stale;
 			unsigned int min_fresh;
 		} cache_ctl;
+		unsigned long	content_length;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;
