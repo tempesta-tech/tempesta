@@ -270,6 +270,8 @@ enum {
 	TFW_HTTP_B_CT_MULTIPART,
 	/* Multipart/form-data request has a boundary parameter. */
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+	/* Content-length header was parsed. */
+	TFW_HTTP_B_REQ_CONTENT_LENGTH_PARSED,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
 	/* Message headers are fully parsed */
