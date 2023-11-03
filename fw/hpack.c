@@ -1313,6 +1313,7 @@ done:
 		break;
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_LENGTH;
+		h2_set_hdr_content_length(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_CONTENT_TYPE:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_TYPE;

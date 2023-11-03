@@ -1979,6 +1979,7 @@ __parse_content_length(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__msg_hdr_chunk_fixup(data, len);
 
 		T_DBG3("%s: content_length=%lu\n", __func__, msg->content_length);
+		__set_bit(TFW_HTTP_B_REQ_CONTENT_LENGTH_PARSED, hm->flags);
 
 		return r;
 	}
@@ -7568,6 +7569,13 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_content_encoding);
 
+void
+h2_set_hdr_content_length(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set)
+		req->content_length = cstate->content_length;
+}
+
 static int
 __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 			      bool fin)
@@ -7580,8 +7588,15 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	       msg->content_length, ret);
 
 	if (ret == CSTR_POSTPONE) {
-		if (fin)
+		if (fin) {
+			TfwHttpParser *parser = &msg->stream->parser;
+
+			parser->cstate.is_set = 1;
+			parser->cstate.content_length = msg->content_length;
+			__set_bit(TFW_HTTP_B_REQ_CONTENT_LENGTH_PARSED,
+				  msg->flags);
 			return CSTR_EQ;
+		}
 		__msg_hdr_chunk_fixup(data, len);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
 		return CSTR_POSTPONE;
@@ -10817,20 +10832,17 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 		return T_DROP;
 	}
 
-	if (req->content_length
-	    && req->content_length != req->body.len)
-	{
-		return T_DROP;
-	}
 	/*
-	 * RFC 7540 8.1.2.6: A request or response that includes a payload
-	 * body can include a content-length header field.
-	 *
-	 * Since the h2 provides explicit message framing, the content-length
-	 * header is not required at all. But our code may rely on
-	 * req->content_length field value, fill it.
+	 * RFC 7540 8.1.2.6:
+	 * A request or response that includes a payload body can include a
+	 * content-length header field. A request or response is also malformed
+	 * if the value of a content-length header field does not equal the sum
+	 * of the DATA frame payload lengths that form the body.
 	 */
-	req->content_length = req->body.len;
+	if (test_bit(TFW_HTTP_B_REQ_CONTENT_LENGTH_PARSED, req->flags)
+	    && req->content_length != req->body.len)
+		return T_DROP;
+
 	req->body.flags |= TFW_STR_COMPLETE;
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
