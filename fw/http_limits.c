@@ -125,11 +125,46 @@ do {									\
 #define frang_dbg(...)
 #endif
 
-static int
-frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
+static inline bool
+frang_sk_is_whitelisted(struct sock *sk)
 {
-	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
-	unsigned int csum = 0;
+	return (unsigned long)sk->sk_security & 1;
+}
+
+static inline void
+frang_sk_mark_whitelisted(struct sock *sk)
+{
+	unsigned long d = (unsigned long)sk->sk_security;
+
+	/* Should be initialized first by ra. */
+	BUG_ON(!d);
+	/*
+	 * We can use first bit of the pointer, because it is
+	 * always equal to zero.
+	 */
+	d |= 1;
+	sk->sk_security = (void *)d;
+}
+
+static inline FrangAcc *
+frang_acc_from_sk(struct sock *sk)
+{
+	unsigned long d = (unsigned long)sk->sk_security;
+
+	d &= ~1;
+
+	return (FrangAcc *)d;
+}
+
+bool
+frang_req_is_whitelisted(TfwHttpReq *req)
+{
+	return frang_sk_is_whitelisted(req->conn->sk);
+}
+
+static void
+frang_acc_history_init(FrangAcc *ra, unsigned long ts)
+{
 	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
@@ -147,6 +182,16 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	 */
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
+}
+
+static int
+frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
+{
+	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
+	unsigned int csum = 0;
+	int i = ts % FRANG_FREQ;
+
+	frang_acc_history_init(ra, ts);
 
 	if (conf->conn_max && ra->conn_curr > conf->conn_max) {
 		frang_limmsg("connections max num.", ra->conn_curr,
@@ -185,24 +230,20 @@ __frang_init_acc(void *data)
 static int
 frang_conn_new(struct sock *sk, struct sk_buff *skb)
 {
-	int r = T_BLOCK;
+	int r = T_OK;
 	FrangAcc *ra;
 	TfwClient *cli;
 	TfwAddr addr;
-	TfwVhost *dflt_vh;
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 
 	/* The new socket is allocated by inet_csk_clone_lock(). */
 	assert_spin_locked(&sk->sk_lock.slock);
-
-	if (tfw_http_mark_is_in_whitlist(skb->mark))
-		return T_OK;
 
 	/*
 	 * Default vhost configuration stores global frang settings, it's always
 	 * available even on reload under heavy load. But the pointer comes
 	 * from other module, take care of probable null-dereferences.
 	 */
-	dflt_vh = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!dflt_vh))
 		return T_BLOCK;
 
@@ -229,6 +270,17 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * TfwConn{}.
 	 */
 	sk->sk_security = ra;
+	if (tfw_http_mark_is_in_whitlist(skb->mark)) {
+		/*
+		 * Netfilter works on TCP/IP level, so once we observe a
+		 * whitelisted skb, this means that the whole TCP connection is
+		 * whitelisted and we mark it as such.
+		 */
+		frang_sk_mark_whitelisted(sk);
+		frang_acc_history_init(ra, (jiffies * FRANG_FREQ) / HZ);
+		goto finish;
+	}
+
 	/*
 	 * TBD: Since we can determine vhost by SNI field in TLS headers, there
 	 * will be a desire to make all frang limits per-vhost. After some
@@ -249,6 +301,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 		tfw_client_put(cli);
 	}
 
+finish:
 	spin_unlock(&ra->lock);
 	tfw_vhost_put(dflt_vh);
 
@@ -261,7 +314,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 static void
 tfw_classify_conn_close(struct sock *sk)
 {
-	FrangAcc *ra = sk->sk_security;
+	FrangAcc *ra = frang_acc_from_sk(sk);
 
 	BUG_ON(!ra);
 
@@ -1215,15 +1268,21 @@ static int
 frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 {
 	int r;
-	FrangAcc *ra = conn->sk->sk_security;
+	FrangAcc *ra;
 	TfwVhost *dvh = NULL;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 
+	/*
+	 * TODO #1350:
+	 * If req has peer (because of x-forwarded-for header),
+	 * we should check if this peer is also whitelisted or not.
+	 */
+	if (frang_sk_is_whitelisted(conn->sk))
+		return T_OK;
+
+	ra = frang_acc_from_sk(conn->sk);
 	if (req->peer)
 		ra = FRANG_CLI2ACC(req->peer);
-
-	if (test_bit(TFW_HTTP_B_WHITELIST, ((TfwHttpReq *)data->req)->flags))
-		return T_OK;
 
 	dvh = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!dvh))
@@ -1342,9 +1401,10 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	if (unlikely(!resp->req->conn) || !conf)
 		return T_OK;
 
-	ra = (FrangAcc *)req->conn->sk->sk_security;
+	ra = frang_acc_from_sk(req->conn->sk);
 	if (req->peer)
 		ra = FRANG_CLI2ACC(req->peer);
+
 	frang_dbg("client %s check response %d, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, resp->status, ra);
 
@@ -1478,7 +1538,7 @@ int
 frang_tls_handler(TlsCtx *tls, int state)
 {
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
-	FrangAcc *ra = conn->cli_conn.sk->sk_security;
+	FrangAcc *ra = frang_acc_from_sk(conn->cli_conn.sk);
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	int r;
 
