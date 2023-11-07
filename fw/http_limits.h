@@ -27,6 +27,7 @@
 
 #include "tempesta_fw.h"
 #include "connection.h"
+#include "http_types.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -187,5 +188,6 @@ struct frang_vhost_cfg_t {
 };
 
 int frang_tls_handler(TlsCtx *tls, int state);
+bool frang_req_is_whitelisted(TfwHttpReq *req);
 
 #endif /* __HTTP_LIMITS__ */

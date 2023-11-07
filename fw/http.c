@@ -1654,17 +1654,6 @@ bool tfw_http_mark_is_in_whitlist(unsigned int mark)
 			 sizeof(tfw_wl_marks.mrks[0]), tfw_http_marks_cmp);
 }
 
-static inline void
-tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
-			 const struct sk_buff *skb)
-{
-	if (!tfw_wl_marks.mrks || !(TFW_CONN_TYPE(conn) & Conn_Clnt))
-		return;
-
-	if (tfw_http_mark_is_in_whitlist(skb->mark))
-		__set_bit(TFW_HTTP_B_WHITELIST, msg->flags);
-}
-
 /*
  * Forwarding of requests to a back end server is run under a lock
  * on the server connection's forwarding queue. It's performed as
@@ -2843,19 +2832,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 	if (unlikely(!shm))
 		return NULL;
 
-	/*
-	 * New message created, so it should be in whitelist if
-	 * previous message was (for client connections). Also
-	 * we have new skb here and 'mark' propagation is needed.
-	 */
-	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt) {
-		if (test_bit(TFW_HTTP_B_WHITELIST, hm->flags))
-			__set_bit(TFW_HTTP_B_WHITELIST, shm->flags);
-		skb->mark = hm->msg.skb_head->mark;
-	}
-
 	ss_skb_queue_tail(&shm->msg.skb_head, skb);
-
 	return shm;
 }
 
@@ -6721,7 +6698,6 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
 		if (!stream->msg)
 			goto err;
-		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg, skb);
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
 	}

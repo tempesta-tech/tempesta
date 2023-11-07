@@ -843,7 +843,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache)
 
 	if (TFW_STR_EMPTY(&sticky->name)
 	    || sticky->learn
-	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	    || frang_req_is_whitelisted(req))
 	{
 		return 0;
 	}
@@ -1120,7 +1120,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 */
 	if (!req->vhost
 	    || TFW_STR_EMPTY(&req->vhost->cookie->name)
-	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	    || frang_req_is_whitelisted(req))
 	{
 		return TFW_HTTP_SESS_SUCCESS;
 	}
