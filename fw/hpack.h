@@ -172,6 +172,11 @@ typedef struct {
 			unsigned int max_stale;
 			unsigned int min_fresh;
 		} cache_ctl;
+		struct {
+			DECLARE_BITMAP (flags, _TFW_HTTP_FLAGS_NUM);
+			TfwStr multipart_boundary_raw;
+			TfwStr multipart_boundary;
+		} content_type;
 		unsigned long	content_length;
 	};
 	unsigned char		is_set;
