@@ -170,5 +170,7 @@ void h2_set_hdr_authorization(TfwHttpReq *req,
                               const TfwCachedHeaderState *cstate);
 void h2_set_hdr_content_length(TfwHttpReq *req,
                                const TfwCachedHeaderState *cstate);
+int h2_set_hdr_content_type(TfwHttpReq *req,
+                            const TfwCachedHeaderState *cstate);
 unsigned char tfw_http_meth_str2id(const TfwStr *m_hdr);
 #endif /* __TFW_HTTP_PARSER_H__ */

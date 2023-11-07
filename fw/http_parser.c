@@ -2051,7 +2051,7 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 	    ptr != data + req->multipart_boundary.len)
 	{
 		T_WARN("Multipart boundary string length mismatch");
-		return -1;
+		return -EINVAL;
 	}
 
 	req->multipart_boundary_raw.data = data_raw;
@@ -7605,6 +7605,38 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	return ret >= 0 ? CSTR_NEQ : ret;
 }
 
+int
+h2_set_hdr_content_type(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	int r;
+
+	if (cstate->is_set) {
+		req->multipart_boundary_raw.len =
+			cstate->content_type.multipart_boundary_raw.len;
+		req->multipart_boundary.len =
+			cstate->content_type.multipart_boundary.len;
+		req->multipart_boundary_raw.nchunks =
+			cstate->content_type.multipart_boundary_raw.nchunks;
+		if(test_bit(TFW_HTTP_B_CT_MULTIPART,
+			    cstate->content_type.flags)) {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+		}
+		if(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+			    cstate->content_type.flags)) {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+				  req->flags);
+		}
+		req->multipart_boundary_raw.chunks =
+			req->stream->parser.hdr.chunks +
+			(size_t)
+			cstate->content_type.multipart_boundary_raw.data;
+		if ((r = __strdup_multipart_boundaries(req)))
+			return r;
+	}
+
+	return 0;
+}
+
 static int
 __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			    bool fin)
@@ -7624,6 +7656,28 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		goto finalize;						\
 	}, flag)
 
+#define __SET_FLAG(flag)						\
+do {									\
+	__set_bit(flag, req->flags);					\
+	__set_bit(flag, parser->cstate.content_type.flags);		\
+	parser->cstate.is_set = 1;					\
+} while(0)
+
+#define __INCREMENT_MB_FIELD_LEN(field, length)				\
+do {									\
+	req->field.len += length;					\
+	parser->cstate.content_type.field.len += length;		\
+} while(0)
+
+#define __SET_MB_NCHUNKS()						\
+do {									\
+	unsigned int nchunks = parser->hdr.nchunks -			\
+		(size_t)req->multipart_boundary_raw.data;		\
+	req->multipart_boundary_raw.nchunks = nchunks;			\
+	parser->cstate.content_type.multipart_boundary_raw.nchunks = nchunks; \
+} while(0)
+
+
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(I_ContType) {
@@ -7642,7 +7696,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 				 * match) the parser do successful exit
 				 * and it is no needed to apply p += __fsm_n.
 				 */
-				__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+				__SET_FLAG(TFW_HTTP_B_CT_MULTIPART);
 				__FSM_EXIT(CSTR_EQ);
 			}, {
 				if (chunk->len == sizeof("multipart/") - 1)
@@ -7670,12 +7724,12 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_ContTypeMaybeMultipart) {
 		if (c == ';') {
-			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			__SET_FLAG(TFW_HTTP_B_CT_MULTIPART);
 			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		}
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE_LAMBDA_fixup(I_ContTypeMultipartOWS, 1, {
-			    __set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			    __SET_FLAG(TFW_HTTP_B_CT_MULTIPART);
 			    goto finalize;
 			}, 0);
 		__FSM_I_JMP(I_ContTypeOtherSubtype);
@@ -7684,11 +7738,11 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_ContTypeMultipartOWS) {
 		if (IS_WS(c))
 			__FSM_H2_I_MOVE_LAMBDA_fixup(I_ContTypeMultipartOWS, 1, {
-			    __set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			    __SET_FLAG(TFW_HTTP_B_CT_MULTIPART);
 			    goto finalize;
 			}, 0);
 		if (c == ';') {
-			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			__SET_FLAG(TFW_HTTP_B_CT_MULTIPART);
 			__FSM_H2_I_MOVE_FINALIZE_fixup(I_ContTypeParamOWS, 1);
 		}
 		return CSTR_NEQ;
@@ -7716,6 +7770,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			{
 				__FSM_EXIT(CSTR_NEQ);
 			}
+			__SET_FLAG(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY);
 		}, {
 			__FSM_EXIT(CSTR_EQ);
 		}, I_ContTypeParam, I_ContTypeBoundaryValue);
@@ -7738,6 +7793,8 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_ContTypeBoundaryValue) {
 		req->multipart_boundary_raw.len = 0;
 		req->multipart_boundary.len = 0;
+		parser->cstate.content_type.multipart_boundary_raw.len = 0;
+		parser->cstate.content_type.multipart_boundary.len = 0;
 		/*
 		 * msg->parser.hdr.data can't be used as a base here, since its
 		 * value can change due to reallocation during msg->parser.hdr
@@ -7745,8 +7802,10 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		 */
 		req->multipart_boundary_raw.data =
 			(char *)(size_t)parser->hdr.nchunks;
+		parser->cstate.content_type.multipart_boundary_raw.data =
+			(char *)(size_t)parser->hdr.nchunks;
 		if (*p == '"') {
-			req->multipart_boundary_raw.len += 1;
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw, 1);
 			__FSM_H2_I_MOVE_NEQ_fixup(I_ContTypeBoundaryValueQuoted,
 						  1, 0);
 		}
@@ -7759,14 +7818,13 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		if (__fsm_sz > 0) {
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
-			req->multipart_boundary_raw.len += __fsm_sz;
-			req->multipart_boundary.len += __fsm_sz;
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw,
+						 __fsm_sz);
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary, __fsm_sz);
 		}
 		if (__fsm_sz == __fsm_n) {
 			if (likely(fin)) {
-				req->multipart_boundary_raw.nchunks =
-					parser->hdr.nchunks -
-					(size_t)req->multipart_boundary_raw.data;
+				__SET_MB_NCHUNKS();
 				p += __fsm_sz;
 				goto finalize;
 			}
@@ -7775,8 +7833,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		}
 
 		p += __fsm_sz;
-		req->multipart_boundary_raw.nchunks = parser->hdr.nchunks -
-			(size_t)req->multipart_boundary_raw.data;
+		__SET_MB_NCHUNKS();
 		/* __fsm_sz != __fsm_n, therefore __data_remain(p) > 0 */
 		__FSM_I_JMP(I_ContTypeParamValueOWS);
 	}
@@ -7787,8 +7844,10 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		if (__fsm_sz > 0) {
 			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE | TFW_STR_VALUE);
-			req->multipart_boundary_raw.len += __fsm_sz;
-			req->multipart_boundary.len += __fsm_sz;
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw,
+						 __fsm_sz);
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary,
+						 __fsm_sz);
 		}
 		if (unlikely(__fsm_sz == __fsm_n)) {
 			if (likely(fin)) {
@@ -7800,7 +7859,7 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		}
 		p += __fsm_sz;
 		if (*p == '\\') {
-			req->multipart_boundary_raw.len += 1;
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw, 1);
 			__FSM_H2_I_MOVE_NEQ_fixup(
 				I_ContTypeBoundaryValueEscapedChar,
 				1, 0);
@@ -7811,8 +7870,8 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		}
 		if (*p != '"') {
 			/* TODO: faster qdtext/quoted-pair matcher. */
-			req->multipart_boundary_raw.len += 1;
-			req->multipart_boundary.len += 1;
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw, 1);
+			__INCREMENT_MB_FIELD_LEN(multipart_boundary, 1);
 			__FSM_H2_I_MOVE_NEQ_fixup(I_ContTypeBoundaryValueQuoted,
 						  1, TFW_STR_VALUE);
 		}
@@ -7821,9 +7880,8 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		__msg_hdr_chunk_fixup(p, 1);
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
 		p += 1;
-		req->multipart_boundary_raw.len += 1;
-		req->multipart_boundary_raw.nchunks = parser->hdr.nchunks -
-			(size_t)req->multipart_boundary_raw.data;
+		__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw, 1);
+		__SET_MB_NCHUNKS();
 
 		if (unlikely(__data_remain(p) == 0)) {
 			if (fin)
@@ -7837,8 +7895,8 @@ __h2_req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_STATE(I_ContTypeBoundaryValueEscapedChar) {
 		if (IS_CRLF(*p))
 			return CSTR_NEQ;
-		req->multipart_boundary_raw.len += 1;
-		req->multipart_boundary.len += 1;
+		__INCREMENT_MB_FIELD_LEN(multipart_boundary_raw, 1);
+		__INCREMENT_MB_FIELD_LEN(multipart_boundary, 1);
 		__FSM_H2_I_MOVE_NEQ_fixup(I_ContTypeBoundaryValueQuoted, 1,
 					  TFW_STR_VALUE);
 	}
@@ -7942,6 +8000,8 @@ finalize:
 
 	return CSTR_EQ;
 
+#undef __INCREMENT_MB_FIELD_LEN
+#undef __SET_FLAG
 #undef __FSM_H2_I_MOVE_FINALIZE_fixup
 #undef __FSM_H2_I_MATCH_MOVE_FINALIZE_fixup
 }

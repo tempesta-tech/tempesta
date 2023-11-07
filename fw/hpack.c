@@ -1317,6 +1317,8 @@ done:
 		break;
 	case TFW_TAG_HDR_CONTENT_TYPE:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_TYPE;
+		if ((r = h2_set_hdr_content_type(req, &entry->cstate)))
+			return r;
 		break;
 	case TFW_TAG_HDR_COOKIE:
 		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
