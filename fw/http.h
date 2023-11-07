@@ -295,8 +295,6 @@ enum {
 	TFW_HTTP_B_ACCEPT_HTML,
 	/* Request is created by HTTP health monitor. */
 	TFW_HTTP_B_HMONITOR,
-	/* Request from whitelist: skip frang and sticky modules processing. */
-	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
 	/* Request is PURGE with an 'X-Tempesta-Cache: get' header. */
