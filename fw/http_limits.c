@@ -259,9 +259,6 @@ tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = sk->sk_security;
 
-	if (unlikely(!sk->sk_user_data))
-		return;
-
 	BUG_ON(!ra);
 
 	spin_lock(&ra->lock);
