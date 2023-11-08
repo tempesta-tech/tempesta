@@ -178,6 +178,11 @@ typedef struct {
 			TfwStr multipart_boundary;
 		} content_type;
 		unsigned long	content_length;
+		struct {
+			unsigned int flags;
+			unsigned int port;
+		} forwarded;
+		unsigned char	method_override;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;

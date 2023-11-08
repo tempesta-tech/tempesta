@@ -8554,17 +8554,34 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 	return r;
 }
 
+void
+h2_set_hdr_pragma(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set &&
+	    cstate->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE) {
+		BUG_ON(req->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
+		req->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+	}
+}
+
 static int
 __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
+#define __SET_CACHE_CTL_FLAG(flag)					\
+do {									\
+	msg->cache_ctl.flags |= flag;					\
+	parser->cstate.cache_ctl.flags |= flag;				\
+	parser->cstate.is_set = true;				\
+} while(0)
+
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(I_Pragma) {
 		H2_TRY_STR_LAMBDA("no-cache", {
-			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_PRAGMA_NO_CACHE);
 			__FSM_EXIT(CSTR_EQ);
 		}, I_Pragma, I_Pragma_NoCache);
 		TRY_STR_INIT();
@@ -8573,7 +8590,7 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 
 	__FSM_STATE(I_Pragma_NoCache) {
 		if (IS_WS(c) || c == ',')
-			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_PRAGMA_NO_CACHE);
 		__FSM_I_JMP(I_Pragma_Ext);
 	}
 
@@ -8593,6 +8610,8 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 
 done:
 	return r;
+
+#undef __SET_CACHE_CTL_FLAG
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_pragma);
 
@@ -8689,6 +8708,15 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_te);
+
+void
+h2_set_hdr_forwarded(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set) {
+		req->stream->parser.flags |= cstate->forwarded.flags;
+		req->stream->parser.port = cstate->forwarded.port;
+	}
+}
 
 /**
  * Parse Forwarded header, RFC 7239.
@@ -8793,7 +8821,12 @@ do {									   \
 		__FSM_EXIT(CSTR_NEQ);					   \
 	}, flag)
 
-#define FWD_SET_FLAG(flag) parser->flags |= flag
+#define FWD_SET_FLAG(flag)						   \
+do {									   \
+	parser->flags |= flag;						   \
+	parser->cstate.forwarded.flags |= flag;				   \
+	parser->cstate.is_set = true;					   \
+} while(0)
 
 /*
  * Tries to find parameter in header.
@@ -9031,6 +9064,9 @@ do {									   \
 		__fsm_n = __parse_ulong_ws_delim(p, __fsm_sz,
 						 (unsigned long*)&parser->port,
 						 USHRT_MAX);
+		parser->cstate.forwarded.port = parser->port;
+		parser->cstate.is_set = true;
+
 		switch (__fsm_n) {
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
@@ -9055,6 +9091,9 @@ do {									   \
 		__fsm_n = __parse_ulong_ws_delim(p, __fsm_sz,
 						 (unsigned long*)&parser->port,
 						 USHRT_MAX);
+		parser->cstate.forwarded.port = parser->port;
+		parser->cstate.is_set = true;
+
 		switch (__fsm_n) {
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
@@ -9202,6 +9241,14 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_forwarded);
 
+void
+h2_set_hdr_x_method_override(TfwHttpReq *req,
+			     const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set)
+		req->method_override = cstate->method_override;
+}
+
 /* Parse method override request headers. */
 static int
 __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
@@ -9209,6 +9256,13 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
+
+#define __SET_METHOD_OVERRIDE(method)					\
+do {									\
+	req->method_override = method;					\
+	parser->cstate.method_override = method;			\
+	parser->cstate.is_set = true;					\
+} while(0)
 
 	__FSM_START(parser->_i_st);
 
@@ -9240,7 +9294,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_C) {
 		H2_TRY_STR_LAMBDA("copy", {
-			req->method_override = TFW_HTTP_METH_COPY;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_COPY);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_C, I_EoT);
 		TRY_STR_INIT();
@@ -9249,7 +9303,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_D) {
 		H2_TRY_STR_LAMBDA("delete", {
-			req->method_override = TFW_HTTP_METH_DELETE;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_DELETE);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_D, I_EoT);
 		TRY_STR_INIT();
@@ -9258,7 +9312,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_G) {
 		H2_TRY_STR_LAMBDA("get", {
-			req->method_override = TFW_HTTP_METH_GET;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_GET);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_G, I_EoT);
 		TRY_STR_INIT();
@@ -9267,7 +9321,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_H) {
 		H2_TRY_STR_LAMBDA("head", {
-			req->method_override = TFW_HTTP_METH_HEAD;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_HEAD);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_H, I_EoT);
 		TRY_STR_INIT();
@@ -9276,7 +9330,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_L) {
 		H2_TRY_STR_LAMBDA("lock", {
-			req->method_override = TFW_HTTP_METH_LOCK;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_LOCK);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_L, I_EoT);
 		TRY_STR_INIT();
@@ -9285,11 +9339,11 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_M) {
 		H2_TRY_STR_LAMBDA("mkcol", {
-			req->method_override = TFW_HTTP_METH_MKCOL;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_MKCOL);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_M, I_EoT);
 		H2_TRY_STR_LAMBDA("move", {
-			req->method_override = TFW_HTTP_METH_MOVE;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_MOVE);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_M, I_EoT);
 		TRY_STR_INIT();
@@ -9298,7 +9352,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_O) {
 		H2_TRY_STR_LAMBDA("options", {
-			req->method_override = TFW_HTTP_METH_OPTIONS;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_OPTIONS);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_O, I_EoT);
 		TRY_STR_INIT();
@@ -9307,23 +9361,23 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_P) {
 		H2_TRY_STR_LAMBDA("patch", {
-			req->method_override = TFW_HTTP_METH_PATCH;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_PATCH);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		H2_TRY_STR_LAMBDA("post", {
-			req->method_override = TFW_HTTP_METH_POST;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_POST);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		H2_TRY_STR_LAMBDA("propfind", {
-			req->method_override = TFW_HTTP_METH_PROPFIND;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_PROPFIND);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		H2_TRY_STR_LAMBDA("proppatch", {
-			req->method_override = TFW_HTTP_METH_PROPPATCH;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_PROPPATCH);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		H2_TRY_STR_LAMBDA("put", {
-			req->method_override = TFW_HTTP_METH_PUT;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_PUT);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_P, I_EoT);
 		TRY_STR_INIT();
@@ -9332,7 +9386,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_T) {
 		H2_TRY_STR_LAMBDA("trace", {
-			req->method_override = TFW_HTTP_METH_TRACE;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_TRACE);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_T, I_EoT);
 		TRY_STR_INIT();
@@ -9340,7 +9394,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(I_Meth_U) {
 		H2_TRY_STR_LAMBDA("unlock", {
-			req->method_override = TFW_HTTP_METH_UNLOCK;
+			__SET_METHOD_OVERRIDE(TFW_HTTP_METH_UNLOCK);
 			__FSM_EXIT(CSTR_EQ);
 		} , I_Meth_U, I_EoT);
 		TRY_STR_INIT();
@@ -9352,7 +9406,7 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 			if (likely(fin))
 				break;
 		});
-		req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		__SET_METHOD_OVERRIDE(_TFW_HTTP_METH_UNKNOWN);
 		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
@@ -9366,6 +9420,8 @@ __h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
 
 done:
 	return r;
+
+#undef __SET_METHOD_OVERRIDE
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
 
