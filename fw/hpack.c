@@ -1325,6 +1325,7 @@ done:
 		break;
 	case TFW_TAG_HDR_FORWARDED:
 		parser->_hdr_tag = TFW_HTTP_HDR_FORWARDED;
+		h2_set_hdr_forwarded(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
@@ -1366,7 +1367,13 @@ done:
 		h2_set_hdr_authorization(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_x_method_override(req, &entry->cstate);
+		break;
 	case TFW_TAG_HDR_PRAGMA:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_pragma(req, &entry->cstate);
+		break;
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;
