@@ -232,7 +232,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	bzero_fast(ctx, sizeof(*ctx));
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
-	ctx->loc_wnd = MAX_WND_SIZE;
+	ctx->loc_wnd = DEF_WND_SIZE;
 	ctx->rem_wnd = DEF_WND_SIZE;
 
 	spin_lock_init(&ctx->lock);
@@ -243,11 +243,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->max_streams = rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
 	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
-	/*
-	 * We ignore client's window size until #498, so currently
-	 * we set it to maximum allowed value.
-	 */
-	lset->wnd_sz = MAX_WND_SIZE;
+
+	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
@@ -1314,13 +1311,13 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	}
 
 
-	if (ctx->loc_wnd <= MAX_WND_SIZE / 2) {
+	if (ctx->loc_wnd <= DEF_WND_SIZE / 2) {
 		if ((r = tfw_h2_send_wnd_update(ctx, 0,
-						MAX_WND_SIZE - ctx->loc_wnd)))
+						DEF_WND_SIZE - ctx->loc_wnd)))
 		{
 			return r;
 		}
-		ctx->loc_wnd = MAX_WND_SIZE;
+		ctx->loc_wnd = DEF_WND_SIZE;
 	}
 
 	return 0;
@@ -1721,12 +1718,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 			}
 		});
 
-		if ((ret = tfw_h2_send_settings_init(ctx)) ||
-		    (ret = tfw_h2_send_wnd_update(ctx, 0,
-						  MAX_WND_SIZE - DEF_WND_SIZE)))
-		{
+		if ((ret = tfw_h2_send_settings_init(ctx)))
 			FRAME_FSM_EXIT(ret);
-		}
 
 		FRAME_FSM_MOVE(HTTP2_RECV_FIRST_SETTINGS);
 	}
