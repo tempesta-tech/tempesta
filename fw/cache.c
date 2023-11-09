@@ -478,9 +478,21 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 #define CC_RESP_CACHEIT					\
 	(TFW_HTTP_CC_HDR_EXPIRES | TFW_HTTP_CC_MAX_AGE	\
 	 | TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC)
+/*
+ * RFC 9111 3.5:
+ * A shared cache MUST NOT use a cached response to a request with an
+ * Authorization header field (Section 11.6.2 of [HTTP]) to satisfy any
+ * subsequent request unless the response contains a Cache-Control field
+ * with a response directive (Section 5.2.2) that allows it to be stored
+ * by a shared cache, and the cache conforms to the requirements of that
+ * directive for that response.
+ * In this specification, the following response directives have such an
+ * effect: must-revalidate (Section 5.2.2.2), public (Section 5.2.2.9),
+ * and s-maxage (Section 5.2.2.10).
+ */
 #define CC_RESP_AUTHCAN					\
 	(TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC	\
-	 | TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL)
+	 | TFW_HTTP_CC_MUST_REVAL)
 	/*
 	 * TODO: Response no-cache -- should be cached.
 	 * Should turn on unconditional revalidation.
