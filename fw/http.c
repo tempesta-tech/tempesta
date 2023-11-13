@@ -767,7 +767,7 @@ do { 								\
 		return -E2BIG;
 
 	remaining = RESP_BUF_LEN - SLEN(S_V_DATE) - cl_len;
-	len = req->host.len + req->uri_path.len + body_len;
+	len = req->host.len + req->uri_path.len + rmark->len + body_len;
 	if (likely(len) < remaining) {
 		p = *this_cpu_ptr(&g_buf) + SLEN(S_V_DATE) + cl_len;
 	} else {
@@ -786,10 +786,8 @@ do { 								\
 		TFW_ADD_URL_CHUNK(&req->host);
 	}
 
-	if (rmark->len) {
-		url.chunks[url.nchunks++] = *rmark;
-		url.len += rmark->len;
-	}
+	if (rmark->len)
+		TFW_ADD_URL_CHUNK(rmark);
 
 	TFW_ADD_URL_CHUNK(&req->uri_path);
 #undef TFW_ADD_URL_CHUNK
