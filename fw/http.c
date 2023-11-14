@@ -5990,7 +5990,9 @@ next_msg:
 
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503, NULL);
+		return tfw_http_req_parse_block(req, 503,
+						"request dropped: vilolation of"
+						" Sticky module settings");
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
