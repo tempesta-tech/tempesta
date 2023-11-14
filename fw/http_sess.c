@@ -632,17 +632,8 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 			mv->att_no = 0;
 		}
 
-		if (r || ++mv->att_no > max_misses) {
-			/*
-			 * TODO #1102 we should not block client on the IP layer
-			 * always. We should deligate the blocking action to the
-			 * HTTP layer, which can take different blocking actions,
-			 * e.g. send an HTTP responce in case of
-			 * `block_action attack reply`.
-			 */
-			tfw_filter_block_ip((TfwClient *)req->conn->peer);
+		if (r || ++mv->att_no > max_misses)
 			return TFW_HTTP_SESS_VIOLATE;
-		}
 		bzero_fast(mv->hmac, sizeof(mv->hmac));
 	} else {
 		mv->ts = jiffies;
