@@ -454,8 +454,8 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 
 	T_DBG("ciphersuite requires certificate\n");
 
-	if (!list) {
-		T_DBG("server has no certificate\n");
+	if (unlikely(!list)) {
+		T_WARN("server has no certificate\n");
 		return -1;
 	}
 
@@ -511,7 +511,7 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	T_DBG("trying ciphersuite: %s\n", suite_info->name);
 
 	if (ttls_ciphersuite_uses_ec(suite_info) && !tls->hs->curves[0]) {
-		T_DBG("ciphersuite mismatch: no common elliptic curve\n");
+		T_WARN("ciphersuite mismatch: no common elliptic curve\n");
 		return -1;
 	}
 	/*
@@ -523,8 +523,8 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	    && ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_type)
 	        == TTLS_MD_NONE)
 	{
-		T_DBG("ciphersuite mismatch: no suitable hash algorithm"
-		      " for signature algorithm %d", sig_type);
+		T_WARN("ciphersuite mismatch: no suitable hash algorithm"
+		       " for signature algorithm %s", pk_type_to_str(sig_type));
 		return -1;
 	}
 	/*
@@ -535,7 +535,7 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	 * This must be done last since we modify the key_cert list.
 	 */
 	if (ttls_pick_cert(tls, suite_info)) {
-		T_DBG("ciphersuite mismatch: no suitable certificate\n");
+		T_WARN("ciphersuite mismatch: no suitable certificate\n");
 		return -1;
 	}
 
@@ -1279,7 +1279,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 
 		if ((r = ttls_derive_keys(tls))) {
 			TTLS_WARN(tls, "ServerHello: cannot derive keys, crypto error %d\n",
-					  r);
+				  r);
 			return r;
 		}
 	}
@@ -1564,7 +1564,8 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	 */
 	if (tls->conf->cert_req_ca_list) {
 		TTLS_WARN(tls, "List of acceptable CAs isn't supported"
-			  " (reference issue #830)\n");
+			  " (reference issue"
+			  " https://github.com/tempesta-tech/tempesta/issues/830)\n");
 		return -EINVAL;
 	}
 	end = buf + 128;
@@ -1704,7 +1705,7 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 
 	/* Receive G^Y mod P, premaster = (G^Y)^X mod P. */
 	if (*p + 2 > end) {
-		T_DBG("bad client dh key exchange message\n");
+		T_WARN("bad client dh key exchange message\n");
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 
@@ -1712,12 +1713,12 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 	*p += 2;
 
 	if (*p + n > end) {
-		T_DBG("bad client key exchange message\n");
+		T_WARN("bad client key exchange message\n");
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 
 	if ((r = ttls_dhm_read_public(tls->hs->dhm_ctx, *p, n))) {
-		T_DBG("cannot read dhm public, %d\n", r);
+		T_WARN("cannot read dhm public, %d\n", r);
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 	}
 
@@ -1739,8 +1740,9 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
 	if (unlikely(io->hstype != TTLS_HS_CLIENT_KEY_EXCHANGE)) {
-		TTLS_WARN(tls, "bad client key exchange message type, %u\n",
-			  io->hstype);
+		TTLS_WARN(tls, "bad client key exchange message type: %s"
+			  " Client Key Exchange expected\n",
+			  hstype_to_str(io->hstype));
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 

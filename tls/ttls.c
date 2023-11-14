@@ -622,7 +622,7 @@ ttls_derive_keys(TlsCtx *tls)
 				     64, sess->master, 48);
 		}
 		if (r) {
-			T_DBG("prf master secret error, %d\n", r);
+			T_WARN("prf master secret error, %d\n", r);
 			return r;
 		}
 	}
@@ -640,7 +640,7 @@ ttls_derive_keys(TlsCtx *tls)
 	r = TTLS_PRF(hs, sess->master, 48, "key expansion", hs->randbytes, 64,
 		     keyblk, 256);
 	if (r) {
-		T_DBG("prf key expansion error, %d\n", r);
+		T_WARN("prf key expansion error, %d\n", r);
 		return r;
 	}
 
@@ -731,23 +731,23 @@ ttls_derive_keys(TlsCtx *tls)
 	}
 
 	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_enc, ci, TTLS_TAG_LEN))) {
-		T_DBG("cannot setup encryption cipher, %d\n", r);
+		T_WARN("cannot setup encryption cipher, %d\n", r);
 		return r;
 	}
 	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_dec, ci, TTLS_TAG_LEN))) {
-		T_DBG("cannot setup decryption cipher, %d\n", r);
+		T_WARN("cannot setup decryption cipher, %d\n", r);
 		return r;
 	}
 
 	r = crypto_aead_setkey(xfrm->cipher_ctx_enc.cipher_ctx, key1, ci->key_len);
 	if (r) {
-		T_DBG("cannot set encryption key, %d\n", r);
+		T_WARN("cannot set encryption key, %d\n", r);
 		return r;
 	}
 
 	r = crypto_aead_setkey(xfrm->cipher_ctx_dec.cipher_ctx, key2, ci->key_len);
 	if (r) {
-		T_DBG("cannot set decryption key, %d\n", r);
+		T_WARN("cannot set decryption key, %d\n", r);
 		return r;
 	}
 
@@ -856,7 +856,7 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt)
 		  min_t(size_t, 256, io->msglen + TLS_HEADER_SIZE));
 
 	if ((r = crypto_aead_encrypt(req))) {
-		T_WARN("AEAD encryption failed: %d\n", r);
+		T_WARN("AEAD encryption failed while record encryption: %d\n", r);
 		goto err;
 	}
 	T_DBG3_SL("encrypted buf (first 64 bytes)", sgt->sgl, sgt->nents, 0,
@@ -887,8 +887,8 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	unsigned char aad_buf[TLS_AAD_SPACE_SIZE];
 
 	if (unlikely(io->msglen < xfrm->minlen)) {
-		T_DBG("%s msglen (%u) < minlen (%u)\n", __func__,
-		      io->msglen, xfrm->minlen);
+		T_WARN("message lenght (%u) < min. ciphertext length (%u)\n",
+		       io->msglen, xfrm->minlen);
 		return TTLS_ERR_INVALID_MAC;
 	}
 
@@ -899,8 +899,8 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	T_DBG2("decrypt input record from network: hdr=%pK msglen=%d chunks=%u"
 	       " eiv_len=%lu\n", io->hdr, io->msglen, io->chunks, expiv_len);
 	if (unlikely(io->msglen < expiv_len + TTLS_TAG_LEN)) {
-		T_DBG("%s: msglen (%u) < expiv_len (%lu) + TAG_LEN (16)\n",
-		      __func__, io->msglen, expiv_len);
+		T_WARN("message lenght (%u) < explicit IV length (%lu) + "
+		       "tag length (16)\n", io->msglen, expiv_len);
 		return TTLS_ERR_INVALID_MAC;
 	}
 
@@ -957,7 +957,8 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	TlsIOCtx *io = &tls->io_in;
 
 	if (io->msglen > ttls_max_ciphertext_len(&tls->xfrm)) {
-		T_DBG("bad message length %u\n", io->msglen);
+		T_WARN("message length (%u) > max. ciphertext length\n",
+		       io->msglen);
 		return -EINVAL;
 	}
 
@@ -1079,7 +1080,7 @@ ttls_hdr_check(TlsCtx *tls)
 	if (unlikely(io->msgtype < TTLS_MSG_CHANGE_CIPHER_SPEC
 		     || io->msgtype > TTLS_MSG_APPLICATION_DATA))
 	{
-		T_DBG("unknown record type %d\n", io->msgtype);
+		T_WARN("unknown record type %d\n", io->msgtype);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
 
@@ -1090,21 +1091,22 @@ ttls_hdr_check(TlsCtx *tls)
 	    && ttls_state(tls) != TTLS_CLIENT_CHANGE_CIPHER_SPEC
 	    && ttls_state(tls) != TTLS_SERVER_CHANGE_CIPHER_SPEC)
 	{
-		T_DBG("dropping unexpected ChangeCipherSpec\n");
+		T_WARN("dropping unexpected ChangeCipherSpec\n");
 		return -EINVAL;
 	}
 	/* Check length against bounds of the current transform and version */
 	if (!ttls_xfrm_ready(tls)) {
 		/* Cipher's not ready yet, plaintext limits apply. */
 		if (io->msglen < 1 || io->msglen > TLS_MAX_PAYLOAD_SIZE) {
-			T_DBG("bad message length %u\n", io->msglen);
+			T_WARN("message length (%u) > max payload size\n",
+			       io->msglen);
 			return -EINVAL;
 		}
 	} else {
 		if (io->msglen < tls->xfrm.minlen ||
 		    io->msglen > ttls_max_ciphertext_len(&tls->xfrm))
 		{
-			T_DBG("bad message length %u\n", io->msglen);
+			T_WARN("bad message length %u\n", io->msglen);
 			return -EINVAL;
 		}
 	}
@@ -1163,7 +1165,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * The higher minor version is still 0x03.
 	 */
 	if (unlikely(io->hdr[1] != 3 || io->hdr[2] < 1 || io->hdr[2] > 3)) {
-		T_DBG("bad version %u:%u\n", io->hdr[1], io->hdr[2]);
+		T_WARN("bad TLS version %u:%u\n", io->hdr[1], io->hdr[2]);
 		return T_BLOCK;
 	}
 	io->msglen = ((unsigned short)io->hdr[3] << 8) | io->hdr[4];
@@ -1180,8 +1182,9 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 			ivahs_len = 2; /* level & description */
 			if (io->msglen != ivahs_len) {
 				/* TODO: multiple alerts in one record? */
-				T_DBG("unexpected alert message length: %d\n",
-				      io->msglen);
+				T_WARN("unexpected alert message length: %d,"
+				       " expected: %d\n",
+				       io->msglen, ivahs_len);
 				return TTLS_ERR_INVALID_RECORD;
 			}
 			break;
@@ -1202,8 +1205,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Read 1 byte equal to 0x1. */
 		ivahs_len = 1;
 		if (io->msglen != ivahs_len) {
-			T_DBG("unexpected ChangeCipherSpec message length: "
-			      "%d\n", io->msglen);
+			T_WARN("unexpected ChangeCipherSpec message length: "
+			       "%d, expected: %d\n", io->msglen, ivahs_len);
 			return TTLS_ERR_INVALID_RECORD;
 		}
 		break;
@@ -1218,8 +1221,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (!ready) {
 			ivahs_len = TTLS_HS_HDR_LEN;
 			if (io->msglen < ivahs_len) {
-				T_DBG("handshake message too short: %d\n",
-				      io->msglen);
+				T_WARN("handshake message too short: %d, "
+				       "expected: ivahs_len\n", io->msglen);
 				return TTLS_ERR_INVALID_RECORD;
 			}
 		} else {
@@ -1281,7 +1284,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 
 		/* With TLS we don't handle fragmentation (for now) */
 		if (io->msglen < io->hslen) {
-			T_DBG("TLS handshake fragmentation not supported\n");
+			T_WARN("TLS handshake fragmentation not supported\n");
 			return TTLS_ERR_FEATURE_UNAVAILABLE;
 		}
 	}
@@ -1362,7 +1365,7 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[1] = msg;
 
 	if ((r = ttls_write_record(tls, NULL)))
-		T_WARN("Cannot sent TLS alert %d:%d, %d\n", msg, lvl, r);
+		T_WARN("Cannot send TLS alert %d:%d, %d\n", msg, lvl, r);
 
 	return r;
 }
@@ -1415,7 +1418,8 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 
 		n = crt->raw.len + TTLS_CERT_LEN_LEN;
 		if (n + tot_len > TLS_MAX_PAYLOAD_SIZE - 7) {
-			T_WARN("certificate too large, %lu > %lu\n",
+			T_WARN("certificate too large, %lu(total len) > "
+			       "%lu(max payload size)\n",
 			       tot_len + n + 7, TLS_MAX_PAYLOAD_SIZE);
 			return TTLS_ERR_CERTIFICATE_TOO_LARGE;
 		}
@@ -1609,7 +1613,7 @@ parse:
 		r = ttls_x509_crt_verify(sess->peer_cert, ca_chain, ca_crl,
 					 tls->hostname, &vr);
 		if (r)
-			TTLS_WARN(tls, "client cert verification status: %d\n", r);
+			TTLS_WARN(tls, "client cert verification failed, %d\n", r);
 
 		/*
 		 * Secondary checks: always done, but change 'r' only if it was
@@ -1736,15 +1740,16 @@ ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 
 	if (io->msgtype != TTLS_MSG_CHANGE_CIPHER_SPEC) {
-		TTLS_WARN(tls, "bad change cipher spec message type %u\n",
-			  io->msgtype);
+		TTLS_WARN(tls, "bad change cipher spec message type: %s,"
+			  " Change Cipher Spec expected\n",
+			  msgtype_to_str(io->msgtype));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
 		return TTLS_ERR_UNEXPECTED_MESSAGE;
 	}
 	if (io->msglen != 1 || io->hstype != 1) {
 		TTLS_WARN(tls, "bad change cipher spec message, len=%u"
-			  " type=%u\n", io->msglen, io->hstype);
+			  " type=%s\n", io->msglen, hstype_to_str(io->hstype));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CHANGE_CIPHER_SPEC;
@@ -2281,8 +2286,9 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 	}
 	*read += io->msglen - io->rlen;
 	if ((r = ttls_decrypt(tls, NULL))) {
-		TTLS_WARN(tls, "TLS cannot decrypt msg on state %x, ret=%d%s\n",
-			  tls->state, r, r == -EBADMSG ? "(bad ciphertext)" : "");
+		TTLS_WARN(tls, "TLS cannot decrypt msg on state %s, ret=%d%s\n",
+			  tls_state_to_str(tls->state), r,
+			  r == -EBADMSG ? "(bad ciphertext)" : "");
 		return r;
 	}
 

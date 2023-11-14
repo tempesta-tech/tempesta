@@ -417,4 +417,46 @@ ttls_rnd(void *buf, int len)
 }
 #endif
 
+static inline char *
+tls_state_to_str(unsigned int state) {
+	switch (state) {
+	case TTLS_CLIENT_HELLO:
+		return "Client Hello";
+	case TTLS_SERVER_HELLO:
+		return "Server Hello";
+	case TTLS_SERVER_CERTIFICATE:
+		return "Server Certificate";
+	case TTLS_SERVER_KEY_EXCHANGE:
+		return "Server Key Exchange";
+	case TTLS_CERTIFICATE_REQUEST:
+		return "Certificate Request";
+	case TTLS_SERVER_HELLO_DONE:
+		return "Server Hello Done";
+	case TTLS_CLIENT_CERTIFICATE:
+		return "Client Certificate";
+	case TTLS_CLIENT_KEY_EXCHANGE:
+		return "Client Key Exchange";
+	case TTLS_CERTIFICATE_VERIFY:
+		return "Certificate Verify";
+	case TTLS_CLIENT_CHANGE_CIPHER_SPEC:
+		return "Client Change Cipher Spec";
+	case TTLS_CLIENT_FINISHED:
+		return "Client Finished";
+	case TTLS_SERVER_CHANGE_CIPHER_SPEC:
+		return "Server Change Cipher Spec";
+	case TTLS_SERVER_FINISHED:
+		return "Server Finished";
+	case TTLS_HANDSHAKE_WRAPUP:
+		return "Handshake Wrapup";
+	case TTLS_HANDSHAKE_OVER:
+		return "Handshake Over";
+	case TTLS_SERVER_NEW_SESSION_TICKET:
+		return "Server New Session Ticket";
+	case TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT:
+		return "Server Hello Veriy Request Sent";
+	default:
+		return "Unknown";
+	}
+}
+
 #endif

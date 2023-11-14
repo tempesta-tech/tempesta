@@ -161,4 +161,25 @@ ttls_pk_get_len(const TlsPkCtx *ctx)
 	return (ttls_pk_get_bitlen(ctx) + 7) / 8;
 }
 
+static inline char *
+pk_type_to_str(ttls_pk_type_t pk_type)
+{
+	switch (pk_type) {
+	case TTLS_PK_NONE:
+		return "None";
+	case TTLS_PK_RSA:
+		return "RSA";
+	case TTLS_PK_ECKEY:
+		return "Elliptic-curve";
+	case TTLS_PK_ECKEY_DH:
+		return "Elliptic-curve Diffie-Hellman";
+	case TTLS_PK_ECDSA:
+		return "ECDSA";
+	case TTLS_PK_RSASSA_PSS:
+		return "RSASSA-PSS";
+	default:
+		return "Unknown";
+	}
+}
+
 #endif /* TTLS_PK_H */
