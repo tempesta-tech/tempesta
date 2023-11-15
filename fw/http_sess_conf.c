@@ -259,12 +259,50 @@ __tfw_cfgop_cookie_set_name(TfwStickyCookie *sticky, const char *name)
 	return 0;
 }
 
+static bool
+__tfw_cfgop_cookie_check_disallowed_options(const char *options,
+					    const char **disallowed)
+{
+	/*
+	 * We explicitly set "path" and "max-age" for cookie, so
+	 * we disallow this options here to avoid duplicates.
+	 */
+	static const char *disallowed_options[] = { "path=", "max-age=" };
+	const char *new_opt = options;
+	unsigned int i;
+
+	do {
+		for (i= 0; i < ARRAY_SIZE(disallowed_options); i++)
+			if (!strncasecmp(new_opt, disallowed_options[i],
+					 strlen(disallowed_options[i]))) {
+				*disallowed = disallowed_options[i];
+				return false;
+			}
+
+		new_opt = strstr(new_opt, "; ");
+		if (!new_opt)
+			break;
+		new_opt +=2;
+	} while(true);
+
+	return true;
+}
+
 static int
 tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 {
+	const char *disallowed;
 	size_t len = strlen(options);
 	if (sticky->options.len + 2 + len > STICKY_OPT_MAXLEN) {
 		T_ERR_NL("http_sess: too long cookie options length.\n");
+		return -EINVAL;
+	}
+
+	if (!__tfw_cfgop_cookie_check_disallowed_options(options,
+							 &disallowed)) {
+		T_ERR_NL("http_sess: desallowed cookie option '%s' "
+			 "(this options is explicitly set by tempesta)\n",
+			 disallowed);
 		return -EINVAL;
 	}
 
@@ -280,16 +318,17 @@ tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 static int
 tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
 {
-	static const char path[] = "; path=";
+	static const char path[] = "; Path=";
 	size_t path_val_len = strlen(path_val);
-	if (sticky->options.len + SLEN(path) + path_val_len > STICKY_OPT_MAXLEN) {
+	if (sticky->options.len + SLEN(path) +
+	    path_val_len > STICKY_OPT_MAXLEN) {
 		T_ERR_NL("http_sess: too long cookie path length.\n");
 		return -EINVAL;
 	}
 
 	memcpy(&sticky->options_str[sticky->options.len], path, SLEN(path));
-	memcpy(&sticky->options_str[sticky->options.len + SLEN(path)], path_val,
-	       path_val_len);
+	memcpy(&sticky->options_str[sticky->options.len + SLEN(path)],
+	       path_val, path_val_len);
 
 	sticky->options.len += SLEN(path) + path_val_len;
 
@@ -359,9 +398,11 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	if (!was_path) {
-		static const char dflt_path[] = "; path=/";
+		static const char dflt_path[] = "; Path=/";
+
 		if (sticky->options.len + SLEN(dflt_path) > STICKY_OPT_MAXLEN) {
-			T_ERR_NL("http_sess: too long cookie options or path length.\n");
+			T_ERR_NL("http_sess: too long cookie options "
+				 "or path length.\n");
 			return -EINVAL;
 		}
 		memcpy(&sticky->options_str[sticky->options.len], dflt_path,
@@ -517,10 +558,13 @@ tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	static char max_age[64];
 	int r;
 	int int_val = 0;
+	size_t max_age_len;
 	TfwStickyCookie *sticky = cur_vhost ? cur_vhost->cookie
 					    : &defaults_override.sticky;
+
 
 	if (tfw_cfg_is_dflt_value(ce)) {
 		if (!cur_vhost)
@@ -528,7 +572,7 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (defaults_override.lifetime_set) {
 			sticky->sess_lifetime =
 					defaults_override.sticky.sess_lifetime;
-			return 0;
+			goto set_max_age;
 		}
 
 	}
@@ -538,6 +582,7 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	cs->dest = NULL;
 	if (r)
 		return r;
+
 	/*
 	 * "sess_lifetime 0;" means unlimited session lifetime,
 	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
@@ -547,6 +592,21 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!cur_vhost)
 		defaults_override.lifetime_set = 1;
 
+set_max_age:
+	r = snprintf(max_age, sizeof(max_age), "; Max-Age=%u",
+		     sticky->sess_lifetime);
+	BUG_ON(!r || r >= sizeof(max_age));
+	max_age_len = strlen(max_age);
+
+	if (sticky->options.len + max_age_len > STICKY_OPT_MAXLEN) {
+		T_ERR_NL("http_sess: too long cookie options "
+			 "or max-age length.\n");
+		return -EINVAL;
+	}
+	memcpy(&sticky->options_str[sticky->options.len], max_age,
+	       max_age_len + 1);
+
+	sticky->options.len += max_age_len;
 	return 0;
 }
 
@@ -662,31 +722,34 @@ tfw_cfgop_jsch_parse_resp_code(TfwCfgSpec *cs, TfwCfgJsCh *js_ch,
 static void
 tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, TfwCfgJsCh *js_ch)
 {
-	const unsigned long min_limit	= msecs_to_jiffies(100);
-	const unsigned long max_hc_p	= 10;
-	const unsigned long max_limit	=
-		msecs_to_jiffies(js_ch->delay_range) * max_hc_p / 100;
+	const unsigned long min_limit = msecs_to_jiffies(100);
+	const unsigned long max_hc_p = 10;
+	const unsigned long max_limit =
+		msecs_to_jiffies(js_ch->delay_range) * max_hc_p;
 	unsigned long hc_prob;
 
-	if (!js_ch->delay_limit) {
+	if (!js_ch->delay_limit)
 		js_ch->delay_limit = max_limit;
-	}
+
 	if (js_ch->delay_limit < min_limit) {
 		T_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
 			  "clients will be blocked. "
-			    "Minimum recommended value is %u, "
-			    "but %u is provided\n",
-			    cs->name,
-			    jiffies_to_msecs(min_limit),
-			    jiffies_to_msecs(js_ch->delay_limit));
+			  "Minimum recommended value is %u, "
+			  "but %u is provided\n",
+			  cs->name,
+			  jiffies_to_msecs(min_limit),
+			  jiffies_to_msecs(js_ch->delay_limit));
 	}
-	hc_prob = js_ch->delay_limit * 100
-			/ msecs_to_jiffies(js_ch->delay_range);
+
+	hc_prob = js_ch->delay_limit / msecs_to_jiffies(js_ch->delay_range);
 	if (hc_prob > max_hc_p) {
 		T_WARN_NL("%s: 'delay_limit' is too big, attacker may "
-			  "hardcode bots and breach the JavaScript challenge "
-			  "with %lu%% success probability\n",
-			  cs->name, hc_prob);
+			  "hardcode bots and breach the JavaScript challenge."
+			  "Maximum recommended value is %u, "
+			  "but %lu is provided\n",
+			  cs->name,
+			  jiffies_to_msecs(max_limit),
+			  js_ch->delay_limit);
 	}
 }
 

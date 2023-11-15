@@ -709,7 +709,7 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
  * cookie value and send a redirect with it.
  */
 static int
-tfw_http_sticky_jsch_resart(TfwHttpReq *req)
+tfw_http_sticky_jsch_restart(TfwHttpReq *req)
 {
 	StickyVal sv = {};
 	TfwStickyCookie *sticky = req->vhost->cookie;
@@ -932,7 +932,7 @@ tfw_http_sess_remove(TfwHttpSess *sess)
 static int
 tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
-	unsigned long min_time, max_time, restart_time;
+	unsigned long min_time, max_time, limit_time;
 	TfwCfgJsCh *js_ch = req->vhost->cookie->js_challenge;
 
 	if (!js_ch)
@@ -949,19 +949,24 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	}
 
 	/*
-	 * When a client calculates it's own random delay, it uses range value
-	 * encoded as msecs, we have to use the same, to have exactly the same
-	 * calculation results. See etc/js_challenge.js.tpl .
+	 * delay_range - milliseconds, the period of time during which
+	 * a client is allowed to send request with Sticky Cookie set.
+	 * So check if request is in this range.
 	 */
-	min_time = sv->ts + js_ch->delay_min
-			+ msecs_to_jiffies(sv->ts % js_ch->delay_range);
-	max_time = min_time + js_ch->delay_limit;
+	min_time = sv->ts + js_ch->delay_min;
+	max_time = min_time + msecs_to_jiffies(js_ch->delay_range);
 	if (time_in_range(req->jrxtstamp, min_time, max_time))
 		return 0;
 
-	restart_time = sv->ts + js_ch->delay_min
-			+ msecs_to_jiffies(js_ch->delay_range);
-	if (time_after(req->jrxtstamp, restart_time)) {
+	/*
+	 * delay_limit - milliseconds, the maximum difference between
+	 * current time on the Tempesta FW side during the Sticky Cookie
+	 * validation and the cookie generation time. So if request is
+	 * not pass challenge, but not exceeded this limit just restart
+	 * challenge.
+	 */
+	limit_time = sv->ts + js_ch->delay_min + js_ch->delay_limit;
+	if (time_in_range(req->jrxtstamp, max_time, limit_time)) {
 		T_DBG("sess: jsch block: Too old cookie, restart challenge.\n");
 		return TFW_HTTP_SESS_JS_RESTART;
 	}
@@ -1154,7 +1159,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		if (ctx.jsch_rcode)
 			return (ctx.jsch_rcode != TFW_HTTP_SESS_JS_RESTART)
 				? ctx.jsch_rcode
-				: tfw_http_sticky_jsch_resart(req);
+				: tfw_http_sticky_jsch_restart(req);
 		T_WARN("cannot allocate TDB space for http session\n");
 		return TFW_HTTP_SESS_FAILURE;
 	}
