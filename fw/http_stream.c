@@ -742,7 +742,7 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.b_len)
 		flags |= HTTP2_F_END_STREAM;
 
-	r = tfw_h2_stream_fsm_ignore_err(stream, type, flags);
+	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 	if (stream->state > HTTP2_STREAM_REM_HALF_CLOSED)
 		tfw_h2_stream_add_closed(ctx, stream);
 

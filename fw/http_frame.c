@@ -1028,8 +1028,8 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 	rbtree_postorder_for_each_entry_safe(stream, next,
 					     &ctx->sched.streams, node) {
 		TfwStreamState state = tfw_h2_get_stream_state(stream);
-		if (stream->state == HTTP2_STREAM_OPENED ||
-		    stream->state == HTTP2_STREAM_REM_HALF_CLOSED) {
+		if (state == HTTP2_STREAM_OPENED ||
+		    state == HTTP2_STREAM_REM_HALF_CLOSED) {
 			stream->rem_wnd += delta;
 			tfw_h2_stream_try_unblock(&ctx->sched, stream);
 		}

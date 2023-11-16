@@ -221,7 +221,6 @@ typedef struct tfw_h2_ctx_t {
 	TfwHPack	hpack;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
-	TfwStream	*cur_xmit_stream;
 	unsigned int	extra_sched_entries_count;
 	unsigned int	extra_sched_entries_max_count;
 	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
