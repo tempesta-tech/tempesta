@@ -89,11 +89,12 @@ do {									\
 
 #define TFW_H2_FSM_TYPE_CHECK(ctx, stream, op, type)			\
 do {									\
-	if ((ctx->cur_##op##_headers && type != HTTP2_CONTINUATION)	\
-	    || (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
+	if ((ctx->cur_##op##_headers &&					\
+	     (type != HTTP2_CONTINUATION && type != HTTP2_RST_STREAM)) || \
+	    (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
 		*err = HTTP2_ECODE_PROTO;				\
 		res = STREAM_FSM_RES_TERM_CONN;				\
-		break;							\
+		goto finish;						\
 	}								\
 } while(0)
 
@@ -112,6 +113,7 @@ do {									\
 
 	if (send) {
 		TFW_H2_FSM_STREAM_CHECK(ctx, stream, send);
+		TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
 		/*
 		 * Usually we would send HEADERS/CONTINUATION or DATA frames
 		 * to the client when HTTP2_STREAM_REM_HALF_CLOSED state
@@ -138,6 +140,7 @@ do {									\
 		 */
 	} else {
 		TFW_H2_FSM_STREAM_CHECK(ctx, stream, recv);
+		TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
 	}
 
 	switch (tfw_h2_get_stream_state(stream)) {
@@ -175,20 +178,20 @@ do {									\
 			break;
 		}
 
-		if (send) {
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
-		} else {
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
-		}
-
 		if (type == HTTP2_HEADERS || type == HTTP2_CONTINUATION) {
 			switch (flags
 				& (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM))
 			{
 			case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
-				new_state = send
-					? HTTP2_STREAM_LOC_HALF_CLOSED
-					: HTTP2_STREAM_REM_HALF_CLOSED;
+				if (send) {
+					ctx->cur_send_headers = NULL;
+					new_state =
+						HTTP2_STREAM_LOC_HALF_CLOSED;
+				} else {
+					ctx->cur_recv_headers = NULL;
+					new_state =
+						HTTP2_STREAM_REM_HALF_CLOSED;
+				}
 				SET_STATE(new_state);
 				break;
 			case HTTP2_F_END_HEADERS:
@@ -256,8 +259,6 @@ do {									\
 				break;
 			}
 
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
-
 			if (type == HTTP2_HEADERS
 			    || type == HTTP2_CONTINUATION) {
 				switch (flags
@@ -265,6 +266,7 @@ do {									\
 					   HTTP2_F_END_STREAM))
 				{
 				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
+					ctx->cur_recv_headers = NULL;
 					SET_STATE(HTTP2_STREAM_CLOSED);
 					break;
 				case HTTP2_F_END_HEADERS:
@@ -309,9 +311,41 @@ do {									\
 
 	case HTTP2_STREAM_REM_HALF_CLOSED:
 		if (send) {
-			if (type == HTTP2_RST_STREAM
-			    || flags & HTTP2_F_END_STREAM)
-				SET_STATE(HTTP2_STREAM_REM_CLOSED);
+			if (type == HTTP2_HEADERS ||
+			    type == HTTP2_CONTINUATION) {
+				switch (flags
+					& (HTTP2_F_END_HEADERS |
+					   HTTP2_F_END_STREAM))
+				{
+				/*
+				 * RFC 9113 5.1 (half-closed (remote) state):
+				 * A stream can transition from this state to
+				 * "closed" by sending a frame with the
+				 * END_STREAM flag set.
+				 */
+				case HTTP2_F_END_STREAM:
+					fallthrough;
+				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
+					ctx->cur_send_headers = NULL;
+					SET_STATE(HTTP2_STREAM_REM_CLOSED);
+					break;
+				case HTTP2_F_END_HEADERS:
+					/*
+					 * Headers are ended, next frame in the
+					 * stream should be DATA frame.
+					 */
+					ctx->cur_send_headers = NULL;
+					break;
+
+				default:
+					ctx->cur_send_headers = stream;
+					break;
+				}
+			} else if (type == HTTP2_DATA) {
+				if (flags & HTTP2_F_END_STREAM)
+					SET_STATE(HTTP2_STREAM_REM_CLOSED);
+			}
+
 			break;
 		}
 
@@ -636,7 +670,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx streams num %lu\n",
 	       __func__, stream, stream->id,
-	       tfw_h2_get_stream_state(stream->state),
+	       tfw_h2_get_stream_state(stream),
 	       __h2_strm_st_n(stream), stream->weight,
 	       ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
@@ -735,18 +769,15 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	TfwStreamFsmRes r;
 	unsigned char flags = 0;
 
-	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
-
 	if (!stream->xmit.h_len && type != HTTP2_DATA)
 		flags |= HTTP2_F_END_HEADERS;
 
-	if (!stream->xmit.b_len)
+	if (!stream->xmit.h_len && !stream->xmit.b_len)
 		flags |= HTTP2_F_END_STREAM;
 
-	r = tfw_h2_stream_fsm_ignore_err(stream, type, flags);
-	if (tfw_h2_get_stream_state(stream->state) >
-	    HTTP2_STREAM_REM_HALF_CLOSED)
+	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
+	if (tfw_h2_get_stream_state(stream) > HTTP2_STREAM_REM_HALF_CLOSED)
 		tfw_h2_stream_add_closed(ctx, stream);
 
-	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
+	return r;
 }

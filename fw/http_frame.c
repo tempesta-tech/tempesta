@@ -872,7 +872,7 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 		if (!ctx->cur_stream)
 			return -ENOMEM;
 		ctx->lstream_id = hdr->stream_id;
-	} else if (tfw_h2_get_stream_state(ctx->cur_stream->state) ==
+	} else if (tfw_h2_get_stream_state(ctx->cur_stream) ==
 		   HTTP2_STREAM_IDLE) {
 		if ((r = tfw_h2_stream_state_process(ctx)))
 			return r;
@@ -973,8 +973,7 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		return T_OK;
 	}
 
-	if (tfw_h2_get_stream_state(ctx->cur_stream->state) ==
-	    HTTP2_STREAM_IDLE) {
+	if (tfw_h2_get_stream_state(ctx->cur_stream) == HTTP2_STREAM_IDLE) {
 		/*
 		 * According to RFC 7540 we should response with stream
 		 * error of type PROTOCOL ERROR here, but we can't send
@@ -1458,14 +1457,6 @@ do {									\
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
-
-	/*
-	 * TODO: RFC 7540 Section 6.2:
-	 * A HEADERS frame without the END_HEADERS flag set MUST be followed
-	 * by a CONTINUATION frame for the same stream. A receiver MUST treat
-	 * the receipt of any other type of frame or a frame on a different
-	 * stream as a connection error (Section 5.4.1) of type PROTOCOL_ERROR.
-	 */
 
 	switch (hdr_type) {
 	case HTTP2_DATA:
@@ -2262,6 +2253,7 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 		.skb = stream->xmit.skb_head,
 		.frag = -1
 	};
+	TfwStreamFsmRes res;
 	unsigned char buf[FRAME_HEADER_SIZE];
 	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
 	TfwFrameHdr frame_hdr = {};
@@ -2301,29 +2293,17 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
-	if (!(*len)) {
-		TfwStreamFsmRes res;
-
-		/*
-		 * TODO #1823:
-		 * We should rework `tfw_h2_stream_fsm` according to RFC 9113.
-		 * Currently this function ignore a lot of cases from RFC (for
-		 * example sending CONTINUATION frames). STREAM_FSM_RES_IGNORE
-		 * should be treated as a STREAM_FSM_RES_TERM_STREAM.
-		 */
-		res = tfw_h2_stream_send_process(ctx, stream,
-						 type == HTTP2_DATA ?
-						 HTTP2_DATA : HTTP2_HEADERS);
-		switch (res) {
-		case STREAM_FSM_RES_IGNORE:
-		case STREAM_FSM_RES_OK:
-			break;
-		case STREAM_FSM_RES_TERM_STREAM:
-			tfw_h2_stream_purge_send_queue(stream);
-			return 0;
-		case STREAM_FSM_RES_TERM_CONN:
-			return -EPIPE;
-		}
+	res = tfw_h2_stream_send_process(ctx, stream, type);
+	switch (res) {
+	case STREAM_FSM_RES_OK:
+		break;
+	case STREAM_FSM_RES_IGNORE:
+		fallthrough;
+	case STREAM_FSM_RES_TERM_STREAM:
+		tfw_h2_stream_purge_send_queue(stream);
+		return 0;
+	case STREAM_FSM_RES_TERM_CONN:
+		return -EPIPE;
 	}
 
 	*cwnd_awail -= length;
