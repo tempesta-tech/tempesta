@@ -33,6 +33,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include "../../ktest/ktest.h"
 
 /* Include HTrie for test. */
 #include "../core/htrie.c"
