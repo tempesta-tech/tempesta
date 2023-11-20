@@ -52,6 +52,7 @@
 #define __page_aligned_data	__attribute__((__aligned__(4096)))
 #define CRYPTO_MINALIGN_ATTR __attribute__ ((__aligned__(L1_CACHE_BYTES)))
 
+#undef offsetof
 #define offsetof(TYPE, MEMBER)	((size_t)&((TYPE *)0)->MEMBER)
 
 #define container_of(ptr, type, member) ({				\
