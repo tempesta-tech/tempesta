@@ -5928,7 +5928,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_UriAuthorityIPv6, cold) {
 		if (likely(isxdigit(c) || c == ':')) {
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
-		} else if(c == ']') {
+		} else if (c == ']') {
 			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
 		}
 		TFW_PARSER_DROP(Req_UriAuthorityIPv6);
@@ -7291,16 +7291,17 @@ do {									\
 		req->cache_ctl.field = cstate->cache_ctl.field;		\
 } while(0)
 
-	if (cstate->is_set) {
-		__h2_dump_state_cache_ctl(cstate);
-		BUG_ON((req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE) ||
-		       (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE) ||
-		       (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH));
-		SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
-		SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
-		SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
-		req->cache_ctl.flags |= cstate->cache_ctl.flags;
-	}
+	if (!cstate->is_set)
+		return;
+
+	__h2_dump_state_cache_ctl(cstate);
+	BUG_ON((req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE) ||
+	       (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE) ||
+	       (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH));
+	SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
+	SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
+	SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
+	req->cache_ctl.flags |= cstate->cache_ctl.flags;
 
 #undef SET_HDR_CACHE_CONTROL_FIELD
 }
@@ -7309,7 +7310,8 @@ void
 h2_set_hdr_authorization(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (cstate->is_set &
-	    cstate->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION) {
+	    cstate->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
+	{
 		BUG_ON(req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION);
 		req->cache_ctl.flags |= TFW_HTTP_CC_HDR_AUTHORIZATION;
 	}
@@ -7608,33 +7610,30 @@ __h2_req_parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len,
 int
 h2_set_hdr_content_type(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
-	int r;
+	if (!cstate->is_set)
+		return 0;
 
-	if (cstate->is_set) {
-		req->multipart_boundary_raw.len =
-			cstate->content_type.multipart_boundary_raw.len;
-		req->multipart_boundary.len =
-			cstate->content_type.multipart_boundary.len;
-		req->multipart_boundary_raw.nchunks =
-			cstate->content_type.multipart_boundary_raw.nchunks;
-		if(test_bit(TFW_HTTP_B_CT_MULTIPART,
-			    cstate->content_type.flags)) {
-			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
-		}
-		if(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
-			    cstate->content_type.flags)) {
-			__set_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
-				  req->flags);
-		}
-		req->multipart_boundary_raw.chunks =
-			req->stream->parser.hdr.chunks +
-			(size_t)
-			cstate->content_type.multipart_boundary_raw.data;
-		if ((r = __strdup_multipart_boundaries(req)))
-			return r;
+	req->multipart_boundary_raw.len =
+		cstate->content_type.multipart_boundary_raw.len;
+	req->multipart_boundary.len =
+		cstate->content_type.multipart_boundary.len;
+	req->multipart_boundary_raw.nchunks =
+		cstate->content_type.multipart_boundary_raw.nchunks;
+	if (test_bit(TFW_HTTP_B_CT_MULTIPART,
+		     cstate->content_type.flags))
+	{
+		__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
 	}
-
-	return 0;
+	if (test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+		     cstate->content_type.flags))
+	{
+		__set_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
+			  req->flags);
+	}
+	req->multipart_boundary_raw.chunks =
+		req->stream->parser.hdr.chunks +
+		(size_t)cstate->content_type.multipart_boundary_raw.data;
+	return __strdup_multipart_boundaries(req);
 }
 
 static int
@@ -8558,7 +8557,8 @@ void
 h2_set_hdr_pragma(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (cstate->is_set &&
-	    cstate->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE) {
+	    cstate->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE)
+	{
 		BUG_ON(req->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
 		req->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
 	}
@@ -8574,7 +8574,7 @@ __h2_req_parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 do {									\
 	msg->cache_ctl.flags |= flag;					\
 	parser->cstate.cache_ctl.flags |= flag;				\
-	parser->cstate.is_set = true;				\
+	parser->cstate.is_set = true;					\
 } while(0)
 
 	__FSM_START(parser->_i_st);
@@ -8763,7 +8763,7 @@ do {									   \
 		parser->_i_st = &&to;					   \
 		tfw_str_updlen(&parser->hdr, p);			   \
 		if (unlikely(__data_off(p) >= len)) {			   \
-			if(likely(fin))					   \
+			if (likely(fin))				   \
 				__FSM_EXIT(ret);			   \
 			__FSM_EXIT(T_POSTPONE);				   \
 		}							   \
@@ -8789,7 +8789,7 @@ do {									   \
 	__FSM_I_field_chunk_flags(ch, TFW_STR_HDR_VALUE | flag);	   \
 	p += 1;								   \
 	if (unlikely(__data_off(p) >= len)) {				   \
-		if(likely(fin))						   \
+		if (likely(fin))					   \
 			__FSM_EXIT(ret);				   \
 		parser->_i_st = &&to;					   \
 		tfw_str_updlen(&parser->hdr, p);			   \
@@ -9598,8 +9598,8 @@ __FSM_STATE(st, cold) {							\
 		case TFW_CHAR4_INT('a', 'u', 't', 'h'):
 			if (unlikely(!__data_available(p, 13)))
 				__FSM_H2_NEXT_n(Req_HdrAuth, 4);
-			if(C8_INT(p + 4, 'o', 'r', 'i', 'z', 'a', 't', 'i', 'o')
-			   && *(p + 12) == 'n')
+			if (C8_INT(p + 4, 'o', 'r', 'i', 'z', 'a', 't', 'i', 'o')
+			    && *(p + 12) == 'n')
 			{
 				__FSM_H2_HDR_NAME_FIN(13,
 						TFW_TAG_HDR_AUTHORIZATION);
@@ -10626,7 +10626,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 		if (!C4_INT(p, 'P', 'R', 'O', 'P'))
 			__FSM_JMP(Req_MethodUnknown);
 		p += 4;
-		if(C4_INT(p, 'F', 'I', 'N', 'D'))
+		if (C4_INT(p, 'F', 'I', 'N', 'D'))
 			__FSM_H2_METHOD_COMPLETE(Req_RareMethods, 4,
 						 TFW_HTTP_METH_PROPFIND);
 		if (!__data_available(p, 5))
