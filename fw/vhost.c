@@ -1584,7 +1584,11 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "invalidate")) {
 			tfw_global.cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
-		} else {
+		}
+		else if (!strcasecmp(val, "immediate")) {
+			tfw_global.cache_purge_mode = TFW_D_CACHE_PURGE_IMMEDIATE;
+		}
+		else {
 			T_ERR_NL("%s: unsupported argument: '%s'\n",
 				 cs->name, val);
 			return -EINVAL;
