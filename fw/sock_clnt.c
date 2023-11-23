@@ -392,7 +392,8 @@ ret:
 		 * the socket with FIN since we're in progress on sending from
 		 * the write queue.
 		 */
-		ss_close(sk, SS_F_ABORT);
+		SS_CONN_TYPE(sk) |= Conn_Closing;
+		ss_close(sk, SS_F_ABORT_FORCE | __SS_F_FULL_CLOSE);
 	}
 
 	if (likely(!r))
@@ -474,13 +475,16 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
 		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
-	if (unlikely(r) && r != -ENOMEM)
+	if (unlikely(r) && r != -ENOMEM) {
 		/*
 		 * We can not send unencrypted data and can not normally close the
 		 * socket with FIN since we're in progress on sending from the write
 		 * queue.
 		 */
-		ss_close(sk, SS_F_ABORT);
+		SS_CONN_TYPE(sk) |= Conn_Closing;
+		ss_close(sk, SS_F_ABORT_FORCE | __SS_F_FULL_CLOSE);
+		tcp_write_queue_purge(sk);
+	}
 	return r;
 }
 

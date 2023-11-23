@@ -148,6 +148,7 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 #define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
 #define __SS_F_FORCE			0x20
 #define SS_F_ABORT_FORCE		(SS_F_ABORT | __SS_F_FORCE)
+#define __SS_F_FULL_CLOSE		0x40
 
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)

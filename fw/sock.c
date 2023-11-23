@@ -682,6 +682,14 @@ adjudge_to_death:
 	ss_finish_closing(sk, flags);
 	return 0;
 }
+
+static void
+ss_full_close(struct sock *sk, int flags)
+{
+	if (ss_do_close(sk, flags))
+		ss_finish_closing(sk, flags);
+}
+
 /**
  * This function is for internal Sync Sockets use only. It's called under the
  * socket lock taken by the kernel, and in the context of the socket that is
@@ -694,10 +702,15 @@ adjudge_to_death:
 static void
 ss_linkerror(struct sock *sk, int flags)
 {
-	if (ss_is_closing(sk))
+	if (flags & __SS_F_FULL_CLOSE) {
+		BUG_ON(!((1 << sk->sk_state)
+			  & (TCPF_ESTABLISHED | TCPF_SYN_SENT | TCPF_CLOSE_WAIT)));
+		ss_full_close(sk, flags);
+	}
+	else if (ss_is_closing(sk))
 		ss_finish_closing(sk, flags);
-	else if (ss_do_close(sk, flags))
-		ss_finish_closing(sk, flags);
+	else
+		ss_full_close(sk, flags);
 	ss_conn_drop_guard_exit(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
@@ -1017,8 +1030,7 @@ ss_tcp_state_change(struct sock *sk)
 			 * Close socket finally without waiting for ack
 			 * to FIN.
 			 */
-			if (ss_do_close(sk, 0))
-				ss_finish_closing(sk, 0);
+			ss_full_close(sk, 0);
 			sock_put(sk);
 			/*
 			 * The case of a connect to an upstream server that
@@ -1035,8 +1047,7 @@ ss_tcp_state_change(struct sock *sk)
 			 * Close socket finally without waiting for ack
 			 * to FIN.
 			 */
-			if (ss_do_close(sk, 0))
-				ss_finish_closing(sk, 0);
+			ss_full_close(sk, 0);
 			sock_put(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
