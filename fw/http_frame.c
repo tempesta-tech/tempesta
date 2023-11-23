@@ -2195,14 +2195,14 @@ tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 }
 
 static inline int
-tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
+tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned int *len)
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	struct sock *sk = ((TfwConn *)conn)->sk;
 	struct sk_buff *skb, *split;
 	char *data;
 
-	while (len) {
+	while (*len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
 		BUG_ON(!skb);
 
@@ -2217,14 +2217,16 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned long len)
 		data = ss_skb_data_ptr_by_offset(skb, 0);
 		BUG_ON(!data);
 
-		if (skb->len > len) {
-			split = ss_skb_split(skb, len);
-			if (!split)
+		if (skb->len > *len) {
+			split = ss_skb_split(skb, *len);
+			if (!split) {
+				ss_skb_queue_head(&stream->xmit.skb_head, skb);
 				return -ENOMEM;
+			}
 
 			ss_skb_queue_head(&stream->xmit.skb_head, split);
 		}
-		len -= skb->len;
+		*len -= skb->len;
 
 		ss_skb_entail(sk, skb, stream->xmit.mark,
 			      stream->xmit.tls_type);
@@ -2243,10 +2245,9 @@ tfw_h2_strean_del_empty_skbs(TfwStream *stream)
 }
 
 static inline int
-tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
-				    TfwFrameType type, unsigned int mss,
-				    unsigned long *cwnd_awail,
-				    unsigned long *len)
+tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
+			   unsigned int mss, unsigned long *cwnd_awail,
+			   unsigned long *len)
 {
 	TfwMsgIter it = {
 		.skb_head = stream->xmit.skb_head,
@@ -2307,8 +2308,8 @@ tfw_h2_insert_frame_header_and_send(TfwH2Ctx *ctx, TfwStream *stream,
 	}
 
 	*cwnd_awail -= length;
-	return tfw_h2_entail_stream_skb(ctx, stream,
-					length + FRAME_HEADER_SIZE);
+	stream->xmit.frame_length = length + FRAME_HEADER_SIZE;
+	return 0;
 }
 
 #if defined(DEBUG) && (DEBUG >= 4)
@@ -2352,16 +2353,6 @@ do {									\
 	T_FSM_JMP(st);							\
 } while(0)
 
-#define XMIT_FSM_NEXT(ctx, stream)					\
-do {									\
-	if (stream->xmit.h_len)						\
-		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_CONTINUATION_FRAMES); \
-	else if (stream->xmit.b_len)					\
-		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_DATA_FRAMES);	\
-	else								\
-		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_FRAMES_FINISH);	\
-} while(0)
-
 /*
  * We can't break making headers because of exceeding available cwnd,
  * since there is a chance that some other frames will be sent in
@@ -2393,6 +2384,12 @@ do {									\
 			return r;
 		}
 
+		XMIT_FSM_JMP(ctx, stream, HTTP2_CUTOFF_BODY_CHUNKS);
+	}
+
+	T_FSM_STATE(HTTP2_CUTOFF_BODY_CHUNKS) {
+		TfwHttpResp *resp = stream->xmit.resp;
+
 		stream->xmit.h_len = resp->mit.acc_len;
 		stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
@@ -2414,11 +2411,10 @@ do {									\
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 
-		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_HEADERS_FRAMES);
+		XMIT_FSM_JMP(ctx, stream, HTTP2_ENCODE_HPACK_TBL_SIZE);
 	}
 
-	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_HEADERS);
+	T_FSM_STATE(HTTP2_ENCODE_HPACK_TBL_SIZE) {
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			tfw_h2_strean_del_empty_skbs(stream);
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
@@ -2429,33 +2425,35 @@ do {									\
 				return r;
 			}
 		}
+		XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_HEADERS_FRAMES);
+	}
 
-		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
-							mss, &tmp_cwnd_awail,
-							&stream->xmit.h_len);
+	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
+		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_HEADERS);
+		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+					       mss, &tmp_cwnd_awail,
+					       &stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
 			return r;
 		}
 
 		ADJUST_TMP_AVAILABLE_CWND(stream, *cwnd_awail, tmp_cwnd_awail);
-		TFW_H2_CHECK_MAKING_FRAMES(stream);
-		XMIT_FSM_NEXT(ctx, stream);
+		XMIT_FSM_JMP(ctx, stream, HTTP2_SEND_FRAME);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
 		ADJUST_AVAILABLE_CWND(tmp_cwnd_awail, HTTP2_CONTINUATION);
-		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
-							mss, &tmp_cwnd_awail,
-							&stream->xmit.h_len);
+		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+					       mss, &tmp_cwnd_awail,
+					       &stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
 			return r;
 		}
 
 		ADJUST_TMP_AVAILABLE_CWND(stream, *cwnd_awail, tmp_cwnd_awail);
-		TFW_H2_CHECK_MAKING_FRAMES(stream);
-		XMIT_FSM_NEXT(ctx, stream);
+		XMIT_FSM_JMP(ctx, stream, HTTP2_SEND_FRAME);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
@@ -2463,18 +2461,37 @@ do {									\
 			stream->xmit.is_blocked = !stream->rem_wnd;
 			T_FSM_EXIT();
 		}
-
 		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_DATA);
-		r = tfw_h2_insert_frame_header_and_send(ctx, stream, frame_type,
-							mss, cwnd_awail,
-							&stream->xmit.b_len);
-		if (unlikely (r)) {
+		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+					       mss, cwnd_awail,
+					       &stream->xmit.b_len);
+		if (unlikely(r)) {
 			T_WARN("Failed to make data frame %d", r);
 			return r;
 		}
 
+		XMIT_FSM_JMP(ctx, stream, HTTP2_SEND_FRAME);
+	}
+
+	T_FSM_STATE(HTTP2_SEND_FRAME) {
+		BUG_ON(!stream->xmit.frame_length);
+		r =  tfw_h2_entail_stream_skb(ctx, stream,
+					      &stream->xmit.frame_length);
+		if (unlikely(r)) {
+			T_WARN("Failed to send frame %d", r);
+			return r;
+		}
+
 		TFW_H2_CHECK_MAKING_FRAMES(stream);
-		XMIT_FSM_NEXT(ctx, stream);
+		stream->xmit.frame_length = 0;
+		if (stream->xmit.h_len) {
+			XMIT_FSM_JMP(ctx, stream,
+				     HTTP2_MAKE_CONTINUATION_FRAMES);
+		} else if (stream->xmit.b_len) {
+			XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_DATA_FRAMES);
+		} else {
+			XMIT_FSM_JMP(ctx, stream, HTTP2_MAKE_FRAMES_FINISH);
+		}
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
@@ -2494,7 +2511,6 @@ do {									\
 	return r;
 
 #undef ADJUST_TMP_AVAILABLE_CWND
-#undef XMIT_FSM_NEXT
 #undef XMIT_FSM_JMP
 #undef ADJUST_AVAILABLE_SIZE
 }

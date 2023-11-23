@@ -201,6 +201,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
+
 	/*
 	 * If client closes connection early, we may get here with conn
 	 * being NULL.
@@ -258,7 +259,9 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 	return 0;
 
 err_kill_sock:
-	ss_close(sk, SS_F_ABORT);
+	BUG_ON(!r);
+	if (r != -ENOMEM)
+		ss_close(sk, SS_F_ABORT);
 	return r;
 err_purge_tcp_write_queue:
 	/*

@@ -57,11 +57,14 @@ enum {
 
 typedef enum {
 	HTTP2_ENCODE_HEADERS,
+	HTTP2_CUTOFF_BODY_CHUNKS,
 	HTTP2_RELEASE_RESPONSE,
+	HTTP2_ENCODE_HPACK_TBL_SIZE,
 	HTTP2_MAKE_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
 	HTTP2_MAKE_DATA_FRAMES,
-	HTTP2_MAKE_FRAMES_FINISH
+	HTTP2_SEND_FRAME,
+	HTTP2_MAKE_FRAMES_FINISH,
 } TfwStreamXmitState;
 
 static const char *__tfw_strm_st_names[] = {
@@ -120,6 +123,7 @@ typedef enum {
  * @state		- type of operation should be made for this
  *			  stream (encoding headers or making frame
  *			  with appropriate type);
+ * @frame_length	- length of current sending frame;
  * @tls_type		- tls type for skbs;
  * @is_blocked  	- stream is blocked, because of exceeding of
  *			  HTTP window;
@@ -132,6 +136,7 @@ typedef struct {
 	unsigned long		b_len;
 	unsigned int		mark;
 	TfwStreamXmitState	state;
+	unsigned int		frame_length;
 	unsigned char		tls_type;
 	bool			is_blocked;
 	bool			is_progressive;
@@ -281,6 +286,7 @@ tfw_h2_stream_init_for_xmit(TfwStream *stream, TfwStreamXmitState state,
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
 	stream->xmit.state = state;
+	stream->xmit.frame_length = 0;
 	stream->xmit.is_blocked = false;
 	stream->xmit.is_progressive = is_progressive;
 }
