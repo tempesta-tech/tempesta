@@ -130,6 +130,9 @@ enum {
          */
         TFW_HTTP_B_CLOSE_ERROR_RESPONSE,
 
+	/* Request got a stale response. */
+	TFW_HTTP_B_REQ_HAS_STALE_RESP,
+
         _TFW_HTTP_FLAGS_NUM
 };
 
