@@ -1492,6 +1492,42 @@ tfw_http_send_err_resp_nolog(TfwHttpReq *req, int status)
 		tfw_h1_send_err_resp(req, status);
 }
 
+static bool
+tfw_http_resp_should_fwd_stale(TfwHttpReq *req, unsigned short status)
+{
+	TfwCacheUseStale *stale_opt;
+
+	if (!req->stale_resp)
+		return false;
+
+	stale_opt = tfw_vhost_get_cache_use_stale(req->location, req->vhost);
+
+	if (!stale_opt)
+		return false;
+
+	return test_bit(HTTP_CODE_BIT_NUM(status), stale_opt->codes);
+}
+
+/**
+ * The request is serviced from cache.
+ * Send the response as is and unrefer its data.
+ */
+static void
+tfw_http_req_cache_service(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+
+	WARN_ON_ONCE(!list_empty(&req->fwd_list));
+	WARN_ON_ONCE(!list_empty(&req->nip_list));
+
+	if (TFW_MSG_H2(req))
+		tfw_h2_resp_fwd(resp);
+	else
+		tfw_http_resp_fwd(resp);
+
+	TFW_INC_STAT_BH(clnt.msgs_fromcache);
+}
+
 /* Common interface for sending error responses. */
 void
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
@@ -1500,7 +1536,16 @@ tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
 
-	tfw_http_send_err_resp_nolog(req, status);
+	/* Response must be freed before calling tfw_http_send_err_resp(). */
+	if (tfw_http_resp_should_fwd_stale(req, status)) {
+		req->resp = req->stale_resp;
+		req->stale_resp = NULL;
+		if (TFW_MSG_H2(req))
+			tfw_h2_req_unlink_stream(req);
+		tfw_http_req_cache_service(req->resp);
+	} else {
+		tfw_http_send_err_resp_nolog(req, status);
+	}
 }
 
 static void
@@ -1734,10 +1779,11 @@ tfw_http_req_zap_error(struct list_head *eq)
 			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 		{
 			tfw_http_send_err_resp(req, req->httperr.status,
-					   req->httperr.reason);
+					       req->httperr.reason);
 		}
-		else
+		else {
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		}
 
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -2567,6 +2613,9 @@ tfw_http_req_destruct(void *msg)
 
 	if (req->old_head)
 		ss_skb_queue_purge(&req->old_head);
+
+	if (req->stale_resp)
+		tfw_http_msg_free((TfwHttpMsg *)req->stale_resp);
 }
 
 /**
@@ -5422,26 +5471,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 }
 
 /**
- * The request is serviced from cache.
- * Send the response as is and unrefer its data.
- */
-static void
-tfw_http_req_cache_service(TfwHttpResp *resp)
-{
-	TfwHttpReq *req = resp->req;
-
-	WARN_ON_ONCE(!list_empty(&req->fwd_list));
-	WARN_ON_ONCE(!list_empty(&req->nip_list));
-
-	if (TFW_MSG_H2(req))
-		tfw_h2_resp_fwd(resp);
-	else
-		tfw_http_resp_fwd(resp);
-
-	TFW_INC_STAT_BH(clnt.msgs_fromcache);
-}
-
-/**
  * Depending on results of processing of a request, either send the request
  * to an appropriate server, or return the cached response. If none of that
  * can be done for any reason, return HTTP 500 or 502 error to the client.
@@ -6543,6 +6572,64 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	tfw_http_resp_cache(hm);
 }
 
+static void
+__tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
+{
+	TfwHttpReq *req = hmresp->req;
+
+	tfw_stream_unlink_msg(hmresp->stream);
+	req->resp = req->stale_resp;
+	req->stale_resp = NULL;
+	req->resp->conn = hmresp->conn;
+	hmresp->pair = NULL;
+
+	if (TFW_MSG_H2(req))
+		tfw_h2_req_unlink_stream(req);
+
+	tfw_http_req_cache_service(req->resp);
+
+	tfw_http_msg_free(hmresp);
+}
+
+static int
+tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
+{
+	TfwHttpReq *req = hmresp->req;
+	TfwFsmData data;
+
+	/*
+	 * Response is fully received, delist corresponding request from
+	 * fwd_queue.
+	 */
+	tfw_http_popreq(hmresp, true);
+
+	tfw_apm_update(((TfwServer *)hmresp->conn->peer)->apmref,
+		       jiffies, jiffies - req->jtxtstamp);
+
+	BUG_ON(test_bit(TFW_HTTP_B_HMONITOR, req->flags));
+
+	/*
+	 * Let frang do all necessery checks for the response, before
+	 * responding with a stale response.
+	 */
+	data.skb = NULL;
+	data.req = (TfwMsg *)req;
+	data.resp = (TfwMsg *)hmresp;
+	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD,
+			  &data))
+	{
+		/* The response is freed by tfw_http_req_block(). */
+		tfw_http_req_block(req, 403, "response blocked: filtered out",
+				   HTTP2_ECODE_PROTO);
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		return T_BLOCK;
+	}
+
+	__tfw_http_resp_fwd_stale(hmresp);
+
+	return T_OK;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -6761,16 +6848,21 @@ next_msg:
 			return r;
 	}
 
-	/*
-	 * Pass the response to cache for further processing.
-	 * In the end, the response is sent on to the client.
-	 * @hmsib is not attached to the connection yet.
-	 */
-	r = tfw_http_resp_cache(hmresp);
+	/* Respond with stale cached response. */
+	if (tfw_http_resp_should_fwd_stale(hmresp->req,
+					   ((TfwHttpResp *)hmresp)->status))
+		r = tfw_http_resp_fwd_stale(hmresp);
+	else
+		/*
+		 * Pass the response to cache for further processing.
+		 * In the end, the response is sent on to the client.
+		 * @hmsib is not attached to the connection yet.
+		 */
+		r = tfw_http_resp_cache(hmresp);
+
 	if (unlikely(r != T_OK)) {
 		if (hmsib)
 			tfw_http_conn_msg_free(hmsib);
-		return r;
 	}
 
 	*split = NULL;
@@ -6816,20 +6908,29 @@ bad_msg:
 		return T_OK;
 	}
 
-	/* The response is freed by tfw_http_req_parse_block/drop(). */
-	if (filtout) {
-		r = tfw_http_req_block(bad_req, 502,
-				       "response blocked: filtered out",
-				       HTTP2_ECODE_PROTO);
-	} else {
-		tfw_http_req_drop(bad_req, 502,
-				  "response dropped: processing error",
-				  HTTP2_ECODE_PROTO);
+	if (tfw_http_resp_should_fwd_stale(bad_req, 502)) {
+		__tfw_http_resp_fwd_stale(hmresp);
 		/*
-		 * Close connection with backend immediatly
+		 * Close connection with backend immediately
 		 * and try to reastablish it later.
 		 */
 		r = T_BAD;
+	} else {
+		/* The response is freed by tfw_http_req_parse_block/drop(). */
+		if (filtout) {
+			r = tfw_http_req_block(bad_req, 502,
+					       "response blocked: filtered out",
+					       HTTP2_ECODE_PROTO);
+		} else {
+			tfw_http_req_drop(bad_req, 502,
+					  "response dropped: processing error",
+					  HTTP2_ECODE_PROTO);
+			/*
+			 * Close connection with backend immediately
+			 * and try to reastablish it later.
+			 */
+			r = T_BAD;
+		}
 	}
 
 	return r;

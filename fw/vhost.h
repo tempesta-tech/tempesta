@@ -121,6 +121,22 @@ enum {
 };
 
 /**
+ * cache_use_stale code block setting
+ *
+ * @codes	- Response codes for which use of stale cached response is
+ * 		- permitted;
+ * @on_error	- Whether or not stale cached response to be used when request
+ * 		  unable to be forwarded to backend.(e.g no alive servers);
+ * @on_timeout	- Whether or not stale cached response to be used when request
+ * 		  is timedout during forwarding to backend;
+ */
+typedef struct {
+	DECLARE_BITMAP(codes, 512);
+	bool		on_error;
+	bool		on_timeout;
+} TfwCacheUseStale;
+
+/**
  * Group of policies by specific location.
  *
  * @op		- Match operator: eq, prefix, suffix, etc.
@@ -154,6 +170,7 @@ typedef struct {
 	TfwSrvGroup		*main_sg;
 	TfwSrvGroup		*backup_sg;
 	TfwPool			*hdrs_pool;
+	TfwCacheUseStale	*cache_use_stale;
 	TfwHdrMods		mod_hdrs[TFW_VHOST_HDRMOD_NUM];
 	unsigned int		validate_post_req:1;
 } TfwLocation;
@@ -295,5 +312,7 @@ TfwCaTokenArray tfw_vhost_get_capo_hdr_del(TfwLocation *loc,
 					   TfwVhost *vhost);
 unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
 				     TfwVhost *vhost);
+TfwCacheUseStale *tfw_vhost_get_cache_use_stale(TfwLocation *loc,
+						TfwVhost *vhost);
 
 #endif /* __TFW_VHOST_H__ */

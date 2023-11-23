@@ -3014,6 +3014,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	TDB *db = node_db();
 	TdbIter iter;
 	long lifetime;
+	bool stale = false;
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req))) {
 		T_DBG3("%s: db=[%p] req=[%p] CE has not been found\n",
@@ -3026,8 +3027,14 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!(lifetime = tfw_cache_entry_is_live(req, ce))) {
 		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not valid\n",
 		       __func__, db, req, ce);
-		TFW_INC_STAT_BH(cache.misses);
-		goto out;
+
+		/* If cache_use_stale not configured, don't use stale resp. */
+		if (!tfw_vhost_get_cache_use_stale(req->location, req->vhost)) {
+			TFW_INC_STAT_BH(cache.misses);
+			goto out;
+		}
+
+		stale = true;
 	}
 
 	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p",
@@ -3052,13 +3059,26 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	}
 
 	resp = tfw_cache_build_resp(req, ce, lifetime);
+
+	if (resp && stale) {
+		req->resp = NULL;
+		req->stale_resp = resp;
+
+		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
+		      ce=%p", req, ce->trec.key, ce);
+	}
+
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will
 	 * send this response to the client (without forwarding request to
 	 * the backend), thus the stream will be finished.
+	 *
+	 * The stream can be unlinked only for non stale responses. If response
+	 * is stale, request will be forwarded to server, some forwardning
+	 * functions requires alive stream. E.g: @tfw_http_req_evict_dropped().
 	 */
-	if (resp && TFW_MSG_H2(req)) {
+	if (resp && TFW_MSG_H2(req) && !stale) {
 		id = tfw_h2_req_stream_id(req);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
