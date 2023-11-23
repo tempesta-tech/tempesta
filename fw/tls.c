@@ -439,26 +439,16 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	for (p = pages; p < pages_end; ++p)
 		put_page(*p);
 
-	/*
-	 * This function is called from tcp_write_xmit() processing the TCP
-	 * socket write queue, so we can not call synchronous socket closing
-	 * which may purge the write queue, so call ss_close() here.
-	 * At this point we have sent all the appliction data to the peer and
-	 * now the TCP is sending the TLS close notify alert, i.e. there is
-	 * no pending data in the TCP wite queue and we can safely purge it.
-	 */
 	if (type == TTLS_MSG_ALERT &&
 	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
 	{
 		/*
-		 * If we're not done with transmission within the current
-		 * tcp_write_xmit() call, then the delayed ss_close() socket
-		 * freeing might kill the socket concurrently with TCP
-		 * transmission process leading to NULL pointer dereference.
+		 * At this point we should sent all the appliction data to
+		 * the peer and now the TCP is sending the TLS close notify
+		 * alert.
 		 */
 		WARN_ON_ONCE(!tcp_skb_is_last(sk, skb_tail));
-		ss_close(sk, SS_F_SYNC);
 	}
 
 out:
@@ -541,6 +531,11 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	}
 	if (ttls_xfrm_need_encrypt(tls))
 		flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
+
+	if (io->msgtype == TTLS_MSG_ALERT &&
+	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
+	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
+		flags |= SS_F_CONN_CLOSE;
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
