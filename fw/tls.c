@@ -620,7 +620,7 @@ tfw_tls_conn_init(TfwConn *c)
 
 	return 0;
 err_cleanup:
-	tfw_tls_conn_dtor(c);
+	ttls_ctx_clear(tls);
 	return r;
 }
 
