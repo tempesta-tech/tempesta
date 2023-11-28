@@ -588,7 +588,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
-	r = tfw_h2_resp_status_write(resp, status, false, false);
+	r = tfw_h2_resp_status_write(resp, status, false, false, stream_id);
 	if (unlikely(r))
 		goto out;
 
@@ -614,7 +614,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 			__TFW_STR_CH(&hdr, 0)->hpack_idx = name->hpack_idx;
 			r = tfw_hpack_encode(resp, __TFW_STR_CH(&hdr, 0),
-					     false, false);
+					     false, false, stream_id);
 			if (unlikely(r))
 				goto out;
 
@@ -639,7 +639,8 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 				  __TFW_STR_CH(&hdr, 1)->len;
 			hdr.hpack_idx = name->hpack_idx;
 
-			if ((r = tfw_hpack_encode(resp, &hdr, false, true)))
+			if ((r = tfw_hpack_encode(resp, &hdr, false, true,
+						  stream_id)))
 				goto out;
 		}
 	}
@@ -1033,7 +1034,7 @@ tfw_http_enum_resp_code(int status)
  */
 int
 tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
-			 bool use_pool, bool cache)
+			 bool use_pool, bool cache, unsigned int stream_id)
 {
 	int ret;
 	unsigned short index = tfw_h2_pseudo_index(status);
@@ -1059,7 +1060,8 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	if (!tfw_ultoa(status, __TFW_STR_CH(&s_hdr, 1)->data, H2_STAT_VAL_LEN))
 		return -E2BIG;
 
-	if ((ret = tfw_hpack_encode(resp, &s_hdr, use_pool, !cache)))
+	if ((ret = tfw_hpack_encode(resp, &s_hdr, use_pool, !cache,
+				    stream_id)))
 		return ret;
 
 	/* set status on response for access logging */
@@ -2788,7 +2790,7 @@ tfw_http_conn_drop(TfwConn *conn)
 {
 	bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+	T_DBG3("%s: conn=[%px]\n", __func__, conn);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		if (h2_mode)
@@ -4054,7 +4056,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			return r;
 	}
 
-	r = tfw_http_sess_resp_process(resp, false);
+	r = tfw_http_sess_resp_process(resp, false, 0);
 	if (r < 0)
 		return r;
 
@@ -4286,7 +4288,7 @@ tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id)
  * transformation.
  */
 static int
-tfw_h2_add_hdr_via(TfwHttpResp *resp)
+tfw_h2_add_hdr_via(TfwHttpResp *resp, unsigned int stream_id)
 {
 	int r;
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
@@ -4306,7 +4308,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 
 	via.hpack_idx = 60;
 
-	r = tfw_hpack_encode(resp, &via, true, true);
+	r = tfw_hpack_encode(resp, &via, true, true, stream_id);
 	if (unlikely(r))
 		T_ERR("HTTP/2: unable to add 'via' header (resp=[%p])\n", resp);
 	else
@@ -4319,7 +4321,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
  * transformation and for building response from cache.
  */
 int
-tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
+tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache, unsigned int stream_id)
 {
 	int r;
 	char *s_date = *this_cpu_ptr(&g_buf);
@@ -4336,7 +4338,7 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
 
 	hdr.hpack_idx = 33;
 
-	r = tfw_hpack_encode(resp, &hdr, !cache, !cache);
+	r = tfw_hpack_encode(resp, &hdr, !cache, !cache, stream_id);
 	if (unlikely(r))
 		T_ERR("HTTP/2: unable to add 'date' header to response"
 			" [%p]\n", resp);
@@ -4350,7 +4352,7 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
  * Add 'Content-Length:' header field to an HTTP message.
  */
 static int
-tfw_h2_add_hdr_clen(TfwHttpResp *resp)
+tfw_h2_add_hdr_clen(TfwHttpResp *resp, unsigned int stream_id)
 {
 	int r;
 	char* buf = *this_cpu_ptr(&g_buf);
@@ -4360,7 +4362,7 @@ tfw_h2_add_hdr_clen(TfwHttpResp *resp)
 
 	r = tfw_h2_msg_hdr_add(resp, "content-length",
 			       SLEN("content-length"), buf,
-			       cl_valsize, 28);
+			       cl_valsize, 28, stream_id);
 
 	if (unlikely(r))
 		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
@@ -4378,7 +4380,7 @@ tfw_h2_add_hdr_clen(TfwHttpResp *resp)
  * from transfer encoding.
  */
 static int
-tfw_h2_add_hdr_cenc(TfwHttpResp *resp, TfwStr *value)
+tfw_h2_add_hdr_cenc(TfwHttpResp *resp, TfwStr *value, unsigned int stream_id)
 {
 	int r;
 	TfwStr name = { .data = "content-encoding",
@@ -4393,7 +4395,7 @@ tfw_h2_add_hdr_cenc(TfwHttpResp *resp, TfwStr *value)
 		.hpack_idx = 26
 	};
 
-	r = tfw_hpack_encode(resp, &hdr, true, true);
+	r = tfw_hpack_encode(resp, &hdr, true, true, stream_id);
 
 	if (unlikely(r))
 		goto err;
@@ -4463,7 +4465,7 @@ err:
  * In case if response is stale, we should pass it with a warning.
  */
 int
-tfw_h2_set_stale_warn(TfwHttpResp *resp)
+tfw_h2_set_stale_warn(TfwHttpResp *resp, unsigned int stream_id)
 {
 	TfwStr wh = {
 		.chunks = (TfwStr []){
@@ -4474,7 +4476,7 @@ tfw_h2_set_stale_warn(TfwHttpResp *resp)
 		.nchunks = 2
 	};
 
-	return tfw_hpack_encode(resp, &wh, false, false);
+	return tfw_hpack_encode(resp, &wh, false, false, stream_id);
 }
 
 /*
@@ -4615,7 +4617,7 @@ tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 
 int
 tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
-			 bool cache)
+			 bool cache, unsigned int stream_id)
 {
 	unsigned int i;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
@@ -4640,7 +4642,8 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			continue;
 		}
 
-		r = tfw_hpack_encode(resp, desc->hdr, !cache, !cache);
+		r = tfw_hpack_encode(resp, desc->hdr, !cache, !cache,
+				     stream_id);
 		if (unlikely(r))
 			return r;
 	}
@@ -4682,7 +4685,8 @@ tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 }
 
 static int
-tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
+tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods,
+			    unsigned int stream_id)
 {
 	int r;
 	unsigned int i;
@@ -4729,7 +4733,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		if (hid == TFW_HTTP_HDR_SERVER)
 			continue;
 
-		r = tfw_hpack_transform(resp, tgt);
+		r = tfw_hpack_transform(resp, tgt, stream_id);
 		if (unlikely(r))
 			return r;
 	}
@@ -4814,14 +4818,13 @@ static int
 tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 		     unsigned long h_len)
 {
-	int r = 0;
 	unsigned long b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 	TfwMsgIter iter = {.frag = -1, .skb_head = resp->msg.skb_head};
+	int r = 0;
 
-	BUG_ON(!resp->req);
-	
-	if(!resp->req->stream)
-		return -EPIPE;
+	r = tfw_h2_stream_init_for_xmit(resp->req, h_len, b_len);
+	if (unlikely(r))
+		return r;
 
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		r = tfw_http_msg_cutoff_body_chunks(resp);
@@ -4838,8 +4841,7 @@ tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
 					  SS_F_HTTT2_FRAME_DATA);
 	}
 
-	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
-	return 0;
+	return r;
 }
 
 /**
@@ -4849,20 +4851,14 @@ int
 tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 		        unsigned long h_len, const TfwStr *body)
 {
-	int r = 0;
 	unsigned long b_len = body ? body->len : 0;
+	int r;
 
-	BUG_ON(!resp->req);
-
-	if(!resp->req->stream)
-		return -EPIPE;
-
-	r = tfw_h2_append_predefined_body(resp, stream_id, body);
+	r = tfw_h2_stream_init_for_xmit(resp->req, h_len, b_len);
 	if (unlikely(r))
 		return r;
 
-	tfw_h2_stream_init_for_xmit(resp->req->stream, h_len, b_len);
-	return r;
+	return tfw_h2_append_predefined_body(resp, stream_id, body);
 }
 
 static void
@@ -5230,11 +5226,12 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_resp_status_write(resp, resp->status, true, false);
+	r = tfw_h2_resp_status_write(resp, resp->status, true, false,
+				     stream_id);
 	 if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_hpack_encode_headers(resp, h_mods);
+	r = tfw_h2_hpack_encode_headers(resp, h_mods, stream_id);
 	if (unlikely(r))
 		goto clean;
 
@@ -5244,38 +5241,38 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	 * processed above and which have non-empty value (i.e. configured
 	 * not for deletion).
 	 */
-	r = tfw_http_sess_resp_process(resp, false);
+	r = tfw_http_sess_resp_process(resp, false, stream_id);
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_add_hdr_via(resp);
+	r = tfw_h2_add_hdr_via(resp, stream_id);
 	if (unlikely(r))
 		goto clean;
 
 	if (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)) {
-		r = tfw_h2_add_hdr_date(resp, false);
+		r = tfw_h2_add_hdr_date(resp, false, stream_id);
 		if (unlikely(r))
 			goto clean;
 	}
 
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		if (unlikely(tfw_h2_add_hdr_clen(resp)))
+		if (unlikely(tfw_h2_add_hdr_clen(resp, stream_id)))
 			goto clean;
 	}
 
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
-		r = tfw_h2_add_hdr_cenc(resp, &codings);
+		r = tfw_h2_add_hdr_cenc(resp, &codings, stream_id);
 		if (unlikely(r))
 			goto clean;
 
 		TFW_STR_INIT(&codings);
 	}
 
-	r = TFW_H2_MSG_HDR_ADD(resp, "server", TFW_SERVER, 54);
+	r = TFW_H2_MSG_HDR_ADD(resp, "server", TFW_SERVER, 54, stream_id);
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_resp_add_loc_hdrs(resp, h_mods, false);
+	r = tfw_h2_resp_add_loc_hdrs(resp, h_mods, false, stream_id);
 	if (unlikely(r))
 		goto clean;
 

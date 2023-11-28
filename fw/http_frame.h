@@ -234,6 +234,8 @@ void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 					 bool recv);
 unsigned int tfw_h2_stream_id(TfwHttpReq *req);
+int tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
+				unsigned long b_len);
 void tfw_h2_stream_unlink_from_req(TfwHttpReq *req);
 void tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);

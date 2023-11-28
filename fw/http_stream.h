@@ -234,15 +234,6 @@ tfw_h2_stream_xmit_reinit(TfwHttpXmit *xmit)
 	bzero_fast(xmit->__off, sizeof(*xmit) - offsetof(TfwHttpXmit, __off));
 }
 
-static inline void
-tfw_h2_stream_init_for_xmit(TfwStream *stream, unsigned long h_len,
-			    unsigned long b_len)
-{
-	stream->xmit.h_len = h_len;
-	stream->xmit.b_len = b_len;
-	tfw_h2_stream_xmit_reinit(&stream->xmit);
-}
-
 static inline bool
 tfw_h2_strm_req_is_compl(TfwStream *stream)
 {

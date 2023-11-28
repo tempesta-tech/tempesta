@@ -122,7 +122,7 @@ tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
 
 static inline int
 tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
-		   size_t vlen, unsigned short idx)
+		   size_t vlen, unsigned short idx, unsigned int stream_id)
 {
 	TfwStr hdr = {
 		.chunks = (TfwStr []){
@@ -134,7 +134,7 @@ tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
 		.hpack_idx = idx
 	};
 
-	return tfw_hpack_encode(resp, &hdr, true, true);
+	return tfw_hpack_encode(resp, &hdr, true, true, stream_id);
 }
 
 int __must_check __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str,
@@ -179,8 +179,8 @@ int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup);
 int tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data);
 
-#define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\
+#define TFW_H2_MSG_HDR_ADD(hm, name, val, idx, stream_id)		\
 	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\
-			   sizeof(val) - 1, idx)
+			   sizeof(val) - 1, idx, stream_id)
 
 #endif /* __TFW_HTTP_MSG_H__ */

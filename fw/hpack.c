@@ -3527,7 +3527,8 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  */
 static int
 __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		   bool use_pool, bool dyn_indexing, bool trans)
+		   bool use_pool, bool dyn_indexing, bool trans,
+		   unsigned int stream_id)
 {
 	TfwHPackInt idx;
 	bool st_full_index;
@@ -3607,29 +3608,29 @@ encode:
 	else
 		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
 set_skb_priv:
-	BUG_ON(!resp->req);
-	if (likely(!r) && resp->req->stream) {
+	if (likely(!r) && stream_id) {
 		/*
 		 * Very long headers can be located in several skbs,
 		 * mark them all.
 		 */
 		while(skb && unlikely(skb != resp->mit.iter.skb)) {
 			skb_set_tfw_flags(skb, SS_F_HTTT2_FRAME_HEADERS);
-			skb_set_tfw_cb(skb, resp->req->stream->id);
+			skb_set_tfw_cb(skb, stream_id);
 			skb = skb->next;
 		}
 
 		skb_set_tfw_flags(resp->mit.iter.skb, SS_F_HTTT2_FRAME_HEADERS);
-		skb_set_tfw_cb(resp->mit.iter.skb, resp->req->stream->id);
+		skb_set_tfw_cb(resp->mit.iter.skb, stream_id);
 	}
 	return r;
 }
 
 int
 tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		 bool use_pool, bool dyn_indexing)
+		 bool use_pool, bool dyn_indexing, unsigned int stream_id)
 {
-	return __tfw_hpack_encode(resp, hdr, use_pool, dyn_indexing, false);
+	return __tfw_hpack_encode(resp, hdr, use_pool, dyn_indexing, false,
+				  stream_id);
 }
 
 /*
@@ -3637,9 +3638,10 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  * into the HTTP/2 HPACK format.
  */
 int
-tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
+tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		    unsigned int stream_id)
 {
-	return __tfw_hpack_encode(resp, hdr, true, true, true);
+	return __tfw_hpack_encode(resp, hdr, true, true, true, stream_id);
 }
 
 void
