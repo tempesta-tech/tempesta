@@ -932,7 +932,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 
 		resp->mit.start_off = FRAME_HEADER_SIZE;
 
-		r = tfw_h2_resp_status_write(resp, 304, false, true);
+		r = tfw_h2_resp_status_write(resp, 304, false, true,
+					     stream_id);
 		if (unlikely(r))
 			goto err_setup;
 		/* account for :status field itself */
@@ -2621,7 +2622,8 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 }
 
 static int
-tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
+tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce,
+		      unsigned int stream_id)
 {
 	int r;
 	size_t digs;
@@ -2652,7 +2654,8 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
 
 	if (to_h2) {
 		h_age.hpack_idx = 21;
-		if ((r = tfw_hpack_encode(resp, &h_age, false, false)))
+		if ((r = tfw_hpack_encode(resp, &h_age, false, false,
+					  stream_id)))
 			goto err;
 	} else {
 		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
@@ -2754,14 +2757,14 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	 * Set 'set-cookie' header if needed, for HTTP/2 or HTTP/1.1
 	 * response.
 	 */
-	if (tfw_http_sess_resp_process(resp, true))
+	if (tfw_http_sess_resp_process(resp, true, stream_id))
 		goto free;
 	/*
 	 * RFC 7234 p.4 Constructing Responses from Caches:
 	 * When a stored response is used to satisfy a request without
 	 * validation, a cache MUST generate an Age header field.
 	 */
-	if (tfw_cache_set_hdr_age(resp, ce))
+	if (tfw_cache_set_hdr_age(resp, ce, stream_id))
 		goto free;
 
 	if (!TFW_MSG_H2(req)) {
@@ -2789,11 +2792,11 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	}
 
 	/* Set additional headers for HTTP/2 response. */
-	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true)
+	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true, stream_id)
 	    || (lifetime > ce->lifetime
-		&& tfw_h2_set_stale_warn(resp))
+		&& tfw_h2_set_stale_warn(resp, stream_id))
 	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
-		&& tfw_h2_add_hdr_date(resp, true)))
+		&& tfw_h2_add_hdr_date(resp, true, stream_id)))
 		goto free;
 
 	h_len += mit->acc_len;

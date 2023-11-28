@@ -804,6 +804,30 @@ tfw_h2_stream_id(TfwHttpReq *req)
 	return id;
 }
 
+int
+tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
+			    unsigned long b_len)
+{
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwStream *stream;
+
+	spin_lock(&ctx->lock);
+
+	stream = req->stream;
+	if (!stream) {
+		spin_unlock(&ctx->lock);
+		return -EPIPE;
+	}
+
+	stream->xmit.h_len = h_len;
+	stream->xmit.b_len = b_len;
+	tfw_h2_stream_xmit_reinit(&stream->xmit);
+
+	spin_unlock(&ctx->lock);
+
+	return 0;
+}
+
 /*
  * Unlink request from corresponding stream (if linked).
  */
