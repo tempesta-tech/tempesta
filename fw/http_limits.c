@@ -311,7 +311,7 @@ finish:
 /**
  * Just update current connection count for a user.
  */
-static void
+void
 tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
@@ -1696,7 +1696,6 @@ tfw_http_limits_hooks_register(void)
 
 static TempestaOps tempesta_ops = {
 	.sk_alloc	= tfw_classify_conn_estab,
-	.sk_free	= tfw_classify_conn_close,
 	.sock_tcp_rcv	= tfw_classify_tcp,
 };
 
