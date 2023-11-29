@@ -37,6 +37,7 @@
 #include "sync_socket.h"
 #include "tempesta_fw.h"
 #include "work_queue.h"
+#include "http_limits.h"
 
 typedef enum {
 	SS_SEND,
@@ -194,6 +195,8 @@ static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
 	SS_CALL(connection_drop, sk);
+	if (sk->sk_security)
+		tfw_classify_conn_close(sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
 }
 

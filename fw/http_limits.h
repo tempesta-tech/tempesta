@@ -47,6 +47,7 @@ typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
 void tfw_classifier_add_inport(__be16 port);
 void tfw_classifier_remove_inport(__be16 port);
 void tfw_classifier_cleanup_inport(void);
+void tfw_classify_conn_close(struct sock *sk);
 
 /*
  * ------------------------------------------------------------------------

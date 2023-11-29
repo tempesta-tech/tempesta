@@ -732,7 +732,7 @@ index a828cf99c..59ebed976 100644
   *	@skb: buffer to check
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 000000000..08350e4ad
+index 000000000..80de50693
 --- /dev/null
 +++ b/include/linux/tempesta.h
 @@ -0,0 +1,54 @@
@@ -740,7 +740,7 @@ index 000000000..08350e4ad
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -2948,15 +2948,15 @@ index 000000000..4c439ac0c
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 000000000..c25f0a8ac
+index 000000000..a65a79f30
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,120 @@
 +/**
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -3035,23 +3035,6 @@ index 000000000..c25f0a8ac
 +}
 +EXPORT_SYMBOL(tempesta_new_clntsk);
 +
-+static void
-+tempesta_sk_free(struct sock *sk)
-+{
-+	TempestaOps *tops;
-+
-+	if (!sk->sk_security)
-+		return;
-+
-+	rcu_read_lock();
-+
-+	tops = rcu_dereference(tempesta_ops);
-+	if (likely(tops))
-+		tops->sk_free(sk);
-+
-+	rcu_read_unlock();
-+}
-+
 +static int
 +tempesta_sock_tcp_rcv(struct sock *sk, struct sk_buff *skb)
 +{
@@ -3072,7 +3055,6 @@ index 000000000..c25f0a8ac
 +}
 +
 +static struct security_hook_list tempesta_hooks[] __read_mostly = {
-+	LSM_HOOK_INIT(sk_free_security, tempesta_sk_free),
 +	LSM_HOOK_INIT(socket_sock_rcv_skb, tempesta_sock_tcp_rcv),
 +};
 +
