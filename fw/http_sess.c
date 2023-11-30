@@ -943,7 +943,7 @@ tfw_http_sess_remove(TfwHttpSess *sess)
 static int
 tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
-	unsigned long min_time, max_time, restart_time;
+	unsigned long min_time;
 	TfwCfgJsCh *js_ch = req->vhost->cookie->js_challenge;
 
 	if (!js_ch)
@@ -966,20 +966,12 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	 */
 	min_time = sv->ts + js_ch->delay_min
 			+ msecs_to_jiffies(sv->ts % js_ch->delay_range);
-	max_time = min_time + js_ch->delay_limit;
-	if (time_in_range(req->jrxtstamp, min_time, max_time))
+	if (time_after(req->jrxtstamp, min_time))
 		return 0;
 
-	restart_time = sv->ts + js_ch->delay_min
-			+ msecs_to_jiffies(js_ch->delay_range);
-	if (time_after(req->jrxtstamp, restart_time)) {
-		T_DBG("sess: jsch block: Too old cookie, restart challenge.\n");
-		return TFW_HTTP_SESS_JS_RESTART;
-	}
-
 	sess_warn("jsch redirect received outside allowed time range",
-		  &req->conn->peer->addr, " (%lu not in [%lu, %lu])\n",
-		  req->jrxtstamp, min_time, max_time);
+		  &req->conn->peer->addr, " (%lu not after %lu)\n",
+		  req->jrxtstamp, min_time);
 
 	return TFW_HTTP_SESS_VIOLATE;
 }
