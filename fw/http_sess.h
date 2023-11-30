@@ -73,8 +73,6 @@
  * @body	- body (html with JavaScript code);
  * @delay_min	- minimal timeout client must wait before repeat the request,
  *		  in jiffies;
- * @delay_limit	- maximum time required to deliver request form a client to the
- *		  Tempesta, in jiffies;
  * @delay_range	- time interval starting after @delay_min for a client to make
  *		  a repeated request, in msecs;
  * @st_code	- status code for response with JS challenge;
@@ -83,7 +81,6 @@
 typedef struct {
 	TfwStr			body;
 	unsigned long		delay_min;
-	unsigned long		delay_limit;
 	unsigned long		delay_range;
 	unsigned short		st_code;
 	refcount_t		users;
