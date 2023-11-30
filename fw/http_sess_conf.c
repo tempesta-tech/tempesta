@@ -659,37 +659,6 @@ tfw_cfgop_jsch_parse_resp_code(TfwCfgSpec *cs, TfwCfgJsCh *js_ch,
 	return 0;
 }
 
-static void
-tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, TfwCfgJsCh *js_ch)
-{
-	const unsigned long min_limit	= msecs_to_jiffies(100);
-	const unsigned long max_hc_p	= 10;
-	const unsigned long max_limit	=
-		msecs_to_jiffies(js_ch->delay_range) * max_hc_p / 100;
-	unsigned long hc_prob;
-
-	if (!js_ch->delay_limit) {
-		js_ch->delay_limit = max_limit;
-	}
-	if (js_ch->delay_limit < min_limit) {
-		T_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
-			  "clients will be blocked. "
-			    "Minimum recommended value is %u, "
-			    "but %u is provided\n",
-			    cs->name,
-			    jiffies_to_msecs(min_limit),
-			    jiffies_to_msecs(js_ch->delay_limit));
-	}
-	hc_prob = js_ch->delay_limit * 100
-			/ msecs_to_jiffies(js_ch->delay_range);
-	if (hc_prob > max_hc_p) {
-		T_WARN_NL("%s: 'delay_limit' is too big, attacker may "
-			  "hardcode bots and breach the JavaScript challenge "
-			  "with %lu%% success probability\n",
-			  cs->name, hc_prob);
-	}
-}
-
 static int
 tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 {
@@ -753,10 +722,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_range = uint_val;
-		} else if (!strcasecmp(key, "delay_limit")) {
-			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
-				goto err;
-			js_ch->delay_limit = msecs_to_jiffies(uint_val);
 		} else if (!strcasecmp(key, "resp_code")) {
 			if ((r = tfw_cfgop_jsch_parse_resp_code(cs, js_ch, val)))
 				goto err;
@@ -781,8 +746,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	if (!js_ch->st_code)
 		js_ch->st_code = tfw_cfg_jsch_code_dflt;
-
-	tfw_cfgop_jsch_set_delay_limit(cs, js_ch);
 
 	r = tfw_cfgop_jsch_set_body(cs, js_ch,
 				    ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);
