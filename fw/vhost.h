@@ -226,6 +226,9 @@ struct  tfw_vhost_t {
  * @cache_purge		- Enable/disable cache purge configuration.
  * @cache_purge_mode	- Cache purge configuration mode.
  * @cache_purge_acl	- Enable/disable ACL for cache purge configuration.
+ * @ip_block		- Block clients by IP address if set, if not - just
+ *			  close the client connection.
+ *
  */
 typedef struct {
 	const char		*hdr_via;
@@ -235,6 +238,7 @@ typedef struct {
 	u8			cache_purge:1;
 	u8			cache_purge_mode:2;
 	u8			cache_purge_acl:1;
+	bool			ip_block;
 } TfwGlobal;
 
 void tfw_vhost_destroy(TfwVhost *vhost);

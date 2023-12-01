@@ -296,7 +296,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * for a single client is absolutely straight-forward.
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
-	if (r == T_BLOCK && dflt_vh->frang_gconf->ip_block) {
+	if (r == T_BLOCK && tfw_vhost_get_global()->ip_block) {
 		tfw_filter_block_ip(cli);
 		tfw_client_put(cli);
 	}
@@ -1288,8 +1288,6 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 	if (WARN_ON_ONCE(!dvh))
 		return T_BLOCK;
 	r = frang_http_req_process(ra, conn, data, dvh);
-	if (r == T_BLOCK && dvh->frang_gconf->ip_block)
-		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 	tfw_vhost_put(dvh);
 
 	return r;
@@ -1424,15 +1422,6 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
 
-	if (r == T_BLOCK) {
-		/* Default vhost has no 'vhost_dflt' member set. */
-		FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
-				? req->vhost->vhost_dflt->frang_gconf
-				: req->vhost->frang_gconf;
-		if (fg_cfg->ip_block)
-			tfw_filter_block_ip(FRANG_ACC2CLI(ra));
-	}
-
 	return r;
 }
 
@@ -1548,7 +1537,7 @@ frang_tls_handler(TlsCtx *tls, int state)
 	spin_lock(&ra->lock);
 
 	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, state);
-	if (r == T_BLOCK && dflt_vh->frang_gconf->ip_block)
+	if (r == T_BLOCK && tfw_vhost_get_global()->ip_block)
 		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 
 	spin_unlock(&ra->lock);

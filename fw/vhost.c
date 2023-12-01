@@ -1613,6 +1613,24 @@ tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 /*
+ * Process the ip_block directive.
+ */
+static int
+tfw_cfgop_ip_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	if (ce->dflt_value && tfw_global.ip_block)
+		return 0;
+
+	cs->dest = &tfw_global.ip_block;
+	r = tfw_cfg_set_bool(cs, ce);
+	cs->dest = NULL;
+
+	return r;
+}
+
+/*
  * Process the cache_purge directive.
  */
 static int
@@ -2098,18 +2116,6 @@ tfw_cfgop_frang_glob_in_vhost(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		 "directive).\n",
 		 cs->name);
 	return -EINVAL;
-}
-
-static int
-tfw_cfgop_frang_glob_set_bool(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	/*
-	 * 'frang_limits' section may appear multiple times to modify defaults
-	 * values for future 'frang_limits' directives.
-	 */
-	if (ce->dflt_value && *(bool *)(cs->dest))
-		return 0;
-	return tfw_cfg_set_bool(cs, ce);
 }
 
 static int
@@ -2661,6 +2667,7 @@ tfw_vhost_cfgclean(void)
 	tfw_global.cache_purge =
 	tfw_global.cache_purge_mode =
 	tfw_global.cache_purge_acl = 0;
+	tfw_global.ip_block = 0;
 
 	if (tfw_global.hdr_via && (tfw_global.hdr_via != s_hdr_via_dflt))
 		kfree(tfw_global.hdr_via);
@@ -2676,16 +2683,6 @@ tfw_vhost_cfgclean(void)
  */
 static TfwCfgSpec tfw_global_frang_specs[] = {
 	/* Options that can be enabled|disabled only globally. */
-	{
-		.name = "ip_block",
-		.deflt = "off",
-		.handler = tfw_cfgop_frang_glob_set_bool,
-		.dest = &tfw_frang_glob_reconfig.ip_block,
-		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
-		},
-		.allow_reconfig = true,
-	},
 	{
 		.name = "request_rate",
 		.deflt = "0",
@@ -2878,12 +2875,6 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 
 static TfwCfgSpec tfw_vhost_frang_specs[] = {
 	/* Options that can be enabled|disabled only globally. */
-	{
-		.name = "ip_block",
-		.handler = tfw_cfgop_frang_glob_in_vhost,
-		.allow_reconfig = true,
-		.allow_none = true,
-	},
 	{
 		.name = "request_rate",
 		.handler = tfw_cfgop_frang_glob_in_vhost,
@@ -3317,6 +3308,14 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = false,
+	},
+	{
+		.name = "ip_block",
+		.deflt = "off",
+		.handler = tfw_cfgop_ip_block,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
 	},
 	{
 		.name = "cache_bypass",

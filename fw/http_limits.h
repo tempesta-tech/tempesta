@@ -126,8 +126,6 @@ typedef struct {
  * @tls_incomplete_conn_rate - Maximum rate of uncompleted tls connections;
  * @http_hchunk_cnt	- Maximum number of chunks in header part;
  * @http_bchunk_cnt	- Maximum number of chunks in body part;
- * @ip_block		- Block clients by IP address if set, if not - just
- *			  close the client connection.
  *
  * Zero value means unlimited value.
  */
@@ -146,8 +144,6 @@ struct frang_global_cfg_t {
 
 	unsigned int		http_hchunk_cnt;
 	unsigned int		http_bchunk_cnt;
-
-	bool			ip_block;
 };
 
 /**

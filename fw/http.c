@@ -113,6 +113,7 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
+#include "filter.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -4863,6 +4864,16 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
 	return r;
 }
 
+static inline void
+tfw_filter_block_ip_req(TfwHttpReq *req)
+{
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
+	TfwClient *cli_conn = (TfwClient *)req->conn->peer;
+
+	if (g_vhost->ip_block)
+		tfw_filter_block_ip(cli_conn);
+}
+
 static void
 tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 {
@@ -4932,6 +4943,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
 		tfw_h2_stream_unlink_from_req_with_rst(req);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_filter_block_ip_req(req);
 		goto free_req;
 	}
 
@@ -5006,6 +5019,8 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 			tfw_connection_abort(req->conn);
 		do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_filter_block_ip_req(req);
 		return T_BLOCK;
 	}
 
@@ -6870,14 +6885,13 @@ static TfwConnHooks http_conn_hooks = {
 static int
 tfw_http_start(void)
 {
-	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 	bool misconfiguration = tfw_blk_flags & TFW_BLK_ATT_REPLY
-			 && dflt_vh && dflt_vh->frang_gconf->ip_block;
-	tfw_vhost_put(dflt_vh);
+			 && g_vhost->ip_block;
 
 	if (misconfiguration) {
 		T_WARN_NL("Directive 'block action' can't be set to\n"
-			  "    'attack reply' if 'ip_block' from 'frang_limits' group is 'on'\n"
+			  "    'attack reply' if 'ip_block' is 'on'\n"
 			  "    (this is misconfiguration, see the wiki).\n");
 		return -1;
 	}
