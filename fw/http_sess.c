@@ -760,8 +760,12 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
 		return r;
 
-	/* The cookie is valid but already expired, reject it. */
-	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ) {
+	/*
+	 * The cookie is valid but already expired or older than
+	 * jiffies (because of system reboot), reject it.
+	 */
+	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ
+	    || unlikely(time_after(sv->ts, jiffies))) {
 		sess_warn("sticky cookie value expired", addr,
 			  " (issued=%lu lifetime=%lu now=%lu)\n", sv->ts,
 			  (unsigned long)sticky->sess_lifetime * HZ, jiffies);
@@ -801,8 +805,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 		 * keep user experience intact.
 		 */
 		if (tfw_http_sticky_verify(req, cookie_val, sv))
-			return tfw_http_sticky_challenge_start(
-						req, req->vhost->cookie, sv);
+			return tfw_http_sticky_jsch_resart(req);
 		return TFW_HTTP_SESS_SUCCESS;
 	}
 	T_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
