@@ -59,6 +59,7 @@ typedef struct {
 	unsigned int	req;
 	unsigned int	tls_sess_new;
 	unsigned int	tls_sess_incomplete;
+	unsigned int	max_misses;
 } FrangRates;
 
 /**
@@ -1523,6 +1524,30 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 	return T_OK;
 }
 
+static int
+frang_sticky_cookie_limit(FrangAcc *ra, unsigned int max_misses)
+{
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+
+	if (!max_misses)
+		return T_OK;
+
+	if (ra->history[i].ts != ts) {
+		ra->history[i].ts = ts;
+		ra->history[i].max_misses = 0;
+	}
+	ra->history[i].max_misses++;
+
+	if (ra->history[i].max_misses > max_misses) {
+		frang_limmsg("max misses", ra->history[i].max_misses,
+			     max_misses, &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
 int
 frang_tls_handler(TlsCtx *tls, int state)
 {
@@ -1542,6 +1567,48 @@ frang_tls_handler(TlsCtx *tls, int state)
 
 	spin_unlock(&ra->lock);
 	tfw_vhost_put(dflt_vh);
+
+	return r;
+}
+
+int
+frang_sticky_cookie_handler(TfwHttpReq *req)
+{
+	FrangAcc *ra = frang_acc_from_sk(req->conn->sk);
+	TfwVhost *dvh = tfw_vhost_lookup_default();
+	FrangGlobCfg *fg_cfg = NULL;
+	int r;
+
+	if (WARN_ON_ONCE(!dvh))
+		return T_BLOCK;
+
+	if (req->vhost) {
+		/* Default vhost has no 'vhost_dflt' member set. */
+		fg_cfg = req->vhost->vhost_dflt
+				? req->vhost->vhost_dflt->frang_gconf
+				: req->vhost->frang_gconf;
+	}
+	else {
+		fg_cfg = dvh->frang_gconf;
+	}
+
+	if (WARN_ON_ONCE(!fg_cfg)) {
+		tfw_vhost_put(dvh);
+		return T_BLOCK;
+	}
+
+	/*
+	 * All whitelisted requests should not execute JS
+	 * challenge.
+	 */
+	BUG_ON(frang_req_is_whitelisted(req));
+
+	spin_lock(&ra->lock);
+
+	r = frang_sticky_cookie_limit(ra, fg_cfg->max_misses);
+
+	spin_unlock(&ra->lock);
+	tfw_vhost_put(dvh);
 
 	return r;
 }

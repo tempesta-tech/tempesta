@@ -2684,6 +2684,16 @@ tfw_vhost_cfgclean(void)
 static TfwCfgSpec tfw_global_frang_specs[] = {
 	/* Options that can be enabled|disabled only globally. */
 	{
+		.name = "max_misses",
+		.deflt = "1",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.max_misses,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
 		.name = "request_rate",
 		.deflt = "0",
 		.handler = tfw_cfgop_frang_glob_set_int,
@@ -2875,6 +2885,12 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 
 static TfwCfgSpec tfw_vhost_frang_specs[] = {
 	/* Options that can be enabled|disabled only globally. */
+	{
+		.name = "max_misses",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
 	{
 		.name = "request_rate",
 		.handler = tfw_cfgop_frang_glob_in_vhost,

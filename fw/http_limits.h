@@ -39,7 +39,7 @@
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 #define TFW_CLASSIFIER_ACCSZ	512
 #else
-#define TFW_CLASSIFIER_ACCSZ	264
+#define TFW_CLASSIFIER_ACCSZ	328
 #endif
 
 typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
@@ -115,6 +115,7 @@ typedef struct {
  * @clnt_body_timeout	- Maximum time to receive the full body, in jiffies;
  * @req_rate		- Maximum requests per second over all the
  *			  connections from the single client;
+ * @max_misses		- Maximum count of errors in JS challenge processing;
  * @req_burst		- Allowed request rate burst;
  * @conn_rate		- Maximum new connections per second from the same
  *			  client;
@@ -132,6 +133,7 @@ typedef struct {
 struct frang_global_cfg_t {
 	unsigned long		clnt_hdr_timeout;
 	unsigned long		clnt_body_timeout;
+	unsigned int		max_misses; 
 	unsigned int		req_rate;
 	unsigned int		req_burst;
 	unsigned int		conn_rate;
