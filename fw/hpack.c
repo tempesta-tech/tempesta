@@ -1313,15 +1313,19 @@ done:
 		break;
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_LENGTH;
+		h2_set_hdr_content_length(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_CONTENT_TYPE:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_TYPE;
+		if ((r = h2_set_hdr_content_type(req, &entry->cstate)))
+			return r;
 		break;
 	case TFW_TAG_HDR_COOKIE:
 		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
 		break;
 	case TFW_TAG_HDR_FORWARDED:
 		parser->_hdr_tag = TFW_HTTP_HDR_FORWARDED;
+		h2_set_hdr_forwarded(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
@@ -1354,10 +1358,22 @@ done:
 	case TFW_TAG_HDR_TRANSFER_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_TRANSFER_ENCODING;
 		break;
-	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
-	case TFW_TAG_HDR_AUTHORIZATION:
 	case TFW_TAG_HDR_CACHE_CONTROL:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_cache_control(req, &entry->cstate);
+		break;
+	case TFW_TAG_HDR_AUTHORIZATION:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_authorization(req, &entry->cstate);
+		break;
+	case TFW_TAG_HDR_X_METHOD_OVERRIDE:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_x_method_override(req, &entry->cstate);
+		break;
 	case TFW_TAG_HDR_PRAGMA:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		h2_set_hdr_pragma(req, &entry->cstate);
+		break;
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
 		break;

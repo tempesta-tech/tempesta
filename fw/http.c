@@ -5816,7 +5816,7 @@ next_msg:
 				if (likely(!tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
-				return	tfw_http_req_parse_drop_with_fin(req, 500,
+				return	tfw_http_req_parse_drop_with_fin(req, 400,
 						"Request parsing inconsistency");
 			}
 		}

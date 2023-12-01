@@ -166,6 +166,23 @@ typedef struct {
 		long		if_msince_date;
 		unsigned long	authority_port;
 		unsigned char	ifnmatch_etag_any;
+		struct {
+			unsigned int flags;
+			unsigned int max_age;
+			unsigned int max_stale;
+			unsigned int min_fresh;
+		} cache_ctl;
+		struct {
+			DECLARE_BITMAP (flags, _TFW_HTTP_FLAGS_NUM);
+			TfwStr multipart_boundary_raw;
+			TfwStr multipart_boundary;
+		} content_type;
+		unsigned long	content_length;
+		struct {
+			unsigned int flags;
+			unsigned int port;
+		} forwarded;
+		unsigned char	method_override;
 	};
 	unsigned char		is_set;
 } TfwCachedHeaderState;
