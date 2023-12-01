@@ -5764,13 +5764,11 @@ next_msg:
 	case T_BAD:
 		T_DBG2("Drop invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_drop_with_fin(req, 400,
-			"failed to parse request");
+		return tfw_http_req_parse_drop_with_fin(req, 400, NULL);
 	case T_BLOCK:
 		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_block(req, 400,
-				"failed to parse request");
+		return tfw_http_req_parse_block(req, 400, NULL);
 	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*

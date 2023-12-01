@@ -208,7 +208,7 @@ __ttls_md_hash_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 {
 	md_ctx->tfm = crypto_alloc_shash_atomic(md_info->alg_hash);
 	if (IS_ERR(md_ctx->tfm)) {
-		T_DBG("Cannot setup hash ctx, %ld\n", PTR_ERR(md_ctx->tfm));
+		T_WARN("Cannot setup hash ctx, %ld\n", PTR_ERR(md_ctx->tfm));
 		return PTR_ERR(md_ctx->tfm);
 	}
 
@@ -220,7 +220,7 @@ __ttls_md_hmac_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 {
 	md_ctx->tfm = crypto_alloc_shash_atomic(md_info->alg_hmac);
 	if (IS_ERR(md_ctx->tfm)) {
-		T_DBG("Cannot setup hmac ctx, %ld\n", PTR_ERR(md_ctx->tfm));
+		T_WARN("Cannot setup hmac ctx, %ld\n", PTR_ERR(md_ctx->tfm));
 		return PTR_ERR(md_ctx->tfm);
 	}
 
@@ -249,7 +249,8 @@ ttls_md_starts(TlsMdCtx *ctx)
 
 	r = crypto_shash_init(&ctx->md_ctx);
 	if (r)
-		T_DBG("cannot start hash ctx, %d\n", r);
+		T_DBG("cannot start hash ctx, "
+		      "crypto_shash_init result = %d\n", r);
 
 	return r;
 }
@@ -263,7 +264,8 @@ ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
 
 	r = crypto_shash_update(&ctx->md_ctx, input, ilen);
 	if (r)
-		T_DBG("cannot update hash ctx, %d\n", r);
+		T_DBG("cannot update hash ctx, "
+		      "crypto_shash_update result = %d\n", r);
 
 	return r;
 }
@@ -277,7 +279,8 @@ ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
 
 	r = crypto_shash_final(&ctx->md_ctx, output);
 	if (r)
-		T_DBG("cannot finish hash context, %d\n", r);
+		T_DBG("cannot finish hash context, "
+		      "crypto_shash_final result = %d\n", r);
 
 	return r;
 }

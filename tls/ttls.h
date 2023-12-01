@@ -653,4 +653,55 @@ ttls_reset_io_ctx(TlsIOCtx *io)
 	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 }
 
+static inline char *
+msgtype_to_str(unsigned char msgtype)
+{
+	switch (msgtype) {
+	case TTLS_MSG_CHANGE_CIPHER_SPEC:
+		return "Change Cipher Spec";
+	case TTLS_MSG_ALERT:
+		return "Alert";
+	case TTLS_MSG_HANDSHAKE:
+		return "Handshake";
+	case TTLS_MSG_APPLICATION_DATA:
+		return "Application Data";
+	default:
+		return "Unknown";
+	}
+}
+
+static inline char *
+hstype_to_str(unsigned char hstype) {
+	switch (hstype) {
+	case TTLS_HS_HELLO_REQUEST:
+		return "Hello Request";
+	case TTLS_HS_CLIENT_HELLO:
+		return "Client Hello";
+	case TTLS_HS_SERVER_HELLO:
+		return "Server Hello";
+	case TTLS_HS_HELLO_VERIFY_REQUEST:
+		return "Verify Request";
+	case TTLS_HS_NEW_SESSION_TICKET:
+		return "New Session Ticket";
+	case TTLS_HS_CERTIFICATE:
+		return "Certificate";
+	case TTLS_HS_SERVER_KEY_EXCHANGE:
+		return "Server Key Exchange";
+	case TTLS_HS_CERTIFICATE_REQUEST:
+		return "Certificate Request";
+	case TTLS_HS_SERVER_HELLO_DONE:
+		return "Server Hello Done";
+	case TTLS_HS_CERTIFICATE_VERIFY:
+		return "Certificate Verify";
+	case TTLS_HS_CLIENT_KEY_EXCHANGE:
+		return "Client Key Exchange";
+	case TTLS_HS_FINISHED:
+		return "Finished";
+	case TTLS_HS_INVALID:
+		return "Invalid";
+	default:
+		return "Unknown";
+	}
+}
+
 #endif /* __TTLS_H__ */

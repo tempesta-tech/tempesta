@@ -629,7 +629,7 @@ ttls_ticket_encrypt(TlsTicket *tik, TlsTicketKey *key, size_t full_enc_len)
 	sg_init_table(&sg, 1);
 	sg_set_buf(&sg, tik, full_enc_len);
 	if ((r = crypto_aead_encrypt(ctx.req)))
-		T_WARN("AEAD encryption failed: %d\n", r);
+		T_WARN("AEAD encryption failed while ticket encryption: %d\n", r);
 
 	ttls_ticket_ctx_free(&ctx);
 
@@ -657,7 +657,7 @@ ttls_ticket_decrypt(TlsTicket *tik, size_t len, TlsTicketKey *key)
 	sg_init_table(&sg, 1);
 	sg_set_buf(&sg, tik, len);
 	if ((r = crypto_aead_decrypt(ctx.req)))
-		T_WARN("AEAD decryption failed: %d\n", r);
+		T_WARN("AEAD decryption failed while ticket decryption: %d\n", r);
 
 	ttls_ticket_ctx_free(&ctx);
 
