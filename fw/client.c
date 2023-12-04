@@ -61,7 +61,7 @@ typedef struct {
 	TfwAddr		xff_addr;
 	long		expires;
 	spinlock_t	lock;
-	atomic_t	users;
+	int		users;
 	unsigned long	user_agent_len;
 	char		user_agent[UA_CMP_LEN];
 } TfwClientEntry;
@@ -77,17 +77,18 @@ tfw_client_put(TfwClient *cli)
 	TfwClientEntry *ent = (TfwClientEntry *)cli;
 
 	T_DBG2("put client %p, users=%d\n",
-	       cli, atomic_read(&ent->users));
-
-	if (!atomic_dec_and_test(&ent->users))
-		return;
+	       cli, ent->users);
 
 	spin_lock(&ent->lock);
 
-	if (atomic_read(&ent->users)) {
+	--ent->users;
+	BUG_ON(ent->users < 0);
+
+	if (likely(ent->users)) {
 		spin_unlock(&ent->lock);
 		return;
 	}
+
 	BUG_ON(!list_empty(&cli->conn_list));
 
 	ent->expires = tfw_current_timestamp() + client_cfg.expires_time;
@@ -114,7 +115,6 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 	long curr_time = tfw_current_timestamp();
-	int users;
 
 	if (memcmp_fast(&cli->addr.sin6_addr, &ctx->addr.sin6_addr,
 			sizeof(cli->addr.sin6_addr)))
@@ -144,14 +144,14 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 
 	ent->expires = LONG_MAX;
 
-	users = atomic_inc_return(&ent->users);
-	if (users == 1)
+	++ent->users;
+	if (ent->users == 1)
 		TFW_INC_STAT_BH(clnt.online);
 
 	spin_unlock(&ent->lock);
 
 	T_DBG("client was found in tdb\n");
-	T_DBG2("client %p, users=%d\n", cli, users);
+	T_DBG2("client %p, users=%d\n", cli, ent->users);
 
 	return true;
 }
@@ -170,7 +170,7 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
-	atomic_set(&ent->users, 1);
+	ent->users = 1;
 	TFW_INC_STAT_BH(clnt.online);
 
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
