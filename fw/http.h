@@ -350,7 +350,6 @@ typedef struct {
  * @host	- host that was picked from request URI, Host or HTTP/2
  *		  authority header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
- * @mark	- special hash mark for redirects handling in session module;
  * @multipart_boundary_raw - multipart boundary as is, maybe with escaped chars;
  * @multipart_boundary - decoded multipart boundary;
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
@@ -383,7 +382,6 @@ struct tfw_http_req_t {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
-	TfwStr			mark;
 	TfwStr			multipart_boundary_raw;
 	TfwStr			multipart_boundary;
 	struct list_head	fwd_list;
@@ -745,7 +743,7 @@ int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
+int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 			TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);

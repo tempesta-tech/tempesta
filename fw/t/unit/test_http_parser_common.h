@@ -668,7 +668,4 @@ number_to_strip(TfwHttpReq *req)
 
 TfwStr get_next_str_val(TfwStr *str);
 
-void tfw_http_sess_redir_mark_enable(void);
-void tfw_http_sess_redir_mark_disable(void);
-
 #endif /* __TFW_HTTP_PARSER_COMMON_H__ */

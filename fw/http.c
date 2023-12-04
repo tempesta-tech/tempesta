@@ -731,7 +731,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
  * Body string contains the 'Content-Length' header, CRLF and body itself.
  */
 int
-tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
+tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 		    TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
@@ -792,11 +792,6 @@ do { 								\
 		url.chunks[url.nchunks++] = *proto;
 		url.len += proto->len;
 		TFW_ADD_URL_CHUNK(&req->host);
-	}
-
-	if (rmark->len) {
-		url.chunks[url.nchunks++] = *rmark;
-		url.len += rmark->len;
 	}
 
 	TFW_ADD_URL_CHUNK(&req->uri_path);
@@ -3464,10 +3459,6 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			return r;
 	}
 
-	r = tfw_http_sess_req_process(req);
-	if (r)
-		return r;
-
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
 		return r;
@@ -3815,8 +3806,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * ignored and not copied.
 	 */
 	h1_hdrs_sz = pit->hdrs_len
-		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF))
-		- req->mark.len;
+		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF));
 	/* First request line: remove pseudo headers names, all values are on
 	 * the same line.
 	 */
