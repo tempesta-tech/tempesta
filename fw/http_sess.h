@@ -100,8 +100,6 @@ typedef struct {
  *			  responses;
  * @sess_lifetime	- session lifetime in seconds;
  * @max_misses		- maximum count of requests with invalid cookie;
- * @tmt_sec		- maximum time (in seconds) to wait the request
- *			  with valid cookie;
  * @learn		- learn backend cookie instead of adding our own
  *			  session cookie;
  * @enforce		- don't forward requests to backend unless session
@@ -121,7 +119,6 @@ struct tfw_http_cookie_t {
 	unsigned int		redirect_code;
 	unsigned int		sess_lifetime;
 	unsigned int		max_misses;
-	unsigned int		tmt_sec;
 	unsigned int		learn : 1,
 				enforce : 1;
 };
