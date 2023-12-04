@@ -70,19 +70,6 @@ typedef struct {
 } TfwSessEntry;
 
 /**
- * Temporal storage for calculated redirection mark value.
- *
- * @att_no		- number of redirection attempts;
- * @ts			- timestamp for the first redirection attempt;
- * @hmac		- calculated HMAC value for redirection mark;
- */
-typedef struct {
-	unsigned int	att_no;
-	unsigned long	ts;
-	unsigned char	hmac[STICKY_KEY_HMAC_LEN];
-} __attribute__((packed)) RedirMarkVal;
-
-/**
  * Temporal storage for calculated sticky cookie values.
  *
  * @ts			- timestamp of the session beginning;
@@ -110,19 +97,6 @@ typedef struct {
 	int		jsch_rcode;
 } TfwSessEqCtx;
 
-/*
- * Redirection mark in the URI. Can't be defined per-vhost, since the mark is
- * parsed at very first request symbols - URI, when it's not possible to
- * determine target vhost.
- */
-static const DEFINE_TFW_STR(redir_mark_eq, "__tfw=");
-static bool redir_mark_enabled, redir_mark_enabled_reconfig;
-
-void tfw_http_sess_redir_enable(void)
-{
-	redir_mark_enabled_reconfig = true;
-}
-
 static inline bool
 tfw_http_sess_cookie_enabled(TfwHttpReq *req)
 {
@@ -145,49 +119,13 @@ tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 		&& test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 }
 
-/*
- * Create redirect mark in following form:
- *
- *	<attempt_no> | <timestamp> | HMAC(Secret, attempt_no, timestamp)
- *
- * Field <attempt_no> is required to track redirection limit, and <timestamp> is
- * needed to detect bots, who repeat initial redirect mark in all subsequent
- * requests.
- */
-static void
-tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
-			    TfwStr *chunks, unsigned int ch_len, TfwStr *rmark)
-{
-	unsigned int att_be32 = cpu_to_be32(mv->att_no);
-	unsigned long ts_be64 = cpu_to_be64(mv->ts);
-	DEFINE_TFW_STR(s_sl, "/");
-
-	bin2hex(buf, &att_be32, sizeof(att_be32));
-	bin2hex(&buf[sizeof(att_be32) * 2], &ts_be64, sizeof(ts_be64));
-	bin2hex(&buf[(sizeof(att_be32) + sizeof(ts_be64)) * 2],
-		mv->hmac, sizeof(mv->hmac));
-
-	bzero_fast(chunks, ch_len);
-	chunks[0] = s_sl;
-	chunks[1] = redir_mark_eq;
-	chunks[2].data = buf;
-	chunks[2].len = buf_len;
-
-	rmark->chunks = chunks;
-	rmark->len = chunks[0].len;
-	rmark->len += chunks[1].len;
-	rmark->len += chunks[2].len;
-	rmark->nchunks = 3;
-}
-
 static int
-tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv,
-                               bool jsch_allow)
+tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, bool jsch_allow)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
-	TfwStr c_chunks[3], m_chunks[3], r_chunks[5], cookie = { 0 }, rmark = { 0 };
+	TfwStr c_chunks[3], cookie = { 0 };
 	TfwHttpResp *resp;
-	char c_buf[sizeof(*sv) * 2], m_buf[sizeof(*mv) * 2];
+	char c_buf[sizeof(*sv) * 2];
 	TfwStr body = { 0 };
 	TfwStickyCookie *sticky;
 	int r, code;
@@ -202,34 +140,17 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv,
 	 * Non-challengeable requests also must be rate limited.
 	 */
 
-	if (!tfw_http_sticky_redirect_applied(req))
+	if (!tfw_http_sticky_redirect_applied(req)) {
+		/** TODO макс миссес сбросить или рестарт */
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
+	}
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		return TFW_HTTP_SESS_FAILURE;
 
-	if (mv)
-		tfw_http_redir_mark_prepare(mv, m_buf, sizeof(m_buf), m_chunks,
-					    sizeof(m_chunks), &rmark);
-
 	sticky = req->vhost->cookie;
-	if (sticky->js_challenge && jsch_allow) {
-		if (mv) {
-			if (sticky->js_challenge->body.nchunks != 2)
-				return TFW_HTTP_SESS_FAILURE;
-
-			r_chunks[0] = sticky->js_challenge->body.chunks[0];
-			r_chunks[1] = rmark.chunks[0];
-			r_chunks[2] = rmark.chunks[1];
-			r_chunks[3] = rmark.chunks[2];
-			r_chunks[4] = sticky->js_challenge->body.chunks[1];
-			body.chunks = r_chunks;
-			body.len = r_chunks[0].len + rmark.len + r_chunks[4].len;
-			body.nchunks = 5;
-		} else {
-			body = sticky->js_challenge->body;
-		}
-	}
+	if (sticky->js_challenge && jsch_allow)
+		body = sticky->js_challenge->body;
 
 	/*
 	 * Form the cookie as:
@@ -259,7 +180,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv,
 	}
 
 	code = jsch_allow ? sticky->redirect_code: TFW_REDIR_STATUS_CODE_DFLT;
-	r = tfw_http_prep_redir(resp, code, &rmark, &cookie, &body);
+	r = tfw_http_prep_redir(resp, code, &cookie, &body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;
@@ -451,57 +372,6 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache, unsigned int stream_id)
 	return r;
 }
 
-/*
- * Calculate HMAC value for redirection mark.
- *
- * HMAC value is based on:
- * - Number of attempts for session establishing;
- * - Timestamp of first attempt;
- * - Secret key.
- */
-static int
-__redir_hmac_calc(TfwHttpReq *req, RedirMarkVal *mv)
-{
-	int r;
-	TfwStickyCookie *sticky = req->vhost->cookie;
-	SHASH_DESC_ON_STACK(shash_desc, sticky->shash);
-
-	shash_desc->tfm = sticky->shash;
-
-	T_DBG("http_sess: calculate redirection mark: ts=%#lx(now=%#lx),"
-	      " att_no=%#x\n", mv->ts, jiffies, mv->att_no);
-
-	if ((r = crypto_shash_init(shash_desc)))
-		return r;
-	r = crypto_shash_update(shash_desc, (u8 *)&mv->att_no, sizeof(mv->att_no));
-	if (r)
-		return r;
-	return crypto_shash_finup(shash_desc, (u8 *)&mv->ts, sizeof(mv->ts),
-				  mv->hmac);
-}
-
-static int
-tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
-{
-	TfwStr *mark = &req->mark;
-	TfwStr *c, *end;
-
-	if (TFW_STR_EMPTY(mark))
-		return 0;
-
-	/* Find the value chunk. */
-	end = mark->chunks + mark->nchunks;
-	for (c = mark->chunks; c != end; ++c)
-		if (c->flags & TFW_STR_VALUE)
-			break;
-
-	BUG_ON(c == end);
-
-	tfw_str_collect_cmp(c, end, out_val, NULL);
-
-	return 1;
-}
-
 #define sess_warn(check, addr, fmt, ...)				\
 	T_WARN_MOD_ADDR(http_sess, check, addr, TFW_NO_PORT, fmt,	\
 	                  ##__VA_ARGS__)
@@ -574,110 +444,16 @@ end:									\
 	r;								\
 })
 
-/**
- * Verify found redirection mark.
- */
-static int
-tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
-{
-	unsigned char *tr;
-	TfwAddr *addr = &req->conn->peer->addr;
-	TfwStr *c, *end;
-
-	T_DBG("Redirection mark found%s: \"%.*s\"\n",
-	      TFW_STR_PLAIN(mark_val) ? "" : ", starts with",
-	      TFW_STR_PLAIN(mark_val) ?
-		      (int)mark_val->len :
-		      (int)mark_val->chunks->len,
-	      TFW_STR_PLAIN(mark_val) ?
-		      mark_val->data :
-		      mark_val->chunks->data);
-
-	if (mark_val->len != sizeof(RedirMarkVal) * 2) {
-		sess_warn("bad length of redirection mark", addr,
-			  " (%lu instead of %lu)\n", mark_val->len,
-			  sizeof(RedirMarkVal) * 2);
-		return TFW_HTTP_SESS_VIOLATE;
-	}
-
-	HEX_STR_TO_BIN_INIT(tr, c, mark_val, end);
-	HEX_STR_TO_BIN_GET(mv, att_no);
-	HEX_STR_TO_BIN_GET(mv, ts);
-
-	if (__redir_hmac_calc(req, mv)) {
-		T_DBG("can not compute HMAC for a redirection mark\n");
-		return TFW_HTTP_SESS_VIOLATE;
-	}
-
-	return HEX_STR_TO_BIN_HMAC(mv->hmac, mv->ts, addr);
-}
-
-/*
- * Find special redirection mark in request, calculate actual mark,
- * match them and check redirection counts and timestamp (if configured).
- * If limits are exceeded, the IP-address of corresponding client will
- * be blocked. This verifications are intended only for enforce mode.
- */
-static int
-tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
-{
-	TfwStr mark_val = {};
-	unsigned int max_misses = req->vhost->cookie->max_misses;
-	unsigned long tmt = HZ * (unsigned long)req->vhost->cookie->tmt_sec;
-
-	if (tfw_http_redir_mark_get(req, &mark_val)) {
-		int r = tfw_http_redir_mark_verify(req, &mark_val, mv);
-
-		if (!r && tmt && mv->ts + tmt < jiffies) {
-			mv->ts = jiffies;
-			mv->att_no = 0;
-		}
-
-		if (r || ++mv->att_no > max_misses) {
-			/*
-			 * TODO #1102 we should not block client on the IP layer
-			 * always. We should deligate the blocking action to the
-			 * HTTP layer, which can take different blocking actions,
-			 * e.g. send an HTTP responce in case of
-			 * `block_action attack reply`.
-			 */
-			tfw_filter_block_ip((TfwClient *)req->conn->peer);
-			return TFW_HTTP_SESS_VIOLATE;
-		}
-		bzero_fast(mv->hmac, sizeof(mv->hmac));
-	} else {
-		mv->ts = jiffies;
-		mv->att_no = 1;
-	}
-
-	if (__redir_hmac_calc(req, mv))
-		return TFW_HTTP_SESS_FAILURE;
-
-	return TFW_HTTP_SESS_SUCCESS;
-}
-
 static inline int
 tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
 				StickyVal *sv)
 {
-	int r;
-	RedirMarkVal mv = {}, *mvp = NULL;
-
-	/*
-	 * If configured, ensure that limit for requests without
-	 * cookie and timeout for redirections are not exhausted.
-	 */
-	if (sticky->max_misses) {
-		mvp = &mv;
-		if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
-			return r;
-	}
 	if (!sv->ts) {
 		if (tfw_http_sticky_calc(req, sv) != 0)
 			return TFW_HTTP_SESS_FAILURE;
 	}
-
-	return tfw_http_sticky_build_redirect(req, sv, mvp, true);
+	
+	return tfw_http_sticky_build_redirect(req, sv, true);
 }
 
 /*
@@ -821,19 +597,6 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 }
 
 /*
- *  Remove redirection mark from request.
- */
-int
-tfw_http_sess_req_process(TfwHttpReq *req)
-{
-	TfwStickyCookie *sticky = req->vhost->cookie;
-
-	if (!sticky->max_misses || TFW_STR_EMPTY(&req->mark))
-		return 0;
-	return tfw_http_msg_del_str((TfwHttpMsg *)req, &req->mark);
-}
-
-/*
  * Add Tempesta sticky cookie to an HTTP response if needed.
  */
 int
@@ -907,24 +670,6 @@ tfw_http_sess_put(TfwHttpSess *sess)
 			tfw_vhost_put(sess->vhost);
 		tfw_http_sess_set_expired(sess);
 	}
-}
-
-bool
-tfw_http_sess_max_misses(void)
-{
-	return redir_mark_enabled;
-}
-
-unsigned int
-tfw_http_sess_mark_size(void)
-{
-	return redir_mark_enabled ? (sizeof(RedirMarkVal) * 2) : 0;
-}
-
-const TfwStr *
-tfw_http_sess_mark_name(void)
-{
-	return redir_mark_enabled ? &redir_mark_eq : NULL;
 }
 
 /**
@@ -1106,7 +851,6 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	TfwStr *c_val = &ctx.cookie_val;
 	TdbRec *rec;
 	TdbGetAllocCtx tdb_ctx = { 0 };
-	TfwStr mark_val = {};
 
 	/*
 	 * If vhost is not known, then request is to be dropped. Don't save the
@@ -1174,9 +918,6 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		 * bucket with the session as soon as possible.
 		 */
 		tdb_rec_put(rec);
-
-	if (tfw_http_redir_mark_get(req, &mark_val))
-		return tfw_http_sticky_build_redirect(req, sv, NULL, false);
 
 	return TFW_HTTP_SESS_SUCCESS;
 }
@@ -1473,18 +1214,10 @@ err:
 	return srv_conn;
 }
 
-static int
-tfw_http_sess_cfgstart_local(void)
-{
-	redir_mark_enabled_reconfig = false;
-	return 0;
-}
 
 static int
 tfw_http_sess_start(void)
 {
-	redir_mark_enabled = redir_mark_enabled_reconfig;
-
 	if (tfw_runstate_is_reconfig())
 		return 0;
 	/*
@@ -1546,7 +1279,6 @@ static TfwCfgSpec tfw_http_sess_specs_table[] = {
 
 TfwMod tfw_http_sess_mod = {
 	.name		= "http_sess",
-	.cfgstart	= tfw_http_sess_cfgstart_local,
 	.start		= tfw_http_sess_start,
 	.stop		= tfw_http_sess_stop,
 	.specs		= tfw_http_sess_specs_table,
