@@ -217,14 +217,6 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 		return r;
 	}
 
-	/*
-	 * Redirect mark is requested, switch its parser on. Called outside
-	 * tfw_cfgop_cookie_set() to enable only if there is at least one vhost
-	 * using the feature.
-	 */
-	if (sticky->max_misses && vhost)
-		tfw_http_sess_redir_enable();
-
 	return 0;
 }
 
@@ -787,16 +779,13 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	/* Inherit sticky options defined at top level. */
 	if ((r = tfw_cfgop_sticky_inherit(vhost)))
 		return r;
-	/* See comment in tfw_http_sess_cfgop_finish(). */
-	if (sticky->max_misses)
-		tfw_http_sess_redir_enable();
+
 	/*
 	 * tfw_cfgop_sticky_inherit() only setups directives without
 	 * default values in  tfw_http_sess_specs, init others.
 	 */
-	if (defaults_override.st_sessions_set) {
+	if (defaults_override.st_sessions_set)
 		tfw_cfgop_sticky_sess_inherit(&vhost->flags);
-	}
 	if (!TFW_STR_EMPTY(&sticky->name)) {
 		r = tfw_cfgop_sticky_secret_set(sticky,
 						defaults_override.secret,

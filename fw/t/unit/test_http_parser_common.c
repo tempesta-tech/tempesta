@@ -670,23 +670,3 @@ get_next_str_val(TfwStr *str)
 
 	return v;
 }
-
-void
-tfw_http_sess_redir_mark_enable(void)
-{
-	TfwMod *hs_mod = NULL;
-	hs_mod = tfw_mod_find("http_sess");
-	BUG_ON(!hs_mod);
-	tfw_http_sess_redir_enable();
-	hs_mod->start();
-}
-
-void
-tfw_http_sess_redir_mark_disable(void)
-{
-	TfwMod *hs_mod = NULL;
-	hs_mod = tfw_mod_find("http_sess");
-	BUG_ON(!hs_mod);
-	hs_mod->stop();
-	hs_mod->cfgstart();
-}
