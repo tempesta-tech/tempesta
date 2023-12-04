@@ -156,7 +156,6 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 	st->options.data = st->options_str;
 
 	st->max_misses = def_st->max_misses;
-	st->tmt_sec = def_st->tmt_sec;
 	st->learn = def_st->learn;
 	st->enforce = def_st->enforce;
 
@@ -321,13 +320,6 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
-		} else if (!strcasecmp(key, "timeout")) {
-			if (tfw_cfg_parse_uint(val, &sticky->tmt_sec))
-			{
-				T_ERR_NL("%s: invalid value for 'timeout'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
 		} else if (!strcasecmp(key, "options")) {
 			if (tfw_cfgop_cookie_set_options(sticky, val))
 			{
@@ -378,11 +370,6 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (sticky->max_misses && !sticky->enforce) {
 		T_ERR_NL("%s: 'max_misses' can be enabled only in 'enforce' "
 			 "mode\n", cs->name);
-		return -EINVAL;
-	}
-	if (sticky->tmt_sec && !sticky->max_misses) {
-		T_ERR_NL("%s: 'timeout' can be specified only with 'max_misses' "
-			 "attribute\n", cs->name);
 		return -EINVAL;
 	}
 
