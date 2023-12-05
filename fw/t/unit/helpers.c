@@ -396,4 +396,10 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 	return true;
 }
 
+int
+frang_http_hdr_limit(TfwHttpReq *req)
+{
+	return T_OK;
+}
+
 unsigned int cache_default_ttl = 60;

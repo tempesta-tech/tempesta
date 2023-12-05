@@ -32,6 +32,7 @@
 #include "http_msg.h"
 #include "http_parser.h"
 #include "ss_skb.h"
+#include "http_limits.h"
 
 /*
  * Used during allocating from TfwPool first fragment for containing headers.
@@ -561,11 +562,14 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	/* Close just parsed header. */
 	parser->hdr.flags |= TFW_STR_COMPLETE;
 
+	/*
+	 * We make this frang check here, because it is the earliest
+	 * place where we can determine that new added header is violating
+	 * appropriate frang limits.
+	 */
 	if (!is_srv_conn &&
-	    (!tfw_http_check_header_size(hm) ||
-	     !tfw_http_check_headers_count(hm) ||
-	     !tfw_http_check_header_list_size(hm)))
-		return -EPERM;
+	    ((r = frang_http_hdr_limit((TfwHttpReq *)hm)) != T_OK))
+		return r;
 
 	/* Quick path for special headers. */
 	if (likely(id < TFW_HTTP_HDR_RAW)) {
@@ -645,15 +649,11 @@ done:
 		return r;
 
 	*h = parser->hdr;
-	/*
-	 * Adjust extra 32 extra bytes which are considered the "maximum"
-	 * overhead that would be required to represent each entry in the
-	 * hpack table.
-	 */
+
 	if (!is_srv_conn) {
 		TfwHttpReq *req = (TfwHttpReq *)hm;
 
-		req->header_list_sz += h->len + (TFW_MSG_H2(hm) ? 32 : 0);
+		req->header_list_sz += h->len + TFW_HTTP_MSG_HDR_OVERHEAD(hm);
 		req->headers_cnt++;
 	}
 

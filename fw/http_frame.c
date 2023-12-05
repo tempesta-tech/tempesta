@@ -242,7 +242,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
-	lset->max_lhdr_sz = max_header_list_size;
+	lset->max_lhdr_sz = max_header_list_size ?
+		max_header_list_size : UINT_MAX;
 	rset->max_lhdr_sz = UINT_MAX;
 
 	lset->wnd_sz = DEF_WND_SIZE;
@@ -397,37 +398,23 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 static inline int
 tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
-	unsigned int extra_field_no = 0;
 	struct {
 		unsigned short key;
 		unsigned int value;
-	} __attribute__((packed)) field[2];
+	} __attribute__((packed)) field[3];
 
-	struct {
-		unsigned short key;
-		unsigned int value;
-	} __attribute__((packed)) extra_field[1];
-
-#define TFW_ADD_EXTRA_SETTING(k, v)					\
-do {									\
-	extra_field[extra_field_no].key = k;				\
-	extra_field[extra_field_no].value = v;				\
-	data.chunks[data.nchunks].data =				\
-		(unsigned char *)&extra_field[extra_field_no];		\
-	data.chunks[data.nchunks].len = sizeof(extra_field[0]);		\
-	data.len += data.chunks[data.nchunks].len;			\
-	hdr.length += data.chunks[data.nchunks].len;			\
-	data.nchunks++;							\
-	extra_field_no++;						\
-} while(0)
+	const unsigned int required_fields = 2;
 
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = (unsigned char *)field, .len = sizeof(field) },
+			{
+				.data = (unsigned char *)field,
+				.len = required_fields * sizeof(field[0])
+			},
 			{},
 		},
-		.len = sizeof(field),
+		.len = required_fields * sizeof(field[0]),
 		.nchunks = 2
 	};
 	TfwFrameHdr hdr = {
@@ -448,13 +435,15 @@ do {									\
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
 
 	if (ctx->lsettings.max_lhdr_sz != UINT_MAX) {
-		TFW_ADD_EXTRA_SETTING(HTTP2_SETTINGS_INIT_WND_SIZE,
-				      ctx->lsettings.max_lhdr_sz);
+		field[required_fields].key =
+			htons(HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
+		field[required_fields].value =
+			htonl(ctx->lsettings.max_lhdr_sz);
+		data.chunks[1].len += sizeof(field[0]);
+		hdr.length += sizeof(field[0]);
 	}
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
-
-#undef TFW_ADD_EXTRA_SETTING
 }
 
 static inline int
