@@ -688,6 +688,17 @@ tfw_body_iter_next(TfwMsgIter* it, TfwStr* chunk)
 
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
+/**
+ * According RFC 9113 6.5.2:
+ * Etra 32 extra bytes which are considered the "maximum"
+ * overhead that would be required to represent each header
+ * entry in the hpack table.
+ */
+#define HTTP2_EXTRA_HDR_OVERHEAD 32
+
+#define TFW_HTTP_MSG_HDR_OVERHEAD(hmmsg)				\
+	(TFW_MSG_H2(hmmsg) ? HTTP2_EXTRA_HDR_OVERHEAD : 0)
+
 extern unsigned int max_header_list_size;
 
 /* External HTTP functions. */
@@ -737,8 +748,5 @@ int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
 void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
-bool tfw_http_check_header_size(TfwHttpMsg *hm);
-bool tfw_http_check_headers_count(TfwHttpMsg *hm);
-bool tfw_http_check_header_list_size(TfwHttpMsg *hm);
 
 #endif /* __TFW_HTTP_H__ */
