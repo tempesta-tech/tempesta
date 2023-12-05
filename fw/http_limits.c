@@ -43,6 +43,7 @@
 #include "log.h"
 #include "hash.h"
 #include "http_match.h"
+#include "http.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -1486,6 +1487,121 @@ frang_tls_handler(TlsCtx *tls, int state)
 	tfw_vhost_put(dflt_vh);
 
 	return r;
+}
+
+static int
+__frang_http_hdr_len(FrangAcc *ra, TfwHttpReq *req, unsigned int hdr_len)
+{
+	TfwHttpParser *parser = &req->stream->parser;
+	unsigned int cur_hdr_len;
+
+	cur_hdr_len = TFW_HTTP_MSG_HDR_OVERHEAD(req) + parser->hdr.len;
+	if (cur_hdr_len > hdr_len) {
+		frang_limmsg("HTTP header length", cur_hdr_len,
+			     hdr_len, &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
+static int
+__frang_http_hdr_cnt(FrangAcc *ra, TfwHttpReq *req, unsigned int hdr_cnt)
+{
+	if (req->headers_cnt + 1 > hdr_cnt) {
+		frang_limmsg("HTTP headers count", req->headers_cnt + 1,
+			     hdr_cnt, &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
+static int
+__frang_http_hdr_list_size(FrangAcc *ra, TfwHttpReq *req,
+			   unsigned int hdr_list_size)
+{
+	TfwHttpParser *parser = &req->stream->parser;
+	unsigned int cur_hdr_list_size;
+
+	cur_hdr_list_size = req->header_list_sz +
+		TFW_HTTP_MSG_HDR_OVERHEAD(req) + parser->hdr.len;
+
+	if (cur_hdr_list_size > hdr_list_size) {
+		frang_limmsg("HTTP header list size", cur_hdr_list_size,
+			     hdr_list_size, &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
+static int
+__frang_http_hdr_limit(FrangAcc *ra, TfwHttpReq *req, TfwVhost *dvh)
+{
+	FrangVhostCfg *f_cfg = NULL;
+	int r;
+
+	if (req->vhost) {		
+		f_cfg = req->location ? req->location->frang_cfg
+				      : req->vhost->loc_dflt->frang_cfg;
+	}
+	else {
+		f_cfg = dvh->loc_dflt->frang_cfg;
+	}
+	if (WARN_ON_ONCE(!f_cfg))
+		return T_BLOCK;
+
+	spin_lock(&ra->lock);
+
+	if (f_cfg->http_hdr_len &&
+	    (r = __frang_http_hdr_len(ra, req, f_cfg->http_hdr_len))) {
+		spin_unlock(&ra->lock);
+		return r;
+	}
+
+	if (f_cfg->http_hdr_cnt &&
+	    (r = __frang_http_hdr_cnt(ra, req, f_cfg->http_hdr_cnt))) {
+		spin_unlock(&ra->lock);
+		return r;
+	}
+
+	if (max_header_list_size &&
+	    (r = __frang_http_hdr_list_size(ra, req, max_header_list_size))) {
+		spin_unlock(&ra->lock);
+		return r;
+	}
+
+	spin_unlock(&ra->lock);
+
+	return T_OK;
+}
+
+int
+frang_http_hdr_limit(TfwHttpReq *req)
+{
+	TfwConn *conn = req->conn;
+	FrangAcc *ra;
+	TfwVhost *dvh = NULL;
+	int r;
+
+	if (WARN_ON_ONCE(!conn || !conn->sk))
+		return T_BLOCK;
+
+	ra = frang_acc_from_sk(conn->sk);
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
+
+	dvh = tfw_vhost_lookup_default();
+	if (WARN_ON_ONCE(!dvh))
+		return T_BLOCK;
+
+	r = __frang_http_hdr_limit(ra, req, dvh);
+
+	tfw_vhost_put(dvh);
+
+	return r;
+
 }
 
 /*
