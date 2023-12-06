@@ -190,6 +190,6 @@ struct frang_vhost_cfg_t {
 
 int frang_tls_handler(TlsCtx *tls, int state);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
-int frang_http_hdr_limit(TfwHttpReq *req);
+int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
 
 #endif /* __HTTP_LIMITS__ */

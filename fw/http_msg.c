@@ -565,10 +565,12 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	/*
 	 * We make this frang check here, because it is the earliest
 	 * place where we can determine that new added header is violating
-	 * appropriate frang limits.
+	 * appropriate frang limits. For HTTP2 we check it even earlier when
+	 * we decode hpack.
 	 */
-	if (!is_srv_conn &&
-	    ((r = frang_http_hdr_limit((TfwHttpReq *)hm)) != T_OK))
+	if (!is_srv_conn && !TFW_MSG_H2(hm) &&
+	    ((r = frang_http_hdr_limit((TfwHttpReq *)hm,
+				       parser->hdr.len)) != T_OK))
 		return r;
 
 	/* Quick path for special headers. */

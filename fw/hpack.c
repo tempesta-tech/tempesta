@@ -1399,6 +1399,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	int r = T_POSTPONE;
 	TfwMsgParseIter *it = &req->pit;
 	const unsigned char *last = src + n;
+	TfwHttpParser *parser = &req->stream->parser;
 
 	BUILD_BUG_ON(HPACK_STATE_MASK < _HPACK_STATE_NUM - 1);
 	BUG_ON(!it->parsed_hdr);
@@ -1414,7 +1415,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		case HPACK_STATE_READY:
 		{
 			unsigned char c = *src++;
-			req->stream->parser.cstate.is_set = 0;
+			parser->cstate.is_set = 0;
 
 			if (c & 0x80) { /* RFC 7541 6.1 */
 				T_DBG3("%s: > Indexed Header Field\n", __func__);
@@ -1630,9 +1631,20 @@ get_value_text:
 			else
 				HPACK_PROCESS_STRING(val, m_len);
 
+			/*
+			 * We can't check this limit earlier because of these two
+			 * main problems:
+			 * - In case of huffman encoding hp->length !=
+			 *   header length.
+			 * - In case of TCP segmentation we don't wan't
+			 *   to check limits on every new data segment.
+			 */
+			if ((r = frang_http_hdr_limit(req, parser->hdr.len)))
+				goto out;
+
 			if (state & HPACK_FLAGS_ADD
 			    && (r = tfw_hpack_add_index(&hp->dec_tbl, it,
-							&req->stream->parser.cstate)))
+							&parser->cstate)))
 			{
 				goto out;
 			}
@@ -1666,6 +1678,9 @@ get_all_indexed:
 				r = -EINVAL;
 				goto out;
 			}
+
+			if ((r = frang_http_hdr_limit(req, entry->hdr->len)))
+				goto out;
 
 			if ((r = tfw_hpack_hdr_set(hp, req, entry)))
 				goto out;
