@@ -818,7 +818,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
-		r = SS_SHUTDOWN;
+		r = SS_BAD;
 	}
 out:
 	if (skb_head)

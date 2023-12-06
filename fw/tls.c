@@ -92,12 +92,20 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
+		/*
+		 * T_BLOCK is error code for high level modules (like frang),
+		 * here we should deal with error code, which accurately
+		 * determine further closing behavior.
+		 */
+		BUG_ON(r == T_BLOCK);
+		fallthrough;
 	case T_BAD:
 		r = T_BAD;
 		if (tls->conf->endpoint == TTLS_IS_SERVER)
 			TFW_INC_STAT_BH(serv.tls_hs_failed);
 		fallthrough;
-	case T_BLOCK:
+	case T_BLOCK_WITH_FIN:
+	case T_BLOCK_WITH_RST:
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
@@ -167,7 +175,8 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		if (r == T_BLOCK || r == T_BAD) {
+		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST
+		    || r == T_BAD) {
 			kfree_skb(nskb);
 			return r;
 		}
