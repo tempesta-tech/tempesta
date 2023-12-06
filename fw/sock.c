@@ -41,6 +41,7 @@
 typedef enum {
 	SS_SEND,
 	SS_CLOSE,
+	SS_SHUTDOWN
 } SsAction;
 
 typedef struct {
@@ -681,15 +682,15 @@ ss_linkerror(struct sock *sk)
  * but rather it guarantees that the socket will be closed and the caller can
  * not care about return value.
  */
-int
-ss_close(struct sock *sk, int flags)
+static int
+ss_close_or_shutdown(struct sock *sk, int action, int flags)
 {
 	int cpu;
 	long ticket;
 	SsWork sw = {
 		.sk	= sk,
 		.flags  = flags,
-		.action	= SS_CLOSE,
+		.action	= action,
 	};
 
 	if (unlikely(!sk))
@@ -720,6 +721,18 @@ err:
 	return SS_BAD;
 }
 EXPORT_SYMBOL(ss_close);
+
+int
+ss_close(struct sock *sk, int flags)
+{
+	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
+}
+
+int
+ss_shutdown(struct sock *sk, int flags)
+{
+	return ss_close_or_shutdown(sk, SS_SHUTDOWN, flags);
+}
 
 /*
  * Process a single SKB.
@@ -805,7 +818,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
-		r = SS_BAD;
+		r = SS_SHUTDOWN;
 	}
 out:
 	if (skb_head)
@@ -885,6 +898,7 @@ static void
 ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
+	int (*action)(struct sock *sk, int flags);
 
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
@@ -918,22 +932,26 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_POSTPONE:
 	case SS_DROP:
 		return;
-	case SS_BLOCK:
-		/*
-		 * Here we do not close the TCP connection immediately.
-		 * If the higher layer decides that there is an attack,
-		 * but we have to send an HTTP response (i.e. Conn_Stop
-		 * flag is set), connection will be closed later after
-		 * sending response.
-		 */
+	case SS_BLOCK_WITH_FIN:
+		flags = SS_F_SYNC;
+		action = ss_close;
+		break;
+	case SS_BLOCK_WITH_RST:
 		flags = SS_F_ABORT;
+		action = ss_close;
+		/*
+		 * We set Conn_Stop flag when we send error to client,
+		 * using TLS alert or goaway, but in this case we always
+		 * finish connection with TCP FIN.
+		 */
+		BUG_ON(SS_CONN_TYPE(sk) & Conn_Stop);
 		break;
 	case SS_BAD:
 		flags = SS_F_SYNC;
+		action = ss_shutdown;
 		break;
 	default:
-		WARN_ON_ONCE(1);
-		flags = SS_F_SYNC;
+		BUG();
 	}
 
 	/*
@@ -951,7 +969,7 @@ ss_tcp_data_ready(struct sock *sk)
 	 * should be done after all pending data has been sent.
 	 */
 	if (!(SS_CONN_TYPE(sk) & Conn_Stop))
-		ss_close(sk, flags);
+		action(sk, flags);
 }
 
 /**
@@ -1270,7 +1288,7 @@ ss_connect(struct sock *sk, const TfwAddr *addr, int flags)
 		return -EISCONN;
 
 	if (ss_active_guard_enter(SS_V_ACT_LIVECONN))
-		return SS_SHUTDOWN;
+		return -ESHUTDOWN;
 
 	bh_lock_sock(sk);
 	r = sk->sk_prot->connect(sk, uaddr, uaddr_len);
@@ -1425,8 +1443,9 @@ ss_tx_action(void)
 				bh_unlock_sock(sk);
 				break;
 			}
-			/* paired with bh_lock_sock() */
-			__sk_close_locked(sk, sw.flags);
+			BUG_ON(sw.flags & __SS_F_RST);
+			tcp_shutdown(sk, SEND_SHUTDOWN);
+			bh_unlock_sock(sk);
 			break;
 		case SS_CLOSE:
 			/*
@@ -1449,6 +1468,12 @@ ss_tx_action(void)
 			}
 			/* paired with bh_lock_sock() */
 			__sk_close_locked(sk, sw.flags);
+			break;
+		case SS_SHUTDOWN:
+			/* sk_state is checked in `tcp_shutdown` function. */
+			BUG_ON(sw.flags & __SS_F_RST);
+			tcp_shutdown(sk, SEND_SHUTDOWN);
+			bh_unlock_sock(sk);
 			break;
 		default:
 			BUG();
