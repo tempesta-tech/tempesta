@@ -397,7 +397,7 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 }
 
 int
-frang_http_hdr_limit(TfwHttpReq *req)
+frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 {
 	return T_OK;
 }
