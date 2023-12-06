@@ -725,12 +725,14 @@ EXPORT_SYMBOL(ss_close);
 int
 ss_close(struct sock *sk, int flags)
 {
+	T_WARN("ss_close %px", sk);
 	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
 }
 
 int
 ss_shutdown(struct sock *sk, int flags)
 {
+	T_WARN("ss_shutdown %px", sk);
 	return ss_close_or_shutdown(sk, SS_SHUTDOWN, flags);
 }
 
@@ -809,13 +811,13 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb);
 
 		if (r < 0) {
-			T_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
+			T_WARN("[%d]: Processing error: sk=%pK r=%d\n",
 			       smp_processor_id(), sk, r);
 			goto out; /* connection must be dropped */
 		}
 	}
 	if (tcp_fin) {
-		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
+		T_WARN("Received data FIN on sk=%p, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
 		r = SS_BAD;
@@ -868,8 +870,8 @@ ss_tcp_process_data(struct sock *sk)
 		if (r < 0)
 			break;
 		if (!count)
-			T_WARN("recvmsg bug: overlapping TCP segment at %X"
-			       " seq %X rcvnxt %X len %x\n",
+			T_WARN("recvmsg bug: overlapping TCP %px segment at %X"
+			       " seq %X rcvnxt %X len %x\n", sk,
 			       tp->copied_seq, skb_seq, tp->rcv_nxt,
 				 skb_len);
 	}
@@ -935,6 +937,7 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_BLOCK_WITH_FIN:
 		flags = SS_F_SYNC;
 		action = ss_close;
+		T_WARN("SS_BLOCK_WITH_FIN");
 		break;
 	case SS_BLOCK_WITH_RST:
 		flags = SS_F_ABORT;
@@ -944,9 +947,11 @@ ss_tcp_data_ready(struct sock *sk)
 		 * using TLS alert or goaway, but in this case we always
 		 * finish connection with TCP FIN.
 		 */
+		T_WARN("SS_BLOCK_WITH_RST");
 		BUG_ON(SS_CONN_TYPE(sk) & Conn_Stop);
 		break;
 	case SS_BAD:
+		T_WARN("SS_BAD %d", (SS_CONN_TYPE(sk) & Conn_Stop));
 		flags = SS_F_SYNC;
 		action = ss_shutdown;
 		break;
@@ -1443,7 +1448,11 @@ ss_tx_action(void)
 				bh_unlock_sock(sk);
 				break;
 			}
+
+			sk->sk_lock.owned = 0;
+
 			BUG_ON(sw.flags & __SS_F_RST);
+			T_WARN("SS_SEND SS_SHUTDOWN");
 			tcp_shutdown(sk, SEND_SHUTDOWN);
 			bh_unlock_sock(sk);
 			break;
@@ -1467,9 +1476,11 @@ ss_tx_action(void)
 				break;
 			}
 			/* paired with bh_lock_sock() */
+			T_WARN("SS_CLOSE %d %px", sw.flags, sk);
 			__sk_close_locked(sk, sw.flags);
 			break;
 		case SS_SHUTDOWN:
+			T_WARN("SS_SHUTDOWN");
 			/* sk_state is checked in `tcp_shutdown` function. */
 			BUG_ON(sw.flags & __SS_F_RST);
 			tcp_shutdown(sk, SEND_SHUTDOWN);
