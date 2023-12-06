@@ -320,7 +320,7 @@ do {								\
 } while (0)
 
 static inline int
-__hpack_process_hdr_name(TfwHttpReq *req)
+__hpack_process_hdr_name(TfwHttpReq *req, unsigned int cur_hdr_len)
 {
 	const TfwStr *c, *end;
 	TfwMsgParseIter *it = &req->pit;
@@ -340,12 +340,17 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 }
 
 static inline int
-__hpack_process_hdr_value(TfwHttpReq *req)
+__hpack_process_hdr_value(TfwHttpReq *req, unsigned int cur_hdr_len)
 {
 	const TfwStr *chunk, *end;
 	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *hdr = &it->hdr, *next = it->next;
 	int ret = -EINVAL;
+
+	cur_hdr_len += hdr->len;
+
+	if ((ret = frang_http_hdr_limit(req, cur_hdr_len)))
+		return ret;
 
 	BUG_ON(TFW_STR_DUP(hdr));
 	if (TFW_STR_PLAIN(hdr)) {
@@ -367,7 +372,6 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 	while (chunk < end) {
 		bool last = chunk + 1 == end;
 
-		WARN_ON_ONCE(ret == T_OK);
 		ret = tfw_h2_parse_req_hdr_val(chunk->data, chunk->len, req,
 					       last);
 		if (unlikely(ret != T_POSTPONE))
@@ -377,7 +381,7 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 	return ret;
 }
 
-#define	HPACK_DECODE_PROCESS_STRING(field, len)			\
+#define	HPACK_DECODE_PROCESS_STRING(field, len, cur_hdr_len)	\
 do {								\
 	T_DBG3("%s: decoding, len=%lu, n=%lu, tail=%lu\n",	\
 	       __func__, len, n, last - src);			\
@@ -388,7 +392,7 @@ do {								\
 	WARN_ON_ONCE(hp->length);				\
 	hp->hctx = 0;						\
 	tfw_huffman_init(hp);					\
-	if ((r = __hpack_process_hdr_##field(req)))		\
+	if ((r = __hpack_process_hdr_##field(req, cur_hdr_len))) \
 		goto out;					\
 	T_DBG3("%s: processed decoded, tail=%lu\n", __func__,	\
 	       last - src);					\
@@ -1399,6 +1403,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	int r = T_POSTPONE;
 	TfwMsgParseIter *it = &req->pit;
 	const unsigned char *last = src + n;
+	unsigned int cur_hdr_len;
 
 	BUILD_BUG_ON(HPACK_STATE_MASK < _HPACK_STATE_NUM - 1);
 	BUG_ON(!it->parsed_hdr);
@@ -1415,6 +1420,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		{
 			unsigned char c = *src++;
 			req->stream->parser.cstate.is_set = 0;
+			cur_hdr_len = 0;
 
 			if (c & 0x80) { /* RFC 7541 6.1 */
 				T_DBG3("%s: > Indexed Header Field\n", __func__);
@@ -1548,10 +1554,13 @@ index:
 get_name_text:
 			T_DBG3("%s: decode header name...\n", __func__);
 			m_len = min((unsigned long)(last - src), hp->length);
-			if (state & HPACK_FLAGS_HUFFMAN_NAME)
-				HPACK_DECODE_PROCESS_STRING(name, m_len);
-			else
+			if (state & HPACK_FLAGS_HUFFMAN_NAME) {
+				HPACK_DECODE_PROCESS_STRING(name, m_len,
+							    cur_hdr_len);
+			} else {
+				cur_hdr_len += m_len;
 				HPACK_PROCESS_STRING(name, m_len);
+			}
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -1572,6 +1581,8 @@ get_indexed_name:
 				r = -EINVAL;
 				goto out;
 			}
+
+			cur_hdr_len = entry->hdr->len;
 
 			if ((r = tfw_hpack_hdr_name_set(hp, req, entry)))
 				goto out;
@@ -1625,10 +1636,14 @@ get_value_text:
 
 			T_DBG3("%s: decode header value...\n", __func__);
 			m_len = min((unsigned long)(last - src), hp->length);
-			if (state & HPACK_FLAGS_HUFFMAN_VALUE)
-				HPACK_DECODE_PROCESS_STRING(value, m_len);
-			else
+			if (state & HPACK_FLAGS_HUFFMAN_VALUE) {
+				HPACK_DECODE_PROCESS_STRING(value, m_len,
+							    cur_hdr_len);
+			} else {
+				if ((r = frang_http_hdr_limit(req, cur_hdr_len + m_len)))
+					goto out;
 				HPACK_PROCESS_STRING(val, m_len);
+			}
 
 			if (state & HPACK_FLAGS_ADD
 			    && (r = tfw_hpack_add_index(&hp->dec_tbl, it,
@@ -1666,6 +1681,9 @@ get_all_indexed:
 				r = -EINVAL;
 				goto out;
 			}
+
+			if ((r = frang_http_hdr_limit(req, entry->hdr->len)))
+				goto out;
 
 			if ((r = tfw_hpack_hdr_set(hp, req, entry)))
 				goto out;
