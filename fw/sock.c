@@ -86,13 +86,13 @@ typedef struct {
 } SsCblNode;
 
 /* Socket states are needed at high support levels. */
-#if defined(DEBUG) && (DEBUG >= 2)
+//#if defined(DEBUG) && (DEBUG >= 2)
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
 	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
 	"Close Wait",	"Last ACK",	"Listen",	"Closing"
 };
-#endif
+//#endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
 #define TFW_VALIDATE_SK_LOCK_OWNER(sk)	\
@@ -696,6 +696,8 @@ ss_close_or_shutdown(struct sock *sk, int action, int flags)
 	if (unlikely(!sk))
 		return SS_OK;
 
+	T_WARN("ss_close %px %d", sk, action);
+
 	ss_sk_incoming_cpu_update(sk);
 	cpu = sk->sk_incoming_cpu;
 
@@ -725,14 +727,12 @@ EXPORT_SYMBOL(ss_close);
 int
 ss_close(struct sock *sk, int flags)
 {
-	T_WARN("ss_close %px", sk);
 	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
 }
 
-int
+static int
 ss_shutdown(struct sock *sk, int flags)
 {
-	T_WARN("ss_shutdown %px", sk);
 	return ss_close_or_shutdown(sk, SS_SHUTDOWN, flags);
 }
 
@@ -931,13 +931,18 @@ ss_tcp_data_ready(struct sock *sk)
 
 	switch (ss_tcp_process_data(sk)) {
 	case SS_OK:
+		T_WARN("SS_OK");
+		return;
 	case SS_POSTPONE:
+		T_WARN("SS_POSTPONE");
+		return;
 	case SS_DROP:
+		T_WARN("SS_DROP");
 		return;
 	case SS_BLOCK_WITH_FIN:
 		flags = SS_F_SYNC;
 		action = ss_close;
-		T_WARN("SS_BLOCK_WITH_FIN");
+		T_WARN("SS_BLOCK_WITH_FIN %d", (SS_CONN_TYPE(sk) & Conn_Stop));
 		break;
 	case SS_BLOCK_WITH_RST:
 		flags = SS_F_ABORT;
@@ -983,7 +988,7 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	T_DBG3("[%d]: %s: sk=%p state=%s\n",
+	T_WARN("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -1073,19 +1078,25 @@ ss_tcp_state_change(struct sock *sk)
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
-		 * We reach the state on regular tcp_close() (including the
-		 * active closing from our side), tcp_abort() or tcp_done()
-		 * in case of connection errors/RST and also tcp_fin() ->
-		 * tcp_time_wait() for FIN_WAIT_2 and TIME_WAIT (also active
-		 * closing) lead to tcp_done(). Note that we get here also on
-		 * concurrent closing (TCP_CLOSING).
+		 * We reach the state on regular tcp_close() tcp_shutdown()
+		 * (including the active closing from our side), tcp_abort()
+		 * or tcp_done() in case of connection errors/RST and also
+		 * tcp_fin() -> tcp_time_wait() for FIN_WAIT_2 and TIME_WAIT
+		 * (also active closing) lead to tcp_done(). Note that we get
+		 * here also on concurrent closing (TCP_CLOSING).
 		 *
 		 * It's safe to call the callback since we set socket callbacks
 		 * either for just created, not connected, sockets or in the
 		 * function above for ESTABLISHED state. sk_state_change()
 		 * callback is never called for the same socket concurrently.
+		 *
+		 * Same as for TCP_CLOSE_WAIT state it may happen that FIN comes
+		 * with a data SKB, or there's still data in the socket's receive
+		 * queue that hasn't been processed yet (it can occurs if we call
+		 * tcp_shutdown()).
 		 */
-		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
+		if (!skb_queue_empty(&sk->sk_receive_queue))
+			ss_tcp_process_data(sk);
 		ss_linkerror(sk);
 	}
 }
@@ -1452,7 +1463,7 @@ ss_tx_action(void)
 			sk->sk_lock.owned = 0;
 
 			BUG_ON(sw.flags & __SS_F_RST);
-			T_WARN("SS_SEND SS_SHUTDOWN");
+			T_WARN("SS_SEND SS_SHUTDOWN %px", sk);
 			tcp_shutdown(sk, SEND_SHUTDOWN);
 			bh_unlock_sock(sk);
 			break;
