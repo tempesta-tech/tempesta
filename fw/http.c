@@ -1245,6 +1245,10 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 {
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->req->flags))
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
+	if (test_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, resp->req->flags)) {
+		T_WARN("AAAAAAAAAAAAAAAAAAAAAA");
+		resp->msg.ss_flags |= __SS_F_FORCE;
+	}
 }
 
 /*
@@ -5032,8 +5036,14 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		spin_unlock(&cli_conn->seq_qlock);
 	}
 
-	if (type != TFW_ERROR_TYPE_DROP)
+	if (type != TFW_ERROR_TYPE_DROP) {
+		T_WARN("type != TFW_ERROR_TYPE_DROP");
 		tfw_http_req_set_conn_close(req);
+	}
+	if (type == TFW_ERROR_TYPE_ATTACK) {
+		T_WARN("type == TFW_ERROR_TYPE_ATTACK");
+		set_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, req->flags);
+	}
 
 	tfw_h1_send_err_resp(req, status);
 out:

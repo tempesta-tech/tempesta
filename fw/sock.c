@@ -811,7 +811,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb);
 
 		if (r < 0) {
-			T_WARN("[%d]: Processing error: sk=%pK r=%d\n",
+			T_WARN("[%d]: Processing error: sk=%px r=%d\n",
 			       smp_processor_id(), sk, r);
 			goto out; /* connection must be dropped */
 		}
@@ -1430,8 +1430,10 @@ ss_tx_action(void)
 
 		bh_lock_sock(sk);
 		if (sock_flag(sk, SOCK_DEAD)) {
-			if (sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closing)
-			    && (sw.flags & __SS_F_FORCE))
+			if (sk->sk_user_data
+			    && (SS_CONN_TYPE(sk) & Conn_Closing)
+			    && (sw.action == SS_CLOSE &&
+				sw.flags & __SS_F_FORCE))
 				ss_conn_drop_guard_exit(sk);
 			/* We've closed the socket on earlier job. */
 			bh_unlock_sock(sk);
@@ -1444,9 +1446,10 @@ ss_tx_action(void)
 			 * Don't make TSQ spin on the lock while we're working
 			 * with the socket.
 			 *
-			 * Socket is locked and this synchronizes possible socket
-			 * closing with tcp_tasklet_func(): we must clear the
-			 * TSQ deffered flag with sk->sk_lock.owned = 1.
+			 * Socket is locked and this synchronizes possible
+			 * socket closing with tcp_tasklet_func(): we must
+			 * clear the TSQ deffered flag with
+			 * sk->sk_lock.owned = 1.
 			 *
 			 * Set sk->sk_lock.owned = 0 if no closing is required,
 			 * otherwise ss_do_close() does this.
@@ -1454,18 +1457,26 @@ ss_tx_action(void)
 			sk->sk_lock.owned = 1;
 
 			ss_do_send(sk, &sw.skb_head, sw.flags);
-			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+			switch(sw.flags
+			       & (SS_F_CONN_CLOSE | __SS_F_FORCE)) {
+			case SS_F_CONN_CLOSE | __SS_F_FORCE:
+				T_WARN("SS_SEND SS_F_CONN_CLOSE CLOSE %px", sk);
+				/* paired with bh_lock_sock() */
+				__sk_close_locked(sk, sw.flags);
+				break;
+			case SS_F_CONN_CLOSE:
+				T_WARN("SS_SEND SS_F_CONN_CLOSE SHUTDOWN %px", sk);
+				tcp_shutdown(sk, SEND_SHUTDOWN);
 				sk->sk_lock.owned = 0;
 				bh_unlock_sock(sk);
 				break;
+			case __SS_F_FORCE:
+				BUG();
+			default:
+				sk->sk_lock.owned = 0;
+				bh_unlock_sock(sk);
 			}
 
-			sk->sk_lock.owned = 0;
-
-			BUG_ON(sw.flags & __SS_F_RST);
-			T_WARN("SS_SEND SS_SHUTDOWN %px", sk);
-			tcp_shutdown(sk, SEND_SHUTDOWN);
-			bh_unlock_sock(sk);
 			break;
 		case SS_CLOSE:
 			/*
@@ -1479,7 +1490,8 @@ ss_tx_action(void)
 			 * never allocated.
 			 */
 			if (!((1 << sk->sk_state)
-			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT | TCPF_CLOSE_WAIT)))
+			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT |
+				 TCPF_CLOSE_WAIT)))
 			{
 				T_DBG2("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
