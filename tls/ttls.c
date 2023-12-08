@@ -966,7 +966,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		/* Error out (and send alert) on invalid records */
 		if (r == TTLS_ERR_INVALID_MAC)
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_BAD_RECORD_MAC);
+					TTLS_ALERT_MSG_BAD_RECORD_MAC, 0);
 		T_DBG2("decryption failed: %d", r);
 		return r;
 	}
@@ -1051,24 +1051,24 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 }
 
 int
-__ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
+__ttls_send_record(TlsCtx *tls, struct sg_table *sgt, int extra_flags)
 {
 	int r;
 
-	if ((r = ttls_send_cb(tls, sgt)))
+	if ((r = ttls_send_cb(tls, sgt, extra_flags)))
 		T_DBG("TLS send callback error %d\n", r);
 	return r;
 }
 
 static int
-ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
+ttls_write_record(TlsCtx *tls, struct sg_table *sgt, int extra_flags)
 {
 	/* Change __ttls_add_record() call if you need it for handshakes. */
 	WARN_ON_ONCE(tls->io_out.msgtype == TTLS_MSG_HANDSHAKE);
 
 	__ttls_add_record(tls, NULL, 0, NULL);
 
-	return __ttls_send_record(tls, sgt);
+	return __ttls_send_record(tls, sgt, extra_flags);
 }
 
 static int
@@ -1082,7 +1082,7 @@ ttls_hdr_check(TlsCtx *tls)
 	{
 		T_WARN("unknown record type %d\n", io->msgtype);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
+				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE, 0);
 
 		return -EINVAL;
 	}
@@ -1334,7 +1334,7 @@ ttls_handle_alert(TlsCtx *tls)
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
 		T_DBG2("is a close notify message\n");
-		ttls_close_notify(tls);
+		ttls_close_notify(tls, 0);
 		return T_BAD;
 	}
 
@@ -1345,12 +1345,14 @@ ttls_handle_alert(TlsCtx *tls)
 /**
  * Send an alert message.
  *
- * @lvl	- the alert level of the message (TTLS_ALERT_LEVEL_WARNING or
- * 	  TTLS_ALERT_LEVEL_FATAL)
- * @msg	- the alert message (SSL_ALERT_MSG_*)
+ * @lvl		- the alert level of the message (TTLS_ALERT_LEVEL_WARNING or
+ *		  TTLS_ALERT_LEVEL_FATAL)
+ * @msg		- the alert message (SSL_ALERT_MSG_*)
+ * @extra_flags -
  */
 int
-ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
+ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg,
+		int extra_flags)
 {
 	int r;
 	TlsIOCtx *io = &tls->io_out;
@@ -1364,7 +1366,7 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[0] = lvl;
 	io->alert[1] = msg;
 
-	if ((r = ttls_write_record(tls, NULL)))
+	if ((r = ttls_write_record(tls, NULL, extra_flags)))
 		T_WARN("Cannot send TLS alert %d:%d, %d\n", msg, lvl, r);
 
 	return r;
@@ -1473,7 +1475,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	{
 		TTLS_WARN(tls, "bad certificate message length %d\n", io->hslen);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				    TTLS_ALERT_MSG_DECODE_ERROR, 0);
 		return TTLS_ERR_BAD_HS_CERTIFICATE;
 	}
 
@@ -1543,7 +1545,7 @@ parse:
 	if (p[i] != 0 || io->hslen != n + 3) {
 		TTLS_WARN(tls, "bad certificate message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				    TTLS_ALERT_MSG_DECODE_ERROR, 0);
 		r = TTLS_ERR_BAD_HS_CERTIFICATE;
 		goto err;
 	}
@@ -1554,7 +1556,7 @@ parse:
 	if (!sess->peer_cert) {
 		TTLS_WARN(tls, "can not allocate a certificate\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_INTERNAL_ERROR);
+				    TTLS_ALERT_MSG_INTERNAL_ERROR, 0);
 		r = TTLS_ERR_ALLOC_FAILED;
 		goto err;
 	}
@@ -1563,7 +1565,7 @@ parse:
 		if (p[i]) {
 			TTLS_WARN(tls, "bad certificate message\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					    TTLS_ALERT_MSG_DECODE_ERROR);
+					    TTLS_ALERT_MSG_DECODE_ERROR, 0);
 			r = TTLS_ERR_BAD_HS_CERTIFICATE;
 			goto err;
 		}
@@ -1574,7 +1576,7 @@ parse:
 		if (n < 128 || i + n > io->hslen) {
 			TTLS_WARN(tls, "bad certificate message\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					    TTLS_ALERT_MSG_DECODE_ERROR);
+					    TTLS_ALERT_MSG_DECODE_ERROR, 0);
 			r = TTLS_ERR_BAD_HS_CERTIFICATE;
 			goto err;
 		}
@@ -1597,7 +1599,7 @@ parse:
 		default:
 			alert = TTLS_ALERT_MSG_BAD_CERT;
 		crt_parse_der_failed:
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert);
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert, 0);
 			TTLS_WARN(tls, "cannot parse DER certificate, %d\n", r);
 			goto err;
 		}
@@ -1690,7 +1692,7 @@ parse:
 				alert = TTLS_ALERT_MSG_UNKNOWN_CA;
 			else
 				alert = TTLS_ALERT_MSG_CERT_UNKNOWN;
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert);
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert, 0);
 		}
 	}
 err:
@@ -1744,14 +1746,14 @@ ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf, size_t len,
 			  " Change Cipher Spec expected\n",
 			  msgtype_to_str(io->msgtype));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
+				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE, 0);
 		return TTLS_ERR_UNEXPECTED_MESSAGE;
 	}
 	if (io->msglen != 1 || io->hstype != 1) {
 		TTLS_WARN(tls, "bad change cipher spec message, len=%u"
 			  " type=%s\n", io->msglen, hstype_to_str(io->hstype));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				    TTLS_ALERT_MSG_DECODE_ERROR, 0);
 		return TTLS_ERR_BAD_HS_CHANGE_CIPHER_SPEC;
 	}
 
@@ -1855,7 +1857,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_DBG3_BUF("finished message: ",
 			   hs->finished, TTLS_HS_HDR_LEN);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR, 0);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
@@ -1863,7 +1865,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (crypto_memneq(&hs->finished[TTLS_HS_HDR_LEN], hash, TLS_HASH_LEN)) {
 		TTLS_WARN(tls, "bad hash in finished message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				    TTLS_ALERT_MSG_DECODE_ERROR, 0);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
@@ -2231,7 +2233,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			TTLS_WARN(tls, "refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_NO_RENEGOTIATION);
+					TTLS_ALERT_MSG_NO_RENEGOTIATION, 0);
 			return T_BAD;
 		}
 
@@ -2306,7 +2308,7 @@ EXPORT_SYMBOL(ttls_recv);
  * Notify the peer that the connection is being closed.
  */
 int
-ttls_close_notify(TlsCtx *tls)
+ttls_close_notify(TlsCtx *tls, int close_flags)
 {
 	BUG_ON(!tls || !tls->conf);
 	T_DBG("write close notify\n");
@@ -2315,7 +2317,8 @@ ttls_close_notify(TlsCtx *tls)
 		return -EPROTO;
 
 	return ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
-			       TTLS_ALERT_MSG_CLOSE_NOTIFY);
+			       TTLS_ALERT_MSG_CLOSE_NOTIFY,
+			       close_flags);
 }
 EXPORT_SYMBOL(ttls_close_notify);
 
@@ -2766,7 +2769,7 @@ exit:
 	ttls_md_free(&ctx);
 	if (r)
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				TTLS_ALERT_MSG_INTERNAL_ERROR);
+				TTLS_ALERT_MSG_INTERNAL_ERROR, 0);
 	return r;
 }
 

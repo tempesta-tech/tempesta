@@ -239,7 +239,8 @@ void tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
 					   unsigned char type);
-void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
+void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
+				 int close_flags);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
 int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,

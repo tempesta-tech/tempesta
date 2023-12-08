@@ -567,7 +567,7 @@ typedef struct ttls_context {
 	void			*vhost;
 } TlsCtx;
 
-typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
+typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, int extra_flags);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
 typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
 typedef bool ttls_alpn_match_t(const TlsCtx *tls, const ttls_alpn_proto *alpn);
@@ -616,8 +616,9 @@ int ttls_recv(void *tls_data, unsigned char *buf, unsigned int len,
 	      unsigned int *read);
 int ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt);
 
-int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
-int ttls_close_notify(TlsCtx *tls);
+int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg,
+                    int extra_flags);
+int ttls_close_notify(TlsCtx *tls, int close_flags);
 
 void ttls_ctx_clear(TlsCtx *tls);
 void ttls_key_cert_free(TlsKeyCert *key_cert);

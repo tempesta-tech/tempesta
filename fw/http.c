@@ -4940,7 +4940,9 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 {
 	TfwStream *stream;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	int close_flags;
 
+	T_WARN("TYPE QQQQQQQQQQQQQQQQQQQQQQQ WWWWWWWWWWWW %d", type);
 	/*
 	 * block_action attack/error drop - Tempesta FW must block message
 	 * silently (response won't be generated) and reset (with TCP RST)
@@ -4980,8 +4982,11 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	tfw_h2_send_err_resp(req, status, stream->id);
 	if (type == TFW_ERROR_TYPE_ATTACK
 	    || type == TFW_ERROR_TYPE_BAD) {
+	    	close_flags = (type == TFW_ERROR_TYPE_ATTACK ?
+			SS_F_CLOSE_FORCE : SS_F_CONN_CLOSE);
+		T_WARN("close_flags %d", close_flags);
 		tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
-					    !on_req_recv_event);
+					    !on_req_recv_event, close_flags);
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
 						 HTTP2_RST_STREAM, 0))
@@ -4995,8 +5000,11 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 skip_stream:
 	if (type == TFW_ERROR_TYPE_ATTACK
 	    || type == TFW_ERROR_TYPE_BAD) {
+	    	close_flags = (type == TFW_ERROR_TYPE_ATTACK ?
+			SS_F_CLOSE_FORCE : SS_F_CONN_CLOSE);
+	    	T_WARN("close_flags %d", close_flags);
 		tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
-					    !on_req_recv_event);
+					    !on_req_recv_event, close_flags);
 	}
 
 free_req:

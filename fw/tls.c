@@ -477,7 +477,7 @@ err_epilogue:
  * initiates a record transmission, e.g. alert or a handshake message.
  */
 static int
-tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
+tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, int extra_flags)
 {
 	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
@@ -545,6 +545,8 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
 		flags |= SS_F_CONN_CLOSE;
+
+	flags |= extra_flags;
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
@@ -635,7 +637,7 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	TlsCtx *tls = tfw_tls_context(c);
 
 	spin_lock(&tls->lock);
-	r = ttls_close_notify(tls);
+	r = ttls_close_notify(tls, __SS_F_FORCE);
 	spin_unlock(&tls->lock);
 
 	/*
@@ -695,7 +697,8 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	if (ttls_xfrm_ready(tls))
 		msg->ss_flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
 
-	r = ss_send(c->sk, &msg->skb_head, msg->ss_flags & ~SS_F_CONN_CLOSE);
+	r = ss_send(c->sk, &msg->skb_head,
+		    msg->ss_flags & ~SS_F_CLOSE_FORCE);
 	if (r)
 		return r;
 
@@ -705,7 +708,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	 */
 	if (msg->ss_flags & SS_F_CONN_CLOSE) {
 		spin_lock(&tls->lock);
-		r = ttls_close_notify(tls);
+		r = ttls_close_notify(tls, msg->ss_flags & __SS_F_FORCE);
 		spin_unlock(&tls->lock);
 	}
 

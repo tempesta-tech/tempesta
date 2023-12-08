@@ -275,7 +275,8 @@ tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
  * written in this procedure.
  */
 static int
-__tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
+__tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
+		    int close_flags)
 {
 	int r;
 	TfwMsgIter it;
@@ -302,8 +303,11 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	if ((r = tfw_msg_write(&it, data)))
 		goto err;
 
-	if (close)
-		msg.ss_flags |= SS_F_CONN_CLOSE;
+	if (close_flags) {
+		BUG_ON(((close_flags & SS_F_CONN_CLOSE) == 0) ||
+		       ((close_flags & (~(SS_F_CLOSE_FORCE))) != 0));
+		msg.ss_flags |= close_flags;
+	}
 
 	if (hdr->flags == HTTP2_F_ACK &&
 	    (ctx->new_settings.flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING))
@@ -313,6 +317,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 		ctx->new_settings.flags &= ~SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING;
 	}
 
+	T_WARN("msg %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", msg.ss_flags);
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
 		goto err;
 	/*
@@ -321,7 +326,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	 * thus, we should set Conn_Stop flag only if sending procedure
 	 * was successful - to avoid hanged unclosed client connection.
 	 */
-	if (close)
+	if (close_flags)
 		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
 
 	return 0;
@@ -334,13 +339,14 @@ err:
 static inline int
 tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 {
-	return __tfw_h2_send_frame(ctx, hdr, data, false);
+	return __tfw_h2_send_frame(ctx, hdr, data, 0);
 }
 
 static inline int
-tfw_h2_send_frame_close(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
+tfw_h2_send_frame_close(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
+			int close_flags)
 {
-	return __tfw_h2_send_frame(ctx, hdr, data, true);
+	return __tfw_h2_send_frame(ctx, hdr, data, close_flags);
 }
 
 static inline int
@@ -444,7 +450,7 @@ tfw_h2_send_settings_ack(TfwH2Ctx *ctx)
 }
 
 static inline int
-tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
+tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code, int close_flags)
 {
 	unsigned char id_buf[STREAM_ID_SIZE];
 	unsigned char err_buf[ERR_CODE_SIZE];
@@ -473,7 +479,7 @@ tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
 	*(unsigned int *)id_buf = htonl(ctx->lstream_id);
 	*(unsigned int *)err_buf = htonl(err_code);
 
-	return tfw_h2_send_frame_close(ctx, &hdr, &data);
+	return tfw_h2_send_frame_close(ctx, &hdr, &data, close_flags);
 }
 
 int
@@ -501,18 +507,20 @@ tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 }
 
 void
-tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close)
+tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
+			    int close_flags)
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
-	if (tfw_h2_send_goaway(ctx, err_code) && close)
+	BUG_ON(close && !close_flags);
+	if (tfw_h2_send_goaway(ctx, err_code, close_flags) && close)
 		tfw_connection_close((TfwConn *)conn, true);
 }
 
 static inline void
 tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
 {
-	tfw_h2_conn_terminate_close(ctx, err_code, false);
+	tfw_h2_conn_terminate_close(ctx, err_code, false, 0);
 }
 
 #define VERIFY_FRAME_SIZE(ctx)						\

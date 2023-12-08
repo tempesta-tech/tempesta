@@ -988,7 +988,7 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	T_WARN("[%d]: %s: sk=%p state=%s\n",
+	T_WARN("[%d]: %s: sk=%px state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -1095,6 +1095,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * queue that hasn't been processed yet (it can occurs if we call
 		 * tcp_shutdown()).
 		 */
+		T_WARN("%px %d !!!!", sk, skb_queue_empty(&sk->sk_receive_queue));
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		ss_linkerror(sk);
@@ -1457,9 +1458,9 @@ ss_tx_action(void)
 			sk->sk_lock.owned = 1;
 
 			ss_do_send(sk, &sw.skb_head, sw.flags);
-			switch(sw.flags
-			       & (SS_F_CONN_CLOSE | __SS_F_FORCE)) {
-			case SS_F_CONN_CLOSE | __SS_F_FORCE:
+			T_WARN("ZZZZZZZZZZZZZZZZZZ FLAGS!!!!! %d", sw.flags);
+			switch(sw.flags & SS_F_CLOSE_FORCE) {
+			case SS_F_CLOSE_FORCE:
 				T_WARN("SS_SEND SS_F_CONN_CLOSE CLOSE %px", sk);
 				/* paired with bh_lock_sock() */
 				__sk_close_locked(sk, sw.flags);
@@ -1485,13 +1486,17 @@ ss_tx_action(void)
 			 * closing process. If for some reason other side sent
 			 * us FIN, we are at CLOSE_WAIT, so the socket closing
 			 * is in progress, but still need to cleanup on our
-			 * side. If we get here while the socket in any other
+			 * side. If we send shutdown we can also be in two
+			 * states TCP_FIN_WAIT1 or TCP_CLOSING if client didn't
+			 * send ACK to our FIN or we still have data to sent.  
+			 * If we get here while the socket in any other
 			 * state, resources were either already freed or were
 			 * never allocated.
 			 */
 			if (!((1 << sk->sk_state)
 			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT |
-				 TCPF_CLOSE_WAIT)))
+				 TCPF_CLOSE_WAIT | TCPF_FIN_WAIT1 |
+				 TCPF_CLOSING)))
 			{
 				T_DBG2("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
@@ -1500,7 +1505,12 @@ ss_tx_action(void)
 			}
 			/* paired with bh_lock_sock() */
 			T_WARN("SS_CLOSE %d %px", sw.flags, sk);
-			__sk_close_locked(sk, sw.flags);
+			if (sw.flags & __SS_F_FORCE)
+				ss_linkerror(sk);
+			else {
+				T_WARN("AAAAAAAAAAAAAA %px %s", sk, ss_statename[sk->sk_state]);
+				__sk_close_locked(sk, sw.flags);
+			}
 			break;
 		case SS_SHUTDOWN:
 			T_WARN("SS_SHUTDOWN");
