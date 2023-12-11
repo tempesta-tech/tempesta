@@ -382,7 +382,7 @@ totals:
 #define HM_FREQ		10
 
 /*
- * Structure for health monitor settings.
+ * Structure for health monitor settings ('health_check').
  *
  * @list	- entry in list of all health monitors;
  * @name	- health monitor's name;
@@ -410,7 +410,8 @@ typedef struct {
 } TfwApmHM;
 
 /*
- * Structure for monitoring settings of particular HTTP code.
+ * Structure for monitoring settings of particular HTTP code
+ * ('server_failover_http' or 'health_stat_server').
  *
  * @list	- entry in list of all monitored codes;
  * @tframe	- Time frame in seconds for @code accounting;
@@ -1459,8 +1460,8 @@ bool
 tfw_apm_check_hm(const char *name)
 {
 	if (!tfw_hm_codes_cnt) {
-		T_ERR_NL("No response codes specified for server's health "
-			 "monitoring\n");
+		T_ERR_NL("No response 'server_failover_http' directives "
+			 "specified for server's health monitoring\n");
 		return false;
 	}
 

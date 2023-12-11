@@ -258,19 +258,19 @@ typedef struct {
  * @msg			- the base data of an HTTP message;
  * @pool		- message's memory allocation pool;
  * @h_tbl		- table of message's HTTP headers in internal form;
- * @httperr		- HTTP error data used to form an error response;
  * @pair		- the message paired with this one;
  * @req			- the request paired with this response;
  * @resp		- the response paired with this request;
  * @stream		- stream which the message is linked with;
+ * @httperr		- HTTP error data used to form an error response;
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
+ * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @content_length	- the value of Content-Length header field;
  * @flags		- message related flags. The flags are tested
  *			  concurrently, but concurrent updates aren't
  *			  allowed. Use atomic operations if concurrent
  *			  updates are possible;
- * @content_length	- the value of Content-Length header field;
- * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @conn		- connection which the message was received on;
  * @destructor		- called when a connection is destroyed;
  * @crlf		- pointer to CRLF between headers and body;

@@ -6133,6 +6133,10 @@ next_msg:
 }
 
 /**
+ * Process the cached response from tfw_cache_process() or the original
+ * response from a backend if it wasn't cached due to certain circumstances
+ * or conditions.
+ *
  * This is the second half of tfw_http_resp_process().
  * tfw_http_resp_process() runs in SoftIRQ whereas tfw_http_resp_cache_cb()
  * runs in cache thread that is scheduled at an appropriate TDB node.
