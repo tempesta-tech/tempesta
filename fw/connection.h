@@ -496,6 +496,7 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 {
 	struct sock *sk = conn->sk;
 
+	T_WARN("tfw_connection_unlink_to_sk %px", conn);
 	conn->sk = NULL;
 	ss_sock_put(sk);
 }

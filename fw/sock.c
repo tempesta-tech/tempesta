@@ -598,6 +598,7 @@ ss_do_close(struct sock *sk, int flags)
 			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
 		}
 		tcp_set_state(sk, TCP_CLOSE);
+		T_WARN("SEND ACTIVE RESET !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 111");
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
 		tcp_send_fin(sk);
@@ -634,6 +635,7 @@ adjudge_to_death:
 		sk_mem_reclaim(sk);
 		if (tcp_check_oom(sk, 0)) {
 			tcp_set_state(sk, TCP_CLOSE);
+			T_WARN("SEND ACTIVE RESET !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 222");
 			tcp_send_active_reset(sk, GFP_ATOMIC);
 			__NET_INC_STATS(sock_net(sk),
 					LINUX_MIB_TCPABORTONMEMORY);
@@ -1095,10 +1097,11 @@ ss_tcp_state_change(struct sock *sk)
 		 * queue that hasn't been processed yet (it can occurs if we call
 		 * tcp_shutdown()).
 		 */
-		T_WARN("%px %d !!!!", sk, skb_queue_empty(&sk->sk_receive_queue));
+		T_WARN("%px %d !!!! %px", sk, skb_queue_empty(&sk->sk_receive_queue), sk->sk_user_data);
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		ss_linkerror(sk);
+		T_WARN("%px %d !!!! AFTER %px", sk, skb_queue_empty(&sk->sk_receive_queue), sk->sk_user_data);
 	}
 }
 

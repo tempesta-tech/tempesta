@@ -194,7 +194,7 @@ do {									\
 				     (hdr)->flags, false, &err)))	\
 	{								\
 		s = tfw_h2_get_stream_state((ctx)->cur_stream);		\
-		T_DBG3("stream recv processed: result=%d, state=%d, id=%u," \
+		T_WARN("stream recv processed: result=%d, state=%d, id=%u," \
 		       " err=%d\n", res, s, (ctx)->cur_stream->id, err); \
 		SET_TO_READ_VERIFY((ctx), HTTP2_IGNORE_FRAME_DATA);	\
 		if (res == STREAM_FSM_RES_TERM_CONN) {			\
@@ -752,9 +752,13 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.b_len)
 		flags |= HTTP2_F_END_STREAM;
 
+	T_WARN("SEND_PROCESS %px %s %d", stream, __h2_strm_st_n(stream), tfw_h2_get_stream_state(stream) > HTTP2_STREAM_REM_HALF_CLOSED);
 	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
-	if (tfw_h2_get_stream_state(stream) > HTTP2_STREAM_REM_HALF_CLOSED)
+	if (flags & HTTP2_F_END_STREAM 
+	    || (r && r != STREAM_FSM_RES_IGNORE)) {
+		T_WARN("PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP");
 		tfw_h2_stream_add_closed(ctx, stream);
+	}
 
 	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
 }
@@ -774,7 +778,7 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 		    TfwH2Err err_code)
 {
 	if (stream && *stream) {
-		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
+		T_WARN("%s: ctx [%p] strm %p id %d err %u\n", __func__,
 			ctx, *stream, id, err_code);
 		tf2_h2_conn_reset_stream_on_close(ctx, *stream);
 		if (tfw_h2_get_stream_state(*stream) >
@@ -2321,10 +2325,13 @@ tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 	 * frames before processing the RST_STREAM frame.
 	 * It is HTTP2_STREAM_LOC_CLOSED state in our implementation.
 	 */
+	T_WARN("STREAM %px", stream);
         if (!stream || (stream->queue == &ctx->closed_streams
                         && (!recv || tfw_h2_get_stream_state(stream) >
-			    HTTP2_STREAM_LOC_CLOSED)))
+			    HTTP2_STREAM_LOC_CLOSED))) {
+        	T_WARN("NULL %px %s", stream, stream ? __h2_strm_st_n(stream) : "NULL");
 		return NULL;
+	}
 
 	return stream;
 }

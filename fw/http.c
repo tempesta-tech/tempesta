@@ -2792,10 +2792,10 @@ tfw_http_conn_drop(TfwConn *conn)
 {
 	bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+	T_WARN("%s: conn=[%px] %d\n", __func__, conn, TFW_CONN_TYPE(conn) & Conn_Clnt);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
-		if (h2_mode)
+		if (h2_mode) 
 			tfw_h2_conn_streams_cleanup(tfw_h2_context(conn));
 		else
 			tfw_http_conn_cli_drop((TfwCliConn *)conn);
@@ -4988,12 +4988,14 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 					    !on_req_recv_event, close_flags);
 	} else {
+		T_WARN("QQQQQQQQQQQQQQQQQQQQQQQ AAAAAAAAAAAAAAAAAAAAAA %px", stream);
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
 						 HTTP2_RST_STREAM, 0))
 			return T_BAD;
 		if (tfw_h2_send_rst_stream(ctx, stream->id,
 					   HTTP2_ECODE_PROTO))
 			return T_BAD;
+		T_WARN("QQQQQQQQQQQQQQQQQQQQQQQ AAAAAAAAAAAAAAAAAAAAAA %px %s", stream, __h2_strm_st_n(stream));
 	}
 	goto out;
 

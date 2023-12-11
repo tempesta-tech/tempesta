@@ -103,7 +103,7 @@ do {									\
 
 	spin_lock(&stream->st_lock);
 
-	T_DBG3("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s),"
+	T_WARN("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s),"
 	       " flags %x\n", __func__, send ? "SEND" : "RECV", stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->id, type, __h2_frm_type_n(type), flags);
@@ -390,7 +390,7 @@ do {									\
 	}
 
 finish:
-	T_DBG3("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
+	T_WARN("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 
 	spin_unlock(&stream->st_lock);
