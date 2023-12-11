@@ -360,6 +360,12 @@ tfw_procfs_stop(void)
 }
 
 static TfwCfgSpec tfw_procfs_specs[] = {
+/*	{
+		.name       = "health_stat",
+		.handler    = tfw_cfgop_apm_stats,
+		.cleanup    = tfw_cfgop_cleanup_apm,
+	},
+*/
 	{ 0 },
 };
 

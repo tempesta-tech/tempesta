@@ -6951,10 +6951,7 @@ tfw_cfgop_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (!strcasecmp(ce->vals[0], "error")) {
 		if (tfw_cfgop_define_block_action(ce->vals[1],
@@ -7273,13 +7270,8 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int code;
 
-	if (tfw_cfg_check_val_n(ce, 2))
-		return -EINVAL;
-
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 2, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		T_ERR_NL("Unable to parse HTTP code value in '%s' directive: "
@@ -7296,14 +7288,8 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int i;
 	const char *val;
 
-	if (!ce->val_n) {
-		T_ERR_NL("%s: At least one argument is required", cs->name);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	tfw_wl_marks.sz = ce->val_n;
 	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n * sizeof(unsigned int),
@@ -7338,14 +7324,8 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 	unsigned int i;
 	const char *val;
 
-	if (!ce->val_n) {
-		T_ERR_NL("%s: At least one argument is required", cs->name);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		unsigned long i0 = 0, i1 = 0;

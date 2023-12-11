@@ -474,14 +474,8 @@ tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned long *flags;
 
-	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the '=' sign\n");
-		return -EINVAL;
-	}
-	if (ce->val_n > 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(<=, 1, cs, ce);
 
 	if (cur_vhost) {
 		flags =  &cur_vhost->flags;

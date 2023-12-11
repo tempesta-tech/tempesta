@@ -637,15 +637,8 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	BUILD_BUG_ON(sizeof(tfw_method_enum[0].value) * BITS_PER_BYTE
 		     < _TFW_HTTP_METH_COUNT);
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 3) {
-		T_ERR_NL("%s: Invalid number of arguments.\n", cs->name);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(==, 3, cs, ce);
 
 	/* The method: one of GET, PUT, POST, etc. in form of a bitmask. */
 	in_method = ce->vals[0];
@@ -772,11 +765,8 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc,
 	const char *name;
 	const char *value = NULL;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
 	switch (ce->val_n)
 	{
 	case 2:
@@ -971,16 +961,8 @@ tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc, int cmd)
 
 	BUG_ON((cmd != TFW_D_CACHE_BYPASS) && (cmd != TFW_D_CACHE_FULFILL));
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n < 2) {
-		T_ERR_NL("%s: Invalid number of arguments: %d\n",
-			 cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 2, cs, ce);
 
 	in_op = ce->vals[0];	/* Match operator. */
 
@@ -1095,16 +1077,8 @@ tfw_cfgop_capo_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	size_t total_size;
 	TfwCaToken *new_tokens;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n < 1) {
-		T_ERR_NL("%s: Arguments required\n",
-			 cs->name);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
 	if (ce->val_n > TFW_CAPOLICY_HDR_DEL_LIMIT) {
 		T_ERR_NL("%s: Too many headers\n",
 			 cs->name);
@@ -1183,16 +1157,8 @@ const struct {
 	size_t i, len;
 	const char *arg;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n < 1) {
-		T_ERR_NL("%s: Arguments required\n",
-			 cs->name);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
 
 	for (i = 0; i < ce->val_n; ++i) {
 		int map_idx;
@@ -1398,16 +1364,8 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	tfw_match_t op;
 	const char *in_op, *arg;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			   cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 2) {
-		T_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(==, 2, cs, ce);
 
 	/* Get the values of the 'location' directive. */
 	in_op = ce->vals[0];	/* Match operator. */
@@ -1579,11 +1537,7 @@ tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	size_t i;
 	const char *val;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			cs->name);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		TfwAddr addr = { 0 };
@@ -1621,11 +1575,8 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	size_t i;
 	const char *val;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
 	if (!ce->val_n) {
 		/* Default value for the cache_purge directive. */
 		tfw_global.cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
@@ -1655,16 +1606,8 @@ tfw_cfgop_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t len;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 1) {
-		T_ERR_NL("%s: Invalid number of arguments: %d\n",
-			 cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
 
 	/*
 	 * If a value is specified in the configuration file, then
@@ -1726,11 +1669,9 @@ err:
 static inline int
 tfw_cfgop_proxy_pass(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 {
-	int r;
 	const char *in_main_sg, *in_backup_sg;
 
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return r;
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
 
 	in_main_sg = ce->vals[0];
 	in_backup_sg = tfw_cfg_get_attr(ce, "backup", NULL);
@@ -2047,12 +1988,7 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	static const char *error_msg_begin = "frang: http_resp_code_block:";
 	int n, i;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s arguments may not have the '=' sign\n",
-			 error_msg_begin);
-		return -EINVAL;
-	}
-
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 	if (ce->val_n < 3) {
 		T_ERR_NL("%s too few arguments\n", error_msg_begin);
 		return -EINVAL;
@@ -2522,12 +2458,9 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	BUG_ON(tfw_vhost_entry);
 
-	if (tfw_cfg_check_val_n(ce, 1))
-		return -EINVAL;
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
 	hash_for_each(tfw_vhosts_reconfig->vh_hash, i, vhost, hlist) {
 		if (!strcasecmp(vhost->name.data, ce->vals[0])) {
 			T_ERR_NL("Duplicate vhost entry: '%s'\n",

@@ -1698,12 +1698,9 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwApmHMCfg *hm_entry;
 	int code, limit, tframe;
 
-	if (tfw_cfg_check_val_n(ce, 3))
-		return -EINVAL;
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+
+	TFW_CFG_CHECK_VAL_N(==, 3, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		T_ERR_NL("Unable to parse http code value: '%s'\n",
@@ -1759,12 +1756,8 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwApmHM *hm;
 	int r;
 
-	if (tfw_cfg_check_val_n(ce, 1))
-		return -EINVAL;
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	list_for_each_entry(hm, &tfw_hm_list, list) {
 		if (!strcasecmp(hm->name, ce->vals[0])) {
@@ -1828,14 +1821,8 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r, i, code;
 	const char *val;
 
-	if (!ce->val_n) {
-		T_ERR_NL("No arguments found.\n");
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
 		return r;

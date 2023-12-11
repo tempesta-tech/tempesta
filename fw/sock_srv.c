@@ -1085,14 +1085,8 @@ tfw_cfgop_update_srv_health(TfwSrvGroup *sg, TfwServer *srv, void *data)
 static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 {
-	if (ce->val_n != 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-			return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the '=' sign\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	cs->dest = intval;
 	return tfw_cfg_set_int(cs, ce);
@@ -1173,10 +1167,8 @@ tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *sg_flags)
 {
 	unsigned int retry_nip;
 
-	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the '=' sign\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
 	if (tfw_cfg_is_dflt_value(ce)) {
 		retry_nip = 0;
 	} else if (!ce->val_n) {
@@ -1328,10 +1320,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	bool has_conns_n = false, has_weight = false;
 	const char *key, *val;
 
-	if (ce->val_n != 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
 	if (ce->attr_n > 3) {
 		T_ERR_NL("Invalid number of key=value pairs: %zu\n",
 			 ce->attr_n);
@@ -1483,14 +1472,8 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int nlen;
 
 	BUILD_BUG_ON(TFW_CFG_ENTRY_VAL_MAX < sizeof(TFW_CFG_SG_DFT_NAME));
-	if (ce->val_n != 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Invalid number of key=value pairs: %zu\n", ce->attr_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	nlen = strlen(ce->vals[0]);
 	if (tfw_cfgop_lookup_sg_cfg(ce->vals[0], nlen)) {
@@ -1813,10 +1796,7 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **sched_val,
 {
 	TfwScheduler *sched;
 
-	if (!ce->val_n) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
 
 	if (!(sched = tfw_sched_lookup(ce->vals[0]))) {
 		T_ERR_NL("Unrecognized scheduler: '%s'\n", ce->vals[0]);

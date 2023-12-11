@@ -937,13 +937,12 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return -EINVAL;
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
 
 	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout))) {
 		T_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
 			 ce->vals[0] ? : "No value specified");
-		return -EINVAL;
+		return r;
 	}
 
 	if (tfw_cli_cfg_ka_timeout < 0) {

@@ -191,6 +191,21 @@ typedef struct {
 	     (idx) < (e)->val_n;		\
 	     (v) = (e)->vals[++(idx)])
 
+#define TFW_CFG_CHECK_NO_ATTRS(spec, entry)				\
+	if ((entry)->attr_n) {						\
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",	\
+			 (spec)->name);					\
+		return -EINVAL;						\
+	}
+
+#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)				\
+	if (! ((entry)->val_n op (req)) ) {				\
+		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
+			 "be %s %d\n", (spec)->name, (entry)->val_n,	\
+			 #op, (req));					\
+		return -EINVAL;						\
+	}
+
 /**
  * TfwCfgSpec{} is a single instruction for the configuration parser.
  * It specifies a @handler which is executed when the parser meets
