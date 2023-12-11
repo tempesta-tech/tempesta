@@ -37,6 +37,7 @@
 #include "sync_socket.h"
 #include "tempesta_fw.h"
 #include "work_queue.h"
+#include "connection.h"
 
 typedef enum {
 	SS_SEND,
@@ -552,9 +553,9 @@ ss_do_close(struct sock *sk, int flags)
 	struct sk_buff *skb;
 	int data_was_unread = 0;
 
-	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
+	T_WARN("[%d]: Close socket %px (%s): account=%d refcnt=%u | %px %d\n",
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
-	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
+	       sk_has_account(sk), refcount_read(&sk->sk_refcnt), &sk->sk_refcnt, sock_flag(sk, SOCK_DEAD));
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 	WARN_ON_ONCE(!in_softirq());
@@ -698,18 +699,25 @@ ss_close_or_shutdown(struct sock *sk, int action, int flags)
 	if (unlikely(!sk))
 		return SS_OK;
 
-	T_WARN("ss_close %px %d", sk, action);
+	T_WARN("ss_close %px %d ||| %d %px", sk, action, refcount_read(&sk->sk_refcnt), &sk->sk_refcnt);
 
 	ss_sk_incoming_cpu_update(sk);
 	cpu = sk->sk_incoming_cpu;
 
+	T_WARN("ss_close %px %d ||| %d AAAAAAAAAAAAAAAAAAAA %px", sk, action, refcount_read(&sk->sk_refcnt), &sk->sk_refcnt);
+
 	sock_hold(sk);
+
+	T_WARN("ss_close %px %d ||| %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ %px", sk, action, refcount_read(&sk->sk_refcnt), &sk->sk_refcnt);
+
+
 	ticket = ss_wq_push(&sw, cpu);
 	if (!ticket)
 		return SS_OK;
 	if (!(flags & SS_F_SYNC))
 		goto err;
 
+	T_WARN("SLOW PATh %px %d", sk, refcount_read(&sk->sk_refcnt));
 	/*
 	 * Slow path: the system is overloaded, but we have to close the socket,
 	 * so use locked linked list with a turnstile to keep works order.
@@ -806,8 +814,11 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		BUG_ON(conn == NULL);
 
 		if (SS_CONN_TYPE(sk) & Conn_Stop) {
-			__kfree_skb(skb);
-			continue;
+			T_WARN("CONN STOP %px %d", sk, SS_CONN_TYPE(sk) & Conn_H2Clnt);
+			if (!(SS_CONN_TYPE(sk) & Conn_H2Clnt)) {
+				__kfree_skb(skb);
+				continue;
+			}
 		}
 
 		r = SS_CALL(connection_recv, conn, skb);
@@ -990,8 +1001,8 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	T_WARN("[%d]: %s: sk=%px state=%s\n",
-	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	T_WARN("[%d]: %s: sk=%px state=%s | %px\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state], &sk->sk_refcnt);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -1097,11 +1108,11 @@ ss_tcp_state_change(struct sock *sk)
 		 * queue that hasn't been processed yet (it can occurs if we call
 		 * tcp_shutdown()).
 		 */
-		T_WARN("%px %d !!!! %px", sk, skb_queue_empty(&sk->sk_receive_queue), sk->sk_user_data);
+		T_WARN("%px %d !!!! %px | %d %d", sk, skb_queue_empty(&sk->sk_receive_queue), sk->sk_user_data, refcount_read(&sk->sk_refcnt), sock_flag(sk, SOCK_DEAD));
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		ss_linkerror(sk);
-		T_WARN("%px %d !!!! AFTER %px", sk, skb_queue_empty(&sk->sk_receive_queue), sk->sk_user_data);
+		T_WARN("%px %d !!!! AFTER %px %px %d | DEAD %d", sk, skb_queue_empty(&sk->sk_receive_queue), sk->sk_user_data, &sk->sk_refcnt, refcount_read(&sk->sk_refcnt), sock_flag(sk, SOCK_DEAD));
 	}
 }
 

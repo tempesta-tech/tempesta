@@ -2034,7 +2034,9 @@ next_msg:
 	 * by the time we get here. We shouldn't submit the data to the
 	 * upper level for the actual HTTP parsing.
 	 */
-	if (APP_FRAME(h2) && likely(h2->cur_stream)) {
+	if (APP_FRAME(h2)
+	    && likely(h2->cur_stream && !(TFW_CONN_TYPE(c) & Conn_Stop))) 
+	{
 		/* This chopping algorithm could be replaced with a call
 		 * of ss_skb_list_chop_head_tail(). We refrain of it
 		 * to proccess a special case !h2->skb_head below.
