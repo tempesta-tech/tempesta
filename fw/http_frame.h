@@ -233,14 +233,9 @@ int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 					 bool recv);
-unsigned int tfw_h2_stream_id(TfwHttpReq *req);
-int tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
-				unsigned long b_len);
-void tfw_h2_stream_unlink_from_req(TfwHttpReq *req);
-void tfw_h2_stream_unlink_from_req_with_rst(TfwHttpReq *req);
-void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
-TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
-					   unsigned char type);
+unsigned int tfw_h2_req_stream_id(TfwHttpReq *req);
+void tfw_h2_req_unlink_stream(TfwHttpReq *req);
+void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 

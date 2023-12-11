@@ -180,22 +180,25 @@ typedef struct tfw_h2_ctx_t TfwH2Ctx;
 
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
+TfwStream * tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id);
+void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
+int tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
+			TfwH2Err err_code);
+void tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream);
+void tfw_h2_stream_unlink_lock(TfwH2Ctx *ctx, TfwStream *stream);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
-			     unsigned short weight, long int loc_wnd,
-			     long int rem_wnd);
 void tfw_h2_delete_stream(TfwStream *stream);
-int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
-			   TfwStream **dep);
-void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
-			   TfwStream *dep, bool excl);
 void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
-void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+int tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
+				unsigned long b_len);
+void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
+TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
+					   unsigned char type);
 
 static inline TfwStreamState
 tfw_h2_get_stream_state(TfwStream *stream)
@@ -253,6 +256,43 @@ tfw_h2_stream_fsm_ignore_err(TfwH2Ctx *ctx, TfwStream *stream,
 	TfwH2Err err;
 
 	return tfw_h2_stream_fsm(ctx, stream, type, flags, true, &err);
+}
+
+/*
+ * Add stream to queue.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static inline void
+tfw_h2_stream_add_to_queue_nolock(TfwStreamQueue *queue, TfwStream *stream)
+{
+	if (!list_empty(&stream->hcl_node))
+		return;
+
+	list_add_tail(&stream->hcl_node, &queue->list);
+	stream->queue = queue;
+	++stream->queue->num;
+}
+
+/*
+ * Del stream from queue.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static inline void
+tfw_h2_stream_del_from_queue_nolock(TfwStream *stream)
+{
+	if(list_empty(&stream->hcl_node))
+		return;
+
+	BUG_ON(!stream->queue);
+	BUG_ON(!stream->queue->num);
+
+	list_del_init(&stream->hcl_node);
+	--stream->queue->num;
+	stream->queue = NULL;
 }
 
 #endif /* __HTTP_STREAM__ */

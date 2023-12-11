@@ -581,7 +581,7 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 	BUG_ON(!resp->req);
 	if (!stream_id) {
-		stream_id = tfw_h2_stream_id(resp->req);
+		stream_id = tfw_h2_req_stream_id(resp->req);
 		if (unlikely(!stream_id))
 			return -EPIPE;
 	}
@@ -659,9 +659,9 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg,
 
 out:
 	if (r)
-		tfw_h2_stream_unlink_from_req_with_rst(req);
+		tfw_h2_req_unlink_stream_with_rst(req);
 	else
-		tfw_h2_stream_unlink_from_req(req);
+		tfw_h2_req_unlink_stream(req);
 
 	return r;
 }
@@ -954,7 +954,7 @@ static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_stream_unlink_from_req_with_rst(req);
+		tfw_h2_req_unlink_stream_with_rst(req);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
@@ -2711,7 +2711,7 @@ tfw_http_conn_release(TfwConn *conn)
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (TFW_MSG_H2(req)) {
-			tfw_h2_stream_unlink_from_req_with_rst(req);
+			tfw_h2_req_unlink_stream_with_rst(req);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -4929,7 +4929,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	if (!reply) {
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
-		tfw_h2_stream_unlink_from_req_with_rst(req);
+		tfw_h2_req_unlink_stream_with_rst(req);
 		goto free_req;
 	}
 
@@ -5180,7 +5180,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
 
-	stream_id = tfw_h2_stream_id(req);
+	stream_id = tfw_h2_req_stream_id(req);
 	if (unlikely(!stream_id))
 		goto out;
 
@@ -5284,7 +5284,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	tfw_h2_stream_unlink_from_req(req);
+	tfw_h2_req_unlink_stream(req);
 	tfw_h2_resp_fwd(resp);
 
 	__tfw_h2_resp_cleanup(&cleanup);

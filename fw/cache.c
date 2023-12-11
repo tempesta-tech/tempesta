@@ -926,7 +926,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (unlikely(r))
 			goto err_setup;
 	} else {
-		stream_id = tfw_h2_stream_id(req);
+		stream_id = tfw_h2_req_stream_id(req);
 		if (unlikely(!stream_id))
 			goto err_setup;
 
@@ -977,7 +977,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
 		goto err_setup;
 
-	tfw_h2_stream_unlink_from_req(req);
+	tfw_h2_req_unlink_stream(req);
 	tfw_h2_resp_fwd(resp);
 
 	return;
@@ -2875,7 +2875,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * forward request to the server.
 	 */
 	if (TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id(req);
+		id = tfw_h2_req_stream_id(req);
 		if (unlikely(!id)) {
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			goto put;
@@ -2890,13 +2890,13 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * the backend), thus the stream will be finished.
 	 */
 	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_stream_id(req);
+		id = tfw_h2_req_stream_id(req);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			goto put;
 		}
-		tfw_h2_stream_unlink_from_req(req);
+		tfw_h2_req_unlink_stream(req);
 	}
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
