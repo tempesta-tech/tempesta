@@ -242,7 +242,9 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
-	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
+	lset->max_lhdr_sz = max_header_list_size ?
+		max_header_list_size : UINT_MAX;
+	rset->max_lhdr_sz = UINT_MAX;
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
@@ -399,14 +401,20 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	struct {
 		unsigned short key;
 		unsigned int value;
-	} __attribute__((packed)) field[2];
+	} __attribute__((packed)) field[3];
+
+	const unsigned int required_fields = 2;
 
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = (unsigned char*)field, .len = sizeof(field) },
+			{
+				.data = (unsigned char *)field,
+				.len = required_fields * sizeof(field[0])
+			},
+			{},
 		},
-		.len = sizeof(field),
+		.len = required_fields * sizeof(field[0]),
 		.nchunks = 2
 	};
 	TfwFrameHdr hdr = {
@@ -425,6 +433,15 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
+
+	if (ctx->lsettings.max_lhdr_sz != UINT_MAX) {
+		field[required_fields].key =
+			htons(HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
+		field[required_fields].value =
+			htonl(ctx->lsettings.max_lhdr_sz);
+		data.chunks[1].len += sizeof(field[0]);
+		hdr.length += sizeof(field[0]);
+	}
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }

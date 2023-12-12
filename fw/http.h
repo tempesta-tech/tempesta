@@ -363,7 +363,9 @@ typedef struct {
  * @node	- NUMA node where request is serviced;
  * @retries	- the number of re-send attempts;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
- * @method_override - Overridden HTTP request method, passed in request headers.
+ * @method_override - Overridden HTTP request method, passed in request headers;
+ * @header_list_sz - total size of headers in bytes;
+ * @headers_cnt - total headers count;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -396,6 +398,8 @@ struct tfw_http_req_t {
 	unsigned short		retries;
 	unsigned char		method;
 	unsigned char		method_override;
+	unsigned int		header_list_sz;
+	unsigned int		headers_cnt;
 };
 
 #define TFW_IDX_BITS		12
@@ -683,6 +687,19 @@ tfw_body_iter_next(TfwMsgIter* it, TfwStr* chunk)
 	for (; (c)->data; tfw_body_iter_next((it), (c)))
 
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
+
+/**
+ * According RFC 9113 6.5.2:
+ * Etra 32 extra bytes which are considered the "maximum"
+ * overhead that would be required to represent each header
+ * entry in the hpack table.
+ */
+#define HTTP2_EXTRA_HDR_OVERHEAD 32
+
+#define TFW_HTTP_MSG_HDR_OVERHEAD(hmmsg)				\
+	(TFW_MSG_H2(hmmsg) ? HTTP2_EXTRA_HDR_OVERHEAD : 0)
+
+extern unsigned int max_header_list_size;
 
 /* External HTTP functions. */
 int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
