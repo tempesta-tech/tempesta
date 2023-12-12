@@ -1931,6 +1931,7 @@ static const TfwCfgEnum frang_http_methods_enum[] = {
 	{ "post",	TFW_HTTP_METH_POST },
 	{ "propfind",	TFW_HTTP_METH_PROPFIND },
 	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
+	{ "purge",	TFW_HTTP_METH_PURGE },
 	{ "put",	TFW_HTTP_METH_PUT },
 	{ "trace",	TFW_HTTP_METH_TRACE },
 	{ "unlock",	TFW_HTTP_METH_UNLOCK },
