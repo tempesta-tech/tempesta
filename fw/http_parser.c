@@ -11827,7 +11827,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				__set_bit(TFW_HTTP_B_VOID_BODY, resp->flags);
 			}
 
-			if (resp->status < 100 || resp->status > 599)
+			if (resp->status < HTTP_CODE_MIN
+			    || resp->status > HTTP_CODE_MAX)
 				T_WARN("Unknown response code: %hu", resp->status);
 
 			__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_n);

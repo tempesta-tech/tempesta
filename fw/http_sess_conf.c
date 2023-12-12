@@ -646,7 +646,7 @@ tfw_cfgop_jsch_parse_resp_code(TfwCfgSpec *cs, TfwCfgJsCh *js_ch,
 		T_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
 		return r;
 	}
-	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
+	if ((r = tfw_cfg_check_range(int_val, HTTP_CODE_MIN, HTTP_CODE_MAX)))
 		return r;
 	js_ch->st_code = int_val;
 

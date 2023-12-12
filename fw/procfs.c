@@ -29,12 +29,21 @@
  */
 DEFINE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
 
-void
+/**
+ * Empty health monitor statistics ('health_stat' directive) with empty
+ * response counters (@sum), but populated HTTP codes (@code). This serves as
+ * a prototype for creating a new structure in TfwPerfStat when needed.
+ *
+ * If NULL it means that 'health_stat' directive is disabled.
+ */
+static TfwHMStats *health_stat_codes;
+
+static void
 tfw_perfstat_collect(TfwPerfStat *stat)
 {
 #define SADD(x)	stat->x += pcp_stat->x
 
-	int cpu;
+	int cpu, i;
 
 	/*
 	 * Collecting values this way is safe on a 64-bit architecture.
@@ -77,6 +86,18 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(serv.rx_bytes);
 		SADD(serv.tls_hs_successful);
 		SADD(serv.tls_hs_failed);
+
+		/*
+		 * Health statistics (differs from health monitor statistics):
+		 * total responses for tempesta
+		 */
+		if (stat->hm && pcp_stat->hm)
+			for (i = 0; i < stat->hm->ccnt; ++i) {
+				BUG_ON(stat->hm->rsums[i].code !=
+				       pcp_stat->hm->rsums[i].code);
+				stat->hm->rsums[i].sum +=
+					pcp_stat->hm->rsums[i].sum;
+			}
 	}
 #undef SADD
 }
@@ -87,6 +108,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 #define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
 #define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
+	int i;
 	TfwPerfStat stat;
 	u64 serv_conn_active, serv_conn_sched;
 	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
@@ -95,6 +117,16 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 		T_WARN("Cannot allocate sync sockets statistics\n");
 
 	memset(&stat, 0, sizeof(stat));
+
+	if (health_stat_codes) {
+		stat.hm = kmalloc(tfw_hm_stats_size(health_stat_codes->ccnt),
+				  GFP_KERNEL);
+		if (stat.hm)
+			tfw_hm_stats_clone(stat.hm, health_stat_codes);
+	} else {
+		stat.hm = NULL;
+	}
+
 	tfw_perfstat_collect(&stat);
 
 	/* Ss statistics. */
@@ -156,6 +188,16 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Server successful TLS handshakes\t", serv.tls_hs_successful);
 	SPRN("Server failed TLS handshakes\t\t", serv.tls_hs_failed);
 
+	if (stat.hm) {
+		seq_printf(seq, "Tempesta health statistics:\n");
+		for (i = 0; i < stat.hm->ccnt; ++i) {
+			seq_printf(seq, "\tHTTP '%d' codes\t: %u\n",
+				   stat.hm->rsums[i].code,
+				   stat.hm->rsums[i].sum);
+		}
+	}
+
+	kfree(stat.hm);
 	return 0;
 #undef SPRN
 #undef SPRNE
@@ -359,13 +401,57 @@ tfw_procfs_stop(void)
 	tfw_procfs_cleanup();
 }
 
+static int
+tfw_cfgop_health_stat(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int cpu;
+
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	health_stat_codes = kzalloc(tfw_hm_stats_size(ce->val_n),
+				    GFP_KERNEL);
+	if (!health_stat_codes)
+		return -EINVAL;
+	if (tfw_hm_stats_init_from_cfg_entry(health_stat_codes, ce)) {
+		kfree(health_stat_codes);
+		health_stat_codes = NULL;
+		return -EINVAL;
+	}
+
+	for_each_online_cpu(cpu) {
+		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
+		pcp_stat->hm = kmalloc_node(tfw_hm_stats_size(ce->val_n),
+					    GFP_KERNEL, cpu_to_node(cpu));
+		if (!pcp_stat->hm)
+			return -EINVAL;
+		tfw_hm_stats_clone(pcp_stat->hm, health_stat_codes);
+	}
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_health_stat(TfwCfgSpec *cs)
+{
+	int cpu;
+
+	kfree(health_stat_codes);
+	health_stat_codes = NULL;
+
+	for_each_online_cpu(cpu) {
+		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
+		kfree(pcp_stat->hm);
+		pcp_stat->hm = NULL;
+	}
+}
+
 static TfwCfgSpec tfw_procfs_specs[] = {
-/*	{
+	{
 		.name       = "health_stat",
-		.handler    = tfw_cfgop_apm_stats,
-		.cleanup    = tfw_cfgop_cleanup_apm,
+		.handler    = tfw_cfgop_health_stat,
+		.cleanup    = tfw_cfgop_cleanup_health_stat,
+		.allow_none = true,
 	},
-*/
 	{ 0 },
 };
 

@@ -21,6 +21,7 @@
 #define __TFW_PROCFS_H__
 
 #include "tempesta_fw.h"
+#include "apm.h"
 
 /*
  * @wq_full		- How many times we faced work queue full.
@@ -89,11 +90,17 @@ typedef struct {
 	u64	misses;
 } TfwCacheStat;
 
+/*
+ * @hm	- Total responses for each HTTP code specified in 'health_stat'.
+ * 	  Accounts for all responses, whether served from the backend or the
+ *	  cache.
+ */
 typedef struct {
 	TfwSsStat	ss;
 	TfwClntStat	clnt;
 	TfwSrvStat	serv;
 	TfwCacheStat	cache;
+	TfwHMStats	*hm;
 } TfwPerfStat;
 
 DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
@@ -108,5 +115,27 @@ DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
 #define TFW_DEC_STAT_BH(...)	this_cpu_dec(tfw_perfstat.__VA_ARGS__)
 #define TFW_ADD_STAT_BH(val, ...)	\
 		this_cpu_add(tfw_perfstat.__VA_ARGS__, val)
+
+static inline void
+tfw_inc_global_hm_stats(int status)
+{
+	TfwPerfStat *this_stat = this_cpu_ptr(&tfw_perfstat);
+	TfwHMStats *hm = this_stat->hm;
+
+	if (!hm)
+		return;
+        /*
+         * For faster access, alternative techniques like bitmask, binary search,
+         * or other methods could be employed. However, a linear search is deemed
+         * sufficient, given that the number of 'health_stat'/'health_stat_server'
+         * codes is typically not high.
+         */
+        for (i = 0; i < hm->ccnt; ++i) {
+                if (tfw_http_status_eq(status, hm->rsums[i].code)) {
+                        ++hm->rsums[i].total;
+                        break;
+                }
+        }
+}
 
 #endif /* __TFW_PROCFS_H__ */

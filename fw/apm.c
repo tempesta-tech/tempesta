@@ -1315,13 +1315,7 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 
 	BUG_ON(!hmstats);
 	for (i = 0; i < tfw_hm_codes_cnt; ++i) {
-		/*
-		 * Wildcarded HTTP code values (of type 4*, 5* etc.) are
-		 * allowed during configuration, so these values also
-		 * must be checked via dividing by 100.
-		 */
-		if (hmstats[i].hmcfg->code == status ||
-		    hmstats[i].hmcfg->code == status / 100)
+		if (tfw_http_status_eq(status, hmstats[i].hmcfg->code))
 		{
 			history = hmstats[i].history;
 			cfg = hmstats[i].hmcfg;
@@ -1417,28 +1411,24 @@ tfw_apm_hm_stats(void *apmref)
 {
 	int i;
 	long rtime;
-	size_t size;
 	TfwHMStats *stats;
-	TfwHMCodeStats *rsums;
 	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
 	BUG_ON(!hmctl->hmstats || !hm);
-	size = sizeof(TfwHMStats) + sizeof(TfwHMCodeStats) * tfw_hm_codes_cnt;
-	if (!(stats = kmalloc(size, GFP_KERNEL)))
+
+	stats = kmalloc(tfw_hm_stats_size(tfw_hm_codes_cnt), GFP_KERNEL);
+	if (!stats)
 		return NULL;
+	tfw_hm_stats_init(stats, tfw_hm_codes_cnt);
 
-	rsums = (TfwHMCodeStats *)(stats + 1);
-	for (i = 0; i < tfw_hm_codes_cnt; ++i) {
+	for (i = 0; i < stats->ccnt; ++i) {
 		BUG_ON(!hmctl->hmstats[i].hmcfg);
-		rsums[i].code = hmctl->hmstats[i].hmcfg->code;
-		rsums[i].sum = READ_ONCE(hmctl->hmstats[i].rsum);
+		stats->rsums[i].code = hmctl->hmstats[i].hmcfg->code;
+		stats->rsums[i].sum = READ_ONCE(hmctl->hmstats[i].rsum);
 	}
-	stats->rsums = rsums;
-	stats->ccnt = tfw_hm_codes_cnt;
 
-	rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp))
-					/ HZ;
+	rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp)) / HZ;
 	stats->rtime = rtime < 0 ? 0 : rtime;
 
 	return stats;
@@ -1698,7 +1688,6 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwApmHMCfg *hm_entry;
 	int code, limit, tframe;
 
-
 	TFW_CFG_CHECK_VAL_N(==, 3, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
@@ -1829,7 +1818,9 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (tfw_cfgop_parse_http_status(val, &code)
-		    || tfw_cfg_check_range(code, HTTP_CODE_MIN, HTTP_CODE_MAX))
+		    || (code > HTTP_STATUS_5XX
+			&& tfw_cfg_check_range(code, HTTP_CODE_MIN,
+					       HTTP_CODE_MAX)))
 		{
 			T_ERR_NL("Unable to parse http code value: '%s'\n",
 				 val);

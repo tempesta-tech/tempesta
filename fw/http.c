@@ -1093,6 +1093,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	}
 	else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
+		tfw_inc_global_hm_stats(resp->status);
 	}
 
 	tfw_connection_put(req->conn);
@@ -4135,9 +4136,10 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 			tfw_connection_close((TfwConn *)cli_conn, true);
 			return;
 		}
+		TFW_INC_STAT_BH(serv.msgs_forwarded);
+		tfw_inc_global_hm_stats(req->resp->status);
 		list_del_init(&req->msg.seq_list);
 		tfw_http_resp_pair_free(req);
-		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
 }
 

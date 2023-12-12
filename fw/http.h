@@ -686,6 +686,20 @@ tfw_body_iter_next(TfwMsgIter* it, TfwStr* chunk)
 #define TFW_BODY_ITER_WALK(it, c)					\
 	for (; (c)->data; tfw_body_iter_next((it), (c)))
 
+/**
+ * Compare the HTTP status with the code parsed from
+ * tfw_cfgop_parse_http_status().
+ *
+ * Wildcarded HTTP code values (of type 4*, 5* etc.) are allowed during
+ * configuration, so these values also must be checked via
+ * dividing by 100.
+ */
+static inline bool
+tfw_http_status_eq(int status, int code)
+{
+	return status == code || status / 100 == code;
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /**
