@@ -69,13 +69,32 @@ tfw_connection_repair(TfwConn *conn)
 int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
-	return TFW_CONN_HOOK_CALL(conn, conn_close, sync);
+	int r;
+
+	/*
+	 * When connection is closed from process context (when tempesta
+	 * is shutdowning) there is a race between `ss_close` and socket
+	 * and connection destruction in softirq. We should increment
+	 * connection reference counter here to prevent conenction
+	 * destruction in running in parallel softirq.
+	 */
+	tfw_connection_get(conn);
+	r = TFW_CONN_HOOK_CALL(conn, conn_close, sync);
+	tfw_connection_put(conn);
+
+	return r;
 }
 
 void
 tfw_connection_abort(TfwConn *conn)
 {
+	/*
+	 * Same as for tfw_connection_close() we should increment connection
+	 * reference counter here.
+	 */
+	tfw_connection_get(conn);
 	TFW_CONN_HOOK_CALL(conn, conn_abort);
+	tfw_connection_put(conn);
 }
 
 /**
