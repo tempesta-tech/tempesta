@@ -567,7 +567,7 @@ __FSM_STATE(st) {							\
 #define CSTR_EQ			0
 #define CSTR_POSTPONE		T_POSTPONE	/* -MAX_ERRNO + 1 */
 #define CSTR_NEQ		T_DROP		/* -MAX_ERRNO + 3 */
-#define CSTR_BADLEN		CSTR_NEQ + 1
+#define CSTR_BADLEN		T_BAD		/* -MAX_ERRNO + 4 */
 
 /**
  * Compare a mixed pair of strings with the string @str of length @str_len where
@@ -1362,8 +1362,8 @@ __FSM_STATE(RGen_EoL, hot) {						\
 	if (c == '\n') {						\
 		if (parser->hdr.data) {					\
 			tfw_str_set_eolen(&parser->hdr, 1);		\
-			if (tfw_http_msg_hdr_close(msg))		\
-				TFW_PARSER_DROP(RGen_EoL);		\
+			if ((r = tfw_http_msg_hdr_close(msg)))		\
+				FSM_EXIT(r);				\
 		}							\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
 	}								\
@@ -1374,8 +1374,8 @@ __FSM_STATE(RGen_CR, hot) {						\
 		TFW_PARSER_DROP(RGen_CR);				\
 	if (parser->hdr.data) {						\
 		tfw_str_set_eolen(&parser->hdr, 2);			\
-		if (tfw_http_msg_hdr_close(msg))			\
-			TFW_PARSER_DROP(RGen_CR);			\
+		if ((r = tfw_http_msg_hdr_close(msg)))			\
+			FSM_EXIT(r);					\
 	}								\
 	/* Process next header if any. */				\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
