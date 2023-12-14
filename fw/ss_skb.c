@@ -1178,8 +1178,7 @@ skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
  * it returns, thus allowing an upper layer to process a full message
  * or an error code.
  *
- * @return SS_OK, SS_DROP, SS_BLOCK, SS_POSTPONE, or a negative value of
- * error code.
+ * @return some of SS_* error codes or a negative value of error code.
  * @processed and @chunks are incremented by number of effectively processed
  * bytes and contiguous data chunks correspondingly. A caller must properly
  * initialize them. @actor sees @chunks including current chunk of data.

@@ -1784,9 +1784,16 @@ next_msg:
 
 	switch (r) {
 	default:
+		/*
+		 * T_BLOCK is error code for high level modules (like frang),
+		 * here we should deal with error code, which accurately
+		 * determine further closing behavior.
+		 */
+		BUG_ON(r == T_BLOCK);
 	case T_DROP:
 	case T_BAD:
-	case T_BLOCK:
+	case T_BLOCK_WITH_FIN:
+	case T_BLOCK_WITH_RST:
 		T_DBG3("Drop invalid HTTP/2 frame and close connection\n");
 		goto out;
 	case T_POSTPONE:
