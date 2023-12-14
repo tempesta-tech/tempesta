@@ -236,7 +236,8 @@ TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 unsigned int tfw_h2_req_stream_id(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
-void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
+void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
+				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
 int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,

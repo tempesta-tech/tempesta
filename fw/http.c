@@ -1255,6 +1255,8 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 {
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->req->flags))
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
+	if (test_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, resp->req->flags))
+		resp->msg.ss_flags |= __SS_F_FORCE;
 }
 
 /*
@@ -5008,7 +5010,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	if (type == TFW_ERROR_TYPE_ATTACK
 	    || type == TFW_ERROR_TYPE_BAD) {
 		tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
-					    !on_req_recv_event);
+					    !on_req_recv_event,
+					    type == TFW_ERROR_TYPE_ATTACK);
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
 						 HTTP2_RST_STREAM, 0))
@@ -5023,7 +5026,8 @@ skip_stream:
 	if (type == TFW_ERROR_TYPE_ATTACK
 	    || type == TFW_ERROR_TYPE_BAD) {
 		tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
-					    !on_req_recv_event);
+					    !on_req_recv_event,
+					    type == TFW_ERROR_TYPE_ATTACK);
 	}
 
 free_req:
@@ -5065,6 +5069,9 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 
 	if (type != TFW_ERROR_TYPE_DROP)
 		tfw_http_req_set_conn_close(req);
+
+	if (type == TFW_ERROR_TYPE_ATTACK)
+		set_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, req->flags);
 
 	tfw_h1_send_err_resp(req, status);
 
@@ -6357,7 +6364,8 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	data.skb = NULL;
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
-	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data)) {
+	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD,
+			  &data)) {
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		/* The response is freed by tfw_http_req_block(). */
 		return tfw_http_req_block(req, 403, "response blocked: filtered out");

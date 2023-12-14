@@ -39,6 +39,13 @@ enum {
          * CONN_CLOSE and CONN_KA flags are mutual exclusive.
          */
         TFW_HTTP_B_CONN_CLOSE   = TFW_HTTP_FLAGS_COMMON,
+        /*
+         * This flag is set only together with previos one.
+         * Typically we close connection gracefully with
+         * TCP shutdown, but in case of attack, we should
+         * do it immediately using tcp_close.
+         */
+        TFW_HTTP_B_CONN_CLOSE_FORCE,
         TFW_HTTP_B_CONN_KA,
         TFW_HTTP_B_CONN_UPGRADE,
         TFW_HTTP_B_CONN_EXTRA,
