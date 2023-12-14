@@ -146,27 +146,6 @@ tfw_hm_stats_init_from_cfg_entry(TfwHMStats *s, TfwCfgEntry *ce)
 	return 0;
 }
 
-static inline void
-tfw_hm_stats_inc(TfwHMStats *s, int status)
-{
-	int i;
-
-	if (!s)
-		return;
-	/*
-	 * For faster access, alternative techniques like bitmask, binary search,
-	 * or other methods could be employed. However, a linear search is deemed
-	 * sufficient, given that the number of 'health_stat'/'health_stat_server'
-	 * codes is typically not high.
-	 */
-	for (i = 0; i < s->ccnt; ++i) {
-		if (tfw_http_status_eq(status, s->rsums[i].code)) {
-			++s->rsums[i].sum;
-			break;
-		}
-	}
-}
-
 int tfw_apm_add_srv(TfwServer *srv);
 void tfw_apm_del_srv(TfwServer *srv);
 void tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtime);

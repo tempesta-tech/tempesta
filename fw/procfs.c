@@ -95,8 +95,8 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 			for (i = 0; i < stat->hm->ccnt; ++i) {
 				BUG_ON(stat->hm->rsums[i].code !=
 				       pcp_stat->hm->rsums[i].code);
-				stat->hm->rsums[i].sum +=
-					pcp_stat->hm->rsums[i].sum;
+				stat->hm->rsums[i].total +=
+					pcp_stat->hm->rsums[i].total;
 			}
 	}
 #undef SADD
@@ -191,9 +191,9 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	if (stat.hm) {
 		seq_printf(seq, "Tempesta health statistics:\n");
 		for (i = 0; i < stat.hm->ccnt; ++i) {
-			seq_printf(seq, "\tHTTP '%d' code\t: %u\n",
+			seq_printf(seq, "\tHTTP '%d' code\t: %llu\n",
 				   stat.hm->rsums[i].code,
-				   stat.hm->rsums[i].sum);
+				   stat.hm->rsums[i].total);
 		}
 	}
 
@@ -410,7 +410,7 @@ tfw_cfgop_health_stat(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	health_stat_codes = kzalloc(tfw_hm_stats_size(ce->val_n),
 				    GFP_KERNEL);
 	if (!health_stat_codes)
-		return -EINVAL;
+		return -ENOMEM;
 	if (tfw_hm_stats_init_from_cfg_entry(health_stat_codes, ce)) {
 		kfree(health_stat_codes);
 		health_stat_codes = NULL;
@@ -422,7 +422,7 @@ tfw_cfgop_health_stat(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		pcp_stat->hm = kmalloc_node(tfw_hm_stats_size(ce->val_n),
 					    GFP_KERNEL, cpu_to_node(cpu));
 		if (!pcp_stat->hm)
-			return -EINVAL;
+			return -ENOMEM;
 		tfw_hm_stats_clone(pcp_stat->hm, health_stat_codes);
 	}
 	return 0;
