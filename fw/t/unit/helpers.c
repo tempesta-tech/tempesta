@@ -150,6 +150,12 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 }
 
 int
+ss_shutdown(struct sock *sk, int flags)
+{
+	return 0;
+}
+
+int
 ss_close(struct sock *sk, int flags)
 {
 	return 0;
