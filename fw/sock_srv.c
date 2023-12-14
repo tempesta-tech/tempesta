@@ -287,7 +287,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	TFW_INC_STAT_BH(serv.conn_attempts);
 	r = ss_connect(sk, addr, 0);
 	if (r) {
-		if (r != SS_SHUTDOWN)
+		if (r != -ESHUTDOWN)
 			T_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		SS_CALL(connection_drop, sk);

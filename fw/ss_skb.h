@@ -31,12 +31,6 @@
  * Responses from socket hook functions.
  */
 enum {
-	/*
-	 * SS functions must return the code on shutdown process.
-	 * This code means that we can't finish requested operation due to
-	 * shutdown process, but this isn't error.
-	 */
-	SS_SHUTDOWN	= T_BAD + 1,
 	/* Generic socket error. */
 	SS_BAD		= T_BAD,
 	/* The packet must be dropped, but connection should be alive. */

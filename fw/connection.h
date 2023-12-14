@@ -261,6 +261,11 @@ typedef struct {
 	void (*conn_repair)(TfwConn *conn);
 
 	/*
+	 * Called to shutdown a connection intentionally on Tempesta side.
+	 */
+	int (*conn_shutdown)(TfwConn *conn, bool sync);
+
+	/*
 	 * Called to close a connection intentionally on Tempesta side.
 	 */
 	int (*conn_close)(TfwConn *conn, bool sync);
@@ -567,6 +572,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
+int tfw_connection_shutdown(TfwConn *conn, bool sync);
 int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
