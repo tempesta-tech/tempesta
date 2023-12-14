@@ -6281,18 +6281,21 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 	if (r == T_BLOCK)
 		goto error;
 
+	BUG_ON(r != T_OK);
+
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data);
 	T_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == T_OK)
 		return T_OK;
 
+	BUG_ON(r != T_BLOCK);
+
 error:
 	tfw_http_popreq(hmresp, false);
-	/* The response is freed by tfw_http_req_block(). */
-	tfw_http_req_block(req, 403, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
-	return r;
+	/* The response is freed by tfw_http_req_block(). */
+	return tfw_http_req_block(req, 403, "response blocked: filtered out");
 }
 
 /*
@@ -6588,10 +6591,8 @@ next_msg:
 	 * event.
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r < T_OK)) {
-		filtout = true;
-		goto bad_msg;
-	}
+	if (unlikely(r == T_BLOCK))
+		return r;
 
 	/*
 	 * We need to know if connection will be upgraded after response
