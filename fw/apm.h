@@ -67,6 +67,7 @@ static const unsigned int tfw_pstats_ith[] = {
 typedef struct {
 	int		code;
 	unsigned int	sum;
+	u64		total;	/* Another sum for total stats; can be unused. */
 } TfwHMCodeStats;
 
 /*
@@ -176,11 +177,10 @@ void tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref);
 bool tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 			  void *apmref);
 bool tfw_apm_hm_srv_limit(int status, void *apmref);
-void tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref);
+void tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name);
 void tfw_apm_hm_disable_srv(TfwServer *srv);
 bool tfw_apm_hm_srv_eq(const char *name, TfwServer *srv);
 TfwHMStats *tfw_apm_hm_stats(void *apmref);
-void *tfw_apm_get_hm(const char *name);
 bool tfw_apm_check_hm(const char *name);
 
 #endif /* __TFW_APM_H__ */

@@ -119,6 +119,7 @@ DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
 static inline void
 tfw_inc_global_hm_stats(int status)
 {
+	int i;
 	TfwPerfStat *this_stat = this_cpu_ptr(&tfw_perfstat);
 	TfwHMStats *hm = this_stat->hm;
 

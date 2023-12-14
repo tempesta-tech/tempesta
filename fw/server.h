@@ -82,8 +82,8 @@ enum {
 	TFW_SRV_B_SUSPEND
 };
 
-#define	TFW_SRV_F_HMONITOR	(1 << TFW_SRV_B_HMONITOR)
-#define	TFW_SRV_F_SUSPEND	(1 << TFW_SRV_B_SUSPEND)
+#define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)
+#define	TFW_SRV_F_SUSPEND		(1 << TFW_SRV_B_SUSPEND)
 
 /**
  * The servers group with the same load balancing, failovering and eviction

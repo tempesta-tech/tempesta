@@ -441,15 +441,17 @@ typedef struct {
 /*
  * Accounting entry for particular HTTP code.
  *
- * @history	- ring buffer of history records ;
+ * @history	- ring buffer of history records;
  * @hmcfg	- pointer to structure with settings for particular HTTP code;
  * @rsum	- current amount of responses from @history ring buffer;
+ * @total	- total amount of responses during all the time;
  * @lock	- spinlock for synchronized work with @history buffer;
  */
 typedef struct {
 	TfwApmHMHistory		history[HM_FREQ];
 	TfwApmHMCfg		*hmcfg;
 	unsigned int		rsum;
+	u64			total;
 	spinlock_t		lock;
 } TfwApmHMStats;
 
@@ -473,13 +475,11 @@ typedef struct {
 } TfwApmHMCtl;
 
 /* Entry for configuration of separate health monitors. */
-static TfwApmHM			*tfw_hm_entry;
+static TfwApmHM		*tfw_hm_entry;
 /* Entry for configuration of default 'auto' health monitor. */
-static TfwApmHM			*tfw_hm_default;
-/* Flag for explicit creation of default health monitor. */
-static bool			tfw_hm_expl_def;
+static TfwApmHM		*tfw_hm_default;
 /* Total count of monitored HTTP codes. */
-static unsigned int		tfw_hm_codes_cnt;
+static unsigned int	tfw_hm_codes_cnt;
 
 static LIST_HEAD(tfw_hm_list);
 static LIST_HEAD(tfw_hm_codes_list);
@@ -1313,7 +1313,9 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 	TfwApmHMCfg *cfg = NULL;
 	unsigned long ts;
 
-	BUG_ON(!hmstats);
+	if (!hmstats)
+		return false;
+
 	for (i = 0; i < tfw_hm_codes_cnt; ++i) {
 		if (tfw_http_status_eq(status, hmstats[i].hmcfg->code))
 		{
@@ -1326,38 +1328,61 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 
 	if (!history)
 		return false;
-
 	BUG_ON(!cfg);
+
 	spin_lock(&hmstats->lock);
 
-	ts = jiffies * HM_FREQ / (cfg->tframe * HZ);
-	i = ts % HM_FREQ;
-	if (history[i].ts != ts) {
-		history[i].ts = ts;
-		history[i].resp = 0;
+	/*
+	 * 'health_stat_server' directive reuses the same data structure as
+	 * 'server_failover_http' (TfwApmHMCfg) but without the set @tframe
+	 * and @limit (refer to tfw_cfgop_apm_health_stat_srv()). Thus, these
+	 * attributes are optional.
+	 */
+	if (cfg->tframe) {
+		ts = jiffies * HM_FREQ / (cfg->tframe * HZ);
+		i = ts % HM_FREQ;
+		if (history[i].ts != ts) {
+			history[i].ts = ts;
+			history[i].resp = 0;
+		}
+		++history[i].resp;
+		for (i = 0; i < HM_FREQ; ++i)
+			if (history[i].ts + HM_FREQ > ts)
+				sum += history[i].resp;
+		WRITE_ONCE(hmstats->rsum, sum);
 	}
-	++history[i].resp;
-	for (i = 0; i < HM_FREQ; ++i)
-		if (history[i].ts + HM_FREQ > ts)
-			sum += history[i].resp;
+	++hmstats->total;
 
-	WRITE_ONCE(hmstats->rsum, sum);
 	spin_unlock(&hmstats->lock);
 
-	if (sum > cfg->limit)
+	if (cfg->limit && sum > cfg->limit)
 		return true;
 
 	return false;
 }
 
+static TfwApmHM *
+tfw_apm_get_hm(const char *name)
+{
+	TfwApmHM *hm;
+
+	list_for_each_entry(hm, &tfw_hm_list, list) {
+		if (!strcasecmp(name, hm->name))
+			return hm;
+	}
+	return NULL;
+}
+
 void
-tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
+tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name)
 {
 	TfwApmHMCtl *hmctl;
 	unsigned long now;
-	TfwApmHM *hm = hmref;
+	TfwApmHM *hm;
 
 	BUG_ON(!srv->apmref);
+
+	hm = tfw_apm_get_hm(hm_name);
 	BUG_ON(!hm);
 	WARN_ON_ONCE(test_bit(TFW_SRV_B_HMONITOR, &srv->flags));
 	WARN_ON_ONCE(test_bit(TFW_SRV_B_SUSPEND, &srv->flags));
@@ -1410,12 +1435,13 @@ TfwHMStats *
 tfw_apm_hm_stats(void *apmref)
 {
 	int i;
-	long rtime;
+	long rtime = 0;
 	TfwHMStats *stats;
 	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
-	BUG_ON(!hmctl->hmstats || !hm);
+	if (!hmctl->hmstats)
+		return NULL;
 
 	stats = kmalloc(tfw_hm_stats_size(tfw_hm_codes_cnt), GFP_KERNEL);
 	if (!stats)
@@ -1426,24 +1452,14 @@ tfw_apm_hm_stats(void *apmref)
 		BUG_ON(!hmctl->hmstats[i].hmcfg);
 		stats->rsums[i].code = hmctl->hmstats[i].hmcfg->code;
 		stats->rsums[i].sum = READ_ONCE(hmctl->hmstats[i].rsum);
+		stats->rsums[i].total = READ_ONCE(hmctl->hmstats[i].total);
 	}
 
-	rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp)) / HZ;
+	if (hm)
+		rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp)) / HZ;
 	stats->rtime = rtime < 0 ? 0 : rtime;
 
 	return stats;
-}
-
-void *
-tfw_apm_get_hm(const char *name)
-{
-	TfwApmHM *hm;
-
-	list_for_each_entry(hm, &tfw_hm_list, list) {
-		if (!strcasecmp(name, hm->name))
-			return hm;
-	}
-	return NULL;
 }
 
 bool
@@ -1455,7 +1471,7 @@ tfw_apm_check_hm(const char *name)
 		return false;
 	}
 
-	if (!strcasecmp(name, TFW_APM_HM_AUTO) || tfw_apm_get_hm(name))
+	if (tfw_apm_get_hm(name))
 		return true;
 
 	T_ERR_NL("health monitor with name '%s' does not exist\n", name);
@@ -1540,7 +1556,6 @@ __tfw_cfgop_cleanup_apm_hm(void)
 
 	tfw_hm_entry = NULL;
 	tfw_hm_default = NULL;
-	tfw_hm_expl_def = false;
 
 	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
 		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
@@ -1558,12 +1573,45 @@ tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
 	__tfw_cfgop_cleanup_apm_hm();
 }
 
+
+/**
+ * Create 'auto' health monitor for default mode if explicit one have not been
+ * created during configuration parsing stage.
+ */
+static int
+tfw_apm_create_def_hm(void)
+{
+	int r;
+
+	if (tfw_apm_get_hm(TFW_APM_HM_AUTO))
+		return 0;
+
+	if ((r = tfw_cfgop_apm_add_hm(TFW_APM_HM_AUTO)))
+		return r;
+
+	if ((r = tfw_cfgop_apm_add_hm_req(TFW_APM_DFLT_REQ, tfw_hm_entry)))
+		return r;
+
+	if ((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
+		return r;
+
+	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
+		return r;
+	/*
+	 * Default values for health response code is 200, for
+	 * crc32 is 'auto', and for monitor request timeout is 10s.
+	 */
+	__set_bit(HTTP_CODE_BIT_NUM(200), tfw_hm_entry->codes);
+	tfw_hm_entry->auto_crc = true;
+	tfw_hm_entry->tmt = 10;
+	tfw_hm_entry = NULL;
+	return 0;
+}
+
 static int
 tfw_apm_cfgend(void)
 {
 	unsigned int jtmwindow;
-	int r;
-
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
@@ -1597,36 +1645,7 @@ tfw_apm_cfgend(void)
 	}
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
-	/*
-	 * Create 'auto' health monitor for default mode
-	 * if explicit one have not been created during
-	 * configuration parsing stage.
-	 */
-	if (tfw_hm_expl_def)
-		return 0;
-
-	if ((r = tfw_cfgop_apm_add_hm(TFW_APM_HM_AUTO)))
-		return r;
-
-	if ((r = tfw_cfgop_apm_add_hm_req(TFW_APM_DFLT_REQ, tfw_hm_entry)))
-		return r;
-
-	if ((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
-		return r;
-
-	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
-		return r;
-
-	/*
-	 * Default values for health response code is 200, for
-	 * crc32 is 'auto', and for monitor request timeout is 10s.
-	 */
-	__set_bit(HTTP_CODE_BIT_NUM(200), tfw_hm_entry->codes);
-	tfw_hm_entry->auto_crc = true;
-	tfw_hm_entry->tmt = 10;
-	tfw_hm_entry = NULL;
-
-	return 0;
+	return tfw_apm_create_def_hm();
 }
 
 static void
@@ -1682,6 +1701,20 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static TfwApmHMCfg *
+tfw_amp_create_hm_entry(void)
+{
+	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
+	if (!hm_entry)
+		return NULL;
+
+	INIT_LIST_HEAD(&hm_entry->list);
+	list_add(&hm_entry->list, &tfw_hm_codes_list);
+	++tfw_hm_codes_cnt;
+
+	return hm_entry;
+}
+
 static int
 tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
@@ -1712,16 +1745,12 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
 		return -EINVAL;
 
-	hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
+	hm_entry = tfw_amp_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
-
-	INIT_LIST_HEAD(&hm_entry->list);
 	hm_entry->code = code;
 	hm_entry->limit = limit;
 	hm_entry->tframe = tframe;
-	list_add(&hm_entry->list, &tfw_hm_codes_list);
-	++tfw_hm_codes_cnt;
 
 	return 0;
 }
@@ -1737,6 +1766,39 @@ tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 	}
 	INIT_LIST_HEAD(&tfw_hm_codes_list);
 	tfw_hm_codes_cnt = 0;
+}
+
+
+static int
+tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int i, code;
+	const char *val;
+	TfwApmHMCfg *hm_entry;
+
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (tfw_cfgop_parse_http_status(val, &code)
+		    || (code > HTTP_STATUS_5XX
+			&& tfw_cfg_check_range(code, HTTP_CODE_MIN,
+					       HTTP_CODE_MAX)))
+		{
+			T_ERR_NL("Unable to parse http code value: '%s'\n",
+				 val);
+			return -EINVAL;
+		}
+		hm_entry = tfw_amp_create_hm_entry();
+		if (!hm_entry)
+			return -ENOMEM;
+		hm_entry->code = code;
+		/*
+		 * With no set timeframe and response limit, we just accumulate
+		 * total response statistics.
+		 */
+	}
+	return 0;
 }
 
 static int
@@ -1761,7 +1823,6 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (!strcasecmp(ce->vals[0], TFW_APM_HM_AUTO)) {
 		tfw_hm_default = tfw_hm_entry;
-		tfw_hm_expl_def = true;
 	}
 
 	return 0;
@@ -1930,6 +1991,13 @@ static TfwCfgSpec tfw_apm_specs[] = {
 		.handler	= tfw_cfgop_apm_server_failover,
 		.allow_none	= true,
 		.allow_repeat	= true,
+		.cleanup	= tfw_cfgop_apm_cleanup_server_failover,
+	},
+	{
+		.name		= "health_stat_server",
+		.deflt		= NULL,
+		.handler	= tfw_cfgop_apm_health_stat_srv,
+		.allow_none	= true,
 		.cleanup	= tfw_cfgop_apm_cleanup_server_failover,
 	},
 	{

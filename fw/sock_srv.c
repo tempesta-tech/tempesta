@@ -705,7 +705,7 @@ tfw_sock_srv_del_conns(void *psrv)
 }
 
 static int
-tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *hm)
+tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *hm_name)
 {
 	int r;
 
@@ -722,8 +722,8 @@ tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *hm)
 		return r;
 	}
 	tfw_sock_srv_connect_srv(srv);
-	if (hm)
-		tfw_apm_hm_enable_srv(srv, hm);
+	if (hm_name)
+		tfw_apm_hm_enable_srv(srv, hm_name);
 
 	return 0;
 }
@@ -900,7 +900,6 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * @sched_flags		- scheduler flags;
  * @sched_arg		- scheduler init argument.
  * @hm_name		- name of group's health monitor;
- * @hm_arg		- health monitor argument (for optimization purposes);
  */
 typedef struct {
 	TfwSrvGroup		*orig_sg;
@@ -911,7 +910,6 @@ typedef struct {
 	unsigned int		sched_flags;
 	void			*sched_arg;
 	char			*hm_name;
-	void			*hm_arg;
 } TfwCfgSrvGroup;
 
 /* Currently parsed Server group. */
@@ -1077,7 +1075,7 @@ tfw_cfgop_update_srv_health(TfwSrvGroup *sg, TfwServer *srv, void *data)
 	 * in new configuration for current server group.
 	 */
 	if (sg_cfg->hm_name)
-		tfw_apm_hm_enable_srv(srv, sg_cfg->hm_arg);
+		tfw_apm_hm_enable_srv(srv, sg_cfg->hm_name);
 
 	return 0;
 }
@@ -2076,7 +2074,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_sg_put(sg_cfg->parsed_sg);
 		tfw_server_put(srv);
 
-		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_arg))) {
+		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_name))) {
 			T_ERR_NL("cannot establish new server connection\n");
 			return r;
 		}
@@ -2155,15 +2153,12 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	int r;
 	TfwSrvGroup *sg = sg_cfg->parsed_sg;
 
-	if (sg_cfg->hm_name)
-		sg_cfg->hm_arg = tfw_apm_get_hm(sg_cfg->hm_name);
-
 	if (sg_cfg->orig_sg)
 		return tfw_cfgop_update_sg_cfg(sg_cfg);
 
 	T_DBG2("Setup new group '%s' to use after reconfiguration\n", sg->name);
 	if ((r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_start_srv,
-				       sg_cfg->hm_arg)))
+				       sg_cfg->hm_name)))
 		return r;
 
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg);

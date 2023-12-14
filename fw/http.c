@@ -1601,11 +1601,16 @@ static bool
 tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
+	/*
+	 * We need to count a total response statistics in
+	 * tfw_apm_hm_srv_limit(), even if health monitor is disabled.
+	 * In this case limit calculation won't be accounted.
+	 */
+	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
 	if (!(flags & TFW_SRV_F_HMONITOR))
 		return true;
-
-	if (!tfw_apm_hm_srv_limit(resp->status, srv->apmref))
+	if (!lim_exceeded)
 		return false;
 
 	do {
