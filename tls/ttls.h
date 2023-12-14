@@ -472,7 +472,9 @@ typedef struct {
 } TlsCfg;
 
 /* I/O state flags. */
-#define TTLS_F_ST_HDRIV		1 /* header [and IV] parsed */
+#define TTLS_F_ST_HDRIV		0x1 /* header [and IV] parsed */
+#define TTLS_F_ST_SHUTDOWN	0x2 /* We should close connection gracefully */
+#define TTLS_F_ST_CLOSE		0x4 /* We should close connection immediately */
 
 /**
  * I/O context for a TLS context.
@@ -615,8 +617,9 @@ int ttls_recv(void *tls_data, unsigned char *buf, unsigned int len,
 	      unsigned int *read);
 int ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt);
 
-int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
-int ttls_close_notify(TlsCtx *tls);
+int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg,
+		    int close_type);
+int ttls_close_notify(TlsCtx *tls, int close_type);
 
 void ttls_ctx_clear(TlsCtx *tls);
 void ttls_key_cert_free(TlsKeyCert *key_cert);

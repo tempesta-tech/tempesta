@@ -308,6 +308,12 @@ tfw_connection_init(TfwConn *conn)
 }
 
 int
+tfw_connection_shutdown(TfwConn *conn, bool sync)
+{
+	return 0;
+}
+
+int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
 	return 0;

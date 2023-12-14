@@ -1414,8 +1414,10 @@ ss_tx_action(void)
 
 		bh_lock_sock(sk);
 		if (sock_flag(sk, SOCK_DEAD)) {
-			if (sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closing)
-			    && (sw.flags & __SS_F_FORCE))
+			if (sk->sk_user_data
+			    && (SS_CONN_TYPE(sk) & Conn_Closing)
+			    && (sw.action == SS_CLOSE &&
+				sw.flags & __SS_F_FORCE))
 				ss_conn_drop_guard_exit(sk);
 			/* We've closed the socket on earlier job. */
 			bh_unlock_sock(sk);
