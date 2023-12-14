@@ -86,6 +86,12 @@ typedef enum {
 	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE
 } TfwSettingsId;
 
+typedef enum {
+	TFW_FRAME_DEFAULT,
+	TFW_FRAME_SHUTDOWN,
+	TFW_FRAME_CLOSE
+} TfwCloseType;
+
 #define __FRAME_FSM_EXIT()						\
 do {									\
 	ctx->rlen = 0;							\
@@ -277,7 +283,8 @@ tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
  * written in this procedure.
  */
 static int
-__tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
+__tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
+		    TfwCloseType type)
 {
 	int r;
 	TfwMsgIter it;
@@ -304,8 +311,15 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	if ((r = tfw_msg_write(&it, data)))
 		goto err;
 
-	if (close)
+	switch (type) {
+	case TFW_FRAME_CLOSE:
+		msg.ss_flags |= __SS_F_FORCE;
+		fallthrough;
+	case TFW_FRAME_SHUTDOWN:
 		msg.ss_flags |= SS_F_CONN_CLOSE;
+		break;
+	default:
+	}
 
 	if (hdr->flags == HTTP2_F_ACK &&
 	    (ctx->new_settings.flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING))
@@ -323,7 +337,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	 * thus, we should set Conn_Stop flag only if sending procedure
 	 * was successful - to avoid hanged unclosed client connection.
 	 */
-	if (close)
+	if (type == TFW_FRAME_CLOSE || type == TFW_FRAME_SHUTDOWN)
 		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
 
 	return 0;
@@ -336,13 +350,19 @@ err:
 static inline int
 tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 {
-	return __tfw_h2_send_frame(ctx, hdr, data, false);
+	return __tfw_h2_send_frame(ctx, hdr, data, 0);
+}
+
+static inline int
+tfw_h2_send_frame_shutdown(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
+{
+	return __tfw_h2_send_frame(ctx, hdr, data, TFW_FRAME_SHUTDOWN);
 }
 
 static inline int
 tfw_h2_send_frame_close(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 {
-	return __tfw_h2_send_frame(ctx, hdr, data, true);
+	return __tfw_h2_send_frame(ctx, hdr, data, TFW_FRAME_CLOSE);
 }
 
 static inline int
@@ -461,7 +481,7 @@ tfw_h2_send_settings_ack(TfwH2Ctx *ctx)
 }
 
 static inline int
-tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
+tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code, bool attack)
 {
 	unsigned char id_buf[STREAM_ID_SIZE];
 	unsigned char err_buf[ERR_CODE_SIZE];
@@ -490,7 +510,8 @@ tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
 	*(unsigned int *)id_buf = htonl(ctx->lstream_id);
 	*(unsigned int *)err_buf = htonl(err_code);
 
-	return tfw_h2_send_frame_close(ctx, &hdr, &data);
+	return attack ? tfw_h2_send_frame_close(ctx, &hdr, &data) :
+		tfw_h2_send_frame_shutdown(ctx, &hdr, &data);
 }
 
 int
@@ -518,18 +539,23 @@ tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 }
 
 void
-tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close)
+tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
+			    bool attack)
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
-	if (tfw_h2_send_goaway(ctx, err_code) && close)
-		tfw_connection_close((TfwConn *)conn, true);
+	if (tfw_h2_send_goaway(ctx, err_code, attack) && close) {
+		if (attack)
+			tfw_connection_close((TfwConn *)conn, true);
+		else
+			tfw_connection_shutdown((TfwConn *)conn, true);
+	}
 }
 
 static inline void
 tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
 {
-	tfw_h2_conn_terminate_close(ctx, err_code, false);
+	tfw_h2_conn_terminate_close(ctx, err_code, false, false);
 }
 
 #define VERIFY_FRAME_SIZE(ctx)						\
@@ -1853,7 +1879,8 @@ next_msg:
 	 * by the time we get here. We shouldn't submit the data to the
 	 * upper level for the actual HTTP parsing.
 	 */
-	if (APP_FRAME(h2) && likely(h2->cur_stream)) {
+	if (APP_FRAME(h2) && likely(h2->cur_stream))
+	{
 		/* This chopping algorithm could be replaced with a call
 		 * of ss_skb_list_chop_head_tail(). We refrain of it
 		 * to proccess a special case !h2->skb_head below.

@@ -966,7 +966,8 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		/* Error out (and send alert) on invalid records */
 		if (r == TTLS_ERR_INVALID_MAC)
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_BAD_RECORD_MAC);
+					TTLS_ALERT_MSG_BAD_RECORD_MAC,
+					TTLS_F_ST_SHUTDOWN);
 		T_DBG2("decryption failed: %d", r);
 		return r;
 	}
@@ -1082,7 +1083,8 @@ ttls_hdr_check(TlsCtx *tls)
 	{
 		T_WARN("unknown record type %d\n", io->msgtype);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
+				TTLS_ALERT_MSG_UNEXPECTED_MESSAGE,
+				TTLS_F_ST_SHUTDOWN);
 
 		return -EINVAL;
 	}
@@ -1334,7 +1336,7 @@ ttls_handle_alert(TlsCtx *tls)
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
 		T_DBG2("is a close notify message\n");
-		ttls_close_notify(tls);
+		ttls_close_notify(tls, TTLS_F_ST_SHUTDOWN);
 		return T_BAD;
 	}
 
@@ -1350,15 +1352,19 @@ ttls_handle_alert(TlsCtx *tls)
  * @msg	- the alert message (SSL_ALERT_MSG_*)
  */
 int
-ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
+ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg,
+		int close_type)
 {
 	int r;
 	TlsIOCtx *io = &tls->io_out;
 
 	T_DBG("send alert level=%u message=%u\n", lvl, msg);
+	BUG_ON(close_type != TTLS_F_ST_SHUTDOWN
+	       && close_type != TTLS_F_ST_CLOSE);
 
 	io->msgtype = TTLS_MSG_ALERT;
 	io->hstype = TTLS_HS_INVALID;
+	io->st_flags |= close_type;
 	/* Set hslen just in case of non-critical handshake alert. */
 	io->msglen = io->hslen = 2;
 	io->alert[0] = lvl;
@@ -1473,7 +1479,8 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	{
 		TTLS_WARN(tls, "bad certificate message length %d\n", io->hslen);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 		return TTLS_ERR_BAD_HS_CERTIFICATE;
 	}
 
@@ -1543,7 +1550,8 @@ parse:
 	if (p[i] != 0 || io->hslen != n + 3) {
 		TTLS_WARN(tls, "bad certificate message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 		r = TTLS_ERR_BAD_HS_CERTIFICATE;
 		goto err;
 	}
@@ -1554,7 +1562,8 @@ parse:
 	if (!sess->peer_cert) {
 		TTLS_WARN(tls, "can not allocate a certificate\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_INTERNAL_ERROR);
+				TTLS_ALERT_MSG_INTERNAL_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 		r = TTLS_ERR_ALLOC_FAILED;
 		goto err;
 	}
@@ -1563,7 +1572,8 @@ parse:
 		if (p[i]) {
 			TTLS_WARN(tls, "bad certificate message\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					    TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR,
+					TTLS_F_ST_SHUTDOWN);
 			r = TTLS_ERR_BAD_HS_CERTIFICATE;
 			goto err;
 		}
@@ -1574,7 +1584,8 @@ parse:
 		if (n < 128 || i + n > io->hslen) {
 			TTLS_WARN(tls, "bad certificate message\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					    TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR,
+					TTLS_F_ST_SHUTDOWN);
 			r = TTLS_ERR_BAD_HS_CERTIFICATE;
 			goto err;
 		}
@@ -1597,7 +1608,8 @@ parse:
 		default:
 			alert = TTLS_ALERT_MSG_BAD_CERT;
 		crt_parse_der_failed:
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert);
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert,
+					TTLS_F_ST_SHUTDOWN);
 			TTLS_WARN(tls, "cannot parse DER certificate, %d\n", r);
 			goto err;
 		}
@@ -1690,7 +1702,8 @@ parse:
 				alert = TTLS_ALERT_MSG_UNKNOWN_CA;
 			else
 				alert = TTLS_ALERT_MSG_CERT_UNKNOWN;
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert);
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert,
+					TTLS_F_ST_SHUTDOWN);
 		}
 	}
 err:
@@ -1744,14 +1757,16 @@ ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf, size_t len,
 			  " Change Cipher Spec expected\n",
 			  msgtype_to_str(io->msgtype));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
+				TTLS_ALERT_MSG_UNEXPECTED_MESSAGE,
+				TTLS_F_ST_SHUTDOWN);
 		return TTLS_ERR_UNEXPECTED_MESSAGE;
 	}
 	if (io->msglen != 1 || io->hstype != 1) {
 		TTLS_WARN(tls, "bad change cipher spec message, len=%u"
 			  " type=%s\n", io->msglen, hstype_to_str(io->hstype));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 		return TTLS_ERR_BAD_HS_CHANGE_CIPHER_SPEC;
 	}
 
@@ -1855,7 +1870,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_DBG3_BUF("finished message: ",
 			   hs->finished, TTLS_HS_HDR_LEN);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
@@ -1863,7 +1879,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (crypto_memneq(&hs->finished[TTLS_HS_HDR_LEN], hash, TLS_HASH_LEN)) {
 		TTLS_WARN(tls, "bad hash in finished message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
@@ -2231,7 +2248,8 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			TTLS_WARN(tls, "refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_NO_RENEGOTIATION);
+					TTLS_ALERT_MSG_NO_RENEGOTIATION,
+					TTLS_F_ST_SHUTDOWN);
 			return T_BAD;
 		}
 
@@ -2306,7 +2324,7 @@ EXPORT_SYMBOL(ttls_recv);
  * Notify the peer that the connection is being closed.
  */
 int
-ttls_close_notify(TlsCtx *tls)
+ttls_close_notify(TlsCtx *tls, int close_type)
 {
 	BUG_ON(!tls || !tls->conf);
 	T_DBG("write close notify\n");
@@ -2315,7 +2333,8 @@ ttls_close_notify(TlsCtx *tls)
 		return -EPROTO;
 
 	return ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
-			       TTLS_ALERT_MSG_CLOSE_NOTIFY);
+			       TTLS_ALERT_MSG_CLOSE_NOTIFY,
+			       close_type);
 }
 EXPORT_SYMBOL(ttls_close_notify);
 
@@ -2766,7 +2785,8 @@ exit:
 	ttls_md_free(&ctx);
 	if (r)
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				TTLS_ALERT_MSG_INTERNAL_ERROR);
+				TTLS_ALERT_MSG_INTERNAL_ERROR,
+				TTLS_F_ST_SHUTDOWN);
 	return r;
 }
 

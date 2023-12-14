@@ -460,6 +460,33 @@ err_epilogue:
 #undef AUTO_SEGS_N
 }
 
+static inline int
+tfw_tls_close_msg_flags(TlsIOCtx *io)
+{
+	int flags = 0;
+
+	switch (io->st_flags
+		& (TTLS_F_ST_SHUTDOWN | TTLS_F_ST_CLOSE))
+	{
+	case TTLS_F_ST_CLOSE:
+		flags |= __SS_F_FORCE;
+		fallthrough;
+	case TTLS_F_ST_SHUTDOWN:
+		flags |= SS_F_CONN_CLOSE;
+		io->st_flags &= ~ (TTLS_F_ST_SHUTDOWN | TTLS_F_ST_CLOSE);
+		break;
+	default:
+		/*
+		 * All close notify and fatal messages should specify
+		 * how to close connection (using tcp_close() or
+		 * tcp_shutdown())
+		 */
+		BUG();
+	}
+
+	return flags;
+}
+
 /**
  * Callback function which is called by TLS module under tls->lock when it
  * initiates a record transmission, e.g. alert or a handshake message.
@@ -532,7 +559,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	if (io->msgtype == TTLS_MSG_ALERT &&
 	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
-		flags |= SS_F_CONN_CLOSE;
+		flags |= tfw_tls_close_msg_flags(io);
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
@@ -623,7 +650,7 @@ tfw_tls_conn_shutdown(TfwConn *c, bool sync)
 	TlsCtx *tls = tfw_tls_context(c);
 
 	spin_lock(&tls->lock);
-	r = ttls_close_notify(tls);
+	r = ttls_close_notify(tls, TTLS_F_ST_SHUTDOWN);
 	spin_unlock(&tls->lock);
 
 	/*
@@ -653,7 +680,7 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	TlsCtx *tls = tfw_tls_context(c);
 
 	spin_lock(&tls->lock);
-	r = ttls_close_notify(tls);
+	r = ttls_close_notify(tls, TTLS_F_ST_CLOSE);
 	spin_unlock(&tls->lock);
 
 	/*
@@ -713,7 +740,8 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	if (ttls_xfrm_ready(tls))
 		msg->ss_flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
 
-	r = ss_send(c->sk, &msg->skb_head, msg->ss_flags & ~SS_F_CONN_CLOSE);
+	r = ss_send(c->sk, &msg->skb_head,
+		    msg->ss_flags & ~SS_F_CLOSE_FORCE);
 	if (r)
 		return r;
 
@@ -722,8 +750,11 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	 * is called on already closed socket.
 	 */
 	if (msg->ss_flags & SS_F_CONN_CLOSE) {
+		int close_type = msg->ss_flags & __SS_F_FORCE ?
+			TTLS_F_ST_CLOSE : TTLS_F_ST_SHUTDOWN;
+
 		spin_lock(&tls->lock);
-		r = ttls_close_notify(tls);
+		r = ttls_close_notify(tls, close_type);
 		spin_unlock(&tls->lock);
 	}
 
