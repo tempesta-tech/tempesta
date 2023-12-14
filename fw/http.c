@@ -4949,6 +4949,18 @@ tfw_http_conn_error_log(TfwConn *conn, const char *msg)
 		T_WARN_ADDR(msg, &conn->peer->addr, TFW_NO_PORT);
 }
 
+static inline int
+tfw_h2_choose_close_type(ErrorType type, bool reply)
+{
+	if (!reply)
+		return T_BLOCK_WITH_RST;
+	else if (type == TFW_ERROR_TYPE_ATTACK)
+		return T_BLOCK_WITH_FIN;
+	else if (type == TFW_ERROR_TYPE_BAD)
+		return T_BAD;
+	return T_DROP;
+}
+
 static int
 tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event)
@@ -5016,15 +5028,13 @@ free_req:
 	do_access_log_req(req, status, 0);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 out:
-	return reply ? (type == TFW_ERROR_TYPE_ATTACK ||
-			type == TFW_ERROR_TYPE_BAD ? T_BAD : T_DROP) : T_BLOCK;
+	return tfw_h2_choose_close_type(type, reply);
 }
 
 static int
 tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event)
 {
-	int r = T_DROP;
 	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 
 	/* The client connection is to be closed with the last resp sent. */
@@ -5039,7 +5049,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 			tfw_connection_abort(req->conn);
 		do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
-		return T_BLOCK;
+		goto out;
 	}
 
 	if (on_req_recv_event) {
@@ -5051,14 +5061,13 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		spin_unlock(&cli_conn->seq_qlock);
 	}
 
-	if (type == TFW_ERROR_TYPE_ATTACK
-	    || type == TFW_ERROR_TYPE_BAD) {
+	if (type != TFW_ERROR_TYPE_DROP)
 		tfw_http_req_set_conn_close(req);
-		r = T_BAD;
-	}
 
 	tfw_h1_send_err_resp(req, status);
-	return r;
+
+out:
+	return tfw_h2_choose_close_type(type, reply);
 }
 
 /**
@@ -5080,9 +5089,12 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
  *			  internal errors or misconfigurations;
  * @on_req_recv_event	- true if request is not fully parsed and the caller
  *			  handles the connection closing on its own.
- * @return		- T_BLOCK if reply is not needed
- * 			  T_BAD if it is an attack case and we need to reply.
- * 			  T_DROP if it is error case and we need to reply.
+ * @return		- T_BLOCK_WITH_RST if reply is not needed
+ *			  T_BLOCK_WITH_FIN if it is an attack case and we need
+ *			  to reply.
+ * 			  T_BAD if it is not attack case and we need to reply
+ *			  and shutdown gracefully.
+ *			  T_DROP if it is error case and we need to reply.
  */
 static int
 tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
@@ -5751,7 +5763,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
 	TfwFsmData data_up;
-	int r = T_BLOCK;
+	int r;
 	TfwHttpActionResult res;
 
 	BUG_ON(!stream->msg);
@@ -6331,7 +6343,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
-		return T_BLOCK;
+		return T_BAD;
 	}
 	/*
 	 * This hook isn't in tfw_http_resp_fwd() because responses from the
@@ -6341,10 +6353,9 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
 	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data)) {
-		/* The response is freed by tfw_http_req_block(). */
-		tfw_http_req_block(req, 403, "response blocked: filtered out");
 		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return T_BLOCK;
+		/* The response is freed by tfw_http_req_block(). */
+		return tfw_http_req_block(req, 403, "response blocked: filtered out");
 	}
 
 	/*
@@ -6427,7 +6438,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 static int
 tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 {
-	int r = T_BLOCK;
+	int r;
 	unsigned int chunks_unused, parsed;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;

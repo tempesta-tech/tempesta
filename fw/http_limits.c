@@ -1482,7 +1482,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 				     ra->history[i].tls_sess_new,
 				     conf->tls_new_conn_burst,
 				     &FRANG_ACC2CLI(ra)->addr);
-			return T_BLOCK;
+			return T_BLOCK_WITH_RST;
 		}
 		break;
 	case TTLS_HS_CB_FINISHED_RESUMED:
@@ -1492,7 +1492,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		break;
 	default:
 		WARN_ONCE(1, "Frang: unknown tls state\n");
-		return T_BLOCK;
+		return T_BLOCK_WITH_RST;
 		break;
 	}
 
@@ -1510,7 +1510,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 			frang_limmsg("new TLS connections rate", sum_new,
 				     conf->tls_new_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
-			return T_BLOCK;
+			return T_BLOCK_WITH_RST;
 		}
 		break;
 	case TTLS_HS_CB_INCOMPLETE:
@@ -1522,7 +1522,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 				     sum_incomplete,
 				     conf->tls_incomplete_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
-			return T_BLOCK;
+			return T_BLOCK_WITH_RST;
 		}
 		break;
 	default:
@@ -1541,7 +1541,7 @@ frang_tls_handler(TlsCtx *tls, int state)
 	int r;
 
 	if (WARN_ON_ONCE(!dflt_vh))
-		return T_BLOCK;
+		return T_BLOCK_WITH_RST;
 
 	spin_lock(&ra->lock);
 
@@ -1549,7 +1549,7 @@ frang_tls_handler(TlsCtx *tls, int state)
 
 	spin_unlock(&ra->lock);
 
-	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
+	if (unlikely(r == T_BLOCK_WITH_RST) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 
 	tfw_vhost_put(dflt_vh);

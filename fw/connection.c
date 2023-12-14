@@ -182,6 +182,12 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 		}
 	}
 
+	/*
+	 * T_BLOCK is error code for high level modules (like frang),
+	 * here we should deal with error code, which accurately
+	 * determine further closing behavior.
+	 */
+	BUG_ON(r == T_BLOCK);
 	return r <= T_BAD || r == T_OK ? r : T_BAD;
 }
 

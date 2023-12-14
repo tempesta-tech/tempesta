@@ -32,18 +32,23 @@
  */
 enum {
 	/* Generic socket error. */
-	SS_BAD		= T_BAD,
+	SS_BAD		  = T_BAD,
 	/* The packet must be dropped, but connection should be alive. */
-	SS_DROP		= T_DROP,
+	SS_DROP		  = T_DROP,
+	/*
+	 * The packet must be blocked with TCP FIN (typically on a
+	 * security event, when we reply to client).
+	 */
+	SS_BLOCK_WITH_FIN = T_BLOCK_WITH_FIN,
 	/*
 	 * The packet must be blocked with TCP RST (typically on a
 	 * security event).
 	 */
-	SS_BLOCK	= T_BLOCK,
+	SS_BLOCK_WITH_RST = T_BLOCK_WITH_RST,
 	/* The packet should be stashed (made by callback). */
-	SS_POSTPONE	= T_POSTPONE,
+	SS_POSTPONE	  = T_POSTPONE,
 	/* The packet looks good and we can safely pass it. */
-	SS_OK		= T_OK,
+	SS_OK		  = T_OK,
 };
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,

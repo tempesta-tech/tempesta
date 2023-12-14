@@ -978,7 +978,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	if (unlikely(!io->msglen && ++tls->nb_zero > 3)) {
 		T_WARN("received four consecutive empty messages,"
 		       " possible DoS attack\n");
-		return T_BLOCK;
+		return T_BLOCK_WITH_RST;
 	} else {
 		tls->nb_zero = 0;
 	}
@@ -1166,7 +1166,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	 */
 	if (unlikely(io->hdr[1] != 3 || io->hdr[2] < 1 || io->hdr[2] > 3)) {
 		T_WARN("bad TLS version %u:%u\n", io->hdr[1], io->hdr[2]);
-		return T_BLOCK;
+		return T_BLOCK_WITH_RST;
 	}
 	io->msglen = ((unsigned short)io->hdr[3] << 8) | io->hdr[4];
 
