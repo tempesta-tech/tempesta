@@ -530,11 +530,11 @@ typedef struct tls_handshake_t TlsHandshake;
  *
  * @sk		- linked with the TLS connection TCP socket;
  * @lock	- protects the TLS context changes;
+ * @state	- TLS handshake: current TLS FSM state;
  * @conf	- global TLS configuration;
  * @peer_conf	- Vhost specific TLS configuration;
  * @hs		- params required only during the handshake process;
  * @alpn_chosen	- negotiated protocol;
- * @state	- TLS handshake: current TLS FSM state;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
  * @sess	- session data;
  * @xfrm	- transform params;
@@ -548,12 +548,11 @@ typedef struct tls_handshake_t TlsHandshake;
 typedef struct ttls_context {
 	struct sock		*sk;
 	spinlock_t		lock;
+	unsigned int		state;
 	const TlsCfg		*conf;
 	TlsPeerCfg		*peer_conf;
 	TlsHandshake		*hs;
 	const ttls_alpn_proto	*alpn_chosen;
-
-	unsigned int		state;
 
 	TlsIOCtx		io_in;
 	TlsIOCtx		io_out;
