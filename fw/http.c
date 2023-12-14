@@ -5013,7 +5013,9 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
 						 HTTP2_RST_STREAM, 0))
 			return T_BAD;
-		tfw_h2_send_rst_stream(ctx, stream->id, HTTP2_ECODE_PROTO);
+		if (tfw_h2_send_rst_stream(ctx, stream->id,
+					   HTTP2_ECODE_PROTO))
+			return T_BAD;
 	}
 	goto out;
 

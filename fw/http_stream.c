@@ -693,7 +693,8 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 		flags |= HTTP2_F_END_STREAM;
 
 	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
-	if (tfw_h2_get_stream_state(stream) > HTTP2_STREAM_REM_HALF_CLOSED)
+	if (flags & HTTP2_F_END_STREAM
+	    || (r && r != STREAM_FSM_RES_IGNORE))
 		tfw_h2_stream_add_closed(ctx, stream);
 
 	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
