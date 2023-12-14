@@ -935,7 +935,7 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_POSTPONE:
 	case SS_DROP:
 		return;
-	case SS_BLOCK:
+	case SS_BLOCK_WITH_RST:
 		/*
 		 * Here we do not close the TCP connection immediately.
 		 * If the higher layer decides that there is an attack,
@@ -945,6 +945,7 @@ ss_tcp_data_ready(struct sock *sk)
 		 */
 		flags = SS_F_ABORT;
 		break;
+	case SS_BLOCK_WITH_FIN:
 	case SS_BAD:
 		flags = SS_F_SYNC;
 		break;
