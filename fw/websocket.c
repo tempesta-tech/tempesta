@@ -263,13 +263,27 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
  */
 
 static int
+tfw_ws_conn_shutdown(TfwConn *conn, bool sync)
+{
+	int r;
+
+	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
+
+	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_shutdown,
+			       sync);
+
+	return r;
+}
+
+static int
 tfw_ws_conn_close(TfwConn *conn, bool sync)
 {
 	int r;
 
 	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
-	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_close, sync);
+	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_close,
+			       sync);
 
 	return r;
 }
@@ -353,6 +367,7 @@ tfw_ws_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 static TfwConnHooks ws_conn_hooks = {
+	.conn_shutdown	= tfw_ws_conn_shutdown,
 	.conn_close	= tfw_ws_conn_close,
 	.conn_abort	= tfw_ws_conn_abort,
 	.conn_drop	= tfw_ws_conn_drop,
@@ -360,6 +375,7 @@ static TfwConnHooks ws_conn_hooks = {
 };
 
 static TfwConnHooks wss_conn_hooks = {
+	.conn_shutdown	= tfw_ws_conn_shutdown,
 	.conn_close	= tfw_ws_conn_close,
 	.conn_abort	= tfw_ws_conn_abort,
 	.conn_drop	= tfw_ws_conn_drop,

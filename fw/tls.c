@@ -608,6 +608,36 @@ err_cleanup:
 }
 
 static int
+tfw_tls_conn_shutdown(TfwConn *c, bool sync)
+{
+	int r;
+	TlsCtx *tls = tfw_tls_context(c);
+
+	spin_lock(&tls->lock);
+	r = ttls_close_notify(tls);
+	spin_unlock(&tls->lock);
+
+	/*
+	 * Once the TLS close notify alert is going to be sent by
+	 * tcp_write_xmit(), tfw_tls_encrypt() calls ss_close(), so
+	 * if the call succeeded, then we'll close the socket with the alert
+	 * transmission. Otherwise if we have to close the socket
+	 * and can not write to the socket, then there is no other way than
+	 * skip the alert and just close the socket.
+	 *
+	 * That's just OK if we're closing a TCP connection during TLS handshake.
+	 */
+	if (r) {
+		if (r != -EPROTO)
+			T_WARN_ADDR("Close TCP socket w/o sending alert to"
+				    " the peer", &c->peer->addr, TFW_NO_PORT);
+		r = ss_shutdown(c->sk, sync ? SS_F_SYNC : 0);
+	}
+
+	return r;
+}
+
+static int
 tfw_tls_conn_close(TfwConn *c, bool sync)
 {
 	int r;
@@ -693,6 +723,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 
 static TfwConnHooks tls_conn_hooks = {
 	.conn_init	= tfw_tls_conn_init,
+	.conn_shutdown	= tfw_tls_conn_shutdown,
 	.conn_close	= tfw_tls_conn_close,
 	.conn_abort	= tfw_tls_conn_abort,
 	.conn_drop	= tfw_tls_conn_drop,

@@ -42,6 +42,7 @@
 typedef enum {
 	SS_SEND,
 	SS_CLOSE,
+	SS_SHUTDOWN,
 } SsAction;
 
 typedef struct {
@@ -684,15 +685,15 @@ ss_linkerror(struct sock *sk)
  * but rather it guarantees that the socket will be closed and the caller can
  * not care about return value.
  */
-int
-ss_close(struct sock *sk, int flags)
+static int
+ss_close_or_shutdown(struct sock *sk, int action, int flags)
 {
 	int cpu;
 	long ticket;
 	SsWork sw = {
 		.sk	= sk,
 		.flags  = flags,
-		.action	= SS_CLOSE,
+		.action	= action,
 	};
 
 	if (unlikely(!sk))
@@ -721,6 +722,19 @@ ss_close(struct sock *sk, int flags)
 err:
 	sock_put(sk);
 	return SS_BAD;
+}
+
+int
+ss_shutdown(struct sock *sk, int flags)
+{
+	return ss_close_or_shutdown(sk, SS_SHUTDOWN, flags);
+}
+EXPORT_SYMBOL(ss_shutdown);
+
+int
+ss_close(struct sock *sk, int flags)
+{
+	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
 }
 EXPORT_SYMBOL(ss_close);
 
@@ -1273,7 +1287,7 @@ ss_connect(struct sock *sk, const TfwAddr *addr, int flags)
 		return -EISCONN;
 
 	if (ss_active_guard_enter(SS_V_ACT_LIVECONN))
-		return SS_SHUTDOWN;
+		return -ESHUTDOWN;
 
 	bh_lock_sock(sk);
 	r = sk->sk_prot->connect(sk, uaddr, uaddr_len);
@@ -1452,6 +1466,12 @@ ss_tx_action(void)
 			}
 			/* paired with bh_lock_sock() */
 			__sk_close_locked(sk, sw.flags);
+			break;
+		case SS_SHUTDOWN:
+			/* sk_state is checked in `tcp_shutdown` function. */
+			BUG_ON(sw.flags & __SS_F_RST);
+			tcp_shutdown(sk, SEND_SHUTDOWN);
+			bh_unlock_sock(sk);
 			break;
 		default:
 			BUG();
