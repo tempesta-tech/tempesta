@@ -20,9 +20,9 @@
 #ifndef __TFW_APM_H__
 #define __TFW_APM_H__
 
-#include "http.h"
 #include "pool.h"
 #include "server.h"
+#include "stat.h"
 #include "str.h"
 
 /*
@@ -59,92 +59,6 @@ static const unsigned int tfw_pstats_ith[] = {
 };
 
 #define T_PSZ	_TFW_PSTATS_IDX_COUNT
-
-/*
- * Structures for health monitoring statistics accountings
- * in procfs.
- */
-typedef struct {
-	int		code;
-	unsigned int	sum;
-	u64		total;	/* Another sum for total stats; can be unused. */
-} TfwHMCodeStats;
-
-/*
- * @rtime	- time until next server health checking (can be unused if not
- *		  required);
- * @ccnt	- count of @rsums elements;
- * @rsums	- array of counters for separate HTTP codes;
- */
-typedef struct {
-	unsigned int	rtime;
-	unsigned int	ccnt;
-	TfwHMCodeStats	*rsums;
-} TfwHMStats;
-
-/**
- * The real size of TfwHMStats, used for memory allocation.
- *
- * TfwHMCodeStats is located monolithically in memory with TfwHMStats,
- * just after it.
- */
-static inline size_t
-tfw_hm_stats_size(int ccnt)
-{
-	return sizeof(TfwHMStats) + sizeof(TfwHMCodeStats) * ccnt;
-}
-
-/**
- * Use it right after memory allocation.
- *
- * Rsums content stays unitinitialized.
- */
-static inline void
-tfw_hm_stats_init(TfwHMStats *s, int ccnt)
-{
-	s->ccnt = ccnt;
-	s->rsums = (TfwHMCodeStats *)(s + 1);
-}
-
-static inline void
-tfw_hm_stats_clone(TfwHMStats *dest, TfwHMStats *src)
-{
-	if (!src)
-		return;
-
-	memcpy_fast(dest, src, tfw_hm_stats_size(src->ccnt));
-	dest->rsums = (TfwHMCodeStats *)(dest + 1);
-}
-
-/**
- * The config entry @ce must be a list of HTTP codes, such as:
- * 'some_directive 403 404 5*'.
- *
- * Use it right after memory allocation.
- */
-static inline int
-tfw_hm_stats_init_from_cfg_entry(TfwHMStats *s, TfwCfgEntry *ce)
-{
-	int i, code;
-	const char *val;
-	tfw_hm_stats_init(s, ce->val_n);
-
-	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		BUG_ON(i >= s->ccnt);
-
-		if (tfw_cfgop_parse_http_status(val, &code)
-		    || (code > HTTP_STATUS_5XX
-			&& tfw_cfg_check_range(code, HTTP_CODE_MIN,
-					       HTTP_CODE_MAX)))
-		{
-			T_ERR_NL("Unable to parse http code value: '%s'\n",
-				 val);
-			return -EINVAL;
-		}
-		s->rsums[i].code = code;
-	}
-	return 0;
-}
 
 int tfw_apm_add_srv(TfwServer *srv);
 void tfw_apm_del_srv(TfwServer *srv);

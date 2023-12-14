@@ -34,6 +34,7 @@
 
 #include "tdb.h"
 
+#include "apm.h"
 #include "lib/str.h"
 #include "tempesta_fw.h"
 #include "vhost.h"
@@ -2880,6 +2881,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	}
 
 	resp = tfw_cache_build_resp(req, ce, lifetime, id);
+
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will

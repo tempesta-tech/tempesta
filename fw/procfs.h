@@ -21,7 +21,7 @@
 #define __TFW_PROCFS_H__
 
 #include "tempesta_fw.h"
-#include "apm.h"
+#include "stat.h"
 
 /*
  * @wq_full		- How many times we faced work queue full.

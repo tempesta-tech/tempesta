@@ -33,7 +33,6 @@
 #include "cfg.h"
 #include "log.h"
 #include "pool.h"
-#include "procfs.h"
 #include "http.h"
 
 /*
@@ -476,6 +475,12 @@ typedef struct {
 
 /* Entry for configuration of separate health monitors. */
 static TfwApmHM		*tfw_hm_entry;
+/*
+ * Whether an HM config entry with an HTTP code 200 was created. We always want
+ * to have information about the amount of 200 responses from servers,
+ * regardless of the configuration.
+ */
+static bool		tfw_hm_cfg_200_created;
 /* Entry for configuration of default 'auto' health monitor. */
 static TfwApmHM		*tfw_hm_default;
 /* Total count of monitored HTTP codes. */
@@ -1242,7 +1247,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 		atomic64_inc(&hmctl->rcount);
 }
 
-static inline u32
+static u32
 __tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
 		     TfwStr *body)
 {
@@ -1556,6 +1561,7 @@ __tfw_cfgop_cleanup_apm_hm(void)
 
 	tfw_hm_entry = NULL;
 	tfw_hm_default = NULL;
+	tfw_hm_cfg_200_created = false;
 
 	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
 		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
@@ -1572,7 +1578,6 @@ tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
 {
 	__tfw_cfgop_cleanup_apm_hm();
 }
-
 
 /**
  * Create 'auto' health monitor for default mode if explicit one have not been
@@ -1608,10 +1613,42 @@ tfw_apm_create_def_hm(void)
 	return 0;
 }
 
+static TfwApmHMCfg *
+tfw_amp_create_hm_entry(void)
+{
+	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
+	if (!hm_entry)
+		return NULL;
+
+	INIT_LIST_HEAD(&hm_entry->list);
+	list_add(&hm_entry->list, &tfw_hm_codes_list);
+	++tfw_hm_codes_cnt;
+
+	return hm_entry;
+}
+
+static int
+tfw_apm_create_def_health_stat_srv(void)
+{
+	TfwApmHMCfg *hm_entry;
+
+	if (tfw_hm_cfg_200_created)
+		return 0;
+
+	hm_entry = tfw_amp_create_hm_entry();
+	if (!hm_entry)
+		return -ENOMEM;
+
+	hm_entry->code = 200;
+	return 0;
+}
+
 static int
 tfw_apm_cfgend(void)
 {
 	unsigned int jtmwindow;
+	int r;
+
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
@@ -1645,7 +1682,10 @@ tfw_apm_cfgend(void)
 	}
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
-	return tfw_apm_create_def_hm();
+	if ((r = tfw_apm_create_def_hm()))
+		return r;
+
+	return tfw_apm_create_def_health_stat_srv();
 }
 
 static void
@@ -1701,18 +1741,12 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static TfwApmHMCfg *
-tfw_amp_create_hm_entry(void)
+static void
+tfw_hm_entry_set_code(TfwApmHMCfg *hm_entry, int code)
 {
-	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
-	if (!hm_entry)
-		return NULL;
-
-	INIT_LIST_HEAD(&hm_entry->list);
-	list_add(&hm_entry->list, &tfw_hm_codes_list);
-	++tfw_hm_codes_cnt;
-
-	return hm_entry;
+	hm_entry->code = code;
+	if (code == 200)
+		tfw_hm_cfg_200_created = true;
 }
 
 static int
@@ -1748,7 +1782,7 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	hm_entry = tfw_amp_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
-	hm_entry->code = code;
+	tfw_hm_entry_set_code(hm_entry, code);
 	hm_entry->limit = limit;
 	hm_entry->tframe = tframe;
 
@@ -1792,7 +1826,7 @@ tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		hm_entry = tfw_amp_create_hm_entry();
 		if (!hm_entry)
 			return -ENOMEM;
-		hm_entry->code = code;
+		tfw_hm_entry_set_code(hm_entry, code);
 		/*
 		 * With no set timeframe and response limit, we just accumulate
 		 * total response statistics.

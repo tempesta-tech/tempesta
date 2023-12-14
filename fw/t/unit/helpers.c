@@ -131,8 +131,7 @@ void
 tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 {
 }
-
-bool
+ bool
 ss_active(void)
 {
 	return true;
