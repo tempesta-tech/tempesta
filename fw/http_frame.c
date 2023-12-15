@@ -319,6 +319,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 		msg.ss_flags |= SS_F_CONN_CLOSE;
 		break;
 	default:
+		break;
 	}
 
 	if (hdr->flags == HTTP2_F_ACK &&
@@ -1236,9 +1237,19 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
+
+	if ((TFW_CONN_TYPE((TfwConn *)conn) & Conn_Stop)
+	    && hdr_type != HTTP2_WINDOW_UPDATE) {
+		T_DBG3("Drop %s frame, because connection is closing",
+		       __h2_frm_type_n(hdr_type));
+		ctx->state = HTTP2_IGNORE_FRAME_DATA;
+		SET_TO_READ(ctx);
+		return 0;
+	}
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
@@ -1816,6 +1827,7 @@ next_msg:
 		 * determine further closing behavior.
 		 */
 		BUG_ON(r == T_BLOCK);
+		fallthrough;
 	case T_DROP:
 	case T_BAD:
 	case T_BLOCK_WITH_FIN:
@@ -1881,6 +1893,7 @@ next_msg:
 	 */
 	if (APP_FRAME(h2) && likely(h2->cur_stream))
 	{
+		BUG_ON(TFW_CONN_TYPE(c) & Conn_Stop);
 		/* This chopping algorithm could be replaced with a call
 		 * of ss_skb_list_chop_head_tail(). We refrain of it
 		 * to proccess a special case !h2->skb_head below.

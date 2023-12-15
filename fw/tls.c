@@ -73,7 +73,7 @@ tfw_tls_connection_lost(TfwConn *conn)
 int
 tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
-	int r, parsed;
+	int r, parsed, save_err_code = T_OK;
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
@@ -84,6 +84,7 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	 * it contains end of current message.
 	 */
 next_msg:
+	BUG_ON(save_err_code != T_OK && save_err_code != T_BAD);
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 
@@ -100,11 +101,12 @@ next_msg:
 		BUG_ON(r == T_BLOCK);
 		fallthrough;
 	case T_BAD:
-		r = T_BAD;
 		if (tls->conf->endpoint == TTLS_IS_SERVER)
 			TFW_INC_STAT_BH(serv.tls_hs_failed);
 		fallthrough;
 	case T_BLOCK_WITH_FIN:
+		r = T_BLOCK_WITH_FIN;
+		fallthrough;
 	case T_BLOCK_WITH_RST:
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
@@ -112,7 +114,11 @@ next_msg:
 	case T_POSTPONE:
 		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
-		return T_OK;
+		/*
+		 * save_error_code is T_OK or T_BAD if error occurs
+		 * on one of the previous steps.
+		 */
+		return save_err_code;
 	case T_OK:
 		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
@@ -174,11 +180,23 @@ next_msg:
 		spin_unlock(&tls->lock);
 
 		/* Do upcall to http or websocket */
-		r = tfw_connection_recv(conn, data_up.skb);
-		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST
-		    || r == T_BAD) {
+		if (save_err_code == T_OK)
+			r = tfw_connection_recv(conn, data_up.skb);
+		else
+			r = save_err_code;
+
+		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {
 			kfree_skb(nskb);
 			return r;
+		} else if (r == T_BAD) {
+			/*
+			 * In case of T_BAD error we close connection
+			 * with tcp_shutdown() and gracefully send all
+			 * pending responses to client. We should continue
+			 * to process WINDOW_UPDATE frames so, we should
+			 * decrypt all skbs, not drop them.
+			 */
+			save_err_code = r;
 		}
 	} else {
 		/*

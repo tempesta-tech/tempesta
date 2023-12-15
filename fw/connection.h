@@ -95,8 +95,8 @@ enum {
  * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
  * @refcnt	- number of users of the connection structure instance;
- * @timer	- The keep-alive/retry timer for the connection;
  * @stream	- instance for control messages processing;
+ * @timer	- The keep-alive/retry timer for the connection;
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
  * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
  * @sk		- an appropriate sock handler;
@@ -108,8 +108,8 @@ typedef struct tfw_conn_t TfwConn;
 	TfwGState		state;			\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
-	struct timer_list	timer;			\
 	TfwStream		stream;			\
+	struct timer_list	timer;			\
 	TfwPeer 		*peer;			\
 	TfwConn			*pair;			\
 	struct sock		*sk;			\
