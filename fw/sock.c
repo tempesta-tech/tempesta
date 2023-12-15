@@ -38,6 +38,7 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "http_limits.h"
+#include "connection.h"
 
 typedef enum {
 	SS_SEND,
@@ -195,6 +196,8 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	if (sk->sk_user_data)
+		SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
 		tfw_classify_conn_close(sk);
@@ -673,7 +676,13 @@ static void
 ss_linkerror(struct sock *sk)
 {
 	ss_do_close(sk, 0);
-	ss_conn_drop_guard_exit(sk);
+	/*
+	 * In case when ss_do_close is called for TCP_FIN_WAIT2
+	 * tcp_done() is called from tcp_time_wait() and connection
+	 * is drooped inside ss_do_close().
+	 */
+	if (sk->sk_user_data)
+		ss_conn_drop_guard_exit(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
@@ -737,6 +746,12 @@ ss_close(struct sock *sk, int flags)
 	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
 }
 EXPORT_SYMBOL(ss_close);
+
+static inline bool
+ss_is_closing(struct sock *sk)
+{
+	return sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closing);
+}
 
 /*
  * Process a single SKB.
@@ -805,7 +820,12 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		 */
 		BUG_ON(conn == NULL);
 
-		if (SS_CONN_TYPE(sk) & Conn_Stop) {
+		/*
+		 * We should continue to proess WINDOW_UPDATE frames
+		 * for closing connections.
+		 */
+		if ((SS_CONN_TYPE(sk) & Conn_Stop)
+		    && !((SS_CONN_TYPE(sk) & Conn_H2Clnt) == Conn_H2Clnt)) {
 			__kfree_skb(skb);
 			continue;
 		}
@@ -902,6 +922,8 @@ static void
 ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
+	int (*action)(struct sock *sk, int flags);
+	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop);
 
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
@@ -935,23 +957,29 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_POSTPONE:
 	case SS_DROP:
 		return;
-	case SS_BLOCK_WITH_RST:
-		/*
-		 * Here we do not close the TCP connection immediately.
-		 * If the higher layer decides that there is an attack,
-		 * but we have to send an HTTP response (i.e. Conn_Stop
-		 * flag is set), connection will be closed later after
-		 * sending response.
-		 */
-		flags = SS_F_ABORT;
-		break;
 	case SS_BLOCK_WITH_FIN:
+		flags = SS_F_SYNC;
+		action = ss_close;
+		break;
+	case SS_BLOCK_WITH_RST:
+		flags = SS_F_ABORT_FORCE;
+		action = ss_close;
+		break;
 	case SS_BAD:
 		flags = SS_F_SYNC;
+		action = ss_shutdown;
 		break;
 	default:
-		WARN_ON_ONCE(1);
-		flags = SS_F_SYNC;
+		BUG();
+	}
+
+	if (was_stopped) {
+		/*
+		 * In case of errors for already stopped connections
+		 * we should immediately close them with TCP RST.
+		 */
+		flags = SS_F_ABORT_FORCE;
+		action = ss_close;
 	}
 
 	/*
@@ -968,8 +996,8 @@ ss_tcp_data_ready(struct sock *sk)
 	 * Closing a socket should go through the queue and
 	 * should be done after all pending data has been sent.
 	 */
-	if (!(SS_CONN_TYPE(sk) & Conn_Stop))
-		ss_close(sk, flags);
+	if (!(SS_CONN_TYPE(sk) & Conn_Stop) || was_stopped)
+		action(sk, flags);
 }
 
 /**
@@ -1068,19 +1096,25 @@ ss_tcp_state_change(struct sock *sk)
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
-		 * We reach the state on regular tcp_close() (including the
-		 * active closing from our side), tcp_abort() or tcp_done()
-		 * in case of connection errors/RST and also tcp_fin() ->
-		 * tcp_time_wait() for FIN_WAIT_2 and TIME_WAIT (also active
-		 * closing) lead to tcp_done(). Note that we get here also on
-		 * concurrent closing (TCP_CLOSING).
+		 * We reach the state on regular tcp_close() tcp_shutdown()
+		 * (including the active closing from our side), tcp_abort()
+		 * or tcp_done() in case of connection errors/RST and also
+		 * tcp_fin() -> tcp_time_wait() for FIN_WAIT_2 and TIME_WAIT
+		 * (also active closing) lead to tcp_done(). Note that we get
+		 * here also on concurrent closing (TCP_CLOSING).
 		 *
 		 * It's safe to call the callback since we set socket callbacks
 		 * either for just created, not connected, sockets or in the
 		 * function above for ESTABLISHED state. sk_state_change()
 		 * callback is never called for the same socket concurrently.
+		 *
+		 * Same as for TCP_CLOSE_WAIT state it may happen that FIN comes
+		 * with a data SKB, or there's still data in the socket's receive
+		 * queue that hasn't been processed yet (it can occurs if we call
+		 * tcp_shutdown()).
 		 */
-		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
+		if (!skb_queue_empty(&sk->sk_receive_queue))
+			ss_tcp_process_data(sk);
 		ss_linkerror(sk);
 	}
 }
@@ -1394,6 +1428,14 @@ __sk_close_locked(struct sock *sk, int flags)
 	sock_put(sk); /* paired with ss_do_close() */
 }
 
+static inline void
+ss_do_shutdown(struct sock *sk)
+{
+	tcp_shutdown(sk, SEND_SHUTDOWN);
+	if (sk->sk_user_data)
+		SS_CONN_TYPE(sk) |= Conn_Closing;
+}
+
 static void
 ss_tx_action(void)
 {
@@ -1414,12 +1456,17 @@ ss_tx_action(void)
 
 		bh_lock_sock(sk);
 		if (sock_flag(sk, SOCK_DEAD)) {
-			if (sk->sk_user_data
-			    && (SS_CONN_TYPE(sk) & Conn_Closing)
-			    && (sw.action == SS_CLOSE &&
-				sw.flags & __SS_F_FORCE))
+			if (ss_is_closing(sk)
+			    && ((sw.action == SS_CLOSE)
+				&& (sw.flags & __SS_F_FORCE)))
 				ss_conn_drop_guard_exit(sk);
 			/* We've closed the socket on earlier job. */
+			bh_unlock_sock(sk);
+			goto dead_sock;
+		} else if (ss_is_closing(sk)) {
+			if ((sw.action == SS_CLOSE)
+			    && (sw.flags & __SS_F_FORCE))
+				ss_linkerror(sk);
 			bh_unlock_sock(sk);
 			goto dead_sock;
 		}
@@ -1430,9 +1477,10 @@ ss_tx_action(void)
 			 * Don't make TSQ spin on the lock while we're working
 			 * with the socket.
 			 *
-			 * Socket is locked and this synchronizes possible socket
-			 * closing with tcp_tasklet_func(): we must clear the
-			 * TSQ deffered flag with sk->sk_lock.owned = 1.
+			 * Socket is locked and this synchronizes possible
+			 * socket closing with tcp_tasklet_func(): we must
+			 * clear the TSQ deffered flag with
+			 * sk->sk_lock.owned = 1.
 			 *
 			 * Set sk->sk_lock.owned = 0 if no closing is required,
 			 * otherwise ss_do_close() does this.
@@ -1440,13 +1488,22 @@ ss_tx_action(void)
 			sk->sk_lock.owned = 1;
 
 			ss_do_send(sk, &sw.skb_head, sw.flags);
-			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+			switch(sw.flags & SS_F_CLOSE_FORCE) {
+			case SS_F_CLOSE_FORCE:
+				/* paired with bh_lock_sock() */
+				__sk_close_locked(sk, sw.flags);
+				break;
+			case SS_F_CONN_CLOSE:
+				ss_do_shutdown(sk);
+				fallthrough;
+			default:
 				sk->sk_lock.owned = 0;
 				bh_unlock_sock(sk);
 				break;
+			case __SS_F_FORCE:
+				BUG();
 			}
-			/* paired with bh_lock_sock() */
-			__sk_close_locked(sk, sw.flags);
+
 			break;
 		case SS_CLOSE:
 			/*
@@ -1455,12 +1512,16 @@ ss_tx_action(void)
 			 * closing process. If for some reason other side sent
 			 * us FIN, we are at CLOSE_WAIT, so the socket closing
 			 * is in progress, but still need to cleanup on our
-			 * side. If we get here while the socket in any other
+			 * side. If we send shutdown we can also be in two
+			 * states TCP_FIN_WAIT1 or TCP_CLOSING if client didn't
+			 * send ACK to our FIN or we still have data to sent.
+			 * If we get here while the socket in any other
 			 * state, resources were either already freed or were
 			 * never allocated.
 			 */
 			if (!((1 << sk->sk_state)
-			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT | TCPF_CLOSE_WAIT)))
+			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT
+				 | TCPF_CLOSE_WAIT)))
 			{
 				T_DBG2("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
@@ -1473,7 +1534,7 @@ ss_tx_action(void)
 		case SS_SHUTDOWN:
 			/* sk_state is checked in `tcp_shutdown` function. */
 			BUG_ON(sw.flags & __SS_F_RST);
-			tcp_shutdown(sk, SEND_SHUTDOWN);
+			ss_do_shutdown(sk);
 			bh_unlock_sock(sk);
 			break;
 		default:
