@@ -62,18 +62,36 @@ static const unsigned int tfw_pstats_ith[] = {
 
 int tfw_apm_add_srv(TfwServer *srv);
 void tfw_apm_del_srv(TfwServer *srv);
+
+/*
+ * All blocks of the procedures listed below, separated by spaces, are not
+ * data-coupled. It can be said that these are independent submodules of the
+ * APM module.
+ */
+
+/* Procedures related to statistics (avg/min/max/percentiles).
+ * Configured by the 'apm_stats' directive.
+ */
 void tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtime);
 int tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats);
 int tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats);
 int tfw_apm_pstats_verify(TfwPrcntlStats *pstats);
+
+/*
+ * Although these procedures are used for health monitoring, they also collect
+ * overall statistics on responses from each server. Therefore, if health
+ * monitoring is not active for a server, these procedures are still executed.
+ */
+bool tfw_apm_hm_srv_limit(int status, void *apmref);
+TfwHMStats *tfw_apm_hm_stats(void *apmref);
+
+/* Health monitor procedures ('health_check' directive). */
 void tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref);
 bool tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 			  void *apmref);
-bool tfw_apm_hm_srv_limit(int status, void *apmref);
 void tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name);
 void tfw_apm_hm_disable_srv(TfwServer *srv);
 bool tfw_apm_hm_srv_eq(const char *name, TfwServer *srv);
-TfwHMStats *tfw_apm_hm_stats(void *apmref);
 bool tfw_apm_check_hm(const char *name);
 
 #endif /* __TFW_APM_H__ */

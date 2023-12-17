@@ -471,6 +471,7 @@ typedef struct {
 	unsigned long		jtmstamp;
 	struct timer_list	timer;
 	atomic_t		rearm;
+	TfwServer		*srv;
 } TfwApmHMCtl;
 
 /* Entry for configuration of separate health monitors. */
@@ -612,22 +613,6 @@ typedef struct {
 	atomic64_t	counter;
 } TfwApmUBuf;
 
-/*
- * APM Data structure.
- *
- * Note that the organization of the supporting data heavily depends
- * on the fact that there's only one party that does the calculation
- * of percentiles - the function that runs periodically on timer.
- * If there are several different parties that do the calculation,
- * then the data may need to be organized differently.
- *
- * @rbuf	- The ring buffer for the specified time window.
- * @rbctl	- The control data helpful in taking optimizations.
- * @stats	- The latest percentiles.
- * @ubuf	- The buffer that holds data for updates, per CPU.
- * @timer	- The periodic timer handle.
- * @flags	- The atomic flags (see below).
- */
 #define TFW_APM_DATA_F_REARM	(0x0001)	/* Re-arm the timer. */
 
 #define TFW_APM_TIMER_INTVL	(HZ / 20)
@@ -645,12 +630,27 @@ typedef struct {
 #define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
 #define TFW_APM_DFLT_URL	"\"/\""
 
+/*
+ * APM Data structure.
+ *
+ * Note that the organization of the supporting data heavily depends
+ * on the fact that there's only one party that does the calculation
+ * of percentiles - the function that runs periodically on timer.
+ * If there are several different parties that do the calculation,
+ * then the data may need to be organized differently.
+ *
+ * @rbuf	- The ring buffer for the specified time window.
+ * @rbctl	- The control data helpful in taking optimizations.
+ * @stats	- The latest percentiles.
+ * @ubuf	- The buffer that holds data for updates, per CPU.
+ * @timer	- The periodic timer handle.
+ * @flags	- The atomic flags (TFW_APM_DATA_F_REARM only for now).
+ */
 typedef struct {
 	TfwApmRBuf		rbuf;
 	TfwApmRBCtl		rbctl;
 	TfwApmStats		stats;
 	TfwApmUBuf __percpu	*ubuf;
-	TfwServer		*srv;
 	struct timer_list	timer;
 	unsigned long		flags;
 	TfwApmHMCtl		hmctl;
@@ -956,15 +956,15 @@ tfw_apm_calc(TfwApmData *data)
 	return (seq != rdidx);
 
 int
-tfw_apm_stats_bh(void *apmdata, TfwPrcntlStats *pstats)
+tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats)
 {
-	__tfw_apm_stats_body(apmdata, pstats, read_lock_bh, read_unlock_bh);
+	__tfw_apm_stats_body(apmref, pstats, read_lock_bh, read_unlock_bh);
 }
 
 int
-tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
+tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats)
 {
-	__tfw_apm_stats_body(apmdata, pstats, read_lock, read_unlock);
+	__tfw_apm_stats_body(apmref, pstats, read_lock, read_unlock);
 }
 
 /*
@@ -1031,25 +1031,24 @@ static void
 tfw_apm_hm_timer_cb(struct timer_list *t)
 {
 	TfwApmHMCtl *hmctl = from_timer(hmctl, t, timer);
-	TfwApmData *apmdata = container_of(hmctl, TfwApmData, hmctl);
-	TfwServer *srv = apmdata->srv;
-	TfwApmHM *hm = READ_ONCE(apmdata->hmctl.hm);
+	TfwServer *srv = hmctl->srv;
+	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 	unsigned long now;
 
 	BUG_ON(!hm);
-	if (!atomic64_read(&apmdata->hmctl.rcount))
+	if (!atomic64_read(&hmctl->rcount))
 		tfw_http_hm_srv_send(srv, hm->req, hm->reqsz);
 
-	atomic64_set(&apmdata->hmctl.rcount, 0);
+	atomic64_set(&hmctl->rcount, 0);
 
 	smp_mb();
-	if (atomic_read(&apmdata->hmctl.rearm)) {
+	if (atomic_read(&hmctl->rearm)) {
 		now = jiffies;
-		mod_timer(&apmdata->hmctl.timer, now + hm->tmt * HZ);
-		WRITE_ONCE(apmdata->hmctl.jtmstamp, now);
+		mod_timer(&hmctl->timer, now + hm->tmt * HZ);
+		WRITE_ONCE(hmctl->jtmstamp, now);
 		return;
 	}
-	WRITE_ONCE(apmdata->hmctl.jtmstamp, 0);
+	WRITE_ONCE(hmctl->jtmstamp, 0);
 }
 
 static void
@@ -1188,11 +1187,10 @@ cleanup:
 }
 
 static inline void
-tfw_apm_hm_stop_timer(TfwApmData *data) {
-	BUG_ON(!data);
-	atomic_set(&data->hmctl.rearm, 0);
+tfw_apm_hm_stop_timer(TfwApmHMCtl *hmctl) {
+	atomic_set(&hmctl->rearm, 0);
 	smp_mb__after_atomic();
-	del_timer_sync(&data->hmctl.timer);
+	del_timer_sync(&hmctl->timer);
 }
 
 int
@@ -1209,7 +1207,6 @@ tfw_apm_add_srv(TfwServer *srv)
 	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
 	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
 
-	data->srv = srv;
 	srv->apmref = data;
 
 	return 0;
@@ -1395,6 +1392,7 @@ tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name)
 	/* Set new health monitor for server. */
 	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
 	WRITE_ONCE(hmctl->hm, hm);
+	WRITE_ONCE(hmctl->srv, srv);
 	atomic64_set(&hmctl->rcount, 0);
 
 	/* Start server's health monitoring timer. */
@@ -1414,7 +1412,8 @@ tfw_apm_hm_disable_srv(TfwServer *srv)
 {
 	clear_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 	tfw_srv_mark_alive(srv);
-	tfw_apm_hm_stop_timer((TfwApmData *)srv->apmref);
+	BUG_ON(!srv->apmref);
+	tfw_apm_hm_stop_timer(&((TfwApmData *)srv->apmref)->hmctl);
 }
 
 bool
@@ -1646,41 +1645,10 @@ tfw_apm_create_def_health_stat_srv(void)
 static int
 tfw_apm_cfgend(void)
 {
-	unsigned int jtmwindow;
 	int r;
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
-
-	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
-	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
-	{
-		T_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
-			 tfw_apm_jtmwindow);
-		return -EINVAL;
-	}
-	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
-	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
-	{
-		T_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
-			 tfw_apm_tmwscale);
-		return -EINVAL;
-	}
-
-	/* Enforce @tfw_apm_tmwscale to be at least 2. */
-	if (tfw_apm_tmwscale == 1)
-		tfw_apm_tmwscale = 2;
-
-	jtmwindow = msecs_to_jiffies(tfw_apm_jtmwindow * 1000);
-	tfw_apm_jtmintrvl = jtmwindow / tfw_apm_tmwscale
-			    + !!(jtmwindow % tfw_apm_tmwscale);
-
-	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
-		T_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
-			 tfw_apm_jtmwindow, tfw_apm_tmwscale);
-		return -EINVAL;
-	}
-	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
 	if ((r = tfw_apm_create_def_hm()))
 		return r;
@@ -1713,6 +1681,7 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r;
 	const char *key, *val;
+	unsigned int jtmwindow;
 
 	if (ce->val_n) {
 		T_ERR_NL("%s: Arguments must be a key=value pair.\n", cs->name);
@@ -1737,6 +1706,37 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 	}
+
+	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
+	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
+	{
+		T_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
+			 tfw_apm_jtmwindow);
+		return -EINVAL;
+	}
+
+	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
+	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
+	{
+		T_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
+			 tfw_apm_tmwscale);
+		return -EINVAL;
+	}
+
+	/* Enforce @tfw_apm_tmwscale to be at least 2. */
+	if (tfw_apm_tmwscale == 1)
+		tfw_apm_tmwscale = 2;
+
+	jtmwindow = msecs_to_jiffies(tfw_apm_jtmwindow * 1000);
+	tfw_apm_jtmintrvl = jtmwindow / tfw_apm_tmwscale
+			    + !!(jtmwindow % tfw_apm_tmwscale);
+
+	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
+		T_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
+			 tfw_apm_jtmwindow, tfw_apm_tmwscale);
+		return -EINVAL;
+	}
+	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
 	return 0;
 }
