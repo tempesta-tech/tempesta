@@ -1212,7 +1212,7 @@ TEST(http2_parser, ows)
 TEST_MPART(http2_parser, accept, 0)
 {
 	/* media-range */
-	FOR_ACCEPT("*/*");
+	FOR_ACCEPT_HTML("*/*");
 	FOR_ACCEPT("dummy/*");
 	FOR_ACCEPT("dummy/dummy");
 	FOR_ACCEPT(TOKEN_ALPHABET "/" TOKEN_ALPHABET);
@@ -1247,26 +1247,26 @@ TEST_MPART(http2_parser, accept, 1)
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;key");
 
 	/* weight */
-	FOR_ACCEPT("*/*;q=0");
+	FOR_ACCEPT_HTML("*/*;q=0");
 	/* No prohibition in RFC for that. */
-	FOR_ACCEPT("*/*;q=0;q=1");
-	FOR_ACCEPT("*/*;q=0.0");
-	FOR_ACCEPT("*/*;q=0.5");
-	FOR_ACCEPT("*/*;q=0.999");
-	FOR_ACCEPT("*/*;q=1");
-	FOR_ACCEPT("*/*;q=1.0");
-	FOR_ACCEPT("*/*;q=1.000");
-	FOR_ACCEPT("*/*\t  ; \tq=0");
+	FOR_ACCEPT_HTML("*/*;q=0;q=1");
+	FOR_ACCEPT_HTML("*/*;q=0.0");
+	FOR_ACCEPT_HTML("*/*;q=0.5");
+	FOR_ACCEPT_HTML("*/*;q=0.999");
+	FOR_ACCEPT_HTML("*/*;q=1");
+	FOR_ACCEPT_HTML("*/*;q=1.0");
+	FOR_ACCEPT_HTML("*/*;q=1.000");
+	FOR_ACCEPT_HTML("*/*\t  ; \tq=0");
 }
 
 TEST_MPART(http2_parser, accept, 2)
 {
 	/* Breaks the RFC, just dot+digits alphabet is checked... */
-	FOR_ACCEPT("*/*;q=1......");
-	FOR_ACCEPT("*/*;q=1.23..45.6..789...");
-	FOR_ACCEPT("*/*;q=12345");
+	FOR_ACCEPT_HTML("*/*;q=1......");
+	FOR_ACCEPT_HTML("*/*;q=1.23..45.6..789...");
+	FOR_ACCEPT_HTML("*/*;q=12345");
 	/* ...but first char is checked as in RFC. */
-	FOR_ACCEPT("*/*;q=0.000");
+	FOR_ACCEPT_HTML("*/*;q=0.000");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=5.000");
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/*;q=.000");
 
@@ -1288,7 +1288,7 @@ TEST_MPART(http2_parser, accept, 3)
 
 	/* Multiple values */
 	FOR_ACCEPT("dummy/dummy\t,dummy/dummy ,\t\tdummy/dummy");
-	FOR_ACCEPT("  \t\t */*  ;\t key=val ; key=val\t;\t"
+	FOR_ACCEPT_HTML("  \t\t */*  ;\t key=val ; key=val\t;\t"
 		   "q=0;\t\text=val ; ext=val;\tkey=val \t\t");
 	/* Invalid delimiters between parts. */
 	EXPECT_BLOCK_REQ_H2_ACCEPT("*/* text/plain");
@@ -1309,8 +1309,8 @@ TEST_MPART(http2_parser, accept, 3)
 	FOR_ACCEPT_HTML("  text/html, */*  ");
 	FOR_ACCEPT_HTML("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ");
 	FOR_ACCEPT_HTML("  invalid/invalid; param=\"value value\", text/html");
-	FOR_ACCEPT("  text/*  ");
-	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ");
+	FOR_ACCEPT_HTML("  text/*  ");
+	FOR_ACCEPT_HTML("  invalid/invalid;  q=0.5;    key=val, */* ");
 	FOR_ACCEPT(" textK/html");
 
 }
