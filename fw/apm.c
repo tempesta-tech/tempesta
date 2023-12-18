@@ -653,8 +653,25 @@ typedef struct {
 	TfwApmUBuf __percpu	*ubuf;
 	struct timer_list	timer;
 	unsigned long		flags;
-	TfwApmHMCtl		hmctl;
 } TfwApmData;
+
+/*
+ * The structure containing all the data necessary for the APM module,
+ * belonging to each server. Used as an opaque pointer.
+ *
+ * Order of the members is important for the memory allocation, @data must be
+ * at the end.
+ *
+ * @hmctl	- Data necessary for the health monitor operation.
+ *		  Additionally, it contains statistics on the total number of
+ *		  requests, divided by HTTP codes ('health_stat_server').
+ * @data	- Data required for calculating response statistics for each
+ *		  server (min/max/avg/percentiles).
+ */
+typedef struct {
+	TfwApmHMCtl		hmctl;
+	TfwApmData		data;
+} TfwApmRef;
 
 /*
  * [1ms, 349ms] should be sufficient for almost any installation,
@@ -936,12 +953,13 @@ tfw_apm_calc(TfwApmData *data)
  * tfw_apm_stats() should be used for calls in kernel context.
  * tfw_apm_stats_bh() should be used for calls in user context.
  */
-#define __tfw_apm_stats_body(apmdata, pstats, fn_lock, fn_unlock)	\
+#define __tfw_apm_stats_body(apmref, pstats, fn_lock, fn_unlock)	\
 	unsigned int rdidx, seq = pstats->seq;				\
-	TfwApmData *data = apmdata;					\
+	TfwApmData *data;						\
 	TfwApmSEnt *asent;						\
 									\
-	BUG_ON(!apmdata);						\
+	BUG_ON(!apmref);						\
+	data = &((TfwApmRef *)apmref)->data;				\
 									\
 	smp_mb__before_atomic();					\
 	rdidx = atomic_read(&data->stats.rdidx);			\
@@ -1069,20 +1087,30 @@ void
 tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 {
 	BUG_ON(!apmref);
-	__tfw_apm_update(apmref, jtstamp, jiffies_to_msecs(jrtt));
+	__tfw_apm_update(&((TfwApmRef *)apmref)->data, jtstamp,
+			 jiffies_to_msecs(jrtt));
 }
 
 static void
-tfw_apm_destroy(TfwApmData *data)
+tfw_apm_free_ubuf(TfwApmData *data)
 {
 	int icpu;
+
+	if (!data->ubuf)
+		return;
 
 	for_each_online_cpu(icpu) {
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
 		kfree(ubuf->ubent[0]);
 	}
 	free_percpu(data->ubuf);
-	kfree(data);
+}
+
+static void
+tfw_apm_ref_destroy(TfwApmRef *ref)
+{
+	tfw_apm_free_ubuf(&ref->data);
+	kfree(ref);
 }
 
 /*
@@ -1096,41 +1124,27 @@ tfw_apm_rbent_init(TfwApmRBEnt *rbent, unsigned long jtmistamp)
 }
 
 /**
- * Create and initialize an APM ring buffer for a server.
+ * Initialize an APM ring buffer for a server.
  * Must be called from process context.
  */
 static void *
-tfw_apm_create(void)
+tfw_apm_data_init(TfwApmData *data)
 {
-	TfwApmData *data;
 	TfwApmRBEnt *rbent;
-	TfwApmHMStats *hmstats;
-	TfwApmHMCfg *ent;
-	int i, icpu, size, hm_size;
+	int i, icpu, size;
 	unsigned int *val[2];
 	int rbufsz = tfw_apm_tmwscale;
 
 	might_sleep();
 	if (!tfw_apm_tmwscale) {
 		T_ERR("Late initialization of 'apm_stats' option\n");
-		return NULL;
+		return ERR_PTR(-EINVAL);
 	}
-
-	hm_size = tfw_hm_codes_cnt * sizeof(TfwApmHMStats);
-
-	/* Keep complete stats for the full time window. */
-	size = sizeof(TfwApmData)
-		+ rbufsz * sizeof(TfwApmRBEnt)
-		+ 2 * T_PSZ * sizeof(unsigned int)
-		+ hm_size;
-	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
-		return NULL;
 
 	size = sizeof(TfwApmUBuf);
 	data->ubuf = __alloc_percpu_gfp(size, sizeof(int64_t), GFP_KERNEL);
 	if (!data->ubuf) {
-		kfree(data);
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	/* Set up memory areas. */
@@ -1140,10 +1154,8 @@ tfw_apm_create(void)
 
 	data->rbuf.rbent = rbent;
 	data->rbuf.rbufsz = rbufsz;
-
 	data->stats.asent[0].pstats.ith = tfw_pstats_ith;
 	data->stats.asent[0].pstats.val = val[0];
-
 	data->stats.asent[1].pstats.ith = tfw_pstats_ith;
 	data->stats.asent[1].pstats.val = val[1];
 
@@ -1162,7 +1174,7 @@ tfw_apm_create(void)
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
 		ubent = kmalloc_node(size, GFP_KERNEL, cpu_to_node(icpu));
 		if (!ubent)
-			goto cleanup;
+			return ERR_PTR(-ENOMEM);
 		for (i = 0; i < 2 * TFW_APM_UBUF_SZ; ++i)
 			WRITE_ONCE(ubent[i].data, ULONG_MAX);
 		ubuf->ubent[0] = ubent;
@@ -1170,20 +1182,46 @@ tfw_apm_create(void)
 		ubuf->ubufsz = TFW_APM_UBUF_SZ;
 	}
 
+	/* Return end of the structure, for further memory areas setting. */
+	return val[1] + T_PSZ;
+}
+
+static TfwApmRef *
+tfw_apm_ref_create(void)
+{
+	int i;
+	int rbufsz = tfw_apm_tmwscale;
+	int hm_size = tfw_hm_codes_cnt * sizeof(TfwApmHMStats);
+	int size = sizeof(TfwApmRef)
+		+ rbufsz * sizeof(TfwApmRBEnt)
+		+ 2 * T_PSZ * sizeof(unsigned int)
+		+ hm_size;
+	TfwApmRef *ref;
+	TfwApmHMStats *hmstats;
+	TfwApmHMCfg *ent;
+
+	if ((ref = kzalloc(size, GFP_ATOMIC)) == NULL)
+		return NULL;
+
+	/*
+	 * End of the TfwApmData structure is the beginning of the TfwApmHMStats
+	 * of the TfwApmHMCtl.
+	 */
+	hmstats = tfw_apm_data_init(&ref->data);
+	if (IS_ERR(hmstats)) {
+		tfw_apm_ref_destroy(ref);
+		return NULL;
+	}
+
 	if (hm_size) {
 		i = 0;
-		hmstats = (TfwApmHMStats *)(val[1] + T_PSZ);
 		list_for_each_entry(ent, &tfw_hm_codes_list, list)
 			hmstats[i++].hmcfg = ent;
 		BUG_ON(tfw_hm_codes_cnt != i);
-		data->hmctl.hmstats = hmstats;
+		ref->hmctl.hmstats = hmstats;
 	}
 
-	return data;
-
-cleanup:
-	tfw_apm_destroy(data);
-	return NULL;
+	return ref;
 }
 
 static inline void
@@ -1196,18 +1234,20 @@ tfw_apm_hm_stop_timer(TfwApmHMCtl *hmctl) {
 int
 tfw_apm_add_srv(TfwServer *srv)
 {
+	TfwApmRef *ref;
 	TfwApmData *data;
 
 	BUG_ON(srv->apmref);
-	if (!(data = tfw_apm_create()))
+	if (!(ref = tfw_apm_ref_create()))
 		return -ENOMEM;
 
+	data = &ref->data;
 	/* Start the timer for the percentile calculation. */
 	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
 	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
 	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
 
-	srv->apmref = data;
+	srv->apmref = ref;
 
 	return 0;
 }
@@ -1215,9 +1255,9 @@ tfw_apm_add_srv(TfwServer *srv)
 void
 tfw_apm_del_srv(TfwServer *srv)
 {
-	TfwApmData *data = srv->apmref;
+	TfwApmRef *ref = srv->apmref;
 
-	if (!data)
+	if (!ref)
 		return;
 
 	/* Stop health monitor. */
@@ -1225,18 +1265,18 @@ tfw_apm_del_srv(TfwServer *srv)
 		tfw_apm_hm_disable_srv(srv);
 
 	/* Stop the timer and the percentile calculation. */
-	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
+	clear_bit(TFW_APM_DATA_F_REARM, &ref->data.flags);
 	smp_mb__after_atomic();
-	del_timer_sync(&data->timer);
+	del_timer_sync(&ref->data.timer);
 
-	tfw_apm_destroy(data);
+	tfw_apm_ref_destroy(ref);
 	srv->apmref = NULL;
 }
 
 void
 tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 {
-	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
+	TfwApmHMCtl *hmctl = &((TfwApmRef *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
 	BUG_ON(!hm);
@@ -1244,7 +1284,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 		atomic64_inc(&hmctl->rcount);
 }
 
-static u32
+static inline u32
 __tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
 		     TfwStr *body)
 {
@@ -1260,7 +1300,7 @@ bool
 tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 		     void *apmref)
 {
-	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
+	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)apmref)->hmctl.hm);
 	u32 crc32 = 0;
 	TfwMsgIter it;
 	TfwStr chunk = {0};
@@ -1310,7 +1350,7 @@ bool
 tfw_apm_hm_srv_limit(int status, void *apmref)
 {
 	unsigned int i, sum = 0;
-	TfwApmHMStats *hmstats = ((TfwApmData *)apmref)->hmctl.hmstats;
+	TfwApmHMStats *hmstats = ((TfwApmRef *)apmref)->hmctl.hmstats;
 	TfwApmHMHistory *history = NULL;
 	TfwApmHMCfg *cfg = NULL;
 	unsigned long ts;
@@ -1390,7 +1430,7 @@ tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name)
 	WARN_ON_ONCE(test_bit(TFW_SRV_B_SUSPEND, &srv->flags));
 
 	/* Set new health monitor for server. */
-	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
+	hmctl = &((TfwApmRef *)srv->apmref)->hmctl;
 	WRITE_ONCE(hmctl->hm, hm);
 	WRITE_ONCE(hmctl->srv, srv);
 	atomic64_set(&hmctl->rcount, 0);
@@ -1413,7 +1453,7 @@ tfw_apm_hm_disable_srv(TfwServer *srv)
 	clear_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 	tfw_srv_mark_alive(srv);
 	BUG_ON(!srv->apmref);
-	tfw_apm_hm_stop_timer(&((TfwApmData *)srv->apmref)->hmctl);
+	tfw_apm_hm_stop_timer(&((TfwApmRef *)srv->apmref)->hmctl);
 }
 
 bool
@@ -1422,7 +1462,7 @@ tfw_apm_hm_srv_eq(const char *name, TfwServer *srv)
 	TfwApmHM *hm;
 
 	BUG_ON(!srv->apmref);
-	hm = ((TfwApmData *)srv->apmref)->hmctl.hm;
+	hm = ((TfwApmRef *)srv->apmref)->hmctl.hm;
 	BUG_ON(!hm);
 	if(!strcasecmp(name, hm->name))
 		return true;
@@ -1441,7 +1481,7 @@ tfw_apm_hm_stats(void *apmref)
 	int i;
 	long rtime = 0;
 	TfwHMStats *stats;
-	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
+	TfwApmHMCtl *hmctl = &((TfwApmRef *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
 	if (!hmctl->hmstats)
