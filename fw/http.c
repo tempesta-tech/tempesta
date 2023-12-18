@@ -113,6 +113,7 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
+#include "filter.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -4911,6 +4912,27 @@ tfw_http_conn_error_log(TfwConn *conn, const char *msg)
 		T_WARN_ADDR(msg, &conn->peer->addr, TFW_NO_PORT);
 }
 
+static void
+tfw_htp_req_filter_block_ip(TfwHttpReq *req)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	TfwClient *cli;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	cli = req->peer ? req->peer :
+		(TfwClient *)(req->conn ? req->conn->peer : NULL);
+	if (!cli)
+		goto out;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli);
+
+out:
+	tfw_vhost_put(dflt_vh);
+}
+
 static int
 tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event)
@@ -4927,6 +4949,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
 		tfw_h2_req_unlink_stream_with_rst(req);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_htp_req_filter_block_ip(req);
 		goto free_req;
 	}
 
@@ -4999,6 +5023,8 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	if (!reply) {
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_htp_req_filter_block_ip(req);
 		do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
 		return T_BLOCK;
@@ -6863,14 +6889,20 @@ static int
 tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
-	bool misconfiguration = tfw_blk_flags & TFW_BLK_ATT_REPLY
-			 && dflt_vh && dflt_vh->frang_gconf->ip_block;
+	bool misconfiguration;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return -1;
+
+	misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY)
+			 && dflt_vh->frang_gconf->ip_block;
 	tfw_vhost_put(dflt_vh);
 
 	if (misconfiguration) {
-		T_WARN_NL("Directive 'block action' can't be set to\n"
-			  "    'attack reply' if 'ip_block' from 'frang_limits' group is 'on'\n"
-			  "    (this is misconfiguration, see the wiki).\n");
+		T_WARN_NL("Directive 'block action' can't be set to"
+			  " 'attack reply' if 'ip_block' from 'frang_limits'"
+			  " group is 'on'. This is misconfiguration, look in"
+			  " the wiki).\n");
 		return -1;
 	}
 
