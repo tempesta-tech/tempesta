@@ -969,6 +969,7 @@ tfw_apm_calc(TfwApmData *data)
 	rdidx = atomic_read(&data->stats.rdidx);			\
 	asent = &data->stats.asent[rdidx % 2];				\
 									\
+	pstats->ith = tfw_pstats_ith;					\
 	fn_lock(&asent->rwlock);					\
 	memcpy(pstats->val, asent->pstats.val,				\
 	       T_PSZ * sizeof(pstats->val[0]));				\
@@ -1002,23 +1003,6 @@ tfw_apm_stats_global(TfwPrcntlStats *pstats)
 	BUG_ON(!tfw_apm_global_data);
 	return __tfw_apm_stats_body(tfw_apm_global_data, pstats, read_lock_bh,
 				    read_unlock_bh);
-}
-
-/*
- * Verify that an APM Stats user using the same set of percentiles.
- *
- * Note: This module uses a single set of percentiles for all servers.
- * All APM Stats users must use the same set of percentiles.
- */
-int
-tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
-{
-	int i;
-
-	for (i = 0; i < T_PSZ; ++i)
-		if (pstats->ith[i] != tfw_pstats_ith[i])
-			return 1;
-	return 0;
 }
 
 /*

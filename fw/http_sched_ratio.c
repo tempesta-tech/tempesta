@@ -456,10 +456,7 @@ __tfw_sched_ratio_get_rtt(size_t si, TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	unsigned int recalc;
 	unsigned int val[T_PSZ] = { 0 };
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-		.val = val,
-	};
+	TfwPrcntlStats pstats = {.val = val};
 	TfwRatioSrvData *srvdata = rtodata->srvdata;
 	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
 

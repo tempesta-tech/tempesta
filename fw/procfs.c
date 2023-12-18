@@ -114,11 +114,8 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	u64 serv_conn_active, serv_conn_sched;
 	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
 				  GFP_KERNEL);
-	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-		.val = val,
-	};
+	unsigned int val[T_PSZ] = { 0 };
+	TfwPrcntlStats pstats = {.val = val};
 
 	if (!ss_stat)
 		T_WARN("Cannot allocate sync sockets statistics\n");
@@ -235,11 +232,8 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
 	unsigned int *qsize;
-	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-		.val = val,
-	};
+	unsigned int val[T_PSZ] = { 0 };
+	TfwPrcntlStats pstats = {.val = val};
 	TfwHMStats *hm_stats;
 
 	if (!(qsize = kmalloc(sizeof(int) * srv->conn_n, GFP_KERNEL)))
@@ -379,14 +373,6 @@ tfw_procfs_sg_create(TfwSrvGroup *sg)
 static int
 tfw_procfs_cfgend(void)
 {
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-	};
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
-	if (tfw_apm_pstats_verify(&pstats))
-		return -EINVAL;
 	return 0;
 }
 
