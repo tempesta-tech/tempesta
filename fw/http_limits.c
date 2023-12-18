@@ -1280,8 +1280,6 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 	if (WARN_ON_ONCE(!dvh))
 		return T_BLOCK;
 	r = frang_http_req_process(ra, conn, data, dvh);
-	if (unlikely(r == T_BLOCK) && dvh->frang_gconf->ip_block)
-		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 	tfw_vhost_put(dvh);
 
 	return r;
@@ -1418,15 +1416,6 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	 */
 	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
-
-	if (unlikely(r == T_BLOCK)) {
-		/* Default vhost has no 'vhost_dflt' member set. */
-		FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
-				? req->vhost->vhost_dflt->frang_gconf
-				: req->vhost->frang_gconf;
-		if (fg_cfg->ip_block)
-			tfw_filter_block_ip(FRANG_ACC2CLI(ra));
-	}
 
 	return r;
 }
