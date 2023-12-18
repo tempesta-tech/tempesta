@@ -2551,8 +2551,10 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlash) {
-		if (c == '*')
+		if (c == '*') {
+			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 			__FSM_I_MOVE(I_EoT);
+		}
 		/* Fall through. */
 	}
 
@@ -2569,8 +2571,10 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_StarSlashStar) {
-		if (c == '*')
+		if (c == '*') {
+			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 			__FSM_I_MOVE(I_EoT);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -6990,6 +6994,13 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 
+#define SET_HDR_ACCEPT(req, parser)					\
+do {									\
+	parser->cstate.is_set = 1;					\
+	parser->cstate.accept_text_html = 1;				\
+	h2_set_hdr_accept(req, &parser->cstate);			\
+} while(0)
+
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_WSAccept) {
@@ -7027,16 +7038,16 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlash) {
-		if (c == '*')
+		if (c == '*') {
+			SET_HDR_ACCEPT(req, parser);
 			__FSM_H2_I_MOVE(I_EoT);
+		}
 		/* Fall through. */
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
 		H2_TRY_STR_LAMBDA("html", {
-			parser->cstate.is_set = 1;
-			parser->cstate.accept_text_html = 1;
-			h2_set_hdr_accept(req, &parser->cstate);
+			SET_HDR_ACCEPT(req, parser);
 			__FSM_EXIT(CSTR_EQ);
 		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
@@ -7050,14 +7061,16 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_StarSlashStar) {
-		if (c == '*')
+		if (c == '*') {
+			SET_HDR_ACCEPT(req, parser);
 			__FSM_H2_I_MOVE(I_EoT);
+		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_AcceptHtml) {
 		if (IS_WS(c) || c == ',' || c == ';') {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			SET_HDR_ACCEPT(req, parser);
 			__FSM_I_JMP(I_EoT);
 		}
 		__FSM_I_JMP(Req_I_Subtype);
@@ -7151,6 +7164,8 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 done:
 	return r;
+
+#undef SET_HDR_ACCEPT
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_accept);
 
