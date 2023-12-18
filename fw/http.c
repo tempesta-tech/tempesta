@@ -6288,6 +6288,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	TfwHttpReq *req = hmresp->req;
 	TfwFsmData data;
 	long timestamp = tfw_current_timestamp();
+	unsigned long jrtime;
 
 	/*
 	 * The time the response was received is used in cache
@@ -6314,8 +6315,10 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * a fast and simple algorithm for that? Keep in mind, that the
 	 * value of RTT has an upper boundary in the APM.
 	 */
+	jrtime = resp->jrxtstamp - req->jtxtstamp;
 	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
-		       resp->jrxtstamp, resp->jrxtstamp - req->jtxtstamp);
+		       resp->jrxtstamp, jrtime);
+	tfw_apm_update_global(resp->jrxtstamp, jrtime);
 	/*
 	 * Health monitor request means that its response need not to
 	 * send anywhere.

@@ -689,6 +689,13 @@ static int tfw_apm_jtmintrvl;		/* Time interval in jiffies. */
 static int tfw_apm_tmwscale;		/* Time window scale. */
 
 /*
+ * Global statistics for all requests passing through Tempesta (whether cached
+ * or not). Relies on the 'apm_stats' directive, same as the statistics for
+ * individual servers.
+ */
+static TfwApmData *tfw_apm_global_data;
+
+/*
  * Get the next bucket in the ring buffer entry that has a non-zero
  * hits count. Set the bucket's sequential number, the range number,
  * and the bucket number. Set the response time value for the bucket.
@@ -953,13 +960,10 @@ tfw_apm_calc(TfwApmData *data)
  * tfw_apm_stats() should be used for calls in kernel context.
  * tfw_apm_stats_bh() should be used for calls in user context.
  */
-#define __tfw_apm_stats_body(apmref, pstats, fn_lock, fn_unlock)	\
+#define __tfw_apm_stats_body(data, pstats, fn_lock, fn_unlock)		\
+({									\
 	unsigned int rdidx, seq = pstats->seq;				\
-	TfwApmData *data;						\
 	TfwApmSEnt *asent;						\
-									\
-	BUG_ON(!apmref);						\
-	data = &((TfwApmRef *)apmref)->data;				\
 									\
 	smp_mb__before_atomic();					\
 	rdidx = atomic_read(&data->stats.rdidx);			\
@@ -971,18 +975,33 @@ tfw_apm_calc(TfwApmData *data)
 	fn_unlock(&asent->rwlock);					\
 	pstats->seq = rdidx;						\
 									\
-	return (seq != rdidx);
+	seq != rdidx;							\
+})
 
 int
 tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats)
 {
-	__tfw_apm_stats_body(apmref, pstats, read_lock_bh, read_unlock_bh);
+	TfwApmData *data;
+	BUG_ON(!apmref);
+	data = &((TfwApmRef *)apmref)->data;
+	return __tfw_apm_stats_body(data, pstats, read_lock_bh, read_unlock_bh);
 }
 
 int
 tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats)
 {
-	__tfw_apm_stats_body(apmref, pstats, read_lock, read_unlock);
+	TfwApmData *data;
+	BUG_ON(!apmref);
+	data = &((TfwApmRef *)apmref)->data;
+	return __tfw_apm_stats_body(data, pstats, read_lock, read_unlock);
+}
+
+int
+tfw_apm_stats_global(TfwPrcntlStats *pstats)
+{
+	BUG_ON(!tfw_apm_global_data);
+	return __tfw_apm_stats_body(tfw_apm_global_data, pstats, read_lock_bh,
+				    read_unlock_bh);
 }
 
 /*
@@ -1089,6 +1108,13 @@ tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 	BUG_ON(!apmref);
 	__tfw_apm_update(&((TfwApmRef *)apmref)->data, jtstamp,
 			 jiffies_to_msecs(jrtt));
+}
+
+void
+tfw_apm_update_global(unsigned long jtstamp, unsigned long jrtt)
+{
+	BUG_ON(!tfw_apm_global_data);
+	__tfw_apm_update(tfw_apm_global_data, jtstamp, jiffies_to_msecs(jrtt));
 }
 
 static void
@@ -1224,29 +1250,61 @@ tfw_apm_ref_create(void)
 	return ref;
 }
 
+static void
+tfw_apm_data_destroy(TfwApmData *data)
+{
+	tfw_apm_free_ubuf(data);
+	kfree(data);
+}
+
+static TfwApmData *
+tfw_apm_data_create(void)
+{
+	int rbufsz = tfw_apm_tmwscale;
+	int size = sizeof(TfwApmRef)
+		+ rbufsz * sizeof(TfwApmRBEnt)
+		+ 2 * T_PSZ * sizeof(unsigned int);
+	TfwApmData *data;
+
+	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
+		return NULL;
+
+	if (IS_ERR(tfw_apm_data_init(data))) {
+		tfw_apm_data_destroy(data);
+		return NULL;
+	}
+
+	return data;
+}
+
+/* Start the timer for the percentile calculation. */
 static inline void
-tfw_apm_hm_stop_timer(TfwApmHMCtl *hmctl) {
-	atomic_set(&hmctl->rearm, 0);
+tfw_apm_data_start_timer(TfwApmData *data)
+{
+	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
+	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
+	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
+}
+
+/* Stop the timer and the percentile calculation. */
+static inline void
+tfw_apm_data_stop_timer(TfwApmData *data)
+{
+	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
 	smp_mb__after_atomic();
-	del_timer_sync(&hmctl->timer);
+	del_timer_sync(&data->timer);
 }
 
 int
 tfw_apm_add_srv(TfwServer *srv)
 {
 	TfwApmRef *ref;
-	TfwApmData *data;
 
 	BUG_ON(srv->apmref);
 	if (!(ref = tfw_apm_ref_create()))
 		return -ENOMEM;
 
-	data = &ref->data;
-	/* Start the timer for the percentile calculation. */
-	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
-	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
-
+	tfw_apm_data_start_timer(&ref->data);
 	srv->apmref = ref;
 
 	return 0;
@@ -1264,11 +1322,7 @@ tfw_apm_del_srv(TfwServer *srv)
 	if (test_bit(TFW_SRV_B_HMONITOR, &srv->flags))
 		tfw_apm_hm_disable_srv(srv);
 
-	/* Stop the timer and the percentile calculation. */
-	clear_bit(TFW_APM_DATA_F_REARM, &ref->data.flags);
-	smp_mb__after_atomic();
-	del_timer_sync(&ref->data.timer);
-
+	tfw_apm_data_stop_timer(&ref->data);
 	tfw_apm_ref_destroy(ref);
 	srv->apmref = NULL;
 }
@@ -1445,6 +1499,13 @@ tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name)
 
 	/* Activate server's health monitor. */
 	set_bit(TFW_SRV_B_HMONITOR, &srv->flags);
+}
+
+static inline void
+tfw_apm_hm_stop_timer(TfwApmHMCtl *hmctl) {
+	atomic_set(&hmctl->rearm, 0);
+	smp_mb__after_atomic();
+	del_timer_sync(&hmctl->timer);
 }
 
 void
@@ -1690,6 +1751,11 @@ tfw_apm_cfgend(void)
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
+	tfw_apm_global_data = tfw_apm_data_create();
+	if (!tfw_apm_global_data)
+		return -EINVAL;
+	tfw_apm_data_start_timer(tfw_apm_global_data);
+
 	if ((r = tfw_apm_create_def_hm()))
 		return r;
 
@@ -1699,6 +1765,12 @@ tfw_apm_cfgend(void)
 static void
 tfw_apm_cfgclean(void)
 {
+	if (tfw_apm_global_data) {
+		tfw_apm_data_stop_timer(tfw_apm_global_data);
+		tfw_apm_data_destroy(tfw_apm_global_data);
+		tfw_apm_global_data = NULL;
+	}
+
 	/*
 	 * 'auto' health monitor may be created implicitly in cfgend(),
 	 * even if no `health_check` directive found.
