@@ -197,13 +197,13 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, bool jsch_allow)
 /*
  * Find Tempesta sticky cookie in an HTTP request.
  *
- * Return 1 if the cookie is found.
- * Return 0 if the cookie is NOT found.
+ * Return count of found cookie.
  */
 static int
 tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 {
 	TfwStr *hdr, *end, *dup;
+	int r = 0;
 
 	/*
 	 * Find a 'Cookie:' header field in the request. Then search for
@@ -221,19 +221,21 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 		return 0;
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		TfwStr value = { 0 };
-		int r;
+		int cnt;
 
 		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
 		BUG_ON(!TFW_STR_PLAIN(&req->vhost->cookie->name_eq));
-		r = tfw_http_search_cookie(req->vhost->cookie->name_eq.data,
-					   req->vhost->cookie->name_eq.len,
-					   &value, cookie_val,
-					   TFW_HTTP_MATCH_O_EQ, false);
-		if (r)
-			return r;
+		cnt = tfw_http_search_cookie(req,
+					     req->vhost->cookie->name_eq.data,
+					     req->vhost->cookie->name_eq.len,
+					     &value, cookie_val,
+					     TFW_HTTP_MATCH_O_EQ, false);
+		if (cnt < 0)
+			return cnt;
+		r += cnt;
 	}
 
-	return 0;
+	return r;
 }
 
 #ifdef DEBUG
@@ -925,14 +927,14 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 /*
  * Find Learnable sticky cookie in an HTTP response.
  *
- * Return 1 if the cookie is found.
- * Return 0 if the cookie is NOT found.
+ * Return count of cookies.
  */
 static int
 tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 {
 	TfwStickyCookie *sticky = resp->req->vhost->cookie;
 	TfwStr *hdr, *dup, *dup_end;
+	int r = 0;
 
 	BUG_ON(!TFW_STR_PLAIN(&sticky->name_eq));
 	/*
@@ -942,20 +944,21 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 	hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TfwStr value = { 0 };
+		int cnt;
 
 		if (TFW_STR_EMPTY(dup))
 			continue;
 		tfw_http_msg_srvhdr_val(dup, TFW_HTTP_HDR_SET_COOKIE, &value);
-		if (tfw_http_search_cookie(sticky->name_eq.data,
-					   sticky->name_eq.len,
-					   &value, cookie_val,
-					   TFW_HTTP_MATCH_O_EQ, true))
-		{
-			return 1;
-		}
+		cnt = tfw_http_search_cookie(resp->req, sticky->name_eq.data,
+					     sticky->name_eq.len,
+					     &value, cookie_val,
+					     TFW_HTTP_MATCH_O_EQ, true);
+		if (cnt < 0)
+			return cnt;
+		r += cnt;
 	}
 
-	return 0;
+	return r;
 }
 
 /*
@@ -980,7 +983,7 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 		return;
 
 	r = tfw_http_sticky_get_resp(resp, c_val);
-	if (!r)
+	if (r != 1)
 		return;
 	/*
 	 * TODO: Set session as expired if server tries to remove the cookie.
