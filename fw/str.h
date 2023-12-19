@@ -424,8 +424,8 @@ __tfw_str_set_data(TfwStr *str, void *data, struct sk_buff *skb)
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);
-void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
-			 const char *stop);
+TfwStr *tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
+			    const char *stop);
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 int tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,
