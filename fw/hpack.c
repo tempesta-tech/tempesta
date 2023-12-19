@@ -3521,7 +3521,8 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	}
 
 	end = hdr->chunks + hdr->nchunks;
-	tfw_str_collect_cmp(c, end, &s_val, NULL);
+	c = tfw_str_collect_cmp(c, end, &s_val, NULL);
+	BUG_ON(c != end);
 
 	return tfw_hpack_str_expand(mit, iter, skb_head, &s_val, NULL);
 }

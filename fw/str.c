@@ -425,14 +425,15 @@ tfw_str_del_chunk(TfwStr *str, int id)
  * NOTE: this function is intended to collect subchunks of compound
  * strings, so the @chunk must be the plain string only.
  */
-void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
-			 const char *stop)
+TfwStr *
+tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
+		    const char *stop)
 {
 	TfwStr *next;
 
 	if (unlikely(chunk == end)) {
 		bzero_fast(out, sizeof(*out));
-		return;
+		return chunk;
 	}
 	BUG_ON(!TFW_STR_PLAIN(chunk));
 
@@ -440,7 +441,7 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 	next = chunk + 1;
 	if (likely(next == end || (stop && *next->data == *stop))) {
 		*out = *chunk;
-		return;
+		return next;
 	}
 
 	/* Add chunks to out-string. */
@@ -457,6 +458,8 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 		out->len += chunk->len;
 	}
 	BUG_ON(out->nchunks < 2);
+
+	return chunk;
 }
 
 /**
