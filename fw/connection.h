@@ -31,6 +31,9 @@
 #include "http_frame.h"
 #include "tls.h"
 
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
+
 /*
  * Flag bits definition for SsProto.type field.
  * NOTE: There are also flags definition for this
@@ -124,6 +127,14 @@ typedef struct tfw_conn_t {
 #define TFW_CONN_TLS(c)		(TFW_CONN_TYPE(c) & TFW_FSM_HTTPS)
 
 /*
+ * Coonection frang limits.
+ */
+typedef struct {
+	unsigned long	ts;
+	unsigned int	misses;
+} FrangConnRates;
+
+/*
  * Queues in client and server connections provide support for correct
  * handling of requests and responses.
  *
@@ -170,6 +181,7 @@ typedef struct {
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
 	spinlock_t		timer_lock;
+	FrangConnRates		history[FRANG_FREQ];
 } TfwCliConn;
 
 /*

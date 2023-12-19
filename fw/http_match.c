@@ -894,22 +894,38 @@ tfw_http_search_cookie(const TfwHttpReq *req, const char *cstr,
 	TfwStr tmp = { 0 };
 	unsigned int n = cookie->nchunks;
 	int cnt = 0;
+	TfwStr *base = val;
+	bool first = true;
 
-#define TFW_COLLECT_COOKIE(req, chunk, val)				\
+#define TFW_SKIP_COOKIE_NAME(chunk, end, n)				\
 do {									\
+	while((chunk + 1 != end) &&					\
+	      ((chunk + 1)->flags & TFW_STR_NAME)) {			\
+		++chunk;						\
+		--n;							\
+	}								\
+} while(0)
+
+#define TFW_COLLECT_COOKIE(req, chunk, val, n)				\
+do {									\
+	TfwStr *begin = chunk;						\
 	if (chunk == end)						\
-		return 0;						\
+		goto finish;						\
 	/* Search cookie value, starting with next chunk. */		\
 	for (++chunk; chunk != end; ++chunk)				\
 		if (chunk->flags & TFW_STR_VALUE)			\
 			break;						\
+	if (!first) {							\
+		val = tfw_str_add_duplicate(req->pool, base);		\
+		if (!val)						\
+			return -ENOMEM;					\
+	}								\
 	chunk = tfw_str_collect_cmp(chunk, end, val, ";");		\
+	n -= chunk - begin;						\
 	cnt++;								\
+	first = false;							\
 	if (chunk == end)						\
-		return cnt;						\
-	val = tfw_str_add_duplicate(req->pool, val);			\
-	if (!val)							\
-		return -ENOMEM;						\
+		goto finish;						\
 } while(0)
 
 	/* Search cookie name. */
@@ -918,7 +934,7 @@ do {									\
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
 		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD)) {
-			TFW_COLLECT_COOKIE(req, chunk, val);
+			TFW_COLLECT_COOKIE(req, chunk, val, n);
 			continue;
 		}
 		/*
@@ -936,9 +952,10 @@ do {									\
 			if (tfw_str_eq_cstr(&tmp, cstr, clen,
 					    TFW_STR_EQ_PREFIX))
 			{
-				TFW_COLLECT_COOKIE(req, chunk, val);
+				TFW_COLLECT_COOKIE(req, chunk, val, n);
 				continue;
 			}
+			TFW_SKIP_COOKIE_NAME(chunk, end, n);
 		}
 		else if (op == TFW_HTTP_MATCH_O_SUFFIX) {
 			TfwStr *name;
@@ -956,10 +973,10 @@ do {									\
 			if (tfw_str_eq_cstr_off(&tmp, len - clen, cstr, clen,
 						TFW_STR_EQ_PREFIX))
 			{
-				TFW_COLLECT_COOKIE(req, chunk, val);
+				TFW_COLLECT_COOKIE(req, chunk, val, n);
 				continue;
 			}
-
+			TFW_SKIP_COOKIE_NAME(chunk, end, n);
 		} else {
 			WARN_ON_ONCE(1);
 			continue;
@@ -969,9 +986,10 @@ do {									\
 		 * 'Set-Cookie' has only one.
 		 */
 		if (unlikely(is_resp_hdr))
-			return 0;
+			goto finish;
 	}
 
+finish:
 	return cnt;
 
 #undef TFW_COLLECT_COOKIE

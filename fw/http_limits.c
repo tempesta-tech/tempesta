@@ -44,6 +44,7 @@
 #include "hash.h"
 #include "http_match.h"
 #include "http.h"
+#include "http_sess.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -1657,6 +1658,66 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 
 	return r;
 
+}
+
+static int
+frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn, unsigned int max_misses)
+{
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+	unsigned int msum = 0;
+
+	if (!max_misses)
+		return T_OK;
+
+	if (conn->history[i].ts != ts) {
+		conn->history[i].ts = ts;
+		conn->history[i].misses = 0;
+	}
+	conn->history[i].misses++;
+
+	/* Collect current max_misses sum. */
+	for (i = 0; i < FRANG_FREQ; i++) {
+		if (frang_time_in_frame(ts, conn->history[i].ts))
+			msum += conn->history[i].misses;
+	}
+
+	if (unlikely(msum > max_misses)) {
+		frang_limmsg_lock(&ra->lock, "max rmisses", msum, max_misses,
+				  &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
+
+int
+frang_sticky_cookie_handler(TfwHttpReq *req)
+{
+	TfwConn *conn = req->conn;
+	FrangAcc *ra;
+	TfwStickyCookie *sticky;
+
+	if (WARN_ON_ONCE(!req->vhost || !conn || !conn->sk))
+		return T_BLOCK;
+
+	ra = frang_acc_from_sk(conn->sk);
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
+
+	sticky = req->vhost->cookie;
+	/*
+	 * All whitelisted requests should not execute JS
+	 * challenge. Also this function is called only for
+	 * client connections.
+	 */
+	BUG_ON(frang_req_is_whitelisted(req));
+	BUG_ON(!sticky->enforce);
+	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
+
+	return frang_sticky_cookie_limit(ra, (TfwCliConn *)conn,
+					 sticky->max_misses);
 }
 
 /*
