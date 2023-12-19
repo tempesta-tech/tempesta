@@ -166,9 +166,10 @@ const char *tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 int tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **h_name,
 			      unsigned int *hid_out);
 
-int tfw_http_search_cookie(const char *cstr, unsigned long clen,
-		  const TfwStr *cookie, TfwStr *val,
-		  tfw_http_match_op_t op, bool is_resp_hdr);
+int tfw_http_search_cookie(const TfwHttpReq *req, const char *cstr,
+			   unsigned long clen, const TfwStr *cookie,
+			   TfwStr *val, tfw_http_match_op_t op,
+			   bool is_resp_hdr);
 
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\
