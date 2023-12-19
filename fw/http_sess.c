@@ -135,15 +135,8 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, bool jsch_allow)
 	if (WARN_ON_ONCE(!req->vhost))
 		return TFW_HTTP_SESS_FAILURE;
 
-	/*
-	 * TODO: #598 rate limit requests with invalid cookie value.
-	 * Non-challengeable requests also must be rate limited.
-	 */
-
-	if (!tfw_http_sticky_redirect_applied(req)) {
-		/** TODO макс миссес сбросить или рестарт */
+	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
-	}
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		return TFW_HTTP_SESS_FAILURE;
@@ -219,6 +212,7 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
+
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		TfwStr value = { 0 };
 		int cnt;
@@ -447,62 +441,17 @@ end:									\
 })
 
 static inline int
-tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
-				StickyVal *sv)
-{
-	if (!sv->ts) {
-		if (tfw_http_sticky_calc(req, sv) != 0)
-			return TFW_HTTP_SESS_FAILURE;
-	}
-	
-	return tfw_http_sticky_build_redirect(req, sv, true);
-}
-
-/*
- * No Tempesta sticky cookie found.
- *
- * Calculate Tempesta sticky cookie and send redirection to the client if
- * enforcement is configured. Since the client can be malicious, we don't
- * store anything for now. HTTP session will be created when the client
- * is successfully solves the cookie challenge. Also, in enforcement
- * configured case the count of requests without cookie and timeout are
- * checked (via special mark set in front of location URI in the response
- * of during redirection); if the configured limit or timeout is exhausted,
- * client will be blocked.
- */
-static int
-tfw_http_sticky_notfound(TfwHttpReq *req)
+tfw_http_sticky_challenge_start(TfwHttpReq *req)
 {
 	StickyVal sv = {};
-	TfwStickyCookie *sticky = req->vhost->cookie;
 
-	/*
-	 * In enforced mode, ensure that backend server receives
-	 * requests that always carry Tempesta sticky cookie.
-	 * If cookie is absent in request, return an HTTP 302
-	 * response to the client that has the same host, URI,
-	 * and includes 'Set-Cookie' header. If enforced mode
-	 * is disabled, forward request to a backend server.
-	 */
-	if (!sticky->enforce)
-		return TFW_HTTP_SESS_SUCCESS;
+	if (frang_sticky_cookie_handler(req) != T_OK)
+		return TFW_HTTP_SESS_VIOLATE;
 
-	return tfw_http_sticky_challenge_start(req, sticky, &sv);
-}
+	if (tfw_http_sticky_calc(req, &sv) != 0)
+		return TFW_HTTP_SESS_FAILURE;
 
-/*
- * Client already passed a cookie challenge, but the cookie is stored from the
- * previous session, client has it in his cache, but we don't. Timestamp in the
- * cookie value is too old to be used in JS challenge, need to create a new
- * cookie value and send a redirect with it.
- */
-static int
-tfw_http_sticky_jsch_resart(TfwHttpReq *req)
-{
-	StickyVal sv = {};
-	TfwStickyCookie *sticky = req->vhost->cookie;
-
-	return tfw_http_sticky_challenge_start(req, sticky, &sv);
+	return tfw_http_sticky_build_redirect(req, &sv, true);
 }
 
 /**
@@ -577,20 +526,14 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 	r = tfw_http_sticky_get_req(req, cookie_val);
 	if (r < 0)
 		return r;
-	if (r == 0)
-		return tfw_http_sticky_notfound(req);
+	if (r == 0) {
+		return !req->vhost->cookie->enforce ?
+			TFW_HTTP_SESS_SUCCESS : TFW_HTTP_SESS_VIOLATE;
+	}
 	if (r == 1) {
-		/*
-		 * Verify sticky cookie value: if it's wrong, then this can be
-		 * an attack as well as changed Tempesta or whatever else.
-		 * The first case must be properly handled by Frang limit
-		 * (TODO #598), your ever can limit number of invalid sticky
-		 * cookie tries to 1. While we just send normal 302 redirect to
-		 * keep user experience intact.
-		 */
-		if (tfw_http_sticky_verify(req, cookie_val, sv))
-			return tfw_http_sticky_challenge_start(
-						req, req->vhost->cookie, sv);
+		if ((r = tfw_http_sticky_verify(req, cookie_val, sv)))
+			return r;
+
 		return TFW_HTTP_SESS_SUCCESS;
 	}
 	T_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
@@ -695,16 +638,6 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 
 	if (!js_ch)
 		return 0;
-	/*
-	 * Requests that can't be challenged but came just in time mustn't
-	 * pass the challenge, wait for original request retry.
-	 * Browsers always load favicon as the second request.
-	 */
-	if (!tfw_http_sticky_redirect_applied(req)) {
-		T_DBG("sess: jsch drop: non-challegeable resource was "
-		      "requested outside allowed time range.\n");
-		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
-	}
 
 	/*
 	 * When a client calculates it's own random delay, it uses range value
@@ -874,8 +807,17 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * We leave this for administrator decision or more progressive DDoS
 	 * mitigation techniques.
 	 */
-	if ((r = tfw_http_sticky_req_process(req, sv, c_val)))
+	r = tfw_http_sticky_req_process(req, sv, c_val);
+	switch (r) {
+	case TFW_HTTP_SESS_SUCCESS:
+		break;
+	case TFW_HTTP_SESS_REDIRECT_NEED:
+	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
+	case TFW_HTTP_SESS_FAILURE:
 		return r;
+	default:
+		goto restart_challenge;
+	}
 
 	if (req->vhost->cookie->learn) {
 		key = tfw_hash_str(c_val);
@@ -901,9 +843,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		if (req->vhost->cookie->learn)
 			return TFW_HTTP_SESS_SUCCESS;
 		if (ctx.jsch_rcode)
-			return (ctx.jsch_rcode != TFW_HTTP_SESS_JS_RESTART)
-				? ctx.jsch_rcode
-				: tfw_http_sticky_jsch_resart(req);
+			goto restart_challenge;
 		T_WARN("cannot allocate TDB space for http session\n");
 		return TFW_HTTP_SESS_FAILURE;
 	}
@@ -922,6 +862,9 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		tdb_rec_put(rec);
 
 	return TFW_HTTP_SESS_SUCCESS;
+
+restart_challenge:
+	return tfw_http_sticky_challenge_start(req);
 }
 
 /*
@@ -942,6 +885,7 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 	 * need to look through all of them
 	 */
 	hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TfwStr value = { 0 };
 		int cnt;
@@ -958,6 +902,9 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 		r += cnt;
 	}
 
+	if (r > 1)
+		T_WARN("Multiple sticky cookies found in response: %d\n", r);
+
 	return r;
 }
 
@@ -965,7 +912,7 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
  * Learn HTTP session created on backend server. Even if the session exists,
  * backend may want to create a new for the client.
  */
-void
+int
 tfw_http_sess_learn(TfwHttpResp *resp)
 {
 	TfwStickyCookie *sticky;
@@ -977,14 +924,21 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	TdbRec *rec;
 
 	if (WARN_ON_ONCE(!resp->req || !resp->req->vhost))
-		return;
+		return -EINVAL;
 	sticky = resp->req->vhost->cookie;
 	if (!sticky->learn || TFW_STR_EMPTY(&sticky->name_eq))
-		return;
+		return 0;
 
 	r = tfw_http_sticky_get_resp(resp, c_val);
-	if (r != 1)
-		return;
+	switch (r) {
+	case 0:
+		return 0;
+	case 1:
+		break;
+	default:
+		return -EINVAL;
+	}
+
 	/*
 	 * TODO: Set session as expired if server tries to remove the cookie.
 	 *
@@ -1009,12 +963,12 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	if (unlikely(TFW_STR_EMPTY(c_val))) {
 		if (resp->req->sess)
 			tfw_http_sess_set_expired(resp->req->sess);
-		return;
+		return 0;
 	}
 	if (unlikely(c_val->len > STICKY_KEY_MAX_LEN)) {
 		T_WARN("http_sess: too long cookie value: %li (%d).\n",
 		       c_val->len, STICKY_KEY_MAX_LEN);
-		return;
+		return -EINVAL;
 	}
 
 	key = tfw_hash_str(c_val);
@@ -1030,7 +984,7 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	BUG_ON(tdb_ctx.len < sizeof(TfwSessEntry));
 	if (!rec) {
 		T_WARN("cannot allocate TDB space for learned http session\n");
-		return;
+		return -ENOMEM;
 	}
 	/*
 	 * The session is not required now, it's enough to have a new
@@ -1043,6 +997,8 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 		 * bucket with the session as soon as possible.
 		 */
 		tdb_rec_put(rec);
+
+	return 0;
 }
 
 /**

@@ -360,6 +360,8 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "enforce")) {
 			sticky->enforce = 1;
+			if (!sticky->max_misses)
+				sticky->max_misses = 1;
 		} else {
 			T_ERR_NL("%s: unsupported argument: '%s'\n",
 				 cs->name, val);

@@ -402,4 +402,10 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 	return T_OK;
 }
 
+int
+frang_sticky_cookie_handler(TfwHttpReq *req)
+{
+	return T_OK;
+}
+
 unsigned int cache_default_ttl = 60;
