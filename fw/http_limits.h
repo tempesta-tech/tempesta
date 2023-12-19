@@ -55,9 +55,6 @@ void tfw_classify_conn_close(struct sock *sk);
  * ------------------------------------------------------------------------
  */
 
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
-
 /**
  * Response code block setting
  *
@@ -189,6 +186,7 @@ struct frang_vhost_cfg_t {
 };
 
 int frang_tls_handler(TlsCtx *tls, int state);
+int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
 

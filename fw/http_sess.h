@@ -163,12 +163,10 @@ enum {
 	TFW_HTTP_SESS_VIOLATE,
 	/* JS challenge enabled, but request is not challengable. */
 	TFW_HTTP_SESS_JS_NOT_SUPPORTED,
-	/* JS challenge restart required. Internal for http_sess module. */
-	TFW_HTTP_SESS_JS_RESTART
 };
 
 int tfw_http_sess_obtain(TfwHttpReq *req);
-void tfw_http_sess_learn(TfwHttpResp *resp);
+int tfw_http_sess_learn(TfwHttpResp *resp);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
                                unsigned int stream_id);
 void tfw_http_sess_put(TfwHttpSess *sess);
