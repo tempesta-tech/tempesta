@@ -6010,22 +6010,21 @@ next_msg:
 
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503, NULL);
+		return tfw_http_req_parse_block(req, 403, NULL);
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
-		 * Requested resource can't be challenged, forward all pending
-		 * responses and close the connection to allow client to recover.
+		 * Requested resource can't be challenged.
 		 */
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503,
+		*splitted = skb;
+		return tfw_http_req_parse_drop(req, 403,
 				"request dropped: can't send JS challenge"
 				" since a non-challengeable resource" 
 				" (e.g. image) was requested");
 
 	default:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		return tfw_http_req_parse_block(req, 500,
+		return tfw_http_req_parse_drop_with_fin(req, 500,
 				"request dropped: internal error"
 				" in Sticky module");
 	}
@@ -6146,12 +6145,19 @@ static void
 tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
+	TfwHttpReq *req = resp->req;
 
-	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
+	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
 
-	tfw_http_sess_learn(resp);
+	if (tfw_http_sess_learn(resp)) {
+		tfw_http_conn_msg_free(msg);
+		tfw_http_send_err_resp(req, 500, "response dropped:"
+				       " processing error");
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
 
-	if (TFW_MSG_H2(resp->req))
+	if (TFW_MSG_H2(req))
 		tfw_h2_resp_adjust_fwd(resp);
 	else
 		tfw_h1_resp_adjust_fwd(resp);

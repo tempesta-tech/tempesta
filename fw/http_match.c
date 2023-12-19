@@ -437,10 +437,10 @@ match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 					   &value, &cookie_val,
 					   rule->val.ptn.op, false);
 		if (r > 0) {
-			TfwStr *e, *d;
+			TfwStr *e, *c;
 
-			TFW_STR_FOR_EACH_DUP(d, &cookie_val, e) {
-				if (tfw_rule_str_match(d, rule->arg.str,
+			TFW_STR_FOR_EACH_CHUNK(c, &cookie_val, e) {
+				if (tfw_rule_str_match(c, rule->arg.str,
 						       rule->arg.len,
 						       flags, rule->op))
 					return true;
@@ -894,6 +894,7 @@ tfw_http_search_cookie(const TfwHttpReq *req, const char *cstr,
 	TfwStr tmp = { 0 };
 	unsigned int n = cookie->nchunks;
 	int cnt = 0;
+	TfwStr *base = val;
 
 #define TFW_COLLECT_COOKIE(req, chunk, val)				\
 do {									\
@@ -907,7 +908,7 @@ do {									\
 	cnt++;								\
 	if (chunk == end)						\
 		return cnt;						\
-	val = tfw_str_add_duplicate(req->pool, val);			\
+	val = tfw_str_add_compound(req->pool, base);			\
 	if (!val)							\
 		return -ENOMEM;						\
 } while(0)

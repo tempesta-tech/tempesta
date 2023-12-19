@@ -295,6 +295,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
 	bool was_path = false;
+	bool was_max_misses = false;
 
 	if (!cur_vhost) {
 		sticky = &defaults_override.sticky;
@@ -320,6 +321,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
+			was_max_misses = true;
 		} else if (!strcasecmp(key, "options")) {
 			if (tfw_cfgop_cookie_set_options(sticky, val))
 			{
@@ -360,6 +362,8 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "enforce")) {
 			sticky->enforce = 1;
+			if (!was_max_misses)
+				sticky->max_misses = 1;
 		} else {
 			T_ERR_NL("%s: unsupported argument: '%s'\n",
 				 cs->name, val);

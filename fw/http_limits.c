@@ -44,6 +44,7 @@
 #include "hash.h"
 #include "http_match.h"
 #include "http.h"
+#include "http_sess.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -60,6 +61,7 @@ typedef struct {
 	unsigned int	req;
 	unsigned int	tls_sess_new;
 	unsigned int	tls_sess_incomplete;
+	unsigned int	max_misses;
 } FrangRates;
 
 /**
@@ -1660,6 +1662,68 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 
 	return r;
 
+}
+
+static int
+frang_sticky_cookie_limit(FrangAcc *ra, unsigned int max_misses)
+{
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+	unsigned int msum = 0;
+
+	if (!max_misses)
+		return T_OK;
+
+	spin_lock(&ra->lock);
+
+	if (ra->history[i].ts != ts) {
+		ra->history[i].ts = ts;
+		ra->history[i].max_misses = 0;
+	}
+	ra->history[i].max_misses++;
+
+	/* Collect current max_misses sum. */
+	for (i = 0; i < FRANG_FREQ; i++) {
+		if (frang_time_in_frame(ts, ra->history[i].ts))
+			msum += ra->history[i].max_misses;
+	}
+
+	if (unlikely(msum > max_misses)) {
+		frang_limmsg("max rmisses", msum, max_misses,
+			     &FRANG_ACC2CLI(ra)->addr);
+		spin_unlock(&ra->lock);
+		return T_BLOCK;
+	}
+
+	spin_unlock(&ra->lock);
+
+	return T_OK;
+}
+
+
+int
+frang_sticky_cookie_handler(TfwHttpReq *req)
+{
+	TfwConn *conn = req->conn;
+	FrangAcc *ra;
+	TfwStickyCookie *sticky;
+
+	if (WARN_ON_ONCE(!req->vhost || !conn || !conn->sk))
+		return T_BLOCK;
+
+	ra = frang_acc_from_sk(conn->sk);
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
+
+	sticky = req->vhost->cookie;
+	/*
+	 * All whitelisted requests should not execute JS
+	 * challenge.
+	 */
+	BUG_ON(frang_req_is_whitelisted(req));
+	BUG_ON(!sticky->enforce);
+
+	return frang_sticky_cookie_limit(ra, sticky->max_misses);
 }
 
 /*
