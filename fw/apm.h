@@ -74,7 +74,6 @@ void tfw_apm_del_srv(TfwServer *srv);
  */
 void tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtime);
 int tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats);
-int tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats);
 /* Displayed in the perfstat, not in a backend statistics. */
 void tfw_apm_update_global(unsigned long jtstamp, unsigned long jrtime);
 int tfw_apm_stats_global(TfwPrcntlStats *pstats);

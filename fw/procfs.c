@@ -239,7 +239,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	if (!(qsize = kmalloc(sizeof(int) * srv->conn_n, GFP_KERNEL)))
 		return -ENOMEM;
 
-	tfw_apm_stats_bh(srv->apmref, &pstats);
+	tfw_apm_stats(srv->apmref, &pstats);
 
 	SPRNE("Minimal response time\t\t", pstats.val[TFW_PSTATS_IDX_MIN]);
 	SPRNE("Average response time\t\t", pstats.val[TFW_PSTATS_IDX_AVG]);

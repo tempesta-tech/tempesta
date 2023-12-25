@@ -546,11 +546,11 @@ typedef struct {
  * Keeps the latest values of calculated percentiles.
  *
  * @pstats	- The percentile stats structure.
- * @rwlock	- Protect updates.
+ * @seqlock	- Protect updates.
  */
 typedef struct {
 	TfwPrcntlStats	pstats;
-	rwlock_t	rwlock;
+	seqlock_t	seqlock;
 } TfwApmSEnt;
 
 /*
@@ -563,7 +563,7 @@ typedef struct {
  * is used to decrease the lock contention. Readers read the stored values
  * at @asent[@rdidx % 2]. The writer writes the new percentile values to
  * @asent[(@rdidx + 1) % 2], and then increments @rdidx. The reading and
- * the writing are protected by a rwlock.
+ * the writing are protected by a seqlock.
  *
  * @asent	- The stats entries for reading/writing (flip-flop manner).
  * @rdidx	- The current index in @asent for readers.
@@ -941,11 +941,11 @@ tfw_apm_calc(TfwApmData *data)
 	tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 
 	T_DBG3("%s: Percentile values may have changed.\n", __func__);
-	write_lock(&asent->rwlock);
+	write_seqlock(&asent->seqlock);
 	memcpy_fast(asent->pstats.val, pstats.val,
 		    T_PSZ * sizeof(asent->pstats.val[0]));
 	atomic_inc(&data->stats.rdidx);
-	write_unlock(&asent->rwlock);
+	write_sequnlock(&asent->seqlock);
 
 	return;
 }
@@ -953,39 +953,29 @@ tfw_apm_calc(TfwApmData *data)
 /*
  * Get the latest calculated percentiles.
  *
- * Return 0 if the percentile values didn't need recalculation.
- * Return 1 if potentially new percentile values were calculated.
- *
- * The two functions below differ only by the type of lock used.
- * tfw_apm_stats() should be used for calls in kernel context.
- * tfw_apm_stats_bh() should be used for calls in user context.
+ * Return false if the percentile values didn't need recalculation.
+ * Return true if potentially new percentile values were calculated.
  */
-#define __tfw_apm_stats_body(data, pstats, fn_lock, fn_unlock)		\
-({									\
-	unsigned int rdidx, seq = pstats->seq;				\
-	TfwApmSEnt *asent;						\
-									\
-	smp_mb__before_atomic();					\
-	rdidx = atomic_read(&data->stats.rdidx);			\
-	asent = &data->stats.asent[rdidx % 2];				\
-									\
-	pstats->ith = tfw_pstats_ith;					\
-	fn_lock(&asent->rwlock);					\
-	memcpy(pstats->val, asent->pstats.val,				\
-	       T_PSZ * sizeof(pstats->val[0]));				\
-	fn_unlock(&asent->rwlock);					\
-	pstats->seq = rdidx;						\
-									\
-	seq != rdidx;							\
-})
-
-int
-tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats)
+static bool
+__tfw_apm_stats(TfwApmData *data, TfwPrcntlStats *pstats)
 {
-	TfwApmData *data;
-	BUG_ON(!apmref);
-	data = &((TfwApmRef *)apmref)->data;
-	return __tfw_apm_stats_body(data, pstats, read_lock_bh, read_unlock_bh);
+	unsigned int rdidx, s, seq = pstats->seq;
+	TfwApmSEnt *asent;
+
+	smp_mb__before_atomic();
+	rdidx = atomic_read(&data->stats.rdidx);
+	asent = &data->stats.asent[rdidx % 2];
+
+	do {
+		s = read_seqbegin(&asent->seqlock);
+		memcpy(pstats->val, asent->pstats.val,
+		       T_PSZ * sizeof(pstats->val[0]));
+	} while (read_seqretry(&asent->seqlock, s));
+
+	pstats->ith = tfw_pstats_ith;
+	pstats->seq = rdidx;
+
+	return seq != rdidx;
 }
 
 int
@@ -994,15 +984,14 @@ tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats)
 	TfwApmData *data;
 	BUG_ON(!apmref);
 	data = &((TfwApmRef *)apmref)->data;
-	return __tfw_apm_stats_body(data, pstats, read_lock, read_unlock);
+	return __tfw_apm_stats(data, pstats);
 }
 
 int
 tfw_apm_stats_global(TfwPrcntlStats *pstats)
 {
 	BUG_ON(!tfw_apm_global_data);
-	return __tfw_apm_stats_body(tfw_apm_global_data, pstats, read_lock_bh,
-				    read_unlock_bh);
+	return __tfw_apm_stats(tfw_apm_global_data, pstats);
 }
 
 /*
@@ -1174,8 +1163,8 @@ tfw_apm_data_init(TfwApmData *data)
 		tfw_apm_rbent_init(&rbent[i], 0);
 	spin_lock_init(&data->rbuf.slock);
 
-	rwlock_init(&data->stats.asent[0].rwlock);
-	rwlock_init(&data->stats.asent[1].rwlock);
+	seqlock_init(&data->stats.asent[0].seqlock);
+	seqlock_init(&data->stats.asent[1].seqlock);
 	atomic_set(&data->stats.rdidx, 0);
 
 	size = 2 * TFW_APM_UBUF_SZ * sizeof(TfwApmUBEnt);
