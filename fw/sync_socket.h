@@ -51,10 +51,16 @@ enum {
 	 */
 	Conn_Stop		= 0x1 << __Flag_Bits,
 	/*
-	 * Connection is in special state: it socket is DEAD
-	 * and wait until ACK to our FIN come.
+	 * Connection is in special state: we send FIN to
+	 * the client and wait until ACK to our FIN is come.
+	 * Socket is alive.
 	 */
-	Conn_Closing		= 0x2 << __Flag_Bits,
+	Conn_Shutdown		= (0x2 << __Flag_Bits),
+	/*
+	 * Connection is in special state: it socket is DEAD
+	 * and wait until ACK to our FIN is come.
+	 */
+	Conn_Closing		= 0x3 << __Flag_Bits,
 };
 
 typedef struct tfw_conn_t TfwConn;

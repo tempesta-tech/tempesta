@@ -400,6 +400,18 @@ __tfw_connection_get_if_live(TfwConn *conn)
 #define tfw_srv_conn_get_if_live(c)	\
 	__tfw_connection_get_if_live((TfwConn *)(c))
 
+static inline bool
+tfw_connection_stop_rcv(TfwConn *conn)
+{
+	/*
+	 * We should continue to process WINDOW_UPDATE frames
+	 * for HTTP2 client connections, to ensure delivery of
+	 * response with a body larger than HTTP window size.
+	 */
+	return (TFW_CONN_TYPE(conn) & Conn_Stop) &&
+		(!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt));
+}
+
 static inline void
 tfw_connection_put(TfwConn *conn)
 {

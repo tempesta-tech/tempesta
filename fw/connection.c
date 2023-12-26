@@ -154,6 +154,11 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	int r = T_OK;
 	struct sk_buff *next, *splitted;
 
+	if (unlikely(tfw_connection_stop_rcv(conn))) {
+		__kfree_skb(skb);
+		return 0;
+	}
+
 	if (skb->prev)
 		skb->prev->next = NULL;
 	for (next = skb->next; skb;
