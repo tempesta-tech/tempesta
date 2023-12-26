@@ -110,7 +110,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 #define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
 	int i;
-	TfwPerfStat stat;
+	TfwPerfStat stat = {0};
 	u64 serv_conn_active, serv_conn_sched;
 	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
 				  GFP_KERNEL);
@@ -120,15 +120,11 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	if (!ss_stat)
 		T_WARN("Cannot allocate sync sockets statistics\n");
 
-	memset(&stat, 0, sizeof(stat));
-
 	if (health_stat_codes) {
 		stat.hm = kmalloc(tfw_hm_stats_size(health_stat_codes->ccnt),
 				  GFP_KERNEL);
 		if (stat.hm)
 			tfw_hm_stats_clone(stat.hm, health_stat_codes);
-	} else {
-		stat.hm = NULL;
 	}
 
 	tfw_perfstat_collect(&stat);
@@ -277,7 +273,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 		for (i = 0; i < hm_stats->ccnt; ++i)
 			seq_printf(seq, "\tHTTP '%d' code\t: %u (%llu total)"
 				   "\n", hm_stats->rsums[i].code,
-				   hm_stats->rsums[i].sum,
+				   hm_stats->rsums[i].tf_total,
 				   hm_stats->rsums[i].total);
 		kfree(hm_stats);
 	}

@@ -1200,7 +1200,7 @@ tfw_apm_ref_create(void)
 	TfwApmHMCfg *ent;
 
 	if ((ref = kzalloc(size, GFP_ATOMIC)) == NULL)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	/*
 	 * End of the TfwApmData structure is the beginning of the TfwApmHMStats
@@ -1209,7 +1209,7 @@ tfw_apm_ref_create(void)
 	hmstats = tfw_apm_data_init(&ref->data);
 	if (IS_ERR(hmstats)) {
 		tfw_apm_ref_destroy(ref);
-		return NULL;
+		return (void *)hmstats;
 	}
 
 	if (hm_size) {
@@ -1234,17 +1234,19 @@ static TfwApmData *
 tfw_apm_data_create(void)
 {
 	int rbufsz = tfw_apm_tmwscale;
-	int size = sizeof(TfwApmRef)
+	int size = sizeof(TfwApmData)
 		+ rbufsz * sizeof(TfwApmRBEnt)
 		+ 2 * T_PSZ * sizeof(unsigned int);
 	TfwApmData *data;
+	void *r;
 
 	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
-	if (IS_ERR(tfw_apm_data_init(data))) {
+	r = tfw_apm_data_init(data);
+	if (IS_ERR(r)) {
 		tfw_apm_data_destroy(data);
-		return NULL;
+		return r;
 	}
 
 	return data;
@@ -1274,8 +1276,9 @@ tfw_apm_add_srv(TfwServer *srv)
 	TfwApmRef *ref;
 
 	BUG_ON(srv->apmref);
-	if (!(ref = tfw_apm_ref_create()))
-		return -ENOMEM;
+	ref = tfw_apm_ref_create();
+	if (IS_ERR(ref))
+		return PTR_ERR(ref);
 
 	tfw_apm_data_start_timer(&ref->data);
 	srv->apmref = ref;
@@ -1529,7 +1532,7 @@ tfw_apm_hm_stats(void *apmref)
 	for (i = 0; i < stats->ccnt; ++i) {
 		BUG_ON(!hmctl->hmstats[i].hmcfg);
 		stats->rsums[i].code = hmctl->hmstats[i].hmcfg->code;
-		stats->rsums[i].sum = READ_ONCE(hmctl->hmstats[i].rsum);
+		stats->rsums[i].tf_total = READ_ONCE(hmctl->hmstats[i].rsum);
 		stats->rsums[i].total = READ_ONCE(hmctl->hmstats[i].total);
 	}
 
@@ -1720,13 +1723,16 @@ static int
 tfw_apm_cfgend(void)
 {
 	int r;
+	TfwApmData *r2;
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
-	tfw_apm_global_data = tfw_apm_data_create();
-	if (!tfw_apm_global_data)
-		return -EINVAL;
+	r2 = tfw_apm_data_create();
+	if (IS_ERR(r2))
+		return PTR_ERR(r2);
+
+	tfw_apm_global_data = r2;
 	tfw_apm_data_start_timer(tfw_apm_global_data);
 
 	if ((r = tfw_apm_create_def_hm()))
@@ -1899,10 +1905,7 @@ tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (tfw_cfgop_parse_http_status(val, &code)
-		    || (code > HTTP_STATUS_5XX
-			&& tfw_cfg_check_range(code, HTTP_CODE_MIN,
-					       HTTP_CODE_MAX)))
+		if (tfw_cfgop_parse_http_status(val, &code))
 		{
 			T_ERR_NL("Unable to parse http code value: '%s'\n",
 				 val);
@@ -1997,10 +2000,7 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return r;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (tfw_cfgop_parse_http_status(val, &code)
-		    || (code > HTTP_STATUS_5XX
-			&& tfw_cfg_check_range(code, HTTP_CODE_MIN,
-					       HTTP_CODE_MAX)))
+		if (tfw_cfgop_parse_http_status(val, &code))
 		{
 			T_ERR_NL("Unable to parse http code value: '%s'\n",
 				 val);

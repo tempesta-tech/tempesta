@@ -28,12 +28,12 @@
  * Structures for health monitoring statistics accountings in procfs.
  *
  * @code	- HTTP code for which the statistics is collected.
- * @sum		- Amount of responses for the period, limited by a time frame.
+ * @tf_total	- Amount of responses for the period, limited by a time frame.
  * @total	- Amount of responses for the overall period.
  */
 typedef struct {
 	int		code;
-	unsigned int	sum;
+	unsigned int	tf_total;
 	u64		total;
 } TfwHMCodeStats;
 
@@ -97,13 +97,7 @@ tfw_hm_stats_init_from_cfg_entry(TfwHMStats *s, TfwCfgEntry *ce)
 	tfw_hm_stats_init(s, ce->val_n);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		BUG_ON(i >= s->ccnt);
-
-		if (tfw_cfgop_parse_http_status(val, &code)
-		    || (code > HTTP_STATUS_5XX
-		    && tfw_cfg_check_range(code, HTTP_CODE_MIN,
-					   HTTP_CODE_MAX)))
-		{
+		if (tfw_cfgop_parse_http_status(val, &code)) {
 			T_ERR_NL("Unable to parse http code value: '%s'\n",
 				 val);
 			return -EINVAL;
