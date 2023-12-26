@@ -38,7 +38,6 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "http_limits.h"
-#include "connection.h"
 
 typedef enum {
 	SS_SEND,
@@ -197,7 +196,7 @@ static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
 	if (sk->sk_user_data)
-		SS_CONN_TYPE(sk) &= ~Conn_Closing;
+		SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown);
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
 		tfw_classify_conn_close(sk);
@@ -747,12 +746,6 @@ ss_close(struct sock *sk, int flags)
 }
 EXPORT_SYMBOL(ss_close);
 
-static inline bool
-ss_is_closing(struct sock *sk)
-{
-	return sk->sk_user_data && (SS_CONN_TYPE(sk) & Conn_Closing);
-}
-
 /*
  * Process a single SKB.
  */
@@ -819,17 +812,6 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		 * and the execution path should never reach here.
 		 */
 		BUG_ON(conn == NULL);
-
-		/*
-		 * We should continue to proess WINDOW_UPDATE frames
-		 * for closing connections.
-		 */
-		if ((SS_CONN_TYPE(sk) & Conn_Stop)
-		    && !((SS_CONN_TYPE(sk) & Conn_H2Clnt) == Conn_H2Clnt)) {
-			__kfree_skb(skb);
-			continue;
-		}
-
 		r = SS_CALL(connection_recv, conn, skb);
 
 		if (r < 0) {
@@ -1433,7 +1415,13 @@ ss_do_shutdown(struct sock *sk)
 {
 	tcp_shutdown(sk, SEND_SHUTDOWN);
 	if (sk->sk_user_data)
-		SS_CONN_TYPE(sk) |= Conn_Closing;
+		SS_CONN_TYPE(sk) |= Conn_Shutdown;
+}
+
+static inline bool
+ss_is_closed_force(SsWork *sw)
+{
+	return (sw->action == SS_CLOSE) && (sw->flags & __SS_F_FORCE);
 }
 
 static void
@@ -1455,17 +1443,27 @@ ss_tx_action(void)
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
+		/*
+		 * We can call ss_tx_action() for DEAD or shutdowned sock
+		 * in two cases:
+		 * - Parallel requests, one of which failed with error.
+		 *   All responses to other requests which were sent after
+		 *   error response should be dropped, because socket is
+		 *   already closed.
+		 * - We close and drop connection immediately with __SS_F_FORCE
+		 *   flag, because Tempesta FW is shutdowning.
+		 */
 		if (sock_flag(sk, SOCK_DEAD)) {
-			if (ss_is_closing(sk)
-			    && ((sw.action == SS_CLOSE)
-				&& (sw.flags & __SS_F_FORCE)))
+			if (sk->sk_user_data
+			    && (SS_CONN_TYPE(sk) & Conn_Closing)
+			    && ss_is_closed_force(&sw))
 				ss_conn_drop_guard_exit(sk);
 			/* We've closed the socket on earlier job. */
 			bh_unlock_sock(sk);
 			goto dead_sock;
-		} else if (ss_is_closing(sk)) {
-			if ((sw.action == SS_CLOSE)
-			    && (sw.flags & __SS_F_FORCE))
+		} else if (sk->sk_user_data
+			   && (SS_CONN_TYPE(sk) & Conn_Shutdown)) {
+			if (ss_is_closed_force(&sw))
 				ss_linkerror(sk);
 			bh_unlock_sock(sk);
 			goto dead_sock;

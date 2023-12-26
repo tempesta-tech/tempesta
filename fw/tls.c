@@ -78,6 +78,12 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
 
+	if (unlikely(tfw_connection_stop_rcv(conn))) {
+		__kfree_skb(skb);
+		return 0;
+	}
+
+
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
 	 * in-place by chunks. Add skb to the list to build scatterlist if
@@ -97,17 +103,20 @@ next_msg:
 		 * T_BLOCK is error code for high level modules (like frang),
 		 * here we should deal with error code, which accurately
 		 * determine further closing behavior.
+		 * T_DROP is error code, which is returned when connection
+		 * should be alive, but if we can't decrypt request, we should
+		 * close the connection.
 		 */
-		BUG_ON(r == T_BLOCK);
+		BUG_ON(r == T_BLOCK || r == T_DROP);
 		fallthrough;
 	case T_BAD:
-		if (tls->conf->endpoint == TTLS_IS_SERVER)
-			TFW_INC_STAT_BH(serv.tls_hs_failed);
+		r = T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_FIN:
-		r = T_BLOCK_WITH_FIN;
 		fallthrough;
 	case T_BLOCK_WITH_RST:
+		if (tls->conf->endpoint == TTLS_IS_SERVER)
+			TFW_INC_STAT_BH(serv.tls_hs_failed);
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
@@ -576,8 +585,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 
 	if (io->msgtype == TTLS_MSG_ALERT &&
 	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
-	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
+	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL)) {
+		TFW_CONN_TYPE(((TfwConn *)conn)) |= Conn_Stop;
 		flags |= tfw_tls_close_msg_flags(io);
+	}
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
