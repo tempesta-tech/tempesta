@@ -80,6 +80,7 @@ bool custom_ctext_vchar_enabled = false;
 bool custom_xff_enabled = false;
 bool custom_cookie_enabled = false;
 bool custom_etag_enabled = false;
+bool custom_token_lc_enabled = false;
 
 unsigned char custom_uri[256] ____cacheline_aligned __read_mostly;
 unsigned char custom_token[256] ____cacheline_aligned __read_mostly;
@@ -249,7 +250,7 @@ size_t tfw_match_##a_name(const char *str, size_t len)			\
 }									\
 
 #define TFW_INIT_CUSTOM_A(a_name)					\
-void tfw_init_custom_##a_name(const unsigned char a[256])		\
+void tfw_init_custom_##a_name(const unsigned char *a)			\
 {									\
 	custom_##a_name##_enabled = !!a;				\
 	if (!!a)							\
@@ -266,7 +267,7 @@ TFW_MATCH(cookie);
 TFW_MATCH(etag);
 TFW_MATCH(token_lc);
 
-void tfw_init_custom_token(const unsigned char a[256])
+void tfw_init_custom_token(const unsigned char *a)
 {
 	custom_token_enabled = !!a;
 
