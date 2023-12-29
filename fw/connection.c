@@ -45,6 +45,8 @@ tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer)
 {
 	BUG_ON(conn->peer || !list_empty(&conn->list));
 	conn->peer = peer;
+
+	T_WARN("tfw_connection_link_peer peer %px conn %px", peer, conn);
 	tfw_peer_add_conn(peer, &conn->list);
 }
 

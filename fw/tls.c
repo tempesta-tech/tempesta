@@ -708,7 +708,11 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
 
+	if (PRINT)
+		T_WARN("tfw_tls_conn_close %px BBB", c);
 	spin_lock(&tls->lock);
+	if (PRINT)
+		T_WARN("tfw_tls_conn_close %px AAA", c);
 	r = ttls_close_notify(tls, TTLS_F_ST_CLOSE);
 	spin_unlock(&tls->lock);
 

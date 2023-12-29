@@ -35,6 +35,8 @@
 #include "sync_socket.h"
 #include "tls.h"
 
+int PRINT = 0;
+
 /*
  * ------------------------------------------------------------------------
  *	Client socket handling.
@@ -580,8 +582,8 @@ tfw_sock_clnt_drop(struct sock *sk)
 {
 	TfwConn *conn = sk->sk_user_data;
 
-	T_DBG3("connection lost: close client socket: sk=%p, conn=%p, "
-	       "client=%p\n", sk, conn, conn->peer);
+	T_WARN("connection lost: close client socket: sk=%px, conn=%px, "
+	       "client=%px\n", sk, conn, conn->peer);
 
 	spin_lock(&((TfwCliConn *)conn)->timer_lock);
 	del_timer_sync(&((TfwCliConn *)conn)->timer);
@@ -660,6 +662,7 @@ __cli_conn_close_cb(TfwConn *conn)
 	 * client hash bucket locks as soon as possible and let softirq
 	 * do all the jobs.
 	 */
+	T_WARN("__cli_conn_close_cb %px", conn);
 	return tfw_connection_close(conn, false);
 }
 
@@ -678,7 +681,13 @@ __cli_conn_abort_cb(TfwConn *conn)
 static int
 tfw_cli_conn_close_all(void *data)
 {
-	return tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_close_cb);
+	int r;
+	T_WARN("tfw_cli_conn_close_all BBB");
+	PRINT = 1;
+	r = tfw_peer_for_each_conn((TfwPeer *)data, __cli_conn_close_cb);
+	PRINT = 0;
+	T_WARN("tfw_cli_conn_close_all AAA");
+	return r;
 }
 
 /**

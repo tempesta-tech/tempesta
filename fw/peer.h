@@ -25,6 +25,8 @@
 
 #include "addr.h"
 
+extern int PRINT;
+
 /**
  * @conn_list		- connections list associated with the peer;
  * @conn_lock		- protects @conn_list;
@@ -53,7 +55,11 @@ tfw_peer_add_conn(TfwPeer *p, struct list_head *conn_list)
 {
 	spin_lock_bh(&p->conn_lock);
 
+        T_WARN("tfw_peer_add_conn %px BB", p);
+
 	list_add(conn_list, &p->conn_list);
+
+        T_WARN("tfw_peer_add_conn %px AA", p);
 
 	spin_unlock_bh(&p->conn_lock);
 }
@@ -63,6 +69,8 @@ tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 {
 	local_bh_disable();
 	spin_lock_nested(&p->conn_lock, SINGLE_DEPTH_NESTING);
+
+         T_WARN("tfw_peer_del_conn %px", p);
 
 	list_del_init(conn_list);
 

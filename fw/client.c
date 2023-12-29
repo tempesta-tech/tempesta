@@ -76,7 +76,7 @@ tfw_client_put(TfwClient *cli)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)cli;
 
-	T_DBG2("put client %p, users=%d\n",
+	T_WARN("put client %p, users=%d\n",
 	       cli, ent->users);
 
 	spin_lock(&ent->lock);
@@ -95,7 +95,7 @@ tfw_client_put(TfwClient *cli)
 
 	spin_unlock(&ent->lock);
 
-	T_DBG("put client: cli=%p\n", cli);
+	T_WARN("put client: cli=%p\n", cli);
 	TFW_DEC_STAT_BH(clnt.online);
 }
 
@@ -227,6 +227,8 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	tdb_ctx.init_rec = tfw_client_ent_init;
 	tdb_ctx.len = sizeof(TfwClientEntry);
 	tdb_ctx.ctx = &ctx;
+
+	T_WARN("tfw_client_obtain %lu", key);
 	rec = tdb_rec_get_alloc(client_db, key, &tdb_ctx);
 	BUG_ON(tdb_ctx.len < sizeof(TfwClientEntry));
 	if (!rec) {
@@ -244,6 +246,8 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 
 	ent = (TfwClientEntry *)rec->data;
 	cli = &ent->cli;
+
+	T_WARN("tfw_client_obtain %px", cli);
 	return cli;
 }
 EXPORT_SYMBOL(tfw_client_obtain);
@@ -278,8 +282,11 @@ tfw_client_set_expires_time(unsigned int expires_time)
 static int
 tfw_client_start(void)
 {
-	if (tfw_runstate_is_reconfig())
+	T_WARN("tfw_client_start");
+	if (tfw_runstate_is_reconfig()) {
+		T_WARN("tfw_client_start ZERO");
 		return 0;
+	}
 	/*
 	 * The TfwClientEntry is used as direct pointer to data  inside a TDB
 	 * entry. Small entries may be moved between locations as index tree
@@ -297,8 +304,11 @@ tfw_client_start(void)
 static void
 tfw_client_stop(void)
 {
-	if (tfw_runstate_is_reconfig())
+	T_WARN("tfw_client_stop");
+	if (tfw_runstate_is_reconfig()) {
+		T_WARN("tfw_client_stop ZERO");
 		return;
+	}
 	if (client_db)
 		tdb_close(client_db);
 }

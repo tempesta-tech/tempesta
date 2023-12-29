@@ -552,7 +552,11 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 	int r = 0;
 	TfwConn *conn, *tmp_conn;
 
+	if (PRINT)
+		T_WARN("tfw_peer_for_each_conn BBB %px", p);
 	spin_lock_bh(&p->conn_lock);
+	if (PRINT)
+		T_WARN("tfw_peer_for_each_conn AAA %px", p);
 
 	/*
 	 * @cb() may delete connections from the list.
@@ -563,7 +567,11 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 	 * connection repair and freed on shutdown only.
 	 */
 	list_for_each_entry_safe(conn, tmp_conn, &p->conn_list, list) {
+		if (PRINT)
+			T_WARN("tfw_peer_for_each_conn RC BBB %px", conn);
 		r = cb(conn);
+		if (PRINT)
+			T_WARN("tfw_peer_for_each_conn RC %d AAA %px", r, conn);
 		if (unlikely(r))
 			break;
 	}

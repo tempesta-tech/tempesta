@@ -148,6 +148,14 @@ tdb_free_vsrec(TdbVRec *rec)
 	rec->len |= TDB_HTRIE_VRFREED;
 }
 
+static inline void
+tdb_free_rec(TdbHdr *dbh, TdbRec *r)
+{
+	return TDB_HTRIE_VARLENRECS(dbh)
+		? tdb_free_vsrec((TdbVRec *)r)
+		: tdb_free_fsrec(dbh,  (TdbFRec *)r);
+}
+
 /**
  * Allocates a free block (system page) in extent @e.
  * @return start of available room (offset in bytes) at the block.
@@ -560,6 +568,8 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 		o = (*node)->shifts[TDB_HTRIE_IDX(key, *bits)];
 
+		//TDB_WARN("tdb_htrie_descend key %lu bits %d node %px o %lu | %lu", key, *bits, *node, o, o & TDB_HTRIE_DBIT);
+
 		if (o & TDB_HTRIE_DBIT) {
 			BUG_ON(TDB_DI2O(o & ~TDB_HTRIE_DBIT)
 				< TDB_HDR_SZ(dbh) + sizeof(TdbExt)
@@ -662,16 +672,20 @@ tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len)
 	TdbRec *rec = NULL;
 	TdbHtrieNode *node = TDB_HTRIE_ROOT(dbh);
 
+	TDB_WARN("tdb_htrie_insert %px key %lu data %px len %lu", dbh, key, data, *len);
+
 	/* Don't store empty data. */
 	if (unlikely(!*len))
 		return NULL;
 
 retry:
 	o = tdb_htrie_descend(dbh, &node, key, &bits);
+
+	TDB_WARN("tdb_htrie_insert %lu bits %d", o, bits);
 	if (!o) {
 		int i;
 
-		TDB_DBG("Create a new htrie node for key=%#lx len=%lu"
+		TDB_WARN("Create a new htrie node for key=%#lx len=%lu"
 			" bits_used=%d\n", key, *len, bits);
 
 		o = tdb_alloc_data(dbh, len, 1);
@@ -680,10 +694,16 @@ retry:
 
 		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
 
+		TDB_WARN("REC CREATE %px", rec);
+
 		i = TDB_HTRIE_IDX(key, bits);
 		if (atomic_cmpxchg((atomic_t *)&node->shifts[i], 0,
-				   TDB_O2DI(o) | TDB_HTRIE_DBIT) == 0)
+				   TDB_O2DI(o) | TDB_HTRIE_DBIT) == 0) {
+			TDB_WARN("GOOD %d", i);
 			return rec;
+		}
+
+		TDB_WARN("retry");
 		/* Somebody already created the new brach. */
 		// TODO free just allocated data block
 		goto retry;
@@ -695,6 +715,8 @@ retry:
 	 */
 	bckt = TDB_PTR(dbh, o);
 	BUG_ON(!bckt);
+
+	TDB_WARN("COLLISIOON!!!");
 
 	write_lock_bh(&bckt->lock);
 
@@ -730,7 +752,7 @@ retry:
 		/* Align small record length to 8 bytes. */
 		size_t n = TDB_HTRIE_RALIGN(*len);
 
-		TDB_DBG("Small record (len=%lu) collision on %d bits for"
+		TDB_WARN("Small record (len=%lu) collision on %d bits for"
 			" key %#lx\n", n, bits, key);
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
@@ -742,7 +764,7 @@ retry:
 	}
 
 	if (unlikely(TDB_HTRIE_RESOLVED(bits))) {
-		TDB_DBG("Hash full key %#lx collision on %d bits,"
+		TDB_WARN("Hash full key %#lx collision on %d bits,"
 			" add new record (len=%lu) to collision chain\n",
 			key, bits, *len);
 
@@ -776,7 +798,7 @@ retry:
 	BUG_ON(bckt->coll_next);
 	BUG_ON(bits < TDB_HTRIE_BITS);
 
-	TDB_DBG("Least significant bits %d collision for key %#lx"
+	TDB_WARN("Least significant bits %d collision for key %#lx"
 		" and new record (len=%lu) - burst the node %p\n",
 		bits, key, *len, bckt);
 
@@ -800,6 +822,7 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 	TdbHtrieNode *root = TDB_HTRIE_ROOT(dbh);
 
 	o = tdb_htrie_descend(dbh, &root, key, &bits);
+	TDB_WARN("tdb_htrie_lookup %lu", o);
 	if (!o)
 		return NULL;
 
@@ -844,6 +867,7 @@ tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket **b, unsigned long key)
 	TdbRec *r;
 
 	TDB_HTRIE_FOREACH_REC(dbh, b_tmp, b, r, {
+		TDB_WARN("tdb_htrie_bscan_for_rec %px live %d key %lu %lu", r, tdb_live_rec(dbh, r), tdb_live_rec(dbh, r) ? r->key : 0, key);
 		if (tdb_live_rec(dbh, r) && r->key == key)
 			/* Unlock the bucket by tdb_rec_put(). */
 			return r;
@@ -898,19 +922,37 @@ next_bckt:
 	return NULL;
 }
 
+static int
+empty(void *data)
+{
+	TDB_WARN("DATA %px", data);
+
+	return 0;
+}
+
 TdbHdr *
 tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 {
 	int cpu;
 	TdbHdr *hdr = (TdbHdr *)p;
 
+	TDB_WARN("tdb_htrie_init %px", p);
+
+	tdb_htrie_walk(hdr, empty);
+
+	TDB_WARN("ZZZZZZZZZZZZZZZZZZZZFGFFFFFFFFFFFFFFFFF");
+
 	if (hdr->magic != TDB_MAGIC) {
+		TDB_WARN("hdr->magic != TDB_MAGIC");
 		hdr = tdb_init_mapping(p, db_size, rec_len);
+		TDB_WARN("hdr->magic != TDB_MAGIC %px", hdr);
 		if (!hdr) {
 			TDB_ERR("cannot init db mapping\n");
 			return NULL;
 		}
 	}
+
+	tdb_htrie_walk(hdr, empty);
 
 	/* Set per-CPU pointers. */
 	hdr->pcpu = alloc_percpu(TdbPerCpu);
@@ -924,8 +966,10 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 		p->d_wcl = tdb_alloc_blk(hdr);
 	}
 
-	TDB_DBG("init db header: nwb=%llu db_size=%lu rec_len=%u\n",
+	TDB_WARN("init db header: nwb=%llu db_size=%lu rec_len=%u\n",
 		atomic64_read(&hdr->nwb), hdr->dbsz, hdr->rec_len);
+
+	tdb_htrie_walk(hdr, empty);
 
 	return hdr;
 }
@@ -944,7 +988,10 @@ tdb_htrie_bucket_walk(TdbHdr *dbh, TdbBucket *b, int (*fn)(void *))
 
 	TDB_HTRIE_FOREACH_REC(dbh, b_tmp, &b, r, {
 		if (tdb_live_rec(dbh, r)) {
-			int res = fn(r->data);
+			int res;
+			TDB_WARN("BEFORE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! r %px key %lu data %px", r, r->key, r->data);
+			res = fn(r->data);
+			TDB_WARN("AFTER!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! r %px key %lu data %px", r, r->key, r->data);
 			if (unlikely(res)) {
 				read_unlock_bh(&b->lock);
 				return res;
@@ -1005,5 +1052,6 @@ tdb_htrie_walk(TdbHdr *dbh, int (*fn)(void *))
 {
 	TdbHtrieNode *node = TDB_HTRIE_ROOT(dbh);
 
+	TDB_WARN("tdb_htrie_walk %px", dbh);
 	return tdb_htrie_node_visit(dbh, node, fn);
 }

@@ -260,9 +260,11 @@ tdb_file_open(TDB *db, unsigned long size)
 	struct file *filp;
 	struct inode *inode;
 
+	TDB_WARN("tdb_file_open %s", db->path);
+
 	filp = filp_open(db->path, O_CREAT | O_RDWR, 0600);
 	if (IS_ERR(filp)) {
-		TDB_ERR("Cannot open db file %s\n", db->path);
+		TDB_ERR("Cannot open db file %s %ld\n", db->path, (long int)filp);
 		return PTR_ERR(filp);
 	}
 	BUG_ON(!filp || !filp->f_path.dentry);

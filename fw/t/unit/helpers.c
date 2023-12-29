@@ -35,6 +35,7 @@
 
 #include "pool.c"
 
+int PRINT;
 static TfwConn conn_req, conn_resp;
 
 TfwHttpReq *

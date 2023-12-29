@@ -121,8 +121,11 @@ tdb_rec_get(TDB *db, unsigned long key)
 	if (!iter.bckt)
 		goto out;
 
+	TDB_WARN("tdb_rec_get ZZZZ %lu", key);
 	iter.rec = tdb_htrie_bscan_for_rec(db->hdr, (TdbBucket **)&iter.bckt,
 					   key);
+
+	TDB_WARN("iter.rec %px", iter.rec);
 out:
 	return iter;
 }
@@ -275,8 +278,10 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	ctx->is_new = false;
 	iter = tdb_rec_get(db, key);
 	while (!TDB_ITER_BAD(iter)) {
+		TDB_WARN("QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ %lu", key);
 		if (ctx->eq_rec(iter.rec,  ctx->ctx)) {
 			spin_unlock(&db->ga_lock);
+			TDB_WARN("tdb_rec_get_alloc EXIST");
 			return iter.rec;
 		}
 		tdb_rec_next(db, &iter);
@@ -292,6 +297,8 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 
 	spin_unlock(&db->ga_lock);
 
+
+	TDB_WARN("tdb_rec_get_alloc NEW");
 	return r;
 }
 EXPORT_SYMBOL(tdb_rec_get_alloc);
@@ -367,11 +374,15 @@ __do_close_table(TDB *db)
 void
 tdb_close(TDB *db)
 {
+	TDB_WARN("tdb_close %px", db);
+
 	if (!db)
 		return;
 
-	if (!atomic_dec_and_test(&db->count))
+	if (!atomic_dec_and_test(&db->count)) {
+		TDB_WARN("tdb_close RETURN %px", db);
 		return;
+	}
 
 	tdb_tbl_forget(db);
 

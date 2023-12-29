@@ -2662,6 +2662,8 @@ tfw_http_conn_shutdown(TfwConn *conn, bool sync)
 static int
 tfw_http_conn_close(TfwConn *conn, bool sync)
 {
+	if (PRINT)
+		T_WARN("tfw_http_conn_close %px", conn);
 	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
 }
 
