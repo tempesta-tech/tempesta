@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# pre-commit hook to update copyrights
+
+year=$(date +%Y)
+files=$(git diff --cached --name-only)
+
+perl -i -pe "s/Copyright \(C\) (\d{4})(-\d{4})? Tempesta/Copyright \(C\) \$1-$year Tempesta/g" $files
+perl -i -pe "s/Copyright \(C\) $year-$year Tempesta/Copyright \(C\) $year Tempesta/g" $files
+
+git add $files
