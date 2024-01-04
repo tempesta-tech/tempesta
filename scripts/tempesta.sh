@@ -224,6 +224,16 @@ update_js_challenge_templates()
 	done
 }
 
+prepare_db_directory()
+{
+	# Create database directory if it doesn't exist.
+	mkdir -p /opt/tempesta/db/;
+	# At this time we don't have stable TDB data format, so
+	# it would be nice to clean all the tables before the start.
+	# TODO #515: Remove the hack when TDB is fixed.
+	rm -f /opt/tempesta/db/*.tdb;
+}
+
 start()
 {
 	echo "Starting Tempesta..."
@@ -231,19 +241,16 @@ start()
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
 
-	[[ -z ${TFW_STATE} ]] && {
+	if [[ -z ${TFW_STATE} ]]; then
 		setup;
 
 		echo "...load Tempesta modules"
 		load_modules;
 
-		# Create database directory if it doesn't exist.
-		mkdir -p /opt/tempesta/db/;
-		# At this time we don't have stable TDB data format, so
-		# it would be nice to clean all the tables before the start.
-		# TODO #515: Remove the hack when TDB is fixed.
-		rm -f /opt/tempesta/db/*.tdb;
-	}
+		prepare_db_directory;
+	elif [[ ${TFW_STATE} == "stop" ]]; then
+		prepare_db_directory;
+	fi
 
 	update_js_challenge_templates
 	if [ $? -ne 0 ]; then
