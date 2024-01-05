@@ -99,22 +99,22 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 }
 
 static inline void
-tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
-		   long int loc_wnd, long int rem_wnd)
+tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
+		   unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
-	stream->state = HTTP2_STREAM_OPENED;
+	stream->state = state;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
 }
 
 static TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
-		  long int loc_wnd, long int rem_wnd)
+tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state, unsigned int id,
+		  unsigned short weight, long int loc_wnd, long int rem_wnd)
 {
 	TfwStream *new_stream;
 	struct rb_node **new = &sched->streams.rb_node;
@@ -138,12 +138,61 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, state, id, weight, loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
 
 	return new_stream;
+}
+
+static void
+tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	struct list_head *pos, *prev = &ctx->idle_streams.list;
+	bool found = false;
+
+	/*
+	 * We add and remove streams from idle queue under the
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	/*
+	 * Found first idle stream with id less than new idle
+	 * stream, then insert new stream before this stream.
+	 */
+	list_for_each(pos, &ctx->idle_streams.list) {
+		TfwStream *stream = list_entry(pos, TfwStream, hcl_node);
+
+		if (idle->id > stream->id) {
+			found = true;
+			break;
+		}
+		prev = &stream->hcl_node;
+	}
+
+	if (found) {
+		list_add(&idle->hcl_node, prev);
+		idle->queue = &ctx->idle_streams;
+		++idle->queue->num;
+	} else {
+		tfw_h2_stream_add_to_queue_nolock(&ctx->idle_streams, idle);
+	}
+}
+
+void
+tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	/*
+	 * We add and remove streams from idle queue under the
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	tfw_h2_stream_del_from_queue_nolock(stream);
 }
 
 /*
@@ -153,7 +202,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
  * deletion) are done only in receiving flow of Frame layer.
  */
 TfwStream *
-tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
+tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state, unsigned int id)
 {
 	TfwStream *stream, *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
@@ -162,13 +211,16 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
 		return NULL;
 
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
+	stream = tfw_h2_add_stream(&ctx->sched, state, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
 	if (!stream)
 		return NULL;
 
 	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
+
+	if (state == HTTP2_STREAM_IDLE)
+		tfw_h2_stream_add_idle(ctx, stream);
 
 	++ctx->streams_num;
 
@@ -370,6 +422,22 @@ do {									\
 	}
 
 	switch (tfw_h2_get_stream_state(stream)) {
+	case HTTP2_STREAM_IDLE:
+		/* We don't processed sending headers for idle streams. */
+		BUG_ON(send);
+		if (type == HTTP2_HEADERS) {
+			SET_STATE(HTTP2_STREAM_OPENED);
+		} else if (type != HTTP2_PRIORITY) {
+			/*
+			 * TODO receiving of HTTP2_PUSH_PROMISE switched stream to
+			 * HTTP2_STREAM_REM_RESERVED state.
+			 */
+			*err = HTTP2_ECODE_PROTO;
+			res = STREAM_FSM_RES_TERM_CONN;
+		}
+
+		break;
+
 	case HTTP2_STREAM_LOC_RESERVED:
 	case HTTP2_STREAM_REM_RESERVED:
 		/*
