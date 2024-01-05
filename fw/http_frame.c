@@ -213,6 +213,7 @@ int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
+	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
@@ -224,6 +225,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	spin_lock_init(&ctx->lock);
 	INIT_LIST_HEAD(&closed_streams->list);
+	INIT_LIST_HEAD(&idle_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -767,6 +769,7 @@ static int
 tfw_h2_headers_process(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
+	int r;
 
 	T_DBG3("%s: stream->id=%u, cur_stream=[%p]\n", __func__,
 	       hdr->stream_id, ctx->cur_stream);
@@ -789,9 +792,15 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 	}
 
 	if (!ctx->cur_stream) {
-		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
+		ctx->cur_stream = tfw_h2_stream_create(ctx, HTTP2_STREAM_OPENED,
+						       hdr->stream_id);
 		if (!ctx->cur_stream)
 			return -ENOMEM;
+		ctx->lstream_id = hdr->stream_id;
+	} else if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
+		if ((r = tfw_h2_current_stream_state_process(ctx)))
+			return r;
+		tfw_h2_stream_remove_idle(ctx, ctx->cur_stream);
 		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
@@ -878,6 +887,18 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 					 pri->stream_id, pri->weight,
 					 pri->exclusive);
 		return T_OK;
+	}
+
+	if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
+		/*
+		 * According to RFC 7540 we should response with stream
+		 * error of type PROTOCOL ERROR here, but we can't send
+		 * RST_STREAM for idle stream.
+		 * RFC 7540 doesn't describe this case, so terminate
+		 * connection.
+		 */
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		return T_BAD;
 	}
 
 	/*
@@ -1290,6 +1311,36 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+/**
+ * According to RFC 7540 section 5.1.1:
+ * The first use of a new stream identifier implicitly closes all
+ * streams in the "idle" state that might have been initiated by that
+ * peer with a lower-valued stream identifier.
+ */
+static void
+tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwStream *stream, *tmp;
+
+	/*
+	 * We add and remove streams from idle queue under
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
+					 hcl_node)
+	{
+		if (id <= stream->id)
+			break;
+
+		tfw_h2_stream_del_from_queue_nolock(stream);
+		stream->state = HTTP2_STREAM_REM_CLOSED;
+		tfw_h2_stream_add_closed(ctx, stream);
+	}
+}
+
 /*
  * Initial processing of received frames: verification and handling of
  * frame header; also, stream states are processed here - during receiving
@@ -1377,6 +1428,9 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
+
+		tfw_h2_remove_idle_streams(ctx, hdr->stream_id);
+
 		/*
 		 * Endpoints must not exceed the limit set by their peer for
 		 * maximum number of concurrent streams (see RFC 7540 section
@@ -1416,20 +1470,32 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->cur_stream =
-			tfw_h2_find_not_closed_stream(ctx, hdr->stream_id,
-						      true);
+			tfw_h2_find_stream(&ctx->sched, hdr->stream_id);
 		if (hdr->length != FRAME_PRIORITY_SIZE)
 			goto conn_term;
 
 		if (ctx->cur_stream) {
 			STREAM_RECV_PROCESS(ctx, hdr);
 			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
+		} else if (hdr->stream_id > ctx->lstream_id) {
+			/*
+			 * According to RFC 7540 section 6.3:
+			 * Priority frame can be sent in any stream state,
+			 * including idle or closed streams.
+			 */
+			ctx->cur_stream =
+				tfw_h2_stream_create(ctx, HTTP2_STREAM_IDLE,
+						     hdr->stream_id);
+			if (!ctx->cur_stream)
+				return -ENOMEM;
+			STREAM_RECV_PROCESS(ctx, hdr);
+			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
 		} else {
 			/*
 			 * According to RFC 9113 section 5.1:
 			 * PRIORITY frames are allowed in the `closed` state,
-			 * but if the stream was moved to closed queue or was
-			 * already removed from memory, just ignore this frame.
+			 * but if the stream was already removed from memory,
+			 * just ignore this frame.
 			 */
 			ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		}
