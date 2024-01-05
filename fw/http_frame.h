@@ -163,6 +163,7 @@ typedef struct {
  * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED or
  * 			  HTTP2_STREAM_REM_CLOSED state), which are waiting
  * 			  for removal;
+ * @idle_streams	- queue of idle streams (in HTTP2_STREAM_IDLE) state;
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
@@ -216,6 +217,7 @@ typedef struct tfw_h2_ctx_t {
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
 	TfwStreamQueue	closed_streams;
+	TfwStreamQueue	idle_streams;
 	unsigned int	lstream_id;
 	long int	loc_wnd;
 	long int	rem_wnd;
