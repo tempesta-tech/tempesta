@@ -156,6 +156,55 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	return new_stream;
 }
 
+void
+tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	struct list_head *pos, *prev = &ctx->idle_streams.list;
+	bool found = false;
+
+	/*
+	 * We add and remove streams from idle queue under the
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	/*
+	 * Found first idle stream with id less than new idle
+	 * stream, then insert new stream before this stream.
+	 */
+	list_for_each(pos, &ctx->idle_streams.list) {
+		TfwStream *stream = list_entry(pos, TfwStream, hcl_node);
+
+		if (idle->id > stream->id) {
+			found = true;
+			break;
+		}
+		prev = &stream->hcl_node;
+	}
+
+	if (found) {
+		list_add(&idle->hcl_node, prev);
+		idle->queue = &ctx->idle_streams;
+		++idle->queue->num;
+	} else {
+		tfw_h2_stream_add_to_queue_nolock(&ctx->idle_streams, idle);
+	}
+}
+
+void
+tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	/*
+	 * We add and remove streams from idle queue under the
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	tfw_h2_stream_del_from_queue_nolock(stream);
+}
+
 /*
  * Create a new stream and add it to the streams storage and to the dependency
  * tree. Note, that we do not need to protect the streams storage in @sched from

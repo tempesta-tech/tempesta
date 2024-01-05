@@ -199,7 +199,8 @@ typedef struct tfw_h2_ctx_t TfwH2Ctx;
 
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
-TfwStream * tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id);
+TfwStream *tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id);
+void tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_lock(TfwH2Ctx *ctx, TfwStream *stream);
@@ -214,6 +215,7 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
+void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
 TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
 					   unsigned char type);
 
