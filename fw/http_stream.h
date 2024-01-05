@@ -37,6 +37,7 @@
  * is just a stream that has not been created yet.
  */
 typedef enum {
+	HTTP2_STREAM_IDLE,
 	HTTP2_STREAM_LOC_RESERVED,
 	HTTP2_STREAM_REM_RESERVED,
 	HTTP2_STREAM_OPENED,
@@ -65,6 +66,7 @@ typedef enum {
 } TfwStreamXmitState;
 
 static const char *__tfw_strm_st_names[] = {
+	[HTTP2_STREAM_IDLE]		= "HTTP2_STREAM_IDLE",
 	[HTTP2_STREAM_LOC_RESERVED]	= "HTTP2_STREAM_LOC_RESERVED",
 	[HTTP2_STREAM_REM_RESERVED]	= "HTTP2_STREAM_REM_RESERVED",
 	[HTTP2_STREAM_OPENED]	    	= "HTTP2_STREAM_OPENED",
@@ -198,7 +200,9 @@ typedef struct tfw_h2_ctx_t TfwH2Ctx;
 
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
-TfwStream * tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id);
+TfwStream *tfw_h2_stream_create(TfwH2Ctx *ctx, TfwStreamState state,
+				unsigned int id);
+void tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
 int tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 			TfwH2Err err_code);
