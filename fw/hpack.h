@@ -96,9 +96,6 @@ typedef struct {
  * @pool	- memory pool for dynamic table;
  * @idx_acc	- current accumulated index, intended for real indexes
  *		  calculation;
- * @guard	- atomic protection against races during entries
- *		  addition/eviction in encoder dynamic index;
- * @lock	- spinlock to synchronize concurrent access to encoder index.
  */
 typedef struct {
 	TFW_HPACK_ETBL_COMMON;
@@ -108,8 +105,6 @@ typedef struct {
 	TfwHPackNode		*root;
 	TfwPool			*pool;
 	unsigned long		idx_acc;
-	atomic64_t		guard;
-	spinlock_t		lock;
 } TfwHPackETbl;
 
 /**
@@ -320,7 +315,6 @@ int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 				  TfwHttpResp *__restrict resp,
 				  unsigned char *__restrict src, unsigned long n,
 				  TfwDecodeCacheIter *__restrict cd_iter);
-void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
 int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream);
 
 static inline unsigned int
