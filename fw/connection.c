@@ -165,7 +165,8 @@ tfw_connection_do_send(TfwConn *conn, struct sk_buff **skb_head, int flags)
 		SS_SKB_F2TYPE(flags) : 0;
 	unsigned int mark = (*skb_head)->mark;
 	struct sk_buff *skb, **target = NULL;
-	TfwStream *stream;
+	TfwStream *stream = NULL;
+	bool need_activate = false;
 
 #define TFW_H2_INIT_STREAM_FOR_XMIT(stream, mark, tls_type, target)	\
 do {									\
@@ -194,6 +195,7 @@ do {									\
 			tfw_http_resp_pair_free_and_put_conn(resp);
 			return -EPIPE;
 		}
+
 		BUG_ON(stream->xmit.skb_head);
 		stream->xmit.resp = resp;
 		TFW_H2_INIT_STREAM_FOR_XMIT(stream, mark, tls_type, target);
@@ -208,6 +210,7 @@ do {									\
 						       false);
 		if (unlikely(!stream))
 			break;
+
 		TFW_H2_INIT_STREAM_FOR_XMIT(stream, mark, tls_type, target);
 		break;
 	case HTTP2_GOAWAY:
@@ -223,6 +226,8 @@ do {									\
 		target = &h2->alert_skb_head;
 		h2->alert_tls_type = tls_type;
 	}
+
+	need_activate = stream && !tfw_h2_stream_is_active(stream);
 
 do_send:
 	while ((skb = ss_skb_dequeue(skb_head))) {
@@ -253,6 +258,9 @@ do_send:
 
 	if (target)
 		sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
+
+	if (stream && need_activate && !stream->xmit.is_blocked)
+		tfw_h2_sched_activate_stream(&h2->sched, stream);
 
 	return 0;
 

@@ -178,6 +178,7 @@ typedef struct {
  * @new_settings	- new settings to apply when ack is pushed to socket
  * 			  write queue;
  * @goaway_skb_head	- pointer to the head of the goaway skb.
+ * @cur_xmit_stream	- stream for which headers are currently being made;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
