@@ -227,6 +227,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&closed_streams->list);
 	INIT_LIST_HEAD(&idle_streams->list);
 
+	tfw_h2_init_stream_sched(&ctx->sched);
+
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
@@ -577,7 +579,7 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 }
 
 static void
-__tfw_h2_destroy_stream_send_queue(struct rb_node *node)
+__tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx, struct rb_node *node)
 {
 	if (node) {
 		TfwStream *stream = rb_entry(node, TfwStream, node);
@@ -587,10 +589,13 @@ __tfw_h2_destroy_stream_send_queue(struct rb_node *node)
 			tfw_http_resp_pair_free_and_put_conn(resp);
 			stream->xmit.resp = NULL;
 		}
-		if (stream->xmit.skb_head)
+		if (stream->xmit.skb_head) {
+			tfw_h2_stream_sched_remove(&ctx->sched, stream);
 			tfw_h2_stream_purge_send_queue(stream);
-		__tfw_h2_destroy_stream_send_queue(node->rb_left);
-		__tfw_h2_destroy_stream_send_queue(node->rb_right);
+		}
+
+		__tfw_h2_destroy_stream_send_queue(ctx, node->rb_left);
+		__tfw_h2_destroy_stream_send_queue(ctx, node->rb_right);
 	}
 }
 
@@ -600,7 +605,7 @@ tfw_h2_destroy_stream_send_queue(TfwH2Ctx *ctx)
 	TfwStreamSched *sched = &ctx->sched;
 	struct rb_node *root = sched->streams.rb_node;
 
-	__tfw_h2_destroy_stream_send_queue(root);
+	__tfw_h2_destroy_stream_send_queue(ctx, root);
 }
 
 void
@@ -848,8 +853,17 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			goto fail;
 		}
 
-		if (*window > 0)
-			tcp_push_pending_frames(((TfwConn *)conn)->sk);
+		if (ctx->cur_stream)
+			tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
+
+		if (*window > 0) {
+			if (tfw_h2_stream_sched_is_active(&ctx->sched.root)) {
+				sock_set_flag(((TfwConn *)conn)->sk,
+					       SOCK_TEMPESTA_HAS_DATA);
+				tcp_push_pending_frames(((TfwConn *)conn)->sk);
+			}
+		}
+
 		return T_OK;
 	}
 
@@ -945,6 +959,7 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 		if (state == HTTP2_STREAM_OPENED ||
 		    state == HTTP2_STREAM_REM_HALF_CLOSED) {
 			stream->rem_wnd += delta;
+			tfw_h2_stream_try_unblock(&ctx->sched, stream);
 			if (stream->rem_wnd > 0) {
 				sock_set_flag(((TfwConn *)conn)->sk,
 					      SOCK_TEMPESTA_HAS_DATA);
@@ -2386,8 +2401,10 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (!ctx->rem_wnd || !stream->rem_wnd)
+		if (!ctx->rem_wnd || !stream->rem_wnd) {
+			stream->xmit.is_blocked = !stream->rem_wnd;
 			T_FSM_EXIT();
+		}
 
 		ADJUST_AVAILABLE_CWND(*cwnd_awail, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
@@ -2442,71 +2459,39 @@ do {									\
 #undef ADJUST_AVAILABLE_SIZE
 }
 
-static int
-__tfw_h2_make_frames(TfwH2Ctx *ctx, struct rb_node *node,
-		     unsigned long *cwnd_awail, unsigned int mss)
-{
-	int r;
-
-	if (node && (*cwnd_awail > FRAME_HEADER_SIZE)) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head) {
-			BUG_ON(!stream->xmit.h_len && !stream->xmit.b_len &&
-			       stream->xmit.state > HTTP2_ENCODE_HEADERS);
-			if ((r = tfw_h2_stream_xmit_process(ctx, stream,
-							    cwnd_awail,
-							    mss)))
-				return r;
-		}
-
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_left, cwnd_awail,
-					      mss)))
-			return r;
-		if ((r = __tfw_h2_make_frames(ctx, node->rb_right, cwnd_awail,
-					      mss)))
-			return r;
-	}
-
-	return 0;
-}
-
-/**
- * TODO0 #1196 A very inefficient functiom, should be reworked when an efficient
- * stream prioritization data structure will be implemented.
- */
-static void
-__tfw_h2_check_available_data(struct rb_node *node, bool *data_is_available)
-{
-	if (node) {
-		TfwStream *stream = rb_entry(node, TfwStream, node);
-		if (stream->xmit.skb_head) {
-			*data_is_available = true;
-			return;
-		}
-		__tfw_h2_check_available_data(node->rb_left, data_is_available);
-		__tfw_h2_check_available_data(node->rb_right, data_is_available);
-	}
-}
-
 int
 tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long cwnd_awail, unsigned int mss,
 		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	struct rb_node *root = sched->streams.rb_node;
-	int r;
+	TfwStreamSchedEntry *parent;
+	TfwStream *stream;
+	u64 deficit;
+	int r = 0;
 
 	BUG_ON(mss <= FRAME_HEADER_SIZE);
 
-	if (unlikely(r = __tfw_h2_make_frames(ctx, root, &cwnd_awail,
-					      mss - FRAME_HEADER_SIZE)))
-		return r;
+	while (tfw_h2_stream_sched_is_active(&sched->root)
+	       && cwnd_awail > FRAME_HEADER_SIZE && ctx->rem_wnd && !r)
+	{
+		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
+		/*
+		 * If root scheduler is active we always can find
+		 * active stream.
+		 */
+		BUG_ON(!stream);
+		r = tfw_h2_stream_xmit_process(ctx, stream, &cwnd_awail, mss);
 
-	__tfw_h2_check_available_data(root, data_is_available);
+		deficit = tfw_h2_stream_recalc_deficit(stream);
+		tfw_h2_sched_stream_enqueue(sched, stream, parent,
+					    deficit);
+	}
+
+	*data_is_available = tfw_h2_stream_sched_is_active(&sched->root);
 	if (!(*data_is_available) && ctx->final_data)
 		tfw_h2_send_final_data(ctx, &ctx->final_data);
 
-	return 0;
+	return r;
 }
 
 TfwStream *
