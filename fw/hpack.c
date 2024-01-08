@@ -1116,7 +1116,6 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 		goto err_dt;
 
 	et->window = htbl_sz;
-	spin_lock_init(&et->lock);
 	et->rb_size = HPACK_ENC_TABLE_MAX_SIZE;
 	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE)))
 		goto err_et;
@@ -3162,12 +3161,6 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	if (WARN_ON_ONCE(!hdr))
 		return -EINVAL;
 
-	spin_lock(&tbl->lock);
-
-	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags)
-	    && atomic64_read(&tbl->guard) < 0)
-		goto out;
-
 	tfw_http_hdr_split(hdr, &h_name, &h_val, spcolon);
 	if (WARN_ON_ONCE(TFW_STR_EMPTY(&h_name)))
 		return -EINVAL;
@@ -3177,74 +3170,11 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 
 	*out_index = HPACK_NODE_GET_INDEX(tbl, node);
 
-	/*
-	 * Encoder dynamic index can be in three states: initial state (@guard
-	 * is zero), read state (@guard is 1 or greater), and write state
-	 * (@guard is -1); in read state any thread can search in index, but
-	 * nobody can add or evict entries in index; if index in the write state
-	 * only one thread (current writer) can add/evict entries in index and
-	 * nobody can search in index; index can be switched to write state
-	 * only from initial state (in general case) or from read state (if
-	 * current reader is the sole read owner of the index).
-	 */
-	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags)) {
-		if(res != HPACK_IDX_ST_FOUND
-		   && !atomic64_read(&tbl->guard)
-		   && !tfw_hpack_add_node(tbl, hdr, &place, spcolon))
-		{
-			res |= HPACK_IDX_FLAG_ADD;
-			atomic64_set(&tbl->guard, -1);
-			__set_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags);
-		}
-		else if (res != HPACK_IDX_ST_NOT_FOUND)
-		{
-			atomic64_inc(&tbl->guard);
-			__set_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags);
-		}
-	}
-	else {
-		/*
-		 * If value of guard is 1, we are the sole owner of the encoder
-		 * dynamic index with read rights, thus we can write to it.
-		 * Note, that @guard cannot be zero here, since we are already
-		 * owning encoder index with read or write rights (i.e. the flag
-		 * @TFW_HTTP_B_H2_TRANS_ENTERED is set for the corrently
-		 * processed message), thus we have already set the @guard
-		 * equal to 1 (or greater) or to -1 before.
-		 */
-		WARN_ON_ONCE(!atomic64_read(&tbl->guard));
-		if (res != HPACK_IDX_ST_FOUND
-		    && atomic64_read(&tbl->guard) <= 1
-		    && !tfw_hpack_add_node(tbl, hdr, &place, spcolon))
-		{
-			res |= HPACK_IDX_FLAG_ADD;
-			atomic64_set(&tbl->guard, -1);
-		}
-	}
-
-out:
-	spin_unlock(&tbl->lock);
+	if(res != HPACK_IDX_ST_FOUND
+	   && !tfw_hpack_add_node(tbl, hdr, &place, spcolon))
+		res |= HPACK_IDX_FLAG_ADD;
 
 	return res;
-}
-
-void
-tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags)
-{
-	TfwHPackETbl *tbl = &hp->enc_tbl;
-
-	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags))
-		return;
-
-	if (atomic64_read(&tbl->guard) < 0) {
-		atomic64_set(&tbl->guard, 0);
-	}
-	else {
-		WARN_ON_ONCE(!atomic64_read(&tbl->guard));
-		atomic64_dec(&tbl->guard);
-	}
-
-	__clear_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags);
 }
 
 static unsigned long
@@ -3726,8 +3656,6 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 		new_size = HPACK_ENC_TABLE_MAX_SIZE;
 	}
 
-	spin_lock(&tbl->lock);
-
 	T_DBG3("%s: tbl->rb_len=%hu, tbl->size=%hu, tbl->window=%hu,"
 	       " new_size=%hu\n", __func__, tbl->rb_len, tbl->size,
 	       tbl->window, new_size);
@@ -3751,8 +3679,6 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 		tbl->window = new_size;
 		tbl->wnd_changed = true;
 	}
-
-	spin_unlock(&tbl->lock);
 }
 
 int
@@ -3768,8 +3694,6 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 	char *data;
 	int r = 0;
 
-	spin_lock(&tbl->lock);
-
 	WARN_ON_ONCE(!tbl->wnd_changed);
 
 	write_int(tbl->window, 0x1F, 0x20, &tmp);
@@ -3782,13 +3706,11 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 
 	r = tfw_http_msg_insert(&it, &data, &new_size);
 	if (unlikely(r))
-		goto finish;
+		return r;
 
 	stream->xmit.h_len += tmp.sz;
 	tbl->wnd_changed = false;
 
-finish:
-	spin_unlock(&tbl->lock);
-	return r;	
+	return 0;
 }
 
