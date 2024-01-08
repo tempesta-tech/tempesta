@@ -215,9 +215,56 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
+static inline int
+tfw_h2_context_init_sched_enry_stoarge(TfwH2Ctx *ctx)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	unsigned int def_sched_entry_count =
+		(2 * PAGE_SIZE - sizeof(TfwH2Conn)) / sizeof(TfwStreamSchedEntry);
+	unsigned int extra_sched_entry_count =
+		tfw_cli_max_concurrent_streams > def_sched_entry_count ?
+			tfw_cli_max_concurrent_streams - def_sched_entry_count :
+			0;
+	TfwStreamSchedEntry *base =
+		(TfwStreamSchedEntry *)((char *)conn + sizeof(TfwH2Conn));
+
+	/*
+	 * We allocate 2* PAGE_SIZE bytes for each TfwH2Conn, and
+	 * use free memory after TfwH2Conn structure for sched
+	 * entries.
+	 */
+	tfw_h2_stream_sched_init_entry_storage(&ctx->sched, base,
+					       def_sched_entry_count);
+
+	if (extra_sched_entry_count) {
+		unsigned int sched_per_page = PAGE_SIZE / sizeof(TfwStreamSchedEntry);
+		unsigned int cnt = extra_sched_entry_count / sched_per_page +
+			(extra_sched_entry_count % sched_per_page ? 1 : 0);
+
+		ctx->extra_sched_entries = kzalloc(cnt * sizeof (struct page *),
+						   GFP_ATOMIC);
+		if (!ctx->extra_sched_entries)
+			return -ENOMEM;
+		ctx->extra_sched_entries_max_count = cnt;
+		ctx->extra_sched_entries_count = 0;
+	}
+
+	return 0;
+}
+
+static inline void
+tfw_h2_context_clear_sched_enry_stoarge(TfwH2Ctx *ctx)
+{
+	unsigned int i;
+
+	for (i = 0; i < ctx->extra_sched_entries_count; i++)
+		__free_page(ctx->extra_sched_entries[i]);
+}
+
 int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
+	int r;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
@@ -233,7 +280,10 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&closed_streams->list);
 	INIT_LIST_HEAD(&idle_streams->list);
 
-	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_stream_sched_init(&ctx->sched);
+
+	if ((r = tfw_h2_context_init_sched_enry_stoarge(ctx)))
+		return r;
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -254,6 +304,7 @@ void
 tfw_h2_context_clear(TfwH2Ctx *ctx)
 {
 	WARN_ON_ONCE(ctx->streams_num);
+	tfw_h2_context_clear_sched_enry_stoarge(ctx);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
