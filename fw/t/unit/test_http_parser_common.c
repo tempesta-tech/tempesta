@@ -31,7 +31,7 @@ unsigned int chunk_size_index = 0;
 
 TfwHttpReq *req, *sample_req;
 TfwHttpResp *resp;
-TfwH2Conn conn;
+TfwH2Conn *conn;
 TfwStream stream;
 
 /**
@@ -419,11 +419,44 @@ test_case_parse_prepare_http(char *str)
 	tfw_h1_frames_assign(str, strlen(str));
 }
 
+static TfwH2Conn *
+test_alloc_conn(void)
+{
+	struct page *page;
+
+	/*
+	 * Each TfwH2Conn structure has 2 * PAGE_SZIE bytes.
+	 * Extra memory used for streams schedulers.
+	 */
+	page = alloc_pages(GFP_ATOMIC, 1);
+	if (!page)
+		return NULL;
+
+	return (TfwH2Conn *)page_address(page);
+}
+
+void
+test_case_alloc_h2(void)
+{
+	BUG_ON(conn);
+	conn = test_alloc_conn();
+	BUG_ON(!conn);
+}
+
+void
+test_case_cleanup_h2(void)
+{
+	BUG_ON(!conn);
+	free_pages((unsigned long)conn, 1);
+	conn = NULL;
+}
+
 void
 test_case_parse_prepare_h2(void)
 {
-	tfw_h2_context_init(&conn.h2);
-	conn.h2.hdr.type = HTTP2_HEADERS;
+	BUG_ON(!conn);
+	tfw_h2_context_init(&conn->h2);
+	conn->h2.hdr.type = HTTP2_HEADERS;
 	tfw_h2_set_stream_state(&stream, HTTP2_STREAM_REM_HALF_CLOSED);
 }
 
@@ -487,18 +520,18 @@ do_split_and_parse(int type, int chunk_mode)
 		 */
 		static TfwH2Ctx	h2_origin;
 		if (chunk_size_index == 0)
-			h2_origin = conn.h2;
+			h2_origin = conn->h2;
 		else
-			conn.h2 = h2_origin;
+			conn->h2 = h2_origin;
 
-		conn.h2.hpack.state = 0;
-		conn.h2.hpack.length = 0;
-		conn.h2.hpack.dec_tbl.wnd_update = true;
+		conn->h2.hpack.state = 0;
+		conn->h2.hpack.length = 0;
+		conn->h2.hpack.dec_tbl.wnd_update = true;
 
 		if (req)
 			test_req_free(req);
 		req = test_req_alloc(frames_total_sz);
-		req->conn = (TfwConn*)&conn;
+		req->conn = (TfwConn*)conn;
 		req->pit.parsed_hdr = &stream.parser.hdr;
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);

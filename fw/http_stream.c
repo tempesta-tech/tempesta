@@ -63,17 +63,39 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 
 	tf2_h2_conn_reset_stream_on_close(ctx, stream);
 	tfw_h2_remove_stream_dep(sched, stream);
+	tfw_h2_free_stream_sched_entry(sched, stream->sched);
 	rb_erase(&stream->node, &sched->streams);
 }
 
-static inline void
-tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
-		   unsigned short weight, long int loc_wnd, long int rem_wnd)
+static inline int
+tfw_h2_init_stream(TfwStream *stream, TfwStreamSched *sched,
+		   TfwStreamState state, unsigned int id,
+		   unsigned short weight, long int loc_wnd,
+		   long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
-	tfw_h2_init_stream_sched_entry(&stream->sched);
+	stream->sched = tfw_h2_alloc_stream_sched_entry(sched);
+
+	if (!stream->sched) {
+		TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
+		unsigned int count = ctx->extra_sched_entries_count;
+		struct page *pg;
+
+		BUG_ON(ctx->extra_sched_entries_max_count == count);
+		pg = alloc_pages(GFP_ATOMIC, 0);
+		if (!pg)
+			return -ENOMEM;
+		tfw_h2_stream_sched_init_entry_storage(sched, page_address(pg),
+						       PAGE_SIZE / sizeof(TfwStreamSchedEntry));
+		ctx->extra_sched_entries[ctx->extra_sched_entries_count++] = pg;
+		stream->sched = tfw_h2_alloc_stream_sched_entry(sched);
+	}
+
+	BUG_ON(!stream->sched);
+
+	tfw_h2_init_stream_sched_entry(stream->sched, stream);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
@@ -81,6 +103,8 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamState state, unsigned int id,
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+
+	return 0;
 }
 
 static TfwStream *
@@ -109,7 +133,8 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamState state, unsigned int id,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, state, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, sched, state, id, weight,
+			   loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);

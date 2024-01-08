@@ -550,12 +550,14 @@ int split_and_parse_n(unsigned char *str, uint32_t type, uint32_t len,
 extern unsigned int chunk_size_index;
 extern TfwHttpReq *req, *sample_req;
 extern TfwHttpResp *resp;
-extern TfwH2Conn conn;
+extern TfwH2Conn *conn;
 extern TfwStream stream;
 
 int set_sample_req(unsigned char *str);
 
 void test_case_parse_prepare_http(char *str);
+void test_case_alloc_h2(void);
+void test_case_cleanup_h2(void);
 void test_case_parse_prepare_h2(void);
 int do_split_and_parse(int type, int chunk_mode);
 
