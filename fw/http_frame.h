@@ -225,6 +225,9 @@ typedef struct tfw_h2_ctx_t {
 	struct sk_buff	*alert_skb_head;
 	unsigned char	goaway_tls_type;
 	unsigned int 	alert_tls_type;
+	struct page	**extra_sched_entries;
+	unsigned int	extra_sched_entries_count;
+	unsigned int	extra_sched_entries_max_count;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
