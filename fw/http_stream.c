@@ -47,34 +47,6 @@ tfw_h2_stream_cache_destroy(void)
 	kmem_cache_destroy(stream_cache);
 }
 
-static int
-tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id, TfwStream **dep)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-	return 0;
-}
-
-static void
-tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream, TfwStream *dep,
-		      bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-static void
-tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
 
 static inline void
 tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
@@ -90,12 +62,14 @@ static void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwHttpResp*resp = stream->xmit.resp;
 
-	/* We should call all scheduler functions under the socket lock. */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-
+	/*
+	 * Should be done before purging stream send queue,
+	 * to correct adjusting count of active streams in
+	 * the scheduler.
+	 */
+	tfw_h2_remove_stream_dep(sched, stream);
 	if (resp) {
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
@@ -104,7 +78,6 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 		tfw_h2_stream_purge_send_queue(stream);
 
 	tfw_h2_conn_reset_stream_on_close(ctx, stream);
-	tfw_h2_remove_stream_dep(sched, stream);
 	rb_erase(&stream->node, &sched->streams);
 }
 
@@ -113,6 +86,9 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
+	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
+	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
+	tfw_h2_init_stream_sched_entry(&stream->sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
@@ -214,13 +190,12 @@ tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 {
-	TfwStream *stream, *dep = NULL;
+	TfwStream *stream;
+	TfwStreamSchedEntry *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
 
-	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
-		return NULL;
-
+	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
 	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
@@ -231,10 +206,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 
 	++ctx->streams_num;
 
-	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
-	       "added strm [%p] id %u weight %u\n",
-	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
-	       stream, id, stream->weight);
+	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p],"
+	       "excl %u) added strm [%p] id %u weight %u\n",
+	       __func__, ctx, ctx->streams_num, pri->stream_id, dep,
+	       pri->exclusive, stream, id, stream->weight);
 
 	return stream;
 }
@@ -817,18 +792,8 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 void
 tfw_h2_delete_stream(TfwStream *stream)
 {
+	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
 	kmem_cache_free(stream_cache, stream);
-}
-
-void
-tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			 unsigned int new_dep, unsigned short new_weight,
-			 bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
 }
 
 int
@@ -858,6 +823,7 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	stream->xmit.b_len = b_len;
 	stream->xmit.state = state;
 	stream->xmit.frame_length = 0;
+	stream->xmit.is_blocked = false;
 
 	spin_unlock(&ctx->lock);
 
