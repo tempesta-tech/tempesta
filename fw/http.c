@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -3622,6 +3622,21 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 			      " the request [%p]\n", req);
 			return r;
 		}
+	}
+
+	/*
+	 * When header modifications contains `req_hdr_set` rule for `Host`
+	 * header, __h2_req_hdrs modifies only TFW_HTTP_HDR_HOST leaves
+	 * TFW_HTTP_HDR_H2_AUTHORITY untouched. We manualy assign new `Host`
+	 * to TFW_HTTP_HDR_H2_AUTHORITY for consistency between `Host` and
+	 * `authority:`. Espicially because `authority:` has higher priotiy
+	 * and can be used instead of `Host` header during request modification
+	 * when forwarding to backend.
+	 */
+	if (h_mods->spec_hdrs[TFW_HTTP_HDR_HOST]) {
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+
+		req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY] = *host;
 	}
 
 	return 0;
