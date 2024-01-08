@@ -4869,11 +4869,16 @@ tfw_http_do_send_resp(void *conn, struct sk_buff **skb_head, int flags)
 	 */
 	if (unlikely(!stream))
 		return -EPIPE;
+
+	BUG_ON(stream->xmit.skb_head);
+
 	if (tls_type)
 		skb_set_tfw_tls_type(*skb_head, tls_type);
 	stream->xmit.resp = (TfwHttpResp *)tfw_cb->opaque_data;
 	swap(stream->xmit.skb_head, *skb_head);
 	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
+	if (!stream->xmit.is_blocked)
+		tfw_h2_sched_activate_stream(&ctx->sched, stream);
 
 	return 0;
 }
