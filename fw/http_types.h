@@ -79,8 +79,6 @@ enum {
         TFW_HTTP_B_H2,
         /* Message has all mandatory pseudo-headers (applicable for HTTP/2 mode only) */
         TFW_HTTP_B_H2_HDRS_FULL,
-        /* Message in HTTP/2 transformation (applicable for HTTP/2 mode only). */
-        TFW_HTTP_B_H2_TRANS_ENTERED,
 
         /* Request flags. */
         TFW_HTTP_FLAGS_REQ,
