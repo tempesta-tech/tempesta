@@ -210,6 +210,8 @@ tfw_connection_do_send(TfwConn *conn, struct sk_buff **skb_head, int flags)
 	unsigned int mark = (*skb_head)->mark;
 	struct sk_buff *skb, **target = NULL;
 	TfwStream *stream = NULL;
+	bool need_activate = false;
+
 
 	if (TFW_CONN_PROTO(conn) != TFW_FSM_H2)
 		goto do_send;
@@ -226,6 +228,7 @@ tfw_connection_do_send(TfwConn *conn, struct sk_buff **skb_head, int flags)
 		 */
 		if (unlikely(!stream))
 			return -EPIPE;
+
 		BUG_ON(stream->xmit.skb_head);
 		stream->xmit.resp = resp;
 		target = &stream->xmit.skb_head;
@@ -253,6 +256,7 @@ tfw_connection_do_send(TfwConn *conn, struct sk_buff **skb_head, int flags)
 
 	TFW_SKB_CB(*skb_head)->tls_type = tls_type;
 	TFW_SKB_CB(*skb_head)->mark = mark;
+	need_activate = stream && !tfw_h2_stream_is_active(stream);
 
 do_send:
 	while ((skb = ss_skb_dequeue(skb_head))) {
@@ -278,6 +282,9 @@ do_send:
 
 	if (target)
 		sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
+
+	if (stream && need_activate && !stream->xmit.is_blocked)
+		tfw_h2_sched_activate_stream(&h2->sched, stream);
 
 	return 0;
 }
