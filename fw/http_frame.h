@@ -222,6 +222,9 @@ typedef struct tfw_h2_ctx_t {
 	TfwStream	*cur_recv_headers;
 	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
 	struct sk_buff	*final_data;
+	struct page	**extra_sched_entries;
+	unsigned int	extra_sched_entries_count;
+	unsigned int	extra_sched_entries_max_count;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;

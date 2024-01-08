@@ -1041,7 +1041,7 @@ tfw_sock_clnt_init(void)
 	}
 
 	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
-					      sizeof(TfwH2Conn), 0, 0, NULL);
+					      2 * PAGE_SIZE, 0, 0, NULL);
 	if (!tfw_h2_conn_cache) {
 		kmem_cache_destroy(tfw_https_conn_cache);
 		kmem_cache_destroy(tfw_h1_conn_cache);
