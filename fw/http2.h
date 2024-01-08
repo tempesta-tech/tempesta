@@ -39,12 +39,12 @@
  *                        to accept;
  */
 typedef struct {
-        unsigned int hdr_tbl_sz;
-        unsigned int push;
-        unsigned int max_streams;
-        unsigned int wnd_sz;
-        unsigned int max_frame_sz;
-        unsigned int max_lhdr_sz;
+	unsigned int hdr_tbl_sz;
+	unsigned int push;
+	unsigned int max_streams;
+	unsigned int wnd_sz;
+	unsigned int max_frame_sz;
+	unsigned int max_lhdr_sz;
 } TfwSettings;
 
 /**
@@ -80,6 +80,11 @@ typedef struct {
  *                        to save what @new_settings should be applyed. bits
  *                        from _HTTP2_SETTINGS_MAX are used to save what
  *                        settings we sent to the client;
+ * @extra_sched_entries	- array of pages, where extra streams schedulers are
+ *			  located;
+ * @extra_sched_entries_count - count of extries in @extra_sched_entries array;
+ * @extra_sched_entries_size  - maximum count of extries in @extra_sched_entries
+ *				array;
  * @__off               - offset to reinitialize processing context;
  * @skb_head            - collected list of processed skbs containing HTTP/2
  *                        frames;
@@ -108,34 +113,37 @@ typedef struct {
  * stream (RFC 7540, sections 6.2, 6.10, 8.1).
  */
 typedef struct tfw_h2_ctx_t {
-        spinlock_t      lock;
-        TfwSettings     lsettings;
-        TfwSettings     rsettings;
-        unsigned int    lstream_id;
-        unsigned long   streams_num;
-        TfwStreamSched  sched;
-        TfwStreamQueue  closed_streams;
-        TfwStreamQueue  idle_streams;
-        long int        loc_wnd;
-        long int        rem_wnd;
-        TfwHPack        hpack;
-        TfwStream       *cur_send_headers;
-        TfwStream       *cur_recv_headers;
-        TfwStream       *error;
-        unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
-        DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
-        char            __off[0];
-        struct sk_buff  *skb_head;
-        TfwStream       *cur_stream;
-        TfwFramePri     priority;
-        TfwFrameHdr     hdr;
-        unsigned int    plen;
-        int             state;
-        int             to_read;
-        int             rlen;
-        unsigned char   rbuf[FRAME_HEADER_SIZE];
-        unsigned char   padlen;
-        unsigned char   data_off;
+	spinlock_t      lock;
+	TfwSettings     lsettings;
+	TfwSettings     rsettings;
+	unsigned int    lstream_id;
+	unsigned long   streams_num;
+	TfwStreamSched  sched;
+	TfwStreamQueue  closed_streams;
+	TfwStreamQueue  idle_streams;
+	long int        loc_wnd;
+	long int        rem_wnd;
+	TfwHPack        hpack;
+	TfwStream       *cur_send_headers;
+	TfwStream       *cur_recv_headers;
+	TfwStream       *error;
+	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
+	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
+	struct page	**extra_sched_entries;
+	unsigned int	extra_sched_entries_count;
+	unsigned int	extra_sched_entries_size;
+	char            __off[0];
+	struct sk_buff  *skb_head;
+	TfwStream       *cur_stream;
+	TfwFramePri     priority;
+	TfwFrameHdr     hdr;
+	unsigned int    plen;
+	int             state;
+	int             to_read;
+	int             rlen;
+	unsigned char   rbuf[FRAME_HEADER_SIZE];
+	unsigned char   padlen;
+	unsigned char   data_off;
 } TfwH2Ctx;
 
 int tfw_h2_init(void);
@@ -143,25 +151,28 @@ void tfw_h2_cleanup(void);
 int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id,
-                                unsigned int val);
+				unsigned int val);
 void tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id,
-                                unsigned int val);
+				unsigned int val);
 void tfw_h2_apply_new_settings(TfwH2Ctx *ctx);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
-                                 bool attack);
+				 bool attack);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 void tfw_h2_current_stream_remove(TfwH2Ctx *ctx);
 void tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id);
 void tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx);
 void tfw_h2_check_current_stream_is_closed(TfwH2Ctx *ctx);
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
-                                         bool recv);
+					 bool recv);
 
 unsigned int tfw_h2_req_stream_id(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
 int tfw_h2_stream_xmit_prepare_resp(TfwStream *stream);
 int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-                             unsigned int *len, bool should_split);
+			     unsigned int *len, bool should_split);
+
+TfwStreamSchedEntry *tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx);
+void tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry);
 
 #endif /* __HTTP2__ */

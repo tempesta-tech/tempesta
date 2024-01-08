@@ -79,17 +79,19 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	tfw_h2_stream_purge_all_and_free_response(stream);
 
 	tfw_h2_conn_reset_stream_on_close(ctx, stream);
+	tfw_h2_free_stream_sched_entry(ctx, stream->sched);
 	rb_erase(&stream->node, &sched->streams);
 }
 
-static inline void
-tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
+static inline int
+tfw_h2_init_stream(TfwStream *stream, TfwStreamSchedEntry *entry,
+		   unsigned int id, unsigned short weight,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
-	tfw_h2_init_stream_sched_entry(&stream->sched);
+	tfw_h2_init_stream_sched_entry(entry, stream);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
@@ -97,10 +99,13 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+
+	return 0;
 }
 
 static TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
+tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamSchedEntry *entry,
+		  unsigned int id, unsigned short weight,
 		  long int loc_wnd, long int rem_wnd)
 {
 	TfwStream *new_stream;
@@ -125,7 +130,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, entry, id, weight, loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
@@ -224,13 +229,20 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	TfwStreamSchedEntry *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
+	TfwStreamSchedEntry *entry;
+
+	entry = tfw_h2_alloc_stream_sched_entry(ctx);
+	if (!entry)
+		return NULL;
 
 	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
+	stream = tfw_h2_add_stream(&ctx->sched, entry, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
-	if (!stream)
+	if (!stream) {
+		tfw_h2_free_stream_sched_entry(ctx, entry);
 		return NULL;
+	}
 
 	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
 

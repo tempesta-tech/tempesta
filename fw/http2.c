@@ -204,6 +204,85 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
+static inline void
+tfw_h2_context_init_sched_enry_storage(TfwH2Ctx *ctx)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	unsigned int def_sched_entry_count =
+		(2 * PAGE_SIZE - sizeof(TfwH2Conn)) / sizeof(TfwStreamSchedEntry);
+	void *base = (void *)((char *)conn + sizeof(TfwH2Conn));
+
+	/*
+	 * We allocate 2* PAGE_SIZE bytes for each TfwH2Conn, and
+	 * use free memory after TfwH2Conn structure for sched
+	 * entries.
+	 */
+	tfw_h2_stream_sched_init_entry_storage(&ctx->sched, base,
+					       def_sched_entry_count);
+}
+
+static inline int
+tfw_h2_context_alloc_one_extra_sched_enry_storage(TfwH2Ctx *ctx)
+{
+	struct page *pg;
+
+#define SCHED_PER_PAGES(cnt) (cnt * PAGE_SIZE / sizeof(TfwStreamSchedEntry))
+
+	pg = alloc_pages(GFP_ATOMIC, 1);
+	if (!pg)
+		return -ENOMEM;
+
+	tfw_h2_stream_sched_init_entry_storage(&ctx->sched, page_address(pg),
+					       SCHED_PER_PAGES(2));
+	ctx->extra_sched_entries[ctx->extra_sched_entries_count++] = pg;
+	return 0;
+
+#undef SCHED_PER_PAGES
+}
+
+static inline int
+tfw_h2_context_alloc_extra_sched_enry_storage(TfwH2Ctx *ctx)
+{
+	struct page **new_extra_sched_entries;
+	unsigned int new_size;
+	unsigned int i;
+
+	/*
+	 * If there is a free entries in extra_sched_entries array, just
+	 * allocate two new pages and initialize schedulers.
+	 */
+	if (ctx->extra_sched_entries_count < ctx->extra_sched_entries_size)
+		return tfw_h2_context_alloc_one_extra_sched_enry_storage(ctx);
+
+	/*
+	 * extra_sched_entries array is exceeded realloc double size array.
+	 */
+	new_size = ctx->extra_sched_entries_size ?
+		ctx->extra_sched_entries_size * 2 : 1;
+	new_extra_sched_entries = kzalloc(new_size * sizeof (struct page *),
+					  GFP_ATOMIC);
+	if (!new_extra_sched_entries)
+		return -ENOMEM;
+
+	for (i = 0; i < ctx->extra_sched_entries_count; i++)
+		new_extra_sched_entries[i] = ctx->extra_sched_entries[i];
+	kfree(ctx->extra_sched_entries);
+	ctx->extra_sched_entries = new_extra_sched_entries;
+	ctx->extra_sched_entries_size = new_size;
+
+	return tfw_h2_context_alloc_one_extra_sched_enry_storage(ctx);
+}
+
+static inline void
+tfw_h2_context_clear_sched_enry_storage(TfwH2Ctx *ctx)
+{
+	unsigned int i;
+
+	for (i = 0; i < ctx->extra_sched_entries_count; i++)
+		__free_pages(ctx->extra_sched_entries[i], 1);
+	kfree(ctx->extra_sched_entries);
+}
+
 int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
@@ -222,7 +301,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&closed_streams->list);
 	INIT_LIST_HEAD(&idle_streams->list);
 
-	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_stream_sched_init(&ctx->sched);
+	tfw_h2_context_init_sched_enry_storage(ctx);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -249,6 +329,7 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 * postponed frames and connection closing initiated.
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
+	tfw_h2_context_clear_sched_enry_storage(ctx);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
@@ -553,4 +634,36 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	}
 
 	return r;
+}
+
+TfwStreamSchedEntry *
+tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
+{
+	TfwStreamSched *sched = &ctx->sched;
+	struct list_head *next;
+	TfwStreamSchedEntry *entry;
+
+	if (list_empty(&sched->empty_scheds)) {
+		if (tfw_h2_context_alloc_extra_sched_enry_storage(ctx))
+			return NULL;
+	}
+
+	next = sched->empty_scheds.next;
+	list_del_init(next);
+	entry = list_entry(next, TfwStreamSchedEntry, in_empty_list);
+	
+	BUG_ON(entry->owner);
+	return entry;
+}
+
+void
+tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
+{
+	TfwStreamSched *sched = &ctx->sched;
+
+	if (entry->owner) {
+		entry->owner->sched = NULL;
+		entry->owner = NULL;
+	}
+	list_add(&entry->in_empty_list, &sched->empty_scheds);
 }

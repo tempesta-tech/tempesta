@@ -2179,11 +2179,11 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 	{
 		if (ctx->cur_send_headers) {
 			stream = ctx->cur_send_headers;
-			parent = stream->sched.parent;
+			parent = stream->sched->parent;
 			tfw_h2_stream_sched_remove(sched, stream);
 		} else if (ctx->error) {
 			stream = ctx->error;
-			parent = stream->sched.parent;
+			parent = stream->sched->parent;
 			tfw_h2_stream_sched_remove(sched, stream);
 			error_was_sent = true;
 		} else {
