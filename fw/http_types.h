@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -120,9 +120,6 @@ enum {
         TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
         /* Request URI is absolute (HTTP/1.x only) */
         TFW_HTTP_B_ABSOLUTE_URI,
-
-	/* Request got a stale response. */
-	TFW_HTTP_B_REQ_HAS_STALE_RESP,
 
         _TFW_HTTP_FLAGS_NUM
 };

@@ -419,4 +419,10 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 	return T_OK;
 }
 
+TfwCacheUseStale *
+tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
+{
+	return NULL;
+}
+
 unsigned int cache_default_ttl = 60;
