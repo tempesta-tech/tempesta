@@ -344,6 +344,8 @@ typedef struct {
  *		  the same;
  * @old_head	- Original request head. Required for keep request data until
  * 		  the response is sent to the client;
+ * @stale_resp	- Stale response retrieved from the cache. Must be assigned only
+ * 		  when "cache_use_stale" is configured;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
@@ -377,6 +379,7 @@ struct tfw_http_req_t {
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
 	struct sk_buff		*old_head;
+	TfwHttpResp		*stale_resp;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;

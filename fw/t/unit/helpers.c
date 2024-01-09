@@ -448,4 +448,10 @@ ttls_xfrm_need_encrypt(TlsCtx *tls)
 	return true;
 }
 
+TfwCacheUseStale *
+tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
+{
+	return NULL;
+}
+
 unsigned int cache_default_ttl = 60;
