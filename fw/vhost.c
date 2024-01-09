@@ -346,7 +346,7 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
  * @vhost	- virtual host for the request;
  * @mod_type	- Target modification type, TFW_VHOST_HDRMOD_(REQ|RESP).
  */
-TfwHdrMods*
+TfwHdrMods *
 tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 {
 	TfwVhost *vh_dflt = vhost->vhost_dflt;
@@ -392,6 +392,28 @@ tfw_vhost_get_cc_ignore(TfwLocation *loc, TfwVhost *vhost)
 		return 0;
 
 	return loc->cc_ignore;
+}
+
+/**
+ * Find a cache use stale setting according to the current location.
+ *
+ * @loc		- request URI location;
+ * @vhost	- virtual host for the request;
+ */
+TfwCacheUseStale *
+tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
+{
+	TfwVhost *vh_dflt = vhost->vhost_dflt;
+
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !loc->cache_use_stale)
+		loc = vhost->loc_dflt;
+	if (!loc || !loc->cache_use_stale)
+		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
+	if (!loc || !loc->cache_use_stale)
+		return NULL;
+
+	return loc->cache_use_stale;
 }
 
 /*
