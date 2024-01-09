@@ -312,5 +312,7 @@ TfwCaTokenArray tfw_vhost_get_capo_hdr_del(TfwLocation *loc,
 					   TfwVhost *vhost);
 unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
 				     TfwVhost *vhost);
+TfwCacheUseStale *tfw_vhost_get_cache_use_stale(TfwLocation *loc,
+						TfwVhost *vhost);
 
 #endif /* __TFW_VHOST_H__ */
