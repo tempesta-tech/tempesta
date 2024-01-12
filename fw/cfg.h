@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -190,6 +190,21 @@ typedef struct {
 	for ((idx) = 0, (v) = (e)->vals[0];	\
 	     (idx) < (e)->val_n;		\
 	     (v) = (e)->vals[++(idx)])
+
+#define TFW_CFG_CHECK_NO_ATTRS(spec, entry)				\
+	if ((entry)->attr_n) {						\
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",	\
+			 (spec)->name);					\
+		return -EINVAL;						\
+	}
+
+#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)				\
+	if (! ((entry)->val_n op (req)) ) {				\
+		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
+			 "be %s %d\n", (spec)->name, (entry)->val_n,	\
+			 #op, (req));					\
+		return -EINVAL;						\
+	}
 
 /**
  * TfwCfgSpec{} is a single instruction for the configuration parser.

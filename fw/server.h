@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -82,8 +82,8 @@ enum {
 	TFW_SRV_B_SUSPEND
 };
 
-#define	TFW_SRV_F_HMONITOR	(1 << TFW_SRV_B_HMONITOR)
-#define	TFW_SRV_F_SUSPEND	(1 << TFW_SRV_B_SUSPEND)
+#define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)
+#define	TFW_SRV_F_SUSPEND		(1 << TFW_SRV_B_SUSPEND)
 
 /**
  * The servers group with the same load balancing, failovering and eviction

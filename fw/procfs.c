@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,12 +29,21 @@
  */
 DEFINE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
 
-void
+/**
+ * Empty health monitor statistics ('health_stat' directive) with empty
+ * response counters (@sum), but populated HTTP codes (@code). This serves as
+ * a prototype for creating a new structure in TfwPerfStat when needed.
+ *
+ * If NULL it means that 'health_stat' directive is disabled.
+ */
+static TfwHMStats *health_stat_codes;
+
+static void
 tfw_perfstat_collect(TfwPerfStat *stat)
 {
 #define SADD(x)	stat->x += pcp_stat->x
 
-	int cpu;
+	int cpu, i;
 
 	/*
 	 * Collecting values this way is safe on a 64-bit architecture.
@@ -77,6 +86,18 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(serv.rx_bytes);
 		SADD(serv.tls_hs_successful);
 		SADD(serv.tls_hs_failed);
+
+		/*
+		 * Health statistics (differs from health monitor statistics):
+		 * total responses for tempesta
+		 */
+		if (stat->hm && pcp_stat->hm)
+			for (i = 0; i < stat->hm->ccnt; ++i) {
+				BUG_ON(stat->hm->rsums[i].code !=
+				       pcp_stat->hm->rsums[i].code);
+				stat->hm->rsums[i].total +=
+					pcp_stat->hm->rsums[i].total;
+			}
 	}
 #undef SADD
 }
@@ -85,17 +106,38 @@ static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
 #define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
+#define SPRNED(m, e)	seq_printf(seq, m": %dms\n", e)
 #define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
-	TfwPerfStat stat;
+	int i;
+	TfwPerfStat stat = {0};
 	u64 serv_conn_active, serv_conn_sched;
 	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
 				  GFP_KERNEL);
+	unsigned int val[T_PSZ] = { 0 };
+	TfwPrcntlStats pstats = {.val = val};
+
 	if (!ss_stat)
 		T_WARN("Cannot allocate sync sockets statistics\n");
 
-	memset(&stat, 0, sizeof(stat));
+	if (health_stat_codes) {
+		stat.hm = kmalloc(tfw_hm_stats_size(health_stat_codes->ccnt),
+				  GFP_KERNEL);
+		if (stat.hm)
+			tfw_hm_stats_clone(stat.hm, health_stat_codes);
+	}
+
 	tfw_perfstat_collect(&stat);
+	tfw_apm_stats_global(&pstats);
+
+	SPRNED("Minimal response time\t\t", pstats.val[TFW_PSTATS_IDX_MIN]);
+	SPRNED("Average response time\t\t", pstats.val[TFW_PSTATS_IDX_AVG]);
+	SPRNED("Median  response time\t\t", pstats.val[TFW_PSTATS_IDX_P50]);
+	SPRNED("Maximum response time\t\t", pstats.val[TFW_PSTATS_IDX_MAX]);
+	seq_printf(seq, "Percentiles\n");
+	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i)
+		seq_printf(seq, "%02d%%:\t%dms\n",
+				pstats.ith[i], pstats.val[i]);
 
 	/* Ss statistics. */
 	SPRN("SS work queue full\t\t\t", ss.wq_full);
@@ -156,6 +198,16 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Server successful TLS handshakes\t", serv.tls_hs_successful);
 	SPRN("Server failed TLS handshakes\t\t", serv.tls_hs_failed);
 
+	if (stat.hm) {
+		seq_printf(seq, "Tempesta health statistics:\n");
+		for (i = 0; i < stat.hm->ccnt; ++i) {
+			seq_printf(seq, "\tHTTP '%d' code\t: %llu\n",
+				   stat.hm->rsums[i].code,
+				   stat.hm->rsums[i].total);
+		}
+	}
+
+	kfree(stat.hm);
 	return 0;
 #undef SPRN
 #undef SPRNE
@@ -176,17 +228,14 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
 	unsigned int *qsize;
-	bool hm = test_bit(TFW_SRV_B_HMONITOR, &srv->flags);
-	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-		.val = val,
-	};
+	unsigned int val[T_PSZ] = { 0 };
+	TfwPrcntlStats pstats = {.val = val};
+	TfwHMStats *hm_stats;
 
 	if (!(qsize = kmalloc(sizeof(int) * srv->conn_n, GFP_KERNEL)))
 		return -ENOMEM;
 
-	tfw_apm_stats_bh(srv->apmref, &pstats);
+	tfw_apm_stats(srv->apmref, &pstats);
 
 	SPRNE("Minimal response time\t\t", pstats.val[TFW_PSTATS_IDX_MIN]);
 	SPRNE("Average response time\t\t", pstats.val[TFW_PSTATS_IDX_AVG]);
@@ -214,21 +263,19 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	seq_printf(seq, "Total schedulable connections\t: %zd\n",
 			srv->conn_n - rc);
 
-	seq_printf(seq, "HTTP health monitor is enabled\t: %d\n", hm);
-	if (hm) {
-		TfwHMStats *hm_stats;
-		seq_printf(seq, "HTTP availability\t: %d\n",
-				!tfw_srv_suspended(srv));
-		if ((hm_stats = tfw_apm_hm_stats(srv->apmref))) {
-			seq_printf(seq, "\tTime until next health"
-					" checking\t: %u\n",
-					hm_stats->rtime);
-			for (i = 0; i < hm_stats->ccnt; ++i)
-				seq_printf(seq, "\tHTTP '%d' codes\t: %u\n",
-						hm_stats->rsums[i].code,
-						hm_stats->rsums[i].sum);
-			kfree(hm_stats);
-		}
+	seq_printf(seq, "HTTP health monitor is enabled\t: %d\n",
+		   test_bit(TFW_SRV_B_HMONITOR, &srv->flags));
+	seq_printf(seq, "HTTP availability\t\t: %d\n",
+			!tfw_srv_suspended(srv));
+	if ((hm_stats = tfw_apm_hm_stats(srv->apmref))) {
+		seq_printf(seq, "\tTime until next health check\t: %u\n",
+			   hm_stats->rtime);
+		for (i = 0; i < hm_stats->ccnt; ++i)
+			seq_printf(seq, "\tHTTP '%d' code\t: %u (%llu total)"
+				   "\n", hm_stats->rsums[i].code,
+				   hm_stats->rsums[i].tf_total,
+				   hm_stats->rsums[i].total);
+		kfree(hm_stats);
 	}
 
 	seq_printf(seq, "Maximum forwarding queue size\t: %u\n",
@@ -322,14 +369,6 @@ tfw_procfs_sg_create(TfwSrvGroup *sg)
 static int
 tfw_procfs_cfgend(void)
 {
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-	};
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
-	if (tfw_apm_pstats_verify(&pstats))
-		return -EINVAL;
 	return 0;
 }
 
@@ -359,7 +398,57 @@ tfw_procfs_stop(void)
 	tfw_procfs_cleanup();
 }
 
+static int
+tfw_cfgop_health_stat(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int cpu;
+
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	health_stat_codes = kzalloc(tfw_hm_stats_size(ce->val_n),
+				    GFP_KERNEL);
+	if (!health_stat_codes)
+		return -ENOMEM;
+	if (tfw_hm_stats_init_from_cfg_entry(health_stat_codes, ce)) {
+		kfree(health_stat_codes);
+		health_stat_codes = NULL;
+		return -EINVAL;
+	}
+
+	for_each_online_cpu(cpu) {
+		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
+		pcp_stat->hm = kmalloc_node(tfw_hm_stats_size(ce->val_n),
+					    GFP_KERNEL, cpu_to_node(cpu));
+		if (!pcp_stat->hm)
+			return -ENOMEM;
+		tfw_hm_stats_clone(pcp_stat->hm, health_stat_codes);
+	}
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_health_stat(TfwCfgSpec *cs)
+{
+	int cpu;
+
+	kfree(health_stat_codes);
+	health_stat_codes = NULL;
+
+	for_each_online_cpu(cpu) {
+		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
+		kfree(pcp_stat->hm);
+		pcp_stat->hm = NULL;
+	}
+}
+
 static TfwCfgSpec tfw_procfs_specs[] = {
+	{
+		.name       = "health_stat",
+		.handler    = tfw_cfgop_health_stat,
+		.cleanup    = tfw_cfgop_cleanup_health_stat,
+		.allow_none = true,
+	},
 	{ 0 },
 };
 

@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@
 
 #include "tdb.h"
 
+#include "apm.h"
 #include "lib/str.h"
 #include "tempesta_fw.h"
 #include "vhost.h"
@@ -308,7 +309,7 @@ __cache_method_test(tfw_http_meth_t method)
 	return cache_cfg.methods & (1 << method);
 }
 
-bool
+static inline bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
 	return cache_cfg.cache && __cache_method_test(req->method);
@@ -1101,7 +1102,6 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 
 	*iter = tdb_rec_get(db, key);
 	if (TDB_ITER_BAD(*iter)) {
-		TFW_INC_STAT_BH(cache.misses);
 		return NULL;
 	}
 	/*
@@ -1161,9 +1161,6 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		tdb_rec_next(db, iter);
 		ce = (TfwCacheEntry *)iter->rec;
 	} while (ce);
-
-	if (!ce_best)
-		TFW_INC_STAT_BH(cache.misses);
 
 	return ce_best;
 }
@@ -2850,6 +2847,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req))) {
 		T_DBG3("%s: db=[%p] req=[%p] CE has not been found\n",
 		       __func__, db, req);
+		TFW_INC_STAT_BH(cache.misses);
 		goto out;
 	}
 	__tfw_dbg_dump_ce(ce);
@@ -2883,6 +2881,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	}
 
 	resp = tfw_cache_build_resp(req, ce, lifetime, id);
+
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will
@@ -2943,6 +2942,24 @@ tfw_cache_ipi(struct irq_work *work)
 	tasklet_schedule(&ct->tasklet);
 }
 
+/**
+ * If the message is a request, serve it from the cache; if it's a response,
+ * cache it. Then, invoke the specified @action with the cached or original
+ * message passed (request or response, respectively). If the message wasn't
+ * cached, the original one will be passed to @action; otherwise, the cached
+ * one will be passed. A cached request will have an attached response
+ * (@req->resp), while an original one won't. This distinction allows us to
+ * differentiate between the two.
+ *
+ * Therefore, this routine serves two purposes: adding a response to the cache
+ * when @msg is a response and returning a cached response by attaching it to
+ * @req->resp when @msg is a request. Perhaps not the optimal design, but it is
+ * what it is.
+ *
+ * We use the callback @action because the message will be served
+ * synchronously only if the routine is called on the same NUMA node to which
+ * the request is attached. Otherwise, it will be served asynchronously.
+ */
 int
 tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {

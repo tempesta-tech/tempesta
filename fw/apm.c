@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2016-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +33,6 @@
 #include "cfg.h"
 #include "log.h"
 #include "pool.h"
-#include "procfs.h"
 #include "http.h"
 
 /*
@@ -382,7 +381,7 @@ totals:
 #define HM_FREQ		10
 
 /*
- * Structure for health monitor settings.
+ * Structure for health monitor settings ('health_check').
  *
  * @list	- entry in list of all health monitors;
  * @name	- health monitor's name;
@@ -410,7 +409,8 @@ typedef struct {
 } TfwApmHM;
 
 /*
- * Structure for monitoring settings of particular HTTP code.
+ * Structure for monitoring settings of particular HTTP code
+ * ('server_failover_http' or 'health_stat_server').
  *
  * @list	- entry in list of all monitored codes;
  * @tframe	- Time frame in seconds for @code accounting;
@@ -440,15 +440,17 @@ typedef struct {
 /*
  * Accounting entry for particular HTTP code.
  *
- * @history	- ring buffer of history records ;
+ * @history	- ring buffer of history records;
  * @hmcfg	- pointer to structure with settings for particular HTTP code;
  * @rsum	- current amount of responses from @history ring buffer;
+ * @total	- total amount of responses during all the time;
  * @lock	- spinlock for synchronized work with @history buffer;
  */
 typedef struct {
 	TfwApmHMHistory		history[HM_FREQ];
 	TfwApmHMCfg		*hmcfg;
 	unsigned int		rsum;
+	u64			total;
 	spinlock_t		lock;
 } TfwApmHMStats;
 
@@ -469,16 +471,21 @@ typedef struct {
 	unsigned long		jtmstamp;
 	struct timer_list	timer;
 	atomic_t		rearm;
+	TfwServer		*srv;
 } TfwApmHMCtl;
 
 /* Entry for configuration of separate health monitors. */
-static TfwApmHM			*tfw_hm_entry;
+static TfwApmHM		*tfw_hm_entry;
+/*
+ * Whether an HM config entry with an HTTP code 200 was created. We always want
+ * to have information about the amount of 200 responses from servers,
+ * regardless of the configuration.
+ */
+static bool		tfw_hm_cfg_200_created;
 /* Entry for configuration of default 'auto' health monitor. */
-static TfwApmHM			*tfw_hm_default;
-/* Flag for explicit creation of default health monitor. */
-static bool			tfw_hm_expl_def;
+static TfwApmHM		*tfw_hm_default;
 /* Total count of monitored HTTP codes. */
-static unsigned int		tfw_hm_codes_cnt;
+static unsigned int	tfw_hm_codes_cnt;
 
 static LIST_HEAD(tfw_hm_list);
 static LIST_HEAD(tfw_hm_codes_list);
@@ -539,11 +546,11 @@ typedef struct {
  * Keeps the latest values of calculated percentiles.
  *
  * @pstats	- The percentile stats structure.
- * @rwlock	- Protect updates.
+ * @seqlock	- Protect updates.
  */
 typedef struct {
 	TfwPrcntlStats	pstats;
-	rwlock_t	rwlock;
+	seqlock_t	seqlock;
 } TfwApmSEnt;
 
 /*
@@ -556,7 +563,7 @@ typedef struct {
  * is used to decrease the lock contention. Readers read the stored values
  * at @asent[@rdidx % 2]. The writer writes the new percentile values to
  * @asent[(@rdidx + 1) % 2], and then increments @rdidx. The reading and
- * the writing are protected by a rwlock.
+ * the writing are protected by a seqlock.
  *
  * @asent	- The stats entries for reading/writing (flip-flop manner).
  * @rdidx	- The current index in @asent for readers.
@@ -606,22 +613,6 @@ typedef struct {
 	atomic64_t	counter;
 } TfwApmUBuf;
 
-/*
- * APM Data structure.
- *
- * Note that the organization of the supporting data heavily depends
- * on the fact that there's only one party that does the calculation
- * of percentiles - the function that runs periodically on timer.
- * If there are several different parties that do the calculation,
- * then the data may need to be organized differently.
- *
- * @rbuf	- The ring buffer for the specified time window.
- * @rbctl	- The control data helpful in taking optimizations.
- * @stats	- The latest percentiles.
- * @ubuf	- The buffer that holds data for updates, per CPU.
- * @timer	- The periodic timer handle.
- * @flags	- The atomic flags (see below).
- */
 #define TFW_APM_DATA_F_REARM	(0x0001)	/* Re-arm the timer. */
 
 #define TFW_APM_TIMER_INTVL	(HZ / 20)
@@ -639,16 +630,48 @@ typedef struct {
 #define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
 #define TFW_APM_DFLT_URL	"\"/\""
 
+/*
+ * APM Data structure.
+ *
+ * Note that the organization of the supporting data heavily depends
+ * on the fact that there's only one party that does the calculation
+ * of percentiles - the function that runs periodically on timer.
+ * If there are several different parties that do the calculation,
+ * then the data may need to be organized differently.
+ *
+ * @rbuf	- The ring buffer for the specified time window.
+ * @rbctl	- The control data helpful in taking optimizations.
+ * @stats	- The latest percentiles.
+ * @ubuf	- The buffer that holds data for updates, per CPU.
+ * @timer	- The periodic timer handle.
+ * @flags	- The atomic flags (TFW_APM_DATA_F_REARM only for now).
+ */
 typedef struct {
 	TfwApmRBuf		rbuf;
 	TfwApmRBCtl		rbctl;
 	TfwApmStats		stats;
 	TfwApmUBuf __percpu	*ubuf;
-	TfwServer		*srv;
 	struct timer_list	timer;
 	unsigned long		flags;
-	TfwApmHMCtl		hmctl;
 } TfwApmData;
+
+/*
+ * The structure containing all the data necessary for the APM module,
+ * belonging to each server. Used as an opaque pointer.
+ *
+ * Order of the members is important for the memory allocation, @data must be
+ * at the end.
+ *
+ * @hmctl	- Data necessary for the health monitor operation.
+ *		  Additionally, it contains statistics on the total number of
+ *		  requests, divided by HTTP codes ('health_stat_server').
+ * @data	- Data required for calculating response statistics for each
+ *		  server (min/max/avg/percentiles).
+ */
+typedef struct {
+	TfwApmHMCtl		hmctl;
+	TfwApmData		data;
+} TfwApmRef;
 
 /*
  * [1ms, 349ms] should be sufficient for almost any installation,
@@ -664,6 +687,13 @@ static const TfwPcntCtl tfw_rngctl_init[TFW_STATS_RANGES] = {
 static int tfw_apm_jtmwindow;		/* Time window in jiffies. */
 static int tfw_apm_jtmintrvl;		/* Time interval in jiffies. */
 static int tfw_apm_tmwscale;		/* Time window scale. */
+
+/*
+ * Global statistics for all requests passing through Tempesta (whether cached
+ * or not). Relies on the 'apm_stats' directive, same as the statistics for
+ * individual servers.
+ */
+static TfwApmData *tfw_apm_global_data;
 
 /*
  * Get the next bucket in the ring buffer entry that has a non-zero
@@ -911,11 +941,11 @@ tfw_apm_calc(TfwApmData *data)
 	tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 
 	T_DBG3("%s: Percentile values may have changed.\n", __func__);
-	write_lock(&asent->rwlock);
+	write_seqlock(&asent->seqlock);
 	memcpy_fast(asent->pstats.val, pstats.val,
 		    T_PSZ * sizeof(asent->pstats.val[0]));
 	atomic_inc(&data->stats.rdidx);
-	write_unlock(&asent->rwlock);
+	write_sequnlock(&asent->seqlock);
 
 	return;
 }
@@ -923,59 +953,45 @@ tfw_apm_calc(TfwApmData *data)
 /*
  * Get the latest calculated percentiles.
  *
- * Return 0 if the percentile values didn't need recalculation.
- * Return 1 if potentially new percentile values were calculated.
- *
- * The two functions below differ only by the type of lock used.
- * tfw_apm_stats() should be used for calls in kernel context.
- * tfw_apm_stats_bh() should be used for calls in user context.
+ * Return false if the percentile values didn't need recalculation.
+ * Return true if potentially new percentile values were calculated.
  */
-#define __tfw_apm_stats_body(apmdata, pstats, fn_lock, fn_unlock)	\
-	unsigned int rdidx, seq = pstats->seq;				\
-	TfwApmData *data = apmdata;					\
-	TfwApmSEnt *asent;						\
-									\
-	BUG_ON(!apmdata);						\
-									\
-	smp_mb__before_atomic();					\
-	rdidx = atomic_read(&data->stats.rdidx);			\
-	asent = &data->stats.asent[rdidx % 2];				\
-									\
-	fn_lock(&asent->rwlock);					\
-	memcpy(pstats->val, asent->pstats.val,				\
-	       T_PSZ * sizeof(pstats->val[0]));				\
-	fn_unlock(&asent->rwlock);					\
-	pstats->seq = rdidx;						\
-									\
-	return (seq != rdidx);
-
-int
-tfw_apm_stats_bh(void *apmdata, TfwPrcntlStats *pstats)
+static bool
+__tfw_apm_stats(TfwApmData *data, TfwPrcntlStats *pstats)
 {
-	__tfw_apm_stats_body(apmdata, pstats, read_lock_bh, read_unlock_bh);
+	unsigned int rdidx, s, seq = pstats->seq;
+	TfwApmSEnt *asent;
+
+	smp_mb__before_atomic();
+	rdidx = atomic_read(&data->stats.rdidx);
+	asent = &data->stats.asent[rdidx % 2];
+
+	do {
+		s = read_seqbegin(&asent->seqlock);
+		memcpy(pstats->val, asent->pstats.val,
+		       T_PSZ * sizeof(pstats->val[0]));
+	} while (read_seqretry(&asent->seqlock, s));
+
+	pstats->ith = tfw_pstats_ith;
+	pstats->seq = rdidx;
+
+	return seq != rdidx;
 }
 
 int
-tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
+tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats)
 {
-	__tfw_apm_stats_body(apmdata, pstats, read_lock, read_unlock);
+	TfwApmData *data;
+	BUG_ON(!apmref);
+	data = &((TfwApmRef *)apmref)->data;
+	return __tfw_apm_stats(data, pstats);
 }
 
-/*
- * Verify that an APM Stats user using the same set of percentiles.
- *
- * Note: This module uses a single set of percentiles for all servers.
- * All APM Stats users must use the same set of percentiles.
- */
 int
-tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
+tfw_apm_stats_global(TfwPrcntlStats *pstats)
 {
-	int i;
-
-	for (i = 0; i < T_PSZ; ++i)
-		if (pstats->ith[i] != tfw_pstats_ith[i])
-			return 1;
-	return 0;
+	BUG_ON(!tfw_apm_global_data);
+	return __tfw_apm_stats(tfw_apm_global_data, pstats);
 }
 
 /*
@@ -1025,25 +1041,24 @@ static void
 tfw_apm_hm_timer_cb(struct timer_list *t)
 {
 	TfwApmHMCtl *hmctl = from_timer(hmctl, t, timer);
-	TfwApmData *apmdata = container_of(hmctl, TfwApmData, hmctl);
-	TfwServer *srv = apmdata->srv;
-	TfwApmHM *hm = READ_ONCE(apmdata->hmctl.hm);
+	TfwServer *srv = hmctl->srv;
+	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 	unsigned long now;
 
 	BUG_ON(!hm);
-	if (!atomic64_read(&apmdata->hmctl.rcount))
+	if (!atomic64_read(&hmctl->rcount))
 		tfw_http_hm_srv_send(srv, hm->req, hm->reqsz);
 
-	atomic64_set(&apmdata->hmctl.rcount, 0);
+	atomic64_set(&hmctl->rcount, 0);
 
 	smp_mb();
-	if (atomic_read(&apmdata->hmctl.rearm)) {
+	if (atomic_read(&hmctl->rearm)) {
 		now = jiffies;
-		mod_timer(&apmdata->hmctl.timer, now + hm->tmt * HZ);
-		WRITE_ONCE(apmdata->hmctl.jtmstamp, now);
+		mod_timer(&hmctl->timer, now + hm->tmt * HZ);
+		WRITE_ONCE(hmctl->jtmstamp, now);
 		return;
 	}
-	WRITE_ONCE(apmdata->hmctl.jtmstamp, 0);
+	WRITE_ONCE(hmctl->jtmstamp, 0);
 }
 
 static void
@@ -1064,20 +1079,37 @@ void
 tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 {
 	BUG_ON(!apmref);
-	__tfw_apm_update(apmref, jtstamp, jiffies_to_msecs(jrtt));
+	__tfw_apm_update(&((TfwApmRef *)apmref)->data, jtstamp,
+			 jiffies_to_msecs(jrtt));
+}
+
+void
+tfw_apm_update_global(unsigned long jtstamp, unsigned long jrtt)
+{
+	BUG_ON(!tfw_apm_global_data);
+	__tfw_apm_update(tfw_apm_global_data, jtstamp, jiffies_to_msecs(jrtt));
 }
 
 static void
-tfw_apm_destroy(TfwApmData *data)
+tfw_apm_free_ubuf(TfwApmData *data)
 {
 	int icpu;
+
+	if (!data->ubuf)
+		return;
 
 	for_each_online_cpu(icpu) {
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
 		kfree(ubuf->ubent[0]);
 	}
 	free_percpu(data->ubuf);
-	kfree(data);
+}
+
+static void
+tfw_apm_ref_destroy(TfwApmRef *ref)
+{
+	tfw_apm_free_ubuf(&ref->data);
+	kfree(ref);
 }
 
 /*
@@ -1091,41 +1123,27 @@ tfw_apm_rbent_init(TfwApmRBEnt *rbent, unsigned long jtmistamp)
 }
 
 /**
- * Create and initialize an APM ring buffer for a server.
+ * Initialize an APM ring buffer for a server.
  * Must be called from process context.
  */
 static void *
-tfw_apm_create(void)
+tfw_apm_data_init(TfwApmData *data)
 {
-	TfwApmData *data;
 	TfwApmRBEnt *rbent;
-	TfwApmHMStats *hmstats;
-	TfwApmHMCfg *ent;
-	int i, icpu, size, hm_size;
+	int i, icpu, size;
 	unsigned int *val[2];
 	int rbufsz = tfw_apm_tmwscale;
 
 	might_sleep();
 	if (!tfw_apm_tmwscale) {
 		T_ERR("Late initialization of 'apm_stats' option\n");
-		return NULL;
+		return ERR_PTR(-EINVAL);
 	}
-
-	hm_size = tfw_hm_codes_cnt * sizeof(TfwApmHMStats);
-
-	/* Keep complete stats for the full time window. */
-	size = sizeof(TfwApmData)
-		+ rbufsz * sizeof(TfwApmRBEnt)
-		+ 2 * T_PSZ * sizeof(unsigned int)
-		+ hm_size;
-	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
-		return NULL;
 
 	size = sizeof(TfwApmUBuf);
 	data->ubuf = __alloc_percpu_gfp(size, sizeof(int64_t), GFP_KERNEL);
 	if (!data->ubuf) {
-		kfree(data);
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	/* Set up memory areas. */
@@ -1135,10 +1153,8 @@ tfw_apm_create(void)
 
 	data->rbuf.rbent = rbent;
 	data->rbuf.rbufsz = rbufsz;
-
 	data->stats.asent[0].pstats.ith = tfw_pstats_ith;
 	data->stats.asent[0].pstats.val = val[0];
-
 	data->stats.asent[1].pstats.ith = tfw_pstats_ith;
 	data->stats.asent[1].pstats.val = val[1];
 
@@ -1147,8 +1163,8 @@ tfw_apm_create(void)
 		tfw_apm_rbent_init(&rbent[i], 0);
 	spin_lock_init(&data->rbuf.slock);
 
-	rwlock_init(&data->stats.asent[0].rwlock);
-	rwlock_init(&data->stats.asent[1].rwlock);
+	seqlock_init(&data->stats.asent[0].seqlock);
+	seqlock_init(&data->stats.asent[1].seqlock);
 	atomic_set(&data->stats.rdidx, 0);
 
 	size = 2 * TFW_APM_UBUF_SZ * sizeof(TfwApmUBEnt);
@@ -1157,7 +1173,7 @@ tfw_apm_create(void)
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
 		ubent = kmalloc_node(size, GFP_KERNEL, cpu_to_node(icpu));
 		if (!ubent)
-			goto cleanup;
+			return ERR_PTR(-ENOMEM);
 		for (i = 0; i < 2 * TFW_APM_UBUF_SZ; ++i)
 			WRITE_ONCE(ubent[i].data, ULONG_MAX);
 		ubuf->ubent[0] = ubent;
@@ -1165,46 +1181,107 @@ tfw_apm_create(void)
 		ubuf->ubufsz = TFW_APM_UBUF_SZ;
 	}
 
+	/* Return end of the structure, for further memory areas setting. */
+	return val[1] + T_PSZ;
+}
+
+static TfwApmRef *
+tfw_apm_ref_create(void)
+{
+	int i;
+	int rbufsz = tfw_apm_tmwscale;
+	int hm_size = tfw_hm_codes_cnt * sizeof(TfwApmHMStats);
+	int size = sizeof(TfwApmRef)
+		+ rbufsz * sizeof(TfwApmRBEnt)
+		+ 2 * T_PSZ * sizeof(unsigned int)
+		+ hm_size;
+	TfwApmRef *ref;
+	TfwApmHMStats *hmstats;
+	TfwApmHMCfg *ent;
+
+	if ((ref = kzalloc(size, GFP_ATOMIC)) == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	/*
+	 * End of the TfwApmData structure is the beginning of the TfwApmHMStats
+	 * of the TfwApmHMCtl.
+	 */
+	hmstats = tfw_apm_data_init(&ref->data);
+	if (IS_ERR(hmstats)) {
+		tfw_apm_ref_destroy(ref);
+		return (void *)hmstats;
+	}
+
 	if (hm_size) {
 		i = 0;
-		hmstats = (TfwApmHMStats *)(val[1] + T_PSZ);
 		list_for_each_entry(ent, &tfw_hm_codes_list, list)
 			hmstats[i++].hmcfg = ent;
 		BUG_ON(tfw_hm_codes_cnt != i);
-		data->hmctl.hmstats = hmstats;
+		ref->hmctl.hmstats = hmstats;
+	}
+
+	return ref;
+}
+
+static void
+tfw_apm_data_destroy(TfwApmData *data)
+{
+	tfw_apm_free_ubuf(data);
+	kfree(data);
+}
+
+static TfwApmData *
+tfw_apm_data_create(void)
+{
+	int rbufsz = tfw_apm_tmwscale;
+	int size = sizeof(TfwApmData)
+		+ rbufsz * sizeof(TfwApmRBEnt)
+		+ 2 * T_PSZ * sizeof(unsigned int);
+	TfwApmData *data;
+	void *r;
+
+	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	r = tfw_apm_data_init(data);
+	if (IS_ERR(r)) {
+		tfw_apm_data_destroy(data);
+		return r;
 	}
 
 	return data;
-
-cleanup:
-	tfw_apm_destroy(data);
-	return NULL;
 }
 
+/* Start the timer for the percentile calculation. */
 static inline void
-tfw_apm_hm_stop_timer(TfwApmData *data) {
-	BUG_ON(!data);
-	atomic_set(&data->hmctl.rearm, 0);
+tfw_apm_data_start_timer(TfwApmData *data)
+{
+	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
+	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
+	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
+}
+
+/* Stop the timer and the percentile calculation. */
+static inline void
+tfw_apm_data_stop_timer(TfwApmData *data)
+{
+	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
 	smp_mb__after_atomic();
-	del_timer_sync(&data->hmctl.timer);
+	del_timer_sync(&data->timer);
 }
 
 int
 tfw_apm_add_srv(TfwServer *srv)
 {
-	TfwApmData *data;
+	TfwApmRef *ref;
 
 	BUG_ON(srv->apmref);
-	if (!(data = tfw_apm_create()))
-		return -ENOMEM;
+	ref = tfw_apm_ref_create();
+	if (IS_ERR(ref))
+		return PTR_ERR(ref);
 
-	/* Start the timer for the percentile calculation. */
-	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	timer_setup(&data->timer, tfw_apm_prcntl_tmfn, 0);
-	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
-
-	data->srv = srv;
-	srv->apmref = data;
+	tfw_apm_data_start_timer(&ref->data);
+	srv->apmref = ref;
 
 	return 0;
 }
@@ -1212,28 +1289,24 @@ tfw_apm_add_srv(TfwServer *srv)
 void
 tfw_apm_del_srv(TfwServer *srv)
 {
-	TfwApmData *data = srv->apmref;
+	TfwApmRef *ref = srv->apmref;
 
-	if (!data)
+	if (!ref)
 		return;
 
 	/* Stop health monitor. */
 	if (test_bit(TFW_SRV_B_HMONITOR, &srv->flags))
 		tfw_apm_hm_disable_srv(srv);
 
-	/* Stop the timer and the percentile calculation. */
-	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	smp_mb__after_atomic();
-	del_timer_sync(&data->timer);
-
-	tfw_apm_destroy(data);
+	tfw_apm_data_stop_timer(&ref->data);
+	tfw_apm_ref_destroy(ref);
 	srv->apmref = NULL;
 }
 
 void
 tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 {
-	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
+	TfwApmHMCtl *hmctl = &((TfwApmRef *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
 	BUG_ON(!hm);
@@ -1257,7 +1330,7 @@ bool
 tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 		     void *apmref)
 {
-	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
+	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)apmref)->hmctl.hm);
 	u32 crc32 = 0;
 	TfwMsgIter it;
 	TfwStr chunk = {0};
@@ -1307,20 +1380,16 @@ bool
 tfw_apm_hm_srv_limit(int status, void *apmref)
 {
 	unsigned int i, sum = 0;
-	TfwApmHMStats *hmstats = ((TfwApmData *)apmref)->hmctl.hmstats;
+	TfwApmHMStats *hmstats = ((TfwApmRef *)apmref)->hmctl.hmstats;
 	TfwApmHMHistory *history = NULL;
 	TfwApmHMCfg *cfg = NULL;
 	unsigned long ts;
 
-	BUG_ON(!hmstats);
+	if (!hmstats)
+		return false;
+
 	for (i = 0; i < tfw_hm_codes_cnt; ++i) {
-		/*
-		 * Wildcarded HTTP code values (of type 4*, 5* etc.) are
-		 * allowed during configuration, so these values also
-		 * must be checked via dividing by 100.
-		 */
-		if (hmstats[i].hmcfg->code == status ||
-		    hmstats[i].hmcfg->code == status / 100)
+		if (tfw_http_status_eq(status, hmstats[i].hmcfg->code))
 		{
 			history = hmstats[i].history;
 			cfg = hmstats[i].hmcfg;
@@ -1331,45 +1400,69 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 
 	if (!history)
 		return false;
-
 	BUG_ON(!cfg);
+
 	spin_lock(&hmstats->lock);
 
-	ts = jiffies * HM_FREQ / (cfg->tframe * HZ);
-	i = ts % HM_FREQ;
-	if (history[i].ts != ts) {
-		history[i].ts = ts;
-		history[i].resp = 0;
+	/*
+	 * 'health_stat_server' directive reuses the same data structure as
+	 * 'server_failover_http' (TfwApmHMCfg) but without the set @tframe
+	 * and @limit (refer to tfw_cfgop_apm_health_stat_srv()). Thus, these
+	 * attributes are optional.
+	 */
+	if (cfg->tframe) {
+		ts = jiffies * HM_FREQ / (cfg->tframe * HZ);
+		i = ts % HM_FREQ;
+		if (history[i].ts != ts) {
+			history[i].ts = ts;
+			history[i].resp = 0;
+		}
+		++history[i].resp;
+		for (i = 0; i < HM_FREQ; ++i)
+			if (history[i].ts + HM_FREQ > ts)
+				sum += history[i].resp;
+		WRITE_ONCE(hmstats->rsum, sum);
 	}
-	++history[i].resp;
-	for (i = 0; i < HM_FREQ; ++i)
-		if (history[i].ts + HM_FREQ > ts)
-			sum += history[i].resp;
+	++hmstats->total;
 
-	WRITE_ONCE(hmstats->rsum, sum);
 	spin_unlock(&hmstats->lock);
 
-	if (sum > cfg->limit)
+	if (cfg->limit && sum > cfg->limit)
 		return true;
 
 	return false;
 }
 
+static TfwApmHM *
+tfw_apm_get_hm(const char *name)
+{
+	TfwApmHM *hm;
+
+	list_for_each_entry(hm, &tfw_hm_list, list) {
+		if (!strcasecmp(name, hm->name))
+			return hm;
+	}
+	return NULL;
+}
+
 void
-tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
+tfw_apm_hm_enable_srv(TfwServer *srv, const char *hm_name)
 {
 	TfwApmHMCtl *hmctl;
 	unsigned long now;
-	TfwApmHM *hm = hmref;
+	TfwApmHM *hm;
 
 	BUG_ON(!srv->apmref);
+
+	hm = tfw_apm_get_hm(hm_name);
 	BUG_ON(!hm);
 	WARN_ON_ONCE(test_bit(TFW_SRV_B_HMONITOR, &srv->flags));
 	WARN_ON_ONCE(test_bit(TFW_SRV_B_SUSPEND, &srv->flags));
 
 	/* Set new health monitor for server. */
-	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
+	hmctl = &((TfwApmRef *)srv->apmref)->hmctl;
 	WRITE_ONCE(hmctl->hm, hm);
+	WRITE_ONCE(hmctl->srv, srv);
 	atomic64_set(&hmctl->rcount, 0);
 
 	/* Start server's health monitoring timer. */
@@ -1384,12 +1477,20 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 	set_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 }
 
+static inline void
+tfw_apm_hm_stop_timer(TfwApmHMCtl *hmctl) {
+	atomic_set(&hmctl->rearm, 0);
+	smp_mb__after_atomic();
+	del_timer_sync(&hmctl->timer);
+}
+
 void
 tfw_apm_hm_disable_srv(TfwServer *srv)
 {
 	clear_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 	tfw_srv_mark_alive(srv);
-	tfw_apm_hm_stop_timer((TfwApmData *)srv->apmref);
+	BUG_ON(!srv->apmref);
+	tfw_apm_hm_stop_timer(&((TfwApmRef *)srv->apmref)->hmctl);
 }
 
 bool
@@ -1398,7 +1499,7 @@ tfw_apm_hm_srv_eq(const char *name, TfwServer *srv)
 	TfwApmHM *hm;
 
 	BUG_ON(!srv->apmref);
-	hm = ((TfwApmData *)srv->apmref)->hmctl.hm;
+	hm = ((TfwApmRef *)srv->apmref)->hmctl.hm;
 	BUG_ON(!hm);
 	if(!strcasecmp(name, hm->name))
 		return true;
@@ -1415,56 +1516,43 @@ TfwHMStats *
 tfw_apm_hm_stats(void *apmref)
 {
 	int i;
-	long rtime;
-	size_t size;
+	long rtime = 0;
 	TfwHMStats *stats;
-	TfwHMCodeStats *rsums;
-	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
+	TfwApmHMCtl *hmctl = &((TfwApmRef *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
-	BUG_ON(!hmctl->hmstats || !hm);
-	size = sizeof(TfwHMStats) + sizeof(TfwHMCodeStats) * tfw_hm_codes_cnt;
-	if (!(stats = kmalloc(size, GFP_KERNEL)))
+	if (!hmctl->hmstats)
 		return NULL;
 
-	rsums = (TfwHMCodeStats *)(stats + 1);
-	for (i = 0; i < tfw_hm_codes_cnt; ++i) {
-		BUG_ON(!hmctl->hmstats[i].hmcfg);
-		rsums[i].code = hmctl->hmstats[i].hmcfg->code;
-		rsums[i].sum = READ_ONCE(hmctl->hmstats[i].rsum);
-	}
-	stats->rsums = rsums;
-	stats->ccnt = tfw_hm_codes_cnt;
+	stats = kmalloc(tfw_hm_stats_size(tfw_hm_codes_cnt), GFP_KERNEL);
+	if (!stats)
+		return NULL;
+	tfw_hm_stats_init(stats, tfw_hm_codes_cnt);
 
-	rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp))
-					/ HZ;
+	for (i = 0; i < stats->ccnt; ++i) {
+		BUG_ON(!hmctl->hmstats[i].hmcfg);
+		stats->rsums[i].code = hmctl->hmstats[i].hmcfg->code;
+		stats->rsums[i].tf_total = READ_ONCE(hmctl->hmstats[i].rsum);
+		stats->rsums[i].total = READ_ONCE(hmctl->hmstats[i].total);
+	}
+
+	if (hm)
+		rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp)) / HZ;
 	stats->rtime = rtime < 0 ? 0 : rtime;
 
 	return stats;
-}
-
-void *
-tfw_apm_get_hm(const char *name)
-{
-	TfwApmHM *hm;
-
-	list_for_each_entry(hm, &tfw_hm_list, list) {
-		if (!strcasecmp(name, hm->name))
-			return hm;
-	}
-	return NULL;
 }
 
 bool
 tfw_apm_check_hm(const char *name)
 {
 	if (!tfw_hm_codes_cnt) {
-		T_ERR_NL("No response codes specified for server's health "
-			 "monitoring\n");
+		T_ERR_NL("No response 'server_failover_http' directives "
+			 "specified for server's health monitoring\n");
 		return false;
 	}
 
-	if (!strcasecmp(name, TFW_APM_HM_AUTO) || tfw_apm_get_hm(name))
+	if (tfw_apm_get_hm(name))
 		return true;
 
 	T_ERR_NL("health monitor with name '%s' does not exist\n", name);
@@ -1549,7 +1637,7 @@ __tfw_cfgop_cleanup_apm_hm(void)
 
 	tfw_hm_entry = NULL;
 	tfw_hm_default = NULL;
-	tfw_hm_expl_def = false;
+	tfw_hm_cfg_200_created = false;
 
 	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
 		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
@@ -1567,51 +1655,16 @@ tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
 	__tfw_cfgop_cleanup_apm_hm();
 }
 
+/**
+ * Create 'auto' health monitor for default mode if explicit one have not been
+ * created during configuration parsing stage.
+ */
 static int
-tfw_apm_cfgend(void)
+tfw_apm_create_def_hm(void)
 {
-	unsigned int jtmwindow;
 	int r;
 
-	if (tfw_runstate_is_reconfig())
-		return 0;
-
-	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
-	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
-	{
-		T_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
-			 tfw_apm_jtmwindow);
-		return -EINVAL;
-	}
-	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
-	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
-	{
-		T_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
-			 tfw_apm_tmwscale);
-		return -EINVAL;
-	}
-
-	/* Enforce @tfw_apm_tmwscale to be at least 2. */
-	if (tfw_apm_tmwscale == 1)
-		tfw_apm_tmwscale = 2;
-
-	jtmwindow = msecs_to_jiffies(tfw_apm_jtmwindow * 1000);
-	tfw_apm_jtmintrvl = jtmwindow / tfw_apm_tmwscale
-			    + !!(jtmwindow % tfw_apm_tmwscale);
-
-	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
-		T_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
-			 tfw_apm_jtmwindow, tfw_apm_tmwscale);
-		return -EINVAL;
-	}
-	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
-
-	/*
-	 * Create 'auto' health monitor for default mode
-	 * if explicit one have not been created during
-	 * configuration parsing stage.
-	 */
-	if (tfw_hm_expl_def)
+	if (tfw_apm_get_hm(TFW_APM_HM_AUTO))
 		return 0;
 
 	if ((r = tfw_cfgop_apm_add_hm(TFW_APM_HM_AUTO)))
@@ -1625,7 +1678,6 @@ tfw_apm_cfgend(void)
 
 	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
 		return r;
-
 	/*
 	 * Default values for health response code is 200, for
 	 * crc32 is 'auto', and for monitor request timeout is 10s.
@@ -1634,13 +1686,70 @@ tfw_apm_cfgend(void)
 	tfw_hm_entry->auto_crc = true;
 	tfw_hm_entry->tmt = 10;
 	tfw_hm_entry = NULL;
-
 	return 0;
+}
+
+static TfwApmHMCfg *
+tfw_amp_create_hm_entry(void)
+{
+	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
+	if (!hm_entry)
+		return NULL;
+
+	INIT_LIST_HEAD(&hm_entry->list);
+	list_add(&hm_entry->list, &tfw_hm_codes_list);
+	++tfw_hm_codes_cnt;
+
+	return hm_entry;
+}
+
+static int
+tfw_apm_create_def_health_stat_srv(void)
+{
+	TfwApmHMCfg *hm_entry;
+
+	if (tfw_hm_cfg_200_created)
+		return 0;
+
+	hm_entry = tfw_amp_create_hm_entry();
+	if (!hm_entry)
+		return -ENOMEM;
+
+	hm_entry->code = 200;
+	return 0;
+}
+
+static int
+tfw_apm_cfgend(void)
+{
+	int r;
+	TfwApmData *r2;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	r2 = tfw_apm_data_create();
+	if (IS_ERR(r2))
+		return PTR_ERR(r2);
+
+	tfw_apm_global_data = r2;
+	tfw_apm_data_start_timer(tfw_apm_global_data);
+
+	if ((r = tfw_apm_create_def_hm()))
+		return r;
+
+	return tfw_apm_create_def_health_stat_srv();
 }
 
 static void
 tfw_apm_cfgclean(void)
 {
+	if (tfw_apm_global_data) {
+		tfw_apm_data_stop_timer(tfw_apm_global_data);
+		tfw_apm_data_destroy(tfw_apm_global_data);
+		tfw_apm_global_data = NULL;
+	}
+
 	/*
 	 * 'auto' health monitor may be created implicitly in cfgend(),
 	 * even if no `health_check` directive found.
@@ -1663,6 +1772,7 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r;
 	const char *key, *val;
+	unsigned int jtmwindow;
 
 	if (ce->val_n) {
 		T_ERR_NL("%s: Arguments must be a key=value pair.\n", cs->name);
@@ -1688,7 +1798,46 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 	}
 
+	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
+	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
+	{
+		T_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
+			 tfw_apm_jtmwindow);
+		return -EINVAL;
+	}
+
+	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
+	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
+	{
+		T_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
+			 tfw_apm_tmwscale);
+		return -EINVAL;
+	}
+
+	/* Enforce @tfw_apm_tmwscale to be at least 2. */
+	if (tfw_apm_tmwscale == 1)
+		tfw_apm_tmwscale = 2;
+
+	jtmwindow = msecs_to_jiffies(tfw_apm_jtmwindow * 1000);
+	tfw_apm_jtmintrvl = jtmwindow / tfw_apm_tmwscale
+			    + !!(jtmwindow % tfw_apm_tmwscale);
+
+	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
+		T_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
+			 tfw_apm_jtmwindow, tfw_apm_tmwscale);
+		return -EINVAL;
+	}
+	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
+
 	return 0;
+}
+
+static void
+tfw_hm_entry_set_code(TfwApmHMCfg *hm_entry, int code)
+{
+	hm_entry->code = code;
+	if (code == 200)
+		tfw_hm_cfg_200_created = true;
 }
 
 static int
@@ -1697,12 +1846,8 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwApmHMCfg *hm_entry;
 	int code, limit, tframe;
 
-	if (tfw_cfg_check_val_n(ce, 3))
-		return -EINVAL;
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 3, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		T_ERR_NL("Unable to parse http code value: '%s'\n",
@@ -1725,16 +1870,12 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
 		return -EINVAL;
 
-	hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
+	hm_entry = tfw_amp_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
-
-	INIT_LIST_HEAD(&hm_entry->list);
-	hm_entry->code = code;
+	tfw_hm_entry_set_code(hm_entry, code);
 	hm_entry->limit = limit;
 	hm_entry->tframe = tframe;
-	list_add(&hm_entry->list, &tfw_hm_codes_list);
-	++tfw_hm_codes_cnt;
 
 	return 0;
 }
@@ -1752,18 +1893,44 @@ tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 	tfw_hm_codes_cnt = 0;
 }
 
+
+static int
+tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int i, code;
+	const char *val;
+	TfwApmHMCfg *hm_entry;
+
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (tfw_cfgop_parse_http_status(val, &code))
+		{
+			T_ERR_NL("Unable to parse http code value: '%s'\n",
+				 val);
+			return -EINVAL;
+		}
+		hm_entry = tfw_amp_create_hm_entry();
+		if (!hm_entry)
+			return -ENOMEM;
+		tfw_hm_entry_set_code(hm_entry, code);
+		/*
+		 * With no set timeframe and response limit, we just accumulate
+		 * total response statistics.
+		 */
+	}
+	return 0;
+}
+
 static int
 tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwApmHM *hm;
 	int r;
 
-	if (tfw_cfg_check_val_n(ce, 1))
-		return -EINVAL;
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	list_for_each_entry(hm, &tfw_hm_list, list) {
 		if (!strcasecmp(hm->name, ce->vals[0])) {
@@ -1778,7 +1945,6 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (!strcasecmp(ce->vals[0], TFW_APM_HM_AUTO)) {
 		tfw_hm_default = tfw_hm_entry;
-		tfw_hm_expl_def = true;
 	}
 
 	return 0;
@@ -1827,21 +1993,14 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r, i, code;
 	const char *val;
 
-	if (!ce->val_n) {
-		T_ERR_NL("No arguments found.\n");
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
 		return r;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (tfw_cfgop_parse_http_status(val, &code)
-		    || tfw_cfg_check_range(code, HTTP_CODE_MIN, HTTP_CODE_MAX))
+		if (tfw_cfgop_parse_http_status(val, &code))
 		{
 			T_ERR_NL("Unable to parse http code value: '%s'\n",
 				 val);
@@ -1951,6 +2110,13 @@ static TfwCfgSpec tfw_apm_specs[] = {
 		.handler	= tfw_cfgop_apm_server_failover,
 		.allow_none	= true,
 		.allow_repeat	= true,
+		.cleanup	= tfw_cfgop_apm_cleanup_server_failover,
+	},
+	{
+		.name		= "health_stat_server",
+		.deflt		= NULL,
+		.handler	= tfw_cfgop_apm_health_stat_srv,
+		.allow_none	= true,
 		.cleanup	= tfw_cfgop_apm_cleanup_server_failover,
 	},
 	{

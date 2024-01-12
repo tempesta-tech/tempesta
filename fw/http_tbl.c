@@ -83,7 +83,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -306,14 +306,8 @@ tfw_cfgop_http_tbl_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	T_DBG("http_tbl: begin http_chain\n");
 
-	if (ce->val_n > 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(<=, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	chain = list_first_entry_or_null(&tfw_table_reconfig->head,
 					 TfwHttpChain, list);
@@ -400,12 +394,8 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	TfwVhost *vhost = NULL;
 
 	BUG_ON(!tfw_chain_entry);
-	if ((r = tfw_cfg_check_val_n(e, 0)))
-		return r;
-	if (e->attr_n) {
-		T_ERR_NL("Attributes count must be zero\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 0, cs, e);
+	TFW_CFG_CHECK_NO_ATTRS(cs, e);
 
 	invert = cfg_rule->inv;
 	in_field = cfg_rule->fst;

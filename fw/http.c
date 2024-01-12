@@ -1093,6 +1093,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	}
 	else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
+		tfw_inc_global_hm_stats(resp->status);
 	}
 
 	tfw_connection_put(req->conn);
@@ -1600,11 +1601,16 @@ static bool
 tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
+	/*
+	 * We need to count a total response statistics in
+	 * tfw_apm_hm_srv_limit(), even if health monitor is disabled.
+	 * In this case limit calculation won't be accounted.
+	 */
+	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
 	if (!(flags & TFW_SRV_F_HMONITOR))
 		return true;
-
-	if (!tfw_apm_hm_srv_limit(resp->status, srv->apmref))
+	if (!lim_exceeded)
 		return false;
 
 	do {
@@ -4135,9 +4141,10 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 			tfw_connection_close((TfwConn *)cli_conn, true);
 			return;
 		}
+		TFW_INC_STAT_BH(serv.msgs_forwarded);
+		tfw_inc_global_hm_stats(req->resp->status);
 		list_del_init(&req->msg.seq_list);
 		tfw_http_resp_pair_free(req);
-		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
 }
 
@@ -6133,6 +6140,10 @@ next_msg:
 }
 
 /**
+ * Process the cached response from tfw_cache_process() or the original
+ * response from a backend if it wasn't cached due to certain circumstances
+ * or conditions.
+ *
  * This is the second half of tfw_http_resp_process().
  * tfw_http_resp_process() runs in SoftIRQ whereas tfw_http_resp_cache_cb()
  * runs in cache thread that is scheduled at an appropriate TDB node.
@@ -6277,6 +6288,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	TfwHttpReq *req = hmresp->req;
 	TfwFsmData data;
 	long timestamp = tfw_current_timestamp();
+	unsigned long jrtime;
 
 	/*
 	 * The time the response was received is used in cache
@@ -6303,8 +6315,10 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * a fast and simple algorithm for that? Keep in mind, that the
 	 * value of RTT has an upper boundary in the APM.
 	 */
+	jrtime = resp->jrxtstamp - req->jtxtstamp;
 	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
-		       resp->jrxtstamp, resp->jrxtstamp - req->jtxtstamp);
+		       resp->jrxtstamp, jrtime);
+	tfw_apm_update_global(resp->jrxtstamp, jrtime);
 	/*
 	 * Health monitor request means that its response need not to
 	 * send anywhere.
@@ -6947,10 +6961,7 @@ tfw_cfgop_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (!strcasecmp(ce->vals[0], "error")) {
 		if (tfw_cfgop_define_block_action(ce->vals[1],
@@ -7269,13 +7280,8 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int code;
 
-	if (tfw_cfg_check_val_n(ce, 2))
-		return -EINVAL;
-
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(==, 2, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		T_ERR_NL("Unable to parse HTTP code value in '%s' directive: "
@@ -7292,14 +7298,8 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int i;
 	const char *val;
 
-	if (!ce->val_n) {
-		T_ERR_NL("%s: At least one argument is required", cs->name);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	tfw_wl_marks.sz = ce->val_n;
 	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n * sizeof(unsigned int),
@@ -7334,14 +7334,8 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 	unsigned int i;
 	const char *val;
 
-	if (!ce->val_n) {
-		T_ERR_NL("%s: At least one argument is required", cs->name);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		unsigned long i0 = 0, i1 = 0;

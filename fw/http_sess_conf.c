@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -474,14 +474,8 @@ tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned long *flags;
 
-	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the '=' sign\n");
-		return -EINVAL;
-	}
-	if (ce->val_n > 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(<=, 1, cs, ce);
 
 	if (cur_vhost) {
 		flags =  &cur_vhost->flags;
@@ -652,7 +646,7 @@ tfw_cfgop_jsch_parse_resp_code(TfwCfgSpec *cs, TfwCfgJsCh *js_ch,
 		T_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
 		return r;
 	}
-	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
+	if ((r = tfw_cfg_check_range(int_val, HTTP_CODE_MIN, HTTP_CODE_MAX)))
 		return r;
 	js_ch->st_code = int_val;
 

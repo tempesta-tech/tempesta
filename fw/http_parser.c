@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -11827,7 +11827,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				__set_bit(TFW_HTTP_B_VOID_BODY, resp->flags);
 			}
 
-			if (resp->status < 100 || resp->status > 599)
+			if (resp->status < HTTP_CODE_MIN
+			    || resp->status > HTTP_CODE_MAX)
 				T_WARN("Unknown response code: %hu", resp->status);
 
 			__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_n);

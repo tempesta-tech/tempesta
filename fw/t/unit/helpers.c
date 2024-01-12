@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -129,6 +129,11 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 
 void
 tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
+{
+}
+
+void
+tfw_apm_update_global(unsigned long jtstamp, unsigned long jrtime)
 {
 }
 

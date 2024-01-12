@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2017-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -456,10 +456,7 @@ __tfw_sched_ratio_get_rtt(size_t si, TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	unsigned int recalc;
 	unsigned int val[T_PSZ] = { 0 };
-	TfwPrcntlStats pstats = {
-		.ith = tfw_pstats_ith,
-		.val = val,
-	};
+	TfwPrcntlStats pstats = {.val = val};
 	TfwRatioSrvData *srvdata = rtodata->srvdata;
 	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
 

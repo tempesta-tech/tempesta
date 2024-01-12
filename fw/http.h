@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -258,19 +258,19 @@ typedef struct {
  * @msg			- the base data of an HTTP message;
  * @pool		- message's memory allocation pool;
  * @h_tbl		- table of message's HTTP headers in internal form;
- * @httperr		- HTTP error data used to form an error response;
  * @pair		- the message paired with this one;
  * @req			- the request paired with this response;
  * @resp		- the response paired with this request;
  * @stream		- stream which the message is linked with;
+ * @httperr		- HTTP error data used to form an error response;
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
+ * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @content_length	- the value of Content-Length header field;
  * @flags		- message related flags. The flags are tested
  *			  concurrently, but concurrent updates aren't
  *			  allowed. Use atomic operations if concurrent
  *			  updates are possible;
- * @content_length	- the value of Content-Length header field;
- * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @conn		- connection which the message was received on;
  * @destructor		- called when a connection is destroyed;
  * @crlf		- pointer to CRLF between headers and body;
@@ -685,6 +685,20 @@ tfw_body_iter_next(TfwMsgIter* it, TfwStr* chunk)
 
 #define TFW_BODY_ITER_WALK(it, c)					\
 	for (; (c)->data; tfw_body_iter_next((it), (c)))
+
+/**
+ * Compare the HTTP status with the code parsed from
+ * tfw_cfgop_parse_http_status().
+ *
+ * Wildcarded HTTP code values (of type 4*, 5* etc.) are allowed during
+ * configuration, so these values also must be checked via
+ * dividing by 100.
+ */
+static inline bool
+tfw_http_status_eq(int status, int code)
+{
+	return status == code || status / 100 == code;
+}
 
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
