@@ -816,7 +816,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	case TFW_HTTP_SESS_FAILURE:
 		return r;
 	default:
-		goto restart_challenge;
+		return tfw_http_sticky_challenge_start(req);
 	}
 
 	if (req->vhost->cookie->learn) {
@@ -843,7 +843,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		if (req->vhost->cookie->learn)
 			return TFW_HTTP_SESS_SUCCESS;
 		if (ctx.jsch_rcode)
-			goto restart_challenge;
+			return tfw_http_sticky_challenge_start(req);
 		T_WARN("cannot allocate TDB space for http session\n");
 		return TFW_HTTP_SESS_FAILURE;
 	}
@@ -862,9 +862,6 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		tdb_rec_put(rec);
 
 	return TFW_HTTP_SESS_SUCCESS;
-
-restart_challenge:
-	return tfw_http_sticky_challenge_start(req);
 }
 
 /*
