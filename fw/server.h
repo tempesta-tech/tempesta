@@ -219,6 +219,7 @@ tfw_server_put(TfwServer *srv)
 		return;
 
 	rc = atomic64_dec_return(&srv->refcnt);
+	BUG_ON(rc < 0);
 	if (likely(rc))
 		return;
 	tfw_server_destroy(srv);
@@ -322,9 +323,14 @@ tfw_sg_get(TfwSrvGroup *sg)
 static inline void
 tfw_sg_put(TfwSrvGroup *sg)
 {
+	long rc;
+
 	if (unlikely(!sg))
 		return;
-	if (likely(atomic64_dec_return(&sg->refcnt)))
+	rc = atomic64_dec_return(&sg->refcnt);
+	BUG_ON(rc < 0);
+
+	if (likely(rc))
 		return;
 	tfw_sg_destroy(sg);
 }

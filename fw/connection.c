@@ -75,7 +75,10 @@ tfw_connection_close(TfwConn *conn, bool sync)
 void
 tfw_connection_abort(TfwConn *conn)
 {
-	TFW_CONN_HOOK_CALL(conn, conn_abort);
+	int r;
+
+	r = TFW_CONN_HOOK_CALL(conn, conn_abort);
+	WARN_ON(r);
 }
 
 /**

@@ -504,8 +504,16 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * restored already. If the connection is closed already, then
 		 * check its stop bit.
 		 */
-		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
+		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT) {
+			TfwServer *srv = (TfwServer *)conn->peer;
+
+			if (test_bit(TFW_CFG_B_DEL, &srv->flags)) {
+				tfw_connection_abort(conn);
+				return 0;
+			}
+
 			return tfw_connection_close(conn, true);
+		}
 		/*
 		 * If stop flag is set, we can exit. Otherwise, continue waiting
 		 * until connection's destructor finish its work.
