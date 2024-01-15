@@ -1399,7 +1399,8 @@ static void
 __sk_close_locked(struct sock *sk, int flags)
 {
 	ss_do_close(sk, flags);
-	if (!sk_stream_closing(sk)) {
+	if (!sk_stream_closing(sk) ||
+	    (flags & SS_F_ABORT_FORCE) == SS_F_ABORT_FORCE) {
 		ss_conn_drop_guard_exit(sk);
 	} else {
 		BUG_ON(!sock_flag(sk, SOCK_DEAD));

@@ -504,8 +504,28 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * restored already. If the connection is closed already, then
 		 * check its stop bit.
 		 */
-		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
+		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT) {
+			TfwServer *srv = (TfwServer *)conn->peer;
+
+			/*
+			 * We set TFW_CFG_B_DEL flag when we gracefully
+			 * shutdown server. If `grace_shutdown_time` is
+			 * equal to zero, we should immediately close and
+			 * drop connection, because we remove server from
+			 * all lists and we can no longer monitor the state
+			 * of its connections. If this time is not zero, we
+			 * wait for all connections to complete during this
+			 * time, and if this does not happen, we iterate
+			 * through the list of servers and immediately stop
+			 * their connections.
+			 */
+			if (test_bit(TFW_CFG_B_DEL, &srv->flags)) {
+				tfw_connection_abort(conn);
+				return 0;
+			}
+
 			return tfw_connection_close(conn, true);
+		}
 		/*
 		 * If stop flag is set, we can exit. Otherwise, continue waiting
 		 * until connection's destructor finish its work.

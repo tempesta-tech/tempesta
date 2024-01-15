@@ -288,12 +288,16 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 	return r;
 }
 
-static void
+static int
 tfw_ws_conn_abort(TfwConn *conn)
 {
+	int r;
+
 	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
-	tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
+	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
+
+	return r;
 }
 
 /**

@@ -100,12 +100,15 @@ tfw_connection_close(TfwConn *conn, bool sync)
 void
 tfw_connection_abort(TfwConn *conn)
 {
+	int r;
+
 	/*
 	 * Same as for tfw_connection_close() we should increment connection
 	 * reference counter here.
 	 */
 	tfw_connection_get(conn);
-	TFW_CONN_HOOK_CALL(conn, conn_abort);
+	r = TFW_CONN_HOOK_CALL(conn, conn_abort);
+	WARN_ON(r);
 	tfw_connection_put(conn);
 }
 
