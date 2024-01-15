@@ -906,7 +906,7 @@ do {									\
 	}								\
 } while(0)
 
-#define TFW_COLLECT_COOKIE(req, chunk, val, n)				\
+#define TFW_COLLECT_REQ_COOKIE(req)					\
 do {									\
 	TfwStr *begin = chunk;						\
 	if (chunk == end)						\
@@ -934,7 +934,7 @@ do {									\
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
 		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD)) {
-			TFW_COLLECT_COOKIE(req, chunk, val, n);
+			TFW_COLLECT_REQ_COOKIE(req);
 			continue;
 		}
 		/*
@@ -952,7 +952,7 @@ do {									\
 			if (tfw_str_eq_cstr(&tmp, cstr, clen,
 					    TFW_STR_EQ_PREFIX))
 			{
-				TFW_COLLECT_COOKIE(req, chunk, val, n);
+				TFW_COLLECT_REQ_COOKIE(req);
 				continue;
 			}
 			TFW_SKIP_COOKIE_NAME(chunk, end, n);
@@ -973,7 +973,7 @@ do {									\
 			if (tfw_str_eq_cstr_off(&tmp, len - clen, cstr, clen,
 						TFW_STR_EQ_PREFIX))
 			{
-				TFW_COLLECT_COOKIE(req, chunk, val, n);
+				TFW_COLLECT_REQ_COOKIE(req);
 				continue;
 			}
 			TFW_SKIP_COOKIE_NAME(chunk, end, n);
@@ -992,5 +992,5 @@ do {									\
 finish:
 	return cnt;
 
-#undef TFW_COLLECT_COOKIE
+#undef TFW_COLLECT_REQ_COOKIE
 }
