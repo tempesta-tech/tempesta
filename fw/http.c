@@ -4964,7 +4964,7 @@ tfw_h2_choose_close_type(ErrorType type, bool reply)
 }
 
 static void
-tfw_htp_req_filter_block_ip(TfwHttpReq *req)
+tfw_http_req_filter_block_ip(TfwHttpReq *req)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	TfwClient *cli;
@@ -5001,7 +5001,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 			tfw_connection_abort(req->conn);
 		tfw_h2_req_unlink_stream_with_rst(req);
 		if (type == TFW_ERROR_TYPE_ATTACK)
-			tfw_htp_req_filter_block_ip(req);
+			tfw_http_req_filter_block_ip(req);
 		goto free_req;
 	}
 
@@ -5074,7 +5074,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
 		if (type == TFW_ERROR_TYPE_ATTACK)
-			tfw_htp_req_filter_block_ip(req);
+			tfw_http_req_filter_block_ip(req);
 		do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
 		goto out;
@@ -7005,8 +7005,8 @@ tfw_http_start(void)
 	if (WARN_ON_ONCE(!dflt_vh))
 		return -1;
 
-	misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY)
-			 && dflt_vh->frang_gconf->ip_block;
+	misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY) &&
+		dflt_vh->frang_gconf->ip_block;
 	tfw_vhost_put(dflt_vh);
 
 	if (misconfiguration) {
