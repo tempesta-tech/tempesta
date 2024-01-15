@@ -2671,10 +2671,10 @@ tfw_http_conn_close(TfwConn *conn, bool sync)
 	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
 }
 
-static void
+static int
 tfw_http_conn_abort(TfwConn *c)
 {
-	ss_close(c->sk, SS_F_ABORT_FORCE);
+	return ss_close(c->sk, SS_F_ABORT_FORCE);
 }
 
 /*

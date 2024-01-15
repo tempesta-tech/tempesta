@@ -275,7 +275,7 @@ typedef struct {
 	 * This is rough connection closing without any notifications like TLS
 	 * alerts, probably with TCP RST or just silent connection termination.
 	 */
-	void (*conn_abort)(TfwConn *conn);
+	int (*conn_abort)(TfwConn *conn);
 
 	/*
 	 * Called when closing a connection (client or server,
@@ -421,6 +421,8 @@ tfw_connection_put(TfwConn *conn)
 		return;
 
 	rc = atomic_dec_return(&conn->refcnt);
+	BUG_ON(rc < TFW_CONN_DEATHCNT);
+
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;
 	if (conn->destructor)
