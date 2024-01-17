@@ -167,7 +167,7 @@ dbg_prefix_vec:
  */
 .extern __CUSTOM
 #define __CUST_TBL_0(t) $__CUSTOM+(t*0x40)
-#define __CUST_TBL_1(t) $__CUSTOM+(t*0x40+0x20)
+#define __CUST_TBL_1(t) __CUST_TBL_0(t) + 0x20
 
 .extern __tfw_lct
 
@@ -195,13 +195,13 @@ dbg_prefix_vec:
 	push	%r9
 	push	%r10
 	push	%r11
-	push	%elfags
+	pushf
 
 	movq	$dbg_prefix_vec, %rdi
 	movq	\R, %rsi
 	call	tfw_dbg_vprint32
 
-	pop	%eflags
+	popf
 	pop	%r11
 	pop	%r10
 	pop	%r9
@@ -2089,8 +2089,8 @@ SYM_FUNC_START(tfw_match_uri)
 	movq	$uri, %rdx
 	jmp	__tfw_strspn_simd
 .match_cust_uri:
-	movq	__CUST_TBL_0(TOKEN_TBL_TOKEN), %rcx
-	movq	__CUST_TBL_1(TOKEN_TBL_TOKEN), %r8
+	movq	__CUST_TBL_0(TOKEN_TBL_URI), %rcx
+	movq	__CUST_TBL_1(TOKEN_TBL_URI), %r8
 	movq	$custom_uri, %rdx
 	jmp	__tfw_match_custom
 SYM_FUNC_END(tfw_match_uri)
