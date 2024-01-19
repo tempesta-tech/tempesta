@@ -808,7 +808,7 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 
 	/* Delete the underlying data. */
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if ((r = ss_skb_cutoff_data(hm->msg.skb_head, dup, 0,
+		if ((r = ss_skb_cutoff_data(&hm->msg.skb_head, dup, 0,
 					    tfw_str_eolen(dup))))
 			return r;
 	};
@@ -852,7 +852,7 @@ __hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 		 * adjustment is needed.
 		 */
 		if (dst->len != hdr->len
-		    && (r = ss_skb_cutoff_data(hm->msg.skb_head, dst,
+		    && (r = ss_skb_cutoff_data(&hm->msg.skb_head, dst,
 					       hdr->len, 0)))
 			return r;
 		if ((r = tfw_strcpy(dst, hdr)))
@@ -867,7 +867,7 @@ __hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 cleanup:
 	TFW_STR_FOR_EACH_DUP(tmp, orig_hdr, end) {
 		if (tmp != dst
-		    && (r = ss_skb_cutoff_data(hm->msg.skb_head, tmp, 0,
+		    && (r = ss_skb_cutoff_data(&hm->msg.skb_head, tmp, 0,
 					       tfw_str_eolen(tmp))))
 			return r;
 	}
@@ -1003,7 +1003,7 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 
 	BUG_ON(TFW_STR_DUP(str));
 
-	if ((r = ss_skb_cutoff_data(hm->msg.skb_head, str, 0, 0)))
+	if ((r = ss_skb_cutoff_data(&hm->msg.skb_head, str, 0, 0)))
 		return r;
 
 	TFW_STR_INIT(str);
@@ -1046,7 +1046,7 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 {
 	int r;
 
-	r = ss_skb_cutoff_data(resp->body.skb, &resp->cut, 0,
+	r = ss_skb_cutoff_data(&resp->body.skb, &resp->cut, 0,
 			       tfw_str_eolen(&resp->body));
 	if (unlikely(r))
 		return r;

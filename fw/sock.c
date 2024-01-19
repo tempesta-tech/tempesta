@@ -393,18 +393,10 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
 		/*
-		 * Zero-sized SKBs may appear when the message headers (or any
-		 * other contents) are modified or deleted by Tempesta. Drop
-		 * these SKBs.
+		 * We delete all empty skbs during modification or deleting
+		 * headers or any other content.
 		 */
-		if (!skb->len) {
-			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
-			       smp_processor_id(), __func__,
-			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
-			continue;
-		}
-
+		BUG_ON(!skb->len);
 		ss_skb_init_for_xmit(skb);
 		if (flags & SS_F_ENCRYPT) {
 			skb_set_tfw_tls_type(skb, SS_SKB_F2TYPE(flags));

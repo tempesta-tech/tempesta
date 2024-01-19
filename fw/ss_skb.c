@@ -1003,7 +1003,7 @@ multi_buffs:
  * Cut off @len bytes from @skb starting at @ptr
  */
 static int
-__ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
+__ss_skb_cutoff(struct sk_buff **skb_head, struct sk_buff *skb, char *ptr,
 		int len)
 {
 	int r;
@@ -1012,12 +1012,17 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 
 	while (len) {
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, skb, ptr, -len, &it, &_);
+		r = skb_fragment(*skb_head, skb, ptr, -len, &it, &_);
 		if (r < 0) {
 			T_WARN("Can't delete len=%i from skb=%p\n", len, skb);
 			return r;
 		}
 		BUG_ON(r > len);
+
+		if (skb->len == 0) {
+			ss_skb_unlink(skb_head, skb);
+			kfree_skb(skb);
+		}
 
 		len -= r;
 		skb = it.skb;
@@ -1034,7 +1039,7 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
  * ('uri_path', 'host' etc).
  */
 int
-ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
+ss_skb_cutoff_data(struct sk_buff **skb_head, TfwStr *str, int skip, int tail)
 {
 	int r;
 	TfwStr it = {};
@@ -1054,12 +1059,12 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		}
 
 		skb = c->skb;
-		is_single = (skb == skb_head && skb->next == skb_head);
+		is_single = (skb == *skb_head && skb->next == *skb_head);
 		next = skb->next;
 		next_len = next->len;
 
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, c->skb, c->data + skip,
+		r = skb_fragment(*skb_head, c->skb, c->data + skip,
 				 skip - c->len, &it, &_);
 		if (r < 0)
 			return r;
@@ -1073,7 +1078,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		 */
 		if (likely(skb->next == next
 			   && (is_single || next->len == next_len)))
-			continue;
+			goto unlink_if_zero_length;
 
 		/* Check if the new skb was allocated and update next skb. */
 		next = skb->next != next ? skb->next : next;
@@ -1084,13 +1089,19 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		 */
 		update = false;
 		for (cc = (TfwStr *)(c + 1); cc < end; ++cc) {
-			if (cc->skb != c->skb)
+			if (cc->skb != skb)
 				break;
 			if (!update &&
 			    !ss_skb_find_frag_by_offset(cc->skb, cc->data, &_))
 				continue;
 			cc->skb = next;
 			update = true;
+		}
+
+unlink_if_zero_length:
+		if (skb->len == 0) {
+			ss_skb_unlink(skb_head, skb);
+			kfree_skb(skb);
 		}
 	}
 
