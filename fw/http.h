@@ -402,8 +402,8 @@ struct tfw_http_req_t {
 	unsigned int		headers_cnt;
 };
 
-#define TFW_IDX_BITS		12
-#define TFW_D_IDX_BITS		4
+#define TFW_IDX_BITS		24
+#define TFW_D_IDX_BITS		8
 
 /**
  * The indirection map entry.
@@ -413,8 +413,8 @@ struct tfw_http_req_t {
  *		  @h_tbl record.
  */
 typedef struct {
-	unsigned short	idx	: TFW_IDX_BITS;
-	unsigned short	d_idx	: TFW_D_IDX_BITS;
+	unsigned int	idx	: TFW_IDX_BITS;
+	unsigned int	d_idx	: TFW_D_IDX_BITS;
 } TfwHdrIndex;
 
 /**
