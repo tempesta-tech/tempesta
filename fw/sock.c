@@ -751,6 +751,11 @@ do {									\
 	/* SKB may be freed in processing. Save the flag. */
 	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
 
+	if ((unsigned long)skb->data - (unsigned long)skb->head < 320)
+		printk("%px skb_headlen %u skb_len %u data %px head %px | reserved %d pulled %u ppuled %u off1 %ld cloned %d", skb, skb_headlen(skb), skb->len, skb->data, skb->head, skb->reserved1, skb->pulled1, skb->ppulled1, skb->off1, skb->cloned);
+
+
+
 	if (ss_skb_unroll(&skb_head, skb)) {
 		ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed);
 		__kfree_skb(skb);
@@ -761,6 +766,10 @@ do {									\
 		WARN_ON_ONCE(skb->tail_lock);
 		WARN_ON_ONCE(skb_has_frag_list(skb));
 		WARN_ON_ONCE(skb->sk);
+
+		if ((unsigned long)skb->data - (unsigned long)skb->head < 320)
+			printk("%px 111 skb_headlen %u skb_len %u data %px head %px | reserved %d pulled %u ppuled %u off1 %ld cloned %d", skb, skb_headlen(skb), skb->len, skb->data, skb->head, skb->reserved1, skb->pulled1, skb->ppulled1, skb->off1, skb->cloned);
+
 
 		/*
 		 * Some SKBs may have dev, however tempesta uses dev to store
@@ -773,6 +782,9 @@ do {									\
 			__kfree_skb(skb);
 			continue;
 		}
+
+		if ((unsigned long)skb->data - (unsigned long)skb->head < 320)
+			printk("%px 222 skb_headlen %u skb_len %u data %px head %px | reserved %d pulled %u ppuled %u off1 %ld cloned %d", skb, skb_headlen(skb), skb->len, skb->data, skb->head, skb->reserved1, skb->pulled1, skb->ppulled1, skb->off1, skb->cloned);
 
 		/*
 		 * TCP can ship an skb with overlapped seqnos, so we have to

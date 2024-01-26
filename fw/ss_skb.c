@@ -842,6 +842,8 @@ ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 
 alloc_head:
 	if (head) {
+		if ((unsigned long)skb->data - (unsigned long)skb->head < 320)
+			printk("%px ss_skb_expand_head_tail skb_headlen %u skb_len %u data %px head %px | reserved %d pulled %u ppuled %u off1 %ld cloned %d", skb, skb_headlen(skb), skb->len, skb->data, skb->head, skb->reserved1, skb->pulled1, skb->ppulled1, skb->off1, skb->cloned);
 		frags += !skb_headlen(skb);
 		skb_push(skb, head);
 	}
