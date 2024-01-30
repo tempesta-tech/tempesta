@@ -1543,6 +1543,8 @@ frang_tls_handler(TlsCtx *tls, int state)
 	if (WARN_ON_ONCE(!dflt_vh))
 		return T_BLOCK_WITH_RST;
 
+	BUG_ON(!ra);
+
 	spin_lock(&ra->lock);
 
 	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, state);

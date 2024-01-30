@@ -234,6 +234,21 @@ prepare_db_directory()
 	rm -f /opt/tempesta/db/*.tdb;
 }
 
+start_tempesta_and_check()
+{
+	# If 'net.tempesta.state' entry exists but Tempesta start process has
+	# been failed for some reason (e.g. configuration parsing error), then
+	# 'sysctl' does not indicate any problems and exits with zero code;
+	# so, stderr may return 'sysctl: setting key "net.tempesta.state"'
+	# followed by some error message or just empty string.
+	# The most reliable way to check Tempesta status is to check dmesg.
+	err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
+	if [[ -z "`check_dmesg 'Tempesta FW is ready'`" ]]; then
+		echo $err
+	fi
+	echo "0"
+}
+
 start()
 {
 	echo "Starting Tempesta..."
@@ -258,14 +273,9 @@ start()
 		error "cannot start Tempesta FW: error at configuration pre-processing"
 	fi
 	echo "...start Tempesta FW"
-	# If 'net.tempesta.state' entry exists but Tempesta start process has
-	# been failed for some reason (e.g. configuration parsing error), then
-	# 'sysctl' does not indicate any problems and exits with zero code;
-	# so, stderr may return 'sysctl: setting key "net.tempesta.state"'
-	# followed by some error message or just empty string.
-	# The most reliable way to check Tempesta status is to check dmesg.
-	err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
-	if [[ -z "`check_dmesg 'Tempesta FW is ready'`" ]]; then
+
+	err=$(start_tempesta_and_check)
+	if [[ $err != "0" ]]; then
 		unload_modules
 		error "cannot start Tempesta FW (sysctl message: ${err##*: }), please check dmesg"
 	else
@@ -292,9 +302,9 @@ reload()
 {
 	update_js_challenge_templates
 	echo "Running live reconfiguration of Tempesta..."
-	sysctl -w net.tempesta.state=start >/dev/null
-	if [ $? -ne 0 ]; then
-		error "cannot reconfigure Tempesta FW"
+	err=$(start_tempesta_and_check)
+	if [[ $err != "0" ]]; then
+		error "cannot reconfigure Tempesta FW (sysctl message: ${err##*: }), please check dmesg"
 	else
 		echo "done"
 		remove_tmp_conf

@@ -979,13 +979,21 @@ tfw_sock_clnt_cfgend(void)
 static int
 tfw_listen_socks_array_cmp(const void *l, const void *r)
 {
-	TfwAddr *a = &(*(TfwListenSock **)l)->addr;
-	TfwAddr *b = &(*(TfwListenSock **)r)->addr;
-	int cmp = memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr));
+	TfwListenSock *a = *(TfwListenSock **)l;
+	TfwListenSock *b = *(TfwListenSock **)r;
+	int cmp;
 
+	cmp = memcmp(&a->addr.sin6_addr, &b->addr.sin6_addr,
+		     sizeof(a->addr.sin6_addr));
 	if (cmp)
 		return cmp;
-	return (int)a->sin6_port - (int)b->sin6_port;
+
+	cmp = (int)a->addr.sin6_port - (int)b->addr.sin6_port;
+	if (cmp)
+		return cmp;
+
+	return TFW_CONN_TYPE2IDX(a->proto.type) -
+		TFW_CONN_TYPE2IDX(b->proto.type);
 }
 
 /**
@@ -1030,12 +1038,26 @@ tfw_sock_clnt_start(void)
 				   tfw_listen_socks_array_cmp);
 		if (ls_found) {
 			touched[ls_found - &listen_socks_array[0]] = true;
+			list_del(&ls->list);
 			continue;
 		}
+	}
+
+	for (i = 0; i < tfw_listen_socks_sz; ++i) {
+		if (touched[i])
+			continue;
+
+		ls = listen_socks_array[i];
+		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
+		listen_socks_sz--;
 
 		list_del(&ls->list);
-		list_add(&ls->list, &tfw_listen_socks);
+		if (ls->sk)
+			ss_release(ls->sk);
+		kfree(ls);
+	}
 
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
 		/*
 		 * Paired with tfw_classify_conn_estab(): firstly add the port
 		 * to the bitmap and then move it to the listen state to
@@ -1048,23 +1070,9 @@ tfw_sock_clnt_start(void)
 				   TFW_WITH_PORT);
 			goto done;
 		}
-
-		listen_socks_sz++;
-	}
-
-	for (i = 0; i < tfw_listen_socks_sz; ++i) {
-		if (touched[i])
-			continue;
-
-		ls = listen_socks_array[i];
-
-		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
-		listen_socks_sz--;
-
 		list_del(&ls->list);
-		if (ls->sk)
-			ss_release(ls->sk);
-		kfree(ls);
+		list_add(&ls->list, &tfw_listen_socks);
+		listen_socks_sz++;
 	}
 
 	tfw_listen_socks_sz = listen_socks_sz;
