@@ -314,7 +314,8 @@ do_varsz(TdbHdr *dbh)
 
 		print_bin_url(u);
 
-		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy);
+		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy,
+						  false);
 		assert((u->len && rec) || (!u->len && !rec));
 
 		copied = to_copy;
@@ -330,6 +331,7 @@ do_varsz(TdbHdr *dbh)
 
 			copied += rec->len;
 		}
+		tdb_entry_mark_complete(rec);
 	}
 
 	lookup_varsz_records(dbh);
@@ -395,7 +397,7 @@ do_fixsz(TdbHdr *dbh)
 		printf("insert int %u\n", ints[i]);
 		fflush(NULL);
 
-		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied);
+		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied, true);
 		assert(rec && copied == sizeof(ints[i]));
 	}
 

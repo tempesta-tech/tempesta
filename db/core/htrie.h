@@ -2,7 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies.
+ * Copyright (C) 2015-2024 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -57,6 +57,7 @@
  * which is 1/3 of supported per-socket RAM by modern x86-64.
  */
 #define TDB_HTRIE_DBIT		(1U << (sizeof(int) * 8 - 1))
+#define TDB_HTRIE_COMPLETE_BIT	0x1
 #define TDB_HTRIE_OMASK		(TDB_HTRIE_DBIT - 1) /* offset mask */
 #define TDB_HTRIE_IDX(k, b)	(((k) >> (b)) & TDB_HTRIE_KMASK)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
@@ -133,9 +134,9 @@ tdb_live_rec(TdbHdr *dbh, TdbRec *r)
 
 TdbVRec *tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size);
 TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
-			 size_t *len);
+			 size_t *len, bool complete);
 int tdb_htrie_remove(TdbHdr *dbh, unsigned long key,
-		     bool (*eq_cb)(void *, void *), void *data);
+		     bool (*eq_cb)(void *, void *), void *data, bool force);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
 TdbRec *tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket **b, unsigned long key);
 TdbRec *tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b,

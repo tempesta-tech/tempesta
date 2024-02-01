@@ -37,11 +37,17 @@ MODULE_LICENSE("GPL");
 
 /**
  * Create TDB entry and copy @len contiguous bytes from @data to the entry.
+ *
+ * Returns complete entry, such entry can't be modified or filled with data
+ * w/o locking.
  */
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 {
-	TdbRec *r = tdb_htrie_insert(db->hdr, key, data, len);
+	TdbRec *r;
+
+	BUG_ON(!data);
+	r = tdb_htrie_insert(db->hdr, key, data, len, true);
 	if (!r)
 		TDB_ERR("Cannot create cache entry for %.*s, key=%#lx\n",
 			(int)*len, (char *)data, key);
@@ -52,18 +58,42 @@ EXPORT_SYMBOL(tdb_entry_create);
 
 /**
  * Create TDB entry to store @len bytes.
+ *
+ * NOTE: Returns incomplete entry. When modifying of current entry is finished
+ * need to mark entry as complete using tdb_entry_mark_complete(). Incomplete
+ * entries are invisible for lookup and remove.
+ *
  * TODO #515 function must holds a lock upon return.
  */
 TdbRec *
 tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 {
-	TdbRec *r = tdb_htrie_insert(db->hdr, key, NULL, len);
+	TdbRec *r;
+
+	/* Use tdb_entry_create() for small records, they always complete.*/
+	BUG_ON(*len < TDB_HTRIE_MINDREC);
+	r = tdb_htrie_insert(db->hdr, key, NULL, len, false);
 	if (!r)
 		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
 
 	return r;
 }
 EXPORT_SYMBOL(tdb_entry_alloc);
+
+void
+tdb_entry_mark_complete(void *rec)
+{
+	TdbBucket *b;
+
+	BUG_ON(!rec);
+
+	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
+	BUG_ON(!b);
+	write_lock_bh(&b->lock);
+	b->flags |= TDB_HTRIE_COMPLETE_BIT;
+	write_unlock_bh(&b->lock);
+}
+EXPORT_SYMBOL(tdb_entry_mark_complete);
 
 /**
  * @return pointer to free area of size at least @size bytes or allocate
@@ -85,9 +115,9 @@ EXPORT_SYMBOL(tdb_entry_add);
  */
 int
 tdb_entry_remove(TDB *db, unsigned long key, bool (*eq_cb)(void *, void *),
-		 void *data)
+		 void *data, bool force)
 {
-	return tdb_htrie_remove(db->hdr, key, eq_cb, data);
+	return tdb_htrie_remove(db->hdr, key, eq_cb, data, force);
 }
 EXPORT_SYMBOL(tdb_entry_remove);
 
@@ -136,6 +166,7 @@ tdb_rec_get(TDB *db, unsigned long key)
 
 	iter.rec = tdb_htrie_bscan_for_rec(db->hdr, (TdbBucket **)&iter.bckt,
 					   key);
+
 out:
 	return iter;
 }
@@ -302,6 +333,7 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	ctx->is_new = true;
 	r = tdb_entry_alloc(db, key, &ctx->len);
 	ctx->init_rec(r, ctx->ctx);
+	tdb_entry_mark_complete(r);
 
 	spin_unlock(&db->ga_lock);
 

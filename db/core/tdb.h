@@ -193,10 +193,11 @@ typedef struct {
  * kernel_fpu_begin()/kernel_fpu_end() or call from softirq context only.
  */
 TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
+void tdb_entry_mark_complete(void *rec);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
 int tdb_entry_remove(TDB *db, unsigned long key, bool (*eq_cb)(void *, void *),
-		     void *data);
+		     void *data, bool force);
 void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);
