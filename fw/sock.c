@@ -774,6 +774,7 @@ do {									\
 	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
 
 	if (ss_skb_unroll(&skb_head, skb)) {
+		tp->copied_seq += tcp_fin;
 		ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed);
 		__kfree_skb(skb);
 		return SS_BAD;
@@ -805,6 +806,7 @@ do {									\
 			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
 		{
 			r = SS_BAD;
+			goto out;
 		}
 		offset = 0;
 
@@ -818,26 +820,42 @@ do {									\
 		 */
 		BUG_ON(conn == NULL);
 
-		if (r) {
-			__kfree_skb(skb);
-			continue;
-		}
-
 		r = SS_CALL(connection_recv, conn, skb);
 
 		if (r < 0) {
 			T_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
 			       smp_processor_id(), sk, r);
+			goto out; /* connection must be dropped */
 		}
 	}
+out:
 	if (tcp_fin) {
 		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
-		r = SS_BAD;
+		if (!r)
+			r = SS_BAD;
+	}
+	while ((skb = ss_skb_dequeue(&skb_head))) {
+		if (unlikely(offset >= skb->len)) {
+			offset -= skb->len;
+			__kfree_skb(skb);
+			continue;
+		}
+
+		/*
+		 * We should adjust tp->copied_seq for all incoming skbs.
+		 * otherwise socket hung, because copied_seq is a head
+		 * of yet unread data, and we don't update it all new skbs
+		 * will	be skipped (because its sequence number is greater
+		 * then copied_seq). They will stay in socket received
+		 * queue and we catch kernel BUG in some places.
+		 */
+		ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed);
+		offset = 0;
+		__kfree_skb(skb);
 	}
 
-	BUG_ON(skb_head);
 	return r;
 
 #undef ADJUST_PROCESSED_SKB

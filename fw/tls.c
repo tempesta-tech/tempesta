@@ -599,7 +599,7 @@ out:
 	 * TTLS_F_ST_SHUTDOWN and TTLS_F_ST_CLOSE flags are used
 	 * to specify type of closing procedure. We save one of these
 	 * flags previosly in st_flags field, use it in this function
-	 * and reset them in st_flags field to be shure that we can
+	 * and reset them in st_flags field to be sure that we can
 	 * use st_flags field for the same purpose.
 	 */
 	io->st_flags &= ~(TTLS_F_ST_SHUTDOWN | TTLS_F_ST_CLOSE);
