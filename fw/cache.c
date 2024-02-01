@@ -2472,6 +2472,12 @@ tfw_cache_rec_eq_req(void *rec, void *req)
 	return tfw_cache_entry_key_eq(node_db(), req, rec);
 }
 
+static bool
+tfw_cache_rec_eq(void *r1, void *r2)
+{
+	return r1 == r2;
+}
+
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
@@ -2479,6 +2485,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	TfwCacheEntry *ce;
 	TfwStr rph, *s_line;
 	long data_len = __cache_entry_size(resp);
+	int r;
 
 	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags))
 		data_len += 2;
@@ -2502,7 +2509,11 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req);
+	/*
+	 * Remove each entry with current key, even fresh entries. We assume
+	 * that if we at current place, no valid entries are exists.
+	 */
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req, false);
 
 	/*
 	 * Try to place the cached response in single memory chunk.
@@ -2516,8 +2527,15 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 
 	T_DBG3("%s: ce=[%p], alloc_len='%lu'\n", __func__, ce, len);
 
-	if (tfw_cache_copy_resp(ce, resp, &rph, data_len)) {
-		/* TODO delete the probably partially built TDB entry. */
+	if ((r = tfw_cache_copy_resp(ce, resp, &rph, data_len))) {
+		/*
+		 * Error occured during response copying. Remove allocated entry.
+		 */
+		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, true);
+		T_DBG3("%s: Can't copy response ce=[%p], resp=[%p], data_len="
+		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
+	} else {
+		tdb_entry_mark_complete(ce);
 	}
 }
 
@@ -2629,7 +2647,7 @@ tfw_cache_purge_immediate(TfwHttpReq *req)
 	TDB *db = node_db();
 	unsigned long key = tfw_http_req_key_calc(req);
 
-	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req);
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
 
 	return 0;
 }
