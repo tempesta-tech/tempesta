@@ -30,6 +30,8 @@
  * Return codes.
  */
 enum {
+	/* Compression error during hpack decoding. */
+	T_COMPRESSION	= -MAX_ERRNO + 7,
 	/*
 	 * Generic error. Connection should be shutdown gracefully
 	 * with TCP_FIN.

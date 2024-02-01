@@ -448,8 +448,6 @@ do {										\
 	value_desc;								\
 } while (0)
 
-#define SZ_UPD(size) __INDEX((size), 0x1F, 0x20)
-
 /**
  * Dynamic Table Size Update.
  * Example of usage:		HEADER(SZ_UPD(new_size)).
