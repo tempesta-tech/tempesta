@@ -191,6 +191,12 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	return hdr;
 }
 
+static bool
+tdb_bucket_is_complete(TdbBucket *bckt)
+{
+	return bckt->flags & TDB_HTRIE_COMPLETE_BIT;
+}
+
 static inline void
 tdb_free_index_blk(TdbHtrieNode *node)
 {
@@ -466,6 +472,7 @@ tdb_alloc_index(TdbHdr *dbh)
 		if (!rptr)
 			goto out;
 
+		/* Never put index block, indexes live forever */
 		tdb_get_blk(dbh, rptr);
 	}
 
@@ -691,11 +698,13 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 static TdbRec *
 tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
-		     void *data, size_t len)
+		     void *data, size_t len, bool complete)
 {
 	char *ptr = TDB_PTR(dbh, off);
 	TdbRec *r = (TdbRec *)ptr;
+	TdbBucket *bckt;
 
+	BUG_ON(complete && !data);
 	BUG_ON(r->key);
 	r->key = key;
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
@@ -709,6 +718,9 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 	}
 	if (data)
 		memcpy_fast(ptr, data, len);
+
+	bckt = (TdbBucket *)((unsigned long)r & TDB_HTRIE_DMASK);
+	bckt->flags |= (TDB_HTRIE_COMPLETE_BIT * complete);
 
 	tdb_get_blk(dbh, off);
 
@@ -787,7 +799,8 @@ tdb_htrie_free_rec(TdbHdr *dbh, TdbRec *rec)
  * If competing context helps the current trx owner, then we get true lock-free.
  */
 TdbRec *
-tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len)
+tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len,
+		 bool complete)
 {
 	int bits = 0;
 	unsigned long o;
@@ -812,10 +825,7 @@ retry:
 		if (!o)
 			return NULL;
 
-		printk("Create a new htrie node for key=%#lx len=%lu"
-			" bits_used=%d, shift=%lx\n, o=%lx", key, *len, bits,
-			TDB_HTRIE_IDX(key, bits), o);
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 
 		i = TDB_HTRIE_IDX(key, bits);
 		if (atomic_cmpxchg((atomic_t *)&node->shifts[i], 0,
@@ -872,7 +882,8 @@ retry:
 
 		if (!tdb_live_fsrec(dbh, frec)) {
 			o = TDB_HTRIE_OFF(dbh, frec);
-			rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len,
+						   complete);
 			write_unlock_bh(&bckt->lock);
 
 			return rec;
@@ -885,7 +896,8 @@ retry:
 		if (vrec_len >= *len) {
 			bzero_fast(vrec, sizeof(*vrec) + vrec_len);
 			o = TDB_HTRIE_OFF(dbh, vrec);
-			rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len,
+						   complete);
 			write_unlock_bh(&bckt->lock);
 
 			return rec;
@@ -908,7 +920,8 @@ retry:
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
 		if (o) {
-			rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len,
+						   true);
 			write_unlock_bh(&bckt->lock);
 			return rec;
 		}
@@ -934,7 +947,7 @@ retry:
 			return NULL;
 		}
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 		bckt->coll_next = TDB_O2DI(o);
 
 		write_unlock_bh(&bckt->lock);
@@ -971,17 +984,6 @@ tdb_eval_eq_cb(bool (*eq_cb)(void *, void *), TdbRec *rec, void *data)
 	return ((eq_cb && eq_cb(rec, data)) || !eq_cb);
 }
 
-int
-tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
-		 void *data)
-{
-	int bits = 0;
-	TdbRec *rec;
-	unsigned long o;
-	TdbBucket *bckt, *prev, *b_tmp;
-	TdbHtrieNode *node = TDB_HTRIE_ROOT(dbh);
-	int r = -ENOENT, has_alive;
-
 #define TDB_REMOVE_FOREACH_REC(body)					\
 	do {								\
 		size_t rlen = sizeof(*rec) +				\
@@ -996,6 +998,17 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
 	} while ((char *)rec + sizeof(*rec) - (char *)bckt		\
 		 <= TDB_HTRIE_MINDREC)
 
+int
+tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
+		 void *data, bool force)
+{
+	int bits = 0;
+	TdbRec *rec;
+	unsigned long o;
+	TdbBucket *bckt, *prev, *b_tmp;
+	TdbHtrieNode *node = TDB_HTRIE_ROOT(dbh);
+	int r = -ENOENT, has_alive;
+
 	o = tdb_htrie_descend(dbh, &node, key, &bits);
 	if (!o)
 		return r;
@@ -1003,20 +1016,26 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
 	prev = bckt = TDB_PTR(dbh, o);
 	BUG_ON(!bckt);
 
+	TDB_DBG("Remove htrie record for key=%#lx force=%d bucket=[%p]", key,
+		force, bckt);
+
 	write_lock_bh(&bckt->lock);
 	/*
 	 * Iterate all records in the head bucket. Try to free suitable
 	 * records. The head bucket can't be reclaimed, but other buckets
 	 * must be reclaimed if no live records in it.
 	 */
-	rec = TDB_HTRIE_BCKT_1ST_REC(bckt);
-	TDB_REMOVE_FOREACH_REC({
-		if (tdb_live_rec(dbh, rec) && tdb_eval_eq_cb(eq_cb, rec, data))
-		{
-			tdb_htrie_free_rec(dbh, rec);
-			r = 0;
-		}
-	});
+	if (tdb_bucket_is_complete(bckt) || force) {
+		rec = TDB_HTRIE_BCKT_1ST_REC(bckt);
+		TDB_REMOVE_FOREACH_REC({
+			if (tdb_live_rec(dbh, rec)
+			    && tdb_eval_eq_cb(eq_cb, rec, data))
+			{
+				tdb_htrie_free_rec(dbh, rec);
+				r = 0;
+			}
+		});
+	}
 
 	if (!bckt->coll_next) {
 		write_unlock_bh(&bckt->lock);
@@ -1028,35 +1047,39 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
 	write_lock_bh(&bckt->lock);
 	/* Iterate all buckets except the head bucket. */
 	while (bckt) {
-		has_alive = false;
-		rec = TDB_HTRIE_BCKT_1ST_REC(bckt);
-		TDB_REMOVE_FOREACH_REC({
-			if (tdb_live_rec(dbh, rec)) {
-				if (tdb_eval_eq_cb(eq_cb, rec, data)) {
-					tdb_htrie_free_rec(dbh, rec);
-					r = 0;
-				} else {
-					has_alive = true;
+		if (tdb_bucket_is_complete(bckt) || force) {
+			has_alive = false;
+			rec = TDB_HTRIE_BCKT_1ST_REC(bckt);
+			TDB_REMOVE_FOREACH_REC({
+				if (tdb_live_rec(dbh, rec)) {
+					if (tdb_eval_eq_cb(eq_cb, rec, data)) {
+						tdb_htrie_free_rec(dbh, rec);
+						r = 0;
+					} else {
+						has_alive = true;
+					}
 				}
-			}
-		});
+			});
 
-		/* Once bucket doesn't have any live records, reclaim it. */
-		if (!has_alive) {
-			prev->coll_next = bckt->coll_next;
-			b_tmp = bckt;
-			bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
-			write_unlock_bh(&b_tmp->lock);
 			/*
-			 * Reclaim bucket's memory. Do reclaim after unlocking
-			 * relies on previous bucket lock.
+			 * Once bucket doesn't have any live records, reclaim it.
 			 */
-			tdb_put_blk(dbh, TDB_OFF(dbh, b_tmp));
-			if (bckt)
-				write_lock_bh(&bckt->lock);
-			else
-				write_unlock_bh(&prev->lock);
-			continue;
+			if (!has_alive) {
+				prev->coll_next = bckt->coll_next;
+				b_tmp = bckt;
+				bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
+				write_unlock_bh(&b_tmp->lock);
+				/*
+				 * Reclaim bucket's memory. Do reclaim after
+				 * unlocking relying on previous bucket lock.
+				 */
+				tdb_put_blk(dbh, TDB_OFF(dbh, b_tmp));
+				if (bckt)
+					write_lock_bh(&bckt->lock);
+				else
+					write_unlock_bh(&prev->lock);
+				continue;
+			}
 		}
 
 		if (!bckt->coll_next) {
@@ -1073,8 +1096,6 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
 	}
 
 	return r;
-
-#undef TDB_REMOVE_FOREACH_REC
 }
 
 TdbBucket *
@@ -1082,17 +1103,23 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 {
 	int bits = 0;
 	unsigned long o;
+	TdbBucket *b;
 	TdbHtrieNode *root = TDB_HTRIE_ROOT(dbh);
 
 	o = tdb_htrie_descend(dbh, &root, key, &bits);
 	if (!o)
 		return NULL;
+	b = TDB_PTR(dbh, o);
+	read_lock_bh(&(b)->lock);
+	if (!tdb_bucket_is_complete(b)) {
+		read_unlock_bh(&(b)->lock);
+		return NULL;
+	}
 
-	return TDB_PTR(dbh, o);
+	return b;
 }
 
 #define TDB_HTRIE_FOREACH_REC(dbh, b_tmp, b, r, body)			\
-	read_lock_bh(&(*b)->lock);					\
 	do {								\
 		r = TDB_HTRIE_BCKT_1ST_REC(*b);				\
 		do {							\
@@ -1108,8 +1135,10 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 		} while ((char *)r + sizeof(*r) - (char *)*b		\
 			 <= TDB_HTRIE_MINDREC);				\
 		b_tmp = TDB_HTRIE_BUCKET_NEXT(dbh, *b);			\
-		if (b_tmp) 						\
+		if (b_tmp && tdb_bucket_is_complete(b_tmp))		\
 			read_lock_bh(&b_tmp->lock);			\
+		else							\
+			b_tmp = NULL;					\
 		read_unlock_bh(&(*b)->lock);				\
 		*b = b_tmp;						\
 	} while (*b)
@@ -1158,7 +1187,8 @@ tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b, unsigned long key)
 						+ TDB_HTRIE_RBODYLEN(dbh, r));
 			if ((char *)r + rlen - (char *)_b > TDB_HTRIE_MINDREC)
 				break;
-			if (tdb_live_rec(dbh, r) && r->key == key)
+			if (tdb_live_rec(dbh, r) && r->key == key &&
+			    tdb_bucket_is_complete(_b))
 				/* Unlock the bucket by tdb_rec_put(). */
 				return r;
 			r = (TdbRec *)((char *)r + rlen);
@@ -1170,7 +1200,8 @@ next_bckt:
 			read_lock_bh(&(*b)->lock);
 			r = TDB_HTRIE_BCKT_1ST_REC(*b);
 
-			if (r && tdb_live_rec(dbh, r) && r->key == key) {
+			if (r && tdb_live_rec(dbh, r) && r->key == key
+			    && tdb_bucket_is_complete(*b)) {
 				read_unlock_bh(&_b->lock);
 				/* Unlock the bucket by tdb_rec_put(). */
 				return r;
@@ -1230,6 +1261,7 @@ tdb_htrie_bucket_walk(TdbHdr *dbh, TdbBucket *b, int (*fn)(void *))
 	TdbBucket *b_tmp;
 	TdbRec *r;
 
+	read_lock_bh(&(b)->lock);
 	TDB_HTRIE_FOREACH_REC(dbh, b_tmp, &b, r, {
 		if (tdb_live_rec(dbh, r)) {
 			int res = fn(r->data);
