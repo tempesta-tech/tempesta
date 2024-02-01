@@ -222,6 +222,7 @@ typedef struct {
  * @size	- current pseudo-length of the dynamic headers table (in bytes);
  * @window	- maximum pseudo-length of the dynamic table (in bytes); this
  *		  value used as threshold to flushing old entries;
+ * wnd_update	- we expect table size update before first header block;
  */
 typedef struct {
 	TfwHPackEntry		*entries;
@@ -232,6 +233,7 @@ typedef struct {
 	unsigned int		length;
 	unsigned int		size;
 	unsigned int		window;
+	bool			wnd_update;
 } TfwHPackDTbl;
 
 /**

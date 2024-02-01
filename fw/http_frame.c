@@ -73,19 +73,6 @@ typedef enum {
 	HTTP2_RECV_APP_DATA_POST
 } TfwFrameState;
 
-/**
- * IDs for SETTINGS parameters of HTTP/2 connection (RFC 7540
- * section 6.5.2).
- */
-typedef enum {
-	HTTP2_SETTINGS_TABLE_SIZE	= 0x01,
-	HTTP2_SETTINGS_ENABLE_PUSH,
-	HTTP2_SETTINGS_MAX_STREAMS,
-	HTTP2_SETTINGS_INIT_WND_SIZE,
-	HTTP2_SETTINGS_MAX_FRAME_SIZE,
-	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE
-} TfwSettingsId;
-
 typedef enum {
 	TFW_FRAME_DEFAULT,
 	TFW_FRAME_SHUTDOWN,
@@ -450,16 +437,19 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 
 	field[0].key   = htons(HTTP2_SETTINGS_TABLE_SIZE);
 	field[0].value = htonl(HPACK_ENC_TABLE_MAX_SIZE);
+	ctx->sent_settings[HTTP2_SETTINGS_TABLE_SIZE] = true;
 
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
+	ctx->sent_settings[HTTP2_SETTINGS_INIT_WND_SIZE] = true;
 
 	if (ctx->lsettings.max_lhdr_sz != UINT_MAX) {
 		field[required_fields].key =
 			htons(HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
 		field[required_fields].value =
 			htonl(ctx->lsettings.max_lhdr_sz);
+		ctx->sent_settings[HTTP2_SETTINGS_MAX_HDR_LIST_SIZE] = true;
 		data.chunks[1].len += sizeof(field[0]);
 		hdr.length += sizeof(field[0]);
 	}
@@ -1009,10 +999,11 @@ tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
 	T_DBG3("%s: parsed, stream_id=%u, flags=%hhu\n", __func__,
 	       ctx->hdr.stream_id, ctx->hdr.flags);
 
-	ctx->hpack.max_window = ctx->lsettings.hdr_tbl_sz;
-	/*
-	 * TODO: apply other local settings on ACK receiving.
-	 */
+	if (ctx->sent_settings[HTTP2_SETTINGS_TABLE_SIZE]) {
+		ctx->hpack.max_window = ctx->lsettings.hdr_tbl_sz;
+		ctx->hpack.dec_tbl.wnd_update = true;
+		ctx->sent_settings[HTTP2_SETTINGS_TABLE_SIZE] = false;
+	}
 }
 
 static int

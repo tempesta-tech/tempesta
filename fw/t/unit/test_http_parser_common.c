@@ -391,7 +391,7 @@ complete:
 	 * See comments for @do_split_and_parse()/__TRY_PARSE_EXPECT_*
 	 */
 	*fchunks = chunks;
-	return r;
+	return r <= T_BAD || r == T_OK ? r : T_BAD;
 }
 
 /**
@@ -493,6 +493,7 @@ do_split_and_parse(int type, int chunk_mode)
 
 		conn.h2.hpack.state = 0;
 		conn.h2.hpack.length = 0;
+		conn.h2.hpack.dec_tbl.wnd_update = true;
 
 		if (req)
 			test_req_free(req);

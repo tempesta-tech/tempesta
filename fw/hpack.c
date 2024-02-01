@@ -231,7 +231,7 @@ do {								\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_INT_LIMIT) {			\
-			r = -ERANGE;				\
+			r = T_COMPRESSION;			\
 			goto out;				\
 		}						\
 	} while (__c > 127);					\
@@ -249,7 +249,7 @@ do {								\
 	x += (__c & 127) << __m;				\
 	__m += 7;						\
 	if ((x) > HPACK_INT_LIMIT) {				\
-		r = -ERANGE;					\
+		r = T_COMPRESSION;				\
 		goto out;					\
 	}							\
 	while (__c > 127) {					\
@@ -261,7 +261,7 @@ do {								\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_INT_LIMIT) {			\
-			r = -ERANGE;				\
+			r = T_COMPRESSION;			\
 			goto out;				\
 		}						\
 	}							\
@@ -499,7 +499,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			if (likely(offset == 0))
 				return T_OK;
 			else
-				return -ERANGE;
+				return T_COMPRESSION;
 		}
 
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
@@ -540,15 +540,15 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			{
 				T_DBG3("%s: unexpected EOS detected\n",
 				       __func__);
-				return -ERANGE;
+				return T_COMPRESSION;
 			}
 
-			return -ERANGE;
+			return T_COMPRESSION;
 		}
 		else {
 			/* @shift must not be zero. */
 			WARN_ON_ONCE(1);
-			return -ERANGE;
+			return T_COMPRESSION;
 		}
 	}
 	if (likely(offset == 0)) {
@@ -556,7 +556,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			return T_OK;
 		}
 	}
-	return -ERANGE;
+	return T_COMPRESSION;
 }
 
 static int
@@ -569,7 +569,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 
 	if (hp->curr == -HT_MBITS)
-		return -ERANGE;
+		return T_COMPRESSION;
 
 	i = (hp->hctx << -hp->curr) & HT_MMASK;
 	shift = ht_decode[offset + i].shift;
@@ -595,7 +595,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		WARN_ON_ONCE(1);
 	}
 
-	return -ERANGE;
+	return T_COMPRESSION;
 }
 
 static int
@@ -712,7 +712,7 @@ ht_small:
 		}
 	}
 end:
-	return -ERANGE;
+	return T_COMPRESSION;
 }
 
 static int
@@ -725,7 +725,7 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	unsigned long size = sizeof(TfwHPackEntry);
 
 	if (WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr) || TFW_STR_DUP(s_hdr)))
-		return -EINVAL;
+		return T_COMPRESSION;
 
 	size += (s_hdr->nchunks + 1) * sizeof(TfwStr) + s_hdr->len;
 	T_DBG3("%s: size=%lu, s_hdr->nchunks=%u, s_hdr->len=%lu\n", __func__,
@@ -801,7 +801,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	if ((delta = HPACK_ENTRY_OVERHEAD + hdr_len) < hdr_len)	{
 		T_WARN("HPACK decoder: very big header (hdr_len = %lu). The"
 		       " entry cannot be added into dynamic table\n", hdr_len);
-		return -EINVAL;
+		return T_COMPRESSION;
 	}
 
 	size = tbl->size;
@@ -1042,7 +1042,7 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned int new_size)
 	unsigned int size = tbl->size;
 
 	if (new_size > hp->max_window)
-		return -EINVAL;
+		return T_COMPRESSION;
 
 	if (size > new_size) {
 		unsigned int count = tbl->n;
@@ -1158,6 +1158,7 @@ tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
 		   sizeof(*it) - offsetof(TfwMsgParseIter, __off));
 	bzero_fast(hp->__off,
 		   sizeof(*hp) - offsetof(TfwHPack, __off));
+	hp->dec_tbl.wnd_update = false;
 }
 
 static int
@@ -1173,7 +1174,7 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
 	if (WARN_ON_ONCE(!num || num > s_hdr->nchunks))
-		return -EINVAL;
+		return T_COMPRESSION;
 
 	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
 		return -ENOMEM;
@@ -1233,7 +1234,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	if (hp->index <= HPACK_STATIC_ENTRIES) {
 		WARN_ON_ONCE(s_hdr->nchunks > 2);
 		if (s_hdr->nchunks != 2)
-			return -EINVAL;
+			return T_COMPRESSION;
 		*d_hdr = *s_hdr;
 		goto done;
 	}
@@ -1427,7 +1428,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 						     HPACK_STATE_INDEX);
 				}
 				else if (unlikely(hp->index == 0)) {
-					r = -EINVAL;
+					r = T_COMPRESSION;
 					goto out;
 				}
 
@@ -1472,7 +1473,7 @@ index:
 					T_DBG3("%s: the code of the header's"
 					       " binary representation is not"
 					       " in prefix form\n", __func__);
-					r = -EINVAL;
+					r = T_COMPRESSION;
 					goto out;
 				}
 
@@ -1528,7 +1529,7 @@ index:
 				GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 			}
 			else if (unlikely(hp->length == 0)) {
-				r = -EINVAL;
+				r = T_COMPRESSION;
 				goto out;
 			}
 
@@ -1570,7 +1571,7 @@ get_indexed_name:
 			WARN_ON_ONCE(!hp->index);
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
 			if (!entry) {
-				r = -EINVAL;
+				r = T_COMPRESSION;
 				goto out;
 			}
 
@@ -1604,7 +1605,7 @@ get_value:
 			T_DBG3("%s: value length: %lu\n", __func__, hp->length);
 
 			if (unlikely(!hp->length)) {
-				r = -EINVAL;
+				r = T_COMPRESSION;
 				goto out;
 			}
 
@@ -1675,7 +1676,7 @@ get_all_indexed:
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
 			if (!entry) {
-				r = -EINVAL;
+				r = T_COMPRESSION;
 				goto out;
 			}
 
@@ -1720,6 +1721,11 @@ get_all_indexed:
 			T_DBG3("%s: new dyn table size finally decoded: %u\n",
 			       __func__, hp->index);
 set_tbl_size:
+			if (!hp->dec_tbl.wnd_update) {
+				r = T_COMPRESSION;
+				goto out;
+			}
+
 			if ((r = tfw_hpack_set_length(hp, hp->index)))
 				goto out;
 			T_DBG3("%s: dyn table size has been changed\n", __func__);
@@ -1746,7 +1752,7 @@ set_tbl_size:
 
 			if (unlikely(!hp->length)) {
 				T_DBG3("%s: zero-length value\n", __func__);
-				r = -EINVAL;
+				r = T_COMPRESSION;
 				goto out;
 			}
 
@@ -1761,7 +1767,7 @@ set_tbl_size:
 
 		default:
 			WARN_ON_ONCE(1);
-			r = -EINVAL;
+			r = T_COMPRESSION;
 			goto out;
 		}
 
@@ -1850,7 +1856,7 @@ do {									\
 		 * table, only header's name is allowed to be indexed.
 		 */
 		if (WARN_ON_ONCE(c & 0xF0)) {
-			r = -EINVAL;
+			r = T_COMPRESSION;
 			goto out;
 		}
 
@@ -1886,7 +1892,7 @@ do {									\
 			GET_FLEXIBLE(hp->length, HPACK_STATE_NAME_LENGTH);
 
 		else if (unlikely(hp->length == 0)) {
-			r = -EINVAL;
+			r = T_COMPRESSION;
 			goto out;
 		}
 
@@ -1907,13 +1913,13 @@ get_indexed_name:
 		if (WARN_ON_ONCE(!hp->index
 				 || hp->index > HPACK_STATIC_ENTRIES))
 		{
-			r = -EINVAL;
+			r = T_COMPRESSION;
 			goto out;
 		}
 
 		entry = static_table + hp->index - 1;
 		if (WARN_ON_ONCE(entry->name_num != 1)) {
-			r = -EINVAL;
+			r = T_COMPRESSION;
 			goto out;
 		}
 
@@ -2037,7 +2043,7 @@ get_value_text:
 
 	default:
 		WARN_ON_ONCE(1);
-		r = -EINVAL;
+		r = T_COMPRESSION;
 		goto out;
 	}
 

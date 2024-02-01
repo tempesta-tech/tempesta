@@ -896,14 +896,14 @@ TEST(http2_parser_hpack, erase_all_indexes)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* erase all entries from dynamic table */
+		HEADER(SZ_UPD(0));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* erase all entries from dynamic table */
-		HEADER(SZ_UPD(0));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1001,16 +1001,16 @@ TEST(http2_parser_hpack, erase_indexes_one_by_one)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* dynamic table fits to indexes size */
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_authority)
+			    + DYN_TBL_ENTRY_SZ(s_dummy)
+			    + DYN_TBL_ENTRY_SZ(s_user_agent)));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* dynamic table fits to indexes size */
-		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_authority)
-			    + DYN_TBL_ENTRY_SZ(s_dummy)
-			    + DYN_TBL_ENTRY_SZ(s_user_agent)));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1039,15 +1039,15 @@ TEST(http2_parser_hpack, erase_indexes_one_by_one)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* erase one index from the end of dynamic table */
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy)
+			    + DYN_TBL_ENTRY_SZ(s_user_agent)));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* erase one index from the end of dynamic table */
-		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy)
-			    + DYN_TBL_ENTRY_SZ(s_user_agent)));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1087,14 +1087,14 @@ TEST(http2_parser_hpack, erase_indexes_one_by_one)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* erase one index from the end of dynamic table */
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_user_agent)));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* erase one index from the end of dynamic table */
-		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_user_agent)));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1132,14 +1132,14 @@ TEST(http2_parser_hpack, erase_indexes_one_by_one)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* erase all indexes */
+		HEADER(SZ_UPD(0));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* erase all indexes */
-		HEADER(SZ_UPD(0));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1195,16 +1195,16 @@ TEST(http2_parser_hpack, eviction_of_indexes)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* dynamic table fits to indexes size */
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
+			    + DYN_TBL_ENTRY_SZ(s_dummy2)
+			    + DYN_TBL_ENTRY_SZ(s_dummy3)));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* dynamic table fits to indexes size */
-		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
-			    + DYN_TBL_ENTRY_SZ(s_dummy2)
-			    + DYN_TBL_ENTRY_SZ(s_dummy3)));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1593,16 +1593,16 @@ TEST(http2_parser_hpack, erased_indexes_not_come_back)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* set dynamic table size little smaller than need */
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
+			    + DYN_TBL_ENTRY_SZ(s_dummy2)
+			    + DYN_TBL_ENTRY_SZ(s_dummy3) - 1));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* set dynamic table size little smaller than need */
-		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
-			    + DYN_TBL_ENTRY_SZ(s_dummy2)
-			    + DYN_TBL_ENTRY_SZ(s_dummy3) - 1));
 	    HEADERS_FRAME_END();
 	);
 
@@ -1645,16 +1645,16 @@ TEST(http2_parser_hpack, erased_indexes_not_come_back)
 
 	FOR_REQ_H2_HPACK(
 	    HEADERS_FRAME_BEGIN();
+		/* set dynamic table size to fit indexes size */
+		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
+			    + DYN_TBL_ENTRY_SZ(s_dummy2)
+			    + DYN_TBL_ENTRY_SZ(s_dummy3)));
 		/* :method = "GET" */
 		HEADER(INDEX(2));
 		/* :scheme = "https" */
 		HEADER(INDEX(7));
 		/* :path = "/" */
 		HEADER(INDEX(4));
-		/* set dynamic table size to fit indexes size */
-		HEADER(SZ_UPD(DYN_TBL_ENTRY_SZ(s_dummy1)
-			    + DYN_TBL_ENTRY_SZ(s_dummy2)
-			    + DYN_TBL_ENTRY_SZ(s_dummy3)));
 	    HEADERS_FRAME_END();
 	);
 
