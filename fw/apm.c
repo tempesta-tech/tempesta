@@ -1744,6 +1744,9 @@ tfw_apm_cfgend(void)
 static void
 tfw_apm_cfgclean(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
+
 	if (tfw_apm_global_data) {
 		tfw_apm_data_stop_timer(tfw_apm_global_data);
 		tfw_apm_data_destroy(tfw_apm_global_data);
