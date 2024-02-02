@@ -241,11 +241,16 @@ start_tempesta_and_check()
 	# 'sysctl' does not indicate any problems and exits with zero code;
 	# so, stderr may return 'sysctl: setting key "net.tempesta.state"'
 	# followed by some error message or just empty string.
-	# The most reliable way to check Tempesta status is to check dmesg.
+	# The most reliable way to check Tempesta status is to check
+	# net.tempesta.state and if it is "start" check dmesg.
 	err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
-	if [[ -z "`check_dmesg 'Tempesta FW is ready'`" ]]; then
+	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
+	TFW_STATE=${TFW_STATE##* }
+
+	if [[ ${TFW_STATE} != "start" ]] || [[ -z "`check_dmesg 'Tempesta FW is ready'`" ]]; then
 		echo $err
 	fi
+
 	echo "0"
 }
 
