@@ -332,6 +332,10 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	}
 	ctx->is_new = true;
 	r = tdb_entry_alloc(db, key, &ctx->len);
+	if (!r) {
+		spin_unlock(&db->ga_lock);
+		return r;
+	}
 	ctx->init_rec(r, ctx->ctx);
 	tdb_entry_mark_complete(r);
 

@@ -68,6 +68,25 @@ typedef struct {
 
 static TDB *client_db;
 
+static bool
+tfw_client_rec_eq_cli(void *rec, void *client)
+{
+	TdbRec* tdbrec = rec;
+	TfwClientEntry *ent = (TfwClientEntry *)tdbrec->data;
+	long curr_time = tfw_current_timestamp();
+
+	spin_lock(&ent->lock);
+
+	if (curr_time > ent->expires) {
+		spin_unlock(&ent->lock);
+		return true;
+	}
+
+	spin_unlock(&ent->lock);
+
+	return false;
+}
+
 /**
  * Called when a client socket is closed.
  */
@@ -207,6 +226,9 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 
 	key = hash_calc((const char *)&addr.sin6_addr,
 			sizeof(addr.sin6_addr));
+
+	/* Remove expired clients with same key. */
+	tdb_entry_remove(client_db, key, &tfw_client_rec_eq_cli, NULL, false);
 
 	if (xff_addr) {
 		key ^= hash_calc((const char *)&xff_addr->sin6_addr,
