@@ -352,10 +352,10 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
 			goto out;
 
-		if ((r = tfw_ctlfn_state_change(buf)))
-			goto out;
-
-		strlcpy(new_state_buf, buf, T_SYSCTL_STBUF_LEN);
+		r = tfw_ctlfn_state_change(buf);
+		strlcpy(new_state_buf,
+			tfw_runstate_is_started() ? "start" : "stop",
+			T_SYSCTL_STBUF_LEN);
 	} else {
 		tmp.data = new_state_buf;
 		r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos);
