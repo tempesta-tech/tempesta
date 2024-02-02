@@ -141,6 +141,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 		return false;
 	}
 
+#ifdef DISABLED_934
 	if (memcmp_fast(&ent->xff_addr.sin6_addr, &ctx->xff_addr.sin6_addr,
 			sizeof(ent->xff_addr.sin6_addr)))
 	{
@@ -152,6 +153,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	{
 		return false;
 	}
+#endif
 
 	spin_lock(&ent->lock);
 
@@ -230,6 +232,7 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	/* Remove expired clients with same key. */
 	tdb_entry_remove(client_db, key, &tfw_client_rec_eq_cli, NULL, false);
 
+#ifdef DISABLED_934
 	if (xff_addr) {
 		key ^= hash_calc((const char *)&xff_addr->sin6_addr,
 				 sizeof(xff_addr->sin6_addr));
@@ -237,13 +240,20 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	} else {
 		ctx.xff_addr.sin6_addr = any_addr;
 	}
+#else
+	ctx.xff_addr.sin6_addr = any_addr;
+#endif
 
+#ifdef DISABLED_934
 	if (user_agent) {
 		key ^= tfw_hash_str_len(user_agent, UA_CMP_LEN);
 		ctx.user_agent = *user_agent;
 	} else {
 		TFW_STR_INIT(&ctx.user_agent);
 	}
+#else
+	TFW_STR_INIT(&ctx.user_agent);
+#endif
 
 	tdb_ctx.eq_rec =  tfw_client_addr_eq;
 	tdb_ctx.init_rec = tfw_client_ent_init;
