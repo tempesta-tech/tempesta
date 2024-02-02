@@ -5688,15 +5688,21 @@ tfw_http_get_ip_from_xff(TfwHttpReq *req)
 static int
 tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 {
+#ifdef DISABLED_934
 	TfwStr s_ip, s_user_agent, *ua;
 	TfwAddr addr;
 	TfwClient *cli, *conn_cli;
+#else
+	TfwStr s_ip;
+	TfwAddr addr;
+#endif
 
 	s_ip = tfw_http_get_ip_from_xff(req);
 	if (!TFW_STR_EMPTY(&s_ip)) {
 		if (tfw_addr_pton(&s_ip, &addr) != 0)
 			return -EINVAL;
-
+/* @TODO: Disabled by issue #934. Code above need to validate XFF header. */
+#ifdef DISABLED_934
 		conn_cli = (TfwClient *)conn->peer;
 		ua = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
 		tfw_http_msg_clnthdr_val(req, ua, TFW_HTTP_HDR_USER_AGENT,
@@ -5709,6 +5715,7 @@ tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 			else
 				tfw_client_put(cli);
 		}
+#endif
 	}
 
 	return 0;
@@ -6056,6 +6063,7 @@ next_msg:
 				"incorrect X-Forwarded-For header",
 				HTTP2_ECODE_PROTO);
 	}
+
 	/*
 	 * Assign a target virtual host for the current request before further
 	 * processing.
