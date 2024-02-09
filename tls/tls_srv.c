@@ -529,7 +529,7 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	T_DBG("trying ciphersuite: %s\n", suite_info->name);
 
 	if (ttls_ciphersuite_uses_ec(suite_info) && !tls->hs->curves[0]) {
-		T_WARN("ciphersuite mismatch: no common elliptic curve\n");
+		T_DBG("ciphersuite mismatch: no common elliptic curve\n");
 		return -1;
 	}
 	/*
@@ -541,7 +541,7 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	    && ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_type)
 	        == TTLS_MD_NONE)
 	{
-		T_WARN("ciphersuite mismatch: no suitable hash algorithm"
+		T_DBG("ciphersuite mismatch: no suitable hash algorithm"
 		       " for signature algorithm %s", pk_type_to_str(sig_type));
 		return -1;
 	}
@@ -553,7 +553,7 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	 * This must be done last since we modify the key_cert list.
 	 */
 	if (ttls_pick_cert(tls, suite_info)) {
-		T_WARN("ciphersuite mismatch: no suitable certificate\n");
+		T_DBG("ciphersuite mismatch: no suitable certificate\n");
 		return -1;
 	}
 
