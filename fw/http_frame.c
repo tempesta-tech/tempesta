@@ -1541,6 +1541,22 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		 */
 		T_DBG("HTTP/2: frame of unknown type '%u' received\n",
 		      hdr_type);
+		/*
+		 * According RFC 9113 5.5.
+		 * Implementations MUST ignore unknown or unsupported values
+		 * in all extensible protocol elements. Implementations MUST
+		 * discard frames that have unknown or unsupported types.
+		 * This means that any of these extension points can be safely
+		 * used by extensions without prior arrangement or negotiation.
+		 * However, extension frames that appear in the middle of a
+		 * field block (Section 4.3) are not permitted; these MUST be
+		 * treated as a connection error (Section 5.4.1) of type
+		 * PROTOCOL_ERROR.
+		 */
+		if (ctx->cur_recv_headers) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 		SET_TO_READ(ctx);
 		return 0;
