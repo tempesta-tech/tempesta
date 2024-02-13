@@ -764,20 +764,16 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
-	TlsIOCtx *io = &tls->io_out;
 
-	/*
-	 * Only HTTP messages go this way, other (service) TLS records are sent
-	 * by tfw_tls_send().
-	 */
-	io->msgtype = TTLS_MSG_APPLICATION_DATA;
-	T_DBG("TLS %lu bytes (%u bytes, type %#x)"
+	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
-	      msg->len, io->msglen + TLS_HEADER_SIZE, io->msgtype, c,
+	      msg->len, io->msglen + TLS_HEADER_SIZE, c,
 	      c->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
-	if (ttls_xfrm_ready(tls))
-		msg->ss_flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
+	if (ttls_xfrm_ready(tls)) {
+		msg->ss_flags |= SS_SKB_TYPE2F(TTLS_MSG_APPLICATION_DATA) |
+			SS_F_ENCRYPT;
+	}
 
 	r = ss_send(c->sk, &msg->skb_head,
 		    msg->ss_flags & ~SS_F_CLOSE_FORCE);
