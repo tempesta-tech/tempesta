@@ -53,10 +53,10 @@
 static const int tfw_cache_spec_headers_304[] = {
 	[0 ... TFW_HTTP_HDR_RAW] = 0,
 	[TFW_HTTP_HDR_ETAG] = 1,
+	[TFW_HTTP_HDR_CONTENT_LOCATION] = 1,
 };
 static const TfwStr tfw_cache_raw_headers_304[] = {
 	TFW_STR_STRING("cache-control:"),
-	TFW_STR_STRING("content-location:"),
 	TFW_STR_STRING("date:"),
 	TFW_STR_STRING("expires:"),
 	TFW_STR_STRING("last-modified:"),
@@ -511,9 +511,34 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
 	    && !(effective_resp_flags & CC_RESP_AUTHCAN))
 		return false;
-	if (!(effective_resp_flags & CC_RESP_CACHEIT)
-	    && !tfw_cache_status_bydef(resp))
-		return false;
+	if (!(effective_resp_flags & CC_RESP_CACHEIT)) {
+		/*
+		 * According to RFC 9110 9.3.3:
+		 * Responses to POST requests are only cacheable when
+		 * they include explicit freshness information.
+		 */
+		if (req->method == TFW_HTTP_METH_POST)
+			return false;
+		if (!tfw_cache_status_bydef(resp))
+			return false;
+	}
+
+	/*
+	 * According to RFC 9110 9.3.3:
+	 * Responses to POST requests are only cacheable when
+	 * they include a Content-Location header field that
+	 * has the same value as the POST's target URI.
+	 */
+	if (req->method == TFW_HTTP_METH_POST) {
+		TfwStr *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LOCATION];
+		TfwStr h_val;
+
+		tfw_http_msg_srvhdr_val(h, TFW_HTTP_HDR_CONTENT_LOCATION,
+					&h_val);
+		if (tfw_strcmp(&h_val, &req->uri_path))
+			return false;
+	}
+
 #undef CC_RESP_AUTHCAN
 #undef CC_RESP_CACHEIT
 #undef CC_RESP_DONTCACHE
@@ -1066,10 +1091,27 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	 * it to satisfy subsequent GET and HEAD requests unless otherwise
 	 * indicated by the Cache-Control header field.
 	 */
+	/*
+	 * According to RFC 9110 9.3.3:
+	 * A cached POST response can be reused to satisfy a later GET or
+	 * HEAD request.
+	 */
 	if ((req->method != TFW_HTTP_METH_PURGE)
 	    && !(ce->method == TFW_HTTP_METH_GET
 		 && req->method == TFW_HTTP_METH_HEAD)
+	    && !(ce->method == TFW_HTTP_METH_POST
+		 && (req->method == TFW_HTTP_METH_GET
+		     || req->method == TFW_HTTP_METH_HEAD))
 	    && (ce->method != req->method))
+		return false;
+
+	/*
+	 * According to RFC 9110 9.3.3:
+	 * In contrast, a POST request cannot be satisfied by a cached
+	 * POST response because POST is potentially unsafe.
+	 */
+	if (req->method == TFW_HTTP_METH_POST
+	    && ce->method == TFW_HTTP_METH_POST)
 		return false;
 
 	if (req->uri_path.len + req->host.len != ce->key_len)

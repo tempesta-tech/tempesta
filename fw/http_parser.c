@@ -1985,6 +1985,42 @@ __parse_content_length(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	}
 }
 
+static int
+__parse_content_location(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_ContLocation) {
+		/*
+		 * Just eat the header value: we're interested in
+		 * type "/" subtype only and they're at begin of the value.
+		 *
+		 * RFC 7231 3.1.1.1 defines Media Type as
+		 *
+		 *	token "/" token *(OWS ";" OWS parameter)
+		 *	parameter = token "=" (token / quoted-string)
+		 *
+		 * RFC 7230 defines
+		 *
+		 * 	quoted-string = DQUOTE *(qdtext / quoted-pair) DQUOTE
+		 * 	qdtext = HTAB / SP / %x21 / %x23-5B / %x5D-7E / %x80-FF
+		 * 	quoted-pair = "\" (HTAB / SP / VCHAR / %x80-FF)
+		 *
+		 * , so this is essentially ctext | VCHAR.
+		 */
+		__FSM_I_MATCH_MOVE(ctext_vchar, I_ContLocation);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+
 /**
  * Parse Content-Type header value, RFC 7231 3.1.1.5.
  */
@@ -12244,7 +12280,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				{
 					__msg_hdr_chunk_fixup(data,
 							      __data_off(p + 8));
-					parser->_i_st = &&RGen_HdrOtherV;
+					parser->_i_st = &&Resp_HdrContent_LocationV;
 					__msg_hdr_set_hpack_index(29);
 					p += 8;
 					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
@@ -12310,6 +12346,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_LengthV, msg,
 				   __parse_content_length,
 				   TFW_HTTP_HDR_CONTENT_LENGTH);
+
+	/* 'Content-Location:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_LocationV, msg,
+				   __parse_content_location,
+				   TFW_HTTP_HDR_CONTENT_LOCATION);
 
 	/* 'Content-Type:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_TypeV, msg,
@@ -12582,7 +12623,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrContent_Locat, 'i', Resp_HdrContent_Locati);
 	__FSM_TX_AF(Resp_HdrContent_Locati, 'o', Resp_HdrContent_Locatio);
 	__FSM_TX_AF(Resp_HdrContent_Locatio, 'n', Resp_HdrContent_Location);
-	__FSM_TX_AF_OWS_HP(Resp_HdrContent_Location, RGen_HdrOtherV, 29);
+	__FSM_TX_AF_OWS_HP(Resp_HdrContent_Location, Resp_HdrContent_LocationV,
+			   29);
 
 	/* Content-Range header processing. */
 	__FSM_TX_AF(Resp_HdrContent_R, 'a', Resp_HdrContent_Ra);
