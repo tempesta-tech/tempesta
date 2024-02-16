@@ -454,7 +454,7 @@ tfw_cache_status_bydef(TfwHttpResp *resp)
 	 */
 	switch (resp->status) {
 	case 200: case 203: case 204:
-	case 300: case 301:
+	case 300: case 301: case 308:
 	case 404: case 405: case 410: case 414:
 	case 501:
 		return true;
