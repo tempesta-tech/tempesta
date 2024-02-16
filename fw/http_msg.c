@@ -133,10 +133,11 @@ typedef struct {
 #define TfwStrDefV(v, id)	{{ .data = (v), SLEN(v), NULL, 0 }, (id) }
 
 static inline unsigned int
-__tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[])
+__tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[],
+			const size_t size)
 {
 	const TfwHdrDef *def;
-	size_t size = tfw_http_msg_header_table_size();
+
 	/* TODO: return error if @hdr can't be applied to response or client. */
 	def = (TfwHdrDef *)__tfw_http_msg_find_hdr(hdr, array, size,
 						   sizeof(TfwHdrDef));
@@ -154,6 +155,7 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
 		TfwStrDefV("content-encoding:", TFW_HTTP_HDR_CONTENT_ENCODING),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrDefV("content-location:", TFW_HTTP_HDR_CONTENT_LOCATION),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
 		TfwStrDefV("forwarded:",	TFW_HTTP_HDR_FORWARDED),
@@ -167,11 +169,11 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("x-tempesta-cache:",	TFW_HTTP_HDR_X_TEMPESTA_CACHE),
 		TfwStrDefV("upgrade:",		TFW_HTTP_HDR_UPGRADE),
 	};
+	const size_t size = tfw_http_resp_header_table_size();
 
-	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) !=
-		     tfw_http_msg_header_table_size());
+	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) != size);
 
-	return __tfw_http_msg_spec_hid(hdr, resp_hdrs);
+	return __tfw_http_msg_spec_hid(hdr, resp_hdrs, size);
 }
 
 /**
@@ -197,11 +199,11 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("x-tempesta-cache:",	TFW_HTTP_HDR_X_TEMPESTA_CACHE),
 		TfwStrDefV("upgrade:",		TFW_HTTP_HDR_UPGRADE),
 	};
+	const size_t size = tfw_http_req_header_table_size();
 
-	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) !=
-		     tfw_http_msg_header_table_size());
+	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) != size);
 
-	return __tfw_http_msg_spec_hid(hdr, req_hdrs);
+	return __tfw_http_msg_spec_hid(hdr, req_hdrs, size);
 }
 
 /**
@@ -220,6 +222,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
 			[TFW_HTTP_HDR_CONTENT_ENCODING]	= SLEN("Content-Encoding:"),
 			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+			[TFW_HTTP_HDR_CONTENT_LOCATION] = SLEN("Content-Location:"),
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
 			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),

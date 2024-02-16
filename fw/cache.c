@@ -53,10 +53,10 @@
 static const int tfw_cache_spec_headers_304[] = {
 	[0 ... TFW_HTTP_HDR_RAW] = 0,
 	[TFW_HTTP_HDR_ETAG] = 1,
+	[TFW_HTTP_HDR_CONTENT_LOCATION] = 1,
 };
 static const TfwStr tfw_cache_raw_headers_304[] = {
 	TFW_STR_STRING("cache-control:"),
-	TFW_STR_STRING("content-location:"),
 	TFW_STR_STRING("date:"),
 	TFW_STR_STRING("expires:"),
 	TFW_STR_STRING("last-modified:"),
@@ -476,9 +476,11 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 #define CC_RESP_DONTCACHE				\
 	(TFW_HTTP_CC_NO_STORE | TFW_HTTP_CC_PRIVATE	\
 	 | TFW_HTTP_CC_NO_CACHE)
-#define CC_RESP_CACHEIT					\
+#define CC_RESP_EXPLICIT_FRESH_INFO			\
 	(TFW_HTTP_CC_HDR_EXPIRES | TFW_HTTP_CC_MAX_AGE	\
-	 | TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC)
+	 | TFW_HTTP_CC_S_MAXAGE)
+#define CC_RESP_CACHEIT					\
+	(CC_RESP_EXPLICIT_FRESH_INFO | TFW_HTTP_CC_PUBLIC)
 /*
  * RFC 9111 3.5:
  * A shared cache MUST NOT use a cached response to a request with an
@@ -514,6 +516,36 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 	if (!(effective_resp_flags & CC_RESP_CACHEIT)
 	    && !tfw_cache_status_bydef(resp))
 		return false;
+
+	/*
+	 * According to RFC 9110 9.3.3:
+	 * Responses to POST requests are only cacheable when they include
+	 * explicit freshness information and a Content-Location header field
+	 * that has the same value as the POST's target URI.
+	 */
+	if (req->method == TFW_HTTP_METH_POST) {
+		TfwStr *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LOCATION];
+		TfwStr h_val;
+
+		if (!(effective_resp_flags & CC_RESP_EXPLICIT_FRESH_INFO))
+			return false;
+		tfw_http_msg_srvhdr_val(h, TFW_HTTP_HDR_CONTENT_LOCATION,
+					&h_val);
+		/*
+		 * According to RFC 9110 8.7:
+		 * If Content-Location is included in a 2xx (Successful)
+		 * response message and its value refers (after conversion
+		 * to absolute form) to a URI that is the same as the target
+		 * URI, then the recipient MAY consider the content to be a
+		 * current representation of that resource at the time indicated
+		 * by the message origination date. But our research showed that
+		 * none of the legitimate clients use absolute forms of URI, so
+		 * we do not convert URI and Content-Location to absolute form.
+		 */
+		if (tfw_strcmp(&h_val, &req->uri_path))
+			return false;
+	}
+
 #undef CC_RESP_AUTHCAN
 #undef CC_RESP_CACHEIT
 #undef CC_RESP_DONTCACHE
@@ -1066,10 +1098,27 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	 * it to satisfy subsequent GET and HEAD requests unless otherwise
 	 * indicated by the Cache-Control header field.
 	 */
+	/*
+	 * According to RFC 9110 9.3.3:
+	 * A cached POST response can be reused to satisfy a later GET or
+	 * HEAD request.
+	 */
 	if ((req->method != TFW_HTTP_METH_PURGE)
 	    && !(ce->method == TFW_HTTP_METH_GET
 		 && req->method == TFW_HTTP_METH_HEAD)
+	    && !(ce->method == TFW_HTTP_METH_POST
+		 && (req->method == TFW_HTTP_METH_GET
+		     || req->method == TFW_HTTP_METH_HEAD))
 	    && (ce->method != req->method))
+		return false;
+
+	/*
+	 * According to RFC 9110 9.3.3:
+	 * In contrast, a POST request cannot be satisfied by a cached
+	 * POST response because POST is potentially unsafe.
+	 */
+	if (req->method == TFW_HTTP_METH_POST
+	    && ce->method == TFW_HTTP_METH_POST)
 		return false;
 
 	if (req->uri_path.len + req->host.len != ce->key_len)

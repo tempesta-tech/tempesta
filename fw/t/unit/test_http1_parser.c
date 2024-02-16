@@ -4012,6 +4012,7 @@ TEST(http1_parser, vchar)
 
 	/* Special headers */
 	TEST_VCHAR_HEADER("Content-Type", TFW_HTTP_HDR_CONTENT_TYPE, RESP);
+	TEST_VCHAR_HEADER("Content-Location", TFW_HTTP_HDR_CONTENT_LOCATION, RESP);
 	TEST_VCHAR_HEADER("Server", TFW_HTTP_HDR_SERVER, RESP);
 	TEST_VCHAR_HEADER("User-Agent", TFW_HTTP_HDR_USER_AGENT, REQ);
 
@@ -4022,7 +4023,6 @@ TEST(http1_parser, vchar)
 	TEST_RAW_RESP("Allow");
 	TEST_RAW_RESP("Content-Disposition");
 	TEST_RAW_RESP("Content-Language");
-	TEST_RAW_RESP("Content-Location");
 	TEST_RAW_RESP("Content-Range");
 	TEST_RAW_RESP("Link");
 	TEST_RAW_RESP("Location");
