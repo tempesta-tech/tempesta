@@ -500,7 +500,6 @@ tfw_tls_close_msg_flags(TlsIOCtx *io)
 		fallthrough;
 	case TTLS_F_ST_SHUTDOWN:
 		flags |= SS_F_CONN_CLOSE;
-		io->st_flags &= ~ (TTLS_F_ST_SHUTDOWN | TTLS_F_ST_CLOSE);
 		break;
 	default:
 		/*
@@ -553,9 +552,9 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	      conn->cli_conn.sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
 	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len, 0)))
-		return r;
+		goto out;
 	if ((r = tfw_msg_write(&it, &str)))
-		return r;
+		goto out;
 	/* Only one skb should has been allocated. */
 	WARN_ON_ONCE(it.skb->next != io->skb_list
 		     || it.skb->prev != io->skb_list);
@@ -566,8 +565,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 
 		for_each_sg(sgt->sgl, sg, sgt->nents, f) {
 			if (i >= MAX_SKB_FRAGS) {
-				if (!(skb = ss_skb_alloc(0)))
-					return -ENOMEM;
+				if (!(skb = ss_skb_alloc(0))) {
+					r = -ENOMEM;
+					goto out;
+				}
 				ss_skb_queue_tail(&io->skb_list, skb);
 				i = 0;
 			}
@@ -593,6 +594,15 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
 
+out:
+	/*
+	 * TTLS_F_ST_SHUTDOWN and TTLS_F_ST_CLOSE flags are used
+	 * to specify type of closing procedure. We save one of these
+	 * flags previosly in st_flags field, use it in this function
+	 * and reset them in st_flags field to be sure that we can
+	 * use st_flags field for the same purpose.
+	 */
+	io->st_flags &= ~(TTLS_F_ST_SHUTDOWN | TTLS_F_ST_CLOSE);
 	return r;
 }
 
@@ -754,20 +764,16 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
-	TlsIOCtx *io = &tls->io_out;
 
-	/*
-	 * Only HTTP messages go this way, other (service) TLS records are sent
-	 * by tfw_tls_send().
-	 */
-	io->msgtype = TTLS_MSG_APPLICATION_DATA;
-	T_DBG("TLS %lu bytes (%u bytes, type %#x)"
+	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
-	      msg->len, io->msglen + TLS_HEADER_SIZE, io->msgtype, c,
+	      msg->len, io->msglen + TLS_HEADER_SIZE, c,
 	      c->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
-	if (ttls_xfrm_ready(tls))
-		msg->ss_flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
+	if (ttls_xfrm_ready(tls)) {
+		msg->ss_flags |= SS_SKB_TYPE2F(TTLS_MSG_APPLICATION_DATA) |
+			SS_F_ENCRYPT;
+	}
 
 	r = ss_send(c->sk, &msg->skb_head,
 		    msg->ss_flags & ~SS_F_CLOSE_FORCE);
