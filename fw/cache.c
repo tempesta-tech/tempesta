@@ -1060,7 +1060,16 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
 
-	if ((req->method != TFW_HTTP_METH_PURGE) && (ce->method != req->method))
+	/*
+	 * According to RFC 9110 9.3.1:
+	 * The response to a GET request is cacheable; a cache MAY use
+	 * it to satisfy subsequent GET and HEAD requests unless otherwise
+	 * indicated by the Cache-Control header field.
+	 */
+	if ((req->method != TFW_HTTP_METH_PURGE)
+	    && !(ce->method == TFW_HTTP_METH_GET
+		 && req->method == TFW_HTTP_METH_HEAD)
+	    && (ce->method != req->method))
 		return false;
 
 	if (req->uri_path.len + req->host.len != ce->key_len)
@@ -2808,7 +2817,12 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	 * Split response to h2 frames. Don't write body with generic function,
 	 * just indicate that we have body for correct framing.
 	 */
-	dummy_body.len = ce->body_len;
+	/*
+	 * According RFC 9110 9.3.2:
+	 * The HEAD method is identical to GET except that the server MUST NOT
+	 * send content in the response.
+	 */
+	dummy_body.len = req->method != TFW_HTTP_METH_HEAD ? ce->body_len : 0;
 	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, &dummy_body))
 		goto free;
 	it->skb = ss_skb_peek_tail(&it->skb_head);
@@ -2817,7 +2831,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 write_body:
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
-	if (ce->body_len) {
+	if (ce->body_len && req->method != TFW_HTTP_METH_HEAD) {
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      TFW_MSG_H2(req), stream_id))
 			goto free;
