@@ -281,12 +281,13 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
  * Safe methods that do not depend on a current or authoritative response
  * are defined as cacheable: GET, HEAD, and POST.
- * Note: caching of POST method responses is not supported at this time.
+ * Note: caching of POST method responses need further support.
  * Issue #506 describes, which steps must be made to support caching of POST
  * requests.
  */
 static unsigned int tfw_cache_nc_methods =
-		~((1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD));
+		~((1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD) |
+		  (1 << TFW_HTTP_METH_POST));
 
 static inline bool
 __cache_method_nc_test(tfw_http_meth_t method)
@@ -3265,9 +3266,10 @@ tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 		if (__cache_method_nc_test(method)) {
-			T_WARN_NL("%s: non-cacheable method '%s' is set "
+			T_ERR_NL("%s: non-cacheable method '%s' is set "
 				  "as cacheable\n",
 				  cs->name, val);
+			return -EINVAL;
 		}
 		if (__cache_method_test(method)) {
 			T_WARN_NL("%s: duplicate method: '%s'\n",
