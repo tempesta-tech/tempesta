@@ -495,6 +495,11 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 #define CC_RESP_AUTHCAN					\
 	(TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC	\
 	 | TFW_HTTP_CC_MUST_REVAL)
+
+	if (req->method == TFW_HTTP_METH_PUT
+	    || req->method == TFW_HTTP_METH_DELETE)
+		return false;
+
 	/*
 	 * TODO: Response no-cache -- should be cached.
 	 * Should turn on unconditional revalidation.
@@ -1079,7 +1084,8 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 }
 
 static bool
-tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
+tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
+		       bool eviction)
 {
 	/* Record key starts at first data chunk. */
 	int n, c_off = 0, t_off;
@@ -1097,7 +1103,10 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	 * A cached POST response can be reused to satisfy a later GET or
 	 * HEAD request.
 	 */
-	if ((req->method != TFW_HTTP_METH_PURGE)
+	if (!eviction
+	    && (req->method != TFW_HTTP_METH_PURGE)
+	    && (req->method != TFW_HTTP_METH_PUT)
+	    && (req->method != TFW_HTTP_METH_DELETE)
 	    && !(ce->method == TFW_HTTP_METH_GET
 		 && req->method == TFW_HTTP_METH_HEAD)
 	    && !(ce->method == TFW_HTTP_METH_POST
@@ -1111,7 +1120,8 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	 * In contrast, a POST request cannot be satisfied by a cached
 	 * POST response because POST is potentially unsafe.
 	 */
-	if (req->method == TFW_HTTP_METH_POST
+	if (!eviction &&
+	    req->method == TFW_HTTP_METH_POST
 	    && ce->method == TFW_HTTP_METH_POST)
 		return false;
 
@@ -1187,7 +1197,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		/* TODO #522: replace a cache entry on a new entry insertion
 		 * (e.g. the bucket can not contain both the stale and fresh
 		 * entries) and rework the loop. */
-		if (tfw_cache_entry_key_eq(db, req, ce)) {
+		if (tfw_cache_entry_key_eq(db, req, ce, false)) {
 			if (tfw_cache_entry_is_live(req, ce)) {
 				if (ce_best)
 					tdb_rec_put(ce_best);
@@ -2444,6 +2454,36 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	}
 }
 
+/*
+ * Invalidate all cache entries that match the request. This is implemented by
+ * making the entries stale.
+ *
+ * TODO #522 Review the invalidation logic.
+ *
+ */
+static int
+tfw_cache_invalidate(TfwHttpReq *req)
+{
+	TdbIter iter;
+	TDB *db = node_db();
+	TfwCacheEntry *ce = NULL;
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		return 0;
+
+	ce = (TfwCacheEntry *)iter.rec;
+	do {
+		if (tfw_cache_entry_key_eq(db, req, ce, true))
+			ce->lifetime = 0;
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+	} while (ce);
+
+	return 0;
+}
+
 static void
 tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 {
@@ -2451,8 +2491,15 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 	bool keep_skb = false;
 	TfwHttpReq *req = resp->req;
 
+	if (req->method == TFW_HTTP_METH_DELETE
+	    || req->method == TFW_HTTP_METH_PUT
+	    || req->method == TFW_HTTP_METH_POST)
+		tfw_cache_invalidate(req);
+
 	if (!tfw_cache_employ_resp(resp))
 		goto out;
+
+	tfw_cache_invalidate(req);
 
 	key = tfw_http_req_key_calc(req);
 
@@ -2478,36 +2525,6 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 out:
 	resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
 	action((TfwHttpMsg *)resp);
-}
-
-/*
- * Invalidate all cache entries that match the request. This is implemented by
- * making the entries stale.
- *
- * TODO #522 Review the invalidation logic.
- *
- */
-static int
-tfw_cache_purge_invalidate(TfwHttpReq *req)
-{
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
-	unsigned long key = tfw_http_req_key_calc(req);
-
-	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter))
-		return 0;
-
-	ce = (TfwCacheEntry *)iter.rec;
-	do {
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			ce->lifetime = 0;
-		tdb_rec_next(db, &iter);
-		ce = (TfwCacheEntry *)iter.rec;
-	} while (ce);
-
-	return 0;
 }
 
 /**
@@ -2537,7 +2554,7 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	/* Only "invalidate" option is implemented at this time. */
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
-		ret = tfw_cache_purge_invalidate(req);
+		ret = tfw_cache_invalidate(req);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
@@ -2924,6 +2941,10 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!tfw_handle_validation_req(req, ce))
 		goto put;
 
+	if (req->method == TFW_HTTP_METH_PUT
+	    || req->method == TFW_HTTP_METH_DELETE)
+		goto out;
+
 	/*
 	 * If the stream for HTTP/2-request is already closed (due to some
 	 * error or just reset from the client side), there is no sense to
@@ -3032,7 +3053,9 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		req = resp->req;
 	}
 
-	if (req->method == TFW_HTTP_METH_PURGE)
+	if (req->method == TFW_HTTP_METH_PURGE
+	    || req->method == TFW_HTTP_METH_PUT
+	    || req->method == TFW_HTTP_METH_DELETE)
 		goto do_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
