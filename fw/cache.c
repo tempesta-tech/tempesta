@@ -456,8 +456,18 @@ tfw_cache_status_bydef(TfwHttpResp *resp)
 	switch (resp->status) {
 	case 200: case 203: case 204:
 	case 300: case 301: case 308:
+		return true;
 	case 404: case 405: case 410: case 414:
 	case 501:
+		/*
+		 * According RFC 9111 all this status codes are cacheble
+		 * but we don't cache response to POST request with one
+		 * of this status code, because we don't invalidate cache
+		 * if POST fails and we don't have more then one response
+		 * in cache for one URI.
+		 */
+		if (resp->req->method == TFW_HTTP_METH_GET
+		    || resp->req->method == TFW_HTTP_METH_HEAD)
 		return true;
 	}
 	return false;
@@ -480,6 +490,7 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 #define CC_RESP_CACHEIT					\
 	(TFW_HTTP_CC_HDR_EXPIRES | TFW_HTTP_CC_MAX_AGE	\
 	 | TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC)
+
 /*
  * RFC 9111 3.5:
  * A shared cache MUST NOT use a cached response to a request with an
@@ -1079,7 +1090,8 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 }
 
 static bool
-tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
+tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
+		       bool eviction)
 {
 	/* Record key starts at first data chunk. */
 	int n, c_off = 0, t_off;
@@ -1097,7 +1109,8 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	 * A cached POST response can be reused to satisfy a later GET or
 	 * HEAD request.
 	 */
-	if ((req->method != TFW_HTTP_METH_PURGE)
+	if (!eviction
+	    && (req->method != TFW_HTTP_METH_PURGE)
 	    && !(ce->method == TFW_HTTP_METH_GET
 		 && req->method == TFW_HTTP_METH_HEAD)
 	    && !(ce->method == TFW_HTTP_METH_POST
@@ -1110,8 +1123,9 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	 * In contrast, a POST request cannot be satisfied by a cached
 	 * POST response because POST is potentially unsafe.
 	 */
-	if (req->method == TFW_HTTP_METH_POST
-	    && ce->method == TFW_HTTP_METH_POST)
+	if (!eviction &&
+	    (req->method == TFW_HTTP_METH_POST
+	     && ce->method == TFW_HTTP_METH_POST))
 		return false;
 
 	if (req->uri_path.len + req->host.len != ce->key_len)
@@ -1186,7 +1200,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		/* TODO #522: replace a cache entry on a new entry insertion
 		 * (e.g. the bucket can not contain both the stale and fresh
 		 * entries) and rework the loop. */
-		if (tfw_cache_entry_key_eq(db, req, ce)) {
+		if (tfw_cache_entry_key_eq(db, req, ce, false)) {
 			if (tfw_cache_entry_is_live(req, ce)) {
 				if (ce_best)
 					tdb_rec_put(ce_best);
@@ -2443,12 +2457,56 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	}
 }
 
+/*
+ * Invalidate all cache entries that match the request. This is implemented by
+ * making the entries stale.
+ *
+ * TODO #522 Review the invalidation logic.
+ *
+ */
+static int
+tfw_cache_invalidate(TfwHttpReq *req)
+{
+	TdbIter iter;
+	TDB *db = node_db();
+	TfwCacheEntry *ce = NULL;
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		return 0;
+
+	ce = (TfwCacheEntry *)iter.rec;
+	do {
+		if (tfw_cache_entry_key_eq(db, req, ce, true))
+			ce->lifetime = 0;
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+	} while (ce);
+
+	return 0;
+}
+
 static void
 tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 {
 	unsigned long key;
 	bool keep_skb = false;
 	TfwHttpReq *req = resp->req;
+
+	/*
+	 * According RFC 9111 4.3.5:
+	 * When a cache makes an inbound HEAD request for a target URI
+	 * and receives a 200 (OK) response, the cache SHOULD update or
+	 * invalidate each of its stored GET responses that could have
+	 * been chosen for that request.
+	 * But we invalidate cache for all cacheble status codes because
+	 * we don't have more then one response in cache for one URI.
+	 */
+	if (likely(req->method == TFW_HTTP_METH_GET
+		   || req->method == TFW_HTTP_METH_HEAD)
+	    && tfw_cache_status_bydef(resp))
+		tfw_cache_invalidate(req);
 
 	if (!tfw_cache_employ_resp(resp))
 		goto out;
@@ -2479,36 +2537,6 @@ out:
 	action((TfwHttpMsg *)resp);
 }
 
-/*
- * Invalidate all cache entries that match the request. This is implemented by
- * making the entries stale.
- *
- * TODO #522 Review the invalidation logic.
- *
- */
-static int
-tfw_cache_purge_invalidate(TfwHttpReq *req)
-{
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
-	unsigned long key = tfw_http_req_key_calc(req);
-
-	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter))
-		return 0;
-
-	ce = (TfwCacheEntry *)iter.rec;
-	do {
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			ce->lifetime = 0;
-		tdb_rec_next(db, &iter);
-		ce = (TfwCacheEntry *)iter.rec;
-	} while (ce);
-
-	return 0;
-}
-
 /**
  * Process PURGE request method according to the configuration. Send a response,
  * unless there are no errors *and* we're also told to refresh the cache.
@@ -2536,7 +2564,7 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	/* Only "invalidate" option is implemented at this time. */
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
-		ret = tfw_cache_purge_invalidate(req);
+		ret = tfw_cache_invalidate(req);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
@@ -3029,6 +3057,19 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
 		resp = (TfwHttpResp *)msg;
 		req = resp->req;
+		/*
+		 * According RFC 9111 4.4:
+		 * A cache MUST invalidate the target URI when it receives
+		 * a non-error status code in response to an unsafe request
+		 * method (including methods whose safety is unknown).
+		 * A "non-error response" is one with a 2xx (Successful) or
+		 * 3xx (Redirection) status code.
+		 */
+		if (unlikely(req->method == TFW_HTTP_METH_PUT
+			     || req->method == TFW_HTTP_METH_DELETE
+			     || req->method == TFW_HTTP_METH_POST)
+		    && resp->status >= 200 && resp->status < 400)
+			tfw_cache_invalidate(req);
 	}
 
 	if (req->method == TFW_HTTP_METH_PURGE)
