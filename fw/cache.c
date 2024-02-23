@@ -1042,31 +1042,20 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	if ((ce->resp_status != 200) && (ce->resp_status != 206))
 		return true;
-	/* RFC 7232 Section 5. */
-	/* TODO: Add CONNECT */
-	if ((req->method == TFW_HTTP_METH_OPTIONS)
-	    || (req->method == TFW_HTTP_METH_TRACE))
-		return true;
+
+	/* All other methods can't be satisfied by cache. */
+	BUG_ON(req->method != TFW_HTTP_METH_GET
+	       && req->method != TFW_HTTP_METH_HEAD);
 
 	/* If-None-Match: */
 	if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH])) {
 		if (!tfw_cache_cond_none_match(req, ce)) {
-			if ((req->method == TFW_HTTP_METH_GET)
-			    || (req->method == TFW_HTTP_METH_HEAD))
-				tfw_cache_send_304(req, ce);
-			else
-				tfw_http_send_err_resp(req, 412,
-						   "request validation: "
-						   "precondition failed");
-
+			tfw_cache_send_304(req, ce);
 			return false;
 		}
 	}
 	/* If-Modified-Since: */
-	else if (req->cond.m_date
-		 && ((req->method == TFW_HTTP_METH_GET)
-		     || (req->method == TFW_HTTP_METH_HEAD)))
-	{
+	else if (req->cond.m_date) {
 		bool send_304 = false;
 
 		if (ce->last_modified) {
