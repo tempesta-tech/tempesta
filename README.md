@@ -12,7 +12,7 @@ firewall (WAF).
 
 **Tempesta FW** is the first and only hybrid of a Web accelerator and a multi-layer
 firewall. This unique architecture provides
-[seamless integration](https://github.com/tempesta-tech/tempesta/wiki/HTTP-tables)
+[seamless integration](https://tempesta-tech.com/knowledge-base/HTTP-tables/)
 with the Linux iptables or nftables.
 
 **Tempesta FW** services up to 1.8M HTTP requests per second on the cheapest hardware,
@@ -42,29 +42,27 @@ is just about 3,100 lines.
 We're in [alpha](https://en.wikipedia.org/wiki/Software_release_life_cycle#Alpha)
 state for now. The alpha is available by:
 
-* [source code](https://github.com/tempesta-tech/tempesta/wiki/Install-from-Sources)
-* [binary packages](https://github.com/tempesta-tech/tempesta/releases)
-* [installation script](https://github.com/tempesta-tech/tempesta/wiki/Install-from-packages#using-installer-script)
+* [source code](https://tempesta-tech.com/knowledge-base/Install-from-Sources/)
+* [installation script](https://tempesta-tech.com/knowledge-base/Install-from-packages/) (binary packages)
 
 The **master** branch is a development (and unstable) branch for contributers and
 early testers only.
-Use [release-0.6](https://github.com/tempesta-tech/tempesta/tree/release-0.6) branch
-or [binary releases](https://github.com/tempesta-tech/tempesta/tree/release-0.6) for
-stable versions.
+Use [release-0.7](https://github.com/tempesta-tech/tempesta/tree/release-0.7) branch
+for a stable version.
 
 
 ## Installation and Configuration
 
-Please see our **[Wiki](https://github.com/tempesta-tech/tempesta/wiki)** for
+Please see our **[Wiki](https://tempesta-tech.com/knowledge-base/home/)** for
 following topics:
 
-* [Quick start](https://github.com/tempesta-tech/tempesta/wiki/Configuration#quick-start)
-* [Design description](https://github.com/tempesta-tech/tempesta/wiki)
-* [System requirements](https://github.com/tempesta-tech/tempesta/wiki/Requirements)
-* [Installation procedures](https://github.com/tempesta-tech/tempesta/wiki/Installation)
-* [Configuration guide](https://github.com/tempesta-tech/tempesta/wiki/Configuration)
-* [Use cases](https://github.com/tempesta-tech/tempesta/wiki/Use-cases)
-* [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Performance#benchmarks)
+* [Quick start](https://tempesta-tech.com/knowledge-base/Configuration/#quick-start)
+* [Design description](https://tempesta-tech.com/knowledge-base/Home/#design-considerations)
+* [System requirements](https://tempesta-tech.com/knowledge-base/Requirements/)
+* [Installation procedures](https://tempesta-tech.com/knowledge-base/Installation/)
+* [Configuration guide](https://tempesta-tech.com/knowledge-base/Configuration/)
+* [Use cases](https://tempesta-tech.com/knowledge-base/Use-cases/)
+* [Performance tips & benchmarks](https://tempesta-tech.com/knowledge-base/Performance/)
 
 
 ## We appreciate support of our technical partner
