@@ -48,6 +48,20 @@ typedef enum {
 	_HTTP2_UNDEFINED
 } TfwFrameType;
 
+/**
+ * IDs for SETTINGS parameters of HTTP/2 connection (RFC 7540
+ * section 6.5.2).
+ */
+typedef enum {
+	HTTP2_SETTINGS_TABLE_SIZE	= 0x01,
+	HTTP2_SETTINGS_ENABLE_PUSH,
+	HTTP2_SETTINGS_MAX_STREAMS,
+	HTTP2_SETTINGS_INIT_WND_SIZE,
+	HTTP2_SETTINGS_MAX_FRAME_SIZE,
+	HTTP2_SETTINGS_MAX_HDR_LIST_SIZE,
+	_HTTP2_SETTINGS_MAX,
+} TfwSettingsId;
+
 static const char *__tfw_h2_frm_names[] = {
 	[HTTP2_DATA]	      = "DATA",
 	[HTTP2_HEADERS]	      = "HEADERS",
@@ -149,17 +163,23 @@ typedef struct {
  * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED or
  * 			  HTTP2_STREAM_REM_CLOSED state), which are waiting
  * 			  for removal;
+ * @idle_streams	- queue of idle streams (in HTTP2_STREAM_IDLE) state;
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
  *			  HEADERS/CONTINUATION frames;
+ * @cur_xmit_stream	- stream in which the response is sent.
  * @cur_send_headers	- stream for which we have already started sending
  *			  headers, but have not yet sent the END_HEADERS flag;
  * @cur_recv_headers	- stream for which we have already started receiving
  *			  headers, but have not yet received the END_HEADERS
  *			  flag;
+ * @new_settings	- new settings to apply when ack is pushed to socket
+ * 			  write queue;
+ * @final_data		- pointer to the head of the final data (goaway and
+ * 			  tls alert).
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -181,10 +201,6 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
- * @new_settings	- struct which contains flags and new settings, which
- *			  should be applyed in `xmit` callback. Currently it
- *			  is used only for new hpack dynamic table size, but
- *			  can be wide later.
  *
  * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
  * (instead of separate HPACK context for each stream), since frames from other
@@ -198,12 +214,19 @@ typedef struct tfw_h2_ctx_t {
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
 	TfwStreamQueue	closed_streams;
+	TfwStreamQueue	idle_streams;
 	unsigned int	lstream_id;
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
+	TfwStream	*cur_xmit_stream;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
+	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
+	struct sk_buff	*final_data;
+	struct page	**extra_sched_entries;
+	unsigned int	extra_sched_entries_count;
+	unsigned int	extra_sched_entries_max_count;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
@@ -216,13 +239,16 @@ typedef struct tfw_h2_ctx_t {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
-	struct {
-		unsigned short flags;
-		unsigned int hdr_tbl_sz;
-	} new_settings;
 } TfwH2Ctx;
 
 typedef struct tfw_conn_t TfwConn;
+
+struct h2_skb_cb {
+	struct ss_skb_cb ss_cb;
+	TfwFrameHdr hdr;
+};
+
+#define H2_SKB_CB(skb) ((struct h2_skb_cb *)&((skb)->cb[0]))
 
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
@@ -230,6 +256,7 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 			 struct sk_buff **next);
+void tfw_h2_apply_new_settings(TfwH2Ctx *ctx);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 					 bool recv);
@@ -240,19 +267,8 @@ void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
-int tfw_h2_make_headers_frames(struct sock *sk, struct sk_buff *skb,
-			       TfwH2Ctx *ctx, TfwStream *stream,
-			       unsigned int mss_now, unsigned int limit,
-			       unsigned int *t_tz);
-int tfw_h2_make_data_frames(struct sock *sk, struct sk_buff *skb,
-			    TfwH2Ctx *ctx, TfwStream *stream,
-			    unsigned int mss_now, unsigned int limit,
-			    unsigned int *t_tz);
-int tfw_h2_insert_frame_header(struct sock *sk,  struct sk_buff *skb,
-			       TfwStream *stream, unsigned int mss_now,
-			       TfwMsgIter *it, char **data,
-			       const TfwStr *frame_hdr_str,
-			       unsigned int *t_tz);
+int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long wnd_awail,
+		       unsigned int mss, bool *data_is_available);
 
 static inline void
 tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)

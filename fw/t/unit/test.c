@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include "test.h"
 #include "test_http_parser_defs.h"
+#include "test_http_parser_common.h"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
@@ -99,6 +100,7 @@ TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
 TEST_SUITE(pool);
+TEST_SUITE(ebtree);
 
 extern int tfw_pool_init(void);
 extern void tfw_pool_exit(void);
@@ -132,8 +134,12 @@ test_run_all(void)
 	TEST_SUITE_MPART_RUN(http1_parser);
 	__fpu_schedule();
 
+	test_case_alloc_h2();
+
 	TEST_SUITE_MPART_RUN(http2_parser);
 	__fpu_schedule();
+
+	test_case_cleanup_h2();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
 	__fpu_schedule();
@@ -154,6 +160,9 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(pool);
+	__fpu_schedule();
+
+	TEST_SUITE_RUN(ebtree);
 	__fpu_schedule();
 
 	kernel_fpu_end();

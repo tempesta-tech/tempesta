@@ -199,6 +199,109 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	return r <= T_BAD || r == T_OK ? r : T_BAD;
 }
 
+int
+tfw_connection_do_send(TfwConn *conn, struct sk_buff **skb_head, int flags)
+{
+	struct h2_skb_cb *h2_cb = H2_SKB_CB(*skb_head);
+	TfwHttpResp *resp = h2_cb->ss_cb.opaque_data;
+	TfwFrameHdr *hdr = &h2_cb->hdr;
+	TfwH2Ctx *h2 = tfw_h2_context(conn);
+	unsigned char tls_type = flags & SS_F_ENCRYPT ?
+		SS_SKB_F2TYPE(flags) : 0;
+	unsigned int mark = (*skb_head)->mark;
+	struct sk_buff *skb, *head = *skb_head, **target = NULL;
+	TfwStream *stream = NULL;
+	bool need_activate = false;
+	bool need_to_set_tyoe = false;
+
+	if (TFW_CONN_PROTO(conn) != TFW_FSM_H2)
+		goto do_send;
+
+	switch (hdr->type) {
+	case HTTP2_HEADERS:
+		stream = tfw_h2_find_not_closed_stream(h2, hdr->stream_id,
+						       false);
+		/*
+		 * Very unlikely case. We check that stream is active, before
+		 * calling ss_send, but there is a very small chance, that
+		 * stream will be canceled by RST STREAM from the client
+		 * before ss_do_send will be called.
+		 */
+		if (unlikely(!stream)) {
+			tfw_http_resp_pair_free_and_put_conn(resp);
+			return -EPIPE;
+		}
+
+		BUG_ON(stream->xmit.skb_head);
+		stream->xmit.resp = resp;
+		target = &stream->xmit.skb_head;
+		break;
+	case HTTP2_SETTINGS:
+		if (hdr->flags == HTTP2_F_ACK &&
+		    h2->new_settings[0])
+			tfw_h2_apply_new_settings(h2);
+		break;
+	case HTTP2_RST_STREAM:
+		stream = tfw_h2_find_not_closed_stream(h2, hdr->stream_id,
+						       false);
+		if (unlikely(!stream))
+			break;
+		target = &stream->xmit.skb_head;
+		break;
+	default:
+		if (!(flags & SS_F_CONN_CLOSE))
+			break;
+		fallthrough;
+	case HTTP2_GOAWAY:
+		target = &h2->final_data;
+		break;
+	}
+
+	ss_skb_set_head_tls_type(*skb_head, tls_type);
+
+	need_activate = stream && !tfw_h2_stream_is_active(stream);
+
+do_send:
+	while ((skb = ss_skb_dequeue(skb_head))) {
+		/*
+		 * Zero-sized SKBs may appear when the message headers (or any
+		 * other contents) are modified or deleted by Tempesta. Drop
+		 * these SKBs.
+		 */
+		if (!skb->len) {
+			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
+			       smp_processor_id(), __func__,
+			       skb, skb->data_len, skb->len);
+			if (skb == head && target)
+				need_to_set_tyoe = true;
+			kfree_skb(skb);
+			continue;
+		} else if (need_to_set_tyoe) {
+			ss_skb_set_head_tls_type(skb, tls_type);
+			need_to_set_tyoe = false;
+		}
+
+		if (!target)
+			ss_skb_entail(conn->sk, skb, mark, tls_type);
+		else
+			ss_skb_queue_tail(target, skb);
+
+		T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
+		       " truesize=%u mark=%u tls_type=%x\n",
+		       smp_processor_id(), __func__, conn->sk,
+		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
+		       skb_tfw_tls_type(skb));
+	}
+
+	if (target)
+		sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
+
+	if (stream && need_activate && !stream->xmit.is_blocked)
+		tfw_h2_sched_activate_stream(&h2->sched, stream);
+
+	return 0;
+}
+
 void
 tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {

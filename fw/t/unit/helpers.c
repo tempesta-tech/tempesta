@@ -37,6 +37,8 @@
 
 static TfwConn conn_req, conn_resp;
 
+unsigned int tfw_cli_max_concurrent_streams;
+
 TfwHttpReq *
 test_req_alloc(size_t data_len)
 {
@@ -170,6 +172,12 @@ ss_synchronize(void)
 void
 ss_stop(void)
 {
+}
+
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+		   unsigned char tls_type)
+{
+
 }
 
 void
@@ -417,6 +425,12 @@ int
 frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 {
 	return T_OK;
+}
+
+bool
+ttls_xfrm_need_encrypt(TlsCtx *tls)
+{
+	return true;
 }
 
 unsigned int cache_default_ttl = 60;

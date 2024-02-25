@@ -79,8 +79,6 @@ enum {
         TFW_HTTP_B_H2,
         /* Message has all mandatory pseudo-headers (applicable for HTTP/2 mode only) */
         TFW_HTTP_B_H2_HDRS_FULL,
-        /* Message in HTTP/2 transformation (applicable for HTTP/2 mode only). */
-        TFW_HTTP_B_H2_TRANS_ENTERED,
 
         /* Request flags. */
         TFW_HTTP_FLAGS_REQ,
@@ -113,6 +111,8 @@ enum {
         TFW_HTTP_B_HDR_LMODIFIED,
         /* Response is fully processed and ready to be forwarded to the client. */
         TFW_HTTP_B_RESP_READY,
+        /* Response stream has benefit from processing in parallel. */
+        TFW_HTTP_B_RESP_PROGRESSIVE,
         /*
          * Response has header 'Etag: ' and this header is
          * not enclosed in double quotes.
