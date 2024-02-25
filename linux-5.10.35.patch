@@ -740,7 +740,7 @@ index 000000000..80de50693
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -968,7 +968,7 @@ index eca83965b..e0ed16db6 100644
  bool irq_work_needs_cpu(void)
  {
 diff --git a/kernel/softirq.c b/kernel/softirq.c
-index 09229ad82..40c4d0682 100644
+index 09229ad82..4d1de66af 100644
 --- a/kernel/softirq.c
 +++ b/kernel/softirq.c
 @@ -25,6 +25,7 @@
@@ -979,6 +979,15 @@ index 09229ad82..40c4d0682 100644
  
  #define CREATE_TRACE_POINTS
  #include <trace/events/irq.h>
+@@ -57,7 +58,7 @@ static struct softirq_action softirq_vec[NR_SOFTIRQS] __cacheline_aligned_in_smp
+ DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
+ 
+ const char * const softirq_to_name[NR_SOFTIRQS] = {
+-	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL",
++	"HI", "TIMER", "NET_RX", "NET_TX", "BLOCK", "IRQ_POLL",
+ 	"TASKLET", "SCHED", "HRTIMER", "RCU"
+ };
+ 
 @@ -275,6 +276,10 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
  	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
  	in_hardirq = lockdep_softirq_start();
@@ -1026,7 +1035,7 @@ index 000000000..7ee3ead54
 +/**
 + *		Tempesta Memory Reservation
 + *
-+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -2956,7 +2965,7 @@ index 000000000..a65a79f30
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
