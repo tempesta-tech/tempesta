@@ -701,6 +701,13 @@ tfw_http_status_eq(int status, int code)
 	return status == code || status / 100 == code;
 }
 
+/* Check if a request is non-idempotent. */
+static inline bool
+tfw_http_req_is_nip(TfwHttpReq *req)
+{
+	return test_bit(TFW_HTTP_B_NON_IDEMP, req->flags);
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /**
