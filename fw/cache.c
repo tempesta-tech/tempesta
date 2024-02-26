@@ -313,7 +313,10 @@ __cache_method_test(tfw_http_meth_t method)
 static inline bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
-	return cache_cfg.cache && __cache_method_test(req->method);
+	/* POST request is not idempotent, but can be cacheble. */
+	return cache_cfg.cache && __cache_method_test(req->method) &&
+		(!tfw_http_req_is_nip(req)
+		 || req->method == TFW_HTTP_METH_POST);
 }
 
 /**
@@ -3049,10 +3052,13 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		 * method (including methods whose safety is unknown).
 		 * A "non-error response" is one with a 2xx (Successful) or
 		 * 3xx (Redirection) status code.
+		 * Also invalidate target URI for all nonidempotent requests
+		 * because they can change internal server state.
 		 */
 		if (unlikely(req->method == TFW_HTTP_METH_PUT
 			     || req->method == TFW_HTTP_METH_DELETE
-			     || req->method == TFW_HTTP_METH_POST)
+			     || req->method == TFW_HTTP_METH_POST
+			     || tfw_http_req_is_nip(req))
 		    && cache_cfg.cache
 		    && resp->status >= 200 && resp->status < 400)
 			tfw_cache_invalidate(req);
