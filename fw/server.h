@@ -38,6 +38,34 @@
 typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
 
+typedef enum {
+	GET_TFW_SERVER_PIN_SESS,
+	GET_TFW_SERVER_CREATE,
+	GET_TFW_SOCK_SRV_CONNECT_ONE,
+	GET_TFW_SOCK_SRV_GRACE_LIST_ADD,
+	GET_TFW_SERVER_LOOKUP,
+	GET_TFW_SG_ADD_SRV,
+	GET_TFW_SOCK_SRV_GRACE_SHUTDOWN_SRV,
+	GET_TFW_SOCK_SRV_GRACE_SHUTDOWN_NOW,
+	GET_TFW_SOCK_SRV_UPDATE_SG_SRV_LIST,
+	__MAX_GET
+} TfwSrvGet;
+
+typedef enum {
+	PUT_TFW_SERVER_PIN_SESS,
+	PUT_TFW_SRV_CONN_STOP,
+	PUT_TFW_SOCK_SRV_GRACE_LIST_DEL,
+	PUT_TFW_SOCK_SRV_GRACE_SHUTDOWN_SRV,
+	PUT_TFW_SOCK_SRV_GRACE_SHUTDOWN_NOW,
+	PUT_TFW_SOCK_SRV_ORIG_LOOKUP,
+	PUT_TFW_SOCK_SRV_CFGOP,
+	PUT_TFW_SOCK_SRV_UPDATE_SRV,
+	PUT_TFW_SOCK_SRV_UPDATE_SG_SRV_LIST,
+	PUT_TFW_SG_DEL_SRV,
+	__MAX_PUT
+} TfwSrvPut;
+
+
 /**
  * Server descriptor, a TfwPeer successor.
  *
@@ -66,6 +94,8 @@ typedef struct {
 	unsigned int		weight;
 	unsigned long		flags;
 	void			(*cleanup)(void *);
+	atomic64_t		get[__MAX_GET];
+	atomic64_t		put[__MAX_PUT];
 } TfwServer;
 
 /*
@@ -205,23 +235,53 @@ tfw_server_live(TfwServer *srv)
 }
 
 static inline void
-tfw_server_get(TfwServer *srv)
+tfw_server_get(TfwServer *srv, TfwSrvGet e)
 {
+	atomic64_inc(&srv->get[e]);
 	atomic64_inc(&srv->refcnt);
 }
 
 static inline void
-tfw_server_put(TfwServer *srv)
+__print_srv_stat(atomic64_t *stat, unsigned sz)
+{
+	unsigned int i;
+
+	for (i = 0; i < sz; i++)
+		printk("stat [%u]: %lld", i, atomic64_read(&stat[i]));
+}
+
+static inline void
+tfw_server_put(TfwServer *srv, TfwSrvPut e)
 {
 	long rc;
 
 	if (unlikely(!srv))
 		return;
 
+	atomic64_inc(&srv->put[e]);
 	rc = atomic64_dec_return(&srv->refcnt);
+
+	if (rc < 0) {
+		printk("BUG BUG BUG %px %ld", srv, rc);
+		printk("GET GET GET");
+		__print_srv_stat(srv->get, __MAX_GET);
+		printk("PUT PUT PUT");
+		__print_srv_stat(srv->put, __MAX_PUT);
+		printk("_________________________________");
+	}
+
 	BUG_ON(rc < 0);
 	if (likely(rc))
 		return;
+#if 0
+	printk("FINISH %px %ld", srv, rc);
+	printk("GET GET GET");
+	__print_srv_stat(srv->get, __MAX_GET);
+	printk("PUT PUT PUT");
+	__print_srv_stat(srv->put, __MAX_PUT);
+	printk("_________________________________");
+#endif
+
 	tfw_server_destroy(srv);
 }
 
@@ -229,14 +289,14 @@ static inline void
 tfw_server_pin_sess(TfwServer *srv)
 {
 	atomic64_inc(&srv->sess_n);
-	tfw_server_get(srv);
+	tfw_server_get(srv, GET_TFW_SERVER_PIN_SESS);
 }
 
 static inline void
 tfw_server_unpin_sess(TfwServer *srv)
 {
 	atomic64_dec(&srv->sess_n);
-	tfw_server_put(srv);
+	tfw_server_put(srv, PUT_TFW_SERVER_PIN_SESS);
 }
 
 /*

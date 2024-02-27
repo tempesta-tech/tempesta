@@ -102,7 +102,7 @@ tfw_server_create(const TfwAddr *addr)
 
 	tfw_peer_init((TfwPeer *)srv, addr);
 	INIT_LIST_HEAD(&srv->list);
-	atomic64_set(&srv->refcnt, 1);
+	tfw_server_get(srv, GET_TFW_SERVER_CREATE);
 
 	return srv;
 }
@@ -116,7 +116,7 @@ tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		if (tfw_addr_eq(&srv->addr, addr)) {
-			tfw_server_get(srv);
+			tfw_server_get(srv, GET_TFW_SERVER_LOOKUP);
 			up_read(&sg_sem);
 			return srv;
 		}
@@ -327,7 +327,7 @@ void
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
 	BUG_ON(srv->sg);
-	tfw_server_get(srv);
+	tfw_server_get(srv, GET_TFW_SG_ADD_SRV);
 	tfw_sg_get(sg);
 	srv->sg = sg;
 
@@ -359,7 +359,7 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 	--sg->srv_n;
 	if (lock)
 		up_write(&sg_sem);
-	tfw_server_put(srv);
+	tfw_server_put(srv, PUT_TFW_SG_DEL_SRV);
 }
 
 int

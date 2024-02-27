@@ -130,7 +130,7 @@ static inline void
 tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 {
 	set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
-	tfw_server_put((TfwServer *)srv_conn->peer);
+	tfw_server_put((TfwServer *)srv_conn->peer, PUT_TFW_SRV_CONN_STOP);
 }
 
 /*
@@ -567,7 +567,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 static void
 tfw_sock_srv_connect_one(TfwServer *srv, TfwSrvConn *srv_conn)
 {
-	tfw_server_get(srv);
+	tfw_server_get(srv, GET_TFW_SOCK_SRV_CONNECT_ONE);
 
 	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
 
@@ -764,7 +764,7 @@ tfw_sock_srv_grace_list_add(TfwServer *srv)
 {
 	spin_lock(&tfw_gs_lock);
 
-	tfw_server_get(srv);
+	tfw_server_get(srv, GET_TFW_SOCK_SRV_GRACE_LIST_ADD);
 	list_add(&srv->list, &tfw_gs_servers);
 
 	spin_unlock(&tfw_gs_lock);
@@ -776,7 +776,7 @@ tfw_sock_srv_grace_list_del(TfwServer *srv)
 	spin_lock(&tfw_gs_lock);
 
 	list_del_init(&srv->list);
-	tfw_server_put(srv);
+	tfw_server_put(srv, PUT_TFW_SOCK_SRV_GRACE_LIST_DEL);
 
 	spin_unlock(&tfw_gs_lock);
 }
@@ -809,7 +809,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 {
 	int r = 0;
 
-	tfw_server_get(srv);
+	tfw_server_get(srv, GET_TFW_SOCK_SRV_GRACE_SHUTDOWN_SRV);
 	__tfw_sg_del_srv(sg, srv, false);
 	set_bit(TFW_CFG_B_DEL, &srv->flags);
 
@@ -824,7 +824,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 		mod_timer(&srv->gs_timer,
 		          jiffies + (unsigned long)tfw_cfg_grace_time * HZ);
 	}
-	tfw_server_put(srv);
+	tfw_server_put(srv, PUT_TFW_SOCK_SRV_GRACE_SHUTDOWN_SRV);
 
 	return r;
 }
@@ -849,7 +849,7 @@ tfw_sock_srv_grace_shutdown_now(void)
 		spin_lock(&tfw_gs_lock);
 		srv = list_first_entry_or_null(&tfw_gs_servers, TfwServer, list);
 		if (srv)
-			tfw_server_get(srv);
+			tfw_server_get(srv, GET_TFW_SOCK_SRV_GRACE_SHUTDOWN_NOW);
 		spin_unlock(&tfw_gs_lock);
 
 		if (!srv)
@@ -857,7 +857,7 @@ tfw_sock_srv_grace_shutdown_now(void)
 
 		if (del_timer_sync(&srv->gs_timer))
 			tfw_sock_srv_grace_stop(srv);
-		tfw_server_put(srv);
+		tfw_server_put(srv, PUT_TFW_SOCK_SRV_GRACE_SHUTDOWN_NOW);
 		tfw_srv_loop_sched_rcu();
 	}
 }
@@ -1309,13 +1309,13 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 	set_bit(TFW_CFG_B_KEEP, &orig_srv->flags);
 	set_bit(TFW_CFG_B_KEEP, &srv->flags);
 
-	tfw_server_put(orig_srv);
+	tfw_server_put(orig_srv, PUT_TFW_SOCK_SRV_ORIG_LOOKUP);
 
 	return;
 changed:
 	set_bit(TFW_CFG_B_MOD, &orig_srv->flags);
 	set_bit(TFW_CFG_B_MOD, &srv->flags);
-	tfw_server_put(orig_srv);
+	tfw_server_put(orig_srv, PUT_TFW_SOCK_SRV_ORIG_LOOKUP);
 done:
 	sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
 }
@@ -1351,7 +1351,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	}
 	if ((srv = tfw_server_lookup(sg_cfg->parsed_sg, &addr))) {
 		T_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
-		tfw_server_put(srv);
+		tfw_server_put(srv, PUT_TFW_SOCK_SRV_CFGOP);
 		return -EEXIST;
 	}
 
@@ -1410,7 +1410,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	tfw_sg_add_srv(sg_cfg->parsed_sg, srv);
 	tfw_cfgop_server_orig_lookup(sg_cfg, srv);
 
-	tfw_server_put(srv);
+	tfw_server_put(srv, PUT_TFW_SOCK_SRV_CFGOP);
 
 	return 0;
 }
@@ -2016,7 +2016,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	if (!(srv = tfw_server_lookup(sg_cfg->parsed_sg, &orig_srv->addr)))
 		return -EINVAL;
 
-	T_DBG_ADDR("Update server options", &srv->addr, TFW_WITH_PORT);
+	T_WARN_ADDR("Update server options", &srv->addr, TFW_WITH_PORT);
 
 	orig_srv->weight = srv->weight;
 
@@ -2034,7 +2034,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 		 * now.
 		 */
 	}
-	tfw_server_put(srv);
+	tfw_server_put(srv, PUT_TFW_SOCK_SRV_UPDATE_SRV);
 
 	return 0;
 }
@@ -2087,12 +2087,12 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 			continue;
 
 		/* The server was not used yet, save to change it's group. */
-		tfw_server_get(srv);
+		tfw_server_get(srv, GET_TFW_SOCK_SRV_UPDATE_SG_SRV_LIST);
 		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
 		srv->sg = NULL;
 		tfw_sg_add_srv(sg_cfg->orig_sg, srv);
 		tfw_sg_put(sg_cfg->parsed_sg);
-		tfw_server_put(srv);
+		tfw_server_put(srv, PUT_TFW_SOCK_SRV_UPDATE_SG_SRV_LIST);
 
 		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_name))) {
 			T_ERR_NL("cannot establish new server connection\n");
