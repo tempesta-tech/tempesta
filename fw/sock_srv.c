@@ -2013,7 +2013,8 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	TfwServer *srv;
 	int r;
 
-	if (!(srv = tfw_server_lookup(sg_cfg->parsed_sg, &orig_srv->addr)))
+	if (!(srv = tfw_server_lookup_nolock(sg_cfg->parsed_sg,
+					     &orig_srv->addr)))
 		return -EINVAL;
 
 	T_DBG_ADDR("Update server options", &srv->addr, TFW_WITH_PORT);
@@ -2023,8 +2024,10 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	if (orig_srv->conn_n < srv->conn_n) {
 		r = tfw_sock_srv_append_conns_n(orig_srv,
 						srv->conn_n - orig_srv->conn_n);
-		if (r)
+		if (r) {
+			tfw_server_put(srv);
 			return r;
+		}
 		orig_srv->conn_n = srv->conn_n;
 	}
 	else if (orig_srv->conn_n > srv->conn_n) {
