@@ -195,6 +195,7 @@ struct tfw_scheduler_t {
 TfwServer *tfw_server_create(const TfwAddr *addr);
 void tfw_server_destroy(TfwServer *srv);
 TfwServer *tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr);
+TfwServer *tfw_server_lookup_nolock(TfwSrvGroup *sg, TfwAddr *addr);
 int tfw_server_start_sched(TfwServer *srv);
 void tfw_server_stop_sched(TfwServer *srv);
 

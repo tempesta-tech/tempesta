@@ -108,24 +108,31 @@ tfw_server_create(const TfwAddr *addr)
 }
 
 TfwServer *
-tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
+tfw_server_lookup_nolock(TfwSrvGroup *sg, TfwAddr *addr)
 {
 	TfwServer *srv;
-
-	down_read(&sg_sem);
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		if (tfw_addr_eq(&srv->addr, addr)) {
 			tfw_server_get(srv);
-			up_read(&sg_sem);
 			return srv;
 		}
 		tfw_srv_loop_sched_rcu();
 	}
 
+	return NULL;
+}
+
+TfwServer *
+tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
+{
+	TfwServer *srv;
+
+	down_read(&sg_sem);
+	srv = tfw_server_lookup_nolock(sg, addr);
 	up_read(&sg_sem);
 
-	return NULL;
+	return srv;
 }
 
 int
