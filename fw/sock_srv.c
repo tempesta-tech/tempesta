@@ -421,6 +421,21 @@ tfw_sock_srv_abort(TfwConn *conn)
 	return 0;
 }
 
+static inline bool
+__tfw_connection_get_if_not_death(TfwConn *conn)
+{
+	int old, rc = atomic_read(&conn->refcnt);
+
+	while (likely(rc != TFW_CONN_DEATHCNT)) {
+		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
+		if (likely(old == rc))
+			return true;
+		rc = old;
+	}
+
+	return false;
+}
+
 /**
  * Close a server connection, or stop attempts to connect if a connection
  * is not established. This is called only in user context at STOP time.
@@ -503,9 +518,14 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * Close the connection if it's not being closed yet or has been
 		 * restored already. If the connection is closed already, then
 		 * check its stop bit.
+		 * We should increment connection reference counter here to prevent
+		 * race between this function and `tfw_srv_conn_release` if it is
+		 * called from `ss_conn_drop_guard_exit` when we process FIN from
+		 * remote peer.
 		 */
-		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT) {
+		if (__tfw_connection_get_if_not_death(conn)) {
 			TfwServer *srv = (TfwServer *)conn->peer;
+			int r = 0;
 
 			/*
 			 * We set TFW_CFG_B_DEL flag when we gracefully
@@ -521,10 +541,12 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			 */
 			if (test_bit(TFW_CFG_B_DEL, &srv->flags)) {
 				tfw_connection_abort(conn);
-				return 0;
+			} else {
+				r = tfw_connection_close(conn, true);
 			}
 
-			return tfw_connection_close(conn, true);
+			tfw_connection_put(conn);
+			return r;
 		}
 		/*
 		 * If stop flag is set, we can exit. Otherwise, continue waiting
