@@ -1483,19 +1483,52 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 }
 
 static bool
+tfw_http_use_stale_if_error(unsigned short status)
+{
+	/* Defined by RFC 5861 section 4 */
+	switch (status) {
+	case 500:
+	case 502:
+	case 503:
+	case 504:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool
 tfw_http_resp_should_fwd_stale(TfwHttpReq *req, unsigned short status)
 {
 	TfwCacheUseStale *stale_opt;
+	TfwHttpResp *resp = req->stale_resp;
 
-	if (!req->stale_resp)
+	if (!resp)
 		return false;
 
 	stale_opt = tfw_vhost_get_cache_use_stale(req->location, req->vhost);
 
-	if (!stale_opt)
-		return false;
+	/*
+	 * cache_use_stale directive has higher priority than
+	 * "Cache-control: stale-if-error" header.
+	 */
+	if (stale_opt && test_bit(HTTP_CODE_BIT_NUM(status), stale_opt->codes))
+		return true;
 
-	return test_bit(HTTP_CODE_BIT_NUM(status), stale_opt->codes);
+	/*
+	 * Checks whether stale response can be used depending on
+	 * "Cache-control: stale-if-error" header.
+	 *
+	 * NOTE: There is inaccuracy in age calculation. Because we prepare
+	 * stale response and calculate age before forwarding request to
+	 * upstream, it might take some time and age of prepared stale response
+	 * might become greater than calculated age during receiving
+	 * from cache. Therefore we response with inaccurate age or even
+	 * with violation of max-stale param.
+	 */
+	return (resp->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR ||
+		req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR) &&
+		tfw_http_use_stale_if_error(status);
 }
 
 /**
