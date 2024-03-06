@@ -160,6 +160,7 @@ typedef struct {
 			unsigned int max_age;
 			unsigned int max_stale;
 			unsigned int min_fresh;
+			unsigned int stale_if_error;
 		} cache_ctl;
 		struct {
 			DECLARE_BITMAP (flags, _TFW_HTTP_FLAGS_NUM);
