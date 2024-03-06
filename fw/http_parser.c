@@ -2787,6 +2787,8 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_JMP(Req_I_CC_n);
 		case 'o':
 			__FSM_I_JMP(Req_I_CC_o);
+		case 's':
+			__FSM_I_JMP(Req_I_CC_s);
 		}
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
@@ -2819,6 +2821,11 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		}, Req_I_CC_o, Req_I_CC_Flag);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_CC_Ext);
+	}
+
+	__FSM_STATE(Req_I_CC_s) {
+		TRY_STR("stale-if-error=", Req_I_CC_s,
+					   Req_I_CC_StaleIfErrorVBeg);
 	}
 
 	__FSM_STATE(Req_I_CC_Flag) {
@@ -2882,6 +2889,21 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_EXIT(__fsm_n);
 		req->cache_ctl.max_stale = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
+	}
+
+	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_StaleIfErrorVBeg,
+				  Req_I_CC_StaleIfErrorV);
+
+	__FSM_STATE(Req_I_CC_StaleIfErrorV) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(data, len);
+		if (__fsm_n < 0)
+			__FSM_EXIT(__fsm_n);
+		req->cache_ctl.stale_if_error = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_STALE_IF_ERROR;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
@@ -7249,6 +7271,7 @@ do {									\
 	SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
 	SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
 	SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
+	req->cache_ctl.stale_if_error = cstate->cache_ctl.stale_if_error;
 	req->cache_ctl.flags |= cstate->cache_ctl.flags;
 
 #undef SET_HDR_CACHE_CONTROL_FIELD
@@ -7309,6 +7332,8 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__FSM_I_JMP(Req_I_CC_n);
 		case 'o':
 			__FSM_I_JMP(Req_I_CC_o);
+		case 's':
+			__FSM_I_JMP(Req_I_CC_s);
 		}
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
@@ -7359,6 +7384,14 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			__SET_CACHE_CTL_FLAG(TFW_HTTP_CC_OIFCACHED);
 			__FSM_EXIT(CSTR_EQ);
 		}, Req_I_CC_o, Req_I_CC_Flag);
+		TRY_STR_INIT();
+		__FSM_I_JMP(Req_I_CC_Ext);
+	}
+
+	__FSM_STATE(Req_I_CC_s) {
+		H2_TRY_STR_LAMBDA("stale-if-error=", {
+			__FSM_EXIT(CSTR_NEQ);
+		}, Req_I_CC_s, Req_I_CC_StaleIfErrorVBeg);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
@@ -7445,6 +7478,31 @@ __h2_req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len,
 			return __fsm_n;
 		__SET_CACHE_CTL_FIELD(max_stale, parser->_acc,
 				      TFW_HTTP_CC_MAX_STALE);
+		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_n);
+	}
+
+	__FSM_REQUIRE_FIRST_DIGIT(Req_I_CC_StaleIfErrorVBeg,
+				  Req_I_CC_StaleIfErrorV);
+
+	__FSM_STATE(Req_I_CC_StaleIfErrorV) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE) {
+			if (likely(fin)) {
+				__SET_CACHE_CTL_FIELD(stale_if_error,
+						      parser->_acc,
+						      TFW_HTTP_CC_STALE_IF_ERROR);
+				parser->_acc = 0;
+				return CSTR_EQ;
+			}
+
+			__msg_hdr_chunk_fixup(data, len);
+			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
+		}
+		if (__fsm_n < 0)
+			return __fsm_n;
+		__SET_CACHE_CTL_FIELD(stale_if_error, parser->_acc,
+				      TFW_HTTP_CC_STALE_IF_ERROR);
 		__FSM_H2_I_MOVE_RESET_ACC(Req_I_EoT, __fsm_n);
 	}
 
@@ -11193,6 +11251,8 @@ do {										\
 	__FSM_STATE(Resp_I_CC_s) {
 		TRY_STR_fixup(&TFW_STR_STRING("s-maxage="), Resp_I_CC_s,
 			      Resp_I_CC_SMaxAgeVBeg);
+		TRY_STR_fixup(&TFW_STR_STRING("stale-if-error="), Resp_I_CC_s,
+			      Resp_I_CC_StaleIfErrorVBeg);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Resp_I_Ext);
 	}
@@ -11242,6 +11302,21 @@ do {										\
 			__FSM_EXIT(__fsm_n);
 		resp->cache_ctl.s_maxage = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
+		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_n, 0);
+	}
+
+	__FSM_REQUIRE_FIRST_DIGIT(Resp_I_CC_StaleIfErrorVBeg,
+				  Resp_I_CC_StaleIfErrorV);
+
+	__FSM_STATE(Resp_I_CC_StaleIfErrorV) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+		if (__fsm_n < 0)
+			__FSM_EXIT(__fsm_n);
+		resp->cache_ctl.stale_if_error = parser->_acc;
+		resp->cache_ctl.flags |= TFW_HTTP_CC_STALE_IF_ERROR;
 		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_n, 0);
 	}
 
