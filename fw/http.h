@@ -141,10 +141,11 @@ enum {
 #define TFW_HTTP_CC_NO_STORE		0x00000002
 #define TFW_HTTP_CC_NO_TRANSFORM	0x00000004
 #define TFW_HTTP_CC_MAX_AGE		0x00000008
+#define TFW_HTTP_CC_STALE_IF_ERROR	0x00000010
 /* Request only CC directives. */
-#define TFW_HTTP_CC_MAX_STALE		0x00000010
-#define TFW_HTTP_CC_MIN_FRESH		0x00000020
-#define TFW_HTTP_CC_OIFCACHED		0x00000040
+#define TFW_HTTP_CC_MAX_STALE		0x00000020
+#define TFW_HTTP_CC_MIN_FRESH		0x00000040
+#define TFW_HTTP_CC_OIFCACHED		0x00000080
 /* Response only CC directives. */
 #define TFW_HTTP_CC_MUST_REVAL		0x00000100
 #define TFW_HTTP_CC_PROXY_REVAL		0x00000200
@@ -172,6 +173,8 @@ typedef struct {
 	long		timestamp;
 	long		age;
 	long		expires;
+	/* Cache Control: stale-if-error. RFC 5861. */
+	long		stale_if_error;
 } TfwCacheControl;
 
 /**
