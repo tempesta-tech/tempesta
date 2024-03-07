@@ -36,7 +36,7 @@ tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 	if (!q->heads)
 		return -ENOMEM;
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
 		atomic64_set(local_head, LLONG_MAX);
 	}
