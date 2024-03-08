@@ -234,7 +234,7 @@ enum {
 };
 
 typedef struct {
-	int		cpu[NR_CPUS];
+	int* cpu;
 	atomic_t	cpu_idx;
 	unsigned int	nr_cpus;
 	TDB		*db;
@@ -332,6 +332,20 @@ tfw_cache_key_node(unsigned long key)
 	return key % num_online_nodes();
 }
 
+static void
+tfw_release_node_cpus(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_NUMNODES; i++) {
+		//T_LOG("node %i\n", i);
+		//if(!c_nodes[i].cpu) {
+		//	T_ERR("%s c_node deallocation interrupted on node %i\n", __func__, i);
+		//	break;
+		//}
+		kfree(c_nodes[i].cpu);
+	}
+}
 /**
  * Just choose any CPU for each node to use queue_work_on() for
  * nodes scheduling. Reserve 0th CPU for other tasks.
@@ -339,13 +353,26 @@ tfw_cache_key_node(unsigned long key)
 static void
 tfw_init_node_cpus(void)
 {
-	int cpu, node;
+	int i, nr_cpus, cpu, node;
+
+	nr_cpus = num_online_cpus();
+
+	for (i = 0; i < MAX_NUMNODES; i++) {
+		c_nodes[i].cpu = kmalloc(nr_cpus*sizeof(int), GFP_KERNEL);
+		//T_LOG("node %i\n", i);
+		if(!c_nodes[i].cpu) {
+			T_ERR("%s Failed to allocate c_nodes[%i] cpu\n", __func__, i);
+			//tfw_release_node_cpus();
+			return;
+		}
+	}
 
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
-}
+	tfw_release_node_cpus();}
+
 
 static TDB *
 node_db(void)
@@ -3252,6 +3279,8 @@ tfw_cache_stop(void)
 
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
+
+	tfw_release_node_cpus();
 }
 
 static const TfwCfgEnum cache_http_methods_enum[] = {
