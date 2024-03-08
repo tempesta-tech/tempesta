@@ -158,8 +158,8 @@ tfw_set_net_queues()
 {
 	devs=$1
 	min_queues=$(calc "$CPUS_N / 2")
-	cpu_mask=$(perl -le 'printf("%x", (1 << '$CPUS_N') - 1)')
 
+	n=0
 	for dev in $devs; do
 		queues_str=$(ethtool -l $dev 2>/dev/null \
 				| grep -m 1 RX | sed -e 's/RX\:\s*//')
@@ -175,7 +175,10 @@ tfw_set_net_queues()
 		else
 			echo "...enable RPS on $dev"
 			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
+				cpu=$[$CPUS_N - ($n % $CPUS_N) - 1]
+				cpu_mask=$(perl -le 'printf("%x", (1 << '$cpu'))')
 				echo $cpu_mask > $rx/rps_cpus
+				let n+=1
 			done
 		fi
 	done

@@ -46,12 +46,7 @@ tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
-
-# Exclude loopback interface since it needn't any tuning here: it hasn't RSS
-# while RPS just add unnecessary overhead for it (traffic redistribution, IPIs
-# introduction etc.).
-declare devs=$(ip addr show up | grep -P '^[0-9]+' | grep -Pv '\bLOOPBACK\b' \
-	       | awk '{ sub(/:/, "", $2); print $2}')
+declare devs=$(ip addr show up | grep -P '^[0-9]+' | awk '{ sub(/:/, "", $2); print $2}')
 
 usage()
 {
