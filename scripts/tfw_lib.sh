@@ -1,6 +1,6 @@
 # Common utilities for Tempesta scripts
 #
-# Copyright (C) 2016-2022 Tempesta Technologies, Inc.
+# Copyright (C) 2016-2024 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -54,7 +54,6 @@ irqbalance_ban_irqs()
 	args_str=""
 	sysd_conf_var="ExecStart"
 
-	echo "...ban IRQs for irqbalance..."
 	for irq in ${IRQS_GLOB_LIST[@]}; do
 		args_str=$args_str"--banirq=$irq "
 	done
@@ -92,19 +91,83 @@ irqbalance_ban_irqs()
 	systemctl restart irqbalance.service >/dev/null
 }
 
+# This function prepares cpu mask for RSS and RPS.
+# It takes into account that we can't calculate
+# value, which is greater when (1 << 63) and can't
+# wtite in the rps_cpus/smp_affinity value, which
+# is greater then (1 << 32) -1 (we need to write it
+# using comma).
+make_cpu_mask()
+{
+	delta=$1
+	mask32=$2
+	val=$3
+	cond=$4
+	res=0
+
+	# If delta is less than 32, we can directly calculate
+	# and write this value. For RPS it will looks like
+	# fff..... and for RSS it will looks like 1000....
+	if [[ $delta -lt 32 ]]; then
+		res=`printf %x $(( $((1 << delta )) - val))`
+	else
+		res="$mask32"
+	fi
+	delta=$(( delta - 32 ))
+
+	# For RPS cond is 0, because (1 << delta) - val is zero
+	# and we don't need to write most significat zero bits.
+	while [[ $delta -ge $cond ]]
+	do
+		if [[ $delta -lt 32 ]]; then
+			res=`printf %x $(( $((1 << delta )) - val))`",$res"
+		else
+			res="$mask32,$res"
+		fi
+		delta=$(( delta - 32 ))
+	done
+
+	echo "$res"
+}
+
+make_cpu_rss_mask()
+{
+	delta=$1
+	# Enable only one CPU (1 << delta)
+	mask32="00000000"
+	# Used to calculate (1 << delta) - $val to
+	# implement only one common functionfor RPS and RSS
+	val=0
+	cond=0
+
+	echo `make_cpu_mask $delta $mask32 $val $cond`
+}
+
+make_cpu_rps_mask()
+{
+	delta=$1
+	# enable all CPUs, which is less than (1 << delta) - 1
+	mask32="ffffffff"
+	# used to calculate (1 << delta) - $val to
+	# implement only one common functionfor RPS and RSS
+	val=1
+	cond=1
+
+	echo `make_cpu_mask $delta $mask32 $val $cond`
+}
+
 distribute_queues()
 {
 	dev=$1
 	RXQ_MAX=$2
+	type=$3
 
-	echo "...set rx channels to $RXQ_MAX, please wait..."
 	# Set maximum number of available channels for better
 	# packets hashing.
-	res=$(ethtool -L $dev rx $RXQ_MAX 2>&1)
+	res=$(ethtool -L $dev $type $RXQ_MAX 2>&1)
 	if [ $? -ne 0 -a -z "$(echo $res | grep -P '^rx unmodified, ignoring')" ]
 	then
-		printf "Error: cannot set new queues count for %s:\n %s\n" \
-			$dev "$res"
+		echo "Error: cannot set new queues count for $dev: $res"
 		return
 	fi
 
@@ -135,21 +198,64 @@ distribute_queues()
 	for i in ${irqs[@]}; do
 		# Wrap around CPU mask if number of queues is
 		# larger than CPUS_N.
-		if [ $(calc "$i - $irq0") -gt $CPUS_N ]; then
+		if [[ $(calc "$i - $irq0") -gt $CPUS_N ]]; then
 			irq0=$i;
 		fi
-		perl -le '
-			my $a = 1 << ('$i' - '$irq0');
-			if ($a <= 0x80000000) {
-				printf("%x\n", $a)
-			} else {
-				$a = $a / 0x100000000;
-				printf("%x,00000000\n", $a)
-			}
-		' > /proc/irq/$i/smp_affinity
+		delta=$(( i - irq0 ))
+		mask=`make_cpu_rss_mask $delta`
+		echo "$mask" > "/proc/irq/$i/smp_affinity"
 	done
 
-	IRQS_GLOB_LIST+=(${irqs[@]})
+	IRQS_GLOB_LIST=(${irqs[@]})
+	if [ ${#IRQS_GLOB_LIST[@]} -ne 0 -a -f $SYSD_IRQB_PATH \
+	     -a -f $IRQB_CONF_PATH ]; then
+		systemctl status irqbalance.service >/dev/null
+		[ $? -ne 0 ] || irqbalance_ban_irqs
+	fi
+
+	echo "0"
+}
+
+distribute_rx_queues()
+{
+	dev=$1
+	min_queues=$2
+	error="Rx queues for $dev not found"
+
+	queues_str=$(ethtool -l $dev 2>/dev/null \
+		     | grep -m 1 RX | sed -e 's/RX\:\s*//')
+	queues=$(printf '%d' "$queues_str" 2>/dev/null)
+	if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
+		# Switch off RPS for multi-queued interfaces.
+		for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
+			echo 0 > $rx/rps_cpus
+		done
+
+		error=`distribute_queues $dev $queues "rx"`
+	fi
+
+	echo "$error"
+}
+
+distribute_combined_queues()
+{
+	dev=$1
+	min_queues=$2
+	error="Combined queues for $dev not found"
+
+	queues_str=$(ethtool -l $dev 2>/dev/null \
+		     | grep -m 1 Combined | sed -e 's/Combined\:\s*//')
+	queues=$(printf '%d' "$queues_str" 2>/dev/null)
+	if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
+		# Switch off RPS for multi-queued interfaces.
+		for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
+			echo 0 > $rx/rps_cpus
+		done
+
+		error=`distribute_queues $dev $queues "combined"`
+	fi
+
+	echo "$error"
 }
 
 # Enable RSS for networking interfaces. Enable RPS for those devices which
@@ -158,33 +264,30 @@ tfw_set_net_queues()
 {
 	devs=$1
 	min_queues=$(calc "$CPUS_N / 2")
-	cpu_mask=$(perl -le 'printf("%x", (1 << '$CPUS_N') - 1)')
+	cpu_mask=`make_cpu_rps_mask $CPUS_N`
 
+	# Iterate over all existing devices and to setup RSS or
+	# if it is not supported RPS for each device.
 	for dev in $devs; do
-		queues_str=$(ethtool -l $dev 2>/dev/null \
-				| grep -m 1 RX | sed -e 's/RX\:\s*//')
-		queues=$(printf '%d' "$queues_str" 2>/dev/null)
-		if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
-			# Switch off RPS for multi-queued interfaces.
-			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
-				echo 0 > $rx/rps_cpus
-			done
-
-			echo "...distribute $dev queues"
-			distribute_queues $dev $queues
-		else
+		echo "...distribute $dev rx queues"
+		# First try to setup RX queues.
+		error=`distribute_rx_queues $dev $min_queues`
+		if [[ "$error" != "0" ]]; then
+			echo "$error"
+			echo "...distribute $dev combined queues"
+			# If RX queues setup fails try to setup
+			# combined queues.
+			error=`distribute_combined_queues $dev $min_queues`
+		fi
+		if [[ "$error" != "0" ]]; then
+			echo "$error"
 			echo "...enable RPS on $dev"
-			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
-				echo $cpu_mask > $rx/rps_cpus
+			for rx_queue in $TFW_NETDEV_PATH/$dev/queues/rx-*
+			do
+				echo $cpu_mask > $rx_queue/rps_cpus
 			done
 		fi
 	done
-
-	if [ ${#IRQS_GLOB_LIST[@]} -ne 0 -a -f $SYSD_IRQB_PATH \
-	     -a -f $IRQB_CONF_PATH ]; then
-		systemctl status irqbalance.service >/dev/null
-		[ $? -ne 0 ] || irqbalance_ban_irqs
-	fi
 }
 
 tfw_irqbalance_revert()
