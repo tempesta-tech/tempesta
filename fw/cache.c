@@ -332,20 +332,25 @@ tfw_cache_key_node(unsigned long key)
 	return key % num_online_nodes();
 }
 
+/**
+ * Release memory dynamically allocated
+ * for every node cpus
+ */
 static void
 tfw_release_node_cpus(void)
 {
 	int i;
 
-	for (i = 0; i < MAX_NUMNODES; i++) {
-		//T_LOG("node %i\n", i);
-		//if(!c_nodes[i].cpu) {
-		//	T_ERR("%s c_node deallocation interrupted on node %i\n", __func__, i);
-		//	break;
-		//}
+	for (i = 0; i < MAX_NUMNODES; i++)
+	{
+		if(!c_nodes[i].cpu) {
+			T_ERR("%s c_node deallocation interrupted on node %i\n", __func__, i);
+			break;
+		}
 		kfree(c_nodes[i].cpu);
 	}
 }
+
 /**
  * Just choose any CPU for each node to use queue_work_on() for
  * nodes scheduling. Reserve 0th CPU for other tasks.
@@ -359,10 +364,9 @@ tfw_init_node_cpus(void)
 
 	for (i = 0; i < MAX_NUMNODES; i++) {
 		c_nodes[i].cpu = kmalloc(nr_cpus*sizeof(int), GFP_KERNEL);
-		//T_LOG("node %i\n", i);
 		if(!c_nodes[i].cpu) {
 			T_ERR("%s Failed to allocate c_nodes[%i] cpu\n", __func__, i);
-			//tfw_release_node_cpus();
+			tfw_release_node_cpus();
 			return;
 		}
 	}
@@ -371,7 +375,7 @@ tfw_init_node_cpus(void)
 		node = cpu_to_node(cpu);
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
-	tfw_release_node_cpus();}
+}
 
 
 static TDB *
