@@ -195,8 +195,7 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
-	if (sk->sk_user_data)
-		SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown);
+	SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown);
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
 		tfw_classify_conn_close(sk);
@@ -1427,13 +1426,12 @@ static void
 __sk_close_locked(struct sock *sk, int flags)
 {
 	ss_do_close(sk, flags);
-	if (!sk_stream_closing(sk) ||
-	    (flags & SS_F_ABORT_FORCE) == SS_F_ABORT_FORCE) {
+	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);
 	} else {
-		BUG_ON(!sock_flag(sk, SOCK_DEAD));
-		if (sk->sk_user_data)
-			SS_CONN_TYPE(sk) |= Conn_Closing;
+		BUG_ON(!sock_flag(sk, SOCK_DEAD)
+		       || ((flags & SS_F_ABORT) == SS_F_ABORT));
+		SS_CONN_TYPE(sk) |= Conn_Closing;
 	}
 	bh_unlock_sock(sk);
 	sock_put(sk); /* paired with ss_do_close() */
@@ -1443,8 +1441,7 @@ static inline void
 ss_do_shutdown(struct sock *sk)
 {
 	tcp_shutdown(sk, SEND_SHUTDOWN);
-	if (sk->sk_user_data)
-		SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 
 static inline bool
