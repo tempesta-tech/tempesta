@@ -419,16 +419,14 @@ tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	int r = 0;
 
 	assert_spin_locked(&sk->sk_lock.slock);
-
 	/*
-	 * If client closes connection early, we may get here with conn
-	 * being NULL.
-	 */
-	if (unlikely(!conn)) {
-		WARN_ON_ONCE(!sock_flag(sk, SOCK_DEAD));
-		r = -EPIPE;
-		goto err_purge_tcp_write_queue;
-	}
+	 * This function is called under the socket lock, same as dropping a
+	 * connection. Moreover this function is never called when socket
+	 * state is TCP_CLOSE. When client closes the connection, we drop it
+	 * from tcp_done() -> ss_conn_drop_guard_exit(), and socket state is
+	 * set to TCP_CLOSE, so this function will never be called after it.
+         */
+	BUG_ON(!conn);
 
 	*nskbs = UINT_MAX;
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
@@ -461,7 +459,7 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	int r = 0;
 
 	assert_spin_locked(&sk->sk_lock.slock);
-	/* Should be checked early in `tfw_sk_prepare_xmit`. */
+	/* Same as for tfw_sk_prepare_xmit(). */
 	BUG_ON(!conn);
 
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
