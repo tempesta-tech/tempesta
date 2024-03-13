@@ -2476,7 +2476,7 @@ index f0f67b25c..58fbfb071 100644
  		return NULL;
  	}
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..1a868b9aa 100644
+index f99494637..6364d7c5f 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2694,7 +2694,7 @@ index f99494637..1a868b9aa 100644
  
  		len -= skb->len;
  	}
-@@ -2577,6 +2629,62 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
+@@ -2577,6 +2629,78 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
  		tcp_chrono_set(tp, TCP_CHRONO_BUSY);
  }
  
@@ -2752,12 +2752,28 @@ index f99494637..1a868b9aa 100644
 +	tcp_set_skb_tso_segs(skb, mss_now);
 +	return 0;
 +}
++
++/**
++ * This function is similar to `tcp_write_err` except that we send
++ * TCP RST to remote peer.  We call this function when an error occurs
++ * while sending data from which we cannot recover, so we close the
++ * connection with TCP RST.
++ */
++static void
++tcp_tfw_handle_error(struct sock *sk, int error)
++{
++	tcp_send_active_reset(sk, GFP_ATOMIC);
++	sk->sk_err = error;
++	sk->sk_error_report(sk);
++	tcp_write_queue_purge(sk);
++	tcp_done(sk);
++}
 +#endif
 +
  /* This routine writes packets to the network.  It advances the
   * send_head.  This happens as incoming acks open up the remote
   * window for us.
-@@ -2601,6 +2709,9 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2601,6 +2725,9 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  	int result;
  	bool is_cwnd_limited = false, is_rwnd_limited = false;
  	u32 max_segs;
@@ -2767,7 +2783,7 @@ index f99494637..1a868b9aa 100644
  
  	sent_pkts = 0;
  
-@@ -2666,7 +2777,15 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2666,7 +2793,16 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
@@ -2778,13 +2794,14 @@ index f99494637..1a868b9aa 100644
 +		if (unlikely(result)) {
 +			if (result == -ENOMEM)
 +				break; /* try again next time */
++			tcp_tfw_handle_error(sk, result);
 +			return false;
 +		}
 +#endif
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2681,7 +2800,14 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2681,7 +2817,15 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  		 */
  		if (TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq)
  			break;
@@ -2794,13 +2811,14 @@ index f99494637..1a868b9aa 100644
 +		if (unlikely(result)) {
 +			if (result == -ENOMEM)
 +				break; /* try again next time */
++			tcp_tfw_handle_error(sk, result);
 +			return false;
 +		}
 +#endif
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2866,6 +2992,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2866,6 +3010,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -2808,7 +2826,7 @@ index f99494637..1a868b9aa 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -3183,7 +3310,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -3183,7 +3328,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  				 cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -2817,7 +2835,7 @@ index f99494637..1a868b9aa 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3421,6 +3548,7 @@ void tcp_send_fin(struct sock *sk)
+@@ -3421,6 +3566,7 @@ void tcp_send_fin(struct sock *sk)
  	}
  	__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
  }
@@ -2825,7 +2843,7 @@ index f99494637..1a868b9aa 100644
  
  /* We get here when a process closes a file descriptor (either due to
   * an explicit close() or as a byproduct of exit()'ing) and there
-@@ -3454,6 +3582,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -3454,6 +3600,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  	 */
  	trace_tcp_send_reset(sk, NULL);
  }
@@ -2833,7 +2851,7 @@ index f99494637..1a868b9aa 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
-@@ -4030,6 +4159,9 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4030,6 +4177,9 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  
  	skb = tcp_send_head(sk);
  	if (skb && before(TCP_SKB_CB(skb)->seq, tcp_wnd_end(tp))) {
@@ -2843,28 +2861,34 @@ index f99494637..1a868b9aa 100644
  		int err;
  		unsigned int mss = tcp_current_mss(sk);
  		unsigned int seg_size = tcp_wnd_end(tp) - TCP_SKB_CB(skb)->seq;
-@@ -4037,6 +4169,12 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4037,6 +4187,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  		if (before(tp->pushed_seq, TCP_SKB_CB(skb)->end_seq))
  			tp->pushed_seq = TCP_SKB_CB(skb)->end_seq;
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		err = tcp_tfw_sk_prepare_xmit(sk, skb, mss, &seg_size, &nskbs);
-+		if (unlikely(err))
++		if (unlikely(err)) {
++			if (err != -ENOMEM)
++				tcp_tfw_handle_error(sk, err);
 +			return err;
++		}
 +#endif
 +
  		/* We are probing the opening of a window
  		 * but the window size is != 0
  		 * must have been a result SWS avoidance ( sender )
-@@ -4052,6 +4190,13 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4052,6 +4211,16 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  			tcp_set_skb_tso_segs(skb, mss);
  
  		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
 +
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		err = tcp_tfw_sk_write_xmit(sk, skb, mss, seg_size, nskbs);
-+		if (unlikely(err))
++		if (unlikely(err)) {
++			if (err != -ENOMEM)
++				tcp_tfw_handle_error(sk, err);
 +			return err;
++		}
 +#endif
 +
  		err = tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
