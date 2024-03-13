@@ -389,12 +389,6 @@ ret:
 	if (unlikely(r) && r != -ENOMEM) {
 		if (stream)
 			tfw_h2_stream_add_closed(h2, stream);
-		/*
-		 * We can not send unencrypted data and can not normally close
-		 * the socket with FIN since we're in progress on sending from
-		 * the write queue.
-		 */
-		ss_close(sk, SS_F_ABORT);
 	}
 
 	if (likely(!r))
@@ -430,20 +424,9 @@ tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	*nskbs = UINT_MAX;
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
-	if (h2_mode) {
+	if (h2_mode)
 		r = tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
-		if (unlikely(r && r != -ENOMEM))
-			goto err_purge_tcp_write_queue;
-	}
 
-	return r;
-
-err_purge_tcp_write_queue:
-	/*
-	 * Leave encrypted segments in the retransmission rb-tree,
-	 * but purge the send queue on unencrypted segments.
-	 */
-	tcp_write_queue_purge(sk);
 	return r;
 }
 
@@ -474,13 +457,6 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
 		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
-	if (unlikely(r) && r != -ENOMEM)
-		/*
-		 * We can not send unencrypted data and can not normally close the
-		 * socket with FIN since we're in progress on sending from the write
-		 * queue.
-		 */
-		ss_close(sk, SS_F_ABORT);
 	return r;
 }
 
