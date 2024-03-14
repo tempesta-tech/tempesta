@@ -1147,14 +1147,16 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
  * value is zero).
  */
 static inline void
-tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
+tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it,
+		 bool reset_wnd_update)
 {
 	WARN_ON_ONCE(!TFW_STR_EMPTY(it->parsed_hdr));
 	bzero_fast(it->__off,
 		   sizeof(*it) - offsetof(TfwMsgParseIter, __off));
 	bzero_fast(hp->__off,
 		   sizeof(*hp) - offsetof(TfwHPack, __off));
-	hp->dec_tbl.wnd_update = false;
+	if (reset_wnd_update)
+		hp->dec_tbl.wnd_update = false;
 }
 
 static int
@@ -1229,7 +1231,12 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	 */
 	if (hp->index <= HPACK_STATIC_ENTRIES) {
 		WARN_ON_ONCE(s_hdr->nchunks > 2);
-		if (s_hdr->nchunks != 2)
+		/*
+		 * According to RFC 7230 3.2:
+		 * header name must be at least 1 byte, and the value can be 0
+		 * or more characters.
+		 */
+		if (s_hdr->nchunks < 1 || s_hdr->nchunks > 2)
 			return T_COMPRESSION;
 		*d_hdr = *s_hdr;
 		goto done;
@@ -1403,6 +1410,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	WARN_ON_ONCE(!n);
 	*parsed += n;
 	do {
+		bool reset_wnd_update = true;
 		state = hp->state;
 
 		T_DBG3("%s: header processing, len=%lu, to_parse=%lu, state=%d\n",
@@ -1717,6 +1725,7 @@ get_all_indexed:
 			T_DBG3("%s: new dyn table size finally decoded: %u\n",
 			       __func__, hp->index);
 set_tbl_size:
+			reset_wnd_update = false;
 			if (!hp->dec_tbl.wnd_update) {
 				r = T_COMPRESSION;
 				goto out;
@@ -1769,7 +1778,7 @@ set_tbl_size:
 
 		T_DBG3("%s: new header added\n", __func__);
 
-		tfw_hpack_reinit(hp, it);
+		tfw_hpack_reinit(hp, it, reset_wnd_update);
 
 	} while (src < last);
 
