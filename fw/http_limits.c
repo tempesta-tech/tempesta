@@ -1142,22 +1142,25 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	}
 
 	/* Ensure that HTTP request method is one of those defined by a user. */
-    T_FSM_STATE(Frang_Req_Hdr_Method) {
-        if (req->method == _TFW_HTTP_METH_NONE ||
-            req->method == _TFW_HTTP_METH_INCOMPLETE) {
-            T_FSM_EXIT();
-        }
+	T_FSM_STATE(Frang_Req_Hdr_Method) {
+		if (req->method == _TFW_HTTP_METH_NONE ||
+		    req->method == _TFW_HTTP_METH_INCOMPLETE)
+		{
+			T_FSM_EXIT();
+		}
 
-        if (!f_cfg->http_methods_mask) {
-            /* If we have a default value, we set all bits to 1 except DELETE */
-            f_cfg->http_methods_mask = ~(1 << TFW_HTTP_METH_DELETE);
-        }
+		if (!f_cfg->http_methods_mask) {
+			/* If we have a default value,
+			 * we set all bits to 1 except DELETE and PUT*/
+			f_cfg->http_methods_mask = ~((1 << TFW_HTTP_METH_DELETE) |
+						     (1 << TFW_HTTP_METH_PUT));
+		}
 
-        r = frang_http_methods(req, ra,
-                           f_cfg->http_methods_mask);
+		r = frang_http_methods(req, ra,
+				       f_cfg->http_methods_mask);
 
-        __FRANG_FSM_MOVE(Frang_Req_Hdr_UriLen);
-    }
+		__FRANG_FSM_MOVE(Frang_Req_Hdr_UriLen);
+	}
 
 	/* Ensure that length of URI is within limits. */
 	T_FSM_STATE(Frang_Req_Hdr_UriLen) {
