@@ -132,6 +132,11 @@ static const TfwCfgEnum tfw_method_enum[] = {
  */
 #define TFW_CAPUACL_ARRAY_SZ	(32)
 
+
+#define TFW_FRANG_HTTP_METHODS_MASK_DEFAULT ((1 << TFW_HTTP_METH_GET) | \
+		(1 << TFW_HTTP_METH_HEAD) | \
+		(1 << TFW_HTTP_METH_POST))
+
 static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
 
 /*
@@ -1903,6 +1908,9 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		methods_mask |= (1UL << method_id);
 	}
 
+	if (!ce->val_n)
+		methods_mask = TFW_FRANG_HTTP_METHODS_MASK_DEFAULT;
+
 	T_DBG3("parsed methods_mask: %#lx\n", methods_mask);
 	*cfg_methods_mask = methods_mask;
 	return 0;
@@ -2369,6 +2377,8 @@ tfw_vhost_cfgstart(void)
 	tfw_vhosts_reconfig->vhost_dflt = vh_dflt;
 	tfw_frang_clean(&tfw_frang_vhost_reconfig);
 	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
+	tfw_frang_vhost_reconfig.http_methods_mask =
+			TFW_FRANG_HTTP_METHODS_MASK_DEFAULT;
 
 	tfw_vhost_entry = NULL;
 	tfwcfg_this_location = NULL;
