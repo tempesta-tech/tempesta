@@ -208,16 +208,14 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 {
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	int i = ts % FRANG_FREQ;
-	/* TODO: Remove when PR #2078 merged. */
-	int conn_max = conf->conn_max == 0 ? 1000 : conf->conn_max;
 
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
 
-	if (unlikely(ra->conn_curr > conn_max)) {
+	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
-			     conn_max, &FRANG_ACC2CLI(ra)->addr);
+			     conf->conn_max, &FRANG_ACC2CLI(ra)->addr);
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
@@ -684,13 +682,6 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	if (!(TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS))
 		return T_OK;
 
-	/*
-	 * Do not perform any SNI<=>authority validation if
-	 * tls_match_any_server_name is set.
-	 */
-	if (tfw_tls_allow_any_sni)
-		return T_OK;
-
 	tctx = tfw_tls_context(req->conn);
 	/* tfw_tls_sni() has to pick any existing vhost in order to proceed */
 	BUG_ON(!tctx->vhost);
@@ -1140,14 +1131,13 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 
 	/* Ensure that HTTP request method is one of those defined by a user. */
 	T_FSM_STATE(Frang_Req_Hdr_Method) {
-		if (f_cfg->http_methods_mask) {
-			if (req->method == _TFW_HTTP_METH_NONE ||
-			    req->method == _TFW_HTTP_METH_INCOMPLETE) {
-				T_FSM_EXIT();
-			}
-			r = frang_http_methods(req, ra,
-					       f_cfg->http_methods_mask);
+		if (req->method == _TFW_HTTP_METH_NONE ||
+		    req->method == _TFW_HTTP_METH_INCOMPLETE) {
+			T_FSM_EXIT();
 		}
+		r = frang_http_methods(req, ra,
+				       f_cfg->http_methods_mask);
+
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_UriLen);
 	}
 
