@@ -284,7 +284,7 @@ tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
-					 hcl_node)
+	                                 hcl_node)
 	{
 		if (id <= stream->id)
 			break;
