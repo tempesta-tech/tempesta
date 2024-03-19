@@ -1903,6 +1903,11 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		methods_mask |= (1UL << method_id);
 	}
 
+	if (!ce->val_n && !ce->dflt_value) {
+		T_ERR_NL("frang: Empty http_methods.");
+		return -EINVAL;
+	}
+
 	T_DBG3("parsed methods_mask: %#lx\n", methods_mask);
 	*cfg_methods_mask = methods_mask;
 	return 0;
@@ -2766,9 +2771,10 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.handler = tfw_cfgop_frang_method_override,
 		.allow_reconfig = true,
 	},
+	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
-		.deflt = "",
+		.deflt = "get post head",
 		.handler = tfw_cfgop_frang_http_methods,
 		.allow_reconfig = true,
 	},
@@ -2918,9 +2924,10 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.handler = tfw_cfgop_frang_method_override,
 		.allow_reconfig = true,
 	},
+	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
-		.deflt = "",
+		.deflt = "get post head",
 		.handler = tfw_cfgop_frang_http_methods,
 		.allow_reconfig = true,
 	},
@@ -3041,7 +3048,7 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
@@ -3199,7 +3206,7 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
@@ -3388,7 +3395,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_global_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
