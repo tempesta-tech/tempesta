@@ -24,8 +24,6 @@
 #include "http_types.h"
 #include "str.h"
 
-extern bool tfw_tls_allow_any_sni;
-
 void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
 void tfw_tls_set_allow_any_sni(bool match);
@@ -35,6 +33,7 @@ int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 typedef struct tfw_conn_t TfwConn;
 int tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb);
+bool tfw_tls_get_allow_any_sni_reconfig(void);
 
 TfwVhost* tfw_tls_find_vhost_by_name(BasicStr *srv_name);
 
