@@ -4667,7 +4667,6 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 		int r;
 		unsigned short hid = desc->hid;
 
-		/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
 		if (TFW_STR_CHUNK(desc->hdr, 1) == NULL)
 			continue;
 
