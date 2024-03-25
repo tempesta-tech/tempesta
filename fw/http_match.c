@@ -432,14 +432,20 @@ match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		TfwStr value = { 0 };
 		int r;
 		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
-		r = tfw_http_search_cookie(rule->val.ptn.str,
+		r = tfw_http_search_cookie(req, rule->val.ptn.str,
 					   rule->val.ptn.len,
 					   &value, &cookie_val,
 					   rule->val.ptn.op, false);
-		if (r)
-			return tfw_rule_str_match(&cookie_val, rule->arg.str,
-						  rule->arg.len, flags,
-						  rule->op);
+		if (r > 0) {
+			TfwStr *e, *d;
+
+			TFW_STR_FOR_EACH_DUP(d, &cookie_val, e) {
+				if (tfw_rule_str_match(d, rule->arg.str,
+						       rule->arg.len,
+						       flags, rule->op))
+					return true;
+			}
+		}
 	}
 
 	return false;
@@ -874,25 +880,63 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
  * @is_resp_hdr - header name identifier:
  *		  true for `Set-Cookie`,
  *		  false for `Cookie`.
- * @return - 0 if given cookie name hasn't been found,
- *	     1 if found + particular cookie value (if exists)
+ * @return - -ENOMEM if memory allocation fails.
+ *           0 if given cookie name hasn't been found,
+ *           count of found cookies + particular cookie values (if exists)
  */
 int
-tfw_http_search_cookie(const char *cstr, unsigned long clen,
-		       const TfwStr *cookie, TfwStr *val,
-		       tfw_http_match_op_t op, bool is_resp_hdr)
+tfw_http_search_cookie(const TfwHttpReq *req, const char *cstr,
+		       unsigned long clen, const TfwStr *cookie,
+		       TfwStr *val, tfw_http_match_op_t op,
+		       bool is_resp_hdr)
 {
 	TfwStr *chunk, *end;
 	TfwStr tmp = { 0 };
 	unsigned int n = cookie->nchunks;
+	int cnt = 0;
+	TfwStr *base = val;
+	bool first = true;
+
+#define TFW_SKIP_COOKIE_NAME(chunk, end, n)				\
+do {									\
+	while((chunk + 1 != end) &&					\
+	      ((chunk + 1)->flags & TFW_STR_NAME)) {			\
+		++chunk;						\
+		--n;							\
+	}								\
+} while(0)
+
+#define TFW_COLLECT_REQ_COOKIE(req)					\
+do {									\
+	TfwStr *begin = chunk;						\
+	if (chunk == end)						\
+		goto finish;						\
+	/* Search cookie value, starting with next chunk. */		\
+	for (++chunk; chunk != end; ++chunk)				\
+		if (chunk->flags & TFW_STR_VALUE)			\
+			break;						\
+	if (!first) {							\
+		val = tfw_str_add_duplicate(req->pool, base);		\
+		if (!val)						\
+			return -ENOMEM;					\
+	}								\
+	chunk = tfw_str_collect_cmp(chunk, end, val, ";");		\
+	n -= chunk - begin;						\
+	cnt++;								\
+	first = false;							\
+	if (chunk == end)						\
+		goto finish;						\
+} while(0)
 
 	/* Search cookie name. */
 	end = cookie->chunks + cookie->nchunks;
 	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
-		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD))
-			break;
+		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD)) {
+			TFW_COLLECT_REQ_COOKIE(req);
+			continue;
+		}
 		/*
 		 * Create a temporary compound string, starting with this
 		 * chunk. The total string length is not used here, so it
@@ -908,8 +952,10 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 			if (tfw_str_eq_cstr(&tmp, cstr, clen,
 					    TFW_STR_EQ_PREFIX))
 			{
-				break;
+				TFW_COLLECT_REQ_COOKIE(req);
+				continue;
 			}
+			TFW_SKIP_COOKIE_NAME(chunk, end, n);
 		}
 		else if (op == TFW_HTTP_MATCH_O_SUFFIX) {
 			TfwStr *name;
@@ -927,9 +973,10 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 			if (tfw_str_eq_cstr_off(&tmp, len - clen, cstr, clen,
 						TFW_STR_EQ_PREFIX))
 			{
-				break;
+				TFW_COLLECT_REQ_COOKIE(req);
+				continue;
 			}
-
+			TFW_SKIP_COOKIE_NAME(chunk, end, n);
 		} else {
 			WARN_ON_ONCE(1);
 			continue;
@@ -939,17 +986,11 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 		 * 'Set-Cookie' has only one.
 		 */
 		if (unlikely(is_resp_hdr))
-			return 0;
+			goto finish;
 	}
-	if (chunk == end)
-		return 0;
 
-	/* Search cookie value, starting with next chunk. */
-	for (++chunk; chunk != end; ++chunk)
-		if (chunk->flags & TFW_STR_VALUE)
-			break;
+finish:
+	return cnt;
 
-	tfw_str_collect_cmp(chunk, end, val, ";");
-
-	return 1;
+#undef TFW_COLLECT_REQ_COOKIE
 }

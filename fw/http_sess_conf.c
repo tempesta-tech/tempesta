@@ -156,7 +156,6 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 	st->options.data = st->options_str;
 
 	st->max_misses = def_st->max_misses;
-	st->tmt_sec = def_st->tmt_sec;
 	st->learn = def_st->learn;
 	st->enforce = def_st->enforce;
 
@@ -216,14 +215,6 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 			 cs->name, PR_TFW_STR(&vhost->name));
 		return r;
 	}
-
-	/*
-	 * Redirect mark is requested, switch its parser on. Called outside
-	 * tfw_cfgop_cookie_set() to enable only if there is at least one vhost
-	 * using the feature.
-	 */
-	if (sticky->max_misses && vhost)
-		tfw_http_sess_redir_enable();
 
 	return 0;
 }
@@ -304,6 +295,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
 	bool was_path = false;
+	bool was_max_misses = false;
 
 	if (!cur_vhost) {
 		sticky = &defaults_override.sticky;
@@ -329,13 +321,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
-		} else if (!strcasecmp(key, "timeout")) {
-			if (tfw_cfg_parse_uint(val, &sticky->tmt_sec))
-			{
-				T_ERR_NL("%s: invalid value for 'timeout'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
+			was_max_misses = true;
 		} else if (!strcasecmp(key, "options")) {
 			if (tfw_cfgop_cookie_set_options(sticky, val))
 			{
@@ -376,6 +362,8 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "enforce")) {
 			sticky->enforce = 1;
+			if (!was_max_misses)
+				sticky->max_misses = 1;
 		} else {
 			T_ERR_NL("%s: unsupported argument: '%s'\n",
 				 cs->name, val);
@@ -386,11 +374,6 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (sticky->max_misses && !sticky->enforce) {
 		T_ERR_NL("%s: 'max_misses' can be enabled only in 'enforce' "
 			 "mode\n", cs->name);
-		return -EINVAL;
-	}
-	if (sticky->tmt_sec && !sticky->max_misses) {
-		T_ERR_NL("%s: 'timeout' can be specified only with 'max_misses' "
-			 "attribute\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -653,37 +636,6 @@ tfw_cfgop_jsch_parse_resp_code(TfwCfgSpec *cs, TfwCfgJsCh *js_ch,
 	return 0;
 }
 
-static void
-tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, TfwCfgJsCh *js_ch)
-{
-	const unsigned long min_limit	= msecs_to_jiffies(100);
-	const unsigned long max_hc_p	= 10;
-	const unsigned long max_limit	=
-		msecs_to_jiffies(js_ch->delay_range) * max_hc_p / 100;
-	unsigned long hc_prob;
-
-	if (!js_ch->delay_limit) {
-		js_ch->delay_limit = max_limit;
-	}
-	if (js_ch->delay_limit < min_limit) {
-		T_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
-			  "clients will be blocked. "
-			    "Minimum recommended value is %u, "
-			    "but %u is provided\n",
-			    cs->name,
-			    jiffies_to_msecs(min_limit),
-			    jiffies_to_msecs(js_ch->delay_limit));
-	}
-	hc_prob = js_ch->delay_limit * 100
-			/ msecs_to_jiffies(js_ch->delay_range);
-	if (hc_prob > max_hc_p) {
-		T_WARN_NL("%s: 'delay_limit' is too big, attacker may "
-			  "hardcode bots and breach the JavaScript challenge "
-			  "with %lu%% success probability\n",
-			  cs->name, hc_prob);
-	}
-}
-
 static int
 tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 {
@@ -747,10 +699,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_range = uint_val;
-		} else if (!strcasecmp(key, "delay_limit")) {
-			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
-				goto err;
-			js_ch->delay_limit = msecs_to_jiffies(uint_val);
 		} else if (!strcasecmp(key, "resp_code")) {
 			if ((r = tfw_cfgop_jsch_parse_resp_code(cs, js_ch, val)))
 				goto err;
@@ -775,8 +723,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	if (!js_ch->st_code)
 		js_ch->st_code = tfw_cfg_jsch_code_dflt;
-
-	tfw_cfgop_jsch_set_delay_limit(cs, js_ch);
 
 	r = tfw_cfgop_jsch_set_body(cs, js_ch,
 				    ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);
@@ -818,16 +764,13 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	/* Inherit sticky options defined at top level. */
 	if ((r = tfw_cfgop_sticky_inherit(vhost)))
 		return r;
-	/* See comment in tfw_http_sess_cfgop_finish(). */
-	if (sticky->max_misses)
-		tfw_http_sess_redir_enable();
+
 	/*
 	 * tfw_cfgop_sticky_inherit() only setups directives without
 	 * default values in  tfw_http_sess_specs, init others.
 	 */
-	if (defaults_override.st_sessions_set) {
+	if (defaults_override.st_sessions_set)
 		tfw_cfgop_sticky_sess_inherit(&vhost->flags);
-	}
 	if (!TFW_STR_EMPTY(&sticky->name)) {
 		r = tfw_cfgop_sticky_secret_set(sticky,
 						defaults_override.secret,

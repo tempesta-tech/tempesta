@@ -113,6 +113,7 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
+#include "filter.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -731,7 +732,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
  * Body string contains the 'Content-Length' header, CRLF and body itself.
  */
 int
-tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
+tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 		    TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
@@ -792,11 +793,6 @@ do { 								\
 		url.chunks[url.nchunks++] = *proto;
 		url.len += proto->len;
 		TFW_ADD_URL_CHUNK(&req->host);
-	}
-
-	if (rmark->len) {
-		url.chunks[url.nchunks++] = *rmark;
-		url.len += rmark->len;
 	}
 
 	TFW_ADD_URL_CHUNK(&req->uri_path);
@@ -3454,10 +3450,6 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			return r;
 	}
 
-	r = tfw_http_sess_req_process(req);
-	if (r)
-		return r;
-
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
 		return r;
@@ -3805,8 +3797,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * ignored and not copied.
 	 */
 	h1_hdrs_sz = pit->hdrs_len
-		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF))
-		- req->mark.len;
+		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF));
 	/* First request line: remove pseudo headers names, all values are on
 	 * the same line.
 	 */
@@ -4962,6 +4953,27 @@ tfw_h2_choose_close_type(ErrorType type, bool reply)
 	return T_DROP;
 }
 
+static void
+tfw_http_req_filter_block_ip(TfwHttpReq *req)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	TfwClient *cli;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	cli = req->peer ? req->peer :
+		(TfwClient *)(req->conn ? req->conn->peer : NULL);
+	if (!cli)
+		goto out;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli);
+
+out:
+	tfw_vhost_put(dflt_vh);
+}
+
 static int
 tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
@@ -4978,6 +4990,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
 		tfw_h2_req_unlink_stream_with_rst(req);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_http_req_filter_block_ip(req);
 		goto free_req;
 	}
 
@@ -5049,6 +5063,8 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	if (!reply) {
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_http_req_filter_block_ip(req);
 		do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
 		goto out;
@@ -6071,16 +6087,15 @@ next_msg:
 
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503, NULL,
+		return tfw_http_req_parse_block(req, 403, NULL,
 						HTTP2_ECODE_PROTO);
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
-		 * Requested resource can't be challenged, forward all pending
-		 * responses and close the connection to allow client to recover.
+		 * Requested resource can't be challenged.
 		 */
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503,
+		*splitted = skb;
+		return tfw_http_req_parse_drop(req, 403,
 				"request dropped: can't send JS challenge"
 				" since a non-challengeable resource" 
 				" (e.g. image) was requested",
@@ -6088,7 +6103,7 @@ next_msg:
 
 	default:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		return tfw_http_req_parse_block(req, 500,
+		return tfw_http_req_parse_drop_with_fin(req, 500,
 				"request dropped: internal error"
 				" in Sticky module",
 				HTTP2_ECODE_PROTO);
@@ -6215,12 +6230,19 @@ static void
 tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
+	TfwHttpReq *req = resp->req;
 
-	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
+	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
 
-	tfw_http_sess_learn(resp);
+	if (tfw_http_sess_learn(resp)) {
+		tfw_http_conn_msg_free(msg);
+		tfw_http_send_err_resp(req, 500, "response dropped:"
+				       " processing error");
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
 
-	if (TFW_MSG_H2(resp->req))
+	if (TFW_MSG_H2(req))
 		tfw_h2_resp_adjust_fwd(resp);
 	else
 		tfw_h1_resp_adjust_fwd(resp);
@@ -6968,14 +6990,20 @@ static int
 tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
-	bool misconfiguration = tfw_blk_flags & TFW_BLK_ATT_REPLY
-			 && dflt_vh && dflt_vh->frang_gconf->ip_block;
+	bool misconfiguration;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return -1;
+
+	misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY) &&
+		dflt_vh->frang_gconf->ip_block;
 	tfw_vhost_put(dflt_vh);
 
 	if (misconfiguration) {
-		T_WARN_NL("Directive 'block action' can't be set to\n"
-			  "    'attack reply' if 'ip_block' from 'frang_limits' group is 'on'\n"
-			  "    (this is misconfiguration, see the wiki).\n");
+		T_WARN_NL("Directive 'block action' can't be set to"
+			  " 'attack reply' if 'ip_block' from 'frang_limits'"
+			  " group is 'on'. This is misconfiguration, look in"
+			  " the wiki).\n");
 		return -1;
 	}
 

@@ -298,88 +298,6 @@ TEST(http1_parser, parses_enforce_ext_req)
 	}
 }
 
-TEST(http1_parser, parses_enforce_ext_req_rmark)
-{
-/*
- * Redirection attempt number, timestamp and calculated valid
- * HMAC (see 'test_http_sticky.c' file for details about
- * calculation process).
- */
-#define RMARK_NAME	"__tfw"
-#define ATT_NO		"00000001"
-#define TIMESTAMP	"535455565758595a"
-#define HMAC		"9cf5585388196965871bf4240ef44a52d0ffb23d"
-#define RMARK		"/" RMARK_NAME "=" ATT_NO TIMESTAMP HMAC
-
-#define URI_1		"/"
-#define URI_2		"/static/test/index.html"
-#define URI_3		"/foo/"
-#define URI_4		"/cgi-bin/show.pl?entry=tempesta"
-
-#define HOST		"natsys-lab.com"
-#define PORT		"80"
-#define AUTH		"http://" HOST ":" PORT
-
-	FOR_REQ("GET " RMARK URI_1 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
-	}
-
-	FOR_REQ("GET " RMARK URI_2 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_2);
-	}
-
-	FOR_REQ("GET " RMARK URI_3 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
-	}
-
-	FOR_REQ("GET " RMARK URI_4 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
-	}
-
-	FOR_REQ("GET " AUTH RMARK URI_1 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
-	}
-
-	FOR_REQ("GET " AUTH RMARK URI_3 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
-	}
-
-	FOR_REQ("GET " AUTH RMARK URI_4 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
-	}
-
-	/* Wrong RMARK formats. */
-	EXPECT_BLOCK_REQ("GET " ATT_NO HMAC URI_1 " HTTP/1.1\r\n\r\n");
-
-	EXPECT_BLOCK_REQ("GET " "/" RMARK_NAME "=" URI_1 " HTTP/1.1\r\n\r\n");
-
-	EXPECT_BLOCK_REQ("GET " RMARK HMAC URI_1 " HTTP/1.1\r\n\r\n");
-
-#undef ATT_NO
-#undef TIMESTAMP
-#undef HMAC
-#undef RMARK
-
-#undef URI_1
-#undef URI_2
-#undef URI_3
-#undef URI_4
-
-#undef HOST
-#undef PORT
-#undef AUTH
-}
-
 /* TODO add HTTP attack examples. */
 TEST(http1_parser, mangled_messages)
 {
@@ -1692,7 +1610,7 @@ TEST(http1_parser, accept)
 	EXPECT_BLOCK_ACCEPT(HEAD "key=val");
 
 	/* media-range */
-	FOR_ACCEPT("*/*");
+	FOR_ACCEPT_HTML("*/*");
 	FOR_ACCEPT("dummy/*");
 	FOR_ACCEPT("dummy/dummy");
 	FOR_ACCEPT(TOKEN_ALPHABET "/" TOKEN_ALPHABET);
@@ -1723,23 +1641,23 @@ TEST(http1_parser, accept)
 	EXPECT_BLOCK_ACCEPT("*/*;key");
 
 	/* weight */
-	FOR_ACCEPT("*/*;q=0");
+	FOR_ACCEPT_HTML("*/*;q=0");
 	/* No prohibition in RFC for that. */
-	FOR_ACCEPT("*/*;q=0;q=1");
-	FOR_ACCEPT("*/*;q=0.0");
-	FOR_ACCEPT("*/*;q=0.5");
-	FOR_ACCEPT("*/*;q=0.999");
-	FOR_ACCEPT("*/*;q=1");
-	FOR_ACCEPT("*/*;q=1.0");
-	FOR_ACCEPT("*/*;q=1.000");
-	FOR_ACCEPT("*/*\t  ; \tq=0");
+	FOR_ACCEPT_HTML("*/*;q=0;q=1");
+	FOR_ACCEPT_HTML("*/*;q=0.0");
+	FOR_ACCEPT_HTML("*/*;q=0.5");
+	FOR_ACCEPT_HTML("*/*;q=0.999");
+	FOR_ACCEPT_HTML("*/*;q=1");
+	FOR_ACCEPT_HTML("*/*;q=1.0");
+	FOR_ACCEPT_HTML("*/*;q=1.000");
+	FOR_ACCEPT_HTML("*/*\t  ; \tq=0");
 
 	/* Breaks the RFC, just dot+digits alphabet is checked... */
-	FOR_ACCEPT("*/*;q=1......");
-	FOR_ACCEPT("*/*;q=1.23..45.6..789...");
-	FOR_ACCEPT("*/*;q=12345");
+	FOR_ACCEPT_HTML("*/*;q=1......");
+	FOR_ACCEPT_HTML("*/*;q=1.23..45.6..789...");
+	FOR_ACCEPT_HTML("*/*;q=12345");
 	/* ...but first char is checked as in RFC. */
-	FOR_ACCEPT("*/*;q=0.000");
+	FOR_ACCEPT_HTML("*/*;q=0.000");
 	EXPECT_BLOCK_ACCEPT("*/*;q=5.000");
 	EXPECT_BLOCK_ACCEPT("*/*;q=.000");
 
@@ -1757,7 +1675,7 @@ TEST(http1_parser, accept)
 
 	/* Multiple values */
 	FOR_ACCEPT("dummy/dummy\t,dummy/dummy ,\t\tdummy/dummy");
-	FOR_ACCEPT("  \t\t */*  ;\t key=val ; key=val\t;\t"
+	FOR_ACCEPT_HTML("  \t\t */*  ;\t key=val ; key=val\t;\t"
 		   "q=0;\t\text=val ; ext=val;\tkey=val \t\t");
 	/* Invalid delimiters between parts. */
 	EXPECT_BLOCK_ACCEPT("*/* text/plain");
@@ -1775,8 +1693,8 @@ TEST(http1_parser, accept)
 	FOR_ACCEPT_HTML("  text/html, */*  ");
 	FOR_ACCEPT_HTML("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ");
 	FOR_ACCEPT_HTML("  invalid/invalid; param=\"value value\", text/html");
-	FOR_ACCEPT("  text/*  ");
-	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ");
+	FOR_ACCEPT_HTML("  text/*  ");
+	FOR_ACCEPT_HTML("  invalid/invalid;  q=0.5;    key=val, */* ");
 	FOR_ACCEPT(" textK/html");
 
 #undef TEST_ACCEPT_EXT
@@ -4745,10 +4663,7 @@ TEST_SUITE_MPART(http1_parser, 2)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	tfw_http_sess_redir_mark_enable();
 	TEST_RUN(http1_parser, parses_enforce_ext_req);
-	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
-	tfw_http_sess_redir_mark_disable();
 
 	TEST_RUN(http1_parser, perf);
 }
