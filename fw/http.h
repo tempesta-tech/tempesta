@@ -203,6 +203,7 @@ typedef enum {
 	TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_HOST = TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
+	TFW_HTTP_HDR_CONTENT_LOCATION,
 	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
@@ -602,14 +603,14 @@ tfw_h2_pseudo_index(unsigned short status)
 	}
 }
 
-/*
- * Currently the size of request header table is equal to size of
- * response header table. Don't forget to split this function in
- * two different functions in case of adding new header to request
- * or response header table.
- */
 static inline size_t
-tfw_http_msg_header_table_size(void)
+tfw_http_req_header_table_size(void)
+{
+	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 2;
+}
+
+static inline size_t
+tfw_http_resp_header_table_size(void)
 {
 	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 1;
 }
