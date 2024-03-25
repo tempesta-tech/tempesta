@@ -132,10 +132,9 @@ static const TfwCfgEnum tfw_method_enum[] = {
  */
 #define TFW_CAPUACL_ARRAY_SZ	(32)
 
-
 #define TFW_FRANG_HTTP_METHODS_MASK_DEFAULT ((1 << TFW_HTTP_METH_GET) | \
-		(1 << TFW_HTTP_METH_HEAD) | \
-		(1 << TFW_HTTP_METH_POST))
+					     (1 << TFW_HTTP_METH_HEAD) | \
+					     (1 << TFW_HTTP_METH_POST))
 
 static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
 
@@ -1908,8 +1907,18 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		methods_mask |= (1UL << method_id);
 	}
 
-	if (!ce->val_n)
-		methods_mask = TFW_FRANG_HTTP_METHODS_MASK_DEFAULT;
+	if (!ce->val_n) {		
+		if (!ce->dflt_value) {
+			T_ERR_NL("frang: Empty http_methods.");
+			return -EINVAL;
+		}
+
+		T_ERR_NL("frang: http_methods should contain at least one "
+			 "method by default.");
+		T_ERR_NL("frang: GET, HEAD, POST will be set instead.");
+		*cfg_methods_mask = TFW_FRANG_HTTP_METHODS_MASK_DEFAULT;
+		return 0;
+	}
 
 	T_DBG3("parsed methods_mask: %#lx\n", methods_mask);
 	*cfg_methods_mask = methods_mask;
@@ -2377,8 +2386,6 @@ tfw_vhost_cfgstart(void)
 	tfw_vhosts_reconfig->vhost_dflt = vh_dflt;
 	tfw_frang_clean(&tfw_frang_vhost_reconfig);
 	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
-	tfw_frang_vhost_reconfig.http_methods_mask =
-			TFW_FRANG_HTTP_METHODS_MASK_DEFAULT;
 
 	tfw_vhost_entry = NULL;
 	tfwcfg_this_location = NULL;
@@ -2778,7 +2785,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	},
 	{
 		.name = "http_methods",
-		.deflt = "",
+		.deflt = "get post head",
 		.handler = tfw_cfgop_frang_http_methods,
 		.allow_reconfig = true,
 	},
@@ -2930,7 +2937,7 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 	},
 	{
 		.name = "http_methods",
-		.deflt = "",
+		.deflt = "get post head",
 		.handler = tfw_cfgop_frang_http_methods,
 		.allow_reconfig = true,
 	},
@@ -3051,7 +3058,7 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
@@ -3209,7 +3216,7 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
@@ -3398,7 +3405,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_global_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
