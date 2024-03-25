@@ -2,7 +2,7 @@
  * Unit test for Tempesta DB HTrie storage.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include "../../ktest/ktest.h"
 
 /* Include HTrie for test. */
 #include "../core/htrie.c"
@@ -313,7 +314,8 @@ do_varsz(TdbHdr *dbh)
 
 		print_bin_url(u);
 
-		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy);
+		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy,
+						  false);
 		assert((u->len && rec) || (!u->len && !rec));
 
 		copied = to_copy;
@@ -329,6 +331,7 @@ do_varsz(TdbHdr *dbh)
 
 			copied += rec->len;
 		}
+		tdb_entry_mark_complete(rec);
 	}
 
 	lookup_varsz_records(dbh);
@@ -394,7 +397,7 @@ do_fixsz(TdbHdr *dbh)
 		printf("insert int %u\n", ints[i]);
 		fflush(NULL);
 
-		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied);
+		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied, true);
 		assert(rec && copied == sizeof(ints[i]));
 	}
 

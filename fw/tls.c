@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -969,8 +969,8 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 {
 	TfwCliConn *cli_conn = &container_of(tls, TfwTlsConn, tls)->cli_conn;
 
-	return hash_calc_update((const char *)&cli_conn->peer->addr,
-				sizeof(TfwAddr), hash);
+	return hash_calc_update((const char *)&cli_conn->peer->addr.sin6_addr,
+				sizeof(cli_conn->peer->addr.sin6_addr), hash);
 }
 
 bool

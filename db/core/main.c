@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -37,11 +37,17 @@ MODULE_LICENSE("GPL");
 
 /**
  * Create TDB entry and copy @len contiguous bytes from @data to the entry.
+ *
+ * Returns complete entry, such entry can't be modified or filled with data
+ * w/o locking.
  */
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 {
-	TdbRec *r = tdb_htrie_insert(db->hdr, key, data, len);
+	TdbRec *r;
+
+	BUG_ON(!data);
+	r = tdb_htrie_insert(db->hdr, key, data, len, true);
 	if (!r)
 		TDB_ERR("Cannot create cache entry for %.*s, key=%#lx\n",
 			(int)*len, (char *)data, key);
@@ -52,18 +58,42 @@ EXPORT_SYMBOL(tdb_entry_create);
 
 /**
  * Create TDB entry to store @len bytes.
+ *
+ * NOTE: Returns incomplete entry. When modifying of current entry is finished
+ * need to mark entry as complete using tdb_entry_mark_complete(). Incomplete
+ * entries are invisible for lookup and remove.
+ *
  * TODO #515 function must holds a lock upon return.
  */
 TdbRec *
 tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 {
-	TdbRec *r = tdb_htrie_insert(db->hdr, key, NULL, len);
+	TdbRec *r;
+
+	/* Use tdb_entry_create() for small records, they always complete.*/
+	BUG_ON(*len < TDB_HTRIE_MINDREC);
+	r = tdb_htrie_insert(db->hdr, key, NULL, len, false);
 	if (!r)
 		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
 
 	return r;
 }
 EXPORT_SYMBOL(tdb_entry_alloc);
+
+void
+tdb_entry_mark_complete(void *rec)
+{
+	TdbBucket *b;
+
+	BUG_ON(!rec);
+
+	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
+	BUG_ON(!b);
+	write_lock_bh(&b->lock);
+	b->flags |= TDB_HTRIE_COMPLETE_BIT;
+	write_unlock_bh(&b->lock);
+}
+EXPORT_SYMBOL(tdb_entry_mark_complete);
 
 /**
  * @return pointer to free area of size at least @size bytes or allocate
@@ -77,6 +107,19 @@ tdb_entry_add(TDB *db, TdbVRec *r, size_t size)
 	return tdb_htrie_extend_rec(db->hdr, r, size);
 }
 EXPORT_SYMBOL(tdb_entry_add);
+
+/**
+ * Remove TDB entries by @key using @eq_cb for comparing entry with @data.
+ *
+ * @return ENOENT if entry not exists.
+ */
+int
+tdb_entry_remove(TDB *db, unsigned long key, bool (*eq_cb)(void *, void *),
+		 void *data, bool force)
+{
+	return tdb_htrie_remove(db->hdr, key, eq_cb, data, force);
+}
+EXPORT_SYMBOL(tdb_entry_remove);
 
 /**
  * Check available room in @trec and allocate new record if it's not enough.
@@ -123,6 +166,7 @@ tdb_rec_get(TDB *db, unsigned long key)
 
 	iter.rec = tdb_htrie_bscan_for_rec(db->hdr, (TdbBucket **)&iter.bckt,
 					   key);
+
 out:
 	return iter;
 }
@@ -288,7 +332,12 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	}
 	ctx->is_new = true;
 	r = tdb_entry_alloc(db, key, &ctx->len);
+	if (!r) {
+		spin_unlock(&db->ga_lock);
+		return r;
+	}
 	ctx->init_rec(r, ctx->ctx);
+	tdb_entry_mark_complete(r);
 
 	spin_unlock(&db->ga_lock);
 

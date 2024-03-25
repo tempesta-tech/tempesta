@@ -11,7 +11,7 @@
  * and shutdown are performed in process context.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -86,6 +86,71 @@ tdb_set_bit(unsigned long *bmp, unsigned int nr)
 	set_bit(nr % BITS_PER_LONG, bmp + nr / BITS_PER_LONG);
 }
 
+/**
+ * Reserve the last block of extent for reference table.
+ */
+static void
+tdb_reserve_reftbl(TdbExt *e)
+{
+	set_bit(BITS_PER_LONG - 1, &(e->b_bmp[TDB_BLK_BMP_2L - 1]));
+}
+
+static atomic_t*
+tdb_get_reftbl(TdbHdr *dbh, TdbExt *e)
+{
+	return TDB_PTR(dbh, (TDB_EXT_BASE(dbh, e) + TDB_EXT_SZ) - TDB_BLK_SZ);
+}
+
+/**
+ * Add block to per-CPU freelist.
+ *
+ * NOTE Due to per-CPU nature of freelist, block can be allocated only on CPU
+ * where it was freed. It can cause allocation failures in case when one
+ * CPU frees more blocks then others and free blocks available only in per-CPU
+ * freelists because main memory pool is exhausted.
+ */
+static void
+tdb_freelist_push(TdbHdr *dbh, unsigned long ptr)
+{
+	unsigned long *page_addr = TDB_PTR(dbh, ptr);
+
+	if (!this_cpu_ptr(dbh->pcpu)->freelist) {
+		this_cpu_ptr(dbh->pcpu)->freelist = ptr;
+		*page_addr = 0;
+	} else {
+		*page_addr = this_cpu_ptr(dbh->pcpu)->freelist;
+		this_cpu_ptr(dbh->pcpu)->freelist = ptr;
+	}
+}
+
+static void
+tdb_get_blk(TdbHdr *dbh, unsigned long ptr)
+{
+	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, ptr));
+	atomic_t *reftbl = tdb_get_reftbl(dbh, e);
+	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> 12;
+	atomic_t *refcnt = reftbl + blkoff;
+
+	BUG_ON((void*) refcnt > TDB_PTR(dbh,(TDB_EXT_BASE(dbh, e) + TDB_EXT_SZ)));
+	atomic_inc(refcnt);
+}
+
+static void
+tdb_put_blk(TdbHdr *dbh, unsigned long ptr)
+{
+	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, ptr));
+	atomic_t *reftbl = tdb_get_reftbl(dbh, e);
+	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> 12;
+	atomic_t *refcnt = reftbl + blkoff;
+	int pgref;
+
+	pgref = atomic_dec_return(refcnt);
+	if (!pgref)
+		tdb_freelist_push(dbh, ptr & TDB_BLK_MASK);
+
+	BUG_ON(pgref < 0);
+}
+
 static TdbHdr *
 tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 {
@@ -119,7 +184,17 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	for (b = 0; b < hdr_sz / TDB_BLK_SZ; b++)
 		set_bit(b, tdb_ext(hdr, hdr)->b_bmp);
 
+	/* Get page that holds tdb header. This page must not be freed. */
+	tdb_get_blk(hdr, TDB_EXT_BASE(hdr, tdb_ext(hdr, hdr)));
+	tdb_reserve_reftbl(tdb_ext(hdr, hdr));
+
 	return hdr;
+}
+
+static bool
+tdb_bucket_is_complete(TdbBucket *bckt)
+{
+	return bckt->flags & TDB_HTRIE_COMPLETE_BIT;
 }
 
 static inline void
@@ -174,6 +249,9 @@ repeat:
 
 	if (unlikely(!i && !r)) {
 		/* First block in the extent. */
+		tdb_reserve_reftbl(e);
+		/* Get block that holds extent header. */
+		tdb_get_blk(dbh, TDB_EXT_BASE(dbh, e));
 		r = sizeof(*e);
 		if (unlikely(TDB_EXT_O(e) == TDB_EXT_O(dbh)))
 			/* First extent in the database. */
@@ -212,7 +290,7 @@ retry:
 		 */
 		if (unlikely(g_nwb != atomic64_read(&dbh->nwb)))
 			goto retry;
-		e = (TdbExt *)((unsigned long)e + TDB_EXT_SZ);
+		e = TDB_PTR(dbh, TDB_EXT_BASE(dbh, e) + TDB_EXT_SZ);
 	}
 
 	/*
@@ -222,6 +300,8 @@ retry:
 	 * our allocation request.
 	 */
 	if (unlikely(TDB_HTRIE_OFF(dbh, e) == dbh->dbsz)) {
+		/* We do this set because we skip the last page in extent. */
+		atomic64_set(&dbh->nwb, dbh->dbsz);
 		TDB_ERR("out of free space\n");
 		return 0;
 	}
@@ -241,6 +321,7 @@ allocated:
 	/*
 	 * Align offsets of new blocks for data records.
 	 * This is only for first blocks in extents, so we lose only
+	 *
 	 * TDB_HTRIE_MINDREC - L1_CACHE_BYTES per extent.
 	 */
 	return TDB_HTRIE_DALIGN(rptr);
@@ -263,6 +344,22 @@ tdb_htrie_init_bucket(TdbBucket *b)
 #endif
 }
 
+static unsigned long
+tdb_alloc_blk_freelist(TdbHdr *dbh)
+{
+	unsigned long rptr, *next;
+
+	rptr = this_cpu_ptr(dbh->pcpu)->freelist;
+	if (!rptr)
+		return 0;
+
+	next = TDB_PTR(dbh, rptr);
+	this_cpu_ptr(dbh->pcpu)->freelist = *next;
+	bzero_fast(next, TDB_BLK_SZ);
+
+	return rptr;
+}
+
 /**
  * @return byte offset of the allocated data block and sets @len to actually
  * available room for writing if @len doesn't fit to block.
@@ -280,7 +377,7 @@ tdb_htrie_init_bucket(TdbBucket *b)
 static unsigned long
 tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 {
-	unsigned long rptr, new_wcl;
+	unsigned long rptr, old_rptr, new_wcl;
 	size_t hdr_len, res_len = *len;
 
 	hdr_len = (bucket_hdr ? sizeof(TdbBucket) : 0)
@@ -304,13 +401,22 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 	{
 		size_t max_data_len;
 
-		/*
-		 * Use a new page and/or extent for the data.
-		 * Less than a page can be allocated.
-		 */
-		rptr = tdb_alloc_blk(dbh);
+		old_rptr = ((rptr - 1) & TDB_BLK_MASK);
+		if (this_cpu_ptr(dbh->pcpu)->freelist)
+			rptr = tdb_alloc_blk_freelist(dbh);
+		else
+			/*
+			 * Use a new page and/or extent for the data.
+			 * Less than a page can be allocated.
+			 */
+			rptr = tdb_alloc_blk(dbh);
+
 		if (!rptr)
 			goto out;
+
+		BUG_ON(old_rptr == 0);
+		tdb_get_blk(dbh, rptr);
+		tdb_put_blk(dbh, old_rptr);
 
 		max_data_len = TDB_BLK_SZ - (rptr & ~TDB_BLK_MASK);
 		if (res_len > max_data_len) {
@@ -331,6 +437,7 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 
 	if (bucket_hdr) {
 		tdb_htrie_init_bucket(TDB_PTR(dbh, rptr));
+		tdb_get_blk(dbh, rptr);
 		rptr += sizeof(TdbBucket);
 	}
 
@@ -346,7 +453,7 @@ out:
 static unsigned long
 tdb_alloc_index(TdbHdr *dbh)
 {
-	unsigned long rptr = 0;
+	unsigned long rptr = 0, old_rptr;
 
 	local_bh_disable();
 
@@ -356,10 +463,17 @@ tdb_alloc_index(TdbHdr *dbh)
 		     || TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1)
 			> TDB_BLK_O(rptr)))
 	{
-		/* Use a new page and/or extent for local CPU. */
-		rptr = tdb_alloc_blk(dbh);
+		old_rptr = ((rptr - 1) & TDB_BLK_MASK);
+		if (this_cpu_ptr(dbh->pcpu)->freelist)
+			rptr = tdb_alloc_blk_freelist(dbh);
+		else
+			/* Use a new page and/or extent for local CPU. */
+			rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
 			goto out;
+
+		/* Never put index block, indexes live forever */
+		tdb_get_blk(dbh, rptr);
 	}
 
 	TDB_DBG("alloc iblk %#lx\n", rptr);
@@ -447,6 +561,7 @@ tdb_htrie_burst(TdbHdr *dbh, TdbHtrieNode **node, TdbBucket *bckt,
 	if (!n)
 		return -ENOMEM;
 	new_in = TDB_PTR(dbh, n);
+	tdb_get_blk(dbh, n);
 	new_in_idx = TDB_O2II(n);
 
 #define MOVE_RECORDS(Type, live)					\
@@ -583,11 +698,13 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 static TdbRec *
 tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
-		     void *data, size_t len)
+		     void *data, size_t len, bool complete)
 {
 	char *ptr = TDB_PTR(dbh, off);
 	TdbRec *r = (TdbRec *)ptr;
+	TdbBucket *bckt;
 
+	BUG_ON(complete && !data);
 	BUG_ON(r->key);
 	r->key = key;
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
@@ -601,6 +718,11 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 	}
 	if (data)
 		memcpy_fast(ptr, data, len);
+
+	bckt = (TdbBucket *)((unsigned long)r & TDB_HTRIE_DMASK);
+	bckt->flags &= (TDB_HTRIE_COMPLETE_BIT * complete);
+
+	tdb_get_blk(dbh, off);
 
 	return r;
 }
@@ -629,6 +751,8 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 	chunk->chunk_next = 0;
 	chunk->len = size;
 
+	tdb_get_blk(dbh, o);
+
 retry:
 	/* A caller is appreciated to pass the last record chunk by @rec. */
 	while (unlikely(rec->chunk_next))
@@ -645,6 +769,27 @@ retry:
 	return chunk;
 }
 
+static void
+tdb_htrie_free_rec(TdbHdr *dbh, TdbRec *rec)
+{
+	if (TDB_HTRIE_VARLENRECS(dbh)) {
+		TdbVRec *next, *curr = (TdbVRec *)rec;
+
+		while (curr) {
+			next = curr->chunk_next
+				? TDB_PTR(dbh, TDB_DI2O(curr->chunk_next))
+				: 0;
+
+			tdb_free_vsrec(curr);
+			tdb_put_blk(dbh, TDB_OFF(dbh, curr));
+			curr = next;
+		}
+	} else {
+		tdb_free_fsrec(dbh, (TdbFRec *)rec);
+		tdb_put_blk(dbh, TDB_OFF(dbh, rec));
+	}
+}
+
 /**
  * @len returns number of copied data on success.
  *
@@ -654,7 +799,8 @@ retry:
  * If competing context helps the current trx owner, then we get true lock-free.
  */
 TdbRec *
-tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len)
+tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len,
+		 bool complete)
 {
 	int bits = 0;
 	unsigned long o;
@@ -672,18 +818,26 @@ retry:
 		int i;
 
 		TDB_DBG("Create a new htrie node for key=%#lx len=%lu"
-			" bits_used=%d\n", key, *len, bits);
+			" bits_used=%d, shift=%lx\n", key, *len, bits,
+			TDB_HTRIE_IDX(key, bits));
 
 		o = tdb_alloc_data(dbh, len, 1);
 		if (!o)
 			return NULL;
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 
 		i = TDB_HTRIE_IDX(key, bits);
 		if (atomic_cmpxchg((atomic_t *)&node->shifts[i], 0,
 				   TDB_O2DI(o) | TDB_HTRIE_DBIT) == 0)
+		{
+			/*
+			 * Bucket must not be freed. Only buckets in
+			 * collision chain might be freed.
+			 */
+			tdb_get_blk(dbh, o);
 			return rec;
+		}
 		/* Somebody already created the new brach. */
 		// TODO free just allocated data block
 		goto retry;
@@ -720,6 +874,37 @@ retry:
 	}
 
 	/*
+	 * If first record in the bucket is not alive(freed) emplace new record
+	 * into its place.
+	 */
+	if (!TDB_HTRIE_VARLENRECS(dbh)) {
+		TdbFRec *frec = TDB_HTRIE_BCKT_1ST_REC(bckt);
+
+		if (!tdb_live_fsrec(dbh, frec)) {
+			o = TDB_HTRIE_OFF(dbh, frec);
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len,
+						   complete);
+			write_unlock_bh(&bckt->lock);
+
+			return rec;
+		}
+	} else {
+		TdbVRec *vrec = TDB_HTRIE_BCKT_1ST_REC(bckt);
+		unsigned int vrec_len = !tdb_live_vsrec(vrec) ?
+					TDB_HTRIE_VRLEN(vrec) : 0;
+
+		if (vrec_len >= *len) {
+			bzero_fast(vrec, sizeof(*vrec) + vrec_len);
+			o = TDB_HTRIE_OFF(dbh, vrec);
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len,
+						   complete);
+			write_unlock_bh(&bckt->lock);
+
+			return rec;
+		}
+	}
+
+	/*
 	 * Try to place the small record in preallocated room for
 	 * small records. There could be full or partial key match.
 	 * Small and large variable-length records can be intermixed
@@ -735,7 +920,8 @@ retry:
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
 		if (o) {
-			rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len,
+						   true);
 			write_unlock_bh(&bckt->lock);
 			return rec;
 		}
@@ -761,7 +947,7 @@ retry:
 			return NULL;
 		}
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 		bckt->coll_next = TDB_O2DI(o);
 
 		write_unlock_bh(&bckt->lock);
@@ -792,22 +978,148 @@ retry:
 	goto retry;
 }
 
+static inline bool
+tdb_eval_eq_cb(bool (*eq_cb)(void *, void *), TdbRec *rec, void *data)
+{
+	return ((eq_cb && eq_cb(rec, data)) || !eq_cb);
+}
+
+#define TDB_REMOVE_FOREACH_REC(body)					\
+	do {								\
+		size_t rlen = sizeof(*rec) +				\
+			      TDB_HTRIE_RBODYLEN(dbh, rec);		\
+		rlen = TDB_HTRIE_RALIGN(rlen);				\
+		if ((char *)rec + rlen - (char *)bckt			\
+			> TDB_HTRIE_MINDREC				\
+		    && rec != TDB_HTRIE_BCKT_1ST_REC(bckt))		\
+			break;						\
+		body;							\
+		rec = (TdbRec *)((char *)rec + rlen);			\
+	} while ((char *)rec + sizeof(*rec) - (char *)bckt		\
+		 <= TDB_HTRIE_MINDREC)
+
+int
+tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
+		 void *data, bool force)
+{
+	int bits = 0;
+	TdbRec *rec;
+	unsigned long o;
+	TdbBucket *bckt, *prev, *b_tmp;
+	TdbHtrieNode *node = TDB_HTRIE_ROOT(dbh);
+	int r = -ENOENT, has_alive;
+
+	o = tdb_htrie_descend(dbh, &node, key, &bits);
+	if (!o)
+		return r;
+
+	prev = bckt = TDB_PTR(dbh, o);
+	BUG_ON(!bckt);
+
+	TDB_DBG("Remove htrie record for key=%#lx force=%d bucket=[%p]", key,
+		force, bckt);
+
+	write_lock_bh(&bckt->lock);
+	/*
+	 * Iterate all records in the head bucket. Try to free suitable
+	 * records. The head bucket can't be reclaimed, but other buckets
+	 * must be reclaimed if no live records in it.
+	 */
+	if (tdb_bucket_is_complete(bckt) || force) {
+		rec = TDB_HTRIE_BCKT_1ST_REC(bckt);
+		TDB_REMOVE_FOREACH_REC({
+			if (tdb_live_rec(dbh, rec)
+			    && tdb_eval_eq_cb(eq_cb, rec, data))
+			{
+				tdb_htrie_free_rec(dbh, rec);
+				r = 0;
+			}
+		});
+	}
+
+	if (!bckt->coll_next) {
+		write_unlock_bh(&bckt->lock);
+		return r;
+	}
+
+	bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
+
+	write_lock_bh(&bckt->lock);
+	/* Iterate all buckets except the head bucket. */
+	while (bckt) {
+		if (tdb_bucket_is_complete(bckt) || force) {
+			has_alive = false;
+			rec = TDB_HTRIE_BCKT_1ST_REC(bckt);
+			TDB_REMOVE_FOREACH_REC({
+				if (tdb_live_rec(dbh, rec)) {
+					if (tdb_eval_eq_cb(eq_cb, rec, data)) {
+						tdb_htrie_free_rec(dbh, rec);
+						r = 0;
+					} else {
+						has_alive = true;
+					}
+				}
+			});
+
+			/*
+			 * Once bucket doesn't have any live records, reclaim it.
+			 */
+			if (!has_alive) {
+				prev->coll_next = bckt->coll_next;
+				b_tmp = bckt;
+				bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
+				write_unlock_bh(&b_tmp->lock);
+				/*
+				 * Reclaim bucket's memory. Do reclaim after
+				 * unlocking relying on previous bucket lock.
+				 */
+				tdb_put_blk(dbh, TDB_OFF(dbh, b_tmp));
+				if (bckt)
+					write_lock_bh(&bckt->lock);
+				else
+					write_unlock_bh(&prev->lock);
+				continue;
+			}
+		}
+
+		if (!bckt->coll_next) {
+			write_unlock_bh(&bckt->lock);
+			write_unlock_bh(&prev->lock);
+			break;
+		}
+
+		b_tmp = bckt;
+		bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
+		write_lock_bh(&bckt->lock);
+		write_unlock_bh(&prev->lock);
+		prev = b_tmp;
+	}
+
+	return r;
+}
+
 TdbBucket *
 tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 {
 	int bits = 0;
 	unsigned long o;
+	TdbBucket *b;
 	TdbHtrieNode *root = TDB_HTRIE_ROOT(dbh);
 
 	o = tdb_htrie_descend(dbh, &root, key, &bits);
 	if (!o)
 		return NULL;
+	b = TDB_PTR(dbh, o);
+	read_lock_bh(&(b)->lock);
+	if (!tdb_bucket_is_complete(b)) {
+		read_unlock_bh(&(b)->lock);
+		return NULL;
+	}
 
-	return TDB_PTR(dbh, o);
+	return b;
 }
 
 #define TDB_HTRIE_FOREACH_REC(dbh, b_tmp, b, r, body)			\
-	read_lock_bh(&(*b)->lock);					\
 	do {								\
 		r = TDB_HTRIE_BCKT_1ST_REC(*b);				\
 		do {							\
@@ -823,8 +1135,10 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 		} while ((char *)r + sizeof(*r) - (char *)*b		\
 			 <= TDB_HTRIE_MINDREC);				\
 		b_tmp = TDB_HTRIE_BUCKET_NEXT(dbh, *b);			\
-		if (b_tmp)						\
+		if (b_tmp && tdb_bucket_is_complete(b_tmp))		\
 			read_lock_bh(&b_tmp->lock);			\
+		else							\
+			b_tmp = NULL;					\
 		read_unlock_bh(&(*b)->lock);				\
 		*b = b_tmp;						\
 	} while (*b)
@@ -873,7 +1187,8 @@ tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b, unsigned long key)
 						+ TDB_HTRIE_RBODYLEN(dbh, r));
 			if ((char *)r + rlen - (char *)_b > TDB_HTRIE_MINDREC)
 				break;
-			if (tdb_live_rec(dbh, r) && r->key == key)
+			if (tdb_live_rec(dbh, r) && r->key == key &&
+			    tdb_bucket_is_complete(_b))
 				/* Unlock the bucket by tdb_rec_put(). */
 				return r;
 			r = (TdbRec *)((char *)r + rlen);
@@ -885,7 +1200,8 @@ next_bckt:
 			read_lock_bh(&(*b)->lock);
 			r = TDB_HTRIE_BCKT_1ST_REC(*b);
 
-			if (r && tdb_live_rec(dbh, r) && r->key == key) {
+			if (r && tdb_live_rec(dbh, r) && r->key == key
+			    && tdb_bucket_is_complete(*b)) {
 				read_unlock_bh(&_b->lock);
 				/* Unlock the bucket by tdb_rec_put(). */
 				return r;
@@ -920,8 +1236,11 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 	}
 	for_each_possible_cpu(cpu) {
 		TdbPerCpu *p = per_cpu_ptr(hdr->pcpu, cpu);
+
 		p->i_wcl = tdb_alloc_blk(hdr);
 		p->d_wcl = tdb_alloc_blk(hdr);
+		tdb_get_blk(hdr, p->i_wcl & TDB_BLK_MASK);
+		tdb_get_blk(hdr, p->d_wcl & TDB_BLK_MASK);
 	}
 
 	TDB_DBG("init db header: nwb=%llu db_size=%lu rec_len=%u\n",
@@ -942,6 +1261,7 @@ tdb_htrie_bucket_walk(TdbHdr *dbh, TdbBucket *b, int (*fn)(void *))
 	TdbBucket *b_tmp;
 	TdbRec *r;
 
+	read_lock_bh(&(b)->lock);
 	TDB_HTRIE_FOREACH_REC(dbh, b_tmp, &b, r, {
 		if (tdb_live_rec(dbh, r)) {
 			int res = fn(r->data);

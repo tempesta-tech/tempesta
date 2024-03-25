@@ -70,6 +70,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
 
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
+#define TFW_CE_STALE_IF_ERROR	0x0002
 
 /*
  * @trec	- Database record descriptor;
@@ -93,6 +94,8 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @hdrs	- pointer to list of HTTP headers;
  * @body	- pointer to response body;
  * @hdrs_304	- pointers to headers used to build 304 response;
+ * @stale_if_error - the value of response "Cache-control: stale_if_error"
+ * 		  header field;
  * @version	- HTTP version of the response;
  * @resp_status - Http status of the cached response.
  * @hmflags	- flags of the response after parsing and post-processing.
@@ -121,6 +124,7 @@ typedef struct {
 	long		hdrs;
 	long		body;
 	long		hdrs_304[TFW_CACHE_304_HDRS_NUM];
+	long		stale_if_error;
 	DECLARE_BITMAP	(hmflags, _TFW_HTTP_FLAGS_NUM);
 	unsigned char	version;
 	unsigned short	resp_status;
@@ -462,14 +466,20 @@ tfw_cache_status_bydef(TfwHttpResp *resp)
 	return false;
 }
 
+static unsigned int
+tfw_cache_get_effective_resp_flags(TfwHttpResp *resp, TfwHttpReq *req)
+{
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	return resp->cache_ctl.flags & ~cc_ignore_flags;
+}
+
 static bool
 tfw_cache_employ_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	unsigned int cc_ignore_flags =
-		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
-		resp->cache_ctl.flags & ~cc_ignore_flags;
+		tfw_cache_get_effective_resp_flags(resp, req);
 
 #define CC_REQ_DONTCACHE				\
 	(TFW_HTTP_CC_CFG_CACHE_BYPASS | TFW_HTTP_CC_NO_STORE)
@@ -530,10 +540,8 @@ tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
 	long lifetime;
 	TfwHttpReq *req = resp->req;
-	unsigned int cc_ignore_flags =
-		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
-		resp->cache_ctl.flags & ~cc_ignore_flags;
+		tfw_cache_get_effective_resp_flags(resp, req);
 
 	if (effective_resp_flags & TFW_HTTP_CC_S_MAXAGE)
 		lifetime = resp->cache_ctl.s_maxage;
@@ -575,9 +583,8 @@ tfw_cache_entry_age(TfwCacheEntry *ce)
  * to a client, provided that the cache policy allows that.
  */
 static long
-tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
+tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce, long ce_age)
 {
-	long ce_age = tfw_cache_entry_age(ce);
 	long ce_lifetime, lt_fresh = UINT_MAX;
 
 	if (ce->lifetime <= 0)
@@ -1132,17 +1139,8 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		 * we find a live record early, so we take an extra read lock
 		 * here.
 		 */
-		/* TODO #522: replace a cache entry on a new entry insertion
-		 * (e.g. the bucket can not contain both the stale and fresh
-		 * entries) and rework the loop. */
 		if (tfw_cache_entry_key_eq(db, req, ce)) {
-			if (tfw_cache_entry_is_live(req, ce)) {
-				if (ce_best)
-					tdb_rec_put(ce_best);
-				ce_best = ce;
-				break;
-			}
-			else if (!ce_best
+			if (!ce_best
 				   || tfw_cache_entry_age(ce)
 				      < tfw_cache_entry_age(ce_best))
 			{
@@ -1909,10 +1907,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		.nchunks = 2
 	};
 
-	unsigned int cc_ignore_flags =
-		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
-		resp->cache_ctl.flags & ~cc_ignore_flags;
+		tfw_cache_get_effective_resp_flags(resp, req);
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -2091,6 +2087,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	{
 		ce->flags |= TFW_CE_MUST_REVAL;
 	}
+
+	if (effective_resp_flags & TFW_HTTP_CC_STALE_IF_ERROR) {
+		ce->stale_if_error = resp->cache_ctl.stale_if_error;
+		ce->flags |= TFW_CE_STALE_IF_ERROR;
+	}
+
 	ce->date = resp->date;
 	ce->age = resp->cache_ctl.age;
 	ce->req_time = req->cache_ctl.timestamp;
@@ -2343,6 +2345,18 @@ err:
 #undef STATIC_INDEX_SZ
 }
 
+static bool
+tfw_cache_rec_eq_req(void *rec, void *req)
+{
+	return tfw_cache_entry_key_eq(node_db(), req, rec);
+}
+
+static bool
+tfw_cache_rec_eq(void *r1, void *r2)
+{
+	return r1 == r2;
+}
+
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
@@ -2350,6 +2364,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	TfwCacheEntry *ce;
 	TfwStr rph, *s_line;
 	long data_len = __cache_entry_size(resp);
+	int r;
 
 	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags))
 		data_len += 2;
@@ -2373,7 +2388,11 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	/* TODO #522: revalidate existing entries before inserting a new one. */
+	/*
+	 * Remove each entry with current key, even fresh entries. We assume
+	 * that if we at current place, no valid entries are exists.
+	 */
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req, false);
 
 	/*
 	 * Try to place the cached response in single memory chunk.
@@ -2387,8 +2406,15 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 
 	T_DBG3("%s: ce=[%p], alloc_len='%lu'\n", __func__, ce, len);
 
-	if (tfw_cache_copy_resp(ce, resp, &rph, data_len)) {
-		/* TODO delete the probably partially built TDB entry. */
+	if ((r = tfw_cache_copy_resp(ce, resp, &rph, data_len))) {
+		/*
+		 * Error occured during response copying. Remove allocated entry.
+		 */
+		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, true);
+		T_DBG3("%s: Can't copy response ce=[%p], resp=[%p], data_len="
+		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
+	} else {
+		tdb_entry_mark_complete(ce);
 	}
 }
 
@@ -2431,9 +2457,6 @@ out:
 /*
  * Invalidate all cache entries that match the request. This is implemented by
  * making the entries stale.
- *
- * TODO #522 Review the invalidation logic.
- *
  */
 static int
 tfw_cache_purge_invalidate(TfwHttpReq *req)
@@ -2454,6 +2477,17 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 		tdb_rec_next(db, &iter);
 		ce = (TfwCacheEntry *)iter.rec;
 	} while (ce);
+
+	return 0;
+}
+
+static int
+tfw_cache_purge_immediate(TfwHttpReq *req)
+{
+	TDB *db = node_db();
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
 
 	return 0;
 }
@@ -2482,10 +2516,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		return -EINVAL;
 	}
 
-	/* Only "invalidate" option is implemented at this time. */
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
 		ret = tfw_cache_purge_invalidate(req);
+		break;
+	case TFW_D_CACHE_PURGE_IMMEDIATE:
+		ret = tfw_cache_purge_immediate(req);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
@@ -2620,14 +2656,13 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 
 static int
 tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce,
-		      unsigned int stream_id)
+		      unsigned int stream_id, long age)
 {
 	int r;
 	size_t digs;
 	bool to_h2 = TFW_MSG_H2(resp->req);
 	TfwHttpTransIter *mit = &resp->mit;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	long age = tfw_cache_entry_age(ce);
 	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
 	char *name = to_h2 ? "age" : "age" S_DLM;
 	unsigned int nlen = to_h2 ? SLEN("age") : SLEN("age" S_DLM);
@@ -2694,7 +2729,7 @@ err:
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age,
 		     unsigned int stream_id)
 {
 	int h;
@@ -2761,7 +2796,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	 * When a stored response is used to satisfy a request without
 	 * validation, a cache MUST generate an Age header field.
 	 */
-	if (tfw_cache_set_hdr_age(resp, ce, stream_id))
+	if (tfw_cache_set_hdr_age(resp, ce, stream_id, age))
 		goto free;
 
 	if (!TFW_MSG_H2(req)) {
@@ -2776,7 +2811,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
 		    || tfw_http_expand_hdr_via(resp)
 		    || tfw_h1_set_loc_hdrs((TfwHttpMsg *)resp, true, true)
-		    || (lifetime > ce->lifetime
+		    || (age > ce->lifetime
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 			&& tfw_http_expand_hdr_date(resp))
@@ -2790,7 +2825,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 
 	/* Set additional headers for HTTP/2 response. */
 	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true, stream_id)
-	    || (lifetime > ce->lifetime
+	    || (age > ce->lifetime
 		&& tfw_h2_set_stale_warn(resp, stream_id))
 	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 		&& tfw_h2_add_hdr_date(resp, true, stream_id)))
@@ -2834,6 +2869,51 @@ out:
 	return NULL;
 }
 
+static bool
+tfw_cache_can_use_stale(TfwHttpReq *req, TfwCacheEntry *ce, long age)
+{
+	bool stale_cfg =
+		tfw_vhost_get_cache_use_stale(req->location, req->vhost);
+	unsigned int ce_flags = ce->flags;
+
+	/* RFC 9111 Section 4.2.4
+	 *
+	 * A cache MUST NOT generate a stale response if it is prohibited by an
+	 * explicit in-protocol directive (e.g., by a no-cache response
+	 * directive, a must-revalidate response directive, or an applicable
+	 * s-maxage or proxy-revalidate response directive; see Section 5.2.2).
+	 *
+	 * We can check only flags, because tfw_cache_entry_is_live()
+	 * must be called before this function and lifetime already calculated.
+	 */
+	if (ce_flags & TFW_CE_MUST_REVAL
+	    || req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)
+		return false;
+
+	/*
+	 * Use stale response if "cache_use_stale" directive is configured.
+	 * Has higher priority than "cache-control: stale-if-error".
+	 */
+	if (stale_cfg)
+		return true;
+
+	/*
+	 * RFC 5861.
+	 *
+	 * Use stale response if the request or the cached entry has
+	 * stale-if-error cache-control directive with a valid value.
+	 *
+	 * Once stale_if_error presents in boths response and request,
+	 * response's directive has higher priority - this behaviour not
+	 * specified in RFC.
+	 */
+	if (ce_flags & TFW_CE_STALE_IF_ERROR && ce->stale_if_error >= age)
+		return true;
+
+	return req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR &&
+		req->cache_ctl.stale_if_error >= age;
+}
+
 static void
 cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
@@ -2843,6 +2923,8 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	TDB *db = node_db();
 	TdbIter iter;
 	long lifetime;
+	bool stale = false;
+	long age;
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req))) {
 		T_DBG3("%s: db=[%p] req=[%p] CE has not been found\n",
@@ -2852,11 +2934,16 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	}
 	__tfw_dbg_dump_ce(ce);
 
-	if (!(lifetime = tfw_cache_entry_is_live(req, ce))) {
-		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not valid\n",
+	age = tfw_cache_entry_age(ce);
+
+	if (!(lifetime = tfw_cache_entry_is_live(req, ce, age))) {
+		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not alive\n",
 		       __func__, db, req, ce);
-		TFW_INC_STAT_BH(cache.misses);
-		goto out;
+
+		if (!(stale = tfw_cache_can_use_stale(req, ce, age))) {
+			TFW_INC_STAT_BH(cache.misses);
+			goto out;
+		}
 	}
 
 	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p",
@@ -2880,15 +2967,32 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	resp = tfw_cache_build_resp(req, ce, lifetime, id);
+	resp = tfw_cache_build_resp(req, ce, age, id);
+
+	if (resp && stale) {
+		req->resp = NULL;
+		req->stale_resp = resp;
+
+		if (ce->flags & TFW_CE_STALE_IF_ERROR) {
+			resp->cache_ctl.stale_if_error = ce->stale_if_error;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_STALE_IF_ERROR;
+		}
+
+		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
+		      ce=%p", req, ce->trec.key, ce);
+	}
 
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will
 	 * send this response to the client (without forwarding request to
 	 * the backend), thus the stream will be finished.
+	 *
+	 * The stream can be unlinked only for non stale responses. If response
+	 * is stale, request will be forwarded to server, some forwardning
+	 * functions requires alive stream. E.g: @tfw_http_req_evict_dropped().
 	 */
-	if (resp && TFW_MSG_H2(req)) {
+	if (resp && TFW_MSG_H2(req) && !stale) {
 		id = tfw_h2_req_stream_id(req);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
