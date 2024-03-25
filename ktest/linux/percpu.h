@@ -33,7 +33,7 @@
 #define alloc_percpu(t)			calloc(NR_CPUS, sizeof(t))
 #define __alloc_percpu(s, a)		calloc(NR_CPUS, (s))
 #define free_percpu(p)			free(p)
-#define for_each_possible_cpu(c)	for (c = 0; c < NR_CPUS; ++c)
+#define for_each_online_cpu(c)		for (c = 0; c < NR_CPUS; ++c)
 
 #if NR_CPUS == 1
 
