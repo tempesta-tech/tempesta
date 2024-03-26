@@ -10705,25 +10705,52 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 	switch(ctx->hdr.type) {
 	case HTTP2_HEADERS:
-	case HTTP2_CONTINUATION:
-		/* Receiving END_HEADERS flags second time
+		/* Receiving HEADERS frame second time
 		 * means that we're processing trailer
-		 * HEADERS/CONTINUATION frame.
+		 * HEADERS frame.
 		 *
 		 * RFC 9113 8.1: Trailer HEADERS frame must
 		 * contain END_STREAM flag.
 		 */
 
-		if (ctx->hdr.flags & HTTP2_F_END_HEADERS &&
-		    test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
-		    !(ctx->hdr.flags & HTTP2_F_END_STREAM))
+		if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
+		    !(ctx->hdr.flags & HTTP2_F_END_STREAM)))
 		{
 			return T_DROP;
+		}
+
+		/*
+		 * First empty HEADERS frame is allowed. It can be continued
+		 * by CONTINUATION FRAME.
+		 */
+		if (unlikely(!ctx->plen)) {
+			*parsed = len;
+			return T_POSTPONE;
+		}
+
+		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
+		break;
+	case HTTP2_CONTINUATION:
+		/*
+		 * Received empty CONTINUATION frame with END_HEADERS flag.
+		 */
+		if (ctx->hdr.flags & HTTP2_F_END_HEADERS && !ctx->plen) {
+			*parsed = len;
+			return T_POSTPONE;
 		}
 
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
 		break;
 	case HTTP2_DATA:
+		/*
+		 * Received empty DATA frame with END_STREAM flag.
+		 * Body is finished.
+		 */
+		if (ctx->hdr.flags & HTTP2_F_END_STREAM && !ctx->plen) {
+			*parsed = len;
+			return T_POSTPONE;
+		}
+
 		if ((req->method_override &&
 		     TFW_HTTP_IS_METH_BODYLESS(req->method_override))
 		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
