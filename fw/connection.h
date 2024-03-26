@@ -66,6 +66,10 @@ enum {
 	/* Websocket secure */
 	Conn_WssClnt	= Conn_HttpsClnt | TFW_FSM_WEBSOCKET,
 	Conn_WssSrv	= Conn_HttpsSrv | TFW_FSM_WEBSOCKET,
+
+	/* H2,HTTPS */
+	Conn_H2_HttpsClnt	= Conn_Clnt | TFW_FSM_H2_HTTPS,
+	Conn_H2_HttpsSrv	= Conn_Srv | TFW_FSM_H2_HTTPS,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)

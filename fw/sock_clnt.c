@@ -44,6 +44,7 @@
 static struct kmem_cache *tfw_h1_conn_cache;
 static struct kmem_cache *tfw_https_conn_cache;
 static struct kmem_cache *tfw_h2_conn_cache;
+static struct kmem_cache *tfw_h2_https_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 unsigned int tfw_cli_max_concurrent_streams;
@@ -60,6 +61,8 @@ tfw_cli_cache(int type)
 	case TFW_FSM_HTTP:
 	case TFW_FSM_WS:
 		return tfw_h1_conn_cache;
+	case TFW_FSM_H2_HTTPS:
+		return tfw_h2_https_conn_cache;
 	default:
 		BUG();
 	}
@@ -432,7 +435,9 @@ tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	BUG_ON(!conn);
 
 	*nskbs = UINT_MAX;
+
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
+
 	if (h2_mode)
 		r = tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
 
@@ -454,7 +459,10 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	/* Same as for tfw_sk_prepare_xmit(). */
 	BUG_ON(!conn);
 
-	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
+	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ||
+		  (TFW_CONN_PROTO(conn) == TFW_FSM_H2_HTTPS &&
+		   conn->proto.option == TFW_FSM_PROT_H2);
+
 	flags = skb_tfw_flags(skb);
 
 	if (h2_mode) {
@@ -624,6 +632,9 @@ static const SsProto tfw_sock_listen_protos[] = {
 
 	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2},
 	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2_HTTPS},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2_HttpsClnt},
 };
 
 static const SsProto *
@@ -1203,6 +1214,7 @@ tfw_sock_clnt_init(void)
 	BUG_ON(tfw_h1_conn_cache);
 	BUG_ON(tfw_https_conn_cache);
 	BUG_ON(tfw_h2_conn_cache);
+	BUG_ON(tfw_h2_https_conn_cache);
 
 	tfw_h1_conn_cache = kmem_cache_create("tfw_h1_conn_cache",
 					      sizeof(TfwCliConn), 0, 0, NULL);
@@ -1224,6 +1236,17 @@ tfw_sock_clnt_init(void)
 		return -ENOMEM;
 	}
 
+
+	tfw_h2_https_conn_cache = kmem_cache_create("tfw_h2_https_conn_cache",
+						    sizeof(TfwH2Conn), 0, 0,
+						    NULL);
+	if (!tfw_h2_https_conn_cache) {
+		kmem_cache_destroy(tfw_https_conn_cache);
+		kmem_cache_destroy(tfw_h1_conn_cache);
+		return -ENOMEM;
+	}
+
+
 	tfw_mod_register(&tfw_sock_clnt_mod);
 
 	return 0;
@@ -1236,4 +1259,5 @@ tfw_sock_clnt_exit(void)
 	kmem_cache_destroy(tfw_h2_conn_cache);
 	kmem_cache_destroy(tfw_https_conn_cache);
 	kmem_cache_destroy(tfw_h1_conn_cache);
+	kmem_cache_destroy(tfw_h2_https_conn_cache);
 }

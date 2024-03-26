@@ -612,7 +612,8 @@ tfw_tls_conn_dtor(void *c)
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
 
-	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
+	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2 ||
+	    TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2_HTTPS)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
@@ -664,10 +665,10 @@ tfw_tls_conn_init(TfwConn *c)
 		goto err_cleanup;
 	}
 
-	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2)
+	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2 ||
+	    TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2_HTTPS)
 		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
 			goto err_cleanup;
-
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
 	 * to keep the things safe.
@@ -767,7 +768,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 
 	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
-	      msg->len, io->msglen + TLS_HEADER_SIZE, c,
+	      msg->len, tls->io_out.msglen + TLS_HEADER_SIZE, c,
 	      c->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
 	if (ttls_xfrm_ready(tls)) {
@@ -986,6 +987,10 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 	    && alpn->id == TTLS_ALPN_ID_HTTP1)
 		return true;
 
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2_HTTPS &&
+	    (alpn->id == TTLS_ALPN_ID_HTTP1 || alpn->id == TTLS_ALPN_ID_HTTP2))
+		return true;
+
 	return false;
 }
 
@@ -1090,6 +1095,20 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 		}
 	}
 
+	if (!strcasecmp(cfg_str, "h2,https") ||
+	    !strcasecmp(cfg_str, "https,h2")) {
+
+		proto0->id = TTLS_ALPN_ID_HTTP2;
+		proto0->name = TTLS_ALPN_HTTP2;
+		proto0->len = sizeof(TTLS_ALPN_HTTP2) - 1;
+
+		proto1->id = TTLS_ALPN_ID_HTTP1;
+		proto1->name = TTLS_ALPN_HTTP1;
+		proto1->len = sizeof(TTLS_ALPN_HTTP1) - 1;
+
+		return TFW_FSM_H2_HTTPS;
+	}
+
 	return -EINVAL;
 }
 
@@ -1163,6 +1182,7 @@ tfw_tls_init(void)
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_HTTPS);
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_H2);
+	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_H2_HTTPS);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;

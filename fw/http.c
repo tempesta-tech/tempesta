@@ -2606,7 +2606,9 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	else
 		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 
-	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2) {
+	if ((TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2) ||
+	    (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2_HTTPS &&
+	     conn->proto.option == TFW_FSM_PROT_H2)) {
 		TfwHttpReq *req = (TfwHttpReq *)hm;
 
 		if(!(req->pit.pool = __tfw_pool_new(0)))
@@ -2819,7 +2821,9 @@ static void tfw_http_resp_terminate(TfwHttpMsg *hm);
 static void
 tfw_http_conn_drop(TfwConn *conn)
 {
-	bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
+	bool h2_mode = (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2 ||
+		       (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2_HTTPS &&
+			conn->proto.option == TFW_FSM_PROT_H2));
 
 	T_DBG3("%s: conn=[%px]\n", __func__, conn);
 
@@ -5827,7 +5831,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 
 	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
-
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -6544,7 +6547,6 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
 	 * However, TCP overlapping segments still may produce non-zero offset
 	 * in ss_tcp_process_skb().
 	 */
-
 	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
 	/*
@@ -6886,14 +6888,26 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
 {
 	TfwStream *stream = &conn->stream;
 
-	WARN_ON_ONCE(TFW_CONN_TLS(conn) && tfw_tls_context(conn)->alpn_chosen
-		     && tfw_tls_context(conn)->alpn_chosen->id
-			== TTLS_ALPN_ID_HTTP2
-		     && TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2);
+	if (TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2_HTTPS) {
 
-	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
-		return tfw_h2_frame_process(conn, skb, next);
-	return tfw_http_msg_process_generic(conn, stream, skb, next);
+		WARN_ON_ONCE(TFW_CONN_TLS(conn) &&
+			     tfw_tls_context(conn)->alpn_chosen &&
+			     tfw_tls_context(conn)->alpn_chosen->id ==
+			     TTLS_ALPN_ID_HTTP2 &&
+			     TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2);
+
+		if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
+			return tfw_h2_frame_process(conn, skb, next);
+		return tfw_http_msg_process_generic(conn, stream, skb, next);
+	} else {
+		if (tfw_tls_context(conn)->alpn_chosen->id ==
+		    TTLS_ALPN_ID_HTTP2) {
+			conn->proto.option = TFW_FSM_PROT_H2;
+			return tfw_h2_frame_process(conn, skb, next);
+		}
+		conn->proto.option = TFW_FSM_PROT_H1;
+		return tfw_http_msg_process_generic(conn, stream, skb, next);
+	}
 }
 
 /**
