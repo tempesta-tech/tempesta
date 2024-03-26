@@ -147,7 +147,7 @@ do {									\
  */
 #define FRAME_FSM_READ_PYLD()						\
 do {									\
-	WARN_ON_ONCE(ctx->rlen >= ctx->to_read);			\
+	WARN_ON_ONCE(ctx->rlen > ctx->to_read);				\
 	n = min_t(int, ctx->to_read - ctx->rlen, buf + len - p);	\
 	p += n;								\
 	ctx->rlen += n;							\
@@ -1308,7 +1308,15 @@ do {									\
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
+		/* TODO: #1196 Rework this part. */
+		if (tfw_h2_get_stream_state(ctx->cur_stream) >=
+		    HTTP2_STREAM_LOC_CLOSED)
+			ctx->state = HTTP2_IGNORE_FRAME_DATA;
+		else
+			ctx->state = HTTP2_RECV_DATA;
+
+		SET_TO_READ(ctx);
+
 		return 0;
 
 	case HTTP2_HEADERS:
@@ -1344,7 +1352,17 @@ do {									\
 		if (hdr->flags & HTTP2_F_PRIORITY)
 			return tfw_h2_recv_priority(ctx);
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
+		/* TODO: #1196 Rework this part. */
+		if (ctx->cur_stream &&
+		    tfw_h2_get_stream_state(ctx->cur_stream) >=
+		    HTTP2_STREAM_LOC_CLOSED)
+		{
+			ctx->state = HTTP2_IGNORE_FRAME_DATA;
+		} else {
+			ctx->state = HTTP2_RECV_HEADER;
+		}
+
+		SET_TO_READ(ctx);
 		return 0;
 
 	case HTTP2_PRIORITY:
@@ -1359,10 +1377,11 @@ do {									\
 		if (hdr->length != FRAME_PRIORITY_SIZE)
 			goto conn_term;
 
-		if (ctx->cur_stream) {
-			STREAM_RECV_PROCESS(ctx, hdr);
-			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
-		} else {
+		/* TODO: #1196 Rework this part. */
+		if (!ctx->cur_stream ||
+		    tfw_h2_get_stream_state(ctx->cur_stream) >=
+		    HTTP2_STREAM_LOC_CLOSED)
+		{
 			/*
 			 * According to RFC 9113 section 5.1:
 			 * PRIORITY frames are allowed in the `closed` state,
@@ -1370,7 +1389,11 @@ do {									\
 			 * already removed from memory, just ignore this frame.
 			 */
 			ctx->state = HTTP2_IGNORE_FRAME_DATA;
+		} else {
+			STREAM_RECV_PROCESS(ctx, hdr);
+			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
 		}
+
 		SET_TO_READ(ctx);
 		return 0;
 
@@ -1540,7 +1563,8 @@ do {									\
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
+		SET_TO_READ(ctx);
+		ctx->state = HTTP2_RECV_CONT;
 		return 0;
 
 	default:
@@ -1630,8 +1654,20 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		if ((ret = tfw_h2_frame_type_process(ctx)))
 			FRAME_FSM_EXIT(ret);
 
-		if (ctx->to_read)
+		if (ctx->to_read) {
 			FRAME_FSM_NEXT();
+		} else if (ctx->state != HTTP2_IGNORE_FRAME_DATA &&
+			   (ctx->hdr.type == HTTP2_HEADERS ||
+			    ctx->hdr.type == HTTP2_CONTINUATION ||
+			    ctx->hdr.type == HTTP2_DATA))
+		{
+			/*
+			 * HEADERS, CONTINUATION and DATA are allowed to have
+			 * empty payload.
+			 */
+			ctx->rlen = 0;
+			T_FSM_NEXT();
+		}
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1821,13 +1857,39 @@ tfw_h2_context_reinit(TfwH2Ctx *ctx, bool postponed)
 	}
 }
 
+static bool
+tfw_h2_allowed_empty_frame(TfwH2Ctx *ctx)
+{
+	unsigned char flags = ctx->hdr.flags;
+	TfwFrameType type = ctx->hdr.type;
+
+	if (ctx->plen)
+		return false;
+
+	/* Allow empty DATA frame only with END_STREAM flag. */
+	if (type == HTTP2_DATA && flags & HTTP2_F_END_STREAM)
+		return true;
+
+	/* Allow empty CONTINUATION frame only with END_HEADERS flag. */
+	if (type == HTTP2_CONTINUATION && flags & HTTP2_F_END_HEADERS)
+		return true;
+
+	/*
+	 * Allow here empty HEADERS frame, invalid frames will be dropped
+	 * before parsing (case when invalid HEADERS in trailer).
+	 */
+	if (type == HTTP2_HEADERS)
+		return true;
+
+	return false;
+}
+
 int
 tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
 {
 	int r;
 	bool postponed;
 	unsigned int parsed, unused;
-	TfwFsmData data_up = {};
 	TfwH2Ctx *h2 = tfw_h2_context(c);
 	struct sk_buff *nskb = NULL;
 
@@ -1891,6 +1953,9 @@ next_msg:
 		}
 	}
 
+	 if (unlikely(!h2->cur_stream))
+		 goto purge;
+
 	/*
 	 * Before transferring the skb with app frame for further processing,
 	 * certain service data should be separated from it (placed at the
@@ -1909,8 +1974,9 @@ next_msg:
 	 * by the time we get here. We shouldn't submit the data to the
 	 * upper level for the actual HTTP parsing.
 	 */
-	if (APP_FRAME(h2) && likely(h2->cur_stream))
-	{
+	if (APP_FRAME(h2) && h2->plen) {
+		struct sk_buff *pskb;
+
 		/* This chopping algorithm could be replaced with a call
 		 * of ss_skb_list_chop_head_tail(). We refrain of it
 		 * to proccess a special case !h2->skb_head below.
@@ -1935,23 +2001,53 @@ next_msg:
 		 * skbs until full frame will be received.
 		 */
 		WARN_ON_ONCE(h2->skb_head != h2->skb_head->next);
-		data_up.skb = h2->skb_head;
-		if ((r = ss_skb_chop_head_tail(NULL, data_up.skb,
+		pskb = h2->skb_head;
+		if ((r = ss_skb_chop_head_tail(NULL, pskb,
 					       h2->data_off, 0))) {
 			kfree_skb(nskb);
 			goto out;
 		}
 		h2->data_off = 0;
-		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
-		r = tfw_http_msg_process_generic(c, h2->cur_stream,
-						 data_up.skb, next);
+		h2->skb_head = pskb->next = pskb->prev = NULL;
+		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
 		/* TODO #1490: Check this place, when working on the task. */
 		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
 			kfree_skb(nskb);
 			goto out;
 		}
-	} else {
+	}
+	else if (unlikely(tfw_h2_allowed_empty_frame(h2))) {
+		/*
+		 * Process empty frames.
+		 */
+		struct sk_buff *pskb, *end = h2->skb_head->prev;
+
+		/*
+		 * Free all SKBs in queue except the last. The last one
+		 * will be passed to message processing function.
+		 */
+		while (unlikely(h2->skb_head != end)) {
+			pskb = ss_skb_dequeue(&h2->skb_head);
+			h2->data_off -= pskb->len;
+			kfree_skb(pskb);
+		}
+
+		pskb = h2->skb_head;
+		h2->skb_head = pskb->next = pskb->prev = NULL;
+		h2->data_off = 0;
+		/* The skb will not be parsed, just flags will be checked. */
+		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
+
+		/* TODO #1490: Check this place, when working on the task. */
+		if (r && r != T_DROP) {
+			WARN_ON_ONCE(r == T_POSTPONE);
+			kfree_skb(nskb);
+			goto out;
+		}
+	}
+	else {
+purge:
 		h2->data_off = 0;
 		ss_skb_queue_purge(&h2->skb_head);
 	}
