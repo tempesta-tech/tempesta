@@ -421,7 +421,6 @@ static TfwGlobal		tfw_global = {
 static FrangVhostCfg	tfw_frang_vhost_reconfig;
 static FrangGlobCfg	tfw_frang_glob_reconfig;
 
-
 /**
  * Match vhost to requested name. Called in process context during configuration
  * processing, both strings are guaranteed to be plain.
@@ -2662,7 +2661,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	},
 	{
 		.name = "concurrent_tcp_connections",
-		.deflt = "0",
+		.deflt = "1000",
 		.handler = tfw_cfgop_frang_glob_set_int,
 		.dest = &tfw_frang_glob_reconfig.conn_max,
 		.spec_ext = &(TfwCfgSpecInt) {
@@ -2759,7 +2758,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	},
 	{
 		.name = "http_header_cnt",
-		.deflt = "0",
+		.deflt = "50",
 		.handler = tfw_cfgop_frang_hdr_cnt,
 		.allow_reconfig = true,
 	},
@@ -2911,7 +2910,7 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 	},
 	{
 		.name = "http_header_cnt",
-		.deflt = "0",
+		.deflt = "50",
 		.handler = tfw_cfgop_frang_hdr_cnt,
 		.allow_reconfig = true,
 	},
