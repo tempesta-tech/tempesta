@@ -2728,7 +2728,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	},
 	{
 		.name = "concurrent_connections",
-		.deflt = "0",
+		.deflt = "1000",
 		.handler = tfw_cfgop_frang_glob_set_int,
 		.dest = &tfw_frang_glob_reconfig.conn_max,
 		.spec_ext = &(TfwCfgSpecInt) {
@@ -2825,7 +2825,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	},
 	{
 		.name = "http_header_cnt",
-		.deflt = "0",
+		.deflt = "50",
 		.handler = tfw_cfgop_frang_hdr_cnt,
 		.allow_reconfig = true,
 	},
@@ -2977,7 +2977,7 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 	},
 	{
 		.name = "http_header_cnt",
-		.deflt = "0",
+		.deflt = "50",
 		.handler = tfw_cfgop_frang_hdr_cnt,
 		.allow_reconfig = true,
 	},
