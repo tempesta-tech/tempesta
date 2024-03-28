@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -207,14 +207,16 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 {
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	int i = ts % FRANG_FREQ;
+	/* TODO: Remove when PR #2078 merged. */
+	int conn_max = conf->conn_max == 0 ? 1000 : conf->conn_max;
 
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
 
-	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
+	if (unlikely(ra->conn_curr > conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
-			     conf->conn_max, &FRANG_ACC2CLI(ra)->addr);
+			     conn_max, &FRANG_ACC2CLI(ra)->addr);
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
