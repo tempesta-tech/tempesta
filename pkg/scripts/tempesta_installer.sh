@@ -117,15 +117,6 @@ tfw_install_packages()
 	files=("${@}")
 
   case $DISTRO in
-	"debian-11")
-    log "INFO" "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
-    mkdir -p $DOWNLOAD_DIR/$repo
-    ;;
-	"ubuntu-20")
-    repo=""
-    log "INFO" "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
-    mkdir -p $DOWNLOAD_DIR/$repo
-    ;;
 	"ubuntu-22")
     repo=""
     log "INFO" "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
@@ -154,28 +145,6 @@ tfw_install_deps()
 	APT_OPTS=
 
 	case $DISTRO in
-	"debian-11")
-		echo ""
-		log "INFO" "Installation on Debian 11 requires updating system from bullseye repository before installing TempestaFW."
-		log "INFO" "Updating system from bullseye repository for Debian 11."
-		tfw_confirm
-
-		echo "deb http://deb.debian.org/debian/ " \
-		        "bullseye main" >> /etc/apt/sources.list
-		apt-get update || log "ERROR" "Failed to update package lists for Debian 11."
-		apt-get -t jessie-backports dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Debian 11."
-		;;
-	"ubuntu-20")
-        echo ""
-		log "INFO" "Installation on Ubuntu 20 LTS requires updating system from jessie-backports repository before installing TempestaFW."
-		log "INFO" "Updating system from focal repository for Ubuntu 20 LTS."
-		tfw_confirm
-
-		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
-		        "focal main" >> /etc/apt/sources.list
-		apt-get update || log "ERROR" "Failed to update package lists for Ubuntu 20 LTS."
-		apt-get dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Ubuntu 20 LTS."
-    ;;
 	"ubuntu-22")
         echo ""
 		log "INFO" "Installation on Ubuntu 22 LTS requires updating system from jessie-backports repository before installing TempestaFW."
@@ -322,12 +291,6 @@ tfw_try_distro()
 	log "INFO" "Detected distribution name: $d_name"
 
 	case $d_name in
-	"Debian GNU/Linux bullseye")
-		DISTRO="debian-11"
-		;;
-	Ubuntu[[:space:]]20*)
-		DISTRO="ubuntu-20"
-		;;
 	Ubuntu[[:space:]]22*)
 		DISTRO="ubuntu-22"
 		;;
@@ -348,18 +311,12 @@ tfw_set_grub_default()
 	fi
 
 	u_entry=`grep menuentry /boot/grub/grub.cfg | grep 5.10.35.tfw | head -n1 | cut -d "'" -f 2`
-	entry=`grep menuentry /boot/grub/grub.cfg | grep tempesta | head -n1 | cut -d "'" -f 2`
-
-	if [[ ! "$entry" && ! "$u_entry" ]]; then
+	if [[ ! "$u_entry" ]]; then
 		log "ERROR" "Can't find Tempesta patched kernel in /boot/grub/grub.cfg!"
 		return
 	fi
-	if [[ "$entry" ]]; then
-		log "INFO" "Setting GRUB default to Tempesta kernel for Debian: $entry"
-		echo "GRUB_DEFAULT='Advanced options for Debian GNU/Linux>$entry'" >> /etc/default/grub
-	fi
 	if [[ "$u_entry" ]]; then
-		log "INFO" "Setting GRUB default to Tempesta kernel for Ubuntu: $entry"
+		log "INFO" "Setting GRUB default to Tempesta kernel for Ubuntu: $u_entry	"
 		echo "GRUB_DEFAULT='Advanced options for Ubuntu>$u_entry'" >> /etc/default/grub
 	fi
 
