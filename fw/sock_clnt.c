@@ -1236,7 +1236,6 @@ tfw_sock_clnt_init(void)
 		return -ENOMEM;
 	}
 
-
 	tfw_h2_https_conn_cache = kmem_cache_create("tfw_h2_https_conn_cache",
 						    sizeof(TfwH2Conn), 0, 0,
 						    NULL);
@@ -1245,7 +1244,6 @@ tfw_sock_clnt_init(void)
 		kmem_cache_destroy(tfw_h1_conn_cache);
 		return -ENOMEM;
 	}
-
 
 	tfw_mod_register(&tfw_sock_clnt_mod);
 
