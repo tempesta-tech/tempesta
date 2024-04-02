@@ -1452,7 +1452,17 @@ tfw_http_req_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 {
 	if (srv_conn)
 		tfw_http_req_delist(srv_conn, req);
-	__tfw_http_req_err(req, eq, status, reason);
+
+	if (!test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
+		__tfw_http_req_err(req, eq, status, reason);
+	}
+	else {
+		/*
+		 * Unable to send error message for the health monitor requests.
+		 * Just drop it.
+		 */
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	}
 }
 
 static inline void
