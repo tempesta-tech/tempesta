@@ -7425,15 +7425,59 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 	return 0;
 }
 
-#define TFW_HTTP_CFG_CUSTOM_BRANGE(name)				\
+static int
+__cfgop_brange_parse_disallowed(char *str, unsigned char *a)
+{
+	char *start = str, *end = str;
+
+	while (true) {
+		if (*end == ' ' || *end == '\0') {
+			char* val = start;
+			unsigned long i0 = 0, i1 = 0;
+			*end = '\0';
+
+			if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
+				T_ERR_NL("Cannot parse interval: '%s'\n", val);
+				return -EINVAL;
+			}
+			if (i0 > 255 || i1 > 255) {
+				T_ERR_NL("Too large interval bounds: '%s'\n", val);
+				return -EINVAL;
+			}
+
+			a[i0++] = 1;
+			printk(KERN_INFO "disallow: %s %d\n", str, a[i0-1]);
+			while (i0 <= i1)
+				a[i0++] = 1;
+
+			start = end + 1;
+		}
+		if (*end++ == '\0') {
+			break;
+		}
+	}
+
+	return 0;
+}
+
+#define TFW_HTTP_CFG_CUSTOM_BRANGE(name, disallowed)			\
 static int								\
 tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)		\
 {									\
-	int r;								\
+	int r, i;							\
 	unsigned char a[256] = {};					\
+	unsigned char d[256] = {};					\
+	char dd[] = disallowed;					        \
 									\
 	if ((r = __cfgop_brange_hndl(cs, ce, a)))			\
 		return r;						\
+	if ((r = __cfgop_brange_parse_disallowed(dd, d)))		\
+		return r;						\
+	for (i = 0; i < 256; i++)					\
+		if (d[i] && a[i]) {					\
+			T_ERR_NL("disallowed char: '0x%x'\n", d[i]);	\
+			return -EINVAL;					\
+		}							\
 	tfw_init_custom_##name(a);					\
 									\
 	return 0;							\
@@ -7445,14 +7489,14 @@ tfw_cfgop_cleanup_brange_##name(TfwCfgSpec *cs)				\
 	tfw_init_custom_##name(NULL);					\
 }
 
-TFW_HTTP_CFG_CUSTOM_BRANGE(uri);
-TFW_HTTP_CFG_CUSTOM_BRANGE(token);
-TFW_HTTP_CFG_CUSTOM_BRANGE(qetoken);
-TFW_HTTP_CFG_CUSTOM_BRANGE(nctl);
-TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar);
-TFW_HTTP_CFG_CUSTOM_BRANGE(xff);
-TFW_HTTP_CFG_CUSTOM_BRANGE(cookie);
-TFW_HTTP_CFG_CUSTOM_BRANGE(etag);
+TFW_HTTP_CFG_CUSTOM_BRANGE(uri, "0x00-0x20");
+TFW_HTTP_CFG_CUSTOM_BRANGE(token, "0x00-0x20 0x2c 0x3b");
+TFW_HTTP_CFG_CUSTOM_BRANGE(qetoken, "0x00-0x20 0x2c");
+TFW_HTTP_CFG_CUSTOM_BRANGE(nctl, "0x00-0x1f");
+TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar, "0x00-0x1f");
+TFW_HTTP_CFG_CUSTOM_BRANGE(xff, "0x00-0x20 0x2c");
+TFW_HTTP_CFG_CUSTOM_BRANGE(cookie, "0x00-0x20 0x3b 0x3d");
+TFW_HTTP_CFG_CUSTOM_BRANGE(etag, "0x00-0x20 0x22");
 
 #undef TFW_HTTP_CFG_CUSTOM_BRANGE
 
