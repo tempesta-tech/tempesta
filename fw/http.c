@@ -7430,32 +7430,32 @@ __cfgop_brange_parse_disallowed(char *str, unsigned char *a)
 {
 	char *start = str, *end = str;
 
-	while (true) {
-		if (*end == ' ' || *end == '\0') {
-			char* val = start;
-			unsigned long i0 = 0, i1 = 0;
-			*end = '\0';
+	do {
+		char* val;
+		unsigned long i0, i1;
 
-			if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
-				T_ERR_NL("Cannot parse interval: '%s'\n", val);
-				return -EINVAL;
-			}
-			if (i0 > 255 || i1 > 255) {
-				T_ERR_NL("Too large interval bounds: '%s'\n", val);
-				return -EINVAL;
-			}
+		if (*end != ' ' && *end != '\0')
+			continue;
 
+		val = start;
+		i0 = 0, i1 = 0;
+		*end = '\0';
+
+		if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
+			T_ERR_NL("Cannot parse interval: '%s'\n", val);
+			return -EINVAL;
+		}
+		if (i0 > 255 || i1 > 255) {
+			T_ERR_NL("Too large interval bounds: '%s'\n", val);
+			return -EINVAL;
+		}
+
+		a[i0++] = 1;
+		while (i0 <= i1)
 			a[i0++] = 1;
-			printk(KERN_INFO "disallow: %s %d\n", str, a[i0-1]);
-			while (i0 <= i1)
-				a[i0++] = 1;
 
-			start = end + 1;
-		}
-		if (*end++ == '\0') {
-			break;
-		}
-	}
+		start = end + 1;
+	} while (*end++ != '\0');
 
 	return 0;
 }
@@ -7468,6 +7468,8 @@ tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)		\
 	unsigned char a[256] = {};					\
 	unsigned char d[256] = {};					\
 	char dd[] = disallowed;					        \
+	T_DBG3("custom brange: %s: disallow chars: %s\n",		\
+		#name, disallowed);					\
 									\
 	if ((r = __cfgop_brange_hndl(cs, ce, a)))			\
 		return r;						\
@@ -7475,7 +7477,7 @@ tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)		\
 		return r;						\
 	for (i = 0; i < 256; i++)					\
 		if (d[i] && a[i]) {					\
-			T_ERR_NL("disallowed char: '0x%x'\n", d[i]);	\
+			T_ERR_NL("disallowed char: '0x%02x'\n", i);	\
 			return -EINVAL;					\
 		}							\
 	tfw_init_custom_##name(a);					\
