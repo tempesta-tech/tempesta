@@ -702,7 +702,7 @@ ht_small:
 				hp->curr -= shift;
 			}
 			else {
-				T_ERR("Decoding error. Short table shift less than zero.");
+				T_WARN("Decoding error. Short table shift less than zero.");
 				break;
 			}
 		}
