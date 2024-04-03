@@ -3216,7 +3216,7 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
