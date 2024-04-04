@@ -37,6 +37,8 @@
 
 static TfwConn conn_req, conn_resp;
 
+unsigned int tfw_cli_max_concurrent_streams;
+
 TfwHttpReq *
 test_req_alloc(size_t data_len)
 {
@@ -375,6 +377,12 @@ void do_access_log(TfwHttpResp *resp)
 
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
 {
+}
+
+int
+frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
+{
+	return T_OK;
 }
 
 unsigned int cache_default_ttl = 60;

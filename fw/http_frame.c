@@ -237,14 +237,14 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
-	lset->max_streams = rset->max_streams = 0xffffffff;
+	lset->max_streams = tfw_cli_max_concurrent_streams;
+	rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
-	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
-	/*
-	 * We ignore client's window size until #498, so currently
-	 * we set it to maximum allowed value.
-	 */
-	lset->wnd_sz = MAX_WND_SIZE;
+	lset->max_lhdr_sz = max_header_list_size ?
+		max_header_list_size : UINT_MAX;
+	rset->max_lhdr_sz = UINT_MAX;
+
+	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
@@ -399,14 +399,20 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	struct {
 		unsigned short key;
 		unsigned int value;
-	} __attribute__((packed)) field[2];
+	} __attribute__((packed)) field[4];
+
+	const unsigned int required_fields = 3;
 
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = (unsigned char*)field, .len = sizeof(field) },
+			{
+				.data = (unsigned char *)field,
+				.len = required_fields * sizeof(field[0])
+			},
+			{},
 		},
-		.len = sizeof(field),
+		.len = required_fields * sizeof(field[0]),
 		.nchunks = 2
 	};
 	TfwFrameHdr hdr = {
@@ -425,6 +431,18 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
+
+	field[2].key   = htons(HTTP2_SETTINGS_MAX_STREAMS);
+	field[2].value = htonl(ctx->lsettings.max_streams);
+
+	if (ctx->lsettings.max_lhdr_sz != UINT_MAX) {
+		field[required_fields].key =
+			htons(HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
+		field[required_fields].value =
+			htonl(ctx->lsettings.max_lhdr_sz);
+		data.chunks[1].len += sizeof(field[0]);
+		hdr.length += sizeof(field[0]);
+	}
 
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
@@ -893,18 +911,15 @@ static void
 tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 {
 	TfwStream *cur;
-	unsigned int max_streams = ctx->lsettings.max_streams;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 
-	T_DBG3("%s: ctx [%p] max_streams %u\n", __func__, ctx, max_streams);
+	T_DBG3("%s: ctx [%p] closed streams num %lu\n", __func__, ctx,
+	       closed_streams->num);
 
 	while (1) {
 		spin_lock(&ctx->lock);
 
-		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS
-		    || (max_streams == ctx->streams_num
-			&& closed_streams->num))
-		{
+		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS) {
 			spin_unlock(&ctx->lock);
 			break;
 		}
@@ -1398,6 +1413,23 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
 
+/*
+ * TODO: Use this macro for processing PRIORITY frame.
+ */
+#define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
+do {									\
+	unsigned int max_streams = ctx->lsettings.max_streams;		\
+									\
+	tfw_h2_closed_streams_shrink(ctx);				\
+									\
+	if (max_streams == ctx->streams_num) {				\
+		T_WARN("Max streams number exceeded: %lu\n",		\
+		      ctx->streams_num);				\
+		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
+		ACTION;							\
+	}								\
+} while(0)
+
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
 
@@ -1468,20 +1500,11 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		 * maximum number of concurrent streams (see RFC 7540 section
 		 * 5.1.2 for details).
 		 */
-		if (!ctx->cur_stream) {
-			unsigned int max_streams = ctx->lsettings.max_streams;
-
-			WARN_ON_ONCE(max_streams < ctx->streams_num);
-			tfw_h2_closed_streams_shrink(ctx);
-
-			if (max_streams == ctx->streams_num) {
-				T_DBG("Max streams number exceeded: %lu\n",
-				      ctx->streams_num);
-				SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);
+		if (!ctx->cur_stream)
+			VERIFY_MAX_CONCURRENT_STREAMS(ctx, {
 				return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
 							      HTTP2_ECODE_REFUSED);
-			}
-		}
+			});
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;

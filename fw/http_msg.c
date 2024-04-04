@@ -32,6 +32,7 @@
 #include "http_msg.h"
 #include "http_parser.h"
 #include "ss_skb.h"
+#include "http_limits.h"
 
 /*
  * Used during allocating from TfwPool first fragment for containing headers.
@@ -552,12 +553,25 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwHttpParser *parser = &hm->stream->parser;
 	unsigned int id = parser->_hdr_tag;
+	bool is_srv_conn = TFW_CONN_TYPE(hm->conn) & Conn_Srv;
+	int r;
 
 	BUG_ON(parser->hdr.flags & TFW_STR_DUPLICATE);
 	BUG_ON(id > TFW_HTTP_HDR_RAW);
 
 	/* Close just parsed header. */
 	parser->hdr.flags |= TFW_STR_COMPLETE;
+
+	/*
+	 * We make this frang check here, because it is the earliest
+	 * place where we can determine that new added header is violating
+	 * appropriate frang limits. For HTTP2 we check it even earlier when
+	 * we decode hpack.
+	 */
+	if (!is_srv_conn && !TFW_MSG_H2(hm) &&
+	    ((r = frang_http_hdr_limit((TfwHttpReq *)hm,
+				       parser->hdr.len)) != T_OK))
+		return r;
 
 	/* Quick path for special headers. */
 	if (likely(id < TFW_HTTP_HDR_RAW)) {
@@ -637,6 +651,13 @@ done:
 		return TFW_BLOCK;
 
 	*h = parser->hdr;
+
+	if (!is_srv_conn) {
+		TfwHttpReq *req = (TfwHttpReq *)hm;
+
+		req->header_list_sz += h->len + TFW_HTTP_MSG_HDR_OVERHEAD(hm);
+		req->headers_cnt++;
+	}
 
 	TFW_STR_INIT(&parser->hdr);
 	T_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",

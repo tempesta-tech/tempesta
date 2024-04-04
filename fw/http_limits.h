@@ -155,9 +155,9 @@ struct frang_global_cfg_t {
  * contains full effective set of limits for chosen vhost and location.
  *
  * @http_methods_mask	- Allowed HTTP request methods;
- * @http_uri_len	- Maximum allowed URI len;
- * @http_field_len	- Maximum HTTP header length;
  * @http_body_len	- Maximum body size;
+ * @http_uri_len	- Maximum allowed URI len;
+ * @http_hdr_len	- Maximum HTTP header length;
  * @http_hdr_cnt	- Maximum number of headers;
  * @http_ct_vals	- Allowed 'Content-Type:' values;
  * @http_ct_vals_sz	- Size of @http_ct_vals member;
@@ -174,7 +174,7 @@ struct frang_vhost_cfg_t {
 	unsigned long		http_methods_mask;
 	unsigned long		http_body_len;
 	unsigned int		http_uri_len;
-	unsigned int		http_field_len;
+	unsigned int		http_hdr_len;
 	unsigned int		http_hdr_cnt;
 
 	FrangCtVals		*http_ct_vals;
@@ -187,5 +187,6 @@ struct frang_vhost_cfg_t {
 };
 
 int frang_tls_handler(TlsCtx *tls, int state);
+int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
 
 #endif /* __HTTP_LIMITS__ */

@@ -1,3 +1,21 @@
+tempesta-fw-dkms (0.7.1) focal; urgency=medium
+
+  * Frang: Changed default settings to more strict
+  * Implement `max_concurrent_streams` limitation
+  * Implement http limits for request headers
+  * Frang: fix parsing of request method with TCP segmentation
+  * Fix unlimited body parsing and add body iterator
+  * Fix of CCM tls encryption and decryption
+  * Fix of infinite loop in chunked body (HTTP/2)
+  * Fix race with using parser fields
+  * Fix HTTP/2 headers name confusion
+  * Fix GPF when skb reused
+  * Fix of changing http2 window size
+  * Fix BUG_ON in tdb_htrie_descen
+  * Rewrite tfw_hpack_node_compare to make it clean & fast
+  * Fix incorrect server connection reference counter
+  * Hide "Te" header from HTTP/1.x backend when proxying response over HTTP/2.
+
 tempesta-fw-dkms (0.7.0) focal; urgency=medium
 
   * Fix corrupted header location on H2 sticky cookie redirect
