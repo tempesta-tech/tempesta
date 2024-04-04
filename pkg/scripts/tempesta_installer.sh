@@ -95,7 +95,7 @@ tfw_download()
 		fall_links=("http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/pool/l/linux-headers-5.10.35.tfw-4c9ba16/linux-headers-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
 		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/pool/l/linux-image-5.10.35.tfw-4c9ba16/linux-image-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
 		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/pool/l/linux-libc-dev/linux-libc-dev_5.10.35.tfw-4c9ba16-1_amd64.deb"
-		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/pool/t/tempesta-fw-dkms/tempesta-fw-dkms_0.7.0_amd64.deb -O tempesta-fw-dkms.deb")
+		"http://tempesta-vm.cloud.cherryservers.net:8081/repository/tempesta/pool/t/tempesta-fw-dkms/tempesta-fw-dkms_0.7.1_amd64.deb -O tempesta-fw-dkms.deb")
 
 		for file in ${fall_links[@]}
 		do
