@@ -215,6 +215,7 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
 			     conf->conn_max, &FRANG_ACC2CLI(ra)->addr);
+		ra->conn_curr--;
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
@@ -224,6 +225,8 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	{
 		frang_limmsg("new connections burst", ra->history[i].conn_new,
 			     conf->conn_burst, &FRANG_ACC2CLI(ra)->addr);
+		BUG_ON(!ra->conn_curr);
+		ra->conn_curr--;
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
@@ -239,6 +242,8 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 			frang_limmsg("new connections rate",
 				     csum, conf->conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
+			BUG_ON(!ra->conn_curr);
+			ra->conn_curr--;
 			spin_unlock(&ra->lock);
 			return T_BLOCK;
 		}
