@@ -973,7 +973,8 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	hdr->flags |= TFW_STR_TRAILER;
 	__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, hm->flags);
 
-	hm->trailers_len += tfw_str_len(hdr) + 2;
+	// plus "\r\n"
+	hm->trailers_len += hdr->len + 2;
 
 	return CSTR_EQ;
 }
