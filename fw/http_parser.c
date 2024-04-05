@@ -10429,7 +10429,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	case TFW_TAG_HDR_CONTENT_ENCODING:
 	TFW_H2_PARSE_HDR_VAL(Req_HdrContent_EncodingV, msg,
 			     __h2_req_parse_content_encoding,
-			     TFW_HTTP_HDR_CONTENT_ENCODING, 1);
+			     TFW_HTTP_HDR_CONTENT_ENCODING, 0);
 
 	/* 'content-length' is read, process field-value. */
 	case TFW_TAG_HDR_CONTENT_LENGTH:

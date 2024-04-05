@@ -7612,7 +7612,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 	},
 	{
 		.name = "http_max_header_list_size",
-		.deflt = NULL,
+		.deflt = "16384",
 		.handler = tfw_cfgop_max_header_list_size,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_max_header_list_size,

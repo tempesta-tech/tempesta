@@ -702,11 +702,7 @@ ht_small:
 				hp->curr -= shift;
 			}
 			else {
-				/*
-				 * @shift for short tables must be greater
-				 * than zero.
-				 */
-				WARN_ON_ONCE(1);
+				T_WARN("Decoding error. Short table shift less than zero.");
 				break;
 			}
 		}
