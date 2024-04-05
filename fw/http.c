@@ -7493,7 +7493,7 @@ tfw_cfgop_cleanup_brange_##name(TfwCfgSpec *cs)				\
 
 TFW_HTTP_CFG_CUSTOM_BRANGE(uri, "0x00-0x20");
 TFW_HTTP_CFG_CUSTOM_BRANGE(token, "0x00-0x20 0x2c 0x3b");
-TFW_HTTP_CFG_CUSTOM_BRANGE(qetoken, "0x00-0x20 0x2c");
+TFW_HTTP_CFG_CUSTOM_BRANGE(qetoken, "0x00-0x08 0x22 0x5c 0x7f");
 TFW_HTTP_CFG_CUSTOM_BRANGE(nctl, "0x00-0x1f");
 TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar, "0x00-0x1f");
 TFW_HTTP_CFG_CUSTOM_BRANGE(xff, "0x00-0x20 0x2c");
