@@ -472,4 +472,5 @@ void tfw_str_dprint(const TfwStr *str, const char *msg);
 void tfw_dbg_vprint32(const char *prefix, const unsigned char *v);
 #endif
 
+int tfw_str_len(const TfwStr *str);
 #endif /* __TFW_STR_H__ */

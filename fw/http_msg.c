@@ -1047,7 +1047,7 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 	int r;
 
 	r = ss_skb_cutoff_data(resp->body.skb, &resp->cut, 0,
-			       tfw_str_eolen(&resp->body));
+			       tfw_str_eolen(&resp->body) + ((TfwHttpMsg*)resp)->trailers_len);
 	if (unlikely(r))
 		return r;
 

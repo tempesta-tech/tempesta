@@ -1400,3 +1400,16 @@ tfw_dbg_vprint32(const char *prefix, const unsigned char *v)
 	       D(24), D(25), D(26), D(27), D(28), D(29), D(30), D(31));
 }
 #endif
+
+int
+tfw_str_len(const TfwStr *str)
+{
+	const TfwStr *dup, *dup_end, *c, *chunk_end;
+	int len = 0;
+
+	TFW_STR_FOR_EACH_DUP(dup, str, dup_end) {
+		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
+			len += c->len;
+	}
+	return len;
+}

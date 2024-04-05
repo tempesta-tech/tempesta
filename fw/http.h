@@ -299,7 +299,8 @@ typedef struct {
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;
+	TfwStr		body;						\
+	int		trailers_len;
 
 
 static inline void
