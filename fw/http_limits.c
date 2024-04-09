@@ -336,11 +336,25 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * for a single client is absolutely straight-forward.
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
-	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block) {
-		tfw_filter_block_ip(cli);
-		tfw_client_put(cli);
-	}
 
+	/*
+	 * In case of closing connection by FIN-ACK, frang_conn_close()
+	 * is responsible for resources releasing.
+	 * In case of dropping connection by RST, we should release
+	 * resources here.
+	 */
+	if (unlikely(r == T_BLOCK)) {
+		if(dflt_vh->frang_gconf->ip_block) {
+			tfw_filter_block_ip(cli);
+			tfw_client_put(cli);
+		} else {
+			spin_lock(&ra->lock);
+			BUG_ON(!ra->conn_curr);
+			ra->conn_curr--;
+			spin_unlock(&ra->lock);
+			sk->sk_security = NULL;
+		}
+	}
 finish:
 	tfw_vhost_put(dflt_vh);
 
