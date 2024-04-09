@@ -193,7 +193,7 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 	/*
 	 * Increment connection counters even when we return T_BLOCK.
 	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
-	 * frang_conn_close() is also called. @conn_curr is decremented
+	 * tfw_classify_conn_close() is also called. @conn_curr is decremented
 	 * there, but @conn_new is not changed. We count both failed
 	 * connection attempts and connections that were successfully
 	 * established.
@@ -333,7 +333,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
 
 	/*
-	 * In case of closing connection by FIN-ACK, frang_conn_close()
+	 * In case of closing connection by FIN-ACK, tfw_classify_conn_close()
 	 * is responsible for resources releasing.
 	 * In case of dropping connection by RST, we should release
 	 * resources here.
@@ -343,8 +343,8 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 			tfw_filter_block_ip(cli);
 			tfw_client_put(cli);
 		} else {
-			spin_lock(&ra->lock);
 			BUG_ON(!ra->conn_curr);
+			spin_lock(&ra->lock);
 			ra->conn_curr--;
 			spin_unlock(&ra->lock);
 			sk->sk_security = NULL;
