@@ -4972,8 +4972,7 @@ tfw_http_req_filter_block_ip(TfwHttpReq *req)
 	if (WARN_ON_ONCE(!dflt_vh))
 		return;
 
-	cli = req->peer ? req->peer :
-		(TfwClient *)(req->conn ? req->conn->peer : NULL);
+	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
 	if (!cli)
 		goto out;
 
@@ -7005,8 +7004,8 @@ tfw_http_start(void)
 	if (WARN_ON_ONCE(!dflt_vh))
 		return -1;
 
-	misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY) &&
-		dflt_vh->frang_gconf->ip_block;
+        misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY)
+                           && dflt_vh->frang_gconf->ip_block;
 	tfw_vhost_put(dflt_vh);
 
 	if (misconfiguration) {

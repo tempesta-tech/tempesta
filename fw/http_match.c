@@ -51,7 +51,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -899,8 +899,8 @@ tfw_http_search_cookie(const TfwHttpReq *req, const char *cstr,
 
 #define TFW_SKIP_COOKIE_NAME(chunk, end, n)				\
 do {									\
-	while((chunk + 1 != end) &&					\
-	      ((chunk + 1)->flags & TFW_STR_NAME)) {			\
+        while ((chunk + 1 != end) &&                                    \
+               ((chunk + 1)->flags & TFW_STR_NAME)) {                   \
 		++chunk;						\
 		--n;							\
 	}								\

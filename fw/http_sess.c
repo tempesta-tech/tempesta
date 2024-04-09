@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -190,7 +190,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, bool jsch_allow)
 /*
  * Find Tempesta sticky cookie in an HTTP request.
  *
- * Return count of found cookie.
+ * Return the number of found cookies.
  */
 static int
 tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
@@ -649,8 +649,8 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	if (time_after(req->jrxtstamp, min_time))
 		return 0;
 
-	sess_warn("jsch redirect received outside allowed time range",
-		  &req->conn->peer->addr, " (%lu not after %lu)\n",
+	sess_warn("jsch redirect received too early",
+		  &req->conn->peer->addr, " (%lu is not after %lu)\n",
 		  req->jrxtstamp, min_time);
 
 	return TFW_HTTP_SESS_VIOLATE;
