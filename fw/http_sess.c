@@ -215,18 +215,23 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		TfwStr value = { 0 };
-		int cnt;
+		TfwStr *pos, *end;
+		const char *cstr = req->vhost->cookie->name_eq.data;
+		unsigned long clen = req->vhost->cookie->name_eq.len;
 
 		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
+		pos = value.chunks;
+		end = value.chunks + value.nchunks;
 		BUG_ON(!TFW_STR_PLAIN(&req->vhost->cookie->name_eq));
-		cnt = tfw_http_search_cookie(req,
-					     req->vhost->cookie->name_eq.data,
-					     req->vhost->cookie->name_eq.len,
-					     &value, cookie_val,
-					     TFW_HTTP_MATCH_O_EQ, false);
-		if (cnt < 0)
-			return cnt;
-		r += cnt;
+
+		while (pos != end) {
+			r += tfw_http_search_cookie(cstr, clen, &pos,
+						    end, cookie_val,
+						    TFW_HTTP_MATCH_O_EQ,
+						    false);
+			if (r > 1)
+				return r;
+		}
 	}
 
 	return r;
@@ -536,7 +541,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 
 		return TFW_HTTP_SESS_SUCCESS;
 	}
-	T_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
+	T_WARN("Multiple Tempesta sticky cookies found in request: %d\n", r);
 
 	return TFW_HTTP_SESS_FAILURE;
 }
@@ -885,22 +890,26 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
 		TfwStr value = { 0 };
-		int cnt;
+		TfwStr *pos, *end;
+		const char *cstr = sticky->name_eq.data;
+		unsigned long clen = sticky->name_eq.len;
 
 		if (TFW_STR_EMPTY(dup))
 			continue;
 		tfw_http_msg_srvhdr_val(dup, TFW_HTTP_HDR_SET_COOKIE, &value);
-		cnt = tfw_http_search_cookie(resp->req, sticky->name_eq.data,
-					     sticky->name_eq.len,
-					     &value, cookie_val,
-					     TFW_HTTP_MATCH_O_EQ, true);
-		if (cnt < 0)
-			return cnt;
-		r += cnt;
-	}
+		pos = value.chunks;
+		end = value.chunks + value.nchunks;
+		cstr = sticky->name_eq.data;
 
-	if (r > 1)
-		T_WARN("Multiple sticky cookies found in response: %d\n", r);
+		while (pos != end) {
+			r += tfw_http_search_cookie(cstr, clen, &pos,
+						    end, cookie_val,
+						    TFW_HTTP_MATCH_O_EQ,
+						    true);
+			if (r > 1)
+				return r;
+		}
+	}
 
 	return r;
 }
@@ -933,6 +942,7 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	case 1:
 		break;
 	default:
+		T_WARN("Multiple sticky cookies found in response: %d\n", r);
 		return -EINVAL;
 	}
 

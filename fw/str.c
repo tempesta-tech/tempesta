@@ -422,6 +422,7 @@ tfw_str_del_chunk(TfwStr *str, int id)
 /**
  * Collect string chunks into @out beginning from @chunk to the @end or
  * until the @stop char is found (at the beginning of some chunk).
+ * Returns the chunk where it stops.
  *
  * NOTE: this function is intended to collect subchunks of compound
  * strings, so the @chunk must be the plain string only.
