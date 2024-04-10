@@ -6239,19 +6239,12 @@ static void
 tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
-	TfwHttpReq *req = resp->req;
 
-	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
+	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
 
-	if (tfw_http_sess_learn(resp)) {
-		tfw_http_conn_msg_free(msg);
-		tfw_http_send_err_resp(req, 500, "response dropped:"
-				       " processing error");
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return;
-	}
+	tfw_http_sess_learn(resp);
 
-	if (TFW_MSG_H2(req))
+	if (TFW_MSG_H2(resp->req))
 		tfw_h2_resp_adjust_fwd(resp);
 	else
 		tfw_h1_resp_adjust_fwd(resp);

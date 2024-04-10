@@ -1661,7 +1661,8 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 }
 
 static int
-frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn, unsigned int max_misses)
+frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
+			  unsigned int max_misses)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	int i = ts % FRANG_FREQ;
@@ -1670,16 +1671,18 @@ frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn, unsigned int max_misse
 	if (!max_misses)
 		return T_OK;
 
-	if (conn->history[i].ts != ts) {
-		conn->history[i].ts = ts;
-		conn->history[i].misses = 0;
+	if (tfw_cli_conn_get_js_ts(conn, i) != ts) {
+		tfw_cli_conn_set_js_ts(conn, i, ts);
+		tfw_cli_conn_set_js_max_misses(conn, i, 0);
 	}
-	conn->history[i].misses++;
+	tfw_cli_conn_inc_js_max_misses(conn, i);
+	/* Warning in case of overflow. */
+	WARN_ON_ONCE(!tfw_cli_conn_get_js_max_misses(conn, i));
 
 	/* Collect current max_misses sum. */
 	for (i = 0; i < FRANG_FREQ; i++) {
-		if (frang_time_in_frame(ts, conn->history[i].ts))
-			msum += conn->history[i].misses;
+		if (frang_time_in_frame(ts, tfw_cli_conn_get_js_ts(conn, i)))
+			msum += tfw_cli_conn_get_js_max_misses(conn, i);
 	}
 
 	if (unlikely(msum > max_misses)) {
