@@ -4721,6 +4721,44 @@ tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 }
 
 static int
+tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods,
+			    unsigned int stream_id)
+{
+	int r;
+	unsigned int i;
+	TfwHttpTransIter *mit = &resp->mit;
+	TfwHttpHdrMap *map = mit->map;
+	TfwHttpHdrTbl *ht = resp->h_tbl;
+
+	for (i = 0; i < map->count; ++i) {
+		unsigned short hid = map->index[i].idx;
+		unsigned short d_num = map->index[i].d_idx;
+		TfwStr *tgt = &ht->tbl[hid];
+
+		if (TFW_STR_DUP(tgt))
+			tgt = TFW_STR_CHUNK(tgt, d_num);
+
+		if (WARN_ON_ONCE(!tgt
+				 || TFW_STR_EMPTY(tgt)
+				 || TFW_STR_DUP(tgt)))
+			return -EINVAL;
+
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%u\n",
+		       __func__, hid, d_num, ht->tbl[hid].nchunks,
+		       h_mods ? h_mods->sz : 0);
+
+		if (!(tgt->flags & TFW_STR_TRAILER))
+			continue;
+
+		r = tfw_hpack_transform_trailer(resp, tgt, stream_id);
+		if (unlikely(r))
+			return r;
+	}
+
+	return 0;
+}
+
+static int
 tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 			    unsigned int stream_id)
 {
@@ -4746,6 +4784,9 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks,
 		       h_mods ? h_mods->sz : 0);
+
+		if (tgt->flags & TFW_STR_TRAILER)
+			continue;
 
 		/* Don't encode header if it must be substituted from config */
 		if (tfw_h2_hdr_sub(hid, tgt, h_mods))
@@ -5346,6 +5387,40 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
 	if (unlikely(r))
 		goto clean;
+
+	if (resp->trailers_len > 0) {
+		// MUST _NOT_ use resp pool to encode trailer headers
+		// because it assumes no headers after body in many code.
+		// Instead, encode trailers header in new skbs
+		// and append them to the resp->msg.skb_head.
+		struct sk_buff *skb_head, *skb, *nskb_head, *nskb;
+		unsigned long acc;
+
+		skb_head = resp->msg.skb_head;
+		skb = resp->mit.iter.skb;
+		resp->msg.skb_head = resp->mit.iter.skb = NULL;
+		acc = resp->mit.acc_len;
+
+		r = tfw_h2_hpack_encode_trailer_headers(resp, h_mods, stream_id);
+
+		resp->req->stream->xmit.t_len = resp->mit.acc_len - acc;
+		nskb_head = resp->msg.skb_head;
+		resp->msg.skb_head = resp->mit.iter.skb = skb;
+
+		if (unlikely(r))
+			goto clean;
+
+		nskb = nskb_head;
+		do {
+			printk("nskb=%p, nskb->list=%p, nskb->next=%p, nskb->prev=%p", nskb, &nskb->list, nskb->next, nskb->prev);
+			skb_set_tfw_flags(nskb, SS_F_HTTP2_FRAME_START);
+			skb_set_tfw_flags(nskb, SS_F_HTTT2_FRAME_TRAILER_HEADERS);
+			skb = nskb->next;
+			nskb->next = nskb->prev = NULL;
+			ss_skb_queue_tail(&resp->msg.skb_head, nskb);
+			nskb = skb;
+		} while (nskb != nskb_head);
+	}
 
 	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
 	       req, resp);

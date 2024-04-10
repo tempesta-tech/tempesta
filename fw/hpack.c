@@ -3494,6 +3494,8 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	mit->acc_len += idx->sz;
 
 	if (unlikely(!name_indexed)) {
+		c = TFW_STR_CHUNK(hdr, 0);
+		tfw_cstrtolower(c->data, c->data, c->len);
 		ret = tfw_hpack_str_expand(mit, iter, skb_head,
 					   TFW_STR_CHUNK(hdr, 0), NULL);
 		if (unlikely(ret))
@@ -3520,6 +3522,17 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		c = TFW_STR_CHUNK(hdr, 2);
 		if (WARN_ON_ONCE(!c))
 			return -EINVAL;
+	}
+
+	if (c->len == 1 && *c->data == S_COLON) {
+		c = TFW_STR_CHUNK(hdr, 2);
+		if (WARN_ON_ONCE(!c))
+			return -EINVAL;
+		if (c->len == 1 && *c->data == S_SP) {
+			c = TFW_STR_CHUNK(hdr, 3);
+			if (WARN_ON_ONCE(!c))
+				return -EINVAL;
+		}
 	}
 
 	end = hdr->chunks + hdr->nchunks;
@@ -3659,6 +3672,13 @@ tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		    unsigned int stream_id)
 {
 	return __tfw_hpack_encode(resp, hdr, true, true, true, stream_id);
+}
+
+int
+tfw_hpack_transform_trailer(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		    unsigned int stream_id)
+{
+	return __tfw_hpack_encode(resp, hdr, false, false, true, stream_id);
 }
 
 void

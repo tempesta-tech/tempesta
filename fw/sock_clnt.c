@@ -188,9 +188,13 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 #define FRAME_DATA_SHOULD_BE_MADE(flags)				\
 	(flags & SS_F_HTTT2_FRAME_DATA)
 
+#define FRAME_TRAILER_SHOULD_BE_MADE(flags)				\
+	(flags & SS_F_HTTT2_FRAME_TRAILER_HEADERS)
+
 #define FRAME_HEADERS_OR_DATA_SHOULD_BE_MADE(flags)			\
 	(FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
-	 || FRAME_DATA_SHOULD_BE_MADE(flags))
+	 || FRAME_DATA_SHOULD_BE_MADE(flags)				\
+	 || FRAME_TRAILER_SHOULD_BE_MADE(flags))
 
 #define FRAME_ALREADY_PREPARED(flags)					\
 	(flags & SS_F_HTTP2_FRAME_PREPARED)
@@ -284,7 +288,7 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 	truesize += tmp_truesize;
 	tmp_truesize = 0;
 
-	if (FRAME_HEADERS_SHOULD_BE_MADE(flags)) {
+	if (FRAME_HEADERS_SHOULD_BE_MADE(flags) && !FRAME_TRAILER_SHOULD_BE_MADE(flags)) {
 		if (*limit - stream->xmit.processed <= FRAME_HEADER_SIZE) {
 			r = -ENOMEM;
 			goto ret;
@@ -342,9 +346,39 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 		 * We clear this flag to prevent it's copying
 		 * during skb splitting.
 		 */
-		if (!stream->xmit.b_len) {
+		if (!stream->xmit.t_len && !stream->xmit.b_len) {
 			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
 			TFW_H2_STREAM_SEND_PROCESS(h2, stream, HTTP2_DATA);
+		}
+	}
+
+	if (FRAME_TRAILER_SHOULD_BE_MADE(flags)) {
+		r = tfw_h2_make_headers_frames(sk, skb, h2, stream, mss_now,
+					    *limit - stream->xmit.processed,
+					    &tmp_truesize);
+		if (unlikely(r)) {
+			T_WARN("%s: failed to make data frames (%d)",
+			       __func__, r);
+			if (r == -ENOMEM && headers_was_done) {
+				r = 0;
+				goto update_limit;
+			}
+			goto ret;
+		}
+
+		truesize += tmp_truesize;
+		tmp_truesize = 0;
+
+		/*
+		 * We clear this flag to prevent it's copying
+		 * during skb splitting.
+		 */
+		if (!stream->xmit.t_len) {
+			skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_TRAILER_HEADERS);
+			if (!stream->xmit.b_len) {
+				skb_clear_tfw_flag(skb, SS_F_HTTT2_FRAME_DATA);
+				TFW_H2_STREAM_SEND_PROCESS(h2, stream, HTTP2_TRAILER_HEADERS);
+			}
 		}
 	}
 

@@ -692,6 +692,12 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.b_len)
 		flags |= HTTP2_F_END_STREAM;
 
+	if (!stream->xmit.t_len && type == HTTP2_TRAILER_HEADERS) {
+		flags |= HTTP2_F_END_HEADERS;
+		flags |= HTTP2_F_END_STREAM;
+		type = HTTP2_DATA;
+	}
+
 	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 	if (flags & HTTP2_F_END_STREAM
 	    || (r && r != STREAM_FSM_RES_IGNORE))

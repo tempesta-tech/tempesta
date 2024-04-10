@@ -111,6 +111,7 @@ typedef enum {
 typedef struct {
 	unsigned long h_len;
 	unsigned long b_len;
+	unsigned long t_len;
 	char __off[0];
 	unsigned int processed;
 	unsigned int nskbs;

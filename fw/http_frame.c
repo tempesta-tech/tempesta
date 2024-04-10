@@ -2055,7 +2055,10 @@ tfw_h2_prepare_frame_flags(TfwStream *stream, TfwFrameType type, bool end)
 		flags |= end ? HTTP2_F_END_HEADERS : 0;
 		break;
 	case HTTP2_DATA:
-		flags = end ? HTTP2_F_END_STREAM : 0;
+		flags = end ? (stream->xmit.t_len == 0 ? HTTP2_F_END_STREAM : 0) : 0;
+		break;
+	case HTTP2_TRAILER_HEADERS:
+		flags = end ? (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM) : 0;
 		break;
 	default:
 		BUG();
@@ -2123,6 +2126,11 @@ tfw_h2_make_frames(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
 	TfwFrameHdr frame_hdr = {};
 	unsigned long *len = (type == HTTP2_DATA ?
 		&stream->xmit.b_len : &stream->xmit.h_len);
+	TfwFrameType otype = type;
+	if (type == HTTP2_HEADERS && stream->xmit.b_len == 0 && stream->xmit.h_len == 0) {
+		len = &stream->xmit.t_len;
+		type = HTTP2_TRAILER_HEADERS;
+	}
 
 	if (WARN_ON_ONCE(limit <= FRAME_HEADER_SIZE))
 		return -EINVAL;
@@ -2146,7 +2154,7 @@ tfw_h2_make_frames(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
 	limit -= FRAME_HEADER_SIZE;
 
 	frame_hdr.stream_id = stream->id;
-	frame_hdr.type = type;
+	frame_hdr.type = type == HTTP2_TRAILER_HEADERS ? otype : type;
 	frame_hdr.length = tfw_h2_calc_frame_length(sk, skb, ctx, stream,
 						    type, limit, *len);
 	frame_hdr.flags = tfw_h2_prepare_frame_flags(stream, type,
