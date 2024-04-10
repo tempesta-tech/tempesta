@@ -132,10 +132,6 @@ static const TfwCfgEnum tfw_method_enum[] = {
  */
 #define TFW_CAPUACL_ARRAY_SZ	(32)
 
-#define TFW_FRANG_HTTP_METHODS_MASK_DEFAULT ((1 << TFW_HTTP_METH_GET) | \
-					     (1 << TFW_HTTP_METH_HEAD) | \
-					     (1 << TFW_HTTP_METH_POST))
-
 static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
 
 /*
@@ -1907,17 +1903,9 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		methods_mask |= (1UL << method_id);
 	}
 
-	if (!ce->val_n) {		
-		if (!ce->dflt_value) {
-			T_ERR_NL("frang: Empty http_methods.");
-			return -EINVAL;
-		}
-
-		T_ERR_NL("frang: http_methods should contain at least one "
-			 "method by default.");
-		T_ERR_NL("frang: GET, HEAD, POST will be set instead.");
-		*cfg_methods_mask = TFW_FRANG_HTTP_METHODS_MASK_DEFAULT;
-		return 0;
+	if (!ce->val_n && !ce->dflt_value) {
+		T_ERR_NL("frang: Empty http_methods.");
+		return -EINVAL;
 	}
 
 	T_DBG3("parsed methods_mask: %#lx\n", methods_mask);
@@ -2783,6 +2771,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.handler = tfw_cfgop_frang_method_override,
 		.allow_reconfig = true,
 	},
+	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
 		.deflt = "get post head",
@@ -2935,6 +2924,7 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.handler = tfw_cfgop_frang_method_override,
 		.allow_reconfig = true,
 	},
+	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
 		.deflt = "get post head",
