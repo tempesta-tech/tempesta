@@ -38,9 +38,9 @@
 
 #define DEF_MAX_PORTS		8
 
-#ifndef SS_F_HTTT2_FRAME_TRAILER_HEADERS
-#define SS_F_HTTT2_FRAME_TRAILER_HEADERS 0x40
-#endif
+enum {
+	SS_F_HTTT2_FRAME_TRAILER_HEADERS = 0x40,
+};
 
 /**
  * Internally, Tempesta FW code is split into modules. These are not
