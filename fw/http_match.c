@@ -428,22 +428,31 @@ match_cookie(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
 		return false;
+
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		TfwStr value = { 0 };
+		TfwStr *pos, *end;
 		int r;
-		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
-		r = tfw_http_search_cookie(req, rule->val.ptn.str,
-					   rule->val.ptn.len,
-					   &value, &cookie_val,
-					   rule->val.ptn.op, false);
-		if (r > 0) {
-			TfwStr *e, *d;
 
-			TFW_STR_FOR_EACH_DUP(d, &cookie_val, e) {
-				if (tfw_rule_str_match(d, rule->arg.str,
-						       rule->arg.len,
-						       flags, rule->op))
-					return true;
+		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
+		pos = value.chunks;
+		end = value.chunks + value.nchunks;
+
+		while (pos != end) {
+			r = tfw_http_search_cookie(rule->val.ptn.str,
+						   rule->val.ptn.len,
+						   &pos, end, &cookie_val,
+						   rule->val.ptn.op,
+						   false);
+			if (r > 0) {
+				TfwStr *e, *d;
+
+				TFW_STR_FOR_EACH_DUP(d, &cookie_val, e) {
+					if (tfw_rule_str_match(d, rule->arg.str,
+							       rule->arg.len,
+							       flags, rule->op))
+						return true;
+				}
 			}
 		}
 	}
@@ -872,111 +881,95 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
  * and save the cookie value into @val.
  * @cstr - string to compare against
  * @clen - length of string from above
- * @cookie - TfwStr containing cookie header value
- * @val - output TfwStr to store particular cookie value
+ * @pos - current position in cookie header value.
+ * @end - pointer to the end of cookie header value.
+ * @val - output TfwStr to store particular cookie value.
  * @op - comparison type.
  *	 Prefix, suffix or wildacar compareis supported,
  *	 pass TFW_HTTP_MATCH_O_EQ for default behaviour.
  * @is_resp_hdr - header name identifier:
  *		  true for `Set-Cookie`,
  *		  false for `Cookie`.
- * @return - -ENOMEM if memory allocation fails.
- *           0 if given cookie name hasn't been found,
- *           count of found cookies + particular cookie values (if exists)
+ * @return - 0 if given cookie name hasn't been found,
+ *           1 if cookie found + particular cookie value
+ *           updates @pos, which will point to the place
+ *           where function stop.
  */
 int
-tfw_http_search_cookie(const TfwHttpReq *req, const char *cstr,
-		       unsigned long clen, const TfwStr *cookie,
-		       TfwStr *val, tfw_http_match_op_t op,
-		       bool is_resp_hdr)
+tfw_http_search_cookie(const char *cstr, unsigned long clen,
+		       TfwStr **pos, TfwStr *end, TfwStr *val,
+		       tfw_http_match_op_t op, bool is_resp_hdr)
 {
-	TfwStr *chunk, *end;
-	TfwStr tmp = { 0 };
-	unsigned int n = cookie->nchunks;
-	int cnt = 0;
-	TfwStr *base = val;
-	bool first = true;
+	TfwStr *chunk;
 
-#define TFW_SKIP_COOKIE_NAME(chunk, end, n)				\
-do {									\
-        while ((chunk + 1 != end) &&                                    \
-               ((chunk + 1)->flags & TFW_STR_NAME)) {                   \
-		++chunk;						\
-		--n;							\
-	}								\
-} while(0)
-
-#define TFW_COLLECT_REQ_COOKIE(req)					\
-do {									\
-	TfwStr *begin = chunk;						\
-	if (chunk == end)						\
-		goto finish;						\
-	/* Search cookie value, starting with next chunk. */		\
-	for (++chunk; chunk != end; ++chunk)				\
-		if (chunk->flags & TFW_STR_VALUE)			\
+/* Simple version of tfw_str_eq_cstr. */
+#define TFW_STR_EQ_CSTR(end)						\
+({									\
+	const char *tmp_cstr = cstr;					\
+	unsigned long tmp_clen = clen;					\
+									\
+	while (chunk != end) {						\
+		int len = min(tmp_clen, chunk->len);			\
+		if (memcmp_fast(tmp_cstr, chunk->data, len))		\
 			break;						\
-	if (!first) {							\
-		val = tfw_str_add_duplicate(req->pool, base);		\
-		if (!val)						\
-			return -ENOMEM;					\
+									\
+		tmp_cstr += len;					\
+		tmp_clen -= len;					\
+		if (!tmp_clen)						\
+			break;						\
+		chunk++;						\
 	}								\
-	chunk = tfw_str_collect_cmp(chunk, end, val, ";");		\
-	n -= chunk - begin;						\
-	cnt++;								\
-	first = false;							\
-	if (chunk == end)						\
-		goto finish;						\
-} while(0)
+	!tmp_clen;							\
+})
 
 	/* Search cookie name. */
-	end = cookie->chunks + cookie->nchunks;
-	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
+	for (chunk = *pos; chunk != end; ++chunk) {
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
-		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD)) {
-			TFW_COLLECT_REQ_COOKIE(req);
-			continue;
-		}
-		/*
-		 * Create a temporary compound string, starting with this
-		 * chunk. The total string length is not used here, so it
-		 * is not set.
-		 */
-		tmp.chunks = chunk;
-		tmp.nchunks = n;
-		tmp.len = 0;
+		if (unlikely(op == TFW_HTTP_MATCH_O_WILDCARD))
+			break;
+
 		/* The ops are the same due to '=' at the end of cookie name */
 		if (op == TFW_HTTP_MATCH_O_PREFIX ||
 		    op == TFW_HTTP_MATCH_O_EQ)
 		{
-			if (tfw_str_eq_cstr(&tmp, cstr, clen,
-					    TFW_STR_EQ_PREFIX))
-			{
-				TFW_COLLECT_REQ_COOKIE(req);
-				continue;
-			}
-			TFW_SKIP_COOKIE_NAME(chunk, end, n);
+			if (TFW_STR_EQ_CSTR(end))
+				break;
+			while ((chunk + 1 != end) &&
+			        ((chunk + 1)->flags & TFW_STR_NAME))
+				++chunk;
 		}
 		else if (op == TFW_HTTP_MATCH_O_SUFFIX) {
-			TfwStr *name;
+			TfwStr *name, t;
 			unsigned int len = 0, name_n = 0;
+			ssize_t offset;
 
 			for (name = chunk; name != end; ++name, ++name_n) {
 				if (!(name->flags & TFW_STR_NAME))
 					break;
 				len += name->len;
 			}
-			tmp.nchunks = name_n;
-			tmp.len = len;
-			if (len < clen)
-				continue;
-			if (tfw_str_eq_cstr_off(&tmp, len - clen, cstr, clen,
-						TFW_STR_EQ_PREFIX))
-			{
-				TFW_COLLECT_REQ_COOKIE(req);
-				continue;
+
+			offset = len - clen;
+			if (!offset) {
+				if (TFW_STR_EQ_CSTR(name))
+					break;
+			} else if (offset > 0) {
+				bool equal;
+
+				while (chunk != name && offset >= chunk->len) {
+					offset -= chunk->len;
+					++chunk;
+				}
+				t = *chunk;
+				chunk->data += offset;
+				chunk->len -= offset;
+				equal =  TFW_STR_EQ_CSTR(name);
+				*chunk = t;
+				if (equal)
+					break;
 			}
-			TFW_SKIP_COOKIE_NAME(chunk, end, n);
+			chunk = name;
 		} else {
 			WARN_ON_ONCE(1);
 			continue;
@@ -985,12 +978,25 @@ do {									\
 		 * 'Cookie' header has multiple name-value pairs while the
 		 * 'Set-Cookie' has only one.
 		 */
-		if (unlikely(is_resp_hdr))
-			goto finish;
+		if (unlikely(is_resp_hdr)) {
+			*pos = end;
+			return 0;
+		}
 	}
 
-finish:
-	return cnt;
+	if (chunk == end) {
+		*pos = end;
+		return 0;
+	}
 
-#undef TFW_COLLECT_REQ_COOKIE
+	/* Search cookie value, starting with next chunk. */
+	while (chunk != end) {
+		if (chunk->flags & TFW_STR_VALUE)
+			break;
+		++chunk;
+	}
+	*pos = tfw_str_collect_cmp(chunk, end, val, ";");
+	return 1;
+
+#undef TFW_STR_EQ_CSTR
 }
