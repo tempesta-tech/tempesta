@@ -5412,7 +5412,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 
 		nskb = nskb_head;
 		do {
-			printk("nskb=%p, nskb->list=%p, nskb->next=%p, nskb->prev=%p", nskb, &nskb->list, nskb->next, nskb->prev);
 			skb_set_tfw_flags(nskb, SS_F_HTTP2_FRAME_START);
 			skb_set_tfw_flags(nskb, SS_F_HTTT2_FRAME_TRAILER_HEADERS);
 			skb = nskb->next;
