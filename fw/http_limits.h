@@ -127,6 +127,8 @@ typedef struct {
  * @tls_incomplete_conn_rate - Maximum rate of uncompleted tls connections;
  * @http_hchunk_cnt	- Maximum number of chunks in header part;
  * @http_bchunk_cnt	- Maximum number of chunks in body part;
+ * @http_hdr_len	- Maximum HTTP header length;
+ * @http_hdr_cnt	- Maximum number of headers;
  * @ip_block		- Block clients by IP address if set, if not - just
  *			  close the client connection.
  *
@@ -147,6 +149,8 @@ struct frang_global_cfg_t {
 
 	unsigned int		http_hchunk_cnt;
 	unsigned int		http_bchunk_cnt;
+	unsigned int		http_hdr_len;
+	unsigned int		http_hdr_cnt;
 
 	bool			ip_block;
 };
@@ -159,8 +163,6 @@ struct frang_global_cfg_t {
  * @http_methods_mask	- Allowed HTTP request methods;
  * @http_body_len	- Maximum body size;
  * @http_uri_len	- Maximum allowed URI len;
- * @http_hdr_len	- Maximum HTTP header length;
- * @http_hdr_cnt	- Maximum number of headers;
  * @http_ct_vals	- Allowed 'Content-Type:' values;
  * @http_ct_vals_sz	- Size of @http_ct_vals member;
  * @http_resp_code_block - Response status codes and maximum number of each
@@ -176,8 +178,6 @@ struct frang_vhost_cfg_t {
 	unsigned long		http_methods_mask;
 	unsigned long		http_body_len;
 	unsigned int		http_uri_len;
-	unsigned int		http_hdr_len;
-	unsigned int		http_hdr_cnt;
 
 	FrangCtVals		*http_ct_vals;
 	FrangHttpRespCodeBlock	*http_resp_code_block;
