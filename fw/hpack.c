@@ -3494,8 +3494,9 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	mit->acc_len += idx->sz;
 
 	if (unlikely(!name_indexed)) {
-		c = TFW_STR_CHUNK(hdr, 0);
-		tfw_cstrtolower(c->data, c->data, c->len);
+		if ((hdr->flags & TFW_STR_TRAILER) && (c = TFW_STR_CHUNK(hdr, 0))) {
+			tfw_cstrtolower(c->data, c->data, c->len);
+		}
 		ret = tfw_hpack_str_expand(mit, iter, skb_head,
 					   TFW_STR_CHUNK(hdr, 0), NULL);
 		if (unlikely(ret))
