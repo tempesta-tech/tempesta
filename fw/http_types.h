@@ -102,6 +102,12 @@ enum {
         TFW_HTTP_B_NEED_STRIP_LEADING_CR,
         /* Need strip 1 leading LF */
         TFW_HTTP_B_NEED_STRIP_LEADING_LF,
+        /*
+         * Request should be challenged, but requested resourse
+         * is non-challengeable. Try to service such request
+         * from cache.
+         */
+        TFW_HTTP_B_JS_NOT_SUPPORTED,
 
         /* Response flags */
         TFW_HTTP_FLAGS_RESP,

@@ -1474,7 +1474,7 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 void
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
-	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG) && reason)
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
 
@@ -5438,6 +5438,14 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		return;
 	}
 
+	if (test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags)) {
+		T_DBG("request dropped: non-challengeable resource"
+		      "was not served from cache");
+		tfw_http_send_err_resp(req, 403, NULL);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		return;
+	}
+
 	/*
 	 * Dispatch request to an appropriate server. Schedulers should
 	 * make a decision based on an unmodified request, so this must
@@ -6081,10 +6089,11 @@ next_msg:
 
 	/*
 	 * Sticky cookie module must be used before request can reach cache.
-	 * Unauthorised clients mustn't be able to get any resource on
-	 * protected service and stress cache subsystem. The module is also
-	 * the quickest way to obtain target VHost and target backend server
-	 * connection since it allows to avoid expensive tables lookups.
+	 * Unauthorised clients mustn't be able to get any resource on protected
+	 * service. If client requested non-challengeable resource, we try to
+	 * service such request from cache. The module is also the quickest way
+	 * to obtain target VHost and target backend server connection since it
+	 * allows to avoid expensive tables lookups.
 	 */
 	switch (tfw_http_sess_obtain(req)) {
 	case TFW_HTTP_SESS_SUCCESS:
@@ -6101,14 +6110,13 @@ next_msg:
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
-		 * Requested resource can't be challenged.
+		 * Requested resource can't be challenged, try service it
+		 * from cache.
 		 */
-		*splitted = skb;
-		return tfw_http_req_parse_drop(req, 403,
-				"request dropped: can't send JS challenge"
-				" since a non-challengeable resource" 
-				" (e.g. image) was requested",
-				HTTP2_ECODE_PROTO);
+		T_DBG("Can't send JS challenge for request since a "
+		      "non-challengeable resource (e.g. image) was requested");
+		__set_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags);
+		break;
 
 	default:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);

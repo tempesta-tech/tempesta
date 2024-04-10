@@ -3038,6 +3038,14 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		req = resp->req;
 	}
 
+	/*
+	 * We service non-challengeble resources from cache only
+	 * for safe methods.
+	 */
+	if (test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags)
+	    && req->method != TFW_HTTP_METH_GET
+	    && req->method != TFW_HTTP_METH_HEAD)
+		goto dont_cache;
 	if (req->method == TFW_HTTP_METH_PURGE)
 		goto do_cache;
 	if (!tfw_cache_msg_cacheable(req))

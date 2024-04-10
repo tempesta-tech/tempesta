@@ -558,7 +558,8 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
 
 	if (TFW_STR_EMPTY(&sticky->name)
 	    || sticky->learn
-	    || frang_req_is_whitelisted(req))
+	    || frang_req_is_whitelisted(req)
+	    || test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags))
 	{
 		return 0;
 	}
