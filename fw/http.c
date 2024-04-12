@@ -5411,8 +5411,8 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 			goto clean;
 
 		nskb = nskb_head;
+		skb_set_tfw_flags(nskb, SS_F_HTTP2_FRAME_START);
 		do {
-			skb_set_tfw_flags(nskb, SS_F_HTTP2_FRAME_START);
 			skb_set_tfw_flags(nskb, SS_F_HTTT2_FRAME_TRAILER_HEADERS);
 			skb = nskb->next;
 			nskb->next = nskb->prev = NULL;
