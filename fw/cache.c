@@ -2712,7 +2712,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_RESP);
 	bool has_trailers = false;
-	unsigned long *ph_len, t_len = 0;
+	unsigned long *ph_len = &h_len, t_len = 0;
 	struct sk_buff *pskb_head, *nskb_head = NULL;
 	TfwHttpTransIter pmit, nmit;
 
@@ -2755,7 +2755,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		bool is_trailer_hdr = ((TfwCStr *)p)->flags & TFW_CSTR_TRAILER;
 		int r;
 
-		if (is_trailer_hdr) {
+		if (is_trailer_hdr && TFW_MSG_H2(req)) {
 			has_trailers = true;
 			ph_len = &t_len;
 			resp->msg.skb_head = nskb_head;
@@ -2765,7 +2765,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
 					     ph_len, skip);
 
-		if (is_trailer_hdr) {
+		if (is_trailer_hdr && TFW_MSG_H2(req)) {
 			ph_len = &h_len;
 			if (!nskb_head)
 				nskb_head = resp->msg.skb_head;
