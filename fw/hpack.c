@@ -3486,6 +3486,52 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (!hdr)
 		return -EINVAL;
 
+	if (hdr->flags & TFW_STR_TRAILER) {
+		int i;
+		unsigned long name_len = 0;
+		bool compact_chunks = false;
+
+		for (i = 0; i < hdr->nchunks; ++i) {
+			c = TFW_STR_CHUNK(hdr, i);
+			if (c->len == 1 && *c->data == S_COLON) {
+				c = TFW_STR_CHUNK(hdr, i + 1);
+				if (WARN_ON_ONCE(!c))
+					return -EINVAL;
+				if (c->len == 1 && *c->data == S_SP) {
+					c = TFW_STR_CHUNK(hdr, i + 2);
+					if (WARN_ON_ONCE(!c))
+						return -EINVAL;
+					compact_chunks = true;
+					break;
+				}
+				return -EINVAL;
+			} else {
+				name_len += c->len;
+			}
+		}
+
+		if (compact_chunks) {
+			int j;
+			int nchunks = hdr->nchunks;
+			unsigned long value_len = hdr->len - name_len - 2;
+			char *value_data;
+
+			c = TFW_STR_CHUNK(hdr, i);
+			value_data = c->data + 2;
+
+			for (j = 0; j < nchunks - 2; ++j) {
+				tfw_str_del_chunk(hdr, 2);
+			}
+
+			c = TFW_STR_CHUNK(hdr, 0);
+			c->len = name_len;
+
+			c = TFW_STR_CHUNK(hdr, 1);
+			c->len = value_len;
+			c->data = value_data;
+		}
+	}
+
 	ret = tfw_hpack_write_idx(resp, idx, false);
 
 	if (unlikely(ret))
@@ -3523,17 +3569,6 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		c = TFW_STR_CHUNK(hdr, 2);
 		if (WARN_ON_ONCE(!c))
 			return -EINVAL;
-	}
-
-	if (c->len == 1 && *c->data == S_COLON) {
-		c = TFW_STR_CHUNK(hdr, 2);
-		if (WARN_ON_ONCE(!c))
-			return -EINVAL;
-		if (c->len == 1 && *c->data == S_SP) {
-			c = TFW_STR_CHUNK(hdr, 3);
-			if (WARN_ON_ONCE(!c))
-				return -EINVAL;
-		}
 	}
 
 	end = hdr->chunks + hdr->nchunks;
