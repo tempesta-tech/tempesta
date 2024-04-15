@@ -187,7 +187,7 @@ check_identifier(const char *buf, size_t len)
 	}
 
 	for (i = 0; i < len; ++i) {
-		if (!isalnum(buf[i]) && buf[i] != '_') {
+		if (!isalnum(buf[i]) && buf[i] != '_' && buf[i] != '-') {
 			T_ERR_NL("invalid character: '%c' in '%.*s'\n",
 				 buf[i], (int)len, buf);
 			return false;

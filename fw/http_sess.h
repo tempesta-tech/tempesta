@@ -104,6 +104,8 @@ typedef struct {
  *			  session cookie;
  * @enforce		- don't forward requests to backend unless session
  *			  cookie is set;
+ * @expires             - flag indicates that Max-Age or Expires option is
+ *                        set;
  */
 struct tfw_http_cookie_t {
 	struct crypto_shash	*shash;
@@ -120,7 +122,8 @@ struct tfw_http_cookie_t {
 	unsigned int		sess_lifetime;
 	unsigned int		max_misses;
 	unsigned int		learn : 1,
-				enforce : 1;
+				enforce : 1,
+				expires : 1;
 };
 
 /**
@@ -168,7 +171,7 @@ enum {
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_learn(TfwHttpResp *resp);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
-                               unsigned int stream_id);
+			       unsigned int stream_id);
 void tfw_http_sess_put(TfwHttpSess *sess);
 void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
 

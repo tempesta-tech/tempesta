@@ -158,6 +158,7 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 	st->max_misses = def_st->max_misses;
 	st->learn = def_st->learn;
 	st->enforce = def_st->enforce;
+	st->expires = def_st->expires;
 
 	if (!st->js_challenge && def_st->js_challenge) {
 		st->js_challenge = def_st->js_challenge;
@@ -172,6 +173,31 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 	else {
 		st->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
 	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_cookie_set_option(TfwStickyCookie *sticky, const char *name,
+			    const char *val)
+{
+	size_t name_len = strlen(name);
+	size_t val_len = val ? strlen(val) + 1 : 0;
+
+	if (sticky->options.len + 2 + name_len + val_len > STICKY_OPT_MAXLEN) {
+		T_ERR_NL("http_sess: too long cookie options length.\n");
+		return -EINVAL;
+	}
+
+	sticky->options_str[sticky->options.len + 0] = ';';
+	sticky->options_str[sticky->options.len + 1] = ' ';
+	memcpy(&sticky->options_str[sticky->options.len + 2], name, name_len);
+	if (val_len) {
+		sticky->options_str[sticky->options.len + 2 + name_len] = '=';
+		memcpy(&sticky->options_str[sticky->options.len + 3 + name_len],
+		       val, val_len);
+	}
+	sticky->options.len += name_len + val_len + 2;
 
 	return 0;
 }
@@ -206,6 +232,18 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 		sticky->redirect_code = sticky->js_challenge->st_code;
 	} else {
 		sticky->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
+	}
+
+	if (sticky->options_str[0] != '\0') {
+		if (TFW_STR_EMPTY(&sticky->name)) {
+			T_ERR_NL("http_sess: cookie options requires "
+				 "sticky cookies enabled and explicitly defined "
+				 "in the same section\n");
+			return -EINVAL;
+		}
+	} else if (!TFW_STR_EMPTY(&sticky->name)) {
+		if ((r = tfw_cfgop_cookie_set_option(sticky, "Path", "/")))
+			return r;
 	}
 
 	/* Inherit sticky options defined at top level. */
@@ -251,50 +289,12 @@ __tfw_cfgop_cookie_set_name(TfwStickyCookie *sticky, const char *name)
 }
 
 static int
-tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
-{
-	size_t len = strlen(options);
-	if (sticky->options.len + 2 + len > STICKY_OPT_MAXLEN) {
-		T_ERR_NL("http_sess: too long cookie options length.\n");
-		return -EINVAL;
-	}
-
-	sticky->options_str[sticky->options.len + 0] = ';';
-	sticky->options_str[sticky->options.len + 1] = ' ';
-	memcpy(&sticky->options_str[sticky->options.len + 2], options, len);
-
-	sticky->options.len += len + 2;
-
-	return 0;
-}
-
-static int
-tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
-{
-	static const char path[] = "; path=";
-	size_t path_val_len = strlen(path_val);
-	if (sticky->options.len + SLEN(path) + path_val_len > STICKY_OPT_MAXLEN) {
-		T_ERR_NL("http_sess: too long cookie path length.\n");
-		return -EINVAL;
-	}
-
-	memcpy(&sticky->options_str[sticky->options.len], path, SLEN(path));
-	memcpy(&sticky->options_str[sticky->options.len + SLEN(path)], path_val,
-	       path_val_len);
-
-	sticky->options.len += SLEN(path) + path_val_len;
-
-	return 0;
-}
-
-static int
 tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i;
 	int r;
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
-	bool was_path = false;
 	bool was_max_misses = false;
 
 	if (!cur_vhost) {
@@ -322,38 +322,11 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 				return -EINVAL;
 			}
 			was_max_misses = true;
-		} else if (!strcasecmp(key, "options")) {
-			if (tfw_cfgop_cookie_set_options(sticky, val))
-			{
-				T_ERR_NL("%s: invalid value for 'options'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-		} else if (!strcasecmp(key, "path")) {
-			if (tfw_cfgop_cookie_set_path(sticky, val))
-			{
-				T_ERR_NL("%s: invalid value for 'path'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-			was_path = true;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			return -EINVAL;
 		}
-	}
-
-	if (!was_path) {
-		static const char dflt_path[] = "; path=/";
-		if (sticky->options.len + SLEN(dflt_path) > STICKY_OPT_MAXLEN) {
-			T_ERR_NL("http_sess: too long cookie options or path length.\n");
-			return -EINVAL;
-		}
-		memcpy(&sticky->options_str[sticky->options.len], dflt_path,
-		       SLEN(dflt_path));
-
-		sticky->options.len += SLEN(dflt_path);
 	}
 
 	if ((r = __tfw_cfgop_cookie_set_name(sticky, name_val)))
@@ -375,6 +348,49 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		T_ERR_NL("%s: 'max_misses' can be enabled only in 'enforce' "
 			 "mode\n", cs->name);
 		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_cookie_options_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	size_t i;
+	int r;
+	const char *key, *val;
+	TfwStickyCookie *sticky = NULL;
+	bool was_path = false, was_max_age = false, was_expires = false;
+
+	if (!cur_vhost) {
+		sticky = &defaults_override.sticky;
+	}
+	else {
+		sticky = cur_vhost->cookie;
+	}
+
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "Path")) {
+			was_path = true;
+		} else if (!strcasecmp(key, "Max-Age")) {
+			was_max_age = true;
+		} else if (!strcasecmp(key, "Expires")) {
+			was_expires = true;
+		}
+		if ((r = tfw_cfgop_cookie_set_option(sticky, key, val)))
+			return r;
+	}
+
+	if (!was_path) {
+		if ((r = tfw_cfgop_cookie_set_option(sticky, "Path", "/")))
+			return r;
+	}
+	if (was_max_age || was_expires)
+		sticky->expires = true;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, key) {
+		if ((r = tfw_cfgop_cookie_set_option(sticky, key, NULL)))
+			return r;
 	}
 
 	return 0;
@@ -755,7 +771,7 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 		return -EINVAL;
 	/* 'sticky' section was explicitly defined. */
 	if (!TFW_STR_EMPTY(&sticky->name))
-		return 0;
+		goto set_expires;
 	if (tfw_vhost_is_default(vhost)
 	    && (r = __tfw_http_sess_cfgop_begin(sticky)))
 	{
@@ -782,6 +798,15 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 			? defaults_override.sticky.sess_lifetime
 			: UINT_MAX;
 
+set_expires:
+	if (!sticky->expires) {
+		char max_age[STICKY_OPT_MAXLEN];
+		if ((r = snprintf(max_age, sizeof(max_age), "%u",
+		    sticky->sess_lifetime)) < 0)
+			return r;
+		if ((r = tfw_cfgop_cookie_set_option(sticky, "Max-Age", max_age)))
+			return r;
+	}
 
 	return 0;
 }
@@ -812,6 +837,12 @@ TfwCfgSpec tfw_http_sess_specs[] = {
 	{
 		.name = "cookie",
 		.handler = tfw_cfgop_cookie_set,
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cookie_options",
+		.handler = tfw_cfgop_cookie_options_set,
 		.allow_none = true,
 		.allow_reconfig = true,
 	},
