@@ -226,6 +226,10 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 						    end, cookie_val,
 						    TFW_HTTP_MATCH_O_EQ,
 						    false);
+			/*
+			 * We don't expect more than one cookie, so we
+			 * can immediately return here.
+			 */
 			if (r > 1)
 				return r;
 		}
@@ -426,7 +430,7 @@ end_##f:								\
 					  " ts=%#lx orig_hmac=[%.*s]\n", \
 					  *tr, i, ts,			\
 					  (int)sizeof(hmac) * 2, buf);	\
-				r = TFW_HTTP_SESS_VIOLATE;		\
+				r = TFW_HTTP_SESS_BAD_COOKIE;		\
 				goto end;				\
 			}						\
 			hi = !hi;					\
@@ -456,6 +460,10 @@ tfw_http_sticky_challenge_start(TfwHttpReq *req)
 	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
+	/*
+	 * Increment max_misses and if limit is exceeded
+	 * return error, otherwise try to restart challenge.
+	 */
 	if (frang_sticky_cookie_handler(req) != T_OK)
 		return TFW_HTTP_SESS_VIOLATE;
 
@@ -494,7 +502,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		sess_warn("bad sticky cookie length", addr, " %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
 		tfw_http_sticky_calc(req, sv);
-		return TFW_HTTP_SESS_VIOLATE;
+		return TFW_HTTP_SESS_BAD_COOKIE;
 	}
 
 	HEX_STR_TO_BIN_INIT(tr, c, value, end);
@@ -502,7 +510,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 
 	if (__sticky_calc(req, sv)) {
 		sess_warn("cannot compute sticky cookie value", addr, "\n");
-		return TFW_HTTP_SESS_VIOLATE;
+		return TFW_HTTP_SESS_FAILURE;
 	}
 
 	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
@@ -513,7 +521,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		sess_warn("sticky cookie value expired", addr,
 			  " (issued=%lu lifetime=%lu now=%lu)\n", sv->ts,
 			  (unsigned long)sticky->sess_lifetime * HZ, jiffies);
-		return TFW_HTTP_SESS_VIOLATE;
+		return TFW_HTTP_SESS_BAD_COOKIE;
 	}
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
@@ -539,7 +547,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 		return r;
 	if (r == 0) {
 		return !req->vhost->cookie->enforce ?
-			TFW_HTTP_SESS_SUCCESS : TFW_HTTP_SESS_VIOLATE;
+			TFW_HTTP_SESS_SUCCESS : TFW_HTTP_SESS_COOKIE_NOT_FOUND;
 	}
 	if (r == 1) {
 		if ((r = tfw_http_sticky_verify(req, cookie_val, sv)))
@@ -665,7 +673,7 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 		  &req->conn->peer->addr, " (%lu is not after %lu)\n",
 		  req->jrxtstamp, min_time);
 
-	return TFW_HTTP_SESS_VIOLATE;
+	return TFW_HTTP_SESS_JS_DOES_NOT_PASS;
 }
 
 static bool
@@ -785,7 +793,12 @@ tfw_sess_ent_init(TdbRec *rec, void *data)
 /**
  * Obtains appropriate HTTP session for the request based on Sticky cookies.
  * Gets a reference of vhost if it was stored in the session.
- * Return TFW_HTTP_SESS_* enum or error code on internal errors.
+ * Return TFW_HTTP_SESS_* enum.
+ * The main logic of this function here is that we try to get request cookie,
+ * if cookie is present and correct, we check that request comes in time
+ * (according js challenge script). In case of any error (cookie not found or
+ * incorrect, or request comes not in time) we increment max_misses and if
+ * it is not exceeded the limit restart js challenge.
  */
 int
 tfw_http_sess_obtain(TfwHttpReq *req)
@@ -823,11 +836,14 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	switch (r) {
 	case TFW_HTTP_SESS_SUCCESS:
 		break;
-	case TFW_HTTP_SESS_REDIRECT_NEED:
-	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 	case TFW_HTTP_SESS_FAILURE:
 		return r;
 	default:
+		/*
+		 * Some internal error (cookie not found or invalid),
+		 * increment max_misses and restart js challenge.
+		 */
+		BUG_ON(r < __TFW_HTTP_SESS_PUB_CODE_MAX);
 		return tfw_http_sticky_challenge_start(req);
 	}
 
@@ -913,6 +929,10 @@ tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 						    end, cookie_val,
 						    TFW_HTTP_MATCH_O_EQ,
 						    true);
+			/*
+			 * We don't expect more than one cookie, so we
+			 * can immediately return here.
+			 */
 			if (r > 1)
 				return r;
 		}

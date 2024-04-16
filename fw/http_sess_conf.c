@@ -799,6 +799,12 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 			: UINT_MAX;
 
 set_expires:
+	/*
+	 * If expires flag is not set, this means that no Max-Age and
+	 * no Expires options are present for this cookie. We set
+	 * Max-Age according session lifetime to prevent usage expired
+	 * cookies by client.
+	 */
 	if (!sticky->expires) {
 		char max_age[STICKY_OPT_MAXLEN];
 		if ((r = snprintf(max_age, sizeof(max_age), "%u",
