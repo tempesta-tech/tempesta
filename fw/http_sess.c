@@ -135,9 +135,6 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, bool jsch_allow)
 	if (WARN_ON_ONCE(!req->vhost))
 		return TFW_HTTP_SESS_FAILURE;
 
-	if (!tfw_http_sticky_redirect_applied(req))
-		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
-
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		return TFW_HTTP_SESS_FAILURE;
 
@@ -449,6 +446,15 @@ static inline int
 tfw_http_sticky_challenge_start(TfwHttpReq *req)
 {
 	StickyVal sv = {};
+
+	/*
+	 * First check if request is not challengeble
+	 * and immediately return, to prevent incrementing
+	 * max_misses, because we decide to serve such
+	 * requests from cache.
+	 */
+	if (!tfw_http_sticky_redirect_applied(req))
+		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
 	if (frang_sticky_cookie_handler(req) != T_OK)
 		return TFW_HTTP_SESS_VIOLATE;
