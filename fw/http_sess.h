@@ -166,6 +166,14 @@ enum {
 	TFW_HTTP_SESS_VIOLATE,
 	/* JS challenge enabled, but request is not challengable. */
 	TFW_HTTP_SESS_JS_NOT_SUPPORTED,
+	/* All ferther error codes are internal for http_sess module. */
+	__TFW_HTTP_SESS_PUB_CODE_MAX,
+	/* Cookie not found in request. */
+	TFW_HTTP_SESS_COOKIE_NOT_FOUND,
+	/* Cookie is bad, because of incorrect length, hmac or expires. */
+	TFW_HTTP_SESS_BAD_COOKIE,
+	/* Request comes not in time, js challenge doesn't pass. */
+	TFW_HTTP_SESS_JS_DOES_NOT_PASS
 };
 
 int tfw_http_sess_obtain(TfwHttpReq *req);

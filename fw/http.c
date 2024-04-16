@@ -6153,12 +6153,14 @@ next_msg:
 		__set_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags);
 		break;
 
-	default:
+	case TFW_HTTP_SESS_FAILURE:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return tfw_http_req_parse_drop_with_fin(req, 500,
 				"request dropped: internal error"
 				" in Sticky module",
 				HTTP2_ECODE_PROTO);
+	default:
+		BUG();
 	}
 
 	if (TFW_MSG_H2(req))
