@@ -6087,6 +6087,41 @@ next_msg:
 		return T_OK;
 	}
 
+	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
+		/* Override shouldn't be combined with PURGE, that'd
+		 * probably break things */
+		req->method_override = _TFW_HTTP_METH_NONE;
+	} else {
+		__clear_bit(TFW_HTTP_B_PURGE_GET, req->flags);
+	}
+
+	/*
+	 * Method override masks real request properties, non-idempotent methods
+	 * can hide behind idempotent, method is used as a key in cache
+	 * subsystem to store and look up cached responses. Thus hiding real
+	 * method can spoil responses for other clients. Use the real method
+	 * for accurate processing.
+	 *
+	 * We don't rewrite the method string and don't remove override header
+	 * since there can be additional intermediates between TempestaFW and
+	 * backend.
+	 *
+	 * While non-idempotent method can be hidden behind idempotent, it is
+	 * reasonable to expect that non-safe method can not be hidden behind
+	 * safe method.
+	 */
+	if (unlikely(req->method_override)) {
+		if (TFW_HTTP_IS_METH_SAFE(req->method)
+			&& !TFW_HTTP_IS_METH_SAFE(req->method_override))
+		{
+			return tfw_http_req_parse_block(req, 400,
+					"request dropped: unsafe"
+					" method override",
+					HTTP2_ECODE_PROTO);
+		}
+		req->method = req->method_override;
+	}
+
 	/*
 	 * Sticky cookie module must be used before request can reach cache.
 	 * Unauthorised clients mustn't be able to get any resource on protected
@@ -6124,41 +6159,6 @@ next_msg:
 				"request dropped: internal error"
 				" in Sticky module",
 				HTTP2_ECODE_PROTO);
-	}
-
-	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
-		/* Override shouldn't be combined with PURGE, that'd
-		 * probably break things */
-		req->method_override = _TFW_HTTP_METH_NONE;
-	} else {
-		__clear_bit(TFW_HTTP_B_PURGE_GET, req->flags);
-	}
-
-	/*
-	 * Method override masks real request properties, non-idempotent methods
-	 * can hide behind idempotent, method is used as a key in cache
-	 * subsystem to store and look up cached responses. Thus hiding real
-	 * method can spoil responses for other clients. Use the real method
-	 * for accurate processing.
-	 *
-	 * We don't rewrite the method string and don't remove override header
-	 * since there can be additional intermediates between TempestaFW and
-	 * backend.
-	 *
-	 * While non-idempotent method can be hidden behind idempotent, it is
-	 * reasonable to expect that non-safe method can not be hidden behind
-	 * safe method.
-	 */
-	if (unlikely(req->method_override)) {
-		if (TFW_HTTP_IS_METH_SAFE(req->method)
-			&& !TFW_HTTP_IS_METH_SAFE(req->method_override))
-		{
-			return tfw_http_req_parse_block(req, 400,
-					"request dropped: unsafe"
-					" method override",
-					HTTP2_ECODE_PROTO);
-		}
-		req->method = req->method_override;
 	}
 
 	if (TFW_MSG_H2(req))
