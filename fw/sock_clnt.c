@@ -116,6 +116,13 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
 	BUG_ON(timer_pending(&cli_conn->timer));
 
+	/*
+	 * Free POSTPONED SKBs. This is necessary when h2 context has
+	 * postponed frames and connection closing initiated.
+	 */
+	if (TFW_FSM_TYPE(TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2))
+		ss_skb_queue_purge(&tfw_h2_context(cli_conn)->skb_head);
+
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
