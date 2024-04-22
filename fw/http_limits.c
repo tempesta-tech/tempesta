@@ -1614,16 +1614,9 @@ static int
 __frang_http_hdr_limit(FrangAcc *ra, TfwHttpReq *req, TfwVhost *dvh,
 		       unsigned int new_hdr_len)
 {
-	FrangVhostCfg *f_cfg = NULL;
+	FrangGlobCfg *f_cfg = dvh->frang_gconf;
 	int r;
 
-	if (req->vhost) {		
-		f_cfg = req->location ? req->location->frang_cfg
-				      : req->vhost->loc_dflt->frang_cfg;
-	}
-	else {
-		f_cfg = dvh->loc_dflt->frang_cfg;
-	}
 	if (WARN_ON_ONCE(!f_cfg))
 		return T_BLOCK;
 
