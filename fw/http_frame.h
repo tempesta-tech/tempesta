@@ -32,6 +32,18 @@
 #define FRAME_DEF_LENGTH		(16384)
 
 /**
+ * MAX_QUEUED_CONTROL_FRAMES is the maximum number of control frames like
+ * SETTINGS, PING and RST_STREAM that will be queued for writing before
+ * the connection is closed to prevent memory exhaustion attacks.
+ */
+#define MAX_QUEUED_CONTROL_FRAMES	10000
+
+enum {
+	/* This skb contains control frame. */
+	SS_F_HTTT2_FRAME_CONTROL	= 0x80,
+};
+
+/**
  * HTTP/2 frame types (RFC 7540 section 6).
  */
 typedef enum {

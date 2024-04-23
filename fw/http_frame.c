@@ -280,6 +280,17 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	bool is_control_frame = !hdr->stream_id || hdr->type == HTTP2_RST_STREAM;
+
+	// If the peer is causing us to generate a lot of control frames,
+	// but not reading them from us, assume they are trying to make us
+	// run out of memory.
+	if (is_control_frame &&
+	    atomic_read(&ctx->queued_control_frames) > MAX_QUEUED_CONTROL_FRAMES) {
+		T_ERR("Too many control frames in send queue, closing connection");
+		r = SS_BLOCK_WITH_RST;
+		goto err;
+	}
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -322,6 +333,11 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
 		TFW_SKB_CB(msg.skb_head)->on_tcp_entail =
 			tfw_h2_on_tcp_entail_ack;
+	}
+
+	if (is_control_frame) {
+		skb_set_tfw_flags(it.skb, SS_F_HTTT2_FRAME_CONTROL);
+		atomic_inc(&ctx->queued_control_frames);
 	}
 
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
