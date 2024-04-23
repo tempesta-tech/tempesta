@@ -1809,6 +1809,7 @@ tfw_http_limits_hooks_register(void)
 
 static TempestaOps tempesta_ops = {
 	.sk_alloc	= tfw_classify_conn_estab,
+	.sk_free        = tfw_classify_conn_close,
 	.sock_tcp_rcv	= tfw_classify_tcp,
 };
 
