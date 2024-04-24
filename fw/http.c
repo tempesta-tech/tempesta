@@ -4721,8 +4721,7 @@ tfw_h2_hdr_sub(unsigned short hid, const TfwStr *hdr, const TfwHdrMods *h_mods)
 }
 
 static int
-tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods,
-			    unsigned int stream_id)
+tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp, unsigned int stream_id)
 {
 	int r;
 	unsigned int i;
@@ -4743,9 +4742,8 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 				 || TFW_STR_DUP(tgt)))
 			return -EINVAL;
 
-		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%u\n",
-		       __func__, hid, d_num, ht->tbl[hid].nchunks,
-		       h_mods ? h_mods->sz : 0);
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
+		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
 		if (!(tgt->flags & TFW_STR_TRAILER))
 			continue;
@@ -5401,7 +5399,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		resp->msg.skb_head = resp->mit.iter.skb = NULL;
 		acc = resp->mit.acc_len;
 
-		r = tfw_h2_hpack_encode_trailer_headers(resp, h_mods, stream_id);
+		r = tfw_h2_hpack_encode_trailer_headers(resp, stream_id);
 
 		resp->req->stream->xmit.t_len = resp->mit.acc_len - acc;
 		nskb_head = resp->msg.skb_head;

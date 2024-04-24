@@ -2127,7 +2127,9 @@ tfw_h2_make_frames(struct sock *sk, struct sk_buff *skb, TfwH2Ctx *ctx,
 	unsigned long *len = (type == HTTP2_DATA ?
 		&stream->xmit.b_len : &stream->xmit.h_len);
 	TfwFrameType otype = type;
-	if (type == HTTP2_HEADERS && stream->xmit.b_len == 0 && stream->xmit.h_len == 0) {
+
+	if (type == HTTP2_HEADERS &&
+	    stream->xmit.b_len == 0 && stream->xmit.h_len == 0) {
 		len = &stream->xmit.t_len;
 		type = HTTP2_TRAILER_HEADERS;
 	}
