@@ -109,16 +109,6 @@ enum {
 	TFW_FSM_NUM /* Must be <= TFW_GFSM_FSM_N */
 };
 
-/**
- * Option HTTP/1.1 or HTTP2 for current client
- * when the interface is configured to accept both protocols
- * (TFW_FSM_H2_HTTPS).
- */
-enum {
-	TFW_FSM_PROT_H1		= 0,
-	TFW_FSM_PROT_H2		= 1
-};
-
 #define TFW_FSM_TYPE(t)		((t) & TFW_GFSM_FSM_MASK)
 
 /*

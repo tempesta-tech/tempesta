@@ -32,7 +32,6 @@
 typedef struct ss_proto_t {
 	const struct ss_hooks	*hooks;
 	int			type;
-	int			option;
 } SsProto;
 
 /*

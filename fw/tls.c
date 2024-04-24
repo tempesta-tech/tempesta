@@ -612,8 +612,7 @@ tfw_tls_conn_dtor(void *c)
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
 
-	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2 ||
-	    TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2_HTTPS)
+	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
@@ -645,6 +644,23 @@ tfw_tls_conn_dtor(void *c)
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
 
+static void
+tfw_tls_conn_dtor_h2_https(void *c)
+{
+	/*
+	 * We have to return TFW_FSM_H2_HTTPS to proto.type.
+	 * Otherwise, wrong cache will be tried to free.
+	 */
+	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
+			tfw_h2_context_clear(tfw_h2_context(c));
+
+	//((TfwCliConn *)c)->proto.type = (((TfwCliConn *)c)->proto.type &
+	//				    ~((int)TFW_GFSM_FSM_MASK)) |
+	//				   TFW_FSM_H2_HTTPS;
+	((TfwCliConn *)c)->proto.type = TFW_FSM_H2_HTTPS;
+	tfw_tls_conn_dtor(c);
+}
+
 static int
 tfw_tls_conn_init(TfwConn *c)
 {
@@ -665,17 +681,20 @@ tfw_tls_conn_init(TfwConn *c)
 		goto err_cleanup;
 	}
 
-	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2 ||
-	    TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2_HTTPS)
+	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2)
 		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
 			goto err_cleanup;
+
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
 	 * to keep the things safe.
 	 */
 	tfw_gfsm_state_init(&c->state, c, 0);
 
-	c->destructor = tfw_tls_conn_dtor;
+	if (TFW_FSM_TYPE(c->proto.type) != TFW_FSM_H2_HTTPS)
+		c->destructor = tfw_tls_conn_dtor;
+	else
+		c->destructor = tfw_tls_conn_dtor_h2_https;
 
 	return 0;
 err_cleanup:
