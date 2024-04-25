@@ -331,10 +331,8 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * for a single client is absolutely straight-forward.
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
-	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block) {
+	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(cli);
-		tfw_client_put(cli);
-	}
 
 finish:
 	tfw_vhost_put(dflt_vh);
