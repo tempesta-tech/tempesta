@@ -654,9 +654,6 @@ tfw_tls_conn_dtor_h2_https(void *c)
 	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
 			tfw_h2_context_clear(tfw_h2_context(c));
 
-	//((TfwCliConn *)c)->proto.type = (((TfwCliConn *)c)->proto.type &
-	//				    ~((int)TFW_GFSM_FSM_MASK)) |
-	//				   TFW_FSM_H2_HTTPS;
 	((TfwCliConn *)c)->proto.type = TFW_FSM_H2_HTTPS;
 	tfw_tls_conn_dtor(c);
 }

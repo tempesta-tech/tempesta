@@ -6885,8 +6885,6 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
 		     struct sk_buff **next)
 {
 	TfwStream *stream = &conn->stream;
-	int r;
-
 	if (TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2_HTTPS) {
 
 		WARN_ON_ONCE(TFW_CONN_TLS(conn) && tfw_tls_context(conn)->alpn_chosen
@@ -6898,11 +6896,12 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
 			return tfw_h2_frame_process(conn, skb, next);
 		return tfw_http_msg_process_generic(conn, stream, skb, next);
 	} else {
-		if (tfw_tls_context(conn)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2) {
-
-			if ((r = tfw_h2_context_init(tfw_h2_context(conn)))) {
+		if (tfw_tls_context(conn)->alpn_chosen &&
+		    tfw_tls_context(conn)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2) {
+			if ((tfw_h2_context_init(tfw_h2_context(conn)))) {
 				ttls_ctx_clear(tfw_tls_context(conn));
-				return r;
+				T_ERR("cannot establish a new h2 client connection\n");
+				return T_BLOCK_WITH_RST;
 			}
 			conn->proto.type = (conn->proto.type & ~TFW_GFSM_FSM_MASK)
 					   | TFW_FSM_H2;
@@ -6910,7 +6909,6 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
 		}
 		conn->proto.type = (conn->proto.type & ~TFW_GFSM_FSM_MASK)
 				   | TFW_FSM_HTTPS;
-		tfw_h2_context_clear(tfw_h2_context(conn));
 		return tfw_http_msg_process_generic(conn, stream, skb, next);
 	}
 }
