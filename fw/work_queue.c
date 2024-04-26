@@ -5,7 +5,7 @@
  * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
  * multi-producer-multi-consumer-queue-ring-buffer .
  *
- * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by

@@ -234,7 +234,7 @@ enum {
 };
 
 typedef struct {
-	int* cpu;
+	int 		*cpu;
 	atomic_t	cpu_idx;
 	unsigned int	nr_cpus;
 	TDB		*db;
@@ -341,10 +341,9 @@ tfw_release_node_cpus(void)
 {
 	int i;
 
-	for (i = 0; i < MAX_NUMNODES; i++)
-	{
+	for (i = 0; i < MAX_NUMNODES; i++) {
 		if(!c_nodes[i].cpu) {
-			T_ERR("%s c_node deallocation interrupted on node %i\n", __func__, i);
+			T_WARN("%s c_node deallocation interrupted on node %i\n", __func__, i);
 			break;
 		}
 		kfree(c_nodes[i].cpu);
@@ -363,7 +362,7 @@ tfw_init_node_cpus(void)
 	nr_cpus = num_online_cpus();
 
 	for (i = 0; i < MAX_NUMNODES; i++) {
-		c_nodes[i].cpu = kmalloc(nr_cpus*sizeof(int), GFP_KERNEL);
+		c_nodes[i].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if(!c_nodes[i].cpu) {
 			T_ERR("%s Failed to allocate c_nodes[%i] cpu\n", __func__, i);
 			tfw_release_node_cpus();
