@@ -3486,6 +3486,20 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (!hdr)
 		return -EINVAL;
 
+	// compact str with sparse chunks in place
+	// e.g. changes
+	// "f"
+	// "o"
+	// ":"
+	// " "
+	// "b"
+	// "a"
+	// into
+	// "fo"
+	// ": "
+	// "ba"
+	// it's different from `tfw_http_hdr_split()`, which only splits
+	// name chunks and value chunks into two strs, no compact.
 	if (hdr->flags & TFW_STR_TRAILER) {
 		int i;
 		unsigned long name_len = 0;
