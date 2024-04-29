@@ -6899,7 +6899,6 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
 		if (tfw_tls_context(conn)->alpn_chosen &&
 		    tfw_tls_context(conn)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2) {
 			if ((tfw_h2_context_init(tfw_h2_context(conn)))) {
-				ttls_ctx_clear(tfw_tls_context(conn));
 				T_ERR("cannot establish a new h2 client connection\n");
 				return T_BLOCK_WITH_RST;
 			}
