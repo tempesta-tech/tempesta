@@ -348,8 +348,6 @@ tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
 
-	BUG_ON(!ra);
-
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	spin_lock(&ra->lock);
@@ -359,7 +357,8 @@ tfw_classify_conn_close(struct sock *sk)
 
 	spin_unlock(&ra->lock);
 
-	sk->sk_security = NULL;
+	if(sk)
+		sk->sk_security = NULL;
 
 	tfw_client_put(FRANG_ACC2CLI(ra));
 }
