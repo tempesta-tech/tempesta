@@ -1230,14 +1230,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	 * table and take only its high-level part.
 	 */
 	if (hp->index <= HPACK_STATIC_ENTRIES) {
-		WARN_ON_ONCE(s_hdr->nchunks > 2);
-		/*
-		 * According to RFC 7230 3.2:
-		 * header name must be at least 1 byte, and the value can be 0
-		 * or more characters.
-		 */
-		if (s_hdr->nchunks < 1 || s_hdr->nchunks > 2)
-			return T_COMPRESSION;
+		WARN_ON_ONCE(s_hdr->nchunks < 1 || s_hdr->nchunks > 2);
 		*d_hdr = *s_hdr;
 		goto done;
 	}
