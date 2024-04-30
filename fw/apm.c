@@ -809,6 +809,10 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 		cnt += pcntrng->tot_cnt;
 		val += pcntrng->tot_val;
 	}
+
+	if (pstats->val[IDX_MIN] == UINT_MAX)
+		pstats->val[IDX_MIN] = 0;
+
 	if (likely(cnt))
 		pstats->val[IDX_AVG] = val / cnt;
 

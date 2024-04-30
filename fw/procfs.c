@@ -106,7 +106,7 @@ static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
 #define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
-#define SPRNED(m, e)	seq_printf(seq, m": %dms\n", e)
+#define SPRNED(m, e)	seq_printf(seq, m": %ums\n", e)
 #define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
 	int i;
@@ -222,7 +222,7 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
+#define SPRNE(m, e)	seq_printf(seq, m": %ums\n", e)
 
 	size_t i, rc;
 	TfwSrvConn *srv_conn;
