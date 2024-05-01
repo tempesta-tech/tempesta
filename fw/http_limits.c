@@ -352,6 +352,9 @@ tfw_classify_conn_close(struct sock *sk)
 
 	spin_lock(&ra->lock);
 
+	if(ra == NULL)
+		return;
+
 	BUG_ON(!ra->conn_curr);
 	ra->conn_curr--;
 
