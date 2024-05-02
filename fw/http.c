@@ -533,7 +533,7 @@ tfw_http_prep_date(char *buf)
 	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
 
-static inline char *
+char *
 tfw_http_resp_status_line(int status, size_t *len)
 {
 	switch(status) {
@@ -780,10 +780,8 @@ do { 								\
 	p += len;						\
 } while (0)
 
-	if (!status_line) {
-		T_WARN("Unexpected response error code: [%d]\n", status);
-		status_line = S_500;
-	}
+	/* Checked early during Tempesta FW config parsing. */
+	BUG_ON(!status_line);
 
 	tfw_http_prep_date(date_val);
 	cl_len = tfw_ultoa(body_len, cl_val, RESP_BUF_LEN - SLEN(S_V_DATE));
@@ -1531,6 +1529,9 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 	size_t status_line_len;
 	char *status_line = tfw_http_resp_status_line(status, &status_line_len);
 	size_t i = 0;
+
+	/* Checked early during Tempesta FW config parsing. */
+	BUG_ON(!status_line);
 
 	tfw_http_prep_date(date_val);
 
