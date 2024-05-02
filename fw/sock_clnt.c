@@ -389,12 +389,6 @@ ret:
 	if (unlikely(r) && r != -ENOMEM) {
 		if (stream)
 			tfw_h2_stream_add_closed(h2, stream);
-		/*
-		 * We can not send unencrypted data and can not normally close
-		 * the socket with FIN since we're in progress on sending from
-		 * the write queue.
-		 */
-		ss_close(sk, SS_F_ABORT);
 	}
 
 	if (likely(!r))
@@ -419,33 +413,20 @@ tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	int r = 0;
 
 	assert_spin_locked(&sk->sk_lock.slock);
-
 	/*
-	 * If client closes connection early, we may get here with conn
-	 * being NULL.
-	 */
-	if (unlikely(!conn)) {
-		WARN_ON_ONCE(!sock_flag(sk, SOCK_DEAD));
-		r = -EPIPE;
-		goto err_purge_tcp_write_queue;
-	}
+	 * This function is called under the socket lock, same as dropping a
+	 * connection. Moreover this function is never called when socket
+	 * state is TCP_CLOSE. When client closes the connection, we drop it
+	 * from tcp_done() -> ss_conn_drop_guard_exit(), and socket state is
+	 * set to TCP_CLOSE, so this function will never be called after it.
+         */
+	BUG_ON(!conn);
 
 	*nskbs = UINT_MAX;
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
-	if (h2_mode) {
+	if (h2_mode)
 		r = tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
-		if (unlikely(r && r != -ENOMEM))
-			goto err_purge_tcp_write_queue;
-	}
 
-	return r;
-
-err_purge_tcp_write_queue:
-	/*
-	 * Leave encrypted segments in the retransmission rb-tree,
-	 * but purge the send queue on unencrypted segments.
-	 */
-	tcp_write_queue_purge(sk);
 	return r;
 }
 
@@ -461,7 +442,7 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	int r = 0;
 
 	assert_spin_locked(&sk->sk_lock.slock);
-	/* Should be checked early in `tfw_sk_prepare_xmit`. */
+	/* Same as for tfw_sk_prepare_xmit(). */
 	BUG_ON(!conn);
 
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
@@ -476,13 +457,6 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
 		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
-	if (unlikely(r) && r != -ENOMEM)
-		/*
-		 * We can not send unencrypted data and can not normally close the
-		 * socket with FIN since we're in progress on sending from the write
-		 * queue.
-		 */
-		ss_close(sk, SS_F_ABORT);
 	return r;
 }
 
