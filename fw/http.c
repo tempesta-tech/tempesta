@@ -97,6 +97,7 @@
 #include "access_log.h"
 #include "apm.h"
 #include "cache.h"
+#include "filter.h"
 #include "hash.h"
 #include "http_limits.h"
 #include "http_tbl.h"
@@ -113,7 +114,6 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
-#include "filter.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -5440,7 +5440,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	if (test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags)) {
 		T_DBG("request dropped: non-challengeable resource"
-		      "was not served from cache");
+		      " was not served from cache");
 		tfw_http_send_err_resp(req, 403, NULL);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
@@ -6129,6 +6129,11 @@ next_msg:
 	 * service such request from cache. The module is also the quickest way
 	 * to obtain target VHost and target backend server connection since it
 	 * allows to avoid expensive tables lookups.
+	 *
+	 * We should obtain session after set method according method override.
+	 * When client sends HEAD or POST request and set X-HTTP-Method-Override
+	 * to GET. We should send js challenge to the client because the real
+	 * method, expected by the client is GET.
 	 */
 	switch (tfw_http_sess_obtain(req)) {
 	case TFW_HTTP_SESS_SUCCESS:
