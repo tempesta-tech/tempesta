@@ -17,6 +17,18 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
+ * JS challenge is a method that is used in DDoS mitigation to filter out
+ * requests that are characteristic of a botnet or other malicious computer.
+ * When JS challenge is enabled we pass each request through our session
+ * module. If request doesn't contain cookie or cookie is invalid (because
+ * of incorrect HMAC or an expired date) we increment special counter
+ * 'max_misses' and if this counter is not exceeded the limit restart JS
+ * challenge. We store this counter on our side because if we store it
+ * in cookie on the client side, the client could always send a request
+ * without cookie and ignore JS challenge. After receveing response with
+ * JS challenge client should execute it and send new request with
+ * appropriate cookie just in time.
+ *
  * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -210,6 +222,8 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
 
+	BUG_ON(!TFW_STR_PLAIN(&req->vhost->cookie->name_eq));
+
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		TfwStr value = { 0 };
 		TfwStr *pos, *end;
@@ -219,7 +233,6 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
 		pos = value.chunks;
 		end = value.chunks + value.nchunks;
-		BUG_ON(!TFW_STR_PLAIN(&req->vhost->cookie->name_eq));
 
 		while (pos != end) {
 			r += tfw_http_search_cookie(cstr, clen, &pos,
@@ -840,8 +853,9 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		return r;
 	default:
 		/*
-		 * Some internal error (cookie not found or invalid),
-		 * increment max_misses and restart js challenge.
+		 * Any js challenge processing error: cookie not found
+		 * or invalid or request comes not in time. We increment
+		 * max_misses and restart js challenge.
 		 */
 		BUG_ON(r < __TFW_HTTP_SESS_PUB_CODE_MAX);
 		return tfw_http_sticky_challenge_start(req);

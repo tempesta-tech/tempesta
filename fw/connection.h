@@ -202,9 +202,9 @@ tfw_cli_conn_get_js_max_misses(TfwCliConn *conn, unsigned int freq)
 
 static inline void
 tfw_cli_conn_set_js_max_misses(TfwCliConn *conn, unsigned int freq,
-			       u32 max_misses)
+			       u16 max_misses)
 {
-	conn->js_histoty[freq] &= 0xffffffffffff0000;
+	conn->js_histoty[freq] &= ~((u64)MAX_MISSES_MAX);
 	conn->js_histoty[freq] |= max_misses;
 }
 

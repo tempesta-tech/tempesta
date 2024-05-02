@@ -1694,7 +1694,6 @@ frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
 	return T_OK;
 }
 
-
 int
 frang_sticky_cookie_handler(TfwHttpReq *req)
 {
