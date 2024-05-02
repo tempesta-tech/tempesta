@@ -534,36 +534,50 @@ tfw_http_prep_date(char *buf)
 }
 
 static inline char *
-tfw_http_resp_status_line(int status)
+tfw_http_resp_status_line(int status, size_t *len)
 {
 	switch(status) {
 	case 200:
+		*len = SLEN(S_200);
 		return S_200;
 	case 301:
+		*len = SLEN(S_301);
 		return S_301;
 	case 302:
+		*len = SLEN(S_302);
 		return S_302;
 	case 303:
+		*len = SLEN(S_303);
 		return S_303;
 	case 307:
+		*len = SLEN(S_307);
 		return S_307;
 	case 308:
+		*len = SLEN(S_308);
 		return S_308;
 	case 400:
+		*len = SLEN(S_400);
 		return S_400;
 	case 403:
+		*len = SLEN(S_403);
 		return S_403;
 	case 404:
+		*len = SLEN(S_404);
 		return S_404;
 	case 412:
+		*len = SLEN(S_412);
 		return S_412;
 	case 500:
+		*len = SLEN(S_500);
 		return S_500;
 	case 502:
+		*len = SLEN(S_502);
 		return S_502;
 	case 503:
+		*len = SLEN(S_503);
 		return S_503;
 	case 504:
+		*len = SLEN(S_504);
 		return S_504;
 	default:
 		return NULL;
@@ -746,7 +760,8 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 	const TfwStr *proto =
 		&protos[!!(TFW_CONN_PROTO(req->conn) & TFW_FSM_HTTPS)];
 	size_t cl_len, len, remaining, body_len = body ? body->len : 0;
-	char *status_line = tfw_http_resp_status_line(status);
+	size_t status_line_len;
+	char *status_line = tfw_http_resp_status_line(status, &status_line_len);
 	int r;
 	TfwStr url = {
 		.chunks = (TfwStr []){ {}, {}, {}, {} },
@@ -804,6 +819,7 @@ do { 								\
 	 * At the moment this function is used for sticky session redirects, so
 	 * there is no big difference wehre to copy the body.
 	 */
+
 	if (likely(body)) {
 		body_val = p;
 		body_len = tfw_str_to_cstr(body, body_val, remaining);
@@ -813,7 +829,7 @@ do { 								\
 		TfwStr msg = {
 			.chunks = (TfwStr []){
 				{ .data = status_line,
-				  .len = strlen(status_line) },
+				  .len = status_line_len },
 				{ .data = S_CRLF S_F_DATE,
 				  .len = SLEN(S_CRLF S_F_DATE),
 				  .hpack_idx = 33 },
@@ -843,11 +859,12 @@ do { 								\
 				{ .data = NULL, .len = 0 },
 				{ .data = body_val, .len = body_len },
 			},
-			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF
+			.len = SLEN(S_CRLF S_F_DATE S_V_DATE S_CRLF
 				    S_F_CONTENT_LENGTH S_CRLF S_F_LOCATION
 				    S_CRLF S_F_SERVER TFW_NAME "/" TFW_VERSION
-				    S_CRLF S_CRLF) + cl_len + url.len +
-				    cookie->len + body_len,
+				    S_CRLF S_F_SET_COOKIE S_CRLF S_CRLF)
+				    + status_line_len + cl_len + url.len
+				    + cookie->len + body_len,
 			.nchunks = 15
 		};
 
@@ -1511,7 +1528,8 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 	TfwStr *url_p = url_chunks;
 	size_t url_len = 0;
 	TfwStr *c, *end, *c2, *end2;
-	char *status_line;
+	size_t status_line_len;
+	char *status_line = tfw_http_resp_status_line(status, &status_line_len);
 	size_t i = 0;
 
 	tfw_http_prep_date(date_val);
@@ -1560,17 +1578,11 @@ do {									\
 	}
 #undef TFW_STRCPY
 
-	status_line = tfw_http_resp_status_line(status);
-	if (!status_line) {
-		T_WARN("Unexpected response error code: [%d]\n", status);
-		status_line = S_500;
-	}
-
 	{
 		TfwStr msg = {
 			.chunks = (TfwStr []){
 				{ .data = status_line,
-				  .len = strlen(status_line) },
+				  .len = status_line_len },
 				{ .data = S_CRLF S_F_DATE,
 				  .len = SLEN(S_CRLF S_F_DATE),
 				  .hpack_idx = 33 },
@@ -1595,10 +1607,10 @@ do {									\
 				{ .data = NULL, .len = 0 },
 				{ .data = NULL, .len = 0 },
 			},
-			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF
+			.len = SLEN(S_CRLF S_F_DATE S_V_DATE S_CRLF
 				    S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
 				    S_CRLF S_F_SERVER TFW_NAME "/" TFW_VERSION
-				    S_CRLF S_CRLF) + url_len,
+				    S_CRLF S_CRLF) + status_line_len + url_len,
 			.nchunks = 13
 		};
 		tfw_http_send_resp(req, &msg, status);
