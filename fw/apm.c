@@ -103,8 +103,8 @@ typedef struct {
 	char		__reset_from[0];
 	unsigned long	tot_cnt;
 	unsigned long	tot_val;
-	unsigned long	min_val;
-	unsigned long	max_val;
+	unsigned int	min_val;
+	unsigned int	max_val;
 	unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
 	char		__reset_till[0];
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
@@ -324,7 +324,7 @@ tfw_stats_adj_min(TfwPcntRanges *rng, unsigned int r_time)
 {
 	if (r_time < rng->min_val) {
 		rng->min_val = r_time;
-		return true;
+		return rng->min_val != UINT_MAX;
 	}
 	return false;
 }
