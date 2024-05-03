@@ -339,14 +339,11 @@ tfw_cache_key_node(unsigned long key)
 static void
 tfw_release_node_cpus(void)
 {
-	int i;
+	int node;
 
-	for (i = 0; i < MAX_NUMNODES; i++) {
-		if(!c_nodes[i].cpu) {
-			T_WARN("%s c_node deallocation interrupted on node %i\n", __func__, i);
-			break;
-		}
-		kfree(c_nodes[i].cpu);
+	for_each_online_node(node) {
+		if(c_nodes[node].nr_cpus > 0)
+			kfree(c_nodes[node].cpu);
 	}
 }
 
@@ -354,26 +351,29 @@ tfw_release_node_cpus(void)
  * Just choose any CPU for each node to use queue_work_on() for
  * nodes scheduling. Reserve 0th CPU for other tasks.
  */
-static void
+static int
 tfw_init_node_cpus(void)
 {
-	int i, nr_cpus, cpu, node;
+	int nr_cpus, cpu, node;
 
 	nr_cpus = num_online_cpus();
 
-	for (i = 0; i < MAX_NUMNODES; i++) {
-		c_nodes[i].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
-		if(!c_nodes[i].cpu) {
-			T_ERR("%s Failed to allocate c_nodes[%i] cpu\n", __func__, i);
-			tfw_release_node_cpus();
-			return;
-		}
-	}
-
 	for_each_online_cpu(cpu) {
+
+
 		node = cpu_to_node(cpu);
+
+		pr_err("node.nr_cpus %u",c_nodes[node].nr_cpus);
+
+		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
+		if(!c_nodes[node].cpu) {
+			T_ERR("%s Failed to allocate c_nodes[%i] cpu\n", __func__, node);
+			return -ENOMEM;
+		}
+
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
+	return 0;
 }
 
 
@@ -3215,7 +3215,8 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 #endif
-	tfw_init_node_cpus();
+	if(tfw_init_node_cpus() == -ENOMEM) 
+		goto close_db;
 
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
