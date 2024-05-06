@@ -7574,6 +7574,34 @@ tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 	max_header_list_size = 0;
 }
 
+static int
+tfw_cfgop_max_queued_control_frames(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	if (tfw_cfg_check_val_n(ce, 1))
+		return -EINVAL;
+	if (ce->attr_n) {
+		T_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	r = tfw_cfg_parse_uint(ce->vals[0], &max_queued_control_frames);
+	if (unlikely(r)) {
+		T_ERR_NL("Unable to parse 'max_queued_control_frames' value: '%s'\n",
+			 ce->vals[0]);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_max_queued_control_frames(TfwCfgSpec *cs)
+{
+	max_queued_control_frames = 0;
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -7660,6 +7688,13 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_max_header_list_size,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
+	},
+	{
+		.name = "max_queued_control_frames",
+		.deflt = "10000",
+		.handler = tfw_cfgop_max_queued_control_frames,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_max_queued_control_frames,
 	},
 	{ 0 }
 };

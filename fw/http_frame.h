@@ -24,6 +24,8 @@
 #include "http_stream.h"
 #include "hpack.h"
 
+extern unsigned int max_queued_control_frames;
+
 /* RFC 7540 Section 4.1 frame header constants. */
 #define FRAME_HEADER_SIZE		9
 #define FRAME_STREAM_ID_MASK		((1U << 31) - 1)

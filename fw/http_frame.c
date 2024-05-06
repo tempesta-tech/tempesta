@@ -31,6 +31,8 @@
 #include "http_msg.h"
 #include "tcp.h"
 
+unsigned int max_queued_control_frames = 0;
+
 #define FRAME_PREFACE_CLI_MAGIC		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define FRAME_PREFACE_CLI_MAGIC_LEN	24
 #define FRAME_WND_UPDATE_SIZE		4
@@ -282,11 +284,14 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	bool is_control_frame = !hdr->stream_id || hdr->type == HTTP2_RST_STREAM;
 
-	// If the peer is causing us to generate a lot of control frames,
-	// but not reading them from us, assume they are trying to make us
-	// run out of memory.
+	/*
+	 * If the peer is causing us to generate a lot of control frames,
+	 * but not reading them from us, assume they are trying to make us
+	 * run out of memory.
+	 */
 	if (is_control_frame &&
-	    atomic_read(&ctx->queued_control_frames) > MAX_QUEUED_CONTROL_FRAMES) {
+	    atomic_read(&ctx->queued_control_frames)
+	                > max_queued_control_frames) {
 		T_ERR("Too many control frames in send queue, closing connection");
 		r = SS_BLOCK_WITH_RST;
 		goto err;
