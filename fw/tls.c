@@ -615,6 +615,9 @@ tfw_tls_conn_dtor(void *c)
 	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
+	if (((TfwConn *)c)->proto.type & Conn_Negotiable)
+		((TfwConn *)c)->proto.type = TFW_FSM_H2;
+
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
 			kfree_skb(skb);
@@ -644,20 +647,6 @@ tfw_tls_conn_dtor(void *c)
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
 
-static void
-tfw_tls_conn_dtor_h2_https(void *c)
-{
-	/*
-	 * We have to return TFW_FSM_H2_HTTPS to proto.type.
-	 * Otherwise, wrong cache will be tried to free.
-	 */
-	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
-			tfw_h2_context_clear(tfw_h2_context(c));
-
-	((TfwCliConn *)c)->proto.type = TFW_FSM_H2_HTTPS;
-	tfw_tls_conn_dtor(c);
-}
-
 static int
 tfw_tls_conn_init(TfwConn *c)
 {
@@ -678,20 +667,13 @@ tfw_tls_conn_init(TfwConn *c)
 		goto err_cleanup;
 	}
 
-	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2)
-		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
-			goto err_cleanup;
-
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
 	 * to keep the things safe.
 	 */
 	tfw_gfsm_state_init(&c->state, c, 0);
 
-	if (TFW_FSM_TYPE(c->proto.type) != TFW_FSM_H2_HTTPS)
-		c->destructor = tfw_tls_conn_dtor;
-	else
-		c->destructor = tfw_tls_conn_dtor_h2_https;
+	c->destructor = tfw_tls_conn_dtor;
 
 	return 0;
 err_cleanup:
@@ -994,18 +976,36 @@ bool
 tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
+	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
 
 	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2
-	    && alpn->id == TTLS_ALPN_ID_HTTP2)
+	    && alpn->id == TTLS_ALPN_ID_HTTP2) {
+		if (tfw_h2_context_init(tfw_h2_context(conn))) {
+			T_ERR("cannot establish a new h2 connection\n");
+			return false;
+		}
 		return true;
+	}
 
 	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_HTTPS
 	    && alpn->id == TTLS_ALPN_ID_HTTP1)
 		return true;
 
-	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2_HTTPS &&
-	    (alpn->id == TTLS_ALPN_ID_HTTP1 || alpn->id == TTLS_ALPN_ID_HTTP2))
-		return true;
+	if ((sk_proto & Conn_Negotiable)) {
+	    if (alpn->id == TTLS_ALPN_ID_HTTP1) {
+			conn->proto.type = (conn->proto.type &
+					    ~TFW_GFSM_FSM_MASK) |
+					   TFW_FSM_HTTPS;
+			return true;
+		}
+		if (alpn->id == TTLS_ALPN_ID_HTTP2) {
+			if (tfw_h2_context_init(tfw_h2_context(conn))) {
+				T_ERR("cannot establish a new h2 connection\n");
+				return false;
+			}
+			return true;
+		}
+	}
 
 	return false;
 }
@@ -1122,7 +1122,7 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 		proto1->name = TTLS_ALPN_HTTP1;
 		proto1->len = sizeof(TTLS_ALPN_HTTP1) - 1;
 
-		return TFW_FSM_H2_HTTPS;
+		return TFW_FSM_H2 | Conn_Negotiable;
 	}
 
 	return -EINVAL;
@@ -1198,7 +1198,6 @@ tfw_tls_init(void)
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_HTTPS);
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_H2);
-	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_H2_HTTPS);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;

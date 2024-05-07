@@ -60,8 +60,6 @@ tfw_cli_cache(int type)
 	case TFW_FSM_HTTP:
 	case TFW_FSM_WS:
 		return tfw_h1_conn_cache;
-	case TFW_FSM_H2_HTTPS:
-		return tfw_h2_conn_cache;
 	default:
 		BUG();
 	}
@@ -628,15 +626,14 @@ static const SsProto tfw_sock_listen_protos[] = {
 	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2},
 	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt},
 
-	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2_HTTPS},
-	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2_HttpsClnt},
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2 | Conn_Negotiable},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt | Conn_Negotiable},
 };
 
 static const SsProto *
 tfw_sock_clnt_proto(int type)
 {
 	int i;
-
 	for (i = 0; i < ARRAY_SIZE(tfw_sock_listen_protos); ++i)
 		if (tfw_sock_listen_protos[i].type == type)
 			return &tfw_sock_listen_protos[i];

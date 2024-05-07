@@ -46,6 +46,7 @@ enum {
 	/* Each connection has Client or Server bit. */
 	Conn_Clnt	= 0x1 << __Conn_Bits,
 	Conn_Srv	= 0x2 << __Conn_Bits,
+	Conn_Negotiable	= 0x4 << __Conn_Bits,
 
 	/* HTTP */
 	Conn_HttpClnt	= Conn_Clnt | TFW_FSM_HTTP,
@@ -66,10 +67,6 @@ enum {
 	/* Websocket secure */
 	Conn_WssClnt	= Conn_HttpsClnt | TFW_FSM_WEBSOCKET,
 	Conn_WssSrv	= Conn_HttpsSrv | TFW_FSM_WEBSOCKET,
-
-	/* H2,HTTPS */
-	Conn_H2_HttpsClnt	= Conn_Clnt | TFW_FSM_H2_HTTPS,
-	Conn_H2_HttpsSrv	= Conn_Srv | TFW_FSM_H2_HTTPS,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
