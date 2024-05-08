@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -296,88 +296,6 @@ TEST(http1_parser, parses_enforce_ext_req)
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/cgi-bin/show.pl");
 	}
-}
-
-TEST(http1_parser, parses_enforce_ext_req_rmark)
-{
-/*
- * Redirection attempt number, timestamp and calculated valid
- * HMAC (see 'test_http_sticky.c' file for details about
- * calculation process).
- */
-#define RMARK_NAME	"__tfw"
-#define ATT_NO		"00000001"
-#define TIMESTAMP	"535455565758595a"
-#define HMAC		"9cf5585388196965871bf4240ef44a52d0ffb23d"
-#define RMARK		"/" RMARK_NAME "=" ATT_NO TIMESTAMP HMAC
-
-#define URI_1		"/"
-#define URI_2		"/static/test/index.html"
-#define URI_3		"/foo/"
-#define URI_4		"/cgi-bin/show.pl?entry=tempesta"
-
-#define HOST		"natsys-lab.com"
-#define PORT		"80"
-#define AUTH		"http://" HOST ":" PORT
-
-	FOR_REQ("GET " RMARK URI_1 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
-	}
-
-	FOR_REQ("GET " RMARK URI_2 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_2);
-	}
-
-	FOR_REQ("GET " RMARK URI_3 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
-	}
-
-	FOR_REQ("GET " RMARK URI_4 " HTTP/1.1\r\n\r\n")	{
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
-	}
-
-	FOR_REQ("GET " AUTH RMARK URI_1 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
-	}
-
-	FOR_REQ("GET " AUTH RMARK URI_3 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
-	}
-
-	FOR_REQ("GET " AUTH RMARK URI_4 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
-		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
-		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
-	}
-
-	/* Wrong RMARK formats. */
-	EXPECT_BLOCK_REQ("GET " ATT_NO HMAC URI_1 " HTTP/1.1\r\n\r\n");
-
-	EXPECT_BLOCK_REQ("GET " "/" RMARK_NAME "=" URI_1 " HTTP/1.1\r\n\r\n");
-
-	EXPECT_BLOCK_REQ("GET " RMARK HMAC URI_1 " HTTP/1.1\r\n\r\n");
-
-#undef ATT_NO
-#undef TIMESTAMP
-#undef HMAC
-#undef RMARK
-
-#undef URI_1
-#undef URI_2
-#undef URI_3
-#undef URI_4
-
-#undef HOST
-#undef PORT
-#undef AUTH
 }
 
 /* TODO add HTTP attack examples. */
@@ -4745,10 +4663,7 @@ TEST_SUITE_MPART(http1_parser, 2)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	tfw_http_sess_redir_mark_enable();
 	TEST_RUN(http1_parser, parses_enforce_ext_req);
-	TEST_RUN(http1_parser, parses_enforce_ext_req_rmark);
-	tfw_http_sess_redir_mark_disable();
 
 	TEST_RUN(http1_parser, perf);
 }

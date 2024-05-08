@@ -64,7 +64,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -187,7 +187,7 @@ check_identifier(const char *buf, size_t len)
 	}
 
 	for (i = 0; i < len; ++i) {
-		if (!isalnum(buf[i]) && buf[i] != '_') {
+		if (!isalnum(buf[i]) && buf[i] != '_' && buf[i] != '-') {
 			T_ERR_NL("invalid character: '%c' in '%.*s'\n",
 				 buf[i], (int)len, buf);
 			return false;

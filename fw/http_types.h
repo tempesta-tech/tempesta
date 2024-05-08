@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -102,6 +102,12 @@ enum {
         TFW_HTTP_B_NEED_STRIP_LEADING_CR,
         /* Need strip 1 leading LF */
         TFW_HTTP_B_NEED_STRIP_LEADING_LF,
+        /*
+         * Request should be challenged, but requested resourse
+         * is non-challengeable. Try to service such request
+         * from cache.
+         */
+        TFW_HTTP_B_JS_NOT_SUPPORTED,
 
         /* Response flags */
         TFW_HTTP_FLAGS_RESP,

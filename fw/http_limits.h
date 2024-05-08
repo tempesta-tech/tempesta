@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -54,9 +54,6 @@ void tfw_classify_conn_close(struct sock *sk);
  *	Frang (static http limits classifier) configuration interface.
  * ------------------------------------------------------------------------
  */
-
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
 
 /**
  * Response code block setting
@@ -189,6 +186,7 @@ struct frang_vhost_cfg_t {
 };
 
 int frang_tls_handler(TlsCtx *tls, int state);
+int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
 

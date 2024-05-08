@@ -44,7 +44,7 @@
  * the number of chunks in a compound string. Zero means a plain string.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -424,8 +424,8 @@ __tfw_str_set_data(TfwStr *str, void *data, struct sk_buff *skb)
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);
-void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
-			 const char *stop);
+TfwStr *tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
+			    const char *stop);
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 int tfw_str_array_append_chunk(TfwPool *pool, TfwStr *array,

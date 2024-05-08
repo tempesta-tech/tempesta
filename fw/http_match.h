@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -167,8 +167,8 @@ int tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **h_name,
 			      unsigned int *hid_out);
 
 int tfw_http_search_cookie(const char *cstr, unsigned long clen,
-		  const TfwStr *cookie, TfwStr *val,
-		  tfw_http_match_op_t op, bool is_resp_hdr);
+			   TfwStr **pos, TfwStr *end, TfwStr *val,
+			   tfw_http_match_op_t op, bool is_resp_hdr);
 
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\

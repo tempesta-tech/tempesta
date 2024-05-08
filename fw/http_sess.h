@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2017-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -73,8 +73,6 @@
  * @body	- body (html with JavaScript code);
  * @delay_min	- minimal timeout client must wait before repeat the request,
  *		  in jiffies;
- * @delay_limit	- maximum time required to deliver request form a client to the
- *		  Tempesta, in jiffies;
  * @delay_range	- time interval starting after @delay_min for a client to make
  *		  a repeated request, in msecs;
  * @st_code	- status code for response with JS challenge;
@@ -83,7 +81,6 @@
 typedef struct {
 	TfwStr			body;
 	unsigned long		delay_min;
-	unsigned long		delay_limit;
 	unsigned long		delay_range;
 	unsigned short		st_code;
 	refcount_t		users;
@@ -103,12 +100,12 @@ typedef struct {
  *			  responses;
  * @sess_lifetime	- session lifetime in seconds;
  * @max_misses		- maximum count of requests with invalid cookie;
- * @tmt_sec		- maximum time (in seconds) to wait the request
- *			  with valid cookie;
  * @learn		- learn backend cookie instead of adding our own
  *			  session cookie;
  * @enforce		- don't forward requests to backend unless session
  *			  cookie is set;
+ * @expires             - flag indicates that Max-Age or Expires option is
+ *                        set;
  */
 struct tfw_http_cookie_t {
 	struct crypto_shash	*shash;
@@ -124,9 +121,9 @@ struct tfw_http_cookie_t {
 	unsigned int		redirect_code;
 	unsigned int		sess_lifetime;
 	unsigned int		max_misses;
-	unsigned int		tmt_sec;
 	unsigned int		learn : 1,
-				enforce : 1;
+				enforce : 1,
+				expires : 1;
 };
 
 /**
@@ -169,22 +166,22 @@ enum {
 	TFW_HTTP_SESS_VIOLATE,
 	/* JS challenge enabled, but request is not challengable. */
 	TFW_HTTP_SESS_JS_NOT_SUPPORTED,
-	/* JS challenge restart required. Internal for http_sess module. */
-	TFW_HTTP_SESS_JS_RESTART
+	/* All ferther error codes are internal for http_sess module. */
+	__TFW_HTTP_SESS_PUB_CODE_MAX,
+	/* Cookie not found in request. */
+	TFW_HTTP_SESS_COOKIE_NOT_FOUND,
+	/* Cookie is bad, because of incorrect length, hmac or expires. */
+	TFW_HTTP_SESS_BAD_COOKIE,
+	/* Request comes not in time, js challenge doesn't pass. */
+	TFW_HTTP_SESS_JS_DOES_NOT_PASS
 };
 
 int tfw_http_sess_obtain(TfwHttpReq *req);
-void tfw_http_sess_learn(TfwHttpResp *resp);
-int tfw_http_sess_req_process(TfwHttpReq *req);
+int tfw_http_sess_learn(TfwHttpResp *resp);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache,
-                               unsigned int stream_id);
+			       unsigned int stream_id);
 void tfw_http_sess_put(TfwHttpSess *sess);
 void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
-
-void tfw_http_sess_redir_enable(void);
-bool tfw_http_sess_max_misses(void);
-unsigned int tfw_http_sess_mark_size(void);
-const TfwStr *tfw_http_sess_mark_name(void);
 
 /* Sticky sessions scheduling routines. */
 TfwSrvConn *tfw_http_sess_get_srv_conn(TfwMsg *msg);

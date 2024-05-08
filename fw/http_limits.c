@@ -44,6 +44,7 @@
 #include "hash.h"
 #include "http_match.h"
 #include "http.h"
+#include "http_sess.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -1281,8 +1282,6 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 	if (WARN_ON_ONCE(!dvh))
 		return T_BLOCK;
 	r = frang_http_req_process(ra, conn, data, dvh);
-	if (unlikely(r == T_BLOCK) && dvh->frang_gconf->ip_block)
-		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
 	tfw_vhost_put(dvh);
 
 	return r;
@@ -1419,15 +1418,6 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	 */
 	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
-
-	if (unlikely(r == T_BLOCK)) {
-		/* Default vhost has no 'vhost_dflt' member set. */
-		FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
-				? req->vhost->vhost_dflt->frang_gconf
-				: req->vhost->frang_gconf;
-		if (fg_cfg->ip_block)
-			tfw_filter_block_ip(FRANG_ACC2CLI(ra));
-	}
 
 	return r;
 }
@@ -1667,6 +1657,68 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 
 	return r;
 
+}
+
+static int
+frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
+			  unsigned int max_misses)
+{
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+	unsigned int msum = 0;
+
+	if (!max_misses)
+		return T_OK;
+
+	if (tfw_cli_conn_get_js_ts(conn, i) != ts) {
+		tfw_cli_conn_set_js_ts(conn, i, ts);
+		tfw_cli_conn_set_js_max_misses(conn, i, 0);
+	}
+	tfw_cli_conn_inc_js_max_misses(conn, i);
+	/* Warning in case of overflow. */
+	WARN_ON_ONCE(!tfw_cli_conn_get_js_max_misses(conn, i));
+
+	/* Collect current max_misses sum. */
+	for (i = 0; i < FRANG_FREQ; i++) {
+		if (frang_time_in_frame(ts, tfw_cli_conn_get_js_ts(conn, i)))
+			msum += tfw_cli_conn_get_js_max_misses(conn, i);
+	}
+
+	if (unlikely(msum > max_misses)) {
+		frang_limmsg_lock(&ra->lock, "max rmisses", msum, max_misses,
+				  &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
+int
+frang_sticky_cookie_handler(TfwHttpReq *req)
+{
+	TfwConn *conn = req->conn;
+	FrangAcc *ra;
+	TfwStickyCookie *sticky;
+
+	if (WARN_ON_ONCE(!req->vhost || !conn || !conn->sk))
+		return T_BLOCK;
+
+	ra = frang_acc_from_sk(conn->sk);
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
+
+	sticky = req->vhost->cookie;
+	/*
+	 * All whitelisted requests should not execute JS
+	 * challenge. Also this function is called only for
+	 * client connections.
+	 */
+	BUG_ON(frang_req_is_whitelisted(req));
+	BUG_ON(!sticky->enforce);
+	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
+
+	return frang_sticky_cookie_limit(ra, (TfwCliConn *)conn,
+					 sticky->max_misses);
 }
 
 /*

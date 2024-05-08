@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1255,11 +1255,13 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 		.nchunks = 5
 	};
 
+	TfwStr *end;
 	TfwStr *chunks = in.chunks;
 	TfwStr out = { .data = (void *)123, .skb = (void *)456, .len = 789,
 		       .eolen = 3, .flags = 111, .nchunks = 123};
 
-	tfw_str_collect_cmp(chunks, chunks + 5, &out, NULL);
+	end = tfw_str_collect_cmp(chunks, chunks + 5, &out, NULL);
+	EXPECT_TRUE(end == chunks + 5);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
 	EXPECT_EQ(out.nchunks, 5);
 	EXPECT_EQ(out.len, 26);
@@ -1275,19 +1277,23 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	 * Deliberately not reinitializing 'out' here to check that its previous
 	 * contents is discarded.
 	 */
-	tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, NULL);
+	end = tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, NULL);
+	EXPECT_TRUE(end == chunks + 5);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "efghijklmnopqrstuvwxyz", 22, 0));
 	EXPECT_EQ(out.nchunks, 4);
 
-	tfw_str_collect_cmp(chunks + 2, chunks + 5, &out, NULL);
+	end = tfw_str_collect_cmp(chunks + 2, chunks + 5, &out, NULL);
+	EXPECT_TRUE(end == chunks + 5);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "jklmnopqrstuvwxyz", 17, 0));
 	EXPECT_EQ(out.nchunks, 3);
 
-	tfw_str_collect_cmp(chunks + 3, chunks + 5, &out, NULL);
+	end = tfw_str_collect_cmp(chunks + 3, chunks + 5, &out, NULL);
+	EXPECT_TRUE(end == chunks + 5);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "rstuvwxyz", 9, 0));
 	EXPECT_EQ(out.nchunks, 2);
 
-	tfw_str_collect_cmp(chunks + 4, chunks + 5, &out, NULL);
+	end = tfw_str_collect_cmp(chunks + 4, chunks + 5, &out, NULL);
+	EXPECT_TRUE(end == chunks + 5);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "uvwxyz", 6, 0));
 	/*
 	 * Cutting out one segment should create a plain string, rather than
@@ -1296,17 +1302,20 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	EXPECT_TRUE(TFW_STR_PLAIN(&out));
 
 	/* Empty slice. */
-	tfw_str_collect_cmp(chunks + 4, chunks + 4, &out, NULL);
+	end = tfw_str_collect_cmp(chunks + 4, chunks + 4, &out, NULL);
+	EXPECT_TRUE(end == chunks + 4);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "", 0, 0));
 	EXPECT_TRUE(TFW_STR_PLAIN(&out));
 
 	/* Collecting until a stop character. Two chunks. */
-	tfw_str_collect_cmp(chunks, chunks + 5, &out, "j");
+	end = tfw_str_collect_cmp(chunks, chunks + 5, &out, "j");
+	EXPECT_TRUE(end == chunks + 2);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghi", 9, 0));
 	EXPECT_EQ(out.nchunks, 2);
 
 	/* Collecing until a stop character. Single chunk. */
-	tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, "j");
+	end = tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, "j");
+	EXPECT_TRUE(end == chunks + 2);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "efghi", 5, 0));
 	EXPECT_TRUE(TFW_STR_PLAIN(&out));
 
@@ -1315,7 +1324,8 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	 * only at the beginning of each segment. Even if the character appears
 	 * somewhere inside, all segments are expected to be collected.
 	 */
-	tfw_str_collect_cmp(chunks, chunks + 5, &out, "k");
+	end = tfw_str_collect_cmp(chunks, chunks + 5, &out, "k");
+	EXPECT_TRUE(end == chunks + 5);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
 	EXPECT_EQ(out.nchunks, 5);
 }

@@ -97,6 +97,7 @@
 #include "access_log.h"
 #include "apm.h"
 #include "cache.h"
+#include "filter.h"
 #include "hash.h"
 #include "http_limits.h"
 #include "http_tbl.h"
@@ -532,37 +533,51 @@ tfw_http_prep_date(char *buf)
 	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
 
-static inline char *
-tfw_http_resp_status_line(int status)
+char *
+tfw_http_resp_status_line(int status, size_t *len)
 {
 	switch(status) {
 	case 200:
+		*len = SLEN(S_200);
 		return S_200;
 	case 301:
+		*len = SLEN(S_301);
 		return S_301;
 	case 302:
+		*len = SLEN(S_302);
 		return S_302;
 	case 303:
+		*len = SLEN(S_303);
 		return S_303;
 	case 307:
+		*len = SLEN(S_307);
 		return S_307;
 	case 308:
+		*len = SLEN(S_308);
 		return S_308;
 	case 400:
+		*len = SLEN(S_400);
 		return S_400;
 	case 403:
+		*len = SLEN(S_403);
 		return S_403;
 	case 404:
+		*len = SLEN(S_404);
 		return S_404;
 	case 412:
+		*len = SLEN(S_412);
 		return S_412;
 	case 500:
+		*len = SLEN(S_500);
 		return S_500;
 	case 502:
+		*len = SLEN(S_502);
 		return S_502;
 	case 503:
+		*len = SLEN(S_503);
 		return S_503;
 	case 504:
+		*len = SLEN(S_504);
 		return S_504;
 	default:
 		return NULL;
@@ -731,7 +746,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
  * Body string contains the 'Content-Length' header, CRLF and body itself.
  */
 int
-tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
+tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 		    TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
@@ -745,7 +760,8 @@ tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	const TfwStr *proto =
 		&protos[!!(TFW_CONN_PROTO(req->conn) & TFW_FSM_HTTPS)];
 	size_t cl_len, len, remaining, body_len = body ? body->len : 0;
-	char *status_line = tfw_http_resp_status_line(status);
+	size_t status_line_len;
+	char *status_line = tfw_http_resp_status_line(status, &status_line_len);
 	int r;
 	TfwStr url = {
 		.chunks = (TfwStr []){ {}, {}, {}, {} },
@@ -764,10 +780,8 @@ do { 								\
 	p += len;						\
 } while (0)
 
-	if (!status_line) {
-		T_WARN("Unexpected response error code: [%d]\n", status);
-		status_line = S_500;
-	}
+	/* Checked early during Tempesta FW config parsing. */
+	BUG_ON(!status_line);
 
 	tfw_http_prep_date(date_val);
 	cl_len = tfw_ultoa(body_len, cl_val, RESP_BUF_LEN - SLEN(S_V_DATE));
@@ -794,11 +808,6 @@ do { 								\
 		TFW_ADD_URL_CHUNK(&req->host);
 	}
 
-	if (rmark->len) {
-		url.chunks[url.nchunks++] = *rmark;
-		url.len += rmark->len;
-	}
-
 	TFW_ADD_URL_CHUNK(&req->uri_path);
 #undef TFW_ADD_URL_CHUNK
 
@@ -808,6 +817,7 @@ do { 								\
 	 * At the moment this function is used for sticky session redirects, so
 	 * there is no big difference wehre to copy the body.
 	 */
+
 	if (likely(body)) {
 		body_val = p;
 		body_len = tfw_str_to_cstr(body, body_val, remaining);
@@ -817,7 +827,7 @@ do { 								\
 		TfwStr msg = {
 			.chunks = (TfwStr []){
 				{ .data = status_line,
-				  .len = strlen(status_line) },
+				  .len = status_line_len },
 				{ .data = S_CRLF S_F_DATE,
 				  .len = SLEN(S_CRLF S_F_DATE),
 				  .hpack_idx = 33 },
@@ -847,11 +857,12 @@ do { 								\
 				{ .data = NULL, .len = 0 },
 				{ .data = body_val, .len = body_len },
 			},
-			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF
+			.len = SLEN(S_CRLF S_F_DATE S_V_DATE S_CRLF
 				    S_F_CONTENT_LENGTH S_CRLF S_F_LOCATION
 				    S_CRLF S_F_SERVER TFW_NAME "/" TFW_VERSION
-				    S_CRLF S_CRLF) + cl_len + url.len +
-				    cookie->len + body_len,
+				    S_CRLF S_F_SET_COOKIE S_CRLF S_CRLF)
+				    + status_line_len + cl_len + url.len
+				    + cookie->len + body_len,
 			.nchunks = 15
 		};
 
@@ -1478,7 +1489,7 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 void
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
-	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG) && reason)
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
 
@@ -1515,8 +1526,12 @@ tfw_http_req_redir(TfwHttpReq *req, int status, TfwHttpRedir *redir)
 	TfwStr *url_p = url_chunks;
 	size_t url_len = 0;
 	TfwStr *c, *end, *c2, *end2;
-	char *status_line;
+	size_t status_line_len;
+	char *status_line = tfw_http_resp_status_line(status, &status_line_len);
 	size_t i = 0;
+
+	/* Checked early during Tempesta FW config parsing. */
+	BUG_ON(!status_line);
 
 	tfw_http_prep_date(date_val);
 
@@ -1564,17 +1579,11 @@ do {									\
 	}
 #undef TFW_STRCPY
 
-	status_line = tfw_http_resp_status_line(status);
-	if (!status_line) {
-		T_WARN("Unexpected response error code: [%d]\n", status);
-		status_line = S_500;
-	}
-
 	{
 		TfwStr msg = {
 			.chunks = (TfwStr []){
 				{ .data = status_line,
-				  .len = strlen(status_line) },
+				  .len = status_line_len },
 				{ .data = S_CRLF S_F_DATE,
 				  .len = SLEN(S_CRLF S_F_DATE),
 				  .hpack_idx = 33 },
@@ -1599,10 +1608,10 @@ do {									\
 				{ .data = NULL, .len = 0 },
 				{ .data = NULL, .len = 0 },
 			},
-			.len = SLEN(S_301 S_CRLF S_F_DATE S_V_DATE S_CRLF
+			.len = SLEN(S_CRLF S_F_DATE S_V_DATE S_CRLF
 				    S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
 				    S_CRLF S_F_SERVER TFW_NAME "/" TFW_VERSION
-				    S_CRLF S_CRLF) + url_len,
+				    S_CRLF S_CRLF) + status_line_len + url_len,
 			.nchunks = 13
 		};
 		tfw_http_send_resp(req, &msg, status);
@@ -3464,10 +3473,6 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			return r;
 	}
 
-	r = tfw_http_sess_req_process(req);
-	if (r)
-		return r;
-
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
 		return r;
@@ -3815,8 +3820,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * ignored and not copied.
 	 */
 	h1_hdrs_sz = pit->hdrs_len
-		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF))
-		- req->mark.len;
+		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF));
 	/* First request line: remove pseudo headers names, all values are on
 	 * the same line.
 	 */
@@ -4972,6 +4976,26 @@ tfw_h2_choose_close_type(ErrorType type, bool reply)
 	return T_DROP;
 }
 
+static void
+tfw_http_req_filter_block_ip(TfwHttpReq *req)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	TfwClient *cli;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
+	if (!cli)
+		goto out;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli);
+
+out:
+	tfw_vhost_put(dflt_vh);
+}
+
 static int
 tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
@@ -4988,6 +5012,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
 		tfw_h2_req_unlink_stream_with_rst(req);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_http_req_filter_block_ip(req);
 		goto free_req;
 	}
 
@@ -5059,6 +5085,8 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	if (!reply) {
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_http_req_filter_block_ip(req);
 		do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
 		goto out;
@@ -5420,6 +5448,14 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	if (req->resp) {
 		tfw_http_req_cache_service(req->resp);
+		return;
+	}
+
+	if (test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags)) {
+		T_DBG("request dropped: non-challengeable resource"
+		      " was not served from cache");
+		tfw_http_send_err_resp(req, 403, NULL);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
 	}
 
@@ -6064,46 +6100,6 @@ next_msg:
 		return T_OK;
 	}
 
-	/*
-	 * Sticky cookie module must be used before request can reach cache.
-	 * Unauthorised clients mustn't be able to get any resource on
-	 * protected service and stress cache subsystem. The module is also
-	 * the quickest way to obtain target VHost and target backend server
-	 * connection since it allows to avoid expensive tables lookups.
-	 */
-	switch (tfw_http_sess_obtain(req)) {
-	case TFW_HTTP_SESS_SUCCESS:
-		break;
-
-	case TFW_HTTP_SESS_REDIRECT_NEED:
-		/* Response is built and stored in @req->resp. */
-		break;
-
-	case TFW_HTTP_SESS_VIOLATE:
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503, NULL,
-						HTTP2_ECODE_PROTO);
-
-	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
-		/*
-		 * Requested resource can't be challenged, forward all pending
-		 * responses and close the connection to allow client to recover.
-		 */
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 503,
-				"request dropped: can't send JS challenge"
-				" since a non-challengeable resource" 
-				" (e.g. image) was requested",
-				HTTP2_ECODE_PROTO);
-
-	default:
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		return tfw_http_req_parse_block(req, 500,
-				"request dropped: internal error"
-				" in Sticky module",
-				HTTP2_ECODE_PROTO);
-	}
-
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
 		/* Override shouldn't be combined with PURGE, that'd
 		 * probably break things */
@@ -6137,6 +6133,52 @@ next_msg:
 					HTTP2_ECODE_PROTO);
 		}
 		req->method = req->method_override;
+	}
+
+	/*
+	 * Sticky cookie module must be used before request can reach cache.
+	 * Unauthorised clients mustn't be able to get any resource on protected
+	 * service. If client requested non-challengeable resource, we try to
+	 * service such request from cache. The module is also the quickest way
+	 * to obtain target VHost and target backend server connection since it
+	 * allows to avoid expensive tables lookups.
+	 *
+	 * We should obtain session after set method according method override.
+	 * When client sends HEAD or POST request and set X-HTTP-Method-Override
+	 * to GET. We should send js challenge to the client because the real
+	 * method, expected by the client is GET.
+	 */
+	switch (tfw_http_sess_obtain(req)) {
+	case TFW_HTTP_SESS_SUCCESS:
+		break;
+
+	case TFW_HTTP_SESS_REDIRECT_NEED:
+		/* Response is built and stored in @req->resp. */
+		break;
+
+	case TFW_HTTP_SESS_VIOLATE:
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		return tfw_http_req_parse_block(req, 403, NULL,
+						HTTP2_ECODE_PROTO);
+
+	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
+		/*
+		 * Requested resource can't be challenged, try service it
+		 * from cache.
+		 */
+		T_DBG("Can't send JS challenge for request since a "
+		      "non-challengeable resource (e.g. image) was requested");
+		__set_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags);
+		break;
+
+	case TFW_HTTP_SESS_FAILURE:
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		return tfw_http_req_parse_drop_with_fin(req, 500,
+				"request dropped: internal error"
+				" in Sticky module",
+				HTTP2_ECODE_PROTO);
+	default:
+		BUG();
 	}
 
 	if (TFW_MSG_H2(req))
@@ -6978,14 +7020,20 @@ static int
 tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
-	bool misconfiguration = tfw_blk_flags & TFW_BLK_ATT_REPLY
-			 && dflt_vh && dflt_vh->frang_gconf->ip_block;
+	bool misconfiguration;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return -1;
+
+        misconfiguration = (tfw_blk_flags & TFW_BLK_ATT_REPLY)
+                           && dflt_vh->frang_gconf->ip_block;
 	tfw_vhost_put(dflt_vh);
 
 	if (misconfiguration) {
-		T_WARN_NL("Directive 'block action' can't be set to\n"
-			  "    'attack reply' if 'ip_block' from 'frang_limits' group is 'on'\n"
-			  "    (this is misconfiguration, see the wiki).\n");
+		T_WARN_NL("Directive 'block action' can't be set to"
+			  " 'attack reply' if 'ip_block' from 'frang_limits'"
+			  " group is 'on'. This is misconfiguration, look in"
+			  " the wiki).\n");
 		return -1;
 	}
 

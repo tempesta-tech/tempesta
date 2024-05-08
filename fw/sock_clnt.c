@@ -94,6 +94,7 @@ tfw_cli_conn_alloc(int type)
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
 	spin_lock_init(&cli_conn->timer_lock);
+	bzero_fast(cli_conn->js_histoty, sizeof(cli_conn->js_histoty));
 #ifdef CONFIG_LOCKDEP
 	/*
 	 * The lock is acquired at only one place where there is no conflict

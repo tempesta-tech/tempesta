@@ -4646,57 +4646,6 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__parse_keep_alive);
 
-static int
-__parse_uri_mark(TfwHttpReq *req, unsigned char *data, size_t len)
-{
-	const TfwStr *str;
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(req);
-
-	__FSM_START(parser->_i_st);
-
-	__FSM_STATE(Req_I_UriMarkStart) {
-		if (likely(c == '/')) {
-			__msg_field_open(&req->mark, p);
-			/* Place initial slash into separate chunk. */
-			__FSM_I_MOVE_fixup_f(Req_I_UriMarkName, 1,
-					     &req->mark, 0);
-		}
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_UriMarkName) {
-		str = tfw_http_sess_mark_name();
-		TRY_STR_LAMBDA_fixup(str, &req->mark, {
-			parser->to_read = tfw_http_sess_mark_size();
-		}, Req_I_UriMarkName, Req_I_UriMarkValue);
-		/*
-		 * Since mark isn't matched, copy accumulated
-		 * TfwStr values to 'req->uri_path' - it will
-		 * be finished in 'Req_UriAbsPath' state.
-		 */
-		req->uri_path = req->mark;
-		TFW_STR_INIT(&req->mark);
-		return __data_off(p);
-	}
-
-	__FSM_STATE(Req_I_UriMarkValue) {
-		__fsm_n = min_t(long, parser->to_read, __data_remain(p));
-		parser->to_read -= __fsm_n;
-		if (parser->to_read)
-			__FSM_I_MOVE_fixup_f(Req_I_UriMarkValue, __fsm_n,
-					     &req->mark, TFW_STR_VALUE);
-		parser->to_read = -1;
-		__msg_field_finish_pos(&req->mark, p, __fsm_n);
-		__FSM_I_field_chunk_flags(&req->mark, TFW_STR_VALUE);
-		return __data_off(p + __fsm_n);
-	}
-
-done:
-	return r;
-}
-STACK_FRAME_NON_STANDARD(__parse_uri_mark);
-
 /* Parse method override request headers. */
 static int
 __parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len)
@@ -4991,56 +4940,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	}
 
 	__FSM_STATE(Req_Uri, hot) {
-		if (likely(c == '/'))
-			__FSM_JMP(Req_UriMark);
-		__FSM_JMP(Req_UriRareForms);
-	}
-
-	__FSM_STATE(Req_UriMark, hot) {
-		if (!tfw_http_sess_max_misses()) {
-			/*
-			 * Skip redirection mark processing and move to
-			 * URI path parsing, if 'max_misses' for redirected
-			 * requests is not enabled.
-			 */
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
-		}
-
-		if (!parser->_i_st)
-			TRY_STR_INIT();
-		__fsm_sz = __data_remain(p);
-		__fsm_n = __parse_uri_mark(req, p, __fsm_sz);
-		if (__fsm_n == CSTR_POSTPONE) {
-			p += __fsm_sz;
-			parser->state = &&Req_UriMark;
-			__FSM_EXIT(T_POSTPONE);
-		}
-		if (__fsm_n < 0)
-			TFW_PARSER_DROP(Req_UriMark);
-
-		parser->_i_st = NULL;
-		if (TFW_STR_EMPTY(&req->mark)) {
-			/*
-			 * If 'req->mark' is empty - the mark isn't matched,
-			 * and we can move to 'Req_UriAbsPath' (because if
-			 * we here, the initial '/' is already found).
-			 */
-			__FSM_MOVE_nf(Req_UriAbsPath, __fsm_n, &req->uri_path);
-		}
-		BUG_ON(!__fsm_n);
-		__FSM_MOVE_nofixup_n(Req_UriMarkEnd, __fsm_n);
-	}
-
-	__FSM_STATE(Req_UriMarkEnd, hot) {
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
-		else if (c == ' ') {
-			__FSM_MOVE_nofixup(Req_HttpVer);
-		}
-		TFW_PARSER_DROP(Req_UriMarkEnd);
+		__FSM_JMP(Req_UriRareForms);
 	}
 
 	/*
@@ -5829,9 +5733,20 @@ Req_Method_1CharStep: __attribute__((cold))
 		 * but it only used with CONNECT that is not supported */
 		/* Asterisk form as in RFC7230#section-5.3.4 */
 		if (req->method == TFW_HTTP_METH_OPTIONS && c == '*')
-			__FSM_MOVE_nofixup(Req_UriMarkEnd);
+			__FSM_MOVE_nofixup(Req_UriRareFormsEnd);
 		/* Absolute form as in RFC7230#section-5.3.2 */
 		__FSM_JMP(Req_UriAbsoluteForm);
+	}
+
+	__FSM_STATE(Req_UriRareFormsEnd, hot) {
+		if (likely(c == '/')) {
+			__msg_field_open(&req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+		}
+		else if (c == ' ') {
+			__FSM_MOVE_nofixup(Req_HttpVer);
+		}
+		TFW_PARSER_DROP(Req_UriMarkEnd);
 	}
 
 	__FSM_STATE(Req_UriAbsoluteForm, cold) {
@@ -5915,7 +5830,8 @@ Req_Method_1CharStep: __attribute__((cold))
 			T_DBG3("Handling http:///path\n");
 			tfw_http_msg_set_str_data(msg, &req->host, p);
 			req->host.flags |= TFW_STR_COMPLETE;
-			__FSM_JMP(Req_UriMark);
+			__msg_field_open(&req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		} else if (c == '[') {
 			__set_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags);
 			__msg_field_open(&req->host, p);
@@ -5973,7 +5889,8 @@ Req_Method_1CharStep: __attribute__((cold))
 		T_DBG3("Userinfo len = %i, host len = %i\n",
 		       (int)req->userinfo.len, (int)req->host.len);
 		if (likely(c == '/')) {
-			__FSM_JMP(Req_UriMark);
+			__msg_field_open(&req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
@@ -5987,7 +5904,8 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_f(Req_UriPort, &req->host);
 		__msg_field_finish(&req->host, p);
 		if (likely(c == '/')) {
-			__FSM_JMP(Req_UriMark);
+			__msg_field_open(&req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
@@ -9446,94 +9364,6 @@ done:
 STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
 
 /**
- * Parse Tempesta FW session redirection mark in URI into req->mark or
- * normal URI path to parser->hdr.
- */
-static int
-__h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
-{
-	const TfwStr *str;
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(req);
-
-	__FSM_START(parser->_i_st);
-
-	__FSM_STATE(Req_I_UriMarkStart) {
-		if (WARN_ON_ONCE(c != '/'))
-			__FSM_EXIT(CSTR_NEQ);
-
-		__msg_field_open(&req->mark, p);
-		/* Place initial slash into separate chunk. */
-		__FSM_H2_I_MOVE_LAMBDA_fixup_f(Req_I_UriMarkName, 1, &req->mark,
-		{
-			/*
-			 * The end of ':path' header has been met; thus, we can
-			 * just go out, and the parsed '/' will be fixed up in
-			 * the outside state Req_Path after returning.
-			 */
-			TFW_STR_INIT(&req->mark);
-			return 0;
-		}, 0);
-	}
-
-	__FSM_STATE(Req_I_UriMarkName) {
-		/*
-		 * Lookup for Tempesta FW URI marker.
-		 * If there is no such marker, then there is zero matching and
-		 * p remains the same. However a valid URI may have the same
-		 * prefix with the Tempesta FW marker. In this case we move the
-		 * whole matching perfix to parser->hdr.
-		 */
-		str = tfw_http_sess_mark_name();
-		H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup(str, &req->mark, {
-			parser->to_read = tfw_http_sess_mark_size();
-		}, {
-			/*
-			 * __try_str() in H2_TRY_STR_FULL_MATCH_FIN_LAMBDA_fixup()
-			 * didn't find a match, i.e. returned CSTR_NEQ.
-			 */
-			__FSM_EXIT(CSTR_NEQ);
-		}, Req_I_UriMarkName, Req_I_UriMarkValue);
-		/*
-		 * In case of HTTP/2 processing we need not set @req->uri_path
-		 * here; instead, the value of ':path' pseudo-header in
-		 * @req->h_tbl (currently @parser->hdr) is used. If mark isn't
-		 * matched here, concatenate descriptors accumulated in
-		 * @req->mark with the descriptor of ':path' pseudo-header
-		 * (that is @parser->hdr) - the latter will be finished in the
-		 * 'Req_Path' state. Note, that if we are here, we must not be
-		 * postponed in the outside state after returning.
-		 */
-		if (tfw_strcat(req->pool, &parser->hdr, &req->mark))
-			__FSM_EXIT(CSTR_NEQ);
-
-		TFW_STR_INIT(&req->mark);
-		return __data_off(p);
-	}
-
-	__FSM_STATE(Req_I_UriMarkValue) {
-		__fsm_n = min_t(long, parser->to_read, __data_remain(p));
-		parser->to_read -= __fsm_n;
-		if (parser->to_read) {
-			if (fin)
-				__FSM_EXIT(CSTR_NEQ);
-			__msg_field_fixup_pos(&req->mark, p, __fsm_n);
-			__FSM_I_field_chunk_flags(&req->mark, TFW_STR_VALUE);
-			parser->_i_st = &&Req_I_UriMarkValue;
-			__FSM_EXIT(CSTR_POSTPONE);
-		}
-		parser->to_read = -1;
-		__msg_field_finish_pos(&req->mark, p, __fsm_n);
-		__FSM_I_field_chunk_flags(&req->mark, TFW_STR_VALUE);
-		return __data_off(p + __fsm_n);
-	}
-
-done:
-	return r;
-}
-STACK_FRAME_NON_STANDARD(__h2_req_parse_mark);
-
-/**
  * @fin is true if HAPCK doesn't have any more data for the FSM, i.e. we reached
  * the end of the header name.
  */
@@ -10379,38 +10209,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	}
 
 	__FSM_STATE(Req_Mark, hot) {
-		if (!tfw_http_sess_max_misses())
-			__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_Mark, 1, Req_Path);
-
-		if (!parser->_i_st)
-			TRY_STR_INIT();
-		/* __fsm_n == CSTR_NEQ if the path doesn't start with '/'. */
-		__fsm_n = __h2_req_parse_mark(req, p, __data_remain(p), fin);
-		if (__fsm_n == CSTR_POSTPONE)
-			__FSM_H2_POSTPONE(Req_Mark);
-		if (__fsm_n < 0) {
-			__FSM_H2_DROP(Req_Mark);
-		}
-		parser->_i_st = NULL;
-
-		/*
-		 * All data is already fixed up in __h2_req_parse_mark()
-		 * into parser->hdr.
-		 */
-		if (!__fsm_n)
-			__FSM_JMP(Req_Path);
-		if (TFW_STR_EMPTY(&req->mark)) {
-			/* Common path prefix with the redirection mark. */
-			__FSM_H2_PSHDR_MOVE_DROP_nofixup(Req_Mark, __fsm_n, Req_Path);
-		}
-		/* Found Tempest FW redirection marker. */
-		__FSM_H2_PSHDR_MOVE_DROP_nofixup(Req_Mark, __fsm_n, Req_MarkEnd);
-	}
-
-	__FSM_STATE(Req_MarkEnd, hot) {
-		if (likely(c == '/'))
-			__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_MarkEnd, 1, Req_Path);
-		__FSM_H2_DROP(Req_MarkEnd);
+		__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_Mark, 1, Req_Path);		
 	}
 
 	__FSM_STATE(Req_Path) {

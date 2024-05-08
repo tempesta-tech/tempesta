@@ -31,6 +31,9 @@
 #include "http_frame.h"
 #include "tls.h"
 
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
+
 /*
  * Flag bits definition for SsProto.type field.
  * NOTE: There are also flags definition for this
@@ -162,7 +165,10 @@ typedef struct tfw_conn_t {
  * @seq_queue	- queue of client's messages in the order they came;
  * @seq_qlock	- lock for accessing @seq_queue;
  * @ret_qlock	- lock for serializing sets of responses;
- * @timer_lock	- lock for serializing of deleting/modifing keep-alive timer
+ * @timer_lock	- lock for serializing of deleting/modifing keep-alive timer;
+ * @js_histoty	- history of client js challenge misses. High 48 bits are
+ *		  timestamp, low 16 bits are count of misses;
+ *
  */
 typedef struct {
 	TFW_CONN_COMMON;
@@ -170,7 +176,43 @@ typedef struct {
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
 	spinlock_t		timer_lock;
+	u64			js_histoty[FRANG_FREQ];
 } TfwCliConn;
+
+#define MAX_MISSES_MAX 0xffff
+
+static inline unsigned int
+tfw_cli_conn_get_js_ts(TfwCliConn *conn, unsigned int freq)
+{
+	return conn->js_histoty[freq] >> 16;
+}
+
+static inline void
+tfw_cli_conn_set_js_ts(TfwCliConn *conn, unsigned int freq, u64 ts)
+{
+	conn->js_histoty[freq] &= MAX_MISSES_MAX;
+	conn->js_histoty[freq] |= (ts << 16);
+}
+
+static inline u32
+tfw_cli_conn_get_js_max_misses(TfwCliConn *conn, unsigned int freq)
+{
+	return conn->js_histoty[freq] & MAX_MISSES_MAX;
+}
+
+static inline void
+tfw_cli_conn_set_js_max_misses(TfwCliConn *conn, unsigned int freq,
+			       u16 max_misses)
+{
+	conn->js_histoty[freq] &= ~((u64)MAX_MISSES_MAX);
+	conn->js_histoty[freq] |= max_misses;
+}
+
+static inline void
+tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
+{
+	conn->js_histoty[freq]++;
+}
 
 /*
  * These are specific properties that are relevant to server connections.

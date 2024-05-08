@@ -156,9 +156,9 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 	st->options.data = st->options_str;
 
 	st->max_misses = def_st->max_misses;
-	st->tmt_sec = def_st->tmt_sec;
 	st->learn = def_st->learn;
 	st->enforce = def_st->enforce;
+	st->expires = def_st->expires;
 
 	if (!st->js_challenge && def_st->js_challenge) {
 		st->js_challenge = def_st->js_challenge;
@@ -173,6 +173,31 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 	else {
 		st->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
 	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_cookie_set_option(TfwStickyCookie *sticky, const char *name,
+			    const char *val)
+{
+	size_t name_len = strlen(name);
+	size_t val_len = val ? strlen(val) + 1 : 0;
+
+	if (sticky->options.len + 2 + name_len + val_len > STICKY_OPT_MAXLEN) {
+		T_ERR_NL("http_sess: too long cookie options length.\n");
+		return -EINVAL;
+	}
+
+	sticky->options_str[sticky->options.len + 0] = ';';
+	sticky->options_str[sticky->options.len + 1] = ' ';
+	memcpy(&sticky->options_str[sticky->options.len + 2], name, name_len);
+	if (val_len) {
+		sticky->options_str[sticky->options.len + 2 + name_len] = '=';
+		memcpy(&sticky->options_str[sticky->options.len + 3 + name_len],
+		       val, val_len);
+	}
+	sticky->options.len += name_len + val_len + 2;
 
 	return 0;
 }
@@ -209,6 +234,18 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 		sticky->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
 	}
 
+	if (sticky->options_str[0] != '\0') {
+		if (TFW_STR_EMPTY(&sticky->name)) {
+			T_ERR_NL("http_sess: cookie options requires "
+				 "sticky cookies enabled and explicitly defined "
+				 "in the same section\n");
+			return -EINVAL;
+		}
+	} else if (!TFW_STR_EMPTY(&sticky->name)) {
+		if ((r = tfw_cfgop_cookie_set_option(sticky, "Path", "/")))
+			return r;
+	}
+
 	/* Inherit sticky options defined at top level. */
 	if ((r = tfw_cfgop_sticky_inherit(vhost))) {
 		T_ERR_NL("http_sess: Can't inherit top-level '%s' directive "
@@ -216,14 +253,6 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 			 cs->name, PR_TFW_STR(&vhost->name));
 		return r;
 	}
-
-	/*
-	 * Redirect mark is requested, switch its parser on. Called outside
-	 * tfw_cfgop_cookie_set() to enable only if there is at least one vhost
-	 * using the feature.
-	 */
-	if (sticky->max_misses && vhost)
-		tfw_http_sess_redir_enable();
 
 	return 0;
 }
@@ -260,50 +289,13 @@ __tfw_cfgop_cookie_set_name(TfwStickyCookie *sticky, const char *name)
 }
 
 static int
-tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
-{
-	size_t len = strlen(options);
-	if (sticky->options.len + 2 + len > STICKY_OPT_MAXLEN) {
-		T_ERR_NL("http_sess: too long cookie options length.\n");
-		return -EINVAL;
-	}
-
-	sticky->options_str[sticky->options.len + 0] = ';';
-	sticky->options_str[sticky->options.len + 1] = ' ';
-	memcpy(&sticky->options_str[sticky->options.len + 2], options, len);
-
-	sticky->options.len += len + 2;
-
-	return 0;
-}
-
-static int
-tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
-{
-	static const char path[] = "; path=";
-	size_t path_val_len = strlen(path_val);
-	if (sticky->options.len + SLEN(path) + path_val_len > STICKY_OPT_MAXLEN) {
-		T_ERR_NL("http_sess: too long cookie path length.\n");
-		return -EINVAL;
-	}
-
-	memcpy(&sticky->options_str[sticky->options.len], path, SLEN(path));
-	memcpy(&sticky->options_str[sticky->options.len + SLEN(path)], path_val,
-	       path_val_len);
-
-	sticky->options.len += SLEN(path) + path_val_len;
-
-	return 0;
-}
-
-static int
 tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i;
 	int r;
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
-	bool was_path = false;
+	bool was_max_misses = false;
 
 	if (!cur_vhost) {
 		sticky = &defaults_override.sticky;
@@ -329,45 +321,12 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
-		} else if (!strcasecmp(key, "timeout")) {
-			if (tfw_cfg_parse_uint(val, &sticky->tmt_sec))
-			{
-				T_ERR_NL("%s: invalid value for 'timeout'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-		} else if (!strcasecmp(key, "options")) {
-			if (tfw_cfgop_cookie_set_options(sticky, val))
-			{
-				T_ERR_NL("%s: invalid value for 'options'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-		} else if (!strcasecmp(key, "path")) {
-			if (tfw_cfgop_cookie_set_path(sticky, val))
-			{
-				T_ERR_NL("%s: invalid value for 'path'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-			was_path = true;
+			was_max_misses = true;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			return -EINVAL;
 		}
-	}
-
-	if (!was_path) {
-		static const char dflt_path[] = "; path=/";
-		if (sticky->options.len + SLEN(dflt_path) > STICKY_OPT_MAXLEN) {
-			T_ERR_NL("http_sess: too long cookie options or path length.\n");
-			return -EINVAL;
-		}
-		memcpy(&sticky->options_str[sticky->options.len], dflt_path,
-		       SLEN(dflt_path));
-
-		sticky->options.len += SLEN(dflt_path);
 	}
 
 	if ((r = __tfw_cfgop_cookie_set_name(sticky, name_val)))
@@ -376,6 +335,8 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "enforce")) {
 			sticky->enforce = 1;
+			if (!was_max_misses)
+				sticky->max_misses = 1;
 		} else {
 			T_ERR_NL("%s: unsupported argument: '%s'\n",
 				 cs->name, val);
@@ -388,10 +349,48 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			 "mode\n", cs->name);
 		return -EINVAL;
 	}
-	if (sticky->tmt_sec && !sticky->max_misses) {
-		T_ERR_NL("%s: 'timeout' can be specified only with 'max_misses' "
-			 "attribute\n", cs->name);
-		return -EINVAL;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_cookie_options_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	size_t i;
+	int r;
+	const char *key, *val;
+	TfwStickyCookie *sticky = NULL;
+	bool was_path = false, was_max_age = false, was_expires = false;
+
+	if (!cur_vhost) {
+		sticky = &defaults_override.sticky;
+	}
+	else {
+		sticky = cur_vhost->cookie;
+	}
+
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "Path")) {
+			was_path = true;
+		} else if (!strcasecmp(key, "Max-Age")) {
+			was_max_age = true;
+		} else if (!strcasecmp(key, "Expires")) {
+			was_expires = true;
+		}
+		if ((r = tfw_cfgop_cookie_set_option(sticky, key, val)))
+			return r;
+	}
+
+	if (!was_path) {
+		if ((r = tfw_cfgop_cookie_set_option(sticky, "Path", "/")))
+			return r;
+	}
+	if (was_max_age || was_expires)
+		sticky->expires = true;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, key) {
+		if ((r = tfw_cfgop_cookie_set_option(sticky, key, NULL)))
+			return r;
 	}
 
 	return 0;
@@ -641,47 +640,20 @@ tfw_cfgop_jsch_parse_resp_code(TfwCfgSpec *cs, TfwCfgJsCh *js_ch,
 			       const char *val)
 {
 	int r, int_val;
+	size_t len;
 
 	if ((r = tfw_cfg_parse_int(val, &int_val))) {
 		T_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
 		return r;
 	}
-	if ((r = tfw_cfg_check_range(int_val, HTTP_CODE_MIN, HTTP_CODE_MAX)))
-		return r;
+	if (!tfw_http_resp_status_line(int_val, &len)) {
+		T_ERR_NL("%d is disallowed js challenge resp status code",
+			 int_val);
+		return -EINVAL;
+	}
 	js_ch->st_code = int_val;
 
 	return 0;
-}
-
-static void
-tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, TfwCfgJsCh *js_ch)
-{
-	const unsigned long min_limit	= msecs_to_jiffies(100);
-	const unsigned long max_hc_p	= 10;
-	const unsigned long max_limit	=
-		msecs_to_jiffies(js_ch->delay_range) * max_hc_p / 100;
-	unsigned long hc_prob;
-
-	if (!js_ch->delay_limit) {
-		js_ch->delay_limit = max_limit;
-	}
-	if (js_ch->delay_limit < min_limit) {
-		T_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
-			  "clients will be blocked. "
-			    "Minimum recommended value is %u, "
-			    "but %u is provided\n",
-			    cs->name,
-			    jiffies_to_msecs(min_limit),
-			    jiffies_to_msecs(js_ch->delay_limit));
-	}
-	hc_prob = js_ch->delay_limit * 100
-			/ msecs_to_jiffies(js_ch->delay_range);
-	if (hc_prob > max_hc_p) {
-		T_WARN_NL("%s: 'delay_limit' is too big, attacker may "
-			  "hardcode bots and breach the JavaScript challenge "
-			  "with %lu%% success probability\n",
-			  cs->name, hc_prob);
-	}
 }
 
 static int
@@ -747,10 +719,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_range = uint_val;
-		} else if (!strcasecmp(key, "delay_limit")) {
-			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
-				goto err;
-			js_ch->delay_limit = msecs_to_jiffies(uint_val);
 		} else if (!strcasecmp(key, "resp_code")) {
 			if ((r = tfw_cfgop_jsch_parse_resp_code(cs, js_ch, val)))
 				goto err;
@@ -775,8 +743,6 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	if (!js_ch->st_code)
 		js_ch->st_code = tfw_cfg_jsch_code_dflt;
-
-	tfw_cfgop_jsch_set_delay_limit(cs, js_ch);
 
 	r = tfw_cfgop_jsch_set_body(cs, js_ch,
 				    ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);
@@ -809,7 +775,7 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 		return -EINVAL;
 	/* 'sticky' section was explicitly defined. */
 	if (!TFW_STR_EMPTY(&sticky->name))
-		return 0;
+		goto set_expires;
 	if (tfw_vhost_is_default(vhost)
 	    && (r = __tfw_http_sess_cfgop_begin(sticky)))
 	{
@@ -818,16 +784,13 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	/* Inherit sticky options defined at top level. */
 	if ((r = tfw_cfgop_sticky_inherit(vhost)))
 		return r;
-	/* See comment in tfw_http_sess_cfgop_finish(). */
-	if (sticky->max_misses)
-		tfw_http_sess_redir_enable();
+
 	/*
 	 * tfw_cfgop_sticky_inherit() only setups directives without
 	 * default values in  tfw_http_sess_specs, init others.
 	 */
-	if (defaults_override.st_sessions_set) {
+	if (defaults_override.st_sessions_set)
 		tfw_cfgop_sticky_sess_inherit(&vhost->flags);
-	}
 	if (!TFW_STR_EMPTY(&sticky->name)) {
 		r = tfw_cfgop_sticky_secret_set(sticky,
 						defaults_override.secret,
@@ -839,6 +802,21 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 			? defaults_override.sticky.sess_lifetime
 			: UINT_MAX;
 
+set_expires:
+	/*
+	 * If expires flag is not set, this means that no Max-Age and
+	 * no Expires options are present for this cookie. We set
+	 * Max-Age according session lifetime to prevent usage expired
+	 * cookies by client.
+	 */
+	if (!sticky->expires) {
+		char max_age[STICKY_OPT_MAXLEN];
+		if ((r = snprintf(max_age, sizeof(max_age), "%u",
+		    sticky->sess_lifetime)) < 0)
+			return r;
+		if ((r = tfw_cfgop_cookie_set_option(sticky, "Max-Age", max_age)))
+			return r;
+	}
 
 	return 0;
 }
@@ -869,6 +847,12 @@ TfwCfgSpec tfw_http_sess_specs[] = {
 	{
 		.name = "cookie",
 		.handler = tfw_cfgop_cookie_set,
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cookie_options",
+		.handler = tfw_cfgop_cookie_options_set,
 		.allow_none = true,
 		.allow_reconfig = true,
 	},
