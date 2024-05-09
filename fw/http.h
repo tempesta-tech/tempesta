@@ -21,7 +21,7 @@
 #ifndef __TFW_HTTP_H__
 #define __TFW_HTTP_H__
 
-#include <crypto/sha.h>
+#include <crypto/sha512_base.h>
 
 #include "http_types.h"
 #include "connection.h"
