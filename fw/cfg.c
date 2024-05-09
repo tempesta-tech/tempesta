@@ -1812,6 +1812,13 @@ tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name)
 	return spec_find(specs, name);
 }
 
+int
+tfw_spec_init_frang_default(TfwCfgSpec specs[])
+{
+	spec_start_handling(specs);
+	return spec_finish_handling(specs);
+}
+
 /**
  * The top-level parsing routine.
  *

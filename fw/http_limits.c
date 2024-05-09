@@ -684,13 +684,6 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 	if (!(TFW_CONN_TYPE(req->conn) & TFW_FSM_HTTPS))
 		return T_OK;
 
-	/*
-	 * Do not perform any SNI<=>authority validation if
-	 * tls_match_any_server_name is set.
-	 */
-	if (tfw_tls_allow_any_sni)
-		return T_OK;
-
 	tctx = tfw_tls_context(req->conn);
 	/* tfw_tls_sni() has to pick any existing vhost in order to proceed */
 	BUG_ON(!tctx->vhost);

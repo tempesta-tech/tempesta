@@ -5978,8 +5978,9 @@ next_msg:
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return tfw_http_req_parse_drop(req, 500,
 					"Can't split pipelined requests",
-					HTTP2_ECODE_PROTO);
+					HTTP2_ECODE_PROTO);	
 		}
+		*splitted = skb;
 	} else {
 		skb = NULL;
 	}
@@ -5990,14 +5991,12 @@ next_msg:
 	 * invalid host/authority it will be dropped only after full parsing
 	 * while it's enough to parse only headers.
 	 */
-	if (!__check_authority_correctness(req)) {
-		*splitted = skb;
+	if (!__check_authority_correctness(req)) {	
 		return tfw_http_req_parse_drop(req, 400, "Invalid authority",
 					       HTTP2_ECODE_PROTO);
 	}
 
 	if ((r = tfw_http_req_client_link(conn, req))) {
-		*splitted = skb;
 		return tfw_http_req_parse_drop(req, 400, "request dropped: "
 				"incorrect X-Forwarded-For header",
 				HTTP2_ECODE_PROTO);
@@ -6207,7 +6206,8 @@ next_msg:
 		tfw_http_send_err_resp(req, 500, "request dropped:"
 				       " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}
+	}	
+	*splitted = NULL;
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
