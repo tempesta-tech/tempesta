@@ -162,13 +162,9 @@ do {									\
 
 #define SET_TO_READ_VERIFY(ctx, next_state)				\
 do {									\
-	typeof(next_state) state = (!ctx->cur_stream ||			\
-		tfw_h2_get_stream_state(ctx->cur_stream) <		\
-		HTTP2_STREAM_LOC_CLOSED) ?				\
-		next_state : HTTP2_IGNORE_FRAME_DATA;			\
 	if ((ctx)->hdr.length) {					\
 		SET_TO_READ(ctx);                                       \
-		(ctx)->state = state;					\
+		(ctx)->state = next_state;				\
 	} else {							\
 		(ctx)->state = HTTP2_IGNORE_FRAME_DATA;			\
 	}								\
@@ -194,10 +190,10 @@ do {									\
 			tfw_h2_conn_terminate((ctx), err);		\
 			return T_BAD;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
-			return tfw_h2_stream_close((ctx),		\
-						   (hdr)->stream_id,	\
-						   &(ctx)->cur_stream,	\
-						   err);		\
+			ctx->cur_stream = NULL;				\
+			return tfw_h2_send_rst_stream((ctx),		\
+						      (hdr)->stream_id,	\
+						      err);		\
 		}							\
 		return T_OK;						\
 	}								\
@@ -471,7 +467,14 @@ tfw_h2_do_send_rst_stream(void *conn, struct sk_buff **skb_head, int flags)
 	if (tls_type)
 		skb_set_tfw_tls_type(*skb_head, tls_type);
 	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
-	if (stream) {
+
+	/*
+	 * Send RST STREAM after all pending data otherwise directly push it
+	 * to socket write queue.
+	 * Stream can not exist in case when we send RST stream because a
+	 * remote peer exceeded max_concurrent_streams limit.
+	 */
+	if (stream && stream->xmit.skb_head) {
 		swap(stream->xmit.rst_stream, *skb_head);
 		sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 	}
@@ -1037,8 +1040,9 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 						 HTTP2_RST_STREAM, 0))
 			return -EPERM;
 
-		return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
-					   HTTP2_ECODE_PROTO);
+		ctx->cur_stream = NULL;
+		return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
+					      HTTP2_ECODE_PROTO);
 	}
 
 	if (!ctx->cur_stream) {
@@ -1110,8 +1114,9 @@ fail:
 					 HTTP2_RST_STREAM, 0))
 		return -EPERM;
 
-	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
-				   err_code);
+	ctx->cur_stream = NULL;
+	return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
+				      err_code);
 }
 
 static inline int
@@ -1144,8 +1149,9 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 					 HTTP2_RST_STREAM, 0))
 		return -EPERM;
 
-	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
-				   HTTP2_ECODE_PROTO);
+	ctx->cur_stream = NULL;
+	return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
+				      HTTP2_ECODE_PROTO);
 }
 
 static inline void
@@ -1475,14 +1481,7 @@ do {									\
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
 
-		/* TODO: #1196 Rework this part. */
-		if (tfw_h2_get_stream_state(ctx->cur_stream) >=
-		    HTTP2_STREAM_LOC_CLOSED)
-			ctx->state = HTTP2_IGNORE_FRAME_DATA;
-		else
-			ctx->state = HTTP2_RECV_DATA;
-
-		SET_TO_READ(ctx);
+		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
 
 		return 0;
 
@@ -1519,17 +1518,7 @@ do {									\
 		if (hdr->flags & HTTP2_F_PRIORITY)
 			return tfw_h2_recv_priority(ctx);
 
-		/* TODO: #1196 Rework this part. */
-		if (ctx->cur_stream &&
-		    tfw_h2_get_stream_state(ctx->cur_stream) >=
-		    HTTP2_STREAM_LOC_CLOSED)
-		{
-			ctx->state = HTTP2_IGNORE_FRAME_DATA;
-		} else {
-			ctx->state = HTTP2_RECV_HEADER;
-		}
-
-		SET_TO_READ(ctx);
+		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
 		return 0;
 
 	case HTTP2_PRIORITY:
@@ -1544,11 +1533,10 @@ do {									\
 		if (hdr->length != FRAME_PRIORITY_SIZE)
 			goto conn_term;
 
-		/* TODO: #1196 Rework this part. */
-		if (!ctx->cur_stream ||
-		    tfw_h2_get_stream_state(ctx->cur_stream) >=
-		    HTTP2_STREAM_LOC_CLOSED)
-		{
+		if (ctx->cur_stream) {
+			STREAM_RECV_PROCESS(ctx, hdr);
+			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
+		} else {
 			/*
 			 * According to RFC 9113 section 5.1:
 			 * PRIORITY frames are allowed in the `closed` state,
@@ -1556,9 +1544,6 @@ do {									\
 			 * already removed from memory, just ignore this frame.
 			 */
 			ctx->state = HTTP2_IGNORE_FRAME_DATA;
-		} else {
-			STREAM_RECV_PROCESS(ctx, hdr);
-			ctx->state = HTTP2_RECV_FRAME_PRIORITY;
 		}
 
 		SET_TO_READ(ctx);
@@ -2582,6 +2567,7 @@ do {									\
 		BUG_ON(stream->xmit.resp);
 
 		ss_skb_queue_purge(&stream->xmit.skb_head);
+		tfw_h2_stream_add_closed(ctx, stream);
 		T_FSM_EXIT();
 	}
 
@@ -2688,18 +2674,5 @@ tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id, bool recv)
 	TfwStream *stream;
 
 	stream = tfw_h2_find_stream(&ctx->sched, id);
-	/*
-	 * RFC 9113 section 5.1:
-	 * An endpoint that sends a RST_STREAM frame on a stream that is in
-	 * the "open" or "half-closed (local)" state could receive any type
-	 * of frame.  The peer might have sent or enqueued for sending these
-	 * frames before processing the RST_STREAM frame.
-	 * It is HTTP2_STREAM_LOC_CLOSED state in our implementation.
-	 */
-        if (!stream || (stream->queue == &ctx->closed_streams
-                        && (!recv || tfw_h2_get_stream_state(stream) >
-			    HTTP2_STREAM_LOC_CLOSED)))
-		return NULL;
-
-	return stream;
+	return stream && tfw_h2_get_stream_state(stream) != HTTP2_STREAM_CLOSED ? stream : NULL;
 }
