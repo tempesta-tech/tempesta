@@ -213,7 +213,7 @@ next_msg:
  * can add the next skb in the send queue to the current encrypted TLS record.
  *
  * We extend the skbs on TCP transmission (when CWND is calculated), so we
- * also adjust TCP sequence numbers in the socket. See skb_entail().
+ * also adjust TCP sequence numbers in the socket. See tcp_skb_entail().
  */
 int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,

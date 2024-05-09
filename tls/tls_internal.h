@@ -410,7 +410,7 @@ ttls_rnd(void *buf, size_t len)
 static inline void
 ttls_rnd(void *buf, int len)
 {
-	int n = get_random_bytes_arch(buf, len);
+	int n = get_random_bytes_wait(buf, len);
 
 	if (unlikely(n < len))
 		get_random_bytes((char *)buf + n, len - n);
