@@ -29,6 +29,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "lib/str.h"
+#include <linux/errno.h>
 
 #include "ecdh.h"
 

@@ -536,7 +536,7 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	/* Fast path: delete a full fragment. */
 	if (unlikely(!off && len == skb_frag_size(frag))) {
 		ss_skb_adjust_data_len(skb, -len);
-		__skb_frag_unref(frag);
+		__skb_frag_unref(frag, false);
 		if (i + 1 < si->nr_frags)
 			memmove(&si->frags[i], &si->frags[i + 1],
 				(si->nr_frags - i - 1) * sizeof(skb_frag_t));
@@ -1326,9 +1326,7 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	skb->mac_len = 0;
 	skb->queue_mapping = 0;
 	skb->peeked = 0;
-	bzero_fast(&skb->headers_start,
-		   offsetof(struct sk_buff, headers_end) -
-		   offsetof(struct sk_buff, headers_start));
+	bzero_fast(&skb->headers, sizeof(skb->headers));
 	skb->pfmemalloc = pfmemalloc;
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
@@ -1552,7 +1550,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 	int i;
 
 	/* TODO: process of SKBTX_ZEROCOPY_FRAG for MSG_ZEROCOPY */
-	if (skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG) {
+	if (skb_shinfo(skb)->tx_flags & SKBFL_SHARED_FRAG) {
 		if (head_data_len) {
 			sg_set_buf(sgl + out_frags, skb->data, head_data_len);
 			out_frags++;
@@ -1588,7 +1586,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 		}
 		if (out_frags > 0)
 			sg_mark_end(&sgl[out_frags - 1]);
-		skb_shinfo(skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
+		skb_shinfo(skb)->tx_flags &= ~SKBFL_SHARED_FRAG;
 	} else {
 		int r = skb_to_sgvec(skb, sgl + out_frags, 0, skb->len);
 		if (r <= 0)

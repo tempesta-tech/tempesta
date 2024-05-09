@@ -11641,7 +11641,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				tfw_http_msg_hdr_open(msg, p);
 				__FSM_MOVE_n(Resp_StatusCodeBeg, 9);
 			}
-			/* fall through */
+			fallthrough;
 		default:
 			TFW_PARSER_DROP(Resp_HttpVer);
 		}

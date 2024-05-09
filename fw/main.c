@@ -353,7 +353,7 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 			goto out;
 
 		r = tfw_ctlfn_state_change(buf);
-		strlcpy(new_state_buf,
+		strscpy(new_state_buf,
 			tfw_runstate_is_started() ? "start" : "stop",
 			T_SYSCTL_STBUF_LEN);
 	} else {
@@ -403,7 +403,7 @@ tfw_ctlfn_errinj_io(struct ctl_table *ctl, int is_write,
 		if ((r = tfw_cntl_errinj_change(buf)))
 			goto out;
 
-		strlcpy(errinj_buf, buf, T_SYSCTL_ERRINJ_STBUF_LEN);
+		strscpy(errinj_buf, buf, T_SYSCTL_ERRINJ_STBUF_LEN);
 	} else {
 		struct errinj *inj;
 
@@ -411,7 +411,7 @@ tfw_ctlfn_errinj_io(struct ctl_table *ctl, int is_write,
 		if (inj) {
 			errinj_to_str(inj, buf, sizeof(buf));
 		} else {
-			strlcpy(buf, "NONE", sizeof(buf));
+			strscpy(buf, "NONE", sizeof(buf));
 		}
 
 		r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos);

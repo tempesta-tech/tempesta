@@ -811,7 +811,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 
 	ss_set_listen(sk);
 
-	inet_sk(sk)->freebind = 1;
+	inet_set_bit(FREEBIND, sk);
 	sk->sk_reuse = 1;
 	r = ss_bind(sk, addr);
 	if (r) {
