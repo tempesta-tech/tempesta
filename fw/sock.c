@@ -374,7 +374,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	if (size <= sk->sk_forward_alloc)
 		return;
 	amt = sk_mem_pages(size);
-	sk->sk_forward_alloc += amt * SK_MEM_QUANTUM;
+	sk->sk_forward_alloc += amt * PAGE_SIZE;
 	sk_memory_allocated_add(sk, amt);
 }
 
@@ -390,7 +390,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	if (tls_type)
 		skb_set_tfw_tls_type(skb, tls_type);
 	ss_forced_mem_schedule(sk, skb->truesize);
-	skb_entail(sk, skb);
+	tcp_skb_entail(sk, skb);
 	tp->write_seq += skb->len;
 	TCP_SKB_CB(skb)->end_seq += skb->len;
 
@@ -707,7 +707,7 @@ adjudge_to_death:
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);
 
-	percpu_counter_inc(sk->sk_prot->orphan_count);
+	this_cpu_inc(*sk->sk_prot->orphan_count);
 
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
@@ -1296,13 +1296,13 @@ ss_inet_create(struct net *net, int family,
 		 * socket-related functions assume that sk->sk_cgrp_data.val
 		 * is always non-zero.
 		 */
-		sk->sk_cgrp_data.val = (unsigned long) &cgrp_dfl_root.cgrp;
+		sk->sk_cgrp_data.cgroup = &cgrp_dfl_root.cgrp;
 	}
 
+	inet_set_bit(IS_ICSK, sk);
+	inet_clear_bit(NODEFRAG, sk);
 	inet = inet_sk(sk);
-	inet->is_icsk = 1;
-	inet->nodefrag = 0;
-	inet->inet_id = 0;
+	atomic_set(&inet->inet_id, 0);
 
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
 		inet->pmtudisc = IP_PMTUDISC_DONT;
@@ -1325,21 +1325,20 @@ ss_inet_create(struct net *net, int family,
 					(((u8 *)sk) + offset);
 		np->hop_limit = -1;
 		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
-		np->mc_loop = 1;
+		inet6_set_bit(MC_LOOP, sk);
 		np->pmtudisc = IPV6_PMTUDISC_WANT;
 		sk->sk_ipv6only = net->ipv6.sysctl.bindv6only;
 		inet->pinet6 = np;
 	}
 
 	inet->uc_ttl = -1;
-	inet->mc_loop = 1;
-	inet->mc_ttl = 1;
-	inet->mc_all = 1;
+	inet_set_bit(MC_LOOP, sk);
+	inet_set_bit(TTL, sk);
+	inet_set_bit(MC_ALL, sk);
 	inet->mc_index = 0;
 	inet->mc_list = NULL;
 	inet->rcv_tos = 0;
 
-	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
 		T_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
@@ -1495,7 +1494,7 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 	if (inet6_sk(sk)) {
 		struct ipv6_pinfo *np = inet6_sk(sk);
 		addr->sin6_addr = sk->sk_v6_daddr;
-		addr->sin6_flowinfo = np->sndflow ? np->flow_label : 0;
+		addr->sin6_flowinfo = inet6_test_bit(SNDFLOW, sk) ? np->flow_label : 0;
 		addr->in6_prefix = ipv6_iface_scope_id(&addr->sin6_addr,
 						       sk->sk_bound_dev_if);
 	} else
