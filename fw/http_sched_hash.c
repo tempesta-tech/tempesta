@@ -355,7 +355,7 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 		return -EINVAL;
 
 	seed = get_random_long();
-	seed_inc = get_random_int();
+	seed_inc = get_random_long();
 
 	list_for_each_entry(srv, &sg->srv_list, list)
 		conn_n += srv->conn_n;
@@ -405,7 +405,7 @@ tfw_sched_hash_add_srv(TfwServer *srv)
 		return -EEXIST;
 
 	seed = get_random_long();
-	seed_inc = get_random_int();
+	seed_inc = get_random_long();
 
 	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
 	if (!(cl = kzalloc(size, GFP_KERNEL)))

@@ -22,8 +22,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/linkage.h>
-#include <asm/alternative-asm.h>
-#include <asm/export.h>
+#include <asm/asm.h>
 #include <asm/nospec-branch.h>
 #include <fw/token_tables.h>
 #include <fw/token_mask.h>

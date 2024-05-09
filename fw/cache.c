@@ -2781,13 +2781,13 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
  *
  * Different strategies are used to avoid extra data copying depending on
  * client connection type:
- * - for http connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * - for http connections - pages are reused in skbs and SKBFL_SHARED_FRAG is
  * set to avoid any data copies.
- * - for https connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * - for https connections - pages are reused in skbs and SKBFL_SHARED_FRAG is
  * set, but in-place crypto operations are not allowed, so data copy happens
  * right before data is pushed into network.
  * - for h2 connections - every response has unique frame header, so need to
- * copy on constructing response body from cache. SKBTX_SHARED_FRAG is left
+ * copy on constructing response body from cache. SKBFL_SHARED_FRAG is left
  * unset to allow in-place crypto operations.
  *
  * Since we can't encrypt shared data in-place we always copy it, so we need

@@ -402,7 +402,7 @@ unsigned long ttls_time_debug(void);
 #define ttls_time()		ttls_time_debug()
 
 #else
-#define ttls_time()		get_seconds()
+#define ttls_time()		ktime_get_seconds()
 /*
  * CPUs since Intel Ice Lake are safe against SRBDS attack, so we're good
  * with the hardware random generator.
@@ -414,7 +414,7 @@ unsigned long ttls_time_debug(void);
 static inline void
 ttls_rnd(void *buf, int len)
 {
-	int n = get_random_bytes_arch(buf, len);
+	int n = get_random_bytes_wait(buf, len);
 
 	if (unlikely(n < len))
 		get_random_bytes((char *)buf + n, len - n);

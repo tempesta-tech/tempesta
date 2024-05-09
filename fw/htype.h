@@ -22,6 +22,8 @@
 #ifndef __HTYPE_H__
 #define __HTYPE_H__
 
+#include <linux/cache.h>
+
 /**
  * ASCII codes to accept HTTP token (RFC 7230 3.2.6).
  */
