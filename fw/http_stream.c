@@ -76,6 +76,16 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	 */
 }
 
+static inline void
+tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	if (ctx->cur_send_headers == stream)
+		ctx->cur_send_headers = NULL;
+	if (ctx->cur_recv_headers == stream)
+		ctx->cur_recv_headers = NULL;
+}
+
+
 static void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
@@ -238,40 +248,6 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 	spin_lock(&ctx->lock);
 	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams, stream);
 	spin_unlock(&ctx->lock);
-}
-
-/*
- * Stream closing procedure: move the stream into special queue of closed
- * streams and send RST_STREAM frame to peer. This procedure is intended
- * for usage only in receiving flow of Framing layer, thus the stream is
- * definitely alive here and we need not any unlinking operations since
- * all the unlinking and cleaning work will be made later, during shrinking
- * the queue of closed streams; thus, we just move the stream into the
- * closed queue here.
- * We also reset the current stream of the H2 context here.
- */
-int
-tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
-		    TfwH2Err err_code)
-{
-	if (stream && *stream) {
-		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
-			ctx, *stream, id, err_code);
-		tfw_h2_conn_reset_stream_on_close(ctx, *stream);
-		if (tfw_h2_get_stream_state(*stream) >
-		    HTTP2_STREAM_REM_HALF_CLOSED) {
-			tfw_h2_stream_add_closed(ctx, *stream);
-		} else {
-			/*
-			 * This function is always called after processing
-			 * RST STREAM or stream error.
-			 */
-			BUG();
-		}
-		*stream = NULL;
-	}
-
-	return tfw_h2_send_rst_stream(ctx, id, err_code);
 }
 
 /*
@@ -441,15 +417,9 @@ do {									\
 		if (type == HTTP2_RST_STREAM) {
 			new_state = send
 				? HTTP2_STREAM_LOC_CLOSED
-				: HTTP2_STREAM_CLOSED;
+				: HTTP2_STREAM_REM_CLOSED;
 			SET_STATE(new_state);
 			break;
-		}
-
-		if (send) {
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
-		} else {
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
 		}
 
 		if (type == HTTP2_CONTINUATION) {
@@ -573,7 +543,7 @@ do {									\
 	case HTTP2_STREAM_LOC_HALF_CLOSED:
 		if (!send) {
 			if (type == HTTP2_RST_STREAM) {
-				SET_STATE(HTTP2_STREAM_CLOSED);
+				SET_STATE(HTTP2_STREAM_REM_CLOSED);
 				break;
 			}
 
@@ -645,7 +615,7 @@ do {									\
 					fallthrough;
 				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
 					ctx->cur_send_headers = NULL;
-					SET_STATE(HTTP2_STREAM_REM_CLOSED);
+					SET_STATE(HTTP2_STREAM_CLOSED);
 					break;
 				case HTTP2_F_END_HEADERS:
 					/*
@@ -661,7 +631,7 @@ do {									\
 				}
 			} else if (type == HTTP2_DATA) {
 				if (flags & HTTP2_F_END_STREAM)
-					SET_STATE(HTTP2_STREAM_REM_CLOSED);
+					SET_STATE(HTTP2_STREAM_CLOSED);
 			} else if (type == HTTP2_RST_STREAM) {
 				SET_STATE(HTTP2_STREAM_REM_CLOSED);
 			}
@@ -679,7 +649,7 @@ do {									\
 		 */
 		if (type == HTTP2_RST_STREAM)
 		{
-			SET_STATE(HTTP2_STREAM_CLOSED);
+			SET_STATE(HTTP2_STREAM_REM_CLOSED);
 		}
 		else if (type != HTTP2_PRIORITY && type != HTTP2_WINDOW_UPDATE)
 		{
@@ -748,20 +718,22 @@ do {									\
 		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		if (send) {
 			res = STREAM_FSM_RES_IGNORE;
-			break;
+		} else {
+			if (type != HTTP2_PRIORITY) {
+				*err = HTTP2_ECODE_PROTO;
+				res = STREAM_FSM_RES_TERM_CONN;
+			}
 		}
-		/*
-		 * In moment when the final 'closed' state is achieved, stream
-		 * actually must be removed from stream's storage (and from
-		 * memory), thus the receive execution flow must not reach this
-		 * point.
-		 */
-		fallthrough;
+
+		break;
 	default:
 		BUG();
 	}
 
 finish:
+	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
+		tfw_h2_conn_reset_stream_on_close(ctx, stream);
+
 	T_DBG3("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 

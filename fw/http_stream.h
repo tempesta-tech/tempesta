@@ -201,8 +201,6 @@ int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
 TfwStream * tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id);
 void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
-int tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
-			TfwH2Err err_code);
 void tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_lock(TfwH2Ctx *ctx, TfwStream *stream);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
