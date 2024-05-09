@@ -18,7 +18,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/linkage.h>
-#include <asm/export.h>
 #include <asm/nospec-branch.h>
 
 /*
