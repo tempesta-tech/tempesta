@@ -290,13 +290,4 @@ tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 	       __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
 }
 
-static inline void
-tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
-{
-	if (ctx->cur_send_headers == stream)
-		ctx->cur_send_headers = NULL;
-	if (ctx->cur_recv_headers == stream)
-		ctx->cur_recv_headers = NULL;
-}
-
 #endif /* __HTTP_FRAME__ */
