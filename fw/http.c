@@ -6090,9 +6090,14 @@ next_msg:
 	/* Don't accept any following requests from the peer. */
 	if (r == T_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403,
+		r = tfw_http_req_parse_block(req, 403,
 				"parsed request has been filtered out",
 				HTTP2_ECODE_PROTO);
+		if (skb) {
+			*splitted = skb;
+			return T_DROP;
+		}
+		return r;
 	}
 
 	if (res.type == TFW_HTTP_RES_REDIR) {
