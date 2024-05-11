@@ -1266,16 +1266,6 @@ ss_inet_create(struct net *net, int family,
 	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot, 1)))
 		return -ENOBUFS;
 
-	if (in_interrupt()) {
-		/*
-		 * When called from an interrupt context, sk_alloc() does not
-		 * initialize sk->sk_cgrp_data, so we must do it here. Other
-		 * socket-related functions assume that sk->sk_cgrp_data.val
-		 * is always non-zero.
-		 */
-		sk->sk_cgrp_data.cgroup = &cgrp_dfl_root.cgrp;
-	}
-
 	inet_set_bit(IS_ICSK, sk);
 	inet_clear_bit(NODEFRAG, sk);
 	inet = inet_sk(sk);
