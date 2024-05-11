@@ -301,8 +301,7 @@ typedef struct {
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;						\
-	int		trailers_len;
+	TfwStr		body;
 
 
 static inline void
@@ -485,6 +484,7 @@ struct tfw_http_resp_t {
 	char			*body_start_data;
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
+	int			trailers_len;
 };
 
 /**

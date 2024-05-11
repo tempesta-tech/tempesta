@@ -566,9 +566,11 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	parser->hdr.flags |= TFW_STR_COMPLETE;
 
 	/* Cumulate the trailer headers length */
-	if (parser->hdr.flags & TFW_STR_TRAILER)
-		hm->trailers_len += parser->hdr.len +
+	if (parser->hdr.flags & TFW_STR_TRAILER) {
+		TfwHttpResp* resp = (TfwHttpResp*) hm;
+		resp->trailers_len += parser->hdr.len +
 			tfw_str_eolen(&parser->hdr);
+	}
 
 	/*
 	 * We make this frang check here, because it is the earliest
@@ -1056,7 +1058,7 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 
 	r = ss_skb_cutoff_data(resp->body.skb, &resp->cut, 0,
 			       tfw_str_eolen(&resp->body) +
-			       ((TfwHttpMsg*)resp)->trailers_len);
+			       resp->trailers_len);
 	if (unlikely(r))
 		return r;
 
