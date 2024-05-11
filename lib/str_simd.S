@@ -59,7 +59,7 @@ SYM_FUNC_START(__memcpy_fast)
 	andl	$1, %edx
 	jne	.L1cpy
 	/* Don't clean the registers w/ vzeroupper. */
-	ret
+	RET
 	.p2align 4
 .Lrepeat128cpy:
 	movq	%r8, %rsi
@@ -132,7 +132,7 @@ SYM_FUNC_START(__memcpy_fast)
 	movzbl	(%rcx), %edx
 	movb	%dl, (%rax)
 .Lcpy_ret:
-	ret
+	RET
 SYM_FUNC_END(__memcpy_fast)
 
 SYM_FUNC_START(__memcmp_fast)
@@ -163,7 +163,7 @@ SYM_FUNC_START(__memcmp_fast)
 	xorl	%eax, %eax
 	andl	$1, %edx
 	jne	.L1cmp
-	ret
+	RET
 	.p2align 4
 .L128cmp:
 	vlddqu	-96(%rcx), %ymm0
@@ -198,7 +198,7 @@ SYM_FUNC_START(__memcmp_fast)
 	je	.L128cmp
 .Lret_neq:
 	movl	$1, %eax
-	ret
+	RET
 .L64cmp:
 	vlddqu	(%rcx), %ymm0
 	vlddqu	(%rsi), %ymm1
@@ -264,7 +264,7 @@ SYM_FUNC_START(__memcmp_fast)
 	setne	%al
 	movzbl	%al, %eax
 .Lcmp_ret:
-	ret
+	RET
 SYM_FUNC_END(__memcmp_fast)
 
 SYM_FUNC_START(__bzero_fast)
@@ -297,7 +297,7 @@ SYM_FUNC_START(__bzero_fast)
 	andl	$1, %esi
 	jne	.L1zer
 	/* Don't clean the registers w/ vzeroupper. */
-	ret
+	RET
 	.p2align 4
 .L128zer:
 	vmovdqu	%ymm0, (%rdx)
@@ -349,5 +349,5 @@ SYM_FUNC_START(__bzero_fast)
 .L1zer:
 	movb	$0, (%rax)
 .Lbz_ret:
-	ret
+	RET
 SYM_FUNC_END(__bzero_fast)
