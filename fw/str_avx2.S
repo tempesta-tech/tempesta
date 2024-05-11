@@ -5,7 +5,7 @@
  * description and performance comparison with other implementations at
  * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  *
- * Copyright (C) 2016-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -327,29 +327,38 @@ SYM_FUNC_START(__tfw_strtolower_avx2)
 
 .text
 .str2low_len8:
+	endbr64
 	__STRTOLOWER_SMALL_STR 7
 .str2low_len7:
+	endbr64
 	__STRTOLOWER_SMALL_STR 6
 .str2low_len6:
+	endbr64
 	__STRTOLOWER_SMALL_STR 5
 .str2low_len5:
+	endbr64
 	__STRTOLOWER_SMALL_STR 4
 .str2low_len4:
+	endbr64
 	__STRTOLOWER_SMALL_STR 3
 .str2low_len3:
+	endbr64
 	__STRTOLOWER_SMALL_STR 2
 .str2low_len2:
+	endbr64
 	__STRTOLOWER_SMALL_STR 1
 .str2low_len1:
+	endbr64
 	__STRTOLOWER_SMALL_STR 0
 .str2low_len0:
+	endbr64
 	addq	$88, %rsp
 	popq	%rbx
 	popq	%r10
 	popq	%r12
 	popq	%rbp
 	leaq	-8(%r10), %rsp
-	ret
+	RET
 
 	/*
 	 * Place the processing code before the conditions block to avoid 2
@@ -496,6 +505,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	.quad	.stricmp_len8
 .text
 .stricmp_len7:
+	endbr64
 	xorl	%eax, %eax
 	/*
 	 * The blocks at the below use complex mixture for the registers,
@@ -550,29 +560,37 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	xorb	__tfw_lct(%rcx), %al
 	movzbl	%al, %eax
 	orl	%edx, %eax
-	ret
+	RET
 .stricmp_len0:
+	endbr64
 	xorl	%eax, %eax
-	ret
+	RET
 .stricmp_len1:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len1
 .stricmp_len2:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len2
 .stricmp_len3:
+	endbr64
 	xorl	%eax, %eax
 	jmp	.stricmp_do_len3
 .stricmp_len4:
+	endbr64
 	xorl	%eax, %eax
 	jmp	.stricmp_do_len4
 .stricmp_len5:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len5
 .stricmp_len6:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len6
 .stricmp_len8:
+	endbr64
 	movzbl	7(%rdi), %edx
 	movzbl	7(%rsi), %eax
 	movzbl	__tfw_lct(%rdx), %edx
@@ -640,7 +658,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	vpmovmskb %xmm0, %eax
 .stricmp_short_nomatch:
 	xorl	$0xffff, %eax
-	ret
+	RET
 
 .stricmp_try128:
 	vpxor	%xmm2, %xmm2, %xmm2
@@ -692,11 +710,11 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	vpcmpeqb %xmm1, %xmm0, %xmm0
 	vpmovmskb %xmm0, %eax
 	xorl	$0xffff, %eax
-	ret
+	RET
 
 .stricmp_match:
 	xorl	%eax, %eax
-	ret
+	RET
 
 .stricmp_128:
 	leaq	(%rsi,%rax), %r8
@@ -762,7 +780,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 
 .stricmp_nomatch:
 	movl	$1, %eax
-	ret
+	RET
 
 .stricmp_64:
 	leaq	(%rsi,%rax), %r8
@@ -853,6 +871,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	.quad	.sic2lc_len8
 .text
 .sic2lc_len7:
+	endbr64
 	xorl	%eax, %eax
 .sic2lc_do_len7:
 	movzbl	6(%rdi), %edx
@@ -898,29 +917,37 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	xorb	(%rsi), %al
 	movzbl	%al, %eax
 	orl	%edx, %eax
-	ret
+	RET
 .sic2lc_len0:
+	endbr64
 	xorl	%eax, %eax
-	ret
+	RET
 .sic2lc_len1:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len1
 .sic2lc_len2:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len2
 .sic2lc_len3:
+	endbr64
 	xorl	%eax, %eax
 	jmp	.sic2lc_do_len3
 .sic2lc_len4:
+	endbr64
 	xorl	%eax, %eax
 	jmp	.sic2lc_do_len4
 .sic2lc_len5:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len5
 .sic2lc_len6:
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len6
 .sic2lc_len8:
+	endbr64
 	movzbl	7(%rdi), %eax
 	movzbl	__tfw_lct(%rax), %edx
 	xorb	7(%rsi), %dl
@@ -966,7 +993,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	vpmovmskb %xmm0, %eax
 .sic2lc_short_nomatch:
 	xorl	$0xffff, %eax
-	ret
+	RET
 
 .sic2lc_try128:
 	xorl	%eax, %eax
@@ -1012,7 +1039,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	vpmovmskb %xmm0, %eax
 .sic2lc_tail_maybe_match:
 	xorl	$0xffff, %eax
-	ret
+	RET
 .sic2lc_tail_big:
 	addq	%r8, %rsi
 	cmpq	$15, %rcx
@@ -1044,7 +1071,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 
 .sic2lc_match:
 	xorl	%eax, %eax
-	ret
+	RET
 
 .sic2lc_128:
 	leaq	(%rsi,%rax), %r8
@@ -1094,7 +1121,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 
 .sic2lc_nomatch:
 	movl	$1, %eax
-	ret
+	RET
 
 .sic2lc_64:
 	leaq	(%rsi,%rax), %r8
@@ -1184,16 +1211,16 @@ SYM_FUNC_START(__tfw_match_custom)
 	movl	$2, %ecx
 	cmove	%rcx, %rax
 .mcust_small_len_done:
-	ret
+	RET
 .mcust_len_1_or_0:
 	cmpq	$1, %rsi
 	jne	.mcust_len_0
 	movzbl	(%rdi), %eax
 	movzbl	(%rdx,%rax), %eax
-	ret
+	RET
 .mcust_len_0:
 	xorl	%eax, %eax
-	ret
+	RET
 .mcust_len_3:
 	xorl	%r8d, %r8d
 	jmp	.mcust_cmp_long_len
@@ -1430,7 +1457,7 @@ SYM_FUNC_START(__tfw_match_custom)
 	popq	%r10
 	popq	%rbp
 	leaq	-8(%r10), %rsp
-	ret
+	RET
 .mcust_got_mismatch_tail:
 	subq	%rdi, %rax
 	testb	%r11b, %r11b
@@ -1507,16 +1534,16 @@ SYM_CODE_START(__tfw_strspn_simd)
 	movl	$2, %ecx
 	cmove	%rcx, %rax
 .strspn_small_len_done:
-	ret
+	RET
 .strspn_len_1or0:
 	cmpq	$1, %rsi
 	jne	.strspn_len_0
 	movzbl	(%rdi), %eax
 	movzbl	(%rdx,%rax), %eax
-	ret
+	RET
 .strspn_len_0:
 	xorl	%eax, %eax
-	ret
+	RET
 .strspn_len_3:
 	xorl	%r8d, %r8d
 	jmp	.strspn_do_len_3
@@ -1723,7 +1750,7 @@ SYM_CODE_START(__tfw_strspn_simd)
 	popq	%r10
 	popq	%rbp
 	leaq	-8(%r10), %rsp
-	ret
+	RET
 .strspn_tail_loop_nomatch:
 	subq	%rdi, %rax
 	testb	%r11b, %r11b
@@ -1801,18 +1828,18 @@ SYM_CODE_END(__tfw_strspn_simd) /* for local sibling calls only */
 	testl	%edx, %edx
 	movl	$2, %edx
 	cmove	%rdx, %rax
-	ret
+	RET
 .ctxt_\NAME\()_len_10:
 	cmpq	$1, %rsi
 	jne	.ctxt_\NAME\()_len_0
 	movzbl	(%rdi), %eax
 	movzbl	\NAME(%rax), %eax
-	ret
+	RET
 .ctxt_\NAME\()_len_0:
 	xorl	%eax, %eax
-	ret
+	RET
 .ctxt_\NAME\()_match1:
-	rep ret
+	RET
 .ctxt_\NAME\()_len_3:
 	xorl	%esi, %esi
 	jmp	.ctxt_\NAME\()_do_len_3
@@ -1997,7 +2024,7 @@ SYM_CODE_END(__tfw_strspn_simd) /* for local sibling calls only */
 .ctxt_\NAME\()_mistmatch:
 	subq	%rdi, %rax
 	addq	%rcx, %rax
-	ret
+	RET
 
 	/* The tail loops processes string lengths in range [4, 15]. */
 .ctxt_\NAME\()_tail_loop:
@@ -2032,7 +2059,7 @@ SYM_CODE_END(__tfw_strspn_simd) /* for local sibling calls only */
 	xorl	%eax, %eax
 .ctxt_\NAME\()_add_len:
 	addq	%rsi, %rax
-	ret
+	RET
 .ctxt_\NAME\()_end:
 	subq	%rdi, %rax
 	testb	%r10b, %r10b
@@ -2042,10 +2069,10 @@ SYM_CODE_END(__tfw_strspn_simd) /* for local sibling calls only */
 	cmovne	%r9d, %r8d
 	movl	%r8d, %r8d
 	leaq	2(%rax,%r8), %rax
-	ret
+	RET
 .ctxt_\NAME\()_mismatch_1:
 	addq	%rdx, %rax
-	ret
+	RET
 .ctxt_\NAME\()_tail_1:
 	movzbl	(%rax), %edx
 	subq	%rdi, %rax
@@ -2065,7 +2092,7 @@ SYM_CODE_END(__tfw_strspn_simd) /* for local sibling calls only */
 	testb	%cl, \NAME(%rax)
 	je	.ctxt_\NAME\()_add_tail_len
 	leaq	2(%rsi,%rdx), %rax
-	ret
+	RET
 .ctxt_\NAME\()_tail_3:
 	movzbl	2(%rax), %edx
 	movzbl	\NAME(%rdx), %edx
