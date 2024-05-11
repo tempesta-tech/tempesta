@@ -112,8 +112,8 @@ ifeq (, $(findstring pse, $(PROC)))
 	ERROR = "1MB huge pages support is required"
 endif
 ifneq (, $(findstring avx2, $(PROC)))
-	AVX2 = "y"
-	TFW_CFLAGS += -DAVX2=1
+	#AVX2 = "y"
+	#TFW_CFLAGS += -DAVX2=1
 endif
 ifneq (, $(findstring bmi2, $(PROC)))
 	BMI2 = "y"
