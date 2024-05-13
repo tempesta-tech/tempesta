@@ -615,9 +615,6 @@ tfw_tls_conn_dtor(void *c)
 	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
-	if (((TfwConn *)c)->proto.type & Conn_Negotiable)
-		((TfwConn *)c)->proto.type = TFW_FSM_H2;
-
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
 			kfree_skb(skb);

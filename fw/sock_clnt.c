@@ -128,7 +128,10 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
 
-	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
+	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable))
+		kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
+	else
+		kmem_cache_free(tfw_cli_cache(TFW_FSM_H2), cli_conn);
 }
 
 void
@@ -634,6 +637,7 @@ static const SsProto *
 tfw_sock_clnt_proto(int type)
 {
 	int i;
+
 	for (i = 0; i < ARRAY_SIZE(tfw_sock_listen_protos); ++i)
 		if (tfw_sock_listen_protos[i].type == type)
 			return &tfw_sock_listen_protos[i];
