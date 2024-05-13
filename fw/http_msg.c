@@ -568,6 +568,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	/* Cumulate the trailer headers length */
 	if (parser->hdr.flags & TFW_STR_TRAILER) {
 		TfwHttpResp* resp = (TfwHttpResp*) hm;
+
 		resp->trailers_len += parser->hdr.len +
 			tfw_str_eolen(&parser->hdr);
 	}
