@@ -128,6 +128,14 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
 
+	/*
+	 * We need to check if it is a single version connection (HTTPS or H2)
+	 * or negotiable HTTPS/H2 connection.
+	 * In case of a single version connection, corresponding to
+	 * this protocol cache was used.
+	 * In case of a negotiable connection, H2 cache was used for
+	 * both versions, and we need to free H2 cache.
+	 */
 	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable))
 		kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
 	else
