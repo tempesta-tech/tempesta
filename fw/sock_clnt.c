@@ -453,7 +453,7 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		h2 = tfw_h2_context(conn);
 		tbl = &h2->hpack.enc_tbl;
 		if (flags & SS_F_HTTT2_FRAME_CONTROL) {
-			atomic_dec(&h2->queued_control_frames);
+			--h2->queued_control_frames;
 		}
 	}
 

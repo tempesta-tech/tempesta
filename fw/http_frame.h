@@ -223,7 +223,7 @@ typedef struct {
  */
 typedef struct tfw_h2_ctx_t {
 	spinlock_t	lock;
-	atomic_t	queued_control_frames;
+	unsigned int	queued_control_frames;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
