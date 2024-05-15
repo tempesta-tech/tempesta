@@ -290,9 +290,9 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	 * run out of memory.
 	 */
 	if (is_control_frame &&
-	    atomic_read(&ctx->queued_control_frames)
-	                > max_queued_control_frames) {
-		T_ERR("Too many control frames in send queue, closing connection");
+	    ctx->queued_control_frames > max_queued_control_frames)
+	{
+		T_WARN("Too many control frames in send queue, closing connection");
 		r = SS_BLOCK_WITH_RST;
 		goto err;
 	}
@@ -342,7 +342,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 
 	if (is_control_frame) {
 		skb_set_tfw_flags(it.skb, SS_F_HTTT2_FRAME_CONTROL);
-		atomic_inc(&ctx->queued_control_frames);
+		++ctx->queued_control_frames;
 	}
 
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
