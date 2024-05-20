@@ -953,9 +953,18 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 static inline int
 tfw_tls_over(TlsCtx *tls, int state)
 {
+	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
+	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
+
 	if (state == TTLS_HS_CB_FINISHED_NEW
 	    || state == TTLS_HS_CB_FINISHED_RESUMED)
 		TFW_INC_STAT_BH(serv.tls_hs_successful);
+
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2 &&
+	    tfw_h2_context_init(tfw_h2_context(conn))) {
+		    T_ERR("cannot establish a new h2 connection\n");
+		    return T_DROP;
+	}
 
 	return frang_tls_handler(tls, state);
 }
@@ -975,34 +984,20 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
 	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
 
-	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2
-	    && alpn->id == TTLS_ALPN_ID_HTTP2) {
-		if (tfw_h2_context_init(tfw_h2_context(conn))) {
-			T_ERR("cannot establish a new h2 connection\n");
-			return false;
-		}
+	/* Downgrade from HTTP2 to HTTP1. */
+	if (sk_proto & Conn_Negotiable && alpn->id == TTLS_ALPN_ID_HTTP1) {
+		conn->proto.type = (conn->proto.type & ~TFW_GFSM_FSM_MASK) |
+					TFW_FSM_HTTPS;
 		return true;
 	}
+
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2
+	    && alpn->id == TTLS_ALPN_ID_HTTP2)
+		return true;
 
 	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_HTTPS
 	    && alpn->id == TTLS_ALPN_ID_HTTP1)
 		return true;
-
-	if ((sk_proto & Conn_Negotiable)) {
-	    if (alpn->id == TTLS_ALPN_ID_HTTP1) {
-			conn->proto.type = (conn->proto.type &
-					    ~TFW_GFSM_FSM_MASK) |
-					   TFW_FSM_HTTPS;
-			return true;
-		}
-		if (alpn->id == TTLS_ALPN_ID_HTTP2) {
-			if (tfw_h2_context_init(tfw_h2_context(conn))) {
-				T_ERR("cannot establish a new h2 connection\n");
-				return false;
-			}
-			return true;
-		}
-	}
 
 	return false;
 }

@@ -443,7 +443,6 @@ tfw_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	BUG_ON(!conn);
 
 	*nskbs = UINT_MAX;
-
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
 	if (h2_mode)
 		r = tfw_h2_sk_prepare_xmit(sk, skb, mss_now, limit, nskbs);
