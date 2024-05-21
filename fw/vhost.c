@@ -144,6 +144,8 @@ static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
 static const char s_hdr_via_dflt[] =
 	"tempesta_fw" " (" TFW_NAME " " TFW_VERSION ")";
 
+static TfwCfgSpec tfw_global_frang_specs[];
+
 /*
  * Matching functions for match operators. A TfwStr{} is compared
  * with a plain C string according to a specified match operator.
@@ -1345,8 +1347,16 @@ tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
 		return NULL;
 	vhost->loc_sz++;
 
-	if (tfw_frang_cfg_inherit(loc->frang_cfg, vhost->loc_dflt->frang_cfg))
-		return NULL;
+	if (strncasecmp(vhost->name.data, TFW_VH_DFT_NAME, vhost->name.len)) {
+		if (tfw_frang_cfg_inherit(loc->frang_cfg,
+					  vhost->loc_dflt->frang_cfg))
+			return NULL;
+	}
+	else {
+		if (tfw_frang_cfg_inherit(loc->frang_cfg,
+					  &tfw_frang_vhost_reconfig))
+			return NULL;
+	}
 
 	return loc;
 }
@@ -1807,13 +1817,11 @@ tfw_vhost_new(const char *name)
 		tfw_vhost_destroy(vhost);
 		return NULL;
 	}
-	if (strcasecmp(name, TFW_VH_DFT_NAME)) {
-		if (tfw_frang_cfg_inherit(vhost->loc_dflt->frang_cfg,
-					  &tfw_frang_vhost_reconfig))
-		{
-			tfw_vhost_destroy(vhost);
-			return NULL;
-		}
+	if (tfw_frang_cfg_inherit(vhost->loc_dflt->frang_cfg,
+				  &tfw_frang_vhost_reconfig))
+	{
+		tfw_vhost_destroy(vhost);
+		return NULL;
 	}
 
 	return vhost;
@@ -2062,6 +2070,52 @@ tfw_cfgop_frang_glob_set_int(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_frang_glob_set_long(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (ce->dflt_value && *(unsigned long *)(cs->dest))
+		return 0;
+	return tfw_cfg_set_long(cs, ce);
+}
+
+static int
+tfw_cfgop_frang_glob_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	long int *dest_long = cs->dest;
+
+	if (ce->dflt_value && *(unsigned long *)(cs->dest))
+		return 0;
+	return __tfw_cfgop_frang_http_methods(cs, ce, dest_long);
+}
+
+static int
+tfw_cfgop_frang_glob_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	FrangVhostCfg *cfg = &tfw_frang_vhost_reconfig;
+
+	if (cfg->http_ct_vals) {
+		if (ce->dflt_value)
+			return 0;
+		kfree(cfg->http_ct_vals);
+		cfg->http_ct_vals = NULL;
+	}
+	return __tfw_cfgop_frang_http_ct_vals(cs, ce, cfg);
+}
+
+static int
+tfw_cfgop_frang_glob_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	FrangVhostCfg *cfg = &tfw_frang_vhost_reconfig;
+
+	if (cfg->http_resp_code_block) {
+		if (ce->dflt_value)
+			return 0;
+		kfree(cfg->http_resp_code_block);
+		cfg->http_resp_code_block = NULL;
+	}
+	return __tfw_cfgop_frang_rsp_code_block(cs, ce, cfg);
+}
+
+static int
 tfw_cfgop_frang_hdr_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned int secs;
@@ -2103,7 +2157,9 @@ tfw_cfgop_frang_get_cfg(void)
 	if (tfwcfg_this_location)
 		return tfwcfg_this_location->frang_cfg;
 	if (tfw_vhost_entry)
-		return tfw_vhost_entry->loc_dflt->frang_cfg;
+		if (strncasecmp(tfw_vhost_entry->name.data,
+				TFW_VH_DFT_NAME, tfw_vhost_entry->name.len))
+			return tfw_vhost_entry->loc_dflt->frang_cfg;
 	return &tfw_frang_vhost_reconfig;
 }
 
@@ -2141,7 +2197,7 @@ tfw_cfgop_frang_strict_host_checking(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_strict_host_checking)
+	if (ce->dflt_value && !cfg->http_strict_host_checking)
 		return 0;
 	cs->dest = &cfg->http_strict_host_checking;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2308,12 +2364,16 @@ tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	bool val;
 	int r;
 
-	cs->dest = &val;
-	r = tfw_cfg_set_bool(cs, ce);
-	cs->dest = NULL;
-	if (r)
-		return r;
-
+	if (ce->dflt_value) {
+		val = tfw_tls_get_allow_any_sni_reconfig();
+	}
+	else {
+		cs->dest = &val;
+		r = tfw_cfg_set_bool(cs, ce);
+		cs->dest = NULL;
+		if (r)
+			return r;
+	}
 	tfw_tls_set_allow_any_sni(val);
 
 	return 0;
@@ -2322,10 +2382,11 @@ tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_in_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
+	if (tfw_vhosts_reconfig->expl_dflt) {
 		if (ce->dflt_value)
 			return 0;
-		T_ERR_NL("%s: directive can be applied only to '%s' vhost.\n",
+		T_ERR_NL("%s: global tls_match_ani_server_name are to be "
+			 "configured outside of explicit '%s' vhost.\n",
 			 cs->name, TFW_VH_DFT_NAME);
 		return -EINVAL;
 	}
@@ -2366,14 +2427,16 @@ tfw_vhost_cfgstart(void)
 	tfw_vhosts_reconfig->expl_dflt = false;
 	hash_init(tfw_vhosts_reconfig->vh_hash);
 	hash_init(tfw_vhosts_reconfig->sni_vh_map);
+	tfw_frang_clean(&tfw_frang_vhost_reconfig);
+	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
+	tfw_spec_init_frang_default(tfw_global_frang_specs);
+
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		T_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
 	}
 
 	tfw_vhosts_reconfig->vhost_dflt = vh_dflt;
-	tfw_frang_clean(&tfw_frang_vhost_reconfig);
-	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
 
 	tfw_vhost_entry = NULL;
 	tfwcfg_this_location = NULL;
@@ -2738,57 +2801,66 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	{
 		.name = "http_uri_len",
 		.deflt = "0",
-		.handler = tfw_cfgop_frang_uri_len,
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_vhost_reconfig.http_uri_len,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_body_len",
 		.deflt = "1073741824", /* 1 Gb. */
-		.handler = tfw_cfgop_frang_body_len,
+		.handler = tfw_cfgop_frang_glob_set_long,
+		.dest = &tfw_frang_vhost_reconfig.http_body_len,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_strict_host_checking",
 		.deflt = "true",
-		.handler = tfw_cfgop_frang_strict_host_checking,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_strict_host_checking,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_ct_required",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_ct_required,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_ct_required,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_trailer_split_allowed",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_trailer_split,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_trailer_split,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_method_override_allowed",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_method_override,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_method_override,
 		.allow_reconfig = true,
 	},
 	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
 		.deflt = "get post head",
-		.handler = tfw_cfgop_frang_http_methods,
+		.handler = tfw_cfgop_frang_glob_http_methods,
+		.dest = &tfw_frang_vhost_reconfig.http_methods_mask,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_ct_vals",
 		.deflt = NULL,
-		.handler = tfw_cfgop_frang_http_ct_vals,
+		.handler = tfw_cfgop_frang_glob_http_ct_vals,
+		.dest = &tfw_frang_vhost_reconfig.http_ct_vals,
 		.allow_none = true,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_resp_code_block",
 		.deflt = NULL,
-		.handler = tfw_cfgop_frang_rsp_code_block,
+		.handler = tfw_cfgop_frang_glob_rsp_code_block,
+		.dest = &tfw_frang_vhost_reconfig.http_resp_code_block,
 		.allow_none = true,
 		.allow_reconfig = true,
 	},

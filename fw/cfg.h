@@ -448,4 +448,6 @@ int tfw_cfg_parse(struct list_head *mod_list);
 void tfw_cfg_cleanup(struct list_head *mod_list);
 void tfw_cfg_conclude(struct list_head *mod_list);
 
+int tfw_spec_init_frang_default(TfwCfgSpec specs[]);
+
 #endif /* __TFW_CFG_H__ */
