@@ -330,10 +330,8 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * for a single client is absolutely straight-forward.
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
-	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block) {
+	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(cli);
-		tfw_client_put(cli);
-	}
 
 finish:
 	tfw_vhost_put(dflt_vh);
@@ -349,13 +347,14 @@ tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
 
-	BUG_ON(!ra);
+	if(ra == NULL)
+		return;
 
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	spin_lock(&ra->lock);
 
-	BUG_ON(!ra->conn_curr);
+	BUG_ON(ra->conn_curr == 0);
 	ra->conn_curr--;
 
 	spin_unlock(&ra->lock);
@@ -1858,6 +1857,7 @@ tfw_http_limits_hooks_register(void)
 
 static TempestaOps tempesta_ops = {
 	.sk_alloc	= tfw_classify_conn_estab,
+	.sk_free        = tfw_classify_conn_close,
 	.sock_tcp_rcv	= tfw_classify_tcp,
 };
 
