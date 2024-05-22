@@ -376,10 +376,10 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	ss_skb_init_for_xmit(skb);
 	skb->mark = mark;
 	if (tls_type)
 		skb_set_tfw_tls_type(skb, tls_type);
-	ss_skb_init_for_xmit(skb);
 	ss_forced_mem_schedule(sk, skb->truesize);
 	skb_entail(sk, skb);
 	tp->write_seq += skb->len;
@@ -387,8 +387,8 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 	       " truesize=%u mark=%u tls_type=%x\n",
-	       smp_processor_id(), __func__, conn->sk,
-	       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
+	       smp_processor_id(), __func__, sk, skb, skb->data_len,
+	       skb->len, skb->truesize, skb->mark,
 	       skb_tfw_tls_type(skb));
 }
 
