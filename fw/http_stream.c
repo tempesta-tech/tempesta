@@ -441,7 +441,7 @@ do {									\
 		if (type == HTTP2_RST_STREAM) {
 			new_state = send
 				? HTTP2_STREAM_LOC_CLOSED
-				: HTTP2_STREAM_REM_CLOSED;
+				: HTTP2_STREAM_CLOSED;
 			SET_STATE(new_state);
 			break;
 		}
@@ -567,7 +567,7 @@ do {									\
 	case HTTP2_STREAM_LOC_HALF_CLOSED:
 		if (!send) {
 			if (type == HTTP2_RST_STREAM) {
-				SET_STATE(HTTP2_STREAM_REM_CLOSED);
+				SET_STATE(HTTP2_STREAM_CLOSED);
 				break;
 			}
 
@@ -673,7 +673,7 @@ do {									\
 		 */
 		if (type == HTTP2_RST_STREAM)
 		{
-			SET_STATE(HTTP2_STREAM_REM_CLOSED);
+			SET_STATE(HTTP2_STREAM_CLOSED);
 		}
 		else if (type != HTTP2_PRIORITY && type != HTTP2_WINDOW_UPDATE)
 		{
@@ -682,7 +682,7 @@ do {									\
 			 * thus, the stream should be switched to the
 			 * 'closed (remote)' state.
 			 */
-			SET_STATE(HTTP2_STREAM_REM_CLOSED);
+			SET_STATE(HTTP2_STREAM_CLOSED);
 			*err = HTTP2_ECODE_CLOSED;
 			res = STREAM_FSM_RES_TERM_STREAM;
 		}
@@ -695,19 +695,23 @@ do {									\
 	 * frame on a stream in the "open" or "half-closed (local)" state.
 	 */
 	case HTTP2_STREAM_LOC_CLOSED:
-		/*
-		 * RFC 9113 section 5.1:
-		 * An endpoint that sends a RST_STREAM frame on a stream
-		 * that is in the "open" or "half-closed (local)" state
-		 * could receive any type of frame.
-		 */
 		if (send) {
 			res = STREAM_FSM_RES_IGNORE;
 			break;
 		}
 
+		/*
+		 * RFC 9113 section 5.1:
+		 * An endpoint that sends a RST_STREAM frame on a stream
+		 * that is in the "open" or "half-closed (local)" state
+		 * could receive any type of frame.
+		 * An endpoint MUST minimally process and then discard
+		 * any frames it receives in this state.
+		 */
 		if (type == HTTP2_RST_STREAM)
 			SET_STATE(HTTP2_STREAM_CLOSED);
+		else if (type != HTTP2_WINDOW_UPDATE)
+			res = STREAM_FSM_RES_IGNORE;
 
 		break;
 

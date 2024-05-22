@@ -1312,6 +1312,11 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+	/*
+	 * Since we use skb->sb for our purpose we should
+	 * zeroed it before pass skb to the kernel.
+	 */
+	bzero_fast(skb->cb, sizeof(skb->cb));
 
 	if (!skb_transport_header_was_set(skb)) {
 		/* Quick path for new skbs. */
@@ -1320,7 +1325,6 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	}
 
 	skb->skb_mstamp_ns = 0;
-	bzero_fast(skb->cb, sizeof(skb->cb));
 	nf_reset_ct(skb);
 	skb->mac_len = 0;
 	skb->queue_mapping = 0;

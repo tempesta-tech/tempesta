@@ -1538,7 +1538,8 @@ do {									\
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
+		ctx->state = HTTP2_RECV_DATA;
+		SET_TO_READ(ctx);
 
 		return 0;
 
@@ -1578,7 +1579,9 @@ do {									\
 		if (hdr->flags & HTTP2_F_PRIORITY)
 			return tfw_h2_recv_priority(ctx);
 
-		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
+		ctx->state = HTTP2_RECV_HEADER;
+		SET_TO_READ(ctx);
+
 		return 0;
 
 	case HTTP2_PRIORITY:
@@ -1996,8 +1999,14 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		if ((ret = tfw_h2_current_stream_state_process(ctx)))
 			FRAME_FSM_EXIT(ret);
 
+		if (unlikely(ctx->state == HTTP2_IGNORE_FRAME_DATA))
+			__fsm_const_state = ctx->state;
+
 		if (unlikely(ctx->to_read)) {
-			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
+			if (unlikely(ctx->state == HTTP2_IGNORE_FRAME_DATA))
+				FRAME_FSM_MOVE(HTTP2_IGNORE_FRAME_DATA);
+			else
+				FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
 		}
 
 		FRAME_FSM_EXIT(T_OK);
@@ -2009,8 +2018,14 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		if ((ret = tfw_h2_headers_process(ctx)))
 			FRAME_FSM_EXIT(ret);
 
+		if (unlikely(ctx->state == HTTP2_IGNORE_FRAME_DATA))
+			__fsm_const_state = ctx->state;
+
 		if (unlikely(ctx->to_read)) {
-			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
+			if (unlikely(ctx->state == HTTP2_IGNORE_FRAME_DATA))
+				FRAME_FSM_MOVE(HTTP2_IGNORE_FRAME_DATA);
+			else
+				FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
 		}
 
 		FRAME_FSM_EXIT(T_OK);
@@ -2022,8 +2037,14 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 		if ((ret = tfw_h2_current_stream_state_process(ctx)))
 			FRAME_FSM_EXIT(ret);
 
+		if (unlikely(ctx->state == HTTP2_IGNORE_FRAME_DATA))
+			__fsm_const_state = ctx->state;
+
 		if (unlikely(ctx->to_read)) {
-			FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
+			if (unlikely(ctx->state == HTTP2_IGNORE_FRAME_DATA))
+				FRAME_FSM_MOVE(HTTP2_IGNORE_FRAME_DATA);
+			else
+				FRAME_FSM_MOVE(HTTP2_RECV_APP_DATA_POST);
 		}
 
 		FRAME_FSM_EXIT(T_OK);
