@@ -32,9 +32,7 @@
  * NOTE: there is no exact matching between these states and states from
  * RFC 7540 (section 5.1), since several intermediate states were added in
  * current implementation to handle some edge states which are not mentioned
- * explicitly in RFC (special kinds of closed state). Besides, there is no
- * explicit 'idle' state here, since in current implementation idle stream
- * is just a stream that has not been created yet.
+ * explicitly in RFC (special kinds of closed state).
  */
 typedef enum {
 	HTTP2_STREAM_IDLE,
@@ -138,15 +136,11 @@ typedef struct {
 } TfwHttpXmit;
 
 /**
- * Limited queue for temporary storage of half-closed or pending half-closed
- * streams.
+ * Limited queue for temporary storage of idle or closed streams
  * This structure provides the possibility of temporary existing in memory -
- * for streams which are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
- * states (see RFC 7540, section 5.1, the 'closed' paragraph). Note, that
- * streams in HTTP2_STREAM_CLOSED state are not stored in this queue and must
- * be removed right away.
+ * for streams which are in HTTP2_STREAM_CLOSED state.
  *
- * @list		- list of streams which are in closed state;
+ * @list		- list of streams;
  * @num			- number of streams in the list;
  */
 typedef struct {
