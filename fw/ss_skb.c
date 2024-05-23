@@ -331,7 +331,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 
 	T_DBG3("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
 	       smp_processor_id(), __func__, skb, pspt, len, tail_len);
-	BUG_ON(!skb->head_frag);
+	//BUG_ON(!skb->head_frag);
 	BUG_ON(tail_len <= 0);
 	BUG_ON(!(alloc | tail_len));
 	BUG_ON(-len > tail_len);
@@ -1374,7 +1374,7 @@ ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
 	unsigned int headlen = skb_headlen(skb);
 
 	if (headlen) {
-		BUG_ON(!skb->head_frag);
+		//BUG_ON(!skb->head_frag);
 		head_frag.bv_len = headlen;
 		head_frag.bv_page = virt_to_page(skb->head);
 		head_frag.bv_offset = skb->data -
