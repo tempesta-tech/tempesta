@@ -162,24 +162,31 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 }
 
 static inline unsigned long
-tfw_sk_calc_awail_wnd(struct sock *sk, unsigned int mss_now)
+tfw_sk_calc_snd_wnd(struct sock *sk, unsigned int mss_now)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	unsigned int in_flight = tcp_packets_in_flight(tp);
-	unsigned int qlen = skb_queue_len(&sk->sk_write_queue);
+	unsigned int send_win, cong_win;
 
-	return min(in_flight + qlen < tp->snd_cwnd ?
-		   mss_now * (tp->snd_cwnd - in_flight - qlen) : 0,
-		   tp->snd_wnd);
+	if (in_flight >= tp->snd_cwnd)
+		return 0;
+
+	if (after(tp->write_seq, tcp_wnd_end(tp)))
+		return 0;
+
+	cong_win = (tp->snd_cwnd - in_flight) * mss_now;
+	send_win = tcp_wnd_end(tp) - tp->write_seq;
+
+	return min(cong_win, send_win);
 }
 
 static int
-tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
+tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 {
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
 	bool h2_mode, data_is_available = false;
-	unsigned long wnd_awail;
+	unsigned long snd_wnd;
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -191,13 +198,6 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 	 * set to TCP_CLOSE, so this function will never be called after it.
          */
 	BUG_ON(!conn);
-
-	/*
-	 * This can be possible with very low MTU. Nothing to do, because
-	 * `tcp_write_xmit` break the loop if limit is so small.
-	 */
-	if (unlikely(mss_now < TLS_MAX_OVERHEAD))
-		return 0;
 
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
 	if (!h2_mode)
@@ -220,19 +220,12 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, bool with_limit)
 	 *   In this case we don't care about efficiency and just make frames
 	 *   ignoring mss and CWND limits.
 	 */
-	mss_now = (mss_now > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD ?
-		TLS_MAX_PAYLOAD_SIZE : mss_now - TLS_MAX_OVERHEAD);
-	if (mss_now <= FRAME_HEADER_SIZE || !with_limit) {
-		mss_now = UINT_MAX;
-		wnd_awail = ULONG_MAX;
-	} else if (!tfw_cli_latency_optimized_write) {
-		wnd_awail = ULONG_MAX;
-	} else {
-		wnd_awail = tfw_sk_calc_awail_wnd(sk, mss_now);
-	}
+	if (!tfw_cli_latency_optimized_write)
+		snd_wnd = ULONG_MAX;
+	else
+		snd_wnd = tfw_sk_calc_snd_wnd(sk, mss_now);
 
-	r = tfw_h2_make_frames(h2, wnd_awail, mss_now, with_limit,
-			       &data_is_available);
+	r = tfw_h2_make_frames(h2, snd_wnd, &data_is_available);
 	if (unlikely(r < 0))
 		return r;
 

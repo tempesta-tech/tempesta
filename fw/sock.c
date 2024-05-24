@@ -647,12 +647,8 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
 		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-		/*
-		 * We should move all skbs from our priority structure
-		 * to socket write queue, before send TCP FIN.
-		 */
 		if (sk->sk_fill_write_queue)
-			sk->sk_fill_write_queue(sk, mss, false);
+			sk->sk_fill_write_queue(sk, mss);
 		tcp_send_fin(sk);
 	}
 
@@ -1493,12 +1489,8 @@ ss_do_shutdown(struct sock *sk)
 {
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	int r = 0;
-	/*
-	 * We should move all skbs from our priority structure
-	 * to socket write queue, before send TCP FIN.
-	 */
 	if (sk->sk_fill_write_queue)
-		r = sk->sk_fill_write_queue(sk, mss, true);
+		r = sk->sk_fill_write_queue(sk, mss);
 	/*
 	 * `sk_fill_write_queue` returns 0 in case when there is no
 	 * available data in our scheduler and returns negative
