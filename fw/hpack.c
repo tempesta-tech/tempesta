@@ -1388,6 +1388,40 @@ done:
 	return 0;
 }
 
+static int
+process_h2_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, int tag)
+{
+	/*
+	 * RFC 9113 8.1:
+	 *
+	 * Trailers MUST NOT include pseudo-header fields.
+	 */
+	switch (tag) {
+	case TFW_TAG_HDR_H2_STATUS:
+	case TFW_TAG_HDR_H2_METHOD:
+	case TFW_TAG_HDR_H2_SCHEME:
+	case TFW_TAG_HDR_H2_AUTHORITY:
+	case TFW_TAG_HDR_H2_PATH:
+	case TFW_TAG_HDR_ACCEPT:
+	case TFW_TAG_HDR_AUTHORIZATION:
+	case TFW_TAG_HDR_CACHE_CONTROL:
+	case TFW_TAG_HDR_CONTENT_ENCODING:
+	case TFW_TAG_HDR_CONTENT_LENGTH:
+	case TFW_TAG_HDR_CONTENT_TYPE:
+	case TFW_TAG_HDR_COOKIE:
+	case TFW_TAG_HDR_IF_NONE_MATCH:
+	case TFW_TAG_HDR_HOST:
+	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
+	case TFW_TAG_HDR_REFERER:
+	case TFW_TAG_HDR_USER_AGENT:
+		return T_BLOCK;
+	}
+
+	hdr->flags |= TFW_STR_TRAILER;
+	__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, hm->flags);
+
+	return T_OK;
+}
 
 /*
  * HPACK decoder FSM for HTTP/2 message processing.
@@ -1645,6 +1679,12 @@ get_value_text:
 			if ((r = frang_http_hdr_limit(req, parser->hdr.len)))
 				goto out;
 
+			if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
+				if ((r = process_h2_trailer_hdr((TfwHttpMsg*)req,
+								&(parser->hdr),
+								parser->_hdr_tag)))
+					goto out;
+
 			if (state & HPACK_FLAGS_ADD
 			    && (r = tfw_hpack_add_index(&hp->dec_tbl, it,
 							&parser->cstate)))
@@ -1684,6 +1724,12 @@ get_all_indexed:
 
 			if ((r = frang_http_hdr_limit(req, entry->hdr->len)))
 				goto out;
+
+			if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
+				if ((r = process_h2_trailer_hdr((TfwHttpMsg*)req,
+								entry->hdr,
+								entry->tag)))
+					goto out;
 
 			if ((r = tfw_hpack_hdr_set(hp, req, entry)))
 				goto out;
