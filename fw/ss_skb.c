@@ -1316,7 +1316,7 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	 * Since we use skb->sb for our purpose we should
 	 * zeroed it before pass skb to the kernel.
 	 */
-	bzero_fast(skb->cb, sizeof(skb->cb));
+	memset(skb->cb, 0, sizeof(skb->cb));
 
 	if (!skb_transport_header_was_set(skb)) {
 		/* Quick path for new skbs. */

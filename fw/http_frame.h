@@ -259,9 +259,7 @@ void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
-
-int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long wnd_awail,
-		       unsigned int mss, bool with_limit,
+int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long snd_wnd,
 		       bool *data_is_available);
 
 static inline void

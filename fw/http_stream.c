@@ -62,7 +62,6 @@ static void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
-	TfwHttpResp*resp = stream->xmit.resp;
 
 	/*
 	 * Should be done before purging stream send queue,
@@ -70,12 +69,7 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	 * the scheduler.
 	 */
 	tfw_h2_remove_stream_dep(sched, stream);
-	if (resp) {
-		tfw_http_resp_pair_free_and_put_conn(resp);
-		stream->xmit.resp = NULL;
-	}
-	if (stream->xmit.skb_head)
-		tfw_h2_stream_purge_send_queue(stream);
+	tfw_h2_stream_purge_send_queue_and_free_response(stream);
 
 	tfw_h2_conn_reset_stream_on_close(ctx, stream);
 	rb_erase(&stream->node, &sched->streams);
@@ -130,6 +124,19 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	rb_insert_color(&new_stream->node, &sched->streams);
 
 	return new_stream;
+}
+
+void
+tfw_h2_stream_purge_send_queue_and_free_response(TfwStream *stream)
+{
+	TfwHttpResp*resp = stream->xmit.resp;
+
+	if (resp) {
+		tfw_http_resp_pair_free_and_put_conn(resp);
+		stream->xmit.resp = NULL;
+	}
+	if (stream->xmit.skb_head)
+		tfw_h2_stream_purge_send_queue(stream);
 }
 
 void
