@@ -195,7 +195,7 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
-	SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown);
+	SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
 		tfw_classify_conn_close(sk);
@@ -647,12 +647,8 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
 		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-		/*
-		 * We should move all skbs from our priority structure
-		 * to socket write queue, before send TCP FIN.
-		 */
 		if (sk->sk_fill_write_queue)
-			sk->sk_fill_write_queue(sk, mss, false);
+			sk->sk_fill_write_queue(sk, mss);
 		tcp_send_fin(sk);
 	}
 
@@ -838,7 +834,7 @@ do {									\
 		 * own flags, thus clear it.
 		 */
 		skb->dev = NULL;
-		bzero_fast(skb->cb, sizeof(skb->cb));
+		memset(skb->cb, 0, sizeof(skb->cb));
 
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
@@ -1498,12 +1494,8 @@ ss_do_shutdown(struct sock *sk)
 {
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	int r = 0;
-	/*
-	 * We should move all skbs from our priority structure
-	 * to socket write queue, before send TCP FIN.
-	 */
 	if (sk->sk_fill_write_queue)
-		r = sk->sk_fill_write_queue(sk, mss, true);
+		r = sk->sk_fill_write_queue(sk, mss);
 	/*
 	 * `sk_fill_write_queue` returns 0 in case when there is no
 	 * available data in our scheduler and returns negative

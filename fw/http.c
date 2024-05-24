@@ -5388,16 +5388,12 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	 * already closed and deleted.
 	 */
 	r = tfw_h2_stream_init_for_xmit(resp, HTTP2_ENCODE_HEADERS, 0, 0);
-	if (unlikely(r))
-		goto out;
-
-	tfw_h2_req_unlink_stream(req);
-	tfw_h2_resp_fwd(resp);
-
-	return;
-
-out:
-	tfw_http_resp_pair_free(req);
+	if (unlikely(r)) {
+		tfw_http_resp_pair_free(req);
+	} else {
+		tfw_h2_req_unlink_stream(req);
+		tfw_h2_resp_fwd(resp);
+	}
 }
 
 /**
