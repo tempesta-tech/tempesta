@@ -164,7 +164,7 @@ typedef struct {
  * @states	- all FSM states, i.e. the FSM states set;
  */
 typedef struct {
-	char		curr;
+	int		curr;
 	void		*obj;
 	unsigned short	states[TFW_GFSM_FSM_NUM];
 } TfwGState;
