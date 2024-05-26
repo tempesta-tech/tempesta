@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@
  * is just a stream that has not been created yet.
  */
 typedef enum {
+	HTTP2_STREAM_IDLE,
 	HTTP2_STREAM_LOC_RESERVED,
 	HTTP2_STREAM_REM_RESERVED,
 	HTTP2_STREAM_OPENED,
@@ -48,13 +49,14 @@ typedef enum {
 } TfwStreamState;
 
 enum {
-	HTTP2_STREAM_STATE_MASK = 0x7,
-	HTTP2_STREAM_FLAGS_OFFSET = 0x3,
+	HTTP2_STREAM_STATE_MASK = 0xF,
+	HTTP2_STREAM_FLAGS_OFFSET = 0x4,
 	HTTP2_STREAM_SEND_END_OF_STREAM = 0x1 << HTTP2_STREAM_FLAGS_OFFSET,
 	HTTP2_STREAM_RECV_END_OF_STREAM = 0x2 << HTTP2_STREAM_FLAGS_OFFSET,
 };
 
 static const char *__tfw_strm_st_names[] = {
+	[HTTP2_STREAM_IDLE]		= "HTTP2_STREAM_IDLE",
 	[HTTP2_STREAM_LOC_RESERVED]	= "HTTP2_STREAM_LOC_RESERVED",
 	[HTTP2_STREAM_REM_RESERVED]	= "HTTP2_STREAM_REM_RESERVED",
 	[HTTP2_STREAM_OPENED]	    	= "HTTP2_STREAM_OPENED",

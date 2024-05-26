@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -81,7 +81,7 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 
-	tf2_h2_conn_reset_stream_on_close(ctx, stream);
+	tfw_h2_conn_reset_stream_on_close(ctx, stream);
 	tfw_h2_remove_stream_dep(sched, stream);
 	rb_erase(&stream->node, &sched->streams);
 }
@@ -94,7 +94,7 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
-	stream->state = HTTP2_STREAM_OPENED;
+	stream->state = HTTP2_STREAM_IDLE;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
@@ -245,7 +245,7 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 	if (stream && *stream) {
 		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
 			ctx, *stream, id, err_code);
-		tf2_h2_conn_reset_stream_on_close(ctx, *stream);
+		tfw_h2_conn_reset_stream_on_close(ctx, *stream);
 		if (tfw_h2_get_stream_state(*stream) >
 		    HTTP2_STREAM_REM_HALF_CLOSED) {
 			tfw_h2_stream_add_closed(ctx, *stream);
@@ -358,6 +358,64 @@ do {									\
 	}
 
 	switch (tfw_h2_get_stream_state(stream)) {
+	case HTTP2_STREAM_IDLE:
+		/* We don't processed sending headers for idle streams. */
+		BUG_ON(send);
+
+		/*
+		 * RFC 9113 Section 6.4
+		 *
+		 * RST_STREAM frames MUST NOT be sent for a stream in the "idle"
+		 * state. If a RST_STREAM frame identifying an idle stream is
+		 * received, the recipient MUST treat this as a connection error
+		 * of type PROTOCOL_ERROR.
+		 */
+		if (type == HTTP2_RST_STREAM) {
+			*err = HTTP2_ECODE_PROTO;
+			res = STREAM_FSM_RES_TERM_CONN;
+			break;
+		}
+
+		if (type == HTTP2_HEADERS) {
+			switch (flags
+				& (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM))
+			{
+			case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
+				SET_STATE(HTTP2_STREAM_REM_HALF_CLOSED);
+				break;
+			case HTTP2_F_END_HEADERS:
+				SET_STATE(HTTP2_STREAM_OPENED);
+				break;
+			/*
+			 * If END_HEADERS flag is not received, move stream
+			 * into the states of waiting CONTINUATION frame.
+			 */
+			case HTTP2_F_END_STREAM:
+				ctx->cur_recv_headers = stream;
+				stream->state |=
+					HTTP2_STREAM_RECV_END_OF_STREAM;
+				SET_STATE(HTTP2_STREAM_OPENED);
+				break;
+			/*
+			 * END_HEADERS and END_STREAM are not set. Next frame
+			 * CONTINUATION expected.
+			 */
+			default:
+				SET_STATE(HTTP2_STREAM_OPENED);
+				ctx->cur_recv_headers = stream;
+				break;
+			}
+		} else if (type != HTTP2_PRIORITY) {
+			/*
+			 * TODO receiving of HTTP2_PUSH_PROMISE switched stream
+			 * to HTTP2_STREAM_REM_RESERVED state.
+			 */
+			*err = HTTP2_ECODE_PROTO;
+			res = STREAM_FSM_RES_TERM_CONN;
+		}
+
+		break;
+
 	case HTTP2_STREAM_LOC_RESERVED:
 	case HTTP2_STREAM_REM_RESERVED:
 		/*
@@ -376,24 +434,32 @@ do {									\
 			break;
 		}
 
-		if (type == HTTP2_HEADERS || type == HTTP2_CONTINUATION) {
-			switch (flags
-				& (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM))
-			{
-			case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
-				if (send) {
-					ctx->cur_send_headers = NULL;
-					new_state =
-						HTTP2_STREAM_LOC_HALF_CLOSED;
-				} else {
-					ctx->cur_recv_headers = NULL;
-					new_state =
-						HTTP2_STREAM_REM_HALF_CLOSED;
-				}
-				SET_STATE(new_state);
+		if (send) {
+			TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
+		} else {
+			TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
+		}
 
-				break;
-			case HTTP2_F_END_HEADERS:
+		if (type == HTTP2_CONTINUATION) {
+			/*
+			 * Empty CONTINUATION frames without END_HEADERS flag
+			 * are not prohibited by protocol specification. But
+			 * there is no sense to process them. Just utilizes CPU
+			 * without any effect, looks suspicious.
+			 */
+			TfwStream *snd_hdrs = send ? ctx->cur_send_headers
+						   : ctx->cur_recv_headers;
+
+			if (snd_hdrs && !(flags & HTTP2_F_END_HEADERS)
+			    && ctx->plen == 0)
+			{
+				T_LOG("Empty CONTINUATION frame without END_HEADERS");
+				*err = HTTP2_ECODE_PROTO;
+				res = STREAM_FSM_RES_TERM_CONN;
+				goto finish;
+			}
+
+			if (flags & HTTP2_F_END_HEADERS) {
 				/*
 				 * Headers are ended, next frame in the stream
 				 * should be DATA frame.
@@ -413,13 +479,41 @@ do {									\
 						SET_STATE(new_state);
 					}
 				}
-
-				break;
+			} else {
+				if (send)
+					ctx->cur_send_headers = stream;
+				else
+					ctx->cur_recv_headers = stream;
+			}
+			break;
+		} else if (type == HTTP2_HEADERS) {
 			/*
-			 * If END_HEADERS flag is not received, move stream
-			 * into the states of waiting CONTINUATION frame.
+			 * Only trailer HEADERS block is allowed in this
+			 * state.
 			 */
-			case HTTP2_F_END_STREAM:
+			if (flags & HTTP2_F_END_HEADERS
+			    && flags & HTTP2_F_END_STREAM)
+			{
+				if (send) {
+					ctx->cur_send_headers = NULL;
+					new_state =
+						HTTP2_STREAM_LOC_HALF_CLOSED;
+				} else {
+					ctx->cur_recv_headers = NULL;
+					stream->state |=
+						HTTP2_STREAM_RECV_END_OF_STREAM;
+					new_state =
+						HTTP2_STREAM_REM_HALF_CLOSED;
+				}
+				SET_STATE(new_state);
+			}
+			else if (flags & HTTP2_F_END_STREAM) {
+				/* Expected CONTINUATION in trailers.
+				 *
+				 * Don't set HTTP2_STREAM_REM/LOC_HALF_CLOSED
+				 * because need to send/receive CONTINUATION
+				 * frame.
+				 */
 				if (send) {
 					ctx->cur_send_headers = stream;
 					stream->state |=
@@ -429,18 +523,31 @@ do {									\
 					stream->state |=
 						HTTP2_STREAM_RECV_END_OF_STREAM;
 				}
-
-				break;
-			default:
-				if (send) {
-					ctx->cur_send_headers = stream;
-				} else {
-					ctx->cur_recv_headers = stream;
-				}
-
-				break;
 			}
+			else {
+				if (send)
+					ctx->cur_send_headers = stream;
+				else
+					ctx->cur_recv_headers = stream;
+			}
+			break;
+
 		} else if (type == HTTP2_DATA) {
+			/*
+			 * Empty DATA frames without END_STREAM flag are not
+			 * prohibited by protocol specification. But there is
+			 * no sense to process them. Just utilizes CPU without
+			 * any effect, looks suspicious.
+			 */
+			if (!ctx->plen
+			    && !(ctx->hdr.flags & HTTP2_F_END_STREAM))
+			{
+				T_LOG("Empty DATA frame without END_STREAM");
+				*err = HTTP2_ECODE_PROTO;
+				res = STREAM_FSM_RES_TERM_CONN;
+				goto finish;
+			}
+
 			if (flags & HTTP2_F_END_STREAM) {
 				new_state = send
 					? HTTP2_STREAM_LOC_HALF_CLOSED

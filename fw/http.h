@@ -484,6 +484,7 @@ struct tfw_http_resp_t {
 	char			*body_start_data;
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
+	int			trailers_len;
 };
 
 /**
@@ -762,5 +763,6 @@ int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
 void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
+char *tfw_http_resp_status_line(int status, size_t *len);
 
 #endif /* __TFW_HTTP_H__ */
