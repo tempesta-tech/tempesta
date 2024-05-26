@@ -833,7 +833,8 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				T_DBG3("%s: dropped index: %u\n", __func__,
 				       early);
 				if (cp->last)
-					tfw_pool_clean(tbl->h_pool, cp->hdr);
+					tfw_pool_clean_single(tbl->h_pool,
+							      cp->hdr);
 				early++;
 				cp++;
 				count--;
@@ -865,8 +866,8 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 					T_DBG3("%s: drop index: %u\n", __func__,
 					       curr);
 					if (cp->last)
-						tfw_pool_clean(tbl->h_pool,
-							       cp->hdr);
+						tfw_pool_clean_single(tbl->h_pool,
+								      cp->hdr);
 					curr++;
 					cp++;
 					if (unlikely(curr == length)) {
@@ -912,7 +913,11 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 					memcpy_fast(entries + tail, previous,
 						    wrap);
 
-				tfw_pool_clean(pool, NULL);
+				/*
+				 * Delete all pool chunks, except the last
+				 * allocated and the first one in chain.
+				 */
+				tfw_pool_clean(pool);
 				curr = count;
 			}
 		} else {
@@ -1065,7 +1070,7 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned int new_size)
 			T_DBG3("%s: drop index, early=%u, count=%u,"
 			       " length=%u\n", __func__, early, count, length);
 			if (cp->last)
-				tfw_pool_clean(tbl->h_pool, cp->hdr);
+				tfw_pool_clean_single(tbl->h_pool, cp->hdr);
 			early++;
 			cp++;
 			count--;

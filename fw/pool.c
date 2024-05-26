@@ -25,7 +25,7 @@
  *    be immediately freed to keep stack-like memory management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -191,36 +191,51 @@ tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 }
 
 /**
- * Delete all chunks between the first (i.e. current in use) and the last one
- * (which is the holder of @TfwPool itself). This is a garbage collection
- * procedure, which is applicable only for cases when pool is used for one
- * dynamically resizable (via @__tfw_pool_realloc()) instance. Also, this
- * function can be used when caller definitely know, that all data behind the
- * @ptr can be evicted (including the page which contains the @ptr).
+ * Delete single chunk that holds @ptr.
  */
 void
-tfw_pool_clean(TfwPool *pool, void *ptr)
+tfw_pool_clean_single(TfwPool *pool, void *ptr)
 {
-	TfwPoolChunk *c, *next;
+	TfwPoolChunk *c, *next, *prev = pool->curr;
 
-	if (!pool)
-		return;
+	BUG_ON(!pool);
+	BUG_ON(!ptr);
 
 	for (c = pool->curr->next; c; c = next) {
 		if (!(next = c->next))
 			break;
-		if (ptr) {
-			if ((char *)ptr < (char *)TFW_POOL_CHUNK_BASE(c)
-			    || (char *)ptr >= (char *)TFW_POOL_CHUNK_BASE(c)
-			    + c->off)
-			{
-				continue;
-			}
-			ptr = NULL;
+
+		if ((char *)ptr >= (char *)TFW_POOL_CHUNK_BASE(c)
+		    && (char *)ptr < (char *)TFW_POOL_CHUNK_BASE(c) + c->off)
+		{
+			tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+			prev->next = next;
+			return;
 		}
-		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+		prev = c;
 	}
-	pool->curr->next = c;
+}
+
+/**
+ * Delete all chunks between the first (i.e. current in use) and the last one
+ * (which is the holder of @TfwPool itself). This is a garbage collection
+ * procedure, which is applicable only for cases when pool is used for one
+ * dynamically resizable (via @__tfw_pool_realloc()) instance.
+ */
+void
+tfw_pool_clean(TfwPool *pool)
+{
+	TfwPoolChunk *c, *next;
+
+	BUG_ON(!pool);
+
+	for (c = pool->curr->next; c; c = next) {
+		if (!(next = c->next))
+			break;
+
+		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+		pool->curr->next = next;
+	}
 }
 
 /**
