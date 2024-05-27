@@ -412,12 +412,12 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (unlikely(!conn || !ss_sock_active(sk)))
 		goto cleanup;
 
+	TFW_SKB_CB(*skb_head)->tls_type = tls_type;
 	if (ss_skb_do_send(conn, skb_head, flags))
 		goto cleanup;
 
 	/* skb_head can be empty after previous call. */
 	if (tls_type) {
-		T_WARN("tls_type %u *skb_head %px", tls_type, *skb_head);
 		while (*skb_head) {
 			tfw_tls_encrypt(sk, skb_head, TLS_MAX_PAYLOAD_SIZE,
 					tls_type, mark);

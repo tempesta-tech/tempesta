@@ -59,7 +59,6 @@ typedef enum {
 	HTTP2_MAKE_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
 	HTTP2_MAKE_DATA_FRAMES,
-	HTTP2_ENCRYPT_AND_SEND_FRAMES,
 	HTTP2_MAKE_FRAMES_FINISH,
 } TfwStreamXmitState;
 
@@ -119,9 +118,6 @@ typedef enum {
  * @b_len		- length of body in http2 response;
  * @state		- current stream xmit state (what type of
  * 			  frame should be made for this stream);
- * @send_data_length	- length of data to send (length of one
- *                        or several frames, which are ready for
- *                        encryption and sending. 
  * @is_blocked		- stream is blocked;
  */
 typedef struct {
@@ -131,7 +127,6 @@ typedef struct {
 	unsigned long		h_len;
 	unsigned long		b_len;
 	TfwStreamXmitState	state;
-	unsigned int		send_data_length;
 	bool			is_blocked;
 } TfwHttpXmit;
 

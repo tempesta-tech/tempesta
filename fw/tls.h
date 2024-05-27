@@ -30,6 +30,9 @@ void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
 void tfw_tls_set_allow_any_sni(bool match);
 int tfw_tls_cfg_alpn_protos(const char *cfg_str);
+int tfw_tls_encrypt_list(struct sock *sk, struct sk_buff **skb_head,
+			 unsigned long len, struct sg_table *sgt,
+			 struct sg_table *out_sgt, unsigned char tls_type);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff **skb_head,
 		    unsigned long limit, unsigned char tls_type,
 		    unsigned int mark);
