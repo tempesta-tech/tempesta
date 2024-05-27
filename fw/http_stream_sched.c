@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -187,12 +187,12 @@ tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
 		if (!parent)
 			break;
 
-		if (!tfw_h2_stream_is_active(stream)
-		    && !tfw_h2_stream_sched_is_active(&stream->sched)) {
-		    	BUG_ON(stream->sched_state != HTTP2_STREAM_SCHED_STATE_ACTIVE);
-			tfw_h2_stream_sched_insert_blocked(stream,
-							   stream->sched_node.key);
-		}
+		if (tfw_h2_stream_is_active(stream)
+		    || tfw_h2_stream_sched_is_active(&stream->sched))
+			continue;
+
+		BUG_ON(stream->sched_state != HTTP2_STREAM_SCHED_STATE_ACTIVE);
+		tfw_h2_stream_sched_insert_blocked(stream, stream->sched_node.key);
 	}
 }
 
