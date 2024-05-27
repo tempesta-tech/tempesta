@@ -45,7 +45,6 @@ static struct kmem_cache *tfw_h1_conn_cache;
 static struct kmem_cache *tfw_https_conn_cache;
 static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
-static bool tfw_cli_latency_optimized_write;
 
 unsigned int tfw_cli_max_concurrent_streams;
 
@@ -220,26 +219,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	if (!h2)
 		return 0;
 
-	/*
-	 * We use two different strategies here:
-	 * - The main strategy is to calculate count of bytes that we can
-	 *   send to the client immediately, according to mss and available
-	 *   TCP CWND. We try to prepare HTTP frame which size is equal
-	 *   or less than mss to prevent HOL problem. The fact that we don't
-	 *   send everything at once allows the higher priority data to be
-	 *   sent before the lower priority data, as we select a new highest
-	 *   priority data to send with each acknowledgement.
-	 * - The second strategy is used when mss is less or equal to frame
-	 *   header size (9 byte, it is possible with very low MTU) or if we
-	 *   finish TCP connection with FIN and should send all available data.
-	 *   In this case we don't care about efficiency and just make frames
-	 *   ignoring mss and CWND limits.
-	 */
-	if (!tfw_cli_latency_optimized_write)
-		snd_wnd = ULONG_MAX;
-	else
-		snd_wnd = tfw_sk_calc_snd_wnd(sk, mss_now);
-
+	snd_wnd = tfw_sk_calc_snd_wnd(sk, mss_now);
 	r = tfw_h2_make_frames(h2, snd_wnd, &data_is_available);
 	if (unlikely(r < 0))
 		return r;
@@ -741,20 +721,6 @@ tfw_cfgop_max_concurrent_streams(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static int
-tfw_cfgop_latency_optimized_write(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	if (ce->dflt_value && tfw_cli_latency_optimized_write)
-		return 0;
-
-	cs->dest = &tfw_cli_latency_optimized_write;
-	r = tfw_cfg_set_bool(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
@@ -968,14 +934,6 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.name = "max_concurrent_streams",
 		.deflt = "100",
 		.handler = tfw_cfgop_max_concurrent_streams,
-		.cleanup = tfw_cfgop_cleanup_sock_clnt,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "latency_optimized_write",
-		.deflt = "true",
-		.handler = tfw_cfgop_latency_optimized_write,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = false,
 		.allow_reconfig = true,
