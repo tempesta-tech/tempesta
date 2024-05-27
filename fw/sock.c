@@ -25,6 +25,7 @@
 #include <net/protocol.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
+#include <linux/errqueue.h>
 
 #undef DEBUG
 #if DBG_SS > 0
@@ -1018,12 +1019,17 @@ ss_tcp_data_ready(struct sock *sk)
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
+		struct sk_buff* skb = sk->sk_error_queue.next;
 		/*
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
-		T_ERR("error data in socket %p\n", sk);
-		return;
+		if (SKB_EXT_ERR(skb)->ee.ee_errno != ENOMSG &&
+		    SKB_EXT_ERR(skb)->ee.ee_origin !=
+		    SO_EE_ORIGIN_TIMESTAMPING) {
+			T_ERR("error data in socket %p\n", sk);
+			return;
+		}
 	}
 
 	if (skb_queue_empty(&sk->sk_receive_queue)) {
