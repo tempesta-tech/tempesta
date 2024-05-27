@@ -268,7 +268,7 @@ tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 }
 
 /**
- * Flags indicates that appropriate SETTINGS parameter is waited for
+ * The flags indicate that an appropriate SETTINGS parameter is waited for an
  * update.
  */
 static const unsigned char
@@ -362,7 +362,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 	default:
 		/*
 		 * We should silently ignore unknown identifiers (see
-		 * RFC 7540 section 6.5.2)
+		 * RFC 9113 section 6.5.2)
 		 */
 		break;
 	}
@@ -403,7 +403,7 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 	default:
 		/*
 		 * We should silently ignore unknown identifiers (see
-		 * RFC 7540 section 6.5.2)
+		 * RFC 9113 section 6.5.2)
 		 */
 		break;
 	}
@@ -848,7 +848,7 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 }
 
 /**
- * According to RFC 7540 section 5.1.1:
+ * According to RFC 9113 section 5.1.1:
  * The first use of a new stream identifier implicitly closes all
  * streams in the "idle" state that might have been initiated by that
  * peer with a lower-valued stream identifier.
@@ -1170,10 +1170,10 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 
 	if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
 		/*
-		 * According to RFC 7540 we should response with stream
+		 * According to RFC 9113 we should response with stream
 		 * error of type PROTOCOL ERROR here, but we can't send
 		 * RST_STREAM for idle stream.
-		 * RFC 7540 doesn't describe this case, so terminate
+		 * RFC 9113 doesn't describe this case, so terminate
 		 * connection.
 		 */
 		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
@@ -1586,7 +1586,7 @@ do {									\
 				goto conn_term;
 			});
 			/*
-			 * According to RFC 7540 section 6.3:
+			 * According to RFC 9113 section 6.3:
 			 * Priority frame can be sent in any stream state,
 			 * including idle or closed streams.
 			 */

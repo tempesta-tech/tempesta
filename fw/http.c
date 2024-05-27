@@ -1109,7 +1109,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(conn, true);
-		/* We can't send response, so we can should free it here. */
+		/* We can't send response, so we should free it here. */
 		resp_in_xmit = false;
 	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);

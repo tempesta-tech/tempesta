@@ -224,7 +224,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	 * We use two different strategies here:
 	 * - The main strategy is to calculate count of bytes that we can
 	 *   send to the client immediately, according to mss and available
-	 *   TCP CWND. We try to prepare HTTP frame which size is greater
+	 *   TCP CWND. We try to prepare HTTP frame which size is equal
 	 *   or less than mss to prevent HOL problem. The fact that we don't
 	 *   send everything at once allows the higher priority data to be
 	 *   sent before the lower priority data, as we select a new highest
