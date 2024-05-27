@@ -294,13 +294,12 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
 	ss_set_callbacks(sk);
-	if (TFW_CONN_TLS(conn)) {
+	if (TFW_CONN_PROTO(conn) == TFW_FSM_H2) {
 		/*
 		 * Probably, that's not beautiful to introduce an alternate
 		 * upcall beside GFSM and SS, but that's efficient and I didn't
 		 * find a simple and better solution.
 		 */
-		sk->sk_write_xmit = tfw_tls_encrypt;
 		sk->sk_fill_write_queue = tfw_sk_fill_write_queue;
 	}
 

@@ -371,48 +371,22 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 }
 
 void
-ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-	      unsigned char tls_type)
+ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	ss_skb_init_for_xmit(skb);
 	skb->mark = mark;
-	if (tls_type)
-		skb_set_tfw_tls_type(skb, tls_type);
+
 	ss_forced_mem_schedule(sk, skb->truesize);
 	skb_entail(sk, skb);
 	tp->write_seq += skb->len;
 	TCP_SKB_CB(skb)->end_seq += skb->len;
 
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
-	       " truesize=%u mark=%u tls_type=%x\n",
+	       " truesize=%u mark=%u\n",
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
-	       skb->len, skb->truesize, skb->mark,
-	       skb_tfw_tls_type(skb));
-}
-
-void
-ss_skb_head_entail(struct sock *sk, struct sk_buff **skb_head,
-		   unsigned int mark, unsigned char tls_type)
-{
-	struct sk_buff *skb;
-
-	while ((skb = ss_skb_dequeue(skb_head))) {
-		/*
-		 * Zero-sized SKBs may appear when the message headers (or any
-		 * other contents) are modified or deleted by Tempesta. Drop
-		 * these SKBs.
-		 */
-		if (!skb->len) {
-			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
-			       smp_processor_id(), __func__,
-			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
-			continue;
-		}
-		ss_skb_entail(sk, skb, mark, tls_type);
-	}
+	       skb->len, skb->truesize, skb->mark);
 }
 
 /**
@@ -426,6 +400,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	unsigned int mark = (*skb_head)->mark;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
+	struct sk_buff *skb;
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d mss=%d size=%d\n",
@@ -441,7 +416,16 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		goto cleanup;
 
 	/* skb_head can be empty after previous call. */
-	ss_skb_head_entail(sk, skb_head, mark, tls_type);
+	if (tls_type) {
+		T_WARN("tls_type %u *skb_head %px", tls_type, *skb_head);
+		while (*skb_head) {
+			tfw_tls_encrypt(sk, skb_head, TLS_MAX_PAYLOAD_SIZE,
+					tls_type, mark);
+		}
+	} else {
+		while ((skb = ss_skb_dequeue(skb_head)))
+			ss_skb_entail(sk, skb, mark);
+	}
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,

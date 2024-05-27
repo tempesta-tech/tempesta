@@ -4861,8 +4861,8 @@ tfw_http_do_send_resp(void *conn, struct sk_buff **skb_head, int flags)
 {
 	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
-	unsigned char tls_type = flags & SS_F_ENCRYPT ?
-		SS_SKB_F2TYPE(flags) : 0;
+	//unsigned char tls_type = flags & SS_F_ENCRYPT ?
+	//	SS_SKB_F2TYPE(flags) : 0;
 	TfwStream *stream;
 
 	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
@@ -4877,8 +4877,10 @@ tfw_http_do_send_resp(void *conn, struct sk_buff **skb_head, int flags)
 
 	BUG_ON(stream->xmit.skb_head);
 
+#if 0   //TODO
 	if (tls_type)
 		skb_set_tfw_tls_type(*skb_head, tls_type);
+#endif
 	stream->xmit.resp = (TfwHttpResp *)tfw_cb->opaque_data;
 	swap(stream->xmit.skb_head, *skb_head);
 	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);

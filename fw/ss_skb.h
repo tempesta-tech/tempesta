@@ -59,6 +59,7 @@ enum {
  *                not NULL
  * @do_send	- callback to special handling this skb before sending;
  * @stream_id	- id of sender stream;
+ * @tls_type	- tls type for current skb;
  */
 struct tfw_skb_cb {
 	void 			*opaque_data;
@@ -66,6 +67,7 @@ struct tfw_skb_cb {
 	int 			(*do_send)(void *conn, struct sk_buff **skb_head,
 					   int flags);
 	unsigned int 		stream_id;
+	unsigned char		tls_type;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))

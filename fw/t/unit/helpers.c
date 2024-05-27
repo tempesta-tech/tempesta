@@ -174,16 +174,16 @@ ss_stop(void)
 {
 }
 
-void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		   unsigned char tls_type)
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark)
 {
 }
 
-void ss_skb_head_entail(struct sock *sk, struct sk_buff **skb,
-			unsigned int mark, unsigned char tls_type)
+int tfw_tls_encrypt(struct sock *sk, struct sk_buff **skb_head,
+		    unsigned long limit, unsigned char tls_type,
+		    unsigned int mark)
 {
+	return 0;
 }
-
 
 void
 tfw_client_set_expires_time(unsigned int expires_time)

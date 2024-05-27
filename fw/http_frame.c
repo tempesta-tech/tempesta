@@ -446,11 +446,13 @@ static int
 tfw_h2_do_send_goaway(void *conn, struct sk_buff **skb_head, int flags)
 {
 	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
-	unsigned char tls_type = flags & SS_F_ENCRYPT ?
-		SS_SKB_F2TYPE(flags) : 0;
+	//unsigned char tls_type = flags & SS_F_ENCRYPT ?
+	//	SS_SKB_F2TYPE(flags) : 0;
 
+#if 0
 	if (tls_type)
 		skb_set_tfw_tls_type(*skb_head, tls_type);
+#endif
 	swap(ctx->goaway, *skb_head);
 	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 	return 0;
@@ -461,12 +463,14 @@ tfw_h2_do_send_rst_stream(void *conn, struct sk_buff **skb_head, int flags)
 {
 	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
-	unsigned char tls_type = flags & SS_F_ENCRYPT ?
-		SS_SKB_F2TYPE(flags) : 0;
+	//unsigned char tls_type = flags & SS_F_ENCRYPT ?
+	//	SS_SKB_F2TYPE(flags) : 0;
 	TfwStream *stream;
 
+#if 0
 	if (tls_type)
 		skb_set_tfw_tls_type(*skb_head, tls_type);
+#endif
 	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
 
 	/*
@@ -2353,61 +2357,10 @@ tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 }
 
 static inline int
-tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned int *len)
-{
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	struct sock *sk = ((TfwConn *)conn)->sk;
-	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
-	unsigned int mark = stream->xmit.skb_head->mark;
-	struct sk_buff *skb, *split;
-	int r = 0;
-
-	while (*len) {
-		skb = ss_skb_dequeue(&stream->xmit.skb_head);
-		BUG_ON(!skb);
-
-		if (unlikely(!skb->len)) {
-			T_DBG3("[%d]: %s: drop skb=%px data_len=%u len=%u\n",
-			       smp_processor_id(), __func__,
-			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
-			continue;
-		}
-
-		BUG_ON(!tls_type);
-		BUG_ON(!skb->len);
-
-		if (skb->len > *len) {
-			split = ss_skb_split(skb, *len);
-			if (!split) {
-				ss_skb_queue_head(&stream->xmit.skb_head, skb);
-				r = -ENOMEM;
-				break;
-			}
-
-			ss_skb_queue_head(&stream->xmit.skb_head, split);
-		}
-		*len -= skb->len;
-		ss_skb_entail(sk, skb, mark, tls_type);
-	}
-
-	/*
-	 * We use tls_type and mark from skb_head when we entail data in
-	 * socket write queue. So we should set tls_type and mark for the
-	 * new skb_head.
-	 */
-	if (stream->xmit.skb_head) {
-		skb_set_tfw_tls_type(stream->xmit.skb_head, tls_type);
-		stream->xmit.skb_head->mark = mark;
-	}
-
-	return r;
-}
-
-static inline int
 tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 			   unsigned long *snd_wnd, unsigned long *len)
 {
+
 	TfwMsgIter it = {
 		.skb_head = stream->xmit.skb_head,
 		.skb = stream->xmit.skb_head,
@@ -2416,9 +2369,10 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	unsigned char buf[FRAME_HEADER_SIZE];
 	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
 	TfwFrameHdr frame_hdr = {};
-	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
+	//unsigned char tls_type = 0; //= skb_tfw_tls_type(stream->xmit.skb_head);
 	unsigned int mark = stream->xmit.skb_head->mark;
 	unsigned int length;
+	unsigned long used_snd_wnd;
 	char *data;
 	int r;
 
@@ -2439,14 +2393,19 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 		stream->xmit.skb_head = it.skb_head;
 	}
 
+#if 0 
 	/*
 	 * Set tls_type and mark, because skb_head could be changed
 	 * during previous operations.
 	 */
 	skb_set_tfw_tls_type(stream->xmit.skb_head, tls_type);
+#endif
 	stream->xmit.skb_head->mark = mark;
+	used_snd_wnd =  *snd_wnd > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD ?
+		TLS_MAX_PAYLOAD_SIZE : *snd_wnd - TLS_MAX_OVERHEAD;
 
-	length = tfw_h2_calc_frame_length(ctx, stream, type, *len, *snd_wnd);
+	length = tfw_h2_calc_frame_length(ctx, stream, type, *len,
+					  used_snd_wnd);
 	*len -= length;
 	if (type == HTTP2_DATA) {
 		ctx->rem_wnd -= length;
@@ -2472,7 +2431,7 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	}
 
 	*snd_wnd -= length;
-	stream->xmit.frame_length = length + FRAME_HEADER_SIZE;
+	stream->xmit.send_data_length += length + FRAME_HEADER_SIZE;
 	return 0;
 }
 
@@ -2480,14 +2439,16 @@ static int
 tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 {
 	TfwHttpResp *resp = stream->xmit.resp;
-	unsigned char tls_type;
+	//unsigned char tls_type;
 	unsigned int mark;
 	int r = 0;
 
 	BUG_ON(!resp || resp->msg.skb_head || !resp->req
 	       || !resp->req->conn || !stream->xmit.skb_head);
 
+#if  0
 	tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
+#endif
 	mark = stream->xmit.skb_head->mark;
 	swap(resp->msg.skb_head, stream->xmit.skb_head);
 
@@ -2504,7 +2465,9 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 
 finish:
 	swap(stream->xmit.skb_head, resp->msg.skb_head);
+#if 0
 	skb_set_tfw_tls_type(stream->xmit.skb_head, tls_type);
+#endif	
 	stream->xmit.skb_head->mark = mark;
 
 	return r;
@@ -2517,21 +2480,41 @@ tfw_h2_stream_xmit_process(TfwH2Ctx *ctx, TfwStream *stream,
 	int r = 0;
 	TfwFrameType frame_type;
 	unsigned long tmp_snd_wnd = ULONG_MAX;
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	struct sock *sk = ((TfwConn *)conn)->sk;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
-
-#define ADJUST_AVAILABLE_WND(wnd, type)					\
-do {									\
-	if (wnd <= FRAME_HEADER_SIZE)					\
-		T_FSM_EXIT();						\
-	wnd -= FRAME_HEADER_SIZE;					\
-	frame_type = type;						\
-} while(0)
-
 
 #define XMIT_FSM_JMP(stream, st)					\
 do {									\
 	stream->xmit.state = st;					\
 	T_FSM_JMP(st);							\
+} while(0)
+
+#define XMIT_FSM_NEXT(stream)						\
+do {									\
+	if (stream->xmit.h_len)						\
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_CONTINUATION_FRAMES);	\
+	else if (stream->xmit.b_len)					\
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_DATA_FRAMES);		\
+	else if (stream->xmit.send_data_length				\
+		 || stream->xmit.rst_stream)				\
+		XMIT_FSM_JMP(stream, HTTP2_ENCRYPT_AND_SEND_FRAMES);	\
+	else								\
+		XMIT_FSM_JMP(stream, HTTP2_MAKE_FRAMES_FINISH);		\
+} while(0)
+
+#define ADJUST_SND_WND_AND_DATA_TO_SEND(stream, snd_wnd, type)		\
+do {									\
+	if (snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {		\
+		if (stream->xmit.send_data_length)			\
+			XMIT_FSM_JMP(stream, HTTP2_ENCRYPT_AND_SEND_FRAMES); \
+		else							\
+			T_FSM_EXIT();					\
+	} else if (stream->xmit.send_data_length == TLS_MAX_PAYLOAD_SIZE) { \
+		XMIT_FSM_JMP(stream, HTTP2_ENCRYPT_AND_SEND_FRAMES);	\
+	}								\
+	snd_wnd -= FRAME_HEADER_SIZE - TLS_MAX_OVERHEAD;		\
+	frame_type = type;						\
 } while(0)
 
 /*
@@ -2542,12 +2525,13 @@ do {									\
  * and recalculate window when we start making DATA frames or when we finish
  * making frames for current stream.
  */
-#define ADJUST_TMP_AVAILABLE_WND(stream, tmp_wnd)			\
+#define ADJUST_TMP_SND_WND(stream, tmp_snd_wnd)				\
 do {									\
 	if (!stream->xmit.h_len) {					\
-		unsigned long delta = ULONG_MAX - tmp_wnd;		\
+		unsigned long delta = ULONG_MAX - tmp_snd_wnd;		\
 		*snd_wnd = (*snd_wnd > delta ?				\
 			*snd_wnd - delta : 0);				\
+		tmp_snd_wnd = ULONG_MAX;				\
 	}								\
 } while(0)
 
@@ -2573,7 +2557,8 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		ADJUST_AVAILABLE_WND(tmp_snd_wnd, HTTP2_HEADERS);
+		ADJUST_SND_WND_AND_DATA_TO_SEND(stream, tmp_snd_wnd,
+						HTTP2_HEADERS);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream);
@@ -2592,12 +2577,13 @@ do {									\
 			return r;
 		}
 
-		ADJUST_TMP_AVAILABLE_WND(stream, tmp_snd_wnd);
-		XMIT_FSM_JMP(stream, HTTP2_SEND_FRAMES);
+		ADJUST_TMP_SND_WND(stream, tmp_snd_wnd);
+		XMIT_FSM_NEXT(stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		ADJUST_AVAILABLE_WND(tmp_snd_wnd, HTTP2_CONTINUATION);
+		ADJUST_SND_WND_AND_DATA_TO_SEND(stream, tmp_snd_wnd,
+						HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
 					       &tmp_snd_wnd,
 					       &stream->xmit.h_len);
@@ -2606,8 +2592,8 @@ do {									\
 			return r;
 		}
 
-		ADJUST_TMP_AVAILABLE_WND(stream, tmp_snd_wnd);
-		XMIT_FSM_JMP(stream, HTTP2_SEND_FRAMES);
+		ADJUST_TMP_SND_WND(stream, tmp_snd_wnd);
+		XMIT_FSM_NEXT(stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
@@ -2619,7 +2605,7 @@ do {									\
 			T_FSM_EXIT();
 		}
 
-		ADJUST_AVAILABLE_WND(*snd_wnd, HTTP2_DATA);
+		ADJUST_SND_WND_AND_DATA_TO_SEND(stream, *snd_wnd, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
 					       snd_wnd, &stream->xmit.b_len);
 		if (unlikely (r)) {
@@ -2627,37 +2613,33 @@ do {									\
 			return r;
 		}
 
-		XMIT_FSM_JMP(stream, HTTP2_SEND_FRAMES);
+		XMIT_FSM_NEXT(stream);
 	}
 
-	T_FSM_STATE(HTTP2_SEND_FRAMES) {
-		if (stream->xmit.frame_length) {
-			unsigned int *len = &stream->xmit.frame_length;
-			r =  tfw_h2_entail_stream_skb(ctx, stream, len);
+	T_FSM_STATE(HTTP2_ENCRYPT_AND_SEND_FRAMES) {
+		if (stream->xmit.send_data_length) {
+			r = tfw_tls_encrypt(sk, &stream->xmit.skb_head,
+					    stream->xmit.send_data_length,
+					    TFW_SKB_CB(stream->xmit.skb_head)->tls_type,
+					    stream->xmit.skb_head->mark);
 			if (unlikely(r)) {
 				T_WARN("Failed to send frame %d", r);
 				return r;
 			}
 		} else if (stream->xmit.rst_stream) {
+#if 0
 			TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 			struct sock *sk = ((TfwConn *)conn)->sk;
-			unsigned char tls_type =
-				skb_tfw_tls_type(stream->xmit.rst_stream);
+			unsigned char tls_type = 0;
+				//skb_tfw_tls_type(stream->xmit.rst_stream);
 
 			ss_skb_head_entail(sk, &stream->xmit.rst_stream,
 					   stream->xmit.rst_stream->mark,
 					   tls_type);
+#endif		
 		}
 
-		if (stream->xmit.h_len) {
-			XMIT_FSM_JMP(stream, HTTP2_MAKE_CONTINUATION_FRAMES);
-		} else if (stream->xmit.b_len) {
-			XMIT_FSM_JMP(stream, HTTP2_MAKE_DATA_FRAMES);
-		} else if (stream->xmit.rst_stream) {
-			XMIT_FSM_JMP(stream, HTTP2_SEND_FRAMES);
-		} else {
-			XMIT_FSM_JMP(stream, HTTP2_MAKE_FRAMES_FINISH);
-		}
+		XMIT_FSM_NEXT(stream);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
@@ -2674,9 +2656,10 @@ do {									\
 
 	return r;
 
-#undef ADJUST_TMP_AVAILABLE_WND
+#undef ADJUST_TMP_SND_WND
+#undef ADJUST_SND_WND_AND_DATA_TO_SEND
+#undef XMIT_FSM_NEXT
 #undef XMIT_FSM_JMP
-#undef ADJUST_AVAILABLE_WND
 }
 
 int
@@ -2690,7 +2673,8 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long snd_wnd,
 	int r = 0;
 
 	while (tfw_h2_stream_sched_is_active(&sched->root)
-	       && snd_wnd > FRAME_HEADER_SIZE && ctx->rem_wnd > 0 && !r)
+	       && snd_wnd > FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD
+	       && ctx->rem_wnd > 0 && !r)
 	{
 		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
 		/*
@@ -2717,17 +2701,19 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 * shutdown.
 		 */
 		if (ctx->goaway) {
-			ss_skb_head_entail(sk, &ctx->goaway,
-					   ctx->goaway->mark,
-					   skb_tfw_tls_type(ctx->goaway));
+			//ss_skb_head_entail(sk, &ctx->goaway,
+			//		   ctx->goaway->mark,
+			//		   0);
+					   //skb_tfw_tls_type(ctx->goaway));
 		}
 		if (ctx->tls_alert) {
-			ss_skb_head_entail(sk, &ctx->tls_alert,
-					   ctx->tls_alert->mark,
-					   skb_tfw_tls_type(ctx->tls_alert));
+			//ss_skb_head_entail(sk, &ctx->tls_alert,
+			//		   ctx->tls_alert->mark,
+			//		   0);
+					   //skb_tfw_tls_type(ctx->tls_alert));
 		}
-		if (SS_CONN_TYPE(((TfwConn *)conn)->sk) & Conn_Shutdown)
-			tcp_shutdown(((TfwConn *)conn)->sk, SEND_SHUTDOWN);
+		if (SS_CONN_TYPE(sk) & Conn_Shutdown)
+			tcp_shutdown(sk, SEND_SHUTDOWN);
 	}
 
 	return (tfw_h2_stream_sched_is_active(&sched->root) ||

@@ -177,10 +177,7 @@ void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
 void ss_get_stat(SsStat *stat);
-void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		   unsigned char tls_type);
-void ss_skb_head_entail(struct sock *sk, struct sk_buff **skb_head,
-			unsigned int mark, unsigned char tls_type);
+void ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark);
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
