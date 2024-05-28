@@ -873,8 +873,7 @@ tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
  * buffer provided by @data_str.
  *
  * @pool     - pool descriptor
- * @data_str - plain TfwStr which points to target data buffer,
- *	       e.g. returned from ss_skb_get_room() call
+ * @data_str - plain TfwStr which points to target data buffer.
  * @src	     - source string
  */
 TfwStr *

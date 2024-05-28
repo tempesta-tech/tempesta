@@ -182,12 +182,12 @@ typedef struct {
  * Http headers table.
  *
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
- * repetition attacks. See __hdr_is_singular() and don't forget to update the
- * static headers array when add a new singular header here. If the new header
- * is hop-by-hop (must not be forwarded and cached by Tempesta) it must be
- * listed in tfw_http_init_parser_req()/tfw_http_init_parser_resp()
- * for unconditionally hop-by-hop header or in __parse_connection() otherwise.
- * If the header is end-to-end it must be listed in __hbh_parser_add_data().
+ * repetition attacks. Don't forget to update the static headers array when add
+ * a new singular header here. If the new header is hop-by-hop (must not be
+ * forwarded and cached by Tempesta) it must be listed in
+ * tfw_http_init_parser_req()/tfw_http_init_parser_resp() for unconditionally
+ * hop-by-hop header or in __parse_connection() otherwise. If the header is
+ * end-to-end it must be listed in __hbh_parser_add_data().
  *
  * Note: don't forget to update __http_msg_hdr_val() and
  * tfw_http_msg_(resp|req)_spec_hid() upon adding a new header.
