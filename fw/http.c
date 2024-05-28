@@ -2553,9 +2553,8 @@ tfw_http_req_destruct(void *msg)
 	if (req->peer)
 		tfw_client_put(req->peer);
 
-	if (req->cleanup) {
+	if (req->cleanup)
 		__tfw_http_msg_cleanup(req->cleanup);
-	}
 }
 
 /**
@@ -3497,7 +3496,8 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
 	if (unlikely(!req->cleanup))
 		return -ENOMEM;
-	memset(req->cleanup, 0, sizeof(TfwHttpMsgCleanup));
+	req->cleanup->pages_sz = 0;
+	req->cleanup->skb_head = NULL;
 
 	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
 	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);

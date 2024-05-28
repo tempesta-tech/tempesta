@@ -2628,8 +2628,8 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpReq *req,
 			  unsigned int stream_id)
 {
 	int r;
-	const bool h2 = TFW_MSG_H2(req), tls = TFW_CONN_TLS(req->conn);
-	const bool sh_frag = h2 ? false : (true & tls);
+	const bool h2 = TFW_MSG_H2(req);
+	const bool sh_frag = !h2 && TFW_CONN_TLS(req->conn);
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;

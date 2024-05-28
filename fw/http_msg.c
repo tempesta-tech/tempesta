@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -914,7 +914,7 @@ cleanup:
  * header for going through the HTTP/2 transformation (i.e. search in the
  * HPACK encoder dynamic index).
  */
-int
+static int
 tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			  bool append)
 {
@@ -1319,7 +1319,7 @@ this_chunk:
 	return 0;
 }
 
-static char *
+static void *
 tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
 {
 	int r;

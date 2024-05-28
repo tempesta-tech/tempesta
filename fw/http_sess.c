@@ -382,10 +382,8 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache, unsigned int stream_id)
 		r = tfw_http_msg_expand_from_pool(hm, &crlf);
 	}
 
-	if (unlikely(r))
-		goto err;
-
-	return 0;
+	if (likely(!r))
+		return 0;
 
 err:
 	T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
