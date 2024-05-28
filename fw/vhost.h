@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,7 +84,7 @@ typedef struct {
 /**
  * Headers modification description.
  *
- * @hdr		- Header string, see @tfw_http_msg_hdr_xfrm_str();
+ * @hdr		- Header string, see @tfw_http_msg_make_hdr();
  * @hid		- Header index in the header table;
  * @append	- if set the value is added to the end of the response
  *		  otherwise the original header is overwritten with given one.

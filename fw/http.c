@@ -173,6 +173,7 @@ unsigned int max_header_list_size = 0;
 
 #define S_XFF			"x-forwarded-for"
 #define S_WARN			"warning"
+#define S_CL_NAME		"content-length"
 
 #define S_F_HOST		"host: "
 #define S_F_DATE		"date: "
@@ -3249,28 +3250,6 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
-static int
-tfw_http_add_hdr_clen(TfwHttpMsg *hm)
-{
-	int r;
-	char *buf = *this_cpu_ptr(&g_buf);
-	size_t cl_valsize = tfw_ultoa(hm->body.len, buf,
-				      TFW_ULTOA_BUF_SIZ);
-
-	r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
-				  SLEN("Content-Length"), buf, cl_valsize,
-				  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
-
-	if (unlikely(r))
-		T_ERR("%s: unable to add 'content-length' header (msg=[%p])\n",
-		      __func__, hm);
-	else
-		T_DBG3("%s: added 'content-length' header, msg=[%p]\n",
-		       __func__, hm);
-
-	return r;
-}
-
 /**
  * Compose Content-Type header field from scratch.
  *
@@ -3390,7 +3369,6 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 			.nchunks = 2 /* header name + delimeter. */
 		};
 
-		/* FIXME: this is a temporary WA for GCC12, see #1695 for details */
 		if (TFW_STR_CHUNK(desc->hdr, 1) == NULL)
 			continue;
 
@@ -6593,10 +6571,49 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 }
 
 /*
+ * Allocate memory from pool and construct content-length header, place this
+ * header to headers table. The header will be copied to response in the
+ * tfw_http_adjust_resp().
+ */
+static int
+tfw_http_resp_term_add_hdr_clen(TfwHttpMsg *hm)
+{
+	char *val;
+	unsigned short nchunks = 3;
+	TfwStr *hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH];
+	size_t v_len, size = sizeof(TfwStr) * nchunks + TFW_ULTOA_BUF_SIZ;
+
+	hdr->chunks = tfw_pool_alloc(hm->pool, size);
+	if (unlikely(!hdr->chunks)) {
+		T_ERR("%s: unable to add 'content-length' header (msg=[%p])\n",
+		      __func__, hm);
+		return -ENOMEM;
+	}
+	val = (char *)(hdr->chunks + nchunks);
+	v_len = tfw_ultoa(hm->body.len, val, TFW_ULTOA_BUF_SIZ);
+
+	hdr->chunks[0].data = S_CL_NAME;
+	hdr->chunks[0].len = SLEN(S_CL_NAME);
+	hdr->chunks[1].data = S_DLM;
+	hdr->chunks[1].len = SLEN(S_DLM);
+	hdr->chunks[2].data = val;
+	hdr->chunks[2].len = v_len;
+
+	hdr->len = SLEN(S_CL_NAME) + SLEN(S_DLM) + v_len;
+	hdr->hpack_idx = 28;
+	hdr->nchunks = nchunks;
+
+	T_DBG3("%s: added 'content-length' header, msg=[%p]\n", __func__, hm);
+
+	return 0;
+}
+
+/*
  * Finish a response that is terminated by closing the connection.
  *
  * Http/1 response is terminated by connection close and lacks of framing
- * information. H2 connections have their own framing happening just before
+ * information(response doesn't have contnent-length header or transfer-encoding
+ * chunked). H2 connections have their own framing happening just before
  * forwarding message to network, but h1 connections still require explicit
  * framing.
  */
@@ -6616,7 +6633,8 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	if (test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
 		set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
 
-	r = tfw_http_add_hdr_clen(hm);
+	/* Add explicit framing information. */
+	r = tfw_http_resp_term_add_hdr_clen(hm);
 	if (r) {
 		TfwHttpReq *req = hm->req;
 
