@@ -419,8 +419,10 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	if (id > 0 && id < _HTTP2_SETTINGS_MAX) {
-		ctx->new_settings[id] = val;
-		ctx->new_settings[0] |= ctx_new_settings_flags[id];
+		ctx->new_settings[id - 1] = val;
+		__set_bit(id, ctx->settings_to_apply);
+		__set_bit(HTTP2_SETTINGS_NEED_TO_APPLY,
+			  ctx->settings_to_apply);
 	}
 }
 
@@ -433,12 +435,12 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
 	for (id = HTTP2_SETTINGS_TABLE_SIZE; id < _HTTP2_SETTINGS_MAX; id++) {
-		if (ctx->new_settings[0] & ctx_new_settings_flags[id]) {
-			unsigned int val = ctx->new_settings[id];
+		if (test_bit(id, ctx->settings_to_apply)) {
+			unsigned int val = ctx->new_settings[id - 1];
 			tfw_h2_apply_settings_entry(ctx, id, val);
 		}
 	}
-	ctx->new_settings[0] = 0;
+	clear_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply);
 }
 
 static int
@@ -446,11 +448,7 @@ tfw_h2_do_send_ack(void *conn, struct sk_buff **skb_head, int flags)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 
-	/*
-	 * First new_settings entry is used to save settings
-	 * which were acked.
-	 */
-	if (ctx->new_settings[0])
+	if (test_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply))
 		tfw_h2_apply_new_settings(ctx);
 	return 0;
 }
@@ -673,12 +671,14 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 
 	field[0].key   = htons(HTTP2_SETTINGS_TABLE_SIZE);
 	field[0].value = htonl(HPACK_ENC_TABLE_MAX_SIZE);
-	ctx->sent_settings[HTTP2_SETTINGS_TABLE_SIZE] = true;
+	__set_bit(_HTTP2_SETTINGS_MAX - 1 + HTTP2_SETTINGS_TABLE_SIZE,
+		  ctx->settings_to_apply);
 
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
-	ctx->sent_settings[HTTP2_SETTINGS_INIT_WND_SIZE] = true;
+	__set_bit(_HTTP2_SETTINGS_MAX -1 + HTTP2_SETTINGS_INIT_WND_SIZE,
+		  ctx->settings_to_apply);
 
 	field[2].key   = htons(HTTP2_SETTINGS_MAX_STREAMS);
 	field[2].value = htonl(ctx->lsettings.max_streams);
@@ -688,7 +688,9 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 			htons(HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
 		field[required_fields].value =
 			htonl(ctx->lsettings.max_lhdr_sz);
-		ctx->sent_settings[HTTP2_SETTINGS_MAX_HDR_LIST_SIZE] = true;
+		__set_bit(_HTTP2_SETTINGS_MAX - 1 +
+			  HTTP2_SETTINGS_MAX_HDR_LIST_SIZE,
+			  ctx->settings_to_apply);
 		data.chunks[1].len += sizeof(field[0]);
 		hdr.length += sizeof(field[0]);
 	}
@@ -1213,10 +1215,13 @@ tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
 	T_DBG3("%s: parsed, stream_id=%u, flags=%hhu\n", __func__,
 	       ctx->hdr.stream_id, ctx->hdr.flags);
 
-	if (ctx->sent_settings[HTTP2_SETTINGS_TABLE_SIZE]) {
+	if (test_bit(_HTTP2_SETTINGS_MAX - 1 + HTTP2_SETTINGS_TABLE_SIZE,
+		     ctx->settings_to_apply))
+	{
 		ctx->hpack.max_window = ctx->lsettings.hdr_tbl_sz;
 		ctx->hpack.dec_tbl.wnd_update = true;
-		ctx->sent_settings[HTTP2_SETTINGS_TABLE_SIZE] = false;
+		clear_bit(_HTTP2_SETTINGS_MAX -1 + HTTP2_SETTINGS_TABLE_SIZE,
+			  ctx->settings_to_apply);
 	}
 }
 

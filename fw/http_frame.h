@@ -53,6 +53,7 @@ typedef enum {
  * section 6.5.2).
  */
 typedef enum {
+	HTTP2_SETTINGS_NEED_TO_APPLY	= 0x00,
 	HTTP2_SETTINGS_TABLE_SIZE	= 0x01,
 	HTTP2_SETTINGS_ENABLE_PUSH,
 	HTTP2_SETTINGS_MAX_STREAMS,
@@ -175,10 +176,14 @@ typedef struct {
  * @cur_recv_headers	- stream for which we have already started receiving
  *			  headers, but have not yet received the END_HEADERS
  *			  flag;
- * @sent_settings	- the settings were sent, when ack will be received
- * 			  we should apply these local settings.
  * @new_settings	- new settings to apply when ack is pushed to socket
  * 			  write queue;
+ * @settings_to_apply	- bitmap to save what settings we should apply. first
+ *			  bit is used to fast check that we should apply new
+ *			  settings. 1 - _HTTP2_SETTINGS_MAX - 1 bits are used
+ *			  to save what @new_settings should be applyed. bits
+ *			  from _HTTP2_SETTINGS_MAX are used to save what
+ *			  settings we sent to the client;
  * @goaway		- pointer to store goaway skb list to send after all
  *			  pending data;
  * @tls_alert		- pointer to store tls_alert skb list to send after all
@@ -224,8 +229,8 @@ typedef struct tfw_h2_ctx_t {
 	TfwHPack	hpack;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
-	bool		sent_settings[_HTTP2_SETTINGS_MAX];
-	unsigned int	new_settings[_HTTP2_SETTINGS_MAX];
+	unsigned int	new_settings[_HTTP2_SETTINGS_MAX - 1];
+	DECLARE_BITMAP	(settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
 	struct sk_buff	*goaway;
 	struct sk_buff  *tls_alert;
 	char		__off[0];
