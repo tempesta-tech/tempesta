@@ -990,7 +990,7 @@ cleanup:
  * header for going through the HTTP/2 transformation (i.e. search in the
  * HPACK encoder dynamic index).
  */
-int
+static int
 tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			  bool append)
 {
@@ -1415,7 +1415,7 @@ this_chunk:
 	return 0;
 }
 
-static char *
+static void *
 tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
 {
 	int r;
