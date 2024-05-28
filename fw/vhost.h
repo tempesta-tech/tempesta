@@ -84,7 +84,7 @@ typedef struct {
 /**
  * Headers modification description.
  *
- * @hdr		- Header string, see @tfw_http_msg_hdr_xfrm_str();
+ * @hdr		- Header string, see @tfw_http_msg_make_hdr();
  * @hid		- Header index in the header table;
  * @append	- if set the value is added to the end of the response
  *		  otherwise the original header is overwritten with given one.
