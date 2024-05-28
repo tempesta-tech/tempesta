@@ -5001,11 +5001,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 	__FSM_START(parser->state);
 
-	/* - Skipping and stripping leading CRLFs - */
+	/* - Skipping leading CRLFs - */
 
 	/* The parser accepts 1 optional CRLF or LF before the request line.
-	 * The parser stores the fact of presense of it for subsequent
-	 * stripping. The parser drops the request if it contains additional
+	 * The parser drops the request if it contains additional
 	 * CRLFs before the request line.
 	 */
 	__FSM_STATE(Req_0, hot) {
