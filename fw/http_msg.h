@@ -141,8 +141,6 @@ int __must_check __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str,
 				    ss_skb_peek_tail(&hm->msg.skb_head))
 
 unsigned int tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
-int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
-			  char *val, size_t v_len, unsigned int hid, bool append);
 
 int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
 int tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp);
