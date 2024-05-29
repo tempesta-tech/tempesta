@@ -57,14 +57,13 @@ enum {
  * @opaque_data - pointer to some private data (typically http response);
  * @destructor	- destructor of the opaque data, should be set if data is
  *                not NULL
- * @do_send	- callback to special handling this skb before sending;
+ * @on_send	- callback to special handling this skb before sending;
  * @stream_id	- id of sender stream;
  */
 struct tfw_skb_cb {
 	void 			*opaque_data;
 	void 			(*destructor)(void *opaque_data);
-	int 			(*do_send)(void *conn, struct sk_buff **skb_head,
-					   int flags);
+	int 			(*on_send)(void *conn, struct sk_buff **skb_head);
 	unsigned int 		stream_id;
 };
 
@@ -86,14 +85,14 @@ ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
 }
 
 static inline int
-ss_skb_do_send(void *conn, struct sk_buff **skb_head, int flags)
+ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 {
-	int (*do_send)(void *conn, struct sk_buff **skb_head, int flags) =
-		TFW_SKB_CB(*skb_head)->do_send;
+	int (*on_send)(void *conn, struct sk_buff **skb_head) =
+		TFW_SKB_CB(*skb_head)->on_send;
 	int r = 0;
 
-	if (do_send)
-		r = do_send(conn, skb_head, flags);
+	if (on_send)
+		r = on_send(conn, skb_head);
 
 	return r;
 }
@@ -137,6 +136,25 @@ ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
 	(*skb_head)->prev = skb->prev;
 	skb->prev = tail;
 	tail->next = skb;
+}
+
+static inline void
+ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
+{
+	struct sk_buff *tail;
+
+	if (WARN_ON_ONCE(!*skb_head)) {
+		swap(*skb_head, *skb);
+		return;
+	}
+
+	tail = (*skb_head)->prev;
+	(*skb_head)->prev = (*skb)->prev;
+	(*skb)->prev->next = (*skb_head);
+	tail->next = *skb;
+	(*skb)->prev = tail;
+
+	*skb = NULL;
 }
 
 static inline void

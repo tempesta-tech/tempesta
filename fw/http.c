@@ -1132,11 +1132,14 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
  * a value.
  */
 static void
-tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
+tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status, bool close_after_send)
 {
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
 	if (unlikely(!resp))
 		goto err;
+
+	if (close_after_send)
+		set_bit(TFW_HTTP_B_CLOSE_ERROR_RESPONSE, resp->flags);
 
 	if (tfw_h2_prep_resp(resp, status, msg))
 		goto err_setup;
@@ -1221,12 +1224,12 @@ tfw_http_prep_err_resp(TfwHttpReq *req, int status, TfwStr *msg)
  * pairing for pipelined requests is violated.
  */
 static void
-tfw_h2_send_err_resp(TfwHttpReq *req, int status)
+tfw_h2_send_err_resp(TfwHttpReq *req, int status, bool close_after_send)
 {
 	TfwStr msg = MAX_PREDEF_RESP;
 
 	tfw_http_prep_err_resp(req, status, &msg);
-	tfw_h2_send_resp(req, &msg, status);
+	tfw_h2_send_resp(req, &msg, status, close_after_send);
 }
 
 /*
@@ -1487,7 +1490,7 @@ tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 				   TFW_NO_PORT, status);
 
 	if (TFW_MSG_H2(req))
-		tfw_h2_send_err_resp(req, status);
+		tfw_h2_send_err_resp(req, status, false);
 	else
 		tfw_h1_send_err_resp(req, status);
 }
@@ -1496,7 +1499,7 @@ static void
 tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_send_resp(req, msg, status);
+		tfw_h2_send_resp(req, msg, status, false);
 	} else {
 		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 
@@ -4852,12 +4855,10 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 }
 
 int
-tfw_http_do_send_resp(void *conn, struct sk_buff **skb_head, int flags)
+tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
-	unsigned char tls_type = flags & SS_F_ENCRYPT ?
-		SS_SKB_F2TYPE(flags) : 0;
 	TfwStream *stream;
 
 	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
@@ -4871,10 +4872,9 @@ tfw_http_do_send_resp(void *conn, struct sk_buff **skb_head, int flags)
 		return -EPIPE;
 
 	BUG_ON(stream->xmit.skb_head);
-
-	if (tls_type)
-		skb_set_tfw_tls_type(*skb_head, tls_type);
 	stream->xmit.resp = (TfwHttpResp *)tfw_cb->opaque_data;
+	if (test_bit(TFW_HTTP_B_CLOSE_ERROR_RESPONSE, stream->xmit.resp->flags))
+		ctx->error = stream;
 	swap(stream->xmit.skb_head, *skb_head);
 	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 	if (!stream->xmit.is_blocked)
@@ -4992,6 +4992,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 {
 	TfwStream *stream;
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
+		type == TFW_ERROR_TYPE_BAD);
 
 	/*
 	 * block_action attack/error drop - Tempesta FW must block message
@@ -5031,9 +5033,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
 	 * error response.
 	 */
-	tfw_h2_send_err_resp(req, status);
-	if (type == TFW_ERROR_TYPE_ATTACK
-	    || type == TFW_ERROR_TYPE_BAD) {
+	tfw_h2_send_err_resp(req, status, close_after_send);
+	if (close_after_send) {
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
 	} else {
@@ -5046,8 +5047,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	goto out;
 
 skip_stream:
-	if (type == TFW_ERROR_TYPE_ATTACK
-	    || type == TFW_ERROR_TYPE_BAD) {
+	if (close_after_send) {
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
 	}

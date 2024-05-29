@@ -220,7 +220,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 		return 0;
 
 	snd_wnd = tfw_sk_calc_snd_wnd(sk, mss_now);
-	r = tfw_h2_make_frames(h2, snd_wnd, &data_is_available);
+	r = tfw_h2_make_frames(sk, h2, snd_wnd, &data_is_available);
 	if (unlikely(r < 0))
 		return r;
 
