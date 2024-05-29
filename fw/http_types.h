@@ -124,6 +124,11 @@ enum {
         TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
         /* Request URI is absolute (HTTP/1.x only) */
         TFW_HTTP_B_ABSOLUTE_URI,
+        /*
+         * This is the error response, connection
+         * will be closed after sending it.
+         */
+        TFW_HTTP_B_CLOSE_ERROR_RESPONSE,
 
         _TFW_HTTP_FLAGS_NUM
 };

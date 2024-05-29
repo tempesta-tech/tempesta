@@ -53,6 +53,11 @@ enum {
 	HTTP2_STREAM_RECV_END_OF_STREAM = 0x2 << HTTP2_STREAM_FLAGS_OFFSET,
 };
 
+/*
+ * We use 3 bits for this state in TfwHttpXmit structure.
+ * If you add some new state here, do not forget to increase
+ * count of bits used for this state.
+ */
 typedef enum {
 	HTTP2_ENCODE_HEADERS,
 	HTTP2_RELEASE_RESPONSE,
@@ -113,26 +118,23 @@ typedef enum {
  *
  * @resp		- responce, that should be sent;
  * @skb_head		- head of skb list that must be sent;
- * @rst_stream		- pointer to store rst stream skb list
- *			  to send after all pending data;
  * @h_len		- length of headers in http2 response;
- * @b_len		- length of body in http2 response;
- * @state		- current stream xmit state (what type of
- * 			  frame should be made for this stream);
  * @frame_length	- length of current sending frame, or 0
  *			  if we send some service frames (for
  *			  example RST STREAM after all pending data);
+ * @b_len		- length of body in http2 response;
  * @is_blocked		- stream is blocked;
+ * @state		- current stream xmit state (what type of
+ * 			  frame should be made for this stream);
  */
 typedef struct {
 	TfwHttpResp 		*resp;
 	struct sk_buff		*skb_head;
-	struct sk_buff		*rst_stream;
-	unsigned long		h_len;
-	unsigned long		b_len;
-	TfwStreamXmitState	state;
+	unsigned int		h_len;
 	unsigned int		frame_length;
-	bool			is_blocked;
+	u64			b_len : 60;
+	u64			is_blocked : 1;
+	u64			state : 3;
 } TfwHttpXmit;
 
 /**

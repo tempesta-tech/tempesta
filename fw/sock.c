@@ -371,7 +371,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 }
 
 void
-ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	      unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -393,12 +393,26 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 }
 
 void
-ss_skb_head_entail(struct sock *sk, struct sk_buff **skb_head,
-		   unsigned int mark, unsigned char tls_type)
+ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 {
 	struct sk_buff *skb;
+	unsigned char tls_type = 0;
+	unsigned int mark = 0;
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
+		unsigned char skb_tls_type = skb_tfw_tls_type(skb);
+	
+		/*
+		 * @skb_head can be the head of several different skb
+		 * lists. We set tls type for the head of each new
+		 * skb list and we should entail each skb with mark
+		 * and tls_type of the head of the list to which it
+		 * belongs.
+		 */
+		if (skb_tls_type && skb_tls_type != tls_type) {
+			tls_type = skb_tls_type;
+			mark = skb->mark;
+		}
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
 		 * other contents) are modified or deleted by Tempesta. Drop
@@ -411,7 +425,7 @@ ss_skb_head_entail(struct sock *sk, struct sk_buff **skb_head,
 			kfree_skb(skb);
 			continue;
 		}
-		ss_skb_entail(sk, skb, mark, tls_type);
+		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 }
 
@@ -423,7 +437,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	void *conn = sk->sk_user_data;
-	unsigned int mark = (*skb_head)->mark;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
 
@@ -437,11 +450,18 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (unlikely(!conn || !ss_sock_active(sk)))
 		goto cleanup;
 
-	if (ss_skb_do_send(conn, skb_head, flags))
+	if (tls_type)
+		skb_set_tfw_tls_type(*skb_head, tls_type);
+
+	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
 
-	/* skb_head can be empty after previous call. */
-	ss_skb_head_entail(sk, skb_head, mark, tls_type);
+	/*
+	 * If skbs were pushed to scheuler tree, @skb_head is
+	 * empty and `ss_skb_tcp_entail_list` doesn't make
+	 * any job.
+	 */
+	ss_skb_tcp_entail_list(sk, skb_head);
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,

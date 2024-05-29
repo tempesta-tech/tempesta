@@ -159,14 +159,14 @@ typedef struct {
  * @lsettings		- local settings for HTTP/2 connection;
  * @rsettings		- settings for HTTP/2 connection received from the
  *			  remote endpoint;
+ * @lstream_id		- ID of last stream initiated by client and processed on
+ *			  the server side;
  * @streams_num		- number of the streams initiated by client;
  * @sched		- streams' priority scheduler;
  * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED or
  * 			  HTTP2_STREAM_REM_CLOSED state), which are waiting
  * 			  for removal;
  * @idle_streams	- queue of idle streams (in HTTP2_STREAM_IDLE) state;
- * @lstream_id		- ID of last stream initiated by client and processed on
- *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
  * @rem_wnd		- remote peer current flow controlled window;
  * @hpack		- HPACK context, used in processing of
@@ -176,6 +176,7 @@ typedef struct {
  * @cur_recv_headers	- stream for which we have already started receiving
  *			  headers, but have not yet received the END_HEADERS
  *			  flag;
+ * @error		- the stream where the error occurred;
  * @new_settings	- new settings to apply when ack is pushed to socket
  * 			  write queue;
  * @settings_to_apply	- bitmap to save what settings we should apply. first
@@ -184,10 +185,6 @@ typedef struct {
  *			  to save what @new_settings should be applyed. bits
  *			  from _HTTP2_SETTINGS_MAX are used to save what
  *			  settings we sent to the client;
- * @goaway		- pointer to store goaway skb list to send after all
- *			  pending data;
- * @tls_alert		- pointer to store tls_alert skb list to send after all
- *			  pending data;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -219,20 +216,19 @@ typedef struct tfw_h2_ctx_t {
 	spinlock_t	lock;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
+	unsigned int	lstream_id;
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
 	TfwStreamQueue	closed_streams;
 	TfwStreamQueue	idle_streams;
-	unsigned int	lstream_id;
 	long int	loc_wnd;
 	long int	rem_wnd;
 	TfwHPack	hpack;
 	TfwStream	*cur_send_headers;
 	TfwStream	*cur_recv_headers;
+	TfwStream	*error;
 	unsigned int	new_settings[_HTTP2_SETTINGS_MAX - 1];
 	DECLARE_BITMAP	(settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
-	struct sk_buff	*goaway;
-	struct sk_buff  *tls_alert;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
@@ -264,7 +260,7 @@ void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
-int tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long snd_wnd,
+int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		       bool *data_is_available);
 
 static inline void

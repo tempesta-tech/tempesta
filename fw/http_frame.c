@@ -444,7 +444,7 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 }
 
 static int
-tfw_h2_do_send_ack(void *conn, struct sk_buff **skb_head, int flags)
+tfw_h2_on_send_ack(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 
@@ -454,31 +454,26 @@ tfw_h2_do_send_ack(void *conn, struct sk_buff **skb_head, int flags)
 }
 
 static int
-tfw_h2_do_send_goaway(void *conn, struct sk_buff **skb_head, int flags)
+tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	unsigned char tls_type = flags & SS_F_ENCRYPT ?
-		SS_SKB_F2TYPE(flags) : 0;
 
-	if (tls_type)
-		skb_set_tfw_tls_type(*skb_head, tls_type);
-	swap(ctx->goaway, *skb_head);
-	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
+	if (ctx->error && ctx->error->xmit.skb_head) {
+		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
+		sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
+	}
+
 	return 0;
 }
 
 static int
-tfw_h2_do_send_rst_stream(void *conn, struct sk_buff **skb_head, int flags)
+tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
-	unsigned char tls_type = flags & SS_F_ENCRYPT ?
-		SS_SKB_F2TYPE(flags) : 0;
+	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	TfwStream *stream;
 
-	if (tls_type)
-		skb_set_tfw_tls_type(*skb_head, tls_type);
-	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
+	stream = tfw_h2_find_not_closed_stream(ctx, stream_id, false);
 
 	/*
 	 * Send RST STREAM after all pending data otherwise directly push it
@@ -487,9 +482,10 @@ tfw_h2_do_send_rst_stream(void *conn, struct sk_buff **skb_head, int flags)
 	 * remote peer exceeded max_concurrent_streams limit.
 	 */
 	if (stream && stream->xmit.skb_head) {
-		swap(stream->xmit.rst_stream, *skb_head);
+		ss_skb_queue_splice(&stream->xmit.skb_head, skb_head);
 		sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 	}
+
 	return 0;
 }
 
@@ -543,11 +539,11 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	}
 
 	if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
-		TFW_SKB_CB(msg.skb_head)->do_send = tfw_h2_do_send_ack;
+		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_ack;
 	} else if (hdr->type == HTTP2_GOAWAY) {
-		TFW_SKB_CB(msg.skb_head)->do_send = tfw_h2_do_send_goaway;
+		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_goaway;
 	} else if (hdr->type == HTTP2_RST_STREAM) {
-		TFW_SKB_CB(msg.skb_head)->do_send = tfw_h2_do_send_rst_stream;
+		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_rst_stream;
 		TFW_SKB_CB(msg.skb_head)->stream_id = hdr->stream_id;
 	}
 
@@ -2375,7 +2371,7 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned int *len)
 			ss_skb_queue_head(&stream->xmit.skb_head, split);
 		}
 		*len -= skb->len;
-		ss_skb_entail(sk, skb, mark, tls_type);
+		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 
 	/*
@@ -2393,7 +2389,7 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream, unsigned int *len)
 
 static inline int
 tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
-			   unsigned long *snd_wnd, unsigned long *len)
+			   unsigned long *snd_wnd, unsigned long len)
 {
 	TfwMsgIter it = {
 		.skb_head = stream->xmit.skb_head,
@@ -2435,11 +2431,13 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	skb_set_tfw_tls_type(stream->xmit.skb_head, tls_type);
 	stream->xmit.skb_head->mark = mark;
 
-	length = tfw_h2_calc_frame_length(ctx, stream, type, *len, *snd_wnd);
-	*len -= length;
+	length = tfw_h2_calc_frame_length(ctx, stream, type, len, *snd_wnd);
 	if (type == HTTP2_DATA) {
 		ctx->rem_wnd -= length;
 		stream->rem_wnd -= length;
+		stream->xmit.b_len -= length;
+	} else {
+		stream->xmit.h_len -= length;
 	}
 
 	frame_hdr.length = length;
@@ -2500,7 +2498,7 @@ finish:
 }
 
 static int
-tfw_h2_stream_xmit_process(TfwH2Ctx *ctx, TfwStream *stream,
+tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   unsigned long *snd_wnd)
 {
 	int r = 0;
@@ -2567,7 +2565,7 @@ do {									\
 
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
 					       &tmp_snd_wnd,
-					       &stream->xmit.h_len);
+					       stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
 			return r;
@@ -2581,7 +2579,7 @@ do {									\
 		ADJUST_SND_WND(tmp_snd_wnd, HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
 					       &tmp_snd_wnd,
-					       &stream->xmit.h_len);
+					       stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
 			return r;
@@ -2602,7 +2600,7 @@ do {									\
 
 		ADJUST_SND_WND(*snd_wnd, HTTP2_DATA);
 		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
-					       snd_wnd, &stream->xmit.b_len);
+					       snd_wnd, stream->xmit.b_len);
 		if (unlikely (r)) {
 			T_WARN("Failed to make data frame %d", r);
 			return r;
@@ -2612,40 +2610,37 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
-		if (stream->xmit.frame_length) {
-			unsigned int *len = &stream->xmit.frame_length;
-			r =  tfw_h2_entail_stream_skb(ctx, stream, len);
-			if (unlikely(r)) {
-				T_WARN("Failed to send frame %d", r);
-				return r;
-			}
-		} else if (stream->xmit.rst_stream) {
-			TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-			struct sock *sk = ((TfwConn *)conn)->sk;
-			unsigned char tls_type =
-				skb_tfw_tls_type(stream->xmit.rst_stream);
-
-			ss_skb_head_entail(sk, &stream->xmit.rst_stream,
-					   stream->xmit.rst_stream->mark,
-					   tls_type);
+		r =  tfw_h2_entail_stream_skb(ctx, stream,
+					      &stream->xmit.frame_length);
+		if (unlikely(r)) {
+			T_WARN("Failed to send frame %d", r);
+			return r;
 		}
 
 		if (stream->xmit.h_len) {
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else if (stream->xmit.b_len) {
 			T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
-		} else if (stream->xmit.rst_stream) {
-			T_FSM_JMP(HTTP2_SEND_FRAMES);
 		} else {
-			T_FSM_JMP(HTTP2_MAKE_FRAMES_FINISH);
+			fallthrough;
 		}
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_FRAMES_FINISH) {
 		BUG_ON(stream->xmit.resp);
-
-		ss_skb_queue_purge(&stream->xmit.skb_head);
+		/*
+		 * skb_head is not empty because RST stream or
+		 * GOAWAY and TLS ALERT are pending until error
+		 * response is sent.
+		 */
+		if (unlikely(stream->xmit.skb_head)) {
+			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
+			if (stream == ctx->error)
+				tcp_shutdown(sk, SEND_SHUTDOWN);
+		}
 		tfw_h2_stream_add_closed(ctx, stream);
+		if (stream == ctx->error)
+			ctx->error = NULL;
 		T_FSM_EXIT();
 	}
 
@@ -2660,7 +2655,7 @@ do {									\
 }
 
 int
-tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long snd_wnd,
+tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
@@ -2670,47 +2665,38 @@ tfw_h2_make_frames(TfwH2Ctx *ctx, unsigned long snd_wnd,
 	int r = 0;
 
 	while (tfw_h2_stream_sched_is_active(&sched->root)
-	       && snd_wnd > FRAME_HEADER_SIZE && ctx->rem_wnd > 0 && !r)
+	       && snd_wnd > FRAME_HEADER_SIZE && ctx->rem_wnd > 0)
 	{
-		stream = tfw_h2_sched_stream_dequeue(sched, &parent);
+		if (ctx->error) {
+			stream = ctx->error;
+			parent = stream->sched.parent;
+			tfw_h2_stream_sched_remove(sched, stream);
+		} else {
+			stream = tfw_h2_sched_stream_dequeue(sched, &parent);
+		}
+
 		/*
 		 * If root scheduler is active we always can find
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_stream_xmit_process(ctx, stream, &snd_wnd);
-
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream, &snd_wnd);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
-		tfw_h2_sched_stream_enqueue(sched, stream, parent,
-					    deficit);
+		tfw_h2_sched_stream_enqueue(sched, stream, parent, deficit);
+
+		/*
+		 * If we send error response we stop to send any data
+		 * from other streams, so we either sent all error response
+		 * or blocked by window size.
+		 */
+		if (ctx->error || r)
+			break;
 	}
 
 	*data_is_available =
 		tfw_h2_stream_sched_is_active(&sched->root) && ctx->rem_wnd;
 
-	if ((!(*data_is_available) && !ctx->sched.blocked_streams)) {
-		TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-		struct sock *sk = ((TfwConn *)conn)->sk;
-
-		/*
-		 * First send goaway, then tls_alert and then TCP
-		 * shutdown.
-		 */
-		if (ctx->goaway) {
-			ss_skb_head_entail(sk, &ctx->goaway,
-					   ctx->goaway->mark,
-					   skb_tfw_tls_type(ctx->goaway));
-		}
-		if (ctx->tls_alert) {
-			ss_skb_head_entail(sk, &ctx->tls_alert,
-					   ctx->tls_alert->mark,
-					   skb_tfw_tls_type(ctx->tls_alert));
-		}
-		if (SS_CONN_TYPE(((TfwConn *)conn)->sk) & Conn_Shutdown)
-			tcp_shutdown(((TfwConn *)conn)->sk, SEND_SHUTDOWN);
-	}
-
-	return (tfw_h2_stream_sched_is_active(&sched->root) ||
+	return r ? r : (tfw_h2_stream_sched_is_active(&sched->root) ||
 		ctx->sched.blocked_streams) ? 1 : 0;
 }
 
