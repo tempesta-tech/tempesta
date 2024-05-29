@@ -1,6 +1,56 @@
 /**
  *		Tempesta FW
  *
+ * HTTP2 stream scheduler which implements stream prioritization
+ * accoring RFC 7540 5.3.
+ *
+ * There are two algorithm of stream prioritization which are described
+ * in RFC 7540 5.3 and RFC 9218. RFC 7540 5.3 is deprecated, but we
+ * implement our scheduler according to RFC 7540, because all modern
+ * browsers use RFC 7540 for HTTP2 stream prioritization and use modern
+ * RFC 9218 only for HTTP3.
+ *
+ * Before developing of our own HTTP streams scheduling logic, we analyzed
+ * how other open source HTTP servers implement this.
+ * Nginx not fully support RFC 7540. A frame is inserted into the sending list
+ * according to the rank (the level in the priority tree) of the stream and
+ * weight. But it does not correspond to the RFC: a server should not send data
+ * for a stream which depends on other streams. Also the algorithm can lead to
+ * O(n) complexity (linear scan) if each next frame has higher priority than
+ * the previous one.
+ * H20 uses an O(1) approach described as an Array of Queue. This is the very
+ * fast scheduler but it has two main disadvantages - it consumes a lot of
+ * memory and is not fair.
+ * We decide to implement WFQ algorithm. There are a lot of data structures
+ * which can be used for this purpose (list, different type of heaps and
+ * different types of trees). We analyzed some of them (e.g. Fibonacci heap,
+ * RB-tree, insertion sorted array etc) and found that the HAproxy’s ebtree
+ * provides the best performance (at least x2 faster than the closest in
+ * performance Fibonacci heap) on small data (about 100 to 1000 streams in a
+ * queue) to pick a minimum item and reinsert it.
+ *
+ * We use deficit as a key in our priority ebtree. Deficit of the stream
+ * calculated as decribed below:
+ * new: deficit = min_deficit_in_heap + constant / weight
+ * exist: deficit = last_deficit + constant / weight
+ * 
+ * When we search for the most priority stream we iterate over the levels of
+ * the priority tree. For exanple:
+ *                     1 (256)
+ *          3 (256)              5 (1)
+ *     7 (256)   9 (1)    11 (256)     13 (1)
+ *
+ * In this example we have streams 3 and 5 which depend on stream 1,
+ * streams 7 and 9 which depend on stream 7, and streams 11 and 13, which
+ * depend on stream 5. We start from stream 1 and if it is active (has data
+ * to send and not blocked by HTTP window exceeding) we return it. If is not
+ * active but has active children we move to the next level of the tree
+ * (streams 3 and 5) and choose the stream (which is active or has active
+ * children) with the lowest deficit. We remove it from the tree and if it
+ * is active return it. Later after sending data for this stream we recalculate
+ * its deficit (deficit = deficit + constant / weight) and insert it back to
+ * the tree.
+ *
  * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
