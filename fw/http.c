@@ -1658,14 +1658,10 @@ tfw_http_hm_control(TfwHttpResp *resp)
 	if (tfw_http_hm_suspend(resp, srv))
 		return;
 
-	if (!tfw_srv_suspended(srv) ||
-	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, resp->msg.skb_head,
-				  srv->apmref))
-	{
-		return;
-	}
-
+	if (tfw_srv_suspended(srv) && tfw_apm_hm_srv_alive(resp, srv)) {
 	tfw_srv_mark_alive(srv);
+	}
+	return;
 }
 
 static inline void

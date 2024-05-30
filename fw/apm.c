@@ -1315,8 +1315,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 }
 
 static inline u32
-__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
-		     TfwStr *body)
+__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk, TfwStr *body)
 {
 	u32 crc = 0;
 
@@ -1327,10 +1326,13 @@ __tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
 }
 
 bool
-tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
-		     void *apmref)
+tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 {
-	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)apmref)->hmctl.hm);
+	int status = resp->status;
+	TfwStr *body = &resp->body;
+
+	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)(srv->apmref))->hmctl.hm);
+
 	u32 crc32 = 0;
 	TfwMsgIter it;
 	TfwStr chunk = {0};
@@ -1348,9 +1350,8 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 		return true;
 	}
 
-	if (unlikely(tfw_body_iter_init(&it, &chunk, body->data, body->skb,
-					skb_head)))
-	{
+	if (unlikely(tfw_body_iter_init(&it, &chunk, body->data, body->skb, 
+					resp->msg.skb_head ))) {
 		T_WARN_NL("Invalid body. Health monitor '%s': status '%d' \n",
 			  hm->name, status);
 		return false;
@@ -1361,9 +1362,9 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 	 * from body of first response and store it into monitor.
 	 */
 	if (!hm->crc32 && hm->auto_crc) {
-		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
+		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk, body);
 	} else if (hm->crc32) {
-		crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
+		crc32 = __tfw_apm_crc32_calc(&it, &chunk, body);
 		if (hm->crc32 != crc32)
 			goto crc_err;
 	}
