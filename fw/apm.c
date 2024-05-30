@@ -627,7 +627,7 @@ typedef struct {
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
 #define TFW_APM_HM_AUTO		"auto"
-#define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
+#define TFW_APM_DFLT_REQ	"\"GET / HTTP/1.0\r\n\r\n\""
 #define TFW_APM_DFLT_URL	"\"/\""
 
 /*
