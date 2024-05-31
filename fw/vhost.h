@@ -26,6 +26,9 @@
 #include "server.h"
 #include "tls.h"
 
+/* Size of special headers bitmap. */
+#define TFW_MOD_SPEC_HDR_NUM 32
+
 /**
  * Non-Idempotent Request definition.
  *
@@ -99,18 +102,23 @@ struct tfw_hdr_mods_desc_t {
  * Headers modification before forwarding HTTP message.
  *
  * @sz		- Total number of headers to modify;
- * @spec_num	- Number of special headers to modify;
+ * @set_num	- Number of headers to modify using req/resp_hdr_set directive;
+ * @scan_off	- Offset in @hdrs to start finding header to modify by name
+ * 		  comparision;
  * @hdrs	- Headers to modify;
- * @spec_hdrs	- Lookup table of special headers;
+ * @spec_hdrs	- Bitmap of special headers;
  * @s_tbl	- Bitmap of headers from static table. Static table index
- * 		  equals to bit number of the bitmap;
+ * 		  equals to bit number of the bitmap. The size of the bitmap is
+ * 		  HPACK_STATIC_ENTRIES plus one entry, because static table
+ * 		  indexed from one, zero bit always set to zero;
  */
 struct tfw_hdr_mods_t {
-	unsigned int	sz;
-	unsigned int	spec_num;
+	unsigned int	sz:16;
+	unsigned int	set_num:8;
+	unsigned int	scan_off:8;
 	TfwHdrModsDesc	*hdrs;
-	TfwHdrModsDesc	**spec_hdrs;
-	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES);
+	DECLARE_BITMAP	(spec_hdrs, TFW_MOD_SPEC_HDR_NUM);
+	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES + 1);
 };
 
 enum {
