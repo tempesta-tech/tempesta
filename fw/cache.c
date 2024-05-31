@@ -333,8 +333,7 @@ tfw_cache_key_node(unsigned long key)
 }
 
 /**
- * Release memory dynamically allocated
- * for every node cpus
+ * Release memory dynamically allocated for every node cpus
  */
 static void
 tfw_release_node_cpus(void)
@@ -359,18 +358,14 @@ tfw_init_node_cpus(void)
 	nr_cpus = num_online_cpus();
 
 	for_each_online_cpu(cpu) {
-
-
 		node = cpu_to_node(cpu);
-
-		pr_err("node.nr_cpus %u",c_nodes[node].nr_cpus);
-
+		T_DBG("node.nr_cpus %u",c_nodes[node].nr_cpus);
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
-		if(!c_nodes[node].cpu) {
-			T_ERR("%s Failed to allocate c_nodes[%i] cpu\n", __func__, node);
+		if (!c_nodes[node].cpu) {
+			//T_ERR("Failed to allocate c_nodes[%i] cpu\n", __func__, node);
+			T_ERR( "Failed to allocate a CPU %i for cache work scheduler", cpu);
 			return -ENOMEM;
 		}
-
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
 	return 0;
