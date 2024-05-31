@@ -3210,8 +3210,10 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 #endif
-	if(tfw_init_node_cpus() == -ENOMEM) 
+	if (tfw_init_node_cpus() == -ENOMEM) {
+		tfw_release_node_cpus();
 		goto close_db;
+	}
 
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
