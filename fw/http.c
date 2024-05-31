@@ -3485,22 +3485,27 @@ tfw_http_should_validate_post_req(TfwHttpReq *req)
 	return false;
 }
 
+/**
+ * Skip header for subsequent substitution.
+ *
+ * Headers substitution splitted into two parts: first tfw_http_hdr_skip()
+ * here we just skip header and don't add it to message.
+ * Second tfw_h1_add_loc_hdrs()/tfw_h2_resp_add_loc_hdrs() where we adding
+ * all headers.
+ */
 static bool
-tfw_http_hdr_sub(unsigned short hid, const TfwStr *hdr,
-		 const TfwHdrMods *h_mods)
+tfw_http_hdr_skip(unsigned short hid, const TfwStr *hdr,
+		  const TfwHdrMods *h_mods)
 {
-	unsigned int idx;
+	int idx;
 	const TfwHdrModsDesc *desc;
 
 	if (!h_mods)
 		return false;
 
 	/* Fast path for special headers */
-	if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW) {
-		desc = h_mods->spec_hdrs[hid];
-		/* Skip only resp_hdr_set headers */
-		return desc ? !desc->append : false;
-	}
+	if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW)
+		return test_bit(hid, h_mods->spec_hdrs);
 
 	if (hdr->hpack_idx > 0) {
 		/* Don't touch pseudo-headers. */
@@ -3510,9 +3515,10 @@ tfw_http_hdr_sub(unsigned short hid, const TfwStr *hdr,
 		return test_bit(hdr->hpack_idx, h_mods->s_tbl);
 	}
 
-	for (idx = h_mods->spec_num; idx < h_mods->sz; ++idx) {
+	/* Skip only resp_hdr_set headers */
+	for (idx = h_mods->scan_off; idx < h_mods->set_num; ++idx) {
 		desc = &h_mods->hdrs[idx];
-		if (!desc->append && !__hdr_name_cmp(hdr, desc->hdr))
+		if (!__hdr_name_cmp(hdr, desc->hdr))
 			return true;
 	}
 
@@ -3689,7 +3695,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			continue;
 		}
 
-		if (tfw_http_hdr_sub(hid, hdr, h_mods))
+		if (tfw_http_hdr_skip(hid, hdr, h_mods))
 			continue;
 
 		TFW_STR_FOR_EACH_DUP(dup, pos, dup_end) {
@@ -3905,7 +3911,7 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 	 * and can be used instead of `Host` header during request modification
 	 * when forwarding to backend.
 	 */
-	if (h_mods->spec_hdrs[TFW_HTTP_HDR_HOST]) {
+	if (h_mods && test_bit(TFW_HTTP_HDR_HOST, h_mods->spec_hdrs)) {
 		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 
 		req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY] = *host;
@@ -4476,7 +4482,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		if (TFW_STR_DUP(hdr))
 			hdr = TFW_STR_CHUNK(hdr, 0);
 
-		if (tfw_http_hdr_sub(hid, hdr, h_mods))
+		if (tfw_http_hdr_skip(hid, hdr, h_mods))
 			continue;
 
 		TFW_STR_FOR_EACH_DUP(dup, pos, dup_end) {
@@ -5108,7 +5114,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		       h_mods ? h_mods->sz : 0);
 
 		/* Don't encode header if it must be substituted from config */
-		if (tfw_http_hdr_sub(hid, tgt, h_mods))
+		if (tfw_http_hdr_skip(hid, tgt, h_mods))
 			continue;
 
 		/*

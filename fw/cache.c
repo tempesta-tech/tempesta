@@ -961,11 +961,8 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods,
 		return false;
 
 	/* Fast path for special headers */
-	if (str->flags & TFW_CSTR_SPEC_IDX) {
-		desc = h_mods->spec_hdrs[str->idx];
-		/* Skip only resp_hdr_set headers */
-		return desc ? !desc->append : false;
-	}
+	if (str->flags & TFW_CSTR_SPEC_IDX)
+		return test_bit(str->idx, h_mods->spec_hdrs);
 
 	if (str->idx) {
 		unsigned short hpack_idx = str->idx;
@@ -976,13 +973,13 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods,
 		return test_bit(hpack_idx, h_mods->s_tbl);
 	}
 
-	for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
+	for (i = h_mods->scan_off; i < h_mods->set_num; ++i) {
 		char* mod_hdr_name;
 		size_t mod_hdr_len;
 
 		desc = &h_mods->hdrs[i];
 		mod_hdr_len = TFW_STR_CHUNK(desc->hdr, 0)->len;
-		if (desc->append || mod_hdr_len != hdr.len)
+		if (mod_hdr_len != hdr.len)
 			continue;
 
 		mod_hdr_name = TFW_STR_CHUNK(desc->hdr, 0)->data;

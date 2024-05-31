@@ -17,8 +17,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/hashtable.h>
-#include <linux/slab.h>
 #include <linux/sort.h>
 
 #undef DEBUG
@@ -762,21 +760,28 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 			? tfw_http_msg_resp_spec_hid(TFW_STR_CHUNK(hdr, 0))
 			: tfw_http_msg_req_spec_hid(TFW_STR_CHUNK(hdr, 0));
 
-	if (desc->hid < TFW_HTTP_HDR_RAW) {
-		if (h_mods->spec_hdrs[desc->hid]) {
-			T_WARN_NL("Duplicated header modification.\n");
-			return -EINVAL;
+	hdr->hpack_idx = tfw_hpack_find_hdr_idx(TFW_STR_CHUNK(hdr, 0));
+
+	/* Add resp/req_hdr_set to map of special headers. */
+	if (!append) {
+		if (desc->hid < TFW_HTTP_HDR_RAW) {
+			if (test_bit(desc->hid, h_mods->spec_hdrs)) {
+				T_WARN_NL("Duplicated header modification.\n");
+				return -EINVAL;
+			}
+			set_bit(desc->hid, h_mods->spec_hdrs);
+			++h_mods->scan_off;
 		}
-		h_mods->spec_hdrs[desc->hid] = desc;
-		++h_mods->spec_num;
+		if (hdr->hpack_idx > 0) {
+			set_bit(hdr->hpack_idx, h_mods->s_tbl);
+			++h_mods->scan_off;
+		}
+		++h_mods->set_num;
 	}
 
-	hdr->hpack_idx = tfw_hpack_find_hdr_idx(TFW_STR_CHUNK(hdr, 0));
 	desc->hdr = hdr;
 	desc->append = append;
 	++h_mods->sz;
-	if (!append)
-		set_bit(hdr->hpack_idx, h_mods->s_tbl);
 
 	return 0;
 }
@@ -917,8 +922,17 @@ tfw_mod_hdr_cmp(const void *l, const void *r)
 {
 	TfwHdrModsDesc *desc_l = (TfwHdrModsDesc *)l;
 	TfwHdrModsDesc *desc_r = (TfwHdrModsDesc *)r;
+	int type, hid;
 
-	return (int)desc_l->hid - (int)desc_r->hid;
+	if ((type = (int)desc_l->append - (int)desc_r->append))
+		return type;
+
+	hid = (int)desc_l->hid - (int)desc_r->hid;
+
+	if (!hid && desc_l->hid >= TFW_HTTP_HDR_RAW)
+		return (int)desc_r->hdr->hpack_idx - (int)desc_l->hdr->hpack_idx;
+
+	return hid;
 }
 
 static void
@@ -931,6 +945,14 @@ tfw_mod_hdr_sort(TfwLocation *loc)
 
 		sort(h_mods->hdrs, h_mods->sz, sizeof(h_mods->hdrs[0]),
 		     tfw_mod_hdr_cmp, NULL);
+
+		/*
+		 * scan_off contains number of special headers and hpack indexed
+		 * headers. Here we turn the count to the real offset that
+		 * points to non-indexed raw headers.
+		 */
+		if (h_mods->scan_off > 0)
+			h_mods->scan_off--;
 	}
 }
 
@@ -1438,8 +1460,7 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	size_t size = sizeof(FrangVhostCfg)
 		    + sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
-		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2
-		    + sizeof(TfwHdrModsDesc *) * TFW_HTTP_HDR_RAW * 2;
+		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
 
 	if ((argmem = kmalloc(len + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
@@ -1464,17 +1485,8 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs =
 		(TfwHdrModsDesc *)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
 
-	loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].spec_hdrs =
-		(TfwHdrModsDesc **)(loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs
-				    + TFW_USRHDRS_ARRAY_SZ);
-
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs =
-		(TfwHdrModsDesc *)(loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].spec_hdrs
-				   + TFW_HTTP_HDR_RAW);
-
-	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].spec_hdrs =
-		(TfwHdrModsDesc **)(loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs
-				    + TFW_USRHDRS_ARRAY_SZ);
+		loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
 
 	memcpy((void *)loc->arg, (void *)arg, len + 1);
 
@@ -2627,6 +2639,7 @@ tfw_vhost_cfgend(void)
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
 	r = tfw_frang_cfg_inherit(vh_dflt->loc_dflt->frang_cfg,
 				  &tfw_frang_vhost_reconfig);
+	tfw_mod_hdr_sort(vh_dflt->loc_dflt);
 	if (r)
 		goto err;
 	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN(TFW_VH_DFT_NAME));
