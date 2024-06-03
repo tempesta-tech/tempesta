@@ -1070,7 +1070,12 @@ ss_tcp_state_change(struct sock *sk)
 		if (r) {
 			T_DBG2("[%d]: New connection hook failed, r=%d\n",
 			       smp_processor_id(), r);
-			/* ss_linkerror() decrements SS_V_ACT_LIVECONN. */
+			/*
+			 * ss_linkerror() decrements SS_V_ACT_LIVECONN only if
+			 * sk_user_data is set.
+			 */
+			if (!sk->sk_user_data)
+				ss_active_guard_exit(SS_V_ACT_LIVECONN);
 			ss_linkerror(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
