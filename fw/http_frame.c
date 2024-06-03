@@ -292,7 +292,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	if (is_control_frame &&
 	    ctx->queued_control_frames > max_queued_control_frames)
 	{
-		T_WARN("Too many control frames in send queue, closing connection");
+		T_WARN("Too many control frames in send queue, closing connection\n");
 		r = SS_BLOCK_WITH_RST;
 		goto err;
 	}
