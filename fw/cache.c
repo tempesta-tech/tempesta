@@ -26,6 +26,7 @@
 #include <linux/kthread.h>
 #include <linux/tcp.h>
 #include <linux/topology.h>
+#include <linux/nodemask.h>
 
 #undef DEBUG
 #if DBG_CACHE > 0
@@ -240,7 +241,7 @@ typedef struct {
 	TDB		*db;
 } CaNode;
 
-static CaNode c_nodes[MAX_NUMNODES];
+static CaNode *c_nodes;
 
 typedef int tfw_cache_write_actor_t(TDB *, TdbVRec **, TfwHttpResp *, char **,
 				    size_t, TfwDecodeCacheIter *);
@@ -333,43 +334,55 @@ tfw_cache_key_node(unsigned long key)
 }
 
 /**
- * Release memory dynamically allocated for every node cpus
+ * Release node-cpu map.
  */
 static void
 tfw_release_node_cpus(void)
 {
 	int node;
 
-	for_each_online_node(node) {
-		if(c_nodes[node].nr_cpus > 0)
+	for(node = 0; node < nr_online_nodes; node++) {
+		if(c_nodes[node].cpu)
 			kfree(c_nodes[node].cpu);
 	}
+	kfree(c_nodes);
 }
 
 /**
- * Just choose any CPU for each node to use queue_work_on() for
- * nodes scheduling. Reserve 0th CPU for other tasks.
+ * Create node-cpu map to use queue_work_on() for nodes scheduling.
+ * 0th CPU is reserved for other tasks.
+ * At the moment we doesn't support CPU hotplug, so enumerate only online CPUs.
  */
 static int
 tfw_init_node_cpus(void)
 {
 	int nr_cpus, cpu, node;
 
-	nr_cpus = num_online_cpus();
+	T_ERR("nodes: %i", nr_online_nodes);
+
+	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
+		if (!c_nodes) {
+			T_ERR( "Failed to allocate nodes map for cache work scheduler");
+			//return -ENOMEM;
+	}
+
+	return 0;
 
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
-		T_DBG("node.nr_cpus %u",c_nodes[node].nr_cpus);
+		nr_cpus = nr_cpus_node(node);
+		T_ERR("node - nr_cpus %i - %i",node, nr_cpus);
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if (!c_nodes[node].cpu) {
-			//T_ERR("Failed to allocate c_nodes[%i] cpu\n", __func__, node);
 			T_ERR( "Failed to allocate a CPU %i for cache work scheduler", cpu);
+			tfw_release_node_cpus();
 			return -ENOMEM;
 		}
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
 	return 0;
 }
+
 
 
 static TDB *
@@ -3210,10 +3223,8 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 #endif
-	if (tfw_init_node_cpus() == -ENOMEM) {
-		tfw_release_node_cpus();
+	if (tfw_init_node_cpus() == -ENOMEM)
 		goto close_db;
-	}
 
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
