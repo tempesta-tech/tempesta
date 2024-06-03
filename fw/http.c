@@ -1658,9 +1658,8 @@ tfw_http_hm_control(TfwHttpResp *resp)
 	if (tfw_http_hm_suspend(resp, srv))
 		return;
 
-	if (tfw_srv_suspended(srv) && tfw_apm_hm_srv_alive(resp, srv)) {
-	tfw_srv_mark_alive(srv);
-	}
+	if (tfw_srv_suspended(srv) && tfw_apm_hm_srv_alive(resp, srv))
+		tfw_srv_mark_alive(srv);
 	return;
 }
 

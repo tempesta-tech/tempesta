@@ -1349,7 +1349,8 @@ tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 	}
 
 	if (unlikely(tfw_body_iter_init(&it, &chunk, body->data, body->skb, 
-					resp->msg.skb_head ))) {
+					resp->msg.skb_head ))) 
+	{
 		T_WARN_NL("Invalid body. Health monitor '%s': status '%d' \n",
 			  hm->name, status);
 		return false;
