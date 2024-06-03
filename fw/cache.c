@@ -363,7 +363,7 @@ tfw_init_node_cpus(void)
 	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
 		if (!c_nodes) {
 			T_ERR( "Failed to allocate nodes map for cache work scheduler");
-			//return -ENOMEM;
+			return -ENOMEM;
 	}
 
 	return 0;
@@ -3223,7 +3223,7 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 #endif
-	if (tfw_init_node_cpus() == -ENOMEM)
+	if (!tfw_init_node_cpus())
 		goto close_db;
 
 	TFW_WQ_CHECKSZ(TfwCWork);
