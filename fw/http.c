@@ -1271,15 +1271,6 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 }
 
 /*
- * Check if a request is non-idempotent.
- */
-static inline bool
-tfw_http_req_is_nip(TfwHttpReq *req)
-{
-	return test_bit(TFW_HTTP_B_NON_IDEMP, req->flags);
-}
-
-/*
  * Reset the flag saying that @srv_conn has non-idempotent requests.
  */
 static inline void
