@@ -1330,9 +1330,7 @@ tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 {
 	int status = resp->status;
 	TfwStr *body = &resp->body;
-
 	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)(srv->apmref))->hmctl.hm);
-
 	u32 crc32 = 0;
 	TfwMsgIter it;
 	TfwStr chunk = {0};
