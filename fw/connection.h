@@ -28,7 +28,7 @@
 #include "gfsm.h"
 #include "peer.h"
 #include "sync_socket.h"
-#include "http_frame.h"
+#include "http2.h"
 #include "tls.h"
 
 /* We account users with FRANG_FREQ frequency per second. */

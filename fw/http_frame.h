@@ -128,138 +128,37 @@ typedef struct {
 } TfwFramePri;
 
 /**
- * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
- * section 6.5.2).
- *
- * @hdr_tbl_sz		- maximum size of the endpoint's header compression
- *			  table used to decode header blocks;
- * @push		- enable/disable indicator for server push;
- * @max_streams		- maximum number of streams that the endpoint will
- *			  allow;
- * @wnd_sz		- endpoint's initial window size for stream-level
- *			  flow control;
- * @max_frame_sz	- size of the largest frame payload the endpoint wish
- *			  to receive;
- * @max_lhdr_sz		- maximum size of header list the endpoint prepared
- *			  to accept;
+ * FSM states for HTTP/2 frames processing.
  */
-typedef struct {
-	unsigned int hdr_tbl_sz;
-	unsigned int push;
-	unsigned int max_streams;
-	unsigned int wnd_sz;
-	unsigned int max_frame_sz;
-	unsigned int max_lhdr_sz;
-} TfwSettings;
+typedef enum {
+	HTTP2_RECV_FRAME_HEADER,
+	HTTP2_RECV_CLI_START_SEQ,
+	HTTP2_RECV_FIRST_SETTINGS,
+	HTTP2_RECV_FRAME_PRIORITY,
+	HTTP2_RECV_FRAME_WND_UPDATE,
+	HTTP2_RECV_FRAME_PING,
+	HTTP2_RECV_FRAME_RST_STREAM,
+	HTTP2_RECV_FRAME_SETTINGS,
+	HTTP2_RECV_FRAME_GOAWAY,
+	HTTP2_RECV_FRAME_PADDED,
+	HTTP2_RECV_HEADER_PRI,
+	HTTP2_IGNORE_FRAME_DATA,
+	__HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_CONT,
+	HTTP2_RECV_DATA,
+	HTTP2_RECV_APP_DATA_POST
+} TfwFrameState;
 
-/**
- * Context for HTTP/2 frames processing.
- *
- * @lock		- spinlock to protect stream-request linkage;
- * @lsettings		- local settings for HTTP/2 connection;
- * @rsettings		- settings for HTTP/2 connection received from the
- *			  remote endpoint;
- * @lstream_id		- ID of last stream initiated by client and processed on
- *			  the server side;
- * @streams_num		- number of the streams initiated by client;
- * @sched		- streams' priority scheduler;
- * @closed_streams	- queue of closed streams (in HTTP2_STREAM_CLOSED or
- * 			  HTTP2_STREAM_REM_CLOSED state), which are waiting
- * 			  for removal;
- * @idle_streams	- queue of idle streams (in HTTP2_STREAM_IDLE) state;
- * @loc_wnd		- connection's current flow controlled window;
- * @rem_wnd		- remote peer current flow controlled window;
- * @hpack		- HPACK context, used in processing of
- *			  HEADERS/CONTINUATION frames;
- * @cur_send_headers	- stream for which we have already started sending
- *			  headers, but have not yet sent the END_HEADERS flag;
- * @cur_recv_headers	- stream for which we have already started receiving
- *			  headers, but have not yet received the END_HEADERS
- *			  flag;
- * @error		- the stream where the error occurred;
- * @new_settings	- new settings to apply when ack is pushed to socket
- * 			  write queue;
- * @settings_to_apply	- bitmap to save what settings we should apply. first
- *			  bit is used to fast check that we should apply new
- *			  settings. 1 - _HTTP2_SETTINGS_MAX - 1 bits are used
- *			  to save what @new_settings should be applyed. bits
- *			  from _HTTP2_SETTINGS_MAX are used to save what
- *			  settings we sent to the client;
- * @__off		- offset to reinitialize processing context;
- * @skb_head		- collected list of processed skbs containing HTTP/2
- *			  frames;
- * @cur_stream		- found stream for the frame currently being processed;
- * @priority		- unpacked data from priority part of payload of
- *			  processed HEADERS or PRIORITY frames;
- * @hdr			- unpacked data from header of currently processed
- *			  frame;
- * @plen		- payload length of currently processed frame
- *			  (HEADERS/CONTINUATION/DATA frames);
- * @state		- current FSM state of HTTP/2 processing context;
- * @to_read		- indicates how much data of HTTP/2 frame should
- *			  be read on next FSM @state;
- * @rlen		- length of accumulated data in @rbuf
- *			  or length of the payload read in current FSM state;
- * @rbuf		- buffer for data accumulation from frames headers and
- *			  payloads (for service frames) during frames
- *			  processing;
- * @padlen		- length of current frame's padding (if exists);
- * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
- *			  frames (after all service payloads);
- *
- * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
- * (instead of separate HPACK context for each stream), since frames from other
- * streams cannot occur between the HEADERS/CONTINUATION frames of particular
- * stream (RFC 7540, sections 6.2, 6.10, 8.1).
- */
-typedef struct tfw_h2_ctx_t {
-	spinlock_t	lock;
-	TfwSettings	lsettings;
-	TfwSettings	rsettings;
-	unsigned int	lstream_id;
-	unsigned long	streams_num;
-	TfwStreamSched	sched;
-	TfwStreamQueue	closed_streams;
-	TfwStreamQueue	idle_streams;
-	long int	loc_wnd;
-	long int	rem_wnd;
-	TfwHPack	hpack;
-	TfwStream	*cur_send_headers;
-	TfwStream	*cur_recv_headers;
-	TfwStream	*error;
-	unsigned int	new_settings[_HTTP2_SETTINGS_MAX - 1];
-	DECLARE_BITMAP	(settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
-	char		__off[0];
-	struct sk_buff	*skb_head;
-	TfwStream	*cur_stream;
-	TfwFramePri	priority;
-	TfwFrameHdr	hdr;
-	unsigned int	plen;
-	int		state;
-	int		to_read;
-	int		rlen;
-	unsigned char	rbuf[FRAME_HEADER_SIZE];
-	unsigned char	padlen;
-	unsigned char	data_off;
-} TfwH2Ctx;
+#define MAX_WND_SIZE			((1U << 31) - 1)
+#define DEF_WND_SIZE			((1U << 16) - 1)
 
 typedef struct tfw_conn_t TfwConn;
 
-int tfw_h2_init(void);
-void tfw_h2_cleanup(void);
-int tfw_h2_context_init(TfwH2Ctx *ctx);
-void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 			 struct sk_buff **next);
-void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
-TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
-					 bool recv);
-unsigned int tfw_h2_req_stream_id(TfwHttpReq *req);
-void tfw_h2_req_unlink_stream(TfwHttpReq *req);
-void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
-void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
-				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
+int tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code, bool attack);
 int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 		       bool *data_is_available);
 
