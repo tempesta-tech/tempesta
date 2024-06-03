@@ -260,7 +260,7 @@ void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 				 bool attack);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
-int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
+int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 		       bool *data_is_available);
 
 static inline void
