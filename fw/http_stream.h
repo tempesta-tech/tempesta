@@ -118,6 +118,8 @@ typedef enum {
  *
  * @resp		- responce, that should be sent;
  * @skb_head		- head of skb list that must be sent;
+ * @postponed		- head of skb list that must be sent
+ *			  after sending headers for this stream;
  * @h_len		- length of headers in http2 response;
  * @frame_length	- length of current sending frame, or 0
  *			  if we send some service frames (for
@@ -130,6 +132,7 @@ typedef enum {
 typedef struct {
 	TfwHttpResp 		*resp;
 	struct sk_buff		*skb_head;
+	struct sk_buff		*postponed;
 	unsigned int		h_len;
 	unsigned int		frame_length;
 	u64			b_len : 60;

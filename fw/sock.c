@@ -376,6 +376,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 	ss_skb_init_for_xmit(skb);
 	skb->mark = mark;
 	if (tls_type)
@@ -400,8 +401,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 	unsigned int mark = 0;
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
-		unsigned char skb_tls_type = skb_tfw_tls_type(skb);
-	
 		/*
 		 * @skb_head can be the head of several different skb
 		 * lists. We set tls type for the head of each new
@@ -409,8 +408,8 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 		 * and tls_type of the head of the list to which it
 		 * belongs.
 		 */
-		if (skb_tls_type && skb_tls_type != tls_type) {
-			tls_type = skb_tls_type;
+		if (TFW_SKB_CB(skb)->is_head) {
+			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
 		}
 		/*
@@ -450,8 +449,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (unlikely(!conn || !ss_sock_active(sk)))
 		goto cleanup;
 
-	if (tls_type)
-		skb_set_tfw_tls_type(*skb_head, tls_type);
+	ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark, tls_type);
 
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;

@@ -172,36 +172,12 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return r;
 }
 
-/*
- * Calculate window size to send in bytes. We calculate the sender
- * and receiver window and select the smallest of them.
- */
-static inline unsigned long
-tfw_sk_calc_snd_wnd(struct sock *sk, unsigned int mss_now)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-	unsigned int in_flight = tcp_packets_in_flight(tp);
-	unsigned int send_win, cong_win;
-
-	if (in_flight >= tp->snd_cwnd)
-		return 0;
-
-	if (after(tp->write_seq, tcp_wnd_end(tp)))
-		return 0;
-
-	cong_win = (tp->snd_cwnd - in_flight) * mss_now;
-	send_win = tcp_wnd_end(tp) - tp->write_seq;
-
-	return min(cong_win, send_win);
-}
-
 static int
 tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 {
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
 	bool data_is_available = false;
-	unsigned long snd_wnd;
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -219,8 +195,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	if (!h2)
 		return 0;
 
-	snd_wnd = tfw_sk_calc_snd_wnd(sk, mss_now);
-	r = tfw_h2_make_frames(sk, h2, snd_wnd, &data_is_available);
+	r = tfw_h2_make_frames(sk, h2, mss_now, &data_is_available);
 	if (unlikely(r < 0))
 		return r;
 

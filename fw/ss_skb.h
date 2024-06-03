@@ -59,15 +59,28 @@ enum {
  *                not NULL
  * @on_send	- callback to special handling this skb before sending;
  * @stream_id	- id of sender stream;
+ * @is_head	- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
-	void 			*opaque_data;
-	void 			(*destructor)(void *opaque_data);
-	int 			(*on_send)(void *conn, struct sk_buff **skb_head);
-	unsigned int 		stream_id;
+	void 		*opaque_data;
+	void 		(*destructor)(void *opaque_data);
+	int 		(*on_send)(void *conn, struct sk_buff **skb_head);
+	void		(*on_tcp_entail)(void *conn, struct sk_buff *skb_head);
+	unsigned int 	stream_id;
+	bool		is_head;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
+
+static inline void
+ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
+			  unsigned char tls_type)
+{
+	if (tls_type)
+		skb_set_tfw_tls_type(skb_head, tls_type);
+	skb_head->mark = mark;
+	TFW_SKB_CB(skb_head)->is_head = true;
+}
 
 static inline void
 ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
@@ -95,6 +108,16 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 		r = on_send(conn, skb_head);
 
 	return r;
+}
+
+static inline void
+ss_skb_on_tcp_entail(void *conn, struct sk_buff *skb_head)
+{
+	void (*on_tcp_entail)(void *conn, struct sk_buff *skb_head) =
+		TFW_SKB_CB(skb_head)->on_tcp_entail;
+
+	if (on_tcp_entail)
+		on_tcp_entail(conn, skb_head);
 }
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
@@ -143,7 +166,7 @@ ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
 {
 	struct sk_buff *tail;
 
-	if (WARN_ON_ONCE(!*skb_head)) {
+	if ((!*skb_head)) {
 		swap(*skb_head, *skb);
 		return;
 	}

@@ -267,7 +267,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	xfrm = &tls->xfrm;
 
 	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
-	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
+	       " skb=%px(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
 	       skb, skb->len, skb->data_len, skb_tfw_tls_type(skb),
@@ -279,7 +279,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		     != tcb->end_seq);
 
 	head_sz = ttls_payload_off(xfrm);
-	len = head_sz + skb->len + TTLS_TAG_LEN;
+	len = skb->len;
 	type = skb_tfw_tls_type(skb);
 	if (!type) {
 		T_WARN("%s: bad skb type %u\n", __func__, type);
@@ -294,7 +294,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
 
-		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
+		T_DBG3("next skb (%px) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
 		       !!skb_headlen(next), skb_tfw_tls_type(next),
@@ -317,6 +317,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		out_sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
 		skb_tail = next;
 	}
+
+	len += head_sz + TTLS_TAG_LEN;
 
 	/*
 	 * Use skb_tail->next as skb_head in __extend_pgfrags() to not try to
