@@ -3634,12 +3634,6 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 	if (WARN_ON_ONCE(!ht))
 		return -EINVAL;
 
-	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR
-		     && !TFW_STR_EMPTY(&ht->tbl[hid])))
-	{
-		return -ENOENT;
-	}
-
 	if (hid < TFW_HTTP_HDR_RAW) {
 		orig_hdr = &ht->tbl[hid];
 		/*
@@ -3683,6 +3677,7 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 	}
 
 	BUG_ON(TFW_STR_EMPTY(orig_hdr));
+
 	/*
 	 * The original header exists, but we have nothing to insert, thus,
 	 * the original header should be evicted.
@@ -3690,6 +3685,23 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 	if (!s_val) {
 		__h2_hdrs_dup_decrease(req, orig_hdr);
 		TFW_STR_INIT(orig_hdr);
+		return 0;
+	}
+
+	/* The original header exists, add duplicate to it. */
+	if (append) {
+		TfwStr *new_hdr = tfw_str_add_duplicate(hm->pool, orig_hdr);
+
+		if (unlikely(!new_hdr)) {
+			T_WARN("Cannot add duplicated header '%.*s'\n",
+			       PR_TFW_STR(TFW_STR_CHUNK(orig_hdr, 0)));
+			return -ENOMEM;
+		}
+
+		++it->hdrs_cnt;
+		it->hdrs_len += hdr->len;
+		*new_hdr = *hdr;
+
 		return 0;
 	}
 
@@ -3709,6 +3721,7 @@ static int
 tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 {
 	int i;
+	TfwHttpHdrTbl *ht = req->h_tbl;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_REQ);
 	if (!h_mods)
@@ -3718,17 +3731,19 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 		int r;
 		TfwHdrModsDesc *d = &h_mods->hdrs[i];
 
-		if ((r = __h2_req_hdrs(req, d->hdr, d->hid, d->append))) {
-			/*
-			 * Attempt to add duplicated singular header.
-			 * Just go to next header.
-			 */
-			if (r == -ENOENT) {
-				T_WARN("Attempt to add already existed singular header '%.*s'\n",
-					PR_TFW_STR(TFW_STR_CHUNK(d->hdr, 0)));
-				continue;
-			}
+		/*
+		 * Attempt to add duplicated singular header.
+		 * Just go to next header.
+		 */
+		if (unlikely(d->append && d->hid < TFW_HTTP_HDR_NONSINGULAR
+			     && !TFW_STR_EMPTY(&ht->tbl[d->hid])))
+		{
+			T_WARN("Attempt to add already existed singular header '%.*s'\n",
+			       PR_TFW_STR(TFW_STR_CHUNK(d->hdr, 0)));
+			continue;
+		}
 
+		if ((r = __h2_req_hdrs(req, d->hdr, d->hid, d->append))) {
 			/* Other error that can't be handled here. */
 			T_ERR("HTTP/2: can't update location-specific header in"
 			      " the request [%p]\n", req);
