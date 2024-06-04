@@ -120,8 +120,7 @@ tfw_cstrtolower_wo_avx2(void *dest, const void *src, size_t len)
 		d[i] = tolower(s[i]);
 }
 
-#undef AVX2
-#ifdef AVX2
+#if 0
 /*
  * The functions expect non-ovelapping strings, so use restrict notation in
  * the declarations just as a specification.
@@ -182,7 +181,6 @@ tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 	return strncasecmp(s1, s2, len);
 }
 #endif
-#define AVX2 1
 
 /* Buffer size to hold all possible values of unsigned long */
 #define TFW_ULTOA_BUF_SIZ 20

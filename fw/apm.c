@@ -1063,6 +1063,8 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBEnt *rbent = rbuf->rbent;
 
+	kernel_fpu_begin();
+
 	/*
 	 * Increment the counter and make the updates use the other array
 	 * of the two that are available. In the meanwhile, use the array
@@ -1103,6 +1105,8 @@ tfw_apm_hm_timer_cb(struct timer_list *t)
 	TfwServer *srv = hmctl->srv;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 	unsigned long now;
+
+	kernel_fpu_begin();
 
 	BUG_ON(!hm);
 	if (!atomic64_read(&hmctl->rcount))
