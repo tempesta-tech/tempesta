@@ -535,7 +535,7 @@ index e37480b5f..8236d5929 100644
  
  /*
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index a828cf99c..59ebed976 100644
+index a828cf99c..ea837130d 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -232,6 +232,12 @@
@@ -590,13 +590,11 @@ index a828cf99c..59ebed976 100644
  	__u8			ipvs_property:1;
  	__u8			inner_protocol_type:1;
  	__u8			remcsum_offload:1;
-@@ -931,6 +950,98 @@ struct sk_buff {
+@@ -931,6 +950,96 @@ struct sk_buff {
  #define SKB_ALLOC_RX		0x02
  #define SKB_ALLOC_NAPI		0x04
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+long __get_skb_count(void);
-+
 +enum {
 +	/* This skb contains start of http2 frame. */
 +	SS_F_HTTP2_FRAME_START                  = 0x01,
@@ -689,7 +687,7 @@ index a828cf99c..59ebed976 100644
  /**
   * skb_pfmemalloc - Test if the skb was allocated from PFMEMALLOC reserves
   * @skb: buffer
-@@ -1074,6 +1185,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+@@ -1074,6 +1183,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
  bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  		      bool *fragstolen, int *delta_truesize);
  
@@ -697,7 +695,7 @@ index a828cf99c..59ebed976 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
  			    int node);
  struct sk_buff *__build_skb(void *data, unsigned int frag_size);
-@@ -2104,7 +2216,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
+@@ -2104,7 +2214,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -709,7 +707,7 @@ index a828cf99c..59ebed976 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -2341,6 +2457,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -2341,6 +2455,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -740,7 +738,7 @@ index 000000000..90eedcba5
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -1053,7 +1051,7 @@ index 000000000..7ee3ead54
 +/**
 + *		Tempesta Memory Reservation
 + *
-+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -1410,7 +1408,7 @@ index f35c2e998..6ec40ac3c 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 1301ea694..49c3b41db 100644
+index 1301ea694..02ff44569 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -80,7 +80,9 @@
@@ -1709,30 +1707,12 @@ index 1301ea694..49c3b41db 100644
  out:
  	return skb;
  nodata:
-@@ -256,6 +446,63 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+@@ -256,6 +446,43 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
  	skb = NULL;
  	goto out;
  }
 +#else
 +
-+/*
-+ * Skb can be allocated and freed on different CPUs,
-+ * so the counter can be negative.
-+ */
-+static DEFINE_PER_CPU(long, __skb_cnt) ____cacheline_aligned = 0;
-+
-+long
-+__get_skb_count(void)
-+{
-+	int cpu;
-+	long count = 0;
-+
-+	for_each_online_cpu(cpu)
-+		count += *per_cpu_ptr(&__skb_cnt, cpu);
-+
-+	return count;
-+}
-+EXPORT_SYMBOL(__get_skb_count);
 +/**
 + * Tempesta: allocate skb on the same page with data to improve space locality
 + * and make head data fragmentation easier.
@@ -1765,32 +1745,18 @@ index 1301ea694..49c3b41db 100644
 +	skb->head_frag = 1;
 +	skb->skb_page = 1;
 +
-+	++*this_cpu_ptr(&__skb_cnt);
-+
 +	return skb;
 +}
 +#endif
  EXPORT_SYMBOL(__alloc_skb);
  
  /* Caller must provide SKB that is memset cleared */
-@@ -282,6 +529,10 @@ static struct sk_buff *__build_skb_around(struct sk_buff *skb,
- 	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
- 	atomic_set(&shinfo->dataref, 1);
- 
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	++*this_cpu_ptr(&__skb_cnt);
-+#endif
-+
- 	return skb;
- }
- 
-@@ -628,7 +879,13 @@ static void kfree_skbmem(struct sk_buff *skb)
+@@ -628,7 +855,12 @@ static void kfree_skbmem(struct sk_buff *skb)
  
  	switch (skb->fclone) {
  	case SKB_FCLONE_UNAVAILABLE:
 -		kmem_cache_free(skbuff_head_cache, skb);
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+		--*this_cpu_ptr(&__skb_cnt);
 +		if (skb->skb_page)
 +			put_page(virt_to_page(skb));
 +		else
@@ -1799,31 +1765,20 @@ index 1301ea694..49c3b41db 100644
  		return;
  
  	case SKB_FCLONE_ORIG:
-@@ -649,7 +906,13 @@ static void kfree_skbmem(struct sk_buff *skb)
+@@ -649,7 +881,12 @@ static void kfree_skbmem(struct sk_buff *skb)
  	if (!refcount_dec_and_test(&fclones->fclone_ref))
  		return;
  fastpath:
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	BUG_ON(!skb->skb_page);
 +	put_page(virt_to_page(skb));
-+	--*this_cpu_ptr(&__skb_cnt);
 +#else
  	kmem_cache_free(skbuff_fclone_cache, fclones);
 +#endif
  }
  
  void skb_release_head_state(struct sk_buff *skb)
-@@ -867,6 +1130,9 @@ void __kfree_skb_flush(void)
- 	if (nc->skb_count) {
- 		kmem_cache_free_bulk(skbuff_head_cache, nc->skb_count,
- 				     nc->skb_cache);
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+		*this_cpu_ptr(&__skb_cnt) -= nc->skb_count;
-+#endif
- 		nc->skb_count = 0;
- 	}
- }
-@@ -878,6 +1144,18 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
+@@ -878,6 +1115,17 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
  	/* drop skb->head and call any destructors for packet */
  	skb_release_all(skb);
  
@@ -1834,7 +1789,6 @@ index 1301ea694..49c3b41db 100644
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	if (skb->skb_page) {
 +		put_page(virt_to_page(skb));
-+		--*this_cpu_ptr(&__skb_cnt);
 +		return;
 +	}
 +#endif
@@ -1842,17 +1796,7 @@ index 1301ea694..49c3b41db 100644
  	/* record skb to CPU local list */
  	nc->skb_cache[nc->skb_count++] = skb;
  
-@@ -891,6 +1169,9 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
- 		kmem_cache_free_bulk(skbuff_head_cache, NAPI_SKB_CACHE_SIZE,
- 				     nc->skb_cache);
- 		nc->skb_count = 0;
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+		*this_cpu_ptr(&__skb_cnt) -= NAPI_SKB_CACHE_SIZE;
-+#endif
- 	}
- }
- void __kfree_skb_defer(struct sk_buff *skb)
-@@ -989,6 +1270,9 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
+@@ -989,6 +1237,9 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
  	n->sk = NULL;
  	__copy_skb_header(n, skb);
  
@@ -1862,7 +1806,7 @@ index 1301ea694..49c3b41db 100644
  	C(len);
  	C(data_len);
  	C(mac_len);
-@@ -1444,6 +1728,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1444,6 +1695,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  	    refcount_read(&fclones->fclone_ref) == 1) {
  		n = &fclones->skb2;
  		refcount_set(&fclones->fclone_ref, 2);
@@ -1873,18 +1817,17 @@ index 1301ea694..49c3b41db 100644
  	} else {
  		if (skb_pfmemalloc(skb))
  			gfp_mask |= __GFP_MEMALLOC;
-@@ -1453,6 +1741,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1453,6 +1708,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  			return NULL;
  
  		n->fclone = SKB_FCLONE_UNAVAILABLE;
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		n->skb_page = 0;
-+		++*this_cpu_ptr(&__skb_cnt);
 +#endif
  	}
  
  	return __skb_clone(n, skb);
-@@ -1624,15 +1916,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1624,15 +1882,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  
  	BUG_ON(skb_shared(skb));
  
@@ -1910,7 +1853,7 @@ index 1301ea694..49c3b41db 100644
  
  	/* Copy only real data... and, alas, header. This should be
  	 * optimized for the cases when header is void.
-@@ -1666,7 +1965,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1666,7 +1931,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	off = (data + nhead) - skb->head;
  
  	skb->head     = data;
@@ -1923,7 +1866,7 @@ index 1301ea694..49c3b41db 100644
  	skb->data    += off;
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end      = size;
-@@ -1693,7 +1997,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1693,7 +1963,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	return 0;
  
  nofrags:
@@ -1935,7 +1878,7 @@ index 1301ea694..49c3b41db 100644
  nodata:
  	return -ENOMEM;
  }
-@@ -1803,7 +2111,11 @@ int __skb_pad(struct sk_buff *skb, int pad, bool free_on_error)
+@@ -1803,7 +2077,11 @@ int __skb_pad(struct sk_buff *skb, int pad, bool free_on_error)
  		return 0;
  	}
  
@@ -1947,7 +1890,7 @@ index 1301ea694..49c3b41db 100644
  	if (likely(skb_cloned(skb) || ntail > 0)) {
  		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
  		if (unlikely(err))
-@@ -2062,7 +2374,13 @@ void *__pskb_pull_tail(struct sk_buff *skb, int delta)
+@@ -2062,7 +2340,13 @@ void *__pskb_pull_tail(struct sk_buff *skb, int delta)
  	 * plus 128 bytes for future expansions. If we have enough
  	 * room at tail, reallocate without expansion only if skb is cloned.
  	 */
@@ -1962,7 +1905,7 @@ index 1301ea694..49c3b41db 100644
  
  	if (eat > 0 || skb_cloned(skb)) {
  		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
-@@ -4285,6 +4603,25 @@ static void skb_extensions_init(void) {}
+@@ -4285,6 +4569,25 @@ static void skb_extensions_init(void) {}
  
  void __init skb_init(void)
  {
@@ -1988,7 +1931,7 @@ index 1301ea694..49c3b41db 100644
  	skbuff_head_cache = kmem_cache_create_usercopy("skbuff_head_cache",
  					      sizeof(struct sk_buff),
  					      0,
-@@ -4292,11 +4629,6 @@ void __init skb_init(void)
+@@ -4292,11 +4595,6 @@ void __init skb_init(void)
  					      offsetof(struct sk_buff, cb),
  					      sizeof_field(struct sk_buff, cb),
  					      NULL);
@@ -2000,7 +1943,7 @@ index 1301ea694..49c3b41db 100644
  	skb_extensions_init();
  }
  
-@@ -5151,7 +5483,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -5151,7 +5449,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);
@@ -2016,7 +1959,7 @@ index 1301ea694..49c3b41db 100644
  	} else {
  		__kfree_skb(skb);
  	}
-@@ -5931,13 +6271,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -5931,13 +6237,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -2038,7 +1981,7 @@ index 1301ea694..49c3b41db 100644
  
  	/* Copy real data, and all frags */
  	skb_copy_from_linear_data_offset(skb, off, data, new_hlen);
-@@ -5950,7 +6297,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -5950,7 +6263,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  	if (skb_cloned(skb)) {
  		/* drop the old head gracefully */
  		if (skb_orphan_frags(skb, gfp_mask)) {
@@ -2050,7 +1993,7 @@ index 1301ea694..49c3b41db 100644
  			return -ENOMEM;
  		}
  		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
-@@ -5967,7 +6318,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -5967,7 +6284,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	skb->head = data;
  	skb->data = data;
@@ -2062,7 +2005,7 @@ index 1301ea694..49c3b41db 100644
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end = size;
  #else
-@@ -6055,6 +6410,13 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -6055,6 +6376,13 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -2076,7 +2019,7 @@ index 1301ea694..49c3b41db 100644
  	data = kmalloc_reserve(size +
  			       SKB_DATA_ALIGN(sizeof(struct skb_shared_info)),
  			       gfp_mask, NUMA_NO_NODE, NULL);
-@@ -6062,11 +6424,16 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -6062,11 +6390,16 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  		return -ENOMEM;
  
  	size = SKB_WITH_OVERHEAD(ksize(data));
@@ -2093,7 +2036,7 @@ index 1301ea694..49c3b41db 100644
  		return -ENOMEM;
  	}
  	shinfo = (struct skb_shared_info *)(data + size);
-@@ -6108,8 +6475,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -6108,8 +6441,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  	skb_release_data(skb);
  
  	skb->head = data;
@@ -2411,8 +2354,7 @@ index fac5c1469..f9f8000bf 100644
  		memcpy(nskb->cb, skb->cb, sizeof(skb->cb));
  #ifdef CONFIG_TLS_DEVICE
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
-index ab8ed0fc4..e8764cd36 100644
-
+index ab8ed0fc4..7effbed4a 100644
 --- a/net/ipv4/tcp_ipv4.c
 +++ b/net/ipv4/tcp_ipv4.c
 @@ -57,6 +57,7 @@
@@ -2899,7 +2841,7 @@ index f99494637..6364d7c5f 100644
  		if (!err)
  			tcp_event_new_data_sent(sk, skb);
 diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
-index 3f9bb6dd1..28e6539fa 100644
+index 3f9bb6dd1..f9b137af9 100644
 --- a/net/ipv6/tcp_ipv6.c
 +++ b/net/ipv6/tcp_ipv6.c
 @@ -65,6 +65,7 @@
@@ -3068,7 +3010,7 @@ index 000000000..313101304
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
