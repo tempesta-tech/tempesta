@@ -19,7 +19,6 @@
  */
 #include <linux/module.h>
 #include <linux/string.h>
-#undef AVX2
 
 MODULE_AUTHOR("Tempesta Technologies, INC");
 MODULE_VERSION("0.1.1");

@@ -3099,6 +3099,8 @@ tfw_wq_tasklet(unsigned long data)
 	TfwRBQueue *wq = &ct->wq;
 	TfwCWork cw;
 
+	kernel_fpu_begin();
+
 	while (!tfw_wq_pop(wq, &cw))
 		tfw_cache_do_action(cw.msg, cw.action);
 

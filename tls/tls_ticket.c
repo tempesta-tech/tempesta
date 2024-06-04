@@ -179,6 +179,8 @@ ttls_ticket_rotate_keys(struct timer_list *t)
 	TlsTicketPeerCfg *tcfg = from_timer(tcfg, t, timer);
 	unsigned long secs;
 
+	kernel_fpu_begin();
+
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
 	if (ttls_ticket_update_keys(tcfg))
 		T_ERR("TLS: Can't rotate keys for ticket configuration [%pK]\n",
