@@ -1975,8 +1975,12 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	case STREAM_FSM_RES_IGNORE:
 		break;
 	case STREAM_FSM_RES_TERM_STREAM:
-		tfw_h2_stream_purge_send_queue(stream);
-		return 0;
+		/*
+		 * TODO: don't close connection, just purge
+		 * stream send queue. We also need to send
+		 * goaway/tls_alert or any postponed frames.
+		 */
+		fallthrough;
 	case STREAM_FSM_RES_TERM_CONN:
 		return -EPIPE;
 	}
@@ -1997,14 +2001,18 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned long snd_wnd;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
+/*
+ * if *tls_record_len is equal to zero, that means that here we deal with
+ * new tls record. During tls record encryption extra TLS_MAX_OVERHEAD
+ * data can be added and we should adjuct it during snd_wnd calculation.
+ * Maximum additional count of in flight packets is equal to 2:
+ * one new skb and extra TLS header which encrease skb len, so
+ * DIV_ROUND_UP(skb->len, mss_now)) increased.
+ */
 #define CALC_SND_WND_AND_SET_FRAME_TYPE(type)				\
 do {									\
-	if (*tls_record_len == 0) {					\
-		unsigned int extra =					\
-				stream->xmit.skb_head->len > TLS_MAX_PAYLOAD_SIZE ? \
-			1 : 2; 						\
-		(*not_account_in_flight += extra);			\
-	}								\
+	if (*tls_record_len == 0)					\
+		(*not_account_in_flight += 2);				\
 	snd_wnd = ss_calc_snd_wnd(sk, mss_now, *not_account_in_flight);	\
 	if (snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {		\
 		*snd_wnd_exceeded = true;				\
@@ -2121,10 +2129,12 @@ do {									\
 		 */
 		if (unlikely(stream->xmit.skb_head)) {
 			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
-			if (stream == ctx->error) {
-				if ((SS_CONN_TYPE(sk) & Conn_Shutdown) == Conn_Shutdown)
-					tcp_shutdown(sk, SEND_SHUTDOWN);
-			}
+			/*
+			 * We set ctx->error only when we close connection
+			 * after sending error response.
+			 */
+			if (stream == ctx->error)
+				tcp_shutdown(sk, SEND_SHUTDOWN);
 		}
 		tfw_h2_stream_add_closed(ctx, stream);
 		if (stream == ctx->error)
@@ -2151,10 +2161,16 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 	u64 deficit;
 	unsigned int not_account_in_flight = 0;
 	unsigned int tls_record_len = 0;
+	bool error_was_sent = false;
 	bool snd_wnd_exceeded = false;
 	int r = 0;
 
+	/*
+	 * Update snd_wnd if nedeed, to correct caclulation
+	 * of count of bytes to send.
+	 */
 	tcp_slow_start_after_idle_check(sk);
+
 	while (tfw_h2_stream_sched_is_active(&sched->root)
 	       && !snd_wnd_exceeded && ctx->rem_wnd > 0)
 	{
@@ -2166,6 +2182,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 			stream = ctx->error;
 			parent = stream->sched.parent;
 			tfw_h2_stream_sched_remove(sched, stream);
+			error_was_sent = true;
 		} else {
 			stream = tfw_h2_sched_stream_dequeue(sched, &parent);
 		}
@@ -2187,7 +2204,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 		 * from other streams, so we either sent all error response
 		 * or blocked by window size.
 		 */
-		if (ctx->error || r)
+		if (error_was_sent || r)
 			break;
 	}
 
