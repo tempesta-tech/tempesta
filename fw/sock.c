@@ -953,8 +953,8 @@ ss_tcp_data_ready(struct sock *sk)
 		    SKB_EXT_ERR(skb)->ee.ee_origin !=
 		    SO_EE_ORIGIN_TIMESTAMPING) {
 			T_ERR("error data in socket %p\n", sk);
+			return;
 		}
-		return;
 	}
 
 	if (skb_queue_empty(&sk->sk_receive_queue)) {
