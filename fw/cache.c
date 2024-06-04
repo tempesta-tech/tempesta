@@ -358,20 +358,16 @@ tfw_init_node_cpus(void)
 {
 	int nr_cpus, cpu, node;
 
-	T_ERR("nodes: %i", nr_online_nodes);
-
 	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
 		if (!c_nodes) {
 			T_ERR( "Failed to allocate nodes map for cache work scheduler");
 			return -ENOMEM;
 	}
 
-	return 0;
-
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
 		nr_cpus = nr_cpus_node(node);
-		T_ERR("node - nr_cpus %i - %i",node, nr_cpus);
+		T_DBG("node - nr_cpus %i - %i",node, nr_cpus);
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if (!c_nodes[node].cpu) {
 			T_ERR( "Failed to allocate a CPU %i for cache work scheduler", cpu);
@@ -3209,7 +3205,10 @@ tfw_cache_start(void)
 	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return 0;
 
-	for_each_node_with_cpus(i) {
+	if (!tfw_init_node_cpus())
+		goto close_db;
+
+	for(i = 0; i < nr_online_nodes; i++) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
 		if (!c_nodes[i].db)
@@ -3223,8 +3222,6 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 #endif
-	if (!tfw_init_node_cpus())
-		goto close_db;
 
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
