@@ -1132,7 +1132,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
  * a value.
  */
 static void
-tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status, bool close_after_send)
+tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
+		 bool close_after_send)
 {
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
 	if (unlikely(!resp))

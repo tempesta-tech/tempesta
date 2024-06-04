@@ -54,8 +54,8 @@ typedef struct {
  * @lsettings           - local settings for HTTP/2 connection;
  * @rsettings           - settings for HTTP/2 connection received from the
  *                        remote endpoint;
- * @lstream_id          - ID of last stream initiated by client and processed on
- *                        the server side;
+ * @lstream_id          - ID of last stream initiated by client and processed
+ *                        on the server side;
  * @streams_num         - number of the streams initiated by client;
  * @sched               - streams' priority scheduler;
  * @closed_streams      - queue of closed streams (in HTTP2_STREAM_CLOSED or
