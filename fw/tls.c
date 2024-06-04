@@ -244,9 +244,10 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	 * 6 segment skb. After the fix the number probably should be decreased.
 	 */
 #define AUTO_SEGS_N	8
+#define MAX_SEG_N	64
 
 	int r = -ENOMEM;
-	unsigned int head_sz, len, frags, t_sz, out_frags;
+	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -293,6 +294,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	/* Try to aggregate several skbs into one TLS record. */
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
+		next_nents = skb_shinfo(next)->nr_frags + !!skb_headlen(next);
 
 		T_DBG3("next skb (%px) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
@@ -301,6 +303,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
+			break;
+		if (sgt.nents + next_nents > MAX_SEG_N)
 			break;
 		/* Don't put different message types into the same record. */
 		if (type != skb_tfw_tls_type(next))
@@ -313,8 +317,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		tfw_tcp_propagate_dseq(sk, skb_tail);
 
 		len += next->len;
-		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
-		out_sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
+		sgt.nents += next_nents;
+		out_sgt.nents += next_nents;
 		skb_tail = next;
 	}
 
@@ -487,6 +491,7 @@ err_epilogue:
 	       __func__, r);
 	return r;
 #undef AUTO_SEGS_N
+#undef MAX_SEG_N
 }
 
 static inline int
