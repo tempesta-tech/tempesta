@@ -2986,7 +2986,14 @@ TEST(http1_parser, req_hop_by_hop)
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
-			EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+			switch (id) {
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
 		}
 	}
 
@@ -3138,6 +3145,9 @@ TEST(http1_parser, resp_hop_by_hop)
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
 			switch (id) {
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
 			case TFW_HTTP_HDR_SERVER:
 				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
 				break;
