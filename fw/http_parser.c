@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -497,9 +497,7 @@ __FSM_STATE(st, cold) {							\
 
 #define __FSM_METH_fixup_finish(curr_st, n)				\
 	__msg_hdr_chunk_fixup(data, __data_off(p + n));			\
-	__msg_chunk_flags(TFW_STR_VALUE);				\
-	if (tfw_http_msg_hdr_close(msg))				\
-		TFW_PARSER_DROP(curr_st);				\
+	tfw_http_msg_method_close(msg);					\
 
 /* Used for improbable states only, so use cold label. */
 #define __FSM_METH_MOVE(st, ch, st_next)				\
@@ -5770,8 +5768,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			 * then there is zero-length method name
 			 * and the request must be dropped.
 			 */
-		if (tfw_http_msg_hdr_close(msg))
-			TFW_PARSER_DROP(Req_MethodUnknown);
+		tfw_http_msg_method_close(msg);
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
