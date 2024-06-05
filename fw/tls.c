@@ -529,9 +529,16 @@ tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
 	if (!ctx)
 		return 0;
 
-	if (ctx->error && ctx->error->xmit.skb_head) {
+	if (ctx->error && ctx->error->xmit.skb_head)
 		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
-		sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
+	else if (ctx->cur_send_headers) {
+		/*
+		 * Other frames (from any stream) MUST NOT occur between
+		 * the HEADERS frame and any CONTINUATION frames that might
+		 * follow. Send TLS alert later.
+		 */
+		ctx->error = ctx->cur_send_headers;
+		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
 	}
 
 	return 0;

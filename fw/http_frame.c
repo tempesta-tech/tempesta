@@ -210,10 +210,14 @@ tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 
 	if (ctx->error && ctx->error->xmit.skb_head) {
 		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
-		sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 	} else if (ctx->cur_send_headers) {
-		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
-				    skb_head);
+		/*
+		 * Other frames (from any stream) MUST NOT occur between
+		 * the HEADERS frame and any CONTINUATION frames that might
+		 * follow. Send goaway later.
+		 */
+		ctx->error = ctx->cur_send_headers;
+		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
 	}
 
 	return 0;
@@ -236,7 +240,6 @@ tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 	 */
 	if (stream && stream->xmit.skb_head) {
 		ss_skb_queue_splice(&stream->xmit.skb_head, skb_head);
-		sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 	} else if (ctx->cur_send_headers) {
 		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
 				    skb_head);
@@ -1992,7 +1995,8 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   unsigned int mss_now, bool *snd_wnd_exceeded,
+			   unsigned int mss_now, int ss_action,
+			   bool *snd_wnd_exceeded,
 			   unsigned int *not_account_in_flight,
 			   unsigned int *tls_record_len)
 {
@@ -2131,9 +2135,11 @@ do {									\
 			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
 			/*
 			 * We set ctx->error only when we close connection
-			 * after sending error response.
+			 * after sending error response. If ss_action is
+			 * SS_CLOSE we don't need to shutdown socket, because
+			 * we will done it from `ss_do_close`.
 			 */
-			if (stream == ctx->error)
+			if (stream == ctx->error && ss_action != SS_CLOSE)
 				tcp_shutdown(sk, SEND_SHUTDOWN);
 		}
 		tfw_h2_stream_add_closed(ctx, stream);
@@ -2153,7 +2159,7 @@ do {									\
 
 int
 tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
-		   bool *data_is_available)
+		   int ss_action, bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
@@ -2193,7 +2199,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 		 */
 		BUG_ON(!stream);
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream, mss_now,
-					       &snd_wnd_exceeded,
+					       ss_action, &snd_wnd_exceeded,
 					       &not_account_in_flight,
 					       &tls_record_len);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
@@ -2211,6 +2217,12 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 	*data_is_available =
 		tfw_h2_stream_sched_is_active(&sched->root) && ctx->rem_wnd;
 
-	return r ? r : (tfw_h2_stream_sched_is_active(&sched->root) ||
-		ctx->sched.blocked_streams) ? 1 : 0;
+	/*
+	 * Send shutdown if there is no pending error response in our scheduler
+	 * and this function is called from `ss_do_shutdown`.
+	 */
+	if ((!ctx->error || r) && ss_action == SS_SHUTDOWN)
+		tcp_shutdown(sk, SEND_SHUTDOWN);
+
+	return r;
 }
