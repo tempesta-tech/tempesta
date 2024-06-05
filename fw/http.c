@@ -3520,9 +3520,15 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_http_add_hdr_host(req);
-	if (unlikely(r))
-		goto clean;
+	if (!h_mods || !test_bit(TFW_HTTP_HDR_HOST, h_mods->spec_hdrs)) {
+		/*
+		 * When Host not mofified from configuration do addition here,
+		 * otherwise header will be added at headers modification time.
+		 */
+		r = tfw_http_add_hdr_host(req);
+		if (unlikely(r))
+			goto clean;
+	}
 
 	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_CONTENT_LENGTH) {
 		int hid = pos - hm->h_tbl->tbl;
@@ -3530,7 +3536,8 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 		/* Skip hop-by-hop headers. */
 		if (TFW_STR_EMPTY(hdr) || hdr->flags & TFW_STR_HBH_HDR
-		    || hid == TFW_HTTP_HDR_X_FORWARDED_FOR) {
+		    || hid == TFW_HTTP_HDR_X_FORWARDED_FOR)
+		{
 			continue;
 		}
 
@@ -3552,6 +3559,12 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			continue;
 
 		TFW_STR_FOR_EACH_DUP(dup, pos, dup_end) {
+			/*
+			 * Case when duplicated header exists in headers and
+			 * trailer.
+			 */
+			if (unlikely(dup->flags & TFW_STR_TRAILER))
+				continue;
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
 				goto clean;
@@ -4261,7 +4274,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		TfwStr *dup, *dup_end, *hdr = pos;
 
 		/* Skip hop-by-hop headers. */
-		if (TFW_STR_EMPTY(hdr) || (hdr->flags & TFW_STR_HBH_HDR))
+		if (TFW_STR_EMPTY(hdr) || hdr->flags & TFW_STR_HBH_HDR)
 			continue;
 
 		if (TFW_STR_DUP(hdr))
@@ -4271,6 +4284,12 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			continue;
 
 		TFW_STR_FOR_EACH_DUP(dup, pos, dup_end) {
+			/*
+			 * Case when duplicated header exists in headers and
+			 * trailer.
+			 */
+			if (unlikely(hdr->flags & TFW_STR_TRAILER))
+				continue;
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
 				goto clean;
@@ -4909,18 +4928,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		 * Remove 'Connection', 'Keep-Alive' headers and all hop-by-hop
 		 * headers from the HTTP/2 response.
 		 */
-		if (hid == TFW_HTTP_HDR_KEEP_ALIVE
-		    || hid == TFW_HTTP_HDR_CONNECTION
-		    || tgt->flags & TFW_STR_HBH_HDR)
-			continue;
-
-		/*
-		 * 'Server' header must be replaced; thus, remove the original
-		 * header (and all its duplicates) skipping it here; the new
-		 * header will be written later, during new headers' addition
-		 * stage.
-		 */
-		if (hid == TFW_HTTP_HDR_SERVER)
+		if (tgt->flags & TFW_STR_HBH_HDR)
 			continue;
 
 		r = tfw_hpack_transform(resp, tgt);

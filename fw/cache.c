@@ -2091,7 +2091,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * version of this header.
 		 */
 		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
-		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(field))
 		{
 			--ce->hdr_num;
@@ -2323,7 +2322,6 @@ __cache_entry_size(TfwHttpResp *resp)
 		 * version of this header.
 		 */
 		if ((hdr->flags & TFW_STR_HBH_HDR)
-		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(hdr))
 			continue;
 
