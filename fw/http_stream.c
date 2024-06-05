@@ -57,6 +57,13 @@ tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
 		ctx->cur_recv_headers = NULL;
 }
 
+static inline void
+tfw_h2_stream_purge_all(TfwStream *stream)
+{
+	ss_skb_queue_purge(&stream->xmit.skb_head);
+	ss_skb_queue_purge(&stream->xmit.postponed);
+	stream->xmit.h_len = stream->xmit.b_len = 0;
+}
 
 static void
 tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
@@ -69,7 +76,7 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	 * the scheduler.
 	 */
 	tfw_h2_remove_stream_dep(sched, stream);
-	tfw_h2_stream_purge_send_queue_and_free_response(stream);
+	tfw_h2_stream_purge_all_and_free_response(stream);
 
 	tfw_h2_conn_reset_stream_on_close(ctx, stream);
 	rb_erase(&stream->node, &sched->streams);
@@ -127,7 +134,24 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 }
 
 void
-tfw_h2_stream_purge_send_queue_and_free_response(TfwStream *stream)
+tfw_h2_stream_purge_send_queue(TfwStream *stream)
+{
+	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
+		stream->xmit.frame_length;
+	struct sk_buff *skb;
+
+	while(len) {
+		skb = ss_skb_dequeue(&stream->xmit.skb_head);
+		BUG_ON(!skb);
+
+		len -= skb->len;
+		kfree_skb(skb);
+	}
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.frame_length = 0;
+}
+
+void
+tfw_h2_stream_purge_all_and_free_response(TfwStream *stream)
 {
 	TfwHttpResp*resp = stream->xmit.resp;
 
@@ -135,8 +159,7 @@ tfw_h2_stream_purge_send_queue_and_free_response(TfwStream *stream)
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 	}
-	if (stream->xmit.skb_head)
-		tfw_h2_stream_purge_send_queue(stream);
+	tfw_h2_stream_purge_all(stream);
 }
 
 void

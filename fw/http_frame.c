@@ -1970,25 +1970,23 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
 	frame_hdr.flags = tf2_h2_calc_frame_flags(stream, type);
-
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
+	stream->xmit.frame_length = length + FRAME_HEADER_SIZE;
 	switch (tfw_h2_stream_send_process(ctx, stream, type)) {
 	case STREAM_FSM_RES_OK:
 	case STREAM_FSM_RES_IGNORE:
 		break;
 	case STREAM_FSM_RES_TERM_STREAM:
 		/*
-		 * TODO: don't close connection, just purge
-		 * stream send queue. We also need to send
-		 * goaway/tls_alert or any postponed frames.
+		 * Purge stream send queue, but leave postponed
+		 * skbs and rst stream/goaway/tls alert if exist.
 		 */
-		fallthrough;
+		tfw_h2_stream_purge_send_queue(stream);
+		return 0;
 	case STREAM_FSM_RES_TERM_CONN:
 		return -EPIPE;
 	}
-
-	stream->xmit.frame_length = length + FRAME_HEADER_SIZE;
 
 	return 0;
 }
