@@ -216,7 +216,8 @@ void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
 TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
 					   unsigned char type);
-void tfw_h2_stream_purge_send_queue_and_free_response(TfwStream *stream);
+void tfw_h2_stream_purge_send_queue(TfwStream *stream);
+void tfw_h2_stream_purge_all_and_free_response(TfwStream *stream);
 
 static inline TfwStreamState
 tfw_h2_get_stream_state(TfwStream *stream)
@@ -268,13 +269,6 @@ tfw_h2_stream_try_unblock(TfwStreamSched *sched, TfwStream *stream)
 			tfw_h2_sched_activate_stream(sched, stream);
 		}
 	}
-}
-
-static inline void
-tfw_h2_stream_purge_send_queue(TfwStream *stream)
-{
-	ss_skb_queue_purge(&stream->xmit.skb_head);
-	stream->xmit.h_len = stream->xmit.b_len = 0;
 }
 
 static inline bool
