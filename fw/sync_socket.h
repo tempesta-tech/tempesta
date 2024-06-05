@@ -34,6 +34,12 @@ typedef struct ss_proto_t {
 	int			type;
 } SsProto;
 
+typedef enum {
+	SS_SEND,
+	SS_CLOSE,
+	SS_SHUTDOWN,
+} SsAction;
+
 /*
  * Flag bits definition for SsProto.type field.
  * NOTE: There are also flags definition for this

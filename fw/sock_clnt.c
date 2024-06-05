@@ -173,7 +173,7 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 }
 
 static int
-tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
+tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, int ss_action)
 {
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
@@ -192,10 +192,13 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	BUG_ON(TFW_CONN_PROTO(conn) != TFW_FSM_H2);
 
 	h2 = tfw_h2_context_safe(conn);
-	if (!h2)
+	if (!h2) {
+		if (ss_action == SS_SHUTDOWN)
+			tcp_shutdown(sk, SEND_SHUTDOWN);
 		return 0;
+	}
 
-	r = tfw_h2_make_frames(sk, h2, mss_now, &data_is_available);
+	r = tfw_h2_make_frames(sk, h2, mss_now, ss_action, &data_is_available);
 	if (unlikely(r < 0))
 		return r;
 

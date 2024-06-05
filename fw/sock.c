@@ -39,12 +39,6 @@
 #include "work_queue.h"
 #include "http_limits.h"
 
-typedef enum {
-	SS_SEND,
-	SS_CLOSE,
-	SS_SHUTDOWN,
-} SsAction;
-
 typedef struct {
 	struct sock	*sk;
 	struct sk_buff	*skb_head;
@@ -666,7 +660,7 @@ ss_do_close(struct sock *sk, int flags)
 	} else if (tcp_close_state(sk)) {
 		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 		if (sk->sk_fill_write_queue)
-			sk->sk_fill_write_queue(sk, mss);
+			sk->sk_fill_write_queue(sk, mss, SS_CLOSE);
 		tcp_send_fin(sk);
 	}
 
@@ -1511,15 +1505,14 @@ static inline void
 ss_do_shutdown(struct sock *sk)
 {
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-	int r = 0;
-	if (sk->sk_fill_write_queue)
-		r = sk->sk_fill_write_queue(sk, mss);
 	/*
-	 * `sk_fill_write_queue` returns 0 in case when there is no
-	 * available data in our scheduler and returns negative
-	 * value in case of error.
+	 * We send `tcp_shutdown` from `sk_fill_write_queue` if
+	 * there is no pending data in our sceduler and SS_SHUTDOWN
+	 * is passed as ss_action.
 	 */
-	if (unlikely(r <= 0))
+	if (sk->sk_fill_write_queue)
+		sk->sk_fill_write_queue(sk, mss, SS_SHUTDOWN);
+	else
 		tcp_shutdown(sk, SEND_SHUTDOWN);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }

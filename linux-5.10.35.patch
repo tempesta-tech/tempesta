@@ -752,10 +752,10 @@ index 89163ef8c..49ad1ddc9 100644
  	union {
  		struct ip_options_rcu __rcu	*ireq_opt;
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 261195598..a170ec657 100644
+index 261195598..30065327f 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
-@@ -506,6 +506,15 @@ struct sock {
+@@ -506,6 +506,16 @@ struct sock {
  	void			(*sk_state_change)(struct sock *sk);
  	void			(*sk_data_ready)(struct sock *sk);
  	void			(*sk_write_space)(struct sock *sk);
@@ -765,13 +765,14 @@ index 261195598..a170ec657 100644
 +						 unsigned int mss_now,
 +						 unsigned int limit);
 +	int			(*sk_fill_write_queue)(struct sock *sk,
-+						       unsigned int mss_now);
++						       unsigned int mss_now,
++						       int ss_action);
 +	void			(*sk_destroy_cb)(struct sock *sk);
 +#endif
  	void			(*sk_error_report)(struct sock *sk);
  	int			(*sk_backlog_rcv)(struct sock *sk,
  						  struct sk_buff *skb);
-@@ -861,6 +870,10 @@ enum sock_flags {
+@@ -861,6 +871,10 @@ enum sock_flags {
  	SOCK_TXTIME,
  	SOCK_XDP, /* XDP is attached */
  	SOCK_TSTAMP_NEW, /* Indicates 64 bit timestamps always */
@@ -782,7 +783,7 @@ index 261195598..a170ec657 100644
  };
  
  #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
-@@ -1081,6 +1094,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
+@@ -1081,6 +1095,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
  		__rc;							\
  	})
  
@@ -799,7 +800,7 @@ index 261195598..a170ec657 100644
  int sk_stream_wait_connect(struct sock *sk, long *timeo_p);
  int sk_stream_wait_memory(struct sock *sk, long *timeo_p);
  void sk_stream_wait_close(struct sock *sk, long timeo_p);
-@@ -1915,8 +1938,7 @@ static inline bool sk_rethink_txhash(struct sock *sk)
+@@ -1915,8 +1939,7 @@ static inline bool sk_rethink_txhash(struct sock *sk)
  static inline struct dst_entry *
  __sk_dst_get(struct sock *sk)
  {
@@ -810,7 +811,7 @@ index 261195598..a170ec657 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 7d66c61d2..41bca3132 100644
+index 7d66c61d2..7785fc8a6 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -307,6 +307,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -877,7 +878,7 @@ index 7d66c61d2..41bca3132 100644
 +		int result;
 +
 +		mss_now = tcp_current_mss(sk);
-+		result = sk->sk_fill_write_queue(sk, mss_now);
++		result = sk->sk_fill_write_queue(sk, mss_now, 0);
 +		if (unlikely(result < 0 && result != -ENOMEM)) {
 +			tcp_tfw_handle_error(sk, result);
 +			return;
