@@ -24,12 +24,26 @@
 #include "http_stream.h"
 #include "hpack.h"
 
+extern unsigned int max_queued_control_frames;
+
 /* RFC 7540 Section 4.1 frame header constants. */
 #define FRAME_HEADER_SIZE		9
 #define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
 #define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
 #define FRAME_MAX_LENGTH		((1U << 24) - 1)
 #define FRAME_DEF_LENGTH		(16384)
+
+/**
+ * MAX_QUEUED_CONTROL_FRAMES is the maximum number of control frames like
+ * SETTINGS, PING and RST_STREAM that will be queued for writing before
+ * the connection is closed to prevent memory exhaustion attacks.
+ */
+#define MAX_QUEUED_CONTROL_FRAMES	10000
+
+enum {
+	/* This skb contains control frame. */
+	SS_F_HTTT2_FRAME_CONTROL	= 0x80,
+};
 
 /**
  * HTTP/2 frame types (RFC 7540 section 6).
@@ -209,6 +223,7 @@ typedef struct {
  */
 typedef struct tfw_h2_ctx_t {
 	spinlock_t	lock;
+	unsigned int	queued_control_frames;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
 	unsigned long	streams_num;

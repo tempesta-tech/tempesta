@@ -471,6 +471,9 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	if (h2_mode) {
 		h2 = tfw_h2_context(conn);
 		tbl = &h2->hpack.enc_tbl;
+		if (flags & SS_F_HTTT2_FRAME_CONTROL) {
+			--h2->queued_control_frames;
+		}
 	}
 
 	r = tfw_tls_encrypt(sk, skb, mss_now, limit, nskbs);
