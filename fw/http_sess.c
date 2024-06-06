@@ -588,17 +588,19 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache)
 	{
 		return 0;
 	}
-	BUG_ON(!req->sess);
-
-	/*
-	 * RFC 6265 4.1.1 and 4.1.2 says that we should not set session cookie
-	 * if it's not necessary. Since client didn't send up the cookie and
-	 * it seems that we don't enforce them, we can just set the cookie in
-	 * each response forwarded to the client.
-	 */
-	if (test_bit(TFW_HTTP_B_HAS_STICKY, req->flags))
-		return 0;
-	return tfw_http_sticky_add(resp, cache);
+	if (req->need_jsch) {
+		BUG_ON(!req->sess);
+		/*
+		 * RFC 6265 4.1.1 and 4.1.2 says that we should not set session cookie
+		 * if it's not necessary. Since client didn't send up the cookie and
+		 * it seems that we don't enforce them, we can just set the cookie in
+		 * each response forwarded to the client.
+		 */
+		if (test_bit(TFW_HTTP_B_HAS_STICKY, req->flags))
+			return 0;
+		return tfw_http_sticky_add(resp, cache);
+	}
+	return 0;
 }
 
 /**
@@ -666,6 +668,8 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
 	unsigned long min_time;
 	TfwCfgJsCh *js_ch = req->vhost->cookie->js_challenge;
+	if (!req->need_jsch)
+		return 0;
 
 	if (!js_ch)
 		return 0;
@@ -843,20 +847,22 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * We leave this for administrator decision or more progressive DDoS
 	 * mitigation techniques.
 	 */
-	r = tfw_http_sticky_req_process(req, sv, c_val);
-	switch (r) {
-	case TFW_HTTP_SESS_SUCCESS:
-		break;
-	case TFW_HTTP_SESS_FAILURE:
-		return r;
-	default:
-		/*
-		 * Any js challenge processing error: cookie not found
-		 * or invalid or request comes not in time. We increment
-		 * max_misses and restart js challenge.
-		 */
-		BUG_ON(r < __TFW_HTTP_SESS_PUB_CODE_MAX);
-		return tfw_http_sticky_challenge_start(req);
+	if (req->need_jsch) {
+		r = tfw_http_sticky_req_process(req, sv, c_val);
+		switch (r) {
+		case TFW_HTTP_SESS_SUCCESS:
+			break;
+		case TFW_HTTP_SESS_FAILURE:
+			return r;
+		default:
+			/*
+			 * Any js challenge processing error: cookie not found
+			 * or invalid or request comes not in time. We increment
+			 * max_misses and restart js challenge.
+			 */
+			BUG_ON(r < __TFW_HTTP_SESS_PUB_CODE_MAX);
+			return tfw_http_sticky_challenge_start(req);
+		}
 	}
 
 	if (req->vhost->cookie->learn) {
