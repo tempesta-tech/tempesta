@@ -46,6 +46,7 @@ enum {
 	/* Each connection has Client or Server bit. */
 	Conn_Clnt	= 0x1 << __Conn_Bits,
 	Conn_Srv	= 0x2 << __Conn_Bits,
+	Conn_Negotiable	= 0x4 << __Conn_Bits,
 
 	/* HTTP */
 	Conn_HttpClnt	= Conn_Clnt | TFW_FSM_HTTP,

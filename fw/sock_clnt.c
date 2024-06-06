@@ -128,7 +128,18 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
 
-	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
+	/*
+	 * We need to check if it is a single version connection (HTTPS or H2)
+	 * or negotiable HTTPS/H2 connection.
+	 * In case of a single version connection, corresponding to
+	 * this protocol cache was used.
+	 * In case of a negotiable connection, H2 cache was used for
+	 * both versions, and we need to free H2 cache.
+	 */
+	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable))
+		kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
+	else
+		kmem_cache_free(tfw_cli_cache(TFW_FSM_H2), cli_conn);
 }
 
 void
@@ -624,6 +635,9 @@ static const SsProto tfw_sock_listen_protos[] = {
 
 	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2},
 	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2 | Conn_Negotiable},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt | Conn_Negotiable},
 };
 
 static const SsProto *
