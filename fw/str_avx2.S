@@ -311,7 +311,7 @@ SYM_FUNC_START(__tfw_strtolower_avx2)
 	 * a constant and there is no speculation required for the attack.
 	 */
 	ANNOTATE_RETPOLINE_SAFE
-	jmpq	*%rax
+	notrack jmpq	*%rax
 .section .rodata
 .align	8
 .str2low_switch:
@@ -481,7 +481,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	/* Process short strings below 8 bytes in length. */
 	movq	.stricmp_switch(,%rdx,8), %rax
 	ANNOTATE_RETPOLINE_SAFE /* constant bounds check */
-	jmpq	*%rax
+	notrack jmpq	*%rax
 .section .rodata
 .align 8
 .stricmp_switch:
@@ -838,7 +838,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 
 	movq	.sic2lc_switch(,%rdx,8), %rax
 	ANNOTATE_RETPOLINE_SAFE /* constant bounds check */
-	jmpq	*%rax
+	notrack jmpq	*%rax
 .section	.rodata
 .align 8
 .sic2lc_switch:

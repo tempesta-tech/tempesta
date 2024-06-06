@@ -120,7 +120,7 @@ tfw_cstrtolower_wo_avx2(void *dest, const void *src, size_t len)
 		d[i] = tolower(s[i]);
 }
 
-#if 0
+#ifdef AVX2
 /*
  * The functions expect non-ovelapping strings, so use restrict notation in
  * the declarations just as a specification.

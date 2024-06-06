@@ -183,7 +183,7 @@ int ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap);
 void ttls_mpi_lset(TlsMpi *X, long z);
 
 void ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count);
-int ttls_mpi_shift_r(TlsMpi *X, size_t count);
+void ttls_mpi_shift_r(TlsMpi *X, size_t count);
 int ttls_mpi_get_bit(const TlsMpi *X, size_t pos);
 void ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val);
 size_t ttls_mpi_lsb(const TlsMpi *X);
@@ -193,13 +193,13 @@ int ttls_mpi_cmp_abs(const TlsMpi *X, const TlsMpi *Y);
 int ttls_mpi_cmp_mpi(const TlsMpi *X, const TlsMpi *Y);
 int ttls_mpi_cmp_int(const TlsMpi *X, long z);
 
-int ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b);
 
-int ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
+void ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
 
 void ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b);
