@@ -247,6 +247,7 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	return cli;
 }
 EXPORT_SYMBOL(tfw_client_obtain);
+ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.

@@ -110,6 +110,7 @@ tfw_cli_conn_alloc(int type)
 
 	return cli_conn;
 }
+ALLOW_ERROR_INJECTION(tfw_cli_conn_alloc, NULL);
 
 static void
 tfw_cli_conn_free(TfwCliConn *cli_conn)
