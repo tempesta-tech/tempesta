@@ -276,46 +276,6 @@ ttls_mpi_size(const TlsMpi *X)
  * All the shifts for more than 64 bits are for integer number of limbs,
  * so the straightforward 2n algorithm is fine to make the each case simpler.
  */
-int
-ttls_mpi_shift_ll(TlsMpi *X, size_t count)
-{
-	size_t v0, t1, old_used = X->used, i = ttls_mpi_bitlen(X);
-	unsigned long r0 = 0, r1, *p = MPI_P(X);
-
-	if (unlikely(!i))
-		return 0;
-
-	v0 = count >> BSHIFT;
-	t1 = count & BMASK;
-	i += count;
-
-	if (WARN_ON_ONCE((X->limbs << BSHIFT) < i))
-		return -ENOSPC;
-
-	X->used = BITS_TO_LIMBS(i);
-	if (old_used < X->used)
-		bzero_fast(p + old_used, (X->used - old_used) * CIL);
-
-	/* Shift by count / limb_size. */
-	if (v0 > 0) {
-		for (i = X->used; i > v0; i--)
-			p[i - 1] = p[i - v0 - 1];
-		for ( ; i > 0; i--)
-			p[i - 1] = 0;
-	}
-
-	/* shift by count % limb_size. */
-	if (t1 > 0) {
-		for (i = v0; i < X->used; i++) {
-			r1 = p[i] >> (BIL - t1);
-			p[i] <<= t1;
-			p[i] |= r0;
-			r0 = r1;
-		}
-	}
-
-	return 0;
-}
 void
 ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count)
 {
@@ -371,50 +331,6 @@ ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count)
  * All the shifts for more than 64 bits are for integer number of limbs,
  * so the straightforward 2n algorithm is fine to make the each case simpler.
  */
-int
-ttls_mpi_shift_r(TlsMpi *X, size_t count)
-{
-	size_t i, v0, v1;
-	unsigned long r0 = 0, r1;
-
-	if (unlikely(!X->used || !MPI_P(X)[X->used - 1])) {
-		WARN_ON_ONCE(X->used > 1);
-		return 0;
-	}
-
-	v0 = count >> BSHIFT;
-	v1 = count & BMASK;
-
-	if (v0 > X->used || (v0 == X->used && v1 > 0)) {
-		ttls_mpi_lset(X, 0);
-		return 0;
-	}
-
-	/*
-	 * Shift by count / limb_size - remove least significant limbs.
-	 * There could be garbage after last used limb, so be careful.
-	 */
-	if (v0 > 0) {
-		X->used -= v0;
-		for (i = 0; i < X->used; i++)
-			MPI_P(X)[i] = MPI_P(X)[i + v0];
-	}
-
-	/* Shift by count % limb_size. */
-	if (v1 > 0) {
-		for (i = X->used; i > 0; i--) {
-			r1 = MPI_P(X)[i - 1] << (BIL - v1);
-			MPI_P(X)[i - 1] >>= v1;
-			MPI_P(X)[i - 1] |= r0;
-			r0 = r1;
-		}
-		if (!MPI_P(X)[X->used - 1])
-			--X->used;
-	}
-
-	return 0;
-}
-#if 0
 void
 ttls_mpi_shift_r(TlsMpi *X, size_t count)
 {
@@ -469,7 +385,6 @@ zero_sign:
 		X->s = 1;
 	bzero_fast(x + X->used, (X->limbs - X->used) * CIL);
 }
-#endif
 
 #if DBG_TLS
 /**
@@ -673,58 +588,6 @@ ttls_mpi_cmp_int(const TlsMpi *X, long z)
  *
  * @A and @B must be different, but either of them can accept the result @X.
  */
-#if 1
-int
-ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
-{
-	size_t i;
-	unsigned long *a, *b, *x, c = 0;
-
-	BUG_ON(A == B);
-	if (X == B) {
-		const TlsMpi *T = A;
-		A = X;
-		B = T;
-	}
-
-	/* X should always be positive as a result of unsigned additions. */
-	X->s = 1;
-
-	if (WARN_ON_ONCE(X->limbs < max_t(unsigned short, A->used, B->used)))
-		return -ENOSPC;
-	X->used = A->used;
-
-	a = MPI_P(A);
-	b = MPI_P(B);
-	x = MPI_P(X);
-	/* TODO #1064 move out condition from under the loop. */
-	for (i = 0; i < B->used; i++, a++, b++, x++) {
-		if (i == X->used) {
-			++X->used;
-			*x = c;
-		} else {
-			*x = *a + c;
-		}
-		c = *x < c;
-		*x += *b;
-		c += *x < *b;
-	}
-	for ( ; c; i++, a++, x++) {
-		BUG_ON(i >= X->limbs);
-		if (i == X->used) {
-			++X->used;
-			*x = c;
-		} else {
-			*x = *a + c;
-		}
-		c = *x < c;
-	}
-	if (X != A && X->used > i)
-		memcpy_fast(x, a, (X->used - i) * CIL);
-
-	return 0;
-}
-#else
 void
 ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
@@ -748,55 +611,11 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	/* X should always be positive as a result of unsigned additions. */
 	X->s = 1;
 }
-#endif
 
-static void
-__mpi_sub(unsigned long *a, size_t a_len, unsigned long *b, size_t b_len,
-	  unsigned long *r)
-{
-	unsigned long c = 0, z, b_tmp, *b_end = b + b_len, *a_end = a + a_len;
-
-	BUG_ON(a_len < b_len);
-
-	for ( ; b < b_end; a++, b++, r++) {
-		z = *a < c;
-		b_tmp = *b;
-		*r = *a - c;
-		c = (*r < b_tmp) + z;
-		*r -= b_tmp;
-	}
-	while (c) {
-		z = *a < c;
-		*r = *a - c;
-		c = z;
-		a++;
-		r++;
-	}
-	BUG_ON(a > a_end);
-	memcpy_fast(r, a, (a_end - a) * CIL);
-}
 /**
  * Unsigned subtraction: X = |A| - |B|.
  * @X may reference either @A or @B.
  */
-#if 1
-int
-ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
-{
-	if (ttls_mpi_cmp_abs(A, B) < 0)
-		return -EINVAL;
-
-	ttls_mpi_alloc(X, A->used);
-
-	__mpi_sub(MPI_P(A), A->used, MPI_P(B), B->used, MPI_P(X));
-
-	/* X should always be positive as a result of unsigned subtractions. */
-	X->s = 1;
-	mpi_fixup_used(X, A->used);
-
-	return 0;
-}
-#else
 void
 ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
@@ -826,15 +645,13 @@ ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		*x = *a - *b;
 	}
 	else {
-		//mpi_sub_x86_64(x, b, a, b_sz, a_sz);
-	__mpi_sub(MPI_P(A), A->used, MPI_P(B), B->used, MPI_P(X));
+		mpi_sub_x86_64(x, b, a, b_sz, a_sz);
 	}
 
 	/* X should always be positive as a result of unsigned subtractions. */
 	X->s = 1;
 	mpi_fixup_used(X, a_sz);
 }
-#endif
 
 /**
  * Signed addition: X = A + B
@@ -868,31 +685,6 @@ ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 /**
  * Signed subtraction: X = A - B
  */
-#if 1
-int
-ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
-{
-	int r, s = A->s;
-
-	if (A->s * B->s > 0) {
-		if (ttls_mpi_cmp_abs(A, B) >= 0) {
-			if ((r = ttls_mpi_sub_abs(X, A, B)))
-				return r;
-			X->s = s;
-		} else {
-			if ((r = ttls_mpi_sub_abs(X, B, A)))
-				return r;
-			X->s = -s;
-		}
-	} else {
-		if ((r = ttls_mpi_add_abs(X, A, B)))
-			return r;
-		X->s = s;
-	}
-
-	return 0;
-}
-#else
 void
 ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
@@ -918,7 +710,6 @@ ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		X->s = s;
 	}
 }
-#endif
 
 /**
  * Signed addition: X = A + b
@@ -935,18 +726,6 @@ ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b)
 /**
  * Signed subtraction: X = A - b
  */
-#if 1
-int
-ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
-{
-	DECLARE_MPI_AUTO(_B, 1);
-	MPI_P(&_B)[0] = (b < 0) ? -b : b;
-	_B.s = (b < 0) ? -1 : 1;
-	_B.limbs = _B.used = 1;
-
-	return ttls_mpi_sub_mpi(X, A, &_B);
-}
-#else
 void
 ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 {
@@ -966,7 +745,6 @@ ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 		X->s = -1;
 	}
 }
-#endif
 
 #define MULADDC_INIT							\
 	asm(	"xorq	%%r8, %%r8	\n\t"
@@ -1343,49 +1121,6 @@ __mpi_montg_init(unsigned long *mm, const TlsMpi *N)
  * TODO #1335: this is used for modular exponentiation only, so repalce it with
  * an adequate assembly implementation for the RSA handshakes.
  */
-#if 1
-static int
-__mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
-	      TlsMpi *T)
-{
-	size_t i, n, m;
-	unsigned long u0, u1, *d;
-
-	BUG_ON(T->limbs < N->used + 1);
-	bzero_fast(MPI_P(T), T->limbs * CIL);
-
-	d = MPI_P(T);
-	n = N->used;
-	m = (B->used < n) ? B->used : n;
-
-	for (i = 0; i < n; i++) {
-		/* T = (T + u0*B + u1*N) / 2^BIL */
-		u0 = MPI_P(A)[i];
-		u1 = (d[0] + u0 * MPI_P(B)[0]) * mm;
-
-		__mpi_mul(m, MPI_P(B), d, u0);
-		__mpi_mul(n, MPI_P(N), d, u1);
-
-		*d++ = u0;
-		d[n + 1] = 0;
-	}
-	mpi_fixup_used(T, T->limbs);
-
-	memcpy_fast(MPI_P(A), d, (n + 1) * CIL);
-	mpi_fixup_used(A, n + 1);
-
-	if (ttls_mpi_cmp_abs(A, N) >= 0) {
-		__mpi_sub(MPI_P(A), A->used, MPI_P(N), N->used, MPI_P(A));
-		mpi_fixup_used(A, A->used);
-	} else {
-		/* Prevent timing attacks. */
-		__mpi_sub(MPI_P(T), T->used, MPI_P(A), A->used, MPI_P(T));
-		mpi_fixup_used(T, T->used);
-	}
-
-	return 0;
-}
-#else
 static int
 __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
 	      TlsMpi *T)
@@ -1427,7 +1162,6 @@ __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
 
 	return 0;
 }
-#endif
 
 /**
  * Montgomery reduction: A = A * R^-1 mod N
@@ -1640,7 +1374,7 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 	}
 
 	if (lz)
-		ttls_mpi_shift_ll(&TB, lz);
+		ttls_mpi_shift_l(G, &TB, lz);
 	else
 		ttls_mpi_copy(G, &TB);
 }
