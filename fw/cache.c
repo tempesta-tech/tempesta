@@ -3207,14 +3207,16 @@ tfw_cache_start(void)
 	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return 0;
 
-	if (!tfw_init_node_cpus())
+	if (r = tfw_init_node_cpus())
 		goto close_db;
 
 	for(i = 0; i < nr_online_nodes; i++) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
-		if (!c_nodes[i].db)
+		if (!c_nodes[i].db) {
+			r = -ENOMEM;
 			goto close_db;
+		}
 	}
 #if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
