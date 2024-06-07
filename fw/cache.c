@@ -364,22 +364,24 @@ tfw_init_node_cpus(void)
 			return -ENOMEM;
 	}
 
-	for_each_online_cpu(cpu) {
-		node = cpu_to_node(cpu);
+	for_each_online_node(node) {
 		nr_cpus = nr_cpus_node(node);
-		T_DBG("node - nr_cpus %i - %i",node, nr_cpus);
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if (!c_nodes[node].cpu) {
 			T_ERR( "Failed to allocate a CPU %i for cache work scheduler", cpu);
 			tfw_release_node_cpus();
 			return -ENOMEM;
 		}
+	}
+
+	for_each_online_cpu(cpu) {
+		node = cpu_to_node(cpu);
+		T_DBG("node - nr_cpus %i - %i",node, nr_cpus);
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
+
 	return 0;
 }
-
-
 
 static TDB *
 node_db(void)
