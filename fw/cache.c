@@ -375,7 +375,7 @@ tfw_init_node_cpus(void)
 
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
-		T_DBG("node - nr_cpus %i - %i",node, nr_cpus);
+		T_DBG2("node - nr_cpus %i - %i",node, nr_cpus);
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
 
