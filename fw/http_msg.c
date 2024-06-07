@@ -1433,6 +1433,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 	char* body = TFW_STR_CHUNK(&hm->body, 0)->data;
 	TfwStr *crlf = TFW_STR_LAST(&hm->crlf);
 	char *off = body ? body : crlf->data + (crlf->len - 1);
+	unsigned int mark = hm->msg.skb_head->mark;
 
 	do {
 		struct sk_buff *skb;
@@ -1504,6 +1505,7 @@ end:
 
 	it->skb_head = it->skb;
 	hm->msg.skb_head = it->skb;
+	hm->msg.skb_head->mark = mark;
 
 	/* Start from zero fragment */
 	it->frag = -1;
