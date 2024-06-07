@@ -363,8 +363,7 @@ tfw_init_node_cpus(void)
 			T_ERR( "Failed to allocate nodes map for cache work scheduler");
 			return -ENOMEM;
 	}
-
-	for_each_online_node(node) {
+	for_each_node_with_cpus(node) {
 		nr_cpus = nr_cpus_node(node);
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if (!c_nodes[node].cpu) {
@@ -3207,7 +3206,7 @@ tfw_cache_start(void)
 	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return 0;
 
-	if (r = tfw_init_node_cpus())
+	if ((r = tfw_init_node_cpus()))
 		goto close_db;
 
 	for(i = 0; i < nr_online_nodes; i++) {
