@@ -876,6 +876,31 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 	return 0;
 }
 
+/* Simple version of tfw_str_eq_cstr. */
+static bool __always_inline
+__tfw_str_eq_cstr(const char *cstr, unsigned long clen, TfwStr **pos,
+		  const TfwStr *end)
+{
+	TfwStr *chunk = *pos;
+
+	while (chunk != end) {
+		int len = min(clen, chunk->len);
+
+		if (memcmp_fast(cstr, chunk->data, len))
+			break;
+
+		cstr += len;
+		clen -= len;
+		if (!clen)
+			break;
+		chunk++;
+	}
+
+	*pos = chunk;
+
+	return !clen;
+}
+
 /*
  * Search for cookie in `Set-Cookie`/`Cookie` header value @cookie
  * and save the cookie value into @val.
@@ -902,26 +927,6 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 {
 	TfwStr *chunk;
 
-/* Simple version of tfw_str_eq_cstr. */
-#define TFW_STR_EQ_CSTR(end)						\
-({									\
-	const char *tmp_cstr = cstr;					\
-	unsigned long tmp_clen = clen;					\
-									\
-	while (chunk != end) {						\
-		int len = min(tmp_clen, chunk->len);			\
-		if (memcmp_fast(tmp_cstr, chunk->data, len))		\
-			break;						\
-									\
-		tmp_cstr += len;					\
-		tmp_clen -= len;					\
-		if (!tmp_clen)						\
-			break;						\
-		chunk++;						\
-	}								\
-	!tmp_clen;							\
-})
-
 	/* Search cookie name. */
 	for (chunk = *pos; chunk != end; ++chunk) {
 		if (!(chunk->flags & TFW_STR_NAME))
@@ -933,18 +938,18 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 		if (op == TFW_HTTP_MATCH_O_PREFIX ||
 		    op == TFW_HTTP_MATCH_O_EQ)
 		{
-			if (TFW_STR_EQ_CSTR(end))
+			if (__tfw_str_eq_cstr(cstr, clen, &chunk, end))
 				break;
 			while ((chunk + 1 != end) &&
 			        ((chunk + 1)->flags & TFW_STR_NAME))
 				++chunk;
 		}
 		else if (op == TFW_HTTP_MATCH_O_SUFFIX) {
-			TfwStr *name, t;
-			unsigned int len = 0, name_n = 0;
+			TfwStr *name, *orig;
+			unsigned int len = 0;
 			ssize_t offset;
 
-			for (name = chunk; name != end; ++name, ++name_n) {
+			for (name = chunk; name != end; ++name) {
 				if (!(name->flags & TFW_STR_NAME))
 					break;
 				len += name->len;
@@ -952,7 +957,7 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 
 			offset = len - clen;
 			if (!offset) {
-				if (TFW_STR_EQ_CSTR(name))
+				if (__tfw_str_eq_cstr(cstr, clen, &chunk, name))
 					break;
 			} else if (offset > 0) {
 				bool equal;
@@ -961,11 +966,13 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 					offset -= chunk->len;
 					++chunk;
 				}
-				t = *chunk;
+				orig = chunk;
 				chunk->data += offset;
 				chunk->len -= offset;
-				equal =  TFW_STR_EQ_CSTR(name);
-				*chunk = t;
+				equal = __tfw_str_eq_cstr(cstr, clen, &chunk,
+							  name);
+				orig->data -= offset;
+				orig->len += offset;
 				if (equal)
 					break;
 			}
@@ -997,6 +1004,4 @@ tfw_http_search_cookie(const char *cstr, unsigned long clen,
 	}
 	*pos = tfw_str_collect_cmp(chunk, end, val, ";");
 	return 1;
-
-#undef TFW_STR_EQ_CSTR
 }
