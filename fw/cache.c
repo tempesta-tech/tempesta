@@ -3207,7 +3207,7 @@ tfw_cache_start(void)
 		return 0;
 
 	if ((r = tfw_init_node_cpus()))
-		goto close_db;
+		goto node_cpus_alloc_err;
 
 	for(i = 0; i < nr_online_nodes; i++) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
@@ -3261,6 +3261,8 @@ dbg_buf_free:
 close_db:
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
+
+node_cpus_alloc_err:
 	return r;
 }
 
