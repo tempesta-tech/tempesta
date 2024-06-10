@@ -106,7 +106,7 @@ static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
 #define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
-#define SPRNED(m, e)	seq_printf(seq, m": %dms\n", e)
+#define SPRNED(m, e)	seq_printf(seq, m": %ums\n", e)
 #define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
 	int i;
@@ -157,10 +157,6 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 		seq_printf(seq, "SS work queues' sizes\t\t\t: n/a\n");
 		seq_printf(seq, "SS backlog's sizes\t\t\t: n/a\n");
 	}
-
-	/* Socket buffers kernel statistics. */
-	seq_printf(seq, "Socket buffers in flight\t\t: %ld\n",
-		   __get_skb_count());
 
 	/* Cache statistics. */
 	SPRN("Cache hits\t\t\t\t", cache.hits);
@@ -222,7 +218,7 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
+#define SPRNE(m, e)	seq_printf(seq, m": %ums\n", e)
 
 	size_t i, rc;
 	TfwSrvConn *srv_conn;

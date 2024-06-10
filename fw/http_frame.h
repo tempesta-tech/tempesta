@@ -300,7 +300,7 @@ tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 }
 
 static inline void
-tf2_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
+tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	if (ctx->cur_send_headers == stream)
 		ctx->cur_send_headers = NULL;

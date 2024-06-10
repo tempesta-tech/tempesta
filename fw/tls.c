@@ -664,10 +664,6 @@ tfw_tls_conn_init(TfwConn *c)
 		goto err_cleanup;
 	}
 
-	if (TFW_FSM_TYPE(c->proto.type) == TFW_FSM_H2)
-		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
-			goto err_cleanup;
-
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
 	 * to keep the things safe.
@@ -767,7 +763,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 
 	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
-	      msg->len, io->msglen + TLS_HEADER_SIZE, c,
+	      msg->len, tls->io_out.msglen + TLS_HEADER_SIZE, c,
 	      c->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
 	if (ttls_xfrm_ready(tls)) {
@@ -957,9 +953,18 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 static inline int
 tfw_tls_over(TlsCtx *tls, int state)
 {
+	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
+	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
+
 	if (state == TTLS_HS_CB_FINISHED_NEW
 	    || state == TTLS_HS_CB_FINISHED_RESUMED)
 		TFW_INC_STAT_BH(serv.tls_hs_successful);
+
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2 &&
+	    tfw_h2_context_init(tfw_h2_context(conn))) {
+		    T_ERR("cannot establish a new h2 connection\n");
+		    return T_DROP;
+	}
 
 	return frang_tls_handler(tls, state);
 }
@@ -977,6 +982,14 @@ bool
 tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
+	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
+
+	/* Downgrade from HTTP2 to HTTP1. */
+	if (sk_proto & Conn_Negotiable && alpn->id == TTLS_ALPN_ID_HTTP1) {
+		conn->proto.type = (conn->proto.type & ~TFW_GFSM_FSM_MASK) |
+					TFW_FSM_HTTPS;
+		return true;
+	}
 
 	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2
 	    && alpn->id == TTLS_ALPN_ID_HTTP2)
@@ -1088,6 +1101,20 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 			proto0->len = sizeof(TTLS_ALPN_HTTP1) - 1;
 			return TFW_FSM_HTTPS;
 		}
+	}
+
+	if (!strcasecmp(cfg_str, "h2,https") ||
+	    !strcasecmp(cfg_str, "https,h2")) {
+
+		proto0->id = TTLS_ALPN_ID_HTTP2;
+		proto0->name = TTLS_ALPN_HTTP2;
+		proto0->len = sizeof(TTLS_ALPN_HTTP2) - 1;
+
+		proto1->id = TTLS_ALPN_ID_HTTP1;
+		proto1->name = TTLS_ALPN_HTTP1;
+		proto1->len = sizeof(TTLS_ALPN_HTTP1) - 1;
+
+		return TFW_FSM_H2 | Conn_Negotiable;
 	}
 
 	return -EINVAL;
