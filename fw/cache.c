@@ -358,6 +358,8 @@ tfw_init_node_cpus(void)
 {
 	int nr_cpus, cpu, node;
 
+	T_DBG2("nr_online_nodes: %d", nr_online_nodes);
+
 	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
 		if (!c_nodes) {
 			T_ERR( "Failed to allocate nodes map for cache work scheduler");
@@ -365,6 +367,7 @@ tfw_init_node_cpus(void)
 	}
 	for_each_node_with_cpus(node) {
 		nr_cpus = nr_cpus_node(node);
+		T_DBG2("node: %d  nr_cpus: %d",node, nr_cpus);
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if (!c_nodes[node].cpu) {
 			T_ERR( "Failed to allocate a CPU %i for cache work scheduler", cpu);
@@ -375,7 +378,7 @@ tfw_init_node_cpus(void)
 
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
-		T_DBG2("node - nr_cpus %i - %i",node, nr_cpus);
+		T_DBG2("node: %d  cpu: %d",node, cpu);
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
 
