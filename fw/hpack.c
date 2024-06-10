@@ -1387,11 +1387,20 @@ done:
 
 	return 0;
 }
-
 static int
 process_h2_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, int tag)
 {
 	/*
+	 * RFC 7230 4.1.2:
+	 *
+	 * A sender MUST NOT generate a trailer that contains a field necessary
+	 * for message framing (e.g., Transfer-Encoding and Content-Length),
+	 * routing (e.g., Host), request modifiers (e.g., controls and
+	 * conditionals in Section 5 of [RFC7231]), authentication (e.g., see
+	 * [RFC7235] and [RFC6265]), response control data (e.g., see Section
+	 * 7.1 of [RFC7231]), or determining how to process the payload (e.g.,
+	 * Content-Encoding, Content-Type, Content-Range, and Trailer).
+	 *
 	 * RFC 9113 8.1:
 	 *
 	 * Trailers MUST NOT include pseudo-header fields.
@@ -1679,10 +1688,15 @@ get_value_text:
 			if ((r = frang_http_hdr_limit(req, parser->hdr.len)))
 				goto out;
 
+			/*
+			 * We check trailers here instead of __h2_msg_verify()
+			 * because in case of indexed headers
+			 * this function is not called.
+			 */
 			if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
 				if ((r = process_h2_trailer_hdr((TfwHttpMsg*)req,
-								&(parser->hdr),
-								parser->_hdr_tag)))
+							      &(parser->hdr),
+							      it->tag)))
 					goto out;
 
 			if (state & HPACK_FLAGS_ADD
@@ -1725,10 +1739,15 @@ get_all_indexed:
 			if ((r = frang_http_hdr_limit(req, entry->hdr->len)))
 				goto out;
 
+			/*
+			 * We check trailers here instead of __h2_msg_verify()
+			 * because in case of indexed headers
+			 * this function is not called.
+			 */
 			if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags))
 				if ((r = process_h2_trailer_hdr((TfwHttpMsg*)req,
-								entry->hdr,
-								entry->tag)))
+							      entry->hdr,
+							      entry->tag)))
 					goto out;
 
 			if ((r = tfw_hpack_hdr_set(hp, req, entry)))
