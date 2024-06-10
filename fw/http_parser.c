@@ -782,19 +782,14 @@ static const TfwStr ete_spec_raw_hdrs[] = {
  * listed in Connection header or in @tfw_http_init_parser_* function.
  */
 static void
-mark_spec_hbh(TfwHttpMsg *hm)
+mark_spec_hbh(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &hm->stream->parser.hbh_parser;
-	unsigned int id;
 
-	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
-		TfwStr *hdr = &hm->h_tbl->tbl[id];
-
-		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
-			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
-			       __func__, hm, id);
-			hdr->flags |= TFW_STR_HBH_HDR;
-		}
+	if (hbh_hdrs->spec & (0x1 << id)) {
+		T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
+		       __func__, hm, id);
+		hdr->flags |= TFW_STR_HBH_HDR;
 	}
 }
 
@@ -1434,7 +1429,6 @@ do {									\
 	}								\
 	if (c == '\n') {						\
 		if (!msg->crlf.data) {					\
-			mark_spec_hbh(msg);				\
 			/*						\
 			 * Set data and length explicitly for a single	\
 			 * LF w/o calling complex __msg_field_fixup().	\
@@ -1456,7 +1450,6 @@ do {									\
 __FSM_STATE(RGen_CRLFCR, hot) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_DROP(RGen_CRLFCR);				\
-	mark_spec_hbh(msg);						\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.data);				\
 		__msg_field_finish(&msg->crlf, p + 1);			\
@@ -1510,6 +1503,7 @@ __FSM_STATE(st_curr) {							\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
+		mark_spec_hbh(msg, &parser->hdr, id);			\
 		r = process_trailer_hdr(msg, &parser->hdr, id);		\
 		if (r < 0 && r != CSTR_POSTPONE)			\
 			TFW_PARSER_DROP(st_curr);			\
