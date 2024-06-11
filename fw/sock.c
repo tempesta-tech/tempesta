@@ -1612,6 +1612,20 @@ ss_get_stat(SsStat *stat)
 	}
 }
 
+int
+ss_add_overhead(struct sock *sk, unsigned int overhead)
+{
+	if (!overhead)
+		return 0;
+	if (!sk_wmem_schedule(sk, overhead))
+		return -ENOMEM;
+	sk->sk_wmem_queued += overhead;
+	sk_mem_charge(sk, overhead);
+
+	return 0;
+}
+ALLOW_ERROR_INJECTION(ss_add_overhead, ERRNO);
+
 /**
  * Synchronize with establishing new connections. It is guaranteed that there
  * will be no more new client connections and re-established connections to

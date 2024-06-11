@@ -400,8 +400,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for TTLS_TAG_LEN.
 	 */
-	if (ss_add_overhead(sk, t_sz))
-		return -ENOMEM;
+	if ((r = ss_add_overhead(sk, t_sz)))
+		goto out;
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
