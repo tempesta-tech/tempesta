@@ -612,7 +612,8 @@ tfw_tls_conn_dtor(void *c)
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
 
-	if (TFW_FSM_TYPE(((TfwConn *)c)->proto.type) == TFW_FSM_H2)
+	if (TFW_CONN_PROTO(((TfwConn *)c)) == TFW_FSM_H2
+	    || TFW_CONN_TYPE((TfwConn *)c) & Conn_Negotiable)
 		tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
@@ -663,6 +664,11 @@ tfw_tls_conn_init(TfwConn *c)
 		r = -EINVAL;
 		goto err_cleanup;
 	}
+
+	if (TFW_CONN_PROTO(c) == TFW_FSM_H2
+	    || TFW_CONN_TYPE(c) & Conn_Negotiable)
+		if ((r = tfw_h2_context_init(tfw_h2_context(c))))
+			goto err_cleanup;
 
 	/*
 	 * We never hook TLS connections in GFSM, but initialize it with 0 state
@@ -953,18 +959,9 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 static inline int
 tfw_tls_over(TlsCtx *tls, int state)
 {
-	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
-	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
-
 	if (state == TTLS_HS_CB_FINISHED_NEW
 	    || state == TTLS_HS_CB_FINISHED_RESUMED)
 		TFW_INC_STAT_BH(serv.tls_hs_successful);
-
-	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2 &&
-	    tfw_h2_context_init(tfw_h2_context(conn))) {
-		    T_ERR("cannot establish a new h2 connection\n");
-		    return T_DROP;
-	}
 
 	return frang_tls_handler(tls, state);
 }
