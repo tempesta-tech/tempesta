@@ -174,7 +174,9 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 				r = tfw_ws_msg_process(conn, skb);
 			else
 				r = tfw_http_msg_process(conn, skb, &splitted);
-			if (r == T_DROP && splitted) {
+
+			if (splitted && (r == T_DROP || r == T_BLOCK_WITH_RST
+			     || r == T_BLOCK_WITH_FIN || r == T_BAD)) {
 				/*
 				 * In the case when the current skb contains
 				 * multiple requests, we split this skb along

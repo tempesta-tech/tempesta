@@ -1155,7 +1155,8 @@ tfw_tls_start(void)
 	return 0;
 }
 
-bool tfw_tls_get_allow_any_sni_reconfig(void)
+bool
+tfw_tls_get_allow_any_sni_reconfig(void)
 {
 	return allow_any_sni_reconfig;
 }
