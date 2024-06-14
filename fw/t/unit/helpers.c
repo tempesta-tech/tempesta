@@ -427,4 +427,10 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 	return T_OK;
 }
 
+bool
+ttls_hs_done(TlsCtx *tls)
+{
+	return true;
+}
+
 unsigned int cache_default_ttl = 60;

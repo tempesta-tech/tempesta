@@ -10639,7 +10639,7 @@ tfw_h2_parse_body(char *data, unsigned int len, TfwHttpReq *req,
 		  unsigned int *parsed)
 {
 	unsigned int m_len;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	TfwHttpMsg *msg = (TfwHttpMsg *)req;
 	TfwHttpParser *parser = &msg->stream->parser;
 	int ret = T_POSTPONE;
@@ -10698,7 +10698,7 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 {
 	int r;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
 	WARN_ON_ONCE(!len);
 	*parsed = 0;

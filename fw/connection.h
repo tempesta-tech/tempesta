@@ -283,7 +283,17 @@ typedef struct {
 	TfwH2Ctx	h2;
 } TfwH2Conn;
 
-#define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
+/*
+ * Since we can accept both https and http2 connections on the same port,
+ * we initialize http2 context only after tls handshake is finished and
+ * we are sure that it is real http2 connection. There are two macros for
+ * accessing http2 context, when we are sure and not sure that tls handskare
+ * was finished.
+ */
+#define tfw_h2_context_unsafe(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
+#define tfw_h2_context_safe(conn)	\
+	ttls_hs_done(tfw_tls_context(conn)) ? tfw_h2_context_unsafe(conn) : NULL;
+
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
