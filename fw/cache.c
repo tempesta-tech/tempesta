@@ -3202,6 +3202,31 @@ tfw_cache_mgr(void *arg)
 }
 #endif
 
+static inline int
+tfw_cache_wq_init(int cpu)
+{
+	TfwWorkTasklet *ct = &per_cpu(cache_wq, cpu);
+	int r;
+
+	r = tfw_wq_init(&ct->wq, TFW_DFLT_QSZ, cpu_to_node(cpu));
+	if (unlikely(r))
+		return r;
+	init_irq_work(&ct->ipi_work, tfw_cache_ipi);
+	tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
+
+	return 0;
+}
+
+static inline void
+tfw_cache_wq_clear(int cpu)
+{
+	TfwWorkTasklet *ct = &per_cpu(cache_wq, cpu);
+
+	tasklet_kill(&ct->tasklet);
+	irq_work_sync(&ct->ipi_work);
+	tfw_wq_destroy(&ct->wq);
+}
+
 static int
 tfw_cache_start(void)
 {
@@ -3235,15 +3260,11 @@ tfw_cache_start(void)
 
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
-		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-		r = tfw_wq_init(&ct->wq, TFW_DFLT_QSZ, cpu_to_node(i));
-		if (r) {
-			T_ERR_NL("%s: Can't initialize cache work queue for CPU #%d\n",
-				 __func__, i);
-			goto close_db;
+		if (unlikely(r = tfw_cache_wq_init(i))) {
+			T_ERR_NL("%s: Can't initialize cache work"
+				 " queue for CPU #%d\n", __func__, i);
+			goto free_tasklet;
 		}
-		init_irq_work(&ct->ipi_work, tfw_cache_ipi);
-		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
 	}
 
 #if defined(DEBUG)
@@ -3265,6 +3286,9 @@ dbg_buf_free:
 	for_each_online_cpu(i)
 		kfree(per_cpu(ce_dbg_buf, i));
 #endif
+free_tasklet:
+	for_each_online_cpu(i)
+		tfw_cache_wq_clear(i);
 close_db:
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
@@ -3284,12 +3308,8 @@ tfw_cache_stop(void)
 	if (!cache_cfg.cache)
 		return;
 
-	for_each_online_cpu(i) {
-		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-		tasklet_kill(&ct->tasklet);
-		irq_work_sync(&ct->ipi_work);
-		tfw_wq_destroy(&ct->wq);
-	}
+	for_each_online_cpu(i)
+		tfw_cache_wq_clear(i);
 #if 0
 	kthread_stop(cache_mgr_thr);
 #endif

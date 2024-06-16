@@ -1805,6 +1805,27 @@ ss_active(void)
 	return READ_ONCE(__ss_active);
 }
 
+static inline int __init
+tfw_sync_socket_wq_init(int cpu)
+{
+	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+	int r;
+
+	r = tfw_wq_init(wq, max_t(unsigned int, TFW_DFLT_QSZ, __wq_size),
+			cpu_to_node(cpu));
+	if (unlikely(r))
+		return r;
+	init_irq_work(&per_cpu(ipi_work, cpu), ss_ipi);
+	return 0;
+}
+
+static inline void
+tfw_sync_socket_wq_cleanup(int cpu)
+{
+	irq_work_sync(&per_cpu(ipi_work, cpu));
+	tfw_wq_destroy(&per_cpu(si_wq, cpu));
+}
+
 int __init
 tfw_sync_socket_init(void)
 {
@@ -1818,17 +1839,12 @@ tfw_sync_socket_init(void)
 	__wq_size = ss_estimate_pcpu_wq_size();
 	for_each_online_cpu(cpu) {
 		SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
-		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
-		r = tfw_wq_init(wq, max_t(unsigned int, TFW_DFLT_QSZ, __wq_size),
-				cpu_to_node(cpu));
-		if (r) {
-			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work queue for CPU #%d\n",
-				 __func__, cpu);
-			kmem_cache_destroy(ss_cbacklog_cache);
-			return r;
+		if (unlikely((r = tfw_sync_socket_wq_init(cpu)))) {
+			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work"
+				 " queue for CPU #%d\n", __func__, cpu);
+			goto cleanup;
 		}
-		init_irq_work(&per_cpu(ipi_work, cpu), ss_ipi);
 
 		INIT_LIST_HEAD(&cb->head);
 		spin_lock_init(&cb->lock);
@@ -1837,6 +1853,12 @@ tfw_sync_socket_init(void)
 	tempesta_set_tx_action(ss_tx_action);
 
 	return 0;
+
+cleanup:
+	for_each_online_cpu(cpu)
+		tfw_sync_socket_wq_cleanup(cpu);
+	kmem_cache_destroy(ss_cbacklog_cache);
+	return r;
 }
 
 void
@@ -1846,8 +1868,7 @@ tfw_sync_socket_exit(void)
 
 	tempesta_del_tx_action();
 	for_each_online_cpu(cpu) {
-		irq_work_sync(&per_cpu(ipi_work, cpu));
-		tfw_wq_destroy(&per_cpu(si_wq, cpu));
+		tfw_sync_socket_wq_cleanup(cpu);
 		ss_backlog_validate_cleanup(cpu);
 	}
 	kmem_cache_destroy(ss_cbacklog_cache);

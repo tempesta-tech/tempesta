@@ -611,10 +611,9 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
-	bool hs_was_done = false;
 
 	if (TFW_CONN_PROTO((TfwConn *)c) == TFW_FSM_H2
-	    && (hs_was_done = ttls_hs_done(tls)))
+	    && ttls_hs_done(tls))
 		tfw_h2_context_clear(tfw_h2_context_unsafe(c));
 
 	if (tls) {
