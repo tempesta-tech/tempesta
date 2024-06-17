@@ -351,7 +351,7 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 			goto out;
 
 		r = tfw_ctlfn_state_change(buf);
-		strlcpy(new_state_buf,
+		strscpy(new_state_buf,
 			tfw_runstate_is_started() ? "start" : "stop",
 			T_SYSCTL_STBUF_LEN);
 	} else {

@@ -18,7 +18,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/linkage.h>
-#include <asm/export.h>
 #include <asm/nospec-branch.h>
 
 /*
@@ -46,7 +45,7 @@ SYM_FUNC_START(mpi_cmp_x86_64_4)
 	jnz	.cmp_4_done
 .cmp_4_done:
 	cmovbq	%rdx, %rax
-	retq
+	RET
 SYM_FUNC_END(mpi_cmp_x86_64_4)
 
 
@@ -96,10 +95,10 @@ SYM_FUNC_START(mpi_add_x86_64)
 	incq	%rax
 
 .add_done:
-	ret
+	RET
 .enospc:
 	movq	$-1, %rax
-	ret
+	RET
 SYM_FUNC_END(mpi_add_x86_64)
 
 
@@ -135,7 +134,7 @@ SYM_FUNC_START(mpi_add_mod_p256_x86_64)
 	sbbq	%r11, %r9
 	movq	%r8, 16(%rdi)
 	movq	%r9, 24(%rdi)
-	retq
+	RET
 SYM_FUNC_END(mpi_add_mod_p256_x86_64)
 
 
@@ -193,11 +192,11 @@ SYM_FUNC_START(mpi_sub_x86_64)
 	loop	.sub_by_4
 	popq	%r12
 	ANNOTATE_RETPOLINE_SAFE
-	jmpq	*%rbx
+	notrack jmpq	*%rbx
 .sub_small_b:
 	clc
 	ANNOTATE_RETPOLINE_SAFE
-	jmpq	*%rbx
+	notrack jmpq	*%rbx
 
 .sub_tail3:
 	movq	(%rdx, %rax, 8), %r9
@@ -241,12 +240,12 @@ SYM_FUNC_START(mpi_sub_x86_64)
 	incq	%rax
 .copy_msb:
 	loop	.copy_msb_loop
-	ret
+	RET
 
 .need_copy:
 	cmpq	%rdx, %rdi
 	jne	.copy_msb
-	ret
+	RET
 SYM_FUNC_END(mpi_sub_x86_64)
 
 /*
@@ -273,7 +272,7 @@ SYM_FUNC_START(mpi_sub_x86_64_5_4)
 	movq	32(%rdx), %r8
 	sbbq	$0, %r8
 	movq	%r8, 32(%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_sub_x86_64_5_4)
 
 SYM_FUNC_START(mpi_sub_x86_64_4_4)
@@ -289,7 +288,7 @@ SYM_FUNC_START(mpi_sub_x86_64_4_4)
 	movq	%r9, 8(%rdi)
 	movq	%r10, 16(%rdi)
 	movq	%r11, 24(%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_sub_x86_64_4_4)
 
 /**
@@ -322,7 +321,7 @@ SYM_FUNC_START(mpi_sub_mod_p256_x86_64)
 	adcq	%r11, %r9
 	movq	%r8, 16(%rdi)
 	movq	%r9, 24(%rdi)
-	retq
+	RET
 SYM_FUNC_END(mpi_sub_mod_p256_x86_64)
 
 SYM_FUNC_START(mpi_sub_x86_64_3_3)
@@ -335,7 +334,7 @@ SYM_FUNC_START(mpi_sub_x86_64_3_3)
 	movq	%r8, (%rdi)
 	movq	%r9, 8(%rdi)
 	movq	%r10, 16(%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_sub_x86_64_3_3)
 
 SYM_FUNC_START(mpi_sub_x86_64_2_2)
@@ -345,7 +344,7 @@ SYM_FUNC_START(mpi_sub_x86_64_2_2)
 	sbbq	8(%rsi), %r9
 	movq	%r8, (%rdi)
 	movq	%r9, 8(%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_sub_x86_64_2_2)
 
 
@@ -384,7 +383,7 @@ SYM_FUNC_START(mpi_shift_l_x86_64)
 	movq	(%rsi), %r11
 	shlq	%cl, %r11
 	movq	%r11, (%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_shift_l_x86_64)
 
 /**
@@ -411,7 +410,7 @@ SYM_FUNC_START(mpi_shift_l_x86_64_4)
 	movq	%r10, 16(%rdi)
 	movq	%r9, 8(%rdi)
 	movq	%r8, (%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_shift_l_x86_64_4)
 
 /**
@@ -441,7 +440,7 @@ SYM_FUNC_START(mpi_shift_l1_mod_p256_x86_64)
 	sbbq	%r10, %r8
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
-	retq
+	RET
 SYM_FUNC_END(mpi_shift_l1_mod_p256_x86_64)
 
 
@@ -470,7 +469,7 @@ SYM_FUNC_START(mpi_shift_r_x86_64)
 
 .shr_last:
 	shrq	%cl, (%rdi, %rax, 8)
-	ret
+	RET
 SYM_FUNC_END(mpi_shift_r_x86_64)
 
 /**
@@ -488,7 +487,7 @@ SYM_FUNC_START(mpi_shift_r_x86_64_4)
 	shrdq	%cl, %r9, 8(%rdi)
 	shrdq	%cl, %r10, 16(%rdi)
 	shrq	%cl, 24(%rdi)
-	ret
+	RET
 SYM_FUNC_END(mpi_shift_r_x86_64_4)
 
 
@@ -522,7 +521,7 @@ SYM_FUNC_START(mpi_div2_x86_64_4)
 	movq	%rax, 8(%rdi)
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
-	retq
+	RET
 SYM_FUNC_END(mpi_div2_x86_64_4)
 
 
@@ -567,7 +566,7 @@ SYM_FUNC_START_32(mpi_tpl_mod_p256_x86_64)
 	sbbq	%r10, %r8
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
-	retq
+	RET
 SYM_FUNC_END(mpi_tpl_mod_p256_x86_64)
 
 
@@ -684,7 +683,7 @@ SYM_FUNC_START_32(mpi_mul_x86_64_4)
 	pop	%r14
 	pop	%r13
 	pop	%r12
-	ret
+	RET
 SYM_FUNC_END(mpi_mul_x86_64_4)
 
 
@@ -778,7 +777,7 @@ SYM_FUNC_START_32(mpi_sqr_x86_64_4)
 	pop	%r13
 	pop	%r12
 	pop	%rbx
-	ret
+	RET
 SYM_FUNC_END(mpi_sqr_x86_64_4)
 
 
@@ -1054,7 +1053,7 @@ SYM_FUNC_START_32(ecp_mod_p256_x86_64)
 	popq	%r13
 	popq	%r12
 	popq	%rbx
-	ret
+	RET
 SYM_FUNC_END(ecp_mod_p256_x86_64)
 
 /**
@@ -1080,7 +1079,7 @@ SYM_FUNC_START_32(mpi_mul_int_x86_64_4)
 
 	popq	%r13
 	popq	%r12
-	retq
+	RET
 SYM_FUNC_END(mpi_mul_int_x86_64_4)
 
 /*
@@ -1308,7 +1307,7 @@ SYM_FUNC_START_32(mpi_mul_mod_p256_x86_64_4)
 	pop	%r14
 	pop	%r13
 	pop	%r12
-	ret
+	RET
 SYM_FUNC_END(mpi_mul_mod_p256_x86_64_4)
 
 SYM_FUNC_START_32(mpi_sqr_mod_p256_x86_64_4)
@@ -1511,7 +1510,7 @@ SYM_FUNC_START_32(mpi_sqr_mod_p256_x86_64_4)
 	pop	%r13
 	pop	%r12
 	pop	%rbx
-	ret
+	RET
 SYM_FUNC_END(mpi_sqr_mod_p256_x86_64_4)
 
 
@@ -1647,7 +1646,7 @@ SYM_FUNC_START_32(mpi_from_mont_p256_x86_64)
 	popq	%r14
 	popq	%r13
 	popq	%r12
-	retq
+	RET
 SYM_FUNC_END(mpi_from_mont_p256_x86_64)
 
 /**
@@ -1750,7 +1749,7 @@ SYM_FUNC_START_32(mpi_mul_mont_mod_p256_x86_64)
 	popq	%r12
 	popq	%rbp
 	popq	%rbx
-	retq
+	RET
 SYM_FUNC_END(mpi_mul_mont_mod_p256_x86_64)
 
 /**
@@ -1833,5 +1832,5 @@ SYM_FUNC_START_32(mpi_sqr_mont_mod_p256_x86_64)
 	popq	%r14
 	popq	%r13
 	popq	%r12
-	retq
+	RET
 SYM_FUNC_END(mpi_sqr_mont_mod_p256_x86_64)

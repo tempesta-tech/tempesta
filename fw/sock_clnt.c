@@ -70,6 +70,8 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 {
 	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
 
+	kernel_fpu_begin();
+
 	T_DBG("Client timeout end\n");
 
 	/*
@@ -824,7 +826,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 
 	ss_set_listen(sk);
 
-	inet_sk(sk)->freebind = 1;
+	inet_set_bit(FREEBIND, sk);
 	sk->sk_reuse = 1;
 	r = ss_bind(sk, addr);
 	if (r) {

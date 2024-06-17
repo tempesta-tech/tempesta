@@ -25,6 +25,7 @@
 #include <net/protocol.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
+#include <linux/errqueue.h>
 
 #undef DEBUG
 #if DBG_SS > 0
@@ -195,6 +196,7 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	kernel_fpu_begin();
 	SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown);
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
@@ -366,7 +368,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	if (size <= sk->sk_forward_alloc)
 		return;
 	amt = sk_mem_pages(size);
-	sk->sk_forward_alloc += amt * SK_MEM_QUANTUM;
+	sk->sk_forward_alloc += amt * PAGE_SIZE;
 	sk_memory_allocated_add(sk, amt);
 }
 
@@ -423,7 +425,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		       skb_tfw_tls_type(skb));
 
 		ss_forced_mem_schedule(sk, skb->truesize);
-		skb_entail(sk, skb);
+		tcp_skb_entail(sk, skb);
 
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
@@ -623,7 +625,7 @@ adjudge_to_death:
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);
 
-	percpu_counter_inc(sk->sk_prot->orphan_count);
+	this_cpu_inc(*sk->sk_prot->orphan_count);
 
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
@@ -934,18 +936,25 @@ ss_tcp_data_ready(struct sock *sk)
 	int (*action)(struct sock *sk, int flags);
 	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop);
 
+	kernel_fpu_begin();
+
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
+		struct sk_buff* skb = sk->sk_error_queue.next;
 		/*
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
-		T_ERR("error data in socket %p\n", sk);
-		return;
+		if (SKB_EXT_ERR(skb)->ee.ee_errno != ENOMSG &&
+		    SKB_EXT_ERR(skb)->ee.ee_origin !=
+		    SO_EE_ORIGIN_TIMESTAMPING) {
+			T_ERR("error data in socket %p\n", sk);
+			return;
+		}
 	}
 
 	if (skb_queue_empty(&sk->sk_receive_queue)) {
@@ -1015,6 +1024,7 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
+	kernel_fpu_begin();
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
@@ -1207,20 +1217,10 @@ ss_inet_create(struct net *net, int family,
 	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot, 1)))
 		return -ENOBUFS;
 
-	if (in_interrupt()) {
-		/*
-		 * When called from an interrupt context, sk_alloc() does not
-		 * initialize sk->sk_cgrp_data, so we must do it here. Other
-		 * socket-related functions assume that sk->sk_cgrp_data.val
-		 * is always non-zero.
-		 */
-		sk->sk_cgrp_data.val = (unsigned long) &cgrp_dfl_root.cgrp;
-	}
-
+	inet_set_bit(IS_ICSK, sk);
+	inet_clear_bit(NODEFRAG, sk);
 	inet = inet_sk(sk);
-	inet->is_icsk = 1;
-	inet->nodefrag = 0;
-	inet->inet_id = 0;
+	atomic_set(&inet->inet_id, 0);
 
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
 		inet->pmtudisc = IP_PMTUDISC_DONT;
@@ -1243,21 +1243,20 @@ ss_inet_create(struct net *net, int family,
 					(((u8 *)sk) + offset);
 		np->hop_limit = -1;
 		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
-		np->mc_loop = 1;
+		inet6_set_bit(MC_LOOP, sk);
 		np->pmtudisc = IPV6_PMTUDISC_WANT;
 		sk->sk_ipv6only = net->ipv6.sysctl.bindv6only;
 		inet->pinet6 = np;
 	}
 
 	inet->uc_ttl = -1;
-	inet->mc_loop = 1;
-	inet->mc_ttl = 1;
-	inet->mc_all = 1;
+	inet_set_bit(MC_LOOP, sk);
+	inet_set_bit(TTL, sk);
+	inet_set_bit(MC_ALL, sk);
 	inet->mc_index = 0;
 	inet->mc_list = NULL;
 	inet->rcv_tos = 0;
 
-	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
 		T_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
@@ -1414,7 +1413,7 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 	if (inet6_sk(sk)) {
 		struct ipv6_pinfo *np = inet6_sk(sk);
 		addr->sin6_addr = sk->sk_v6_daddr;
-		addr->sin6_flowinfo = np->sndflow ? np->flow_label : 0;
+		addr->sin6_flowinfo = inet6_test_bit(SNDFLOW, sk) ? np->flow_label : 0;
 		addr->in6_prefix = ipv6_iface_scope_id(&addr->sin6_addr,
 						       sk->sk_bound_dev_if);
 	} else
@@ -1463,6 +1462,8 @@ ss_tx_action(void)
 	struct sk_buff *skb;
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	long ticket = 0;
+
+	kernel_fpu_begin();
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving

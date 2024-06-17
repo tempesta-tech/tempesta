@@ -24,7 +24,7 @@ else
 test-gt = $(shell test $(strip $1)0 -gt $(strip $2)0 && echo y)
 endif
 
-TFW_CFLAGS = $(DEFINES) -Werror
+TFW_CFLAGS = $(DEFINES) -Werror -Wno-missing-prototypes -Wno-error=missing-declarations -Wno-missing-declarations
 ifdef DEBUG
 	ifeq ($(call test-gt, 1, $(DEBUG)), y)
 		ERROR = "DEBUG must be greater than 0"
