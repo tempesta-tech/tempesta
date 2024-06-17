@@ -112,24 +112,29 @@ tfw_cli_conn_alloc(int type)
 
 	return cli_conn;
 }
+ALLOW_ERROR_INJECTION(tfw_cli_conn_alloc, NULL);
 
 static void
 tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
 	BUG_ON(timer_pending(&cli_conn->timer));
 
-	/*
-	 * Free POSTPONED SKBs. This is necessary when h2 context has
-	 * postponed frames and connection closing initiated.
-	 */
-	if (TFW_FSM_TYPE(TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2))
-		ss_skb_queue_purge(&tfw_h2_context(cli_conn)->skb_head);
-
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
 
-	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
+	/*
+	 * We need to check if it is a single version connection (HTTPS or H2)
+	 * or negotiable HTTPS/H2 connection.
+	 * In case of a single version connection, corresponding to
+	 * this protocol cache was used.
+	 * In case of a negotiable connection, H2 cache was used for
+	 * both versions, and we need to free H2 cache.
+	 */
+	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable))
+		kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
+	else
+		kmem_cache_free(tfw_cli_cache(TFW_FSM_H2), cli_conn);
 }
 
 void
@@ -183,13 +188,13 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 		       unsigned int *nskbs)
 {
 	TfwConn *conn = sk->sk_user_data;
-	TfwH2Ctx *h2 = tfw_h2_context(conn);
-	TfwHPackETbl *tbl = &h2->hpack.enc_tbl;
 	unsigned short flags = skb_tfw_flags(skb);
 	unsigned int skb_priv = skb_tfw_cb(skb);
-	TfwStream *stream = tfw_h2_find_not_closed_stream(h2, skb_priv, false);
 	unsigned int truesize = 0, tmp_truesize = 0;
 	bool headers_was_done = false;
+	TfwH2Ctx *h2 = NULL;
+	TfwHPackETbl *tbl = NULL;
+	TfwStream *stream = NULL;
 	int r = 0;
 
 #define FRAME_HEADERS_SHOULD_BE_MADE(flags)				\
@@ -206,6 +211,10 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 	(flags & SS_F_HTTP2_FRAME_PREPARED)
 
 #define CHECK_STREAM_IS_PRESENT(stream)					\
+do {									\
+	h2 = tfw_h2_context_unsafe(conn);				\
+	tbl = &h2->hpack.enc_tbl;					\
+	stream = tfw_h2_find_not_closed_stream(h2, skb_priv, false);	\
 	if (!stream) {							\
 		T_WARN("%s: stream with id (%u) already closed",	\
 		       __func__, skb_priv);				\
@@ -216,7 +225,8 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 		 */							\
 		r = -EPIPE;						\
 		goto ret;						\
-	}
+	}								\
+} while (0);
 
 #define TFW_H2_STREAM_SEND_PROCESS(h2, stream, type)			\
 	r = tfw_h2_stream_send_process(h2, stream, type);		\
@@ -266,6 +276,9 @@ tfw_h2_sk_prepare_xmit(struct sock *sk, struct sk_buff *skb,
 	}
 
 	if (flags & SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING) {
+		h2 = tfw_h2_context_unsafe(conn);
+		tbl = &h2->hpack.enc_tbl;
+
 		tfw_hpack_set_rbuf_size(tbl, skb_priv);
 		h2->rsettings.hdr_tbl_sz = tbl->window;
 		skb_clear_tfw_flag(skb, SS_F_HTTP2_ACK_FOR_HPACK_TBL_RESIZING);
@@ -445,8 +458,6 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		  unsigned int limit, unsigned int nskbs)
 {
 	TfwConn *conn = sk->sk_user_data;
-	TfwH2Ctx *h2;
-	TfwHPackETbl *tbl;
 	unsigned short flags;
 	bool h2_mode;
 	int r = 0;
@@ -458,15 +469,14 @@ tfw_sk_write_xmit(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	h2_mode = TFW_CONN_PROTO(conn) == TFW_FSM_H2;
 	flags = skb_tfw_flags(skb);
 
-	if (h2_mode) {
-		h2 = tfw_h2_context(conn);
-		tbl = &h2->hpack.enc_tbl;
-	}
-
 	r = tfw_tls_encrypt(sk, skb, mss_now, limit, nskbs);
 
-	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED))
+	if (h2_mode && r != -ENOMEM && (flags & SS_F_HTTT2_HPACK_TBL_SZ_ENCODED)) {
+		TfwH2Ctx *h2 = tfw_h2_context_unsafe(conn);
+		TfwHPackETbl *tbl = &h2->hpack.enc_tbl;
+
 		tfw_hpack_enc_tbl_write_sz_release(tbl, r);
+	}
 	return r;
 }
 
@@ -625,6 +635,9 @@ static const SsProto tfw_sock_listen_protos[] = {
 
 	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2},
 	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt},
+
+	{ &tfw_sock_tls_clnt_ss_hooks,	TFW_FSM_H2 | Conn_Negotiable},
+	{ &tfw_sock_tls_clnt_ss_hooks,	Conn_H2Clnt | Conn_Negotiable},
 };
 
 static const SsProto *

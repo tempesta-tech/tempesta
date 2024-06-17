@@ -1457,6 +1457,25 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	struct sk_buff *prev_skb, *f_skb;
 
+	/*
+	 * Skbs are marked as cloned when they passed through loopback
+	 * interface, and this is not related to the type of virtual adapter.
+	 * This is unusual case for Tempesta FW and can occur when a client
+	 * or a server and Tempesta FW are on the same computer.
+	 *
+	 * In the normal case, Tempesta FW receives not cloned skbs, and during
+	 * the parsing process calls ss_skb_split() for each portion of data.
+	 * This variant is not as memory-demanding as the first.
+	 *
+	 * Important note: the size of the skb is at least 768 byte
+	 * (896 bytes for loopback) and it may require a big amount of memory
+	 * if a large number of received skbs contain small size of data.
+	 *
+	 * The largest parts of struct sk_buff:
+	 * sizeof(struct sk_buff) = 232;
+	 * hdr_len = between 130 and 320;
+	 * sizeof(struct skb_shared_info) = 320;
+	 */
 	if (unlikely(skb_cloned(skb)))
 		return ss_skb_unroll_slow(skb_head, skb);
 

@@ -250,6 +250,11 @@ void
 tfw_h2_context_clear(TfwH2Ctx *ctx)
 {
 	WARN_ON_ONCE(ctx->streams_num);
+	/*
+	 * Free POSTPONED SKBs. This is necessary when h2 context has
+	 * postponed frames and connection closing initiated.
+	 */
+	ss_skb_queue_purge(&ctx->skb_head);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
@@ -644,7 +649,7 @@ unsigned int
 tfw_h2_req_stream_id(TfwHttpReq *req)
 {
 	unsigned int id = 0;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
 	spin_lock(&ctx->lock);
 
@@ -663,7 +668,7 @@ void
 tfw_h2_req_unlink_stream(TfwHttpReq *req)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
 	spin_lock(&ctx->lock);
 
@@ -688,7 +693,7 @@ tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req)
 {
 	TfwStreamFsmRes r;
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
 	spin_lock(&ctx->lock);
 
@@ -1890,7 +1895,7 @@ tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
 	int r;
 	bool postponed;
 	unsigned int parsed, unused;
-	TfwH2Ctx *h2 = tfw_h2_context(c);
+	TfwH2Ctx *h2 = tfw_h2_context_unsafe(c);
 	struct sk_buff *nskb = NULL;
 
 next_msg:

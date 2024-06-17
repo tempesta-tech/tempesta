@@ -1092,7 +1092,7 @@ void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
 	tfw_connection_get(req->conn);
 	do_access_log(resp);
@@ -1129,7 +1129,7 @@ static void
 tfw_h2_send_resp(TfwHttpReq *req, TfwStr *msg, int status,
 		 unsigned int stream_id)
 {
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	TfwHttpResp *resp = tfw_http_msg_alloc_resp_light(req);
 	if (unlikely(!resp))
 		goto err;
@@ -1268,15 +1268,6 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, resp->req->flags))
 		resp->msg.ss_flags |= __SS_F_FORCE;
-}
-
-/*
- * Check if a request is non-idempotent.
- */
-static inline bool
-tfw_http_req_is_nip(TfwHttpReq *req)
-{
-	return test_bit(TFW_HTTP_B_NON_IDEMP, req->flags);
 }
 
 /*
@@ -2833,10 +2824,14 @@ tfw_http_conn_drop(TfwConn *conn)
 	T_DBG3("%s: conn=[%px]\n", __func__, conn);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
-		if (h2_mode)
-			tfw_h2_conn_streams_cleanup(tfw_h2_context(conn));
-		else
+		if (h2_mode) {
+			TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
+
+			if (ctx)
+				tfw_h2_conn_streams_cleanup(ctx);
+		} else {
 			tfw_http_conn_cli_drop((TfwCliConn *)conn);
+		}
 	}
 	else if (conn->stream.msg) { /* server connection */
 		if (!tfw_http_parse_terminate((TfwHttpMsg *)conn->stream.msg))
@@ -5001,7 +4996,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
 	/*
 	 * block_action attack/error drop - Tempesta FW must block message
@@ -5277,7 +5272,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	int r;
 	unsigned int stream_id;
 	TfwHttpReq *req = resp->req;
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpRespCleanup cleanup = {};
 	TfwStr codings = {.data = *this_cpu_ptr(&g_te_buf), .len = 0};
@@ -5897,7 +5892,7 @@ next_msg:
 					HTTP2_ECODE_PROTO);
 		}
 		if (TFW_MSG_H2(req)) {
-			TfwH2Ctx *ctx = tfw_h2_context(conn);
+			TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
 
 			/* Do not check the request validity until
 			 * it has been fully parsed.
