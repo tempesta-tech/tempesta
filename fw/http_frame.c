@@ -2004,9 +2004,9 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 /*
- * if *tls_record_len is equal to zero, that means that here we deal with
+ * if *tls_record_len is equal to zero, then here we deal with
  * new tls record. During tls record encryption extra TLS_MAX_OVERHEAD
- * data can be added and we should adjuct it during snd_wnd calculation.
+ * data can be added and we should adjust it during snd_wnd calculation.
  * Maximum additional count of in flight packets is equal to 2:
  * one new skb and extra TLS header which encrease skb len, so
  * DIV_ROUND_UP(skb->len, mss_now)) increased.
@@ -2014,8 +2014,8 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 #define CALC_SND_WND_AND_SET_FRAME_TYPE(type)				\
 do {									\
 	if (*tls_record_len == 0)					\
-		(*not_account_in_flight += 2);				\
-	snd_wnd = ss_calc_snd_wnd(sk, mss_now, *not_account_in_flight);	\
+		*not_account_in_flight += 2;				\
+	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now, *not_account_in_flight); \
 	if (snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {		\
 		*snd_wnd_exceeded = true;				\
 		T_FSM_EXIT();						\
@@ -2152,7 +2152,7 @@ do {									\
 
 	return r;
 
-#undef ADJUST_SND_WND
+#undef CALC_SND_WND_AND_SET_FRAME_TYPE
 }
 
 int
@@ -2170,7 +2170,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 	int r = 0;
 
 	/*
-	 * Update snd_wnd if nedeed, to correct caclulation
+	 * Update snd_cwnd if nedeed, to correct caclulation
 	 * of count of bytes to send.
 	 */
 	tcp_slow_start_after_idle_check(sk);

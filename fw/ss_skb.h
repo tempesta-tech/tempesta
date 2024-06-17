@@ -52,20 +52,25 @@ enum {
 	SS_OK		  = T_OK,
 };
 
+typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
+typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
+
 /*
  * Tempesta FW sk_buff private data.
- * @opaque_data - pointer to some private data (typically http response);
- * @destructor	- destructor of the opaque data, should be set if data is
- *                not NULL
- * @on_send	- callback to special handling this skb before sending;
- * @stream_id	- id of sender stream;
- * @is_head	- flag indicates that this is a head of skb list;
+ * @opaque_data 	- pointer to some private data (typically http response);
+ * @destructor		- destructor of the opaque data, should be set if data is
+ *                        not NULL
+ * @on_send		- callback to special handling this skb before sending;
+ * @on_tcp_entail 	- callback to special handling this skb before pushing
+ *                        to socket write queue;
+ * @stream_id		- id of sender stream;
+ * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
 	void 		*opaque_data;
 	void 		(*destructor)(void *opaque_data);
-	int 		(*on_send)(void *conn, struct sk_buff **skb_head);
-	void		(*on_tcp_entail)(void *conn, struct sk_buff *skb_head);
+	on_send_cb_t	on_send;
+	on_tcp_entail_t on_tcp_entail;
 	unsigned int 	stream_id;
 	bool		is_head;
 };
@@ -100,8 +105,7 @@ ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
 static inline int
 ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 {
-	int (*on_send)(void *conn, struct sk_buff **skb_head) =
-		TFW_SKB_CB(*skb_head)->on_send;
+	on_send_cb_t on_send = TFW_SKB_CB(*skb_head)->on_send;
 	int r = 0;
 
 	if (on_send)
@@ -113,8 +117,7 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 static inline void
 ss_skb_on_tcp_entail(void *conn, struct sk_buff *skb_head)
 {
-	void (*on_tcp_entail)(void *conn, struct sk_buff *skb_head) =
-		TFW_SKB_CB(skb_head)->on_tcp_entail;
+	on_tcp_entail_t on_tcp_entail = TFW_SKB_CB(skb_head)->on_tcp_entail;
 
 	if (on_tcp_entail)
 		on_tcp_entail(conn, skb_head);
