@@ -21,8 +21,8 @@ export TFW_CFLAGS
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/.. -I$(src)/../../
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
-#obj-m += unit/
+obj-m += unit/
 
-#obj-m += tfw_fuzzer.o
+obj-m += tfw_fuzzer.o
 tfw_fuzzer-objs = \
 	fuzzer.o
