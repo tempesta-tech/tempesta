@@ -187,36 +187,6 @@ void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		       unsigned char tls_type);
 void ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
 
-/*
- * Calculate window size to send in bytes. We calculate the sender
- * and receiver window and select the smallest of them.
- * We ajust also @not_account_in_flight counf of skbs, which were
- * previously pushed to socket write queue. In `tcp_write_xmit`
- * main loop cong_win is calculated on each loop iteration and
- * if we calculate `cong_win` for making frames without taking
- * into account previously pushed skbs we push more data into
- * socket write queue then we can send.
- */
-static inline unsigned long
-ss_calc_snd_wnd(struct sock *sk, unsigned int mss_now,
-		unsigned int not_account_in_flight)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-	unsigned int in_flight = tcp_packets_in_flight(tp);
-	unsigned int send_win, cong_win;
-
-	if (in_flight + not_account_in_flight >= tp->snd_cwnd)
-		return 0;
-
-	if (after(tp->write_seq, tcp_wnd_end(tp)))
-		return 0;
-
-	cong_win = (tp->snd_cwnd - in_flight -
-		not_account_in_flight) * mss_now;
-	send_win = tcp_wnd_end(tp) - tp->write_seq;
-	return min(cong_win, send_win);
-}
-
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\

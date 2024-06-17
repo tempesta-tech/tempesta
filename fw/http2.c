@@ -266,6 +266,36 @@ tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 	}
 }
 
+/**
+ * According to RFC 9113 section 5.1.1:
+ * The first use of a new stream identifier implicitly closes all
+ * streams in the "idle" state that might have been initiated by that
+ * peer with a lower-valued stream identifier.
+ */
+void
+tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwStream *stream, *tmp;
+
+	/*
+	 * We add and remove streams from idle queue under
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
+					 hcl_node)
+	{
+		if (id <= stream->id)
+			break;
+
+		tfw_h2_stream_del_from_queue_nolock(stream);
+		tfw_h2_set_stream_state(stream, HTTP2_STREAM_CLOSED);
+		tfw_h2_stream_add_closed(ctx, stream);
+	}
+}
+
 void
 tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 {
@@ -302,36 +332,6 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 	tfw_h2_stream_unlink_lock(ctx, ctx->cur_stream);
 	tfw_h2_stream_clean(ctx, ctx->cur_stream);
 	ctx->cur_stream = NULL;
-}
-
-/**
- * According to RFC 9113 section 5.1.1:
- * The first use of a new stream identifier implicitly closes all
- * streams in the "idle" state that might have been initiated by that
- * peer with a lower-valued stream identifier.
- */
-void
-tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
-{
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	TfwStream *stream, *tmp;
-
-	/*
-	 * We add and remove streams from idle queue under
-	 * socket lock.
-	 */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-
-	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
-					 hcl_node)
-	{
-		if (id <= stream->id)
-			break;
-
-		tfw_h2_stream_del_from_queue_nolock(stream);
-		tfw_h2_set_stream_state(stream, HTTP2_STREAM_CLOSED);
-		tfw_h2_stream_add_closed(ctx, stream);
-	}
 }
 
 /*
@@ -561,13 +561,13 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream,
 		}
 
 		/*
-		 * Linux kernel caclule count of out packets on
+		 * Linux kernel calculates the count of out packets on
 		 * each iteration of `tcp_write_xmit` loop:
 		 * `tp->packets_out += tcp_skb_pcount(skb);`
 		 * This value is used to calculate cwnd_quota and
 		 * break the loop if it is exceeded. We need to
 		 * adjust count of packets_out which will be added
-		 * later here, to recalculate cwnd_couta in our code.
+		 * later here, to recalculate cwnd_quota in our code.
 		 */
 		*not_account_in_flight += (skb->len <= mss_now ?
 			1 : DIV_ROUND_UP(skb->len, mss_now));

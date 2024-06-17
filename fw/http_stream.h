@@ -20,9 +20,9 @@
 #ifndef __HTTP_STREAM__
 #define __HTTP_STREAM__
 
-#include "http_stream_sched.h"
 #include "msg.h"
 #include "http_parser.h"
+#include "http_stream_sched.h"
 #include "lib/str.h"
 #include "ss_skb.h"
 

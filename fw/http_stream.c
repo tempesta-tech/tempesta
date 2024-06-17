@@ -140,7 +140,7 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 		stream->xmit.frame_length;
 	struct sk_buff *skb;
 
-	while(len) {
+	while (len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
 		BUG_ON(!skb);
 
@@ -619,8 +619,9 @@ do {									\
 					ctx->cur_recv_headers = NULL;
 					break;
 				case HTTP2_F_END_STREAM:
-					SET_STATE(HTTP2_STREAM_CLOSED);
-					ctx->cur_recv_headers = NULL;
+					ctx->cur_recv_headers = stream;
+					stream->state |=
+						HTTP2_STREAM_RECV_END_OF_STREAM;
 					break;
 				default:
 					ctx->cur_recv_headers = stream;
@@ -666,7 +667,10 @@ do {									\
 				 * END_STREAM flag set.
 				 */
 				case HTTP2_F_END_STREAM:
-					fallthrough;
+					ctx->cur_send_headers = stream;
+					stream->state |=
+						HTTP2_STREAM_SEND_END_OF_STREAM;
+					break;
 				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
 					ctx->cur_send_headers = NULL;
 					SET_STATE(HTTP2_STREAM_CLOSED);
@@ -710,7 +714,7 @@ do {									\
 			/*
 			 * We always send RST_STREAM to the peer in this case;
 			 * thus, the stream should be switched to the
-			 * 'closed (remote)' state.
+			 * 'closed' state.
 			 */
 			SET_STATE(HTTP2_STREAM_CLOSED);
 			*err = HTTP2_ECODE_CLOSED;
@@ -867,19 +871,18 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 TfwStreamFsmRes
 tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 {
-	TfwStreamFsmRes r;
 	unsigned char flags = 0;
+
+	if (stream->xmit.h_len && !stream->xmit.b_len
+	    && type == HTTP2_HEADERS)
+		flags |= HTTP2_F_END_STREAM;
 
 	if (!stream->xmit.h_len && type != HTTP2_DATA)
 		flags |= HTTP2_F_END_HEADERS;
 
-	if (!stream->xmit.h_len && !stream->xmit.b_len)
+	if (!stream->xmit.h_len && !stream->xmit.b_len
+	    && !tfw_h2_stream_is_eos_sent(stream))
 		flags |= HTTP2_F_END_STREAM;
 
-	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
-	if (flags & HTTP2_F_END_STREAM
-	    || (r && r != STREAM_FSM_RES_IGNORE))
-		tfw_h2_stream_add_closed(ctx, stream);
-
-	return r;
+	return tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 }

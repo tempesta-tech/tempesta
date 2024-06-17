@@ -41,7 +41,7 @@
  *     7 (256)   9 (1)    11 (256)     13 (1)
  *
  * In this example we have streams 3 and 5 which depend on stream 1,
- * streams 7 and 9 which depend on stream 7, and streams 11 and 13, which
+ * streams 7 and 9 which depend on stream 3, and streams 11 and 13, which
  * depend on stream 5. We start from stream 1 and if it is active (has data
  * to send and not blocked by HTTP window exceeding) we return it. If is not
  * active but has active children we move to the next level of the tree
