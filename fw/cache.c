@@ -371,7 +371,6 @@ tfw_init_node_cpus(void)
 		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
 		if (!c_nodes[node].cpu) {
 			T_ERR("Failed to allocate CPU array for node %d for cache work scheduler", node);
-			tfw_release_node_cpus();
 			return -ENOMEM;
 		}
 	}
@@ -3266,6 +3265,7 @@ close_db:
 		tdb_close(c_nodes[i].db);
 
 node_cpus_alloc_err:
+	tfw_release_node_cpus();
 	return r;
 }
 
