@@ -5991,7 +5991,7 @@ next_msg:
 	 * invalid host/authority it will be dropped only after full parsing
 	 * while it's enough to parse only headers.
 	 */
-	if (!__check_authority_correctness(req)) {	
+	if (!__check_authority_correctness(req)) {
 		return tfw_http_req_parse_drop(req, 400, "Invalid authority",
 					       HTTP2_ECODE_PROTO);
 	}

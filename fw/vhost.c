@@ -1357,7 +1357,6 @@ tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
 	if (tfw_location_init(loc, op, arg, len, vhost->hdrs_pool))
 		return NULL;
 	vhost->loc_sz++;
-
 	if (strncasecmp(vhost->name.data, TFW_VH_DFT_NAME, vhost->name.len)) {
 		if (tfw_frang_cfg_inherit(loc->frang_cfg,
 					  vhost->loc_dflt->frang_cfg))
@@ -1834,7 +1833,6 @@ tfw_vhost_new(const char *name)
 		tfw_vhost_destroy(vhost);
 		return NULL;
 	}
-
 	return vhost;
 }
 
@@ -2078,6 +2076,13 @@ tfw_cfgop_frang_glob_set_int(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfg_set_int(cs, ce);
 }
 
+static int
+tfw_cfgop_frang_glob_set_long(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (ce->dflt_value && *(unsigned int *)(cs->dest))
+		return 0;
+	return tfw_cfg_set_long(cs, ce);
+}
 
 static int
 tfw_cfgop_frang_glob_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -2140,8 +2145,12 @@ tfw_cfgop_frang_uri_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+	int deflt;
 
-	if (ce->dflt_value && cfg->http_uri_len)
+	if ((r = tfw_cfg_parse_int(cs->deflt, &deflt)))
+		return r;
+
+	if (ce->dflt_value && cfg->http_uri_len != deflt)
 		return 0;
 	cs->dest = &cfg->http_uri_len;
 	r = tfw_cfg_set_int(cs, ce);
@@ -2154,8 +2163,12 @@ tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+	long deflt;
 
-	if (ce->dflt_value && cfg->http_body_len)
+	if ((r = tfw_cfg_parse_long(cs->deflt, &deflt)))
+		return r;
+
+	if (ce->dflt_value && cfg->http_body_len != deflt)
 		return 0;
 	cs->dest = &cfg->http_body_len;
 	r = tfw_cfg_set_long(cs, ce);
@@ -2168,8 +2181,12 @@ tfw_cfgop_frang_strict_host_checking(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+	bool deflt;
 
-	if (ce->dflt_value && cfg->http_strict_host_checking)
+	if ((r = tfw_cfg_parse_bool(cs->deflt, &deflt)))
+		return r;
+
+	if (ce->dflt_value && cfg->http_strict_host_checking != deflt)
 		return 0;
 	cs->dest = &cfg->http_strict_host_checking;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2182,8 +2199,12 @@ tfw_cfgop_frang_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+	bool deflt;
 
-	if (ce->dflt_value && cfg->http_ct_required)
+	if ((r = tfw_cfg_parse_bool(cs->deflt, &deflt)))
+		return r;
+
+	if (ce->dflt_value && cfg->http_ct_required != deflt)
 		return 0;
 	cs->dest = &cfg->http_ct_required;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2196,8 +2217,12 @@ tfw_cfgop_frang_trailer_split(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+	bool deflt;
 
-	if (ce->dflt_value && cfg->http_trailer_split)
+	if ((r = tfw_cfg_parse_bool(cs->deflt, &deflt)))
+		return r;
+
+	if (ce->dflt_value && cfg->http_trailer_split != deflt)
 		return 0;
 	cs->dest = &cfg->http_trailer_split;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2210,8 +2235,12 @@ tfw_cfgop_frang_method_override(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+	bool deflt;
 
-	if (ce->dflt_value && cfg->http_method_override)
+	if ((r = tfw_cfg_parse_bool(cs->deflt, &deflt)))
+		return r;
+
+	if (ce->dflt_value && cfg->http_method_override != deflt)
 		return 0;
 	cs->dest = &cfg->http_method_override;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2616,64 +2645,52 @@ tfw_vhost_cfgclean(void)
 }
 
 #if defined(PRINT_CONFIG)
-void
+static void
 printFrang(const char *tab, const FrangVhostCfg *frang)
 {
 	int i;
 
-	if (frang) {
-		T_LOG_NL("%sfrang_limits {\n", tab);
-		T_LOG_NL("%s   http_methods_mask=%lu\n",
-			 tab, frang->http_methods_mask);
-		T_LOG_NL("%s   http_body_len=%lu\n",
-			 tab, frang->http_body_len);
-		T_LOG_NL("%s   http_uri_len=%i\n", tab,
-			 frang->http_uri_len);
-		if (!frang->http_ct_vals) {
-			T_LOG_NL("%s   http_ct_vals=NULL\n", tab);
-		}
-		else {
-			T_LOG_NL("%s   http_ct_vals=%s\n", tab,
-				 frang->http_ct_vals->data);
-		}
+	if (!frang)
+		return;
 
-		if (!frang->http_resp_code_block) {
-			T_LOG_NL("%s   FrangHttpRespCodeBlock: Empty\n", tab);
-		}
-		else {
-			T_LOG_NL("%s   FrangHttpRespCodeBlock:\n", tab);
-			for (i = 0; i < 512; ++i) {
-				if (test_bit(HTTP_CODE_BIT_NUM(i),
-					     frang->http_resp_code_block->codes))
-					T_LOG_NL("%s   %i\n", tab, i);
-			}
-		}
-
-		T_LOG_NL("%s   http_ct_required=%s\n", tab,
-			 frang->http_ct_required ? "true" : "false");
-		T_LOG_NL("%s   http_strict_host_checking=%s\n", tab,
-			 frang->http_strict_host_checking ? "true" : "false");
-		T_LOG_NL("%s   http_trailer_split=%s\n", tab,
-			 frang->http_trailer_split ? "true" : "false");
-		T_LOG_NL("%s   http_method_override=%s\n", tab,
-			 frang->http_method_override ? "true" : "false");
-
-		T_LOG_NL("%s}\n", tab);
+	T_LOG_NL("%sfrang_limits {\n", tab);
+	T_LOG_NL("%s   http_methods_mask=%lu\n",
+		 tab, frang->http_methods_mask);
+	T_LOG_NL("%s   http_body_len=%lu\n",
+		 tab, frang->http_body_len);
+	T_LOG_NL("%s   http_uri_len=%i\n", tab,
+		 frang->http_uri_len);
+	if (!frang->http_ct_vals) {
+		T_LOG_NL("%s   http_ct_vals=NULL\n", tab);
 	}
+	else {
+		T_LOG_NL("%s   http_ct_vals=%s\n", tab,
+			 frang->http_ct_vals->data);
+	}
+
+	if (!frang->http_resp_code_block) {
+		T_LOG_NL("%s   FrangHttpRespCodeBlock: Empty\n", tab);
+	}
+	else {
+		T_LOG_NL("%s   FrangHttpRespCodeBlock:\n", tab);
+		for (i = 0; i < 512; ++i) {
+			if (test_bit(HTTP_CODE_BIT_NUM(i),
+				     frang->http_resp_code_block->codes))
+				T_LOG_NL("%s   %i\n", tab, i);
+		}
+	}
+
+	T_LOG_NL("%s   http_ct_required=%s\n", tab,
+		 frang->http_ct_required ? "true" : "false");
+	T_LOG_NL("%s   http_strict_host_checking=%s\n", tab,
+		 frang->http_strict_host_checking ? "true" : "false");
+	T_LOG_NL("%s   http_trailer_split=%s\n", tab,
+		 frang->http_trailer_split ? "true" : "false");
+	T_LOG_NL("%s   http_method_override=%s\n", tab,
+		 frang->http_method_override ? "true" : "false");
+
+	T_LOG_NL("%s}\n", tab);
 }
-
-
-void printBasicStr(BasicStr *str)
-{
-	char new_str[128];
-	int len;
-
-	memset(new_str, 0, sizeof(new_str));
-	len = str->len < 128 ? str->len : 127;
-	memcpy(new_str, str->data, len);
-	T_LOG_NL("%s\n", new_str);
-}
-
 
 static void
 tfw_cfgop_location_print(TfwLocation *loc)
@@ -2681,85 +2698,84 @@ tfw_cfgop_location_print(TfwLocation *loc)
         int i;
          TfwHdrMods *h_mods = &loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP];
 
-        if (loc->arg) {
-                T_LOG_NL("   location  %s {", loc->arg);
-                printFrang("      ", loc->frang_cfg);
+        if (!loc->arg)
+                return;
 
-                for (i = 0; i < loc->capo_sz; ++i) {
-                        TfwCaPolicy *capo = loc->capo[i];
+        T_LOG_NL("   location  %s {", loc->arg);
+        printFrang("      ", loc->frang_cfg);
 
-                        switch (capo->cmd) {
-                                case TFW_D_CACHE_BYPASS:
-                                        T_LOG_NL("      cache_bypass %s\n",
-                                                 capo->arg);
-                                break;
-                                case TFW_D_CACHE_FULFILL:
-                                        T_LOG_NL("      cache_fulfill %s\n",
-                                                 capo->arg);
-                                        break;
-                                case TFW_D_CACHE_RESP_HDR_DEL:
-                                        T_LOG_NL("      cache_resp_hdr_del %s\n",
-                                                 capo->arg);
-                                        break;
-                                case TFW_D_CACHE_CONTROL_IGNORE:
-                                        T_LOG_NL("      cache_control_ignore %s\n",
-                                                 capo->arg);
-                                        break;
-                        }
+        for (i = 0; i < loc->capo_sz; ++i) {
+                TfwCaPolicy *capo = loc->capo[i];
 
+                switch (capo->cmd) {
+                case TFW_D_CACHE_BYPASS:
+                        T_LOG_NL("      cache_bypass %s\n",
+                                 capo->arg);
+                        break;
+                case TFW_D_CACHE_FULFILL:
+                        T_LOG_NL("      cache_fulfill %s\n",
+                                 capo->arg);
+                        break;
+                case TFW_D_CACHE_RESP_HDR_DEL:
+                        T_LOG_NL("      cache_resp_hdr_del %s\n",
+                                 capo->arg);
+                        break;
+                case TFW_D_CACHE_CONTROL_IGNORE:
+                        T_LOG_NL("      cache_control_ignore %s\n",
+                                 capo->arg);
+                        break;
                 }
 
-                for (i = 0; i < loc->nipdef_sz; ++i) {
-                        TfwNipDef *nipdef= loc->nipdef[i];
-                        T_LOG_NL("      %s\n", nipdef->arg);
-                }
-
-                if (h_mods) {
-                        for (i = 0; i < h_mods->sz; ++i) {
-                                TfwHdrModsDesc *d = &h_mods->hdrs[i];
-                                T_LOG_NL("      %s  %i  %i\n", d->hdr->data,
-                                         d->hdr->nchunks, (int)d->hdr->len);
-                        }
-                }
-                T_LOG_NL("   }");
         }
+
+        for (i = 0; i < loc->nipdef_sz; ++i) {
+                TfwNipDef *nipdef= loc->nipdef[i];
+                T_LOG_NL("      %s\n", nipdef->arg);
+        }
+
+        if (h_mods) {
+                for (i = 0; i < h_mods->sz; ++i) {
+                        TfwHdrModsDesc *d = &h_mods->hdrs[i];
+                        T_LOG_NL("      %s  %i  %i\n", d->hdr->data,
+                                d->hdr->nchunks, (int)d->hdr->len);
+                }
+        }
+        T_LOG_NL("   }");
 }
-
-
 
 static void
 tfw_cfgop_frang_global_print(FrangGlobCfg *frang_gconf)
 {
-	if (frang_gconf) {
-		T_LOG_NL("frang_limits {\n");
-		T_LOG_NL("   clnt_hdr_timeout=%lu\n",
-			 frang_gconf->clnt_hdr_timeout);
-		T_LOG_NL("   clnt_body_timeout=%lu\n",
-			 frang_gconf->clnt_body_timeout);
-		T_LOG_NL("   req_rate=%u\n", frang_gconf->req_rate);
-		T_LOG_NL("   req_burst=%u\n", frang_gconf->req_burst);
-		T_LOG_NL("   conn_rate=%u\n", frang_gconf->conn_rate);
-		T_LOG_NL("   conn_burst_rate=%u\n", frang_gconf->conn_burst);
-		T_LOG_NL("   conn_max=%u\n", frang_gconf->conn_max);
-		T_LOG_NL("   tls_new_conn_rate=%u\n",
-			 frang_gconf->tls_new_conn_rate);
-		T_LOG_NL("   tls_new_conn_burst=%u\n",
-			 frang_gconf->tls_new_conn_burst);
-		T_LOG_NL("   tls_incomplete_conn_rate=%u\n",
-			 frang_gconf->tls_incomplete_conn_rate);
-		T_LOG_NL("   http_hchunk_cnt=%u\n",
-			 frang_gconf->http_hchunk_cnt);
-		T_LOG_NL("   http_bchunk_cnt=%u\n",
-			 frang_gconf->http_bchunk_cnt);
-		T_LOG_NL("   http_hdr_len=%u\n",
-			 frang_gconf->http_hdr_len);
-		T_LOG_NL("   http_hdr_cnt=%u\n",
-			 frang_gconf->http_hdr_cnt);
-		T_LOG_NL("   ip_block=%s\n",
-			 frang_gconf->ip_block ? "true" : "false");
-		T_LOG_NL("}\n");
-	}
+	if (!frang_gconf)
+		return;
 
+	T_LOG_NL("frang_limits {\n");
+	T_LOG_NL("   clnt_hdr_timeout=%lu\n",
+		 frang_gconf->clnt_hdr_timeout);
+	T_LOG_NL("   clnt_body_timeout=%lu\n",
+		 frang_gconf->clnt_body_timeout);
+	T_LOG_NL("   req_rate=%u\n", frang_gconf->req_rate);
+	T_LOG_NL("   req_burst=%u\n", frang_gconf->req_burst);
+	T_LOG_NL("   conn_rate=%u\n", frang_gconf->conn_rate);
+	T_LOG_NL("   conn_burst_rate=%u\n", frang_gconf->conn_burst);
+	T_LOG_NL("   conn_max=%u\n", frang_gconf->conn_max);
+	T_LOG_NL("   tls_new_conn_rate=%u\n",
+		 frang_gconf->tls_new_conn_rate);
+	T_LOG_NL("   tls_new_conn_burst=%u\n",
+		 frang_gconf->tls_new_conn_burst);
+	T_LOG_NL("   tls_incomplete_conn_rate=%u\n",
+		 frang_gconf->tls_incomplete_conn_rate);
+	T_LOG_NL("   http_hchunk_cnt=%u\n",
+		 frang_gconf->http_hchunk_cnt);
+	T_LOG_NL("   http_bchunk_cnt=%u\n",
+		 frang_gconf->http_bchunk_cnt);
+	T_LOG_NL("   http_hdr_len=%u\n",
+		 frang_gconf->http_hdr_len);
+	T_LOG_NL("   http_hdr_cnt=%u\n",
+		 frang_gconf->http_hdr_cnt);
+	T_LOG_NL("   ip_block=%s\n",
+		 frang_gconf->ip_block ? "true" : "false");
+	T_LOG_NL("}\n");
 }
 
 static void
@@ -2775,24 +2791,19 @@ tfw_cfgop_vhosts_print(TfwVhostList *vhosts)
 		return;
 
 	memset(str, 0, sizeof(str));
-
 	tfw_cfgop_frang_global_print(&tfw_frang_glob_reconfig);
 
 	T_LOG_NL("tls_match_any_server_name=%s\n",
 		 tfw_tls_get_allow_any_sni_reconfig() ? "true" : "false");
-
 	hash_for_each(vhosts->vh_hash, i, vhost, hlist) {
-
                 len = vhost->name.len < 128 ? vhost->name.len : 127;
                 memcpy(str, vhost->name.data, len);
                 T_LOG_NL("vhost %s {", str);
                 memset(str, 0, len);
-
                 tfw_cfgop_location_print(vhost->loc_dflt);
                 for (j = 0; j < vhost->loc_sz; ++j) {
                       tfw_cfgop_location_print(&vhost->loc[j]);
                 }
-
                 T_LOG_NL("}");
         }
 }
@@ -2954,46 +2965,53 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		},
 		.allow_reconfig = true,
 	},
-	/* Option can be redefined per vhost|location. */
+	/* Option can be redefined per vhost|location.
+	 *
+	 *  All handler are changed to tfw_cfgop_frang_glob_...
+	 *  because here we need to compare the default value
+	 *  with 0 after kzalloc, and for non global configuration
+	 *  we need to already check default value with real default
+	 *  value set here or in tfw_vhost_frang_specs
+	 */
 	{
 		.name = "http_uri_len",
 		.deflt = "0",
-		.handler = tfw_cfgop_frang_uri_len,
+		.handler = tfw_cfgop_frang_glob_set_int,
 		.dest = &tfw_frang_vhost_reconfig.http_uri_len,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_body_len",
 		.deflt = "1073741824", /* 1 Gb. */
-		.handler = tfw_cfgop_frang_body_len,
+		.handler = tfw_cfgop_frang_glob_set_long,
 		.dest = &tfw_frang_vhost_reconfig.http_body_len,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_strict_host_checking",
 		.deflt = "true",
-		.handler = tfw_cfgop_frang_strict_host_checking,
+		.handler = tfw_cfgop_frang_glob_set_bool,
 		.dest = &tfw_frang_vhost_reconfig.http_strict_host_checking,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_ct_required",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_ct_required,
+		.handler = tfw_cfgop_frang_glob_set_bool,
 		.dest = &tfw_frang_vhost_reconfig.http_ct_required,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_trailer_split_allowed",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_trailer_split,
+		.handler = tfw_cfgop_frang_glob_set_bool,
 		.dest = &tfw_frang_vhost_reconfig.http_trailer_split,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_method_override_allowed",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_method_override,
+		.handler = tfw_cfgop_frang_glob_set_bool,
 		.dest = &tfw_frang_vhost_reconfig.http_method_override,
 		.allow_reconfig = true,
 	},

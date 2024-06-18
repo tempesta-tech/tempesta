@@ -435,6 +435,7 @@ int tfw_cfg_check_single_val(const TfwCfgEntry *e);
 int tfw_cfg_parse_int(const char *s, int *out_int);
 int tfw_cfg_parse_long(const char *s, long *out_long);
 int tfw_cfg_parse_uint(const char *s, unsigned int *out_uint);
+int tfw_cfg_parse_bool(const char *in_str, bool *out_bool);
 int tfw_cfg_parse_intvl(const char *s, unsigned long *i0, unsigned long *i1);
 int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
