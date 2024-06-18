@@ -161,9 +161,7 @@ unsigned int tfw_h2_req_stream_id(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
 int tfw_h2_stream_xmit_prepare_resp(TfwStream *stream);
-int tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream,
-                             unsigned int *len, unsigned int mss_now,
-                             unsigned int *not_account_in_flight,
-                             unsigned int *tls_record_len);
+int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
+                             unsigned int *len, bool should_split);
 
 #endif /* __HTTP2__ */

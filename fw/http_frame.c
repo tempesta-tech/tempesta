@@ -1912,8 +1912,9 @@ tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 }
 
 static inline int
-tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
-			   unsigned long snd_wnd, unsigned long len)
+tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
+			   TfwFrameType type, unsigned long *snd_wnd,
+			   unsigned long len)
 {
 	TfwMsgIter it = {
 		.skb_head = stream->xmit.skb_head,
@@ -1925,8 +1926,8 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	TfwFrameHdr frame_hdr = {};
 	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
 	unsigned int mark = stream->xmit.skb_head->mark;
-	unsigned int max_len = (snd_wnd > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD) ?
-		TLS_MAX_PAYLOAD_SIZE : snd_wnd - TLS_MAX_OVERHEAD;
+	unsigned int max_len = (*snd_wnd > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD) ?
+		TLS_MAX_PAYLOAD_SIZE : *snd_wnd - TLS_MAX_OVERHEAD;
 	unsigned int length;
 	char *data;
 	int r;
@@ -1939,7 +1940,8 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 		stream->xmit.skb_head = it.skb_head;
 	}
 
-	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head, 0);
+	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
+					 stream->xmit.frame_length);
 	if(unlikely(!data))
 		data = stream->xmit.skb_head->data;
 
@@ -1966,24 +1968,34 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 		stream->xmit.h_len -= length;
 	}
 
+	*snd_wnd -= length;
+
 	frame_hdr.length = length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
 	frame_hdr.flags = tf2_h2_calc_frame_flags(stream, type);
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
-	stream->xmit.frame_length = length + FRAME_HEADER_SIZE;
+	stream->xmit.frame_length += length + FRAME_HEADER_SIZE;
 	switch (tfw_h2_stream_send_process(ctx, stream, type)) {
 	case STREAM_FSM_RES_OK:
 	case STREAM_FSM_RES_IGNORE:
 		break;
 	case STREAM_FSM_RES_TERM_STREAM:
+		/* Send previosly successfully prepared frames if exist. */
+		stream->xmit.frame_length -= length + FRAME_HEADER_SIZE;
+		if (stream->xmit.frame_length) {
+			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+						     &stream->xmit.frame_length,
+						     true);
+		}
+		stream->xmit.frame_length += length + FRAME_HEADER_SIZE;
 		/*
 		 * Purge stream send queue, but leave postponed
 		 * skbs and rst stream/goaway/tls alert if exist.
 		 */
 		tfw_h2_stream_purge_send_queue(stream);
-		return 0;
+		return r;
 	case STREAM_FSM_RES_TERM_CONN:
 		return -EPIPE;
 	}
@@ -1993,33 +2005,16 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   unsigned int mss_now, int ss_action,
-			   bool *snd_wnd_exceeded,
-			   unsigned int *not_account_in_flight,
-			   unsigned int *tls_record_len)
+			   int ss_action, unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
-	unsigned long snd_wnd;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
-/*
- * if *tls_record_len is equal to zero, then here we deal with
- * new tls record. During tls record encryption extra TLS_MAX_OVERHEAD
- * data can be added and we should adjust it during snd_wnd calculation.
- * Maximum additional count of in flight packets is equal to 2:
- * one new skb and extra TLS header which encrease skb len, so
- * DIV_ROUND_UP(skb->len, mss_now)) increased.
- */
 #define CALC_SND_WND_AND_SET_FRAME_TYPE(type)				\
 do {									\
-	if (*tls_record_len == 0)					\
-		*not_account_in_flight += 2;				\
-	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now, *not_account_in_flight); \
-	if (snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {		\
-		*snd_wnd_exceeded = true;				\
+	if (*snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD)		\
 		T_FSM_EXIT();						\
-	}								\
 	frame_type = type;						\
 } while(0)
 
@@ -2055,7 +2050,7 @@ do {									\
 			}
 		}
 
-		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       snd_wnd, stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
@@ -2067,7 +2062,7 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION);
-		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       snd_wnd, stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
@@ -2087,7 +2082,7 @@ do {									\
 		}
 
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_DATA);
-		r = tfw_h2_insert_frame_header(ctx, stream, frame_type,
+		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       snd_wnd, stream->xmit.b_len);
 		if (unlikely (r)) {
 			T_WARN("Failed to make data frame %d", r);
@@ -2098,11 +2093,9 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
-		r =  tfw_h2_entail_stream_skb(ctx, stream,
+		r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
 					      &stream->xmit.frame_length,
-					      mss_now,
-					      not_account_in_flight,
-					      tls_record_len);
+					      false);
 		if (unlikely(r)) {
 			T_WARN("Failed to send frame %d", r);
 			return r;
@@ -2111,7 +2104,8 @@ do {									\
 		if (stream->xmit.h_len) {
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
-			if (unlikely(stream->xmit.postponed))
+			if (unlikely(stream->xmit.postponed) &&
+			    !stream->xmit.frame_length)
 				ss_skb_tcp_entail_list(sk,
 						       &stream->xmit.postponed);
 			if (stream->xmit.b_len) {
@@ -2150,33 +2144,32 @@ do {									\
 
 	T_FSM_FINISH(r, stream->xmit.state);
 
+	if (stream->xmit.frame_length) {
+		r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+					     &stream->xmit.frame_length,
+					     true);
+	}
+
+
 	return r;
 
 #undef CALC_SND_WND_AND_SET_FRAME_TYPE
 }
 
 int
-tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
+tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		   int ss_action, bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
 	TfwStream *stream;
 	u64 deficit;
-	unsigned int not_account_in_flight = 0;
-	unsigned int tls_record_len = 0;
 	bool error_was_sent = false;
-	bool snd_wnd_exceeded = false;
 	int r = 0;
 
-	/*
-	 * Update snd_cwnd if nedeed, to correct caclulation
-	 * of count of bytes to send.
-	 */
-	tcp_slow_start_after_idle_check(sk);
-
 	while (tfw_h2_stream_sched_is_active(&sched->root)
-	       && !snd_wnd_exceeded && ctx->rem_wnd > 0)
+	       && snd_wnd > FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD
+	       && ctx->rem_wnd > 0)
 	{
 		if (ctx->cur_send_headers) {
 			stream = ctx->cur_send_headers;
@@ -2196,10 +2189,8 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_stream_xmit_process(sk, ctx, stream, mss_now,
-					       ss_action, &snd_wnd_exceeded,
-					       &not_account_in_flight,
-					       &tls_record_len);
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream, ss_action,
+					       &snd_wnd);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent, deficit);
 

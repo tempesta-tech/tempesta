@@ -159,7 +159,7 @@ int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 			 struct sk_buff **next);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 int tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code, bool attack);
-int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
+int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long smd_wnd,
 		       int ss_action, bool *data_is_available);
 
 static inline void
