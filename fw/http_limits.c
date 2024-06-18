@@ -754,9 +754,10 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
                 }
                 break;
 	case TFW_HTTP_VER_11:
-		/* This is pure HTTP/1.1 check, that would never trigger for
+		/*
+		 * This is pure HTTP/1.1 check, that would never trigger for
 		 * HTTP/2 because it cannot have an absolute URI.
-		 * Also this MUST be removed after #1870 is complete*/
+		 */
 		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
 			TfwStr host;
 
@@ -801,7 +802,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			       "\n");
 		return T_BLOCK;
 	}
-	/* Check that SNI for TLS connection matches host header. */
 	if (TFW_CONN_TLS(req->conn))
 		port = req->host_port ? : 443;
 	else
