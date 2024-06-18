@@ -634,6 +634,23 @@ __parse_ulong(unsigned char *__restrict data, size_t len,
 }
 
 /**
+ * Parse an integer followed by a slash or a space. Used only for parsing port
+ * in URI.
+ */
+static __always_inline int
+__parse_uri_port(unsigned char *__restrict data, size_t len,
+		 unsigned long *__restrict acc, unsigned long limit)
+{
+	/* Characters:
+	 * ' ' (0x20) space (SPC)
+	 * '/' (0x2f) slash */
+	static const unsigned long dm_a[] ____cacheline_aligned = {
+		0x0000800100000000UL, 0, 0, 0
+	};
+	return __parse_ulong(data, len, dm_a, acc, limit);
+}
+
+/**
  * Parse an integer followed by a white space.
  */
 static __always_inline int
@@ -3260,31 +3277,59 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_H_Port) {
-		/* See Req_UriPort processing. */
-		if (unlikely(IS_CRLFWS(c))) {
-			if (!req->host_port)
-				/* Header ended before port was parsed. */
-				return CSTR_NEQ;
-			return __data_off(p);
-		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = __parse_ulong_ws(p, __data_remain(p), &parser->_acc,
 					   USHRT_MAX);
+
 		switch (__fsm_n) {
+		case CSTR_EQ:
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
-			req->host_port = parser->_acc;
-			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz, TFW_STR_VALUE);
+			if (likely(!test_bit(TFW_HTTP_B_ABSOLUTE_URI,
+					     req->flags)))
+			{
+				req->host_port = parser->_acc;
+			}
+			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz,
+					   TFW_STR_VALUE);
 		default:
-			req->host_port = parser->_acc;
-			if (!req->host_port)
-				return CSTR_NEQ;
+			/*
+			 * Don't override `host_port` when URI is absolute
+			 * `host_port` taken from it.
+			 */
+			if (likely(!test_bit(TFW_HTTP_B_ABSOLUTE_URI,
+					     req->flags)))
+			{
+				req->host_port = parser->_acc;
+				if (!req->host_port)
+					return CSTR_NEQ;
+			}
+
 			parser->_acc = 0;
-			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_n, TFW_STR_VALUE);
+			__FSM_I_MOVE_fixup(Req_I_H_PortEnd, __fsm_n,
+					   TFW_STR_VALUE);
 		}
 		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_PortEnd) {
+		/* See Req_UriPort processing. */
+		if (IS_CRLFWS(c)) {
+			/*
+			 * Don't validate `host_port` when URI is absolute,
+			 * it be validated during URI parsing. Here we validate
+			 * only port from host header, but port from URI will
+			 * be used for message forwarding.
+			 */
+			if (unlikely(!req->host_port &&
+			    !test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags))) {
+				/* Header ended before port was parsed. */
+				return CSTR_NEQ;
+			}
+			return __data_off(p);
+		}
 	}
 
 done:
@@ -5915,8 +5960,27 @@ Req_Method_1CharStep: __attribute__((cold))
 
 	/* Host port in URI */
 	__FSM_STATE(Req_UriPort, cold) {
-		if (likely(isdigit(c)))
-			__FSM_MOVE_f(Req_UriPort, &req->host);
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_uri_port(p, __data_remain(p),
+					   &parser->_acc, USHRT_MAX);
+
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			TFW_PARSER_DROP(Req_UriPort);
+		case CSTR_POSTPONE:
+			req->host_port = parser->_acc;
+			__FSM_MOVE_nf(Req_UriPort, __fsm_sz, &req->host);
+		default:
+			req->host_port = parser->_acc;
+			if (!req->host_port)
+				TFW_PARSER_DROP(Req_UriPort);
+			parser->_acc = 0;
+			__FSM_MOVE_nf(Req_UriPortEnd, __fsm_n, &req->host);
+		}
+	}
+
+	__FSM_STATE(Req_UriPortEnd, cold) {
 		__msg_field_finish(&req->host, p);
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
@@ -5925,7 +5989,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_DROP(Req_UriPort);
+		TFW_PARSER_DROP(Req_UriPortEnd);
 	}
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
