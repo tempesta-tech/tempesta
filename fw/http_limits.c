@@ -765,23 +765,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
                 }
                 break;
 	case TFW_HTTP_VER_11:
-		/* This is pure HTTP/1.1 check, that would never trigger for
-		 * HTTP/2 because it cannot have an absolute URI.
-		 * Also this MUST be removed after #1870 is complete*/
-		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
-			TfwStr host;
-
-			tfw_http_msg_clnthdr_val(req,
-						&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-						TFW_HTTP_HDR_HOST, &host);
-			if (tfw_strcmp(&req->host, &host) != 0) {
-				frang_msg_lock(&ra->lock, "Request host from"
-					       " absolute URI differs from Host"
-					       " header",
-					       &FRANG_ACC2CLI(ra)->addr, "\n");
-				return T_BLOCK;
-			}
-		}
 		break;
 	/*
 	 * Old protocols may have no 'host' header, if presents it's a usual
@@ -812,7 +795,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			       "\n");
 		return T_BLOCK;
 	}
-	/* Check that SNI for TLS connection matches host header. */
 	if (TFW_CONN_TLS(req->conn))
 		port = req->host_port ? : 443;
 	else
