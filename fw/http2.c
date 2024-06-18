@@ -497,18 +497,13 @@ finish:
 }
 
 int
-tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream,
-			 unsigned int *len, unsigned int mss_now,
-			 unsigned int *not_account_in_flight,
-			 unsigned int *tls_record_len)
+tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
+			 unsigned int *len, bool should_split)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	struct sock *sk = ((TfwConn *)conn)->sk;
 	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
 	unsigned int mark = stream->xmit.skb_head->mark;
 	struct sk_buff *skb, *split;
 	int r = 0;
-	bool tls_record_was_finished = false;
 
 	BUG_ON(!TFW_SKB_CB(stream->xmit.skb_head)->is_head);
 	while (*len) {
@@ -527,51 +522,23 @@ tfw_h2_entail_stream_skb(TfwH2Ctx *ctx, TfwStream *stream,
 		BUG_ON(!skb->len);
 
 		if (skb->len > *len) {
-			split = ss_skb_split(skb, *len);
-			if (!split) {
+			if (should_split) {
+				split = ss_skb_split(skb, *len);
+				if (!split) {
+					ss_skb_queue_head(&stream->xmit.skb_head,
+							  skb);
+					r = -ENOMEM;
+					break;
+				}
+
+				ss_skb_queue_head(&stream->xmit.skb_head, split);
+			} else {
 				ss_skb_queue_head(&stream->xmit.skb_head, skb);
-				r = -ENOMEM;
 				break;
 			}
-
-			ss_skb_queue_head(&stream->xmit.skb_head, split);
 		}
 		*len -= skb->len;
-
-		/*
-		 * Tls record len was exceeded during `tfw_h2_entail_stream_skb`
-		 * call. Caller function has no information about it, so adjust
-		 * `not_account_in_flight` right here.
-		 */
-		if (tls_record_was_finished) {
-			(*not_account_in_flight)++;
-			tls_record_was_finished = false;
-		}
-
-		*tls_record_len = *tls_record_len + skb->len;
-		/*
-		 * Later all skbs, the total length of which is less or equal
-		 * then TLS_MAX_PAYLOAD_SIZE are placed in one tls record.
-		 * During encryption extra TLS_MAX_OVERHEAD data can be added
-		 * and we should adjuct it during snd_wnd calculation.
-		 */
-		if (*tls_record_len > TLS_MAX_PAYLOAD_SIZE) {
-			*tls_record_len = 0;
-			tls_record_was_finished = true;
-		}
-
-		/*
-		 * Linux kernel calculates the count of out packets on
-		 * each iteration of `tcp_write_xmit` loop:
-		 * `tp->packets_out += tcp_skb_pcount(skb);`
-		 * This value is used to calculate cwnd_quota and
-		 * break the loop if it is exceeded. We need to
-		 * adjust count of packets_out which will be added
-		 * later here, to recalculate cwnd_quota in our code.
-		 */
-		*not_account_in_flight += (skb->len <= mss_now ?
-			1 : DIV_ROUND_UP(skb->len, mss_now));
-		ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		 ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 
 	/*

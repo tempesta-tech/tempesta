@@ -37,21 +37,26 @@ void tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
  * socket write queue then we can send.
  */
 static inline unsigned long
-tfw_tcp_calc_snd_wnd(struct sock *sk, unsigned int mss_now,
-		     unsigned int not_account_in_flight)
+tfw_tcp_calc_snd_wnd(struct sock *sk, unsigned int mss_now)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	unsigned int in_flight = tcp_packets_in_flight(tp);
+	unsigned int qlen =  skb_queue_len(&sk->sk_write_queue);
 	unsigned int send_win, cong_win;
 
-	if (in_flight + not_account_in_flight >= tp->snd_cwnd)
+	/*
+	 * Update snd_cwnd if nedeed, to correct caclulation
+	 * of count of bytes to send.
+	 */
+	tcp_slow_start_after_idle_check(sk);
+
+	if (in_flight + qlen >= tp->snd_cwnd)
 		return 0;
 
 	if (after(tp->write_seq, tcp_wnd_end(tp)))
 		return 0;
 
-	cong_win = (tp->snd_cwnd - in_flight -
-		not_account_in_flight) * mss_now;
+	cong_win = (tp->snd_cwnd - in_flight - qlen) * mss_now;
 	send_win = tcp_wnd_end(tp) - tp->write_seq;
 	return min(cong_win, send_win);
 }

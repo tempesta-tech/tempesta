@@ -482,10 +482,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * will be called later from `tcp_data_snd_check` when we receive
 	 * ack from the peer.
 	 */
-	if (!tcp_sk(sk)->packets_out
-	    && sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+	if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
 		tcp_push_pending_frames(sk);
-	} else if (!sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+	} else {
 		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF | TCP_NAGLE_PUSH,
 			 size);
 	}
