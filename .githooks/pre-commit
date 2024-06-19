@@ -1,11 +1,18 @@
 #!/bin/bash
-
-# pre-commit hook to update copyrights
+set -euo pipefail
 
 year=$(date +%Y)
-files=$(git diff --cached --name-only)
+files=$(git diff --cached --name-only --diff-filter=ACM)
 
+# update copyrights
 perl -i -pe "s/Copyright \(C\) (\d{4})(-\d{4})? Tempesta/Copyright \(C\) \$1-$year Tempesta/g" $files
 perl -i -pe "s/Copyright \(C\) $year-$year Tempesta/Copyright \(C\) $year Tempesta/g" $files
 
 git add $files
+
+# check code style
+for f in ${files}; do
+	if [[ $f = *.[ch] ]]; then
+		./scripts/checkpatch.pl --no-tree -f --ignore ELSE_AFTER_BRACE,SPDX_LICENSE_TAG $f
+	fi
+done
