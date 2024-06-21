@@ -364,10 +364,11 @@ tfw_init_node_cpus(void)
 	T_DBG2("nr_online_nodes: %d", nr_online_nodes);
 
 	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
-		if(!c_nodes) {
-			T_ERR("Failed to allocate nodes map for cache work scheduler");
-			return -ENOMEM;
+	if(!c_nodes) {
+		T_ERR("Failed to allocate nodes map for cache work scheduler");
+		return -ENOMEM;
 	}
+
 	for_each_node_with_cpus(node) {
 		nr_cpus = nr_cpus_node(node);
 		T_DBG2("node: %d  nr_cpus: %d",node, nr_cpus);
