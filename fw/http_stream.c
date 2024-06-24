@@ -767,7 +767,7 @@ int
 tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
 			    unsigned long b_len)
 {
-	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	TfwStream *stream;
 
 	spin_lock(&ctx->lock);

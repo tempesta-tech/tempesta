@@ -103,8 +103,8 @@ typedef struct {
 	char		__reset_from[0];
 	unsigned long	tot_cnt;
 	unsigned long	tot_val;
-	unsigned long	min_val;
-	unsigned long	max_val;
+	unsigned int	min_val;
+	unsigned int	max_val;
 	unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
 	char		__reset_till[0];
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
@@ -323,8 +323,9 @@ static inline bool
 tfw_stats_adj_min(TfwPcntRanges *rng, unsigned int r_time)
 {
 	if (r_time < rng->min_val) {
+		bool ret = rng->min_val != UINT_MAX;
 		rng->min_val = r_time;
-		return true;
+		return ret;
 	}
 	return false;
 }
@@ -768,6 +769,7 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 	TfwApmRBEState st[TFW_APM_MAX_TMWSCALE];
 	TfwPcntRanges *pcntrng;
 	TfwApmRBEnt *rbent = rbuf->rbent;
+	unsigned int max_val = 0;
 
 	for (i = 0; i < rbuf->rbufsz; i++) {
 		pcntrng = &rbent[i].pcntrng;
@@ -779,6 +781,11 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 		pval[i] = rbctl->total_cnt * pstats->ith[i] / 100;
 		if (!pval[i])
 			pstats->val[p++] = 0;
+	}
+	for (i = 0; i < rbuf->rbufsz; i++) {
+		pcntrng = &rbent[i].pcntrng;
+		if (max_val < pcntrng->max_val)
+			max_val = pcntrng->max_val;
 	}
 	while (p < T_PSZ) {
 		int v_min = USHRT_MAX;
@@ -793,6 +800,9 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 			pcntrng = &rbent[i].pcntrng;
 			cnt += pcntrng->cnt[st[i].r][st[i].b];
 			tfw_apm_state_next(pcntrng, &st[i]);
+		}
+		if (v_min > max_val) {
+			v_min = max_val;
 		}
 		for ( ; p < T_PSZ && pval[p] <= cnt; ++p)
 			pstats->val[p] = v_min;
@@ -809,6 +819,10 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 		cnt += pcntrng->tot_cnt;
 		val += pcntrng->tot_val;
 	}
+
+	if (pstats->val[IDX_MIN] == UINT_MAX)
+		pstats->val[IDX_MIN] = 0;
+
 	if (likely(cnt))
 		pstats->val[IDX_AVG] = val / cnt;
 

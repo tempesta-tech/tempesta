@@ -534,7 +534,7 @@ do_split_and_parse(int type, int chunk_mode)
 		}
 
 		if (type == FUZZ_REQ_H2) {
-			TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+			TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 			ctx->hdr.type = frame->subtype;
 			ctx->plen = frame->len;
 		}

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -32,7 +32,6 @@
 #include "server.h"
 #include "str.h"
 #include "sync_socket.h"
-#include "lib/errinj.h"
 #include "lib/fsm.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
@@ -41,7 +40,6 @@ MODULE_VERSION(TFW_VERSION);
 MODULE_LICENSE("GPL");
 
 #define T_SYSCTL_STBUF_LEN		32UL
-#define T_SYSCTL_ERRINJ_STBUF_LEN	64UL
 
 typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
@@ -348,13 +346,16 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 
 	if (is_write) {
 		char buf[T_SYSCTL_STBUF_LEN];
+		char start[T_SYSCTL_STBUF_LEN] = "start";
+		char stop[T_SYSCTL_STBUF_LEN] = "stop";
+
 		tmp.data = buf;
 		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
 			goto out;
 
 		r = tfw_ctlfn_state_change(buf);
 		strlcpy(new_state_buf,
-			tfw_runstate_is_started() ? "start" : "stop",
+			tfw_runstate_is_started() ? start : stop,
 			T_SYSCTL_STBUF_LEN);
 	} else {
 		tmp.data = new_state_buf;
@@ -364,64 +365,6 @@ out:
 	mutex_unlock(&tfw_sysctl_mtx);
 	return r;
 }
-
-#ifdef DBG_ERRINJ
-
-static int
-tfw_cntl_errinj_change(char *errinj)
-{
-	int r;
-	char *name, *val;
-	struct errinj *inj;
-
-	if ((r = errinj_split_name_val(errinj, &name, &val)))
-		return r;
-
-	inj = errinj_by_name(name);
-	if (!inj)
-		return -EINVAL;
-
-	return str_to_errinj(inj, val);
-}
-
-static int
-tfw_ctlfn_errinj_io(struct ctl_table *ctl, int is_write,
-		    void *user_buf, size_t *lenp, loff_t *ppos)
-{
-	int r = 0;
-	static char errinj_buf[T_SYSCTL_ERRINJ_STBUF_LEN];
-	char buf[T_SYSCTL_ERRINJ_STBUF_LEN];
-	struct ctl_table tmp = *ctl;
-	tmp.data = buf;
-
-	mutex_lock(&tfw_sysctl_mtx);
-
-	if (is_write) {
-		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
-			goto out;
-
-		if ((r = tfw_cntl_errinj_change(buf)))
-			goto out;
-
-		strlcpy(errinj_buf, buf, T_SYSCTL_ERRINJ_STBUF_LEN);
-	} else {
-		struct errinj *inj;
-
-		inj = errinj_by_name(errinj_buf);
-		if (inj) {
-			errinj_to_str(inj, buf, sizeof(buf));
-		} else {
-			strlcpy(buf, "NONE", sizeof(buf));
-		}
-
-		r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos);
-	}
-
-out:
-	mutex_unlock(&tfw_sysctl_mtx);
-	return r;
-}
-#endif
 
 /**
  * Wait until all objects of some specific type @obj_name are
@@ -471,14 +414,6 @@ static struct ctl_table tfw_sysctl_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
 	},
-#ifdef DBG_ERRINJ
-	{
-		.procname	= "errinj",
-		.maxlen		= T_SYSCTL_ERRINJ_STBUF_LEN - 1,
-		.mode		= 0644,
-		.proc_handler	= tfw_ctlfn_errinj_io,
-	},
-#endif
 	{}
 };
 
