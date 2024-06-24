@@ -4135,7 +4135,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			return r;
 	}
 
-	resp->content_length = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+	resp->content_length = resp->body.len;
 
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
