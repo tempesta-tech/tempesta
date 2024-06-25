@@ -1376,6 +1376,8 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 	 */
 	if (!hm->crc32 && hm->auto_crc) {
 		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
+		T_WARN("Auto CRC generated");
+
 	} else if (hm->crc32) {
 		crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
 		if (hm->crc32 != crc32)
@@ -1704,7 +1706,7 @@ tfw_apm_create_def_hm(void)
 }
 
 static TfwApmHMCfg *
-tfw_amp_create_hm_entry(void)
+tfw_apm_create_hm_entry(void)
 {
 	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
 	if (!hm_entry)
@@ -1725,7 +1727,7 @@ tfw_apm_create_def_health_stat_srv(void)
 	if (tfw_hm_cfg_200_created)
 		return 0;
 
-	hm_entry = tfw_amp_create_hm_entry();
+	hm_entry = tfw_apm_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
 
@@ -1901,7 +1903,7 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
 		return -EINVAL;
 
-	hm_entry = tfw_amp_create_hm_entry();
+	hm_entry = tfw_apm_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
 	tfw_hm_entry_set_code(hm_entry, code);
@@ -1928,7 +1930,7 @@ tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
 				 val);
 			return -EINVAL;
 		}
-		hm_entry = tfw_amp_create_hm_entry();
+		hm_entry = tfw_apm_create_hm_entry();
 		if (!hm_entry)
 			return -ENOMEM;
 		tfw_hm_entry_set_code(hm_entry, code);
