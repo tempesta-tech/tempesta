@@ -2824,7 +2824,7 @@ ttls_exit(void)
 
 	kmem_cache_destroy(ttls_hs_cache);
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
 		kfree(*req);
 	}
@@ -2852,7 +2852,7 @@ ttls_init(void)
 	if ((r = ttls_tickets_init()))
 		goto err_free;
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
 		*req = kmalloc(ttls_aead_reqsize(), GFP_KERNEL);
 		if (!*req)
