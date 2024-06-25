@@ -191,9 +191,14 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, int ss_action)
 	 * set to TCP_CLOSE, so this function will never be called after it.
          */
 	BUG_ON(!conn);
-	BUG_ON(TFW_CONN_PROTO(conn) != TFW_FSM_H2);
 
-	h2 = tfw_h2_context_safe(conn);
+	/*
+	 * This function can be called both for HTTP1 and HTTP2 connections.
+	 * Moreover this function can be called when HTTP2 connection is
+	 * shutdowned before TLS hadshake was finished.
+	 */
+	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
+		tfw_h2_context_safe(conn) : NULL;
 	if (!h2) {
 		if (ss_action == SS_SHUTDOWN)
 			tcp_shutdown(sk, SEND_SHUTDOWN);
@@ -278,9 +283,8 @@ tfw_sock_clnt_new(struct sock *sk)
 		 * find a simple and better solution.
 		 */
 		sk->sk_write_xmit = tfw_tls_encrypt;
-	}
-	if (TFW_CONN_PROTO(conn) == TFW_FSM_H2)
 		sk->sk_fill_write_queue = tfw_sk_fill_write_queue;
+	}
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,

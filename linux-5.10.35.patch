@@ -1409,7 +1409,7 @@ index f35c2e998..6ec40ac3c 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 1301ea694..02ff44569 100644
+index 1301ea694..42fc8a110 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -80,7 +80,9 @@
