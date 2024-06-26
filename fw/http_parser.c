@@ -495,11 +495,16 @@ __FSM_STATE(st, cold) {							\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
+#define __FSM_METH_fixup_finish(curr_st, n)				\
+	__msg_hdr_chunk_fixup(data, __data_off(p + n));			\
+	__msg_chunk_flags(TFW_STR_VALUE);				\
+	tfw_http_msg_method_close(msg);					\
+
 /* Used for improbable states only, so use cold label. */
 #define __FSM_METH_MOVE(st, ch, st_next)				\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == (ch)))						\
-		__FSM_MOVE_nofixup(st_next);				\
+		__FSM_MOVE(st_next);					\
 	__FSM_JMP(Req_MethodUnknown);					\
 }
 
@@ -508,6 +513,7 @@ __FSM_STATE(st, cold) {							\
 	if (unlikely(c != (ch)))					\
 		__FSM_JMP(Req_MethodUnknown);				\
 	req->method = (m_type);						\
+	__FSM_METH_fixup_finish(st, 1);					\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
 
@@ -625,6 +631,23 @@ __parse_ulong(unsigned char *__restrict data, size_t len,
 	}
 
 	return CSTR_POSTPONE;
+}
+
+/**
+ * Parse an integer followed by a slash or a space. Used only for parsing port
+ * in URI.
+ */
+static __always_inline int
+__parse_uri_port(unsigned char *__restrict data, size_t len,
+		 unsigned long *__restrict acc, unsigned long limit)
+{
+	/* Characters:
+	 * ' ' (0x20) space (SPC)
+	 * '/' (0x2f) slash */
+	static const unsigned long dm_a[] ____cacheline_aligned = {
+		0x0000800100000000UL, 0, 0, 0
+	};
+	return __parse_ulong(data, len, dm_a, acc, limit);
 }
 
 /**
@@ -780,18 +803,14 @@ static const TfwStr ete_spec_raw_hdrs[] = {
  * listed in Connection header or in @tfw_http_init_parser_* function.
  */
 static void
-mark_spec_hbh(TfwHttpMsg *hm)
+mark_spec_hbh(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &hm->stream->parser.hbh_parser;
-	unsigned int id;
 
-	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
-		TfwStr *hdr = &hm->h_tbl->tbl[id];
-		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
-			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
-			       __func__, hm, id);
-			hdr->flags |= TFW_STR_HBH_HDR;
-		}
+	if (hbh_hdrs->spec & (0x1 << id)) {
+		T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
+		       __func__, hm, id);
+		hdr->flags |= TFW_STR_HBH_HDR;
 	}
 }
 
@@ -1419,7 +1438,6 @@ do {									\
 __FSM_STATE(RGen_CRLFCR, hot) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_DROP(RGen_CRLFCR);				\
-	mark_spec_hbh(msg);						\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.data);				\
 		__msg_field_finish(&msg->crlf, p + 1);			\
@@ -1473,6 +1491,7 @@ __FSM_STATE(st_curr) {							\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
+		mark_spec_hbh(msg, &parser->hdr, id);			\
 		r = process_trailer_hdr(msg, &parser->hdr, id);		\
 		if (r < 0 && r != CSTR_POSTPONE)			\
 			TFW_PARSER_DROP(st_curr);			\
@@ -3258,31 +3277,59 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_H_Port) {
-		/* See Req_UriPort processing. */
-		if (unlikely(IS_CRLFWS(c))) {
-			if (!req->host_port)
-				/* Header ended before port was parsed. */
-				return CSTR_NEQ;
-			return __data_off(p);
-		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = __parse_ulong_ws(p, __data_remain(p), &parser->_acc,
 					   USHRT_MAX);
+
 		switch (__fsm_n) {
+		case CSTR_EQ:
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
-			req->host_port = parser->_acc;
-			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz, TFW_STR_VALUE);
+			if (likely(!test_bit(TFW_HTTP_B_ABSOLUTE_URI,
+					     req->flags)))
+			{
+				req->host_port = parser->_acc;
+			}
+			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz,
+					   TFW_STR_VALUE);
 		default:
-			req->host_port = parser->_acc;
-			if (!req->host_port)
-				return CSTR_NEQ;
+			/*
+			 * Don't override `host_port` when URI is absolute
+			 * `host_port` taken from it.
+			 */
+			if (likely(!test_bit(TFW_HTTP_B_ABSOLUTE_URI,
+					     req->flags)))
+			{
+				req->host_port = parser->_acc;
+				if (!req->host_port)
+					return CSTR_NEQ;
+			}
+
 			parser->_acc = 0;
-			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_n, TFW_STR_VALUE);
+			__FSM_I_MOVE_fixup(Req_I_H_PortEnd, __fsm_n,
+					   TFW_STR_VALUE);
 		}
 		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_PortEnd) {
+		/* See Req_UriPort processing. */
+		if (IS_CRLFWS(c)) {
+			/*
+			 * Don't validate `host_port` when URI is absolute,
+			 * it be validated during URI parsing. Here we validate
+			 * only port from host header, but port from URI will
+			 * be used for message forwarding.
+			 */
+			if (unlikely(!req->host_port &&
+			    !test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags))) {
+				/* Header ended before port was parsed. */
+				return CSTR_NEQ;
+			}
+			return __data_off(p);
+		}
 	}
 
 done:
@@ -4819,9 +4866,10 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 	 * - raw:
 	 *     none;
 	 * - spec:
-	 *     Connection: RFC 7230 6.1.
+	 *     Connection, Keep-alive: RFC 9110 7.6.1.
 	 */
-	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION |
+			 0x1 << TFW_HTTP_HDR_KEEP_ALIVE;
 }
 
 
@@ -4872,32 +4920,25 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 	__FSM_START(parser->state);
 
-	/* - Skipping and stripping leading CRLFs - */
+	/* - Skipping leading CRLFs - */
 
 	/* The parser accepts 1 optional CRLF or LF before the request line.
-	 * The parser stores the fact of presense of it for subsequent
-	 * stripping. The parser drops the request if it contains additional
+	 * The parser drops the request if it contains additional
 	 * CRLFs before the request line.
 	 */
 	__FSM_STATE(Req_0, hot) {
-		if (unlikely(c == '\r')) {
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR,
-				  req->flags);
+		if (unlikely(c == '\r'))
 			__FSM_MOVE_nofixup(Req_0_Wait_LF);
-		}
-		if (unlikely(c == '\n')) {
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
-				  req->flags);
+
+		if (unlikely(c == '\n'))
 			__FSM_MOVE_nofixup(Req_Method);
-		}
+
 		__FSM_JMP(Req_Method);
 	}
 	__FSM_STATE(Req_0_Wait_LF) {
-		if (likely(c == '\n')) 	{
-			__set_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF,
-				  req->flags);
+		if (likely(c == '\n'))
 			__FSM_MOVE_nofixup(Req_Method);
-		}
+
 		TFW_PARSER_DROP(Req_0_Wait_LF);
 	}
 
@@ -4905,6 +4946,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method, hot) {
+		parser->_hdr_tag = TFW_HTTP_METHOD;
+		/* 
+		 * Open header manually. HTTP method is not a header, storing
+		 * it in @msg->h_tbl it's only optimization to not introduce
+		 * new field into TfwHttpReq. Using @tfw_http_msg_hdr_open
+		 * leads to wrong headers counting.
+		 */
+		__msg_field_open(&msg->stream->parser.hdr, p);
+
 		if (likely(__data_available(p, 9))) {
 			/*
 			 * Move most frequent methods forward and do not use
@@ -4918,10 +4968,12 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			 */
 			if (PI(p) == TFW_CHAR4_INT('G', 'E', 'T', ' ')) {
 				req->method = TFW_HTTP_METH_GET;
+				__FSM_METH_fixup_finish(Req_Method, 3);
 				__FSM_MOVE_nofixup_n(Req_Uri, 4);
 			}
 			if (PI(p) == TFW_CHAR4_INT('P', 'O', 'S', 'T')) {
 				req->method = TFW_HTTP_METH_POST;
+				__FSM_METH_fixup_finish(Req_Method, 4);
 				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
 			}
 			goto Req_Method_RareMethods;
@@ -5475,6 +5527,7 @@ Req_Method_RareMethods: __attribute__((cold))
 do {									\
 	req->method = TFW_HTTP_METH_##meth;				\
 	__fsm_n += step_inc;						\
+	__FSM_METH_fixup_finish(Req_Method_RareMethods, __fsm_n);	\
 	goto match_meth;						\
 } while (0)
 
@@ -5487,21 +5540,21 @@ do {									\
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(PURGE, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
+		__FSM_MOVE_n(Req_MethPurg, 4);
 	case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
 		__MATCH_METH(COPY, 0);
 	case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
 		if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
 			__MATCH_METH(DELETE, 2);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethDele, 4);
+		__FSM_MOVE_n(Req_MethDele, 4);
 	case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
 		__MATCH_METH(LOCK, 0);
 	case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
 		if (likely(*(p + 4) == 'L'))
 			__MATCH_METH(MKCOL, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
+		__FSM_MOVE_n(Req_MethMkco, 4);
 	case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
 		__MATCH_METH(MOVE, 0);
 	case TFW_CHAR4_INT('O', 'P', 'T', 'I'):
@@ -5509,15 +5562,16 @@ do {									\
 			 == TFW_CHAR4_INT('O', 'N', 'S', ' ')))
 		{
 			req->method = TFW_HTTP_METH_OPTIONS;
-			__FSM_MOVE_nofixup_n(Req_Uri, 8);
+			__FSM_METH_fixup_finish(Req_Method_RareMethods, 8);
+			__FSM_MOVE_n(Req_Uri, 8);
 		}
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
+		__FSM_MOVE_n(Req_MethOpti, 4);
 	case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
 		if (likely(*(p + 4) == 'H'))
 			__MATCH_METH(PATCH, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
+		__FSM_MOVE_n(Req_MethPatc, 4);
 	case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
 		if (likely(*((unsigned int *)p + 1)
 			  == TFW_CHAR4_INT('F', 'I', 'N', 'D')))
@@ -5531,20 +5585,21 @@ do {									\
 			__MATCH_METH(PROPPATCH, 5);
 		}
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethProp, 4);
+		__FSM_MOVE_n(Req_MethProp, 4);
 	case TFW_CHAR4_INT('P', 'U', 'T', ' '):
 		req->method = TFW_HTTP_METH_PUT;
-		__FSM_MOVE_nofixup_n(Req_Uri, 4);
+		__FSM_METH_fixup_finish(Req_Method_RareMethods, 4);
+		__FSM_MOVE_n(Req_Uri, 4);
 	case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
 		if (likely(*(p + 4) == 'E'))
 			__MATCH_METH(TRACE, 1);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
+		__FSM_MOVE_n(Req_MethTrac, 4);
 	case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
 		if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
 			__MATCH_METH(UNLOCK, 2);
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
+		__FSM_MOVE_n(Req_MethUnlo, 4);
 	default:
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5557,34 +5612,34 @@ Req_Method_1CharStep: __attribute__((cold))
 	switch (c) {
 	case 'G':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethG);
+		__FSM_MOVE(Req_MethG);
 	case 'H':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethH);
+		__FSM_MOVE(Req_MethH);
 	case 'P':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethP);
+		__FSM_MOVE(Req_MethP);
 	case 'C':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethC);
+		__FSM_MOVE(Req_MethC);
 	case 'D':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethD);
+		__FSM_MOVE(Req_MethD);
 	case 'L':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethL);
+		__FSM_MOVE(Req_MethL);
 	case 'M':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethM);
+		__FSM_MOVE(Req_MethM);
 	case 'O':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethO);
+		__FSM_MOVE(Req_MethO);
 	case 'T':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethT);
+		__FSM_MOVE(Req_MethT);
 	case 'U':
 		req->method = _TFW_HTTP_METH_INCOMPLETE;
-		__FSM_MOVE_nofixup(Req_MethU);
+		__FSM_MOVE(Req_MethU);
 	}
 	__FSM_JMP(Req_MethodUnknown);
 
@@ -5598,13 +5653,13 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethP, cold) {
 		switch (c) {
 		case 'O':
-			__FSM_MOVE_nofixup(Req_MethPo);
+			__FSM_MOVE(Req_MethPo);
 		case 'A':
-			__FSM_MOVE_nofixup(Req_MethPa);
+			__FSM_MOVE(Req_MethPa);
 		case 'R':
-			__FSM_MOVE_nofixup(Req_MethPr);
+			__FSM_MOVE(Req_MethPr);
 		case 'U':
-			__FSM_MOVE_nofixup(Req_MethPu);
+			__FSM_MOVE(Req_MethPu);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5621,9 +5676,9 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethProp, cold) {
 		switch (c) {
 		case 'F':
-			__FSM_MOVE_nofixup(Req_MethPropf);
+			__FSM_MOVE(Req_MethPropf);
 		case 'P':
-			__FSM_MOVE_nofixup(Req_MethPropp);
+			__FSM_MOVE(Req_MethPropp);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5640,14 +5695,16 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethPu, cold) {
 		switch (c) {
 		case 'R':
-			__FSM_MOVE_nofixup(Req_MethPur);
+			__FSM_MOVE(Req_MethPur);
 		case 'T':
 			/* PUT */
 			req->method = TFW_HTTP_METH_PUT;
-			__FSM_MOVE_nofixup(Req_MUSpace);
+			__FSM_METH_fixup_finish(Req_MethPu, 1);
+			__FSM_MOVE_nofixup_n(Req_MUSpace, 1);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
+
 	/* PURGE */
 	__FSM_METH_MOVE(Req_MethPur, 'G', Req_MethPurg);
 	__FSM_METH_MOVE_finish(Req_MethPurg, 'E', TFW_HTTP_METH_PURGE);
@@ -5673,9 +5730,9 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_MethM, cold) {
 		switch (c) {
 		case 'K':
-			__FSM_MOVE_nofixup(Req_MethMk);
+			__FSM_MOVE(Req_MethMk);
 		case 'O':
-			__FSM_MOVE_nofixup(Req_MethMo);
+			__FSM_MOVE(Req_MethMo);
 		}
 		__FSM_JMP(Req_MethodUnknown);
 	}
@@ -5710,6 +5767,8 @@ Req_Method_1CharStep: __attribute__((cold))
 		__fsm_sz = tfw_match_token(p, __fsm_n);
 		if (likely(__fsm_sz)) {
 			req->method = _TFW_HTTP_METH_UNKNOWN;
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__msg_chunk_flags(TFW_STR_VALUE);
 			p += __fsm_sz;
 		}
 		if (unlikely(__fsm_sz == __fsm_n)) {
@@ -5725,6 +5784,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			 * then there is zero-length method name
 			 * and the request must be dropped.
 			 */
+		tfw_http_msg_method_close(msg);
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
@@ -5900,8 +5960,27 @@ Req_Method_1CharStep: __attribute__((cold))
 
 	/* Host port in URI */
 	__FSM_STATE(Req_UriPort, cold) {
-		if (likely(isdigit(c)))
-			__FSM_MOVE_f(Req_UriPort, &req->host);
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_uri_port(p, __data_remain(p),
+					   &parser->_acc, USHRT_MAX);
+
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			TFW_PARSER_DROP(Req_UriPort);
+		case CSTR_POSTPONE:
+			req->host_port = parser->_acc;
+			__FSM_MOVE_nf(Req_UriPort, __fsm_sz, &req->host);
+		default:
+			req->host_port = parser->_acc;
+			if (!req->host_port)
+				TFW_PARSER_DROP(Req_UriPort);
+			parser->_acc = 0;
+			__FSM_MOVE_nf(Req_UriPortEnd, __fsm_n, &req->host);
+		}
+	}
+
+	__FSM_STATE(Req_UriPortEnd, cold) {
 		__msg_field_finish(&req->host, p);
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
@@ -5910,7 +5989,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_DROP(Req_UriPort);
+		TFW_PARSER_DROP(Req_UriPortEnd);
 	}
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
@@ -10851,8 +10930,6 @@ enum {
 
 /**
  * Obtain HTTP method id from TfwStr chunked string.
- * Code here relies on http parser, which should
- * filter out illegal 'method' headers.
  * Used exclusively by HPACK related code.
  */
 unsigned char
@@ -10885,7 +10962,6 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 		case 'P':
 			return TFW_HTTP_METH_POST;
 		default:
-			WARN_ON(1);
 			return _TFW_HTTP_METH_UNKNOWN;
 		}
 	case TFW_HTTP_MLEN_5C:
@@ -10904,7 +10980,6 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 				? TFW_HTTP_METH_PATCH
 				: TFW_HTTP_METH_PURGE;
 		default:
-			WARN_ON(1);
 			return _TFW_HTTP_METH_UNKNOWN;
 		}
 	case TFW_HTTP_MLEN_6C:
@@ -11572,12 +11647,13 @@ tfw_http_init_parser_resp(TfwHttpResp *resp)
 	 * - raw:
 	 *     none;
 	 * - spec:
-	 *     Connection: RFC 7230 6.1.
+	 *     Connection, Keep-alive: RFC 9110 7.6.1.
 	 *     Server: Server header isn't defined as hop-by-hop by the RFC,
 	 *	       but we don't show protected server to world.
 	 */
-	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
-			 (0x1 << TFW_HTTP_HDR_SERVER);
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION |
+			 0x1 << TFW_HTTP_HDR_KEEP_ALIVE |
+			 0x1 << TFW_HTTP_HDR_SERVER;
 }
 
 /**

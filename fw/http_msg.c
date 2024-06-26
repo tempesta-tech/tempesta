@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -344,28 +344,6 @@ __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val)
 }
 
 /**
- * Slow check of generic (raw) header for singularity.
- * Some of the header should be special and moved to tfw_http_hdr_t enum,
- * so linear search is Ok here.
- * @return true for headers which must never have duplicates.
- */
-static inline bool
-__hdr_is_singular(const TfwStr *hdr)
-{
-	static const TfwStr hdr_singular[] = {
-		TFW_STR_STRING("authorization:"),
-		TFW_STR_STRING("from:"),
-		TFW_STR_STRING("if-unmodified-since:"),
-		TFW_STR_STRING("location:"),
-		TFW_STR_STRING("max-forwards:"),
-		TFW_STR_STRING("proxy-authorization:"),
-		TFW_STR_STRING("referer:"),
-	};
-
-	return tfw_http_msg_find_hdr(hdr, hdr_singular);
-}
-
-/**
  * Lookup for the header @hdr in already collected headers table @ht,
  * i.e. check whether the header is duplicate.
  * The lookup is performed until ':', so header name only is enough in @hdr.
@@ -385,32 +363,6 @@ tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 		if (!tfw_stricmpspn(hdr, h, ':'))
 			break;
 	}
-
-	return id;
-}
-
-/**
- * Certain header fields are strictly singular and may not be repeated in
- * an HTTP message. Duplicate of a singular header fields is a bug worth
- * blocking the whole HTTP message.
- *
- * TODO: with the current HTTP-parser implementation (parsing header name,
- * colon, LWS and value into different chunks) we can avoid slow string
- * matcher, which is used in @tfw_http_msg_hdr_lookup(), and can compare
- * strings just by chunks (including searching the stop character) for both
- * HTTP/2 and HTTP/1.1 formatted headers (see @__hdr_name_cmp() below).
- * Thus, @__h1_hdr_lookup() and @tfw_http_msg_hdr_lookup() procedures should
- * be unified to @__hdr_name_cmp() and @__http_hdr_lookup() in order to
- * substitute current mess of multiple partially duplicated procedures with
- * one simple interface.
- */
-static inline unsigned int
-__h1_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
-{
-	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
-
-	if ((id < hm->h_tbl->off) && __hdr_is_singular(hdr))
-		__set_bit(TFW_HTTP_B_FIELD_DUPENTRY, hm->flags);
 
 	return id;
 }
@@ -745,265 +697,6 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
 }
 
 /**
- * Add new header @hdr to the message @hm just before CRLF.
- */
-static int
-__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
-{
-	int r;
-	TfwStr *dst;
-	TfwStr it = {};
-	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
-
-	r = ss_skb_get_room(hm->msg.skb_head, hm->crlf.skb, h->data,
-			    tfw_str_total_len(hdr), &it);
-	if (r)
-		return r;
-
-	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
-	dst = tfw_strcpy_comp_ext(hm->pool, &it, hdr);
-	if (unlikely(!dst))
-		return -ENOMEM;
-
-	/*
-	 * Initialize the header table item by the iterator chunks.
-	 * While the data references in the item are valid, some conventions
-	 * (e.g. header name and value are placed in different chunks) aren't
-	 * satisfied. So don't consider the header for normal HTTP processing.
-	 */
-	hm->h_tbl->tbl[hid] = *dst;
-
-	return 0;
-}
-
-/**
- * Expand @orig_hdr by appending or replacing with the @hdr.
- * (CRLF is not accounted in TfwStr representation of HTTP headers).
- *
- * Expand the first duplicate header, do not produce more duplicates.
- */
-static int
-__hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
-{
-	int r;
-	TfwStr *h, it = {};
-
-	if (TFW_STR_DUP(orig_hdr))
-		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
-	BUG_ON(!append && (hdr->len < orig_hdr->len));
-
-	h = TFW_STR_LAST(orig_hdr);
-	r = ss_skb_get_room(hm->msg.skb_head, h->skb, h->data + h->len,
-			    append ? hdr->len : hdr->len - orig_hdr->len, &it);
-	if (r)
-		return r;
-
-	if ((r = tfw_strcat(hm->pool, orig_hdr, &it))) {
-		T_WARN("Cannot concatenate hdr %.*s with %.*s\n",
-		       PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
-		return r;
-	}
-
-	return tfw_strcpy(append ? &it : orig_hdr, hdr);
-}
-
-/**
- * Delete header with identifier @hid from skb data and header table.
- */
-static int
-__hdr_del(TfwHttpMsg *hm, unsigned int hid)
-{
-	int r = 0;
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
-
-	/* Delete the underlying data. */
-	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if ((r = ss_skb_cutoff_data(hm->msg.skb_head, dup, 0,
-					    tfw_str_eolen(dup))))
-			return r;
-	};
-
-	/* Delete the header from header table. */
-	if (hid < TFW_HTTP_HDR_RAW) {
-		TFW_STR_INIT(&ht->tbl[hid]);
-	} else {
-		if (hid < ht->off - 1)
-			memmove(&ht->tbl[hid], &ht->tbl[hid + 1],
-				(ht->off - hid - 1) * sizeof(TfwStr));
-		--ht->off;
-	}
-
-	return 0;
-}
-
-/**
- * Substitute header value.
- *
- * The original header may have LF or CRLF as it's EOL and such bytes are
- * not a part of a header field string in Tempesta (at the moment). While
- * substitution, we may want to follow the EOL pattern of the original. So,
- * if the substitute string without the EOL fits into original header, then
- * the fast path can be used. Otherwise, original header is expanded to fit
- * substitute.
- */
-static int
-__hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
-{
-	int r;
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
-
-	TFW_STR_FOR_EACH_DUP(dst, orig_hdr, end) {
-		if (dst->len < hdr->len)
-			continue;
-		/*
-		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
-		 * the header in-place. Do not call @ss_skb_cutoff_data if no
-		 * adjustment is needed.
-		 */
-		if (dst->len != hdr->len
-		    && (r = ss_skb_cutoff_data(hm->msg.skb_head, dst,
-					       hdr->len, 0)))
-			return r;
-		if ((r = tfw_strcpy(dst, hdr)))
-			return r;
-		goto cleanup;
-	}
-
-	if ((r = __hdr_expand(hm, orig_hdr, hdr, false)))
-		return r;
-	dst = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
-
-cleanup:
-	TFW_STR_FOR_EACH_DUP(tmp, orig_hdr, end) {
-		if (tmp != dst
-		    && (r = ss_skb_cutoff_data(hm->msg.skb_head, tmp, 0,
-					       tfw_str_eolen(tmp))))
-			return r;
-	}
-
-	*orig_hdr = *dst;
-	return 0;
-}
-
-/**
- * Transform HTTP message @hm header with identifier @hid.
- * @hdr must be compound string and contain two or three parts:
- * header name, colon and header value. If @hdr value is empty,
- * then the header will be deleted from @hm.
- * If @hm already has the header it will be replaced by the new header
- * unless @append.
- * If @append is true, then @val will be concatenated to current
- * header with @hid and @name, otherwise a new header will be created
- * if the message has no the header.
- *
- * Note: The substitute string @hdr should have CRLF as EOL. The original
- * string @orig_hdr may have a single LF as EOL. We may want to follow
- * the EOL pattern of the original. For that, the EOL of @hdr needs
- * to be made the same as in the original header field string.
- *
- * Note: In case of response transformation from HTTP/1.1 to HTTP/2, for
- * optimization purposes, we use special add/replace procedures to adjust
- * headers and create HTTP/2 representation at once; for headers deletion
- * procedure there is no sense to use special HTTP/2 handling (the header
- * must not exist in the resulting response); in case of headers appending
- * we at first create the usual HTTP/1.1 representation of the final header
- * and then transform it into HTTP/2 form at the common stage of response
- * HTTP/2 transformation - we have no other choice, since we need a full
- * header for going through the HTTP/2 transformation (i.e. search in the
- * HPACK encoder dynamic index).
- */
-int
-tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
-			  bool append)
-{
-	int r;
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *orig_hdr = NULL;
-	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
-
-	if (unlikely(!ht)) {
-		T_WARN("Try to adjust lightweight response.");
-		return -EINVAL;
-	}
-
-	/* Firstly, get original message header to transform. */
-	if (hid < TFW_HTTP_HDR_RAW) {
-		orig_hdr = &ht->tbl[hid];
-		if (TFW_STR_EMPTY(orig_hdr) && !s_val)
-			/* Not found, nothing to delete. */
-			return 0;
-	} else {
-		hid = __h1_hdr_lookup(hm, hdr);
-		if (hid == ht->off && !s_val)
-			/* Not found, nothing to delete. */
-			return 0;
-		if (hid == ht->size) {
-			if ((r = tfw_http_msg_grow_hdr_tbl(hm)))
-				return r;
-			ht = hm->h_tbl;
-		}
-		if (hid == ht->off)
-			++ht->off;
-		else
-			orig_hdr = &ht->tbl[hid];
-	}
-
-	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
-		T_WARN("Appending to singular header '%.*s'\n",
-		       PR_TFW_STR(TFW_STR_CHUNK(hdr, 0)));
-		return 0;
-	}
-
-	if (!orig_hdr || TFW_STR_EMPTY(orig_hdr)) {
-		if (unlikely(!s_val))
-			return 0;
-		return __hdr_add(hm, hdr, hid);
-	}
-
-	if (!s_val)
-		return __hdr_del(hm, hid);
-
-	if (append) {
-		TfwStr hdr_app = {
-			.chunks = (TfwStr []){
-				{ .data = ", ",		.len = 2 },
-				{ .data = s_val->data,	.len = s_val->len }
-			},
-			.len = s_val->len + 2,
-			.nchunks = 2
-		};
-		return __hdr_expand(hm, orig_hdr, &hdr_app, true);
-	}
-
-	return __hdr_sub(hm, hdr, hid);
-}
-
-/**
- * Same as @tfw_http_msg_hdr_xfrm_str() but use c-strings as argument.
- */
-int
-tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
-		      char *val, size_t v_len, unsigned int hid, bool append)
-{
-	TfwStr new_hdr = {
-		.chunks = (TfwStr []){
-			{ .data = name,		.len = n_len },
-			{ .data = S_DLM,	.len = SLEN(S_DLM) },
-			{ .data = val,		.len = v_len },
-		},
-		.len = n_len + SLEN(S_DLM) + v_len,
-		.eolen = 2,
-		.nchunks = (val ? 3 : 2)
-	};
-
-	BUG_ON(!val && v_len);
-
-	return tfw_http_msg_hdr_xfrm_str(hm, &new_hdr, hid, append);
-}
-
-/**
  * Delete @str (any parsed part of HTTP message) from skb data and
  * init @str.
  */
@@ -1018,31 +711,6 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 		return r;
 
 	TFW_STR_INIT(str);
-
-	return 0;
-}
-
-/**
- * Remove hop-by-hop headers in the message
- *
- * Connection header should not be removed, tfw_http_set_hdr_connection()
- * optimize removal of the header.
- */
-int
-tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
-{
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
-	int r = 0;
-
-	do {
-		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
-			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
-			if ((r = __hdr_del(hm, hid)))
-				return r;
-	} while (hid);
 
 	return 0;
 }
@@ -1067,30 +735,6 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 	TFW_STR_INIT(&resp->body);
 
 	return 0;
-}
-
-/**
- * Add a header, probably duplicated, without any checking of current headers.
- * In case of response transformation from HTTP/1.1 to HTTP/2, for optimization
- * purposes, we use special handling for headers adding (see note for
- * @tfw_http_msg_hdr_xfrm_str() for details).
- */
-int
-tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
-{
-	unsigned int hid;
-	TfwHttpHdrTbl *ht;
-
-	ht = hm->h_tbl;
-	hid = ht->off;
-	if (hid == ht->size) {
-		if (tfw_http_msg_grow_hdr_tbl(hm))
-			return -ENOMEM;
-		ht = hm->h_tbl;
-	}
-	++ht->off;
-
-	return __hdr_add(hm, hdr, hid);
 }
 
 /**
@@ -1368,32 +1012,30 @@ this_chunk:
 	return 0;
 }
 
-static int
-tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
+static void *
+tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
 {
 	int r;
 	bool np;
 	char* addr;
-	TfwMsgIter *it = &mit->iter;
 	struct sk_buff *skb = it->skb;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
-		return -ENOMEM;
+		return NULL;
 
 	if (np || it->frag == -1) {
 		r = ss_skb_add_frag(it->skb_head, skb, addr, ++it->frag, size);
 		if (unlikely(r))
-			return r;
+			return NULL;
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
 
 	ss_skb_adjust_data_len(skb, size);
-	mit->curr_ptr = addr;
 
-	return 0;
+	return addr;
 }
 
 /**
@@ -1406,16 +1048,16 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
  * data, which will split the paged fragment.
  */
 int
-tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
+tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
+				  TfwPool* pool)
 {
 	int r;
 	char* addr;
 	bool np;
-	TfwMsgIter *it = &mit->iter;
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
-	BUG_ON(mit->iter.frag > 0);
+	BUG_ON(it->frag > 0);
 
 	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
 	if (room < MIN_HDR_FRAG_SIZE)
@@ -1432,9 +1074,8 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	if (unlikely(r))
 		return r;
 
-	ss_skb_adjust_data_len(mit->iter.skb, FRAME_HEADER_SIZE);
+	ss_skb_adjust_data_len(it->skb, FRAME_HEADER_SIZE);
 	mit->frame_head = addr;
-	mit->curr_ptr = addr + FRAME_HEADER_SIZE;
 
 	return 0;
 }
@@ -1445,7 +1086,7 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 static inline int
 __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 {
-	TfwMsgIter *it = &resp->mit.iter;
+	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **body;
 	int r, frag;
 	char *p;
@@ -1507,15 +1148,16 @@ __tfw_http_msg_linear_transform(TfwMsgIter *it)
  * update pointer to the body skb.
  */
 static int
-__tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
+__tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+				unsigned int *copied,
 				void cpy(void *dest, const void *src, size_t n))
 {
-	const TfwStr *c, *end;
-	unsigned int room, skb_room, n_copy, rlen, off;
 	int r;
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
-	TfwPool* pool = resp->pool;
+	char *addr;
+	const TfwStr *c, *end;
+	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
+	TfwMsgIter *it = &hm->iter;
+	TfwPool* pool = hm->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
@@ -1552,11 +1194,12 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
+				TfwHttpResp *resp = (TfwHttpResp *)hm;
 
 				if (!nskb)
 					return -ENOMEM;
 
-				if (resp->body.len > 0) {
+				if (hm->body.len > 0) {
 					r = __tfw_http_msg_move_body(resp,
 								     nskb);
 					if (unlikely(r)) {
@@ -1583,38 +1226,60 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 			n_copy = min(n_copy, skb_room);
 
-			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy);
-			if (unlikely(r))
-				return r;
+			addr = tfw_http_msg_alloc_from_pool(it, pool, n_copy);
+			if (unlikely(!addr))
+				return -ENOMEM;
 
-			cpy(mit->curr_ptr, c->data + off, n_copy);
+			cpy(addr, c->data + off, n_copy);
 			rlen -= n_copy;
-			mit->acc_len += n_copy;
+			acc += n_copy;
 
-			T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr=%pK",
-			       __func__, mit->acc_len,
-			       n_copy, mit->curr_ptr);
+			T_DBG3("%s: n_copy=%u",  __func__, n_copy);
 		}
 	}
+
+	*copied = acc;
 
 	return 0;
 }
 
 int
-tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str)
+tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast);
+	unsigned int n;
+
+	return __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
+tfw_h2_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
+			    TfwHttpTransIter *mit)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower);
+	int r;
+	unsigned int n = 0;
+
+	r = __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
+	mit->acc_len += n;
+
+	return r;
+}
+
+int
+tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
+			       TfwHttpTransIter *mit)
+{
+	int r;
+	unsigned int n = 0;
+
+	r = __tfw_http_msg_expand_from_pool(hm, str, &n, tfw_cstrtolower);
+	mit->acc_len += n;
+
+	return r;
 }
 
 static inline void
-__tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
-			TfwHttpRespCleanup *cleanup)
+__tfw_http_msg_move_frags(struct sk_buff *skb, int frag_idx,
+			  TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct page *page;
@@ -1634,7 +1299,7 @@ __tfw_h2_msg_move_frags(struct sk_buff *skb, int frag_idx,
 }
 
 static inline void
-__tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
+__tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct page *page;
@@ -1652,7 +1317,7 @@ __tfw_h2_msg_rm_all_frags(struct sk_buff *skb, TfwHttpRespCleanup *cleanup)
 }
 
 static inline void
-__tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
+__tfw_http_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
 {
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
 	const int len = nbegin - (char*)skb_frag_address(frag);
@@ -1664,20 +1329,21 @@ __tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
 }
 
 /*
- * Delete SKBs and paged fragments related to @resp that contains response
+ * Delete SKBs and paged fragments related to @hm that contains message
  * headers. SKBs and fragments will be "unlinked" and placed to @cleanup.
  * At this point we can't free SKBs, because data that they contain used
  * as source for message trasformation.
  */
 int
-tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
+tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 {
 	int i, ret;
 	char *begin, *end;
-	TfwMsgIter *it = &resp->mit.iter;
-	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
-	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
+	TfwMsgIter *it = &hm->iter;
+	char* body = TFW_STR_CHUNK(&hm->body, 0)->data;
+	TfwStr *crlf = TFW_STR_LAST(&hm->crlf);
 	char *off = body ? body : crlf->data + crlf->len;
+	unsigned int mark = hm->msg.skb_head->mark;
 
 	do {
 		struct sk_buff *skb;
@@ -1722,14 +1388,14 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			 * LF is located.
 			 */
 			if (!body || (si->nr_frags == 1 && off == end)) {
-				__tfw_h2_msg_rm_all_frags(it->skb, cleanup);
+				__tfw_http_msg_rm_all_frags(it->skb, cleanup);
 				goto end;
 			} else if (off != begin) {
 				/*
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
-				__tfw_h2_msg_shrink_frag(it->skb, i, off);
+				__tfw_http_msg_shrink_frag(it->skb, i, off);
 			}
 
 			/*
@@ -1738,7 +1404,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			 * from skb.
 			 */
 			if (i >= 1)
-				__tfw_h2_msg_move_frags(it->skb, i, cleanup);
+				__tfw_http_msg_move_frags(it->skb, i, cleanup);
 
 			goto end;
 		}
@@ -1754,7 +1420,8 @@ end:
 	BUG_ON(!it->skb_head || !it->skb);
 
 	it->skb_head = it->skb;
-	resp->msg.skb_head = it->skb;
+	hm->msg.skb_head = it->skb;
+	hm->msg.skb_head->mark = mark;
 
 	/* Start from zero fragment */
 	it->frag = -1;

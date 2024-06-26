@@ -178,12 +178,12 @@ typedef struct {
  * Http headers table.
  *
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
- * repetition attacks. See __hdr_is_singular() and don't forget to update the
- * static headers array when add a new singular header here. If the new header
- * is hop-by-hop (must not be forwarded and cached by Tempesta) it must be
- * listed in tfw_http_init_parser_req()/tfw_http_init_parser_resp()
- * for unconditionally hop-by-hop header or in __parse_connection() otherwise.
- * If the header is end-to-end it must be listed in __hbh_parser_add_data().
+ * repetition attacks. Don't forget to update the static headers array when add
+ * a new singular header here. If the new header is hop-by-hop (must not be
+ * forwarded and cached by Tempesta) it must be listed in
+ * tfw_http_init_parser_req()/tfw_http_init_parser_resp() for unconditionally
+ * hop-by-hop header or in __parse_connection() otherwise. If the header is
+ * end-to-end it must be listed in __hbh_parser_add_data().
  *
  * Note: don't forget to update __http_msg_hdr_val() and
  * tfw_http_msg_(resp|req)_spec_hid() upon adding a new header.
@@ -195,8 +195,9 @@ typedef struct {
  */
 typedef enum {
 	TFW_HTTP_STATUS_LINE,
+	TFW_HTTP_METHOD = TFW_HTTP_STATUS_LINE,
 	TFW_HTTP_HDR_H2_STATUS = TFW_HTTP_STATUS_LINE,
-	TFW_HTTP_HDR_H2_METHOD = TFW_HTTP_HDR_H2_STATUS,
+	TFW_HTTP_HDR_H2_METHOD = TFW_HTTP_METHOD,
 	TFW_HTTP_HDR_H2_SCHEME,
 	TFW_HTTP_HDR_H2_AUTHORITY,
 	TFW_HTTP_HDR_H2_PATH,
@@ -268,6 +269,7 @@ typedef struct {
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @iter		- skb expansion iterator;
  * @content_length	- the value of Content-Length header field;
  * @flags		- message related flags. The flags are tested
  *			  concurrently, but concurrent updates aren't
@@ -296,6 +298,7 @@ typedef struct {
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
 	unsigned int	keep_alive;					\
+	TfwMsgIter	iter;						\
 	unsigned long	content_length;					\
 	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\
@@ -334,6 +337,19 @@ typedef struct {
 } TfwHttpCond;
 
 /**
+ * Represents the data that should be cleaned up after message transformation.
+ *
+ * @skb_head	- head of skb list that must be freed;
+ * @pages	- pages that must be freed;
+ * @pages_sz	- current number of @pages;
+ */
+typedef struct {
+	struct sk_buff	*skb_head;
+	struct page	*pages[MAX_SKB_FRAGS];
+	unsigned char	pages_sz;
+} TfwHttpMsgCleanup;
+
+/**
  * HTTP Request.
  *
  * @vhost	- virtual host for the request;
@@ -342,7 +358,7 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
- * @old_head	- Original request head. Required for keep request data until
+ * @cleanup	- Original request data. Required for keeping request data until
  * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
@@ -376,7 +392,7 @@ struct tfw_http_req_t {
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
-	struct sk_buff		*old_head;
+	TfwHttpMsgCleanup	*cleanup;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
@@ -438,19 +454,15 @@ typedef struct {
  * @map		- indirection map for tracking headers order in skb;
  * @start_off	- initial offset during copying response data into
  *		  skb (for subsequent insertion of HTTP/2 frame header);
- * @curr_ptr	- pointer in the skb to write the current header;
  * @frame_head	- pointer to reserved space for frame header. Used during
  * 		  http2 framing. Simplifies framing of paged SKBs.
  * 		  Framing function may not worry about paged and liner SKBs.
- * @iter	- skb expansion iterator;
  * @acc_len	- accumulated length of transformed message.
  */
 typedef struct {
 	TfwHttpHdrMap	*map;
 	unsigned int	start_off;
-	char		*curr_ptr;
 	char		*frame_head;
-	TfwMsgIter	iter;
 	unsigned long	acc_len;
 } TfwHttpTransIter;
 
@@ -486,20 +498,6 @@ struct tfw_http_resp_t {
 	TfwStr			cut;
 	int			trailers_len;
 };
-
-/**
- * Represents the data that should be cleaned up after HTTP1 -> HTTP2 response
- * transformation.
- *
- * @skb_head	- head of skb list that must be freed;
- * @pages	- pages that must be freed;
- * @pages_sz	- current number of @pages;
- */
-typedef struct {
-	struct sk_buff *skb_head;
-	struct page *pages[MAX_SKB_FRAGS];
-	unsigned char pages_sz;
-} TfwHttpRespCleanup;
 
 #define TFW_HDR_MAP_INIT_CNT		32
 #define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
@@ -734,11 +732,13 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
-int tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache);
+int tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods,
+			bool from_cache);
 int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
+int tfw_http_expand_hdr_server(TfwHttpResp *resp);
 void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
 int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache, unsigned int stream_id);

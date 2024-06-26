@@ -34,7 +34,7 @@ enum {
          *
          * CONN_KA: 'Connection:' header contains 'keep-alive' term. The flag
          * is not set for HTTP/1.1 connections which are persistent by default.
-         * CONN_EXTRA: 'Connection:' header contains additional terms.
+         * CONN_EXTRA: 'Connection:' header contains additional terms.(NOT used)
          *
          * CONN_CLOSE and CONN_KA flags are mutual exclusive.
          */
@@ -98,10 +98,6 @@ enum {
         TFW_HTTP_B_REQ_DROP,
         /* Request is PURGE with an 'X-Tempesta-Cache: get' header. */
         TFW_HTTP_B_PURGE_GET,
-        /* Need strip 1 leading CR */
-        TFW_HTTP_B_NEED_STRIP_LEADING_CR,
-        /* Need strip 1 leading LF */
-        TFW_HTTP_B_NEED_STRIP_LEADING_LF,
         /*
          * Request should be challenged, but requested resourse
          * is non-challengeable. Try to service such request
