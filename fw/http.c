@@ -1616,25 +1616,20 @@ do {									\
 	}
 }
 
-static bool
-tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
+/**
+ * Try to mark server as suspended.
+ * In case of HM is active do it, otherwise left unchanged.
+ */
+static void
+tfw_http_hm_try_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
-	/*
-	 * We need to count a total response statistics in
-	 * tfw_apm_hm_srv_limit(), even if health monitor is disabled.
-	 * In this case limit calculation won't be accounted.
-	 */
-	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
-	if (!(flags & TFW_SRV_F_HMONITOR))
-		return true;
-	if (!lim_exceeded)
-		return false;
+	while (flags & TFW_SRV_F_HMONITOR) {
 
-	do {
 		old_flags = cmpxchg(&srv->flags, flags,
-				    flags | TFW_SRV_F_SUSPEND);
+				flags | TFW_SRV_F_SUSPEND);
+
 		if (likely(old_flags == flags)) {
 			T_WARN_ADDR_STATUS("server has been suspended: limit "
 					   "for bad responses is exceeded",
@@ -1642,28 +1637,41 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 					   resp->status);
 			break;
 		}
-		flags = old_flags;
-	} while (flags & TFW_SRV_F_HMONITOR);
 
-	return true;
+		flags = old_flags;
+	}
 }
 
+/**
+* The main function of Health Monioring.
+* Getting response from the server, it updates responses statistics,
+* checks HM limits and makes solution about server health.
+*/
 static void
 tfw_http_hm_control(TfwHttpResp *resp)
 {
 	TfwServer *srv = (TfwServer *)resp->conn->peer;
 
-	if (tfw_http_hm_suspend(resp, srv))
-		return;
+	/*
+	* Total response statistics is counted permanently regardless
+	* of the state of the health monitor.
+	*/
+	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
-	if (!tfw_srv_suspended(srv) ||
-	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, resp->msg.skb_head,
-				  srv->apmref))
-	{
+	if (tfw_srv_suspended(srv)) {
+		T_DBG2("Server suspended");
 		return;
 	}
 
-	tfw_srv_mark_alive(srv);
+	if(lim_exceeded) {
+		T_WARN("Server error limit exceeded");
+		tfw_http_hm_try_suspend(resp, srv);
+	}
+
+	if(tfw_apm_hm_srv_alive(resp, srv)) {
+		T_DBG2("Mark server alive");
+		tfw_srv_mark_alive(srv);
+	}
 }
 
 static inline void
