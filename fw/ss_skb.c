@@ -231,7 +231,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 
 		/* No fragments to shift. */
 		if (!tail_frags)
-			return 0;
+			goto finish;
 
 		/*
 		 * Move @n_excess number of page fragments to new SKB. We
@@ -262,6 +262,8 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 	if (n_shift > 0)
 		memmove(&si->frags[from + n],
 			&si->frags[from], n_shift * sizeof(skb_frag_t));
+
+finish:
 	si->nr_frags += n - n_excess;
 
 	return 0;
