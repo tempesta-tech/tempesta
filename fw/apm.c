@@ -1329,8 +1329,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 }
 
 static inline u32
-__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
-		     TfwStr *body)
+__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk)
 {
 	u32 crc = 0;
 
@@ -1340,11 +1339,21 @@ __tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
 	return crc;
 }
 
+/**
+* Validate response from the given server.
+* Check:
+* - Is response status code belongs to monitored set
+* - Integrity of the response body
+* - CRC
+* Successful passing all of the checks considered
+* as a sign that server alive.
+*/
 bool
-tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
-		     void *apmref)
+tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 {
-	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)apmref)->hmctl.hm);
+	int status = resp->status;
+	TfwStr *body = &resp->body;
+	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)(srv->apmref))->hmctl.hm);
 	u32 crc32 = 0;
 	TfwMsgIter it;
 	TfwStr chunk = {0};
@@ -1363,7 +1372,7 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 	}
 
 	if (unlikely(tfw_body_iter_init(&it, &chunk, body->data, body->skb,
-					skb_head)))
+					resp->msg.skb_head)))
 	{
 		T_WARN_NL("Invalid body. Health monitor '%s': status '%d' \n",
 			  hm->name, status);
@@ -1375,11 +1384,15 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 	 * from body of first response and store it into monitor.
 	 */
 	if (!hm->crc32 && hm->auto_crc) {
-		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
-		T_WARN("Auto CRC generated");
+		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk);
+		/*This warinig is used by tests to check crc generation
+		 * '\n' is neseccary for flushing message to logger,
+		 * without it tests will always fail.  
+		 */
+		T_WARN("Auto CRC generated\n");
 
 	} else if (hm->crc32) {
-		crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
+		crc32 = __tfw_apm_crc32_calc(&it, &chunk);
 		if (hm->crc32 != crc32)
 			goto crc_err;
 	}
