@@ -150,6 +150,7 @@ static struct {
  * here, because it refers to HTTP layer.
  */
 unsigned int max_header_list_size = 0;
+bool is_jsch_global = true;
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
@@ -6038,6 +6039,13 @@ next_msg:
 				"request has been filtered out via http table",
 				HTTP2_ECODE_PROTO);
 	}
+	if (res.type == TFW_HTTP_RES_JSCH) {
+		req->need_jsch = true;
+		req->vhost = res.vhost;
+	}
+	else {
+		req->need_jsch = is_jsch_global;
+	}
 	if (res.type == TFW_HTTP_RES_VHOST) {
 		req->vhost = res.vhost;
 	}
@@ -6143,37 +6151,39 @@ next_msg:
 	 * to GET. We should send js challenge to the client because the real
 	 * method, expected by the client is GET.
 	 */
-	switch (tfw_http_sess_obtain(req)) {
-	case TFW_HTTP_SESS_SUCCESS:
-		break;
+	if (req->need_jsch) {
+		switch (tfw_http_sess_obtain(req)) {
+		case TFW_HTTP_SESS_SUCCESS:
+			break;
 
-	case TFW_HTTP_SESS_REDIRECT_NEED:
-		/* Response is built and stored in @req->resp. */
-		break;
+		case TFW_HTTP_SESS_REDIRECT_NEED:
+			/* Response is built and stored in @req->resp. */
+			break;
 
-	case TFW_HTTP_SESS_VIOLATE:
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403, NULL,
-						HTTP2_ECODE_PROTO);
+		case TFW_HTTP_SESS_VIOLATE:
+			TFW_INC_STAT_BH(clnt.msgs_filtout);
+			return tfw_http_req_parse_block(req, 403, NULL,
+							HTTP2_ECODE_PROTO);
 
-	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
-		/*
-		 * Requested resource can't be challenged, try service it
-		 * from cache.
-		 */
-		T_DBG("Can't send JS challenge for request since a "
-		      "non-challengeable resource (e.g. image) was requested");
-		__set_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags);
-		break;
+		case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
+			/*
+			 * Requested resource can't be challenged, try service it
+			 * from cache.
+			 */
+			T_DBG("Can't send JS challenge for request since a "
+			      "non-challengeable resource (e.g. image) was requested");
+			__set_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags);
+			break;
 
-	case TFW_HTTP_SESS_FAILURE:
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		return tfw_http_req_parse_drop_with_fin(req, 500,
-				"request dropped: internal error"
-				" in Sticky module",
-				HTTP2_ECODE_PROTO);
-	default:
-		BUG();
+		case TFW_HTTP_SESS_FAILURE:
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			return tfw_http_req_parse_drop_with_fin(req, 500,
+					"request dropped: internal error"
+					" in Sticky module",
+					HTTP2_ECODE_PROTO);
+		default:
+			BUG();
+		}
 	}
 
 	if (TFW_MSG_H2(req))
