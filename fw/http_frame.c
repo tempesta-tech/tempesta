@@ -1932,14 +1932,6 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	char *data;
 	int r;
 
-	if (unlikely(type == HTTP2_DATA
-		     && skb_headlen(stream->xmit.skb_head)))
-	{
-		if ((r = tfw_http_msg_linear_transform(&it)))
-			return r;
-		stream->xmit.skb_head = it.skb_head;
-	}
-
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 stream->xmit.frame_length);
 	if(unlikely(!data))
