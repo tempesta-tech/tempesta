@@ -324,8 +324,12 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 			tfw_h2_on_tcp_entail_ack;
 	}
 
-	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
+	if ((r = tfw_connection_send((TfwConn *)conn, &msg))) {
+		/* si_wq is full, reset connection in case of flooding */
+		if (unlikely(r == -EBUSY))
+			r = T_BLOCK_WITH_RST;
 		goto err;
+	}
 	/*
 	 * We do not close client connection automatically here in case
 	 * of failed sending, the caller must make such decision instead;

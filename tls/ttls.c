@@ -2311,7 +2311,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		TTLS_WARN(tls, "TLS cannot decrypt msg on state %s, ret=%d%s\n",
 			  tls_state_to_str(tls->state), r,
 			  r == -EBADMSG ? "(bad ciphertext)" : "");
-		return r;
+		return T_BLOCK_WITH_RST;
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
