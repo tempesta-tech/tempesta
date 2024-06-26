@@ -748,7 +748,7 @@ index 000000000..90eedcba5
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -1065,7 +1065,7 @@ index 000000000..7ee3ead54
 +/**
 + *		Tempesta Memory Reservation
 + *
-+ * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -1410,7 +1410,7 @@ index 63de5c635..76e222130 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 71dee435d..c6b29cfc3 100644
+index 71dee435d..fe4b6828c 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -89,7 +89,9 @@
@@ -1919,7 +1919,7 @@ index 71dee435d..c6b29cfc3 100644
  {
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	int cpu, l;
-+	for_each_possible_cpu(cpu)
++	for_each_online_cpu(cpu)
 +		for (l = 0; l < PG_LISTS_N; ++l) {
 +			TfwSkbMemPool *pool = per_cpu_ptr(&pg_mpool[l], cpu);
 +			INIT_LIST_HEAD(&pool->lh);
@@ -3037,7 +3037,7 @@ index 000000000..1303d8273
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
