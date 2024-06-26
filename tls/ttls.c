@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2307,7 +2307,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		TTLS_WARN(tls, "TLS cannot decrypt msg on state %s, ret=%d%s\n",
 			  tls_state_to_str(tls->state), r,
 			  r == -EBADMSG ? "(bad ciphertext)" : "");
-		return r;
+		return T_BLOCK_WITH_RST;
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
