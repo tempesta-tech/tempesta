@@ -26,6 +26,7 @@
 #include <linux/kthread.h>
 #include <linux/tcp.h>
 #include <linux/topology.h>
+#include <linux/nodemask.h>
 
 #undef DEBUG
 #if DBG_CACHE > 0
@@ -234,13 +235,13 @@ enum {
 };
 
 typedef struct {
-	int		cpu[NR_CPUS];
+	int 		*cpu;
 	atomic_t	cpu_idx;
 	unsigned int	nr_cpus;
 	TDB		*db;
 } CaNode;
 
-static CaNode c_nodes[MAX_NUMNODES];
+static CaNode *c_nodes;
 
 typedef int tfw_cache_write_actor_t(TDB *, TdbVRec **, TfwHttpResp *, char **,
 				    size_t, TfwDecodeCacheIter *);
@@ -333,18 +334,59 @@ tfw_cache_key_node(unsigned long key)
 }
 
 /**
- * Just choose any CPU for each node to use queue_work_on() for
- * nodes scheduling. Reserve 0th CPU for other tasks.
+ * Release node-cpu map.
  */
 static void
+tfw_release_node_cpus(void)
+{
+	int node;
+
+	if(!c_nodes)
+		return;
+
+	for(node = 0; node < nr_online_nodes; node++) {
+		if(c_nodes[node].cpu)
+			kfree(c_nodes[node].cpu);
+	}
+	kfree(c_nodes);
+}
+
+/**
+ * Create node-cpu map to use queue_work_on() for nodes scheduling.
+ * 0th CPU is reserved for other tasks.
+ * At the moment we doesn't support CPU hotplug, so enumerate only online CPUs.
+ */
+static int
 tfw_init_node_cpus(void)
 {
-	int cpu, node;
+	int nr_cpus, cpu, node;
+
+	T_DBG2("nr_online_nodes: %d", nr_online_nodes);
+
+	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
+	if(!c_nodes) {
+		T_ERR("Failed to allocate nodes map for cache work scheduler");
+		return -ENOMEM;
+	}
+
+	for_each_node_with_cpus(node) {
+		nr_cpus = nr_cpus_node(node);
+		T_DBG2("node: %d  nr_cpus: %d",node, nr_cpus);
+		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
+		if(!c_nodes[node].cpu) {
+			T_ERR("Failed to allocate CPU array for node %d for cache work scheduler",
+				node);
+			return -ENOMEM;
+		}
+	}
 
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
+		T_DBG2("node: %d  cpu: %d",node, cpu);
 		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
+
+	return 0;
 }
 
 static TDB *
@@ -3160,6 +3202,31 @@ tfw_cache_mgr(void *arg)
 }
 #endif
 
+static inline int
+tfw_cache_wq_init(int cpu)
+{
+	TfwWorkTasklet *ct = &per_cpu(cache_wq, cpu);
+	int r;
+
+	r = tfw_wq_init(&ct->wq, TFW_DFLT_QSZ, cpu_to_node(cpu));
+	if (unlikely(r))
+		return r;
+	init_irq_work(&ct->ipi_work, tfw_cache_ipi);
+	tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
+
+	return 0;
+}
+
+static inline void
+tfw_cache_wq_clear(int cpu)
+{
+	TfwWorkTasklet *ct = &per_cpu(cache_wq, cpu);
+
+	tasklet_kill(&ct->tasklet);
+	irq_work_sync(&ct->ipi_work);
+	tfw_wq_destroy(&ct->wq);
+}
+
 static int
 tfw_cache_start(void)
 {
@@ -3171,11 +3238,16 @@ tfw_cache_start(void)
 	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return 0;
 
-	for_each_node_with_cpus(i) {
+	if ((r = tfw_init_node_cpus()))
+		goto node_cpus_alloc_err;
+
+	for(i = 0; i < nr_online_nodes; i++) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
-		if (!c_nodes[i].db)
+		if (!c_nodes[i].db) {
+			r = -ENOMEM;
 			goto close_db;
+		}
 	}
 #if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
@@ -3185,19 +3257,14 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 #endif
-	tfw_init_node_cpus();
 
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
-		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-		r = tfw_wq_init(&ct->wq, TFW_DFLT_QSZ, cpu_to_node(i));
-		if (r) {
-			T_ERR_NL("%s: Can't initialize cache work queue for CPU #%d\n",
-				 __func__, i);
-			goto close_db;
+		if (unlikely(r = tfw_cache_wq_init(i))) {
+			T_ERR_NL("%s: Can't initialize cache work"
+				 " queue for CPU #%d\n", __func__, i);
+			goto free_tasklet;
 		}
-		init_irq_work(&ct->ipi_work, tfw_cache_ipi);
-		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
 	}
 
 #if defined(DEBUG)
@@ -3219,9 +3286,15 @@ dbg_buf_free:
 	for_each_online_cpu(i)
 		kfree(per_cpu(ce_dbg_buf, i));
 #endif
+free_tasklet:
+	for_each_online_cpu(i)
+		tfw_cache_wq_clear(i);
 close_db:
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
+
+node_cpus_alloc_err:
+	tfw_release_node_cpus();
 	return r;
 }
 
@@ -3235,12 +3308,8 @@ tfw_cache_stop(void)
 	if (!cache_cfg.cache)
 		return;
 
-	for_each_online_cpu(i) {
-		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-		tasklet_kill(&ct->tasklet);
-		irq_work_sync(&ct->ipi_work);
-		tfw_wq_destroy(&ct->wq);
-	}
+	for_each_online_cpu(i)
+		tfw_cache_wq_clear(i);
 #if 0
 	kthread_stop(cache_mgr_thr);
 #endif
@@ -3252,6 +3321,8 @@ tfw_cache_stop(void)
 
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
+
+	tfw_release_node_cpus();
 }
 
 static const TfwCfgEnum cache_http_methods_enum[] = {

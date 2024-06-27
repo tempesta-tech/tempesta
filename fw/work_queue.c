@@ -5,7 +5,7 @@
  * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
  * multi-producer-multi-consumer-queue-ring-buffer .
  *
- * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 	if (!q->heads)
 		return -ENOMEM;
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
 		atomic64_set(local_head, LLONG_MAX);
 	}

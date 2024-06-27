@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@
 #define alloc_percpu(t)			calloc(NR_CPUS, sizeof(t))
 #define __alloc_percpu(s, a)		calloc(NR_CPUS, (s))
 #define free_percpu(p)			free(p)
-#define for_each_possible_cpu(c)	for (c = 0; c < NR_CPUS; ++c)
+#define for_each_online_cpu(c)		for (c = 0; c < NR_CPUS; ++c)
 
 #if NR_CPUS == 1
 
