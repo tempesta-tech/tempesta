@@ -6567,7 +6567,8 @@ next_msg:
 	hmresp->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
 
-	T_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
+	//T_DBG2
+	pr_err("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
 	       skb->len, parsed, hmresp->msg.len, hmresp->version, r);
 
 	/*
@@ -6587,7 +6588,8 @@ next_msg:
 		 * and so on.
 		 */
 	case T_BAD:
-		T_DBG2("Drop invalid HTTP response\n");
+		//T_DBG2
+		pr_err("Drop invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		goto bad_msg;
 	case T_BLOCK:
@@ -6599,7 +6601,8 @@ next_msg:
 		 * out on this connection and are waiting for paired
 		 * response messages.
 		 */
-		T_DBG2("Block invalid HTTP response\n");
+		//T_DBG2
+		pr_err("Block invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		filtout = true;
 		goto bad_msg;
@@ -6614,7 +6617,8 @@ next_msg:
 		}
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
 				  &data_up);
-		T_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
+		//T_DBG3
+		pr_err("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(serv.msgs_filtout);
 			filtout = true;
