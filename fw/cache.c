@@ -1141,17 +1141,8 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 }
 
 static bool
-tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
-		       bool eviction)
+tfw_cache_should_satisfy(TfwHttpReq *req, TfwCacheEntry *ce)
 {
-	/* Record key starts at first data chunk. */
-	int n, c_off = 0, t_off;
-	TdbVRec *trec = &ce->trec;
-	TfwStr *c, *h_start, *u_end, *h_end;
-
-	/* We should invalidate cache etry regardless of method type. */
-	if (eviction)
-		goto find_entry;
 	/*
 	 * According to RFC 9110 9.3.1:
 	 * The response to a GET request is cacheable; a cache MAY use
@@ -1181,7 +1172,17 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
 	     && ce->method == TFW_HTTP_METH_POST))
 		return false;
 
-find_entry:
+	return true;
+}
+
+static bool
+tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
+{
+	/* Record key starts at first data chunk. */
+	int n, c_off = 0, t_off;
+	TdbVRec *trec = &ce->trec;
+	TfwStr *c, *h_start, *u_end, *h_end;
+
 	if (req->uri_path.len + req->host.len != ce->key_len)
 		return false;
 
@@ -1251,7 +1252,9 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		 * we find a live record early, so we take an extra read lock
 		 * here.
 		 */
-		if (tfw_cache_entry_key_eq(db, req, ce)) {
+		if (tfw_cache_should_satisfy(req, ce) &&
+		    tfw_cache_entry_key_eq(db, req, ce))
+		{
 			if (!ce_best
 				   || tfw_cache_entry_age(ce)
 				      < tfw_cache_entry_age(ce_best))
@@ -2458,9 +2461,26 @@ err:
 }
 
 static bool
-tfw_cache_rec_eq_req(TdbRec *rec, void *req)
+tfw_cache_rec_eq_req(TdbRec *rec, void *request)
 {
-	return tfw_cache_entry_key_eq(node_db(), req, (TfwCacheEntry *)rec);
+	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
+	TfwHttpReq *req = (TfwHttpReq *)request;
+
+	/*
+	 * Remove only records that have same method, except when request is
+	 * POST or PURGE. Accordingly to RFC 9111 4.4. POST is used to
+	 * invalidate cache records.
+	 *
+	 * We don't check staleness at this stage, just to skip double check.
+	 * The first check happens when we trying to satisfy request from the
+	 * cache. Therefore if reached this point it means that record is stale
+	 * or not presented in the cache.
+	 */
+	if (req->method != TFW_HTTP_METH_POST &&
+	    req->method != TFW_HTTP_METH_PURGE && ce->method != req->method)
+		return false;
+
+	return tfw_cache_entry_key_eq(node_db(), req, ce);
 }
 
 static bool
@@ -2546,8 +2566,6 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
  * Invalidate all cache entries that match the request. This is implemented by
  * making the entries stale.
  *
- * TODO #522 Review the invalidation logic.
- *
  */
 static int
 tfw_cache_invalidate(TfwHttpReq *req)
@@ -2563,7 +2581,7 @@ tfw_cache_invalidate(TfwHttpReq *req)
 
 	ce = (TfwCacheEntry *)iter.rec;
 	do {
-		if (tfw_cache_entry_key_eq(db, req, ce, true))
+		if (tfw_cache_entry_key_eq(db, req, ce))
 			ce->lifetime = 0;
 		tdb_rec_next(db, &iter);
 		ce = (TfwCacheEntry *)iter.rec;
@@ -2615,33 +2633,6 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 out:
 	resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
 	action((TfwHttpMsg *)resp);
-}
-
-/*
- * Invalidate all cache entries that match the request. This is implemented by
- * making the entries stale.
- */
-static int
-tfw_cache_purge_invalidate(TfwHttpReq *req)
-{
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
-	unsigned long key = tfw_http_req_key_calc(req);
-
-	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter))
-		return 0;
-
-	ce = (TfwCacheEntry *)iter.rec;
-	do {
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			ce->lifetime = 0;
-		tdb_rec_next(db, &iter);
-		ce = (TfwCacheEntry *)iter.rec;
-	} while (ce);
-
-	return 0;
 }
 
 static int
@@ -2815,12 +2806,7 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 }
 
 static int
-<<<<<<< HEAD
-tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
-=======
-tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce,
-		      unsigned int stream_id, long age)
->>>>>>> 088ea6a7 (Add support of Cache-Control: stale-if-error)
+tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce, long age)
 {
 	int r;
 	size_t digs;
@@ -2988,7 +2974,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	/* Set additional headers for HTTP/2 response. */
 	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true)
 	    || (age > ce->lifetime
-		&& tfw_h2_set_stale_warn(resp, stream_id))
+		&& tfw_h2_set_stale_warn(resp))
 	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 		&& tfw_h2_add_hdr_date(resp, true)))
 		goto free;
