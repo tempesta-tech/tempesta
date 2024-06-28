@@ -88,6 +88,8 @@ typedef struct {
 typedef struct {
 	u64	hits;
 	u64	misses;
+	u64	objects;
+	u64	bytes;
 } TfwCacheStat;
 
 /*
@@ -115,6 +117,8 @@ DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
 #define TFW_DEC_STAT_BH(...)	this_cpu_dec(tfw_perfstat.__VA_ARGS__)
 #define TFW_ADD_STAT_BH(val, ...)	\
 		this_cpu_add(tfw_perfstat.__VA_ARGS__, val)
+#define TFW_SUB_STAT_BH(val, ...)	\
+		this_cpu_sub(tfw_perfstat.__VA_ARGS__, val)
 
 static inline void
 tfw_inc_global_hm_stats(int status)
