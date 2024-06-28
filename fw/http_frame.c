@@ -1932,10 +1932,24 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	char *data;
 	int r;
 
+
+	/*
+	 * Very unlikely case, when skb_head and one or more next skbs
+	 * are empty because of transformation during making HEADERS.
+	 */
+	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
+		struct sk_buff *skb = stream->xmit.skb_head;
+
+		while (skb && unlikely(!skb->len)) {
+			ss_skb_unlink(&stream->xmit.skb_head, skb);
+			kfree_skb(skb);
+			skb = stream->xmit.skb_head;
+		}
+	}
+
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 stream->xmit.frame_length);
-	if(unlikely(!data))
-		data = stream->xmit.skb_head->data;
+	BUG_ON(!data);
 
 	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
 		it.skb = it.skb_head = stream->xmit.skb_head;

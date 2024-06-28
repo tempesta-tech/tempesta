@@ -421,7 +421,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		end = begin + skb_frag_size(f);
 		d = end - begin;
 
-		if (off >= d) {
+		if (off > d) {
 			off -= d;
 			continue;
 		}
