@@ -979,9 +979,16 @@ retry:
 }
 
 static inline bool
-tdb_eval_eq_cb(bool (*eq_cb)(void *, void *), TdbRec *rec, void *data)
+tdb_eval_eq_cb(tdb_eq_cb_t *eq_cb, TdbRec *rec, void *data)
 {
 	return ((eq_cb && eq_cb(rec, data)) || !eq_cb);
+}
+
+static inline void
+tdb_eval_bf_remove_cb(tdb_before_remove_cb_t *bf_remove_cb, TdbRec *rec)
+{
+	if (bf_remove_cb)
+		bf_remove_cb(rec);
 }
 
 #define TDB_REMOVE_FOREACH_REC(body)					\
@@ -999,8 +1006,8 @@ tdb_eval_eq_cb(bool (*eq_cb)(void *, void *), TdbRec *rec, void *data)
 		 <= TDB_HTRIE_MINDREC)
 
 int
-tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
-		 void *data, bool force)
+tdb_htrie_remove(TdbHdr *dbh, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
+		 tdb_before_remove_cb_t *bf_remove_cb, bool force)
 {
 	int bits = 0;
 	TdbRec *rec;
@@ -1031,6 +1038,7 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
 			if (tdb_live_rec(dbh, rec)
 			    && tdb_eval_eq_cb(eq_cb, rec, data))
 			{
+				tdb_eval_bf_remove_cb(bf_remove_cb, rec);
 				tdb_htrie_free_rec(dbh, rec);
 				r = 0;
 			}
@@ -1053,6 +1061,8 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, bool (*eq_cb)(void *, void *),
 			TDB_REMOVE_FOREACH_REC({
 				if (tdb_live_rec(dbh, rec)) {
 					if (tdb_eval_eq_cb(eq_cb, rec, data)) {
+						tdb_eval_bf_remove_cb(bf_remove_cb,
+								      rec);
 						tdb_htrie_free_rec(dbh, rec);
 						r = 0;
 					} else {
