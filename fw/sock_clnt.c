@@ -205,7 +205,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, int ss_action)
 		return 0;
 	}
 
-	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now); //TRY ULONG MAX ALSO
+	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
 
 	r = tfw_h2_make_frames(sk, h2, snd_wnd, ss_action, &data_is_available);
 	if (unlikely(r < 0))
