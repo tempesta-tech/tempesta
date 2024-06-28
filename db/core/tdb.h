@@ -146,6 +146,10 @@ typedef struct {
 	bool		is_new;
 } TdbGetAllocCtx;
 
+
+typedef bool tdb_eq_cb_t(TdbRec *rec, void *data);
+typedef void tdb_before_remove_cb_t(TdbRec *rec);
+
 /**
  * We use very small index nodes size of only one cache line.
  * So overall memory footprint of the index is minimal by a cost of more LLC
@@ -196,8 +200,8 @@ TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
 void tdb_entry_mark_complete(void *rec);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
-int tdb_entry_remove(TDB *db, unsigned long key, bool (*eq_cb)(void *, void *),
-		     void *data, bool force);
+int tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
+		     tdb_before_remove_cb_t *bf_remove_cb, bool force);
 void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);

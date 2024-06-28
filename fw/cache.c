@@ -135,6 +135,13 @@ typedef struct {
 #define CE_BODY_SIZE							\
 	(sizeof(TfwCacheEntry) - offsetof(TfwCacheEntry, ce_body))
 
+static size_t
+ce_total_size(const TfwCacheEntry *ce)
+{
+	return ce->key_len + ce->status_len + ce->rph_len + ce->hdr_len +
+		ce->body_len + CE_BODY_SIZE;
+}
+
 #if defined(DEBUG)
 #define CE_DBGBUF_LEN	1024
 static DEFINE_PER_CPU(char *, ce_dbg_buf) = NULL;
@@ -151,8 +158,9 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 	snprintf(buf + len, CE_DBGBUF_LEN - len, "    %14s: " fmt "\n",	\
 		 __VA_ARGS__)
 
-	len += CE_DUMP_MEMBER("key %lx, chunk_next %d, len %d", "TdbVRec",
-			      ce->trec.key, ce->trec.chunk_next, ce->trec.len);
+	len += CE_DUMP_MEMBER("key %lx, chunk_next %d, len %d total_len: %lu",
+			      "TdbVRec", ce->trec.key, ce->trec.chunk_next,
+			      ce->trec.len, ce_total_size(ce));
 	len += CE_DUMP_MEMBER("%d", "key_len",		ce->key_len);
 	len += CE_DUMP_MEMBER("%d", "status_len",     	ce->status_len);
 	len += CE_DUMP_MEMBER("%d", "rph_len",        	ce->rph_len);
@@ -2450,15 +2458,24 @@ err:
 }
 
 static bool
-tfw_cache_rec_eq_req(void *rec, void *req)
+tfw_cache_rec_eq_req(TdbRec *rec, void *req)
 {
-	return tfw_cache_entry_key_eq(node_db(), req, rec);
+	return tfw_cache_entry_key_eq(node_db(), req, (TfwCacheEntry *)rec);
 }
 
 static bool
-tfw_cache_rec_eq(void *r1, void *r2)
+tfw_cache_rec_eq(TdbRec *r1, void *r2)
 {
 	return r1 == r2;
+}
+
+static void
+tfw_cache_update_stat(TdbRec *rec)
+{
+	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
+
+	TFW_SUB_STAT_BH(ce_total_size(ce), cache.bytes);
+	TFW_DEC_STAT_BH(cache.objects);
 }
 
 static void
@@ -2496,7 +2513,8 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	 * Remove each entry with current key, even fresh entries. We assume
 	 * that if we at current place, no valid entries are exists.
 	 */
-	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req, false);
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req,
+			 &tfw_cache_update_stat, false);
 
 	/*
 	 * Try to place the cached response in single memory chunk.
@@ -2514,11 +2532,13 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 		/*
 		 * Error occured during response copying. Remove allocated entry.
 		 */
-		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, true);
+		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, NULL, true);
 		T_DBG3("%s: Can't copy response ce=[%p], resp=[%p], data_len="
 		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
 	} else {
 		tdb_entry_mark_complete(ce);
+		TFW_INC_STAT_BH(cache.objects);
+		TFW_ADD_STAT_BH(ce_total_size(ce), cache.bytes);
 	}
 }
 
@@ -2630,7 +2650,8 @@ tfw_cache_purge_immediate(TfwHttpReq *req)
 	TDB *db = node_db();
 	unsigned long key = tfw_http_req_key_calc(req);
 
-	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req,
+			 &tfw_cache_update_stat, false);
 
 	return 0;
 }
