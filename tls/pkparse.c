@@ -262,17 +262,14 @@ ttls_pk_parse_subpubkey(const unsigned char **p, const unsigned char *end,
 	}
 	else if (pk_alg == TTLS_PK_ECKEY_DH || pk_alg == TTLS_PK_ECKEY) {
 		ret = pk_use_ecparams(&alg_params, &ttls_pk_ec(*pk)->grp);
-		if (ret == 0)
+		if (!ret)
 			ret = pk_get_ecpubkey(p, end, ttls_pk_ec(*pk));
 	}
 	else {
 		ret = TTLS_ERR_PK_UNKNOWN_PK_ALG;
 	}
 
-	if (ret == 0 && *p != end)
-		ret = TTLS_ERR_PK_INVALID_PUBKEY + TTLS_ERR_ASN1_LENGTH_MISMATCH;
-
-	return ret;
+	return 0;
 }
 
 /**
