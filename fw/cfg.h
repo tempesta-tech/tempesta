@@ -332,6 +332,7 @@ struct TfwCfgSpec {
 		bool __called_now:1;
 		bool __called_cfg:1;
 		bool __called_ever:1;
+		bool dflt_already_set:1;
 	};
 	void (*cleanup)(TfwCfgSpec *self);
 };

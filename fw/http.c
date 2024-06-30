@@ -5978,7 +5978,7 @@ next_msg:
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return tfw_http_req_parse_drop(req, 500,
 					"Can't split pipelined requests",
-					HTTP2_ECODE_PROTO);	
+					HTTP2_ECODE_PROTO);
 		}
 		*splitted = skb;
 	} else {
@@ -6166,6 +6166,7 @@ next_msg:
 		BUG();
 	}
 
+	*splitted = NULL;
 	if (TFW_MSG_H2(req))
 		/*
 		 * Just marks request as non-idempotent if required.
@@ -6207,7 +6208,6 @@ next_msg:
 				       " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}	
-	*splitted = NULL;
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
