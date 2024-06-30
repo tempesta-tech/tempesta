@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,21 +40,27 @@
 /*
  * Top level OID tuples
  */
-#define TTLS_OID_ISO_MEMBER_BODIES		   "\x2a"		  /* {iso(1) member-body(2)} */
-#define TTLS_OID_ISO_IDENTIFIED_ORG		  "\x2b"		  /* {iso(1) identified-organization(3)} */
-#define TTLS_OID_ISO_CCITT_DS				"\x55"		  /* {joint-iso-ccitt(2) ds(5)} */
-#define TTLS_OID_ISO_ITU_COUNTRY			 "\x60"		  /* {joint-iso-itu-t(2) country(16)} */
+/* {iso(1) member-body(2)} */
+#define TTLS_OID_ISO_MEMBER_BODIES	"\x2a"
+/* {iso(1) identified-organization(3)} */
+#define TTLS_OID_ISO_IDENTIFIED_ORG	"\x2b"
+/* {joint-iso-ccitt(2) ds(5)} */
+#define TTLS_OID_ISO_CCITT_DS		"\x55"
+/* {joint-iso-itu-t(2) country(16)} */
+#define TTLS_OID_ISO_ITU_COUNTRY	"\x60"
 
 /*
  * ISO Member bodies OID parts
  */
-#define TTLS_OID_COUNTRY_US				  "\x86\x48"	  /* {us(840)} */
-#define TTLS_OID_ORG_RSA_DATA_SECURITY	   "\x86\xf7\x0d"  /* {rsadsi(113549)} */
-#define TTLS_OID_RSA_COMPANY				 TTLS_OID_ISO_MEMBER_BODIES TTLS_OID_COUNTRY_US \
-				TTLS_OID_ORG_RSA_DATA_SECURITY /* {iso(1) member-body(2) us(840) rsadsi(113549)} */
-#define TTLS_OID_ORG_ANSI_X9_62			  "\xce\x3d" /* ansi-X9-62(10045) */
-#define TTLS_OID_ANSI_X9_62				  TTLS_OID_ISO_MEMBER_BODIES TTLS_OID_COUNTRY_US \
-				TTLS_OID_ORG_ANSI_X9_62
+#define TTLS_OID_COUNTRY_US		"\x86\x48" /* {us(840)} */
+#define TTLS_OID_ORG_RSA_DATA_SECURITY	"\x86\xf7\x0d"  /* {rsadsi(113549)} */
+/* {iso(1) member-body(2) us(840) rsadsi(113549)} */
+#define TTLS_OID_RSA_COMPANY		TTLS_OID_ISO_MEMBER_BODIES	\
+					TTLS_OID_COUNTRY_US		\
+					TTLS_OID_ORG_RSA_DATA_SECURITY
+#define TTLS_OID_ORG_ANSI_X9_62		"\xce\x3d" /* ansi-X9-62(10045) */
+#define TTLS_OID_ANSI_X9_62		TTLS_OID_ISO_MEMBER_BODIES	\
+					TTLS_OID_COUNTRY_US TTLS_OID_ORG_ANSI_X9_62
 
 /*
  * ISO Identified organization OID parts
@@ -259,7 +265,7 @@
 
 /* secp256r1 OBJECT IDENTIFIER ::= {
  *   iso(1) member-body(2) us(840) ansi-X9-62(10045) curves(3) prime(1) 7 } */
-#define TTLS_OID_EC_GRP_SECP256R1		TTLS_OID_ANSI_X9_62 "\x03\x01\x07"
+#define TTLS_OID_EC_GRP_SECP256R1	TTLS_OID_ANSI_X9_62 "\x03\x01\x07"
 
 /*
  * SEC1 C.1
@@ -301,13 +307,18 @@
 #define TTLS_OID_ECDSA_SHA512			TTLS_OID_ANSI_X9_62_SIG_SHA2 "\x04"
 
 /**
- * \brief Base OID descriptor structure
+ * Base OID descriptor structure.
+ *
+ * @asn1	- OID ASN.1 representation;
+ * @asn1_len	- length of asn1;
+ * @name	- official name (e.g. from RFC);
+ * @description	- human friendly description.
  */
 typedef struct {
-	const char *asn1;			   /*!< OID ASN.1 representation	   */
-	size_t asn1_len;				/*!< length of asn1				 */
-	const char *name;			   /*!< official name (e.g. from RFC)  */
-	const char *description;		/*!< human friendly description	 */
+	const char		*asn1;
+	size_t			asn1_len;
+	const char		*name;
+	const char		*description;
 } ttls_oid_descriptor_t;
 
 /**

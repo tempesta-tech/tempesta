@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,20 +36,20 @@
  * the other functions)
  */
 #define FN_OID_TYPED_FROM_ASN1(TYPE_T, NAME, LIST)			\
-static const TYPE_T * oid_ ## NAME ## _from_asn1(const ttls_asn1_buf *oid)	 \
-{						   \
-	const TYPE_T *p = LIST;			 \
-	const ttls_oid_descriptor_t *cur = (const ttls_oid_descriptor_t *) p;			 \
-	if (p == NULL || oid == NULL) return(NULL);			  \
-	while (cur->asn1 != NULL) {		\
-		if (cur->asn1_len == oid->len &&			\
-			memcmp(cur->asn1, oid->p, oid->len) == 0) {				  \
-			return(p);				\
-		}				   \
-		p++;				\
-		cur = (const ttls_oid_descriptor_t *) p;		 \
-	}					   \
-	return(NULL);					 \
+static const TYPE_T * oid_ ## NAME ## _from_asn1(const ttls_asn1_buf *oid)\
+{									\
+	const TYPE_T *p = LIST;						\
+	const ttls_oid_descriptor_t *cur = (const ttls_oid_descriptor_t *)p;\
+	if (!p || !oid)							\
+		return NULL;						\
+	while (cur->asn1) {						\
+		if (cur->asn1_len == oid->len				\
+		    && !memcmp(cur->asn1, oid->p, oid->len))		\
+			return p;					\
+		p++;							\
+		cur = (const ttls_oid_descriptor_t *)p;			\
+	}								\
+	return NULL;							\
 }
 
 /*
@@ -69,13 +69,14 @@ int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
  * Macro to generate a function for retrieving a single attribute from an
  * ttls_oid_descriptor_t wrapper.
  */
-#define FN_OID_GET_ATTR1(FN_NAME, TYPE_T, TYPE_NAME, ATTR1_TYPE, ATTR1) \
-int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
-{					   \
-	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);		\
-	if (data == NULL) return -1;						\
-	*ATTR1 = data->ATTR1;		   \
-	return 0;					\
+#define FN_OID_GET_ATTR1(FN_NAME, TYPE_T, TYPE_NAME, ATTR1_TYPE, ATTR1)	\
+int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)		\
+{									\
+	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);	\
+	if (data == NULL)						\
+		return -1;						\
+	*ATTR1 = data->ATTR1;						\
+	return 0;							\
 }
 
 /*
@@ -464,21 +465,20 @@ static const oid_md_hmac_t oid_md_hmac[] =
 FN_OID_TYPED_FROM_ASN1(oid_md_hmac_t, md_hmac, oid_md_hmac)
 FN_OID_GET_ATTR1(ttls_oid_get_md_hmac, oid_md_hmac_t, md_hmac, ttls_md_type_t, md_hmac)
 
-#define OID_SAFE_SNPRINTF				   \
-	do {			\
-		if (ret < 0 || (size_t) ret >= n)			  \
-		    goto ellipsize;					\
-					\
-		n -= (size_t) ret;				  \
-		p += (size_t) ret;				  \
-	} while (0)
-
 static const char oid_ellipsis[] = "[...]";
 
 /* Return the x.y.z.... style numeric string for the given OID */
-void ttls_oid_get_numeric_string(char *buf, size_t size,
-				const ttls_asn1_buf *oid)
+void
+ttls_oid_get_numeric_string(char *buf, size_t size, const ttls_asn1_buf *oid)
 {
+#define OID_SAFE_SNPRINTF						\
+do {									\
+	if (ret < 0 || (size_t)ret >= n)				\
+	    goto ellipsize;						\
+	n -= (size_t)ret;						\
+	p += (size_t)ret;						\
+} while (0)
+
 	int ret;
 	size_t i, n;
 	unsigned int value;
@@ -489,15 +489,13 @@ void ttls_oid_get_numeric_string(char *buf, size_t size,
 	*p = '\0';
 
 	/* First byte contains first two dots */
-	if (oid->len > 0)
-	{
+	if (oid->len > 0) {
 		ret = snprintf(p, n, "%d.%d", oid->p[0] / 40, oid->p[0] % 40);
 		OID_SAFE_SNPRINTF;
 	}
 
 	value = 0;
-	for (i = 1; i < oid->len; i++)
-	{
+	for (i = 1; i < oid->len; i++) {
 		/* Prevent overflow in value. */
 		if (((value << 7) >> 7) != value)
 			goto ellipsize;
@@ -525,4 +523,5 @@ ellipsize:
 	}
 
 	snprintf(p, n, "%s", oid_ellipsis);
+#undef OID_SAFE_SNPRINTF
 }

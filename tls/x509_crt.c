@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -96,8 +96,7 @@ ttls_x509_crt_profile;
  * Default security profile. Should provide a good balance between security
  * and compatibility with current deployments.
  */
-const ttls_x509_crt_profile ttls_x509_crt_profile_default =
-{
+const ttls_x509_crt_profile ttls_x509_crt_profile_default = {
 	/* Only SHA-2 hashes */
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA256) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA384) |
@@ -210,13 +209,14 @@ x509_profile_check_key(const ttls_x509_crt_profile *profile,
  *  Version  ::=  INTEGER  {  v1(0), v2(1), v3(2)  }
  */
 static int
-x509_get_version(unsigned char **p, const unsigned char *end, int *ver)
+x509_get_version(const unsigned char **p, const unsigned char *end, int *ver)
 {
 	int ret;
 	size_t len;
 
 	ret = ttls_asn1_get_tag(p, end, &len,
-				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED);
+				TTLS_ASN1_CONTEXT_SPECIFIC
+				| TTLS_ASN1_CONSTRUCTED);
 	if (unlikely(ret)) {
 		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG) {
 			*ver = 0;
@@ -231,8 +231,8 @@ x509_get_version(unsigned char **p, const unsigned char *end, int *ver)
 		return TTLS_ERR_X509_INVALID_VERSION + ret;
 
 	if (*p != end)
-		return TTLS_ERR_X509_INVALID_VERSION +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		return TTLS_ERR_X509_INVALID_VERSION
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -243,7 +243,7 @@ x509_get_version(unsigned char **p, const unsigned char *end, int *ver)
  *	   notAfter	   Time }
  */
 static int
-x509_get_dates(unsigned char **p, const unsigned char *end,
+x509_get_dates(const unsigned char **p, const unsigned char *end,
 	       ttls_x509_time *from, ttls_x509_time *to)
 {
 	int ret;
@@ -261,8 +261,8 @@ x509_get_dates(unsigned char **p, const unsigned char *end,
 	if ((ret = ttls_x509_get_time(p, end, to)))
 		return ret;
 	if (*p != end)
-		return TTLS_ERR_X509_INVALID_DATE +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		return TTLS_ERR_X509_INVALID_DATE
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -271,8 +271,8 @@ x509_get_dates(unsigned char **p, const unsigned char *end,
  * X.509 v2/v3 unique identifier (not parsed)
  */
 static int
-x509_get_uid(unsigned char **p, const unsigned char *end, ttls_x509_buf *uid,
-	     int n)
+x509_get_uid(const unsigned char **p, const unsigned char *end,
+	     ttls_x509_buf *uid, int n)
 {
 	int ret;
 
@@ -282,7 +282,8 @@ x509_get_uid(unsigned char **p, const unsigned char *end, ttls_x509_buf *uid,
 	uid->tag = **p;
 
 	ret = ttls_asn1_get_tag(p, end, &uid->len,
-				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | n);
+				TTLS_ASN1_CONTEXT_SPECIFIC
+				| TTLS_ASN1_CONSTRUCTED | n);
 	if (unlikely(ret)) {
 		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG)
 			return 0;
@@ -296,7 +297,7 @@ x509_get_uid(unsigned char **p, const unsigned char *end, ttls_x509_buf *uid,
 }
 
 static int
-x509_get_basic_constraints(unsigned char **p, const unsigned char *end,
+x509_get_basic_constraints(const unsigned char **p, const unsigned char *end,
 			   int *ca_istrue, int *max_pathlen)
 {
 	int ret;
@@ -345,11 +346,11 @@ x509_get_basic_constraints(unsigned char **p, const unsigned char *end,
 }
 
 static int
-x509_get_ns_cert_type(unsigned char **p, const unsigned char *end,
+x509_get_ns_cert_type(const unsigned char **p, const unsigned char *end,
 		      unsigned char *ns_cert_type)
 {
 	int ret;
-	ttls_x509_bitstring bs = { 0, 0, NULL };
+	ttls_x509_bitstring bs = {};
 
 	if ((ret = ttls_asn1_get_bitstring(p, end, &bs)))
 		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
@@ -364,12 +365,12 @@ x509_get_ns_cert_type(unsigned char **p, const unsigned char *end,
 }
 
 static int
-x509_get_key_usage(unsigned char **p, const unsigned char *end,
+x509_get_key_usage(const unsigned char **p, const unsigned char *end,
 		   unsigned int *key_usage)
 {
 	int ret;
 	size_t i;
-	ttls_x509_bitstring bs = { 0, 0, NULL };
+	ttls_x509_bitstring bs = {};
 
 	if ((ret = ttls_asn1_get_bitstring(p, end, &bs)))
 		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
@@ -380,9 +381,8 @@ x509_get_key_usage(unsigned char **p, const unsigned char *end,
 
 	/* Get actual bitstring */
 	*key_usage = 0;
-	for (i = 0; i < bs.len && i < sizeof(unsigned int); i++) {
+	for (i = 0; i < bs.len && i < sizeof(unsigned int); i++)
 		*key_usage |= (unsigned int) bs.p[i] << (8*i);
-	}
 
 	return 0;
 }
@@ -393,7 +393,7 @@ x509_get_key_usage(unsigned char **p, const unsigned char *end,
  * KeyPurposeId ::= OBJECT IDENTIFIER
  */
 static int
-x509_get_ext_key_usage(unsigned char **p, const unsigned char *end,
+x509_get_ext_key_usage(const unsigned char **p, const unsigned char *end,
 		       ttls_x509_sequence *ext_key_usage)
 {
 	int ret = ttls_asn1_get_sequence_of(p, end, ext_key_usage, TTLS_ASN1_OID);
@@ -401,9 +401,9 @@ x509_get_ext_key_usage(unsigned char **p, const unsigned char *end,
 		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 	/* Sequence length must be >= 1 */
-	if (unlikely(ext_key_usage->buf.p == NULL))
-		return TTLS_ERR_X509_INVALID_EXTENSIONS +
-		       TTLS_ERR_ASN1_INVALID_LENGTH;
+	if (unlikely(!ext_key_usage->buf.p))
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_INVALID_LENGTH;
 
 	return 0;
 }
@@ -435,7 +435,7 @@ x509_get_ext_key_usage(unsigned char **p, const unsigned char *end,
  * NOTE: we only parse and use dNSName at this point.
  */
 static int
-x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
+x509_get_subject_alt_name(const unsigned char **p, const unsigned char *end,
 			  ttls_x509_sequence *subject_alt_name)
 {
 	int ret;
@@ -454,22 +454,21 @@ x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
 			TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	while (*p < end) {
-		unsigned char tag;
+		const unsigned char tag = **p;
 
 		if ((end - *p) < 1)
-			return TTLS_ERR_X509_INVALID_EXTENSIONS +
-			       TTLS_ERR_ASN1_OUT_OF_DATA;
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
-		tag = **p;
 		(*p)++;
 		if ((ret = ttls_asn1_get_len(p, end, &tag_len)))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		if ((tag & TTLS_ASN1_TAG_CLASS_MASK) !=
-		    TTLS_ASN1_CONTEXT_SPECIFIC)
+		if ((tag & TTLS_ASN1_TAG_CLASS_MASK)
+		    != TTLS_ASN1_CONTEXT_SPECIFIC)
 		{
 			return TTLS_ERR_X509_INVALID_EXTENSIONS
-					+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
+				+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 		}
 
 		/* Skip everything but DNS name */
@@ -502,8 +501,8 @@ x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
 	cur->next = NULL;
 
 	if (*p != end)
-		return TTLS_ERR_X509_INVALID_EXTENSIONS +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -513,7 +512,7 @@ x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
  *
  */
 static int
-x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
+x509_get_crt_ext(const unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 {
 	int ret;
 	size_t len;
@@ -525,8 +524,7 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 		return ret;
 	}
 
-	while (*p < end)
-	{
+	while (*p < end) {
 		unsigned char *end_ext_data, *end_ext_octet;
 		/*
 		 * Extension  ::=  SEQUENCE  {
@@ -543,7 +541,12 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 		if (unlikely(ret))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		end_ext_data = *p + len;
+		/*
+		 * TODO #1808: declare the variable here to avoid type conversion
+		 * (-std=gnu11 is allowed with the new kernel).
+		 * The same for end_ext_octet at the below.
+		 */
+		end_ext_data = (unsigned char *)*p + len;
 
 		/* Get extension ID */
 		extn_oid.tag = **p;
@@ -572,18 +575,17 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 		if (unlikely(ret))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		end_ext_octet = *p + len;
+		end_ext_octet = (unsigned char *)*p + len;
 
 		if (end_ext_octet != end_ext_data)
-			return TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH;
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 		/*
 		 * Detect supported extensions
 		 */
 		ret = ttls_oid_get_x509_ext_type(&extn_oid, &ext_type);
-		if (unlikely(ret))
-		{
+		if (unlikely(ret)) {
 			/* No parser found, skip extension */
 			*p = end_ext_octet;
 			if (is_critical)
@@ -671,7 +673,7 @@ static int
 x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 {
 	int r;
-	unsigned char *p, *end, *crt_end;
+	const unsigned char *p, *end, *crt_end;
 	ttls_x509_buf sig_params1, sig_params2, sig_oid2;
 
 	BUG_ON(!crt || !buf);
@@ -680,7 +682,7 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 	memset(&sig_params2, 0, sizeof(ttls_x509_buf));
 	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
 
-	p = (unsigned char*)buf;
+	p = buf;
 	end = p + len;
 
 	/*
@@ -716,8 +718,9 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 	if (!(crt->raw.p = (unsigned char *)__get_free_pages(GFP_KERNEL, 0)))
 		goto err;
 	crt->raw.len = crt_end - buf;
-	memcpy(ttls_x509_crt_raw(crt), buf, crt->raw.len);
-	x509_write_cert_len(crt->raw.p, crt->raw.len);
+	/* Copy original constant raw data to the just initialized cert. */
+	memcpy((void *)ttls_x509_crt_raw(crt), buf, crt->raw.len);
+	x509_write_cert_len((unsigned char *)crt->raw.p, crt->raw.len);
 
 	/* Direct pointers to the new buffer. */
 	p = ttls_x509_crt_raw(crt) + crt->raw.len - len;

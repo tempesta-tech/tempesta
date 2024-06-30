@@ -10,7 +10,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -129,7 +129,7 @@ ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg __attribute__((unused)),
 		  const unsigned char *sig, size_t sig_len)
 {
 	TlsEcpKeypair *eck = ctx;
-	unsigned char *p = (unsigned char *)sig;
+	const unsigned char *p = sig;
 	const unsigned char *end = sig + sig_len;
 	size_t len;
 	TlsMpi *r, *s;

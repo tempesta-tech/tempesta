@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -151,7 +151,7 @@ void ttls_x509_crt_init(TlsX509Crt *crt);
 void ttls_x509_crt_free(TlsX509Crt *crt);
 void ttls_x509_crt_destroy(TlsX509Crt **crt);
 
-static inline void *
+static inline const void *
 ttls_x509_crt_raw(TlsX509Crt *crt)
 {
 	return crt->raw.p + TTLS_CERT_LEN_LEN;
