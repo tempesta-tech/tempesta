@@ -367,6 +367,9 @@ x509_get_attr_type_value(const unsigned char **p, const unsigned char *end,
 	val->p = *p;
 	*p += val->len;
 
+	if (*p != end)
+		return TTLS_ERR_X509_INVALID_NAME + TTLS_ERR_ASN1_LENGTH_MISMATCH;
+
 	cur->next = NULL;
 
 	return 0;
@@ -403,11 +406,9 @@ ttls_x509_get_name(const unsigned char **p, const unsigned char *end,
 	size_t set_len;
 	const unsigned char *end_set;
 
-	/* don't use recursion, we'd risk stack overflow if not optimized */
+	/* Don't use recursion, we'd risk stack overflow if not optimized. */
 	while (1) {
-		/*
-		 * parse SET
-		 */
+		/* Parse SET. */
 		ret = ttls_asn1_get_tag(p, end, &set_len,
 					TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SET);
 		if (ret)
@@ -432,9 +433,7 @@ ttls_x509_get_name(const unsigned char **p, const unsigned char *end,
 			cur = cur->next;
 		}
 
-		/*
-		 * continue until end of SEQUENCE is reached
-		 */
+		/* Continue until end of SEQUENCE is reached. */
 		if (*p == end)
 			return 0;
 
@@ -505,22 +504,16 @@ x509_parse_time(const unsigned char **p, size_t len, size_t yearlen,
 {
 	int ret;
 
-	/*
-	 * Minimum length is 10 or 12 depending on yearlen
-	 */
+	/* Minimum length is 10 or 12 depending on yearlen. */
 	if (len < yearlen + 8)
-		return (TTLS_ERR_X509_INVALID_DATE);
+		return TTLS_ERR_X509_INVALID_DATE;
 	len -= yearlen + 8;
 
-	/*
-	 * Parse year, month, day, hour, minute
-	 */
+	/* Parse year, month, day, hour, minute. */
 	CHECK(x509_parse_int(p, yearlen, &tm->year));
-	if (2 == yearlen)
-	{
+	if (2 == yearlen) {
 		if (tm->year < 50)
 			tm->year += 100;
-
 		tm->year += 1900;
 	}
 
@@ -529,35 +522,27 @@ x509_parse_time(const unsigned char **p, size_t len, size_t yearlen,
 	CHECK(x509_parse_int(p, 2, &tm->hour));
 	CHECK(x509_parse_int(p, 2, &tm->min));
 
-	/*
-	 * Parse seconds if present
-	 */
-	if (len >= 2)
-	{
+	/* Parse seconds if present. */
+	if (len >= 2) {
 		CHECK(x509_parse_int(p, 2, &tm->sec));
 		len -= 2;
+	} else {
+		return TTLS_ERR_X509_INVALID_DATE;
 	}
-	else
-		return (TTLS_ERR_X509_INVALID_DATE);
 
-	/*
-	 * Parse trailing 'Z' if present
-	 */
-	if (1 == len && 'Z' == **p)
-	{
+	/* Parse trailing 'Z' if present. */
+	if (1 == len && 'Z' == **p) {
 		(*p)++;
 		len--;
 	}
 
-	/*
-	 * We should have parsed all characters at this point
-	 */
+	/* We should have parsed all characters at this point. */
 	if (0 != len)
-		return (TTLS_ERR_X509_INVALID_DATE);
+		return TTLS_ERR_X509_INVALID_DATE;
 
 	CHECK(x509_date_is_valid(tm));
 
-	return (0);
+	return 0;
 }
 
 /*
@@ -592,7 +577,7 @@ ttls_x509_get_time(const unsigned char **p, const unsigned char *end,
 	if (ret)
 		return TTLS_ERR_X509_INVALID_DATE + ret;
 
-	return x509_parse_time(p, len, year_len, tm);
+	return x509_parse_time(p , len, year_len, tm);
 }
 
 int

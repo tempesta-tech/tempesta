@@ -746,7 +746,7 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 	 *
 	 * signature AlgorithmIdentifier
 	 */
-	if ((r = x509_get_version( &p, end, &crt->version ))
+	if ((r = x509_get_version(&p, end, &crt->version))
 	    || (r = ttls_x509_get_serial(&p, end, &crt->serial))
 	    || (r = ttls_x509_get_alg(&p, end, &crt->sig_oid, &sig_params1)))
 	{
@@ -765,7 +765,6 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 
 	/* issuer Name */
 	crt->issuer_raw.p = p;
-
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
 	if (r) {
