@@ -295,7 +295,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
-	bool was_max_misses = false;
+	bool was_max_misses = false, was_name = false;
 
 	if (!cur_vhost) {
 		sticky = &defaults_override.sticky;
@@ -313,8 +313,17 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
+			if (was_name) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
 			name_val = val;
+			was_name = true;
 		} else if (!strcasecmp(key, "max_misses")) {
+			if (was_max_misses) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
 			if (tfw_cfg_parse_uint(val, &sticky->max_misses))
 			{
 				T_ERR_NL("%s: invalid value for 'max_misses'"
@@ -371,10 +380,22 @@ tfw_cfgop_cookie_options_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "Path")) {
+			if (was_path) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
 			was_path = true;
 		} else if (!strcasecmp(key, "Max-Age")) {
+			if (was_max_age) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
 			was_max_age = true;
 		} else if (!strcasecmp(key, "Expires")) {
+			if (was_expires) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
 			was_expires = true;
 		}
 		if ((r = tfw_cfgop_cookie_set_option(sticky, key, val)))
@@ -424,6 +445,10 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
+			if (name_val) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
 			name_val = val;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
@@ -698,6 +723,7 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int i, r;
 	const char *key, *val;
 	TfwCfgJsCh *js_ch;
+	bool was_delay_min = false, was_delay_range=false, was_resp_code=false;
 
 	js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
 	if (!js_ch) {
@@ -708,20 +734,39 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (ce->val_n > 1) {
 		T_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
 			 ce->val_n);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "delay_min")) {
+			if (was_delay_min) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				r = -EINVAL;
+				goto err;
+			}
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_min = msecs_to_jiffies(uint_val);
+			was_delay_min = true;
 		} else if (!strcasecmp(key, "delay_range")) {
+			if (was_delay_range) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				r = -EINVAL;
+				goto err;
+			}
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_range = uint_val;
+			was_delay_range = true;
 		} else if (!strcasecmp(key, "resp_code")) {
+			if (was_resp_code) {
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
+				r = -EINVAL;
+				goto err;
+			}
 			if ((r = tfw_cfgop_jsch_parse_resp_code(cs, js_ch, val)))
 				goto err;
+			was_resp_code = true;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
