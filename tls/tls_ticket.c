@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -519,13 +519,15 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 	 * validation are uncertain until #830. For now certificates will be
 	 * stored in tickets with a full chain as recommended in RFC 5077.
 	 */
-	if (!state->cert_len) {
+	if (likely(!state->cert_len)) {
 		state->sess.peer_cert = NULL;
 	}
 	else {
 		TlsSess *sess = &state->sess;
 		struct page *pg;
 		int r;
+
+		BUG(); /* TODO #830: client-side TLS tickets aren't tested. */
 
 		sess->peer_cert = ttls_x509_crt_alloc();
 		if (!sess->peer_cert)
@@ -542,9 +544,12 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		}
 		memcpy_fast(page_address(pg), state->cert_data, state->cert_len);
 
+		sess->peer_cert->raw.p = page_address(pg);
+		sess->peer_cert->raw.len = state->cert_len;
+
 		r = ttls_x509_crt_parse_der(sess->peer_cert, page_address(pg),
 					    state->cert_len);
-		if (r) {
+		if (r < 0) {
 			/*
 			 * TlsX509Crt grabs the memory under parsed certificate
 			 * and stores it in 'raw' member. ttls_x509_crt_destroy

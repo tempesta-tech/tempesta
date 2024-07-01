@@ -507,9 +507,8 @@ x509_get_subject_alt_name(const unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-/*
- * X.509 v3 extensions
- *
+/**
+ * Parse X.509 v3 extensions.
  */
 static int
 x509_get_crt_ext(const unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
@@ -668,19 +667,21 @@ x509_write_cert_len(unsigned char *buf, size_t n)
 
 /**
  * Parse and fill a single X.509 certificate in DER format.
+ * @return the parsed out length of the certificate on success or a negative
+ * error code on failure.
  */
-static int
-x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
+int
+ttls_x509_crt_parse_der(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 {
-	int r;
+	int r, crt_len = -EINVAL;
 	const unsigned char *p, *end, *crt_end;
 	ttls_x509_buf sig_params1, sig_params2, sig_oid2;
 
 	BUG_ON(!crt || !buf);
-	BUG_ON(crt->raw.p);
-	memset(&sig_params1, 0, sizeof(ttls_x509_buf));
-	memset(&sig_params2, 0, sizeof(ttls_x509_buf));
-	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
+#if DBG_TLS == 3
+	print_hex_dump(KERN_INFO, "binary certificate ", DUMP_PREFIX_OFFSET,
+		       16, 1, buf, len, true);
+#endif
 
 	p = buf;
 	end = p + len;
@@ -703,28 +704,15 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 		goto err;
 	}
 	crt_end = p + len;
+	crt_len = crt_end - buf;
 
-	r = -ENOMEM;
-	/*
-	 * Create and populate a new buffer for the raw certificate field for
-	 * transmission as is (with prepending certificate length, see
-	 * ttls_write_certificate()) in the TLS handshake.
-	 */
-	if (unlikely(crt_end + TTLS_CERT_LEN_LEN - buf > PAGE_SIZE)) {
-		T_ERR("Trying to load too large certificate of %lu bytes\n",
-		      crt_end - buf);
-		goto err;
-	}
-	if (!(crt->raw.p = (unsigned char *)__get_free_pages(GFP_KERNEL, 0)))
-		goto err;
-	crt->raw.len = crt_end - buf;
-	/* Copy original constant raw data to the just initialized cert. */
-	memcpy((void *)ttls_x509_crt_raw(crt), buf, crt->raw.len);
-	x509_write_cert_len((unsigned char *)crt->raw.p, crt->raw.len);
+	/* Parse only the first certificate in a chain. */
+	if (crt->raw.len)
+		return crt_len;
 
-	/* Direct pointers to the new buffer. */
-	p = ttls_x509_crt_raw(crt) + crt->raw.len - len;
-	end = crt_end = p + len;
+	memset(&sig_params1, 0, sizeof(ttls_x509_buf));
+	memset(&sig_params2, 0, sizeof(ttls_x509_buf));
+	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
 
 	/* TBSCertificate  ::=  SEQUENCE  { */
 	crt->tbs.p = p;
@@ -851,69 +839,32 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 		goto err;
 	}
 
-	return 0;
+	return crt_len;
 err:
 	ttls_x509_crt_free(crt);
 	return r;
 }
 
 /**
- * Parse one X.509 certificate in DER format from a buffer and add them to a
- * chained list.
+ * Parse one or more PEM certificates from a buffer.
+ * Only the first certificate from a chain is actually parsed and the rest are
+ * just copied with preceding length to TlsX509Crt.raw for further transmission
+ * in ttls_write_certificate() as a single buffer.
  */
 int
-ttls_x509_crt_parse_der(TlsX509Crt *chain, const unsigned char *buf, size_t buflen)
+ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 {
-	int r;
-	TlsX509Crt *crt = chain, *prev = NULL;
-
-	BUG_ON(!crt || !buf);
-
-	while (crt->version && crt->next) {
-		prev = crt;
-		crt = crt->next;
-	}
-#if DBG_TLS == 3
-	print_hex_dump(KERN_INFO, "binary certificate ", DUMP_PREFIX_OFFSET,
-		       16, 1, buf, buflen, true);
-#endif
-
-	/* Add new certificate on the end of the chain if needed. */
-	if (crt->version && !crt->next) {
-		crt->next = ttls_x509_crt_alloc();
-		if (!crt->next)
-			return TTLS_ERR_X509_ALLOC_FAILED;
-
-		prev = crt;
-		crt = crt->next;
-	}
-
-	if ((r = x509_crt_parse_der_core(crt, buf, buflen))) {
-		if (prev)
-			prev->next = NULL;
-		if (crt != chain)
-			kmem_cache_free(cert_cache, crt);
-		return r;
-	}
-
-	return 0;
-}
-
-/**
- * Parse one or more PEM certificates from a buffer and add them to the chained
- * list. @buf is a page cluster reused in the certificates chain. Parses
- * permissively. If some certificates can be parsed, the result is the number
- * of failed certificates it encountered. If none complete correctly, the first
- * error is returned.
- */
-int
-ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
-{
-	int success = 0, first_error = 0, total_failed = 0;
-	int buf_format = TTLS_X509_FORMAT_DER;
+	int r, buf_format = TTLS_X509_FORMAT_DER;
+	int crt_len_len = TTLS_CERT_MAX_CHAIN_LEN * TTLS_CERT_LEN_LEN;
+	unsigned char *raw_buf, *raw_p;
 
 	/* Check for valid input. */
-	BUG_ON(!chain || !buf);
+	BUG_ON(!crt || !buf);
+
+	raw_buf = raw_p = kmalloc(buflen + crt_len_len, GFP_KERNEL);
+	if (!raw_p)
+		return -ENOMEM;
+	crt->raw.len = 0;
 
 	/*
 	 * Determine buffer content. Buffer contains either one DER certificate
@@ -925,69 +876,90 @@ ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
 		buf_format = TTLS_X509_FORMAT_PEM;
 	}
 
-	if (buf_format == TTLS_X509_FORMAT_DER)
-		return ttls_x509_crt_parse_der(chain, buf, buflen);
+	if (buf_format == TTLS_X509_FORMAT_DER) {
+		r = ttls_x509_crt_parse_der(crt, buf, buflen);
+		if (r < 0)
+			goto err;
 
-	if (buf_format == TTLS_X509_FORMAT_PEM) {
-		/*
-		 * 1 rather than 0 since the terminating NULL byte
-		 * is counted in.
-		 */
-		while (buflen > 1) {
-			int r;
-			size_t use_len;
-			unsigned char *pem_dec;
+		x509_write_cert_len(raw_p, r);
+		memcpy(raw_p + TTLS_CERT_LEN_LEN, buf, r);
+		crt->raw.len += TTLS_CERT_LEN_LEN + r;
 
-			/*
-			 * If we get there, we know the string is
-			 * null-terminated.
-			 */
-			r = ttls_pem_read_buffer("-----BEGIN CERTIFICATE-----",
-						 "-----END CERTIFICATE-----",
-						 buf, &use_len);
-			if (r > 0) {
-				/* Was PEM encoded. */
-				pem_dec = buf;
-				buflen -= use_len;
-				buf += use_len;
-			}
-			else if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT) {
-				/* PEM header and footer were found. */
-				buflen -= use_len;
-				buf += use_len;
-
-				if (!first_error)
-					first_error = r;
-				total_failed++;
-				continue;
-			}
-			else {
-				break;
-			}
-
-			r = ttls_x509_crt_parse_der(chain, pem_dec, r);
-			if (r) {
-				/* Quit parsing on a memory error. */
-				if (r == TTLS_ERR_X509_ALLOC_FAILED)
-					return r;
-				if (!first_error)
-					first_error = r;
-				total_failed++;
-				continue;
-			}
-
-			success = 1;
-		}
+		goto done;
 	}
 
+	if (buf_format != TTLS_X509_FORMAT_PEM)
+		return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
+
+	/*
+	 * buflen > 1 rather than 0 since the terminating NULL byte
+	 * is counted in.
+	 */
+	for ( ; buflen > 1 && crt_len_len; crt_len_len -= TTLS_CERT_LEN_LEN) {
+		size_t use_len;
+		unsigned char *pem_dec;
+
+		/*
+		 * If we get there, we know the string is
+		 * null-terminated.
+		 */
+		r = ttls_pem_read_buffer("-----BEGIN CERTIFICATE-----",
+					 "-----END CERTIFICATE-----",
+					 buf, &use_len);
+		if (r > 0) {
+			/* Was PEM encoded. */
+			pem_dec = buf;
+			buflen -= use_len;
+			buf += use_len;
+		}
+		else if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT) {
+			/* PEM header and footer were found. */
+			buflen -= use_len;
+			buf += use_len;
+			continue;
+		}
+		else {
+			goto err;
+		}
+
+		r = ttls_x509_crt_parse_der(crt, pem_dec, r);
+		if (r < 0)
+			goto err;
+
+		x509_write_cert_len(raw_p, r);
+		raw_p += TTLS_CERT_LEN_LEN;
+		memcpy(raw_p, pem_dec, r);
+		raw_p += r;
+		crt->raw.len += TTLS_CERT_LEN_LEN + r;
+	}
+	if (!crt_len_len)
+		T_WARN("Try to load a certificate chain longer than %d\n",
+		       TTLS_CERT_MAX_CHAIN_LEN);
+
+done:
+	r = -ENOMEM;
+	/*
+	 * It's bad to copy certificate, but this happens on configuration time
+	 * and thanks to the copying we avoid storing additional size of
+	 * actually allocated memory to free_pages().
+	 */
+	if (crt->raw.len > PAGE_SIZE) {
+		T_WARN("Try to load a too large certificate of parsed size %lu\n",
+		       crt->raw.len);
+		goto err;
+	}
+	crt->raw.p = (unsigned char *)__get_free_pages(GFP_KERNEL, 0);
+	if (crt->raw.p) {
+		memcpy((void *)crt->raw.p, raw_buf, crt->raw.len);
+		r = 0;
+	}
+err:
 	/* Does MPI calculations, so pool context must be freed afterwards. */
 	ttls_mpi_pool_cleanup_ctx(0, false);
 
-	if (success)
-		return total_failed;
-	if (first_error)
-		return first_error;
-	return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
+	kfree(raw_buf);
+
+	return r;
 }
 EXPORT_SYMBOL(ttls_x509_crt_parse);
 
@@ -1896,8 +1868,10 @@ ttls_x509_crt_free(TlsX509Crt *crt)
 		 * Certificates are sent in plain text,
 		 * so no need to zero memory.
 		 */
-		if (cert_cur->raw.p)
-			free_page((unsigned long)cert_cur->raw.p);
+		if (cert_cur->raw.p) {
+			unsigned long addr = (unsigned long)cert_cur->raw.p;
+			put_page(virt_to_page(addr));
+		}
 
 		cert_cur = cert_cur->next;
 	} while (cert_cur);

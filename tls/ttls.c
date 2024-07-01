@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1381,7 +1381,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		       unsigned char **in_buf)
 {
 	unsigned int sg_i;
-	size_t n, tot_len = 0;
+	size_t tot_len = 0;
 	const TlsX509Crt *crt;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
@@ -1410,34 +1410,24 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	/*
 	 * Write the certifictes chain.
 	 * All the certificates are placed in separate pages by the x509 parser.
+	 * Only one skb frag is used, so we always good with sgt->nents.
 	 *
 	 *   7 . 9	length of cert. 1
 	 *  10 . n-1	peer certificate
 	 *   n . n+2	length of cert. 2
 	 * n+3 . ...	upper level cert, etc.
 	 */
-	for (crt = ttls_own_cert(tls); crt; crt = crt->next) {
-		if (unlikely(sgt->nents >= MAX_SKB_FRAGS)) {
-			T_WARN("Too many certfificates\n");
-			return -ENOSPC;
-		}
-
-		n = crt->raw.len + TTLS_CERT_LEN_LEN;
-		if (n + tot_len > TLS_MAX_PAYLOAD_SIZE - 7) {
-			T_WARN("certificate too large, %lu(total len) > "
-			       "%lu(max payload size)\n",
-			       tot_len + n + 7, TLS_MAX_PAYLOAD_SIZE);
-			return TTLS_ERR_CERTIFICATE_TOO_LARGE;
-		}
-
-		tot_len += n;
-		get_page(virt_to_page(crt->raw.p));
-		sg_set_buf(&sgt->sgl[sgt->nents++], crt->raw.p, n);
-		T_DBG3("add cert page %pK,len=%lu seg=%u\n",
-		       crt->raw.p, n, sgt->nents - 1);
+	crt = ttls_own_cert(tls);
+	if (unlikely(crt->raw.len > TLS_MAX_PAYLOAD_SIZE - 7)) {
+		T_WARN("certificate too large: %lu > %lu(max payload size)\n",
+		       crt->raw.len + 7, TLS_MAX_PAYLOAD_SIZE);
+		return TTLS_ERR_CERTIFICATE_TOO_LARGE;
 	}
-	if (crt)
-		TTLS_WARN(tls, "Can not write full certificates chain\n");
+	tot_len += crt->raw.len;
+	get_page(virt_to_page(crt->raw.p));
+	sg_set_buf(&sgt->sgl[sgt->nents++], crt->raw.p, crt->raw.len);
+	T_DBG3("add cert page %pK,len=%lu seg=%u\n",
+	       crt->raw.p, crt->raw.len, sgt->nents - 1);
 
 	/*
 	 * Write thr handshake headers on our own (TLS_HEADER_SIZE + 7 bytes).
@@ -1459,6 +1449,11 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	return 0;
 }
 
+/**
+ * Client-side only.
+ *
+ * TODO #769: the dst->peer_cert is not released on errors.
+ */
 int
 ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		       unsigned int *read)
