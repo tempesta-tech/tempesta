@@ -342,6 +342,7 @@ tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwCfgEntry ce_tmp;
 	const char *key, *val;
 	int i, r;
+	bool was_secret = false, was_lifetime=false;
 
 	if ((r = tfw_tls_peer_tls_init(vhost)))
 		return r;
@@ -366,14 +367,26 @@ tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (enabled) {
 		TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 			if (!strcasecmp(key, "secret")) {
+				if (was_secret) {
+					T_ERR_NL("Duplicate argument: '%s'\n",
+						 key);
+					return -EINVAL;
+				}
 				secret = val;
 				secret_len = strlen(val);
+				was_secret = true;
 			} else if (!strcasecmp(key, "lifetime")) {
+				if (was_lifetime) {
+					T_ERR_NL("Duplicate argument: '%s'\n",
+						 key);
+					return -EINVAL;
+				}
 				if ((r = tfw_cfg_parse_long(val, &lifetime))) {
 					T_ERR_NL("%s: can't parse '%s' argument!"
 						 "\n", cs->name, key);
 					return r;
 				}
+				was_lifetime = true;
 				if (lifetime > 5 * TTLS_DEFAULT_TICKET_LIFETIME)
 					T_WARN_NL("%s: setting too long ticket"
 						  "lifetime can be insecure, "
