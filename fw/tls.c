@@ -525,6 +525,7 @@ tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx;
 
+	BUG_ON(TFW_CONN_PROTO((TfwConn *)conn) != TFW_FSM_H2);
 	ctx = tfw_h2_context_safe((TfwConn *)conn);
 	if (!ctx)
 		return 0;
@@ -620,7 +621,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL)) {
 		TFW_CONN_TYPE(((TfwConn *)conn)) |= Conn_Stop;
 		flags |= tfw_tls_close_msg_flags(io);
-		TFW_SKB_CB(io->skb_list)->on_send = tfw_tls_on_send_alert;
+		if (TFW_CONN_PROTO((TfwConn *)conn) == TFW_FSM_H2) {
+			TFW_SKB_CB(io->skb_list)->on_send =
+				tfw_tls_on_send_alert;
+		}
 	}
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
