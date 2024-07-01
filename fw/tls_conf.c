@@ -197,7 +197,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
 	if (r) {
-		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
+		T_ERR_NL("%s: Invalid certificate specified, err=%x\n",
 			 cs->name, -r);
 		goto err;
 	}

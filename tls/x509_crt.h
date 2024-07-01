@@ -28,12 +28,17 @@
 #include "x509.h"
 #include "x509_crl.h"
 
+#define TTLS_CERT_MAX_CHAIN_LEN			8
 #define TTLS_CERT_LEN_LEN			3
 
 /**
  * Container for an X.509 certificate. The certificate may be chained.
  *
- * @raw			- The raw certificate data (DER) prepended with length.
+ * @raw			- The raw certificates _chain_ data in DER format
+ *			  prepended with length, i.e. ready to be transmitted
+ *			  in a TLS handshake.
+ *			  TODO #769 #830: do we need separate raw certificates
+ *			  for any of the modes?
  * @tbs			- The raw certificate body (DER). The part that is
  *			  To Be Signed.
  * @version		- The X.509 version. (1=v1, 2=v2, 3=v3)
@@ -68,9 +73,10 @@
  *			  signature algorithm, e.g. TTLS_MD_SHA256
  * @sig_pk		- Internal representation of the Public Key algorithm
  *			  of the signature algorithm, e.g. TTLS_PK_RSA
- * @*sig_opts		- Signature options to be passed to ttls_pk_verify_ext(),
+ * @sig_opts		- Signature options to be passed to ttls_pk_verify_ext(),
  *			  e.g. for RSASSA-PSS
- * @TlsX509Crt *next	- Next certificate in the CA-chain.
+ * @next		- Next certificate in the CA-chain. Isn't used in server
+ *			  mode.
  */
 typedef struct TlsX509Crt {
 	ttls_x509_buf raw;
@@ -116,7 +122,7 @@ typedef struct TlsX509Crt {
 
 int ttls_x509_crt_parse_der(TlsX509Crt *chain, const unsigned char *buf,
 			    size_t buflen);
-int ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen);
+int ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen);
 
 enum {
 	TLS_X509_CERT_PROFILE_DEFAULT,
