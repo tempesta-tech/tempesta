@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -102,8 +102,7 @@
 do {									\
 	if ((ret = f) < 0)						\
 		return ret;						\
-	else								\
-		g += ret;						\
+	g += ret;							\
 } while (0)
 
 /**
@@ -114,22 +113,20 @@ do {									\
  * @p		- ASN1 data, e.g. in ASCII.
  */
 typedef struct {
-	int		tag;
-	size_t		len;
-	unsigned char	*p;
+	int			tag;
+	size_t			len;
+	const unsigned char	*p;
 } ttls_asn1_buf;
 
 /**
  * Container for ASN1 bit strings.
  *
  * @len		- ASN1 length, in octets;
- * @unused_bits	- Number of unused bits at the end of the string;
  * @p		- Raw ASN1 data for the bit string.
  */
 typedef struct {
-	size_t		len;
-	unsigned char	unused_bits;
-	unsigned char	*p;
+	size_t			len;
+	const unsigned char	*p;
 } ttls_asn1_bitstring;
 
 /**
@@ -140,7 +137,7 @@ typedef struct {
  */
 typedef struct ttls_asn1_sequence
 {
-	ttls_asn1_buf	buf;
+	ttls_asn1_buf		buf;
 	struct ttls_asn1_sequence *next;
 } ttls_asn1_sequence;
 
@@ -160,21 +157,25 @@ typedef struct ttls_asn1_named_data
 	unsigned char	next_merged;
 } ttls_asn1_named_data;
 
-int ttls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len);
-int ttls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *len,
-		      int tag);
-int ttls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val);
-int ttls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val);
-int ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X);
-int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
+int ttls_asn1_get_len(const unsigned char **p, const unsigned char *end,
+		      size_t *len);
+int ttls_asn1_get_tag(const unsigned char **p, const unsigned char *end,
+		      size_t *len, int tag);
+int ttls_asn1_get_bool(const unsigned char **p, const unsigned char *end,
+		       int *val);
+int ttls_asn1_get_int(const unsigned char **p, const unsigned char *end,
+		      int *val);
+int ttls_asn1_get_mpi(const unsigned char **p, const unsigned char *end,
+		      TlsMpi *X);
+int ttls_asn1_get_bitstring(const unsigned char **p, const unsigned char *end,
 			    ttls_asn1_bitstring *bs);
-int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
-				 size_t *len);
-int ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
+int ttls_asn1_get_bitstring_null(const unsigned char **p,
+				 const unsigned char *end, size_t *len);
+int ttls_asn1_get_sequence_of(const unsigned char **p, const unsigned char *end,
 			      ttls_asn1_sequence *cur, int tag);
-int ttls_asn1_get_alg(unsigned char **p, const unsigned char *end,
+int ttls_asn1_get_alg(const unsigned char **p, const unsigned char *end,
 		      ttls_asn1_buf *alg, ttls_asn1_buf *params);
-int ttls_asn1_get_alg_null(unsigned char **p, const unsigned char *end,
+int ttls_asn1_get_alg_null(const unsigned char **p, const unsigned char *end,
 			   ttls_asn1_buf *alg);
 int ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s,
 			    unsigned char *sig, size_t *slen);
