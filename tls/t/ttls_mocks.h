@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS mocks for the unit tests
  *
- * Copyright (C) 2018-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,6 +22,8 @@
 
 #define NR_CPUS 1
 #include "ktest.h"
+
+#define TLS_MAX_PAYLOAD_SIZE	((size_t)1 << 14)
 
 #include "ttls.h"
 

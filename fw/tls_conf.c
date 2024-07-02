@@ -186,8 +186,6 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 
-	ttls_x509_crt_init(&conf->crt);
-	/* Preserve 3 bytes for the certificate length. */
 	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size);
 	if (!crt_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
@@ -195,6 +193,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
+	ttls_x509_crt_init(&conf->crt);
 	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
 	if (r) {
 		T_ERR_NL("%s: Invalid certificate specified, err=%x\n",
