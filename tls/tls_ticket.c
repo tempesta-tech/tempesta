@@ -450,7 +450,8 @@ ttls_ticket_sess_true_size(TlsState *state)
 static inline size_t
 ttls_ticket_sess_exp_size(const TlsSess *sess)
 {
-	return sizeof(TlsState) + (sess->peer_cert ? sess->peer_cert->raw.len : 0);
+	return sizeof(TlsState)
+	       + (sess->peer_cert ? sess->peer_cert->raw.tot_len : 0);
 }
 
 /**
@@ -463,11 +464,12 @@ ttls_ticket_sess_save(const TlsSess *sess, TlsState *state, size_t buf_len)
 		return TTLS_ERR_BUFFER_TOO_SMALL;
 
 	memcpy_fast(&state->sess, sess, sizeof(TlsSess));
-	state->cert_len = sess->peer_cert ? sess->peer_cert->raw.len : 0;
+	state->cert_len = sess->peer_cert ? sess->peer_cert->raw.tot_len : 0;
 
 	if (sess->peer_cert)
-		memcpy_fast(state->cert_data, sess->peer_cert->raw.p,
-			    state->cert_len);
+		FOR_EACH_X509_CRT_RAW_PG(sess->peer_cert, frag_p, frag_sz, {
+			memcpy_fast(state->cert_data, frag_p, frag_sz);
+		});
 
 	return 0;
 }
@@ -524,7 +526,6 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 	}
 	else {
 		TlsSess *sess = &state->sess;
-		struct page *pg;
 		int r;
 
 		BUG(); /* TODO #830: client-side TLS tickets aren't tested. */
@@ -537,17 +538,14 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		 * certificate here, since some structures in TlsX509Crt may
 		 * address it.
 		 */
-		pg = alloc_pages(GFP_ATOMIC, get_order(state->cert_len));
-		if (!pg) {
+		r = ttls_x509_crt_raw_alloc_cpy(sess->peer_cert, state->cert_data,
+						state->cert_len, GFP_ATOMIC);
+		if (r) {
 			ttls_x509_crt_destroy(&sess->peer_cert);
 			return TTLS_ERR_ALLOC_FAILED;
 		}
-		memcpy_fast(page_address(pg), state->cert_data, state->cert_len);
 
-		sess->peer_cert->raw.p = page_address(pg);
-		sess->peer_cert->raw.len = state->cert_len;
-
-		r = ttls_x509_crt_parse_der(sess->peer_cert, page_address(pg),
+		r = ttls_x509_crt_parse_der(sess->peer_cert, state->cert_data,
 					    state->cert_len);
 		if (r < 0) {
 			/*
@@ -556,8 +554,6 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 			 * can free it, but the parsing function may fail before
 			 * the pointer is grabbed.
 			 */
-			if (!sess->peer_cert->raw.p)
-				__free_pages(pg, get_order(state->cert_len));
 			ttls_x509_crt_destroy(&sess->peer_cert);
 			return r;
 		}

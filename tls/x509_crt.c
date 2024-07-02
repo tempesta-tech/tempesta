@@ -142,11 +142,21 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb =
  * function here and in x509_memcasecmp(), x509_string_cmp(). But the same
  * code is still possible in the process context on loading server certificates.
  */
-static int x509_memcmp(const void *s1, const void *s2, size_t len)
+static int
+x509_memcmp(const void *s1, const void *s2, size_t len)
 {
 	if (in_serving_softirq())
 		return memcmp_fast(s1, s2, len);
 	return memcmp(s1, s2, len);
+}
+
+static void
+x509_memcpy(void *dst, const void *src, size_t len)
+{
+	if (in_serving_softirq())
+		memcpy_fast(dst, src, len);
+	else
+		memcpy(dst, src, len);
 }
 
 /**
@@ -707,7 +717,7 @@ ttls_x509_crt_parse_der(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 	crt_len = crt_end - buf;
 
 	/* Parse only the first certificate in a chain. */
-	if (crt->raw.len)
+	if (crt->raw.tot_len)
 		return crt_len;
 
 	memset(&sig_params1, 0, sizeof(ttls_x509_buf));
@@ -845,6 +855,56 @@ err:
 	return r;
 }
 
+static void
+ttls_x509_crt_raw_free(TlsX509Crt *crt)
+{
+	int i;
+
+	BUG_ON(crt->raw.n_pgs > TTLS_CERT_RAW_P_N);
+
+	for (i = 0; i < crt->raw.n_pgs; ++i) {
+		unsigned long addr = (unsigned long)crt->raw.pages[i];
+		put_page(virt_to_page(addr));
+	}
+
+	crt->raw.n_pgs = 0;
+	crt->raw.tot_len = 0;
+}
+
+int
+ttls_x509_crt_raw_alloc_cpy(TlsX509Crt *crt, const unsigned char *buf,
+			    size_t len, gfp_t gfp_mask)
+{
+	int i;
+
+	/* See ttls_write_certificate() for the maximum size limit. */
+	BUILD_BUG_ON(TTLS_CERT_RAW_P_N * PAGE_SIZE < TLS_MAX_PAYLOAD_SIZE);
+	if (len > TLS_MAX_PAYLOAD_SIZE - 7) {
+		T_WARN("certificate too large: %u > %lu(max payload size)\n",
+		       crt->raw.tot_len + 7, TLS_MAX_PAYLOAD_SIZE);
+		return -E2BIG;
+	}
+
+	for (i = 0; i < (len + PAGE_SIZE - 1) / PAGE_SIZE; ++i) {
+		unsigned long pg = __get_free_pages(gfp_mask, 0);
+		if (!pg)
+			goto err;
+
+		crt->raw.pages[i] = (unsigned char *)pg;
+		crt->raw.n_pgs++;
+
+		x509_memcpy((void *)crt->raw.pages[i], buf + i * PAGE_SIZE,
+			    min(PAGE_SIZE, len - PAGE_SIZE * i));
+	}
+
+	crt->raw.tot_len = len;
+
+	return 0;
+err:
+	ttls_x509_crt_raw_free(crt);
+	return -ENOMEM;
+}
+
 /**
  * Parse one or more PEM certificates from a buffer.
  * Only the first certificate from a chain is actually parsed and the rest are
@@ -856,7 +916,7 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 {
 	int r, buf_format = TTLS_X509_FORMAT_DER;
 	int crt_len_len = TTLS_CERT_MAX_CHAIN_LEN * TTLS_CERT_LEN_LEN;
-	unsigned char *raw_buf, *raw_p;
+	unsigned char *raw_p, *raw_buf;
 
 	/* Check for valid input. */
 	BUG_ON(!crt || !buf);
@@ -864,7 +924,7 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	raw_buf = raw_p = kmalloc(buflen + crt_len_len, GFP_KERNEL);
 	if (!raw_p)
 		return -ENOMEM;
-	crt->raw.len = 0;
+	crt->raw.tot_len = 0;
 
 	/*
 	 * Determine buffer content. Buffer contains either one DER certificate
@@ -883,7 +943,7 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 
 		x509_write_cert_len(raw_p, r);
 		memcpy(raw_p + TTLS_CERT_LEN_LEN, buf, r);
-		crt->raw.len += TTLS_CERT_LEN_LEN + r;
+		crt->raw.tot_len += TTLS_CERT_LEN_LEN + r;
 
 		goto done;
 	}
@@ -930,29 +990,20 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 		raw_p += TTLS_CERT_LEN_LEN;
 		memcpy(raw_p, pem_dec, r);
 		raw_p += r;
-		crt->raw.len += TTLS_CERT_LEN_LEN + r;
+		crt->raw.tot_len += TTLS_CERT_LEN_LEN + r;
 	}
 	if (!crt_len_len)
 		T_WARN("Try to load a certificate chain longer than %d\n",
 		       TTLS_CERT_MAX_CHAIN_LEN);
 
 done:
-	r = -ENOMEM;
 	/*
 	 * It's bad to copy certificate, but this happens on configuration time
-	 * and thanks to the copying we avoid storing additional size of
-	 * actually allocated memory to free_pages().
+	 * and thanks to the copying we avoid sophisticated cross-page chunk
+	 * writes.
 	 */
-	if (crt->raw.len > PAGE_SIZE) {
-		T_WARN("Try to load a too large certificate of parsed size %lu\n",
-		       crt->raw.len);
-		goto err;
-	}
-	crt->raw.p = (unsigned char *)__get_free_pages(GFP_KERNEL, 0);
-	if (crt->raw.p) {
-		memcpy((void *)crt->raw.p, raw_buf, crt->raw.len);
-		r = 0;
-	}
+	r = ttls_x509_crt_raw_alloc_cpy(crt, raw_buf, crt->raw.tot_len,
+					GFP_KERNEL);
 err:
 	/* Does MPI calculations, so pool context must be freed afterwards. */
 	ttls_mpi_pool_cleanup_ctx(0, false);
@@ -962,11 +1013,6 @@ err:
 	return r;
 }
 EXPORT_SYMBOL(ttls_x509_crt_parse);
-
-struct x509_crt_verify_string {
-	int code;
-	const char *string;
-};
 
 /**
  * Check usage of certificate against keyUsage extension.
@@ -1332,10 +1378,16 @@ static int x509_crt_check_parent(const TlsX509Crt *child,
 	if (top && parent->version < 3)
 		need_ca_bit = 0;
 
-	/* Exception: self-signed end-entity certs that are locally trusted. */
+	/*
+	 * Exception: self-signed end-entity certs that are locally trusted.
+	 *
+	 * TODO: seems buggy copying of the raw certificate data - do we need to
+	 * allocate pages for @child or are they already allocated?
+	 */
 	if (top && bottom &&
-	    child->raw.len == parent->raw.len &&
-	    x509_memcmp(child->raw.p, parent->raw.p, child->raw.len) == 0)
+	    child->raw.tot_len == parent->raw.tot_len &&
+	    !x509_memcmp(child->raw.pages, parent->raw.pages,
+			 sizeof(child->raw.pages)))
 	{
 		need_ca_bit = 0;
 	}
@@ -1868,10 +1920,7 @@ ttls_x509_crt_free(TlsX509Crt *crt)
 		 * Certificates are sent in plain text,
 		 * so no need to zero memory.
 		 */
-		if (cert_cur->raw.p) {
-			unsigned long addr = (unsigned long)cert_cur->raw.p;
-			put_page(virt_to_page(addr));
-		}
+		ttls_x509_crt_raw_free(crt);
 
 		cert_cur = cert_cur->next;
 	} while (cert_cur);
