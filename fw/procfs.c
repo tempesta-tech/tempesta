@@ -59,6 +59,8 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		/* Cache statistics. */
 		SADD(cache.hits);
 		SADD(cache.misses);
+		SADD(cache.objects);
+		SADD(cache.bytes);
 
 		/* Client related statistics. */
 		SADD(clnt.rx_messages);
@@ -161,6 +163,8 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	/* Cache statistics. */
 	SPRN("Cache hits\t\t\t\t", cache.hits);
 	SPRN("Cache misses\t\t\t\t", cache.misses);
+	SPRN("Cache objects\t\t\t\t", cache.objects);
+	SPRN("Cache bytes\t\t\t\t", cache.bytes);
 
 	/* Client related statistics. */
 	SPRN("Client messages received\t\t", clnt.rx_messages);
