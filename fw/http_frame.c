@@ -197,7 +197,7 @@ ctx_new_settings_flags[] = {
 static void
 tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 
 	if (test_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply))
 		tfw_h2_apply_new_settings(ctx);
@@ -206,7 +206,7 @@ tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
 static int
 tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 
 	if (ctx->error && ctx->error->xmit.skb_head) {
 		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
@@ -226,7 +226,7 @@ tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 static int
 tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	TfwStream *stream;
 
@@ -251,7 +251,7 @@ tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 static int
 tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 
 	if (ctx->cur_send_headers) {
 		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
@@ -279,7 +279,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -685,7 +685,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (wnd_incr) {
-		TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+		TfwH2Conn *conn = ctx->conn;
 		long int *window = ctx->cur_stream ?
 			&ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
 
@@ -1021,7 +1021,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 #define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
 do {									\
@@ -1699,7 +1699,7 @@ tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
 	int r;
 	bool postponed;
 	unsigned int parsed, unused;
-	TfwH2Ctx *h2 = tfw_h2_context_unsafe(c);
+	TfwH2Ctx *h2 = tfw_h2_context(c);
 	struct sk_buff *nskb = NULL;
 
 next_msg:

@@ -75,7 +75,8 @@ do {								\
 	HDR_COMPOUND_STR(hdr_res, name, value);			\
 } while (0)
 
-static TfwH2Ctx ctx;
+static TfwH2Conn conn;
+static TfwH2Ctx *ctx;
 static TfwHttpReq *test_req;
 static TfwCachedHeaderState dummy_cstate;
 
@@ -99,7 +100,9 @@ test_h2_setup(void)
 	int r;
 
 	create_str_pool();
-	r = tfw_h2_context_init(&ctx);
+	conn.h2 = ctx = tfw_h2_context_alloc();
+	BUG_ON(!ctx);
+	r = tfw_h2_context_init(ctx, &conn);
 	BUG_ON(r);
 	test_req = test_hpack_req_alloc();
 }
@@ -108,7 +111,9 @@ static void
 test_h2_teardown(void)
 {
 	test_req_free(test_req);
-	tfw_h2_context_clear(&ctx);
+	tfw_h2_context_clear(ctx);
+	tfw_h2_context_free(ctx);
+	conn.h2 = NULL;
 	free_all_str();
 }
 
@@ -253,7 +258,7 @@ TEST(hpack, dec_table_static)
 	const char *s_tenc = "transfer-encoding";
 	const int tenc_len = strlen(s_tenc);
 
-	hp = &ctx.hpack;
+	hp = &ctx->hpack;
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 43);
 	EXPECT_NOT_NULL(entry);
@@ -327,7 +332,7 @@ TEST(hpack, dec_table_dynamic)
 	HDR_COMPOUND_STR(s2, s2_name, s2_value);
 	HDR_COMPOUND_STR(s3, s3_name, s3_value);
 
-	hp = &ctx.hpack;
+	hp = &ctx->hpack;
 
 	test_h2_hdr_name(s1, &h_name);
 	it->nm_num = h_name.nchunks;
@@ -396,7 +401,7 @@ TEST(hpack, dec_table_dynamic_inc)
 	HDR_COMPOUND_STR(s4, s1_name, s4_value);
 	HDR_COMPOUND_STR(s5, s2_name, s5_value);
 
-	hp = &ctx.hpack;
+	hp = &ctx->hpack;
 
 	test_h2_hdr_name(s1, &h_name);
 	it->nm_num = h_name.nchunks;
@@ -484,7 +489,7 @@ TEST(hpack, dec_table_dynamic_inc)
 TEST(hpack, dec_table_wrap)
 {
 	int shift;
-	TfwHPack *hp = &ctx.hpack;
+	TfwHPack *hp = &ctx->hpack;
 	TfwMsgParseIter *it = &test_req->pit;
 	TFW_STR(s_value, "custom value");
 
@@ -564,8 +569,8 @@ TEST(hpack, dec_table_wrap)
 			}
 		}
 
-		tfw_h2_context_clear(&ctx);
-		BUG_ON(tfw_h2_context_init(&ctx));
+		tfw_h2_context_clear(ctx);
+		BUG_ON(tfw_h2_context_init(ctx, &conn));
 	}
 }
 
@@ -632,7 +637,7 @@ TEST(hpack, dec_raw)
 		"\x63\x6F\x6D";		/*				*/
 
 
-	hp = &ctx.hpack;
+	hp = &ctx->hpack;
 	ht = test_req->h_tbl;
 
 	/* Set mandatory pseudo-headers to pass checks in @H2_MSG_VERIFY(). */
@@ -827,7 +832,7 @@ TEST(hpack, dec_indexed)
 		"\x77\x2E\x68\x74\x6D"	/*				*/
 		"\x6C";			/*				*/
 
-	hp = &ctx.hpack;
+	hp = &ctx->hpack;
 	ht = test_req->h_tbl;
 
 	/* Set mandatory pseudo-headers to pass checks in @H2_MSG_VERIFY(). */
@@ -1142,7 +1147,7 @@ TEST(hpack, dec_huffman)
 		"\x3A\x6B\xA0\xAB\x90"	/*				*/
 		"\xF4\xFF";		/*				*/
 
-	hp = &ctx.hpack;
+	hp = &ctx->hpack;
 	ht = test_req->h_tbl;
 
 	/* Set mandatory pseudo-headers to pass checks in @H2_MSG_VERIFY(). */
@@ -1535,7 +1540,7 @@ TEST(hpack, enc_table_index)
 	collect_compound_str(s3, s3_value, 0);
 	collect_compound_str(s3, s3_rws, TFW_STR_OWS);
 
-	tbl = &ctx.hpack.enc_tbl;
+	tbl = &ctx->hpack.enc_tbl;
 
 	/*
 	 * Prepare encoder dynamic index: add headers into the appropriate
@@ -1658,7 +1663,7 @@ TEST(hpack, enc_table_rbtree)
 	collect_compound_str(s5, col, 0);
 	collect_compound_str(s5, s5_value, 0);
 
-	tbl = &ctx.hpack.enc_tbl;
+	tbl = &ctx->hpack.enc_tbl;
 
 	/*
 	 * Insert nodes with new headers into the table in the order which will
@@ -1961,7 +1966,7 @@ TEST(hpack, enc_table_eviction)
 	TFW_STR(f_hdr_val, "first header");
 	TFW_STR(l_hdr, "LastHeader");
 
-	tbl = &ctx.hpack.enc_tbl;
+	tbl = &ctx->hpack.enc_tbl;
 
 	f_hdr = make_compound_str("HeaderFirst");
 	collect_compound_str(f_hdr, col, 0);
@@ -2084,7 +2089,7 @@ TEST(hpack, rbtree_ins_rebalance)
 	collect_compound_str(s10, col, 0);
 	collect_compound_str(s10, s10_value, 0);
 
-	tbl = &ctx.hpack.enc_tbl;
+	tbl = &ctx->hpack.enc_tbl;
 
 	ADD_NODE(s1, n1);
 	ADD_NODE(s2, n2);
@@ -2240,7 +2245,7 @@ TEST(hpack, rbtree_del_rebalance)
 	collect_compound_str(s10, col, 0);
 	collect_compound_str(s10, s10_value, 0);
 
-	tbl = &ctx.hpack.enc_tbl;
+	tbl = &ctx->hpack.enc_tbl;
 
 	ADD_NODE(s1, n1);
 	ADD_NODE(s2, n2);
