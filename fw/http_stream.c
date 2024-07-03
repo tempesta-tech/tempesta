@@ -170,7 +170,7 @@ tfw_h2_stream_purge_all_and_free_response(TfwStream *stream)
 void
 tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	struct list_head *pos, *prev = &ctx->idle_streams.list;
 	bool found = false;
 
@@ -206,7 +206,7 @@ tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 void
 tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	/*
 	 * We add and remove streams from idle queue under the
@@ -850,7 +850,7 @@ int
 tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 			    unsigned long h_len, unsigned long b_len)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(resp->req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	struct sk_buff *skb_head = resp->msg.skb_head;
 	TfwStream *stream;
 

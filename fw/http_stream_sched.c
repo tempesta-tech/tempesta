@@ -75,7 +75,7 @@ static inline void
 tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	/*
 	 * All scheduler functions schould be called under the

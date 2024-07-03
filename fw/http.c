@@ -2831,7 +2831,7 @@ tfw_http_conn_drop(TfwConn *conn)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		if (h2_mode) {
-			TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
+			TfwH2Ctx *ctx = tfw_h2_context(conn);
 
 			if (ctx)
 				tfw_h2_conn_streams_cleanup(ctx);
@@ -4858,7 +4858,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 int
 tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx = tfw_h2_context((TfwConn *)conn);
 	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
 	TfwStream *stream;
 
@@ -4992,7 +4992,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
 		type == TFW_ERROR_TYPE_BAD);
 
@@ -5883,7 +5883,7 @@ next_msg:
 					HTTP2_ECODE_PROTO);
 		}
 		if (TFW_MSG_H2(req)) {
-			TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
+			TfwH2Ctx *ctx = tfw_h2_context(conn);
 
 			/* Do not check the request validity until
 			 * it has been fully parsed.

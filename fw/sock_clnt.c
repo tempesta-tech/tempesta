@@ -199,7 +199,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, int ss_action)
 	 * shutdowned before TLS hadshake was finished.
 	 */
 	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
-		tfw_h2_context_safe(conn) : NULL;
+		tfw_h2_context(conn) : NULL;
 	if (!h2) {
 		if (ss_action == SS_SHUTDOWN)
 			tcp_shutdown(sk, SEND_SHUTDOWN);
@@ -969,7 +969,7 @@ tfw_sock_clnt_init(void)
 	}
 
 	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
-					      2 * PAGE_SIZE, 0, 0, NULL);
+					      sizeof(TfwH2Conn), 0, 0, NULL);
 	if (!tfw_h2_conn_cache) {
 		kmem_cache_destroy(tfw_https_conn_cache);
 		kmem_cache_destroy(tfw_h1_conn_cache);

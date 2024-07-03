@@ -40,7 +40,7 @@
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStream *stream, *next;
 
 	/*
@@ -71,7 +71,7 @@ static void
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwSettings *dest = &ctx->rsettings;
 	long int delta;
 
@@ -120,7 +120,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 int
 tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -163,7 +163,7 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -178,7 +178,7 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	unsigned int id;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -207,18 +207,34 @@ tfw_h2_cleanup(void)
 static inline void
 tfw_h2_context_init_sched_enry_storage(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	unsigned int def_sched_entry_count =
-		(2 * PAGE_SIZE - sizeof(TfwH2Conn)) / sizeof(TfwStreamSchedEntry);
-	void *base = (void *)((char *)conn + sizeof(TfwH2Conn));
+		(2 * PAGE_SIZE - sizeof(TfwH2Ctx)) / sizeof(TfwStreamSchedEntry);
+	void *base = (void *)((char *)ctx + sizeof(TfwH2Ctx));
 
 	/*
-	 * We allocate 2* PAGE_SIZE bytes for each TfwH2Conn, and
-	 * use free memory after TfwH2Conn structure for sched
+	 * We allocate 2* PAGE_SIZE bytes for each TfwH2Ctx, and
+	 * use free memory after TfwH2Ctx structure for sched
 	 * entries.
 	 */
 	tfw_h2_stream_sched_init_entry_storage(&ctx->sched, base,
 					       def_sched_entry_count);
+}
+
+TfwH2Ctx *
+tfw_h2_context_alloc(void)
+{
+	struct page *pg;
+
+	pg = alloc_pages(GFP_ATOMIC, 1);
+	if (!pg)
+		return NULL;
+	return (TfwH2Ctx *)page_address(pg);
+}
+
+void
+tfw_h2_context_free(TfwH2Ctx *ctx)
+{
+	free_pages((unsigned long)ctx, 1);
 }
 
 static inline int
@@ -284,13 +300,14 @@ tfw_h2_context_clear_sched_enry_storage(TfwH2Ctx *ctx)
 }
 
 int
-tfw_h2_context_init(TfwH2Ctx *ctx)
+tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 {
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
+	BUG_ON(!conn || conn->h2 != ctx);
 	bzero_fast(ctx, sizeof(*ctx));
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
@@ -315,6 +332,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
+	ctx->conn = conn;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
@@ -337,7 +355,7 @@ void
 tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 			    bool attack)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	if (tfw_h2_send_goaway(ctx, err_code, attack) && close) {
 		if (attack)
@@ -356,7 +374,7 @@ tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 void
 tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStream *stream, *tmp;
 
 	/*
@@ -381,7 +399,7 @@ void
 tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 {
 	TfwStream *cur, *next;
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
@@ -479,7 +497,7 @@ unsigned int
 tfw_h2_req_stream_id(TfwHttpReq *req)
 {
 	unsigned int id = 0;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	spin_lock(&ctx->lock);
 
@@ -498,7 +516,7 @@ void
 tfw_h2_req_unlink_stream(TfwHttpReq *req)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	spin_lock(&ctx->lock);
 
@@ -523,7 +541,7 @@ tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req)
 {
 	TfwStreamFsmRes r;
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	spin_lock(&ctx->lock);
 

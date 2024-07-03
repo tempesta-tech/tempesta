@@ -3553,7 +3553,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	bool st_full_index;
 	unsigned short st_index, index = 0;
 	TfwConn *conn = resp->req->conn;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
+	TfwH2Ctx *ctx = tfw_h2_context(conn);
 	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
 	int r = HPACK_IDX_ST_NOT_FOUND;
 	bool name_indexed = true;
