@@ -539,7 +539,7 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		 * address it.
 		 */
 		sess->peer_cert->raw.order = get_order(state->cert_len + TTLS_CERT_LEN_LEN);
-		pg = __get_free_pages(GFP_KERNEL | __GFP_COMP, sess->peer_cert->raw.order);
+		pg = __get_free_pages(GFP_ATOMIC | __GFP_COMP, sess->peer_cert->raw.order);
 		if (!pg) {
 			ttls_x509_crt_destroy(&sess->peer_cert);
 			return TTLS_ERR_ALLOC_FAILED;

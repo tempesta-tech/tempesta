@@ -269,7 +269,7 @@ ttls_pk_parse_subpubkey(const unsigned char **p, const unsigned char *end,
 		ret = TTLS_ERR_PK_UNKNOWN_PK_ALG;
 	}
 
-	return 0;
+	return ret;
 }
 
 /**

@@ -677,8 +677,6 @@ x509_write_cert_len(unsigned char *buf, size_t n)
 
 /**
  * Parse and fill a single X.509 certificate in DER format.
- * @return the parsed out length of the certificate on success or a negative
- * error code on failure.
  */
 int
 ttls_x509_crt_parse_der(TlsX509Crt *crt, const unsigned char *buf, size_t len)
@@ -923,9 +921,10 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 		buf_format = TTLS_X509_FORMAT_PEM;
 	}
 
-	if (buf_format == TTLS_X509_FORMAT_DER)
-		if ((r = ttls_x509_crt_parse_der(crt, buf, buflen)))
-			goto done;
+	if (buf_format == TTLS_X509_FORMAT_DER) {
+		r = ttls_x509_crt_parse_der(crt, buf, buflen);
+		goto done;
+	}
 
 	if (buf_format != TTLS_X509_FORMAT_PEM)
 		return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
@@ -951,13 +950,11 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 			buflen -= use_len;
 			buf += use_len;
 		}
-		else if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT) {
-			/* PEM header and footer were found. */
-			buflen -= use_len;
-			buf += use_len;
-			continue;
-		}
 		else {
+			int crt_id = TTLS_CERT_MAX_CHAIN_LEN
+				     - crt_len_len / TTLS_CERT_LEN_LEN;
+			T_WARN("Error %x on parsing certificate with id %d"
+			       " in the chain", -r, crt_id);
 			goto done;
 		}
 
