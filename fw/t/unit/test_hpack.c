@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #include "hpack.c"
 #define tfw_connection_send(a, b) 0
 #include "http_stream.c"
+#include "http_stream_sched.c"
 #include "http_frame.c"
 #include "http.c"
 

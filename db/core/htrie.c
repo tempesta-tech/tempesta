@@ -11,7 +11,7 @@
  * and shutdown are performed in process context.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -918,7 +918,7 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 		TDB_ERR("cannot allocate per-cpu data\n");
 		return NULL;
 	}
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		TdbPerCpu *p = per_cpu_ptr(hdr->pcpu, cpu);
 		p->i_wcl = tdb_alloc_blk(hdr);
 		p->d_wcl = tdb_alloc_blk(hdr);

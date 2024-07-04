@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -346,13 +346,16 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 
 	if (is_write) {
 		char buf[T_SYSCTL_STBUF_LEN];
+		char start[T_SYSCTL_STBUF_LEN] = "start";
+		char stop[T_SYSCTL_STBUF_LEN] = "stop";
+
 		tmp.data = buf;
 		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
 			goto out;
 
 		r = tfw_ctlfn_state_change(buf);
 		strscpy(new_state_buf,
-			tfw_runstate_is_started() ? "start" : "stop",
+			tfw_runstate_is_started() ? start : stop,
 			T_SYSCTL_STBUF_LEN);
 	} else {
 		tmp.data = new_state_buf;

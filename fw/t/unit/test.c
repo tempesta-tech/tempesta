@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -99,6 +99,7 @@ TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
 TEST_SUITE(pool);
+TEST_SUITE(ebtree);
 
 extern int tfw_pool_init(void);
 extern void tfw_pool_exit(void);
@@ -154,6 +155,9 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(pool);
+	__fpu_schedule();
+
+	TEST_SUITE_RUN(ebtree);
 	__fpu_schedule();
 
 	kernel_fpu_end();

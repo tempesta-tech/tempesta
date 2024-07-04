@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2824,7 +2824,7 @@ ttls_exit(void)
 
 	kmem_cache_destroy(ttls_hs_cache);
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
 		kfree(*req);
 	}
@@ -2852,7 +2852,7 @@ ttls_init(void)
 	if ((r = ttls_tickets_init()))
 		goto err_free;
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
 		*req = kmalloc(ttls_aead_reqsize(), GFP_KERNEL);
 		if (!*req)

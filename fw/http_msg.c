@@ -1472,8 +1472,15 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 	return 0;
 }
 
-static inline int
-__tfw_http_msg_linear_transform(TfwMsgIter *it)
+/*
+ * Move linear data to paged fragment before inserting data into skb.
+ * We must do it, because we want to insert new data "before" linear.
+ * For instance: We want to insert headers. Linear data contains part
+ * of the body, if we insert headers without moving linear part,
+ * headers will be inserted after the body or between the body chunks.
+ */
+int
+tfw_http_msg_linear_transform(TfwMsgIter *it)
 {
 	/*
 	 * There is no sense to move linear part if next skb has linear
@@ -1519,15 +1526,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
-	/*
-	 * Move linear data to paged fragment before inserting data into skb.
-	 * We must do it, because we want to insert new data "before" linear.
-	 * For instance: We want to insert headers. Linear data contains part
-	 * of the body, if we insert headers without moving linear part,
-	 * headers will be inserted after the body or between the body chunks.
-	 */
 	if (skb_headlen(it->skb)) {
-		if (unlikely((r = __tfw_http_msg_linear_transform(it))))
+		if (unlikely((r = tfw_http_msg_linear_transform(it))))
 			return r;
 	}
 

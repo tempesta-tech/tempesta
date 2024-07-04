@@ -24,7 +24,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,7 +133,7 @@ __rsa_setup_ctx(TlsRSACtx *ctx)
 	 * Generate blinding values.
 	 * Unblinding value: Vf = random number, invertible mod N.
 	 */
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		int count = 0;
 
 		TlsMpi *vi = per_cpu_ptr(ctx->Vi, cpu);

@@ -231,7 +231,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 
 		/* No fragments to shift. */
 		if (!tail_frags)
-			return 0;
+			goto finish;
 
 		/*
 		 * Move @n_excess number of page fragments to new SKB. We
@@ -262,6 +262,8 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 	if (n_shift > 0)
 		memmove(&si->frags[from + n],
 			&si->frags[from], n_shift * sizeof(skb_frag_t));
+
+finish:
 	si->nr_frags += n - n_excess;
 
 	return 0;
@@ -1308,11 +1310,15 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
-	WARN_ON_ONCE(skb->next || skb->prev);
 	WARN_ON_ONCE(skb->sk);
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+	/*
+	 * Since we use skb->sb for our purpose we should
+	 * zeroed it before pass skb to the kernel.
+	 */
+	memset(skb->cb, 0, sizeof(skb->cb));
 
 	if (!skb_transport_header_was_set(skb)) {
 		/* Quick path for new skbs. */
@@ -1321,7 +1327,6 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	}
 
 	skb->skb_mstamp_ns = 0;
-	bzero_fast(skb->cb, sizeof(skb->cb));
 	nf_reset_ct(skb);
 	skb->mac_len = 0;
 	skb->queue_mapping = 0;
