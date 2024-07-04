@@ -2638,14 +2638,14 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * TX flags for headers and body differ.
 	 */
 	if (!it->skb || (it->frag + 1 >= MAX_SKB_FRAGS)
-	    || (sh_frag == !(skb_shinfo(it->skb)->tx_flags & SKBFL_SHARED_FRAG)))
+	    || (sh_frag == !(skb_shinfo(it->skb)->flags & SKBFL_SHARED_FRAG)))
 	{
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
 		if (!sh_frag)
-			skb_shinfo(it->skb)->tx_flags &= ~SKBFL_SHARED_FRAG;
+			skb_shinfo(it->skb)->flags &= ~SKBFL_SHARED_FRAG;
 		else
-			skb_shinfo(it->skb)->tx_flags |= SKBFL_SHARED_FRAG;
+			skb_shinfo(it->skb)->flags |= SKBFL_SHARED_FRAG;
 	}
 
 	while (1) {

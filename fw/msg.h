@@ -4,7 +4,7 @@
  * Generic protocol message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -97,7 +97,7 @@ typedef struct {
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
-		       size_t data_len, unsigned int tx_flags);
+		       size_t data_len, unsigned int flags);
 int tfw_msg_iter_append_skb(TfwMsgIter *it);
 int tfw_http_iter_set_at(TfwMsgIter *it, char *off);
 char *tfw_http_iter_set_at_skb(TfwMsgIter *it, struct sk_buff *skb,

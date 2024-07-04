@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1113,11 +1113,11 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
  */
 int
 tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
-		   unsigned int tx_flags)
+		   unsigned int flags)
 {
 	int r;
 
-	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, tx_flags)))
+	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, flags)))
 		return r;
 	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
@@ -1487,7 +1487,7 @@ __tfw_http_msg_linear_transform(TfwMsgIter *it)
 		if (!nskb)
 			return -ENOMEM;
 
-		skb_shinfo(nskb)->tx_flags = skb_shinfo(it->skb)->tx_flags;
+		skb_shinfo(nskb)->flags = skb_shinfo(it->skb)->flags;
 		ss_skb_insert_before(&it->skb_head, it->skb, nskb);
 		it->skb = nskb;
 		it->frag = -1;
@@ -1565,8 +1565,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 					}
 				}
 
-				skb_shinfo(nskb)->tx_flags =
-					skb_shinfo(it->skb)->tx_flags;
+				skb_shinfo(nskb)->flags =
+					skb_shinfo(it->skb)->flags;
 				ss_skb_insert_after(it->skb, nskb);
 				/*
 				 * If body is located in the zero fragment and

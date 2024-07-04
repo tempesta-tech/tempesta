@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -109,7 +109,7 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int tx_flags)
+ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int flags)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -120,7 +120,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int tx_flags)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
-		skb_shinfo(skb)->tx_flags |= tx_flags;
+		skb_shinfo(skb)->flags |= flags;
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -224,7 +224,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
-			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
+			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
 			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
@@ -1331,7 +1331,7 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
 
-	shinfo->tx_flags = 0;
+	shinfo->flags = 0;
 	shinfo->gso_size = 0;
 	shinfo->gso_segs = 0;
 	shinfo->gso_type = 0;
@@ -1354,7 +1354,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 		skb = ss_skb_alloc(0);
 		if (!skb)
 			return -ENOMEM;
-		skb_shinfo(skb)->tx_flags = skb_shinfo(orig_skb)->tx_flags;
+		skb_shinfo(skb)->flags = skb_shinfo(orig_skb)->flags;
 		ss_skb_queue_tail(skb_head, skb);
 		skb->mark = orig_skb->mark;
 	}
@@ -1569,7 +1569,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 	int i;
 
 	/* TODO: process of SKBTX_ZEROCOPY_FRAG for MSG_ZEROCOPY */
-	if (skb_shinfo(skb)->tx_flags & SKBFL_SHARED_FRAG) {
+	if (skb_shinfo(skb)->flags & SKBFL_ALL_ZEROCOPY) {
 		if (head_data_len) {
 			sg_set_buf(sgl + out_frags, skb->data, head_data_len);
 			out_frags++;
@@ -1605,7 +1605,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 		}
 		if (out_frags > 0)
 			sg_mark_end(&sgl[out_frags - 1]);
-		skb_shinfo(skb)->tx_flags &= ~SKBFL_SHARED_FRAG;
+		skb_shinfo(skb)->flags &= ~SKBFL_SHARED_FRAG;
 	} else {
 		int r = skb_to_sgvec(skb, sgl + out_frags, 0, skb->len);
 		if (r <= 0)
