@@ -7246,7 +7246,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len, size_t *len,
 		tfw_str_to_cstr(c_len, res, t_sz);
 		b_start += c_len->len;
 	}
-	memcpy_fast(b_start, body, b_sz);
+	memcpy(b_start, body, b_sz);
 
 	*len = t_sz;
 	*body_offset = b_start - res;

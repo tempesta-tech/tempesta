@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -121,8 +121,8 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, void *a_vhost)
 	TfwVhost *vhost = a_vhost;
 	const char *hname = vhost->name.data;
 	int hlen = vhost->name.len;
-	BasicStr cn = {.data = sname->p, .len = sname->len};
-
+	/* cn-pointed data isn't modified, so just a type compatibility. */
+	BasicStr cn = {.data = (char *)sname->p, .len = sname->len};
 
 	/*
 	 * Try wildcard match by RFC 2818 3.1:
@@ -153,7 +153,7 @@ tfw_tls_add_cn(const ttls_x509_buf *sname, void *a_vhost)
 		 * Add the chopped (w/o leading '*') wildcard to
 		 * the SNI mapping.
 		 */
-		cn.data = sname->p + 1;
+		cn.data = (char *)sname->p + 1;
 		cn.len = sname->len - 1;
 	}
 
@@ -186,8 +186,6 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 
-	ttls_x509_crt_init(&conf->crt);
-	/* Preserve 3 bytes for the certificate length. */
 	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size);
 	if (!crt_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
@@ -195,9 +193,10 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
+	ttls_x509_crt_init(&conf->crt);
 	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
 	if (r) {
-		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
+		T_ERR_NL("%s: Invalid certificate specified, err=%x\n",
 			 cs->name, -r);
 		goto err;
 	}
