@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -443,7 +443,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
-		      unsigned int tx_flags);
+		      unsigned int flags);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);

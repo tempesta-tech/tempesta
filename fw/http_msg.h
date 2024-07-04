@@ -163,7 +163,7 @@ int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
 int tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
-		       unsigned int tx_flags);
+		       unsigned int flags);
 int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
