@@ -3551,7 +3551,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		{
 			r = tfw_http_recreate_content_type_multipart_hdr(req);
 			if (unlikely(r))
-				return r;
+				goto clean;
 			continue;
 		}
 
@@ -3577,11 +3577,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (unlikely(r))
-		return r;
+		goto clean;
 
 	r = tfw_http_add_hdr_via(hm);
 	if (unlikely(r))
-		return r;
+		goto clean;
 
 	r = tfw_http_add_hdr_upgrade(hm, false);
 	if (unlikely(r))
