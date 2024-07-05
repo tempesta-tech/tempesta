@@ -139,7 +139,8 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 		tfw_http_verify_hdr_field(field, &in_val, &hid);
 	}
 	val = tfw_http_val_adjust(in_val, field, &val_len, &val_type, &op_val);
-	arg = tfw_http_arg_adjust(in_arg, field, in_val, &arg_size, &type, &op);
+	arg = tfw_http_arg_adjust(in_arg, field, in_val, 0,
+	                          &arg_size, &type, &op);
 	EXPECT_NOT_NULL(arg);
 	if (!arg)
 		return;

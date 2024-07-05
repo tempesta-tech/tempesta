@@ -35,6 +35,7 @@ fi
 
 script_path="$(dirname $0)"
 tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
+rgx_path=${REGEX_PATH:="$TFW_ROOT/regex"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
@@ -45,6 +46,7 @@ lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
+rgx_mod=xdp_rex
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 
 # Exclude loopback interface since it needn't any tuning here: it hasn't RSS
@@ -131,6 +133,7 @@ load_modules()
 {
 	echo "Loading Tempesta kernel modules..."
 
+	mkdir /tmp/tempesta
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
@@ -144,6 +147,9 @@ load_modules()
 	load_one_module "$tdb_path/$tdb_mod.ko" ||
 		error "cannot load tempesta database module"
 
+	load_one_module "$rgx_path/$rgx_mod.ko" ||
+		error "cannot load regex module"
+
 	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp" ||
 		error "cannot load tempesta module"
 }
@@ -153,6 +159,8 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
+	$script_path/regex_stop.sh
+	rmmod $rgx_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
 	rmmod $lib_mod
@@ -284,6 +292,7 @@ start()
 		unload_modules
 		error "cannot start Tempesta FW (sysctl message: ${err##*: }), please check dmesg"
 	else
+		$script_path/regex_start.sh
 		echo "done"
 	fi
 	remove_tmp_conf
@@ -307,10 +316,12 @@ reload()
 {
 	update_js_challenge_templates
 	echo "Running live reconfiguration of Tempesta..."
+	$script_path/regex_stop.sh
 	err=$(start_tempesta_and_check)
 	if [[ $err != "0" ]]; then
 		error "cannot reconfigure Tempesta FW (sysctl message: ${err##*: }), please check dmesg"
 	else
+		$script_path/regex_start.sh
 		echo "done"
 		remove_tmp_conf
 	fi

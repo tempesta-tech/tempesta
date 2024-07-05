@@ -52,6 +52,8 @@ typedef enum {
 	TFW_HTTP_MATCH_O_EQ,
 	TFW_HTTP_MATCH_O_PREFIX,
 	TFW_HTTP_MATCH_O_SUFFIX,
+	TFW_HTTP_MATCH_O_REGEX,
+	TFW_HTTP_MATCH_O_REGEX_CI,/*case insensitive*/
 	_TFW_HTTP_MATCH_O_COUNT
 } tfw_http_match_op_t;
 
@@ -156,7 +158,8 @@ TfwHttpMatchRule *tfw_http_rule_new(TfwHttpChain *chain,
 int tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg,
 			   size_t arg_len);
 const char *tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
-				const char *raw_hdr_name, size_t *size_out,
+                                const char *raw_hdr_name, int regex,
+                                size_t *size_out,
 				tfw_http_match_arg_t *type_out,
 				tfw_http_match_op_t *op_out);
 const char *tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
@@ -169,6 +172,11 @@ int tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **h_name,
 int tfw_http_search_cookie(const char *cstr, unsigned long clen,
 			   TfwStr **pos, TfwStr *end, TfwStr *val,
 			   tfw_http_match_op_t op, bool is_resp_hdr);
+
+int write_regex(const char *arg, int regex);
+
+bool tfw_match_regex(tfw_match_t op, const char *cstr, size_t len,
+                     const TfwStr *arg);
 
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\
