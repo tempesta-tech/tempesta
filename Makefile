@@ -150,7 +150,7 @@ KERNEL = /lib/modules/$(shell uname -r)/build
 
 export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
 
-obj-m	+= lib/ db/core/ fw/ tls/
+obj-m	+= lib/ db/core/ regex/ fw/ tls/
 
 all: build
 

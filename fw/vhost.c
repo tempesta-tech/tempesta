@@ -40,6 +40,7 @@
 #include "tls_conf.h"
 #include "lib/log.h"
 #include "lib/fault_injection_alloc.h"
+#include "regex/kmod/rex.h"
 
 /*
  * The hash table entry for mapping @sni to @vhost for SAN certificates handling.
@@ -76,6 +77,10 @@ static const TfwCfgEnum tfw_match_enum[] = {
 	{ "eq",		TFW_HTTP_MATCH_O_EQ },
 	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
 	{ "suffix",	TFW_HTTP_MATCH_O_SUFFIX },
+        /*regex case sensitive*/
+        { "regex",	TFW_HTTP_MATCH_O_REGEX },
+        /*regex* case insensitive*/
+        { "regex_ci",	TFW_HTTP_MATCH_O_REGEX_CI },
 	{ 0 }
 };
 
@@ -184,6 +189,14 @@ __tfw_match_prefix(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 	return tfw_str_eq_cstr(arg, cstr, len, flags);
 }
 
+extern int bpf_scan_bytes(const void *, __u32, struct rex_scan_attr *);
+
+static bool
+__tfw_match_regex(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
+{
+	return tfw_match_regex(op, cstr, len, arg);
+}
+
 typedef bool (*__tfw_match_fn)(tfw_match_t, const char *, size_t, TfwStr *);
 
 static const __tfw_match_fn __tfw_match_fn_tbl[] = {
@@ -192,6 +205,8 @@ static const __tfw_match_fn __tfw_match_fn_tbl[] = {
 	[TFW_HTTP_MATCH_O_EQ]		= __tfw_match_eq,
 	[TFW_HTTP_MATCH_O_PREFIX]	= __tfw_match_prefix,
 	[TFW_HTTP_MATCH_O_SUFFIX]	= __tfw_match_suffix,
+        [TFW_HTTP_MATCH_O_REGEX]	= __tfw_match_regex,
+        [TFW_HTTP_MATCH_O_REGEX_CI]     = __tfw_match_regex,
 };
 
 /*
@@ -1483,8 +1498,15 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
 
 	memset(loc, 0, sizeof(TfwLocation));
-	if ((argmem = tfw_kmalloc(len + 1, GFP_KERNEL)) == NULL)
-		return -ENOMEM;
+	if (op != TFW_HTTP_MATCH_O_REGEX) {
+		if ((argmem = tfw_kmalloc(len + 1, GFP_KERNEL)) == NULL)
+			return -ENOMEM;
+	}
+	else {/*If it is a regex we need only number of DB*/
+		if ((argmem = tfw_kmalloc(2 + 1, GFP_KERNEL)) == NULL)
+			return -ENOMEM;
+	}
+
 	if ((data = tfw_kzalloc(size, GFP_KERNEL)) == NULL) {
 		kfree(argmem);
 		return -ENOMEM;
@@ -1509,7 +1531,27 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs =
 		loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
 
-	memcpy((void *)loc->arg, (void *)arg, len + 1);
+	switch (op) {
+	case TFW_HTTP_MATCH_O_REGEX:
+		write_regex(arg, TFW_REGEX_REGULAR);
+		/*
+		* Save number_of_db_regex to use it in tfw_match_regex
+		*/
+		memcpy((void *)loc->arg, (void *)&number_of_db_regex,
+		       sizeof(number_of_db_regex));
+		break;
+	case TFW_HTTP_MATCH_O_REGEX_CI:
+		write_regex(arg, TFW_REGEX_CI);
+		/*
+		* Save number_of_db_regex to use it in tfw_match_regex
+		*/
+		memcpy((void *)loc->arg, (void *)&number_of_db_regex,
+		        sizeof(number_of_db_regex));
+		break;
+	default:
+		memcpy((void *)loc->arg, (void *)arg, len + 1);
+		break;
+	}
 
 	return 0;
 }
@@ -2678,6 +2720,9 @@ static int
 tfw_vhost_cfgstart(void)
 {
 	TfwVhost *vh_dflt;
+
+	number_of_regex = 0;
+	number_of_db_regex = 0;
 
 	BUG_ON(tfw_vhosts_reconfig);
 	tfw_vhosts_reconfig = tfw_kmalloc(sizeof(TfwVhostList), GFP_KERNEL);

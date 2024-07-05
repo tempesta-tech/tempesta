@@ -383,7 +383,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	const char *in_field, *in_field_val, *action, *action_val,
 		   *in_arg, *arg = NULL, *val = NULL;
 	unsigned int invert, hid = TFW_HTTP_HDR_RAW,
-		     act_val_parsed, val_len;
+	             act_val_parsed, val_len, regex;
 	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD,
 			    op_val = TFW_HTTP_MATCH_O_WILDCARD;
 	tfw_http_match_fld_t field = TFW_HTTP_MATCH_F_WILDCARD;
@@ -399,6 +399,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	TFW_CFG_CHECK_NO_ATTRS(cs, e);
 
 	invert = cfg_rule->inv;
+	regex = cfg_rule->regex;
 	in_field = cfg_rule->fst;
 	in_field_val = cfg_rule->fst_ext;
 	in_arg = cfg_rule->snd;
@@ -433,7 +434,8 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 
 		arg = tfw_http_arg_adjust(in_arg, field, in_field_val,
-					  &arg_size, &type, &op);
+		                          cfg_rule->regex, &arg_size,
+		                          &type, &op);
 		if (IS_ERR(arg))
 			return PTR_ERR(arg);
 	}
