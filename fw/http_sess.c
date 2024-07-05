@@ -677,7 +677,7 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	 */
 	min_time = sv->ts + js_ch->delay_min
 			+ msecs_to_jiffies(sv->ts % js_ch->delay_range);
-	if (time_after(req->jrxtstamp, min_time))
+	if (time_after_eq(req->jrxtstamp, min_time))
 		return 0;
 
 	sess_warn("jsch redirect received too early",
