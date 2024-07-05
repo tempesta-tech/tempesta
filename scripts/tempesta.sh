@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -46,12 +46,12 @@ tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
-
-# Exclude loopback interface since it needn't any tuning here: it hasn't RSS
-# while RPS just add unnecessary overhead for it (traffic redistribution, IPIs
-# introduction etc.).
-declare devs=$(ip addr show up | grep -P '^[0-9]+' | grep -Pv '\bLOOPBACK\b' \
-	       | awk '{ sub(/:/, "", $2); print $2}')
+# We should setup network queues for all existing network interfaces
+# to prevent socket CPU migration, which leads to response reordering
+# and broken HTTP1. Some network interfaces have some strange suffix
+# like @if14, and we should remove it from device name.
+declare devs=$(ip addr show up | grep -P '^[0-9]+' \
+	       | awk '{ sub(/:/, "", $2); split($2,a,"@"); print a[1] }')
 
 usage()
 {
