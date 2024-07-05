@@ -149,6 +149,7 @@ typedef struct {
 	const char *act;
 	const char *val;
 	bool inv;
+	int regex;
 } TfwCfgRule;
 
 typedef struct {
@@ -388,6 +389,9 @@ struct TfwCfgSpec {
 	void (*cleanup)(TfwCfgSpec *self);
 };
 
+extern unsigned short number_of_regex;
+extern unsigned short number_of_db_regex;
+
 /**
  * Walks over a NULL-terminated array of TfwCfgSpec structures.
  */
@@ -471,6 +475,12 @@ enum {
 	TFW_CFG_B_DEL,		/* Delete an entry */
 	TFW_CFG_B_MOD,		/* Modify an entry */
 	TFW_CFG_B_KEEP,		/* Keep an entry */
+};
+
+enum {
+	TFW_REGEX_NO = 0,
+	TFW_REGEX_REGULAR,
+	TFW_REGEX_CI,
 };
 
 #define TFW_CFG_F_ADD		(1 << TFW_CFG_B_ADD)
