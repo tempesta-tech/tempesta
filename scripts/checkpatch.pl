@@ -18,7 +18,7 @@ use Encode qw(decode encode);
 my $P = $0;
 my $D = dirname(abs_path($P));
 
-my $V = '0.32';
+my $V = '0.32-6.8.9-tfw';
 
 use Getopt::Long qw(:config no_auto_abbrev);
 
