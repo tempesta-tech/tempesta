@@ -4762,7 +4762,7 @@ sub process {
 		    $line !~ /\btypedef\s+$Type\s*\(\s*\*?$Ident\s*\)\s*\(/ &&
 		    $line !~ /\btypedef\s+$Type\s+$Ident\s*\(/ &&
 		    $line !~ /\b$typeTypedefs\b/ &&
-		    $line !~ /\b(?:ss_|tfw_)\w+\b/ &&
+		    $line !~ /\b(?:ss_|tfw_|ttls_|tdb_)\w+\b/ &&
 		    $line !~ /typedef\s+struct\s+{$/ &&
 		    $line !~ /\b__bitwise\b/) {
 			WARN("NEW_TYPEDEFS",
