@@ -144,6 +144,16 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 	return 0;
 }
 
+static inline void
+ss_del_overhead(struct sock *sk, unsigned int overhead)
+{
+	if (!overhead)
+		return;
+	 sk_mem_uncharge(sk, overhead);
+	 sk->sk_wmem_queued -= overhead;
+	 sk_mem_reclaim(sk);
+}
+
 /* Dummy user ID to differentiate server from client sockets. */
 #define SS_SRV_USER			0x11223344
 

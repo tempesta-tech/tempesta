@@ -850,6 +850,7 @@ alloc_head:
 
 	return frags;
 }
+ALLOW_ERROR_INJECTION(ss_skb_expand_head_tail, ERRNO);
 
 /**
  * Reverse operation to ss_skb_expand_head_tail(): chop @head and @trail bytes
