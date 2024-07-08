@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2020-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -192,28 +192,32 @@ SYM_FUNC_START(mpi_sub_x86_64)
 	loop	.sub_by_4
 	popq	%r12
 	ANNOTATE_RETPOLINE_SAFE
-	notrack jmpq	*%rbx
+	jmpq	*%rbx
 .sub_small_b:
 	clc
 	ANNOTATE_RETPOLINE_SAFE
-	notrack jmpq	*%rbx
+	jmpq	*%rbx
 
 .sub_tail3:
+	endbr64;
 	movq	(%rdx, %rax, 8), %r9
 	sbbq	(%rsi, %rax, 8), %r9
 	movq	%r9, (%rdi, %rax, 8)
 	incq	%rax
 .sub_tail2:
+	endbr64;
 	movq	(%rdx, %rax, 8), %r10
 	sbbq	(%rsi, %rax, 8), %r10
 	movq	%r10, (%rdi, %rax, 8)
 	incq	%rax
 .sub_tail1:
+	endbr64;
 	movq	(%rdx, %rax, 8), %r11
 	sbbq	(%rsi, %rax, 8), %r11
 	movq	%r11, (%rdi, %rax, 8)
 	incq	%rax
 .sub_tail0:
+	endbr64;
 	popq	%rbx
 
 	/*
