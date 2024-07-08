@@ -1623,6 +1623,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 
 	return out_frags;
 }
+ALLOW_ERROR_INJECTION(ss_skb_to_sgvec_with_new_pages, ERRNO);
 
 int
 ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,

@@ -520,6 +520,24 @@ typedef struct {
 /* Declarations of internal TLS data structures. */
 typedef struct tls_handshake_t TlsHandshake;
 
+typedef enum {
+	TLS_ENCRYPT_ADD_RECORD_TAG,
+	TLS_ENCRYPT_RECORD,
+} TlsEncryptState;
+
+/**
+ * @state	- current FSM state;
+ * @nents	- sg_table nents;
+ * @len		- length to encrypt;
+ * @skb_tail	- last skb in tls record;
+ */
+typedef struct {
+	TlsEncryptState         state;
+	unsigned int		nents;
+	unsigned int		len;
+	struct sk_buff		*skb_tail;
+} TlsEncryptCtx;
+
 /**
  * TLS context.
  *
@@ -538,6 +556,7 @@ typedef struct tls_handshake_t TlsHandshake;
  * @hs		- params required only during the handshake process;
  * @alpn_chosen	- negotiated protocol;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
+ * @enc_ctx	- tls encrypt context;
  * @sess	- session data;
  * @xfrm	- transform params;
  * @sni_hash	- hash of requested server names;
@@ -560,6 +579,7 @@ typedef struct ttls_context {
 	TlsIOCtx		io_out;
 	TlsSess			sess;
 	TlsXfrm			xfrm;
+	TlsEncryptCtx		enc_ctx;
 
 	unsigned long		sni_hash;
 	unsigned int		nb_zero;

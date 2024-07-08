@@ -36,6 +36,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
+#include "lib/fsm.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -387,7 +388,6 @@ tfw_tls_add_tag(struct sock *sk, struct sk_buff *skb, unsigned int *nents,
 restore_tcb:
 	tcb->end_seq -= head_sz;
 	ss_del_overhead(sk, TLS_MAX_OVERHEAD);
-	T_WARN("%s: cannot encrypt data (%d)", __func__, r);
 	return r;
 
 #define MAX_SEG_N	64
@@ -403,7 +403,7 @@ tfw_tls_encrypt_impl(struct sock *sk, struct sk_buff *skb,
 	 * 6 segment skb. After the fix the number probably should be decreased.
 	 */
 #define AUTO_SEGS_N	8
-	
+
 	int r;
 	unsigned int frags, out_frags;
 	unsigned char type;
@@ -453,7 +453,7 @@ tfw_tls_encrypt_impl(struct sock *sk, struct sk_buff *skb,
 		 */
 		r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
 
-		T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
+		T_DBG3("skb_to_sgvec (%u segs) from skb %px"
 		       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
 		       sgt.nents, next, next->len,
 		       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
@@ -498,6 +498,15 @@ out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
 
+	if (unlikely(r == -ENOMEM)) {
+		struct sk_buff *tmp;
+		/* Restore TLS type, later we call this function again. */
+		for (tmp = skb; tmp != next; ) {
+			tmp = skb_queue_next(&sk->sk_write_queue, tmp);
+			skb_set_tfw_tls_type(tmp, type);
+		}
+	}
+
 	return r;
 
 #undef AUTO_SEGS_N
@@ -517,18 +526,35 @@ int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		unsigned int limit)
 {
-	int r;
-	unsigned int nents, len;
-	struct sk_buff *skb_tail;
+	int r = 0;
+	TlsCtx *tls = tfw_tls_context(sk->sk_user_data);
+	TlsEncryptCtx *ctx = &tls->enc_ctx;
+	T_FSM_INIT(ctx->state, "TLS encrypt");
 
+	T_FSM_START(ctx->state) {
 
-	if ((r = tfw_tls_add_tag(sk, skb, &nents, &len, mss_now, limit, &skb_tail)))
-		return r;
+	T_FSM_STATE(TLS_ENCRYPT_ADD_RECORD_TAG) {
+		if ((r = tfw_tls_add_tag(sk, skb, &ctx->nents, &ctx->len,
+					 mss_now, limit, &ctx->skb_tail)))
+			T_FSM_EXIT();
+		fallthrough;
+	}
 
-	if ((r = tfw_tls_encrypt_impl(sk, skb, skb_tail, nents, len)))
-		return r;
+	T_FSM_STATE(TLS_ENCRYPT_RECORD) {
+		if ((r = tfw_tls_encrypt_impl(sk, skb, ctx->skb_tail,
+					      ctx->nents, ctx->len)))
+			T_FSM_EXIT();
+		__fsm_const_state = TLS_ENCRYPT_ADD_RECORD_TAG;
+	}
 
-	return 0;
+	}
+
+	T_FSM_FINISH(r, ctx->state);
+
+	if (r)
+		T_WARN("%s: cannot encrypt data (%d)\n", __func__, r);
+
+	return r;
 }
 
 static inline int

@@ -21,6 +21,7 @@
 #define __TFW_TCP_H__
 
 #include <linux/skbuff.h>
+#include "tls.h"
 
 void tfw_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb);
 void tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
