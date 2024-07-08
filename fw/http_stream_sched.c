@@ -67,6 +67,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#undef DEBUG
+#if DBG_HTTP_STREAM_SCHED > 0
+#define DEBUG DBG_HTTP_STREAM_SCHED
+#endif
+
+#include "lib/log.h"
 #include "http_stream_sched.h"
 #include "http_stream.h"
 #include "connection.h"
@@ -313,10 +319,14 @@ void
 tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		      TfwStreamSchedEntry *dep, bool excl)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	u64 deficit, min_deficit;
 	bool stream_has_children;
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
+
+	T_DBG3("%s: ctx [%px] (stream id %u excl %d)\n",
+	       __func__, ctx, stream->id, excl);
 
 	if (!excl) {
 		deficit = tfw_h2_stream_sched_min_deficit(dep) +
@@ -347,6 +357,10 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		struct eb64_node *node = eb64_first(&dep->blocked);
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
 
+		T_DBG3("%s: ctx [%px] move blocked child stream with id %u to"
+		       " new parent with id %u\n", __func__, ctx, child->id,
+		       stream->id);
+
 		deficit = !stream_has_children ? child->sched_node.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
 		tfw_h2_stream_sched_move_child(sched, child, &stream->sched,
@@ -356,6 +370,10 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 	while (!eb_is_empty(&dep->active)) {
 		struct eb64_node *node = eb64_first(&dep->active);
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
+
+		T_DBG3("%s: ctx [%px] move active child stream with id %u to"
+		       " new parent with id %u\n", __func__, ctx, child->id,
+		       stream->id);
 
 		deficit = !stream_has_children ? child->sched_node.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
@@ -376,11 +394,15 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 void
 tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	size_t total_weight = stream->sched.total_weight;
 	unsigned short new_weight;
 	bool parent_has_children;
 	u64 deficit;
+
+	T_DBG3("%s: ctx [%px] removed stream id %u\n",
+	       __func__, ctx, stream->id);
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 
@@ -408,6 +430,9 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		struct eb64_node *node = eb64_first(&stream->sched.blocked);
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
 
+		T_DBG3("%s: ctx [%px] move blocked child stream with id %u to"
+		       " new parent\n", __func__, ctx, child->id);
+
 		/*
 		 * Remove children of the removed stream, recalculate there
 		 * weights and add them to the scheduler of the parent of
@@ -424,6 +449,9 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	while (!eb_is_empty(&stream->sched.active)) {
 		struct eb64_node *node = eb64_first(&stream->sched.active);
 		TfwStream *child = eb64_entry(node, TfwStream, sched_node);
+
+		T_DBG3("%s: ctx [%px] move active child stream with id %u to"
+		       " new parent\n", __func__, ctx, child->id);
 
 		/*
 		 * Remove children of the removed stream, recalculate there
@@ -466,6 +494,7 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			 unsigned int new_dep, unsigned short new_weight,
 			 bool excl)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *old_parent, *new_parent;
 	TfwStream *stream, *np;
 	bool is_stream_depends_on_child;
@@ -476,6 +505,10 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 	BUG_ON(!stream);
 	old_parent = stream->sched.parent;
 	BUG_ON(!old_parent);
+
+	T_DBG3("%s: ctx [%px] (stream id %u, new dep stream id %u,"
+	       "new weight %u excl %d)\n", __func__, ctx,
+	       stream_id, new_dep, new_weight, excl);
 
 	new_parent = tfw_h2_find_stream_dep(sched, new_dep);
 
@@ -553,6 +586,7 @@ tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
 TfwStream *
 tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *entry = &sched->root;
 	struct eb64_node *node = eb64_first(&entry->active);
 	u64 deficit;
@@ -563,6 +597,9 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 		if (tfw_h2_stream_is_active(stream)) {
 			*parent = entry;
 			tfw_h2_stream_sched_remove(sched, stream);
+
+			T_DBGV("%s: ctx [%px] stream with id %u\n",
+			       __func__, ctx, stream->id);
 			return stream;
 		} else if (tfw_h2_stream_sched_is_active(&stream->sched)) {
 			/*
@@ -611,6 +648,6 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 		BUG_ON(!parent);
 
 		if (need_activate && !tfw_h2_stream_is_active(stream))
-		    	tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
+			tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
 	}
 }
