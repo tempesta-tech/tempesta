@@ -23,6 +23,8 @@
 #if DBG_HTTP_STREAM > 0
 #define DEBUG DBG_HTTP_STREAM
 #endif
+
+#include "lib/log.h"
 #include "http_frame.h"
 #include "http.h"
 
@@ -236,8 +238,8 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 
 	++ctx->streams_num;
 
-	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p],"
-	       "excl %u) added strm [%p] id %u weight %u\n",
+	T_DBG3("%s: ctx [%px] (streams_num %lu, dep strm id %u, dep strm [%p],"
+	       "excl %d) added strm [%px] id %u weight %u\n",
 	       __func__, ctx, ctx->streams_num, pri->stream_id, dep,
 	       pri->exclusive, stream, id, stream->weight);
 
@@ -247,7 +249,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	T_DBG3("%s: strm [%p] id %u state %d(%s) weight %u, ctx "
+	T_DBG3("%s: strm [%px] id %u state %d(%s) weight %u, ctx "
 	       "streams num %lu\n",  __func__, stream, stream->id,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx->streams_num);
@@ -362,7 +364,7 @@ do {									\
 
 	spin_lock(&stream->st_lock);
 
-	T_DBG3("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s),"
+	T_DBGV("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s),"
 	       " flags %x\n", __func__, send ? "SEND" : "RECV", stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->id, type, __h2_frm_type_n(type), flags);
@@ -796,7 +798,7 @@ finish:
 	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
 		tfw_h2_conn_reset_stream_on_close(ctx, stream);
 
-	T_DBG3("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
+	T_DBGV("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 
 	spin_unlock(&stream->st_lock);
