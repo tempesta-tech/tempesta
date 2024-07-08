@@ -300,8 +300,6 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 {
 	TfwSrvConn *srv_conn = from_timer(srv_conn, t, timer);
 
-	kernel_fpu_begin();
-
 	/* A new socket is created for each connect attempt. */
 	tfw_sock_srv_connect_try(srv_conn);
 }
@@ -817,8 +815,6 @@ static void
 tfw_sock_srv_grace_shutdown_cb(struct timer_list *t)
 {
 	TfwServer *srv = from_timer(srv, t, gs_timer);
-
-	kernel_fpu_begin();
 
 	tfw_sock_srv_grace_stop(srv);
 }

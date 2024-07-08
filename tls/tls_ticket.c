@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -178,8 +178,6 @@ ttls_ticket_rotate_keys(struct timer_list *t)
 {
 	TlsTicketPeerCfg *tcfg = from_timer(tcfg, t, timer);
 	unsigned long secs;
-
-	kernel_fpu_begin();
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
 	if (ttls_ticket_update_keys(tcfg))

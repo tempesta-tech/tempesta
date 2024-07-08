@@ -190,7 +190,6 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
-	kernel_fpu_begin();
 	SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
@@ -993,8 +992,6 @@ ss_tcp_data_ready(struct sock *sk)
 	int (*action)(struct sock *sk, int flags);
 	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop);
 
-	kernel_fpu_begin();
-
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -1081,7 +1078,6 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	kernel_fpu_begin();
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
@@ -1528,8 +1524,6 @@ ss_tx_action(void)
 	struct sk_buff *skb;
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	long ticket = 0;
-
-	kernel_fpu_begin();
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving

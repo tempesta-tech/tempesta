@@ -71,8 +71,6 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 {
 	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
 
-	kernel_fpu_begin();
-
 	T_DBG("Client timeout end\n");
 
 	/*
