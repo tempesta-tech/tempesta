@@ -327,31 +327,31 @@ SYM_FUNC_START(__tfw_strtolower_avx2)
 
 .text
 .str2low_len8:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 7
 .str2low_len7:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 6
 .str2low_len6:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 5
 .str2low_len5:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 4
 .str2low_len4:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 3
 .str2low_len3:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 2
 .str2low_len2:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 1
 .str2low_len1:
-	endbr64;
+	endbr64
 	__STRTOLOWER_SMALL_STR 0
 .str2low_len0:
-	endbr64;
+	endbr64
 	addq	$88, %rsp
 	popq	%rbx
 	popq	%r10
@@ -505,7 +505,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	.quad	.stricmp_len8
 .text
 .stricmp_len7:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	/*
 	 * The blocks at the below use complex mixture for the registers,
@@ -562,35 +562,35 @@ SYM_FUNC_START(__tfw_stricmp_avx2)
 	orl	%edx, %eax
 	RET
 .stricmp_len0:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	RET
 .stricmp_len1:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len1
 .stricmp_len2:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len2
 .stricmp_len3:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	jmp	.stricmp_do_len3
 .stricmp_len4:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	jmp	.stricmp_do_len4
 .stricmp_len5:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len5
 .stricmp_len6:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.stricmp_do_len6
 .stricmp_len8:
-	endbr64;
+	endbr64
 	movzbl	7(%rdi), %edx
 	movzbl	7(%rsi), %eax
 	movzbl	__tfw_lct(%rdx), %edx
@@ -871,7 +871,7 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	.quad	.sic2lc_len8
 .text
 .sic2lc_len7:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 .sic2lc_do_len7:
 	movzbl	6(%rdi), %edx
@@ -919,35 +919,35 @@ SYM_FUNC_START(__tfw_stricmp_avx2_2lc)
 	orl	%edx, %eax
 	RET
 .sic2lc_len0:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	RET
 .sic2lc_len1:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len1
 .sic2lc_len2:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len2
 .sic2lc_len3:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	jmp	.sic2lc_do_len3
 .sic2lc_len4:
-	endbr64;
+	endbr64
 	xorl	%eax, %eax
 	jmp	.sic2lc_do_len4
 .sic2lc_len5:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len5
 .sic2lc_len6:
-	endbr64;
+	endbr64
 	xorl	%edx, %edx
 	jmp	.sic2lc_do_len6
 .sic2lc_len8:
-	endbr64;
+	endbr64
 	movzbl	7(%rdi), %eax
 	movzbl	__tfw_lct(%rax), %edx
 	xorb	7(%rsi), %dl

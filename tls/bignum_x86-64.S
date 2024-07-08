@@ -199,25 +199,25 @@ SYM_FUNC_START(mpi_sub_x86_64)
 	jmpq	*%rbx
 
 .sub_tail3:
-	endbr64;
+	endbr64
 	movq	(%rdx, %rax, 8), %r9
 	sbbq	(%rsi, %rax, 8), %r9
 	movq	%r9, (%rdi, %rax, 8)
 	incq	%rax
 .sub_tail2:
-	endbr64;
+	endbr64
 	movq	(%rdx, %rax, 8), %r10
 	sbbq	(%rsi, %rax, 8), %r10
 	movq	%r10, (%rdi, %rax, 8)
 	incq	%rax
 .sub_tail1:
-	endbr64;
+	endbr64
 	movq	(%rdx, %rax, 8), %r11
 	sbbq	(%rsi, %rax, 8), %r11
 	movq	%r11, (%rdi, %rax, 8)
 	incq	%rax
 .sub_tail0:
-	endbr64;
+	endbr64
 	popq	%rbx
 
 	/*
