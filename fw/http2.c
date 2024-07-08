@@ -238,7 +238,6 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
-ALLOW_ERROR_INJECTION(tfw_h2_context_init, ERRNO);
 
 void
 tfw_h2_context_clear(TfwH2Ctx *ctx)

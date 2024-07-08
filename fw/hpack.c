@@ -1134,6 +1134,7 @@ err_dt:
 
 	return -ENOMEM;
 }
+ALLOW_ERROR_INJECTION(tfw_hpack_init, ERRNO);
 
 void
 tfw_hpack_clean(TfwHPack *__restrict hp)
