@@ -986,8 +986,6 @@ ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
 
-	kernel_fpu_begin();
-
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -1066,7 +1064,6 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	kernel_fpu_begin();
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 
@@ -1505,8 +1502,6 @@ ss_tx_action(void)
 	struct sk_buff *skb;
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	long ticket = 0;
-
-	kernel_fpu_begin();
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving

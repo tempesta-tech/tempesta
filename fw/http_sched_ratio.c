@@ -680,8 +680,6 @@ tfw_sched_ratio_dynamic_tmfn(struct timer_list *t)
 {
 	TfwRatio *r = from_timer(r, t, timer);
 
-	kernel_fpu_begin();
-
 	tfw_sched_ratio_calc_tmfn(r, tfw_sched_ratio_calc_dynamic);
 }
 
@@ -692,8 +690,6 @@ static void
 tfw_sched_ratio_predict_tmfn(struct timer_list *t)
 {
 	TfwRatio *r = from_timer(r, t, timer);
-
-	kernel_fpu_begin();
 
 	tfw_sched_ratio_calc_tmfn(r, tfw_sched_ratio_calc_predict);
 }
