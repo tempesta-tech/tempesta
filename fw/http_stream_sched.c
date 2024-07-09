@@ -598,7 +598,7 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 			*parent = entry;
 			tfw_h2_stream_sched_remove(sched, stream);
 
-			T_DBGV("%s: ctx [%px] stream with id %u\n",
+			T_DBG4("%s: ctx [%px] stream with id %u\n",
 			       __func__, ctx, stream->id);
 			return stream;
 		} else if (tfw_h2_stream_sched_is_active(&stream->sched)) {

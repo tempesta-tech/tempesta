@@ -364,7 +364,7 @@ do {									\
 
 	spin_lock(&stream->st_lock);
 
-	T_DBGV("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s),"
+	T_DBG4("enter %s: %s strm [%p] state %d(%s) id %u, ftype %d(%s),"
 	       " flags %x\n", __func__, send ? "SEND" : "RECV", stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->id, type, __h2_frm_type_n(type), flags);
@@ -798,7 +798,7 @@ finish:
 	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
 		tfw_h2_conn_reset_stream_on_close(ctx, stream);
 
-	T_DBGV("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
+	T_DBG4("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 
 	spin_unlock(&stream->st_lock);

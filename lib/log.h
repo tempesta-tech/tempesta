@@ -170,9 +170,9 @@ do {									\
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 4)
-#define T_DBGV(...)	pr_debug(__BNR "#     " __VA_ARGS__)
+#define T_DBG4(...)	pr_debug(__BNR "#     " __VA_ARGS__)
 #else
-#define T_DBGV(...)
+#define T_DBG4(...)
 #endif
 
 #endif /* __LIB_LOG_H__ */
