@@ -100,13 +100,13 @@ typedef struct {
 
 typedef struct {
 	TfwPcntCtl	ctl[TFW_STATS_RANGES];
-	char		__reset_from[0];
-	unsigned long	tot_cnt;
-	unsigned long	tot_val;
-	unsigned int	min_val;
-	unsigned int	max_val;
-	unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
-	char		__reset_till[0];
+	struct_group(reset,
+		unsigned long	tot_cnt;
+		unsigned long	tot_val;
+		unsigned int	min_val;
+		unsigned int	max_val;
+		unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
+	);
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
 
 static inline unsigned long *
@@ -840,9 +840,7 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
-	memset(crbent->pcntrng.__reset_from, 0,
-	       offsetof(TfwPcntRanges, __reset_till)
-	       - offsetof(TfwPcntRanges, __reset_from));
+	memset(&crbent->pcntrng.reset, 0, sizeof(crbent->pcntrng.reset));
 	crbent->pcntrng.min_val = UINT_MAX;
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
@@ -1020,6 +1018,8 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBEnt *rbent = rbuf->rbent;
 
+	kernel_fpu_begin();
+
 	/*
 	 * Increment the counter and make the updates use the other array
 	 * of the two that are available. In the meanwhile, use the array
@@ -1058,6 +1058,8 @@ tfw_apm_hm_timer_cb(struct timer_list *t)
 	TfwServer *srv = hmctl->srv;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 	unsigned long now;
+
+	kernel_fpu_begin();
 
 	BUG_ON(!hm);
 	if (!atomic64_read(&hmctl->rcount))
