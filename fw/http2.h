@@ -109,6 +109,7 @@ typedef struct {
  */
 typedef struct tfw_h2_ctx_t {
         spinlock_t      lock;
+        unsigned int    queued_control_frames;
         TfwSettings     lsettings;
         TfwSettings     rsettings;
         unsigned int    lstream_id;

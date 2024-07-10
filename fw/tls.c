@@ -324,7 +324,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		skb_tail = next;
 
 		if (TFW_CONN_PROTO(conn) == TFW_FSM_H2) {
-			h2 = tfw_h2_context(conn);
+			h2 = tfw_h2_context_safe(conn);
 			if (unlikely(skb->cb[SKB_CB_FLAGS_IDX] & SS_F_HTTT2_FRAME_CONTROL)) {
 				--h2->queued_control_frames;
 			}
