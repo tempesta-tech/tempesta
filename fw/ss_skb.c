@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1309,6 +1309,7 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 {
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
+	bool is_control_frame = TFW_SKB_CB(skb)->is_control_frame;
 
 	WARN_ON_ONCE(skb->sk);
 
@@ -1319,6 +1320,10 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	 * zeroed it before pass skb to the kernel.
 	 */
 	memset(skb->cb, 0, sizeof(skb->cb));
+
+	/* Reserve unused bits as http2 flags */
+	if (is_control_frame)
+		TCP_SKB_CB(skb)->unused |= SS_F_HTTT2_FRAME_CONTROL;
 
 	if (!skb_transport_header_was_set(skb)) {
 		/* Quick path for new skbs. */

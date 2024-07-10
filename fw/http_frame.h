@@ -33,11 +33,10 @@ extern unsigned int max_queued_control_frames;
 #define FRAME_MAX_LENGTH		((1U << 24) - 1)
 #define FRAME_DEF_LENGTH		(16384)
 
-#define SKB_CB_FLAGS_IDX		47
-
+/* flags in TCP_SKB_CB(skb)->unused, only 5 bits available */
 enum {
 	/* This skb contains control frame. */
-	SS_F_HTTT2_FRAME_CONTROL	= 0x80,
+	SS_F_HTTT2_FRAME_CONTROL	= 0x01,
 };
 
 /**
