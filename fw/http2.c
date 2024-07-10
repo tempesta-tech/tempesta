@@ -192,28 +192,135 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 	clear_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply);
 }
 
-int
-tfw_h2_init(void)
-{
-	return tfw_h2_stream_cache_create();
-}
-
-void
-tfw_h2_cleanup(void)
-{
-	tfw_h2_stream_cache_destroy();
-}
+#define TFW_H2_PAGE_ORDER 1
+#define TFW_H2_BOUNDARY(base) 					\
+	(char *)base + PAGE_SIZE * (1 << TFW_H2_PAGE_ORDER);
+#define TFW_H2_NEXT_BLOCK(boundary)				\
+	(unsigned long *)(boundary - sizeof(unsigned long));
 
 TfwH2Ctx *
 tfw_h2_context_alloc(void)
 {
-	return (TfwH2Ctx *)kzalloc(sizeof(TfwH2Ctx), GFP_ATOMIC);
+	struct page *pg;
+
+	pg = alloc_pages(GFP_ATOMIC, TFW_H2_PAGE_ORDER);
+	if (!pg)
+		return NULL;
+	return (TfwH2Ctx *)page_address(pg);
 }
 
 void
 tfw_h2_context_free(TfwH2Ctx *ctx)
 {
-	kfree(ctx);
+	free_pages((unsigned long)ctx, TFW_H2_PAGE_ORDER);
+}
+
+static inline void
+tfw_h2_context_init_stream_storage_impl(TfwH2Ctx *ctx, void *base,
+					unsigned long *next_block)
+{
+	TfwStream *stream = (TfwStream *)base;
+
+	while ((char *)stream <= (char *)next_block - sizeof(TfwStream)) {
+		stream->next = ctx->empty_list;
+		ctx->empty_list = stream;
+		stream++;
+	}
+}
+
+static inline int
+tfw_h2_context_alloc_stream_storage_new_block(TfwH2Ctx *ctx)
+{
+	char *boundary;
+	unsigned long *next_block;
+	unsigned long *new_block, *next_new_block;
+	struct page *pg;
+
+	boundary = TFW_H2_BOUNDARY(ctx);
+	next_block = TFW_H2_NEXT_BLOCK(boundary);
+
+	pg = alloc_pages(GFP_ATOMIC, TFW_H2_PAGE_ORDER);
+	if (!unlikely(pg))
+		return -ENOMEM;
+
+	new_block = (unsigned long *)page_address(pg);
+	boundary = TFW_H2_BOUNDARY(new_block);
+	next_new_block = TFW_H2_NEXT_BLOCK(boundary); 
+
+	*next_new_block = *next_block;
+	*next_block = (unsigned long)new_block;
+
+	tfw_h2_context_init_stream_storage_impl(ctx, new_block,
+						next_new_block);
+
+	return 0;
+}
+
+static inline void
+tfw_h2_context_clear_stream_storage(TfwH2Ctx *ctx)
+{
+	char *boundary;
+	unsigned long next_block;
+
+	boundary = TFW_H2_BOUNDARY(ctx);
+	next_block = *TFW_H2_NEXT_BLOCK(boundary);
+
+	while (next_block) {
+		unsigned long to_free;
+
+		to_free = next_block;
+		boundary = TFW_H2_BOUNDARY(next_block);
+		next_block = *TFW_H2_NEXT_BLOCK(boundary);
+		free_pages(to_free, TFW_H2_PAGE_ORDER);
+	}
+}
+
+static inline void
+tfw_h2_context_init_stream_storage(TfwH2Ctx *ctx)
+{
+	char *boundary;
+	unsigned long *new_block;
+	unsigned long *next_block;
+
+	boundary = TFW_H2_BOUNDARY(ctx);
+	new_block = (unsigned long *)ctx + sizeof(TfwH2Ctx);
+	next_block = TFW_H2_NEXT_BLOCK(boundary);
+
+	/*
+	 * Pointer to the next page block for empty streams, will be allocated,
+	 * if count of preallocated streams exceeded.
+	 */
+	*next_block = 0;
+	tfw_h2_context_init_stream_storage_impl(ctx, new_block, next_block);
+}
+
+#undef TFW_H2_NEXT_BLOCK
+#undef TFW_H2_BOUNDARY
+#undef TFW_H2_PAGE_ORDER
+
+TfwStream *
+tfw_h2_context_alloc_stream(TfwH2Ctx *ctx)
+{
+	TfwStream *stream;
+
+	if (!ctx->empty_list) {
+		if (tfw_h2_context_alloc_stream_storage_new_block(ctx))
+			return NULL;
+	}
+
+	stream = ctx->empty_list;
+	ctx->empty_list = ctx->empty_list->next;
+	memset(stream, 0, sizeof(TfwStream));
+
+	return stream;
+}
+
+void
+tfw_h2_context_free_stream(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
+	stream->next = ctx->empty_list;
+	ctx->empty_list = stream;
 }
 
 int
@@ -236,6 +343,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	INIT_LIST_HEAD(&idle_streams->list);
 
 	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_context_init_stream_storage(ctx);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -262,6 +370,7 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 * postponed frames and connection closing initiated.
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
+	tfw_h2_context_clear_stream_storage(ctx);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
@@ -321,7 +430,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		 * No further actions regarding streams dependencies/prio
 		 * is required at this stage.
 		 */
-		tfw_h2_delete_stream(cur);
+		tfw_h2_context_free_stream(ctx, cur);
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;

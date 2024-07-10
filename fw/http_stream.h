@@ -179,6 +179,8 @@ typedef enum {
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
+ * @next	- pointer to the next free stream, if this stream is in
+ *		  empty list;
  * @xmit	- last http2 response info, used in `xmit` callbacks;
  */
 struct tfw_http_stream_t {
@@ -196,13 +198,12 @@ struct tfw_http_stream_t {
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
+	TfwStream		*next;
 	TfwHttpXmit		xmit;
 };
 
 typedef struct tfw_h2_ctx_t TfwH2Ctx;
 
-int tfw_h2_stream_cache_create(void);
-void tfw_h2_stream_cache_destroy(void);
 TfwStream *tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id);
 void tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
@@ -212,7 +213,6 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 int tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len);

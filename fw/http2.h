@@ -83,6 +83,7 @@ typedef struct tfw_conn_t TfwConn;
  *			  from _HTTP2_SETTINGS_MAX are used to save what
  *			  settings we sent to the client;
  * @conn		- pointer to h2 connection of this context;
+ * @empty_list		- pointer to the first empty stream;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -128,6 +129,7 @@ typedef struct tfw_h2_ctx_t {
 	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
 	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
 	TfwH2Conn	*conn;
+	TfwStream	*empty_list;
 	char            __off[0];
 	struct sk_buff  *skb_head;
 	TfwStream       *cur_stream;
@@ -142,8 +144,6 @@ typedef struct tfw_h2_ctx_t {
 	unsigned char   data_off;
 } TfwH2Ctx;
 
-int tfw_h2_init(void);
-void tfw_h2_cleanup(void);
 TfwH2Ctx *tfw_h2_context_alloc(void);
 void tfw_h2_context_free(TfwH2Ctx *ctx);
 int tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn);
@@ -168,5 +168,7 @@ void tfw_h2_req_unlink_and_close_stream(TfwHttpReq *req);
 int tfw_h2_stream_xmit_prepare_resp(TfwStream *stream);
 int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			     unsigned int *len, bool should_split);
+TfwStream * tfw_h2_context_alloc_stream(TfwH2Ctx *ctx);
+void tfw_h2_context_free_stream(TfwH2Ctx *ctx, TfwStream *stream);
 
 #endif /* __HTTP2__ */

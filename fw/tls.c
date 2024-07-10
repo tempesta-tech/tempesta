@@ -961,18 +961,21 @@ static inline int
 tfw_tls_over(TlsCtx *tls, int state)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
-	TfwH2Conn *conn = (TfwH2Conn*)tls->sk->sk_user_data;
 
 	if (state == TTLS_HS_CB_FINISHED_NEW
 	    || state == TTLS_HS_CB_FINISHED_RESUMED)
 		TFW_INC_STAT_BH(serv.tls_hs_successful);
 
 	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2) {
+		TfwH2Conn *conn = (TfwH2Conn*)tls->sk->sk_user_data;
 		int r;
 
 		conn->h2 = tfw_h2_context_alloc();
-		if (!conn->h2)
+		if (!conn->h2) {
+			T_ERR("cannot allocate http2 connection context");
 			return -ENOMEM;
+		}
+
 		r = tfw_h2_context_init(conn->h2, conn);
 		if (r) {
 			T_ERR("cannot establish a new h2 connection\n");
@@ -1244,19 +1247,11 @@ tfw_tls_init(void)
 				ttls_cli_id, tfw_tls_alpn_match,
 				tfw_ja5t_limit_conn, tfw_ja5t_limit_rec);
 
-	if ((r = tfw_h2_init()))
-		goto err_h2;
-
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_HTTPS);
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_H2);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
-
-err_h2:
-	tfw_tls_do_cleanup();
-
-	return r;
 }
 
 void
@@ -1264,6 +1259,5 @@ tfw_tls_exit(void)
 {
 	tfw_mod_unregister(&tfw_tls_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTPS);
-	tfw_h2_cleanup();
 	tfw_tls_do_cleanup();
 }
