@@ -341,7 +341,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	}
 
 	if (is_control_frame) {
-		skb_set_tfw_flags(it.skb, SS_F_HTTT2_FRAME_CONTROL);
+		it.skb->cb[SKB_CB_FLAGS_IDX] |= SS_F_HTTT2_FRAME_CONTROL;
 		++ctx->queued_control_frames;
 	}
 

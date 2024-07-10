@@ -33,12 +33,7 @@ extern unsigned int max_queued_control_frames;
 #define FRAME_MAX_LENGTH		((1U << 24) - 1)
 #define FRAME_DEF_LENGTH		(16384)
 
-/**
- * MAX_QUEUED_CONTROL_FRAMES is the maximum number of control frames like
- * SETTINGS, PING and RST_STREAM that will be queued for writing before
- * the connection is closed to prevent memory exhaustion attacks.
- */
-#define MAX_QUEUED_CONTROL_FRAMES	10000
+#define SKB_CB_FLAGS_IDX		47
 
 enum {
 	/* This skb contains control frame. */

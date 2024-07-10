@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -262,6 +262,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
+	TfwConn *conn = sk->sk_user_data;
+	TfwH2Ctx *h2;
 
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
@@ -320,6 +322,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		sgt.nents += next_nents;
 		out_sgt.nents += next_nents;
 		skb_tail = next;
+
+		if (TFW_CONN_PROTO(conn) == TFW_FSM_H2) {
+			h2 = tfw_h2_context(conn);
+			if (unlikely(skb->cb[SKB_CB_FLAGS_IDX] & SS_F_HTTT2_FRAME_CONTROL)) {
+				--h2->queued_control_frames;
+			}
+		}
 	}
 
 	len += head_sz + TTLS_TAG_LEN;
