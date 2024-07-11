@@ -36,6 +36,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
+#include "lib/fsm.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -247,9 +248,9 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 #define MAX_SEG_N	64
 
 	int r = -ENOMEM;
-	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents;
+	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents, overhead;
 	unsigned char type;
-	struct sk_buff *next = skb, *skb_tail = skb;
+	struct sk_buff *next = skb, *skb_tail = skb, *skb_tail_save = NULL;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
 	TlsCtx *tls;
 	TlsIOCtx *io;
@@ -262,7 +263,18 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
+	bool skb_was_added = false;
 
+	/*
+	 * We should add sk overhead before adding new data to skb which
+	 * already inserted in socket write queue. Because we we fail to
+	 * add overhead after inserting new data to such skb we catch
+	 * warings or bugs in kernel code later.
+	 */
+	if (ss_add_overhead(sk, TLS_MAX_OVERHEAD))
+		return -ENOMEM;
+
+	overhead = TLS_MAX_OVERHEAD;
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
 	xfrm = &tls->xfrm;
@@ -282,11 +294,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	head_sz = ttls_payload_off(xfrm);
 	len = skb->len;
 	type = skb_tfw_tls_type(skb);
-	if (!type) {
-		T_WARN("%s: bad skb type %u\n", __func__, type);
-		r = -EINVAL;
-		goto err_epilogue;
-	}
+	/* Checked early before call this function. */
+	BUG_ON(!type);
 
 	/* TLS header is always allocated from the skb headroom. */
 	tcb->end_seq += head_sz;
@@ -333,20 +342,23 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	t_sz = skb_tail->truesize;
 	WARN_ON_ONCE(next == skb);
 	if (skb_tail == skb) {
-		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, TTLS_TAG_LEN);
+		r = ss_skb_expand_head_tail(skb->next, skb, head_sz,
+					    TTLS_TAG_LEN);
 		if (r < 0)
-			goto out;
+			goto restore_tcb;
 	} else {
 		r = ss_skb_expand_head_tail(NULL, skb, head_sz, 0);
 		if (r < 0)
-			goto out;
+			goto restore_tcb;
 		sgt.nents += r;
 		out_sgt.nents += r;
 
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    TTLS_TAG_LEN);
-		if (r < 0)
-			goto out;
+		if (r < 0) {
+			ss_skb_chop_head_tail_nofail(NULL, skb, head_sz, 0);
+			goto restore_tcb;
+		}
 	}
 	sgt.nents += r;
 	out_sgt.nents += r;
@@ -384,8 +396,10 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		 */
 		t_sz = tail_next->truesize;
 
+		skb_tail_save = skb_tail;
 		skb_tail = tail_next;
 		skb_set_tfw_tls_type(skb_tail, type);
+		skb_was_added = true;
 	}
 
 	/*
@@ -398,16 +412,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	 */
 	tfw_tcp_propagate_dseq(sk, skb_tail);
 	tcp_sk(sk)->write_seq += head_sz + TTLS_TAG_LEN;
-
-	/*
-	 * TLS record header is always allocated from the reserved skb headroom.
-	 * The room for the tag may also be allocated from the reserved tailroom
-	 * or in a new page fragment in skb_tail or next, probably new, skb.
-	 * So to adjust the socket write memory we have to check the both skbs
-	 * and only for TTLS_TAG_LEN.
-	 */
-	if (ss_add_overhead(sk, t_sz))
-		return -ENOMEM;
+	ss_del_overhead(sk, TLS_MAX_OVERHEAD - t_sz);
+	overhead -= TLS_MAX_OVERHEAD - t_sz;
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
@@ -420,8 +426,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 				    GFP_ATOMIC);
 		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
-			T_WARN("cannot alloc memory for TLS encryption.\n");
-			return -ENOMEM;
+			r = -ENOMEM;
+			goto restore_write_queue;
 		}
 
 		ptr += sizeof(struct scatterlist) * sgt.nents;
@@ -447,14 +453,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		       frags, r);
 
 		if (r <= 0)
-			goto out;
+			goto free_pages;
 		frags += r;
 
 		r = ss_skb_to_sgvec_with_new_pages(next,
 		                                   out_sgt.sgl + out_frags,
 		                                   &pages_end);
 		if (r <= 0)
-			goto out;
+			goto free_pages;
 		out_frags += r;
 
 		skb_clear_tfw_cb(next);
@@ -478,18 +484,58 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	spin_unlock(&tls->lock);
 
+free_pages:
 	for (p = pages; p < pages_end; ++p)
 		put_page(*p);
 
-out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
-	if (!r)
-		return r;
-err_epilogue:
-	T_WARN("%s: cannot encrypt data (%d), only partial data was sent\n",
-	       __func__, r);
+
+	if (likely(!r))
+		return 0;
+
+	if (unlikely(r == -ENOMEM)) {
+		struct sk_buff *tmp;
+		/* Restore TLS type, later we call this function again. */
+		for (tmp = skb; tmp != next; ) {
+			tmp = skb_queue_next(&sk->sk_write_queue, tmp);
+			skb_set_tfw_tls_type(tmp, type);
+		}
+	}
+
+restore_write_queue:
+	tcp_sk(sk)->write_seq -= head_sz + TTLS_TAG_LEN;
+	if (skb == skb_tail) {
+		BUG_ON(skb_was_added);
+		ss_skb_chop_head_tail_nofail(skb->next, skb, head_sz,
+					     TTLS_TAG_LEN);
+		TCP_SKB_CB(skb_tail)->end_seq -= TTLS_TAG_LEN;
+		tfw_tcp_propagate_dseq(sk, skb);
+	} else {
+		if (likely(!skb_was_added)) {
+			ss_skb_chop_head_tail_nofail(NULL, skb, head_sz, 0);
+			ss_skb_chop_head_tail_nofail(skb_tail->next, skb_tail,
+						     0, TTLS_TAG_LEN);
+			TCP_SKB_CB(skb_tail)->end_seq -= TTLS_TAG_LEN;
+		} else {
+			ss_skb_chop_head_tail_nofail(NULL, skb, head_sz, 0);
+			/*
+			 * New skb with TLS tag was added to socket write queue,
+			 * remove it.
+			 */
+			__skb_unlink(skb_tail, &sk->sk_write_queue);
+			skb_tail = skb_tail_save;
+		}
+		tfw_tcp_propagate_dseq(sk, skb);
+		tfw_tcp_propagate_dseq(sk, skb_tail);
+	}
+
+restore_tcb:
+	tcb->end_seq -= head_sz;
+	ss_del_overhead(sk, overhead);
+	T_WARN("%s: cannot encrypt data (%d) %u\n", __func__, r, overhead);
 	return r;
+
 #undef AUTO_SEGS_N
 #undef MAX_SEG_N
 }
