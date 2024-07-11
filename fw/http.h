@@ -741,13 +741,13 @@ int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
 int tfw_http_expand_hdr_via(TfwHttpResp *resp);
 void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
-int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache, unsigned int stream_id);
-int tfw_h2_set_stale_warn(TfwHttpResp *resp, unsigned int stream_id);
+int tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache);
+int tfw_h2_set_stale_warn(TfwHttpResp *resp);
 int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
-			     bool cache, unsigned int stream_id);
+			     bool cache);
 int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
-			     bool use_pool, bool cache,
-			     unsigned int stream_id);
+			     bool use_pool, bool cache);
+int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
 /*
  * Functions to send an HTTP error response to a client.
  */
@@ -756,6 +756,7 @@ int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
+void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
@@ -764,12 +765,13 @@ unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
 				 bool inplace);
 unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 			      unsigned short st_index);
-int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
-			    unsigned long h_len, const TfwStr *body);
+int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned long h_len,
+			    const TfwStr *body);
 int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 				 size_t max_len);
 void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
+int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
 
 #endif /* __TFW_HTTP_H__ */

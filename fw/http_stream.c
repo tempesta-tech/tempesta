@@ -47,33 +47,22 @@ tfw_h2_stream_cache_destroy(void)
 	kmem_cache_destroy(stream_cache);
 }
 
-static int
-tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id, TfwStream **dep)
+
+static inline void
+tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-	return 0;
+	if (ctx->cur_send_headers == stream)
+		ctx->cur_send_headers = NULL;
+	if (ctx->cur_recv_headers == stream)
+		ctx->cur_recv_headers = NULL;
 }
 
-static void
-tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream, TfwStream *dep,
-		      bool excl)
+static inline void
+tfw_h2_stream_purge_all(TfwStream *stream)
 {
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
-static void
-tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
+	ss_skb_queue_purge(&stream->xmit.skb_head);
+	ss_skb_queue_purge(&stream->xmit.postponed);
+	stream->xmit.h_len = stream->xmit.b_len = 0;
 }
 
 static void
@@ -81,8 +70,15 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 
-	tfw_h2_conn_reset_stream_on_close(ctx, stream);
+	/*
+	 * Should be done before purging stream send queue,
+	 * to correct adjusting count of active streams in
+	 * the scheduler.
+	 */
 	tfw_h2_remove_stream_dep(sched, stream);
+	tfw_h2_stream_purge_all_and_free_response(stream);
+
+	tfw_h2_conn_reset_stream_on_close(ctx, stream);
 	rb_erase(&stream->node, &sched->streams);
 }
 
@@ -91,6 +87,9 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
+	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
+	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
+	tfw_h2_init_stream_sched_entry(&stream->sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
@@ -134,6 +133,84 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	return new_stream;
 }
 
+void
+tfw_h2_stream_purge_send_queue(TfwStream *stream)
+{
+	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
+		stream->xmit.frame_length;
+	struct sk_buff *skb;
+
+	while (len) {
+		skb = ss_skb_dequeue(&stream->xmit.skb_head);
+		BUG_ON(!skb);
+
+		len -= skb->len;
+		kfree_skb(skb);
+	}
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.frame_length = 0;
+}
+
+void
+tfw_h2_stream_purge_all_and_free_response(TfwStream *stream)
+{
+	TfwHttpResp*resp = stream->xmit.resp;
+
+	if (resp) {
+		tfw_http_resp_pair_free_and_put_conn(resp);
+		stream->xmit.resp = NULL;
+	}
+	tfw_h2_stream_purge_all(stream);
+}
+
+void
+tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	struct list_head *pos, *prev = &ctx->idle_streams.list;
+	bool found = false;
+
+	/*
+	 * We add and remove streams from idle queue under the
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+
+	/*
+	 * Found first idle stream with id less than new idle
+	 * stream, then insert new stream before this stream.
+	 */
+	list_for_each(pos, &ctx->idle_streams.list) {
+		TfwStream *stream = list_entry(pos, TfwStream, hcl_node);
+
+		if (idle->id > stream->id) {
+			found = true;
+			break;
+		}
+		prev = &stream->hcl_node;
+	}
+
+	if (found) {
+		list_add(&idle->hcl_node, prev);
+		idle->queue = &ctx->idle_streams;
+		++idle->queue->num;
+	} else {
+		tfw_h2_stream_add_to_queue_nolock(&ctx->idle_streams, idle);
+	}
+}
+
+void
+tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+	/*
+	 * We add and remove streams from idle queue under the
+	 * socket lock.
+	 */
+	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	tfw_h2_stream_del_from_queue_nolock(stream);
+}
+
 /*
  * Create a new stream and add it to the streams storage and to the dependency
  * tree. Note, that we do not need to protect the streams storage in @sched from
@@ -143,13 +220,12 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 {
-	TfwStream *stream, *dep = NULL;
+	TfwStream *stream;
+	TfwStreamSchedEntry *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
 
-	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
-		return NULL;
-
+	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
 	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
@@ -160,10 +236,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 
 	++ctx->streams_num;
 
-	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p], excl %u)\n"
-	       "added strm [%p] id %u weight %u\n",
-	       __func__, ctx, ctx->streams_num, pri->stream_id, dep, pri->exclusive,
-	       stream, id, stream->weight);
+	T_DBG3("%s: ctx [%p] (streams_num %lu, dep strm id %u, dep strm [%p],"
+	       "excl %u) added strm [%p] id %u weight %u\n",
+	       __func__, ctx, ctx->streams_num, pri->stream_id, dep,
+	       pri->exclusive, stream, id, stream->weight);
 
 	return stream;
 }
@@ -226,40 +302,6 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 	spin_lock(&ctx->lock);
 	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams, stream);
 	spin_unlock(&ctx->lock);
-}
-
-/*
- * Stream closing procedure: move the stream into special queue of closed
- * streams and send RST_STREAM frame to peer. This procedure is intended
- * for usage only in receiving flow of Framing layer, thus the stream is
- * definitely alive here and we need not any unlinking operations since
- * all the unlinking and cleaning work will be made later, during shrinking
- * the queue of closed streams; thus, we just move the stream into the
- * closed queue here.
- * We also reset the current stream of the H2 context here.
- */
-int
-tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
-		    TfwH2Err err_code)
-{
-	if (stream && *stream) {
-		T_DBG3("%s: ctx [%p] strm %p id %d err %u\n", __func__,
-			ctx, *stream, id, err_code);
-		tfw_h2_conn_reset_stream_on_close(ctx, *stream);
-		if (tfw_h2_get_stream_state(*stream) >
-		    HTTP2_STREAM_REM_HALF_CLOSED) {
-			tfw_h2_stream_add_closed(ctx, *stream);
-		} else {
-			/*
-			 * This function is always called after processing
-			 * RST STREAM or stream error.
-			 */
-			BUG();
-		}
-		*stream = NULL;
-	}
-
-	return tfw_h2_send_rst_stream(ctx, id, err_code);
 }
 
 /*
@@ -434,12 +476,6 @@ do {									\
 			break;
 		}
 
-		if (send) {
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
-		} else {
-			TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
-		}
-
 		if (type == HTTP2_CONTINUATION) {
 			/*
 			 * Empty CONTINUATION frames without END_HEADERS flag
@@ -572,6 +608,7 @@ do {									\
 					   HTTP2_F_END_STREAM))
 				{
 				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
+					ctx->cur_recv_headers = NULL;
 					SET_STATE(HTTP2_STREAM_CLOSED);
 					break;
 				case HTTP2_F_END_HEADERS:
@@ -582,8 +619,9 @@ do {									\
 					ctx->cur_recv_headers = NULL;
 					break;
 				case HTTP2_F_END_STREAM:
-					SET_STATE(HTTP2_STREAM_CLOSED);
-					ctx->cur_recv_headers = NULL;
+					ctx->cur_recv_headers = stream;
+					stream->state |=
+						HTTP2_STREAM_RECV_END_OF_STREAM;
 					break;
 				default:
 					ctx->cur_recv_headers = stream;
@@ -616,9 +654,46 @@ do {									\
 
 	case HTTP2_STREAM_REM_HALF_CLOSED:
 		if (send) {
-			if (type == HTTP2_RST_STREAM
-			    || flags & HTTP2_F_END_STREAM)
+			if (type == HTTP2_HEADERS ||
+			    type == HTTP2_CONTINUATION) {
+				switch (flags
+					& (HTTP2_F_END_HEADERS |
+					   HTTP2_F_END_STREAM))
+				{
+				/*
+				 * RFC 9113 5.1 (half-closed (remote) state):
+				 * A stream can transition from this state to
+				 * "closed" by sending a frame with the
+				 * END_STREAM flag set.
+				 */
+				case HTTP2_F_END_STREAM:
+					ctx->cur_send_headers = stream;
+					stream->state |=
+						HTTP2_STREAM_SEND_END_OF_STREAM;
+					break;
+				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
+					ctx->cur_send_headers = NULL;
+					SET_STATE(HTTP2_STREAM_CLOSED);
+					break;
+				case HTTP2_F_END_HEADERS:
+					/*
+					 * Headers are ended, next frame in the
+					 * stream should be DATA frame.
+					 */
+					ctx->cur_send_headers = NULL;
+					break;
+
+				default:
+					ctx->cur_send_headers = stream;
+					break;
+				}
+			} else if (type == HTTP2_DATA) {
+				if (flags & HTTP2_F_END_STREAM)
+					SET_STATE(HTTP2_STREAM_CLOSED);
+			} else if (type == HTTP2_RST_STREAM) {
 				SET_STATE(HTTP2_STREAM_REM_CLOSED);
+			}
+
 			break;
 		}
 
@@ -639,9 +714,9 @@ do {									\
 			/*
 			 * We always send RST_STREAM to the peer in this case;
 			 * thus, the stream should be switched to the
-			 * 'closed (remote)' state.
+			 * 'closed' state.
 			 */
-			SET_STATE(HTTP2_STREAM_REM_CLOSED);
+			SET_STATE(HTTP2_STREAM_CLOSED);
 			*err = HTTP2_ECODE_CLOSED;
 			res = STREAM_FSM_RES_TERM_STREAM;
 		}
@@ -654,19 +729,23 @@ do {									\
 	 * frame on a stream in the "open" or "half-closed (local)" state.
 	 */
 	case HTTP2_STREAM_LOC_CLOSED:
-		/*
-		 * RFC 9113 section 5.1:
-		 * An endpoint that sends a RST_STREAM frame on a stream
-		 * that is in the "open" or "half-closed (local)" state
-		 * could receive any type of frame.
-		 */
 		if (send) {
 			res = STREAM_FSM_RES_IGNORE;
 			break;
 		}
 
+		/*
+		 * RFC 9113 section 5.1:
+		 * An endpoint that sends a RST_STREAM frame on a stream
+		 * that is in the "open" or "half-closed (local)" state
+		 * could receive any type of frame.
+		 * An endpoint MUST minimally process and then discard
+		 * any frames it receives in this state.
+		 */
 		if (type == HTTP2_RST_STREAM)
 			SET_STATE(HTTP2_STREAM_CLOSED);
+		else if (type != HTTP2_WINDOW_UPDATE)
+			res = STREAM_FSM_RES_IGNORE;
 
 		break;
 
@@ -701,20 +780,22 @@ do {									\
 		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		if (send) {
 			res = STREAM_FSM_RES_IGNORE;
-			break;
+		} else {
+			if (type != HTTP2_PRIORITY) {
+				*err = HTTP2_ECODE_PROTO;
+				res = STREAM_FSM_RES_TERM_CONN;
+			}
 		}
-		/*
-		 * In moment when the final 'closed' state is achieved, stream
-		 * actually must be removed from stream's storage (and from
-		 * memory), thus the receive execution flow must not reach this
-		 * point.
-		 */
-		fallthrough;
+
+		break;
 	default:
 		BUG();
 	}
 
 finish:
+	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
+		tfw_h2_conn_reset_stream_on_close(ctx, stream);
+
 	T_DBG3("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 
@@ -749,38 +830,38 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 void
 tfw_h2_delete_stream(TfwStream *stream)
 {
+	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
 	kmem_cache_free(stream_cache, stream);
 }
 
-void
-tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			 unsigned int new_dep, unsigned short new_weight,
-			 bool excl)
-{
-	/*
-	 * TODO: implement dependency/priority logic (according to RFC 7540
-	 * section 5.3) in context of #1196.
-	 */
-}
-
 int
-tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
-			    unsigned long b_len)
+tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
+			    unsigned long h_len, unsigned long b_len)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(resp->req->conn);
+	struct sk_buff *skb_head = resp->msg.skb_head;
 	TfwStream *stream;
 
 	spin_lock(&ctx->lock);
 
-	stream = req->stream;
+	stream = resp->req->stream;
 	if (!stream) {
 		spin_unlock(&ctx->lock);
 		return -EPIPE;
 	}
 
+	TFW_SKB_CB(skb_head)->opaque_data = resp;
+	TFW_SKB_CB(skb_head)->destructor = tfw_http_resp_pair_free_and_put_conn;
+	TFW_SKB_CB(skb_head)->on_send = tfw_http_on_send_resp;
+	TFW_SKB_CB(skb_head)->stream_id = stream->id;
+
+	stream->xmit.resp = NULL;
+	stream->xmit.skb_head = NULL;
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
-	tfw_h2_stream_xmit_reinit(&stream->xmit);
+	stream->xmit.state = state;
+	stream->xmit.frame_length = 0;
+	stream->xmit.is_blocked = false;
 
 	spin_unlock(&ctx->lock);
 
@@ -790,21 +871,18 @@ tfw_h2_stream_init_for_xmit(TfwHttpReq *req, unsigned long h_len,
 TfwStreamFsmRes
 tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 {
-	TfwStreamFsmRes r;
 	unsigned char flags = 0;
 
-	BUG_ON(stream->xmit.h_len && stream->xmit.b_len);
+	if (stream->xmit.h_len && !stream->xmit.b_len
+	    && type == HTTP2_HEADERS)
+		flags |= HTTP2_F_END_STREAM;
 
 	if (!stream->xmit.h_len && type != HTTP2_DATA)
 		flags |= HTTP2_F_END_HEADERS;
 
-	if (!stream->xmit.b_len)
+	if (!stream->xmit.h_len && !stream->xmit.b_len
+	    && !tfw_h2_stream_is_eos_sent(stream))
 		flags |= HTTP2_F_END_STREAM;
 
-	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
-	if (flags & HTTP2_F_END_STREAM
-	    || (r && r != STREAM_FSM_RES_IGNORE))
-		tfw_h2_stream_add_closed(ctx, stream);
-
-	return r != STREAM_FSM_RES_IGNORE ? r : STREAM_FSM_RES_OK;
+	return tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 }

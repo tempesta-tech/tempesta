@@ -1,7 +1,7 @@
 /**
  *		Tempesta TLS
  *
- * X.509 Certidicate Revocation List (CRL) parsing
+ * X.509 Certificate Revocation List (CRL) parsing
  *
  * The ITU-T X.509 standard defines a certificate format for PKI.
  *
@@ -14,7 +14,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,21 +39,19 @@
 /*
  *  Version  ::=  INTEGER  {  v1(0), v2(1)  }
  */
-static int x509_crl_get_version(unsigned char **p,
-				 const unsigned char *end,
-				 int *ver)
+static int
+x509_crl_get_version(const unsigned char **p, const unsigned char *end,
+		     int *ver)
 {
 	int ret;
 
-	if ((ret = ttls_asn1_get_int(p, end, ver)) != 0)
-	{
-		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		{
+	if ((ret = ttls_asn1_get_int(p, end, ver))) {
+		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG) {
 			*ver = 0;
 			return 0;
 		}
 
-		return(TTLS_ERR_X509_INVALID_VERSION + ret);
+		return TTLS_ERR_X509_INVALID_VERSION + ret;
 	}
 
 	return 0;
@@ -66,26 +64,24 @@ static int x509_crl_get_version(unsigned char **p,
  * list of extensions is well-formed and abort on critical extensions (that
  * are unsupported as we don't support any extension so far)
  */
-static int x509_get_crl_ext(unsigned char **p,
-				 const unsigned char *end,
-				 ttls_x509_buf *ext)
+static int
+x509_get_crl_ext(const unsigned char **p, const unsigned char *end,
+		 ttls_x509_buf *ext)
 {
 	int ret;
 
 	/*
-	 * crlExtensions		   [0]  EXPLICIT Extensions OPTIONAL
-	 *				  -- if present, version MUST be v2
+	 * crlExtensions   [0]  EXPLICIT Extensions OPTIONAL
+	 *		  -- if present, version MUST be v2
 	 */
-	if ((ret = ttls_x509_get_ext(p, end, ext, 0)) != 0)
-	{
+	if ((ret = ttls_x509_get_ext(p, end, ext, 0))) {
 		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG)
 			return 0;
 
 		return ret;
 	}
 
-	while (*p < end)
-	{
+	while (*p < end) {
 		/*
 		 * Extension  ::=  SEQUENCE  {
 		 *	  extnID	  OBJECT IDENTIFIER,
@@ -97,48 +93,46 @@ static int x509_get_crl_ext(unsigned char **p,
 		size_t len;
 
 		/* Get enclosing sequence tag */
-		if ((ret = ttls_asn1_get_tag(p, end, &len,
-				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
+		ret = ttls_asn1_get_tag(p, end, &len,
+					TTLS_ASN1_CONSTRUCTED
+					| TTLS_ASN1_SEQUENCE);
+		if (ret)
+			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 		end_ext_data = *p + len;
 
 		/* Get OID (currently ignored) */
-		if ((ret = ttls_asn1_get_tag(p, end_ext_data, &len,
-				  TTLS_ASN1_OID)) != 0)
-		{
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
-		}
+		ret = ttls_asn1_get_tag(p, end_ext_data, &len, TTLS_ASN1_OID);
+		if (ret)
+			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 		*p += len;
 
 		/* Get optional critical */
-		if ((ret = ttls_asn1_get_bool(p, end_ext_data,
-				   &is_critical)) != 0 &&
-			(ret != TTLS_ERR_ASN1_UNEXPECTED_TAG))
-		{
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
-		}
+		ret = ttls_asn1_get_bool(p, end_ext_data, &is_critical);
+		if (ret && ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
+			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 		/* Data should be octet string type */
-		if ((ret = ttls_asn1_get_tag(p, end_ext_data, &len,
-				TTLS_ASN1_OCTET_STRING)) != 0)
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
+		ret = ttls_asn1_get_tag(p, end_ext_data, &len,
+					TTLS_ASN1_OCTET_STRING);
+		if (ret)
+			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 		/* Ignore data so far and just check its length */
 		*p += len;
 		if (*p != end_ext_data)
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-		TTLS_ERR_ASN1_LENGTH_MISMATCH);
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 		/* Abort on (unsupported) critical extensions */
 		if (is_critical)
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-		TTLS_ERR_ASN1_UNEXPECTED_TAG);
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 	}
 
 	if (*p != end)
-		return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -146,9 +140,9 @@ static int x509_get_crl_ext(unsigned char **p,
 /*
  * X.509 CRL v2 entry extensions (no extensions parsed yet.)
  */
-static int x509_get_crl_entry_ext(unsigned char **p,
-				 const unsigned char *end,
-				 ttls_x509_buf *ext)
+static int
+x509_get_crl_entry_ext(const unsigned char **p, const unsigned char *end,
+		       ttls_x509_buf *ext)
 {
 	int ret;
 	size_t len = 0;
@@ -164,35 +158,35 @@ static int x509_get_crl_entry_ext(unsigned char **p,
 	 * Get CRL-entry extension sequence header
 	 * crlEntryExtensions	  Extensions OPTIONAL  -- if present, MUST be v2
 	 */
-	if ((ret = ttls_asn1_get_tag(p, end, &ext->len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
-		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		{
+	ret = ttls_asn1_get_tag(p, end, &ext->len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret) {
+		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG) {
 			ext->p = NULL;
 			return 0;
 		}
-		return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
+		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 	}
 
 	end = *p + ext->len;
 
 	if (end != *p + ext->len)
-		return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
-	while (*p < end)
-	{
-		if ((ret = ttls_asn1_get_tag(p, end, &len,
-				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
+	while (*p < end) {
+		ret = ttls_asn1_get_tag(p, end, &len,
+					TTLS_ASN1_CONSTRUCTED
+					| TTLS_ASN1_SEQUENCE);
+		if (ret)
+			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 		*p += len;
 	}
 
 	if (*p != end)
-		return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -200,9 +194,9 @@ static int x509_get_crl_entry_ext(unsigned char **p,
 /*
  * X.509 CRL Entries
  */
-static int x509_get_entries(unsigned char **p,
-				 const unsigned char *end,
-				 ttls_x509_crl_entry *entry)
+static int
+x509_get_entries(const unsigned char **p, const unsigned char *end,
+		 ttls_x509_crl_entry *entry)
 {
 	int ret;
 	size_t entry_len;
@@ -211,51 +205,47 @@ static int x509_get_entries(unsigned char **p,
 	if (*p == end)
 		return 0;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &entry_len,
-			TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED)) != 0)
-	{
+	ret = ttls_asn1_get_tag(p, end, &entry_len,
+				TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED);
+	if (ret) {
 		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG)
 			return 0;
-
 		return ret;
 	}
 
 	end = *p + entry_len;
 
-	while (*p < end)
-	{
+	while (*p < end) {
 		size_t len2;
 		const unsigned char *end2;
 
-		if ((ret = ttls_asn1_get_tag(p, end, &len2,
-				TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED)) != 0)
-		{
+		ret = ttls_asn1_get_tag(p, end, &len2,
+					TTLS_ASN1_SEQUENCE
+					| TTLS_ASN1_CONSTRUCTED);
+		if (ret)
 			return ret;
-		}
 
 		cur_entry->raw.tag = **p;
 		cur_entry->raw.p = *p;
 		cur_entry->raw.len = len2;
 		end2 = *p + len2;
 
-		if ((ret = ttls_x509_get_serial(p, end2, &cur_entry->serial)) != 0)
+		if ((ret = ttls_x509_get_serial(p, end2, &cur_entry->serial)))
 			return ret;
 
-		if ((ret = ttls_x509_get_time(p, end2,
-		   &cur_entry->revocation_date)) != 0)
+		ret = ttls_x509_get_time(p, end2, &cur_entry->revocation_date);
+		if (ret)
 			return ret;
 
-		if ((ret = x509_get_crl_entry_ext(p, end2,
-		&cur_entry->entry_ext)) != 0)
+		ret = x509_get_crl_entry_ext(p, end2, &cur_entry->entry_ext);
+		if (ret)
 			return ret;
 
-		if (*p < end)
-		{
+		if (*p < end) {
 			cur_entry->next = kzalloc(sizeof(ttls_x509_crl_entry),
 						  GFP_KERNEL);
-
-			if (cur_entry->next == NULL)
-				return(TTLS_ERR_X509_ALLOC_FAILED);
+			if (!cur_entry->next)
+				return TTLS_ERR_X509_ALLOC_FAILED;
 
 			cur_entry = cur_entry->next;
 		}
@@ -280,7 +270,8 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 {
 	int ret;
 	size_t len;
-	unsigned char *p = NULL, *end = NULL;
+	unsigned char *p = NULL;
+	const unsigned char *end = NULL;
 	ttls_x509_buf sig_params1, sig_params2, sig_oid2;
 	ttls_x509_crl *crl = chain;
 
@@ -300,14 +291,12 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	while (crl->version != 0 && crl->next != NULL)
 		crl = crl->next;
 
-	if (crl->version != 0 && crl->next == NULL)
-	{
+	if (crl->version != 0 && crl->next == NULL) {
 		crl->next = kzalloc(sizeof(ttls_x509_crl), GFP_KERNEL);
 
-		if (crl->next == NULL)
-		{
+		if (crl->next == NULL) {
 			ttls_x509_crl_free(crl);
-			return(TTLS_ERR_X509_ALLOC_FAILED);
+			return TTLS_ERR_X509_ALLOC_FAILED;
 		}
 
 		ttls_x509_crl_init(crl->next);
@@ -318,11 +307,11 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 * Copy raw DER-encoded CRL
 	 */
 	if (buflen == 0)
-		return(TTLS_ERR_X509_INVALID_FORMAT);
+		return TTLS_ERR_X509_INVALID_FORMAT;
 
 	p = kmalloc(buflen, GFP_KERNEL);
 	if (p == NULL)
-		return(TTLS_ERR_X509_ALLOC_FAILED);
+		return TTLS_ERR_X509_ALLOC_FAILED;
 
 	memcpy(p, buf, buflen);
 
@@ -337,18 +326,17 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 *	  signatureAlgorithm   AlgorithmIdentifier,
 	 *	  signatureValue	   BIT STRING  }
 	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
+	ret = ttls_asn1_get_tag((const unsigned char **)&p, end, &len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_INVALID_FORMAT);
+		return TTLS_ERR_X509_INVALID_FORMAT;
 	}
 
-	if (len != (size_t) (end - p))
-	{
+	if (len != (size_t)(end - p)) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_INVALID_FORMAT +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_FORMAT
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 	}
 
 	/*
@@ -356,11 +344,11 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 */
 	crl->tbs.p = p;
 
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
+	ret = ttls_asn1_get_tag((const unsigned char **)&p, end, &len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_INVALID_FORMAT + ret);
+		return TTLS_ERR_X509_INVALID_FORMAT + ret;
 	}
 
 	end = p + len;
@@ -372,43 +360,44 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 *
 	 * signature			AlgorithmIdentifier
 	 */
-	if ((ret = x509_crl_get_version(&p, end, &crl->version)) != 0 ||
-		(ret = ttls_x509_get_alg(&p, end, &crl->sig_oid, &sig_params1)) != 0)
-	{
+	ret = x509_crl_get_version((const unsigned char **)&p, end, &crl->version);
+	if (ret) {
+		ttls_x509_crl_free(crl);
+		return ret;
+	}
+	ret = ttls_x509_get_alg((const unsigned char **)&p, end, &crl->sig_oid,
+				&sig_params1);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
 
-	if (crl->version < 0 || crl->version > 1)
-	{
+	if (crl->version < 0 || crl->version > 1) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_UNKNOWN_VERSION);
+		return TTLS_ERR_X509_UNKNOWN_VERSION;
 	}
 
 	crl->version++;
 
-	if ((ret = ttls_x509_get_sig_alg(&crl->sig_oid, &sig_params1,
-		  &crl->sig_md, &crl->sig_pk,
-		  &crl->sig_opts)) != 0)
-	{
+	ret = ttls_x509_get_sig_alg(&crl->sig_oid, &sig_params1, &crl->sig_md,
+				    &crl->sig_pk, &crl->sig_opts);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
 
-	/*
-	 * issuer			   Name
-	 */
+	/* issuer  Name */
 	crl->issuer_raw.p = p;
 
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
+	ret = ttls_asn1_get_tag((const unsigned char **)&p, end, &len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_INVALID_FORMAT + ret);
+		return TTLS_ERR_X509_INVALID_FORMAT + ret;
 	}
 
-	if ((ret = ttls_x509_get_name(&p, p + len, &crl->issuer)) != 0)
-	{
+	ret = ttls_x509_get_name((const unsigned char **)&p, p + len, &crl->issuer);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
@@ -419,22 +408,19 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 * thisUpdate		  Time
 	 * nextUpdate		  Time OPTIONAL
 	 */
-	if ((ret = ttls_x509_get_time(&p, end, &crl->this_update)) != 0)
-	{
+	ret = ttls_x509_get_time((const unsigned char **)&p, end, &crl->this_update);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
 
-	if ((ret = ttls_x509_get_time(&p, end, &crl->next_update)) != 0)
+	ret = ttls_x509_get_time((const unsigned char **)&p, end, &crl->next_update);
+	if (ret
+	    && ret != (TTLS_ERR_X509_INVALID_DATE + TTLS_ERR_ASN1_UNEXPECTED_TAG)
+	    && ret != (TTLS_ERR_X509_INVALID_DATE + TTLS_ERR_ASN1_OUT_OF_DATA))
 	{
-		if (ret != (TTLS_ERR_X509_INVALID_DATE +
-			TTLS_ERR_ASN1_UNEXPECTED_TAG) &&
-			ret != (TTLS_ERR_X509_INVALID_DATE +
-			TTLS_ERR_ASN1_OUT_OF_DATA))
-		{
-			ttls_x509_crl_free(crl);
-			return ret;
-		}
+		ttls_x509_crl_free(crl);
+		return ret;
 	}
 
 	/*
@@ -445,8 +431,8 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 *		   -- if present, MUST be v2
 	 *			} OPTIONAL
 	 */
-	if ((ret = x509_get_entries(&p, end, &crl->entry)) != 0)
-	{
+	ret = x509_get_entries((const unsigned char **)&p, end, &crl->entry);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
@@ -455,22 +441,19 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 * crlExtensions		  EXPLICIT Extensions OPTIONAL
 	 *				  -- if present, MUST be v2
 	 */
-	if (crl->version == 2)
-	{
-		ret = x509_get_crl_ext(&p, end, &crl->crl_ext);
-
-		if (ret != 0)
-		{
+	if (crl->version == 2) {
+		ret = x509_get_crl_ext((const unsigned char **)&p, end,
+				       &crl->crl_ext);
+		if (ret) {
 			ttls_x509_crl_free(crl);
 			return ret;
 		}
 	}
 
-	if (p != end)
-	{
+	if (p != end) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_INVALID_FORMAT +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_FORMAT
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 	}
 
 	end = crl->raw.p + crl->raw.len;
@@ -479,33 +462,33 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 *  signatureAlgorithm   AlgorithmIdentifier,
 	 *  signatureValue	   BIT STRING
 	 */
-	if ((ret = ttls_x509_get_alg(&p, end, &sig_oid2, &sig_params2)) != 0)
-	{
+	ret = ttls_x509_get_alg((const unsigned char **)&p, end, &sig_oid2,
+				&sig_params2);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
 
-	if (crl->sig_oid.len != sig_oid2.len ||
-		memcmp(crl->sig_oid.p, sig_oid2.p, crl->sig_oid.len) != 0 ||
-		sig_params1.len != sig_params2.len ||
-		(sig_params1.len != 0 &&
-		  memcmp(sig_params1.p, sig_params2.p, sig_params1.len) != 0))
+	if (crl->sig_oid.len != sig_oid2.len
+	    || memcmp(crl->sig_oid.p, sig_oid2.p, crl->sig_oid.len)
+	    || sig_params1.len != sig_params2.len
+	    || (sig_params1.len
+		&& memcmp(sig_params1.p, sig_params2.p, sig_params1.len)))
 	{
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_SIG_MISMATCH);
+		return TTLS_ERR_X509_SIG_MISMATCH;
 	}
 
-	if ((ret = ttls_x509_get_sig(&p, end, &crl->sig)) != 0)
-	{
+	ret = ttls_x509_get_sig((const unsigned char **)&p, end, &crl->sig);
+	if (ret) {
 		ttls_x509_crl_free(crl);
 		return ret;
 	}
 
-	if (p != end)
-	{
+	if (p != end) {
 		ttls_x509_crl_free(crl);
-		return(TTLS_ERR_X509_INVALID_FORMAT +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_FORMAT
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 	}
 
 	return 0;
@@ -582,7 +565,8 @@ void ttls_x509_crl_init(ttls_x509_crl *crl)
 /**
  * Unallocate all CRL data
  */
-void ttls_x509_crl_free(ttls_x509_crl *crl)
+void
+ttls_x509_crl_free(ttls_x509_crl *crl)
 {
 	ttls_x509_crl *crl_cur = crl;
 	ttls_x509_crl *crl_prv;
@@ -594,13 +578,11 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 	if (crl == NULL)
 		return;
 
-	do
-	{
+	do {
 		kfree(crl_cur->sig_opts);
 
 		name_cur = crl_cur->issuer.next;
-		while (name_cur != NULL)
-		{
+		while (name_cur) {
 			name_prv = name_cur;
 			name_cur = name_cur->next;
 			ttls_bzero_safe(name_prv, sizeof(ttls_x509_name));
@@ -608,27 +590,24 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 		}
 
 		entry_cur = crl_cur->entry.next;
-		while (entry_cur != NULL)
-		{
+		while (entry_cur) {
 			entry_prv = entry_cur;
 			entry_cur = entry_cur->next;
 			ttls_bzero_safe(entry_prv, sizeof(ttls_x509_crl_entry));
 			kfree(entry_prv);
 		}
 
-		if (crl_cur->raw.p != NULL)
-		{
-			ttls_bzero_safe(crl_cur->raw.p, crl_cur->raw.len);
+		if (crl_cur->raw.p) {
+			ttls_bzero_safe((void *)crl_cur->raw.p, crl_cur->raw.len);
 			kfree(crl_cur->raw.p);
 		}
 
 		crl_cur = crl_cur->next;
 	}
-	while (crl_cur != NULL);
+	while (crl_cur);
 
 	crl_cur = crl;
-	do
-	{
+	do {
 		crl_prv = crl_cur;
 		crl_cur = crl_cur->next;
 
@@ -636,5 +615,5 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 		if (crl_prv != crl)
 			kfree(crl_prv);
 	}
-	while (crl_cur != NULL);
+	while (crl_cur);
 }

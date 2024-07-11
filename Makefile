@@ -73,6 +73,7 @@ DBG_WS ?= 0
 DBG_APM ?= 0
 DBG_GFSM ?= 0
 DBG_HTTP ?= 0
+DBG_HTTP2 ?= 0
 DBG_HTTP_FRAME ?= 0
 DBG_HTTP_SESS ?= 0
 DBG_HTTP_STREAM ?= 0
@@ -89,6 +90,7 @@ TFW_CFLAGS += -DDBG_HTTP_SESS=$(DBG_HTTP_SESS)
 TFW_CFLAGS += -DDBG_HTTP_STREAM=$(DBG_HTTP_STREAM)
 TFW_CFLAGS += -DDBG_HPACK=$(DBG_HPACK) -DDBG_CACHE=$(DBG_CACHE)
 TFW_CFLAGS += -DDBG_SRV=$(DBG_SRV) -DDBG_VHOST=$(DBG_VHOST) -DDBG_TEST=$(DBG_TEST)
+TFW_CFLAGS += -DDBG_HTTP2=$(DBG_HTTP2)
 
 # By default Tempesta TLS randomizes elliptic curve points using RDRAND
 # instruction, which provides a high speed random numbers generator.

@@ -79,8 +79,6 @@ enum {
         TFW_HTTP_B_H2,
         /* Message has all mandatory pseudo-headers (applicable for HTTP/2 mode only) */
         TFW_HTTP_B_H2_HDRS_FULL,
-        /* Message in HTTP/2 transformation (applicable for HTTP/2 mode only). */
-        TFW_HTTP_B_H2_TRANS_ENTERED,
 
         /* Request flags. */
         TFW_HTTP_FLAGS_REQ,
@@ -126,6 +124,11 @@ enum {
         TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES,
         /* Request URI is absolute (HTTP/1.x only) */
         TFW_HTTP_B_ABSOLUTE_URI,
+        /*
+         * This is the error response, connection
+         * will be closed after sending it.
+         */
+        TFW_HTTP_B_CLOSE_ERROR_RESPONSE,
 
         _TFW_HTTP_FLAGS_NUM
 };

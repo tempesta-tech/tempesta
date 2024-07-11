@@ -237,16 +237,17 @@ next_msg:
  */
 int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
-		unsigned int limit, unsigned int nskbs)
+		unsigned int limit)
 {
 	/*
 	 * TODO #1103 currently even trivial 500-bytes HTTP message generates
 	 * 6 segment skb. After the fix the number probably should be decreased.
 	 */
 #define AUTO_SEGS_N	8
+#define MAX_SEG_N	64
 
 	int r = -ENOMEM;
-	unsigned int head_sz, len, frags, t_sz, out_frags, i = 0;
+	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -267,7 +268,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	xfrm = &tls->xfrm;
 
 	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
-	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
+	       " skb=%px(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
 	       skb, skb->len, skb->data_len, skb_tfw_tls_type(skb),
@@ -279,7 +280,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		     != tcb->end_seq);
 
 	head_sz = ttls_payload_off(xfrm);
-	len = head_sz + skb->len + TTLS_TAG_LEN;
+	len = skb->len;
 	type = skb_tfw_tls_type(skb);
 	if (!type) {
 		T_WARN("%s: bad skb type %u\n", __func__, type);
@@ -291,16 +292,19 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	tcb->end_seq += head_sz;
 
 	/* Try to aggregate several skbs into one TLS record. */
-	while (!tcp_skb_is_last(sk, skb_tail) && i++ < nskbs - 1) {
+	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = skb_queue_next(&sk->sk_write_queue, skb_tail);
+		next_nents = skb_shinfo(next)->nr_frags + !!skb_headlen(next);
 
-		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
+		T_DBG3("next skb (%px) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
 		       !!skb_headlen(next), skb_tfw_tls_type(next),
 		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
+			break;
+		if (unlikely(sgt.nents + next_nents > MAX_SEG_N))
 			break;
 		/* Don't put different message types into the same record. */
 		if (type != skb_tfw_tls_type(next))
@@ -313,10 +317,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		tfw_tcp_propagate_dseq(sk, skb_tail);
 
 		len += next->len;
-		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
-		out_sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
+		sgt.nents += next_nents;
+		out_sgt.nents += next_nents;
 		skb_tail = next;
 	}
+
+	len += head_sz + TTLS_TAG_LEN;
 
 	/*
 	 * Use skb_tail->next as skb_head in __extend_pgfrags() to not try to
@@ -485,6 +491,7 @@ err_epilogue:
 	       __func__, r);
 	return r;
 #undef AUTO_SEGS_N
+#undef MAX_SEG_N
 }
 
 static inline int
@@ -511,6 +518,31 @@ tfw_tls_close_msg_flags(TlsIOCtx *io)
 	}
 
 	return flags;
+}
+
+static inline int
+tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
+{
+	TfwH2Ctx *ctx;
+
+	BUG_ON(TFW_CONN_PROTO((TfwConn *)conn) != TFW_FSM_H2);
+	ctx = tfw_h2_context_safe((TfwConn *)conn);
+	if (!ctx)
+		return 0;
+
+	if (ctx->error && ctx->error->xmit.skb_head) {
+		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
+	} else if (ctx->cur_send_headers) {
+		/*
+		 * Other frames (from any stream) MUST NOT occur between
+		 * the HEADERS frame and any CONTINUATION frames that might
+		 * follow. Send TLS alert later.
+		 */
+		ctx->error = ctx->cur_send_headers;
+		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
+	}
+
+	return 0;
 }
 
 /**
@@ -589,6 +621,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL)) {
 		TFW_CONN_TYPE(((TfwConn *)conn)) |= Conn_Stop;
 		flags |= tfw_tls_close_msg_flags(io);
+		if (TFW_CONN_PROTO((TfwConn *)conn) == TFW_FSM_H2) {
+			TFW_SKB_CB(io->skb_list)->on_send =
+				tfw_tls_on_send_alert;
+		}
 	}
 
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
@@ -611,10 +647,9 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
-	bool hs_was_done = false;
 
 	if (TFW_CONN_PROTO((TfwConn *)c) == TFW_FSM_H2
-	    && (hs_was_done = ttls_hs_done(tls)))
+	    && ttls_hs_done(tls))
 		tfw_h2_context_clear(tfw_h2_context_unsafe(c));
 
 	if (tls) {

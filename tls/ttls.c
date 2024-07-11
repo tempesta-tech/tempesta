@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.3.2");
+MODULE_VERSION("0.3.3");
 MODULE_LICENSE("GPL");
 
 /*
@@ -309,7 +309,7 @@ static int
 ttls_session_copy(TlsSess *dst, const TlsSess *src)
 {
 	memcpy_fast(dst, src, sizeof(TlsSess));
-
+#if 0
 	if (src->peer_cert) {
 		int r;
 
@@ -317,6 +317,7 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 		if (!dst->peer_cert)
 			return -ENOMEM;
 
+		/* TODO: parse the session from the chunked raw certificate? */
 		r = ttls_x509_crt_parse_der(dst->peer_cert,
 					    ttls_x509_crt_raw(src->peer_cert),
 					    src->peer_cert->raw.len);
@@ -327,7 +328,6 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 		}
 	}
 
-#if 0
 	if (src->ticket) {
 		dst->ticket = kmalloc(src->ticket_len, GFP_ATOMIC);
 		if (!dst->ticket)
@@ -1380,8 +1380,8 @@ int
 ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		       unsigned char **in_buf)
 {
-	unsigned int sg_i;
-	size_t n, tot_len = 0;
+	unsigned int i, sg_i;
+	size_t tot_len = 0;
 	const TlsX509Crt *crt;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
@@ -1416,28 +1416,23 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	 *   n . n+2	length of cert. 2
 	 * n+3 . ...	upper level cert, etc.
 	 */
-	for (crt = ttls_own_cert(tls); crt; crt = crt->next) {
+	crt = ttls_own_cert(tls);
+	BUG_ON(crt->raw.tot_len > TLS_MAX_PAYLOAD_SIZE - 7);
+	for (i = 0; i < (crt->raw.tot_len + PAGE_SIZE - 1) / PAGE_SIZE; ++i) {
+		void *frag_p = (char *)crt->raw.pages + i * PAGE_SIZE;
+		size_t frag_sz = min(PAGE_SIZE, crt->raw.tot_len - i * PAGE_SIZE);
+
 		if (unlikely(sgt->nents >= MAX_SKB_FRAGS)) {
 			T_WARN("Too many certfificates\n");
 			return -ENOSPC;
 		}
 
-		n = crt->raw.len + TTLS_CERT_LEN_LEN;
-		if (n + tot_len > TLS_MAX_PAYLOAD_SIZE - 7) {
-			T_WARN("certificate too large, %lu(total len) > "
-			       "%lu(max payload size)\n",
-			       tot_len + n + 7, TLS_MAX_PAYLOAD_SIZE);
-			return TTLS_ERR_CERTIFICATE_TOO_LARGE;
-		}
-
-		tot_len += n;
-		get_page(virt_to_page(crt->raw.p));
-		sg_set_buf(&sgt->sgl[sgt->nents++], crt->raw.p, n);
-		T_DBG3("add cert page %pK,len=%lu seg=%u\n",
-		       crt->raw.p, n, sgt->nents - 1);
+		get_page(virt_to_page(frag_p));
+		sg_set_buf(&sgt->sgl[sgt->nents++], frag_p, frag_sz);
+		T_DBG3("add cert page %pK,len=%lu order=%u seg=%u\n",
+		       frag_p, frag_sz, crt->raw.order, sgt->nents - 1);
 	}
-	if (crt)
-		TTLS_WARN(tls, "Can not write full certificates chain\n");
+	tot_len += crt->raw.tot_len;
 
 	/*
 	 * Write thr handshake headers on our own (TLS_HEADER_SIZE + 7 bytes).
@@ -1459,10 +1454,16 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	return 0;
 }
 
+/**
+ * Client-side only.
+ *
+ * TODO #769: the dst->peer_cert is not released on errors.
+ */
 int
 ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		       unsigned int *read)
 {
+#if 0
 	uint8_t alert;
 	unsigned int vr = 0;
 	int r = 0, i = 0, n, authmode;
@@ -1710,6 +1711,9 @@ err:
 	if (pg)
 		__free_pages(pg, 2);
 	return r;
+#else
+	return 0;
+#endif
 }
 void
 ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
