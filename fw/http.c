@@ -6790,6 +6790,18 @@ bad_msg:
 	 */
 	bad_req = hmresp->req;
 	tfw_http_popreq(hmresp, false);
+
+	/*
+	 * Special case: malformed response to a Health Monitor request.
+	 * There's no client involved, so just log-n-drop the response now
+	 * without further processing.
+	 */
+	if(unlikely(test_bit(TFW_HTTP_B_HMONITOR, bad_req->flags))) {
+		T_WARN("Health Monitor response malformed");
+		tfw_http_resp_pair_free(bad_req);
+		return T_OK;
+	}
+
 	/* The response is freed by tfw_http_req_parse_block/drop(). */
 	if (filtout)
 		r = tfw_http_req_block(bad_req, 502,
