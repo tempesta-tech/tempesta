@@ -548,7 +548,6 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	}
 	/* Fast path (e.g. TLS header): delete the head part of a fragment. */
 	if (likely(!off)) {
-		T_WARN("__split_pgfrag_del_w_frag");
 		frag->bv_offset += len;
 		skb_frag_size_sub(frag, len);
 		skb->len -= len;
@@ -559,15 +558,12 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	}
 	/* Fast path (e.g. TLS tag): delete the tail part of a fragment. */
 	if (likely(off + len == skb_frag_size(frag))) {
-		T_WARN("__split_pgfrag_del_w_frag 111");
 		skb_frag_size_sub(frag, len);
 		skb->len -= len;
 		skb->data_len -= len;
 		__it_next_data(skb, i + 1, it, fragn);
 		return 0;
 	}
-
-	T_WARN("__split_pgfrag_del_w_frag 222");
 
 	/*
 	 * Delete data in the middle of a fragment. After the data
@@ -869,7 +865,7 @@ ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 	skb_frag_t *frag;
 	TfwStr it;
 
-	T_WARN("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
+	T_DBG3("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
 	       " end=%pK len=%u data_len=%u nr_frags=%u)\n", __func__,
 	       head, trail, skb, skb->head, skb->data, skb_tail_pointer(skb),
 	       skb_end_pointer(skb), skb->len, skb->data_len, si->nr_frags);

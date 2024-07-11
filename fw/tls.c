@@ -279,7 +279,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	io = &tls->io_out;
 	xfrm = &tls->xfrm;
 
-	T_WARN("%s: sk=%px(snd_una=%u snd_nxt=%u limit=%u)"
+	T_DBG3("%s: sk=%px(snd_una=%u snd_nxt=%u limit=%u)"
 	       " skb=%px(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
@@ -381,6 +381,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	else {
 		struct sk_buff *tail_next = skb_tail->next;
 
+
+		T_WARN("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
 		WARN_ON_ONCE(tail_next->len != TTLS_TAG_LEN);
 		WARN_ON_ONCE(skb_tail->truesize != t_sz);
 
@@ -526,7 +528,6 @@ restore_write_queue:
 		tfw_tcp_propagate_dseq(sk, skb);
 		tfw_tcp_propagate_dseq(sk, skb_tail);
 	}
-
 
 restore_tcb:
 	tcb->end_seq -= head_sz;
