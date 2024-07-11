@@ -856,7 +856,10 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.h_len && type != HTTP2_DATA)
 		flags |= HTTP2_F_END_HEADERS;
 
-	if (!stream->xmit.h_len && !stream->xmit.b_len
+	if (!stream->xmit.t_len && type != HTTP2_DATA)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (!stream->xmit.h_len && !stream->xmit.b_len && !stream->xmit.t_len
 	    && !tfw_h2_stream_is_eos_sent(stream))
 		flags |= HTTP2_F_END_STREAM;
 
