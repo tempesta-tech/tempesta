@@ -4950,6 +4950,9 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		       __func__, hid, d_num, ht->tbl[hid].nchunks,
 		       h_mods ? h_mods->sz : 0);
 
+		if (tgt->flags & TFW_STR_TRAILER)
+			continue;
+
 		/* Don't encode header if it must be substituted from config */
 		if (tfw_h2_hdr_sub(hid, tgt, h_mods))
 			continue;
@@ -4973,6 +4976,42 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 			continue;
 
 		r = tfw_hpack_transform(resp, tgt);
+		if (unlikely(r))
+			return r;
+	}
+
+	return 0;
+}
+
+int
+tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
+{
+	int r;
+	unsigned int i;
+	TfwHttpTransIter *mit = &resp->mit;
+	TfwHttpHdrMap *map = mit->map;
+	TfwHttpHdrTbl *ht = resp->h_tbl;
+
+	for (i = 0; i < map->count; ++i) {
+		unsigned short hid = map->index[i].idx;
+		unsigned short d_num = map->index[i].d_idx;
+		TfwStr *tgt = &ht->tbl[hid];
+
+		if (TFW_STR_DUP(tgt))
+			tgt = TFW_STR_CHUNK(tgt, d_num);
+
+		if (WARN_ON_ONCE(!tgt
+				 || TFW_STR_EMPTY(tgt)
+				 || TFW_STR_DUP(tgt)))
+			return -EINVAL;
+
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
+		       __func__, hid, d_num, ht->tbl[hid].nchunks);
+
+		if (!(tgt->flags & TFW_STR_TRAILER))
+			continue;
+
+		r = tfw_hpack_transform_trailer(resp, tgt);
 		if (unlikely(r))
 			return r;
 	}

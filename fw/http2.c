@@ -524,6 +524,39 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			r = tfw_http_msg_cutoff_body_chunks(resp);
 	}
 
+	if (resp->trailers_len > 0) {
+		// MUST _NOT_ use resp pool to encode trailer headers
+		// because it assumes no headers after body in many code.
+		// Instead, encode trailers header in new skbs
+		// and append them to the resp->msg.skb_head.
+		struct sk_buff *skb_head, *skb, *nskb_head, *nskb;
+		unsigned long acc;
+
+		skb_head = resp->msg.skb_head;
+		skb = resp->mit.iter.skb;
+		resp->msg.skb_head = resp->mit.iter.skb = NULL;
+		acc = resp->mit.acc_len;
+
+		r = tfw_h2_hpack_encode_trailer_headers(resp);
+
+		stream->xmit.t_len = resp->mit.acc_len - acc;
+		nskb_head = resp->msg.skb_head;
+		resp->msg.skb_head = skb_head;
+		resp->mit.iter.skb = skb;
+
+		if (unlikely(r))
+			goto finish;
+
+		nskb = nskb_head;
+		do {
+			skb = nskb->next;
+			nskb->next = nskb->prev = NULL;
+			ss_skb_queue_tail(&resp->msg.skb_head, nskb);
+			nskb = skb;
+			printk("---> acc=%d, nskb=%p, nskb->len=%d\n", stream->xmit.t_len, nskb, nskb->len);
+		} while (nskb != nskb_head);
+	}
+
 finish:
 	swap(stream->xmit.skb_head, resp->msg.skb_head);
 	ss_skb_setup_head_of_list(stream->xmit.skb_head, mark, tls_type);
@@ -544,6 +577,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	BUG_ON(!TFW_SKB_CB(stream->xmit.skb_head)->is_head);
 	while (*len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
+		printk("---> tfw_h2_entail_stream_skb, stream->xmit.skb_head=%p, skb=%p, *len=%d\n", stream->xmit.skb_head, skb, *len);
 		BUG_ON(!skb);
 
 		if (unlikely(!skb->len)) {

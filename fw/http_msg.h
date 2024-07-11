@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,6 +25,8 @@
 
 #define S_CRLF			"\r\n"
 #define S_DLM			": "
+#define S_COLON			':'
+#define S_SP			' '
 #define S_SET_COOKIE		"set-cookie"
 #define S_F_SET_COOKIE		S_SET_COOKIE S_DLM
 #define S_LOCATION		"location"

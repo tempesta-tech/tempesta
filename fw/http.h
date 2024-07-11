@@ -759,6 +759,7 @@ int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 			     bool use_pool, bool cache);
 int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
+int tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp);
 /*
  * Functions to send an HTTP error response to a client.
  */

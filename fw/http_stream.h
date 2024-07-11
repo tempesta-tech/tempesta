@@ -53,7 +53,7 @@ enum {
 };
 
 /*
- * We use 3 bits for this state in TfwHttpXmit structure.
+ * We use 4 bits for this state in TfwHttpXmit structure.
  * If you add some new state here, do not forget to increase
  * count of bits used for this state.
  */
@@ -63,6 +63,8 @@ typedef enum {
 	HTTP2_MAKE_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
 	HTTP2_MAKE_DATA_FRAMES,
+	HTTP2_MAKE_TRAILER_FRAMES,
+	HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES,
 	HTTP2_SEND_FRAMES,
 	HTTP2_MAKE_FRAMES_FINISH,
 } TfwStreamXmitState;
@@ -119,6 +121,7 @@ typedef enum {
  * @postponed		- head of skb list that must be sent
  *			  after sending headers for this stream;
  * @h_len		- length of headers in http2 response;
+ * @t_len		- length of trailer headers in http2 response;
  * @frame_length	- length of current sending frame, or 0
  *			  if we send some service frames (for
  *			  example RST STREAM after all pending data);
@@ -132,10 +135,11 @@ typedef struct {
 	struct sk_buff		*skb_head;
 	struct sk_buff		*postponed;
 	unsigned int		h_len;
+	unsigned int		t_len;
 	unsigned int		frame_length;
 	u64			b_len : 60;
 	u64			is_blocked : 1;
-	u64			state : 3;
+	u64			state : 4;
 } TfwHttpXmit;
 
 /**
