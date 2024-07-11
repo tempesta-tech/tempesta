@@ -248,9 +248,9 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 #define MAX_SEG_N	64
 
 	int r = -ENOMEM;
-	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents;
+	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents, overhead;
 	unsigned char type;
-	struct sk_buff *next = skb, *skb_tail = skb;
+	struct sk_buff *next = skb, *skb_tail = skb, *skb_tail_save = NULL;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
 	TlsCtx *tls;
 	TlsIOCtx *io;
@@ -263,6 +263,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
 	struct page **pages = NULL, **pages_end, **p;
 	struct page *auto_pages[AUTO_SEGS_N];
+	bool skb_was_added = false;
 
 	/*
 	 * We should add sk overhead before adding new data to skb which
@@ -273,11 +274,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	if (ss_add_overhead(sk, TLS_MAX_OVERHEAD))
 		return -ENOMEM;
 
+	overhead = TLS_MAX_OVERHEAD;
 	tls = tfw_tls_context(sk->sk_user_data);
 	io = &tls->io_out;
 	xfrm = &tls->xfrm;
 
-	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
+	T_WARN("%s: sk=%px(snd_una=%u snd_nxt=%u limit=%u)"
 	       " skb=%px(len=%u data_len=%u type=%u frags=%u headlen=%u"
 	       " seq=%u:%u)\n", __func__,
 	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
@@ -340,7 +342,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	t_sz = skb_tail->truesize;
 	WARN_ON_ONCE(next == skb);
 	if (skb_tail == skb) {
-		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, TTLS_TAG_LEN);
+		r = ss_skb_expand_head_tail(skb->next, skb, head_sz,
+					    TTLS_TAG_LEN);
 		if (r < 0)
 			goto restore_tcb;
 	} else {
@@ -353,13 +356,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    TTLS_TAG_LEN);
 		if (r < 0) {
-			int rc = ss_skb_chop_head_tail(skb_tail->next, skb_tail,
-						       head_sz, 0);
-			/*
-			 * We expand head using `skb_push` and restore state
-			 * using `__skb_pull` which can't fail.
-			 */
-			BUG_ON(rc);
+			ss_skb_chop_head_tail_nofail(NULL, skb, head_sz, 0);
 			goto restore_tcb;
 		}
 	}
@@ -399,8 +396,10 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		 */
 		t_sz = tail_next->truesize;
 
+		skb_tail_save = skb_tail;
 		skb_tail = tail_next;
 		skb_set_tfw_tls_type(skb_tail, type);
+		skb_was_added = true;
 	}
 
 	/*
@@ -414,6 +413,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	tfw_tcp_propagate_dseq(sk, skb_tail);
 	tcp_sk(sk)->write_seq += head_sz + TTLS_TAG_LEN;
 	ss_del_overhead(sk, TLS_MAX_OVERHEAD - t_sz);
+	overhead -= TLS_MAX_OVERHEAD - t_sz;
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
@@ -504,13 +504,34 @@ free_pages:
 	}
 
 restore_write_queue:
-	
+	tcp_sk(sk)->write_seq -= head_sz + TTLS_TAG_LEN;
+	if (skb == skb_tail) {
+		BUG_ON(skb_was_added);
+		ss_skb_chop_head_tail_nofail(skb->next, skb, head_sz,
+					     TTLS_TAG_LEN);
+		TCP_SKB_CB(skb_tail)->end_seq -= TTLS_TAG_LEN;
+		tfw_tcp_propagate_dseq(sk, skb);
+	} else {
+		T_WARN("skb == skb_tail else %d", skb_was_added);
+		if (likely(!skb_was_added)) {
+			ss_skb_chop_head_tail_nofail(NULL, skb, head_sz, 0);
+			ss_skb_chop_head_tail_nofail(skb_tail->next, skb_tail,
+						     0, TTLS_TAG_LEN);
+			TCP_SKB_CB(skb_tail)->end_seq -= TTLS_TAG_LEN;
+		} else {
+			ss_skb_chop_head_tail_nofail(NULL, skb, head_sz, 0);
+			__skb_unlink(skb_tail, &sk->sk_write_queue);
+			skb_tail = skb_tail_save;
+		}
+		tfw_tcp_propagate_dseq(sk, skb);
+		tfw_tcp_propagate_dseq(sk, skb_tail);
+	}
 
 
 restore_tcb:
 	tcb->end_seq -= head_sz;
-	ss_del_overhead(sk, TLS_MAX_OVERHEAD);
-	T_WARN("%s: cannot encrypt data (%d)\n", __func__, r);
+	ss_del_overhead(sk, overhead);
+	T_WARN("%s: cannot encrypt data (%d) %u\n", __func__, r, overhead);
 	return r;
 
 #undef AUTO_SEGS_N
