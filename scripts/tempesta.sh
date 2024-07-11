@@ -74,8 +74,9 @@ templater()
 	# Replace !include dircetive with file contents
 	> $tfw_cfg_temp
 	mkdir $TFW_ROOT/etc 2>/dev/null
-	while IFS= read -r line
+	while IFS= read -r raw_line
 	do
+		line=$(echo $raw_line | sed -e 's/\\r\\n/\x0d\x0a/g')
 		if [[ ${line:0:1} = \# ]]; then
 			:
 		elif [[ $line =~ '!include' ]]; then
@@ -84,8 +85,9 @@ templater()
 
 			files=$(find ${path[1]} -type f -regextype posix-extended -regex '.*\.conf$')
 			while IFS= read -r file; do
-				value=`cat $file`
-				echo "$value" >> $tfw_cfg_temp
+				inc_file=$(cat $file | sed -e  's/\\r\\n/\x0d\x0a/g')
+				echo $inc_file >> $tfw_cfg_temp
+
 			done <<< "$files"
 		else
 			value="$line"
