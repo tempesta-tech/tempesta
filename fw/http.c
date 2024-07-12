@@ -2791,6 +2791,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			}
 			mit->map->size = TFW_HDR_MAP_INIT_CNT;
 			mit->map->count = 0;
+			mit->map->trailer_idx = 0;
 		}
 
 		TFW_INC_STAT_BH(serv.rx_messages);
@@ -4517,6 +4518,9 @@ tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id)
 		       __func__, map->size, map->count);
 	}
 
+	if (resp->trailers_len > 0 && !map->trailer_idx)
+		map->trailer_idx = map->count;
+
 	index = &map->index[map->count];
 	index->idx = id;
 	index->d_idx = TFW_STR_DUP(hdr) ? hdr->nchunks - 1 : 0;
@@ -4932,8 +4936,9 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpHdrMap *map = mit->map;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
+	unsigned int cnt = map->trailer_idx ? : map->count;
 
-	for (i = 0; i < map->count; ++i) {
+	for (i = 0; i < cnt; ++i) {
 		unsigned short hid = map->index[i].idx;
 		unsigned short d_num = map->index[i].d_idx;
 		TfwStr *tgt = &ht->tbl[hid];
@@ -4949,9 +4954,6 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks,
 		       h_mods ? h_mods->sz : 0);
-
-		if (tgt->flags & TFW_STR_TRAILER)
-			continue;
 
 		/* Don't encode header if it must be substituted from config */
 		if (tfw_h2_hdr_sub(hid, tgt, h_mods))
@@ -4992,7 +4994,7 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 	TfwHttpHdrMap *map = mit->map;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
 
-	for (i = 0; i < map->count; ++i) {
+	for (i = map->trailer_idx; i < map->count; ++i) {
 		unsigned short hid = map->index[i].idx;
 		unsigned short d_num = map->index[i].d_idx;
 		TfwStr *tgt = &ht->tbl[hid];
@@ -5007,9 +5009,6 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
-
-		if (!(tgt->flags & TFW_STR_TRAILER))
-			continue;
 
 		r = tfw_hpack_transform_trailer(resp, tgt);
 		if (unlikely(r))
