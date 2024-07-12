@@ -131,6 +131,7 @@ typedef enum {
  * @is_blocked		- stream is blocked;
  * @state		- current stream xmit state (what type of
  * 			  frame should be made for this stream);
+ * @is_trailer_cont	- need to send trailer CONTINUATION frames;
  */
 typedef struct {
 	TfwHttpResp 		*resp;
@@ -142,6 +143,7 @@ typedef struct {
 	u64			b_len : 60;
 	u64			is_blocked : 1;
 	u64			state : 4;
+	u64			is_trailer_cont : 1;
 } TfwHttpXmit;
 
 /**
