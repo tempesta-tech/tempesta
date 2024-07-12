@@ -2941,9 +2941,8 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_RESP);
 	bool has_trailers = false;
-	unsigned long *ph_len = &h_len, t_len = 0;
-	struct sk_buff *pskb_head, *nskb_head = NULL;
-	TfwHttpTransIter pmit, nmit;
+	unsigned long t_len = 0;
+	struct sk_buff *nskb_head = NULL;
 
 	/*
 	 * The allocated response won't be checked by any filters and
@@ -2973,38 +2972,54 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	if (tfw_cache_set_status(db, ce, resp, &trec, &p, &h_len))
 		goto free;
 
-	pskb_head = resp->msg.skb_head;
-	pmit = nmit = resp->mit;
-	nmit.start_off = 0;
-	nmit.iter.skb = nmit.iter.skb_head = NULL;
-	nmit.iter.frag = -1;
-
 	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
 		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off);
-		bool is_trailer_hdr = ((TfwCStr *)p)->flags & TFW_CSTR_TRAILER;
 		int r;
 
-		if (is_trailer_hdr && TFW_MSG_H2(req)) {
-			has_trailers = true;
-			ph_len = &t_len;
-			resp->msg.skb_head = nskb_head;
-			resp->mit = nmit;
-		}
+		if (unlikely(TFW_MSG_H2(req) && ((TfwCStr *)p)->flags & TFW_CSTR_TRAILER))
+			break;
 
 		r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
-					     ph_len, skip);
-
-		if (is_trailer_hdr && TFW_MSG_H2(req)) {
-			ph_len = &h_len;
-			if (!nskb_head)
-				nskb_head = resp->msg.skb_head;
-			resp->msg.skb_head = pskb_head;
-			resp->mit = pmit;
-		}
+					     &h_len, skip);
 
 		if (r)
 			goto free;
 	}
+
+	if (unlikely(h < ce->hdr_num)) {
+		TfwHttpTransIter pmit, nmit;
+		struct sk_buff *pskb_head = resp->msg.skb_head;
+
+		has_trailers = true;
+		pmit = nmit = resp->mit;
+		nmit.start_off = 0;
+		nmit.iter.skb = nmit.iter.skb_head = NULL;
+		nmit.iter.frag = -1;
+
+		resp->msg.skb_head = NULL;
+		resp->mit = nmit;
+
+		for (; h < ce->hdr_num; ++h) {
+			bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off);
+			int r;
+
+			r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
+					&t_len, skip);
+
+			if (!nskb_head)
+				nskb_head = resp->msg.skb_head;
+
+			if (r) {
+				resp->msg.skb_head = pskb_head;
+				resp->mit = pmit;
+				goto free;
+			}
+		}
+
+		resp->msg.skb_head = pskb_head;
+		resp->mit = pmit;
+	}
+
 
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
