@@ -2148,7 +2148,7 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * version of this header.
 		 */
 		if (TFW_STR_EMPTY(field)
-		    || (field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
+		    || (field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR | TFW_STR_TRAILER))
 		    || hid == TFW_HTTP_HDR_SERVER)
 		{
 			--ce->hdr_num;
@@ -2209,6 +2209,19 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	ce->hdr_h2_off = ce->hdr_num + 1;
 	ce->hdr_num += 2;
+
+	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
+		int hid = field - resp->h_tbl->tbl;
+
+		if (!(field->flags & TFW_STR_TRAILER))
+			continue;
+
+		n = tfw_cache_h2_copy_hdr(db, ce, resp, hid, &p, &trec, field, &tot_len);
+		if (unlikely(n < 0))
+			return n;
+
+		ce->hdr_num++;
+	}
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);

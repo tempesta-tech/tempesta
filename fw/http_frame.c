@@ -2157,8 +2157,12 @@ do {									\
 			if (stream->xmit.b_len) {
 				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
 			} else if (stream->xmit.t_len) {
-				//T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
-				T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
+				if (likely(!stream->xmit.is_trailer_cont)) {
+					stream->xmit.is_trailer_cont = true;
+					T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
+				} else {
+					T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
+				}
 			} else {
 				fallthrough;
 			}
