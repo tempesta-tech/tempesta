@@ -838,6 +838,7 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	stream->xmit.state = state;
 	stream->xmit.frame_length = 0;
 	stream->xmit.is_blocked = false;
+	stream->xmit.is_trailer_cont = false;
 
 	spin_unlock(&ctx->lock);
 
