@@ -227,6 +227,11 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
 
+	T_DBG3("Create new stream (id %u weight %u exclusive %d),"
+	       " which depends from stream with id %u,"
+	       " ctx %px streams_num %lu\n", id, pri->weight,
+	       pri->exclusive, pri->stream_id, ctx, ctx->streams_num);
+
 	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
 	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
 				   ctx->lsettings.wnd_sz,
@@ -235,13 +240,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 		return NULL;
 
 	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
-
 	++ctx->streams_num;
-
-	T_DBG3("%s: ctx [%px] (streams_num %lu, dep strm id %u, dep strm [%p],"
-	       "excl %d) added strm [%px] id %u weight %u\n",
-	       __func__, ctx, ctx->streams_num, pri->stream_id, dep,
-	       pri->exclusive, stream, id, stream->weight);
 
 	return stream;
 }
@@ -249,10 +248,10 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	T_DBG3("%s: strm [%px] id %u state %d(%s) weight %u, ctx "
-	       "streams num %lu\n",  __func__, stream, stream->id,
+	T_DBG3("Stop and delete stream (id %u state %d(%s) weight %u)," 
+	       " ctx %px streams num %lu\n", stream->id,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
-	       stream->weight, ctx->streams_num);
+	       stream->weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;
