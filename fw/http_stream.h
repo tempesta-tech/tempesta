@@ -210,7 +210,7 @@ void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_lock(TfwH2Ctx *ctx, TfwStream *stream);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
-				  unsigned char type, unsigned char flags,
+				  unsigned char type, char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 void tfw_h2_delete_stream(TfwStream *stream);
@@ -218,8 +218,6 @@ int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
-TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
-					   unsigned char type);
 void tfw_h2_stream_purge_send_queue(TfwStream *stream);
 void tfw_h2_stream_purge_all_and_free_response(TfwStream *stream);
 

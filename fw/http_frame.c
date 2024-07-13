@@ -1885,27 +1885,23 @@ tfw_h2_calc_frame_length(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 static inline char
 tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 {
-	switch (type) {
-	case HTTP2_HEADERS:
-		if (!stream->xmit.h_len && !stream->xmit.b_len)
-			return HTTP2_F_END_STREAM | HTTP2_F_END_HEADERS;
-		return stream->xmit.h_len ?
-			(stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM) :
-			(stream->xmit.b_len ? HTTP2_F_END_HEADERS :
-			 HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM);
-	case HTTP2_CONTINUATION:
-		if (!stream->xmit.h_len && !stream->xmit.b_len)
-			return stream->xmit.t_len ? 0 : (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM);
-		return stream->xmit.h_len ? 0 : HTTP2_F_END_HEADERS;
-	case HTTP2_DATA:
-		if (stream->xmit.t_len)
-			return 0;
-		return stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM;
-	default:
-		BUG();
-	};
+	char flags = 0;
 
-	return 0;
+	if (stream->xmit.h_len && !stream->xmit.b_len
+	    && type == HTTP2_HEADERS)
+		flags |= HTTP2_F_END_STREAM;
+
+	if (!stream->xmit.h_len && type != HTTP2_DATA)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (!stream->xmit.t_len && type != HTTP2_DATA)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (!stream->xmit.h_len && !stream->xmit.b_len && !stream->xmit.t_len
+	    && !tfw_h2_stream_is_eos_sent(stream))
+		flags |= HTTP2_F_END_STREAM;
+
+	return flags;
 }
 
 static inline int
@@ -1928,7 +1924,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned int length;
 	char *data;
 	int r = 0;
-	TfwStreamFsmRes rr;
+	char flags;
 
 	/*
 	 * Very unlikely case, when skb_head and one or more next skbs
@@ -1984,14 +1980,12 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	frame_hdr.length = length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	frame_hdr.flags = tf2_h2_calc_frame_flags(stream, type);
+	flags = tf2_h2_calc_frame_flags(stream, type);
+	frame_hdr.flags = flags;
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
 	stream->xmit.frame_length += length + FRAME_HEADER_SIZE;
-	//switch (tfw_h2_stream_send_process(ctx, stream, type)) {
-	rr = tfw_h2_stream_send_process(ctx, stream, type);
-	printk("---> rr=%d, stream->xmit.skb_head=%p\n", rr, stream->xmit.skb_head);
-	switch (rr) {
+	switch (tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags)) {
 	case STREAM_FSM_RES_OK:
 		break;
 	case STREAM_FSM_RES_IGNORE:
