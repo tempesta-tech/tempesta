@@ -320,7 +320,7 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
  */
 TfwStreamFsmRes
 tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type,
-		  unsigned char flags, bool send, TfwH2Err *err)
+		  char flags, bool send, TfwH2Err *err)
 {
 	TfwStreamFsmRes res = STREAM_FSM_RES_OK;
 	TfwStreamState new_state;
@@ -843,26 +843,4 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	spin_unlock(&ctx->lock);
 
 	return 0;
-}
-
-TfwStreamFsmRes
-tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
-{
-	unsigned char flags = 0;
-
-	if (stream->xmit.h_len && !stream->xmit.b_len
-	    && type == HTTP2_HEADERS)
-		flags |= HTTP2_F_END_STREAM;
-
-	if (!stream->xmit.h_len && type != HTTP2_DATA)
-		flags |= HTTP2_F_END_HEADERS;
-
-	if (!stream->xmit.t_len && type != HTTP2_DATA)
-		flags |= HTTP2_F_END_HEADERS;
-
-	if (!stream->xmit.h_len && !stream->xmit.b_len && !stream->xmit.t_len
-	    && !tfw_h2_stream_is_eos_sent(stream))
-		flags |= HTTP2_F_END_STREAM;
-
-	return tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 }
