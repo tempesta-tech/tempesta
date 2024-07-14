@@ -5799,7 +5799,7 @@ sub process {
 
 		# Check for }<nl>else {, these must be at the same
 		# indent level to be relevant to each other.
-		if ($prevline=~/}\s*$/ and $line=~/^.\s*else\s*/ &&
+		if ($prevline=~/}\s*$/ and $line=~/^.\s*else\s*{/ &&
 		    $previndent == $indent) {
 			if (ERROR("ELSE_AFTER_BRACE",
 				  "else should follow close brace '}'\n" . $hereprev) &&
