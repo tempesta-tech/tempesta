@@ -6241,9 +6241,8 @@ sub process {
 		}
 
 # check for if-else-if conditions on a new line
-		if ($sline =~ /^.\s*\}\s*else\s*/ ||
-		    $sline =~ /^.\s*\}\s*else if\s*/) {
-			WARN("BRACES", "`else` or `else if` should on a new line\n" . $herecurr);
+		if ($sline =~ /^.\s*\}\s*else if\s*/) {
+			WARN("BRACES", "`else if` should on a new line\n" . $herecurr);
 		}
 
 # check for unnecessary blank lines around braces
