@@ -133,7 +133,7 @@ __rsa_setup_ctx(TlsRSACtx *ctx)
 	 * Generate blinding values.
 	 * Unblinding value: Vf = random number, invertible mod N.
 	 */
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		int count = 0;
 
 		TlsMpi *vi = per_cpu_ptr(ctx->Vi, cpu);

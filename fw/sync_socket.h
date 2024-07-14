@@ -34,6 +34,12 @@ typedef struct ss_proto_t {
 	int			type;
 } SsProto;
 
+typedef enum {
+	SS_SEND,
+	SS_CLOSE,
+	SS_SHUTDOWN,
+} SsAction;
+
 /*
  * Flag bits definition for SsProto.type field.
  * NOTE: There are also flags definition for this
@@ -49,7 +55,7 @@ enum {
 	 * requests longer accepted (flag is intended
 	 * only for client connections).
 	 */
-	Conn_Stop		= 0x1 << __Flag_Bits,
+	Conn_Stop		= (0x1 << __Flag_Bits),
 	/*
 	 * Connection is in special state: we send FIN to
 	 * the client and wait until ACK to our FIN is come.
@@ -60,7 +66,7 @@ enum {
 	 * Connection is in special state: it socket is DEAD
 	 * and wait until ACK to our FIN is come.
 	 */
-	Conn_Closing		= 0x3 << __Flag_Bits,
+	Conn_Closing		= (0x3 << __Flag_Bits),
 };
 
 typedef struct tfw_conn_t TfwConn;
@@ -71,11 +77,11 @@ typedef struct ss_hooks {
 	int (*connection_new)(struct sock *sk);
 
 	/*
-	 * Intentional socket closing when the socket is already closed (i.e. there
-	 * could not be ingress data on it) and we can safely do some cleanup stuff
-	 * or error on TCP connection (on Linux TCP socket layer) associated with
-	 * the socket or at application (data processing) layer, i.e. unintentional
-	 * connection closing.
+	 * Intentional socket closing when the socket is already closed (i.e.
+	 * there could not be ingress data on it) and we can safely do some
+	 * cleanup stuff or error on TCP connection (on Linux TCP socket layer)
+	 * associated with the socket or at application (data processing)
+	 * layer, i.e. unintentional connection closing.
 	 * We need the callback since socket closing always has a chance to run
 	 * asynchronously on another CPU and a caller doesn't know when it
 	 * completes.
@@ -177,6 +183,9 @@ void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
 void ss_get_stat(SsStat *stat);
+void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+		       unsigned char tls_type);
+void ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\

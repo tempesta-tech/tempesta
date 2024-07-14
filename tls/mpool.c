@@ -397,7 +397,7 @@ ttls_mpool_exit(void)
 	int i;
 	TlsMpiPool *mp;
 
-	for_each_possible_cpu(i) {
+	for_each_online_cpu(i) {
 		mp = per_cpu(g_tmp_mpool, i);
 		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
 		free_pages((unsigned long)mp, mp->order);
@@ -409,7 +409,7 @@ ttls_mpool_init(void)
 {
 	int cpu;
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		TlsMpiPool **mp = per_cpu_ptr(&g_tmp_mpool, cpu);
 		if (!(*mp = ttls_mpi_pool_create(__MPOOL_STACK_ORDER,
 						 GFP_KERNEL)))

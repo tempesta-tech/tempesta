@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -96,8 +96,7 @@ ttls_x509_crt_profile;
  * Default security profile. Should provide a good balance between security
  * and compatibility with current deployments.
  */
-const ttls_x509_crt_profile ttls_x509_crt_profile_default =
-{
+const ttls_x509_crt_profile ttls_x509_crt_profile_default = {
 	/* Only SHA-2 hashes */
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA256) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA384) |
@@ -143,11 +142,21 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb =
  * function here and in x509_memcasecmp(), x509_string_cmp(). But the same
  * code is still possible in the process context on loading server certificates.
  */
-static int x509_memcmp(const void *s1, const void *s2, size_t len)
+static int
+x509_memcmp(const void *s1, const void *s2, size_t len)
 {
 	if (in_serving_softirq())
 		return memcmp_fast(s1, s2, len);
 	return memcmp(s1, s2, len);
+}
+
+static void
+x509_memcpy(void *dst, const void *src, size_t len)
+{
+	if (in_serving_softirq())
+		memcpy_fast(dst, src, len);
+	else
+		memcpy(dst, src, len);
 }
 
 /**
@@ -210,13 +219,14 @@ x509_profile_check_key(const ttls_x509_crt_profile *profile,
  *  Version  ::=  INTEGER  {  v1(0), v2(1), v3(2)  }
  */
 static int
-x509_get_version(unsigned char **p, const unsigned char *end, int *ver)
+x509_get_version(const unsigned char **p, const unsigned char *end, int *ver)
 {
 	int ret;
 	size_t len;
 
 	ret = ttls_asn1_get_tag(p, end, &len,
-				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED);
+				TTLS_ASN1_CONTEXT_SPECIFIC
+				| TTLS_ASN1_CONSTRUCTED);
 	if (unlikely(ret)) {
 		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG) {
 			*ver = 0;
@@ -231,8 +241,8 @@ x509_get_version(unsigned char **p, const unsigned char *end, int *ver)
 		return TTLS_ERR_X509_INVALID_VERSION + ret;
 
 	if (*p != end)
-		return TTLS_ERR_X509_INVALID_VERSION +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		return TTLS_ERR_X509_INVALID_VERSION
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -243,7 +253,7 @@ x509_get_version(unsigned char **p, const unsigned char *end, int *ver)
  *	   notAfter	   Time }
  */
 static int
-x509_get_dates(unsigned char **p, const unsigned char *end,
+x509_get_dates(const unsigned char **p, const unsigned char *end,
 	       ttls_x509_time *from, ttls_x509_time *to)
 {
 	int ret;
@@ -261,8 +271,8 @@ x509_get_dates(unsigned char **p, const unsigned char *end,
 	if ((ret = ttls_x509_get_time(p, end, to)))
 		return ret;
 	if (*p != end)
-		return TTLS_ERR_X509_INVALID_DATE +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		return TTLS_ERR_X509_INVALID_DATE
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -271,8 +281,8 @@ x509_get_dates(unsigned char **p, const unsigned char *end,
  * X.509 v2/v3 unique identifier (not parsed)
  */
 static int
-x509_get_uid(unsigned char **p, const unsigned char *end, ttls_x509_buf *uid,
-	     int n)
+x509_get_uid(const unsigned char **p, const unsigned char *end,
+	     ttls_x509_buf *uid, int n)
 {
 	int ret;
 
@@ -282,7 +292,8 @@ x509_get_uid(unsigned char **p, const unsigned char *end, ttls_x509_buf *uid,
 	uid->tag = **p;
 
 	ret = ttls_asn1_get_tag(p, end, &uid->len,
-				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | n);
+				TTLS_ASN1_CONTEXT_SPECIFIC
+				| TTLS_ASN1_CONSTRUCTED | n);
 	if (unlikely(ret)) {
 		if (ret == TTLS_ERR_ASN1_UNEXPECTED_TAG)
 			return 0;
@@ -296,7 +307,7 @@ x509_get_uid(unsigned char **p, const unsigned char *end, ttls_x509_buf *uid,
 }
 
 static int
-x509_get_basic_constraints(unsigned char **p, const unsigned char *end,
+x509_get_basic_constraints(const unsigned char **p, const unsigned char *end,
 			   int *ca_istrue, int *max_pathlen)
 {
 	int ret;
@@ -345,11 +356,11 @@ x509_get_basic_constraints(unsigned char **p, const unsigned char *end,
 }
 
 static int
-x509_get_ns_cert_type(unsigned char **p, const unsigned char *end,
+x509_get_ns_cert_type(const unsigned char **p, const unsigned char *end,
 		      unsigned char *ns_cert_type)
 {
 	int ret;
-	ttls_x509_bitstring bs = { 0, 0, NULL };
+	ttls_x509_bitstring bs = {};
 
 	if ((ret = ttls_asn1_get_bitstring(p, end, &bs)))
 		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
@@ -364,12 +375,12 @@ x509_get_ns_cert_type(unsigned char **p, const unsigned char *end,
 }
 
 static int
-x509_get_key_usage(unsigned char **p, const unsigned char *end,
+x509_get_key_usage(const unsigned char **p, const unsigned char *end,
 		   unsigned int *key_usage)
 {
 	int ret;
 	size_t i;
-	ttls_x509_bitstring bs = { 0, 0, NULL };
+	ttls_x509_bitstring bs = {};
 
 	if ((ret = ttls_asn1_get_bitstring(p, end, &bs)))
 		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
@@ -380,9 +391,8 @@ x509_get_key_usage(unsigned char **p, const unsigned char *end,
 
 	/* Get actual bitstring */
 	*key_usage = 0;
-	for (i = 0; i < bs.len && i < sizeof(unsigned int); i++) {
+	for (i = 0; i < bs.len && i < sizeof(unsigned int); i++)
 		*key_usage |= (unsigned int) bs.p[i] << (8*i);
-	}
 
 	return 0;
 }
@@ -393,7 +403,7 @@ x509_get_key_usage(unsigned char **p, const unsigned char *end,
  * KeyPurposeId ::= OBJECT IDENTIFIER
  */
 static int
-x509_get_ext_key_usage(unsigned char **p, const unsigned char *end,
+x509_get_ext_key_usage(const unsigned char **p, const unsigned char *end,
 		       ttls_x509_sequence *ext_key_usage)
 {
 	int ret = ttls_asn1_get_sequence_of(p, end, ext_key_usage, TTLS_ASN1_OID);
@@ -401,9 +411,9 @@ x509_get_ext_key_usage(unsigned char **p, const unsigned char *end,
 		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 	/* Sequence length must be >= 1 */
-	if (unlikely(ext_key_usage->buf.p == NULL))
-		return TTLS_ERR_X509_INVALID_EXTENSIONS +
-		       TTLS_ERR_ASN1_INVALID_LENGTH;
+	if (unlikely(!ext_key_usage->buf.p))
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_INVALID_LENGTH;
 
 	return 0;
 }
@@ -435,7 +445,7 @@ x509_get_ext_key_usage(unsigned char **p, const unsigned char *end,
  * NOTE: we only parse and use dNSName at this point.
  */
 static int
-x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
+x509_get_subject_alt_name(const unsigned char **p, const unsigned char *end,
 			  ttls_x509_sequence *subject_alt_name)
 {
 	int ret;
@@ -454,22 +464,21 @@ x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
 			TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	while (*p < end) {
-		unsigned char tag;
+		const unsigned char tag = **p;
 
 		if ((end - *p) < 1)
-			return TTLS_ERR_X509_INVALID_EXTENSIONS +
-			       TTLS_ERR_ASN1_OUT_OF_DATA;
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
-		tag = **p;
 		(*p)++;
 		if ((ret = ttls_asn1_get_len(p, end, &tag_len)))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		if ((tag & TTLS_ASN1_TAG_CLASS_MASK) !=
-		    TTLS_ASN1_CONTEXT_SPECIFIC)
+		if ((tag & TTLS_ASN1_TAG_CLASS_MASK)
+		    != TTLS_ASN1_CONTEXT_SPECIFIC)
 		{
 			return TTLS_ERR_X509_INVALID_EXTENSIONS
-					+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
+				+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 		}
 
 		/* Skip everything but DNS name */
@@ -502,18 +511,17 @@ x509_get_subject_alt_name(unsigned char **p, const unsigned char *end,
 	cur->next = NULL;
 
 	if (*p != end)
-		return TTLS_ERR_X509_INVALID_EXTENSIONS +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH;
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
 
-/*
- * X.509 v3 extensions
- *
+/**
+ * Parse X.509 v3 extensions.
  */
 static int
-x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
+x509_get_crt_ext(const unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 {
 	int ret;
 	size_t len;
@@ -525,8 +533,7 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 		return ret;
 	}
 
-	while (*p < end)
-	{
+	while (*p < end) {
 		unsigned char *end_ext_data, *end_ext_octet;
 		/*
 		 * Extension  ::=  SEQUENCE  {
@@ -543,7 +550,12 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 		if (unlikely(ret))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		end_ext_data = *p + len;
+		/*
+		 * TODO #1808: declare the variable here to avoid type conversion
+		 * (-std=gnu11 is allowed with the new kernel).
+		 * The same for end_ext_octet at the below.
+		 */
+		end_ext_data = (unsigned char *)*p + len;
 
 		/* Get extension ID */
 		extn_oid.tag = **p;
@@ -572,18 +584,17 @@ x509_get_crt_ext(unsigned char **p, const unsigned char *end, TlsX509Crt *crt)
 		if (unlikely(ret))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		end_ext_octet = *p + len;
+		end_ext_octet = (unsigned char *)*p + len;
 
 		if (end_ext_octet != end_ext_data)
-			return TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH;
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 		/*
 		 * Detect supported extensions
 		 */
 		ret = ttls_oid_get_x509_ext_type(&extn_oid, &ext_type);
-		if (unlikely(ret))
-		{
+		if (unlikely(ret)) {
 			/* No parser found, skip extension */
 			*p = end_ext_octet;
 			if (is_critical)
@@ -667,20 +678,20 @@ x509_write_cert_len(unsigned char *buf, size_t n)
 /**
  * Parse and fill a single X.509 certificate in DER format.
  */
-static int
-x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
+int
+ttls_x509_crt_parse_der(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 {
 	int r;
-	unsigned char *p, *end, *crt_end;
+	const unsigned char *p, *end, *crt_end;
 	ttls_x509_buf sig_params1, sig_params2, sig_oid2;
 
 	BUG_ON(!crt || !buf);
-	BUG_ON(crt->raw.p);
-	memset(&sig_params1, 0, sizeof(ttls_x509_buf));
-	memset(&sig_params2, 0, sizeof(ttls_x509_buf));
-	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
+#if DBG_TLS == 3
+	print_hex_dump(KERN_INFO, "binary certificate ", DUMP_PREFIX_OFFSET,
+		       16, 1, buf, len, true);
+#endif
 
-	p = (unsigned char*)buf;
+	p = buf;
 	end = p + len;
 
 	/*
@@ -702,26 +713,29 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 	}
 	crt_end = p + len;
 
-	r = -ENOMEM;
 	/*
-	 * Create and populate a new buffer for the raw certificate field for
-	 * transmission as is (with prepending certificate length, see
-	 * ttls_write_certificate()) in the TLS handshake.
+	 * Copy the raw certificate data and use it for the following parsing.
+	 * The parser stores pointers to the raw data inside TlsX509Crt structure.
 	 */
-	if (unlikely(crt_end + TTLS_CERT_LEN_LEN - buf > PAGE_SIZE)) {
-		T_ERR("Trying to load too large certificate of %lu bytes\n",
-		      crt_end - buf);
-		goto err;
+	x509_write_cert_len((char *)crt->raw.pages + crt->raw.tot_len, crt_end - buf);
+	x509_memcpy(ttls_x509_crt_raw(crt) + crt->raw.tot_len, buf, crt_end - buf);
+	/*
+	 * Parse only the first certificate in a chain and just copy raw data
+	 * for all other certificates in the chain.
+	 */
+	if (crt->raw.tot_len) {
+		crt->raw.tot_len += TTLS_CERT_LEN_LEN + crt_end - buf;
+		return 0;
+	} else {
+		crt->raw.tot_len = TTLS_CERT_LEN_LEN + crt_end - buf;
 	}
-	if (!(crt->raw.p = (unsigned char *)__get_free_pages(GFP_KERNEL, 0)))
-		goto err;
-	crt->raw.len = crt_end - buf;
-	memcpy(ttls_x509_crt_raw(crt), buf, crt->raw.len);
-	x509_write_cert_len(crt->raw.p, crt->raw.len);
-
-	/* Direct pointers to the new buffer. */
-	p = ttls_x509_crt_raw(crt) + crt->raw.len - len;
+	/* Use the raw data for parsing hereafter. */
+	p = ttls_x509_crt_raw(crt) + ((unsigned char *)p - buf);
 	end = crt_end = p + len;
+
+	memset(&sig_params1, 0, sizeof(ttls_x509_buf));
+	memset(&sig_params2, 0, sizeof(ttls_x509_buf));
+	memset(&sig_oid2, 0, sizeof(ttls_x509_buf));
 
 	/* TBSCertificate  ::=  SEQUENCE  { */
 	crt->tbs.p = p;
@@ -743,7 +757,7 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 	 *
 	 * signature AlgorithmIdentifier
 	 */
-	if ((r = x509_get_version( &p, end, &crt->version ))
+	if ((r = x509_get_version(&p, end, &crt->version))
 	    || (r = ttls_x509_get_serial(&p, end, &crt->serial))
 	    || (r = ttls_x509_get_alg(&p, end, &crt->sig_oid, &sig_params1)))
 	{
@@ -762,7 +776,6 @@ x509_crt_parse_der_core(TlsX509Crt *crt, const unsigned char *buf, size_t len)
 
 	/* issuer Name */
 	crt->issuer_raw.p = p;
-
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
 	if (r) {
@@ -855,63 +868,48 @@ err:
 	return r;
 }
 
-/**
- * Parse one X.509 certificate in DER format from a buffer and add them to a
- * chained list.
- */
-int
-ttls_x509_crt_parse_der(TlsX509Crt *chain, const unsigned char *buf, size_t buflen)
+static void
+ttls_x509_crt_raw_free(TlsX509Crt *crt)
 {
-	int r;
-	TlsX509Crt *crt = chain, *prev = NULL;
+	BUG_ON(crt->raw.order > 2);
+	if (!crt->raw.pages)
+		return;
 
-	BUG_ON(!crt || !buf);
-
-	while (crt->version && crt->next) {
-		prev = crt;
-		crt = crt->next;
-	}
-#if DBG_TLS == 3
-	print_hex_dump(KERN_INFO, "binary certificate ", DUMP_PREFIX_OFFSET,
-		       16, 1, buf, buflen, true);
-#endif
-
-	/* Add new certificate on the end of the chain if needed. */
-	if (crt->version && !crt->next) {
-		crt->next = ttls_x509_crt_alloc();
-		if (!crt->next)
-			return TTLS_ERR_X509_ALLOC_FAILED;
-
-		prev = crt;
-		crt = crt->next;
-	}
-
-	if ((r = x509_crt_parse_der_core(crt, buf, buflen))) {
-		if (prev)
-			prev->next = NULL;
-		if (crt != chain)
-			kmem_cache_free(cert_cache, crt);
-		return r;
-	}
-
-	return 0;
+	free_pages((unsigned long)crt->raw.pages, crt->raw.order);
 }
 
 /**
- * Parse one or more PEM certificates from a buffer and add them to the chained
- * list. @buf is a page cluster reused in the certificates chain. Parses
- * permissively. If some certificates can be parsed, the result is the number
- * of failed certificates it encountered. If none complete correctly, the first
- * error is returned.
+ * Parse one or more PEM certificates from a buffer.
+ * Only the first certificate from a chain is actually parsed and the rest are
+ * just copied with preceding length to TlsX509Crt.raw for further transmission
+ * in ttls_write_certificate() as a single buffer.
  */
 int
-ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
+ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 {
-	int success = 0, first_error = 0, total_failed = 0;
-	int buf_format = TTLS_X509_FORMAT_DER;
+	int r, buf_format = TTLS_X509_FORMAT_DER;
+	int crt_len_len = TTLS_CERT_MAX_CHAIN_LEN * TTLS_CERT_LEN_LEN;
 
 	/* Check for valid input. */
-	BUG_ON(!chain || !buf);
+	BUG_ON(!crt || !buf);
+	/* See ttls_write_certificate() for the maximum size limit. */
+	BUILD_BUG_ON(TTLS_CERT_RAW_P_N * PAGE_SIZE < TLS_MAX_PAYLOAD_SIZE);
+	if (buflen > TLS_MAX_PAYLOAD_SIZE - 7) {
+		T_WARN("certificate too large: %u > %lu(max payload size)\n",
+		       crt->raw.tot_len + 7, TLS_MAX_PAYLOAD_SIZE);
+		return -E2BIG;
+	}
+
+	/*
+	 * We need contiguous pages since the x509 parser stores pointers
+	 * to the multi-byte structures inside the raw data.
+	 */
+	crt->raw.order = get_order(buflen + crt_len_len);
+	crt->raw.pages = (unsigned char *)__get_free_pages(GFP_KERNEL | __GFP_COMP,
+							   crt->raw.order);
+	if (!crt->raw.pages)
+		return -ENOMEM;
+	crt->raw.tot_len = 0;
 
 	/*
 	 * Determine buffer content. Buffer contains either one DER certificate
@@ -923,76 +921,57 @@ ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
 		buf_format = TTLS_X509_FORMAT_PEM;
 	}
 
-	if (buf_format == TTLS_X509_FORMAT_DER)
-		return ttls_x509_crt_parse_der(chain, buf, buflen);
-
-	if (buf_format == TTLS_X509_FORMAT_PEM) {
-		/*
-		 * 1 rather than 0 since the terminating NULL byte
-		 * is counted in.
-		 */
-		while (buflen > 1) {
-			int r;
-			size_t use_len;
-			unsigned char *pem_dec;
-
-			/*
-			 * If we get there, we know the string is
-			 * null-terminated.
-			 */
-			r = ttls_pem_read_buffer("-----BEGIN CERTIFICATE-----",
-						 "-----END CERTIFICATE-----",
-						 buf, &use_len);
-			if (r > 0) {
-				/* Was PEM encoded. */
-				pem_dec = buf;
-				buflen -= use_len;
-				buf += use_len;
-			}
-			else if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT) {
-				/* PEM header and footer were found. */
-				buflen -= use_len;
-				buf += use_len;
-
-				if (!first_error)
-					first_error = r;
-				total_failed++;
-				continue;
-			}
-			else {
-				break;
-			}
-
-			r = ttls_x509_crt_parse_der(chain, pem_dec, r);
-			if (r) {
-				/* Quit parsing on a memory error. */
-				if (r == TTLS_ERR_X509_ALLOC_FAILED)
-					return r;
-				if (!first_error)
-					first_error = r;
-				total_failed++;
-				continue;
-			}
-
-			success = 1;
-		}
+	if (buf_format == TTLS_X509_FORMAT_DER) {
+		r = ttls_x509_crt_parse_der(crt, buf, buflen);
+		goto done;
 	}
 
+	if (buf_format != TTLS_X509_FORMAT_PEM)
+		return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
+
+	/*
+	 * buflen > 1 rather than 0 since the terminating NULL byte
+	 * is counted in.
+	 */
+	for ( ; buflen > 1 && crt_len_len; crt_len_len -= TTLS_CERT_LEN_LEN) {
+		size_t use_len;
+		unsigned char *pem_dec;
+
+		/*
+		 * If we get there, we know the string is
+		 * null-terminated.
+		 */
+		r = ttls_pem_read_buffer("-----BEGIN CERTIFICATE-----",
+					 "-----END CERTIFICATE-----",
+					 buf, &use_len);
+		if (r > 0) {
+			/* Was PEM encoded. */
+			pem_dec = buf;
+			buflen -= use_len;
+			buf += use_len;
+		}
+		else {
+			int crt_id = TTLS_CERT_MAX_CHAIN_LEN
+				     - crt_len_len / TTLS_CERT_LEN_LEN;
+			T_WARN("Error %x on parsing certificate with id %d"
+			       " in the chain", -r, crt_id);
+			goto done;
+		}
+
+		if ((r = ttls_x509_crt_parse_der(crt, pem_dec, r)))
+			goto done;
+	}
+	if (!crt_len_len)
+		T_WARN("Try to load a certificate chain longer than %d\n",
+		       TTLS_CERT_MAX_CHAIN_LEN);
+
+done:
 	/* Does MPI calculations, so pool context must be freed afterwards. */
 	ttls_mpi_pool_cleanup_ctx(0, false);
 
-	if (success)
-		return total_failed;
-	if (first_error)
-		return first_error;
-	return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
+	return r;
 }
 EXPORT_SYMBOL(ttls_x509_crt_parse);
-
-struct x509_crt_verify_string {
-	int code;
-	const char *string;
-};
 
 /**
  * Check usage of certificate against keyUsage extension.
@@ -1358,10 +1337,16 @@ static int x509_crt_check_parent(const TlsX509Crt *child,
 	if (top && parent->version < 3)
 		need_ca_bit = 0;
 
-	/* Exception: self-signed end-entity certs that are locally trusted. */
+	/*
+	 * Exception: self-signed end-entity certs that are locally trusted.
+	 *
+	 * TODO: seems buggy copying of the raw certificate data - do we need to
+	 * allocate pages for @child or are they already allocated?
+	 */
 	if (top && bottom &&
-	    child->raw.len == parent->raw.len &&
-	    x509_memcmp(child->raw.p, parent->raw.p, child->raw.len) == 0)
+	    child->raw.tot_len == parent->raw.tot_len &&
+	    !x509_memcmp(child->raw.pages, parent->raw.pages,
+			 sizeof(child->raw.pages)))
 	{
 		need_ca_bit = 0;
 	}
@@ -1894,8 +1879,7 @@ ttls_x509_crt_free(TlsX509Crt *crt)
 		 * Certificates are sent in plain text,
 		 * so no need to zero memory.
 		 */
-		if (cert_cur->raw.p)
-			free_page((unsigned long)cert_cur->raw.p);
+		ttls_x509_crt_raw_free(crt);
 
 		cert_cur = cert_cur->next;
 	} while (cert_cur);

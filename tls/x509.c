@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,24 +46,25 @@
 /*
  *  CertificateSerialNumber  ::=  INTEGER
  */
-int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
-		 ttls_x509_buf *serial)
+int
+ttls_x509_get_serial(const unsigned char **p, const unsigned char *end,
+		     ttls_x509_buf *serial)
 {
 	int ret;
 
-	if ((end - *p) < 1)
-		return(TTLS_ERR_X509_INVALID_SERIAL +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+	if (end - *p < 1)
+		return TTLS_ERR_X509_INVALID_SERIAL
+			+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
-	if (**p != (TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_PRIMITIVE | 2) &&
-		**p !=   TTLS_ASN1_INTEGER)
-		return(TTLS_ERR_X509_INVALID_SERIAL +
-				TTLS_ERR_ASN1_UNEXPECTED_TAG);
+	if (**p != (TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_PRIMITIVE | 2)
+	    && **p != TTLS_ASN1_INTEGER)
+		return TTLS_ERR_X509_INVALID_SERIAL
+			+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 
 	serial->tag = *(*p)++;
 
-	if ((ret = ttls_asn1_get_len(p, end, &serial->len)) != 0)
-		return(TTLS_ERR_X509_INVALID_SERIAL + ret);
+	if ((ret = ttls_asn1_get_len(p, end, &serial->len)))
+		return TTLS_ERR_X509_INVALID_SERIAL + ret;
 
 	serial->p = *p;
 	*p += serial->len;
@@ -77,13 +78,14 @@ int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
  *	   algorithm			   OBJECT IDENTIFIER,
  *	   parameters			  ANY DEFINED BY algorithm OPTIONAL  }
  */
-int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
-		   ttls_x509_buf *alg)
+static int
+ttls_x509_get_alg_null(const unsigned char **p, const unsigned char *end,
+		       ttls_x509_buf *alg)
 {
 	int ret;
 
-	if ((ret = ttls_asn1_get_alg_null(p, end, alg)) != 0)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+	if ((ret = ttls_asn1_get_alg_null(p, end, alg)))
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	return 0;
 }
@@ -91,13 +93,14 @@ int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
 /*
  * Parse an algorithm identifier with (optional) parameters
  */
-int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
-				  ttls_x509_buf *alg, ttls_x509_buf *params)
+int
+ttls_x509_get_alg(const unsigned char **p, const unsigned char *end,
+		  ttls_x509_buf *alg, ttls_x509_buf *params)
 {
 	int ret;
 
-	if ((ret = ttls_asn1_get_alg(p, end, alg, params)) != 0)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+	if ((ret = ttls_asn1_get_alg(p, end, alg, params)))
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	return 0;
 }
@@ -111,37 +114,37 @@ int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
  *
  * For HashAlgorithm, parameters MUST be NULL or absent.
  */
-static int x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
+static int
+x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
 {
 	int ret;
-	unsigned char *p;
-	const unsigned char *end;
+	const unsigned char *p, *end;
 	ttls_x509_buf md_oid;
 	size_t len;
 
 	/* Make sure we got a SEQUENCE and setup bounds */
 	if (alg->tag != (TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE))
-		return(TTLS_ERR_X509_INVALID_ALG +
-				TTLS_ERR_ASN1_UNEXPECTED_TAG);
+		return TTLS_ERR_X509_INVALID_ALG
+			+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 
 	p = (unsigned char *) alg->p;
 	end = p + alg->len;
 
 	if (p >= end)
-		return(TTLS_ERR_X509_INVALID_ALG +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+		return TTLS_ERR_X509_INVALID_ALG
+			+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
 	/* Parse md_oid */
 	md_oid.tag = *p;
 
-	if ((ret = ttls_asn1_get_tag(&p, end, &md_oid.len, TTLS_ASN1_OID)) != 0)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+	if ((ret = ttls_asn1_get_tag(&p, end, &md_oid.len, TTLS_ASN1_OID)))
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	md_oid.p = p;
 	p += md_oid.len;
 
 	/* Get md_alg from md_oid */
-	if ((ret = ttls_oid_get_md_alg(&md_oid, md_alg)) != 0) {
+	if ((ret = ttls_oid_get_md_alg(&md_oid, md_alg))) {
 		TTLS_WITH_OID_FMT(&md_oid, md_str,
 			T_WARN("X509 - Hash algorithm with OID %s is unsupported",
 			       md_str));
@@ -152,12 +155,12 @@ static int x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
 	if (p == end)
 		return 0;
 
-	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_NULL)) != 0 || len != 0)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_NULL)) || len)
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	if (p != end)
-		return(TTLS_ERR_X509_INVALID_ALG +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_ALG
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -174,13 +177,13 @@ static int x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
  * of trailerField MUST be 1, and PKCS#1 v2.2 doesn't even define any other
  * option. Enfore this at parsing time.
  */
-int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
-		ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
-		int *salt_len)
+static int
+ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
+				ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
+				int *salt_len)
 {
 	int ret;
-	unsigned char *p;
-	const unsigned char *end, *end2;
+	const unsigned char *p, *end, *end2;
 	size_t len;
 	ttls_x509_buf alg_id, alg_params;
 
@@ -191,10 +194,10 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 	/* Make sure params is a SEQUENCE and setup bounds */
 	if (params->tag != (TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE))
-		return(TTLS_ERR_X509_INVALID_ALG +
-				TTLS_ERR_ASN1_UNEXPECTED_TAG);
+		return TTLS_ERR_X509_INVALID_ALG
+			+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 
-	p = (unsigned char *) params->p;
+	p = params->p;
 	end = p + params->len;
 
 	if (p == end)
@@ -203,24 +206,24 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	/*
 	 * HashAlgorithm
 	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 0)) == 0)
-	{
+	ret = ttls_asn1_get_tag(&p, end, &len,
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED);
+	if (!ret) {
 		end2 = p + len;
 
 		/* HashAlgorithm ::= AlgorithmIdentifier (without parameters) */
-		if ((ret = ttls_x509_get_alg_null(&p, end2, &alg_id)) != 0)
+		if ((ret = ttls_x509_get_alg_null(&p, end2, &alg_id)))
 			return ret;
 
-		if ((ret = ttls_oid_get_md_alg(&alg_id, md_alg)) != 0)
+		if ((ret = ttls_oid_get_md_alg(&alg_id, md_alg)))
 			return TTLS_ERR_X509_INVALID_ALG;
 
 		if (p != end2)
-			return(TTLS_ERR_X509_INVALID_ALG +
-		TTLS_ERR_ASN1_LENGTH_MISMATCH);
+			return TTLS_ERR_X509_INVALID_ALG
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 	}
 	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	if (p == end)
 		return 0;
@@ -228,50 +231,50 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	/*
 	 * MaskGenAlgorithm
 	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 1)) == 0)
-	{
+	ret = ttls_asn1_get_tag(&p, end, &len,
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED
+				| 1);
+	if (!ret) {
 		end2 = p + len;
 
 		/* MaskGenAlgorithm ::= AlgorithmIdentifier (params = HashAlgorithm) */
-		if ((ret = ttls_x509_get_alg(&p, end2, &alg_id, &alg_params)) != 0)
+		if ((ret = ttls_x509_get_alg(&p, end2, &alg_id, &alg_params)))
 			return ret;
 
 		/* Only MFG1 is recognised for now */
-		if (TTLS_OID_CMP(TTLS_OID_MGF1, &alg_id) != 0)
+		if (TTLS_OID_CMP(TTLS_OID_MGF1, &alg_id))
 			return TTLS_ERR_X509_FEATURE_UNAVAILABLE;
 
 		/* Parse HashAlgorithm */
-		if ((ret = x509_get_hash_alg(&alg_params, mgf_md)) != 0)
+		if ((ret = x509_get_hash_alg(&alg_params, mgf_md)))
 			return ret;
 
 		if (p != end2)
-			return(TTLS_ERR_X509_INVALID_ALG +
-		TTLS_ERR_ASN1_LENGTH_MISMATCH);
+			return TTLS_ERR_X509_INVALID_ALG
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 	}
 	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	if (p == end)
 		return 0;
 
-	/*
-	 * salt_len
-	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 2)) == 0)
-	{
+	/* salt_len */
+	ret = ttls_asn1_get_tag(&p, end, &len,
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED
+				| 2);
+	if (!ret) {
 		end2 = p + len;
 
-		if ((ret = ttls_asn1_get_int(&p, end2, salt_len)) != 0)
-			return(TTLS_ERR_X509_INVALID_ALG + ret);
+		if ((ret = ttls_asn1_get_int(&p, end2, salt_len)))
+			return TTLS_ERR_X509_INVALID_ALG + ret;
 
 		if (p != end2)
-			return(TTLS_ERR_X509_INVALID_ALG +
-		TTLS_ERR_ASN1_LENGTH_MISMATCH);
+			return TTLS_ERR_X509_INVALID_ALG
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 	}
 	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+		return TTLS_ERR_X509_INVALID_ALG + ret;
 
 	if (p == end)
 		return 0;
@@ -279,29 +282,31 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	/*
 	 * trailer_field (if present, must be 1)
 	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 3)) == 0)
-	{
+	ret = ttls_asn1_get_tag(&p, end, &len,
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED
+				| 3);
+	if (!ret) {
 		int trailer_field;
 
 		end2 = p + len;
 
-		if ((ret = ttls_asn1_get_int(&p, end2, &trailer_field)) != 0)
-			return(TTLS_ERR_X509_INVALID_ALG + ret);
+		if ((ret = ttls_asn1_get_int(&p, end2, &trailer_field)))
+			return TTLS_ERR_X509_INVALID_ALG + ret;
 
 		if (p != end2)
-			return(TTLS_ERR_X509_INVALID_ALG +
-		TTLS_ERR_ASN1_LENGTH_MISMATCH);
+			return TTLS_ERR_X509_INVALID_ALG
+				+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 		if (trailer_field != 1)
-			return(TTLS_ERR_X509_INVALID_ALG);
+			return TTLS_ERR_X509_INVALID_ALG;
 	}
-	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		return(TTLS_ERR_X509_INVALID_ALG + ret);
+	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG) {
+		return TTLS_ERR_X509_INVALID_ALG + ret;
+	}
 
 	if (p != end)
-		return(TTLS_ERR_X509_INVALID_ALG +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_ALG
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -315,8 +320,8 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
  *
  *  AttributeValue ::= ANY DEFINED BY AttributeType
  */
-static int x509_get_attr_type_value(unsigned char **p,
-			 const unsigned char *end,
+static int
+x509_get_attr_type_value(const unsigned char **p, const unsigned char *end,
 			 ttls_x509_name *cur)
 {
 	int ret;
@@ -324,42 +329,46 @@ static int x509_get_attr_type_value(unsigned char **p,
 	ttls_x509_buf *oid;
 	ttls_x509_buf *val;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-		return(TTLS_ERR_X509_INVALID_NAME + ret);
+	ret = ttls_asn1_get_tag(p, end, &len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret)
+		return TTLS_ERR_X509_INVALID_NAME + ret;
 
-	if ((end - *p) < 1)
-		return(TTLS_ERR_X509_INVALID_NAME +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+	if (end - *p < 1)
+		return TTLS_ERR_X509_INVALID_NAME
+			+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
 	oid = &cur->oid;
 	oid->tag = **p;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &oid->len, TTLS_ASN1_OID)) != 0)
-		return(TTLS_ERR_X509_INVALID_NAME + ret);
+	if ((ret = ttls_asn1_get_tag(p, end, &oid->len, TTLS_ASN1_OID)))
+		return TTLS_ERR_X509_INVALID_NAME + ret;
 
 	oid->p = *p;
 	*p += oid->len;
 
-	if ((end - *p) < 1)
-		return(TTLS_ERR_X509_INVALID_NAME +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+	if (end - *p < 1)
+		return TTLS_ERR_X509_INVALID_NAME
+			+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
-	if (**p != TTLS_ASN1_BMP_STRING && **p != TTLS_ASN1_UTF8_STRING	  &&
-		**p != TTLS_ASN1_T61_STRING && **p != TTLS_ASN1_PRINTABLE_STRING &&
-		**p != TTLS_ASN1_IA5_STRING && **p != TTLS_ASN1_UNIVERSAL_STRING &&
-		**p != TTLS_ASN1_BIT_STRING)
-		return(TTLS_ERR_X509_INVALID_NAME +
-				TTLS_ERR_ASN1_UNEXPECTED_TAG);
+	if (**p != TTLS_ASN1_BMP_STRING && **p != TTLS_ASN1_UTF8_STRING
+	    && **p != TTLS_ASN1_T61_STRING && **p != TTLS_ASN1_PRINTABLE_STRING
+	    && **p != TTLS_ASN1_IA5_STRING && **p != TTLS_ASN1_UNIVERSAL_STRING
+	    && **p != TTLS_ASN1_BIT_STRING)
+		return TTLS_ERR_X509_INVALID_NAME
+			+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 
 	val = &cur->val;
 	val->tag = *(*p)++;
 
-	if ((ret = ttls_asn1_get_len(p, end, &val->len)) != 0)
-		return(TTLS_ERR_X509_INVALID_NAME + ret);
+	if ((ret = ttls_asn1_get_len(p, end, &val->len)))
+		return TTLS_ERR_X509_INVALID_NAME + ret;
 
 	val->p = *p;
 	*p += val->len;
+
+	if (*p != end)
+		return TTLS_ERR_X509_INVALID_NAME + TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	cur->next = NULL;
 
@@ -389,28 +398,26 @@ static int x509_get_attr_type_value(unsigned char **p,
  * same set so that they are "merged" together in the functions that consume
  * this list.
  */
-int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
-				   ttls_x509_name *cur)
+int
+ttls_x509_get_name(const unsigned char **p, const unsigned char *end,
+		   ttls_x509_name *cur)
 {
 	int ret;
 	size_t set_len;
 	const unsigned char *end_set;
 
-	/* don't use recursion, we'd risk stack overflow if not optimized */
-	while (1)
-	{
-		/*
-		 * parse SET
-		 */
-		if ((ret = ttls_asn1_get_tag(p, end, &set_len,
-				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SET)) != 0)
-			return(TTLS_ERR_X509_INVALID_NAME + ret);
+	/* Don't use recursion, we'd risk stack overflow if not optimized. */
+	while (1) {
+		/* Parse SET. */
+		ret = ttls_asn1_get_tag(p, end, &set_len,
+					TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SET);
+		if (ret)
+			return TTLS_ERR_X509_INVALID_NAME + ret;
 
 		end_set  = *p + set_len;
 
-		while (1)
-		{
-			if ((ret = x509_get_attr_type_value(p, end_set, cur)) != 0)
+		while (1) {
+			if ((ret = x509_get_attr_type_value(p, end_set, cur)))
 				return ret;
 
 			if (*p == end_set)
@@ -420,39 +427,35 @@ int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
 			cur->next_merged = 1;
 
 			cur->next = kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
-
-			if (cur->next == NULL)
-				return(TTLS_ERR_X509_ALLOC_FAILED);
+			if (!cur->next)
+				return TTLS_ERR_X509_ALLOC_FAILED;
 
 			cur = cur->next;
 		}
 
-		/*
-		 * continue until end of SEQUENCE is reached
-		 */
+		/* Continue until end of SEQUENCE is reached. */
 		if (*p == end)
 			return 0;
 
 		cur->next = kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
-
-		if (cur->next == NULL)
-			return(TTLS_ERR_X509_ALLOC_FAILED);
+		if (!cur->next)
+			return TTLS_ERR_X509_ALLOC_FAILED;
 
 		cur = cur->next;
 	}
 }
 
-static int x509_parse_int(unsigned char **p, size_t n, int *res)
+static int
+x509_parse_int(const unsigned char **p, size_t n, int *res)
 {
 	*res = 0;
 
-	for (; n > 0; --n)
-	{
-		if ((**p < '0') || (**p > '9'))
-			return (TTLS_ERR_X509_INVALID_DATE);
+	for ( ; n > 0; --n) {
+		if (**p < '0' || **p > '9')
+			return TTLS_ERR_X509_INVALID_DATE;
 
 		*res *= 10;
-		*res += (*(*p)++ - '0');
+		*res += *(*p)++ - '0';
 	}
 
 	return 0;
@@ -495,27 +498,22 @@ static int x509_date_is_valid(const ttls_x509_time *t)
  * Parse an ASN1_UTC_TIME (yearlen=2) or ASN1_GENERALIZED_TIME (yearlen=4)
  * field.
  */
-static int x509_parse_time(unsigned char **p, size_t len, size_t yearlen,
-				ttls_x509_time *tm)
+static int
+x509_parse_time(const unsigned char **p, size_t len, size_t yearlen,
+		ttls_x509_time *tm)
 {
 	int ret;
 
-	/*
-	 * Minimum length is 10 or 12 depending on yearlen
-	 */
+	/* Minimum length is 10 or 12 depending on yearlen. */
 	if (len < yearlen + 8)
-		return (TTLS_ERR_X509_INVALID_DATE);
+		return TTLS_ERR_X509_INVALID_DATE;
 	len -= yearlen + 8;
 
-	/*
-	 * Parse year, month, day, hour, minute
-	 */
+	/* Parse year, month, day, hour, minute. */
 	CHECK(x509_parse_int(p, yearlen, &tm->year));
-	if (2 == yearlen)
-	{
+	if (2 == yearlen) {
 		if (tm->year < 50)
 			tm->year += 100;
-
 		tm->year += 1900;
 	}
 
@@ -524,35 +522,27 @@ static int x509_parse_time(unsigned char **p, size_t len, size_t yearlen,
 	CHECK(x509_parse_int(p, 2, &tm->hour));
 	CHECK(x509_parse_int(p, 2, &tm->min));
 
-	/*
-	 * Parse seconds if present
-	 */
-	if (len >= 2)
-	{
+	/* Parse seconds if present. */
+	if (len >= 2) {
 		CHECK(x509_parse_int(p, 2, &tm->sec));
 		len -= 2;
+	} else {
+		return TTLS_ERR_X509_INVALID_DATE;
 	}
-	else
-		return (TTLS_ERR_X509_INVALID_DATE);
 
-	/*
-	 * Parse trailing 'Z' if present
-	 */
-	if (1 == len && 'Z' == **p)
-	{
+	/* Parse trailing 'Z' if present. */
+	if (1 == len && 'Z' == **p) {
 		(*p)++;
 		len--;
 	}
 
-	/*
-	 * We should have parsed all characters at this point
-	 */
+	/* We should have parsed all characters at this point. */
 	if (0 != len)
-		return (TTLS_ERR_X509_INVALID_DATE);
+		return TTLS_ERR_X509_INVALID_DATE;
 
 	CHECK(x509_date_is_valid(tm));
 
-	return (0);
+	return 0;
 }
 
 /*
@@ -560,16 +550,17 @@ static int x509_parse_time(unsigned char **p, size_t len, size_t yearlen,
  *	   utcTime		UTCTime,
  *	   generalTime	GeneralizedTime }
  */
-int ttls_x509_get_time(unsigned char **p, const unsigned char *end,
-			   ttls_x509_time *tm)
+int
+ttls_x509_get_time(const unsigned char **p, const unsigned char *end,
+		   ttls_x509_time *tm)
 {
 	int ret;
 	size_t len, year_len;
 	unsigned char tag;
 
-	if ((end - *p) < 1)
-		return(TTLS_ERR_X509_INVALID_DATE +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+	if (end - *p < 1)
+		return TTLS_ERR_X509_INVALID_DATE
+			+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
 	tag = **p;
 
@@ -578,32 +569,33 @@ int ttls_x509_get_time(unsigned char **p, const unsigned char *end,
 	else if (tag == TTLS_ASN1_GENERALIZED_TIME)
 		year_len = 4;
 	else
-		return(TTLS_ERR_X509_INVALID_DATE +
-				TTLS_ERR_ASN1_UNEXPECTED_TAG);
+		return TTLS_ERR_X509_INVALID_DATE
+			+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 
 	(*p)++;
 	ret = ttls_asn1_get_len(p, end, &len);
+	if (ret)
+		return TTLS_ERR_X509_INVALID_DATE + ret;
 
-	if (ret != 0)
-		return(TTLS_ERR_X509_INVALID_DATE + ret);
-
-	return x509_parse_time(p, len, year_len, tm);
+	return x509_parse_time(p , len, year_len, tm);
 }
 
-int ttls_x509_get_sig(unsigned char **p, const unsigned char *end, ttls_x509_buf *sig)
+int
+ttls_x509_get_sig(const unsigned char **p, const unsigned char *end,
+		  ttls_x509_buf *sig)
 {
 	int ret;
 	size_t len;
 	int tag_type;
 
-	if ((end - *p) < 1)
-		return(TTLS_ERR_X509_INVALID_SIGNATURE +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+	if (end - *p < 1)
+		return TTLS_ERR_X509_INVALID_SIGNATURE
+			+ TTLS_ERR_ASN1_OUT_OF_DATA;
 
 	tag_type = **p;
 
-	if ((ret = ttls_asn1_get_bitstring_null(p, end, &len)) != 0)
-		return(TTLS_ERR_X509_INVALID_SIGNATURE + ret);
+	if ((ret = ttls_asn1_get_bitstring_null(p, end, &len)))
+		return TTLS_ERR_X509_INVALID_SIGNATURE + ret;
 
 	sig->tag = tag_type;
 	sig->len = len;
@@ -664,12 +656,13 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 	return 0;
 }
 
-/*
+/**
  * X.509 Extensions (No parsing of extensions, pointer should
  * be either manually updated or extensions should be parsed!)
  */
-int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
-				  ttls_x509_buf *ext, int tag)
+int
+ttls_x509_get_ext(const unsigned char **p, const unsigned char *end,
+		  ttls_x509_buf *ext, int tag)
 {
 	int ret;
 	size_t len;
@@ -679,8 +672,9 @@ int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
 
 	ext->tag = **p;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &ext->len,
-			TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | tag)) != 0)
+	ret = ttls_asn1_get_tag(p, end, &ext->len,
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | tag);
+	if (ret)
 		return ret;
 
 	ext->p = *p;
@@ -694,13 +688,14 @@ int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
 	 *	  critical	BOOLEAN DEFAULT FALSE,
 	 *	  extnValue   OCTET STRING  }
 	 */
-	if ((ret = ttls_asn1_get_tag(p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-		return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
+	ret = ttls_asn1_get_tag(p, end, &len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret)
+		return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
 	if (end != *p + len)
-		return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_X509_INVALID_EXTENSIONS
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
