@@ -553,7 +553,6 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			nskb->next = nskb->prev = NULL;
 			ss_skb_queue_tail(&resp->msg.skb_head, nskb);
 			nskb = skb;
-			printk("---> acc=%d, nskb=%p, nskb->len=%d\n", stream->xmit.t_len, nskb, nskb->len);
 		} while (nskb != nskb_head);
 	}
 
@@ -577,7 +576,6 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	BUG_ON(!TFW_SKB_CB(stream->xmit.skb_head)->is_head);
 	while (*len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
-		printk("---> tfw_h2_entail_stream_skb, stream->xmit.skb_head=%p, skb=%p, *len=%d\n", stream->xmit.skb_head, skb, *len);
 		BUG_ON(!skb);
 
 		if (unlikely(!skb->len)) {
