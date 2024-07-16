@@ -1959,7 +1959,6 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str)))
 			return r;
 		stream->xmit.skb_head = it.skb_head;
-		printk("---> insert frame hdr\n");
 	}
 
 	/*
@@ -1967,7 +1966,6 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	 * during previous operations.
 	 */
 	ss_skb_setup_head_of_list(stream->xmit.skb_head, mark, tls_type);
-	printk("---> stream->xmit.skb_head=%p\n", stream->xmit.skb_head);
 
 	length = tfw_h2_calc_frame_length(ctx, stream, type, len,
 					  max_len - FRAME_HEADER_SIZE);
@@ -2075,7 +2073,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> header->send\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2088,7 +2085,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> cont->send\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2109,7 +2105,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> data->send\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2122,7 +2117,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> trailer->send, stream->xmit.skb_head=%p\n", stream->xmit.skb_head);
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2135,7 +2129,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> trailer cont->send\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
