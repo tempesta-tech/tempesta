@@ -2987,15 +2987,12 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 
 	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
 		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off);
-		int r;
 
 		if (unlikely(TFW_MSG_H2(req) && ((TfwCStr *)p)->flags & TFW_CSTR_TRAILER))
 			break;
 
-		r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
-					     &h_len, skip);
-
-		if (r)
+		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
+					     &h_len, skip))
 			goto free;
 	}
 

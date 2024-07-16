@@ -64,7 +64,7 @@ tfw_h2_stream_purge_all(TfwStream *stream)
 {
 	ss_skb_queue_purge(&stream->xmit.skb_head);
 	ss_skb_queue_purge(&stream->xmit.postponed);
-	stream->xmit.h_len = stream->xmit.b_len = 0;
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len =0;
 }
 
 static void
@@ -149,7 +149,8 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 		len -= skb->len;
 		kfree_skb(skb);
 	}
-	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.frame_length = 0;
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
+		= stream->xmit.frame_length = 0;
 }
 
 void
@@ -835,6 +836,7 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	stream->xmit.skb_head = NULL;
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
+	stream->xmit.t_len = 0;
 	stream->xmit.state = state;
 	stream->xmit.frame_length = 0;
 	stream->xmit.is_blocked = false;
