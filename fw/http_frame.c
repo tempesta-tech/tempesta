@@ -698,7 +698,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
 
 		if (*window > 0) {
-			if (tfw_h2_stream_sched_is_active(&ctx->sched.root)) {
+			if (tfw_h2_stream_sched_active_cnt(&ctx->sched.root)) {
 				sock_set_flag(((TfwConn *)conn)->sk,
 					       SOCK_TEMPESTA_HAS_DATA);
 				tcp_push_pending_frames(((TfwConn *)conn)->sk);
@@ -2011,7 +2011,8 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   int ss_action, unsigned long *snd_wnd)
+			   bool stream_is_exclusive, int ss_action,
+			   unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2023,7 +2024,6 @@ do {									\
 		T_FSM_EXIT();						\
 	frame_type = type;						\
 } while(0)
-
 
 	T_FSM_START(stream->xmit.state) {
 
@@ -2140,9 +2140,14 @@ do {									\
 			if (stream == ctx->error && ss_action != SS_CLOSE)
 				tcp_shutdown(sk, SEND_SHUTDOWN);
 		}
-		tfw_h2_stream_add_closed(ctx, stream);
 		if (stream == ctx->error)
 			ctx->error = NULL;
+		/*
+		 * Don't put exclusive streams in closed queue
+		 * remove it later immediately.
+		 */
+		if (!stream_is_exclusive)
+			tfw_h2_stream_add_closed(ctx, stream);
 		T_FSM_EXIT();
 	}
 
@@ -2155,7 +2160,6 @@ do {									\
 					     &stream->xmit.frame_length,
 					     true);
 	}
-
 
 	return r;
 
@@ -2173,18 +2177,32 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 	bool error_was_sent = false;
 	int r = 0;
 
-	while (tfw_h2_stream_sched_is_active(&sched->root)
+#define SCHED_REMOVE_EXCLUSIVE_STREAM(sched, stream)			\
+do {									\
+	if (!tfw_h2_stream_is_exclusive(stream)) {			\
+		parent = stream->sched.parent;				\
+		tfw_h2_stream_sched_remove(sched, stream);		\
+	} else {							\
+		parent = NULL;						\
+	}								\
+} while(0)
+
+	while (tfw_h2_stream_sched_active_cnt(&sched->root)
 	       && snd_wnd > FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD
 	       && ctx->rem_wnd > 0)
 	{
 		if (ctx->cur_send_headers) {
 			stream = ctx->cur_send_headers;
-			parent = stream->sched.parent;
-			tfw_h2_stream_sched_remove(sched, stream);
-		} else if (ctx->error) {
+			/*
+			 * Stream can't be blocked during sending
+			 * headers frames and this pointer should be
+			 * zeroed if client close this stream.
+			 */
+			BUG_ON(!tfw_h2_stream_is_active(stream));
+			SCHED_REMOVE_EXCLUSIVE_STREAM(sched, stream);
+		} else if (ctx->error && tfw_h2_stream_is_active(ctx->error)) {
 			stream = ctx->error;
-			parent = stream->sched.parent;
-			tfw_h2_stream_sched_remove(sched, stream);
+			SCHED_REMOVE_EXCLUSIVE_STREAM(sched, stream);
 			error_was_sent = true;
 		} else {
 			stream = tfw_h2_sched_stream_dequeue(sched, &parent);
@@ -2195,10 +2213,23 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_stream_xmit_process(sk, ctx, stream, ss_action,
-					       &snd_wnd);
-		deficit = tfw_h2_stream_recalc_deficit(stream);
-		tfw_h2_sched_stream_enqueue(sched, stream, parent, deficit);
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream, !parent,
+					       ss_action, &snd_wnd);
+
+		/* We don't recalculate deficits of exclusive streams. */
+		if (parent) {
+			deficit = tfw_h2_stream_recalc_deficit(stream);
+			tfw_h2_sched_stream_enqueue(sched, stream, parent,
+						    deficit);
+		} else if (!tfw_h2_stream_is_active(stream)) {
+			tfw_h2_sched_deactivate_stream(sched, stream);
+			/*
+			 * Remove exclusive stream after sending all pending
+			 * data.
+			 */
+			if (!stream->xmit.skb_head)
+				tfw_h2_stream_clean(ctx, stream);
+		}
 
 		/*
 		 * If we send error response we stop to send any data
@@ -2210,7 +2241,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 	}
 
 	*data_is_available =
-		tfw_h2_stream_sched_is_active(&sched->root) && ctx->rem_wnd;
+		tfw_h2_stream_sched_active_cnt(&sched->root) && ctx->rem_wnd;
 
 	/*
 	 * Send shutdown if there is no pending error response in our scheduler
@@ -2220,4 +2251,6 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		tcp_shutdown(sk, SEND_SHUTDOWN);
 
 	return r;
+
+#undef SCHED_REMOVE_EXCLUSIVE_STREAM
 }
