@@ -81,6 +81,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
  * @hdr_h2_off	- start of http/2-only headers in the headers list;
+ * @hdr_h2_off	- start of trailer headers;
  * @body_len	- length of the response body;
  * @method	- request method, part of the key;
  * @flags	- various cache entry flags;
@@ -110,6 +111,7 @@ typedef struct {
 	unsigned int	rph_len;
 	unsigned int	hdr_num;
 	unsigned int	hdr_h2_off;
+	unsigned int	trailer_off;
 	unsigned int	hdr_len;
 	unsigned int	body_len;
 	unsigned int	method: 4;
@@ -166,6 +168,7 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 	len += CE_DUMP_MEMBER("%d", "rph_len",        	ce->rph_len);
 	len += CE_DUMP_MEMBER("%d", "hdr_num",        	ce->hdr_num);
 	len += CE_DUMP_MEMBER("%d", "hdr_h2_off",     	ce->hdr_h2_off);
+	len += CE_DUMP_MEMBER("%d", "trailer_off",     	ce->trailer_off);
 	len += CE_DUMP_MEMBER("%d", "hdr_len",        	ce->hdr_len);
 	len += CE_DUMP_MEMBER("%d", "body_len",       	ce->body_len);
 	len += CE_DUMP_MEMBER("%d", "method",	      	ce->method);
@@ -2210,6 +2213,7 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->hdr_h2_off = ce->hdr_num + 1;
 	ce->hdr_num += 2;
 
+	ce->trailer_off = ce->hdr_num;
 	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
 		int hid = field - resp->h_tbl->tbl;
 
@@ -2941,7 +2945,7 @@ err:
 static TfwHttpResp *
 tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 {
-	int h;
+	int h, trailer_off;
 	TfwStr dummy_body = { 0 };
 	TfwMsgIter *it;
 	TfwHttpResp *resp;
@@ -2985,18 +2989,17 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	if (tfw_cache_set_status(db, ce, resp, &trec, &p, &h_len))
 		goto free;
 
-	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
-		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off);
-
-		if (unlikely(TFW_MSG_H2(req) && ((TfwCStr *)p)->flags & TFW_CSTR_TRAILER))
-			break;
+	trailer_off = TFW_MSG_H2(req) ? ce->trailer_off : ce->hdr_num;
+	for (h = TFW_HTTP_HDR_REGULAR; h < trailer_off; ++h) {
+		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off)
+			     && (h < ce->trailer_off);
 
 		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
 					     &h_len, skip))
 			goto free;
 	}
 
-	if (unlikely(h < ce->hdr_num)) {
+	if (unlikely(trailer_off < ce->hdr_num)) {
 		TfwHttpTransIter pmit, nmit;
 		struct sk_buff *pskb_head = resp->msg.skb_head;
 
@@ -3009,12 +3012,9 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 		resp->msg.skb_head = NULL;
 		resp->mit = nmit;
 
-		for (; h < ce->hdr_num; ++h) {
-			bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off);
-			int r;
-
-			r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
-					&t_len, skip);
+		for (h = trailer_off; h < ce->hdr_num; ++h) {
+			int r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
+					&t_len, false);
 
 			if (!nskb_head)
 				nskb_head = resp->msg.skb_head;
@@ -3117,6 +3117,7 @@ write_body:
 
 	if (has_trailers) {
 		struct sk_buff *skb, *nskb = nskb_head;
+		BUG_ON(!nskb);
 		resp->req->stream->xmit.t_len = t_len;
 		do {
 			skb = nskb->next;
