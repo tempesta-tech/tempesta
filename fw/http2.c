@@ -530,37 +530,15 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 	}
 
 	if (resp->trailers_len > 0) {
-		// MUST _NOT_ use resp pool to encode trailer headers
-		// because it assumes no headers after body in many code.
-		// Instead, encode trailers header in new skbs
-		// and append them to the resp->msg.skb_head.
-		struct sk_buff *skb_head, *skb, *nskb_head, *nskb;
-		unsigned long acc;
-
-		skb_head = resp->msg.skb_head;
-		skb = resp->mit.iter.skb;
-		resp->msg.skb_head = resp->mit.iter.skb = NULL;
-		acc = resp->mit.acc_len;
+		unsigned long acc = resp->mit.acc_len;
+		resp->mit.iter.skb = NULL;
 
 		r = tfw_h2_hpack_encode_trailer_headers(resp);
-
 		stream->xmit.t_len = resp->mit.acc_len - acc;
-		nskb_head = resp->msg.skb_head;
-		resp->msg.skb_head = skb_head;
-		resp->mit.iter.skb = skb;
 
 		if (unlikely(r)) {
 			T_WARN("Failed to encode trailers");
-			goto finish;
 		}
-
-		nskb = nskb_head;
-		do {
-			skb = nskb->next;
-			nskb->next = nskb->prev = NULL;
-			ss_skb_queue_tail(&resp->msg.skb_head, nskb);
-			nskb = skb;
-		} while (nskb != nskb_head);
 	}
 
 finish:
