@@ -486,8 +486,13 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 
 	stream->xmit.h_len = resp->mit.acc_len;
 	stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		r = tfw_http_msg_cutoff_body_chunks(resp);
+		if (unlikely(r)) {
+			T_WARN("Failed to encode body");
+			goto finish;
+		}
+	}
 
 	if (resp->trailers_len > 0) {
 		// MUST _NOT_ use resp pool to encode trailer headers
@@ -509,8 +514,10 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 		resp->msg.skb_head = skb_head;
 		resp->mit.iter.skb = skb;
 
-		if (unlikely(r))
+		if (unlikely(r)) {
+			T_WARN("Failed to encode trailers");
 			goto finish;
+		}
 
 		nskb = nskb_head;
 		do {
