@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -125,7 +125,7 @@ int ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 ttls_pk_type_t ttls_pk_get_type(const TlsPkCtx *ctx);
 
 int ttls_pk_parse_key(TlsPkCtx *ctx, unsigned char *key, size_t keylen);
-int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
+int ttls_pk_parse_subpubkey(const unsigned char **p, const unsigned char *end,
 			    TlsPkCtx *pk);
 
 /**

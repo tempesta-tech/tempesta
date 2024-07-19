@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -225,24 +225,21 @@ int ttls_x509_time_is_future(const ttls_x509_time *from);
  * Internal module functions. You probably do not want to use these unless you
  * know you do.
  */
-int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
+int ttls_x509_get_name(const unsigned char **p, const unsigned char *end,
 		       ttls_x509_name *cur);
-int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
-			   ttls_x509_buf *alg);
-int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
+int ttls_x509_get_alg(const unsigned char **p, const unsigned char *end,
 		      ttls_x509_buf *alg, ttls_x509_buf *params);
-int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
-				    ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
-				    int *salt_len);
-int ttls_x509_get_sig(unsigned char **p, const unsigned char *end, ttls_x509_buf *sig);
-int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig_params,
+int ttls_x509_get_sig(const unsigned char **p, const unsigned char *end,
+		      ttls_x509_buf *sig);
+int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid,
+			  const ttls_x509_buf *sig_params,
 			  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
 			  void **sig_opts);
-int ttls_x509_get_time(unsigned char **p, const unsigned char *end,
+int ttls_x509_get_time(const unsigned char **p, const unsigned char *end,
 		       ttls_x509_time *t);
-int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
+int ttls_x509_get_serial(const unsigned char **p, const unsigned char *end,
 			 ttls_x509_buf *serial);
-int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
+int ttls_x509_get_ext(const unsigned char **p, const unsigned char *end,
 		      ttls_x509_buf *ext, int tag);
 int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
 			const char *oid, size_t oid_len,

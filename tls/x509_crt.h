@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,15 +25,23 @@
 #ifndef TTLS_X509_CRT_H
 #define TTLS_X509_CRT_H
 
+#include <net/tls.h>
+
 #include "x509.h"
 #include "x509_crl.h"
 
+#define TTLS_CERT_MAX_CHAIN_LEN			8
 #define TTLS_CERT_LEN_LEN			3
+#define TTLS_CERT_RAW_P_N			(TLS_MAX_PAYLOAD_SIZE / PAGE_SIZE)
 
 /**
  * Container for an X.509 certificate. The certificate may be chained.
  *
- * @raw			- The raw certificate data (DER) prepended with length.
+ * @raw			- The raw certificates _chain_ data in DER format
+ *			  prepended with length, i.e. ready to be transmitted
+ *			  in a TLS handshake.
+ *			  TODO #769 #830: do we need separate raw certificates
+ *			  for any of the modes?
  * @tbs			- The raw certificate body (DER). The part that is
  *			  To Be Signed.
  * @version		- The X.509 version. (1=v1, 2=v2, 3=v3)
@@ -68,55 +76,62 @@
  *			  signature algorithm, e.g. TTLS_MD_SHA256
  * @sig_pk		- Internal representation of the Public Key algorithm
  *			  of the signature algorithm, e.g. TTLS_PK_RSA
- * @*sig_opts		- Signature options to be passed to ttls_pk_verify_ext(),
+ * @sig_opts		- Signature options to be passed to ttls_pk_verify_ext(),
  *			  e.g. for RSASSA-PSS
- * @TlsX509Crt *next	- Next certificate in the CA-chain.
+ * @next		- Next certificate in the CA-chain. Isn't used in server
+ *			  mode. TODO #769 #830: do we need it for client mode?
  */
 typedef struct TlsX509Crt {
-	ttls_x509_buf raw;
-	ttls_x509_buf tbs;
+	struct {
+		unsigned int		tot_len;
+		unsigned int		order;
+		const unsigned char	*pages;
+	}			raw;
+	ttls_x509_buf		tbs;
 
-	int version;
-	ttls_x509_buf serial;
-	ttls_x509_buf sig_oid;
+	int			version;
+	ttls_x509_buf		serial;
+	ttls_x509_buf		sig_oid;
 
-	ttls_x509_buf issuer_raw;
-	ttls_x509_buf subject_raw;
+	ttls_x509_buf		issuer_raw;
+	ttls_x509_buf		subject_raw;
 
-	ttls_x509_name issuer;
-	ttls_x509_name subject;
+	ttls_x509_name		issuer;
+	ttls_x509_name		subject;
 
-	ttls_x509_time valid_from;
-	ttls_x509_time valid_to;
+	ttls_x509_time		valid_from;
+	ttls_x509_time		valid_to;
 
-	TlsPkCtx pk;
+	TlsPkCtx		pk;
 
-	ttls_x509_buf issuer_id;
-	ttls_x509_buf subject_id;
-	ttls_x509_buf v3_ext;
-	ttls_x509_sequence subject_alt_names;
+	ttls_x509_buf		issuer_id;
+	ttls_x509_buf		subject_id;
+	ttls_x509_buf		v3_ext;
+	ttls_x509_sequence	subject_alt_names;
 
-	int ext_types;
-	int ca_istrue;
-	int max_pathlen;
+	int			ext_types;
+	int			ca_istrue;
+	int			max_pathlen;
+	unsigned int		key_usage;
 
-	unsigned int key_usage;
+	ttls_x509_sequence	ext_key_usage;
 
-	ttls_x509_sequence ext_key_usage;
+	unsigned char		ns_cert_type;
 
-	unsigned char ns_cert_type;
+	ttls_x509_buf		sig;
+	ttls_md_type_t		sig_md;
+	ttls_pk_type_t		sig_pk;
+	void			*sig_opts;
 
-	ttls_x509_buf sig;
-	ttls_md_type_t sig_md;
-	ttls_pk_type_t sig_pk;
-	void *sig_opts;
-
-	struct TlsX509Crt *next;
+	struct TlsX509Crt	*next;
 } TlsX509Crt;
 
-int ttls_x509_crt_parse_der(TlsX509Crt *chain, const unsigned char *buf,
+int ttls_x509_crt_raw_alloc_cpy(TlsX509Crt *crt, const unsigned char *buf,
+				size_t len, gfp_t gfp_mask);
+
+int ttls_x509_crt_parse_der(TlsX509Crt *crt, const unsigned char *buf,
 			    size_t buflen);
-int ttls_x509_crt_parse(TlsX509Crt *chain, unsigned char *buf, size_t buflen);
+int ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen);
 
 enum {
 	TLS_X509_CERT_PROFILE_DEFAULT,
@@ -151,10 +166,10 @@ void ttls_x509_crt_init(TlsX509Crt *crt);
 void ttls_x509_crt_free(TlsX509Crt *crt);
 void ttls_x509_crt_destroy(TlsX509Crt **crt);
 
-static inline void *
+static inline unsigned char *
 ttls_x509_crt_raw(TlsX509Crt *crt)
 {
-	return crt->raw.p + TTLS_CERT_LEN_LEN;
+	return (unsigned char *)crt->raw.pages + TTLS_CERT_LEN_LEN;
 }
 
 int ttls_x509_init(void);

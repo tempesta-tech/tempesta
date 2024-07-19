@@ -295,7 +295,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
-	bool was_max_misses = false;
+	bool was_max_misses = false, was_name = false;
 
 	if (!cur_vhost) {
 		sticky = &defaults_override.sticky;
@@ -313,15 +313,20 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
+			TFW_CFG_CHECK_VAL_DUP(key, was_name, {
+				return -EINVAL;
+			})
 			name_val = val;
 		} else if (!strcasecmp(key, "max_misses")) {
+			TFW_CFG_CHECK_VAL_DUP(key, was_max_misses, {
+				return -EINVAL;
+			})
 			if (tfw_cfg_parse_uint(val, &sticky->max_misses))
 			{
 				T_ERR_NL("%s: invalid value for 'max_misses'"
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
-			was_max_misses = true;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
@@ -371,11 +376,17 @@ tfw_cfgop_cookie_options_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "Path")) {
-			was_path = true;
+			TFW_CFG_CHECK_VAL_DUP(key, was_path, {
+				return -EINVAL;
+			})
 		} else if (!strcasecmp(key, "Max-Age")) {
-			was_max_age = true;
+			TFW_CFG_CHECK_VAL_DUP(key, was_max_age, {
+				return -EINVAL;
+			})
 		} else if (!strcasecmp(key, "Expires")) {
-			was_expires = true;
+			TFW_CFG_CHECK_VAL_DUP(key, was_expires, {
+				return -EINVAL;
+			})
 		}
 		if ((r = tfw_cfgop_cookie_set_option(sticky, key, val)))
 			return r;
@@ -402,6 +413,7 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	size_t i;
 	int r;
 	const char *key, *val, *name_val = NULL;
+	bool was_name_val = false;
 	TfwStickyCookie *sticky;
 
 	if (!cur_vhost) {
@@ -424,6 +436,9 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
+			TFW_CFG_CHECK_VAL_DUP(key, was_name_val, {
+				return -EINVAL;
+			})
 			name_val = val;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
@@ -698,6 +713,7 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int i, r;
 	const char *key, *val;
 	TfwCfgJsCh *js_ch;
+	bool was_delay_min = false, was_delay_range=false, was_resp_code=false;
 
 	js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
 	if (!js_ch) {
@@ -708,18 +724,31 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (ce->val_n > 1) {
 		T_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
 			 ce->val_n);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "delay_min")) {
+			TFW_CFG_CHECK_VAL_DUP(key, was_delay_min, {
+				r= -EINVAL;
+				goto err;
+			})
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_min = msecs_to_jiffies(uint_val);
 		} else if (!strcasecmp(key, "delay_range")) {
+			TFW_CFG_CHECK_VAL_DUP(key, was_delay_range, {
+				r= -EINVAL;
+				goto err;
+			})
 			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				goto err;
 			js_ch->delay_range = uint_val;
 		} else if (!strcasecmp(key, "resp_code")) {
+			TFW_CFG_CHECK_VAL_DUP(key, was_resp_code, {
+				r= -EINVAL;
+				goto err;
+			})
 			if ((r = tfw_cfgop_jsch_parse_resp_code(cs, js_ch, val)))
 				goto err;
 		} else {

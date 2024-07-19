@@ -183,13 +183,16 @@ typedef struct {
  */
 #define TFW_CFG_ENTRY_FOR_EACH_ATTR(e, idx, k, v)	\
 	for ((idx) = 0, (k) = (e)->attrs[0].key, (v) = (e)->attrs[0].val; \
-	     (idx++) < (e)->attr_n; \
-	     (k) = (e)->attrs[(idx)].key, (v) = (e)->attrs[(idx)].val)
+	     (idx) < (e)->attr_n; \
+	     (idx)++,  \
+	     (k) = (idx < (e)->attr_n ? (e)->attrs[(idx)].key : NULL), \
+	     (v) = (idx < (e)->attr_n ? (e)->attrs[(idx)].val : NULL))
 
 #define TFW_CFG_ENTRY_FOR_EACH_VAL(e, idx, v)	\
 	for ((idx) = 0, (v) = (e)->vals[0];	\
 	     (idx) < (e)->val_n;		\
-	     (v) = (e)->vals[++(idx)])
+	     (idx)++,				\
+	     (v) = (idx < (e)->val_n ? (e)->vals[(idx)] : NULL))
 
 #define TFW_CFG_CHECK_NO_ATTRS(spec, entry)				\
 	if ((entry)->attr_n) {						\
@@ -198,13 +201,20 @@ typedef struct {
 		return -EINVAL;						\
 	}
 
-#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)				\
+#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)			\
 	if (! ((entry)->val_n op (req)) ) {				\
 		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
 			 "be %s %d\n", (spec)->name, (entry)->val_n,	\
 			 #op, (req));					\
 		return -EINVAL;						\
 	}
+
+#define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
+	if (val_was_set) {						\
+		T_ERR_NL("Duplicate argument: '%s'\n", key);		\
+		code;							\
+	}								\
+	val_was_set = true;
 
 /**
  * TfwCfgSpec{} is a single instruction for the configuration parser.

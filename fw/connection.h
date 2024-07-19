@@ -28,7 +28,7 @@
 #include "gfsm.h"
 #include "peer.h"
 #include "sync_socket.h"
-#include "http_frame.h"
+#include "http2.h"
 #include "tls.h"
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -292,7 +292,7 @@ typedef struct {
  */
 #define tfw_h2_context_unsafe(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
 #define tfw_h2_context_safe(conn)	\
-	ttls_hs_done(tfw_tls_context(conn)) ? tfw_h2_context_unsafe(conn) : NULL;
+	ttls_hs_done(tfw_tls_context(conn)) ? tfw_h2_context_unsafe(conn) : NULL
 
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
@@ -548,8 +548,8 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 
 	sk->sk_data_ready = NULL;
 	sk->sk_state_change = NULL;
-	sk->sk_prepare_xmit = NULL;
 	sk->sk_write_xmit = NULL;
+	sk->sk_fill_write_queue = NULL;
 	sk->sk_destroy_cb = NULL;
 
 	sk->sk_user_data = NULL;

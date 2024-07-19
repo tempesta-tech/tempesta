@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@
  * @len	- The variable that will receive the value
  */
 int
-ttls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len)
+ttls_asn1_get_len(const unsigned char **p, const unsigned char *end, size_t *len)
 {
 	if ((end - *p) < 1)
 		return(TTLS_ERR_ASN1_OUT_OF_DATA);
@@ -92,7 +92,7 @@ ttls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len)
  * @tag	- The expected tag
  */
 int
-ttls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *len,
+ttls_asn1_get_tag(const unsigned char **p, const unsigned char *end, size_t *len,
 		  int tag)
 {
 	if ((end - *p) < 1)
@@ -115,7 +115,7 @@ ttls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *len,
  * @val	- The variable that will receive the value
  */
 int
-ttls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val)
+ttls_asn1_get_bool(const unsigned char **p, const unsigned char *end, int *val)
 {
 	int r;
 	size_t len;
@@ -141,7 +141,7 @@ ttls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val)
  * @val	- The variable that will receive the value
  */
 int
-ttls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val)
+ttls_asn1_get_int(const unsigned char **p, const unsigned char *end, int *val)
 {
 	int r;
 	size_t len;
@@ -171,7 +171,7 @@ ttls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val)
  * @X	- The MPI that will receive the value
  */
 int
-ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X)
+ttls_asn1_get_mpi(const unsigned char **p, const unsigned char *end, TlsMpi *X)
 {
 	int r;
 	size_t len;
@@ -187,7 +187,7 @@ ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X)
 }
 
 int
-ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
+ttls_asn1_get_bitstring(const unsigned char **p, const unsigned char *end,
 			ttls_asn1_bitstring *bs)
 {
 	int r;
@@ -201,9 +201,8 @@ ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
 		return TTLS_ERR_ASN1_OUT_OF_DATA;
 	bs->len -= 1;
 
-	/* Get number of unused bits, ensure unused bits <= 7 */
-	bs->unused_bits = **p;
-	if (bs->unused_bits > 7)
+	/* Ensure unused bits is <= 7. */
+	if (**p > 7)
 		return TTLS_ERR_ASN1_INVALID_LENGTH;
 	++*p;
 
@@ -218,7 +217,7 @@ ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
  * Retrieve a bitstring ASN.1 tag without unused bits and its value.
  */
 int
-ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
+ttls_asn1_get_bitstring_null(const unsigned char **p, const unsigned char *end,
 			     size_t *len)
 {
 	int r;
@@ -226,14 +225,18 @@ ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
 	if ((r = ttls_asn1_get_tag(p, end, len, TTLS_ASN1_BIT_STRING)))
 		return r;
 
-	return ((*len)-- < 2 || *(*p)++ != 0) ? -EINVAL : 0;
+	if (!*len)
+		return -EINVAL;
+	--*len;
+
+	return *(*p)++ ? -EINVAL : 0;
 }
 
 /*
  *  Parses and splits an ASN.1 "SEQUENCE OF <tag>"
  */
 int
-ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
+ttls_asn1_get_sequence_of(const unsigned char **p, const unsigned char *end,
 			  ttls_asn1_sequence *cur, int tag)
 {
 	int r;
@@ -249,7 +252,7 @@ ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
 		return TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	while (*p < end) {
-		buf = &(cur->buf);
+		buf = &cur->buf;
 		buf->tag = **p;
 
 		if ((r = ttls_asn1_get_tag(p, end, &buf->len, tag)))
@@ -284,7 +287,7 @@ ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
  * @params - The buffer to receive the params (if any)
  */
 int
-ttls_asn1_get_alg(unsigned char **p, const unsigned char *end,
+ttls_asn1_get_alg(const unsigned char **p, const unsigned char *end,
 		  ttls_asn1_buf *alg, ttls_asn1_buf *params)
 {
 	int r;
@@ -324,7 +327,7 @@ ttls_asn1_get_alg(unsigned char **p, const unsigned char *end,
 }
 
 int
-ttls_asn1_get_alg_null(unsigned char **p, const unsigned char *end,
+ttls_asn1_get_alg_null(const unsigned char **p, const unsigned char *end,
 		       ttls_asn1_buf *alg)
 {
 	int r;
@@ -356,7 +359,7 @@ ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 	if (len < 0x80) {
 		if (*p - start < 1)
 			return -ENOSPC;
-		*--(*p) = (unsigned char) len;
+		*--(*p) = (unsigned char)len;
 		return 1;
 	}
 
@@ -364,7 +367,7 @@ ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 		if (*p - start < 2)
 			return -ENOSPC;
 
-		*--(*p) = (unsigned char) len;
+		*--(*p) = (unsigned char)len;
 		*--(*p) = 0x81;
 		return 2;
 	}

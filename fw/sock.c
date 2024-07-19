@@ -39,12 +39,6 @@
 #include "work_queue.h"
 #include "http_limits.h"
 
-typedef enum {
-	SS_SEND,
-	SS_CLOSE,
-	SS_SHUTDOWN,
-} SsAction;
-
 typedef struct {
 	struct sock	*sk;
 	struct sk_buff	*skb_head;
@@ -195,7 +189,7 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
-	SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown);
+	SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	if (sk->sk_security)
 		tfw_classify_conn_close(sk);
@@ -370,30 +364,48 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	sk_memory_allocated_add(sk, amt);
 }
 
-/**
- * @skb_head can be invalid after the function call, don't try to use it.
- */
-static void
-ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
+void
+ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
+	      unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	struct sk_buff *skb, *head = *skb_head;
-	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-	unsigned int mark = (*skb_head)->mark;
 
-	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
-	       " sk_state=%d mss=%d size=%d\n",
-	       smp_processor_id(), __func__,
-	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
-	       sk->sk_state, mss, size);
+	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
+	ss_skb_init_for_xmit(skb);
+	skb->mark = mark;
+	if (tls_type)
+		skb_set_tfw_tls_type(skb, tls_type);
+	ss_forced_mem_schedule(sk, skb->truesize);
+	skb_entail(sk, skb);
+	tp->write_seq += skb->len;
+	TCP_SKB_CB(skb)->end_seq += skb->len;
 
-	/* If the socket is inactive, there's no recourse. Drop the data. */
-	if (unlikely(!ss_sock_active(sk))) {
-		ss_skb_queue_purge(skb_head);
-		return;
-	}
+	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
+	       " truesize=%u mark=%u tls_type=%x\n",
+	       smp_processor_id(), __func__, sk, skb, skb->data_len,
+	       skb->len, skb->truesize, skb->mark,
+	       skb_tfw_tls_type(skb));
+}
+
+void
+ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
+{
+	struct sk_buff *skb;
+	unsigned char tls_type = 0;
+	unsigned int mark = 0;
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
+		/*
+		 * @skb_head can be the head of several different skb
+		 * lists. We set tls type for the head of each new
+		 * skb list and we should entail each skb with mark
+		 * and tls_type of the head of the list to which it
+		 * belongs.
+		 */
+		if (TFW_SKB_CB(skb)->is_head) {
+			tls_type = skb_tfw_tls_type(skb);
+			mark = skb->mark;
+		}
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
 		 * other contents) are modified or deleted by Tempesta. Drop
@@ -406,28 +418,42 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			kfree_skb(skb);
 			continue;
 		}
-
-		ss_skb_init_for_xmit(skb);
-		if (flags & SS_F_ENCRYPT) {
-			skb_set_tfw_tls_type(skb, SS_SKB_F2TYPE(flags));
-			if (skb == head)
-				skb_set_tfw_flags(skb, SS_F_HTTP2_FRAME_START);
-		}
-		/* Propagate mark of message head skb.*/
-		skb->mark = mark;
-
-		T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
-		       " truesize=%u mark=%u tls_type=%x\n",
-		       smp_processor_id(), __func__, sk,
-		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
-		       skb_tfw_tls_type(skb));
-
-		ss_forced_mem_schedule(sk, skb->truesize);
-		skb_entail(sk, skb);
-
-		tp->write_seq += skb->len;
-		TCP_SKB_CB(skb)->end_seq += skb->len;
+		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
+}
+
+/**
+ * @skb_head can be invalid after the function call, don't try to use it.
+ */
+static void
+ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
+{
+	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	void *conn = sk->sk_user_data;
+	unsigned char tls_type = flags & SS_F_ENCRYPT ?
+		SS_SKB_F2TYPE(flags) : 0;
+
+	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
+	       " sk_state=%d mss=%d size=%d\n",
+	       smp_processor_id(), __func__,
+	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
+	       sk->sk_state, mss, size);
+
+	/* If the socket is inactive, there's no recourse. Drop the data. */
+	if (unlikely(!conn || !ss_sock_active(sk)))
+		goto cleanup;
+
+	ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark, tls_type);
+
+	if (ss_skb_on_send(conn, skb_head))
+		goto cleanup;
+
+	/*
+	 * If skbs were pushed to scheuler tree, @skb_head is
+	 * empty and `ss_skb_tcp_entail_list` doesn't make
+	 * any job.
+	 */
+	ss_skb_tcp_entail_list(sk, skb_head);
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,
@@ -440,7 +466,34 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (flags & SS_F_CONN_CLOSE)
 		return;
 
-	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
+	/*
+	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
+	 * scheduler tree.
+	 * So there are two cases here:
+	 * - packets out is equal to zero and sock flag is set,
+	 *   this means that we should call `tcp_push_pending_frames`.
+	 *   In this function our scheduler choose the most priority
+	 *   stream, make frames for this stream and push them to the
+	 *   socket write queue.
+	 * - socket flag is not set, this means that we push skb directly
+	 *   to the socket write queue so we call `tcp_push` and don't
+	 *   run scheduler.
+	 * If packets_out is not equal to zero `tcp_push_pending_frames`
+	 * will be called later from `tcp_data_snd_check` when we receive
+	 * ack from the peer.
+	 */
+	if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+		tcp_push_pending_frames(sk);
+	} else {
+		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF | TCP_NAGLE_PUSH,
+			 size);
+	}
+
+	return;
+
+cleanup:
+	ss_skb_destroy_opaque_data(*skb_head);
+	ss_skb_queue_purge(skb_head);
 }
 
 /**
@@ -604,6 +657,9 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
+		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+		if (sk->sk_fill_write_queue)
+			sk->sk_fill_write_queue(sk, mss, SS_CLOSE);
 		tcp_send_fin(sk);
 	}
 
@@ -789,6 +845,7 @@ do {									\
 		 * own flags, thus clear it.
 		 */
 		skb->dev = NULL;
+		memset(skb->cb, 0, sizeof(skb->cb));
 
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
@@ -1017,6 +1074,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -1445,7 +1503,16 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
-	tcp_shutdown(sk, SEND_SHUTDOWN);
+	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	/*
+	 * We send `tcp_shutdown` from `sk_fill_write_queue` if
+	 * there is no pending data in our sceduler and SS_SHUTDOWN
+	 * is passed as ss_action.
+	 */
+	if (sk->sk_fill_write_queue)
+		sk->sk_fill_write_queue(sk, mss, SS_SHUTDOWN);
+	else
+		tcp_shutdown(sk, SEND_SHUTDOWN);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 
@@ -1571,6 +1638,9 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
+		if (sw.skb_head)
+			ss_skb_destroy_opaque_data(sw.skb_head);
+
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
 			kfree_skb(skb);
 	}
@@ -1805,6 +1875,27 @@ ss_active(void)
 	return READ_ONCE(__ss_active);
 }
 
+static inline int __init
+tfw_sync_socket_wq_init(int cpu)
+{
+	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+	int r;
+
+	r = tfw_wq_init(wq, max_t(unsigned int, TFW_DFLT_QSZ, __wq_size),
+			cpu_to_node(cpu));
+	if (unlikely(r))
+		return r;
+	init_irq_work(&per_cpu(ipi_work, cpu), ss_ipi);
+	return 0;
+}
+
+static inline void
+tfw_sync_socket_wq_cleanup(int cpu)
+{
+	irq_work_sync(&per_cpu(ipi_work, cpu));
+	tfw_wq_destroy(&per_cpu(si_wq, cpu));
+}
+
 int __init
 tfw_sync_socket_init(void)
 {
@@ -1818,17 +1909,12 @@ tfw_sync_socket_init(void)
 	__wq_size = ss_estimate_pcpu_wq_size();
 	for_each_online_cpu(cpu) {
 		SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
-		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
-		r = tfw_wq_init(wq, max_t(unsigned int, TFW_DFLT_QSZ, __wq_size),
-				cpu_to_node(cpu));
-		if (r) {
-			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work queue for CPU #%d\n",
-				 __func__, cpu);
-			kmem_cache_destroy(ss_cbacklog_cache);
-			return r;
+		if (unlikely((r = tfw_sync_socket_wq_init(cpu)))) {
+			T_ERR_NL("%s: Can't initialize softIRQ RX/TX work"
+				 " queue for CPU #%d\n", __func__, cpu);
+			goto cleanup;
 		}
-		init_irq_work(&per_cpu(ipi_work, cpu), ss_ipi);
 
 		INIT_LIST_HEAD(&cb->head);
 		spin_lock_init(&cb->lock);
@@ -1837,6 +1923,12 @@ tfw_sync_socket_init(void)
 	tempesta_set_tx_action(ss_tx_action);
 
 	return 0;
+
+cleanup:
+	for_each_online_cpu(cpu)
+		tfw_sync_socket_wq_cleanup(cpu);
+	kmem_cache_destroy(ss_cbacklog_cache);
+	return r;
 }
 
 void
@@ -1846,8 +1938,7 @@ tfw_sync_socket_exit(void)
 
 	tempesta_del_tx_action();
 	for_each_online_cpu(cpu) {
-		irq_work_sync(&per_cpu(ipi_work, cpu));
-		tfw_wq_destroy(&per_cpu(si_wq, cpu));
+		tfw_sync_socket_wq_cleanup(cpu);
 		ss_backlog_validate_cleanup(cpu);
 	}
 	kmem_cache_destroy(ss_cbacklog_cache);

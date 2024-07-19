@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -126,6 +126,7 @@ ttls_base64_decode(unsigned char *dst, size_t dlen, size_t *olen,
 
 /**
  * @return length of decoded data or negative value on error.
+ * @use_len returns the effective length of unencoded data.
  */
 int
 ttls_pem_read_buffer(const char *header, const char *footer,
