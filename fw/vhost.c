@@ -939,9 +939,8 @@ __set_bit_range(int start, int end, unsigned long *codes)
 {
 	int i;
 
-	for (i = HTTP_CODE_BIT_NUM(start); i < HTTP_CODE_BIT_NUM(end); i++) {
+	for (i = HTTP_CODE_BIT_NUM(start); i < HTTP_CODE_BIT_NUM(end); i++)
 		__set_bit(i, codes);
-	}
 }
 
 static int
@@ -952,20 +951,23 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	int n = 0;
 	bool mask5x = false, mask4x = false;
 
-	if (ce->attr_n) {
-		T_ERR_NL("%s arguments may not have the '=' sign\n",
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
+
+	/* 
+	 * TODO: Revise and remove after #2123.
+	 */
+	if (tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
+		T_ERR_NL("%s: directive can not be applied to default vhost.\n",
 			 cs->name);
 		return -EINVAL;
 	}
 
-	if (ce->val_n < 1) {
-		T_ERR_NL("%s too few arguments\n", cs->name);
-		return -EINVAL;
-	}
-
 	cfg = kzalloc(sizeof(TfwCacheUseStale), GFP_KERNEL);
+
 	if (!cfg)
 		return -ENOMEM;
+
 	loc->cache_use_stale = cfg;
 
 	for (i = 0; i < ce->val_n; i++) {
@@ -983,6 +985,13 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 			{
 				T_ERR_NL("%s Unsupported argument \"%s\"",
 					 cs->name, ce->vals[i]);
+				return -EINVAL;
+			}
+
+			/* Allowe status-codes only above 399. */
+			if (n < 400) {
+				T_ERR_NL("%s Please specify status code above than 399",
+					 cs->name);
 				return -EINVAL;
 			}
 
