@@ -7261,8 +7261,7 @@ do {									\
 	SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
 	SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
 	SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
-	req->cache_ctl.stale_if_error = cstate->cache_ctl.stale_if_error;
-	req->cache_ctl.flags |= cstate->cache_ctl.flags;
+	SET_HDR_CACHE_CONTROL_FIELD(stale_if_error, TFW_HTTP_CC_STALE_IF_ERROR);
 
 #undef SET_HDR_CACHE_CONTROL_FIELD
 }
