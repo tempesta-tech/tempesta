@@ -4,7 +4,7 @@
  * File mapping and IO.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies.
+ * Copyright (C) 2015-2024 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -166,10 +166,11 @@ ma_free(unsigned long addr, int node)
  * Map file to reserved set of unswappable pages.
  */
 static unsigned long
-tempesta_map_file(struct file *file, unsigned long len, int node)
+tempesta_map_file(struct file *file, size_t len, int node)
 {
 	MArea *ma;
 	loff_t off = 0;
+	size_t copied = 0;
 	unsigned long addr = -ENOMEM;
 
 	BUG_ON(len & ~TDB_EXT_MASK);
@@ -194,13 +195,35 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 
 	get_file(file);
 
-	addr = kernel_read(file, (char *)ma->start, len, &off);
-	if (addr != len) {
-		TDB_ERR("Cannot read %lu bytes to addr %p, ret = %ld\n",
-			len, (void *)ma->start, addr);
+	while (copied < len) {
+		ssize_t bytes;
+		size_t to_read = len - off;
+
+		if (to_read > MAX_RW_COUNT)
+			to_read = MAX_RW_COUNT;
+
+		bytes = kernel_read(file, ((char *)ma->start) + copied, to_read,
+				    &off);
+		if (bytes < 0) {
+			addr = bytes;
+			TDB_ERR("Cannot read %lu bytes to addr %p, ret = %ld\n",
+				to_read, (void *)ma->start + copied, addr);
+			fput(file);
+			__ma_free(ma);
+			goto err;
+		}
+
+		if (bytes == 0)
+			break;
+		copied += bytes;
+	}
+
+	if (copied < len) {
+		addr = -EIO;
+		TDB_ERR("Read size differs from expected. Expected size = %lld, "
+			"read = %lu\n", file->f_inode->i_size, copied);
 		fput(file);
 		__ma_free(ma);
-		addr = -EIO;
 		goto err;
 	}
 
