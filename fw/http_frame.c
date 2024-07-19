@@ -1963,16 +1963,12 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	length = tfw_h2_calc_frame_length(ctx, stream, type, len,
 					  max_len - FRAME_HEADER_SIZE);
 	if (type == HTTP2_DATA) {
-		if (!stream->xmit.t_len) {
-			ctx->rem_wnd -= length;
-			stream->rem_wnd -= length;
-		}
+		ctx->rem_wnd -= length;
+		stream->rem_wnd -= length;
 		stream->xmit.b_len -= length;
 	} else if (stream->xmit.h_len) {
 		stream->xmit.h_len -= length;
 	} else if (stream->xmit.t_len) {
-		ctx->rem_wnd -= length;
-		stream->rem_wnd -= length;
 		stream->xmit.t_len -= length;
 	}
 
