@@ -1883,7 +1883,7 @@ tfw_h2_calc_frame_length(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 }
 
 static inline char
-tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
+tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 {
 	char flags = 0;
 
@@ -1981,7 +1981,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	frame_hdr.length = length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	flags = tf2_h2_calc_frame_flags(stream, type);
+	flags = tfw_h2_calc_frame_flags(stream, type);
 	frame_hdr.flags = flags;
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
