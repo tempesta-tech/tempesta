@@ -6191,6 +6191,8 @@ sub process {
 			if (substr($line, 0, $-[0]) =~ /(\}\s*)$/) {
 				#print "APW: ALLOWED: pre<$1>\n";
 				$allowed = 1;
+			} elsif ($prevline =~ /\s*\}\s*$/) {
+				$allowed = 1;
 			}
 
 			my ($level, $endln, @chunks) =
