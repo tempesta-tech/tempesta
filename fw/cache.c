@@ -1276,8 +1276,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		if (tfw_cache_should_satisfy(req, ce) &&
 		    tfw_cache_entry_key_eq(db, req, ce))
 		{
-			if (!ce_best
-				   || tfw_cache_entry_age(ce)
+			if (!ce_best || tfw_cache_entry_age(ce)
 				      < tfw_cache_entry_age(ce_best))
 			{
 				if (ce_best)
@@ -2496,15 +2495,17 @@ tfw_cache_rec_eq_req(TdbRec *rec, void *request)
 
 	/*
 	 * Remove only records that have same method, except when request is
-	 * POST or PURGE. Accordingly to RFC 9111 4.4. POST is used to
-	 * invalidate cache records.
+	 * POST, PURGE, PUT or DELETE. Accordingly to RFC 9111 4.4. they are
+	 * used to invalidate cache records.
 	 *
 	 * We don't check staleness at this stage, just to skip double check.
 	 * The first check happens when we trying to satisfy request from the
 	 * cache. Therefore if reached this point it means that record is stale
 	 * or not presented in the cache.
 	 */
-	if (req->method != TFW_HTTP_METH_POST &&
+	if (req->method != TFW_HTTP_METH_DELETE &&
+	    req->method != TFW_HTTP_METH_PUT &&
+	    req->method != TFW_HTTP_METH_POST &&
 	    req->method != TFW_HTTP_METH_PURGE && ce->method != req->method)
 		return false;
 
@@ -3268,8 +3269,11 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 			     || req->method == TFW_HTTP_METH_POST
 			     || tfw_http_req_is_nip(req))
 		    && cache_cfg.cache
-		    && resp->status >= 200 && resp->status < 400)
-			tfw_cache_invalidate(req);
+		    && resp->status >= 200 && resp->status < 400) {
+			key = tfw_http_req_key_calc(req);
+			tdb_entry_remove(node_db(), key, &tfw_cache_rec_eq_req,
+					 req, &tfw_cache_update_stat, false);
+		}
 	}
 
 	/*
