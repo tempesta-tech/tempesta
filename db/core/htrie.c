@@ -128,7 +128,7 @@ tdb_get_blk(TdbHdr *dbh, unsigned long ptr)
 {
 	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, ptr));
 	atomic_t *reftbl = tdb_get_reftbl(dbh, e);
-	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> 12;
+	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> PAGE_SHIFT;
 	atomic_t *refcnt = reftbl + blkoff;
 
 	BUG_ON((void*) refcnt > TDB_PTR(dbh,(TDB_EXT_BASE(dbh, e) + TDB_EXT_SZ)));
@@ -140,7 +140,7 @@ tdb_put_blk(TdbHdr *dbh, unsigned long ptr)
 {
 	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, ptr));
 	atomic_t *reftbl = tdb_get_reftbl(dbh, e);
-	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> 12;
+	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> PAGE_SHIFT;
 	atomic_t *refcnt = reftbl + blkoff;
 	int pgref;
 
@@ -321,7 +321,6 @@ allocated:
 	/*
 	 * Align offsets of new blocks for data records.
 	 * This is only for first blocks in extents, so we lose only
-	 *
 	 * TDB_HTRIE_MINDREC - L1_CACHE_BYTES per extent.
 	 */
 	return TDB_HTRIE_DALIGN(rptr);
