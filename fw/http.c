@@ -4141,8 +4141,6 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			return r;
 	}
 
-	resp->content_length = resp->body.len;
-
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
 }
@@ -4414,7 +4412,6 @@ tfw_h2_add_hdr_clen(TfwHttpResp *resp)
 	size_t cl_valsize = tfw_ultoa(body_len, buf,
 				      TFW_ULTOA_BUF_SIZ);
 
-	resp->content_length = body_len;
 	r = tfw_h2_msg_hdr_add(resp, "content-length",
 			       SLEN("content-length"), buf,
 			       cl_valsize, 28);
