@@ -342,6 +342,7 @@ tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwCfgEntry ce_tmp;
 	const char *key, *val;
 	int i, r;
+	bool was_secret = false, was_lifetime=false;
 
 	if ((r = tfw_tls_peer_tls_init(vhost)))
 		return r;
@@ -366,9 +367,15 @@ tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (enabled) {
 		TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 			if (!strcasecmp(key, "secret")) {
+				TFW_CFG_CHECK_VAL_DUP(key, was_secret, {
+					return -EINVAL;
+				})
 				secret = val;
 				secret_len = strlen(val);
 			} else if (!strcasecmp(key, "lifetime")) {
+				TFW_CFG_CHECK_VAL_DUP(key, was_lifetime, {
+					return -EINVAL;
+				})
 				if ((r = tfw_cfg_parse_long(val, &lifetime))) {
 					T_ERR_NL("%s: can't parse '%s' argument!"
 						 "\n", cs->name, key);

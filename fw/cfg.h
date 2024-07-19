@@ -201,13 +201,20 @@ typedef struct {
 		return -EINVAL;						\
 	}
 
-#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)				\
+#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)			\
 	if (! ((entry)->val_n op (req)) ) {				\
 		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
 			 "be %s %d\n", (spec)->name, (entry)->val_n,	\
 			 #op, (req));					\
 		return -EINVAL;						\
 	}
+
+#define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
+	if (val_was_set) {						\
+		T_ERR_NL("Duplicate argument: '%s'\n", key);		\
+		code;							\
+	}								\
+	val_was_set = true;
 
 /**
  * TfwCfgSpec{} is a single instruction for the configuration parser.
