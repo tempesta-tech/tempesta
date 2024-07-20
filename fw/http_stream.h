@@ -136,12 +136,12 @@ typedef struct {
 	struct sk_buff		*skb_head;
 	struct sk_buff		*postponed;
 	unsigned int		h_len;
-	unsigned int		t_len;
 	unsigned int		frame_length;
 	u64			b_len : 58;
 	u64			is_blocked : 1;
 	u64			state : 4;
 	u64			is_trailer_cont : 1;
+	unsigned int		t_len;
 } TfwHttpXmit;
 
 /**
