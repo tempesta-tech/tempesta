@@ -4762,7 +4762,7 @@ sub process {
 		    $line !~ /\btypedef\s+$Type\s*\(\s*\*?$Ident\s*\)\s*\(/ &&
 		    $line !~ /\btypedef\s+$Type\s+$Ident\s*\(/ &&
 		    $line !~ /\b$typeTypedefs\b/ &&
-		    $line !~ /\b(?:ss_|tfw_|ttls_|tdb_)\w+\b/ &&
+		    $line !~ /\b(?:(?:ss_|tfw_|ttls_|tdb_)\w+|(?:[A-Z][a-zA-Z0-9]*))\b/ &&
 		    $line !~ /typedef\s+struct\s+{$/ &&
 		    $line !~ /\b__bitwise\b/) {
 			WARN("NEW_TYPEDEFS",
@@ -4956,6 +4956,23 @@ sub process {
 			    $fix) {
 				$fixed[$fixlinenr] =~
 				    s/^(.\s*(?:typedef\s+)?(?:enum|union|struct)(?:\s+$Ident){1,2})([=\{])/$1 $2/;
+			}
+		}
+
+# check type naming
+		if ($line =~ /^.\s*(?:typedef\s+)?(?:enum|union|struct)(?:\s+[A-Za-z][a-z_0-9A-Z]+)/) {
+			if ($line =~ /^.\s*(?:typedef\s+)?(?:enum|union|struct)\s+([a-z]\w*[A-Z]+\w*)\b/) {
+				ERROR("NAME", "The first letter of CamelCase type name must be uppercase: $1\n" . $herecurr);
+			} elsif ($line =~ /^.\s*(?:typedef\s+)?(?:enum|union|struct)\s+([A-Z][a-zA-Z0-9]*_+[a-zA-Z0-9]*)\b/) {
+				ERROR("NAME", "CamelCase type name must not contain `_`: $1\n" . $herecurr);
+			}
+		}
+
+		if ($line =~ /^.\s*\}\s*(?:[A-Za-z][a-z_0-9A-Z]+\s*;?\s*$)/) {
+			if ($line =~ /\b([a-z]\w*[A-Z]+\w*)\b/) {
+				ERROR("NAME", "The first letter of CamelCase type name must be uppercase: $1\n" . $herecurr);
+			} elsif ($line =~ /\b([A-Z][a-zA-Z0-9]*_+[a-zA-Z0-9]*)\b/) {
+				ERROR("NAME", "CamelCase type name must not contain `_`: $1\n" . $herecurr);
 			}
 		}
 
