@@ -152,7 +152,7 @@ TEST(http_msg, expand_from_pool)
 	it = &resp->mit.iter;
 
 	EXPECT_FALSE(it->skb->data_len == head->len + hdr->len + pgd->len);
-	tfw_http_msg_expand_from_pool(resp, hdr);
+	tfw_http_msg_expand_from_pool(resp, hdr, false);
 	/* Linear part MUST be moved to paged fragments */
 	EXPECT_TRUE(!skb_headlen(it->skb));
 
@@ -200,7 +200,7 @@ do {									\
 	it = &resp->mit.iter;
 
 	EXPECT_FALSE(it->skb->data_len == skbsz);
-	tfw_http_msg_expand_from_pool(resp, &hdr);
+	tfw_http_msg_expand_from_pool(resp, &hdr, false);
 	skb = it->skb;
 	next = it->skb->next;
 

@@ -463,6 +463,18 @@ tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req)
 	spin_unlock(&ctx->lock);
 }
 
+#if 0
+static void
+tf2_h2_print(TfwHttpResp *resp)
+{
+	struct sk_buff *skb = resp->msg.skb_head;
+	do {
+		ss_skb_dump(skb);
+		skb = skb->next;
+	} while(skb != resp->msg.skb_head);
+}
+#endif
+
 int
 tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 {
@@ -488,21 +500,34 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 	stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		r = tfw_http_msg_cutoff_body_chunks(resp);
-		if (unlikely(r)) {
-			T_WARN("Failed to encode body");
+		if (unlikely(r))
 			goto finish;
-		}
 	}
 
 	if (resp->trailers_len > 0) {
-		unsigned long acc = resp->mit.acc_len;
-		resp->mit.iter.skb = NULL;
+		{
+			//TODO NEED TO FIND GOOD WAY TO FIND END OF THE BODY
+			// AND SETUP ITERATOR.
+			TfwHttpTransIter *mit = &resp->mit;
+			TfwMsgIter *it = &mit->iter;
+			
+			struct sk_buff *skb = resp->msg.skb_head;
+			do {
+				if (skb->next == resp->msg.skb_head)
+					break;
+				skb = skb->next;
+			} while(skb != resp->msg.skb_head);
 
-		r = tfw_h2_hpack_encode_trailer_headers(resp);
-		stream->xmit.t_len = resp->mit.acc_len - acc;
+			it->skb = skb;
+			it->frag = skb_shinfo(it->skb)->nr_frags - 1;
+		}
 
-		if (unlikely(r)) {
-			T_WARN("Failed to encode trailers");
+		{
+			unsigned long acc = resp->mit.acc_len;
+			r = tfw_h2_hpack_encode_trailer_headers(resp);
+			if (unlikely(r))
+				goto finish;
+			stream->xmit.t_len = resp->mit.acc_len - acc;
 		}
 	}
 
@@ -526,6 +551,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	while (*len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
 		BUG_ON(!skb);
+
 
 		if (unlikely(!skb->len)) {
 			T_DBG3("[%d]: %s: drop skb=%px data_len=%u len=%u\n",

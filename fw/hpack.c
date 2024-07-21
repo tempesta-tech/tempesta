@@ -3390,7 +3390,7 @@ tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
 
 static inline int
 tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
-		    bool use_pool)
+		    bool use_pool, bool trailers)
 {
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *iter = &mit->iter;
@@ -3405,7 +3405,7 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 	       s_idx.data);
 
 	if (use_pool)
-		return tfw_http_msg_expand_from_pool(resp, &s_idx);
+		return tfw_http_msg_expand_from_pool(resp, &s_idx, trailers);
 
 	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
 					&mit->start_off);
@@ -3417,7 +3417,8 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
  */
 static int
 tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		  TfwHPackInt *__restrict idx, bool name_indexed, bool trans)
+		  TfwHPackInt *__restrict idx, bool name_indexed, bool trans,
+		  bool trailers)
 {
 	int r;
 	TfwHPackInt vlen;
@@ -3426,7 +3427,7 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (!hdr)
 		return -EINVAL;
 
-	r = tfw_hpack_write_idx(resp, idx, true);
+	r = tfw_hpack_write_idx(resp, idx, true, trailers);
 	if (unlikely(r))
 		return r;
 
@@ -3444,14 +3445,14 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		s_nlen.data = nlen.buf;
 		s_nlen.len = nlen.sz;
 
-		r = tfw_http_msg_expand_from_pool(resp, &s_nlen);
+		r = tfw_http_msg_expand_from_pool(resp, &s_nlen, false);
 		if (unlikely(r))
 			return r;
 
 		if (trans)
-			r = tfw_http_msg_expand_from_pool_lc(resp, &s_name);
+			r = tfw_http_msg_expand_from_pool_lc(resp, &s_name, false);
 		else
-			r = tfw_http_msg_expand_from_pool(resp, &s_name);
+			r = tfw_http_msg_expand_from_pool(resp, &s_name, false);
 		if (unlikely(r))
 			return r;
 	}
@@ -3460,12 +3461,12 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	s_vlen.data = vlen.buf;
 	s_vlen.len = vlen.sz;
 
-	r = tfw_http_msg_expand_from_pool(resp, &s_vlen);
+	r = tfw_http_msg_expand_from_pool(resp, &s_vlen, false);
 
 	if (unlikely(r))
 		return r;
 	if (!TFW_STR_EMPTY(&s_val))
-		r = tfw_http_msg_expand_from_pool(resp, &s_val);
+		r = tfw_http_msg_expand_from_pool(resp, &s_val, false);
 
 	return r;
 }
@@ -3488,60 +3489,7 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (!hdr)
 		return -EINVAL;
 
-	// compact str with sparse chunks in place
-	// e.g. changes
-	// "f" "o" ":" " " "b" "a"
-	// into
-	// "fo" ": " "ba"
-	// it's different from `tfw_http_hdr_split()`, which only splits
-	// name chunks and value chunks into two strs, no compact.
-	if (hdr->flags & TFW_STR_TRAILER) {
-		int i;
-		unsigned long name_len = 0;
-		bool compact_chunks = false;
-
-		for (i = 0; i < hdr->nchunks; ++i) {
-			c = TFW_STR_CHUNK(hdr, i);
-			if (c->len == 1 && *c->data == S_COLON) {
-				c = TFW_STR_CHUNK(hdr, i + 1);
-				if (WARN_ON_ONCE(!c))
-					return -EINVAL;
-				if (c->len == 1 && *c->data == S_SP) {
-					c = TFW_STR_CHUNK(hdr, i + 2);
-					if (WARN_ON_ONCE(!c))
-						return -EINVAL;
-					compact_chunks = true;
-					break;
-				}
-				return -EINVAL;
-			} else {
-				name_len += c->len;
-			}
-		}
-
-		if (compact_chunks) {
-			int j;
-			int nchunks = hdr->nchunks;
-			unsigned long value_len = hdr->len - name_len - 2;
-			char *value_data;
-
-			c = TFW_STR_CHUNK(hdr, i);
-			value_data = c->data + 2;
-
-			for (j = 0; j < nchunks - 2; ++j) {
-				tfw_str_del_chunk(hdr, 2);
-			}
-
-			c = TFW_STR_CHUNK(hdr, 0);
-			c->len = name_len;
-
-			c = TFW_STR_CHUNK(hdr, 1);
-			c->len = value_len;
-			c->data = value_data;
-		}
-	}
-
-	ret = tfw_hpack_write_idx(resp, idx, false);
+	ret = tfw_hpack_write_idx(resp, idx, false, false);
 
 	if (unlikely(ret))
 		return ret;
@@ -3549,9 +3497,6 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	mit->acc_len += idx->sz;
 
 	if (unlikely(!name_indexed)) {
-		if ((hdr->flags & TFW_STR_TRAILER) && (c = TFW_STR_CHUNK(hdr, 0))) {
-			tfw_cstrtolower(c->data, c->data, c->len);
-		}
 		ret = tfw_hpack_str_expand(mit, iter, skb_head,
 					   TFW_STR_CHUNK(hdr, 0), NULL);
 		if (unlikely(ret))
@@ -3603,7 +3548,7 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  */
 static int
 __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		   bool use_pool, bool dyn_indexing, bool trans)
+		   bool use_pool, bool dyn_indexing, bool trans, bool trailers)
 {
 	TfwHPackInt idx;
 	bool st_full_index;
@@ -3645,7 +3590,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 		write_int(index, 0x7F, 0x80, &idx);
 
-		r = tfw_hpack_write_idx(resp, &idx, use_pool);
+		r = tfw_hpack_write_idx(resp, &idx, use_pool, trailers);
 		if (unlikely(r))
 			return r;
 
@@ -3680,7 +3625,7 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 encode:
 	if (use_pool)
-		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
+		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans, trailers);
 	else
 		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
 	return r;
@@ -3690,7 +3635,7 @@ int
 tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		 bool use_pool, bool dyn_indexing)
 {
-	return __tfw_hpack_encode(resp, hdr, use_pool, dyn_indexing, false);
+	return __tfw_hpack_encode(resp, hdr, use_pool, dyn_indexing, false, false);
 }
 
 /*
@@ -3700,13 +3645,13 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 int
 tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
 {
-	return __tfw_hpack_encode(resp, hdr, true, true, true);
+	return __tfw_hpack_encode(resp, hdr, true, true, true, false);
 }
 
 int
 tfw_hpack_transform_trailer(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
 {
-	return __tfw_hpack_encode(resp, hdr, false, false, true);
+	return __tfw_hpack_encode(resp, hdr, true, false, true, true);
 }
 
 void

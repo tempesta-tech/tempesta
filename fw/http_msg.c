@@ -1369,7 +1369,7 @@ this_chunk:
 }
 
 static int
-tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
+tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size, bool forse)
 {
 	int r;
 	bool np;
@@ -1378,7 +1378,13 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 	struct sk_buff *skb = it->skb;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
+	if (!forse) {
+		addr = tfw_pool_alloc_not_align_np(pool, size, &np);
+	}
+	else {
+		addr = __tfw_pool_alloc_page(pool, size, /* align */ true);
+		np = true;
+	}
 	if (!addr)
 		return -ENOMEM;
 
@@ -1515,7 +1521,8 @@ tfw_http_msg_linear_transform(TfwMsgIter *it)
  */
 static int
 __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
-				void cpy(void *dest, const void *src, size_t n))
+				void cpy(void *dest, const void *src, size_t n),
+				bool forse)
 {
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off;
@@ -1549,6 +1556,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
+			//TODO THIS IF NEED TO REWORK FOR TRAILERS!!!
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
@@ -1583,7 +1591,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 
 			n_copy = min(n_copy, skb_room);
 
-			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy);
+			r = tfw_http_msg_alloc_from_pool(mit, pool, n_copy, forse);
 			if (unlikely(r))
 				return r;
 
@@ -1601,15 +1609,15 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 }
 
 int
-tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str)
+tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str, bool forse)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast);
+	return __tfw_http_msg_expand_from_pool(resp, str, memcpy_fast, forse);
 }
 
 int
-tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str)
+tfw_http_msg_expand_from_pool_lc(TfwHttpResp *resp, const TfwStr *str, bool forse)
 {
-	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower);
+	return __tfw_http_msg_expand_from_pool(resp, str, tfw_cstrtolower, forse);
 }
 
 static inline void
