@@ -3116,15 +3116,9 @@ write_body:
 	resp->content_length = ce->body_len;
 
 	if (has_trailers) {
-		struct sk_buff *skb, *nskb = nskb_head;
-		BUG_ON(!nskb);
+		BUG_ON(!nskb_head);
 		resp->req->stream->xmit.t_len = t_len;
-		do {
-			skb = nskb->next;
-			nskb->next = nskb->prev = NULL;
-			ss_skb_queue_tail(&resp->msg.skb_head, nskb);
-			nskb = skb;
-		} while (nskb != nskb_head);
+		ss_skb_queue_splice(&resp->msg.skb_head, &nskb_head);
 	}
 
 	return resp;
