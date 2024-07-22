@@ -1320,8 +1320,21 @@ this_chunk:
 		cur_len = c->len - off;
 		if (it->frag >= 0) {
 			unsigned int f_size;
-			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+			skb_frag_t *frag;
 
+			/*
+			 * special case for trailers:
+			 * the last skb of response body is reused,
+			 * but trailer has different frag allocation strategy.
+			 */
+			if (it->frag == skb_shinfo(it->skb)->nr_frags) {
+				f_room = 0;
+				min_len = 0;
+				it->frag--;
+				goto no_room;
+			}
+
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
 			f_size = skb_frag_size(frag);
 			f_room = PAGE_SIZE - frag->bv_offset - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
@@ -1337,6 +1350,7 @@ this_chunk:
 		memcpy_fast(p, c->data + off, min_len);
 
 		if (cur_len >= f_room) {
+no_room:
 			/*
 			 * If the amount of skb frags is exhausted, allocate new
 			 * skb on next iteration (if it will be).
