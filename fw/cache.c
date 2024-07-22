@@ -1370,6 +1370,8 @@ tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 	int stop_len, c_chunk = 0;
 	TfwStr *body = &resp->body;
 
+	tfw_str_dprint(body, "BODY");
+
 	BUG_ON(TFW_STR_DUP(body));
 
 	/* Body has only zero chunk. */
@@ -2164,8 +2166,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
 		int hid = field - resp->h_tbl->tbl;
 
-		if (!(field->flags & TFW_STR_TRAILER))
+		if (!(field->flags & TFW_STR_TRAILER)) {
 			continue;
+		}
 
 		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field, &tot_len);
 		if (unlikely(n < 0))
@@ -2176,9 +2179,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
 						   resp, &resp->cut, &tot_len);
+	}
 	else
 		r = tfw_cache_h2_copy_body(&ce->body_len, &p, &trec,
 					   resp, &tot_len);
@@ -2793,6 +2797,16 @@ err:
 	return r;
 }
 
+static void
+tf2_h2_print(TfwHttpResp *resp)
+{
+	struct sk_buff *skb = resp->msg.skb_head;
+	do {
+		ss_skb_dump(skb);
+		skb = skb->next;
+	} while(skb != resp->msg.skb_head);
+}
+
 /**
  * Build response that can be sent via TCP socket.
  *
@@ -2829,9 +2843,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 	TdbVRec *trec = &ce->trec;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_RESP);
-	bool has_trailers = false;
 	unsigned long t_len = 0;
-	struct sk_buff *nskb_head = NULL;
 
 	/*
 	 * The allocated response won't be checked by any filters and
@@ -2866,42 +2878,14 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off)
 			     && (h < ce->trailer_off);
 
+		T_WARN("skip %d %d", skip, h < ce->trailer_off);
 		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
 					     &h_len, skip))
 			goto free;
 	}
 
-	if (unlikely(trailer_off < ce->hdr_num)) {
-		TfwHttpTransIter pmit, nmit;
-		struct sk_buff *pskb_head = resp->msg.skb_head;
-
-		has_trailers = true;
-		pmit = nmit = resp->mit;
-		nmit.start_off = 0;
-		nmit.iter.skb = nmit.iter.skb_head = NULL;
-		nmit.iter.frag = -1;
-
-		resp->msg.skb_head = NULL;
-		resp->mit = nmit;
-
-		for (h = trailer_off; h < ce->hdr_num; ++h) {
-			int r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
-					&t_len, false);
-
-			if (!nskb_head)
-				nskb_head = resp->msg.skb_head;
-
-			if (r) {
-				resp->msg.skb_head = pskb_head;
-				resp->mit = pmit;
-				goto free;
-			}
-		}
-
-		resp->msg.skb_head = pskb_head;
-		resp->mit = pmit;
-	}
-
+	T_WARN("QQQQQQQQQQQQQQ");
+	tf2_h2_print(resp);
 
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
@@ -2946,6 +2930,9 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 		goto write_body;
 	}
 
+	T_WARN("QQQQQQQQQQQQQQ 111");
+	tf2_h2_print(resp);
+
 	/* Set additional headers for HTTP/2 response. */
 	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true)
 	    || (lifetime > ce->lifetime
@@ -2978,26 +2965,45 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
 write_body:
+	T_WARN("QQQQQQQQQQQQQQ 222");
+	tf2_h2_print(resp);
+
+
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
-	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
+	if (!unlikely(trailer_off < ce->hdr_num))
+		BUG_ON(p != TDB_PTR(db->hdr, ce->body));
+
+
+	T_WARN("QQQQQQQQQQQQQQ 333");
+	tf2_h2_print(resp);
+
 	if (ce->body_len && req->method != TFW_HTTP_METH_HEAD) {
+		T_WARN("QQQQQQQQQQQQQQ 444");
+			tf2_h2_print(resp);
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      TFW_MSG_H2(req)))
 			goto free;
+		T_WARN("QQQQQQQQQQQQQQ 555");
+		tf2_h2_print(resp);
 	}
 	resp->content_length = ce->body_len;
 
-	if (has_trailers) {
-		struct sk_buff *skb, *nskb = nskb_head;
-		BUG_ON(!nskb);
+	if (unlikely(trailer_off < ce->hdr_num)) {
+		T_WARN("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
+		tf2_h2_print(resp);
+		for (h = trailer_off; h < ce->hdr_num; ++h) {
+			if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
+					&t_len, false))
+				goto free;
+			T_WARN("AAAAAAAAAA %lu", t_len);
+			tf2_h2_print(resp);
+		}
 		resp->req->stream->xmit.t_len = t_len;
-		do {
-			skb = nskb->next;
-			nskb->next = nskb->prev = NULL;
-			ss_skb_queue_tail(&resp->msg.skb_head, nskb);
-			nskb = skb;
-		} while (nskb != nskb_head);
+		T_WARN("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ %lu", t_len);
+		tf2_h2_print(resp);
 	}
+
+
 
 	return resp;
 free:
