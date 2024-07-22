@@ -4941,7 +4941,7 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 		return;
 	}
 
-	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
+	T_DBG4("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
@@ -5366,7 +5366,7 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	if (unlikely(r))
 		goto clean;
 
-	T_DBGV("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
+	T_DBG4("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 

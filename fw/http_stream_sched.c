@@ -67,9 +67,18 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#undef DEBUG
+#if DBG_HTTP_STREAM_SCHED > 0
+#define DEBUG DBG_HTTP_STREAM_SCHED
+#endif
+
+#include "lib/log.h"
 #include "http_stream_sched.h"
 #include "http_stream.h"
 #include "connection.h"
+
+#define SCHED_PARENT_STREAM(sched, dep)			\
+	(dep != &sched->root ? container_of(dep, TfwStream, sched)->id : 0)
 
 static inline void
 tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
@@ -313,6 +322,7 @@ void
 tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		      TfwStreamSchedEntry *dep, bool excl)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	u64 deficit, min_deficit;
 	bool stream_has_children;
 
@@ -321,9 +331,18 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 	if (!excl) {
 		deficit = tfw_h2_stream_sched_min_deficit(dep) +
 			tfw_h2_stream_default_deficit(stream);
+		T_DBG3("Add new stream dependency: stream (id %u deficit %llu"
+		       " excl %d) depends from stream with id %d, ctx %px\n",
+	       	       stream->id, deficit, excl,
+	       	       SCHED_PARENT_STREAM(sched, dep), ctx);
 		tfw_h2_sched_stream_enqueue(sched, stream, dep, deficit);
 		return;
 	}
+
+	T_DBG3("Add new stream dependency: stream (id %u deficit %llu"
+	       " excl %d) depends from stream with id %d, ctx %px\n",
+	       stream->id, tfw_h2_stream_default_deficit(stream),
+	       excl, SCHED_PARENT_STREAM(sched, dep), ctx);
 
 	/*
 	 * Here we move children of dep scheduler to the current stream
@@ -349,6 +368,11 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 
 		deficit = !stream_has_children ? child->sched_node.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
+		T_DBG3("During adding new stream dependency, move blocked child"
+		       " (id %u new deficit %llu) of stream with id (%u) to the"
+		       " new exclusively added strean with id (%u), ctx %px\n",
+		       child->id, deficit, SCHED_PARENT_STREAM(sched, dep),
+		       stream->id, ctx);
 		tfw_h2_stream_sched_move_child(sched, child, &stream->sched,
 					       deficit);
 	}
@@ -359,6 +383,11 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 
 		deficit = !stream_has_children ? child->sched_node.key :
 			min_deficit + tfw_h2_stream_default_deficit(child);
+		T_DBG3("During adding new stream dependency, move active child"
+		       " (id %u new deficit %llu) of stream with id (%u) to the"
+		       " new exclusively added strean with id (%u), ctx %px\n",
+		       child->id, deficit, SCHED_PARENT_STREAM(sched, dep),
+		       stream->id, ctx);
 		tfw_h2_stream_sched_move_child(sched, child, &stream->sched,
 					       deficit);
 	}
@@ -376,11 +405,16 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 void
 tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	size_t total_weight = stream->sched.total_weight;
 	unsigned short new_weight;
 	bool parent_has_children;
 	u64 deficit;
+
+	T_DBG3("Stream (id %u parent id %u removed from dependency tree,"
+	       " ctx %px\n", stream->id, SCHED_PARENT_STREAM(sched, parent),
+	       ctx);
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 
@@ -418,6 +452,11 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		child->weight = new_weight > 0 ? new_weight : 1;
 		deficit = !parent_has_children ?
 			child->sched_node.key : stream->sched_node.key;
+		T_DBG3("During removing stream with id (%u) from  dependency"
+		       " tree, move its blocked child (id %u new deficit %llu)"
+		       " to the new parent stream with id (%u), ctx %px\n",
+		       stream->id, child->id, deficit,
+		       SCHED_PARENT_STREAM(sched, parent), ctx);
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
 	}
 
@@ -435,6 +474,11 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		child->weight = new_weight > 0 ? new_weight : 1;
 		deficit = !parent_has_children ?
 			child->sched_node.key : stream->sched_node.key;
+		T_DBG3("During removing stream with id (%u) from  dependency"
+		       " tree, move its active child (id %u new deficit %llu)"
+		       " to the new parent stream with id (%u), ctx %px\n",
+		       stream->id, child->id, deficit,
+		       SCHED_PARENT_STREAM(sched, parent), ctx);
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
 	}
 
@@ -466,6 +510,7 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			 unsigned int new_dep, unsigned short new_weight,
 			 bool excl)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *old_parent, *new_parent;
 	TfwStream *stream, *np;
 	bool is_stream_depends_on_child;
@@ -476,6 +521,12 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 	BUG_ON(!stream);
 	old_parent = stream->sched.parent;
 	BUG_ON(!old_parent);
+
+	T_DBG3("Change stream dependency: stream with id (%u), which previously"
+	       " depends from stream with id (%u) now depends from stream with"
+	       " id (%u). New weight (%hu) of the stream (id %u) excl %d,"
+	       " ctx %px\n", stream_id, SCHED_PARENT_STREAM(sched, old_parent),
+	       new_dep, new_weight, stream_id, excl, ctx);
 
 	new_parent = tfw_h2_find_stream_dep(sched, new_dep);
 
@@ -553,6 +604,7 @@ tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
 TfwStream *
 tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *entry = &sched->root;
 	struct eb64_node *node = eb64_first(&entry->active);
 	u64 deficit;
@@ -563,6 +615,9 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 		if (tfw_h2_stream_is_active(stream)) {
 			*parent = entry;
 			tfw_h2_stream_sched_remove(sched, stream);
+			T_DBG4("Stream with id (%u) removed from dependency"
+			       " tree for making frames, ctx %px\n",
+			       stream->id, ctx);
 			return stream;
 		} else if (tfw_h2_stream_sched_is_active(&stream->sched)) {
 			/*
@@ -611,6 +666,8 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 		BUG_ON(!parent);
 
 		if (need_activate && !tfw_h2_stream_is_active(stream))
-		    	tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
+			tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
 	}
 }
+
+#undef SCHED_PARENT_STREAM

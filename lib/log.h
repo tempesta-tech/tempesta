@@ -92,9 +92,9 @@ enum {
  *                 content, e.g. SKB queues, rbtree, etc.
  */
 #define __BNR		"[tempesta " BANNER "] "
-#define __T_DBG1(...) 	pr_debug(__BNR "  " __VA_ARGS__)
-#define __T_DBG2(...) 	pr_debug(__BNR "    " __VA_ARGS__)
-#define __T_DBG3(...)	pr_debug(__BNR "      " __VA_ARGS__)
+#define __T_DBG1(...) 	printk(KERN_DEBUG __BNR "  " __VA_ARGS__)
+#define __T_DBG2(...) 	printk(KERN_DEBUG __BNR "    " __VA_ARGS__)
+#define __T_DBG3(...)	printk(KERN_DEBUG __BNR "      " __VA_ARGS__)
 
 #if defined(DEBUG) && (DEBUG >= 1)
 #define T_DBG(...) 	__T_DBG1(__VA_ARGS__)
@@ -170,9 +170,9 @@ do {									\
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 4)
-#define T_DBGV(...)	pr_debug(__BNR "#     " __VA_ARGS__)
+#define T_DBG4(...)	printk(KERN_DEBUG __BNR "       " __VA_ARGS__)
 #else
-#define T_DBGV(...)
+#define T_DBG4(...)
 #endif
 
 #endif /* __LIB_LOG_H__ */
