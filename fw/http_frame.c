@@ -2111,6 +2111,7 @@ do {									\
 			return r;
 		}
 
+		printk("---> HTTP2_MAKE_TRAILER_FRAMES\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2123,6 +2124,7 @@ do {									\
 			return r;
 		}
 
+		printk("---> HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2141,7 +2143,8 @@ do {									\
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
 			if (unlikely(stream->xmit.postponed) &&
-			    !stream->xmit.frame_length)
+			    !stream->xmit.frame_length &&
+			    !stream->xmit.t_len)
 				ss_skb_tcp_entail_list(sk,
 						       &stream->xmit.postponed);
 			if (stream->xmit.b_len) {
