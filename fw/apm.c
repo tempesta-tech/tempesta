@@ -1346,7 +1346,7 @@ __tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk)
 * - Integrity of the response body
 * - CRC
 * Successful passing all of the checks considered
-* as a sign that server alive.
+* as a sign that the server is alive.
 */
 bool
 tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
