@@ -2159,7 +2159,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> HTTP2_MAKE_TRAILER_FRAMES\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2172,7 +2171,6 @@ do {									\
 			return r;
 		}
 
-		printk("---> HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES\n");
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
