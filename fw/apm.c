@@ -1385,12 +1385,6 @@ tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 	 */
 	if (!hm->crc32 && hm->auto_crc) {
 		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk);
-		/*This warinig is used by tests to check crc generation
-		 * '\n' is neseccary for flushing message to logger,
-		 * without it tests will always fail.  
-		 */
-		T_WARN("Auto CRC generated\n");
-
 	} else if (hm->crc32) {
 		crc32 = __tfw_apm_crc32_calc(&it, &chunk);
 		if (hm->crc32 != crc32)
