@@ -1658,6 +1658,9 @@ tfw_http_hm_control(TfwHttpResp *resp)
 	*/
 	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
+	if (!(srv->flags & TFW_SRV_F_HMONITOR))
+                return;
+
 	if (tfw_srv_suspended(srv)) {
 		T_DBG2("Server suspended");
 		return;
