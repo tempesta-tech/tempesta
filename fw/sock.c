@@ -571,7 +571,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	sock_hold(sk);
 	if (ss_wq_push(&sw, cpu)) {
-		T_DBG2("Cannot schedule socket %p for transmission"
+		T_WARN("Cannot schedule socket %p for transmission"
 		       " (queue size %d)\n", sk,
 		       tfw_wq_size(&per_cpu(si_wq, cpu)));
 		sock_put(sk);
