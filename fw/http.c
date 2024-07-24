@@ -1661,17 +1661,18 @@ tfw_http_hm_control(TfwHttpResp *resp)
                 return;
 
 	if (tfw_srv_suspended(srv)) {
-		T_DBG2("Server suspended");
+		T_DBG_ADDR("Server suspended", &srv->addr, TFW_WITH_PORT);
 		return;
 	}
 
-	if(lim_exceeded) {
-		T_WARN("Server error limit exceeded");
+	if (lim_exceeded) {
+		T_WARN_ADDR("Error limit exceeded for server", 
+			&srv->addr, TFW_WITH_PORT);
 		tfw_http_hm_try_suspend(resp, srv);
 	}
 
-	if(tfw_apm_hm_srv_alive(resp, srv)) {
-		T_DBG2("Mark server alive");
+	if (tfw_apm_hm_srv_alive(resp, srv)) {
+		T_DBG_ADDR("Mark server alive", &srv->addr, TFW_WITH_PORT);
 		tfw_srv_mark_alive(srv);
 	}
 }
