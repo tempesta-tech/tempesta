@@ -352,8 +352,6 @@ tfw_classify_conn_close(struct sock *sk)
 	if(ra == NULL)
 		return;
 
-	assert_spin_locked(&sk->sk_lock.slock);
-
 	spin_lock(&ra->lock);
 
 	BUG_ON(ra->conn_curr == 0);
@@ -1397,6 +1395,8 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 		return T_OK;
 
 	ra = frang_acc_from_sk(req->conn->sk);
+	BUG_ON(!ra);
+
 	if (req->peer)
 		ra = FRANG_CLI2ACC(req->peer);
 

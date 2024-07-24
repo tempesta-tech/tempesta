@@ -191,8 +191,6 @@ ss_conn_drop_guard_exit(struct sock *sk)
 {
 	SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
-	if (sk->sk_security)
-		tfw_classify_conn_close(sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
 }
 

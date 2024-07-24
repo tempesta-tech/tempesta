@@ -219,3 +219,22 @@ tfw_connection_hooks_unregister(int type)
 {
 	conn_hooks[TFW_CONN_TYPE2IDX(type)] = NULL;
 }
+
+/*
+ * Do an opposite to what tfw_connection_link_to_sk() does. Tempesta
+ * is unlinked from Sync Sockets layer, so that no data can be sent
+ * anymore on a connection. The previously held socket is released.
+ * Note that clearing of conn->sk is necessary. In case of failover
+ * on a server connection an indicator is needed to remove a hold
+ * on the socket. A zeroed conn->sk is that indicator.
+ */
+void
+tfw_connection_unlink_to_sk(TfwConn *conn)
+{
+	struct sock *sk = conn->sk;
+
+	if (sk->sk_security)
+		tfw_classify_conn_close(sk);
+	conn->sk = NULL;
+	ss_sock_put(sk);
+}

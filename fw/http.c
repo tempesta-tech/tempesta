@@ -5034,17 +5034,23 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
 	 * error response.
 	 */
+	tfw_connection_get(req->conn);
 	tfw_h2_send_err_resp(req, status, close_after_send);
 	if (close_after_send) {
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
-						 HTTP2_RST_STREAM, 0))
+						 HTTP2_RST_STREAM, 0)) {
+			tfw_connection_put(req->conn);
 			return T_BAD;
-		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code))
+		}
+		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
+			tfw_connection_put(req->conn);
 			return T_BAD;
+		}
 	}
+	tfw_connection_put(req->conn);
 	goto out;
 
 skip_stream:
