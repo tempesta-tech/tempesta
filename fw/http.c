@@ -1628,7 +1628,7 @@ tfw_http_hm_try_suspend(TfwHttpResp *resp, TfwServer *srv)
 	while (flags & TFW_SRV_F_HMONITOR) {
 
 		old_flags = cmpxchg(&srv->flags, flags,
-				flags | TFW_SRV_F_SUSPEND);
+		                    flags | TFW_SRV_F_SUSPEND);
 
 		if (likely(old_flags == flags)) {
 			T_WARN_ADDR_STATUS("server has been suspended: limit "
@@ -1662,17 +1662,18 @@ tfw_http_hm_control(TfwHttpResp *resp)
                 return;
 
 	if (tfw_srv_suspended(srv)) {
-		T_DBG2("Server suspended");
+		T_DBG_ADDR("Server suspended", &srv->addr, TFW_WITH_PORT);
 		return;
 	}
 
-	if(lim_exceeded) {
-		T_WARN("Server error limit exceeded");
+	if (lim_exceeded) {
+		T_WARN_ADDR("Error limit exceeded for server",
+			&srv->addr, TFW_WITH_PORT);
 		tfw_http_hm_try_suspend(resp, srv);
 	}
 
-	if(tfw_apm_hm_srv_alive(resp, srv)) {
-		T_DBG2("Mark server alive");
+	if (tfw_apm_hm_srv_alive(resp, srv)) {
+		T_DBG_ADDR("Mark server alive", &srv->addr, TFW_WITH_PORT);
 		tfw_srv_mark_alive(srv);
 	}
 }
@@ -5881,7 +5882,7 @@ next_msg:
 	case T_BAD:
 		T_DBG2("Drop invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_drop_with_fin(req, 400, NULL, 
+		return tfw_http_req_parse_drop_with_fin(req, 400, NULL,
 							r == T_COMPRESSION
 							? HTTP2_ECODE_COMPRESSION
 							: HTTP2_ECODE_PROTO);
@@ -7586,7 +7587,7 @@ tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	if (ce->attr_n) {
 		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;	
+		return -EINVAL;
 	}
 
 	r = tfw_cfg_parse_uint(ce->vals[0], &max_header_list_size);
@@ -7598,7 +7599,7 @@ tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-									
+
 static void
 tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 {
