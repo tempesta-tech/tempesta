@@ -71,9 +71,9 @@ tfw_connection_shutdown(TfwConn *conn, bool sync)
 {
 	int r;
 
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	r = TFW_CONN_HOOK_CALL(conn, conn_shutdown, sync);
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 
 	return r;
 }
@@ -90,9 +90,9 @@ tfw_connection_close(TfwConn *conn, bool sync)
 	 * connection reference counter here to prevent conenction
 	 * destruction in running in parallel softirq.
 	 */
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	r = TFW_CONN_HOOK_CALL(conn, conn_close, sync);
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 
 	return r;
 }
@@ -106,10 +106,10 @@ tfw_connection_abort(TfwConn *conn)
 	 * Same as for tfw_connection_close() we should increment connection
 	 * reference counter here.
 	 */
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	r = TFW_CONN_HOOK_CALL(conn, conn_abort);
 	WARN_ON(r);
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 }
 
 /**
@@ -228,7 +228,7 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 {
 	struct sock *sk = conn->sk;
 
-	T_WARN("tfw_connection_unlink_to_sk %px %px %d", conn, sk, smp_processor_id());
+	T_WARN("tfw_connection_unlink_to_sk conn %px sk %px cpu %d refcnt %d", conn, sk, smp_processor_id(), atomic_read(&conn->refcnt));
 	if (sk->sk_security)
 		tfw_classify_conn_close(sk);
 	conn->sk = NULL;

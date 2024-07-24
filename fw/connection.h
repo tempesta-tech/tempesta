@@ -425,11 +425,18 @@ tfw_connection_live(TfwConn *conn)
 
 #define tfw_srv_conn_live(c)	tfw_connection_live((TfwConn *)(c))
 
-static inline void
+static inline int
 tfw_connection_get(TfwConn *conn)
 {
-	atomic_inc(&conn->refcnt);
+	return atomic_inc_return(&conn->refcnt);
 }
+
+#define TFW_CONNECTION_GET(conn)		\
+do {						\
+	int r = tfw_connection_get(conn);	\
+	T_WARN("GET %px from %s new refcnt %d", conn, __func__, r); \
+} while(0)
+
 
 /**
  * Increment reference counter and return true if @conn is not in
@@ -465,24 +472,32 @@ tfw_connection_stop_rcv(TfwConn *conn)
 		(!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt));
 }
 
-static inline void
+static inline int
 tfw_connection_put(TfwConn *conn)
 {
 	int rc;
 
 	if (unlikely(!conn))
-		return;
+		return INT_MIN;
 
 	rc = atomic_dec_return(&conn->refcnt);
 	BUG_ON(rc < TFW_CONN_DEATHCNT);
 
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
-		return;
+		return rc;
 	if (conn->destructor)
 		conn->destructor(conn);
+
+	return rc;
 }
 
-#define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
+#define TFW_CONNECTION_PUT(conn)		\
+do {						\
+	int r = tfw_connection_put(conn);	\
+	T_WARN("PUT %px from %s new refcnt %d", conn, __func__, r); \
+} while(0)
+
+#define tfw_srv_conn_put(c)	TFW_CONNECTION_PUT((TfwConn *)(c))
 
 static inline void
 tfw_connection_put_to_death(TfwConn *conn)

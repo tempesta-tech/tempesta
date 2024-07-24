@@ -404,7 +404,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 
 end:
 	tfw_connection_unlink_from_sk(sk);
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
@@ -545,7 +545,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 				r = tfw_connection_close(conn, true);
 			}
 
-			tfw_connection_put(conn);
+			TFW_CONNECTION_PUT(conn);
 			return r;
 		}
 		/*

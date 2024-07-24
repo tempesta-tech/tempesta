@@ -953,7 +953,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		 */
 		__cmpxchg((unsigned long *)&hm->conn->stream.msg,
 			  (unsigned long)hm, 0UL, sizeof(long));
-		tfw_connection_put(hm->conn);
+		TFW_CONNECTION_PUT(hm->conn);
 	}
 
 	tfw_http_msg_free(hm);
@@ -995,7 +995,8 @@ tfw_http_resp_pair_free_and_put_conn(void *opaque_data)
 	TfwHttpReq *req = resp->req;
 
 	BUG_ON(!req || !req->conn);
-	tfw_connection_put(req->conn);
+	TFW_CONNECTION_PUT(req->conn);
+
 	tfw_http_resp_pair_free(req);
 }
 
@@ -1102,7 +1103,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwConn *conn = req->conn;
 
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
@@ -2603,7 +2604,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 		return NULL;
 
 	hm->conn = conn;
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	hm->stream = stream;
 	hm->cache_ctl.default_ttl = cache_default_ttl;
 
@@ -4175,7 +4176,7 @@ static inline void
 __tfw_http_ws_connection_put(TfwCliConn *cli_conn)
 {
 	if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
-		tfw_connection_put(cli_conn->pair);
+		TFW_CONNECTION_PUT(cli_conn->pair);
 }
 
 /*
@@ -4268,14 +4269,14 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * processing ret_queue and make the current softirq retry from
 	 * determination of req_retent.
 	 */
-	tfw_connection_get((TfwConn *)(cli_conn));
+	TFW_CONNECTION_GET((TfwConn *)(cli_conn));
 	spin_lock_bh(&cli_conn->ret_qlock);
 	spin_unlock_bh(&cli_conn->seq_qlock);
 
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 
 	spin_unlock_bh(&cli_conn->ret_qlock);
-	tfw_connection_put((TfwConn *)(cli_conn));
+	TFW_CONNECTION_PUT((TfwConn *)(cli_conn));
 
 	/* Zap request/responses that were not sent due to an error. */
 	if (!list_empty(&ret_queue)) {
@@ -5034,17 +5035,26 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
 	 * error response.
 	 */
+	TFW_CONNECTION_GET(req->conn);
+	T_WARN("tfw_h2_error_resp conn %px refcnt %d cpu %d", req->conn, atomic_read(&req->conn->refcnt), smp_processor_id());
 	tfw_h2_send_err_resp(req, status, close_after_send);
+	T_WARN("tfw_h2_error_resp 111 conn %px refcnt %d cpu %d", req->conn, atomic_read(&req->conn->refcnt), smp_processor_id());
 	if (close_after_send) {
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
+		T_WARN("tfw_h2_error_resp 222 conn %px refcnt %d cpu %d", req->conn, atomic_read(&req->conn->refcnt), smp_processor_id());
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
-						 HTTP2_RST_STREAM, 0))
+						 HTTP2_RST_STREAM, 0)) {
+			TFW_CONNECTION_PUT(req->conn);
 			return T_BAD;
-		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code))
+		}
+		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
+			TFW_CONNECTION_PUT(req->conn);
 			return T_BAD;
+		}
 	}
+	TFW_CONNECTION_PUT(req->conn);
 	goto out;
 
 skip_stream:
@@ -6561,6 +6571,8 @@ next_msg:
 	T_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
 	       skb->len, parsed, hmresp->msg.len, hmresp->version, r);
 
+	T_WARN("Process response resp %px req %px conn %px refcnt %d cpu %d", hmresp, hmresp->req, hmresp->req->conn, atomic_read(&hmresp->req->conn->refcnt), smp_processor_id());
+
 	/*
 	 * We have to keep @skb the same to pass it as is to FSMs
 	 * registered with lower priorities after us, but we must
@@ -6578,7 +6590,7 @@ next_msg:
 		 * and so on.
 		 */
 	case T_BAD:
-		T_DBG2("Drop invalid HTTP response\n");
+		T_WARN("Drop invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		goto bad_msg;
 	case T_BLOCK:
@@ -6590,7 +6602,7 @@ next_msg:
 		 * out on this connection and are waiting for paired
 		 * response messages.
 		 */
-		T_DBG2("Block invalid HTTP response\n");
+		T_WARN("Block invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		filtout = true;
 		goto bad_msg;
@@ -6605,7 +6617,7 @@ next_msg:
 		}
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
 				  &data_up);
-		T_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
+		T_WARN("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(serv.msgs_filtout);
 			filtout = true;
@@ -6672,8 +6684,10 @@ next_msg:
 	 * event.
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r == T_BLOCK))
+	if (unlikely(r == T_BLOCK)) {
+		T_WARN("BBBBB %d", r);
 		return r;
+	}
 
 	/*
 	 * We need to know if connection will be upgraded after response

@@ -26,6 +26,7 @@
 #include <linux/ctype.h>
 #include <linux/spinlock.h>
 #include <linux/bitmap.h>
+#include <linux/smp.h>
 
 #include "lib/fsm.h"
 #include "tdb.h"
@@ -351,8 +352,6 @@ tfw_classify_conn_close(struct sock *sk)
 
 	if(ra == NULL)
 		return;
-
-	assert_spin_locked(&sk->sk_lock.slock);
 
 	spin_lock(&ra->lock);
 
@@ -1397,6 +1396,8 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 		return T_OK;
 
 	ra = frang_acc_from_sk(req->conn->sk);
+	BUG_ON(!ra);
+
 	if (req->peer)
 		ra = FRANG_CLI2ACC(req->peer);
 
@@ -1416,7 +1417,9 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	 * and wait for the results. If the attack is spotted, block the client
 	 * and wipe all their received but not processed requests ASAP.
 	 */
+	T_WARN("frang_resp_fwd_process BBB conn %px cpu %d refcnt %d", req->conn, smp_processor_id(), atomic_read(&req->conn->refcnt));
 	r = frang_resp_code_limit(ra, conf);
+	T_WARN("frang_resp_fwd_process AAA conn %px cpu %d refcnt %d", req->conn, smp_processor_id(), atomic_read(&req->conn->refcnt));
 	spin_unlock(&ra->lock);
 
 	return r;

@@ -627,6 +627,9 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		}
 	}
 
+	if (!conn->cli_conn.sk)
+		T_WARN("tfw_tls_send %px", conn);
+
 	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
 
@@ -808,6 +811,8 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 			SS_F_ENCRYPT;
 	}
 
+	if (!c->sk)
+		T_WARN("tfw_tls_conn_send conn %px cpu %d refcnt %d", c, smp_processor_id(), atomic_read(&c->refcnt));
 	r = ss_send(c->sk, &msg->skb_head,
 		    msg->ss_flags & ~SS_F_CLOSE_FORCE);
 	if (r)

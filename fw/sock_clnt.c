@@ -344,7 +344,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	 * the essence of it, remain accessible as long as there
 	 * are references to @conn.
 	 */
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 }
 
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {

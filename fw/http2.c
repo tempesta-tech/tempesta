@@ -256,13 +256,16 @@ tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 			    bool attack)
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwConn *c = (TfwConn *)conn;
 
+	T_WARN("tfw_h2_conn_terminate_close conn %px refcnt %d cpu %d", conn, atomic_read(&c->refcnt), smp_processor_id());
 	if (tfw_h2_send_goaway(ctx, err_code, attack) && close) {
 		if (attack)
 			tfw_connection_close((TfwConn *)conn, true);
 		else
 			tfw_connection_shutdown((TfwConn *)conn, true);
 	}
+	T_WARN("tfw_h2_conn_terminate_close conn %px refcnt %d cpu %d AAA", conn, atomic_read(&c->refcnt), smp_processor_id());
 }
 
 /**
