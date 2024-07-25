@@ -797,7 +797,13 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
-	int ss_flags = msg->ss_flags;
+	/*
+	 * Save `ss_flags` for later access.
+	 * Message sending may happen on another CPU,
+	 * when `ss_send` returns successfully, `msg` may be invalid,
+	 * so referencing `msg` since then is wrong.
+	 */
+	int ss_flags = READ_ONCE(msg->ss_flags);
 
 	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",

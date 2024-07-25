@@ -4,7 +4,7 @@
  * Generic connection management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -139,6 +139,10 @@ tfw_connection_release(TfwConn *conn)
  * ensure that conn->sk remains valid for the life of @conn instance.
  * The socket itself may have been closed, but not deleted. ss_send()
  * makes sure that data is sent only on an active socket.
+ *
+ * NOTE: after `tfw_connection_send` returns, `msg` should not be used!
+ * See `tfw_tls_conn_send` for reference.
+ *
  * Return value:
  *   0		- @msg had been sent successfully;
  *   -EBADF	- connection is broken;
