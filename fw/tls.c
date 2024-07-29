@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -797,6 +797,13 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
+	/*
+	 * Save `ss_flags` for later access.
+	 * Message sending may happen on another CPU,
+	 * when `ss_send` returns successfully, `msg` may be invalid,
+	 * so referencing `msg` since then is wrong.
+	 */
+	int ss_flags = READ_ONCE(msg->ss_flags);
 
 	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
@@ -817,8 +824,8 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	 * We can not send the alert on conn_drop hook, because the hook
 	 * is called on already closed socket.
 	 */
-	if (msg->ss_flags & SS_F_CONN_CLOSE) {
-		int close_type = msg->ss_flags & __SS_F_FORCE ?
+	if (ss_flags & SS_F_CONN_CLOSE) {
+		int close_type = ss_flags & __SS_F_FORCE ?
 			TTLS_F_ST_CLOSE : TTLS_F_ST_SHUTDOWN;
 
 		spin_lock(&tls->lock);
