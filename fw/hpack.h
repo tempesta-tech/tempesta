@@ -335,4 +335,5 @@ tfw_hpack_int_size(unsigned long index, unsigned short max)
 	return size;
 }
 unsigned short tfw_hpack_find_hdr_idx(const TfwStr *hdr);
+extern const TfwHPackEntry static_table[];
 #endif /* __TFW_HPACK_H__ */

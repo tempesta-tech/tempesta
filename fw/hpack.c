@@ -65,7 +65,7 @@
 #define HP_ENTRY_FULL(name, value, h_tag)				\
 	HP_ENTRY(name, h_tag, HP_HDR_FULL(name, value))
 
-static const TfwHPackEntry static_table[] ____cacheline_aligned = {
+const TfwHPackEntry static_table[] ____cacheline_aligned = {
 	HP_ENTRY_NAME(":authority",		TFW_TAG_HDR_H2_AUTHORITY),
 	HP_ENTRY_FULL(":method", "GET",		TFW_TAG_HDR_H2_METHOD),
 	HP_ENTRY_FULL(":method", "POST",	TFW_TAG_HDR_H2_METHOD),
