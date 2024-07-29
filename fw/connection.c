@@ -140,9 +140,6 @@ tfw_connection_release(TfwConn *conn)
  * The socket itself may have been closed, but not deleted. ss_send()
  * makes sure that data is sent only on an active socket.
  *
- * NOTE: after `tfw_connection_send` returns, `msg` should not be used!
- * See `tfw_tls_conn_send` for reference.
- *
  * Return value:
  *   0		- @msg had been sent successfully;
  *   -EBADF	- connection is broken;
@@ -152,6 +149,10 @@ tfw_connection_release(TfwConn *conn)
 int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 {
+	/*
+	 * NOTE: after `tfw_connection_send` returns, `msg` should not be used!
+	 * See `tfw_tls_conn_send` for reference.
+	 */
 	return TFW_CONN_HOOK_CALL(conn, conn_send, msg);
 }
 
