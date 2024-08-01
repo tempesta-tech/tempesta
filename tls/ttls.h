@@ -642,11 +642,29 @@ ttls_expiv_len(const TlsXfrm *xfrm)
 	return xfrm->ivlen - xfrm->fixed_ivlen;
 }
 
-static inline size_t
-ttls_payload_off(const TlsXfrm *xfrm)
-{
-	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
-}
+#define TTLS_EXPIV_LEN(x)                                                                       \
+({                                                                                              \
+        TlsXfrm *xfrm__ = (TlsXfrm *)x;                                                         \
+        size_t evpiv_len_rc;                                                                    \
+        if (xfrm__->ivlen - xfrm__->fixed_ivlen != TTLS_IV_LEN) {                               \
+                TlsCtx *ctx = container_of(xfrm__, TlsCtx, xfrm);                               \
+                printk(KERN_ALERT "%s dump xfrm: ivlen %d fixed_ivlen %d keylen %u minlen %u",  \
+                      __func__, xfrm__->ivlen, xfrm__->fixed_ivlen, xfrm__->keylen, xfrm__->minlen); \
+                if (xfrm__->ciphersuite_info) {                                                      \
+                        printk(KERN_ALERT "%s dump ciphersuite name %s %d %d", __func__,             \
+                                xfrm__->ciphersuite_info->name, xfrm__->ciphersuite_info->cipher,    \
+                                xfrm__->ciphersuite_info->key_exchange);                             \
+                }                                                                                    \
+                printk(KERN_ALERT "%s dump tls context: %px %d %s", __func__,                   \
+                       ctx->sk, ctx->state, ctx->hostname);                                     \
+        }                                                                                       \
+        evpiv_len_rc = ttls_expiv_len(xfrm__);                                                  \
+        evpiv_len_rc;                                                                           \
+})
+
+size_t
+ttls_payload_off(const TlsXfrm *xfrm);
+
 
 static inline void
 ttls_reset_io_ctx(TlsIOCtx *io)
