@@ -84,7 +84,8 @@ ttls_max_ciphertext_len(const TlsXfrm *xfrm)
 static inline unsigned short
 ttls_msg2crypt_len(const TlsIOCtx *io, const TlsXfrm *xfrm)
 {
-	return io->msglen - ttls_expiv_len(xfrm) - TTLS_TAG_LEN;
+	size_t evpiv_len_rc = TTLS_EXPIV_LEN(xfrm);
+	return io->msglen - evpiv_len_rc - TTLS_TAG_LEN;
 }
 
 static void
@@ -121,8 +122,9 @@ ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
 void
 ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf)
 {
-	unsigned short len, ivlen = ttls_expiv_len(xfrm);
+	unsigned short len, ivlen = TTLS_EXPIV_LEN(xfrm);
 	long iv = *(long *)buf;
+	size_t evpiv_len_rc;
 
 	memmove(buf, buf + ivlen, TLS_HEADER_SIZE);
 	*(long *)(buf + TLS_HEADER_SIZE) = iv;
@@ -132,7 +134,8 @@ ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf)
 	 * TAG to the final record payload length.
 	 */
 	len = ((unsigned short)buf[3] << 8) + buf[4];
-	len += ttls_expiv_len(xfrm) + TTLS_TAG_LEN;
+	evpiv_len_rc = TTLS_EXPIV_LEN(xfrm);
+	len += evpiv_len_rc + TTLS_TAG_LEN;
 	buf[3] = (unsigned char)(len >> 8);
 	buf[4] = (unsigned char)len;
 
@@ -584,6 +587,7 @@ ttls_derive_keys(TlsCtx *tls)
 	TlsSess *sess = &tls->sess;
 	TlsXfrm *xfrm = &tls->xfrm;
 	TlsHandshake *hs = tls->hs;
+	size_t evpiv_len_rc;
 
 	ci = ttls_cipher_info_from_type(xfrm->ciphersuite_info->cipher);
 	md_info = ttls_md_info_from_type(xfrm->ciphersuite_info->mac);
@@ -661,9 +665,10 @@ ttls_derive_keys(TlsCtx *tls)
 		xfrm->ivlen = 12;
 		xfrm->fixed_ivlen = 4;
 		xfrm->fixed_shift = (ci->mode == TTLS_MODE_CCM ? 1 : 0);
-		WARN_ON_ONCE(ttls_expiv_len(xfrm) != TTLS_IV_LEN);
+		evpiv_len_rc = TTLS_EXPIV_LEN(xfrm);
+		WARN_ON_ONCE(evpiv_len_rc != TTLS_IV_LEN);
 		/* Minimum length is expicit IV + tag */
-		xfrm->minlen = ttls_expiv_len(xfrm) + TTLS_TAG_LEN;
+		xfrm->minlen = evpiv_len_rc + TTLS_TAG_LEN;
 	} else {
 		BUG_ON(ci->mode != TTLS_MODE_STREAM);
 		/*
@@ -892,7 +897,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		return TTLS_ERR_INVALID_MAC;
 	}
 
-	expiv_len = ttls_expiv_len(xfrm);
+	expiv_len = TTLS_EXPIV_LEN(xfrm);
 	mode = xfrm->cipher_ctx_enc.cipher_info->mode;
 
 	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
@@ -1200,7 +1205,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	case TTLS_MSG_APPLICATION_DATA:
 		if (unlikely(!ready))
 			return TTLS_ERR_INVALID_RECORD;
-		ivahs_len = ttls_expiv_len(&tls->xfrm);
+		ivahs_len = TTLS_EXPIV_LEN(&tls->xfrm);
 		break;
 
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
@@ -1228,7 +1233,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 				return TTLS_ERR_INVALID_RECORD;
 			}
 		} else {
-			ivahs_len = ttls_expiv_len(&tls->xfrm);
+			ivahs_len = TTLS_EXPIV_LEN(&tls->xfrm);
 		}
 		break;
 
@@ -1827,6 +1832,14 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	return 0;
 }
 
+size_t
+ttls_payload_off(const TlsXfrm *xfrm)
+{
+        size_t evpiv_len_rc = TTLS_EXPIV_LEN(xfrm);
+	return TLS_HEADER_SIZE + evpiv_len_rc;
+}
+EXPORT_SYMBOL(ttls_payload_off);
+
 int
 ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		    unsigned int *read)
@@ -1837,6 +1850,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsXfrm *xfrm = &tls->xfrm;
 	TlsHandshake *hs = tls->hs;
 	unsigned char hash[TLS_HASH_LEN];
+	size_t evpiv_len_rc;
 
 	T_DBG("%s: msglen=%u(rlen=%u len=%lu)\n", __func__,
 	      io->msglen, io->rlen, len);
@@ -1852,7 +1866,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
-	ct_len = io->msglen - ttls_expiv_len(xfrm);
+	evpiv_len_rc = TTLS_EXPIV_LEN(xfrm);
+	ct_len = io->msglen - evpiv_len_rc;
 	T_DBG3_BUF("Client finished msg body", buf, ct_len);
 
 	/* Copy small chunks to the temporary buffer. */
@@ -2199,7 +2214,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 	TlsIOCtx *io = &tls->io_in;
 
 	BUG_ON(!tls || !tls->conf);
-	T_DBG3("%s: tls=%pK len=%u read=%u\n", __func__, tls, len, *read);
+	T_DBG3("%s: tls=%px len=%u read=%u\n", __func__, tls, len, *read);
 
 	if (!(io->st_flags & TTLS_F_ST_HDRIV)) {
 		unsigned int delta;
