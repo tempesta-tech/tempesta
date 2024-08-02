@@ -99,6 +99,10 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+
+	stream->was_idle = stream->was_in_idle_queue =
+		stream->was_in_closed_queue = stream->removed_from_idle_queue =
+		stream->removed_from_closed_queue = stream->removed_from_idle_queue_1 = false;
 }
 
 static TfwStream *
@@ -177,6 +181,8 @@ tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 	 */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
+	idle->was_idle = true;
+
 	/*
 	 * Found first idle stream with id less than new idle
 	 * stream, then insert new stream before this stream.
@@ -198,6 +204,8 @@ tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 	} else {
 		tfw_h2_stream_add_to_queue_nolock(&ctx->idle_streams, idle);
 	}
+
+	idle->was_in_idle_queue = true;
 }
 
 void
@@ -210,7 +218,9 @@ tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 	 * socket lock.
 	 */
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-	tfw_h2_stream_del_from_queue_nolock(stream);
+	tfw_h2_stream_del_from_queue_nolock(stream, ctx);
+
+	stream->removed_from_idle_queue = true;
 }
 
 /*
@@ -253,7 +263,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
-	tfw_h2_delete_stream(stream);
+	tfw_h2_delete_stream(stream, ctx);
 	--ctx->streams_num;
 }
 
@@ -269,7 +279,7 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
 
-	tfw_h2_stream_del_from_queue_nolock(stream);
+	tfw_h2_stream_del_from_queue_nolock(stream, ctx);
 
 	if (hmreq) {
 		hmreq->stream = NULL;
@@ -302,6 +312,7 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	spin_lock(&ctx->lock);
 	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams, stream);
+	stream->was_in_closed_queue = true;
 	spin_unlock(&ctx->lock);
 }
 
@@ -828,10 +839,48 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 	return NULL;
 }
 
+/*
+ * Del stream from queue.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
 void
-tfw_h2_delete_stream(TfwStream *stream)
+tfw_h2_stream_del_from_queue_nolock(TfwStream *stream, TfwH2Ctx *ctx)
+{
+	if(list_empty(&stream->hcl_node))
+		return;
+
+	if (stream->id < MAX_STREAMS_TMP && test_bit(stream->id, ctx->CLOSED))
+		printk(KERN_ALERT "tfw_h2_stream_del_from_queue_nolock STREAM IS ALREADY CLOSED %u", stream->id);
+
+	if (!stream->queue || !stream->queue->num) {
+		printk(KERN_ALERT "stream %px id %u was_idle %d was_in_idle_queue %d was_in_closed_queue %d "
+			"removed_from_idle_queue %d removed_from_closed_queue %d removed_from_idle_queue_1 %d",
+			stream, stream->id, stream->was_idle, stream->was_in_idle_queue, stream->was_in_closed_queue,
+			stream->removed_from_idle_queue, stream->removed_from_closed_queue,
+			stream->removed_from_idle_queue_1);
+	}
+
+	BUG_ON(!stream->queue);
+	BUG_ON(!stream->queue->num);
+
+	list_del_init(&stream->hcl_node);
+	--stream->queue->num;
+	stream->queue = NULL;
+}
+
+void
+tfw_h2_delete_stream(TfwStream *stream, TfwH2Ctx *ctx)
 {
 	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
+	if (stream->id < MAX_STREAMS_TMP) {
+		if (test_bit(stream->id, ctx->CLOSED))
+			printk(KERN_ALERT "tfw_h2_delete_stream STREAM IS ALREADY CLOSED %u", stream->id);
+		__set_bit(stream->id, ctx->CLOSED);
+	}
+	else
+		printk(KERN_ALERT "Strange stream id %px %u", stream, stream->id);
 	kmem_cache_free(stream_cache, stream);
 }
 
