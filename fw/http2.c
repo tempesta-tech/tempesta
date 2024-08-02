@@ -289,7 +289,8 @@ tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 		if (id <= stream->id)
 			break;
 
-		tfw_h2_stream_del_from_queue_nolock(stream);
+		tfw_h2_stream_del_from_queue_nolock(stream, ctx);
+		stream->removed_from_idle_queue_1 = true;
 		tfw_h2_set_stream_state(stream, HTTP2_STREAM_CLOSED);
 		tfw_h2_stream_add_closed(ctx, stream);
 	}
@@ -317,7 +318,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		 * No further actions regarding streams dependencies/prio
 		 * is required at this stage.
 		 */
-		tfw_h2_delete_stream(cur);
+		tfw_h2_delete_stream(cur, ctx);
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;
@@ -357,7 +358,12 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 		BUG_ON(list_empty(&closed_streams->list));
 		cur = list_first_entry(&closed_streams->list, TfwStream,
 				       hcl_node);
+
+		if (cur->id < MAX_STREAMS_TMP && test_bit(cur->id, ctx->CLOSED))
+			printk(KERN_ALERT "tfw_h2_closed_streams_shrink STREAM IS ALREADY CLOSED %u", cur->id);
+
 		tfw_h2_stream_unlink_nolock(ctx, cur);
+		cur->removed_from_closed_queue = true;
 
 		spin_unlock(&ctx->lock);
 

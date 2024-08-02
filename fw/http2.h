@@ -47,6 +47,8 @@ typedef struct {
         unsigned int max_lhdr_sz;
 } TfwSettings;
 
+#define MAX_STREAMS_TMP 1000
+
 /**
  * Context for HTTP/2 frames processing.
  *
@@ -124,6 +126,7 @@ typedef struct tfw_h2_ctx_t {
         TfwStream       *error;
         unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
         DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
+        DECLARE_BITMAP  (CLOSED, MAX_STREAMS_TMP);
         char            __off[0];
         struct sk_buff  *skb_head;
         TfwStream       *cur_stream;
