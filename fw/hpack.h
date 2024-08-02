@@ -255,6 +255,7 @@ typedef struct {
 	unsigned int		state;
 	unsigned int		shift;
 	unsigned int		index;
+	atomic_t		inuse;
 } TfwHPack;
 
 /**

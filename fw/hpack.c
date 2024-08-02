@@ -154,6 +154,7 @@ enum {
 	HPACK_STATE_VALUE_TEXT,
 	HPACK_STATE_ALL_INDEXED,
 	HPACK_STATE_DT_SZ_UPD,
+	HPACK_STATE_DT_INVALID,
 	_HPACK_STATE_NUM
 };
 
@@ -1122,6 +1123,8 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	et->rbuf = tfw_pool_alloc_np(et->pool, HPACK_ENC_TABLE_MAX_SIZE,
 				     &np);
 	BUG_ON(np || !et->rbuf);
+	
+	atomic_set(&hp->inuse, 0);
 
 	return 0;
 
@@ -1160,6 +1163,7 @@ tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it,
 		   sizeof(*it) - offsetof(TfwMsgParseIter, __off));
 	bzero_fast(hp->__off,
 		   sizeof(*hp) - offsetof(TfwHPack, __off));
+	atomic_set(&hp->inuse, 0);
 	if (reset_wnd_update)
 		hp->dec_tbl.wnd_update = false;
 }
@@ -1446,6 +1450,9 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	const unsigned char *last = src + n;
 	TfwHttpParser *parser = &req->stream->parser;
 
+	WARN_ONCE(hp->state == HPACK_STATE_DT_INVALID,
+		  "---> re-enter tfw_hpack_decode in case of error");
+	atomic_set(&hp->inuse, 1);
 	BUILD_BUG_ON(HPACK_STATE_MASK < _HPACK_STATE_NUM - 1);
 	BUG_ON(!it->parsed_hdr);
 	WARN_ON_ONCE(!n);
@@ -1845,11 +1852,15 @@ set_tbl_size:
 
 	} while (src < last);
 
+	atomic_set(&hp->inuse, 0);
 	return T_OK;
 out:
 	WARN_ON_ONCE(src > last);
 	*parsed -= last - src;
 	hp->state = state;
+	if (r != T_POSTPONE)
+		hp->state = HPACK_STATE_DT_INVALID;
+	atomic_set(&hp->inuse, 0);
 	return r;
 }
 

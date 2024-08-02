@@ -995,7 +995,14 @@ tfw_http_resp_pair_free_and_put_conn(void *opaque_data)
 	TfwHttpReq *req = resp->req;
 
 	BUG_ON(!req || !req->conn);
+	{
+		TfwH2Ctx *ctx = tfw_h2_context_safe(req->conn);
+		WARN_ONCE(ctx && atomic_read(&ctx->hpack.inuse),
+			  "---> free req when hpack is in use, hpack->state=%d",
+			  ctx->hpack.state);
+	}
 	tfw_connection_put(req->conn);
+
 	tfw_http_resp_pair_free(req);
 }
 
