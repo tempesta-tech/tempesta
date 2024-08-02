@@ -971,8 +971,9 @@ tdb_htrie_node_visit(TdbHdr *dbh, TdbHtrieNode *node, int (*fn)(void *))
 		if (likely(!o))
 			continue;
 
-		BUG_ON(TDB_DI2O(o & ~TDB_HTRIE_DBIT) < TDB_HDR_SZ(dbh) + sizeof(TdbExt)
-			   || TDB_DI2O(o & ~TDB_HTRIE_DBIT) > dbh->dbsz);
+		if (TDB_DI2O(o & ~TDB_HTRIE_DBIT) < TDB_HDR_SZ(dbh) + sizeof(TdbExt)
+			   || TDB_DI2O(o & ~TDB_HTRIE_DBIT) > dbh->dbsz)
+			return -999;
 
 		if (o & TDB_HTRIE_DBIT) {
 			TdbBucket *b;

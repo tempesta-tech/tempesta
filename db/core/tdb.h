@@ -218,6 +218,17 @@ TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx);
 int tdb_entry_walk(TDB *db, int (*fn)(void *));
 void tdb_rec_get_lock(void *rec);
 
+#define TDB_ENTRY_WALK(db, fn)                                  \
+({                                                              \
+        int r;                                                  \
+        r = tdb_entry_walk(db, fn);                             \
+        if (r == -999) {                                        \
+                printk(KERN_ALERT "%s tdb_entry_walk", __func__); \
+                BUG();                                          \
+        }                                                       \
+        r;                                                      \
+})
+
 /* Open/close database handler. */
 TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node);
 void tdb_close(TDB *db);

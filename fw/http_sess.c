@@ -1255,7 +1255,7 @@ tfw_http_sess_stop(void)
 	if (!sess_db)
 		return;
 
-	tdb_entry_walk(sess_db, tfw_http_sess_release_entry);
+	TDB_ENTRY_WALK(sess_db, tfw_http_sess_release_entry);
 	tdb_close(sess_db);
 }
 
