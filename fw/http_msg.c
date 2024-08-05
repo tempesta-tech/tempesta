@@ -1687,7 +1687,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			begin = it->skb->data;
 			end = begin + skb_headlen(it->skb);
 
-			if ((begin <= off) && (end >= off)) {
+			if (ss_skb_is_within_fragment(begin, off, end)) {
 				it->frag = -1;
 				/* We would end up here if the start of the body or
 				 * the end of CRLF lies within the linear data area
@@ -1710,7 +1710,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			begin = skb_frag_address(f);
 			end = begin + skb_frag_size(f);
 
-			if (begin > off || end < off)
+			if (!ss_skb_is_within_fragment(begin, off, end))
 				continue;
 
 			/*

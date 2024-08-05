@@ -1435,11 +1435,11 @@ continue_curr_frag:
 		 * reach the place where we should start copying.
 		 */
 
-		if (likely(begin <= curr && curr < end)) {
+		if (likely(ss_skb_is_within_fragment(begin, curr, end))) {
 			TfwStr chunk = {.len = 0};
 
 			/* Stop found in current frag. */
-			if (begin <= stop && stop <= end) {
+			if (ss_skb_is_within_fragment(begin, stop, end)) {
 				chunk.data = curr;
 				chunk.len = stop - curr;
 				curr = stop;
