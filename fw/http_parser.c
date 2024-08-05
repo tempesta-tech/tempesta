@@ -10787,7 +10787,7 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 
 		atomic_set(&ctx->hpack.inuse, 1);
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-		if (r != T_OK && r != T_POSTPONE)
+		if ((r != T_OK && r != T_POSTPONE) || ctx->hdr.flags & HTTP2_F_END_HEADERS)
 			atomic_set(&ctx->hpack.inuse, 0);
 		break;
 	case HTTP2_CONTINUATION:
@@ -10800,11 +10800,10 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 		}
 
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-		if (r != T_OK && r != T_POSTPONE)
+		if ((r != T_OK && r != T_POSTPONE) || ctx->hdr.flags & HTTP2_F_END_HEADERS)
 			atomic_set(&ctx->hpack.inuse, 0);
 		break;
 	case HTTP2_DATA:
-		atomic_set(&ctx->hpack.inuse, 0);
 		/*
 		 * Received empty DATA frame with END_STREAM flag.
 		 * Body is finished.

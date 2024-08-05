@@ -1853,7 +1853,7 @@ out:
 	WARN_ON_ONCE(src > last);
 	*parsed -= last - src;
 	hp->state = state;
-	if (r != T_POSTPONE)
+	if (r != T_OK && r != T_POSTPONE)
 		hp->state = HPACK_STATE_DT_INVALID;
 	return r;
 }
