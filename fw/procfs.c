@@ -313,7 +313,10 @@ tfw_state_seq_show(struct seq_file *seq, void *off)
 {
 	const char *st;
 	if (tfw_runstate_is_started()) {
-		st = tfw_runstate_is_reconfig() ? "reconfig\n" : "started\n";
+		st = tfw_runstate_is_reconfig()
+			? "reconfig\n"
+			: (tfw_runstate_is_started_success()
+			   ? "started\n" : "started (failed reconfig)");
 	} else {
 		st = "stopped\n";
 	}

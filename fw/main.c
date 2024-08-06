@@ -45,8 +45,14 @@ typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
 size_t  exit_hooks_n;
 
+typedef enum {
+	TFW_STATE_STOPPED = 0,
+	TFW_STATE_STARTED,
+	TFW_STATE_STARTED_FAIL_RECONFIG,
+} TfwState;
+
 DEFINE_MUTEX(tfw_sysctl_mtx);
-static bool tfw_started = false;
+static TfwState tfw_state = TFW_STATE_STOPPED;
 static bool tfw_reconfig = false;
 static int tfw_ss_users = 0;
 
@@ -66,13 +72,19 @@ tfw_runstate_is_reconfig(void)
 	return READ_ONCE(tfw_reconfig);
 }
 
+bool
+tfw_runstate_is_started_success(void)
+{
+	return READ_ONCE(tfw_state) == TFW_STATE_STARTED;
+}
+
 /**
  * Return true if Tempesta is started, and false otherwise.
  */
 bool
 tfw_runstate_is_started(void)
 {
-	return READ_ONCE(tfw_started);
+	return READ_ONCE(tfw_state) != TFW_STATE_STOPPED;
 }
 
 /**
@@ -270,7 +282,7 @@ tfw_start(void)
 	if ((ret = tfw_mods_start()))
 		goto stop_mods;
 	tfw_cfg_conclude(&tfw_mods);
-	WRITE_ONCE(tfw_started, true);
+	WRITE_ONCE(tfw_state, TFW_STATE_STARTED);
 
 	T_LOG_NL("Tempesta FW is ready\n");
 
@@ -283,9 +295,11 @@ stop_mods:
 	 */
 	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop();
-	WRITE_ONCE(tfw_started, false);
+	WRITE_ONCE(tfw_state, TFW_STATE_STOPPED);
 cleanup:
 	T_WARN_NL("Configuration parsing has failed. Clean up...\n");
+	if (READ_ONCE(tfw_state) == TFW_STATE_STARTED)
+		WRITE_ONCE(tfw_state, TFW_STATE_STARTED_FAIL_RECONFIG);
 	tfw_cleanup();
 	return ret;
 }
@@ -302,7 +316,7 @@ tfw_ctlfn_state_change(const char *new_state)
 	if (!strcasecmp("start", new_state)) {
 		int r;
 
-		if (READ_ONCE(tfw_started)) {
+		if (tfw_runstate_is_started()) {
 			WRITE_ONCE(tfw_reconfig, true);
 			T_LOG("Live reconfiguration of Tempesta.\n");
 		}
@@ -314,13 +328,13 @@ tfw_ctlfn_state_change(const char *new_state)
 	}
 
 	if (!strcasecmp("stop", new_state)) {
-		if (!READ_ONCE(tfw_started)) {
+		if (!tfw_runstate_is_started()) {
 			T_WARN_NL("Trying to stop an inactive system\n");
 			return -EINVAL;
 		}
 
 		tfw_stop();
-		WRITE_ONCE(tfw_started, false);
+		WRITE_ONCE(tfw_state, TFW_STATE_STOPPED);
 
 		return 0;
 	}
@@ -348,15 +362,22 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 		char buf[T_SYSCTL_STBUF_LEN];
 		char start[T_SYSCTL_STBUF_LEN] = "start";
 		char stop[T_SYSCTL_STBUF_LEN] = "stop";
+		char start_fail_reconfig[T_SYSCTL_STBUF_LEN] =
+			"start (failed reconfig)";
 
 		tmp.data = buf;
 		if ((r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos)))
 			goto out;
 
 		r = tfw_ctlfn_state_change(buf);
-		strlcpy(new_state_buf,
-			tfw_runstate_is_started() ? start : stop,
-			T_SYSCTL_STBUF_LEN);
+		if (READ_ONCE(tfw_state) == TFW_STATE_STOPPED) {
+			strlcpy(new_state_buf, stop, T_SYSCTL_STBUF_LEN);
+		} else if (READ_ONCE(tfw_state) == TFW_STATE_STARTED) {
+			strlcpy(new_state_buf, start, T_SYSCTL_STBUF_LEN);
+		} else {
+			strlcpy(new_state_buf, start_fail_reconfig,
+				T_SYSCTL_STBUF_LEN);
+		}
 	} else {
 		tmp.data = new_state_buf;
 		r = proc_dostring(&tmp, is_write, user_buf, lenp, ppos);
@@ -442,10 +463,10 @@ tfw_exit(void)
 	/* Let's put this under the same mutex as the sysctl callback
 	 * to avoid concurrent shutdown calls */
 	mutex_lock(&tfw_sysctl_mtx);
-	if (READ_ONCE(tfw_started)) {
+	if (tfw_runstate_is_started()) {
 		T_WARN_NL("Tempesta FW is still running, shutting down...\n");
 		tfw_stop();
-		WRITE_ONCE(tfw_started, false);
+		WRITE_ONCE(tfw_state, TFW_STATE_STOPPED);
 	}
 	mutex_unlock(&tfw_sysctl_mtx);
 
