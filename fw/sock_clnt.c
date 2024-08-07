@@ -116,6 +116,11 @@ ALLOW_ERROR_INJECTION(tfw_cli_conn_alloc, NULL);
 static void
 tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
+	if (TFW_CONN_PROTO(cli_conn) == TFW_FSM_H2) {
+		extern void tfw_hpack_trace_release(int seq);
+		tfw_hpack_trace_release(tfw_h2_context_unsafe(cli_conn)->hpack.seq);
+	}
+
 	BUG_ON(timer_pending(&cli_conn->timer));
 
 	/* Check that all nested resources are freed. */
