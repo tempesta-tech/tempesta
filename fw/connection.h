@@ -428,6 +428,8 @@ tfw_connection_live(TfwConn *conn)
 static inline void
 tfw_connection_get(TfwConn *conn)
 {
+	int refcnt = atomic_read(&conn->refcnt);
+	BUG_ON(refcnt == 0 || refcnt == TFW_CONN_DEATHCNT);
 	atomic_inc(&conn->refcnt);
 }
 
