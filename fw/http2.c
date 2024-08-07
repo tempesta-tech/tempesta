@@ -195,6 +195,8 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 int
 tfw_h2_init(void)
 {
+	extern void tfw_hpack_trace_init(void);
+	tfw_hpack_trace_init();
 	return tfw_h2_stream_cache_create();
 }
 

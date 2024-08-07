@@ -244,6 +244,7 @@ typedef struct {
  *		  absence of the next fragment;
  */
 typedef struct {
+	int			seq;
 	TfwHPackETbl		enc_tbl;
 	TfwHPackDTbl		dec_tbl;
 	unsigned long		length;

@@ -177,6 +177,16 @@ do {								\
 	state |= (new);						\
 } while (0)
 
+struct hp_trace {
+	int seq;
+	int state;
+	struct hlist_node node;
+};
+
+static atomic_t hpack_trace_seq;
+DEFINE_SPINLOCK(hpack_trace_lock);
+DECLARE_HASHTABLE(hpack_trace, 10);
+
 /* Return static index of header by its name. Ignores pseudo-headers. */
 unsigned short
 tfw_hpack_find_hdr_idx(const TfwStr *hdr)
@@ -1096,6 +1106,32 @@ tfw_huffman_init(TfwHPack *__restrict hp)
 	hp->curr = -HT_NBITS;
 }
 
+void
+tfw_hpack_trace_init(void)
+{
+	atomic_set(&hpack_trace_seq, 0);
+	hash_init(hpack_trace);
+}
+
+void
+tfw_hpack_trace_release(int seq)
+{
+	int st = 0;
+	struct hp_trace *t;
+	struct hlist_node *tmp;
+	spin_lock(&hpack_trace_lock);
+	hash_for_each_possible_safe(hpack_trace, t, tmp, node, seq) {
+		if (t->seq == seq) {
+			st = t->state;
+			hash_del(&t->node);
+			kfree(t);
+			break;
+		}
+	}
+	spin_unlock(&hpack_trace_lock);
+	BUG_ON(st != 2);
+}
+
 int
 tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 {
@@ -1124,6 +1160,16 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 				     &np);
 	BUG_ON(np || !et->rbuf);
 
+	{
+		struct hp_trace *t;
+		t = kmalloc(sizeof(struct hp_trace), GFP_ATOMIC);
+		t->seq = hp->seq = atomic_inc_return(&hpack_trace_seq);
+		t->state = 1;
+		spin_lock(&hpack_trace_lock);
+		hash_add(hpack_trace, &t->node, t->seq);
+		spin_unlock(&hpack_trace_lock);
+	}
+
 	return 0;
 
 err_et:
@@ -1140,6 +1186,19 @@ ALLOW_ERROR_INJECTION(tfw_hpack_init, ERRNO);
 void
 tfw_hpack_clean(TfwHPack *__restrict hp)
 {
+	int st = 0;
+	struct hp_trace *t;
+	spin_lock(&hpack_trace_lock);
+	hash_for_each_possible(hpack_trace, t, node, hp->seq) {
+		if (t->seq == hp->seq) {
+			st = t->state;
+			t->state = 2;
+			break;
+		}
+	}
+	spin_unlock(&hpack_trace_lock);
+	BUG_ON(st != 1);
+
 	tfw_pool_destroy(hp->enc_tbl.pool);
 	tfw_pool_destroy(hp->dec_tbl.h_pool);
 	tfw_pool_destroy(hp->dec_tbl.pool);
