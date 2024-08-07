@@ -1223,6 +1223,8 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	if (!m)
 		return;
 
+	BUG_ON(m->freed);
+
 	tfw_http_msg_unpair(m);
 	ss_skb_queue_purge(&m->msg.skb_head);
 
@@ -1232,6 +1234,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	if (TFW_MSG_H2(m))
 		tfw_pool_destroy(((TfwHttpReq *)m)->pit.pool);
 
+	m->freed = true;
 	tfw_pool_destroy(m->pool);
 }
 

@@ -304,7 +304,8 @@ typedef struct {
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;
+	TfwStr		body;						\
+	bool		freed;
 
 
 static inline void
