@@ -1129,7 +1129,7 @@ tfw_hpack_trace_release(int seq)
 		}
 	}
 	spin_unlock(&hpack_trace_lock);
-	BUG_ON(st != 2);
+	BUG_ON(st == 1);
 }
 
 int
