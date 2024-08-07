@@ -133,7 +133,7 @@ load_modules()
 
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
-	echo '8 7 1 7' > /proc/sys/kernel/printk
+	echo '4 4 1 7' > /proc/sys/kernel/printk
 
 	load_one_module "$lib_path/$lib_mod.ko" ||
 		error "cannot load tempesta library module"
