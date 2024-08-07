@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -406,6 +406,10 @@ unsigned long ttls_time_debug(void);
 /*
  * CPUs since Intel Ice Lake are safe against SRBDS attack, so we're good
  * with the hardware random generator.
+ *
+ * The random number generator is extremely important for ECDSA, see
+ * M.Macchetti, "A Novel Related Nonce Attack for ECDSA", 2023,
+ * https://eprint.iacr.org/2023/305.pdf
  */
 static inline void
 ttls_rnd(void *buf, int len)
