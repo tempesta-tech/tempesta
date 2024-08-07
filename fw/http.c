@@ -997,6 +997,11 @@ tfw_http_resp_pair_free_and_put_conn(void *opaque_data)
 	BUG_ON(!req || !req->conn);
 	{
 		TfwH2Ctx *ctx = tfw_h2_context_safe(req->conn);
+		if (ctx && atomic_read(&ctx->hpack.inuse)) {
+			printk(KERN_ALERT "---> free req when hpack is in use,"
+			       " hpack->state=%d", ctx->hpack.state);
+		}
+		
 		WARN_ONCE(ctx && atomic_read(&ctx->hpack.inuse),
 			  "---> free req when hpack is in use, hpack->state=%d",
 			  ctx->hpack.state);

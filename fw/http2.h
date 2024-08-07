@@ -47,7 +47,7 @@ typedef struct {
         unsigned int max_lhdr_sz;
 } TfwSettings;
 
-#define MAX_STREAMS_TMP 1000
+#define MAX_STREAMS_TMP 5000
 
 /**
  * Context for HTTP/2 frames processing.

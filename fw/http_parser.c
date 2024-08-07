@@ -10760,6 +10760,10 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	WARN_ON_ONCE(!len);
 	*parsed = 0;
 
+	if (!ctx) {
+		printk(KERN_ALERT "NO CTX");
+	}
+
 	switch(ctx->hdr.type) {
 	case HTTP2_HEADERS:
 		/* Receiving HEADERS frame second time

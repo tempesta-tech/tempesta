@@ -793,6 +793,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	unsigned int curr = tbl->curr;
 	unsigned int length = tbl->length;
 	TfwHPackEntry *entry, *prev_entry, *entries = tbl->entries;
+	int iii = 0;
 
 	/* Check for integer overflow occurred during @delta calculation. */
 	if ((delta = HPACK_ENTRY_OVERHEAD + hdr_len) < hdr_len)	{
@@ -830,6 +831,15 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 
 			cp = entries + early;
 			do {
+				if (!cp || !cp->hdr) {
+					printk(KERN_ALERT "cp %px hdr %px size %u window %u", cp, cp->hdr, size, window);
+					if (!iii) {
+						printk(KERN_ALERT "%s: curr: %u, early entry: %u (%u entries),"
+                               				"maximum allowed decreased size: %u\n",  __func__,
+                               				curr, early, count, window);
+					}
+				}
+
 				size -= HPACK_ENTRY_OVERHEAD + cp->hdr->len;
 				T_DBG3("%s: dropped index: %u\n", __func__,
 				       early);
@@ -1446,6 +1456,10 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	TfwMsgParseIter *it = &req->pit;
 	const unsigned char *last = src + n;
 	TfwHttpParser *parser = &req->stream->parser;
+
+	if (hp->state == HPACK_STATE_DT_INVALID) {
+		printk(KERN_ALERT "---> re-enter tfw_hpack_decode in case of error");
+	}
 
 	WARN_ONCE(hp->state == HPACK_STATE_DT_INVALID,
 		  "---> re-enter tfw_hpack_decode in case of error");

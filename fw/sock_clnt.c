@@ -314,6 +314,11 @@ tfw_sock_clnt_drop(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	{
 		TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
+		
+		if (ctx && atomic_read(&ctx->hpack.inuse)) {
+			printk(KERN_ALERT "---> free req when hpack is in use,"
+			       " hpack->state=%d", ctx->hpack.state);
+		}
 		WARN_ONCE(ctx && atomic_read(&ctx->hpack.inuse),
 			  "---> free req when hpack is in use, hpack->state=%d",
 			  ctx->hpack.state);

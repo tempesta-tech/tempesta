@@ -879,8 +879,6 @@ tfw_h2_delete_stream(TfwStream *stream, TfwH2Ctx *ctx)
 			printk(KERN_ALERT "tfw_h2_delete_stream STREAM IS ALREADY CLOSED %u", stream->id);
 		__set_bit(stream->id, ctx->CLOSED);
 	}
-	else
-		printk(KERN_ALERT "Strange stream id %px %u", stream, stream->id);
 	kmem_cache_free(stream_cache, stream);
 }
 
