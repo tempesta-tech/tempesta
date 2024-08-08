@@ -785,6 +785,23 @@ for_each_tbl_entry(TfwHPackDTbl *__restrict tbl)
 	}
 }
 
+static void
+for_each_tbl_entry_check(TfwHPackDTbl *__restrict tbl)
+{
+	unsigned int count = tbl->n;
+	TfwHPackEntry *entry, *entries = tbl->entries;
+	unsigned int i;
+
+	for (i = 0; i < count; i++) {
+		entry = entries + i;
+		if (entry->hdr == NULL || entry->name_len == 0) {
+			for_each_tbl_entry(tbl);
+			BUG();
+		}
+	}
+}
+
+
 /*
  * The procedure for adding new header into the HPACK decoder table.
  * Note, that our decoder dynamic table must satisfy several main requirements:
@@ -819,6 +836,8 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	unsigned int length = tbl->length;
 	TfwHPackEntry *entry, *prev_entry, *entries = tbl->entries;
 	int iii = 0;
+
+	for_each_tbl_entry_check(tbl);
 
 	/* Check for integer overflow occurred during @delta calculation. */
 	if ((delta = HPACK_ENTRY_OVERHEAD + hdr_len) < hdr_len)	{
@@ -1542,6 +1561,8 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	if (hp->state == HPACK_STATE_DT_INVALID) {
 		printk(KERN_ALERT "---> re-enter tfw_hpack_decode in case of error");
 	}
+
+	for_each_tbl_entry_check(&hp->dec_tbl);
 
 	WARN_ONCE(hp->state == HPACK_STATE_DT_INVALID,
 		  "---> re-enter tfw_hpack_decode in case of error");

@@ -1,0 +1,1383 @@
+ktest/ktest.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/spinlock.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/kernel.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/linkage.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/percpu.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/percpu.h:#define free_percpu(p)			free(p)
+ktest/linux/slab.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/slab.h:__get_free_pages(gfp_t gfp_mask, unsigned int order)
+ktest/linux/slab.h:#define kfree(p)			free(p)
+ktest/linux/slab.h:#define free_pages(p, order)		free((void *)p)
+ktest/linux/scatterlist.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/compiler.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/preempt.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/skbuff.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/threads.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/threads.h:	free(d);
+ktest/linux/bitops.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/atomic.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/timer.h: * This program is free software; you can redistribute it and/or modify it
+ktest/linux/bug.h: * This program is free software; you can redistribute it and/or modify it
+ktest/net/tls.h: * This program is free software; you can redistribute it and/or modify it
+ktest/asm/alternative-asm.h: * This program is free software; you can redistribute it and/or modify it
+ktest/asm/export.h: * This program is free software; you can redistribute it and/or modify it
+ktest/asm/sync_bitops.h: * This program is free software; you can redistribute it and/or modify it
+ktest/asm/fpu/api.h: * This program is free software; you can redistribute it and/or modify it
+ktest/asm/nospec-branch.h: * This program is free software; you can redistribute it and/or modify it
+ktest/crypto/hash.h: * This program is free software; you can redistribute it and/or modify it
+ktest/crypto/sha.h: * This program is free software; you can redistribute it and/or modify it
+db/tdbq/Makefile:# This program is free software; you can redistribute it and/or modify it
+db/tdbq/main.cc: * This program is free software; you can redistribute it and/or modify it
+db/libtdb/exception.h: * This program is free software; you can redistribute it and/or modify it
+db/libtdb/exception.h:		free(btrace);
+db/libtdb/Makefile:# This program is free software; you can redistribute it and/or modify it
+db/libtdb/handler.cc: * This program is free software; you can redistribute it and/or modify it
+db/libtdb/handler.cc:	free(buf_);
+db/libtdb/libtdb.h: * This program is free software; you can redistribute it and/or modify it
+db/t/Makefile:# This program is free software; you can redistribute it and/or modify it
+db/t/tdb_htrie.c: * This program is free software; you can redistribute it and/or modify it
+db/t/tdb_htrie.c:	{"http://store.mactech.com/mactech/riskfree/offer.html?FROM=MTRF", 0},
+db/t/tdb_htrie.c: * Just free the memory region, the file will be closed on program exit.
+db/core/tempesta_db.mod.c:	{ 0xc9ec4e21, "free_percpu" },
+db/core/tempesta_db.mod.c:	{ 0x37a0cba, "kfree" },
+db/core/table.h: * This program is free software; you can redistribute it and/or modify it
+db/core/.tempesta_db.mod.o.cmd:    $(wildcard include/config/freezer.h) \
+db/core/.tempesta_db.mod.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+db/core/.table.o.cmd:    $(wildcard include/config/freezer.h) \
+db/core/.table.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+db/core/.main.o.cmd:    $(wildcard include/config/freezer.h) \
+db/core/.main.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+db/core/main.c: * This program is free software; you can redistribute it and/or modify it
+db/core/main.c: * @return pointer to free area of size at least @size bytes or allocate
+db/core/main.c: * TODO #515 rework the function in lock-free way.
+db/core/main.c:	kfree(db);
+db/core/table.c: * This program is free software; you can redistribute it and/or modify it
+db/core/htrie.c: * Operations over the index tree are lock-free while buckets with collision
+db/core/htrie.c: * This program is free software; you can redistribute it and/or modify it
+db/core/htrie.c: * @b_bmp	- bitmap of used/free blocks;
+db/core/htrie.c: * Add block to per-CPU freelist.
+db/core/htrie.c: * NOTE Due to per-CPU nature of freelist, block can be allocated only on CPU
+db/core/htrie.c: * where it was freed. It can cause allocation failures in case when one
+db/core/htrie.c: * CPU frees more blocks then others and free blocks available only in per-CPU
+db/core/htrie.c: * freelists because main memory pool is exhausted.
+db/core/htrie.c:tdb_freelist_push(TdbHdr *dbh, unsigned long ptr)
+db/core/htrie.c:	if (!this_cpu_ptr(dbh->pcpu)->freelist) {
+db/core/htrie.c:		this_cpu_ptr(dbh->pcpu)->freelist = ptr;
+db/core/htrie.c:		*page_addr = this_cpu_ptr(dbh->pcpu)->freelist;
+db/core/htrie.c:		this_cpu_ptr(dbh->pcpu)->freelist = ptr;
+db/core/htrie.c:		tdb_freelist_push(dbh, ptr & TDB_BLK_MASK);
+db/core/htrie.c:	/* Get page that holds tdb header. This page must not be freed. */
+db/core/htrie.c:tdb_free_index_blk(TdbHtrieNode *node)
+db/core/htrie.c:tdb_free_data_blk(TdbBucket *bckt)
+db/core/htrie.c:tdb_free_fsrec(TdbHdr *dbh, TdbFRec *rec)
+db/core/htrie.c:tdb_free_vsrec(TdbVRec *rec)
+db/core/htrie.c: * Allocates a free block (system page) in extent @e.
+db/core/htrie.c:		 * that eviction/freeing thread moved it back.
+db/core/htrie.c:		TDB_ERR("out of free space\n");
+db/core/htrie.c:tdb_alloc_blk_freelist(TdbHdr *dbh)
+db/core/htrie.c:	rptr = this_cpu_ptr(dbh->pcpu)->freelist;
+db/core/htrie.c:	this_cpu_ptr(dbh->pcpu)->freelist = *next;
+db/core/htrie.c:		if (this_cpu_ptr(dbh->pcpu)->freelist)
+db/core/htrie.c:			rptr = tdb_alloc_blk_freelist(dbh);
+db/core/htrie.c:		if (this_cpu_ptr(dbh->pcpu)->freelist)
+db/core/htrie.c:			rptr = tdb_alloc_blk_freelist(dbh);
+db/core/htrie.c:				/* Already freed record - just reuse. */
+db/core/htrie.c:	int i, free_nb;
+db/core/htrie.c:	free_nb = -(long)k; /* remember which block we save & copy */	\
+db/core/htrie.c:			free_nb = free_nb > 0 ? free_nb : -free_nb;	\
+db/core/htrie.c:	if (free_nb > 0) {
+db/core/htrie.c:			nb[free_nb].b, nb[free_nb].off);
+db/core/htrie.c:		bzero_fast(TDB_PTR(dbh, nb[free_nb].b + nb[free_nb].off),
+db/core/htrie.c:			   TDB_HTRIE_MINDREC - nb[free_nb].off);
+db/core/htrie.c:	if (free_nb > 0)
+db/core/htrie.c:			if (i != free_nb && nb[i].b)
+db/core/htrie.c:				tdb_free_data_blk(TDB_PTR(dbh, nb[i].b));
+db/core/htrie.c:	tdb_free_index_blk(new_in);
+db/core/htrie.c:tdb_htrie_free_rec(TdbHdr *dbh, TdbRec *rec)
+db/core/htrie.c:			tdb_free_vsrec(curr);
+db/core/htrie.c:		tdb_free_fsrec(dbh, (TdbFRec *)rec);
+db/core/htrie.c: * If competing context helps the current trx owner, then we get true lock-free.
+db/core/htrie.c:			 * Bucket must not be freed. Only buckets in
+db/core/htrie.c:			 * collision chain might be freed.
+db/core/htrie.c:		// TODO free just allocated data block
+db/core/htrie.c:	 * If first record in the bucket is not alive(freed) emplace new record
+db/core/htrie.c:	 * Iterate all records in the head bucket. Try to free suitable
+db/core/htrie.c:				tdb_htrie_free_rec(dbh, rec);
+db/core/htrie.c:						tdb_htrie_free_rec(dbh, rec);
+db/core/htrie.c:	free_percpu(dbh->pcpu);
+db/core/file.c: * This program is free software; you can redistribute it and/or modify it
+db/core/file.c: * Node of list of free/user memory areas.
+db/core/file.c: * Find and return best fit free memory area.
+db/core/file.c: * Merge two free memory areas if they aren't the same.
+db/core/file.c:	kfree(right);
+db/core/file.c: * Free a memory area and merge it with free siblings if possible.
+db/core/file.c: * Never tries to free statically allocated MArea.
+db/core/file.c:__ma_free(MArea *ma)
+db/core/file.c:ma_free(unsigned long addr, int node)
+db/core/file.c:	__ma_free(ma);
+db/core/file.c:		__ma_free(ma);
+db/core/file.c:	ma_free(addr, node);
+db/core/file.h: * This program is free software; you can redistribute it and/or modify it
+db/core/Makefile:# This program is free software; you can redistribute it and/or modify it
+db/core/if.c: * This program is free software; you can redistribute it and/or modify it
+db/core/.if.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+db/core/.if.o.cmd:    $(wildcard include/config/freezer.h) \
+db/core/.if.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+db/core/.htrie.o.cmd:    $(wildcard include/config/freezer.h) \
+db/core/.htrie.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+db/core/htrie.h: * This program is free software; you can redistribute it and/or modify it
+db/core/.file.o.cmd:    $(wildcard include/config/freezer.h) \
+db/core/.file.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+db/core/.file.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+db/core/.file.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+db/core/tdb.h: * This program is free software; you can redistribute it and/or modify it
+db/core/tdb.h: *		    so we lose some free space on system restart.
+db/core/tdb.h: * @freelist	  - pre-CPU freelist of blocks.
+db/core/tdb.h:	unsigned long	freelist;
+db/core/tdb.h: ** @ext_bmp	- bitmap of used/free extents.
+db/core/tdb.h:		kfree(db);
+db/core/tdb_if.h: * This program is free software; you can redistribute it and/or modify it
+db/core/extent.h: * This program is free software; you can redistribute it and/or modify it
+db/Makefile:# This program is free software; you can redistribute it and/or modify it
+scripts/check_conf.pl:# This program is free software; you can redistribute it and/or modify it
+scripts/gcov_gather.sh:# This program is free software; you can redistribute it and/or modify it
+scripts/skmem.pl:# This program is free software; you can redistribute it and/or modify it
+scripts/skmem.pl:my $mem_free = `grep 'MemFree' /proc/meminfo`;
+scripts/skmem.pl:$mem_free =~ /MemFree:\s+(\d+)/;
+scripts/skmem.pl:$mem_free = $1;
+scripts/skmem.pl:print "mem_free:                $mem_free kB\n";
+scripts/tempesta.sh:# This program is free software; you can redistribute it and/or modify it
+scripts/checkpatch.pl:	\Qfreedesktop.org/archives/dri-devel\E |
+scripts/checkpatch.pl:			# Make $define_stmt single line, comment-free, etc
+scripts/checkpatch.pl:			if ($line =~ /\b(kfree|usb_free_urb|debugfs_remove(?:_recursive)?|(?:kmem_cache|mempool|dma_pool)_destroy)$expr/) {
+scripts/update_template.pl:# This program is free software; you can redistribute it and/or modify it
+scripts/tfw_lib.sh:# This program is free software; you can redistribute it and/or modify it
+scripts/spelling.txt:diffreential||differential
+linux-5.10.35.patch: 			standby suspend) or "freeze" (for suspend type freeze)
+linux-5.10.35.patch:@@ -1074,6 +1128,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+linux-5.10.35.patch:+ *	Return the number of bytes of free space at the tail of an sk_buff with
+linux-5.10.35.patch:+ * This program is free software; you can redistribute it and/or modify it
+linux-5.10.35.patch:+	void (*sk_free)(struct sock *sk);
+linux-5.10.35.patch:+				 * Tempesta FW callback to free all private
+linux-5.10.35.patch:@@ -1858,11 +1875,51 @@ static inline void tcp_rtx_queue_unlink_and_free(struct sk_buff *skb, struct soc
+linux-5.10.35.patch: 	sk_wmem_free_skb(sk, skb);
+linux-5.10.35.patch:+ * This program is free software; you can redistribute it and/or modify it
+linux-5.10.35.patch:+ * This is very large amount of memory, but it will be freed when
+linux-5.10.35.patch:+tempesta_free_hpage(struct page *p)
+linux-5.10.35.patch:+	__free_pages(p, HUGETLB_PAGE_ORDER);
+linux-5.10.35.patch:+			tempesta_free_hpage(greedy[min]);
+linux-5.10.35.patch:+			tempesta_free_hpage(greedy[max]);
+linux-5.10.35.patch:+			tempesta_free_hpage(greedy[min]);
+linux-5.10.35.patch:+			tempesta_free_hpage(p);
+linux-5.10.35.patch:+			vfree((void *)map[nid].addr);
+linux-5.10.35.patch: 		__kfree_skb_flush();
+linux-5.10.35.patch:@@ -6062,6 +6100,11 @@ static void napi_skb_free_stolen_head(struct sk_buff *skb)
+linux-5.10.35.patch: 	kmem_cache_free(skbuff_head_cache, skb);
+linux-5.10.35.patch:+	 * from reserved memory areas to put and free them quicker.
+linux-5.10.35.patch:@@ -628,7 +855,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+linux-5.10.35.patch:-		kmem_cache_free(skbuff_head_cache, skb);
+linux-5.10.35.patch:+			kmem_cache_free(skbuff_head_cache, skb);
+linux-5.10.35.patch:@@ -649,7 +881,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+linux-5.10.35.patch: 	kmem_cache_free(skbuff_fclone_cache, fclones);
+linux-5.10.35.patch:@@ -878,6 +1115,17 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
+linux-5.10.35.patch: 	kfree(data);
+linux-5.10.35.patch:@@ -1803,7 +2077,11 @@ int __skb_pad(struct sk_buff *skb, int pad, bool free_on_error)
+linux-5.10.35.patch:@@ -5151,7 +5449,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+linux-5.10.35.patch:+		kfree_skbmem(skb);
+linux-5.10.35.patch: 		kmem_cache_free(skbuff_head_cache, skb);
+linux-5.10.35.patch: 		__kfree_skb(skb);
+linux-5.10.35.patch:+			skb_free_frag(data);
+linux-5.10.35.patch: 			kfree(data);
+linux-5.10.35.patch:+		skb_free_frag(data);
+linux-5.10.35.patch: 		kfree(data);
+linux-5.10.35.patch:+ * This program is free software; you can redistribute it and/or modify it
+linux-5.10.35.patch:+		tops->sk_free(sk);
+CodingStyle:example of a good name could be "out_buffer:" if the goto frees "buffer".  Avoid
+CodingStyle:		kfree(buffer);
+CodingStyle:		kfree(foo->bar);
+CodingStyle:		kfree(foo);
+CodingStyle:need them.  Feel free to peruse that header file to see what else is already
+fw/http_stream.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_stream.h:void tfw_h2_stream_purge_all_and_free_response(TfwStream *stream);
+fw/ss_skb.c: * This program is free software; you can redistribute it and/or modify it
+fw/ss_skb.c:			kfree_skb(skb);
+fw/ss_skb.c:		__kfree_skb(skb);
+fw/ss_skb.c:		__kfree_skb(skb);
+fw/hash.c: * This program is free software; you can redistribute it and/or modify it
+fw/.http_limits.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_limits.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_limits.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_limits.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/sock.c: * This program is free software; you can redistribute it and/or modify it
+fw/sock.c:			kmem_cache_free(ss_cbacklog_cache, cn);
+fw/sock.c:			kfree_skb(skb);
+fw/sock.c:		T_DBG3("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
+fw/sock.c:		__kfree_skb(skb);
+fw/sock.c:	/* SKB may be freed in processing. Save the flag. */
+fw/sock.c:		__kfree_skb(skb);
+fw/sock.c:			__kfree_skb(skb);
+fw/sock.c:			__kfree_skb(skb);
+fw/sock.c:		__kfree_skb(skb);
+fw/sock.c: * tcp_read_sock() calls __kfree_skb() through sk_eat_skb() which is good
+fw/sock.c:	 * The callback will free all SKBs linked with
+fw/sock.c:			 * state, resources were either already freed or were
+fw/sock.c:			kfree_skb(skb);
+fw/tcp.h: * This program is free software; you can redistribute it and/or modify it
+fw/.http_match.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_match.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_match.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_match.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/pool.c: *    be immediately freed to keep stack-like memory management.
+fw/pool.c: * This program is free software; you can redistribute it and/or modify it
+fw/pool.c: * It caches small number of pages and return free pages to buddy allocator,
+fw/pool.c:	return __get_free_pages(flags, order);
+fw/pool.c:tfw_pool_free_pages(unsigned long addr, unsigned int order)
+fw/pool.c: * Consequent free calls can empty the whole pool but the first chunk with
+fw/pool.c:tfw_pool_free(TfwPool *p, void *ptr, size_t n)
+fw/pool.c:		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(p->curr), p->order);
+fw/pool.c:			tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+fw/pool.c:		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+fw/pool.c:		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+fw/pool.c:			free_page(pgc[pgn]);
+fw/pool.c:	free_percpu(pg_cache);
+fw/addr.c: * This program is free software; you can redistribute it and/or modify it
+fw/http2.c: * This program is free software; you can redistribute it and/or modify it
+fw/http2.c:		tfw_h2_stream_purge_all_and_free_response(cur);
+fw/http2.c:			kfree_skb(skb);
+fw/http_stream_sched.c: * This program is free software; you can redistribute it and/or modify it
+fw/client.c: * This program is free software; you can redistribute it and/or modify it
+fw/.server.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.server.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.server.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.server.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.http_stream.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_stream.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_stream.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_stream.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/sync_socket.h: * This program is free software; you can redistribute it and/or modify it
+fw/pool.h: * This program is free software; you can redistribute it and/or modify it
+fw/pool.h:void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
+fw/.work_queue.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.work_queue.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.work_queue.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.msg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.msg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.msg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.msg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/hpack.c: * This program is free software; you can redistribute it and/or modify it
+fw/hpack.c:	 * free unused pages during entries eviction stage).
+fw/hpack.c:			kfree(t);
+fw/hpack.c: * no performance improvement opportunities. According to RFC we are free to
+fw/tempesta_fw.h: * This program is free software; you can redistribute it and/or modify it
+fw/gfsm.h: * This program is free software; you can redistribute it and/or modify it
+fw/tls_conf.h: * This program is free software; you can redistribute it and/or modify
+fw/connection.c: * This program is free software; you can redistribute it and/or modify it
+fw/connection.c:	/* Ask higher levels to free resources at connection close. */
+fw/connection.c:	/* Ask higher levels to free resources at connection release. */
+fw/connection.c:		__kfree_skb(skb);
+fw/connection.c:			__kfree_skb(skb);
+fw/sched.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_sess.h: * This program is free software; you can redistribute it and/or modify it
+fw/sock_srv.c: * This program is free software; you can redistribute it and/or modify it
+fw/sock_srv.c:#include <linux/freezer.h>
+fw/sock_srv.c:tfw_srv_conn_free(TfwSrvConn *srv_conn)
+fw/sock_srv.c:	/* Check that all nested resources are freed. */
+fw/sock_srv.c:	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
+fw/sock_srv.c:		tfw_srv_conn_free(srv_conn);
+fw/sock_srv.c:		kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
+fw/sock_srv.c:		kfree(sg_cfg->sched_arg);
+fw/sock_srv.c:		kfree(sg_cfg->hm_name);
+fw/sock_srv.c:	kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
+fw/str.c: * This program is free software; you can redistribute it and/or modify it
+fw/str.c: *    frees the associated memory pool soon.
+fw/str.c:			 * tfw_pool_free(). The caller won't proceed with the
+fw/str.c:			 * pool is going to be freed soon.
+fw/str.c: * Caveat: Be sure to free memory block as soon as possible. Leaving it
+fw/str.c: * then free it, and successfully continue tfw_pool_realloc() sequence.
+fw/http_types.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_stream.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_stream.c:	tfw_h2_stream_purge_all_and_free_response(stream);
+fw/http_stream.c:		kfree_skb(skb);
+fw/http_stream.c:tfw_h2_stream_purge_all_and_free_response(TfwStream *stream)
+fw/http_stream.c:		tfw_http_resp_pair_free_and_put_conn(resp);
+fw/http_stream.c:			tfw_http_conn_msg_free(hmreq);
+fw/http_stream.c:	kmem_cache_free(stream_cache, stream);
+fw/http_stream.c:	TFW_SKB_CB(skb_head)->destructor = tfw_http_resp_pair_free_and_put_conn;
+fw/.filter.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.filter.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.filter.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.filter.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.connection.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.connection.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.connection.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.connection.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/filter.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_sess_conf.h: * This program is free software; you can redistribute it and/or modify
+fw/hash.h: * This program is free software; you can redistribute it and/or modify it
+fw/htype.h: * This program is free software; you can redistribute it and/or modify it
+fw/tempesta_fw.mod.c:	{ 0xbf9ec82b, "__kfree_skb" },
+fw/tempesta_fw.mod.c:	{ 0x7aa1756e, "kvfree" },
+fw/tempesta_fw.mod.c:	{ 0xc9ec4e21, "free_percpu" },
+fw/tempesta_fw.mod.c:	{ 0x466d3fda, "ttls_key_cert_free" },
+fw/tempesta_fw.mod.c:	{ 0x5b793836, "kmem_cache_free" },
+fw/tempesta_fw.mod.c:	{ 0xd66c2c88, "sk_free" },
+fw/tempesta_fw.mod.c:	{ 0x6a5cb5ee, "__get_free_pages" },
+fw/tempesta_fw.mod.c:	{ 0x4326ed76, "kfree_skb" },
+fw/tempesta_fw.mod.c:	{ 0x8150e2a2, "ttls_config_free" },
+fw/tempesta_fw.mod.c:	{ 0x4302d0eb, "free_pages" },
+fw/tempesta_fw.mod.c:	{ 0x37a0cba, "kfree" },
+fw/tempesta_fw.mod.c:	{ 0x1bf263dc, "ttls_config_peer_free" },
+fw/tempesta_fw.mod.c:	{ 0xfe9d8ab1, "ttls_x509_crt_free" },
+fw/tempesta_fw.mod.c:	{ 0x7b3e9b3e, "ttls_pk_free" },
+fw/.gfsm.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.gfsm.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.gfsm.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.gfsm.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.tls_conf.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.tls_conf.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.tls_conf.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.tls_conf.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/str.h: * This program is free software; you can redistribute it and/or modify it
+fw/.addr.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.addr.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.addr.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.addr.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/http_sched_ratio.c: * This program is free software; you can redistribute it and/or modify
+fw/http_sched_ratio.c:	kfree(rtodata);
+fw/http_sched_ratio.c: * A lock-free implementation of the algorithm as it is would require too
+fw/http_sched_ratio.c:		kfree(ratio->srvdesc[si].conn);
+fw/http_sched_ratio.c:	kfree(ratio->hstdata);
+fw/http_sched_ratio.c:	kfree(ratio->rtodata);
+fw/http_sched_ratio.c:	kfree(ratio);
+fw/http_sched_ratio.c:	kfree(srvdesc->conn);
+fw/http_sched_ratio.c:		kfree(srvdesc);
+fw/http_sched_ratio.c:	kfree(srvdesc->conn);
+fw/http_sched_ratio.c:	kfree(srvdesc);
+fw/.main.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.main.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.main.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.main.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/client.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.test_tfw_str.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_tfw_str.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_tfw_str.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/test_tfw_str.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_tfw_str.c:	kfree(dst1);							\
+fw/t/unit/test_tfw_str.c:	TEST_TEARDOWN(free_all_str);
+fw/t/unit/test.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.test_ebtree.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_ebtree.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_ebtree.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_ebtree.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_http2_parser_hpack.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.test_cfg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_cfg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_cfg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_cfg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/.test_hpack.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_hpack.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_hpack.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_hpack.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_http_match.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http_match.c:		kfree(rule->val.ptn.str);
+fw/t/unit/test_http_match.c:	test_req_free(test_req);
+fw/t/unit/test_http_match.c:	tfw_http_table_free(test_table);
+fw/t/unit/test_http_match.c:	kfree(arg);
+fw/t/unit/test_http_match.c:	kfree(arg);
+fw/t/unit/test_http_match.c:	kfree(val);
+fw/t/unit/test_http_match.c:	free_all_str();
+fw/t/unit/test_http_match.c:	free_all_str();
+fw/t/unit/test_http_match.c:	free_all_str();
+fw/t/unit/test_http_match.c:	free_all_str();
+fw/t/unit/test_http_match.c:	free_all_str();
+fw/t/unit/helpers.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/helpers.c:test_req_free(TfwHttpReq *req)
+fw/t/unit/helpers.c:	/* In tests we are stricter: we don't allow to free a NULL pointer
+fw/t/unit/helpers.c:	 * to be sure exactly what we are freeing and to catch bugs early. */
+fw/t/unit/helpers.c:	tfw_http_msg_free((TfwHttpMsg *)req);
+fw/t/unit/helpers.c:test_resp_free(TfwHttpResp *resp)
+fw/t/unit/helpers.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/t/unit/.test_pool.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_pool.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_pool.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/test_pool.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.test_http_parser_common.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_http_parser_common.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http_parser_common.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_http_parser_common.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/.test.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.msg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.msg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.msg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.msg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/.test_http_msg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_http_msg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http_msg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_http_msg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_hpack.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_hpack.c:	test_req_free(test_req);
+fw/t/unit/test_hpack.c:	free_all_str();
+fw/t/unit/test_addr.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http_parser_common.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http_parser_common.h:void tfw_frames_chunks_free(void);
+fw/t/unit/.test_http2_parser_hpack.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_http2_parser_hpack.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http2_parser_hpack.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_http2_parser_hpack.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.main.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.main.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.main.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.main.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/main.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.ss_skb.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.ss_skb.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.ss_skb.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.ss_skb.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_http_msg.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http_msg.c:		kfree_skb(skb);
+fw/t/unit/test_http_msg.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/t/unit/test_http_msg.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/t/unit/.test_http_match.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http_match.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_http_match.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_http_match.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/Makefile:# This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_cfg.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.test_http2_parser.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_http2_parser.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http2_parser.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_http2_parser.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_http_parser_defs.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.str.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.str.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.str.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_addr.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_addr.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_addr.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_addr.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/.test_wq.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_wq.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_wq.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.tfw_str_helper.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.tfw_str_helper.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.tfw_str_helper.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http1_parser.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_http1_parser.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.test_http1_parser.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_http1_parser.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_hash.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.tcp.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.tcp.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.tcp.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.tcp.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_http2_parser.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http2_parser.c:		test_req_free(req);						\
+fw/t/unit/test_http2_parser.c:	vfree(str);
+fw/t/unit/.test_mem_fast.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_mem_fast.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_mem_fast.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/test_http_parser_common.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http_parser_common.c:tfw_free_chunks(TfwTestChunk *chunks, uint32_t chunk_cnt)
+fw/t/unit/test_http_parser_common.c:		kfree(chunks[i].buf);
+fw/t/unit/test_http_parser_common.c:	vfree(chunks);
+fw/t/unit/test_http_parser_common.c:tfw_frames_chunks_free(void)
+fw/t/unit/test_http_parser_common.c:			tfw_free_chunks(frame->chunks, frame->chunk_cnt);
+fw/t/unit/test_http_parser_common.c:	tfw_frames_chunks_free();
+fw/t/unit/test_http_parser_common.c:	tfw_free_chunks(chunks, chunk_cnt);
+fw/t/unit/test_http_parser_common.c:		test_req_free(sample_req);
+fw/t/unit/test_http_parser_common.c:		tfw_frames_chunks_free();
+fw/t/unit/test_http_parser_common.c:			test_req_free(req);
+fw/t/unit/test_http_parser_common.c:			test_req_free(req);
+fw/t/unit/test_http_parser_common.c:			test_resp_free(resp);
+fw/t/unit/test_http_parser_common.c:			tfw_free_chunks(frame->chunks,
+fw/t/unit/.tfw_test.mod.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.tfw_test.mod.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/tfw_str_helper.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/tfw_str_helper.c:free_all_str(void)
+fw/t/unit/test_wq.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_wq.c:	kfree(wq);
+fw/t/unit/test_wq.c:	vfree(prods);
+fw/t/unit/test_wq.c:	vfree(cons);
+fw/t/unit/test_wq.c:	vfree(cons);
+fw/t/unit/test_wq.c:	vfree(prods);
+fw/t/unit/.http2.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.http2.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.http2.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.http2.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/test_http1_parser.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/test_http1_parser.c:	vfree(str);
+fw/t/unit/test_http1_parser.c:		test_req_free(req);					\
+fw/t/unit/test_http1_parser.c:		test_resp_free(resp);					\
+fw/t/unit/.test_hash.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.test_hash.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.test_hash.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/tfw_str_helper.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/tfw_str_helper.h:void free_all_str(void);
+fw/t/unit/.http_parser.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.http_parser.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.http_parser.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.http_parser.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/.helpers.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.helpers.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.helpers.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.helpers.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/user_space/slr.cc: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/user_space/percentiles.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/user_space/alb.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/user_space/alb.c: * The function is synchronized by plain spin lock. Lock-free implementation
+fw/t/unit/user_space/Makefile:# This program is free software; you can redistribute it and/or modify it
+fw/t/unit/run_all_tests.sh:# This program is free software; you can redistribute it and/or modify it
+fw/t/unit/tfw_test.mod.c:	{ 0xbf9ec82b, "__kfree_skb" },
+fw/t/unit/tfw_test.mod.c:	{ 0x7aa1756e, "kvfree" },
+fw/t/unit/tfw_test.mod.c:	{ 0x999e8297, "vfree" },
+fw/t/unit/tfw_test.mod.c:	{ 0xc9ec4e21, "free_percpu" },
+fw/t/unit/tfw_test.mod.c:	{ 0x5b793836, "kmem_cache_free" },
+fw/t/unit/tfw_test.mod.c:	{ 0x6a5cb5ee, "__get_free_pages" },
+fw/t/unit/tfw_test.mod.c:	{ 0x4326ed76, "kfree_skb" },
+fw/t/unit/tfw_test.mod.c:	{ 0x4302d0eb, "free_pages" },
+fw/t/unit/tfw_test.mod.c:	{ 0x37a0cba, "kfree" },
+fw/t/unit/test_mem_fast.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/.http_msg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.http_msg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.http_msg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.http_msg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/.http_sess.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/unit/.http_sess.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/unit/.http_sess.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/unit/.http_sess.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/t/unit/helpers.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/unit/helpers.h:void test_req_free(TfwHttpReq *req);
+fw/t/unit/helpers.h:void test_resp_free(TfwHttpResp *req);
+fw/t/Makefile:# This program is free software; you can redistribute it and/or modify it
+fw/t/fuzzer.c: * This program is free software; you can redistribute it and/or modify it
+fw/t/.fuzzer.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/.fuzzer.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/t/.fuzzer.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/t/fuzzer.h: * This program is free software; you can redistribute it and/or modify it
+fw/t/.tfw_fuzzer.mod.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/t/.tfw_fuzzer.mod.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.cache.o.cmd:  include/linux/freezer.h \
+fw/.cache.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.cache.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.cache.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.cache.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/main.c: * This program is free software; you can redistribute it and/or modify it
+fw/.ss_skb.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.ss_skb.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.ss_skb.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.ss_skb.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/http_match.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_match.c:tfw_http_table_free(TfwHttpTable *table)
+fw/access_log.h: * This program is free software; you can redistribute it and/or modify it
+fw/str_avx2.S: * This program is free software; you can redistribute it and/or modify it
+fw/.cfg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.cfg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.cfg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.cfg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/hpack/Makefile:# This program is free software; you can redistribute it and/or modify it
+fw/hpack/hgen.c: * This program is free software; you can redistribute it and/or modify it
+fw/http2.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_limits.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_limits.c:	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
+fw/http_limits.c:	.sk_free        = tfw_classify_conn_close,
+fw/http.h: * This program is free software; you can redistribute it and/or modify it
+fw/http.h:	bool		freed;
+fw/http.h: * @skb_head	- head of skb list that must be freed;
+fw/http.h: * @pages	- pages that must be freed;
+fw/http.h:void tfw_http_conn_msg_free(TfwHttpMsg *hm);
+fw/http.h:void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
+fw/.http_stream_sched.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_stream_sched.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_stream_sched.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_stream_sched.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/tls.h: * This program is free software; you can redistribute it and/or modify it
+fw/Makefile:# This program is free software; you can redistribute it and/or modify it
+fw/.tempesta_fw.mod.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.tempesta_fw.mod.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/token_mask.h: * This program is free software; you can redistribute it and/or modify it
+fw/.pool.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.pool.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.pool.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/cfg.h: * This program is free software; you can redistribute it and/or modify it
+fw/cfg.h: * @cleanup is another callback the purpose of which is to free memory
+fw/cache.c: * This program is free software; you can redistribute it and/or modify it
+fw/cache.c:#include <linux/freezer.h>
+fw/cache.c:			kfree(c_nodes[node].cpu);
+fw/cache.c:	kfree(c_nodes);
+fw/cache.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/cache.c:		goto free;
+fw/cache.c:		goto free;
+fw/cache.c:			goto free;
+fw/cache.c:		goto free;
+fw/cache.c:		goto free;
+fw/cache.c:			goto free;
+fw/cache.c:		goto free;
+fw/cache.c:		goto free;
+fw/cache.c:			goto free;
+fw/cache.c:free:
+fw/cache.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/cache.c:			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/cache.c:			tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/cache.c:			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/cache.c:		if (!freezing(current)) {
+fw/cache.c:			try_to_freeze();
+fw/cache.c:			goto free_tasklet;
+fw/cache.c:			goto dbg_buf_free;
+fw/cache.c:dbg_buf_free:
+fw/cache.c:		kfree(per_cpu(ce_dbg_buf, i));
+fw/cache.c:free_tasklet:
+fw/cache.c:		kfree(per_cpu(ce_dbg_buf, i));
+fw/.str.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.str.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.str.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/work_queue.h: * This program is free software; you can redistribute it and/or modify it
+fw/.sock.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.sock.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.sock.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.sock.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.websocket.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.websocket.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.websocket.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.websocket.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/http_frame.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_frame.c:			kfree_skb(skb);
+fw/http_frame.c:			kfree_skb(nskb);
+fw/http_frame.c:			kfree_skb(nskb);
+fw/http_frame.c:			kfree_skb(pskb);
+fw/http_frame.c:			kfree_skb(nskb);
+fw/http_frame.c:			kfree_skb(skb);
+fw/http_frame.c:		tfw_http_resp_pair_free_and_put_conn(resp);
+fw/gfsm.c: * GFSM stores FSM states in an array w/ free organisation to allow graph-like
+fw/gfsm.c: * This program is free software; you can redistribute it and/or modify it
+fw/gfsm.c:__gfsm_fsm_lookup(TfwGState *st, int fsm_id, int *free_slot)
+fw/gfsm.c:	for (i = 0, *free_slot = -1; i < TFW_GFSM_FSM_NUM; ++i) {
+fw/gfsm.c:		if (*free_slot == -1 && st->states[i] == BAD_STATE)
+fw/gfsm.c:			*free_slot = i;
+fw/gfsm.c:	int free_slot;
+fw/gfsm.c:	st->curr = __gfsm_fsm_lookup(st, fsm_next, &free_slot);
+fw/gfsm.c:		BUG_ON(free_slot < 0);
+fw/gfsm.c:		st->curr = free_slot;
+fw/http_tbl.h: * This program is free software; you can redistribute it and/or modify it
+fw/.sock_clnt.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.sock_clnt.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.sock_clnt.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.sock_clnt.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.hash.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.hash.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.hash.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/hpack.h: * This program is free software; you can redistribute it and/or modify it
+fw/sock_clnt.c: * This program is free software; you can redistribute it and/or modify it
+fw/sock_clnt.c:tfw_cli_conn_free(TfwCliConn *cli_conn)
+fw/sock_clnt.c:	/* Check that all nested resources are freed. */
+fw/sock_clnt.c:	 * both versions, and we need to free H2 cache.
+fw/sock_clnt.c:		kmem_cache_free(tfw_cli_cache(t), cli_conn);
+fw/sock_clnt.c:		kmem_cache_free(tfw_cli_cache(TFW_FSM_H2), cli_conn);
+fw/sock_clnt.c:	tfw_cli_conn_free(cli_conn);
+fw/sock_clnt.c:	tfw_cli_conn_free((TfwCliConn *)conn);
+fw/sock_clnt.c:			printk(KERN_ALERT "---> free req when hpack is in use,"
+fw/sock_clnt.c:			  "---> free req when hpack is in use, hpack->state=%d",
+fw/sock_clnt.c:		kfree(ls);
+fw/sock_clnt.c:		kfree(ls);
+fw/sock_clnt.c:	inet_sk(sk)->freebind = 1;
+fw/sock_clnt.c:		kfree(ls);
+fw/sock_clnt.c:	kfree(listen_socks_array);
+fw/sock_clnt.c:	kfree(touched);
+fw/sock_clnt.c:		kfree(ls);
+fw/sock_clnt.c:	 * Stop listening sockets, but leave them in the list to bve freed by
+fw/token_tables.h: * This program is free software; you can redistribute it and/or modify it
+fw/hpack_tbl.h: * This program is free software; you can redistribute it and/or modify it
+fw/http.c: * This program is free software; you can redistribute it and/or modify it
+fw/http.c: * Also, free the connection instance if there's no more references.
+fw/http.c: * and a simpler tfw_http_msg_free() can be used for that.
+fw/http.c:tfw_http_conn_msg_free(TfwHttpMsg *hm)
+fw/http.c:	tfw_http_msg_free(hm);
+fw/http.c:	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c:tfw_http_resp_pair_free(TfwHttpReq *req)
+fw/http.c:	tfw_http_conn_msg_free(req->pair);
+fw/http.c:	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c:tfw_http_resp_pair_free_and_put_conn(void *opaque_data)
+fw/http.c:			printk(KERN_ALERT "---> free req when hpack is in use,"
+fw/http.c:			  "---> free req when hpack is in use, hpack->state=%d",
+fw/http.c:	tfw_http_resp_pair_free(req);
+fw/http.c: * Close the client connection and free unpaired request. This function
+fw/http.c: * This is the intended behaviour. The goal is to free some memory
+fw/http.c:		/* We can't send response, so we should free it here. */
+fw/http.c:		tfw_http_resp_pair_free_and_put_conn(resp);
+fw/http.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/http.c:	tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/http.c:		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c:	/* Response must be freed before calling tfw_http_send_err_resp(). */
+fw/http.c:			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c: * just free the request w/o connection putting.
+fw/http.c:	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c:		tfw_http_msg_free((TfwHttpMsg *)req);
+fw/http.c:			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c:		tfw_http_msg_free((TfwHttpMsg *)req->stale_resp);
+fw/http.c:	tfw_http_conn_msg_free(hm);
+fw/http.c:		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c: * TFW_HTTP_B_RESP_READY flag is not set.  Don't free any of those requests.
+fw/http.c:	 * condition with freeing of a request in tfw_http_resp_fwd().
+fw/http.c:			tfw_http_resp_pair_free(req);
+fw/http.c:		tfw_http_conn_msg_free((TfwHttpMsg *)conn->stream.msg);
+fw/http.c:		tfw_http_resp_pair_free(req);
+fw/http.c:	 * not freed.
+fw/http.c:		tfw_http_resp_pair_free(req);
+fw/http.c:			tfw_http_resp_pair_free(req);
+fw/http.c:		tfw_http_resp_pair_free(req);
+fw/http.c:		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+fw/http.c:		goto free_req;
+fw/http.c:free_req:
+fw/http.c:	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+fw/http.c:	tfw_http_conn_msg_free(req->pair);
+fw/http.c:		__kfree_skb(skb);
+fw/http.c:		tfw_http_resp_pair_free(req);
+fw/http.c:	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+fw/http.c:	tfw_http_msg_free((TfwHttpMsg *)req);
+fw/http.c:			__kfree_skb(skb);
+fw/http.c:	 * process current one. But @skb must be freed then, since it's
+fw/http.c:			__kfree_skb(skb);
+fw/http.c:	/* The response is freed by tfw_http_req_block(). */
+fw/http.c:		/* The response is freed by tfw_http_req_block(). */
+fw/http.c:		tfw_http_conn_msg_free(hmresp);
+fw/http.c:		/* The response is freed by tfw_http_req_block(). */
+fw/http.c:	tfw_http_msg_free(hmresp);
+fw/http.c:		/* The response is freed by tfw_http_req_block(). */
+fw/http.c:			__kfree_skb(skb);
+fw/http.c:	 * the message forwarding on a callback, which may free both the request
+fw/http.c:	 * connection and its corresponding freeing.
+fw/http.c:		/* The response is freed by tfw_http_req_block/drop(). */
+fw/http.c:	/* That is paired request, it may be freed after resp processing,
+fw/http.c:	__kfree_skb(skb);
+fw/http.c: * We responsible for freeing all consumed skbs, including the skb which
+fw/http.c: * returned an error code on. The rest of skbs are freed by us.
+fw/http.c:	tfw_http_msg_free(hmreq);
+fw/http.c:		free_pages((unsigned long)prev_clen_ptr, get_order(prev_len));
+fw/http.c:	free_pages((unsigned long)prev_clen_ptr, get_order(prev_len));
+fw/http.c: * @filename. Memory is allocated via __get_free_pages(), thus free_pages()
+fw/http.c:	b_start = res = (char *)__get_free_pages(GFP_KERNEL, get_order(t_sz));
+fw/http.c:	kfree(body);
+fw/http.c: * via __get_free_pages(), thus free_pages() must be used on cleanup.
+fw/http.c:		free_pages((unsigned long)clen_str->data,
+fw/http.c:		free_pages((unsigned long)clen_str_4xx->data,
+fw/http.c:		free_pages((unsigned long)clen_str_5xx->data,
+fw/http.c:			kfree(tfw_wl_marks.mrks);
+fw/http.c:	kfree(tfw_wl_marks.mrks);
+fw/.http.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/msg.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_parser.h: * This program is free software; you can redistribute it and/or modify it
+fw/filter.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_stream_sched.h: * This program is free software; you can redistribute it and/or modify it
+fw/.http_sched_ratio.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_sched_ratio.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_sched_ratio.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_sched_ratio.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.apm.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.apm.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.apm.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.apm.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.procfs.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.procfs.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.procfs.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.procfs.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.hpack.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.hpack.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.hpack.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.hpack.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/server.c: * This program is free software; you can redistribute it and/or modify it
+fw/server.c:	/* Close all connections before freeing the server! */
+fw/server.c:	kmem_cache_free(srv_cache, srv);
+fw/server.c:	kfree(sg);
+fw/procfs.h: * This program is free software; you can redistribute it and/or modify
+fw/apm.c: * This program is free software; you can redistribute it and/or modify
+fw/apm.c:tfw_apm_free_ubuf(TfwApmData *data)
+fw/apm.c:		kfree(ubuf->ubent[0]);
+fw/apm.c:	free_percpu(data->ubuf);
+fw/apm.c:	tfw_apm_free_ubuf(&ref->data);
+fw/apm.c:	kfree(ref);
+fw/apm.c:	tfw_apm_free_ubuf(data);
+fw/apm.c:	kfree(data);
+fw/apm.c: * Function allocates new TfwHMStats object which must be freed by
+fw/apm.c:	hm_entry->req = (char *)__get_free_pages(GFP_KERNEL,
+fw/apm.c:		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
+fw/apm.c:		kfree(hm->url);
+fw/apm.c:		kfree(hm->codes);
+fw/apm.c:		kfree(hm);
+fw/apm.c:		kfree(ent);
+fw/apm.c:			kfree(tfw_hm_entry->codes);
+fw/.http_sched_hash.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_sched_hash.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_sched_hash.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_sched_hash.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.tcp.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.tcp.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.tcp.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.tcp.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/tcp.c: * This program is free software; you can redistribute it and/or modify it
+fw/stat.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_parser.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_parser.c:	 * But it can validate just the first char "for free"
+fw/http_limits.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_frame.h: * This program is free software; you can redistribute it and/or modify it
+fw/.http2.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http2.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http2.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http2.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/peer.h: * This program is free software; you can redistribute it and/or modify it
+fw/apm.h: * This program is free software; you can redistribute it and/or modify
+fw/.http_parser.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_parser.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_parser.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_parser.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/ss_skb.h: * This program is free software; you can redistribute it and/or modify it
+fw/ss_skb.h:		kfree_skb(skb);
+fw/.access_log.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.access_log.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.access_log.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.access_log.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.sched.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.sched.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.sched.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.sched.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/addr.h: * This program is free software; you can redistribute it and/or modify it
+fw/tls.c: * This program is free software; you can redistribute it and/or modify it
+fw/tls.c:		kfree_skb(skb);
+fw/tls.c:		__kfree_skb(skb);
+fw/tls.c:		/* The skb is freed in tfw_tls_conn_dtor(). */
+fw/tls.c:			kfree_skb(nskb);
+fw/tls.c:			kfree_skb(nskb);
+fw/tls.c:	 * if there is no free frag slot in skb_tail, a new skb is allocated.
+fw/tls.c:		kfree(sgt.sgl);
+fw/tls.c:			kfree_skb(skb);
+fw/tls.c:			kfree_skb(skb);
+fw/tls.c:		 * We can not move the TLS context freeing into sk_destruct
+fw/tls.c:	 * freed.
+fw/tls.c:	ttls_config_free(&tfw_tls_cfg);
+fw/procfs.c: * This program is free software; you can redistribute it and/or modify
+fw/procfs.c:		kfree(ss_stat);
+fw/procfs.c:	kfree(stat.hm);
+fw/procfs.c:		kfree(hm_stats);
+fw/procfs.c:	kfree(qsize);
+fw/procfs.c:		kfree(health_stat_codes);
+fw/procfs.c:	kfree(health_stat_codes);
+fw/procfs.c:		kfree(pcp_stat->hm);
+fw/.http_sess_conf.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_sess_conf.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_sess_conf.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_sess_conf.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.sock_srv.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.sock_srv.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.sock_srv.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.sock_srv.o.cmd:  include/linux/freezer.h \
+fw/.sock_srv.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/work_queue.c: * MPSC queue on lock-free ring buffer. Read design description for more
+fw/work_queue.c: * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
+fw/work_queue.c: * This program is free software; you can redistribute it and/or modify it
+fw/work_queue.c:		free_percpu(q->heads);
+fw/work_queue.c:	kvfree(q->array);
+fw/work_queue.c:	free_percpu(q->heads);
+fw/work_queue.c: * free slots, then the ticket value is always greater than 0.
+fw/.http_frame.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_frame.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_frame.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_frame.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/vhost.c: * This program is free software; you can redistribute it and/or modify
+fw/vhost.c:		kfree(argmem);
+fw/vhost.c:	kfree(cfg->http_ct_vals);
+fw/vhost.c:	kfree(cfg->http_resp_code_block);
+fw/vhost.c:		kfree(loc->capo[i]);
+fw/vhost.c:	kfree(loc->capo_hdr_del);
+fw/vhost.c:		kfree(loc->nipdef[i]);
+fw/vhost.c:	kfree(loc->arg);
+fw/vhost.c:	kfree(loc->frang_cfg);
+fw/vhost.c:	kfree(loc->cache_use_stale);
+fw/vhost.c:	kfree(vhost);
+fw/vhost.c:		kfree(cfg->http_ct_vals);
+fw/vhost.c:		kfree(cfg->http_resp_code_block);
+fw/vhost.c:tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
+fw/vhost.c:		kfree(svhm);
+fw/vhost.c:	kfree(vhosts);
+fw/vhost.c:	tfw_cfgop_vhosts_list_free(vh_list);
+fw/vhost.c:	tfw_cfgop_vhosts_list_free(tfw_vhosts_reconfig);
+fw/vhost.c:		tfw_cfgop_vhosts_list_free(tfw_vhosts);
+fw/vhost.c:		kfree(tfw_global.hdr_via);
+fw/http_sched_hash.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_sched_hash.c:	kfree(cl);
+fw/http_sched_hash.c:		kfree(cl);
+fw/http_sched_hash.c:	kfree(srv_cls);
+fw/http_sched_hash.c:	kfree(cl);
+fw/http_msg.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_msg.h:void tfw_http_msg_free(TfwHttpMsg *m);
+fw/log.h: * This program is free software; you can redistribute it and/or modify it
+fw/.tls.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.tls.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.tls.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.tls.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/access_log.c: * This program is free software; you can redistribute it and/or modify it
+fw/connection.h: * This program is free software; you can redistribute it and/or modify it
+fw/connection.h: * permits freeing of the instance, so it may have longer lifetime than
+fw/connection.h:	 * different: client connections are just freed with all linked resources,
+fw/connection.h:	 * connection repair and freed on shutdown only.
+fw/websocket.c: * This program is free software; you can redistribute it and/or modify it
+fw/websocket.c:	kmem_cache_free(tfw_ws_conn_cache, _conn);
+fw/websocket.c:	 * The client connection can not be freed so far since the response is
+fw/websocket.c:		kfree_skb(skb);
+fw/websocket.c:	 * free them on uprgade since we needed the pair of upgrading request
+fw/websocket.c:	 * so this close call must drop the final refcounter and free the
+fw/http_tbl.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_tbl.c:		kfree(arg);
+fw/http_tbl.c:	kfree(val);
+fw/http_tbl.c:	kfree(arg);
+fw/http_tbl.c:		kfree(rule->val.ptn.str);
+fw/http_tbl.c:			kfree(rule->act.redir.url.chunks[i].data);
+fw/http_tbl.c:		kfree(rule->act.redir.url.chunks);
+fw/http_tbl.c:tfw_cfgop_free_table(TfwHttpTable *table)
+fw/http_tbl.c:	tfw_http_table_free(table);
+fw/http_tbl.c:	tfw_cfgop_free_table(active_table);
+fw/http_tbl.c:	tfw_cfgop_free_table(tfw_table_reconfig);
+fw/server.h: * This program is free software; you can redistribute it and/or modify it
+fw/cfg.c: * This program is free software; you can redistribute it and/or modify it
+fw/cfg.c:	kfree(rule->fst);
+fw/cfg.c:	kfree(rule->fst_ext);
+fw/cfg.c:	kfree(rule->snd);
+fw/cfg.c:	kfree(rule->act);
+fw/cfg.c:	kfree(rule->val);
+fw/cfg.c:	kfree(e->name);
+fw/cfg.c:	kfree(e->ftoken);
+fw/cfg.c:		kfree(val);
+fw/cfg.c:		kfree(key);
+fw/cfg.c:		kfree(val);
+fw/cfg.c:		kfree(key);
+fw/cfg.c:		kfree(val);
+fw/cfg.c:	kfree(str);
+fw/cfg.c:	 * and set a callback to free it properly. */
+fw/cfg.c:	kfree(cfg_text_buf);
+fw/cfg.c: * The buffer must be freed with kfree().
+fw/cfg.c:	kfree(out_buf);
+fw/http_sess_conf.c: * This program is free software; you can redistribute it and/or modify
+fw/http_sess_conf.c:		crypto_free_shash(sticky->shash);
+fw/http_sess_conf.c:		free_pages((unsigned long)c->data,
+fw/http_sess_conf.c:		kfree(sticky->js_challenge->body.chunks);
+fw/http_sess_conf.c:	kfree(sticky->js_challenge);
+fw/http_sess_conf.c:	free_pages((unsigned long)body_data, get_order(sz));
+fw/http_sess_conf.c:	kfree(js_ch);
+fw/http_sess_conf.c: * Need to free them after configuration processing and before shutdown,
+fw/tls_conf.c: * This program is free software; you can redistribute it and/or modify
+fw/tls_conf.c:	kfree(crt_data);
+fw/tls_conf.c:	/* The key is copied, so free the paged data. */
+fw/tls_conf.c:	kfree(key_data);
+fw/tls_conf.c:	ttls_x509_crt_free(&conf->crt);
+fw/tls_conf.c:	ttls_pk_free(&conf->key);
+fw/tls_conf.c:	ttls_key_cert_free(vhost->tls_cfg.key_cert);
+fw/tls_conf.c:	ttls_config_peer_free(&vhost->tls_cfg);
+fw/.http_msg.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_msg.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_msg.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_msg.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/http_sess.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_sess.c:		tfw_http_msg_free((TfwHttpMsg *)resp);
+fw/http_sess.c:		 * to free associated resources.
+fw/.http_tbl.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_tbl.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_tbl.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_tbl.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/msg.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_match.h: * This program is free software; you can redistribute it and/or modify it
+fw/http_match.h:			const char *str; /* Allocated string, free it after */
+fw/http_match.h:void tfw_http_table_free(TfwHttpTable *table);
+fw/vhost.h: * This program is free software; you can redistribute it and/or modify
+fw/cache.h: * This program is free software; you can redistribute it and/or modify it
+fw/.vhost.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.vhost.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.vhost.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.vhost.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.http_sess.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.http_sess.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.http_sess.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.http_sess.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/.client.o.cmd:    $(wildcard include/config/freezer.h) \
+fw/.client.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+fw/.client.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+fw/.client.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+fw/http_msg.c: * This program is free software; you can redistribute it and/or modify it
+fw/http_msg.c:tfw_http_msg_free(TfwHttpMsg *m)
+fw/http_msg.c:	BUG_ON(m->freed);
+fw/http_msg.c:	m->freed = true;
+fw/http_msg.c: * At this point we can't free SKBs, because data that they contain used
+fw/websocket.h: * This program is free software; you can redistribute it and/or modify it
+Makefile:# This program is free software; you can redistribute it and/or modify it
+CHANGELOG.md:  * Fix use-after-free errors due to too early request structure destructions.
+Module.symvers:0xfe9d8ab1	ttls_x509_crt_free	/home/evgeny/workdir/tempesta/tls/tempesta_tls	EXPORT_SYMBOL	
+Module.symvers:0x466d3fda	ttls_key_cert_free	/home/evgeny/workdir/tempesta/tls/tempesta_tls	EXPORT_SYMBOL	
+Module.symvers:0x7b3e9b3e	ttls_pk_free	/home/evgeny/workdir/tempesta/tls/tempesta_tls	EXPORT_SYMBOL	
+Module.symvers:0x8150e2a2	ttls_config_free	/home/evgeny/workdir/tempesta/tls/tempesta_tls	EXPORT_SYMBOL	
+Module.symvers:0x1bf263dc	ttls_config_peer_free	/home/evgeny/workdir/tempesta/tls/tempesta_tls	EXPORT_SYMBOL	
+lib/hash.c: * This program is free software; you can redistribute it and/or modify it
+lib/ebtree.c: * Permission is hereby granted, free of charge, to any person obtaining
+lib/hash.h: * This program is free software; you can redistribute it and/or modify it
+lib/str.h: * This program is free software; you can redistribute it and/or modify it
+lib/common.h: * This program is free software; you can redistribute it and/or modify it
+lib/.main.o.cmd:    $(wildcard include/config/freezer.h) \
+lib/.main.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+lib/main.c: * This program is free software; you can redistribute it and/or modify it
+lib/Makefile:# This program is free software; you can redistribute it and/or modify it
+lib/ebtree.h: * Permission is hereby granted, free of charge, to any person obtaining
+lib/eb64tree.h: * Permission is hereby granted, free of charge, to any person obtaining
+lib/.tempesta_lib.mod.o.cmd:    $(wildcard include/config/freezer.h) \
+lib/.tempesta_lib.mod.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+lib/log.h: * This program is free software; you can redistribute it and/or modify it
+lib/fsm.h: * This program is free software; you can redistribute it and/or modify it
+lib/str_simd.S: * This program is free software; you can redistribute it and/or modify it
+lib/eb64tree.c: * Permission is hereby granted, free of charge, to any person obtaining
+tls/ecp.h: * This program is free software; you can redistribute it and/or modify
+tls/ciphersuites.c: * This program is free software; you can redistribute it and/or modify
+tls/ecdh.c: * This program is free software; you can redistribute it and/or modify
+tls/pem.h: * This program is free software; you can redistribute it and/or modify
+tls/.oid.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.oid.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.tls_ticket.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.tls_ticket.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.tls_ticket.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.tls_ticket.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/ecp.c: * This program is free software; you can redistribute it and/or modify
+tls/pk.c: * This program is free software; you can redistribute it and/or modify
+tls/pk.c:rsa_free_wrap(void *ctx)
+tls/pk.c:	ttls_rsa_free(ctx);
+tls/pk.c:	rsa_free_wrap,
+tls/pk.c:ttls_pk_free(TlsPkCtx *ctx)
+tls/pk.c:	if (ctx->pk_info->ctx_free_func)
+tls/pk.c:		ctx->pk_info->ctx_free_func(ctx->pk_ctx);
+tls/pk.c:	ttls_mpi_pool_free(ctx->pk_ctx);
+tls/pk.c:EXPORT_SYMBOL(ttls_pk_free);
+tls/.ec_25519.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.ec_25519.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.ec_25519.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.ec_25519.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/mpool.h: * This program is free software; you can redistribute it and/or modify
+tls/mpool.h:void ttls_mpi_pool_free(void *ctx);
+tls/ttls.c: * This program is free software; you can redistribute it and/or modify
+tls/ttls.c:	kfree(req);
+tls/ttls.c:			kfree(dst->peer_cert);
+tls/ttls.c:	ttls_md_free(&md_ctx);
+tls/ttls.c:			crypto_free_shash(hs->desc.tfm);
+tls/ttls.c:ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
+tls/ttls.c:		kfree(req);
+tls/ttls.c:	ttls_aead_req_free(c_ctx->cipher_ctx, req);
+tls/ttls.c:	kfree(req);
+tls/ttls.c:ttls_handshake_free(TlsHandshake *hs)
+tls/ttls.c:	crypto_free_shash(hs->desc.tfm);
+tls/ttls.c:		ttls_mpi_pool_free(hs->crypto_ctx);
+tls/ttls.c:	kmem_cache_free(ttls_hs_cache, hs);
+tls/ttls.c:	ttls_handshake_free(tls->hs);
+tls/ttls.c:		__free_pages(pg, 2);
+tls/ttls.c:	 * so we can free it safely.
+tls/ttls.c:		kfree(tls->hostname);
+tls/ttls.c:ttls_key_cert_free(TlsKeyCert *key_cert)
+tls/ttls.c:		kfree(cur);
+tls/ttls.c:EXPORT_SYMBOL(ttls_key_cert_free);
+tls/ttls.c:	ttls_handshake_free(tls->hs);
+tls/ttls.c:	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
+tls/ttls.c:	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
+tls/ttls.c:	/* #830 check that all the data is freed correctly. */
+tls/ttls.c:ttls_config_free(TlsCfg *conf)
+tls/ttls.c:EXPORT_SYMBOL(ttls_config_free);
+tls/ttls.c:ttls_config_peer_free(TlsPeerCfg *conf)
+tls/ttls.c:EXPORT_SYMBOL(ttls_config_peer_free);
+tls/ttls.c:	ttls_md_free(&ctx);
+tls/ttls.c:		kfree(*req);
+tls/ttls.c:		goto err_free;
+tls/ttls.c:		goto err_free;
+tls/ttls.c:		goto err_free;
+tls/ttls.c:			goto err_free;
+tls/ttls.c:		goto err_free;
+tls/ttls.c:err_free:
+tls/bignum.h: * This program is free software; you can redistribute it and/or modify
+tls/bignum.h: * @curr	- offset of free memory area for MPI allocations;
+tls/ciphersuites.h: * This program is free software; you can redistribute it and/or modify
+tls/bignum.c: * This program is free software; you can redistribute it and/or modify
+tls/bignum_asm.h: * This program is free software; you can redistribute it and/or modify
+tls/ttls.h: * This program is free software; you can redistribute it and/or modify
+tls/ttls.h:void ttls_key_cert_free(TlsKeyCert *key_cert);
+tls/ttls.h:void ttls_config_free(TlsCfg *conf);
+tls/ttls.h:void ttls_config_peer_free(TlsPeerCfg *conf);
+tls/.tempesta_tls.mod.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.tempesta_tls.mod.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/ec_p256.c: * This program is free software; you can redistribute it and/or modify
+tls/.error.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.error.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.error.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.error.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/tempesta_tls.mod.c:	{ 0xc9ec4e21, "free_percpu" },
+tls/tempesta_tls.mod.c:	{ 0x5b793836, "kmem_cache_free" },
+tls/tempesta_tls.mod.c:	{ 0x6a5cb5ee, "__get_free_pages" },
+tls/tempesta_tls.mod.c:	{ 0x4302d0eb, "free_pages" },
+tls/tempesta_tls.mod.c:	{ 0x37a0cba, "kfree" },
+tls/rsa.c: * This program is free software; you can redistribute it and/or modify
+tls/rsa.c:		free_percpu(ctx->Vi);
+tls/rsa.c:	free_percpu(ctx->Vf);
+tls/rsa.c:	free_percpu(ctx->Vi);
+tls/rsa.c:ttls_rsa_free(TlsRSACtx *ctx)
+tls/rsa.c:	free_percpu(ctx->Vi);
+tls/rsa.c:	free_percpu(ctx->Vf);
+tls/rsa.c:	ttls_md_free(&md_ctx);
+tls/rsa.c:	kfree(sig_try);
+tls/rsa.c:	ttls_md_free(&md_ctx);
+tls/rsa.c:		kfree(encoded);
+tls/rsa.c:		kfree(encoded_expected);
+tls/.pk.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.pk.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.pk.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.pk.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/x509_crt.h: * This program is free software; you can redistribute it and/or modify
+tls/x509_crt.h:void ttls_x509_crt_free(TlsX509Crt *crt);
+tls/.tls_srv.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.tls_srv.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.tls_srv.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.tls_srv.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/asn1.c: * This program is free software; you can redistribute it and/or modify
+tls/.dhm.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.dhm.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.dhm.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.dhm.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/t/test_ecdh_p256.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_ecdh_p256.c:	ttls_mpi_pool_free(ctx);
+tls/t/ttls_mocks.h: * This program is free software; you can redistribute it and/or modify it
+tls/t/ttls_mocks.h:ttls_rsa_free(TlsRSACtx *ctx)
+tls/t/run_tests.sh:# This program is free software; you can redistribute it and/or modify it
+tls/t/test_rsa.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_rsa.c:	ttls_rsa_free(rsa);
+tls/t/test_rsa.c:	ttls_mpi_pool_free(rsa);
+tls/t/test_ec_p256.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/Makefile:# This program is free software; you can redistribute it and/or modify it
+tls/t/util.h: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_ec_25519.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_mpi.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_mpi_math.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_mpi_math.c:	free(A);
+tls/t/test_mpi_math.c:	free(B);
+tls/t/test_mpi_math.c:	free(A);
+tls/t/test_mpi_math.c:	free(B);
+tls/t/test_mpi_math.c:	free(A);
+tls/t/test_mpi_math.c:	free(B);
+tls/t/test_mpi_math.c:	free(X);
+tls/t/test_mpi_math.c:	free(X);
+tls/t/test_mpi_math.c:	free(Y);
+tls/t/test_mpi_math.c:	free(A);
+tls/t/test_mpi_math.c:	free(B);
+tls/t/test_mpi_math.c:	free(X);
+tls/t/test_mpi_math.c:	free(A);
+tls/t/test_mpi_math.c:	free(B);
+tls/t/test_mpi_math.c:	free(X);
+tls/t/test_mpi_math.c:	free(X);
+tls/t/tgen_ec256.c: * This program is free software; you can redistribute it and/or modify
+tls/t/tgen_ec256.c:		 * At the moment Z coordinate stores a garbage, so free
+tls/t/ttls_mocks.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/ttls_mocks.c:ttls_md_free(TlsMdCtx *ctx)
+tls/t/ttls_mocks.c:ttls_mpi_pool_free(void *ctx)
+tls/t/benchmark.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_ecdsa_p256.c: * This program is free software; you can redistribute it and/or modify it
+tls/t/test_ecdsa_p256.c:	ttls_mpi_pool_free(ctx);
+tls/.crypto.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.crypto.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.crypto.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.crypto.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.mpool.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.mpool.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.mpool.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.mpool.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/Makefile:# This program is free software; you can redistribute it and/or modify it
+tls/pkparse.c: * This program is free software; you can redistribute it and/or modify
+tls/pkparse.c:	 * The caller is responsible for calling ttls_pk_free(pk) on the
+tls/pkparse.c:	 * function failure, ttls_x509_crt_free() in particular.
+tls/pkparse.c:		 * Don't free the RSA context - the caller takes care about this
+tls/pkparse.c:		 * through a unified ttls_pk_free() call.
+tls/pkparse.c:		ttls_rsa_free(rsa);
+tls/pkparse.c: * caller to take care of zeroizing and freeing it after use.
+tls/pkparse.c: * The function is responsible for freeing the provided PK context on failure.
+tls/pkparse.c:			ttls_pk_free(pk);
+tls/pkparse.c:			ttls_pk_free(pk);
+tls/pkparse.c: * or reset with ttls_pk_free(). If you need a specific key type, check the
+tls/pkparse.c:			ttls_pk_free(pk);
+tls/pkparse.c:			ttls_pk_free(pk);
+tls/pkparse.c:			ttls_pk_free(pk);
+tls/pkparse.c:	ttls_pk_free(pk);
+tls/pkparse.c:		ttls_pk_free(pk);
+tls/pkparse.c:		ttls_pk_free(pk);
+tls/pkparse.c:	/* Does MPI calculations, so pool context must be freed afterwards. */
+tls/dhm.h: * This program is free software; you can redistribute it and/or modify
+tls/tls_srv.c: * This program is free software; you can redistribute it and/or modify
+tls/mpool.c: * handshake step taken on a CPU. The memory pool is cleaned and freed after
+tls/mpool.c: * This program is free software; you can redistribute it and/or modify
+tls/mpool.c: * Free MPI memory pool storing the crypto context @ctx and return the freed
+tls/mpool.c:ttls_mpi_pool_free(void *ctx)
+tls/mpool.c:	free_pages((unsigned long)mp, mp->order);
+tls/mpool.c:	if (!(addr = __get_free_pages(gfp_mask | __GFP_ZERO, order)))
+tls/mpool.c:	ptr = (char *)__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
+tls/mpool.c:		free_pages((unsigned long)mp, mp->order);
+tls/crypto.c: * This program is free software; you can redistribute it and/or modify it under
+tls/crypto.c:ttls_cipher_free(TlsCipherCtx *ctx)
+tls/crypto.c:		crypto_free_aead(ctx->cipher_ctx);
+tls/crypto.c:		ttls_cipher_free(ctx);
+tls/crypto.c:ttls_md_free(TlsMdCtx *ctx)
+tls/crypto.c:	crypto_free_shash(ctx->md_ctx.tfm);
+tls/crypto.c:	ttls_md_free(&ctx);
+tls/crypto.c: * immediately free algorithm descriptors to make all the necessary modules
+tls/crypto.c:	crypto_free_aead(a);
+tls/crypto.c:	crypto_free_shash(h);
+tls/x509_crl.h: * This program is free software; you can redistribute it and/or modify
+tls/x509_crl.h:void ttls_x509_crl_free(ttls_x509_crl *crl);
+tls/debug.h: * This program is free software; you can redistribute it and/or modify
+tls/rsa.h: * This program is free software; you can redistribute it and/or modify
+tls/rsa.h:void ttls_rsa_free(TlsRSACtx *ctx);
+tls/x509_crt.c: * This program is free software; you can redistribute it and/or modify
+tls/x509_crt.c:	ttls_x509_crt_free(crt);
+tls/x509_crt.c:ttls_x509_crt_raw_free(TlsX509Crt *crt)
+tls/x509_crt.c:	free_pages((unsigned long)crt->raw.pages, crt->raw.order);
+tls/x509_crt.c:	crt->raw.pages = (unsigned char *)__get_free_pages(GFP_KERNEL | __GFP_COMP,
+tls/x509_crt.c:	/* Does MPI calculations, so pool context must be freed afterwards. */
+tls/x509_crt.c:ttls_x509_crt_free(TlsX509Crt *crt)
+tls/x509_crt.c:		ttls_pk_free(&cert_cur->pk);
+tls/x509_crt.c:		kfree(cert_cur->sig_opts);
+tls/x509_crt.c:			kfree(name_prv);
+tls/x509_crt.c:			kfree(name_prv);
+tls/x509_crt.c:			kfree(seq_prv);
+tls/x509_crt.c:			kfree(seq_prv);
+tls/x509_crt.c:		ttls_x509_crt_raw_free(crt);
+tls/x509_crt.c:			kmem_cache_free(cert_cache, cert_prv);
+tls/x509_crt.c:EXPORT_SYMBOL(ttls_x509_crt_free);
+tls/x509_crt.c:	ttls_x509_crt_free(*crt);
+tls/x509_crt.c:	kmem_cache_free(cert_cache, *crt);
+tls/ecdh.h: * This program is free software; you can redistribute it and/or modify
+tls/tls_cli.c: * This program is free software; you can redistribute it and/or modify
+tls/tls_cli.c:	kfree(ssl->session_negotiate->ticket);
+tls/tls_ticket.c: * This program is free software; you can redistribute it and/or modify
+tls/tls_ticket.c:	ttls_md_free(&md_ctx);
+tls/tls_ticket.c:	ttls_md_free(&md_ctx);
+tls/tls_ticket.c:		pg = __get_free_pages(GFP_ATOMIC | __GFP_COMP, sess->peer_cert->raw.order);
+tls/tls_ticket.c:ttls_ticket_ctx_free(TlSTicketCryptCtx *ctx)
+tls/tls_ticket.c:		ttls_aead_req_free(ctx->c_ctx.cipher_ctx, ctx->req);
+tls/tls_ticket.c:	ttls_cipher_free(&ctx->c_ctx);
+tls/tls_ticket.c:	ttls_ticket_ctx_free(ctx);
+tls/tls_ticket.c:	ttls_ticket_ctx_free(&ctx);
+tls/tls_ticket.c:	ttls_ticket_ctx_free(&ctx);
+tls/tls_ticket.c:	/* Zeroize to protect keys, no need to free as we copied the content */
+tls/dhm.c: * This program is free software; you can redistribute it and/or modify
+tls/.rsa.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.rsa.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.rsa.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.rsa.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.x509.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.x509.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.x509.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.x509.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.pem.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.pem.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.pem.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.pem.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.x509_crl.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.x509_crl.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.x509_crl.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.x509_crl.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.asn1.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.asn1.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.asn1.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.asn1.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.x509_crt.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.x509_crt.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.x509_crt.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.x509_crt.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.pkparse.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.pkparse.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.pkparse.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.pkparse.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/x509.h: * This program is free software; you can redistribute it and/or modify
+tls/oid.c: * This program is free software; you can redistribute it and/or modify
+tls/tls_ticket.h: * This program is free software; you can redistribute it and/or modify
+tls/asn1.h: * This program is free software; you can redistribute it and/or modify
+tls/bignum_x86-64.S: * This program is free software; you can redistribute it and/or modify it
+tls/.ecp.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.ecp.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.ecp.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.ecp.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/pem.c: * This program is free software; you can redistribute it and/or modify
+tls/.bignum.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.bignum.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.bignum.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.bignum.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/.ciphersuites.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.ciphersuites.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.ciphersuites.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.ciphersuites.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/pk.h: * This program is free software; you can redistribute it and/or modify
+tls/pk.h:	void (*ctx_free_func)(void *);
+tls/pk.h:void ttls_pk_free(TlsPkCtx *ctx);
+tls/.ttls.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.ttls.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.ttls.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.ttls.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/x509.c: * This program is free software; you can redistribute it and/or modify
+tls/x509.c:			kfree(pss_opts);
+tls/error.c: * This program is free software; you can redistribute it and/or modify
+tls/tls_internal.h: * This program is free software; you can redistribute it and/or modify
+tls/tls_internal.h:void ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req);
+tls/.ec_p256.o.cmd:    $(wildcard include/config/freezer.h) \
+tls/.ec_p256.o.cmd:    $(wildcard include/config/debug/objects/free.h) \
+tls/.ec_p256.o.cmd:    $(wildcard include/config/init/on/free/default/on.h) \
+tls/.ec_p256.o.cmd:    $(wildcard include/config/cgroup/freezer.h) \
+tls/x509_crl.c: * This program is free software; you can redistribute it and/or modify
+tls/x509_crl.c:			ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:			ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:		ttls_x509_crl_free(crl);
+tls/x509_crl.c:ttls_x509_crl_free(ttls_x509_crl *crl)
+tls/x509_crl.c:		kfree(crl_cur->sig_opts);
+tls/x509_crl.c:			kfree(name_prv);
+tls/x509_crl.c:			kfree(entry_prv);
+tls/x509_crl.c:			kfree(crl_cur->raw.p);
+tls/x509_crl.c:			kfree(crl_prv);
+tls/ec_25519.c: * This program is free software; you can redistribute it and/or modify
+tls/ec_25519.c:	ttls_mpi_lset(&R->Y, 0); /* TODO #1335 reset/free the MPI */
+tls/crypto.h: * This program is free software; you can redistribute it and/or modify it under
+tls/crypto.h:void ttls_cipher_free(TlsCipherCtx *ctx);
+tls/crypto.h:void ttls_md_free(TlsMdCtx *ctx);
+tls/crypto.h: * ttls_md_free(). Makes it necessary to call ttls_md_free() later.
+tls/oid.h: * This program is free software; you can redistribute it and/or modify
+LICENSE:freedom to share and change it.  By contrast, the GNU General Public
+LICENSE:License is intended to guarantee your freedom to share and change free
+LICENSE:software--to make sure the software is free for all its users.  This
+LICENSE:  When we speak of free software, we are referring to freedom, not
+LICENSE:have the freedom to distribute copies of free software (and charge for
+LICENSE:in new free programs; and that you know you can do these things.
+LICENSE:that everyone understands that there is no warranty for this free
+LICENSE:  Finally, any free program is threatened constantly by software
+LICENSE:patents.  We wish to avoid the danger that redistributors of a free
+LICENSE:patent must be licensed for everyone's free use or not licensed at all.
+LICENSE:license would not permit royalty-free redistribution of the Program by
+LICENSE:integrity of the free software distribution system, which is
+LICENSE:  10. If you wish to incorporate parts of the Program into other free
+LICENSE:of preserving the free status of all derivatives of our free software and
+LICENSE:free software which everyone can redistribute and change under these terms.
+LICENSE:    This program is free software; you can redistribute it and/or modify
+LICENSE:    This is free software, and you are welcome to redistribute it
+pkg/scripts/tempesta_installer.sh:# This program is free software; you can redistribute it and/or modify it
+pkg/debian/changelog:  * Fix incorrect work of ttls_pk_free function
+pkg/debian/copyright: This package is free software; you can redistribute it and/or modify
