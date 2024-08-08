@@ -7412,6 +7412,7 @@ err_2:
 	if (c_len)
 		c_len->len = 0;
 err:
+	TRASH(body);
 	kfree(body);
 
 	return res;
@@ -7578,6 +7579,7 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i])) {
 			T_ERR_NL("Unable to parse whitelist mark value: '%s'\n",
 				 val);
+			TRASH(tfw_wl_marks.mrks);
 			kfree(tfw_wl_marks.mrks);
 			return -EINVAL;
 		}
@@ -7592,6 +7594,7 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static void
 tfw_cfgop_cleanup_whitelist_mark(TfwCfgSpec *cs)
 {
+	TRASH(tfw_wl_marks.mrks);
 	kfree(tfw_wl_marks.mrks);
 	memset(&tfw_wl_marks, 0, sizeof(tfw_wl_marks));
 }

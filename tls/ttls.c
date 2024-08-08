@@ -222,6 +222,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 
 	return req;
 err:
+	memset(req, '#', sizeof(*req));
 	kfree(req);
 	return NULL;
 }
@@ -802,8 +803,10 @@ ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
 {
 	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
 
-	if (WARN_ON_ONCE(ttls_aead_reqsize() < need))
+	if (WARN_ON_ONCE(ttls_aead_reqsize() < need)) {
+		memset(req, '#', sizeof(*req));
 		kfree(req);
+	}
 	else
 		bzero_fast(req, ttls_aead_reqsize());
 }
@@ -950,6 +953,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		T_WARN("incoming message counter would wrap\n");
 
 out:
+	memset(req, '#', sizeof(*req));
 	kfree(req);
 
 	return r;
@@ -1311,6 +1315,8 @@ ttls_handshake_free(TlsHandshake *hs)
 		ttls_mpi_pool_free(hs->crypto_ctx);
 
 	bzero_fast(hs, sizeof(TlsHandshake));
+
+	memset(hs, '#', sizeof(*hs))
 	kmem_cache_free(ttls_hs_cache, hs);
 }
 
@@ -2083,6 +2089,7 @@ ttls_set_hostname(TlsCtx *tls, const char *hostname)
 	 */
 	if (tls->hostname) {
 		bzero_fast(tls->hostname, strlen(tls->hostname));
+		memset(tls->hostname, '#', sizeof(*tls->hostname));
 		kfree(tls->hostname);
 	}
 
@@ -2364,6 +2371,7 @@ ttls_key_cert_free(TlsKeyCert *key_cert)
 
 	while (cur) {
 		next = cur->next;
+		memset(cur, '#', sizeof(*cur))
 		kfree(cur);
 		cur = next;
 	}
@@ -2845,6 +2853,7 @@ ttls_exit(void)
 
 	for_each_online_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
+		memset(*req, '#', sizeof(**req));
 		kfree(*req);
 	}
 

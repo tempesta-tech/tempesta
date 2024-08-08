@@ -693,6 +693,7 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	BUG_ON(!list_empty(&srv_conn->nip_queue));
 	BUG_ON(READ_ONCE(srv_conn->qsize));
 
+	TRASH(srv_conn);
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 
@@ -1037,6 +1038,7 @@ __tfw_cfgop_new_sg_cfg(const char *name, unsigned int len)
 	memset(sg_cfg, 0, sizeof(TfwCfgSrvGroup));
 	sg_cfg->parsed_sg = tfw_sg_new(name, len, GFP_KERNEL);
 	if (!sg_cfg->parsed_sg) {
+		TRASH(sg_cfg);
 		kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 		return NULL;
 	}
@@ -1884,12 +1886,18 @@ tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool release_parsed)
 	tfw_sg_put(sg_cfg->parsed_sg);
 	tfw_sg_put(sg_cfg->orig_sg);
 
-	if (sg_cfg->sched_arg)
+	if (sg_cfg->sched_arg) {
+		TRASH(sg_cfg->sched_arg);
 		kfree(sg_cfg->sched_arg);
+	}
 	list_del_init(&sg_cfg->list);
 
-	if (sg_cfg->hm_name)
+	if (sg_cfg->hm_name) {
+		TRASH(sg_cfg->hm_name);
 		kfree(sg_cfg->hm_name);
+	}
+
+	TRASH(sg_cfg);
 	kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 }
 

@@ -241,8 +241,10 @@ tdb_get(TDB *db)
 static inline void
 tdb_put(TDB *db)
 {
-	if (atomic_dec_and_test(&db->count))
+	if (atomic_dec_and_test(&db->count)) {
+                memset(db, '#', sizeof(*db))
 		kfree(db);
+        }
 }
 
 static inline TdbVRec *

@@ -135,10 +135,14 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 	 * In case of a negotiable connection, H2 cache was used for
 	 * both versions, and we need to free H2 cache.
 	 */
-	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable))
+	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable)) {
 		kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
-	else
+		TRASH(cli_conn);
+	}
+	else {
 		kmem_cache_free(tfw_cli_cache(TFW_FSM_H2), cli_conn);
+		TRASH(cli_conn);
+	}
 }
 
 void
@@ -527,12 +531,14 @@ tfw_listen_sock_del_all(void)
 			 */
 			ss_release(ls->sk);
 		list_del(&ls->list);
+		TRASH(ls);
 		kfree(ls);
 	}
 
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
 		BUG_ON(ls->sk);
 		list_del(&ls->list);
+		TRASH(ls);
 		kfree(ls);
 	}
 
@@ -822,6 +828,7 @@ tfw_sock_clnt_start(void)
 		list_del(&ls->list);
 		if (ls->sk)
 			ss_release(ls->sk);
+		TRASH(ls);
 		kfree(ls);
 	}
 
@@ -846,15 +853,19 @@ tfw_sock_clnt_start(void)
 	tfw_listen_socks_sz = listen_socks_sz;
 
 done:
+	TRASH(listen_socks_array);
 	kfree(listen_socks_array);
+	TRASH(touched);
 	kfree(touched);
 
 	/**
 	 * The list contains the intersection of initial tfw_listen_socks_reconf
 	 * and initial tfw_listen_socks
 	 */
-	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list)
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
+		TRASH(ls);
 		kfree(ls);
+	}
 
 	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	return r;

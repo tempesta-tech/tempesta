@@ -31,4 +31,6 @@ void memcpy_fast(void *to, const void *from, size_t len);
 int memcmp_fast(const void *a, const void *b, size_t len);
 void bzero_fast(void *s, size_t len);
 
+#define TRASH(ptr) memset(ptr, '#', sizeof(*ptr))
+
 #endif /* __LIB_STR_H__ */

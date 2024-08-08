@@ -1236,6 +1236,8 @@ tfw_http_msg_free(TfwHttpMsg *m)
 
 	m->freed = true;
 	tfw_pool_destroy(m->pool);
+
+	TRASH(m);
 }
 
 /**
