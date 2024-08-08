@@ -34,7 +34,6 @@ void bzero_fast(void *s, size_t len);
 #define TRASH(ptr) \
 do { \
         if (ptr) {        \
-                T_WARN("%s Trasg %px", __func__, ptr); \
                 memset(ptr, '#', sizeof(*ptr)); \
         }       \
 } while(0)
