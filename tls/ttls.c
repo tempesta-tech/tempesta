@@ -802,8 +802,9 @@ ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
 {
 	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
 
-	if (WARN_ON_ONCE(ttls_aead_reqsize() < need))
+	if (WARN_ON_ONCE(ttls_aead_reqsize() < need)) {
 		kfree(req);
+	}
 	else
 		bzero_fast(req, ttls_aead_reqsize());
 }
@@ -1311,6 +1312,8 @@ ttls_handshake_free(TlsHandshake *hs)
 		ttls_mpi_pool_free(hs->crypto_ctx);
 
 	bzero_fast(hs, sizeof(TlsHandshake));
+	
+	TRASH(hs);
 	kmem_cache_free(ttls_hs_cache, hs);
 }
 

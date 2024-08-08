@@ -31,4 +31,12 @@ void memcpy_fast(void *to, const void *from, size_t len);
 int memcmp_fast(const void *a, const void *b, size_t len);
 void bzero_fast(void *s, size_t len);
 
+#define TRASH(ptr) \
+do { \
+        if (ptr) {        \
+                printk(KERN_ALERT "%s Trasg %px", __func__, ptr); \
+                memset(ptr, '#', sizeof(*ptr)); \
+        }       \
+} while(0)
+
 #endif /* __LIB_STR_H__ */

@@ -482,8 +482,9 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		put_page(*p);
 
 out:
-	if (unlikely(sgt.nents > AUTO_SEGS_N))
+	if (unlikely(sgt.nents > AUTO_SEGS_N)) {
 		kfree(sgt.sgl);
+	}
 	if (!r)
 		return r;
 err_epilogue:

@@ -357,9 +357,11 @@ tfw_release_node_cpus(void)
 		return;
 
 	for(node = 0; node < nr_online_nodes; node++) {
-		if(c_nodes[node].cpu)
+		if(c_nodes[node].cpu) {
 			kfree(c_nodes[node].cpu);
+		}
 	}
+
 	kfree(c_nodes);
 }
 

@@ -7135,9 +7135,12 @@ cleanup:
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
 {
+	BUG_ON(((TfwHttpMsg *)req)->freed);
+
 	if (req->hash)
 		return req->hash;
 
+	T_WARN("req %px %px", req, &req->uri_path);
 	req->hash = tfw_hash_str(&req->uri_path);
 
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
