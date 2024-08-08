@@ -467,6 +467,16 @@ int
 ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 			unsigned char *split_point);
 
+static inline void
+ss_skb_chop_head_tail_nofail(struct sk_buff *skb_head, struct sk_buff *skb,
+			     size_t head, size_t tail)
+{
+	int r;
+
+	r = ss_skb_chop_head_tail(skb_head, skb, head, tail);
+	BUG_ON(r);
+}
+
 #if defined(DEBUG) && (DEBUG >= 4)
 #define ss_skb_queue_for_each_do(queue, lambda)		\
 do {							\

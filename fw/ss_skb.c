@@ -850,6 +850,7 @@ alloc_head:
 
 	return frags;
 }
+ALLOW_ERROR_INJECTION(ss_skb_expand_head_tail, ERRNO);
 
 /**
  * Reverse operation to ss_skb_expand_head_tail(): chop @head and @trail bytes
@@ -1622,6 +1623,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 
 	return out_frags;
 }
+ALLOW_ERROR_INJECTION(ss_skb_to_sgvec_with_new_pages, ERRNO);
 
 int
 ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
