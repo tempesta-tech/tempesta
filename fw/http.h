@@ -297,6 +297,7 @@ typedef struct {
 	TfwStream	*stream;					\
 	TfwHttpError	httperr;					\
 	TfwCacheControl	cache_ctl;					\
+	bool		freed;						\
 	unsigned char	version;					\
 	unsigned int	keep_alive;					\
 	unsigned long	content_length;					\
@@ -304,8 +305,7 @@ typedef struct {
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;						\
-	bool		freed;
+	TfwStr		body;
 
 
 static inline void
