@@ -246,6 +246,19 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 #define AUTO_SEGS_N	8
 #define MAX_SEG_N	64
 
+#define DEC_CONTROL_FRAME_COUNTER(skb) \
+do { \
+	TfwConn *conn = sk->sk_user_data; \
+	if (TFW_CONN_PROTO(conn) == TFW_FSM_H2) { \
+		TfwH2Ctx *h2 = tfw_h2_context_safe(conn); \
+		if (unlikely(TCP_SKB_CB(skb)->unused & SS_F_HTTT2_FRAME_CONTROL)) { \
+			TCP_SKB_CB(skb)->unused &= ~SS_F_HTTT2_FRAME_CONTROL; \
+			BUG_ON(h2->queued_control_frames == 0); \
+			--h2->queued_control_frames; \
+		} \
+	} \
+} while(0);
+
 	int r = -ENOMEM;
 	unsigned int head_sz, len, frags, t_sz, out_frags, next_nents;
 	unsigned char type;
@@ -320,9 +333,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		sgt.nents += next_nents;
 		out_sgt.nents += next_nents;
 		skb_tail = next;
+
+		DEC_CONTROL_FRAME_COUNTER(next);
 	}
 
 	len += head_sz + TTLS_TAG_LEN;
+
+	DEC_CONTROL_FRAME_COUNTER(skb);
 
 	/*
 	 * Use skb_tail->next as skb_head in __extend_pgfrags() to not try to
@@ -492,6 +509,7 @@ err_epilogue:
 	return r;
 #undef AUTO_SEGS_N
 #undef MAX_SEG_N
+#undef DEC_CONTROL_FRAME_COUNTER
 }
 
 static inline int
