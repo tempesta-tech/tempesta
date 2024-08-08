@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -67,6 +67,11 @@ enum {
 	 * and wait until ACK to our FIN is come.
 	 */
 	Conn_Closing		= (0x3 << __Flag_Bits),
+	/*
+	 * Connection is in special state: it socket is reset
+	 * and we should not process sk->sk_receive_queue.
+	 */
+	Conn_Reset		= (0x4 << __Flag_Bits),
 };
 
 typedef struct tfw_conn_t TfwConn;

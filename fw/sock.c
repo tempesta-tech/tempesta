@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -569,7 +569,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	sock_hold(sk);
 	if (ss_wq_push(&sw, cpu)) {
-		T_DBG2("Cannot schedule socket %p for transmission"
+		T_WARN("Cannot schedule socket %p for transmission"
 		       " (queue size %d)\n", sk,
 		       tfw_wq_size(&per_cpu(si_wq, cpu)));
 		sock_put(sk);
@@ -1003,6 +1003,9 @@ ss_tcp_data_ready(struct sock *sk)
 		return;
 	}
 
+	if (unlikely(SS_CONN_TYPE(sk) & Conn_Reset))
+		return;
+
 	if (skb_queue_empty(&sk->sk_receive_queue)) {
 		/*
 		 * Check for URG data.
@@ -1028,6 +1031,7 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_BLOCK_WITH_RST:
 		flags = SS_F_ABORT_FORCE;
 		action = ss_close;
+		SS_CONN_TYPE(sk) |= Conn_Reset;
 		break;
 	case SS_BAD:
 		flags = SS_F_SYNC;
