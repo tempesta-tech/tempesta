@@ -224,6 +224,7 @@ typedef struct {
 	unsigned int		size;
 	unsigned int		window;
 	bool			wnd_update;
+	bool			destroed;
 } TfwHPackDTbl;
 
 /**

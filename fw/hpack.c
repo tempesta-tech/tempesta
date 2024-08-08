@@ -770,6 +770,21 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	return 0;
 }
 
+static void
+for_each_tbl_entry(TfwHPackDTbl *__restrict tbl)
+{
+	unsigned int count = tbl->n;
+	unsigned int curr = tbl->curr;
+	TfwHPackEntry *entry, *entries = tbl->entries;
+	unsigned int i;
+
+	printk(KERN_ALERT "curr %u count %u length %u size %u", curr, count, tbl->length, tbl->size);
+	for (i = 0; i < count; i++) {
+		entry = entries + i;
+		printk(KERN_ALERT "hdr %px name_len %lu", entry->hdr, entry->name_len);
+	}
+}
+
 /*
  * The procedure for adding new header into the HPACK decoder table.
  * Note, that our decoder dynamic table must satisfy several main requirements:
@@ -841,13 +856,16 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 
 			cp = entries + early;
 			do {
-				if (!cp || !cp->hdr) {
-					printk(KERN_ALERT "cp %px hdr %px size %u window %u", cp, cp->hdr, size, window);
-					if (!iii) {
-						printk(KERN_ALERT "%s: curr: %u, early entry: %u (%u entries),"
-                               				"maximum allowed decreased size: %u\n",  __func__,
+				if (!cp || !cp->hdr || (unsigned long)cp->hdr < 0xffff) {
+					printk(KERN_ALERT "cp %px hdr %px size %u window %u iii %d destroed %d", cp, cp->hdr, size, window, iii, tbl->destroed);
+					printk(KERN_ALERT "%s: curr: %u, early entry: %u (%u entries),"
+                             				"maximum allowed decreased size: %u\n",  __func__,
                                				curr, early, count, window);
-					}
+						window += delta;
+						printk(KERN_ALERT "%s: max table size: %u, current size: %u, new size: %u, delta:"
+               " %u\n", __func__, window, size, new_size, delta);
+						printk(KERN_ALERT "hdr_len %lu", hdr_len);
+						for_each_tbl_entry(tbl);
 				}
 
 				size -= HPACK_ENTRY_OVERHEAD + cp->hdr->len;
@@ -859,6 +877,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				early++;
 				cp++;
 				count--;
+				iii++;
 				if (unlikely(early == length)) {
 					early = 0;
 					cp = entries;
@@ -1157,6 +1176,7 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	tfw_huffman_init(hp);
 
 	dt->window = hp->max_window = htbl_sz;
+	dt->destroed = false;
 	if (!(dt->pool = __tfw_pool_new(0)))
 		return -ENOMEM;
 	if (!(dt->h_pool = __tfw_pool_new(0)))
@@ -1209,6 +1229,7 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
 	spin_unlock(&hpack_trace_lock);
 	BUG_ON(st != 1);
 
+	hp->dec_tbl.destroed = true;
 	tfw_pool_destroy(hp->enc_tbl.pool);
 	tfw_pool_destroy(hp->dec_tbl.h_pool);
 	tfw_pool_destroy(hp->dec_tbl.pool);
