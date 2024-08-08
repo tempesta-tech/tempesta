@@ -797,7 +797,8 @@ static int
 tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	int r;
-	TlsCtx *tls = tfw_tls_context(c);
+	TlsCtx *tls;
+
 	/*
 	 * Save `ss_flags` for later access.
 	 * Message sending may happen on another CPU,
@@ -805,6 +806,10 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	 * so referencing `msg` since then is wrong.
 	 */
 	int ss_flags = READ_ONCE(msg->ss_flags);
+
+	tfw_connection_get(c);
+
+	tls = tfw_tls_context(c);
 
 	T_DBG("TLS %lu bytes (%u bytes)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
@@ -819,7 +824,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	r = ss_send(c->sk, &msg->skb_head,
 		    msg->ss_flags & ~SS_F_CLOSE_FORCE);
 	if (r)
-		return r;
+		goto out;
 
 	/*
 	 * We can not send the alert on conn_drop hook, because the hook
@@ -834,6 +839,8 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 		spin_unlock(&tls->lock);
 	}
 
+out:
+	tfw_connection_put(c);
 	return r;
 }
 
