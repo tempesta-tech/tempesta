@@ -335,6 +335,13 @@ tfw_sock_clnt_drop(struct sock *sk)
 			  ctx->hpack.state);
 	}
 
+	if (TFW_CONN_PROTO(conn) == TFW_FSM_H2) {
+		TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
+		WARN_ONCE(ctx && atomic_read(&ctx->hpack.inuse),
+			  "---> free req when hpack is in use, hpack->state=%d",
+			  ctx->hpack.state);
+	}
+
 	T_DBG3("connection lost: close client socket: sk=%p, conn=%p, "
 	       "client=%p\n", sk, conn, conn->peer);
 
