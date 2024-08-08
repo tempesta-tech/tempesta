@@ -30,26 +30,6 @@
 
 #define HTTP2_DEF_WEIGHT	16
 
-static struct kmem_cache *stream_cache;
-
-int
-tfw_h2_stream_cache_create(void)
-{
-	stream_cache = kmem_cache_create("tfw_stream_cache", sizeof(TfwStream),
-					 0, 0, NULL);
-	if (!stream_cache)
-		return -ENOMEM;
-
-	return 0;
-}
-
-void
-tfw_h2_stream_cache_destroy(void)
-{
-	kmem_cache_destroy(stream_cache);
-}
-
-
 static inline void
 tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
 {
@@ -102,10 +82,10 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 }
 
 static TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
-		  long int loc_wnd, long int rem_wnd)
+tfw_h2_add_stream(TfwH2Ctx *ctx, unsigned int id, unsigned short weight)
 {
 	TfwStream *new_stream;
+	TfwStreamSched *sched = &ctx->sched;
 	struct rb_node **new = &sched->streams.rb_node;
 	struct rb_node *parent = NULL;
 
@@ -123,11 +103,12 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 		}
 	}
 
-	new_stream = kmem_cache_alloc(stream_cache, GFP_ATOMIC | __GFP_ZERO);
+	new_stream = tfw_h2_conext_alloc_stream(ctx);
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
+	tfw_h2_init_stream(new_stream, id, weight, ctx->lsettings.wnd_sz,
+			   ctx->rsettings.wnd_sz);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
@@ -167,7 +148,7 @@ tfw_h2_stream_purge_all_and_free_response(TfwStream *stream)
 void
 tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	struct list_head *pos, *prev = &ctx->idle_streams.list;
 	bool found = false;
 
@@ -203,7 +184,7 @@ tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle)
 void
 tfw_h2_stream_remove_idle(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	/*
 	 * We add and remove streams from idle queue under the
@@ -233,9 +214,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	       pri->exclusive, pri->stream_id, ctx, ctx->streams_num);
 
 	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
-				   ctx->lsettings.wnd_sz,
-				   ctx->rsettings.wnd_sz);
+	stream = tfw_h2_add_stream(ctx, id, pri->weight);
 	if (!stream)
 		return NULL;
 
@@ -253,7 +232,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
-	tfw_h2_delete_stream(stream);
+	tfw_h2_conext_free_stream(ctx, stream);
 	--ctx->streams_num;
 }
 
@@ -828,18 +807,11 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 	return NULL;
 }
 
-void
-tfw_h2_delete_stream(TfwStream *stream)
-{
-	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
-	kmem_cache_free(stream_cache, stream);
-}
-
 int
 tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 			    unsigned long h_len, unsigned long b_len)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(resp->req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	struct sk_buff *skb_head = resp->msg.skb_head;
 	TfwStream *stream;
 
