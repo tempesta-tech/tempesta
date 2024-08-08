@@ -5986,6 +5986,7 @@ next_msg:
 					"Can't split pipelined requests",
 					HTTP2_ECODE_PROTO);
 		}
+		*splitted = skb;
 	} else {
 		skb = NULL;
 	}
@@ -5997,13 +5998,11 @@ next_msg:
 	 * while it's enough to parse only headers.
 	 */
 	if (!__check_authority_correctness(req)) {
-		*splitted = skb;
 		return tfw_http_req_parse_drop(req, 400, "Invalid authority",
 					       HTTP2_ECODE_PROTO);
 	}
 
 	if ((r = tfw_http_req_client_link(conn, req))) {
-		*splitted = skb;
 		return tfw_http_req_parse_drop(req, 400, "request dropped: "
 				"incorrect X-Forwarded-For header",
 				HTTP2_ECODE_PROTO);
@@ -6173,6 +6172,7 @@ next_msg:
 		BUG();
 	}
 
+	*splitted = NULL;
 	if (TFW_MSG_H2(req))
 		/*
 		 * Just marks request as non-idempotent if required.
@@ -6213,7 +6213,7 @@ next_msg:
 		tfw_http_send_err_resp(req, 500, "request dropped:"
 				       " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}
+	}	
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
