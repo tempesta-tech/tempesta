@@ -806,6 +806,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	 */
 	int ss_flags = READ_ONCE(msg->ss_flags);
 
+	/* for the tls reference after ss_send */
 	tfw_connection_get(c);
 
 	tls = tfw_tls_context(c);
