@@ -1316,7 +1316,7 @@ ttls_handshake_free(TlsHandshake *hs)
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 
-	memset(hs, '#', sizeof(*hs))
+	memset(hs, '#', sizeof(*hs));
 	kmem_cache_free(ttls_hs_cache, hs);
 }
 
@@ -2371,7 +2371,7 @@ ttls_key_cert_free(TlsKeyCert *key_cert)
 
 	while (cur) {
 		next = cur->next;
-		memset(cur, '#', sizeof(*cur))
+		memset(cur, '#', sizeof(*cur));
 		kfree(cur);
 		cur = next;
 	}

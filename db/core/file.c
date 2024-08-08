@@ -129,7 +129,7 @@ __ma_merge(MArea *left, MArea *right)
 	if (right->next)
 		right->next->prev = left;
 
-	memset(right, '#', sizeof(*right))
+	memset(right, '#', sizeof(*right));
 	kfree(right);
 
 	return left;

@@ -242,7 +242,7 @@ static inline void
 tdb_put(TDB *db)
 {
 	if (atomic_dec_and_test(&db->count)) {
-                memset(db, '#', sizeof(*db))
+                memset(db, '#', sizeof(*db));
 		kfree(db);
         }
 }
