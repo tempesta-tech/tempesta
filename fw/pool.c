@@ -104,6 +104,8 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 	refcnt = page_count(virt_to_page(addr));
 
 	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order && refcnt == 1)) {
+
+		memset((void *)addr, '#', PAGE_SIZE);
 		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
 		++*pgn;
 
@@ -113,6 +115,8 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 	}
 	preempt_enable();
 
+	if (refcnt == 1)
+		memset((void *)addr, '#', order << PAGE_SHIFT);
 	put_page(compound_head(virt_to_page(addr)));
 }
 
