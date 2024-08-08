@@ -1892,23 +1892,31 @@ tfw_h2_calc_frame_length(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 }
 
 static inline char
-tf2_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
+tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
 {
-	switch (type) {
-	case HTTP2_HEADERS:
-		return stream->xmit.h_len ?
-			(stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM) :
-			(stream->xmit.b_len ? HTTP2_F_END_HEADERS :
-			 HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM);
-	case HTTP2_CONTINUATION:
-		return stream->xmit.h_len ? 0 : HTTP2_F_END_HEADERS;
-	case HTTP2_DATA:
-		return stream->xmit.b_len ? 0 : HTTP2_F_END_STREAM;
-	default:
-		BUG();
-	};
+	char flags = 0;
 
-	return 0;
+	if (stream->xmit.h_len && !stream->xmit.b_len
+	    && type == HTTP2_HEADERS)
+		flags |= HTTP2_F_END_STREAM;
+
+	if (stream->xmit.t_len && !stream->xmit.b_len
+	    && type == HTTP2_HEADERS)
+		flags |= HTTP2_F_END_STREAM;
+
+	if (!stream->xmit.is_trailer_cont
+	    && !stream->xmit.h_len && type != HTTP2_DATA)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (stream->xmit.is_trailer_cont
+	    && !stream->xmit.t_len && type != HTTP2_DATA)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (!stream->xmit.h_len && !stream->xmit.b_len && !stream->xmit.t_len
+	    && !tfw_h2_stream_is_eos_sent(stream))
+		flags |= HTTP2_F_END_STREAM;
+
+	return flags;
 }
 
 static inline int
@@ -1931,13 +1939,14 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned int length;
 	char *data;
 	int r;
+	char flags;
 
 
 	/*
 	 * Very unlikely case, when skb_head and one or more next skbs
 	 * are empty because of transformation during making HEADERS.
 	 */
-	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
+	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA || !stream->xmit.h_len) {
 		struct sk_buff *skb = stream->xmit.skb_head;
 
 		while (skb && unlikely(!skb->len)) {
@@ -1951,7 +1960,8 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 					 stream->xmit.frame_length);
 	BUG_ON(!data);
 
-	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
+	if ((type == HTTP2_HEADERS && !stream->xmit.h_len && stream->xmit.t_len)
+	     || type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
 		it.skb = it.skb_head = stream->xmit.skb_head;
 		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str)))
 			return r;
@@ -1970,8 +1980,10 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		ctx->rem_wnd -= length;
 		stream->rem_wnd -= length;
 		stream->xmit.b_len -= length;
-	} else {
+	} else if (stream->xmit.h_len) {
 		stream->xmit.h_len -= length;
+	} else if (stream->xmit.t_len) {
+		stream->xmit.t_len -= length;
 	}
 
 	*snd_wnd -= length;
@@ -1979,11 +1991,12 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	frame_hdr.length = length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	frame_hdr.flags = tf2_h2_calc_frame_flags(stream, type);
+	flags = tfw_h2_calc_frame_flags(stream, type);
+	frame_hdr.flags = flags;
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
 	stream->xmit.frame_length += length + FRAME_HEADER_SIZE;
-	switch (tfw_h2_stream_send_process(ctx, stream, type)) {
+	switch (tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags)) {
 	case STREAM_FSM_RES_OK:
 	case STREAM_FSM_RES_IGNORE:
 		break;
@@ -2095,7 +2108,31 @@ do {									\
 			return r;
 		}
 
-		fallthrough;
+		T_FSM_JMP(HTTP2_SEND_FRAMES);
+	}
+
+	T_FSM_STATE(HTTP2_MAKE_TRAILER_FRAMES) {
+		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_HEADERS);
+		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
+					       snd_wnd, stream->xmit.t_len);
+		if (unlikely(r)) {
+			T_WARN("Failed to make trail headers frame %d", r);
+			return r;
+		}
+
+		T_FSM_JMP(HTTP2_SEND_FRAMES);
+	}
+
+	T_FSM_STATE(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES) {
+		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION);
+		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
+					       snd_wnd, stream->xmit.t_len);
+		if (unlikely(r)) {
+			T_WARN("Failed to make trail continuation frame %d", r);
+			return r;
+		}
+
+		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
@@ -2111,11 +2148,19 @@ do {									\
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
 			if (unlikely(stream->xmit.postponed) &&
-			    !stream->xmit.frame_length)
+			    !stream->xmit.frame_length &&
+			    !stream->xmit.t_len)
 				ss_skb_tcp_entail_list(sk,
 						       &stream->xmit.postponed);
 			if (stream->xmit.b_len) {
 				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
+			} else if (stream->xmit.t_len) {
+				if (likely(!stream->xmit.is_trailer_cont)) {
+					stream->xmit.is_trailer_cont = true;
+					T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
+				} else {
+					T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
+				}
 			} else {
 				fallthrough;
 			}
