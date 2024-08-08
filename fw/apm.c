@@ -1114,7 +1114,6 @@ tfw_apm_free_ubuf(TfwApmData *data)
 
 	for_each_online_cpu(icpu) {
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
-		TRASH(ubuf->ubent[0]);
 		kfree(ubuf->ubent[0]);
 	}
 	free_percpu(data->ubuf);
@@ -1124,7 +1123,6 @@ static void
 tfw_apm_ref_destroy(TfwApmRef *ref)
 {
 	tfw_apm_free_ubuf(&ref->data);
-	TRASH(ref);
 	kfree(ref);
 }
 
@@ -1243,7 +1241,6 @@ static void
 tfw_apm_data_destroy(TfwApmData *data)
 {
 	tfw_apm_free_ubuf(data);
-	TRASH(data);
 	kfree(data);
 }
 
@@ -1658,12 +1655,9 @@ __tfw_cfgop_cleanup_apm_hm(void)
 
 	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
 		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
-		TRASH(hm->url);
 		kfree(hm->url);
-		TRASH(hm->codes);
 		kfree(hm->codes);
 		list_del(&hm->list);
-		TRASH(hm);
 		kfree(hm);
 	}
 	INIT_LIST_HEAD(&tfw_hm_list);
@@ -1910,7 +1904,6 @@ tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 
 	list_for_each_entry_safe(ent, tmp, &tfw_hm_codes_list, list) {
 		list_del_init(&ent->list);
-		TRASH(ent);
 		kfree(ent);
 	}
 	INIT_LIST_HEAD(&tfw_hm_codes_list);
@@ -2028,7 +2021,6 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		{
 			T_ERR_NL("Unable to parse http code value: '%s'\n",
 				 val);
-			TRASH(tfw_hm_entry->codes);
 			kfree(tfw_hm_entry->codes);
 			return -EINVAL;
 		}

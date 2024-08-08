@@ -412,7 +412,6 @@ __do_close_table(TDB *db)
 
 	TDB_LOG("Close table '%s'\n", db->tbl_name);
 
-	memset(db, '#', sizeof(*db));
 	kfree(db);
 }
 

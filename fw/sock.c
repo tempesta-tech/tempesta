@@ -304,7 +304,6 @@ ss_wq_pop(TfwRBQueue *wq, SsWork *sw, long *ticket)
 		spin_unlock(&cb->lock);
 		if (cn) {
 			memcpy_fast(sw, &cn->sw, sizeof(*sw));
-			TRASH(cn);
 			kmem_cache_free(ss_cbacklog_cache, cn);
 			return 0;
 		}

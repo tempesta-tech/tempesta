@@ -1887,17 +1887,14 @@ tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool release_parsed)
 	tfw_sg_put(sg_cfg->orig_sg);
 
 	if (sg_cfg->sched_arg) {
-		TRASH(sg_cfg->sched_arg);
 		kfree(sg_cfg->sched_arg);
 	}
 	list_del_init(&sg_cfg->list);
 
 	if (sg_cfg->hm_name) {
-		TRASH(sg_cfg->hm_name);
 		kfree(sg_cfg->hm_name);
 	}
 
-	TRASH(sg_cfg);
 	kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 }
 

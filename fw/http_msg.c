@@ -1219,7 +1219,7 @@ tfw_http_msg_unpair(TfwHttpMsg *msg)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	T_DBG3("Free msg=%p\n", m);
+	T_WARN("Free msg=%px\n", m);
 	if (!m)
 		return;
 

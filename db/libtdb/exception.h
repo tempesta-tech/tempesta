@@ -92,7 +92,6 @@ private:
 		for (auto i = 0; i < n_addr; ++i)
 			str_ += std::string("\n\t") + btrace[i];
 
-		memset(btrace, '#', sizeof(*btrace))
 		free(btrace);
 	}
 };

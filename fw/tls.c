@@ -483,7 +483,6 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N)) {
-		TRASH(sgt.sgl);
 		kfree(sgt.sgl);
 	}
 	if (!r)
