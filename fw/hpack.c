@@ -791,10 +791,14 @@ for_each_tbl_entry_check(TfwHPackDTbl *__restrict tbl)
 	unsigned int count = tbl->n;
 	TfwHPackEntry *entry, *entries = tbl->entries;
 	unsigned int i;
+	TfwHPack *hpack = container_of(tbl, TfwHPack, dec_tbl);
+	TfwH2Ctx *ctx = container_of(hpack, TfwH2Ctx, hpack);
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
 	for (i = 0; i < count; i++) {
 		entry = entries + i;
 		if (entry->hdr == NULL || entry->name_len == 0) {
+			printk(KERN_ALERT "conn %d", atomic_read(&((TfwConn *)conn)->refcnt));
 			for_each_tbl_entry(tbl);
 			BUG();
 		}
