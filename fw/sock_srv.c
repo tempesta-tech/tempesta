@@ -693,7 +693,7 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	BUG_ON(!list_empty(&srv_conn->nip_queue));
 	BUG_ON(READ_ONCE(srv_conn->qsize));
 
-	TRASH(srv_conn);
+	//TRASH(srv_conn);
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 
@@ -1038,7 +1038,7 @@ __tfw_cfgop_new_sg_cfg(const char *name, unsigned int len)
 	memset(sg_cfg, 0, sizeof(TfwCfgSrvGroup));
 	sg_cfg->parsed_sg = tfw_sg_new(name, len, GFP_KERNEL);
 	if (!sg_cfg->parsed_sg) {
-		TRASH(sg_cfg);
+		///TRASH(sg_cfg);
 		kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 		return NULL;
 	}

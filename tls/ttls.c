@@ -1313,7 +1313,7 @@ ttls_handshake_free(TlsHandshake *hs)
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 	
-	TRASH(hs);
+	//TRASH(hs);
 	kmem_cache_free(ttls_hs_cache, hs);
 }
 

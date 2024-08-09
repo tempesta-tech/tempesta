@@ -1253,7 +1253,7 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
 	tfw_pool_destroy(hp->dec_tbl.h_pool);
 	tfw_pool_destroy(hp->dec_tbl.pool);
 
-	TRASH(hp);
+	//TRASH(hp);
 }
 
 /*

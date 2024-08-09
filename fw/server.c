@@ -90,7 +90,7 @@ tfw_server_destroy(TfwServer *srv)
 	tfw_apm_del_srv(srv);
 	if (srv->sg)
 		tfw_sg_put(srv->sg);
-	TRASH(srv);
+	//TRASH(srv);
 	kmem_cache_free(srv_cache, srv);
 }
 
@@ -477,7 +477,7 @@ tfw_sg_destroy(TfwSrvGroup *sg)
 	T_DBG2("release group: '%s'\n", sg->name);
 	WARN_ON(!list_empty(&sg->srv_list));
 
-	TRASH(sg);
+	///TRASH(sg);
 	kfree(sg);
 	atomic64_dec(&act_sg_n);
 }
