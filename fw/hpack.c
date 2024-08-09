@@ -3703,7 +3703,12 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 FRAME_HEADER_SIZE);
-	BUG_ON(!data);
+	if (unlikely(!data)) {
+		data = ss_skb_alloc_frag_or_new_skb(stream->xmit.skb_head,
+						    FRAME_HEADER_SIZE);
+		if (unlikely(!data))
+			return -ENOMEM;
+	}
 
 	r = tfw_http_msg_insert(&it, &data, &new_size);
 	if (unlikely(r))
