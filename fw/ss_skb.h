@@ -409,7 +409,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		begin = skb->data;
 		end = begin + skb_headlen(skb);
 
-		if (begin + off <= end)
+		if (begin + off < end)
 			return begin + off;
 		off -= skb_headlen(skb);
 	}
@@ -421,7 +421,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		end = begin + skb_frag_size(f);
 		d = end - begin;
 
-		if (off > d) {
+		if (off >= d) {
 			off -= d;
 			continue;
 		}
@@ -429,6 +429,43 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 	}
 
 	return NULL;
+}
+
+static inline void *
+ss_skb_alloc_frag_or_new_skb(struct sk_buff *skb, size_t size)
+{
+	struct skb_shared_info *si = skb_shinfo(skb);
+	struct sk_buff *nskb = NULL;
+	void *addr;
+	struct page *page;
+	int off, i = si->nr_frags;
+
+	if (i == MAX_SKB_FRAGS) {
+		nskb = ss_skb_alloc(0);
+		if (!nskb)
+			return NULL;
+		ss_skb_insert_after(skb, nskb);
+	}
+
+	addr = pg_skb_alloc(size, GFP_ATOMIC, NUMA_NO_NODE);
+	if (!addr) {
+		if (nskb) {
+			ss_skb_remove(nskb);
+			kfree_skb(nskb);
+		}
+		return NULL;
+	}
+	page = virt_to_page(addr);
+	off = addr - page_address(page);
+
+	if (i == MAX_SKB_FRAGS) {
+		i = 0;
+		skb = nskb;
+	}
+
+	__skb_fill_page_desc(skb, si->nr_frags, page, off, size);
+	ss_skb_adjust_data_len(skb, size);
+	return addr;
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
