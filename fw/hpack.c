@@ -770,21 +770,7 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	return 0;
 }
 
-static void
-for_each_tbl_entry(TfwHPackDTbl *__restrict tbl)
-{
-	unsigned int count = tbl->n;
-	unsigned int curr = tbl->curr;
-	TfwHPackEntry *entry, *entries = tbl->entries;
-	unsigned int i;
-
-	printk(KERN_ALERT "curr %u count %u length %u size %u", curr, count, tbl->length, tbl->size);
-	for (i = 0; i < count; i++) {
-		entry = entries + i;
-		printk(KERN_ALERT "hdr %px name_len %lu", entry->hdr, entry->name_len);
-	}
-}
-
+/*
 static void
 for_each_tbl_entry_check(TfwHPackDTbl *__restrict tbl)
 {
@@ -800,7 +786,7 @@ for_each_tbl_entry_check(TfwHPackDTbl *__restrict tbl)
 		}
 	}
 }
-
+*/
 
 /*
  * The procedure for adding new header into the HPACK decoder table.
@@ -837,7 +823,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	TfwHPackEntry *entry, *prev_entry, *entries = tbl->entries;
 	int iii = 0;
 
-	for_each_tbl_entry_check(tbl);
+	//for_each_tbl_entry_check(tbl);
 
 	/* Check for integer overflow occurred during @delta calculation. */
 	if ((delta = HPACK_ENTRY_OVERHEAD + hdr_len) < hdr_len)	{
@@ -875,18 +861,6 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 
 			cp = entries + early;
 			do {
-				if (!cp || !cp->hdr || (unsigned long)cp->hdr < 0xffff) {
-					printk(KERN_ALERT "cp %px hdr %px size %u window %u iii %d destroed %d", cp, cp->hdr, size, window, iii, tbl->destroed);
-					printk(KERN_ALERT "%s: curr: %u, early entry: %u (%u entries),"
-                             				"maximum allowed decreased size: %u\n",  __func__,
-                               				curr, early, count, window);
-						window += delta;
-						printk(KERN_ALERT "%s: max table size: %u, current size: %u, new size: %u, delta:"
-               " %u\n", __func__, window, size, new_size, delta);
-						printk(KERN_ALERT "hdr_len %lu", hdr_len);
-						for_each_tbl_entry(tbl);
-				}
-
 				size -= HPACK_ENTRY_OVERHEAD + cp->hdr->len;
 				T_DBG3("%s: dropped index: %u\n", __func__,
 				       early);
@@ -1562,7 +1536,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		printk(KERN_ALERT "---> re-enter tfw_hpack_decode in case of error");
 	}
 
-	for_each_tbl_entry_check(&hp->dec_tbl);
+	//for_each_tbl_entry_check(&hp->dec_tbl);
 
 	WARN_ONCE(hp->state == HPACK_STATE_DT_INVALID,
 		  "---> re-enter tfw_hpack_decode in case of error");
