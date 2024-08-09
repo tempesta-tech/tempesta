@@ -626,7 +626,7 @@ static void
 tfw_sched_ratio_rtodata_put(struct rcu_head *rcup)
 {
 	TfwRatioData *rtodata = container_of(rcup, TfwRatioData, rcu);
-	TRASH(rtodata);
+	//TRASH(rtodata);
 	kfree(rtodata);
 }
 
@@ -980,17 +980,17 @@ tfw_sched_ratio_cleanup(TfwRatio *ratio)
 
 	/* Data that is shared between pool entries. */
 	for (si = 0; si < ratio->srv_n; ++si) {
-		TRASH(ratio->srvdesc[si].conn);
+		//TRASH(ratio->srvdesc[si].conn);
 		kfree(ratio->srvdesc[si].conn);
 	}
 
-	TRASH(ratio->hstdata);
+	//TRASH(ratio->hstdata);
 	kfree(ratio->hstdata);
 
-	TRASH(ratio->rtodata);
+	//TRASH(ratio->rtodata);
 	kfree(ratio->rtodata);
 
-	TRASH(ratio);
+	//TRASH(ratio);
 	kfree(ratio);
 }
 
@@ -1067,7 +1067,7 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 
 	return 0;
 err:
-	TRASH(srvdesc->conn);
+	//TRASH(srvdesc->conn);
 	kfree(srvdesc->conn);
 	return -EINVAL;
 }
@@ -1272,7 +1272,7 @@ tfw_sched_ratio_add_srv(TfwServer *srv)
 	if (!(srvdesc = kzalloc(sizeof(TfwRatioSrvDesc), GFP_KERNEL)))
 		return -ENOMEM;
 	if ((r = tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc))) {
-		TRASH(srvdesc);
+		//TRASH(srvdesc);
 		kfree(srvdesc);
 		return r;
 	}
@@ -1287,10 +1287,10 @@ tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
 {
 	TfwRatioSrvDesc *srvdesc = container_of(rcu, TfwRatioSrvDesc, rcu);
 
-	TRASH(srvdesc->conn);
+	//TRASH(srvdesc->conn);
 	kfree(srvdesc->conn);
 
-	TRASH(srvdesc);
+	//TRASH(srvdesc);
 	kfree(srvdesc);
 }
 

@@ -880,7 +880,7 @@ tfw_h2_delete_stream(TfwStream *stream, TfwH2Ctx *ctx)
 		__set_bit(stream->id, ctx->CLOSED);
 	}
 
-	TRASH(stream);
+	//TRASH(stream);
 	kmem_cache_free(stream_cache, stream);
 }
 

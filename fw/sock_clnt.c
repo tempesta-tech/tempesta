@@ -138,11 +138,11 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 	if (!(TFW_CONN_TYPE(cli_conn) & Conn_Negotiable)) {
 		int t = TFW_CONN_TYPE(cli_conn);
 
-		TRASH(cli_conn);
+		//TRASH(cli_conn);
 		kmem_cache_free(tfw_cli_cache(t), cli_conn);
 	}
 	else {
-		TRASH(cli_conn);
+		//TRASH(cli_conn);
 		kmem_cache_free(tfw_cli_cache(TFW_FSM_H2), cli_conn);
 	}
 }
