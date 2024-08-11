@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,7 +43,6 @@
  *
  * Only the source IP address is printed to @out_buf, and the TCP/SCTP
  * port is not printed. That is done because:
- *  - Less output bytes means more chance for fast path in __hdr_add().
  *  - RFC7239 says the port is optional.
  *  - Most proxy servers don't put it to the field.
  *  - Usually you get a random port of an outbound connection there,
@@ -800,15 +799,6 @@ ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt
 	 * since the error is passed further.
 	 */
 	return r <= 0 ? r : -ENOMEM;
-}
-
-int
-ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
-		unsigned int len, TfwStr *it)
-{
-	int _;
-
-	return ss_skb_get_room_w_frag(skb_head, skb, pspt, len, it, &_);
 }
 
 /**
