@@ -1101,6 +1101,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 		(TFW_SKB_CB(resp->msg.skb_head)->opaque_data == resp);
 	TfwHttpReq *req = resp->req;
 	TfwConn *conn = req->conn;
+	int status = READ_ONCE(resp->status);
 
 	tfw_connection_get(conn);
 	do_access_log(resp);
@@ -1113,7 +1114,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 		resp_in_xmit = false;
 	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
-		tfw_inc_global_hm_stats(resp->status);
+		tfw_inc_global_hm_stats(status);
 	}
 
 	if (!resp_in_xmit)
