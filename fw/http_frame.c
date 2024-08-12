@@ -1950,10 +1950,12 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 stream->xmit.frame_length);
 	if (unlikely(!data)) {
-		data = ss_skb_alloc_frag_or_new_skb(stream->xmit.skb_head,
-						    FRAME_HEADER_SIZE);
-		if (unlikely(!data))
-			return -ENOMEM;
+		printk(KERN_ALERT "%s NO DATA %u %u %u | %d", __func__,
+		       (unsigned)stream->xmit.frame_length,
+		       (unsigned)stream->xmit.h_len,
+		       (unsigned)stream->xmit.b_len,
+		       type);
+		BUG();
 	}
 
 	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {

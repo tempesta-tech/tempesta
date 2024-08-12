@@ -846,7 +846,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
 
-	if (ctx->qqq) {
+	if (ctx->qqq == 333) {
 		printk(KERN_ALERT "QQQQQQQQQQQQQQQQQQQQ BBBB %d %px", ctx->qqq, conn);
 		for_each_tbl_entry(tbl);
 	}
@@ -975,16 +975,15 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				curr = count;
 			}
 			else if (entries == previous) {
+				printk(KERN_ALERT "======");
 				memcpy_fast(entries + new_block - tail,
 					    entries + wrap, tail);
 			}
 			else {
 				if (tail) {
 					printk(KERN_ALERT "tail !!!!!!!!!!!!!!!!!! entries %px %px wrap %lu tail %lu | %px", entries, previous, wrap, tail, conn);
-					ctx->qqq = 222;
 					memcpy_fast(entries, previous + wrap,
 						    tail);
-					for_each_tbl_entry_check(tbl);
 				}
 				if (wrap) {
 					ctx->qqq = 333;
@@ -1000,7 +999,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				 */
 				tfw_pool_clean(pool);
 
-				if (ctx->qqq) {
+				if (ctx->qqq == 333) {
 					printk(KERN_ALERT "QQQQQQQQQQQQQQQQQQQQ %d %px", ctx->qqq, conn);
 					for_each_tbl_entry_check(tbl);
 				}
@@ -3854,10 +3853,9 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 FRAME_HEADER_SIZE);
 	if (unlikely(!data)) {
-		data = ss_skb_alloc_frag_or_new_skb(stream->xmit.skb_head,
-						    FRAME_HEADER_SIZE);
-		if (unlikely(!data))
-			return -ENOMEM;
+		printk(KERN_ALERT "NO DATA %u %u", stream->xmit.skb_head->len,
+			skb_headlen(stream->xmit.skb_head));
+		BUG();
 	}
 
 	r = tfw_http_msg_insert(&it, &data, &new_size);
