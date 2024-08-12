@@ -943,16 +943,16 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				curr = count;
 			}
 			else if (entries == previous) {
-				memcpy_fast(entries + new_block - tail,
-					    entries + wrap, tail);
+				memcpy_fast((char *)entries + new_block - tail,
+					    (char *)entries + wrap, tail);
 				BUG_ON(memcmp(entries + new_block - tail, entries + wrap, tail));
 			}
 			else {
 				if (tail)
-					memcpy_fast(entries, previous + wrap,
+					memcpy_fast(entries, (char *)previous + wrap,
 						    tail);
 				if (wrap)
-					memcpy_fast(entries + tail, previous,
+					memcpy_fast((char *)entries + tail, previous,
 						    wrap);
 
 				{
