@@ -333,6 +333,8 @@ tfw_pool_destroy(TfwPool *p)
 int
 tfw_pool_init(void)
 {
+	atomic_set(&pool_trace_seq, 0);
+	hash_init(pool_trace);
 	pg_cache = alloc_percpu(unsigned long [TFW_POOL_PGCACHE_SZ]);
 	if (pg_cache == NULL)
 		return -ENOMEM;
