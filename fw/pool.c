@@ -43,6 +43,7 @@
  */
 #include <linux/gfp.h>
 #include <linux/mm.h>
+#include <linux/hashtable.h>
 
 #include "lib/str.h"
 #include "pool.h"
@@ -53,6 +54,16 @@
 
 static DEFINE_PER_CPU(unsigned int, pg_next);
 static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
+
+struct pool_trace {
+	int seq;
+	int state;
+	struct hlist_node node;
+};
+
+static atomic_t pool_trace_seq;
+DEFINE_SPINLOCK(pool_trace_lock);
+DECLARE_HASHTABLE(pool_trace, 10);
 
 /*
  * Per-CPU page cache.
@@ -261,7 +272,33 @@ __tfw_pool_new(size_t n)
 	p->off = c->off = TFW_POOL_HEAD_OFF;
 	p->curr = c;
 
+	{
+		struct pool_trace *t;
+		t = kmalloc(sizeof(struct pool_trace), GFP_ATOMIC);
+		t->seq = p->seq = atomic_inc_return(&pool_trace_seq);
+		t->state = 1;
+		spin_lock(&pool_trace_lock);
+		hash_add(pool_trace, &t->node, t->seq);
+		spin_unlock(&pool_trace_lock);
+	}
+
 	return p;
+}
+
+void
+tfw_pool_validate(TfwPool *p)
+{
+	int st = 0;
+	struct pool_trace *t;
+	spin_lock(&pool_trace_lock);
+	hash_for_each_possible(pool_trace, t, node, p->seq) {
+		if (t->seq == p->seq) {
+			st = t->state;
+			break;
+		}
+	}
+	spin_unlock(&pool_trace_lock);
+	BUG_ON(st != 1);
 }
 
 void
@@ -271,6 +308,21 @@ tfw_pool_destroy(TfwPool *p)
 
 	if (!p)
 		return;
+
+	{
+		int st = 0;
+		struct pool_trace *t;
+		spin_lock(&pool_trace_lock);
+		hash_for_each_possible(pool_trace, t, node, p->seq) {
+			if (t->seq == p->seq) {
+				st = t->state;
+				t->state = 2;
+				break;
+			}
+		}
+		spin_unlock(&pool_trace_lock);
+		BUG_ON(st != 1);
+	}
 
 	for (c = p->curr; c; c = next) {
 		next = c->next;

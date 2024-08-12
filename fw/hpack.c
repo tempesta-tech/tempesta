@@ -745,6 +745,11 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	data = (char *)(TFW_STR_LAST(d_hdr) + 1);
 
 	d = d_hdr->chunks;
+	{
+		TfwHttpReq *req = container_of(it, TfwHttpReq, pit);
+		BUG_ON(s_hdr->nchunks == 0);
+		tfw_pool_validate(req->pool);
+	}
 	TFW_STR_FOR_EACH_CHUNK(s, s_hdr, end) {
 		*d = *s;
 		d->data = data;
@@ -838,6 +843,9 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			       "maximum allowed decreased size: %u\n",  __func__,
 			       curr, early, count, window);
 
+			tfw_pool_validate(tbl->pool);
+			tfw_pool_validate(tbl->h_pool);
+
 			cp = entries + early;
 			do {
 				size -= HPACK_ENTRY_OVERHEAD + cp->hdr->len;
@@ -915,6 +923,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			else if (entries == previous) {
 				memcpy_fast(entries + new_block - tail,
 					    entries + wrap, tail);
+				BUG_ON(memcmp(entries + new_block - tail, entries + wrap, tail));
 			}
 			else {
 				if (tail)
@@ -923,6 +932,18 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				if (wrap)
 					memcpy_fast(entries + tail, previous,
 						    wrap);
+
+				{
+					int i;
+					for (i = 0; i < count; i++, curr++) {
+						if (curr == tbl->length) {
+							curr = 0;
+						}
+						BUG_ON(memcmp(previous + curr,
+							      entries + i,
+							      sizeof(TfwHPackEntry)));
+					}
+				}
 
 				/*
 				 * Delete all pool chunks, except the last

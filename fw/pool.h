@@ -59,6 +59,7 @@ typedef struct {
 	TfwPoolChunk	*curr;
 	unsigned int	order;
 	unsigned int	off;
+	int		seq;
 } TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
@@ -85,6 +86,7 @@ void tfw_pool_clean_single(TfwPool *p, void *ptr);
 void tfw_pool_destroy(TfwPool *p);
 void *__tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n,
 			 bool copy);
+void tfw_pool_validate(TfwPool *p);
 
 static inline void *
 tfw_pool_alloc_np(TfwPool *p, size_t n, bool *np)
