@@ -841,6 +841,16 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	TfwHPackEntry *entry, *prev_entry, *entries = tbl->entries;
 	int iii = 0;
 
+	TfwHPack *hpack = container_of(tbl, TfwHPack, dec_tbl);
+	TfwH2Ctx *ctx = container_of(hpack, TfwH2Ctx, hpack);
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+
+
+	if (ctx->qqq) {
+		printk(KERN_ALERT "QQQQQQQQQQQQQQQQQQQQ BBBB %d %px", ctx->qqq, conn);
+		for_each_tbl_entry(tbl);
+	}
+
 	for_each_tbl_entry_check(tbl);
 
 	/* Check for integer overflow occurred during @delta calculation. */
@@ -969,18 +979,32 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 					    entries + wrap, tail);
 			}
 			else {
-				if (tail)
+				if (tail) {
+					printk(KERN_ALERT "tail !!!!!!!!!!!!!!!!!! entries %px %px wrap %lu tail %lu | %px", entries, previous, wrap, tail, conn);
+					ctx->qqq = 222;
 					memcpy_fast(entries, previous + wrap,
 						    tail);
-				if (wrap)
+					for_each_tbl_entry_check(tbl);
+				}
+				if (wrap) {
+					ctx->qqq = 333;
+					printk(KERN_ALERT "wrap !!!!!!!!!!!!!!!!!! entries %px %px wrap %lu tail %lu | %px", entries, previous, wrap, tail, conn);
 					memcpy_fast(entries + tail, previous,
 						    wrap);
+					for_each_tbl_entry_check(tbl);
+				}
 
 				/*
 				 * Delete all pool chunks, except the last
 				 * allocated and the first one in chain.
 				 */
 				tfw_pool_clean(pool);
+
+				if (ctx->qqq) {
+					printk(KERN_ALERT "QQQQQQQQQQQQQQQQQQQQ %d %px", ctx->qqq, conn);
+					for_each_tbl_entry_check(tbl);
+				}
+
 				curr = count;
 			}
 		} else {

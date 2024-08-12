@@ -237,6 +237,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
+	ctx->qqq = 0;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }

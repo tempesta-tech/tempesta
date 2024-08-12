@@ -127,6 +127,7 @@ typedef struct tfw_h2_ctx_t {
         unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
         DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
         DECLARE_BITMAP  (CLOSED, MAX_STREAMS_TMP);
+        int             qqq;
         char            __off[0];
         struct sk_buff  *skb_head;
         TfwStream       *cur_stream;
