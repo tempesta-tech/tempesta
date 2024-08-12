@@ -981,7 +981,6 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			}
 			else {
 				if (tail) {
-					printk(KERN_ALERT "tail !!!!!!!!!!!!!!!!!! entries %px %px wrap %lu tail %lu | %px", entries, previous, wrap, tail, conn);
 					memcpy_fast(entries, previous + wrap,
 						    tail);
 				}
