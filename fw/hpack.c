@@ -923,7 +923,6 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			else if (entries == previous) {
 				memcpy_fast(entries + new_block - tail,
 					    entries + wrap, tail);
-				BUG_ON(memcmp(entries + new_block - tail, entries + wrap, tail));
 			}
 			else {
 				if (tail)
@@ -932,18 +931,6 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				if (wrap)
 					memcpy_fast(entries + tail, previous,
 						    wrap);
-
-				{
-					int i;
-					for (i = 0; i < count; i++, curr++) {
-						if (curr == tbl->length) {
-							curr = 0;
-						}
-						BUG_ON(memcmp(previous + curr,
-							      entries + i,
-							      sizeof(TfwHPackEntry)));
-					}
-				}
 
 				/*
 				 * Delete all pool chunks, except the last
