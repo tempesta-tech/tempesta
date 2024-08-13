@@ -179,14 +179,11 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 				r = tfw_ws_msg_process(conn, skb);
 			else
 				r = tfw_http_msg_process(conn, skb, &splitted);
-
 			if (splitted) {
 				/*
 				 * In the case when the current skb contains
-				 * multiple requests, we split this skb along
-				 * the request boundary. If the request was
-				 * dropped we save skb with the next request
-				 * in the `splitted` pointer.
+				 * multiple requests or responses, we split this
+				 * skb along the boundary.
 				 */
 				splitted->next = next;
 				next = splitted;

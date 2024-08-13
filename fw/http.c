@@ -6542,7 +6542,8 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
+tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
+		      struct sk_buff **splitted)
 {
 	int r;
 	unsigned int chunks_unused, parsed;
@@ -6668,6 +6669,7 @@ next_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			goto bad_msg;
 		}
+		*splitted = skb;
 	}
 	else {
 		skb = NULL;
@@ -6723,6 +6725,7 @@ next_msg:
 	 * protocol data.
 	 */
 	if (skb && !websocket) {
+		*splitted = NULL;
 		hmsib = tfw_http_msg_create_sibling(hmresp, skb);
 		/*
 		 * In case of an error there's no recourse. The
@@ -6772,6 +6775,7 @@ next_msg:
 		return r;
 
 next_resp:
+	*splitted = NULL;
 	if (skb && websocket)
 		return tfw_ws_msg_process(cli_conn->pair, skb);
 	if (hmsib) {
@@ -6879,7 +6883,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	/* That is paired request, it may be freed after resp processing,
 	 * so we cannot move it iside `if` clause. */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
-	if ((r = tfw_http_resp_process(conn, stream, skb))) {
+	if ((r = tfw_http_resp_process(conn, stream, skb, next))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		bool websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
 					  req->flags);
