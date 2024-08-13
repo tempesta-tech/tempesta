@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1677,7 +1677,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 	TfwMsgIter *it = &resp->mit.iter;
 	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
 	TfwStr *crlf = TFW_STR_LAST(&resp->crlf);
-	char *off = body ? body : crlf->data + crlf->len;
+	char *off = body ? body : crlf->data + (crlf->len - 1);
 
 	do {
 		struct sk_buff *skb;
@@ -1687,7 +1687,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			begin = it->skb->data;
 			end = begin + skb_headlen(it->skb);
 
-			if ((begin <= off) && (end >= off)) {
+			if (ss_skb_is_within_fragment(begin, off, end)) {
 				it->frag = -1;
 				/* We would end up here if the start of the body or
 				 * the end of CRLF lies within the linear data area
@@ -1710,18 +1710,14 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			begin = skb_frag_address(f);
 			end = begin + skb_frag_size(f);
 
-			if (begin > off || end < off)
+			if (!ss_skb_is_within_fragment(begin, off, end))
 				continue;
 
 			/*
-			 * If body exists and headers ends in current skb that
-			 * has only one fragment and contains only headers
-			 * just remove the fragment from skb and continue
-			 * to use this skb as head. If response doesn't have
-			 * body simply remove all fragments from skb where
-			 * LF is located.
+			 * If response doesn't have body simply remove all
+			 * fragments from skb where LF is located.
 			 */
-			if (!body || (si->nr_frags == 1 && off == end)) {
+			if (!body) {
 				__tfw_h2_msg_rm_all_frags(it->skb, cleanup);
 				goto end;
 			} else if (off != begin) {
