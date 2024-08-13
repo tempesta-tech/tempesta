@@ -950,8 +950,8 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 
 		vhost = tfw_tls_find_vhost_by_name(&srv_name);
 		if (unlikely(!vhost && !tfw_tls_allow_any_sni)) {
-			SNI_WARN("unknown server name '%.*s', reject connection.\n",
-				 (int)len, data);
+			SNI_WARN("unknown server name '%.*s' in TLS SNI,"
+				 " reject connection.\n", (int)len, data);
 			return -ENOENT;
 		}
 	}
