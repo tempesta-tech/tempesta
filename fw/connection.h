@@ -268,7 +268,7 @@ enum {
 /**
  * TLS hardened connection.
  */
-typedef struct {
+typedef struct tfw_tls_conn_t {
 	TfwCliConn	cli_conn;
 	TlsCtx		tls;
 } TfwTlsConn;
@@ -278,9 +278,9 @@ typedef struct {
 /**
  * HTTP/2 connection.
  */
-typedef struct {
+typedef struct tfw_h2_conn_t {
 	TfwTlsConn	tls_conn;
-	TfwH2Ctx	h2;
+	TfwH2Ctx	*h2;
 } TfwH2Conn;
 
 /*
@@ -290,9 +290,7 @@ typedef struct {
  * accessing http2 context, when we are sure and not sure that tls handskare
  * was finished.
  */
-#define tfw_h2_context_unsafe(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
-#define tfw_h2_context_safe(conn)	\
-	ttls_hs_done(tfw_tls_context(conn)) ? tfw_h2_context_unsafe(conn) : NULL
+#define tfw_h2_context(conn)	((TfwH2Conn *)conn)->h2
 
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */

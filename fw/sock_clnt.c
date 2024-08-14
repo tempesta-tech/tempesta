@@ -200,7 +200,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now, int ss_action)
 	 * shutdowned before TLS hadshake was finished.
 	 */
 	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
-		tfw_h2_context_safe(conn) : NULL;
+		tfw_h2_context(conn) : NULL;
 	if (!h2) {
 		if (ss_action == SS_SHUTDOWN)
 			tcp_shutdown(sk, SEND_SHUTDOWN);
