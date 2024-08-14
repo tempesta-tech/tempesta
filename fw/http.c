@@ -953,7 +953,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		 */
 		__cmpxchg((unsigned long *)&hm->conn->stream.msg,
 			  (unsigned long)hm, 0UL, sizeof(long));
-		tfw_connection_put(hm->conn);
+		TFW_CONNECTION_PUT(hm->conn);
 	}
 
 	tfw_http_msg_free(hm);
@@ -995,7 +995,7 @@ tfw_http_resp_pair_free_and_put_conn(void *opaque_data)
 	TfwHttpReq *req = resp->req;
 
 	BUG_ON(!req || !req->conn);
-	tfw_connection_put(req->conn);
+	TFW_CONNECTION_PUT(req->conn);
 	tfw_http_resp_pair_free(req);
 }
 
@@ -1103,11 +1103,11 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwConn *conn = req->conn;
 	int status = READ_ONCE(resp->status);
 
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
-		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
+		T_WARN("%s: cannot send data to client via HTTP/2 %px\n", __func__, conn);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(conn, true);
 		/* We can't send response, so we should free it here. */
@@ -2604,7 +2604,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 		return NULL;
 
 	hm->conn = conn;
-	tfw_connection_get(conn);
+	TFW_CONNECTION_GET(conn);
 	hm->stream = stream;
 	hm->cache_ctl.default_ttl = cache_default_ttl;
 
@@ -4176,7 +4176,7 @@ static inline void
 __tfw_http_ws_connection_put(TfwCliConn *cli_conn)
 {
 	if (unlikely(cli_conn->proto.type & TFW_FSM_WEBSOCKET))
-		tfw_connection_put(cli_conn->pair);
+		TFW_CONNECTION_PUT(cli_conn->pair);
 }
 
 /*
@@ -4269,14 +4269,14 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * processing ret_queue and make the current softirq retry from
 	 * determination of req_retent.
 	 */
-	tfw_connection_get((TfwConn *)(cli_conn));
+	TFW_CONNECTION_GET((TfwConn *)(cli_conn));
 	spin_lock_bh(&cli_conn->ret_qlock);
 	spin_unlock_bh(&cli_conn->seq_qlock);
 
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 
 	spin_unlock_bh(&cli_conn->ret_qlock);
-	tfw_connection_put((TfwConn *)(cli_conn));
+	TFW_CONNECTION_PUT((TfwConn *)(cli_conn));
 
 	/* Zap request/responses that were not sent due to an error. */
 	if (!list_empty(&ret_queue)) {
@@ -4993,15 +4993,18 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwConn *conn = req->conn;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
 	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
 		type == TFW_ERROR_TYPE_BAD);
+	int zzz;
 
 	/*
 	 * block_action attack/error drop - Tempesta FW must block message
 	 * silently (response won't be generated) and reset (with TCP RST)
 	 * the client connection.
 	 */
+	printk(KERN_ALERT "tfw_h2_error_resp BBB req %px conn %px, req->resp %px %px | id %d reply %d", req, req->conn, req->resp, req->resp ? req->resp->conn : NULL, smp_processor_id(), reply);
 	if (!reply) {
 		if (!on_req_recv_event)
 			tfw_connection_abort(req->conn);
@@ -5018,8 +5021,10 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * connection-specific logic.
 	 */
 	stream = req->stream;
-	if (!stream)
+	if (!stream) {
+		printk(KERN_ALERT "!stream %px", req);
 		goto skip_stream;
+	}
 
 	/*
 	 * If reply should be sent and this is not the attack case - we
@@ -5035,23 +5040,42 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
 	 * error response.
 	 */
-	tfw_connection_get(req->conn);
+	printk(KERN_ALERT "tfw_h2_error_resp req %px resp %px conn %px %d %d !!! close_after_send %d", req, req->resp, req->conn, smp_processor_id(), TFW_CONN_TYPE(req->conn) & Conn_Clnt, close_after_send);
+
+	TFW_CONNECTION_GET(conn);
 	tfw_h2_send_err_resp(req, status, close_after_send);
+
+	T_WARN("tfw_h2_error_resp 111 %px %d", req, smp_processor_id());
+
 	if (close_after_send) {
+		T_WARN("tfw_h2_error_resp 222 %px %d", req, smp_processor_id());
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
+		T_WARN("tfw_h2_error_resp 333 %px %d", req, smp_processor_id());
+		for (zzz = 0; zzz < 1000; zzz++)
+				if (!(TFW_CONN_TYPE(conn) & Conn_Clnt)) {
+					printk(KERN_ALERT "AAAAAAAAAAAA 777 req %px %d %d", req, zzz, smp_processor_id());
+				BUG();
+				}
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
 						 HTTP2_RST_STREAM, 0)) {
-			tfw_connection_put(req->conn);
+			T_WARN("tfw_h2_error_resp 444 %px %d", req, smp_processor_id());
+			TFW_CONNECTION_PUT(conn);
 			return T_BAD;
 		}
 		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
-			tfw_connection_put(req->conn);
+			T_WARN("tfw_h2_error_resp 555 %px %d", req, smp_processor_id());
+			TFW_CONNECTION_PUT(conn);
 			return T_BAD;
 		}
 	}
-	tfw_connection_put(req->conn);
+	for (zzz = 0; zzz < 1000; zzz++)
+				if (!(TFW_CONN_TYPE(req->conn) & Conn_Clnt)) {
+					printk(KERN_ALERT "AAAAAAAAAAAA 888 req %px %d %d", req, zzz, smp_processor_id());
+				BUG();
+				}
+	TFW_CONNECTION_PUT(conn);
 	goto out;
 
 skip_stream:
@@ -5145,13 +5169,19 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	int r;
 	bool reply;
 	bool nolog;
+	TfwConn *conn;
 
+
+	printk(KERN_ALERT "!!!!!!!!!!!!!! req %px req-> conn %px", req, req->conn);
+
+	conn = req->conn;
 	/*
 	 * Error was happened and request should be dropped or blocked,
 	 * but other modules (e.g. sticky cookie module) may have a response
 	 * prepared for this request. A new error response is to be generated
 	 * for the request, drop any previous response paired with the request.
 	 */
+	printk(KERN_ALERT "FREE req %px resp %px", req, req->pair);
 	tfw_http_conn_msg_free(req->pair);
 
 	if (type == TFW_ERROR_TYPE_ATTACK) {
@@ -5166,8 +5196,13 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	/* Do not log client port as it doesn't provide useful information
 	 * and could contain outdated cached data.
 	 */
-	if (!nolog && msg)
+	if (!nolog && msg) {
+		if (!req->conn)
+			printk(KERN_ALERT "NO REQ CONN BUT BEFORE %px", req->conn);
+		if (!req->conn->peer) 
+			printk(KERN_ALERT "NO PEER BUT CONN %px", conn);
 		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
+	}
 
 	if (TFW_MSG_H2(req)) {
 		r = tfw_h2_error_resp(req, status, reply, type,
@@ -6361,7 +6396,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 	BUG_ON(!hmresp->conn);
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, data);
-	T_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+	printk(KERN_ALERT "TFW_HTTP_FSM_RESP_MSG return code %d %px req %px\n", r, hmresp->conn, req);
 	if (r == T_BLOCK)
 		goto error;
 
@@ -6369,7 +6404,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data);
-	T_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
+	printk(KERN_ALERT "TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d | %px req %px\n", r, hmresp->conn, req);
 	if (r == T_OK)
 		return T_OK;
 
@@ -6565,8 +6600,8 @@ next_msg:
 	hmresp->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
 
-	T_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
-	       skb->len, parsed, hmresp->msg.len, hmresp->version, r);
+	T_WARN("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d | response %px conn %px req %px req_conn %px\n",
+	       skb->len, parsed, hmresp->msg.len, hmresp->version, r, hmresp, hmresp->conn, hmresp->req, hmresp->req->conn);
 
 	/*
 	 * We have to keep @skb the same to pass it as is to FSMs
@@ -6612,7 +6647,7 @@ next_msg:
 		}
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
 				  &data_up);
-		T_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
+		T_WARN("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(serv.msgs_filtout);
 			filtout = true;
@@ -6830,6 +6865,8 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 {
 	int r = T_BAD;
 	TfwHttpMsg *req;
+
+	printk(KERN_ALERT "tfw_http_msg_process_generic %px %d", conn, TFW_CONN_TYPE(conn) & Conn_Clnt);
 
 	if (WARN_ON_ONCE(!stream))
 		goto err;

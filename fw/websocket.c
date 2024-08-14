@@ -56,7 +56,7 @@ tfw_ws_srv_ss_hook_drop(struct sock *sk)
 	/* See tfw_sock_clnt_drop(). */
 	tfw_connection_unlink_from_sk(sk);
 	tfw_connection_drop(conn);
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 }
 
 /*
@@ -160,7 +160,7 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	 * ohterwise ss_close finished imidiatly and we never drop this
 	 * connection again.
 	 */
-	tfw_connection_put((TfwConn *)srv_conn);
+	TFW_CONNECTION_PUT((TfwConn *)srv_conn);
 
 	return conn;
 }
@@ -196,11 +196,11 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	 * at this point we are safe to adjust the connection reference counter.
 	 */
 	cli_conn->pair = (TfwConn *)ws_conn;
-	tfw_connection_get(cli_conn->pair);
+	TFW_CONNECTION_GET(cli_conn->pair);
 	BUG_ON(atomic_read(&cli_conn->refcnt) < 2);
 
 	ws_conn->pair = (TfwConn *)cli_conn;
-	tfw_connection_get(ws_conn->pair);
+	TFW_CONNECTION_GET(ws_conn->pair);
 
 	tfw_ws_cli_mod_timer(cli_conn);
 
@@ -351,7 +351,7 @@ tfw_ws_conn_drop(TfwConn *conn)
 	 * connection.
 	 */
 	tfw_connection_close(pair, true);
-	tfw_connection_put(pair);
+	TFW_CONNECTION_PUT(pair);
 }
 
 /**

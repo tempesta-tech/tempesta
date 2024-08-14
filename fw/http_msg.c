@@ -1219,7 +1219,7 @@ tfw_http_msg_unpair(TfwHttpMsg *msg)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	T_DBG3("Free msg=%p\n", m);
+	printk(KERN_ALERT "Free msg=%px %d\n", m, smp_processor_id());
 	if (!m)
 		return;
 
@@ -1279,6 +1279,8 @@ __tfw_http_msg_alloc(int type, bool full)
 		hm->destructor = tfw_http_req_destruct;
 	}
 
+
+	printk(KERN_ALERT "Alloc msg=%px %d\n", hm, smp_processor_id());
 	return hm;
 }
 

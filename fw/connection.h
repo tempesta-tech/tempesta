@@ -425,11 +425,23 @@ tfw_connection_live(TfwConn *conn)
 
 #define tfw_srv_conn_live(c)	tfw_connection_live((TfwConn *)(c))
 
-static inline void
+static inline int
 tfw_connection_get(TfwConn *conn)
 {
-	atomic_inc(&conn->refcnt);
+	return atomic_inc_return(&conn->refcnt);
 }
+
+
+#define TFW_CONNECTION_GET(conn) 				\
+do {								\
+	TfwConn *cc = (TfwConn *)conn;				\
+	int r;							\
+	printk(KERN_ALERT "%s: conn %px refcnt before get %d | %d | is_client %d TFW_CONN_DEATHCNT %d", \
+	       __func__, cc, cc ? atomic_read(&cc->refcnt) : 0, smp_processor_id(), (TFW_CONN_TYPE(cc) & Conn_Clnt), TFW_CONN_DEATHCNT); \
+	r = tfw_connection_get(conn);				\
+	printk(KERN_ALERT "%s: conn %px refcnt after get %d | %d | is_client %d", \
+	       __func__, cc, r, smp_processor_id(), (TFW_CONN_TYPE(cc) & Conn_Clnt)); \
+} while(0)
 
 /**
  * Increment reference counter and return true if @conn is not in
@@ -440,13 +452,17 @@ __tfw_connection_get_if_live(TfwConn *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
+	printk(KERN_ALERT "__tfw_connection_get_if_live before %px %d | %d", conn, rc, smp_processor_id());
 	while (likely(rc > 0)) {
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
-		if (likely(old == rc))
+		if (likely(old == rc)) {
+			printk(KERN_ALERT "__tfw_connection_get_if_live true %px %d | %d", conn, rc + 1, smp_processor_id());
 			return true;
+		}
 		rc = old;
 	}
 
+	printk(KERN_ALERT "__tfw_connection_get_if_live false %px %d | %d", conn, rc, smp_processor_id());
 	return false;
 }
 
@@ -465,34 +481,54 @@ tfw_connection_stop_rcv(TfwConn *conn)
 		(!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt));
 }
 
-static inline void
+static inline int
 tfw_connection_put(TfwConn *conn)
 {
 	int rc;
 
 	if (unlikely(!conn))
-		return;
+		return 0;
 
 	rc = atomic_dec_return(&conn->refcnt);
+	if (rc < TFW_CONN_DEATHCNT)
+		printk("rc %px %d | srv %d clnt %d | %d", conn, rc, TFW_CONN_TYPE(conn) & Conn_Srv, TFW_CONN_TYPE(conn) & Conn_Clnt, smp_processor_id());
 	BUG_ON(rc < TFW_CONN_DEATHCNT);
 
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
-		return;
+		return rc;
 	if (conn->destructor)
 		conn->destructor(conn);
+
+	return rc;
 }
 
-#define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
+#define TFW_CONNECTION_PUT(conn) 				\
+do {								\
+	TfwConn *cc = (TfwConn *)conn;				\
+	int r;							\
+	printk(KERN_ALERT "%s: conn %px refcnt before put %d | %d | is_client %d TFW_CONN_DEATHCNT %d",	\
+	       __func__, cc, cc ? atomic_read(&cc->refcnt) : 0, smp_processor_id(), (TFW_CONN_TYPE(cc) & Conn_Clnt), TFW_CONN_DEATHCNT);	\
+	r = tfw_connection_put(conn);				\
+	printk(KERN_ALERT "%s: conn %px refcnt after put %d | %d | is_client %d",	\
+	       __func__, cc, r, smp_processor_id(), (TFW_CONN_TYPE(cc) & Conn_Clnt));	\
+} while(0)
+
+
+#define tfw_srv_conn_put(c)	TFW_CONNECTION_PUT((TfwConn *)(c))
 
 static inline void
 tfw_connection_put_to_death(TfwConn *conn)
 {
-	atomic_add(TFW_CONN_DEATHCNT, &conn->refcnt);
+	int ret;
+	printk(KERN_ALERT "tfw_connection_put_to_death before %px %d | %d", conn, atomic_read(&conn->refcnt), smp_processor_id());
+	ret = atomic_add_return(TFW_CONN_DEATHCNT, &conn->refcnt);
+	printk(KERN_ALERT "tfw_connection_put_to_death after %px %d | %d", conn, ret, smp_processor_id());
 }
 
 static inline void
 tfw_connection_revive(TfwConn *conn)
 {
+	printk(KERN_ALERT "tfw_connection_revive before %px %d | %d", conn, atomic_read(&conn->refcnt), smp_processor_id());
 	atomic_set(&conn->refcnt, 1);
 }
 

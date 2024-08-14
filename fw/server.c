@@ -114,7 +114,7 @@ tfw_server_lookup_nolock(TfwSrvGroup *sg, TfwAddr *addr)
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		if (tfw_addr_eq(&srv->addr, addr)) {
-			tfw_server_get(srv);
+			TFW_SERVER_GET(srv);
 			return srv;
 		}
 		tfw_srv_loop_sched_rcu();
@@ -334,7 +334,7 @@ void
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
 	BUG_ON(srv->sg);
-	tfw_server_get(srv);
+	TFW_SERVER_GET(srv);
 	tfw_sg_get(sg);
 	srv->sg = sg;
 
@@ -366,7 +366,7 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 	--sg->srv_n;
 	if (lock)
 		up_write(&sg_sem);
-	tfw_server_put(srv);
+	TFW_SERVER_PUT(srv);
 }
 
 int

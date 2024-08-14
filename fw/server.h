@@ -211,6 +211,15 @@ tfw_server_get(TfwServer *srv)
 	atomic64_inc(&srv->refcnt);
 }
 
+#define TFW_SERVER_GET(srv)                                     \
+do {                                                            \
+        TfwServer *ss = (TfwServer *)srv;                         \
+        printk(KERN_ALERT "%s: ss %px refcnt before get %lld | %d",  \
+               __func__, ss, ss ? atomic64_read(&ss->refcnt) : 0, smp_processor_id()); \
+        tfw_server_get(srv);                               \
+} while(0)
+
+
 static inline void
 tfw_server_put(TfwServer *srv)
 {
@@ -226,18 +235,26 @@ tfw_server_put(TfwServer *srv)
 	tfw_server_destroy(srv);
 }
 
+#define TFW_SERVER_PUT(srv)                                     \
+do {                                                            \
+        TfwServer *ss = (TfwServer *)srv;                         \
+        printk(KERN_ALERT "%s: ss %px refcnt before put %lld | %d",  \
+               __func__, ss, ss ? atomic64_read(&ss->refcnt) : 0, smp_processor_id()); \
+        tfw_server_put(srv);                               \
+} while(0)
+
 static inline void
 tfw_server_pin_sess(TfwServer *srv)
 {
 	atomic64_inc(&srv->sess_n);
-	tfw_server_get(srv);
+	TFW_SERVER_GET(srv);
 }
 
 static inline void
 tfw_server_unpin_sess(TfwServer *srv)
 {
 	atomic64_dec(&srv->sess_n);
-	tfw_server_put(srv);
+	TFW_SERVER_PUT(srv);
 }
 
 /*

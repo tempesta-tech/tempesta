@@ -189,6 +189,7 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	printk("ss_conn_drop_guard_exit sk %px conn %px %d", sk, sk->sk_user_data, smp_processor_id());
 	SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);

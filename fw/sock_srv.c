@@ -130,7 +130,8 @@ static inline void
 tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 {
 	set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
-	tfw_server_put((TfwServer *)srv_conn->peer);
+	printk(KERN_ALERT "tfw_srv_conn_stop %px | %d", srv_conn, smp_processor_id());
+	TFW_SERVER_PUT((TfwServer *)srv_conn->peer);
 }
 
 /*
@@ -247,6 +248,8 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		return;
 	}
 
+	printk("tfw_sock_srv_connect_try sk %px srv_conn %px | %d", sk, srv_conn, smp_processor_id());
+
 	/*
 	 * Save @sk in case the connect request is silently dropped by
 	 * the other end (i.e. a firewall). It will be needed to close
@@ -339,6 +342,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwSrvConn *srv_conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
+	printk("tfw_sock_srv_connect_complete %px %px | %d", sk, sk->sk_user_data, smp_processor_id());
+	if (conn->sk != sk)
+		printk("BUG: conn %px refcnt %d sk %px %px | %d", conn, atomic_read(&conn->refcnt), conn->sk, sk, smp_processor_id());
 	BUG_ON(conn->sk != sk);
 
 	/* Notify higher level layers. */
@@ -370,6 +376,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
+	printk(KERN_ALERT "tfw_sock_srv_connect_drop: conn %px | %d | %d | %d |", conn, test_bit(TFW_CONN_B_DEL, &((TfwSrvConn *)conn)->flags), atomic_read(&conn->refcnt), smp_processor_id());
 	if (test_bit(TFW_CONN_B_DEL, &((TfwSrvConn *)conn)->flags)) {
 		/**
 		 * This is executed when we intentionally close a server
@@ -404,7 +411,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 
 end:
 	tfw_connection_unlink_from_sk(sk);
-	tfw_connection_put(conn);
+	TFW_CONNECTION_PUT(conn);
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
@@ -426,13 +433,18 @@ __tfw_connection_get_if_not_death(TfwConn *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
-	while (likely(rc != TFW_CONN_DEATHCNT)) {
+	printk(KERN_ALERT "__tfw_connection_get_if_not_death before %px %d | %d", conn, rc, smp_processor_id());
+	while (likely(rc != TFW_CONN_DEATHCNT && rc != 0)) {
+		printk(KERN_ALERT "__tfw_connection_get_if_not_death loop %px %d | %d", conn, rc, smp_processor_id());
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
-		if (likely(old == rc))
+		if (likely(old == rc)) {
+			printk(KERN_ALERT "__tfw_connection_get_if_not_death true %px %d | %d", conn, rc + 1, smp_processor_id());
 			return true;
+		}
 		rc = old;
 	}
 
+	printk(KERN_ALERT "__tfw_connection_get_if_not_death false %px %d | %d", conn, rc, smp_processor_id());
 	return false;
 }
 
@@ -478,6 +490,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * consequently, it will never gets to its destructor and will never
 	 * reach the stopped state).
 	 */
+	printk("tfw_sock_srv_disconnect %px %d | %d", conn, atomic_read(&((TfwConn *)conn)->refcnt), smp_processor_id());
 	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags)
 	    || !test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
 		return 0;
@@ -503,6 +516,9 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 */
 	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
 	smp_mb__after_atomic();
+
+
+	printk("tfw_sock_srv_disconnect %px %d | %d 111", conn, atomic_read(&((TfwConn *)conn)->refcnt), smp_processor_id());
 	do {
 		/*
 		 * If timer successfully deactivated here, that means the
@@ -527,6 +543,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			TfwServer *srv = (TfwServer *)conn->peer;
 			int r = 0;
 
+			printk("tfw_sock_srv_disconnect %px %d | %d 222", conn, atomic_read(&((TfwConn *)conn)->refcnt), smp_processor_id());
 			/*
 			 * We set TFW_CFG_B_DEL flag when we gracefully
 			 * shutdown server. If `grace_shutdown_time` is
@@ -545,7 +562,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 				r = tfw_connection_close(conn, true);
 			}
 
-			tfw_connection_put(conn);
+			TFW_CONNECTION_PUT(conn);
 			return r;
 		}
 		/*
@@ -559,6 +576,8 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * in case that wasn't done in destructor (bit TFW_CONN_B_DEL had been
 	 * set too late).
 	 */
+
+	printk("tfw_sock_srv_disconnect %px %d | %d 333", conn, atomic_read(&((TfwConn *)conn)->refcnt), smp_processor_id());
 	tfw_connection_release((TfwConn *)srv_conn);
 
 	return 0;
@@ -589,7 +608,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 static void
 tfw_sock_srv_connect_one(TfwServer *srv, TfwSrvConn *srv_conn)
 {
-	tfw_server_get(srv);
+	TFW_SERVER_GET(srv);
 
 	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
 
@@ -786,7 +805,7 @@ tfw_sock_srv_grace_list_add(TfwServer *srv)
 {
 	spin_lock(&tfw_gs_lock);
 
-	tfw_server_get(srv);
+	TFW_SERVER_GET(srv);
 	list_add(&srv->list, &tfw_gs_servers);
 
 	spin_unlock(&tfw_gs_lock);
@@ -798,7 +817,7 @@ tfw_sock_srv_grace_list_del(TfwServer *srv)
 	spin_lock(&tfw_gs_lock);
 
 	list_del_init(&srv->list);
-	tfw_server_put(srv);
+	TFW_SERVER_PUT(srv);
 
 	spin_unlock(&tfw_gs_lock);
 }
@@ -831,7 +850,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 {
 	int r = 0;
 
-	tfw_server_get(srv);
+	TFW_SERVER_GET(srv);
 	__tfw_sg_del_srv(sg, srv, false);
 	set_bit(TFW_CFG_B_DEL, &srv->flags);
 
@@ -846,7 +865,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 		mod_timer(&srv->gs_timer,
 		          jiffies + (unsigned long)tfw_cfg_grace_time * HZ);
 	}
-	tfw_server_put(srv);
+	TFW_SERVER_PUT(srv);
 
 	return r;
 }
@@ -871,7 +890,7 @@ tfw_sock_srv_grace_shutdown_now(void)
 		spin_lock(&tfw_gs_lock);
 		srv = list_first_entry_or_null(&tfw_gs_servers, TfwServer, list);
 		if (srv)
-			tfw_server_get(srv);
+			TFW_SERVER_GET(srv);
 		spin_unlock(&tfw_gs_lock);
 
 		if (!srv)
@@ -879,7 +898,7 @@ tfw_sock_srv_grace_shutdown_now(void)
 
 		if (del_timer_sync(&srv->gs_timer))
 			tfw_sock_srv_grace_stop(srv);
-		tfw_server_put(srv);
+		TFW_SERVER_PUT(srv);
 		tfw_srv_loop_sched_rcu();
 	}
 }
@@ -1331,13 +1350,13 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 	set_bit(TFW_CFG_B_KEEP, &orig_srv->flags);
 	set_bit(TFW_CFG_B_KEEP, &srv->flags);
 
-	tfw_server_put(orig_srv);
+	TFW_SERVER_PUT(orig_srv);
 
 	return;
 changed:
 	set_bit(TFW_CFG_B_MOD, &orig_srv->flags);
 	set_bit(TFW_CFG_B_MOD, &srv->flags);
-	tfw_server_put(orig_srv);
+	TFW_SERVER_PUT(orig_srv);
 done:
 	sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
 }
@@ -1373,7 +1392,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	}
 	if ((srv = tfw_server_lookup(sg_cfg->parsed_sg, &addr))) {
 		T_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
-		tfw_server_put(srv);
+		TFW_SERVER_PUT(srv);
 		return -EEXIST;
 	}
 
@@ -1432,7 +1451,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	tfw_sg_add_srv(sg_cfg->parsed_sg, srv);
 	tfw_cfgop_server_orig_lookup(sg_cfg, srv);
 
-	tfw_server_put(srv);
+	TFW_SERVER_PUT(srv);
 
 	return 0;
 }
@@ -2047,7 +2066,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 		r = tfw_sock_srv_append_conns_n(orig_srv,
 						srv->conn_n - orig_srv->conn_n);
 		if (r) {
-			tfw_server_put(srv);
+			TFW_SERVER_PUT(srv);
 			return r;
 		}
 		orig_srv->conn_n = srv->conn_n;
@@ -2059,7 +2078,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 		 * now.
 		 */
 	}
-	tfw_server_put(srv);
+	TFW_SERVER_PUT(srv);
 
 	return 0;
 }
@@ -2112,12 +2131,12 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 			continue;
 
 		/* The server was not used yet, save to change it's group. */
-		tfw_server_get(srv);
+		TFW_SERVER_GET(srv);
 		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
 		srv->sg = NULL;
 		tfw_sg_add_srv(sg_cfg->orig_sg, srv);
 		tfw_sg_put(sg_cfg->parsed_sg);
-		tfw_server_put(srv);
+		TFW_SERVER_PUT(srv);
 
 		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_name))) {
 			T_ERR_NL("cannot establish new server connection\n");
