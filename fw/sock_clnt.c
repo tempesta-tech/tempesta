@@ -152,6 +152,7 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
 	int r;
 
+	tfw_connection_get((TfwConn *)cli_conn);
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 	/*
 	 * The lock is needed because the timer deletion was moved from release() to
@@ -170,6 +171,7 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 		/* Quite usual on system shutdown. */
 		T_DBG("Cannot send data to client (%d)\n", r);
 
+	tfw_connection_put((TfwConn *)cli_conn);
 	return r;
 }
 

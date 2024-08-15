@@ -77,6 +77,13 @@ struct tfw_skb_cb {
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
+static inline bool
+ss_skb_is_within_fragment(char *begin_fragment, char *position,
+                          char *end_fragment)
+{
+        return begin_fragment <= position && position < end_fragment;
+}
+
 static inline void
 ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 			  unsigned char tls_type)
@@ -358,7 +365,7 @@ ss_skb_find_frag_by_offset(struct sk_buff *skb, char *off, int *frag)
 		begin = skb->data;
 		end = begin + skb_headlen(skb);
 
-		if ((begin <= off) && (end >= off)) {
+		if (ss_skb_is_within_fragment(begin, off, end)) {
 			*frag = -1;
 			return 0;
 		}
@@ -369,7 +376,7 @@ ss_skb_find_frag_by_offset(struct sk_buff *skb, char *off, int *frag)
 		begin = skb_frag_address(f);
 		end = begin + skb_frag_size(f);
 
-		if ((begin <= off) && (end >= off)) {
+		if (ss_skb_is_within_fragment(begin, off, end)) {
 			*frag = i;
 			return 0;
 		}

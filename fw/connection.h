@@ -555,23 +555,6 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 	sk->sk_user_data = NULL;
 }
 
-/*
- * Do an opposite to what tfw_connection_link_to_sk() does. Tempesta
- * is unlinked from Sync Sockets layer, so that no data can be sent
- * anymore on a connection. The previously held socket is released.
- * Note that clearing of conn->sk is necessary. In case of failover
- * on a server connection an indicator is needed to remove a hold
- * on the socket. A zeroed conn->sk is that indicator.
- */
-static inline void
-tfw_connection_unlink_to_sk(TfwConn *conn)
-{
-	struct sock *sk = conn->sk;
-
-	conn->sk = NULL;
-	ss_sock_put(sk);
-}
-
 static inline void
 tfw_connection_unlink_from_peer(TfwConn *conn)
 {
@@ -630,6 +613,7 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 
 extern unsigned int tfw_cli_max_concurrent_streams;
 
+void tfw_connection_unlink_to_sk(TfwConn *conn);
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);

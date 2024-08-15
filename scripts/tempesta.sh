@@ -74,8 +74,9 @@ templater()
 	# Replace !include dircetive with file contents
 	> $tfw_cfg_temp
 	mkdir $TFW_ROOT/etc 2>/dev/null
-	while IFS= read -r line
+	while IFS= read -r raw_line
 	do
+		line=$(echo "$raw_line" | sed -e '/request /s/\\r\\n/\x0d\x0a/g')
 		if [[ ${line:0:1} = \# ]]; then
 			:
 		elif [[ $line =~ '!include' ]]; then
@@ -84,8 +85,10 @@ templater()
 
 			files=$(find ${path[1]} -type f -regextype posix-extended -regex '.*\.conf$')
 			while IFS= read -r file; do
-				value=`cat $file`
-				echo "$value" >> $tfw_cfg_temp
+				inc_file=$(cat $file \
+					| sed -e '/request /s/\\r\\n/\x0d\x0a/g')
+				echo $inc_file >> $tfw_cfg_temp
+
 			done <<< "$files"
 		else
 			value="$line"
@@ -234,24 +237,24 @@ prepare_db_directory()
 	rm -f /opt/tempesta/db/*.tdb;
 }
 
-start_tempesta_and_check()
+start_tempesta_and_check_state()
 {
-	# If 'net.tempesta.state' entry exists but Tempesta start process has
-	# been failed for some reason (e.g. configuration parsing error), then
-	# 'sysctl' does not indicate any problems and exits with zero code;
-	# so, stderr may return 'sysctl: setting key "net.tempesta.state"'
-	# followed by some error message or just empty string.
-	# The most reliable way to check Tempesta status is to check
-	# net.tempesta.state and if it is "start" check dmesg.
-	err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
+	local _err
+
+	_err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
-	TFW_STATE=${TFW_STATE##* }
+	TFW_STATE=${TFW_STATE##net.tempesta.state = }
 
-	if [[ ${TFW_STATE} != "start" ]] || [[ -z "`check_dmesg 'Tempesta FW is ready'`" ]]; then
-		echo $err
+	remove_tmp_conf
+	if [[ ${TFW_STATE} != "start" && ${TFW_STATE} != "start (failed reconfig)" ]]; then
+		unload_modules
+		error "cannot start Tempesta FW (sysctl message: ${_err##*: }, please check dmesg)"
+	else
+		if [[ $TFW_STATE == "start (failed reconfig)" ]]; then
+			error "Tempesta FW reconfiguration fails (sysctl message: ${_err##*: }, please check dmesg)."`
+				`" Tempesta FW is still running with old configuration."
+		fi
 	fi
-
-	echo "0"
 }
 
 start()
@@ -279,14 +282,8 @@ start()
 	fi
 	echo "...start Tempesta FW"
 
-	err=$(start_tempesta_and_check)
-	if [[ $err != "0" ]]; then
-		unload_modules
-		error "cannot start Tempesta FW (sysctl message: ${err##*: }), please check dmesg"
-	else
-		echo "done"
-	fi
-	remove_tmp_conf
+	start_tempesta_and_check_state
+	echo "done"
 }
 
 stop()
@@ -307,13 +304,9 @@ reload()
 {
 	update_js_challenge_templates
 	echo "Running live reconfiguration of Tempesta..."
-	err=$(start_tempesta_and_check)
-	if [[ $err != "0" ]]; then
-		error "cannot reconfigure Tempesta FW (sysctl message: ${err##*: }), please check dmesg"
-	else
-		echo "done"
-		remove_tmp_conf
-	fi
+
+	start_tempesta_and_check_state
+	echo "done"
 }
 
 args=$(getopt -o "d:f" -a -l "$LONG_OPTS" -- "$@")

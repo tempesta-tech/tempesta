@@ -971,8 +971,7 @@ tdb_htrie_node_visit(TdbHdr *dbh, TdbHtrieNode *node, int (*fn)(void *))
 		if (likely(!o))
 			continue;
 
-		BUG_ON(TDB_DI2O(o & ~TDB_HTRIE_DBIT) < TDB_HDR_SZ(dbh) + sizeof(TdbExt)
-			   || TDB_DI2O(o & ~TDB_HTRIE_DBIT) > dbh->dbsz);
+		BUG_ON(TDB_DI2O(o & ~TDB_HTRIE_DBIT) < TDB_HDR_SZ(dbh) + sizeof(TdbExt));
 
 		if (o & TDB_HTRIE_DBIT) {
 			TdbBucket *b;
@@ -980,12 +979,15 @@ tdb_htrie_node_visit(TdbHdr *dbh, TdbHtrieNode *node, int (*fn)(void *))
 			/* We're at a data pointer - resolve it. */
 			o ^= TDB_HTRIE_DBIT;
 			BUG_ON(!o);
+			BUG_ON(TDB_DI2O(o) > dbh->dbsz);
 
 			b = (TdbBucket *)TDB_PTR(dbh, TDB_DI2O(o));
 			res = tdb_htrie_bucket_walk(dbh, b, fn);
 			if (unlikely(res))
 				return res;
 		} else {
+			BUG_ON(TDB_II2O(o) > dbh->dbsz);
+
 			/*
 			 * The recursion depth being hard-limited.
 			 * The function has the deepest nesting 16.
