@@ -5074,7 +5074,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwConn *conn = READ_ONCE(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
 	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
 		type == TFW_ERROR_TYPE_BAD);
 
@@ -5085,7 +5086,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 */
 	if (!reply) {
 		if (!on_req_recv_event)
-			tfw_connection_abort(req->conn);
+			tfw_connection_abort(conn);
 		tfw_h2_req_unlink_stream_with_rst(req);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
@@ -5116,17 +5117,23 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
 	 * error response.
 	 */
+	tfw_connection_get(conn);
 	tfw_h2_send_err_resp(req, status, close_after_send);
 	if (close_after_send) {
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
-						 HTTP2_RST_STREAM, 0))
+						 HTTP2_RST_STREAM, 0)) {
+			tfw_connection_put(conn);
 			return T_BAD;
-		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code))
+		}
+		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
+			tfw_connection_put(conn);
 			return T_BAD;
+		}
 	}
+	tfw_connection_put(conn);
 	goto out;
 
 skip_stream:
