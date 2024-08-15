@@ -68,7 +68,7 @@ enum {
 	 */
 	Conn_Closing		= (0x3 << __Flag_Bits),
 	/*
-	 * Connection is in special state: it socket is reset
+	 * Connection is in special state: the socket is reset
 	 * and we should not process sk->sk_receive_queue.
 	 */
 	Conn_Reset		= (0x4 << __Flag_Bits),
