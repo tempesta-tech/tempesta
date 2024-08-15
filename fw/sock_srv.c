@@ -426,7 +426,7 @@ __tfw_connection_get_if_not_death(TfwConn *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
-	while (likely(rc != TFW_CONN_DEATHCNT)) {
+	while (likely(rc != TFW_CONN_DEATHCNT && rc != 0)) {
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
 		if (likely(old == rc))
 			return true;
