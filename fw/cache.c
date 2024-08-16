@@ -125,6 +125,7 @@ typedef struct {
 	long		key;
 	long		status;
 	long		hdrs;
+	long		trailers;
 	long		body;
 	long		hdrs_304[TFW_CACHE_304_HDRS_NUM];
 	long		stale_if_error;
@@ -2214,6 +2215,7 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->hdr_num += 2;
 
 	ce->trailer_off = ce->hdr_num;
+	ce->trailers = TDB_OFF(db->hdr, p);
 	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
 		int hid = field - resp->h_tbl->tbl;
 
@@ -2954,12 +2956,9 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	TDB *db = get_db_for_node(req->node);
 	unsigned long h_len = 0;
 	struct sk_buff **skb_head;
-	TdbVRec *trec = &ce->trec;
+	TdbVRec *trec = &ce->trec, *trailers_trec;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_RESP);
-	bool has_trailers = false;
-	unsigned long t_len = 0;
-	struct sk_buff *nskb_head = NULL;
 
 	/*
 	 * The allocated response won't be checked by any filters and
@@ -2998,38 +2997,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 					     &h_len, skip))
 			goto free;
 	}
-
-	if (unlikely(trailer_off < ce->hdr_num)) {
-		TfwHttpTransIter pmit, nmit;
-		struct sk_buff *pskb_head = resp->msg.skb_head;
-
-		has_trailers = true;
-		pmit = nmit = resp->mit;
-		nmit.start_off = 0;
-		nmit.iter.skb = nmit.iter.skb_head = NULL;
-		nmit.iter.frag = -1;
-
-		resp->msg.skb_head = NULL;
-		resp->mit = nmit;
-
-		for (h = trailer_off; h < ce->hdr_num; ++h) {
-			int r = tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
-					&t_len, false);
-
-			if (!nskb_head)
-				nskb_head = resp->msg.skb_head;
-
-			if (r) {
-				resp->msg.skb_head = pskb_head;
-				resp->mit = pmit;
-				goto free;
-			}
-		}
-
-		resp->msg.skb_head = pskb_head;
-		resp->mit = pmit;
-	}
-
+	trailers_trec = trec;
 
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
@@ -3107,7 +3075,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 
 write_body:
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
-	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
+	p = TDB_PTR(db->hdr, ce->body);
 	if (ce->body_len && req->method != TFW_HTTP_METH_HEAD) {
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      TFW_MSG_H2(req)))
@@ -3115,10 +3083,16 @@ write_body:
 	}
 	resp->content_length = ce->body_len;
 
-	if (has_trailers) {
-		BUG_ON(!nskb_head);
+	if (unlikely(trailer_off < ce->hdr_num)) {
+		unsigned long t_len = 0;
+		p = TDB_PTR(db->hdr, ce->trailers);
+		for (h = trailer_off; h < ce->hdr_num; ++h) {
+			if (tfw_cache_build_resp_hdr(db, resp, h_mods,
+						     &trailers_trec, &p,
+						     &t_len, false))
+				goto free;
+		}
 		resp->req->stream->xmit.t_len = t_len;
-		ss_skb_queue_splice(&resp->msg.skb_head, &nskb_head);
 	}
 
 	return resp;
