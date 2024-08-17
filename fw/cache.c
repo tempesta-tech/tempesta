@@ -81,7 +81,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
  * @hdr_h2_off	- start of http/2-only headers in the headers list;
- * @hdr_h2_off	- start of trailer headers;
+ * @trailer_off	- start of trailer headers;
  * @body_len	- length of the response body;
  * @method	- request method, part of the key;
  * @flags	- various cache entry flags;
@@ -200,8 +200,6 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 #define TFW_CSTR_DUPLICATE	TFW_STR_DUPLICATE
 /* TfwCStr contains special header and its id. */
 #define TFW_CSTR_SPEC_IDX	0x2
-/* TfwCStr contains trailer header. */
-#define TFW_CSTR_TRAILER	0x4
 
 /**
  * String header for cache entries used for TfwStr serialization.
@@ -1759,8 +1757,8 @@ tfw_cache_h2_copy_hdr(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, int hid,
 			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX,
 				       ce->hdr_len - prev_len, 0, hid);
 		else
-			CSTR_WRITE_HDR((hdr->flags & TFW_STR_TRAILER) ? TFW_CSTR_TRAILER : 0,
-				       ce->hdr_len - prev_len, s_nm.len, st_index);
+			CSTR_WRITE_HDR(0, ce->hdr_len - prev_len, s_nm.len,
+				       st_index);
 	}
 
 	T_DBG3("%s: p=[%p], trec=[%p], ce->hdr_len='%u', tot_len='%zu'\n",
