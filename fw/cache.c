@@ -2097,7 +2097,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * possible duplicates), since we will substitute it with our
 		 * version of this header.
 		 */
-		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR | TFW_STR_TRAILER))
+		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR |
+				     TFW_STR_TRAILER))
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(field))
 		{
@@ -2167,7 +2168,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		if (!(field->flags & TFW_STR_TRAILER))
 			continue;
 
-		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field, &tot_len);
+		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field,
+				          &tot_len);
 		if (unlikely(n < 0))
 			return n;
 
