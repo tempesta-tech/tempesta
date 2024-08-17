@@ -64,7 +64,7 @@ tfw_h2_stream_purge_all(TfwStream *stream)
 {
 	ss_skb_queue_purge(&stream->xmit.skb_head);
 	ss_skb_queue_purge(&stream->xmit.postponed);
-	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len =0;
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len = 0;
 }
 
 static void
