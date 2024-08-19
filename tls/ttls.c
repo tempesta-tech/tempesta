@@ -78,6 +78,8 @@ ttls_max_ciphertext_len(const TlsXfrm *xfrm)
 	 * Their transforms increase data size by a constant amount of bytes.
 	 * To be specific, those are explicit part of IV and a tag.
 	 */
+	if (!((unsigned long)xfrm & 0xffff000000000000))
+		printk(KERN_ALERT "XFRM %px", xfrm);
 	return TLS_MAX_PAYLOAD_SIZE + xfrm->minlen;
 }
 
@@ -960,7 +962,16 @@ static int
 ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 {
 	int r;
-	TlsIOCtx *io = &tls->io_in;
+	TlsIOCtx *io;
+       
+	io = &tls->io_in;
+
+	if (!((unsigned long)tls & 0xffff000000000000))
+                printk(KERN_ALERT "%s TLS %px", __func__, tls);
+
+	if (!(((unsigned long)&tls->xfrm) & 0xffff000000000000)) {
+		printk(KERN_ALERT "%s XFRM %px tls %px", __func__, &tls->xfrm, tls);
+	}
 
 	if (io->msglen > ttls_max_ciphertext_len(&tls->xfrm)) {
 		T_WARN("message length (%u) > max. ciphertext length\n",
@@ -1081,7 +1092,17 @@ ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
 static int
 ttls_hdr_check(TlsCtx *tls)
 {
-	TlsIOCtx *io = &tls->io_in;
+	TlsIOCtx *io;
+
+	if (!((unsigned long)tls & 0xffff000000000000))
+                printk(KERN_ALERT "%s TLS %px", __func__, tls);
+
+        if (!(((unsigned long)&tls->xfrm) & 0xffff000000000000)) {
+                printk(KERN_ALERT "%s XFRM %px tls %px", __func__, &tls->xfrm, tls);
+        }
+
+
+	io = &tls->io_in;
 
 	/* Check record type */
 	if (unlikely(io->msgtype < TTLS_MSG_CHANGE_CIPHER_SPEC
