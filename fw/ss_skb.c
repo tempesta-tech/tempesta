@@ -765,7 +765,7 @@ skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it, int *fragn)
 {
 	if (unlikely(abs(len) > PAGE_SIZE)) {
-		T_WARN("Attempt to add or delete too much data: %u\n", len);
+		T_WARN("Attempt to add or delete too much data: %d\n", len);
 		return -EINVAL;
 	}
 	/* skbs with skb fragments are not expected. */
@@ -1002,6 +1002,28 @@ multi_buffs:
 	return 0;
 }
 
+static void
+__ss_skb_free_empty(struct sk_buff **skb_head, struct sk_buff *skb,
+		    struct sk_buff *next, TfwStr *it)
+{
+	bool is_same = (it->skb == skb);
+
+	if (unlikely(!it->skb->len)) {
+		struct sk_buff *to_delete;
+		int fragn;
+
+		to_delete = it->skb;
+		it->skb = next;
+		it->data = __skb_data_address(it->skb, &fragn);
+		ss_skb_unlink(skb_head, it->skb);
+		kfree_skb(to_delete);
+	}
+	if (unlikely(!is_same && !skb->len)) {
+		ss_skb_unlink(skb_head, skb);
+		kfree_skb(skb);
+	}
+}
+
 /**
  * Cut off @len bytes from @skb starting at @ptr
  */
@@ -1010,17 +1032,26 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 		int len)
 {
 	int r;
+	struct sk_buff *next;
 	TfwStr it = {};
-	int _;
+	int _, to_delete;
 
 	while (len) {
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, skb, ptr, -len, &it, &_);
+		to_delete = unlikely(abs(len) > PAGE_SIZE) ?
+			PAGE_SIZE : len;
+		next = skb->next;
+
+		r = skb_fragment(skb_head, skb, ptr, -to_delete, &it, &_);
 		if (r < 0) {
 			T_WARN("Can't delete len=%i from skb=%p\n", len, skb);
 			return r;
 		}
 		BUG_ON(r > len);
+
+		/* Check if the new skb was allocated and update next skb. */
+		next = skb->next != next ? skb->next : next;
+		__ss_skb_free_empty(&skb_head, skb, next, &it);
 
 		len -= r;
 		skb = it.skb;
@@ -1044,7 +1075,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 	struct sk_buff *skb, *next;
 	TfwStr *c, *cc, *end;
 	unsigned int next_len;
-	bool update, is_single;
+	bool update, is_single, need_update;
 	int _;
 
 	BUG_ON(tail < 0);
@@ -1069,17 +1100,19 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		BUG_ON(r != c->len - skip);
 
 		skip = 0;
+		need_update = !(skb->next == next &&
+			(is_single || next->len == next_len));
+
+		/* Check if the new skb was allocated and update next skb. */
+		next = skb->next != next ? skb->next : next;
+		__ss_skb_free_empty(&skb_head, skb, next, &it);
 
 		/*
 		 * No new skb was allocated and no fragments from current
 		 * skb were moved to the next one.
 		 */
-		if (likely(skb->next == next
-			   && (is_single || next->len == next_len)))
+		if (likely(!need_update))
 			continue;
-
-		/* Check if the new skb was allocated and update next skb. */
-		next = skb->next != next ? skb->next : next;
 
 		/*
 		 * TODO #1852 We should get rid of this function at all, because
