@@ -2144,7 +2144,7 @@ do {									\
 		} else {
 			if (unlikely(stream->xmit.postponed) &&
 			    !stream->xmit.frame_length &&
-			    !stream->xmit.t_len)
+			    !ctx->cur_send_headers)
 				ss_skb_tcp_entail_list(sk,
 						       &stream->xmit.postponed);
 			if (stream->xmit.b_len) {
@@ -2185,6 +2185,12 @@ do {									\
 		r = tfw_h2_entail_stream_skb(sk, ctx, stream,
 					     &stream->xmit.frame_length,
 					     true);
+		if (unlikely(r)) {
+			T_WARN("Failed to send frame %d", r);
+			return r;
+		}
+		if (unlikely(stream->xmit.postponed) && !ctx->cur_send_headers)
+			ss_skb_tcp_entail_list(sk, &stream->xmit.postponed);
 	}
 
 
