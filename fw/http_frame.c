@@ -1883,30 +1883,26 @@ tfw_h2_calc_frame_length(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 }
 
 static inline char
-tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type)
+tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type,
+			bool trailers)
 {
 	char flags = 0;
 
-	if (stream->xmit.h_len && !stream->xmit.b_len
-	    && !stream->xmit.t_len
-	    && type == HTTP2_HEADERS)
-		flags |= HTTP2_F_END_STREAM;
-
-	if (stream->xmit.t_len && !stream->xmit.b_len
-	    && type == HTTP2_HEADERS)
-		flags |= HTTP2_F_END_STREAM;
-
-	if (!stream->xmit.is_trailer_cont
-	    && !stream->xmit.h_len && type != HTTP2_DATA)
-		flags |= HTTP2_F_END_HEADERS;
-
-	if (stream->xmit.is_trailer_cont
-	    && !stream->xmit.t_len && type != HTTP2_DATA)
-		flags |= HTTP2_F_END_HEADERS;
-
-	if (!stream->xmit.h_len && !stream->xmit.b_len && !stream->xmit.t_len
+	if (!stream->xmit.b_len && !stream->xmit.t_len
+	    && (type == HTTP2_HEADERS || type == HTTP2_DATA)
 	    && !tfw_h2_stream_is_eos_sent(stream))
 		flags |= HTTP2_F_END_STREAM;
+
+	if (!stream->xmit.b_len && stream->xmit.t_len
+	    && type == HTTP2_HEADERS && trailers)
+		flags |= HTTP2_F_END_STREAM;
+
+
+	if (!stream->xmit.h_len && type != HTTP2_DATA && !trailers)
+		flags |= HTTP2_F_END_HEADERS;
+
+	if (!stream->xmit.t_len && type != HTTP2_DATA && trailers)
+		flags |= HTTP2_F_END_HEADERS;
 
 	return flags;
 }
@@ -1928,6 +1924,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned int mark = stream->xmit.skb_head->mark;
 	unsigned int max_len = (*snd_wnd > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD) ?
 		TLS_MAX_PAYLOAD_SIZE : *snd_wnd - TLS_MAX_OVERHEAD;
+	bool trailers = false;
 	unsigned int length;
 	char *data;
 	int r = 0;
@@ -1976,6 +1973,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		stream->xmit.h_len -= length;
 	} else if (stream->xmit.t_len) {
 		stream->xmit.t_len -= length;
+		trailers = true;
 	}
 
 	*snd_wnd -= length;
@@ -1983,7 +1981,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	frame_hdr.length = length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	flags = tfw_h2_calc_frame_flags(stream, type);
+	flags = tfw_h2_calc_frame_flags(stream, type, trailers);
 	frame_hdr.flags = flags;
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
@@ -2021,6 +2019,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 {
 	int r = 0;
 	TfwFrameType frame_type;
+	bool is_trailer_cont = false;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 #define CALC_SND_WND_AND_SET_FRAME_TYPE(type)				\
@@ -2105,6 +2104,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_TRAILER_FRAMES) {
+		is_trailer_cont = true;
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_HEADERS);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       snd_wnd, stream->xmit.t_len);
@@ -2117,6 +2117,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES) {
+		is_trailer_cont = true;
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       snd_wnd, stream->xmit.t_len);
@@ -2150,8 +2151,7 @@ do {									\
 			if (stream->xmit.b_len) {
 				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
 			} else if (stream->xmit.t_len) {
-				if (likely(!stream->xmit.is_trailer_cont)) {
-					stream->xmit.is_trailer_cont = true;
+				if (likely(!is_trailer_cont)) {
 					T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
 				} else {
 					T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
