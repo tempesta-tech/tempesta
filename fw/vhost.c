@@ -2047,6 +2047,24 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	return 0;
 }
 
+/**
+ * Here we check whether the handler has already been called or not.
+ * If it was, that means value already set and we must not
+ * override it with default value.
+ *
+ * 'frang_limits' section may appear multiple times in config file
+ * and the first time before it.
+ * Each time, when frang_limits section apears in the config,
+ * handlers will be called for all directives and if we skip checking
+ * that they are already set, frang directives will be overriden with
+ * default values.
+ */
+static inline bool
+tfw_cfgop_is_dflt_val_already_set(TfwCfgSpec *cs)
+{
+        return cs->__called_cfg;
+}
+
 static int
 tfw_cfgop_frang_glob_in_vhost(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
@@ -2064,7 +2082,7 @@ tfw_cfgop_frang_glob_set_bool(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * 'frang_limits' section may appear multiple times to modify defaults
 	 * values for future 'frang_limits' directives.
 	 */
-	if (ce->dflt_value && cs->__called_cfg)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	return tfw_cfg_set_bool(cs, ce);
 }
@@ -2072,7 +2090,7 @@ tfw_cfgop_frang_glob_set_bool(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_frang_glob_set_int(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	if (ce->dflt_value && cs->__called_cfg)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	return tfw_cfg_set_int(cs, ce);
 }
@@ -2080,7 +2098,7 @@ tfw_cfgop_frang_glob_set_int(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_frang_glob_set_long(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	if (ce->dflt_value && cs->__called_cfg)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	return tfw_cfg_set_long(cs, ce);
 }
@@ -2090,7 +2108,7 @@ tfw_cfgop_frang_glob_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	long int *dest_long = cs->dest;
 
-	if (ce->dflt_value && cs->__called_cfg)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	return __tfw_cfgop_frang_http_methods(cs, ce, dest_long);
 }
@@ -2101,7 +2119,7 @@ tfw_cfgop_frang_hdr_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int secs;
 	int r;
 
-	if (ce->dflt_value && cs->__called_cfg)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	cs->dest = &secs;
 	r = tfw_cfg_set_int(cs, ce);
@@ -2119,7 +2137,7 @@ tfw_cfgop_frang_body_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int secs;
 	int r;
 
-	if (ce->dflt_value && cs->__called_cfg)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	cs->dest = &secs;
 	r = tfw_cfg_set_int(cs, ce);
@@ -2244,6 +2262,12 @@ tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (cfg->http_ct_vals) {
+		/*
+		 * Here is no need to check
+		 * tfw_cfgop_is_dflt_val_already_set()
+		 * on the global frang, because if it is not NULL,
+		 * it is already set.
+		 */
 		if (ce->dflt_value)
 			return 0;
 		kfree(cfg->http_ct_vals);
@@ -2258,6 +2282,12 @@ tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (cfg->http_resp_code_block) {
+		/*
+		 * Here is no need to check
+		 * tfw_cfgop_is_dflt_val_already_set()
+		 * on the global frang, because if it is not NULL,
+		 * it is already set.
+		 */
 		if (ce->dflt_value)
 			return 0;
 		kfree(cfg->http_resp_code_block);
@@ -2549,7 +2579,6 @@ tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 	TfwSVHMap *svhm;
 	struct hlist_node *tmp;
 	int i;
-
 	if (!vhosts)
 		return;
 
@@ -2634,11 +2663,11 @@ tfw_print_frang_stripped(const char *tab, const FrangVhostCfg *frang)
 	if (!frang)
 		return;
 
-	T_LOG_NL("%s   http_methods_mask=%lu;\n",
+	T_LOG_NL("%s   http_methods_mask %lu;\n",
 		 tab, frang->http_methods_mask);
-	T_LOG_NL("%s   http_body_len=%lu;\n",
+	T_LOG_NL("%s   http_body_len %lu;\n",
 		 tab, frang->http_body_len);
-	T_LOG_NL("%s   http_uri_len=%i;\n", tab,
+	T_LOG_NL("%s   http_uri_len %i;\n", tab,
 		 frang->http_uri_len);
 	if (!frang->http_ct_vals) {
 		T_LOG_NL("%s   http_ct_vals=NULL;\n", tab);
@@ -2660,13 +2689,13 @@ tfw_print_frang_stripped(const char *tab, const FrangVhostCfg *frang)
 		}
 	}
 
-	T_LOG_NL("%s   http_ct_required=%s;\n", tab,
+	T_LOG_NL("%s   http_ct_required %s;\n", tab,
 		 frang->http_ct_required ? "true" : "false");
-	T_LOG_NL("%s   http_strict_host_checking=%s;\n", tab,
+	T_LOG_NL("%s   http_strict_host_checking %s;\n", tab,
 		 frang->http_strict_host_checking ? "true" : "false");
-	T_LOG_NL("%s   http_trailer_split_allowed=%s;\n", tab,
+	T_LOG_NL("%s   http_trailer_split_allowed %s;\n", tab,
 		 frang->http_trailer_split ? "true" : "false");
-	T_LOG_NL("%s   http_method_override_allowed=%s;\n", tab,
+	T_LOG_NL("%s   http_method_override_allowed %s;\n", tab,
 		 frang->http_method_override ? "true" : "false");
 
 }
@@ -2737,31 +2766,33 @@ static void
 tfw_cfgop_frang_global_print(void)
 {
 	T_LOG_NL("frang_limits {\n");
-	T_LOG_NL("   clnt_hdr_timeout=%lu\n",
+	T_LOG_NL("   client_header_timeout %lu;\n",
 		 tfw_frang_glob_reconfig.clnt_hdr_timeout);
-	T_LOG_NL("   clnt_body_timeout=%lu\n",
+	T_LOG_NL("   client_body_timeout %lu;\n",
 		 tfw_frang_glob_reconfig.clnt_body_timeout);
-	T_LOG_NL("   req_rate=%u\n", tfw_frang_glob_reconfig.req_rate);
-	T_LOG_NL("   req_burst=%u\n", tfw_frang_glob_reconfig.req_burst);
-	T_LOG_NL("   conn_rate=%u\n", tfw_frang_glob_reconfig.conn_rate);
-	T_LOG_NL("   conn_burst_rate=%u\n",
+	T_LOG_NL("   request_rate %u;\n", tfw_frang_glob_reconfig.req_rate);
+	T_LOG_NL("   request_burst %u;\n", tfw_frang_glob_reconfig.req_burst);
+	T_LOG_NL("   tcp_connection_rate %u;\n",
+	         tfw_frang_glob_reconfig.conn_rate);
+	T_LOG_NL("   tcp_connection_burst %u;\n",
 		 tfw_frang_glob_reconfig.conn_burst);
-	T_LOG_NL("   conn_max=%u\n", tfw_frang_glob_reconfig.conn_max);
-	T_LOG_NL("   tls_new_conn_rate=%u\n",
+	T_LOG_NL("   concurrent_tcp_connections %u;\n",
+	         tfw_frang_glob_reconfig.conn_max);
+	T_LOG_NL("   tls_connection_rate %u;\n",
 		 tfw_frang_glob_reconfig.tls_new_conn_rate);
-	T_LOG_NL("   tls_new_conn_burst=%u\n",
+	T_LOG_NL("   tls_connection_burst %u;\n",
 		 tfw_frang_glob_reconfig.tls_new_conn_burst);
-	T_LOG_NL("   tls_incomplete_conn_rate=%u\n",
+	T_LOG_NL("   tls_incomplete_connection_rate %u;\n",
 		 tfw_frang_glob_reconfig.tls_incomplete_conn_rate);
-	T_LOG_NL("   http_hchunk_cnt=%u\n",
+	T_LOG_NL("   http_header_chunk_cnt %u;\n",
 		 tfw_frang_glob_reconfig.http_hchunk_cnt);
-	T_LOG_NL("   http_bchunk_cnt=%u\n",
+	T_LOG_NL("   http_body_chunk_cnt %u;\n",
 		 tfw_frang_glob_reconfig.http_bchunk_cnt);
-	T_LOG_NL("   http_hdr_len=%u\n",
+	T_LOG_NL("   http_hdr_len %u;\n",
 		 tfw_frang_glob_reconfig.http_hdr_len);
-	T_LOG_NL("   http_hdr_cnt=%u\n",
+	T_LOG_NL("   http_header_cnt %u;\n",
 		 tfw_frang_glob_reconfig.http_hdr_cnt);
-	T_LOG_NL("   ip_block=%s\n\n",
+	T_LOG_NL("   ip_block %s;\n\n",
 		 tfw_frang_glob_reconfig.ip_block ? "true" : "false");
 	tfw_print_frang_stripped("", &tfw_frang_vhost_reconfig);
 	T_LOG_NL("}\n");
