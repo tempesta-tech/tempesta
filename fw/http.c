@@ -6446,7 +6446,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
-		return T_BAD;
+		return T_OK;
 	}
 	/*
 	 * This hook isn't in tfw_http_resp_fwd() because responses from the
@@ -6771,8 +6771,11 @@ next_msg:
 	 * @hmsib is not attached to the connection yet.
 	 */
 	r = tfw_http_resp_cache(hmresp);
-	if (unlikely(r != T_OK))
+	if (unlikely(r != T_OK)) {
+		if (hmsib)
+			tfw_http_conn_msg_free(hmsib);
 		return r;
+	}
 
 next_resp:
 	*splitted = NULL;
