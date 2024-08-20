@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -68,6 +68,25 @@ typedef struct {
 
 static TDB *client_db;
 
+static bool
+tfw_client_rec_eq_cli(TdbRec *rec, void *client)
+{
+	TdbRec* tdbrec = rec;
+	TfwClientEntry *ent = (TfwClientEntry *)tdbrec->data;
+	long curr_time = tfw_current_timestamp();
+
+	spin_lock(&ent->lock);
+
+	if (curr_time > ent->expires) {
+		spin_unlock(&ent->lock);
+		return true;
+	}
+
+	spin_unlock(&ent->lock);
+
+	return false;
+}
+
 /**
  * Called when a client socket is closed.
  */
@@ -122,6 +141,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 		return false;
 	}
 
+#ifdef DISABLED_934
 	if (memcmp_fast(&ent->xff_addr.sin6_addr, &ctx->xff_addr.sin6_addr,
 			sizeof(ent->xff_addr.sin6_addr)))
 	{
@@ -133,6 +153,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	{
 		return false;
 	}
+#endif
 
 	spin_lock(&ent->lock);
 
@@ -208,6 +229,11 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	key = hash_calc((const char *)&addr.sin6_addr,
 			sizeof(addr.sin6_addr));
 
+	/* Remove expired clients with same key. */
+	tdb_entry_remove(client_db, key, &tfw_client_rec_eq_cli, NULL, NULL,
+			 false);
+
+#ifdef DISABLED_934
 	if (xff_addr) {
 		key ^= hash_calc((const char *)&xff_addr->sin6_addr,
 				 sizeof(xff_addr->sin6_addr));
@@ -215,13 +241,20 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	} else {
 		ctx.xff_addr.sin6_addr = any_addr;
 	}
+#else
+	ctx.xff_addr.sin6_addr = any_addr;
+#endif
 
+#ifdef DISABLED_934
 	if (user_agent) {
 		key ^= tfw_hash_str_len(user_agent, UA_CMP_LEN);
 		ctx.user_agent = *user_agent;
 	} else {
 		TFW_STR_INIT(&ctx.user_agent);
 	}
+#else
+	TFW_STR_INIT(&ctx.user_agent);
+#endif
 
 	tdb_ctx.eq_rec =  tfw_client_addr_eq;
 	tdb_ctx.init_rec = tfw_client_ent_init;
