@@ -6983,7 +6983,9 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	} else {
 		BUG();
 	}
-	req->location = req->vhost->loc_dflt;
+
+	if (req->vhost)
+		req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {
