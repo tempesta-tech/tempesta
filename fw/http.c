@@ -4918,12 +4918,12 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
 		T_DBG2("%s: resp=[%p] dropped: client disconnected\n",
 		       __func__, resp);
-		tfw_http_resp_pair_free(req);
 		/*
 		 * Put the websocket server connection when client connection is
 		 * lost after successful upgrade request.
 		 */
 		__tfw_http_ws_connection_put((TfwCliConn *)req->conn);
+		tfw_http_resp_pair_free(req);
 
 		return;
 	}
