@@ -28,6 +28,12 @@
 #include "http_frame.h"
 #include "http_msg.h"
 
+/*
+ * For https://tempesta-tech.com Firefox creates
+ * six idle streams, which are used as a nodes in
+ * priority tree and should not be deleted.
+ */ 
+#define TFW_MAX_IDLE_STREAMS		7
 #define TFW_MAX_CLOSED_STREAMS          5
 
 /**
@@ -274,24 +280,42 @@ tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 void
 tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
-	TfwStream *stream, *tmp;
+	TfwStream *cur;
+	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 
-	/*
-	 * We add and remove streams from idle queue under
-	 * socket lock.
-	 */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	T_DBG3("%s: ctx [%p] idle streams num %lu\n", __func__, ctx,
+	       idle_streams->num);
 
-	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
-					 hcl_node)
-	{
-		if (id <= stream->id)
+	while (1) {
+		spin_lock(&ctx->lock);
+
+		/*
+		 * Although according to the RFC 9113 we must immediately
+		 * close all idle streams with lower-valued stream identifier
+		 * Firefox uses such idle streams as a nodes in priority tree.
+		 * So we don't touch idle streams if there count is less then
+		 * TFW_MAX_IDLE_STREAMS.
+		 */
+		if (idle_streams->num <= TFW_MAX_IDLE_STREAMS) {
+			spin_unlock(&ctx->lock);
 			break;
+		}
 
-		tfw_h2_stream_del_from_queue_nolock(stream);
-		tfw_h2_set_stream_state(stream, HTTP2_STREAM_CLOSED);
-		tfw_h2_stream_add_closed(ctx, stream);
+		BUG_ON(list_empty(&idle_streams->list));
+		cur = list_last_entry(&idle_streams->list, TfwStream,
+				       hcl_node);
+		if (id <= cur->id) {
+			spin_unlock(&ctx->lock);
+			break;
+		}
+
+		tfw_h2_stream_unlink_nolock(ctx, cur);
+
+		spin_unlock(&ctx->lock);
+
+		T_DBG3("%s: ctx [%p] cur stream [%p]\n", __func__, ctx, cur);
+
+		tfw_h2_stream_clean(ctx, cur);
 	}
 }
 
@@ -305,8 +329,6 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
-
-	tfw_h2_remove_idle_streams(ctx, UINT_MAX);
 
         rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_purge_all_and_free_response(cur);
