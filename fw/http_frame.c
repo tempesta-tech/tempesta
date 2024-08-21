@@ -1949,8 +1949,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 					 stream->xmit.frame_length);
 	BUG_ON(!data);
 
-	if ((type == HTTP2_HEADERS && !stream->xmit.h_len && stream->xmit.t_len)
-	     || type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
+	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
 		it.skb = it.skb_head = stream->xmit.skb_head;
 		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str)))
 			return r;

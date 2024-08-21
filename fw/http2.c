@@ -532,14 +532,15 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 	if (resp->trailers_len > 0) {
 		unsigned long acc = resp->mit.acc_len;
 		resp->mit.iter.skb = resp->msg.skb_head->prev;
-		resp->mit.iter.frag = skb_shinfo(resp->msg.skb_head->prev)->nr_frags;
+		resp->mit.iter.frag = skb_shinfo(resp->msg.skb_head->prev)->nr_frags - 1;
 
+		tfw_http_msg_setup_transform_pool(&resp->mit, resp->pool);
 		r = tfw_h2_hpack_encode_trailer_headers(resp);
 		stream->xmit.t_len = resp->mit.acc_len - acc;
 
-		if (unlikely(r)) {
+		if (unlikely(r))
 			T_WARN("Failed to encode trailers");
-		}
+
 	}
 
 finish:

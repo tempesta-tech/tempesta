@@ -1305,34 +1305,41 @@ this_chunk:
 				return -ENOMEM;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
-			if (!it->skb_head) {
+			if (!it->skb_head)
 				it->skb_head = *skb_head;
 
-				if (start_off && *start_off) {
-					skb_put(it->skb_head, *start_off);
-					*start_off = 0;
-				}
+			if (start_off && *start_off) {
+				skb_put(it->skb, *start_off);
+				*start_off = 0;
 			}
 
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
+		} else if (start_off && *start_off) {
+			skb_frag_t *frag;
+			struct page *page;
+
+			if (it->frag + 1 == MAX_SKB_FRAGS) {
+				it->skb = NULL;
+				goto this_chunk;
+			}	    
+
+			page = alloc_page(GFP_ATOMIC);
+			if (!page)
+				return -ENOMEM;
+
+			++it->frag;
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
+			skb_fill_page_desc(it->skb, it->frag, page,
+					   0, 0);
+			skb_frag_size_add(frag, *start_off);
+			ss_skb_adjust_data_len(it->skb, *start_off);
+			*start_off = 0;
 		}
 
 		cur_len = c->len - off;
 		if (it->frag >= 0) {
 			unsigned int f_size;
 			skb_frag_t *frag;
-
-			/*
-			 * special case for trailers:
-			 * the last skb of response body is reused,
-			 * but trailer has different frag allocation strategy.
-			 */
-			if (it->frag == skb_shinfo(it->skb)->nr_frags) {
-				f_room = 0;
-				min_len = 0;
-				it->frag--;
-				goto no_room;
-			}
 
 			frag = &skb_shinfo(it->skb)->frags[it->frag];
 			f_size = skb_frag_size(frag);
@@ -1350,7 +1357,6 @@ this_chunk:
 		memcpy_fast(p, c->data + off, min_len);
 
 		if (cur_len >= f_room) {
-no_room:
 			/*
 			 * If the amount of skb frags is exhausted, allocate new
 			 * skb on next iteration (if it will be).
@@ -1429,7 +1435,6 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
-	BUG_ON(mit->iter.frag > 0);
 
 	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
 	if (room < MIN_HDR_FRAG_SIZE)

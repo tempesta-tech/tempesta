@@ -5010,7 +5010,7 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
-		r = tfw_hpack_transform_trailer(resp, tgt);
+		r = tfw_hpack_transform(resp, tgt);
 		if (unlikely(r))
 			return r;
 	}
