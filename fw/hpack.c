@@ -3489,28 +3489,6 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (!hdr)
 		return -EINVAL;
 
-	if (hdr->flags & TFW_STR_TRAILER) {
-		TfwStr s_name = {}, s_val = {};
-		const TfwStr *c, *end;
-
-		if (!tfw_http_hdr_split(hdr, &s_name, &s_val, true))
-			return -EINVAL;
-
-		ret = tfw_hpack_write_idx(resp, idx, false);
-		if (unlikely(ret))
-			return ret;
-		mit->acc_len += idx->sz;
-
-		TFW_STR_FOR_EACH_CHUNK(c, &s_name, end) {
-			tfw_cstrtolower(c->data, c->data, c->len);
-		}
-		ret = tfw_hpack_str_expand(mit, iter, skb_head, &s_name, NULL);
-		if (unlikely(ret))
-			return ret;
-
-		return tfw_hpack_str_expand(mit, iter, skb_head, &s_val, NULL);
-	}
-
 	ret = tfw_hpack_write_idx(resp, idx, false);
 
 	if (unlikely(ret))
@@ -3668,12 +3646,6 @@ int
 tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
 {
 	return __tfw_hpack_encode(resp, hdr, true, true, true);
-}
-
-int
-tfw_hpack_transform_trailer(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
-{
-	return __tfw_hpack_encode(resp, hdr, false, false, true);
 }
 
 void
