@@ -2769,8 +2769,7 @@ tfw_cache_purge_method(TfwHttpReq *req)
  * Add page from cache into response.
  */
 static int
-tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
-			bool last_frag)
+tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
 {
 	int off;
 	struct page *page;
@@ -2842,15 +2841,14 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	}
 
 	while (1) {
-		int off, f_size;
+		int f_size;
 
-		off = (unsigned long)p & ~PAGE_MASK;
 		f_size = trec->data + trec->len - p;
+		BUG_ON(f_size < 0 || f_size > PAGE_SIZE);
 		if (f_size) {
 			f_size = min(body_sz, (unsigned long)f_size);
 			body_sz -= f_size;
-			r = tfw_cache_add_body_page(it, p, f_size, h2,
-						    !body_sz);
+			r = tfw_cache_add_body_page(it, p, f_size, h2);
 			if (r)
 				return r;
 		}
@@ -2949,7 +2947,7 @@ err:
 static TfwHttpResp *
 tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 {
-	int h, trailer_off;
+	int h;
 	TfwStr dummy_body = { 0 };
 	TfwMsgIter *it;
 	TfwHttpResp *resp;
@@ -2961,6 +2959,8 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	TdbVRec *trec = &ce->trec, *trailers_trec;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_RESP);
+	bool h2_mode = TFW_MSG_H2(req);
+	bool first = false;
 
 	/*
 	 * The allocated response won't be checked by any filters and
@@ -2990,16 +2990,27 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	if (tfw_cache_set_status(db, ce, resp, &trec, &p, &h_len))
 		goto free;
 
-	trailer_off = TFW_MSG_H2(req) ? ce->trailer_off : ce->hdr_num;
-	for (h = TFW_HTTP_HDR_REGULAR; h < trailer_off; ++h) {
-		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off)
+	/*
+	 * We don't move trailers to the end (after the body) for HTTP1
+	 * response, because when we build response from cache we assume
+	 * that we use content-length (fixed size), not chunked body.
+	 */
+	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
+		bool skip = !h2_mode && (h >= ce->hdr_h2_off)
 			     && (h < ce->trailer_off);
+
+		if (h2_mode && h >= ce->trailer_off) {
+			skip = true;
+			if (!first) {
+				trailers_trec = trec;
+				first = true;
+			}
+		}
 
 		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
 					     &h_len, skip))
 			goto free;
 	}
-	trailers_trec = trec;
 
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
@@ -3020,7 +3031,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	if (tfw_cache_set_hdr_age(resp, ce, age))
 		goto free;
 
-	if (!TFW_MSG_H2(req)) {
+	if (!h2_mode) {
 		/*
 		 * Set additional headers and final CRLF for HTTP/1.1
 		 * response.
@@ -3077,18 +3088,21 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 
 write_body:
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
-	p = TDB_PTR(db->hdr, ce->body);
+	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (ce->body_len && req->method != TFW_HTTP_METH_HEAD) {
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
-					      TFW_MSG_H2(req)))
+					      h2_mode))
 			goto free;
 	}
 	resp->content_length = ce->body_len;
 
-	if (unlikely(trailer_off < ce->hdr_num)) {
+	if (unlikely(h2_mode && ce->trailer_off < ce->hdr_num)) {
 		unsigned long t_len = 0;
+		if (h2_mode)
+			mit->start_off = FRAME_HEADER_SIZE;
+
 		p = TDB_PTR(db->hdr, ce->trailers);
-		for (h = trailer_off; h < ce->hdr_num; ++h) {
+		for (h = ce->trailer_off; h < ce->hdr_num; ++h) {
 			if (tfw_cache_build_resp_hdr(db, resp, h_mods,
 						     &trailers_trec, &p,
 						     &t_len, false))
