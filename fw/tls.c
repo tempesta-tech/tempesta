@@ -41,7 +41,7 @@
 static TlsCfg tfw_tls_cfg;
 
 /* If set, all the unknown SNI are matched to default vhost. */
-bool tfw_tls_allow_any_sni;
+static bool tfw_tls_allow_any_sni;
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
 
@@ -1206,6 +1206,12 @@ tfw_tls_start(void)
 	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
 
 	return 0;
+}
+
+bool
+tfw_tls_get_allow_any_sni_reconfig(void)
+{
+	return allow_any_sni_reconfig;
 }
 
 static TfwCfgSpec tfw_tls_specs[] = {

@@ -39,6 +39,7 @@
 #include "http_sess.h"
 #include "client.h"
 #include "tls_conf.h"
+#include "lib/log.h"
 
 /*
  * The hash table entry for mapping @sni to @vhost for SAN certificates handling.
@@ -134,6 +135,10 @@ static const TfwCfgEnum tfw_method_enum[] = {
 
 static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
 
+#if DBG_VHOST > 0
+static void tfw_cfgop_vhosts_print(TfwVhostList *vhosts);
+#endif
+
 /*
  * Default vhost is a wildcard vhost. It matches any URI.
  * It may (or may not) contain a set of various directives.
@@ -143,6 +148,8 @@ static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
  */
 static const char s_hdr_via_dflt[] =
 	"tempesta_fw" " (" TFW_NAME " " TFW_VERSION ")";
+
+static TfwCfgSpec tfw_global_frang_specs[];
 
 /*
  * Matching functions for match operators. A TfwStr{} is compared
@@ -1253,14 +1260,17 @@ tfw_frang_cfg_inherit(FrangVhostCfg *curr, const FrangVhostCfg *from)
 		if (!curr->http_ct_vals) {
 			r = -ENOMEM;
 		}
-		delta = (void *)from->http_ct_vals - (void *)curr->http_ct_vals;
-		memcpy(curr->http_ct_vals, from->http_ct_vals, sz);
-		curr->http_ct_vals->vals = (void *)curr->http_ct_vals
-				+ sizeof(FrangCtVals);
-		curr->http_ct_vals->data -= delta;
-		/* Restore data pointers. */
-		for (val = curr->http_ct_vals->vals; val->str; ++ val)
-			val->str -= delta;
+		else {
+			delta = (void *)from->http_ct_vals -
+				(void *)curr->http_ct_vals;
+			memcpy(curr->http_ct_vals, from->http_ct_vals, sz);
+			curr->http_ct_vals->vals = (void *)curr->http_ct_vals
+					+ sizeof(FrangCtVals);
+			curr->http_ct_vals->data -= delta;
+			/* Restore data pointers. */
+			for (val = curr->http_ct_vals->vals; val->str; ++ val)
+				val->str -= delta;
+		}
 	}
 	if (!r && from->http_resp_code_block) {
 		size_t sz = sizeof(FrangHttpRespCodeBlock);
@@ -1336,7 +1346,8 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
  * for current vhost.
  */
 static inline TfwLocation *
-tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
+tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg,
+		 size_t len, bool is_global)
 {
 	TfwLocation *loc;
 
@@ -1345,9 +1356,18 @@ tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
 		return NULL;
 	vhost->loc_sz++;
 
-	if (tfw_frang_cfg_inherit(loc->frang_cfg, vhost->loc_dflt->frang_cfg))
-		return NULL;
+	if (!is_global) {
+		/* Explicit vhost */
+		if (tfw_frang_cfg_inherit(loc->frang_cfg,
+					  vhost->loc_dflt->frang_cfg))
+			return NULL;
+		return loc;
+	}
 
+	/* Implicit default vhost */
+	if (tfw_frang_cfg_inherit(loc->frang_cfg,
+				  &tfw_frang_vhost_reconfig))
+		return NULL;
 	return loc;
 }
 
@@ -1356,7 +1376,8 @@ tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
  * policy directives in the configuration.
  */
 static int
-tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
+tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost,
+			 bool is_global)
 {
 	int ret;
 	size_t len;
@@ -1395,7 +1416,7 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	}
 
 	/* Add new location and set it to be the current one. */
-	tfwcfg_this_location = tfw_location_new(vhost, op, arg, len);
+	tfwcfg_this_location = tfw_location_new(vhost, op, arg, len, is_global);
 	if (!tfwcfg_this_location) {
 		T_ERR_NL("%s: Unable to create new location: '%s %s %s'\n",
 			   cs->name, cs->name, in_op, arg);
@@ -1410,7 +1431,7 @@ tfw_cfgop_in_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	BUG_ON(!tfw_vhost_entry);
 	BUG_ON(tfwcfg_this_location);
-	return tfw_cfgop_location_begin(cs, ce, tfw_vhost_entry);
+	return tfw_cfgop_location_begin(cs, ce, tfw_vhost_entry, false);
 }
 
 static int
@@ -1419,7 +1440,8 @@ tfw_cfgop_out_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	BUG_ON(tfw_vhost_entry);
 	BUG_ON(tfwcfg_this_location);
 	return tfw_cfgop_location_begin(cs, ce,
-					tfw_vhosts_reconfig->vhost_dflt);
+					tfw_vhosts_reconfig->vhost_dflt,
+					true);
 }
 
 /*
@@ -1797,7 +1819,6 @@ tfw_vhost_new(const char *name)
 	if (!(vhost = tfw_vhost_create(name)))
 		return NULL;
 
-	/* Init default location for the new vhost. */
 	if (tfw_location_init(vhost->loc_dflt,
 			      TFW_HTTP_MATCH_O_WILDCARD, "*", 1,
 			      vhost->hdrs_pool))
@@ -1807,15 +1828,12 @@ tfw_vhost_new(const char *name)
 		tfw_vhost_destroy(vhost);
 		return NULL;
 	}
-	if (strcasecmp(name, TFW_VH_DFT_NAME)) {
-		if (tfw_frang_cfg_inherit(vhost->loc_dflt->frang_cfg,
-					  &tfw_frang_vhost_reconfig))
-		{
-			tfw_vhost_destroy(vhost);
-			return NULL;
-		}
+	if (tfw_frang_cfg_inherit(vhost->loc_dflt->frang_cfg,
+				  &tfw_frang_vhost_reconfig))
+	{
+		tfw_vhost_destroy(vhost);
+		return NULL;
 	}
-
 	return vhost;
 }
 
@@ -1889,6 +1907,9 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 
 	BUILD_BUG_ON(sizeof(*cfg_methods_mask) * BITS_PER_BYTE
 		     < _TFW_HTTP_METH_COUNT);
+
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, method_str) {
 		int r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
@@ -2026,6 +2047,24 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	return 0;
 }
 
+/**
+ * Here we check whether the handler has already been called or not.
+ * If it was, that means value already set and we must not
+ * override it with default value.
+ *
+ * 'frang_limits' section may appear multiple times in config file
+ * and the first time before it.
+ * Each time, when frang_limits section apears in the config,
+ * handlers will be called for all directives and if we skip checking
+ * that they are already set, frang directives will be overriden with
+ * default values.
+ */
+static inline bool
+tfw_cfgop_is_dflt_val_already_set(TfwCfgSpec *cs)
+{
+        return cs->__called_cfg;
+}
+
 static int
 tfw_cfgop_frang_glob_in_vhost(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
@@ -2043,7 +2082,7 @@ tfw_cfgop_frang_glob_set_bool(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * 'frang_limits' section may appear multiple times to modify defaults
 	 * values for future 'frang_limits' directives.
 	 */
-	if (ce->dflt_value && *(bool *)(cs->dest))
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	return tfw_cfg_set_bool(cs, ce);
 }
@@ -2051,9 +2090,27 @@ tfw_cfgop_frang_glob_set_bool(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_frang_glob_set_int(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	if (ce->dflt_value && *(unsigned int *)(cs->dest))
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	return tfw_cfg_set_int(cs, ce);
+}
+
+static int
+tfw_cfgop_frang_glob_set_long(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
+		return 0;
+	return tfw_cfg_set_long(cs, ce);
+}
+
+static int
+tfw_cfgop_frang_glob_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	long int *dest_long = cs->dest;
+
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
+		return 0;
+	return __tfw_cfgop_frang_http_methods(cs, ce, dest_long);
 }
 
 static int
@@ -2062,7 +2119,7 @@ tfw_cfgop_frang_hdr_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int secs;
 	int r;
 
-	if (ce->dflt_value && tfw_frang_glob_reconfig.clnt_hdr_timeout)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	cs->dest = &secs;
 	r = tfw_cfg_set_int(cs, ce);
@@ -2080,7 +2137,7 @@ tfw_cfgop_frang_body_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int secs;
 	int r;
 
-	if (ce->dflt_value && tfw_frang_glob_reconfig.clnt_body_timeout)
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
 		return 0;
 	cs->dest = &secs;
 	r = tfw_cfg_set_int(cs, ce);
@@ -2107,8 +2164,11 @@ tfw_cfgop_frang_uri_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
-
-	if (ce->dflt_value && cfg->http_uri_len)
+	/*
+	 * There is unnecessary to check the value here because
+	 * the default value was already set in tfw_frang_cfg_inherit().
+	 */
+	if (ce->dflt_value)
 		return 0;
 	cs->dest = &cfg->http_uri_len;
 	r = tfw_cfg_set_int(cs, ce);
@@ -2122,7 +2182,7 @@ tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_body_len)
+	if (ce->dflt_value)
 		return 0;
 	cs->dest = &cfg->http_body_len;
 	r = tfw_cfg_set_long(cs, ce);
@@ -2136,7 +2196,7 @@ tfw_cfgop_frang_strict_host_checking(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_strict_host_checking)
+	if (ce->dflt_value)
 		return 0;
 	cs->dest = &cfg->http_strict_host_checking;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2150,7 +2210,7 @@ tfw_cfgop_frang_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_ct_required)
+	if (ce->dflt_value)
 		return 0;
 	cs->dest = &cfg->http_ct_required;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2164,7 +2224,7 @@ tfw_cfgop_frang_trailer_split(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_trailer_split)
+	if (ce->dflt_value)
 		return 0;
 	cs->dest = &cfg->http_trailer_split;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2178,7 +2238,7 @@ tfw_cfgop_frang_method_override(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_method_override)
+	if (ce->dflt_value)
 		return 0;
 	cs->dest = &cfg->http_method_override;
 	r = tfw_cfg_set_bool(cs, ce);
@@ -2191,7 +2251,7 @@ tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	if (ce->dflt_value && cfg->http_methods_mask)
+	if (ce->dflt_value)
 		return 0;
 	return __tfw_cfgop_frang_http_methods(cs, ce, &cfg->http_methods_mask);
 }
@@ -2202,6 +2262,12 @@ tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (cfg->http_ct_vals) {
+		/*
+		 * Here is no need to check
+		 * tfw_cfgop_is_dflt_val_already_set()
+		 * on the global frang, because if it is not NULL,
+		 * it is already set.
+		 */
 		if (ce->dflt_value)
 			return 0;
 		kfree(cfg->http_ct_vals);
@@ -2216,6 +2282,12 @@ tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (cfg->http_resp_code_block) {
+		/*
+		 * Here is no need to check
+		 * tfw_cfgop_is_dflt_val_already_set()
+		 * on the global frang, because if it is not NULL,
+		 * it is already set.
+		 */
 		if (ce->dflt_value)
 			return 0;
 		kfree(cfg->http_resp_code_block);
@@ -2303,12 +2375,16 @@ tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	bool val;
 	int r;
 
-	cs->dest = &val;
-	r = tfw_cfg_set_bool(cs, ce);
-	cs->dest = NULL;
-	if (r)
-		return r;
-
+	if (ce->dflt_value) {
+		val = tfw_tls_get_allow_any_sni_reconfig();
+	}
+	else {
+		cs->dest = &val;
+		r = tfw_cfg_set_bool(cs, ce);
+		cs->dest = NULL;
+		if (r)
+			return r;
+	}
 	tfw_tls_set_allow_any_sni(val);
 
 	return 0;
@@ -2317,10 +2393,11 @@ tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_in_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
+	if (tfw_vhosts_reconfig->expl_dflt) {
 		if (ce->dflt_value)
 			return 0;
-		T_ERR_NL("%s: directive can be applied only to '%s' vhost.\n",
+		T_ERR_NL("%s: global tls_match_ani_server_name are to be "
+			 "configured outside of explicit '%s' vhost.\n",
 			 cs->name, TFW_VH_DFT_NAME);
 		return -EINVAL;
 	}
@@ -2361,14 +2438,16 @@ tfw_vhost_cfgstart(void)
 	tfw_vhosts_reconfig->expl_dflt = false;
 	hash_init(tfw_vhosts_reconfig->vh_hash);
 	hash_init(tfw_vhosts_reconfig->sni_vh_map);
+	tfw_frang_clean(&tfw_frang_vhost_reconfig);
+	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
+	tfw_spec_init_frang_default(tfw_global_frang_specs);
+
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		T_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
 	}
 
 	tfw_vhosts_reconfig->vhost_dflt = vh_dflt;
-	tfw_frang_clean(&tfw_frang_vhost_reconfig);
-	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
 
 	tfw_vhost_entry = NULL;
 	tfwcfg_this_location = NULL;
@@ -2417,6 +2496,10 @@ tfw_vhost_cfgend(void)
 			  "provided. 'cache_purge' directive is ignored.\n");
 
 err:
+
+#if DBG_VHOST > 0
+	tfw_cfgop_vhosts_print(tfw_vhosts_reconfig);
+#endif
 	r = tfw_http_sess_cfgend();
 	return r;
 }
@@ -2496,7 +2579,6 @@ tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 	TfwSVHMap *svhm;
 	struct hlist_node *tmp;
 	int i;
-
 	if (!vhosts)
 		return;
 
@@ -2572,6 +2654,180 @@ tfw_vhost_cfgclean(void)
 	tfw_global.hdr_via = s_hdr_via_dflt;
 }
 
+#if DBG_VHOST > 0
+static void
+tfw_print_frang_stripped(const char *tab, const FrangVhostCfg *frang)
+{
+	int i;
+
+	if (!frang)
+		return;
+
+	T_LOG_NL("%s   http_methods_mask %lu;\n",
+		 tab, frang->http_methods_mask);
+	T_LOG_NL("%s   http_body_len %lu;\n",
+		 tab, frang->http_body_len);
+	T_LOG_NL("%s   http_uri_len %i;\n", tab,
+		 frang->http_uri_len);
+	if (!frang->http_ct_vals) {
+		T_LOG_NL("%s   http_ct_vals=NULL;\n", tab);
+	}
+	else {
+		T_LOG_NL("%s   http_ct_vals=%s;\n", tab,
+			 frang->http_ct_vals->data);
+	}
+
+	if (!frang->http_resp_code_block) {
+		T_LOG_NL("%s   FrangHttpRespCodeBlock: Empty;\n", tab);
+	}
+	else {
+		T_LOG_NL("%s   FrangHttpRespCodeBlock:\n", tab);
+		for (i = 0; i < 512; ++i) {
+			if (test_bit(HTTP_CODE_BIT_NUM(i),
+				     frang->http_resp_code_block->codes))
+				T_LOG_NL("%s   %i\n", tab, i);
+		}
+	}
+
+	T_LOG_NL("%s   http_ct_required %s;\n", tab,
+		 frang->http_ct_required ? "true" : "false");
+	T_LOG_NL("%s   http_strict_host_checking %s;\n", tab,
+		 frang->http_strict_host_checking ? "true" : "false");
+	T_LOG_NL("%s   http_trailer_split_allowed %s;\n", tab,
+		 frang->http_trailer_split ? "true" : "false");
+	T_LOG_NL("%s   http_method_override_allowed %s;\n", tab,
+		 frang->http_method_override ? "true" : "false");
+
+}
+
+static void
+tfw_print_frang(const char *tab, const FrangVhostCfg *frang)
+{
+	if (!frang)
+		return;
+
+	T_LOG_NL("%sfrang_limits {\n", tab);
+	tfw_print_frang_stripped(tab, frang);
+	T_LOG_NL("%s}\n", tab);
+}
+
+static void
+tfw_cfgop_location_print(TfwLocation *loc)
+{
+        int i;
+         TfwHdrMods *h_mods = &loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP];
+
+        if (!loc->arg)
+                return;
+
+        T_LOG_NL("   location  %s {", loc->arg);
+        tfw_print_frang("      ", loc->frang_cfg);
+
+        for (i = 0; i < loc->capo_sz; ++i) {
+                TfwCaPolicy *capo = loc->capo[i];
+
+                switch (capo->cmd) {
+                case TFW_D_CACHE_BYPASS:
+                        T_LOG_NL("      cache_bypass %s\n",
+                                 capo->arg);
+                        break;
+                case TFW_D_CACHE_FULFILL:
+                        T_LOG_NL("      cache_fulfill %s\n",
+                                 capo->arg);
+                        break;
+                case TFW_D_CACHE_RESP_HDR_DEL:
+                        T_LOG_NL("      cache_resp_hdr_del %s\n",
+                                 capo->arg);
+                        break;
+                case TFW_D_CACHE_CONTROL_IGNORE:
+                        T_LOG_NL("      cache_control_ignore %s\n",
+                                 capo->arg);
+                        break;
+                }
+
+        }
+
+        for (i = 0; i < loc->nipdef_sz; ++i) {
+                TfwNipDef *nipdef= loc->nipdef[i];
+                T_LOG_NL("      %s\n", nipdef->arg);
+        }
+
+        if (h_mods) {
+                for (i = 0; i < h_mods->sz; ++i) {
+                        TfwHdrModsDesc *d = &h_mods->hdrs[i];
+                        T_LOG_NL("      %s  %i  %i\n", d->hdr->data,
+                                d->hdr->nchunks, (int)d->hdr->len);
+                }
+        }
+        T_LOG_NL("   }");
+}
+
+static void
+tfw_cfgop_frang_global_print(void)
+{
+	T_LOG_NL("frang_limits {\n");
+	T_LOG_NL("   client_header_timeout %lu;\n",
+		 tfw_frang_glob_reconfig.clnt_hdr_timeout);
+	T_LOG_NL("   client_body_timeout %lu;\n",
+		 tfw_frang_glob_reconfig.clnt_body_timeout);
+	T_LOG_NL("   request_rate %u;\n", tfw_frang_glob_reconfig.req_rate);
+	T_LOG_NL("   request_burst %u;\n", tfw_frang_glob_reconfig.req_burst);
+	T_LOG_NL("   tcp_connection_rate %u;\n",
+	         tfw_frang_glob_reconfig.conn_rate);
+	T_LOG_NL("   tcp_connection_burst %u;\n",
+		 tfw_frang_glob_reconfig.conn_burst);
+	T_LOG_NL("   concurrent_tcp_connections %u;\n",
+	         tfw_frang_glob_reconfig.conn_max);
+	T_LOG_NL("   tls_connection_rate %u;\n",
+		 tfw_frang_glob_reconfig.tls_new_conn_rate);
+	T_LOG_NL("   tls_connection_burst %u;\n",
+		 tfw_frang_glob_reconfig.tls_new_conn_burst);
+	T_LOG_NL("   tls_incomplete_connection_rate %u;\n",
+		 tfw_frang_glob_reconfig.tls_incomplete_conn_rate);
+	T_LOG_NL("   http_header_chunk_cnt %u;\n",
+		 tfw_frang_glob_reconfig.http_hchunk_cnt);
+	T_LOG_NL("   http_body_chunk_cnt %u;\n",
+		 tfw_frang_glob_reconfig.http_bchunk_cnt);
+	T_LOG_NL("   http_hdr_len %u;\n",
+		 tfw_frang_glob_reconfig.http_hdr_len);
+	T_LOG_NL("   http_header_cnt %u;\n",
+		 tfw_frang_glob_reconfig.http_hdr_cnt);
+	T_LOG_NL("   ip_block %s;\n\n",
+		 tfw_frang_glob_reconfig.ip_block ? "true" : "false");
+	tfw_print_frang_stripped("", &tfw_frang_vhost_reconfig);
+	T_LOG_NL("}\n");
+}
+
+static void
+tfw_cfgop_vhosts_print(TfwVhostList *vhosts)
+{
+	TfwVhost *vhost;
+	char str[128];
+	int i, j;
+	int len;
+
+	T_LOG_NL("Actual configuration.\n");
+	if (!vhosts)
+		return;
+
+	memset(str, 0, sizeof(str));
+	tfw_cfgop_frang_global_print();
+
+	T_LOG_NL("tls_match_any_server_name=%s\n",
+		 tfw_tls_get_allow_any_sni_reconfig() ? "true" : "false");
+	hash_for_each(vhosts->vh_hash, i, vhost, hlist) {
+                len = vhost->name.len < 128 ? vhost->name.len : 127;
+                memcpy(str, vhost->name.data, len);
+                str[len] = 0;
+                T_LOG_NL("vhost %s {", str);
+                tfw_cfgop_location_print(vhost->loc_dflt);
+                for (j = 0; j < vhost->loc_sz; ++j)
+                      tfw_cfgop_location_print(&vhost->loc[j]);
+
+                T_LOG_NL("}");
+        }
+}
+#endif
 /*
  * Not all Frang specs can be applied to nested locations and can be applied
  * only as high-level options. It's possible to provide their own sets for
@@ -2729,53 +2985,67 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		},
 		.allow_reconfig = true,
 	},
-	/* Option can be redefined per vhost|location. */
+	/* Option can be redefined per vhost|location.
+	 *
+	 * All handler are changed to tfw_cfgop_frang_glob_...
+	 * because here we need to know whether the values
+	 * have already been set or not.
+	 */
 	{
 		.name = "http_uri_len",
 		.deflt = "0",
-		.handler = tfw_cfgop_frang_uri_len,
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_vhost_reconfig.http_uri_len,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_body_len",
 		.deflt = "1073741824", /* 1 Gb. */
-		.handler = tfw_cfgop_frang_body_len,
+		.handler = tfw_cfgop_frang_glob_set_long,
+		.dest = &tfw_frang_vhost_reconfig.http_body_len,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_strict_host_checking",
 		.deflt = "true",
-		.handler = tfw_cfgop_frang_strict_host_checking,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_strict_host_checking,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_ct_required",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_ct_required,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_ct_required,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_trailer_split_allowed",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_trailer_split,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_trailer_split,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_method_override_allowed",
 		.deflt = "false",
-		.handler = tfw_cfgop_frang_method_override,
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_vhost_reconfig.http_method_override,
 		.allow_reconfig = true,
 	},
+	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
-		.deflt = "",
-		.handler = tfw_cfgop_frang_http_methods,
+		.deflt = "get post head",
+		.handler = tfw_cfgop_frang_glob_http_methods,
+		.dest = &tfw_frang_vhost_reconfig.http_methods_mask,
 		.allow_reconfig = true,
 	},
 	{
 		.name = "http_ct_vals",
 		.deflt = NULL,
 		.handler = tfw_cfgop_frang_http_ct_vals,
+		.dest = &tfw_frang_vhost_reconfig.http_ct_vals,
 		.allow_none = true,
 		.allow_reconfig = true,
 	},
@@ -2783,6 +3053,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.name = "http_resp_code_block",
 		.deflt = NULL,
 		.handler = tfw_cfgop_frang_rsp_code_block,
+		.dest = &tfw_frang_vhost_reconfig.http_resp_code_block,
 		.allow_none = true,
 		.allow_reconfig = true,
 	},
@@ -2918,9 +3189,10 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.handler = tfw_cfgop_frang_method_override,
 		.allow_reconfig = true,
 	},
+	/*http_methods should contain at least one method by default.*/
 	{
 		.name = "http_methods",
-		.deflt = "",
+		.deflt = "get post head",
 		.handler = tfw_cfgop_frang_http_methods,
 		.allow_reconfig = true,
 	},
@@ -3041,7 +3313,7 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
@@ -3199,7 +3471,7 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_vhost_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
@@ -3388,7 +3660,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_frang_cleanup,
 		.dest = tfw_global_frang_specs,
-		.allow_none = true,
+		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
