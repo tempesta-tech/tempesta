@@ -176,6 +176,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned char *crt_data;
 	size_t crt_size;
 	TlsCertConf *conf;
+	uint32_t flags;
 
 	BUG_ON(!vhost->tls_cfg.priv);
 	if ((r = tfw_tls_peer_tls_init(vhost)))
@@ -199,6 +200,19 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		T_ERR_NL("%s: Invalid certificate specified, err=%x\n",
 			 cs->name, -r);
 		goto err;
+	}
+
+	/* Do simple check, because we don't have private key at this moment. */
+	if ((flags = ttls_x509_check_cert_validity(&conf->crt))) {
+		if (flags & TTLS_X509_BADCERT_EXPIRED)
+			T_WARN("The certificate '%s' has expired! Please renew\n"
+			       "the certificate to maintain functionality.",
+			       ce->vals[0]);
+
+		if (flags & TTLS_X509_BADCERT_FUTURE)
+			T_WARN("The certificate %s is not yet valid. Please\n"
+			       "ensure the correct certificate is in use.",
+			       ce->vals[0]);
 	}
 
 	if (ttls_x509_process_san(&conf->crt, tfw_tls_add_cn, vhost)) {

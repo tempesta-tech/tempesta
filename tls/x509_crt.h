@@ -150,6 +150,8 @@ int ttls_x509_crt_verify_with_profile(TlsX509Crt *crt,
 					  TLS_X509_CERT_PROFILE_SUITEB, (cn),	\
 					  (flags))
 
+uint32_t ttls_x509_check_cert_validity(const TlsX509Crt *crt);
+
 int ttls_x509_crt_check_key_usage(const TlsX509Crt *crt,
 				  unsigned int usage);
 int ttls_x509_crt_check_extended_key_usage(const TlsX509Crt *crt,
