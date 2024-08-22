@@ -395,6 +395,15 @@ typedef struct {
 	int (*finish_hook)(TfwCfgSpec *self);
 } TfwCfgSpecChild;
 
+/* TfwCfgSpec->spec_ext for tfw_cfg_set_mem(). */
+typedef struct {
+	const char *multiple_of;
+	struct {
+		const char *min;
+		const char *max;
+	} range;
+} TfwCfgSpecMem;
+
 static inline bool
 tfw_cfg_is_dflt_value(TfwCfgEntry *cfg_entry)
 {
@@ -431,10 +440,14 @@ int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_long(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
+int tfw_cfg_set_mem(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
 
 /* Various helpers for building custom handler functions. */
+int tfw_cfg_mem_check_range(const char *mem, const char *mem_min,
+			    const char *mem_max);
+int tfw_cfg_mem_check_multiple_of(const char *mem, const char *mem_divisor);
 int tfw_cfg_check_range(long value, long min, long max);
 int tfw_cfg_check_multiple_of(long value, int divisor);
 int tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n);
