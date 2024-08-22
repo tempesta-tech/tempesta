@@ -1262,12 +1262,12 @@ tfw_http_sess_stop(void)
 static TfwCfgSpec tfw_http_sess_specs_table[] = {
 	{
 		.name = "sessions_tbl_size",
-		.deflt = "16777216",
-		.handler = tfw_cfg_set_int,
+		.deflt = "16M",
+		.handler = tfw_cfg_set_mem,
 		.dest = &sess_db_cfg.db_size,
-		.spec_ext = &(TfwCfgSpecInt) {
-			.multiple_of = PAGE_SIZE,
-			.range = { PAGE_SIZE, (1 << 30) },
+		.spec_ext = &(TfwCfgSpecMem) {
+			.multiple_of = "4K",
+			.range = { "4K", "1G" },
 		}
 	},
 	{

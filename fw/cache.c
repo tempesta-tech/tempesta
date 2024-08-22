@@ -3395,12 +3395,12 @@ static TfwCfgSpec tfw_cache_specs[] = {
 	},
 	{
 		.name = "cache_size",
-		.deflt = "268435456",
-		.handler = tfw_cfg_set_long,
+		.deflt = "256M",
+		.handler = tfw_cfg_set_mem,
 		.dest = &cache_cfg.db_size,
-		.spec_ext = &(TfwCfgSpecInt) {
-			.multiple_of = 2 * 1024 * 1024,
-			.range = { 16 * 1024 * 1024, (1UL << 37) },
+		.spec_ext = &(TfwCfgSpecMem) {
+			.multiple_of = "2M",
+			.range = { "16M", "128G" },
 		}
 	},
 	{
