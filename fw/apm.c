@@ -1756,6 +1756,19 @@ tfw_apm_cfgend(void)
 }
 
 static void
+tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
+{
+	TfwApmHMCfg *ent, *tmp;
+
+	list_for_each_entry_safe(ent, tmp, &tfw_hm_codes_list, list) {
+		list_del_init(&ent->list);
+		kfree(ent);
+	}
+	INIT_LIST_HEAD(&tfw_hm_codes_list);
+	tfw_hm_codes_cnt = 0;
+}
+
+static void
 tfw_apm_cfgclean(void)
 {
 	if (tfw_runstate_is_reconfig())
@@ -1772,6 +1785,7 @@ tfw_apm_cfgclean(void)
 	 * even if no `health_check` directive found.
 	 */
 	__tfw_cfgop_cleanup_apm_hm();
+	tfw_cfgop_apm_cleanup_server_failover(NULL);
 }
 
 /**
@@ -1896,20 +1910,6 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-
-static void
-tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
-{
-	TfwApmHMCfg *ent, *tmp;
-
-	list_for_each_entry_safe(ent, tmp, &tfw_hm_codes_list, list) {
-		list_del_init(&ent->list);
-		kfree(ent);
-	}
-	INIT_LIST_HEAD(&tfw_hm_codes_list);
-	tfw_hm_codes_cnt = 0;
-}
-
 
 static int
 tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
