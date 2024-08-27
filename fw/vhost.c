@@ -3819,7 +3819,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_cache_use_stale,
 		.allow_none = true,
-		.allow_repeat = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{ 0 }
