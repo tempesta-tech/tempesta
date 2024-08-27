@@ -949,7 +949,7 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	TfwCacheUseStale *cfg;
 	size_t i;
 	int n = 0;
-	bool mask5x = false, mask4x = false;
+	bool mask5x = false, mask4x = false, any4x = false, any5x = false;
 
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
@@ -971,11 +971,27 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	loc->cache_use_stale = cfg;
 
 	for (i = 0; i < ce->val_n; i++) {
-		if (!mask4x && !strcasecmp(ce->vals[i], "4*")) {
+		if (!strcasecmp(ce->vals[i], "4*")) {
+			if (any4x) {
+				T_ERR_NL("Attempt to override by mask 4* the value specified by code.\n");
+				return -EINVAL;
+			}
+			else if (mask4x) {
+				T_ERR_NL("Duplicated mask 4*.\n");
+				return -EINVAL;
+			}
 			mask4x = true;
 			__set_bit_range(400, 499, cfg->codes);
 		}
-		else if (!mask5x && !strcasecmp(ce->vals[i], "5*")) {
+		else if (!strcasecmp(ce->vals[i], "5*")) {
+			if (any5x) {
+				T_ERR_NL("Attempt to override by mask 5* the value specified by code.\n");
+				return -EINVAL;
+			}
+			else if (mask5x) {
+				T_ERR_NL("Duplicated mask 5*.\n");
+				return -EINVAL;
+			}
 			mask5x = true;
 			__set_bit_range(500, 599, cfg->codes);
 		}
@@ -990,8 +1006,23 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 
 			/* Allowe status-codes only above 399. */
 			if (n < 400) {
-				T_ERR_NL("%s Please specify status code above than 399",
-					 cs->name);
+				T_ERR_NL("Please specify status code above than 399.");
+				return -EINVAL;
+			}
+
+			if (n >= 400 && n <= 499)
+				any4x = true;
+			else if (n >= 500 && n <= 599)
+				any5x = true;
+
+			if ((any4x && mask4x) || (any5x && mask5x)) {
+				T_ERR_NL("Attempt to set the value %d already set by mask.\n",
+					 n);
+				return -EINVAL;
+			}
+
+			if (test_bit(HTTP_CODE_BIT_NUM(n), cfg->codes)) {
+				T_ERR_NL("Duplicated value %d.\n", n);
 				return -EINVAL;
 			}
 
