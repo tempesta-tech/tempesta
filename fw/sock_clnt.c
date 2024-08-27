@@ -793,6 +793,7 @@ tfw_sock_clnt_start(void)
 		if (ls_found) {
 			touched[ls_found - &listen_socks_array[0]] = true;
 			list_del(&ls->list);
+			kfree(ls);
 			continue;
 		}
 	}
