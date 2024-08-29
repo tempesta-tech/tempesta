@@ -1616,25 +1616,20 @@ do {									\
 	}
 }
 
-static bool
-tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
+/**
+ * Try to mark server as suspended.
+ * In case of HM is active do it, otherwise left unchanged.
+ */
+static void
+tfw_http_hm_try_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
-	/*
-	 * We need to count a total response statistics in
-	 * tfw_apm_hm_srv_limit(), even if health monitor is disabled.
-	 * In this case limit calculation won't be accounted.
-	 */
-	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
-	if (!(flags & TFW_SRV_F_HMONITOR))
-		return true;
-	if (!lim_exceeded)
-		return false;
+	while (flags & TFW_SRV_F_HMONITOR) {
 
-	do {
 		old_flags = cmpxchg(&srv->flags, flags,
-				    flags | TFW_SRV_F_SUSPEND);
+		                    flags | TFW_SRV_F_SUSPEND);
+
 		if (likely(old_flags == flags)) {
 			T_WARN_ADDR_STATUS("server has been suspended: limit "
 					   "for bad responses is exceeded",
@@ -1642,28 +1637,45 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 					   resp->status);
 			break;
 		}
-		flags = old_flags;
-	} while (flags & TFW_SRV_F_HMONITOR);
 
-	return true;
+		flags = old_flags;
+	}
 }
 
+/**
+* The main function of Health Monioring.
+* Getting response from the server, it updates responses statistics,
+* checks HM limits and makes solution about server health.
+*/
 static void
 tfw_http_hm_control(TfwHttpResp *resp)
 {
 	TfwServer *srv = (TfwServer *)resp->conn->peer;
 
-	if (tfw_http_hm_suspend(resp, srv))
-		return;
+	/*
+	* Total response statistics is counted permanently regardless
+	* of the state of the health monitor.
+	*/
+	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
-	if (!tfw_srv_suspended(srv) ||
-	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, resp->msg.skb_head,
-				  srv->apmref))
-	{
+	if (!(srv->flags & TFW_SRV_F_HMONITOR))
+                return;
+
+	if (tfw_srv_suspended(srv)) {
+		T_DBG_ADDR("Server suspended", &srv->addr, TFW_WITH_PORT);
 		return;
 	}
 
-	tfw_srv_mark_alive(srv);
+	if (lim_exceeded) {
+		T_WARN_ADDR("Error limit exceeded for server",
+			&srv->addr, TFW_WITH_PORT);
+		tfw_http_hm_try_suspend(resp, srv);
+	}
+
+	if (tfw_apm_hm_srv_alive(resp, srv)) {
+		T_DBG_ADDR("Mark server alive", &srv->addr, TFW_WITH_PORT);
+		tfw_srv_mark_alive(srv);
+	}
 }
 
 static inline void
@@ -5870,7 +5882,7 @@ next_msg:
 	case T_BAD:
 		T_DBG2("Drop invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_drop_with_fin(req, 400, NULL, 
+		return tfw_http_req_parse_drop_with_fin(req, 400, NULL,
 							r == T_COMPRESSION
 							? HTTP2_ECODE_COMPRESSION
 							: HTTP2_ECODE_PROTO);
@@ -7575,7 +7587,7 @@ tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	if (ce->attr_n) {
 		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;	
+		return -EINVAL;
 	}
 
 	r = tfw_cfg_parse_uint(ce->vals[0], &max_header_list_size);
@@ -7587,7 +7599,7 @@ tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-									
+
 static void
 tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 {
