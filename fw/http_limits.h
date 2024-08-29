@@ -36,7 +36,7 @@
  */
 
 /* Size of classifier private client accounting data. */
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
+#if defined(CONFIG_DEBUG_LOCK_ALLOC) || defined (CONFIG_DEBUG_SPINLOCK)
 #define TFW_CLASSIFIER_ACCSZ	512
 #else
 #define TFW_CLASSIFIER_ACCSZ	264

@@ -191,7 +191,7 @@ index ed08cbd5b..17b5789d4 100644
  		type &= frontend->maskclear;
  		mask &= frontend->maskclear;
 diff --git a/crypto/cryptd.c b/crypto/cryptd.c
-index a1bea0f4b..29515a891 100644
+index a1bea0f4b..d64a9a244 100644
 --- a/crypto/cryptd.c
 +++ b/crypto/cryptd.c
 @@ -27,6 +27,8 @@
@@ -344,6 +344,19 @@ index a1bea0f4b..29515a891 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
+@@ -1064,6 +1176,12 @@ static int __init cryptd_init(void)
+ {
+ 	int err;
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	spin_lock_init(&skcipher_alg_cache.lock);
++	spin_lock_init(&ahash_alg_cache.lock);
++	spin_lock_init(&aead_alg_cache.lock);
++#endif
++
+ 	cryptd_wq = alloc_workqueue("cryptd", WQ_MEM_RECLAIM | WQ_CPU_INTENSIVE,
+ 				    1);
+ 	if (!cryptd_wq)
 diff --git a/crypto/shash.c b/crypto/shash.c
 index 2e3433ad9..bc9c26dfe 100644
 --- a/crypto/shash.c
