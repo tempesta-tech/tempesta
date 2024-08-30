@@ -47,7 +47,7 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 	TdbRec *r;
 
 	BUG_ON(!data);
-	r = tdb_htrie_insert(db->hdr, key, data, len, true);
+	r = tdb_htrie_insert(db->hdr, key, data, NULL, NULL, len, true);
 	if (!r)
 		TDB_ERR("Cannot create cache entry for %.*s, key=%#lx\n",
 			(int)*len, (char *)data, key);
@@ -55,6 +55,22 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 	return r;
 }
 EXPORT_SYMBOL(tdb_entry_create);
+
+TdbRec *
+tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
+		       tdb_eq_cb_t *eq_cb, void *eq_data)
+{
+	TdbRec *r;
+
+	/* Use tdb_entry_create() for small records, they always complete.*/
+	BUG_ON(*len < TDB_HTRIE_MINDREC);
+	r = tdb_htrie_insert(db->hdr, key, NULL, eq_cb, eq_data, len, false);
+	if (!r)
+		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
+
+	return r;
+}
+EXPORT_SYMBOL(tdb_entry_alloc_unique);
 
 /**
  * Create TDB entry to store @len bytes.
@@ -72,7 +88,7 @@ tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 
 	/* Use tdb_entry_create() for small records, they always complete.*/
 	BUG_ON(*len < TDB_HTRIE_MINDREC);
-	r = tdb_htrie_insert(db->hdr, key, NULL, len, false);
+	r = tdb_htrie_insert(db->hdr, key, NULL, NULL, NULL, len, false);
 	if (!r)
 		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
 
@@ -107,11 +123,11 @@ EXPORT_SYMBOL(tdb_entry_add);
  * @rorce - Force delete incomplete record.
  * @return ENOENT if entry not exists.
  */
-int
+void
 tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
 		 tdb_before_remove_cb_t *bf_remove_cb, bool force)
 {
-	return tdb_htrie_remove(db->hdr, key, eq_cb, data, bf_remove_cb, force);
+	tdb_htrie_remove(db->hdr, key, eq_cb, data, bf_remove_cb, force);
 }
 EXPORT_SYMBOL(tdb_entry_remove);
 
@@ -136,18 +152,11 @@ EXPORT_SYMBOL(tdb_entry_get_room);
 
 /**
  * Lookup and get a record.
- * Since we don't copy returned records, we have to lock the bucket
- * where the record is placed and the user must call tdb_rec_put() when finish
- * with the record.
+ * Since we don't copy returned records, we have to refcount the record
+ * the user must call tdb_rec_put() when finish with the record.
  *
- * The caller must not call sleeping functions during work with the record.
- * Typically there is only one large record per bucket, so the bucket lock
- * is exactly the same as to lock the record. While there could be many
- * small records in a bucket, so the caller should not perform long jobs
- * with small records.
- *
- * @return pointer to record with acquired bucket lock if the record is
- * found and NULL without acquired locks otherwise.
+ * @return pointer to record with incremented reference counter if the record is
+ * found and NULL otherwise.
  */
 TdbIter
 tdb_rec_get(TDB *db, unsigned long key)
@@ -180,31 +189,19 @@ tdb_rec_next(TDB *db, TdbIter *iter)
 }
 EXPORT_SYMBOL(tdb_rec_next);
 
+/* Decrements reference counter. */
 void
-tdb_rec_put(void *rec)
+tdb_rec_put(TDB *db, void *rec)
 {
-	TdbBucket *b;
-
-	BUG_ON(!rec);
-
-	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
-	BUG_ON(!b);
-
-	read_unlock_bh(&b->lock);
+	tdb_htrie_put_rec(db->hdr, (TdbRec *)rec);
 }
 EXPORT_SYMBOL(tdb_rec_put);
 
+/* Increments reference counter. */
 void
 tdb_rec_keep(void *rec)
 {
-	TdbBucket *b;
-
-	BUG_ON(!rec);
-
-	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
-	BUG_ON(!b);
-
-	read_lock_bh(&b->lock);
+	tdb_htrie_get_rec((TdbRec *)rec);
 }
 EXPORT_SYMBOL(tdb_rec_keep);
 
@@ -286,17 +283,11 @@ tdb_get_db(const char *path, int node)
 /**
  * Lookup and get a record if the record is found or create TDB entry to store
  * @len bytes. If record exist then since we don't copy returned records,
- * we have to lock the memory location where the record is placed and
- * the user must call tdb_rec_put() when finish with the record.
+ * we have to refcount the record the user must call tdb_rec_put()
+ * when finish with the record.
  *
- * The caller must not call sleeping functions during work with the record.
- * Typically there is only one large record per bucket, so the bucket lock
- * is exactly the same as to lock the record. While there could be many
- * small records in a bucket, so the caller should not perform long jobs
- * with small records.
- *
- * @return pointer to record with acquired bucket lock if the record is
- * found and create TDB entry without acquired locks otherwise.
+ * @return pointer to record with incremented reference counter if the record is
+ * found and create TDB entry with incremented refcounter otherwise.
  *
  * TODO #515 rework the function in lock-free way.
  * TODO #515 TDB must be extended to support small records with constant memory

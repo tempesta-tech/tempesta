@@ -33,13 +33,16 @@
  * Access to the data must be with preemption disabled for reentrance between
  * softirq and process contexts.
  *
- * @i_wcl, @d_wcl - per-CPU current partially written index and data blocks.
- *		    TdbHdr->i_wcl and TdbHdr->d_wcl are the global values for
- *		    the variable. The variables are initialized in runtime,
- *		    so we lose some free space on system restart.
+ * @i_wcl, @d_wcl,
+ * @b_wcl -	    per-CPU current partially written index, bucket and data
+ *		    blocks. TdbHdr->i_wcl, TdbHdr->b_wcl and TdbHdr->d_wcl are
+ *		    the global values for the variable. The variables are
+ *		    initialized in runtime, so we lose some free space on system
+ *		    restart.
  * @freelist	  - pre-CPU freelist of blocks.
  */
 typedef struct {
+	unsigned long	b_wcl;
 	unsigned long	i_wcl;
 	unsigned long	d_wcl;
 	unsigned long	freelist;
@@ -88,11 +91,16 @@ typedef struct {
 	char		path[TDB_PATH_LEN];
 } TDB;
 
+#define TDB_REC_COMMON			\
+	unsigned long	key;		\
+	unsigned int	flags;		\
+	atomic_t	refcnt
+
 /**
  * Fixed-size (and typically small) records.
  */
 typedef struct {
-	unsigned long	key; /* must be the first */
+	TDB_REC_COMMON;
 	char		data[0];
 } __attribute__((packed)) TdbFRec;
 
@@ -103,7 +111,7 @@ typedef struct {
  * @len		- data length of current chunk
  */
 typedef struct {
-	unsigned long	key; /* must be the first */
+	TDB_REC_COMMON;
 	unsigned int	chunk_next;
 	unsigned int	len;
 	char		data[0];
@@ -146,7 +154,6 @@ typedef struct {
 	bool		is_new;
 } TdbGetAllocCtx;
 
-
 typedef bool tdb_eq_cb_t(TdbRec *rec, void *data);
 typedef void tdb_before_remove_cb_t(TdbRec *rec);
 
@@ -175,6 +182,12 @@ typedef void tdb_before_remove_cb_t(TdbRec *rec);
 #define TDB_DI2O(i)		((i) * TDB_HTRIE_MINDREC)
 #define TDB_II2O(i)		((i) * TDB_HTRIE_NODE_SZ)
 
+/*
+ * Version for buckets.
+ */
+#define TDB_O2BI(o)		((o) / sizeof(TdbBucket))
+#define TDB_BI2O(i)		((i) * sizeof(TdbBucket))
+
 #define TDB_BANNER		"[tdb] "
 
 /*
@@ -197,11 +210,13 @@ typedef void tdb_before_remove_cb_t(TdbRec *rec);
  * kernel_fpu_begin()/kernel_fpu_end() or call from softirq context only.
  */
 TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
+TdbRec *tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
+			       tdb_eq_cb_t *eq_cb, void *eq_data);
 void tdb_entry_mark_complete(void *rec);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
-int tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
-		     tdb_before_remove_cb_t *bf_remove_cb, bool force);
+void tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
+		      tdb_before_remove_cb_t *bf_remove_cb, bool force);
 void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);
@@ -210,7 +225,7 @@ void tdb_rec_next(TDB *db, TdbIter *iter);
 /*
  * Release a read-lock on the record's bucket.
  */
-void tdb_rec_put(void *rec);
+void tdb_rec_put(TDB *db, void *rec);
 
 /*
  * Acquire a read-lock on the record's bucket.

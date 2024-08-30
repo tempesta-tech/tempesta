@@ -57,7 +57,6 @@
  * which is 1/3 of supported per-socket RAM by modern x86-64.
  */
 #define TDB_HTRIE_DBIT		(1U << (sizeof(int) * 8 - 1))
-#define TDB_HTRIE_COMPLETE_BIT	0x1
 #define TDB_HTRIE_OMASK		(TDB_HTRIE_DBIT - 1) /* offset mask */
 #define TDB_HTRIE_IDX(k, b)	(((k) >> (b)) & TDB_HTRIE_KMASK)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
@@ -68,6 +67,10 @@
 /* Base offset of extent containing pointer @p. */
 #define TDB_EXT_BASE(h, p)	TDB_EXT_O(TDB_HTRIE_OFF(h, p))
 
+#define TDB_HTRIE_BUCKET_REMOVE_BIT	0x1
+#define TDB_HTRIE_COMPLETE_BIT		0x1
+#define TDB_HTRIE_REC_REMOVED_BIT	0x2
+
 /**
  * Header for bucket of small records.
  *
@@ -75,12 +78,11 @@
  */
 typedef struct {
 	unsigned int 	coll_next;
-	unsigned int	flags;
+	unsigned int 	rec;
 	rwlock_t	lock;
 } __attribute__((packed)) TdbBucket;
 
-#define TDB_HTRIE_VRFREED	TDB_HTRIE_DBIT
-#define TDB_HTRIE_VRLEN(r)	((r)->len & ~TDB_HTRIE_VRFREED)
+#define TDB_HTRIE_VRLEN(r)		((r)->len)
 #define TDB_HTRIE_RBODYLEN(h, r)	((h)->rec_len ? : 		\
 					 TDB_HTRIE_VRLEN((TdbVRec *)r))
 /* Be careful to not to use it with TdbRec. */
@@ -93,11 +95,15 @@ typedef struct {
 				   error, @r is always TdbVRec here. */	\
 				TDB_HTRIE_VRLEN((TdbVRec *)r),		\
 				(h)->rec_len))
-#define TDB_HTRIE_BCKT_1ST_REC(b) ((void *)((b) + 1))
-#define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BCKT_1ST_REC(b))
+#define TDB_HTRIE_BCKT_1ST_REC(h, b) 					\
+	((b)->rec ? TDB_PTR(h, TDB_DI2O((b)->rec)) : NULL)
+
+#define TDB_HTRIE_BUCKET_KEY(h, b) 					\
+	(*(unsigned long *)TDB_HTRIE_BCKT_1ST_REC(h, b))
+
 /* Iterate over buckets in collision chain. */
 #define TDB_HTRIE_BUCKET_NEXT(h, b) ((b)->coll_next			\
-				     ? TDB_PTR(h, TDB_DI2O((b)->coll_next))\
+				     ? TDB_PTR(h, TDB_BI2O((b)->coll_next))\
 				     : NULL)				\
 
 #define TDB_HDR_SZ(h)							\
@@ -105,31 +111,11 @@ typedef struct {
 #define TDB_HTRIE_ROOT(h)						\
 	(TdbHtrieNode *)((char *)(h) + TDB_HDR_SZ(h) + sizeof(TdbExt))
 
-/* TODO we can't store zero bytes by zero key. */
+/* We can't store anything by zero key. */
 static inline int
 tdb_live_fsrec(TdbHdr *dbh, TdbFRec *rec)
 {
-	int i, res = 0;
-	size_t len = TDB_HTRIE_RALIGN(sizeof(*rec) + dbh->rec_len)
-		     / sizeof(long);
-
-	for (i = 0; i < len; ++i)
-		res |= !!((unsigned long *)rec)[i];
-	return res;
-}
-
-static inline int
-tdb_live_vsrec(TdbVRec *rec)
-{
-	return rec->len && !(rec->len & TDB_HTRIE_VRFREED);
-}
-
-static inline int
-tdb_live_rec(TdbHdr *dbh, TdbRec *r)
-{
-	return TDB_HTRIE_VARLENRECS(dbh)
-	       ? tdb_live_vsrec((TdbVRec *)r)
-	       : tdb_live_fsrec(dbh, (TdbFRec *)r);
+	return rec->key != 0;
 }
 
 static inline size_t
@@ -142,10 +128,11 @@ void tdb_rec_mark_complete(void *rec);
 
 TdbVRec *tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size);
 TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
-			 size_t *len, bool complete);
-int tdb_htrie_remove(TdbHdr *dbh, unsigned long key, tdb_eq_cb_t *eq_cb,
-		     void *data, tdb_before_remove_cb_t *bf_remove_cb,
-		     bool force);
+			 tdb_eq_cb_t *eq_cb, void *eq_data, size_t *len,
+			 bool complete);
+void tdb_htrie_remove(TdbHdr *dbh, unsigned long key, tdb_eq_cb_t *eq_cb,
+		      void *data, tdb_before_remove_cb_t *bf_remove_cb,
+		      bool force);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
 TdbRec *tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket **b, unsigned long key);
 TdbRec *tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b,
@@ -153,5 +140,7 @@ TdbRec *tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b,
 TdbHdr *tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len);
 void tdb_htrie_exit(TdbHdr *dbh);
 int tdb_htrie_walk(TdbHdr *dbh, int (*fn)(void *));
+void tdb_htrie_get_rec(TdbRec *rec);
+void tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec);
 
 #endif /* __HTRIE_H__ */

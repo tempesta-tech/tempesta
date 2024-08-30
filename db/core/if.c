@@ -230,7 +230,7 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 		else {
 			memcpy(resp_m->recs, res->data, db->hdr->rec_len);
 		}
-		tdb_rec_put(res);
+		tdb_rec_put(db, res);
 	}
 
 	tdb_put(db);
