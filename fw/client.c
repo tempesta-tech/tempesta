@@ -273,7 +273,7 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
 		 * bucket with the client as soon as possible.
 		 */
-		tdb_rec_put(rec);
+		tdb_rec_put(client_db, rec);
 
 	ent = (TfwClientEntry *)rec->data;
 	cli = &ent->cli;

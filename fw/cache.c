@@ -1280,7 +1280,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 				      < tfw_cache_entry_age(ce_best))
 			{
 				if (ce_best)
-					tdb_rec_put(ce_best);
+					tdb_rec_put(db, ce_best);
 				/* It's possible that we end up iterating until
 				 * the end (while looking for a live entry), and
 				 * `ce_best` might be in a bucket that was
@@ -2559,18 +2559,13 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	       __func__, db, resp, resp->req, key, data_len);
 
 	/*
-	 * Remove each entry with current key, even fresh entries. We assume
-	 * that if we at current place, no valid entries are exists.
-	 */
-	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, resp->req,
-			 &tfw_cache_update_stat, false);
-
-	/*
 	 * Try to place the cached response in single memory chunk.
 	 * TDB should provide enough space to place at least head of
 	 * the record key at first chunk.
 	 */
-	ce = (TfwCacheEntry *)tdb_entry_alloc(db, key, &len);
+	ce = (TfwCacheEntry *)tdb_entry_alloc_unique(db, key, &len,
+						     &tfw_cache_rec_eq_req,
+						     resp->req);
 	BUG_ON(len <= sizeof(TfwCacheEntry));
 	if (!ce)
 		return;
@@ -2586,6 +2581,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
 	} else {
 		tdb_entry_mark_complete(ce);
+		tdb_rec_put(db, ce);
 		TFW_INC_STAT_BH(cache.objects);
 		TFW_ADD_STAT_BH(ce_total_size(ce), cache.bytes);
 	}
@@ -3190,7 +3186,7 @@ out:
 		action((TfwHttpMsg *)req);
 put:
 	if (ce)
-		tdb_rec_put(ce);
+		tdb_rec_put(db, ce);
 }
 
 static void
