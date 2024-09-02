@@ -1234,6 +1234,8 @@ tfw_apm_ref_create(void)
 		ref->hmctl.hmstats = hmstats;
 	}
 
+	spin_lock_init(&ref->hmctl.hmstats->lock);
+
 	return ref;
 }
 
