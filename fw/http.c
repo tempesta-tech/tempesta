@@ -6695,7 +6695,7 @@ next_msg:
 	 * event.
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r == T_BLOCK))
+	if (unlikely(r))
 		return r;
 
 	/*
@@ -6744,16 +6744,6 @@ next_msg:
 	}
 
 	/*
-	 * If a non critical error occurred in further GFSM processing,
-	 * then the response and the paired request had been handled.
-	 * Keep the server connection open for data exchange.
-	 */
-	if (unlikely(r != T_OK)) {
-		r = T_OK;
-		goto next_resp;
-	}
-
-	/*
 	 * Do upgrade if correct websocket upgrade response detected earlier.
 	 * We have to do this before going to the cache, since the cache calls
 	 * the message forwarding on a callback, which may free both the request
@@ -6778,7 +6768,6 @@ next_msg:
 		return r;
 	}
 
-next_resp:
 	*split = NULL;
 	if (skb && websocket)
 		return tfw_ws_msg_process(cli_conn->pair, skb);
