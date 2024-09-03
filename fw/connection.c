@@ -160,7 +160,7 @@ int
 tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
 	int r = T_OK;
-	struct sk_buff *next, *splitted;
+	struct sk_buff *next, *split;
 
 	if (unlikely(tfw_connection_stop_rcv(conn))) {
 		__kfree_skb(skb);
@@ -173,20 +173,20 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	     skb = next, next = next ? next->next : NULL)
 	{
 		if (likely(r == T_OK || r == T_POSTPONE || r == T_DROP)) {
-			splitted = skb->next = skb->prev = NULL;
+			split = skb->next = skb->prev = NULL;
 			if (unlikely(TFW_CONN_PROTO(conn) == TFW_FSM_WS
 				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))
 				r = tfw_ws_msg_process(conn, skb);
 			else
-				r = tfw_http_msg_process(conn, skb, &splitted);
-			if (splitted) {
+				r = tfw_http_msg_process(conn, skb, &split);
+			if (split) {
 				/*
 				 * In the case when the current skb contains
 				 * multiple requests or responses, we split this
 				 * skb along the boundary.
 				 */
-				splitted->next = next;
-				next = splitted;
+				split->next = next;
+				next = split;
 			}
 		} else {
 			__kfree_skb(skb);

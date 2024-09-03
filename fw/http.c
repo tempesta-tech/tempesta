@@ -2892,6 +2892,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 	ss_skb_queue_tail(&shm->msg.skb_head, skb);
 	return shm;
 }
+ALLOW_ERROR_INJECTION(tfw_http_msg_create_sibling, NULL);
 
 /*
  * Add 'Date:' header field to an HTTP message.
@@ -5828,7 +5829,7 @@ __check_authority_correctness(TfwHttpReq *req)
  */
 static int
 tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
-		     struct sk_buff **splitted)
+		     struct sk_buff **split)
 {
 	ss_skb_actor_t *actor;
 	unsigned int parsed;
@@ -6000,7 +6001,7 @@ next_msg:
 					"Can't split pipelined requests",
 					HTTP2_ECODE_PROTO);
 		}
-		*splitted = skb;
+		*split = skb;
 	} else {
 		skb = NULL;
 	}
@@ -6186,7 +6187,7 @@ next_msg:
 		BUG();
 	}
 
-	*splitted = NULL;
+	*split = NULL;
 	if (TFW_MSG_H2(req))
 		/*
 		 * Just marks request as non-idempotent if required.
@@ -6543,7 +6544,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  */
 static int
 tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
-		      struct sk_buff **splitted)
+		      struct sk_buff **split)
 {
 	int r;
 	unsigned int chunks_unused, parsed;
@@ -6669,7 +6670,7 @@ next_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			goto bad_msg;
 		}
-		*splitted = skb;
+		*split = skb;
 	}
 	else {
 		skb = NULL;
@@ -6725,7 +6726,7 @@ next_msg:
 	 * protocol data.
 	 */
 	if (skb && !websocket) {
-		*splitted = NULL;
+		*split = NULL;
 		hmsib = tfw_http_msg_create_sibling(hmresp, skb);
 		/*
 		 * In case of an error there's no recourse. The
@@ -6778,7 +6779,7 @@ next_msg:
 	}
 
 next_resp:
-	*splitted = NULL;
+	*split = NULL;
 	if (skb && websocket)
 		return tfw_ws_msg_process(cli_conn->pair, skb);
 	if (hmsib) {
@@ -6987,7 +6988,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		BUG();
 	}
 
-	if (req->vhost)
+	if (likely(req->vhost))
 		req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
