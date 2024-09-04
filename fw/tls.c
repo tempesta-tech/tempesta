@@ -282,11 +282,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	head_sz = ttls_payload_off(xfrm);
 	len = skb->len;
 	type = skb_tfw_tls_type(skb);
-	if (!type) {
-		T_WARN("%s: bad skb type %u\n", __func__, type);
-		r = -EINVAL;
-		goto err_epilogue;
-	}
+	/* Checked early before call this function. */
+	BUG_ON(!type);
 
 	/* TLS header is always allocated from the skb headroom. */
 	tcb->end_seq += head_sz;
@@ -334,19 +331,25 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	WARN_ON_ONCE(next == skb);
 	if (skb_tail == skb) {
 		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, TTLS_TAG_LEN);
-		if (r < 0)
+		if (r < 0) {
+			tcb->end_seq -= head_sz;
 			goto out;
+		}
 	} else {
 		r = ss_skb_expand_head_tail(NULL, skb, head_sz, 0);
-		if (r < 0)
+		if (r < 0) {
+			tcb->end_seq -= head_sz;
 			goto out;
+		}
 		sgt.nents += r;
 		out_sgt.nents += r;
 
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    TTLS_TAG_LEN);
-		if (r < 0)
+		if (r < 0) {
+			ss_add_overhead(sk, skb_tail->truesize - t_sz);
 			goto out;
+		}
 	}
 	sgt.nents += r;
 	out_sgt.nents += r;
@@ -406,8 +409,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for TTLS_TAG_LEN.
 	 */
-	if (ss_add_overhead(sk, t_sz))
-		return -ENOMEM;
+	ss_add_overhead(sk, t_sz);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
@@ -421,7 +423,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
 			T_WARN("cannot alloc memory for TLS encryption.\n");
-			return -ENOMEM;
+			r = -ENOMEM;
+			goto out;
 		}
 
 		ptr += sizeof(struct scatterlist) * sgt.nents;
@@ -447,14 +450,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		       frags, r);
 
 		if (r <= 0)
-			goto out;
+			goto free_pages;
 		frags += r;
 
 		r = ss_skb_to_sgvec_with_new_pages(next,
 		                                   out_sgt.sgl + out_frags,
 		                                   &pages_end);
 		if (r <= 0)
-			goto out;
+			goto free_pages;
 		out_frags += r;
 
 		skb_clear_tfw_cb(next);
@@ -478,17 +481,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	spin_unlock(&tls->lock);
 
+free_pages:
 	for (p = pages; p < pages_end; ++p)
 		put_page(*p);
-
-out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
-	if (!r)
-		return r;
-err_epilogue:
-	T_WARN("%s: cannot encrypt data (%d), only partial data was sent\n",
-	       __func__, r);
+out:
+	if (unlikely(r))
+		T_WARN("%s: cannot encrypt data (%d)\n", __func__, r);
 	return r;
 #undef AUTO_SEGS_N
 #undef MAX_SEG_N

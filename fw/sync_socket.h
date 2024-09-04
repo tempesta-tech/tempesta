@@ -131,17 +131,14 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 /**
  * Add overhead to current TCP socket control data.
  */
-static inline int
+static inline void
 ss_add_overhead(struct sock *sk, unsigned int overhead)
 {
 	if (!overhead)
-		return 0;
-	if (!sk_wmem_schedule(sk, overhead))
-		return -ENOMEM;
+		return;
+	sk_forced_mem_schedule(sk, overhead);
 	sk->sk_wmem_queued += overhead;
 	sk_mem_charge(sk, overhead);
-
-	return 0;
 }
 
 /* Dummy user ID to differentiate server from client sockets. */
