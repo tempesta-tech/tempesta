@@ -449,14 +449,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
 		       frags, r);
 
-		if (r <= 0)
+		if (r < 0)
 			goto free_pages;
 		frags += r;
 
 		r = ss_skb_to_sgvec_with_new_pages(next,
 		                                   out_sgt.sgl + out_frags,
 		                                   &pages_end);
-		if (r <= 0)
+		if (r < 0)
 			goto free_pages;
 		out_frags += r;
 
