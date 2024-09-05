@@ -83,15 +83,7 @@ EXPORT_SYMBOL(tdb_entry_alloc);
 void
 tdb_entry_mark_complete(void *rec)
 {
-	TdbBucket *b;
-
-	BUG_ON(!rec);
-
-	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
-	BUG_ON(!b);
-	write_lock_bh(&b->lock);
-	b->flags |= TDB_HTRIE_COMPLETE_BIT;
-	write_unlock_bh(&b->lock);
+	tdb_rec_mark_complete(rec);
 }
 EXPORT_SYMBOL(tdb_entry_mark_complete);
 

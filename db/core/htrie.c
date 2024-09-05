@@ -197,6 +197,20 @@ tdb_bucket_is_complete(TdbBucket *bckt)
 	return bckt->flags & TDB_HTRIE_COMPLETE_BIT;
 }
 
+void
+tdb_rec_mark_complete(void *rec)
+{
+	TdbBucket *b;
+
+	BUG_ON(!rec);
+
+	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
+	BUG_ON(!b);
+	write_lock_bh(&b->lock);
+	b->flags |= TDB_HTRIE_COMPLETE_BIT;
+	write_unlock_bh(&b->lock);
+}
+
 static inline void
 tdb_free_index_blk(TdbHtrieNode *node)
 {
