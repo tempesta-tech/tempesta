@@ -1365,6 +1365,32 @@ tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
 	return kstrtouint(s, base, out_uint);
 }
 
+int
+tfw_cfg_parse_bool(const char *in_str, bool *out_bool)
+{
+	bool is_false;
+	*out_bool =  !strcasecmp(in_str, "1")
+		|| !strcasecmp(in_str, "y")
+		|| !strcasecmp(in_str, "on")
+		|| !strcasecmp(in_str, "yes")
+		|| !strcasecmp(in_str, "true")
+		|| !strcasecmp(in_str, "enable");
+
+	is_false =  !strcasecmp(in_str, "0")
+		 || !strcasecmp(in_str, "n")
+		 || !strcasecmp(in_str, "off")
+		 || !strcasecmp(in_str, "no")
+		 || !strcasecmp(in_str, "false")
+		 || !strcasecmp(in_str, "disable");
+
+	BUG_ON(*out_bool && is_false);
+	if (!*out_bool && !is_false) {
+		T_ERR_NL("invalid boolean value: '%s'\n", in_str);
+		return -EINVAL;
+	}
+	return 0;
+}
+
 /**
  * Borrowed from linux/lib/kstrtox.c because the function isn't exported by
  * the kernel.
@@ -1563,7 +1589,8 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 int
 tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
-	bool is_true, is_false;
+	int r = 0;
+	bool is_true;
 	bool *dest_bool = cs->dest;
 	const char *in_str = e->vals[0];
 
@@ -1588,28 +1615,10 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (tfw_cfg_check_single_val(e))
 		return -EINVAL;
 
-	is_true =  !strcasecmp(in_str, "1")
-	        || !strcasecmp(in_str, "y")
-	        || !strcasecmp(in_str, "on")
-	        || !strcasecmp(in_str, "yes")
-	        || !strcasecmp(in_str, "true")
-	        || !strcasecmp(in_str, "enable");
-
-	is_false =  !strcasecmp(in_str, "0")
-	         || !strcasecmp(in_str, "n")
-	         || !strcasecmp(in_str, "off")
-	         || !strcasecmp(in_str, "no")
-	         || !strcasecmp(in_str, "false")
-	         || !strcasecmp(in_str, "disable");
-
-	BUG_ON(is_true && is_false);
-	if (!is_true && !is_false) {
-		T_ERR_NL("invalid boolean value: '%s'\n", in_str);
-		return -EINVAL;
-	}
+	r = tfw_cfg_parse_bool(in_str, &is_true);
 
 	*dest_bool = is_true;
-	return 0;
+	return r;
 }
 
 int
@@ -1810,6 +1819,14 @@ TfwCfgSpec *
 tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name)
 {
 	return spec_find(specs, name);
+}
+
+int
+tfw_spec_init_frang_default(TfwCfgSpec specs[])
+{
+	spec_cleanup(specs);
+	spec_start_handling(specs);
+	return spec_finish_handling(specs);
 }
 
 /**

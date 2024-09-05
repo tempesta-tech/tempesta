@@ -1616,25 +1616,20 @@ do {									\
 	}
 }
 
-static bool
-tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
+/**
+ * Try to mark server as suspended.
+ * In case of HM is active do it, otherwise left unchanged.
+ */
+static void
+tfw_http_hm_try_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
-	/*
-	 * We need to count a total response statistics in
-	 * tfw_apm_hm_srv_limit(), even if health monitor is disabled.
-	 * In this case limit calculation won't be accounted.
-	 */
-	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
-	if (!(flags & TFW_SRV_F_HMONITOR))
-		return true;
-	if (!lim_exceeded)
-		return false;
+	while (flags & TFW_SRV_F_HMONITOR) {
 
-	do {
 		old_flags = cmpxchg(&srv->flags, flags,
-				    flags | TFW_SRV_F_SUSPEND);
+		                    flags | TFW_SRV_F_SUSPEND);
+
 		if (likely(old_flags == flags)) {
 			T_WARN_ADDR_STATUS("server has been suspended: limit "
 					   "for bad responses is exceeded",
@@ -1642,28 +1637,45 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 					   resp->status);
 			break;
 		}
-		flags = old_flags;
-	} while (flags & TFW_SRV_F_HMONITOR);
 
-	return true;
+		flags = old_flags;
+	}
 }
 
+/**
+* The main function of Health Monioring.
+* Getting response from the server, it updates responses statistics,
+* checks HM limits and makes solution about server health.
+*/
 static void
 tfw_http_hm_control(TfwHttpResp *resp)
 {
 	TfwServer *srv = (TfwServer *)resp->conn->peer;
 
-	if (tfw_http_hm_suspend(resp, srv))
-		return;
+	/*
+	* Total response statistics is counted permanently regardless
+	* of the state of the health monitor.
+	*/
+	bool lim_exceeded = tfw_apm_hm_srv_limit(resp->status, srv->apmref);
 
-	if (!tfw_srv_suspended(srv) ||
-	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, resp->msg.skb_head,
-				  srv->apmref))
-	{
+	if (!(srv->flags & TFW_SRV_F_HMONITOR))
+                return;
+
+	if (tfw_srv_suspended(srv)) {
+		T_DBG_ADDR("Server suspended", &srv->addr, TFW_WITH_PORT);
 		return;
 	}
 
-	tfw_srv_mark_alive(srv);
+	if (lim_exceeded) {
+		T_WARN_ADDR("Error limit exceeded for server",
+			&srv->addr, TFW_WITH_PORT);
+		tfw_http_hm_try_suspend(resp, srv);
+	}
+
+	if (tfw_apm_hm_srv_alive(resp, srv)) {
+		T_DBG_ADDR("Mark server alive", &srv->addr, TFW_WITH_PORT);
+		tfw_srv_mark_alive(srv);
+	}
 }
 
 static inline void
@@ -4918,12 +4930,12 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
 		T_DBG2("%s: resp=[%p] dropped: client disconnected\n",
 		       __func__, resp);
-		tfw_http_resp_pair_free(req);
 		/*
 		 * Put the websocket server connection when client connection is
 		 * lost after successful upgrade request.
 		 */
 		__tfw_http_ws_connection_put((TfwCliConn *)req->conn);
+		tfw_http_resp_pair_free(req);
 
 		return;
 	}
@@ -4993,7 +5005,8 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		  bool on_req_recv_event, TfwH2Err err_code)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+	TfwConn *conn = READ_ONCE(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
 	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
 		type == TFW_ERROR_TYPE_BAD);
 
@@ -5004,7 +5017,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 */
 	if (!reply) {
 		if (!on_req_recv_event)
-			tfw_connection_abort(req->conn);
+			tfw_connection_abort(conn);
 		tfw_h2_req_unlink_stream_with_rst(req);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
@@ -5035,7 +5048,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
 	 * error response.
 	 */
-	tfw_connection_get(req->conn);
+	tfw_connection_get(conn);
 	tfw_h2_send_err_resp(req, status, close_after_send);
 	if (close_after_send) {
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
@@ -5043,15 +5056,15 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	} else {
 		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
 						 HTTP2_RST_STREAM, 0)) {
-			tfw_connection_put(req->conn);
+			tfw_connection_put(conn);
 			return T_BAD;
 		}
 		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
-			tfw_connection_put(req->conn);
+			tfw_connection_put(conn);
 			return T_BAD;
 		}
 	}
-	tfw_connection_put(req->conn);
+	tfw_connection_put(conn);
 	goto out;
 
 skip_stream:
@@ -5869,7 +5882,7 @@ next_msg:
 	case T_BAD:
 		T_DBG2("Drop invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_drop_with_fin(req, 400, NULL, 
+		return tfw_http_req_parse_drop_with_fin(req, 400, NULL,
 							r == T_COMPRESSION
 							? HTTP2_ECODE_COMPRESSION
 							: HTTP2_ECODE_PROTO);
@@ -5987,6 +6000,7 @@ next_msg:
 					"Can't split pipelined requests",
 					HTTP2_ECODE_PROTO);
 		}
+		*splitted = skb;
 	} else {
 		skb = NULL;
 	}
@@ -5998,13 +6012,11 @@ next_msg:
 	 * while it's enough to parse only headers.
 	 */
 	if (!__check_authority_correctness(req)) {
-		*splitted = skb;
 		return tfw_http_req_parse_drop(req, 400, "Invalid authority",
 					       HTTP2_ECODE_PROTO);
 	}
 
 	if ((r = tfw_http_req_client_link(conn, req))) {
-		*splitted = skb;
 		return tfw_http_req_parse_drop(req, 400, "request dropped: "
 				"incorrect X-Forwarded-For header",
 				HTTP2_ECODE_PROTO);
@@ -6174,6 +6186,7 @@ next_msg:
 		BUG();
 	}
 
+	*splitted = NULL;
 	if (TFW_MSG_H2(req))
 		/*
 		 * Just marks request as non-idempotent if required.
@@ -6214,7 +6227,7 @@ next_msg:
 		tfw_http_send_err_resp(req, 500, "request dropped:"
 				       " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}
+	}	
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
@@ -6789,6 +6802,18 @@ bad_msg:
 	 */
 	bad_req = hmresp->req;
 	tfw_http_popreq(hmresp, false);
+
+	/*
+	 * Special case: malformed response to a Health Monitor request.
+	 * There's no client involved, so just log-n-drop the response now
+	 * without further processing.
+	 */
+	if(unlikely(test_bit(TFW_HTTP_B_HMONITOR, bad_req->flags))) {
+		T_WARN("Health Monitor response malformed");
+		tfw_http_resp_pair_free(bad_req);
+		return T_OK;
+	}
+
 	/* The response is freed by tfw_http_req_parse_block/drop(). */
 	if (filtout)
 		r = tfw_http_req_block(bad_req, 502,
@@ -7562,7 +7587,7 @@ tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	if (ce->attr_n) {
 		T_ERR_NL("Unexpected attributes\n");
-		return -EINVAL;	
+		return -EINVAL;
 	}
 
 	r = tfw_cfg_parse_uint(ce->vals[0], &max_header_list_size);
@@ -7574,7 +7599,7 @@ tfw_cfgop_max_header_list_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-									
+
 static void
 tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 {

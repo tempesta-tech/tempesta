@@ -290,6 +290,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != -ESHUTDOWN)
 			T_ERR("Unable to initiate a connect to server: %d\n",
 				r);
+		sock_put(sk);
 		SS_CALL(connection_drop, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
@@ -426,7 +427,7 @@ __tfw_connection_get_if_not_death(TfwConn *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
-	while (likely(rc != TFW_CONN_DEATHCNT)) {
+	while (likely(rc != TFW_CONN_DEATHCNT && rc != 0)) {
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
 		if (likely(old == rc))
 			return true;

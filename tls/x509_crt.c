@@ -138,6 +138,16 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb =
 	0,
 };
 
+static void
+x509_verify_date(const TlsX509Crt *crt, uint32_t *flags)
+{
+	if (ttls_x509_time_is_past(&crt->valid_to))
+		*flags |= TTLS_X509_BADCERT_EXPIRED;
+
+	if (ttls_x509_time_is_future(&crt->valid_from))
+		*flags |= TTLS_X509_BADCERT_FUTURE;
+}
+
 /* TODO #830 this will be frequently used in softirq, better to use avx-enabled
  * function here and in x509_memcasecmp(), x509_string_cmp(). But the same
  * code is still possible in the process context on loading server certificates.
@@ -1374,11 +1384,7 @@ x509_crt_verify_top(TlsX509Crt *child, TlsX509Crt *trust_ca,
 	const TlsMdInfo *md_info;
 	TlsX509Crt *future_past_ca = NULL;
 
-	if (ttls_x509_time_is_past(&child->valid_to))
-		*flags |= TTLS_X509_BADCERT_EXPIRED;
-
-	if (ttls_x509_time_is_future(&child->valid_from))
-		*flags |= TTLS_X509_BADCERT_FUTURE;
+	x509_verify_date(child, flags);
 
 	if (x509_profile_check_md_alg(profile, child->sig_md) != 0)
 		*flags |= TTLS_X509_BADCERT_BAD_MD;
@@ -1468,11 +1474,7 @@ x509_crt_verify_top(TlsX509Crt *child, TlsX509Crt *trust_ca,
 		/* Check trusted CA's CRL for the chain's top crt */
 		*flags |= x509_crt_verifycrl(child, trust_ca, ca_crl, profile);
 
-		if (ttls_x509_time_is_past(&trust_ca->valid_to))
-			ca_flags |= TTLS_X509_BADCERT_EXPIRED;
-
-		if (ttls_x509_time_is_future(&trust_ca->valid_from))
-			ca_flags |= TTLS_X509_BADCERT_FUTURE;
+		x509_verify_date(trust_ca, &ca_flags);
 	}
 
 	*flags |= ca_flags;
@@ -1502,11 +1504,7 @@ x509_crt_verify_child(TlsX509Crt *child, TlsX509Crt *parent,
 		return TTLS_ERR_X509_FATAL_ERROR;
 	}
 
-	if (ttls_x509_time_is_past(&child->valid_to))
-		*flags |= TTLS_X509_BADCERT_EXPIRED;
-
-	if (ttls_x509_time_is_future(&child->valid_from))
-		*flags |= TTLS_X509_BADCERT_FUTURE;
+	x509_verify_date(child, flags);
 
 	if (x509_profile_check_md_alg(profile, child->sig_md) != 0)
 		*flags |= TTLS_X509_BADCERT_BAD_MD;
@@ -1774,6 +1772,20 @@ exit:
 
 	return 0;
 }
+
+/**
+ * Check validity of certificate.
+ */
+uint32_t
+ttls_x509_check_cert_validity(const TlsX509Crt *crt)
+{
+	uint32_t flags = 0;
+
+	x509_verify_date(crt, &flags);
+
+	return flags;
+}
+EXPORT_SYMBOL(ttls_x509_check_cert_validity);
 
 int
 ttls_x509_process_san(const TlsX509Crt *crt,

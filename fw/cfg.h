@@ -442,6 +442,7 @@ int tfw_cfg_check_single_val(const TfwCfgEntry *e);
 int tfw_cfg_parse_int(const char *s, int *out_int);
 int tfw_cfg_parse_long(const char *s, long *out_long);
 int tfw_cfg_parse_uint(const char *s, unsigned int *out_uint);
+int tfw_cfg_parse_bool(const char *in_str, bool *out_bool);
 int tfw_cfg_parse_intvl(const char *s, unsigned long *i0, unsigned long *i1);
 int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
@@ -457,5 +458,7 @@ void *tfw_cfg_read_file(const char *path, size_t *file_size);
 int tfw_cfg_parse(struct list_head *mod_list);
 void tfw_cfg_cleanup(struct list_head *mod_list);
 void tfw_cfg_conclude(struct list_head *mod_list);
+
+int tfw_spec_init_frang_default(TfwCfgSpec specs[]);
 
 #endif /* __TFW_CFG_H__ */

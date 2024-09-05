@@ -628,8 +628,8 @@ typedef struct {
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
 #define TFW_APM_HM_AUTO		"auto"
-#define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
-#define TFW_APM_DFLT_URL	"\"/\""
+#define TFW_APM_DFLT_REQ	"GET / HTTP/1.0\r\n\r\n"
+#define TFW_APM_DFLT_URL	"/"
 
 /*
  * APM Data structure.
@@ -1234,6 +1234,8 @@ tfw_apm_ref_create(void)
 		ref->hmctl.hmstats = hmstats;
 	}
 
+	spin_lock_init(&ref->hmctl.hmstats->lock);
+
 	return ref;
 }
 
@@ -1329,8 +1331,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 }
 
 static inline u32
-__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
-		     TfwStr *body)
+__tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk)
 {
 	u32 crc = 0;
 
@@ -1340,11 +1341,21 @@ __tfw_apm_crc32_calc(TfwMsgIter *it, TfwStr *chunk , struct sk_buff *skb_head,
 	return crc;
 }
 
+/**
+* Validate response from the given server.
+* Check:
+* - Is response status code belongs to monitored set
+* - Integrity of the response body
+* - CRC
+* Successful passing all of the checks considered
+* as a sign that the server is alive.
+*/
 bool
-tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
-		     void *apmref)
+tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 {
-	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)apmref)->hmctl.hm);
+	int status = resp->status;
+	TfwStr *body = &resp->body;
+	TfwApmHM *hm = READ_ONCE(((TfwApmRef *)(srv->apmref))->hmctl.hm);
 	u32 crc32 = 0;
 	TfwMsgIter it;
 	TfwStr chunk = {0};
@@ -1363,7 +1374,7 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 	}
 
 	if (unlikely(tfw_body_iter_init(&it, &chunk, body->data, body->skb,
-					skb_head)))
+					resp->msg.skb_head)))
 	{
 		T_WARN_NL("Invalid body. Health monitor '%s': status '%d' \n",
 			  hm->name, status);
@@ -1375,9 +1386,9 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, struct sk_buff *skb_head,
 	 * from body of first response and store it into monitor.
 	 */
 	if (!hm->crc32 && hm->auto_crc) {
-		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
+		hm->crc32 = __tfw_apm_crc32_calc(&it, &chunk);
 	} else if (hm->crc32) {
-		crc32 = __tfw_apm_crc32_calc(&it, &chunk, skb_head, body);
+		crc32 = __tfw_apm_crc32_calc(&it, &chunk);
 		if (hm->crc32 != crc32)
 			goto crc_err;
 	}
@@ -1704,7 +1715,7 @@ tfw_apm_create_def_hm(void)
 }
 
 static TfwApmHMCfg *
-tfw_amp_create_hm_entry(void)
+tfw_apm_create_hm_entry(void)
 {
 	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
 	if (!hm_entry)
@@ -1725,7 +1736,7 @@ tfw_apm_create_def_health_stat_srv(void)
 	if (tfw_hm_cfg_200_created)
 		return 0;
 
-	hm_entry = tfw_amp_create_hm_entry();
+	hm_entry = tfw_apm_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
 
@@ -1756,6 +1767,19 @@ tfw_apm_cfgend(void)
 }
 
 static void
+tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
+{
+	TfwApmHMCfg *ent, *tmp;
+
+	list_for_each_entry_safe(ent, tmp, &tfw_hm_codes_list, list) {
+		list_del_init(&ent->list);
+		kfree(ent);
+	}
+	INIT_LIST_HEAD(&tfw_hm_codes_list);
+	tfw_hm_codes_cnt = 0;
+}
+
+static void
 tfw_apm_cfgclean(void)
 {
 	if (tfw_runstate_is_reconfig())
@@ -1772,6 +1796,7 @@ tfw_apm_cfgclean(void)
 	 * even if no `health_check` directive found.
 	 */
 	__tfw_cfgop_cleanup_apm_hm();
+	tfw_cfgop_apm_cleanup_server_failover(NULL);
 }
 
 /**
@@ -1887,7 +1912,7 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
 		return -EINVAL;
 
-	hm_entry = tfw_amp_create_hm_entry();
+	hm_entry = tfw_apm_create_hm_entry();
 	if (!hm_entry)
 		return -ENOMEM;
 	tfw_hm_entry_set_code(hm_entry, code);
@@ -1896,20 +1921,6 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-
-static void
-tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
-{
-	TfwApmHMCfg *ent, *tmp;
-
-	list_for_each_entry_safe(ent, tmp, &tfw_hm_codes_list, list) {
-		list_del_init(&ent->list);
-		kfree(ent);
-	}
-	INIT_LIST_HEAD(&tfw_hm_codes_list);
-	tfw_hm_codes_cnt = 0;
-}
-
 
 static int
 tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -1928,7 +1939,7 @@ tfw_cfgop_apm_health_stat_srv(TfwCfgSpec *cs, TfwCfgEntry *ce)
 				 val);
 			return -EINVAL;
 		}
-		hm_entry = tfw_amp_create_hm_entry();
+		hm_entry = tfw_apm_create_hm_entry();
 		if (!hm_entry)
 			return -ENOMEM;
 		tfw_hm_entry_set_code(hm_entry, code);

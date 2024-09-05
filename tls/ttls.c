@@ -457,6 +457,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 			crypto_free_shash(hs->desc.tfm);
 			memcpy_fast(&tls->hs->fin_sha256, sha256,
 				    sizeof(*sha256));
+			bzero_fast(sha256, sizeof(*sha256));
 		}
 	}
 	if (unlikely(!hs->desc.tfm)) {
@@ -1301,6 +1302,8 @@ ttls_handshake_free(TlsHandshake *hs)
 		return;
 
 	crypto_free_shash(hs->desc.tfm);
+	if (hs->tmp_sha256.desc.tfm)
+		crypto_free_shash(hs->tmp_sha256.desc.tfm);
 
 	if (hs->crypto_ctx)
 		ttls_mpi_pool_free(hs->crypto_ctx);
