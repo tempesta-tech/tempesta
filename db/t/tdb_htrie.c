@@ -331,7 +331,7 @@ do_varsz(TdbHdr *dbh)
 
 			copied += rec->len;
 		}
-		tdb_entry_mark_complete(rec);
+		tdb_rec_mark_complete(rec);
 	}
 
 	lookup_varsz_records(dbh);

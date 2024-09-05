@@ -138,6 +138,8 @@ tdb_rec_hdr_size(TdbHdr *dbh)
 	return TDB_HTRIE_VARLENRECS(dbh) ? sizeof(TdbVRec) : sizeof(TdbFRec);
 }
 
+void tdb_rec_mark_complete(void *rec);
+
 TdbVRec *tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size);
 TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
 			 size_t *len, bool complete);
