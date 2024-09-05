@@ -45,7 +45,7 @@ lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
-declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload,no-rss"
+declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 # We should setup network queues for all existing network interfaces
 # to prevent socket CPU migration, which leads to response reordering
 # and broken HTTP1. Some network interfaces have some strange suffix
@@ -56,18 +56,17 @@ declare devs=$(ip addr show up | grep -P '^[0-9]+' \
 usage()
 {
 	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
-	echo -e "Options:"
-	echo -e "  -d <devs>   Ingress and egress network devices"
-	echo -e "              (ex. -d \"lo ens3\").\n"
 	echo -e "Actions:"
 	echo -e "  --help      Show this message and exit."
 	echo -e "  --load      Load Tempesta modules."
 	echo -e "  --unload    Unload Tempesta modules."
 	echo -e "  --start     Load modules and start."
-	echo -e "  --no-rss    Do not enable RSS for networking interfaces. May be used only with the --start option"
 	echo -e "  --stop      Stop and unload modules."
-	echo -e "  --restart   Restart.\n"
+	echo -e "  --restart   Restart."
 	echo -e "  --reload    Live reconfiguration.\n"
+	echo -e "Start options (applicable for --start command):"
+	echo -e "  -d <devs>   Ingress and egress network devices, also may be set with TFW_DEV, but the option has more priority"
+	echo -e "              (ex. --start -d \"lo ens3\").\n"
 }
 
 templater()
@@ -164,10 +163,7 @@ unload_modules()
 
 setup()
 {
-	# Invoke method if extra argument (i.e. --no-rss) was not provided
-	if [[ $# -eq 0 ]]; then
-		tfw_set_net_queues "$devs"
-	fi
+	tfw_set_net_queues "$devs"
 
 	# Enable sysrq
 	echo 1 > /proc/sys/kernel/sysrq
@@ -269,7 +265,7 @@ start()
 	TFW_STATE=${TFW_STATE##* }
 
 	if [[ -z ${TFW_STATE} ]]; then
-		setup "$1";
+		setup
 
 		echo "...load Tempesta modules"
 		load_modules;
@@ -328,12 +324,19 @@ while :; do
 			;;
 		# User CLI.
 		--start)
-			if [[ $2 == "--no-rss" ]]; then
-				echo Starting without enabling RSS for netwroking interfaces.
-				start "$2"
-			else
-				start
+		  # if --start with -d "<devices>" (list of devices to configure)
+		  if [ -n "$2" ] && [ "$2" == "-d" ] && [ -n "$3" ]; then
+		    if [ -n "$TFW_DEV" ]; then
+				  echo You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$3"\'
+				else
+				  echo Using only networking devices from command line argument: \'"$3"\'
+			  fi
+			  devs=$3
+			elif [ -n "$TFW_DEV" ]; then
+			  echo Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
+	      devs=$TFW_DEV
 			fi
+			start
 			exit
 			;;
 		--stop)
@@ -349,10 +352,7 @@ while :; do
 			reload
 			exit
 			;;
-		# Ignore any options after action.
 		-d)
-			devs=$2
-			shift 2
 			;;
 		--help)
 			usage
