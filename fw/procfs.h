@@ -70,11 +70,13 @@ typedef struct {
 } TfwSrvStat;
 
 /*
- * @msgs_fromcache	- The number of messages served from cache.
- * @online		- The number of clients online.
+ * @streams_num_exceeded - Max streams number exceeded.
+ * @msgs_fromcache	 - The number of messages served from cache.
+ * @online		 - The number of clients online.
  */
 typedef struct {
 	TFW_STAT_COMMON;
+	u64	streams_num_exceeded;
 	u64	msgs_fromcache;
 	u64	online;
 } TfwClntStat;
