@@ -334,7 +334,7 @@ while :; do
 				devs=$3
 			elif [ -n "$TFW_DEV" ]; then
 				echo Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
-	  		devs=$TFW_DEV
+			devs=$TFW_DEV
 			fi
 			start
 			exit
