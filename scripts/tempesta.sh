@@ -324,9 +324,9 @@ while :; do
 			;;
 		# User CLI.
 		--start)
-		  # if --start with -d "<devices>" (list of devices to configure)
-		  if [ -n "$2" ] && [ "$2" == "-d" ] && [ -n "$3" ]; then
-		    if [ -n "$TFW_DEV" ]; then
+			# if --start with -d "<devices>" (list of devices to configure)
+			if [ -n "$2" ] && [ "$2" == "-d" ] && [ -n "$3" ]; then
+				if [ -n "$TFW_DEV" ]; then
 					echo You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$3"\'
 				else
 					echo Using only networking devices from command line argument: \'"$3"\'
