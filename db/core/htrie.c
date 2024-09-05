@@ -449,7 +449,7 @@ out:
 static unsigned long
 tdb_alloc_index(TdbHdr *dbh)
 {
-	unsigned long rptr = 0, old_rptr;
+	unsigned long rptr = 0;
 
 	local_bh_disable();
 
@@ -459,7 +459,6 @@ tdb_alloc_index(TdbHdr *dbh)
 		     || TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1)
 			> TDB_BLK_O(rptr)))
 	{
-		old_rptr = ((rptr - 1) & TDB_BLK_MASK);
 		if (this_cpu_ptr(dbh->pcpu)->freelist)
 			rptr = tdb_alloc_blk_freelist(dbh);
 		else
