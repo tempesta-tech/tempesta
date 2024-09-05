@@ -45,7 +45,7 @@ lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
-declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
+declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload,no-rss"
 # We should setup network queues for all existing network interfaces
 # to prevent socket CPU migration, which leads to response reordering
 # and broken HTTP1. Some network interfaces have some strange suffix
@@ -64,6 +64,7 @@ usage()
 	echo -e "  --load      Load Tempesta modules."
 	echo -e "  --unload    Unload Tempesta modules."
 	echo -e "  --start     Load modules and start."
+	echo -e "  --no-rss    Do not enable RSS for networking interfaces. May be used only with the --start option"
 	echo -e "  --stop      Stop and unload modules."
 	echo -e "  --restart   Restart.\n"
 	echo -e "  --reload    Live reconfiguration.\n"
@@ -163,7 +164,10 @@ unload_modules()
 
 setup()
 {
-	tfw_set_net_queues "$devs"
+  # Invoke method if extra argument (i.e. --no-rss) was not provided
+  if [[ $# -eq 0 ]]; then
+	  tfw_set_net_queues "$devs"
+	fi
 
 	# Enable sysrq
 	echo 1 > /proc/sys/kernel/sysrq
@@ -265,7 +269,7 @@ start()
 	TFW_STATE=${TFW_STATE##* }
 
 	if [[ -z ${TFW_STATE} ]]; then
-		setup;
+		setup "$1";
 
 		echo "...load Tempesta modules"
 		load_modules;
@@ -324,7 +328,12 @@ while :; do
 			;;
 		# User CLI.
 		--start)
-			start
+		  if [[ $2 == "--no-rss" ]]; then
+		    echo Starting without enabling RSS for netwroking interfaces.
+			  start "$2"
+			else
+			  start
+			fi
 			exit
 			;;
 		--stop)
