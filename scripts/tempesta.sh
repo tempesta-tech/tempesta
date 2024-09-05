@@ -164,9 +164,9 @@ unload_modules()
 
 setup()
 {
-  # Invoke method if extra argument (i.e. --no-rss) was not provided
-  if [[ $# -eq 0 ]]; then
-	  tfw_set_net_queues "$devs"
+	# Invoke method if extra argument (i.e. --no-rss) was not provided
+	if [[ $# -eq 0 ]]; then
+		tfw_set_net_queues "$devs"
 	fi
 
 	# Enable sysrq
@@ -328,11 +328,11 @@ while :; do
 			;;
 		# User CLI.
 		--start)
-		  if [[ $2 == "--no-rss" ]]; then
-		    echo Starting without enabling RSS for netwroking interfaces.
-			  start "$2"
+			if [[ $2 == "--no-rss" ]]; then
+				echo Starting without enabling RSS for netwroking interfaces.
+				start "$2"
 			else
-			  start
+				start
 			fi
 			exit
 			;;
