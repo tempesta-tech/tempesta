@@ -327,14 +327,14 @@ while :; do
 		  # if --start with -d "<devices>" (list of devices to configure)
 		  if [ -n "$2" ] && [ "$2" == "-d" ] && [ -n "$3" ]; then
 		    if [ -n "$TFW_DEV" ]; then
-				  echo You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$3"\'
+					echo You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$3"\'
 				else
-				  echo Using only networking devices from command line argument: \'"$3"\'
-			  fi
-			  devs=$3
+					echo Using only networking devices from command line argument: \'"$3"\'
+				fi
+				devs=$3
 			elif [ -n "$TFW_DEV" ]; then
-			  echo Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
-	      devs=$TFW_DEV
+				echo Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
+	  		devs=$TFW_DEV
 			fi
 			start
 			exit
