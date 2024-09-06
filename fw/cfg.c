@@ -1234,7 +1234,7 @@ tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
  * Check that memory parameter is in specified range.
  * Print an error and return non-zero if it is out of range.
  */
-int
+static int
 tfw_cfg_mem_check_range(const char *mem, const char *mem_min,
 			const char *mem_max)
 {
@@ -1242,7 +1242,7 @@ tfw_cfg_mem_check_range(const char *mem, const char *mem_min,
 	unsigned long min = memparse(mem_min, NULL);
 	unsigned long max = memparse(mem_max, NULL);
 
-	if (min != max && (value < min || value > max)) {
+	if (value < min || value > max) {
 		T_ERR_NL("the value %s is out of range: [%s, %s]\n",
 			 mem, mem_min, mem_max);
 		return -EINVAL;
@@ -1254,7 +1254,7 @@ tfw_cfg_mem_check_range(const char *mem, const char *mem_min,
  * Check that memory parameter @value is a multiple of @divisor (print an error
  * otherwise);
  */
-int
+static int
 tfw_cfg_mem_check_multiple_of(const char *mem, const char *mem_divisor)
 {
 	unsigned long value = memparse(mem, NULL);
@@ -1824,13 +1824,9 @@ tfw_cfg_set_mem(TfwCfgSpec *cs, TfwCfgEntry *e)
 	/* Check value restrictions if we have any in the spec extension. */
 	cse = cs->spec_ext;
 	if (cse) {
-		int r;
-
-		r = tfw_cfg_mem_check_multiple_of(e->vals[0],
-						  cse->multiple_of);
-		r |= tfw_cfg_mem_check_range(e->vals[0], cse->range.min,
-					     cse->range.max);
-		if (r)
+		if (tfw_cfg_mem_check_multiple_of(e->vals[0], cse->multiple_of)
+		    || tfw_cfg_mem_check_range(e->vals[0], cse->range.min,
+					       cse->range.max))
 			return -EINVAL;
 	}
 
