@@ -445,9 +445,6 @@ int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
 
 /* Various helpers for building custom handler functions. */
-int tfw_cfg_mem_check_range(const char *mem, const char *mem_min,
-			    const char *mem_max);
-int tfw_cfg_mem_check_multiple_of(const char *mem, const char *mem_divisor);
 int tfw_cfg_check_range(long value, long min, long max);
 int tfw_cfg_check_multiple_of(long value, int divisor);
 int tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n);
