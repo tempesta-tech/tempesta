@@ -6787,7 +6787,7 @@ next_msg:
 		return T_BAD;
 	}
 
-	return r;
+	return T_OK;
 bad_msg:
 	/*
 	 * Response can't be parsed or processed. This is abnormal situation,
@@ -6812,14 +6812,21 @@ bad_msg:
 	}
 
 	/* The response is freed by tfw_http_req_parse_block/drop(). */
-	if (filtout)
+	if (filtout) {
 		r = tfw_http_req_block(bad_req, 502,
 				       "response blocked: filtered out",
 				       HTTP2_ECODE_PROTO);
-	else
-		r = tfw_http_req_drop(bad_req, 502,
-				      "response dropped: processing error",
-				      HTTP2_ECODE_PROTO);
+	} else {
+		tfw_http_req_drop(bad_req, 502,
+				  "response dropped: processing error",
+				  HTTP2_ECODE_PROTO);
+		/*
+		 * Close connection with backend immediatly
+		 * and try to reastablish it later.
+		 */
+		r = T_BAD;
+	}
+
 	return r;
 }
 
