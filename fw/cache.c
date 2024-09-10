@@ -267,7 +267,9 @@ static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_c_buf);
 static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 /* Iterate over request URI and Host header to process request key. */
-#define TFW_CACHE_REQ_KEYITER(c, uri_path, host, u_end, h_start, h_end)	\
+#define TFW_CACHE_REQ_KEYITER(c, uri_path, host, u_end, h_start,	\
+			      h_end, u_fin, h_fin)			\
+	u_fin = h_fin = false;						\
 	if (TFW_STR_PLAIN(uri_path)) {					\
 		c = uri_path;						\
 		u_end = (uri_path) + 1;					\
@@ -276,13 +278,20 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 		u_end = (uri_path)->chunks + (uri_path)->nchunks;	\
 	}								\
 	if (!TFW_STR_EMPTY(host)) {					\
-		BUG_ON(TFW_STR_PLAIN(host));				\
-		h_start = (host)->chunks;				\
-		h_end = (host)->chunks + (host)->nchunks;		\
+		if (likely(!TFW_STR_PLAIN(host))) {			\
+			h_start = (host)->chunks;			\
+			h_end = (host)->chunks + (host)->nchunks;	\
+		} else {						\
+			h_start = host;					\
+			h_end = (host) + 1;				\
+		}							\
 	} else {							\
 		h_start = h_end = u_end;				\
+		h_fin = true;						\
 	}								\
-	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
+	for ( ; !u_fin && !h_fin;					\
+	     ++c, c = (c == u_end) ? h_start : c, u_fin = (c == u_end),	\
+	     h_fin = (c == h_end))
 
 /*
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
@@ -1139,6 +1148,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
+	bool u_fin, h_fin;
 
 	/* We should invalidate cache etry regardless of method type. */
 	if (eviction)
@@ -1178,7 +1188,7 @@ find_entry:
 
 	t_off = CE_BODY_SIZE;
 	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->host, u_end, h_start,
-			      h_end)
+			      h_end, u_fin, h_fin)
 	{
 		if (!trec)
 			return false;
@@ -2018,6 +2028,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
 		resp->cache_ctl.flags & ~cc_ignore_flags;
+	bool u_fin, h_fin;
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -2030,7 +2041,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
 	 * strict comparison.
 	 */
-	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->host, end1, h, end2) {
+	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->host, end1, h,
+			      end2, u_fin, h_fin)
+	{
 		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
 			T_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
