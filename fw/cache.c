@@ -1701,6 +1701,10 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			st_index = dup->hpack_idx;
 			*p = tdb_entry_get_room(node_db(), trec, *p,
 						n + s_nm.len, *tot_len);
+			if (unlikely(!*p)) {
+				T_WARN("Cache: cannot allocate TDB space\n");
+				return -ENOMEM;
+			}
 		}
 		CSTR_MOVE_HDR();
 		prev_len = ce->hdr_len;
