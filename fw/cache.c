@@ -3292,11 +3292,12 @@ node_cpus_alloc_err:
 static void
 tfw_cache_stop(void)
 {
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 	int i;
 
 	if (tfw_runstate_is_reconfig())
 		return;
-	if (!cache_cfg.cache)
+	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return;
 
 	for_each_online_cpu(i)
