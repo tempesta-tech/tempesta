@@ -601,7 +601,7 @@ EXPORT_SYMBOL(ss_send);
  *
  * Called with locked socket.
  */
-static void
+void
 ss_do_close(struct sock *sk, int flags)
 {
 	struct sk_buff *skb;

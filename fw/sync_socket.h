@@ -168,6 +168,7 @@ void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, struct sk_buff **skb_head, int flags);
 int ss_close(struct sock *sk, int flags);
 int ss_shutdown(struct sock *sk, int flags);
+void ss_do_close(struct sock *sk, int flags);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);
 int ss_connect(struct sock *sk, const TfwAddr *addr, int flags);

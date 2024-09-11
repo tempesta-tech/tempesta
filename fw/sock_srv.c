@@ -277,6 +277,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != -ESHUTDOWN)
 			T_ERR("Unable to initiate a connect to server: %d\n",
 				r);
+		bh_lock_sock(sk);
+		ss_do_close(sk, 0);
+		bh_unlock_sock(sk);
 		sock_put(sk);
 		SS_CALL(connection_drop, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
