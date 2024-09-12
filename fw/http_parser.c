@@ -2517,6 +2517,27 @@ __req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 }
 
 static int
+__resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	parser->hdr.flags |= TFW_STR_TRAILER_HDR;
+
+	__FSM_STATE(I_Trailer) {
+		__FSM_I_MATCH_MOVE(ctext_vchar, I_Trailer);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+
+static int
 __resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	/*
@@ -12398,6 +12419,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				     __resp_parse_transfer_encoding,
 				     TFW_HTTP_HDR_TRANSFER_ENCODING, 0);
 
+	/* 'Trailer:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTrailerV, msg,
+				    __resp_parse_trailer, 1);
+
 	/* 'Set-Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,
 				     __resp_parse_set_cookie,
@@ -12884,7 +12909,18 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 		}
 	}
 	__FSM_TX_AF(Resp_HdrTr, 'a', Resp_HdrTra);
-	__FSM_TX_AF(Resp_HdrTra, 'n', Resp_HdrTran);
+	/* Transfer-Encoding/Trailer header processing. */
+	__FSM_STATE(Resp_HdrTra, cold) {
+		switch (c) {
+		case 'n':
+			__FSM_MOVE(Resp_HdrTran);
+		case 'i':
+			__FSM_MOVE(Resp_HdrTrai);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
 	__FSM_TX_AF(Resp_HdrTran, 's', Resp_HdrTrans);
 	__FSM_TX_AF(Resp_HdrTrans, 'f', Resp_HdrTransf);
 	__FSM_TX_AF(Resp_HdrTransf, 'e', Resp_HdrTransfe);
@@ -12899,6 +12935,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrTransfer_Encodi, 'n', Resp_HdrTransfer_Encodin);
 	__FSM_TX_AF(Resp_HdrTransfer_Encodin, 'g', Resp_HdrTransfer_Encoding);
 	__FSM_TX_AF_OWS(Resp_HdrTransfer_Encoding, Resp_HdrTransfer_EncodingV);
+
+	__FSM_TX_AF(Resp_HdrTrai, 'l', Resp_HdrTrail);
+	__FSM_TX_AF(Resp_HdrTrail, 'e', Resp_HdrTraile);
+	__FSM_TX_AF(Resp_HdrTraile, 'r', Resp_HdrTrailer);
+	__FSM_TX_AF_OWS(Resp_HdrTrailer, Resp_HdrTrailerV);
 
 	/* Te is a connection-specific header and MUST be "silenced"
 	 * RFC 9113, section 8.2.2:
