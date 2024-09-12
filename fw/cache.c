@@ -2150,8 +2150,10 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * version of this header.
 		 */
 		if (TFW_STR_EMPTY(field)
-		    ||(field->flags &
-		       (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR | TFW_STR_TRAILER))
+		    || (field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR |
+					TFW_STR_TRAILER))
+		    || ((field->flags & TFW_STR_TRAILER_HDR)
+			 && TFW_MSG_H2(req))
 		    || hid == TFW_HTTP_HDR_SERVER)
 		{
 			--ce->hdr_num;
@@ -2409,7 +2411,9 @@ __cache_entry_size(TfwHttpResp *resp)
 		 * version of this header.
 		 */
 		if (TFW_STR_EMPTY(hdr)
-		    || (hdr->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
+		    ||(hdr->flags & TFW_STR_HBH_HDR)
+		    || (hdr->flags & TFW_STR_TRAILER_HDR
+		        && TFW_MSG_H2(req))
 		    || hid == TFW_HTTP_HDR_SERVER)
 			continue;
 

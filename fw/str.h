@@ -253,8 +253,13 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 /* The chunk contains only WS characters. */
 #define TFW_STR_OWS		0x100
 
-/* Trailer  header. */
+/* Trailer header (which is located after body). */
 #define TFW_STR_TRAILER		0x200
+
+/*
+ * 'Trailer' header (which contains headers names of
+ * trailers). Like Trailer: X-Token1 X-token2 */
+#define TFW_STR_TRAILER_HDR     0x400
 
 #define SLEN(s)			(sizeof(s) - 1)
 
