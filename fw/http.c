@@ -4965,7 +4965,8 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		 */
 		if (hid == TFW_HTTP_HDR_KEEP_ALIVE
 		    || hid == TFW_HTTP_HDR_CONNECTION
-		    || tgt->flags & TFW_STR_HBH_HDR)
+		    || tgt->flags & TFW_STR_HBH_HDR
+		    || tgt->flags & TFW_STR_TRAILER_HDR)
 			continue;
 
 		/*
