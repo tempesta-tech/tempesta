@@ -485,7 +485,12 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 
 	stream->xmit.h_len = resp->mit.acc_len;
 	stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+	/*
+	 * Response is chunked encoded, but it is not a response
+	 * on HEAD request.
+	 */
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+	    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags))
 		r = tfw_http_msg_cutoff_body_chunks(resp);
 
 finish:

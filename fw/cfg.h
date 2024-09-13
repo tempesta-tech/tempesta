@@ -395,6 +395,15 @@ typedef struct {
 	int (*finish_hook)(TfwCfgSpec *self);
 } TfwCfgSpecChild;
 
+/* TfwCfgSpec->spec_ext for tfw_cfg_set_mem(). */
+typedef struct {
+	const char *multiple_of;
+	struct {
+		const char *min;
+		const char *max;
+	} range;
+} TfwCfgSpecMem;
+
 static inline bool
 tfw_cfg_is_dflt_value(TfwCfgEntry *cfg_entry)
 {
@@ -431,6 +440,7 @@ int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_long(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
+int tfw_cfg_set_mem(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
 

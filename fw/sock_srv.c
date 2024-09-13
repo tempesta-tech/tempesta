@@ -107,20 +107,8 @@
  *    soon as the last client releases the server connection.
  */
 
-/*
- * Timeout between connect attempts is increased with each unsuccessful
- * attempt. Length of the timeout for each attempt is chosen to follow
- * a variant of exponential backoff delay algorithm.
- *
- * It's essential that the new connection is established and the failed
- * connection is restored ASAP, so the min retry interval is set to 1.
- * The next step is good for a cyclic reconnect, e.g. if an upstream
- * ia configured to reset a connection periodically. The next steps are
- * almost a pure backoff algo starting from 100ms, which is a good RTT
- * for a fast 10Gbps link. The timeout is not increased after 1 second
- * as it has moderate overhead, and it's still good in response time.
- */
-static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
+
+
 
 #define srv_warn(check, addr, fmt, ...)					\
 	T_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
@@ -167,23 +155,22 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 {
 	unsigned long timeout;
 
-	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+	if (srv_conn->recns < tfw_srv_tmo_nr) {
 		if (srv_conn->recns)
 			T_DBG_ADDR("Cannot establish connection",
 				   &srv_conn->peer->addr, TFW_WITH_PORT);
 		timeout = tfw_srv_tmo_vals[srv_conn->recns];
 	} else {
-		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
-		    || !(srv_conn->recns % 60))
+		if (srv_conn->recns == tfw_srv_tmo_nr || !(srv_conn->recns % 60))
 		{
 			srv_warn("cannot establish connection",
 				 &srv_conn->peer->addr,
 				 ": %u tries, keep trying...\n",
-				 srv_conn->recns);
+				 srv_conn->recns - tfw_srv_tmo_nr + 1);
 		}
 
 		tfw_connection_repair((TfwConn *)srv_conn);
-		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
+		timeout = tfw_srv_tmo_vals[tfw_srv_tmo_nr - 1];
 	}
 	srv_conn->recns++;
 
@@ -1284,8 +1271,7 @@ tfw_cfgop_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *recns)
 
 	if((r = tfw_cfgop_intval(cs, ce, recns)))
 		return r;
-	*recns = *recns ? max_t(int, *recns, ARRAY_SIZE(tfw_srv_tmo_vals))
-			: UINT_MAX;
+	*recns = *recns ? *recns + tfw_srv_tmo_nr : TFW_SRV_MAX_RECONNECT;
 
 	return 0;
 }
@@ -2318,7 +2304,7 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.deflt = "10",
 		.handler = tfw_cfgop_in_conn_retries,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
+			.range = { 0, TFW_SRV_MAX_RECONNECT},
 		},
 		.allow_none = true,
 		.allow_repeat = false,
