@@ -53,7 +53,12 @@ enum {
         TFW_HTTP_B_UPGRADE_WEBSOCKET,
         /* Message upgrade header contains extra fields */
         TFW_HTTP_B_UPGRADE_EXTRA,
-        /* Chunked is last transfer encoding. */
+        /*
+         * Chunked is last transfer encoding.
+         * It is important to notice that there is a valid case
+         * when we receive chunked encoded response with empty
+         * body on HEAD request.
+         */
         TFW_HTTP_B_CHUNKED,
         /* Chunked in the middle of applied transfer encodings. */
         TFW_HTTP_B_CHUNKED_APPLIED,
@@ -77,7 +82,10 @@ enum {
         TFW_HTTP_B_FULLY_PARSED,
         /* Message has HTTP/2 format. */
         TFW_HTTP_B_H2,
-        /* Message has all mandatory pseudo-headers (applicable for HTTP/2 mode only) */
+        /*
+         * Message has all mandatory pseudo-headers
+         * (applicable for HTTP/2 mode only).
+         */
         TFW_HTTP_B_H2_HDRS_FULL,
 
         /* Request flags. */
@@ -115,7 +123,10 @@ enum {
         TFW_HTTP_B_HDR_DATE,
         /* Response has header 'Last-Modified:'. */
         TFW_HTTP_B_HDR_LMODIFIED,
-        /* Response is fully processed and ready to be forwarded to the client. */
+        /*
+         * Response is fully processed and ready to be
+         * forwarded to the client.
+         */
         TFW_HTTP_B_RESP_READY,
         /*
          * Response has header 'Etag: ' and this header is
