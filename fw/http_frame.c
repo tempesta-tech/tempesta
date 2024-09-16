@@ -814,6 +814,7 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
+	ctx->first_settings_recv = true;
 
 	return 0;
 }
