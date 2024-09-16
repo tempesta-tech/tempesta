@@ -190,6 +190,9 @@ struct tfw_http_stream_t {
 	long int		loc_wnd;
 	long int		rem_wnd;
 	unsigned short		weight;
+	unsigned char		urgency : 4;
+	unsigned char		urgency_is_set : 1;
+	unsigned char		incremental : 1;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;

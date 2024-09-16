@@ -8178,37 +8178,64 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_PriorityStart) {
-		T_WARN("Req_I_PriorityStart");
+		if (unlikely(req->stream.urgency_is_set
+			     || req->stream.incremental))
+			return CSTR_NEQ;
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(Req_I_PriorityStart, 1, TFW_STR_OWS);
 		if (likely(c == 'u')) {
-			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgency, 1, 0);
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgencyStart, 1, 0);
 		} else if (likely(c == 'i')) {
 			/* Set incremental. */
+			req->stream.incremental = 1;
+			__FSM_H2_I_MOVE_fixup(I_EoP, 1, TFW_STR_VALUE);
 		}
-			
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_PriorityUrgencyStart) {
+		if (likely(c == '='))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_PriorityUrgency, 1, 0);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_PriorityUrgency) {
-		T_WARN("Req_I_PriorityUrgency");
-		if (likely(c == '=')) {
-			__fsm_sz = __data_remain(p);
-			__fsm_n = __parse_ulong_ws(p, __data_remain(p),
-						   &parser->_acc, 7);
-			switch (__fsm_n) {
-			case CSTR_BADLEN:
-			case CSTR_NEQ:
-				return CSTR_NEQ;
-			case CSTR_POSTPONE:
-				req->host_port = parser->_acc;
-				__FSM_I_MOVE_fixup(Req_I_PriorityUrgency, __fsm_sz, TFW_STR_VALUE);
-			default:
-				req->host_port = parser->_acc;
-				if (!req->host_port)
-					return CSTR_NEQ;
-				parser->_acc = 0;
-				__FSM_I_MOVE_fixup(Req_I_PriorityUrgency, __fsm_n, TFW_STR_VALUE);
-			}
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_ulong_list(p, __data_remain(p),
+					   &parser->_acc, 7);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			__FSM_I_MOVE_fixup(Req_I_PriorityUrgency, __fsm_sz,
+					   TFW_STR_VALUE);
+		default:
+			req->stream.urgency = parser->_acc;
+			req->stream.urgency_is_set = true;
+			parser->_acc = 0;
+			__FSM_I_MOVE_fixup(I_EoP, __fsm_n, TFW_STR_VALUE);
 		}
+		return CSTR_NEQ;
+	}
+
+	/* End of priority value. */
+	__FSM_STATE(I_EoP) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoP, 1, TFW_STR_OWS);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		if (c == ',')
+			__FSM_I_MOVE_fixup(Req_I_PriorityStart, 1, 0);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_EoL) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoL, 1, TFW_STR_OWS);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		return CSTR_NEQ;
 	}
 
 done:
@@ -9605,7 +9632,7 @@ __FSM_STATE(st, cold) {							\
 		case TFW_CHAR4_INT('p', 'r', 'i', 'o'):
 			if (unlikely(!__data_available(p, 8)))
 				__FSM_H2_NEXT_n(Req_HdrPrio, 4);
-			if (C4_INT(p + 4, 'r', 'i', 't', 'i'))
+			if (C4_INT(p + 4, 'r', 'i', 't', 'y'))
 				__FSM_H2_HDR_NAME_FIN(8, TFW_TAG_HDR_PRIORITY);
 			__FSM_H2_OTHER_n(4);		/*
 		 * RFC 9113 8.2.2: Treat a request containing connection-specific
