@@ -6380,7 +6380,7 @@ __h2_msg_verify(TfwHttpReq *req, tfw_http_hdr_t hid)
 #define __FSM_H2_HDR_NAME_FIN(n, h_tag)					\
 do {									\
 	p += n;								\
-	T_DBG3("%s: name fin, h_tag=%d, len=%lu, off=%lu\n",		\
+	T_WARN("%s: name fin, h_tag=%d, len=%lu, off=%lu\n",		\
 	       __func__, h_tag, len, __data_off(p));			\
 	if (unlikely(__data_off(p) < len))				\
 		goto RGen_HdrOtherN;					\
@@ -8168,6 +8168,54 @@ done:
 STACK_FRAME_NON_STANDARD(__h2_req_parse_referer);
 
 static int
+__h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
+		       bool fin)
+{
+	int r = CSTR_NEQ;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_PriorityStart) {
+		T_WARN("Req_I_PriorityStart");
+		if (likely(c == 'u')) {
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgency, 1, 0);
+		} else if (likely(c == 'i')) {
+			/* Set incremental. */
+		}
+			
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_PriorityUrgency) {
+		T_WARN("Req_I_PriorityUrgency");
+		if (likely(c == '=')) {
+			__fsm_sz = __data_remain(p);
+			__fsm_n = __parse_ulong_ws(p, __data_remain(p),
+						   &parser->_acc, 7);
+			switch (__fsm_n) {
+			case CSTR_BADLEN:
+			case CSTR_NEQ:
+				return CSTR_NEQ;
+			case CSTR_POSTPONE:
+				req->host_port = parser->_acc;
+				__FSM_I_MOVE_fixup(Req_I_PriorityUrgency, __fsm_sz, TFW_STR_VALUE);
+			default:
+				req->host_port = parser->_acc;
+				if (!req->host_port)
+					return CSTR_NEQ;
+				parser->_acc = 0;
+				__FSM_I_MOVE_fixup(Req_I_PriorityUrgency, __fsm_n, TFW_STR_VALUE);
+			}
+		}
+	}
+
+done:
+	return r;
+}
+
+static int
 __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
 	static const void * const st[][23] __annotate_jump_table = {
@@ -9386,7 +9434,7 @@ __FSM_STATE(st, cold) {							\
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
+	T_WARN("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
 	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state);
@@ -9553,7 +9601,13 @@ __FSM_STATE(st, cold) {							\
 			if (C4_INT(p + 2, 'a', 'g', 'm', 'a'))
 				__FSM_H2_HDR_NAME_FIN(6, TFW_TAG_HDR_PRAGMA);
 			__FSM_H2_OTHER_n(4);
-		/*
+		/* Priority header from RFC 9218. */
+		case TFW_CHAR4_INT('p', 'r', 'i', 'o'):
+			if (unlikely(!__data_available(p, 8)))
+				__FSM_H2_NEXT_n(Req_HdrPrio, 4);
+			if (C4_INT(p + 4, 'r', 'i', 't', 'i'))
+				__FSM_H2_HDR_NAME_FIN(8, TFW_TAG_HDR_PRIORITY);
+			__FSM_H2_OTHER_n(4);		/*
 		 * RFC 9113 8.2.2: Treat a request containing connection-specific
 		 * proxy-connection header as malformed.
 		 */
@@ -9950,6 +10004,11 @@ __FSM_STATE(st, cold) {							\
 	__FSM_H2_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm);
 	__FSM_H2_TX_AF_FIN(Req_HdrPragm, 'a', TFW_TAG_HDR_PRAGMA);
 
+	__FSM_H2_TX_AF(Req_HdrPrio, 'r', Req_HdrPrior);
+	__FSM_H2_TX_AF(Req_HdrPrior, 'i', Req_HdrPriori);
+	__FSM_H2_TX_AF(Req_HdrPriori, 't', Req_HdrPriorit);
+	__FSM_H2_TX_AF_FIN(Req_HdrPriorit, 'y', TFW_TAG_HDR_PRIORITY);
+
 	__FSM_H2_TX_AF(Req_HdrPro, 'x', Req_HdrProx);
 	__FSM_H2_TX_AF(Req_HdrProx, 'y', Req_HdrProxy);
 	__FSM_H2_TX_AF(Req_HdrProxy, '_', Req_HdrProxy_);
@@ -10134,7 +10193,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
+	T_WARN("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
 	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	/*
@@ -10291,6 +10350,11 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	case TFW_TAG_HDR_REFERER:
 	TFW_H2_PARSE_HDR_VAL(Req_HdrRefererV, msg, __h2_req_parse_referer,
 			     TFW_HTTP_HDR_REFERER, 1);
+
+	/* 'priority' is read, process field-value. */
+	case TFW_TAG_HDR_PRIORITY:
+	TFW_H2_PARSE_HDR_VAL(Req_HdrPriorityV, msg, __h2_req_parse_priority,
+			     TFW_HTTP_HDR_PRIORITY, 1);
 
 	/* 'user-agent' is read, process field-value. */
 	case TFW_TAG_HDR_USER_AGENT:
