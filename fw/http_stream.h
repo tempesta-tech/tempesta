@@ -180,9 +180,18 @@ typedef enum {
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
-	struct eb64_node	sched_node;
-	TfwStreamSchedState	sched_state;
-	TfwStreamSchedEntry	sched;
+	union {
+		struct {
+			unsigned short	weight;
+			struct eb64_node	sched_node;
+			TfwStreamSchedState	sched_state;
+			TfwStreamSchedEntry	sched;
+		} rfc_7540_prio;
+		struct {
+			unsigned char urgency;
+			unsigned char incremental;
+		} rfc_9218_prio;
+	};
 	struct list_head	hcl_node;
 	unsigned int		id;
 	int			state;
@@ -361,26 +370,30 @@ tfw_h2_stream_default_deficit(TfwStream *stream)
 		261, 260, 259, 258, 257, 256
 	};
 
-	return tbl[stream->weight - 1];
+	return tbl[stream->rfc_7540_prio.weight - 1];
 }
 
 static inline u64
 tfw_h2_stream_recalc_deficit(TfwStream *stream)
 {
+	bool state_is_correct = (stream->rfc_7540_prio.sched_state ==
+		HTTP2_STREAM_SCHED_STATE_UNKNOWN);
 	/*
 	 * This function should be called only for streams,
 	 * which were removed from scheduler.
 	 */
-	BUG_ON(stream->sched_node.node.leaf_p ||
-	       stream->sched_state != HTTP2_STREAM_SCHED_STATE_UNKNOWN);
+	BUG_ON(stream->rfc_7540_prio.sched_node.node.leaf_p ||
+	       !state_is_correct);
 	/* deficit = last_deficit + constant / weight */
-	return stream->sched_node.key + tfw_h2_stream_default_deficit(stream);
+	return stream->rfc_7540_prio.sched_node.key +
+		tfw_h2_stream_default_deficit(stream);
 }
 
 static inline bool
 tfw_h2_stream_has_default_deficit(TfwStream *stream)
 {
-	return stream->sched_node.key == tfw_h2_stream_default_deficit(stream);
+	return stream->rfc_7540_prio.sched_node.key ==
+		tfw_h2_stream_default_deficit(stream);
 }
 
 #endif /* __HTTP_STREAM__ */

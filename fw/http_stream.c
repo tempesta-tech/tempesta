@@ -102,8 +102,7 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 }
 
 static TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
-		  long int loc_wnd, long int rem_wnd)
+tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id)
 {
 	TfwStream *new_stream;
 	struct rb_node **new = &sched->streams.rb_node;
@@ -126,8 +125,6 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	new_stream = kmem_cache_alloc(stream_cache, GFP_ATOMIC | __GFP_ZERO);
 	if (unlikely(!new_stream))
 		return NULL;
-
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
@@ -233,11 +230,11 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	       pri->exclusive, pri->stream_id, ctx, ctx->streams_num);
 
 	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
-				   ctx->lsettings.wnd_sz,
-				   ctx->rsettings.wnd_sz);
+	stream = tfw_h2_add_stream(&ctx->sched, id);
 	if (!stream)
 		return NULL;
+
+	ctx->sched->
 
 	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
 	++ctx->streams_num;
