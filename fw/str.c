@@ -714,7 +714,7 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 
 	switch (mode) {
 	case 3: /* The both are plain. */
-		memcpy_fast(dst->data, src->data, min(src->len, dst->len));
+		memcpy_fast(dst->data, src->data, src->len);
 		break;
 	case 1: /* @src is compound, @dst is plain. */
 		n1 = src->nchunks;
