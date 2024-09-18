@@ -266,18 +266,24 @@ static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_c_buf);
 
 static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
-/* Iterate over request URI and Host header to process request key. */
+/*
+ * Iterate over request URI and Host header to process request key.
+ * uri_path and host are not expected to be empty, because we check
+ * it previosly but we should not crash.
+ */
 #define TFW_CACHE_REQ_KEYITER(c, uri_path, host, u_end, h_start,	\
 			      h_end, u_fin, h_fin)			\
-	u_fin = h_fin = false;						\
-	if (TFW_STR_PLAIN(uri_path)) {					\
-		c = uri_path;						\
-		u_end = (uri_path) + 1;					\
-	} else {							\
-		c = (uri_path)->chunks;					\
-		u_end = (uri_path)->chunks + (uri_path)->nchunks;	\
+	c = NULL;							\
+	if (!(u_fin = WARN_ON_ONCE(TFW_STR_EMPTY(uri_path)))) {		\
+		if (TFW_STR_PLAIN(uri_path)) {				\
+			c = uri_path;					\
+			u_end = (uri_path) + 1;				\
+		} else {						\
+			c = (uri_path)->chunks;				\
+			u_end = (uri_path)->chunks + (uri_path)->nchunks; \
+		}							\
 	}								\
-	if (!TFW_STR_EMPTY(host)) {					\
+	if (!(h_fin = WARN_ON_ONCE(TFW_STR_EMPTY(host)))) {		\
 		if (likely(!TFW_STR_PLAIN(host))) {			\
 			h_start = (host)->chunks;			\
 			h_end = (host)->chunks + (host)->nchunks;	\
@@ -285,13 +291,12 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 			h_start = host;					\
 			h_end = (host) + 1;				\
 		}							\
-	} else {							\
-		h_start = h_end = u_end;				\
-		h_fin = true;						\
+		c = c ? : h_start;					\
 	}								\
-	for ( ; !u_fin && !h_fin;					\
-	     ++c, c = (c == u_end) ? h_start : c, u_fin = (c == u_end),	\
-	     h_fin = (c == h_end))
+	for ( ; !u_fin || !h_fin;					\
+	     ++c, u_fin = u_fin ? true : (c == u_end),			\
+	     h_fin = h_fin ? true : (c == h_end),			\
+	     c = (c == u_end) ? h_start : c)
 
 /*
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
