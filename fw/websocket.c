@@ -3,7 +3,7 @@
  *
  * Websocket proxy protocol implementation for Tempesta FW.
  *
- * Copyright (C) 2022-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -197,7 +197,7 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	 */
 	cli_conn->pair = (TfwConn *)ws_conn;
 	tfw_connection_get(cli_conn->pair);
-	BUG_ON(atomic_read(&cli_conn->refcnt) < 2);
+	BUG_ON(atomic_read(&cli_conn->refcnt) < 1);
 
 	ws_conn->pair = (TfwConn *)cli_conn;
 	tfw_connection_get(ws_conn->pair);
