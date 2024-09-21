@@ -182,10 +182,28 @@ TEST(pool, clean)
 
 }
 
+TEST(pool, kasan)
+{
+	TfwPool *p;
+	char *a;
+
+	p = __tfw_pool_new(0);
+	EXPECT_NOT_NULL(p);
+
+	/* Check UAF */
+	a = tfw_pool_alloc(p, 1024);
+	tfw_pool_free(p, a, 1024);
+	a[0] = 123;
+
+	tfw_pool_clean(p);
+}
+
+
 TEST_SUITE(pool)
 {
 	TEST_RUN(pool, alignment);
 	TEST_RUN(pool, realloc);
 	TEST_RUN(pool, clean_single);
 	TEST_RUN(pool, clean);
+	TEST_RUN(pool, kasan);
 }
