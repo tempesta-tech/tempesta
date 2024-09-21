@@ -123,8 +123,14 @@ __tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 	unsigned int desc_size = align
 		? TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk))
 		: sizeof(TfwPoolChunk);
+#ifdef CONFIG_KASAN
+	unsigned int nn = n;
+	unsigned int off = desc_size + n + KASAN_ALLOCA_REDZONE_SIZE * 2;
+#else
 	unsigned int off = desc_size + n;
+#endif
 	unsigned int order = get_order(off);
+	void *ptr;
 
 	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
 	if (!c)
@@ -138,9 +144,17 @@ __tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 	p->off = off;
 	p->curr = c;
 
-	return align
+	ptr = align
 		? (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1))
 		: (void *)(c + 1);
+
+#ifdef CONFIG_KASAN
+	printk("============= UNPOISON %px, %u\n", (char *)ptr + KASAN_ALLOCA_REDZONE_SIZE, nn);
+	print_poison((unsigned long int)ptr + KASAN_ALLOCA_REDZONE_SIZE, nn);
+	__asan_alloca_poison((char *)ptr + KASAN_ALLOCA_REDZONE_SIZE, nn);
+#endif
+
+	return (char *)ptr + KASAN_ALLOCA_REDZONE_SIZE;
 }
 
 void *
@@ -172,7 +186,22 @@ __tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n, bool copy)
 void
 tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 {
+// #ifdef CONFIG_KASAN
+// 	unsigned int nn;
+// #endif
+
 	n = TFW_POOL_ALIGN_SZ(n);
+
+// #ifdef CONFIG_KASAN
+// 	nn = n;
+// 	n += KASAN_ALLOCA_REDZONE_SIZE * 2;
+// 	ptr -= KASAN_ALLOCA_REDZONE_SIZE;
+// #endif
+
+// #ifdef CONFIG_KASAN
+// 	printk("============= POISON %p, %u\n", (char *)ptr + KASAN_ALLOCA_REDZONE_SIZE, nn);
+// 	__asan_alloca_poison((char *)ptr + KASAN_ALLOCA_REDZONE_SIZE, nn);
+// #endif
 
 	/* Stack-like usage is expected. */
 	if (unlikely((char *)ptr + n != TFW_POOL_CHUNK_END(p)))

@@ -27,6 +27,11 @@
 #include <asm/page.h>
 #include "log.h"
 
+#ifdef CONFIG_KASAN
+#include <linux/kasan.h>
+#define KASAN_ALLOCA_REDZONE_SIZE 32
+#endif
+
 #define TFW_POOL_ZERO	0x1
 
 #define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
@@ -86,24 +91,51 @@ void tfw_pool_destroy(TfwPool *p);
 void *__tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n,
 			 bool copy);
 
+static void print_poison(unsigned long addr, size_t size)
+{
+	size_t rounded_up_size = round_up(size, 8);
+	size_t padding_size = round_up(size, KASAN_ALLOCA_REDZONE_SIZE) -
+			rounded_up_size;
+	size_t rounded_down_size = round_down(size, 8);
+
+	const void *left_redzone = (const void *)(addr - KASAN_ALLOCA_REDZONE_SIZE);
+	const void *right_redzone = (const void *)(addr + rounded_up_size);
+
+	printk(KERN_ALERT "======= UNP %px %ld", (const void *)(addr + rounded_down_size), size - rounded_down_size);
+
+	printk(KERN_ALERT "======= POI left=%px %d", left_redzone, KASAN_ALLOCA_REDZONE_SIZE);
+	printk(KERN_ALERT "======= POI right=%px %ld", right_redzone, padding_size + KASAN_ALLOCA_REDZONE_SIZE);
+}
+
 static inline void *
 tfw_pool_alloc_np(TfwPool *p, size_t n, bool *np)
 {
 	void *a;
-	unsigned int off;
+	unsigned int off, nn;
+
+#ifdef CONFIG_KASAN
+	nn = n;
+	n += KASAN_ALLOCA_REDZONE_SIZE * 2;
+#endif
 
 	off = TFW_POOL_ALIGN_SZ(p->off) + n;
 
 	if (unlikely(off > TFW_POOL_CHUNK_SZ(p))) {
 		*np = true;
-		return __tfw_pool_alloc_page(p, n, /* align */ true);
+		return  __tfw_pool_alloc_page(p, n, /* align */ true);
 	}
 
 	*np = false;
 	a = TFW_POOL_ALIGN_PTR(TFW_POOL_CHUNK_END(p));
 	p->off = off;
 
-	return a;
+#ifdef CONFIG_KASAN
+	printk("============= POISON %px, %u\n", (char *)a + KASAN_ALLOCA_REDZONE_SIZE, nn);
+	print_poison((unsigned long int)a + KASAN_ALLOCA_REDZONE_SIZE, nn);
+	__asan_alloca_poison((char *)a + KASAN_ALLOCA_REDZONE_SIZE, nn);
+#endif
+
+	return (char *)a + KASAN_ALLOCA_REDZONE_SIZE;
 }
 
 static inline void *

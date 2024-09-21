@@ -21,6 +21,7 @@
 
 #include "test.h"
 #include "pool.h"
+#include <linux/kasan.h>
 
 TEST(pool, alignment)
 {
@@ -182,20 +183,63 @@ TEST(pool, clean)
 
 }
 
+// extern void kasan_poison_shadow(const void *address, size_t size, u8 value);
+// extern void kasan_unpoison_shadow(const void *address, size_t size);
+
+static void test_kmalloc(void)
+{
+#define BSIZE 1024
+	unsigned char *ptr = kmalloc(BSIZE, GFP_ATOMIC);
+	unsigned char *ptr2 = ptr;
+	unsigned char buf[1024];
+
+	printk("========== ALLOCATED %px\n", ptr);
+
+	printk("========== OOB\n");
+	memcpy(ptr + BSIZE, "0123456789absdef", 16);
+
+	printk("========== FREE\n");
+	kfree(ptr);
+
+	printk("========== UAF WRITE\n");
+	memcpy(ptr2, "0123456789absdef", 16);
+
+	printk("========== UAF READ\n");
+	memcpy(buf, ptr2, 16);
+	buf[16] = '\0';
+	printk("========== UAF READ RES %s\n", buf);
+
+}
+
+static void test_free_pages(void)
+{
+	char *ptr = (char *)__get_free_pages(GFP_ATOMIC, 0);
+	unsigned char buf[1024];
+
+	printk("========== ALLOCATED %px\n", ptr);
+
+	printk("========== POISON\n");
+	kasan_poison_shadow(ptr, 4096, 0xFE); // 0xFE - KASAN_PAGE_REDZONE
+
+	printk("========== WRITE POISONED\n");
+	memcpy(ptr, "0123456789absdef", 16);
+
+	printk("========== READ POISONED\n");
+	memcpy(buf, ptr, 16);
+	buf[16] = '\0';
+	printk("========== READ RES %s\n", buf);
+
+	printk("========== UNPOISON\n");
+	kasan_unpoison_shadow(ptr, 4096);
+
+	printk("========== WRITE UNPOISONED\n");
+	memcpy(ptr, "0123456789absdef", 16);
+}
+
 TEST(pool, kasan)
 {
-	TfwPool *p;
-	char *a;
-
-	p = __tfw_pool_new(0);
-	EXPECT_NOT_NULL(p);
-
-	/* Check UAF */
-	a = tfw_pool_alloc(p, 1024);
-	tfw_pool_free(p, a, 1024);
-	a[0] = 123;
-
-	tfw_pool_clean(p);
+	test_kmalloc();
+	(void) test_free_pages;
 }
 
 
