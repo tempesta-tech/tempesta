@@ -160,7 +160,7 @@ int
 tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
 	int r = T_OK;
-	struct sk_buff *next, *splitted;
+	struct sk_buff *next, *split;
 
 	if (unlikely(tfw_connection_stop_rcv(conn))) {
 		__kfree_skb(skb);
@@ -172,24 +172,22 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	for (next = skb->next; skb;
 	     skb = next, next = next ? next->next : NULL)
 	{
+		BUG_ON(r == T_DROP && TFW_CONN_TYPE(conn) & Conn_Srv);
 		if (likely(r == T_OK || r == T_POSTPONE || r == T_DROP)) {
-			splitted = skb->next = skb->prev = NULL;
+			split = skb->next = skb->prev = NULL;
 			if (unlikely(TFW_CONN_PROTO(conn) == TFW_FSM_WS
 				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))
 				r = tfw_ws_msg_process(conn, skb);
 			else
-				r = tfw_http_msg_process(conn, skb, &splitted);
-
-			if (splitted) {
+				r = tfw_http_msg_process(conn, skb, &split);
+			if (split) {
 				/*
 				 * In the case when the current skb contains
-				 * multiple requests, we split this skb along
-				 * the request boundary. If the request was
-				 * dropped we save skb with the next request
-				 * in the `splitted` pointer.
+				 * multiple requests or responses, we split this
+				 * skb along the boundary.
 				 */
-				splitted->next = next;
-				next = splitted;
+				split->next = next;
+				next = split;
 			}
 		} else {
 			__kfree_skb(skb);
@@ -200,8 +198,13 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	 * T_BLOCK is error code for high level modules (like frang),
 	 * here we should deal with error code, which accurately
 	 * determine further closing behavior.
+	 * When error occurs during response processing
+	 * we should close connection with backend immediatly
+	 * and try to reastablish it later, so we should not
+	 * return T_DROP for server connections.
 	 */
-	BUG_ON(r == T_BLOCK);
+	BUG_ON(r == T_BLOCK ||
+	       (r == T_DROP && TFW_CONN_TYPE(conn) & Conn_Srv));
 	return r <= T_BAD || r == T_OK ? r : T_BAD;
 }
 
