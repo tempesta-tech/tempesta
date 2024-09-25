@@ -743,8 +743,13 @@ tfw_listen_socks_array_cmp(const void *l, const void *r)
 	if (cmp)
 		return cmp;
 
-	return TFW_CONN_TYPE2IDX(a->proto.type) -
+	cmp = TFW_CONN_TYPE2IDX(a->proto.type) -
 		TFW_CONN_TYPE2IDX(b->proto.type);
+	if (cmp)
+		return cmp;
+
+	return (a->proto.type & Conn_Negotiable) -
+		(b->proto.type & Conn_Negotiable);
 }
 
 /**
