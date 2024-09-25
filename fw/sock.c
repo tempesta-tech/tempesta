@@ -601,7 +601,7 @@ EXPORT_SYMBOL(ss_send);
  *
  * Called with locked socket.
  */
-void
+static void
 ss_do_close(struct sock *sk, int flags)
 {
 	struct sk_buff *skb;
@@ -713,6 +713,16 @@ adjudge_to_death:
 			tcp_write_queue_purge(sk);
 		inet_csk_destroy_sock(sk);
 	}
+}
+
+void
+ss_close_not_connected_socket(struct sock *sk)
+{
+	bh_lock_sock(sk);
+	ss_do_close(sk, 0);
+	bh_unlock_sock(sk);
+	sock_put(sk);
+	SS_CALL(connection_drop, sk);
 }
 
 /**

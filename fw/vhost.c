@@ -27,6 +27,7 @@
 #endif
 
 #include "tempesta_fw.h"
+#include "cache.h"
 #include "hash.h"
 #include "http.h"
 #include "http_limits.h"
@@ -2470,7 +2471,7 @@ tfw_vhost_cfgend(void)
 	 * to keep default location policies.
 	 */
 	if (tfw_vhosts_reconfig->expl_dflt)
-		goto err;
+		goto check_vhost;
 	/*
 	 * Implicit default vhost is still useful even if it's never used to
 	 * forward the traffic. It stores fallback location providing
@@ -2490,17 +2491,34 @@ tfw_vhost_cfgend(void)
 	if ((r = tfw_http_sess_cfg_finish(vh_dflt)))
 		goto err;
 
-	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl)
-		T_WARN_NL("Directives mismatching: 'cache_purge' directive "
+check_vhost:
+	if (tfw_global.cache_purge
+	    && !tfw_cache_is_enabled_or_not_configured())
+	{
+		T_ERR_NL("Directives mismatching: 'cache_purge' directive "
+			  "requires 'cache' be not none\n");
+		r = -EINVAL;
+		goto err;
+	}
+
+	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl) {
+		T_ERR_NL("Directives mismatching: 'cache_purge' directive "
 			  "requires 'cache_purge_acl', but it wasn't "
-			  "provided. 'cache_purge' directive is ignored.\n");
+			  "provided.\n");
+		r = -EINVAL;
+	} else if (tfw_global.cache_purge_acl && !tfw_global.cache_purge) {
+		T_ERR_NL("Directives mismatching: 'cache_purge_acl' directive "
+			  "requires 'cache_purge', but it wasn't "
+			  "provided.\n");
+		r = -EINVAL;
+	}
 
 err:
 
 #if DBG_VHOST > 0
 	tfw_cfgop_vhosts_print(tfw_vhosts_reconfig);
 #endif
-	r = tfw_http_sess_cfgend();
+	tfw_http_sess_cfgend();
 	return r;
 }
 

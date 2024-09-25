@@ -24,6 +24,7 @@
 #include "http.h"
 
 int tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action);
+bool tfw_cache_is_enabled_or_not_configured(void);
 
 extern unsigned int cache_default_ttl;
 
