@@ -125,18 +125,18 @@ tfw_inc_global_hm_stats(int status)
 
 	if (!hm)
 		return;
-        /*
-         * For faster access, alternative techniques like bitmask, binary search,
-         * or other methods could be employed. However, a linear search is deemed
-         * sufficient, given that the number of 'health_stat'/'health_stat_server'
-         * codes is typically not high.
-         */
-        for (i = 0; i < hm->ccnt; ++i) {
-                if (tfw_http_status_eq(status, hm->rsums[i].code)) {
-                        ++hm->rsums[i].total;
-                        break;
-                }
-        }
+	/*
+	 * For faster access, alternative techniques like bitmask, binary
+	 * search, or other methods could be employed. However, a linear
+	 * search is deemed sufficient, given that the number of
+	 * 'health_stat'/'health_stat_server' codes is typically not high.
+	 */
+	for (i = 0; i < hm->ccnt; ++i) {
+		if (tfw_http_status_eq(status, hm->rsums[i].code)) {
+			++hm->rsums[i].total;
+			break;
+		}
+	}
 }
 
 #endif /* __TFW_PROCFS_H__ */
