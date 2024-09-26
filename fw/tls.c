@@ -1037,10 +1037,10 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
 	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
 
-	/* Downgrade from HTTP2 to HTTP1. */
-	if (sk_proto & Conn_Negotiable && alpn->id == TTLS_ALPN_ID_HTTP1) {
+	/* Upgrade to HTTP2. */
+	if (sk_proto & Conn_Negotiable && alpn->id == TTLS_ALPN_ID_HTTP2) {
 		conn->proto.type = (conn->proto.type & ~TFW_GFSM_FSM_MASK) |
-					TFW_FSM_HTTPS;
+					TFW_FSM_H2;
 		return true;
 	}
 
@@ -1167,7 +1167,7 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 		proto1->name = TTLS_ALPN_HTTP1;
 		proto1->len = sizeof(TTLS_ALPN_HTTP1) - 1;
 
-		return TFW_FSM_H2 | Conn_Negotiable;
+		return TFW_FSM_HTTPS | Conn_Negotiable;
 	}
 
 	return -EINVAL;
