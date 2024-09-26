@@ -283,7 +283,10 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	len = skb->len;
 	type = skb_tfw_tls_type(skb);
 	/* Checked early before call this function. */
-	BUG_ON(!type);
+	if ((WARN_ON_ONCE(!type))) {
+		r = -EINVAL;
+		goto out;
+	}
 
 	/* TLS header is always allocated from the skb headroom. */
 	tcb->end_seq += head_sz;
@@ -437,28 +440,31 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	sg_init_table(out_sgt.sgl, out_sgt.nents);
 
 	for (next = skb, frags = 0, out_frags = 0; ; ) {
-		/*
-		 * skb data and tails are already adjusted above,
-		 * so use zero offset and skb->len.
-		 */
-		r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
+		if (likely(next->len)) {
+			/*
+			 * skb data and tails are already adjusted above,
+			 * so use zero offset and skb->len.
+			 */
+			r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
 
-		T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
-		       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
-		       sgt.nents, next, next->len,
-		       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
-		       frags, r);
+			T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
+			       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
+			       sgt.nents, next, next->len,
+			       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
+			       frags, r);
 
-		if (r < 0)
-			goto free_pages;
-		frags += r;
+			if (r < 0)
+				goto free_pages;
+			frags += r;
 
-		r = ss_skb_to_sgvec_with_new_pages(next,
-		                                   out_sgt.sgl + out_frags,
-		                                   &pages_end);
-		if (r < 0)
-			goto free_pages;
-		out_frags += r;
+			r = ss_skb_to_sgvec_with_new_pages(next,
+							   out_sgt.sgl +
+							   out_frags,
+							   &pages_end);
+			if (r < 0)
+				goto free_pages;
+			out_frags += r;
+		}
 
 		skb_clear_tfw_cb(next);
 		if (next == skb_tail)
