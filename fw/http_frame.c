@@ -1030,8 +1030,9 @@ do {									\
 	tfw_h2_closed_streams_shrink(ctx);				\
 									\
 	if (max_streams == ctx->streams_num) {				\
-		T_WARN("Max streams number exceeded: %lu\n",		\
+		T_DBG("Max streams number exceeded: %lu\n",		\
 		       ctx->streams_num);				\
+		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
 		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
 		ACTION;							\
 	}								\
