@@ -1286,6 +1286,7 @@ frang_resp_process(TfwHttpResp *resp)
 	TfwAddr *cli_addr = NULL;
 	TfwLocation *loc = req->location ? : req->vhost->loc_dflt;
 	unsigned long body_len = loc->frang_cfg->http_body_len;
+	unsigned long exceeded = 0;
 	int r = T_OK;
 
 	if (!body_len)
@@ -1298,18 +1299,21 @@ frang_resp_process(TfwHttpResp *resp)
 			cli_addr = &req->conn->peer->addr;
 	}
 
+	if (unlikely(resp->content_length > body_len)) {
+		exceeded = resp->content_length;
+	} else if (unlikely(resp->body.len > body_len)) {
+		exceeded = resp->body.len;
+	}
+
 	/* Ensure message body size doesn't overcome acceptable limits. */
-	if (unlikely((resp->content_length > body_len) ||
-		     (resp->body.len > body_len)))
-	{
+	if (unlikely(exceeded)) {
 		if (cli_addr) {
 			frang_limmsg("HTTP response body length",
-				     resp->body.len, body_len,
+				     exceeded, body_len,
 				     cli_addr);
-		}
-		else {
+		} else {
 			frang_limmsg_local("HTTP response body length",
-					   resp->body.len, body_len,
+					   exceeded, body_len,
 					   "Health Monitor");
 		}
 		r = T_BLOCK;

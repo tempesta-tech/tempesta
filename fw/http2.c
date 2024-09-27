@@ -499,6 +499,7 @@ finish:
 
 	return r;
 }
+ALLOW_ERROR_INJECTION(tfw_h2_stream_xmit_prepare_resp, ERRNO);
 
 int
 tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
@@ -558,3 +559,4 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 	return r;
 }
+ALLOW_ERROR_INJECTION(tfw_h2_entail_stream_skb, ERRNO);

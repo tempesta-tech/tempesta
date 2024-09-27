@@ -282,10 +282,10 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	head_sz = ttls_payload_off(xfrm);
 	len = skb->len;
 	type = skb_tfw_tls_type(skb);
-	if (!type) {
-		T_WARN("%s: bad skb type %u\n", __func__, type);
+	/* Checked early before call this function. */
+	if ((WARN_ON_ONCE(!type))) {
 		r = -EINVAL;
-		goto err_epilogue;
+		goto out;
 	}
 
 	/* TLS header is always allocated from the skb headroom. */
@@ -334,19 +334,25 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	WARN_ON_ONCE(next == skb);
 	if (skb_tail == skb) {
 		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, TTLS_TAG_LEN);
-		if (r < 0)
+		if (r < 0) {
+			tcb->end_seq -= head_sz;
 			goto out;
+		}
 	} else {
 		r = ss_skb_expand_head_tail(NULL, skb, head_sz, 0);
-		if (r < 0)
+		if (r < 0) {
+			tcb->end_seq -= head_sz;
 			goto out;
+		}
 		sgt.nents += r;
 		out_sgt.nents += r;
 
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    TTLS_TAG_LEN);
-		if (r < 0)
+		if (r < 0) {
+			ss_add_overhead(sk, skb_tail->truesize - t_sz);
 			goto out;
+		}
 	}
 	sgt.nents += r;
 	out_sgt.nents += r;
@@ -406,8 +412,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for TTLS_TAG_LEN.
 	 */
-	if (ss_add_overhead(sk, t_sz))
-		return -ENOMEM;
+	ss_add_overhead(sk, t_sz);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
@@ -421,7 +426,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
 			T_WARN("cannot alloc memory for TLS encryption.\n");
-			return -ENOMEM;
+			r = -ENOMEM;
+			goto out;
 		}
 
 		ptr += sizeof(struct scatterlist) * sgt.nents;
@@ -434,28 +440,31 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	sg_init_table(out_sgt.sgl, out_sgt.nents);
 
 	for (next = skb, frags = 0, out_frags = 0; ; ) {
-		/*
-		 * skb data and tails are already adjusted above,
-		 * so use zero offset and skb->len.
-		 */
-		r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
+		if (likely(next->len)) {
+			/*
+			 * skb data and tails are already adjusted above,
+			 * so use zero offset and skb->len.
+			 */
+			r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
 
-		T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
-		       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
-		       sgt.nents, next, next->len,
-		       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
-		       frags, r);
+			T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
+			       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
+			       sgt.nents, next, next->len,
+			       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
+			       frags, r);
 
-		if (r <= 0)
-			goto out;
-		frags += r;
+			if (r < 0)
+				goto free_pages;
+			frags += r;
 
-		r = ss_skb_to_sgvec_with_new_pages(next,
-		                                   out_sgt.sgl + out_frags,
-		                                   &pages_end);
-		if (r <= 0)
-			goto out;
-		out_frags += r;
+			r = ss_skb_to_sgvec_with_new_pages(next,
+							   out_sgt.sgl +
+							   out_frags,
+							   &pages_end);
+			if (r < 0)
+				goto free_pages;
+			out_frags += r;
+		}
 
 		skb_clear_tfw_cb(next);
 		if (next == skb_tail)
@@ -478,17 +487,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 
 	spin_unlock(&tls->lock);
 
+free_pages:
 	for (p = pages; p < pages_end; ++p)
 		put_page(*p);
-
-out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
-	if (!r)
-		return r;
-err_epilogue:
-	T_WARN("%s: cannot encrypt data (%d), only partial data was sent\n",
-	       __func__, r);
+out:
+	if (unlikely(r))
+		T_WARN("%s: cannot encrypt data (%d)\n", __func__, r);
 	return r;
 #undef AUTO_SEGS_N
 #undef MAX_SEG_N
