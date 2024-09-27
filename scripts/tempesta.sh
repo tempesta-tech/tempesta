@@ -55,18 +55,19 @@ declare devs=$(ip addr show up | grep -P '^[0-9]+' \
 
 usage()
 {
-	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
-	echo -e "Options:"
-	echo -e "  -d <devs>   Ingress and egress network devices"
-	echo -e "              (ex. -d \"lo ens3\").\n"
+	echo -e "\nUsage: ${TFW_NAME} {action}\n"
 	echo -e "Actions:"
-	echo -e "  --help      Show this message and exit."
-	echo -e "  --load      Load Tempesta modules."
-	echo -e "  --unload    Unload Tempesta modules."
-	echo -e "  --start     Load modules and start."
-	echo -e "  --stop      Stop and unload modules."
-	echo -e "  --restart   Restart.\n"
-	echo -e "  --reload    Live reconfiguration.\n"
+	echo -e "  --help               Show this message and exit."
+	echo -e "  --load               Load Tempesta modules."
+	echo -e "  --unload             Unload Tempesta modules."
+	echo -e "  --start [options]    Load modules and start."
+	echo -e "  --stop               Stop and unload modules."
+	echo -e "  --restart [options]  Restart."
+	echo -e "  --reload  [options]  Live reconfiguration.\n"
+	echo -e "Options:"
+	echo -e "  -d \"<devs>\"          Ingress and egress network devices, also may be set with TFW_DEV, but the option has more priority."
+	echo -e "                       Multiple device sequence should be surrounded by quotes for correct processing."
+	echo -e "                       (ex. --start -d \"lo ens3\").\n"
 }
 
 templater()
@@ -265,7 +266,7 @@ start()
 	TFW_STATE=${TFW_STATE##* }
 
 	if [[ -z ${TFW_STATE} ]]; then
-		setup;
+		setup
 
 		echo "...load Tempesta modules"
 		load_modules;
@@ -309,48 +310,78 @@ reload()
 	echo "done"
 }
 
-args=$(getopt -o "d:f" -a -l "$LONG_OPTS" -- "$@")
+# function to validate networking devices (-d option) that may be provided from command line arguments and via env var
+# for the function, $1 is expected as `-d` key and $2 is expected as sequence of devices
+# for example, if --start with -d "<devices>" (list of devices to configure)
+validate_net_devices()
+{
+	if [ -n "$1" ] && [ "$1" == "-d" ] && [ -n "$2" ]; then
+		if [ -n "$TFW_DEV" ]; then
+			echo You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$2"\'
+		else
+			echo Using only networking devices from command line argument: \'"$2"\'
+		fi
+		devs=$2
+	elif [ -n "$TFW_DEV" ]; then
+		echo Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
+		devs=$TFW_DEV
+	fi
+}
+
+# validate number of options for arguments that do not accept extra options to notify an user
+validate_num_of_opt()
+{
+	fact_n="$#"
+	action="$1"
+	shift
+	if [ "$fact_n" -gt 2 ]; then
+		echo Command: \'"$action"\' has no options, all excessive arguments \'"$*"\' will be ignored.
+	fi
+}
+
+args=$(getopt -o "d:" -a -l "$LONG_OPTS" -- "$@")
 eval set -- "${args}"
 while :; do
 	case "$1" in
 		# Selectors for internal usage.
 		--load)
+			validate_num_of_opt "$@"
 			load_modules
 			exit
 			;;
 		--unload)
+			validate_num_of_opt "$@"
 			unload_modules
 			exit
 			;;
 		# User CLI.
 		--start)
+			validate_net_devices "$2" "$3"
 			start
 			exit
 			;;
 		--stop)
+			validate_num_of_opt "$@"
 			stop
 			exit
 			;;
 		--restart)
+			validate_net_devices "$2" "$3"
 			stop
 			start
 			exit
 			;;
 		--reload)
+			validate_net_devices "$2" "$3"
 			reload
 			exit
-			;;
-		# Ignore any options after action.
-		-d)
-			devs=$2
-			shift 2
 			;;
 		--help)
 			usage
 			exit
 			;;
 		*)
-			error "Bad command line argument: $opt"
+			error "Bad command line argument: $1, check '--help' for details."
 			exit 2
 			;;
 	esac
