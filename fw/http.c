@@ -2892,6 +2892,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 	ss_skb_queue_tail(&shm->msg.skb_head, skb);
 	return shm;
 }
+ALLOW_ERROR_INJECTION(tfw_http_msg_create_sibling, NULL);
 
 /*
  * Add 'Date:' header field to an HTTP message.
@@ -5828,7 +5829,7 @@ __check_authority_correctness(TfwHttpReq *req)
  */
 static int
 tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
-		     struct sk_buff **splitted)
+		     struct sk_buff **split)
 {
 	ss_skb_actor_t *actor;
 	unsigned int parsed;
@@ -6000,7 +6001,7 @@ next_msg:
 					"Can't split pipelined requests",
 					HTTP2_ECODE_PROTO);
 		}
-		*splitted = skb;
+		*split = skb;
 	} else {
 		skb = NULL;
 	}
@@ -6186,7 +6187,7 @@ next_msg:
 		BUG();
 	}
 
-	*splitted = NULL;
+	*split = NULL;
 	if (TFW_MSG_H2(req))
 		/*
 		 * Just marks request as non-idempotent if required.
@@ -6446,7 +6447,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
-		return T_BAD;
+		return T_OK;
 	}
 	/*
 	 * This hook isn't in tfw_http_resp_fwd() because responses from the
@@ -6542,7 +6543,8 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb)
+tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
+		      struct sk_buff **split)
 {
 	int r;
 	unsigned int chunks_unused, parsed;
@@ -6668,6 +6670,7 @@ next_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			goto bad_msg;
 		}
+		*split = skb;
 	}
 	else {
 		skb = NULL;
@@ -6692,7 +6695,7 @@ next_msg:
 	 * event.
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r == T_BLOCK))
+	if (unlikely(r))
 		return r;
 
 	/*
@@ -6723,6 +6726,7 @@ next_msg:
 	 * protocol data.
 	 */
 	if (skb && !websocket) {
+		*split = NULL;
 		hmsib = tfw_http_msg_create_sibling(hmresp, skb);
 		/*
 		 * In case of an error there's no recourse. The
@@ -6737,16 +6741,6 @@ next_msg:
 			skb = NULL;
 			conn_stop = true;
 		}
-	}
-
-	/*
-	 * If a non critical error occurred in further GFSM processing,
-	 * then the response and the paired request had been handled.
-	 * Keep the server connection open for data exchange.
-	 */
-	if (unlikely(r != T_OK)) {
-		r = T_OK;
-		goto next_resp;
 	}
 
 	/*
@@ -6768,10 +6762,13 @@ next_msg:
 	 * @hmsib is not attached to the connection yet.
 	 */
 	r = tfw_http_resp_cache(hmresp);
-	if (unlikely(r != T_OK))
+	if (unlikely(r != T_OK)) {
+		if (hmsib)
+			tfw_http_conn_msg_free(hmsib);
 		return r;
+	}
 
-next_resp:
+	*split = NULL;
 	if (skb && websocket)
 		return tfw_ws_msg_process(cli_conn->pair, skb);
 	if (hmsib) {
@@ -6790,7 +6787,7 @@ next_resp:
 		return T_BAD;
 	}
 
-	return r;
+	return T_OK;
 bad_msg:
 	/*
 	 * Response can't be parsed or processed. This is abnormal situation,
@@ -6815,14 +6812,21 @@ bad_msg:
 	}
 
 	/* The response is freed by tfw_http_req_parse_block/drop(). */
-	if (filtout)
+	if (filtout) {
 		r = tfw_http_req_block(bad_req, 502,
 				       "response blocked: filtered out",
 				       HTTP2_ECODE_PROTO);
-	else
-		r = tfw_http_req_drop(bad_req, 502,
-				      "response dropped: processing error",
-				      HTTP2_ECODE_PROTO);
+	} else {
+		tfw_http_req_drop(bad_req, 502,
+				  "response dropped: processing error",
+				  HTTP2_ECODE_PROTO);
+		/*
+		 * Close connection with backend immediatly
+		 * and try to reastablish it later.
+		 */
+		r = T_BAD;
+	}
+
 	return r;
 }
 
@@ -6879,7 +6883,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	/* That is paired request, it may be freed after resp processing,
 	 * so we cannot move it iside `if` clause. */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
-	if ((r = tfw_http_resp_process(conn, stream, skb))) {
+	if ((r = tfw_http_resp_process(conn, stream, skb, next))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		bool websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
 					  req->flags);
@@ -6979,7 +6983,9 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	} else {
 		BUG();
 	}
-	req->location = req->vhost->loc_dflt;
+
+	if (likely(req->vhost))
+		req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {

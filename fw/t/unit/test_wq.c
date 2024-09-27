@@ -297,7 +297,15 @@ TEST(wq, one_prod_one_con)
 
 TEST(wq, many_prod_one_con)
 {
-	tfw_test_wq_test(JOB_N * num_online_cpus(), 1);
+	/*
+	 * If num_online_cpus is a big value test works for a long
+	 * time (about 30 minutes if num_online_cpus == 112 for
+	 * example).
+	 */
+	size_t n = num_online_cpus() < 32
+		? JOB_N * num_online_cpus()
+		: num_online_cpus();
+	tfw_test_wq_test(n, 1);
 }
 
 TEST_SUITE(wq)

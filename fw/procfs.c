@@ -72,6 +72,7 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(clnt.conn_disconnects);
 		SADD(clnt.conn_established);
 		SADD(clnt.rx_bytes);
+		SADD(clnt.streams_num_exceeded);
 
 		/* Server related statistics. */
 		SADD(serv.rx_messages);
@@ -175,6 +176,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRNE("Client connections active\t\t",
 	      stat.clnt.conn_established - stat.clnt.conn_disconnects);
 	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
+	SPRN("Client max streams number exceeded\t\t", clnt.streams_num_exceeded);
 
 	/* Server related statistics. */
 	serv_conn_active = stat.serv.conn_established
