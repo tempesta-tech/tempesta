@@ -172,6 +172,9 @@ do {									\
 	}								\
 })
 
+static int tfw_print_skb_counter = -1;
+static DEFINE_SPINLOCK(tfw_print_skb_lock);
+
 static inline void
 tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 {
@@ -1954,8 +1957,10 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
 		it.skb = it.skb_head = stream->xmit.skb_head;
-		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str)))
+		if ((r = tfw_http_msg_insert(&it, &data, &frame_hdr_str))) {
+			printk("=== tfw_http_msg_insert [%u] %d", stream->id, r);
 			return r;
+		}
 		stream->xmit.skb_head = it.skb_head;
 	}
 
@@ -2004,6 +2009,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		tfw_h2_stream_purge_send_queue(stream);
 		return r;
 	case STREAM_FSM_RES_TERM_CONN:
+		printk("=== STREAM_FSM_RES_TERM_CONN [%u] %d", stream->id, type);
 		return -EPIPE;
 	}
 
@@ -2016,6 +2022,8 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 {
 	int r = 0;
 	TfwFrameType frame_type;
+	bool st400 = false;
+	int print_skb_counter = -1;
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 #define CALC_SND_WND_AND_SET_FRAME_TYPE(type)				\
@@ -2037,6 +2045,9 @@ do {									\
 		TfwHttpResp *resp = stream->xmit.resp;
 
 		BUG_ON(!resp || !resp->req || !resp->req->conn);
+
+		st400 = (resp->status == 400);
+
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 		/* Error during headers encoding. */
@@ -2064,6 +2075,12 @@ do {									\
 			return r;
 		}
 
+		if (unlikely(st400) && stream->xmit.h_len) {
+			printk(KERN_INFO "Incomplete headers [%u]: snd_wnd=%lu, max_frame_sz=%u, h_len=%u",
+				   stream->id, *snd_wnd, ctx->rsettings.max_frame_sz, stream->xmit.h_len);
+			print_skb_counter = 0;
+		}
+
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
@@ -2071,6 +2088,7 @@ do {									\
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       snd_wnd, stream->xmit.h_len);
+		printk(KERN_INFO "====== MAKE CONTINUATION stream=%u, res=%d\n", stream->id, r);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
 			return r;
@@ -2100,6 +2118,32 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
+		spin_lock(&tfw_print_skb_lock);
+		if (unlikely(print_skb_counter != -1)) {
+			tfw_print_skb_counter = print_skb_counter;
+		} else if (unlikely(tfw_print_skb_counter != -1)) {
+			if (++tfw_print_skb_counter > 4) {
+				tfw_print_skb_counter = -1;
+			}
+			print_skb_counter = tfw_print_skb_counter;
+		}
+		spin_unlock(&tfw_print_skb_lock);
+
+		if (unlikely(print_skb_counter != -1)) {
+			struct sk_buff *skb;
+
+			skb = stream->xmit.skb_head;
+			printk(KERN_INFO "--- skb %px\n", skb);
+			if (skb) {
+				printk(KERN_INFO "--- skb %d (stream=%u , len=%u) ---\n",
+					   print_skb_counter, stream->id, skb->len);
+				if (skb->data && skb->len > 0) {
+					print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 16, 1,
+								   skb->data, skb->len, 1);
+				}
+			}
+		}
+
 		r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
 					      &stream->xmit.frame_length,
 					      false);

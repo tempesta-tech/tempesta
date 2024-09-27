@@ -248,7 +248,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	T_DBG3("Stop and delete stream (id %u state %d(%s) weight %u)," 
+	T_DBG3("Stop and delete stream (id %u state %d(%s) weight %u),"
 	       " ctx %px streams num %lu\n", stream->id,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx, ctx->streams_num);
@@ -360,6 +360,10 @@ do {									\
 
 	if (unlikely(!stream))
 		return STREAM_FSM_RES_IGNORE;
+
+	if (type == HTTP2_CONTINUATION) {
+		printk("=== fsm st=%d type=%u\n", tfw_h2_get_stream_state(stream), type);
+	}
 
 	spin_lock(&stream->st_lock);
 
@@ -884,6 +888,9 @@ tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
 	if (!stream->xmit.h_len && !stream->xmit.b_len
 	    && !tfw_h2_stream_is_eos_sent(stream))
 		flags |= HTTP2_F_END_STREAM;
+	if (type == HTTP2_HEADERS) {
+		printk("=== send proc type=%u flags=%x", type, flags);
+	}
 
 	return tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 }
