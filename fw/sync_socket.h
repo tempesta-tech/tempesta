@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -131,17 +131,14 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 /**
  * Add overhead to current TCP socket control data.
  */
-static inline int
+static inline void
 ss_add_overhead(struct sock *sk, unsigned int overhead)
 {
 	if (!overhead)
-		return 0;
-	if (!sk_wmem_schedule(sk, overhead))
-		return -ENOMEM;
+		return;
+	sk_forced_mem_schedule(sk, overhead);
 	sk->sk_wmem_queued += overhead;
 	sk_mem_charge(sk, overhead);
-
-	return 0;
 }
 
 /* Dummy user ID to differentiate server from client sockets. */
