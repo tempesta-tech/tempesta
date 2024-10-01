@@ -2168,7 +2168,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		}
 
 		__save_hdr_304_off(ce, resp, field, TDB_OFF(db->hdr, p));
-		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field, &tot_len);
+		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field,
+					  &tot_len);
 		if (unlikely(n < 0))
 			return n;
 	}
@@ -2213,14 +2214,16 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->trailer_off = ce->hdr_num;
 	ce->trailers = TDB_OFF(db->hdr, p);
 	if (resp->trailers_len > 0) {
-		FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
+		FOR_EACH_HDR_FIELD_FROM(field, end1, resp,
+					TFW_HTTP_HDR_REGULAR)
+		{
 			int hid = field - resp->h_tbl->tbl;
 
 			if (!(field->flags & TFW_STR_TRAILER))
 				continue;
 
-			n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field,
-					&tot_len);
+			n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec,
+						  field, &tot_len);
 			if (unlikely(n < 0))
 				return n;
 
@@ -2252,8 +2255,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	 * Note that cached responses that contain the "must-revalidate" and/or
 	 * "s-maxage" response directives are not allowed to be served stale
 	 * (Section 4.2.4) by shared caches. In particular, a response with
-	 * either "max-age=0, must-revalidate" or "s-maxage=0" cannot be used to
-	 * satisfy a subsequent request without revalidating it on the origin
+	 * either "max-age=0, must-revalidate" or "s-maxage=0" cannot be used
+	 * to satisfy a subsequent request without revalidating it on the origin
 	 * server.
 	 * Also see tfw_cache_entry_is_live().
 	 */
@@ -2284,9 +2287,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 			continue;
 
 		p = TDB_PTR(db->hdr, ce->hdrs_304[i]);
-		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len)) {
+		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len))
 			trec = tdb_next_rec_chunk(db, trec);
-		}
 		BUG_ON(!trec);
 
 		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
@@ -2306,7 +2308,8 @@ check_cfg_ignored_header(const TfwStr *field, TfwCaToken *tokens,
 	int i;
 	int bytes_count = 0;
 	TfwCaToken *token = tokens;
-	const TfwStr *hdr = TFW_STR_DUP(field) ? TFW_STR_CHUNK(field, 0) : field;
+	const TfwStr *hdr = TFW_STR_DUP(field) ?
+		TFW_STR_CHUNK(field, 0) : field;
 
 	for (i = 0; i < tokens_sz; i++) {
 		const TfwStr to_del = {
@@ -2327,7 +2330,8 @@ static bool
 check_cc_ignored_header(const TfwStr *field, const TfwStr *tokens)
 {
 	int i;
-	const TfwStr *hdr = TFW_STR_DUP(field) ? TFW_STR_CHUNK(field, 0) : field;
+	const TfwStr *hdr = TFW_STR_DUP(field) ?
+		TFW_STR_CHUNK(field, 0) : field;
 
 	for (i = 0; i < tokens->nchunks; i++) {
 		if (tfw_stricmpspn(hdr, &tokens->chunks[i], ':') == 0)
@@ -2404,9 +2408,10 @@ __cache_entry_size(TfwHttpResp *resp)
 			continue;
 
 		/*
-		 * TODO #496: assemble all the string patterns into state machines
-		 * (one if possible) to avoid the loops over all configured and
-		 * mentioned in `private` and `no-cache` directives.
+		 * TODO #496: assemble all the string patterns into state
+		 * machines (one if possible) to avoid the loops over all
+		 * configured and mentioned in `private` and `no-cache`
+		 * directives.
 		 */
 		/* remove headers mentioned in cache_resp_hdr_del */
 		if (hdr_del_tokens.tokens) {
@@ -2649,7 +2654,9 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
+	if (!(cache_cfg.cache && g_vhost->cache_purge
+	    && g_vhost->cache_purge_acl))
+	{
 		tfw_http_send_err_resp(req, 403, "purge: not configured");
 		return -EINVAL;
 	}
