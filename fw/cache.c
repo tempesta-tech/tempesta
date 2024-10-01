@@ -188,6 +188,16 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 #define TFW_CSTR_DUPLICATE	TFW_STR_DUPLICATE
 /* TfwCStr contains special header and its id. */
 #define TFW_CSTR_SPEC_IDX	0x2
+/*
+ * TfwCStr contains header, which shpuld be skipped for http1 responses
+ * constructed from cache
+ */
+#define TFW_CSTR_SKIP_FOR_HTTP	0x4
+/*
+ * TfwCStr contains header, which should be skipped for http2 responses
+ * constructed from cache.
+ */
+#define TFW_CSTR_SKIP_FOR_H2	0x8
 
 /**
  * String header for cache entries used for TfwStr serialization.
@@ -874,7 +884,8 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 }
 
 static bool
-tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
+tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods,
+		   bool h2_mode)
 {
 	unsigned int i;
 	const TfwHdrModsDesc *desc;
@@ -884,6 +895,13 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods)
 	 */
 	TfwStr hdr = { .data = p + str->name_len_sz + 1,
 		       .len  = str->name_len };
+
+	if ((!h2_mode && str->flags & TFW_CSTR_SKIP_FOR_HTTP)
+	    || (h2_mode && str->flags & TFW_CSTR_SKIP_FOR_H2))
+		return true;
+
+	if (!h_mods)
+		return false;
 
 	/* Fast path for special headers */
 	if (str->flags & TFW_CSTR_SPEC_IDX) {
@@ -932,6 +950,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 	TfwHttpReq *req = resp->req;
 	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip };
 	int d, dn, r = 0;
+	bool h2_mode = TFW_MSG_H2(req);
 
 /* Go to the next chunk if we at the end of current. */
 #define NEXT_CHUNK()							\
@@ -944,8 +963,8 @@ do {									\
 
 	BUG_ON(!req);
 
-	write_actor = !TFW_MSG_H2(req) ? tfw_cache_h2_decode_write
-				       : tfw_cache_h2_write;
+	write_actor = !h2_mode ? tfw_cache_h2_decode_write
+			       : tfw_cache_h2_write;
 
 	NEXT_CHUNK();
 	s = (TfwCStr *)*p;
@@ -953,17 +972,19 @@ do {									\
 	BUG_ON(*p > (*trec)->data + (*trec)->len);
 
 	if (likely(!(s->flags & TFW_CSTR_DUPLICATE))) {
-		if (!skip && dc_iter.h_mods)
-			dc_iter.skip = tfw_cache_skip_hdr(s, *p, hmods);
+		if (!skip)
+			dc_iter.skip = tfw_cache_skip_hdr(s, *p, hmods,
+							  h2_mode);
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (likely(!r))
 			*acc_len += dc_iter.acc_len;
 		return r;
 	}
 
-	if (!skip && dc_iter.h_mods)
+	if (!skip)
 		dc_iter.skip = tfw_cache_skip_hdr((TfwCStr *)*p,
-						  *p + TFW_CSTR_HDRLEN, hmods);
+						  *p + TFW_CSTR_HDRLEN, hmods,
+						  h2_mode);
 
 	/* Process duplicated headers. */
 	dn = s->len;
@@ -1641,6 +1662,9 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 	const bool need_extra_quotes =
 		test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags)
 		&& (hid == TFW_HTTP_HDR_ETAG);
+	unsigned extra_flags = (hdr->flags & TFW_STR_TRAILER_HDR ||
+		hid == TFW_HTTP_HDR_TRANSFER_ENCODING) ?
+		TFW_CSTR_SKIP_FOR_H2 : 0;
 
 	T_DBG3("%s: ce=[%p] p=[%p], trec=[%p], tot_len='%zu'\n", __func__, ce,
 	       *p, *trec, *tot_len);
@@ -1672,11 +1696,11 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 	if (TFW_STR_DUP(hdr)) {
 		CSTR_MOVE_HDR();
 		if (hid >= TFW_HTTP_HDR_REGULAR  && hid < TFW_HTTP_HDR_RAW)
-			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX | TFW_CSTR_DUPLICATE,
-				       hdr->nchunks, 0, hid);
+			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX | TFW_CSTR_DUPLICATE |
+				       extra_flags, hdr->nchunks, 0, hid);
 		else
-			CSTR_WRITE_HDR(TFW_CSTR_DUPLICATE, hdr->nchunks, 0,
-				       st_index);
+			CSTR_WRITE_HDR(TFW_CSTR_DUPLICATE | extra_flags,
+				       hdr->nchunks, 0, st_index);
 	}
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
@@ -1717,11 +1741,11 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			return -ENOMEM;
 
 		if (hid >= TFW_HTTP_HDR_REGULAR && hid < TFW_HTTP_HDR_RAW)
-			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX,
+			CSTR_WRITE_HDR(TFW_CSTR_SPEC_IDX | extra_flags,
 				       ce->hdr_len - prev_len, 0, hid);
 		else
-			CSTR_WRITE_HDR(0, ce->hdr_len - prev_len, s_nm.len,
-				       st_index);
+			CSTR_WRITE_HDR(extra_flags, ce->hdr_len - prev_len,
+				       s_nm.len, st_index);
 	}
 
 	T_DBG3("%s: p=[%p], trec=[%p], ce->hdr_len='%u', tot_len='%zu'\n",
@@ -1732,7 +1756,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 
 static long
 tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
-		     unsigned short st_idx, TfwStr *val, size_t *tot_len)
+		     unsigned short st_idx, TfwStr *val, size_t *tot_len,
+		     unsigned flags)
 {
 	TfwCStr *cs;
 	unsigned long len;
@@ -1772,7 +1797,8 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, val, tot_len))
 		return -ENOMEM;
 
-	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, 0, st_idx);
+	CSTR_WRITE_HDR(flags, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, 0,
+		       st_idx);
 
 	return ce->hdr_len - prev_len;
 }
@@ -1795,7 +1821,7 @@ tfw_cache_add_hdr_cenc(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		return r;
 
 	val_ce.len = chunk.len;
-	return tfw_cache_h2_add_hdr(ce, p, trec, 26, &val_ce, tot_len);
+	return tfw_cache_h2_add_hdr(ce, p, trec, 26, &val_ce, tot_len, 0);
 }
 
 /**
@@ -1821,7 +1847,8 @@ tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 	if (!val.len)
 		return -EINVAL;
 
-	return tfw_cache_h2_add_hdr(ce, p, trec, 28, &val, tot_len);
+	return tfw_cache_h2_add_hdr(ce, p, trec, 28, &val, tot_len,
+				    TFW_CSTR_SKIP_FOR_HTTP);
 }
 
 /**
@@ -2099,16 +2126,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 */
 		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR |
 				     TFW_STR_TRAILER))
-		    || (field->flags & TFW_STR_TRAILER_HDR && TFW_MSG_H2(req))
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(field))
 		{
-			--ce->hdr_num;
-			continue;
-		}
-
-		if (hid == TFW_HTTP_HDR_TRANSFER_ENCODING
-		    && TFW_MSG_H2(req)) {
 			--ce->hdr_num;
 			continue;
 		}
@@ -2126,7 +2146,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	}
 
 	/* Add 'server' header. */
-	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 54, &val_srv, &tot_len);
+	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 54, &val_srv, &tot_len, 0);
 	if (unlikely(n < 0))
 		return n;
 
@@ -2143,7 +2163,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	}
 
 	/* Add 'content-length' header. */
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags) && TFW_MSG_H2(req)) {
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		n = tfw_cache_add_hdr_clen(resp, ce, &p, &trec, &tot_len);
 		if (unlikely(n < 0))
 			return n;
@@ -2155,7 +2175,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	/* Add 'via' header. */
 	memcpy_fast(__TFW_STR_CH(&val_via, 1)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
-	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 60, &val_via, &tot_len);
+	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 60, &val_via, &tot_len, 0);
 	if (unlikely(n < 0))
 		return n;
 
@@ -2351,15 +2371,10 @@ __cache_entry_size(TfwHttpResp *resp)
 		 * version of this header.
 		 */
 		if ((hdr->flags & TFW_STR_HBH_HDR)
-		    || (hdr->flags & TFW_STR_TRAILER_HDR
-		        && TFW_MSG_H2(req))
 		    || hid == TFW_HTTP_HDR_SERVER
 		    || TFW_STR_EMPTY(hdr))
 			continue;
 
-		if (hid == TFW_HTTP_HDR_TRANSFER_ENCODING
-		    && TFW_MSG_H2(req))
-			continue;
 		/*
 		 * TODO #496: assemble all the string patterns into state machines
 		 * (one if possible) to avoid the loops over all configured and
@@ -2433,7 +2448,7 @@ __cache_entry_size(TfwHttpResp *resp)
 	 * Add the length of Content-Length header. Content-Length used to
 	 * replace non-cachable *chunked* body.
 	 */
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags) && TFW_MSG_H2(req)) {
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 		unsigned long cl_len   = tfw_ultoa(body_len,
 						   *this_cpu_ptr(&g_c_buf),
@@ -2694,7 +2709,6 @@ static int
 tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 			  unsigned long body_sz, bool h2, bool chunked_body)
 {
-#define S_CRLF "\r\n"
 #define S_ZERO "0"
 
 	int r;
@@ -2800,7 +2814,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	return 0;
 
 #undef S_ZERO
-#undef S_CRLF
 }
 
 static int
