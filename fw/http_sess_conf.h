@@ -29,7 +29,7 @@
 extern TfwCfgSpec tfw_http_sess_specs[];
 
 void tfw_http_sess_cfgstart(void);
-int tfw_http_sess_cfgend(void);
+void tfw_http_sess_cfgend(void);
 
 int tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 int tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs);

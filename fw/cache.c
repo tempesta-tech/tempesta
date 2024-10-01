@@ -218,21 +218,27 @@ typedef struct {
 	TfwRBQueue		wq;
 } TfwWorkTasklet;
 
+/* Cache modes. */
+typedef enum {
+        TFW_CACHE_UNDEFINED = -1,
+        TFW_CACHE_NONE = 0,
+        TFW_CACHE_SHARD,
+        TFW_CACHE_REPLICA,
+} TfwCacheMode;
+
 static struct {
 	int cache;
 	unsigned int methods;
 	unsigned long db_size;
 	const char *db_path;
-} cache_cfg __read_mostly;
+} cache_cfg __read_mostly = {
+	.cache = TFW_CACHE_UNDEFINED,
+	.methods = 0,
+	.db_size = 0,
+	.db_path = NULL
+};
 
 unsigned int cache_default_ttl;
-
-/* Cache modes. */
-enum {
-	TFW_CACHE_NONE = 0,
-	TFW_CACHE_SHARD,
-	TFW_CACHE_REPLICA,
-};
 
 typedef struct {
 	int 		*cpu;
@@ -3222,11 +3228,13 @@ static int
 tfw_cache_start(void)
 {
 	int i, r = 1;
-	TfwGlobal *g_vhost = tfw_vhost_get_global();
+
+	if (WARN_ON_ONCE(cache_cfg.cache == TFW_CACHE_UNDEFINED))
+		return -EINVAL;
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
-	if (!(cache_cfg.cache || g_vhost->cache_purge))
+	if (!cache_cfg.cache)
 		return 0;
 
 	if ((r = tfw_init_node_cpus()))
@@ -3294,6 +3302,8 @@ tfw_cache_stop(void)
 {
 	int i;
 
+	BUG_ON(cache_cfg.cache == TFW_CACHE_UNDEFINED);
+
 	if (tfw_runstate_is_reconfig())
 		return;
 	if (!cache_cfg.cache)
@@ -3337,6 +3347,29 @@ static const TfwCfgEnum cache_http_methods_enum[] = {
 };
 
 static int
+tfw_cfgop_cache_val(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
+	int cache;
+	int r;
+
+	cs->dest = &cache;
+	r = tfw_cfg_set_int(cs, ce);
+	cs->dest = NULL;
+	if (r)
+		return r;
+
+	if (g_vhost->cache_purge && !cache) {
+		T_ERR_NL("Directives mismatching: 'cache_purge' directive "
+			  "requires 'cache' be not zero\n");
+		return -EINVAL;
+	}
+
+	cache_cfg.cache = cache;
+	return r;
+}
+
+static int
 tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned int i, method;
@@ -3375,14 +3408,19 @@ tfw_cfgop_cleanup_cache_methods(TfwCfgSpec *cs)
 	cache_cfg.methods = 0;
 }
 
+bool
+tfw_cache_is_enabled_or_not_configured(void)
+{
+	return cache_cfg.cache != TFW_CACHE_NONE;
+}
+
 static TfwCfgSpec tfw_cache_specs[] = {
 	{
 		.name = "cache",
 		.deflt = "2",
-		.handler = tfw_cfg_set_int,
-		.dest = &cache_cfg.cache,
+		.handler = tfw_cfgop_cache_val,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, 2 },
+			.range = { TFW_CACHE_NONE, TFW_CACHE_REPLICA },
 		},
 	},
 	{

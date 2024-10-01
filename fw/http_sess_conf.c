@@ -865,11 +865,10 @@ tfw_http_sess_cfgstart()
  * Need to free them after configuration processing and before shutdown,
  * since cfgend() hook is not called for failed configurations.
  */
-int
+void
 tfw_http_sess_cfgend()
 {
 	tfw_http_sess_cfg_defaults_reset();
-	return 0;
 }
 
 TfwCfgSpec tfw_http_sess_specs[] = {

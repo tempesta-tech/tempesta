@@ -715,6 +715,16 @@ adjudge_to_death:
 	}
 }
 
+void
+ss_close_not_connected_socket(struct sock *sk)
+{
+	bh_lock_sock(sk);
+	ss_do_close(sk, 0);
+	bh_unlock_sock(sk);
+	sock_put(sk);
+	SS_CALL(connection_drop, sk);
+}
+
 /**
  * This function is for internal Sync Sockets use only. It's called under the
  * socket lock taken by the kernel, and in the context of the socket that is

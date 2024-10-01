@@ -191,4 +191,15 @@ void ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
 
 #define SS_CONN_TYPE(sk)	(((SsProto *)(sk)->sk_user_data)->type)
 
+/*
+ * This function is used to close sockets in TCP_CLOSE state.
+ * Whe socket is created using `ss_inet_create` it is created
+ * in TCP_CLOSE state. We can't close such socket using `ss_close`
+ * because we check socket state in `ss_tx_action` before
+ * calling `ss_do_close` to prevent multiple socket closing. But
+ * we should close such sockets to prevent memory leak, because
+ * socket destructor is not called for not DEAD sockets.
+ */
+void ss_close_not_connected_socket(struct sock *sk);
+
 #endif /* __SS_SOCK_H__ */
