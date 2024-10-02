@@ -203,28 +203,28 @@ process_truncated(TfwStr *in, BasicStr *out, char *p, char *end,
 	unsigned total_len = 0;
 	unsigned truncated_count = 0;
 	unsigned max_untruncated_len, buf_avail;
-	
+
 	if (unlikely(used_chars >= ACCESS_LOG_BUF_SIZE))
 		goto no_buffer_space;
-	
+
 	/* Compute total length of all strings that can be truncated */
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++)
 		total_len += in[i].len;
-	
+
 	/* Check if we're on happy path: all strings fit */
 	if (likely(total_len + used_chars < ACCESS_LOG_BUF_SIZE)) {
 		for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++)
 			p = make_plain(p, end, in + i, out + i);
 		return;
 	}
-	
+
 	/* Unhappy path: evenly distribute available buffer space across all
 	 * strings that do not fit */
 	buf_avail = (ACCESS_LOG_BUF_SIZE - used_chars);
 	/* This division by constant usually gets optimized by compiler with
 	 * multiplication/shifts */
 	max_untruncated_len = buf_avail / TRUNCATABLE_FIELDS_COUNT;
-	
+
 	for (i = 0; i < TRUNCATABLE_FIELDS_COUNT; i++) {
 		/* we loose some chars due to string "less than", but
 		 * tfw_str_to_cstr accounts terminating NUL to total buffer
@@ -234,7 +234,7 @@ process_truncated(TfwStr *in, BasicStr *out, char *p, char *end,
 		else
 			truncated_count++;
 	}
-	
+
 	max_untruncated_len = buf_avail / truncated_count;
 	if (max_untruncated_len < sizeof("..."))
 		goto no_buffer_space;
@@ -282,7 +282,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	/* Check if logging is enabled */
 	if (!access_log_enabled)
 		return;
-	
+
 	/* client_ip
 	 *
 	 * this BUG_ON would only trigger if
@@ -327,7 +327,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	} else {
 		version = missing;
 	}
-	
+
 	/* status, content_length */
 	/* NOTE: we only roughly estimate lengths of numbers, leaving final
 	 * transformation to printk. This has some side-effects like string
@@ -341,7 +341,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	status.len = 10; /* len(str(2**32)) */
 	content_length.data = "";
 	content_length.len = 20; /* len(str(2**64)) */
-	
+
 	/* Process truncated fields */
 	truncated_in[idx_uri] = req->uri_path;
 #define ADD_HDR(id, tfw_hdr_id)                                        \
@@ -349,7 +349,7 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 				req->h_tbl->tbl + tfw_hdr_id);
 	ADD_HDR(idx_referer, TFW_HTTP_HDR_REFERER);
 	ADD_HDR(idx_user_agent, TFW_HTTP_HDR_USER_AGENT);
-	
+
 	/* Now we calculate first estimation of
 	 * "maximum allowed truncated string length" */
 #define ESTIMATE_FIXED(str) + (sizeof(str) - 1)
