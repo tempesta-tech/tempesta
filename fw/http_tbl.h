@@ -30,6 +30,7 @@
 
 #define TFW_HTTP_RES_VHOST 0
 #define TFW_HTTP_RES_REDIR 1
+#define TFW_HTTP_RES_JSCH 2
 
 typedef struct {
 	TfwStr url;
