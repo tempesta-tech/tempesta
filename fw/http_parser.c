@@ -5878,12 +5878,12 @@ Req_Method_1CharStep: __attribute__((cold))
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
-		__FSM_JMP(Req_UriAuthorityEnd);
+		TFW_PARSER_DROP(Req_UriAuthorityResetHost);
 	}
 
 	__FSM_STATE(Req_UriAuthorityEnd, cold) {
 		if (c == ':')
-			__FSM_MOVE_f(Req_UriPort, &req->host);
+			__FSM_MOVE_f(Req_UriPortBegin, &req->host);
 		/* Authority End */
 		__msg_field_finish(&req->host, p);
 		T_DBG3("Userinfo len = %i, host len = %i\n",
@@ -5896,6 +5896,16 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriAuthorityEnd);
+	}
+
+	/*
+	 * This state is necessary to drop requests with empty port like
+	 * GET http://tempesta-tech.com:
+	 */
+	__FSM_STATE(Req_UriPortBegin) {
+		if (likely(isdigit(c)))
+			__FSM_MOVE_f(Req_UriPort, &req->host);
+		TFW_PARSER_DROP(Req_UriPortBegin);
 	}
 
 	/* Host port in URI */
