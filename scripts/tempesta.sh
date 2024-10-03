@@ -242,7 +242,7 @@ start_tempesta_and_check_state()
 {
 	local _err
 
-	_err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
+	_err=$((echo start > /proc/sys/net/tempesta/state) 2>&1)
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##net.tempesta.state = }
 
