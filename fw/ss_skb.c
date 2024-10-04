@@ -1577,7 +1577,8 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 	int i;
 
 	/* TODO: process of SKBTX_ZEROCOPY_FRAG for MSG_ZEROCOPY */
-	if (skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG) {
+	if (skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG
+	    || skb_shinfo(skb)->tx_flags & TFW_SKBTX_SHARED_FRAG) {
 		if (head_data_len) {
 			sg_set_buf(sgl + out_frags, skb->data, head_data_len);
 			out_frags++;
@@ -1590,8 +1591,10 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 
 			size = skb_frag_size(f);
 			if (remain < size) {
-				int order = get_order(size);
-				p = alloc_pages(GFP_ATOMIC, order);
+				unsigned int order = get_order(size);
+				gfp_t flags = order > 0 ?
+					GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
+				p = alloc_pages(flags, order);
 				if (!p)
 					return -ENOMEM;
 				remain = (1 << order) * PAGE_SIZE;
@@ -1613,7 +1616,8 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 		}
 		if (out_frags > 0)
 			sg_mark_end(&sgl[out_frags - 1]);
-		skb_shinfo(skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
+		skb_shinfo(skb)->tx_flags &=
+			~(SKBTX_SHARED_FRAG | TFW_SKBTX_SHARED_FRAG);
 	} else {
 		int r = skb_to_sgvec(skb, sgl + out_frags, 0, skb->len);
 		if (r <= 0)
