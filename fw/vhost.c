@@ -2514,6 +2514,7 @@ check_vhost:
 	}
 
 err:
+	tfw_frang_clean(&tfw_frang_vhost_reconfig);
 
 #if DBG_VHOST > 0
 	tfw_cfgop_vhosts_print(tfw_vhosts_reconfig);
