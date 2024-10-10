@@ -455,6 +455,13 @@ __tfw_connection_get_if_live(TfwConn *conn)
 	__tfw_connection_get_if_live((TfwConn *)(c))
 
 static inline bool
+tfw_connection_was_stopped(TfwConn *conn)
+{
+	return (TFW_CONN_TYPE(conn) & Conn_Stop)
+		|| (TFW_CONN_TYPE(conn) & Conn_Shutdown);
+}
+
+static inline bool
 tfw_connection_stop_rcv(TfwConn *conn)
 {
 	/*
@@ -462,8 +469,8 @@ tfw_connection_stop_rcv(TfwConn *conn)
 	 * for HTTP2 client connections, to ensure delivery of
 	 * response with a body larger than HTTP window size.
 	 */
-	return (TFW_CONN_TYPE(conn) & Conn_Stop) &&
-		(!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt));
+	return (tfw_connection_was_stopped(conn)
+		&& (!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt)));
 }
 
 static inline void
@@ -611,6 +618,35 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 
 	return r;
 }
+
+#define TFW_CONN_PROCESS_RESULT(r, was_stopped, extra_cond_to_out, nskb) \
+do {									\
+	/*								\
+	 * If error occurs second time (save_error_code is not zero or	\
+	 * was_stopped is true) close connection immediately with RST.	\
+	 */								\
+	r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?	\
+		SS_BLOCK_WITH_RST : r;					\
+	if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {		\
+		kfree_skb(nskb);					\
+		goto out;						\
+	} else if (r && r != T_DROP) {					\
+		if (extra_cond_to_out) {				\
+			kfree_skb(nskb);				\
+			goto out;					\
+		}		 					\
+	/*								\
+	 * In case of T_BAD or system errors we close connection	\
+	 * with tcp_shutdown() and gracefully send all pending		\
+	 * responses to client. We should continue to process		\
+	 * WINDOW_UPDATE frames so, we should decrypt all skbs,		\
+	 * not drop them.						\
+	 */								\
+		save_err_code = T_BAD;					\
+	} else if (save_err_code != T_OK) {				\
+		r = save_err_code;					\
+	}								\
+} while(0)
 
 extern unsigned int tfw_cli_max_concurrent_streams;
 
