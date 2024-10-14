@@ -200,7 +200,27 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		TFW_CONN_PROCESS_RESULT(r, was_stopped, false, nskb);
+		/*
+		 * If error occurs second time (save_error_code is not zero or
+		 * was_stopped is true) close connection immediately with RST.
+		 */
+		r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?
+			SS_BLOCK_WITH_RST : r;
+		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {
+			kfree_skb(nskb);
+			goto out;
+		} else if (r && r != T_DROP) {
+			/*
+			 * In case of T_BAD or system errors we close connection
+			 * with tcp_shutdown() and gracefully send all pending
+			 * responses to client. We should continue to process
+			 * WINDOW_UPDATE frames so, we should decrypt all skbs,
+			 * not drop them.
+			 */
+			save_err_code = T_BAD;
+		} else if (save_err_code != T_OK) {
+			r = save_err_code;
+		}
 	} else {
 		/*
 		 * The decrypted payload is not required for upper levels.
