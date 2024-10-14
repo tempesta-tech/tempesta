@@ -439,8 +439,10 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	val = tfw_http_val_adjust(in_field_val, field,
 				  &val_len, &type_val, &op_val);
-	if (IS_ERR(val))
+	if (IS_ERR(val)) {
+		kfree(arg);
 		return PTR_ERR(val);
+	}
 
 	rule = tfw_http_rule_new(tfw_chain_entry, type, arg_size);
 	if (!rule) {
@@ -507,6 +509,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		const char *val_end = action_val + strlen(action_val);
 		size_t i;
 
+		rule->act.type = TFW_HTTP_MATCH_ACT_REDIR;
 		if (rule->act.redir.resp_code != 301 &&
 		    rule->act.redir.resp_code != 302 &&
 		    rule->act.redir.resp_code != 303 &&
@@ -593,8 +596,6 @@ do {                                                                  \
 			 TFW_HTTP_MAX_REDIR_VARS, action_val);
 			return -EINVAL;
 		}
-
-		rule->act.type = TFW_HTTP_MATCH_ACT_REDIR;
 	}
 	else if (action_val) {
 		T_ERR_NL("http_tbl: only 'mark', '$..' or redirection actions "
@@ -644,9 +645,8 @@ tfw_cfgop_release_rule(TfwHttpMatchRule *rule)
 	if (rule->act.type == TFW_HTTP_MATCH_ACT_REDIR) {
 		int i;
 
-		for (i = 0; i < rule->act.redir.url.nchunks; ++i) {
+		for (i = 0; i < rule->act.redir.url.nchunks; ++i)
 			kfree(rule->act.redir.url.chunks[i].data);
-		}
 		kfree(rule->act.redir.url.chunks);
 	}
 	return 0;
