@@ -2703,17 +2703,12 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	/*
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
-	 * otherwise, use next empty frag in current skb. Create a new skb, if
-	 * TX flags for headers and body differ.
+	 * otherwise, use next empty frag in current skb.
 	 */
-	if (!it->skb || (it->frag + 1 >= MAX_SKB_FRAGS)
-	    || (sh_frag == !(skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG)))
-	{
+	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS || sh_frag) {
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-		if (!sh_frag)
-			skb_shinfo(it->skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
-		else
+		if (sh_frag)
 			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 	}
 
