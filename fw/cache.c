@@ -2588,7 +2588,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 		/*
 		 * Error occured during response copying. Remove allocated entry.
 		 */
-		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, NULL, true);
+		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, true);
 		T_DBG3("%s: Can't copy response ce=[%p], resp=[%p], data_len="
 		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
 	} else {
@@ -2678,8 +2678,7 @@ tfw_cache_purge_immediate(TfwHttpReq *req)
 	TDB *db = node_db();
 	unsigned long key = tfw_http_req_key_calc(req);
 
-	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req,
-			 &tfw_cache_update_stat, false);
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
 
 	return 0;
 }
@@ -3280,7 +3279,7 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		    && resp->status >= 200 && resp->status < 400) {
 			key = tfw_http_req_key_calc(req);
 			tdb_entry_remove(node_db(), key, &tfw_cache_rec_eq_req,
-					 req, &tfw_cache_update_stat, false);
+					 req, false);
 		}
 	}
 
@@ -3428,6 +3427,7 @@ tfw_cache_start(void)
 			r = -ENOMEM;
 			goto close_db;
 		}
+		c_nodes[i].db->hdr->before_free = tfw_cache_update_stat;
 	}
 #if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");

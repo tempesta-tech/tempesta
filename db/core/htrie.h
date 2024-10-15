@@ -131,8 +131,7 @@ TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
 			 tdb_eq_cb_t *eq_cb, void *eq_data, size_t *len,
 			 bool complete);
 void tdb_htrie_remove(TdbHdr *dbh, unsigned long key, tdb_eq_cb_t *eq_cb,
-		      void *data, tdb_before_remove_cb_t *bf_remove_cb,
-		      bool force);
+		      void *data, bool force);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
 TdbRec *tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket **b, unsigned long key);
 TdbRec *tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b,

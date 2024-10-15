@@ -119,15 +119,14 @@ EXPORT_SYMBOL(tdb_entry_add);
 /**
  * Remove TDB entries by @key using @eq_cb for comparing entry with @data.
  *
- * @bf_remove_cb - Called before entry removing.
  * @rorce - Force delete incomplete record.
  * @return ENOENT if entry not exists.
  */
 void
 tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
-		 tdb_before_remove_cb_t *bf_remove_cb, bool force)
+		 bool force)
 {
-	tdb_htrie_remove(db->hdr, key, eq_cb, data, bf_remove_cb, force);
+	tdb_htrie_remove(db->hdr, key, eq_cb, data, force);
 }
 EXPORT_SYMBOL(tdb_entry_remove);
 
