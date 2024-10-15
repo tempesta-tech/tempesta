@@ -1593,6 +1593,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				int order = get_order(size);
 				gfp_t flags = order > 0 ?
 					GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
+
 				p = alloc_pages(flags, order);
 				if (!p)
 					return -ENOMEM;
