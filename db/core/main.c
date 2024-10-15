@@ -49,7 +49,7 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 	BUG_ON(!data);
 	r = tdb_htrie_insert(db->hdr, key, data, NULL, NULL, len, true);
 	if (!r)
-		TDB_ERR("Cannot create cache entry for %.*s, key=%#lx\n",
+		TDB_ERR("Cannot create db entry for %.*s, key=%#lx\n",
 			(int)*len, (char *)data, key);
 
 	return r;
@@ -66,7 +66,7 @@ tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
 	BUG_ON(*len < TDB_HTRIE_MINDREC);
 	r = tdb_htrie_insert(db->hdr, key, NULL, eq_cb, eq_data, len, false);
 	if (!r)
-		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
+		TDB_ERR("Cannot allocate db entry for key=%#lx\n", key);
 
 	return r;
 }
@@ -90,7 +90,7 @@ tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 	BUG_ON(*len < TDB_HTRIE_MINDREC);
 	r = tdb_htrie_insert(db->hdr, key, NULL, NULL, NULL, len, false);
 	if (!r)
-		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
+		TDB_ERR("Cannot allocate db entry for key=%#lx\n", key);
 
 	return r;
 }
