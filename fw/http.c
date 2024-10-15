@@ -1483,6 +1483,15 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 			  " re-forwarded or re-scheduled");
 }
 
+static inline void
+tfw_http_send_err_resp_nolog(TfwHttpReq *req, int status)
+{
+	if (TFW_MSG_H2(req))
+		tfw_h2_send_err_resp(req, status, false);
+	else
+		tfw_h1_send_err_resp(req, status);
+}
+
 /* Common interface for sending error responses. */
 void
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
@@ -1491,10 +1500,7 @@ tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
 
-	if (TFW_MSG_H2(req))
-		tfw_h2_send_err_resp(req, status, false);
-	else
-		tfw_h1_send_err_resp(req, status);
+	tfw_http_send_err_resp_nolog(req, status);
 }
 
 static void
@@ -5461,7 +5467,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	if (test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags)) {
 		T_DBG("request dropped: non-challengeable resource"
 		      " was not served from cache");
-		tfw_http_send_err_resp(req, 403, NULL);
+		tfw_http_send_err_resp_nolog(req, 403);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
 	}
@@ -5497,11 +5503,13 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	goto conn_put;
 
 send_502:
-	tfw_http_send_err_resp(req, 502, "request dropped: processing error");
+	T_DBG("request dropped: processing error, status 502");
+	tfw_http_send_err_resp_nolog(req, 502);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_err_resp(req, 500, "request dropped: processing error");
+	T_DBG("request dropped: processing error, status 500");
+	tfw_http_send_err_resp_nolog(req, 500);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	/*
