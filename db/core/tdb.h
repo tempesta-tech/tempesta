@@ -48,49 +48,6 @@ typedef struct {
 	unsigned long	freelist;
 } TdbPerCpu;
 
-/**
- * Tempesta DB file descriptor.
- *
- * We store independent records in at least cache line size data blocks
- * to avoid false sharing.
- *
- * @dbsz	- the database size in bytes;
- * @nwb		- next to write block (byte offset);
- * @pcpu	- pointer to per-cpu dynamic data for the TDB handler;
- * @rec_len	- fixed-size records length or zero for variable-length records;
- ** @ext_bmp	- bitmap of used/free extents.
- * 		  Must be small and cache line aligned;
- */
-typedef struct {
-	unsigned long		magic;
-	unsigned long		dbsz;
-	atomic64_t		nwb;
-	TdbPerCpu __percpu	*pcpu;
-	unsigned int		rec_len;
-	unsigned char		_padding[8 * 3 + 4];
-	unsigned long		ext_bmp[0];
-} __attribute__((packed)) TdbHdr;
-
-/**
- * Database handle descriptor.
- *
- * @filp	- mmap()'ed file;
- * @node	- NUMA node ID;
- * @count	- reference counter;
- * @ga_lock	- Lock for atomic execution of lookup and create a record TDB;
- * @tbl_name	- table name;
- * @path	- path to the table;
- */
-typedef struct {
-	TdbHdr		*hdr;
-	struct file	*filp;
-	int		node;
-	atomic_t	count;
-	spinlock_t	ga_lock; /* TODO: remove and make lockless. */
-	char		tbl_name[TDB_TBLNAME_LEN + 1];
-	char		path[TDB_PATH_LEN];
-} TDB;
-
 #define TDB_REC_COMMON			\
 	unsigned long	key;		\
 	unsigned int	flags;		\
@@ -119,6 +76,51 @@ typedef struct {
 
 /* Common interface for database records of all kinds. */
 typedef TdbFRec TdbRec;
+typedef void tdb_before_free_cb_t(TdbRec *rec);
+
+/**
+ * Tempesta DB file descriptor.
+ *
+ * We store independent records in at least cache line size data blocks
+ * to avoid false sharing.
+ *
+ * @dbsz	- the database size in bytes;
+ * @nwb		- next to write block (byte offset);
+ * @pcpu	- pointer to per-cpu dynamic data for the TDB handler;
+ * @rec_len	- fixed-size records length or zero for variable-length records;
+ ** @ext_bmp	- bitmap of used/free extents.
+ * 		  Must be small and cache line aligned;
+ */
+typedef struct {
+	unsigned long		magic;
+	unsigned long		dbsz;
+	atomic64_t		nwb;
+	TdbPerCpu __percpu	*pcpu;
+	tdb_before_free_cb_t	*before_free;
+	unsigned int		rec_len;
+	unsigned char		_padding[8 * 2 + 4];
+	unsigned long		ext_bmp[0];
+} __attribute__((packed)) TdbHdr;
+
+/**
+ * Database handle descriptor.
+ *
+ * @filp	- mmap()'ed file;
+ * @node	- NUMA node ID;
+ * @count	- reference counter;
+ * @ga_lock	- Lock for atomic execution of lookup and create a record TDB;
+ * @tbl_name	- table name;
+ * @path	- path to the table;
+ */
+typedef struct {
+	TdbHdr		*hdr;
+	struct file	*filp;
+	int		node;
+	atomic_t	count;
+	spinlock_t	ga_lock; /* TODO: remove and make lockless. */
+	char		tbl_name[TDB_TBLNAME_LEN + 1];
+	char		path[TDB_PATH_LEN];
+} TDB;
 
 /**
  * Iterator for TDB full key collision chains.
@@ -155,7 +157,6 @@ typedef struct {
 } TdbGetAllocCtx;
 
 typedef bool tdb_eq_cb_t(TdbRec *rec, void *data);
-typedef void tdb_before_remove_cb_t(TdbRec *rec);
 
 /**
  * We use very small index nodes size of only one cache line.
@@ -216,7 +217,7 @@ void tdb_entry_mark_complete(void *rec);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
 void tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
-		      tdb_before_remove_cb_t *bf_remove_cb, bool force);
+		      bool force);
 void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);

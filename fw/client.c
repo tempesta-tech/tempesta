@@ -230,8 +230,7 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 			sizeof(addr.sin6_addr));
 
 	/* Remove expired clients with same key. */
-	tdb_entry_remove(client_db, key, &tfw_client_rec_eq_cli, NULL, NULL,
-			 false);
+	tdb_entry_remove(client_db, key, &tfw_client_rec_eq_cli, NULL, false);
 
 #ifdef DISABLED_934
 	if (xff_addr) {

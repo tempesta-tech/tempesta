@@ -171,6 +171,9 @@ tdb_free_vsrec(TdbHdr *dbh, TdbVRec *rec)
 static void
 tdb_htrie_free_rec(TdbHdr *dbh, TdbRec *rec)
 {
+	if (dbh->before_free)
+		dbh->before_free(rec);
+
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
 		TdbVRec *next, *curr = (TdbVRec *)rec;
 
@@ -932,7 +935,7 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 /* Must be called with locked bucket. */
 static TdbBucket *
 __tdb_htrie_remove(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb, void *data,
-		   tdb_before_remove_cb_t *bf_remove_cb, bool force)
+		   bool force)
 {
 	TdbBucket *prev = bckt;
 
@@ -953,7 +956,7 @@ __tdb_htrie_remove(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb, void *data,
 
 void
 tdb_htrie_remove(TdbHdr *dbh, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
-		 tdb_before_remove_cb_t *bf_remove_cb, bool force)
+		 bool force)
 {
 	int bits = 0;
 	unsigned long o;
@@ -970,7 +973,7 @@ tdb_htrie_remove(TdbHdr *dbh, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
 		force, bckt);
 
 	write_lock_bh(&bckt->lock);
-	bckt = __tdb_htrie_remove(dbh, bckt, eq_cb, data, bf_remove_cb, force);
+	bckt = __tdb_htrie_remove(dbh, bckt, eq_cb, data, force);
 	write_unlock_bh(&bckt->lock);
 }
 
@@ -1196,13 +1199,6 @@ retry:
 	write_unlock_bh(&bckt->lock);
 
 	goto retry;
-}
-
-static inline void
-tdb_eval_bf_remove_cb(tdb_before_remove_cb_t *bf_remove_cb, TdbRec *rec)
-{
-	if (bf_remove_cb)
-		bf_remove_cb(rec);
 }
 
 TdbBucket *
