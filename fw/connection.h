@@ -455,6 +455,13 @@ __tfw_connection_get_if_live(TfwConn *conn)
 	__tfw_connection_get_if_live((TfwConn *)(c))
 
 static inline bool
+tfw_connection_was_stopped(TfwConn *conn)
+{
+	return (TFW_CONN_TYPE(conn) & Conn_Stop)
+		|| (TFW_CONN_TYPE(conn) & Conn_Shutdown);
+}
+
+static inline bool
 tfw_connection_stop_rcv(TfwConn *conn)
 {
 	/*
@@ -462,8 +469,8 @@ tfw_connection_stop_rcv(TfwConn *conn)
 	 * for HTTP2 client connections, to ensure delivery of
 	 * response with a body larger than HTTP window size.
 	 */
-	return (TFW_CONN_TYPE(conn) & Conn_Stop) &&
-		(!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt));
+	return (tfw_connection_was_stopped(conn)
+		&& (!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt)));
 }
 
 static inline void

@@ -77,6 +77,7 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
+	bool was_stopped = tfw_connection_was_stopped(conn);
 
 	if (unlikely(tfw_connection_stop_rcv(conn))) {
 		__kfree_skb(skb);
@@ -113,6 +114,8 @@ next_msg:
 		r = T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_FIN:
+		r = (save_err_code != T_OK || was_stopped)
+			? SS_BLOCK_WITH_RST : T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_RST:
 		if (tls->conf->endpoint == TTLS_IS_SERVER)
@@ -163,7 +166,14 @@ next_msg:
 		}
 	}
 
-	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA) {
+	/*
+	 * If Conn_Stop bit is not set we don't send error response
+	 * to client, so we decrypt skbs to avoid tls errors, but
+	 * don't process it.
+	 */
+	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA
+	    && (save_err_code == T_OK || TFW_CONN_TYPE(conn) & Conn_Stop))
+	{
 		/*
 		 * Current record contains an "application data" message.
 		 * ttls_recv() has already decrypted the payload, but TLS
@@ -189,23 +199,27 @@ next_msg:
 		spin_unlock(&tls->lock);
 
 		/* Do upcall to http or websocket */
-		if (save_err_code == T_OK)
-			r = tfw_connection_recv(conn, data_up.skb);
-		else
-			r = save_err_code;
-
+		r = tfw_connection_recv(conn, data_up.skb);
+		/*
+		 * If error occurs second time (save_error_code is not zero or
+		 * was_stopped is true) close connection immediately with RST.
+		 */
+		r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?
+			SS_BLOCK_WITH_RST : r;
 		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {
 			kfree_skb(nskb);
-			return r;
-		} else if (r == T_BAD) {
+			goto out;
+		} else if (r && r != T_DROP) {
 			/*
-			 * In case of T_BAD error we close connection
-			 * with tcp_shutdown() and gracefully send all
-			 * pending responses to client. We should continue
-			 * to process WINDOW_UPDATE frames so, we should
-			 * decrypt all skbs, not drop them.
+			 * In case of T_BAD or system errors we close connection
+			 * with tcp_shutdown() and gracefully send all pending
+			 * responses to client. We should continue to process
+			 * WINDOW_UPDATE frames so, we should decrypt all skbs,
+			 * not drop them.
 			 */
-			save_err_code = r;
+			save_err_code = T_BAD;
+		} else if (save_err_code != T_OK) {
+			r = save_err_code;
 		}
 	} else {
 		/*
@@ -214,6 +228,7 @@ next_msg:
 		 */
 		tfw_tls_purge_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
+		r = save_err_code;
 	}
 
 	if (nskb) {
@@ -222,6 +237,7 @@ next_msg:
 		goto next_msg;
 	}
 
+out:
 	return r;
 }
 
