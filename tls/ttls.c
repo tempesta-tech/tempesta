@@ -1502,7 +1502,10 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * TODO call ttls_update_checksum() for the message as well.
 	 */
 	T_FSM_STATE(TTLS_CC_HS_ALLOC) {
-		if (!(pg = alloc_pages(GFP_ATOMIC, get_order(io->hslen)))) {
+		int order = get_order(io->hslen);
+		gfp_t flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
+
+		if (!(pg = alloc_pages(flags, order))) {
 			T_WARN("TLS: cannot allocate pages for a certificate\n");
 			return -ENOMEM;
 		}

@@ -4838,12 +4838,9 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 		return -EINVAL;
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
-	if ((it->frag + 1 >= MAX_SKB_FRAGS)
-	    || (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG))
-	{
-		if  ((r = tfw_msg_iter_append_skb(it)))
+	if (it->frag + 1 >= MAX_SKB_FRAGS) {
+		if ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-		skb_shinfo(it->skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
 	}
 
 	data = body->data;
