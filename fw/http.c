@@ -3504,11 +3504,8 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 	return 0;
 }
 
-/*
- * Rewrite HTTP/1 "PURGE" method to "GET" directly inside a request SKB.
- */
 static int
-tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
+tfw_h1_rewrite_method_to_get(struct sk_buff **head_p, size_t chop_len)
 {
 	const char *q = "GET";
 	char *p;
@@ -3521,7 +3518,7 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
 	BUG_ON(!*head_p);
 
 	/* Chop two bytes from the beginning of SKB data. */
-	ret = ss_skb_list_chop_head_tail(head_p, 2, 0);
+	ret = ss_skb_list_chop_head_tail(head_p, chop_len, 0);
 	if (ret)
 		return ret;
 	/* List head element *head_p could change above */
@@ -3552,6 +3549,24 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
 	return -ENOMEM;
 }
 
+/*
+ * Rewrite HTTP/1 "PURGE" method to "GET" directly inside a request SKB.
+ */
+static int
+tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
+{
+	return tfw_h1_rewrite_method_to_get(head_p, 2);
+}
+
+/*
+ * Rewrite HTTP/1 "HEAD" method to "GET" directly inside a request SKB.
+ */
+static int
+tfw_h1_rewrite_head_to_get(struct sk_buff **head_p)
+{
+	return tfw_h1_rewrite_method_to_get(head_p, 1);
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -3572,7 +3587,12 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
 		r = tfw_h1_rewrite_purge_to_get(&hm->msg.skb_head);
-		if (r)
+		if (unlikely(r))
+			return r;
+	}
+	else if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) {
+		r = tfw_h1_rewrite_head_to_get(&hm->msg.skb_head);
+		if (unlikely(r))
 			return r;
 	}
 
@@ -3810,6 +3830,22 @@ write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
 	return r | tfw_msg_write(it, &crlf);
 }
 
+static int
+__h2_write_method(TfwHttpReq *req, TfwMsgIter *it)
+{
+	TfwHttpHdrTbl *ht = req->h_tbl;
+
+	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) {
+		static const DEFINE_TFW_STR(meth_get, "GET");
+
+		return tfw_msg_write(it, &meth_get);
+	} else {
+		TfwStr meth = {};
+
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
+		return tfw_msg_write(it, &meth);
+	}
+}
 
 /**
  * Transform h2 request to http1.1 request before forward it to backend server.
@@ -3834,7 +3870,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 	bool auth, host;
 	size_t pseudo_num;
-	TfwStr meth = {}, host_val = {}, *field, *end;
+	TfwStr host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
 	static const DEFINE_TFW_STR(sp, " ");
@@ -4002,8 +4038,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		return r;
 
 	/* First line. */
-	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
-	r = tfw_msg_write(&it, &meth);
+	r = __h2_write_method(req, &it);
 	r |= tfw_msg_write(&it, &sp);
 	r |= tfw_msg_write(&it, &req->uri_path);
 	r |= tfw_msg_write(&it, &fl_end); /* start of Host: header */
@@ -4201,6 +4236,16 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			conn_flg = BIT(TFW_HTTP_B_CONN_CLOSE);
 		else if (test_bit(TFW_HTTP_B_CONN_KA, req->flags))
 			conn_flg = BIT(TFW_HTTP_B_CONN_KA);
+	}
+
+	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)
+	    && !TFW_STR_EMPTY(&resp->body)) {
+		r = ss_skb_list_chop_head_tail(&resp->msg.skb_head, 0,
+					       tfw_str_total_len(&resp->body)
+					       + resp->trailers_len);
+		if (r)
+			return r;
+		TFW_STR_INIT(&resp->body);
 	}
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {

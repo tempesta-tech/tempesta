@@ -115,6 +115,8 @@ enum {
          */
         TFW_HTTP_B_JS_NOT_SUPPORTED,
 
+	TFW_HTTP_B_REQ_HEAD_TO_GET,
+
         /* Response flags */
         TFW_HTTP_FLAGS_RESP,
         /* Response has no body. */
