@@ -11673,7 +11673,8 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
-	if (req->method == TFW_HTTP_METH_HEAD)
+	if (req->method == TFW_HTTP_METH_HEAD &&
+	    !test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags))
 		__set_bit(TFW_HTTP_B_VOID_BODY, resp->flags);
 }
 

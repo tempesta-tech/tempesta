@@ -2089,6 +2089,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE
 	    && test_bit(TFW_HTTP_B_PURGE_GET, req->flags)))
 		ce->method = TFW_HTTP_METH_GET;
+	else if (req->method == TFW_HTTP_METH_HEAD)
+		ce->method = TFW_HTTP_METH_GET;
 	else
 		ce->method = req->method;
 
@@ -3186,15 +3188,18 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		tfw_h2_req_unlink_stream(req);
 	}
 out:
-	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
+	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED)) {
 		tfw_http_send_err_resp(req, 504, "resource not cached");
-	else
+	} else {
 		/*
 		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
 		 * if any with values from cached entries to revalidate stored
 		 * stale responses for both: client and Tempesta.
 		 */
+		if (req->method == TFW_HTTP_METH_HEAD)
+			set_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags);
 		action((TfwHttpMsg *)req);
+	}
 put:
 	if (ce)
 		tdb_rec_put(db, ce);

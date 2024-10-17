@@ -507,14 +507,26 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 	}
 
 	stream->xmit.h_len = resp->mit.acc_len;
-	stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	/*
-	 * Response is chunked encoded, but it is not a response
-	 * on HEAD request.
-	 */
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-	    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags))
-		r = tfw_http_msg_cutoff_body_chunks(resp);
+
+	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, resp->req->flags)
+	    && !TFW_STR_EMPTY(&resp->body)) {
+		/* Send only headers for HEAD method. */
+		r = ss_skb_list_chop_head_tail(&resp->msg.skb_head, 0,
+					       tfw_str_total_len(&resp->body)
+					       + resp->trailers_len);
+		if (unlikely(r))
+			goto finish;
+		resp->msg.len = 0;
+	} else {
+		stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
+		/*
+		 * Response is chunked encoded, but it is not a response
+		 * on HEAD request.
+		 */
+		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+		    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags))
+			r = tfw_http_msg_cutoff_body_chunks(resp);
+	}
 
 finish:
 	swap(stream->xmit.skb_head, resp->msg.skb_head);
