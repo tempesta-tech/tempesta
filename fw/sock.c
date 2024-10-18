@@ -997,7 +997,8 @@ ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
 	int (*action)(struct sock *sk, int flags);
-	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop);
+	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop)
+                           || (SS_CONN_TYPE(sk) & Conn_Shutdown);
 
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
@@ -1036,8 +1037,7 @@ ss_tcp_data_ready(struct sock *sk)
 		action = ss_close;
 		break;
 	case SS_BLOCK_WITH_RST:
-		flags = SS_F_ABORT_FORCE;
-		action = ss_close;
+		was_stopped = true;
 		break;
 	case SS_BAD:
 		flags = SS_F_SYNC;

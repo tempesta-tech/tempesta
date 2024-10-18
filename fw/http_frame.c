@@ -383,6 +383,7 @@ tfw_h2_send_ping(TfwH2Ctx *ctx)
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 
 }
+ALLOW_ERROR_INJECTION(tfw_h2_send_ping, ERRNO);
 
 static inline int
 tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
@@ -722,6 +723,7 @@ fail:
 	return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
 				      err_code);
 }
+ALLOW_ERROR_INJECTION(tfw_h2_wnd_update_process, ERRNO);
 
 static inline int
 tfw_h2_priority_process(TfwH2Ctx *ctx)
@@ -1041,7 +1043,8 @@ do {									\
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
 
-	if ((TFW_CONN_TYPE((TfwConn *)conn) & Conn_Stop)
+	if (((TFW_CONN_TYPE((TfwConn *)conn) & Conn_Stop) ||
+	    (TFW_CONN_TYPE((TfwConn *)conn) & Conn_Shutdown))
 	    && hdr_type != HTTP2_WINDOW_UPDATE) {
 		T_DBG3("Drop %s frame, because connection is closing",
 		       __h2_frm_type_n(hdr_type));
@@ -1697,11 +1700,47 @@ tfw_h2_allowed_empty_frame(TfwH2Ctx *ctx)
 int
 tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
 {
-	int r;
+	int r, save_err_code = T_OK;
 	bool postponed;
 	unsigned int parsed, unused;
 	TfwH2Ctx *h2 = tfw_h2_context_unsafe(c);
 	struct sk_buff *nskb = NULL;
+	bool was_stopped = tfw_connection_was_stopped(c);
+
+#define TFW_H2_CONN_PROCESS_RESULT(r, save_err_code, was_stopped, nskb)	\
+do {									\
+	/*								\
+	 * If error occurs second time (save_error_code is not zero or	\
+	 * was_stopped is true) close connection immediately with RST.	\
+	 */								\
+	r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?	\
+		SS_BLOCK_WITH_RST : r;					\
+	if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {		\
+		kfree_skb(nskb);					\
+		goto out;						\
+	} else if (r && r != T_DROP) {					\
+		/*							\
+		 * If Conn_Stop bit is not set we don't send error	\
+		 * response to client, so we don't need to process	\
+		 * WINDOW_UPDATE frames and can immediately close	\
+		 * connection.						\
+		 */ 							\
+		if (!(TFW_CONN_TYPE(c) & Conn_Stop)) {			\
+			kfree_skb(nskb);				\
+			goto out;					\
+		}		 					\
+		/*							\
+		 * In case of T_BAD or system errors we close connection \
+		 * with tcp_shutdown() and gracefully send all pending	\
+		 * responses to client. We should continue to process	\
+		 * WINDOW_UPDATE frames so, we should not immediately	\
+		 * return from this function.				\
+		 */							\
+		save_err_code = T_BAD;					\
+	} else if (save_err_code != T_OK) {				\
+		r = save_err_code;					\
+	}								\
+} while(0)
 
 next_msg:
 	postponed = false;
@@ -1721,6 +1760,8 @@ next_msg:
 	case T_DROP:
 	case T_BAD:
 	case T_BLOCK_WITH_FIN:
+		r = (save_err_code != T_OK || was_stopped)
+			? SS_BLOCK_WITH_RST : r;
 	case T_BLOCK_WITH_RST:
 		T_DBG3("Drop invalid HTTP/2 frame and close connection\n");
 		goto out;
@@ -1740,7 +1781,7 @@ next_msg:
 			break;
 		}
 
-		return T_OK;
+		return save_err_code;
 	case T_OK:
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
 		       parsed, skb->len);
@@ -1802,7 +1843,7 @@ next_msg:
 			 */
 			if (!h2->skb_head) {
 				WARN_ON_ONCE(h2->data_off);
-				return T_OK;
+				return save_err_code;
 			}
 		}
 
@@ -1820,12 +1861,8 @@ next_msg:
 		h2->data_off = 0;
 		h2->skb_head = pskb->next = pskb->prev = NULL;
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
-		/* TODO #1490: Check this place, when working on the task. */
-		if (r && r != T_DROP) {
-			WARN_ON_ONCE(r == T_POSTPONE);
-			kfree_skb(nskb);
-			goto out;
-		}
+		WARN_ON_ONCE(*next);
+		TFW_H2_CONN_PROCESS_RESULT(r, save_err_code, was_stopped, nskb);
 	}
 	else if (unlikely(tfw_h2_allowed_empty_frame(h2))) {
 		/*
@@ -1848,18 +1885,14 @@ next_msg:
 		h2->data_off = 0;
 		/* The skb will not be parsed, just flags will be checked. */
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
-
-		/* TODO #1490: Check this place, when working on the task. */
-		if (r && r != T_DROP) {
-			WARN_ON_ONCE(r == T_POSTPONE);
-			kfree_skb(nskb);
-			goto out;
-		}
+		WARN_ON_ONCE(*next);
+		TFW_H2_CONN_PROCESS_RESULT(r, save_err_code, was_stopped, nskb);
 	}
 	else {
 purge:
 		h2->data_off = 0;
 		ss_skb_queue_purge(&h2->skb_head);
+		r = save_err_code;
 	}
 
 	tfw_h2_context_reinit(h2, postponed);
@@ -1872,9 +1905,19 @@ purge:
 
 out:
 	ss_skb_queue_purge(&h2->skb_head);
-	if (r && r != T_POSTPONE && r != T_DROP)
+	/*
+	 * If save error code is not null and r == T_BAD
+	 * we should continue to process WINDOW_UPDATE frames
+	 * so skip data from previous frame if necessary.
+	 */
+	if (h2->to_read && r == T_BAD && save_err_code) {
+		h2->state = HTTP2_IGNORE_FRAME_DATA;
+	} else if (r && r != T_POSTPONE && r != T_DROP) {
 		tfw_h2_context_reinit(h2, false);
+	}
 	return r;
+
+#undef TFW_H2_CONN_PROCESS_RESULT
 }
 
 static inline unsigned int
