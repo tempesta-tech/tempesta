@@ -299,5 +299,7 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 		unregister_chrdev(holder->dev_major, holder->dev_name);
 	}
 
+	free_percpu(holder->buf);
+
 	kfree(holder);
 }
