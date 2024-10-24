@@ -219,8 +219,8 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	order = get_order(size);
 
 	holder->dev_major = -1;
-	holder->buf = __alloc_percpu_gfp(sizeof(TfwMmapBuffer *),
-									 sizeof(u64), GFP_KERNEL);
+	holder->buf = (TfwMmapBuffer **)alloc_percpu_gfp(sizeof(TfwMmapBuffer *),
+													 GFP_KERNEL);
 	atomic_set(&holder->dev_is_opened, 0);
 	atomic_set(&holder->is_freeing, 0);
 
