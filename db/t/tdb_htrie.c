@@ -1,5 +1,4 @@
-/**
- * Unit test for Tempesta DB HTrie storage.
+/** Unit test for Tempesta DB HTrie storage.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
@@ -47,11 +46,37 @@
 #define TDB_MAP_ADDR1		((void *)(0x600000000000UL + TDB_EXT_SZ))
 #define TDB_MAP_ADDR2		((void *)(0x600000000000UL + TDB_EXT_SZ * 3))
 
+#define TDB_SZ_SMALL		(TDB_EXT_SZ * 16)
+#define TDB_SZ_MEDIUM		(TDB_EXT_SZ * 512)
 #define TDB_VSF_SZ		(TDB_EXT_SZ * 1024)
 #define TDB_FSF_SZ		(TDB_EXT_SZ * 8)
 #define THR_N			4
 #define DATA_N			100
 #define LOOP_N			10
+
+typedef struct {
+	unsigned long	key;
+	char		data[0];
+} TestRecord;
+
+typedef struct {
+	unsigned long	key;
+	char		data[512];
+} TestRecordFix;
+
+typedef struct {
+	TdbHdr		*dbh;
+	TestRecordFix	*records;
+	size_t		rnum;
+} ParallelData;
+
+typedef struct {
+	unsigned int	key;
+	unsigned int	val1;
+	unsigned int	val2;
+	unsigned int	val3;
+	unsigned int	val4;
+} TestRecordSmall;
 
 typedef struct {
 	char	*data;
@@ -87,7 +112,6 @@ static TestUrl urls[DATA_N] = {
 };
 
 static unsigned int ints[DATA_N];
-
 
 unsigned long
 tdb_hash_calc(const char *data, size_t len)
@@ -272,11 +296,12 @@ lookup_varsz_records(TdbHdr *dbh)
 {
 	int i;
 	TestUrl *u;
-	TdbRec *r;
 
-	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
+	/* Skip zero key. */
+	for (i = 1, u = urls + 1; i < DATA_N; ++u, ++i) {
 		unsigned long k = tdb_hash_calc(u->data, u->len);
 		TdbBucket *b;
+		TdbRec *r;
 
 		print_bin_url(u);
 
@@ -300,38 +325,417 @@ lookup_varsz_records(TdbHdr *dbh)
 	}
 }
 
+/* Release record using tdb_htrie_put_rec. */
+static TdbIter
+__tdb_rec_get(TdbHdr *hdr, unsigned long key)
+{
+	TdbIter iter = { NULL };
+
+	iter.bckt = tdb_htrie_lookup(hdr, key);
+	if (!iter.bckt)
+		goto out;
+
+	iter.rec = tdb_htrie_bscan_for_rec(hdr, (TdbBucket **)&iter.bckt, key);
+
+out:
+	return iter;
+}
+
+static TdbVRec *
+insert_vrec(TdbHdr *dbh, unsigned long key, void *data, tdb_eq_cb_t *eq_cb,
+	    size_t *len, bool complete)
+{
+	TdbVRec *rec, *root;
+	size_t to_copy = *len;
+	size_t copied;
+
+	root = (TdbVRec *)tdb_htrie_insert(dbh, key, NULL, eq_cb, data,
+					   &to_copy, complete);
+	rec = root;
+	assert(rec);
+
+	memcpy(rec->data, data, to_copy);
+	copied = to_copy;
+
+	while (copied != *len) {
+		char *p;
+
+		rec = tdb_htrie_extend_rec(dbh, rec, *len - copied);
+		assert(rec);
+
+		p = (char *)(rec->data);
+		memcpy(p, data + copied, rec->len);
+
+		copied += rec->len;
+	}
+
+	return root;
+}
+
+/*
+ * Test simple remove.
+ */
+void
+varsz_remove_test(TdbHdr *dbh)
+{
+	TdbVRec *rec;
+	TdbIter iter;
+	TestRecord *data;
+	size_t len = 13000;
+
+	printf("Start %s\n", __func__);
+
+	data = malloc(len);
+	assert(data);
+	data->key = rand();
+
+	rec = insert_vrec(dbh, data->key, data, NULL, &len, false);
+
+	/* Try find incomplete record. */
+	iter = __tdb_rec_get(dbh, data->key);
+	assert(!iter.rec);
+	tdb_rec_mark_complete(rec);
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+
+	iter = __tdb_rec_get(dbh, data->key);
+	assert(iter.rec);
+
+	/* Remove record, but not free, record has user. */
+	tdb_htrie_remove(dbh, data->key, NULL, NULL, false);
+
+	iter = __tdb_rec_get(dbh, data->key);
+	assert(!iter.rec);
+
+	/* Free record. */
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+}
+
+static bool
+rec_eq(TdbRec *rec, void *data)
+{
+	TestRecord *r1 = (TestRecord *)(((TdbVRec *)rec) + 1);
+	TestRecord *r2 = (TestRecord *)data;
+
+	return r1->key == r2->key;
+}
+
+/*
+ * Test incomplete record, it must not be found during lookup.
+ */
+void
+varsz_incomplete_test(TdbHdr *dbh)
+{
+	TdbVRec *rec;
+	TdbIter iter;
+	TestRecord *data;
+	unsigned long key;
+	size_t len = 13000;
+
+	printf("Start %s\n", __func__);
+	data = malloc(len);
+	assert(data);
+	key = rand();
+	data->key = key;
+
+	rec = insert_vrec(dbh, key, data, rec_eq, &len, false);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+
+	tdb_rec_mark_complete(rec);
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+}
+
+/*
+ * Test incomplete record with collision chain, it must not be found during
+ * lookup.
+ */
+void
+varsz_col_incomplete_test(TdbHdr *dbh)
+{
+	TdbVRec *rec;
+	TdbIter iter;
+	TestRecord *data[4], *ent;
+	TdbRec *incomplete[3];
+	unsigned long key = 0x1111111111111111;
+	size_t len = 13000;
+	int col_n = 0;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 4; i++) {
+		data[i] = malloc(len);
+		assert(data[i]);
+		data[i]->key = 1000 + i;
+	}
+
+	rec = insert_vrec(dbh, key, data[0], rec_eq, &len, false);
+	tdb_rec_mark_complete(rec);
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+
+	for (int i = 1; i < 4; i++)
+		incomplete[i - 1] = (TdbRec *)insert_vrec(dbh, key, data[i],
+							  rec_eq, &len,
+							  false);
+
+	iter = __tdb_rec_get(dbh, key);
+
+	assert((char *)iter.rec == (char *)rec);
+
+	while (iter.rec) {
+		ent = (TestRecord *)((TdbVRec *)iter.rec)->data;
+		assert(ent->key == data[col_n]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	/* Only one record must be found, 3 records are incomplete. */
+	assert(col_n == 1);
+
+	/* Mark 3 records as complete. */
+	for (int i = 0; i < 3; i++)
+		tdb_rec_mark_complete(incomplete[i]);
+
+	iter = __tdb_rec_get(dbh, key);
+
+	col_n = 0;
+	while (iter.rec) {
+		ent = (TestRecord *)((TdbVRec *)iter.rec)->data;
+		assert(ent->key == data[col_n]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	/* All records is complete. */
+	assert(col_n == 4);
+}
+
+/*
+ * Test removing incomplete records with collision chain, only complete records
+ * must be removed.
+ */
+void
+varsz_col_remove_incomplete_test(TdbHdr *dbh)
+{
+	TdbVRec *rec;
+	TdbIter iter;
+	TestRecord *data[4], *ent;
+	TdbRec *incomplete[3];
+	unsigned long key = 0x1111111111111111;
+	size_t len = 13000;
+	int col_n = 0;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 4; i++) {
+		data[i] = malloc(len);
+		assert(data[i]);
+		data[i]->key = 1000 + i;
+	}
+
+	rec = insert_vrec(dbh, key, data[0], rec_eq, &len, false);
+	tdb_rec_mark_complete(rec);
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+
+	for (int i = 1; i < 4; i++)
+		incomplete[i - 1] = (TdbRec *)insert_vrec(dbh, key, data[i],
+							  rec_eq, &len,
+							  false);
+	/*
+	 * Try to remove all records, however only complete record must be
+	 * removed.
+	 */
+	tdb_htrie_remove(dbh, key, NULL, NULL, false);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+
+	/* Mark 3 records as complete. */
+	for (int i = 0; i < 3; i++) {
+		tdb_rec_mark_complete(incomplete[i]);
+		tdb_htrie_put_rec(dbh, incomplete[i]);
+	}
+
+	iter = __tdb_rec_get(dbh, key);
+
+	col_n = 0;
+	while (iter.rec) {
+		ent = (TestRecord *)((TdbVRec *)iter.rec)->data;
+		/* All records must be found, except first. */
+		assert(ent->key == data[col_n + 1]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 3);
+}
+
+/*
+ * Test removing duplicated records during insertion. Add one record, then
+ * add one more the same record, during addition first record must be removed.
+ */
+void
+varsz_remove_dupl_test(TdbHdr *dbh)
+{
+	TdbVRec *rec, *rec2;
+	int num = 0;
+	TdbIter iter;
+	TestRecord *data;
+	unsigned long key;
+	size_t len = 13000;
+
+	printf("Start %s\n", __func__);
+	data = malloc(len);
+	assert(data);
+	key = rand();
+	data->key = key;
+
+	rec = insert_vrec(dbh, key, data, rec_eq, &len, false);
+	tdb_rec_mark_complete(rec);
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+	rec = (TdbVRec *)iter.rec;
+
+	/* First inserted record must be removed during this insertion. */
+	rec2 = insert_vrec(dbh, key, data, rec_eq, &len, false);
+	tdb_rec_mark_complete(rec2);
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec2);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+	while (iter.rec) {
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		num++;
+	}
+
+	assert(num == 1);
+
+	/* Free first record. */
+	tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+}
+
+/*
+ * Test bucket reuse. Add 4 records, save them buckets and remove all records,
+ * again add 4 records, check that records placed to the same buckets.
+ */
+void
+varsz_bucket_reuse_test(TdbHdr *dbh)
+{
+	TdbVRec *rec;
+	TdbIter iter;
+	TestRecord *data[4], *ent;
+	TdbBucket *bckts[4];
+	unsigned long key = 0x1111111111111111;
+	size_t len = 13000;
+	int col_n = 0;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 4; i++) {
+		data[i] = malloc(len);
+		assert(data[i]);
+		data[i]->key = 1000 + i;
+	}
+
+	for (int i = 0; i < 4; i++) {
+		rec = insert_vrec(dbh, key, data[i], rec_eq, &len, false);
+		tdb_rec_mark_complete(rec);
+		tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+	}
+
+	iter = __tdb_rec_get(dbh, key);
+
+	while (iter.rec) {
+		bckts[col_n] = iter.bckt;
+		ent = (TestRecord *)((TdbVRec *)iter.rec)->data;
+		assert(ent->key == data[col_n]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 4);
+
+	tdb_htrie_remove(dbh, key, NULL, NULL, false);
+
+	for (int i = 0; i < 4; i++) {
+		rec = insert_vrec(dbh, key, data[i], rec_eq, &len, false);
+		tdb_rec_mark_complete(rec);
+		tdb_htrie_put_rec(dbh, (TdbRec *)rec);
+	}
+
+	iter = __tdb_rec_get(dbh, key);
+
+	col_n = 0;
+	while (iter.rec) {
+		assert(bckts[col_n] == iter.bckt);
+		ent = (TestRecord *)((TdbVRec *)iter.rec)->data;
+		assert(ent->key == data[col_n]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 4);
+}
+
 static void
 do_varsz(TdbHdr *dbh)
 {
 	int i;
-	TestUrl *u;
+	TdbVRec *rec;
+	TestUrl *u = urls;
+	unsigned long k = tdb_hash_calc(u->data, u->len);
+	size_t to_copy = u->len;
+
+	rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, NULL, NULL, &to_copy,
+					  false);
+	/* Record with zero key can't be inserted. */
+	assert(!rec);
 
 	/* Store records. */
-	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
-		unsigned long k = tdb_hash_calc(u->data, u->len);
-		size_t copied, to_copy = u->len;
-		TdbVRec *rec;
+	for (i = 1, u = urls + 1; i < DATA_N; ++u, ++i) {
+		k = tdb_hash_calc(u->data, u->len);
+		size_t copied;
+		TdbVRec *e_rec;
 
+		to_copy = u->len;
 		print_bin_url(u);
 
-		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy,
-						  false);
+		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, NULL, NULL,
+						  &to_copy, false);
 		assert((u->len && rec) || (!u->len && !rec));
 
 		copied = to_copy;
 
+		e_rec = rec;
 		while (copied != u->len) {
 			char *p;
 
-			rec = tdb_htrie_extend_rec(dbh, rec, u->len - copied);
-			assert(rec);
+			e_rec = tdb_htrie_extend_rec(dbh, e_rec,
+						     u->len - copied);
+			assert(e_rec);
 
-			p = (char *)(rec + 1);
-			memcpy(p, u->data + copied, rec->len);
+			p = (char *)(e_rec + 1);
+			memcpy(p, u->data + copied, e_rec->len);
 
-			copied += rec->len;
+			copied += e_rec->len;
 		}
 		tdb_rec_mark_complete(rec);
+		tdb_htrie_put_rec(dbh, (TdbRec *)rec);
 	}
 
 	lookup_varsz_records(dbh);
@@ -352,14 +756,15 @@ varsz_thr_f(void *data)
 /**
  * Read stored fixed size records.
  */
-static void
+void
 lookup_fixsz_records(TdbHdr *dbh)
 {
 	int i;
-	TdbRec *r;
 
-	for (i = 0; i < DATA_N; ++i) {
+	/* Skip zero key. */
+	for (i = 1; i < DATA_N; ++i) {
 		TdbBucket *b;
+		TdbRec *r;
 
 		printf("results for int %u lookup:\n", ints[i]);
 		fflush(NULL);
@@ -384,21 +789,506 @@ lookup_fixsz_records(TdbHdr *dbh)
 	}
 }
 
-static void
-do_fixsz(TdbHdr *dbh)
+bool
+fix_req_eq(TdbRec *rec, void *data)
+{
+	TestRecordFix *trec = (TestRecordFix *)rec->data;
+	TestRecordFix *trec2 = data;
+
+	return trec->key == trec2->key;
+}
+
+void
+fixsz_remove_simple_test(TdbHdr *dbh)
+{
+	TdbRec *rec;
+	TdbIter iter;
+	size_t copied = sizeof(TestRecordFix);
+	unsigned long key = 0x1111111111111111;
+	TestRecordFix data = {0xAA};
+
+	printf("Start %s\n", __func__);
+
+	data.key = 123;
+	rec = tdb_htrie_insert(dbh, key, &data, NULL, NULL, &copied,
+			       true);
+	assert(rec && copied == sizeof(TestRecordFix));
+	tdb_htrie_put_rec(dbh, rec);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+
+	tdb_htrie_remove(dbh, key, fix_req_eq, &data, false);
+
+	tdb_htrie_put_rec(dbh, iter.rec);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+}
+
+void
+fixsz_remove_all_test(TdbHdr *dbh)
+{
+	TdbRec *rec;
+	TdbIter iter;
+	size_t copied = sizeof(TestRecordFix);
+	unsigned long key = 0x1111111111111111;
+	TestRecordFix *data[4], *ent;
+	int col_n = 0;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 4; i++) {
+		data[i] = malloc(sizeof(TestRecordFix));
+		assert(data[i]);
+		data[i]->key = 1000 + i;
+	}
+
+	for (int i = 0; i < 4; i++) {
+		rec = tdb_htrie_insert(dbh, key, data[i], NULL, NULL, &copied,
+				       true);
+		assert(rec && copied == sizeof(TestRecordFix));
+		tdb_htrie_put_rec(dbh, rec);
+	}
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+
+	while (iter.rec) {
+		ent = (TestRecordFix *)iter.rec->data;
+		assert(ent->key == data[col_n]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 4);
+
+	tdb_htrie_remove(dbh, key, NULL, NULL, false);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+}
+
+void
+fixsz_remove_col_test(TdbHdr *dbh)
+{
+	TdbRec *rec;
+	size_t copied = sizeof(TestRecordFix);
+	TdbIter iter;
+	unsigned long key = 0x1111111111111111;
+	TestRecordFix *data[4], *ent;
+	int col_n = 0;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 4; i++) {
+		data[i] = malloc(sizeof(TestRecordFix));
+		assert(data[i]);
+		data[i]->key = 1000 + i;
+	}
+
+	for (int i = 0; i < 4; i++) {
+		rec = tdb_htrie_insert(dbh, key, data[i], NULL, NULL, &copied,
+				       true);
+		assert(rec && copied == sizeof(TestRecordFix));
+		tdb_htrie_put_rec(dbh, rec);
+	}
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+
+	while (iter.rec) {
+		ent = (TestRecordFix *)iter.rec->data;
+		assert(ent->key == data[col_n]->key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 4);
+
+	tdb_htrie_remove(dbh, key, &fix_req_eq, data[3], false);
+	tdb_htrie_remove(dbh, key, &fix_req_eq, data[0], false);
+	tdb_htrie_remove(dbh, key, &fix_req_eq, data[2], false);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+	col_n = 0;
+
+	while (iter.rec) {
+		ent = (TestRecordFix *)iter.rec->data;
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 1);
+	assert(ent->key == data[1]->key);
+
+	tdb_htrie_remove(dbh, key, &fix_req_eq, data[1], false);
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+}
+
+void
+fixsz_remove_small_test(TdbHdr *dbh)
+{
+	TdbRec *rec;
+	size_t copied = sizeof(TestRecordSmall);
+	unsigned long key = 0x1111111111111111;
+	TestRecordSmall data = {0xAA};
+	TdbIter iter;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 3; i++) {
+		data.key = 10000 + i;
+		rec = tdb_htrie_insert(dbh, key, &data, NULL, NULL, &copied,
+				       true);
+		assert(rec && copied == sizeof(TestRecordSmall));
+		tdb_htrie_put_rec(dbh, rec);
+	}
+
+	tdb_htrie_remove(dbh, key, NULL, NULL, false);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+}
+
+bool
+fix_req_eq_small(TdbRec *rec, void *data)
+{
+	TestRecordSmall *trec = (TestRecordSmall *)rec->data;
+	TestRecordSmall *trec2 = data;
+
+	return trec->key == trec2->key;
+}
+
+void
+fixsz_remove_col_small_test(TdbHdr *dbh)
+{
+	TdbRec *rec;
+	size_t copied = sizeof(TestRecordSmall);
+	TdbIter iter;
+	unsigned long key = 0x1111111111111111;
+	TestRecordSmall data[4] = {{0xAA}}, *ent;
+	int col_n = 0;
+
+	printf("Start %s\n", __func__);
+
+	for (int i = 0; i < 4; i++)
+		data[i].key = 1000 + i;
+
+	for (int i = 0; i < 4; i++) {
+		rec = tdb_htrie_insert(dbh, key, &data[i], NULL, NULL, &copied,
+				       true);
+		assert(rec && copied == sizeof(TestRecordSmall));
+		tdb_htrie_put_rec(dbh, rec);
+	}
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+
+	while (iter.rec) {
+		ent = (TestRecordSmall *)iter.rec->data;
+		assert(ent->key == data[col_n].key);
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 4);
+
+	tdb_htrie_remove(dbh, key, &fix_req_eq_small, &data[3], false);
+	tdb_htrie_remove(dbh, key, &fix_req_eq_small, &data[0], false);
+	tdb_htrie_remove(dbh, key, &fix_req_eq_small, &data[2], false);
+
+	iter = __tdb_rec_get(dbh, key);
+	assert(iter.rec);
+	col_n = 0;
+
+	while (iter.rec) {
+		ent = (TestRecordSmall *)iter.rec->data;
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 1);
+	assert(ent->key == data[1].key);
+
+	tdb_htrie_remove(dbh, key, &fix_req_eq, &data[1], false);
+	iter = __tdb_rec_get(dbh, key);
+	assert(!iter.rec);
+}
+
+void
+fixsz_remove_small_burst_test(TdbHdr *dbh)
+{
+	TdbRec *rec;
+	TdbIter iter;
+	int col_n = 0;
+	size_t copied = sizeof(TestRecordSmall);
+	unsigned long key[4];
+	TestRecordSmall data[4] = {{0xAA}}, *ent;
+
+	printf("Start %s\n", __func__);
+
+	key[0] = 0x1111111111111111;
+	key[1] = 0x1111111111111121;
+	key[2] = 0x1111111111111221;
+	key[3] = 0x1111111111112221;
+
+	for (int i = 0; i < 4; i++)
+		data[i].key = 10000 + i;
+
+	/* One record in first bucket and 3 records in new bucket. */
+	for (int i = 0; i < 4; i++) {
+		rec = tdb_htrie_insert(dbh, key[i], &data[i], NULL, NULL,
+				       &copied, true);
+		assert(rec && copied == sizeof(TestRecordSmall));
+		tdb_htrie_put_rec(dbh, rec);
+	}
+
+	iter = __tdb_rec_get(dbh, key[0]);
+	assert(iter.rec);
+
+	ent = (TestRecordSmall *)iter.rec->data;
+	assert(ent->key == data[0].key);
+
+	while (iter.rec) {
+		iter.rec = tdb_htrie_next_rec(dbh, iter.rec,
+					      (TdbBucket **)&iter.bckt,
+					      iter.rec->key);
+		col_n++;
+	}
+
+	assert(col_n == 1);
+
+	/* Try to find last inserted record. */
+	iter = __tdb_rec_get(dbh, key[3]);
+	assert(iter.rec);
+	tdb_htrie_put_rec(dbh, iter.rec);
+
+	/* Remove record from first bucket and from second bucket. */
+	tdb_htrie_remove(dbh, key[0], &fix_req_eq_small, &data[0], false);
+	tdb_htrie_remove(dbh, key[3], &fix_req_eq_small, &data[3], false);
+
+	iter = __tdb_rec_get(dbh, key[0]);
+	assert(!iter.rec);
+
+	iter = __tdb_rec_get(dbh, key[3]);
+	assert(!iter.rec);
+
+	tdb_htrie_remove(dbh, key[2], &fix_req_eq_small, &data[2], false);
+	tdb_htrie_remove(dbh, key[1], &fix_req_eq_small, &data[1], false);
+
+	iter = __tdb_rec_get(dbh, key[2]);
+	assert(!iter.rec);
+
+	iter = __tdb_rec_get(dbh, key[1]);
+	assert(!iter.rec);
+}
+
+static void *
+init_test_data_for_stress(size_t num)
+{
+	int i, rfd;
+	size_t size = sizeof(TestRecordFix);
+	TestRecordFix *recs;
+
+	printf("prepare fixed size testing data...\n");
+	recs = malloc(size * num);
+	assert(recs);
+
+	if ((rfd = open("/dev/urandom", O_RDONLY)) < 0)
+		TDB_ERR("cannot open /dev/urandom\n");
+
+	for (i = 0; i < num; ++i) {
+		int r;
+
+		r = read(rfd, recs[i].data, sizeof(recs[i].data));
+		if (!r)
+			printf("Errno: %i", r);
+		BUG_ON(!r);
+		recs[i].key = tdb_hash_calc(recs[i].data,
+					    sizeof(recs[i].data)) & 0xFFFFFFFF;
+		if (r <= 0) {
+			TDB_ERR("can't read urandom data\n");
+			BUG();
+		}
+	}
+
+	close(rfd);
+
+	return recs;
+}
+
+void
+insert_fixsz_trecs(TdbHdr *dbh, TestRecordFix *records, size_t num)
 {
 	int i;
 
 	/* Store records. */
-	for (i = 0; i < DATA_N; ++i) {
-		size_t copied = sizeof(ints[i]);
-		TdbRec *rec __attribute__((unused));
+	for (i = 0; i < num; ++i) {
+		size_t copied = sizeof(TestRecordFix);
+		TdbRec *rec;
+
+		rec = tdb_htrie_insert(dbh, records[i].key, &records[i], NULL,
+				       NULL, &copied, true);
+		assert(rec);
+		tdb_htrie_put_rec(dbh, rec);
+		assert(rec && copied == sizeof(records[i]));
+	}
+}
+
+void
+lookup_fixsz_trecs(TdbHdr *dbh, TestRecordFix *records, size_t num, bool strict)
+{
+	int i;
+	TdbRec *r;
+
+	for (i = 0; i < num; ++i) {
+		TdbBucket *b;
+
+		b = tdb_htrie_lookup(dbh, records[i].key);
+		if (!b) {
+			fprintf(stderr, "ERROR: can't find bucket for int %lu\n",
+				records[i].key);
+			continue;
+		}
+
+		BUG_ON(TDB_HTRIE_VARLENRECS(dbh));
+
+		r = tdb_htrie_bscan_for_rec(dbh, &b, records[i].key);
+		if (strict) {
+			assert(r);
+			while ((r = tdb_htrie_next_rec(dbh, r, &b, records[i].key)))
+				;
+		}
+	}
+}
+
+void
+remove_fixsz_trecs(TdbHdr *dbh, TestRecordFix *records, size_t num)
+{
+	int i;
+
+	for (i = 0; i < num; ++i) {
+		tdb_htrie_remove(dbh, records[i].key, fix_req_eq, &records[i],
+				 false);
+	}
+}
+
+void
+fixsz_remove_stress(TdbHdr *dbh)
+{
+#define S_LOOP_N 100
+#define S_DATA_N 1000
+	int i;
+	TestRecordFix *records;
+
+	printf("Start %s\n", __func__);
+
+	for (i = 0; i < S_LOOP_N; i++) {
+		records = init_test_data_for_stress(S_DATA_N);
+		insert_fixsz_trecs(dbh, records, S_DATA_N);
+		lookup_fixsz_trecs(dbh, records, S_DATA_N, true);
+		remove_fixsz_trecs(dbh, records, S_DATA_N);
+		free(records);
+	}
+
+#undef S_LOOP_N
+#undef S_DARA_N
+}
+
+void *
+fixsz_rm_insert_f(void *arg)
+{
+#define S_LOOP_N 100
+	int i = 0;
+	ParallelData *data = (ParallelData *)arg;
+
+	for (i = 0; i < S_LOOP_N; i++) {
+		insert_fixsz_trecs(data->dbh, data->records, data->rnum);
+		lookup_fixsz_trecs(data->dbh, data->records, data->rnum, false);
+		remove_fixsz_trecs(data->dbh, data->records, data->rnum);
+	}
+
+	return NULL;
+
+#undef S_LOOP_N
+}
+
+void
+fixsz_rm_insert_parallel(TdbHdr *dbh)
+{
+#define S_DATA_N 1000
+#define S_THR_N 22
+	int i, t;
+	TestRecordFix *records;
+	pthread_t thr[S_THR_N];
+	ParallelData arg;
+
+	printf("Start %s\n", __func__);
+
+	records = init_test_data_for_stress(S_DATA_N);
+	arg.dbh = dbh;
+	arg.records = records;
+	arg.rnum = S_DATA_N;
+
+	for (t = 0; t < S_THR_N; ++t)
+		if (spawn_thread(thr + t, fixsz_rm_insert_f, &arg))
+			perror("cannot spawn varsz thread");
+	for (t = 0; t < S_THR_N; ++t)
+		pthread_join(thr[t], NULL);
+
+	/* Check all records removed. */
+	for (i = 0; i < S_DATA_N; ++i) {
+		TdbIter iter;
+
+		iter = __tdb_rec_get(dbh, records[i].key);
+		if (iter.rec) {
+			printf("ERROR: Record must not be found\n");
+			BUG();
+		}
+	}
+
+	free(records);
+
+#undef S_DARA_N
+#undef S_THR_N
+}
+
+static void
+do_fixsz(TdbHdr *dbh)
+{
+	int i;
+	TdbRec *rec;
+	size_t copied = sizeof(ints[i]);
+
+	rec = tdb_htrie_insert(dbh, ints[0], &ints[0], NULL, NULL, &copied,
+			       true);
+	/* Record with zero key can't be inserted. */
+	assert(!rec);
+
+	/* Store records. */
+	for (i = 1; i < DATA_N; ++i) {
+		copied = sizeof(ints[i]);
 
 		printf("insert int %u\n", ints[i]);
 		fflush(NULL);
 
-		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied, true);
+		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], NULL, NULL,
+				       &copied, true);
 		assert(rec && copied == sizeof(ints[i]));
+		tdb_htrie_put_rec(dbh, rec);
 	}
 
 	lookup_fixsz_records(dbh);
@@ -417,7 +1307,76 @@ fixsz_thr_f(void *data)
 }
 
 void
+tdb_htrie_run_test(const char *fname, size_t db_size,
+		   void (*fn)(TdbHdr *dbh), unsigned int rec_len)
+{
+	int r __attribute__((unused));
+	int fd;
+	char *addr;
+	TdbHdr *dbh;
+	struct timeval tv0, tv1;
+
+	if (rec_len == 0)
+		printf("\n----------- Variable size records test -------------\n");
+	else
+		printf("\n----------- Fixed size records test -------------\n");
+
+	addr = tdb_htrie_open(TDB_MAP_ADDR1, fname, db_size, &fd);
+	dbh = tdb_htrie_init(addr, db_size, rec_len);
+	if (!dbh)
+		TDB_ERR("cannot initialize htrie for test");
+
+	r = gettimeofday(&tv0, NULL);
+	assert(!r);
+
+	fn(dbh);
+
+	r = gettimeofday(&tv1, NULL);
+	assert(!r);
+
+	printf("tdb htrie test: time=%lums\n",
+		tv_to_ms(&tv1) - tv_to_ms(&tv0));
+
+	tdb_htrie_exit(dbh);
+	tdb_htrie_pure_close(addr, db_size, fd);
+	remove(fname);
+}
+
+void
 tdb_htrie_test_varsz(const char *fname)
+{
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, varsz_remove_test, 0);
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, varsz_remove_dupl_test, 0);
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, varsz_incomplete_test, 0);
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, varsz_col_incomplete_test, 0);
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL,
+			   varsz_col_remove_incomplete_test, 0);
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, varsz_bucket_reuse_test, 0);
+}
+
+void
+tdb_htrie_test_fixsz(const char *fname)
+{
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, fixsz_remove_simple_test,
+			   sizeof(TestRecordFix));
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, fixsz_remove_all_test,
+			   sizeof(TestRecordFix));
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, fixsz_remove_col_test,
+			   sizeof(TestRecordFix));
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, fixsz_remove_small_test,
+			   sizeof(TestRecordSmall));
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, fixsz_remove_small_burst_test,
+			   sizeof(TestRecordSmall));
+	tdb_htrie_run_test(fname, TDB_SZ_SMALL, fixsz_remove_col_small_test,
+			   sizeof(TestRecordSmall));
+	tdb_htrie_run_test(fname, TDB_FSF_SZ, fixsz_remove_stress,
+			   sizeof(TestRecordFix));
+	tdb_htrie_run_test(fname, TDB_SZ_MEDIUM, fixsz_rm_insert_parallel,
+			   sizeof(TestRecordFix));
+}
+
+void
+tdb_htrie_test_varsz_mthread(const char *fname)
 {
 	int r __attribute__((unused));
 	int t, fd;
@@ -426,7 +1385,17 @@ tdb_htrie_test_varsz(const char *fname)
 	struct timeval tv0, tv1;
 	pthread_t thr[THR_N];
 
-	printf("\n----------- Variable size records test -------------\n");
+	printf("Run test with parameters:\n"
+	       "\tfix rec db size: %lu\n"
+	       "\tvar rec db size: %lu\n"
+	       "\textent size:     %lu\n"
+	       "\tthreads number:  %d\n"
+	       "\tdata size:       %d\n"
+	       "\tloops:           %d\n",
+	       TDB_FSF_SZ, TDB_VSF_SZ, TDB_EXT_SZ,
+	       THR_N, DATA_N, LOOP_N);
+
+	printf("\n----------- Variable size records test mthread -------------\n");
 
 	addr = tdb_htrie_open(TDB_MAP_ADDR1, fname, TDB_VSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
@@ -451,7 +1420,7 @@ tdb_htrie_test_varsz(const char *fname)
 	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, TDB_VSF_SZ, fd);
 
-	printf("\n	**** Variable size records test reopen ****\n");
+	printf("\n	**** Variable size records test reopen mthread ****\n");
 
 	addr = tdb_htrie_open(TDB_MAP_ADDR2, fname, TDB_VSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
@@ -462,10 +1431,11 @@ tdb_htrie_test_varsz(const char *fname)
 
 	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, TDB_VSF_SZ, fd);
+	remove(fname);
 }
 
 void
-tdb_htrie_test_fixsz(const char *fname)
+tdb_htrie_test_fixsz_mthread(const char *fname)
 {
 	int r __attribute__((unused));
 	int t, fd;
@@ -474,7 +1444,17 @@ tdb_htrie_test_fixsz(const char *fname)
 	struct timeval tv0, tv1;
 	pthread_t thr[THR_N];
 
-	printf("\n----------- Fixed size records test -------------\n");
+	printf("Run test with parameters:\n"
+	       "\tfix rec db size: %lu\n"
+	       "\tvar rec db size: %lu\n"
+	       "\textent size:     %lu\n"
+	       "\tthreads number:  %d\n"
+	       "\tdata size:       %d\n"
+	       "\tloops:           %d\n",
+	       TDB_FSF_SZ, TDB_VSF_SZ, TDB_EXT_SZ,
+	       THR_N, DATA_N, LOOP_N);
+
+	printf("\n----------- Fixed size records test mthread -------------\n");
 
 	addr = tdb_htrie_open(TDB_MAP_ADDR1, fname, TDB_FSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
@@ -499,7 +1479,7 @@ tdb_htrie_test_fixsz(const char *fname)
 	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, TDB_FSF_SZ, fd);
 
-	printf("\n	**** Fixed size records test reopen ****\n");
+	printf("\n	**** Fixed size records test reopen mthread ****\n");
 
 	addr = tdb_htrie_open(TDB_MAP_ADDR2, fname, TDB_FSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
@@ -510,6 +1490,16 @@ tdb_htrie_test_fixsz(const char *fname)
 
 	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, TDB_FSF_SZ, fd);
+	remove(fname);
+}
+
+static void
+tdb_remove_files(const char *vsf, const char *fsf)
+{
+	if (!access(vsf, F_OK))
+		remove(vsf);
+	if (!access(fsf, F_OK))
+		remove(fsf);
 }
 
 static void
@@ -517,6 +1507,8 @@ tdb_htrie_test(const char *vsf, const char *fsf)
 {
 	tdb_htrie_test_varsz(vsf);
 	tdb_htrie_test_fixsz(fsf);
+	tdb_htrie_test_varsz_mthread(vsf);
+	tdb_htrie_test_fixsz_mthread(fsf);
 }
 
 static void
@@ -588,20 +1580,11 @@ main(int argc, char *argv[])
 	if (!(ecx & bit_SSE4_2))
 		TDB_ERR("SSE4.2 is not supported");
 
-	printf("Run test with parameters:\n"
-	       "\tfix rec db size: %lu\n"
-	       "\tvar rec db size: %lu\n"
-	       "\textent size:     %lu\n"
-	       "\tthreads number:  %d\n"
-	       "\tdata size:       %d\n"
-	       "\tloops:           %d\n",
-	       TDB_FSF_SZ, TDB_VSF_SZ, TDB_EXT_SZ,
-	       THR_N, DATA_N, LOOP_N);
-
 	init_test_data_for_hash();
 	hash_calc_benchmark();
 
 	init_test_data_for_htrie();
+	tdb_remove_files(argv[1], argv[2]);
 	tdb_htrie_test(argv[1], argv[2]);
 
 	return 0;
