@@ -37,9 +37,10 @@
 #define UA_CMP_LEN	256
 
 static struct {
-	unsigned int	db_size;
 	const char	*db_path;
+	unsigned int	db_size;
 	unsigned int	expires_time;
+	unsigned int	lru_size;
 } client_cfg __read_mostly;
 
 /**
@@ -66,25 +67,68 @@ typedef struct {
 	char		user_agent[UA_CMP_LEN];
 } TfwClientEntry;
 
+typedef struct {
+	struct list_head	list;
+	unsigned long		key;
+} TfwClientLRU;
+
+static struct {
+	struct list_head	head;
+	struct list_head	freelist;
+	TfwClientLRU		*mem;
+} client_lru;
+
 static TDB *client_db;
 
-static bool
-tfw_client_rec_eq_cli(TdbRec *rec, void *client)
+static void
+tfw_client_update_lru(unsigned long key)
 {
-	TdbRec* tdbrec = rec;
-	TfwClientEntry *ent = (TfwClientEntry *)tdbrec->data;
-	long curr_time = tfw_current_timestamp();
+	if (list_empty(&client_lru.freelist)) {
+		/* Free list is empty, get the last from LRU list. */
+		TfwClientLRU *last = list_last_entry(&client_lru.head,
+						     TfwClientLRU, list);
 
-	spin_lock(&ent->lock);
+		list_del_init(&last->list);
+		tdb_entry_remove(client_db, last->key, NULL, NULL, false);
+		last->key = key;
+		list_add(&last->list, &client_lru.head);
+	} else {
+		TfwClientLRU *new = list_first_entry(&client_lru.freelist,
+						     TfwClientLRU, list);
 
-	if (curr_time > ent->expires) {
-		spin_unlock(&ent->lock);
-		return true;
+		list_del_init(&new->list);
+		new->key = key;
+		list_add(&new->list, &client_lru.head);
+	}
+}
+
+static int
+tfw_client_init_lru(void)
+{
+	TfwClientLRU *block;
+	int i, order = get_order(sizeof(TfwClientLRU) * client_cfg.lru_size);
+
+	INIT_LIST_HEAD(&client_lru.freelist);
+	INIT_LIST_HEAD(&client_lru.head);
+
+	client_lru.mem = (TfwClientLRU *)__get_free_pages(GFP_ATOMIC, order);
+	if (!client_lru.mem) {
+		T_ERR("Can't allocate client LRU list.");
+		return -ENOMEM;
 	}
 
-	spin_unlock(&ent->lock);
+	for (i = 0, block = client_lru.mem; i < client_cfg.lru_size; i++)
+		list_add(&block[i].list, &client_lru.freelist);
 
-	return false;
+	return 0;
+}
+
+static void
+tfw_client_free_lru(void)
+{
+	int order = get_order(sizeof(TfwClientLRU) * client_cfg.lru_size);
+
+	free_pages((unsigned long)client_lru.mem, order);
 }
 
 /**
@@ -94,6 +138,7 @@ void
 tfw_client_put(TfwClient *cli)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)cli;
+	TdbFRec *rec = ((TdbFRec *)cli) - 1;
 
 	T_DBG2("put client %p, users=%d\n",
 	       cli, ent->users);
@@ -101,6 +146,8 @@ tfw_client_put(TfwClient *cli)
 	spin_lock(&ent->lock);
 
 	--ent->users;
+	if (ent->users > 0)
+		tdb_rec_put(client_db, rec);
 	BUG_ON(ent->users < 0);
 
 	if (likely(ent->users)) {
@@ -111,8 +158,9 @@ tfw_client_put(TfwClient *cli)
 	BUG_ON(!list_empty(&cli->conn_list));
 
 	ent->expires = tfw_current_timestamp() + client_cfg.expires_time;
-
 	spin_unlock(&ent->lock);
+
+	tdb_rec_put(client_db, rec);
 
 	T_DBG("put client: cli=%p\n", cli);
 	TFW_DEC_STAT_BH(clnt.online);
@@ -122,6 +170,7 @@ typedef struct {
 	TfwAddr		addr;
 	TfwAddr		xff_addr;
 	TfwStr		user_agent;
+	unsigned long	key;
 	void		(*init)(void *);
 } TfwClientEqCtx;
 
@@ -205,6 +254,16 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG2("client %p, users=%d\n", cli, 1);
 }
 
+static int
+tfw_client_precreate(void *data)
+{
+	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+
+	tfw_client_update_lru(ctx->key);
+
+	return 0;
+}
+
 /**
  * Find a client corresponding to @addr, @xff_addr (e.g. from X-Forwarded-For)
  * and @user_agent.
@@ -229,9 +288,6 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	key = hash_calc((const char *)&addr.sin6_addr,
 			sizeof(addr.sin6_addr));
 
-	/* Remove expired clients with same key. */
-	tdb_entry_remove(client_db, key, &tfw_client_rec_eq_cli, NULL, false);
-
 #ifdef DISABLED_934
 	if (xff_addr) {
 		key ^= hash_calc((const char *)&xff_addr->sin6_addr,
@@ -254,9 +310,11 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 #else
 	TFW_STR_INIT(&ctx.user_agent);
 #endif
+	ctx.key = key;
 
 	tdb_ctx.eq_rec =  tfw_client_addr_eq;
 	tdb_ctx.init_rec = tfw_client_ent_init;
+	tdb_ctx.precreate_rec = tfw_client_precreate;
 	tdb_ctx.len = sizeof(TfwClientEntry);
 	tdb_ctx.ctx = &ctx;
 	rec = tdb_rec_get_alloc(client_db, key, &tdb_ctx);
@@ -265,14 +323,6 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 		T_WARN("cannot allocate TDB space for client\n");
 		return NULL;
 	}
-
-	if (!tdb_ctx.is_new)
-		/*
-		 * The record doesn't change its location in TDB, since it is
-		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
-		 * bucket with the client as soon as possible.
-		 */
-		tdb_rec_put(client_db, rec);
 
 	ent = (TfwClientEntry *)rec->data;
 	cli = &ent->cli;
@@ -324,7 +374,7 @@ tfw_client_start(void)
 	if (!client_db)
 		return -EINVAL;
 
-	return 0;
+	return tfw_client_init_lru();
 }
 
 static void
@@ -334,6 +384,8 @@ tfw_client_stop(void)
 		return;
 	if (client_db)
 		tdb_close(client_db);
+
+	tfw_client_free_lru();
 }
 
 static TfwCfgSpec tfw_client_specs[] = {
@@ -355,6 +407,15 @@ static TfwCfgSpec tfw_client_specs[] = {
 		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
+	},
+	{
+		.name = "client_lru_size",
+		.deflt = "8000",
+		.handler = tfw_cfg_set_int,
+		.dest = &client_cfg.lru_size,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 1, UINT_MAX },
+		},
 	},
 	{ 0 }
 };
