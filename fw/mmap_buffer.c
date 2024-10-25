@@ -55,8 +55,8 @@ static const struct vm_operations_struct dev_vm_ops = {
 
 void
 tfw_mmap_buffer_get_room(TfwMmapBufferHolder *holder,
-						 char **part1, unsigned int *size1,
-						 char **part2, unsigned int *size2)
+			 char **part1, unsigned int *size1,
+			 char **part2, unsigned int *size2)
 {
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
 	u64 head, tail;
@@ -203,16 +203,16 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	int cpu;
 
 	if (size < TFW_MMAP_BUFFER_MIN_SIZE
-		|| size > TFW_MMAP_BUFFER_MAX_SIZE
-		|| !is_power_of_2(size))
+	    || size > TFW_MMAP_BUFFER_MAX_SIZE
+	    || !is_power_of_2(size))
 		return NULL;
 
 	if (filename && strlen(filename) >= TFW_MMAP_BUFFER_MAX_NAME_LEN - 1)
 		return NULL;
 
 	holder = kmalloc(sizeof(TfwMmapBufferHolder) +
-					 sizeof(struct page *) * num_online_cpus(),
-					 GFP_KERNEL);
+			 sizeof(struct page *) * num_online_cpus(),
+			 GFP_KERNEL);
 	if (!holder)
 		return NULL;
 
@@ -288,7 +288,7 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 
 		if (holder->pg[cpu]) {
 			__free_pages(holder->pg[cpu],
-						 get_order(TFW_MMAP_BUFFER_FULL_SIZE(buf->size)));
+				     get_order(TFW_MMAP_BUFFER_FULL_SIZE(buf->size)));
 			holder->pg[cpu] = NULL;
 		}
 	}

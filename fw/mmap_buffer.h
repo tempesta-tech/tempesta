@@ -163,11 +163,11 @@ typedef struct {
  * written space unavailable for further writing.
  */
 void tfw_mmap_buffer_get_room(TfwMmapBufferHolder *holder,
-							  char **part1, unsigned int *size1,
-							  char **part2, unsigned int *size2);
+			      char **part1, unsigned int *size1,
+			      char **part2, unsigned int *size2);
 void tfw_mmap_buffer_commit(TfwMmapBufferHolder *holder, unsigned int size);
 TfwMmapBufferHolder *tfw_mmap_buffer_create(const char *filename,
-											unsigned int size);
+					    unsigned int size);
 void tfw_mmap_buffer_free(TfwMmapBufferHolder *holder);
 
 #endif /* __KERNEL__ */
