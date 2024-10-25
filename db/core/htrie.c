@@ -410,7 +410,6 @@ tdb_alloc_blk_freelist(TdbHdr *dbh)
 
 	next = TDB_PTR(dbh, rptr);
 	this_cpu_ptr(dbh->pcpu)->freelist = *next;
-	bzero_fast(next, TDB_BLK_SZ);
 
 	return rptr;
 }
@@ -563,6 +562,7 @@ tdb_alloc_index(TdbHdr *dbh)
 	BUG_ON(TDB_HTRIE_IALIGN(rptr) != rptr);
 
 	this_cpu_ptr(dbh->pcpu)->i_wcl = rptr + sizeof(TdbHtrieNode);
+	bzero_fast(TDB_PTR(dbh, rptr), sizeof(TdbHtrieNode));
 
 out:
 	local_bh_enable();
@@ -606,18 +606,17 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 	TdbRec *r = (TdbRec *)ptr;
 
 	BUG_ON(complete && !data);
-	BUG_ON(r->key);
-	r->key = key;
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
 		TdbVRec *vr = (TdbVRec *)r;
 
-		BUG_ON(vr->len || vr->chunk_next);
-		vr->chunk_next = 0;
+		memset(ptr, 0, sizeof(TdbVRec));
 		vr->len = len;
 		ptr += sizeof(TdbVRec);
 	} else {
+		memset(ptr, 0, sizeof(TdbFRec));
 		ptr += sizeof(TdbFRec);
 	}
+	r->key = key;
 	if (data)
 		memcpy_fast(ptr, data, len);
 
