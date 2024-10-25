@@ -2014,6 +2014,18 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 	return false;
 }
 
+/*
+ * Initialize the cache entry and return a pointer to the start of the payload.
+ */
+static char *
+tfw_init_cache_entry(TfwCacheEntry *ce)
+{
+	bzero_fast(((char *)ce) + offsetof(TfwCacheEntry, ce_body),
+		   CE_BODY_SIZE);
+
+	return (char *)(ce + 1);
+}
+
 /**
  * Copy response skbs to database mapped area.
  * @tot_len	- total length of actual data to write w/o TfwCStr's etc;
@@ -2050,7 +2062,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		tfw_cache_get_effective_resp_flags(resp, req);
 	bool u_fin, h_fin;
 
-	p = (char *)(ce + 1);
+	p = tfw_init_cache_entry(ce);
 	tot_len -= CE_BODY_SIZE;
 
 	/* Write record key (URI + Host header). */
