@@ -6994,7 +6994,7 @@ bad_msg:
 		return T_OK;
 	}
 
-	if (tfw_http_resp_should_fwd_stale(bad_req, 502)) {
+	if (!filtout && tfw_http_resp_should_fwd_stale(bad_req, 502)) {
 		__tfw_http_resp_fwd_stale(hmresp);
 		/*
 		 * Close connection with backend immediately
