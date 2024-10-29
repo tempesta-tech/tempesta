@@ -1238,7 +1238,7 @@ this_chunk:
 static TfwCacheEntry *
 tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 {
-	TfwCacheEntry *ce, *ce_best;
+	TfwCacheEntry *ce;
 	unsigned long key = tfw_http_req_key_calc(req);
 
 	*iter = tdb_rec_get(db, key);
@@ -1246,12 +1246,11 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		return NULL;
 	}
 	/*
-	 * Cache may store one or more responses to the effective Request URI.
 	 * Basically, it is sufficient to store only the most recent response and
-	 * remove other representations from cache. (RFC 7234 4: When more than
-	 * one suitable response is stored, a cache MUST use the most recent
-	 * response) But there are still some cases when it is needed to store
-	 * more than one representation:
+	 * remove other representations from cache(current approach).
+	 * (RFC 7234 4: When more than one suitable response is stored, a cache
+	 * MUST use the most recent response) But there are still some cases
+	 * when it is needed to store more than one representation:
 	 *   - If selected representation of the effective Request URI depends
 	 *     on client capabilities. See RFC 7234 4.1 (Vary Header).
 	 *   - If origin server has several states of the resource, so during
@@ -1264,38 +1263,18 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 	 * Currently this function is used only to serve clients.
 	 */
 	ce = (TfwCacheEntry *)iter->rec;
-	ce_best = NULL;
 	do {
-		/*
-		 * Pick the best cache record. The "best" record is either the
-		 * first live record that we find, or the most recent stale
-		 * record. We have to iterate through the entire bucket, unless
-		 * we find a live record early, so we take an extra read lock
-		 * here.
-		 */
+		/* Find record with the same key. */
 		if (tfw_cache_should_satisfy(req, ce) &&
 		    tfw_cache_entry_key_eq(db, req, ce))
 		{
-			if (!ce_best || tfw_cache_entry_age(ce)
-				      < tfw_cache_entry_age(ce_best))
-			{
-				if (ce_best)
-					tdb_rec_put(db, ce_best);
-				/* It's possible that we end up iterating until
-				 * the end (while looking for a live entry), and
-				 * `ce_best` might be in a bucket that was
-				 * already read-unlocked by `tdb_rec_next`, so
-				 * we add an extra reference to it.
-				 */
-				tdb_rec_keep(ce);
-				ce_best = ce;
-			}
+			return ce;
 		}
 		tdb_rec_next(db, iter);
 		ce = (TfwCacheEntry *)iter->rec;
 	} while (ce);
 
-	return ce_best;
+	return NULL;
 }
 
 /**
@@ -2506,22 +2485,6 @@ tfw_cache_rec_eq_req(TdbRec *rec, void *request)
 {
 	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
 	TfwHttpReq *req = (TfwHttpReq *)request;
-
-	/*
-	 * Remove only records that have same method, except when request is
-	 * POST, PURGE, PUT or DELETE. Accordingly to RFC 9111 4.4. they are
-	 * used to invalidate cache records.
-	 *
-	 * We don't check staleness at this stage, just to skip double check.
-	 * The first check happens when we trying to satisfy request from the
-	 * cache. Therefore if reached this point it means that record is stale
-	 * or not presented in the cache.
-	 */
-	if (req->method != TFW_HTTP_METH_DELETE &&
-	    req->method != TFW_HTTP_METH_PUT &&
-	    req->method != TFW_HTTP_METH_POST &&
-	    req->method != TFW_HTTP_METH_PURGE && ce->method != req->method)
-		return false;
 
 	return tfw_cache_entry_key_eq(node_db(), req, ce);
 }
