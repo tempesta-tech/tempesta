@@ -382,7 +382,9 @@ allocated:
 	 * This is only for first blocks in extents, so we lose only
 	 * TDB_HTRIE_MINDREC - L1_CACHE_BYTES per extent.
 	 */
-	return TDB_HTRIE_DALIGN(rptr);
+	rptr = TDB_HTRIE_DALIGN(rptr);
+	tdb_get_blk(dbh, rptr);
+	return rptr;
 }
 
 static void
@@ -414,6 +416,7 @@ tdb_alloc_blk_freelist(TdbHdr *dbh)
 	next = TDB_PTR(dbh, rptr);
 	this_cpu_ptr(dbh->pcpu)->freelist = *next;
 
+	tdb_get_blk(dbh, rptr);
 	return rptr;
 }
 
@@ -465,7 +468,6 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len)
 			goto out;
 
 		BUG_ON(old_rptr == 0);
-		tdb_get_blk(dbh, rptr);
 		tdb_put_blk(dbh, old_rptr);
 
 		max_data_len = TDB_BLK_SZ - (rptr & ~TDB_BLK_MASK);
@@ -492,6 +494,9 @@ out:
 
 /**
  * Allocates a new bucket.
+ *
+ * Never do tdb_htrie_put_rec with bucket block, buckets live forever.
+ *
  * @return byte offset of the block.
  */
 static unsigned long
@@ -515,9 +520,6 @@ tdb_alloc_bucket(TdbHdr *dbh)
 			rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
 			goto out;
-
-		/* Never put bucket block, buckets live forever */
-		tdb_get_blk(dbh, rptr);
 	}
 
 	TDB_DBG("alloc bucket %#lx\n", rptr);
@@ -534,6 +536,8 @@ out:
 
 /**
  * Allocates a new index block.
+ *
+ * Never do tdb_htrie_put_rec with index block, indexes live forever.
  * @return byte offset of the block.
  */
 static unsigned long
@@ -556,9 +560,6 @@ tdb_alloc_index(TdbHdr *dbh)
 			rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
 			goto out;
-
-		/* Never put index block, indexes live forever */
-		tdb_get_blk(dbh, rptr);
 	}
 
 	TDB_DBG("alloc iblk %#lx\n", rptr);
@@ -662,7 +663,6 @@ tdb_htrie_burst(TdbHdr *dbh, TdbHtrieNode **node, TdbBucket *bckt,
 	if (!n)
 		return -ENOMEM;
 	new_in = TDB_PTR(dbh, n);
-	tdb_get_blk(dbh, n);
 	new_in_idx = TDB_O2II(n);
 
 	/* We must not burst empty bucket, just reuse it. */
@@ -1367,9 +1367,6 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 		p->b_wcl = tdb_alloc_blk(hdr);
 		p->i_wcl = tdb_alloc_blk(hdr);
 		p->d_wcl = tdb_alloc_blk(hdr);
-		tdb_get_blk(hdr, p->b_wcl & TDB_BLK_MASK);
-		tdb_get_blk(hdr, p->i_wcl & TDB_BLK_MASK);
-		tdb_get_blk(hdr, p->d_wcl & TDB_BLK_MASK);
 	}
 
 	TDB_DBG("init db header: nwb=%llu db_size=%lu rec_len=%u\n",
