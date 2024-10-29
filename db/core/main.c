@@ -40,6 +40,8 @@ MODULE_LICENSE("GPL");
  *
  * Returns complete entry, such entry can't be modified or filled with data
  * w/o locking.
+ *
+ * The user must call tdb_rec_put() when finish with the record.
  */
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
@@ -56,6 +58,20 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 }
 EXPORT_SYMBOL(tdb_entry_create);
 
+/**
+ * Create TDB entry to store @len bytes, if there is entry that equals to new
+ * one it will be removed, new record will be placed to its place.
+ *
+ * @eq_cb and @eq_data are used to compare records.
+ *
+ * NOTE: Returns incomplete record. When modifying of current record is finished
+ * need to mark record as complete using tdb_entry_mark_complete(). Incomplete
+ * records are invisible for lookup and remove.
+ *
+ * The user must call tdb_rec_put() when finish with the record.
+ *
+ * TODO #515 function must holds a lock upon return.
+ */
 TdbRec *
 tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
 		       tdb_eq_cb_t *eq_cb, void *eq_data)
@@ -79,6 +95,8 @@ EXPORT_SYMBOL(tdb_entry_alloc_unique);
  * need to mark entry as complete using tdb_entry_mark_complete(). Incomplete
  * entries are invisible for lookup and remove.
  *
+ * The user must call tdb_rec_put() when finish with the record.
+ *
  * TODO #515 function must holds a lock upon return.
  */
 TdbRec *
@@ -96,6 +114,10 @@ tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 }
 EXPORT_SYMBOL(tdb_entry_alloc);
 
+/*
+ * Mark TDB record as complete. Incomplete records are invisible for lookup
+ * and remove. Small records are always complete.
+ */
 void
 tdb_entry_mark_complete(void *rec)
 {

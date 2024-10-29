@@ -1004,7 +1004,7 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 				return -EINVAL;
 			}
 
-			/* Allowe status-codes only above 399. */
+			/* Allows status-codes only above 399. */
 			if (n < 400) {
 				T_ERR_NL("Please specify status code above than 399.");
 				return -EINVAL;
