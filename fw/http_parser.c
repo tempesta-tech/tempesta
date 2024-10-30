@@ -11309,6 +11309,9 @@ do {										\
 				  Resp_I_CC_StaleIfErrorV);
 
 	__FSM_STATE(Resp_I_CC_StaleIfErrorV) {
+		if (unlikely(resp->cache_ctl.flags
+			     & TFW_HTTP_CC_STALE_IF_ERROR))
+			__FSM_EXIT(T_DROP);
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_uint_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
