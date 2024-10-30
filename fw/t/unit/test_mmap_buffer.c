@@ -25,34 +25,17 @@
 
 static TfwMmapBufferHolder *holder;
 
-void
-tfw_mmap_buffer_get_read_room(TfwMmapBufferHolder *holder,
-							  char **part1, unsigned int *size1,
-							  char **part2, unsigned int *size2)
+unsigned int
+tfw_mmap_buffer_get_read_room(TfwMmapBufferHolder *holder, char **data)
 {
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
-	u64 head, tail;
 
-	if (!atomic_read(&buf->is_ready)) {
-		*size1 = 0;
-		*size2 = 0;
-		return;
-	}
+	if (!atomic_read(&buf->is_ready))
+		return 0;
 
-	head = smp_load_acquire(&buf->head) % buf->size;
-	tail = buf->tail % buf->size;
+	*data = buf->data + buf->tail % buf->size;
 
-	*part1 = buf->data + tail;
-
-	if (head > tail) {
-		*size1 = head - tail;
-		*size2 = 0;
-		return;
-	}
-
-	*size1 = buf->size - tail;
-	*part2 = buf->data;
-	*size2 = head;
+	return smp_load_acquire(&buf->head) - buf->tail;
 }
 
 void
@@ -88,50 +71,20 @@ check_buf(char *buf, int size)
 }
 
 static void
-test_write_read(unsigned int size, int expect_wr, int expect_rd)
+test_write_read(unsigned int size, unsigned int expected_room_size)
 {
-	int r = 0;
-	char *p1, *p2;
-	unsigned int s1, s2, written;
+	char *data;
+	unsigned int room_size;
 
-#define WALK_BUFFER(func) \
-	do { \
-		written = 0; \
-		while (1) { \
-			unsigned int cur_size = min(size, s1); \
-			r = func(p1, cur_size); \
-			if (r) \
-				break; \
-			size -= cur_size; \
-			s1 -= cur_size; \
-			written += cur_size; \
-			if (size == 0) \
-				break; \
-			if (p1 == p2 || s2 == 0) { \
-				r = -ENOMEM; \
-				break; \
-			} \
-			s1 = s2; \
-			p1 = p2; \
-		} \
-	} while (0)
+	room_size = tfw_mmap_buffer_get_room(holder, &data);
 
-	tfw_mmap_buffer_get_room(holder, &p1, &s1, &p2, &s2);
-	WALK_BUFFER(fill_buf);
-	EXPECT_EQ(r, expect_wr);
-	if (r)
-		return;
-	tfw_mmap_buffer_commit(holder, size);
+	EXPECT_EQ(room_size, expected_room_size);
+	fill_buf(data, room_size);
+	tfw_mmap_buffer_commit(holder, room_size);
 
-	size = written;
-
-	tfw_mmap_buffer_get_read_room(holder, &p1, &s1, &p2, &s2);
-	WALK_BUFFER(check_buf);
-	if (!r)
-		tfw_mmap_buffer_read_commit(holder, size);
-	EXPECT_EQ(r, expect_rd);
-
-#undef WALK_BUFFER
+	room_size = tfw_mmap_buffer_get_read_room(holder, &data);
+	EXPECT_ZERO(check_buf(data, room_size));
+	tfw_mmap_buffer_read_commit(holder, room_size);
 }
 
 TEST(tfw_mmap_buffer, create)
@@ -148,8 +101,8 @@ TEST(tfw_mmap_buffer, create)
 TEST(tfw_mmap_buffer, write_read)
 {
 	TfwMmapBuffer *buf;
-	char *p1, *p2;
-	unsigned int s1, s2, i;
+	char *data;
+	unsigned int size, i;
 
 	holder = tfw_mmap_buffer_create(NULL, TFW_MMAP_BUFFER_MIN_SIZE);
 	EXPECT_NOT_NULL(holder);
@@ -158,20 +111,20 @@ TEST(tfw_mmap_buffer, write_read)
 
 #define MAX_SIZE (buf->size - 1)
 
-	tfw_mmap_buffer_get_room(holder, &p1, &s1, &p2, &s2);
-	EXPECT_ZERO(s1);
-	EXPECT_ZERO(s2);
+	size = tfw_mmap_buffer_get_room(holder, &data);
+	EXPECT_ZERO(size);
 	atomic_set(&buf->is_ready, 1);
-	tfw_mmap_buffer_get_room(holder, &p1, &s1, &p2, &s2);
-	EXPECT_EQ(s1, MAX_SIZE);
+	size = tfw_mmap_buffer_get_room(holder, &data);
+	EXPECT_EQ(size, MAX_SIZE);
 
-	test_write_read(MAX_SIZE + 1, -ENOMEM, 0);
-	test_write_read(0, 0, 0);
-	test_write_read(256, 0, 0);
+	test_write_read(MAX_SIZE + 1, MAX_SIZE);
+	test_write_read(0, MAX_SIZE);
+	test_write_read(256, MAX_SIZE);
+	test_write_read(MAX_SIZE, MAX_SIZE);
 
 	/* Check all the possible head and tail offsets */
 	for (i = 0; i < MAX_SIZE + 1; ++i)
-		test_write_read(MAX_SIZE, 0, 0);
+		test_write_read(MAX_SIZE, MAX_SIZE);
 
 	tfw_mmap_buffer_free(holder);
 

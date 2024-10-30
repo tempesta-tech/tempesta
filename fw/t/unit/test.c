@@ -118,6 +118,7 @@ test_run_all(void)
 	/* Run sleeping tests first. */
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
+	TEST_SUITE_RUN(mmap_buffer);
 
 	kernel_fpu_begin();
 
@@ -159,9 +160,6 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(ebtree);
-	__fpu_schedule();
-
-	TEST_SUITE_RUN(mmap_buffer);
 	__fpu_schedule();
 
 	kernel_fpu_end();
