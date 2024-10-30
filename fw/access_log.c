@@ -21,7 +21,9 @@
 #include "connection.h"
 #include "server.h"
 #include "http.h"
+#include "mmap_buffer.h"
 #include "lib/common.h"
+#include <linux/jiffies.h>
 
 /* This thing describes access log format.
  * - FIXED => fixed string, passed as is
@@ -58,11 +60,20 @@
 	TRUNCATABLE(user_agent)                            \
 	FIXED("\"")
 
-static bool access_log_enabled = false;
+#define ACCESS_LOG_OFF   0
+#define ACCESS_LOG_DMESG 1
+#define ACCESS_LOG_MMAP  2
+
+#define MMAP_LOG_PATH "tempesta_mmap_log"
+
+static int access_log_type = ACCESS_LOG_OFF;
+static TfwMmapBufferHolder *mmap_buffer;
 
 /* Use small buffer because printk won't display strings longer that ~1000 bytes */
 #define ACCESS_LOG_BUF_SIZE 960
 static DEFINE_PER_CPU_ALIGNED(char[ACCESS_LOG_BUF_SIZE], access_log_buf);
+static DEFINE_PER_CPU_ALIGNED(u64, mmap_log_dropped);
+static long mmap_log_buffer_size;
 
 /** Build string consists of chunks that belong to the header value.
  * If header value is empty, then it returns "-" to be nginx-like.
@@ -266,6 +277,123 @@ no_buffer_space:
 	}
 }
 
+static void
+do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
+		       u32 resp_content_length)
+{
+	u64 *dropped = this_cpu_ptr(&mmap_log_dropped);
+	TfwBinLogEvent *event;
+	unsigned int room_size;
+	TfwStr referer, ua;
+	u32 resp_time;
+	char *data, *p;
+
+	if (!mmap_buffer)
+		goto drop;
+
+	room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
+	if (room_size < sizeof(TfwBinLogEvent))
+		goto drop;
+
+	event = (TfwBinLogEvent *)data;
+	p = data + sizeof(TfwBinLogEvent);
+
+#define WRITE_TO_BUF(val, size)			\
+	do {					\
+		if (room_size < size)		\
+			goto drop;		\
+		memcpy_fast(p, val, size);	\
+		p += size;			\
+		room_size -= size;		\
+	} while (0)
+
+#define WRITE_FIELD(field, val)							\
+	do {									\
+		if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_##field)) {	\
+			WRITE_TO_BUF(&val, sizeof(val));			\
+		}								\
+	} while (0)
+
+	event->timestamp = jiffies;
+
+	if (*dropped && room_size >= sizeof(u64)) {
+		event->type = TFW_MMAP_LOG_TYPE_DROPPED;
+
+		memcpy_fast(p, dropped, sizeof(u64));
+		tfw_mmap_buffer_commit(mmap_buffer, p - data);
+
+		*dropped = 0;
+		room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
+		p = data + sizeof(TfwBinLogEvent);
+		event = (TfwBinLogEvent *)data;
+	}
+
+	event->type = TFW_MMAP_LOG_TYPE_ACCESS;
+	event->fields = TFW_MMAP_LOG_ALL_FIELDS_MASK; /* Enable all the fields */
+
+	WRITE_FIELD(ADDR, req->conn->peer->addr.sin6_addr);
+	WRITE_FIELD(METHOD, req->method);
+	WRITE_FIELD(VERSION, req->version);
+	WRITE_FIELD(STATUS, resp_status);
+	WRITE_FIELD(RESP_CONT_LEN, resp_content_length);
+	resp_time = jiffies - req->jrxtstamp;
+	WRITE_FIELD(RESP_TIME, resp_time);
+
+#define ACCES_LOG_MAX_STR_LEN 65535UL
+#define WRITE_STR_FIELD(field, val)						\
+	do {									\
+		if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_##field)) {	\
+			TfwStr *c, *end;					\
+			u16 len = (u16)min((val).len, ACCES_LOG_MAX_STR_LEN);	\
+			WRITE_TO_BUF(&len, 2);					\
+			TFW_STR_FOR_EACH_CHUNK(c, &val, end) {			\
+				u16 cur_len = (u16)min((unsigned long)len,	\
+						       c->len);			\
+				WRITE_TO_BUF(c->data, cur_len);			\
+				len -= cur_len;					\
+			}							\
+		}								\
+	} while (0)
+
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_VHOST)) {
+		u16 len = 0;
+
+		if (req->vhost && req->vhost->name.len) {
+			len = (u16)min(req->vhost->name.len,
+				       ACCES_LOG_MAX_STR_LEN);
+			WRITE_TO_BUF(&len, 2);
+			WRITE_TO_BUF(req->vhost->name.data, len);
+		} else {
+			WRITE_TO_BUF(&len, 2);
+		}
+	}
+
+	WRITE_STR_FIELD(URI, req->uri_path);
+
+	referer = get_http_header_value(req->version,
+					req->h_tbl->tbl + TFW_HTTP_HDR_REFERER);
+	WRITE_STR_FIELD(REFERER, referer);
+
+	ua = get_http_header_value(req->version,
+				   req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
+	WRITE_STR_FIELD(USER_AGENT, ua);
+
+	if (tfw_mmap_buffer_commit(mmap_buffer, p - data) != 0) {
+		T_WARN("Incorrect data size at commit: %ld", p - data);
+		goto drop;
+	}
+
+	return;
+
+drop:
+	++*dropped;
+
+#undef WRITE_STR_FIELD
+#undef ACCES_LOG_MAX_STR_LEN
+#undef WRITE_FIELD
+#undef WRITE_TO_BUF
+}
+
 void
 do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
 {
@@ -279,8 +407,10 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
 	BasicStr truncated_out[TRUNCATABLE_FIELDS_COUNT];
 
-	/* Check if logging is enabled */
-	if (!access_log_enabled)
+	if (access_log_type & ACCESS_LOG_MMAP)
+		do_access_log_req_mmap(req, (u16)resp_status, (u32)resp_content_length);
+
+	if (!(access_log_type & ACCESS_LOG_DMESG))
 		return;
 
 	/* client_ip
@@ -413,14 +543,80 @@ do_access_log(TfwHttpResp *resp)
 			  TFW_HTTP_RESP_CUT_BODY_SZ(resp));
 }
 
+static int
+cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int i;
+	const char *val;
+
+	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	access_log_type = ACCESS_LOG_OFF;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (strcasecmp(val, "off") == 0)
+			break;
+
+		if (strcasecmp(val, "dmesg") == 0) {
+			access_log_type |= ACCESS_LOG_DMESG;
+		} else if (strcasecmp(val, "mmap") == 0) {
+			access_log_type |= ACCESS_LOG_MMAP;
+		} else {
+			T_ERR_NL("invalid access_log value: '%s'\n", val);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+static int
+tfw_access_log_start(void)
+{
+	int cpu;
+
+	if (!(access_log_type & ACCESS_LOG_MMAP))
+		return 0;
+
+	if (mmap_buffer)
+		tfw_mmap_buffer_free(mmap_buffer);
+
+	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, mmap_log_buffer_size);
+
+	for_each_online_cpu(cpu) {
+		u64 *dropped = per_cpu_ptr(&mmap_log_dropped, cpu);
+		*dropped = 0;
+	}
+
+	return mmap_buffer ? 0 : -EINVAL;
+}
+
+static void
+tfw_access_log_stop(void)
+{
+	tfw_mmap_buffer_free(mmap_buffer);
+	mmap_buffer = NULL;
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "access_log",
-		.deflt = "off",
-		.handler = tfw_cfg_set_bool,
-		.dest = &access_log_enabled,
+		.deflt = NULL,
+		.handler = cfg_access_log_set,
 		.allow_none = true,
 		.allow_repeat = true,
+	},
+	{
+		.name = "mmap_log_buffer_size",
+		.deflt = "1M",
+		.handler = tfw_cfg_set_mem,
+		.dest = &mmap_log_buffer_size,
+		.spec_ext = &(TfwCfgSpecMem) {
+			.multiple_of = "4K",
+			.range = { TFW_MMAP_BUFFER_MIN_SIZE_STR,
+				   TFW_MMAP_BUFFER_MAX_SIZE_STR },
+		}
 	},
 	{ 0 }
 };
@@ -428,6 +624,8 @@ static TfwCfgSpec tfw_http_specs[] = {
 TfwMod tfw_access_log_mod  = {
 	.name	= "access_log",
 	.specs	= tfw_http_specs,
+	.start	= tfw_access_log_start,
+	.stop	= tfw_access_log_stop,
 };
 
 /*

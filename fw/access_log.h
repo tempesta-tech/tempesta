@@ -20,9 +20,86 @@
 #ifndef __TFW_ACCESS_LOG_H__
 #define __TFW_ACCESS_LOG_H__
 
+#ifdef __KERNEL__
+
 #include "http_types.h"
+#include <linux/types.h>
+
+#else /* __KERNEL__ */
+
+#include <stdint.h>
+
+#define u16 uint16_t
+#define u32 uint32_t
+#define u64 uint64_t
+
+#endif /* __KERNEL__ */
+
+#define TFW_MMAP_LOG_TYPE_LEN 3
+
+/*
+ * @type	- The type of the event, look at TfwBinLogType;
+ * @timestamp	- the time when the event occurred;
+ * @fields	- bits of fields presence.
+ */
+typedef struct __attribute__((packed)) {
+	u16	type : TFW_MMAP_LOG_TYPE_LEN;
+	u16	fields : 16 - TFW_MMAP_LOG_TYPE_LEN;
+	u64	timestamp;
+} TfwBinLogEvent;
+
+typedef enum {
+	TFW_MMAP_LOG_TYPE_ACCESS,
+	TFW_MMAP_LOG_TYPE_SECURITY,
+	TFW_MMAP_LOG_TYPE_ERROR,
+	TFW_MMAP_LOG_TYPE_DROPPED,
+} TfwBinLogType;
+
+typedef enum {
+	TFW_MMAP_LOG_ADDR,
+	TFW_MMAP_LOG_METHOD,
+	TFW_MMAP_LOG_VERSION,
+	TFW_MMAP_LOG_STATUS,
+	TFW_MMAP_LOG_RESP_CONT_LEN,
+	TFW_MMAP_LOG_RESP_TIME,
+	TFW_MMAP_LOG_VHOST,
+	TFW_MMAP_LOG_URI,
+	TFW_MMAP_LOG_REFERER,
+	TFW_MMAP_LOG_USER_AGENT,
+	TFW_MMAP_LOG_MAX
+} TfwBinLogFields;
+
+#define TFW_MMAP_LOG_FIELD_IS_SET(event, field) \
+	((event)->fields >> field & 1)
+#define TFW_MMAP_LOG_FIELD_SET(event, field) \
+	do { (event)->fields |= 1 << (field) } while (0)
+#define TFW_MMAP_LOG_FIELD_RESET(event, field) \
+	do { (event)->fields &= ~((u16)1 << (field)) } while (0)
+#define TFW_MMAP_LOG_ALL_FIELDS_MASK ((1 << TFW_MMAP_LOG_MAX) - 1)
+
+static const int TfwBinLogFieldsLens[] = {
+	[TFW_MMAP_LOG_ADDR] = 16,
+	[TFW_MMAP_LOG_METHOD] = 1,
+	[TFW_MMAP_LOG_VERSION] = 1,
+	[TFW_MMAP_LOG_STATUS] = 2,
+	[TFW_MMAP_LOG_RESP_CONT_LEN] = 4,
+	[TFW_MMAP_LOG_RESP_TIME] = 4,
+	[TFW_MMAP_LOG_VHOST] = 0, /* 0 - string */
+	[TFW_MMAP_LOG_URI] = 0,
+	[TFW_MMAP_LOG_REFERER] = 0,
+	[TFW_MMAP_LOG_USER_AGENT] = 0,
+};
+
+static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
+{
+	return TfwBinLogFieldsLens[field];
+}
+
+#ifdef __KERNEL__
 
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
+
+#endif
 
 #endif /* __TFW_ACCESS_LOG_H__ */
