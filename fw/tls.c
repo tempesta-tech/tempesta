@@ -71,9 +71,9 @@ tfw_tls_connection_lost(TfwConn *conn)
 }
 
 int
-tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
+tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb, int *save_err_code)
 {
-	int r, parsed, save_err_code = T_OK;
+	int r, parsed;
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
@@ -91,7 +91,7 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	 * it contains end of current message.
 	 */
 next_msg:
-	BUG_ON(save_err_code != T_OK && save_err_code != T_BAD);
+	BUG_ON(*save_err_code != T_OK && *save_err_code != T_BAD);
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 
@@ -114,7 +114,7 @@ next_msg:
 		r = T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_FIN:
-		r = (save_err_code != T_OK || was_stopped)
+		r = (*save_err_code != T_OK || was_stopped)
 			? SS_BLOCK_WITH_RST : T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_RST:
@@ -130,7 +130,7 @@ next_msg:
 		 * save_error_code is T_OK or T_BAD if error occurs
 		 * on one of the previous steps.
 		 */
-		return save_err_code;
+		return T_OK;
 	case T_OK:
 		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
@@ -172,7 +172,7 @@ next_msg:
 	 * don't process it.
 	 */
 	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA
-	    && (save_err_code == T_OK || TFW_CONN_TYPE(conn) & Conn_Stop))
+	    && (*save_err_code == T_OK || TFW_CONN_TYPE(conn) & Conn_Stop))
 	{
 		/*
 		 * Current record contains an "application data" message.
@@ -199,13 +199,13 @@ next_msg:
 		spin_unlock(&tls->lock);
 
 		/* Do upcall to http or websocket */
-		r = tfw_connection_recv(conn, data_up.skb);
+		r = tfw_connection_recv(conn, data_up.skb, save_err_code);
 		/*
 		 * If error occurs second time (save_error_code is not zero or
 		 * was_stopped is true) close connection immediately with RST.
 		 */
-		r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?
-			SS_BLOCK_WITH_RST : r;
+		r = (r != T_OK && (*save_err_code != T_OK || was_stopped)) ?
+			T_BLOCK_WITH_RST : r;
 		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {
 			kfree_skb(nskb);
 			goto out;
@@ -217,9 +217,8 @@ next_msg:
 			 * WINDOW_UPDATE frames so, we should decrypt all skbs,
 			 * not drop them.
 			 */
-			save_err_code = T_BAD;
-		} else if (save_err_code != T_OK) {
-			r = save_err_code;
+			*save_err_code = T_BAD;
+			r = T_OK;
 		}
 	} else {
 		/*
@@ -228,7 +227,6 @@ next_msg:
 		 */
 		tfw_tls_purge_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
-		r = save_err_code;
 	}
 
 	if (nskb) {
