@@ -1,8 +1,6 @@
 /**
  *		Tempesta FW
  *
- * Handling ring buffers is_ready to user space.
- *
  * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -53,48 +51,6 @@ static const struct vm_operations_struct dev_vm_ops = {
 	.close = dev_file_vm_close
 };
 
-void
-tfw_mmap_buffer_get_room(TfwMmapBufferHolder *holder,
-			 char **part1, unsigned int *size1,
-			 char **part2, unsigned int *size2)
-{
-	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
-	u64 head, tail;
-
-	*size2 = 0;
-
-	if (!atomic_read(&buf->is_ready)) {
-		*size1 = 0;
-		return;
-	}
-
-	head = buf->head % buf->size;
-	tail = smp_load_acquire(&buf->tail) % buf->size;
-
-	*part1 = buf->data + head;
-
-	if (head < tail) {
-		*size1 = tail - head - 1;
-		return;
-	}
-
-	if (unlikely(head == 0)) {
-		*size1 = buf->size - 1;
-	} else {
-		*size1 = buf->size - head;
-		*part2 = buf->data;
-		*size2 = tail - 1;
-	}
-}
-
-void
-tfw_mmap_buffer_commit(TfwMmapBufferHolder *holder, unsigned int size)
-{
-	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
-
-	smp_store_release(&buf->head, buf->head + size);
-}
-
 static int
 dev_file_open(struct inode *ino, struct file *filp)
 {
@@ -102,7 +58,8 @@ dev_file_open(struct inode *ino, struct file *filp)
 	int i;
 
 	for (i = 0; i < holders_cnt; ++i) {
-		if (strcmp(holders[i]->dev_name, (char *)filp->f_path.dentry->d_iname) == 0) {
+		if (strcmp(holders[i]->dev_name,
+			   (char *)filp->f_path.dentry->d_iname) == 0) {
 			holder = holders[i];
 			goto found;
 		}
@@ -142,52 +99,68 @@ static int
 dev_file_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	TfwMmapBufferHolder *holder = filp->private_data;
-	TfwMmapBuffer *buf, *this_buf = *this_cpu_ptr(holder->buf);
-	unsigned long pfn, size, buf_size, buf_pages;
-	int cpu_num, cpu_id;
+	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
+	unsigned long pfn, size, area_size, user_addr;
+	int cpu_num, cpu_id, i;
 
-	buf_size = TFW_MMAP_BUFFER_FULL_SIZE(this_buf->size);
 	size = vma->vm_end - vma->vm_start;
-	if (size > buf_size)
+
+#define FULL_SIZE TFW_MMAP_BUFFER_FULL_SIZE(buf->size)
+
+	if (size == TFW_MMAP_BUFFER_DATA_OFFSET)
+		area_size = size;
+	else if (size == FULL_SIZE)
+		area_size = FULL_SIZE;
+	else
 		return -EINVAL;
 
-	buf_pages = buf_size / PAGE_SIZE;
-
-#define NTH_ONLINE_CPU(n) ({ \
-	int cpu, res = -1, i = 0; \
-	for_each_online_cpu(cpu) { \
-		if (i == n) { \
-			res = cpu; \
-			break; \
-		} \
-		++i; \
-	} \
-	res; \
+#define NTH_ONLINE_CPU(n) ({		\
+	int cpu, res = -1, i = 0;	\
+	for_each_online_cpu(cpu) {	\
+		if (i == n) {		\
+			res = cpu;	\
+			break;		\
+		}			\
+		++i;			\
+	}				\
+	res;				\
 })
 
-	cpu_num = vma->vm_pgoff / buf_pages;
+	cpu_num = vma->vm_pgoff / (area_size / PAGE_SIZE);
 	cpu_id = NTH_ONLINE_CPU(cpu_num);
 	if (cpu_id < 0)
 		return -EINVAL;
 
 	buf = *per_cpu_ptr(holder->buf, cpu_id);
-	pfn = page_to_pfn(virt_to_page(buf));
 
-	if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot))
+	pfn = page_to_pfn(holder->mem[cpu_id].buf_page);
+	if (remap_pfn_range(vma, vma->vm_start, pfn,
+			    TFW_MMAP_BUFFER_DATA_OFFSET, vma->vm_page_prot))
 		return -EAGAIN;
 
-	vma->vm_ops = &dev_vm_ops;
-	(void)dev_vm_ops;
+	if (area_size == FULL_SIZE) { /* entire buffer is mapping */
+		pfn = page_to_pfn(holder->mem[cpu_id].data_page);
+		user_addr = vma->vm_start + TFW_MMAP_BUFFER_DATA_OFFSET;
+		for (i = 0; i < 2; ++i) {
+			if (remap_pfn_range(vma, user_addr, pfn, buf->size,
+					    vma->vm_page_prot)) {
+				return -EAGAIN;
+			}
+			user_addr += buf->size;
+		}
 
-	if (size == buf_size)
+		vma->vm_ops = &dev_vm_ops;
 		atomic_set(&buf->is_ready, 1);
+	}
 
 	return 0;
 
 #undef NTH_ONLINE_CPU
+#undef FULL_SIZE
 }
 
-static void dev_file_vm_close(struct vm_area_struct *vma)
+static void
+dev_file_vm_close(struct vm_area_struct *vma)
 {
 	TfwMmapBufferHolder *holder = vma->vm_file->private_data;
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
@@ -199,7 +172,8 @@ TfwMmapBufferHolder *
 tfw_mmap_buffer_create(const char *filename, unsigned int size)
 {
 	TfwMmapBufferHolder *holder;
-	unsigned int order;
+	struct page **page_ptr;
+	unsigned int order, i, page_cnt;
 	int cpu;
 
 	if (size < TFW_MMAP_BUFFER_MIN_SIZE
@@ -210,8 +184,11 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	if (filename && strlen(filename) >= TFW_MMAP_BUFFER_MAX_NAME_LEN - 1)
 		return NULL;
 
-	holder = kmalloc(sizeof(TfwMmapBufferHolder) +
-			 sizeof(struct page *) * num_online_cpus(),
+	if (holders_cnt + 1 > MAX_HOLDERS)
+		return NULL;
+
+	holder = kzalloc(sizeof(TfwMmapBufferHolder) +
+			 sizeof(TfwMMapBufferMem) * num_online_cpus(),
 			 GFP_KERNEL);
 	if (!holder)
 		return NULL;
@@ -219,20 +196,45 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	order = get_order(size);
 
 	holder->dev_major = -1;
+	holder->size = size;
 	holder->buf = (TfwMmapBuffer **)alloc_percpu_gfp(sizeof(TfwMmapBuffer *),
-													 GFP_KERNEL);
+							 GFP_KERNEL);
 	atomic_set(&holder->dev_is_opened, 0);
 	atomic_set(&holder->is_freeing, 0);
+
+	page_cnt = size / PAGE_SIZE;
+	/*
+	 * Allocate pages for double mapping and a page for buffer control structure.
+	 */
+	page_ptr = kmalloc(page_cnt * sizeof(struct page *) * 2 + 1, GFP_KERNEL);
+	if (!page_ptr)
+		return NULL;
 
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf, **bufp;
 
-		holder->pg[cpu] = alloc_pages_node(cpu_to_node(cpu), GFP_KERNEL, order);
-		if (holder->pg[cpu] == NULL)
+		holder->mem[cpu].buf_page = alloc_pages_node(cpu_to_node(cpu),
+							     GFP_KERNEL, 0);
+		if (holder->mem[cpu].buf_page == NULL)
 			goto err;
 
-		buf = (TfwMmapBuffer *)page_address(holder->pg[cpu]);
-		buf->size = TFW_MMAP_BUFFER_DATA_SIZE(size);
+		holder->mem[cpu].data_page = alloc_pages_node(cpu_to_node(cpu),
+							      GFP_KERNEL, order);
+		if (holder->mem[cpu].data_page == NULL)
+			goto err;
+
+		page_ptr[0] = holder->mem[cpu].buf_page;
+		for (i = 0; i < page_cnt; ++i) {
+			page_ptr[i + 1] = &holder->mem[cpu].data_page[i];
+			page_ptr[i + page_cnt + 1] = &holder->mem[cpu].data_page[i];
+		}
+
+		buf = (TfwMmapBuffer *)vmap(page_ptr, page_cnt * 2 + 1, VM_MAP, PAGE_KERNEL);
+		if (!buf)
+			goto err;
+
+		buf->size = holder->size;
+		buf->mask = holder->size - 1;
 		buf->head = 0;
 		buf->tail = 0;
 		buf->cpu = cpu;
@@ -255,9 +257,12 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 		holders[holders_cnt++] = holder;
 	}
 
+	kfree(page_ptr);
+
 	return holder;
 
 err:
+	kfree(page_ptr);
 	tfw_mmap_buffer_free(holder);
 
 	return NULL;
@@ -276,7 +281,8 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf = *per_cpu_ptr(holder->buf, cpu);
 		/* Notify user space that it have to close the file */
-		atomic_set(&buf->is_ready, 0);
+		if (buf)
+			atomic_set(&buf->is_ready, 0);
 	}
 
 	/* Wait till user space closes the file */
@@ -286,11 +292,14 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf = *per_cpu_ptr(holder->buf, cpu);
 
-		if (holder->pg[cpu]) {
-			__free_pages(holder->pg[cpu],
-				     get_order(TFW_MMAP_BUFFER_FULL_SIZE(buf->size)));
-			holder->pg[cpu] = NULL;
-		}
+		if (buf)
+			vunmap(buf);
+
+		if (holder->mem[cpu].buf_page)
+			__free_pages(holder->mem[cpu].buf_page, 0);
+		if (holder->mem[cpu].data_page)
+			__free_pages(holder->mem[cpu].data_page,
+				     get_order(holder->size));
 	}
 
 	if (holder->dev_major > 0) {
@@ -300,6 +309,5 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 	}
 
 	free_percpu(holder->buf);
-
 	kfree(holder);
 }

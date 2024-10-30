@@ -25,6 +25,12 @@
  * performance by avoiding the overhead of traditional system calls and memory
  * copying.
  *
+ * The ring buffer is mapped twice in memory to create two consecutive memory
+ * regions. This allows reads across the end of the buffer and the beginning of
+ * the buffer as if they are one contiguous block. By doing so, we simplify
+ * handling of wrap-around cases, enabling seamless reading of split segments
+ * as a single continuous segment.
+ *
  * Motivation for not using existing kernel ring buffers
  *
  * While the Linux kernel provides several ring buffer implementations, none of
@@ -107,65 +113,119 @@
 
 #endif /* __KERNEL__ */
 
-#define TFW_MMAP_BUFFER_DATA_OFFSET 32
-#define TFW_MMAP_BUFFER_MIN_SIZE    PAGE_SIZE
-#define TFW_MMAP_BUFFER_MAX_SIZE    (PAGE_SIZE * 4096)
+#define TFW_MMAP_BUFFER_DATA_OFFSET	PAGE_SIZE
+#define TFW_MMAP_BUFFER_MIN_SIZE	PAGE_SIZE
+#define TFW_MMAP_BUFFER_MAX_SIZE	(1024 * 1024 * 128)
+#define TFW_MMAP_BUFFER_DEFAULT_SIZE	TFW_MMAP_BUFFER_MIN_SIZE
+#define TFW_MMAP_BUFFER_MIN_SIZE_STR	"4096"
+#define TFW_MMAP_BUFFER_MAX_SIZE_STR	"128M"
 
 #define TFW_MMAP_BUFFER_MAX_NAME_LEN 32
 
-#define TFW_MMAP_BUFFER_DATA_SIZE(size) (size - TFW_MMAP_BUFFER_DATA_OFFSET)
-#define TFW_MMAP_BUFFER_FULL_SIZE(size) (size + TFW_MMAP_BUFFER_DATA_OFFSET)
+#define TFW_MMAP_BUFFER_FULL_SIZE(size) (TFW_MMAP_BUFFER_DATA_OFFSET + size * 2)
 
+/**
+ * @head	- Head offset where the next data write will happen;
+ * @tail	- tail offset where the next data read will happen;
+ * @size	- size of the ring buffer data in bytes;
+ * @mask	- limits head and tail to the buffer size (a power of two), replacing
+ *		  mod for faster indexing;
+ * @cpu		- ID of the CPU tied to this buffer;
+ * @is_ready	- indicates that the buffer is mapped to user space and ready
+ *		  both for writing and reading. Resetting this field signals to
+ *		  user space that it should stop reading, unmap and close the file;
+ * @data	- points to the data start.
+ */
 typedef struct {
-	u64 head;    /* head offset where the next data write will happen */
-	u64 tail;    /* tail offset where the next data read will happen */
-	u32 size;    /* size of the ring buffer data in bytes */
-	u32 cpu;     /* ID of the CPU tied to this buffer */
+	u64		head;
+	u64		tail;
+	u32		size;
+	u32		mask;
+	u32		cpu;
 #ifdef __KERNEL__
-	/* is_ready indicates that the buffer is mapped to user space and ready both
-	 * for writing and reading. Resetting this field signals to user space that it
-	 * should stop reading, unmap and close the file.
-	 */
-	atomic_t is_ready;
+	atomic_t	is_ready;
 #else
-	int is_ready;
+	int		is_ready;
 #endif
 	char __attribute__((aligned(TFW_MMAP_BUFFER_DATA_OFFSET))) data[];
 } TfwMmapBuffer;
 
 #ifdef __KERNEL__
 
+/**
+ * @buf_page	- Pages allocated for buffer metadata;
+ * @data_page	- pages allocated for data storage.
+ */
 typedef struct {
-	TfwMmapBuffer __percpu **buf;
-	char dev_name[TFW_MMAP_BUFFER_MAX_NAME_LEN];
-	atomic_t dev_is_opened;
-	/* is_freeing indicates that freeing process started. It's necessary to
-	 * exclude repeated file opening.
-	 */
-	atomic_t is_freeing;
-	int dev_major;
-	struct class *dev_class;
-	struct page *pg[];
+	struct page	*buf_page;
+	struct page	*data_page;
+} TfwMMapBufferMem;
+
+/**
+ * @buf			- Per CPU pointers to store pointers to buffers;
+ * @dev_name		- name of the device in /dev;
+ * @size		- size of the memory allocated to every buffer;
+ * @dev_is_opened	- indicates that freeing process started, it's
+ *			  necessary to exclude repeated file opening;
+ * @is_freeing		- indicates that freeing process started, It's
+ *			  necessary to exclude repeated file opening;
+ * @dev_major		- the major number of the device in /dev;
+ * @dev_class		- the class of the device;
+ * @mem			- array of structures descripting allocated memory.
+ */
+typedef struct {
+	TfwMmapBuffer __percpu	**buf;
+	char			dev_name[TFW_MMAP_BUFFER_MAX_NAME_LEN];
+	unsigned int		size;
+	atomic_t		dev_is_opened;
+	atomic_t		is_freeing;
+	int			dev_major;
+	struct class		*dev_class;
+	TfwMMapBufferMem	mem[];
 } TfwMmapBufferHolder;
 
 /*
- * The function 'tfw_mmap_buffer_get_room()' returns pointers and sizes to one
- * or two contiguous memory regions available for writing in the buffer. The
- * caller should write data to the first segment (part1), then to the second
- * segment (part2). Internal state of the buffer (i.e., head or tail positions)
- * is not modified at this time. As a result, the writing process can be
- * interrupted at any time, and this function can be called again to request
- * space for another element without affecting previous calls.
+ * The function 'tfw_mmap_buffer_get_room()' returns the size of the memory
+ * region available for writing. Internal state of the buffer (i.e., head or
+ * tail positions) is not modified at this time. As a result, the writing
+ * process can be interrupted at any time, and this function can be called
+ * again to request space for another element without affecting previous calls.
  *
  * Once the data has been successfully written, 'tfw_mmap_buffer_commit()' must
  * be called, passing the actual size of the written data. This function
  * updates the buffer's internal state to reflect the new data and make the
  * written space unavailable for further writing.
  */
-void tfw_mmap_buffer_get_room(TfwMmapBufferHolder *holder,
-			      char **part1, unsigned int *size1,
-			      char **part2, unsigned int *size2);
-void tfw_mmap_buffer_commit(TfwMmapBufferHolder *holder, unsigned int size);
+static __always_inline unsigned int
+tfw_mmap_buffer_get_room(TfwMmapBufferHolder *holder, char **data)
+{
+	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
+	u64 size;
+
+	if (unlikely(!atomic_read(&buf->is_ready)))
+		return 0;
+
+	*data = buf->data + (buf->head & buf->mask);
+	size = buf->head - smp_load_acquire(&buf->tail);
+
+	return buf->size - (buf->head - smp_load_acquire(&buf->tail)) - 1;
+}
+
+static __always_inline int
+tfw_mmap_buffer_commit(TfwMmapBufferHolder *holder, unsigned int size)
+{
+	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
+	u64 tail;
+
+	tail = smp_load_acquire(&buf->tail);
+	if (buf->head + size - tail >= buf->size - 1)
+		return -ENOMEM;
+
+	smp_store_release(&buf->head, buf->head + size);
+
+	return 0;
+}
+
 TfwMmapBufferHolder *tfw_mmap_buffer_create(const char *filename,
 					    unsigned int size);
 void tfw_mmap_buffer_free(TfwMmapBufferHolder *holder);
