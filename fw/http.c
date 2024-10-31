@@ -1595,14 +1595,14 @@ tfw_http_resp_should_fwd_stale(TfwHttpReq *req, unsigned short status)
 	 * Checks whether stale response can be used depending on
 	 * "Cache-control: stale-if-error" header.
 	 *
-	 * NOTE: There is inaccuracy in age calculation. Because we prepare
-	 * stale response and calculate age before forwarding request to
-	 * upstream, it might take some time and age of prepared stale response
-	 * might become greater than calculated age during receiving
-	 * from cache. Therefore we response with inaccurate age or even
-	 * with violation of max-stale param.
+	 * NOTE: There is inaccuracy in age calculation. Because we calculate
+	 * age before forwarding request to upstream, it might take some time
+	 * and age of prepared stale response might become greater than
+	 * calculated age during receiving from cache. Therefore we response
+	 * with inaccurate age or even with violation of max-stale param.
 	 */
-	return tfw_http_use_stale_if_error(status);
+	return req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR &&
+		tfw_http_use_stale_if_error(status);
 }
 
 static inline void

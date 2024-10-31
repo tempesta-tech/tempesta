@@ -3088,8 +3088,15 @@ tfw_cache_can_use_stale(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	 * response's directive has higher priority - this behaviour not
 	 * specified in RFC.
 	 */
-	if (ce_flags & TFW_CE_STALE_IF_ERROR && ce->stale_if_error >= age)
+	if (ce_flags & TFW_CE_STALE_IF_ERROR && ce->stale_if_error >= age) {
+		/*
+		 * NOTE: Be careful! Set request's stale-if-error flag even for
+		 * response, because at this moment we don't have constructed
+		 * response.
+		 */
+		req->cache_ctl.flags |= TFW_HTTP_CC_STALE_IF_ERROR;
 		return true;
+	}
 
 	return req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR &&
 		req->cache_ctl.stale_if_error >= age;
