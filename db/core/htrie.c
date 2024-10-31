@@ -266,7 +266,11 @@ tdb_rec_is_complete(TdbRec *rec)
 	return rec->flags & TDB_HTRIE_COMPLETE_BIT;
 }
 
-/* Intended to be called as complete of insertion, only in the same thread. */
+/**
+ * Intended to be called as complete of insertion, only in the same thread.
+ *
+ * TODO: Incomplete records can be used as base for implementation #500 issue.
+ */
 void
 tdb_rec_mark_complete(void *rec)
 {
