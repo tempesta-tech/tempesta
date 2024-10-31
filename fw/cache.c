@@ -3018,6 +3018,38 @@ out:
 	return NULL;
 }
 
+TfwHttpResp *
+tfw_cache_build_resp_stale(TfwHttpReq *req)
+{
+	TDB *db = node_db();
+	TfwCacheEntry *ce = req->stale_ce;
+	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
+
+#if defined(DUBEG)
+	if (resp)
+		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
+		      ce=%p", req, ce->trec.key, ce);
+	else
+		T_DBG("Cache: Cannot assigne stale response to req [%p] w/ \
+		      key=%lx, ce=%p", req, ce->trec.key, ce);
+#endif
+
+	tdb_rec_put(db, ce);
+	/* Set to NULL to prevent double free in req destructor. */
+	req->stale_ce = NULL;
+
+	return resp;
+}
+
+/**
+ * Release cache entry reference.
+ */
+void
+tfw_cache_put_entry(void *ce)
+{
+	tdb_rec_put(node_db(), ce);
+}
+
 static bool
 tfw_cache_can_use_stale(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 {
@@ -3093,10 +3125,12 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 			TFW_INC_STAT_BH(cache.misses);
 			goto out;
 		}
+		req->stale_ce = ce;
+		req->stale_ce_age = age;
 	}
 
-	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p",
-	      req, ce->trec.key, ce);
+	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p", req,
+	      ce->trec.key, ce);
 
 	TFW_INC_STAT_BH(cache.hits);
 
@@ -3116,20 +3150,8 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	resp = tfw_cache_build_resp(req, ce, age);
-
-	if (resp && stale) {
-		req->resp = NULL;
-		req->stale_resp = resp;
-
-		if (ce->flags & TFW_CE_STALE_IF_ERROR) {
-			resp->cache_ctl.stale_if_error = ce->stale_if_error;
-			resp->cache_ctl.flags |= TFW_HTTP_CC_STALE_IF_ERROR;
-		}
-
-		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
-		      ce=%p", req, ce->trec.key, ce);
-	}
+	if (!stale)
+		resp = tfw_cache_build_resp(req, ce, age);
 
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
@@ -3141,7 +3163,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * is stale, request will be forwarded to server, some forwardning
 	 * functions requires alive stream. E.g: @tfw_http_req_evict_dropped().
 	 */
-	if (resp && TFW_MSG_H2(req) && !stale) {
+	if (resp && TFW_MSG_H2(req)) {
 		id = tfw_h2_req_stream_id(req);
 		if (unlikely(!id)) {
 			tfw_http_msg_free((TfwHttpMsg *)resp);
@@ -3151,7 +3173,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		tfw_h2_req_unlink_stream(req);
 	}
 out:
-	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED)) {
+	if (!stale && !resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED)) {
 		tfw_http_send_err_resp(req, 504, "resource not cached");
 	} else {
 		/*
@@ -3163,8 +3185,9 @@ out:
 			set_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags);
 		action((TfwHttpMsg *)req);
 	}
+	/* For stale we put entry after building response, during forwarding. */
+	if (ce && !stale)
 put:
-	if (ce)
 		tdb_rec_put(db, ce);
 }
 
