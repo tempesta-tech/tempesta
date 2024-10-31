@@ -347,8 +347,8 @@ typedef struct {
  *		  the same;
  * @old_head	- Original request head. Required for keep request data until
  * 		  the response is sent to the client;
- * @stale_resp	- Stale response retrieved from the cache. Must be assigned only
- * 		  when "cache_use_stale" is configured;
+ * @stale_ce	- Stale cache entry retrieved from the cache. Must be assigned
+ *		  only when "cache_use_stale" is configured;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
@@ -361,7 +361,9 @@ typedef struct {
  * @nip_list	- member in the queue of non-idempotent requests;
  * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
  * @jrxtstamp	- time the request is received from a client, in jiffies;
- * @tm_header	- time HTTP header started coming;
+ * @tm_header	- time HTTP header started coming. Only rx path;
+ * @stale_ce_age - calculated age of stale response. Must be assigned only when
+ *		  "cache_use_stale" is configured on tx path with cache;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
  * @frang_st	- current state of FRANG classifier;
@@ -382,7 +384,7 @@ struct tfw_http_req_t {
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
 	struct sk_buff		*old_head;
-	TfwHttpResp		*stale_resp;
+	void			*stale_ce;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
@@ -394,7 +396,10 @@ struct tfw_http_req_t {
 	struct list_head	nip_list;
 	unsigned long		jtxtstamp;
 	unsigned long		jrxtstamp;
-	unsigned long		tm_header;
+	union {
+		unsigned long		tm_header;
+		long			stale_ce_age;
+	};
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
 	unsigned int		frang_st;
