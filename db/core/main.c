@@ -115,6 +115,16 @@ tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 EXPORT_SYMBOL(tdb_entry_alloc);
 
 /*
+ * Return true if @rec is complete.
+ */
+bool
+tdb_entry_is_complete(void *rec)
+{
+	return tdb_rec_is_complete(rec);
+}
+EXPORT_SYMBOL(tdb_entry_is_complete);
+
+/*
  * Mark TDB record as complete. Incomplete records are invisible for lookup
  * and remove. Small records are always complete.
  */

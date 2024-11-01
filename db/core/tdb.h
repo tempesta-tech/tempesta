@@ -213,6 +213,8 @@ typedef bool tdb_eq_cb_t(TdbRec *rec, void *data);
 TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
 TdbRec *tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
 			       tdb_eq_cb_t *eq_cb, void *eq_data);
+
+bool tdb_entry_is_complete(void *rec);
 void tdb_entry_mark_complete(void *rec);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
