@@ -260,10 +260,10 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	return hdr;
 }
 
-static bool
-tdb_rec_is_complete(TdbRec *rec)
+bool
+tdb_rec_is_complete(void *rec)
 {
-	return rec->flags & TDB_HTRIE_COMPLETE_BIT;
+	return ((TdbRec *)rec)->flags & TDB_HTRIE_COMPLETE_BIT;
 }
 
 /**

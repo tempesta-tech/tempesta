@@ -2496,9 +2496,13 @@ tfw_cache_rec_eq(TdbRec *r1, void *r2)
 }
 
 static void
-tfw_cache_update_stat(TdbRec *rec)
+tfw_cache_decrease_stat(TdbRec *rec)
 {
 	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
+
+	/* Stats should be updated(dec/inc) only for complete records. */
+	if (!tdb_entry_is_complete(rec))
+		return;
 
 	TFW_SUB_STAT_BH(ce_total_size(ce), cache.bytes);
 	TFW_DEC_STAT_BH(cache.objects);
@@ -3426,7 +3430,7 @@ tfw_cache_start(void)
 			r = -ENOMEM;
 			goto close_db;
 		}
-		c_nodes[i].db->hdr->before_free = tfw_cache_update_stat;
+		c_nodes[i].db->hdr->before_free = tfw_cache_decrease_stat;
 	}
 #if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");

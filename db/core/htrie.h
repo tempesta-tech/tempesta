@@ -124,6 +124,7 @@ tdb_rec_hdr_size(TdbHdr *dbh)
 	return TDB_HTRIE_VARLENRECS(dbh) ? sizeof(TdbVRec) : sizeof(TdbFRec);
 }
 
+bool tdb_rec_is_complete(void *rec);
 void tdb_rec_mark_complete(void *rec);
 
 TdbVRec *tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size);
