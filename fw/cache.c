@@ -2558,10 +2558,11 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
 	} else {
 		tdb_entry_mark_complete(ce);
-		tdb_rec_put(db, ce);
 		TFW_INC_STAT_BH(cache.objects);
 		TFW_ADD_STAT_BH(ce_total_size(ce), cache.bytes);
 	}
+
+	tdb_rec_put(db, ce);
 }
 
 /*
