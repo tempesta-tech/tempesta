@@ -40,12 +40,14 @@
  *		    initialized in runtime, so we lose some free space on system
  *		    restart.
  * @freelist	  - pre-CPU freelist of blocks.
+ * @fl_size	  - number of elements in @freelist.
  */
 typedef struct {
 	unsigned long	b_wcl;
 	unsigned long	i_wcl;
 	unsigned long	d_wcl;
 	unsigned long	freelist;
+	unsigned long	fl_size;
 } TdbPerCpu;
 
 #define TDB_REC_COMMON			\
@@ -87,7 +89,12 @@ typedef void tdb_before_free_cb_t(TdbRec *rec);
  * @dbsz	- the database size in bytes;
  * @nwb		- next to write block (byte offset);
  * @pcpu	- pointer to per-cpu dynamic data for the TDB handler;
+ * @before_free - called before freeing the record;
+ * @ga_freelist - global freelist of blocks;
+ * @gfl_lock	- protects ga_freelist;
  * @rec_len	- fixed-size records length or zero for variable-length records;
+ * @oom		- indicates out of main memory. In this case only freelists
+ *		  will be used, avoid allocations from main memory.
  ** @ext_bmp	- bitmap of used/free extents.
  * 		  Must be small and cache line aligned;
  */
@@ -97,10 +104,12 @@ typedef struct {
 	atomic64_t		nwb;
 	TdbPerCpu __percpu	*pcpu;
 	tdb_before_free_cb_t	*before_free;
+	unsigned long		ga_freelist;
+	spinlock_t		gfl_lock;
 	unsigned int		rec_len;
-	unsigned char		_padding[8 * 2 + 4];
+	bool			oom;
 	unsigned long		ext_bmp[0];
-} __attribute__((packed)) TdbHdr;
+} ____cacheline_aligned TdbHdr;
 
 /**
  * Database handle descriptor.

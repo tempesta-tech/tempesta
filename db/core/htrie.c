@@ -34,6 +34,7 @@
 #include "lib/str.h"
 #include "htrie.h"
 
+#define TDB_MAX_PCP_SZ  (TDB_EXT_SZ / PAGE_SIZE) /* Store one extent per cpu. */
 #define TDB_MAGIC	0x434947414D424454UL /* "TDBMAGIC" */
 #define TDB_BLK_SZ	PAGE_SIZE
 #define TDB_BLK_MASK	(~(TDB_BLK_SZ - 1))
@@ -105,24 +106,45 @@ tdb_get_reftbl(TdbHdr *dbh, TdbExt *e)
 }
 
 /**
- * Add block to per-CPU freelist.
- *
- * NOTE Due to per-CPU nature of freelist, block can be allocated only on CPU
- * where it was freed. It can cause allocation failures in case when one
- * CPU frees more blocks then others and free blocks available only in per-CPU
- * freelists because main memory pool is exhausted.
+ * Add block to global freelist.
+ */
+static void
+tdb_ga_freelist_push(TdbHdr *dbh, unsigned long ptr, unsigned long *page_addr)
+{
+	spin_lock_bh(&dbh->gfl_lock);
+	if (!dbh->ga_freelist) {
+		dbh->ga_freelist = ptr;
+		*page_addr = 0;
+	} else {
+		*page_addr = dbh->ga_freelist;
+		dbh->ga_freelist = ptr;
+	}
+	spin_unlock_bh(&dbh->gfl_lock);
+}
+
+/**
+ * Add block to per-CPU or global freelist.
  */
 static void
 tdb_freelist_push(TdbHdr *dbh, unsigned long ptr)
 {
 	unsigned long *page_addr = TDB_PTR(dbh, ptr);
+	TdbPerCpu *pcpu = this_cpu_ptr(dbh->pcpu);
 
-	if (!this_cpu_ptr(dbh->pcpu)->freelist) {
-		this_cpu_ptr(dbh->pcpu)->freelist = ptr;
+	if (!pcpu->freelist) {
+		pcpu->freelist = ptr;
+		pcpu->fl_size = 1;
 		*page_addr = 0;
+		return;
+	}
+
+	/* If per-cpu list is full, push block to global list. */
+	if (pcpu->fl_size >= TDB_MAX_PCP_SZ) {
+		tdb_ga_freelist_push(dbh, ptr, page_addr);
 	} else {
-		*page_addr = this_cpu_ptr(dbh->pcpu)->freelist;
-		this_cpu_ptr(dbh->pcpu)->freelist = ptr;
+		*page_addr = pcpu->freelist;
+		pcpu->freelist = ptr;
+		pcpu->fl_size++;
 	}
 }
 
@@ -327,12 +349,63 @@ repeat:
 }
 
 static unsigned long
+tdb_alloc_blk_pcp_freelist(TdbHdr *dbh)
+{
+	unsigned long rptr, *next;
+	TdbPerCpu *pcpu = this_cpu_ptr(dbh->pcpu);
+
+	rptr = pcpu->freelist;
+	if (!rptr)
+		return 0;
+
+	next = TDB_PTR(dbh, rptr);
+	pcpu->freelist = *next;
+	pcpu->fl_size--;
+	tdb_get_blk(dbh, rptr);
+
+	return rptr;
+}
+
+static unsigned long
+tdb_alloc_blk_global_freelist(TdbHdr *dbh)
+{
+	unsigned long rptr = 0, *next;
+
+	spin_lock_bh(&dbh->gfl_lock);
+	rptr = dbh->ga_freelist;
+	if (!rptr) {
+		spin_unlock_bh(&dbh->gfl_lock);
+		return 0;
+	}
+
+	next = TDB_PTR(dbh, rptr);
+	dbh->ga_freelist = *next;
+	spin_unlock_bh(&dbh->gfl_lock);
+	tdb_get_blk(dbh, rptr);
+
+	return rptr;
+}
+
+static unsigned long
 tdb_alloc_blk(TdbHdr *dbh)
 {
 	TdbExt *e;
 	long g_nwb, rptr, next_blk;
 
+	rptr = tdb_alloc_blk_pcp_freelist(dbh);
+	if (rptr)
+		return rptr;
+
 retry:
+	if (dbh->oom) {
+		rptr = tdb_alloc_blk_global_freelist(dbh);
+		if (rptr)
+			return rptr;
+
+		TDB_ERR("out of free space\n");
+		return 0;
+	}
+
 	g_nwb = atomic64_read(&dbh->nwb);
 	e = tdb_ext(dbh, TDB_PTR(dbh, g_nwb));
 
@@ -365,8 +438,8 @@ retry:
 	if (unlikely(TDB_HTRIE_OFF(dbh, e) == dbh->dbsz)) {
 		/* We do this set because we skip the last page in extent. */
 		atomic64_set(&dbh->nwb, dbh->dbsz);
-		TDB_ERR("out of free space\n");
-		return 0;
+		dbh->oom = true;
+		goto retry;
 	}
 	BUG_ON(TDB_HTRIE_OFF(dbh, e) > dbh->dbsz);
 	set_bit(TDB_EXT_ID(TDB_EXT_BASE(dbh, e)), dbh->ext_bmp);
@@ -408,22 +481,6 @@ tdb_htrie_init_bucket(TdbBucket *b)
 #endif
 }
 
-static unsigned long
-tdb_alloc_blk_freelist(TdbHdr *dbh)
-{
-	unsigned long rptr, *next;
-
-	rptr = this_cpu_ptr(dbh->pcpu)->freelist;
-	if (!rptr)
-		return 0;
-
-	next = TDB_PTR(dbh, rptr);
-	this_cpu_ptr(dbh->pcpu)->freelist = *next;
-
-	tdb_get_blk(dbh, rptr);
-	return rptr;
-}
-
 /**
  * @return byte offset of the allocated data block and sets @len to actually
  * available room for writing if @len doesn't fit to block.
@@ -459,14 +516,7 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len)
 		size_t max_data_len;
 
 		old_rptr = ((rptr - 1) & TDB_BLK_MASK);
-		if (this_cpu_ptr(dbh->pcpu)->freelist)
-			rptr = tdb_alloc_blk_freelist(dbh);
-		else
-			/*
-			 * Use a new page and/or extent for the data.
-			 * Less than a page can be allocated.
-			 */
-			rptr = tdb_alloc_blk(dbh);
+		rptr = tdb_alloc_blk(dbh);
 
 		if (!rptr)
 			goto out;
@@ -517,9 +567,6 @@ tdb_alloc_bucket(TdbHdr *dbh)
 
 	if (unlikely(!(rptr & ~TDB_BLK_MASK)
 		     || TDB_BLK_O(rptr + len - 1) > TDB_BLK_O(rptr))) {
-		if (this_cpu_ptr(dbh->pcpu)->freelist)
-			rptr = tdb_alloc_blk_freelist(dbh);
-		else
 			/* Use a new page and/or extent for local CPU. */
 			rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
@@ -557,9 +604,6 @@ tdb_alloc_index(TdbHdr *dbh)
 		     || TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1)
 			> TDB_BLK_O(rptr)))
 	{
-		if (this_cpu_ptr(dbh->pcpu)->freelist)
-			rptr = tdb_alloc_blk_freelist(dbh);
-		else
 			/* Use a new page and/or extent for local CPU. */
 			rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
@@ -1358,6 +1402,8 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 			return NULL;
 		}
 	}
+
+	spin_lock_init(&hdr->gfl_lock);
 
 	/* Set per-CPU pointers. */
 	hdr->pcpu = alloc_percpu(TdbPerCpu);
