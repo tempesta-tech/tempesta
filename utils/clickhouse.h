@@ -22,8 +22,9 @@
 #define __TFW_CLICKHOUSE_H__
 
 #include <iostream>
-#include <clickhouse/client.h>
+
 #include <clickhouse/base/socket.h>
+#include <clickhouse/client.h>
 
 using namespace clickhouse;
 using namespace std;

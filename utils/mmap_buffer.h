@@ -21,9 +21,10 @@
 #ifndef __TFW_MMAP_BUFFER_READER_H__
 #define __TFW_MMAP_BUFFER_READER_H__
 
-#include "../fw/mmap_buffer.h"
 #include <string>
 #include <thread>
+
+#include "../fw/mmap_buffer.h"
 
 using namespace std;
 

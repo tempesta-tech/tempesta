@@ -18,16 +18,18 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "mmap_buffer.h"
-#include <iostream>
-#include <cstring>
-#include <chrono>
+#include <errno.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <sched.h>
-#include <errno.h>
 #include <sys/mman.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <cstring>
+#include <iostream>
+
+#include "mmap_buffer.h"
 
 #define WAIT_FOR_FILE		1  /* s */
 #define WAIT_FOR_READINESS	10 /* ms */

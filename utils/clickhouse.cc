@@ -18,10 +18,12 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "clickhouse.h"
 #include <iostream>
-#include <clickhouse/client.h>
+
 #include <clickhouse/base/socket.h>
+#include <clickhouse/client.h>
+
+#include "clickhouse.h"
 
 using namespace std;
 using namespace chrono;
