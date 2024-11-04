@@ -172,7 +172,7 @@ TfwMmapBufferHolder *
 tfw_mmap_buffer_create(const char *filename, unsigned int size)
 {
 	TfwMmapBufferHolder *holder;
-	struct page **page_ptr;
+	struct page **page_ptr = NULL;
 	unsigned int order, i, page_cnt;
 	int cpu;
 
@@ -199,6 +199,9 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	holder->size = size;
 	holder->buf = (TfwMmapBuffer **)alloc_percpu_gfp(sizeof(TfwMmapBuffer *),
 							 GFP_KERNEL);
+	if (!holder->buf)
+		goto err;
+
 	atomic_set(&holder->dev_is_opened, 0);
 	atomic_set(&holder->is_freeing, 0);
 
@@ -208,7 +211,7 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	 */
 	page_ptr = kmalloc(page_cnt * sizeof(struct page *) * 2 + 1, GFP_KERNEL);
 	if (!page_ptr)
-		return NULL;
+		goto err;
 
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf, **bufp;
@@ -278,6 +281,9 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 
 	atomic_set(&holder->is_freeing, 1);
 
+	if (!holder->buf)
+		goto free_holder;
+
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf = *per_cpu_ptr(holder->buf, cpu);
 		/* Notify user space that it have to close the file */
@@ -309,5 +315,6 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 	}
 
 	free_percpu(holder->buf);
+free_holder:
 	kfree(holder);
 }
