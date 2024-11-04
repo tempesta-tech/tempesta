@@ -98,6 +98,15 @@ TEST(tfw_mmap_buffer, create)
 	tfw_mmap_buffer_free(holder);
 }
 
+TEST(tfw_mmap_buffer, create_dev)
+{
+	holder = tfw_mmap_buffer_create("test", TFW_MMAP_BUFFER_MIN_SIZE);
+	EXPECT_NOT_NULL(holder);
+	EXPECT_NULL(tfw_mmap_buffer_create("test", TFW_MMAP_BUFFER_MIN_SIZE));
+	tfw_mmap_buffer_free(holder);
+}
+
+
 TEST(tfw_mmap_buffer, write_read)
 {
 	TfwMmapBuffer *buf;
@@ -134,6 +143,7 @@ TEST(tfw_mmap_buffer, write_read)
 TEST_SUITE(mmap_buffer)
 {
 	TEST_RUN(tfw_mmap_buffer, create);
+	TEST_RUN(tfw_mmap_buffer, create_dev);
 	TEST_RUN(tfw_mmap_buffer, write_read);
 }
 
