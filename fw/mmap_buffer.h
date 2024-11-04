@@ -179,6 +179,7 @@ typedef struct {
 	unsigned int		size;
 	atomic_t		dev_is_opened;
 	atomic_t		is_freeing;
+	struct device		*dev;
 	int			dev_major;
 	struct class		*dev_class;
 	TfwMMapBufferMem	mem[];

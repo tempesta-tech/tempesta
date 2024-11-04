@@ -249,13 +249,21 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	if (filename) { /* do not create the file in unit tests */
 		holder->dev_major = register_chrdev(0, filename, &dev_fops);
 		if (holder->dev_major < 0) {
-			T_WARN("Registering char device failed for %s\n", filename);
+			T_ERR("Registering char device failed for %s\n", filename);
 			goto err;
 		}
-
 		holder->dev_class = class_create(THIS_MODULE, filename);
-		device_create(holder->dev_class, NULL,
-					  MKDEV(holder->dev_major, 0), NULL, filename);
+		if (IS_ERR(holder->dev_class)) {
+			T_ERR("Class creation failed for %s\n", filename);
+			goto err;
+		}
+		holder->dev = device_create(holder->dev_class, NULL,
+					    MKDEV(holder->dev_major, 0),
+					    NULL, filename);
+		if (IS_ERR(holder->dev)) {
+			T_ERR("Device creation failed for %s\n", filename);
+			goto err;
+		}
 		strscpy(holder->dev_name, filename, sizeof(holder->dev_name));
 		holders[holders_cnt++] = holder;
 	}
@@ -308,11 +316,12 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 				     get_order(holder->size));
 	}
 
-	if (holder->dev_major > 0) {
+	if (holder->dev && !IS_ERR(holder->dev))
 		device_destroy(holder->dev_class, MKDEV(holder->dev_major, 0));
+	if (holder->dev_class && !IS_ERR(holder->dev_class))
 		class_destroy(holder->dev_class);
+	if (holder->dev_major < 0)
 		unregister_chrdev(holder->dev_major, holder->dev_name);
-	}
 
 	free_percpu(holder->buf);
 free_holder:
