@@ -753,15 +753,19 @@ do {									\
 		k = TDB_HTRIE_IDX(r->key, bits);			\
 		if (!nb[k].r) {						\
 			/* Just allocate TDB_HTRIE_MINDREC bytes. */	\
-			size_t _n = 0, o = 0;				\
+			size_t _n = 0;					\
+			unsigned long o_b, o_r;				\
 			TdbBucket *nbckt;				\
-			o = tdb_alloc_bucket(dbh);			\
-			if (!o)						\
-				goto err_out;				\
-			nb[k].r = tdb_alloc_data(dbh, &_n);		\
-			if (!nb[k].r)					\
+			o_r = tdb_alloc_data(dbh, &_n);			\
+			if (!o_r)					\
 				goto err_cleanup;			\
-			nbckt = TDB_PTR(dbh, o);			\
+			o_b = tdb_alloc_bucket(dbh);			\
+			if (!o_b) {					\
+				tdb_put_blk(dbh, o_r);			\
+				goto err_cleanup;			\
+			}						\
+			nb[k].r = o_r;					\
+			nbckt = TDB_PTR(dbh, o_b);			\
 			tdb_htrie_init_bucket(nbckt);			\
 			nbckt->rec = TDB_O2DI(nb[k].r);			\
 			tdb_htrie_create_rec(dbh, nb[k].r, r->key, r->data,\
@@ -771,7 +775,7 @@ do {									\
 				" to new dblk=%#lx w/ idx=%#lx\n",	\
 				r, n, r->key, nb[k].r, k);		\
 			nb[k].off = n;					\
-			new_in->shifts[k] = TDB_O2BI(o) | TDB_HTRIE_DBIT;\
+			new_in->shifts[k] = TDB_O2BI(o_b) | TDB_HTRIE_DBIT;\
 			/* We copied a record, clear its original place. */\
 			free_nb = free_nb > 0 ? free_nb : -free_nb;	\
 			/* Remove source record */			\
@@ -821,12 +825,12 @@ do {									\
 	*node = new_in;
 
 	return 0;
+
 err_cleanup:
 	if (free_nb > 0)
 		for (i = 0; i < TDB_HTRIE_FANOUT; ++i)
 			if (i != free_nb && nb[i].r)
 				tdb_htrie_put_rec(dbh, (TdbRec *)nb[i].r);
-err_out:
 	tdb_free_index_blk(new_in);
 	return -ENOMEM;
 }
@@ -1076,13 +1080,16 @@ retry:
 			" bits_used=%d, shift=%lx\n", key, *len, bits,
 			TDB_HTRIE_IDX(key, bits));
 
-		o_bckt = o_bckt ?: tdb_alloc_bucket(dbh);
-		if (!o_bckt)
-			return NULL;
-
 		o = tdb_alloc_data(dbh, len);
 		if (!o)
 			return NULL;
+
+		o_bckt = o_bckt ?: tdb_alloc_bucket(dbh);
+		if (!o_bckt) {
+			/* Free allocated data. */
+			tdb_put_blk(dbh, o);
+			return NULL;
+		}
 
 		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 
@@ -1207,13 +1214,13 @@ retry:
 			return NULL;
 		}
 
+		bckt->coll_next = TDB_O2BI(o_bckt);
+
 		o = tdb_alloc_data(dbh, len);
 		if (!o) {
 			write_unlock_bh(&bckt->lock);
 			return NULL;
 		}
-
-		bckt->coll_next = TDB_O2BI(o_bckt);
 
 		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 
