@@ -35,13 +35,14 @@
 constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
 
 TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
+					 void *private_data,
 					 TfwMmapBufferReadCallback cb)
 {
 	unsigned int area_size;
 
 	callback = cb;
-	this->ncpu = ncpu;
 	is_running = false;
+	this->private_data = private_data;
 
 	get_buffer_size(fd);
 
@@ -112,7 +113,7 @@ TfwMmapBufferReader::read()
 	if (head - tail == 0)
 		return -EAGAIN;
 
-	callback(buf->data + (tail & buf->mask), head - tail, ncpu);
+	callback(buf->data + (tail & buf->mask), head - tail, private_data);
 
 	__atomic_store_n(&buf->tail, head, __ATOMIC_RELEASE);
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);

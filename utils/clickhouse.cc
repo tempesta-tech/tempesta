@@ -28,63 +28,42 @@
 using namespace std;
 using namespace chrono;
 
-#define MAX_MSEC 100
-#define MAX_EVENTS 1000
+constexpr size_t MAX_MSEC = 100;
+constexpr size_t MAX_EVENTS = 1000;
 
 #define NOW_MS() \
 	duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
 
-
-TfwClickhouse::TfwClickhouse(string host, string table_name,
-			     unsigned int cpu_cnt, Block *(*cb)())
+TfwClickhouse::TfwClickhouse(string host, string table_name, Block *(*cb)())
 {
-	unsigned int i;
-
 	block_callback = cb;
 	this->table_name = table_name;
-	this->cpu_cnt = cpu_cnt;
 
-	tasks = new TfwTask[cpu_cnt];
+	client = make_unique<Client>(ClientOptions().SetHost(move(host)));
+	block = cb();
 
-	for (i = 0; i < cpu_cnt; ++i) {
-		tasks[i].client = new Client(ClientOptions().SetHost(move(host)));
-		tasks[i].block = cb();
-		tasks[i].last_time = NOW_MS();
-	}
-}
-
-TfwClickhouse::~TfwClickhouse()
-{
-	unsigned int i;
-
-	for (i = 0; i < cpu_cnt; ++i) {
-		delete tasks[i].client;
-		delete tasks[i].block;
-	}
-
-	delete tasks;
+	last_time = NOW_MS();
 }
 
 Block *
-TfwClickhouse::getBlock(unsigned int cpu)
+TfwClickhouse::get_block()
 {
-	return tasks[cpu].block;
+	return block;
 }
 
 void
-TfwClickhouse::commit(unsigned int cpu)
+TfwClickhouse::commit()
 {
-	TfwTask *task = &tasks[cpu];
 	uint64_t now = NOW_MS();
 
-	task->block->RefreshRowCount();
-	if ((now - task->last_time > MAX_MSEC && task->block->GetRowCount() > 0)
-		|| task->block->GetRowCount() > MAX_EVENTS) {
+	block->RefreshRowCount();
+	if ((now - last_time > MAX_MSEC && block->GetRowCount() > 0)
+		|| block->GetRowCount() > MAX_EVENTS) {
 
-		task->client->Insert(move(table_name), *task->block);
-		delete task->block;
+		client->Insert(move(table_name), *block);
+		delete block;
 
-		task->block = block_callback();
-		task->last_time = now;
+		block = block_callback();
+		last_time = now;
 	}
 }

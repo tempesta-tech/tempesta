@@ -39,9 +39,7 @@ using namespace std;
  *    @TfwClickhouse - Initializes the Clickhouse connection for each CPU core,
  *        setting up individual clients and data blocks, with a provided callback.
  *
- * Destructor:
- *    @~TfwClickhouse - Cleans up by deleting all Client and Block instances
- *        and freeing the tasks array.
+ * Other public methods:
  *    @getBlock - Returns a pointer to the data block for the specified CPU core.
  *    @commit - Commits the data in the block to the Clickhouse database if the
  *        elapsed time since the last insertion exceeds a predefined threshold
@@ -49,39 +47,26 @@ using namespace std;
  *        committing, the block is deleted, a new block is created via
  *        block_callback and last_time is updated.
  *
- * Private Struct:
- *    @struct TfwTask - Holds task-specific data for each CPU core, including:
- *        @client - Clickhouse Client instance for sending data to the database.
- *        @block - Block instance holding data records to be inserted.
- *        @last_time - The last timestamp when data was sent.
- *
  * Private Members:
- *    @tasks - Array of tasks, one for each CPU core, to manage per-thread data
- *        and clients.
+ *    @client - Clickhouse Client instance for sending data to the database.
+ *    @block - Block instance holding data records to be inserted.
+ *    @last_time - The last timestamp when data was sent.
  *    @block_callback - Callback function that creates a new Block for data
  *        storage.
- *    @cpu_cnt - Number of CPU cores to be used.
  *    @table_name - Name of the Clickhouse table where data is inserted.
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(string host, string table_name,
-		      unsigned int cpu_cnt, Block *(*cb)());
-	~TfwClickhouse();
-	Block *getBlock(unsigned int cpu);
-	void commit(unsigned int cpu);
+	TfwClickhouse(string host, string table_name, Block *(*cb)());
+	Block *get_block();
+	void commit();
 
 private:
-	typedef struct {
-		Client		*client;
-		Block		*block;
-		uint64_t	last_time;
-	} TfwTask;
-
-	TfwTask		*tasks;
-	Block		*(*block_callback)();
-	unsigned int	cpu_cnt;
-	string		table_name;
+	unique_ptr<Client>	client;
+	Block			*block;
+	uint64_t		last_time;
+	Block			*(*block_callback)();
+	string			table_name;
 };
 
 /**

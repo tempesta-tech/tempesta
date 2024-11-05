@@ -56,8 +56,7 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", Type::String},
 };
 
-TfwClickhouse *tfw_clickhouse;
-TfwColumnFactory *tfw_column_factory;
+TfwColumnFactory tfw_column_factory;
 
 #ifdef DEBUG
 static void
@@ -90,13 +89,13 @@ make_block()
 	unsigned int i;
 	Block *block = new Block();
 
-	auto col = tfw_column_factory->create(Type::UInt64);
+	auto col = tfw_column_factory.create(Type::UInt64);
 	block->AppendColumn("timestamp", col);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		const TfwField *field = &tfw_fields[i];
 
-		auto col = tfw_column_factory->create(field->code);
+		auto col = tfw_column_factory.create(field->code);
 		block->AppendColumn(field->name, col);
 	}
 
@@ -104,9 +103,9 @@ make_block()
 }
 
 int
-read_access_log_event(const char *data, int size, int cpu)
+read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 {
-	Block *block = tfw_clickhouse->getBlock(cpu);
+	Block *block = clickhouse->get_block();
 	const char *p = data;
 	TfwBinLogEvent *event = (TfwBinLogEvent *)p;
 	int i;
@@ -169,8 +168,9 @@ read_access_log_event(const char *data, int size, int cpu)
 }
 
 void
-callback(const char *data, int size, unsigned int cpu)
+callback(const char *data, int size, void *private_data)
 {
+	TfwClickhouse *clickhouse = (TfwClickhouse *)private_data;
 	TfwBinLogEvent *event;
 	const char *p = data;
 	int r;
@@ -187,7 +187,7 @@ callback(const char *data, int size, unsigned int cpu)
 
 		switch (event->type) {
 		case TFW_MMAP_LOG_TYPE_ACCESS:
-			r = read_access_log_event(p, size, cpu);
+			r = read_access_log_event(p, size, clickhouse);
 			if (r < 0)
 				return;
 			size -= r;
@@ -211,16 +211,18 @@ callback(const char *data, int size, unsigned int cpu)
 		}
 	} while (size > 0);
 
-	tfw_clickhouse->commit(cpu);
+	clickhouse->commit();
 }
 
 void
-run_thread(int ncpu, int fd)
+run_thread(int ncpu, int fd, string host)
 {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
 
-	TfwMmapBufferReader mbr(ncpu, fd, callback);
+	TfwClickhouse clickhouse(host, TABLE_NAME, make_block);
+
+	TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
 	CPU_ZERO(&cpuset);
 	CPU_SET(mbr.get_cpu_id(), &cpuset);
@@ -244,8 +246,7 @@ main(int argc, char* argv[])
 		return -EINVAL;
 	}
 
-	tfw_column_factory = new TfwColumnFactory();
-	tfw_clickhouse = new TfwClickhouse(argv[1], TABLE_NAME, cpu_cnt, make_block);
+	tfw_column_factory = TfwColumnFactory();
 
 	while (1) {
 		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
@@ -255,7 +256,7 @@ main(int argc, char* argv[])
 		}
 
 		for (i = 0; i < cpu_cnt; ++i)
-			thrs.push_back(thread(run_thread, i, fd));
+			thrs.push_back(thread(run_thread, i, fd, argv[1]));
 
 		for (i = 0; i < cpu_cnt; ++i)
 			thrs[i].join();
@@ -263,8 +264,6 @@ main(int argc, char* argv[])
 		close(fd);
 	}
 
-	delete tfw_clickhouse;
-	delete tfw_column_factory;
 
 	return 0;
 }

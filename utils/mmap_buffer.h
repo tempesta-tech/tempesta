@@ -27,7 +27,7 @@
 #include "../fw/mmap_buffer.h"
 
 typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
-					  unsigned int cpu);
+					  void *private_data);
 
 /**
  * Tempesta user space ring buffer reader
@@ -56,7 +56,7 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  */
 class TfwMmapBufferReader {
 public:
-	TfwMmapBufferReader(unsigned int cpu_cnt, int fd,
+	TfwMmapBufferReader(unsigned int cpu_cnt, int fd, void *private_data,
 			    TfwMmapBufferReadCallback cb);
 	~TfwMmapBufferReader();
 	void run();
@@ -64,9 +64,9 @@ public:
 
 private:
 	TfwMmapBuffer	*buf;
-	unsigned int	ncpu;
 	unsigned int	size;
 	bool		is_running;
+	void		*private_data;
 	TfwMmapBufferReadCallback	callback;
 
 	void get_buffer_size(int fd);
