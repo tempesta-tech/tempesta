@@ -25,111 +25,76 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <cassert>
 #include <chrono>
 #include <cstring>
 #include <iostream>
 
 #include "mmap_buffer.h"
 
-#define WAIT_FOR_FILE		1  /* s */
-#define WAIT_FOR_READINESS	10 /* ms */
+constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
 
-TfwMmapBufferReader::TfwMmapBufferReader(string path, unsigned int cpu_cnt,
+TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
 					 TfwMmapBufferReadCallback cb)
 {
-	unsigned int i;
+	unsigned int area_size;
 
 	callback = cb;
-	filepath = path;
-	this->cpu_cnt = cpu_cnt;
+	this->ncpu = ncpu;
+	is_running = false;
 
-	thrs = new TfwThread[cpu_cnt];
-	for (i = 0; i < cpu_cnt; ++i)
-		thrs[i].cpu = i;
+	get_buffer_size(fd);
+
+	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size);
+
+	buf = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
+				    MAP_SHARED, fd, area_size * ncpu);
+	if (buf == MAP_FAILED)
+		throw std::runtime_error("Failed to map buffer");
 }
 
 TfwMmapBufferReader::~TfwMmapBufferReader()
 {
-	delete thrs;
+	assert(munmap(buf, TFW_MMAP_BUFFER_FULL_SIZE(size)) == 0);
 }
 
 void
 TfwMmapBufferReader::run()
 {
-	unsigned int i;
-
-	while (1) {
-		while ((fd = open(filepath.c_str(), O_RDWR)) == -1) {
-			if (errno != ENOENT)
-				throw runtime_error(strerror(errno));
-			sleep(WAIT_FOR_FILE);
-		}
-
-		get_buffer_size();
-
-		for (i = 0; i < cpu_cnt; ++i)
-			thrs[i].thr = new thread(&TfwMmapBufferReader::run_thread,
-						 this, &thrs[i]);
-
-		for (i = 0; i < cpu_cnt; ++i)
-			thrs[i].thr->join();
-
-		close(fd);
-	}
-}
-
-void
-TfwMmapBufferReader::run_thread(TfwThread *thr)
-{
-	cpu_set_t cpuset;
-	pthread_t current_thread = pthread_self();
-	unsigned int area_size;
 	int r;
 
-	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size);
-
-	thr->buf = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
-					 MAP_SHARED, fd, area_size * thr->cpu);
-	if (thr->buf == MAP_FAILED)
-		throw runtime_error("Failed to map buffer");
-
-	CPU_ZERO(&cpuset);
-	CPU_SET(thr->buf->cpu, &cpuset);
-
-	if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
-		cerr << "Set affinity error\n";
-
-	thr->is_running = false;
-
 	while (1) {
-		if (__atomic_load_n(&thr->buf->is_ready, __ATOMIC_ACQUIRE)) {
-			thr->is_running = true;
-			r = read(thr);
+		if (__atomic_load_n(&buf->is_ready, __ATOMIC_ACQUIRE)) {
+			is_running = true;
+			r = read();
 			if (r == 0)
 				continue;
 		} else {
-			if (thr->is_running) {
-				thr->is_running = false;
+			if (is_running) {
+				is_running = false;
 				break;
 			}
 		}
 
-		this_thread::sleep_for(chrono::milliseconds(WAIT_FOR_READINESS));
+		std::this_thread::sleep_for(
+			std::chrono::milliseconds(WAIT_FOR_READINESS));
 	}
 
-	if (munmap(thr->buf, area_size) == -1)
-		cerr << "Failed to unmap buffers\n";
+}
+
+unsigned int
+TfwMmapBufferReader::get_cpu_id()
+{
+	return buf->cpu;
 }
 
 void
-TfwMmapBufferReader::get_buffer_size()
+TfwMmapBufferReader::get_buffer_size(int fd)
 {
-	TfwMmapBuffer *buf;
-
 	buf = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
 				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
 	if (buf == MAP_FAILED)
-		throw runtime_error("Failed to get buffers info");
+		throw std::runtime_error("Failed to get buffers info");
 
 	size = buf->size;
 
@@ -137,9 +102,8 @@ TfwMmapBufferReader::get_buffer_size()
 }
 
 int
-TfwMmapBufferReader::read(TfwThread *thr)
+TfwMmapBufferReader::read()
 {
-	TfwMmapBuffer *buf = thr->buf;
 	u64 head, tail;
 
 	head = __atomic_load_n(&buf->head, __ATOMIC_ACQUIRE);
@@ -148,7 +112,7 @@ TfwMmapBufferReader::read(TfwThread *thr)
 	if (head - tail == 0)
 		return -EAGAIN;
 
-	callback(buf->data + (tail & buf->mask), head - tail, thr->cpu);
+	callback(buf->data + (tail & buf->mask), head - tail, ncpu);
 
 	__atomic_store_n(&buf->tail, head, __ATOMIC_RELEASE);
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);

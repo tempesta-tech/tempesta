@@ -26,39 +26,29 @@
 
 #include "../fw/mmap_buffer.h"
 
-using namespace std;
-
 typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
 					  unsigned int cpu);
 
 /**
  * Tempesta user space ring buffer reader
  * TfwMmapBufferReader is a reader from a ring buffer mapped into user space.
- * It spawns a separate thread for each CPU core, which monitors the buffer for
- * new data. When new data is available, it invokes a specified callback,
- * providing a pointer to the start of the data and its size.
+ * It monitors the buffer for new data. When new data is available, it invokes
+ * a specified callback, providing a pointer to the start of the data, its size
+ * and CPU number.
  *
  * Constructor:
- *    @TfwMmapBufferReader - Initializes the buffer reader with a path to the
- *        memory-mapped file, the number of CPUs to allocate threads for, and
- *        a callback function to process the data.
+ *    @TfwMmapBufferReader - Initializes own fields, maps the buffer.
  *
  * Destructor:
- *    @~TfwMmapBufferReader - Ensures that all threads are properly terminated
- *        and resources are released.
+ *    @~TfwMmapBufferReader - Unmaps the buffer.
  *
  * Other public methods:
- *    @run - Opens file in /dev, gets the buffer size and starts threads that
- *        read from the buffer for each CPU.
- *
- * Private struct:
- *    @TfwThread - Holds information for each thread, including a pointer to the
- *        thread object, the ring buffer for the thread's CPU, CPU ID and a flag
- *        indicating that the cycle of reading is started.
+ *    @run - Main reading loop. Continuously checks if new data is available by
+ *        polling the `is_ready` flag in the shared buffer. Calls `read()` to
+ *        process data if available and notifies the callback.
+ *    @get_cpu_id - Returns the CPU ID from the shared buffer.
  *
  * Private methods:
- *    @run_thread - Executes a thread reading loop. It maps the buffer, attaches
- *        to the appropriate CPU and reads in a loop.
  *    @get_buffer_size - Retrieves the size of the ring buffer for proper data
  *        management.
  *    @read - checks if there is a new data block and executes the callback when
@@ -66,30 +56,21 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  */
 class TfwMmapBufferReader {
 public:
-	TfwMmapBufferReader(string path, unsigned int cpu_cnt,
+	TfwMmapBufferReader(unsigned int cpu_cnt, int fd,
 			    TfwMmapBufferReadCallback cb);
 	~TfwMmapBufferReader();
 	void run();
+	unsigned int get_cpu_id();
 
 private:
-	struct TfwThread {
-		thread		*thr;
-		TfwMmapBuffer	*buf;
-		int		cpu;
-		bool		is_running;
-	};
-
-	TfwThread		*thrs;
-	int			fd;
-	string			filepath;
-	unsigned int		size;
-	unsigned int		cpu_cnt;
-	TfwMmapBuffer		**bufs;
+	TfwMmapBuffer	*buf;
+	unsigned int	ncpu;
+	unsigned int	size;
+	bool		is_running;
 	TfwMmapBufferReadCallback	callback;
 
-	void run_thread(TfwThread *thr);
-	void get_buffer_size();
-	int read(TfwThread *thr);
+	void get_buffer_size(int fd);
+	int read();
 };
 
 #endif /* __TFW_MMAP_BUFFER_READER_H__ */

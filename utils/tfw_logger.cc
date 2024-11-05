@@ -36,6 +36,8 @@ using namespace std;
 #define FILE_PATH	"/dev/tempesta_mmap_log"
 #define TABLE_NAME	"access_log"
 
+constexpr size_t WAIT_FOR_FILE = 1;  /* s */
+
 typedef struct {
 	const char	*name;
 	Type::Code	code;
@@ -212,10 +214,29 @@ callback(const char *data, int size, unsigned int cpu)
 	tfw_clickhouse->commit(cpu);
 }
 
+void
+run_thread(int ncpu, int fd)
+{
+	cpu_set_t cpuset;
+	pthread_t current_thread = pthread_self();
+
+	TfwMmapBufferReader mbr(ncpu, fd, callback);
+
+	CPU_ZERO(&cpuset);
+	CPU_SET(mbr.get_cpu_id(), &cpuset);
+
+	assert(pthread_setaffinity_np(current_thread,
+				      sizeof(cpu_set_t), &cpuset) == 0);
+
+	mbr.run();
+}
+
 int
 main(int argc, char* argv[])
 {
-	unsigned int cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+	vector<thread> thrs;
+	unsigned int i, cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+	int fd;
 
 	if (argc != 2) {
 		cout << "Usage:" << endl;
@@ -226,9 +247,21 @@ main(int argc, char* argv[])
 	tfw_column_factory = new TfwColumnFactory();
 	tfw_clickhouse = new TfwClickhouse(argv[1], TABLE_NAME, cpu_cnt, make_block);
 
-	TfwMmapBufferReader MB(FILE_PATH, cpu_cnt, callback);
+	while (1) {
+		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
+			if (errno != ENOENT)
+				throw runtime_error(strerror(errno));
+			sleep(WAIT_FOR_FILE);
+		}
 
-	MB.run();
+		for (i = 0; i < cpu_cnt; ++i)
+			thrs.push_back(thread(run_thread, i, fd));
+
+		for (i = 0; i < cpu_cnt; ++i)
+			thrs[i].join();
+
+		close(fd);
+	}
 
 	delete tfw_clickhouse;
 	delete tfw_column_factory;
