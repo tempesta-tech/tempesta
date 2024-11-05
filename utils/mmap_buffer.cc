@@ -35,28 +35,28 @@
 constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
 
 TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
-					 void *private_data,
+					 void *private_data_,
 					 TfwMmapBufferReadCallback cb)
 {
 	unsigned int area_size;
 
-	callback = cb;
-	is_running = false;
-	this->private_data = private_data;
+	callback_ = cb;
+	is_running_ = false;
+	this->private_data_ = private_data_;
 
 	get_buffer_size(fd);
 
-	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size);
+	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size_);
 
-	buf = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
+	buf_ = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
 				    MAP_SHARED, fd, area_size * ncpu);
-	if (buf == MAP_FAILED)
+	if (buf_ == MAP_FAILED)
 		throw std::runtime_error("Failed to map buffer");
 }
 
 TfwMmapBufferReader::~TfwMmapBufferReader()
 {
-	assert(munmap(buf, TFW_MMAP_BUFFER_FULL_SIZE(size)) == 0);
+	assert(munmap(buf_, TFW_MMAP_BUFFER_FULL_SIZE(size_)) == 0);
 }
 
 void
@@ -65,14 +65,14 @@ TfwMmapBufferReader::run()
 	int r;
 
 	while (1) {
-		if (__atomic_load_n(&buf->is_ready, __ATOMIC_ACQUIRE)) {
-			is_running = true;
+		if (__atomic_load_n(&buf_->is_ready, __ATOMIC_ACQUIRE)) {
+			is_running_ = true;
 			r = read();
 			if (r == 0)
 				continue;
 		} else {
-			if (is_running) {
-				is_running = false;
+			if (is_running_) {
+				is_running_ = false;
 				break;
 			}
 		}
@@ -86,20 +86,20 @@ TfwMmapBufferReader::run()
 unsigned int
 TfwMmapBufferReader::get_cpu_id()
 {
-	return buf->cpu;
+	return buf_->cpu;
 }
 
 void
 TfwMmapBufferReader::get_buffer_size(int fd)
 {
-	buf = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
+	buf_ = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
 				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
-	if (buf == MAP_FAILED)
+	if (buf_ == MAP_FAILED)
 		throw std::runtime_error("Failed to get buffers info");
 
-	size = buf->size;
+	size_ = buf_->size;
 
-	munmap(buf, TFW_MMAP_BUFFER_DATA_OFFSET);
+	munmap(buf_, TFW_MMAP_BUFFER_DATA_OFFSET);
 }
 
 int
@@ -107,15 +107,15 @@ TfwMmapBufferReader::read()
 {
 	u64 head, tail;
 
-	head = __atomic_load_n(&buf->head, __ATOMIC_ACQUIRE);
-	tail = buf->tail;
+	head = __atomic_load_n(&buf_->head, __ATOMIC_ACQUIRE);
+	tail = buf_->tail;
 
 	if (head - tail == 0)
 		return -EAGAIN;
 
-	callback(buf->data + (tail & buf->mask), head - tail, private_data);
+	callback_(buf_->data + (tail & buf_->mask), head - tail, private_data_);
 
-	__atomic_store_n(&buf->tail, head, __ATOMIC_RELEASE);
+	__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
 
 	return 0;

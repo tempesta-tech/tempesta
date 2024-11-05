@@ -66,11 +66,11 @@ public:
 	unsigned int get_cpu_id();
 
 private:
-	TfwMmapBuffer	*buf;
-	unsigned int	size;
-	bool		is_running;
-	void		*private_data;
-	TfwMmapBufferReadCallback	callback;
+	TfwMmapBuffer	*buf_;
+	unsigned int	size_;
+	bool		is_running_;
+	void		*private_data_;
+	TfwMmapBufferReadCallback	callback_;
 
 	void get_buffer_size(int fd);
 	int read();

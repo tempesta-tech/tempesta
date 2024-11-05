@@ -40,20 +40,20 @@ now_ms()
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 			     clickhouse::Block *(*cb)())
 {
-	block_callback = cb;
-	this->table_name = table_name;
+	block_callback_ = cb;
+	table_name_ = table_name;
 
-	client = std::make_unique<clickhouse::Client>(
+	client_ = std::make_unique<clickhouse::Client>(
 		clickhouse::ClientOptions().SetHost(std::move(host)));
-	block = cb();
+	block_ = cb();
 
-	last_time = now_ms();
+	last_time_ = now_ms();
 }
 
 clickhouse::Block *
 TfwClickhouse::get_block()
 {
-	return block;
+	return block_;
 }
 
 void
@@ -61,14 +61,14 @@ TfwClickhouse::commit()
 {
 	uint64_t now = now_ms();
 
-	block->RefreshRowCount();
-	if ((now - last_time > MAX_MSEC && block->GetRowCount() > 0)
-		|| block->GetRowCount() > MAX_EVENTS) {
+	block_->RefreshRowCount();
+	if ((now - last_time_ > MAX_MSEC && block_->GetRowCount() > 0)
+		|| block_->GetRowCount() > MAX_EVENTS) {
 
-		client->Insert(std::move(table_name), *block);
-		delete block;
+		client_->Insert(std::move(table_name_), *block_);
+		delete block_;
 
-		block = block_callback();
-		last_time = now;
+		block_ = block_callback_();
+		last_time_ = now;
 	}
 }

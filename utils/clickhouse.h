@@ -63,11 +63,11 @@ public:
 	void commit();
 
 private:
-	std::unique_ptr<clickhouse::Client>	client;
-	clickhouse::Block	*block;
-	uint64_t		last_time;
-	clickhouse::Block	*(*block_callback)();
-	std::string		table_name;
+	std::unique_ptr<clickhouse::Client>	client_;
+	clickhouse::Block	*block_;
+	uint64_t		last_time_;
+	clickhouse::Block	*(*block_callback_)();
+	std::string		table_name_;
 };
 
 /**
