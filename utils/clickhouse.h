@@ -26,9 +26,6 @@
 #include <clickhouse/base/socket.h>
 #include <clickhouse/client.h>
 
-using namespace clickhouse;
-using namespace std;
-
 /**
  * Class for sending records to a Clickhouse database.
  * It manages multiple instances of the Clickhouse client (one per thread) to
@@ -57,16 +54,17 @@ using namespace std;
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(string host, string table_name, Block *(*cb)());
-	Block *get_block();
+	TfwClickhouse(std::string host, std::string table_name,
+		      clickhouse::Block *(*cb)());
+	clickhouse::Block *get_block();
 	void commit();
 
 private:
-	unique_ptr<Client>	client;
-	Block			*block;
+	std::unique_ptr<clickhouse::Client>	client;
+	clickhouse::Block	*block;
 	uint64_t		last_time;
-	Block			*(*block_callback)();
-	string			table_name;
+	clickhouse::Block	*(*block_callback)();
+	std::string		table_name;
 };
 
 /**
@@ -89,32 +87,32 @@ private:
  * Private Member:
  *    @map_ - A map associating Type::Code enums with function pointers.
  */
-template <typename T> shared_ptr<Column> createColumn()
+template <typename T> std::shared_ptr<clickhouse::Column> createColumn()
 {
-	return make_shared<T>();
+	return std::make_shared<T>();
 }
 
 class TfwColumnFactory {
 public:
 	TfwColumnFactory() {
-		map_[Type::UInt8] = &createColumn<ColumnUInt8>;
-		map_[Type::UInt16] = &createColumn<ColumnUInt16>;
-		map_[Type::UInt32] = &createColumn<ColumnUInt32>;
-		map_[Type::UInt64] = &createColumn<ColumnUInt64>;
-		map_[Type::IPv4] = &createColumn<ColumnIPv4>;
-		map_[Type::IPv6] = &createColumn<ColumnIPv6>;
-		map_[Type::String] = &createColumn<ColumnString>;
+		map_[clickhouse::Type::UInt8] = &createColumn<clickhouse::ColumnUInt8>;
+		map_[clickhouse::Type::UInt16] = &createColumn<clickhouse::ColumnUInt16>;
+		map_[clickhouse::Type::UInt32] = &createColumn<clickhouse::ColumnUInt32>;
+		map_[clickhouse::Type::UInt64] = &createColumn<clickhouse::ColumnUInt64>;
+		map_[clickhouse::Type::IPv4] = &createColumn<clickhouse::ColumnIPv4>;
+		map_[clickhouse::Type::IPv6] = &createColumn<clickhouse::ColumnIPv6>;
+		map_[clickhouse::Type::String] = &createColumn<clickhouse::ColumnString>;
 	}
 
-	shared_ptr<Column> create(Type::Code code) {
+	std::shared_ptr<clickhouse::Column> create(clickhouse::Type::Code code) {
 		auto it = map_.find(code);
 		if (it != map_.end())
 			return it->second();
-		throw runtime_error("Column factory: incorrect code");
+		throw std::runtime_error("Column factory: incorrect code");
 	}
 
 private:
-	map<Type::Code, shared_ptr<Column>(*)()> map_;
+	std::map<clickhouse::Type::Code, std::shared_ptr<clickhouse::Column>(*)()> map_;
 };
 
 #endif /* __TFW_CLICKHOUSE_H__ */

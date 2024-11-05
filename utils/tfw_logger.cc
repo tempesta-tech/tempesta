@@ -31,8 +31,6 @@
 #include "clickhouse.h"
 #include "mmap_buffer.h"
 
-using namespace std;
-
 #define FILE_PATH	"/dev/tempesta_mmap_log"
 #define TABLE_NAME	"access_log"
 
@@ -40,20 +38,20 @@ constexpr size_t WAIT_FOR_FILE = 1;  /* s */
 
 typedef struct {
 	const char	*name;
-	Type::Code	code;
+	clickhouse::Type::Code	code;
 } TfwField;
 
 static const TfwField tfw_fields[] = {
-	[TFW_MMAP_LOG_ADDR]		= {"address", Type::IPv6},
-	[TFW_MMAP_LOG_METHOD]		= {"method", Type::UInt8},
-	[TFW_MMAP_LOG_VERSION]		= {"version", Type::UInt8},
-	[TFW_MMAP_LOG_STATUS]		= {"status", Type::UInt16},
-	[TFW_MMAP_LOG_RESP_CONT_LEN]	= {"response_content_length", Type::UInt32},
-	[TFW_MMAP_LOG_RESP_TIME]	= {"response_time", Type::UInt32},
-	[TFW_MMAP_LOG_VHOST]		= {"vhost", Type::String},
-	[TFW_MMAP_LOG_URI]		= {"uri", Type::String},
-	[TFW_MMAP_LOG_REFERER]		= {"referer", Type::String},
-	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", Type::String},
+	[TFW_MMAP_LOG_ADDR]		= {"address", clickhouse::Type::IPv6},
+	[TFW_MMAP_LOG_METHOD]		= {"method", clickhouse::Type::UInt8},
+	[TFW_MMAP_LOG_VERSION]		= {"version", clickhouse::Type::UInt8},
+	[TFW_MMAP_LOG_STATUS]		= {"status", clickhouse::Type::UInt16},
+	[TFW_MMAP_LOG_RESP_CONT_LEN]	= {"response_content_length", clickhouse::Type::UInt32},
+	[TFW_MMAP_LOG_RESP_TIME]	= {"response_time", clickhouse::Type::UInt32},
+	[TFW_MMAP_LOG_VHOST]		= {"vhost", clickhouse::Type::String},
+	[TFW_MMAP_LOG_URI]		= {"uri", clickhouse::Type::String},
+	[TFW_MMAP_LOG_REFERER]		= {"referer", clickhouse::Type::String},
+	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", clickhouse::Type::String},
 };
 
 TfwColumnFactory tfw_column_factory;
@@ -83,13 +81,13 @@ hexdump(const char *data, int buflen)
 }
 #endif /* DEBUG */
 
-static Block *
+static clickhouse::Block *
 make_block()
 {
 	unsigned int i;
-	Block *block = new Block();
+	clickhouse::Block *block = new clickhouse::Block();
 
-	auto col = tfw_column_factory.create(Type::UInt64);
+	auto col = tfw_column_factory.create(clickhouse::Type::UInt64);
 	block->AppendColumn("timestamp", col);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
@@ -105,7 +103,7 @@ make_block()
 int
 read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 {
-	Block *block = clickhouse->get_block();
+	clickhouse::Block *block = clickhouse->get_block();
 	const char *p = data;
 	TfwBinLogEvent *event = (TfwBinLogEvent *)p;
 	int i;
@@ -124,7 +122,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		break;
 
 
-	(*block)[0]->As<ColumnUInt64>()->Append(event->timestamp);
+	(*block)[0]->As<clickhouse::ColumnUInt64>()->Append(event->timestamp);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		int len, ind = i + 1;
@@ -132,29 +130,31 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		len = tfw_mmap_log_field_len((TfwBinLogFields)i);
 
 		switch (i) {
-		INT_CASE(TFW_MMAP_LOG_ADDR, ColumnIPv6, struct in6_addr);
-		INT_CASE(TFW_MMAP_LOG_METHOD, ColumnUInt8, unsigned char);
-		INT_CASE(TFW_MMAP_LOG_VERSION, ColumnUInt8, unsigned char);
-		INT_CASE(TFW_MMAP_LOG_STATUS, ColumnUInt16, uint16_t);
-		INT_CASE(TFW_MMAP_LOG_RESP_CONT_LEN, ColumnUInt32, uint32_t);
-		INT_CASE(TFW_MMAP_LOG_RESP_TIME, ColumnUInt32, uint32_t);
+		INT_CASE(TFW_MMAP_LOG_ADDR, clickhouse::ColumnIPv6, struct in6_addr);
+		INT_CASE(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
+		INT_CASE(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
+		INT_CASE(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
+		INT_CASE(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
+		INT_CASE(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
 
 		case TFW_MMAP_LOG_VHOST:
 		case TFW_MMAP_LOG_URI:
 		case TFW_MMAP_LOG_REFERER:
 		case TFW_MMAP_LOG_USER_AGENT:
 			if (!TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {
-				(*block)[ind]->As<ColumnString>()->Append(move(string("")));
+				(*block)[ind]->As<clickhouse::ColumnString>()->Append(
+					std::move(std::string("")));
 				break;
 			}
 			len = *((uint16_t *)p);
 			if (len + 2 > size)
 				return -1;
-			(*block)[ind]->As<ColumnString>()->Append(move(string(p + 2, len)));
+			(*block)[ind]->As<clickhouse::ColumnString>()->Append(
+				std::move(std::string(p + 2, len)));
 			len += 2;
 			break;
 		default:
-			cerr << "Unknown field type: " << i << endl;
+			std::cerr << "Unknown field type: " << i << std::endl;
 			return -1;
 		}
 
@@ -197,16 +197,16 @@ callback(const char *data, int size, void *private_data)
 			p += sizeof(TfwBinLogEvent);
 			size -= sizeof(TfwBinLogEvent);
 			if ((int)sizeof(u64) > size) {
-				cerr << "Incorrect event length" << endl;
+				std::cerr << "Incorrect event length" << std::endl;
 				return;
 			}
 
-			cerr << "Dropped events: " << *(u64 *)p << endl;
+			std::cerr << "Dropped events: " << *(u64 *)p << std::endl;
 			size -= sizeof(u64);
 			p += sizeof(u64);
 			return;
 		default:
-			cerr << "Unsupported log type: " << event->type << endl;
+			std::cerr << "Unsupported log type: " << event->type << std::endl;
 			return;
 		}
 	} while (size > 0);
@@ -215,7 +215,7 @@ callback(const char *data, int size, void *private_data)
 }
 
 void
-run_thread(int ncpu, int fd, string host)
+run_thread(int ncpu, int fd, std::string host)
 {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
@@ -236,13 +236,13 @@ run_thread(int ncpu, int fd, string host)
 int
 main(int argc, char* argv[])
 {
-	vector<thread> thrs;
+	std::vector<std::thread> thrs;
 	unsigned int i, cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
 	int fd;
 
 	if (argc != 2) {
-		cout << "Usage:" << endl;
-		cout << "\t" << argv[0] << " <host>" << endl;
+		std::cout << "Usage:" << std::endl;
+		std::cout << "\t" << argv[0] << " <host>" << std::endl;
 		return -EINVAL;
 	}
 
@@ -251,12 +251,12 @@ main(int argc, char* argv[])
 	while (1) {
 		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
 			if (errno != ENOENT)
-				throw runtime_error(strerror(errno));
+				throw std::runtime_error(strerror(errno));
 			sleep(WAIT_FOR_FILE);
 		}
 
 		for (i = 0; i < cpu_cnt; ++i)
-			thrs.push_back(thread(run_thread, i, fd, argv[1]));
+			thrs.push_back(std::thread(run_thread, i, fd, argv[1]));
 
 		for (i = 0; i < cpu_cnt; ++i)
 			thrs[i].join();

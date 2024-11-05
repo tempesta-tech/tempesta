@@ -25,27 +25,28 @@
 
 #include "clickhouse.h"
 
-using namespace std;
-using namespace chrono;
 
 constexpr size_t MAX_MSEC = 100;
 constexpr size_t MAX_EVENTS = 1000;
 
 #define NOW_MS() \
-	duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
+	std::chrono::duration_cast<std::chrono::milliseconds>( \
+		std::chrono::system_clock::now().time_since_epoch()).count()
 
-TfwClickhouse::TfwClickhouse(string host, string table_name, Block *(*cb)())
+TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
+			     clickhouse::Block *(*cb)())
 {
 	block_callback = cb;
 	this->table_name = table_name;
 
-	client = make_unique<Client>(ClientOptions().SetHost(move(host)));
+	client = std::make_unique<clickhouse::Client>(
+		clickhouse::ClientOptions().SetHost(std::move(host)));
 	block = cb();
 
 	last_time = NOW_MS();
 }
 
-Block *
+clickhouse::Block *
 TfwClickhouse::get_block()
 {
 	return block;
@@ -60,7 +61,7 @@ TfwClickhouse::commit()
 	if ((now - last_time > MAX_MSEC && block->GetRowCount() > 0)
 		|| block->GetRowCount() > MAX_EVENTS) {
 
-		client->Insert(move(table_name), *block);
+		client->Insert(std::move(table_name), *block);
 		delete block;
 
 		block = block_callback();
