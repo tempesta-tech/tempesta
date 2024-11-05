@@ -56,6 +56,9 @@ class TfwClickhouse {
 public:
 	TfwClickhouse(std::string host, std::string table_name,
 		      clickhouse::Block *(*cb)());
+	TfwClickhouse(const TfwClickhouse &) = delete;
+	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
+
 	clickhouse::Block *get_block();
 	void commit();
 

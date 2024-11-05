@@ -58,7 +58,10 @@ class TfwMmapBufferReader {
 public:
 	TfwMmapBufferReader(unsigned int cpu_cnt, int fd, void *private_data,
 			    TfwMmapBufferReadCallback cb);
+	TfwMmapBufferReader(const TfwMmapBufferReader &) = delete;
+	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;
 	~TfwMmapBufferReader();
+
 	void run();
 	unsigned int get_cpu_id();
 
