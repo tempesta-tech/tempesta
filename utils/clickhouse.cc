@@ -29,9 +29,13 @@
 constexpr size_t MAX_MSEC = 100;
 constexpr size_t MAX_EVENTS = 1000;
 
-#define NOW_MS() \
-	std::chrono::duration_cast<std::chrono::milliseconds>( \
-		std::chrono::system_clock::now().time_since_epoch()).count()
+static auto
+now_ms()
+{
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::system_clock::now().time_since_epoch())
+		.count();
+}
 
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 			     clickhouse::Block *(*cb)())
@@ -43,7 +47,7 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 		clickhouse::ClientOptions().SetHost(std::move(host)));
 	block = cb();
 
-	last_time = NOW_MS();
+	last_time = now_ms();
 }
 
 clickhouse::Block *
@@ -55,7 +59,7 @@ TfwClickhouse::get_block()
 void
 TfwClickhouse::commit()
 {
-	uint64_t now = NOW_MS();
+	uint64_t now = now_ms();
 
 	block->RefreshRowCount();
 	if ((now - last_time > MAX_MSEC && block->GetRowCount() > 0)
