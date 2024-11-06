@@ -100,7 +100,7 @@ make_block()
 	unsigned int i;
 	clickhouse::Block *block = new clickhouse::Block();
 
-	auto col = tfw_column_factory(clickhouse::Type::UInt64);
+	auto col = std::make_shared<clickhouse::ColumnDateTime64>(3);
 	block->AppendColumn("timestamp", col);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
@@ -135,7 +135,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		break;
 
 
-	(*block)[0]->As<clickhouse::ColumnUInt64>()->Append(event->timestamp);
+	(*block)[0]->As<clickhouse::ColumnDateTime64>()->Append(event->timestamp);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		int len, ind = i + 1;
