@@ -169,8 +169,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 			len += 2;
 			break;
 		default:
-			std::cerr << "Unknown field type: " << i << std::endl;
-			return -1;
+			throw Except("Unknown field type: {}", i);
 		}
 
 		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {
@@ -207,7 +206,8 @@ callback(const char *data, int size, void *private_data)
 			p += r;
 			break;
 		default:
-			std::cerr << "Unsupported log type: " << event->type << std::endl;
+			throw Except("Unsupported log type: {}",
+				     (unsigned int)event->type);
 			return;
 		}
 	} while (size > 0);
