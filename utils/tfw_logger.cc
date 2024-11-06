@@ -27,6 +27,7 @@
 #include <iostream>
 #include <sstream>
 
+#include <boost/program_options.hpp>
 #include <clickhouse/base/socket.h>
 #include <clickhouse/client.h>
 
@@ -34,6 +35,8 @@
 #include "clickhouse.h"
 #include "mmap_buffer.h"
 #include "error.h"
+
+namespace po = boost::program_options;
 
 #define FILE_PATH	"/dev/tempesta_mmap_log"
 #define TABLE_NAME	"access_log"
@@ -247,10 +250,24 @@ try {
 	unsigned int i, cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
 	int fd;
 
-	if (argc != 2) {
-		std::cout << "Usage:" << std::endl;
-		std::cout << "\t" << argv[0] << " <host>" << std::endl;
-		return -EINVAL;
+	po::options_description desc{"Usage: tfw_logger [options] <host>"};
+	desc.add_options()
+		("help,h", "show this message and exit")
+		("host,H", po::value<std::string>(),
+			   "clickserver host address (required)")
+		;
+	po::positional_options_description pos_desc;
+	pos_desc.add("host", -1);
+	po::variables_map vm;
+	po::store(po::command_line_parser(argc, argv)
+		  .options(desc)
+		  .positional(pos_desc)
+		  .run(),
+		  vm);
+	po::notify(vm);
+	if (vm.count("help") || !vm.count("host")) {
+		std::cout << desc << std::endl;
+		return 0;
 	}
 
 	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
@@ -262,8 +279,9 @@ try {
 	for (i = 0; i < cpu_cnt; ++i) {
 		std::promise<void> promise;
 		futures.push_back(promise.get_future());
-		thrs.push_back(std::thread(run_thread, i, fd, std::move(argv[1]),
-					std::move(promise)));
+		thrs.push_back(std::thread(run_thread, i, fd,
+					   std::move(vm["host"].as<std::string>()),
+					   std::move(promise)));
 	}
 
 	for (i = 0; i < cpu_cnt; ++i)

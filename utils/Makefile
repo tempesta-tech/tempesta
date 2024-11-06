@@ -17,7 +17,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 CXX := g++
-LDFLAGS := -lclickhouse-cpp-lib -lfmt
+LDFLAGS := -lclickhouse-cpp-lib -lfmt -lboost_program_options
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
 SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
