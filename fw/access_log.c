@@ -287,6 +287,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	TfwStr referer, ua;
 	u32 resp_time;
 	char *data, *p;
+	struct timespec64 ts;
 
 	if (!mmap_buffer)
 		goto drop;
@@ -314,7 +315,9 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		}								\
 	} while (0)
 
-	event->timestamp = jiffies;
+	ktime_get_real_ts64(&ts);
+
+	event->timestamp = ts.tv_sec * 1000 + ts.tv_nsec/1000000;
 
 	if (*dropped && room_size >= sizeof(u64)) {
 		event->type = TFW_MMAP_LOG_TYPE_DROPPED;
