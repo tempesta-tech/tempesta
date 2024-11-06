@@ -117,7 +117,6 @@ TfwMmapBufferReader::read()
 	callback_(buf_->data + (tail & buf_->mask), head - tail, private_data_);
 
 	__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
-	__atomic_thread_fence(__ATOMIC_SEQ_CST);
 
 	return 0;
 }
