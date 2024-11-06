@@ -31,6 +31,7 @@
 #include <iostream>
 
 #include "mmap_buffer.h"
+#include "error.h"
 
 constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
 
@@ -51,7 +52,7 @@ TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
 	buf_ = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
 				    MAP_SHARED, fd, area_size * ncpu);
 	if (buf_ == MAP_FAILED)
-		throw std::runtime_error("Failed to map buffer");
+		throw Except("Failed to map buffer");
 }
 
 TfwMmapBufferReader::~TfwMmapBufferReader()
@@ -95,7 +96,7 @@ TfwMmapBufferReader::get_buffer_size(int fd)
 	buf_ = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
 				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
 	if (buf_ == MAP_FAILED)
-		throw std::runtime_error("Failed to get buffers info");
+		throw Except("Failed to get buffers info");
 
 	size_ = buf_->size;
 

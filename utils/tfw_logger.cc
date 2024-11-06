@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include <future>
 #include <iostream>
 
 #include <clickhouse/base/socket.h>
@@ -30,6 +31,7 @@
 #include "../fw/access_log.h"
 #include "clickhouse.h"
 #include "mmap_buffer.h"
+#include "error.h"
 
 #define FILE_PATH	"/dev/tempesta_mmap_log"
 #define TABLE_NAME	"access_log"
@@ -213,8 +215,8 @@ callback(const char *data, int size, void *private_data)
 }
 
 void
-run_thread(int ncpu, int fd, std::string host)
-{
+run_thread(int ncpu, int fd, std::string host, std::promise<void> promise)
+try {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
 
@@ -229,12 +231,18 @@ run_thread(int ncpu, int fd, std::string host)
 				      sizeof(cpu_set_t), &cpuset) == 0);
 
 	mbr.run();
+
+	promise.set_value();
+}
+catch (...) {
+	promise.set_exception(std::current_exception());
 }
 
 int
 main(int argc, char* argv[])
-{
+try {
 	std::vector<std::thread> thrs;
+	std::vector<std::future<void>> futures;
 	unsigned int i, cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
 	int fd;
 
@@ -247,12 +255,16 @@ main(int argc, char* argv[])
 	while (1) {
 		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
 			if (errno != ENOENT)
-				throw std::runtime_error(strerror(errno));
+				throw Except("Can't open device");
 			sleep(WAIT_FOR_FILE);
 		}
 
-		for (i = 0; i < cpu_cnt; ++i)
-			thrs.push_back(std::thread(run_thread, i, fd, argv[1]));
+		for (i = 0; i < cpu_cnt; ++i) {
+			std::promise<void> promise;
+			futures.push_back(promise.get_future());
+			thrs.push_back(std::thread(run_thread, i, fd, std::move(argv[1]),
+						std::move(promise)));
+		}
 
 		for (i = 0; i < cpu_cnt; ++i)
 			thrs[i].join();
@@ -260,5 +272,16 @@ main(int argc, char* argv[])
 		close(fd);
 	}
 
+	for (auto& future : futures)
+		future.get();
+
 	return 0;
+}
+catch (Exception &e) {
+	std::cerr << "Error: " << e.what() << std::endl;
+	return 1;
+}
+catch (std::exception &e) {
+	std::cerr << "Unhandled error: " << e.what() << std::endl;
+	return 2;
 }
