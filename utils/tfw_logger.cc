@@ -23,7 +23,9 @@
 #include <stdio.h>
 
 #include <future>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 #include <clickhouse/base/socket.h>
 #include <clickhouse/client.h>
@@ -58,26 +60,37 @@ static const TfwField tfw_fields[] = {
 
 #ifdef DEBUG
 static void
-hexdump(const char *data, int buflen)
+dbg_hexdump(const char *data, int buflen)
 {
 	const unsigned char *buf = (const unsigned char*)data;
-	int i, j;
+	std::ostringstream oss;
+	oss << std::hex << std::setfill('0');
 
-#define PRINT_CHAR(c) (isprint(c) ? c : '.')
-	for (i = 0; i < buflen; i += 16) {
-		printf("%06x: ", i);
-		for (j = 0; j < 16; ++j)
+#define PRINT_CHAR(c) (std::isprint(c) ? c : '.')
+	for (int i = 0; i < buflen; i += 16) {
+		oss << std::setw(6) << i << ": ";
+
+		for (int j = 0; j < 16; ++j)
 			if (i + j < buflen)
-				printf("%02x ", buf[i + j]);
+				oss << std::setw(2) << (unsigned)buf[i + j] << " ";
 			else
-				printf("   ");
-		printf(" ");
-		for (j = 0; j < 16; ++j)
-			if (i + j < buflen)
-				printf("%c", PRINT_CHAR(buf[i + j]));
-		printf("\n");
+				oss << "   ";
+		oss << " ";
+		for (int j = 0; j < 16; ++j) {
+			if (i + j >= buflen)
+				break;
+			oss << (char)PRINT_CHAR(buf[i + j]);
+		}
+		oss << std::endl;
 	}
+	oss << std::dec << "len = " << buflen << std::endl;
+	std::cout << oss.str();
 #undef PRINT_CHAR
+}
+#else
+static void
+dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
+{
 }
 #endif /* DEBUG */
 
@@ -175,9 +188,7 @@ callback(const char *data, int size, void *private_data)
 	const char *p = data;
 	int r;
 
-#ifdef DEBUG
-	hexdump(data, size);
-#endif /* DEBUG */
+	dbg_hexdump(data, size);
 
 	do {
 		if (size < (int)sizeof(TfwBinLogEvent))
