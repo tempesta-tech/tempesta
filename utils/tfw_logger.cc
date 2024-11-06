@@ -247,12 +247,15 @@ main(int argc, char* argv[])
 try {
 	std::vector<std::thread> thrs;
 	std::vector<std::future<void>> futures;
-	unsigned int i, cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+	unsigned int i;
+	long int cpu_cnt;
 	int fd;
 
 	po::options_description desc{"Usage: tfw_logger [options] <host>"};
 	desc.add_options()
 		("help,h", "show this message and exit")
+		("ncpu,n", po::value<unsigned int>(),
+			   "manually specifying the number of CPUs")
 		("host,H", po::value<std::string>(),
 			   "clickserver host address (required)")
 		;
@@ -269,6 +272,15 @@ try {
 		std::cout << desc << std::endl;
 		return 0;
 	}
+
+	if (vm.count("ncpu")) {
+		cpu_cnt = vm["ncpu"].as<unsigned int>();
+	} else {
+		cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+		if (cpu_cnt < 0)
+			throw Except("Can't get CPU number");
+	}
+
 
 	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
 		if (errno != ENOENT)
