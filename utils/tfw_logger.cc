@@ -252,25 +252,23 @@ try {
 		return -EINVAL;
 	}
 
-	while (1) {
-		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
-			if (errno != ENOENT)
-				throw Except("Can't open device");
-			sleep(WAIT_FOR_FILE);
-		}
-
-		for (i = 0; i < cpu_cnt; ++i) {
-			std::promise<void> promise;
-			futures.push_back(promise.get_future());
-			thrs.push_back(std::thread(run_thread, i, fd, std::move(argv[1]),
-						std::move(promise)));
-		}
-
-		for (i = 0; i < cpu_cnt; ++i)
-			thrs[i].join();
-
-		close(fd);
+	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
+		if (errno != ENOENT)
+			throw Except("Can't open device");
+		sleep(WAIT_FOR_FILE);
 	}
+
+	for (i = 0; i < cpu_cnt; ++i) {
+		std::promise<void> promise;
+		futures.push_back(promise.get_future());
+		thrs.push_back(std::thread(run_thread, i, fd, std::move(argv[1]),
+					std::move(promise)));
+	}
+
+	for (i = 0; i < cpu_cnt; ++i)
+		thrs[i].join();
+
+	close(fd);
 
 	for (auto& future : futures)
 		future.get();
