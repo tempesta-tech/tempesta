@@ -311,26 +311,13 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 #define WRITE_FIELD(field, val)							\
 	do {									\
 		if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_##field)) {	\
-			WRITE_TO_BUF(&val, sizeof(val));			\
+			WRITE_TO_BUF(&(val), sizeof(val));			\
 		}								\
 	} while (0)
 
 	ktime_get_real_ts64(&ts);
 
 	event->timestamp = ts.tv_sec * 1000 + ts.tv_nsec/1000000;
-
-	if (*dropped && room_size >= sizeof(u64)) {
-		event->type = TFW_MMAP_LOG_TYPE_DROPPED;
-
-		memcpy_fast(p, dropped, sizeof(u64));
-		tfw_mmap_buffer_commit(mmap_buffer, p - data);
-
-		*dropped = 0;
-		room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
-		p = data + sizeof(TfwBinLogEvent);
-		event = (TfwBinLogEvent *)data;
-	}
-
 	event->type = TFW_MMAP_LOG_TYPE_ACCESS;
 	event->fields = TFW_MMAP_LOG_ALL_FIELDS_MASK; /* Enable all the fields */
 
@@ -380,6 +367,13 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	ua = get_http_header_value(req->version,
 				   req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
 	WRITE_STR_FIELD(USER_AGENT, ua);
+
+	if (*dropped) {
+		WRITE_FIELD(DROPPED, *dropped);
+		*dropped = 0;
+	} else {
+		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_DROPPED);
+	}
 
 	if (tfw_mmap_buffer_commit(mmap_buffer, p - data) != 0) {
 		T_WARN("Incorrect data size at commit: %ld", p - data);

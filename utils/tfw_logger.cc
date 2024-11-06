@@ -56,6 +56,7 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_URI]		= {"uri", clickhouse::Type::String},
 	[TFW_MMAP_LOG_REFERER]		= {"referer", clickhouse::Type::String},
 	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", clickhouse::Type::String},
+	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", clickhouse::Type::UInt64},
 };
 
 #ifdef DEBUG
@@ -126,11 +127,11 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 
 #define INT_CASE(method, col_type, val_type)					\
 	case method:								\
-		if (len > size)							\
-			return -1;						\
-		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i))			\
+		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {			\
+			if (len > size)						\
+				return -1;					\
 			(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
-		else								\
+		} else								\
 			(*block)[ind]->As<col_type>()->Append(0);		\
 		break;
 
@@ -149,6 +150,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		INT_CASE(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
 		INT_CASE(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
 		INT_CASE(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
+		INT_CASE(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
 
 		case TFW_MMAP_LOG_VHOST:
 		case TFW_MMAP_LOG_URI:
@@ -204,18 +206,6 @@ callback(const char *data, int size, void *private_data)
 			size -= r;
 			p += r;
 			break;
-		case TFW_MMAP_LOG_TYPE_DROPPED:
-			p += sizeof(TfwBinLogEvent);
-			size -= sizeof(TfwBinLogEvent);
-			if ((int)sizeof(u64) > size) {
-				std::cerr << "Incorrect event length" << std::endl;
-				return;
-			}
-
-			std::cerr << "Dropped events: " << *(u64 *)p << std::endl;
-			size -= sizeof(u64);
-			p += sizeof(u64);
-			return;
 		default:
 			std::cerr << "Unsupported log type: " << event->type << std::endl;
 			return;

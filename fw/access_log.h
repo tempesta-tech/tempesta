@@ -52,7 +52,6 @@ typedef enum {
 	TFW_MMAP_LOG_TYPE_ACCESS,
 	TFW_MMAP_LOG_TYPE_SECURITY,
 	TFW_MMAP_LOG_TYPE_ERROR,
-	TFW_MMAP_LOG_TYPE_DROPPED,
 } TfwBinLogType;
 
 typedef enum {
@@ -66,15 +65,16 @@ typedef enum {
 	TFW_MMAP_LOG_URI,
 	TFW_MMAP_LOG_REFERER,
 	TFW_MMAP_LOG_USER_AGENT,
+	TFW_MMAP_LOG_DROPPED,
 	TFW_MMAP_LOG_MAX
 } TfwBinLogFields;
 
 #define TFW_MMAP_LOG_FIELD_IS_SET(event, field) \
 	((event)->fields >> field & 1)
 #define TFW_MMAP_LOG_FIELD_SET(event, field) \
-	do { (event)->fields |= 1 << (field) } while (0)
+	do { (event)->fields |= 1 << (field); } while (0)
 #define TFW_MMAP_LOG_FIELD_RESET(event, field) \
-	do { (event)->fields &= ~((u16)1 << (field)) } while (0)
+	do { (event)->fields &= ~((u16)1 << (field)); } while (0)
 #define TFW_MMAP_LOG_ALL_FIELDS_MASK ((1 << TFW_MMAP_LOG_MAX) - 1)
 
 static const int TfwBinLogFieldsLens[] = {
@@ -88,6 +88,7 @@ static const int TfwBinLogFieldsLens[] = {
 	[TFW_MMAP_LOG_URI] = 0,
 	[TFW_MMAP_LOG_REFERER] = 0,
 	[TFW_MMAP_LOG_USER_AGENT] = 0,
+	[TFW_MMAP_LOG_DROPPED] = 8,
 };
 
 static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
