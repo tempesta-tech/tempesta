@@ -54,8 +54,6 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", clickhouse::Type::String},
 };
 
-TfwColumnFactory tfw_column_factory;
-
 #ifdef DEBUG
 static void
 hexdump(const char *data, int buflen)
@@ -87,13 +85,13 @@ make_block()
 	unsigned int i;
 	clickhouse::Block *block = new clickhouse::Block();
 
-	auto col = tfw_column_factory.create(clickhouse::Type::UInt64);
+	auto col = tfw_column_factory(clickhouse::Type::UInt64);
 	block->AppendColumn("timestamp", col);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		const TfwField *field = &tfw_fields[i];
 
-		auto col = tfw_column_factory.create(field->code);
+		auto col = tfw_column_factory(field->code);
 		block->AppendColumn(field->name, col);
 	}
 
@@ -246,8 +244,6 @@ main(int argc, char* argv[])
 		return -EINVAL;
 	}
 
-	tfw_column_factory = TfwColumnFactory();
-
 	while (1) {
 		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
 			if (errno != ENOENT)
@@ -263,7 +259,6 @@ main(int argc, char* argv[])
 
 		close(fd);
 	}
-
 
 	return 0;
 }

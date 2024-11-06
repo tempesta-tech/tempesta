@@ -70,52 +70,32 @@ private:
 	std::string		table_name_;
 };
 
-/**
- * TfwColumnFactory is a factory class for creating objects of classes derived
- * from Column based on a specified type code. It allows dynamic creation of
- * column objects depending on the type required, simplifying column handling
- * for different data types.
- *
- * Constructor:
- *    @TfwColumnFactory - Initializes a mapping from `Type::Code` values to
- *        corresponding column creation functions. This mapping links specific
- *        type codes (e.g., `Type::UInt8`, `Type::IPv4`) to functions that
- *        instantiate columns of the appropriate derived type.
- *
- * Public Method:
- *    @create - Creates and returns a shared pointer to a column object based
- *        on the provided type code. Looks up the map_ for a matching function
- *        pointer for the specified code.
- *
- * Private Member:
- *    @map_ - A map associating Type::Code enums with function pointers.
- */
-template <typename T> std::shared_ptr<clickhouse::Column> createColumn()
-{
+template <typename T> std::shared_ptr<clickhouse::Column>
+create_column() {
 	return std::make_shared<T>();
 }
 
-class TfwColumnFactory {
-public:
-	TfwColumnFactory() {
-		map_[clickhouse::Type::UInt8] = &createColumn<clickhouse::ColumnUInt8>;
-		map_[clickhouse::Type::UInt16] = &createColumn<clickhouse::ColumnUInt16>;
-		map_[clickhouse::Type::UInt32] = &createColumn<clickhouse::ColumnUInt32>;
-		map_[clickhouse::Type::UInt64] = &createColumn<clickhouse::ColumnUInt64>;
-		map_[clickhouse::Type::IPv4] = &createColumn<clickhouse::ColumnIPv4>;
-		map_[clickhouse::Type::IPv6] = &createColumn<clickhouse::ColumnIPv6>;
-		map_[clickhouse::Type::String] = &createColumn<clickhouse::ColumnString>;
-	}
-
-	std::shared_ptr<clickhouse::Column> create(clickhouse::Type::Code code) {
-		auto it = map_.find(code);
-		if (it != map_.end())
-			return it->second();
+static std::shared_ptr<clickhouse::Column>
+tfw_column_factory(clickhouse::Type::Code code)
+{
+	switch (code) {
+	case clickhouse::Type::UInt8:
+		return create_column<clickhouse::ColumnUInt8>();
+	case clickhouse::Type::UInt16:
+		return create_column<clickhouse::ColumnUInt16>();
+	case clickhouse::Type::UInt32:
+		return create_column<clickhouse::ColumnUInt32>();
+	case clickhouse::Type::UInt64:
+		return create_column<clickhouse::ColumnUInt64>();
+	case clickhouse::Type::IPv4:
+		return create_column<clickhouse::ColumnIPv4>();
+	case clickhouse::Type::IPv6:
+		return create_column<clickhouse::ColumnIPv6>();
+	case clickhouse::Type::String:
+		return create_column<clickhouse::ColumnString>();
+	default:
 		throw std::runtime_error("Column factory: incorrect code");
 	}
-
-private:
-	std::map<clickhouse::Type::Code, std::shared_ptr<clickhouse::Column>(*)()> map_;
-};
+}
 
 #endif /* __TFW_CLICKHOUSE_H__ */
