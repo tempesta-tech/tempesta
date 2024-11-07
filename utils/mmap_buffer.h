@@ -44,8 +44,8 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  *
  * Other public methods:
  *    @run - Main reading loop. Continuously checks if new data is available by
- *        polling the `is_ready` flag in the shared buffer. Calls `read()` to
- *        process data if available and notifies the callback.
+ *        polling the `is_ready` flag in the shared buffer and outer stop_flag.
+ *        Calls `read()` to process data if available and notifies the callback.
  *    @get_cpu_id - Returns the CPU ID from the shared buffer.
  *
  * Private methods:

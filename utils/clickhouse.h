@@ -28,16 +28,13 @@
 
 /**
  * Class for sending records to a Clickhouse database.
- * It manages multiple instances of the Clickhouse client (one per thread) to
- * handle concurrent operations, as the Clickhouse client itself is not
- * thread-safe.
  *
  * Constructor:
- *    @TfwClickhouse - Initializes the Clickhouse connection for each CPU core,
- *        setting up individual clients and data blocks, with a provided callback.
+ *    @TfwClickhouse - Initializes the Clickhouse connection, and create a data
+ *        block, with a provided callback.
  *
  * Other public methods:
- *    @getBlock - Returns a pointer to the data block for the specified CPU core.
+ *    @get_block - Returns a pointer to the data block for the specified CPU core.
  *    @commit - Commits the data in the block to the Clickhouse database if the
  *        elapsed time since the last insertion exceeds a predefined threshold
  *        or the block’s row count exceeds a maximum event threshold. After
@@ -45,12 +42,12 @@
  *        block_callback and last_time is updated.
  *
  * Private Members:
- *    @client - Clickhouse Client instance for sending data to the database.
- *    @block - Block instance holding data records to be inserted.
- *    @last_time - The last timestamp when data was sent.
- *    @block_callback - Callback function that creates a new Block for data
+ *    @client_ - Clickhouse Client instance for sending data to the database.
+ *    @block_ - Block instance holding data records to be inserted.
+ *    @last_time_ - The last timestamp when data was sent.
+ *    @block_callback_ - Callback function that creates a new Block for data
  *        storage.
- *    @table_name - Name of the Clickhouse table where data is inserted.
+ *    @table_name_ - Name of the Clickhouse table where data is inserted.
  */
 class TfwClickhouse {
 public:

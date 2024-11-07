@@ -169,6 +169,7 @@ typedef struct {
  *			  necessary to exclude repeated file opening;
  * @is_freeing		- indicates that freeing process started, It's
  *			  necessary to exclude repeated file opening;
+ * @dev			- device structure of the device in /dev;
  * @dev_major		- the major number of the device in /dev;
  * @dev_class		- the class of the device;
  * @mem			- array of structures descripting allocated memory.
