@@ -326,7 +326,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	WRITE_FIELD(req->version);
 	WRITE_FIELD(resp_status);
 	WRITE_FIELD(resp_content_length);
-	resp_time = jiffies - req->jrxtstamp;
+	resp_time = (jiffies - req->jrxtstamp) * 1000 / HZ;
 	WRITE_FIELD(resp_time);
 
 #define ACCES_LOG_MAX_STR_LEN 65535UL
