@@ -385,7 +385,7 @@ drop:
 }
 
 void
-do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
+do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
 {
 	char *buf = this_cpu_ptr(access_log_buf);
 	char *p = buf, *end = buf + ACCESS_LOG_BUF_SIZE;
@@ -396,12 +396,6 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 	BasicStr missing = { "-", 1 };
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
 	BasicStr truncated_out[TRUNCATABLE_FIELDS_COUNT];
-
-	if (access_log_type & ACCESS_LOG_MMAP)
-		do_access_log_req_mmap(req, (u16)resp_status, (u32)resp_content_length);
-
-	if (!(access_log_type & ACCESS_LOG_DMESG))
-		return;
 
 	/* client_ip
 	 *
@@ -523,6 +517,16 @@ do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_l
 #undef FMT_vhost
 #undef ARG_client_ip
 #undef FMT_client_ip
+}
+
+void
+do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
+{
+	if (access_log_type & ACCESS_LOG_MMAP)
+		do_access_log_req_mmap(req, (u16)resp_status, (u32)resp_content_length);
+
+	if (access_log_type & ACCESS_LOG_DMESG)
+		do_access_log_req_dmesg(req, resp_status, resp_content_length);
 }
 
 void
