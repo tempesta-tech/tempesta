@@ -288,6 +288,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	u32 resp_time;
 	char *data, *p;
 	struct timespec64 ts;
+	u16 len;
 
 	room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
 	if (room_size < sizeof(TfwBinLogEvent))
@@ -305,12 +306,8 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		room_size -= size;		\
 	} while (0)
 
-#define WRITE_FIELD(field, val)							\
-	do {									\
-		if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_##field)) {	\
-			WRITE_TO_BUF(&(val), sizeof(val));			\
-		}								\
-	} while (0)
+#define WRITE_FIELD(val)			\
+	WRITE_TO_BUF(&(val), sizeof(val))	\
 
 	ktime_get_real_ts64(&ts);
 
@@ -318,55 +315,49 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	event->type = TFW_MMAP_LOG_TYPE_ACCESS;
 	event->fields = TFW_MMAP_LOG_ALL_FIELDS_MASK; /* Enable all the fields */
 
-	WRITE_FIELD(ADDR, req->conn->peer->addr.sin6_addr);
-	WRITE_FIELD(METHOD, req->method);
-	WRITE_FIELD(VERSION, req->version);
-	WRITE_FIELD(STATUS, resp_status);
-	WRITE_FIELD(RESP_CONT_LEN, resp_content_length);
+	WRITE_FIELD(req->conn->peer->addr.sin6_addr);
+	WRITE_FIELD(req->method);
+	WRITE_FIELD(req->version);
+	WRITE_FIELD(resp_status);
+	WRITE_FIELD(resp_content_length);
 	resp_time = jiffies - req->jrxtstamp;
-	WRITE_FIELD(RESP_TIME, resp_time);
+	WRITE_FIELD(resp_time);
 
 #define ACCES_LOG_MAX_STR_LEN 65535UL
-#define WRITE_STR_FIELD(field, val)						\
+#define WRITE_STR_FIELD(val)							\
 	do {									\
-		if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_##field)) {	\
-			TfwStr *c, *end;					\
-			u16 len = (u16)min((val).len, ACCES_LOG_MAX_STR_LEN);	\
-			WRITE_TO_BUF(&len, 2);					\
-			TFW_STR_FOR_EACH_CHUNK(c, &val, end) {			\
-				u16 cur_len = (u16)min((unsigned long)len,	\
-						       c->len);			\
-				WRITE_TO_BUF(c->data, cur_len);			\
-				len -= cur_len;					\
-			}							\
+		TfwStr *c, *end;						\
+		u16 len = (u16)min((val).len, ACCES_LOG_MAX_STR_LEN);		\
+		WRITE_TO_BUF(&len, 2);						\
+		TFW_STR_FOR_EACH_CHUNK(c, &val, end) {				\
+			u16 cur_len = (u16)min((unsigned long)len, c->len);	\
+			WRITE_TO_BUF(c->data, cur_len);				\
+			len -= cur_len;						\
 		}								\
 	} while (0)
 
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, TFW_MMAP_LOG_VHOST)) {
-		u16 len = 0;
-
-		if (req->vhost && req->vhost->name.len) {
-			len = (u16)min(req->vhost->name.len,
-				       ACCES_LOG_MAX_STR_LEN);
-			WRITE_TO_BUF(&len, 2);
-			WRITE_TO_BUF(req->vhost->name.data, len);
-		} else {
-			WRITE_TO_BUF(&len, 2);
-		}
+	if (req->vhost && req->vhost->name.len) {
+		len = (u16)min(req->vhost->name.len,
+				ACCES_LOG_MAX_STR_LEN);
+		WRITE_TO_BUF(&len, 2);
+		WRITE_TO_BUF(req->vhost->name.data, len);
+	} else {
+		len = 0;
+		WRITE_TO_BUF(&len, 2);
 	}
 
-	WRITE_STR_FIELD(URI, req->uri_path);
+	WRITE_STR_FIELD(req->uri_path);
 
 	referer = get_http_header_value(req->version,
 					req->h_tbl->tbl + TFW_HTTP_HDR_REFERER);
-	WRITE_STR_FIELD(REFERER, referer);
+	WRITE_STR_FIELD(referer);
 
 	ua = get_http_header_value(req->version,
 				   req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
-	WRITE_STR_FIELD(USER_AGENT, ua);
+	WRITE_STR_FIELD(ua);
 
 	if (*dropped) {
-		WRITE_FIELD(DROPPED, *dropped);
+		WRITE_FIELD(*dropped);
 		*dropped = 0;
 	} else {
 		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_DROPPED);
