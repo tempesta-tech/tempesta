@@ -338,6 +338,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	tfw_connection_unlink_from_peer(conn);
 	tfw_connection_drop(conn);
 
+	printk(KERN_ALERT "COUNT %u", atomic_read(&conn->refcnt));
 	/*
 	 * Connection @conn, as well as @sk and @peer that make
 	 * the essence of it, remain accessible as long as there

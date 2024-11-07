@@ -2852,6 +2852,7 @@ tfw_http_conn_drop(TfwConn *conn)
 		if (h2_mode) {
 			TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
 
+			printk(KERN_ALERT "DTOR");
 			if (ctx)
 				tfw_h2_conn_streams_cleanup(ctx);
 		} else {

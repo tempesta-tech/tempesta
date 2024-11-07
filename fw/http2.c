@@ -308,7 +308,9 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	tfw_h2_remove_idle_streams(ctx, UINT_MAX);
 
+	printk(KERN_ALERT "QQQQQQQQQQQQQQQQ %lu", ctx->streams_num);
         rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
+        	printk(KERN_ALERT "QQQ %u", cur->id);
 		tfw_h2_stream_purge_all_and_free_response(cur);
 		tfw_h2_stream_unlink_lock(ctx, cur);
 
@@ -331,6 +333,26 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 	tfw_h2_stream_unlink_lock(ctx, ctx->cur_stream);
 	tfw_h2_stream_clean(ctx, ctx->cur_stream);
 	ctx->cur_stream = NULL;
+}
+
+int
+tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code)
+{
+	unsigned int stream_id = ctx->cur_stream->id;
+
+	spin_lock(&ctx->lock);
+
+	printk(KERN_ALERT "RST %u %lu", ctx->cur_stream->id, ctx->streams_num);
+
+	tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
+	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
+					  ctx->cur_stream);
+
+	spin_unlock(&ctx->lock);
+
+	ctx->cur_stream = NULL;
+
+	return tfw_h2_send_rst_stream(ctx, stream_id, err_code);
 }
 
 /*
