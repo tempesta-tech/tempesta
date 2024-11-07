@@ -115,6 +115,10 @@ enum {
          */
         TFW_HTTP_B_JS_NOT_SUPPORTED,
 
+	/*
+	 * Rewrite method from HEAD to GET. Applicable only to request that can
+	 * be employed from cache.
+	 */
 	TFW_HTTP_B_REQ_HEAD_TO_GET,
 
         /* Response flags */

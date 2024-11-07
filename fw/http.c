@@ -6732,13 +6732,11 @@ tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
 	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD,
-			  &data))
-	{
-		/* The response is freed by tfw_http_req_block(). */
-		tfw_http_req_block(req, 403, "response blocked: filtered out",
-				   HTTP2_ECODE_PROTO);
+			  &data)) {
 		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return T_BLOCK;
+		/* The response is freed by tfw_http_req_block(). */
+		return tfw_http_req_block(req, 403, "response blocked: filtered out",
+					  HTTP2_ECODE_PROTO);
 	}
 
 	if (!__tfw_http_resp_fwd_stale(hmresp))

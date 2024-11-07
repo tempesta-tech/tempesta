@@ -7267,7 +7267,8 @@ do {									\
 	__h2_dump_state_cache_ctl(cstate);
 	BUG_ON((req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE) ||
 	       (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE) ||
-	       (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH));
+	       (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH) ||
+	       (req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR));
 	SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
 	SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
 	SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
