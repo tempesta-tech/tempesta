@@ -62,7 +62,7 @@ public:
 	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;
 	~TfwMmapBufferReader();
 
-	void run();
+	void run(std::atomic<bool> *stop_flag);
 	unsigned int get_cpu_id();
 
 private:

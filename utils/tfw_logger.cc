@@ -19,8 +19,9 @@
  */
 
 #include <fcntl.h>
-#include <unistd.h>
+#include <signal.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include <future>
 #include <iomanip>
@@ -61,6 +62,8 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", clickhouse::Type::String},
 	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", clickhouse::Type::UInt64},
 };
+
+std::atomic<bool> stop_flag{false};
 
 #ifdef DEBUG
 static void
@@ -234,12 +237,36 @@ try {
 	assert(pthread_setaffinity_np(current_thread,
 				      sizeof(cpu_set_t), &cpuset) == 0);
 
-	mbr.run();
+	mbr.run(&stop_flag);
 
 	promise.set_value();
 }
 catch (...) {
 	promise.set_exception(std::current_exception());
+}
+
+void
+sig_handler([[maybe_unused]] int  sig_num) noexcept
+{
+	stop_flag = true;
+}
+
+void
+set_sig_handlers()
+{
+	struct sigaction sa;
+
+	sigemptyset(&sa.sa_mask);
+	sigaddset(&sa.sa_mask, SIGHUP);
+	sigaddset(&sa.sa_mask, SIGINT);
+	sigaddset(&sa.sa_mask, SIGTERM);
+
+	sa.sa_handler = sig_handler;
+	sa.sa_flags = SA_RESTART;
+
+	sigaction(SIGHUP, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
 }
 
 int
@@ -281,8 +308,11 @@ try {
 			throw Except("Can't get CPU number");
 	}
 
+	set_sig_handlers();
 
 	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
+		if (stop_flag.load(std::memory_order_acquire))
+			return 0;
 		if (errno != ENOENT)
 			throw Except("Can't open device");
 		sleep(WAIT_FOR_FILE);

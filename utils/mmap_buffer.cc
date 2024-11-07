@@ -61,11 +61,16 @@ TfwMmapBufferReader::~TfwMmapBufferReader()
 }
 
 void
-TfwMmapBufferReader::run()
+TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 {
 	int r;
 
 	while (1) {
+		if (stop_flag->load(std::memory_order_acquire)) {
+			__atomic_store_n(&buf_->is_ready, 1, __ATOMIC_RELEASE);
+			break;
+		}
+
 		if (__atomic_load_n(&buf_->is_ready, __ATOMIC_ACQUIRE)) {
 			is_running_ = true;
 			r = read();
