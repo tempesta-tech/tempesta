@@ -307,7 +307,13 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	} while (0)
 
 #define WRITE_FIELD(val)			\
-	WRITE_TO_BUF(&(val), sizeof(val))	\
+	do {					\
+		if (room_size < sizeof(val))	\
+			goto drop;		\
+		*(typeof(val) *)p = val;	\
+		p += sizeof(val);		\
+		room_size -= sizeof(val);	\
+	} while (0)
 
 	ktime_get_real_ts64(&ts);
 
@@ -328,7 +334,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	do {									\
 		TfwStr *c, *end;						\
 		u16 len = (u16)min((val).len, ACCES_LOG_MAX_STR_LEN);		\
-		WRITE_TO_BUF(&len, 2);						\
+		WRITE_FIELD(len);						\
 		TFW_STR_FOR_EACH_CHUNK(c, &val, end) {				\
 			u16 cur_len = (u16)min((unsigned long)len, c->len);	\
 			WRITE_TO_BUF(c->data, cur_len);				\
@@ -339,11 +345,10 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	if (req->vhost && req->vhost->name.len) {
 		len = (u16)min(req->vhost->name.len,
 				ACCES_LOG_MAX_STR_LEN);
-		WRITE_TO_BUF(&len, 2);
+		WRITE_FIELD(len);
 		WRITE_TO_BUF(req->vhost->name.data, len);
 	} else {
-		len = 0;
-		WRITE_TO_BUF(&len, 2);
+		WRITE_FIELD((u16)0);
 	}
 
 	WRITE_STR_FIELD(req->uri_path);
