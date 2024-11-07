@@ -163,10 +163,8 @@ do {									\
 			tfw_h2_conn_terminate((ctx), err);		\
 			return T_BAD;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
-			ctx->cur_stream = NULL;				\
-			return tfw_h2_send_rst_stream((ctx),		\
-						      (hdr)->stream_id,	\
-						      err);		\
+			WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id); \
+			return tfw_h2_current_stream_send_rst((ctx), err); \
 		}							\
 		return T_OK;						\
 	}								\
@@ -633,9 +631,8 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 						 HTTP2_RST_STREAM, 0))
 			return -EPERM;
 
-		ctx->cur_stream = NULL;
-		return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
-					      HTTP2_ECODE_PROTO);
+		WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
+		return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
 	}
 
 	if (!ctx->cur_stream) {
@@ -719,9 +716,8 @@ fail:
 					 HTTP2_RST_STREAM, 0))
 		return -EPERM;
 
-	ctx->cur_stream = NULL;
-	return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
-				      err_code);
+	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
+	return tfw_h2_current_stream_send_rst(ctx, err_code);
 }
 ALLOW_ERROR_INJECTION(tfw_h2_wnd_update_process, ERRNO);
 
@@ -767,9 +763,8 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 					 HTTP2_RST_STREAM, 0))
 		return -EPERM;
 
-	ctx->cur_stream = NULL;
-	return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
-				      HTTP2_ECODE_PROTO);
+	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
+	return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
 }
 
 static inline void
@@ -1033,7 +1028,7 @@ do {									\
 									\
 	if (max_streams == ctx->streams_num) {				\
 		T_DBG("Max streams number exceeded: %lu\n",		\
-		       ctx->streams_num);				\
+		      ctx->streams_num);				\
 		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
 		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
 		ACTION;							\

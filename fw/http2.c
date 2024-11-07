@@ -334,6 +334,29 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 }
 
 /*
+ * Send RST stream and move stream to the queue of closed streams.
+ * When count of closed streams exceeded TFW_MAX_CLOSED_STREAMS,
+ * closed streams will be removed from the memory.
+ */
+int
+tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code)
+{
+	unsigned int stream_id = ctx->cur_stream->id;
+
+	spin_lock(&ctx->lock);
+
+	tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
+	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
+					  ctx->cur_stream);
+
+	spin_unlock(&ctx->lock);
+
+	ctx->cur_stream = NULL;
+
+	return tfw_h2_send_rst_stream(ctx, stream_id, err_code);
+}
+
+/*
  * Clean the queue of closed streams if its size has exceeded a certain
  * value.
  */
