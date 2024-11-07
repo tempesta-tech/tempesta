@@ -542,6 +542,7 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i;
 	const char *val;
+	bool off = false;
 
 	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
@@ -549,10 +550,9 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	access_log_type = ACCESS_LOG_OFF;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (strcasecmp(val, "off") == 0)
-			break;
-
-		if (strcasecmp(val, "dmesg") == 0) {
+		if (strcasecmp(val, "off") == 0) {
+			off = true;
+		} else if (strcasecmp(val, "dmesg") == 0) {
 			access_log_type |= ACCESS_LOG_DMESG;
 		} else if (strcasecmp(val, "mmap") == 0) {
 			access_log_type |= ACCESS_LOG_MMAP;
@@ -560,6 +560,11 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			T_ERR_NL("invalid access_log value: '%s'\n", val);
 			return -EINVAL;
 		}
+	}
+
+	if (off && access_log_type != ACCESS_LOG_OFF) {
+		T_ERR_NL("access_log 'off' value should be the only value\n");
+		return -EINVAL;
 	}
 
 	return 0;
