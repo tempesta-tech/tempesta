@@ -77,22 +77,21 @@ typedef enum {
 	do { (event)->fields &= ~((u16)1 << (field)); } while (0)
 #define TFW_MMAP_LOG_ALL_FIELDS_MASK ((1 << TFW_MMAP_LOG_MAX) - 1)
 
-static const int TfwBinLogFieldsLens[] = {
-	[TFW_MMAP_LOG_ADDR] = 16,
-	[TFW_MMAP_LOG_METHOD] = 1,
-	[TFW_MMAP_LOG_VERSION] = 1,
-	[TFW_MMAP_LOG_STATUS] = 2,
-	[TFW_MMAP_LOG_RESP_CONT_LEN] = 4,
-	[TFW_MMAP_LOG_RESP_TIME] = 4,
-	[TFW_MMAP_LOG_VHOST] = 0, /* 0 - string */
-	[TFW_MMAP_LOG_URI] = 0,
-	[TFW_MMAP_LOG_REFERER] = 0,
-	[TFW_MMAP_LOG_USER_AGENT] = 0,
-	[TFW_MMAP_LOG_DROPPED] = 8,
-};
-
 static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 {
+	const int TfwBinLogFieldsLens[] = {
+		[TFW_MMAP_LOG_ADDR] = 16,
+		[TFW_MMAP_LOG_METHOD] = 1,
+		[TFW_MMAP_LOG_VERSION] = 1,
+		[TFW_MMAP_LOG_STATUS] = 2,
+		[TFW_MMAP_LOG_RESP_CONT_LEN] = 4,
+		[TFW_MMAP_LOG_RESP_TIME] = 4,
+		[TFW_MMAP_LOG_VHOST] = 0, /* 0 - string */
+		[TFW_MMAP_LOG_URI] = 0,
+		[TFW_MMAP_LOG_REFERER] = 0,
+		[TFW_MMAP_LOG_USER_AGENT] = 0,
+		[TFW_MMAP_LOG_DROPPED] = 8,
+};
 	return TfwBinLogFieldsLens[field];
 }
 
