@@ -289,9 +289,6 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	char *data, *p;
 	struct timespec64 ts;
 
-	if (!mmap_buffer)
-		goto drop;
-
 	room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
 	if (room_size < sizeof(TfwBinLogEvent))
 		goto drop;
@@ -573,11 +570,10 @@ tfw_access_log_start(void)
 {
 	int cpu;
 
+	tfw_mmap_buffer_free(mmap_buffer);
+
 	if (!(access_log_type & ACCESS_LOG_MMAP))
 		return 0;
-
-	if (mmap_buffer)
-		tfw_mmap_buffer_free(mmap_buffer);
 
 	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, mmap_log_buffer_size);
 
