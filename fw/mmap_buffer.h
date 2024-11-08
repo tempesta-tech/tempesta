@@ -220,7 +220,7 @@ tfw_mmap_buffer_commit(TfwMmapBufferHolder *holder, unsigned int size)
 	u64 tail;
 
 	tail = smp_load_acquire(&buf->tail);
-	if (buf->head + size - tail >= buf->size - 1)
+	if (unlikely(buf->head + size - tail >= buf->size - 1))
 		return -ENOMEM;
 
 	smp_store_release(&buf->head, buf->head + size);

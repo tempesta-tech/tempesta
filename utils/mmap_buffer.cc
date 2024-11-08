@@ -66,12 +66,12 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 	int r;
 
 	while (1) {
-		if (stop_flag->load(std::memory_order_acquire)) {
+		if (stop_flag->load(std::memory_order_acquire)) [[unlikely]] {
 			__atomic_store_n(&buf_->is_ready, 1, __ATOMIC_RELEASE);
 			break;
 		}
 
-		if (__atomic_load_n(&buf_->is_ready, __ATOMIC_ACQUIRE)) {
+		if (__atomic_load_n(&buf_->is_ready, __ATOMIC_ACQUIRE)) [[likely]] {
 			is_running_ = true;
 			r = read();
 			if (r == 0)
@@ -116,7 +116,7 @@ TfwMmapBufferReader::read()
 	head = __atomic_load_n(&buf_->head, __ATOMIC_ACQUIRE);
 	tail = buf_->tail;
 
-	if (head - tail == 0)
+	if (head - tail == 0) [[unlikely]]
 		return -EAGAIN;
 
 	callback_(buf_->data + (tail & buf_->mask), head - tail, private_data_);
