@@ -1608,10 +1608,10 @@ tfw_http_resp_should_fwd_stale(TfwHttpReq *req, unsigned short status)
 static inline void
 tfw_http_send_err_resp_nolog(TfwHttpReq *req, int status)
 {
+	const bool fwd_stale = tfw_http_resp_should_fwd_stale(req, status);
+
 	/* Response must be freed before calling tfw_http_send_err_resp_nolog(). */
-	if (tfw_http_resp_should_fwd_stale(req, status)) {
-		__tfw_http_resp_fwd_stale_noresp(req);
-	} else {
+	if (!fwd_stale || !__tfw_http_resp_fwd_stale_noresp(req)) {
 		if (TFW_MSG_H2(req))
 			tfw_h2_send_err_resp(req, status, false);
 		else
@@ -6739,8 +6739,13 @@ tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
 					  HTTP2_ECODE_PROTO);
 	}
 
-	if (!__tfw_http_resp_fwd_stale(hmresp))
+	if (!__tfw_http_resp_fwd_stale(hmresp)) {
+		tfw_http_req_drop(req, 502,
+				  "response dropped: processing error",
+				  HTTP2_ECODE_PROTO);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return T_BAD;
+	}
 
 	return T_OK;
 }
@@ -7025,14 +7030,19 @@ bad_msg:
 	}
 
 	if (!filtout && tfw_http_resp_should_fwd_stale(bad_req, 502)) {
-		__tfw_http_resp_fwd_stale(hmresp);
+		if (!__tfw_http_resp_fwd_stale(hmresp)) {
+			tfw_http_req_drop(bad_req, 502,
+					  "response dropped: processing error",
+					  HTTP2_ECODE_PROTO);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+		}
 		/*
 		 * Close connection with backend immediately
 		 * and try to re-establish it later.
 		 */
 		r = T_BAD;
 	} else {
-		/* The response is freed by tfw_http_req_parse_block/drop(). */
+		/* The response is freed by tfw_http_req_block/drop(). */
 		if (filtout) {
 			r = tfw_http_req_block(bad_req, 502,
 					       "response blocked: filtered out",
