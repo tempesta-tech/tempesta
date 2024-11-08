@@ -146,11 +146,11 @@ tfw_client_put(TfwClient *cli)
 	spin_lock(&ent->lock);
 
 	--ent->users;
-	if (ent->users > 0)
-		tdb_rec_put(client_db, rec);
+
 	BUG_ON(ent->users < 0);
 
 	if (likely(ent->users)) {
+		tdb_rec_put(client_db, rec);
 		spin_unlock(&ent->lock);
 		return;
 	}

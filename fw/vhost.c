@@ -3487,7 +3487,7 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfgop_loc_cache_use_stale,
 		.allow_none = true,
-		.allow_repeat = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{ 0 }
@@ -3653,7 +3653,7 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfgop_in_cache_use_stale,
 		.allow_none = true,
-		.allow_repeat = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{ 0 }
