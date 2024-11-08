@@ -16,15 +16,24 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+CLICKHOUSE_DIR := clickhouse-cpp
+CLICKHOUSE_BUILD_DIR := $(CLICKHOUSE_DIR)/build
+CLICKHOUSE_REPO_URL := https://github.com/ClickHouse/clickhouse-cpp.git
+
 CXX := g++
-LDFLAGS := -lclickhouse-cpp-lib -lfmt -lboost_program_options
+LDFLAGS := -lfmt -lboost_program_options
+LDFLAGS += -lclickhouse-cpp-lib -L $(CLICKHOUSE_BUILD_DIR)/clickhouse
+LDFLAGS += -lcityhash -L $(CLICKHOUSE_BUILD_DIR)/contrib/cityhash/cityhash
+LDFLAGS += -lzstd -L $(CLICKHOUSE_BUILD_DIR)/contrib/zstd/zstd
+LDFLAGS += -llz4 -L $(CLICKHOUSE_BUILD_DIR)/contrib/lz4/lz4
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
+CXXFLAGS += -I $(CLICKHOUSE_DIR)
 SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
 OBJS := $(SRCS:.cc=.o)
 TARGET := tfw_logger
 
-all: $(TARGET)
+all: clickhouse $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
@@ -32,7 +41,20 @@ $(TARGET): $(OBJS)
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-clean:
+clean: clickhouse_clean
 	rm -f $(OBJS) $(TARGET)
 
-.PHONY: all clean
+clickhouse: $(CLICKHOUSE_DIR)
+	mkdir -p $(CLICKHOUSE_DIR)/build
+	cd $(CLICKHOUSE_DIR)/build && cmake .. && $(MAKE)
+
+$(CLICKHOUSE_DIR):
+	git clone $(CLICKHOUSE_REPO_URL) $(CLICKHOUSE_DIR)
+
+clickhouse_install:
+	$(MAKE) -C $(CLICKHOUSE_BUILD_DIR) install
+
+clickhouse_clean:
+	$(RM) -rf $(CLICKHOUSE_DIR)
+
+.PHONY: all clean clickhouse clickhouse_install clickhouse_clean
