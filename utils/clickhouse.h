@@ -33,6 +33,9 @@
  *    @TfwClickhouse - Initializes the Clickhouse connection, and create a data
  *        block, with a provided callback.
  *
+ * Destructor:
+ *    @~TfwClickhouse - Delete Block object in block_.
+ *
  * Other public methods:
  *    @get_block - Returns a pointer to the data block for the specified CPU core.
  *    @commit - Commits the data in the block to the Clickhouse database if the
@@ -55,6 +58,7 @@ public:
 		      clickhouse::Block *(*cb)());
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
+	~TfwClickhouse();
 
 	clickhouse::Block *get_block();
 	void commit();

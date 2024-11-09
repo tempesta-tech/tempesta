@@ -50,6 +50,11 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 	last_time_ = now_ms();
 }
 
+TfwClickhouse::~TfwClickhouse()
+{
+	delete block_;
+}
+
 clickhouse::Block *
 TfwClickhouse::get_block()
 {
