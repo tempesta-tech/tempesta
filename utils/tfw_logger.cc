@@ -338,6 +338,9 @@ try {
 			throw Except("Can't get CPU number");
 	}
 
+	if (daemon(0, 0) < 0)
+		throw Except("Daemonization failed");
+
 	set_sig_handlers();
 
 	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
