@@ -302,9 +302,14 @@ try {
 		  .run(),
 		  vm);
 	po::notify(vm);
-	if (vm.count("help") || !vm.count("host")) {
+	if (vm.count("help")) {
 		std::cout << desc << std::endl;
 		return 0;
+	}
+
+	if (!vm.count("host")) {
+		std::cerr << "'host' argument is requred" << std::endl;
+		return 1;
 	}
 
 	if (vm.count("ncpu")) {
