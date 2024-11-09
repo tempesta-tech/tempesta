@@ -320,7 +320,7 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 		device_destroy(holder->dev_class, MKDEV(holder->dev_major, 0));
 	if (!IS_ERR_OR_NULL(holder->dev_class))
 		class_destroy(holder->dev_class);
-	if (holder->dev_major < 0)
+	if (holder->dev_major > 0)
 		unregister_chrdev(holder->dev_major, holder->dev_name);
 
 	free_percpu(holder->buf);
