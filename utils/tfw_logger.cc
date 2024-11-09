@@ -20,6 +20,8 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -285,16 +287,19 @@ try {
 	long int cpu_cnt;
 	int fd;
 
-	po::options_description desc{"Usage: tfw_logger [options] <host>"};
+	po::options_description desc{"Usage: tfw_logger [options] <host> <log>"};
 	desc.add_options()
 		("help,h", "show this message and exit")
-		("ncpu,n", po::value<unsigned int>(),
-			   "manually specifying the number of CPUs")
 		("host,H", po::value<std::string>(),
 			   "clickserver host address (required)")
+		("log,l", po::value<std::string>(),
+			  "log path (required)")
+		("ncpu,n", po::value<unsigned int>(),
+			   "manually specifying the number of CPUs")
 		;
 	po::positional_options_description pos_desc;
-	pos_desc.add("host", -1);
+	pos_desc.add("host", 1);
+	pos_desc.add("log", -1);
 	po::variables_map vm;
 	po::store(po::command_line_parser(argc, argv)
 		  .options(desc)
@@ -311,6 +316,19 @@ try {
 		std::cerr << "'host' argument is requred" << std::endl;
 		return 1;
 	}
+
+	if (!vm.count("log"))
+		throw Except("please, specify log path");
+
+	try {
+		auto logger = spdlog::basic_logger_mt("basic_logger",
+						      vm["log"].as<std::string>());
+		spdlog::set_default_logger(logger);
+	}
+	catch (const spdlog::spdlog_ex &ex) {
+		throw Except("Log init failed: ", ex.what());
+	}
+	spdlog::set_level(spdlog::level::err);
 
 	if (vm.count("ncpu")) {
 		cpu_cnt = vm["ncpu"].as<unsigned int>();
@@ -349,10 +367,10 @@ try {
 	return 0;
 }
 catch (Exception &e) {
-	std::cerr << "Error: " << e.what() << std::endl;
+	spdlog::error(e.what());
 	return 1;
 }
 catch (std::exception &e) {
-	std::cerr << "Unhandled error: " << e.what() << std::endl;
+	spdlog::error("Unhandled error: {}", e.what());
 	return 2;
 }

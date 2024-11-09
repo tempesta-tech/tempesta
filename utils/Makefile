@@ -26,8 +26,10 @@ LDFLAGS += -lclickhouse-cpp-lib -L $(CLICKHOUSE_BUILD_DIR)/clickhouse
 LDFLAGS += -lcityhash -L $(CLICKHOUSE_BUILD_DIR)/contrib/cityhash/cityhash
 LDFLAGS += -lzstd -L $(CLICKHOUSE_BUILD_DIR)/contrib/zstd/zstd
 LDFLAGS += -llz4 -L $(CLICKHOUSE_BUILD_DIR)/contrib/lz4/lz4
+LDFLAGS += $(shell pkgconf -libs spdlog)
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
+CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
 SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
 OBJS := $(SRCS:.cc=.o)
