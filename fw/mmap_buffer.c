@@ -316,9 +316,9 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 				     get_order(holder->size));
 	}
 
-	if (holder->dev && !IS_ERR(holder->dev))
+	if (!IS_ERR_OR_NULL(holder->dev))
 		device_destroy(holder->dev_class, MKDEV(holder->dev_major, 0));
-	if (holder->dev_class && !IS_ERR(holder->dev_class))
+	if (!IS_ERR_OR_NULL(holder->dev_class))
 		class_destroy(holder->dev_class);
 	if (holder->dev_major < 0)
 		unregister_chrdev(holder->dev_major, holder->dev_name);
