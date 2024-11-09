@@ -67,7 +67,7 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 
 	while (1) {
 		if (stop_flag->load(std::memory_order_acquire)) [[unlikely]] {
-			__atomic_store_n(&buf_->is_ready, 1, __ATOMIC_RELEASE);
+			__atomic_store_n(&buf_->is_ready, 0, __ATOMIC_RELEASE);
 			break;
 		}
 
