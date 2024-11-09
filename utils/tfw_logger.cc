@@ -150,13 +150,20 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		len = tfw_mmap_log_field_len((TfwBinLogFields)i);
 
 		switch (i) {
-		INT_CASE(TFW_MMAP_LOG_ADDR, clickhouse::ColumnIPv6, struct in6_addr);
-		INT_CASE(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
-		INT_CASE(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
-		INT_CASE(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
-		INT_CASE(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
-		INT_CASE(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
-		INT_CASE(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
+		INT_CASE(TFW_MMAP_LOG_ADDR,
+			 clickhouse::ColumnIPv6, struct in6_addr);
+		INT_CASE(TFW_MMAP_LOG_METHOD,
+			 clickhouse::ColumnUInt8, unsigned char);
+		INT_CASE(TFW_MMAP_LOG_VERSION,
+			 clickhouse::ColumnUInt8, unsigned char);
+		INT_CASE(TFW_MMAP_LOG_STATUS,
+			 clickhouse::ColumnUInt16, uint16_t);
+		INT_CASE(TFW_MMAP_LOG_RESP_CONT_LEN,
+			 clickhouse::ColumnUInt32, uint32_t);
+		INT_CASE(TFW_MMAP_LOG_RESP_TIME,
+			 clickhouse::ColumnUInt32, uint32_t);
+		INT_CASE(TFW_MMAP_LOG_DROPPED,
+			 clickhouse::ColumnUInt64, uint64_t);
 
 		case TFW_MMAP_LOG_VHOST:
 		case TFW_MMAP_LOG_URI:
