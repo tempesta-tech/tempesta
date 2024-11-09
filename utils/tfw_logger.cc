@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <fstream>
 #include <future>
 #include <iomanip>
 #include <iostream>
@@ -44,6 +45,7 @@ namespace po = boost::program_options;
 #define FILE_PATH	"/dev/tempesta_mmap_log"
 #define TABLE_NAME	"access_log"
 
+constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr size_t WAIT_FOR_FILE = 1;  /* s */
 
 typedef struct {
@@ -258,6 +260,7 @@ void
 sig_handler([[maybe_unused]] int  sig_num) noexcept
 {
 	stop_flag = true;
+	spdlog::info("Stopping daemon...");
 }
 
 void
@@ -278,6 +281,27 @@ set_sig_handlers()
 	sigaction(SIGTERM, &sa, NULL);
 }
 
+void stop_daemon()
+{
+	pid_t pid;
+	std::ifstream pid_file(pid_file_path);
+
+	std::cout << "Stopping daemon..." << std::endl;
+
+	if (!pid_file)
+		throw Except("No PID file found. Is the daemon running?");
+
+	pid_file >> pid;
+	pid_file.close();
+
+	if (pid <= 0)
+		throw Except("Invalid PID in PID file.");
+
+	if (kill(pid, SIGTERM) < 0)
+		throw Except("Failed to stop daemon: {}", strerror(errno));
+	std::cout << "Daemon stopped." << std::endl;
+}
+
 int
 main(int argc, char* argv[])
 try {
@@ -286,8 +310,9 @@ try {
 	unsigned int i;
 	long int cpu_cnt;
 	int fd;
+	bool stop = false;
 
-	po::options_description desc{"Usage: tfw_logger [options] <host> <log>"};
+	po::options_description desc{"Usage: tfw_logger ([options] <host> <log>) | --stop"};
 	desc.add_options()
 		("help,h", "show this message and exit")
 		("host,H", po::value<std::string>(),
@@ -296,6 +321,7 @@ try {
 			  "log path (required)")
 		("ncpu,n", po::value<unsigned int>(),
 			   "manually specifying the number of CPUs")
+		("stop,s", po::bool_switch(&stop), "stop the daemon")
 		;
 	po::positional_options_description pos_desc;
 	pos_desc.add("host", 1);
@@ -307,6 +333,15 @@ try {
 		  .run(),
 		  vm);
 	po::notify(vm);
+
+	if (stop) {
+		if (vm.size() > 1)
+			throw Except("--stop can't be used with "
+				     "another arguments");
+		stop_daemon();
+		return 0;
+	}
+
 	if (vm.count("help")) {
 		std::cout << desc << std::endl;
 		return 0;
@@ -321,14 +356,14 @@ try {
 		throw Except("please, specify log path");
 
 	try {
-		auto logger = spdlog::basic_logger_mt("basic_logger",
+		auto logger = spdlog::basic_logger_mt("access_logger",
 						      vm["log"].as<std::string>());
 		spdlog::set_default_logger(logger);
 	}
 	catch (const spdlog::spdlog_ex &ex) {
 		throw Except("Log init failed: ", ex.what());
 	}
-	spdlog::set_level(spdlog::level::err);
+	spdlog::set_level(spdlog::level::info);
 
 	if (vm.count("ncpu")) {
 		cpu_cnt = vm["ncpu"].as<unsigned int>();
@@ -338,10 +373,18 @@ try {
 			throw Except("Can't get CPU number");
 	}
 
+	spdlog::info("Starting daemon...");
+
 	if (daemon(0, 0) < 0)
 		throw Except("Daemonization failed");
 
 	set_sig_handlers();
+
+	std::ofstream pid_file(pid_file_path);
+	if (!pid_file)
+		throw Except("Failed to open PID file");
+	pid_file << getpid();
+	pid_file.close();
 
 	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
 		if (stop_flag.load(std::memory_order_acquire))
@@ -359,6 +402,8 @@ try {
 					   std::move(promise)));
 	}
 
+	spdlog::info("Daemon started");
+
 	for (i = 0; i < cpu_cnt; ++i)
 		thrs[i].join();
 
@@ -366,6 +411,8 @@ try {
 
 	for (auto& future : futures)
 		future.get();
+
+	spdlog::info("Daemon stopped");
 
 	return 0;
 }
