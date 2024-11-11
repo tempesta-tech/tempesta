@@ -78,6 +78,11 @@
  *      context. Also, bpf_ringbuf_reserve() requires the length of data to be
  *      known in advance, which would force us to traverse the data twice.
  *
+ * Note:  Certain functions used during the initialization and freeing of
+ * mmap_buffer may sleep. It is assumed that mmap_buffer will be initialized
+ * at module start and freed at module stop, so repeated initialization or
+ * freeing is not expected.
+ *
  * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
