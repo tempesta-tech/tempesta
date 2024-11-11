@@ -37,6 +37,7 @@
 #define TDB_MAX_PCP_SZ  (TDB_EXT_SZ / PAGE_SIZE) /* Store one extent per cpu. */
 #define TDB_MAGIC	0x434947414D424454UL /* "TDBMAGIC" */
 #define TDB_BLK_SZ	PAGE_SIZE
+#define TDB_BLK_SHIFT	PAGE_SHIFT
 #define TDB_BLK_MASK	(~(TDB_BLK_SZ - 1))
 
 /**
@@ -153,7 +154,7 @@ tdb_get_blk(TdbHdr *dbh, unsigned long ptr)
 {
 	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, ptr));
 	atomic_t *reftbl = tdb_get_reftbl(dbh, e);
-	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> PAGE_SHIFT;
+	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> TDB_BLK_SHIFT;
 	atomic_t *refcnt = reftbl + blkoff;
 
 	BUG_ON((void *) refcnt > TDB_PTR(dbh, (TDB_EXT_BASE(dbh, e) + TDB_EXT_SZ)));
@@ -165,7 +166,7 @@ tdb_put_blk(TdbHdr *dbh, unsigned long ptr)
 {
 	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, ptr));
 	atomic_t *reftbl = tdb_get_reftbl(dbh, e);
-	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> PAGE_SHIFT;
+	unsigned int blkoff = TDB_BLK_ID(ptr & TDB_BLK_MASK) >> TDB_BLK_SHIFT;
 	atomic_t *refcnt = reftbl + blkoff;
 	int pgref;
 
