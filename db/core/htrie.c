@@ -398,6 +398,10 @@ tdb_alloc_blk(TdbHdr *dbh)
 		return rptr;
 
 retry:
+	/*
+	 * Use global freelist only when block allocator is exhausted.
+	 * Do so to quickly fill per-cpu lists and global freelist.
+	 */
 	if (dbh->oom) {
 		rptr = tdb_alloc_blk_global_freelist(dbh);
 		if (rptr)
@@ -605,8 +609,8 @@ tdb_alloc_index(TdbHdr *dbh)
 		     || TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1)
 			> TDB_BLK_O(rptr)))
 	{
-			/* Use a new page and/or extent for local CPU. */
-			rptr = tdb_alloc_blk(dbh);
+		/* Use a new page and/or extent for local CPU. */
+		rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
 			goto out;
 	}
@@ -1105,7 +1109,8 @@ retry:
 			return rec;
 		}
 
-		/* Somebody already created the new brach, free just allocated
+		/*
+		 * Somebody already created the new branch, free just allocated
 		 * data block. Bucket will be reused or leaked if on the new
 		 * place record can be placed without bucket creation.
 		 *
@@ -1159,11 +1164,11 @@ retry:
 	/*
 	 * Try to place the small record in preallocated room for
 	 * small records. There could be full or partial key match.
-	 * Small and large variable-length records can be intermixed
-	 * in collision chain, so we do this before processing
-	 * full key collision. Applicable only for fixed size records,
-	 * variable size records always have only one record per bucket,
-	 * therefore handled by @tdb_htrie_assign_record().
+	 * Small fixed-size records can be intermixed in collision chain,
+	 * so we do this before processing full key collision. Applicable
+	 * only for fixed size records, variable size records always have
+	 * only one record per bucket, therefore handled by
+	 * @tdb_htrie_assign_record().
 	 */
 	if (*len < TDB_HTRIE_MINDREC && !TDB_HTRIE_VARLENRECS(dbh)) {
 		/* Align small record length to 8 bytes. */
