@@ -60,3 +60,7 @@ debian
 /tls/t/test_mpi_math
 /tls/t/test_rsa
 /tls/ecp256_G.autogen.h
+
+# utils
+utils/tfw_logger
+utils/clickhouse-cpp
