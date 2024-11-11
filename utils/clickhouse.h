@@ -55,20 +55,19 @@
 class TfwClickhouse {
 public:
 	TfwClickhouse(std::string host, std::string table_name,
-		      clickhouse::Block *(*cb)());
+		      std::shared_ptr<clickhouse::Block> (*cb)());
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
-	~TfwClickhouse();
 
-	clickhouse::Block *get_block();
+	std::shared_ptr<clickhouse::Block> get_block();
 	void commit();
 
 private:
 	std::unique_ptr<clickhouse::Client>	client_;
-	clickhouse::Block	*block_;
-	uint64_t		last_time_;
-	clickhouse::Block	*(*block_callback_)();
-	std::string		table_name_;
+	std::shared_ptr<clickhouse::Block>	block_;
+	uint64_t				last_time_;
+	std::shared_ptr<clickhouse::Block>	(*block_callback_)();
+	std::string				table_name_;
 };
 
 template <typename T> std::shared_ptr<clickhouse::Column>

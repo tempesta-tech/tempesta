@@ -105,11 +105,11 @@ dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
 }
 #endif /* DEBUG */
 
-static clickhouse::Block *
+static std::shared_ptr<clickhouse::Block>
 make_block()
 {
 	unsigned int i;
-	clickhouse::Block *block = new clickhouse::Block();
+	auto block = std::make_shared<clickhouse::Block>();
 
 	auto col = std::make_shared<clickhouse::ColumnDateTime64>(3);
 	block->AppendColumn("timestamp", col);
@@ -127,7 +127,7 @@ make_block()
 int
 read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 {
-	clickhouse::Block *block = clickhouse->get_block();
+	auto block = clickhouse->get_block();
 	const char *p = data;
 	TfwBinLogEvent *event = (TfwBinLogEvent *)p;
 	int i;

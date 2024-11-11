@@ -38,7 +38,7 @@ now_ms()
 }
 
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
-			     clickhouse::Block *(*cb)())
+			     std::shared_ptr<clickhouse::Block> (*cb)())
 {
 	block_callback_ = cb;
 	table_name_ = table_name;
@@ -50,12 +50,7 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 	last_time_ = now_ms();
 }
 
-TfwClickhouse::~TfwClickhouse()
-{
-	delete block_;
-}
-
-clickhouse::Block *
+std::shared_ptr<clickhouse::Block>
 TfwClickhouse::get_block()
 {
 	return block_;
@@ -71,7 +66,6 @@ TfwClickhouse::commit()
 		|| block_->GetRowCount() > MAX_EVENTS) {
 
 		client_->Insert(std::move(table_name_), *block_);
-		delete block_;
 
 		block_ = block_callback_();
 		last_time_ = now;
