@@ -151,8 +151,7 @@ EXPORT_SYMBOL(tdb_entry_add);
 /**
  * Remove TDB entries by @key using @eq_cb for comparing entry with @data.
  *
- * @rorce - Force delete incomplete record.
- * @return ENOENT if entry not exists.
+ * @force - Force delete incomplete record.
  */
 void
 tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
