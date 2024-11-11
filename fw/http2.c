@@ -516,7 +516,7 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 					       + resp->trailers_len);
 		if (unlikely(r))
 			goto finish;
-		resp->msg.len = 0;
+		resp->body.len = 0;
 	} else {
 		stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 		/*
