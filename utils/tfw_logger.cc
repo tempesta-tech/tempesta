@@ -47,6 +47,7 @@ namespace po = boost::program_options;
 
 constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr size_t WAIT_FOR_FILE = 1;  /* s */
+constexpr size_t WAIT_FOR_STOP = 10; /* ms */
 
 typedef struct {
 	const char		*name;
@@ -301,6 +302,14 @@ void stop_daemon()
 
 	if (kill(pid, SIGTERM) < 0)
 		throw Except("Failed to stop daemon: {}", strerror(errno));
+
+	while (1) {
+		if (kill(pid, 0) == -1 && errno == ESRCH)
+			break;
+		std::this_thread::sleep_for(
+			std::chrono::milliseconds(WAIT_FOR_STOP));
+        }
+
 	std::cout << "Daemon stopped." << std::endl;
 }
 
