@@ -397,6 +397,16 @@ main(int argc, char* argv[])
 
 		spdlog::info("Starting daemon...");
 
+		/*
+		 * When the daemon forks, it inherits the file descriptor for
+		 * /tmp/tempesta-lock-file, which was originally opened and locked by flock
+		 * in the tempesta.sh script. After daemonizing, the daemon process continues
+		 * to hold this lock, preventing subsequent executions of tempesta.sh.
+		 *
+		 * Close all descriptors before daemonizing.
+		 */
+		closefrom(0);
+
 		if (daemon(0, 0) < 0)
 			throw Except("Daemonization failed");
 
