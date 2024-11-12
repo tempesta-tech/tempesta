@@ -18,8 +18,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifndef __TFW_MMAP_BUFFER_READER_H__
-#define __TFW_MMAP_BUFFER_READER_H__
+#ifndef __TFW_MMAP_BUFFER_READER_HH__
+#define __TFW_MMAP_BUFFER_READER_HH__
 
 #include <string>
 #include <thread>
@@ -76,4 +76,4 @@ private:
 	int read();
 };
 
-#endif /* __TFW_MMAP_BUFFER_READER_H__ */
+#endif /* __TFW_MMAP_BUFFER_READER_HH__ */

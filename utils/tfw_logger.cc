@@ -36,9 +36,9 @@
 #include <clickhouse/client.h>
 
 #include "../fw/access_log.h"
-#include "clickhouse.h"
-#include "mmap_buffer.h"
-#include "error.h"
+#include "clickhouse.hh"
+#include "mmap_buffer.hh"
+#include "error.hh"
 
 namespace po = boost::program_options;
 

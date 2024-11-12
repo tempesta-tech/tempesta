@@ -18,8 +18,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifndef __TFW_CLICKHOUSE_H__
-#define __TFW_CLICKHOUSE_H__
+#ifndef __TFW_CLICKHOUSE_HH__
+#define __TFW_CLICKHOUSE_HH__
 
 #include <iostream>
 
@@ -99,4 +99,4 @@ tfw_column_factory(clickhouse::Type::Code code)
 	}
 }
 
-#endif /* __TFW_CLICKHOUSE_H__ */
+#endif /* __TFW_CLICKHOUSE_HH__ */

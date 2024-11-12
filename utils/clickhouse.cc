@@ -23,7 +23,7 @@
 #include <clickhouse/base/socket.h>
 #include <clickhouse/client.h>
 
-#include "clickhouse.h"
+#include "clickhouse.hh"
 
 
 constexpr size_t MAX_MSEC = 100;

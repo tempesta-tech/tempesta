@@ -30,8 +30,8 @@
 #include <cstring>
 #include <iostream>
 
-#include "mmap_buffer.h"
-#include "error.h"
+#include "mmap_buffer.hh"
+#include "error.hh"
 
 constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
 
