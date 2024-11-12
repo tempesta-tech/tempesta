@@ -170,8 +170,7 @@ typedef struct {
  * @buf			- Per CPU pointers to store pointers to buffers;
  * @dev_name		- name of the device in /dev;
  * @size		- size of the memory allocated to every buffer;
- * @dev_is_opened	- indicates that freeing process started, it's
- *			  necessary to exclude repeated file opening;
+ * @dev_is_opened	- indicates that the device is opened bu user space;
  * @is_freeing		- indicates that freeing process started, It's
  *			  necessary to exclude repeated file opening;
  * @dev			- device structure of the device in /dev;
