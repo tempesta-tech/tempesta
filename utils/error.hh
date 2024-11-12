@@ -30,7 +30,6 @@
 
 #include <boost/system/system_error.hpp>
 #include <boost/system/error_code.hpp>
-#include <boost/system/linux_error.hpp>
 
 class Exception : public std::runtime_error {
 public:
