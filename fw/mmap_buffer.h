@@ -206,13 +206,11 @@ static __always_inline unsigned int
 tfw_mmap_buffer_get_room(TfwMmapBufferHolder *holder, char **data)
 {
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
-	u64 size;
 
 	if (unlikely(!atomic_read(&buf->is_ready)))
 		return 0;
 
 	*data = buf->data + (buf->head & buf->mask);
-	size = buf->head - smp_load_acquire(&buf->tail);
 
 	return buf->size - (buf->head - smp_load_acquire(&buf->tail)) - 1;
 }
