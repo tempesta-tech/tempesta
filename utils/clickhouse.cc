@@ -38,13 +38,22 @@ now_ms()
 }
 
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
+			     std::string user, std::string password,
 			     std::shared_ptr<clickhouse::Block> (*cb)())
 {
+	auto opts = clickhouse::ClientOptions();
+
 	block_callback_ = cb;
 	table_name_ = table_name;
 
-	client_ = std::make_unique<clickhouse::Client>(
-		clickhouse::ClientOptions().SetHost(std::move(host)));
+	opts.SetHost(std::move(host));
+
+	if (!user.empty())
+		opts.SetUser(std::move(user));
+	if (!password.empty())
+		opts.SetPassword(std::move(password));
+
+	client_ = std::make_unique<clickhouse::Client>(std::move(opts));
 	block_ = cb();
 
 	last_time_ = now_ms();

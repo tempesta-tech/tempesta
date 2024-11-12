@@ -49,7 +49,7 @@ constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr size_t WAIT_FOR_FILE = 1;  /* s */
 
 typedef struct {
-	const char	*name;
+	const char		*name;
 	clickhouse::Type::Code	code;
 } TfwField;
 
@@ -233,12 +233,14 @@ callback(const char *data, int size, void *private_data)
 }
 
 void
-run_thread(int ncpu, int fd, std::string host, std::promise<void> promise)
+run_thread(int ncpu, int fd, std::string host,
+	   std::string user, std::string password,
+	   std::promise<void> promise)
 try {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
 
-	TfwClickhouse clickhouse(host, TABLE_NAME, make_block);
+	TfwClickhouse clickhouse(host, TABLE_NAME, user, password, make_block);
 
 	TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
@@ -322,6 +324,8 @@ try {
 		("ncpu,n", po::value<unsigned int>(),
 			   "manually specifying the number of CPUs")
 		("stop,s", po::bool_switch(&stop), "stop the daemon")
+		("user,u", po::value<std::string>(), "clickhouse user")
+		("password,p", po::value<std::string>(), "clickhouse password")
 		;
 	po::positional_options_description pos_desc;
 	pos_desc.add("host", 1);
@@ -373,6 +377,10 @@ try {
 			throw Except("Can't get CPU number");
 	}
 
+	auto user = vm.count("user") ? vm["user"].as<std::string>() : std::string("");
+	auto password = vm.count("password") ? vm["password"].as<std::string>() :
+					       std::string("");
+
 	spdlog::info("Starting daemon...");
 
 	if (daemon(0, 0) < 0)
@@ -398,8 +406,8 @@ try {
 		std::promise<void> promise;
 		futures.push_back(promise.get_future());
 		thrs.push_back(std::thread(run_thread, i, fd,
-					   std::move(vm["host"].as<std::string>()),
-					   std::move(promise)));
+					   vm["host"].as<std::string>(),
+					   user, password, std::move(promise)));
 	}
 
 	spdlog::info("Daemon started");
