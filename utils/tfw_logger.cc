@@ -306,129 +306,137 @@ void stop_daemon()
 
 int
 main(int argc, char* argv[])
-try {
+{
 	std::vector<std::thread> thrs;
 	std::vector<std::future<void>> futures;
 	unsigned int i;
 	long int cpu_cnt;
-	int fd;
+	int fd = -1, res = 0;
 	bool stop = false;
 
-	po::options_description desc{"Usage: tfw_logger ([options] <host> <log>) | --stop"};
-	desc.add_options()
-		("help,h", "show this message and exit")
-		("host,H", po::value<std::string>(),
-			   "clickserver host address (required)")
-		("log,l", po::value<std::string>(),
-			  "log path (required)")
-		("ncpu,n", po::value<unsigned int>(),
-			   "manually specifying the number of CPUs")
-		("stop,s", po::bool_switch(&stop), "stop the daemon")
-		("user,u", po::value<std::string>(), "clickhouse user")
-		("password,p", po::value<std::string>(), "clickhouse password")
-		;
-	po::positional_options_description pos_desc;
-	pos_desc.add("host", 1);
-	pos_desc.add("log", -1);
-	po::variables_map vm;
-	po::store(po::command_line_parser(argc, argv)
-		  .options(desc)
-		  .positional(pos_desc)
-		  .run(),
-		  vm);
-	po::notify(vm);
-
-	if (stop) {
-		if (vm.size() > 1)
-			throw Except("--stop can't be used with "
-				     "another arguments");
-		stop_daemon();
-		return 0;
-	}
-
-	if (vm.count("help")) {
-		std::cout << desc << std::endl;
-		return 0;
-	}
-
-	if (!vm.count("host")) {
-		std::cerr << "'host' argument is requred" << std::endl;
-		return 1;
-	}
-
-	if (!vm.count("log"))
-		throw Except("please, specify log path");
-
 	try {
-		auto logger = spdlog::basic_logger_mt("access_logger",
-						      vm["log"].as<std::string>());
-		spdlog::set_default_logger(logger);
-	}
-	catch (const spdlog::spdlog_ex &ex) {
-		throw Except("Log init failed: ", ex.what());
-	}
-	spdlog::set_level(spdlog::level::info);
+		po::options_description desc{"Usage: tfw_logger "
+					     "([options] <host> <log>) | --stop"};
+		desc.add_options()
+			("help,h", "show this message and exit")
+			("host,H", po::value<std::string>(),
+				"clickserver host address (required)")
+			("log,l", po::value<std::string>(),
+				"log path (required)")
+			("ncpu,n", po::value<unsigned int>(),
+				"manually specifying the number of CPUs")
+			("stop,s", po::bool_switch(&stop), "stop the daemon")
+			("user,u", po::value<std::string>(), "clickhouse user")
+			("password,p", po::value<std::string>(),
+			 "clickhouse password")
+			;
+		po::positional_options_description pos_desc;
+		pos_desc.add("host", 1);
+		pos_desc.add("log", -1);
+		po::variables_map vm;
+		po::store(po::command_line_parser(argc, argv)
+			.options(desc)
+			.positional(pos_desc)
+			.run(),
+			vm);
+		po::notify(vm);
 
-	if (vm.count("ncpu")) {
-		cpu_cnt = vm["ncpu"].as<unsigned int>();
-	} else {
-		cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
-		if (cpu_cnt < 0)
-			throw Except("Can't get CPU number");
-	}
-
-	auto user = vm.count("user") ? vm["user"].as<std::string>() : std::string("");
-	auto password = vm.count("password") ? vm["password"].as<std::string>() :
-					       std::string("");
-
-	spdlog::info("Starting daemon...");
-
-	if (daemon(0, 0) < 0)
-		throw Except("Daemonization failed");
-
-	set_sig_handlers();
-
-	std::ofstream pid_file(pid_file_path);
-	if (!pid_file)
-		throw Except("Failed to open PID file");
-	pid_file << getpid();
-	pid_file.close();
-
-	while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
-		if (stop_flag.load(std::memory_order_acquire))
+		if (stop) {
+			if (vm.size() > 1)
+				throw Except("--stop can't be used with "
+					     "another arguments");
+			stop_daemon();
 			return 0;
-		if (errno != ENOENT)
-			throw Except("Can't open device");
-		sleep(WAIT_FOR_FILE);
+		}
+
+		if (vm.count("help")) {
+			std::cout << desc << std::endl;
+			return 0;
+		}
+
+		if (!vm.count("host")) {
+			std::cerr << "'host' argument is requred" << std::endl;
+			return 1;
+		}
+
+		if (!vm.count("log"))
+			throw Except("please, specify log path");
+
+		try {
+			auto logger = spdlog::basic_logger_mt("access_logger",
+				vm["log"].as<std::string>());
+			spdlog::set_default_logger(logger);
+		}
+		catch (const spdlog::spdlog_ex &ex) {
+			throw Except("Log init failed: ", ex.what());
+		}
+		spdlog::set_level(spdlog::level::info);
+
+		if (vm.count("ncpu")) {
+			cpu_cnt = vm["ncpu"].as<unsigned int>();
+		} else {
+			cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+			if (cpu_cnt < 0)
+				throw Except("Can't get CPU number");
+		}
+
+		auto user = vm.count("user") ?
+			    vm["user"].as<std::string>() : std::string("");
+		auto password = vm.count("password") ?
+				vm["password"].as<std::string>() :
+				std::string("");
+
+		spdlog::info("Starting daemon...");
+
+		if (daemon(0, 0) < 0)
+			throw Except("Daemonization failed");
+
+		set_sig_handlers();
+
+		std::ofstream pid_file(pid_file_path);
+		if (!pid_file)
+			throw Except("Failed to open PID file");
+		pid_file << getpid();
+		pid_file.close();
+
+		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
+			if (stop_flag.load(std::memory_order_acquire))
+				return 0;
+			if (errno != ENOENT)
+				throw Except("Can't open device");
+			sleep(WAIT_FOR_FILE);
+		}
+
+		for (i = 0; i < cpu_cnt; ++i) {
+			std::promise<void> promise;
+			futures.push_back(promise.get_future());
+			thrs.push_back(std::thread(run_thread, i, fd,
+				       vm["host"].as<std::string>(),
+				       user, password, std::move(promise)));
+		}
+
+		spdlog::info("Daemon started");
+
+		for (i = 0; i < cpu_cnt; ++i)
+			thrs[i].join();
+
+		for (auto& future : futures)
+			future.get();
+
+		spdlog::info("Daemon stopped");
+
+	}
+	catch (Exception &e) {
+		spdlog::error(e.what());
+		res = 1;
+	}
+	catch (std::exception &e) {
+		spdlog::error("Unhandled error: {}", e.what());
+		res = 2;
 	}
 
-	for (i = 0; i < cpu_cnt; ++i) {
-		std::promise<void> promise;
-		futures.push_back(promise.get_future());
-		thrs.push_back(std::thread(run_thread, i, fd,
-					   vm["host"].as<std::string>(),
-					   user, password, std::move(promise)));
-	}
+	if (fd >= 0)
+		close(fd);
 
-	spdlog::info("Daemon started");
-
-	for (i = 0; i < cpu_cnt; ++i)
-		thrs[i].join();
-
-	close(fd);
-
-	for (auto& future : futures)
-		future.get();
-
-	spdlog::info("Daemon stopped");
-
-	return 0;
-}
-catch (Exception &e) {
-	spdlog::error(e.what());
-	return 1;
-}
-catch (std::exception &e) {
-	spdlog::error("Unhandled error: {}", e.what());
-	return 2;
+	return res;
 }
