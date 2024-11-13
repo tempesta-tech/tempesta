@@ -151,6 +151,7 @@ void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
                                  bool attack);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 void tfw_h2_current_stream_remove(TfwH2Ctx *ctx);
+int tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code);
 void tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id);
 void tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx);
 void tfw_h2_check_current_stream_is_closed(TfwH2Ctx *ctx);
