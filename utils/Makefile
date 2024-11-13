@@ -35,7 +35,9 @@ SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
 OBJS := $(SRCS:.cc=.o)
 TARGET := tfw_logger
 
-all: clickhouse $(TARGET)
+all:
+	$(MAKE) clickhouse
+	$(MAKE) $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
