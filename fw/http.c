@@ -1515,30 +1515,30 @@ __tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req = hmresp->req;
 	TfwHttpResp *stale_resp;
-	bool sent = false;
 
-	tfw_stream_unlink_msg(hmresp->stream);
-	/* Unlink response. */
 	req->resp = NULL;
 
 	stale_resp = tfw_cache_build_resp_stale(req);
 	/* For HTTP2 response will not be built if stream already closed. */
-	if (!stale_resp)
-		goto free;
+	if (unlikely(!stale_resp))
+		/* hmresp will be freed in tfw_http_conn_drop() */
+		return false;
 
-	req->resp->conn = hmresp->conn;
+	/* Unlink response. */
+	tfw_stream_unlink_msg(hmresp->stream);
+
 	hmresp->pair = NULL;
+	req->resp->conn = hmresp->conn;
+	hmresp->conn->stream.msg = (TfwMsg *)stale_resp;
 
 	if (TFW_MSG_H2(req))
 		tfw_h2_req_unlink_stream(req);
 
 	tfw_http_req_cache_service(req->resp);
-	sent = true;
 
-free:
 	tfw_http_msg_free(hmresp);
 
-	return sent;
+	return true;
 }
 
 /**
