@@ -322,6 +322,7 @@ main(int argc, char* argv[])
 	long int cpu_cnt;
 	int fd = -1, res = 0;
 	bool stop = false;
+	std::shared_ptr<spdlog::logger> logger = nullptr;
 
 	try {
 		po::options_description desc{"Usage: tfw_logger "
@@ -371,16 +372,6 @@ main(int argc, char* argv[])
 		if (!vm.count("log"))
 			throw Except("please, specify log path");
 
-		try {
-			auto logger = spdlog::basic_logger_mt("access_logger",
-				vm["log"].as<std::string>());
-			spdlog::set_default_logger(logger);
-		}
-		catch (const spdlog::spdlog_ex &ex) {
-			throw Except("Log init failed: ", ex.what());
-		}
-		spdlog::set_level(spdlog::level::info);
-
 		if (vm.count("ncpu")) {
 			cpu_cnt = vm["ncpu"].as<unsigned int>();
 		} else {
@@ -395,8 +386,6 @@ main(int argc, char* argv[])
 				vm["password"].as<std::string>() :
 				std::string("");
 
-		spdlog::info("Starting daemon...");
-
 		/*
 		 * When the daemon forks, it inherits the file descriptor for
 		 * /tmp/tempesta-lock-file, which was originally opened and locked by flock
@@ -405,7 +394,14 @@ main(int argc, char* argv[])
 		 *
 		 * Close all descriptors before daemonizing.
 		 */
-		closefrom(0);
+		closefrom(3);
+
+		logger = spdlog::basic_logger_mt("access_logger",
+						 vm["log"].as<std::string>());
+		spdlog::set_default_logger(logger);
+		spdlog::set_level(spdlog::level::info);
+
+		spdlog::info("Starting daemon...");
 
 		if (daemon(0, 0) < 0)
 			throw Except("Daemonization failed");
@@ -446,11 +442,17 @@ main(int argc, char* argv[])
 
 	}
 	catch (Exception &e) {
-		spdlog::error(e.what());
+		if (logger)
+			spdlog::error(e.what());
+		else
+			std::cerr << e.what() << std::endl;
 		res = 1;
 	}
 	catch (std::exception &e) {
-		spdlog::error("Unhandled error: {}", e.what());
+		if (logger)
+			spdlog::error("Unhandled error: {}", e.what());
+		else
+			std::cerr << "Unhandled error: " << e.what() << std::endl;
 		res = 2;
 	}
 
