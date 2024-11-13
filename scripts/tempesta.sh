@@ -41,6 +41,13 @@ lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 
+tfw_logger_should_start=0
+mmap_host=""
+mmap_log=""
+mmap_user=""
+mmap_password=""
+mmap_rest=""
+
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
@@ -70,6 +77,39 @@ usage()
 	echo -e "                       (ex. --start -d \"lo ens3\").\n"
 }
 
+mmap_lines_handler()
+{
+	local input="$1"
+	rest=""
+	while read -r line; do
+		if mmap_parse_line "$line"; then
+			rest+="$line"$'\n'
+		fi
+	done <<< "$input"
+	mmap_rest=$rest
+}
+
+mmap_parse_line()
+{
+	local line="$1"
+	local key value
+
+	read -r key value <<< "$line"
+	value="${value%;}"
+
+	if [[ "$key" == "access_log" ]] && echo "$value" | grep -q -w "mmap" ; then
+		tfw_logger_should_start=1
+	fi
+
+	case "$key" in
+		mmap_host) mmap_host="$value"; return 1 ;;
+		mmap_log) mmap_log="$value"; return 1 ;;
+		mmap_user) mmap_user="$value"; return 1 ;;
+		mmap_password) mmap_password="$value"; return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
 templater()
 {
 	# Replace !include dircetive with file contents
@@ -88,11 +128,13 @@ templater()
 			while IFS= read -r file; do
 				inc_file=$(cat $file \
 					| sed -e '/request /s/\\r\\n/\x0d\x0a/g')
+				mmap_lines_handler "$inc_file"
+				inc_file="$mmap_rest"
 				echo $inc_file >> $tfw_cfg_temp
-
 			done <<< "$files"
 		else
-			value="$line"
+			mmap_lines_handler "$line"
+			value="$mmap_rest"
 			echo "$value" >> $tfw_cfg_temp
 		fi
 	done < "$tfw_cfg_path"
@@ -258,6 +300,26 @@ start_tempesta_and_check_state()
 	fi
 }
 
+start_tfw_logger()
+{
+	if [ $tfw_logger_should_start -eq 0 ]; then
+		return
+	fi
+
+	if [ -z "$mmap_host" ] || [ -z "$mmap_log" ]; then
+		error "You need to specify 'mmap_host' and 'mmap_log' "`
+		      `"if access_log mmap was specified"
+		return
+	fi
+
+	utils/tfw_logger -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password"
+}
+
+stop_tfw_logger()
+{
+	utils/tfw_logger -s
+}
+
 start()
 {
 	echo "Starting Tempesta..."
@@ -284,12 +346,17 @@ start()
 	echo "...start Tempesta FW"
 
 	start_tempesta_and_check_state
+
+	start_tfw_logger
+
 	echo "done"
 }
 
 stop()
 {
 	echo "Stopping Tempesta..."
+
+	stop_tfw_logger
 
 	sysctl -e -w net.tempesta.state=stop
 
