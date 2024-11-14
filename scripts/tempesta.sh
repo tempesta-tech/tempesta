@@ -42,6 +42,7 @@ tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 
 tfw_logger_should_start=0
+tfw_logger_pid_path="/var/run/tfw_logger.pid"
 mmap_host=""
 mmap_log=""
 mmap_user=""
@@ -318,7 +319,9 @@ start_tfw_logger()
 
 stop_tfw_logger()
 {
-	utils/tfw_logger -s
+	if [ -e $tfw_logger_pid_path ]; then
+		utils/tfw_logger -s
+	fi
 }
 
 start()
