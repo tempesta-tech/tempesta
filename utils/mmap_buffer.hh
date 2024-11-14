@@ -49,8 +49,8 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  *    @get_cpu_id - Returns the CPU ID from the shared buffer.
  *
  * Private methods:
- *    @get_buffer_size - Retrieves the size of the ring buffer for proper data
- *        management.
+ *    @init_buffer_size - Retrieves the size of the ring buffer for proper data
+ *        management and sets to the private size_ field.
  *    @read - checks if there is a new data block and executes the callback when
  *        new data is detected.
  */
@@ -72,7 +72,7 @@ private:
 	void		*private_data_;
 	TfwMmapBufferReadCallback	callback_;
 
-	void get_buffer_size(int fd);
+	void init_buffer_size(int fd);
 	int read();
 };
 

@@ -45,7 +45,7 @@ TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
 	is_running_ = false;
 	this->private_data_ = private_data_;
 
-	get_buffer_size(fd);
+	init_buffer_size(fd);
 
 	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size_);
 
@@ -96,7 +96,7 @@ TfwMmapBufferReader::get_cpu_id()
 }
 
 void
-TfwMmapBufferReader::get_buffer_size(int fd)
+TfwMmapBufferReader::init_buffer_size(int fd)
 {
 	buf_ = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
 				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
