@@ -312,7 +312,8 @@ start_tfw_logger()
 		return
 	fi
 
-	utils/tfw_logger -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password"
+	utils/tfw_logger -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
+		error "cannot start tfw_logger daemon"
 }
 
 stop_tfw_logger()
