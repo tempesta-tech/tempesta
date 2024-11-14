@@ -39,12 +39,9 @@ now_ms()
 
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 			     std::string user, std::string password,
-			     std::shared_ptr<clickhouse::Block> (*cb)())
+			     clickhouse::Block block)
 {
 	auto opts = clickhouse::ClientOptions();
-
-	block_callback_ = cb;
-	table_name_ = table_name;
 
 	opts.SetHost(std::move(host));
 
@@ -54,15 +51,15 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 		opts.SetPassword(std::move(password));
 
 	client_ = std::make_unique<clickhouse::Client>(std::move(opts));
-	block_ = cb();
-
+	table_name_ = table_name;
+	block_ = block;
 	last_time_ = now_ms();
 }
 
-std::shared_ptr<clickhouse::Block>
+clickhouse::Block *
 TfwClickhouse::get_block()
 {
-	return block_;
+	return &block_;
 }
 
 void
@@ -70,13 +67,15 @@ TfwClickhouse::commit()
 {
 	uint64_t now = now_ms();
 
-	block_->RefreshRowCount();
-	if ((now - last_time_ > MAX_MSEC && block_->GetRowCount() > 0)
-		|| block_->GetRowCount() > MAX_EVENTS) {
+	block_.RefreshRowCount();
+	if ((now - last_time_ > MAX_MSEC && block_.GetRowCount() > 0)
+		|| block_.GetRowCount() > MAX_EVENTS) {
 
-		client_->Insert(std::move(table_name_), *block_);
+		client_->Insert(std::move(table_name_), block_);
 
-		block_ = block_callback_();
+		for (size_t i = 0; i < block_.GetColumnCount(); ++i)
+			block_[i]->Clear();
+
 		last_time_ = now;
 	}
 }

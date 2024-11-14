@@ -106,20 +106,20 @@ dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
 }
 #endif /* DEBUG */
 
-static std::shared_ptr<clickhouse::Block>
+clickhouse::Block
 make_block()
 {
 	unsigned int i;
-	auto block = std::make_shared<clickhouse::Block>();
+	auto block = clickhouse::Block();
 
 	auto col = std::make_shared<clickhouse::ColumnDateTime64>(3);
-	block->AppendColumn("timestamp", col);
+	block.AppendColumn("timestamp", col);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		const TfwField *field = &tfw_fields[i];
 
 		auto col = tfw_column_factory(field->code);
-		block->AppendColumn(field->name, col);
+		block.AppendColumn(field->name, col);
 	}
 
 	return block;
@@ -240,7 +240,7 @@ try {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
 
-	TfwClickhouse clickhouse(host, TABLE_NAME, user, password, make_block);
+	TfwClickhouse clickhouse(host, TABLE_NAME, user, password, make_block());
 
 	TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
