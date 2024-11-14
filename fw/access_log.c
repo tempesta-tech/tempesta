@@ -575,9 +575,7 @@ tfw_access_log_start(void)
 {
 	int cpu;
 
-	tfw_mmap_buffer_free(mmap_buffer);
-
-	if (!(access_log_type & ACCESS_LOG_MMAP))
+	if (!(access_log_type & ACCESS_LOG_MMAP) || mmap_buffer)
 		return 0;
 
 	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, mmap_log_buffer_size);
