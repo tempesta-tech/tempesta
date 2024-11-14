@@ -176,14 +176,14 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		case TFW_MMAP_LOG_USER_AGENT:
 			if (!TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {
 				(*block)[ind]->As<clickhouse::ColumnString>()->Append(
-					std::move(std::string("")));
+					std::string(""));
 				break;
 			}
 			len = *((uint16_t *)p);
 			if (len + 2 > size)
 				return -1;
 			(*block)[ind]->As<clickhouse::ColumnString>()->Append(
-				std::move(std::string(p + 2, len)));
+				std::string(p + 2, len));
 			len += 2;
 			break;
 		default:
