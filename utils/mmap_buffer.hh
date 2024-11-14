@@ -18,8 +18,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifndef __TFW_MMAP_BUFFER_READER_HH__
-#define __TFW_MMAP_BUFFER_READER_HH__
+#pragma once
 
 #include <string>
 #include <thread>
@@ -75,5 +74,3 @@ private:
 	void init_buffer_size(int fd);
 	int read();
 };
-
-#endif /* __TFW_MMAP_BUFFER_READER_HH__ */
