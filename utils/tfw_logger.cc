@@ -400,6 +400,7 @@ main(int argc, char* argv[])
 						 vm["log"].as<std::string>());
 		spdlog::set_default_logger(logger);
 		spdlog::set_level(spdlog::level::info);
+		logger->flush_on(spdlog::level::info);
 
 		spdlog::info("Starting daemon...");
 
