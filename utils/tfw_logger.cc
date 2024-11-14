@@ -416,7 +416,7 @@ main(int argc, char* argv[])
 
 		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
 			if (stop_flag.load(std::memory_order_acquire))
-				return 0;
+				goto end;
 			if (errno != ENOENT)
 				throw Except("Can't open device");
 			sleep(WAIT_FOR_FILE);
@@ -458,6 +458,9 @@ main(int argc, char* argv[])
 
 	if (fd >= 0)
 		close(fd);
+end:
+	if (std::remove(pid_file_path) != 0)
+		spdlog::error("Cant remove PID file.");
 
 	return res;
 }
