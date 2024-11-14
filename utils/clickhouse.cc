@@ -43,14 +43,14 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 {
 	auto opts = clickhouse::ClientOptions();
 
-	opts.SetHost(std::move(host));
+	opts.SetHost(host);
 
 	if (!user.empty())
-		opts.SetUser(std::move(user));
+		opts.SetUser(user);
 	if (!password.empty())
-		opts.SetPassword(std::move(password));
+		opts.SetPassword(password);
 
-	client_ = std::make_unique<clickhouse::Client>(std::move(opts));
+	client_ = std::make_unique<clickhouse::Client>(opts);
 	table_name_ = table_name;
 	block_ = block;
 	last_time_ = now_ms();
@@ -71,7 +71,7 @@ TfwClickhouse::commit()
 	if ((now - last_time_ > MAX_MSEC && block_.GetRowCount() > 0)
 		|| block_.GetRowCount() > MAX_EVENTS) {
 
-		client_->Insert(std::move(table_name_), block_);
+		client_->Insert(table_name_, block_);
 
 		for (size_t i = 0; i < block_.GetColumnCount(); ++i)
 			block_[i]->Clear();
