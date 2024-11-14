@@ -226,7 +226,6 @@ callback(const char *data, int size, void *private_data)
 		default:
 			throw Except("Unsupported log type: {}",
 				     (unsigned int)event->type);
-			return;
 		}
 	} while (size > 0);
 
