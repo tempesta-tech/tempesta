@@ -80,6 +80,11 @@ static struct {
 
 static TDB *client_db;
 
+/*
+ * Called only under db->ga_lock.
+ *
+ * TODO #515 Rewrite when remove ga_lock.
+ */
 static void
 tfw_client_update_lru(unsigned long key)
 {
