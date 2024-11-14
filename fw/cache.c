@@ -3113,7 +3113,7 @@ cache_do_service_request_stale(TfwHttpReq *req, tfw_http_cache_cb_t action,
 	TFW_INC_STAT_BH(cache.hits);
 
 	T_DBG("Cache: assign stale for request [%p] w/ key=%lx, ce=%p", req,
-	      ce->trec.key, ce);
+	      stale_ce->trec.key, stale_ce);
 
 	/*
 	 * TODO: #2271.
@@ -3139,6 +3139,21 @@ cache_do_service_request_stale(TfwHttpReq *req, tfw_http_cache_cb_t action,
 	}
 
 	action((TfwHttpMsg *)req);
+}
+
+static void
+cache_do_not_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action)
+{
+	if (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED) {
+		tfw_http_send_err_resp(req, 504, "resource not cached");
+	} else {
+		/*
+		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
+		 * if any with values from cached entries to revalidate stored
+		 * stale responses for both: client and Tempesta.
+		 */
+		action((TfwHttpMsg *)req);
+	}
 }
 
 static void
@@ -3171,7 +3186,7 @@ cache_do_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action,
 
 	resp = tfw_cache_build_resp(req, ce, age);
 	if (unlikely(!resp)) {
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		cache_do_not_service_request(req, action);
 		T_ERR("Cache: Can't allocate response.");
 		return;
 	}
@@ -3254,16 +3269,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	TFW_INC_STAT_BH(cache.misses);
 
 	/* Record not found in the cache. */
-	if (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED) {
-		tfw_http_send_err_resp(req, 504, "resource not cached");
-	} else {
-		/*
-		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
-		 * if any with values from cached entries to revalidate stored
-		 * stale responses for both: client and Tempesta.
-		 */
-		action((TfwHttpMsg *)req);
-	}
+	cache_do_not_service_request(req, action);
 }
 
 static void
