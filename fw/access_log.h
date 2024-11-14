@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -79,7 +79,7 @@ typedef enum {
 
 static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 {
-	const int TfwBinLogFieldsLens[] = {
+	static const int TfwBinLogFieldsLens[] = {
 		[TFW_MMAP_LOG_ADDR] = 16,
 		[TFW_MMAP_LOG_METHOD] = 1,
 		[TFW_MMAP_LOG_VERSION] = 1,
@@ -91,7 +91,7 @@ static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 		[TFW_MMAP_LOG_REFERER] = 0,
 		[TFW_MMAP_LOG_USER_AGENT] = 0,
 		[TFW_MMAP_LOG_DROPPED] = 8,
-};
+	};
 	return TfwBinLogFieldsLens[field];
 }
 
