@@ -77,18 +77,6 @@ usage()
 	echo -e "                       (ex. --start -d \"lo ens3\").\n"
 }
 
-mmap_lines_handler()
-{
-	local input="$1"
-	rest=""
-	while read -r line; do
-		if mmap_parse_line "$line"; then
-			rest+="$line"$'\n'
-		fi
-	done <<< "$input"
-	mmap_rest=$rest
-}
-
 mmap_parse_line()
 {
 	local line="$1"
@@ -108,6 +96,18 @@ mmap_parse_line()
 		mmap_password) mmap_password="$value"; return 1 ;;
 		*) return 0 ;;
 	esac
+}
+
+mmap_lines_handler()
+{
+	local input="$1"
+	rest=""
+	while read -r line; do
+		if mmap_parse_line "$line"; then
+			rest+="$line"$'\n'
+		fi
+	done <<< "$input"
+	mmap_rest=$rest
 }
 
 templater()
