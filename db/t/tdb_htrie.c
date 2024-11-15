@@ -1310,7 +1310,6 @@ void
 tdb_htrie_run_test(const char *fname, size_t db_size,
 		   void (*fn)(TdbHdr *dbh), unsigned int rec_len)
 {
-	int r __attribute__((unused));
 	int fd;
 	char *addr;
 	TdbHdr *dbh;
@@ -1326,16 +1325,7 @@ tdb_htrie_run_test(const char *fname, size_t db_size,
 	if (!dbh)
 		TDB_ERR("cannot initialize htrie for test");
 
-	r = gettimeofday(&tv0, NULL);
-	assert(!r);
-
 	fn(dbh);
-
-	r = gettimeofday(&tv1, NULL);
-	assert(!r);
-
-	printf("tdb htrie test: time=%lums\n",
-		tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
 	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, db_size, fd);
