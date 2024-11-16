@@ -58,6 +58,7 @@ public:
 		      clickhouse::Block block);
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
+	~TfwClickhouse();
 
 	clickhouse::Block *get_block() noexcept;
 	void commit();

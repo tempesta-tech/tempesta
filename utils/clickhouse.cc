@@ -54,6 +54,12 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 	client_ = std::make_unique<clickhouse::Client>(opts);
 }
 
+TfwClickhouse::~TfwClickhouse()
+{
+	if (block_.GetRowCount() > 0)
+		client_->Insert(table_name_, block_);
+}
+
 clickhouse::Block *
 TfwClickhouse::get_block() noexcept
 {
