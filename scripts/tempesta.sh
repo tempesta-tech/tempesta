@@ -47,7 +47,6 @@ mmap_host=""
 mmap_log=""
 mmap_user=""
 mmap_password=""
-mmap_rest=""
 
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
@@ -78,41 +77,29 @@ usage()
 	echo -e "                       (ex. --start -d \"lo ens3\").\n"
 }
 
-mmap_parse_line()
+get_opts()
 {
-	local line="$1"
-	local key value
-
-	read -r key value <<< "$line"
-	value="${value%;}"
-
-	if [[ "$key" == "access_log" ]] && echo "$value" | grep -q -w "mmap" ; then
-		tfw_logger_should_start=1
-	fi
-
-	case "$key" in
-		mmap_host) mmap_host="$value"; return 1 ;;
-		mmap_log) mmap_log="$value"; return 1 ;;
-		mmap_user) mmap_user="$value"; return 1 ;;
-		mmap_password) mmap_password="$value"; return 1 ;;
-		*) return 0 ;;
-	esac
+	echo "$1" | grep -E "^\s*$2\b" | sed -E "s/$2 //; s/;$//" | tail -n 1
 }
 
-mmap_lines_handler()
+get_opt_value()
 {
-	local input="$1"
-	rest=""
-	while read -r line; do
-		if mmap_parse_line "$line"; then
-			rest+="$line"$'\n'
-		fi
-	done <<< "$input"
-	mmap_rest=$rest
+	echo "$1" | grep -oE "$2=[^ ;]+" | sed "s/$2=//"
+}
+
+opt_exists()
+{
+	echo "$1" | grep -q "\b$2\b" && return 1 || return 0
+}
+
+remove_opts_by_mask()
+{
+	echo "$1" | sed -E "s/\b$2[^ ;]+ ?//g"
 }
 
 templater()
 {
+	cfg_content=""
 	# Replace !include dircetive with file contents
 	> $tfw_cfg_temp
 	mkdir $TFW_ROOT/etc 2>/dev/null
@@ -129,16 +116,27 @@ templater()
 			while IFS= read -r file; do
 				inc_file=$(cat $file \
 					| sed -e '/request /s/\\r\\n/\x0d\x0a/g')
-				mmap_lines_handler "$inc_file"
-				inc_file="$mmap_rest"
-				echo $inc_file >> $tfw_cfg_temp
+
+				cfg_content+="$inc_file"$'\n'
 			done <<< "$files"
 		else
-			mmap_lines_handler "$line"
-			value="$mmap_rest"
-			echo "$value" >> $tfw_cfg_temp
+			cfg_content+="$line"$'\n'
 		fi
 	done < "$tfw_cfg_path"
+
+	opts=$(get_opts "$cfg_content" "access_log")
+	tfw_logger_should_start=$(opt_exists "$opts" "mmap"; echo $?)
+	if [ $tfw_logger_should_start -ne 0 ]; then
+		mmap_log=$(get_opt_value "$opts" "mmap_log")
+		mmap_host=$(get_opt_value "$opts" "mmap_host")
+		mmap_user=$(get_opt_value "$opts" "mmap_user")
+		mmap_password=$(get_opt_value "$opts" "mmap_password")
+		cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
+		[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
+			error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
+	fi
+
+	echo "$cfg_content" > $tfw_cfg_temp
 }
 
 remove_tmp_conf()
