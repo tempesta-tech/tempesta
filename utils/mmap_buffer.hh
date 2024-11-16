@@ -62,7 +62,7 @@ public:
 	~TfwMmapBufferReader();
 
 	void run(std::atomic<bool> *stop_flag);
-	unsigned int get_cpu_id();
+	unsigned int get_cpu_id() noexcept;
 
 private:
 	TfwMmapBuffer	*buf_;

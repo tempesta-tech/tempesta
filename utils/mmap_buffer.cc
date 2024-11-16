@@ -88,7 +88,7 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 }
 
 unsigned int
-TfwMmapBufferReader::get_cpu_id()
+TfwMmapBufferReader::get_cpu_id() noexcept
 {
 	return buf_->cpu;
 }

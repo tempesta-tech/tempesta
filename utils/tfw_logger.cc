@@ -266,7 +266,7 @@ sig_handler([[maybe_unused]] int  sig_num) noexcept
 }
 
 void
-set_sig_handlers()
+set_sig_handlers() noexcept
 {
 	struct sigaction sa;
 

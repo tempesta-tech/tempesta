@@ -55,7 +55,7 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 }
 
 clickhouse::Block *
-TfwClickhouse::get_block()
+TfwClickhouse::get_block() noexcept
 {
 	return &block_;
 }
