@@ -55,7 +55,7 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  */
 class TfwMmapBufferReader {
 public:
-	TfwMmapBufferReader(unsigned int cpu_cnt, int fd, void *private_data,
+	TfwMmapBufferReader(unsigned int ncpu, int fd, void *private_data,
 			    TfwMmapBufferReadCallback cb);
 	TfwMmapBufferReader(const TfwMmapBufferReader &) = delete;
 	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;

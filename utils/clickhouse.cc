@@ -40,6 +40,7 @@ now_ms()
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 			     std::string user, std::string password,
 			     clickhouse::Block block)
+	: block_(block), last_time_(now_ms()), table_name_(table_name)
 {
 	auto opts = clickhouse::ClientOptions();
 
@@ -51,9 +52,6 @@ TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
 		opts.SetPassword(password);
 
 	client_ = std::make_unique<clickhouse::Client>(opts);
-	table_name_ = table_name;
-	block_ = block;
-	last_time_ = now_ms();
 }
 
 clickhouse::Block *
@@ -69,7 +67,7 @@ TfwClickhouse::commit()
 
 	block_.RefreshRowCount();
 	if ((now - last_time_ > MAX_MSEC && block_.GetRowCount() > 0)
-		|| block_.GetRowCount() > MAX_EVENTS) {
+	    || block_.GetRowCount() > MAX_EVENTS) {
 
 		client_->Insert(table_name_, block_);
 

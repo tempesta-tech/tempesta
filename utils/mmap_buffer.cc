@@ -36,14 +36,12 @@
 constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
 
 TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
-					 void *private_data_,
+					 void *private_data,
 					 TfwMmapBufferReadCallback cb)
+	: buf_(nullptr), size_(0), is_running_(false),
+	  private_data_(private_data), callback_(cb)
 {
 	unsigned int area_size;
-
-	callback_ = cb;
-	is_running_ = false;
-	this->private_data_ = private_data_;
 
 	init_buffer_size(fd);
 
