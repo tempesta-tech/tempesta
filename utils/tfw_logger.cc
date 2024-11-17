@@ -138,9 +138,12 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 #define INT_CASE(method, col_type, val_type)					\
 	case method:								\
 		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {			\
+			len = tfw_mmap_log_field_len((TfwBinLogFields)i);	\
 			if (len > size)						\
 				return -1;					\
 			(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
+			p += len;						\
+			size -= len;						\
 		} else								\
 			(*block)[ind]->As<col_type>()->Append(0);		\
 		break;
@@ -150,8 +153,6 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		int len, ind = i + 1;
-
-		len = tfw_mmap_log_field_len((TfwBinLogFields)i);
 
 		switch (i) {
 		INT_CASE(TFW_MMAP_LOG_ADDR,
@@ -184,14 +185,11 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 			(*block)[ind]->As<clickhouse::ColumnString>()->Append(
 				std::string(p + 2, len));
 			len += 2;
+			p += len;
+			size -= len;
 			break;
 		default:
 			throw Except("Unknown field type: {}", i);
-		}
-
-		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {
-			p += len;
-			size -= len;
 		}
 	}
 
