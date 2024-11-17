@@ -25,16 +25,14 @@
 
 #include "clickhouse.hh"
 
-
-constexpr size_t MAX_MSEC = 100;
-constexpr size_t MAX_EVENTS = 1000;
+constexpr std::chrono::milliseconds max_wait(100);
+constexpr size_t max_events = 1000;
 
 static auto
 now_ms()
 {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(
-			std::chrono::system_clock::now().time_since_epoch())
-		.count();
+		std::chrono::system_clock::now().time_since_epoch());
 }
 
 TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
@@ -69,11 +67,11 @@ TfwClickhouse::get_block() noexcept
 void
 TfwClickhouse::commit()
 {
-	uint64_t now = now_ms();
+	auto now = now_ms();
 
 	block_.RefreshRowCount();
-	if ((now - last_time_ > MAX_MSEC && block_.GetRowCount() > 0)
-	    || block_.GetRowCount() > MAX_EVENTS) {
+	if ((now - last_time_ > max_wait && block_.GetRowCount() > 0)
+	    || block_.GetRowCount() > max_events) {
 
 		client_->Insert(table_name_, block_);
 

@@ -33,7 +33,7 @@
 #include "mmap_buffer.hh"
 #include "error.hh"
 
-constexpr size_t WAIT_FOR_READINESS = 10; /* ms */
+constexpr std::chrono::milliseconds wait_for_readyness(10);
 
 TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
 					 void *private_data,
@@ -81,8 +81,7 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 			}
 		}
 
-		std::this_thread::sleep_for(
-			std::chrono::milliseconds(WAIT_FOR_READINESS));
+		std::this_thread::sleep_for(wait_for_readyness);
 	}
 
 }

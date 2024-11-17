@@ -66,7 +66,7 @@ public:
 private:
 	std::unique_ptr<clickhouse::Client>	client_;
 	clickhouse::Block			block_;
-	uint64_t				last_time_;
+	std::chrono::milliseconds		last_time_;
 	std::string				table_name_;
 };
 

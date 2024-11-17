@@ -42,12 +42,11 @@
 
 namespace po = boost::program_options;
 
-#define FILE_PATH	"/dev/tempesta_mmap_log"
-#define TABLE_NAME	"access_log"
-
-constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
-constexpr size_t WAIT_FOR_FILE = 1;  /* s */
-constexpr size_t WAIT_FOR_STOP = 10; /* ms */
+constexpr char dev_path[]	= "/dev/tempesta_mmap_log";
+constexpr char table_name[]	= "access_log";
+constexpr char pid_file_path[]	= "/var/run/tfw_logger.pid";
+constexpr std::chrono::seconds		wait_for_dev{1};
+constexpr std::chrono::milliseconds	wait_for_stop(10);
 
 typedef struct {
 	const char		*name;
@@ -240,7 +239,7 @@ try {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
 
-	TfwClickhouse clickhouse(host, TABLE_NAME, user, password, make_block());
+	TfwClickhouse clickhouse(host, table_name, user, password, make_block());
 
 	TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
@@ -305,8 +304,7 @@ void stop_daemon()
 	while (1) {
 		if (kill(pid, 0) == -1 && errno == ESRCH)
 			break;
-		std::this_thread::sleep_for(
-			std::chrono::milliseconds(WAIT_FOR_STOP));
+		std::this_thread::sleep_for(wait_for_stop);
         }
 
 	std::cout << "Daemon stopped." << std::endl;
@@ -414,12 +412,12 @@ main(int argc, char* argv[])
 		pid_file << getpid();
 		pid_file.close();
 
-		while ((fd = open(FILE_PATH, O_RDWR)) == -1) {
+		while ((fd = open(dev_path, O_RDWR)) == -1) {
 			if (stop_flag.load(std::memory_order_acquire))
 				goto end;
 			if (errno != ENOENT)
 				throw Except("Can't open device");
-			sleep(WAIT_FOR_FILE);
+			std::this_thread::sleep_for(wait_for_dev);
 		}
 
 		for (i = 0; i < cpu_cnt; ++i) {
