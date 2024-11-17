@@ -196,6 +196,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	}
 
 	return p - data;
+#undef INT_CASE
 }
 
 void
