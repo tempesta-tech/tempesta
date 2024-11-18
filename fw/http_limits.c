@@ -369,7 +369,7 @@ frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
 }
 
 static int
-frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
+frang_req_limit(FrangAcc *ra, TfwConn *conn, unsigned int req_burst, unsigned int req_rate)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	int i = ts % FRANG_FREQ;
@@ -387,8 +387,8 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	ra->history[i].req++;
 
 	if (req_burst && unlikely(ra->history[i].req > req_burst)) {
-		frang_limmsg("requests burst", ra->history[i].req,
-			     req_burst, &FRANG_ACC2CLI(ra)->addr);
+		frang_msg("requests burst" " exceeded", (&FRANG_ACC2CLI(ra)->addr), ": %ld (lim=%ld) %px\n",
+			  (long)ra->history[i].req, (long)ra->history[i].req, conn);
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
@@ -1123,7 +1123,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	 * that run when a connection is established or destroyed.
 	 */
 	T_FSM_STATE(Frang_Req_0) {
-		r = frang_req_limit(ra, fg_cfg->req_burst, fg_cfg->req_rate);
+		r = frang_req_limit(ra, conn, fg_cfg->req_burst, fg_cfg->req_rate);
 		/* Set the time the header started coming in. */
 		req->tm_header = jiffies;
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Method);
