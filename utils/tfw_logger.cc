@@ -95,7 +95,7 @@ dbg_hexdump(const char *data, int buflen)
 		oss << std::endl;
 	}
 	oss << std::dec << "len = " << buflen << std::endl;
-	std::cout << oss.str();
+	spdlog::info("{}", oss.str());
 #undef PRINT_CHAR
 }
 #else
