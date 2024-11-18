@@ -371,7 +371,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	}
 
 	if (tfw_mmap_buffer_commit(mmap_buffer, p - data) != 0) {
-		T_WARN("Incorrect data size at commit: %ld", p - data);
+		T_DBG("Incorrect data size at commit: %ld", p - data);
 		goto drop;
 	}
 
