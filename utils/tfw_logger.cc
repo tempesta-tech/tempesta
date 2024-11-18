@@ -130,73 +130,58 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	auto block = clickhouse->get_block();
 	const char *p = data;
 	TfwBinLogEvent *event = (TfwBinLogEvent *)p;
-	int i;
+	int len, ind;
 
 	p += sizeof(TfwBinLogEvent);
 	size -= sizeof(TfwBinLogEvent);
 
-#define INT_CASE(method, col_type, val_type)					\
-	case method:								\
-		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {			\
-			len = tfw_mmap_log_field_len((TfwBinLogFields)i);	\
-			if (len > size) [[unlikely]]				\
-				goto error;					\
-			(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
-			p += len;						\
-			size -= len;						\
-		} else								\
-			(*block)[ind]->As<col_type>()->Append(0);		\
-		break;
-
-
 	(*block)[0]->As<clickhouse::ColumnDateTime64>()->Append(event->timestamp);
 
-	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
-		int len, ind = i + 1;
+#define READ_INT(method, col_type, val_type)				\
+	ind = method + 1; /* column 0 is timestamp */			\
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {			\
+		len = tfw_mmap_log_field_len((TfwBinLogFields)method);	\
+		if (len > size) [[unlikely]]				\
+			goto error;					\
+		(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
+		p += len;						\
+		size -= len;						\
+	} else								\
+		(*block)[ind]->As<col_type>()->Append(0);		\
 
-		switch (i) {
-		INT_CASE(TFW_MMAP_LOG_ADDR,
-			 clickhouse::ColumnIPv6, struct in6_addr);
-		INT_CASE(TFW_MMAP_LOG_METHOD,
-			 clickhouse::ColumnUInt8, unsigned char);
-		INT_CASE(TFW_MMAP_LOG_VERSION,
-			 clickhouse::ColumnUInt8, unsigned char);
-		INT_CASE(TFW_MMAP_LOG_STATUS,
-			 clickhouse::ColumnUInt16, uint16_t);
-		INT_CASE(TFW_MMAP_LOG_RESP_CONT_LEN,
-			 clickhouse::ColumnUInt32, uint32_t);
-		INT_CASE(TFW_MMAP_LOG_RESP_TIME,
-			 clickhouse::ColumnUInt32, uint32_t);
-		INT_CASE(TFW_MMAP_LOG_DROPPED,
-			 clickhouse::ColumnUInt64, uint64_t);
+	READ_INT(TFW_MMAP_LOG_ADDR, clickhouse::ColumnIPv6, struct in6_addr);
+	READ_INT(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
+	READ_INT(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
+	READ_INT(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
+	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
+	READ_INT(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
+	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
 
-		case TFW_MMAP_LOG_VHOST:
-		case TFW_MMAP_LOG_URI:
-		case TFW_MMAP_LOG_REFERER:
-		case TFW_MMAP_LOG_USER_AGENT:
-			if (!TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {
-				(*block)[ind]->As<clickhouse::ColumnString>()->Append(
-					std::string(""));
-				break;
-			}
-			len = *((uint16_t *)p);
-			if (len + 2 > size) [[unlikely]]
-				goto error;
-			(*block)[ind]->As<clickhouse::ColumnString>()->Append(
-				std::string(p + 2, len));
-			len += 2;
-			p += len;
-			size -= len;
-			break;
-		default:
-			throw Except("Unknown field type: {}", i);
-		}
-	}
+#define READ_STR(method)						\
+	ind = method + 1; /* column 0 is timestamp */			\
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {			\
+		len = *((uint16_t *)p);					\
+		if (len > size) [[unlikely]]				\
+			goto error;					\
+		(*block)[ind]->As<clickhouse::ColumnString>()->Append(	\
+			std::string(p + 2, len));			\
+		len += 2;						\
+		p += len;						\
+		size -= len;						\
+	} else								\
+		(*block)[ind]->As<clickhouse::ColumnString>()->Append(	\
+			std::string(""));
+
+	READ_STR(TFW_MMAP_LOG_VHOST);
+	READ_STR(TFW_MMAP_LOG_URI);
+	READ_STR(TFW_MMAP_LOG_REFERER);
+	READ_STR(TFW_MMAP_LOG_USER_AGENT);
 
 	return p - data;
 error:
 	throw Except("Incorrect event length");
-#undef INT_CASE
+#undef READ_STR
+#undef READ_INT
 }
 
 void
