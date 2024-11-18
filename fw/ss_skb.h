@@ -25,8 +25,8 @@
 #include <linux/skbuff.h>
 #include <net/tcp.h>
 
+#include "lib/error_code.h"
 #include "str.h"
-#include "lib/log.h"
 
 /**
  * Responses from socket hook functions.

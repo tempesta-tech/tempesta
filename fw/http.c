@@ -93,6 +93,8 @@
 #endif
 
 #include "lib/hash.h"
+#include "lib/log.h"
+#include "lib/error_code.h"
 #include "lib/str.h"
 #include "access_log.h"
 #include "apm.h"
@@ -106,7 +108,6 @@
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
-#include "log.h"
 #include "procfs.h"
 #include "server.h"
 #include "tls.h"

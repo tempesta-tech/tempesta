@@ -27,44 +27,6 @@
 #endif
 
 /*
- * Return codes.
- */
-enum {
-	/* Compression error during hpack decoding. */
-	T_COMPRESSION	= -MAX_ERRNO + 7,
-	/*
-	 * Generic error. Connection should be shutdown gracefully
-	 * with TCP_FIN.
-	 */
-	T_BAD		 = -MAX_ERRNO + 6,
-	/*
-	 * The message must be dropped. Connection should be alive or closed
-	 * with TCP FIN depending on whether we can communicate with this
-	 * client or not.
-	 */
-	T_DROP		 = -MAX_ERRNO + 5,
-	/*
-	 * The message must be blocked (typically on a security event).
-	 * Tempesta send TCP FIN in this case.
-	 */
-	T_BLOCK_WITH_FIN = -MAX_ERRNO + 4,
-	/*
-	 * The message must be blocked (typically on a security event).
-	 * Tempesta send TCP RST in this case.
-	 */
-	T_BLOCK_WITH_RST = -MAX_ERRNO + 3,
-	/*
-	 * The message must be blocked (typically on a security event).
-	 * Sending TCP RST or TCP FIN depends on block action setting.
-	 */
-	T_BLOCK		 = -MAX_ERRNO + 2,
-	/* The message should be stashed (made by callback). */
-	T_POSTPONE	 = -MAX_ERRNO + 1,
-	/* The message looks good and we can safely pass it. */
-	T_OK		 = 0,
-};
-
-/*
  * BANNER variable must be defined before including the file!
  *
  * We have different verbosity levels for debug messages.

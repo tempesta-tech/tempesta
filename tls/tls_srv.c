@@ -24,6 +24,7 @@
  */
 #include "debug.h"
 #include "lib/str.h"
+#include "lib/error_code.h"
 #include "ecp.h"
 #include "mpool.h"
 #include "tls_internal.h"

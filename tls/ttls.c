@@ -33,6 +33,7 @@
 #include <linux/module.h>
 #include <net/tls.h>
 
+#include "lib/error_code.h"
 #include "crypto.h"
 #include "mpool.h"
 #include "oid.h"
