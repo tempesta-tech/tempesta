@@ -294,6 +294,8 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	if (room_size < sizeof(TfwBinLogEvent))
 		goto drop;
 
+	room_size -= sizeof(TfwBinLogEvent);
+
 	event = (TfwBinLogEvent *)data;
 	p = data + sizeof(TfwBinLogEvent);
 
