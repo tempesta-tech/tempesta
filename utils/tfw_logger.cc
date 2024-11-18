@@ -232,9 +232,8 @@ callback(const char *data, int size, void *private_data)
 
 void
 run_thread(int ncpu, int fd, std::string host,
-	   std::string user, std::string password,
-	   std::promise<void> promise)
-try {
+	   std::string user, std::string password)
+{
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
 
@@ -249,11 +248,6 @@ try {
 				      sizeof(cpu_set_t), &cpuset) == 0);
 
 	mbr.run(&stop_flag);
-
-	promise.set_value();
-}
-catch (...) {
-	promise.set_exception(std::current_exception());
 }
 
 void
@@ -312,7 +306,7 @@ void stop_daemon()
 int
 main(int argc, char* argv[])
 {
-	std::vector<std::thread> thrs;
+	std::vector<std::thread> threads;
 	std::vector<std::future<void>> futures;
 	unsigned int i;
 	long int cpu_cnt;
@@ -420,17 +414,14 @@ main(int argc, char* argv[])
 		}
 
 		for (i = 0; i < cpu_cnt; ++i) {
-			std::promise<void> promise;
-			futures.push_back(promise.get_future());
-			thrs.push_back(std::thread(run_thread, i, fd,
-				       vm["host"].as<std::string>(),
-				       user, password, std::move(promise)));
+			std::packaged_task<void(int, int, std::string, std::string,
+						std::string)> task(run_thread);
+			futures.push_back(task.get_future());
+			threads.emplace_back(std::move(task), i, fd,
+					     vm["host"].as<std::string>(), user, password);
 		}
 
 		spdlog::info("Daemon started");
-
-		for (i = 0; i < cpu_cnt; ++i)
-			thrs[i].join();
 
 		for (auto& future : futures)
 			future.get();
