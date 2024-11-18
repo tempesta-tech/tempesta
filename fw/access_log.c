@@ -299,20 +299,20 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 
 #define WRITE_TO_BUF(val, size)			\
 	do {					\
-		if (room_size < size)		\
+		if (unlikely(room_size < size))	\
 			goto drop;		\
 		memcpy_fast(p, val, size);	\
 		p += size;			\
 		room_size -= size;		\
 	} while (0)
 
-#define WRITE_FIELD(val)			\
-	do {					\
-		if (room_size < sizeof(val))	\
-			goto drop;		\
-		*(typeof(val) *)p = val;	\
-		p += sizeof(val);		\
-		room_size -= sizeof(val);	\
+#define WRITE_FIELD(val)				\
+	do {						\
+		if (unlikely(room_size < sizeof(val)))	\
+			goto drop;			\
+		*(typeof(val) *)p = val;		\
+		p += sizeof(val);			\
+		room_size -= sizeof(val);		\
 	} while (0)
 
 	ktime_get_real_ts64(&ts);

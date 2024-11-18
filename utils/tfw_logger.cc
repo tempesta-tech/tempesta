@@ -139,7 +139,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	case method:								\
 		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {			\
 			len = tfw_mmap_log_field_len((TfwBinLogFields)i);	\
-			if (len > size)						\
+			if (len > size) [[unlikely]]				\
 				goto error;					\
 			(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
 			p += len;						\
@@ -180,7 +180,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 				break;
 			}
 			len = *((uint16_t *)p);
-			if (len + 2 > size)
+			if (len + 2 > size) [[unlikely]]
 				goto error;
 			(*block)[ind]->As<clickhouse::ColumnString>()->Append(
 				std::string(p + 2, len));
