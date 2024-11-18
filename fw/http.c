@@ -7038,16 +7038,6 @@ bad_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 		/*
-		 * Mark server connection as Conn_Stop to prevent multiple
-		 * calls of @tfw_http_resp_process() when original response
-		 * is freed and connection ready for closing. It may happens
-		 * when error occurred in the middle of the message that has
-		 * sent in multiple SKBs. In this case we close connection,
-		 * but still continue to process rest of SKBs and parse data,
-		 * that is dangerous.
-		 */
-		TFW_CONN_TYPE(conn) |= Conn_Stop;
-		/*
 		 * Close connection with backend immediately
 		 * and try to re-establish it later.
 		 */

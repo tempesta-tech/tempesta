@@ -1070,8 +1070,16 @@ ss_tcp_data_ready(struct sock *sk)
 	 * Closing a socket should go through the queue and
 	 * should be done after all pending data has been sent.
 	 */
-	if (!(SS_CONN_TYPE(sk) & Conn_Stop) || was_stopped)
+	if (!(SS_CONN_TYPE(sk) & Conn_Stop) || was_stopped) {
+		/*
+		 * Set Conn_Stop bit to stop processing new incoming
+		 * frames except WINDOW_UPDATE. For HTTP1 connections
+		 * (including all server connections) we Immediately stop
+		 * processing any incoming messages.
+		 */ 
+		SS_CONN_TYPE(sk) |= Conn_Stop;
 		action(sk, flags);
+	}
 }
 
 /**
