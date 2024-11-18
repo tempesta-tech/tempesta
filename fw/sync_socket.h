@@ -89,7 +89,8 @@ typedef struct ss_hooks {
 	void (*connection_drop)(struct sock *sk);
 
 	/* Process data received on the socket. */
-	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb);
+	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb,
+			       int *save_err_code);
 } SsHooks;
 
 /**

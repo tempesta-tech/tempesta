@@ -32,7 +32,8 @@ int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
                     unsigned int limit);
 
 typedef struct tfw_conn_t TfwConn;
-int tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb);
+int tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb,
+                            int *save_err_code);
 bool tfw_tls_get_allow_any_sni_reconfig(void);
 
 TfwVhost* tfw_tls_find_vhost_by_name(BasicStr *srv_name);

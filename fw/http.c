@@ -7146,7 +7146,7 @@ err:
  */
 int
 tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
-		     struct sk_buff **next)
+		     struct sk_buff **next, int *save_err_code)
 {
 	TfwStream *stream = &conn->stream;
 
@@ -7156,7 +7156,7 @@ tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
 		     && TFW_FSM_TYPE(conn->proto.type) != TFW_FSM_H2);
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
-		return tfw_h2_frame_process(conn, skb, next);
+		return tfw_h2_frame_process(conn, skb, next, save_err_code);
 	return tfw_http_msg_process_generic(conn, stream, skb, next);
 }
 

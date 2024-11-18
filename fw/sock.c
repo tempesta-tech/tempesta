@@ -820,6 +820,9 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	void *conn;
 	struct sk_buff *skb_head = NULL;
 	struct tcp_sock *tp = tcp_sk(sk);
+	int save_err_code = SS_OK, tmp_save_err_code;
+	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop)
+                           || (SS_CONN_TYPE(sk) & Conn_Shutdown);
 
 #define ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed)		\
 do {									\
@@ -848,6 +851,7 @@ do {									\
 		WARN_ON_ONCE(skb_has_frag_list(skb));
 		WARN_ON_ONCE(skb->sk);
 
+		tmp_save_err_code = SS_OK;
 		/*
 		 * Some SKBs may have dev, however tempesta uses dev to store
 		 * own flags, thus clear it.
@@ -884,12 +888,32 @@ do {									\
 		 */
 		BUG_ON(conn == NULL);
 
-		r = SS_CALL(connection_recv, conn, skb);
-
-		if (r < 0) {
-			T_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
-			       smp_processor_id(), sk, r);
-			goto out; /* connection must be dropped */
+		r = SS_CALL(connection_recv, conn, skb, &tmp_save_err_code);
+		WARN_ON(r && tmp_save_err_code);
+		r = tfw_handle_error(r, &save_err_code, was_stopped);
+		if (r == SS_BLOCK_WITH_FIN || r == SS_BLOCK_WITH_RST) {
+			goto out;
+		} else if (r && r != SS_DROP && r != SS_POSTPONE) {
+			/*
+			 * If Conn_Stop bit is not set we don't send error
+			 * response to client, so we don't need to process
+			 * WINDOW_UPDATE frames and can immediately close
+			 * connection.
+			 * For server connections we never set this bit, so
+			 * close connection immediatly.
+			 */
+			if (!(SS_CONN_TYPE(sk) & Conn_Stop))
+				goto out;
+			/*
+			 * In case of SS_BAD or system errors we close connection
+			 * with tcp_shutdown() and gracefully send all pending
+			 * responses to client. We should continue to process
+			 * WINDOW_UPDATE frames so, we should decrypt all skbs,
+			 * not drop them.
+			 */
+			save_err_code = SS_BAD;
+		} else if (tmp_save_err_code) {
+			r = save_err_code = tmp_save_err_code;
 		}
 	}
 out:
@@ -897,7 +921,7 @@ out:
 		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
 		       sk, smp_processor_id());
 		++tp->copied_seq;
-		if (!r)
+		if (likely(!r))
 			r = SS_BAD;
 	}
 	while ((skb = ss_skb_dequeue(&skb_head))) {

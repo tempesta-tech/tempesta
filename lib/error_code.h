@@ -64,4 +64,20 @@ enum {
 	T_OK		 = 0,
 };
 
+static inline int
+tfw_handle_error(int r, int *save_err_code, bool was_stopped)
+{
+	if (likely(r == T_OK || r == T_POSTPONE || r == T_DROP)) {
+		return r;
+	} else if (unlikely(*save_err_code != T_OK || was_stopped)) {
+		/*
+		 * Error occurs when connection was already stopped
+		 * close it with TCP RST.
+		 */
+		r = T_BLOCK_WITH_RST;
+		*save_err_code = T_OK;
+	}
+	return r;
+}
+
 #endif /* __LIB_ERROR_CODE_H__ */

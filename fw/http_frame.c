@@ -1693,9 +1693,10 @@ tfw_h2_allowed_empty_frame(TfwH2Ctx *ctx)
 }
 
 int
-tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
+tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next,
+		     int *save_err_code)
 {
-	int r, save_err_code = T_OK;
+	int r;
 	bool postponed;
 	unsigned int parsed, unused;
 	TfwH2Ctx *h2 = tfw_h2_context_unsafe(c);
@@ -1708,12 +1709,12 @@ do {									\
 	 * If error occurs second time (save_error_code is not zero or	\
 	 * was_stopped is true) close connection immediately with RST.	\
 	 */								\
-	r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?	\
-		SS_BLOCK_WITH_RST : r;					\
+	r = tfw_handle_error(r, save_err_code, was_stopped);		\
 	if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {		\
 		kfree_skb(nskb);					\
 		goto out;						\
 	} else if (r && r != T_DROP) {					\
+		WARN_ON_ONCE(r == T_POSTPONE);				\
 		/*							\
 		 * If Conn_Stop bit is not set we don't send error	\
 		 * response to client, so we don't need to process	\
@@ -1731,9 +1732,8 @@ do {									\
 		 * WINDOW_UPDATE frames so, we should not immediately	\
 		 * return from this function.				\
 		 */							\
-		save_err_code = T_BAD;					\
-	} else if (save_err_code != T_OK) {				\
-		r = save_err_code;					\
+		*save_err_code = T_BAD;					\
+		r = T_OK;						\
 	}								\
 } while(0)
 
@@ -1749,14 +1749,14 @@ next_msg:
 		 * T_BLOCK is error code for high level modules (like frang),
 		 * here we should deal with error code, which accurately
 		 * determine further closing behavior.
+		 * T_DROP is error code, which is returned when connection
+		 * should be alive, but if we can't process frame, we should
+		 * close the connection.
 		 */
-		BUG_ON(r == T_BLOCK);
+		BUG_ON(r == T_BLOCK || r == T_DROP);
 		fallthrough;
-	case T_DROP:
 	case T_BAD:
 	case T_BLOCK_WITH_FIN:
-		r = (save_err_code != T_OK || was_stopped)
-			? SS_BLOCK_WITH_RST : r;
 	case T_BLOCK_WITH_RST:
 		T_DBG3("Drop invalid HTTP/2 frame and close connection\n");
 		goto out;
@@ -1776,7 +1776,7 @@ next_msg:
 			break;
 		}
 
-		return save_err_code;
+		return T_OK;
 	case T_OK:
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
 		       parsed, skb->len);
@@ -1838,7 +1838,7 @@ next_msg:
 			 */
 			if (!h2->skb_head) {
 				WARN_ON_ONCE(h2->data_off);
-				return save_err_code;
+				return T_OK;
 			}
 		}
 
@@ -1887,7 +1887,6 @@ next_msg:
 purge:
 		h2->data_off = 0;
 		ss_skb_queue_purge(&h2->skb_head);
-		r = save_err_code;
 	}
 
 	tfw_h2_context_reinit(h2, postponed);
@@ -1899,13 +1898,16 @@ purge:
 	}
 
 out:
+	r = tfw_handle_error(r, save_err_code, was_stopped);
 	ss_skb_queue_purge(&h2->skb_head);
 	/*
-	 * If save error code is not null and r == T_BAD
-	 * we should continue to process WINDOW_UPDATE frames
-	 * so skip data from previous frame if necessary.
+	 * If save error code is not null and r != T_BLOCK_WITH_RST
+	 * and r != T_BLOCK_WITH_FIN we should continue to process
+	 * WINDOW_UPDATE frames so skip data from previous frame
+	 * if necessary.
 	 */
-	if (h2->to_read && r == T_BAD && save_err_code) {
+	if (h2->to_read && r != T_BLOCK_WITH_RST
+	    && r != T_BLOCK_WITH_FIN && *save_err_code) {
 		h2->state = HTTP2_IGNORE_FRAME_DATA;
 	} else if (r && r != T_POSTPONE && r != T_DROP) {
 		tfw_h2_context_reinit(h2, false);

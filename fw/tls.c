@@ -71,9 +71,9 @@ tfw_tls_connection_lost(TfwConn *conn)
 }
 
 int
-tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
+tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb, int *save_err_code)
 {
-	int r, parsed, save_err_code = T_OK;
+	int r, parsed;
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
@@ -84,14 +84,13 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 		return 0;
 	}
 
-
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
 	 * in-place by chunks. Add skb to the list to build scatterlist if
 	 * it contains end of current message.
 	 */
 next_msg:
-	BUG_ON(save_err_code != T_OK && save_err_code != T_BAD);
+	BUG_ON(*save_err_code != T_OK && *save_err_code != T_BAD);
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 
@@ -114,23 +113,17 @@ next_msg:
 		r = T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_FIN:
-		r = (save_err_code != T_OK || was_stopped)
-			? SS_BLOCK_WITH_RST : T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_RST:
 		if (tls->conf->endpoint == TTLS_IS_SERVER)
 			TFW_INC_STAT_BH(serv.tls_hs_failed);
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
-		return r;
+		return tfw_handle_error(r, save_err_code, was_stopped);
 	case T_POSTPONE:
 		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
-		/*
-		 * save_error_code is T_OK or T_BAD if error occurs
-		 * on one of the previous steps.
-		 */
-		return save_err_code;
+		return T_OK;
 	case T_OK:
 		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
@@ -162,7 +155,8 @@ next_msg:
 		if (unlikely(!nskb)) {
 			spin_unlock(&tls->lock);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			return T_BAD;
+			return tfw_handle_error(T_BAD, save_err_code,
+						was_stopped);
 		}
 	}
 
@@ -172,7 +166,7 @@ next_msg:
 	 * don't process it.
 	 */
 	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA
-	    && (save_err_code == T_OK || TFW_CONN_TYPE(conn) & Conn_Stop))
+	    && (*save_err_code == T_OK || TFW_CONN_TYPE(conn) & Conn_Stop))
 	{
 		/*
 		 * Current record contains an "application data" message.
@@ -187,7 +181,8 @@ next_msg:
 			tfw_tls_purge_io_ctx(&tls->io_in);
 			kfree_skb(nskb);
 			spin_unlock(&tls->lock);
-			return T_BAD;
+			return tfw_handle_error(T_BAD, save_err_code,
+						was_stopped);
 		}
 
 		/*
@@ -199,17 +194,26 @@ next_msg:
 		spin_unlock(&tls->lock);
 
 		/* Do upcall to http or websocket */
-		r = tfw_connection_recv(conn, data_up.skb);
+		r = tfw_connection_recv(conn, data_up.skb, save_err_code);
 		/*
 		 * If error occurs second time (save_error_code is not zero or
 		 * was_stopped is true) close connection immediately with RST.
 		 */
-		r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?
-			SS_BLOCK_WITH_RST : r;
+		r = tfw_handle_error(r, save_err_code, was_stopped);
 		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {
 			kfree_skb(nskb);
 			goto out;
-		} else if (r && r != T_DROP) {
+		} else if (r && r != T_DROP && r != T_POSTPONE) {
+			/*
+			 * If Conn_Stop bit is not set we don't send error
+			 * response to client, so we don't need to process
+			 * WINDOW_UPDATE frames and can immediately close
+			 * connection.
+			 */
+			if (!(TFW_CONN_TYPE(conn) & Conn_Stop)) {
+				kfree_skb(nskb);
+				goto out;
+			}
 			/*
 			 * In case of T_BAD or system errors we close connection
 			 * with tcp_shutdown() and gracefully send all pending
@@ -217,9 +221,8 @@ next_msg:
 			 * WINDOW_UPDATE frames so, we should decrypt all skbs,
 			 * not drop them.
 			 */
-			save_err_code = T_BAD;
-		} else if (save_err_code != T_OK) {
-			r = save_err_code;
+			*save_err_code = T_BAD;
+			r = T_OK;
 		}
 	} else {
 		/*
@@ -228,7 +231,6 @@ next_msg:
 		 */
 		tfw_tls_purge_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
-		r = save_err_code;
 	}
 
 	if (nskb) {
@@ -238,7 +240,7 @@ next_msg:
 	}
 
 out:
-	return r;
+	return tfw_handle_error(r, save_err_code, was_stopped);
 }
 
 /**

@@ -156,7 +156,7 @@ typedef enum {
 typedef struct tfw_conn_t TfwConn;
 
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
-			 struct sk_buff **next);
+			 struct sk_buff **next, int *save_err_code);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 int tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code, bool attack);
 int tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long smd_wnd,

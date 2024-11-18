@@ -157,7 +157,7 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 }
 
 int
-tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
+tfw_connection_recv(TfwConn *conn, struct sk_buff *skb, int *save_err_code)
 {
 	int r = T_OK;
 	struct sk_buff *next, *split;
@@ -179,7 +179,8 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 				     || TFW_CONN_PROTO(conn) == TFW_FSM_WSS))
 				r = tfw_ws_msg_process(conn, skb);
 			else
-				r = tfw_http_msg_process(conn, skb, &split);
+				r = tfw_http_msg_process(conn, skb, &split,
+							 save_err_code);
 			if (split) {
 				/*
 				 * In the case when the current skb contains

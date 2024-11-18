@@ -736,7 +736,7 @@ extern unsigned int max_header_list_size;
 
 /* External HTTP functions. */
 int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
-			 struct sk_buff **next);
+			 struct sk_buff **next, int *save_err_code);
 int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 				 struct sk_buff *skb, struct sk_buff **next);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
