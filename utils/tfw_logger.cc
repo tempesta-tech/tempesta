@@ -194,10 +194,7 @@ callback(const char *data, int size, void *private_data)
 
 	dbg_hexdump(data, size);
 
-	do {
-		if (size < (int)sizeof(TfwBinLogEvent))
-			return;
-
+	 while (size > (int)sizeof(TfwBinLogEvent)) {
 		event = (TfwBinLogEvent *)p;
 
 		switch (event->type) {
@@ -210,7 +207,7 @@ callback(const char *data, int size, void *private_data)
 			throw Except("Unsupported log type: {}",
 				     (unsigned int)event->type);
 		}
-	} while (size > 0);
+	}
 
 	clickhouse->commit();
 }
