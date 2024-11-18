@@ -218,6 +218,7 @@ run_thread(int ncpu, int fd, std::string host,
 {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
+	int r;
 
 	TfwClickhouse clickhouse(host, table_name, user, password, make_block());
 
@@ -226,8 +227,9 @@ run_thread(int ncpu, int fd, std::string host,
 	CPU_ZERO(&cpuset);
 	CPU_SET(mbr.get_cpu_id(), &cpuset);
 
-	assert(pthread_setaffinity_np(current_thread,
-				      sizeof(cpu_set_t), &cpuset) == 0);
+	r = pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+	if (r != 0)
+		throw Except("Affinity setting failed");
 
 	mbr.run(&stop_flag);
 }
