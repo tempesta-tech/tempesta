@@ -211,7 +211,7 @@ typedef struct {
 
 #define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
 	if (val_was_set) {						\
-		T_ERR_NL("Duplicate argument: '%s'\n", key);		\
+		T_ERR_NL("Duplicate argument: '%s'\n", name);		\
 		code;							\
 	}								\
 	val_was_set = true;

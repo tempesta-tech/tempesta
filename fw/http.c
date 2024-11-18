@@ -1483,13 +1483,140 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 			  " re-forwarded or re-scheduled");
 }
 
+/**
+ * The request is serviced from cache.
+ * Send the response as is and unrefer its data.
+ */
+static void
+tfw_http_req_cache_service(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+
+	WARN_ON_ONCE(!list_empty(&req->fwd_list));
+	WARN_ON_ONCE(!list_empty(&req->nip_list));
+
+	if (TFW_MSG_H2(req))
+		tfw_h2_resp_fwd(resp);
+	else
+		tfw_http_resp_fwd(resp);
+
+	TFW_INC_STAT_BH(clnt.msgs_fromcache);
+}
+
+/**
+ * Build stale response from the @req->stale_ce and link request with response.
+ * Forward response to client, free previous unsuccessful response from upstream
+ * @hmresp.
+ *
+ * @return true if response successfully forwarded otherwise false.
+ */
+static bool
+__tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
+{
+	TfwHttpReq *req = hmresp->req;
+	TfwHttpResp *stale_resp;
+
+	req->resp = NULL;
+
+	stale_resp = tfw_cache_build_resp_stale(req);
+	/* For HTTP2 response will not be built if stream already closed. */
+	if (unlikely(!stale_resp))
+		/* hmresp will be freed in tfw_http_conn_drop() */
+		return false;
+
+	/* Unlink response. */
+	tfw_stream_unlink_msg(hmresp->stream);
+
+	hmresp->pair = NULL;
+	req->resp->conn = hmresp->conn;
+	hmresp->conn->stream.msg = (TfwMsg *)stale_resp;
+
+	if (TFW_MSG_H2(req))
+		tfw_h2_req_unlink_stream(req);
+
+	tfw_http_req_cache_service(req->resp);
+
+	tfw_http_msg_free(hmresp);
+
+	return true;
+}
+
+/**
+ * The same as @__tfw_http_resp_fwd_stale(), but used in case when we don't
+ * have response from upstream.
+ */
+static bool
+__tfw_http_resp_fwd_stale_noresp(TfwHttpReq *req)
+{
+	if (!tfw_cache_build_resp_stale(req))
+		return false;
+
+	if (TFW_MSG_H2(req))
+		tfw_h2_req_unlink_stream(req);
+
+	tfw_http_req_cache_service(req->resp);
+
+	return true;
+}
+
+static bool
+tfw_http_use_stale_if_error(unsigned short status)
+{
+	/* Defined by RFC 5861 section 4 */
+	switch (status) {
+	case 500:
+	case 502:
+	case 503:
+	case 504:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool
+tfw_http_resp_should_fwd_stale(TfwHttpReq *req, unsigned short status)
+{
+	TfwCacheUseStale *stale_opt;
+
+	if (!req->stale_ce)
+		return false;
+
+	stale_opt = tfw_vhost_get_cache_use_stale(req->location, req->vhost);
+
+	/*
+	 * cache_use_stale directive has higher priority than
+	 * "Cache-control: stale-if-error" header.
+	 */
+	if (stale_opt && test_bit(HTTP_CODE_BIT_NUM(status), stale_opt->codes))
+		return true;
+
+	/*
+	 * Checks whether stale response can be used depending on
+	 * "Cache-control: stale-if-error" header.
+	 *
+	 * NOTE: There is inaccuracy in age calculation. Because we calculate
+	 * age before forwarding request to upstream, it might take some time
+	 * and age of prepared stale response might become greater than
+	 * calculated age during receiving from cache. Therefore we response
+	 * with inaccurate age or even with violation of max-stale param.
+	 */
+	return req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR &&
+		tfw_http_use_stale_if_error(status);
+}
+
 static inline void
 tfw_http_send_err_resp_nolog(TfwHttpReq *req, int status)
 {
-	if (TFW_MSG_H2(req))
-		tfw_h2_send_err_resp(req, status, false);
-	else
-		tfw_h1_send_err_resp(req, status);
+	const bool fwd_stale = tfw_http_resp_should_fwd_stale(req, status);
+
+	/* Response must be freed before calling tfw_http_send_err_resp_nolog(). */
+	if (!fwd_stale || !__tfw_http_resp_fwd_stale_noresp(req)) {
+		if (TFW_MSG_H2(req))
+			tfw_h2_send_err_resp(req, status, false);
+		else
+			tfw_h1_send_err_resp(req, status);
+	}
 }
 
 /* Common interface for sending error responses. */
@@ -1734,10 +1861,11 @@ tfw_http_req_zap_error(struct list_head *eq)
 			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 		{
 			tfw_http_send_err_resp(req, req->httperr.status,
-					   req->httperr.reason);
+					       req->httperr.reason);
 		}
-		else
+		else {
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		}
 
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -2567,6 +2695,9 @@ tfw_http_req_destruct(void *msg)
 
 	if (req->old_head)
 		ss_skb_queue_purge(&req->old_head);
+
+	if (req->stale_ce)
+		tfw_cache_put_entry(req->stale_ce);
 }
 
 /**
@@ -3422,11 +3553,8 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 	return 0;
 }
 
-/*
- * Rewrite HTTP/1 "PURGE" method to "GET" directly inside a request SKB.
- */
 static int
-tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
+tfw_h1_rewrite_method_to_get(struct sk_buff **head_p, size_t chop_len)
 {
 	const char *q = "GET";
 	char *p;
@@ -3439,7 +3567,7 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
 	BUG_ON(!*head_p);
 
 	/* Chop two bytes from the beginning of SKB data. */
-	ret = ss_skb_list_chop_head_tail(head_p, 2, 0);
+	ret = ss_skb_list_chop_head_tail(head_p, chop_len, 0);
 	if (ret)
 		return ret;
 	/* List head element *head_p could change above */
@@ -3470,6 +3598,24 @@ tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
 	return -ENOMEM;
 }
 
+/*
+ * Rewrite HTTP/1 "PURGE" method to "GET" directly inside a request SKB.
+ */
+static int
+tfw_h1_rewrite_purge_to_get(struct sk_buff **head_p)
+{
+	return tfw_h1_rewrite_method_to_get(head_p, 2);
+}
+
+/*
+ * Rewrite HTTP/1 "HEAD" method to "GET" directly inside a request SKB.
+ */
+static int
+tfw_h1_rewrite_head_to_get(struct sk_buff **head_p)
+{
+	return tfw_h1_rewrite_method_to_get(head_p, 1);
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -3490,7 +3636,12 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
 		r = tfw_h1_rewrite_purge_to_get(&hm->msg.skb_head);
-		if (r)
+		if (unlikely(r))
+			return r;
+	}
+	else if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) {
+		r = tfw_h1_rewrite_head_to_get(&hm->msg.skb_head);
+		if (unlikely(r))
 			return r;
 	}
 
@@ -3728,6 +3879,22 @@ write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
 	return r | tfw_msg_write(it, &crlf);
 }
 
+static int
+__h2_write_method(TfwHttpReq *req, TfwMsgIter *it)
+{
+	TfwHttpHdrTbl *ht = req->h_tbl;
+
+	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) {
+		static const DEFINE_TFW_STR(meth_get, "GET");
+
+		return tfw_msg_write(it, &meth_get);
+	} else {
+		TfwStr meth = {};
+
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
+		return tfw_msg_write(it, &meth);
+	}
+}
 
 /**
  * Transform h2 request to http1.1 request before forward it to backend server.
@@ -3752,7 +3919,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 	bool auth, host;
 	size_t pseudo_num;
-	TfwStr meth = {}, host_val = {}, *field, *end;
+	TfwStr host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
 	static const DEFINE_TFW_STR(sp, " ");
@@ -3920,8 +4087,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		return r;
 
 	/* First line. */
-	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
-	r = tfw_msg_write(&it, &meth);
+	r = __h2_write_method(req, &it);
 	r |= tfw_msg_write(&it, &sp);
 	r |= tfw_msg_write(&it, &req->uri_path);
 	r |= tfw_msg_write(&it, &fl_end); /* start of Host: header */
@@ -4119,6 +4285,16 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			conn_flg = BIT(TFW_HTTP_B_CONN_CLOSE);
 		else if (test_bit(TFW_HTTP_B_CONN_KA, req->flags))
 			conn_flg = BIT(TFW_HTTP_B_CONN_KA);
+	}
+
+	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)
+	    && !TFW_STR_EMPTY(&resp->body)) {
+		r = ss_skb_list_chop_head_tail(&resp->msg.skb_head, 0,
+					       tfw_str_total_len(&resp->body)
+					       + resp->trailers_len);
+		if (r)
+			return r;
+		TFW_STR_INIT(&resp->body);
 	}
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
@@ -5422,26 +5598,6 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 }
 
 /**
- * The request is serviced from cache.
- * Send the response as is and unrefer its data.
- */
-static void
-tfw_http_req_cache_service(TfwHttpResp *resp)
-{
-	TfwHttpReq *req = resp->req;
-
-	WARN_ON_ONCE(!list_empty(&req->fwd_list));
-	WARN_ON_ONCE(!list_empty(&req->nip_list));
-
-	if (TFW_MSG_H2(req))
-		tfw_h2_resp_fwd(resp);
-	else
-		tfw_http_resp_fwd(resp);
-
-	TFW_INC_STAT_BH(clnt.msgs_fromcache);
-}
-
-/**
  * Depending on results of processing of a request, either send the request
  * to an appropriate server, or return the cached response. If none of that
  * can be done for any reason, return HTTP 500 or 502 error to the client.
@@ -5659,15 +5815,21 @@ tfw_http_get_ip_from_xff(TfwHttpReq *req)
 static int
 tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 {
+#ifdef DISABLED_934
 	TfwStr s_ip, s_user_agent, *ua;
 	TfwAddr addr;
 	TfwClient *cli, *conn_cli;
+#else
+	TfwStr s_ip;
+	TfwAddr addr;
+#endif
 
 	s_ip = tfw_http_get_ip_from_xff(req);
 	if (!TFW_STR_EMPTY(&s_ip)) {
 		if (tfw_addr_pton(&s_ip, &addr) != 0)
 			return -EINVAL;
-
+/* @TODO: Disabled by issue #934. Code above need to validate XFF header. */
+#ifdef DISABLED_934
 		conn_cli = (TfwClient *)conn->peer;
 		ua = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
 		tfw_http_msg_clnthdr_val(req, ua, TFW_HTTP_HDR_USER_AGENT,
@@ -5680,6 +5842,7 @@ tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 			else
 				tfw_client_put(cli);
 		}
+#endif
 	}
 
 	return 0;
@@ -6027,6 +6190,7 @@ next_msg:
 				"incorrect X-Forwarded-For header",
 				HTTP2_ECODE_PROTO);
 	}
+
 	/*
 	 * Assign a target virtual host for the current request before further
 	 * processing.
@@ -6543,6 +6707,49 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	tfw_http_resp_cache(hm);
 }
 
+static int
+tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
+{
+	TfwHttpReq *req = hmresp->req;
+	TfwFsmData data;
+
+	/*
+	 * Response is fully received, delist corresponding request from
+	 * fwd_queue.
+	 */
+	tfw_http_popreq(hmresp, true);
+
+	tfw_apm_update(((TfwServer *)hmresp->conn->peer)->apmref,
+		       jiffies, jiffies - req->jtxtstamp);
+
+	BUG_ON(test_bit(TFW_HTTP_B_HMONITOR, req->flags));
+
+	/*
+	 * Let frang do all necessery checks for the response, before
+	 * responding with a stale response.
+	 */
+	data.skb = NULL;
+	data.req = (TfwMsg *)req;
+	data.resp = (TfwMsg *)hmresp;
+	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD,
+			  &data)) {
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		/* The response is freed by tfw_http_req_block(). */
+		return tfw_http_req_block(req, 403, "response blocked: filtered out",
+					  HTTP2_ECODE_PROTO);
+	}
+
+	if (!__tfw_http_resp_fwd_stale(hmresp)) {
+		tfw_http_req_drop(req, 502,
+				  "response dropped: processing error",
+				  HTTP2_ECODE_PROTO);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return T_BAD;
+	}
+
+	return T_OK;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -6761,12 +6968,18 @@ next_msg:
 			return r;
 	}
 
-	/*
-	 * Pass the response to cache for further processing.
-	 * In the end, the response is sent on to the client.
-	 * @hmsib is not attached to the connection yet.
-	 */
-	r = tfw_http_resp_cache(hmresp);
+	/* Respond with stale cached response. */
+	if (tfw_http_resp_should_fwd_stale(hmresp->req,
+					   ((TfwHttpResp *)hmresp)->status))
+		r = tfw_http_resp_fwd_stale(hmresp);
+	else
+		/*
+		 * Pass the response to cache for further processing.
+		 * In the end, the response is sent on to the client.
+		 * @hmsib is not attached to the connection yet.
+		 */
+		r = tfw_http_resp_cache(hmresp);
+
 	if (unlikely(r != T_OK)) {
 		if (hmsib)
 			tfw_http_conn_msg_free(hmsib);
@@ -6816,20 +7029,44 @@ bad_msg:
 		return T_OK;
 	}
 
-	/* The response is freed by tfw_http_req_parse_block/drop(). */
-	if (filtout) {
-		r = tfw_http_req_block(bad_req, 502,
-				       "response blocked: filtered out",
-				       HTTP2_ECODE_PROTO);
-	} else {
-		tfw_http_req_drop(bad_req, 502,
-				  "response dropped: processing error",
-				  HTTP2_ECODE_PROTO);
+	if (!filtout && tfw_http_resp_should_fwd_stale(bad_req, 502)) {
+		if (!__tfw_http_resp_fwd_stale(hmresp)) {
+			tfw_http_req_drop(bad_req, 502,
+					  "response dropped: processing error",
+					  HTTP2_ECODE_PROTO);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+		}
 		/*
-		 * Close connection with backend immediatly
-		 * and try to reastablish it later.
+		 * Mark server connection as Conn_Stop to prevent multiple
+		 * calls of @tfw_http_resp_process() when original response
+		 * is freed and connection ready for closing. It may happens
+		 * when error occurred in the middle of the message that has
+		 * sent in multiple SKBs. In this case we close connection,
+		 * but still continue to process rest of SKBs and parse data,
+		 * that is dangerous.
+		 */
+		TFW_CONN_TYPE(conn) |= Conn_Stop;
+		/*
+		 * Close connection with backend immediately
+		 * and try to re-establish it later.
 		 */
 		r = T_BAD;
+	} else {
+		/* The response is freed by tfw_http_req_block/drop(). */
+		if (filtout) {
+			r = tfw_http_req_block(bad_req, 502,
+					       "response blocked: filtered out",
+					       HTTP2_ECODE_PROTO);
+		} else {
+			tfw_http_req_drop(bad_req, 502,
+					  "response dropped: processing error",
+					  HTTP2_ECODE_PROTO);
+			/*
+			 * Close connection with backend immediately
+			 * and try to re-establish it later.
+			 */
+			r = T_BAD;
+		}
 	}
 
 	return r;

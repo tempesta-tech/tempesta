@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.18"
+#define TDB_VERSION	"0.2.0"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -37,13 +37,21 @@ MODULE_LICENSE("GPL");
 
 /**
  * Create TDB entry and copy @len contiguous bytes from @data to the entry.
+ *
+ * Returns complete entry, such entry can't be modified or filled with data
+ * w/o locking.
+ *
+ * The user must call tdb_rec_put() when finish with the record.
  */
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 {
-	TdbRec *r = tdb_htrie_insert(db->hdr, key, data, len);
+	TdbRec *r;
+
+	BUG_ON(!data);
+	r = tdb_htrie_insert(db->hdr, key, data, NULL, NULL, len, true);
 	if (!r)
-		TDB_ERR("Cannot create cache entry for %.*s, key=%#lx\n",
+		TDB_ERR("Cannot create db entry for %.*s, key=%#lx\n",
 			(int)*len, (char *)data, key);
 
 	return r;
@@ -51,19 +59,81 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 EXPORT_SYMBOL(tdb_entry_create);
 
 /**
+ * Create TDB entry to store @len bytes, if there is entry that equals to new
+ * one it will be removed, new record will be placed to its place.
+ *
+ * @eq_cb and @eq_data are used to compare records.
+ *
+ * NOTE: Returns incomplete record. When modifying of current record is finished
+ * need to mark record as complete using tdb_entry_mark_complete(). Incomplete
+ * records are invisible for lookup and remove.
+ *
+ * The user must call tdb_rec_put() when finish with the record.
+ *
+ * TODO #515 function must holds a lock upon return.
+ */
+TdbRec *
+tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
+		       tdb_eq_cb_t *eq_cb, void *eq_data)
+{
+	TdbRec *r;
+
+	/* Use tdb_entry_create() for small records, they always complete.*/
+	BUG_ON(*len < TDB_HTRIE_MINDREC);
+	r = tdb_htrie_insert(db->hdr, key, NULL, eq_cb, eq_data, len, false);
+	if (!r)
+		TDB_ERR("Cannot allocate db entry for key=%#lx\n", key);
+
+	return r;
+}
+EXPORT_SYMBOL(tdb_entry_alloc_unique);
+
+/**
  * Create TDB entry to store @len bytes.
+ *
+ * NOTE: Returns incomplete entry. When modifying of current entry is finished
+ * need to mark entry as complete using tdb_entry_mark_complete(). Incomplete
+ * entries are invisible for lookup and remove.
+ *
+ * The user must call tdb_rec_put() when finish with the record.
+ *
  * TODO #515 function must holds a lock upon return.
  */
 TdbRec *
 tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 {
-	TdbRec *r = tdb_htrie_insert(db->hdr, key, NULL, len);
+	TdbRec *r;
+
+	/* Use tdb_entry_create() for small records, they always complete.*/
+	BUG_ON(*len < TDB_HTRIE_MINDREC);
+	r = tdb_htrie_insert(db->hdr, key, NULL, NULL, NULL, len, false);
 	if (!r)
-		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
+		TDB_ERR("Cannot allocate db entry for key=%#lx\n", key);
 
 	return r;
 }
 EXPORT_SYMBOL(tdb_entry_alloc);
+
+/*
+ * Return true if @rec is complete.
+ */
+bool
+tdb_entry_is_complete(void *rec)
+{
+	return tdb_rec_is_complete(rec);
+}
+EXPORT_SYMBOL(tdb_entry_is_complete);
+
+/*
+ * Mark TDB record as complete. Incomplete records are invisible for lookup
+ * and remove. Small records are always complete.
+ */
+void
+tdb_entry_mark_complete(void *rec)
+{
+	tdb_rec_mark_complete(rec);
+}
+EXPORT_SYMBOL(tdb_entry_mark_complete);
 
 /**
  * @return pointer to free area of size at least @size bytes or allocate
@@ -77,6 +147,19 @@ tdb_entry_add(TDB *db, TdbVRec *r, size_t size)
 	return tdb_htrie_extend_rec(db->hdr, r, size);
 }
 EXPORT_SYMBOL(tdb_entry_add);
+
+/**
+ * Remove TDB entries by @key using @eq_cb for comparing entry with @data.
+ *
+ * @force - Force delete incomplete record.
+ */
+void
+tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
+		 bool force)
+{
+	tdb_htrie_remove(db->hdr, key, eq_cb, data, force);
+}
+EXPORT_SYMBOL(tdb_entry_remove);
 
 /**
  * Check available room in @trec and allocate new record if it's not enough.
@@ -99,18 +182,11 @@ EXPORT_SYMBOL(tdb_entry_get_room);
 
 /**
  * Lookup and get a record.
- * Since we don't copy returned records, we have to lock the bucket
- * where the record is placed and the user must call tdb_rec_put() when finish
- * with the record.
+ * Since we don't copy returned records, we have to refcount the record
+ * the user must call tdb_rec_put() when finish with the record.
  *
- * The caller must not call sleeping functions during work with the record.
- * Typically there is only one large record per bucket, so the bucket lock
- * is exactly the same as to lock the record. While there could be many
- * small records in a bucket, so the caller should not perform long jobs
- * with small records.
- *
- * @return pointer to record with acquired bucket lock if the record is
- * found and NULL without acquired locks otherwise.
+ * @return pointer to record with incremented reference counter if the record is
+ * found and NULL otherwise.
  */
 TdbIter
 tdb_rec_get(TDB *db, unsigned long key)
@@ -123,6 +199,7 @@ tdb_rec_get(TDB *db, unsigned long key)
 
 	iter.rec = tdb_htrie_bscan_for_rec(db->hdr, (TdbBucket **)&iter.bckt,
 					   key);
+
 out:
 	return iter;
 }
@@ -142,31 +219,19 @@ tdb_rec_next(TDB *db, TdbIter *iter)
 }
 EXPORT_SYMBOL(tdb_rec_next);
 
+/* Decrements reference counter. */
 void
-tdb_rec_put(void *rec)
+tdb_rec_put(TDB *db, void *rec)
 {
-	TdbBucket *b;
-
-	BUG_ON(!rec);
-
-	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
-	BUG_ON(!b);
-
-	read_unlock_bh(&b->lock);
+	tdb_htrie_put_rec(db->hdr, (TdbRec *)rec);
 }
 EXPORT_SYMBOL(tdb_rec_put);
 
+/* Increments reference counter. */
 void
 tdb_rec_keep(void *rec)
 {
-	TdbBucket *b;
-
-	BUG_ON(!rec);
-
-	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
-	BUG_ON(!b);
-
-	read_lock_bh(&b->lock);
+	tdb_htrie_get_rec((TdbRec *)rec);
 }
 EXPORT_SYMBOL(tdb_rec_keep);
 
@@ -248,17 +313,11 @@ tdb_get_db(const char *path, int node)
 /**
  * Lookup and get a record if the record is found or create TDB entry to store
  * @len bytes. If record exist then since we don't copy returned records,
- * we have to lock the memory location where the record is placed and
- * the user must call tdb_rec_put() when finish with the record.
+ * we have to refcount the record the user must call tdb_rec_put()
+ * when finish with the record.
  *
- * The caller must not call sleeping functions during work with the record.
- * Typically there is only one large record per bucket, so the bucket lock
- * is exactly the same as to lock the record. While there could be many
- * small records in a bucket, so the caller should not perform long jobs
- * with small records.
- *
- * @return pointer to record with acquired bucket lock if the record is
- * found and create TDB entry without acquired locks otherwise.
+ * @return pointer to record with incremented reference counter if the record is
+ * found and create TDB entry with incremented refcounter otherwise.
  *
  * TODO #515 rework the function in lock-free way.
  * TODO #515 TDB must be extended to support small records with constant memory
@@ -288,7 +347,12 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	}
 	ctx->is_new = true;
 	r = tdb_entry_alloc(db, key, &ctx->len);
+	if (!r) {
+		spin_unlock(&db->ga_lock);
+		return r;
+	}
 	ctx->init_rec(r, ctx->ctx);
+	tdb_entry_mark_complete(r);
 
 	spin_unlock(&db->ga_lock);
 

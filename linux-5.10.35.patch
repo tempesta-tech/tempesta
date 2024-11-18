@@ -782,7 +782,7 @@ index 000000000..90eedcba5
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -2411,7 +2411,7 @@ index f0f67b25c..58fbfb071 100644
  		return NULL;
  	}
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..2384f36a9 100644
+index f99494637..879836861 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2620,8 +2620,8 @@ index f99494637..2384f36a9 100644
  
  		len -= skb->len;
  	}
-@@ -2577,6 +2631,66 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
- 		tcp_chrono_set(tp, TCP_CHRONO_BUSY);
+@@ -2310,6 +2364,75 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
+ 	return true;
  }
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
@@ -2642,7 +2642,16 @@ index f99494637..2384f36a9 100644
 +	unsigned int limit;
 +	int result;
 +
-+	if (!sk->sk_write_xmit || !skb_tfw_tls_type(skb))
++	/*
++	 * If skb has tls type, but sk->sk_write_xmit is equal to zero
++	 * it means that connection was already dropped. In this case
++	 * there should not be any skbs with tls type in socket write
++	 * queue, because we always recalculate sequence numbers of skb
++	 * in `sk_write_xmit`, and if we don't call it skb will have
++	 * incorrect sequence numbers, that leads to unclear warning
++	 * later.
++	 */
++	if (!skb_tfw_tls_type(skb) || WARN_ON_ONCE(!sk->sk_write_xmit))
 +		return 0;
 +
 +	/* Should be checked early. */
@@ -2684,10 +2693,60 @@ index f99494637..2384f36a9 100644
 +
 +#endif
 +
- /* This routine writes packets to the network.  It advances the
-  * send_head.  This happens as incoming acks open up the remote
-  * window for us.
-@@ -2666,7 +2780,17 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+ /* Create a new MTU probe if we are ready.
+  * MTU probe is regularly attempting to increase the path MTU by
+  * deliberately sending larger packets.  This discovers routing
+@@ -2330,6 +2453,9 @@ static int tcp_mtu_probe(struct sock *sk)
+ 	int copy, len;
+ 	int mss_now;
+ 	int interval;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	int result;
++#endif
+ 
+ 	/* Not currently probing/verifying,
+ 	 * not in recovery,
+@@ -2382,6 +2508,7 @@ static int tcp_mtu_probe(struct sock *sk)
+ 			return 0;
+ 	}
+ 
++	TFW_ADJUST_TLS_OVERHEAD(probe_size);
+ 	if (!tcp_can_coalesce_send_queue_head(sk, probe_size))
+ 		return -1;
+ 
+@@ -2402,6 +2529,10 @@ static int tcp_mtu_probe(struct sock *sk)
+ 	nskb->csum = 0;
+ 	nskb->ip_summed = CHECKSUM_PARTIAL;
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	skb_copy_tfw_cb(nskb, skb);
++#endif
++
+ 	tcp_insert_write_queue_before(nskb, skb, sk);
+ 	tcp_highest_sack_replace(sk, skb, nskb);
+ 
+@@ -2440,6 +2571,20 @@ static int tcp_mtu_probe(struct sock *sk)
+ 	}
+ 	tcp_init_tso_segs(nskb, nskb->len);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (!skb_tfw_tls_type(nskb) || WARN_ON_ONCE(!sk->sk_write_xmit))
++		goto transmit;
++
++	result = sk->sk_write_xmit(sk, nskb, probe_size, probe_size);
++	if (unlikely(result)) {
++		tcp_tfw_handle_error(sk, result);
++		return 0;
++	}
++	tcp_set_skb_tso_segs(nskb, nskb->len);
++
++transmit:
++#endif
++
+ 	/* We're ready to send.  If this fails, the probe will
+ 	 * be resegmented into mss-sized pieces by tcp_write_xmit().
+ 	 */
+@@ -2666,7 +2811,17 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
@@ -2706,7 +2765,7 @@ index f99494637..2384f36a9 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2681,7 +2805,13 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2681,7 +2836,13 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  		 */
  		if (TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq)
  			break;
@@ -2721,7 +2780,7 @@ index f99494637..2384f36a9 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2866,6 +2996,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2866,6 +3027,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -2729,7 +2788,7 @@ index f99494637..2384f36a9 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -3183,7 +3314,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -3183,7 +3345,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  				 cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -2738,7 +2797,7 @@ index f99494637..2384f36a9 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3374,6 +3505,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
+@@ -3374,6 +3536,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
  	if (mem_cgroup_sockets_enabled && sk->sk_memcg)
  		mem_cgroup_charge_skmem(sk->sk_memcg, amt);
  }
@@ -2746,7 +2805,7 @@ index f99494637..2384f36a9 100644
  
  /* Send a FIN. The caller locks the socket for us.
   * We should try to send a FIN packet really hard, but eventually give up.
-@@ -3421,6 +3553,7 @@ void tcp_send_fin(struct sock *sk)
+@@ -3421,6 +3584,7 @@ void tcp_send_fin(struct sock *sk)
  	}
  	__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
  }
@@ -2754,7 +2813,7 @@ index f99494637..2384f36a9 100644
  
  /* We get here when a process closes a file descriptor (either due to
   * an explicit close() or as a byproduct of exit()'ing) and there
-@@ -3454,6 +3587,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -3454,6 +3618,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  	 */
  	trace_tcp_send_reset(sk, NULL);
  }
@@ -2762,7 +2821,7 @@ index f99494637..2384f36a9 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
-@@ -4044,6 +4178,17 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4044,6 +4209,17 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  		if (seg_size < TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq ||
  		    skb->len > mss) {
  			seg_size = min(seg_size, mss);
@@ -2780,7 +2839,7 @@ index f99494637..2384f36a9 100644
  			TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
  			if (tcp_fragment(sk, TCP_FRAG_IN_WRITE_QUEUE,
  					 skb, seg_size, mss, GFP_ATOMIC))
-@@ -4052,6 +4197,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4052,6 +4228,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  			tcp_set_skb_tso_segs(skb, mss);
  
  		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
@@ -2966,7 +3025,7 @@ index 000000000..313101304
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by

@@ -354,7 +354,7 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
  * @vhost	- virtual host for the request;
  * @mod_type	- Target modification type, TFW_VHOST_HDRMOD_(REQ|RESP).
  */
-TfwHdrMods*
+TfwHdrMods *
 tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 {
 	TfwVhost *vh_dflt = vhost->vhost_dflt;
@@ -400,6 +400,28 @@ tfw_vhost_get_cc_ignore(TfwLocation *loc, TfwVhost *vhost)
 		return 0;
 
 	return loc->cc_ignore;
+}
+
+/**
+ * Find a cache use stale setting according to the current location.
+ *
+ * @loc		- request URI location;
+ * @vhost	- virtual host for the request;
+ */
+TfwCacheUseStale *
+tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
+{
+	TfwVhost *vh_dflt = vhost->vhost_dflt;
+
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !loc->cache_use_stale)
+		loc = vhost->loc_dflt;
+	if (!loc || !loc->cache_use_stale)
+		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
+	if (!loc || !loc->cache_use_stale)
+		return NULL;
+
+	return loc->cache_use_stale;
 }
 
 /*
@@ -910,6 +932,124 @@ tfw_mod_hdr_sort(TfwLocation *loc)
 		sort(h_mods->hdrs, h_mods->sz, sizeof(h_mods->hdrs[0]),
 		     tfw_mod_hdr_cmp, NULL);
 	}
+}
+
+static void
+__set_bit_range(int start, int end, unsigned long *codes)
+{
+	int i;
+
+	for (i = HTTP_CODE_BIT_NUM(start); i < HTTP_CODE_BIT_NUM(end); i++)
+		__set_bit(i, codes);
+}
+
+static int
+tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
+{
+	TfwCacheUseStale *cfg;
+	size_t i;
+	int n = 0;
+	bool mask5x = false, mask4x = false, any4x = false, any5x = false;
+
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
+
+	/* 
+	 * TODO: Revise and remove after #2123.
+	 */
+	if (tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
+		T_ERR_NL("%s: directive can not be applied to default vhost.\n",
+			 cs->name);
+		return -EINVAL;
+	}
+
+	cfg = kzalloc(sizeof(TfwCacheUseStale), GFP_KERNEL);
+
+	if (!cfg)
+		return -ENOMEM;
+
+	loc->cache_use_stale = cfg;
+
+	for (i = 0; i < ce->val_n; i++) {
+		if (!strcasecmp(ce->vals[i], "4*")) {
+			if (any4x) {
+				T_ERR_NL("Attempt to override by mask 4* the value specified by code.\n");
+				return -EINVAL;
+			}
+			else if (mask4x) {
+				T_ERR_NL("Duplicated mask 4*.\n");
+				return -EINVAL;
+			}
+			mask4x = true;
+			__set_bit_range(400, 499, cfg->codes);
+		}
+		else if (!strcasecmp(ce->vals[i], "5*")) {
+			if (any5x) {
+				T_ERR_NL("Attempt to override by mask 5* the value specified by code.\n");
+				return -EINVAL;
+			}
+			else if (mask5x) {
+				T_ERR_NL("Duplicated mask 5*.\n");
+				return -EINVAL;
+			}
+			mask5x = true;
+			__set_bit_range(500, 599, cfg->codes);
+		}
+		else {
+			if (tfw_cfg_parse_int(ce->vals[i], &n)
+			    || !tfw_http_resp_code_range(n))
+			{
+				T_ERR_NL("%s Unsupported argument \"%s\"",
+					 cs->name, ce->vals[i]);
+				return -EINVAL;
+			}
+
+			/* Allows status-codes only above 399. */
+			if (n < 400) {
+				T_ERR_NL("Please specify status code above than 399.");
+				return -EINVAL;
+			}
+
+			if (n >= 400 && n <= 499)
+				any4x = true;
+			else if (n >= 500 && n <= 599)
+				any5x = true;
+
+			if ((any4x && mask4x) || (any5x && mask5x)) {
+				T_ERR_NL("Attempt to set the value %d already set by mask.\n",
+					 n);
+				return -EINVAL;
+			}
+
+			if (test_bit(HTTP_CODE_BIT_NUM(n), cfg->codes)) {
+				T_ERR_NL("Duplicated value %d.\n", n);
+				return -EINVAL;
+			}
+
+			__set_bit(HTTP_CODE_BIT_NUM(n), cfg->codes);
+		}
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_loc_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_cache_use_stale(cs, ce, tfwcfg_this_location);
+}
+
+static int
+tfw_cfgop_in_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_cache_use_stale(cs, ce, tfw_vhost_entry->loc_dflt);
+}
+
+static int
+tfw_cfgop_out_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	return tfw_cfgop_cache_use_stale(cs, ce, vh_dflt->loc_dflt);
 }
 
 /*
@@ -1511,6 +1651,10 @@ tfw_location_del(TfwLocation *loc)
 	if (unlikely(!loc))
 		return;
 
+	/*
+	 * Free loc->arg and loc->frang_cfg, loc->capo,
+	 * loc->nipdef, loc->cache_use_stale and loc->capo_hdr_del.
+	 */
 	for (i = 0; i < loc->capo_sz; ++i) {
 		BUG_ON(!loc->capo[i]);
 		kfree(loc->capo[i]);
@@ -1522,12 +1666,10 @@ tfw_location_del(TfwLocation *loc)
 	}
 
 	__tfw_frang_clean(loc->frang_cfg);
-	/*
-	 * Free loc->arg and loc->frang_cfg, loc->capo,
-	 * loc->nipdef and loc->mod_hdrs.
-	 */
+
 	kfree(loc->arg);
 	kfree(loc->frang_cfg);
+	kfree(loc->cache_use_stale);
 
 	tfw_sg_put(loc->main_sg);
 	tfw_sg_put(loc->backup_sg);
@@ -1607,7 +1749,11 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "invalidate")) {
 			tfw_global.cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
-		} else {
+		}
+		else if (!strcasecmp(val, "immediate")) {
+			tfw_global.cache_purge_mode = TFW_D_CACHE_PURGE_IMMEDIATE;
+		}
+		else {
 			T_ERR_NL("%s: unsupported argument: '%s'\n",
 				 cs->name, val);
 			return -EINVAL;
@@ -3336,6 +3482,14 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
+	{
+		.name = "cache_use_stale",
+		.deflt = NULL,
+		.handler = tfw_cfgop_loc_cache_use_stale,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
 	{ 0 }
 };
 
@@ -3492,6 +3646,14 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.dest = tfw_vhost_frang_specs,
 		.allow_none = false,
 		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_use_stale",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_use_stale,
+		.allow_none = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{ 0 }
@@ -3681,6 +3843,14 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.dest = tfw_global_frang_specs,
 		.allow_none = false,
 		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "cache_use_stale",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_use_stale,
+		.allow_none = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{ 0 }

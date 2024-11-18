@@ -109,7 +109,7 @@ tfw_filter_check_ip(struct in6_addr *addr)
 	while (!TDB_ITER_BAD(iter)) {
 		const TfwFRule *rule = (TfwFRule *)iter.rec->data;
 		if (!memcmp_fast(&rule->addr, addr, sizeof(*addr))) {
-			tdb_rec_put(iter.rec);
+			tdb_rec_put(ip_filter_db, iter.rec);
 			return rule->action == TFW_F_DROP ? T_BLOCK : T_OK;
 		}
 		tdb_rec_next(ip_filter_db, &iter);

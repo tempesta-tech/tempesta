@@ -71,6 +71,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
 
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
+#define TFW_CE_STALE_IF_ERROR	0x0002
 
 /*
  * @trec	- Database record descriptor;
@@ -94,6 +95,8 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @hdrs	- pointer to list of HTTP headers;
  * @body	- pointer to response body;
  * @hdrs_304	- pointers to headers used to build 304 response;
+ * @stale_if_error - the value of response "Cache-control: stale_if_error"
+ * 		  header field;
  * @version	- HTTP version of the response;
  * @resp_status - Http status of the cached response.
  * @hmflags	- flags of the response after parsing and post-processing.
@@ -122,6 +125,7 @@ typedef struct {
 	long		hdrs;
 	long		body;
 	long		hdrs_304[TFW_CACHE_304_HDRS_NUM];
+	long		stale_if_error;
 	DECLARE_BITMAP	(hmflags, _TFW_HTTP_FLAGS_NUM);
 	unsigned char	version;
 	unsigned short	resp_status;
@@ -130,6 +134,13 @@ typedef struct {
 
 #define CE_BODY_SIZE							\
 	(sizeof(TfwCacheEntry) - offsetof(TfwCacheEntry, ce_body))
+
+static size_t
+ce_total_size(const TfwCacheEntry *ce)
+{
+	return ce->key_len + ce->status_len + ce->rph_len + ce->hdr_len +
+		ce->body_len + CE_BODY_SIZE;
+}
 
 #if defined(DEBUG)
 #define CE_DBGBUF_LEN	1024
@@ -147,8 +158,9 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 	snprintf(buf + len, CE_DBGBUF_LEN - len, "    %14s: " fmt "\n",	\
 		 __VA_ARGS__)
 
-	len += CE_DUMP_MEMBER("key %lx, chunk_next %d, len %d", "TdbVRec",
-			      ce->trec.key, ce->trec.chunk_next, ce->trec.len);
+	len += CE_DUMP_MEMBER("key %lx, chunk_next %d, len %d total_len: %lu",
+			      "TdbVRec", ce->trec.key, ce->trec.chunk_next,
+			      ce->trec.len, ce_total_size(ce));
 	len += CE_DUMP_MEMBER("%d", "key_len",		ce->key_len);
 	len += CE_DUMP_MEMBER("%d", "status_len",     	ce->status_len);
 	len += CE_DUMP_MEMBER("%d", "rph_len",        	ce->rph_len);
@@ -535,14 +547,20 @@ tfw_cache_status_bydef(TfwHttpResp *resp)
 	return false;
 }
 
+static unsigned int
+tfw_cache_get_effective_resp_flags(TfwHttpResp *resp, TfwHttpReq *req)
+{
+	unsigned int cc_ignore_flags =
+		tfw_vhost_get_cc_ignore(req->location, req->vhost);
+	return resp->cache_ctl.flags & ~cc_ignore_flags;
+}
+
 static bool
 tfw_cache_employ_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	unsigned int cc_ignore_flags =
-		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
-		resp->cache_ctl.flags & ~cc_ignore_flags;
+		tfw_cache_get_effective_resp_flags(resp, req);
 
 #define CC_REQ_DONTCACHE				\
 	(TFW_HTTP_CC_CFG_CACHE_BYPASS | TFW_HTTP_CC_NO_STORE)
@@ -635,10 +653,8 @@ tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
 	long lifetime;
 	TfwHttpReq *req = resp->req;
-	unsigned int cc_ignore_flags =
-		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
-		resp->cache_ctl.flags & ~cc_ignore_flags;
+		tfw_cache_get_effective_resp_flags(resp, req);
 
 	if (effective_resp_flags & TFW_HTTP_CC_S_MAXAGE)
 		lifetime = resp->cache_ctl.s_maxage;
@@ -680,9 +696,8 @@ tfw_cache_entry_age(TfwCacheEntry *ce)
  * to a client, provided that the cache policy allows that.
  */
 static long
-tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
+tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce, long ce_age)
 {
-	long ce_age = tfw_cache_entry_age(ce);
 	long ce_lifetime, lt_fresh = UINT_MAX;
 
 	if (ce->lifetime <= 0)
@@ -1146,18 +1161,8 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 }
 
 static bool
-tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
-		       bool eviction)
+tfw_cache_should_satisfy(TfwHttpReq *req, TfwCacheEntry *ce)
 {
-	/* Record key starts at first data chunk. */
-	int n, c_off = 0, t_off;
-	TdbVRec *trec = &ce->trec;
-	TfwStr *c, *h_start, *u_end, *h_end;
-	bool u_fin, h_fin;
-
-	/* We should invalidate cache etry regardless of method type. */
-	if (eviction)
-		goto find_entry;
 	/*
 	 * According to RFC 9110 9.3.1:
 	 * The response to a GET request is cacheable; a cache MAY use
@@ -1187,7 +1192,18 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce,
 	     && ce->method == TFW_HTTP_METH_POST))
 		return false;
 
-find_entry:
+	return true;
+}
+
+static bool
+tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
+{
+	/* Record key starts at first data chunk. */
+	int n, c_off = 0, t_off;
+	TdbVRec *trec = &ce->trec;
+	TfwStr *c, *h_start, *u_end, *h_end;
+	bool u_fin, h_fin;
+
 	if (req->uri_path.len + req->host.len != ce->key_len)
 		return false;
 
@@ -1222,7 +1238,7 @@ this_chunk:
 static TfwCacheEntry *
 tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 {
-	TfwCacheEntry *ce, *ce_best;
+	TfwCacheEntry *ce;
 	unsigned long key = tfw_http_req_key_calc(req);
 
 	*iter = tdb_rec_get(db, key);
@@ -1230,12 +1246,11 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		return NULL;
 	}
 	/*
-	 * Cache may store one or more responses to the effective Request URI.
 	 * Basically, it is sufficient to store only the most recent response and
-	 * remove other representations from cache. (RFC 7234 4: When more than
-	 * one suitable response is stored, a cache MUST use the most recent
-	 * response) But there are still some cases when it is needed to store
-	 * more than one representation:
+	 * remove other representations from cache(current approach).
+	 * (RFC 7234 4: When more than one suitable response is stored, a cache
+	 * MUST use the most recent response) But there are still some cases
+	 * when it is needed to store more than one representation:
 	 *   - If selected representation of the effective Request URI depends
 	 *     on client capabilities. See RFC 7234 4.1 (Vary Header).
 	 *   - If origin server has several states of the resource, so during
@@ -1248,41 +1263,18 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 	 * Currently this function is used only to serve clients.
 	 */
 	ce = (TfwCacheEntry *)iter->rec;
-	ce_best = NULL;
 	do {
-		/*
-		 * Pick the best cache record. The "best" record is either the
-		 * first live record that we find, or the most recent stale
-		 * record. We have to iterate through the entire bucket, unless
-		 * we find a live record early, so we take an extra read lock
-		 * here.
-		 */
-		/* TODO #522: replace a cache entry on a new entry insertion
-		 * (e.g. the bucket can not contain both the stale and fresh
-		 * entries) and rework the loop. */
-		if (tfw_cache_entry_key_eq(db, req, ce, false)) {
-			if (tfw_cache_entry_is_live(req, ce)
-			    && (!ce_best
-				|| tfw_cache_entry_age(ce)
-				   < tfw_cache_entry_age(ce_best)))
-			{
-				if (ce_best)
-					tdb_rec_put(ce_best);
-				/* It's possible that we end up iterating until
-				 * the end (while looking for a live entry), and
-				 * `ce_best` might be in a bucket that was
-				 * already read-unlocked by `tdb_rec_next`, so
-				 * we add an extra reference to it.
-				 */
-				tdb_rec_keep(ce);
-				ce_best = ce;
-			}
+		/* Find record with the same key. */
+		if (tfw_cache_should_satisfy(req, ce) &&
+		    tfw_cache_entry_key_eq(db, req, ce))
+		{
+			return ce;
 		}
 		tdb_rec_next(db, iter);
 		ce = (TfwCacheEntry *)iter->rec;
 	} while (ce);
 
-	return ce_best;
+	return NULL;
 }
 
 /**
@@ -2001,6 +1993,18 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 	return false;
 }
 
+/*
+ * Initialize the cache entry and return a pointer to the start of the payload.
+ */
+static char *
+tfw_init_cache_entry(TfwCacheEntry *ce)
+{
+	bzero_fast(((char *)ce) + offsetof(TfwCacheEntry, ce_body),
+		   CE_BODY_SIZE);
+
+	return (char *)(ce + 1);
+}
+
 /**
  * Copy response skbs to database mapped area.
  * @tot_len	- total length of actual data to write w/o TfwCStr's etc;
@@ -2033,13 +2037,11 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		.nchunks = 2
 	};
 
-	unsigned int cc_ignore_flags =
-		tfw_vhost_get_cc_ignore(req->location, req->vhost);
 	unsigned int effective_resp_flags =
-		resp->cache_ctl.flags & ~cc_ignore_flags;
+		tfw_cache_get_effective_resp_flags(resp, req);
 	bool u_fin, h_fin;
 
-	p = (char *)(ce + 1);
+	p = tfw_init_cache_entry(ce);
 	tot_len -= CE_BODY_SIZE;
 
 	/* Write record key (URI + Host header). */
@@ -2065,6 +2067,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	/* Request method is a part of the cache record key. */
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE
 	    && test_bit(TFW_HTTP_B_PURGE_GET, req->flags)))
+		ce->method = TFW_HTTP_METH_GET;
+	else if (req->method == TFW_HTTP_METH_HEAD)
 		ce->method = TFW_HTTP_METH_GET;
 	else
 		ce->method = req->method;
@@ -2218,6 +2222,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	{
 		ce->flags |= TFW_CE_MUST_REVAL;
 	}
+
+	if (effective_resp_flags & TFW_HTTP_CC_STALE_IF_ERROR) {
+		ce->stale_if_error = resp->cache_ctl.stale_if_error;
+		ce->flags |= TFW_CE_STALE_IF_ERROR;
+	}
+
 	ce->date = resp->date;
 	ce->age = resp->cache_ctl.age;
 	ce->req_time = req->cache_ctl.timestamp;
@@ -2470,6 +2480,34 @@ err:
 #undef STATIC_INDEX_SZ
 }
 
+static bool
+tfw_cache_rec_eq_req(TdbRec *rec, void *request)
+{
+	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
+	TfwHttpReq *req = (TfwHttpReq *)request;
+
+	return tfw_cache_entry_key_eq(node_db(), req, ce);
+}
+
+static bool
+tfw_cache_rec_eq(TdbRec *r1, void *r2)
+{
+	return r1 == r2;
+}
+
+static void
+tfw_cache_decrease_stat(TdbRec *rec)
+{
+	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
+
+	/* Stats should be updated(dec/inc) only for complete records. */
+	if (!tdb_entry_is_complete(rec))
+		return;
+
+	TFW_SUB_STAT_BH(ce_total_size(ce), cache.bytes);
+	TFW_DEC_STAT_BH(cache.objects);
+}
+
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
@@ -2477,6 +2515,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	TfwCacheEntry *ce;
 	TfwStr rph, *s_line;
 	long data_len = __cache_entry_size(resp);
+	int r;
 
 	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags))
 		data_len += 2;
@@ -2500,30 +2539,39 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
-	/* TODO #522: revalidate existing entries before inserting a new one. */
-
 	/*
 	 * Try to place the cached response in single memory chunk.
 	 * TDB should provide enough space to place at least head of
 	 * the record key at first chunk.
 	 */
-	ce = (TfwCacheEntry *)tdb_entry_alloc(db, key, &len);
+	ce = (TfwCacheEntry *)tdb_entry_alloc_unique(db, key, &len,
+						     &tfw_cache_rec_eq_req,
+						     resp->req);
 	BUG_ON(len <= sizeof(TfwCacheEntry));
 	if (!ce)
 		return;
 
 	T_DBG3("%s: ce=[%p], alloc_len='%lu'\n", __func__, ce, len);
 
-	if (tfw_cache_copy_resp(ce, resp, &rph, data_len)) {
-		/* TODO delete the probably partially built TDB entry. */
+	if ((r = tfw_cache_copy_resp(ce, resp, &rph, data_len))) {
+		/*
+		 * Error occured during response copying. Remove allocated entry.
+		 */
+		tdb_entry_remove(db, key, &tfw_cache_rec_eq, ce, true);
+		T_DBG3("%s: Can't copy response ce=[%p], resp=[%p], data_len="
+		       "'%lu' r=%i \n", __func__, ce, resp, data_len, r);
+	} else {
+		tdb_entry_mark_complete(ce);
+		TFW_INC_STAT_BH(cache.objects);
+		TFW_ADD_STAT_BH(ce_total_size(ce), cache.bytes);
 	}
+
+	tdb_rec_put(db, ce);
 }
 
 /*
  * Invalidate all cache entries that match the request. This is implemented by
  * making the entries stale.
- *
- * TODO #522 Review the invalidation logic.
  *
  */
 static int
@@ -2540,7 +2588,7 @@ tfw_cache_invalidate(TfwHttpReq *req)
 
 	ce = (TfwCacheEntry *)iter.rec;
 	do {
-		if (tfw_cache_entry_key_eq(db, req, ce, true))
+		if (tfw_cache_entry_key_eq(db, req, ce))
 			ce->lifetime = 0;
 		tdb_rec_next(db, &iter);
 		ce = (TfwCacheEntry *)iter.rec;
@@ -2594,6 +2642,17 @@ out:
 	action((TfwHttpMsg *)resp);
 }
 
+static int
+tfw_cache_purge_immediate(TfwHttpReq *req)
+{
+	TDB *db = node_db();
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
+
+	return 0;
+}
+
 /**
  * Process PURGE request method according to the configuration. Send a response,
  * unless there are no errors *and* we're also told to refresh the cache.
@@ -2618,10 +2677,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		return -EINVAL;
 	}
 
-	/* Only "invalidate" option is implemented at this time. */
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
 		ret = tfw_cache_invalidate(req);
+		break;
+	case TFW_D_CACHE_PURGE_IMMEDIATE:
+		ret = tfw_cache_purge_immediate(req);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
@@ -2746,14 +2807,13 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 }
 
 static int
-tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
+tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce, long age)
 {
 	int r;
 	size_t digs;
 	bool to_h2 = TFW_MSG_H2(resp->req);
 	TfwHttpTransIter *mit = &resp->mit;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	long age = tfw_cache_entry_age(ce);
 	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
 	char *name = to_h2 ? "age" : "age" S_DLM;
 	unsigned int nlen = to_h2 ? SLEN("age") : SLEN("age" S_DLM);
@@ -2819,7 +2879,7 @@ err:
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 {
 	int h;
 	TfwStr dummy_body = { 0 };
@@ -2885,7 +2945,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 	 * When a stored response is used to satisfy a request without
 	 * validation, a cache MUST generate an Age header field.
 	 */
-	if (tfw_cache_set_hdr_age(resp, ce))
+	if (tfw_cache_set_hdr_age(resp, ce, age))
 		goto free;
 
 	if (!TFW_MSG_H2(req)) {
@@ -2900,7 +2960,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
 		    || tfw_http_expand_hdr_via(resp)
 		    || tfw_h1_set_loc_hdrs((TfwHttpMsg *)resp, true, true)
-		    || (lifetime > ce->lifetime
+		    || (age > ce->lifetime
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 			&& tfw_http_expand_hdr_date(resp))
@@ -2914,7 +2974,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime)
 
 	/* Set additional headers for HTTP/2 response. */
 	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true)
-	    || (lifetime > ce->lifetime
+	    || (age > ce->lifetime
 		&& tfw_h2_set_stale_warn(resp))
 	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 		&& tfw_h2_add_hdr_date(resp, true)))
@@ -2963,81 +3023,253 @@ out:
 	return NULL;
 }
 
-static void
-cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
+TfwHttpResp *
+tfw_cache_build_resp_stale(TfwHttpReq *req)
 {
-	TfwCacheEntry *ce = NULL;
-	TfwHttpResp *resp = NULL;
-	unsigned int id = 0;
 	TDB *db = node_db();
-	TdbIter iter;
-	long lifetime;
+	TfwCacheEntry *ce = req->stale_ce;
+	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
 
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req))) {
-		T_DBG3("%s: db=[%p] req=[%p] CE has not been found\n",
-		       __func__, db, req);
-		TFW_INC_STAT_BH(cache.misses);
-		goto out;
+	if (resp)
+		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
+		      ce=%p", req, ce->trec.key, ce);
+	else
+		T_DBG("Cache: Cannot assigne stale response to req [%p] w/ \
+		      key=%lx, ce=%p", req, ce->trec.key, ce);
+
+	tdb_rec_put(db, ce);
+	/* Set to NULL to prevent double free in req destructor. */
+	req->stale_ce = NULL;
+
+	return resp;
+}
+ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
+
+/**
+ * Release cache entry reference.
+ */
+void
+tfw_cache_put_entry(void *ce)
+{
+	tdb_rec_put(node_db(), ce);
+}
+
+static bool
+tfw_cache_can_use_stale(TfwHttpReq *req, TfwCacheEntry *ce, long age)
+{
+	bool stale_cfg =
+		tfw_vhost_get_cache_use_stale(req->location, req->vhost);
+	unsigned int ce_flags = ce->flags;
+
+	/* RFC 9111 Section 4.2.4
+	 *
+	 * A cache MUST NOT generate a stale response if it is prohibited by an
+	 * explicit in-protocol directive (e.g., by a no-cache response
+	 * directive, a must-revalidate response directive, or an applicable
+	 * s-maxage or proxy-revalidate response directive; see Section 5.2.2).
+	 *
+	 * We can check only flags, because tfw_cache_entry_is_live()
+	 * must be called before this function and lifetime already calculated.
+	 */
+	if (ce_flags & TFW_CE_MUST_REVAL
+	    || req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)
+		return false;
+
+	/*
+	 * Use stale response if "cache_use_stale" directive is configured.
+	 * Has higher priority than "cache-control: stale-if-error".
+	 */
+	if (stale_cfg)
+		return true;
+
+	/*
+	 * RFC 5861.
+	 *
+	 * Use stale response if the request or the cached entry has
+	 * stale-if-error cache-control directive with a valid value.
+	 *
+	 * Once stale_if_error presents in boths response and request,
+	 * response's directive has higher priority - this behaviour not
+	 * specified in RFC.
+	 */
+	if (ce_flags & TFW_CE_STALE_IF_ERROR && ce->stale_if_error >= age) {
+		/*
+		 * NOTE: Be careful! Set request's stale-if-error flag even for
+		 * response, because at this moment we don't have constructed
+		 * response.
+		 */
+		req->cache_ctl.flags |= TFW_HTTP_CC_STALE_IF_ERROR;
+		return true;
 	}
-	__tfw_dbg_dump_ce(ce);
 
-	if (!(lifetime = tfw_cache_entry_is_live(req, ce))) {
-		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not valid\n",
-		       __func__, db, req, ce);
-		TFW_INC_STAT_BH(cache.misses);
-		goto out;
-	}
+	return req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR &&
+		req->cache_ctl.stale_if_error >= age;
+}
 
-	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p",
-	      req, ce->trec.key, ce);
-
+static void
+cache_do_service_request_stale(TfwHttpReq *req, tfw_http_cache_cb_t action,
+			       TfwCacheEntry *stale_ce, long age)
+{
 	TFW_INC_STAT_BH(cache.hits);
 
-	if (!tfw_handle_validation_req(req, ce))
-		goto put;
+	T_DBG("Cache: assign stale for request [%p] w/ key=%lx, ce=%p", req,
+	      stale_ce->trec.key, stale_ce);
+
+	/*
+	 * TODO: #2271.
+	 * Do tfw_handle_validation_req for stale-while-revalidate.
+	 */
+
+	/*
+	 * stale_ce will be released by req destructor or during stale
+	 * forwarding.
+	 */
+	req->stale_ce = stale_ce;
+	req->stale_ce_age = age;
 
 	/*
 	 * If the stream for HTTP/2-request is already closed (due to some
 	 * error or just reset from the client side), there is no sense to
 	 * forward request to the server.
 	 */
-	if (TFW_MSG_H2(req)) {
-		id = tfw_h2_req_stream_id(req);
-		if (unlikely(!id)) {
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			goto put;
-		}
+	if (TFW_MSG_H2(req) && unlikely(!tfw_h2_req_stream_id(req))) {
+		/* Here stale_ce will be released by req destructor. */
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		return;
 	}
 
-	resp = tfw_cache_build_resp(req, ce, lifetime);
-	/*
-	 * The stream of HTTP/2-request should be closed here since we have
-	 * successfully created the resulting response from cache and will
-	 * send this response to the client (without forwarding request to
-	 * the backend), thus the stream will be finished.
-	 */
-	if (resp && TFW_MSG_H2(req)) {
-		id = tfw_h2_req_stream_id(req);
-		if (unlikely(!id)) {
-			tfw_http_msg_free((TfwHttpMsg *)resp);
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			goto put;
-		}
-		tfw_h2_req_unlink_stream(req);
-	}
-out:
-	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
+	action((TfwHttpMsg *)req);
+}
+
+static void
+cache_do_not_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action)
+{
+	if (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED) {
 		tfw_http_send_err_resp(req, 504, "resource not cached");
-	else
+	} else {
 		/*
 		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
 		 * if any with values from cached entries to revalidate stored
 		 * stale responses for both: client and Tempesta.
 		 */
 		action((TfwHttpMsg *)req);
-put:
-	if (ce)
-		tdb_rec_put(ce);
+	}
+}
+
+static void
+cache_do_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action,
+			 TfwCacheEntry *ce, long age)
+{
+	TfwHttpResp *resp = NULL;
+	unsigned int id = 0;
+
+	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p", req,
+	      ce->trec.key, ce);
+
+	TFW_INC_STAT_BH(cache.hits);
+
+	if (!tfw_handle_validation_req(req, ce))
+		return;
+
+	/*
+	 * If the stream for HTTP/2-request is already closed (due to some
+	 * error or just reset from the client side), there is no sense to
+	 * forward response to the client.
+	 */
+	if (TFW_MSG_H2(req)) {
+		id = tfw_h2_req_stream_id(req);
+		if (unlikely(!id)) {
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			return;
+		}
+	}
+
+	resp = tfw_cache_build_resp(req, ce, age);
+	if (unlikely(!resp)) {
+		cache_do_not_service_request(req, action);
+		T_ERR("Cache: Can't allocate response.");
+		return;
+	}
+
+	/*
+	 * The stream of HTTP/2-request should be closed here since we have
+	 * successfully created the resulting response from cache and will
+	 * send this response to the client (without forwarding request to
+	 * the backend), thus the stream will be finished.
+	 */
+	if (TFW_MSG_H2(req)) {
+		id = tfw_h2_req_stream_id(req);
+		if (unlikely(!id)) {
+			tfw_http_msg_free((TfwHttpMsg *)resp);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			return;
+		}
+		tfw_h2_req_unlink_stream(req);
+	}
+
+	action((TfwHttpMsg *)req);
+}
+
+/*
+ * Try to service request from the cache. If it allowed use stale cached
+ * response.
+ *
+ * NOTE: This function is responsible for releasing non stale cache entry
+ * using @tdb_rec_put(). Stale cache entry must be assigned to request then
+ * released during response forwarding or request destruction.
+ */
+static bool
+cache_try_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action)
+{
+	TDB *db = node_db();
+	TdbIter iter;
+	TfwCacheEntry *ce = NULL;
+	long lifetime;
+	long age;
+
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req))) {
+		T_DBG3("%s: db=[%p] req=[%p] CE has not been found\n",
+		       __func__, db, req);
+		return false;
+	}
+	__tfw_dbg_dump_ce(ce);
+
+	age = tfw_cache_entry_age(ce);
+
+	if (!(lifetime = tfw_cache_entry_is_live(req, ce, age))) {
+		bool success;
+
+		T_DBG3("%s: db=[%p] req=[%p] ce=[%p] CE is not alive\n",
+		       __func__, db, req, ce);
+
+		if ((success = tfw_cache_can_use_stale(req, ce, age)))
+			cache_do_service_request_stale(req, action, ce, age);
+			/*
+			 * Stale record will be released by req destructor or
+			 * during forwarding stale response.
+			 */
+		else
+			tdb_rec_put(db, ce);
+
+		return success;
+	}
+
+	cache_do_service_request(req, action, ce, age);
+	tdb_rec_put(db, ce);
+
+	return true;
+}
+
+static void
+cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
+{
+	if (cache_try_service_request(req, action))
+		return;
+
+	TFW_INC_STAT_BH(cache.misses);
+
+	/* Record not found in the cache. */
+	cache_do_not_service_request(req, action);
 }
 
 static void
@@ -3058,6 +3290,13 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		if (!ret && test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
 			action((TfwHttpMsg *)req);
 	} else {
+		/*
+		 * For request that can be employed from cache, we always
+		 * rewrite method from HEAD to GET to store to cache complete
+		 * response.
+		 */
+		if (req->method == TFW_HTTP_METH_HEAD)
+			set_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags);
 		cache_req_process_node(req, action);
 	}
 }
@@ -3116,8 +3355,11 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 			     || req->method == TFW_HTTP_METH_POST
 			     || tfw_http_req_is_nip(req))
 		    && cache_cfg.cache
-		    && resp->status >= 200 && resp->status < 400)
-			tfw_cache_invalidate(req);
+		    && resp->status >= 200 && resp->status < 400) {
+			key = tfw_http_req_key_calc(req);
+			tdb_entry_remove(node_db(), key, &tfw_cache_rec_eq_req,
+					 req, false);
+		}
 	}
 
 	/*
@@ -3264,6 +3506,7 @@ tfw_cache_start(void)
 			r = -ENOMEM;
 			goto close_db;
 		}
+		c_nodes[i].db->hdr->before_free = tfw_cache_decrease_stat;
 	}
 #if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
