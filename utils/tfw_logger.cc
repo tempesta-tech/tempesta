@@ -140,7 +140,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 		if (TFW_MMAP_LOG_FIELD_IS_SET(event, i)) {			\
 			len = tfw_mmap_log_field_len((TfwBinLogFields)i);	\
 			if (len > size)						\
-				return -1;					\
+				goto error;					\
 			(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
 			p += len;						\
 			size -= len;						\
@@ -181,7 +181,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 			}
 			len = *((uint16_t *)p);
 			if (len + 2 > size)
-				return -1;
+				goto error;
 			(*block)[ind]->As<clickhouse::ColumnString>()->Append(
 				std::string(p + 2, len));
 			len += 2;
@@ -194,6 +194,8 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	}
 
 	return p - data;
+error:
+	throw Except("Incorrect event length");
 #undef INT_CASE
 }
 
@@ -216,8 +218,6 @@ callback(const char *data, int size, void *private_data)
 		switch (event->type) {
 		case TFW_MMAP_LOG_TYPE_ACCESS:
 			r = read_access_log_event(p, size, clickhouse);
-			if (r < 0)
-				return;
 			size -= r;
 			p += r;
 			break;
