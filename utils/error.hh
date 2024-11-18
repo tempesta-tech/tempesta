@@ -37,12 +37,6 @@ public:
 		: std::runtime_error(format_syserr(s))
 	{}
 
-	void
-	print(char *buf, size_t len)
-	{
-		snprintf(buf, len, "%s", what());
-	}
-
 protected:
 	// Add system error code (errno).
 	static std::string
