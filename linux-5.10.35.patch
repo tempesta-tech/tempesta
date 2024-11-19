@@ -501,6 +501,7 @@ index b4dae640d..1b6d4a669 100644
  struct crypto_sync_skcipher *crypto_alloc_sync_skcipher(
  				const char *alg_name, u32 type, u32 mask)
  {
+<<<<<<< HEAD
 diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
 index 038ce4e5e..7b09c1ccd 100644
 --- a/drivers/net/virtio_net.c
@@ -553,6 +554,21 @@ index 038ce4e5e..7b09c1ccd 100644
  	__netif_tx_unlock(txq);
  
  	virtqueue_napi_complete(napi, sq->vq, 0);
+=======
+diff --git a/drivers/nvdimm/nd.h b/drivers/nvdimm/nd.h
+index 696b55556..efb8437e5 100644
+--- a/drivers/nvdimm/nd.h
++++ b/drivers/nvdimm/nd.h
+@@ -386,7 +386,7 @@ void devm_namespace_disable(struct device *dev,
+ 		struct nd_namespace_common *ndns);
+ #if IS_ENABLED(CONFIG_ND_CLAIM)
+ /* max struct page size independent of kernel config */
+-#define MAX_STRUCT_PAGE_SIZE 64
++#define MAX_STRUCT_PAGE_SIZE 128
+ int nvdimm_setup_pfn(struct nd_pfn *nd_pfn, struct dev_pagemap *pgmap);
+ #else
+ static inline int nvdimm_setup_pfn(struct nd_pfn *nd_pfn,
+>>>>>>> aa86f5da (Add debug for 2262)
 diff --git a/include/crypto/aead.h b/include/crypto/aead.h
 index c32a6f566..5fe1addcc 100644
 --- a/include/crypto/aead.h
@@ -685,6 +701,26 @@ index e37480b5f..8236d5929 100644
  #endif
  
  /*
+diff --git a/include/linux/page-flags.h b/include/linux/page-flags.h
+index 4f6ba9379..6eb9b8c2a 100644
+--- a/include/linux/page-flags.h
++++ b/include/linux/page-flags.h
+@@ -123,6 +123,15 @@ enum pageflags {
+ 	PG_reclaim,		/* To be reclaimed asap */
+ 	PG_swapbacked,		/* Page is backed by RAM/swap */
+ 	PG_unevictable,		/* Page is "unevictable"  */
++	PG_tempesta_ss_skb_1,
++	PG_tempesta_ss_skb_2,
++	PG_tempesta_pool,
++	PG_tempesta_test,
++	PG_tempesta_cache,
++	PG_tempesta_http,
++	PG_tempesta_http_msg,
++	
++	
+ #ifdef CONFIG_MMU
+ 	PG_mlocked,		/* Page is vma mlocked */
+ #endif
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
 index a828cf99c..5d416997a 100644
 --- a/include/linux/skbuff.h
@@ -834,7 +870,7 @@ index 000000000..90eedcba5
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -1080,6 +1116,26 @@ index 2bdd80221..356850dda 100644
  /* For AES-CCM, the full 16-bytes of IV is made of '4' fields of given sizes.
   *
   * IV[16] = b0[1] || implicit nonce[4] || explicit nonce[8] || length[3]
+diff --git a/include/trace/events/mmflags.h b/include/trace/events/mmflags.h
+index 67018d367..372fac5db 100644
+--- a/include/trace/events/mmflags.h
++++ b/include/trace/events/mmflags.h
+@@ -106,7 +106,14 @@
+ 	{1UL << PG_mappedtodisk,	"mappedtodisk"	},		\
+ 	{1UL << PG_reclaim,		"reclaim"	},		\
+ 	{1UL << PG_swapbacked,		"swapbacked"	},		\
+-	{1UL << PG_unevictable,		"unevictable"	}		\
++	{1UL << PG_unevictable,		"unevictable"	},		\
++	{1UL << PG_tempesta_ss_skb_1,	"PG_tempesta_ss_skb_1"	},	\
++	{1UL << PG_tempesta_ss_skb_2,	"PG_tempesta_ss_skb_2"	},	\
++	{1UL << PG_tempesta_pool,	"PG_tempesta_pool"	},	\
++	{1UL << PG_tempesta_test,	"PG_tempesta_test"	},	\
++	{1UL << PG_tempesta_cache,	"PG_tempesta_cache"	},	\
++	{1UL << PG_tempesta_http,	"PG_tempesta_http"	},	\
++	{1UL << PG_tempesta_http_msg,	"PG_tempesta_http_msg"	}	\
+ IF_HAVE_PG_MLOCK(PG_mlocked,		"mlocked"	)		\
+ IF_HAVE_PG_UNCACHED(PG_uncached,	"uncached"	)		\
+ IF_HAVE_PG_HWPOISON(PG_hwpoison,	"hwpoison"	)		\
 diff --git a/init/main.c b/init/main.c
 index d9d914111..412aff866 100644
 --- a/init/main.c
@@ -1199,6 +1255,27 @@ index d73aed0fc..d19a4ecc1 100644
  obj-$(CONFIG_PTDUMP_CORE) += ptdump.o
  obj-$(CONFIG_PAGE_REPORTING) += page_reporting.o
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index 7ffa706e5..b4d392f80 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -661,6 +661,16 @@ static void bad_page(struct page *page, const char *reason)
+ 
+ 	pr_alert("BUG: Bad page state in process %s  pfn:%05lx\n",
+ 		current->comm, page_to_pfn(page));
++	
++	printk(KERN_ALERT "Extra Tempsta flags for bad page %d %d %d %d %d %d %d",
++	       test_bit(PG_tempesta_ss_skb_1, &page->flags),
++	       test_bit(PG_tempesta_ss_skb_2, &page->flags),
++	       test_bit(PG_tempesta_pool, &page->flags),
++	       test_bit(PG_tempesta_test, &page->flags),
++	       test_bit(PG_tempesta_cache, &page->flags),
++	       test_bit(PG_tempesta_http, &page->flags),
++	       test_bit(PG_tempesta_http_msg, &page->flags));
++
+ 	__dump_page(page, reason);
+ 	dump_page_owner(page);
+ 
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
 index 000000000..56ab5e02d
@@ -3076,7 +3153,7 @@ index 000000000..313101304
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
