@@ -1349,6 +1349,8 @@ this_chunk:
 				struct page *page = alloc_page(GFP_ATOMIC);
 				if (!page)
 					return -ENOMEM;
+				set_bit(PG_tempesta_http_msg, &page->flags);
+
 				++it->frag;
 				skb_fill_page_desc(it->skb, it->frag, page,
 						   0, 0);

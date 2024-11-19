@@ -2651,6 +2651,8 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
 		if (!(page = alloc_page(GFP_ATOMIC))) {
 			return -ENOMEM;
 		}
+		set_bit(PG_tempesta_cache, &page->flags);
+
 		new_p = page_address(page);
 		off = 0;
 		memcpy_fast(new_p, p, sz);

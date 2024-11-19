@@ -117,6 +117,7 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 		kfree_skb(skb);
 		return NULL;
 	}
+	set_bit(PG_tempesta_test, &page->flags);
 
 	addr = page_address(page);
 	memcpy(addr, paged_data->data, paged_data->len);

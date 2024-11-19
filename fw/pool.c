@@ -73,6 +73,8 @@ tfw_pool_alloc_pages(unsigned int order)
 	unsigned int *pgn;
 	unsigned long pg_res;
 	gfp_t flags;
+	unsigned long addr;
+	struct page *page;
 
 	preempt_disable();
 
@@ -89,7 +91,14 @@ tfw_pool_alloc_pages(unsigned int order)
 	preempt_enable();
 
 	flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
-	return __get_free_pages(flags, order);
+	addr = __get_free_pages(flags, order);
+	if (!addr)
+		return 0;
+
+	page = compound_head(virt_to_page(addr));
+	set_bit(PG_tempesta_ss_skb_2, &page->flags);
+
+	return addr;
 }
 
 static void

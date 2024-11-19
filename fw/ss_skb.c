@@ -94,6 +94,7 @@ ss_skb_alloc_pages(size_t len)
 			kfree_skb(skb);
 			return NULL;
 		}
+		set_bit(PG_tempesta_ss_skb_1, &page->flags);
 		skb_fill_page_desc(skb, i, page, 0, 0);
 		T_DBG3("Created new frag %d,%p for skb %p\n",
 		       i, page_address(page), skb);
@@ -1594,6 +1595,7 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				p = alloc_pages(GFP_ATOMIC, order);
 				if (!p)
 					return -ENOMEM;
+				set_bit(PG_tempesta_ss_skb_2, &p->flags);
 				remain = (1 << order) * PAGE_SIZE;
 				offset = 0;
 			} else {

@@ -4851,6 +4851,8 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 		if (!(page = alloc_page(GFP_ATOMIC))) {
 			return -ENOMEM;
 		}
+		set_bit(PG_tempesta_http, &page->flags);
+
 		p = page_address(page);
 		memcpy_fast(p, data, copy);
 		data += copy;
