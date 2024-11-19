@@ -53,8 +53,8 @@
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(std::string host, std::string table_name,
-		      std::string user, std::string password,
+	TfwClickhouse(const std::string &host, const std::string &table_name,
+		      const std::string &user, const std::string &password,
 		      clickhouse::Block block);
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
@@ -67,7 +67,7 @@ private:
 	std::unique_ptr<clickhouse::Client>	client_;
 	clickhouse::Block			block_;
 	std::chrono::milliseconds		last_time_;
-	std::string				table_name_;
+	const std::string			table_name_;
 };
 
 template <typename T> std::shared_ptr<clickhouse::Column>

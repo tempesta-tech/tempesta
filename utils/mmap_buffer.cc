@@ -35,7 +35,7 @@
 
 constexpr std::chrono::milliseconds wait_for_readyness(10);
 
-TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd,
+TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
 					 void *private_data,
 					 TfwMmapBufferReadCallback cb)
 	: buf_(nullptr), size_(0), is_running_(false),
@@ -93,7 +93,7 @@ TfwMmapBufferReader::get_cpu_id() noexcept
 }
 
 void
-TfwMmapBufferReader::init_buffer_size(int fd)
+TfwMmapBufferReader::init_buffer_size(const int fd)
 {
 	buf_ = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
 				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);

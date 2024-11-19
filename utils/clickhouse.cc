@@ -35,8 +35,8 @@ now_ms()
 		std::chrono::system_clock::now().time_since_epoch());
 }
 
-TfwClickhouse::TfwClickhouse(std::string host, std::string table_name,
-			     std::string user, std::string password,
+TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_name,
+			     const std::string &user, const std::string &password,
 			     clickhouse::Block block)
 	: block_(block), last_time_(now_ms()), table_name_(table_name)
 {

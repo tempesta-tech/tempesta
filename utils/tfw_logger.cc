@@ -213,8 +213,8 @@ callback(const char *data, int size, void *private_data)
 }
 
 void
-run_thread(int ncpu, int fd, std::string host,
-	   std::string user, std::string password)
+run_thread(const int ncpu, const int fd, const std::string &host,
+	   const std::string &user, const std::string &password)
 {
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
