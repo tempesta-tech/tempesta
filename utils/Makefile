@@ -32,6 +32,7 @@ PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
+CXXFLAGS += -I $(CLICKHOUSE_DIR)/contrib/absl
 SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
 OBJS := $(SRCS:.cc=.o)
 TARGET := tfw_logger
