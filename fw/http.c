@@ -6665,7 +6665,6 @@ static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	TfwFsmData data;
-	int r = 0;
 
 	/*
 	 * Response to HTTP2 client which has flag TFW_HTTP_B_CHUNKED_APPLIED
@@ -6677,16 +6676,20 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	if (test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
 		set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
 
-	r = tfw_http_add_hdr_clen(hm);
-	if (r) {
-		TfwHttpReq *req = hm->req;
+	if (!TFW_MSG_H2(hm->req)) {
+		int r;
 
-		tfw_http_popreq(hm, false);
-		/* The response is freed by tfw_http_req_block(). */
-		tfw_http_req_block(req, 502, "response blocked: filtered out",
-				   HTTP2_ECODE_PROTO);
-		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return;
+		r = tfw_http_add_hdr_clen(hm);
+		if (r) {
+			TfwHttpReq *req = hm->req;
+
+			tfw_http_popreq(hm, false);
+			/* The response is freed by tfw_http_req_block(). */
+			tfw_http_req_block(req, 502, "response blocked: filtered out",
+					HTTP2_ECODE_PROTO);
+			TFW_INC_STAT_BH(serv.msgs_filtout);
+			return;
+		}
 	}
 
 	/*
