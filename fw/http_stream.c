@@ -273,6 +273,7 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 
 	if (hmreq) {
 		hmreq->stream = NULL;
+		stream->msg = NULL;
 		/*
 		 * If the request is linked with a stream, but not complete yet,
 		 * it must be deleted right here to avoid leakage, because in
@@ -282,10 +283,8 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 		 * cases controlled by server connection side (after adding to
 		 * @fwd_queue): successful response sending, eviction etc.
 		 */
-		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags)) {
+		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
 			tfw_http_conn_msg_free(hmreq);
-			stream->msg = NULL;
-		}
 	}
 }
 
