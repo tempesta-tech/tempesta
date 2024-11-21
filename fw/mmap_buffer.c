@@ -209,7 +209,7 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	/*
 	 * Allocate pages for double mapping and a page for buffer control structure.
 	 */
-	page_ptr = kmalloc(page_cnt * sizeof(struct page *) * 2 + 1, GFP_KERNEL);
+	page_ptr = kmalloc((page_cnt * 2 + 1) * sizeof(struct page *), GFP_KERNEL);
 	if (!page_ptr)
 		goto err;
 
