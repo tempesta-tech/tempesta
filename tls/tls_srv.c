@@ -1144,7 +1144,7 @@ bad_version:
 
 	/* JA5t computation */
 	tls->sess.ja5t.is_abbreviated = tls->hs->resume;
-	tls->sess.ja5t.alpn = tls->alpn_chosen->id;;
+	// tls->sess.ja5t.alpn = tls->alpn_chosen->id;
 
 	/*
 	 * Server TLS configuration is found, match it with client capabilities.
