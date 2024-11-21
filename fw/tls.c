@@ -1052,8 +1052,8 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 {
 	TfwCliConn *cli_conn = &container_of(tls, TfwTlsConn, tls)->cli_conn;
 
-	return hash_calc_update((const char *)&cli_conn->peer->addr,
-				sizeof(TfwAddr), hash);
+	return hash_calc_update((const char *)&cli_conn->peer->addr.sin6_addr,
+				sizeof(cli_conn->peer->addr.sin6_addr), hash);
 }
 
 bool

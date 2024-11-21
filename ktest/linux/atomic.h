@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -63,6 +63,12 @@ static inline int
 atomic_dec_and_test(atomic_t *v)
 {
 	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST) == 0;
+}
+
+static inline int
+atomic_dec_return(atomic_t *v)
+{
+	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
 }
 
 typedef struct {

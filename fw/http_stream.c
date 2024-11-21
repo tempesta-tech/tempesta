@@ -273,6 +273,7 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 
 	if (hmreq) {
 		hmreq->stream = NULL;
+		stream->msg = NULL;
 		/*
 		 * If the request is linked with a stream, but not complete yet,
 		 * it must be deleted right here to avoid leakage, because in

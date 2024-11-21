@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@
 /* asm/page.h */
 #define PAGE_SIZE	4096UL
 #define PAGE_MASK	(~(PAGE_SIZE-1))
+#define PAGE_SHIFT	12
 /* arch/x86/include/asm/page_64_types.h */
 #define THREAD_SIZE	(PAGE_SIZE << 2)
 

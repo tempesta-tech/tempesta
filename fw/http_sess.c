@@ -899,7 +899,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
 		 * bucket with the session as soon as possible.
 		 */
-		tdb_rec_put(rec);
+		tdb_rec_put(sess_db, rec);
 
 	return TFW_HTTP_SESS_SUCCESS;
 }
@@ -1042,7 +1042,7 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
 		 * bucket with the session as soon as possible.
 		 */
-		tdb_rec_put(rec);
+		tdb_rec_put(sess_db, rec);
 
 	return 0;
 }

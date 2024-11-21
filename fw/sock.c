@@ -735,9 +735,9 @@ ss_close_not_connected_socket(struct sock *sk)
  * for server sockets.
  */
 static void
-ss_linkerror(struct sock *sk)
+ss_linkerror(struct sock *sk, int flags)
 {
-	ss_do_close(sk, 0);
+	ss_do_close(sk, flags);
 	/*
 	 * In case when ss_do_close is called for TCP_FIN_WAIT2
 	 * tcp_done() is called from tcp_time_wait() and connection
@@ -1142,7 +1142,7 @@ ss_tcp_state_change(struct sock *sk)
 			 */
 			if (!sk->sk_user_data)
 				ss_active_guard_exit(SS_V_ACT_LIVECONN);
-			ss_linkerror(sk);
+			ss_linkerror(sk, 0);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
 		}
@@ -1195,7 +1195,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
-		ss_linkerror(sk);
+		ss_linkerror(sk, 0);
 	}
 }
 
@@ -1570,7 +1570,7 @@ ss_tx_action(void)
 		} else if (sk->sk_user_data
 			   && (SS_CONN_TYPE(sk) & Conn_Shutdown)) {
 			if (ss_is_closed_force(&sw))
-				ss_linkerror(sk);
+				ss_linkerror(sk, SS_F_ABORT);
 			bh_unlock_sock(sk);
 			goto dead_sock;
 		}

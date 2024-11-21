@@ -4,7 +4,7 @@
  * Generic storage layer.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2024 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -33,15 +33,52 @@
  * Access to the data must be with preemption disabled for reentrance between
  * softirq and process contexts.
  *
- * @i_wcl, @d_wcl - per-CPU current partially written index and data blocks.
- *		    TdbHdr->i_wcl and TdbHdr->d_wcl are the global values for
- *		    the variable. The variables are initialized in runtime,
- *		    so we lose some free space on system restart.
+ * @i_wcl, @d_wcl,
+ * @b_wcl -	    per-CPU current partially written index, bucket and data
+ *		    blocks. TdbHdr->i_wcl, TdbHdr->b_wcl and TdbHdr->d_wcl are
+ *		    the global values for the variable. The variables are
+ *		    initialized in runtime, so we lose some free space on system
+ *		    restart.
+ * @freelist	  - pre-CPU freelist of blocks.
+ * @fl_size	  - number of elements in @freelist.
  */
 typedef struct {
+	unsigned long	b_wcl;
 	unsigned long	i_wcl;
 	unsigned long	d_wcl;
+	unsigned long	freelist;
+	unsigned long	fl_size;
 } TdbPerCpu;
+
+#define TDB_REC_COMMON			\
+	unsigned long	key;		\
+	unsigned int	flags;		\
+	atomic_t	refcnt
+
+/**
+ * Fixed-size (and typically small) records.
+ */
+typedef struct {
+	TDB_REC_COMMON;
+	char		data[0];
+} __attribute__((packed)) TdbFRec;
+
+/**
+ * Variable-size (typically large) record.
+ *
+ * @chunk_next	- index of next data chunk
+ * @len		- data length of current chunk
+ */
+typedef struct {
+	TDB_REC_COMMON;
+	unsigned int	chunk_next;
+	unsigned int	len;
+	char		data[0];
+} __attribute__((packed)) TdbVRec;
+
+/* Common interface for database records of all kinds. */
+typedef TdbFRec TdbRec;
+typedef void tdb_before_free_cb_t(TdbRec *rec);
 
 /**
  * Tempesta DB file descriptor.
@@ -52,7 +89,12 @@ typedef struct {
  * @dbsz	- the database size in bytes;
  * @nwb		- next to write block (byte offset);
  * @pcpu	- pointer to per-cpu dynamic data for the TDB handler;
+ * @before_free - called before freeing the record;
+ * @ga_freelist - global freelist of blocks;
+ * @gfl_lock	- protects ga_freelist;
  * @rec_len	- fixed-size records length or zero for variable-length records;
+ * @oom		- indicates out of main memory. In this case only freelists
+ *		  will be used, avoid allocations from main memory.
  ** @ext_bmp	- bitmap of used/free extents.
  * 		  Must be small and cache line aligned;
  */
@@ -61,10 +103,13 @@ typedef struct {
 	unsigned long		dbsz;
 	atomic64_t		nwb;
 	TdbPerCpu __percpu	*pcpu;
+	tdb_before_free_cb_t	*before_free;
+	unsigned long		ga_freelist;
+	spinlock_t		gfl_lock;
 	unsigned int		rec_len;
-	unsigned char		_padding[8 * 3 + 4];
+	bool			oom;
 	unsigned long		ext_bmp[0];
-} __attribute__((packed)) TdbHdr;
+} ____cacheline_aligned TdbHdr;
 
 /**
  * Database handle descriptor.
@@ -85,30 +130,6 @@ typedef struct {
 	char		tbl_name[TDB_TBLNAME_LEN + 1];
 	char		path[TDB_PATH_LEN];
 } TDB;
-
-/**
- * Fixed-size (and typically small) records.
- */
-typedef struct {
-	unsigned long	key; /* must be the first */
-	char		data[0];
-} __attribute__((packed)) TdbFRec;
-
-/**
- * Variable-size (typically large) record.
- *
- * @chunk_next	- index of next data chunk
- * @len		- data length of current chunk
- */
-typedef struct {
-	unsigned long	key; /* must be the first */
-	unsigned int	chunk_next;
-	unsigned int	len;
-	char		data[0];
-} __attribute__((packed)) TdbVRec;
-
-/* Common interface for database records of all kinds. */
-typedef TdbFRec TdbRec;
 
 /**
  * Iterator for TDB full key collision chains.
@@ -144,6 +165,8 @@ typedef struct {
 	bool		is_new;
 } TdbGetAllocCtx;
 
+typedef bool tdb_eq_cb_t(TdbRec *rec, void *data);
+
 /**
  * We use very small index nodes size of only one cache line.
  * So overall memory footprint of the index is minimal by a cost of more LLC
@@ -169,6 +192,12 @@ typedef struct {
 #define TDB_DI2O(i)		((i) * TDB_HTRIE_MINDREC)
 #define TDB_II2O(i)		((i) * TDB_HTRIE_NODE_SZ)
 
+/*
+ * Version for buckets.
+ */
+#define TDB_O2BI(o)		((o) / sizeof(TdbBucket))
+#define TDB_BI2O(i)		((i) * sizeof(TdbBucket))
+
 #define TDB_BANNER		"[tdb] "
 
 /*
@@ -191,8 +220,15 @@ typedef struct {
  * kernel_fpu_begin()/kernel_fpu_end() or call from softirq context only.
  */
 TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
+TdbRec *tdb_entry_alloc_unique(TDB *db, unsigned long key, size_t *len,
+			       tdb_eq_cb_t *eq_cb, void *eq_data);
+
+bool tdb_entry_is_complete(void *rec);
+void tdb_entry_mark_complete(void *rec);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
+void tdb_entry_remove(TDB *db, unsigned long key, tdb_eq_cb_t *eq_cb, void *data,
+		      bool force);
 void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
 			 size_t tot_size);
 TdbIter tdb_rec_get(TDB *db, unsigned long key);
@@ -201,7 +237,7 @@ void tdb_rec_next(TDB *db, TdbIter *iter);
 /*
  * Release a read-lock on the record's bucket.
  */
-void tdb_rec_put(void *rec);
+void tdb_rec_put(TDB *db, void *rec);
 
 /*
  * Acquire a read-lock on the record's bucket.

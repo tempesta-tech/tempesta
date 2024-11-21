@@ -301,6 +301,17 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	return 0;
 }
 
+TfwHttpResp *
+tfw_cache_build_resp_stale(TfwHttpReq *req)
+{
+	return NULL;
+}
+
+void
+tfw_cache_put_entry(void *ce)
+{
+}
+
 void
 tfw_tls_cfg_configured(bool global)
 {
@@ -446,6 +457,12 @@ bool
 ttls_xfrm_need_encrypt(TlsCtx *tls)
 {
 	return true;
+}
+
+TfwCacheUseStale *
+tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
+{
+	return NULL;
 }
 
 unsigned int cache_default_ttl = 60;
