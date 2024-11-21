@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -339,6 +339,7 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	size_t list_len, cur_len;
 	const unsigned char *theirs, *start, *end;
 	const ttls_alpn_proto *our, *alpn_list = tls->conf->alpn_list;
+	int alpn_chosen_idx = TTLS_ALPN_PROTOS;
 
 	/* If TLS processing is enabled, ALPN must be configured. */
 	BUG_ON(!alpn_list);
@@ -394,18 +395,27 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		}
 	}
 
-	/* Use our order of preference. */
-	for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
-		our = &alpn_list[i];
-		for (theirs = start; theirs != end; theirs += cur_len) {
-			cur_len = *theirs++;
-			if (ttls_alpn_ext_eq(our, theirs, cur_len)
-			    && ttls_alpn_match_cb(tls, our))
-			{
-				tls->alpn_chosen = our;
-				return 0;
+
+	tls->alpn_chosen = NULL;
+	for (theirs = start; theirs != end; theirs += cur_len) {
+		cur_len = *theirs++;
+		for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
+			our = &alpn_list[i];
+			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
+				/* Calculate JA5t */
+				tls->sess.ja5t.alpn <<= 2;
+				tls->sess.ja5t.alpn += our->id;
+				/* Use our order of preference */
+				if (alpn_chosen_idx > i && ttls_alpn_match_cb(tls, our)) {
+					alpn_chosen_idx = i;
+					tls->alpn_chosen = our;
+				}
 			}
 		}
+	}
+
+	if (tls->alpn_chosen) {
+		return 0;
 	}
 
 	/* We verified the length of ALPN in the loop above. */
@@ -1144,7 +1154,6 @@ bad_version:
 
 	/* JA5t computation */
 	tls->sess.ja5t.is_abbreviated = tls->hs->resume;
-	// tls->sess.ja5t.alpn = tls->alpn_chosen->id;
 
 	/*
 	 * Server TLS configuration is found, match it with client capabilities.
