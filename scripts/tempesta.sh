@@ -79,7 +79,7 @@ usage()
 
 get_opts()
 {
-	echo "$1" | grep -E "^\s*$2\b" | sed -E "s/$2 //; s/;$//" | tail -n 1
+	echo "$1" | grep -E "^\s*$2\b" | sed -E "s/$2 //; s/;$//"
 }
 
 get_opt_value()
@@ -125,16 +125,20 @@ templater()
 	done < "$tfw_cfg_path"
 
 	opts=$(get_opts "$cfg_content" "access_log")
-	tfw_logger_should_start=$(opt_exists "$opts" "mmap"; echo $?)
-	if [ $tfw_logger_should_start -ne 0 ]; then
-		mmap_log=$(get_opt_value "$opts" "mmap_log")
-		mmap_host=$(get_opt_value "$opts" "mmap_host")
-		mmap_user=$(get_opt_value "$opts" "mmap_user")
-		mmap_password=$(get_opt_value "$opts" "mmap_password")
-		cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
-		[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
-			error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
-	fi
+	while read -r line; do
+		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
+			tfw_logger_should_start=1
+			mmap_log=$(get_opt_value "$opts" "mmap_log")
+			mmap_host=$(get_opt_value "$opts" "mmap_host")
+			mmap_user=$(get_opt_value "$opts" "mmap_user")
+			mmap_password=$(get_opt_value "$opts" "mmap_password")
+
+			[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
+				error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
+		fi
+	done <<< "$opts"
+
+	cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
 
 	echo "$cfg_content" > $tfw_cfg_temp
 }
