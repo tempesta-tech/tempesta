@@ -4307,11 +4307,11 @@ do {									\
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Host_Unquoted,
 						       __fsm_sz,
 						       TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted, __fsm_sz,
 				   TFW_STR_VALUE);
@@ -4337,11 +4337,11 @@ do {									\
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Host_Quoted,
 						       __fsm_sz,
 						       TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Quoted, __fsm_sz,
 				   TFW_STR_VALUE);
@@ -4359,11 +4359,11 @@ do {									\
 
 		while (likely(isxdigit(c) || c == ':')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Host_v6_Quoted,
 						       __fsm_sz,
 						       TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		if (likely(c == ']'))
 			__FSM_I_MOVE_fixup(Req_I_Fwd_Host_End_Quoted,
@@ -4447,11 +4447,11 @@ do {									\
 
 		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Proto_Unquoted,
 						       __fsm_sz,
 						       TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
 				   TFW_STR_VALUE);
@@ -4470,11 +4470,11 @@ do {									\
 
 		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_I_POSTPONE_fixup(Req_I_Fwd_Proto_Quoted,
 						       __fsm_sz,
 						       TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish_Quoted,
 				   __fsm_sz, TFW_STR_VALUE);
@@ -8987,11 +8987,11 @@ do {									   \
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_H2_I_FWD_EQ_fixup(Req_I_Fwd_Host_Unquoted,
 						        __fsm_sz,
 						        TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Host_End_Unquoted, __fsm_sz,
 				      TFW_STR_VALUE);
@@ -9017,11 +9017,11 @@ do {									   \
 
 		while (likely(isalnum(c) || c == '.' || c == '-')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_H2_I_FWD_NEQ_fixup(Req_I_Fwd_Host_Quoted,
 							 __fsm_sz,
 						         TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_End_Quoted, __fsm_sz,
 					  TFW_STR_VALUE);
@@ -9039,11 +9039,11 @@ do {									   \
 
 		while (likely(isxdigit(c) || c == ':')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_H2_I_FWD_NEQ_fixup(Req_I_Fwd_H_v6_Quoted,
 							 __fsm_sz,
 						         TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		if (likely(c == ']'))
 			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Host_End_Quoted,
@@ -9134,11 +9134,11 @@ do {									   \
 
 		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_H2_I_FWD_EQ_fixup(Req_I_Fwd_Pto_Unquoted,
 						        __fsm_sz,
 						        TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_H2_I_MOVE_fixup(Req_I_Fwd_Next_Or_Finish, __fsm_sz,
 				      TFW_STR_VALUE);
@@ -9157,11 +9157,11 @@ do {									   \
 
 		while (likely(isalnum(c) || c == '+' || c == '-' || c == '.')) {
 			__fsm_sz++;
-			c = *(p + __fsm_sz);
 			if (unlikely(__data_off(p + __fsm_sz) >= len))
 				__FSM_H2_I_FWD_NEQ_fixup(Req_I_Fwd_Proto_Quoted,
 							 __fsm_sz,
 							 TFW_STR_VALUE);
+			c = *(p + __fsm_sz);
 		}
 		__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Fwd_Next_Or_End_Quoted,
 					  __fsm_sz, TFW_STR_VALUE);
