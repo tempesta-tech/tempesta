@@ -212,6 +212,9 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 			tls->hs->curves[c++] = ci;
 		}
 		p += 2;
+
+		tls->sess.ja5t.elliptic_curve_hash *= TTLS_JA5_HASH_CALC_PRIME;
+		tls->sess.ja5t.elliptic_curve_hash += cid;
 	}
 
 	return 0;
@@ -720,6 +723,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 	T_FSM_INIT(tls->state, "TLS ClientHello");
 
+
 	if (io->hstype != TTLS_HS_CLIENT_HELLO) {
 		TTLS_WARN(tls, "missing ClientHello\n");
 		return -EINVAL;
@@ -748,12 +752,19 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		BUG_ON(io->rlen >= 2);
 		if (unlikely(*p++ != 0x03))
 			goto bad_version;
-		if (!io->rlen) { /* frist shot */
+		if (!io->rlen) { /* first shot */
 			if (unlikely(p == buf + len))
 				T_FSM_EXIT();
 			if (unlikely(*p++ != 0x03))
 				goto bad_version;
 		}
+
+		/**
+		 *  TODO #1031: add TLS 1.3 version (TTLS_MINOR_VERSION_4) 
+		 * to JA5t computation. Now its always 1.2
+		 */
+		tls->sess.ja5t.is_tls1_3 = 0;
+
 		io->hslen -= 2;
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_RND);
 bad_version:
@@ -883,6 +894,11 @@ bad_version:
 		}
 		io->hslen -= 2;
 		tls->hs->cs_cur_len += 2;
+
+		/* ja5t must be initialized with zeros */
+		tls->sess.ja5t.cipher_suite_hash *= TTLS_JA5_HASH_CALC_PRIME;
+		tls->sess.ja5t.cipher_suite_hash += cs;;
+
 		if (tls->hs->cs_cur_len == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS);
@@ -998,6 +1014,10 @@ bad_version:
 		T_DBG3("ClientHello: read extension %#x...\n",
 		       tls->hs->ext_type);
 		io->hslen -= 2;
+
+		tls->sess.ja5t.extension_type_hash *= TTLS_JA5_HASH_CALC_PRIME;
+		tls->sess.ja5t.extension_type_hash += tls->hs->ext_type;
+
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXS);
 	}
 
@@ -1050,7 +1070,7 @@ bad_version:
 		 * parsing. We have to copy the data since the extension parsers
 		 * call external functions and callbacks with contiguous
 		 * buffers. Copy only extensions that must be parsed.
-                 *
+         *
 		 * It's too time consumptive to rework the whole API to work w/
 		 * chunked data and it's doubtful how much performance we get if
 		 * we avoid the copies - the extensions are small after all.
@@ -1061,20 +1081,21 @@ bad_version:
 		 */
 		BUG_ON(io->rlen > ext_sz);
 		n = min_t(int, ext_sz - io->rlen, buf + len - p);
-                if (ext_supported) {
+        if (ext_supported) {
 			if (unlikely(ext_type == TTLS_TLS_EXT_SESSION_TICKET))
                               tmp = tls->hs->ticket_ctx.ticket;
 		        memcpy_fast(tmp + io->rlen, p, n);
-                }
+        }
 		p += n;
 		if (unlikely(io->rlen + n < ext_sz))
 			T_FSM_EXIT();
-                T_DBG3("ClientHello: read %u bytes for ext %u\n", io->rlen + n,
-                       ext_type);
-                if (ext_supported) {
-                        if ((ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type)))
-                                return ret;
-                }
+
+        T_DBG3("ClientHello: read %u bytes for ext %u\n", io->rlen + n, ext_type);
+        if (ext_supported) {
+        	if ((ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type)))
+            	return ret;
+        }
+		
 		tls->hs->ext_rem_sz -= 4 + ext_sz;
 		if (tls->hs->ext_rem_sz > 0 && tls->hs->ext_rem_sz < 4) {
 			TTLS_WARN(tls, "ClientHello: bad extensions list\n");
@@ -1120,6 +1141,10 @@ bad_version:
 	 * speaks to, we can try to restore session from session ticket.
 	 */
 	ttls_process_session_ticket(tls);
+
+	/* JA5t computation */
+	tls->sess.ja5t.is_abbreviated = tls->hs->resume;
+	tls->sess.ja5t.alpn = tls->alpn_chosen->id;;
 
 	/*
 	 * Server TLS configuration is found, match it with client capabilities.

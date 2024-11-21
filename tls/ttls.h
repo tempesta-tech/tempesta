@@ -269,6 +269,34 @@ struct ttls_alpn_proto {
 	int		id;
 };
 
+/**
+ * Just a small prime, relatively far from a power of 2
+ */
+#define TTLS_JA5_HASH_CALC_PRIME 11
+
+/**
+ * JA5t TLS client fingerprint
+ * 
+ * @alpn - chosen ALPN id
+ * @vhost_found - requested vhost presence flag
+ * @is_abbreviated - is it going to be resumed session
+ * @is_tls1_3 - is tls1.3 flag
+ * @cipher_suite_hash - hash of the client cipher suites set
+ * @extension_type_hash - hash of the client extensions set
+ * @elliptic_curve_hash - hash of the client elliptic curves set
+ */
+typedef struct {
+	unsigned char :2;
+	unsigned char alpn:3;
+	unsigned char vhost_found:1;
+	unsigned char is_abbreviated:1;
+	unsigned char is_tls1_3:1;
+	unsigned short cipher_suite_hash;
+	unsigned short extension_type_hash;
+	unsigned short elliptic_curve_hash;
+} __attribute__((packed)) TlsJa5t;
+
+
 #define TTLS_SESS_ID_LEN	32
 #define TTLS_SESS_SECRET_LEN	48
 /**
@@ -291,6 +319,7 @@ typedef struct {
 	unsigned char	id_len;
 	unsigned char	id[TTLS_SESS_ID_LEN];
 	unsigned char	master[48];
+	TlsJa5t ja5t;
 } TlsSess;
 
 /*

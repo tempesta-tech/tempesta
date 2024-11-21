@@ -99,9 +99,9 @@ extern ttls_ecp_group_id ttls_preset_curves[];
 /**
  * Curve information for use by other modules.
  *
- * @grp_id		- nternal identifier;
+ * @grp_id		- internal identifier;
  * @tls_id		- TLS NamedCurve identifier;
- * @bit_size		- urve size in bits;
+ * @bit_size	- curve size in bits;
  * @name		- human-friendly name;
  */
 typedef struct {
