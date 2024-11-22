@@ -413,20 +413,23 @@ main(int argc, char* argv[])
 		spdlog::info("Daemon stopped");
 
 	}
-	catch (Exception &e) {
+	catch (const Exception &e) {
 		if (logger)
 			spdlog::error(e.what());
 		else
 			std::cerr << e.what() << std::endl;
 		res = 1;
 	}
-	catch (std::exception &e) {
+	catch (const std::exception &e) {
 		if (logger)
 			spdlog::error("Unhandled error: {}", e.what());
 		else
 			std::cerr << "Unhandled error: " << e.what() << std::endl;
 		res = 2;
 	}
+
+	for (auto &t : threads)
+		t.join();
 
 	if (fd >= 0)
 		close(fd);

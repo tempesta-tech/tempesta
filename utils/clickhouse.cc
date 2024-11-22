@@ -54,8 +54,12 @@ TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_n
 
 TfwClickhouse::~TfwClickhouse()
 {
-	if (block_.GetRowCount() > 0)
-		client_->Insert(table_name_, block_);
+	if (block_.GetRowCount() > 0) {
+		try {
+			client_->Insert(table_name_, block_);
+		} catch (const std::exception &e) {
+		}
+	}
 }
 
 clickhouse::Block *
