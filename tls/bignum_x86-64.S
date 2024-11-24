@@ -1658,7 +1658,9 @@ SYM_FUNC_END(mpi_from_mont_p256_x86_64)
  */
 SYM_FUNC_START_32(mpi_mul_mont_mod_p256_x86_64)
 	pushq	%rbx
+#if defined(__KERNEL__) && !defined(CONFIG_FRAME_POINTER)
 	pushq	%rbp
+#endif
 	pushq	%r12
 	pushq	%r13
 	pushq	%r14
@@ -1727,8 +1729,15 @@ SYM_FUNC_START_32(mpi_mul_mont_mod_p256_x86_64)
 	#  A[3] * B[0]
 	movq	24(%rsi), %rdx
 	adcxq	%rax, %r12
+#if defined(__KERNEL__) && !defined(CONFIG_FRAME_POINTER)
 	mulxq	(%rcx), %rbp, %rax
 	adoxq	%rbp, %r11
+#else
+	pushq	%rdi
+	mulxq	(%rcx), %rdi, %rax
+	adoxq	%rdi, %r11
+	popq	%rdi
+#endif
 	adoxq	%rax, %r12
 	#  A[3] * B[2]
 	mulxq	16(%rcx), %rdx, %rax
@@ -1748,7 +1757,9 @@ SYM_FUNC_START_32(mpi_mul_mont_mod_p256_x86_64)
 	popq	%r14
 	popq	%r13
 	popq	%r12
+#if defined(__KERNEL__) && !defined(CONFIG_FRAME_POINTER)
 	popq	%rbp
+#endif
 	popq	%rbx
 	retq
 SYM_FUNC_END(mpi_mul_mont_mod_p256_x86_64)
