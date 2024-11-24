@@ -549,8 +549,6 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
-	access_log_type = ACCESS_LOG_OFF;
-
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (strcasecmp(val, "off") == 0) {
 			off = true;
