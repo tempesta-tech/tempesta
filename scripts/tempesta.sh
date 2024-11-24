@@ -43,6 +43,7 @@ tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 
 tfw_logger_should_start=0
 tfw_logger_pid_path="/var/run/tfw_logger.pid"
+tfw_logger_timeout=3
 mmap_host=""
 mmap_log=""
 mmap_user=""
@@ -317,6 +318,22 @@ start_tfw_logger()
 
 	utils/tfw_logger -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
 		error "cannot start tfw_logger daemon"
+
+	start_time=$(date +%s)
+	while [[ ! -f "$tfw_logger_pid_path" ]]; do
+		current_time=$(date +%s)
+		elapsed_time=$((current_time - start_time))
+
+		if (( elapsed_time >= tfw_logger_timeout )); then
+			sysctl -e -w net.tempesta.state=stop
+			unload_modules
+			tfw_irqbalance_revert
+			error "tfw_logger failed to start, see $mmap_log for details"
+		fi
+
+		sleep 0.1
+	done
+
 }
 
 stop_tfw_logger()
