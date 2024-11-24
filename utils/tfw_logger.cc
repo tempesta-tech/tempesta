@@ -105,6 +105,17 @@ dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
 }
 #endif /* DEBUG */
 
+void log_error(std::string msg, bool to_spdlog, bool unhandled)
+{
+	if (unhandled)
+		msg = "Unhandled error: " + msg;
+
+	if (to_spdlog)
+		spdlog::error(msg);
+	else
+		std::cerr << msg << std::endl;
+}
+
 clickhouse::Block
 make_block()
 {
@@ -414,17 +425,11 @@ main(int argc, char* argv[])
 
 	}
 	catch (const Exception &e) {
-		if (logger)
-			spdlog::error(e.what());
-		else
-			std::cerr << e.what() << std::endl;
+		log_error(e.what(), logger != nullptr, false);
 		res = 1;
 	}
 	catch (const std::exception &e) {
-		if (logger)
-			spdlog::error("Unhandled error: {}", e.what());
-		else
-			std::cerr << "Unhandled error: " << e.what() << std::endl;
+		log_error(e.what(), logger != nullptr, true);
 		res = 2;
 	}
 
