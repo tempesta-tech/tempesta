@@ -24,12 +24,17 @@
 #include "http_types.h"
 #include "cfg.h"
 
+typedef struct tls_cert_conf_t TlsCertConf;
+
 int tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 int tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 int tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 
 int tfw_tls_cert_cfg_finish(TfwVhost *vhost);
 void tfw_tls_cert_clean(TfwVhost *vhost);
+
+void tfw_tls_vhost_get_cert_conf(TlsCertConf *conf);
+void tfw_tls_vhost_put_cert_conf(TlsCertConf *conf);
 
 size_t tfw_tls_vhost_priv_data_sz(void);
 

@@ -27,11 +27,12 @@
 
 #define TLS_CONF_CERT_NUM	8
 
-typedef struct {
-	TlsX509Crt	crt;
-	TlsPkCtx	key;
-	unsigned int	conf_stage;
-} TlsCertConf;
+struct tls_cert_conf_t {
+	TlsX509Crt      crt;
+	TlsPkCtx        key;
+	atomic_t	refcnt;
+	unsigned int    conf_stage;
+};
 
 typedef struct {
 	TlsCertConf	certs[TLS_CONF_CERT_NUM];
@@ -39,7 +40,8 @@ typedef struct {
 	unsigned int	init_done:1;
 } TlsConfEntry;
 
-size_t tfw_tls_vhost_priv_data_sz(void)
+size_t
+tfw_tls_vhost_priv_data_sz(void)
 {
 	return sizeof(TlsConfEntry);
 }
@@ -319,6 +321,8 @@ tfw_tls_cleanup_tls_cert(TlsCertConf *conf)
 {
 	if (!(conf->conf_stage & TFW_TLS_CFG_F_CERT))
 		return;
+
+	BUG_ON(atomic_read(&conf->refcnt));
 	ttls_x509_crt_free(&conf->crt);
 }
 
@@ -327,7 +331,30 @@ tfw_tls_cleanup_tls_ckey(TlsCertConf *conf)
 {
 	if (!(conf->conf_stage & TFW_TLS_CFG_F_CKEY))
 		return;
+
+	BUG_ON(atomic_read(&conf->refcnt));
 	ttls_pk_free(&conf->key);
+}
+
+void
+tfw_tls_vhost_get_cert_conf(TlsCertConf *conf)
+{
+	atomic_inc(&conf->refcnt);
+}
+
+void
+tfw_tls_vhost_put_cert_conf(TlsCertConf *conf)
+{
+	int rc;
+
+	rc = atomic_dec_return(&conf->refcnt);
+	BUG_ON(rc < 0);
+
+	if (rc)
+		return;
+
+	tfw_tls_cleanup_tls_cert(conf);
+	tfw_tls_cleanup_tls_ckey(conf);
 }
 
 void
