@@ -257,7 +257,7 @@ ttls_own_cert(TlsCtx *tls)
 	else
 		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
 
-	return key_cert ? key_cert->cert : NULL;
+	return key_cert ? (key_cert->conf ? &key_cert->conf->crt : NULL) : NULL;
 }
 
 int ttls_check_cert_usage(const TlsX509Crt *cert,

@@ -329,6 +329,13 @@ typedef struct {
 	unsigned char			iv_dec[16];
 } TlsXfrm;
 
+typedef struct tls_cert_conf_t {
+	TlsX509Crt      crt;
+	TlsPkCtx        key;
+	atomic_t        refcnt;
+	unsigned int    conf_stage;
+} TlsCertConf;
+
 /**
  * List of certificate + private key pairs
  *
@@ -339,8 +346,7 @@ typedef struct {
  * @next		- next certificate in list;
  */
 typedef struct ttls_key_cert {
-	TlsX509Crt			*cert;
-	TlsPkCtx			*key;
+	TlsCertConf			*conf;
 	TlsX509Crt			*ca_chain;
 	ttls_x509_crl			*ca_crl;
 	struct ttls_key_cert		*next;
@@ -599,8 +605,7 @@ void ttls_conf_authmode(TlsCfg *conf, int authmode);
 
 int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
-int ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert,
-		       TlsPkCtx *pk_key, TlsX509Crt *ca_chain,
+int ttls_conf_own_cert(TlsPeerCfg *conf, TlsCertConf *cconf,
 		       ttls_x509_crl *ca_crl);
 int ttls_conf_tickets(TlsPeerCfg *conf, bool enable, unsigned long lifetime,
 		      const char *secret_str, size_t len,
@@ -634,6 +639,33 @@ void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
 
 bool ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 		      size_t len);
+
+void tfw_tls_vhost_get_cert_conf(TlsCertConf *conf);
+void tfw_tls_vhost_put_cert_conf(TlsCertConf *conf);
+
+#define TFW_TLS_CFG_F_EMPY	0U
+#define TFW_TLS_CFG_F_CERT	1U
+#define TFW_TLS_CFG_F_CKEY	2U
+
+static inline void
+tfw_tls_cleanup_tls_cert(TlsCertConf *conf)
+{
+	if (!(conf->conf_stage & TFW_TLS_CFG_F_CERT))
+		return;
+
+	BUG_ON(atomic_read(&conf->refcnt));
+	ttls_x509_crt_free(&conf->crt);
+}
+
+static inline void
+tfw_tls_cleanup_tls_ckey(TlsCertConf *conf)
+{
+	if (!(conf->conf_stage & TFW_TLS_CFG_F_CKEY))
+		return;
+
+	BUG_ON(atomic_read(&conf->refcnt));
+	ttls_pk_free(&conf->key);
+}
 
 static inline size_t
 ttls_expiv_len(const TlsXfrm *xfrm)

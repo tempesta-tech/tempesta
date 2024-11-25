@@ -1301,6 +1301,9 @@ ttls_handshake_free(TlsHandshake *hs)
 	if (unlikely(!hs))
 		return;
 
+	if (hs->key_cert && hs->key_cert->conf)
+		tfw_tls_vhost_put_cert_conf(hs->key_cert->conf);
+
 	crypto_free_shash(hs->desc.tfm);
 	if (hs->tmp_sha256.desc.tfm)
 		crypto_free_shash(hs->tmp_sha256.desc.tfm);
@@ -1980,17 +1983,15 @@ ttls_set_session(TlsCtx *tls, const TlsSess *sess)
  * Called in process context on the startup.
  */
 int
-ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert, TlsPkCtx *pk_key,
-		   TlsX509Crt *ca_chain, ttls_x509_crl *ca_crl)
+ttls_conf_own_cert(TlsPeerCfg *conf, TlsCertConf *cconf, ttls_x509_crl *ca_crl)
 {
 	TlsKeyCert *new;
 
 	if (!(new = kmalloc(sizeof(TlsKeyCert), GFP_KERNEL)))
 		return -ENOMEM;
 
-	new->cert = own_cert;
-	new->key = pk_key;
-	new->ca_chain = ca_chain;
+	new->conf = cconf;
+	new->ca_chain = cconf->crt.next;
 	new->ca_crl = ca_crl;
 	new->next = NULL;
 
@@ -2816,6 +2817,29 @@ ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 
 	return !memcmp_fast(proto->name, buf, len);
 }
+
+void
+tfw_tls_vhost_get_cert_conf(TlsCertConf *conf)
+{
+	atomic_inc(&conf->refcnt);
+}
+EXPORT_SYMBOL(tfw_tls_vhost_get_cert_conf);
+
+void
+tfw_tls_vhost_put_cert_conf(TlsCertConf *conf)
+{
+	int rc;
+
+	rc = atomic_dec_return(&conf->refcnt);
+	BUG_ON(rc < 0);
+
+	if (rc)
+		return;
+
+	tfw_tls_cleanup_tls_cert(conf);
+	tfw_tls_cleanup_tls_ckey(conf);
+}
+EXPORT_SYMBOL(tfw_tls_vhost_put_cert_conf);
 
 #if DBG_TLS >= 3
 unsigned long

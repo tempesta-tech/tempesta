@@ -478,7 +478,7 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 	}
 
 	for (cur = list; cur; cur = cur->next) {
-		if (!ttls_pk_can_do(cur->key, pk_alg)) {
+		if (!ttls_pk_can_do(&cur->conf->key, pk_alg)) {
 			T_DBG("certificate mismatch for alg %d\n", pk_alg);
 			continue;
 		}
@@ -491,14 +491,14 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 		 * for different uses based on keyUsage, eg if they want to
 		 * avoid signing and decrypting with the same RSA key.
 		 */
-		if ((r = ttls_check_cert_usage(cur->cert, ci, TTLS_IS_SERVER))) {
+		if ((r = ttls_check_cert_usage(&cur->conf->crt, ci, TTLS_IS_SERVER))) {
 			T_DBG("certificate mismatch: (extended) key usage"
 			      " extension, %#x\n", r);
 			continue;
 		}
 
 		if (pk_alg == TTLS_PK_ECDSA
-		    && ttls_check_key_curve(cur->key, tls->hs->curves))
+		    && ttls_check_key_curve(&cur->conf->key, tls->hs->curves))
 		{
 			T_DBG("certificate mismatch: elliptic curve\n");
 			continue;
@@ -511,6 +511,7 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 	/* Do not update tls->hs->key_cert unless there is a match */
 	if (cur) {
 		tls->hs->key_cert = cur;
+		tfw_tls_vhost_get_cert_conf(cur->conf);
 		return 0;
 	}
 
@@ -1498,7 +1499,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * tls->hs->key_cert must be set on ClientHello by
 	 * ttls_pick_cert().
 	 */
-	if (!hs->key_cert || !hs->key_cert->key) {
+	if (!hs->key_cert || !hs->key_cert->conf) {
 		TTLS_WARN(tls, "The own private key is not set, but needed.\n");
 		return -ENOENT;
 	}
@@ -1534,7 +1535,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	*(p++) = ttls_sig_from_pk_alg(sig_alg);
 	n += 2;
 
-	r = ttls_pk_sign(hs->key_cert->key, md_alg, hash, p + 2, &sig_len);
+	r = ttls_pk_sign(&hs->key_cert->conf->key, md_alg, hash, p + 2, &sig_len);
 	if (r) {
 		TTLS_WARN(tls, "cannot sign the digest, %d\n", r);
 		return r;

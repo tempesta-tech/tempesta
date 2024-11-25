@@ -21,18 +21,7 @@
 #include "tls.h"
 #include "vhost.h"
 
-#define TFW_TLS_CFG_F_EMPY	0U
-#define TFW_TLS_CFG_F_CERT	1U
-#define TFW_TLS_CFG_F_CKEY	2U
-
 #define TLS_CONF_CERT_NUM	8
-
-struct tls_cert_conf_t {
-	TlsX509Crt      crt;
-	TlsPkCtx        key;
-	atomic_t	refcnt;
-	unsigned int    conf_stage;
-};
 
 typedef struct {
 	TlsCertConf	certs[TLS_CONF_CERT_NUM];
@@ -232,19 +221,19 @@ err:
 	return r;
 }
 
-int
+static int
 tfw_tls_cert_cfg_finish_cert(TfwVhost *vhost)
 {
 	TlsConfEntry *conf_entry = vhost->tls_cfg.priv;
 	TlsCertConf *conf = &conf_entry->certs[conf_entry->certs_num];
 	int r;
 
-	r = ttls_conf_own_cert(&vhost->tls_cfg, &conf->crt, &conf->key,
-			       conf->crt.next, NULL);
+	r = ttls_conf_own_cert(&vhost->tls_cfg, conf, NULL);
 	if (r) {
 		T_ERR_NL("TLS: can't set own certificate (%x)\n", r);
 		return -EINVAL;
 	}
+	tfw_tls_vhost_get_cert_conf(conf);
 	conf_entry->certs_num++;
 
 	return 0;
@@ -316,47 +305,6 @@ tfw_tls_cert_cfg_finish(TfwVhost *vhost)
 	return 0;
 }
 
-static void
-tfw_tls_cleanup_tls_cert(TlsCertConf *conf)
-{
-	if (!(conf->conf_stage & TFW_TLS_CFG_F_CERT))
-		return;
-
-	BUG_ON(atomic_read(&conf->refcnt));
-	ttls_x509_crt_free(&conf->crt);
-}
-
-static void
-tfw_tls_cleanup_tls_ckey(TlsCertConf *conf)
-{
-	if (!(conf->conf_stage & TFW_TLS_CFG_F_CKEY))
-		return;
-
-	BUG_ON(atomic_read(&conf->refcnt));
-	ttls_pk_free(&conf->key);
-}
-
-void
-tfw_tls_vhost_get_cert_conf(TlsCertConf *conf)
-{
-	atomic_inc(&conf->refcnt);
-}
-
-void
-tfw_tls_vhost_put_cert_conf(TlsCertConf *conf)
-{
-	int rc;
-
-	rc = atomic_dec_return(&conf->refcnt);
-	BUG_ON(rc < 0);
-
-	if (rc)
-		return;
-
-	tfw_tls_cleanup_tls_cert(conf);
-	tfw_tls_cleanup_tls_ckey(conf);
-}
-
 void
 tfw_tls_cert_clean(TfwVhost *vhost)
 {
@@ -364,7 +312,9 @@ tfw_tls_cert_clean(TfwVhost *vhost)
 	int i;
 
 	ttls_key_cert_free(vhost->tls_cfg.key_cert);
-	for (i = 0; i < TLS_CONF_CERT_NUM; i++) {
+	for (i = 0; i < conf->certs_num; i++)
+		tfw_tls_vhost_put_cert_conf(&conf->certs[i]);
+	for (i = conf->certs_num; i < TLS_CONF_CERT_NUM; i++) {
 		TlsCertConf *cconf = &conf->certs[i];
 
 		tfw_tls_cleanup_tls_cert(cconf);
