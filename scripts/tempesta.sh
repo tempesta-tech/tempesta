@@ -349,6 +349,7 @@ start()
 
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
+	TFW_LOGGER_EXEC=$(expr "$TFW_STATE" != "start")
 
 	if [[ -z ${TFW_STATE} ]]; then
 		setup
@@ -370,7 +371,9 @@ start()
 
 	start_tempesta_and_check_state
 
-	start_tfw_logger
+	if [[ $TFW_LOGGER_EXEC == 1 ]]; then
+		start_tfw_logger
+	fi
 
 	echo "done"
 }
