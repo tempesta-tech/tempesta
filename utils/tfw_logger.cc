@@ -166,7 +166,6 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	READ_INT(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
 	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
 	READ_INT(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
-	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
 
 #define READ_STR(method)						\
 	ind = method + 1; /* column 0 is timestamp */			\
@@ -187,6 +186,8 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	READ_STR(TFW_MMAP_LOG_URI);
 	READ_STR(TFW_MMAP_LOG_REFERER);
 	READ_STR(TFW_MMAP_LOG_USER_AGENT);
+
+	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
 
 	return p - data;
 error:
