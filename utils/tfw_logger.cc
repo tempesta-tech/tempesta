@@ -238,7 +238,7 @@ run_thread(const int ncpu, const int fd, const std::string &host,
 	bool affinity_is_set = false;
 	int r;
 
-	while (true) {
+	while (!stop_flag) {
 		try {
 			TfwClickhouse clickhouse(host, table_name,
 						 user, password, make_block());
