@@ -47,6 +47,8 @@ constexpr char table_name[]	= "access_log";
 constexpr char pid_file_path[]	= "/var/run/tfw_logger.pid";
 constexpr std::chrono::seconds		wait_for_dev{1};
 constexpr std::chrono::milliseconds	wait_for_stop(10);
+constexpr std::chrono::seconds		reconnect_min_timeout{1};
+constexpr std::chrono::seconds		reconnect_max_timeout{16};
 
 typedef struct {
 	const char		*name;
@@ -68,6 +70,7 @@ static const TfwField tfw_fields[] = {
 };
 
 std::atomic<bool> stop_flag{false};
+static thread_local bool uncritical_error;
 
 #ifdef DEBUG
 static void
@@ -221,29 +224,61 @@ callback(const char *data, int size, void *private_data)
 		}
 	}
 
-	clickhouse->commit();
+	if (clickhouse->commit())
+		uncritical_error = false;
 }
 
 void
 run_thread(const int ncpu, const int fd, const std::string &host,
 	   const std::string &user, const std::string &password)
 {
+	static thread_local std::chrono::seconds timeout(reconnect_min_timeout);
 	cpu_set_t cpuset;
 	pthread_t current_thread = pthread_self();
+	bool affinity_is_set = false;
 	int r;
 
-	TfwClickhouse clickhouse(host, table_name, user, password, make_block());
+	while (true) {
+		try {
+			TfwClickhouse clickhouse(host, table_name,
+						 user, password, make_block());
 
-	TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
+			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
-	CPU_ZERO(&cpuset);
-	CPU_SET(mbr.get_cpu_id(), &cpuset);
+			if (!affinity_is_set) {
+				CPU_ZERO(&cpuset);
+				CPU_SET(mbr.get_cpu_id(), &cpuset);
 
-	r = pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-	if (r != 0)
-		throw Except("Affinity setting failed");
+				r = pthread_setaffinity_np(current_thread,
+							sizeof(cpu_set_t), &cpuset);
+				if (r != 0)
+					throw Except("Affinity setting failed");
 
-	mbr.run(&stop_flag);
+				affinity_is_set = true;
+			}
+
+			mbr.run(&stop_flag);
+
+			break;
+		}
+		catch (const Exception &e) {
+			log_error(e.what(), true, false);
+			/* All the manually thrown exceptions are critical */
+			break;
+		}
+		catch (const std::exception &e) {
+			if (!uncritical_error) {
+				log_error(e.what(), true, true);
+				timeout = reconnect_min_timeout;
+				uncritical_error = true;
+			}
+
+			std::this_thread::sleep_for(timeout);
+
+			if (timeout < reconnect_max_timeout)
+				timeout *= 2;
+		}
+	}
 }
 
 void

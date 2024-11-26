@@ -38,7 +38,8 @@
  *        elapsed time since the last insertion exceeds a predefined threshold
  *        or the block’s row count exceeds a maximum event threshold. After
  *        committing, the block is deleted, a new block is created via
- *        block_callback and last_time is updated.
+ *        block_callback and last_time is updated. If a block was committed
+ *        return true, otherwise return false.
  *
  * Private Members:
  *    @client_ - Clickhouse Client instance for sending data to the database.
@@ -57,7 +58,7 @@ public:
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
 	clickhouse::Block *get_block() noexcept;
-	void commit();
+	bool commit();
 
 private:
 	std::unique_ptr<clickhouse::Client>	client_;

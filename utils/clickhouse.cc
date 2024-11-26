@@ -58,7 +58,7 @@ TfwClickhouse::get_block() noexcept
 	return &block_;
 }
 
-void
+bool
 TfwClickhouse::commit()
 {
 	auto now = now_ms();
@@ -73,5 +73,8 @@ TfwClickhouse::commit()
 			block_[i]->Clear();
 
 		last_time_ = now;
+
+		return true;
 	}
+	return false;
 }
