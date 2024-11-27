@@ -22,7 +22,6 @@
 
 #include "tls_internal.h"
 
-TlsMpiPool *ttls_mpool(void *addr);
 void *ttls_mpool_alloc_stack(size_t n);
 void *ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n);
 int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n);

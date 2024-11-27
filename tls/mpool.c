@@ -72,7 +72,7 @@ static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
  * 2. temporary per-cpu pool for stack allocated MPIs (softirq);
  * 3. current handshake profile cloned from (1) (softirq).
  */
-TlsMpiPool *
+static TlsMpiPool *
 ttls_mpool(void *addr)
 {
 	TlsMpiPool *mp;

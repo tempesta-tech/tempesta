@@ -258,12 +258,17 @@ ttls_pk_parse_subpubkey(const unsigned char **p, const unsigned char *end,
 	 */
 
 	if (pk_alg == TTLS_PK_RSA) {
+		local_bh_disable();
 		ret = pk_get_rsapubkey(p, end, ttls_pk_rsa(*pk));
+		local_bh_enable();
 	}
 	else if (pk_alg == TTLS_PK_ECKEY_DH || pk_alg == TTLS_PK_ECKEY) {
 		ret = pk_use_ecparams(&alg_params, &ttls_pk_ec(*pk)->grp);
-		if (!ret)
+		if (!ret) {
+			local_bh_disable();
 			ret = pk_get_ecpubkey(p, end, ttls_pk_ec(*pk));
+			local_bh_enable();
+		}
 	}
 	else {
 		ret = TTLS_ERR_PK_UNKNOWN_PK_ALG;
@@ -396,9 +401,11 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 	int r;
 
 	kernel_fpu_begin();
+	local_bh_disable();
 
 	r = __parse_key_pkcs1_der(rsa, key, keylen);
 
+	local_bh_enable();
 	kernel_fpu_end();
 
 	return r;
@@ -679,7 +686,10 @@ no_pem:
 
 cleanup:
 	/* Does MPI calculations, so pool context must be freed afterwards. */
+
+	local_bh_disable();
 	ttls_mpi_pool_cleanup_ctx(0, false);
+	local_bh_enable();
 
 	return r;
 }
