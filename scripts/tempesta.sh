@@ -129,10 +129,10 @@ templater()
 	while read -r line; do
 		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
 			tfw_logger_should_start=1
-			mmap_log=$(get_opt_value "$opts" "mmap_log")
-			mmap_host=$(get_opt_value "$opts" "mmap_host")
-			mmap_user=$(get_opt_value "$opts" "mmap_user")
-			mmap_password=$(get_opt_value "$opts" "mmap_password")
+			mmap_log=$(get_opt_value "$line" "mmap_log")
+			mmap_host=$(get_opt_value "$line" "mmap_host")
+			mmap_user=$(get_opt_value "$line" "mmap_user")
+			mmap_password=$(get_opt_value "$line" "mmap_password")
 
 			[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
 				error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
