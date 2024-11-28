@@ -234,7 +234,10 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 #define TFW_STR_VALUE		0x08
 /* The string represents hop-by-hop header, not end-to-end one */
 #define TFW_STR_HBH_HDR		0x10
-/* Not cachable due to configuration settings or no-cache/private directive */
+/*
+ * Not cachable due to configuration settings or no-cache/private directive.
+ * Used to not cache set-cookie as well.
+ */
 #define TFW_STR_NOCCPY_HDR	0x20
 /*
  * The string/chunk is a header fully indexed in HPACK static
