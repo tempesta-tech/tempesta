@@ -1969,7 +1969,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		TLS_MAX_PAYLOAD_SIZE : *snd_wnd - TLS_MAX_OVERHEAD;
 	unsigned int length;
 	char *data;
-	int r;
+	int r = 0;
 
 
 	/*
@@ -2045,7 +2045,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		return -EPIPE;
 	}
 
-	return 0;
+	return r;
 }
 
 static int
@@ -2138,12 +2138,14 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
-		r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
-					      &stream->xmit.frame_length,
-					      false);
-		if (unlikely(r)) {
-			T_WARN("Failed to send frame %d", r);
-			return r;
+		if (likely(stream->xmit.frame_length)) {
+			r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
+						      &stream->xmit.frame_length,
+						      false);
+			if (unlikely(r)) {
+				T_WARN("Failed to send frame %d", r);
+				return r;
+			}
 		}
 
 		if (stream->xmit.h_len) {
