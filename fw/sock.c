@@ -884,6 +884,11 @@ do {									\
 		 */
 		BUG_ON(conn == NULL);
 
+		if (SS_CONN_TYPE(sk) & Conn_Stop) {
+			__kfree_skb(skb);
+			continue;
+		}
+
 		r = SS_CALL(connection_recv, conn, skb);
 
 		if (r < 0) {
@@ -997,8 +1002,6 @@ ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
 	int (*action)(struct sock *sk, int flags);
-	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop)
-                           || (SS_CONN_TYPE(sk) & Conn_Shutdown);
 
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
@@ -1037,7 +1040,8 @@ ss_tcp_data_ready(struct sock *sk)
 		action = ss_close;
 		break;
 	case SS_BLOCK_WITH_RST:
-		was_stopped = true;
+		flags = SS_F_ABORT_FORCE;
+		action = ss_close;
 		break;
 	case SS_BAD:
 		flags = SS_F_SYNC;
@@ -1045,15 +1049,6 @@ ss_tcp_data_ready(struct sock *sk)
 		break;
 	default:
 		BUG();
-	}
-
-	if (was_stopped) {
-		/*
-		 * In case of errors for already stopped connections
-		 * we should immediately close them with TCP RST.
-		 */
-		flags = SS_F_ABORT_FORCE;
-		action = ss_close;
 	}
 
 	/*
@@ -1070,7 +1065,7 @@ ss_tcp_data_ready(struct sock *sk)
 	 * Closing a socket should go through the queue and
 	 * should be done after all pending data has been sent.
 	 */
-	if (!(SS_CONN_TYPE(sk) & Conn_Stop) || was_stopped) {
+	if (!(SS_CONN_TYPE(sk) & Conn_Stop)) {
 		/*
 		 * Set Conn_Stop bit to immediately stop processing
 		 * new incoming requests for this connection.
