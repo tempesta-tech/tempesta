@@ -693,7 +693,7 @@ do {									\
 				if (flags & HTTP2_F_END_STREAM)
 					SET_STATE(HTTP2_STREAM_CLOSED);
 			} else if (type == HTTP2_RST_STREAM) {
-				SET_STATE(HTTP2_STREAM_REM_CLOSED);
+				SET_STATE(HTTP2_STREAM_CLOSED);
 			}
 
 			break;
@@ -748,32 +748,6 @@ do {									\
 			SET_STATE(HTTP2_STREAM_CLOSED);
 		else if (type != HTTP2_WINDOW_UPDATE)
 			res = STREAM_FSM_RES_IGNORE;
-
-		break;
-
-	/*
-	 * This state is not described in RFC 9113, but it is necessary to
-	 * implement handling of situation when an endpoint that sends a
-	 * frame with the END_STREAM flag set or a RST_STREAM frame might
-	 * receive a WINDOW_UPDATE or RST_STREAM frame from its peer.
-	 */
-	case HTTP2_STREAM_REM_CLOSED:
-		if (type == HTTP2_PRIORITY)
-			break;
-
-		if (send) {
-			res = STREAM_FSM_RES_IGNORE;
-			break;
-		}
-
-		if (type == HTTP2_RST_STREAM) {
-			SET_STATE(HTTP2_STREAM_CLOSED);
-			break;
-		} else if (type == HTTP2_WINDOW_UPDATE)
-			break;
-
-		*err = HTTP2_ECODE_PROTO;
-		res = STREAM_FSM_RES_TERM_CONN;
 
 		break;
 
