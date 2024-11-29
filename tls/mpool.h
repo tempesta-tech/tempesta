@@ -1,7 +1,7 @@
 /*
  *		Tempesta TLS
  *
- * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,6 @@
 
 #include "tls_internal.h"
 
-TlsMpiPool *ttls_mpool(void *addr);
 void *ttls_mpool_alloc_stack(size_t n);
 void *ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n);
 int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n);

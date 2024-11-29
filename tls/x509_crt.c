@@ -977,7 +977,9 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 
 done:
 	/* Does MPI calculations, so pool context must be freed afterwards. */
+	local_bh_disable();
 	ttls_mpi_pool_cleanup_ctx(0, false);
+	local_bh_enable();
 
 	return r;
 }
