@@ -621,15 +621,17 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
 	 * details).
 	 */
+	ctx->lstream_id = hdr->stream_id;
 	if (ctx->priority.stream_id == hdr->stream_id) {
 		T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
-						 HTTP2_RST_STREAM, 0))
-			return -EPERM;
+		if (likely(!ctx->cur_stream)) {
+			return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
+						      HTTP2_ECODE_PROTO);
+		}
 
 		WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
 		return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
@@ -639,10 +641,8 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
 		if (!ctx->cur_stream)
 			return -ENOMEM;
-		ctx->lstream_id = hdr->stream_id;
 	} else if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
 		tfw_h2_stream_remove_idle(ctx, ctx->cur_stream);
-		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
 	 * Since the same received HEADERS frame can cause the stream to become
