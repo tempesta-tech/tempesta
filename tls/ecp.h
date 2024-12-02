@@ -101,7 +101,7 @@ extern ttls_ecp_group_id ttls_preset_curves[];
  *
  * @grp_id		- internal identifier;
  * @tls_id		- TLS NamedCurve identifier;
- * @bit_size	- curve size in bits;
+ * @bit_size		- curve size in bits;
  * @name		- human-friendly name;
  */
 typedef struct {
