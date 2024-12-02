@@ -545,7 +545,7 @@ tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 }
 
 /*
- * Do an opposite to what tfw_connection_link_to_sk() does.
+ * Do an opposite to what tfw_connection_link_from_sk() does.
  * Sync Sockets layer is unlinked from Tempesta, so that Tempesta
  * callbacks are not called anymore on events in the socket.
  */

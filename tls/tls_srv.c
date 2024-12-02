@@ -213,8 +213,7 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 		}
 		p += 2;
 
-		tls->sess.ja5t.elliptic_curve_hash *= TTLS_JA5_HASH_CALC_PRIME;
-		tls->sess.ja5t.elliptic_curve_hash += cid;
+		TTLS_COMPUTE_JA5_ACCHASH(tls->sess.ja5t.elliptic_curve_hash, cid);
 	}
 
 	return 0;
@@ -733,7 +732,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 	T_FSM_INIT(tls->state, "TLS ClientHello");
 
-
 	if (io->hstype != TTLS_HS_CLIENT_HELLO) {
 		TTLS_WARN(tls, "missing ClientHello\n");
 		return -EINVAL;
@@ -906,8 +904,7 @@ bad_version:
 		tls->hs->cs_cur_len += 2;
 
 		/* ja5t must be initialized with zeros */
-		tls->sess.ja5t.cipher_suite_hash *= TTLS_JA5_HASH_CALC_PRIME;
-		tls->sess.ja5t.cipher_suite_hash += cs;;
+		TTLS_COMPUTE_JA5_ACCHASH(tls->sess.ja5t.cipher_suite_hash, cs);
 
 		if (tls->hs->cs_cur_len == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
@@ -1025,8 +1022,8 @@ bad_version:
 		       tls->hs->ext_type);
 		io->hslen -= 2;
 
-		tls->sess.ja5t.extension_type_hash *= TTLS_JA5_HASH_CALC_PRIME;
-		tls->sess.ja5t.extension_type_hash += tls->hs->ext_type;
+		TTLS_COMPUTE_JA5_ACCHASH(tls->sess.ja5t.extension_type_hash,
+			tls->hs->ext_type);
 
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXS);
 	}
@@ -1091,20 +1088,21 @@ bad_version:
 		 */
 		BUG_ON(io->rlen > ext_sz);
 		n = min_t(int, ext_sz - io->rlen, buf + len - p);
-        if (ext_supported) {
+		if (ext_supported) {
 			if (unlikely(ext_type == TTLS_TLS_EXT_SESSION_TICKET))
                               tmp = tls->hs->ticket_ctx.ticket;
 		        memcpy_fast(tmp + io->rlen, p, n);
-        }
+		}
 		p += n;
 		if (unlikely(io->rlen + n < ext_sz))
 			T_FSM_EXIT();
 
         T_DBG3("ClientHello: read %u bytes for ext %u\n", io->rlen + n, ext_type);
-        if (ext_supported) {
-        	if ((ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type)))
+		if (ext_supported) {
+			ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type);
+			if (ret)
             	return ret;
-        }
+		}
 		
 		tls->hs->ext_rem_sz -= 4 + ext_sz;
 		if (tls->hs->ext_rem_sz > 0 && tls->hs->ext_rem_sz < 4) {

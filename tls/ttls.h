@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -226,7 +226,7 @@
 #define TTLS_TLS_EXT_RENEGOTIATION_INFO		0xFF01
 
 /*
- * Supported protocols for APLN extension. Currently only two
+ * Supported protocols for ALPN extension. Currently only two
  * protocols for ALPN are supported: HTTP/1.1 and HTTP/2.
  * NOTE: according RFC 7301 3.1 the length of each protocol's name
  * must be not greater than 255 and the total length of all names
@@ -235,10 +235,10 @@
 #define TTLS_ALPN_HTTP1				"http/1.1"
 #define TTLS_ALPN_HTTP2				"h2"
 
-/* Number of protocols for negotiation in APLN extension. */
+/* Number of protocols for negotiation in ALPN extension. */
 #define TTLS_ALPN_PROTOS			2
 
-/* The id numbers of supported protocols for APLN extension. */
+/* The id numbers of supported protocols for ALPN extension. */
 typedef enum {
 	TTLS_ALPN_ID_HTTP1 = 1,
 	TTLS_ALPN_ID_HTTP2
@@ -274,6 +274,12 @@ struct ttls_alpn_proto {
  */
 #define TTLS_JA5_HASH_CALC_PRIME 11
 
+#define TTLS_COMPUTE_JA5_ACCHASH(hash, field)	\
+do {											\
+		(hash) *= TTLS_JA5_HASH_CALC_PRIME;		\
+		(hash) += (field);						\
+} while (0)
+
 /**
  * JA5t TLS client fingerprint
  * 
@@ -286,7 +292,6 @@ struct ttls_alpn_proto {
  * @elliptic_curve_hash - hash of the client elliptic curves set
  */
 typedef struct {
-	unsigned char :2;
 	unsigned char alpn:3;
 	unsigned char vhost_found:1;
 	unsigned char is_abbreviated:1;
@@ -294,8 +299,7 @@ typedef struct {
 	unsigned short cipher_suite_hash;
 	unsigned short extension_type_hash;
 	unsigned short elliptic_curve_hash;
-} __attribute__((packed)) TlsJa5t;
-
+} TlsJa5t;
 
 #define TTLS_SESS_ID_LEN	32
 #define TTLS_SESS_SECRET_LEN	48
@@ -312,14 +316,14 @@ typedef struct {
  *			  from TLS ticket);
  */
 typedef struct {
-	TlsX509Crt	*peer_cert;
-	long		start;
-	int		etm;
+	TlsX509Crt		*peer_cert;
+	long			start;
+	int				etm;
 	unsigned short	ciphersuite;
 	unsigned char	id_len;
 	unsigned char	id[TTLS_SESS_ID_LEN];
 	unsigned char	master[48];
-	TlsJa5t ja5t;
+	TlsJa5t			ja5t;
 } TlsSess;
 
 /*
