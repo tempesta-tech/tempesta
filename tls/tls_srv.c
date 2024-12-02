@@ -1101,7 +1101,7 @@ bad_version:
 		if (ext_supported) {
 			ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type);
 			if (ret)
-            	return ret;
+				return ret;
 		}
 		
 		tls->hs->ext_rem_sz -= 4 + ext_sz;
