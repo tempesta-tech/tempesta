@@ -655,9 +655,6 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
-		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-		if (sk->sk_fill_write_queue)
-			sk->sk_fill_write_queue(sk, mss, SS_CLOSE);
 		tcp_send_fin(sk);
 	}
 
@@ -1512,16 +1509,7 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
-	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-	/*
-	 * We send `tcp_shutdown` from `sk_fill_write_queue` if
-	 * there is no pending data in our sceduler and SS_SHUTDOWN
-	 * is passed as ss_action.
-	 */
-	if (sk->sk_fill_write_queue)
-		sk->sk_fill_write_queue(sk, mss, SS_SHUTDOWN);
-	else
-		tcp_shutdown(sk, SEND_SHUTDOWN);
+	tcp_shutdown(sk, SEND_SHUTDOWN);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 

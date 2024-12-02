@@ -2005,7 +2005,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   int ss_action, unsigned long *snd_wnd)
+			   unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2125,17 +2125,8 @@ do {									\
 		 * GOAWAY and TLS ALERT are pending until error
 		 * response is sent.
 		 */
-		if (unlikely(stream->xmit.skb_head)) {
+		if (unlikely(stream->xmit.skb_head))
 			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
-			/*
-			 * We set ctx->error only when we close connection
-			 * after sending error response. If ss_action is
-			 * SS_CLOSE we don't need to shutdown socket, because
-			 * we will done it from `ss_do_close`.
-			 */
-			if (stream == ctx->error && ss_action != SS_CLOSE)
-				tcp_shutdown(sk, SEND_SHUTDOWN);
-		}
 		tfw_h2_stream_add_closed(ctx, stream);
 		if (stream == ctx->error)
 			ctx->error = NULL;
@@ -2160,7 +2151,7 @@ do {									\
 
 int
 tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
-		   int ss_action, bool *data_is_available)
+		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
@@ -2191,8 +2182,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_stream_xmit_process(sk, ctx, stream, ss_action,
-					       &snd_wnd);
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream, &snd_wnd);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent, deficit);
 
@@ -2207,13 +2197,6 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 
 	*data_is_available =
 		tfw_h2_stream_sched_is_active(&sched->root) && ctx->rem_wnd;
-
-	/*
-	 * Send shutdown if there is no pending error response in our scheduler
-	 * and this function is called from `ss_do_shutdown`.
-	 */
-	if ((!ctx->error || r) && ss_action == SS_SHUTDOWN)
-		tcp_shutdown(sk, SEND_SHUTDOWN);
 
 	return r;
 }
