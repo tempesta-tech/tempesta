@@ -1097,7 +1097,7 @@ bad_version:
 		if (unlikely(io->rlen + n < ext_sz))
 			T_FSM_EXIT();
 
-        T_DBG3("ClientHello: read %u bytes for ext %u\n", io->rlen + n, ext_type);
+		T_DBG3("ClientHello: read %u bytes for ext %u\n", io->rlen + n, ext_type);
 		if (ext_supported) {
 			ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type);
 			if (ret)
