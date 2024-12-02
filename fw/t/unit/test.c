@@ -100,6 +100,7 @@ TEST_SUITE(tls);
 TEST_SUITE(hpack);
 TEST_SUITE(pool);
 TEST_SUITE(ebtree);
+TEST_SUITE(mmap_buffer);
 
 extern int tfw_pool_init(void);
 extern void tfw_pool_exit(void);
@@ -117,6 +118,7 @@ test_run_all(void)
 	/* Run sleeping tests first. */
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
+	TEST_SUITE_RUN(mmap_buffer);
 
 	kernel_fpu_begin();
 

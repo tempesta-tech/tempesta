@@ -41,6 +41,14 @@ lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 
+tfw_logger_should_start=0
+tfw_logger_pid_path="/var/run/tfw_logger.pid"
+tfw_logger_timeout=3
+mmap_host=""
+mmap_log=""
+mmap_user=""
+mmap_password=""
+
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
@@ -70,8 +78,29 @@ usage()
 	echo -e "                       (ex. --start -d \"lo ens3\").\n"
 }
 
+get_opts()
+{
+	echo "$1" | grep -E "^\s*$2\b" | sed -E "s/$2 //; s/;$//"
+}
+
+get_opt_value()
+{
+	echo "$1" | grep -oE "$2=[^ ;]+" | sed "s/$2=//"
+}
+
+opt_exists()
+{
+	echo "$1" | grep -q "\b$2\b" && return 1 || return 0
+}
+
+remove_opts_by_mask()
+{
+	echo "$1" | sed -E "s/\b$2[^ ;]+ ?//g"
+}
+
 templater()
 {
+	cfg_content=""
 	# Replace !include dircetive with file contents
 	> $tfw_cfg_temp
 	mkdir $TFW_ROOT/etc 2>/dev/null
@@ -88,14 +117,31 @@ templater()
 			while IFS= read -r file; do
 				inc_file=$(cat $file \
 					| sed -e '/request /s/\\r\\n/\x0d\x0a/g')
-				echo $inc_file >> $tfw_cfg_temp
 
+				cfg_content+="$inc_file"$'\n'
 			done <<< "$files"
 		else
-			value="$line"
-			echo "$value" >> $tfw_cfg_temp
+			cfg_content+="$line"$'\n'
 		fi
 	done < "$tfw_cfg_path"
+
+	opts=$(get_opts "$cfg_content" "access_log")
+	while read -r line; do
+		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
+			tfw_logger_should_start=1
+			mmap_log=$(get_opt_value "$line" "mmap_log")
+			mmap_host=$(get_opt_value "$line" "mmap_host")
+			mmap_user=$(get_opt_value "$line" "mmap_user")
+			mmap_password=$(get_opt_value "$line" "mmap_password")
+
+			[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
+				error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
+		fi
+	done <<< "$opts"
+
+	cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
+
+	echo "$cfg_content" > $tfw_cfg_temp
 }
 
 remove_tmp_conf()
@@ -258,12 +304,52 @@ start_tempesta_and_check_state()
 	fi
 }
 
+start_tfw_logger()
+{
+	if [ $tfw_logger_should_start -eq 0 ]; then
+		return
+	fi
+
+	if [ -z "$mmap_host" ] || [ -z "$mmap_log" ]; then
+		error "You need to specify 'mmap_host' and 'mmap_log' "`
+		      `"if access_log mmap was specified"
+		return
+	fi
+
+	utils/tfw_logger -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
+		error "cannot start tfw_logger daemon"
+
+	start_time=$(date +%s)
+	while [[ ! -f "$tfw_logger_pid_path" ]]; do
+		current_time=$(date +%s)
+		elapsed_time=$((current_time - start_time))
+
+		if (( elapsed_time >= tfw_logger_timeout )); then
+			sysctl -e -w net.tempesta.state=stop
+			unload_modules
+			tfw_irqbalance_revert
+			error "tfw_logger failed to start, see $mmap_log for details"
+		fi
+
+		sleep 0.1
+	done
+
+}
+
+stop_tfw_logger()
+{
+	if [ -e $tfw_logger_pid_path ]; then
+		utils/tfw_logger -s
+	fi
+}
+
 start()
 {
 	echo "Starting Tempesta..."
 
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
+	TFW_LOGGER_EXEC=$(expr "$TFW_STATE" != "start")
 
 	if [[ -z ${TFW_STATE} ]]; then
 		setup
@@ -284,12 +370,19 @@ start()
 	echo "...start Tempesta FW"
 
 	start_tempesta_and_check_state
+
+	if [[ $TFW_LOGGER_EXEC == 1 ]]; then
+		start_tfw_logger
+	fi
+
 	echo "done"
 }
 
 stop()
 {
 	echo "Stopping Tempesta..."
+
+	stop_tfw_logger
 
 	sysctl -e -w net.tempesta.state=stop
 

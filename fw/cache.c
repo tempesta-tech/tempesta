@@ -2125,9 +2125,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * possible duplicates), since we will substitute it with our
 		 * version of this header.
 		 */
-		if ((field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
-		    || hid == TFW_HTTP_HDR_SERVER
-		    || TFW_STR_EMPTY(field))
+		if (TFW_STR_EMPTY(field)
+		    || (field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
+		    || hid == TFW_HTTP_HDR_SERVER)
 		{
 			--ce->hdr_num;
 			continue;
@@ -2363,9 +2363,9 @@ __cache_entry_size(TfwHttpResp *resp)
 		 * possible duplicates), since we will substitute it with our
 		 * version of this header.
 		 */
-		if ((hdr->flags & TFW_STR_HBH_HDR)
-		    || hid == TFW_HTTP_HDR_SERVER
-		    || TFW_STR_EMPTY(hdr))
+		if (TFW_STR_EMPTY(hdr)
+		    || (hdr->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
+		    || hid == TFW_HTTP_HDR_SERVER)
 			continue;
 
 		if (hid == TFW_HTTP_HDR_TRANSFER_ENCODING)

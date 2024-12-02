@@ -11528,6 +11528,8 @@ __resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 	 */
 	__FSM_START(parser->_i_st);
 
+	msg->stream->parser.hdr.flags |= TFW_STR_NOCCPY_HDR;
+
 	__FSM_STATE(Resp_I_CookieStart) {
 		__FSM_I_MATCH_MOVE_fixup(token, Resp_I_CookieName, TFW_STR_NAME);
 		/*
