@@ -381,7 +381,6 @@ tfw_h2_send_ping(TfwH2Ctx *ctx)
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 
 }
-ALLOW_ERROR_INJECTION(tfw_h2_send_ping, ERRNO);
 
 static inline int
 tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
@@ -719,7 +718,6 @@ fail:
 	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
 	return tfw_h2_current_stream_send_rst(ctx, err_code);
 }
-ALLOW_ERROR_INJECTION(tfw_h2_wnd_update_process, ERRNO);
 
 static inline int
 tfw_h2_priority_process(TfwH2Ctx *ctx)
