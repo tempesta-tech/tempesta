@@ -257,12 +257,8 @@ tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 {
 	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
-	if (tfw_h2_send_goaway(ctx, err_code, attack) && close) {
-		if (attack)
-			tfw_connection_close((TfwConn *)conn, true);
-		else
-			tfw_connection_shutdown((TfwConn *)conn, true);
-	}
+	if (tfw_h2_send_goaway(ctx, err_code, attack) && close)
+		tfw_connection_close((TfwConn *)conn, true);
 }
 
 /**
