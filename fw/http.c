@@ -6026,7 +6026,13 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
-	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
+	if (TFW_MSG_H2(req)) {
+		actor = tfw_h2_parse_req;
+		req->ja5h.version = TFW_HTTP_JA5H_HTTP2_REQ;
+	} else {
+		actor = tfw_http_parse_req;
+		req->ja5h.version = TFW_HTTP_JA5H_HTTP_REQ;
+	}
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
@@ -6149,6 +6155,8 @@ next_msg:
 				HTTP2_ECODE_PROTO);
 		}
 	}
+
+	req->ja5h.method = req->method;
 
 	/*
 	 * The message is fully parsed, the rest of the data in the
