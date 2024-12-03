@@ -2491,7 +2491,7 @@ err:
 static bool
 tfw_cache_rec_eq_req(TdbHdr *db_hdr, TdbRec *rec, void *request)
 {
-	TDB *db = container_of(&db_hdr, TDB, hdr);
+	TDB *db = (TDB *)db_hdr;
 	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
 	TfwHttpReq *req = (TfwHttpReq *)request;
 
@@ -2917,7 +2917,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	TfwHttpResp *resp;
 	char *p;
 	TfwHttpTransIter *mit;
-	TDB *db = node_db();
+	TDB *db = c_nodes[req->node].db;
 	unsigned long h_len = 0;
 	struct sk_buff **skb_head;
 	TdbVRec *trec = &ce->trec;
@@ -3056,7 +3056,7 @@ out:
 TfwHttpResp *
 tfw_cache_build_resp_stale(TfwHttpReq *req)
 {
-	TDB *db = node_db();
+	TDB *db = c_nodes[req->node].db;
 	TfwCacheEntry *ce = req->stale_ce;
 	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
 
@@ -3079,9 +3079,9 @@ ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
  * Release cache entry reference.
  */
 void
-tfw_cache_put_entry(void *ce)
+tfw_cache_put_entry(int node, void *ce)
 {
-	tdb_rec_put(node_db(), ce);
+	tdb_rec_put(c_nodes[node].db, ce);
 }
 
 static bool
