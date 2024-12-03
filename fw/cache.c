@@ -2489,16 +2489,17 @@ err:
 }
 
 static bool
-tfw_cache_rec_eq_req(TdbRec *rec, void *request)
+tfw_cache_rec_eq_req(TdbHdr *db_hdr, TdbRec *rec, void *request)
 {
+	TDB *db = container_of(&db_hdr, TDB, hdr);
 	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
 	TfwHttpReq *req = (TfwHttpReq *)request;
 
-	return tfw_cache_entry_key_eq(node_db(), req, ce);
+	return tfw_cache_entry_key_eq(db, req, ce);
 }
 
 static bool
-tfw_cache_rec_eq(TdbRec *r1, void *r2)
+tfw_cache_rec_eq(TdbHdr *db_hdr, TdbRec *r1, void *r2)
 {
 	return r1 == r2;
 }
@@ -2577,34 +2578,6 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	tdb_rec_put(db, ce);
 }
 
-/*
- * Invalidate all cache entries that match the request. This is implemented by
- * making the entries stale.
- *
- */
-static int
-tfw_cache_invalidate(TfwHttpReq *req)
-{
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
-	unsigned long key = tfw_http_req_key_calc(req);
-
-	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter))
-		return 0;
-
-	ce = (TfwCacheEntry *)iter.rec;
-	do {
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			ce->lifetime = 0;
-		tdb_rec_next(db, &iter);
-		ce = (TfwCacheEntry *)iter.rec;
-	} while (ce);
-
-	return 0;
-}
-
 static void
 tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 {
@@ -2650,15 +2623,62 @@ out:
 	action((TfwHttpMsg *)resp);
 }
 
+/*
+ * Invalidate all cache entries that match the request. This is implemented by
+ * making the entries stale.
+ *
+ */
 static int
-tfw_cache_purge_immediate(TfwHttpReq *req)
+tfw_cache_purge_invalidate(TDB *db, TfwHttpReq *req)
 {
-	TDB *db = node_db();
+	TdbIter iter;
+	TfwCacheEntry *ce = NULL;
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		return 0;
+
+	ce = (TfwCacheEntry *)iter.rec;
+	do {
+		if (tfw_cache_entry_key_eq(db, req, ce))
+			ce->lifetime = 0;
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+	} while (ce);
+
+	return 0;
+}
+
+/*
+ * Remove all cache entries that match the request.
+ */
+static int
+tfw_cache_purge_immediate(TDB *db, TfwHttpReq *req)
+{
 	unsigned long key = tfw_http_req_key_calc(req);
 
 	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
 
 	return 0;
+}
+
+static int
+tfw_cache_purge_invoke_impl(TfwHttpReq *req,
+			    int purge_impl(TDB *db, TfwHttpReq *req))
+{
+	int ret;
+
+	if (cache_cfg.cache == TFW_CACHE_REPLICA) {
+		int nid;
+
+		for_each_node_with_cpus(nid)
+			ret = purge_impl(c_nodes[nid].db, req);
+	} else {
+		ret = purge_impl(c_nodes[req->node].db, req);
+	}
+
+	return ret;
 }
 
 /**
@@ -2687,10 +2707,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
-		ret = tfw_cache_invalidate(req);
+		ret = tfw_cache_purge_invoke_impl(req,
+						  tfw_cache_purge_invalidate);
 		break;
 	case TFW_D_CACHE_PURGE_IMMEDIATE:
-		ret = tfw_cache_purge_immediate(req);
+		ret = tfw_cache_purge_invoke_impl(req,
+						  tfw_cache_purge_immediate);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
@@ -3283,7 +3305,6 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 static void
 tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {
-	int ret;
 	TfwHttpReq *req;
 
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
@@ -3293,6 +3314,8 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 
 	req = (TfwHttpReq *)msg;
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
+		int ret;
+
 		ret = tfw_cache_purge_method(req);
 		/* Check if we want to do a GET in addition to PURGE. */
 		if (!ret && test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
@@ -3315,6 +3338,50 @@ tfw_cache_ipi(struct irq_work *work)
 	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
 	clear_bit(TFW_QUEUE_IPI, &ct->wq.flags);
 	tasklet_schedule(&ct->tasklet);
+}
+
+/*
+ * According RFC 9111 4.4:
+ * A cache MUST invalidate the target URI when it receives
+ * a non-error status code in response to an unsafe request
+ * method (including methods whose safety is unknown).
+ * A "non-error response" is one with a 2xx (Successful) or
+ * 3xx (Redirection) status code.
+ * Also invalidate target URI for all nonidempotent requests
+ * because they can change internal server state.
+ */
+static bool
+tfw_cache_should_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	return cache_cfg.cache && (req->method == TFW_HTTP_METH_PUT
+		|| req->method == TFW_HTTP_METH_DELETE
+		|| req->method == TFW_HTTP_METH_POST
+		|| tfw_http_req_is_nip(req))
+		&& resp->status >= 200 && resp->status < 400;
+}
+
+static void
+tfw_cache_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	unsigned long key;
+
+	key = tfw_http_req_key_calc(req);
+	req->node = (cache_cfg.cache == TFW_CACHE_SHARD)
+			? tfw_cache_key_node(key)
+			: numa_node_id();
+
+	if (cache_cfg.cache == TFW_CACHE_SHARD) {
+		tdb_entry_remove(c_nodes[req->node].db, key,
+				 &tfw_cache_rec_eq_req,
+				 req, false);
+	} else {
+		int nid;
+
+		for_each_node_with_cpus(nid)
+			tdb_entry_remove(c_nodes[nid].db, key,
+					 &tfw_cache_rec_eq_req,
+					 req, false);
+	}
 }
 
 /**
@@ -3348,26 +3415,9 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
 		resp = (TfwHttpResp *)msg;
 		req = resp->req;
-		/*
-		 * According RFC 9111 4.4:
-		 * A cache MUST invalidate the target URI when it receives
-		 * a non-error status code in response to an unsafe request
-		 * method (including methods whose safety is unknown).
-		 * A "non-error response" is one with a 2xx (Successful) or
-		 * 3xx (Redirection) status code.
-		 * Also invalidate target URI for all nonidempotent requests
-		 * because they can change internal server state.
-		 */
-		if (unlikely(req->method == TFW_HTTP_METH_PUT
-			     || req->method == TFW_HTTP_METH_DELETE
-			     || req->method == TFW_HTTP_METH_POST
-			     || tfw_http_req_is_nip(req))
-		    && cache_cfg.cache
-		    && resp->status >= 200 && resp->status < 400) {
-			key = tfw_http_req_key_calc(req);
-			tdb_entry_remove(node_db(), key, &tfw_cache_rec_eq_req,
-					 req, false);
-		}
+
+		if (tfw_cache_should_invalidate_uri(req, resp))
+			tfw_cache_invalidate_uri(req, resp);
 	}
 
 	/*
