@@ -2826,12 +2826,6 @@ tfw_http_conn_init(TfwConn *conn)
 }
 
 static int
-tfw_http_conn_shutdown(TfwConn *conn, bool sync)
-{
-	return ss_shutdown(conn->sk, sync ? SS_F_SYNC : 0);
-}
-
-static int
 tfw_http_conn_close(TfwConn *conn, bool sync)
 {
 	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
@@ -7283,7 +7277,6 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_repair	= tfw_http_conn_repair,
-	.conn_shutdown	= tfw_http_conn_shutdown,
 	.conn_close	= tfw_http_conn_close,
 	.conn_abort	= tfw_http_conn_abort,
 	.conn_drop	= tfw_http_conn_drop,

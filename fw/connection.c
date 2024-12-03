@@ -67,18 +67,6 @@ tfw_connection_repair(TfwConn *conn)
 }
 
 int
-tfw_connection_shutdown(TfwConn *conn, bool sync)
-{
-	int r;
-
-	tfw_connection_get(conn);
-	r = TFW_CONN_HOOK_CALL(conn, conn_shutdown, sync);
-	tfw_connection_put(conn);
-
-	return r;
-}
-
-int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
 	int r;
