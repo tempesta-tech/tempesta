@@ -950,14 +950,14 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 		BUG_ON(tdb_rec_is_removed(rec));
 
 		if (tdb_rec_is_complete(rec)) {
-			if (!eq_cb || eq_cb(rec, data)) {
+			if (!eq_cb || eq_cb(dbh, rec, data)) {
 				tdb_rec_set_remove(rec);
 				tdb_htrie_put_rec(dbh, rec);
 				bckt->rec = 0;
 			}
 		} else {
 			/* Remove incomplete record only if @force is set. */
-			if (force && (!eq_cb || eq_cb(rec, data))) {
+			if (force && (!eq_cb || eq_cb(dbh, rec, data))) {
 				tdb_rec_set_remove(rec);
 				tdb_htrie_put_rec(dbh, rec);
 				bckt->rec = 0;
@@ -976,7 +976,7 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 			if (tdb_rec_is_removed(rec))
 				continue;
 
-			if (!eq_cb || eq_cb(rec, data)) {
+			if (!eq_cb || eq_cb(dbh, rec, data)) {
 				tdb_rec_set_remove(rec);
 				tdb_htrie_put_rec(dbh, rec);
 			} else {
