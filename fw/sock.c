@@ -753,15 +753,15 @@ ss_linkerror(struct sock *sk, int flags)
  * but rather it guarantees that the socket will be closed and the caller can
  * not care about return value.
  */
-static int
-ss_close_or_shutdown(struct sock *sk, int action, int flags)
+int
+ss_close(struct sock *sk, int flags)
 {
 	int cpu;
 	long ticket;
 	SsWork sw = {
 		.sk	= sk,
 		.flags  = flags,
-		.action	= action,
+		.action	= SS_CLOSE,
 	};
 
 	if (unlikely(!sk))
@@ -791,20 +791,6 @@ err:
 	sock_put(sk);
 	return SS_BAD;
 }
-
-int
-ss_shutdown(struct sock *sk, int flags)
-{
-	return ss_close_or_shutdown(sk, SS_SHUTDOWN, flags);
-}
-EXPORT_SYMBOL(ss_shutdown);
-
-int
-ss_close(struct sock *sk, int flags)
-{
-	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
-}
-EXPORT_SYMBOL(ss_close);
 
 /*
  * Process a single SKB.
@@ -998,7 +984,6 @@ static void
 ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
-	int (*action)(struct sock *sk, int flags);
 
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
@@ -1032,17 +1017,12 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_POSTPONE:
 	case SS_DROP:
 		return;
+	case SS_BAD:
 	case SS_BLOCK_WITH_FIN:
 		flags = SS_F_SYNC;
-		action = ss_close;
 		break;
 	case SS_BLOCK_WITH_RST:
 		flags = SS_F_ABORT_FORCE;
-		action = ss_close;
-		break;
-	case SS_BAD:
-		flags = SS_F_SYNC;
-		action = ss_shutdown;
 		break;
 	default:
 		BUG();
@@ -1068,7 +1048,7 @@ ss_tcp_data_ready(struct sock *sk)
 		 * new incoming requests for this connection.
 		 */
 		SS_CONN_TYPE(sk) |= Conn_Stop;
-		action(sk, flags);
+		ss_close(sk, flags);
 	}
 }
 
@@ -1623,12 +1603,6 @@ ss_tx_action(void)
 			}
 			/* paired with bh_lock_sock() */
 			__sk_close_locked(sk, sw.flags);
-			break;
-		case SS_SHUTDOWN:
-			/* sk_state is checked in `tcp_shutdown` function. */
-			BUG_ON(sw.flags & __SS_F_RST);
-			ss_do_shutdown(sk);
-			bh_unlock_sock(sk);
 			break;
 		default:
 			BUG();
