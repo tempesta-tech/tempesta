@@ -421,10 +421,24 @@ tfw_init_node_cpus(void)
 	return 0;
 }
 
+/**
+ * Return TDB located on current NUMA node.
+ *
+ * NOTE: Use only if you ensure that only local node must be used.
+ */
 static TDB *
 node_db(void)
 {
 	return c_nodes[numa_node_id()].db;
+}
+
+/**
+ * Return TDB located on NUMA node with id @node.
+ */
+static TDB *
+get_db_for_node(int node)
+{
+	return c_nodes[node].db;
 }
 
 /**
@@ -2609,7 +2623,7 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 		 * rather than in softirq...
 		 */
 		for_each_node_with_cpus(nid)
-			__cache_add_node(c_nodes[nid].db, resp, key);
+			__cache_add_node(get_db_for_node(nid), resp, key);
 	}
 
 	/*
@@ -2673,9 +2687,10 @@ tfw_cache_purge_invoke_impl(TfwHttpReq *req,
 		int nid;
 
 		for_each_node_with_cpus(nid)
-			ret = purge_impl(c_nodes[nid].db, req);
+			ret = purge_impl(get_db_for_node(nid), req);
 	} else {
-		ret = purge_impl(c_nodes[req->node].db, req);
+		/* Expected only local node access. */
+		ret = purge_impl(get_db_for_node(req->node), req);
 	}
 
 	return ret;
@@ -2917,7 +2932,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	TfwHttpResp *resp;
 	char *p;
 	TfwHttpTransIter *mit;
-	TDB *db = c_nodes[req->node].db;
+	TDB *db = get_db_for_node(req->node);
 	unsigned long h_len = 0;
 	struct sk_buff **skb_head;
 	TdbVRec *trec = &ce->trec;
@@ -3056,7 +3071,7 @@ out:
 TfwHttpResp *
 tfw_cache_build_resp_stale(TfwHttpReq *req)
 {
-	TDB *db = c_nodes[req->node].db;
+	TDB *db = get_db_for_node(req->node);
 	TfwCacheEntry *ce = req->stale_ce;
 	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
 
@@ -3081,7 +3096,7 @@ ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
 void
 tfw_cache_put_entry(int node, void *ce)
 {
-	tdb_rec_put(c_nodes[node].db, ce);
+	tdb_rec_put(get_db_for_node(node), ce);
 }
 
 static bool
@@ -3340,7 +3355,7 @@ tfw_cache_ipi(struct irq_work *work)
 	tasklet_schedule(&ct->tasklet);
 }
 
-/*
+/**
  * According RFC 9111 4.4:
  * A cache MUST invalidate the target URI when it receives
  * a non-error status code in response to an unsafe request
@@ -3371,14 +3386,15 @@ tfw_cache_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
 			: numa_node_id();
 
 	if (cache_cfg.cache == TFW_CACHE_SHARD) {
-		tdb_entry_remove(c_nodes[req->node].db, key,
+		/* Potential inter-node access. */
+		tdb_entry_remove(get_db_for_node(req->node), key,
 				 &tfw_cache_rec_eq_req,
 				 req, false);
 	} else {
 		int nid;
 
 		for_each_node_with_cpus(nid)
-			tdb_entry_remove(c_nodes[nid].db, key,
+			tdb_entry_remove(get_db_for_node(nid), key,
 					 &tfw_cache_rec_eq_req,
 					 req, false);
 	}
