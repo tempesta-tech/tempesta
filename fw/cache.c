@@ -3444,10 +3444,6 @@ do_cache:
 	/*
 	 * Queue the cache work only when it must be served by a remote node.
 	 * Otherwise we can do everything right now on local CPU.
-	 *
-	 * TODO #391: it appears that req->node is not really needed and can
-	 * be eliminated from TfwHttpReq{} structure and it can easily be
-	 * replaced by a local variable here.
 	 */
 	if (likely(req->node == numa_node_id())) {
 		tfw_cache_do_action(msg, action);
