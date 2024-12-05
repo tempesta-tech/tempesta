@@ -415,7 +415,7 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	struct {
 		unsigned short key;
 		unsigned int value;
-	} __attribute__((packed)) field[4];
+	} __packed field[4];
 
 	const unsigned int required_fields = 3;
 
@@ -811,6 +811,7 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
+	ctx->first_settings_recv = true;
 
 	return 0;
 }
