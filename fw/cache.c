@@ -376,7 +376,7 @@ tfw_release_node_cpus(void)
 	if(!c_nodes)
 		return;
 
-	for(node = 0; node < nr_online_nodes; node++) {
+	for_each_node_with_cpus(node) {
 		if(c_nodes[node].cpu)
 			kfree(c_nodes[node].cpu);
 	}
@@ -3569,7 +3569,7 @@ tfw_cache_start(void)
 	if ((r = tfw_init_node_cpus()))
 		goto node_cpus_alloc_err;
 
-	for(i = 0; i < nr_online_nodes; i++) {
+	for_each_node_with_cpus(i) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
 		if (!c_nodes[i].db) {
