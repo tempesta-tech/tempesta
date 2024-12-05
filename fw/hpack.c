@@ -1351,6 +1351,10 @@ done:
 	case TFW_TAG_HDR_REFERER:
 		parser->_hdr_tag = TFW_HTTP_HDR_REFERER;
 		break;
+	case TFW_TAG_HDR_PRIORITY:
+		parser->_hdr_tag = TFW_HTTP_HDR_PRIORITY;
+		h2_set_hdr_priority(req, &entry->cstate);
+		break;
 	case TFW_TAG_HDR_X_FORWARDED_FOR:
 		parser->_hdr_tag = TFW_HTTP_HDR_X_FORWARDED_FOR;
 		break;

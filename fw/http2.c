@@ -108,6 +108,12 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		dest->max_lhdr_sz = val;
 		break;
 
+	case SETTINGS_NO_RFC7540_PRIORITIES:
+		BUG_ON(val < 0 || val > 1);
+		dest->no_rfc7540_prio = val;
+		/* TODO 2171 switch scheduler. */
+		break;
+
 	default:
 		/*
 		 * We should silently ignore unknown identifiers (see
@@ -148,6 +154,10 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 
 	case HTTP2_SETTINGS_MAX_HDR_LIST_SIZE:
 		break;
+
+	case SETTINGS_NO_RFC7540_PRIORITIES:
+		if (val < 0 || val > 1 || ctx->first_settings_recv)
+			return -EINVAL;
 
 	default:
 		/*

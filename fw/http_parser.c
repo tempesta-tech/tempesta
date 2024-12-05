@@ -8236,6 +8236,72 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_referer);
 
+void
+h2_set_hdr_priority(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set) {
+		/* TODO 2171 set urgency and priority. */
+	}
+}
+
+static int
+__h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
+		       bool fin)
+{
+	int r = CSTR_NEQ;
+	//TfwHttpReq *req = (TfwHttpReq *)hm;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_PriorityStart) {
+		if (likely(c == 'u')) {
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgency, 1, 0);
+		} else if (likely(c == 'i')) {
+			/* TODO 2171. Set incremental. */
+			__FSM_H2_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish, 1, 0);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_PriorityUrgency) {
+		if (likely(c == '='))
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgencyParam, 1, 0);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_PriorityUrgencyParam) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_ulong_list(p, __data_remain(p),
+					   &parser->_acc, 7);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			__FSM_I_MOVE_fixup(Req_I_PriorityUrgencyParam, __fsm_sz, TFW_STR_VALUE);
+		default:
+			parser->_acc = 0;
+			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish, __fsm_n, TFW_STR_VALUE);
+		}
+	}
+
+	__FSM_STATE(Req_I_Priority_Next_Or_Finish) {
+		if (likely(c == ','))
+			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish, 1, 0);
+		if (likely(IS_WS(c)))
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Priority_Next_Or_Finish, 1, 0);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		__FSM_JMP(Req_I_PriorityStart);
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_priority);
+
 static int
 __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
@@ -9622,7 +9688,13 @@ __FSM_STATE(st, cold) {							\
 			if (C4_INT(p + 2, 'a', 'g', 'm', 'a'))
 				__FSM_H2_HDR_NAME_FIN(6, TFW_TAG_HDR_PRAGMA);
 			__FSM_H2_OTHER_n(4);
-		/*
+		/* Priority header from RFC 9218. */
+		case TFW_CHAR4_INT('p', 'r', 'i', 'o'):
+			if (unlikely(!__data_available(p, 8)))
+				__FSM_H2_NEXT_n(Req_HdrPrio, 4);
+			if (C4_INT(p + 4, 'r', 'i', 't', 'y'))
+				__FSM_H2_HDR_NAME_FIN(8, TFW_TAG_HDR_PRIORITY);
+			__FSM_H2_OTHER_n(4);		/*
 		 * RFC 9113 8.2.2: Treat a request containing connection-specific
 		 * proxy-connection header as malformed.
 		 */
@@ -10019,6 +10091,11 @@ __FSM_STATE(st, cold) {							\
 	__FSM_H2_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm);
 	__FSM_H2_TX_AF_FIN(Req_HdrPragm, 'a', TFW_TAG_HDR_PRAGMA);
 
+	__FSM_H2_TX_AF(Req_HdrPrio, 'r', Req_HdrPrior);
+	__FSM_H2_TX_AF(Req_HdrPrior, 'i', Req_HdrPriori);
+	__FSM_H2_TX_AF(Req_HdrPriori, 't', Req_HdrPriorit);
+	__FSM_H2_TX_AF_FIN(Req_HdrPriorit, 'y', TFW_TAG_HDR_PRIORITY);
+
 	__FSM_H2_TX_AF(Req_HdrPro, 'x', Req_HdrProx);
 	__FSM_H2_TX_AF(Req_HdrProx, 'y', Req_HdrProxy);
 	__FSM_H2_TX_AF(Req_HdrProxy, '_', Req_HdrProxy_);
@@ -10360,6 +10437,11 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	case TFW_TAG_HDR_REFERER:
 	TFW_H2_PARSE_HDR_VAL(Req_HdrRefererV, msg, __h2_req_parse_referer,
 			     TFW_HTTP_HDR_REFERER, 1);
+
+	/* 'priority' is read, process field-value. */
+	case TFW_TAG_HDR_PRIORITY:
+	TFW_H2_PARSE_HDR_VAL(Req_HdrPriorityV, msg, __h2_req_parse_priority,
+			     TFW_HTTP_HDR_PRIORITY, 1);
 
 	/* 'user-agent' is read, process field-value. */
 	case TFW_TAG_HDR_USER_AGENT:
