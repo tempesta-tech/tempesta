@@ -29,6 +29,7 @@
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
+#include "http_stream_sched_rfc9218.h"
 #include "hpack.h"
 #include "lib/str.h"
 
@@ -8249,8 +8250,11 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		       bool fin)
 {
 	int r = CSTR_NEQ;
-	//TfwHttpReq *req = (TfwHttpReq *)hm;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	__FSM_DECLARE_VARS(hm);
+
+#define RFC9218_STREAM_PRIO(req) (&req->stream->prio.rfc9218_prio)
 
 	__FSM_START(parser->_i_st);
 
@@ -8258,15 +8262,19 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		if (likely(c == 'u')) {
 			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgency, 1, 0);
 		} else if (likely(c == 'i')) {
-			/* TODO 2171. Set incremental. */
-			__FSM_H2_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish, 1, 0);
+			if (tfw_h2_conn_support_rfc9218(ctx))
+				RFC9218_STREAM_PRIO(req)->incremental = true;
+			__FSM_H2_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
+					      1, 0);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_PriorityUrgency) {
-		if (likely(c == '='))
-			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgencyParam, 1, 0);
+		if (likely(c == '=')) {
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgencyParam,
+					      1, 0);
+		}
 
 		return CSTR_NEQ;
 	}
@@ -8280,18 +8288,31 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		case CSTR_NEQ:
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
-			__FSM_I_MOVE_fixup(Req_I_PriorityUrgencyParam, __fsm_sz, TFW_STR_VALUE);
+			__FSM_I_MOVE_fixup(Req_I_PriorityUrgencyParam,
+					   __fsm_sz, TFW_STR_VALUE);
 		default:
+			if (parser->_acc < RFC9218_URGENCY_MIN ||
+			    parser->_acc > RFC9218_URGENCY_MAX)
+				return CSTR_NEQ;
+			if (tfw_h2_conn_support_rfc9218(ctx)) {
+				RFC9218_STREAM_PRIO(req)->urgency =
+					parser->_acc;
+			}
 			parser->_acc = 0;
-			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish, __fsm_n, TFW_STR_VALUE);
+			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
+					   __fsm_n, TFW_STR_VALUE);
 		}
 	}
 
 	__FSM_STATE(Req_I_Priority_Next_Or_Finish) {
-		if (likely(c == ','))
-			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish, 1, 0);
-		if (likely(IS_WS(c)))
-			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Priority_Next_Or_Finish, 1, 0);
+		if (likely(c == ',')) {
+			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
+					   1, 0);
+		}
+		if (likely(IS_WS(c))) {
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Priority_Next_Or_Finish,
+						  1, 0);
+		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		__FSM_JMP(Req_I_PriorityStart);
@@ -8299,6 +8320,8 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 done:
 	return r;
+
+#undef RFC9218_STREAM_PRIO
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_priority);
 

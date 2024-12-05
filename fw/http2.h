@@ -143,6 +143,12 @@ typedef struct tfw_h2_ctx_t {
         unsigned char   data_off;
 } TfwH2Ctx;
 
+static inline bool
+tfw_h2_conn_support_rfc9218(TfwH2Ctx *ctx)
+{
+        return ctx->rsettings.no_rfc7540_prio;
+}
+
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
 int tfw_h2_context_init(TfwH2Ctx *ctx);
