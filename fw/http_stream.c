@@ -89,16 +89,16 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
-	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
+	bzero_fast(&stream->prio, sizeof(stream->prio));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
-	tfw_h2_init_stream_sched_entry(&stream->sched);
+	tfw_h2_init_stream_sched_entry(&stream->prio.rfc7540_prio.sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_IDLE;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
-	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+	stream->prio.rfc7540_prio.weight = weight ? weight : HTTP2_DEF_WEIGHT;
 }
 
 static TfwStream *

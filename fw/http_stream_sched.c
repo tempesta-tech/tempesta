@@ -77,6 +77,12 @@
 #include "http_stream.h"
 #include "connection.h"
 
+#define SCHED_ENTRY_TO_STREAM(sched_entry)		\
+{(
+	TfwStreamPrio *prio = container_of(sched_entry, TfwStreamPrio, rfc7540_prio.sched_entry);
+)}
+	
+
 #define SCHED_PARENT_STREAM(sched, dep)			\
 	(dep != &sched->root ? container_of(dep, TfwStream, sched)->id : 0)
 
@@ -102,15 +108,15 @@ tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
 static void
 tfw_h2_stream_sched_insert_active(TfwStream *stream, u64 deficit)
 {
-	TfwStreamSchedEntry *parent = stream->sched.parent;
+	TfwStreamSchedEntry *parent = stream->rfc7540_prio.sched.parent;
 
 	BUG_ON(!parent || (!tfw_h2_stream_is_active(stream) &&
-	       !tfw_h2_stream_sched_is_active(&stream->sched)));
+	       !tfw_h2_stream_sched_is_active(&stream->rfc7540_prio.sched)));
 	BUG_ON(stream->sched_state == HTTP2_STREAM_SCHED_STATE_ACTIVE);
 
-	eb64_delete(&stream->sched_node);
-	stream->sched_node.key = deficit;
-	eb64_insert(&parent->active, &stream->sched_node);
+	eb64_delete(&stream->rfc7540_prio.sched_node);
+	stream->rfc7540_prio.sched_node.key = deficit;
+	eb64_insert(&parent->active, &stream->rfc7540_prio.sched_node);
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_ACTIVE;
 }
 
@@ -127,12 +133,12 @@ tfw_h2_stream_sched_insert_blocked(TfwStream *stream, u64 deficit)
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 
 	BUG_ON(!parent || tfw_h2_stream_is_active(stream)
-	       || tfw_h2_stream_sched_is_active(&stream->sched));
+	       || tfw_h2_stream_sched_is_active(&stream->rfc7540_prio.sched));
 	BUG_ON(stream->sched_state == HTTP2_STREAM_SCHED_STATE_BLOCKED);
 
-	eb64_delete(&stream->sched_node);
-	stream->sched_node.key = deficit;
-	eb64_insert(&parent->blocked, &stream->sched_node);
+	eb64_delete(&stream->rfc7540_prio.sched_node);
+	stream->rfc7540_prio.sched_node.key = deficit;
+	eb64_insert(&parent->blocked, &stream->rfc7540_prio.sched_node);
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_BLOCKED;
 }
 
@@ -158,7 +164,7 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 		NULL;
 	if (prio) {
 		return tfw_h2_stream_has_default_deficit(prio) ?
-			0 : prio->sched_node.key;
+			0 : prio->rfc7540_prio.sched_node.key;
 	}
 
 	/* Same for blocked streams. */
@@ -167,7 +173,7 @@ tfw_h2_stream_sched_min_deficit(TfwStreamSchedEntry *parent)
 		NULL;
 	if (prio) {
 		return tfw_h2_stream_has_default_deficit(prio) ?
-			0 : prio->sched_node.key;
+			0 : prio->rfc7540_prio.sched_node.key;
 	}
 
 	return 0;
@@ -209,7 +215,7 @@ tfw_h2_stream_sched_propagate_add_active_cnt(TfwStreamSched *sched,
 		if (need_activate && !tfw_h2_stream_is_active(stream)) {
 			BUG_ON(stream->sched_state != HTTP2_STREAM_SCHED_STATE_BLOCKED);
 			tfw_h2_stream_sched_insert_active(stream,
-							  stream->sched_node.key);
+							  stream->rfc7540_prio.sched_node.key);
 		}
 	}
 }
@@ -646,14 +652,16 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 void
 tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 {
-	TfwStreamSchedEntry *parent = stream->sched.parent;
+	TfwStreamSchedEntry *parent = stream->prio.rfc7540_prio.sched.parent;
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 	BUG_ON(!tfw_h2_stream_is_active(stream));
 	BUG_ON(!parent);
 
-	if (!tfw_h2_stream_sched_is_active(&stream->sched))
-		tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
+	if (!tfw_h2_stream_sched_is_active(&stream->prio.rfc7540_prio.sched)) {
+		u64 key = stream->prio.rfc7540_prio.sched_node.key;
+		tfw_h2_stream_sched_insert_active(stream, key);
+	}
 
 	while (true) {
 		bool need_activate = !tfw_h2_stream_sched_is_active(parent);
@@ -662,11 +670,13 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 			break;	
 
 		stream = container_of(parent, TfwStream, sched);
-		parent = stream->sched.parent;
+		parent = stream->prio.rfc7540_prio.sched.parent;
 		BUG_ON(!parent);
 
-		if (need_activate && !tfw_h2_stream_is_active(stream))
-			tfw_h2_stream_sched_insert_active(stream, stream->sched_node.key);
+		if (need_activate && !tfw_h2_stream_is_active(stream)) {
+			u64 key = stream->prio.rfc7540_prio.sched_node.key;
+			tfw_h2_stream_sched_insert_active(stream, key);
+		}
 	}
 }
 
