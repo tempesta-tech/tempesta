@@ -158,19 +158,41 @@ typedef enum {
 } TfwStreamSchedState;
 
 /**
+ * Representation of HTTP/2 stream priority information.
+ *
+ * @sched_node	- entry in per-connection priority storage
+ *		  of active streams;
+ * @sched	- scheduler for child streams;
+ * @weight	- stream's priority weight;
+ * @node	- entry in list of streams with same urgency;
+ * @urgency	- priority parameter according RFC 9218;
+ * @incremental	- priority parameter according RFC 9218;
+ */
+typedef union {
+	struct {
+		struct eb64_node	sched_node;
+		TfwStreamSchedEntry	sched;
+		unsigned short		weight;
+	} rfc7540_prio;
+	struct {
+		struct list_head	node;
+		unsigned int		urgency;
+		bool			incremental;
+	} rfc9218_prio;
+} TfwStreamPrio;
+
+/**
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @sched_node	- entry in per-connection priority storage of active streams;
- * sched_state	- state of stream in the per-connection scheduler;
- * @sched	- scheduler for child streams;
+ * @sched_state	- state of stream in the per-connection scheduler;
+ * @prio	- priority information;
  * @hcl_node	- entry in queue of half-closed or closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
  * @loc_wnd	- stream's current flow controlled window;
  * @rem_wnd	- streams's current flow controlled window for remote client;
- * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
@@ -178,16 +200,14 @@ typedef enum {
  */
 struct tfw_http_stream_t {
 	struct rb_node		node;
-	struct eb64_node	sched_node;
 	TfwStreamSchedState	sched_state;
-	TfwStreamSchedEntry	sched;
+	TfwStreamPrio		prio;
 	struct list_head	hcl_node;
 	unsigned int		id;
 	int			state;
 	spinlock_t		st_lock;
 	long int		loc_wnd;
 	long int		rem_wnd;
-	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
@@ -356,7 +376,7 @@ tfw_h2_stream_default_deficit(TfwStream *stream)
 		261, 260, 259, 258, 257, 256
 	};
 
-	return tbl[stream->weight - 1];
+	return tbl[stream->prio.rfc7540_prio.weight - 1];
 }
 
 static inline u64
@@ -366,16 +386,18 @@ tfw_h2_stream_recalc_deficit(TfwStream *stream)
 	 * This function should be called only for streams,
 	 * which were removed from scheduler.
 	 */
-	BUG_ON(stream->sched_node.node.leaf_p ||
+	BUG_ON(stream->prio.rfc7540_prio.sched_node.node.leaf_p ||
 	       stream->sched_state != HTTP2_STREAM_SCHED_STATE_UNKNOWN);
 	/* deficit = last_deficit + constant / weight */
-	return stream->sched_node.key + tfw_h2_stream_default_deficit(stream);
+	return stream->prio.rfc7540_prio.sched_node.key +
+		tfw_h2_stream_default_deficit(stream);
 }
 
 static inline bool
 tfw_h2_stream_has_default_deficit(TfwStream *stream)
 {
-	return stream->sched_node.key == tfw_h2_stream_default_deficit(stream);
+	return stream->prio.rfc7540_prio.sched_node.key ==
+		tfw_h2_stream_default_deficit(stream);
 }
 
 #endif /* __HTTP_STREAM__ */

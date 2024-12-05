@@ -29,6 +29,7 @@
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
+#include "http_stream_sched_rfc9218.h"
 #include "hpack.h"
 #include "lib/str.h"
 
@@ -7015,6 +7016,7 @@ __h2_req_parse_authority(TfwHttpReq *req, unsigned char *data, size_t len,
 		__fsm_sz = __data_remain(p);
 		__fsm_n = __parse_ulong_ws(p, __data_remain(p), &parser->_acc,
 					   USHRT_MAX);
+
 		switch (__fsm_n) {
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
@@ -8282,6 +8284,107 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_referer);
 
+#define RFC9218_STREAM_PRIO(req) (&req->stream->prio.rfc9218_prio)
+
+void
+h2_set_hdr_priority(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set) {
+		RFC9218_STREAM_PRIO(req)->incremental =
+			cstate->priority.incremental;
+		RFC9218_STREAM_PRIO(req)->urgency = cstate->priority.urgency;
+	}
+}
+
+static int
+__h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
+		       bool fin)
+{
+	int r = CSTR_NEQ;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+	__FSM_DECLARE_VARS(hm);
+
+#define RFC9218_CHECK_URGENCY(req)						\
+do {										\
+	if (RFC9218_STREAM_PRIO(req)->urgency < RFC9218_URGENCY_MIN		\
+	    || RFC9218_STREAM_PRIO(req)->urgency > RFC9218_URGENCY_MAX)		\
+		return CSTR_NEQ;						\
+} while (0)
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_PriorityStart) {
+		if (likely(c == 'u')) {
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgency, 1, 0);
+		} else if (likely(c == 'i')) {
+			parser->cstate.priority.incremental = true;
+			parser->cstate.is_set = 1;
+			RFC9218_STREAM_PRIO(req)->incremental = true;
+			__FSM_H2_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
+					      1, 0);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_PriorityUrgency) {
+		if (likely(c == '=')) {
+			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgencyParam,
+					      1, 0);
+		}
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_PriorityUrgencyParam) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_ulong_list(p, __fsm_sz, &parser->_acc, 7);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			RFC9218_STREAM_PRIO(req)->urgency = parser->_acc;
+			parser->cstate.priority.urgency = parser->_acc;
+			parser->cstate.is_set = 1;
+			__FSM_H2_I_MOVE_LAMBDA_fixup(Req_I_PriorityUrgencyParam,
+						     __fsm_sz, {
+				RFC9218_CHECK_URGENCY(req);
+				return CSTR_EQ;
+			}, TFW_STR_VALUE);
+		default:
+			RFC9218_STREAM_PRIO(req)->urgency = parser->_acc;
+			parser->cstate.priority.urgency = parser->_acc;
+			parser->cstate.is_set = 1;
+			parser->_acc = 0;
+			RFC9218_CHECK_URGENCY(req);
+			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
+					   __fsm_n, TFW_STR_VALUE);
+		}
+	}
+
+	__FSM_STATE(Req_I_Priority_Next_Or_Finish) {
+		if (likely(c == ',')) {
+			__FSM_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
+					   1, 0);
+		}
+		if (likely(IS_WS(c))) {
+			__FSM_H2_I_MOVE_NEQ_fixup(Req_I_Priority_Next_Or_Finish,
+						  1, 0);
+		}
+		if (IS_CRLF(c))
+			return __data_off(p);
+		__FSM_JMP(Req_I_PriorityStart);
+	}
+
+done:
+	return r;
+
+#undef RFC9218_CHECK_URGENCY
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_priority);
+
+#undef RFC9218_STREAM_PRIO
+
 static int
 __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
@@ -9499,6 +9602,7 @@ __FSM_STATE(st, cold) {							\
 
 	int ret = T_OK;
 	TfwMsgParseIter *it = &req->pit;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	__FSM_DECLARE_VARS(req);
 
 	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
@@ -9668,7 +9772,16 @@ __FSM_STATE(st, cold) {							\
 			if (C4_INT(p + 2, 'a', 'g', 'm', 'a'))
 				__FSM_H2_HDR_NAME_FIN(6, TFW_TAG_HDR_PRAGMA);
 			__FSM_H2_OTHER_n(4);
-		/*
+		/* Priority header from RFC 9218. */
+		case TFW_CHAR4_INT('p', 'r', 'i', 'o'):
+			if (unlikely(!__data_available(p, 8)))
+				__FSM_H2_NEXT_n(Req_HdrPrio, 4);
+			if (C4_INT(p + 4, 'r', 'i', 't', 'y')) {
+				if (!tfw_h2_conn_support_rfc9218(ctx))
+					__FSM_H2_OTHER_n(4);
+				__FSM_H2_HDR_NAME_FIN(8, TFW_TAG_HDR_PRIORITY);
+			}
+			__FSM_H2_OTHER_n(4);		/*
 		 * RFC 9113 8.2.2: Treat a request containing connection-specific
 		 * proxy-connection header as malformed.
 		 */
@@ -10054,6 +10167,8 @@ __FSM_STATE(st, cold) {							\
 		switch (c) {
 		case 'a':
 			__FSM_H2_NEXT(Req_HdrPra);
+		case 'i':
+			__FSM_H2_NEXT(Req_HdrPri);
 		case 'o':
 			__FSM_H2_NEXT(Req_HdrPro);
 		default:
@@ -10064,6 +10179,21 @@ __FSM_STATE(st, cold) {							\
 	__FSM_H2_TX_AF(Req_HdrPra, 'g', Req_HdrPrag);
 	__FSM_H2_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm);
 	__FSM_H2_TX_AF_FIN(Req_HdrPragm, 'a', TFW_TAG_HDR_PRAGMA);
+
+	__FSM_H2_TX_AF(Req_HdrPri, 'o', Req_HdrPrio);
+	__FSM_H2_TX_AF(Req_HdrPrio, 'r', Req_HdrPrior);
+	__FSM_H2_TX_AF(Req_HdrPrior, 'i', Req_HdrPriori);
+	__FSM_H2_TX_AF(Req_HdrPriori, 't', Req_HdrPriorit);
+	__FSM_STATE(Req_HdrPriorit, cold) {
+		switch (c) {
+		case 'y':
+			if (!tfw_h2_conn_support_rfc9218(ctx))
+				__FSM_JMP(RGen_HdrOtherN);
+			__FSM_H2_HDR_NAME_FIN(1, TFW_TAG_HDR_PRIORITY);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 
 	__FSM_H2_TX_AF(Req_HdrPro, 'x', Req_HdrProx);
 	__FSM_H2_TX_AF(Req_HdrProx, 'y', Req_HdrProxy);
@@ -10406,6 +10536,11 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	case TFW_TAG_HDR_REFERER:
 	TFW_H2_PARSE_HDR_VAL(Req_HdrRefererV, msg, __h2_req_parse_referer,
 			     TFW_HTTP_HDR_REFERER, 1);
+
+	/* 'priority' is read, process field-value. */
+	case TFW_TAG_HDR_PRIORITY:
+	TFW_H2_PARSE_HDR_VAL(Req_HdrPriorityV, msg, __h2_req_parse_priority,
+			     TFW_HTTP_HDR_PRIORITY, 0);
 
 	/* 'user-agent' is read, process field-value. */
 	case TFW_TAG_HDR_USER_AGENT:

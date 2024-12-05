@@ -89,16 +89,16 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
-	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
+	bzero_fast(&stream->prio, sizeof(stream->prio));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
-	tfw_h2_init_stream_sched_entry(&stream->sched);
+	tfw_h2_init_stream_sched_entry(&stream->prio.rfc7540_prio.sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_IDLE;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
-	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
+	stream->prio.rfc7540_prio.weight = weight ? weight : HTTP2_DEF_WEIGHT;
 }
 
 static TfwStream *
@@ -251,7 +251,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 	T_DBG3("Stop and delete stream (id %u state %d(%s) weight %u)," 
 	       " ctx %px streams num %lu\n", stream->id,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
-	       stream->weight, ctx, ctx->streams_num);
+	       stream->prio.rfc7540_prio.weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;

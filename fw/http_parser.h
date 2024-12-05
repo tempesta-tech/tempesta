@@ -178,5 +178,6 @@ void h2_set_hdr_x_method_override(TfwHttpReq *req,
 void h2_set_hdr_pragma(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
 void h2_set_hdr_referer(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
 void h2_set_hdr_cookie(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
+void h2_set_hdr_priority(TfwHttpReq *req, const TfwCachedHeaderState *cstate);
 unsigned char tfw_http_meth_str2id(const TfwStr *m_hdr);
 #endif /* __TFW_HTTP_PARSER_H__ */

@@ -37,14 +37,17 @@
  *                        to receive;
  * @max_lhdr_sz         - maximum size of header list the endpoint prepared
  *                        to accept;
+ * @no_rfc7540_prio     - flag indicates that priority support according
+ *                        RFC 7540 is disabled;
  */
 typedef struct {
-        unsigned int hdr_tbl_sz;
-        unsigned int push;
-        unsigned int max_streams;
-        unsigned int wnd_sz;
-        unsigned int max_frame_sz;
-        unsigned int max_lhdr_sz;
+        unsigned int    hdr_tbl_sz;
+        unsigned int    push;
+        unsigned int    max_streams;
+        unsigned int    wnd_sz;
+        unsigned int    max_frame_sz;
+        unsigned int    max_lhdr_sz;
+        bool            no_rfc7540_prio;
 } TfwSettings;
 
 /**
@@ -80,6 +83,7 @@ typedef struct {
  *                        to save what @new_settings should be applyed. bits
  *                        from _HTTP2_SETTINGS_MAX are used to save what
  *                        settings we sent to the client;
+ * first_settings_recv  - first settings were received;
  * @__off               - offset to reinitialize processing context;
  * @skb_head            - collected list of processed skbs containing HTTP/2
  *                        frames;
@@ -124,6 +128,7 @@ typedef struct tfw_h2_ctx_t {
         TfwStream       *error;
         unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
         DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
+        bool            first_settings_recv;
         char            __off[0];
         struct sk_buff  *skb_head;
         TfwStream       *cur_stream;
@@ -137,6 +142,12 @@ typedef struct tfw_h2_ctx_t {
         unsigned char   padlen;
         unsigned char   data_off;
 } TfwH2Ctx;
+
+static inline bool
+tfw_h2_conn_support_rfc9218(TfwH2Ctx *ctx)
+{
+        return ctx->rsettings.no_rfc7540_prio;
+}
 
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);

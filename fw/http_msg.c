@@ -193,6 +193,7 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("if-none-match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
 		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
 		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrDefV("priority:", 	TFW_HTTP_HDR_PRIORITY),
 		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
 		TfwStrDefV("user-agent:",	TFW_HTTP_HDR_USER_AGENT),
 		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),

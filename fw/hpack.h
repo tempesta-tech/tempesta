@@ -133,6 +133,7 @@ typedef enum {
 	TFW_TAG_HDR_IF_MODIFIED_SINCE,
 	TFW_TAG_HDR_PRAGMA,
 	TFW_TAG_HDR_REFERER,
+	TFW_TAG_HDR_PRIORITY,
 	TFW_TAG_HDR_X_FORWARDED_FOR,
 	TFW_TAG_HDR_FORWARDED,
 	TFW_TAG_HDR_USER_AGENT,
@@ -178,6 +179,10 @@ typedef struct {
 		struct {
 			unsigned int cookie_num;
 		} cookie;
+		struct {
+			unsigned int urgency;
+			bool incremental;
+		} priority;
 		unsigned char	method_override;
 	};
 	unsigned char		is_set;
