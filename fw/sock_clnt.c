@@ -65,7 +65,8 @@ tfw_cli_cache(int type)
 		return type & Conn_Negotiable ? tfw_h2_conn_cache
 					      : tfw_https_conn_cache;
 	case TFW_FSM_WSS:
-		return tfw_https_conn_cache;
+		return type & Conn_Negotiable ? tfw_h2_conn_cache
+					      : tfw_https_conn_cache;
 	case TFW_FSM_HTTP:
 	case TFW_FSM_WS:
 		return tfw_h1_conn_cache;
