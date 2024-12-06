@@ -156,6 +156,10 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, TfwHttpActionResult *action)
 			return 0;
 		case TFW_HTTP_MATCH_ACT_BLOCK:
 			return -1;
+		case TFW_HTTP_MATCH_ACT_JSCH:
+			action->type = TFW_HTTP_RES_JSCH;
+			action->vhost = tfw_vhost_lookup_default();
+			return 0;
 
 		default:
 			action->type = TFW_HTTP_RES_VHOST;
@@ -500,6 +504,10 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_CACHE_TTL;
 		rule->act.cache_ttl = act_val_parsed;
+	}
+	else if (!strcasecmp(action, "jsch")) {
+		is_jsch_global = false;
+		rule->act.type = TFW_HTTP_MATCH_ACT_JSCH;
 	}
 	else if (action && action_val &&
 		 !tfw_cfg_parse_uint(action, &rule->act.redir.resp_code))
