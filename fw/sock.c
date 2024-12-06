@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -655,9 +655,6 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
-		int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-		if (sk->sk_fill_write_queue)
-			sk->sk_fill_write_queue(sk, mss, SS_CLOSE);
 		tcp_send_fin(sk);
 	}
 
@@ -756,15 +753,15 @@ ss_linkerror(struct sock *sk, int flags)
  * but rather it guarantees that the socket will be closed and the caller can
  * not care about return value.
  */
-static int
-ss_close_or_shutdown(struct sock *sk, int action, int flags)
+int
+ss_close(struct sock *sk, int flags)
 {
 	int cpu;
 	long ticket;
 	SsWork sw = {
 		.sk	= sk,
 		.flags  = flags,
-		.action	= action,
+		.action	= SS_CLOSE,
 	};
 
 	if (unlikely(!sk))
@@ -794,20 +791,6 @@ err:
 	sock_put(sk);
 	return SS_BAD;
 }
-
-int
-ss_shutdown(struct sock *sk, int flags)
-{
-	return ss_close_or_shutdown(sk, SS_SHUTDOWN, flags);
-}
-EXPORT_SYMBOL(ss_shutdown);
-
-int
-ss_close(struct sock *sk, int flags)
-{
-	return ss_close_or_shutdown(sk, SS_CLOSE, flags);
-}
-EXPORT_SYMBOL(ss_close);
 
 /*
  * Process a single SKB.
@@ -883,6 +866,11 @@ do {									\
 		 * and the execution path should never reach here.
 		 */
 		BUG_ON(conn == NULL);
+
+		if (SS_CONN_TYPE(sk) & Conn_Stop) {
+			__kfree_skb(skb);
+			continue;
+		}
 
 		r = SS_CALL(connection_recv, conn, skb);
 
@@ -996,9 +984,6 @@ static void
 ss_tcp_data_ready(struct sock *sk)
 {
 	int flags;
-	int (*action)(struct sock *sk, int flags);
-	bool was_stopped = (SS_CONN_TYPE(sk) & Conn_Stop)
-                           || (SS_CONN_TYPE(sk) & Conn_Shutdown);
 
 	T_DBG3("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
@@ -1032,28 +1017,15 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_POSTPONE:
 	case SS_DROP:
 		return;
+	case SS_BAD:
 	case SS_BLOCK_WITH_FIN:
 		flags = SS_F_SYNC;
-		action = ss_close;
 		break;
 	case SS_BLOCK_WITH_RST:
-		was_stopped = true;
-		break;
-	case SS_BAD:
-		flags = SS_F_SYNC;
-		action = ss_shutdown;
+		flags = SS_F_ABORT_FORCE;
 		break;
 	default:
 		BUG();
-	}
-
-	if (was_stopped) {
-		/*
-		 * In case of errors for already stopped connections
-		 * we should immediately close them with TCP RST.
-		 */
-		flags = SS_F_ABORT_FORCE;
-		action = ss_close;
 	}
 
 	/*
@@ -1070,8 +1042,14 @@ ss_tcp_data_ready(struct sock *sk)
 	 * Closing a socket should go through the queue and
 	 * should be done after all pending data has been sent.
 	 */
-	if (!(SS_CONN_TYPE(sk) & Conn_Stop) || was_stopped)
-		action(sk, flags);
+	if (!(SS_CONN_TYPE(sk) & Conn_Stop)) {
+		/*
+		 * Set Conn_Stop bit to immediately stop processing
+		 * new incoming requests for this connection.
+		 */
+		SS_CONN_TYPE(sk) |= Conn_Stop;
+		ss_close(sk, flags);
+	}
 }
 
 /**
@@ -1511,16 +1489,7 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
-	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-	/*
-	 * We send `tcp_shutdown` from `sk_fill_write_queue` if
-	 * there is no pending data in our sceduler and SS_SHUTDOWN
-	 * is passed as ss_action.
-	 */
-	if (sk->sk_fill_write_queue)
-		sk->sk_fill_write_queue(sk, mss, SS_SHUTDOWN);
-	else
-		tcp_shutdown(sk, SEND_SHUTDOWN);
+	tcp_shutdown(sk, SEND_SHUTDOWN);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 
@@ -1634,12 +1603,6 @@ ss_tx_action(void)
 			}
 			/* paired with bh_lock_sock() */
 			__sk_close_locked(sk, sw.flags);
-			break;
-		case SS_SHUTDOWN:
-			/* sk_state is checked in `tcp_shutdown` function. */
-			BUG_ON(sw.flags & __SS_F_RST);
-			ss_do_shutdown(sk);
-			bh_unlock_sock(sk);
 			break;
 		default:
 			BUG();
