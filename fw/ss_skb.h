@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -65,6 +65,7 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
  *                        to socket write queue;
  * @stream_id		- id of sender stream;
  * @is_head		- flag indicates that this is a head of skb list;
+ * @is_control_frame	- flag indicates that this is a h2 control frame;
  */
 struct tfw_skb_cb {
 	void 		*opaque_data;
@@ -73,6 +74,7 @@ struct tfw_skb_cb {
 	on_tcp_entail_t on_tcp_entail;
 	unsigned int 	stream_id;
 	bool		is_head;
+	bool		is_control_frame;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
