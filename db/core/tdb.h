@@ -165,7 +165,7 @@ typedef struct {
 	bool		is_new;
 } TdbGetAllocCtx;
 
-typedef bool tdb_eq_cb_t(TdbRec *rec, void *data);
+typedef bool tdb_eq_cb_t(TdbHdr *db_hdr, TdbRec *rec, void *data);
 
 /**
  * We use very small index nodes size of only one cache line.

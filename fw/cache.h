@@ -26,7 +26,7 @@
 int tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action);
 bool tfw_cache_is_enabled_or_not_configured(void);
 TfwHttpResp *tfw_cache_build_resp_stale(TfwHttpReq *req);
-void tfw_cache_put_entry(void *ce);
+void tfw_cache_put_entry(int node, void *ce);
 
 extern unsigned int cache_default_ttl;
 
