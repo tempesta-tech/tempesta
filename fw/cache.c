@@ -3689,6 +3689,20 @@ tfw_cfgop_cache_val(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		return r;
 
+	/* Note: Issue #400. Tempesta doesn't support NUMA nodes without CPU. */
+	if (cache == TFW_CACHE_SHARD) {
+		int node;
+
+		for_each_online_node(node) {
+			if (!nr_cpus_node(node)) {
+				T_ERR_NL("NUMA: Node %d doesn't have cpu. "
+					 "Tempesta doesn't support nodes without cpu in SHARD mode.\n",
+					 node);
+				return -EINVAL;
+			}
+		}
+	}
+
 	if (g_vhost->cache_purge && !cache) {
 		T_ERR_NL("Directives mismatching: 'cache_purge' directive "
 			  "requires 'cache' be not zero\n");
