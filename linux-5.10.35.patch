@@ -501,6 +501,58 @@ index b4dae640d..1b6d4a669 100644
  struct crypto_sync_skcipher *crypto_alloc_sync_skcipher(
  				const char *alg_name, u32 type, u32 mask)
  {
+diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
+index 038ce4e5e..7b09c1ccd 100644
+--- a/drivers/net/virtio_net.c
++++ b/drivers/net/virtio_net.c
+@@ -1423,7 +1423,11 @@ static bool is_xdp_raw_buffer_queue(struct virtnet_info *vi, int q)
+ 		return false;
+ }
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++static void virtnet_poll_cleantx(struct receive_queue *rq, int budget)
++#else
+ static void virtnet_poll_cleantx(struct receive_queue *rq)
++#endif
+ {
+ 	struct virtnet_info *vi = rq->vq->vdev->priv;
+ 	unsigned int index = vq2rxq(rq->vq);
+@@ -1434,7 +1438,11 @@ static void virtnet_poll_cleantx(struct receive_queue *rq)
+ 		return;
+ 
+ 	if (__netif_tx_trylock(txq)) {
++#ifdef CONFIG_SECURITY_TEMPESTA
++		free_old_xmit_skbs(sq, !!budget);
++#else
+ 		free_old_xmit_skbs(sq, true);
++#endif
+ 		__netif_tx_unlock(txq);
+ 	}
+ 
+@@ -1451,7 +1459,11 @@ static int virtnet_poll(struct napi_struct *napi, int budget)
+ 	unsigned int received;
+ 	unsigned int xdp_xmit = 0;
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	virtnet_poll_cleantx(rq, budget);
++#else
+ 	virtnet_poll_cleantx(rq);
++#endif
+ 
+ 	received = virtnet_receive(rq, budget, &xdp_xmit);
+ 
+@@ -1518,7 +1530,11 @@ static int virtnet_poll_tx(struct napi_struct *napi, int budget)
+ 
+ 	txq = netdev_get_tx_queue(vi->dev, index);
+ 	__netif_tx_lock(txq, raw_smp_processor_id());
++#ifdef CONFIG_SECURITY_TEMPESTA
++	free_old_xmit_skbs(sq, !!budget);
++#else
+ 	free_old_xmit_skbs(sq, true);
++#endif
+ 	__netif_tx_unlock(txq);
+ 
+ 	virtqueue_napi_complete(napi, sq->vq, 0);
 diff --git a/include/crypto/aead.h b/include/crypto/aead.h
 index c32a6f566..5fe1addcc 100644
 --- a/include/crypto/aead.h
@@ -782,7 +834,7 @@ index 000000000..90eedcba5
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -3025,7 +3077,7 @@ index 000000000..313101304
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by

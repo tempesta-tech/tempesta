@@ -621,28 +621,28 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
 	 * details).
 	 */
+	ctx->lstream_id = hdr->stream_id;
 	if (ctx->priority.stream_id == hdr->stream_id) {
 		T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
-						 HTTP2_RST_STREAM, 0))
-			return -EPERM;
+		if (likely(!ctx->cur_stream)) {
+			return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
+						      HTTP2_ECODE_PROTO);
+		}
 
 		WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
 		return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
 	}
 
-	if (!ctx->cur_stream) {
+	if (likely(!ctx->cur_stream)) {
 		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
 		if (!ctx->cur_stream)
 			return -ENOMEM;
-		ctx->lstream_id = hdr->stream_id;
 	} else if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
 		tfw_h2_stream_remove_idle(ctx, ctx->cur_stream);
-		ctx->lstream_id = hdr->stream_id;
 	}
 	/*
 	 * Since the same received HEADERS frame can cause the stream to become
@@ -756,8 +756,8 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
 	 * details).
 	 */
-	T_DBG("Invalid dependency: new stream with %u depends on"
-		      " itself\n", hdr->stream_id);
+	T_DBG("Invalid dependency: new stream with %u depends on itself\n",
+	      hdr->stream_id);
 
 	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
 					 HTTP2_RST_STREAM, 0))
@@ -1969,7 +1969,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		TLS_MAX_PAYLOAD_SIZE : *snd_wnd - TLS_MAX_OVERHEAD;
 	unsigned int length;
 	char *data;
-	int r;
+	int r = 0;
 
 
 	/*
@@ -2024,8 +2024,9 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	stream->xmit.frame_length += length + FRAME_HEADER_SIZE;
 	switch (tfw_h2_stream_send_process(ctx, stream, type)) {
 	case STREAM_FSM_RES_OK:
-	case STREAM_FSM_RES_IGNORE:
 		break;
+	case STREAM_FSM_RES_IGNORE:
+		fallthrough;
 	case STREAM_FSM_RES_TERM_STREAM:
 		/* Send previosly successfully prepared frames if exist. */
 		stream->xmit.frame_length -= length + FRAME_HEADER_SIZE;
@@ -2045,7 +2046,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		return -EPIPE;
 	}
 
-	return 0;
+	return r;
 }
 
 static int
@@ -2138,12 +2139,14 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
-		r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
-					      &stream->xmit.frame_length,
-					      false);
-		if (unlikely(r)) {
-			T_WARN("Failed to send frame %d", r);
-			return r;
+		if (likely(stream->xmit.frame_length)) {
+			r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
+						      &stream->xmit.frame_length,
+						      false);
+			if (unlikely(r)) {
+				T_WARN("Failed to send frame %d", r);
+				return r;
+			}
 		}
 
 		if (stream->xmit.h_len) {
