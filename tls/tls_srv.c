@@ -339,6 +339,7 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	const unsigned char *theirs, *start, *end;
 	const ttls_alpn_proto *our, *alpn_list = tls->conf->alpn_list;
 	int alpn_chosen_idx = TTLS_ALPN_PROTOS;
+	bool has_unknown_alpn;
 
 	/* If TLS processing is enabled, ALPN must be configured. */
 	BUG_ON(!alpn_list);
@@ -394,10 +395,10 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		}
 	}
 
-
 	tls->alpn_chosen = NULL;
 	for (theirs = start; theirs != end; theirs += cur_len) {
 		cur_len = *theirs++;
+		has_unknown_alpn = true;
 		for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
 			our = &alpn_list[i];
 			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
@@ -405,17 +406,20 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 				tls->sess.ja5t.alpn <<= 2;
 				tls->sess.ja5t.alpn += our->id;
 				/* Use our order of preference */
-				if (alpn_chosen_idx > i && ttls_alpn_match_cb(tls, our)) {
+				if (alpn_chosen_idx > i &&
+					ttls_alpn_match_cb(tls, our)) {
 					alpn_chosen_idx = i;
 					tls->alpn_chosen = our;
 				}
+				has_unknown_alpn = false;
 			}
 		}
+		if (has_unknown_alpn)
+			tls->sess.ja5t.has_unknown_alpn = 1;
 	}
 
-	if (tls->alpn_chosen) {
+	if (tls->alpn_chosen)
 		return 0;
-	}
 
 	/* We verified the length of ALPN in the loop above. */
 	TTLS_WARN(tls, "ClientHello: cannot find matching ALPN for %.*s%s\n",
@@ -1100,7 +1104,7 @@ bad_version:
 			ext_type);
 		if (ext_supported) {
 			ret = ttls_parse_extension(tls, tmp, ext_sz, ext_type);
-			if (ret)
+			if (unlikely(ret))
 				return ret;
 		}
 		tls->hs->ext_rem_sz -= 4 + ext_sz;

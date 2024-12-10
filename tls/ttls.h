@@ -275,15 +275,16 @@ struct ttls_alpn_proto {
 #define TTLS_JA5_HASH_CALC_PRIME 11
 
 #define TTLS_COMPUTE_JA5_ACCHASH(hash, field)	\
-do {											\
-		(hash) *= TTLS_JA5_HASH_CALC_PRIME;		\
-		(hash) += (field);						\
+do {						\
+	(hash) *= TTLS_JA5_HASH_CALC_PRIME;	\
+	(hash) += (field);			\
 } while (0)
 
 /**
  * JA5t TLS client fingerprint
  * 
  * @alpn - chosen ALPN id
+ * @has_unknown_alpn - has client sent unknown alpn value
  * @vhost_found - requested vhost presence flag
  * @is_abbreviated - is it going to be resumed session
  * @is_tls1_3 - is tls1.3 flag
@@ -293,6 +294,7 @@ do {											\
  */
 typedef struct {
 	unsigned char alpn:3;
+	unsigned char has_unknown_alpn:1;
 	unsigned char vhost_found:1;
 	unsigned char is_abbreviated:1;
 	unsigned char is_tls1_3:1;
@@ -316,14 +318,14 @@ typedef struct {
  *			  from TLS ticket);
  */
 typedef struct {
-	TlsX509Crt		*peer_cert;
-	long			start;
-	int				etm;
+	TlsX509Crt	*peer_cert;
+	long		start;
+	int		etm;
 	unsigned short	ciphersuite;
 	unsigned char	id_len;
 	unsigned char	id[TTLS_SESS_ID_LEN];
 	unsigned char	master[48];
-	TlsJa5t			ja5t;
+	TlsJa5t		ja5t;
 } TlsSess;
 
 /*
