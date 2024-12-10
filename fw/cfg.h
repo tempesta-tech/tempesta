@@ -201,6 +201,14 @@ typedef struct {
 		return -EINVAL;						\
 	}
 
+#define TFW_CFG_CHECK_ATTR_N(op, req, spec, entry)			\
+	if (! ((entry)->attr_n op (req)) ) {				\
+		T_ERR_NL("%s: Invalid number of attributes: %zu, must "	\
+			 "be %s %d\n", (spec)->name, (entry)->attr_n,	\
+			 #op, (req));					\
+		return -EINVAL;						\
+	}
+
 #define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)			\
 	if (! ((entry)->val_n op (req)) ) {				\
 		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
