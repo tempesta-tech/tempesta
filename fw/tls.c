@@ -36,20 +36,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
-
-typedef struct {
-	TlsJa5t ja5t_hash;
-	u64 conns_per_sec;
-	u64 tls_records_per_sec;
-} TlsJa5tHashEntry;
-
-#define TLS_JA5T_DEFAULT_MAX_ENTRIES 100
-#define TLS_JA5T_HASHTABLE_BITS 8
-typedef struct
-{
-	u32 max_entries_cnt;
-	DECLARE_HASHTABLE(hashes, TLS_JA5T_HASHTABLE_BITS);
-} TlsJa5tFilterCfg;
+#include "ja5_conf.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -58,10 +45,6 @@ static TlsCfg tfw_tls_cfg;
 static bool tfw_tls_allow_any_sni;
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
-
-
-static TlsJa5tFilterCfg* tls_filter_cfg;
-// static TlsJa5tFilterCfg* tls_filter_cfg_reconfig;
 
 static inline void
 tfw_tls_purge_io_ctx(TlsIOCtx *io)
@@ -1187,83 +1170,11 @@ tfw_tls_get_allow_any_sni_reconfig(void)
 	return allow_any_sni_reconfig;
 }
 
-static int
-handle_ja5t_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce) {
-	TlsJa5t hash;
-	u32 conns_per_sec;
-	u32 recs_per_sec;
-
-	TFW_CFG_CHECK_VAL_N(==, 3, cs, ce);
-	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
-
-	if (tfw_cfg_parse_uint(ce->vals[1], &conns_per_sec)) {
-		T_ERR_NL("Failed to parse hash entry in ja5t section: "
-			"invalid connections per second value %s", ce->vals[1]);
-		return -EINVAL;
-	}
-
-	if (tfw_cfg_parse_uint(ce->vals[2], &recs_per_sec)) {
-		T_ERR_NL("Failed to parse hash entry in ja5t section: "
-			"invalid records per second value %s", ce->vals[2]);
-		return -EINVAL;
-	}
-
-	if (kstrtou32(ce->vals[0], 16, (u32*)&hash)) {
-		T_ERR_NL("Failed to parse hash entry in ja5t section: "
-			"invalid hash value %s", ce->vals[0]);
-		return -EINVAL;
-	}
-
-	T_LOG_NL("Parsed ja5t hash entry: %08x %d %d", *(u32*)&hash, conns_per_sec, recs_per_sec);
-
-
-	return 0;
-}
-
-static int
-tls_cfgop_ja5t_begin(TfwCfgSpec *cs, TfwCfgEntry *ce) {
-
-	TFW_CFG_CHECK_VAL_N(==, 0, cs, ce);
-	TFW_CFG_CHECK_ATTR_N(<=, 1, cs, ce);
-
-	T_LOG_NL("Parse ja5t config. max_entries is %s", ce->attr_n ? ce->attrs[0].val : "");
-
-	if (!(tls_filter_cfg = kzalloc(sizeof(TlsJa5tFilterCfg), GFP_KERNEL)))
-		return -ENOMEM;
-
-	if (ce->attr_n == 1) {
-		if (strcasecmp(ce->attrs[0].key, "max_entries")) {
-			T_ERR_NL("Failed to parse ja5t section: invalid attribute %s",
-				ce->attrs[0].key);
-			return -EINVAL;
-		}
-
-		if (kstrtou32(ce->attrs[0].val, 10, &tls_filter_cfg->max_entries_cnt))
-			return -EINVAL;
-	} else {
-		tls_filter_cfg->max_entries_cnt = TLS_JA5T_DEFAULT_MAX_ENTRIES;
-	}
-
-	T_LOG_NL("after parse max_entries is %d", tls_filter_cfg->max_entries_cnt);
-
-	return 0;
-}
-
-static int
-tls_cfgop_ja5t_finish(TfwCfgSpec *cs) {
-	return 0;
-}
-
-static void
-tls_cfgop_ja5t_cleanup(TfwCfgSpec *cs) {
-
-}
-
 static TfwCfgSpec tfw_tls_hash_specs[] = {
 	{
 		.name = "hash",
 		.deflt = NULL,
-		.handler = handle_ja5t_hash_entry,
+		.handler = handle_ja5_hash_entry,
 		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
@@ -1276,11 +1187,11 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.name = "ja5t",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tls_cfgop_ja5t_cleanup,
+		.cleanup = tls_cfgop_ja5_cleanup,
 		.dest = tfw_tls_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = tls_cfgop_ja5t_begin,
-			.finish_hook = tls_cfgop_ja5t_finish
+			.begin_hook = tls_cfgop_ja5_begin,
+			.finish_hook = tls_cfgop_ja5_finish
 		},
 		.allow_none = true,
 		.allow_repeat = false,

@@ -194,35 +194,74 @@ typedef struct {
 	     (idx)++,				\
 	     (v) = (idx < (e)->val_n ? (e)->vals[(idx)] : NULL))
 
-#define TFW_CFG_CHECK_NO_ATTRS(spec, entry)				\
-	if ((entry)->attr_n) {						\
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",	\
-			 (spec)->name);					\
-		return -EINVAL;						\
-	}
+#define TFW_CFG_CHECK_NO_ATTRS(spec, entry)			\
+	do {							\
+		if ((entry)->attr_n) {				\
+			T_ERR_NL("%s: Arguments may not have "	\
+				"the '=' sign\n", (spec)->name);\
+			return -EINVAL;				\
+		}						\
+	} while (0)
 
 #define TFW_CFG_CHECK_ATTR_N(op, req, spec, entry)			\
-	if (! ((entry)->attr_n op (req)) ) {				\
-		T_ERR_NL("%s: Invalid number of attributes: %zu, must "	\
-			 "be %s %d\n", (spec)->name, (entry)->attr_n,	\
-			 #op, (req));					\
-		return -EINVAL;						\
-	}
+	do {								\
+		if (!((entry)->attr_n op (req))) {			\
+			T_ERR_NL("%s: Invalid number of attributes: "	\
+				"%zu, must be %s %d\n",			\
+				(spec)->name, (entry)->attr_n,		\
+				#op, (req));				\
+			return -EINVAL;					\
+		}							\
+	} while (0)
+
+#define TFW_CFG_CHECK_ATTR_EQ_N(req, spec, entry)			\
+	do {								\
+		if (!((entry)->attr_n == (req))) {			\
+			T_ERR_NL("%s: Invalid number of attributes: "	\
+				"%zu, must be queal %d\n",		\
+				(spec)->name, (entry)->attr_n, (req));	\
+			return -EINVAL;					\
+		}							\
+	} while (0)
+
+#define TFW_CFG_CHECK_ATTR_LE_N(req, spec, entry)			\
+	do {								\
+		if (!((entry)->attr_n <= (req))) {			\
+			T_ERR_NL("%s: Invalid number of attributes: "	\
+			"%zu, must be less or equal %d\n", 		\
+			(spec)->name, (entry)->attr_n, (req));		\
+			return -EINVAL;					\
+		}							\
+	} while (0)
 
 #define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)			\
-	if (! ((entry)->val_n op (req)) ) {				\
-		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
-			 "be %s %d\n", (spec)->name, (entry)->val_n,	\
-			 #op, (req));					\
-		return -EINVAL;						\
-	}
+	do {								\
+		if (!((entry)->val_n op (req))) {			\
+			T_ERR_NL("%s: Invalid number of arguments: "	\
+			"%zu, must be %s %d\n",				\
+			(spec)->name, (entry)->val_n, #op, (req));	\
+			return -EINVAL;					\
+		}							\
+	} while (0)
+
+#define TFW_CFG_CHECK_VAL_EQ_N(req, spec, entry)			\
+	do {								\
+		if (!((entry)->val_n == (req))) {			\
+			T_ERR_NL("%s: Invalid number of arguments: "	\
+			"%zu, must be equal %d\n",			\
+			(spec)->name, (entry)->val_n, (req));		\
+			return -EINVAL;					\
+		}							\
+	} while (0)
 
 #define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
-	if (val_was_set) {						\
-		T_ERR_NL("Duplicate argument: '%s'\n", name);		\
-		code;							\
-	}								\
-	val_was_set = true;
+	do {								\
+		if (val_was_set) {					\
+			T_ERR_NL("Duplicate argument: '%s'\n", name);	\
+			code;						\
+		}							\
+		val_was_set = true;					\
+	} while (0)
 
 /**
  * TfwCfgSpec{} is a single instruction for the configuration parser.
