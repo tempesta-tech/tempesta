@@ -742,8 +742,6 @@ done:
 	return 0;
 }
 
-#undef CALC_JA5H_SUMM
-
 /**
  * Fixup the new data chunk starting at @data with length @len to @str.
  *
