@@ -984,6 +984,9 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 				 " reject connection.\n", (int)len, data);
 			return -ENOENT;
 		}
+
+		/* JA5t computation */
+		ctx->sess.ja5t.vhost_found = !!(u8)(vhost != NULL);
 	}
 	else if (!tfw_tls_allow_any_sni) {
 		SNI_WARN("missing server name, reject connection.\n");

@@ -38,7 +38,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,9 +99,9 @@ extern ttls_ecp_group_id ttls_preset_curves[];
 /**
  * Curve information for use by other modules.
  *
- * @grp_id		- nternal identifier;
+ * @grp_id		- internal identifier;
  * @tls_id		- TLS NamedCurve identifier;
- * @bit_size		- urve size in bits;
+ * @bit_size		- curve size in bits;
  * @name		- human-friendly name;
  */
 typedef struct {
