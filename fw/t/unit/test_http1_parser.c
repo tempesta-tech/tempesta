@@ -4641,6 +4641,171 @@ do {									\
 #undef RESP_PERF
 }
 
+TEST(http1_parser, ja5h)
+{
+	FOR_REQ("GET /index.html HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Forwarded-For: 127.0.0.1\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 2);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+	}
+
+	FOR_REQ("GET /index.html HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Forwarded-For: 127.0.0.1\r\n"
+		"a: aa\r\n"
+		"aa: aaa\r\n"
+		"aaa: aaaa\r\n"
+		"aaaa: aaaaa\r\n"
+		"aaaaa: aaaaaa\r\n"
+		"aaaaaa: aaaaaaa\r\n"
+		"aaaaaaa: aaaaaaaa\r\n"
+		"aaaaaaaa: aaaaaaaaa\r\n"
+		"aaaaaaaaa: aaaaaaaaaa\r\n"
+		"aaaaaaaaaa: aaaaaaaaaaa\r\n"
+		"aaaaaaaaaaa: aaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaa: aaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaa: aaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaa: aaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 34);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+	}
+
+	FOR_REQ("GET /index.html HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Forwarded-For: 127.0.0.1\r\n"
+		"a: aa\r\n"
+		"aa: aaa\r\n"
+		"aaa: aaaa\r\n"
+		"aaaa: aaaaa\r\n"
+		"aaaaa: aaaaaa\r\n"
+		"aaaaaa: aaaaaaa\r\n"
+		"aaaaaaa: aaaaaaaa\r\n"
+		"aaaaaaaa: aaaaaaaaa\r\n"
+		"aaaaaaaaa: aaaaaaaaaa\r\n"
+		"aaaaaaaaaa: aaaaaaaaaaa\r\n"
+		"aaaaaaaaaaa: aaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaa: aaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaa: aaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaa: aaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+		"b: bb\r\n"
+		"bb: bbb\r\n"
+		"bbb: bbbb\r\n"
+		"bbbb: bbbbb\r\n"
+		"bbbbb: bbbbbb\r\n"
+		"bbbbbb: bbbbbbb\r\n"
+		"bbbbbbb: bbbbbbbb\r\n"
+		"bbbbbbbb: bbbbbbbbb\r\n"
+		"bbbbbbbbb: bbbbbbbbbb\r\n"
+		"bbbbbbbbbb: bbbbbbbbbbb\r\n"
+		"bbbbbbbbbbb: bbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbb: bbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbb: bbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbb: bbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbbbbbb\r\n"
+		"bbbbbbbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 63);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+	}
+
+	FOR_REQ("GET /index.html HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Forwarded-For: 127.0.0.1\r\n"
+		"Cookie: session=42; theme=dark\r\n"
+		"Referer: http://tempesta-tech.com:8080\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 1);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 2);
+		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+	}
+
+	FOR_REQ("GET /index.html HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Forwarded-For: 127.0.0.1\r\n"
+		"Cookie: a=a; aa=a; aaa=a; aaaa=a; aaaaa=a; "
+		"aaaaaa=a; aaaaaaa=a; aaaaaaaa=a; aaaaaaaaa=a; aaaaaaaaaa=a; "
+		"aaaaaaaaaaa=a; aaaaaaaaaaaa=a; aaaaaaaaaaaaa=a; aaaaaaaaaaaaaa=a; "
+		"b=b; bb=b; bbb=b; bbbb=b; bbbbb=b; bbbbbb=b; bbbbbbb=b; "
+		"bbbbbbbb=b; bbbbbbbbb=b; bbbbbbbbbb=b; bbbbbbbbbbb=b; "
+		"c=c; c=cc; ccc=c; cccc=c; ccccc=c; cccccc=c; ccccccc=c; "
+		"d=d; d=dd; d=ddd\r\n"
+		"Referer: http://tempesta-tech.com:8080\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 1);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 31);
+		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+	}
+}
+
 TEST_SUITE_MPART(http1_parser, 0)
 {
 	int r;
@@ -4711,8 +4876,14 @@ TEST_SUITE_MPART(http1_parser, 2)
 	TEST_RUN(http1_parser, perf);
 }
 
+TEST_SUITE_MPART(http1_parser, 3)
+{
+	TEST_RUN(http1_parser, ja5h);
+}
+
 TEST_SUITE_MPART_DEFINE(http1_parser, H1_SUITE_PART_CNT,
 	TEST_SUITE_MPART_NAME(http1_parser, 0),
 	TEST_SUITE_MPART_NAME(http1_parser, 1),
-	TEST_SUITE_MPART_NAME(http1_parser, 2));
+	TEST_SUITE_MPART_NAME(http1_parser, 2),
+	TEST_SUITE_MPART_NAME(http1_parser, 3));
 

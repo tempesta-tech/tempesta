@@ -172,6 +172,12 @@ typedef struct {
 			unsigned int flags;
 			unsigned int port;
 		} forwarded;
+		struct {
+			bool has_referer;
+		} referer;
+		struct {
+			unsigned int cookie_num;
+		} cookie;
 		unsigned char	method_override;
 	};
 	unsigned char		is_set;
