@@ -4,7 +4,7 @@
 #define TLS_JA5_DEFAULT_MAX_ENTRIES 100
 #define TLS_JA5_HASHTABLE_BITS 10
 
-struct {
+typedef struct {
 	u32 max_entries_cnt;
 	DECLARE_HASHTABLE(hashes, TLS_JA5_HASHTABLE_BITS);
 } TlsJa5FilterCfg;

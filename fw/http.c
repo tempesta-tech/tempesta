@@ -5234,11 +5234,17 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
 					    type == TFW_ERROR_TYPE_ATTACK);
 	} else {
-		if (tfw_h2_stream_fsm_ignore_err(ctx, stream,
-						 HTTP2_RST_STREAM, 0)) {
-			tfw_connection_put(conn);
-			return T_BAD;
-		}
+		TfwStreamState stream_state = tfw_h2_get_stream_state(stream);
+
+		/*
+		 * Here we rely on the fact that we always drop connection
+		 * (close_after_send is true) if request is not fully parsed.
+		 * In this case we can not process RST_STREAM and can not
+		 * change stream state here, because in this state we
+		 * already don't expect to receive any frames other then
+		 * PRIORITY or WINDOW_UPDATE.
+		 */
+		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED);
 		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
 			tfw_connection_put(conn);
 			return T_BAD;
