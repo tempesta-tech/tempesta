@@ -3306,7 +3306,6 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 					   USHRT_MAX);
 
 		switch (__fsm_n) {
-		case CSTR_EQ:
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			return CSTR_NEQ;
@@ -5968,7 +5967,7 @@ Req_Method_1CharStep: __attribute__((cold))
 
 	__FSM_STATE(Req_UriAuthorityEnd, cold) {
 		if (c == ':')
-			__FSM_MOVE_f(Req_UriPortBegin, &req->host);
+			__FSM_MOVE_f(Req_UriPort, &req->host);
 		/* Authority End */
 		__msg_field_finish(&req->host, p);
 		T_DBG3("Userinfo len = %i, host len = %i\n",
@@ -5983,16 +5982,6 @@ Req_Method_1CharStep: __attribute__((cold))
 		TFW_PARSER_DROP(Req_UriAuthorityEnd);
 	}
 
-	/*
-	 * This state is necessary to drop requests with empty port like
-	 * GET http://tempesta-tech.com:
-	 */
-	__FSM_STATE(Req_UriPortBegin) {
-		if (likely(isdigit(c)))
-			__FSM_MOVE_f(Req_UriPort, &req->host);
-		TFW_PARSER_DROP(Req_UriPortBegin);
-	}
-
 	/* Host port in URI */
 	__FSM_STATE(Req_UriPort, cold) {
 		__fsm_sz = __data_remain(p);
@@ -6004,7 +5993,6 @@ Req_Method_1CharStep: __attribute__((cold))
 		case CSTR_NEQ:
 			TFW_PARSER_DROP(Req_UriPort);
 		case CSTR_POSTPONE:
-			req->host_port = parser->_acc;
 			__FSM_MOVE_nf(Req_UriPort, __fsm_sz, &req->host);
 		default:
 			req->host_port = parser->_acc;
