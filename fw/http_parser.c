@@ -1471,11 +1471,6 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		if (!(TFW_CONN_TYPE(msg->conn) & Conn_Srv)		\
-		    && unlikely(id == TFW_HTTP_HDR_COOKIE)) {		\
-			HTTP_JA5H_CALC_NUM(((TfwHttpReq *)msg), cookie,	\
-					   TFW_HTTP_JA5H_COOKIE_MAX);	\
-		}							\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
 		r = process_trailer_hdr(msg, &parser->hdr, id);		\
@@ -3332,17 +3327,13 @@ __req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__FSM_I_MATCH_MOVE(uri, Req_I_Referer);
 		if (IS_WS(*(p + __fsm_sz)))
 			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(*(p + __fsm_sz))) {
-			((TfwHttpReq *)hm)->ja5h.has_refer = 1;
+		if (IS_CRLF(*(p + __fsm_sz)))
 			return __data_off(p + __fsm_sz);
-		}
 		return CSTR_NEQ;
 	}
 	__FSM_STATE(Req_I_EoT) {
-		if (IS_WS(c)) {
-			((TfwHttpReq *)hm)->ja5h.has_refer = 1;
+		if (IS_WS(c))
 			__FSM_I_MOVE(Req_I_EoT);
-		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -6615,10 +6606,6 @@ __FSM_STATE(st_curr) {							\
 	       " hid=%d\n", __func__, __fsm_n, len, hid);		\
 	switch (__fsm_n) {						\
 	case CSTR_EQ:							\
-		if (unlikely(hid == TFW_HTTP_HDR_COOKIE)) {		\
-			HTTP_JA5H_CALC_NUM(req, cookie,			\
-					   TFW_HTTP_JA5H_COOKIE_MAX);	\
-		}							\
 		if (saveval) {						\
 			__msg_hdr_chunk_fixup(data, len);		\
 			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
@@ -8268,10 +8255,8 @@ __h2_req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		return CSTR_NEQ;
 	}
 	__FSM_STATE(Req_I_EoT) {
-		if (IS_WS(c)) {
-			((TfwHttpReq *)hm)->ja5h.has_refer = 1;
+		if (IS_WS(c))
 			__FSM_H2_I_MOVE(Req_I_EoT);
-		}
 		return CSTR_NEQ;
 	}
 
