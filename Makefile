@@ -154,7 +154,7 @@ all: build
 
 build:
 ifdef ERROR
-#	 $(error $(ERROR))
+	$(error $(ERROR))
 endif
 ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
