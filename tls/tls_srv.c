@@ -406,8 +406,9 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 				tls->sess.ja5t.alpn <<= 2;
 				tls->sess.ja5t.alpn += our->id;
 				/* Use our order of preference */
-				if (alpn_chosen_idx > i &&
-					ttls_alpn_match_cb(tls, our)) {
+                                if (alpn_chosen_idx > i &&
+                                    ttls_alpn_match_cb(tls, our))
+                                {
 					alpn_chosen_idx = i;
 					tls->alpn_chosen = our;
 				}
