@@ -969,10 +969,10 @@ tfw_apm_rbctl_update(TfwApmData *data, bool recalc)
 /*
  * Calculate the latest percentiles if necessary.
  *
- * Return 0 if the calculation is successful.
- * Return > 0 and < @prcntlsz if the calculation is incomplete.
+ * Return true if the calculation is successful.
+ * Return false if the calculation is incomplete.
  */
-static int
+static bool
 tfw_apm_calc(TfwApmData *data)
 {
 	int nfilled, recalc;
@@ -989,7 +989,7 @@ tfw_apm_calc(TfwApmData *data)
 
 	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	if (!tfw_apm_rbctl_update(data, recalc))
-		return 0;
+		return true;
 
 	nfilled = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 	if (nfilled < T_PSZ) {
@@ -1004,7 +1004,7 @@ tfw_apm_calc(TfwApmData *data)
 		write_sequnlock(&asent->seqlock);
 	}
 
-	return nfilled % T_PSZ;
+	return nfilled == T_PSZ;
 }
 
 /*
@@ -1084,7 +1084,7 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 		}
 	}
 
-	if (unlikely(tfw_apm_calc(data)))
+	if (unlikely(!tfw_apm_calc(data)))
 		T_DBG3("%s: Incomplete calculation\n", __func__);
 
 	smp_mb();
