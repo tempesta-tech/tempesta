@@ -3550,6 +3550,18 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 		T_DBG2("updated location-specific header in msg %p\n", hm);
 	}
 
+	/*
+	 * When header modifications contains `req_hdr_set` rule for `Host`
+	 * header we must update req->host also, otherwise it leads to
+	 * inconsistency between req->host and Host header in headers table.
+	 */
+	if (!is_resp && h_mods->spec_hdrs[TFW_HTTP_HDR_HOST]) {
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+
+		tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST,
+					 &req->host);
+	}
+
 	return 0;
 }
 
