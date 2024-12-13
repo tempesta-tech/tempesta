@@ -2697,7 +2697,7 @@ tfw_http_req_destruct(void *msg)
 		ss_skb_queue_purge(&req->old_head);
 
 	if (req->stale_ce)
-		tfw_cache_put_entry(req->stale_ce);
+		tfw_cache_put_entry(req->node, req->stale_ce);
 }
 
 /**
