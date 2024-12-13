@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -82,7 +82,7 @@ handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TlsJa5HashEntry *he;
 	u64 key;
 
-	BUG_ON(sizeof(hash) > sizeof(u64));
+	BUILD_BUG_ON(sizeof(hash) > sizeof(u64));
 	TFW_CFG_CHECK_VAL_EQ_N(3, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
@@ -147,24 +147,33 @@ tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+free_cfg(TlsJa5FilterCfg *cfg)
+{
+	u32 bkt_i;
+	TlsJa5HashEntry *entry;
+
+	BUG_ON(!cfg);
+
+	hash_for_each(cfg->hashes, bkt_i, entry, hlist) {
+		tls_put_ja5_hash_entry(entry);
+	}
+	kfree(cfg);
+}
+
 int
 tls_cfgop_ja5_finish(TfwCfgSpec *cs)
 {
 	TlsJa5FilterCfg *prev = tls_filter_cfg;
-	u32 bkt_i;
-	TlsJa5HashEntry *entry;
 
 	BUG_ON(!tls_filter_cfg_reconfig);
 
 	rcu_assign_pointer(tls_filter_cfg, tls_filter_cfg_reconfig);
 	synchronize_rcu();
 	if (prev) {
-		hash_for_each(prev->hashes, bkt_i, entry, hlist) {
-			tls_put_ja5_hash_entry(entry);
-		}
+		free_cfg(prev);
 		T_LOG_NL("Successfully reconfigured ja5 filter");
 	}
-	kfree(prev);
 	tls_filter_cfg_reconfig = NULL;
 
 	return 0;
@@ -173,4 +182,9 @@ tls_cfgop_ja5_finish(TfwCfgSpec *cs)
 void
 tls_cfgop_ja5_cleanup(TfwCfgSpec *cs)
 {
+	/* tls_cfgop_ja5_finish was not called due to parsing error */
+	if (tls_filter_cfg_reconfig) {
+		free_cfg(tls_filter_cfg_reconfig);
+		tls_filter_cfg_reconfig = NULL;
+	}
 }
