@@ -83,8 +83,10 @@
 #define SCHED_ENTRY_TO_STREAM(sched_entry)		\
 	(container_of(sched_entry, TfwStream, prio.rfc7540_prio.sched))	
 
-#define SCHED_PARENT_STREAM(sched, dep)			\
-	(dep != &sched->root ? container_of(dep, TfwStream, sched)->id : 0)
+#define SCHED_PARENT_STREAM_ID(sched, dep)			\
+	(dep != &sched->root					\
+	 ? container_of(dep, TfwStream, prio.rfc7540_prio.sched)->id	\
+	 : 0)
 
 #define STREAM_SCHED_PTR(stream) (&stream->prio.rfc7540_prio.sched)
 #define STREAM_SCHED_NODE_PTR(stream) (&stream->prio.rfc7540_prio.sched_node)
@@ -346,7 +348,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		T_DBG3("Add new stream dependency: stream (id %u deficit %llu"
 		       " excl %d) depends from stream with id %d, ctx %px\n",
 	       	       stream->id, deficit, excl,
-	       	       SCHED_PARENT_STREAM(sched, dep), ctx);
+	       	       SCHED_PARENT_STREAM_ID(sched, dep), ctx);
 		tfw_h2_sched_stream_enqueue(sched, stream, dep, deficit);
 		return;
 	}
@@ -354,7 +356,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 	T_DBG3("Add new stream dependency: stream (id %u deficit %llu"
 	       " excl %d) depends from stream with id %d, ctx %px\n",
 	       stream->id, tfw_h2_stream_default_deficit(stream),
-	       excl, SCHED_PARENT_STREAM(sched, dep), ctx);
+	       excl, SCHED_PARENT_STREAM_ID(sched, dep), ctx);
 
 	/*
 	 * Here we move children of dep scheduler to the current stream
@@ -385,7 +387,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		T_DBG3("During adding new stream dependency, move blocked child"
 		       " (id %u new deficit %llu) of stream with id (%u) to the"
 		       " new exclusively added strean with id (%u), ctx %px\n",
-		       child->id, deficit, SCHED_PARENT_STREAM(sched, dep),
+		       child->id, deficit, SCHED_PARENT_STREAM_ID(sched, dep),
 		       stream->id, ctx);
 		tfw_h2_stream_sched_move_child(sched, child,
 					       STREAM_SCHED_PTR(stream),
@@ -402,7 +404,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		T_DBG3("During adding new stream dependency, move active child"
 		       " (id %u new deficit %llu) of stream with id (%u) to the"
 		       " new exclusively added strean with id (%u), ctx %px\n",
-		       child->id, deficit, SCHED_PARENT_STREAM(sched, dep),
+		       child->id, deficit, SCHED_PARENT_STREAM_ID(sched, dep),
 		       stream->id, ctx);
 		tfw_h2_stream_sched_move_child(sched, child,
 					       STREAM_SCHED_PTR(stream),
@@ -430,7 +432,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	u64 deficit;
 
 	T_DBG3("Stream (id %u parent id %u removed from dependency tree,"
-	       " ctx %px\n", stream->id, SCHED_PARENT_STREAM(sched, parent),
+	       " ctx %px\n", stream->id, SCHED_PARENT_STREAM_ID(sched, parent),
 	       ctx);
 
 	tfw_h2_stream_sched_spin_lock_assert(sched);
@@ -476,7 +478,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		       " tree, move its blocked child (id %u new deficit %llu)"
 		       " to the new parent stream with id (%u), ctx %px\n",
 		       stream->id, child->id, deficit,
-		       SCHED_PARENT_STREAM(sched, parent), ctx);
+		       SCHED_PARENT_STREAM_ID(sched, parent), ctx);
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
 	}
 
@@ -501,7 +503,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 		       " tree, move its active child (id %u new deficit %llu)"
 		       " to the new parent stream with id (%u), ctx %px\n",
 		       stream->id, child->id, deficit,
-		       SCHED_PARENT_STREAM(sched, parent), ctx);
+		       SCHED_PARENT_STREAM_ID(sched, parent), ctx);
 		tfw_h2_stream_sched_move_child(sched, child, parent, deficit);
 	}
 
@@ -548,7 +550,7 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 	T_DBG3("Change stream dependency: stream with id (%u), which previously"
 	       " depends from stream with id (%u) now depends from stream with"
 	       " id (%u). New weight (%hu) of the stream (id %u) excl %d,"
-	       " ctx %px\n", stream_id, SCHED_PARENT_STREAM(sched, old_parent),
+	       " ctx %px\n", stream_id, SCHED_PARENT_STREAM_ID(sched, old_parent),
 	       new_dep, new_weight, stream_id, excl, ctx);
 
 	new_parent = tfw_h2_find_stream_dep(sched, new_dep);
@@ -701,6 +703,6 @@ tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream)
 
 #undef STREAM_SCHED_NODE_PTR
 #undef STREAM_SCHED_PTR
-#undef SCHED_PARENT_STREAM
+#undef SCHED_PARENT_STREAM_ID
 #undef SCHED_ENTRY_TO_STREAM
 #undef SCHED_NODE_TO_STREAM

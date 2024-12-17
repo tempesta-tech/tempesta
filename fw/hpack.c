@@ -18,6 +18,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #undef DEBUG
+#undef DBG_HPACK
+#define DBG_HPACK 3
 #if DBG_HPACK > 0
 #define DEBUG DBG_HPACK
 #endif

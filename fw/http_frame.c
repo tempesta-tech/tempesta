@@ -1758,6 +1758,7 @@ next_msg:
 	case T_BLOCK_WITH_FIN:
 		r = (save_err_code != T_OK || was_stopped)
 			? SS_BLOCK_WITH_RST : r;
+		fallthrough;
 	case T_BLOCK_WITH_RST:
 		T_DBG3("Drop invalid HTTP/2 frame and close connection\n");
 		goto out;

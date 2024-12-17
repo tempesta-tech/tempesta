@@ -8256,12 +8256,15 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 #define RFC9218_STREAM_PRIO(req) (&req->stream->prio.rfc9218_prio)
 
+	printk(KERN_ALERT "QQQ");
+
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_PriorityStart) {
 		if (likely(c == 'u')) {
 			__FSM_H2_I_MOVE_fixup(Req_I_PriorityUrgency, 1, 0);
 		} else if (likely(c == 'i')) {
+			printk(KERN_ALERT "111 QQQ %d", tfw_h2_conn_support_rfc9218(ctx));
 			if (tfw_h2_conn_support_rfc9218(ctx))
 				RFC9218_STREAM_PRIO(req)->incremental = true;
 			__FSM_H2_I_MOVE_fixup(Req_I_Priority_Next_Or_Finish,
@@ -8291,6 +8294,7 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 			__FSM_I_MOVE_fixup(Req_I_PriorityUrgencyParam,
 					   __fsm_sz, TFW_STR_VALUE);
 		default:
+			printk(KERN_ALERT "111 QQQ %d %lu", tfw_h2_conn_support_rfc9218(ctx), parser->_acc);
 			if (parser->_acc < RFC9218_URGENCY_MIN ||
 			    parser->_acc > RFC9218_URGENCY_MAX)
 				return CSTR_NEQ;

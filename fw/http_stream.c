@@ -251,7 +251,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 	T_DBG3("Stop and delete stream (id %u state %d(%s) weight %u)," 
 	       " ctx %px streams num %lu\n", stream->id,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
-	       stream->weight, ctx, ctx->streams_num);
+	       stream->prio.rfc7540_prio.weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
 	tfw_h2_delete_stream(stream);
 	--ctx->streams_num;
