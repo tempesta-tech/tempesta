@@ -2435,7 +2435,7 @@ __cache_entry_size(TfwHttpResp *resp)
 		 * version of this header.
 		 */
 		if (TFW_STR_EMPTY(hdr)
-		    || (hdr->flags & TFW_STR_HBH_HDR)
+		    || (hdr->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
 		    || hid == TFW_HTTP_HDR_SERVER)
 			continue;
 
