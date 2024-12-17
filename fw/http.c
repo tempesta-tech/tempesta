@@ -5008,6 +5008,9 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 				 || TFW_STR_DUP(tgt)))
 			return -EINVAL;
 
+		if (tgt->flags & TFW_STR_HBH_HDR)
+			continue;
+
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 

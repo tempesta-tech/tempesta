@@ -139,7 +139,7 @@ void
 tfw_h2_stream_purge_send_queue(TfwStream *stream)
 {
 	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
-		stream->xmit.frame_length;
+		stream->xmit.t_len + stream->xmit.frame_length;
 	struct sk_buff *skb;
 
 	while (len) {
