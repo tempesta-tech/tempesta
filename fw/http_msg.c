@@ -621,12 +621,17 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	parser->hdr.flags |= TFW_STR_COMPLETE;
 
 	/* Cumulate the trailer headers length */
-	if (is_srv_conn && parser->hdr.flags & TFW_STR_TRAILER) {
+	if (is_srv_conn) {
 		TfwHttpResp* resp = (TfwHttpResp*) hm;
 
-		resp->trailers_len += parser->hdr.len +
-			tfw_str_eolen(&parser->hdr);
+		if (unlikely(parser->hdr.flags & TFW_STR_TRAILER)) {
+			resp->trailers_len += parser->hdr.len +
+				tfw_str_eolen(&parser->hdr);
+		}
 	}
+
+	if (unlikely(parser->hdr.flags & TFW_STR_TRAILER_HDR))
+		hm->trailer_hid = ht->off;
 
 	/*
 	 * We make this frang check here, because it is the earliest
@@ -898,6 +903,35 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 	return 0;
 }
 
+static int
+__hdr_del_part(TfwHttpMsg *hm, unsigned int hid, unsigned flags)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		TfwStr *c, *c_end;
+		int r = 0;
+		int id = 0;
+
+		TFW_STR_FOR_EACH_CHUNK(c, dup, c_end) {
+			if (!(c->flags & flags)) {
+				id++;
+				continue;
+			}
+
+			if ((r = ss_skb_cutoff_data(hm->msg.skb_head, c, 0,
+						    tfw_str_eolen(c))))
+				return r;
+			tfw_str_del_chunk(dup, id);
+			--c;
+			c_end = dup->chunks + dup->nchunks;
+		}
+	};
+
+	return 0;
+}
+
 /**
  * Substitute header value.
  *
@@ -1098,14 +1132,46 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 
 	do {
 		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
+		if (hid == TFW_HTTP_HDR_CONNECTION
+		    && !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR) {
 			if ((r = __hdr_del(hm, hid)))
 				return r;
+		}
 	} while (hid);
 
 	return 0;
+}
+
+int
+tfw_http_msg_adjust_trailer_hdr(TfwHttpMsg *hm)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	int r = 0;
+
+	if (unlikely(hm->trailer_hid)) {
+		TfwStr *hdr = &ht->tbl[hm->trailer_hid];
+
+		/*
+		 * We mark 'Trailer' header with TFW_STR_TRAILER_HDR_HBP
+		 * if there is some hop by hop headers in it. And we
+		 * mark 'Trailer' header with TFW_STR_TRAILER_NOT_HDR_HBP
+		 * flag if there is some not hbp header in it.
+		 */
+		if (unlikely(hdr->flags & TFW_STR_TRAILER_HDR_HBP)) {
+			if (unlikely(hdr->flags &
+				     TFW_STR_TRAILER_NOT_HDR_HBP)) {
+				r = __hdr_del_part(hm, hm->trailer_hid,
+						   TFW_STR_TRAILER_HDR_HBP);
+			} else {
+				r = __hdr_del(hm, hm->trailer_hid);
+			}
+			
+		}
+	}
+
+	return r;
 }
 
 /**

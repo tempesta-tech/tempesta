@@ -272,6 +272,7 @@ typedef struct {
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @trailer_hid		- id of 'Trailer' header;
  * @content_length	- the value of Content-Length header field;
  * @flags		- message related flags. The flags are tested
  *			  concurrently, but concurrent updates aren't
@@ -300,6 +301,7 @@ typedef struct {
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
 	unsigned int	keep_alive;					\
+	unsigned int	trailer_hid;					\
 	unsigned long	content_length;					\
 	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\

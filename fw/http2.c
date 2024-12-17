@@ -539,8 +539,20 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 		stream->xmit.t_len = resp->mit.acc_len - acc;
 
 		if (unlikely(r))
-			T_WARN("Failed to encode trailers");
+			goto finish;
+		/*
+		 * If we do not add any trailers in response (all trailers
+		 * are hop by hop headers), we should remove reserved
+		 * FRAME_HEADER_SIZE.
+		 */
+		if (unlikely(!stream->xmit.t_len)) {
+			r = ss_skb_list_chop_head_tail(&resp->msg.skb_head,
+						       0, FRAME_HEADER_SIZE);
+		}
 
+
+		if (unlikely(r))
+			T_WARN("Failed to encode trailers");
 	}
 
 finish:

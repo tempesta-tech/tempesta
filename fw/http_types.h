@@ -64,6 +64,8 @@ enum {
         TFW_HTTP_B_CHUNKED_APPLIED,
         /* Message has chunked trailer headers part. */
         TFW_HTTP_B_CHUNKED_TRAILER,
+        /* Message has hop by hop headers in 'Trailer' header. */
+        TFW_HTTP_B_HBP_TRAILER,
         /* Message has transfer encodings other than chunked. */
         TFW_HTTP_B_TE_EXTRA,
         /* The message body is limited by the connection closing. */

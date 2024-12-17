@@ -3652,6 +3652,10 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
+	r = tfw_http_msg_adjust_trailer_hdr(hm);
+	if (r < 0)
+		return r;
+
 	r = tfw_http_set_hdr_upgrade(hm, false);
 	if (r < 0)
 		return r;
@@ -5007,6 +5011,9 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 				 || TFW_STR_EMPTY(tgt)
 				 || TFW_STR_DUP(tgt)))
 			return -EINVAL;
+
+		if (tgt->flags & TFW_STR_HBH_HDR)
+			continue;
 
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
@@ -6964,6 +6971,10 @@ next_msg:
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
 	if (unlikely(r))
+		return r;
+
+	r = tfw_http_msg_adjust_trailer_hdr(hmresp);
+	if (r < 0)
 		return r;
 
 	/*
