@@ -2244,7 +2244,8 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		{
 			int hid = field - resp->h_tbl->tbl;
 
-			if (!(field->flags & TFW_STR_TRAILER))
+			if ((!(field->flags & TFW_STR_TRAILER)) ||
+			    (field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR)))
 				continue;
 
 			n = tfw_cache_h2_copy_hdr(db, ce, resp, hid, &p, &trec,
