@@ -3557,6 +3557,13 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 			.nchunks = 2 /* header name + delimeter. */
 		};
 
+		/*
+		 * Skip Host header addition, it already added during request
+		 * adjusting.
+		 */
+		if (desc->hid == TFW_HTTP_HDR_HOST)
+			continue;
+
 		if (TFW_STR_CHUNK(desc->hdr, 1) == NULL)
 			continue;
 
@@ -3620,6 +3627,38 @@ err:
 }
 
 /**
+ * Add Host header to request.
+ *
+ * Write Host header into response, but not override @TfwHttpReq::host, it
+ * may be used on response path.
+ */
+static int
+tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
+{
+	int r;
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	static const DEFINE_TFW_STR(host_n, "Host: ");
+	static const DEFINE_TFW_STR(crlf, S_CRLF);
+
+	r = tfw_http_msg_expand_from_pool(hm, &host_n);
+	if (unlikely(r))
+		return r;
+
+	if (h_mods && test_bit(TFW_HTTP_HDR_HOST, h_mods->spec_hdrs)) {
+		TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->host_off];
+
+		r = tfw_http_msg_expand_from_pool(hm, &desc->hdr->chunks[1]);
+	} else {
+		r = tfw_http_msg_expand_from_pool(hm, &req->host);
+	}
+
+	if (unlikely(r))
+		return r;
+
+	return tfw_http_msg_expand_from_pool(hm, &crlf);
+}
+
+/**
  * Adjust the request before proxying it to real server.
  *
  * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
@@ -3674,7 +3713,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (unlikely(r))
 		goto clean;
 
-	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_HOST) {
+	r = tfw_http_add_hdr_host(req, h_mods);
+	if (unlikely(r))
+		goto clean;
+
+	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_CONTENT_LENGTH) {
 		int hid = pos - hm->h_tbl->tbl;
 		TfwStr *dup, *dup_end, *hdr = pos;
 
@@ -3873,12 +3916,11 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 }
 
 static int
-tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
+tfw_h2_req_set_loc_hdrs(TfwHttpReq *req, TfwHdrMods *h_mods)
 {
 	int i;
 	TfwHttpHdrTbl *ht = req->h_tbl;
-	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
-						    TFW_VHOST_HDRMOD_REQ);
+
 	if (!h_mods)
 		return 0;
 
@@ -3904,21 +3946,6 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 			      " the request [%p]\n", req);
 			return r;
 		}
-	}
-
-	/*
-	 * When header modifications contains `req_hdr_set` rule for `Host`
-	 * header, __h2_req_hdrs modifies only TFW_HTTP_HDR_HOST leaves
-	 * TFW_HTTP_HDR_H2_AUTHORITY untouched. We manualy assign new `Host`
-	 * to TFW_HTTP_HDR_H2_AUTHORITY for consistency between `Host` and
-	 * `authority:`. Espicially because `authority:` has higher priotiy
-	 * and can be used instead of `Host` header during request modification
-	 * when forwarding to backend.
-	 */
-	if (h_mods && test_bit(TFW_HTTP_HDR_HOST, h_mods->spec_hdrs)) {
-		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
-
-		req->h_tbl->tbl[TFW_HTTP_HDR_H2_AUTHORITY] = *host;
 	}
 
 	return 0;
@@ -4007,9 +4034,11 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 	bool auth, host;
 	size_t pseudo_num;
-	TfwStr host_val = {}, *field, *end;
+	TfwStr tmp_host = {}, *host_val, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
+	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
+						    TFW_VHOST_HDRMOD_REQ);
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(dlm, S_DLM);
 	static const DEFINE_TFW_STR(crlf, S_CRLF);
@@ -4084,7 +4113,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 * warning about performance impact, so just live it as is, a more
 	 * robust algorithm will be used here if really required.
 	 */
-	if ((r = tfw_h2_req_set_loc_hdrs(req)))
+	if (unlikely((r = tfw_h2_req_set_loc_hdrs(req, h_mods))))
 		return r;
 	/*
 	 * tfw_h2_req_set_loc_hdrs() may realloc header table and user may
@@ -4189,24 +4218,27 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	r = tfw_msg_write(&it, &sp);
 	if (unlikely(r))
 		goto err;
-
 	r = tfw_msg_write(&it, &req->uri_path);
 	if (unlikely(r))
 		goto err;
-
 	r = tfw_msg_write(&it, &fl_end); /* start of Host: header */
 	if (unlikely(r))
 		goto err;
-
-	if (auth)
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY], &host_val);
-	else if (host)
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &host_val);
-
-	r = tfw_msg_write(&it, &host_val);
+	if (h_mods && test_bit(TFW_HTTP_HDR_HOST, h_mods->spec_hdrs)) {
+		host_val = &h_mods->hdrs[h_mods->host_off].hdr->chunks[1];
+	}
+	else if (auth) {
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
+				 &tmp_host);
+		host_val = &tmp_host;
+	}
+	else if (host) {
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &tmp_host);
+		host_val = &tmp_host;
+	}
+	r = tfw_msg_write(&it, host_val);
 	if (unlikely(r))
 		goto err;
-
 	r = tfw_msg_write(&it, &crlf);
 	if (unlikely(r))
 		goto err;
