@@ -3621,6 +3621,10 @@ err:
 
 /**
  * Adjust the request before proxying it to real server.
+ *
+ * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
+ * Do so to be able to use persistent connection with upstream and also to use
+ * extended conditional headers mechanism.
  */
 static int
 tfw_h1_adjust_req(TfwHttpReq *req)
