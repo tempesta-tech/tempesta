@@ -3376,25 +3376,12 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		case CSTR_NEQ:
 			return CSTR_NEQ;
 		case CSTR_POSTPONE:
-			if (likely(!test_bit(TFW_HTTP_B_ABSOLUTE_URI,
-					     req->flags)))
-			{
-				req->host_port = parser->_acc;
-			}
 			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz,
 					   TFW_STR_VALUE);
 		default:
-			/*
-			 * Don't override `host_port` when URI is absolute
-			 * `host_port` taken from it.
-			 */
-			if (likely(!test_bit(TFW_HTTP_B_ABSOLUTE_URI,
-					     req->flags)))
-			{
-				req->host_port = parser->_acc;
-				if (!req->host_port)
-					return CSTR_NEQ;
-			}
+			req->host_port = parser->_acc;
+			if (!req->host_port)
+				return CSTR_NEQ;
 
 			parser->_acc = 0;
 			__FSM_I_MOVE_fixup(Req_I_H_PortEnd, __fsm_n,
@@ -3406,17 +3393,9 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_H_PortEnd) {
 		/* See Req_UriPort processing. */
 		if (IS_CRLFWS(c)) {
-			/*
-			 * Don't validate `host_port` when URI is absolute,
-			 * it be validated during URI parsing. Here we validate
-			 * only port from host header, but port from URI will
-			 * be used for message forwarding.
-			 */
-			if (unlikely(!req->host_port &&
-			    !test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags))) {
+			if (unlikely(!req->host_port))
 				/* Header ended before port was parsed. */
 				return CSTR_NEQ;
-			}
 			return __data_off(p);
 		}
 	}
@@ -6080,6 +6059,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_STATE(Req_UriAuthorityResetHost, cold) {
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			__msg_field_open(&req->host, p);
+			__msg_field_chunk_flags(&req->host, TFW_STR_VALUE);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (c == '[') {
 			__msg_field_open(&req->host, p);
@@ -6089,8 +6069,13 @@ Req_Method_1CharStep: __attribute__((cold))
 	}
 
 	__FSM_STATE(Req_UriAuthorityEnd, cold) {
-		if (c == ':')
-			__FSM_MOVE_f(Req_UriPort, &req->host);
+		if (c == ':') {
+			/* Fixup host part using TFW_STR_VALUE flag. */
+			__msg_field_fixup(&req->host, p);
+			/* Fixup ":" with zero flag, move to port */
+			__msg_field_fixup_pos(&req->host, p, 1);
+			__FSM_MOVE_nofixup(Req_UriPort);
+		}
 		/* Authority End */
 		__msg_field_finish(&req->host, p);
 		T_DBG3("Userinfo len = %i, host len = %i\n",
@@ -6116,18 +6101,19 @@ Req_Method_1CharStep: __attribute__((cold))
 		case CSTR_NEQ:
 			TFW_PARSER_DROP(Req_UriPort);
 		case CSTR_POSTPONE:
-			__FSM_MOVE_nf(Req_UriPort, __fsm_sz, &req->host);
+			__msg_field_fixup_pos(&req->host, p, __fsm_sz);
+			__FSM_MOVE_nofixup_n(Req_UriPort, __fsm_sz);
 		default:
-			req->host_port = parser->_acc;
-			if (!req->host_port)
+			req->uri_port = parser->_acc;
+			if (!req->uri_port)
 				TFW_PARSER_DROP(Req_UriPort);
 			parser->_acc = 0;
-			__FSM_MOVE_nf(Req_UriPortEnd, __fsm_n, &req->host);
+			__msg_field_finish_pos(&req->host, p, __fsm_n);
+			__FSM_MOVE_nofixup_n(Req_UriPortEnd, __fsm_n);
 		}
 	}
 
 	__FSM_STATE(Req_UriPortEnd, cold) {
-		__msg_field_finish(&req->host, p);
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);

@@ -386,6 +386,8 @@ typedef struct {
  * @hash	- hash value for caching calculated for the request;
  * @frang_st	- current state of FRANG classifier;
  * @chunk_cnt	- header or body chunk count for Frang classifier;
+ * @host_port	- Port parsed from Host header.
+ * @uri_port	- Port parser from request's URI.
  * @node	- NUMA node where request is serviced;
  * @retries	- the number of re-send attempts;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
@@ -423,7 +425,8 @@ struct tfw_http_req_t {
 	unsigned long		hash;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
-	unsigned int		host_port;
+	unsigned short		host_port;
+	unsigned short		uri_port;
 	unsigned short		node;
 	unsigned short		retries;
 	unsigned char		method;
