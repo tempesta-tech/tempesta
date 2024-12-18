@@ -765,7 +765,7 @@ skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it, int *fragn)
 {
 	if (unlikely(abs(len) > PAGE_SIZE)) {
-		T_WARN("Attempt to add or delete too much data: %u\n", len);
+		T_WARN("Attempt to add or delete too much data: %d\n", len);
 		return -EINVAL;
 	}
 	/* skbs with skb fragments are not expected. */
@@ -1011,11 +1011,14 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 {
 	int r;
 	TfwStr it = {};
-	int _;
+	int _, to_delete;
 
 	while (len) {
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, skb, ptr, -len, &it, &_);
+		to_delete = unlikely(abs(len) > PAGE_SIZE) ?
+			PAGE_SIZE : len;
+
+		r = skb_fragment(skb_head, skb, ptr, -to_delete, &it, &_);
 		if (r < 0) {
 			T_WARN("Can't delete len=%i from skb=%p\n", len, skb);
 			return r;
