@@ -98,13 +98,31 @@ struct tfw_hdr_mods_desc_t {
 	bool		append;
 };
 
+/*
+ * Layout of headers list in tfw_hdr_mods_t::hdrs. It allows to iterate over
+ * "Non-indexed raw headers *hdr_set". See @tfw_http_hdr_skip().
+ *
+ *     .----------------------------------------.
+ *     | Special headers *hdr_set               |
+ *     :----------------------------------------:
+ *     | Hpack indexed raw headers *hdr_set     |
+ *     :----------------------------------------:
+ *     | Non-indexed raw headers *hdr_set       |
+ *     :----------------------------------------:
+ *     | All headers *hdr_add                   |
+ *     '----------------------------------------'
+ *
+ */
+
 /**
+ *
  * Headers modification before forwarding HTTP message.
  *
  * @sz		- Total number of headers to modify;
  * @set_num	- Number of headers to modify using req/resp_hdr_set directive;
  * @scan_off	- Offset in @hdrs to start finding header to modify by name
  * 		  comparision;
+ * @host_off	- Offset of the Host header in @hdrs.
  * @hdrs	- Headers to modify;
  * @spec_hdrs	- Bitmap of special headers;
  * @s_tbl	- Bitmap of headers from static table. Static table index
@@ -113,9 +131,10 @@ struct tfw_hdr_mods_desc_t {
  * 		  indexed from one, zero bit always set to zero;
  */
 struct tfw_hdr_mods_t {
-	unsigned int	sz:16;
+	unsigned int	sz:8;
 	unsigned int	set_num:8;
 	unsigned int	scan_off:8;
+	unsigned int	host_off:8;
 	TfwHdrModsDesc	*hdrs;
 	DECLARE_BITMAP	(spec_hdrs, TFW_MOD_SPEC_HDR_NUM);
 	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES + 1);

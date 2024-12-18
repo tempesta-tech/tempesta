@@ -939,6 +939,8 @@ static void
 tfw_mod_hdr_sort(TfwLocation *loc)
 {
 	unsigned short type;
+	TfwHdrMods *req_h_mods;
+	int i;
 
 	for (type = 0; type < TFW_VHOST_HDRMOD_NUM; type++) {
 		TfwHdrMods *h_mods = &loc->mod_hdrs[type];
@@ -953,6 +955,18 @@ tfw_mod_hdr_sort(TfwLocation *loc)
 		 */
 		if (h_mods->scan_off > 0)
 			h_mods->scan_off--;
+	}
+
+	/*
+	 * Save offset of Host header, to be able to add the header to the
+	 * head of the request during the request adjusting.
+	 */
+	req_h_mods = &loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ];
+	for (i = 0; i < req_h_mods->sz; i++) {
+		if (req_h_mods->hdrs[i].hid == TFW_HTTP_HDR_HOST) {
+			req_h_mods->host_off = i;
+			break;
+		}
 	}
 }
 
