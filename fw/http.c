@@ -5237,8 +5237,14 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		 * change stream state here, because in this state we
 		 * already don't expect to receive any frames other then
 		 * PRIORITY or WINDOW_UPDATE.
+		 * There is also a very small chance that stream is already
+		 * in HTTP2_STREAM_CLOSED state here in case when error
+		 * response was already sent. (This can occurs when we call
+		 * this function during processing invalid response and error
+		 * response is sent on other cpu).
 		 */
-		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED);
+		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED
+			     && stream_state != HTTP2_STREAM_CLOSED);
 		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
 			tfw_connection_put(conn);
 			return T_BAD;
