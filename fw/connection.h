@@ -315,11 +315,6 @@ typedef struct {
 	void (*conn_repair)(TfwConn *conn);
 
 	/*
-	 * Called to shutdown a connection intentionally on Tempesta side.
-	 */
-	int (*conn_shutdown)(TfwConn *conn, bool sync);
-
-	/*
 	 * Called to close a connection intentionally on Tempesta side.
 	 */
 	int (*conn_close)(TfwConn *conn, bool sync);
@@ -453,25 +448,6 @@ __tfw_connection_get_if_live(TfwConn *conn)
 
 #define tfw_srv_conn_get_if_live(c)	\
 	__tfw_connection_get_if_live((TfwConn *)(c))
-
-static inline bool
-tfw_connection_was_stopped(TfwConn *conn)
-{
-	return (TFW_CONN_TYPE(conn) & Conn_Stop)
-		|| (TFW_CONN_TYPE(conn) & Conn_Shutdown);
-}
-
-static inline bool
-tfw_connection_stop_rcv(TfwConn *conn)
-{
-	/*
-	 * We should continue to process WINDOW_UPDATE frames
-	 * for HTTP2 client connections, to ensure delivery of
-	 * response with a body larger than HTTP window size.
-	 */
-	return (tfw_connection_was_stopped(conn)
-		&& (!((TFW_CONN_TYPE(conn) & Conn_H2Clnt) == Conn_H2Clnt)));
-}
 
 static inline void
 tfw_connection_put(TfwConn *conn)
@@ -633,7 +609,6 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
-int tfw_connection_shutdown(TfwConn *conn, bool sync);
 int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
