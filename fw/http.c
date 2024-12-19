@@ -3691,8 +3691,9 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (unlikely(r))
 		goto clean;
 
-	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
-		/* Rewrite PURGE to GET */
+	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags) ||
+	    test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
+		/* Rewrite PURGE or HEAD to GET */
 		meth = &meth_get;
 	else
 		meth = &hm->h_tbl->tbl[TFW_HTTP_METHOD];
