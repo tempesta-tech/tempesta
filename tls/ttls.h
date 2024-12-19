@@ -31,6 +31,7 @@
 #include <net/tls.h>
 
 #include "lib/str.h"
+#include "lib/ja5.h"
 #include "ciphersuites.h"
 #include "ecp.h"
 #include "x509_crt.h"
@@ -268,40 +269,6 @@ struct ttls_alpn_proto {
 	unsigned int	len;
 	int		id;
 };
-
-/**
- * Just a small prime, relatively far from a power of 2
- */
-#define TTLS_JA5_HASH_CALC_PRIME 11
-
-#define TTLS_COMPUTE_JA5_ACCHASH(hash, field)	\
-do {						\
-	(hash) *= TTLS_JA5_HASH_CALC_PRIME;	\
-	(hash) += (field);			\
-} while (0)
-
-/**
- * JA5t TLS client fingerprint
- * 
- * @alpn - chosen ALPN id
- * @has_unknown_alpn - has client sent unknown alpn value
- * @vhost_found - requested vhost presence flag
- * @is_abbreviated - is it going to be resumed session
- * @is_tls1_3 - is tls1.3 flag
- * @cipher_suite_hash - hash of the client cipher suites set
- * @extension_type_hash - hash of the client extensions set
- * @elliptic_curve_hash - hash of the client elliptic curves set
- */
-typedef struct {
-	unsigned char alpn:3;
-	unsigned char has_unknown_alpn:1;
-	unsigned char vhost_found:1;
-	unsigned char is_abbreviated:1;
-	unsigned char is_tls1_3:1;
-	unsigned short cipher_suite_hash;
-	unsigned short extension_type_hash;
-	unsigned short elliptic_curve_hash;
-} TlsJa5t;
 
 #define TTLS_SESS_ID_LEN	32
 #define TTLS_SESS_SECRET_LEN	48

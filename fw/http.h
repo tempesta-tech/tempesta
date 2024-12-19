@@ -31,6 +31,7 @@
 #include "str.h"
 #include "vhost.h"
 #include "client.h"
+#include "lib/ja5.h"
 
 /**
  * HTTP Generic FSM states.
@@ -387,6 +388,7 @@ struct tfw_http_req_t {
 	void			*stale_ce;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
+	HttpJa5h		ja5h;
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;

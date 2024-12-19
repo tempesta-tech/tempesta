@@ -27,7 +27,7 @@
 #define H1_DATE_PARSE_TCNT	5
 #define H1_FWD_TCNT		4
 
-#define H1_SUITE_PART_CNT	3
+#define H1_SUITE_PART_CNT	4
 
 /* http2 tests parts count */
 #define H2_CT_BODYLESS_TCNT	3
@@ -37,6 +37,6 @@
 #define H2_CC_TCNT		5
 #define H2_DATE_FMT_TCNT	2
 
-#define H2_SUITE_PART_CNT	8
+#define H2_SUITE_PART_CNT	9
 
 #endif

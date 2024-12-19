@@ -3289,6 +3289,182 @@ TEST_MPART_DEFINE(http2_parser, forwarded, H2_FWD_TCNT,
 #undef EXPECT_BLOCK_REQ_H2_FORWARDED
 #undef FOR_REQ_H2_FORWARDED
 
+TEST(http2_parser, ja5h)
+{
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 3);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("a"), VALUE("aa")));
+		HEADER(WO_IND(NAME("aa"), VALUE("aaa")));
+		HEADER(WO_IND(NAME("aaa"), VALUE("aaaa")));
+		HEADER(WO_IND(NAME("aaaa"), VALUE("aaaaa")));
+		HEADER(WO_IND(NAME("aaaaa"), VALUE("aaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaa"), VALUE("aaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaa"), VALUE("aaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaa"), VALUE("aaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaa"), VALUE("aaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaa"), VALUE("aaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaa"), VALUE("aaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("aaaaaaaaaaaaaaaaaaaaaa"), VALUE("aaaaaaaaaaaaaaaaaaaaaaa")));
+		HEADER(WO_IND(NAME("b"), VALUE("bb")));
+		HEADER(WO_IND(NAME("bb"), VALUE("bbb")));
+		HEADER(WO_IND(NAME("bbb"), VALUE("bbbb")));
+		HEADER(WO_IND(NAME("bbbb"), VALUE("bbbbb")));
+		HEADER(WO_IND(NAME("bbbbb"), VALUE("bbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbb"), VALUE("bbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbb"), VALUE("bbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbb"), VALUE("bbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbb"), VALUE("bbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbb"), VALUE("bbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbb"), VALUE("bbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("bbbbbbbbbbbbbbbbbbbbbb"), VALUE("bbbbbbbbbbbbbbbbbbbbbbb")));
+		HEADER(WO_IND(NAME("c"), VALUE("cc")));
+		HEADER(WO_IND(NAME("cc"), VALUE("ccc")));
+		HEADER(WO_IND(NAME("ccc"), VALUE("cccc")));
+		HEADER(WO_IND(NAME("cccc"), VALUE("ccccc")));
+		HEADER(WO_IND(NAME("ccccc"), VALUE("cccccc")));
+		HEADER(WO_IND(NAME("cccccc"), VALUE("ccccccc")));
+		HEADER(WO_IND(NAME("ccccccc"), VALUE("cccccccc")));
+		HEADER(WO_IND(NAME("cccccccc"), VALUE("ccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccc"), VALUE("cccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccc"), VALUE("ccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccc"), VALUE("cccccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccccc"), VALUE("ccccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccccc"), VALUE("cccccccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccccccc"), VALUE("ccccccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccccccc"), VALUE("cccccccccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccccccccc"), VALUE("ccccccccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccccccccc"), VALUE("cccccccccccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccccccccccc"), VALUE("ccccccccccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccccccccccc"), VALUE("cccccccccccccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccccccccccccc"), VALUE("ccccccccccccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccccccccccccc"), VALUE("cccccccccccccccccccccc")));
+		HEADER(WO_IND(NAME("cccccccccccccccccccccc"), VALUE("ccccccccccccccccccccccc")));
+		HEADER(WO_IND(NAME("ccccccccccccccccccccccc"), VALUE("cccccccccccccccccccccccc")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 63);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("referer"), VALUE("http://tempesta-tech.com:8080")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 1);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("a=b")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("c=d")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 5);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 2);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("a=b; c=d")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 2);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("a=b; c=d")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("a=aa; q=qq")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 5);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 4);
+	}
+
+	FOR_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("a=b; c=d; d=e; e=k; k=q")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("a=aa; q=qq; r=rr; l=ll")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("aa=a; qq=q; rr=r; ll=l")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("zz=z; yy=y; uu=u; oo=o")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("z=zz; y=yy; u=uu; o=oo")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("t=tt; i=ii; p=pp; x=xx")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("tt=t; ii=i; pp=p; xx=x")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("ttt=t; iii=i; ppp=p; xxx=x")));
+		HEADER(WO_IND(NAME("cookie"), VALUE("tttt=t; iiii=i; pppp=p; xxxx=x")));
+	    HEADERS_FRAME_END();
+	)
+	{
+		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
+		EXPECT_EQ((unsigned)req->ja5h.headers_num, 12);
+		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 31);
+	}
+}
+
 TEST_SUITE_MPART(http2_parser, 0)
 {
 	TEST_RUN(http2_parser, short_name);
@@ -3364,6 +3540,11 @@ TEST_SUITE_MPART(http2_parser, 7)
 	TEST_RUN(http2_parser, perf);
 }
 
+TEST_SUITE_MPART(http2_parser, 8)
+{
+	TEST_RUN(http2_parser, ja5h);
+}
+
 TEST_SUITE_MPART_DEFINE(http2_parser, H2_SUITE_PART_CNT,
 	TEST_SUITE_MPART_NAME(http2_parser, 0),
 	TEST_SUITE_MPART_NAME(http2_parser, 1),
@@ -3372,5 +3553,6 @@ TEST_SUITE_MPART_DEFINE(http2_parser, H2_SUITE_PART_CNT,
 	TEST_SUITE_MPART_NAME(http2_parser, 4),
 	TEST_SUITE_MPART_NAME(http2_parser, 5),
 	TEST_SUITE_MPART_NAME(http2_parser, 6),
-	TEST_SUITE_MPART_NAME(http2_parser, 7));
+	TEST_SUITE_MPART_NAME(http2_parser, 7),
+	TEST_SUITE_MPART_NAME(http2_parser, 8));
 
