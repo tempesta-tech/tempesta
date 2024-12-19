@@ -213,7 +213,7 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 		}
 		p += 2;
 
-		TTLS_COMPUTE_JA5_ACCHASH(tls->sess.ja5t.elliptic_curve_hash, cid);
+		COMPUTE_JA5_ACCHASH(tls->sess.ja5t.elliptic_curve_hash, cid);
 	}
 
 	return 0;
@@ -909,7 +909,7 @@ bad_version:
 		tls->hs->cs_cur_len += 2;
 
 		/* ja5t must be initialized with zeros */
-		TTLS_COMPUTE_JA5_ACCHASH(tls->sess.ja5t.cipher_suite_hash, cs);
+		COMPUTE_JA5_ACCHASH(tls->sess.ja5t.cipher_suite_hash, cs);
 
 		if (tls->hs->cs_cur_len == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
@@ -1027,8 +1027,8 @@ bad_version:
 		       tls->hs->ext_type);
 		io->hslen -= 2;
 
-		TTLS_COMPUTE_JA5_ACCHASH(tls->sess.ja5t.extension_type_hash,
-			tls->hs->ext_type);
+		COMPUTE_JA5_ACCHASH(tls->sess.ja5t.extension_type_hash,
+				    tls->hs->ext_type);
 
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXS);
 	}
