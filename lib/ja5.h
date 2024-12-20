@@ -20,6 +20,8 @@
 #ifndef __LIB_JA5_H__
 #define __LIB_JA5_H__
 
+#include <linux/compiler.h>
+
 /**
  * Different constants for HTTP ja5 hash calculation.
  */
@@ -47,7 +49,7 @@ enum {
  *		  (header name or header name + value if name is
  *		  less then 4 bytes);
  */
-typedef struct {
+typedef struct __packed {
 	unsigned int	padding:6;
 	unsigned int	has_referer:1;
 	unsigned int	headers_num:6;
@@ -55,7 +57,30 @@ typedef struct {
 	unsigned int	method:5;
 	unsigned int	version:1;
 	unsigned int	summ;
-} __packed HttpJa5h;
+} HttpJa5h;
+
+/**
+ * JA5t TLS client fingerprint
+ *
+ * @alpn - chosen ALPN id
+ * @has_unknown_alpn - has client sent unknown alpn value
+ * @vhost_found - requested vhost presence flag
+ * @is_abbreviated - is it going to be resumed session
+ * @is_tls1_3 - is tls1.3 flag
+ * @cipher_suite_hash - hash of the client cipher suites set
+ * @extension_type_hash - hash of the client extensions set
+ * @elliptic_curve_hash - hash of the client elliptic curves set
+ */
+typedef struct {
+	unsigned char alpn:3;
+	unsigned char has_unknown_alpn:1;
+	unsigned char vhost_found:1;
+	unsigned char is_abbreviated:1;
+	unsigned char is_tls1_3:1;
+	unsigned short cipher_suite_hash;
+	unsigned short extension_type_hash;
+	unsigned short elliptic_curve_hash;
+} TlsJa5t;
 
 #define HTTP_JA5H_CALC_NUM(val, max, num)				\
 	({								\
