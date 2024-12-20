@@ -545,6 +545,61 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 	       hdr_start, *hdr_start, hdr->skb);
 }
 
+static void
+tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
+{
+	const TfwStr *dup, *dup_end, *c, *chunk_end;
+	size_t len = 0;
+	unsigned int summ = 0;
+
+#define TFW_CHAR4_INT(data)	*((u32 *)(data))
+#define TFW_CHAR3_INT(data)	((data[2] << 16) | *((u16 *)(data)))
+#define TFW_CHAR2_INT(data)	*((u16 *)(data))
+#define TFW_CHAR_INT(data)	(data[0])
+#define	HDR_LEN_MAX	4
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end) {
+			unsigned int curr_summ = 0;
+			unsigned int curr_len = min(c->len, HDR_LEN_MAX - len);
+
+			switch (curr_len) {
+			case 4:
+				curr_summ = TFW_CHAR4_INT(c->data);
+				break;
+			case 3:
+				curr_summ = TFW_CHAR3_INT(c->data);
+				break;
+			case 2:
+				curr_summ = TFW_CHAR2_INT(c->data);
+				break;
+			case 1:
+				curr_summ = TFW_CHAR_INT(c->data);
+				break;
+			default:
+				WARN_ON(1);
+				return;
+			}
+
+			curr_summ <<= (len << 3);
+			summ += curr_summ;
+			len += curr_len;
+
+			if (len == HDR_LEN_MAX)
+				goto out;
+		}
+	}
+
+out:
+	COMPUTE_JA5_ACCHASH(req->ja5h.summ, summ);
+
+#undef HDR_LEN_MAX
+#undef TFW_CHAR_INT
+#undef TFW_CHAR2_INT
+#undef TFW_CHAR3_INT
+#undef TFW_CHAR4_INT
+}
+
 /**
  * Store fully parsed, probably compound, header (i.e. close it) to
  * HTTP message headers list.
@@ -668,6 +723,12 @@ done:
 
 		req->header_list_sz += h->len + TFW_HTTP_MSG_HDR_OVERHEAD(hm);
 		req->headers_cnt++;
+		HTTP_JA5H_REQ_CALC_NUM(req, headers, TFW_HTTP_JA5H_HEADERS_MAX,
+				       1);
+		if (likely(id < TFW_HTTP_HDR_RAW))
+			COMPUTE_JA5_ACCHASH(req->ja5h.summ, id);
+		else
+			tfw_http_req_calc_ja5h_summ_for_raw_hdr(req, h);
 	}
 
 	TFW_STR_INIT(&parser->hdr);

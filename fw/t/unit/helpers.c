@@ -308,7 +308,7 @@ tfw_cache_build_resp_stale(TfwHttpReq *req)
 }
 
 void
-tfw_cache_put_entry(void *ce)
+tfw_cache_put_entry(int node, void *ce)
 {
 }
 
