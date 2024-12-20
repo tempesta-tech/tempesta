@@ -1463,7 +1463,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		case HPACK_STATE_READY:
 		{
 			unsigned char c = *src++;
-			parser->cstate.is_set = 0;
+			bzero_fast(&parser->cstate, sizeof(parser->cstate));
 
 			if (c & 0x80) { /* RFC 7541 6.1 */
 				T_DBG3("%s: > Indexed Header Field\n", __func__);
