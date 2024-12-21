@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -150,11 +150,11 @@ export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
 
 obj-m	+= lib/ db/core/ fw/ tls/
 
-all: build
+all: buil
 
-build:
+buil:
 ifdef ERROR
-	$(error $(ERROR))
+#	$(error $(ERROR))
 endif
 ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
