@@ -29,26 +29,19 @@ typedef struct {
 	/* TODO: make an unified macro for different types of ja5 hashes */
 	TlsJa5t			ja5_hash;
 	u64			conns_per_sec;
-	u64			tls_records_per_sec;
+	u64			records_per_sec;
 } TlsJa5HashEntry;
 
-TlsJa5HashEntry*
-tls_get_ja5_hash_entry(TlsJa5t hash);
+TlsJa5HashEntry *tls_get_ja5_hash_entry(TlsJa5t hash);
 
-void
-tls_put_ja5_hash_entry(TlsJa5HashEntry *entry);
+void tls_put_ja5_hash_entry(TlsJa5HashEntry *entry);
 
-u32
-tls_get_ja5_max_entries(void);
+size_t tls_get_ja5_storage_size(void);
 
-int
-handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
+int handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
 
-int
-tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
+int tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
 
-int
-tls_cfgop_ja5_finish(TfwCfgSpec *cs);
+int tls_cfgop_ja5_finish(TfwCfgSpec *cs);
 
-void
-tls_cfgop_ja5_cleanup(TfwCfgSpec *cs);
+void tls_cfgop_ja5_cleanup(TfwCfgSpec *cs);

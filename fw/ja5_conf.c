@@ -23,11 +23,11 @@
 #include "ja5_conf.h"
 #include "hash.h"
 
-#define TLS_JA5_DEFAULT_MAX_ENTRIES 100
+#define TLS_JA5_DEFAULT_STORAGE_SIZE (1024 * 1024 * 50)
 #define TLS_JA5_HASHTABLE_BITS 10
 
 typedef struct {
-	u32 max_entries_cnt;
+	size_t storage_size;
 	DECLARE_HASHTABLE(hashes, TLS_JA5_HASHTABLE_BITS);
 } TlsJa5FilterCfg;
 
@@ -61,16 +61,20 @@ tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 		kfree(entry);
 }
 
-u32
-tls_get_ja5_max_entries(void)
+size_t
+tls_get_ja5_storage_size(void)
 {
-	u32 res;
+	if (tls_filter_cfg) {
+		size_t res;
 
-	rcu_read_lock_bh();
-	res = rcu_dereference_bh(tls_filter_cfg)->max_entries_cnt;
-	rcu_read_unlock_bh();
+		rcu_read_lock_bh();
+		res = rcu_dereference_bh(tls_filter_cfg)->storage_size;
+		rcu_read_unlock_bh();
 
-	return  res;
+		return res;
+	}
+
+	return  0;
 }
 
 int
@@ -109,7 +113,7 @@ handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	he->ja5_hash = hash;
 	he->conns_per_sec = conns_per_sec;
-	he->tls_records_per_sec = recs_per_sec;
+	he->records_per_sec = recs_per_sec;
 	INIT_HLIST_NODE(&he->hlist);
 	he->refcnt.counter = 1;
 
@@ -126,22 +130,26 @@ tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_EQ_N(0, cs, ce);
 	TFW_CFG_CHECK_ATTR_LE_N(1, cs, ce);
 
-	if (!(tls_filter_cfg_reconfig = kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
+	if (!(tls_filter_cfg_reconfig =
+		kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
 		return -ENOMEM;
 
 	if (ce->attr_n == 1) {
-		if (strcasecmp(ce->attrs[0].key, "max_entries")) {
-			T_ERR_NL("Failed to parse ja5 section: invalid attribute %s",
-				ce->attrs[0].key);
+		if (strcasecmp(ce->attrs[0].key, "storage_size")) {
+			T_ERR_NL("Failed to parse ja5 section: "
+			"invalid attribute %s", ce->attrs[0].key);
 			return -EINVAL;
 		}
 
-		if (kstrtou32(ce->attrs[0].val, 10, &tls_filter_cfg_reconfig->max_entries_cnt)) {
-			T_ERR_NL("Failed to parse ja5 section: invalid max_entries value");
+		if (kstrtoul(ce->attrs[0].val, 10,
+			&tls_filter_cfg_reconfig->storage_size)) {
+			T_ERR_NL("Failed to parse ja5 section: "
+				"invalid storage_size value");
 			return -EINVAL;
 		}
 	} else {
-		tls_filter_cfg_reconfig->max_entries_cnt = TLS_JA5_DEFAULT_MAX_ENTRIES;
+		tls_filter_cfg_reconfig->storage_size =
+			TLS_JA5_DEFAULT_STORAGE_SIZE;
 	}
 
 	return 0;
