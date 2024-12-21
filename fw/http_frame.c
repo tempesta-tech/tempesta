@@ -381,7 +381,6 @@ tfw_h2_send_ping(TfwH2Ctx *ctx)
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 
 }
-ALLOW_ERROR_INJECTION(tfw_h2_send_ping, ERRNO);
 
 static inline int
 tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
@@ -719,7 +718,6 @@ fail:
 	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
 	return tfw_h2_current_stream_send_rst(ctx, err_code);
 }
-ALLOW_ERROR_INJECTION(tfw_h2_wnd_update_process, ERRNO);
 
 static inline int
 tfw_h2_priority_process(TfwH2Ctx *ctx)
@@ -1018,7 +1016,6 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
 #define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
 do {									\
@@ -1037,16 +1034,6 @@ do {									\
 
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
-
-	if (((TFW_CONN_TYPE((TfwConn *)conn) & Conn_Stop) ||
-	    (TFW_CONN_TYPE((TfwConn *)conn) & Conn_Shutdown))
-	    && hdr_type != HTTP2_WINDOW_UPDATE) {
-		T_DBG3("Drop %s frame, because connection is closing",
-		       __h2_frm_type_n(hdr_type));
-		ctx->state = HTTP2_IGNORE_FRAME_DATA;
-		SET_TO_READ(ctx);
-		return 0;
-	}
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
@@ -1695,47 +1682,11 @@ tfw_h2_allowed_empty_frame(TfwH2Ctx *ctx)
 int
 tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb, struct sk_buff **next)
 {
-	int r, save_err_code = T_OK;
+	int r;
 	bool postponed;
 	unsigned int parsed, unused;
 	TfwH2Ctx *h2 = tfw_h2_context_unsafe(c);
 	struct sk_buff *nskb = NULL;
-	bool was_stopped = tfw_connection_was_stopped(c);
-
-#define TFW_H2_CONN_PROCESS_RESULT(r, save_err_code, was_stopped, nskb)	\
-do {									\
-	/*								\
-	 * If error occurs second time (save_error_code is not zero or	\
-	 * was_stopped is true) close connection immediately with RST.	\
-	 */								\
-	r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?	\
-		SS_BLOCK_WITH_RST : r;					\
-	if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {		\
-		kfree_skb(nskb);					\
-		goto out;						\
-	} else if (r && r != T_DROP) {					\
-		/*							\
-		 * If Conn_Stop bit is not set we don't send error	\
-		 * response to client, so we don't need to process	\
-		 * WINDOW_UPDATE frames and can immediately close	\
-		 * connection.						\
-		 */ 							\
-		if (!(TFW_CONN_TYPE(c) & Conn_Stop)) {			\
-			kfree_skb(nskb);				\
-			goto out;					\
-		}		 					\
-		/*							\
-		 * In case of T_BAD or system errors we close connection \
-		 * with tcp_shutdown() and gracefully send all pending	\
-		 * responses to client. We should continue to process	\
-		 * WINDOW_UPDATE frames so, we should not immediately	\
-		 * return from this function.				\
-		 */							\
-		save_err_code = T_BAD;					\
-	} else if (save_err_code != T_OK) {				\
-		r = save_err_code;					\
-	}								\
-} while(0)
 
 next_msg:
 	postponed = false;
@@ -1749,14 +1700,16 @@ next_msg:
 		 * T_BLOCK is error code for high level modules (like frang),
 		 * here we should deal with error code, which accurately
 		 * determine further closing behavior.
+		 * T_DROP is error code, which is returned when connection
+		 * should be alive, but if we can't process frame, we should
+		 * close the connection.
 		 */
-		BUG_ON(r == T_BLOCK);
+		WARN_ON_ONCE(r == T_BLOCK || r == T_DROP);
 		fallthrough;
-	case T_DROP:
 	case T_BAD:
+		r = T_BAD;
+		fallthrough;
 	case T_BLOCK_WITH_FIN:
-		r = (save_err_code != T_OK || was_stopped)
-			? SS_BLOCK_WITH_RST : r;
 	case T_BLOCK_WITH_RST:
 		T_DBG3("Drop invalid HTTP/2 frame and close connection\n");
 		goto out;
@@ -1776,7 +1729,7 @@ next_msg:
 			break;
 		}
 
-		return save_err_code;
+		return T_OK;
 	case T_OK:
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
 		       parsed, skb->len);
@@ -1838,7 +1791,7 @@ next_msg:
 			 */
 			if (!h2->skb_head) {
 				WARN_ON_ONCE(h2->data_off);
-				return save_err_code;
+				return T_OK;
 			}
 		}
 
@@ -1856,8 +1809,12 @@ next_msg:
 		h2->data_off = 0;
 		h2->skb_head = pskb->next = pskb->prev = NULL;
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
-		WARN_ON_ONCE(*next);
-		TFW_H2_CONN_PROCESS_RESULT(r, save_err_code, was_stopped, nskb);
+		/* TODO #1490: Check this place, when working on the task. */
+		if (r && r != T_DROP) {
+			WARN_ON_ONCE(r == T_POSTPONE);
+			kfree_skb(nskb);
+			goto out;
+		}
 	}
 	else if (unlikely(tfw_h2_allowed_empty_frame(h2))) {
 		/*
@@ -1880,14 +1837,17 @@ next_msg:
 		h2->data_off = 0;
 		/* The skb will not be parsed, just flags will be checked. */
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
-		WARN_ON_ONCE(*next);
-		TFW_H2_CONN_PROCESS_RESULT(r, save_err_code, was_stopped, nskb);
+		/* TODO #1490: Check this place, when working on the task. */
+		if (r && r != T_DROP) {
+			WARN_ON_ONCE(r == T_POSTPONE);
+			kfree_skb(nskb);
+			goto out;
+		}
 	}
 	else {
 purge:
 		h2->data_off = 0;
 		ss_skb_queue_purge(&h2->skb_head);
-		r = save_err_code;
 	}
 
 	tfw_h2_context_reinit(h2, postponed);
@@ -1900,16 +1860,8 @@ purge:
 
 out:
 	ss_skb_queue_purge(&h2->skb_head);
-	/*
-	 * If save error code is not null and r == T_BAD
-	 * we should continue to process WINDOW_UPDATE frames
-	 * so skip data from previous frame if necessary.
-	 */
-	if (h2->to_read && r == T_BAD && save_err_code) {
-		h2->state = HTTP2_IGNORE_FRAME_DATA;
-	} else if (r && r != T_POSTPONE && r != T_DROP) {
+	if (r && r != T_POSTPONE && r != T_DROP)
 		tfw_h2_context_reinit(h2, false);
-	}
 	return r;
 
 #undef TFW_H2_CONN_PROCESS_RESULT
@@ -2051,7 +2003,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   int ss_action, unsigned long *snd_wnd)
+			   unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2171,17 +2123,8 @@ do {									\
 		 * GOAWAY and TLS ALERT are pending until error
 		 * response is sent.
 		 */
-		if (unlikely(stream->xmit.skb_head)) {
+		if (unlikely(stream->xmit.skb_head))
 			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
-			/*
-			 * We set ctx->error only when we close connection
-			 * after sending error response. If ss_action is
-			 * SS_CLOSE we don't need to shutdown socket, because
-			 * we will done it from `ss_do_close`.
-			 */
-			if (stream == ctx->error && ss_action != SS_CLOSE)
-				tcp_shutdown(sk, SEND_SHUTDOWN);
-		}
 		tfw_h2_stream_add_closed(ctx, stream);
 		if (stream == ctx->error)
 			ctx->error = NULL;
@@ -2206,7 +2149,7 @@ do {									\
 
 int
 tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
-		   int ss_action, bool *data_is_available)
+		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
@@ -2237,8 +2180,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_stream_xmit_process(sk, ctx, stream, ss_action,
-					       &snd_wnd);
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream, &snd_wnd);
 		deficit = tfw_h2_stream_recalc_deficit(stream);
 		tfw_h2_sched_stream_enqueue(sched, stream, parent, deficit);
 
@@ -2253,13 +2195,6 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 
 	*data_is_available =
 		tfw_h2_stream_sched_is_active(&sched->root) && ctx->rem_wnd;
-
-	/*
-	 * Send shutdown if there is no pending error response in our scheduler
-	 * and this function is called from `ss_do_shutdown`.
-	 */
-	if ((!ctx->error || r) && ss_action == SS_SHUTDOWN)
-		tcp_shutdown(sk, SEND_SHUTDOWN);
 
 	return r;
 }

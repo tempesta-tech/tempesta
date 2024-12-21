@@ -2826,12 +2826,6 @@ tfw_http_conn_init(TfwConn *conn)
 }
 
 static int
-tfw_http_conn_shutdown(TfwConn *conn, bool sync)
-{
-	return ss_shutdown(conn->sk, sync ? SS_F_SYNC : 0);
-}
-
-static int
 tfw_http_conn_close(TfwConn *conn, bool sync)
 {
 	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
@@ -5243,8 +5237,14 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		 * change stream state here, because in this state we
 		 * already don't expect to receive any frames other then
 		 * PRIORITY or WINDOW_UPDATE.
+		 * There is also a very small chance that stream is already
+		 * in HTTP2_STREAM_CLOSED state here in case when error
+		 * response was already sent. (This can occurs when we call
+		 * this function during processing invalid response and error
+		 * response is sent on other cpu).
 		 */
-		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED);
+		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED
+			     && stream_state != HTTP2_STREAM_CLOSED);
 		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
 			tfw_connection_put(conn);
 			return T_BAD;
@@ -7291,7 +7291,6 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_repair	= tfw_http_conn_repair,
-	.conn_shutdown	= tfw_http_conn_shutdown,
 	.conn_close	= tfw_http_conn_close,
 	.conn_abort	= tfw_http_conn_abort,
 	.conn_drop	= tfw_http_conn_drop,

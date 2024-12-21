@@ -338,45 +338,6 @@ typedef struct {
 } TfwHttpCond;
 
 /**
- * Different constants for HTTP ja5 hash calculation.
- */
-enum {
-	TFW_HTTP_JA5H_HTTP_REQ = 0,
-	TFW_HTTP_JA5H_HTTP2_REQ = 1,
-	TFW_HTTP_JA5H_COOKIE_MAX = 31,
-	TFW_HTTP_JA5H_HEADERS_MAX = 63
-};
-
-/**
- * Description of HTTP ja5 hash structure.
- * @ver		- version (http1 or http2);
- * @method	- HTTP method (tfw_http_meth_t value)
- * @cookie_num	- number of Cookie values (all bits set for 31
- *		  and more cookies, within one or several headers);
- * @headers_num	- number of headers (all bits set for 63
- *		  and more headers);
- * @has_refer	- has Refer;
- * @summ	- sum * 11 + header, where header is an 'id'
- *		  if 'id' < TFW_HTTP_HDR_RAW or 4 or less bytes
- *		  (depending on how many bytes available) value
- *		  (header name or header name + value if name is
- *		   less then 4 bytes);
- */
-typedef struct {
-	unsigned int	version:1;
-	unsigned int	method:5;
-	unsigned int	cookie_num:5;
-	unsigned int	headers_num:6;
-	unsigned int	has_refer:1;
-	unsigned int	padding:6;
-	unsigned int	summ;
-} __packed HttpJa5h;
-
-#define HTTP_JA5H_CALC_NUM(req, name, max)				\
-	(req)->ja5h.name##_num = (req)->ja5h.name##_num < max ?		\
-		(req)->ja5h.name##_num + 1 : max
-
-/**
  * HTTP Request.
  *
  * @vhost	- virtual host for the request;

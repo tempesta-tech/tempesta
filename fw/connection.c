@@ -67,18 +67,6 @@ tfw_connection_repair(TfwConn *conn)
 }
 
 int
-tfw_connection_shutdown(TfwConn *conn, bool sync)
-{
-	int r;
-
-	tfw_connection_get(conn);
-	r = TFW_CONN_HOOK_CALL(conn, conn_shutdown, sync);
-	tfw_connection_put(conn);
-
-	return r;
-}
-
-int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
 	int r;
@@ -161,11 +149,6 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
 	int r = T_OK;
 	struct sk_buff *next, *split;
-
-	if (unlikely(tfw_connection_stop_rcv(conn))) {
-		__kfree_skb(skb);
-		return 0;
-	}
 
 	if (skb->prev)
 		skb->prev->next = NULL;
