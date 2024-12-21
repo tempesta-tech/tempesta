@@ -20,7 +20,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "ttls.h"
+#include "lib/ja5.h"
 #include "cfg.h"
 
 typedef struct {

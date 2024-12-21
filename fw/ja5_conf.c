@@ -20,6 +20,9 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <linux/list.h>
+#include <linux/hashtable.h>
+
 #include "ja5_conf.h"
 #include "hash.h"
 
@@ -44,7 +47,7 @@ tls_get_ja5_hash_entry(TlsJa5t hash)
 	rcu_read_lock_bh();
 	cfg = rcu_dereference_bh(tls_filter_cfg);
 	hash_for_each_possible(cfg->hashes, entry, hlist, key) {
-		if (!memcmp_fast(&hash, entry, sizeof(hash))) {
+		if (!memcmp(&hash, entry, sizeof(hash))) {
 			atomic64_inc(&entry->refcnt);
 			break;
 		}
@@ -53,29 +56,31 @@ tls_get_ja5_hash_entry(TlsJa5t hash)
 
 	return entry;
 }
+EXPORT_SYMBOL(tls_get_ja5_hash_entry);
 
 void
 tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 {
-	if (!atomic64_dec_return(&entry->refcnt))
+	if (entry && !atomic64_dec_return(&entry->refcnt))
 		kfree(entry);
 }
+EXPORT_SYMBOL(tls_put_ja5_hash_entry);
 
 size_t
 tls_get_ja5_storage_size(void)
 {
-	if (tls_filter_cfg) {
-		size_t res;
+	size_t res = 0;
 
+	if (tls_filter_cfg) {
 		rcu_read_lock_bh();
 		res = rcu_dereference_bh(tls_filter_cfg)->storage_size;
 		rcu_read_unlock_bh();
-
-		return res;
 	}
 
-	return  0;
+	return res;
+
 }
+EXPORT_SYMBOL(tls_get_ja5_storage_size);
 
 int
 handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
