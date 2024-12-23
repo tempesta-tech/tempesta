@@ -2502,29 +2502,73 @@ __resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	parser->hdr.flags |= TFW_STR_TRAILER_HDR;
 
-	__FSM_STATE(I_Trailer) {
-		TRY_STR_LAMBDA("connection", {}, I_Trailer, I_EoT);
+	__FSM_STATE(I_TrailerStart) {
+		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("connection"), &parser->hdr, {
+			__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, &parser->_acc);
+		}, I_TrailerStart, I_Trailer, 0);
 
-		TRY_STR_INIT();
-		__FSM_I_JMP(I_Trailer_Ext);
-	}
+		__FSM_I_MATCH_MOVE_fixup(token, I_Trailer, 0);
 
-	__FSM_STATE(I_Trailer_Ext) {
-		__FSM_I_MATCH_MOVE(token, I_Trailer_Ext);
-		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
-	}
-
-	__FSM_STATE(I_EoT) {
-		if (IS_WS(c))
-			__FSM_I_MOVE(I_EoT);
-		if (IS_CRLF(c)) {
-			return __data_off(p);
+		if (__fsm_sz == 0) {
+			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				     &parser->_acc))
+			{
+				__FSM_I_chunk_flags(TFW_STR_TRAILER_HDR_HBP);
+				__FSM_I_JMP(I_TrailerEnd);
+			}
 		}
-		__FSM_JMP(I_Trailer);
+
+		__FSM_I_JMP(I_TrailerEnd);
+	}
+
+	/*
+	 * At this state we know that we saw at least one character in
+	 * protocol name and now we can pass zero length token.
+	 */
+	__FSM_STATE(I_Trailer) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_Trailer, 0);
+		if (__fsm_sz == 0) {
+			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
+				     &parser->_acc))
+			{
+				__FSM_I_chunk_flags(TFW_STR_TRAILER_HDR_HBP);
+			}
+		}
+
+		__FSM_I_JMP(I_TrailerEnd);
+	}
+
+	__FSM_STATE(I_TrailerEnd) {
+		if (__fsm_sz)
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+
+		p += __fsm_sz;
+		if (likely(IS_CRLF(*(p)))) {
+			__FSM_EXIT(__data_processed(p));
+		}
+		if (IS_WS(*p))
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+		return CSTR_NEQ;
+	}
+
+	/* End of list entry */
+	__FSM_STATE(I_EoT) {
+		if (IS_WS(*p))
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+
+		if (IS_TOKEN(*p)) {
+			parser->_acc = 0; /* reinit for next list entry */
+			__FSM_I_JMP(I_TrailerStart);
+		}
+		if (IS_CRLF(*p))
+			__FSM_EXIT(__data_processed(p));
+		return CSTR_NEQ;
 	}
 
 done:
 	return r;
+
+#undef __MARK_HBP
 }
 
 static int
@@ -12330,7 +12374,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 
 	/* 'Trailer:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTrailerV, msg,
-				    __resp_parse_trailer, 1);
+				    __resp_parse_trailer, 0);
 
 	/* 'Set-Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,

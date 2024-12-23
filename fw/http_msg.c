@@ -837,6 +837,28 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 	return 0;
 }
 
+static int
+__hdr_del_part(TfwHttpMsg *hm, unsigned int hid, unsigned flags)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		TfwStr *c, *c_end;
+		int r = 0;
+
+		TFW_STR_FOR_EACH_CHUNK(c, dup, c_end) {
+			if (!(c->flags & flags))
+				continue;
+			if ((r = ss_skb_cutoff_data(hm->msg.skb_head, c, 0,
+						    tfw_str_eolen(c))))
+				return r;
+		}
+	};
+
+	return 0;
+}
+
 /**
  * Substitute header value.
  *
@@ -1022,17 +1044,6 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 	return 0;
 }
 
-static void
-print_hm(TfwHttpMsg *hm)
-{
-	struct sk_buff *skb = hm->msg.skb_head;
-
-	do {
-		ss_skb_dump(skb);
-		skb = skb->next;
-	} while(skb != hm->msg.skb_head);
-}
-
 /**
  * Remove hop-by-hop headers in the message
  *
@@ -1044,39 +1055,33 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	unsigned int hid = ht->off, tr_hid = 0;
+	int tr_count = 0, tr_removed = 0;
 	int r = 0;
-	bool clear_tr_header = false;
-
-	print_hm(hm);
 
 	do {
 		hid--;
 		if (hid == TFW_HTTP_HDR_CONNECTION &&
 		    !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_TRAILER_HDR) {
-			printk(KERN_ALERT "tr_hid = hid %u %d", hid, hid == TFW_HTTP_HDR_CONNECTION);
+		if (ht->tbl[hid].flags & TFW_STR_TRAILER_HDR)
 			tr_hid = hid;
-		}
+		if (ht->tbl[hid].flags & TFW_STR_TRAILER)
+			tr_count++;
 		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR) {
-			tfw_str_dprint(&ht->tbl[hid], "DELETE");
-			if (ht->tbl[hid].flags & TFW_STR_TRAILER) {
-				printk(KERN_ALERT "clear_tr_header !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-				clear_tr_header = true;
-			}
+			if (ht->tbl[hid].flags & TFW_STR_TRAILER)
+				tr_removed++;
 			if ((r = __hdr_del(hm, hid)))
 				return r;
-			print_hm(hm);
 		}
 	} while (hid);
 
-	print_hm(hm);
-
-	if (unlikely(clear_tr_header)) {
-		printk(KERN_ALERT "clear_tr_header !!!!!!!!!!!!!!!!!!!!!!!!");
-		return __hdr_del(hm, tr_hid);
+	if (unlikely(tr_removed)) {
+		if (unlikely(tr_count == tr_removed))
+			r = __hdr_del(hm, tr_hid);
+		else
+			r = __hdr_del_part(hm, tr_hid, TFW_STR_TRAILER_HDR_HBP);
 	}
-	return 0;
+	return r;
 }
 
 /**

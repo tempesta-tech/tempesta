@@ -1372,13 +1372,13 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 {
 	const TfwStr *dup, *dup_end, *c, *chunk_end;
 
-	printk(KERN_ALERT "%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
+	printk(KERN_ALERT "%s: addr=%px skb=%px len=%lu flags=%x eolen=%u:\n", msg,
 	      str, str->skb, str->len, str->flags, str->eolen);
 	TFW_STR_FOR_EACH_DUP(dup, str, dup_end) {
-		printk(KERN_ALERT "  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
+		printk(KERN_ALERT "  duplicate %px, len=%lu, flags=%x eolen=%u:\n",
 		      dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			printk(KERN_ALERT "   len=%lu, eolen=%u ptr=%p flags=%x '%.*s'\n",
+			printk(KERN_ALERT "   len=%lu, eolen=%u ptr=%px flags=%x '%.*s'\n",
 			      c->len, c->eolen, c->data, c->flags,
 			      (int)c->len, c->data);
 	}
