@@ -413,6 +413,7 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
+	bool			need_jsch;
 };
 
 #define TFW_IDX_BITS		24
@@ -735,6 +736,7 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 	(TFW_MSG_H2(hmmsg) ? HTTP2_EXTRA_HDR_OVERHEAD : 0)
 
 extern unsigned int max_header_list_size;
+extern bool is_jsch_global;
 
 /* External HTTP functions. */
 int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
