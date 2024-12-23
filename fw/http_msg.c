@@ -1022,6 +1022,17 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 	return 0;
 }
 
+static void
+print_hm(TfwHttpMsg *hm)
+{
+	struct sk_buff *skb = hm->msg.skb_head;
+
+	do {
+		ss_skb_dump(skb);
+		skb = skb->next;
+	} while(skb != hm->msg.skb_head);
+}
+
 /**
  * Remove hop-by-hop headers in the message
  *
@@ -1032,18 +1043,39 @@ int
 tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
+	unsigned int hid = ht->off, tr_hid = 0;
 	int r = 0;
+	bool clear_tr_header = false;
+
+	print_hm(hm);
 
 	do {
 		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
+		if (hid == TFW_HTTP_HDR_CONNECTION &&
+		    !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+		if (ht->tbl[hid].flags & TFW_STR_TRAILER_HDR) {
+			printk(KERN_ALERT "tr_hid = hid %u %d", hid, hid == TFW_HTTP_HDR_CONNECTION);
+			tr_hid = hid;
+		}
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR) {
+			tfw_str_dprint(&ht->tbl[hid], "DELETE");
+			if (ht->tbl[hid].flags & TFW_STR_TRAILER) {
+				printk(KERN_ALERT "clear_tr_header !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+				clear_tr_header = true;
+			}
 			if ((r = __hdr_del(hm, hid)))
 				return r;
+			print_hm(hm);
+		}
 	} while (hid);
 
+	print_hm(hm);
+
+	if (unlikely(clear_tr_header)) {
+		printk(KERN_ALERT "clear_tr_header !!!!!!!!!!!!!!!!!!!!!!!!");
+		return __hdr_del(hm, tr_hid);
+	}
 	return 0;
 }
 

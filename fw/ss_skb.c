@@ -1541,21 +1541,21 @@ ss_skb_dump(struct sk_buff *skb)
 	struct sk_buff *f_skb;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	T_LOG_NL("SKB (%px) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
+	printk(KERN_ALERT "SKB (%px) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
 		 skb, skb->len, skb->data_len, skb->truesize,
 		 refcount_read(&skb->users));
-	T_LOG_NL("  head=%px data=%px tail=%x end=%x\n",
+	printk(KERN_ALERT "  head=%px data=%px tail=%x end=%x\n",
 		 skb->head, skb->data, skb->tail, skb->end);
-	T_LOG_NL("  nr_frags=%u frag_list=%px next=%px prev=%px\n",
+	printk(KERN_ALERT "  nr_frags=%u frag_list=%px next=%px prev=%px\n",
 		 si->nr_frags, skb_shinfo(skb)->frag_list,
 		 skb->next, skb->prev);
-	T_LOG_NL("  head data (%u):\n", skb_headlen(skb));
+	printk(KERN_ALERT "  head data (%u):\n", skb_headlen(skb));
 	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
 		       skb->data, skb_headlen(skb), true);
 
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *f = &si->frags[i];
-		T_LOG_NL("  frag %2d (addr=%px pg_off=%-4u size=%-4u pg_ref=%d):\n",
+		printk(KERN_ALERT "  frag %2d (addr=%px pg_off=%-4u size=%-4u pg_ref=%d):\n",
 			 i, skb_frag_address(f), f->bv_offset,
 			 skb_frag_size(f), page_ref_count(skb_frag_page(f)));
 		print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,

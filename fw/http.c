@@ -4302,6 +4302,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (r < 0)
 		return r;
 
+	printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 	r = tfw_http_msg_del_hbh_hdrs(hm);
 	if (r < 0)
 		return r;

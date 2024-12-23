@@ -475,8 +475,8 @@ size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 TfwStr tfw_str_next_str_val(const TfwStr *str);
 u32 tfw_str_crc32_calc(const TfwStr *str);
 
-#ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
+#ifdef DEBUG
 void tfw_dbg_vprint32(const char *prefix, const unsigned char *v);
 #endif
 

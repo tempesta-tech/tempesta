@@ -2503,10 +2503,24 @@ __resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	parser->hdr.flags |= TFW_STR_TRAILER_HDR;
 
 	__FSM_STATE(I_Trailer) {
-		__FSM_I_MATCH_MOVE(ctext_vchar, I_Trailer);
-		if (IS_CRLF(*(p + __fsm_sz)))
-			return __data_off(p + __fsm_sz);
-		return CSTR_NEQ;
+		TRY_STR_LAMBDA("connection", {}, I_Trailer, I_EoT);
+
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Trailer_Ext);
+	}
+
+	__FSM_STATE(I_Trailer_Ext) {
+		__FSM_I_MATCH_MOVE(token, I_Trailer_Ext);
+		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(I_EoT) {
+		if (IS_WS(c))
+			__FSM_I_MOVE(I_EoT);
+		if (IS_CRLF(c)) {
+			return __data_off(p);
+		}
+		__FSM_JMP(I_Trailer);
 	}
 
 done:
