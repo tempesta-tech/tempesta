@@ -898,6 +898,28 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 	return 0;
 }
 
+static int
+__hdr_del_part(TfwHttpMsg *hm, unsigned int hid, unsigned flags)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		TfwStr *c, *c_end;
+		int r = 0;
+
+		TFW_STR_FOR_EACH_CHUNK(c, dup, c_end) {
+			if (!(c->flags & flags))
+				continue;
+			if ((r = ss_skb_cutoff_data(hm->msg.skb_head, c, 0,
+						    tfw_str_eolen(c))))
+				return r;
+		}
+	};
+
+	return 0;
+}
+
 /**
  * Substitute header value.
  *
@@ -1083,6 +1105,17 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 	return 0;
 }
 
+static void
+xxx(TfwHttpMsg *hm)
+{
+	struct sk_buff *skb = hm->msg.skb_head;
+
+	do {
+		ss_skb_dump(skb);
+		skb = skb->next;
+	} while (skb != hm->msg.skb_head);
+}
+
 /**
  * Remove hop-by-hop headers in the message
  *
@@ -1090,22 +1123,51 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
  * optimize removal of the header.
  */
 int
-tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
+tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm, bool method_is_head)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	unsigned int hid = ht->off;
+	unsigned int hid = ht->off, tr_hid = 0;
+	unsigned int tr_count = 0, tr_removed = 0;
 	int r = 0;
 
 	do {
 		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
+		if (hid == TFW_HTTP_HDR_CONNECTION &&
+		    !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+		if (ht->tbl[hid].flags & TFW_STR_TRAILER_HDR)
+			tr_hid = hid;
+		if (ht->tbl[hid].flags & TFW_STR_TRAILER)
+			tr_count++;
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR) {
+			if (ht->tbl[hid].flags & TFW_STR_TRAILER)
+				tr_removed++;
 			if ((r = __hdr_del(hm, hid)))
 				return r;
+		}
 	} while (hid);
 
-	return 0;
+	if (tr_hid) {
+		if (unlikely(tr_removed)) {
+			if (unlikely(tr_count == tr_removed))
+				r = __hdr_del(hm, tr_hid);
+			else
+				r = __hdr_del_part(hm, tr_hid,
+						   TFW_STR_TRAILER_HDR_HBP);
+		} else if (method_is_head) {
+			if ((r = __hdr_del_part(hm, tr_hid,
+						TFW_STR_TRAILER_HDR_HBP)))
+				return r;
+			xxx(hm);
+			if (!tfw_stricmp(&ht->tbl[tr_hid],
+					 &TFW_STR_STRING("trailer:"))) {
+				printk(KERN_ALERT "XZZZZZZZZZZZZZZZZZZZZZZ");
+				r = __hdr_del(hm, tr_hid);
+			}
+			xxx(hm);
+		}
+	}
+	return r;
 }
 
 /**
@@ -1366,23 +1428,43 @@ this_chunk:
 				return -ENOMEM;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
-			if (!it->skb_head) {
+			if (!it->skb_head)
 				it->skb_head = *skb_head;
 
-				if (start_off && *start_off) {
-					skb_put(it->skb_head, *start_off);
-					*start_off = 0;
-				}
+			if (start_off && *start_off) {
+				skb_put(it->skb, *start_off);
+				*start_off = 0;
 			}
 
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
+		} else if (start_off && *start_off) {
+			skb_frag_t *frag;
+			struct page *page;
+
+			if (it->frag + 1 == MAX_SKB_FRAGS) {
+				it->skb = NULL;
+				goto this_chunk;
+			}	    
+
+			page = alloc_page(GFP_ATOMIC);
+			if (!page)
+				return -ENOMEM;
+
+			++it->frag;
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
+			skb_fill_page_desc(it->skb, it->frag, page,
+					   0, 0);
+			skb_frag_size_add(frag, *start_off);
+			ss_skb_adjust_data_len(it->skb, *start_off);
+			*start_off = 0;
 		}
 
 		cur_len = c->len - off;
 		if (it->frag >= 0) {
 			unsigned int f_size;
-			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+			skb_frag_t *frag;
 
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
 			f_size = skb_frag_size(frag);
 			f_room = PAGE_SIZE - frag->bv_offset - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
@@ -1476,7 +1558,6 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
-	BUG_ON(mit->iter.frag > 0);
 
 	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
 	if (room < MIN_HDR_FRAG_SIZE)

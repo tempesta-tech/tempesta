@@ -253,8 +253,19 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
 /* The chunk contains only WS characters. */
 #define TFW_STR_OWS		0x100
 
-/* Trailer  header. */
+/* Trailer header (which is located after body). */
 #define TFW_STR_TRAILER		0x200
+
+/*
+ * 'Trailer' header (which contains headers names of
+ * trailers). Like Trailer: X-Token1 X-token2 */
+#define TFW_STR_TRAILER_HDR     0x400
+
+/*
+ * Some hop by hop header in 'Trailer' header starts
+ * at the string chunk.
+ */
+#define TFW_STR_TRAILER_HDR_HBP	0x800
 
 #define SLEN(s)			(sizeof(s) - 1)
 
@@ -470,8 +481,8 @@ size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 TfwStr tfw_str_next_str_val(const TfwStr *str);
 u32 tfw_str_crc32_calc(const TfwStr *str);
 
-#ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
+#ifdef DEBUG
 void tfw_dbg_vprint32(const char *prefix, const unsigned char *v);
 #endif
 

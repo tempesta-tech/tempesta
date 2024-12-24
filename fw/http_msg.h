@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -158,7 +158,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, NULL, 0, hid, 0)
 
 int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
-int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
+int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm, bool method_is_head);
 int tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
