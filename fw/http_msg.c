@@ -1044,6 +1044,17 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 	return 0;
 }
 
+static void
+xxx(TfwHttpMsg *hm)
+{
+	struct sk_buff *skb = hm->msg.skb_head;
+
+	do {
+		ss_skb_dump(skb);
+		skb = skb->next;
+	} while (skb != hm->msg.skb_head);
+}
+
 /**
  * Remove hop-by-hop headers in the message
  *
@@ -1051,11 +1062,11 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
  * optimize removal of the header.
  */
 int
-tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
+tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm, bool method_is_head)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	unsigned int hid = ht->off, tr_hid = 0;
-	int tr_count = 0, tr_removed = 0;
+	unsigned int tr_count = 0, tr_removed = 0;
 	int r = 0;
 
 	do {
@@ -1075,11 +1086,25 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 		}
 	} while (hid);
 
-	if (unlikely(tr_removed)) {
-		if (unlikely(tr_count == tr_removed))
-			r = __hdr_del(hm, tr_hid);
-		else
-			r = __hdr_del_part(hm, tr_hid, TFW_STR_TRAILER_HDR_HBP);
+	if (tr_hid) {
+		if (unlikely(tr_removed)) {
+			if (unlikely(tr_count == tr_removed))
+				r = __hdr_del(hm, tr_hid);
+			else
+				r = __hdr_del_part(hm, tr_hid,
+						   TFW_STR_TRAILER_HDR_HBP);
+		} else if (method_is_head) {
+			if ((r = __hdr_del_part(hm, tr_hid,
+						TFW_STR_TRAILER_HDR_HBP)))
+				return r;
+			xxx(hm);
+			if (!tfw_stricmp(&ht->tbl[tr_hid],
+					 &TFW_STR_STRING("trailer:"))) {
+				printk(KERN_ALERT "XZZZZZZZZZZZZZZZZZZZZZZ");
+				r = __hdr_del(hm, tr_hid);
+			}
+			xxx(hm);
+		}
 	}
 	return r;
 }
