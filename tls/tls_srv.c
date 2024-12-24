@@ -35,6 +35,7 @@
 ttls_sni_cb_t *ttls_sni_cb;
 ttls_hs_over_cb_t *ttls_hs_over_cb;
 ttls_alpn_match_t *ttls_alpn_match_cb;
+ttls_ja5t_limit_conn_cb_t *ttls_ja5t_limit_conn_cb;
 
 static int
 ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
@@ -2245,13 +2246,9 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		r = ttls_parse_client_hello(tls, buf, len, hh_len, read);
 		if (r)
 			return r;
-		else {
-			u64 limit = tls_get_ja5_conns_limit(tls->sess.ja5t);
-			u64 rate = ja5t_get_conns_rate(tls->sess.ja5t);
 
-			if (rate > limit)
-				return T_BLOCK_WITH_RST;
-		}
+		if (ttls_ja5t_limit_conn_cb(tls->sess.ja5t))
+			return T_BLOCK_WITH_RST;
 
 		tls->state = TTLS_SERVER_HELLO;
 		fallthrough;

@@ -18,10 +18,27 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "lib/ja5.h"
+#include "ja5t_filter.h"
+#include "lib/ja5_filter.h"
 
-bool ja5t_init_filter(size_t max_storage_size);
+bool
+ja5t_init_filter(size_t max_storage_size)
+{
+	return init_filter(max_storage_size);
+}
 
-u32 ja5t_get_conns_rate(TlsJa5t fingerprint);
+u32
+ja5t_get_conns_rate(TlsJa5t fingerprint)
+{
+	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 
-u32 ja5t_get_records_rate(TlsJa5t fingerprint);
+	return ja5_get_conns_rate(*(u64 *)&fingerprint);
+}
+
+u32
+ja5t_get_records_rate(TlsJa5t fingerprint)
+{
+	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
+
+	return ja5_get_records_rate(*(u64 *)&fingerprint);
+}

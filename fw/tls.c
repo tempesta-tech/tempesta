@@ -1012,6 +1012,7 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 	return false;
 }
 
+
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration.
@@ -1176,6 +1177,24 @@ tfw_tls_get_allow_any_sni_reconfig(void)
 	return allow_any_sni_reconfig;
 }
 
+static bool
+tfw_ja5t_limit_conn(TlsJa5t fingerprint)
+{
+	u64 limit = tls_get_ja5_conns_limit(fingerprint);
+	u64 rate = ja5t_get_conns_rate(fingerprint);
+
+	return rate > limit;
+}
+
+static bool
+tfw_ja5t_limit_rec(TlsJa5t fingerprint)
+{
+	u64 limit = tls_get_ja5_recs_limit(fingerprint);
+	u64 rate = ja5t_get_records_rate(fingerprint);
+
+	return rate > limit;
+}
+
 static TfwCfgSpec tfw_tls_hash_specs[] = {
 	{
 		.name = "hash",
@@ -1230,7 +1249,8 @@ tfw_tls_init(void)
 		return -EINVAL;
 
 	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_over,
-				ttls_cli_id, tfw_tls_alpn_match);
+				ttls_cli_id, tfw_tls_alpn_match,
+				tfw_ja5t_limit_conn, tfw_ja5t_limit_rec);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;
