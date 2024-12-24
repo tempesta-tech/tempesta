@@ -36,7 +36,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
-#include "lib/ja5_conf.h"
+#include "ja5_conf.h"
 #include "ja5t_filter.h"
 
 /* Common tls configuration for all vhosts. */
