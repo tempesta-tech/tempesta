@@ -161,9 +161,12 @@ static u32
 ja5_get_conns_rate(u64 fingerprint)
 {
 	u32 res;
-	Rates *rates = get_fingerprint_rates(fingerprint);
+	Rates *rates;
 
-	if (!rates)
+	if (!storage.tdb)
+		return 0;
+
+	if (!(rates = get_fingerprint_rates(fingerprint)))
 		/* Allow connection if DB is full */
 		return 0;
 
@@ -183,9 +186,12 @@ static u32
 ja5_get_records_rate(u64 fingerprint)
 {
 	u32 res;
-	Rates *rates = get_fingerprint_rates(fingerprint);
+	Rates *rates;
 
-	if (!rates)
+	if (!storage.tdb)
+		return 0;
+
+	if (!(rates = get_fingerprint_rates(fingerprint)))
 		/* Allow record if DB is full */
 		return 0;
 
