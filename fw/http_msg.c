@@ -552,9 +552,9 @@ tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
 	size_t len = 0;
 	unsigned int summ = 0;
 
-#define TFW_CHAR4_INT(data)	*((u32 *)(data))
+#define TFW_CHAR4_INT(data)	(*((u32 *)(data)))
 #define TFW_CHAR3_INT(data)	((data[2] << 16) | *((u16 *)(data)))
-#define TFW_CHAR2_INT(data)	*((u16 *)(data))
+#define TFW_CHAR2_INT(data)	(*((u16 *)(data)))
 #define TFW_CHAR_INT(data)	(data[0])
 #define	HDR_LEN_MAX	4
 
@@ -741,6 +741,8 @@ done:
 
 	return 0;
 }
+
+#undef CALC_JA5H_SUMM
 
 /**
  * Fixup the new data chunk starting at @data with length @len to @str.
