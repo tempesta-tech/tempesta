@@ -20,28 +20,19 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "lib/ja5.h"
-#include "cfg.h"
-
-typedef struct {
-	struct hlist_node	hlist;
-	atomic64_t		refcnt;
-	/* TODO: make an unified macro for different types of ja5 hashes */
-	TlsJa5t			ja5_hash;
-	u64			conns_per_sec;
-	u64			records_per_sec;
-} TlsJa5HashEntry;
-
-TlsJa5HashEntry *tls_get_ja5_hash_entry(TlsJa5t hash);
-
-void tls_put_ja5_hash_entry(TlsJa5HashEntry *entry);
+#include "ja5.h"
+#include "../fw/cfg.h"
 
 size_t tls_get_ja5_storage_size(void);
 
-int handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
+u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint);
 
-int tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
+u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint);
 
-int tls_cfgop_ja5_finish(TfwCfgSpec *cs);
+int ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
 
-void tls_cfgop_ja5_cleanup(TfwCfgSpec *cs);
+int ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
+
+int ja5_cfgop_finish(TfwCfgSpec *cs);
+
+void ja5_cfgop_cleanup(TfwCfgSpec *cs);

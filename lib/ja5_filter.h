@@ -105,7 +105,7 @@ get_fingerprint_rates(u64 fingerprint)
 
 		/**
 		 * Protect from low probable case where all records
-		 * were deleted but held by locks
+		 * were deleted but are held by references
 		 */
 		if (cnt == DB_RECS_TO_FREE_CNT)
 			return NULL;
@@ -132,7 +132,7 @@ init_filter(size_t max_storage_size)
 	spin_lock_init(&storage.lru_list_lock);
 
 	return (storage.tdb = tdb_open(
-		"/tmp/filter_db", max_storage_size, sizeof(Rates), 0));
+		"/tmp/ja5t_flt.tdb", max_storage_size, sizeof(Rates), 0));
 }
 
 static u32
@@ -140,7 +140,7 @@ ja5_calc_rate(TimeSlot slots[])
 {
 	u32 sum = 0;
 	u64 ts = jiffies * JA5_FILTER_TIME_SLOTS_CNT / HZ;
-	u32 end_ts = ts - JA5_FILTER_TIME_SLOTS_CNT;
+	u64 end_ts = ts - JA5_FILTER_TIME_SLOTS_CNT;
 	u8 slot_num = ts % JA5_FILTER_TIME_SLOTS_CNT;
 	TimeSlot *slot = &slots[slot_num];
 
@@ -174,7 +174,7 @@ ja5_get_conns_rate(u64 fingerprint)
 
 	put_fingerprint_rates(rates);
 
-	T_LOG_NL("Fingerprint %08llx: current connections count %d",
+	T_LOG_NL("JA5 Fingerprint %08llx: connections/sec %d",
 		*(u64 *)&fingerprint, res);
 
 	return res;
@@ -196,7 +196,7 @@ ja5_get_records_rate(u64 fingerprint)
 
 	put_fingerprint_rates(rates);
 
-	T_LOG_NL("Fingerprint %08llx: current connections count %d",
+	T_LOG_NL("JA5 Fingerprint %08llx: records/sec %d",
 		*(u64 *)&fingerprint, res);
 
 	return res;

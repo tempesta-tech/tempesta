@@ -22,32 +22,46 @@
 
 #include <linux/list.h>
 #include <linux/hashtable.h>
+#include <linux/slab.h>
 
 #include "ja5_conf.h"
 #include "hash.h"
+#define BANNER "banner"
+#include "log.h"
 
-#define TLS_JA5_DEFAULT_STORAGE_SIZE (1024 * 1024 * 50)
+/* Define default size as multiple of TDB extent size */
+#define TLS_JA5_DEFAULT_STORAGE_SIZE ((1 << 21) * 25)
 #define TLS_JA5_HASHTABLE_BITS 10
+
+typedef struct {
+	struct hlist_node	hlist;
+	atomic64_t		refcnt;
+	/* TODO: make an unified macro for different types of ja5 hashes */
+	TlsJa5t			ja5_hash;
+	u64			conns_per_sec;
+	u64			records_per_sec;
+} TlsJa5HashEntry;
 
 typedef struct {
 	size_t storage_size;
 	DECLARE_HASHTABLE(hashes, TLS_JA5_HASHTABLE_BITS);
 } TlsJa5FilterCfg;
 
-static TlsJa5FilterCfg __rcu    *tls_filter_cfg;
-static TlsJa5FilterCfg          *tls_filter_cfg_reconfig;
+static TlsJa5FilterCfg __rcu	*tls_filter_cfg;
+static TlsJa5FilterCfg		*tls_filter_cfg_reconfig;
 
-TlsJa5HashEntry*
-tls_get_ja5_hash_entry(TlsJa5t hash)
+static TlsJa5HashEntry*
+tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 {
-	u32 key = hash_calc((char *)&hash, sizeof(hash));
+	u64 key = hash_calc((char *)&fingerprint, sizeof(fingerprint));
 	TlsJa5HashEntry *entry = NULL;
 	TlsJa5FilterCfg *cfg;
 
 	rcu_read_lock_bh();
 	cfg = rcu_dereference_bh(tls_filter_cfg);
 	hash_for_each_possible(cfg->hashes, entry, hlist, key) {
-		if (!memcmp(&hash, entry, sizeof(hash))) {
+		if (!memcmp(&fingerprint, &entry->ja5_hash, 
+						sizeof(fingerprint))) {
 			atomic64_inc(&entry->refcnt);
 			break;
 		}
@@ -56,15 +70,41 @@ tls_get_ja5_hash_entry(TlsJa5t hash)
 
 	return entry;
 }
-EXPORT_SYMBOL(tls_get_ja5_hash_entry);
 
-void
+static void
 tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 {
 	if (entry && !atomic64_dec_return(&entry->refcnt))
 		kfree(entry);
 }
-EXPORT_SYMBOL(tls_put_ja5_hash_entry);
+
+u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint)
+{
+	u32 res = 0;
+	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
+
+	if (e) {
+		res = e->conns_per_sec;
+		tls_put_ja5_hash_entry(e);
+	}
+
+	return res;
+}
+EXPORT_SYMBOL(tls_get_ja5_conns_limit);
+
+u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint)
+{
+	u32 res = 0;
+	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
+
+	if (e) {
+		res = e->records_per_sec;
+		tls_put_ja5_hash_entry(e);
+	}
+
+	return res;
+}
+EXPORT_SYMBOL(tls_get_ja5_recs_limit);
 
 size_t
 tls_get_ja5_storage_size(void)
@@ -78,12 +118,11 @@ tls_get_ja5_storage_size(void)
 	}
 
 	return res;
-
 }
 EXPORT_SYMBOL(tls_get_ja5_storage_size);
 
 int
-handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
+ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TlsJa5t hash;
 	u32 conns_per_sec;
@@ -95,13 +134,13 @@ handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_EQ_N(3, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
-	if (tfw_cfg_parse_uint(ce->vals[1], &conns_per_sec)) {
+	if (kstrtouint(ce->vals[1], 10, &conns_per_sec)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
 			"invalid connections per second value %s", ce->vals[1]);
 		return -EINVAL;
 	}
 
-	if (tfw_cfg_parse_uint(ce->vals[2], &recs_per_sec)) {
+	if (kstrtouint(ce->vals[2], 10, &recs_per_sec)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
 			"invalid records per second value %s", ce->vals[2]);
 		return -EINVAL;
@@ -127,9 +166,10 @@ handle_ja5_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
+EXPORT_SYMBOL(ja5_cfgop_handle_hash_entry);
 
 int
-tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	BUG_ON(tls_filter_cfg_reconfig);
 	TFW_CFG_CHECK_VAL_EQ_N(0, cs, ce);
@@ -159,6 +199,7 @@ tls_cfgop_ja5_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
+EXPORT_SYMBOL(ja5_cfgop_begin);
 
 static void
 free_cfg(TlsJa5FilterCfg *cfg)
@@ -175,7 +216,7 @@ free_cfg(TlsJa5FilterCfg *cfg)
 }
 
 int
-tls_cfgop_ja5_finish(TfwCfgSpec *cs)
+ja5_cfgop_finish(TfwCfgSpec *cs)
 {
 	TlsJa5FilterCfg *prev = tls_filter_cfg;
 
@@ -191,9 +232,10 @@ tls_cfgop_ja5_finish(TfwCfgSpec *cs)
 
 	return 0;
 }
+EXPORT_SYMBOL(ja5_cfgop_finish);
 
 void
-tls_cfgop_ja5_cleanup(TfwCfgSpec *cs)
+ja5_cfgop_cleanup(TfwCfgSpec *cs)
 {
 	/* tls_cfgop_ja5_finish was not called due to parsing error */
 	if (tls_filter_cfg_reconfig) {
@@ -201,3 +243,4 @@ tls_cfgop_ja5_cleanup(TfwCfgSpec *cs)
 		tls_filter_cfg_reconfig = NULL;
 	}
 }
+EXPORT_SYMBOL(ja5_cfgop_cleanup);

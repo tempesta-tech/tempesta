@@ -40,7 +40,7 @@
 #include "ttls.h"
 #include "tls_ticket.h"
 #include "ja5t_filter.h"
-#include "fw/ja5_conf.h"
+#include "lib/ja5_conf.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
@@ -2314,14 +2314,11 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		io->rlen += len;
 		return T_POSTPONE;
 	} else {
-		TlsJa5HashEntry *cfg = tls_get_ja5_hash_entry(tls->sess.ja5t);
-		u32 rate = ja5t_get_records_rate(tls->sess.ja5t);
+		u64 limit = tls_get_ja5_recs_limit(tls->sess.ja5t);
+		u64 rate = ja5t_get_records_rate(tls->sess.ja5t);
 
-		if (cfg && rate > cfg->records_per_sec) {
-			tls_put_ja5_hash_entry(cfg);
+		if (rate > limit)
 			return T_BLOCK_WITH_RST;
-		}
-		tls_put_ja5_hash_entry(cfg);
 	}
 
 	*read += io->msglen - io->rlen;
@@ -2886,9 +2883,7 @@ ttls_init(void)
 	if (!ttls_hs_cache)
 		goto err_free;
 
-	if (tls_get_ja5_storage_size())
-		if (!ja5t_init_filter(tls_get_ja5_storage_size()))
-			goto err_free;
+	T_LOG_NL("storage suze %ld", tls_get_ja5_storage_size());
 
 	return 0;
 err_free:
