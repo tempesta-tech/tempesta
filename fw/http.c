@@ -3648,7 +3648,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
-	r = tfw_http_msg_del_hbh_hdrs(hm);
+	r = tfw_http_msg_del_hbh_hdrs(hm, req->method == TFW_HTTP_METH_HEAD);
 	if (r < 0)
 		return r;
 
@@ -4303,7 +4303,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		return r;
 
 	printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-	r = tfw_http_msg_del_hbh_hdrs(hm);
+	r = tfw_http_msg_del_hbh_hdrs(hm, req->method == TFW_HTTP_METH_HEAD);
 	if (r < 0)
 		return r;
 

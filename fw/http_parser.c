@@ -2496,24 +2496,51 @@ static int
 __resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
+	unsigned int flag;
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st);
+
+#define __MARK_HBP()						\
+do {								\
+	TfwStr *c;						\
+								\
+	for (c = TFW_STR_CURR(&parser->hdr);			\
+	     c >= TFW_STR_CHUNK(&parser->hdr, 0) &&		\
+	     (c->flags & __TFW_STR_TRAILER_HDR_HBP);		\
+	     c--)						\
+	{ 							\
+		c->flags |= TFW_STR_TRAILER_HDR_HBP;		\
+	}							\
+} while(0)
 
 	parser->hdr.flags |= TFW_STR_TRAILER_HDR;
 
 	__FSM_STATE(I_TrailerStart) {
 		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("connection"), &parser->hdr, {
-			__set_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, &parser->_acc);
-		}, I_TrailerStart, I_Trailer, 0);
+			__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, &parser->_acc);
+		}, I_TrailerStart, I_Trailer, __TFW_STR_TRAILER_HDR_HBP);
+		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("keep-alive"), &parser->hdr, {
+			__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, &parser->_acc);
+		}, I_TrailerStart, I_Trailer, __TFW_STR_TRAILER_HDR_HBP);
+		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("proxy-connection"), &parser->hdr, {
+			__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, &parser->_acc);
+		}, I_TrailerStart, I_Trailer, __TFW_STR_TRAILER_HDR_HBP);
+		TRY_STR_LAMBDA_fixup_flag(&TFW_STR_STRING("upgrade"), &parser->hdr, {
+			__set_bit(TFW_HTTP_B_CHUNKED_TRAILER, &parser->_acc);
+		}, I_TrailerStart, I_Trailer, __TFW_STR_TRAILER_HDR_HBP);
 
-		__FSM_I_MATCH_MOVE_fixup(token, I_Trailer, 0);
+		TRY_STR_INIT();
+		__FSM_I_MATCH_MOVE_fixup_finish(token, I_Trailer, 0, {
+			TFW_STR_CURR(&parser->hdr)->flags &=
+				~__TFW_STR_TRAILER_HDR_HBP;
+		});
 
 		if (__fsm_sz == 0) {
-			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
-				     &parser->_acc))
+			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED_TRAILER,
+					      &parser->_acc)))
 			{
-				__FSM_I_chunk_flags(TFW_STR_TRAILER_HDR_HBP);
+				__MARK_HBP();
 				__FSM_I_JMP(I_TrailerEnd);
 			}
 		}
@@ -2526,12 +2553,15 @@ __resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * protocol name and now we can pass zero length token.
 	 */
 	__FSM_STATE(I_Trailer) {
-		__FSM_I_MATCH_MOVE_fixup(token, I_Trailer, 0);
+		__FSM_I_MATCH_MOVE_fixup_finish(token, I_Trailer, 0, {
+			TFW_STR_CURR(&parser->hdr)->flags &=
+				~__TFW_STR_TRAILER_HDR_HBP;
+		});
 		if (__fsm_sz == 0) {
-			if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
-				     &parser->_acc))
+			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED_TRAILER,
+					      &parser->_acc)))
 			{
-				__FSM_I_chunk_flags(TFW_STR_TRAILER_HDR_HBP);
+				__MARK_HBP();
 			}
 		}
 
@@ -2546,15 +2576,23 @@ __resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (likely(IS_CRLF(*(p)))) {
 			__FSM_EXIT(__data_processed(p));
 		}
-		if (IS_WS(*p))
-			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_WS(*p)) {
+			flag = test_bit(TFW_HTTP_B_CHUNKED_TRAILER,
+					&parser->_acc) ? 
+				TFW_STR_TRAILER_HDR_HBP : 0;
+			__FSM_I_MOVE_fixup(I_EoT, 1, flag);
+		}
 		return CSTR_NEQ;
 	}
 
 	/* End of list entry */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(*p))
-			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_WS(*p)) {
+			flag = test_bit(TFW_HTTP_B_CHUNKED_TRAILER,
+					&parser->_acc) ?
+				TFW_STR_TRAILER_HDR_HBP : 0;
+			__FSM_I_MOVE_fixup(I_EoT, 1, flag);
+		}
 
 		if (IS_TOKEN(*p)) {
 			parser->_acc = 0; /* reinit for next list entry */
@@ -2570,6 +2608,7 @@ done:
 
 #undef __MARK_HBP
 }
+STACK_FRAME_NON_STANDARD(__resp_parse_trailer);
 
 static int
 __resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)

@@ -1100,8 +1100,21 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		}
 	}
 
-	BUG_ON(it.data == NULL);
 	BUG_ON(it.skb == NULL);
+	if (it.data == NULL) {
+		struct sk_buff *next;
+		int fragn;
+
+		while (!it.data) {
+			BUG_ON(it.skb == skb_head);
+			next = it.skb->next;
+
+			ss_skb_unlink(&skb_head, it.skb);
+			kfree_skb(it.skb);
+			it.skb = next;
+			it.data = __skb_data_address(it.skb, &fragn);
+		}
+	}
 
 	/* Cut off the tail. */
 	if (tail > 0)
