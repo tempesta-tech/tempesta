@@ -39,8 +39,6 @@
 #include "tls_internal.h"
 #include "ttls.h"
 #include "tls_ticket.h"
-#include "ja5t_filter.h"
-#include "lib/ja5_conf.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
@@ -64,11 +62,13 @@ MODULE_LICENSE("GPL");
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 
 static struct kmem_cache *ttls_hs_cache = NULL;
+static ttls_ja5t_limit_rec_cb_t *ttls_ja5t_limit_rec_cb;
 static ttls_send_cb_t *ttls_send_cb;
 extern ttls_sni_cb_t *ttls_sni_cb;
 extern ttls_hs_over_cb_t *ttls_hs_over_cb;
 extern ttls_cli_id_t *ttls_cli_id_cb;
 extern ttls_alpn_match_t *ttls_alpn_match_cb;
+extern ttls_ja5t_limit_conn_cb_t *ttls_ja5t_limit_conn_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -255,13 +255,17 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
 void
 ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
 			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb,
-			ttls_alpn_match_t *alpn_match_cb)
+			ttls_alpn_match_t *alpn_match_cb,
+			ttls_ja5t_limit_conn_cb_t *ja5t_limit_conn_cb,
+			ttls_ja5t_limit_rec_cb_t *ja5t_limit_rec_cb)
 {
 	ttls_send_cb = send_cb;
 	ttls_sni_cb = sni_cb;
 	ttls_hs_over_cb = hs_over_cb;
 	ttls_cli_id_cb = cli_id_cb;
 	ttls_alpn_match_cb = alpn_match_cb;
+	ttls_ja5t_limit_conn_cb = ja5t_limit_conn_cb;
+	ttls_ja5t_limit_rec_cb = ja5t_limit_rec_cb;
 }
 EXPORT_SYMBOL(ttls_register_callbacks);
 
@@ -2313,13 +2317,10 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		*read += len;
 		io->rlen += len;
 		return T_POSTPONE;
-	} else {
-		u64 limit = tls_get_ja5_recs_limit(tls->sess.ja5t);
-		u64 rate = ja5t_get_records_rate(tls->sess.ja5t);
-
-		if (rate > limit)
-			return T_BLOCK_WITH_RST;
 	}
+
+	if (ttls_ja5t_limit_rec_cb(tls->sess.ja5t))
+		return T_BLOCK_WITH_RST;
 
 	*read += io->msglen - io->rlen;
 	if ((r = ttls_decrypt(tls, NULL))) {
@@ -2882,8 +2883,6 @@ ttls_init(void)
 					  0, 0, NULL);
 	if (!ttls_hs_cache)
 		goto err_free;
-
-	T_LOG_NL("storage suze %ld", tls_get_ja5_storage_size());
 
 	return 0;
 err_free:
