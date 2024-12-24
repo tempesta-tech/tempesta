@@ -150,11 +150,11 @@ export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
 
 obj-m	+= lib/ db/core/ fw/ tls/
 
-all: build
+all: buil
 
-build:
+buil:
 ifdef ERROR
-	$(error $(ERROR))
+#	$(error $(ERROR))
 endif
 ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
