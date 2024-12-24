@@ -36,7 +36,8 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
-#include "ja5_conf.h"
+#include "lib/ja5_conf.h"
+#include "ja5t_filter.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -1161,6 +1162,11 @@ tfw_tls_start(void)
 {
 	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
 
+	if (tls_get_ja5_storage_size()) {
+		if (!ja5t_init_filter(tls_get_ja5_storage_size()))
+			return -ENOMEM;
+	}
+
 	return 0;
 }
 
@@ -1174,7 +1180,7 @@ static TfwCfgSpec tfw_tls_hash_specs[] = {
 	{
 		.name = "hash",
 		.deflt = NULL,
-		.handler = handle_ja5_hash_entry,
+		.handler = ja5_cfgop_handle_hash_entry,
 		.allow_none = false,
 		.allow_repeat = true,
 		.allow_reconfig = true,
@@ -1187,11 +1193,11 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.name = "ja5t",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tls_cfgop_ja5_cleanup,
+		.cleanup = ja5_cfgop_cleanup,
 		.dest = tfw_tls_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = tls_cfgop_ja5_begin,
-			.finish_hook = tls_cfgop_ja5_finish
+			.begin_hook = ja5_cfgop_begin,
+			.finish_hook = ja5_cfgop_finish
 		},
 		.allow_none = true,
 		.allow_repeat = false,

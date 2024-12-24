@@ -188,11 +188,11 @@ load_modules()
 	load_one_module "$lib_path/$lib_mod.ko" ||
 		error "cannot load tempesta library module"
 
-	load_one_module "$tls_path/$tls_mod.ko" ||
-		error "cannot load tempesta TLS module"
-
 	load_one_module "$tdb_path/$tdb_mod.ko" ||
 		error "cannot load tempesta database module"
+
+	load_one_module "$tls_path/$tls_mod.ko" ||
+		error "cannot load tempesta TLS module"
 
 	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp" ||
 		error "cannot load tempesta module"
@@ -203,8 +203,8 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
-	rmmod $tdb_mod
 	rmmod $tls_mod
+	rmmod $tdb_mod
 	rmmod $lib_mod
 }
 

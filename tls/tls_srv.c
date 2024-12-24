@@ -29,7 +29,7 @@
 #include "tls_internal.h"
 #include "ttls.h"
 #include "tls_ticket.h"
-#include "fw/ja5_conf.h"
+#include "lib/ja5_conf.h"
 #include "ja5t_filter.h"
 
 ttls_sni_cb_t *ttls_sni_cb;
@@ -2246,14 +2246,11 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (r)
 			return r;
 		else {
-			TlsJa5HashEntry *cfg = tls_get_ja5_hash_entry(tls->sess.ja5t);
-			u32 rate = ja5t_get_conns_rate(tls->sess.ja5t);
+			u64 limit = tls_get_ja5_conns_limit(tls->sess.ja5t);
+			u64 rate = ja5t_get_conns_rate(tls->sess.ja5t);
 
-			if (cfg && rate > cfg->conns_per_sec) {
-				tls_put_ja5_hash_entry(cfg);
+			if (rate > limit)
 				return T_BLOCK_WITH_RST;
-			}
-			tls_put_ja5_hash_entry(cfg);
 		}
 
 		tls->state = TTLS_SERVER_HELLO;

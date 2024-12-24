@@ -26,6 +26,7 @@ ja5t_init_filter(size_t max_storage_size)
 {
 	return init_filter(max_storage_size);
 }
+EXPORT_SYMBOL(ja5t_init_filter);
 
 u32
 ja5t_get_conns_rate(TlsJa5t fingerprint)
@@ -34,6 +35,7 @@ ja5t_get_conns_rate(TlsJa5t fingerprint)
 
 	return ja5_get_conns_rate(*(u64 *)&fingerprint);
 }
+EXPORT_SYMBOL(ja5t_get_conns_rate);
 
 u32
 ja5t_get_records_rate(TlsJa5t fingerprint)
@@ -42,3 +44,4 @@ ja5t_get_records_rate(TlsJa5t fingerprint)
 
 	return ja5_get_records_rate(*(u64 *)&fingerprint);
 }
+EXPORT_SYMBOL(ja5t_get_records_rate);
