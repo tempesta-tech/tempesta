@@ -1012,6 +1012,23 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 	return false;
 }
 
+static bool
+tfw_ja5t_limit_conn(TlsJa5t fingerprint)
+{
+	u64 limit = tls_get_ja5_conns_limit(fingerprint);
+	u64 rate = ja5t_get_conns_rate(fingerprint);
+
+	return rate > limit;
+}
+
+static bool
+tfw_ja5t_limit_rec(TlsJa5t fingerprint)
+{
+	u64 limit = tls_get_ja5_recs_limit(fingerprint);
+	u64 rate = ja5t_get_records_rate(fingerprint);
+
+	return rate > limit;
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -1175,24 +1192,6 @@ bool
 tfw_tls_get_allow_any_sni_reconfig(void)
 {
 	return allow_any_sni_reconfig;
-}
-
-static bool
-tfw_ja5t_limit_conn(TlsJa5t fingerprint)
-{
-	u64 limit = tls_get_ja5_conns_limit(fingerprint);
-	u64 rate = ja5t_get_conns_rate(fingerprint);
-
-	return rate > limit;
-}
-
-static bool
-tfw_ja5t_limit_rec(TlsJa5t fingerprint)
-{
-	u64 limit = tls_get_ja5_recs_limit(fingerprint);
-	u64 rate = ja5t_get_records_rate(fingerprint);
-
-	return rate > limit;
 }
 
 static TfwCfgSpec tfw_tls_hash_specs[] = {

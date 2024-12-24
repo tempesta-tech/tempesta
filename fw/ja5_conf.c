@@ -24,10 +24,9 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
+#include "log.h"
 #include "ja5_conf.h"
 #include "hash.h"
-#define BANNER "banner"
-#include "log.h"
 
 /* Define default size as multiple of TDB extent size */
 #define TLS_JA5_DEFAULT_STORAGE_SIZE ((1 << 21) * 25)
@@ -90,7 +89,6 @@ u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint)
 
 	return res;
 }
-EXPORT_SYMBOL(tls_get_ja5_conns_limit);
 
 u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint)
 {
@@ -104,7 +102,6 @@ u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint)
 
 	return res;
 }
-EXPORT_SYMBOL(tls_get_ja5_recs_limit);
 
 size_t
 tls_get_ja5_storage_size(void)
@@ -119,7 +116,6 @@ tls_get_ja5_storage_size(void)
 
 	return res;
 }
-EXPORT_SYMBOL(tls_get_ja5_storage_size);
 
 int
 ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -166,7 +162,6 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-EXPORT_SYMBOL(ja5_cfgop_handle_hash_entry);
 
 int
 ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -199,7 +194,6 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	return 0;
 }
-EXPORT_SYMBOL(ja5_cfgop_begin);
 
 static void
 free_cfg(TlsJa5FilterCfg *cfg)
@@ -232,7 +226,6 @@ ja5_cfgop_finish(TfwCfgSpec *cs)
 
 	return 0;
 }
-EXPORT_SYMBOL(ja5_cfgop_finish);
 
 void
 ja5_cfgop_cleanup(TfwCfgSpec *cs)
@@ -243,4 +236,3 @@ ja5_cfgop_cleanup(TfwCfgSpec *cs)
 		tls_filter_cfg_reconfig = NULL;
 	}
 }
-EXPORT_SYMBOL(ja5_cfgop_cleanup);

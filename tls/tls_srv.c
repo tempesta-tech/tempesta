@@ -29,8 +29,6 @@
 #include "tls_internal.h"
 #include "ttls.h"
 #include "tls_ticket.h"
-#include "lib/ja5_conf.h"
-#include "ja5t_filter.h"
 
 ttls_sni_cb_t *ttls_sni_cb;
 ttls_hs_over_cb_t *ttls_hs_over_cb;

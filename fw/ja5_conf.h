@@ -20,8 +20,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "ja5.h"
-#include "../fw/cfg.h"
+#include "lib/ja5.h"
+#include "cfg.h"
 
 size_t tls_get_ja5_storage_size(void);
 
