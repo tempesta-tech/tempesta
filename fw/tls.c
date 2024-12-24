@@ -1199,7 +1199,7 @@ static TfwCfgSpec tfw_tls_hash_specs[] = {
 		.name = "hash",
 		.deflt = NULL,
 		.handler = ja5_cfgop_handle_hash_entry,
-		.allow_none = false,
+		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},

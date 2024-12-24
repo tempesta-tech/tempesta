@@ -56,6 +56,9 @@ tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 	TlsJa5HashEntry *entry = NULL;
 	TlsJa5FilterCfg *cfg;
 
+	if (!tls_filter_cfg)
+		return NULL;
+
 	rcu_read_lock_bh();
 	cfg = rcu_dereference_bh(tls_filter_cfg);
 	hash_for_each_possible(cfg->hashes, entry, hlist, key) {
@@ -77,9 +80,10 @@ tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 		kfree(entry);
 }
 
-u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint)
+u64
+tls_get_ja5_conns_limit(TlsJa5t fingerprint)
 {
-	u32 res = 0;
+	u64 res = -1;
 	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
 
 	if (e) {
@@ -90,9 +94,10 @@ u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint)
 	return res;
 }
 
-u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint)
+u64
+tls_get_ja5_recs_limit(TlsJa5t fingerprint)
 {
-	u32 res = 0;
+	u64 res = -1;
 	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
 
 	if (e) {
@@ -203,9 +208,9 @@ free_cfg(TlsJa5FilterCfg *cfg)
 
 	BUG_ON(!cfg);
 
-	hash_for_each(cfg->hashes, bkt_i, entry, hlist) {
+	hash_for_each(cfg->hashes, bkt_i, entry, hlist)
 		tls_put_ja5_hash_entry(entry);
-	}
+
 	kfree(cfg);
 }
 
