@@ -74,17 +74,10 @@ tfw_tls_connection_lost(TfwConn *conn)
 int
 tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 {
-	int r, parsed, save_err_code = T_OK;
+	int r, parsed;
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
-	bool was_stopped = tfw_connection_was_stopped(conn);
-
-	if (unlikely(tfw_connection_stop_rcv(conn))) {
-		__kfree_skb(skb);
-		return 0;
-	}
-
 
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
@@ -92,7 +85,6 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	 * it contains end of current message.
 	 */
 next_msg:
-	BUG_ON(save_err_code != T_OK && save_err_code != T_BAD);
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 
@@ -109,14 +101,12 @@ next_msg:
 		 * should be alive, but if we can't decrypt request, we should
 		 * close the connection.
 		 */
-		BUG_ON(r == T_BLOCK || r == T_DROP);
+		WARN_ON_ONCE(r == T_BLOCK || r == T_DROP);
 		fallthrough;
 	case T_BAD:
 		r = T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_FIN:
-		r = (save_err_code != T_OK || was_stopped)
-			? SS_BLOCK_WITH_RST : T_BAD;
 		fallthrough;
 	case T_BLOCK_WITH_RST:
 		if (tls->conf->endpoint == TTLS_IS_SERVER)
@@ -127,11 +117,7 @@ next_msg:
 	case T_POSTPONE:
 		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
-		/*
-		 * save_error_code is T_OK or T_BAD if error occurs
-		 * on one of the previous steps.
-		 */
-		return save_err_code;
+		return T_OK;
 	case T_OK:
 		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
@@ -167,13 +153,7 @@ next_msg:
 		}
 	}
 
-	/*
-	 * If Conn_Stop bit is not set we don't send error response
-	 * to client, so we decrypt skbs to avoid tls errors, but
-	 * don't process it.
-	 */
-	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA
-	    && (save_err_code == T_OK || TFW_CONN_TYPE(conn) & Conn_Stop))
+	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA)
 	{
 		/*
 		 * Current record contains an "application data" message.
@@ -201,26 +181,9 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		/*
-		 * If error occurs second time (save_error_code is not zero or
-		 * was_stopped is true) close connection immediately with RST.
-		 */
-		r = (r != T_OK && (save_err_code != T_OK || was_stopped)) ?
-			SS_BLOCK_WITH_RST : r;
-		if (r == T_BLOCK_WITH_FIN || r == T_BLOCK_WITH_RST) {
+		if (r && r != T_POSTPONE && r != T_DROP) {
 			kfree_skb(nskb);
-			goto out;
-		} else if (r && r != T_DROP) {
-			/*
-			 * In case of T_BAD or system errors we close connection
-			 * with tcp_shutdown() and gracefully send all pending
-			 * responses to client. We should continue to process
-			 * WINDOW_UPDATE frames so, we should decrypt all skbs,
-			 * not drop them.
-			 */
-			save_err_code = T_BAD;
-		} else if (save_err_code != T_OK) {
-			r = save_err_code;
+			return r;
 		}
 	} else {
 		/*
@@ -229,7 +192,6 @@ next_msg:
 		 */
 		tfw_tls_purge_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
-		r = save_err_code;
 	}
 
 	if (nskb) {
@@ -238,7 +200,6 @@ next_msg:
 		goto next_msg;
 	}
 
-out:
 	return r;
 }
 
@@ -739,36 +700,6 @@ err_cleanup:
 }
 
 static int
-tfw_tls_conn_shutdown(TfwConn *c, bool sync)
-{
-	int r;
-	TlsCtx *tls = tfw_tls_context(c);
-
-	spin_lock(&tls->lock);
-	r = ttls_close_notify(tls, TTLS_F_ST_SHUTDOWN);
-	spin_unlock(&tls->lock);
-
-	/*
-	 * Once the TLS close notify alert is going to be sent by
-	 * tcp_write_xmit(), tfw_tls_encrypt() calls ss_close(), so
-	 * if the call succeeded, then we'll close the socket with the alert
-	 * transmission. Otherwise if we have to close the socket
-	 * and can not write to the socket, then there is no other way than
-	 * skip the alert and just close the socket.
-	 *
-	 * That's just OK if we're closing a TCP connection during TLS handshake.
-	 */
-	if (r) {
-		if (r != -EPROTO)
-			T_WARN_ADDR("Close TCP socket w/o sending alert to"
-				    " the peer", &c->peer->addr, TFW_NO_PORT);
-		r = ss_shutdown(c->sk, sync ? SS_F_SYNC : 0);
-	}
-
-	return r;
-}
-
-static int
 tfw_tls_conn_close(TfwConn *c, bool sync)
 {
 	int r;
@@ -869,7 +800,6 @@ out:
 
 static TfwConnHooks tls_conn_hooks = {
 	.conn_init	= tfw_tls_conn_init,
-	.conn_shutdown	= tfw_tls_conn_shutdown,
 	.conn_close	= tfw_tls_conn_close,
 	.conn_abort	= tfw_tls_conn_abort,
 	.conn_drop	= tfw_tls_conn_drop,

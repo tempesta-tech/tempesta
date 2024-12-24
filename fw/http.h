@@ -31,6 +31,7 @@
 #include "str.h"
 #include "vhost.h"
 #include "client.h"
+#include "lib/ja5.h"
 
 /**
  * HTTP Generic FSM states.

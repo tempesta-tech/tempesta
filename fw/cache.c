@@ -376,7 +376,7 @@ tfw_release_node_cpus(void)
 	if(!c_nodes)
 		return;
 
-	for(node = 0; node < nr_online_nodes; node++) {
+	for_each_node_with_cpus(node) {
 		if(c_nodes[node].cpu)
 			kfree(c_nodes[node].cpu);
 	}
@@ -421,10 +421,24 @@ tfw_init_node_cpus(void)
 	return 0;
 }
 
+/**
+ * Return TDB located on current NUMA node.
+ *
+ * NOTE: Use only if you ensure that only local node must be used.
+ */
 static TDB *
 node_db(void)
 {
 	return c_nodes[numa_node_id()].db;
+}
+
+/**
+ * Return TDB located on NUMA node with id @node.
+ */
+static TDB *
+get_db_for_node(int node)
+{
+	return c_nodes[node].db;
 }
 
 /**
@@ -1286,7 +1300,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
  * how many chunks are copied.
  */
 static long
-__tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
+__tfw_cache_strcpy(TDB *db, char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 		   void cpy(void *dest, const void *src, size_t n))
 {
 	long copied = 0;
@@ -1296,8 +1310,7 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 		BUG_ON(room < 0);
 		if (!room) {
 			BUG_ON(tot_len < copied);
-			*trec = tdb_entry_add(node_db(), *trec,
-					      tot_len - copied);
+			*trec = tdb_entry_add(db, *trec, tot_len - copied);
 			if (!*trec)
 				return -ENOMEM;
 			*p = (*trec)->data;
@@ -1328,18 +1341,19 @@ __tfw_memcpy(void *dst ,const void *src, size_t n)
 }
 
 static inline long
-tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+tfw_cache_strcpy(TDB *db, char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
-	return __tfw_cache_strcpy(p, trec, src, tot_len, __tfw_memcpy);
+	return __tfw_cache_strcpy(db, p, trec, src, tot_len, __tfw_memcpy);
 }
 
 /**
  * The same as tfw_cache_strcpy(), but copies @src with lower case conversion.
  */
 static inline long
-tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+tfw_cache_strcpy_lc(TDB *db, char **p, TdbVRec **trec, TfwStr *src,
+		    size_t tot_len)
 {
-	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_cstrtolower);
+	return __tfw_cache_strcpy(db, p, trec, src, tot_len, tfw_cstrtolower);
 }
 
 #define CSTR_MOVE_HDR()				\
@@ -1368,8 +1382,9 @@ do {							\
  * @return zero on success and negative value otherwise.
  */
 static int
-tfw_cache_h2_copy_chunked_body(unsigned int *acc_len, char **p, TdbVRec **trec,
-			       TfwHttpResp *resp, TfwStr *cut, size_t *tot_len)
+tfw_cache_h2_copy_chunked_body(TDB *db, unsigned int *acc_len, char **p,
+			       TdbVRec **trec, TfwHttpResp *resp, TfwStr *cut,
+			       size_t *tot_len)
 {
 	long n;
 	TfwMsgIter it;
@@ -1464,7 +1479,8 @@ continue_curr_frag:
 			}
 
 			if (likely(chunk.len)) {
-				n = tfw_cache_strcpy(p, trec, &chunk, *tot_len);
+				n = tfw_cache_strcpy(db, p, trec, &chunk,
+						     *tot_len);
 				if (unlikely(n < 0)) {
 					T_ERR("Cache: cannot copy chunk of HTTP body\n");
 					return -ENOMEM;
@@ -1500,7 +1516,7 @@ continue_curr_frag:
  * @return zero on success and negative value otherwise.
  */
 static int
-tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
+tfw_cache_h2_copy_body(TDB *db, unsigned int *acc_len, char **p, TdbVRec **trec,
 		       TfwHttpResp *resp, size_t *tot_len)
 {
 	long n;
@@ -1521,7 +1537,8 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
 
 	TFW_BODY_ITER_WALK(&it, &chunk)
 	{
-		if ((n = tfw_cache_strcpy(p, trec, &chunk, *tot_len)) < 0) {
+		n = tfw_cache_strcpy(db, p, trec, &chunk, *tot_len);
+		if (unlikely(n < 0)) {
 			T_ERR("Cache: cannot copy chunk of HTTP body\n");
 			return -ENOMEM;
 		}
@@ -1542,10 +1559,11 @@ tfw_cache_h2_copy_body(unsigned int *acc_len, char **p, TdbVRec **trec,
  * @return number of copied bytes on success and negative value otherwise.
  */
 static int
-tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
-			     TfwStr *src, size_t *tot_len,
-			     long cache_strcpy(char **p, TdbVRec **trec,
-					       TfwStr *src, size_t tot_len))
+tfw_cache_h2_copy_str_common(TDB *db, unsigned int *acc_len, char **p,
+			     TdbVRec **trec, TfwStr *src, size_t *tot_len,
+			     long cache_strcpy(TDB *db, char **p,
+					       TdbVRec **trec, TfwStr *src,
+					       size_t tot_len))
 {
 	long n;
 	TfwStr *c, *end;
@@ -1556,7 +1574,8 @@ tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
 		return 0;
 
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
-		if ((n = cache_strcpy(p, trec, c, *tot_len)) < 0) {
+		n = cache_strcpy(db, p, trec, c, *tot_len);
+		if (unlikely(n < 0)) {
 			T_ERR("Cache: cannot copy chunk of HTTP/2 string\n");
 			return -ENOMEM;
 		}
@@ -1569,23 +1588,23 @@ tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
 }
 
 static int
-tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
+tfw_cache_h2_copy_str(TDB *db, unsigned int *acc_len, char **p, TdbVRec **trec,
 		      TfwStr *src, size_t *tot_len)
 {
-	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
+	return tfw_cache_h2_copy_str_common(db, acc_len, p, trec, src, tot_len,
 					    tfw_cache_strcpy);
 }
 
 static int
-tfw_cache_h2_copy_str_lc(unsigned int *acc_len, char **p, TdbVRec **trec,
-			 TfwStr *src, size_t *tot_len)
+tfw_cache_h2_copy_str_lc(TDB *db, unsigned int *acc_len, char **p,
+			 TdbVRec **trec, TfwStr *src, size_t *tot_len)
 {
-	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
+	return tfw_cache_h2_copy_str_common(db, acc_len, p, trec, src, tot_len,
 					    tfw_cache_strcpy_lc);
 }
 
 static inline int
-tfw_cache_h2_copy_int(unsigned int *acc_len, unsigned long src,
+tfw_cache_h2_copy_int(TDB *db, unsigned int *acc_len, unsigned long src,
 		      unsigned short max, char **p, TdbVRec **trec,
 		      size_t *tot_len)
 {
@@ -1598,21 +1617,22 @@ tfw_cache_h2_copy_int(unsigned int *acc_len, unsigned long src,
 	str.data = hp_int.buf;
 	str.len = hp_int.sz;
 
-	if ((r = tfw_cache_h2_copy_str(acc_len, p, trec, &str, tot_len)))
+	r = tfw_cache_h2_copy_str(db, acc_len, p, trec, &str, tot_len);
+	if (unlikely(r))
 		return r;
 
 	return 0;
 }
 
 static int
-tfw_cache_copy_str_with_extra_quotes(TfwCacheEntry *ce, char **p, TdbVRec **trec,
-				     TfwStr *src, size_t *tot_len,
-				     bool need_extra_quotes)
+tfw_cache_copy_str_with_extra_quotes(TDB *db, TfwCacheEntry *ce, char **p,
+				     TdbVRec **trec, TfwStr *src,
+				     size_t *tot_len, bool need_extra_quotes)
 {
 #define ADD_ETAG_QUOTE(flag)                                            \
 do {                                                                    \
 	TfwStr quote = { .data = "\"", .len = 1, .flags = flag };       \
-	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &quote,        \
+	if (tfw_cache_h2_copy_str(db, &ce->hdr_len, p, trec, &quote,        \
 				  tot_len))                             \
 		return -ENOMEM;                                         \
 } while(0)
@@ -1620,7 +1640,7 @@ do {                                                                    \
 	if (need_extra_quotes)
 		ADD_ETAG_QUOTE(0);
 
-	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, src, tot_len))
+	if (tfw_cache_h2_copy_str(db, &ce->hdr_len, p, trec, src, tot_len))
 		return -ENOMEM;
 
 	if (need_extra_quotes)
@@ -1637,8 +1657,8 @@ do {                                                                    \
  * @return number of copied bytes on success and negative value otherwise.
  */
 static long
-tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
-		      TdbVRec **trec, TfwStr *hdr, size_t *tot_len)
+tfw_cache_h2_copy_hdr(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, int hid,
+		      char **p, TdbVRec **trec, TfwStr *hdr, size_t *tot_len)
 {
 	TfwCStr *cs;
 	long n = sizeof(TfwCStr);
@@ -1672,7 +1692,7 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			n += s_nm.len;
 	}
 
-	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
+	*p = tdb_entry_get_room(db, trec, *p, n, *tot_len);
 	if (unlikely(!*p)) {
 		T_WARN("Cache: cannot allocate TDB space\n");
 		return -ENOMEM;
@@ -1696,8 +1716,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 			TFW_STR_INIT(&s_val);
 			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
 			st_index = dup->hpack_idx;
-			*p = tdb_entry_get_room(node_db(), trec, *p,
-						n + s_nm.len, *tot_len);
+			*p = tdb_entry_get_room(db, trec, *p, n + s_nm.len,
+						*tot_len);
 			if (unlikely(!*p)) {
 				T_WARN("Cache: cannot allocate TDB space\n");
 				return -ENOMEM;
@@ -1707,24 +1727,24 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 		prev_len = ce->hdr_len;
 
 		if (st_index) {
-			if (tfw_cache_h2_copy_int(&ce->hdr_len, st_index, 0xF,
-						  p, trec, tot_len))
+			if (tfw_cache_h2_copy_int(db, &ce->hdr_len, st_index,
+						  0xF, p, trec, tot_len))
 				return -ENOMEM;
 		}
 		else {
-			if (tfw_cache_h2_copy_int(&ce->hdr_len, 0, 0xF, p, trec,
-						  tot_len)
-			    || tfw_cache_h2_copy_int(&ce->hdr_len, s_nm.len,
+			if (tfw_cache_h2_copy_int(db, &ce->hdr_len, 0, 0xF, p,
+						  trec, tot_len)
+			    || tfw_cache_h2_copy_int(db, &ce->hdr_len, s_nm.len,
 						     0x7f, p, trec, tot_len)
-			    || tfw_cache_h2_copy_str_lc(&ce->hdr_len, p, trec,
-							&s_nm, tot_len))
+			    || tfw_cache_h2_copy_str_lc(db, &ce->hdr_len, p,
+							trec, &s_nm, tot_len))
 				return -ENOMEM;
 		}
 
 		s_val_len =  s_val.len + 2 * need_extra_quotes;
-		if (tfw_cache_h2_copy_int(&ce->hdr_len, s_val_len, 0x7f, p,
+		if (tfw_cache_h2_copy_int(db, &ce->hdr_len, s_val_len, 0x7f, p,
 					  trec, tot_len)
-		    || tfw_cache_copy_str_with_extra_quotes(ce, p, trec,
+		    || tfw_cache_copy_str_with_extra_quotes(db, ce, p, trec,
 							    &s_val, tot_len,
 							    need_extra_quotes))
 			return -ENOMEM;
@@ -1744,7 +1764,7 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, TfwHttpResp *resp, int hid, char **p,
 }
 
 static long
-tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
+tfw_cache_h2_add_hdr(TDB *db, TfwCacheEntry *ce, char **p, TdbVRec **trec,
 		     unsigned short st_idx, TfwStr *val, size_t *tot_len)
 {
 	TfwCStr *cs;
@@ -1767,7 +1787,7 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 	if (TFW_CSTR_HDRLEN + len <= L1_CACHE_BYTES)
 		n += len;
 
-	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
+	*p = tdb_entry_get_room(db, trec, *p, n, *tot_len);
 	if (unlikely(!*p)) {
 		T_WARN("jCache: cannot allocate TDB space\n");
 		return -ENOMEM;
@@ -1775,14 +1795,15 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
 
 	CSTR_MOVE_HDR();
 
-	if (tfw_cache_h2_copy_int(&ce->hdr_len, st_idx, 0xF, p, trec, tot_len))
-		return -ENOMEM;
-
-	if (tfw_cache_h2_copy_int(&ce->hdr_len, val->len, 0x7f, p, trec,
+	if (tfw_cache_h2_copy_int(db, &ce->hdr_len, st_idx, 0xF, p, trec,
 				  tot_len))
 		return -ENOMEM;
 
-	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, val, tot_len))
+	if (tfw_cache_h2_copy_int(db, &ce->hdr_len, val->len, 0x7f, p, trec,
+				  tot_len))
+		return -ENOMEM;
+
+	if (tfw_cache_h2_copy_str(db, &ce->hdr_len, p, trec, val, tot_len))
 		return -ENOMEM;
 
 	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN, 0, st_idx);
@@ -1795,7 +1816,7 @@ tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
  * will be taken from 'Transfer-Encoding' header.
  */
 static long
-tfw_cache_add_hdr_cenc(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
+tfw_cache_add_hdr_cenc(TDB *db, TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		       TdbVRec **trec, size_t *tot_len)
 {
 	char *buf = *this_cpu_ptr(&g_c_buf);
@@ -1808,7 +1829,7 @@ tfw_cache_add_hdr_cenc(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		return r;
 
 	val_ce.len = chunk.len;
-	return tfw_cache_h2_add_hdr(ce, p, trec, 26, &val_ce, tot_len);
+	return tfw_cache_h2_add_hdr(db, ce, p, trec, 26, &val_ce, tot_len);
 }
 
 /**
@@ -1816,7 +1837,7 @@ tfw_cache_add_hdr_cenc(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
  * from parsed response.
  */
 static long
-tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
+tfw_cache_add_hdr_clen(TDB *db, TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 		       TdbVRec **trec, size_t *tot_len)
 {
 	TfwStr val = {
@@ -1834,7 +1855,7 @@ tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 	if (!val.len)
 		return -EINVAL;
 
-	return tfw_cache_h2_add_hdr(ce, p, trec, 28, &val, tot_len);
+	return tfw_cache_h2_add_hdr(db, ce, p, trec, 28, &val, tot_len);
 }
 
 /**
@@ -1848,12 +1869,11 @@ tfw_cache_add_hdr_clen(TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
  * @curr_p, @curr_rec	- used to store compound @ce->etag.
  */
 static int
-__set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
-	   char *curr_p, TdbVRec **curr_trec)
+__set_etag(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, long h_off,
+	   TdbVRec *h_trec, char *curr_p, TdbVRec **curr_trec)
 {
 	char *e_p;
 	size_t c_size;
-	TDB *db = node_db();
 	size_t len = 0;
 	unsigned short flags = 0;
 	TfwStr h_val, *c, *end, *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG];
@@ -1936,8 +1956,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	/* Compound string was allocated in resp->pool, move to cache entry. */
 	if (!TFW_STR_PLAIN(&ce->etag)) {
 		len = sizeof(TfwStr *) * ce->etag.nchunks;
-		curr_p = tdb_entry_get_room(node_db(), curr_trec, curr_p, len,
-					    len);
+		curr_p = tdb_entry_get_room(db, curr_trec, curr_p, len, len);
 		if (!curr_p)
 			return -ENOMEM;
 		memcpy_fast(curr_p, ce->etag.data, len);
@@ -2014,14 +2033,13 @@ tfw_init_cache_entry(TfwCacheEntry *ce)
  * as well as for unaligned memory areas.
  */
 static int
-tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
+tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		    size_t tot_len)
 {
 	int r, i;
 	char *p;
 	unsigned short status_idx;
 	TfwStr *field, *h, *end1, *end2;
-	TDB *db = node_db();
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	long n, etag_off = 0;
 	TfwHttpReq *req = resp->req;
@@ -2055,7 +2073,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->host, end1, h,
 			      end2, u_fin, h_fin)
 	{
-		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
+		n = tfw_cache_strcpy_lc(db, &p, &trec, field, tot_len);
+		if (unlikely(n < 0)) {
 			T_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
 		}
@@ -2084,7 +2103,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		str.data = hp_idx.buf;
 		str.len = hp_idx.sz;
 
-		if (tfw_cache_h2_copy_str(&ce->status_len, &p, &trec, &str,
+		if (tfw_cache_h2_copy_str(db, &ce->status_len, &p, &trec, &str,
 					  &tot_len))
 			return -ENOMEM;
 	} else {
@@ -2098,21 +2117,22 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 * If the ':status' pseudo-header is not fully indexed, set
 		 * the default static index (8) just for the name.
 		 */
-		if (tfw_cache_h2_copy_int(&ce->status_len, 8, 0xF, &p, &trec,
-					  &tot_len)
-		    || tfw_cache_h2_copy_int(&ce->status_len, H2_STAT_VAL_LEN,
-					     0x7f, &p, &trec, &tot_len))
+		if (tfw_cache_h2_copy_int(db, &ce->status_len, 8, 0xF, &p,
+					  &trec, &tot_len)
+		    || tfw_cache_h2_copy_int(db, &ce->status_len,
+					     H2_STAT_VAL_LEN, 0x7f, &p, &trec,
+					     &tot_len))
 			return -ENOMEM;
 
 		if (!tfw_ultoa(resp->status, str.data, H2_STAT_VAL_LEN))
 			return -E2BIG;
 
-		if (tfw_cache_h2_copy_str(&ce->status_len, &p, &trec, &str,
+		if (tfw_cache_h2_copy_str(db, &ce->status_len, &p, &trec, &str,
 					  &tot_len))
 			return -ENOMEM;
 	}
 
-	if (tfw_cache_h2_copy_str(&ce->rph_len, &p, &trec, rph, &tot_len))
+	if (tfw_cache_h2_copy_str(db, &ce->rph_len, &p, &trec, rph, &tot_len))
 		return -ENOMEM;
 
 	ce->hdrs = TDB_OFF(db->hdr, p);
@@ -2145,13 +2165,14 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		}
 
 		__save_hdr_304_off(ce, resp, field, TDB_OFF(db->hdr, p));
-		n = tfw_cache_h2_copy_hdr(ce, resp, hid, &p, &trec, field, &tot_len);
+		n = tfw_cache_h2_copy_hdr(db, ce, resp, hid, &p, &trec, field,
+					  &tot_len);
 		if (unlikely(n < 0))
 			return n;
 	}
 
 	/* Add 'server' header. */
-	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 54, &val_srv, &tot_len);
+	n = tfw_cache_h2_add_hdr(db, ce, &p, &trec, 54, &val_srv, &tot_len);
 	if (unlikely(n < 0))
 		return n;
 
@@ -2160,7 +2181,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	 * `Transfer-Encoding` to it.
 	 */
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
-		n = tfw_cache_add_hdr_cenc(resp, ce, &p, &trec, &tot_len);
+		n = tfw_cache_add_hdr_cenc(db, resp, ce, &p, &trec, &tot_len);
 		if (unlikely(n < 0))
 			return n;
 
@@ -2169,7 +2190,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	/* Add 'content-length' header. */
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		n = tfw_cache_add_hdr_clen(resp, ce, &p, &trec, &tot_len);
+		n = tfw_cache_add_hdr_clen(db, resp, ce, &p, &trec, &tot_len);
 		if (unlikely(n < 0))
 			return n;
 
@@ -2180,7 +2201,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	/* Add 'via' header. */
 	memcpy_fast(__TFW_STR_CH(&val_via, 1)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
-	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 60, &val_via, &tot_len);
+	n = tfw_cache_h2_add_hdr(db, ce, &p, &trec, 60, &val_via, &tot_len);
 	if (unlikely(n < 0))
 		return n;
 
@@ -2190,10 +2211,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-		r = tfw_cache_h2_copy_chunked_body(&ce->body_len, &p, &trec,
+		r = tfw_cache_h2_copy_chunked_body(db, &ce->body_len, &p, &trec,
 						   resp, &resp->cut, &tot_len);
 	else
-		r = tfw_cache_h2_copy_body(&ce->body_len, &p, &trec,
+		r = tfw_cache_h2_copy_body(db, &ce->body_len, &p, &trec,
 					   resp, &tot_len);
 
 	if (unlikely(r)) {
@@ -2236,7 +2257,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->last_modified = resp->last_modified;
 	ce->resp_status = resp->status;
 
-	if ((r = __set_etag(ce, resp, etag_off, etag_trec, p, &trec))) {
+	r = __set_etag(db, ce, resp, etag_off, etag_trec, p, &trec);
+	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy entity-tag\n");
 		return r;
 	}
@@ -2481,16 +2503,17 @@ err:
 }
 
 static bool
-tfw_cache_rec_eq_req(TdbRec *rec, void *request)
+tfw_cache_rec_eq_req(TdbHdr *db_hdr, TdbRec *rec, void *request)
 {
+	TDB *db = (TDB *)db_hdr;
 	TfwCacheEntry *ce = (TfwCacheEntry *)rec;
 	TfwHttpReq *req = (TfwHttpReq *)request;
 
-	return tfw_cache_entry_key_eq(node_db(), req, ce);
+	return tfw_cache_entry_key_eq(db, req, ce);
 }
 
 static bool
-tfw_cache_rec_eq(TdbRec *r1, void *r2)
+tfw_cache_rec_eq(TdbHdr *db_hdr, TdbRec *r1, void *r2)
 {
 	return r1 == r2;
 }
@@ -2553,7 +2576,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 
 	T_DBG3("%s: ce=[%p], alloc_len='%lu'\n", __func__, ce, len);
 
-	if ((r = tfw_cache_copy_resp(ce, resp, &rph, data_len))) {
+	if ((r = tfw_cache_copy_resp(db, ce, resp, &rph, data_len))) {
 		/*
 		 * Error occured during response copying. Remove allocated entry.
 		 */
@@ -2567,34 +2590,6 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	}
 
 	tdb_rec_put(db, ce);
-}
-
-/*
- * Invalidate all cache entries that match the request. This is implemented by
- * making the entries stale.
- *
- */
-static int
-tfw_cache_invalidate(TfwHttpReq *req)
-{
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
-	unsigned long key = tfw_http_req_key_calc(req);
-
-	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter))
-		return 0;
-
-	ce = (TfwCacheEntry *)iter.rec;
-	do {
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			ce->lifetime = 0;
-		tdb_rec_next(db, &iter);
-		ce = (TfwCacheEntry *)iter.rec;
-	} while (ce);
-
-	return 0;
 }
 
 static void
@@ -2628,7 +2623,7 @@ tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 		 * rather than in softirq...
 		 */
 		for_each_node_with_cpus(nid)
-			__cache_add_node(c_nodes[nid].db, resp, key);
+			__cache_add_node(get_db_for_node(nid), resp, key);
 	}
 
 	/*
@@ -2642,15 +2637,63 @@ out:
 	action((TfwHttpMsg *)resp);
 }
 
+/*
+ * Invalidate all cache entries that match the request. This is implemented by
+ * making the entries stale.
+ *
+ */
 static int
-tfw_cache_purge_immediate(TfwHttpReq *req)
+tfw_cache_purge_invalidate(TDB *db, TfwHttpReq *req)
 {
-	TDB *db = node_db();
+	TdbIter iter;
+	TfwCacheEntry *ce = NULL;
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		return 0;
+
+	ce = (TfwCacheEntry *)iter.rec;
+	do {
+		if (tfw_cache_entry_key_eq(db, req, ce))
+			ce->lifetime = 0;
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+	} while (ce);
+
+	return 0;
+}
+
+/*
+ * Remove all cache entries that match the request.
+ */
+static int
+tfw_cache_purge_immediate(TDB *db, TfwHttpReq *req)
+{
 	unsigned long key = tfw_http_req_key_calc(req);
 
 	tdb_entry_remove(db, key, &tfw_cache_rec_eq_req, req, false);
 
 	return 0;
+}
+
+static int
+tfw_cache_purge_invoke_impl(TfwHttpReq *req,
+			    int purge_impl(TDB *db, TfwHttpReq *req))
+{
+	int ret;
+
+	if (cache_cfg.cache == TFW_CACHE_REPLICA) {
+		int nid;
+
+		for_each_node_with_cpus(nid)
+			ret = purge_impl(get_db_for_node(nid), req);
+	} else {
+		/* Expected only local node access. */
+		ret = purge_impl(get_db_for_node(req->node), req);
+	}
+
+	return ret;
 }
 
 /**
@@ -2679,10 +2722,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
-		ret = tfw_cache_invalidate(req);
+		ret = tfw_cache_purge_invoke_impl(req,
+						  tfw_cache_purge_invalidate);
 		break;
 	case TFW_D_CACHE_PURGE_IMMEDIATE:
-		ret = tfw_cache_purge_immediate(req);
+		ret = tfw_cache_purge_invoke_impl(req,
+						  tfw_cache_purge_immediate);
 		break;
 	default:
 		tfw_http_send_err_resp(req, 403, "purge: invalid option");
@@ -2887,7 +2932,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	TfwHttpResp *resp;
 	char *p;
 	TfwHttpTransIter *mit;
-	TDB *db = node_db();
+	TDB *db = get_db_for_node(req->node);
 	unsigned long h_len = 0;
 	struct sk_buff **skb_head;
 	TdbVRec *trec = &ce->trec;
@@ -3026,7 +3071,7 @@ out:
 TfwHttpResp *
 tfw_cache_build_resp_stale(TfwHttpReq *req)
 {
-	TDB *db = node_db();
+	TDB *db = get_db_for_node(req->node);
 	TfwCacheEntry *ce = req->stale_ce;
 	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
 
@@ -3049,9 +3094,9 @@ ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
  * Release cache entry reference.
  */
 void
-tfw_cache_put_entry(void *ce)
+tfw_cache_put_entry(int node, void *ce)
 {
-	tdb_rec_put(node_db(), ce);
+	tdb_rec_put(get_db_for_node(node), ce);
 }
 
 static bool
@@ -3275,7 +3320,6 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 static void
 tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {
-	int ret;
 	TfwHttpReq *req;
 
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
@@ -3285,6 +3329,8 @@ tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 
 	req = (TfwHttpReq *)msg;
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
+		int ret;
+
 		ret = tfw_cache_purge_method(req);
 		/* Check if we want to do a GET in addition to PURGE. */
 		if (!ret && test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
@@ -3307,6 +3353,51 @@ tfw_cache_ipi(struct irq_work *work)
 	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
 	clear_bit(TFW_QUEUE_IPI, &ct->wq.flags);
 	tasklet_schedule(&ct->tasklet);
+}
+
+/**
+ * According RFC 9111 4.4:
+ * A cache MUST invalidate the target URI when it receives
+ * a non-error status code in response to an unsafe request
+ * method (including methods whose safety is unknown).
+ * A "non-error response" is one with a 2xx (Successful) or
+ * 3xx (Redirection) status code.
+ * Also invalidate target URI for all nonidempotent requests
+ * because they can change internal server state.
+ */
+static bool
+tfw_cache_should_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	return cache_cfg.cache && (req->method == TFW_HTTP_METH_PUT
+		|| req->method == TFW_HTTP_METH_DELETE
+		|| req->method == TFW_HTTP_METH_POST
+		|| tfw_http_req_is_nip(req))
+		&& resp->status >= 200 && resp->status < 400;
+}
+
+static void
+tfw_cache_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	unsigned long key;
+
+	key = tfw_http_req_key_calc(req);
+	req->node = (cache_cfg.cache == TFW_CACHE_SHARD)
+			? tfw_cache_key_node(key)
+			: numa_node_id();
+
+	if (cache_cfg.cache == TFW_CACHE_SHARD) {
+		/* Potential inter-node access. */
+		tdb_entry_remove(get_db_for_node(req->node), key,
+				 &tfw_cache_rec_eq_req,
+				 req, false);
+	} else {
+		int nid;
+
+		for_each_node_with_cpus(nid)
+			tdb_entry_remove(get_db_for_node(nid), key,
+					 &tfw_cache_rec_eq_req,
+					 req, false);
+	}
 }
 
 /**
@@ -3340,26 +3431,9 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
 		resp = (TfwHttpResp *)msg;
 		req = resp->req;
-		/*
-		 * According RFC 9111 4.4:
-		 * A cache MUST invalidate the target URI when it receives
-		 * a non-error status code in response to an unsafe request
-		 * method (including methods whose safety is unknown).
-		 * A "non-error response" is one with a 2xx (Successful) or
-		 * 3xx (Redirection) status code.
-		 * Also invalidate target URI for all nonidempotent requests
-		 * because they can change internal server state.
-		 */
-		if (unlikely(req->method == TFW_HTTP_METH_PUT
-			     || req->method == TFW_HTTP_METH_DELETE
-			     || req->method == TFW_HTTP_METH_POST
-			     || tfw_http_req_is_nip(req))
-		    && cache_cfg.cache
-		    && resp->status >= 200 && resp->status < 400) {
-			key = tfw_http_req_key_calc(req);
-			tdb_entry_remove(node_db(), key, &tfw_cache_rec_eq_req,
-					 req, false);
-		}
+
+		if (tfw_cache_should_invalidate_uri(req, resp))
+			tfw_cache_invalidate_uri(req, resp);
 	}
 
 	/*
@@ -3386,10 +3460,6 @@ do_cache:
 	/*
 	 * Queue the cache work only when it must be served by a remote node.
 	 * Otherwise we can do everything right now on local CPU.
-	 *
-	 * TODO #391: it appears that req->node is not really needed and can
-	 * be eliminated from TfwHttpReq{} structure and it can easily be
-	 * replaced by a local variable here.
 	 */
 	if (likely(req->node == numa_node_id())) {
 		tfw_cache_do_action(msg, action);
@@ -3499,7 +3569,7 @@ tfw_cache_start(void)
 	if ((r = tfw_init_node_cpus()))
 		goto node_cpus_alloc_err;
 
-	for(i = 0; i < nr_online_nodes; i++) {
+	for_each_node_with_cpus(i) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
 		if (!c_nodes[i].db) {
@@ -3618,6 +3688,20 @@ tfw_cfgop_cache_val(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	cs->dest = NULL;
 	if (r)
 		return r;
+
+	/* Note: Issue #400. Tempesta doesn't support NUMA nodes without CPU. */
+	if (cache == TFW_CACHE_SHARD) {
+		int node;
+
+		for_each_online_node(node) {
+			if (!nr_cpus_node(node)) {
+				T_ERR_NL("NUMA: Node %d doesn't have cpu. "
+					 "Tempesta doesn't support nodes without cpu in SHARD mode.\n",
+					 node);
+				return -EINVAL;
+			}
+		}
+	}
 
 	if (g_vhost->cache_purge && !cache) {
 		T_ERR_NL("Directives mismatching: 'cache_purge' directive "

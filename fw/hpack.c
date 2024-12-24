@@ -1324,6 +1324,7 @@ done:
 		break;
 	case TFW_TAG_HDR_COOKIE:
 		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
+		h2_set_hdr_cookie(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_FORWARDED:
 		parser->_hdr_tag = TFW_HTTP_HDR_FORWARDED;
@@ -1350,6 +1351,7 @@ done:
 		break;
 	case TFW_TAG_HDR_REFERER:
 		parser->_hdr_tag = TFW_HTTP_HDR_REFERER;
+		h2_set_hdr_referer(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_X_FORWARDED_FOR:
 		parser->_hdr_tag = TFW_HTTP_HDR_X_FORWARDED_FOR;
@@ -1461,7 +1463,7 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		case HPACK_STATE_READY:
 		{
 			unsigned char c = *src++;
-			parser->cstate.is_set = 0;
+			bzero_fast(&parser->cstate, sizeof(parser->cstate));
 
 			if (c & 0x80) { /* RFC 7541 6.1 */
 				T_DBG3("%s: > Indexed Header Field\n", __func__);

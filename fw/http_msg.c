@@ -545,12 +545,6 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 	       hdr_start, *hdr_start, hdr->skb);
 }
 
-#define CALC_JA5H_SUMM(req, hash)		\
-do {						\
-	req->ja5h.summ *= 11;			\
-	req->ja5h.summ += hash;			\
-} while (0)
-
 static void
 tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
 {
@@ -558,14 +552,10 @@ tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
 	size_t len = 0;
 	unsigned int summ = 0;
 
-#define TFW_CHAR4_INT(data)						\
-	((data[3] << 24) | (data[2] << 16) | (data[1] << 8) | data[0])
-#define TFW_CHAR3_INT(data)						\
-	((data[2] << 16) | (data[1] << 8) | data[0])
-#define TFW_CHAR2_INT(data)						\
-	((data[1] << 8) | data[0])
-#define TFW_CHAR_INT(data)						\
-	(data[0])
+#define TFW_CHAR4_INT(data)	(*((u32 *)(data)))
+#define TFW_CHAR3_INT(data)	((data[2] << 16) | *((u16 *)(data)))
+#define TFW_CHAR2_INT(data)	(*((u16 *)(data)))
+#define TFW_CHAR_INT(data)	(data[0])
 #define	HDR_LEN_MAX	4
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
@@ -601,7 +591,7 @@ tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
 	}
 
 out:
-	CALC_JA5H_SUMM(req, summ);
+	COMPUTE_JA5_ACCHASH(req->ja5h.summ, summ);
 
 #undef HDR_LEN_MAX
 #undef TFW_CHAR_INT
@@ -733,9 +723,10 @@ done:
 
 		req->header_list_sz += h->len + TFW_HTTP_MSG_HDR_OVERHEAD(hm);
 		req->headers_cnt++;
-		HTTP_JA5H_CALC_NUM(req, headers, TFW_HTTP_JA5H_HEADERS_MAX);
+		HTTP_JA5H_REQ_CALC_NUM(req, headers, TFW_HTTP_JA5H_HEADERS_MAX,
+				       1);
 		if (likely(id < TFW_HTTP_HDR_RAW))
-			CALC_JA5H_SUMM(req, id);
+			COMPUTE_JA5_ACCHASH(req->ja5h.summ, id);
 		else
 			tfw_http_req_calc_ja5h_summ_for_raw_hdr(req, h);
 	}
