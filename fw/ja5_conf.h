@@ -23,7 +23,7 @@
 #include "lib/ja5.h"
 #include "cfg.h"
 
-size_t tls_get_ja5_storage_size(void);
+u64 tls_get_ja5_storage_size(void);
 
 u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint);
 

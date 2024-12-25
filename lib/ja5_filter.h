@@ -124,8 +124,12 @@ get_fingerprint_rates(u64 fingerprint)
 static bool
 init_filter(size_t max_storage_size)
 {
+	/**
+	 * Initialize storage only once during whole uptime.
+	 * Storage size reconfiguration is not supported.
+	 */
 	if (storage.tdb)
-		return false;
+		return true;
 
 	INIT_LIST_HEAD(&storage.lru_list);
 	spin_lock_init(&storage.lru_list_lock);
@@ -176,7 +180,7 @@ ja5_get_conns_rate(u64 fingerprint)
 
 	put_fingerprint_rates(rates);
 
-	T_LOG_NL("JA5 Fingerprint %08llx: connections/sec %d",
+	T_DBG("JA5 Fingerprint %08llx: connections/sec %d",
 		*(u64 *)&fingerprint, res);
 
 	return res;
@@ -201,7 +205,7 @@ ja5_get_records_rate(u64 fingerprint)
 
 	put_fingerprint_rates(rates);
 
-	T_LOG_NL("JA5 Fingerprint %08llx: records/sec %d",
+	T_DBG("JA5 Fingerprint %08llx: records/sec %d",
 		*(u64 *)&fingerprint, res);
 
 	return res;

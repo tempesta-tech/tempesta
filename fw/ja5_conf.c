@@ -34,7 +34,7 @@
 
 typedef struct {
 	struct hlist_node	hlist;
-	atomic64_t		refcnt;
+	atomic_t		refcnt;
 	/* TODO: make an unified macro for different types of ja5 hashes */
 	TlsJa5t			ja5_hash;
 	u64			conns_per_sec;
@@ -42,7 +42,7 @@ typedef struct {
 } TlsJa5HashEntry;
 
 typedef struct {
-	size_t storage_size;
+	u64 storage_size;
 	DECLARE_HASHTABLE(hashes, TLS_JA5_HASHTABLE_BITS);
 } TlsJa5FilterCfg;
 
@@ -52,19 +52,21 @@ static TlsJa5FilterCfg		*tls_filter_cfg_reconfig;
 static TlsJa5HashEntry*
 tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 {
-	u64 key = hash_calc((char *)&fingerprint, sizeof(fingerprint));
+	u64 key;
 	TlsJa5HashEntry *entry = NULL;
 	TlsJa5FilterCfg *cfg;
 
 	if (!tls_filter_cfg)
 		return NULL;
 
+	key = hash_calc((char *)&fingerprint, sizeof(fingerprint));
+
 	rcu_read_lock_bh();
 	cfg = rcu_dereference_bh(tls_filter_cfg);
 	hash_for_each_possible(cfg->hashes, entry, hlist, key) {
 		if (!memcmp(&fingerprint, &entry->ja5_hash, 
-						sizeof(fingerprint))) {
-			atomic64_inc(&entry->refcnt);
+			sizeof(fingerprint))) {
+			atomic_inc(&entry->refcnt);
 			break;
 		}
 	}
@@ -76,14 +78,19 @@ tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 static void
 tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 {
-	if (entry && !atomic64_dec_return(&entry->refcnt))
-		kfree(entry);
+	if (entry) {
+		s64 cnt = atomic_dec_return(&entry->refcnt);
+
+		BUG_ON(cnt < 0);
+		if (!cnt)
+			kfree(entry);
+	}
 }
 
 u64
 tls_get_ja5_conns_limit(TlsJa5t fingerprint)
 {
-	u64 res = -1;
+	u64 res = U64_MAX;
 	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
 
 	if (e) {
@@ -97,7 +104,7 @@ tls_get_ja5_conns_limit(TlsJa5t fingerprint)
 u64
 tls_get_ja5_recs_limit(TlsJa5t fingerprint)
 {
-	u64 res = -1;
+	u64 res = U64_MAX;
 	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
 
 	if (e) {
@@ -108,10 +115,10 @@ tls_get_ja5_recs_limit(TlsJa5t fingerprint)
 	return res;
 }
 
-size_t
+u64
 tls_get_ja5_storage_size(void)
 {
-	size_t res = 0;
+	u64 res = 0;
 
 	if (tls_filter_cfg) {
 		rcu_read_lock_bh();
@@ -135,13 +142,13 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_EQ_N(3, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
-	if (kstrtouint(ce->vals[1], 10, &conns_per_sec)) {
+	if (tfw_cfg_parse_uint(ce->vals[1], &conns_per_sec)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
 			"invalid connections per second value %s", ce->vals[1]);
 		return -EINVAL;
 	}
 
-	if (kstrtouint(ce->vals[2], 10, &recs_per_sec)) {
+	if (tfw_cfg_parse_uint(ce->vals[2], &recs_per_sec)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
 			"invalid records per second value %s", ce->vals[2]);
 		return -EINVAL;
@@ -160,7 +167,7 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	he->conns_per_sec = conns_per_sec;
 	he->records_per_sec = recs_per_sec;
 	INIT_HLIST_NODE(&he->hlist);
-	he->refcnt.counter = 1;
+	atomic_set(&he->refcnt, 1);
 
 	key = hash_calc((char *)&hash, sizeof(hash));
 	hash_add(tls_filter_cfg_reconfig->hashes, &he->hlist, key);
@@ -186,7 +193,7 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 
-		if (kstrtoul(ce->attrs[0].val, 10,
+		if (tfw_cfg_parse_ulonglong(ce->attrs[0].val,
 			&tls_filter_cfg_reconfig->storage_size)) {
 			T_ERR_NL("Failed to parse ja5 section: "
 				"invalid storage_size value");
@@ -204,11 +211,12 @@ static void
 free_cfg(TlsJa5FilterCfg *cfg)
 {
 	u32 bkt_i;
+	struct hlist_node *tmp;
 	TlsJa5HashEntry *entry;
 
 	BUG_ON(!cfg);
 
-	hash_for_each(cfg->hashes, bkt_i, entry, hlist)
+	hash_for_each_safe(cfg->hashes, bkt_i, tmp, entry, hlist)
 		tls_put_ja5_hash_entry(entry);
 
 	kfree(cfg);
