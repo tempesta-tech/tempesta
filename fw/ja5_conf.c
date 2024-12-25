@@ -27,6 +27,7 @@
 #include "log.h"
 #include "ja5_conf.h"
 #include "hash.h"
+#include "tempesta_fw.h"
 
 /* Define default size as multiple of TDB extent size */
 #define TLS_JA5_DEFAULT_STORAGE_SIZE ((1 << 21) * 25)
@@ -214,7 +215,8 @@ free_cfg(TlsJa5FilterCfg *cfg)
 	struct hlist_node *tmp;
 	TlsJa5HashEntry *entry;
 
-	BUG_ON(!cfg);
+	if (!cfg)
+		return;
 
 	hash_for_each_safe(cfg->hashes, bkt_i, tmp, entry, hlist)
 		tls_put_ja5_hash_entry(entry);
@@ -243,9 +245,11 @@ ja5_cfgop_finish(TfwCfgSpec *cs)
 void
 ja5_cfgop_cleanup(TfwCfgSpec *cs)
 {
-	/* tls_cfgop_ja5_finish was not called due to parsing error */
-	if (tls_filter_cfg_reconfig) {
-		free_cfg(tls_filter_cfg_reconfig);
-		tls_filter_cfg_reconfig = NULL;
+	free_cfg(tls_filter_cfg_reconfig);
+	tls_filter_cfg_reconfig = NULL;
+
+	if (!tfw_runstate_is_reconfig()) {
+		free_cfg(tls_filter_cfg);
+		tls_filter_cfg = NULL;
 	}
 }
