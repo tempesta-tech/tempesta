@@ -1178,12 +1178,12 @@ tfw_tls_cfgend(void)
 static int
 tfw_tls_start(void)
 {
+	u64 storage_size = tls_get_ja5_storage_size();
+
 	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
 
-	if (tls_get_ja5_storage_size()) {
-		if (!ja5t_init_filter(tls_get_ja5_storage_size()))
-			return -ENOMEM;
-	}
+	if (storage_size && !ja5t_init_filter(storage_size))
+		return -ENOMEM;
 
 	return 0;
 }
