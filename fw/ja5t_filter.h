@@ -18,6 +18,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#pragma once
+
 #include "log.h"
 #include "lib/ja5.h"
 

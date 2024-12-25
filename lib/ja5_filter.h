@@ -18,6 +18,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#pragma once
+
 #include "log.h"
 #include "db/core/tdb.h"
 
@@ -122,7 +124,7 @@ get_fingerprint_rates(u64 fingerprint)
 }
 
 static bool
-init_filter(size_t max_storage_size)
+init_filter(size_t max_storage_size, const char *tdb_file_path)
 {
 	/**
 	 * Initialize storage only once during whole uptime.
@@ -135,7 +137,7 @@ init_filter(size_t max_storage_size)
 	spin_lock_init(&storage.lru_list_lock);
 
 	return (storage.tdb = tdb_open(
-		"/tmp/ja5t_flt.tdb", max_storage_size, sizeof(Rates), 0));
+		tdb_file_path, max_storage_size, sizeof(Rates), 0));
 }
 
 static u32

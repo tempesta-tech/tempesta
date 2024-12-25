@@ -36,7 +36,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
-#include "ja5_conf.h"
+#include "ja5_conf_tls.h"
 #include "ja5t_filter.h"
 
 /* Common tls configuration for all vhosts. */
@@ -1198,7 +1198,7 @@ static TfwCfgSpec tfw_tls_hash_specs[] = {
 	{
 		.name = "hash",
 		.deflt = NULL,
-		.handler = ja5_cfgop_handle_hash_entry,
+		.handler = tls_ja5_cfgop_handle_hash_entry,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
@@ -1211,11 +1211,11 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.name = "ja5t",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = ja5_cfgop_cleanup,
+		.cleanup = tls_ja5_cfgop_cleanup,
 		.dest = tfw_tls_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = ja5_cfgop_begin,
-			.finish_hook = ja5_cfgop_finish
+			.begin_hook = tls_ja5_cfgop_begin,
+			.finish_hook = tls_ja5_cfgop_finish
 		},
 		.allow_none = true,
 		.allow_repeat = false,
