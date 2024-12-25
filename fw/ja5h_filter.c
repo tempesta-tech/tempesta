@@ -18,19 +18,19 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "ja5t_filter.h"
+#include "ja5h_filter.h"
 #include "lib/ja5_filter.h"
 
-#define TDB_FILE_PATH "/opt/tempesta/db/ja5t_flt.tdb"
+#define TDB_FILE_PATH "/opt/tempesta/db/ja5h_flt.tdb"
 
 bool
-ja5t_init_filter(size_t max_storage_size)
+ja5h_init_filter(size_t max_storage_size)
 {
 	return init_filter(max_storage_size, TDB_FILE_PATH);
 }
 
 u32
-ja5t_get_conns_rate(TlsJa5t fingerprint)
+ja5h_get_conns_rate(HttpJa5h fingerprint)
 {
 	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 
@@ -38,7 +38,7 @@ ja5t_get_conns_rate(TlsJa5t fingerprint)
 }
 
 u32
-ja5t_get_records_rate(TlsJa5t fingerprint)
+ja5h_get_records_rate(HttpJa5h fingerprint)
 {
 	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 

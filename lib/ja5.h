@@ -49,7 +49,7 @@ enum {
  *		  (header name or header name + value if name is
  *		  less then 4 bytes);
  */
-typedef struct __packed {
+typedef struct {
 	unsigned int	padding:6;
 	unsigned int	has_referer:1;
 	unsigned int	headers_num:6;

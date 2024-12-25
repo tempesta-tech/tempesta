@@ -1,6 +1,8 @@
 /**
  *		Tempesta FW
  *
+ * Transport Layer Security (TLS) interfaces to Tempesta TLS.
+ *
  * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -9,8 +11,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -18,29 +20,21 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "ja5t_filter.h"
-#include "lib/ja5_filter.h"
+#pragma once
 
-#define TDB_FILE_PATH "/opt/tempesta/db/ja5t_flt.tdb"
+#include "lib/ja5.h"
+#include "cfg.h"
 
-bool
-ja5t_init_filter(size_t max_storage_size)
-{
-	return init_filter(max_storage_size, TDB_FILE_PATH);
-}
+u64 http_get_ja5_storage_size(void);
 
-u32
-ja5t_get_conns_rate(TlsJa5t fingerprint)
-{
-	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
+u64 http_get_ja5_conns_limit(HttpJa5h fingerprint);
 
-	return ja5_get_conns_rate(*(u64 *)&fingerprint);
-}
+u64 http_get_ja5_recs_limit(HttpJa5h fingerprint);
 
-u32
-ja5t_get_records_rate(TlsJa5t fingerprint)
-{
-	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
+int http_ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
 
-	return ja5_get_records_rate(*(u64 *)&fingerprint);
-}
+int http_ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
+
+int http_ja5_cfgop_finish(TfwCfgSpec *cs);
+
+void http_ja5_cfgop_cleanup(TfwCfgSpec *cs);

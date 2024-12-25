@@ -114,6 +114,8 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
+#include "ja5h_filter.h"
+#include "ja5_conf_http.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -7303,6 +7305,7 @@ tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	bool misconfiguration;
+	u64 storage_size = http_get_ja5_storage_size();
 
 	if (WARN_ON_ONCE(!dflt_vh))
 		return -1;
@@ -7318,6 +7321,9 @@ tfw_http_start(void)
 			  " the wiki).\n");
 		return -1;
 	}
+
+	if (storage_size && !ja5h_init_filter(storage_size))
+		return -ENOMEM;
 
 	return 0;
 }
@@ -7870,6 +7876,18 @@ tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 	max_header_list_size = 0;
 }
 
+static TfwCfgSpec tfw_tls_hash_specs[] = {
+	{
+		.name = "hash",
+		.deflt = NULL,
+		.handler = http_ja5_cfgop_handle_hash_entry,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -7956,6 +7974,20 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_max_header_list_size,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
+	},
+	{
+		.name = "ja5h",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = http_ja5_cfgop_cleanup,
+		.dest = tfw_tls_hash_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = http_ja5_cfgop_begin,
+			.finish_hook = http_ja5_cfgop_finish
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
