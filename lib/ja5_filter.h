@@ -20,6 +20,7 @@
 
 #include "log.h"
 #include "db/core/tdb.h"
+#include "lib/str.h"
 
 #include <linux/list.h>
 
@@ -67,6 +68,7 @@ get_alloc_ctx_init_rec(TdbRec *rec, void *)
 	INIT_LIST_HEAD(&rates->list_node);
 	spin_lock_init(&rates->conns_lock);
 	spin_lock_init(&rates->recs_lock);
+	bzero_fast(rates, sizeof(Rates));
 	tdb_rec_keep(rec);
 }
 
