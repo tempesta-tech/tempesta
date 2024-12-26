@@ -24,6 +24,7 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
+#include "tempesta_fw.h"
 #include "log.h"
 #include "ja5_conf.h"
 #include "hash.h"
@@ -65,7 +66,8 @@ tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 	cfg = rcu_dereference_bh(tls_filter_cfg);
 	hash_for_each_possible(cfg->hashes, entry, hlist, key) {
 		if (!memcmp(&fingerprint, &entry->ja5_hash, 
-			sizeof(fingerprint))) {
+			    sizeof(fingerprint)))
+		{
 			atomic_inc(&entry->refcnt);
 			break;
 		}
@@ -79,7 +81,7 @@ static void
 tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 {
 	if (entry) {
-		s64 cnt = atomic_dec_return(&entry->refcnt);
+		int cnt = atomic_dec_return(&entry->refcnt);
 
 		BUG_ON(cnt < 0);
 		if (!cnt)
@@ -183,7 +185,7 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_ATTR_LE_N(1, cs, ce);
 
 	if (!(tls_filter_cfg_reconfig =
-		kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
+	      kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
 		return -ENOMEM;
 
 	if (ce->attr_n == 1) {
@@ -225,16 +227,18 @@ free_cfg(TlsJa5FilterCfg *cfg)
 int
 ja5_cfgop_finish(TfwCfgSpec *cs)
 {
-	TlsJa5FilterCfg *prev = tls_filter_cfg;
+	TlsJa5FilterCfg *prev;
+
+	rcu_read_lock();
+	prev = rcu_dereference(tls_filter_cfg);
+	rcu_read_unlock();
 
 	BUG_ON(!tls_filter_cfg_reconfig);
 
 	rcu_assign_pointer(tls_filter_cfg, tls_filter_cfg_reconfig);
 	synchronize_rcu();
-	if (prev) {
+	if (prev)
 		free_cfg(prev);
-		T_LOG_NL("Successfully reconfigured ja5 filter");
-	}
 	tls_filter_cfg_reconfig = NULL;
 
 	return 0;
@@ -247,5 +251,17 @@ ja5_cfgop_cleanup(TfwCfgSpec *cs)
 	if (tls_filter_cfg_reconfig) {
 		free_cfg(tls_filter_cfg_reconfig);
 		tls_filter_cfg_reconfig = NULL;
+	}
+
+	if (!tfw_runstate_is_reconfig()) {
+		TlsJa5FilterCfg *prev;
+
+		rcu_read_lock();
+		prev = rcu_dereference(tls_filter_cfg);
+		rcu_read_unlock();
+		if (prev)
+			free_cfg(prev);
+		rcu_assign_pointer(tls_filter_cfg, NULL);
+		synchronize_rcu();
 	}
 }
