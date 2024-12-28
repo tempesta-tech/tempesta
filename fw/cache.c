@@ -72,6 +72,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
 #define TFW_CE_STALE_IF_ERROR	0x0002
+#define TFW_CE_CHUNKED_BODY	0x0004		/* CE entry contains chunked body. */
 
 /*
  * @trec	- Database record descriptor;
@@ -2259,12 +2260,14 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+		ce->flags |= TFW_CE_CHUNKED_BODY;
 		r = tfw_cache_h2_copy_chunked_body(db, &ce->body_len, &p, &trec,
 						   resp, &resp->cut, &tot_len);
-	else
+	} else {
 		r = tfw_cache_h2_copy_body(db, &ce->body_len, &p, &trec,
 					   resp, &tot_len);
+	}
 
 	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy HTTP body\n");
@@ -3042,6 +3045,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 						    TFW_VHOST_HDRMOD_RESP);
 	bool h2_mode = TFW_MSG_H2(req);
 	bool first = false;
+	bool chunked_body = false;
 
 	/*
 	 * The allocated response won't be checked by any filters and
@@ -3161,10 +3165,10 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
 write_body:
+	chunked_body = (ce->flags & TFW_CE_CHUNKED_BODY) && !h2_mode;
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (ce->body_len && req->method != TFW_HTTP_METH_HEAD) {
-		bool chunked_body = trailers_trec != NULL && !h2_mode;
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      h2_mode, chunked_body))
 			goto free;
@@ -3187,14 +3191,15 @@ write_body:
 		}
 		if (h2_mode)
 			resp->req->stream->xmit.t_len = t_len;
-		/*
-		 * For http1 we should add finishing \r\n after last
-		 * trailer.
-		 */
-		if (!h2_mode &&
-		    tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
-			goto free;
 	}
+
+	/*
+	 * For http1 we should add finishing \r\n after last
+	 * trailer or chunked body.
+	 */
+	if (chunked_body && req->method != TFW_HTTP_METH_HEAD
+	    && tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
+		goto free;
 
 	return resp;
 free:

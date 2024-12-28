@@ -3652,6 +3652,10 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
+	r = tfw_http_msg_adjust_trailer_hdr(hm);
+	if (r < 0)
+		return r;
+
 	r = tfw_http_set_hdr_upgrade(hm, false);
 	if (r < 0)
 		return r;
@@ -6959,6 +6963,10 @@ next_msg:
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
 	if (unlikely(r))
+		return r;
+
+	r = tfw_http_msg_adjust_trailer_hdr(hmresp);
+	if (r < 0)
 		return r;
 
 	/*

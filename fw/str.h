@@ -261,6 +261,20 @@ basic_stricmp_fast(const BasicStr *s1, const BasicStr *s2)
  * trailers). Like Trailer: X-Token1 X-token2 */
 #define TFW_STR_TRAILER_HDR     0x400
 
+/*
+ * Internal flag. We mark all chunks in 'Trailer' header
+ * which potencially can be part of hop by hop header
+ * with this flag ('Conn' will be mark with this flag,
+ * because it can be a part of Connection).
+ */
+#define __TFW_STR_TRAILER_HDR_HBP 0x800
+
+/*
+ * Some hop by hop header in 'Trailer' header starts
+ * at the string chunk.
+ */
+#define TFW_STR_TRAILER_HDR_HBP	0x1000
+
 #define SLEN(s)			(sizeof(s) - 1)
 
 /*
