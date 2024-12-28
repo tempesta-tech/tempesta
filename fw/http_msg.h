@@ -2,7 +2,11 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+<<<<<<< HEAD
  * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+=======
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+>>>>>>> 90639f0b (Correct handling of trailer headers in h1 -> h2 proxying.)
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
