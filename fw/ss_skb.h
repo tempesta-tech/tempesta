@@ -416,7 +416,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		begin = skb->data;
 		end = begin + skb_headlen(skb);
 
-		if (begin + off <= end)
+		if (ss_skb_is_within_fragment(begin, begin + off, end))
 			return begin + off;
 		off -= skb_headlen(skb);
 	}
@@ -428,11 +428,10 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		end = begin + skb_frag_size(f);
 		d = end - begin;
 
-		if (off > d) {
-			off -= d;
-			continue;
-		}
-		return begin + off;
+		if (ss_skb_is_within_fragment(begin, begin + off, end))
+			return begin + off;
+
+		off -= d;
 	}
 
 	return NULL;
