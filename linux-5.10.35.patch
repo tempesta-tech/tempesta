@@ -501,7 +501,6 @@ index b4dae640d..1b6d4a669 100644
  struct crypto_sync_skcipher *crypto_alloc_sync_skcipher(
  				const char *alg_name, u32 type, u32 mask)
  {
-<<<<<<< HEAD
 diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
 index 038ce4e5e..7b09c1ccd 100644
 --- a/drivers/net/virtio_net.c
@@ -554,7 +553,6 @@ index 038ce4e5e..7b09c1ccd 100644
  	__netif_tx_unlock(txq);
  
  	virtqueue_napi_complete(napi, sq->vq, 0);
-=======
 diff --git a/drivers/nvdimm/nd.h b/drivers/nvdimm/nd.h
 index 696b55556..efb8437e5 100644
 --- a/drivers/nvdimm/nd.h
@@ -568,7 +566,6 @@ index 696b55556..efb8437e5 100644
  int nvdimm_setup_pfn(struct nd_pfn *nd_pfn, struct dev_pagemap *pgmap);
  #else
  static inline int nvdimm_setup_pfn(struct nd_pfn *nd_pfn,
->>>>>>> aa86f5da (Add debug for 2262)
 diff --git a/include/crypto/aead.h b/include/crypto/aead.h
 index c32a6f566..5fe1addcc 100644
 --- a/include/crypto/aead.h

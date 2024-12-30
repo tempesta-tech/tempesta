@@ -275,7 +275,12 @@ tfw_vhost_put(TfwVhost *vhost)
 	BUG_ON(refcnt < 0);
 
 	if (likely(refcnt))
-		return;
+		return;	
+
+	printk(KERN_ALERT "tfw_vhost_put %px %p from %ps %ps %ps %ps",
+	       vhost, vhost, __builtin_return_address(0),
+	       __builtin_return_address(1), __builtin_return_address(2),
+	       __builtin_return_address(3));
 	tfw_vhost_destroy(vhost);
 }
 

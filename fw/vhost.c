@@ -1673,6 +1673,11 @@ tfw_location_del(TfwLocation *loc)
 
 	tfw_sg_put(loc->main_sg);
 	tfw_sg_put(loc->backup_sg);
+
+	printk(KERN_ALERT " tfw_location_del %px %p %px %p | %ps %ps %ps %ps",
+	       loc, loc, loc->frang_cfg, loc->frang_cfg, __builtin_return_address(0),
+	       __builtin_return_address(1), __builtin_return_address(2),
+	       __builtin_return_address(3));
 }
 
 /*
@@ -1907,6 +1912,7 @@ tfw_vhost_destroy(TfwVhost *vhost)
 {
 	int i;
 
+	printk(KERN_ALERT "tfw_vhost_destroy vhost %px %p pool %px %p BBB", vhost, vhost, vhost->hdrs_pool, vhost->hdrs_pool);
 	for (i = 0; i < vhost->loc_sz; ++i)
 		tfw_location_del(&vhost->loc[i]);
 	tfw_location_del(vhost->loc_dflt);
@@ -1915,6 +1921,8 @@ tfw_vhost_destroy(TfwVhost *vhost)
 	tfw_pool_destroy(vhost->hdrs_pool);
 	tfw_tls_cert_clean(vhost);
 	kfree(vhost);
+
+	printk(KERN_ALERT "tfw_vhost_destroy vhost %px %p AAA", vhost, vhost);
 }
 
 static TfwVhost *
@@ -1930,8 +1938,10 @@ tfw_vhost_create(const char *name)
 		+ sizeof(TfwStickyCookie) + sizeof(FrangGlobCfg)
 		+ tfw_tls_vhost_priv_data_sz();
 
-	if (!(pool = __tfw_pool_new(0)))
+	if (!(pool = __tfw_pool_new(0))) {
+		printk(KERN_ALERT "!pool %s", name);
 		return NULL;
+	}
 
 	if (!(vhost = kzalloc(size, GFP_KERNEL))) {
 		tfw_pool_destroy(pool);
@@ -1955,6 +1965,8 @@ tfw_vhost_create(const char *name)
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
 
+	printk(KERN_ALERT "tfw_vhost_create vhost %px %p pool %px %p",
+	       vhost, vhost, pool, pool);
 	return vhost;
 }
 

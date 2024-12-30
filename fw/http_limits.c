@@ -1284,10 +1284,32 @@ frang_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 	TfwAddr *cli_addr = NULL;
-	TfwLocation *loc = req->location ? : req->vhost->loc_dflt;
-	unsigned long body_len = loc->frang_cfg->http_body_len;
+	TfwLocation *loc;
+	unsigned long body_len;
 	unsigned long exceeded = 0;
 	int r = T_OK;
+
+	if (!req) {
+		printk(KERN_ALERT "!req");
+		BUG();
+	}
+
+	if (!req->vhost) {
+		printk(KERN_ALERT "!req->vhost");
+		BUG();
+	}
+
+	loc = req->location ? : req->vhost->loc_dflt;
+	if (!loc) {
+		printk(KERN_ALERT "!loc");
+		BUG();
+	}
+	if (!loc->frang_cfg) {
+		printk(KERN_ALERT "!loc->frang_cfg");
+		BUG();
+	}
+	body_len = loc->frang_cfg->http_body_len;
+
 
 	if (!body_len)
 		return T_OK;
