@@ -29,7 +29,7 @@ declare -r GITHUB_USER="tempesta-tech"
 declare -r GITHUB_REPO_TEMPESTA="tempesta"
 declare -r GITHUB_REPO_LINUX="linux-5.10.35-tfw"
 
-#TODO: currently Ubuntu 20 is the only supported distribution, other
+#TODO: currently Ubuntu 24 is the only supported distribution, other
 # distributions may have other names.
 # Don't install packages with debug symbols.
 declare -a FILES_LINUX=("linux-image-[\d.]+\.tfw-[\da-f]+"
@@ -117,7 +117,7 @@ tfw_install_packages()
 	files=("${@}")
 
   case $DISTRO in
-	"ubuntu-22")
+	"ubuntu-24")
     repo=""
     log "INFO" "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
     mkdir -p $DOWNLOAD_DIR/$repo
@@ -145,16 +145,16 @@ tfw_install_deps()
 	APT_OPTS=
 
 	case $DISTRO in
-	"ubuntu-22")
+	"ubuntu-24")
         echo ""
-		log "INFO" "Installation on Ubuntu 22 LTS requires updating system from jessie-backports repository before installing TempestaFW."
-		log "INFO" "Updating system from jammy repository for Ubuntu 22 LTS."
+		log "INFO" "Installation on Ubuntu 24 LTS requires updating system from jessie-backports repository before installing TempestaFW."
+		log "INFO" "Updating system from jammy repository for Ubuntu 24 LTS."
 		tfw_confirm
 
 		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
 		        "jammy main" >> /etc/apt/sources.list
-		apt-get update || log "ERROR" "Failed to update package lists for Ubuntu 22 LTS."
-		apt-get dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Ubuntu 22 LTS."
+		apt-get update || log "ERROR" "Failed to update package lists for Ubuntu 24 LTS."
+		apt-get dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Ubuntu 24 LTS."
     ;;
 	*)
 	log "ERROR" "Unsupported distribution: $DISTRO"
@@ -291,8 +291,8 @@ tfw_try_distro()
 	log "INFO" "Detected distribution name: $d_name"
 
 	case $d_name in
-	Ubuntu[[:space:]]22*)
-		DISTRO="ubuntu-22"
+	Ubuntu[[:space:]]24*)
+		DISTRO="ubuntu-24"
 		;;
 	*)
 		log "ERROR" "Installer does not support $d_name distro!"
