@@ -33,6 +33,7 @@
 #include "str.h"
 #include "sync_socket.h"
 #include "lib/fsm.h"
+#include "vhost.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -62,6 +63,9 @@ static int tfw_ss_users = 0;
  */
 static LIST_HEAD(tfw_mods);
 static DEFINE_RWLOCK(tfw_mods_lock);
+
+typedef void (*print_extra_report_f)(void);
+extern print_extra_report_f print_extra_report;
 
 /**
  * Return true if Tempesta is reconfiguring, and false otherwise.
@@ -483,6 +487,8 @@ static int __init
 tfw_init(void)
 {
 	int r;
+
+	print_extra_report = tfw_vhost_lists_print;
 
 	T_LOG("Initializing Tempesta FW kernel module...\n");
 

@@ -281,10 +281,6 @@ tfw_pool_destroy(TfwPool *p)
 	if (!p)
 		return;
 
-	printk(KERN_ALERT "tfw_pool_destroy pool %px %p | %ps %ps %ps %ps",
-	       p, p, __builtin_return_address(0), __builtin_return_address(1),
-	       __builtin_return_address(2), __builtin_return_address(3));
-	printk(KERN_ALERT "tfw_pool_destroy curr %px %px %p", p, p->curr, p->curr);
 	for (c = p->curr; c; c = next) {
 		next = c->next;
 		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
