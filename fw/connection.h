@@ -614,4 +614,6 @@ void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 
+void tfw_sock_srv_print(void);
+
 #endif /* __TFW_CONNECTION_H__ */

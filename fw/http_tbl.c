@@ -736,6 +736,54 @@ err:
 	return r;
 }
 
+static int
+tfw_print_rule(TfwHttpMatchRule *rule)
+{
+	printk(KERN_ALERT "rule %px | %d %d %d",
+		rule, rule->act.type == TFW_HTTP_MATCH_ACT_VHOST,
+		rule->val.type == TFW_HTTP_MATCH_V_COOKIE,
+		rule->act.type == TFW_HTTP_MATCH_ACT_REDIR);
+
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_VHOST)
+		tfw_vhost_put(rule->act.vhost);
+	if (rule->val.type == TFW_HTTP_MATCH_V_COOKIE)
+		kfree(rule->val.ptn.str);
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_REDIR) {
+		int i;
+
+		for (i = 0; i < rule->act.redir.url.nchunks; ++i)
+			kfree(rule->act.redir.url.chunks[i].data);
+		kfree(rule->act.redir.url.chunks);
+	}
+	return 0;
+}
+
+static void
+tfw_rule_table_print(TfwHttpTable *table, char *name)
+{
+	TfwHttpChain *chain;
+
+	printk(KERN_ALERT "tfw_rule_table_print %s", name);
+	if (!table)
+		return;
+
+	tfw_pool_print(table->pool);
+
+	list_for_each_entry(chain, &table->head, list) {
+		tfw_http_chain_rules_for_each(chain, tfw_print_rule);
+	}
+}
+
+void
+tfw_rule_tables_print(void)
+{
+	printk(KERN_ALERT "tfw_tables_print tfw_table_reconfig %px pool %px tfw_table %px pool %px",
+		tfw_table_reconfig, tfw_table_reconfig ? tfw_table_reconfig->pool : NULL,
+		tfw_table, tfw_table ? tfw_table->pool : NULL);
+	tfw_rule_table_print(tfw_table_reconfig, "tfw_table_reconfig");
+	tfw_rule_table_print(tfw_table, "tfw_table");
+}
+
 /**
  * Delete all rules parsed out of all "http_chain" sections for current (if
  * this is not live reconfiguration) and reconfig HTTP tables.

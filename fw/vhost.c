@@ -2791,16 +2791,8 @@ tfw_vhosts_list_print(TfwVhostList *vhosts, char *name)
 		printk(KERN_ALERT "%s: vhost vh_hash %px %p refcnt %lld loc %px loc_dflt %px hdrs_pool %px curr %px frang_gconf %px",
 		       name, vhost, vhost, atomic64_read(&vhost->refcnt), vhost->loc, vhost->loc_dflt,
 		       vhost->hdrs_pool, vhost->hdrs_pool ? vhost->hdrs_pool->curr : NULL, vhost->frang_gconf);
-		if (vhost->hdrs_pool) {
-			TfwPoolChunk *c, *next;
-			TfwPool *p = vhost->hdrs_pool;
-
-			for (c = p->curr; c; c = next) {
-				unsigned long addr = TFW_POOL_CHUNK_BASE(c);
-				printk(KERN_ALERT "POOL %px c %px order %u off %u base %px refcnt %d", p, c, c->order, c->off, (void *)addr, page_count(virt_to_page(addr)));
-				next = c->next;
-			}
-		}
+		if (vhost->hdrs_pool)
+			tfw_pool_print(vhost->hdrs_pool);
 	}
 
 	hash_for_each_safe(vhosts->sni_vh_map, i, tmp, svhm, hlist) {
@@ -2812,17 +2804,8 @@ tfw_vhosts_list_print(TfwVhostList *vhosts, char *name)
 		printk(KERN_ALERT "%s vhost sni_vh_map %px %p refcnt %lld loc %px loc_dflt %px hdrs_pool %px curr %px frang_gconf %px",
 		       name, vhost, vhost, atomic64_read(&vhost->refcnt), vhost->loc, vhost->loc_dflt,
 		       vhost->hdrs_pool, vhost->hdrs_pool ? vhost->hdrs_pool->curr : NULL, vhost->frang_gconf);
-
-		if (vhost->hdrs_pool) {
-			TfwPoolChunk *c, *next;
-			TfwPool *p = vhost->hdrs_pool;
-
-			for (c = p->curr; c; c = next) {
-				unsigned long addr = TFW_POOL_CHUNK_BASE(c);
-				printk(KERN_ALERT "POOL %px c %px order %u off %u base %px refcnt %d", p, c, c->order, c->off, (void *)addr, page_count(virt_to_page(addr)));
-				next = c->next;
-			}
-		}
+		if (vhost->hdrs_pool)
+			tfw_pool_print(vhost->hdrs_pool);
 	}
 }
 
@@ -2835,6 +2818,7 @@ tfw_vhost_lists_print(void)
 	vh_list = rcu_dereference(tfw_vhosts);
 	rcu_read_unlock();
 
+	printk(KERN_ALERT "tfw_vhost_lists_print");
 	tfw_vhosts_list_print(vh_list, "tfw_vhosts");
 	tfw_vhosts_list_print(tfw_vhosts_reconfig, "tfw_vhosts_reconfig");
 }

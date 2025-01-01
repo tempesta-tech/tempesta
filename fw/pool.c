@@ -54,6 +54,17 @@
 static DEFINE_PER_CPU(unsigned int, pg_next);
 static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
 
+#define SET_POOL_OR_CHUNK(cp)					\
+do {								\
+	cp->in_irq = in_irq();					\
+	cp->in_softirq = in_softirq();				\
+	cp->in_interrupt = in_interrupt();			\
+	cp->in_serving_softirq = in_serving_softirq();		\
+	cp->in_nmi = in_nmi();					\
+	cp->in_task = in_task();				\
+	cp->cpu = smp_processor_id();				\
+} while(0)
+
 /*
  * Per-CPU page cache.
  *
@@ -140,6 +151,8 @@ __tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 		return NULL;
 	c->next = curr;
 	c->order = order;
+
+	SET_POOL_OR_CHUNK(c);
 
 	curr->off = p->off;
 
@@ -263,7 +276,11 @@ __tfw_pool_new(size_t n)
 	if (unlikely(!c))
 		return NULL;
 
+	SET_POOL_OR_CHUNK(c);
+
 	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
+
+	SET_POOL_OR_CHUNK(p);
 
 	c->next = NULL;
 	p->order = c->order = order;

@@ -47,6 +47,13 @@ typedef struct tfw_pool_chunk_t {
 	struct tfw_pool_chunk_t	*next;
 	unsigned int		order;
 	unsigned int		off;
+	unsigned int		in_irq : 1;
+	unsigned int		in_softirq : 1;
+	unsigned int		in_interrupt : 1;
+	unsigned int		in_serving_softirq : 1;
+	unsigned int		in_nmi : 1;
+	unsigned int		in_task : 1;
+	int			cpu;
 } TfwPoolChunk;
 
 /**
@@ -59,6 +66,13 @@ typedef struct {
 	TfwPoolChunk	*curr;
 	unsigned int	order;
 	unsigned int	off;
+	unsigned int	in_irq : 1;
+	unsigned int	in_softirq : 1;
+	unsigned int	in_interrupt : 1;
+	unsigned int	in_serving_softirq : 1;
+	unsigned int	in_nmi : 1;
+	unsigned int	in_task : 1;
+	int		cpu;
 } TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
@@ -149,6 +163,27 @@ static inline void *
 tfw_pool_realloc_no_copy(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 {
 	return __tfw_pool_realloc(p, ptr, old_n, new_n, false);
+}
+
+static inline void
+tfw_pool_print(TfwPool *p)
+{
+	TfwPoolChunk *c, *next;
+
+	if (!p)
+		return;
+
+	printk(KERN_ALERT "pool %px | in_irq %d in_softirq %d in_interrupt %d in_serving_softirq %d in_nmi %d in_task %d cpu %d",
+	       p, p->in_irq, p->in_softirq, p->in_interrupt, p->in_serving_softirq, p->in_nmi, p->in_task, p->cpu);
+
+	for (c = p->curr; c; c = next) {
+		unsigned long addr = TFW_POOL_CHUNK_BASE(c);
+		printk(KERN_ALERT "POOL %px c %px order %u off %u base %px refcnt %d | "
+		       "in_irq %d in_softirq %d in_interrupt %d in_serving_softirq %d in_nmi %d in_task %d cpu %d",
+		       p, c, c->order, c->off, (void *)addr, page_count(virt_to_page(addr)),
+		       c->in_irq, c->in_softirq, c->in_interrupt, c->in_serving_softirq, c->in_nmi, c->in_task, c->cpu);
+		next = c->next;
+	}
 }
 
 #endif /* __TFW_POOL_H__ */

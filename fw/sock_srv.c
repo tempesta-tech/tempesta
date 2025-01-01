@@ -423,6 +423,29 @@ __tfw_connection_get_if_not_death(TfwConn *conn)
 	return false;
 }
 
+static int
+tfw_sock_srv_print_impl(TfwConn *conn)
+{
+	TfwHttpReq *req;
+	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+
+	printk(KERN_ALERT "srv_conn %px", srv_conn);
+
+	spin_lock(&srv_conn->fwd_qlock);
+	list_for_each_entry(req, &srv_conn->fwd_queue, fwd_list) {
+		printk(KERN_ALERT "req %px pair %px", req, req->pair);
+		tfw_pool_print(req->pool);
+		if (req->pair)
+			tfw_pool_print(req->pair->pool);
+
+		if (req == (TfwHttpReq *)srv_conn->msg_sent)
+			break;
+	}
+	spin_unlock(&srv_conn->fwd_qlock);
+
+	return 0;
+}
+
 /**
  * Close a server connection, or stop attempts to connect if a connection
  * is not established. This is called only in user context at STOP time.
@@ -620,6 +643,12 @@ static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
+}
+
+static int
+tfw_sock_srv_print_srv(TfwServer *srv)
+{
+	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_print_impl);
 }
 
 /*
@@ -2221,6 +2250,12 @@ tfw_sock_srv_start(void)
 	tfw_cfgop_cleanup_srv_cfgs(false);
 
 	return 0;
+}
+
+void
+tfw_sock_srv_print(void)
+{
+	tfw_sg_for_each_srv(NULL, tfw_sock_srv_print_srv);
 }
 
 static void

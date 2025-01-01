@@ -34,6 +34,7 @@
 #include "sync_socket.h"
 #include "lib/fsm.h"
 #include "vhost.h"
+#include "http_tbl.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -483,12 +484,20 @@ tfw_exit(void)
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }
 
+static void
+tfw_vhost_print_extra_report(void)
+{
+	tfw_vhost_lists_print();
+	tfw_rule_tables_print();
+	tfw_sock_srv_print();
+}
+
 static int __init
 tfw_init(void)
 {
 	int r;
 
-	print_extra_report = tfw_vhost_lists_print;
+	print_extra_report = tfw_vhost_print_extra_report;
 
 	T_LOG("Initializing Tempesta FW kernel module...\n");
 
