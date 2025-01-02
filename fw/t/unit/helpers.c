@@ -368,10 +368,10 @@ tfw_vhost_lookup_default(void)
 	return NULL;
 }
 
-TfwVhost *
-tfw_http_tbl_action(TfwMsg *msg, void *res)
+int
+tfw_http_tbl_action(TfwMsg *msg, TfwHttpActionResult *action)
 {
-	return NULL;
+	return 0;
 }
 
 int
@@ -466,15 +466,40 @@ tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
 }
 
 void
-tfw_vhost_check(TfwPool *pool)
+tfw_vhost_check_pool(TfwPool *pool)
 {
 
 }
 
 void
-tfw_rule_tables_check(TfwPool *pool)
+tfw_vhost_check_chunk(TfwPoolChunk *chunk)
+{
+
+}
+
+
+void
+tfw_rule_tables_check_pool(TfwPool *pool)
 {
 	
+}
+
+void
+tfw_rule_tables_check_chunk(TfwPoolChunk *chunk)
+{
+	
+}
+
+void
+tfw_sock_srv_check_chunk(TfwPoolChunk *chunk)
+{
+
+}
+
+void
+tfw_sock_srv_check_pool(TfwPool *pool)
+{
+
 }
 
 unsigned int cache_default_ttl = 60;

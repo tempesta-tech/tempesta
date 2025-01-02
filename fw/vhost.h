@@ -316,6 +316,7 @@ unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
 TfwCacheUseStale *tfw_vhost_get_cache_use_stale(TfwLocation *loc,
 						TfwVhost *vhost);
 void tfw_vhost_lists_print(void);
-void tfw_vhost_check(TfwPool *pool);
+void tfw_vhost_check_pool(TfwPool *pool);
+void tfw_vhost_check_chunk(TfwPoolChunk *chunk);
 
 #endif /* __TFW_VHOST_H__ */

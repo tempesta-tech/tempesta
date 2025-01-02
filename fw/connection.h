@@ -595,6 +595,33 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 	return r;
 }
 
+static inline int
+tfw_peer_for_each_conn_1(TfwPeer *p, int (*cb)(TfwConn *, void *data), void *data)
+{
+	int r = 0;
+	TfwConn *conn, *tmp_conn;
+
+	spin_lock_bh(&p->conn_lock);
+
+	/*
+	 * @cb() may delete connections from the list.
+	 * Typically, this happens on connection_drop callbacks on sockets closing.
+	 * However, note that client and server connections drops are logically
+	 * different: client connections are just freed with all linked resources,
+	 * while the high level server connection handlers are preserved for
+	 * connection repair and freed on shutdown only.
+	 */
+	list_for_each_entry_safe(conn, tmp_conn, &p->conn_list, list) {
+		r = cb(conn, data);
+		if (unlikely(r))
+			break;
+	}
+
+	spin_unlock_bh(&(p)->conn_lock);
+
+	return r;
+}
+
 extern unsigned int tfw_cli_max_concurrent_streams;
 
 void tfw_connection_unlink_to_sk(TfwConn *conn);
@@ -615,5 +642,7 @@ void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 
 void tfw_sock_srv_print(void);
+void tfw_sock_srv_check_pool(TfwPool *pool);
+void tfw_sock_srv_check_chunk(TfwPoolChunk *chunk);
 
 #endif /* __TFW_CONNECTION_H__ */

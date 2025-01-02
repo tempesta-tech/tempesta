@@ -444,6 +444,31 @@ end:
 	return r;
 }
 
+int tfw_sg_for_each_srv_1(int (*sg_cb)(TfwSrvGroup *sg),
+                          int (*srv_cb)(TfwServer *srv, void *data),
+                          void *data)
+{
+	int i, r = 0;
+	TfwSrvGroup *sg;
+	TfwServer *srv, *tmp;
+
+	down_write(&sg_sem);
+	hash_for_each(sg_hash, i, sg, list) {
+		if (sg_cb && (r = sg_cb(sg)))
+			goto end;
+		list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
+			if ((r = srv_cb(srv, data)))
+				goto end;
+			tfw_srv_loop_sched_rcu();
+		}
+		tfw_srv_loop_sched_rcu();
+	}
+end:
+	up_write(&sg_sem);
+
+	return r;
+}
+
 /**
  * Same as tfw_sg_for_each_srv() but iterates over reconfig server group lists.
  */

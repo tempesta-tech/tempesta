@@ -46,6 +46,8 @@
 
 #include "lib/str.h"
 #include "pool.h"
+#include "vhost.h"
+#include "http_tbl.h"
 
 #define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\
 				 + TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)))
@@ -88,7 +90,8 @@ tfw_pool_alloc_pages(unsigned int order, bool *x)
 	unsigned long addr;
 	struct page *page;
 
-	preempt_disable();
+	//preempt_disable();
+	local_bh_disable();
 
 	pgn = this_cpu_ptr(&pg_next);
 
@@ -96,12 +99,12 @@ tfw_pool_alloc_pages(unsigned int order, bool *x)
 		--*pgn;
 		pg_res = ((unsigned long *)this_cpu_ptr(pg_cache))[*pgn];
 
-		preempt_enable();
+		local_bh_enable();
 
 		*x = true;
 		return pg_res;
 	}
-	preempt_enable();
+	local_bh_enable();
 
 	flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
 	addr = __get_free_pages(flags, order);

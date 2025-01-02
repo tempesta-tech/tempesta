@@ -1318,8 +1318,8 @@ __tfw_http_msg_alloc(int type, bool full)
 		return NULL;
 	}
 
-	tfw_vhost_check(hm->pool);
-	tfw_rule_tables_check(hm->pool);
+	tfw_rule_tables_check_pool(hm->pool);
+	tfw_rule_tables_check_pool(hm->pool);
 
 	if (full) {
 		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,

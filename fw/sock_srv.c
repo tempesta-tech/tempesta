@@ -446,6 +446,47 @@ tfw_sock_srv_print_impl(TfwConn *conn)
 	return 0;
 }
 
+static int
+tfw_sock_srv_check_pool_srv_impl(TfwConn *conn, void *data)
+{
+	TfwHttpReq *req;
+	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+	TfwPool *pool = (TfwPool *)data;
+
+	spin_lock(&srv_conn->fwd_qlock);
+	list_for_each_entry(req, &srv_conn->fwd_queue, fwd_list) {
+		if (req->pool == pool) {
+			printk(KERN_ALERT "BAD POOL REQ");
+			WARN_ON(1);
+		}
+		if (req->pair && req->pair->pool == pool) {
+			printk(KERN_ALERT "BAD POOL RESP");
+			WARN_ON(1);
+		}
+
+	}
+
+	return 0;
+}
+
+static int
+tfw_sock_srv_check_chunk_srv_impl(TfwConn *conn, void *data)
+{
+	TfwHttpReq *req;
+	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+	TfwPoolChunk *chunk = (TfwPoolChunk *)data;
+
+	spin_lock(&srv_conn->fwd_qlock);
+	list_for_each_entry(req, &srv_conn->fwd_queue, fwd_list) {
+		tfw_pool_check_chunk(req->pool, chunk);
+
+		if (req->pair)
+			tfw_pool_check_chunk(req->pair->pool, chunk);
+	}
+
+	return 0;
+}
+
 /**
  * Close a server connection, or stop attempts to connect if a connection
  * is not established. This is called only in user context at STOP time.
@@ -649,6 +690,18 @@ static int
 tfw_sock_srv_print_srv(TfwServer *srv)
 {
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_print_impl);
+}
+
+static int
+tfw_sock_srv_check_pool_srv(TfwServer *srv, void *data)
+{
+	return tfw_peer_for_each_conn_1((TfwPeer *)srv, tfw_sock_srv_check_pool_srv_impl, data);
+}
+
+static int
+tfw_sock_srv_check_chunk_srv(TfwServer *srv, void *data)
+{
+	return tfw_peer_for_each_conn_1((TfwPeer *)srv, tfw_sock_srv_check_chunk_srv_impl, data);
 }
 
 /*
@@ -2256,6 +2309,18 @@ void
 tfw_sock_srv_print(void)
 {
 	tfw_sg_for_each_srv(NULL, tfw_sock_srv_print_srv);
+}
+
+void
+tfw_sock_srv_check_pool(TfwPool *pool)
+{
+	tfw_sg_for_each_srv_1(NULL, tfw_sock_srv_check_pool_srv, pool);
+}
+
+void
+tfw_sock_srv_check_chunk(TfwPoolChunk *chunk)
+{
+	tfw_sg_for_each_srv_1(NULL, tfw_sock_srv_check_chunk_srv, chunk);
 }
 
 static void

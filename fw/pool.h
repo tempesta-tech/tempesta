@@ -188,4 +188,21 @@ tfw_pool_print(TfwPool *p)
 	}
 }
 
+static inline void
+tfw_pool_check_chunk(TfwPool *pool, TfwPoolChunk *chunk)
+{
+	TfwPoolChunk *c, *next;
+
+	if (!pool || !chunk)
+		return;
+
+	for (c = pool->curr; c; c = next) {
+		if (c == chunk) {
+			printk(KERN_ALERT "BAD CHUNK");
+			WARN_ON(1);
+		}
+
+	}
+}
+
 #endif /* __TFW_POOL_H__ */

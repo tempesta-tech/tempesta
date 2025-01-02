@@ -328,6 +328,10 @@ int __tfw_sg_for_each_srv(TfwSrvGroup *sg,
 			  void *data);
 int tfw_sg_for_each_srv(int (*sg_cb)(TfwSrvGroup *sg),
 			int (*srv_cb)(TfwServer *srv));
+int tfw_sg_for_each_srv_1(int (*sg_cb)(TfwSrvGroup *sg),
+                          int (*srv_cb)(TfwServer *srv, void *data),
+                          void *data);
+
 int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
 void tfw_sg_destroy(TfwSrvGroup *sg);
 void tfw_sg_release(TfwSrvGroup *sg);

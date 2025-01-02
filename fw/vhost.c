@@ -2808,8 +2808,8 @@ tfw_vhosts_list_print(TfwVhostList *vhosts, char *name)
 	}
 }
 
-void
-tfw_vhosts_check(TfwVhostList *vhosts, TfwPool *pool)
+static void
+tfw_vhosts_check_pool(TfwVhostList *vhosts, TfwPool *pool)
 {
 	TfwVhost *vhost;
 	TfwSVHMap *svhm;
@@ -2821,7 +2821,7 @@ tfw_vhosts_check(TfwVhostList *vhosts, TfwPool *pool)
 
 	hash_for_each_safe(vhosts->vh_hash, i, tmp, vhost, hlist) {
 		if (vhost->hdrs_pool == pool) {
-			printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+			printk(KERN_ALERT "BAD POOL %*.s", (int)vhost->name.len, vhost->name.data);
 			tfw_pool_print(vhost->hdrs_pool);
 			tfw_pool_print(pool);
 			WARN_ON(1);
@@ -2835,7 +2835,7 @@ tfw_vhosts_check(TfwVhostList *vhosts, TfwPool *pool)
 			continue;
 
 		if (vhost->hdrs_pool == pool) {
-			printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+			printk(KERN_ALERT "BAD POOL %*.s", (int)vhost->name.len, vhost->name.data);
 			tfw_pool_print(vhost->hdrs_pool);
 			tfw_pool_print(pool);
 			WARN_ON(1);
@@ -2858,15 +2858,50 @@ tfw_vhost_lists_print(void)
 }
 
 void
-tfw_vhost_check(TfwPool *pool)
+tfw_vhost_check_pool(TfwPool *pool)
 {
 	TfwVhostList *vh_list;
 
 	rcu_read_lock();
 	vh_list = rcu_dereference(tfw_vhosts);
 	rcu_read_unlock();
-	tfw_vhosts_check(vh_list, pool);
-	tfw_vhosts_check(tfw_vhosts_reconfig, pool);
+	tfw_vhosts_check_pool(vh_list, pool);
+	tfw_vhosts_check_pool(tfw_vhosts_reconfig, pool);
+}
+
+static void
+tfw_vhosts_check_chunk(TfwVhostList *vhosts, TfwPoolChunk *chunk)
+{
+	TfwVhost *vhost;
+	TfwSVHMap *svhm;
+	struct hlist_node *tmp;
+	int i;
+
+	if (!vhosts || !chunk)
+		return;
+
+	hash_for_each_safe(vhosts->vh_hash, i, tmp, vhost, hlist)
+		tfw_pool_check_chunk(vhost->hdrs_pool, chunk);
+
+	hash_for_each_safe(vhosts->sni_vh_map, i, tmp, svhm, hlist) {
+		TfwVhost *vhost = svhm->vhost;
+
+		if (!vhost)
+			continue;
+		tfw_pool_check_chunk(vhost->hdrs_pool, chunk);
+	}
+}
+
+void
+tfw_vhost_check_chunk(TfwPoolChunk *chunk)
+{
+	TfwVhostList *vh_list;
+
+	rcu_read_lock();
+	vh_list = rcu_dereference(tfw_vhosts);
+	rcu_read_unlock();
+	tfw_vhosts_check_chunk(vh_list, chunk);
+	tfw_vhosts_check_chunk(tfw_vhosts_reconfig, chunk);
 }
 
 static int

@@ -80,6 +80,7 @@ typedef struct {
 int tfw_http_tbl_action(TfwMsg *msg, TfwHttpActionResult *action);
 int tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method);
 void tfw_rule_tables_print(void);
-void tfw_rule_tables_check(TfwPool *pool);
+void tfw_rule_tables_check_pool(TfwPool *pool);
+void tfw_rule_tables_check_chunk(TfwPoolChunk *chunk);
 
 #endif /* __HTTP_TBL__ */

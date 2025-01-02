@@ -775,7 +775,7 @@ tfw_rule_table_print(TfwHttpTable *table, char *name)
 }
 
 static void
-tfw_rule_table_check(TfwHttpTable *table, TfwPool *pool)
+tfw_rule_table_check_pool(TfwHttpTable *table, TfwPool *pool)
 {
 	if (!table || !pool)
 		return;
@@ -790,10 +790,26 @@ tfw_rule_table_check(TfwHttpTable *table, TfwPool *pool)
 }
 
 void
-tfw_rule_tables_check(TfwPool *pool)
+tfw_rule_tables_check_pool(TfwPool *pool)
 {
-	tfw_rule_table_check(tfw_table_reconfig, pool);
-	tfw_rule_table_check(tfw_table, pool);
+	tfw_rule_table_check_pool(tfw_table_reconfig, pool);
+	tfw_rule_table_check_pool(tfw_table, pool);
+}
+
+static void
+tfw_rule_table_check_chunk(TfwHttpTable *table, TfwPoolChunk *chunk)
+{
+	if (!table || !chunk)
+		return;
+
+	tfw_pool_check_chunk(table->pool, chunk);
+}
+
+void
+tfw_rule_tables_check_chunk(TfwPoolChunk *chunk)
+{
+	tfw_rule_table_check_chunk(tfw_table_reconfig, chunk);
+	tfw_rule_table_check_chunk(tfw_table, chunk);
 }
 
 void
