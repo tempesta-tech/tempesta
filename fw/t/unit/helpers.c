@@ -465,4 +465,16 @@ tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
 	return NULL;
 }
 
+void
+tfw_vhost_check(TfwPool *pool)
+{
+
+}
+
+void
+tfw_rule_tables_check(TfwPool *pool)
+{
+	
+}
+
 unsigned int cache_default_ttl = 60;

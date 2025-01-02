@@ -33,6 +33,7 @@
 #include "http_parser.h"
 #include "ss_skb.h"
 #include "http_limits.h"
+#include "http_tbl.h"
 
 /*
  * Used during allocating from TfwPool first fragment for containing headers.
@@ -1310,11 +1311,15 @@ __tfw_http_msg_alloc(int type, bool full)
 						      TFW_POOL_ZERO)
 			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp,
 						      TFW_POOL_ZERO);
+
 	if (!hm) {
 		T_WARN("Insufficient memory to create %s message\n",
 		       ((type & Conn_Clnt) ? "request" : "response"));
 		return NULL;
 	}
+
+	tfw_vhost_check(hm->pool);
+	tfw_rule_tables_check(hm->pool);
 
 	if (full) {
 		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,

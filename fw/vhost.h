@@ -277,10 +277,6 @@ tfw_vhost_put(TfwVhost *vhost)
 	if (likely(refcnt))
 		return;	
 
-	printk(KERN_ALERT "tfw_vhost_put %px %p from %ps %ps %ps %ps",
-	       vhost, vhost, __builtin_return_address(0),
-	       __builtin_return_address(1), __builtin_return_address(2),
-	       __builtin_return_address(3));
 	tfw_vhost_destroy(vhost);
 }
 
@@ -320,5 +316,6 @@ unsigned int tfw_vhost_get_cc_ignore(TfwLocation *loc,
 TfwCacheUseStale *tfw_vhost_get_cache_use_stale(TfwLocation *loc,
 						TfwVhost *vhost);
 void tfw_vhost_lists_print(void);
+void tfw_vhost_check(TfwPool *pool);
 
 #endif /* __TFW_VHOST_H__ */

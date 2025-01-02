@@ -774,6 +774,28 @@ tfw_rule_table_print(TfwHttpTable *table, char *name)
 	}
 }
 
+static void
+tfw_rule_table_check(TfwHttpTable *table, TfwPool *pool)
+{
+	if (!table || !pool)
+		return;
+
+	if (table->pool == pool) {
+		printk(KERN_ALERT "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
+		tfw_pool_print(table->pool);
+		tfw_pool_print(pool);
+		WARN_ON(1);
+	}
+
+}
+
+void
+tfw_rule_tables_check(TfwPool *pool)
+{
+	tfw_rule_table_check(tfw_table_reconfig, pool);
+	tfw_rule_table_check(tfw_table, pool);
+}
+
 void
 tfw_rule_tables_print(void)
 {

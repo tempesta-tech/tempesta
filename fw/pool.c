@@ -54,14 +54,15 @@
 static DEFINE_PER_CPU(unsigned int, pg_next);
 static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
 
-#define SET_POOL_OR_CHUNK(cp)					\
+#define SET_POOL_OR_CHUNK(cp, x)				\
 do {								\
-	cp->in_irq = in_irq();					\
-	cp->in_softirq = in_softirq();				\
-	cp->in_interrupt = in_interrupt();			\
-	cp->in_serving_softirq = in_serving_softirq();		\
-	cp->in_nmi = in_nmi();					\
-	cp->in_task = in_task();				\
+	cp->in_irq = (!!in_irq());				\
+	cp->in_softirq = (!!in_softirq());			\
+	cp->in_interrupt = (!!in_interrupt());			\
+	cp->in_serving_softirq = (!!in_serving_softirq());	\
+	cp->in_nmi = (!!in_nmi());				\
+	cp->in_task = (!!in_task());				\
+	cp->from_per_cpu = x;					\
 	cp->cpu = smp_processor_id();				\
 } while(0)
 
@@ -79,7 +80,7 @@ do {								\
  * through buddies coalescing). So we never cache multi-pages.
  */
 static unsigned long
-tfw_pool_alloc_pages(unsigned int order)
+tfw_pool_alloc_pages(unsigned int order, bool *x)
 {
 	unsigned int *pgn;
 	unsigned long pg_res;
@@ -97,6 +98,7 @@ tfw_pool_alloc_pages(unsigned int order)
 
 		preempt_enable();
 
+		*x = true;
 		return pg_res;
 	}
 	preempt_enable();
@@ -145,14 +147,15 @@ __tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 		: sizeof(TfwPoolChunk);
 	unsigned int off = desc_size + n;
 	unsigned int order = get_order(off);
+	bool x = false;
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order, &x);
 	if (!c)
 		return NULL;
 	c->next = curr;
 	c->order = order;
 
-	SET_POOL_OR_CHUNK(c);
+	SET_POOL_OR_CHUNK(c, x);
 
 	curr->off = p->off;
 
@@ -269,18 +272,19 @@ __tfw_pool_new(size_t n)
 	TfwPool *p;
 	TfwPoolChunk *c;
 	unsigned int order;
+	bool x = false;
 
 	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order, &x);
 	if (unlikely(!c))
 		return NULL;
 
-	SET_POOL_OR_CHUNK(c);
+	SET_POOL_OR_CHUNK(c, x);
 
 	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
 
-	SET_POOL_OR_CHUNK(p);
+	SET_POOL_OR_CHUNK(p, x);
 
 	c->next = NULL;
 	p->order = c->order = order;

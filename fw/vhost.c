@@ -1673,11 +1673,6 @@ tfw_location_del(TfwLocation *loc)
 
 	tfw_sg_put(loc->main_sg);
 	tfw_sg_put(loc->backup_sg);
-
-	printk(KERN_ALERT " tfw_location_del %px %p %px %p | %ps %ps %ps %ps",
-	       loc, loc, loc->frang_cfg, loc->frang_cfg, __builtin_return_address(0),
-	       __builtin_return_address(1), __builtin_return_address(2),
-	       __builtin_return_address(3));
 }
 
 /*
@@ -1912,7 +1907,11 @@ tfw_vhost_destroy(TfwVhost *vhost)
 {
 	int i;
 
-	printk(KERN_ALERT "tfw_vhost_destroy vhost %px %p pool %px %p BBB", vhost, vhost, vhost->hdrs_pool, vhost->hdrs_pool);
+	printk(KERN_ALERT "tfw_vhost_destroy vhost %px %p pool %px %p BBB %ps %ps %ps %ps %ps %ps",
+		vhost, vhost, vhost->hdrs_pool, vhost->hdrs_pool,
+		__builtin_return_address(0), __builtin_return_address(1),
+		__builtin_return_address(2), __builtin_return_address(3),
+		__builtin_return_address(4), __builtin_return_address(5));
 	for (i = 0; i < vhost->loc_sz; ++i)
 		tfw_location_del(&vhost->loc[i]);
 	tfw_location_del(vhost->loc_dflt);
@@ -2810,6 +2809,41 @@ tfw_vhosts_list_print(TfwVhostList *vhosts, char *name)
 }
 
 void
+tfw_vhosts_check(TfwVhostList *vhosts, TfwPool *pool)
+{
+	TfwVhost *vhost;
+	TfwSVHMap *svhm;
+	struct hlist_node *tmp;
+	int i;
+
+	if (!vhosts || !pool)
+		return;
+
+	hash_for_each_safe(vhosts->vh_hash, i, tmp, vhost, hlist) {
+		if (vhost->hdrs_pool == pool) {
+			printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+			tfw_pool_print(vhost->hdrs_pool);
+			tfw_pool_print(pool);
+			WARN_ON(1);
+		}
+	}
+
+	hash_for_each_safe(vhosts->sni_vh_map, i, tmp, svhm, hlist) {
+		TfwVhost *vhost = svhm->vhost;
+
+		if (!vhost)
+			continue;
+
+		if (vhost->hdrs_pool == pool) {
+			printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+			tfw_pool_print(vhost->hdrs_pool);
+			tfw_pool_print(pool);
+			WARN_ON(1);
+		}
+	}
+}
+
+void
 tfw_vhost_lists_print(void)
 {
 	TfwVhostList *vh_list;
@@ -2821,6 +2855,18 @@ tfw_vhost_lists_print(void)
 	printk(KERN_ALERT "tfw_vhost_lists_print");
 	tfw_vhosts_list_print(vh_list, "tfw_vhosts");
 	tfw_vhosts_list_print(tfw_vhosts_reconfig, "tfw_vhosts_reconfig");
+}
+
+void
+tfw_vhost_check(TfwPool *pool)
+{
+	TfwVhostList *vh_list;
+
+	rcu_read_lock();
+	vh_list = rcu_dereference(tfw_vhosts);
+	rcu_read_unlock();
+	tfw_vhosts_check(vh_list, pool);
+	tfw_vhosts_check(tfw_vhosts_reconfig, pool);
 }
 
 static int
