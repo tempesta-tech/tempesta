@@ -74,7 +74,7 @@ tfw_pool_alloc_pages(unsigned int order)
 	unsigned long pg_res;
 	gfp_t flags;
 
-	preempt_disable();
+	local_bh_disable();
 
 	pgn = this_cpu_ptr(&pg_next);
 
@@ -82,11 +82,11 @@ tfw_pool_alloc_pages(unsigned int order)
 		--*pgn;
 		pg_res = ((unsigned long *)this_cpu_ptr(pg_cache))[*pgn];
 
-		preempt_enable();
+		local_bh_enable();
 
 		return pg_res;
 	}
-	preempt_enable();
+	local_bh_enable();
 
 	flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
 	return __get_free_pages(flags, order);
@@ -98,7 +98,7 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 	unsigned int *pgn;
 	int refcnt;
 
-	preempt_disable();
+	local_bh_disable();
 
 	pgn = this_cpu_ptr(&pg_next);
 	refcnt = page_count(virt_to_page(addr));
@@ -107,11 +107,11 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
 		++*pgn;
 
-		preempt_enable();
+		local_bh_enable();
 
 		return;
 	}
-	preempt_enable();
+	local_bh_enable();
 
 	put_page(compound_head(virt_to_page(addr)));
 }
