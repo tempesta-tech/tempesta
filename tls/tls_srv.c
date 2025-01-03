@@ -33,6 +33,7 @@
 ttls_sni_cb_t *ttls_sni_cb;
 ttls_hs_over_cb_t *ttls_hs_over_cb;
 ttls_alpn_match_t *ttls_alpn_match_cb;
+ttls_ja5t_limit_conn_cb_t *ttls_ja5t_limit_conn_cb;
 
 static int
 ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
@@ -2243,6 +2244,10 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		r = ttls_parse_client_hello(tls, buf, len, hh_len, read);
 		if (r)
 			return r;
+
+		if (ttls_ja5t_limit_conn_cb(tls->sess.ja5t))
+			return T_BLOCK_WITH_RST;
+
 		tls->state = TTLS_SERVER_HELLO;
 		fallthrough;
 	}
