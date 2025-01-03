@@ -989,6 +989,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_SET_COOKIE:
 	case TFW_HTTP_HDR_FORWARDED:
 	case TFW_HTTP_HDR_CONNECTION:
+	case TFW_HTTP_HDR_UPGRADE:
 		return CSTR_NEQ;
 	}
 

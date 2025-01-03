@@ -202,15 +202,10 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 /* TfwCStr contains special header and its id. */
 #define TFW_CSTR_SPEC_IDX	0x2
 /*
- * TfwCStr contains header, which shpuld be skipped for http1 responses
- * constructed from cache
- */
-#define TFW_CSTR_SKIP_FOR_HTTP	0x4
-/*
  * TfwCStr contains header, which should be skipped for http2 responses
  * constructed from cache.
  */
-#define TFW_CSTR_SKIP_FOR_H2	0x8
+#define TFW_CSTR_SKIP_FOR_H2	0x4
 
 /**
  * String header for cache entries used for TfwStr serialization.
@@ -946,8 +941,7 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods,
 	TfwStr hdr = { .data = p + str->name_len_sz + 1,
 		       .len  = str->name_len };
 
-	if ((!h2_mode && str->flags & TFW_CSTR_SKIP_FOR_HTTP)
-	    || (h2_mode && str->flags & TFW_CSTR_SKIP_FOR_H2))
+	if (h2_mode && str->flags & TFW_CSTR_SKIP_FOR_H2)
 		return true;
 
 	if (!h_mods)
@@ -1863,33 +1857,6 @@ tfw_cache_add_hdr_cenc(TDB *db, TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
 }
 
 /**
- * Add 'Content-Length' header to the cache record. The length will be taken
- * from parsed response.
- */
-static long
-tfw_cache_add_hdr_clen(TDB *db, TfwHttpResp *resp, TfwCacheEntry *ce, char **p,
-		       TdbVRec **trec, size_t *tot_len)
-{
-	TfwStr val = {
-		.chunks = (TfwStr []){
-			{ .data = *this_cpu_ptr(&g_c_buf), .len = 0 }
-		},
-		.nchunks = 1
-	};
-	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-
-	val.chunks->len = tfw_ultoa(body_len, val.chunks->data,
-				    TFW_ULTOA_BUF_SIZ);
-
-	val.len = val.chunks->len;
-	if (!val.len)
-		return -EINVAL;
-
-	return tfw_cache_h2_add_hdr(db, ce, p, trec, 28, &val, tot_len,
-				    TFW_CSTR_SKIP_FOR_HTTP);
-}
-
-/**
  * Fill @ce->etag with entity-tag value. RFC 7232 Section-2.3 doesn't limit
  * etag size, so can't just have a copy of entity-tag value somewhere in @ce,
  * instead fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
@@ -2216,15 +2183,6 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		ce->hdr_num += 1;
 	}
 
-	/* Add 'content-length' header. */
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		n = tfw_cache_add_hdr_clen(db, resp, ce, &p, &trec, &tot_len);
-		if (unlikely(n < 0))
-			return n;
-
-		ce->hdr_num += 1;
-	}
-
 	/* Headers added only for h2 responses. */
 	/* Add 'via' header. */
 	memcpy_fast(__TFW_STR_CH(&val_via, 1)->data, g_vhost->hdr_via,
@@ -2511,20 +2469,6 @@ __cache_entry_size(TfwHttpResp *resp)
 
 		res_size += sizeof(TfwCStr) + INDEX_SZ
 				   + tfw_hpack_int_size(ce_len, 0x7F) + ce_len;
-	}
-
-	/*
-	 * Add the length of Content-Length header. Content-Length used to
-	 * replace non-cachable *chunked* body.
-	 */
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-		unsigned long cl_len   = tfw_ultoa(body_len,
-						   *this_cpu_ptr(&g_c_buf),
-						   TFW_ULTOA_BUF_SIZ);
-
-		res_size += sizeof(TfwCStr) + INDEX_SZ
-				   + tfw_hpack_int_size(cl_len, 0x7F) + cl_len;
 	}
 
 	/*
