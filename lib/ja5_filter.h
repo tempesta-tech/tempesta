@@ -145,7 +145,6 @@ ja5_calc_rate(TimeSlot slots[])
 {
 	u32 sum = 0;
 	u64 ts = jiffies * JA5_FILTER_TIME_SLOTS_CNT / HZ;
-	u64 end_ts = ts - JA5_FILTER_TIME_SLOTS_CNT;
 	u8 slot_num = ts % JA5_FILTER_TIME_SLOTS_CNT;
 	TimeSlot *slot = &slots[slot_num];
 
@@ -155,10 +154,9 @@ ja5_calc_rate(TimeSlot slots[])
 	}
 	slot->counter++;
 
-	for (; slot->ts > end_ts;
-		slot_num = (slot->ts - 1) % JA5_FILTER_TIME_SLOTS_CNT,
-		slot = &slots[slot_num])
-		sum += slot->counter;
+	for (slot_num = 0; slot_num < JA5_FILTER_TIME_SLOTS_CNT; slot_num++)
+		if (slot[slot_num].ts + JA5_FILTER_TIME_SLOTS_CNT >= ts)
+			sum += slot->counter;
 
 	return sum;
 }
