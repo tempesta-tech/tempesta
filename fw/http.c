@@ -4714,31 +4714,6 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
 }
 
 /**
- * Add 'Content-Length:' header field to an HTTP message.
- */
-static int
-tfw_h2_add_hdr_clen(TfwHttpResp *resp)
-{
-	int r;
-	char* buf = *this_cpu_ptr(&g_buf);
-	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	size_t cl_valsize = tfw_ultoa(body_len, buf,
-				      TFW_ULTOA_BUF_SIZ);
-
-	r = tfw_h2_msg_hdr_add(resp, "content-length",
-			       SLEN("content-length"), buf,
-			       cl_valsize, 28);
-
-	if (unlikely(r))
-		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
-		      __func__, resp);
-	else
-		T_DBG3("%s: added 'content-length' header, resp=[%p]\n",
-		       __func__, resp);
-	return r;
-}
-
-/**
  * Add 'Content-Encoding:' header field to an HTTP message.
  *
  * @value - Value to add as field-value of Content-Encoding. Usually copied
@@ -5710,11 +5685,6 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	if (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)) {
 		r = tfw_h2_add_hdr_date(resp, false);
 		if (unlikely(r))
-			goto clean;
-	}
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		if (unlikely(tfw_h2_add_hdr_clen(resp)))
 			goto clean;
 	}
 
