@@ -158,7 +158,7 @@ ifdef ERROR
 endif
 ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
-	$(warning WARNING: YOUR PLATFORM IS TOO OLD AND IS NOT UNSUPPORTED)
+	$(warning WARNING: YOUR PLATFORM IS TOO OLD AND IS NOT SUPPORTED)
 	$(warning WARNING: THIS AFFECT PERFORMANCE AND MIGHT AFFECT SECURITY)
 	$(warning WARNING: PLEASE DO NOT USE THE BUILD IN PRODUCTION)
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)

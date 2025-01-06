@@ -188,10 +188,10 @@ typedef struct {
 	     (k) = (idx < (e)->attr_n ? (e)->attrs[(idx)].key : NULL), \
 	     (v) = (idx < (e)->attr_n ? (e)->attrs[(idx)].val : NULL))
 
-#define TFW_CFG_ENTRY_FOR_EACH_VAL(e, idx, v)	\
-	for ((idx) = 0, (v) = (e)->vals[0];	\
-	     (idx) < (e)->val_n;		\
-	     (idx)++,				\
+#define TFW_CFG_ENTRY_FOR_EACH_VAL(e, idx, v)			\
+	for ((idx) = 0, (v) = (e)->vals[0];			\
+	     (idx) < (e)->val_n;				\
+	     (idx)++,						\
 	     (v) = (idx < (e)->val_n ? (e)->vals[(idx)] : NULL))
 
 #define TFW_CFG_CHECK_NO_ATTRS(spec, entry)			\
@@ -203,56 +203,56 @@ typedef struct {
 		}						\
 	} while (0)
 
-#define TFW_CFG_CHECK_ATTR_N(op, req, spec, entry)			\
-	do {								\
-		if (!((entry)->attr_n op (req))) {			\
-			T_ERR_NL("%s: Invalid number of attributes: "	\
-				"%zu, must be %s %d\n",			\
-				(spec)->name, (entry)->attr_n,		\
-				#op, (req));				\
-			return -EINVAL;					\
-		}							\
-	} while (0)
+#define TFW_CFG_CHECK_ATTR_N(op, req, spec, entry)		\
+do {								\
+	if (!((entry)->attr_n op (req))) {			\
+		T_ERR_NL("%s: Invalid number of attributes: "	\
+			"%zu, must be %s %d\n",			\
+			(spec)->name, (entry)->attr_n,		\
+			#op, (req));				\
+		return -EINVAL;					\
+	}							\
+} while (0)
 
-#define TFW_CFG_CHECK_ATTR_EQ_N(req, spec, entry)			\
-	do {								\
-		if (!((entry)->attr_n == (req))) {			\
-			T_ERR_NL("%s: Invalid number of attributes: "	\
-				"%zu, must be queal %d\n",		\
-				(spec)->name, (entry)->attr_n, (req));	\
-			return -EINVAL;					\
-		}							\
-	} while (0)
+#define TFW_CFG_CHECK_ATTR_EQ_N(req, spec, entry)		\
+do {								\
+	if (!((entry)->attr_n == (req))) {			\
+		T_ERR_NL("%s: Invalid number of attributes: "	\
+			"%zu, must be queal %d\n",		\
+			(spec)->name, (entry)->attr_n, (req));	\
+		return -EINVAL;					\
+	}							\
+} while (0)
 
-#define TFW_CFG_CHECK_ATTR_LE_N(req, spec, entry)			\
-	do {								\
-		if (!((entry)->attr_n <= (req))) {			\
-			T_ERR_NL("%s: Invalid number of attributes: "	\
-			"%zu, must be less or equal %d\n", 		\
-			(spec)->name, (entry)->attr_n, (req));		\
-			return -EINVAL;					\
-		}							\
-	} while (0)
+#define TFW_CFG_CHECK_ATTR_LE_N(req, spec, entry)		\
+do {								\
+	if (!((entry)->attr_n <= (req))) {			\
+		T_ERR_NL("%s: Invalid number of attributes: "	\
+		"%zu, must be less or equal %d\n",		\
+		(spec)->name, (entry)->attr_n, (req));		\
+		return -EINVAL;					\
+	}							\
+} while (0)
 
-#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)			\
-	do {								\
-		if (!((entry)->val_n op (req))) {			\
-			T_ERR_NL("%s: Invalid number of arguments: "	\
-			"%zu, must be %s %d\n",				\
-			(spec)->name, (entry)->val_n, #op, (req));	\
-			return -EINVAL;					\
-		}							\
-	} while (0)
+#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)		\
+do {								\
+	if (!((entry)->val_n op (req))) {			\
+		T_ERR_NL("%s: Invalid number of arguments: "	\
+		"%zu, must be %s %d\n",				\
+		(spec)->name, (entry)->val_n, #op, (req));	\
+		return -EINVAL;					\
+	}							\
+} while (0)
 
-#define TFW_CFG_CHECK_VAL_EQ_N(req, spec, entry)			\
-	do {								\
-		if (!((entry)->val_n == (req))) {			\
-			T_ERR_NL("%s: Invalid number of arguments: "	\
-			"%zu, must be equal %d\n",			\
-			(spec)->name, (entry)->val_n, (req));		\
-			return -EINVAL;					\
-		}							\
-	} while (0)
+#define TFW_CFG_CHECK_VAL_EQ_N(req, spec, entry)		\
+do {								\
+	if (!((entry)->val_n == (req))) {			\
+		T_ERR_NL("%s: Invalid number of arguments: "	\
+		"%zu, must be equal %d\n",			\
+		(spec)->name, (entry)->val_n, (req));		\
+		return -EINVAL;					\
+	}							\
+} while (0)
 
 #define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
 	do {								\

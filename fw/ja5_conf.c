@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,23 +19,22 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/list.h>
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
-#include "tempesta_fw.h"
-#include "log.h"
-#include "ja5_conf.h"
 #include "hash.h"
+#include "ja5_conf.h"
+#include "log.h"
+#include "tempesta_fw.h"
 
 /* Define default size as multiple of TDB extent size */
-#define TLS_JA5_DEFAULT_STORAGE_SIZE ((1 << 21) * 25)
-#define TLS_JA5_HASHTABLE_BITS 10
+#define TLS_JA5_DEFAULT_STORAGE_SIZE	((1 << 21) * 25)
+#define TLS_JA5_HASHTABLE_BITS		10
 
 typedef struct {
 	struct hlist_node	hlist;
-	atomic_t		refcnt;
+	refcount_t		refcnt;
 	/* TODO: make an unified macro for different types of ja5 hashes */
 	TlsJa5t			ja5_hash;
 	u64			conns_per_sec;
@@ -68,7 +67,7 @@ tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 		if (!memcmp(&fingerprint, &entry->ja5_hash, 
 			    sizeof(fingerprint)))
 		{
-			atomic_inc(&entry->refcnt);
+			refcount_inc(&entry->refcnt);
 			break;
 		}
 	}
@@ -80,13 +79,8 @@ tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 static void
 tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
 {
-	if (entry) {
-		int cnt = atomic_dec_return(&entry->refcnt);
-
-		BUG_ON(cnt < 0);
-		if (!cnt)
-			kfree(entry);
-	}
+	if (entry && refcount_dec_and_test(&entry->refcnt))
+		kfree(entry);
 }
 
 u64
@@ -169,7 +163,7 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	he->conns_per_sec = conns_per_sec;
 	he->records_per_sec = recs_per_sec;
 	INIT_HLIST_NODE(&he->hlist);
-	atomic_set(&he->refcnt, 1);
+	refcount_set(&he->refcnt, 1);
 
 	key = hash_calc((char *)&hash, sizeof(hash));
 	hash_add(tls_filter_cfg_reconfig->hashes, &he->hlist, key);
@@ -216,7 +210,8 @@ free_cfg(TlsJa5FilterCfg *cfg)
 	struct hlist_node *tmp;
 	TlsJa5HashEntry *entry;
 
-	BUG_ON(!cfg);
+	if (!cfg)
+		return;
 
 	hash_for_each_safe(cfg->hashes, bkt_i, tmp, entry, hlist)
 		tls_put_ja5_hash_entry(entry);
@@ -227,18 +222,13 @@ free_cfg(TlsJa5FilterCfg *cfg)
 int
 ja5_cfgop_finish(TfwCfgSpec *cs)
 {
-	TlsJa5FilterCfg *prev;
-
-	rcu_read_lock();
-	prev = rcu_dereference(tls_filter_cfg);
-	rcu_read_unlock();
+	TlsJa5FilterCfg *prev = tls_filter_cfg;
 
 	BUG_ON(!tls_filter_cfg_reconfig);
 
 	rcu_assign_pointer(tls_filter_cfg, tls_filter_cfg_reconfig);
 	synchronize_rcu();
-	if (prev)
-		free_cfg(prev);
+	free_cfg(prev);
 	tls_filter_cfg_reconfig = NULL;
 
 	return 0;
@@ -247,21 +237,13 @@ ja5_cfgop_finish(TfwCfgSpec *cs)
 void
 ja5_cfgop_cleanup(TfwCfgSpec *cs)
 {
-	/* tls_cfgop_ja5_finish was not called due to parsing error */
-	if (tls_filter_cfg_reconfig) {
-		free_cfg(tls_filter_cfg_reconfig);
-		tls_filter_cfg_reconfig = NULL;
-	}
+	free_cfg(tls_filter_cfg_reconfig);
+	tls_filter_cfg_reconfig = NULL;
 
 	if (!tfw_runstate_is_reconfig()) {
-		TlsJa5FilterCfg *prev;
-
-		rcu_read_lock();
-		prev = rcu_dereference(tls_filter_cfg);
-		rcu_read_unlock();
-		if (prev)
-			free_cfg(prev);
+		TlsJa5FilterCfg *prev = tls_filter_cfg;
 		rcu_assign_pointer(tls_filter_cfg, NULL);
 		synchronize_rcu();
+		free_cfg(prev);
 	}
 }
