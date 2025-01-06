@@ -17,21 +17,35 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
-#include "log.h"
-#include "db/core/tdb.h"
-#include "lib/str.h"
-
 #include <linux/list.h>
 
-#define JA5_FILTER_TIME_SLOTS_CNT 8
-#define DB_RECS_TO_FREE_CNT 32
+#include "db/core/tdb.h"
+#include "lib/str.h"
+#include "log.h"
 
+
+#define JA5_FILTER_TIME_SLOTS_POW 	3
+#define JA5_FILTER_TIME_SLOTS_CNT 	(1 << JA5_FILTER_TIME_SLOTS_POW)
+#define JA5_FILTER_TIME_SLOTS_MASK 	(JA5_FILTER_TIME_SLOTS_CNT - 1)
+#define DB_RECS_TO_FREE_CNT 		32
+
+/**
+ * Holds time slot's @counter for timestamp @ts
+ */
 typedef struct {
 	u32 counter;
 	u32 ts;
 } TimeSlot;
 
+/**
+ * Holds connections and data records rates for a particular fingerprint
+ * 
+ * @param list_node - required for LRU list
+ * @param conns - array of connections counters for timeslots for the last second
+ * @param conns_lock - lock for @conns
+ * @param recs - array of records counters for timeslots for the last second
+ * @param recs_lock - lock for @recs
+ */
 typedef struct {
 	/** Keep  @list_node first for easy type casts */
 	struct list_head	list_node;
@@ -41,7 +55,15 @@ typedef struct {
 	spinlock_t		recs_lock;
 } Rates;
 
-
+/**
+ * Rates storage for a particular fingerprints types. This file(ja5_filter.h)
+ * is supposed to be included into a .c file responsible for that fingerprints
+ * processing.
+ * 
+ * @param tdb - TDB instance keeping rates by fingerprint value
+ * @param lru_list - LRU list used for eviction of outdates fingerprints
+ * @param lru_list_lock - lock for @lru_list
+ */
 static struct {
 	TDB			*tdb;
 	struct list_head	lru_list;
@@ -72,6 +94,11 @@ get_alloc_ctx_init_rec(TdbRec *rec, void *)
 	tdb_rec_keep(rec);
 }
 
+/**
+ * Finds @Rates object by fingerprint in the storage if it exists and adds it
+ * to the storage otherwise. Remove outdates rates from the storage if it's
+ * full by RLU algorithm.
+ */
 static Rates*
 get_fingerprint_rates(u64 fingerprint)
 {
@@ -102,7 +129,7 @@ get_fingerprint_rates(u64 fingerprint)
 		spin_unlock(&storage.lru_list_lock);
 
 		list_for_each_safe(pos, tmp, &tail_to_delete)
-			put_fingerprint_rates((Rates *)pos);
+			tdb_entry_remove(storage.tdb, key, NULL, NULL, true);
 
 		/**
 		 * Protect from low probable case where all records
@@ -123,6 +150,14 @@ get_fingerprint_rates(u64 fingerprint)
 	return rates;
 }
 
+/**
+ * Inintializes the storage with it's max size
+ * 
+ * @param max_storage_size storage size
+ * @return true if storage's been successfully initialized or is already
+ * initialized
+ * @return false otherwise
+ */
 static bool
 init_filter(size_t max_storage_size)
 {
@@ -141,26 +176,35 @@ init_filter(size_t max_storage_size)
 }
 
 static u32
-ja5_calc_rate(TimeSlot slots[])
+ja5_calc_rate(TimeSlot slots[], spinlock_t *lock)
 {
 	u32 sum = 0;
 	u64 ts = jiffies * JA5_FILTER_TIME_SLOTS_CNT / HZ;
-	u8 slot_num = ts % JA5_FILTER_TIME_SLOTS_CNT;
-	TimeSlot *slot = &slots[slot_num];
+	u8 slot_num = ts & JA5_FILTER_TIME_SLOTS_MASK;
+	TimeSlot *current_slot = &slots[slot_num];
 
-	if (slot->ts != ts) {
-		slot->ts = ts;
-		slot->counter = 0;
+	spin_lock(lock);
+
+	if (current_slot->ts != ts) {
+		current_slot->ts = ts;
+		current_slot->counter = 0;
 	}
-	slot->counter++;
+	current_slot->counter++;
 
 	for (slot_num = 0; slot_num < JA5_FILTER_TIME_SLOTS_CNT; slot_num++)
-		if (slot[slot_num].ts + JA5_FILTER_TIME_SLOTS_CNT >= ts)
-			sum += slot->counter;
+		if (slots[slot_num].ts + JA5_FILTER_TIME_SLOTS_CNT >= ts)
+			sum += slots[slot_num].counter;
+
+	spin_unlock(lock);
 
 	return sum;
 }
 
+/**
+ * Returns the last second's connections number for the specified fingerprint
+ * 
+ * @param fingerprint fingerprint connections rates to look for
+ */
 static u32
 ja5_get_conns_rate(u64 fingerprint)
 {
@@ -174,9 +218,7 @@ ja5_get_conns_rate(u64 fingerprint)
 		/* Allow connection if DB is full */
 		return 0;
 
-	spin_lock(&rates->conns_lock);
-	res = ja5_calc_rate(rates->conns);
-	spin_unlock(&rates->conns_lock);
+	res = ja5_calc_rate(rates->conns, &rates->conns_lock);
 
 	put_fingerprint_rates(rates);
 
@@ -186,6 +228,11 @@ ja5_get_conns_rate(u64 fingerprint)
 	return res;
 }
 
+/**
+ * Returns the last second's records number for the specified fingerprint
+ * 
+ * @param fingerprint a fingerprint records rates to look for
+ */
 static u32
 ja5_get_records_rate(u64 fingerprint)
 {
@@ -199,9 +246,7 @@ ja5_get_records_rate(u64 fingerprint)
 		/* Allow record if DB is full */
 		return 0;
 
-	spin_lock(&rates->recs_lock);
-	res = ja5_calc_rate(rates->recs);
-	spin_unlock(&rates->recs_lock);
+	res = ja5_calc_rate(rates->recs, &rates->recs_lock);
 
 	put_fingerprint_rates(rates);
 

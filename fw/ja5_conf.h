@@ -19,20 +19,14 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "lib/ja5.h"
 #include "cfg.h"
 
 u64 tls_get_ja5_storage_size(void);
-
 u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint);
-
 u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint);
 
 int ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
-
 int ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
-
 int ja5_cfgop_finish(TfwCfgSpec *cs);
-
 void ja5_cfgop_cleanup(TfwCfgSpec *cs);

@@ -17,9 +17,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "ja5t_filter.h"
-#include "lib/ja5_filter.h"
+#include "ja5_filter.h"
 
 bool
 ja5t_init_filter(size_t max_storage_size)

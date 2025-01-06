@@ -17,12 +17,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "log.h"
 #include "lib/ja5.h"
 
 bool ja5t_init_filter(size_t max_storage_size);
-
 u32 ja5t_get_conns_rate(TlsJa5t fingerprint);
-
 u32 ja5t_get_records_rate(TlsJa5t fingerprint);
