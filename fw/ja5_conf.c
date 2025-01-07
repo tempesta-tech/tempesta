@@ -134,7 +134,7 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	u64 hash;
 	u32 conns_per_sec;
 	u32 recs_per_sec;
-	Ja5HashEntry *he;
+	Ja5HashEntry *he, *iter;
 	u64 key;
 
 	BUILD_BUG_ON(sizeof(TlsJa5t) != sizeof(u64));
@@ -170,6 +170,13 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	refcount_set(&he->refcnt, 1);
 
 	key = hash_calc((char *)&hash, sizeof(hash));
+	hash_for_each_possible(filter_cfg_reconfig->hashes, iter, hlist, key) {
+		if (iter->hash == hash) {
+			hash_del(&iter->hlist);
+			kfree(iter);
+			break;
+		}
+	}
 	hash_add(filter_cfg_reconfig->hashes, &he->hlist, key);
 
 	return 0;
