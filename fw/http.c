@@ -114,8 +114,8 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
-#include "ja5h_filter.h"
-#include "ja5_conf_http.h"
+#include "ja5_filter.h"
+#include "ja5_conf.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -7880,7 +7880,7 @@ static TfwCfgSpec tfw_tls_hash_specs[] = {
 	{
 		.name = "hash",
 		.deflt = NULL,
-		.handler = http_ja5_cfgop_handle_hash_entry,
+		.handler = ja5_cfgop_handle_hash_entry,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
@@ -7982,7 +7982,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.cleanup = http_ja5_cfgop_cleanup,
 		.dest = tfw_tls_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = http_ja5_cfgop_begin,
+			.begin_hook = ja5_cfgop_begin,
 			.finish_hook = http_ja5_cfgop_finish
 		},
 		.allow_none = true,
