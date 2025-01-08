@@ -321,7 +321,7 @@ tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
  */
 TfwStreamFsmRes
 tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type,
-		  char flags, bool send, TfwH2Err *err)
+		  unsigned char flags, bool send, TfwH2Err *err)
 {
 	TfwStreamFsmRes res = STREAM_FSM_RES_OK;
 	TfwStreamState new_state;

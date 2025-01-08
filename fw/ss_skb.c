@@ -1002,22 +1002,27 @@ multi_buffs:
 	return 0;
 }
 
-#define __SS_SKB_CUTOFF_EMPTY()					\
-do {								\
-	bool is_same = (it.skb == skb);				\
-	if (unlikely(!it.skb->len)) {				\
-		int fragn;					\
-								\
-		it.skb = next;					\
-		it.data = __skb_data_address(it.skb, &fragn);	\
-		ss_skb_unlink(&skb_head, it.skb);		\
-		kfree_skb(it.skb);				\
-	}							\
-	if (unlikely(!is_same && !skb->len)) {			\
-		ss_skb_unlink(&skb_head, skb);			\
-		kfree_skb(skb);					\
-	}							\
-} while (0)
+static void
+__ss_skb_free_empty(struct sk_buff **skb_head, struct sk_buff *skb,
+		    struct sk_buff *next, TfwStr *it)
+{
+	bool is_same = (it->skb == skb);
+
+	if (unlikely(!it->skb->len)) {
+		struct sk_buff *to_delete;
+		int fragn;
+
+		to_delete = it->skb;
+		it->skb = next;
+		it->data = __skb_data_address(it->skb, &fragn);
+		ss_skb_unlink(skb_head, it->skb);
+		kfree_skb(to_delete);
+	}
+	if (unlikely(!is_same && !skb->len)) {
+		ss_skb_unlink(skb_head, skb);
+		kfree_skb(skb);
+	}
+}
 
 /**
  * Cut off @len bytes from @skb starting at @ptr
@@ -1046,7 +1051,7 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 
 		/* Check if the new skb was allocated and update next skb. */
 		next = skb->next != next ? skb->next : next;
-		__SS_SKB_CUTOFF_EMPTY();
+		__ss_skb_free_empty(&skb_head, skb, next, &it);
 
 		len -= r;
 		skb = it.skb;
@@ -1100,7 +1105,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 
 		/* Check if the new skb was allocated and update next skb. */
 		next = skb->next != next ? skb->next : next;
-		__SS_SKB_CUTOFF_EMPTY();
+		__ss_skb_free_empty(&skb_head, skb, next, &it);
 
 		/*
 		 * No new skb was allocated and no fragments from current
@@ -1134,8 +1139,6 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 
 	return 0;
 }
-
-#undef __SS_SKB_CUTOFF_EMPTY
 
 int
 skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
