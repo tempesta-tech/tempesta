@@ -38,6 +38,7 @@ tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
+utils_path=${UTILS_PATH:="$TFW_ROOT/utils"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 
@@ -316,7 +317,7 @@ start_tfw_logger()
 		return
 	fi
 
-	utils/tfw_logger -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
+	"$utils_path/tfw_logger" -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
 		error "cannot start tfw_logger daemon"
 
 	start_time=$(date +%s)
@@ -339,7 +340,7 @@ start_tfw_logger()
 stop_tfw_logger()
 {
 	if [ -e $tfw_logger_pid_path ]; then
-		utils/tfw_logger -s
+		"$utils_path/tfw_logger" -s
 	fi
 }
 
