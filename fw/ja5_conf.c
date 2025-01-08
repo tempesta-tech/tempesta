@@ -162,7 +162,6 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	he->ja5_hash = hash;
 	he->conns_per_sec = conns_per_sec;
 	he->records_per_sec = recs_per_sec;
-	he->records_per_sec = recs_per_sec;
 	INIT_HLIST_NODE(&he->hlist);
 	refcount_set(&he->refcnt, 1);
 
@@ -180,8 +179,6 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_ATTR_LE_N(1, cs, ce);
 
 	if (!(tls_filter_cfg_reconfig =
-		kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
-	if (!(tls_filter_cfg_reconfig =
 	      kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
 		return -ENOMEM;
 
@@ -189,16 +186,9 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (strcasecmp(ce->attrs[0].key, "storage_size")) {
 			T_ERR_NL("Failed to parse ja5 section: "
 			"invalid attribute %s", ce->attrs[0].key);
-		if (strcasecmp(ce->attrs[0].key, "storage_size")) {
-			T_ERR_NL("Failed to parse ja5 section: "
-			"invalid attribute %s", ce->attrs[0].key);
 			return -EINVAL;
 		}
 
-		if (kstrtoul(ce->attrs[0].val, 10,
-			&tls_filter_cfg_reconfig->storage_size)) {
-			T_ERR_NL("Failed to parse ja5 section: "
-				"invalid storage_size value");
 		if (tfw_cfg_parse_ulonglong(ce->attrs[0].val,
 			&tls_filter_cfg_reconfig->storage_size)) {
 			T_ERR_NL("Failed to parse ja5 section: "
@@ -206,8 +196,6 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 	} else {
-		tls_filter_cfg_reconfig->storage_size =
-			TLS_JA5_DEFAULT_STORAGE_SIZE;
 		tls_filter_cfg_reconfig->storage_size =
 			TLS_JA5_DEFAULT_STORAGE_SIZE;
 	}
