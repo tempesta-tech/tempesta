@@ -254,14 +254,12 @@ do {								\
 	}							\
 } while (0)
 
-#define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
-	do {								\
-		if (val_was_set) {					\
-			T_ERR_NL("Duplicate argument: '%s'\n", name);	\
-			code;						\
-		}							\
-		val_was_set = true;					\
-	} while (0)
+#define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		\
+	if (val_was_set) {					\
+		T_ERR_NL("Duplicate argument: '%s'\n", name);	\
+		code;						\
+	}							\
+	val_was_set = true;
 
 /**
  * TfwCfgSpec{} is a single instruction for the configuration parser.
