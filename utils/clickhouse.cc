@@ -28,7 +28,7 @@
 constexpr std::chrono::milliseconds max_wait(100);
 constexpr size_t max_events = 1000;
 constexpr char table_creation_querry[] = "CREATE TABLE IF NOT EXISTS "
-	"access_log (timestamp DateTime64, address IPv6, method UInt8, "
+	"access_log (timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
 	"version UInt8, status UInt16, response_content_length UInt32, "
 	"response_time UInt32, vhost String, uri String, referer String, "
 	"user_agent String, dropped_events UInt64, PRIMARY KEY(timestamp));";
