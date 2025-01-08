@@ -188,32 +188,77 @@ typedef struct {
 	     (k) = (idx < (e)->attr_n ? (e)->attrs[(idx)].key : NULL), \
 	     (v) = (idx < (e)->attr_n ? (e)->attrs[(idx)].val : NULL))
 
-#define TFW_CFG_ENTRY_FOR_EACH_VAL(e, idx, v)	\
-	for ((idx) = 0, (v) = (e)->vals[0];	\
-	     (idx) < (e)->val_n;		\
-	     (idx)++,				\
+#define TFW_CFG_ENTRY_FOR_EACH_VAL(e, idx, v)			\
+	for ((idx) = 0, (v) = (e)->vals[0];			\
+	     (idx) < (e)->val_n;				\
+	     (idx)++,						\
 	     (v) = (idx < (e)->val_n ? (e)->vals[(idx)] : NULL))
 
-#define TFW_CFG_CHECK_NO_ATTRS(spec, entry)				\
-	if ((entry)->attr_n) {						\
-		T_ERR_NL("%s: Arguments may not have the '=' sign\n",	\
-			 (spec)->name);					\
-		return -EINVAL;						\
-	}
+#define TFW_CFG_CHECK_NO_ATTRS(spec, entry)			\
+	do {							\
+		if ((entry)->attr_n) {				\
+			T_ERR_NL("%s: Arguments may not have "	\
+				"the '=' sign\n", (spec)->name);\
+			return -EINVAL;				\
+		}						\
+	} while (0)
 
-#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)			\
-	if (! ((entry)->val_n op (req)) ) {				\
-		T_ERR_NL("%s: Invalid number of arguments: %zu, must "	\
-			 "be %s %d\n", (spec)->name, (entry)->val_n,	\
-			 #op, (req));					\
-		return -EINVAL;						\
-	}
+#define TFW_CFG_CHECK_ATTR_N(op, req, spec, entry)		\
+do {								\
+	if (!((entry)->attr_n op (req))) {			\
+		T_ERR_NL("%s: Invalid number of attributes: "	\
+			"%zu, must be %s %d\n",			\
+			(spec)->name, (entry)->attr_n,		\
+			#op, (req));				\
+		return -EINVAL;					\
+	}							\
+} while (0)
 
-#define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		        \
-	if (val_was_set) {						\
-		T_ERR_NL("Duplicate argument: '%s'\n", name);		\
-		code;							\
-	}								\
+#define TFW_CFG_CHECK_ATTR_EQ_N(req, spec, entry)		\
+do {								\
+	if (!((entry)->attr_n == (req))) {			\
+		T_ERR_NL("%s: Invalid number of attributes: "	\
+			"%zu, must be queal %d\n",		\
+			(spec)->name, (entry)->attr_n, (req));	\
+		return -EINVAL;					\
+	}							\
+} while (0)
+
+#define TFW_CFG_CHECK_ATTR_LE_N(req, spec, entry)		\
+do {								\
+	if (!((entry)->attr_n <= (req))) {			\
+		T_ERR_NL("%s: Invalid number of attributes: "	\
+		"%zu, must be less or equal %d\n",		\
+		(spec)->name, (entry)->attr_n, (req));		\
+		return -EINVAL;					\
+	}							\
+} while (0)
+
+#define TFW_CFG_CHECK_VAL_N(op, req, spec, entry)		\
+do {								\
+	if (!((entry)->val_n op (req))) {			\
+		T_ERR_NL("%s: Invalid number of arguments: "	\
+		"%zu, must be %s %d\n",				\
+		(spec)->name, (entry)->val_n, #op, (req));	\
+		return -EINVAL;					\
+	}							\
+} while (0)
+
+#define TFW_CFG_CHECK_VAL_EQ_N(req, spec, entry)		\
+do {								\
+	if (!((entry)->val_n == (req))) {			\
+		T_ERR_NL("%s: Invalid number of arguments: "	\
+		"%zu, must be equal %d\n",			\
+		(spec)->name, (entry)->val_n, (req));		\
+		return -EINVAL;					\
+	}							\
+} while (0)
+
+#define TFW_CFG_CHECK_VAL_DUP(name, val_was_set, code)		\
+	if (val_was_set) {					\
+		T_ERR_NL("Duplicate argument: '%s'\n", name);	\
+		code;						\
+	}							\
 	val_was_set = true;
 
 /**
@@ -451,6 +496,7 @@ int tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n);
 int tfw_cfg_check_single_val(const TfwCfgEntry *e);
 int tfw_cfg_parse_int(const char *s, int *out_int);
 int tfw_cfg_parse_long(const char *s, long *out_long);
+int tfw_cfg_parse_ulonglong(const char *s, unsigned long long *out_ull);
 int tfw_cfg_parse_uint(const char *s, unsigned int *out_uint);
 int tfw_cfg_parse_bool(const char *in_str, bool *out_bool);
 int tfw_cfg_parse_intvl(const char *s, unsigned long *i0, unsigned long *i1);
