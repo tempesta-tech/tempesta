@@ -1164,9 +1164,11 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 
 	do {
 		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
+		if (hid == TFW_HTTP_HDR_CONNECTION
+		    && !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR
+		    || ht->tbl[hid].flags & TFW_STR_TRAILER_HDR)
 			if ((r = __hdr_del(hm, hid)))
 				return r;
 	} while (hid);

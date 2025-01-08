@@ -772,11 +772,20 @@ static const TfwStr ete_spec_raw_hdrs[] = {
 	TFW_STR_STRING("x-forwarded-for:"),
 };
 
+#define __DROP_IF_HBP_TRAILER_HDR(hdr, is_srv_conn)			\
+do {									\
+	if (hdr->flags & TFW_STR_TRAILER) {				\
+		T_WARN("There is a hop-by-hop header in trailers, drop %s", \
+		       is_srv_conn ? "response" : "request");		\
+		return CSTR_NEQ;					\
+	}								\
+} while (0)
+
 /**
  * Mark existing spec headers of http message @hm as hop-by-hop if they were
  * listed in Connection header or in @tfw_http_init_parser_* function.
  */
-static void
+static int
 mark_spec_hbh(TfwHttpMsg *hm)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &hm->stream->parser.hbh_parser;
@@ -784,19 +793,25 @@ mark_spec_hbh(TfwHttpMsg *hm)
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
 		TfwStr *hdr = &hm->h_tbl->tbl[id];
+		bool is_srv_conn = !!(TFW_CONN_TYPE(hm->conn) & Conn_Srv);
+
+		__DROP_IF_HBP_TRAILER_HDR(hdr, is_srv_conn);
+
 		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
 			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
 			       __func__, hm, id);
 			hdr->flags |= TFW_STR_HBH_HDR;
 		}
 	}
+
+	return T_OK;
 }
 
 /**
  * Mark raw header @hdr as hop-by-hop if its name was listed in Connection
  * header
  */
-static void
+static int
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
 	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
@@ -813,9 +828,13 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 	 */
 	for (i = 0; i < hbh->off; ++i) {
 		TfwStr *hbh_name = &hbh->raw[i];
+		bool is_srv_conn = !!(TFW_CONN_TYPE(hm->conn) & Conn_Srv);
+
 		if ((hbh_name->flags & TFW_STR_HBH_HDR)
 		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':')))
 		{
+			__DROP_IF_HBP_TRAILER_HDR(hdr, is_srv_conn);
+
 			T_DBG3("%s: hbh raw[%d], hm %pK, hdr %pK ->flags %x, "
 			       "flags +TFW_STR_HBH_HDR\n",
 			       __func__, i, hm, hdr, hdr->flags);
@@ -825,7 +844,11 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 			break;
 		}
 	}
+
+	return T_OK;
 }
+
+#undef __DROP_IF_HBP_TRAILER_HDR
 
 /**
  * Lookup for the header @hdr in already collected headers table @ht,
@@ -965,6 +988,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_CONTENT_ENCODING:
 	case TFW_HTTP_HDR_SET_COOKIE:
 	case TFW_HTTP_HDR_FORWARDED:
+	case TFW_HTTP_HDR_CONNECTION:
 		return CSTR_NEQ;
 	}
 
@@ -1435,7 +1459,8 @@ do {									\
 __FSM_STATE(RGen_CRLFCR, hot) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_DROP(RGen_CRLFCR);				\
-	mark_spec_hbh(msg);						\
+	if (mark_spec_hbh(msg))						\
+		TFW_PARSER_DROP(RGen_CRLFCR);				\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.data);				\
 		__msg_field_finish(&msg->crlf, p + 1);			\
@@ -1527,9 +1552,10 @@ __FSM_STATE(st_curr) {							\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
-		mark_raw_hbh(msg, &parser->hdr);			\
 		r = process_trailer_hdr(msg, &parser->hdr,		\
 					TFW_HTTP_HDR_RAW);		\
+		if (mark_raw_hbh(msg, &parser->hdr))			\
+			TFW_PARSER_DROP(st_curr);			\
 		if (r < 0 && r != CSTR_POSTPONE)			\
 			TFW_PARSER_DROP(st_curr);			\
 		parser->_i_st = &&RGen_EoL;				\
@@ -1584,8 +1610,9 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		TFW_PARSER_DROP(RGen_HdrOtherV);			\
 	__msg_hdr_chunk_fixup(p, __fsm_sz);				\
-	mark_raw_hbh(msg, &parser->hdr);				\
 	r = process_trailer_hdr(msg, &parser->hdr, TFW_HTTP_HDR_RAW);	\
+	if (mark_raw_hbh(msg, &parser->hdr))				\
+		TFW_PARSER_DROP(st_curr);				\
 	if (r < 0 && r != CSTR_POSTPONE)				\
 		TFW_PARSER_DROP(st_curr);				\
 	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
@@ -2517,7 +2544,7 @@ __req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 }
 
 static int
-__resp_parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
+__parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
@@ -5304,6 +5331,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 				p += 17;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
+			if (likely(__data_available(p, 8))
+				   && C8_INT_LCM(p, 't', 'r', 'a', 'i',
+						    'l', 'e', 'r', ':'))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 8));
+				parser->_i_st = &&Req_HdrTrailerV;
+				p += 8;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
 			if (likely(__data_available(p, 16)
@@ -5516,6 +5552,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, msg,
 				     __req_parse_transfer_encoding,
 				     TFW_HTTP_HDR_TRANSFER_ENCODING, 0);
+
+	/* 'Trailer:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrTrailerV, msg, __parse_trailer, 1);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, msg,
@@ -6274,7 +6313,23 @@ Req_Method_1CharStep: __attribute__((cold))
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr);
 	__FSM_TX_AF(Req_HdrTr, 'a', Req_HdrTra);
-	__FSM_TX_AF(Req_HdrTra, 'n', Req_HdrTran);
+
+	__FSM_STATE(Req_HdrTra, cold) {
+		switch (TFW_LC(c)) {
+		case 'i':
+			__FSM_MOVE(Req_HdrTrai);
+		case 'n':
+			__FSM_MOVE(Req_HdrTran);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
+	__FSM_TX_AF(Req_HdrTrai, 'l', Req_HdrTrail);
+	__FSM_TX_AF(Req_HdrTrail, 'e', Req_HdrTraile);
+	__FSM_TX_AF(Req_HdrTraile, 'r', Req_HdrTrailer);
+	__FSM_TX_AF_OWS(Req_HdrTrailer, Req_HdrTrailerV);
+
 	__FSM_TX_AF(Req_HdrTran, 's', Req_HdrTrans);
 	__FSM_TX_AF(Req_HdrTrans, 'f', Req_HdrTransf);
 	__FSM_TX_AF(Req_HdrTransf, 'e', Req_HdrTransfe);
@@ -10176,6 +10231,7 @@ __FSM_STATE(st, cold) {							\
 			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
+
 	__FSM_H2_TX_AF(Req_HdrTr, 'a', Req_HdrTra);
 	__FSM_H2_TX_AF(Req_HdrTra, 'n', Req_HdrTran);
 	__FSM_H2_TX_AF(Req_HdrTran, 's', Req_HdrTrans);
@@ -12421,7 +12477,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 
 	/* 'Trailer:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTrailerV, msg,
-				    __resp_parse_trailer, 1);
+				    __parse_trailer, 1);
 
 	/* 'Set-Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,
