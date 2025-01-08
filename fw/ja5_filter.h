@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -128,8 +128,11 @@ get_fingerprint_rates(u64 fingerprint)
 		}
 		spin_unlock(&storage.lru_list_lock);
 
-		list_for_each_safe(pos, tmp, &tail_to_delete)
+		list_for_each_safe(pos, tmp, &tail_to_delete) {
+			u64 key = ((TdbRec *)pos - 1)->key;
+			// TODO: remove directly by record bypassing search by key
 			tdb_entry_remove(storage.tdb, key, NULL, NULL, true);
+		}
 
 		/**
 		 * Protect from low probable case where all records
