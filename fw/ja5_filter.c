@@ -136,7 +136,7 @@ get_fingerprint_rates(Storage *storage, u64 fingerprint)
 
 		list_for_each_safe(pos, tmp, &tail_to_delete) {
 			u64 key = ((TdbRec *)pos - 1)->key;
-			// TODO: remove directly by record bypassing search by key
+			/* TODO: remove directly by record bypassing search by key */
 			tdb_entry_remove(storage->tdb, key, NULL, NULL, true);
 		}
 		/**
