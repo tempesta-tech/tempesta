@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,13 +31,13 @@
 #include "http.h"
 #include "http_frame.h"
 #include "http_limits.h"
+#include "ja5_conf.h"
+#include "ja5_filter.h"
 #include "msg.h"
 #include "procfs.h"
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
-#include "ja5_conf.h"
-#include "ja5t_filter.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -1194,28 +1194,16 @@ tfw_tls_get_allow_any_sni_reconfig(void)
 	return allow_any_sni_reconfig;
 }
 
-static TfwCfgSpec tfw_tls_hash_specs[] = {
-	{
-		.name = "hash",
-		.deflt = NULL,
-		.handler = ja5_cfgop_handle_hash_entry,
-		.allow_none = true,
-		.allow_repeat = true,
-		.allow_reconfig = true,
-	},
-	{ 0 }
-};
-
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
 		.name = "ja5t",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = ja5_cfgop_cleanup,
-		.dest = tfw_tls_hash_specs,
+		.cleanup = tls_ja5_cfgop_cleanup,
+		.dest = ja5_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
 			.begin_hook = ja5_cfgop_begin,
-			.finish_hook = ja5_cfgop_finish
+			.finish_hook = tls_ja5_cfgop_finish
 		},
 		.allow_none = true,
 		.allow_repeat = false,
