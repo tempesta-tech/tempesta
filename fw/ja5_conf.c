@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,48 +24,66 @@
 #include <linux/slab.h>
 
 #include "hash.h"
-#include "ja5_conf.h"
+#include "lib/ja5.h"
 #include "log.h"
 #include "tempesta_fw.h"
 
+static int ja5_cfgop_handle_hash_entry(TfwCfgSpec *, TfwCfgEntry *);
+
 /* Define default size as multiple of TDB extent size */
-#define TLS_JA5_DEFAULT_STORAGE_SIZE	((1 << 21) * 25)
-#define TLS_JA5_HASHTABLE_BITS		10
+#define JA5_DEFAULT_STORAGE_SIZE	((1 << 21) * 25)
+#define JA5_HASHTABLE_BITS		10
 
 typedef struct {
 	struct hlist_node	hlist;
 	refcount_t		refcnt;
-	/* TODO: make an unified macro for different types of ja5 hashes */
-	TlsJa5t			ja5_hash;
+	union {
+		TlsJa5t		tls_hash;
+		HttpJa5h	http_hash;
+		u64		hash;
+	};
 	u64			conns_per_sec;
 	u64			records_per_sec;
-} TlsJa5HashEntry;
+} Ja5HashEntry;
 
 typedef struct {
 	u64 storage_size;
-	DECLARE_HASHTABLE(hashes, TLS_JA5_HASHTABLE_BITS);
-} TlsJa5FilterCfg;
+	DECLARE_HASHTABLE(hashes, JA5_HASHTABLE_BITS);
+} Ja5FilterCfg;
 
-static TlsJa5FilterCfg __rcu	*tls_filter_cfg;
-static TlsJa5FilterCfg		*tls_filter_cfg_reconfig;
+static Ja5FilterCfg __rcu	*tls_filter_cfg;
+static Ja5FilterCfg __rcu	*http_filter_cfg;
+static Ja5FilterCfg		*filter_cfg_reconfig;
 
-static TlsJa5HashEntry*
-tls_get_ja5_hash_entry(TlsJa5t fingerprint)
+TfwCfgSpec ja5_hash_specs[] = {
+	{
+		.name = "hash",
+		.deflt = NULL,
+		.handler = ja5_cfgop_handle_hash_entry,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
+
+static Ja5HashEntry*
+get_ja5_hash_entry(Ja5FilterCfg *cfg, u64 fingerprint)
 {
 	u64 key;
-	TlsJa5HashEntry *entry = NULL;
-	TlsJa5FilterCfg *cfg;
+	Ja5HashEntry *entry = NULL;
+	Ja5FilterCfg *local_cfg;
 
-	if (!tls_filter_cfg)
+	if (!cfg)
 		return NULL;
 
+	/* TODO: maybe directly use fingerprint as a key? */
 	key = hash_calc((char *)&fingerprint, sizeof(fingerprint));
 
 	rcu_read_lock_bh();
-	cfg = rcu_dereference_bh(tls_filter_cfg);
-	hash_for_each_possible(cfg->hashes, entry, hlist, key) {
-		if (!memcmp(&fingerprint, &entry->ja5_hash,
-			    sizeof(fingerprint))) {
+	local_cfg = rcu_dereference_bh(cfg);
+	hash_for_each_possible(local_cfg->hashes, entry, hlist, key) {
+		if (!memcmp(&fingerprint, &entry->hash, sizeof(fingerprint))) {
 			refcount_inc(&entry->refcnt);
 			break;
 		}
@@ -76,96 +94,104 @@ tls_get_ja5_hash_entry(TlsJa5t fingerprint)
 }
 
 static void
-tls_put_ja5_hash_entry(TlsJa5HashEntry *entry)
+put_ja5_hash_entry(Ja5HashEntry *entry)
 {
 	if (entry && refcount_dec_and_test(&entry->refcnt))
 		kfree(entry);
 }
 
-u64
-tls_get_ja5_conns_limit(TlsJa5t fingerprint)
+static u64
+get_ja5_conns_limit(Ja5FilterCfg *cfg, u64 fingerprint)
 {
 	u64 res = U64_MAX;
-	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
+	Ja5HashEntry *e = get_ja5_hash_entry(cfg, fingerprint);
 
 	if (e) {
 		res = e->conns_per_sec;
-		tls_put_ja5_hash_entry(e);
+		put_ja5_hash_entry(e);
 	}
 
 	return res;
 }
 
-u64
-tls_get_ja5_recs_limit(TlsJa5t fingerprint)
+static u64
+get_ja5_recs_limit(Ja5FilterCfg *cfg, u64 fingerprint)
 {
 	u64 res = U64_MAX;
-	TlsJa5HashEntry *e = tls_get_ja5_hash_entry(fingerprint);
+	Ja5HashEntry *e = get_ja5_hash_entry(cfg, fingerprint);
 
 	if (e) {
 		res = e->records_per_sec;
-		tls_put_ja5_hash_entry(e);
+		put_ja5_hash_entry(e);
 	}
 
 	return res;
 }
 
-u64
-tls_get_ja5_storage_size(void)
+static u64
+get_ja5_storage_size(Ja5FilterCfg *cfg)
 {
 	u64 res = 0;
 
-	if (tls_filter_cfg) {
+	if (cfg) {
 		rcu_read_lock_bh();
-		res = rcu_dereference_bh(tls_filter_cfg)->storage_size;
+		res = rcu_dereference_bh(cfg)->storage_size;
 		rcu_read_unlock_bh();
 	}
 
 	return res;
 }
 
-int
+static int
 ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	TlsJa5t hash;
+	u64 hash;
 	u32 conns_per_sec;
 	u32 recs_per_sec;
-	TlsJa5HashEntry *he;
+	Ja5HashEntry *he, *iter;
 	u64 key;
 
-	BUILD_BUG_ON(sizeof(hash) > sizeof(u64));
+	BUILD_BUG_ON(sizeof(TlsJa5t) != sizeof(u64));
+	BUILD_BUG_ON(sizeof(HttpJa5h) != sizeof(u64));
 	TFW_CFG_CHECK_VAL_EQ_N(3, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	if (tfw_cfg_parse_uint(ce->vals[1], &conns_per_sec)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
-			"invalid connections per second value %s", ce->vals[1]);
+			 "invalid connections per second value %s", ce->vals[1]);
 		return -EINVAL;
 	}
 
 	if (tfw_cfg_parse_uint(ce->vals[2], &recs_per_sec)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
-			"invalid records per second value %s", ce->vals[2]);
+			 "invalid records per second value %s", ce->vals[2]);
 		return -EINVAL;
 	}
 
-	if (kstrtou64(ce->vals[0], 16, (u64 *)&hash)) {
+	if (kstrtou64(ce->vals[0], 16, &hash)) {
 		T_ERR_NL("Failed to parse hash entry in ja5 section: "
-			"invalid hash value %s", ce->vals[0]);
+			 "invalid hash value %s", ce->vals[0]);
 		return -EINVAL;
 	}
 
-	if (!(he = kmalloc(sizeof(TlsJa5HashEntry), GFP_KERNEL)))
+	if (!(he = kmalloc(sizeof(Ja5HashEntry), GFP_KERNEL)))
 		return -ENOMEM;
 
-	he->ja5_hash = hash;
+	he->hash = hash;
 	he->conns_per_sec = conns_per_sec;
 	he->records_per_sec = recs_per_sec;
 	INIT_HLIST_NODE(&he->hlist);
 	refcount_set(&he->refcnt, 1);
 
 	key = hash_calc((char *)&hash, sizeof(hash));
-	hash_add(tls_filter_cfg_reconfig->hashes, &he->hlist, key);
+	hash_for_each_possible(filter_cfg_reconfig->hashes, iter, hlist, key) {
+		if (iter->hash == hash) {
+			hash_del(&iter->hlist);
+			kfree(iter);
+			break;
+		}
+	}
+	hash_add(filter_cfg_reconfig->hashes, &he->hlist, key);
 
 	return 0;
 }
@@ -173,77 +199,137 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 int
 ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	BUG_ON(tls_filter_cfg_reconfig);
+	BUG_ON(filter_cfg_reconfig);
 	TFW_CFG_CHECK_VAL_EQ_N(0, cs, ce);
 	TFW_CFG_CHECK_ATTR_LE_N(1, cs, ce);
 
-	if (!(tls_filter_cfg_reconfig =
-	      kzalloc(sizeof(TlsJa5FilterCfg), GFP_KERNEL)))
+	if (!(filter_cfg_reconfig = kzalloc(sizeof(Ja5FilterCfg), GFP_KERNEL)))
 		return -ENOMEM;
 
 	if (ce->attr_n == 1) {
 		if (strcasecmp(ce->attrs[0].key, "storage_size")) {
 			T_ERR_NL("Failed to parse ja5 section: "
-			"invalid attribute %s", ce->attrs[0].key);
+				 "invalid attribute %s", ce->attrs[0].key);
 			return -EINVAL;
 		}
 
 		if (tfw_cfg_parse_ulonglong(ce->attrs[0].val,
-			&tls_filter_cfg_reconfig->storage_size)) {
+			&filter_cfg_reconfig->storage_size)) {
 			T_ERR_NL("Failed to parse ja5 section: "
-				"invalid storage_size value");
+				 "invalid storage_size value");
 			return -EINVAL;
 		}
 	} else {
-		tls_filter_cfg_reconfig->storage_size =
-			TLS_JA5_DEFAULT_STORAGE_SIZE;
+		filter_cfg_reconfig->storage_size = JA5_DEFAULT_STORAGE_SIZE;
 	}
 
 	return 0;
 }
 
 static void
-free_cfg(TlsJa5FilterCfg *cfg)
+free_cfg(Ja5FilterCfg *cfg)
 {
 	u32 bkt_i;
 	struct hlist_node *tmp;
-	TlsJa5HashEntry *entry;
+	Ja5HashEntry *entry;
 
 	if (!cfg)
 		return;
 
 	hash_for_each_safe(cfg->hashes, bkt_i, tmp, entry, hlist)
-		tls_put_ja5_hash_entry(entry);
+		put_ja5_hash_entry(entry);
 
 	kfree(cfg);
 }
 
-int
-ja5_cfgop_finish(TfwCfgSpec *cs)
+static int
+ja5_cfgop_finish(Ja5FilterCfg **cfg, TfwCfgSpec *cs)
 {
-	TlsJa5FilterCfg *prev = tls_filter_cfg;
+	Ja5FilterCfg *prev = *cfg;
 
-	BUG_ON(!tls_filter_cfg_reconfig);
+	BUG_ON(!filter_cfg_reconfig);
 
-	rcu_assign_pointer(tls_filter_cfg, tls_filter_cfg_reconfig);
+	rcu_assign_pointer(*cfg, filter_cfg_reconfig);
 	synchronize_rcu();
 	free_cfg(prev);
-	tls_filter_cfg_reconfig = NULL;
+	filter_cfg_reconfig = NULL;
 
 	return 0;
 }
 
-void
-ja5_cfgop_cleanup(TfwCfgSpec *cs)
+static void
+ja5_cfgop_cleanup(Ja5FilterCfg **cfg, TfwCfgSpec *cs)
 {
-	free_cfg(tls_filter_cfg_reconfig);
-	tls_filter_cfg_reconfig = NULL;
+	free_cfg(filter_cfg_reconfig);
+	filter_cfg_reconfig = NULL;
 
 	if (!tfw_runstate_is_reconfig()) {
-		TlsJa5FilterCfg *prev = tls_filter_cfg;
+		Ja5FilterCfg *prev = *cfg;
 
-		rcu_assign_pointer(tls_filter_cfg, NULL);
+		rcu_assign_pointer(*cfg, NULL);
 		synchronize_rcu();
 		free_cfg(prev);
 	}
+}
+
+/* TLS functions */
+u64
+tls_get_ja5_conns_limit(TlsJa5t fingerprint)
+{
+	return get_ja5_conns_limit(tls_filter_cfg, *(u64 *)&fingerprint);
+}
+
+u64
+tls_get_ja5_recs_limit(TlsJa5t fingerprint)
+{
+	return get_ja5_recs_limit(tls_filter_cfg, *(u64 *)&fingerprint);
+}
+
+u64
+tls_get_ja5_storage_size(void)
+{
+	return get_ja5_storage_size(tls_filter_cfg);
+}
+
+int
+tls_ja5_cfgop_finish(TfwCfgSpec *cs)
+{
+	return ja5_cfgop_finish(&tls_filter_cfg, cs);
+}
+
+void
+tls_ja5_cfgop_cleanup(TfwCfgSpec *cs)
+{
+	ja5_cfgop_cleanup(&tls_filter_cfg, cs);
+}
+
+/* HTTP functions */
+u64
+http_get_ja5_conns_limit(HttpJa5h fingerprint)
+{
+	return get_ja5_conns_limit(http_filter_cfg, *(u64 *)&fingerprint);
+}
+
+u64
+http_get_ja5_recs_limit(HttpJa5h fingerprint)
+{
+	return get_ja5_recs_limit(http_filter_cfg, *(u64 *)&fingerprint);
+}
+
+u64
+http_get_ja5_storage_size(void)
+{
+	return get_ja5_storage_size(http_filter_cfg);
+}
+
+int
+http_ja5_cfgop_finish(TfwCfgSpec *cs)
+{
+	return ja5_cfgop_finish(&http_filter_cfg, cs);
+}
+
+void
+http_ja5_cfgop_cleanup(TfwCfgSpec *cs)
+{
+	ja5_cfgop_cleanup(&http_filter_cfg, cs);
 }
