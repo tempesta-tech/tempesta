@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1194,25 +1194,13 @@ tfw_tls_get_allow_any_sni_reconfig(void)
 	return allow_any_sni_reconfig;
 }
 
-static TfwCfgSpec tfw_tls_hash_specs[] = {
-	{
-		.name = "hash",
-		.deflt = NULL,
-		.handler = ja5_cfgop_handle_hash_entry,
-		.allow_none = true,
-		.allow_repeat = true,
-		.allow_reconfig = true,
-	},
-	{ 0 }
-};
-
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
 		.name = "ja5t",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tls_ja5_cfgop_cleanup,
-		.dest = tfw_tls_hash_specs,
+		.dest = ja5_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
 			.begin_hook = ja5_cfgop_begin,
 			.finish_hook = tls_ja5_cfgop_finish

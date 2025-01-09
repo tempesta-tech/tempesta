@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -7876,18 +7876,6 @@ tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 	max_header_list_size = 0;
 }
 
-static TfwCfgSpec tfw_tls_hash_specs[] = {
-	{
-		.name = "hash",
-		.deflt = NULL,
-		.handler = ja5_cfgop_handle_hash_entry,
-		.allow_none = true,
-		.allow_repeat = true,
-		.allow_reconfig = true,
-	},
-	{ 0 }
-};
-
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -7980,7 +7968,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
 		.cleanup = http_ja5_cfgop_cleanup,
-		.dest = tfw_tls_hash_specs,
+		.dest = ja5_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
 			.begin_hook = ja5_cfgop_begin,
 			.finish_hook = http_ja5_cfgop_finish

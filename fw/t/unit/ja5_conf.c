@@ -28,6 +28,8 @@
 #include "log.h"
 #include "tempesta_fw.h"
 
+static int ja5_cfgop_handle_hash_entry(TfwCfgSpec *, TfwCfgEntry *);
+
 /* Define default size as multiple of TDB extent size */
 #define JA5_DEFAULT_STORAGE_SIZE	((1 << 21) * 25)
 #define JA5_HASHTABLE_BITS		10
@@ -52,6 +54,18 @@ typedef struct {
 static Ja5FilterCfg __rcu	*tls_filter_cfg;
 static Ja5FilterCfg __rcu	*http_filter_cfg;
 static Ja5FilterCfg		*filter_cfg_reconfig;
+
+TfwCfgSpec ja5_hash_specs[] = {
+	{
+		.name = "hash",
+		.deflt = NULL,
+		.handler = ja5_cfgop_handle_hash_entry,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
 
 static Ja5HashEntry*
 get_ja5_hash_entry(Ja5FilterCfg *cfg, u64 fingerprint)
@@ -128,7 +142,7 @@ get_ja5_storage_size(Ja5FilterCfg *cfg)
 	return res;
 }
 
-int
+static int
 ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	u64 hash;

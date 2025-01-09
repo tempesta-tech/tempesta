@@ -25,6 +25,7 @@
 #include "cfg.h"
 #include "lib/ja5.h"
 
+/** TLS */
 u64 tls_get_ja5_storage_size(void);
 u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint);
 u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint);
@@ -32,6 +33,7 @@ u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint);
 int tls_ja5_cfgop_finish(TfwCfgSpec *cs);
 void tls_ja5_cfgop_cleanup(TfwCfgSpec *cs);
 
+/** HTTP */
 u64 http_get_ja5_storage_size(void);
 u64 http_get_ja5_conns_limit(HttpJa5h fingerprint);
 u64 http_get_ja5_recs_limit(HttpJa5h fingerprint);
@@ -39,7 +41,9 @@ u64 http_get_ja5_recs_limit(HttpJa5h fingerprint);
 int http_ja5_cfgop_finish(TfwCfgSpec *cs);
 void http_ja5_cfgop_cleanup(TfwCfgSpec *cs);
 
-int ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
+/** Common */
+extern TfwCfgSpec ja5_hash_specs[];
+
 int ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
 
 #endif // __JA5_CONF__
