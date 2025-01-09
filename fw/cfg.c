@@ -1394,6 +1394,16 @@ tfw_cfg_parse_long(const char *s, long *out_long)
 }
 
 int
+tfw_cfg_parse_ulonglong(const char *s, unsigned long long *out_ull)
+{
+	int base = detect_base(&s);
+
+	if (!base)
+		return -EINVAL;
+	return kstrtoull(s, base, out_ull);
+}
+
+int
 tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
 {
 	int base = detect_base(&s);
