@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -114,6 +114,8 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
+#include "ja5_filter.h"
+#include "ja5_conf.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -7303,6 +7305,7 @@ tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	bool misconfiguration;
+	u64 storage_size = http_get_ja5_storage_size();
 
 	if (WARN_ON_ONCE(!dflt_vh))
 		return -1;
@@ -7318,6 +7321,9 @@ tfw_http_start(void)
 			  " the wiki).\n");
 		return -1;
 	}
+
+	if (storage_size && !ja5h_init_filter(storage_size))
+		return -ENOMEM;
 
 	return 0;
 }
@@ -7956,6 +7962,20 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_max_header_list_size,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
+	},
+	{
+		.name = "ja5h",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = http_ja5_cfgop_cleanup,
+		.dest = ja5_hash_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = ja5_cfgop_begin,
+			.finish_hook = http_ja5_cfgop_finish
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
