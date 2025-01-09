@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -114,6 +114,8 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
+#include "ja5_filter.h"
+#include "ja5_conf.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -5997,6 +5999,15 @@ __check_authority_correctness(TfwHttpReq *req)
 	return true;
 }
 
+static bool
+tfw_http_check_ja5h_req_limit(TfwHttpReq *req)
+{
+	u64 limit = http_get_ja5_recs_limit(req->ja5h);
+	u64 rate = ja5h_get_records_rate(req->ja5h);
+
+	return rate > limit;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -6157,6 +6168,14 @@ next_msg:
 	}
 
 	req->ja5h.method = req->method;
+
+	if (tfw_http_check_ja5h_req_limit(req)) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		return tfw_http_req_parse_block(req, 403,
+				"parsed request exceeded ja5h limit",
+				HTTP2_ECODE_PROTO);
+	}
+
 
 	/*
 	 * The message is fully parsed, the rest of the data in the
@@ -7303,6 +7322,7 @@ tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	bool misconfiguration;
+	u64 storage_size = http_get_ja5_storage_size();
 
 	if (WARN_ON_ONCE(!dflt_vh))
 		return -1;
@@ -7319,7 +7339,16 @@ tfw_http_start(void)
 		return -1;
 	}
 
+	if (storage_size && !ja5h_init_filter(storage_size))
+		return -ENOMEM;
+
 	return 0;
+}
+
+static void
+tfw_http_stop(void)
+{
+	ja5h_close_filter();
 }
 
 /*
@@ -7957,12 +7986,27 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
 	},
+	{
+		.name = "ja5h",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = http_ja5_cfgop_cleanup,
+		.dest = ja5_hash_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = ja5_cfgop_begin,
+			.finish_hook = http_ja5_cfgop_finish
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
 	{ 0 }
 };
 
 TfwMod tfw_http_mod  = {
 	.name	= "http",
 	.start = tfw_http_start,
+	.stop = tfw_http_stop,
 	.specs	= tfw_http_specs,
 };
 
