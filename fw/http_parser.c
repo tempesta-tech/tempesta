@@ -4611,6 +4611,8 @@ __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	parser->hdr.flags |= TFW_STR_HBH_HDR;
+
 	__FSM_STATE(I_KeepAlive) {
 		TRY_STR_fixup(&TFW_STR_STRING("timeout="), I_KeepAlive,
 			      I_KeepAliveTO);
