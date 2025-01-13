@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2025 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -158,7 +158,7 @@ ifdef ERROR
 endif
 ifndef AVX2
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
-	$(warning WARNING: YOUR PLATFORM IS TOO OLD AND IS NOT UNSUPPORTED)
+	$(warning WARNING: YOUR PLATFORM IS TOO OLD AND IS NOT SUPPORTED)
 	$(warning WARNING: THIS AFFECT PERFORMANCE AND MIGHT AFFECT SECURITY)
 	$(warning WARNING: PLEASE DO NOT USE THE BUILD IN PRODUCTION)
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
