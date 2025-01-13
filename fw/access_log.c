@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -58,10 +58,11 @@
 	TRUNCATABLE(referer)					\
 	FIXED("\" \"")						\
 	TRUNCATABLE(user_agent)					\
-	FIXED("\" ")						\
+	FIXED("\" \"")						\
 	UNTRUNCATABLE(ja5_tls)					\
-	FIXED(" ")						\
-	UNTRUNCATABLE(ja5_http)
+	FIXED("\" \"")						\
+	UNTRUNCATABLE(ja5_http)					\
+	FIXED("\"")
 
 
 #define ACCESS_LOG_OFF   0
@@ -479,14 +480,14 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 	ADD_HDR(idx_referer, TFW_HTTP_HDR_REFERER);
 	ADD_HDR(idx_user_agent, TFW_HTTP_HDR_USER_AGENT);
 
-#define FMT_ja5_tls "%08llx"
+#define FMT_ja5_tls "ja5t=%llx"
 #define ARG_ja5_tls , (tls_ja5t ? *(u64 *)tls_ja5t : 0)
 	ja5_tls.data = "";
-	ja5_tls.len = 8;
-#define FMT_ja5_http "%08llx"
+	ja5_tls.len = 16;
+#define FMT_ja5_http "ja5h=%llx"
 #define ARG_ja5_http , (*(u64 *)&req->ja5h)
 	ja5_http.data = "";
-	ja5_http.len = 8;
+	ja5_http.len = 16;
 
 	/* Now we calculate first estimation of
 	 * "maximum allowed truncated string length" */
