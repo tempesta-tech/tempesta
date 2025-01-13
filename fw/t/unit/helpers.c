@@ -465,4 +465,48 @@ tfw_vhost_get_cache_use_stale(TfwLocation *loc, TfwVhost *vhost)
 	return NULL;
 }
 
+void
+http_ja5_cfgop_cleanup(TfwCfgSpec *cs)
+{
+
+}
+
+int
+ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return 0;
+}
+
+u64
+http_get_ja5_storage_size(void)
+{
+	return 0;
+}
+
+bool
+ja5h_init_filter(size_t max_storage_size)
+{
+	return true;
+}
+
+int
+http_ja5_cfgop_finish(TfwCfgSpec *cs)
+{
+	return 0;
+}
+
+u64
+http_get_ja5_recs_limit(HttpJa5h fingerprint)
+{
+	return UINT_MAX;
+}
+
+u32
+ja5h_get_records_rate(HttpJa5h fingerprint)
+{
+	return 0;
+}
+
+TfwCfgSpec ja5_hash_specs[0];
+
 unsigned int cache_default_ttl = 60;
