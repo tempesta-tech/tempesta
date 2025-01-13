@@ -5999,6 +5999,15 @@ __check_authority_correctness(TfwHttpReq *req)
 	return true;
 }
 
+static bool
+tfw_http_check_ja5h_req_limit(TfwHttpReq *req)
+{
+	u64 limit = http_get_ja5_recs_limit(req->ja5h);
+	u64 rate = ja5h_get_records_rate(req->ja5h);
+
+	return rate > limit;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -6159,6 +6168,14 @@ next_msg:
 	}
 
 	req->ja5h.method = req->method;
+
+	if (tfw_http_check_ja5h_req_limit(req)) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		return tfw_http_req_parse_block(req, 403,
+				"parsed request exceeded ja5h limit",
+				HTTP2_ECODE_PROTO);
+	}
+
 
 	/*
 	 * The message is fully parsed, the rest of the data in the
