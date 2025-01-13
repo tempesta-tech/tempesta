@@ -36,6 +36,8 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
+#include "ja5_conf.h"
+#include "ja5t_filter.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -1010,6 +1012,24 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 	return false;
 }
 
+static bool
+tfw_ja5t_limit_conn(TlsJa5t fingerprint)
+{
+	u64 limit = tls_get_ja5_conns_limit(fingerprint);
+	u64 rate = ja5t_get_conns_rate(fingerprint);
+
+	return rate > limit;
+}
+
+static bool
+tfw_ja5t_limit_rec(TlsJa5t fingerprint)
+{
+	u64 limit = tls_get_ja5_recs_limit(fingerprint);
+	u64 rate = ja5t_get_records_rate(fingerprint);
+
+	return rate > limit;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration.
@@ -1158,7 +1178,12 @@ tfw_tls_cfgend(void)
 static int
 tfw_tls_start(void)
 {
+	u64 storage_size = tls_get_ja5_storage_size();
+
 	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
+
+	if (storage_size && !ja5t_init_filter(storage_size))
+		return -ENOMEM;
 
 	return 0;
 }
@@ -1169,7 +1194,33 @@ tfw_tls_get_allow_any_sni_reconfig(void)
 	return allow_any_sni_reconfig;
 }
 
+static TfwCfgSpec tfw_tls_hash_specs[] = {
+	{
+		.name = "hash",
+		.deflt = NULL,
+		.handler = ja5_cfgop_handle_hash_entry,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
+
 static TfwCfgSpec tfw_tls_specs[] = {
+	{
+		.name = "ja5t",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = ja5_cfgop_cleanup,
+		.dest = tfw_tls_hash_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = ja5_cfgop_begin,
+			.finish_hook = ja5_cfgop_finish
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
 	{ 0 }
 };
 
@@ -1197,7 +1248,8 @@ tfw_tls_init(void)
 		return -EINVAL;
 
 	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_over,
-				ttls_cli_id, tfw_tls_alpn_match);
+				ttls_cli_id, tfw_tls_alpn_match,
+				tfw_ja5t_limit_conn, tfw_ja5t_limit_rec);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;
