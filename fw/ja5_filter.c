@@ -185,6 +185,12 @@ init_filter(Storage *storage, size_t max_storage_size, const char *file_path)
 		file_path, max_storage_size, sizeof(Rates), 0));
 }
 
+static void
+close_filter(Storage *storage)
+{
+	tdb_close(storage->tdb);
+}
+
 static u32
 ja5_calc_rate(TimeSlot slots[], spinlock_t *lock)
 {
@@ -274,6 +280,12 @@ ja5h_init_filter(size_t max_storage_size)
 	return init_filter(&http_storage, max_storage_size, HTTP_TDB_FILE_PATH);
 }
 
+void
+ja5h_close_filter(void)
+{
+	return close_filter(&http_storage);
+}
+
 u32
 ja5h_get_conns_rate(HttpJa5h fingerprint)
 {
@@ -294,6 +306,12 @@ bool
 ja5t_init_filter(size_t max_storage_size)
 {
 	return init_filter(&tls_storage, max_storage_size, TLS_TDB_FILE_PATH);
+}
+
+void
+ja5t_close_filter(void)
+{
+	return close_filter(&tls_storage);
 }
 
 u32
