@@ -240,7 +240,7 @@ ja5_get_conns_rate(Storage *storage, u64 fingerprint)
 	put_fingerprint_rates(storage, rates);
 
 	T_DBG("JA5 Fingerprint %08llx: connections/sec %d",
-		*(u64 *)&fingerprint, res);
+	      *(u64 *)&fingerprint, res);
 
 	return res;
 }
@@ -269,7 +269,7 @@ ja5_get_records_rate(Storage *storage, u64 fingerprint)
 	put_fingerprint_rates(storage, rates);
 
 	T_DBG("JA5 Fingerprint %08llx: records/sec %d",
-		*(u64 *)&fingerprint, res);
+	      *(u64 *)&fingerprint, res);
 
 	return res;
 }
