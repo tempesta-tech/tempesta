@@ -71,7 +71,7 @@
 
 #define MMAP_LOG_PATH "tempesta_mmap_log"
 
-static int access_log_type = ACCESS_LOG_OFF;
+static int access_log_type = ACCESS_LOG_MMAP;
 static TfwMmapBufferHolder *mmap_buffer;
 
 /* Use small buffer because printk won't display strings longer that ~1000 bytes */
@@ -371,6 +371,12 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 				   req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
 	WRITE_STR_FIELD(ua);
 
+	if (tls_ja5t)
+		WRITE_FIELD(*tls_ja5t);
+	else
+		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_JA5T);
+	WRITE_FIELD(req->ja5h);
+
 	if (*dropped) {
 		WRITE_FIELD(*dropped);
 		*dropped = 0;
@@ -382,10 +388,6 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		T_DBG("Incorrect data size at commit: %ld", p - data);
 		goto drop;
 	}
-
-	if (tls_ja5t)
-		WRITE_FIELD(*tls_ja5t);
-	WRITE_FIELD(req->ja5h);
 
 	return;
 

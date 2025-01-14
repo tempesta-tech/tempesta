@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -66,7 +66,9 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_URI]		= {"uri", clickhouse::Type::String},
 	[TFW_MMAP_LOG_REFERER]		= {"referer", clickhouse::Type::String},
 	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", clickhouse::Type::String},
-	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", clickhouse::Type::UInt64},
+	[TFW_MMAP_LOG_JA5T]		= {"ja5t", clickhouse::Type::UInt64},
+	[TFW_MMAP_LOG_JA5H]		= {"ja5h", clickhouse::Type::UInt64},
+	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", clickhouse::Type::UInt64}
 };
 
 std::atomic<bool> stop_flag{false};
@@ -190,6 +192,8 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	READ_STR(TFW_MMAP_LOG_REFERER);
 	READ_STR(TFW_MMAP_LOG_USER_AGENT);
 
+	READ_INT(TFW_MMAP_LOG_JA5T, clickhouse::ColumnUInt64, uint64_t);
+	READ_INT(TFW_MMAP_LOG_JA5H, clickhouse::ColumnUInt64, uint64_t);
 	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
 
 	return p - data;
