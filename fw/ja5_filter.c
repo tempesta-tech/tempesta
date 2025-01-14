@@ -159,7 +159,7 @@ get_fingerprint_rates(Storage *storage, u64 fingerprint)
 }
 
 /**
- * Inintializes the storage with it's max size
+ * Inintializes the storage with its max size
  *
  * @param storage - fingerprints storage
  * @param max_storage_size storage size
