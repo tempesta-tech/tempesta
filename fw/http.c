@@ -8024,4 +8024,5 @@ tfw_http_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
+	http_close_filter();
 }
