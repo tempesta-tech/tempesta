@@ -392,8 +392,10 @@ tfw_client_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
-	if (client_db)
+	if (client_db) {
 		tdb_close(client_db);
+		client_db = NULL;
+	}
 
 	tfw_client_free_lru();
 }
