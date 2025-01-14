@@ -859,6 +859,7 @@ tfw_sock_clnt_stop(void)
 	 * tfw_cfgop_cleanup_sock_clnt().
 	 */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
 		if (!ls->sk)
 			continue;
 		ss_release(ls->sk);
