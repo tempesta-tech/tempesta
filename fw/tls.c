@@ -1055,6 +1055,7 @@ static void
 tfw_tls_do_cleanup(void)
 {
 	ttls_config_free(&tfw_tls_cfg);
+	ja5t_close_filter();
 }
 
 /*

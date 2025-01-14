@@ -23,11 +23,13 @@
 #include "lib/ja5.h"
 
 bool ja5t_init_filter(size_t max_storage_size);
+void ja5t_close_filter(void);
 u32 ja5t_get_conns_rate(TlsJa5t fingerprint);
 u32 ja5t_get_records_rate(TlsJa5t fingerprint);
 
 bool ja5h_init_filter(size_t max_storage_size);
+void ja5h_close_filter(void);
 u32 ja5h_get_conns_rate(HttpJa5h fingerprint);
 u32 ja5h_get_records_rate(HttpJa5h fingerprint);
 
-#endif // __JA5_FILTER__
+#endif /* __JA5_FILTER__ */
