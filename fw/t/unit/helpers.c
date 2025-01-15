@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -487,6 +487,12 @@ bool
 ja5h_init_filter(size_t max_storage_size)
 {
 	return true;
+}
+
+void
+ja5h_close_filter(void)
+{
+
 }
 
 int

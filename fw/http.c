@@ -7345,6 +7345,12 @@ tfw_http_start(void)
 	return 0;
 }
 
+static void
+tfw_http_stop(void)
+{
+	ja5h_close_filter();
+}
+
 /*
  * ------------------------------------------------------------------------
  *	configuration handling
@@ -8000,6 +8006,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 TfwMod tfw_http_mod  = {
 	.name	= "http",
 	.start = tfw_http_start,
+	.stop = tfw_http_stop,
 	.specs	= tfw_http_specs,
 };
 
@@ -8024,5 +8031,4 @@ tfw_http_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
-	http_close_filter();
 }
