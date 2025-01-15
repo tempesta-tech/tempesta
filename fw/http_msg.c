@@ -1436,22 +1436,23 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 	bool np;
 	char* addr;
 	TfwMsgIter *it = &mit->iter;
-	struct sk_buff *skb = it->skb;
-	struct skb_shared_info *si = skb_shinfo(skb);
+	struct skb_shared_info *si = skb_shinfo(it->skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
 		return -ENOMEM;
 
 	if (np || it->frag == -1) {
-		r = ss_skb_add_frag(it->skb_head, skb, addr, ++it->frag, size);
+		it->frag++;
+		r = ss_skb_add_frag(it->skb_head, &it->skb, addr,
+				    &it->frag, size);
 		if (unlikely(r))
 			return r;
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
 
-	ss_skb_adjust_data_len(skb, size);
+	ss_skb_adjust_data_len(it->skb, size);
 	mit->curr_ptr = addr;
 
 	return 0;
@@ -1488,12 +1489,13 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	if (unlikely(!addr))
 		return -ENOMEM;
 
-	r = ss_skb_add_frag(it->skb_head, it->skb, addr, ++it->frag,
+	it->frag++;
+	r = ss_skb_add_frag(it->skb_head, &it->skb, addr, &it->frag,
 			    FRAME_HEADER_SIZE);
 	if (unlikely(r))
 		return r;
 
-	ss_skb_adjust_data_len(mit->iter.skb, FRAME_HEADER_SIZE);
+	ss_skb_adjust_data_len(it->skb, FRAME_HEADER_SIZE);
 	mit->frame_head = addr;
 	mit->curr_ptr = addr + FRAME_HEADER_SIZE;
 
