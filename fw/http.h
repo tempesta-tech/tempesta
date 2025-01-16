@@ -369,7 +369,6 @@ typedef struct {
  * 		  the response is sent to the client;
  * @pit		- iterator for tracking transformed data allocation (applicable
  *		  for HTTP/2 mode only);
- * @userinfo	- userinfo in URI, not mandatory;
  * @host	- host that was picked from request URI, Host or HTTP/2
  *		  authority header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
@@ -408,7 +407,6 @@ struct tfw_http_req_t {
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	HttpJa5h		ja5h;
-	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
 	TfwStr			multipart_boundary_raw;
