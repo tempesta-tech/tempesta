@@ -220,36 +220,19 @@ TEST(http1_parser, parses_req_uri)
 	TEST_FULL_REQ("natsys-lab.com", "/foo/");
 	TEST_FULL_REQ("natsys-lab.com:8080", "/cgi-bin/show.pl?entry=tempesta");
 
-	FOR_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET https://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET https://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET ws://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET ws://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET wss://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET wss://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET http://user@tempesta-tech.com/ HTTP/1.1\r\n"
-		"Host: bad.com\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
-	}
+	EXPECT_BLOCK_REQ("GET http://user@tempesta-tech.com/ HTTP/1.1\r\n"
+			 "Host: bad.com\r\n\r\n");
 
-	FOR_REQ("GET http://user@-x/ HTTP/1.1\r\nHost: bad.com\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "-x");
-	}
+	EXPECT_BLOCK_REQ("GET http://user@-x/ HTTP/1.1\r\n"
+			 "Host: bad.com\r\n\r\n");
 
 	FOR_REQ("GET http://tempesta-tech.com/ HTTP/1.1\r\n"
 		"Host: bad.com\r\n\r\n")
@@ -257,10 +240,7 @@ TEST(http1_parser, parses_req_uri)
 		EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
 	}
 
-	FOR_REQ("GET http:///path HTTP/1.1\r\nHost: localhost\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "localhost");
-	}
+	EXPECT_BLOCK_REQ("GET http:///path HTTP/1.1\r\nHost: localhost\r\n\r\n");
 
 	FOR_REQ("OPTIONS * HTTP/1.1\r\n\r\n");
 
