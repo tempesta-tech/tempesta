@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -5884,17 +5884,6 @@ Req_Method_1CharStep: __attribute__((cold))
 			__set_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags);
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
-		} else if (likely(c == '/')) {
-			/*
-			 * The case where "Host:" header value is empty.
-			 * A special TfwStr{} string is created that has
-			 * a valid pointer and the length of zero.
-			 */
-			T_DBG3("Handling http:///path\n");
-			tfw_http_msg_set_str_data(msg, &req->host, p);
-			req->host.flags |= TFW_STR_COMPLETE;
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		} else if (c == '[') {
 			__set_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags);
 			__msg_field_open(&req->host, p);
@@ -5904,22 +5893,12 @@ Req_Method_1CharStep: __attribute__((cold))
 	}
 
 	__FSM_STATE(Req_UriAuthority, cold) {
-		if (likely(isalnum(c) || c == '.' || c == '-' || c == '@')) {
-			if (unlikely(c == '@')) {
-				if (!TFW_STR_EMPTY(&req->userinfo)) {
-					T_DBG("Second '@' in authority\n");
-					TFW_PARSER_DROP(Req_UriAuthority);
-				}
-				T_DBG3("Authority contains userinfo\n");
-				/* copy current host to userinfo */
-				req->userinfo = req->host;
-				__msg_field_finish(&req->userinfo, p);
-				TFW_STR_INIT(&req->host);
-
-				__FSM_MOVE_nofixup(Req_UriAuthorityResetHost);
-			}
-
+		if (likely(isalnum(c) || c == '.' || c == '-'))
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+
+		if (unlikely(c == '@')) {
+			T_DBG("Depricated component userinfo in authority\n");
+			TFW_PARSER_DROP(Req_UriAuthority);
 		}
 		__FSM_JMP(Req_UriAuthorityEnd);
 	}
@@ -5931,18 +5910,6 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
 		}
 		TFW_PARSER_DROP(Req_UriAuthorityIPv6);
-	}
-
-	__FSM_STATE(Req_UriAuthorityResetHost, cold) {
-		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			__msg_field_open(&req->host, p);
-			__msg_field_chunk_flags(&req->host, TFW_STR_VALUE);
-			__FSM_MOVE_f(Req_UriAuthority, &req->host);
-		} else if (c == '[') {
-			__msg_field_open(&req->host, p);
-			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
-		}
-		TFW_PARSER_DROP(Req_UriAuthorityResetHost);
 	}
 
 	__FSM_STATE(Req_UriAuthorityEnd, cold) {
