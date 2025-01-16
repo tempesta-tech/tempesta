@@ -82,10 +82,10 @@ typedef struct {
 	unsigned short elliptic_curve_hash;
 } TlsJa5t;
 
-#define HTTP_JA5H_CALC_NUM(val, max, num)				\
-	({								\
-		typeof(max) x = (val) < (max) ? (val) + (num) : (val);	\
-		x;							\
+#define HTTP_JA5H_CALC_NUM(val, max, num)					\
+	({									\
+		typeof(max) x = (val) + (num) < (max) ? (val) + (num) : (max);	\
+		x;								\
 	})
 
 #define HTTP_JA5H_REQ_CALC_NUM(req, name, max, num)			\
