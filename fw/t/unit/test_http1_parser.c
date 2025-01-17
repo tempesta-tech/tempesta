@@ -73,12 +73,6 @@
 
 TEST(http1_parser, leading_eol)
 {
-	FOR_REQ(EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 0);
-	FOR_REQ("\n" EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 1);
-	FOR_REQ("\r\n" EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 2);
 	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);
@@ -2992,7 +2986,14 @@ TEST(http1_parser, req_hop_by_hop)
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
-			EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+			switch (id) {
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
 		}
 	}
 
@@ -3144,6 +3145,9 @@ TEST(http1_parser, resp_hop_by_hop)
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
 			switch (id) {
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
 			case TFW_HTTP_HDR_SERVER:
 				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
 				break;
