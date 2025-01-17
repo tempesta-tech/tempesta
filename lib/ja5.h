@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -49,7 +49,7 @@ enum {
  *		  (header name or header name + value if name is
  *		  less then 4 bytes);
  */
-typedef struct __packed {
+typedef struct {
 	unsigned int	padding:6;
 	unsigned int	has_referer:1;
 	unsigned int	headers_num:6;
@@ -82,10 +82,10 @@ typedef struct {
 	unsigned short elliptic_curve_hash;
 } TlsJa5t;
 
-#define HTTP_JA5H_CALC_NUM(val, max, num)				\
-	({								\
-		typeof(max) x = (val) < (max) ? (val) + (num) : (val);	\
-		x;							\
+#define HTTP_JA5H_CALC_NUM(val, max, num)					\
+	({									\
+		typeof(max) x = (val) + (num) < (max) ? (val) + (num) : (max);	\
+		x;								\
 	})
 
 #define HTTP_JA5H_REQ_CALC_NUM(req, name, max, num)			\
