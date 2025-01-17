@@ -1098,9 +1098,11 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 
 	do {
 		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
+		if (hid == TFW_HTTP_HDR_CONNECTION
+		    && !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR
+		    || ht->tbl[hid].flags & TFW_STR_TRAILER_HDR)
 			if ((r = __hdr_del(hm, hid)))
 				return r;
 	} while (hid);
@@ -1366,23 +1368,43 @@ this_chunk:
 				return -ENOMEM;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
-			if (!it->skb_head) {
+			if (!it->skb_head)
 				it->skb_head = *skb_head;
 
-				if (start_off && *start_off) {
-					skb_put(it->skb_head, *start_off);
-					*start_off = 0;
-				}
+			if (start_off && *start_off) {
+				skb_put(it->skb, *start_off);
+				*start_off = 0;
 			}
 
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
+		} else if (start_off && *start_off) {
+			skb_frag_t *frag;
+			struct page *page;
+
+			if (it->frag + 1 == MAX_SKB_FRAGS) {
+				it->skb = NULL;
+				goto this_chunk;
+			}	    
+
+			page = alloc_page(GFP_ATOMIC);
+			if (!page)
+				return -ENOMEM;
+
+			++it->frag;
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
+			skb_fill_page_desc(it->skb, it->frag, page,
+					   0, 0);
+			skb_frag_size_add(frag, *start_off);
+			ss_skb_adjust_data_len(it->skb, *start_off);
+			*start_off = 0;
 		}
 
 		cur_len = c->len - off;
 		if (it->frag >= 0) {
 			unsigned int f_size;
-			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+			skb_frag_t *frag;
 
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
 			f_size = skb_frag_size(frag);
 			f_room = PAGE_SIZE - frag->bv_offset - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
@@ -1436,22 +1458,23 @@ tfw_http_msg_alloc_from_pool(TfwHttpTransIter *mit, TfwPool* pool, size_t size)
 	bool np;
 	char* addr;
 	TfwMsgIter *it = &mit->iter;
-	struct sk_buff *skb = it->skb;
-	struct skb_shared_info *si = skb_shinfo(skb);
+	struct skb_shared_info *si = skb_shinfo(it->skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
 		return -ENOMEM;
 
 	if (np || it->frag == -1) {
-		r = ss_skb_add_frag(it->skb_head, skb, addr, ++it->frag, size);
+		it->frag++;
+		r = ss_skb_add_frag(it->skb_head, &it->skb, addr,
+				    &it->frag, size);
 		if (unlikely(r))
 			return r;
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
 
-	ss_skb_adjust_data_len(skb, size);
+	ss_skb_adjust_data_len(it->skb, size);
 	mit->curr_ptr = addr;
 
 	return 0;
@@ -1476,7 +1499,6 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 
 	BUG_ON(room < 0);
-	BUG_ON(mit->iter.frag > 0);
 
 	/* Alloc a full page if room smaller than MIN_FRAG_SIZE. */
 	if (room < MIN_HDR_FRAG_SIZE)
@@ -1488,12 +1510,13 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwPool* pool)
 	if (unlikely(!addr))
 		return -ENOMEM;
 
-	r = ss_skb_add_frag(it->skb_head, it->skb, addr, ++it->frag,
+	it->frag++;
+	r = ss_skb_add_frag(it->skb_head, &it->skb, addr, &it->frag,
 			    FRAME_HEADER_SIZE);
 	if (unlikely(r))
 		return r;
 
-	ss_skb_adjust_data_len(mit->iter.skb, FRAME_HEADER_SIZE);
+	ss_skb_adjust_data_len(it->skb, FRAME_HEADER_SIZE);
 	mit->frame_head = addr;
 	mit->curr_ptr = addr + FRAME_HEADER_SIZE;
 

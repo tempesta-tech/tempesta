@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -416,7 +416,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		begin = skb->data;
 		end = begin + skb_headlen(skb);
 
-		if (begin + off <= end)
+		if (ss_skb_is_within_fragment(begin, begin + off, end))
 			return begin + off;
 		off -= skb_headlen(skb);
 	}
@@ -428,11 +428,10 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		end = begin + skb_frag_size(f);
 		d = end - begin;
 
-		if (off > d) {
-			off -= d;
-			continue;
-		}
-		return begin + off;
+		if (ss_skb_is_within_fragment(begin, begin + off, end))
+			return begin + off;
+
+		off -= d;
 	}
 
 	return NULL;
@@ -468,8 +467,8 @@ void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				   struct page ***old_pages);
-int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff *skb, char* addr,
-		    int frag_idx, size_t frag_sz);
+int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
+		    int *frag_idx, size_t frag_sz);
 int
 ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 			unsigned char *split_point);
