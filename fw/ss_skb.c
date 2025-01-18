@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1002,18 +1002,19 @@ multi_buffs:
 	return 0;
 }
 
-static void
-__ss_skb_free_empty(struct sk_buff **skb_head, struct sk_buff *skb,
-		    struct sk_buff *next, TfwStr *it)
+static bool
+__ss_skb_free_empty(struct sk_buff **skb_head, struct sk_buff *skb, TfwStr *it)
 {
 	bool is_same = (it->skb == skb);
+	bool was_updated = false;
 
 	if (unlikely(!it->skb->len)) {
 		struct sk_buff *to_delete;
 		int fragn;
 
+		was_updated = true;
 		to_delete = it->skb;
-		it->skb = next;
+		it->skb = it->skb->next;
 		it->data = __skb_data_address(it->skb, &fragn);
 		ss_skb_unlink(skb_head, it->skb);
 		kfree_skb(to_delete);
@@ -1022,6 +1023,8 @@ __ss_skb_free_empty(struct sk_buff **skb_head, struct sk_buff *skb,
 		ss_skb_unlink(skb_head, skb);
 		kfree_skb(skb);
 	}
+
+	return was_updated;
 }
 
 /**
@@ -1032,7 +1035,6 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 		int len)
 {
 	int r;
-	struct sk_buff *next;
 	TfwStr it = {};
 	int _, to_delete;
 
@@ -1040,7 +1042,6 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 		bzero_fast(&it, sizeof(TfwStr));
 		to_delete = unlikely(abs(len) > PAGE_SIZE) ?
 			PAGE_SIZE : len;
-		next = skb->next;
 
 		r = skb_fragment(skb_head, skb, ptr, -to_delete, &it, &_);
 		if (r < 0) {
@@ -1049,9 +1050,7 @@ __ss_skb_cutoff(struct sk_buff *skb_head, struct sk_buff *skb, char *ptr,
 		}
 		BUG_ON(r > len);
 
-		/* Check if the new skb was allocated and update next skb. */
-		next = skb->next != next ? skb->next : next;
-		__ss_skb_free_empty(&skb_head, skb, next, &it);
+		__ss_skb_free_empty(&skb_head, skb, &it);
 
 		len -= r;
 		skb = it.skb;
@@ -1103,9 +1102,9 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *str, int skip, int tail)
 		need_update = !(skb->next == next &&
 			(is_single || next->len == next_len));
 
-		/* Check if the new skb was allocated and update next skb. */
-		next = skb->next != next ? skb->next : next;
-		__ss_skb_free_empty(&skb_head, skb, next, &it);
+		next = skb->next;
+		if (__ss_skb_free_empty(&skb_head, skb, &it))
+			next = it.skb;
 
 		/*
 		 * No new skb was allocated and no fragments from current
