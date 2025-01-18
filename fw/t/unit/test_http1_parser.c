@@ -2951,7 +2951,7 @@ TEST(http1_parser, req_hop_by_hop)
 	TfwStr *field;
 	long id;
 #define REQ_HBH_START							\
-	"POST /foo HTTP/1.1\r\n"						\
+	"POST /foo HTTP/1.1\r\n"					\
 	"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"			\
 	"Accept: */*\r\n"						\
 	"Host: localhost\r\n"						\
@@ -2992,7 +2992,10 @@ TEST(http1_parser, req_hop_by_hop)
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
-			EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+			if (id != TFW_HTTP_HDR_KEEP_ALIVE)
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+			else
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
 		}
 	}
 
@@ -3145,6 +3148,7 @@ TEST(http1_parser, resp_hop_by_hop)
 			field = &ht->tbl[id];
 			switch (id) {
 			case TFW_HTTP_HDR_SERVER:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
 				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
 				break;
 			default:
