@@ -2104,7 +2104,7 @@ do {									\
 		if (stream->xmit.h_len) {
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
-			if (unlikely(stream->xmit.postponed)
+			if (stream->xmit.postponed
 			    && !stream->xmit.frame_length
 			    && !ctx->cur_send_headers)
 				ss_skb_tcp_entail_list(sk,
@@ -2144,7 +2144,7 @@ do {									\
 			T_WARN("Failed to send frame %d", r);
 			return r;
 		}
-		if (unlikely(stream->xmit.postponed) && !ctx->cur_send_headers)
+		if (stream->xmit.postponed && !ctx->cur_send_headers)
 			ss_skb_tcp_entail_list(sk, &stream->xmit.postponed);
 	}
 
