@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -872,11 +872,14 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
  * Delete header with identifier @hid from skb data and header table.
  */
 static int
-__hdr_del(TfwHttpMsg *hm, unsigned int hid)
+__hdr_del(TfwHttpMsg *hm, unsigned int hid, bool trailers_were_deleted)
 {
 	int r = 0;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
+
+	if (unlikely((hdr->flags & TFW_STR_TRAILER) && trailers_were_deleted))
+		goto clear_tbl;
 
 	/* Delete the underlying data. */
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
@@ -885,6 +888,8 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 			return r;
 	};
 
+
+clear_tbl:
 	/* Delete the header from header table. */
 	if (hid < TFW_HTTP_HDR_RAW) {
 		TFW_STR_INIT(&ht->tbl[hid]);
@@ -1024,7 +1029,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 	}
 
 	if (!s_val)
-		return __hdr_del(hm, hid);
+		return __hdr_del(hm, hid, false);
 
 	if (append) {
 		TfwStr hdr_app = {
@@ -1090,7 +1095,7 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
  * optimize removal of the header.
  */
 int
-tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
+tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm, bool trailers_were_deleted)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	unsigned int hid = ht->off;
@@ -1098,11 +1103,14 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 
 	do {
 		hid--;
-		if (hid == TFW_HTTP_HDR_CONNECTION)
+		if (hid == TFW_HTTP_HDR_CONNECTION
+		    && !(ht->tbl[hid].flags & TFW_STR_TRAILER))
 			continue;
-		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
-			if ((r = __hdr_del(hm, hid)))
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR) {
+			r = __hdr_del(hm, hid, trailers_were_deleted);
+			if (unlikely(r))
 				return r;
+		}
 	} while (hid);
 
 	return 0;
