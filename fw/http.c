@@ -66,7 +66,7 @@
  * created HTTP/1.1-message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -3647,7 +3647,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
-	r = tfw_http_msg_del_hbh_hdrs(hm);
+	r = tfw_http_msg_del_hbh_hdrs(hm, false);
 	if (r < 0)
 		return r;
 
@@ -4259,6 +4259,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	unsigned long conn_flg = 0;
+	bool trailers_were_deleted = false;
 	int r;
 
 	/*
@@ -4289,6 +4290,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		if (r)
 			return r;
 		TFW_STR_INIT(&resp->body);
+		trailers_were_deleted = true;
 	}
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
@@ -4301,7 +4303,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_msg_del_hbh_hdrs(hm);
+	r = tfw_http_msg_del_hbh_hdrs(hm, trailers_were_deleted);
 	if (r < 0)
 		return r;
 
