@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -39,26 +39,31 @@
  !       code that fills its value       !
  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
  */
-#define ACCESS_LOG_LINE(FIXED, UNTRUNCATABLE, TRUNCATABLE) \
-	FIXED(__BNR)                                       \
-	UNTRUNCATABLE(client_ip)                           \
-	FIXED(" \"")                                       \
-	UNTRUNCATABLE(vhost)                               \
-	FIXED("\" \"")                                     \
-	UNTRUNCATABLE(method)                              \
-	FIXED(" ")                                         \
-	TRUNCATABLE(uri)                                   \
-	FIXED(" ")                                         \
-	UNTRUNCATABLE(version)                             \
-	FIXED("\" ")                                       \
-	UNTRUNCATABLE(status)                              \
-	FIXED(" ")                                         \
-	UNTRUNCATABLE(content_length)                      \
-	FIXED(" \"")                                       \
-	TRUNCATABLE(referer)                               \
-	FIXED("\" \"")                                     \
-	TRUNCATABLE(user_agent)                            \
+#define ACCESS_LOG_LINE(FIXED, UNTRUNCATABLE, TRUNCATABLE)	\
+	FIXED(__BNR)						\
+	UNTRUNCATABLE(client_ip)				\
+	FIXED(" \"")						\
+	UNTRUNCATABLE(vhost)					\
+	FIXED("\" \"")						\
+	UNTRUNCATABLE(method)					\
+	FIXED(" ")						\
+	TRUNCATABLE(uri)					\
+	FIXED(" ")						\
+	UNTRUNCATABLE(version)					\
+	FIXED("\" ")						\
+	UNTRUNCATABLE(status)					\
+	FIXED(" ")						\
+	UNTRUNCATABLE(content_length)				\
+	FIXED(" \"")						\
+	TRUNCATABLE(referer)					\
+	FIXED("\" \"")						\
+	TRUNCATABLE(user_agent)					\
+	FIXED("\" \"")						\
+	UNTRUNCATABLE(ja5_tls)					\
+	FIXED("\" \"")						\
+	UNTRUNCATABLE(ja5_http)					\
 	FIXED("\"")
+
 
 #define ACCESS_LOG_OFF   0
 #define ACCESS_LOG_DMESG 1
@@ -289,6 +294,9 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	char *data, *p;
 	struct timespec64 ts;
 	u16 len;
+	TlsJa5t *tls_ja5t = TFW_CONN_TLS(req->conn) ?
+		&tfw_tls_context(req->conn)->sess.ja5t : NULL;
+
 
 	room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
 	if (room_size < sizeof(TfwBinLogEvent))
@@ -363,6 +371,12 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 				   req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
 	WRITE_STR_FIELD(ua);
 
+	if (tls_ja5t)
+		WRITE_FIELD(*tls_ja5t);
+	else
+		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_JA5T);
+	WRITE_FIELD(req->ja5h);
+
 	if (*dropped) {
 		WRITE_FIELD(*dropped);
 		*dropped = 0;
@@ -394,10 +408,12 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 	BasicStr client_ip, vhost, method, version;
 	/* These fields are only here to hold estimation of appropriate fields
 	 * length in characters */
-	BasicStr status, content_length;
+	BasicStr status, content_length, ja5_tls, ja5_http;
 	BasicStr missing = { "-", 1 };
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
 	BasicStr truncated_out[TRUNCATABLE_FIELDS_COUNT];
+	TlsJa5t *tls_ja5t = TFW_CONN_TLS(req->conn) ?
+		&tfw_tls_context(req->conn)->sess.ja5t : NULL;
 
 	/* client_ip
 	 *
@@ -466,6 +482,15 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 	ADD_HDR(idx_referer, TFW_HTTP_HDR_REFERER);
 	ADD_HDR(idx_user_agent, TFW_HTTP_HDR_USER_AGENT);
 
+#define FMT_ja5_tls "ja5t=%llx"
+#define ARG_ja5_tls , (tls_ja5t ? *(u64 *)tls_ja5t : 0)
+	ja5_tls.data = "";
+	ja5_tls.len = 16;
+#define FMT_ja5_http "ja5h=%llx"
+#define ARG_ja5_http , (*(u64 *)&req->ja5h)
+	ja5_http.data = "";
+	ja5_http.len = 16;
+
 	/* Now we calculate first estimation of
 	 * "maximum allowed truncated string length" */
 #define ESTIMATE_FIXED(str) + (sizeof(str) - 1)
@@ -519,6 +544,10 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 #undef FMT_vhost
 #undef ARG_client_ip
 #undef FMT_client_ip
+#undef FMT_ja5_tls
+#undef ARG_ja5_tls
+#undef FMT_ja5_http
+#undef ARG_ja5_http
 }
 
 void
