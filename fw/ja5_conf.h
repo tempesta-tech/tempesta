@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,14 +19,31 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "lib/ja5.h"
-#include "cfg.h"
+#ifndef __JA5_CONF__
+#define __JA5_CONF__
 
+#include "cfg.h"
+#include "lib/ja5.h"
+
+/** TLS */
 u64 tls_get_ja5_storage_size(void);
 u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint);
 u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint);
 
-int ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce);
+int tls_ja5_cfgop_finish(TfwCfgSpec *cs);
+void tls_ja5_cfgop_cleanup(TfwCfgSpec *cs);
+
+/** HTTP */
+u64 http_get_ja5_storage_size(void);
+u64 http_get_ja5_conns_limit(HttpJa5h fingerprint);
+u64 http_get_ja5_recs_limit(HttpJa5h fingerprint);
+
+int http_ja5_cfgop_finish(TfwCfgSpec *cs);
+void http_ja5_cfgop_cleanup(TfwCfgSpec *cs);
+
+/** Common */
+extern TfwCfgSpec ja5_hash_specs[];
+
 int ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
-int ja5_cfgop_finish(TfwCfgSpec *cs);
-void ja5_cfgop_cleanup(TfwCfgSpec *cs);
+
+#endif // __JA5_CONF__

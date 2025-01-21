@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,7 +31,8 @@ constexpr char table_creation_querry[] = "CREATE TABLE IF NOT EXISTS "
 	"access_log (timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
 	"version UInt8, status UInt16, response_content_length UInt32, "
 	"response_time UInt32, vhost String, uri String, referer String, "
-	"user_agent String, dropped_events UInt64, PRIMARY KEY(timestamp));";
+	"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64,"
+	"PRIMARY KEY(timestamp));";
 
 static auto
 now_ms()
