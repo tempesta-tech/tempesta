@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -186,7 +186,7 @@ TEST(http1_parser, parses_req_method)
 
 	/* Test for empty method */
 	EXPECT_BLOCK_REQ(" /filename HTTP/1.1\r\n\r\n");
-        /* Malformed methods */
+	/* Malformed methods */
 	EXPECT_BLOCK_REQ("\tOST /filename HTTP/1.1\r\n\r\n");
 	EXPECT_BLOCK_REQ("P\tST /filename HTTP/1.1\r\n\r\n");
 	EXPECT_BLOCK_REQ("PO\tT /filename HTTP/1.1\r\n\r\n");
@@ -517,35 +517,67 @@ TEST(http1_parser, fills_hdr_tbl_for_req)
 	const char *s_auth =  "Authorization: "
 			      "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t ";
 
-	FOR_REQ_SIMPLE("User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
-		       "Accept: */*\r\n"
-		       "Host: localhost\r\n"
-		       "Connection: Keep-Alive\r\n"
-		       "X-Custom-Hdr: custom header values\r\n"
-		       "X-Forwarded-For: 127.0.0.1, example.com\r\n"
-		       "Forwarded: host=127.0.0.1;proto=http\r\n"
-		       "Dummy0: 0\r\n"
-		       "Dummy1: 1\r\n"
-		       "Dummy2: 2\r\n"
-		       "Dummy3: 3\r\n"
-		       "Dummy4: 4\r\n"
-		       "Dummy5: 5\r\n"
-		       "Dummy6: 6\r\n"
-		       "Content-Type: text/html; charset=iso-8859-1\r\n"
-		       "Dummy7: 7\r\n"
-		       /* That is done to check table reallocation. */
-		       "Dummy8: 8\r\n"
-		       "Dummy9: 9\r\n"
-		       "Cache-Control: "
-		       "max-age=1, dummy, no-store, min-fresh=30\r\n"
-		       "Pragma: no-cache, fooo \r\n"
-		       "Transfer-Encoding: compress, gzip, chunked\r\n"
-		       "Cookie: session=42; theme=dark\r\n"
-		       "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
-		       "\r\n"
-		       "6\r\n"
-		       "123456\r\n"
-		       "0")
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
+			 "Accept: */*\r\n"
+			 "Host: localhost\r\n"
+			 "Connection: Keep-Alive\r\n"
+			 "X-Custom-Hdr: custom header values\r\n"
+			 "Transfer-Encoding: compress, gzip, chunked\r\n"
+			 "Cookie: session=42; theme=dark\r\n"
+			 "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
+			 "\r\n"
+			 "6\r\n"
+			 "123456\r\n"
+			 "0"
+			 "\r\n\r\n")
+
+	EXPECT_BLOCK_REQ("HEAD / HTTP/1.1\r\n"
+			 "User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
+			 "Accept: */*\r\n"
+			 "Host: localhost\r\n"
+			 "Connection: Keep-Alive\r\n"
+			 "X-Custom-Hdr: custom header values\r\n"
+			 "Transfer-Encoding: compress, gzip, chunked\r\n"
+			 "Cookie: session=42; theme=dark\r\n"
+			 "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
+			 "\r\n"
+			 "6\r\n"
+			 "123456\r\n"
+			 "0"
+			 "\r\n\r\n")
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
+		"Accept: */*\r\n"
+		"Host: localhost\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Custom-Hdr: custom header values\r\n"
+		"X-Forwarded-For: 127.0.0.1, example.com\r\n"
+		"Forwarded: host=127.0.0.1;proto=http\r\n"
+		"Dummy0: 0\r\n"
+		"Dummy1: 1\r\n"
+		"Dummy2: 2\r\n"
+		"Dummy3: 3\r\n"
+		"Dummy4: 4\r\n"
+		"Dummy5: 5\r\n"
+		"Dummy6: 6\r\n"
+		"Content-Type: text/html; charset=iso-8859-1\r\n"
+		"Dummy7: 7\r\n"
+		/* That is done to check table reallocation. */
+		"Dummy8: 8\r\n"
+		"Dummy9: 9\r\n"
+		"Cache-Control: "
+		"max-age=1, dummy, no-store, min-fresh=30\r\n"
+		"Pragma: no-cache, fooo \r\n"
+		"Transfer-Encoding: compress, gzip, chunked\r\n"
+		"Cookie: session=42; theme=dark\r\n"
+		"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
+		"\r\n"
+		"6\r\n"
+		"123456\r\n"
+		"0"
+		"\r\n\r\n")
 	{
 		ht = req->h_tbl;
 
@@ -661,7 +693,7 @@ TEST(http1_parser, fills_hdr_tbl_for_resp)
 		"Keep-Alive: timeout=600, max=65526\r\n"
 		"Transfer-Encoding: compress, gzip, chunked\r\n"
 		"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
-		        " mod_fcgid/2.3.9\r\n"
+			" mod_fcgid/2.3.9\r\n"
 		"Age: 12  \n"
 		"Date: Sun, 09 Sep 2001 01:46:40 GMT\t\n"
 		"ETag: W/\"0815\" \r\n"
@@ -1243,63 +1275,63 @@ TEST(http_parser, upgrade)
 
 #define EXPECT_BLOCK_BODYLESS_REQ(METHOD)					\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
-		 	 "Content-Length: 0\r\n"				\
-		 	 "\r\n")						\
+			 "Content-Length: 0\r\n"				\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
 	}									\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
-		 	 "Content-Type: text/html\r\n"				\
-		 	 "\r\n")						\
+			 "Content-Type: text/html\r\n"				\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
 	}
 
 #define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(METHOD)				\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-		 	 "Content-Length: 0\r\n"				\
+			 "Content-Length: 0\r\n"				\
 			 "X-Method-Override: " #METHOD "\r\n"			\
-		 	 "\r\n")						\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-		 	 "Content-Length: 0\r\n"				\
+			 "Content-Length: 0\r\n"				\
 			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
-		 	 "\r\n")						\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-		 	 "Content-Length: 0\r\n"				\
+			 "Content-Length: 0\r\n"				\
 			 "X-HTTP-Method: " #METHOD "\r\n"			\
-		 	 "\r\n")						\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-		 	 "Content-Type: text/html\r\n"				\
+			 "Content-Type: text/html\r\n"				\
 			 "X-Method-Override: " #METHOD "\r\n"			\
-		 	 "\r\n")						\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-		 	 "Content-Type: text/html\r\n"				\
+			 "Content-Type: text/html\r\n"				\
 			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
-		 	 "\r\n")						\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-		 	 "Content-Type: text/html\r\n"				\
+			 "Content-Type: text/html\r\n"				\
 			 "X-HTTP-Method: " #METHOD "\r\n"			\
-		 	 "\r\n")						\
+			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);			\
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
@@ -1393,17 +1425,17 @@ TEST(http1_parser, content_length)
 	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 5");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
-		 	  "Content-Length: 5\r\n"
-		 	  "\r\n");
+			  "Content-Length: 5\r\n"
+			  "\r\n");
 
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Content-Length: 10\r\n"
 			 "\r\n"
-		 	 "dummy");
+			 "dummy");
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 10\r\n"
-		 	  "\r\n"
-		 	  "dummy");
+			  "\r\n"
+			  "dummy");
 
 	/*
 	 * RFC 7230 3.3.2:
@@ -1445,7 +1477,7 @@ TEST(http1_parser, content_length)
 
 	EXPECT_BLOCK_REQ("POST / HTTP/1.1"
 				"Content-Length: 0\r\n"
-		  		"Content-Length: 0");
+				"Content-Length: 0");
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 0\r\n"
 			  "Content-Length: 0\r\n"
@@ -1516,8 +1548,8 @@ TEST(http1_parser, content_length)
 TEST(http1_parser, eol_crlf)
 {
 	EXPECT_BLOCK_REQ("\rGET / HTTP/1.1\r\n"
-		         "Host: d.com\r\n"
-		         "\r\n");
+			 "Host: d.com\r\n"
+			 "\r\n");
 
 	__FOR_REQ("POST / HTTP/1.1\n"
 		  "Host: a.com\n"
@@ -2009,13 +2041,13 @@ TEST(http1_parser, transfer_encoding)
 		    "0\r\n");
 	EXPECT_BLOCK_CHUNKED("4\r\n"
 			     "dummy\r\n"
-		   	     "0000\r\n");
+			     "0000\r\n");
 	EXPECT_BLOCK_CHUNKED("5(\r\n"
 			     "dummy\r\n"
-		   	     "0\r\n");
+			     "0\r\n");
 	EXPECT_BLOCK_CHUNKED("5;\x09\r\n"
 			     "dummy\r\n"
-		   	     "0\r\n");
+			     "0\r\n");
 	FOR_CHUNKED("F\n"
 		    "dummydummydummy\r\n"
 		    "0\r\n");
@@ -2061,26 +2093,34 @@ TEST(http1_parser, transfer_encoding)
 		"89\r\n"
 		"0\n");
 
-	/*
-	 * Trailer headers
-	 */
 	FOR_REQ_SIMPLE("Host:\r\n"
 		       "Transfer-Encoding: chunked\r\n"
 		       "\r\n"
-		       "0\n"
-		       "Connection: close\r\n"
-		       "If-Modified-Since: Wed, 08 Jan 2003 23:11:55 GMT")
+		       "0")
+
+	EXPECT_BLOCK_REQ_SIMPLE("Host:\r\n"
+				"Transfer-Encoding: chunked\r\n"
+				"\r\n"
+				"5\r\n"
+				"abcde\r\n"
+				"0")
+
+	/*
+	 * Trailer headers
+	 */
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"\r\n"
+		"0\n"
+		"Connection: close\r\n"
+		"\r\n")
 	{
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
 				 "Connection: close");
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
-		EXPECT_TRUE(req->cond.m_date == 1042067515);
-		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
-
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CHUNKED_TRAILER, req->flags));
 		EXPECT_TRUE(req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].flags
-			    & TFW_STR_TRAILER);
-		EXPECT_TRUE(req->h_tbl->tbl[TFW_HTTP_HDR_RAW].flags
 			    & TFW_STR_TRAILER);
 	}
 
@@ -2186,13 +2226,13 @@ TEST(http1_parser, transfer_encoding)
 	 * CRLF
 	 */
 	EXPECT_BLOCK_CHUNKED("5dummy\r\n"
-		   	     "0\r\n");
+			     "0\r\n");
 	EXPECT_BLOCK_CHUNKED("5\r\n"
 			     "dummy"
-		   	     "0\r\n");
+			     "0\r\n");
 	EXPECT_BLOCK_CHUNKED("5\r\n"
 			     "dummy\r\n"
-		   	     "0");
+			     "0");
 
 	/*
 	 * "Content-Length:" and "Transfer-Encoding:" header fields
@@ -2300,17 +2340,19 @@ TEST(http1_parser, transfer_encoding)
 	 * For now the other transfer encodings (gzip, deflate etc.)
 	 * are not processed, just passed by the parser.
 	 */
-	FOR_REQ_SIMPLE("Transfer-Encoding: "
-		       TOKEN_ALPHABET " ,  dummy \t, chunked\r\n"
-		       "\r\n"
-		       "0");
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Transfer-Encoding: "
+		TOKEN_ALPHABET " ,  dummy \t, chunked\r\n"
+		"\r\n"
+		"0"
+		"\r\n\r\n");
 	FOR_RESP("HTTP/1.0 200 OK\r\n"
 		 "Transfer-Encoding: " TOKEN_ALPHABET "\t, dummy\t, chunked\r\n"
 		 "\r\n"
 		 "0\r\n"
 		 "\r\n");
 
-	FOR_REQ_SIMPLE(
+	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Transfer-Encoding: dummy0, dummy1, dummy2, dummy3, dummy4, "
 		"dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
 		"dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
@@ -2334,7 +2376,8 @@ TEST(http1_parser, transfer_encoding)
 		"dummy120, dummy121, dummy122, dummy123, dummy124, dummy125, "
 		"dummy126, dummy127, chunked\r\n"
 		"\r\n"
-		"0");
+		"0"
+		"\r\n\r\n");
 	FOR_RESP("HTTP/1.0 200 OK\r\n"
 		 "Transfer-Encoding: dummy0, dummy1, dummy2, dummy3, dummy4, "
 		 "dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
@@ -2381,36 +2424,36 @@ TEST(http1_parser, content_encoding)
 
 #define EXPECT_BLOCK_CENC_REQ_RESP(cencoding)				\
 	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"				\
-		         "Content-Encoding:" cencoding "\r\n"		\
-		         "\r\n");					\
+			 "Content-Encoding:" cencoding "\r\n"		\
+			 "\r\n");					\
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"				\
 			  "Content-Length: 0\r\n"			\
 			  "Content-Encoding:" cencoding "\r\n"		\
 			  "\r\n")
 
 	FOR_CENCODING(
-	        "dummy0, dummy1, dummy2, dummy3, dummy4, "
-	        "dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
-	        "dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
-	        "dummy18, dummy19, dummy20, dummy21, dummy22, dummy23, "
-	        "dummy24, dummy25, dummy26, dummy27, dummy28, dummy29, "
-	        "dummy30, dummy31, dummy32, dummy33, dummy34, dummy35, "
-	        "dummy36, dummy37, dummy38, dummy39, dummy40, dummy41, "
-	        "dummy42, dummy43, dummy44, dummy45, dummy46, dummy47, "
-	        "dummy48, dummy49, dummy50, dummy51, dummy52, dummy53, "
-	        "dummy54, dummy55, dummy56, dummy57, dummy58, dummy59, "
-	        "dummy60, dummy61, dummy62, dummy63, dummy64, dummy65, "
-	        "dummy66, dummy67, dummy68, dummy69, dummy70, dummy71, "
-	        "dummy72, dummy73, dummy74, dummy75, dummy76, dummy77, "
-	        "dummy78, dummy79, dummy80, dummy81, dummy82, dummy83, "
-	        "dummy84, dummy85, dummy86, dummy87, dummy88, dummy89, "
-	        "dummy90, dummy91, dummy92, dummy93, dummy94, dummy95, "
-	        "dummy96, dummy97, dummy98, dummy99, dummy100, dummy101, "
-	        "dummy102, dummy103, dummy104, dummy105, dummy106, dummy107, "
-	        "dummy108, dummy109, dummy110, dummy111, dummy112, dummy113, "
-	        "dummy114, dummy115, dummy116, dummy117, dummy118, dummy119, "
-	        "dummy120, dummy121, dummy122, dummy123, dummy124, dummy125, "
-	        "dummy126, dummy127");
+		"dummy0, dummy1, dummy2, dummy3, dummy4, "
+		"dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11, "
+		"dummy12, dummy13, dummy14, dummy15, dummy16, dummy17, "
+		"dummy18, dummy19, dummy20, dummy21, dummy22, dummy23, "
+		"dummy24, dummy25, dummy26, dummy27, dummy28, dummy29, "
+		"dummy30, dummy31, dummy32, dummy33, dummy34, dummy35, "
+		"dummy36, dummy37, dummy38, dummy39, dummy40, dummy41, "
+		"dummy42, dummy43, dummy44, dummy45, dummy46, dummy47, "
+		"dummy48, dummy49, dummy50, dummy51, dummy52, dummy53, "
+		"dummy54, dummy55, dummy56, dummy57, dummy58, dummy59, "
+		"dummy60, dummy61, dummy62, dummy63, dummy64, dummy65, "
+		"dummy66, dummy67, dummy68, dummy69, dummy70, dummy71, "
+		"dummy72, dummy73, dummy74, dummy75, dummy76, dummy77, "
+		"dummy78, dummy79, dummy80, dummy81, dummy82, dummy83, "
+		"dummy84, dummy85, dummy86, dummy87, dummy88, dummy89, "
+		"dummy90, dummy91, dummy92, dummy93, dummy94, dummy95, "
+		"dummy96, dummy97, dummy98, dummy99, dummy100, dummy101, "
+		"dummy102, dummy103, dummy104, dummy105, dummy106, dummy107, "
+		"dummy108, dummy109, dummy110, dummy111, dummy112, dummy113, "
+		"dummy114, dummy115, dummy116, dummy117, dummy118, dummy119, "
+		"dummy120, dummy121, dummy122, dummy123, dummy124, dummy125, "
+		"dummy126, dummy127");
 
 	FOR_CENCODING(TOKEN_ALPHABET "," TOKEN_ALPHABET);
 	EXPECT_BLOCK_CENC_REQ_RESP(TOKEN_ALPHABET ";");
@@ -2454,12 +2497,14 @@ TEST(http1_parser, crlf_trailer)
 	 * Use a trick with different CRLF length to differentiate
 	 * between the correct CRLF and an incorrect CRLF.
 	 */
-	FOR_REQ_SIMPLE("Transfer-Encoding: chunked\r\n"
-		       "\n"
-		       "4\r\n"
-		       "1234\r\n"
-		       "0\r\n"
-		       "Custom-Hdr: custom-data")
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"\n"
+		"4\r\n"
+		"1234\r\n"
+		"0\r\n"
+		"Custom-Hdr: custom-data"
+		"\r\n\r\n")
 	{
 		/* 'Custom-Hdr:' is the first raw header in this example. */
 		id = tfw_http_msg_hdr_lookup((TfwHttpMsg *)req, &s_custom);
@@ -3372,7 +3417,7 @@ TEST_MPART(http1_parser, content_type_line_parser, 0)
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				     req->flags));
 		EXPECT_TFWSTR_EQ(&req->multipart_boundary_raw,
-		                 "\"1234\\56\\\"7890\"");
+				 "\"1234\\56\\\"7890\"");
 		EXPECT_TFWSTR_EQ(&req->multipart_boundary, "123456\"7890");
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 "Content-Type: multipart/form-data; "
@@ -4085,11 +4130,11 @@ TEST_MPART(http1_parser, forwarded, 0)
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
 		       "host=tempesta-tech.com:0");
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
-			        "host=tempesta-tech.com:65536");
+				"host=tempesta-tech.com:65536");
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
-			        "host=tempesta-tech.com:");
+				"host=tempesta-tech.com:");
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
-			        "host=tempesta-tech.com:443;");
+				"host=tempesta-tech.com:443;");
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
 				"host=tempesta-tech.com:443\"");
 	EXPECT_BLOCK_REQ_SIMPLE("Forwarded: "
