@@ -467,33 +467,30 @@ __FSM_STATE(st, cold) {							\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
-/*
- * As above, but reads OWS through transitional state. Note, that header
- * name, colon, LWS and value are stored in different chunks.
- */
-#define __FSM_TX_AF_OWS(st, st_next)					\
+#define __FSM_TX_AF_OWS_LAMBDA(st, st_next, lambda)			\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
 		__msg_hdr_chunk_fixup(data, __data_off(p));		\
 		parser->_i_st = &&st_next;				\
+		lambda;							\
 		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
+/*
+ * As above, but reads OWS through transitional state. Note, that header
+ * name, colon, LWS and value are stored in different chunks.
+ */
+#define __FSM_TX_AF_OWS(st, st_next)					\
+	__FSM_TX_AF_OWS_LAMBDA(st, st_next, {})
+
 /* As above, but with HPACK static index setting. */
 #define __FSM_TX_AF_OWS_HP(st, st_next, hp_idx)				\
-__FSM_STATE(st, cold) {							\
-	if (likely(c == ':')) {						\
-		__msg_hdr_chunk_fixup(data, __data_off(p));		\
-		parser->_i_st = &&st_next;				\
+	__FSM_TX_AF_OWS_LAMBDA(st, st_next, {				\
 		__msg_hdr_set_hpack_index(hp_idx);			\
-		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
-	}								\
-	/* It should be checked in st_fallback if `c` is allowed */	\
-	__FSM_JMP(RGen_HdrOtherN);					\
-}
+	})
 
 /* Used for improbable states only, so use cold label. */
 #define __FSM_METH_MOVE(st, ch, st_next)				\
@@ -12710,7 +12707,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrProxy_Connect, 'i', Resp_HdrProxy_Connecti);
 	__FSM_TX_AF(Resp_HdrProxy_Connecti, 'o', Resp_HdrProxy_Connectio);
 	__FSM_TX_AF(Resp_HdrProxy_Connectio, 'n', Resp_HdrProxy_Connection);
-	__FSM_TX_AF_OWS(Resp_HdrProxy_Connection, RGen_HdrOtherV);
+	__FSM_TX_AF_OWS_LAMBDA(Resp_HdrProxy_Connection, RGen_HdrOtherV, {
+		parser->hdr.flags |= TFW_STR_HBH_HDR;
+	});
 
 	/* Pragma header processing. */
 	__FSM_TX_AF(Resp_HdrPra, 'g', Resp_HdrPrag);
