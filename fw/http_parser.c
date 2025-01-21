@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1011,6 +1011,22 @@ do {									\
 #define __FSM_I_MOVE_body_nf(to, n)					\
 	__FSM_I_MOVE_body_lambda(to, n, {})
 
+static inline int
+check_bodyless_meth(TfwHttpReq *req)
+{
+	/* Method override either honored or request message
+	 * with method override header dropped later in processing */
+	if ((req->method_override
+	     && TFW_HTTP_IS_METH_BODYLESS(req->method_override))
+	    || TFW_HTTP_IS_METH_BODYLESS(req->method)) {
+		T_WARN("Content-Length or Content-Type not allowed to"
+		       " be used with such (overridden) method\n");
+		return T_DROP;
+	}
+
+	return T_OK;
+}
+
 static int
 __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 {
@@ -1066,6 +1082,8 @@ __req_parse_body(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_EXIT(T_DROP);
 		default:
 			parser->to_read = parser->_acc;
+			if (parser->to_read  > 0 && check_bodyless_meth(req))
+				__FSM_EXIT(T_DROP);
 			parser->_acc = 0;
 			parser->_cnt = 0;
 			__FSM_I_MOVE_body_nf(I_BodyChunkExt, __fsm_n);
@@ -4851,7 +4869,6 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
 }
 
-
 /**
  * Check h1/h2 request after all headers was parsed.
  *
@@ -4870,16 +4887,7 @@ tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
 	    || !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
 	{
-		/* Method override either honored or request message
-		 * with method override header dropped later in processing */
-		if ((req->method_override
-			&& TFW_HTTP_IS_METH_BODYLESS(req->method_override))
-		    || TFW_HTTP_IS_METH_BODYLESS(req->method))
-		{
-			T_WARN("Content-Length or Content-Type not allowed to"
-			       " be used with such (overridden) method\n");
-			return T_DROP;
-		}
+		return check_bodyless_meth(req);
 	}
 
 	return T_OK;
