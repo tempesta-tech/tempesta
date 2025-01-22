@@ -1753,7 +1753,7 @@ do {									\
 }
 
 static void
-__tfw_http_msg_cleanup(TfwHttpMsgCleanup *cleanup)
+__tfw_http_free_cleanup(TfwHttpMsgCleanup *cleanup)
 {
 	int i;
 	struct sk_buff *skb;
@@ -1763,6 +1763,15 @@ __tfw_http_msg_cleanup(TfwHttpMsgCleanup *cleanup)
 
 	for (i = 0; i < cleanup->pages_sz; i++)
 		put_page(cleanup->pages[i]);
+}
+
+static void
+__tfw_http_req_cleanup(TfwHttpReq *req)
+{
+	if (!req->cleanup)
+		return;
+	__tfw_http_free_cleanup(req->cleanup);
+	req->cleanup = NULL;
 }
 
 /**
@@ -2712,8 +2721,7 @@ tfw_http_req_destruct(void *msg)
 	if (req->stale_ce)
 		tfw_cache_put_entry(req->node, req->stale_ce);
 
-	if (req->cleanup)
-		__tfw_http_msg_cleanup(req->cleanup);
+	__tfw_http_req_cleanup(req);
 }
 
 /**
@@ -3749,7 +3757,9 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	return r;
 
 clean:
-	__tfw_http_msg_cleanup(req->cleanup);
+	T_DBG("%s: req [%p] adjusting has failed with code %i\n", __func__, req,
+	      r);
+	__tfw_http_req_cleanup(req);
 
 	return r;
 }
@@ -4307,8 +4317,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	return 0;
 err:
 	ss_skb_queue_purge(&new_head);
-	__tfw_http_msg_cleanup(req->cleanup);
-	T_DBG3("%s: req [%p] convertation to http1.1 has failed\n",
+	__tfw_http_req_cleanup(req);
+	T_DBG("%s: req [%p] convertation to http1.1 has failed\n",
 	       __func__, req);
 	return -EINVAL;
 }
@@ -4490,7 +4500,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	r = tfw_http_msg_expand_from_pool(hm, &crlf);
 
 clean:
-	__tfw_http_msg_cleanup(&cleanup);
+	__tfw_http_free_cleanup(&cleanup);
 
 	return r;
 }
@@ -5679,11 +5689,11 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	__tfw_http_msg_cleanup(&cleanup);
+	__tfw_http_free_cleanup(&cleanup);
 	return 0;
 
 clean:
-	__tfw_http_msg_cleanup(&cleanup);
+	__tfw_http_free_cleanup(&cleanup);
 	return r;
 }
 
