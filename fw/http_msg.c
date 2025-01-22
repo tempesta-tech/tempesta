@@ -1106,19 +1106,19 @@ tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
 {
 	int r;
 	bool np;
-	char* addr;
+	void *addr;
 	struct skb_shared_info *si = skb_shinfo(it->skb);
 
 	addr = tfw_pool_alloc_not_align_np(pool, size, &np);
 	if (!addr)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	if (np || it->frag == -1) {
 		it->frag++;
 		r = ss_skb_add_frag(it->skb_head, &it->skb, addr,
 				    &it->frag, size);
 		if (unlikely(r))
-			return NULL;
+			return ERR_PTR(r);
 	} else {
 		skb_frag_size_add(&si->frags[it->frag], size);
 	}
@@ -1250,7 +1250,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				void cpy(void *dest, const void *src, size_t n))
 {
 	int r;
-	char *addr;
+	void *addr;
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
 	TfwMsgIter *it = &hm->iter;
@@ -1317,8 +1317,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			n_copy = min(n_copy, skb_room);
 
 			addr = tfw_http_msg_alloc_from_pool(it, pool, n_copy);
-			if (unlikely(!addr))
-				return -ENOMEM;
+			if (IS_ERR(addr))
+				return PTR_ERR(addr);
 
 			cpy(addr, c->data + off, n_copy);
 			rlen -= n_copy;
