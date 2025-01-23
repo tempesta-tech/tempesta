@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -404,7 +404,7 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 			our = &alpn_list[i];
 			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
 				/* Calculate JA5t */
-				tls->sess.ja5t.alpn <<= 2;
+				tls->sess.ja5t.alpn <<= 1;
 				tls->sess.ja5t.alpn += our->id;
 				/* Use our order of preference */
                                 if (alpn_chosen_idx > i &&
