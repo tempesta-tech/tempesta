@@ -189,6 +189,20 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	/*
+	 * There are two cases when `sk_>sk_user_data` could be
+	 * equal to zero:
+	 * - when `ss_do_close` is called for TCP_FIN_WAIT2
+	 * tcp_done() is called from tcp_time_wait() and connection
+	 * is dropped inside `ss_do_close`.
+	 * - when `tcp_tfw_sk_write_xmit` which is called from
+	 * `__sk_close_locked->tcp_send_fin->tcp_write_xmit` failed.
+	 * In this case `tcp_done` is also called and connection is
+	 * dropped.
+	 */
+	if (!sk->sk_user_data)
+		return;
+
 	SS_CONN_TYPE(sk) &= ~Conn_Closing;
 	SS_CALL(connection_drop, sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
@@ -735,13 +749,7 @@ static void
 ss_linkerror(struct sock *sk, int flags)
 {
 	ss_do_close(sk, flags);
-	/*
-	 * In case when ss_do_close is called for TCP_FIN_WAIT2
-	 * tcp_done() is called from tcp_time_wait() and connection
-	 * is drooped inside ss_do_close().
-	 */
-	if (sk->sk_user_data)
-		ss_conn_drop_guard_exit(sk);
+	ss_conn_drop_guard_exit(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
