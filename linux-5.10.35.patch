@@ -826,7 +826,7 @@ index a828cf99c..5d416997a 100644
   *	@skb: buffer to check
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 000000000..90eedcba5
+index 000000000..a899e4fe1
 --- /dev/null
 +++ b/include/linux/tempesta.h
 @@ -0,0 +1,55 @@
@@ -834,7 +834,7 @@ index 000000000..90eedcba5
 + * Linux interface for Tempesta FW.
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -2361,7 +2361,7 @@ index 2384ac048..9939c65e5 100644
  EXPORT_SYMBOL_GPL(tcp_done);
  
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
-index fac5c1469..f9f8000bf 100644
+index fac5c1469..a9b3b9ec1 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
 @@ -728,6 +728,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
@@ -2393,6 +2393,28 @@ index fac5c1469..f9f8000bf 100644
  
  		memcpy(nskb->cb, skb->cb, sizeof(skb->cb));
  #ifdef CONFIG_TLS_DEVICE
+@@ -5839,6 +5851,21 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
+ no_ack:
+ 			if (eaten)
+ 				kfree_skb_partial(skb, fragstolen);
++#ifdef CONFIG_SECURITY_TEMPESTA
++			/*
++			 * In the vanilla linux kernel, socket can't be
++			 * DEAD here. But in case when CONFIG_SECURITY_TEMPESTA
++			 * is enabled and Tempesta FW is loaded, socket can
++			 * became DEAD in case of error in `xmit` callback.
++			 * (tcp_data_snd_check->tcp_push_pending_frames->
++			 *  __tcp_push_pending_frames->tcp_write_xmit->
++			 *  tcp_tfw_sk_write_xmit->tcp_tfw_handle_error).
++			 *  When socket became DEAD, Tempesta FW zeroed
++			 *  `sk->sk_data_ready` pointer, so we should not call
++			 *  `tcp_data_ready` for DEAD socket.
++			 */
++			if (!sock_flag(sk, SOCK_DEAD))
++#endif
+ 			tcp_data_ready(sk);
+ 			return;
+ 		}
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
 index ab8ed0fc4..7effbed4a 100644
 --- a/net/ipv4/tcp_ipv4.c
@@ -3068,7 +3090,7 @@ index 000000000..4c439ac0c
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 000000000..313101304
+index 000000000..9a29c3ba2
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
 @@ -0,0 +1,135 @@
@@ -3076,7 +3098,7 @@ index 000000000..313101304
 + *		Tempesta FW
 + *
 + * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
