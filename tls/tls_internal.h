@@ -214,8 +214,8 @@ void ttls_handshake_wrapup(TlsCtx *tls);
 
 int ttls_derive_keys(TlsCtx *tls);
 
-void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
-		       unsigned char *hdr_buf);
+int __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
+		      unsigned char *hdr_buf);
 int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
@@ -226,8 +226,8 @@ int ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 
 int ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf,
 				  size_t len, unsigned int *read);
-void ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
-				   unsigned char **in_buf);
+int ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
+				  unsigned char **in_buf);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read);
@@ -245,7 +245,7 @@ int ttls_check_curve(const TlsCtx *tls, ttls_ecp_group_id grp_id);
 
 int ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md);
 int ttls_match_sig_hashes(const TlsCtx *tls);
-void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
+int ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
 static inline TlsX509Crt *
 ttls_own_cert(TlsCtx *tls)

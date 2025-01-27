@@ -419,16 +419,16 @@ tls_prf_sha384(const unsigned char *secret, size_t slen, const char *label,
 			       random, rlen, dstbuf, dlen);
 }
 
-void
+int
 ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
-	int r;
 	TlsHandshake *hs = tls->hs;
 	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 	ttls_md_type_t mac;
+	int r;
 
 	if (unlikely(!len))
-		return;
+		return 0;
 
 	/*
 	 * Initialize the hash context on first call to avoid double
@@ -439,13 +439,13 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 		WARN_ON_ONCE(tls->state >= TTLS_SERVER_HELLO);
 
 		if (!ci) {
-			if (WARN_ON_ONCE(ttls_sha256_init_start(sha256)))
-				return;
+			if ((r = ttls_sha256_init_start(sha256)))
+				return r;
 			tls->xfrm.ciphersuite_info = ERR_PTR(-1);
 		}
 		r = crypto_shash_update((struct shash_desc *)sha256, buf, len);
-		if (WARN_ON_ONCE(r))
-			return;
+		if (unlikely(r))
+			return r;
 		mac = TTLS_MD_SHA384;
 	} else {
 		mac = ci->mac;
@@ -471,15 +471,15 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 			r = ttls_sha384_init_start(&hs->fin_sha512);
 		else
 			r = ttls_sha256_init_start(&hs->fin_sha256);
-		if (WARN_ON_ONCE(r))
-			return;
+		if (unlikely(r))
+			return r;
 	}
 
 	T_DBG2("update checksum on buf %pK len=%ld, hash=%d\n",
 	       buf, len, mac);
 	T_DBG3_BUF("hash buf ", buf, len);
 
-	WARN_ON_ONCE(crypto_shash_update(&tls->hs->desc, buf, len));
+	return crypto_shash_update(&tls->hs->desc, buf, len);
 }
 
 static void
@@ -1003,11 +1003,12 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
  * If @hdr_buf != NULL, then it's expected that it's at the begin of @sgt
  * segments.
  */
-void
+int
 __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		  unsigned char *hdr_buf)
 {
 	TlsIOCtx *io = &tls->io_out;
+	int r;
 
 	T_DBG("write record: type=%d len=%d hslen=%u sgt=%pK/%u sg_i=%d"
 	      " ready=%d\n", io->msgtype, io->msglen, io->hslen, sgt,
@@ -1029,9 +1030,12 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		BUG_ON(!io->hslen && (!sgt || !sgt->sgl || sgt->nents < 1));
 		WARN_ON_ONCE(!tls->hs);
 
-		if (io->hslen && d < io->hslen)
-			ttls_update_checksum(tls, io->hs_hdr + d,
-					     io->hslen - d);
+		if (io->hslen && d < io->hslen) {
+			r = ttls_update_checksum(tls, io->hs_hdr + d,
+						 io->hslen - d);
+			if (unlikely(r))
+				return r;
+		}
 		if (sgt) {
 			struct scatterlist *sg;
 			for (sg = &sgt->sgl[sg_i]; sg_i < sgt->nents;
@@ -1041,8 +1045,10 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 					d -= sg->length;
 					continue;
 				}
-				ttls_update_checksum(tls, sg_virt(sg) + d,
-						     sg->length - d);
+				r = ttls_update_checksum(tls, sg_virt(sg) + d,
+							 sg->length - d);
+				if (unlikely(r))
+					return r;
 				d = 0;
 			}
 		}
@@ -1056,6 +1062,7 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 	if (!ttls_xfrm_ready(tls))
 		ttls_write_hdr(tls, io->msgtype, io->msglen,
 			       hdr_buf ? : io->hdr);
+	return 0;
 }
 
 int
@@ -1071,10 +1078,13 @@ __ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
 static int
 ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
 {
+	int r;
+
 	/* Change __ttls_add_record() call if you need it for handshakes. */
 	WARN_ON_ONCE(tls->io_out.msgtype == TTLS_MSG_HANDSHAKE);
 
-	__ttls_add_record(tls, NULL, 0, NULL);
+	if ((r = __ttls_add_record(tls, NULL, 0, NULL)))
+		return r;
 
 	return __ttls_send_record(tls, sgt);
 }
@@ -1394,6 +1404,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	const TlsX509Crt *crt;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
+	int r;
 
 	if (tls->conf->endpoint == TTLS_IS_CLIENT && !tls->client_auth) {
 		T_DBG2("<= skip write certificate");
@@ -1456,11 +1467,10 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	p[9] = (unsigned char)(tot_len >> 16);
 	p[10] = (unsigned char)(tot_len >> 8);
 	p[11] = (unsigned char)tot_len;
-	__ttls_add_record(tls, sgt, sg_i, p);
-
+	r = __ttls_add_record(tls, sgt, sg_i, p);
 	*in_buf = p + TLS_HEADER_SIZE + 7;
 
-	return 0;
+	return r;
 }
 
 /**
@@ -1727,7 +1737,8 @@ err:
 	return 0;
 #endif
 }
-void
+
+int
 ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
 			      unsigned char **in_buf)
 {
@@ -1751,8 +1762,10 @@ ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
 		io->hstype = TTLS_HS_INVALID;
 		io->hs_hdr[0] = 1;
 
-		__ttls_add_record(tls, NULL, 0, NULL);
+		return __ttls_add_record(tls, NULL, 0, NULL);
 	}
+
+	return 0;
 }
 
 /**
@@ -1822,8 +1835,12 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	 * to validate handshake integrity. See ttls_parse_finished() for the
 	 * same effect in full handshake path.
 	 */
-	if (tls->hs->resume)
-		ttls_update_checksum(tls, msg, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
+	if (tls->hs->resume) {
+		r = ttls_update_checksum(tls, msg,
+					 TTLS_HS_HDR_LEN + TLS_HASH_LEN);
+		if (unlikely(r))
+			return r;
+	}
 
 	sg_init_table(&sg, 1);
 	sg_set_buf(&sg, p, TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
@@ -1911,9 +1928,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * Finished, we are continuing to checksum data, including this
 	 * (client's) Finished.
 	 */
-	ttls_update_checksum(tls, hs->finished, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
-
-	return 0;
+	return ttls_update_checksum(tls, hs->finished,
+				    TTLS_HS_HDR_LEN + TLS_HASH_LEN);
 }
 
 int
@@ -2236,8 +2252,10 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 				 */
 				hh_len = TTLS_HS_HDR_LEN;
 			} else {
-				ttls_update_checksum(tls, io->hs_hdr,
-						     TTLS_HS_HDR_LEN);
+				r = ttls_update_checksum(tls, io->hs_hdr,
+							 TTLS_HS_HDR_LEN);
+				if (unlikely(r))
+					return r;
 			}
 		}
 	}
@@ -2292,7 +2310,10 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 			BUG_ON(!tls->hs && tls->state != TTLS_HANDSHAKE_OVER);
 			if (ttls_hs_checksumable(tls)) {
 				size_t n = *read - (int)parsed + hh_len;
-				ttls_update_checksum(tls, buf - hh_len, n);
+				r = ttls_update_checksum(tls, buf - hh_len, n);
+				if (unlikely(r))
+					return r;
+				r = T_POSTPONE;
 			}
 		}
 		return r;

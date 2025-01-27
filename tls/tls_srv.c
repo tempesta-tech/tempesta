@@ -1174,9 +1174,7 @@ bad_version:
 	if ((ret = ttls_choose_ciphersuite(tls)))
 		return ret;
 
-	ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
-
-	return 0;
+	return ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
 }
 
 /**
@@ -1411,9 +1409,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	 * ServerHello is the first record,
 	 * so use io->hdr for the record header.
 	 */
-	__ttls_add_record(tls, sgt, sgt->nents - 1, NULL);
-
-	return 0;
+	return __ttls_add_record(tls, sgt, sgt->nents - 1, NULL);
 }
 
 /**
@@ -1597,9 +1593,8 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	sg_set_buf(&sgt->sgl[sgt->nents++], hdr,
 		   TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + n);
 	get_page(virt_to_page(hdr));
-	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 
-	return 0;
+	return __ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 }
 
 static int
@@ -1737,12 +1732,11 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	*in_buf = p;
 	sg_set_buf(&sgt->sgl[sgt->nents++], buf, p - buf);
 	get_page(virt_to_page(buf));
-	__ttls_add_record(tls, sgt, sgt->nents - 1, buf);
 
-	return 0;
+	return __ttls_add_record(tls, sgt, sgt->nents - 1, buf);
 }
 
-static void
+static int
 ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
 			     unsigned char **in_buf)
 {
@@ -1759,7 +1753,7 @@ ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
 	sg_set_buf(&sgt->sgl[sgt->nents++], p, *in_buf - p);
 	get_page(virt_to_page(p));
 
-	__ttls_add_record(tls, sgt, sgt->nents - 1, p);
+	return __ttls_add_record(tls, sgt, sgt->nents - 1, p);
 }
 
 static int
@@ -1847,13 +1841,17 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * the current record, to process extended master secret
 		 * extension.
 		 */
-		ttls_update_checksum(tls, buf - hh_len, len + hh_len);
+		r = ttls_update_checksum(tls, buf - hh_len, len + hh_len);
+		if (unlikely(r))
+			return r;
 	}
 	else {
 		p = buf;
 		end = p + io->hslen;
 		*read += end - p;
-		ttls_update_checksum(tls, buf - hh_len, end - p + hh_len);
+		r = ttls_update_checksum(tls, buf - hh_len, end - p + hh_len);
+		if (unlikely(r))
+			return r;
 	}
 
 	if (ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA
@@ -2052,9 +2050,8 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	*in_buf = p + 10 + tlen;
 	sg_set_buf(&sgt->sgl[sgt->nents++], p, 10 + tlen);
 	get_page(virt_to_page(p));
-	__ttls_add_record(tls, sgt, sgt->nents - 1, NULL);
 
-	return 0;
+	return __ttls_add_record(tls, sgt, sgt->nents - 1, NULL);
 }
 
 #define CHECK_STATE(n)							\
@@ -2112,7 +2109,8 @@ ttls_handshake_server_hello(TlsCtx *tls, struct sg_table *sgt,
 		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
 	}
 	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
-		ttls_write_server_hello_done(tls, sgt, in_buf);
+		if ((r = ttls_write_server_hello_done(tls, sgt, in_buf)))
+			T_FSM_EXIT();
 		CHECK_STATE(9);
 		if ((tls->hs->sni_authmode == TTLS_VERIFY_UNSET
 		     && tls->conf->authmode == TTLS_VERIFY_NONE)
@@ -2149,14 +2147,17 @@ ttls_handshake_finished(TlsCtx *tls, struct sg_table *sgt,
 			if ((r = ttls_write_new_session_ticket(tls, sgt, in_buf)))
 				T_FSM_EXIT();
 			CHECK_STATE(512);
-			ttls_write_change_cipher_spec(tls, sgt, in_buf);
+			r = ttls_write_change_cipher_spec(tls, sgt, in_buf);
 		}
 		else if (tls->hs->resume) {
-			ttls_write_change_cipher_spec(tls, sgt, in_buf);
+			r = ttls_write_change_cipher_spec(tls, sgt, in_buf);
 		}
 		else {
-			ttls_write_change_cipher_spec(tls, NULL, NULL);
+			r = ttls_write_change_cipher_spec(tls, NULL, NULL);
 		}
+		if (unlikely(r))
+			T_FSM_EXIT();
+
 		CHECK_STATE(TLS_HEADER_SIZE + 1);
 		tls->state = TTLS_SERVER_FINISHED;
 		T_FSM_JMP(TTLS_SERVER_FINISHED);
