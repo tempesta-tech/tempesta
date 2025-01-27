@@ -7137,6 +7137,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 {
 	int r = T_BAD;
 	TfwHttpMsg *req;
+	bool websocket;
 
 	if (WARN_ON_ONCE(!stream))
 		goto err;
@@ -7161,10 +7162,9 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	/* That is paired request, it may be freed after resp processing,
 	 * so we cannot move it iside `if` clause. */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
+	websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags);
 	if ((r = tfw_http_resp_process(conn, stream, skb, next))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
-		bool websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET,
-					  req->flags);
 		/*
 		 * We must clear TFW_CONN_B_UNSCHED to make server connection
 		 * available for request scheduling further if websocket upgrade
