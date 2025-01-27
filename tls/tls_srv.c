@@ -1440,7 +1440,8 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * Part 1: Extract static ECDH parameters and abort if
 	 * ServerKeyExchange isn't needed.
 	 */
-	if (ttls_mpi_profile_clone(tls)) {
+	r = ttls_mpi_profile_clone(tls);
+	if (unlikely(r)) {
 		T_WARN("Can't allocate a crypto memory profile.\n");
 		return -ENOMEM;
 	}
