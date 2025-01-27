@@ -64,8 +64,8 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		hostname_len = ((p[1] << 8) | p[2]);
 		if (hostname_len + 3 > servername_list_size) {
 			TTLS_WARN(tls, "ClientHello: bad hostname size"
-			               " (%lu, expected not more than (%lu - 3))\n",
-			          hostname_len, servername_list_size);
+				  " (%lu, expected not more than (%lu - 3))\n",
+				  hostname_len, servername_list_size);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR,
 					TTLS_F_ST_CLOSE);
@@ -407,9 +407,8 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 				tls->sess.ja5t.alpn <<= 1;
 				tls->sess.ja5t.alpn += our->id;
 				/* Use our order of preference */
-                                if (alpn_chosen_idx > i &&
-                                    ttls_alpn_match_cb(tls, our))
-                                {
+				if (alpn_chosen_idx > i &&
+				    ttls_alpn_match_cb(tls, our)) {
 					alpn_chosen_idx = i;
 					tls->alpn_chosen = our;
 				}
@@ -556,11 +555,11 @@ ttls_ciphersuite_match(TlsCtx *tls, const TlsCiphersuite *suite_info)
 	 */
 	sig_type = ttls_get_ciphersuite_sig_alg(suite_info);
 	if (sig_type != TTLS_PK_NONE
-	    && ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_type)
-	        == TTLS_MD_NONE)
+	    && ttls_sig_hash_set_find(&tls->hs->hash_algs,
+				      sig_type) == TTLS_MD_NONE)
 	{
 		T_DBG("ciphersuite mismatch: no suitable hash algorithm"
-		       " for signature algorithm %s", pk_type_to_str(sig_type));
+		      " for signature algorithm %s", pk_type_to_str(sig_type));
 		return -1;
 	}
 	/*
@@ -606,7 +605,7 @@ ttls_choose_ciphersuite(TlsCtx *tls)
 
 	if (got_common_suite) {
 		TTLS_WARN(tls, "None of the common ciphersuites is usable"
-		               " (e.g. no suitable certificate), like %s\n", ci->name);
+			 " (e.g. no suitable certificate), like %s\n", ci->name);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_HANDSHAKE_FAILURE,
 				TTLS_F_ST_CLOSE);
@@ -650,19 +649,19 @@ have_ciphersuite:
 static inline bool
 ttls_ext_is_supported(unsigned short ext_type)
 {
-        switch (ext_type) {
-        case TTLS_TLS_EXT_SERVERNAME:
-        case TTLS_TLS_EXT_SIG_ALG:
-        case TTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
-        case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
-        case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
-        case TTLS_TLS_EXT_SESSION_TICKET:
-        case TTLS_TLS_EXT_ALPN:
-        case TTLS_TLS_EXT_RENEGOTIATION_INFO:
-                return true;
-        default:
-                return false;
-        }
+	switch (ext_type) {
+	case TTLS_TLS_EXT_SERVERNAME:
+	case TTLS_TLS_EXT_SIG_ALG:
+	case TTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
+	case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
+	case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
+	case TTLS_TLS_EXT_SESSION_TICKET:
+	case TTLS_TLS_EXT_ALPN:
+	case TTLS_TLS_EXT_RENEGOTIATION_INFO:
+		return true;
+	default:
+		return false;
+	}
 }
 
 /**
@@ -671,56 +670,56 @@ ttls_ext_is_supported(unsigned short ext_type)
  */
 static int
 ttls_parse_extension(TlsCtx *tls, const unsigned char *buf, size_t ext_sz,
-                     unsigned short ext_type)
+		     unsigned short ext_type)
 {
 	int r;
 
-        switch (ext_type) {
-        case TTLS_TLS_EXT_SERVERNAME:
-                T_DBG("found ServerName extension\n");
-                if ((r = ttls_parse_servername_ext(tls, buf, ext_sz)))
-                        return r;
-                break;
-        case TTLS_TLS_EXT_SIG_ALG:
-                T_DBG("found signature_algorithms extension\n");
-                if ((r = ttls_parse_signature_algorithms_ext(tls, buf, ext_sz)))
-                        return r;
-                break;
-        case TTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
-                T_DBG("found supported elliptic curves extension\n");
-                if ((r = ttls_parse_supported_elliptic_curves(tls, buf, ext_sz)))
-                        return r;
-                break;
-        case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
-                T_DBG("found supported point formats extension\n");
-                if ((r = ttls_parse_supported_point_formats(tls, buf, ext_sz)))
-                        return r;
-                break;
-        case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
-                T_DBG("found extended master secret extension\n");
-                if ((r = ttls_parse_extended_ms_ext(tls, buf, ext_sz)))
-                        return r;
-                break;
-        case TTLS_TLS_EXT_SESSION_TICKET:
-                T_DBG("found session ticket extension\n");
-                ttls_parse_session_ticket_ext(tls, buf, ext_sz);
-                break;
-        case TTLS_TLS_EXT_ALPN:
-                T_DBG("found alpn extension\n");
-                if ((r = ttls_parse_alpn_ext(tls, buf, ext_sz)))
-                        return r;
-                break;
-        case TTLS_TLS_EXT_RENEGOTIATION_INFO:
-                T_DBG("found renegotiation_info extension\n");
-                if ((r = ttls_parse_renegotiation_info_ext(tls, buf, ext_sz)))
-                        return r;
-                break;
-        default:
-                T_DBG("unknown extension found: %d (ignoring)\n",
-                      ext_type);
-        }
+	switch (ext_type) {
+	case TTLS_TLS_EXT_SERVERNAME:
+		T_DBG("found ServerName extension\n");
+		if ((r = ttls_parse_servername_ext(tls, buf, ext_sz)))
+			return r;
+		break;
+	case TTLS_TLS_EXT_SIG_ALG:
+		T_DBG("found signature_algorithms extension\n");
+		if ((r = ttls_parse_signature_algorithms_ext(tls, buf, ext_sz)))
+			return r;
+		break;
+	case TTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
+		T_DBG("found supported elliptic curves extension\n");
+		if ((r = ttls_parse_supported_elliptic_curves(tls, buf, ext_sz)))
+			return r;
+		break;
+	case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
+		T_DBG("found supported point formats extension\n");
+		if ((r = ttls_parse_supported_point_formats(tls, buf, ext_sz)))
+			return r;
+		break;
+	case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
+		T_DBG("found extended master secret extension\n");
+		if ((r = ttls_parse_extended_ms_ext(tls, buf, ext_sz)))
+			return r;
+		break;
+	case TTLS_TLS_EXT_SESSION_TICKET:
+		T_DBG("found session ticket extension\n");
+		ttls_parse_session_ticket_ext(tls, buf, ext_sz);
+		break;
+	case TTLS_TLS_EXT_ALPN:
+		T_DBG("found alpn extension\n");
+		if ((r = ttls_parse_alpn_ext(tls, buf, ext_sz)))
+			return r;
+		break;
+	case TTLS_TLS_EXT_RENEGOTIATION_INFO:
+		T_DBG("found renegotiation_info extension\n");
+		if ((r = ttls_parse_renegotiation_info_ext(tls, buf, ext_sz)))
+			return r;
+		break;
+	default:
+		T_DBG("unknown extension found: %d (ignoring)\n",
+		      ext_type);
+	}
 
-        return T_OK;
+	return T_OK;
 }
 
 /**
@@ -995,7 +994,7 @@ bad_version:
 		io->hslen -= 2;
 		if (io->hslen != n || (n > 0 && n < 4)) {
 			TTLS_WARN(tls, "ClientHello: bad extensions length %d"
-			               " (msg len=%u)\n", n, io->hslen);
+				  " (msg len=%u)\n", n, io->hslen);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR,
 					TTLS_F_ST_CLOSE);
@@ -1050,17 +1049,17 @@ bad_version:
 		}
 		io->hslen -= 2;
 		n = tls->hs->ext_sz;
-                /*
-                 * Do not account size of @ext for unsupportred extensions.
-                 * They must not be copied to it.
-                 */
+		/*
+		 * Do not account size of @ext for unsupportred extensions.
+		 * They must not be copied to it.
+		 */
 		if (n + 4 > tls->hs->ext_rem_sz
 		    || (ttls_ext_is_supported(tls->hs->ext_type)
-			&& n > sizeof(tls->hs->ext)))
+		    && n > sizeof(tls->hs->ext)))
 		{
 			TTLS_WARN(tls, "ClientHello: bad extension size %d"
-			               " (remaining extensions size %u)\n",
-			          n, tls->hs->ext_rem_sz);
+				  " (remaining extensions size %u)\n",
+				  n, tls->hs->ext_rem_sz);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR,
 					TTLS_F_ST_CLOSE);
@@ -1076,14 +1075,14 @@ bad_version:
 	T_FSM_STATE(TTLS_CH_HS_EX) {
 		unsigned char *tmp = tls->hs->ext;
 		unsigned short ext_sz = tls->hs->ext_sz;
-                unsigned short ext_type = tls->hs->ext_type;
-                const bool ext_supported = ttls_ext_is_supported(ext_type);
+		unsigned short ext_type = tls->hs->ext_type;
+		const bool ext_supported = ttls_ext_is_supported(ext_type);
 		/*
 		 * Copy the extension to the temporary buffer for further
 		 * parsing. We have to copy the data since the extension parsers
 		 * call external functions and callbacks with contiguous
 		 * buffers. Copy only extensions that must be parsed.
-         *
+		 *
 		 * It's too time consumptive to rework the whole API to work w/
 		 * chunked data and it's doubtful how much performance we get if
 		 * we avoid the copies - the extensions are small after all.
@@ -1096,8 +1095,8 @@ bad_version:
 		n = min_t(int, ext_sz - io->rlen, buf + len - p);
 		if (ext_supported) {
 			if (unlikely(ext_type == TTLS_TLS_EXT_SESSION_TICKET))
-                              tmp = tls->hs->ticket_ctx.ticket;
-		        memcpy_fast(tmp + io->rlen, p, n);
+				tmp = tls->hs->ticket_ctx.ticket;
+			memcpy_fast(tmp + io->rlen, p, n);
 		}
 		p += n;
 		if (unlikely(io->rlen + n < ext_sz))
