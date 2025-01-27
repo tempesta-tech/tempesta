@@ -337,7 +337,7 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 	}
 
 	ptr = (char *)__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
-	if (WARN_ON_ONCE(!ptr))
+	if (!ptr)
 		return -ENOMEM;
 
 	memcpy_fast(ptr, mp, MPI_PROFILE_SZ(mp));
