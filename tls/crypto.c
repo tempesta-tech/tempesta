@@ -43,7 +43,7 @@ ttls_cipher_free(TlsCipherCtx *ctx)
 {
 	if (!ctx)
 		return;
-	if (ctx->cipher_ctx)
+	if (!IS_ERR_OR_NULL(ctx->cipher_ctx))
 		crypto_free_aead(ctx->cipher_ctx);
 	bzero_fast(ctx, sizeof(TlsCipherCtx));
 }
@@ -199,7 +199,8 @@ ttls_md_free(TlsMdCtx *ctx)
 {
 	if (!ctx)
 		return;
-	crypto_free_shash(ctx->md_ctx.tfm);
+	if (!IS_ERR_OR_NULL(ctx->md_ctx.tfm))
+		crypto_free_shash(ctx->md_ctx.tfm);
 	bzero_fast(ctx, sizeof(TlsMdCtx));
 }
 
