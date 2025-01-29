@@ -1317,8 +1317,9 @@ ttls_handshake_free(TlsHandshake *hs)
 	if (unlikely(!hs))
 		return;
 
-	crypto_free_shash(hs->desc.tfm);
-	if (hs->tmp_sha256.desc.tfm)
+	if (!IS_ERR_OR_NULL(hs->desc.tfm))
+		crypto_free_shash(hs->desc.tfm);
+	if (!IS_ERR_OR_NULL(hs->tmp_sha256.desc.tfm))
 		crypto_free_shash(hs->tmp_sha256.desc.tfm);
 
 	if (hs->crypto_ctx)
