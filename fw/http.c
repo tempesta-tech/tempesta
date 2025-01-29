@@ -4416,17 +4416,17 @@ err:
  * headers will be avoided.
  */
 static int
-tfw_h1_purge_resp_clean(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
+tfw_h1_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 {
 	struct sk_buff *nskb;
-
-	cleanup->skb_head = resp->msg.skb_head;
-	resp->msg.skb_head = NULL;
 
 	nskb = ss_skb_alloc(0);
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
+	nskb->mark = resp->msg.skb_head->mark;
+	cleanup->skb_head = resp->msg.skb_head;
+	resp->msg.skb_head = NULL;
 	ss_skb_queue_tail(&resp->msg.skb_head, nskb);
 
 	return 0;
@@ -4475,7 +4475,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 
 		/* Clean current reponse skb_head if body is exists. */
 		if (resp->body.len > 0) {
-			r = tfw_h1_purge_resp_clean(resp, &cleanup);
+			r = tfw_h1_resp_set_empty_skb_head(resp, &cleanup);
 			if (unlikely(r))
 				goto clean;
 
@@ -4499,15 +4499,17 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		if (unlikely(r))
 			goto clean;
 
-		/*
-		 * For a response to PURGE request we drop the body.
-		 * Add "content-length: 0" header.
-		 */
-		r = tfw_http_msg_expand_from_pool(hm, &clen);
-		if (unlikely(r))
-			goto clean;
+		if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
+			/*
+			 * For a response to PURGE request we drop the body.
+			 * Add "content-length: 0" header.
+			 */
+			r = tfw_http_msg_expand_from_pool(hm, &clen);
+			if (unlikely(r))
+				goto clean;
 
-		hdr_start = TFW_HTTP_HDR_CONTENT_TYPE;
+			hdr_start = TFW_HTTP_HDR_CONTENT_TYPE;
+		}
 	} else {
 		/* Response for regular request. */
 		tfw_msg_transform_setup(iter, resp->msg.skb_head);
