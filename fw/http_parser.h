@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ typedef struct {
 	unsigned int	size;	/* number of elements in the table */
 	unsigned short	off;
 	unsigned short	cnt;
-	TfwStr		tbl[0];
+	DECLARE_FLEX_ARRAY(TfwStr, tbl);
 } TfwHttpHdrTbl;
 
 #define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
