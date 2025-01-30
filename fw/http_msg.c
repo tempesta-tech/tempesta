@@ -1735,7 +1735,7 @@ __tfw_h2_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
 int
 tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 {
-	int i, ret;
+	int i, r = 0;
 	char *begin, *end;
 	TfwMsgIter *it = &resp->mit.iter;
 	char* body = TFW_STR_CHUNK(&resp->body, 0)->data;
@@ -1756,10 +1756,8 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 				 * the end of CRLF lies within the linear data area
 				 * of the current @it->skb
 				 */
-				ret = ss_skb_linear_transform(it->skb_head,
-							      it->skb, body);
-				if (unlikely(ret))
-					return ret;
+				r = ss_skb_linear_transform(it->skb_head,
+							    it->skb, body);
 				break;
 			} else {
 				ss_skb_put(it->skb, -skb_headlen(it->skb));
@@ -1810,7 +1808,7 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 
 end:
 	/* Pointer to data or CRLF not found in skbs. */
-	BUG_ON(!it->skb_head || !it->skb);
+	BUG_ON(!r && (!it->skb_head || !it->skb));
 
 	it->skb_head = it->skb;
 	resp->msg.skb_head = it->skb;
@@ -1818,7 +1816,7 @@ end:
 	/* Start from zero fragment */
 	it->frag = -1;
 
-	return 0;
+	return r;
 }
 
 /**
