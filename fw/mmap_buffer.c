@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -252,7 +252,7 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 			T_ERR("Registering char device failed for %s\n", filename);
 			goto err;
 		}
-		holder->dev_class = class_create(THIS_MODULE, filename);
+		holder->dev_class = class_create(filename);
 		if (IS_ERR(holder->dev_class)) {
 			T_ERR("Class creation failed for %s\n", filename);
 			goto err;
