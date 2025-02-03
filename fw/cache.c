@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -3088,7 +3088,7 @@ tfw_cache_build_resp_stale(TfwHttpReq *req)
 
 	return resp;
 }
-ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
+ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL);
 
 /**
  * Release cache entry reference.
