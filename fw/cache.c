@@ -3237,7 +3237,7 @@ tfw_cache_build_resp_stale(TfwHttpReq *req)
 
 	return resp;
 }
-ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
+ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL);
 
 /**
  * Release cache entry reference.
