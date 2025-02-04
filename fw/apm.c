@@ -1082,8 +1082,9 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 		}
 	}
 
-	if (unlikely(!tfw_apm_calc(data)))
+	if (unlikely(!tfw_apm_calc(data))) {
 		T_DBG3("%s: Incomplete calculation\n", __func__);
+	}
 
 	smp_mb();
 	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))

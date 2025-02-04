@@ -165,9 +165,10 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 			  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 	spin_unlock(&cli_conn->timer_lock);
 
-	if (r)
+	if (r) {
 		/* Quite usual on system shutdown. */
 		T_DBG("Cannot send data to client (%d)\n", r);
+	}
 
 	tfw_connection_put((TfwConn *)cli_conn);
 	return r;
