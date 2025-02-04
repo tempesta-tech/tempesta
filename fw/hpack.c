@@ -1524,9 +1524,10 @@ index:
 					goto out;
 				}
 
-				if (!(c & 0xF0)) /* RFC 7541 6.2.2 */
+				if (!(c & 0xF0)) { /* RFC 7541 6.2.2 */
 					T_DBG3("%s: > Literal Header Field "
 					       "without Indexing\n", __func__);
+				}
 
 				if (c & 0x10) { /* RFC 7541 6.2.3 */
 					T_DBG3("%s: > Literal Header Field "
