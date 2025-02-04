@@ -1275,7 +1275,7 @@ this_chunk:
 			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 
 			f_size = skb_frag_size(frag);
-			f_room = PAGE_SIZE - frag->bv_offset - f_size;
+			f_room = PAGE_SIZE - skb_frag_off(frag) - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
 			n_copy = min(c_size, f_room);
 			skb_frag_size_add(frag, n_copy);
@@ -1447,7 +1447,7 @@ this_chunk:
 			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 
 			f_size = skb_frag_size(frag);
-			f_room = PAGE_SIZE - frag->bv_offset - f_size;
+			f_room = PAGE_SIZE - skb_frag_off(frag) - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
 			min_len = min(cur_len, f_room);
 			skb_frag_size_add(frag, min_len);
