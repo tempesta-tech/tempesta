@@ -25,6 +25,7 @@
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
+#include <linux/skbuff_ref.h>
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <net/xfrm.h>
@@ -124,12 +125,6 @@ ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int tx_flags)
 	}
 
 	return 0;
-}
-
-static inline int
-ss_skb_frag_len(const skb_frag_t *frag)
-{
-	return frag->bv_offset + frag->bv_len;
 }
 
 /*
@@ -484,7 +479,7 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb_dst, (i + 2) % MAX_SKB_FRAGS,
-			     skb_frag_page(frag), frag->bv_offset + off,
+			     skb_frag_page(frag), skb_frag_off(frag) + off,
 			     tail_len);
 	__skb_frag_ref(frag);
 
@@ -547,7 +542,7 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	}
 	/* Fast path (e.g. TLS header): delete the head part of a fragment. */
 	if (likely(!off)) {
-		frag->bv_offset += len;
+		skb_frag_off_add(frag, len);
 		skb_frag_size_sub(frag, len);
 		skb->len -= len;
 		skb->data_len -= len;
@@ -585,7 +580,7 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	/* Make the fragment with the tail part. */
 	i = (i + 1) % MAX_SKB_FRAGS;
 	__skb_fill_page_desc(skb_dst, i, skb_frag_page(frag),
-			     frag->bv_offset + off + len, tail_len);
+			     skb_frag_off(frag) + off + len, tail_len);
 	__skb_frag_ref(frag);
 
 	/* Trim the fragment with the head part. */
@@ -1390,7 +1385,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 	}
 
 	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
-	ss_skb_adjust_data_len(skb, frag->bv_len);
+	ss_skb_adjust_data_len(skb, skb_frag_size(frag));
 	__skb_frag_ref(frag);
 
 	return 0;
@@ -1404,11 +1399,12 @@ ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
 	unsigned int headlen = skb_headlen(skb);
 
 	if (headlen) {
+		unsigned int frag_off = skb->data -
+			(unsigned char *)page_address(skb_frag_page(&head_frag));
+
 		BUG_ON(!skb->head_frag);
-		head_frag.bv_len = headlen;
-		head_frag.bv_page = virt_to_page(skb->head);
-		head_frag.bv_offset = skb->data -
-			(unsigned char *)page_address(head_frag.bv_page);
+		skb_frag_fill_page_desc(&head_frag, virt_to_page(skb->head),
+					frag_off, headlen);
 		if (__coalesce_frag(skb_head, &head_frag, skb))
 			return -ENOMEM;
 	}
@@ -1575,7 +1571,7 @@ ss_skb_dump(struct sk_buff *skb)
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *f = &si->frags[i];
 		T_LOG_NL("  frag %2d (addr=%px pg_off=%-4u size=%-4u pg_ref=%d):\n",
-			 i, skb_frag_address(f), f->bv_offset,
+			 i, skb_frag_address(f), skb_frag_off(f),
 			 skb_frag_size(f), page_ref_count(skb_frag_page(f)));
 		print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
 			       skb_frag_address(f), skb_frag_size(f), true);
