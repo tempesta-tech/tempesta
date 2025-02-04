@@ -285,7 +285,7 @@ tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
 	return container_of(cfg, TfwVhost, tls_cfg);
 }
 
-static bool inline
+static inline bool
 tfw_vhost_is_default(TfwVhost *vhost)
 {
 	return !vhost->vhost_dflt;

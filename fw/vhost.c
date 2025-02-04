@@ -339,9 +339,10 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
 		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
 	}
 
-	if (unlikely(!srv_conn))
+	if (unlikely(!srv_conn)) {
 		T_DBG2("vhost: Unable to select server from group '%s'\n",
 		       backup_sg ? backup_sg->name : main_sg->name);
+	}
 
 	return srv_conn;
 }

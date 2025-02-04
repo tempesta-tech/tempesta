@@ -496,9 +496,10 @@ __add_field(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 			ctx->content_length[0] = '\0';
 		}
 
-		if (r == FUZZ_INVALID)
+		if (r == FUZZ_INVALID) {
 			T_DBG("generate invalid random field for header %d\n",
 			      t);
+		}
 
 		return r;
 	}
@@ -559,8 +560,9 @@ __add_header(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 		add_string_n(ctx, p, saved_end, h2_buf, h2_value_sz);
 	}
 
-	if (v & FUZZ_INVALID)
+	if (v & FUZZ_INVALID) {
 		T_DBG("generate invalid header %d\n", t);
+	}
 
 	ctx->hdr_flags |= 1 << t;
 
