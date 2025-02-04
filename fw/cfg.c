@@ -1056,8 +1056,9 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	}
 
 	spec->__called_cfg = true;
-	if (r)
+	if (r) {
 		T_DBG("configuration handler returned error: %d\n", r);
+	}
 
 	return r;
 }
@@ -1998,8 +1999,9 @@ tfw_cfg_parse(struct list_head *mod_list)
 		return -ENOENT;
 
 	T_DBG2("parsing configuration and pushing it to modules...\n");
-	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
+	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list))) {
 		T_DBG("Error parsing configuration data\n");
+	}
 
 	kfree(cfg_text_buf);
 

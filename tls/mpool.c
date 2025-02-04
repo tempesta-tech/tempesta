@@ -184,9 +184,10 @@ ttls_mpi_pool_free(void *ctx)
 {
 	TlsMpiPool *mp = (TlsMpiPool *)ctx - 1;
 
-	if (mp->order && MPI_POOL_SZ(mp) / 2 > mp->curr)
+	if (mp->order && MPI_POOL_SZ(mp) / 2 > mp->curr) {
 		T_DBG("Too large MPI pool was allocated (order=%u used=%u)\n",
 		      mp->order, mp->curr);
+	}
 
 	bzero_fast(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
 	WARN_ON_ONCE((unsigned long)mp & ((PAGE_SIZE << mp->order) - 1));
