@@ -3033,10 +3033,12 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 	r = tfw_http_msg_hdr_xfrm(hm, "date", sizeof("date") - 1,
 				  s_date, SLEN(S_V_DATE),
 				  TFW_HTTP_HDR_RAW, 0);
-	if (r)
+	if (r) {
 		T_ERR("Unable to add Date: header to msg [%p]\n", hm);
-	else
+	}
+	else {
 		T_DBG2("Added Date: header to msg [%p]\n", hm);
+	}
 	return r;
 }
 
@@ -3070,10 +3072,12 @@ tfw_http_set_hdr_upgrade(TfwHttpMsg *hm, bool is_resp)
 		r = tfw_http_msg_hdr_xfrm(hm, "upgrade", SLEN("upgrade"),
 				  "websocket", SLEN("websocket"),
 				  TFW_HTTP_HDR_UPGRADE, 0);
-		if (r)
+		if (r) {
 			T_ERR("Unable to add Upgrade: header to msg [%p]\n", hm);
-		else
+		}
+		else {
 			T_DBG2("Added Upgrade: header to msg [%p]\n", hm);
+		}
 	}
 	return r;
 }
@@ -3100,10 +3104,12 @@ tfw_http_expand_hdr_date(TfwHttpResp *resp)
 
 	tfw_http_prep_date_from(date, resp->date);
 	r = tfw_http_msg_expand_data(&mit->iter, skb_head, &h_date, NULL);
-	if (r)
+	if (r) {
 		T_ERR("Unable to expand resp [%p] with 'Date:' header\n", resp);
-	else
+	}
+	else {
 		T_DBG2("Epanded resp [%p] with 'Date:' header\n", resp);
+	}
 
 	return r;
 }
@@ -3341,10 +3347,12 @@ __tfw_http_add_hdr_via(TfwHttpMsg *hm, int http_version, bool from_cache)
 		r |= tfw_http_msg_expand_data(&mit->iter, skb_head,
 					     &crlf, NULL);
 	}
-	if (r)
+	if (r) {
 		T_ERR("Unable to add via: header to msg [%p]\n", hm);
-	else
+	}
+	else {
 		T_DBG2("Added via: header to msg [%p]\n", hm);
+	}
 
 	return r;
 }
@@ -3372,12 +3380,14 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
 				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
 				  TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
-	if (r)
+	if (r) {
 		T_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
 		      (int)(p - buf), buf, hm);
-	else
+	}
+	else {
 		T_DBG2("added X-Forwarded-For header for %.*s\n",
 		       (int)(p - buf), buf);
+	}
 	return r;
 }
 
@@ -3393,12 +3403,14 @@ tfw_http_add_hdr_clen(TfwHttpMsg *hm)
 				  SLEN("Content-Length"), buf, cl_valsize,
 				  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
 
-	if (unlikely(r))
+	if (unlikely(r)) {
 		T_ERR("%s: unable to add 'content-length' header (msg=[%p])\n",
 		      __func__, hm);
-	else
+	}
+	else {
 		T_DBG3("%s: added 'content-length' header, msg=[%p]\n",
 		       __func__, hm);
+	}
 
 	return r;
 }
@@ -4549,10 +4561,12 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 	via.hpack_idx = 60;
 
 	r = tfw_hpack_encode(resp, &via, true, true);
-	if (unlikely(r))
+	if (unlikely(r)) {
 		T_ERR("HTTP/2: unable to add 'via' header (resp=[%p])\n", resp);
-	else
+	}
+	else {
 		T_DBG3("%s: added 'via' header, resp=[%p]\n", __func__, resp);
+	}
 	return r;
 }
 
@@ -4579,11 +4593,13 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
 	hdr.hpack_idx = 33;
 
 	r = tfw_hpack_encode(resp, &hdr, !cache, !cache);
-	if (unlikely(r))
+	if (unlikely(r)) {
 		T_ERR("HTTP/2: unable to add 'date' header to response"
 			" [%p]\n", resp);
-	else
+	}
+	else {
 		T_DBG3("%s: added 'date' header, resp=[%p]\n", __func__, resp);
+	}
 
 	return r;
 }
@@ -4604,12 +4620,14 @@ tfw_h2_add_hdr_clen(TfwHttpResp *resp)
 			       SLEN("content-length"), buf,
 			       cl_valsize, 28);
 
-	if (unlikely(r))
+	if (unlikely(r)) {
 		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
 		      __func__, resp);
-	else
+	}
+	else {
 		T_DBG3("%s: added 'content-length' header, resp=[%p]\n",
 		       __func__, resp);
+	}
 	return r;
 }
 

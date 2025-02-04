@@ -249,9 +249,10 @@ ttls_md_starts(TlsMdCtx *ctx)
 	BUG_ON(!ctx || !ctx->md_info);
 
 	r = crypto_shash_init(&ctx->md_ctx);
-	if (r)
+	if (r) {
 		T_DBG("cannot start hash ctx, "
 		      "crypto_shash_init result = %d\n", r);
+	}
 
 	return r;
 }
@@ -264,9 +265,10 @@ ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
 	BUG_ON(!ctx || !ctx->md_info);
 
 	r = crypto_shash_update(&ctx->md_ctx, input, ilen);
-	if (r)
+	if (r) {
 		T_DBG("cannot update hash ctx, "
 		      "crypto_shash_update result = %d\n", r);
+	}
 
 	return r;
 }
@@ -279,9 +281,10 @@ ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
 	BUG_ON(!ctx || !ctx->md_info);
 
 	r = crypto_shash_final(&ctx->md_ctx, output);
-	if (r)
+	if (r) {
 		T_DBG("cannot finish hash context, "
 		      "crypto_shash_final result = %d\n", r);
+	}
 
 	return r;
 }
