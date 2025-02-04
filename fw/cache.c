@@ -3075,12 +3075,14 @@ tfw_cache_build_resp_stale(TfwHttpReq *req)
 	TfwCacheEntry *ce = req->stale_ce;
 	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
 
-	if (resp)
+	if (resp) {
 		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
 		      ce=%p", req, ce->trec.key, ce);
-	else
+	}
+	else {
 		T_DBG("Cache: Cannot assigne stale response to req [%p] w/ \
 		      key=%lx, ce=%p", req, ce->trec.key, ce);
+	}
 
 	tdb_rec_put(db, ce);
 	/* Set to NULL to prevent double free in req destructor. */
