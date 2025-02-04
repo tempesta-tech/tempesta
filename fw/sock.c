@@ -22,10 +22,11 @@
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/tempesta.h>
+#include <linux/errqueue.h>
 #include <net/protocol.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
-#include <linux/errqueue.h>
+#include <net/hotdata.h>
 
 #undef DEBUG
 #if DBG_SS > 0
@@ -1822,10 +1823,10 @@ ss_estimate_pcpu_wq_size(void)
 	rtnl_unlock();
 
 	req_per_skb = (mtu - TRANS_HDRS_SIZE) / H2_HEADERS_FRAME_SIZE;
-	qsz = roundup_pow_of_two(2 * req_per_skb * dev_rx_weight);
+	qsz = roundup_pow_of_two(2 * req_per_skb * net_hotdata.dev_rx_weight);
 
 	T_DBG("%s: dev_rx_weight %d, suggested qsz %d\n", __func__,
-	      dev_rx_weight, qsz);
+	      net_hotdata.dev_rx_weight, qsz);
 	return qsz;
 }
 
