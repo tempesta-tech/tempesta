@@ -669,7 +669,8 @@ ss_do_close(struct sock *sk, int flags)
 			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
 		}
 		tcp_set_state(sk, TCP_CLOSE);
-		tcp_send_active_reset(sk, sk->sk_allocation);
+		tcp_send_active_reset(sk, sk->sk_allocation,
+				      SK_RST_REASON_TCP_ABORT_ON_CLOSE);
 	} else if (tcp_close_state(sk)) {
 		/*
 		 * Set this flag to prevent calling `tcp_done` from
@@ -712,7 +713,8 @@ adjudge_to_death:
 		sk_mem_reclaim(sk);
 		if (tcp_check_oom(sk, 0)) {
 			tcp_set_state(sk, TCP_CLOSE);
-			tcp_send_active_reset(sk, GFP_ATOMIC);
+			tcp_send_active_reset(sk, GFP_ATOMIC,
+					      SK_RST_REASON_TCP_ABORT_ON_MEMORY);
 			__NET_INC_STATS(sock_net(sk),
 					LINUX_MIB_TCPABORTONMEMORY);
 		}
