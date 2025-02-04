@@ -27,6 +27,7 @@
 #include <linux/tcp.h>
 #include <linux/topology.h>
 #include <linux/nodemask.h>
+#include <linux/skbuff_ref.h>
 
 #undef DEBUG
 #if DBG_CACHE > 0
