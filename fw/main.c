@@ -349,7 +349,7 @@ tfw_ctlfn_state_change(const char *new_state)
  * Syctl handler for tempesta.state read/write operations.
  */
 static int
-tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
+tfw_ctlfn_state_io(const struct ctl_table *ctl, int is_write,
 		   void *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
@@ -434,8 +434,7 @@ static struct ctl_table tfw_sysctl_tbl[] = {
 		.maxlen		= T_SYSCTL_STBUF_LEN - 1,
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
-	},
-	{}
+	}
 };
 
 #define DO_INIT(mod)						\

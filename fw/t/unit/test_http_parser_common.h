@@ -167,7 +167,7 @@ void tfw_init_frames(void);
 typedef struct {
 	const unsigned int capacity;
 	unsigned int size;
-	unsigned char data[0];
+	DECLARE_FLEX_ARRAY(unsigned char, data);
 } TfwFramesBuf;
 
 /**
