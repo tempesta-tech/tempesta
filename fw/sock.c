@@ -27,6 +27,7 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 #include <net/hotdata.h>
+#include <net/proto_memory.h>
 
 #undef DEBUG
 #if DBG_SS > 0
