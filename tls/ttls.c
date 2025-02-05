@@ -439,7 +439,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 		WARN_ON_ONCE(tls->state >= TTLS_SERVER_HELLO);
 
 		if (!ci) {
-			if ((r = ttls_sha256_init_start(sha256)))
+			if (unlikely(r = ttls_sha256_init_start(sha256)))
 				return r;
 			tls->xfrm.ciphersuite_info = ERR_PTR(-1);
 		}
@@ -1083,7 +1083,7 @@ ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
 	/* Change __ttls_add_record() call if you need it for handshakes. */
 	WARN_ON_ONCE(tls->io_out.msgtype == TTLS_MSG_HANDSHAKE);
 
-	if ((r = __ttls_add_record(tls, NULL, 0, NULL)))
+	if (unlikely(r = __ttls_add_record(tls, NULL, 0, NULL)))
 		return r;
 
 	return __ttls_send_record(tls, sgt);
