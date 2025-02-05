@@ -442,7 +442,7 @@ typedef struct {
 typedef struct {
 	unsigned int	size;
 	unsigned int	count;
-	TfwHdrIndex	index[0];
+	DECLARE_FLEX_ARRAY(TfwHdrIndex, index);
 } TfwHttpHdrMap;
 
 /**
