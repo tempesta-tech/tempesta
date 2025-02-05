@@ -75,7 +75,7 @@ typedef struct {
  */
 typedef struct {
 	size_t		len;
-	char		str[0];
+	DECLARE_FLEX_ARRAY(char, str);
 } TfwCaToken;
 
 /* tfw_vhost_get_capo_hdr_del result */
