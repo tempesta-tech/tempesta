@@ -19,7 +19,7 @@
  * server unless it is offline.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -52,7 +52,7 @@ typedef struct {
 typedef struct {
 	struct rcu_head		rcu;
 	size_t			conn_n;
-	TfwHashConn		conns[0];
+	DECLARE_FLEX_ARRAY(TfwHashConn, conns);
 } TfwHashConnList;
 
 typedef struct {

@@ -462,7 +462,7 @@ typedef struct {
 	unsigned int	size;
 	unsigned int	count;
 	unsigned int	trailer_idx;
-	TfwHdrIndex	index[0];
+	DECLARE_FLEX_ARRAY(TfwHdrIndex, index);
 } TfwHttpHdrMap;
 
 /**
