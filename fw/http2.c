@@ -456,9 +456,8 @@ tfw_h2_req_unlink_stream(TfwHttpReq *req)
  * send RST STREAM and add stream to closed queue.
  */
 void
-tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req)
+tfw_h2_req_unlink_and_close_stream(TfwHttpReq *req)
 {
-	TfwStreamFsmRes r;
 	TfwStream *stream;
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 
@@ -472,10 +471,7 @@ tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req)
 
 	req->stream = NULL;
 	stream->msg = NULL;
-
-	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_RST_STREAM, 0);
-	WARN_ON_ONCE(r != STREAM_FSM_RES_OK && r != STREAM_FSM_RES_IGNORE);
-
+	tfw_h2_set_stream_state(stream, HTTP2_STREAM_CLOSED);
 	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams, stream);
 
 	spin_unlock(&ctx->lock);

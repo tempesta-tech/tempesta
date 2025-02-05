@@ -160,7 +160,7 @@ TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 
 unsigned int tfw_h2_req_stream_id(TfwHttpReq *req);
 void tfw_h2_req_unlink_stream(TfwHttpReq *req);
-void tfw_h2_req_unlink_stream_with_rst(TfwHttpReq *req);
+void tfw_h2_req_unlink_and_close_stream(TfwHttpReq *req);
 int tfw_h2_stream_xmit_prepare_resp(TfwStream *stream);
 int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
                              unsigned int *len, bool should_split);

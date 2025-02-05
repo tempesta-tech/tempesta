@@ -678,9 +678,13 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	r = tfw_h2_frame_local_resp(resp, hdrs_len, body);
 
 out:
-	if (r)
-		tfw_h2_req_unlink_stream_with_rst(req);
-	else
+	/*
+	 * In case of error stream will be unlinked later in
+	 * `tfw_http_conn_req_clean` if this function is called
+	 * from `tfw_h2_send_resp` or the whole connection will
+	 * be closed if this function is called from `tfw_http_prep_redir`.
+	 */
+	if (!r)
 		tfw_h2_req_unlink_stream(req);
 
 	return r;
@@ -970,7 +974,7 @@ static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
 	if (TFW_MSG_H2(req)) {
-		tfw_h2_req_unlink_stream_with_rst(req);
+		tfw_h2_req_unlink_and_close_stream(req);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
@@ -2894,7 +2898,7 @@ tfw_http_conn_release(TfwConn *conn)
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (TFW_MSG_H2(req)) {
-			tfw_h2_req_unlink_stream_with_rst(req);
+			tfw_h2_req_unlink_and_close_stream(req);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -5043,6 +5047,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(tfw_h2_append_predefined_body, ERRNO);
 
 int
 tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head)
@@ -5194,7 +5199,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	if (!reply) {
 		if (!on_req_recv_event)
 			tfw_connection_abort(conn);
-		tfw_h2_req_unlink_stream_with_rst(req);
+		tfw_h2_req_unlink_and_close_stream(req);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
 		goto free_req;
