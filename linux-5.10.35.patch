@@ -192,10 +192,10 @@ index 571220ac8..a7ce7c357 100644
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
 diff --git a/crypto/aead.c b/crypto/aead.c
-index 169910952..a3f0aeca1 100644
+index 169910952..15c54f631 100644
 --- a/crypto/aead.c
 +++ b/crypto/aead.c
-@@ -217,6 +217,24 @@ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask)
+@@ -217,6 +217,25 @@ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask)
  }
  EXPORT_SYMBOL_GPL(crypto_alloc_aead);
  
@@ -214,6 +214,7 @@ index 169910952..a3f0aeca1 100644
 +	BUG_ON(!alg);
 +	return crypto_create_tfm(alg, &crypto_aead_type);
 +}
++ALLOW_ERROR_INJECTION(crypto_alloc_aead_atomic, ERRNO);
 +EXPORT_SYMBOL_GPL(crypto_alloc_aead_atomic);
 +#endif
 +
@@ -444,10 +445,10 @@ index a1bea0f4b..d64a9a244 100644
  				    1);
  	if (!cryptd_wq)
 diff --git a/crypto/shash.c b/crypto/shash.c
-index 2e3433ad9..bc9c26dfe 100644
+index 2e3433ad9..b91c00817 100644
 --- a/crypto/shash.c
 +++ b/crypto/shash.c
-@@ -509,6 +509,24 @@ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
+@@ -509,6 +509,25 @@ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
  }
  EXPORT_SYMBOL_GPL(crypto_alloc_shash);
  
@@ -466,6 +467,7 @@ index 2e3433ad9..bc9c26dfe 100644
 +	BUG_ON(!alg);
 +	return crypto_create_tfm(alg, &crypto_shash_type);
 +}
++ALLOW_ERROR_INJECTION(crypto_alloc_shash_atomic, ERRNO);
 +EXPORT_SYMBOL_GPL(crypto_alloc_shash_atomic);
 +#endif
 +
@@ -1208,7 +1210,7 @@ index 000000000..56ab5e02d
 +/**
 + *		Tempesta Memory Reservation
 + *
-+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
