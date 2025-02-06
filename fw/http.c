@@ -4292,9 +4292,12 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		r = ss_skb_list_chop_head_tail(&resp->msg.skb_head, 0,
 					       tfw_str_total_len(&resp->body)
 					       + resp->trailers_len);
-		if (r)
+		if (unlikely(r))
 			return r;
+
 		TFW_STR_INIT(&resp->body);
+		if (resp->trailers_len > 0)
+			tfw_http_msg_del_trailer_hdrs(hm);
 	}
 
 	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
