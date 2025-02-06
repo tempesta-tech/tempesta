@@ -669,7 +669,7 @@ __lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 
 	/* Make linear lower-case name */
 	tfw_str_to_cstr(authority, name.data, name.len + 1);
-	tfw_cstrtolower(name.data, name.data, name.len);
+	tfw_cstrtolower_inplace(name.data, name.len);
 
 	return tfw_tls_find_vhost_by_name(&name);
 }
