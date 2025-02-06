@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -868,6 +868,19 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	return tfw_strcpy(append ? &it : orig_hdr, hdr);
 }
 
+static void
+__hdr_del_from_tbl(TfwHttpHdrTbl *ht, unsigned int hid)
+{
+	if (hid < TFW_HTTP_HDR_RAW) {
+		TFW_STR_INIT(&ht->tbl[hid]);
+	} else {
+		if (hid < ht->off - 1)
+			memmove(&ht->tbl[hid], &ht->tbl[hid + 1],
+				(ht->off - hid - 1) * sizeof(TfwStr));
+		--ht->off;
+	}
+}
+
 /**
  * Delete header with identifier @hid from skb data and header table.
  */
@@ -886,14 +899,7 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
 	};
 
 	/* Delete the header from header table. */
-	if (hid < TFW_HTTP_HDR_RAW) {
-		TFW_STR_INIT(&ht->tbl[hid]);
-	} else {
-		if (hid < ht->off - 1)
-			memmove(&ht->tbl[hid], &ht->tbl[hid + 1],
-				(ht->off - hid - 1) * sizeof(TfwStr));
-		--ht->off;
-	}
+	__hdr_del_from_tbl(ht, hid);
 
 	return 0;
 }
@@ -1081,6 +1087,52 @@ tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
 	TFW_STR_INIT(str);
 
 	return 0;
+}
+
+void
+tfw_http_msg_del_trailer_hdrs(TfwHttpMsg *hm)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	unsigned int hid = ht->off;
+	TfwStr *field, *dup, *dup_end;
+	unsigned int id;
+	bool was_deleted;
+
+	do {
+		hid--;
+		field = &ht->tbl[hid];
+
+		if (TFW_STR_EMPTY(field))
+			continue;
+		was_deleted = true;
+		id = 0;
+		TFW_STR_FOR_EACH_DUP_INIT(dup, field, dup_end);
+
+		while (dup < dup_end) {
+			if (dup->flags & TFW_STR_TRAILER) {
+				if (TFW_STR_DUP(field) && field->nchunks > 1) {
+					unsigned int cn = field->nchunks;
+
+					field->nchunks--;
+					memmove(field->chunks + id,
+						field->chunks + id + 1,
+						(cn - id - 1) * sizeof(TfwStr));
+
+					dup_end = field->chunks + field->nchunks;
+					continue;
+				} else {
+					TFW_STR_INIT(dup);
+				}
+			} else {
+				was_deleted = false;
+			}
+			dup++;
+			id++;
+		}
+		if (was_deleted)
+			__hdr_del_from_tbl(ht, hid);
+		--ht->off;
+	} while (hid);
 }
 
 /**

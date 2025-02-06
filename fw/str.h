@@ -44,7 +44,7 @@
  * the number of chunks in a compound string. Zero means a plain string.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -328,22 +328,21 @@ typedef struct tfwstr_t {
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
 #define TFW_STR_FOR_EACH_CHUNK_INIT(c, s, end)				\
+do {									\
 	/* Iterate over chunks, not duplicates. */			\
 	BUG_ON(TFW_STR_DUP(s));						\
 	if (TFW_STR_PLAIN(s)) {						\
 		(c) = (s);						\
-		end = (s) + 1;						\
+		(end) = (s) + 1;					\
 	} else {							\
 		(c) = (s)->chunks;					\
-		end = (s)->chunks + (s)->nchunks;			\
-	}
-
-#define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
-	TFW_STR_FOR_EACH_CHUNK_INIT(c, (s), end);			\
-	for ( ; (c) < end; ++(c))
+		(end) = (s)->chunks + (s)->nchunks;			\
+	}								\
+} while (0)
 
 /* The same as above, but for duplicate strings. */
-#define TFW_STR_FOR_EACH_DUP(d, s, end)					\
+#define TFW_STR_FOR_EACH_DUP_INIT(d, s, end)				\
+do {									\
 	if (TFW_STR_DUP(s)) {						\
 		(end) = (s)->chunks + (s)->nchunks;			\
 		(d) = (s)->chunks;					\
@@ -351,6 +350,15 @@ typedef struct tfwstr_t {
 		(d) = (s);						\
 		(end) = (s) + 1;					\
 	}								\
+} while (0)
+
+#define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
+	TFW_STR_FOR_EACH_CHUNK_INIT(c, (s), end);			\
+	for ( ; (c) < end; ++(c))
+
+/* The same as above, but for duplicate strings. */
+#define TFW_STR_FOR_EACH_DUP(d, s, end)					\
+	TFW_STR_FOR_EACH_DUP_INIT(d, (s), end);				\
 	for ( ; (d) < (end); ++(d))
 
 /**
