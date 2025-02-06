@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -666,7 +666,7 @@ __lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 
 	/* Make linear lower-case name */
 	tfw_str_to_cstr(authority, name.data, name.len + 1);
-	tfw_cstrtolower(name.data, name.data, name.len);
+	tfw_cstrtolower_inplace(name.data, name.len);
 
 	return tfw_tls_find_vhost_by_name(&name);
 }
