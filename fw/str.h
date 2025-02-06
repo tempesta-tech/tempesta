@@ -121,13 +121,19 @@ tfw_cstrtolower_wo_avx2(void *dest, const void *src, size_t len)
 }
 
 #ifdef AVX2
+/**
+ * NOTE: Do not use directly, instead use wrappers.
+ *
+ * Expect non-ovelapping strings, but restrict-qualifier are not specified,
+ * to be able to do in-place conversion when @dest == @src.
+ */
+void __tfw_strtolower_avx2(unsigned char *dest,
+			   const unsigned char *src,
+			   size_t len);
 /*
  * The functions expect non-ovelapping strings, so use restrict notation in
  * the declarations just as a specification.
  */
-void __tfw_strtolower_avx2(unsigned char *__restrict dest,
-			   const unsigned char *__restrict src,
-			   size_t len);
 int __tfw_stricmp_avx2(const char *__restrict s1, const char *__restrict s2,
 		       size_t len);
 int __tfw_stricmp_avx2_2lc(const char *__restrict s1, const char *__restrict s2,
@@ -137,6 +143,14 @@ static inline void
 tfw_cstrtolower(void *__restrict dest, const void *__restrict src, size_t len)
 {
 	__tfw_strtolower_avx2((unsigned char *)dest, (const unsigned char *)src,
+			      len);
+}
+
+static inline void
+tfw_cstrtolower_inplace(void *str, size_t len)
+{
+	__tfw_strtolower_avx2((unsigned char *)str,
+			      (const unsigned char *)str,
 			      len);
 }
 
@@ -167,6 +181,12 @@ static inline void
 tfw_cstrtolower(void *dest, const void *src, size_t len)
 {
 	tfw_cstrtolower_wo_avx2(dest, src, len);
+}
+
+static inline void
+tfw_cstrtolower_inplace(void *str, size_t len)
+{
+	tfw_cstrtolower_wo_avx2(str, str, len);
 }
 
 static inline int
