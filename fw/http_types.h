@@ -123,6 +123,8 @@ enum {
 
 	/* Request contains `Expect: 100-continue`. */
 	TFW_HTTP_B_EXPECT_CONTINUE,
+	/* 100-continue has been sent. */
+	TFW_HTTP_B_CONTINUE_SENT,
 
         /* Response flags */
         TFW_HTTP_FLAGS_RESP,
