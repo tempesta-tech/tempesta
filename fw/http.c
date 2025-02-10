@@ -155,6 +155,7 @@ bool allow_empty_body_content_type;
 #define S_HTTP			"http://"
 #define S_HTTPS			"https://"
 
+#define S_100			"HTTP/1.1 100 Continue"
 #define S_200			"HTTP/1.1 200 OK"
 #define S_301			"HTTP/1.1 301 Moved Permanently"
 #define S_302			"HTTP/1.1 302 Found"
@@ -204,6 +205,30 @@ bool allow_empty_body_content_type;
  * Array with predefined response data
  */
 static TfwStr http_predef_resps[RESP_NUM] = {
+	[RESP_100] = {
+		.chunks = (TfwStr []){
+			{ .data = S_100, .len = SLEN(S_100) },
+			{ .data = S_CRLF S_F_DATE,
+			  .len = SLEN(S_CRLF S_F_DATE), .hpack_idx = 33 },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_CRLF S_F_CONTENT_LENGTH,
+			  .len = SLEN(S_CRLF S_F_CONTENT_LENGTH),
+			  .hpack_idx = 28 },
+			{ .data = "0", .len = SLEN("0") },
+			{ .data = S_CRLF S_F_SERVER,
+			  .len = SLEN(S_CRLF S_F_SERVER), .hpack_idx = 54 },
+			{ .data = TFW_NAME "/" TFW_VERSION,
+			  .len = SLEN(TFW_NAME "/" TFW_VERSION) },
+			{ .data = S_CRLF S_CRLF, .len = SLEN(S_CRLF S_CRLF) },
+			{ .data = NULL, .len = 0 }, /* Reserved for Connection */
+			{ .data = NULL, .len = 0 }, /* Reserved for CRLFCRLF */
+			{ .data = NULL, .len = 0 }, /* Body */
+		},
+		.len = SLEN(S_200 S_CRLF S_F_DATE S_V_DATE S_CRLF
+			    S_F_CONTENT_LENGTH "0" S_CRLF S_F_SERVER TFW_NAME
+			    "/" TFW_VERSION S_CRLF S_CRLF),
+		.nchunks = 11
+	},
 	[RESP_200] = {
 		.chunks = (TfwStr []){
 			{ .data = S_200, .len = SLEN(S_200) },
@@ -688,6 +713,33 @@ out:
 	return r;
 }
 
+static int
+tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
+{
+	TfwMsgIter it;
+	TfwStr *body = NULL;
+	int r = 0;
+	TfwStr *c, *end, *field_c, *field_end;
+
+	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0)))
+		return r;
+
+	body = TFW_STR_BODY_CH(msg);
+	resp->status = status;
+	resp->content_length = body->len;
+
+	TFW_STR_FOR_EACH_CHUNK(c, msg, end) {
+		if (c->data) {
+			TFW_STR_FOR_EACH_CHUNK(field_c, c, field_end) {
+				if ((r = tfw_msg_write(&it, field_c)))
+					return r;
+			}
+		}
+	}
+
+	return r;
+}
+
 /*
  * Preparing custom HTTP1 response to a client.
  * Set the "Connection:" header field if it was present in the request.
@@ -696,10 +748,6 @@ static int
 tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 {
 	TfwHttpReq *req = resp->req;
-	TfwMsgIter it;
-	TfwStr *body = NULL;
-	int r = 0;
-	TfwStr *c, *end, *field_c, *field_end;
 
 	/* Set "Connection:" header field if needed. */
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
@@ -720,23 +768,7 @@ tfw_h1_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 		msg->len += SLEN(S_CRLF S_F_CONNECTION) + SLEN(S_V_CONN_KA);
 	}
 
-	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0)))
-		return r;
-
-	body = TFW_STR_BODY_CH(msg);
-	resp->status = status;
-	resp->content_length = body->len;
-
-	TFW_STR_FOR_EACH_CHUNK(c, msg, end) {
-		if (c->data) {
-			TFW_STR_FOR_EACH_CHUNK(field_c, c, field_end) {
-				if ((r = tfw_msg_write(&it, field_c)))
-					return r;
-			}
-		}
-	}
-
-	return r;
+	return tfw_h1_write_resp(resp, status, msg);
 }
 
 /**
@@ -1033,6 +1065,8 @@ static inline resp_code_t
 tfw_http_enum_resp_code(int status)
 {
 	switch(status) {
+	case 100:
+		return RESP_100;
 	case 200:
 		return RESP_200;
 	case 400:
@@ -2072,6 +2106,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
 		int ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
+
 		/*
 		 * In case of busy work queue and absence of forwarded but
 		 * unanswered request(s) in connection, the forwarding procedure
@@ -3605,6 +3640,18 @@ tfw_h1_rewrite_head_to_get(struct sk_buff **head_p)
 	return tfw_h1_rewrite_method_to_get(head_p, 1);
 }
 
+static int
+tfw_h1_req_del_expect_hdr(TfwHttpMsg *hm)
+{
+	static TfwStr val = {};
+
+	if (test_bit(TFW_HTTP_B_EXPECT_CONTINUE, hm->flags))
+		return tfw_http_msg_hdr_xfrm_str(hm, &val, TFW_HTTP_HDR_EXPECT,
+						 false);
+
+	return 0;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -3633,6 +3680,10 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		if (unlikely(r))
 			return r;
 	}
+
+	r = tfw_h1_req_del_expect_hdr(hm);
+	if (r)
+		return r;
 
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
@@ -4346,16 +4397,25 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	TfwHttpReq *req, *tmp;
 
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
+		bool send_cont;
+
 		BUG_ON(!req->resp);
-		tfw_http_resp_init_ss_flags(req->resp);
+		send_cont = test_bit(TFW_HTTP_B_CONTINUE_RESP,
+				     req->resp->flags);
+		if (!send_cont)
+			tfw_http_resp_init_ss_flags(req->resp);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
+			TFW_INC_STAT_BH(serv.msgs_otherr);
 			tfw_connection_close((TfwConn *)cli_conn, true);
 			return;
 		}
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 		tfw_inc_global_hm_stats(req->resp->status);
 		list_del_init(&req->msg.seq_list);
-		tfw_http_resp_pair_free(req);
+		if (!send_cont)
+			tfw_http_resp_pair_free(req);
+		else
+			tfw_http_msg_free(req->pair);
 	}
 }
 
@@ -4462,9 +4522,6 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 
-	spin_unlock_bh(&cli_conn->ret_qlock);
-	tfw_connection_put((TfwConn *)(cli_conn));
-
 	/* Zap request/responses that were not sent due to an error. */
 	if (!list_empty(&ret_queue)) {
 		TfwHttpReq *tmp;
@@ -4473,10 +4530,17 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			       __func__, cli_conn, req->resp);
 			BUG_ON(!req->resp);
 			list_del_init(&req->msg.seq_list);
-			tfw_http_resp_pair_free(req);
+			if (!test_bit(TFW_HTTP_B_CONTINUE_RESP,
+				     req->resp->flags))
+				tfw_http_resp_pair_free(req);
+			else
+				tfw_http_msg_free(req->pair);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
+
+	spin_unlock_bh(&cli_conn->ret_qlock);
+	tfw_connection_put((TfwConn *)(cli_conn));
 }
 
 int
@@ -6009,6 +6073,159 @@ tfw_http_check_ja5h_req_limit(TfwHttpReq *req)
 	return rate > limit;
 }
 
+/*
+ * Whether we should delete request with ready 100-continue response from
+ * @seq_queue. Delete request when the body or its part received, but request
+ * still in @seq_queue with ready 100-continue response that not sent to client.
+ *
+ * RFC 9110 10.1.1:
+ * A server MAY omit sending a 100 (Continue) response if it has already
+ * received some or all of the content for the corresponding request, or
+ * if the framing indicates that there is no content.
+ */
+static bool
+tfw_http_should_del_continuation_seq_queue(TfwHttpReq *req)
+{
+	return test_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
+}
+
+/*
+ * Remove request with ready 100-continue response from @seq_queue and free
+ * the response.
+ */
+static void
+tfw_http_del_continuation_seq_queue(TfwCliConn *cli_conn, TfwHttpReq *req)
+{
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+	TfwHttpReq *queued_req = NULL;
+
+	clear_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
+
+	/* Remove request from @seq_queue only if we ensure that it's there.
+	 * Otherwise request might be in @ret_queue, therefore we can't do
+	 * that under @seq_qlock.
+	 */
+	spin_lock_bh(&cli_conn->seq_qlock);
+	list_for_each_entry(queued_req, seq_queue, msg.seq_list) {
+		if (queued_req != req)
+			continue;
+
+		list_del_init(&req->msg.seq_list);
+		tfw_http_msg_free((TfwHttpMsg *)req->resp);
+		spin_unlock_bh(&cli_conn->seq_qlock);
+		return;
+	}
+	spin_unlock_bh(&cli_conn->seq_qlock);
+
+	spin_lock_bh(&cli_conn->ret_qlock);
+	/*
+	 * Need this section to ensure that request sent or removed from
+	 * @ret_queue due to error. We can't move forward if request still in
+	 * @ret_queue. In this case we just spin until @ret_queue drained.
+	 */
+	BUG_ON(!list_empty(&req->msg.seq_list));
+	spin_unlock_bh(&cli_conn->ret_qlock);
+}
+
+/**
+ * Send 100-continue response to the client.
+ *
+ * When request is the first in the sequence (no pipelined requests), then
+ * immediately send 100-continue response to the client, otherwise place
+ * request into @seq_queue, the response will be sent later when one of
+ * the queued responses will be forwarded by @tfw_http_resp_fwd.
+ */
+static int
+tfw_http_send_continuation(TfwCliConn *cli_conn, TfwHttpReq *req)
+{
+	TfwHttpResp *resp;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+	TfwStr msg = MAX_PREDEF_RESP;
+
+	tfw_http_prep_err_resp(req, 100, &msg);
+
+	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
+		goto err;
+
+	if (tfw_h1_write_resp(resp, 100, &msg)) {
+		tfw_http_msg_free((TfwHttpMsg *)resp);
+		goto err;
+	}
+
+	spin_lock_bh(&cli_conn->seq_qlock);
+	if (list_empty(seq_queue)) {
+		/*
+		 * A queue is empty, don't hold a lock. Next request can be
+		 * added to the queue only on the current CPU when this
+		 * request will be processed.
+		 */
+		spin_unlock_bh(&cli_conn->seq_qlock);
+		tfw_connection_get((TfwConn *)(cli_conn));
+		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)resp)) {
+			tfw_http_msg_free((TfwHttpMsg *)resp);
+			tfw_connection_put((TfwConn *)(cli_conn));
+			goto err;
+		}
+		tfw_inc_global_hm_stats(resp->status);
+		tfw_http_msg_free((TfwHttpMsg *)resp);
+		tfw_connection_put((TfwConn *)(cli_conn));
+	} else {
+		set_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
+		set_bit(TFW_HTTP_B_CONTINUE_RESP, resp->flags);
+		set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
+		list_add_tail(&req->msg.seq_list, seq_queue);
+		spin_unlock_bh(&cli_conn->seq_qlock);
+	}
+
+	return 0;
+
+err:
+	TFW_INC_STAT_BH(serv.msgs_otherr);
+	return T_BAD;
+}
+
+/**
+ * Whether we should send 100-continue response.
+ *
+ * Circumstances in which Tempesta must respond with 100-continue code:
+ * 1. Headers are fully parsed.
+ * 2. "Expect" header is present in request.
+ * 3. Vesrion is HTTP/1.1.
+ *
+ * RFC 9110 10.1.1:
+ * - A server that receives a 100-continue expectation in an HTTP/1.0 request
+ * MUST ignore that expectation.
+ * - A server MAY omit sending a 100 (Continue) response if it has already
+ * received some or all of the content for the corresponding request, or if the
+ * framing indicates that there is no content.
+ */
+static bool
+tfw_http_should_handle_expect(TfwHttpReq *req)
+{
+	return test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
+	       test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags) &&
+	       req->version == TFW_HTTP_VER_11;
+}
+
+/*
+ * Handle `Expect: 100-continue` in the request.
+ */
+static int
+tfw_http_handle_expect_request(TfwCliConn *conn, TfwHttpReq *req)
+{
+	if (!req->body.len)
+		return tfw_http_send_continuation(conn, req);
+	else if (tfw_http_should_del_continuation_seq_queue(req))
+		/**
+		 * Part of the body received, but 100-continue didn't send,
+		 * however handled. It implies it was queued, try to remove it
+		 * from queue.
+		 */
+		tfw_http_del_continuation_seq_queue(conn, req);
+
+	return T_OK;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -6147,6 +6364,14 @@ next_msg:
 					"postponed request has been filtered out",
 					HTTP2_ECODE_PROTO);
 		}
+
+		if (tfw_http_should_handle_expect(req)) {
+			r = tfw_http_handle_expect_request((TfwCliConn *)conn,
+							   req);
+			if (unlikely(r))
+				return r;
+		}
+
 		/*
 		 * T_POSTPONE status means that parsing succeeded
 		 * but more data is needed to complete it. Lower layers
@@ -6167,6 +6392,10 @@ next_msg:
 				HTTP2_ECODE_PROTO);
 		}
 	}
+
+	/* The body received, remove 100-continue from queue. */
+	if (unlikely(tfw_http_should_del_continuation_seq_queue(req)))
+		tfw_http_del_continuation_seq_queue((TfwCliConn *)conn, req);
 
 	req->ja5h.method = req->method;
 
