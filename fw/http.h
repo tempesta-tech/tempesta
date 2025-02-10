@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -210,6 +210,7 @@ typedef enum {
 	/* This is only responce specific header. */
 	TFW_HTTP_HDR_CONTENT_LOCATION,
 	TFW_HTTP_HDR_CONTENT_TYPE,
+	TFW_HTTP_HDR_EXPECT,
 	TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
@@ -626,7 +627,7 @@ tfw_http_req_header_table_size(void)
 static inline size_t
 tfw_http_resp_header_table_size(void)
 {
-	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 1;
+	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 2;
 }
 
 /**
