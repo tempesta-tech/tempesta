@@ -552,6 +552,7 @@ typedef struct {
 
 /* HTTP codes enumeration for predefined responses */
 typedef enum {
+	RESP_100,
 	RESP_200,
 	RESP_4XX_BEGIN,
 	RESP_400	= RESP_4XX_BEGIN,
