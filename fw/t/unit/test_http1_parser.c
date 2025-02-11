@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -73,12 +73,6 @@
 
 TEST(http1_parser, leading_eol)
 {
-	FOR_REQ(EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 0);
-	FOR_REQ("\n" EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 1);
-	FOR_REQ("\r\n" EMPTY_REQ)
-		EXPECT_EQ(number_to_strip(req), 2);
 	EXPECT_BLOCK_REQ("\r\n\r\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n" EMPTY_REQ);
 	EXPECT_BLOCK_REQ("\n\n\n" EMPTY_REQ);
@@ -226,36 +220,19 @@ TEST(http1_parser, parses_req_uri)
 	TEST_FULL_REQ("natsys-lab.com", "/foo/");
 	TEST_FULL_REQ("natsys-lab.com:8080", "/cgi-bin/show.pl?entry=tempesta");
 
-	FOR_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET https://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET https://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET ws://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET ws://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET wss://userame@natsys-lab.com HTTP/1.1\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-	}
+	EXPECT_BLOCK_REQ("GET wss://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
-	FOR_REQ("GET http://user@tempesta-tech.com/ HTTP/1.1\r\n"
-		"Host: bad.com\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
-	}
+	EXPECT_BLOCK_REQ("GET http://user@tempesta-tech.com/ HTTP/1.1\r\n"
+			 "Host: bad.com\r\n\r\n");
 
-	FOR_REQ("GET http://user@-x/ HTTP/1.1\r\nHost: bad.com\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "-x");
-	}
+	EXPECT_BLOCK_REQ("GET http://user@-x/ HTTP/1.1\r\n"
+			 "Host: bad.com\r\n\r\n");
 
 	FOR_REQ("GET http://tempesta-tech.com/ HTTP/1.1\r\n"
 		"Host: bad.com\r\n\r\n")
@@ -263,10 +240,7 @@ TEST(http1_parser, parses_req_uri)
 		EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
 	}
 
-	FOR_REQ("GET http:///path HTTP/1.1\r\nHost: localhost\r\n\r\n")
-	{
-		EXPECT_TFWSTR_EQ(&req->host, "localhost");
-	}
+	EXPECT_BLOCK_REQ("GET http:///path HTTP/1.1\r\nHost: localhost\r\n\r\n");
 
 	FOR_REQ("OPTIONS * HTTP/1.1\r\n\r\n");
 

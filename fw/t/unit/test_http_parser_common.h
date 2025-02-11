@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -657,14 +657,6 @@ do {									\
 	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
 
 void test_string_split(const TfwStr *expected, const TfwStr *parsed);
-
-static inline int
-number_to_strip(TfwHttpReq *req)
-{
-	return
-		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_CR, req->flags) +
-		!!test_bit(TFW_HTTP_B_NEED_STRIP_LEADING_LF, req->flags);
-}
 
 TfwStr get_next_str_val(TfwStr *str);
 

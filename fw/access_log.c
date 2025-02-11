@@ -45,7 +45,7 @@
 	FIXED(" \"")						\
 	UNTRUNCATABLE(vhost)					\
 	FIXED("\" \"")						\
-	UNTRUNCATABLE(method)					\
+	TRUNCATABLE(method)					\
 	FIXED(" ")						\
 	TRUNCATABLE(uri)					\
 	FIXED(" ")						\
@@ -135,33 +135,6 @@ get_http_header_value(char http_version, TfwStr *line)
 	result.nchunks = end - chunk;
 	return result;
 }
-
-
-/* Helpers for const=>name conversions for http methods and versions */
-static const struct {
-#	define MAX_HTTP_METHOD_NAME_LEN	10
-	char name[MAX_HTTP_METHOD_NAME_LEN];
-	u8 len;
-} http_methods[] = {
-#define STR_METHOD(name) [TFW_HTTP_METH_ ## name] = { #name, sizeof(#name) - 1 }
-	STR_METHOD(COPY),
-	STR_METHOD(DELETE),
-	STR_METHOD(GET),
-	STR_METHOD(HEAD),
-	STR_METHOD(LOCK),
-	STR_METHOD(MKCOL),
-	STR_METHOD(MOVE),
-	STR_METHOD(OPTIONS),
-	STR_METHOD(PATCH),
-	STR_METHOD(POST),
-	STR_METHOD(PROPFIND),
-	STR_METHOD(PROPPATCH),
-	STR_METHOD(PUT),
-	STR_METHOD(TRACE),
-	STR_METHOD(UNLOCK),
-	STR_METHOD(PURGE),
-#undef STR_METHOD
-};
 
 static const struct {
 #	define MAX_HTTP_VERSION_LEN 9
@@ -405,7 +378,7 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 {
 	char *buf = this_cpu_ptr(access_log_buf);
 	char *p = buf, *end = buf + ACCESS_LOG_BUF_SIZE;
-	BasicStr client_ip, vhost, method, version;
+	BasicStr client_ip, vhost, version;
 	/* These fields are only here to hold estimation of appropriate fields
 	 * length in characters */
 	BasicStr status, content_length, ja5_tls, ja5_http;
@@ -435,18 +408,6 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 #define FMT_vhost "%.*s"
 #define ARG_vhost , (int)vhost.len, vhost.data
 	vhost = req->vhost && req->vhost->name.len ? req->vhost->name : missing;
-
-	/* method */
-#define FMT_method "%.*s"
-#define ARG_method , (int)method.len, method.data
-	if (req->method < sizeof(http_methods) / sizeof(*http_methods)
-	    && http_methods[req->method].len != 0)
-	{
-		method.data = (char *)http_methods[req->method].name;
-		method.len = http_methods[req->method].len;
-	} else {
-		method = missing;
-	}
 
 	/* http version */
 #define FMT_version "%.*s"
@@ -479,6 +440,12 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 #define ADD_HDR(id, tfw_hdr_id)                                        \
 		truncated_in[id] = get_http_header_value(req->version, \
 				req->h_tbl->tbl + tfw_hdr_id);
+
+	if (!TFW_MSG_H2(req))
+		truncated_in[idx_method] = req->h_tbl->tbl[TFW_HTTP_METHOD];
+	else
+		ADD_HDR(idx_method, TFW_HTTP_METHOD);
+
 	ADD_HDR(idx_referer, TFW_HTTP_HDR_REFERER);
 	ADD_HDR(idx_user_agent, TFW_HTTP_HDR_USER_AGENT);
 
@@ -538,8 +505,6 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 #undef FMT_status
 #undef ARG_version
 #undef FMT_version
-#undef ARG_method
-#undef FMT_method
 #undef ARG_vhost
 #undef FMT_vhost
 #undef ARG_client_ip
