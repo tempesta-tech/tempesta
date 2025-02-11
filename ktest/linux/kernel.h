@@ -123,6 +123,12 @@ get_random_bytes_arch(void *buf, int nbytes)
 	return nbytes;
 }
 
+static inline int
+get_random_bytes_wait(void *buf, int nbytes)
+{
+	return get_random_bytes_arch(buf, nbytes);
+}
+
 static inline void
 get_random_bytes(void *buf, int nbytes)
 {

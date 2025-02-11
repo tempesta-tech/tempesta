@@ -1068,10 +1068,11 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 int
 __ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
 {
-	int r;
+	int r = ttls_send_cb(tls, sgt);
 
-	if ((r = ttls_send_cb(tls, sgt)))
+	if (likely(r)) {
 		T_DBG("TLS send callback error %d\n", r);
+	}
 	return r;
 }
 
