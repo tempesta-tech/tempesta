@@ -484,6 +484,7 @@ typedef struct {
  * @cut 	    - descriptors of http chunked body to be cut during
  *		      HTTP1 to HTTP2 transformation and ignored during
  *		      caching;
+ * trailers_len     - length of trailers headers, if present or 0;
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;

@@ -868,13 +868,14 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	return tfw_strcpy(append ? &it : orig_hdr, hdr);
 }
 
+/* Remove header from header table. */
 static void
 __hdr_del_from_tbl(TfwHttpHdrTbl *ht, unsigned int hid)
 {
 	if (hid < TFW_HTTP_HDR_RAW) {
 		TFW_STR_INIT(&ht->tbl[hid]);
 	} else {
-		if (hid < ht->off - 1)
+		if (hid + 1 < ht->off)
 			memmove(&ht->tbl[hid], &ht->tbl[hid + 1],
 				(ht->off - hid - 1) * sizeof(TfwStr));
 		--ht->off;
@@ -1108,6 +1109,12 @@ tfw_http_msg_del_trailer_hdrs(TfwHttpMsg *hm)
 		id = 0;
 		TFW_STR_FOR_EACH_DUP_INIT(dup, field, dup_end);
 
+		/*
+		 * Iterate over all headers with the same hid and
+		 * delete trailers. For example if header is present
+		 * both in headers and trailers delete only trailer
+		 * part.
+		 */
 		while (dup < dup_end) {
 			if (dup->flags & TFW_STR_TRAILER) {
 				if (TFW_STR_DUP(field) && field->nchunks > 1) {
@@ -1129,6 +1136,11 @@ tfw_http_msg_del_trailer_hdrs(TfwHttpMsg *hm)
 			dup++;
 			id++;
 		}
+
+		/*
+		 * If there are only trailer headers with this hid, remove it
+		 * from the table.
+		 */
 		if (was_deleted)
 			__hdr_del_from_tbl(ht, hid);
 		--ht->off;
