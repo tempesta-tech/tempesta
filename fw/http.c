@@ -134,9 +134,6 @@
 /* General purpose per CPU buffer */
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 
-/* Buffer for storing values of Transfer-Encoding header. */
-static DEFINE_PER_CPU(char[RESP_TE_BUF_LEN], g_te_buf);
-
 #define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
 unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
 
@@ -5482,7 +5479,7 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpRespCleanup cleanup = {};
-	TfwStr codings = {.data = *this_cpu_ptr(&g_te_buf), .len = 0};
+	TfwStr codings = {};
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
@@ -5506,7 +5503,11 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	}
 
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
-		r = tfw_http_resp_copy_encodings(resp, &codings, RESP_BUF_LEN);
+		codings.data = tfw_pool_alloc(resp->pool, RESP_TE_BUF_LEN);
+		if (unlikely(!codings.data))
+			goto clean;
+		r = tfw_http_resp_copy_encodings(resp, &codings,
+						 RESP_TE_BUF_LEN);
 		if (unlikely(r))
 			goto clean;
 	}
