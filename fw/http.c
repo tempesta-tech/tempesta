@@ -3613,6 +3613,18 @@ tfw_h1_rewrite_head_to_get(struct sk_buff **head_p)
 	return tfw_h1_rewrite_method_to_get(head_p, 1);
 }
 
+static int
+tfw_h1_req_del_expect_hdr(TfwHttpMsg *hm)
+{
+	static TfwStr val = {};
+
+	if (test_bit(TFW_HTTP_B_EXPECT_CONTINUE, hm->flags))
+		return tfw_http_msg_hdr_xfrm_str(hm, &val, TFW_HTTP_HDR_EXPECT,
+						 false);
+
+	return 0;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -3641,6 +3653,10 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		if (unlikely(r))
 			return r;
 	}
+
+	r = tfw_h1_req_del_expect_hdr(hm);
+	if (r)
+		return r;
 
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
