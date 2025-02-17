@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -848,7 +848,7 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 		HEADER(WO_IND(NAME(":method"), VALUE(#METHOD)));		\
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("1")));		\
 	    HEADERS_FRAME_END();						\
 	)									\
 	{									\
@@ -872,7 +872,7 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("1")));		\
 		HEADER(WO_IND(NAME("x-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	)									\
@@ -898,7 +898,7 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("1")));		\
 		HEADER(WO_IND(NAME("x-http-method-override"), VALUE(#METHOD)));	\
 	    HEADERS_FRAME_END();						\
 	)									\
@@ -924,7 +924,7 @@ TEST(http2_parser, suspicious_x_forwarded_for)
 		HEADER(WO_IND(NAME(":method"), VALUE("PUT")));			\
 		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));		\
 		HEADER(WO_IND(NAME(":path"), VALUE("/filename")));		\
-		HEADER(WO_IND(NAME("content-length"), VALUE("0")));		\
+		HEADER(WO_IND(NAME("content-length"), VALUE("1")));		\
 		HEADER(WO_IND(NAME("x-http-method"), VALUE(#METHOD)));		\
 	    HEADERS_FRAME_END();						\
 	)									\

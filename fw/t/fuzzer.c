@@ -3,7 +3,7 @@
  *
  * Tempesta HTTP fuzzer.
  *
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -92,8 +92,9 @@ static FuzzMsg host_val[] = {
 static FuzzMsg content_type[] = {
 	{"text/html;charset=utf-8"}, {"image/jpeg"}, {"text/plain"}
 };
+#define FUZZ_FLD_F_ZERO_CL		(0x0001 << FUZZ_MSG_F_SHIFT)
 static FuzzMsg content_len[] = {
-	{"10000"}, {"0"}, {"-42", FUZZ_MSG_F_INVAL},
+	{"10000"}, {"0", FUZZ_FLD_F_ZERO_CL}, {"-42", FUZZ_MSG_F_INVAL},
 	{"146"}, {"0100"}, {"100500"}
 };
 #define FUZZ_FLD_F_CHUNKED		(0x0001 << FUZZ_MSG_F_SHIFT)
@@ -762,7 +763,8 @@ fuzz_hdrs_compatible(TfwFuzzContext *ctx, int type, unsigned int v)
 		if ((ctx->fld_flags[RESP_CODE]
 		     & (FUZZ_FLD_F_STATUS_100
 			| FUZZ_FLD_F_STATUS_204))
-		    && (ctx->hdr_flags & (1 << CONTENT_LENGTH)))
+		    && (ctx->hdr_flags & (1 << CONTENT_LENGTH))
+		    && !(ctx->fld_flags[CONTENT_LENGTH] & FUZZ_FLD_F_ZERO_CL))
 		{
 			return false;
 		}
