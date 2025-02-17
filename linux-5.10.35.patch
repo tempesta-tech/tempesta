@@ -503,51 +503,6 @@ index b4dae640d..1b6d4a669 100644
  struct crypto_sync_skcipher *crypto_alloc_sync_skcipher(
  				const char *alg_name, u32 type, u32 mask)
  {
-diff --git a/drivers/base/class.c b/drivers/base/class.c
-index c34514811..aa551e4de 100644
---- a/drivers/base/class.c
-+++ b/drivers/base/class.c
-@@ -187,12 +187,40 @@ int __class_register(struct class *cls, struct lock_class_key *key)
- 
- 	error = kset_register(&cp->subsys);
- 	if (error) {
-+	/*
-+	 * Free memory, which was allocated in `kobject_set_name`
-+	 * This patch should be dropped during porting on
-+	 * linux kernel 6.12.12.
-+	 */
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+		kfree_const(cp->subsys.kobj.name);
-+		goto err_out;
-+#else
- 		kfree(cp);
- 		return error;
-+#endif
- 	}
- 	error = class_add_groups(class_get(cls), cls->class_groups);
- 	class_put(cls);
-+	/*
-+	 * This patch should be dropped during porting on
-+	 * linux kenrel 6.12.12.
-+	 */
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	if (error) {
-+		kfree_const(cp->subsys.kobj.name);
-+		kobject_del(&cp->subsys.kobj);
-+		goto err_out;
-+	}
-+
-+	return 0;
-+
-+err_out:
-+	kfree(cp);
-+	cls->p = NULL;
-+#endif
- 	return error;
-+
- }
- EXPORT_SYMBOL_GPL(__class_register);
- 
 diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
 index 038ce4e5e..7b09c1ccd 100644
 --- a/drivers/net/virtio_net.c
@@ -1023,7 +978,7 @@ index 261195598..b277c7efb 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 7d66c61d2..5bb6dced2 100644
+index 7d66c61d2..440938820 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -307,6 +307,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -1057,7 +1012,7 @@ index 7d66c61d2..5bb6dced2 100644
  /* Read 'sendfile()'-style from a TCP socket */
  int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
  		  sk_read_actor_t recv_actor);
-@@ -1858,11 +1875,51 @@ static inline void tcp_rtx_queue_unlink_and_free(struct sk_buff *skb, struct soc
+@@ -1858,11 +1875,64 @@ static inline void tcp_rtx_queue_unlink_and_free(struct sk_buff *skb, struct soc
  	sk_wmem_free_skb(sk, skb);
  }
  
@@ -1075,7 +1030,20 @@ index 7d66c61d2..5bb6dced2 100644
 +	sk->sk_err = error;
 +	sk->sk_error_report(sk);
 +	tcp_write_queue_purge(sk);
-+	tcp_done(sk);
++
++	/*
++	 * If this function is called when error occurs during sending
++	 * TCP FIN from `ss_do_close` or `tcp_shutdown`, we should not
++	 * call `tcp_done` just set state to TCP_CLOSE and clear timers
++	 * to prevent extra call of `inet_csk_destroy_sock`.
++	 */
++	if (unlikely(sk->sk_state == TCP_FIN_WAIT1
++		     || sk->sk_state == TCP_LAST_ACK)) {
++		tcp_set_state(sk, TCP_CLOSE);
++		tcp_clear_xmit_timers(sk);
++	} else {
++		tcp_done(sk);
++	}
 +}
 +#endif
 +
