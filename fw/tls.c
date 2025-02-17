@@ -110,8 +110,9 @@ next_msg:
 	case T_BLOCK_WITH_FIN:
 		fallthrough;
 	case T_BLOCK_WITH_RST:
-		if (tls->conf->endpoint == TTLS_IS_SERVER)
+		if (tls->conf->endpoint == TTLS_IS_SERVER && !ttls_hs_done(tls))
 			TFW_INC_STAT_BH(serv.tls_hs_failed);
+
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
