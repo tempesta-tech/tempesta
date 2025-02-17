@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -736,6 +736,7 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 	(TFW_MSG_H2(hmmsg) ? HTTP2_EXTRA_HDR_OVERHEAD : 0)
 
 extern unsigned int max_header_list_size;
+extern bool allow_empty_body_content_type;
 
 /* External HTTP functions. */
 int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
