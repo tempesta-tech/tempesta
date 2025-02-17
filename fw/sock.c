@@ -645,6 +645,14 @@ ss_do_close(struct sock *sk, int flags)
 	/* The below is mostly copy-paste from tcp_close(), 5.10.35. */
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
+	/*
+	 * We set this flag at the beginning of this function and reset it at
+	 * the end of this function to prevent recursive call of this function,
+	 * when `tcp_done` is called because of error in `tcp_send_fin` /
+	 * `tcp_send_active_reset`->  `tcp_write_xmit->tcp_tfw_handle_error`.
+	 */
+	sock_set_flag(sk, SOCK_TIMESTA_CLOSING);
+
 	while ((skb = __skb_dequeue(&sk->sk_receive_queue))) {
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq;
 
@@ -692,6 +700,12 @@ adjudge_to_death:
 
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
+
+		/*
+		 * It is ok to call `tcp_done` and destroy socket
+		 * in `tcp_time_wait`, so reset flag.
+		 */
+		sock_reset_flag(sk, SOCK_TIMESTA_CLOSING);
 		if (tmo > TCP_TIMEWAIT_LEN) {
 			inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
 		} else {
@@ -724,6 +738,8 @@ adjudge_to_death:
 			tcp_write_queue_purge(sk);
 		inet_csk_destroy_sock(sk);
 	}
+
+	sock_reset_flag(sk, SOCK_TIMESTA_CLOSING);
 }
 
 void
