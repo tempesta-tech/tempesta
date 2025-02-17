@@ -1498,7 +1498,11 @@ static inline void
 ss_do_shutdown(struct sock *sk)
 {
 	tcp_shutdown(sk, SEND_SHUTDOWN);
-	SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	if (unlikely(sk->sk_state == TCP_CLOSE)) {
+		ss_linkerror(sk, 0);
+	} else {
+		SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	}
 }
 
 static inline bool
