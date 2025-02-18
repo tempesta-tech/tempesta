@@ -121,6 +121,11 @@ enum {
 	 */
 	TFW_HTTP_B_REQ_HEAD_TO_GET,
 
+	/* Request contains `Expect: 100-continue`. */
+	TFW_HTTP_B_EXPECT_CONTINUE,
+	/* 100-continue has been sent. */
+	TFW_HTTP_B_CONTINUE_SENT,
+
         /* Response flags */
         TFW_HTTP_FLAGS_RESP,
         /* Response has no body. */
