@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -709,7 +709,7 @@ x509_get_current_time(ttls_x509_time *now)
 {
 	struct tm t;
 
-	time64_to_tm(ttls_time(), 0, &t);
+	time64_to_tm(ktime_get_real_seconds(), 0, &t);
 
 	now->year = t.tm_year + 1900;
 	now->mon  = t.tm_mon  + 1;
