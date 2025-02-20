@@ -403,6 +403,7 @@ unsigned long ttls_time_debug(void);
 #define ttls_time()		ttls_time_debug()
 
 #else
+/* Uses CLOCK_MONOTONIC. Starts at system boot time but stops during suspend. */
 #define ttls_time()		ktime_get_seconds()
 
 /*
