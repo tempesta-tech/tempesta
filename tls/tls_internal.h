@@ -398,7 +398,6 @@ ttls_rnd(void *buf, size_t len)
 	memset(buf, 0x55, len);
 }
 
-
 #else
 
 /*
