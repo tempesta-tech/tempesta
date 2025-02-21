@@ -36,6 +36,10 @@
 #include "ttls.h"
 #include "x509_crt.h"
 
+#if DBG_TLS == 3
+#define DBG_TLS_NO_RAND 1
+#endif
+
 struct aead_request *ttls_aead_req_alloc(struct crypto_aead *tfm);
 void ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req);
 
@@ -386,7 +390,7 @@ ttls_substate(const TlsCtx *tls)
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
-#if DBG_TLS == 3
+#if DBG_TLS_NO_RAND > 0
 /*
  * Make the things repeatable, simple and INSECURE on largest debug level -
  * this helps to debug TLS (thanks to reproducible records payload), but
@@ -395,7 +399,7 @@ ttls_substate(const TlsCtx *tls)
 static inline void
 ttls_rnd(void *buf, size_t len)
 {
-	memset(buf, 0x55, len);
+	memset(buf, 0xAA, len);
 }
 
 #else
