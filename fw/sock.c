@@ -1338,13 +1338,11 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	ret = ss_inet_create(&init_net, family, type, protocol, &sk);
 	module_put(pf->owner);
 	if (ret < 0)
-		goto out_module_put;
+		goto out_ret_error;
 
 	*res = sk;
 	return 0;
 
-out_module_put:
-	module_put(pf->owner);
 out_ret_error:
 	return ret;
 out_rcu_unlock:
