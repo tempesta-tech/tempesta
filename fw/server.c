@@ -78,6 +78,79 @@ static DECLARE_HASHTABLE(sg_hash_reconfig, TFW_SG_HBITS);
  */
 static DECLARE_RWSEM(sg_sem);
 
+struct server_dbg {
+	void *arr[5];
+	s64 refcnt;
+	int set;
+};
+
+static struct server_dbg server_dbg_impl[10000];
+static atomic_t server_dbg_cnt;
+
+void
+tfw_server_get(TfwServer *srv)
+{
+	s64 rc = atomic64_inc_return(&srv->refcnt);
+	int dbg_rc = atomic_fetch_add(1, &server_dbg_cnt);
+
+	if (dbg_rc < 10000) {
+		server_dbg_impl[dbg_rc].refcnt = rc;
+		server_dbg_impl[dbg_rc].arr[0] = __builtin_return_address(0);
+		server_dbg_impl[dbg_rc].arr[1] = __builtin_return_address(1);
+		server_dbg_impl[dbg_rc].arr[2] = __builtin_return_address(2);
+		server_dbg_impl[dbg_rc].arr[3] = __builtin_return_address(3);
+		server_dbg_impl[dbg_rc].arr[4] = __builtin_return_address(4);
+		server_dbg_impl[dbg_rc].set = 111;
+	}
+}
+
+void
+tfw_server_put(TfwServer *srv)
+{
+	s64 rc;
+	int dbg_rc;
+
+	if (unlikely(!srv))
+		return;
+
+	rc = atomic64_dec_return(&srv->refcnt);
+	dbg_rc = atomic_fetch_add(1, &server_dbg_cnt);
+
+	if (dbg_rc < 10000) {
+		server_dbg_impl[dbg_rc].refcnt = rc;
+		server_dbg_impl[dbg_rc].arr[0] = __builtin_return_address(0);
+		server_dbg_impl[dbg_rc].arr[1] = __builtin_return_address(1);
+		server_dbg_impl[dbg_rc].arr[2] = __builtin_return_address(2);
+		server_dbg_impl[dbg_rc].arr[3] = __builtin_return_address(3);
+		server_dbg_impl[dbg_rc].arr[4] = __builtin_return_address(4);
+		server_dbg_impl[dbg_rc].set = 111;
+	}
+
+	if (rc < 0) {
+		unsigned int i;
+
+		for (i = 0; i < 10000; i++) {
+			if (server_dbg_impl[i].set == 111) {
+				printk(KERN_ALERT "BUG tfw_server_put %lld | %ps %ps %ps %ps %ps",
+				       server_dbg_impl[i].refcnt, server_dbg_impl[i].arr[0], server_dbg_impl[i].arr[1],
+				       server_dbg_impl[i].arr[2], server_dbg_impl[i].arr[3], server_dbg_impl[i].arr[4]);
+			}
+		}
+	}
+
+	BUG_ON(rc < 0);
+	if (likely(rc))
+		return;
+	tfw_server_destroy(srv);
+}
+
+void
+tfw_server_reset(void)
+{
+	memset(server_dbg_impl, 0, sizeof(server_dbg_impl));
+	atomic_set(&server_dbg_cnt, 0);
+}
+
 void
 tfw_server_destroy(TfwServer *srv)
 {
