@@ -3410,7 +3410,10 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
+	printk(KERN_ALERT "tfw_http_add_x_forwarded_for %px", hm);
 	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
+
+	printk(KERN_ALERT "tfw_http_add_x_forwarded_for AAA");
 
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
 				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
@@ -4426,7 +4429,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		const bool send_cont = tfw_http_has_pending_continuation(req);
 
 		BUG_ON(!req->resp);
-
+		printk(KERN_ALERT "send_cont %px %d", req, send_cont);
 		if (!send_cont)
 			tfw_http_resp_init_ss_flags(req->resp);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
@@ -6212,6 +6215,9 @@ err:
 static int
 tfw_http_handle_expect_request(TfwCliConn *conn, TfwHttpReq *req)
 {
+
+	printk(KERN_ALERT "tfw_http_handle_expect_request %px %d", req, tfw_http_continuation_sent(req));
+
 	if (!tfw_http_continuation_sent(req)) {
 		if (tfw_http_should_send_continuation(req))
 			return tfw_http_send_continuation(conn, req);
@@ -6241,7 +6247,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 
 	BUG_ON(!stream->msg);
 
-	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
+	printk(KERN_ALERT "Received %u client data bytes on conn=%px msg=%px\n",
 	       skb->len, conn, stream->msg);
 
 	/*
@@ -6264,7 +6270,7 @@ next_msg:
 	req->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
-	T_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
+	printk(KERN_ALERT "Request parsed: len=%u next=%px parsed=%d msg_len=%lu"
 	       " ver=%d res=%d\n",
 		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 
@@ -6354,13 +6360,15 @@ next_msg:
 		}
 
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);
-		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+		printk(KERN_ALERT "TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return tfw_http_req_parse_block(req, 403,
 					"postponed request has been filtered out",
 					HTTP2_ECODE_PROTO);
 		}
+
+		printk(KERN_ALERT "req %px %d", req, test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags));
 
 		if (test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags) &&
 		    !TFW_MSG_H2(req)) {

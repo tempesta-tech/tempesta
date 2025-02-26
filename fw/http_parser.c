@@ -4846,7 +4846,11 @@ __req_parse_expect(TfwHttpReq *req, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 
+	printk(KERN_ALERT "__req_parse_expect %px", req);
+
 	__FSM_START(parser->_i_st);
+
+	printk(KERN_ALERT "__req_parse_expect %px", req);
 
 	__FSM_STATE(Req_I_Expect_Match) {
 		/* "Expect" ":" "100-continue" */
