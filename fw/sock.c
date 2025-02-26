@@ -1331,6 +1331,7 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	rcu_read_lock_bh();
 	if ((pf = get_proto_family(family)) == NULL)
 		goto out_rcu_unlock;
+
 	if (!try_module_get(pf->owner))
 		goto out_rcu_unlock;
 	rcu_read_unlock_bh();
@@ -1338,13 +1339,11 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	ret = ss_inet_create(&init_net, family, type, protocol, &sk);
 	module_put(pf->owner);
 	if (ret < 0)
-		goto out_module_put;
+		goto out_ret_error;
 
 	*res = sk;
 	return 0;
 
-out_module_put:
-	module_put(pf->owner);
 out_ret_error:
 	return ret;
 out_rcu_unlock:
