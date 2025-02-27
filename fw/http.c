@@ -4392,24 +4392,6 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 				     TFW_HTTP_HDR_SERVER, 0);
 }
 
-static bool
-tfw_http_continuation_sent(TfwHttpReq *req)
-{
-	return test_bit(TFW_HTTP_B_CONTINUE_SENT, req->flags);
-}
-
-/**
- * Whether request has queued continuation response, it will be queued in
- * case if @seq_queue is not empty at the moment of sending 100-continue
- * response via @tfw_http_send_continuation.
- */
-static bool
-tfw_http_has_pending_continuation(TfwHttpReq *req)
-{
-	return test_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags) &&
-			!tfw_http_continuation_sent(req);
-}
-
 /*
  * Forward responses in @ret_queue to the client in correct order.
  *
@@ -4423,10 +4405,11 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	TfwHttpReq *req, *tmp;
 
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
-		const bool send_cont = tfw_http_has_pending_continuation(req);
+		bool send_cont;
 
 		BUG_ON(!req->resp);
-
+		send_cont = test_bit(TFW_HTTP_B_CONTINUE_QUEUED,
+				     req->resp->flags);
 		if (!send_cont)
 			tfw_http_resp_init_ss_flags(req->resp);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
@@ -4437,12 +4420,10 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 		tfw_inc_global_hm_stats(req->resp->status);
 		list_del_init(&req->msg.seq_list);
-		if (!send_cont) {
+		if (!send_cont)
 			tfw_http_resp_pair_free(req);
-		} else {
-			set_bit(TFW_HTTP_B_CONTINUE_SENT, req->flags);
+		else
 			tfw_http_msg_free(req->pair);
-		}
 	}
 }
 
@@ -4549,9 +4530,6 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 
-	spin_unlock_bh(&cli_conn->ret_qlock);
-	tfw_connection_put((TfwConn *)(cli_conn));
-
 	/* Zap request/responses that were not sent due to an error. */
 	if (!list_empty(&ret_queue)) {
 		TfwHttpReq *tmp;
@@ -4564,6 +4542,9 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
+
+	spin_unlock_bh(&cli_conn->ret_qlock);
+	tfw_connection_put((TfwConn *)(cli_conn));
 }
 
 int
@@ -6096,6 +6077,12 @@ tfw_http_check_ja5h_req_limit(TfwHttpReq *req)
 	return rate > limit;
 }
 
+static bool
+tfw_http_continuation_handled(TfwHttpReq *req)
+{
+	return test_bit(TFW_HTTP_B_EXPECT_HANDLED, req->flags);
+}
+
 /**
  * Whether we should send 100-continue response.
  *
@@ -6131,8 +6118,8 @@ tfw_http_should_send_continuation(TfwHttpReq *req)
 static bool
 tfw_http_should_del_continuation_seq_queue(TfwHttpReq *req)
 {
-	return tfw_http_has_pending_continuation(req) && req->body.len > 0
-	       && req->resp;
+	return tfw_http_continuation_handled(req) &&
+	       !test_bit(TFW_HTTP_B_CONTINUE_SENT, req->flags);
 }
 
 /*
@@ -6142,11 +6129,33 @@ tfw_http_should_del_continuation_seq_queue(TfwHttpReq *req)
 static void
 tfw_http_del_continuation_seq_queue(TfwCliConn *cli_conn, TfwHttpReq *req)
 {
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+	TfwHttpReq *queued_req = NULL;
+
+	/* Remove request from @seq_queue only if we ensure that it's there.
+	 * Otherwise request might be in @ret_queue, therefore we can't do
+	 * that under @seq_qlock.
+	 */
 	spin_lock_bh(&cli_conn->seq_qlock);
-	list_del_init(&req->msg.seq_list);
-	tfw_http_msg_free((TfwHttpMsg *)req->resp);
-	clear_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
+	list_for_each_entry(queued_req, seq_queue, msg.seq_list) {
+		if (queued_req != req)
+			continue;
+
+		list_del_init(&req->msg.seq_list);
+		tfw_http_msg_free((TfwHttpMsg *)req->resp);
+		spin_unlock_bh(&cli_conn->seq_qlock);
+		return;
+	}
 	spin_unlock_bh(&cli_conn->seq_qlock);
+
+	spin_lock_bh(&cli_conn->ret_qlock);
+	/*
+	 * Need this section to ensure that request sent or removed from
+	 * queue due to error. We can't move forward if response still in
+	 * @ret_queue.
+	 */
+	BUG_ON(!list_empty(&req->msg.seq_list));
+	spin_unlock_bh(&cli_conn->ret_qlock);
 }
 
 /**
@@ -6193,7 +6202,7 @@ tfw_http_send_continuation(TfwCliConn *cli_conn, TfwHttpReq *req)
 		tfw_connection_put((TfwConn *)(cli_conn));
 		set_bit(TFW_HTTP_B_CONTINUE_SENT, req->flags);
 	} else {
-		set_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
+		set_bit(TFW_HTTP_B_CONTINUE_QUEUED, resp->flags);
 		set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
 		list_add_tail(&req->msg.seq_list, seq_queue);
 		spin_unlock_bh(&cli_conn->seq_qlock);
@@ -6212,10 +6221,12 @@ err:
 static int
 tfw_http_handle_expect_request(TfwCliConn *conn, TfwHttpReq *req)
 {
-	if (!tfw_http_continuation_sent(req)) {
+	if (!tfw_http_continuation_handled(req)) {
+		set_bit(TFW_HTTP_B_EXPECT_HANDLED, req->flags);
 		if (tfw_http_should_send_continuation(req))
 			return tfw_http_send_continuation(conn, req);
-	} else {
+	}
+	else if (!test_bit(TFW_HTTP_B_CONTINUE_SENT, req->flags)) {
 		/* Part of the body received, remove 100-continue from queue. */
 		tfw_http_del_continuation_seq_queue(conn, req);
 	}
@@ -6392,7 +6403,7 @@ next_msg:
 	}
 
 	/* The body received, remove 100-continue from queue. */
-	if (tfw_http_should_del_continuation_seq_queue(req))
+	if (unlikely(tfw_http_should_del_continuation_seq_queue(req)))
 		tfw_http_del_continuation_seq_queue((TfwCliConn *)conn, req);
 
 	req->ja5h.method = req->method;
