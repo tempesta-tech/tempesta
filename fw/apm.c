@@ -100,13 +100,13 @@ typedef struct {
 
 typedef struct {
 	TfwPcntCtl	ctl[TFW_STATS_RANGES];
-	char		__reset_from[0];
-	unsigned long	tot_cnt;
-	unsigned long	tot_val;
-	unsigned int	min_val;
-	unsigned int	max_val;
-	unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
-	char		__reset_till[0];
+	struct_group(reset,
+		unsigned long	tot_cnt;
+		unsigned long	tot_val;
+		unsigned int	min_val;
+		unsigned int	max_val;
+		unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
+	);
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
 
 static inline unsigned long *
@@ -866,9 +866,7 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
-	memset(crbent->pcntrng.__reset_from, 0,
-	       offsetof(TfwPcntRanges, __reset_till)
-	       - offsetof(TfwPcntRanges, __reset_from));
+	memset(&crbent->pcntrng.reset, 0, sizeof(crbent->pcntrng.reset));
 	crbent->pcntrng.min_val = UINT_MAX;
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
@@ -1084,8 +1082,9 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 		}
 	}
 
-	if (unlikely(!tfw_apm_calc(data)))
+	if (unlikely(!tfw_apm_calc(data))) {
 		T_DBG3("%s: Incomplete calculation\n", __func__);
+	}
 
 	smp_mb();
 	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))
