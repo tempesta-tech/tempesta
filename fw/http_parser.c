@@ -4859,7 +4859,7 @@ __req_parse_expect(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_Expect_Match) {
 		/* "Expect" ":" "100-continue" */
 		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("100-continue"),
-		&parser->hdr, {
+				     &parser->hdr, {
 			__set_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags);
 		}, Req_I_Expect_Match, Req_I_Expect_EOL);
 		TRY_STR_INIT();
