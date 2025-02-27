@@ -220,7 +220,7 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 {
 	struct sock *sk = conn->sk;
 
-	if (sk->sk_security)
+	if (tempesta_sock(sk)->class_prvt)
 		tfw_classify_conn_close(sk);
 	conn->sk = NULL;
 	ss_sock_put(sk);

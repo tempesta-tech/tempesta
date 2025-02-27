@@ -147,13 +147,13 @@ do {									\
 static inline bool
 frang_sk_is_whitelisted(struct sock *sk)
 {
-	return (unsigned long)sk->sk_security & 1;
+	return (unsigned long)tempesta_sock(sk)->class_prvt & 1;
 }
 
 static inline void
 frang_sk_mark_whitelisted(struct sock *sk)
 {
-	unsigned long d = (unsigned long)sk->sk_security;
+	unsigned long d = (unsigned long)tempesta_sock(sk)->class_prvt;
 
 	/* Should be initialized first by ra. */
 	BUG_ON(!d);
@@ -162,13 +162,13 @@ frang_sk_mark_whitelisted(struct sock *sk)
 	 * always equal to zero.
 	 */
 	d |= 1;
-	sk->sk_security = (void *)d;
+	tempesta_sock(sk)->class_prvt = (void *)d;
 }
 
 static inline FrangAcc *
 frang_acc_from_sk(struct sock *sk)
 {
-	unsigned long d = (unsigned long)sk->sk_security;
+	unsigned long d = (unsigned long)tempesta_sock(sk)->class_prvt;
 
 	d &= ~1;
 
@@ -299,7 +299,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * consistent we have two references to TfwPeer: from socket and
 	 * TfwConn{}.
 	 */
-	sk->sk_security = ra;
+	tempesta_sock(sk)->class_prvt = ra;
 	if (tfw_http_mark_is_in_whitlist(skb->mark)) {
 		/*
 		 * Netfilter works on TCP/IP level, so once we observe a
@@ -360,7 +360,7 @@ tfw_classify_conn_close(struct sock *sk)
 
 	spin_unlock(&ra->lock);
 
-	sk->sk_security = NULL;
+	tempesta_sock(sk)->class_prvt = NULL;
 
 	tfw_client_put(FRANG_ACC2CLI(ra));
 }
