@@ -149,6 +149,7 @@ static struct {
  * here, because it refers to HTTP layer.
  */
 unsigned int max_header_list_size = 0;
+bool allow_empty_body_content_type;
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
@@ -7908,6 +7909,12 @@ tfw_cfgop_cleanup_max_header_list_size(TfwCfgSpec *cs)
 	max_header_list_size = 0;
 }
 
+static void
+tfw_cfgop_cleanup_allow_empty_body_content_type(TfwCfgSpec *cs)
+{
+	allow_empty_body_content_type = false;
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -7994,6 +8001,15 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_max_header_list_size,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_max_header_list_size,
+	},
+	{
+		.name = "http_allow_empty_body_content_type",
+		.deflt = "false",
+		.handler = tfw_cfg_set_bool,
+		.dest = &allow_empty_body_content_type,
+		.allow_none = true,
+		.allow_repeat = false,
+		.cleanup = tfw_cfgop_cleanup_allow_empty_body_content_type,
 	},
 	{
 		.name = "ja5h",
