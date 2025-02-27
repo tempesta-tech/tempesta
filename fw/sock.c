@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1331,6 +1331,7 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	rcu_read_lock_bh();
 	if ((pf = get_proto_family(family)) == NULL)
 		goto out_rcu_unlock;
+
 	if (!try_module_get(pf->owner))
 		goto out_rcu_unlock;
 	rcu_read_unlock_bh();
@@ -1338,13 +1339,11 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	ret = ss_inet_create(&init_net, family, type, protocol, &sk);
 	module_put(pf->owner);
 	if (ret < 0)
-		goto out_module_put;
+		goto out_ret_error;
 
 	*res = sk;
 	return 0;
 
-out_module_put:
-	module_put(pf->owner);
 out_ret_error:
 	return ret;
 out_rcu_unlock:
@@ -1498,7 +1497,10 @@ static inline void
 ss_do_shutdown(struct sock *sk)
 {
 	tcp_shutdown(sk, SEND_SHUTDOWN);
-	SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	if (unlikely(sk->sk_state == TCP_CLOSE))
+		ss_linkerror(sk, 0);
+	else
+		SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 
 static inline bool
