@@ -123,9 +123,9 @@ enum {
 
 	/* Request contains `Expect: 100-continue`. */
 	TFW_HTTP_B_EXPECT_CONTINUE,
-	/* 100-continue has been sent. */
-	TFW_HTTP_B_CONTINUE_SENT,
-	/* 100-continue has been queued. */
+	/* Tried to send or queue 100-continue response. */
+	TFW_HTTP_B_CONTINUE_HANDLED,
+	/* 100-continue response has been queued. */
 	TFW_HTTP_B_CONTINUE_QUEUED,
 
         /* Response flags */
@@ -153,6 +153,9 @@ enum {
          * will be closed after sending it.
          */
         TFW_HTTP_B_CLOSE_ERROR_RESPONSE,
+
+	/* This is 100-continue response. */
+	TFW_HTTP_B_CONTINUE_RESP,
 
         _TFW_HTTP_FLAGS_NUM
 };

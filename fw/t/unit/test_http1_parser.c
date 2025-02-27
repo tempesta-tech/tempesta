@@ -4874,8 +4874,8 @@ TEST(http1_parser, expect)
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags));
 	}
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\nExpect: 10-continue\r\n\r\n\r\n");
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\nExpect: 100-continue1\r\n\r\n\r\n");
+	EXPECT_BLOCK_REQ_SIMPLE("Expect: 10-continue");
+	EXPECT_BLOCK_REQ_SIMPLE("Expect: 100-continue1");
 }
 
 TEST_SUITE_MPART(http1_parser, 0)
