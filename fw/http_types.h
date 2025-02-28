@@ -123,8 +123,6 @@ enum {
 
 	/* Request contains `Expect: 100-continue`. */
 	TFW_HTTP_B_EXPECT_CONTINUE,
-	/* Tried to send or queue 100-continue response. */
-	TFW_HTTP_B_CONTINUE_HANDLED,
 	/* 100-continue response has been queued. */
 	TFW_HTTP_B_CONTINUE_QUEUED,
 
