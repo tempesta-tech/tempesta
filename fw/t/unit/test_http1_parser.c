@@ -4863,6 +4863,29 @@ TEST(http1_parser, ja5h)
 	}
 }
 
+TEST(http1_parser, expect)
+{
+	FOR_REQ_SIMPLE("Expect: 100-continue")
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_EXPECT];
+
+		EXPECT_GT(h->len, 0);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags));
+	}
+
+	/* Expect with whitespaces. */
+	FOR_REQ_SIMPLE("Expect:     100-continue    ")
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_EXPECT];
+
+		EXPECT_GT(h->len, 0);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags));
+	}
+
+	EXPECT_BLOCK_REQ_SIMPLE("Expect: 10-continue");
+	EXPECT_BLOCK_REQ_SIMPLE("Expect: 100-continue1");
+}
+
 TEST_SUITE_MPART(http1_parser, 0)
 {
 	int r;
@@ -4936,6 +4959,7 @@ TEST_SUITE_MPART(http1_parser, 2)
 TEST_SUITE_MPART(http1_parser, 3)
 {
 	TEST_RUN(http1_parser, ja5h);
+	TEST_RUN(http1_parser, expect);
 }
 
 TEST_SUITE_MPART_DEFINE(http1_parser, H1_SUITE_PART_CNT,
