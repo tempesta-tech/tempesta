@@ -2963,7 +2963,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	TfwHttpReq *req, *tmp;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
-	T_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
+	printk(KERN_ALERT "%s: conn=[%px]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
 	if (list_empty_careful(seq_queue))
@@ -2985,6 +2985,10 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		 */
 		bool unused = req->resp
 			&& test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags);
+
+		printk(KERN_ALERT "tfw_http_conn_cli_drop %px %d %d\n", req,  test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags),
+			test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->resp->flags));
+
 		list_del_init(&req->msg.seq_list);
 		smp_mb__before_atomic();
 		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
@@ -3411,7 +3415,6 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
 	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
-
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
 				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
 				  TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
@@ -4408,8 +4411,12 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		bool send_cont;
 
 		BUG_ON(!req->resp);
+
 		send_cont = test_bit(TFW_HTTP_B_CONTINUE_RESP,
 				     req->resp->flags);
+		
+		printk(KERN_ALERT "send_cont %px %d\n", req, send_cont);
+		
 		if (!send_cont)
 			tfw_http_resp_init_ss_flags(req->resp);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
@@ -6109,6 +6116,10 @@ tfw_http_del_continuation_seq_queue(TfwCliConn *cli_conn, TfwHttpReq *req)
 
 	clear_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
 
+	printk(KERN_ALERT "tfw_http_del_continuation_seq_queue BEGIN!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+
+	mdelay(3000);
+
 	/* Remove request from @seq_queue only if we ensure that it's there.
 	 * Otherwise request might be in @ret_queue, therefore we can't do
 	 * that under @seq_qlock.
@@ -6117,6 +6128,8 @@ tfw_http_del_continuation_seq_queue(TfwCliConn *cli_conn, TfwHttpReq *req)
 	list_for_each_entry(queued_req, seq_queue, msg.seq_list) {
 		if (queued_req != req)
 			continue;
+
+		printk(KERN_ALERT "tfw_http_del_continuation_seq_queue DELETE %px\n", req);
 
 		list_del_init(&req->msg.seq_list);
 		tfw_http_msg_free((TfwHttpMsg *)req->resp);
@@ -6161,6 +6174,9 @@ tfw_http_send_continuation(TfwCliConn *cli_conn, TfwHttpReq *req)
 	}
 
 	spin_lock_bh(&cli_conn->seq_qlock);
+
+	printk(KERN_ALERT "tfw_http_send_continuation %px %d\n", req, list_empty(seq_queue));
+
 	if (list_empty(seq_queue)) {
 		/*
 		 * A queue is empty, don't hold a lock. Next request can be
@@ -6185,6 +6201,10 @@ tfw_http_send_continuation(TfwCliConn *cli_conn, TfwHttpReq *req)
 		spin_unlock_bh(&cli_conn->seq_qlock);
 	}
 
+	printk(KERN_ALERT "BEFORE SLEEP tfw_http_send_continuation\n");
+	mdelay(5000);
+	printk(KERN_ALERT "AFTER SLEEP tfw_http_send_continuation\n");
+
 	return 0;
 
 err:
@@ -6198,6 +6218,11 @@ err:
 static int
 tfw_http_handle_expect_request(TfwCliConn *conn, TfwHttpReq *req)
 {
+	printk(KERN_ALERT "tfw_http_handle_expect_request %px %d req->body.len %lu\n",
+		req, tfw_http_should_del_continuation_seq_queue(req),
+		req->body.len);
+
+
 	if (!req->body.len)
 		return tfw_http_send_continuation(conn, req);
 	else if (tfw_http_should_del_continuation_seq_queue(req))
@@ -6229,7 +6254,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 
 	BUG_ON(!stream->msg);
 
-	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
+	printk(KERN_ALERT "Received %u client data bytes on conn=%px msg=%px\n",
 	       skb->len, conn, stream->msg);
 
 	/*
@@ -6252,7 +6277,7 @@ next_msg:
 	req->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
-	T_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
+	printk(KERN_ALERT "Request parsed: len=%u next=%px parsed=%d msg_len=%lu"
 	       " ver=%d res=%d\n",
 		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 
@@ -6342,13 +6367,15 @@ next_msg:
 		}
 
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK, &data_up);
-		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+		printk(KERN_ALERT "TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return tfw_http_req_parse_block(req, 403,
 					"postponed request has been filtered out",
 					HTTP2_ECODE_PROTO);
 		}
+
+		printk(KERN_ALERT "req %px %d %d\n", req, test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags), test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags));
 
 		if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
 		    test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags) &&
@@ -7028,7 +7055,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	 * in ss_tcp_process_skb().
 	 */
 
-	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
+	printk(KERN_ALERT "Received %u server data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
 	/*
 	 * Process pipelined requests in a loop

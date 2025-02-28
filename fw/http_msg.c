@@ -1347,7 +1347,7 @@ tfw_http_msg_unpair(TfwHttpMsg *msg)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	T_DBG3("Free msg=%p\n", m);
+	printk(KERN_ALERT "Free msg=%px %ps %ps %ps\n", m, __builtin_return_address(0), __builtin_return_address(1), __builtin_return_address(2));
 	if (!m)
 		return;
 
