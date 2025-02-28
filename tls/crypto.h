@@ -23,7 +23,7 @@
 #define __TTLS_CRYPTO_H__
 
 #include <crypto/hash.h>
-#include <crypto/sha.h>
+#include <crypto/sha512_base.h>
 
 /* An enumeration of supported ciphers. */
 typedef enum {

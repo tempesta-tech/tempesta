@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1524,9 +1524,10 @@ index:
 					goto out;
 				}
 
-				if (!(c & 0xF0)) /* RFC 7541 6.2.2 */
+				if (!(c & 0xF0)) { /* RFC 7541 6.2.2 */
 					T_DBG3("%s: > Literal Header Field "
 					       "without Indexing\n", __func__);
+				}
 
 				if (c & 0x10) { /* RFC 7541 6.2.3 */
 					T_DBG3("%s: > Literal Header Field "
@@ -2912,9 +2913,9 @@ tfw_hpack_rbuf_iter(TfwHPackETbl *__restrict tbl,
 }
 
 static int
-tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
+tfw_hpack_rbuf_calc(TfwHPackETbl *tbl, unsigned short new_size,
 		    TfwHPackNode *__restrict del_list[],
-		    TfwHPackETblIter *__restrict it)
+		    TfwHPackETblIter *it)
 {
 	int i = 0;
 	char *first = (char *)it->first;

@@ -165,9 +165,10 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 			  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 	spin_unlock(&cli_conn->timer_lock);
 
-	if (r)
+	if (r) {
 		/* Quite usual on system shutdown. */
 		T_DBG("Cannot send data to client (%d)\n", r);
+	}
 
 	tfw_connection_put((TfwConn *)cli_conn);
 	return r;
@@ -560,7 +561,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 
 	ss_set_listen(sk);
 
-	inet_sk(sk)->freebind = 1;
+	inet_set_bit(FREEBIND, sk);
 	sk->sk_reuse = 1;
 	r = ss_bind(sk, addr);
 	if (r) {

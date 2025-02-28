@@ -21,7 +21,7 @@
 #ifndef __TFW_HTTP_H__
 #define __TFW_HTTP_H__
 
-#include <crypto/sha.h>
+#include <crypto/sha512_base.h>
 
 #include "http_types.h"
 #include "connection.h"
@@ -442,7 +442,7 @@ typedef struct {
 typedef struct {
 	unsigned int	size;
 	unsigned int	count;
-	TfwHdrIndex	index[0];
+	DECLARE_FLEX_ARRAY(TfwHdrIndex, index);
 } TfwHttpHdrMap;
 
 /**
