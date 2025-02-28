@@ -1275,7 +1275,7 @@ TEST(http_parser, upgrade)
 
 #define EXPECT_BLOCK_BODYLESS_REQ(METHOD)					\
 	EXPECT_BLOCK_REQ(#METHOD " / HTTP/1.1\r\n"				\
-			 "Content-Length: 0\r\n"				\
+			 "Content-Length: 1\r\n"				\
 			 "\r\n")						\
 	{									\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_##METHOD);			\
@@ -1289,7 +1289,7 @@ TEST(http_parser, upgrade)
 
 #define EXPECT_BLOCK_BODYLESS_REQ_OVERRIDE(METHOD)				\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-			 "Content-Length: 0\r\n"				\
+			 "Content-Length: 1\r\n"				\
 			 "X-Method-Override: " #METHOD "\r\n"			\
 			 "\r\n")						\
 	{									\
@@ -1297,7 +1297,7 @@ TEST(http_parser, upgrade)
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-			 "Content-Length: 0\r\n"				\
+			 "Content-Length: 1\r\n"				\
 			 "X-HTTP-Method-Override: " #METHOD "\r\n"		\
 			 "\r\n")						\
 	{									\
@@ -1305,7 +1305,7 @@ TEST(http_parser, upgrade)
 		EXPECT_EQ(req->method_override, TFW_HTTP_METH_##METHOD);	\
 	}									\
 	EXPECT_BLOCK_REQ("PUT / HTTP/1.1\r\n"					\
-			 "Content-Length: 0\r\n"				\
+			 "Content-Length: 1\r\n"				\
 			 "X-HTTP-Method: " #METHOD "\r\n"			\
 			 "\r\n")						\
 	{									\
@@ -1390,8 +1390,16 @@ TEST(http1_parser, content_length)
 	/* Content-Length is mandatory for responses. */
 	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n\r\n");
 
-	/* Content-Length must not be present in GET requests */
-	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 0");
+	/* Content-Length greater than zero must not be present in GET requests */
+	EXPECT_BLOCK_REQ_SIMPLE("Content-Length: 1");
+
+	/* Content-Length: 0 treats as the absence of a Content-Length. */
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Content-Length: 0\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->content_length == 0);
+	}
 
 	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Content-Length: 0\r\n"
@@ -1492,7 +1500,7 @@ TEST(http1_parser, content_length)
 			  "\r\n"
 			  "dummy");
 	EXPECT_BLOCK_RESP("HTTP/1.1 101 Switching Protocols\r\n"
-			  "Content-Length: 0\r\n"
+			  "Content-Length: 1\r\n"
 			  "\r\n");
 
 	EXPECT_BLOCK_RESP("HTTP/1.1 199 Dummy\r\n"
@@ -1500,7 +1508,7 @@ TEST(http1_parser, content_length)
 			  "\r\n"
 			  "dummy");
 	EXPECT_BLOCK_RESP("HTTP/1.1 199 Dummy\r\n"
-			  "Content-Length: 0\r\n"
+			  "Content-Length: 1\r\n"
 			  "\r\n");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 204 No Content\r\n"
@@ -1508,7 +1516,7 @@ TEST(http1_parser, content_length)
 			  "\r\n"
 			  "dummy");
 	EXPECT_BLOCK_RESP("HTTP/1.0 204 No Content\r\n"
-			  "Content-Length: 0\r\n"
+			  "Content-Length: 1\r\n"
 			  "\r\n");
 
 	FOR_RESP("HTTP/1.0 205 Reset Content\r\n"

@@ -1969,18 +1969,6 @@ __parse_content_length(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_ContLen) {
 		/*
-		 * A server MUST NOT send a Content-Length header field in any response
-		 * with a status code of 1xx (Informational) or 204 (No Content).
-		 * TODO: server MUST NOT send a Content-Length header field in any 2xx
-		 * (Successful) response to a CONNECT request
-		 */
-		if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
-			TfwHttpResp *resp = (TfwHttpResp *)msg;
-			if (resp->status - 100U < 100U || resp->status == 204)
-				return CSTR_NEQ;
-		}
-
-		/*
 		 * According to RFC 7230 3.3.2, in cases of multiple Content-Length
 		 * header fields with field-values consisting of the same decimal
 		 * value, or a single Content-Length header field with a field
@@ -1995,6 +1983,26 @@ __parse_content_length(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 		T_DBG3("%s: content_length=%lu\n", __func__, msg->content_length);
 		__set_bit(TFW_HTTP_B_REQ_CONTENT_LENGTH_PARSED, hm->flags);
+
+		/*
+		 * A server MUST NOT send a Content-Length header field in any response
+		 * with a status code of 1xx (Informational) or 204 (No Content).
+		 * TODO: server MUST NOT send a Content-Length header field in any 2xx
+		 * (Successful) response to a CONNECT request
+		 *
+		 * Treat `Content-Length: 0` as the absence of a Content-Length
+		 * header. Some implementations send `Content-Length: 0` within
+		 * 204 (No Content) or 1xx responses, to be able to process such
+		 * messages the rule from RFC has been relaxed.
+		 */
+		if (TFW_CONN_TYPE(msg->conn) & Conn_Srv
+		    && msg->content_length > 0)
+		{
+			TfwHttpResp *resp = (TfwHttpResp *)msg;
+
+			if (resp->status - 100U < 100U || resp->status == 204)
+				return CSTR_NEQ;
+		}
 
 		return r;
 	}
@@ -4881,8 +4889,11 @@ tfw_http_parse_check_bodyless_meth(TfwHttpReq *req)
 {
 	TfwStr *tbl = req->h_tbl->tbl;
 
-	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
-	    || !TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE]))
+	/* Treat 'Content-Length: 0' as the empty body. */
+	if ((!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])
+	     && req->content_length > 0)
+	    || (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_TYPE])
+		&& !allow_empty_body_content_type))
 	{
 		return check_bodyless_meth(req);
 	}
