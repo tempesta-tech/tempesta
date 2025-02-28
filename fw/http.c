@@ -4538,7 +4538,11 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			       __func__, cli_conn, req->resp);
 			BUG_ON(!req->resp);
 			list_del_init(&req->msg.seq_list);
-			tfw_http_resp_pair_free(req);
+			if (!test_bit(TFW_HTTP_B_CONTINUE_RESP,
+				     req->resp->flags))
+				tfw_http_resp_pair_free(req);
+			else
+				tfw_http_msg_free(req->pair);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
@@ -6077,28 +6081,6 @@ tfw_http_check_ja5h_req_limit(TfwHttpReq *req)
 	return rate > limit;
 }
 
-/**
- * Whether we should send 100-continue response.
- *
- * Circumstances in which Tempesta must respond with 100-continue code:
- * 1. Headers are fully parsed.
- * 2. A body was not received.
- * 3. Vesrion is HTTP1.1.
- *
- * RFC 9110 10.1.1:
- * - A server that receives a 100-continue expectation in an HTTP/1.0 request
- * MUST ignore that expectation.
- * - A server MAY omit sending a 100 (Continue) response if it has already
- * received some or all of the content for the corresponding request, or if the
- * framing indicates that there is no content.
- */
-static bool
-tfw_http_should_send_continuation(TfwHttpReq *req)
-{
-	return test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
-	       req->version == TFW_HTTP_VER_11 && !req->body.len;
-}
-
 /*
  * Whether we should delete request with ready 100-continue response from
  * @seq_queue. Delete request when the body or its part received, but request
@@ -6216,18 +6198,15 @@ err:
 static int
 tfw_http_handle_expect_request(TfwCliConn *conn, TfwHttpReq *req)
 {
-	if (!test_bit(TFW_HTTP_B_CONTINUE_HANDLED, req->flags)) {
-		set_bit(TFW_HTTP_B_CONTINUE_HANDLED, req->flags);
-		if (tfw_http_should_send_continuation(req))
-			return tfw_http_send_continuation(conn, req);
-	} else if (tfw_http_should_del_continuation_seq_queue(req)) {
+	if (!req->body.len)
+		return tfw_http_send_continuation(conn, req);
+	else if (tfw_http_should_del_continuation_seq_queue(req))
 		/**
 		 * Part of the body received, but 100-continue didn't send,
 		 * however handled. It implies it was queued, try to remove it
 		 * from queue.
 		 */
 		tfw_http_del_continuation_seq_queue(conn, req);
-	}
 
 	return T_OK;
 }
@@ -6373,7 +6352,8 @@ next_msg:
 
 		if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
 		    test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags) &&
-		    !TFW_MSG_H2(req)) {
+		    req->version == TFW_HTTP_VER_11)
+		{
 			r = tfw_http_handle_expect_request((TfwCliConn *)conn,
 							   req);
 			if (unlikely(r))
