@@ -2895,16 +2895,7 @@ tfw_http_conn_release(TfwConn *conn)
 	 */
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if (TFW_MSG_H2(req)) {
-			tfw_h2_req_unlink_and_close_stream(req);
-		}
-		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
-			spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
-			if (unlikely(!list_empty(&req->msg.seq_list)))
-				list_del_init(&req->msg.seq_list);
-			spin_unlock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
-		}
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		tfw_http_conn_req_clean(req);
 	}
 }
 
