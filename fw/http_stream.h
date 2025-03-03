@@ -209,7 +209,7 @@ void tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_unlink_lock(TfwH2Ctx *ctx, TfwStream *stream);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
-				  unsigned char type, char flags,
+				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 void tfw_h2_delete_stream(TfwStream *stream);
