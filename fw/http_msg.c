@@ -1143,7 +1143,6 @@ tfw_http_msg_del_trailer_hdrs(TfwHttpMsg *hm)
 		 */
 		if (was_deleted)
 			__hdr_del_from_tbl(ht, hid);
-		--ht->off;
 	} while (hid);
 }
 
