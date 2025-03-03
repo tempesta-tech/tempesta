@@ -467,6 +467,7 @@ __FSM_STATE(st, cold) {							\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
+
 #define __FSM_TX_AF_OWS_LAMBDA(st, st_next, lambda)			\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
@@ -772,20 +773,11 @@ static const TfwStr ete_spec_raw_hdrs[] = {
 	TFW_STR_STRING("x-forwarded-for:"),
 };
 
-#define __DROP_IF_HBP_TRAILER_HDR(hdr, is_srv_conn)			\
-do {									\
-	if (hdr->flags & TFW_STR_TRAILER) {				\
-		T_WARN("There is a hop-by-hop header in trailers, drop %s", \
-		       is_srv_conn ? "response" : "request");		\
-		return CSTR_NEQ;					\
-	}								\
-} while (0)
-
 /**
  * Mark existing spec headers of http message @hm as hop-by-hop if they were
  * listed in Connection header or in @tfw_http_init_parser_* function.
  */
-static int
+static void
 mark_spec_hbh(TfwHttpMsg *hm)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &hm->stream->parser.hbh_parser;
@@ -793,9 +785,6 @@ mark_spec_hbh(TfwHttpMsg *hm)
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
 		TfwStr *hdr = &hm->h_tbl->tbl[id];
-		bool is_srv_conn = !!(TFW_CONN_TYPE(hm->conn) & Conn_Srv);
-
-		__DROP_IF_HBP_TRAILER_HDR(hdr, is_srv_conn);
 
 		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
 			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
@@ -803,15 +792,13 @@ mark_spec_hbh(TfwHttpMsg *hm)
 			hdr->flags |= TFW_STR_HBH_HDR;
 		}
 	}
-
-	return T_OK;
 }
 
 /**
  * Mark raw header @hdr as hop-by-hop if its name was listed in Connection
  * header
  */
-static int
+static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
 	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
@@ -828,13 +815,10 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 	 */
 	for (i = 0; i < hbh->off; ++i) {
 		TfwStr *hbh_name = &hbh->raw[i];
-		bool is_srv_conn = !!(TFW_CONN_TYPE(hm->conn) & Conn_Srv);
 
 		if ((hbh_name->flags & TFW_STR_HBH_HDR)
 		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':')))
 		{
-			__DROP_IF_HBP_TRAILER_HDR(hdr, is_srv_conn);
-
 			T_DBG3("%s: hbh raw[%d], hm %pK, hdr %pK ->flags %x, "
 			       "flags +TFW_STR_HBH_HDR\n",
 			       __func__, i, hm, hdr, hdr->flags);
@@ -844,11 +828,7 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 			break;
 		}
 	}
-
-	return T_OK;
 }
-
-#undef __DROP_IF_HBP_TRAILER_HDR
 
 /**
  * Lookup for the header @hdr in already collected headers table @ht,
@@ -962,6 +942,8 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 static int
 process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 {
+	bool is_srv_conn;
+
 	if (!(hm->crlf.flags & TFW_STR_COMPLETE))
 		return CSTR_EQ;
 
@@ -990,6 +972,13 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_FORWARDED:
 	case TFW_HTTP_HDR_CONNECTION:
 	case TFW_HTTP_HDR_UPGRADE:
+		return CSTR_NEQ;
+	}
+
+	is_srv_conn = !!(TFW_CONN_TYPE(hm->conn) & Conn_Srv);
+	if (hdr->flags & TFW_STR_HBH_HDR) {
+		 T_WARN("There is a hop-by-hop header in trailers, drop %s",
+			is_srv_conn ? "response" : "request");
 		return CSTR_NEQ;
 	}
 
@@ -1460,8 +1449,7 @@ do {									\
 __FSM_STATE(RGen_CRLFCR, hot) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_DROP(RGen_CRLFCR);				\
-	if (mark_spec_hbh(msg))						\
-		TFW_PARSER_DROP(RGen_CRLFCR);				\
+	mark_spec_hbh(msg);						\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.data);				\
 		__msg_field_finish(&msg->crlf, p + 1);			\
@@ -1553,10 +1541,9 @@ __FSM_STATE(st_curr) {							\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
+		mark_raw_hbh(msg, &parser->hdr);			\
 		r = process_trailer_hdr(msg, &parser->hdr,		\
 					TFW_HTTP_HDR_RAW);		\
-		if (mark_raw_hbh(msg, &parser->hdr))			\
-			TFW_PARSER_DROP(st_curr);			\
 		if (r < 0 && r != CSTR_POSTPONE)			\
 			TFW_PARSER_DROP(st_curr);			\
 		parser->_i_st = &&RGen_EoL;				\
@@ -1611,9 +1598,8 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		TFW_PARSER_DROP(RGen_HdrOtherV);			\
 	__msg_hdr_chunk_fixup(p, __fsm_sz);				\
+	mark_raw_hbh(msg, &parser->hdr);				\
 	r = process_trailer_hdr(msg, &parser->hdr, TFW_HTTP_HDR_RAW);	\
-	if (mark_raw_hbh(msg, &parser->hdr))				\
-		TFW_PARSER_DROP(st_curr);				\
 	if (r < 0 && r != CSTR_POSTPONE)				\
 		TFW_PARSER_DROP(st_curr);				\
 	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
