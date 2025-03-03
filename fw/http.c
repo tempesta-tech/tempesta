@@ -6193,6 +6193,29 @@ err:
 	return T_BAD;
 }
 
+/**
+ * Whether we should send 100-continue response.
+ *
+ * Circumstances in which Tempesta must respond with 100-continue code:
+ * 1. Headers are fully parsed.
+ * 2. "Expect" header is present in request.
+ * 3. Vesrion is HTTP/1.1.
+ *
+ * RFC 9110 10.1.1:
+ * - A server that receives a 100-continue expectation in an HTTP/1.0 request
+ * MUST ignore that expectation.
+ * - A server MAY omit sending a 100 (Continue) response if it has already
+ * received some or all of the content for the corresponding request, or if the
+ * framing indicates that there is no content.
+ */
+static bool
+tfw_http_should_handle_expect(TfwHttpReq *req)
+{
+	return test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
+	       test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags) &&
+	       req->version == TFW_HTTP_VER_11;
+}
+
 /*
  * Handle `Expect: 100-continue` in the request.
  */
@@ -6351,10 +6374,7 @@ next_msg:
 					HTTP2_ECODE_PROTO);
 		}
 
-		if (test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags) &&
-		    test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags) &&
-		    req->version == TFW_HTTP_VER_11)
-		{
+		if (tfw_http_should_handle_expect(req)) {
 			r = tfw_http_handle_expect_request((TfwCliConn *)conn,
 							   req);
 			if (unlikely(r))
