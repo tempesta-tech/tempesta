@@ -1886,7 +1886,7 @@ static inline char
 tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type,
 			bool trailers)
 {
-	char flags = 0;
+	unsigned char flags = 0;
 
 	if (!stream->xmit.b_len && !stream->xmit.t_len
 	    && (type == HTTP2_HEADERS || type == HTTP2_DATA)
@@ -1928,7 +1928,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned int length;
 	char *data;
 	int r = 0;
-	char flags;
+	unsigned char flags;
 
 	/*
 	 * Very unlikely case, when skb_head and one or more next skbs
