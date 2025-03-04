@@ -1,0 +1,83 @@
+Checks: >
+  clang-diagnostic-*,
+  clang-diagnostic-error,
+  clang-analyzer-*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  clang-analyzer-deadcode.*,
+  clang-analyzer-security.*,
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  cppcoreguidelines-owning-memory,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  cppcoreguidelines-pro-bounds-constant-array-index,
+  cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  cppcoreguidelines-pro-type-const-cast,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-pro-type-reinterpret-cast,
+  cppcoreguidelines-pro-type-union-access,
+  cppcoreguidelines-slicing,
+  google-build-using-namespace,
+  google-explicit-constructor,
+  google-readability-casting,
+  google-runtime-int,
+  google-runtime-operator,
+  hicpp-exception-baseclass,
+  hicpp-multiway-paths-covered,
+  hicpp-no-malloc,
+  hicpp-signed-bitwise,
+  misc-*,
+  modernize-*,
+  mpi-*,
+  performance-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-identifier-length,
+  -clang-diagnostic-error
+  -misc-unused-using-decls,
+  -misc-unused-parameters,
+  -misc-include-cleaner
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*'
+FormatStyle: none
+
+CheckOptions:
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+  - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: true
+  - key: bugprone-dangling-handle.HandleClasses
+    value: 'std::basic_string_view;std::span'
+  - key: cert-dcl58-cpp.IgnoreMacros
+    value: true
+  - key: bugprone-unhandled-self-assignment.WarnOnlyIfThisHasSuspiciousField
+    value: true
+  - key: bugprone-suspicious-string-compare.WarnOnImplicitComparison
+    value: true
+  - key: bugprone-argument-comment.StrictMode
+    value: true
+  - key: bugprone-easily-swappable-parameters.QualifiersMix
+    value: true
+  - key: bugprone-misplaced-widening-cast.CheckImplicitCasts
+    value: true
+  - key: bugprone-sizeof-expression.WarnOnSizeOfConstant
+    value: true
+  - key: bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression
+    value: true
+  - key: bugprone-suspicious-enum-usage.StrictMode
+    value: true
+  - key: bugprone-suspicious-missing-comma.RatioThreshold
+    value: 0.5
+  - key: bugprone-suspicious-string-compare.StringCompareLikeFunctions
+    value: 'strcmp;strncmp'
+  - key: cppcoreguidelines-narrowing-conversions.PedanticMode
+    value: true
