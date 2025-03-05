@@ -277,7 +277,7 @@ tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
  * with appropriate deficite.
  */
 void
-tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
+tfw_h2_stream_sched_rfc7540_remove(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = STREAM_SCHED_PTR(stream)->parent;
 	
@@ -324,8 +324,8 @@ static inline void
 tfw_h2_stream_sched_move_child(TfwStreamSched *sched, TfwStream *child,
 			       TfwStreamSchedEntry *parent, u64 deficit)
 {
-	tfw_h2_stream_sched_remove(sched, child);
-	tfw_h2_sched_stream_enqueue(sched, child, parent, deficit);
+	tfw_h2_stream_sched_rfc7540_remove(sched, child);
+	tfw_h2_sched_stream_rfc7540_enqueue(sched, child, parent, deficit);
 }
 
 /**
@@ -333,8 +333,8 @@ tfw_h2_stream_sched_move_child(TfwStreamSched *sched, TfwStream *child,
  * added stream.
  */
 void
-tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
-		      TfwStreamSchedEntry *dep, bool excl)
+tfw_h2_add_stream_rfc7540_dep(TfwStreamSched *sched, TfwStream *stream,
+			      TfwStreamSchedEntry *dep, bool excl)
 {
 	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	u64 deficit, min_deficit;
@@ -349,7 +349,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		       " excl %d) depends from stream with id %d, ctx %px\n",
 	       	       stream->id, deficit, excl,
 	       	       SCHED_PARENT_STREAM_ID(sched, dep), ctx);
-		tfw_h2_sched_stream_enqueue(sched, stream, dep, deficit);
+		tfw_h2_sched_stream_rfc7540_enqueue(sched, stream, dep, deficit);
 		return;
 	}
 
@@ -413,7 +413,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 
 	BUG_ON(tfw_h2_stream_sched_has_children(dep));
 	/* Stream is the only one in dep scheduler, use default deficit. */
-	tfw_h2_sched_stream_enqueue(sched, stream, dep,
+	tfw_h2_sched_stream_rfc7540_enqueue(sched, stream, dep,
 				    tfw_h2_stream_default_deficit(stream));
 }
 
@@ -422,7 +422,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
  * parent scheduler according RFC 7540.
  */
 void
-tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
+tfw_h2_remove_stream_rfc7540_dep(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *parent = STREAM_SCHED_PTR(stream)->parent;
@@ -438,7 +438,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 
 	/* Remove stream from the parent scheduler. */
-	tfw_h2_stream_sched_remove(sched, stream);
+	tfw_h2_stream_sched_rfc7540_remove(sched, stream);
 
 	/*
 	 * Here we move children of the removed stream to the parent
@@ -531,9 +531,9 @@ tfw_h2_is_stream_depend_on_child(TfwStreamSched *sched, TfwStream *stream,
 }
 
 void
-tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			 unsigned int new_dep, unsigned short new_weight,
-			 bool excl)
+tfw_h2_change_stream_rfc7540_dep(TfwStreamSched *sched, unsigned int stream_id,
+				 unsigned int new_dep, unsigned short new_weight,
+				 bool excl)
 {
 	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *old_parent, *new_parent;
@@ -571,9 +571,9 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 		 * 3. Insert stream in the dependency tree as a
 		 *    child of the new parent.
 		 */
-		tfw_h2_stream_sched_remove(sched, stream);
+		tfw_h2_stream_sched_rfc7540_remove(sched, stream);
 		stream->prio.rfc7540_prio.weight = new_weight;
-		tfw_h2_add_stream_dep(sched, stream, new_parent, excl);
+		tfw_h2_add_stream_rfc7540_dep(sched, stream, new_parent, excl);
 	} else {
 		/*
 		 * If stream is dependent from it's child, remove this
@@ -593,17 +593,17 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 		BUG_ON(new_parent == &sched->root);
 		np = SCHED_ENTRY_TO_STREAM(new_parent);
 
-		tfw_h2_stream_sched_remove(sched, np);
-		tfw_h2_stream_sched_remove(sched, stream);
+		tfw_h2_stream_sched_rfc7540_remove(sched, np);
+		tfw_h2_stream_sched_rfc7540_remove(sched, stream);
 		stream->prio.rfc7540_prio.weight = new_weight;
-		tfw_h2_add_stream_dep(sched, np, old_parent, false);
-		tfw_h2_add_stream_dep(sched, stream, new_parent, excl);
+		tfw_h2_add_stream_rfc7540_dep(sched, np, old_parent, false);
+		tfw_h2_add_stream_rfc7540_dep(sched, stream, new_parent, excl);
 	}
 
 }
 
 void
-tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
+tfw_h2_sched_stream_rfc7540_enqueue(TfwStreamSched *sched, TfwStream *stream,
 			    TfwStreamSchedEntry *parent, u64 deficit)
 {
 	tfw_h2_stream_sched_spin_lock_assert(sched);
@@ -627,7 +627,7 @@ tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
 }
 
 TfwStream *
-tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
+tfw_h2_sched_stream_rfc7540_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 {
 	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	TfwStreamSchedEntry *entry = &sched->root;
@@ -641,7 +641,7 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 
 		if (tfw_h2_stream_is_active(stream)) {
 			*parent = entry;
-			tfw_h2_stream_sched_remove(sched, stream);
+			tfw_h2_stream_sched_rfc7540_remove(sched, stream);
 			T_DBG4("Stream with id (%u) removed from dependency"
 			       " tree for making frames, ctx %px\n",
 			       stream->id, ctx);
@@ -652,9 +652,9 @@ tfw_h2_sched_stream_dequeue(TfwStreamSched *sched, TfwStreamSchedEntry **parent)
 			 * try to use one of them.
 			 */
 			*parent = stream_sched->parent;
-			tfw_h2_stream_sched_remove(sched, stream);
+			tfw_h2_stream_sched_rfc7540_remove(sched, stream);
 			deficit = tfw_h2_stream_recalc_deficit(stream);
-			tfw_h2_sched_stream_enqueue(sched, stream, *parent,
+			tfw_h2_sched_stream_rfc7540_enqueue(sched, stream, *parent,
 						    deficit);
 			entry = &stream->prio.rfc7540_prio.sched;
 			node = eb64_first(&entry->active);

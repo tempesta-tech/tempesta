@@ -45,6 +45,7 @@ typedef enum {
 	HTTP2_GOAWAY,
 	HTTP2_WINDOW_UPDATE,
 	HTTP2_CONTINUATION,
+	PRIORITY_UPDATE,
 	_HTTP2_UNDEFINED
 } TfwFrameType;
 
@@ -129,6 +130,20 @@ typedef struct {
 } TfwFramePri;
 
 /**
+ * Unpacked data from priority update payload of frames
+ * (RFC 9218 section 7.1).
+ * urgency		- stream's priority urgency accroding RFC 9218;
+ * increamental		- flag indicates is there benefit in serving responses
+ *			  with the same urgency concurrently;
+ * was_inited		- flag indicates that this field was initialized;
+ */
+typedef struct {
+	int	urgency;
+	bool	incremental;
+	bool	was_inited;
+} TfwPriUpdate;
+
+/**
  * FSM states for HTTP/2 frames processing.
  */
 typedef enum {
@@ -143,6 +158,7 @@ typedef enum {
 	HTTP2_RECV_FRAME_GOAWAY,
 	HTTP2_RECV_FRAME_PADDED,
 	HTTP2_RECV_HEADER_PRI,
+	HTTP2_RECV_FRAME_PRIORITY_UPDATE,
 	HTTP2_IGNORE_FRAME_DATA,
 	__HTTP2_RECV_FRAME_APP,
 	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,

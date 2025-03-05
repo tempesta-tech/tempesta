@@ -29,7 +29,7 @@
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
-#include "http_stream_sched_rfc9218.h"
+#include "http_stream_sched.h"
 #include "hpack.h"
 #include "lib/str.h"
 
@@ -562,11 +562,6 @@ __FSM_STATE(st) {							\
 
 #define IN_ALPHABET(c, a)	(a[c >> 6] & (1UL << (c & 0x3f)))
 
-#define CSTR_EQ			0
-#define CSTR_POSTPONE		T_POSTPONE	/* -MAX_ERRNO + 1 */
-#define CSTR_NEQ		T_DROP		/* -MAX_ERRNO + 3 */
-#define CSTR_BADLEN		T_BAD		/* -MAX_ERRNO + 4 */
-
 /**
  * Compare a mixed pair of strings with the string @str of length @str_len where
  * the first string is a part of the header @hdr which is being processed and
@@ -680,7 +675,7 @@ __parse_ulong_ws_delim(unsigned char *__restrict data, size_t len,
 /**
  * Parse an integer as part of HTTP list.
  */
-static inline int
+int
 parse_ulong_list(unsigned char *data, size_t len, unsigned long *acc,
 		 unsigned long limit)
 {
@@ -8337,7 +8332,8 @@ do {										\
 
 	__FSM_STATE(Req_I_PriorityUrgencyParam) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_ulong_list(p, __fsm_sz, &parser->_acc, 7);
+		__fsm_n = parse_ulong_list(p, __fsm_sz, &parser->_acc,
+					   RFC9218_URGENCY_MAX);
 		switch (__fsm_n) {
 		case CSTR_BADLEN:
 		case CSTR_NEQ:

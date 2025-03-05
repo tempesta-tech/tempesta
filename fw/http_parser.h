@@ -31,6 +31,11 @@ typedef struct {
 	TfwStr		tbl[0];
 } TfwHttpHdrTbl;
 
+#define CSTR_EQ                 0
+#define CSTR_POSTPONE           T_POSTPONE      /* -MAX_ERRNO + 1 */
+#define CSTR_NEQ                T_DROP          /* -MAX_ERRNO + 3 */
+#define CSTR_BADLEN             T_BAD           /* -MAX_ERRNO + 4 */
+
 #define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
 #define TFW_HHTBL_EXACTSZ(s)		(sizeof(TfwHttpHdrTbl)		\
 					 + sizeof(TfwStr) * (s))
@@ -137,6 +142,9 @@ typedef struct {
 	TfwStr				hdr;
 	TfwHttpHbhHdrs			hbh_parser;
 } TfwHttpParser;
+
+int parse_ulong_list(unsigned char *data, size_t len, unsigned long *acc,
+                     unsigned long limit);
 
 void tfw_http_init_parser_req(TfwHttpReq *req);
 void tfw_http_init_parser_resp(TfwHttpResp *resp);

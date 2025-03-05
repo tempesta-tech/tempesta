@@ -133,6 +133,7 @@ typedef struct tfw_h2_ctx_t {
         struct sk_buff  *skb_head;
         TfwStream       *cur_stream;
         TfwFramePri     priority;
+        TfwPriUpdate    priority_update;
         TfwFrameHdr     hdr;
         unsigned int    plen;
         int             state;

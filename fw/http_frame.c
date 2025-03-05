@@ -30,6 +30,7 @@
 #include "http_frame.h"
 #include "http_msg.h"
 #include "tcp.h"
+#include "htype.h"
 
 #define FRAME_PREFACE_CLI_MAGIC		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define FRAME_PREFACE_CLI_MAGIC_LEN	24
@@ -51,6 +52,13 @@ typedef enum {
 	TFW_FRAME_SHUTDOWN,
 	TFW_FRAME_CLOSE
 } TfwCloseType;
+
+enum {
+	HTTP2_PRIORITY_UPDATE_START,
+	HTTP2_PRIORITY_UPDATE_URGENCY,
+	HTTP2_PRIORITY_UPDATE_URGENCY_PARAM,
+	HTTP2_PRIORITY_UPDATE_NEXT_OR_FINISH
+};
 
 #define __FRAME_FSM_EXIT()						\
 do {									\
@@ -169,6 +177,21 @@ do {									\
 		return T_OK;						\
 	}								\
 })
+
+#define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
+do {									\
+	unsigned int max_streams = ctx->lsettings.max_streams;		\
+									\
+	tfw_h2_closed_streams_shrink(ctx);				\
+									\
+	if (max_streams == ctx->streams_num) {				\
+		T_DBG("Max streams number exceeded: %lu\n",		\
+		      ctx->streams_num);				\
+		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
+		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
+		ACTION;							\
+	}								\
+} while(0)
 
 static inline void
 tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
@@ -585,11 +608,17 @@ tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 
 	BUG_ON(!(hdr->flags & HTTP2_F_PRIORITY));
 
-	tfw_h2_unpack_priority(pri, ctx->rbuf);
-
-	T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
-	       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
-	       pri->weight, pri->exclusive);
+	/*
+	 * According to RFC 9218 2.1:
+	 * A server that receives SETTINGS_NO_RFC7540_PRIORITIES
+	 * with a value of 1 MUST ignore HTTP/2 priority signals
+	 */
+	if (!tfw_h2_conn_support_rfc9218(ctx)) {
+		tfw_h2_unpack_priority(pri, ctx->rbuf);
+		T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u,"
+		       " weight=%hu, excl=%hhu\n", __func__, hdr->stream_id,
+		       pri->stream_id, pri->weight, pri->exclusive);
+	}
 
 	ctx->data_off += FRAME_PRIORITY_SIZE;
 
@@ -719,6 +748,157 @@ fail:
 	return tfw_h2_current_stream_send_rst(ctx, err_code);
 }
 
+static int
+tfw_h2_unpack_priority_update(TfwPriUpdate *pri, unsigned char *buf,
+			      size_t len)
+{
+	unsigned char *p = buf;
+	unsigned long acc = 0;
+	int state = HTTP2_PRIORITY_UPDATE_START;
+	T_FSM_INIT(state, "HTTP/2 unpack priority update");
+
+#define __NEXT_STATE(next_state, count)				\
+do {								\
+	p += count;						\
+	len -= count;						\
+	T_FSM_JMP(next_state);					\
+} while (0)
+
+	T_FSM_START(state) {
+
+	T_FSM_STATE(HTTP2_PRIORITY_UPDATE_START) {
+		if (likely(*p == 'u')) {
+			__NEXT_STATE(HTTP2_PRIORITY_UPDATE_URGENCY, 1);
+		} else if (likely(*p == 'i')) {
+			pri->incremental = true;
+			__NEXT_STATE(HTTP2_PRIORITY_UPDATE_NEXT_OR_FINISH, 1);
+		}
+		return -EINVAL;
+	}
+
+	T_FSM_STATE(HTTP2_PRIORITY_UPDATE_URGENCY) {
+		if (likely(*p == '='))
+			__NEXT_STATE(HTTP2_PRIORITY_UPDATE_URGENCY_PARAM, 1);
+		return -EINVAL;
+	}
+
+	T_FSM_STATE(HTTP2_PRIORITY_UPDATE_URGENCY_PARAM) {
+		int fsm_n = parse_ulong_list(p, len, &acc,
+					     RFC9218_URGENCY_MAX);
+		switch (fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return -EINVAL;
+		case CSTR_POSTPONE:
+			pri->urgency = acc;
+			return 0;
+		default:
+			pri->urgency = acc;
+			__NEXT_STATE(HTTP2_PRIORITY_UPDATE_NEXT_OR_FINISH, fsm_n);
+		}
+
+	}
+
+	T_FSM_STATE(HTTP2_PRIORITY_UPDATE_NEXT_OR_FINISH) {
+		if (likely(*p == ','))
+			__NEXT_STATE(HTTP2_PRIORITY_UPDATE_NEXT_OR_FINISH, 1);
+		if (likely(IS_WS(*p)))
+			__NEXT_STATE(HTTP2_PRIORITY_UPDATE_NEXT_OR_FINISH, 1);
+		if (IS_CRLF(*p))
+			return 0;
+		T_FSM_JMP(HTTP2_PRIORITY_UPDATE_START);
+	}
+
+	}
+
+
+	return 0;
+
+#undef __NEXT_STATE
+}
+
+static int
+tfw_h2_priority_update_process(TfwH2Ctx *ctx)
+{
+	unsigned int stream_id;
+	TfwH2Err err_code = HTTP2_ECODE_PROTO;
+	TfwPriUpdate *pri_update = &ctx->priority_update;
+
+	stream_id = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
+
+#define __STREAM_RECV_PROCESS_PRIORITY_UPDATE(ctx)			\
+({									\
+	TfwStreamFsmRes res;						\
+	TfwH2Err err = HTTP2_ECODE_NO_ERROR;				\
+	BUG_ON(!(ctx)->cur_stream);					\
+	if ((res = tfw_h2_stream_fsm((ctx), (ctx)->cur_stream,		\
+				     PRIORITY_UPDATE, 0, false,		\
+				     &err)))				\
+	{								\
+		if (res == STREAM_FSM_RES_TERM_CONN) {			\
+			tfw_h2_conn_terminate((ctx), err);		\
+			return T_BAD;					\
+		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
+			return tfw_h2_current_stream_send_rst((ctx), err); \
+		}							\
+		return T_OK;						\
+	}								\
+})
+
+	if (stream_id) {
+		/*
+		 * We can't process stream in `tfw_h2_frame_type_process`
+		 * as we do for all other types of frames, because we
+		 * stream id for PRIORITY_UPDATE frame is not present
+		 * in frame header. Constaruct frame header here with
+		 * unpacked stream id and process stream.
+		 */
+		if (tfw_h2_unpack_priority_update(pri_update, ctx->rbuf,
+						  ctx->to_read))
+			goto conn_term;
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched, stream_id);
+
+		if (ctx->cur_stream) {
+			__STREAM_RECV_PROCESS_PRIORITY_UPDATE(ctx);
+			/*
+			 * TODO 2178 Change priority.
+			 */
+		} else if (stream_id > ctx->lstream_id) {
+			/*
+			 * The number of streams that have been prioritized but
+			 * remain in the "idle" state plus the number of active
+			 * streams (those in the "open" state or in either of
+			 * the "half-closed" states; see Section 5.1.2 of
+			 * [HTTP/2]) MUST NOT exceed the value of the
+			 * SETTINGS_MAX_CONCURRENT_STREAMS parameter.
+			 * Servers that receive such a PRIORITY_UPDATE MUST
+			 * respond with a connection error of type
+			 * PROTOCOL_ERROR.
+			 */
+			VERIFY_MAX_CONCURRENT_STREAMS(ctx, {
+				err_code = HTTP2_ECODE_PROTO;
+				goto conn_term;
+			});
+
+			ctx->cur_stream =
+				tfw_h2_stream_create(ctx, stream_id);
+			if (!ctx->cur_stream)
+				return -ENOMEM;
+
+			tfw_h2_stream_add_idle(ctx, ctx->cur_stream);
+			__STREAM_RECV_PROCESS_PRIORITY_UPDATE(ctx);
+		}
+
+		return T_OK;
+	}
+
+conn_term:
+	tfw_h2_conn_terminate(ctx, err_code);
+	return -EINVAL;
+
+#undef __STREAM_RECV_PROCESS_PRIORITY_UPDATE
+}
+
 static inline int
 tfw_h2_priority_process(TfwH2Ctx *ctx)
 {
@@ -732,9 +912,9 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
 		       pri->weight, pri->exclusive);
 
-		tfw_h2_change_stream_dep(&ctx->sched, hdr->stream_id,
-					 pri->stream_id, pri->weight,
-					 pri->exclusive);
+		tfw_h2_change_stream_rfc7540_dep(&ctx->sched, hdr->stream_id,
+						 pri->stream_id, pri->weight,
+						 pri->exclusive);
 		return T_OK;
 	}
 
@@ -800,8 +980,6 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
 	unsigned int val = ntohl(*(unsigned int *)&ctx->rbuf[2]);
 
-	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
-
 	if ((r = tfw_h2_check_settings_entry(ctx, id, val)))
 		return r;
 
@@ -809,7 +987,6 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
-	ctx->first_settings_recv = true;
 
 	return 0;
 }
@@ -1018,21 +1195,6 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
 
-#define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
-do {									\
-	unsigned int max_streams = ctx->lsettings.max_streams;		\
-									\
-	tfw_h2_closed_streams_shrink(ctx);				\
-									\
-	if (max_streams == ctx->streams_num) {				\
-		T_DBG("Max streams number exceeded: %lu\n",		\
-		      ctx->streams_num);				\
-		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
-		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
-		ACTION;							\
-	}								\
-} while(0)
-
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
 
@@ -1135,6 +1297,14 @@ do {									\
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
+
+		/*
+		 * According to RFC 9218 2.1:
+		 * A server that receives SETTINGS_NO_RFC7540_PRIORITIES
+		 * with a value of 1 MUST ignore HTTP/2 priority signals
+		 */
+		if (tfw_h2_conn_support_rfc9218(ctx))
+			goto ignore_frame_data;
 
 		ctx->cur_stream =
 			tfw_h2_find_stream(&ctx->sched, hdr->stream_id);
@@ -1345,6 +1515,33 @@ do {									\
 		ctx->state = HTTP2_RECV_CONT;
 		return 0;
 
+	case PRIORITY_UPDATE:
+		if (!tfw_h2_conn_support_rfc9218(ctx))
+			goto ignore_frame_data;
+
+		/*
+		 * According RFC 9218 7.1:
+		 * The Stream Identifier field (see Section 5.1.1 of [HTTP/2])
+		 * in the PRIORITY_UPDATE frame header MUST be zero (0x0).
+		 * Receiving a PRIORITY_UPDATE frame with a field of any other
+		 * value MUST be treated as a connection error of type
+		 * PROTOCOL_ERROR.
+		 * If a PRIORITY_UPDATE frame is received with a prioritized
+		 * stream ID of 0x0, the recipient MUST respond with a
+		 * connection error of type PROTOCOL_ERROR.
+		 */
+		if (hdr->stream_id) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
+
+		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
+
+		SET_TO_READ(ctx);
+		ctx->state = HTTP2_RECV_FRAME_PRIORITY_UPDATE;
+		return 0;
+
 	default:
 		/*
 		 * Possible extension types of frames are not covered (yet) in
@@ -1364,6 +1561,7 @@ do {									\
 		 * treated as a connection error (Section 5.4.1) of type
 		 * PROTOCOL_ERROR.
 		 */
+ignore_frame_data:
 		if (ctx->cur_recv_headers) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -1377,8 +1575,6 @@ conn_term:
 	BUG_ON(!err_code);
 	tfw_h2_conn_terminate(ctx, err_code);
 	return -EINVAL;
-
-#undef VERIFY_MAX_CONCURRENT_STREAMS
 }
 
 /**
@@ -1508,6 +1704,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
+		else
+			ctx->first_settings_recv = true;
 
 		if ((ret = tfw_h2_send_settings_ack(ctx)))
 			FRAME_FSM_EXIT(ret);
@@ -1535,6 +1733,15 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 
 		if (ctx->to_read)
 			FRAME_FSM_NEXT();
+
+		FRAME_FSM_EXIT(T_OK);
+	}
+
+	T_FSM_STATE(HTTP2_RECV_FRAME_PRIORITY_UPDATE) {
+		FRAME_FSM_READ_SRVC(ctx->to_read);
+
+		if ((ret = tfw_h2_priority_update_process(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -2160,7 +2367,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	TfwStreamSchedEntry *parent;
+	TfwStreamSchedEntry *parent = NULL;
 	TfwStream *stream;
 	u64 deficit;
 	bool error_was_sent = false;
@@ -2172,15 +2379,22 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 	{
 		if (ctx->cur_send_headers) {
 			stream = ctx->cur_send_headers;
-			parent = stream->prio.rfc7540_prio.sched.parent;
-			tfw_h2_stream_sched_remove(sched, stream);
+			if (!tfw_h2_conn_support_rfc9218(ctx)) {
+				parent = stream->prio.rfc7540_prio.sched.parent;
+				tfw_h2_stream_sched_rfc7540_remove(sched, stream);
+			}
 		} else if (ctx->error) {
 			stream = ctx->error;
-			parent = stream->prio.rfc7540_prio.sched.parent;
-			tfw_h2_stream_sched_remove(sched, stream);
+			if (!tfw_h2_conn_support_rfc9218(ctx)) {
+				parent = stream->prio.rfc7540_prio.sched.parent;
+				tfw_h2_stream_sched_rfc7540_remove(sched, stream);
+			}
 			error_was_sent = true;
 		} else {
-			stream = tfw_h2_sched_stream_dequeue(sched, &parent);
+			if (!tfw_h2_conn_support_rfc9218(ctx))
+				stream = tfw_h2_sched_stream_rfc7540_dequeue(sched, &parent);
+			else
+				stream = tfw_h2_sched_stream_rfc9218_dequeue(sched);
 		}
 
 		/*
@@ -2189,8 +2403,12 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 */
 		BUG_ON(!stream);
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream, &snd_wnd);
-		deficit = tfw_h2_stream_recalc_deficit(stream);
-		tfw_h2_sched_stream_enqueue(sched, stream, parent, deficit);
+		if (!tfw_h2_conn_support_rfc9218(ctx)) {
+			deficit = tfw_h2_stream_recalc_deficit(stream);
+			tfw_h2_sched_stream_rfc7540_enqueue(sched, stream, parent, deficit);
+		} else {
+			tfw_h2_sched_stream_rfc9218_enqueue(sched, stream);
+		}
 
 		/*
 		 * If we send error response we stop to send any data

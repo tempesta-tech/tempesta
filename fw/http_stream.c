@@ -29,6 +29,7 @@
 #include "http.h"
 
 #define HTTP2_DEF_WEIGHT	16
+#define HTTP2_DEF_URGENCY	3
 
 static struct kmem_cache *stream_cache;
 
@@ -77,7 +78,10 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	 * to correct adjusting count of active streams in
 	 * the scheduler.
 	 */
-	tfw_h2_remove_stream_dep(sched, stream);
+	if (!tfw_h2_conn_support_rfc9218(ctx))
+		tfw_h2_remove_stream_rfc7540_dep(sched, stream);
+	else
+		tfw_h2_remove_stream_rfc9218_dep(stream);
 	tfw_h2_stream_purge_all_and_free_response(stream);
 
 	tfw_h2_conn_reset_stream_on_close(ctx, stream);
@@ -85,25 +89,40 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 }
 
 static inline void
-tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
+tfw_h2_init_stream(TfwStream *stream, unsigned int id,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	bzero_fast(&stream->prio, sizeof(stream->prio));
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
-	tfw_h2_init_stream_sched_entry(&stream->prio.rfc7540_prio.sched);
 	INIT_LIST_HEAD(&stream->hcl_node);
 	spin_lock_init(&stream->st_lock);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_IDLE;
 	stream->loc_wnd = loc_wnd;
 	stream->rem_wnd = rem_wnd;
+}
+
+static inline void
+tfw_h2_init_stream_rfc7540_prio(TfwStream *stream, unsigned short weight)
+{
+	tfw_h2_init_stream_sched_entry(&stream->prio.rfc7540_prio.sched);
 	stream->prio.rfc7540_prio.weight = weight ? weight : HTTP2_DEF_WEIGHT;
 }
 
+static inline void
+tfw_h2_init_stream_rfc9218_prio(TfwStream *stream, int urgency,
+				bool incremental)
+{
+	INIT_LIST_HEAD(&stream->prio.rfc9218_prio.node);
+	stream->prio.rfc9218_prio.incremental = incremental;
+	stream->prio.rfc9218_prio.urgency = urgency > 0 ?
+		urgency : HTTP2_DEF_URGENCY;
+}
+
 static TfwStream *
-tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
-		  long int loc_wnd, long int rem_wnd)
+tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, long int loc_wnd,
+		  long int rem_wnd)
 {
 	TfwStream *new_stream;
 	struct rb_node **new = &sched->streams.rb_node;
@@ -127,8 +146,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_h2_init_stream(new_stream, id, weight, loc_wnd, rem_wnd);
-
+	tfw_h2_init_stream(new_stream, id, loc_wnd, rem_wnd);
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);
 
@@ -224,22 +242,43 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 {
 	TfwStream *stream;
 	TfwStreamSchedEntry *dep = NULL;
-	TfwFramePri *pri = &ctx->priority;
-	bool excl = pri->exclusive;
+	TfwFramePri *pri = NULL;
+	TfwPriUpdate *pri_update = NULL;
 
-	T_DBG3("Create new stream (id %u weight %u exclusive %d),"
-	       " which depends from stream with id %u,"
-	       " ctx %px streams_num %lu\n", id, pri->weight,
-	       pri->exclusive, pri->stream_id, ctx, ctx->streams_num);
+	if (!tfw_h2_conn_support_rfc9218(ctx)) {
+		pri = &ctx->priority;
+		dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
+		T_DBG3("Create new stream (id %u weight %u exclusive %d),"
+		       " which depends from stream with id %u,"
+		       " ctx %px streams_num %lu\n", id, pri->weight,
+		       pri->exclusive, pri->stream_id, ctx,
+		       ctx->streams_num);
+	} else {
+		T_DBG3("Create new stream (id %u) ctx %px streams_num %lu\n",
+		       id, ctx, ctx->streams_num);
+		pri_update = &ctx->priority_update;
+	}
 
-	dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
-	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
-				   ctx->lsettings.wnd_sz,
+	stream = tfw_h2_add_stream(&ctx->sched, id, ctx->lsettings.wnd_sz,
 				   ctx->rsettings.wnd_sz);
 	if (!stream)
 		return NULL;
 
-	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
+	if (!tfw_h2_conn_support_rfc9218(ctx)) {
+		tfw_h2_init_stream_rfc7540_prio(stream, pri->weight);
+		tfw_h2_add_stream_rfc7540_dep(&ctx->sched, stream, dep, 
+					      pri->exclusive);
+	} else {
+		unsigned urgency;
+
+		urgency = pri_update->was_inited ?
+			pri_update->urgency : HTTP2_DEF_URGENCY;
+
+		tfw_h2_init_stream_rfc9218_prio(stream, urgency,
+						pri_update->incremental);
+		tfw_h2_add_stream_rfc9218_dep(&ctx->sched, stream);
+	}
+
 	++ctx->streams_num;
 
 	return stream;

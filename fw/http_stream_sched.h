@@ -26,6 +26,9 @@
 #include "lib/eb64tree.h"
 #include "http_types.h"
 
+#define RFC9218_URGENCY_MIN 0
+#define RFC9218_URGENCY_MAX 7
+
 /**
  * @total_weight - total weight of the streams for this scheduler;
  * @active_cnt	 - count of active child streams for this scheduler;
@@ -47,28 +50,36 @@ typedef struct tfw_stream_sched_entry_t {
  *
  * @streams		- root red-black tree entry for per-connection streams storage;
  * @root		- root scheduler of per-connection priority tree;
+ * @array		- scheduler array of streams according RFC 9218; 
  * @blocked_streams	- count of blocked streams;
  */
 typedef struct tfw_stream_sched_t {
 	struct rb_root		streams;
 	TfwStreamSchedEntry	root;
+	struct list_head	array[RFC9218_URGENCY_MAX + 1];
 	long int		blocked_streams;
 } TfwStreamSched;
 
 TfwStreamSchedEntry *tfw_h2_find_stream_dep(TfwStreamSched *sched,
 					    unsigned int id);
-void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
-			   TfwStreamSchedEntry *dep, bool excl);
-void tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
-void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-			      unsigned int new_dep, unsigned short new_weight,
-			      bool excl);
+void tfw_h2_add_stream_rfc7540_dep(TfwStreamSched *sched, TfwStream *stream,
+				   TfwStreamSchedEntry *dep, bool excl);
+void tfw_h2_add_stream_rfc9218_dep(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_remove_stream_rfc7540_dep(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_remove_stream_rfc9218_dep(TfwStream *stream);
+void tfw_h2_change_stream_rfc7540_dep(TfwStreamSched *sched,
+				      unsigned int stream_id,
+				      unsigned int new_dep,
+				      unsigned short new_weight,
+				      bool excl);
 
-void tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream);
-void tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
-				 TfwStreamSchedEntry *parent, u64 deficit);
-TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSched *sched,
+void tfw_h2_stream_sched_rfc7540_remove(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_sched_stream_rfc7540_enqueue(TfwStreamSched *sched, TfwStream *stream,
+					 TfwStreamSchedEntry *parent, u64 deficit);
+void tfw_h2_sched_stream_rfc9218_enqueue(TfwStreamSched *sched, TfwStream *stream);
+TfwStream *tfw_h2_sched_stream_rfc7540_dequeue(TfwStreamSched *sched,
 				       TfwStreamSchedEntry **parent);
+TfwStream *tfw_h2_sched_stream_rfc9218_dequeue(TfwStreamSched *sched);
 void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline bool
@@ -88,8 +99,12 @@ tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
 static inline void
 tfw_h2_init_stream_sched(TfwStreamSched *sched)
 {
+	unsigned int i;
+
 	sched->streams = RB_ROOT;
 	tfw_h2_init_stream_sched_entry(&sched->root);
+	for (i = 0 ; i < RFC9218_URGENCY_MAX + 1; i++)
+		INIT_LIST_HEAD(&sched->array[i]);
 }
 
 #endif /* __HTTP_STREAM_SCHED__ */
