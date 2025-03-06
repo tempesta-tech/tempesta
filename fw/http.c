@@ -143,6 +143,8 @@ static struct {
 	unsigned int	sz;
 } tfw_wl_marks;
 
+static DEFINE_TFW_STR(STR_CRLF, S_CRLF);
+
 /**
  * Usually we store all limits in the frang, but this
  * limit is described in RFC 9113 6.5.2, so we place it
@@ -3329,12 +3331,11 @@ __tfw_http_add_hdr_via(TfwHttpMsg *hm, int http_version, bool from_cache)
 	} else {
 		struct sk_buff **skb_head = &hm->msg.skb_head;
 		TfwMsgIter *it = &hm->iter;
-		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 		r = tfw_http_msg_expand_data(it, skb_head, &rh, NULL);
 		if (unlikely(r))
 			goto err;
-		r = tfw_http_msg_expand_data(it, skb_head, &crlf, NULL);
+		r = tfw_http_msg_expand_data(it, skb_head, &STR_CRLF, NULL);
 	}
 
 	if (unlikely(r))
@@ -3505,7 +3506,6 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 	int r = 0;
 	unsigned int i;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	static const DEFINE_TFW_STR(crlf, S_CRLF);
 
 	if (!h_mods)
 		return 0;
@@ -3569,13 +3569,13 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 						     NULL);
 			if (unlikely(r))
 				return r;
-			r = tfw_http_msg_expand_data(it, skb_head, &crlf,
+			r = tfw_http_msg_expand_data(it, skb_head, &STR_CRLF,
 						      NULL);
 		} else {
 			r = tfw_http_msg_expand_from_pool(hm, &h_mdf);
 			if (unlikely(r))
 				return r;
-			r = tfw_http_msg_expand_from_pool(hm, &crlf);
+			r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 		}
 	}
 
@@ -3594,7 +3594,6 @@ tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	static const DEFINE_TFW_STR(host_n, "Host: ");
-	static const DEFINE_TFW_STR(crlf, S_CRLF);
 
 	r = tfw_http_msg_expand_from_pool(hm, &host_n);
 	if (unlikely(r))
@@ -3611,7 +3610,7 @@ tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
 	if (unlikely(r))
 		return r;
 
-	return tfw_http_msg_expand_from_pool(hm, &crlf);
+	return tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 }
 
 /**
@@ -3631,7 +3630,6 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	static const DEFINE_TFW_STR(meth_get, "GET");
 	static const DEFINE_TFW_STR(slash, "/");
 	static const DEFINE_TFW_STR(sp, " ");
-	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
@@ -3716,7 +3714,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
 				goto clean;
-			r = tfw_http_msg_expand_from_pool(hm, &crlf);
+			r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 			if (unlikely(r))
 				goto clean;
 		}
@@ -3743,7 +3741,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		goto clean;
 
 	/* Write last CRLF for headers block. */
-	r = tfw_http_msg_expand_from_pool(hm, &crlf);
+	r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 	if (unlikely(r))
 		goto clean;
 
@@ -3924,7 +3922,6 @@ write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
 	int r = 0;
 	static const DEFINE_TFW_STR(h_cookie, "cookie" S_DLM);
 	static const DEFINE_TFW_STR(val_dlm, "; ");
-	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	TfwStr *dup, *dup_end;
 	const TfwStr *cookie_dlm = &h_cookie;
 
@@ -3948,7 +3945,7 @@ write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
 		r |= tfw_msg_write(it, &hval);
 		cookie_dlm = &val_dlm;
 	}
-	return r | tfw_msg_write(it, &crlf);
+	return r | tfw_msg_write(it, &STR_CRLF);
 }
 
 static int
@@ -3998,7 +3995,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 						    TFW_VHOST_HDRMOD_REQ);
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(dlm, S_DLM);
-	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	static const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
 	char *buf = *this_cpu_ptr(&g_buf);
 	char *xff_end = ss_skb_fmt_src_addr(req->msg.skb_head, buf);
@@ -4183,7 +4179,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		host_val = &tmp_host;
 	}
 	r |= tfw_msg_write(&it, host_val);
-	r |= tfw_msg_write(&it, &crlf);
+	r |= tfw_msg_write(&it, &STR_CRLF);
 	if (unlikely(r))
 		goto err;
 
@@ -4238,7 +4234,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			hval.len = dup->len - hval.len;
 			r |= tfw_msg_write(&it, &hval);
 
-			r |= tfw_msg_write(&it, &crlf);
+			r |= tfw_msg_write(&it, &STR_CRLF);
 		}
 		if (unlikely(r))
 			goto err;
@@ -4259,7 +4255,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		r |= tfw_msg_write(&it, &h_cl);
 	}
 	/* Finally close headers. */
-	r |= tfw_msg_write(&it, &crlf);
+	r |= tfw_msg_write(&it, &STR_CRLF);
 
 	if (unlikely(r))
 		goto err;
@@ -4352,7 +4348,6 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	TfwHttpMsgCleanup cleanup = {};
 	TfwMsgIter *iter = &resp->iter;
 	TfwStr *pos, *end, *s_line = &resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
-	static const DEFINE_TFW_STR(crlf, S_CRLF);
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
@@ -4402,7 +4397,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		r = tfw_http_msg_expand_from_pool(hm, s_line);
 		if (unlikely(r))
 			goto clean;
-		r = tfw_http_msg_expand_from_pool(hm, &crlf);
+		r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 		if (unlikely(r))
 			goto clean;
 
@@ -4427,7 +4422,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		r = tfw_http_msg_expand_from_pool(hm, s_line);
 		if (unlikely(r))
 			goto clean;
-		r = tfw_http_msg_expand_from_pool(hm, &crlf);
+		r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 		if (unlikely(r))
 			goto clean;
 	}
@@ -4455,7 +4450,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
 				goto clean;
-			r = tfw_http_msg_expand_from_pool(hm, &crlf);
+			r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 			if (unlikely(r))
 				goto clean;
 		}
@@ -4492,7 +4487,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 		goto clean;
 
 	/* Write last CRLF for headers block. */
-	r = tfw_http_msg_expand_from_pool(hm, &crlf);
+	r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 
 clean:
 	__tfw_http_free_cleanup(&cleanup);
