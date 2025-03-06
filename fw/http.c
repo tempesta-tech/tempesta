@@ -144,6 +144,7 @@ static struct {
 } tfw_wl_marks;
 
 static DEFINE_TFW_STR(STR_CRLF, S_CRLF);
+static const DEFINE_TFW_STR(STR_CLEN_ZERO, "Content-Length: 0");
 
 /**
  * Usually we store all limits in the frang, but this
@@ -3406,7 +3407,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 }
 
 static int
-tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
+tfw_h1_add_x_forwarded_for(TfwHttpMsg *hm)
 {
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
@@ -3641,13 +3642,13 @@ err:
  * may be used on response path.
  */
 static int
-tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
+tfw_h1_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
 {
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
-	static const DEFINE_TFW_STR(host_n, "Host: ");
+	static const DEFINE_TFW_STR(host_name, "Host: ");
 
-	r = tfw_http_msg_expand_from_pool(hm, &host_n);
+	r = tfw_http_msg_expand_from_pool(hm, &host_name);
 	if (unlikely(r))
 		return r;
 
@@ -3665,38 +3666,16 @@ tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
 	return tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 }
 
-/**
- * Adjust the request before proxying it to real server.
- *
- * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
- * Do so to be able to use persistent connection with upstream and also to use
- * extended conditional headers mechanism.
- */
 static int
-tfw_h1_adjust_req(TfwHttpReq *req)
+tfw_h1_req_copy_first_line(TfwHttpReq *req)
 {
-	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
-	TfwStr *pos, *end;
+	int r;
 	const TfwStr *meth;
 	static const DEFINE_TFW_STR(meth_get, "GET");
 	static const DEFINE_TFW_STR(slash, "/");
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
-	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
-							  req->vhost,
-							  TFW_VHOST_HDRMOD_REQ);
-
-	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
-	if (unlikely(!req->cleanup))
-		return -ENOMEM;
-	req->cleanup->pages_sz = 0;
-	req->cleanup->skb_head = NULL;
-
-	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
-	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
-	if (unlikely(r))
-		goto clean;
 
 	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags) ||
 	    test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
@@ -3707,11 +3686,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 	r = tfw_http_msg_expand_from_pool(hm, meth);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	r = tfw_http_msg_expand_from_pool(hm, &sp);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	/* uri_path is empty when uri is absolute and doesn't have slash */
 	if (TFW_STR_EMPTY(&req->uri_path))
@@ -3719,15 +3698,17 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	else
 		r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
-	r = tfw_http_msg_expand_from_pool(hm, &ver);
-	if (unlikely(r))
-		goto clean;
+	return tfw_http_msg_expand_from_pool(hm, &ver);
+}
 
-	r = tfw_http_add_hdr_host(req, h_mods);
-	if (unlikely(r))
-		goto clean;
+static int
+tfw_h1_req_copy_hdrs(TfwHttpReq *req, const TfwHdrMods *h_mods)
+{
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	TfwStr *pos, *end;
+	int r = 0;
 
 	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_CONTENT_LENGTH) {
 		int hid = pos - hm->h_tbl->tbl;
@@ -3750,7 +3731,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		{
 			r = tfw_http_recreate_content_type_multipart_hdr(req);
 			if (unlikely(r))
-				goto clean;
+				return r;
 			continue;
 		}
 
@@ -3765,14 +3746,56 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 				continue;
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
-				goto clean;
+				return r;
 			r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 			if (unlikely(r))
-				goto clean;
+				return r;
 		}
 	}
 
-	r = tfw_http_add_x_forwarded_for(hm);
+	return r;
+}
+
+/**
+ * Adjust the request before proxying it to real server.
+ *
+ * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
+ * Do so to be able to use persistent connection with upstream and also to use
+ * extended conditional headers mechanism.
+ */
+static int
+tfw_h1_adjust_req(TfwHttpReq *req)
+{
+	int r;
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
+							  req->vhost,
+							  TFW_VHOST_HDRMOD_REQ);
+
+	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
+	if (unlikely(!req->cleanup))
+		return -ENOMEM;
+	req->cleanup->pages_sz = 0;
+	req->cleanup->skb_head = NULL;
+
+	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
+	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_req_copy_first_line(req);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_add_hdr_host(req, h_mods);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_req_copy_hdrs(req, h_mods);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_add_x_forwarded_for(hm);
 	if (unlikely(r))
 		goto clean;
 
@@ -4405,45 +4428,11 @@ err:
 	return -EINVAL;
 }
 
-/*
- * Prepare current response skb_head for cleaning and replace current skb_head
- * with new empty skb. With this approach headers will be copied to new skb
- * skipping body and logic related to finding the right place for cutting
- * headers will be avoided.
- */
-static int
-tfw_h1_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
+unsigned long
+tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
 {
-	struct sk_buff *nskb;
-
-	nskb = ss_skb_alloc(0);
-	if (unlikely(!nskb))
-		return -ENOMEM;
-
-	nskb->mark = resp->msg.skb_head->mark;
-	cleanup->skb_head = resp->msg.skb_head;
-	resp->msg.skb_head = NULL;
-	ss_skb_queue_tail(&resp->msg.skb_head, nskb);
-
-	return 0;
-}
-
-/**
- * Adjust the response before proxying it to real client.
- */
-static int
-tfw_http_adjust_resp(TfwHttpResp *resp)
-{
-	int r, hdr_start = TFW_HTTP_HDR_CONTENT_LENGTH;
-	TfwHttpReq *req = resp->req;
-	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	unsigned long conn_flg = 0;
-	TfwHttpMsgCleanup cleanup = {};
-	TfwMsgIter *iter = &resp->iter;
-	TfwStr *pos, *end, *s_line = &resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
-	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
-							  req->vhost,
-							  TFW_VHOST_HDRMOD_RESP);
+	TfwHttpReq *req = resp->req;
 
 	/*
 	 * If request violated backend rules, backend may respond with 4xx code
@@ -4463,65 +4452,92 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 			conn_flg = BIT(TFW_HTTP_B_CONN_KA);
 	}
 
+	return conn_flg;
+}
+
+/*
+ * Prepare current response skb_head for cleaning and replace current skb_head
+ * with new empty skb. With this approach headers will be copied to new skb
+ * skipping body and logic related to finding the right place for cutting
+ * headers will be avoided.
+ */
+static int
+tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
+{
+	struct sk_buff *nskb;
+	TfwMsgIter *iter = &resp->iter;
+
+	nskb = ss_skb_alloc(0);
+	if (unlikely(!nskb))
+		return -ENOMEM;
+
+	nskb->mark = resp->msg.skb_head->mark;
+	cleanup->skb_head = resp->msg.skb_head;
+	resp->msg.skb_head = NULL;
+	ss_skb_queue_tail(&resp->msg.skb_head, nskb);
+	iter->skb_head = resp->msg.skb_head;
+	iter->skb = resp->msg.skb_head;
+
+	return 0;
+}
+
+static int
+tfw_h1_resp_cutoff_headers(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
+{
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
+	TfwHttpReq *req = resp->req;
+	int r;
+
 	/* Response for PURGE/HEAD request. */
-	if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags) ||
-	    test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) {
-		static const DEFINE_TFW_STR(clen, "Content-Length: 0\r\n");
-
-		/* Clean current reponse skb_head if body is exists. */
-		if (resp->body.len > 0) {
-			r = tfw_h1_resp_set_empty_skb_head(resp, &cleanup);
-			if (unlikely(r))
-				goto clean;
-
-			tfw_msg_transform_setup(iter, resp->msg.skb_head);
-		} else {
-			/*
-			 * When response doesn't have body, just remove
-			 * headers and use current skb as skb head.
-			 */
-			tfw_msg_transform_setup(iter, resp->msg.skb_head);
-
-			r = tfw_http_msg_cutoff_headers(hm, &cleanup);
-			if (unlikely(r))
-				goto clean;
-		}
-
-		r = tfw_http_msg_expand_from_pool(hm, s_line);
+	if ((test_bit(TFW_HTTP_B_PURGE_GET, req->flags) ||
+	     test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) &&
+	    resp->body.len > 0)
+	{
+		/* Clean current response skb_head if body is exists. */
+		r = tfw_http_resp_set_empty_skb_head(resp, cleanup);
 		if (unlikely(r))
-			goto clean;
-		r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
-		if (unlikely(r))
-			goto clean;
+			return r;
 
 		if (test_bit(TFW_HTTP_B_PURGE_GET, req->flags)) {
 			/*
 			 * For a response to PURGE request we drop the body.
 			 * Add "content-length: 0" header.
 			 */
-			r = tfw_http_msg_expand_from_pool(hm, &clen);
-			if (unlikely(r))
-				goto clean;
-
-			hdr_start = TFW_HTTP_HDR_CONTENT_TYPE;
+			resp->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH] =
+				STR_CLEN_ZERO;
 		}
 	} else {
-		/* Response for regular request. */
-		tfw_msg_transform_setup(iter, resp->msg.skb_head);
-		r = tfw_http_msg_cutoff_headers(hm, &cleanup);
-		if (unlikely(r))
-			goto clean;
-
-		r = tfw_http_msg_expand_from_pool(hm, s_line);
-		if (unlikely(r))
-			goto clean;
-		r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
-		if (unlikely(r))
-			goto clean;
+		/* Response for regular request */
+		r = tfw_http_msg_cutoff_headers(hm, cleanup);
 	}
 
-	FOR_EACH_HDR_FIELD_FROM(pos, end, resp, hdr_start) {
-		int hid = pos - resp->h_tbl->tbl;
+	return r;
+}
+
+static int
+tfw_h1_resp_copy_status_line(TfwHttpResp *resp)
+{
+	int r;
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
+	TfwStr *s_line = &hm->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
+
+	r = tfw_http_msg_expand_from_pool(hm, s_line);
+	if (unlikely(r))
+		return r;
+	r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
+
+	return r;
+}
+
+static int
+tfw_h1_resp_copy_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
+{
+	int r = 0;
+	TfwStr *pos, *end;
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
+
+	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_CONTENT_LENGTH) {
+		int hid = pos - hm->h_tbl->tbl;
 		TfwStr *dup, *dup_end, *hdr = pos;
 
 		/* Skip hop-by-hop headers. */
@@ -4542,18 +4558,50 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 				continue;
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
-				goto clean;
+				return r;
 			r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 			if (unlikely(r))
-				goto clean;
+				return r;
 		}
 	}
 
-	r = tfw_http_sess_resp_process(resp, false);
-	if (r < 0)
-		return r;
+	return r;
+}
 
-	r = tfw_http_set_hdr_connection(hm, conn_flg);
+/**
+ * Adjust the response before proxying it to real client.
+ */
+static int
+tfw_http_adjust_resp(TfwHttpResp *resp)
+{
+	int r;
+	TfwHttpReq *req = resp->req;
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
+	TfwMsgIter *iter = &resp->iter;
+	TfwHttpMsgCleanup cleanup = {};
+	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
+							  req->vhost,
+							  TFW_VHOST_HDRMOD_RESP);
+
+	tfw_msg_transform_setup(iter, resp->msg.skb_head);
+
+	r = tfw_h1_resp_cutoff_headers(resp, &cleanup);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_resp_copy_status_line(resp);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_resp_copy_hdrs(resp, h_mods);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_http_sess_resp_process(resp, false);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_http_set_hdr_connection(hm, tfw_http_resp_get_conn_flags(resp));
 	if (unlikely(r))
 		goto clean;
 
