@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@ typedef struct {
  */
 typedef struct {
 	size_t		len;
-	char		str[0];
+	DECLARE_FLEX_ARRAY(char, str);
 } TfwCaToken;
 
 /* tfw_vhost_get_capo_hdr_del result */
@@ -285,7 +285,7 @@ tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
 	return container_of(cfg, TfwVhost, tls_cfg);
 }
 
-static bool inline
+static inline bool
 tfw_vhost_is_default(TfwVhost *vhost)
 {
 	return !vhost->vhost_dflt;

@@ -24,7 +24,7 @@ else
 test-gt = $(shell test $(strip $1)0 -gt $(strip $2)0 && echo y)
 endif
 
-TFW_CFLAGS = $(DEFINES) -Werror
+TFW_CFLAGS = $(DEFINES) -Werror -Wno-missing-prototypes -Wno-error=missing-declarations -Wno-missing-declarations
 ifdef DEBUG
 	ifeq ($(call test-gt, 1, $(DEBUG)), y)
 		ERROR = "DEBUG must be greater than 0"
@@ -69,6 +69,7 @@ DBG_CFG ?= 0
 DBG_HTTP_PARSER ?= 0
 DBG_SS ?= 0
 DBG_TLS ?= 0
+DBG_TLS_NO_RAND ?= 0
 DBG_WS ?= 0
 DBG_APM ?= 0
 DBG_GFSM ?= 0
@@ -84,7 +85,8 @@ DBG_SRV ?= 0
 DBG_VHOST ?= 0
 DBG_TEST ?= 0
 TFW_CFLAGS += -DDBG_CFG=$(DBG_CFG) -DDBG_HTTP_PARSER=$(DBG_HTTP_PARSER)
-TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_TLS=$(DBG_TLS) -DDBG_WS=$(DBG_WS)
+TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_TLS=$(DBG_TLS)
+TFW_CFLAGS += -DDBG_TLS_NO_RAND=$(DBG_TLS_NO_RAND) -DDBG_WS=$(DBG_WS)
 TFW_CFLAGS += -DDBG_APM=$(DBG_APM) -DDBG_GFSM=$(DBG_GFSM) -DDBG_HTTP=$(DBG_HTTP)
 TFW_CFLAGS += -DDBG_HTTP_FRAME=$(DBG_HTTP_FRAME)
 TFW_CFLAGS += -DDBG_HTTP_SESS=$(DBG_HTTP_SESS)

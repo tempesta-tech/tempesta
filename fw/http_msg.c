@@ -1240,11 +1240,11 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
  */
 int
 tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
-		   unsigned int tx_flags)
+		   unsigned int flags)
 {
 	int r;
 
-	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, tx_flags)))
+	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, flags)))
 		return r;
 	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
@@ -1278,7 +1278,7 @@ this_chunk:
 			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 
 			f_size = skb_frag_size(frag);
-			f_room = PAGE_SIZE - frag->bv_offset - f_size;
+			f_room = PAGE_SIZE - skb_frag_off(frag) - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
 			n_copy = min(c_size, f_room);
 			skb_frag_size_add(frag, n_copy);
@@ -1450,7 +1450,7 @@ this_chunk:
 			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 
 			f_size = skb_frag_size(frag);
-			f_room = PAGE_SIZE - frag->bv_offset - f_size;
+			f_room = PAGE_SIZE - skb_frag_off(frag) - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
 			min_len = min(cur_len, f_room);
 			skb_frag_size_add(frag, min_len);
@@ -1623,7 +1623,7 @@ tfw_http_msg_linear_transform(TfwMsgIter *it)
 		if (!nskb)
 			return -ENOMEM;
 
-		skb_shinfo(nskb)->tx_flags = skb_shinfo(it->skb)->tx_flags;
+		skb_shinfo(nskb)->flags = skb_shinfo(it->skb)->flags;
 		ss_skb_insert_before(&it->skb_head, it->skb, nskb);
 		it->skb = nskb;
 		it->frag = -1;
@@ -1694,8 +1694,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 					}
 				}
 
-				skb_shinfo(nskb)->tx_flags =
-					skb_shinfo(it->skb)->tx_flags;
+				skb_shinfo(nskb)->flags =
+					skb_shinfo(it->skb)->flags;
 				ss_skb_insert_after(it->skb, nskb);
 				/*
 				 * If body is located in the zero fragment and
