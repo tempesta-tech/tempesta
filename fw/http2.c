@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -360,6 +360,7 @@ void
 tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 {
 	TfwStream *cur;
+	unsigned int max_streams = ctx->lsettings.max_streams;
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 
 	T_DBG3("%s: ctx [%p] closed streams num %lu\n", __func__, ctx,
@@ -368,7 +369,9 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 	while (1) {
 		spin_lock(&ctx->lock);
 
-		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS) {
+		if (closed_streams->num <= TFW_MAX_CLOSED_STREAMS
+		    && (ctx->streams_num < max_streams
+			|| !closed_streams->num)) {
 			spin_unlock(&ctx->lock);
 			break;
 		}
