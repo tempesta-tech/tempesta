@@ -3338,9 +3338,14 @@ __tfw_http_add_hdr_via(TfwHttpMsg *hm, int http_version, bool from_cache)
 		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &rh, NULL);
-		r |= tfw_http_msg_expand_data(&mit->iter, skb_head,
+		if (unlikely(r))
+			goto finish;
+
+		r = tfw_http_msg_expand_data(&mit->iter, skb_head,
 					     &crlf, NULL);
 	}
+
+finish:
 	if (r)
 		T_ERR("Unable to add via: header to msg [%p]\n", hm);
 	else
@@ -3523,13 +3528,17 @@ tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 			/* h_mdf->eolen is ignored, add explicit CRLF. */
 			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
 						     &h_mdf, NULL);
-			r |= tfw_http_msg_expand_data(&mit->iter, skb_head,
+			if (unlikely(r))
+				goto finish;
+
+			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
 						     &crlf, NULL);
 		} else {
 			r = tfw_http_msg_hdr_xfrm_str(hm, &h_mdf, d->hid,
 						      d->append);
 		}
 
+finish:
 		if (r) {
 			T_ERR("can't update location-specific header in msg %p\n",
 			      hm);
@@ -3861,11 +3870,18 @@ write_merged_cookie_headers(TfwStr *hdr, TfwMsgIter *it)
 			hval.nchunks--;
 			hval.len -= chunk->len;
 		}
-		r |= tfw_msg_write(it, cookie_dlm);
-		r |= tfw_msg_write(it, &hval);
+		r = tfw_msg_write(it, cookie_dlm);
+		if (unlikely(r))
+			return r;
+
+		r = tfw_msg_write(it, &hval);
+		if (unlikely(r))
+			return r;
+
 		cookie_dlm = &val_dlm;
 	}
-	return r | tfw_msg_write(it, &crlf);
+
+	return tfw_msg_write(it, &crlf);
 }
 
 static int
@@ -4072,20 +4088,40 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
-	if ((r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz, 0)))
+
+	r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz, 0);
+	if (unlikely(r))
 		return r;
 
 	/* First line. */
 	r = __h2_write_method(req, &it);
-	r |= tfw_msg_write(&it, &sp);
-	r |= tfw_msg_write(&it, &req->uri_path);
-	r |= tfw_msg_write(&it, &fl_end); /* start of Host: header */
+	if (unlikely(r))
+		goto err;
+
+	r = tfw_msg_write(&it, &sp);
+	if (unlikely(r))
+		goto err;
+
+	r = tfw_msg_write(&it, &req->uri_path);
+	if (unlikely(r))
+		goto err;
+
+	r = tfw_msg_write(&it, &fl_end); /* start of Host: header */
+	if (unlikely(r))
+		goto err;
+
 	if (auth)
 		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY], &host_val);
 	else if (host)
 		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &host_val);
-	r |= tfw_msg_write(&it, &host_val);
-	r |= tfw_msg_write(&it, &crlf);
+
+	r = tfw_msg_write(&it, &host_val);
+	if (unlikely(r))
+		goto err;
+
+	r = tfw_msg_write(&it, &crlf);
+	if (unlikely(r))
+		goto err;
 
 	/* Skip host header: it's already written. */
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
@@ -4096,19 +4132,25 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		case TFW_HTTP_HDR_HOST:
 			continue; /* Already written. */
 		case TFW_HTTP_HDR_X_FORWARDED_FOR:
-			r |= tfw_msg_write(&it, &h_xff);
+			r = tfw_msg_write(&it, &h_xff);
+			if (unlikely(r))
+				goto err;
 			continue;
 		case TFW_HTTP_HDR_CONTENT_TYPE:
 			if (h_ct_replace) {
-				r |= tfw_msg_write(&it, &h_ct);
+				r = tfw_msg_write(&it, &h_ct);
+				if (unlikely(r))
+					goto err;
 				continue;
 			}
 			break;
 		case TFW_HTTP_HDR_COOKIE:
 			if (!TFW_STR_DUP(field))
 				break;
-			r |= write_merged_cookie_headers(
+			r = write_merged_cookie_headers(
 					&ht->tbl[TFW_HTTP_HDR_COOKIE], &it);
+			if (unlikely(r))
+				goto err;
 			continue;
 		default:
 			break;
@@ -4131,20 +4173,33 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 				hval.nchunks++;
 				hval.len += chunk->len;
 			}
-			r |= tfw_msg_write(&it, &hval);
-			r |= tfw_msg_write(&it, &dlm);
+			r = tfw_msg_write(&it, &hval);
+			if (unlikely(r))
+				goto err;
+			r = tfw_msg_write(&it, &dlm);
+			if (unlikely(r))
+				goto err;
+
 			hval.chunks += hval.nchunks;
 			hval.nchunks = dup->nchunks - hval.nchunks;
 			hval.len = dup->len - hval.len;
-			r |= tfw_msg_write(&it, &hval);
 
-			r |= tfw_msg_write(&it, &crlf);
+			r = tfw_msg_write(&it, &hval);
+			if (unlikely(r))
+				goto err;
+
+			r = tfw_msg_write(&it, &crlf);
+			if (unlikely(r))
+				goto err;
 		}
 		if (unlikely(r))
 			goto err;
 	}
 
-	r |= tfw_msg_write(&it, &h_via);
+	r = tfw_msg_write(&it, &h_via);
+	if (unlikely(r))
+		goto err;
+
 	if (need_cl) {
 		h_cl = (TfwStr) {
 			.chunks = (TfwStr []) {
@@ -4156,11 +4211,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			.len = cl_len,
 			.nchunks = 4
 		};
-		r |= tfw_msg_write(&it, &h_cl);
+		r = tfw_msg_write(&it, &h_cl);
+		if (unlikely(r))
+			goto err;
 	}
 	/* Finally close headers. */
-	r |= tfw_msg_write(&it, &crlf);
-
+	r = tfw_msg_write(&it, &crlf);
 	if (unlikely(r))
 		goto err;
 
@@ -4208,11 +4264,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	return 0;
+
 err:
 	ss_skb_queue_purge(&new_head);
-	T_DBG3("%s: req [%p] convertation to http1.1 has failed\n",
-	       __func__, req);
-	return -EINVAL;
+	T_DBG3("%s: req [%px] convertation to http1.1 has failed"
+	       " with result (%d)\n", __func__, req, r);
+	return r;
 }
 
 /*
