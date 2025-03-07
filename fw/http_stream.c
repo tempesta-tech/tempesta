@@ -248,13 +248,13 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	if (!tfw_h2_conn_support_rfc9218(ctx)) {
 		pri = &ctx->priority;
 		dep = tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id);
-		T_DBG3("Create new stream (id %u weight %u exclusive %d),"
+		printk(KERN_ALERT "Create new stream (id %u weight %u exclusive %d),"
 		       " which depends from stream with id %u,"
 		       " ctx %px streams_num %lu\n", id, pri->weight,
 		       pri->exclusive, pri->stream_id, ctx,
 		       ctx->streams_num);
 	} else {
-		T_DBG3("Create new stream (id %u) ctx %px streams_num %lu\n",
+		printk(KERN_ALERT"Create new stream (id %u) ctx %px streams_num %lu\n",
 		       id, ctx, ctx->streams_num);
 		pri_update = &ctx->priority_update;
 	}

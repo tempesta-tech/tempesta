@@ -437,9 +437,9 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 	struct {
 		unsigned short key;
 		unsigned int value;
-	} __packed field[4];
+	} __packed field[5];
 
-	const unsigned int required_fields = 3;
+	const unsigned int required_fields = 4;
 
 	TfwStr data = {
 		.chunks = (TfwStr []){
@@ -476,6 +476,9 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 
 	field[2].key   = htons(HTTP2_SETTINGS_MAX_STREAMS);
 	field[2].value = htonl(ctx->lsettings.max_streams);
+
+	field[3].key = htons(SETTINGS_NO_RFC7540_PRIORITIES);
+	field[3].value = htonl(1);
 
 	if (ctx->lsettings.max_lhdr_sz != UINT_MAX) {
 		field[required_fields].key =
@@ -980,6 +983,8 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
 	unsigned int val = ntohl(*(unsigned int *)&ctx->rbuf[2]);
 
+	printk(KERN_ALERT "tfw_h2_settings_process id %d val %d", id, val);
+
 	if ((r = tfw_h2_check_settings_entry(ctx, id, val)))
 		return r;
 
@@ -1293,6 +1298,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		return 0;
 
 	case HTTP2_PRIORITY:
+		printk(KERN_ALERT "HTTP2_PRIORITY");
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -1516,6 +1522,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		return 0;
 
 	case PRIORITY_UPDATE:
+		printk(KERN_ALERT "PRIORITY_UPDATE");
 		if (!tfw_h2_conn_support_rfc9218(ctx))
 			goto ignore_frame_data;
 

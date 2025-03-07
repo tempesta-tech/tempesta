@@ -6036,8 +6036,8 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 
 	BUG_ON(!stream->msg);
 
-	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
-	       skb->len, conn, stream->msg);
+	printk(KERN_ALERT "Received %u client data bytes on conn=%p msg=%px id %u\n",
+	       skb->len, conn, stream->msg, stream->id);
 
 	/*
 	 * Process pipelined requests in a loop

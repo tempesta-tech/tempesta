@@ -8299,6 +8299,8 @@ __h2_req_parse_priority(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	TfwHttpReq *req = (TfwHttpReq *)hm;
 	__FSM_DECLARE_VARS(hm);
 
+	printk(KERN_ALERT "__h2_req_parse_priority %*.s", (int)len, data);
+
 #define RFC9218_CHECK_URGENCY(req)						\
 do {										\
 	if (RFC9218_STREAM_PRIO(req)->urgency < RFC9218_URGENCY_MIN		\
@@ -9601,7 +9603,7 @@ __FSM_STATE(st, cold) {							\
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
+	printk(KERN_ALERT "%s: fin=%d, len=%lu, data=%.*s%s, req=[%px]\n", __func__, fin, len,
 	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state);
@@ -9773,8 +9775,10 @@ __FSM_STATE(st, cold) {							\
 			if (unlikely(!__data_available(p, 8)))
 				__FSM_H2_NEXT_n(Req_HdrPrio, 4);
 			if (C4_INT(p + 4, 'r', 'i', 't', 'y')) {
-				if (!tfw_h2_conn_support_rfc9218(ctx))
+				if (!tfw_h2_conn_support_rfc9218(ctx)) {
+					printk(KERN_ALERT "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
 					__FSM_H2_OTHER_n(4);
+				}
 				__FSM_H2_HDR_NAME_FIN(8, TFW_TAG_HDR_PRIORITY);
 			}
 			__FSM_H2_OTHER_n(4);		/*
@@ -10183,6 +10187,7 @@ __FSM_STATE(st, cold) {							\
 	__FSM_STATE(Req_HdrPriorit, cold) {
 		switch (c) {
 		case 'y':
+			printk(KERN_ALERT "PPPPPPPPPPPPPPPP");
 			if (!tfw_h2_conn_support_rfc9218(ctx))
 				__FSM_JMP(RGen_HdrOtherN);
 			__FSM_H2_HDR_NAME_FIN(1, TFW_TAG_HDR_PRIORITY);
@@ -10375,7 +10380,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: fin=%d, len=%lu, data=%.*s%s, req=[%p]\n", __func__, fin, len,
+	printk(KERN_ALERT "%s: fin=%d, len=%lu, data=%.*s%s, req=[%px]\n", __func__, fin, len,
 	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	/*
