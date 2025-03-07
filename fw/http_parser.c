@@ -957,6 +957,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_HOST:
 	case TFW_HTTP_HDR_CONTENT_LENGTH:
 	case TFW_HTTP_HDR_CONTENT_TYPE:
+	case TFW_HTTP_HDR_EXPECT:
 	case TFW_HTTP_HDR_COOKIE:
 	case TFW_HTTP_HDR_IF_NONE_MATCH:
 	case TFW_HTTP_HDR_X_FORWARDED_FOR:
@@ -4846,6 +4847,40 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__parse_m_override);
 
+/* Parse Expect header. Only 100-continue supported. */
+static int
+__req_parse_expect(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Req_I_Expect_Match) {
+		/* "Expect" ":" "100-continue" */
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("100-continue"),
+				     &parser->hdr, {
+			__set_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags);
+		}, Req_I_Expect_Match, Req_I_Expect_EOL);
+		TRY_STR_INIT();
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Expect_EOL) {
+		/* Skip whitespaces. */
+		if (IS_CRLF(c))
+			return __data_off(p);
+		if (IS_WS(c))
+			__FSM_I_MOVE(Req_I_Expect_EOL);
+
+		return CSTR_NEQ;
+	}
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__req_parse_expect);
+
 /**
  * Init parser fields common for both response and request.
  */
@@ -5129,6 +5164,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			default:
 				__FSM_MOVE(RGen_HdrOtherN);
 			}
+		case 'e':
+			if (likely(__data_available(p, 7)
+				   && C4_INT_LCM(p + 1, 'x', 'p', 'e', 'c')
+				   && TFW_LC(*(p + 5)) == 't'
+				   && *(p + 6) == ':'))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
+				parser->_i_st = &&Req_HdrExpectV;
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
+			__FSM_MOVE(Req_HdrE);
 		case 'f':
 			if (likely(__data_available(p, 10)
 				   && C8_INT_LCM(p + 1, 'o', 'r', 'w', 'a', 'r',
@@ -5411,6 +5458,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, msg,
 				     __req_parse_content_type,
 				     TFW_HTTP_HDR_CONTENT_TYPE, 0);
+
+	/* 'Expect:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrExpectV, req, __req_parse_expect,
+				     TFW_HTTP_HDR_EXPECT, 0);
 
 	/* 'Forwarded:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrForwardedV, msg,
@@ -6102,6 +6153,14 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrContent_Ty, 'p', Req_HdrContent_Typ);
 	__FSM_TX_AF(Req_HdrContent_Typ, 'e', Req_HdrContent_Type);
 	__FSM_TX_AF_OWS(Req_HdrContent_Type, Req_HdrContent_TypeV);
+
+	/* Expect header processing. */
+	__FSM_TX_AF(Req_HdrE, 'x', Req_HdrEx);
+	__FSM_TX_AF(Req_HdrEx, 'p', Req_HdrExp);
+	__FSM_TX_AF(Req_HdrExp, 'e', Req_HdrExpe);
+	__FSM_TX_AF(Req_HdrExpe, 'c', Req_HdrExpec);
+	__FSM_TX_AF(Req_HdrExpec, 't', Req_HdrExpect);
+	__FSM_TX_AF_OWS(Req_HdrExpect, Req_HdrExpectV);
 
 	/* Forwarded header processing. */
 	__FSM_TX_AF(Req_HdrF, 'o', Req_HdrFo);

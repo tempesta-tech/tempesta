@@ -207,9 +207,9 @@ typedef enum {
 	TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_HOST = TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
-	/* This is only responce specific header. */
-	TFW_HTTP_HDR_CONTENT_LOCATION,
+	TFW_HTTP_HDR_CONTENT_LOCATION, /* response specific header. */
 	TFW_HTTP_HDR_CONTENT_TYPE,
+	TFW_HTTP_HDR_EXPECT,
 	TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
@@ -551,6 +551,7 @@ typedef struct {
 
 /* HTTP codes enumeration for predefined responses */
 typedef enum {
+	RESP_100,
 	RESP_200,
 	RESP_4XX_BEGIN,
 	RESP_400	= RESP_4XX_BEGIN,
@@ -626,7 +627,7 @@ tfw_http_req_header_table_size(void)
 static inline size_t
 tfw_http_resp_header_table_size(void)
 {
-	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 1;
+	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 2;
 }
 
 /**
