@@ -2173,7 +2173,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 			stream = ctx->cur_send_headers;
 			parent = stream->sched.parent;
 			tfw_h2_stream_sched_remove(sched, stream);
-		} else if (ctx->error) {
+		} else if (ctx->error && tfw_h2_stream_is_active(ctx->error)) {
 			stream = ctx->error;
 			parent = stream->sched.parent;
 			tfw_h2_stream_sched_remove(sched, stream);
