@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1289,10 +1289,6 @@ done:
 			 * RFC 7541 6.2.1
 			 * */
 			req->method = tfw_http_meth_str2id(s_hdr);
-			if (unlikely(req->method == _TFW_HTTP_METH_UNKNOWN)) {
-				WARN_ON_ONCE(1);
-				return -EINVAL;
-			}
 		}
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		break;
@@ -1872,8 +1868,7 @@ tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 	unsigned int state;
 	int r = T_OK;
 	TfwStr exp_str = {};
-	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
+	TfwMsgIter *it = &resp->iter;
 	const unsigned char *last = src + n;
 	unsigned char *prev = src;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
@@ -3396,7 +3391,7 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 		    bool use_pool)
 {
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &mit->iter;
+	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	const TfwStr s_idx = {
 		.data = idx->buf,
@@ -3408,7 +3403,8 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 	       s_idx.data);
 
 	if (use_pool)
-		return tfw_http_msg_expand_from_pool(resp, &s_idx);
+		return tfw_h2_msg_expand_from_pool((TfwHttpMsg *)resp,
+						   &s_idx, &resp->mit);
 
 	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
 					&mit->start_off);
@@ -3425,6 +3421,7 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	int r;
 	TfwHPackInt vlen;
 	TfwStr s_name = {}, s_val = {}, s_vlen = {};
+	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
 
 	if (!hdr)
 		return -EINVAL;
@@ -3447,14 +3444,16 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		s_nlen.data = nlen.buf;
 		s_nlen.len = nlen.sz;
 
-		r = tfw_http_msg_expand_from_pool(resp, &s_nlen);
+		r = tfw_h2_msg_expand_from_pool(msg, &s_nlen, &resp->mit);
 		if (unlikely(r))
 			return r;
 
 		if (trans)
-			r = tfw_http_msg_expand_from_pool_lc(resp, &s_name);
+			r = tfw_h2_msg_expand_from_pool_lc(msg, &s_name,
+							   &resp->mit);
 		else
-			r = tfw_http_msg_expand_from_pool(resp, &s_name);
+			r = tfw_h2_msg_expand_from_pool(msg, &s_name,
+							&resp->mit);
 		if (unlikely(r))
 			return r;
 	}
@@ -3463,12 +3462,12 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	s_vlen.data = vlen.buf;
 	s_vlen.len = vlen.sz;
 
-	r = tfw_http_msg_expand_from_pool(resp, &s_vlen);
+	r = tfw_h2_msg_expand_from_pool(msg, &s_vlen, &resp->mit);
 
 	if (unlikely(r))
 		return r;
 	if (!TFW_STR_EMPTY(&s_val))
-		r = tfw_http_msg_expand_from_pool(resp, &s_val);
+		r = tfw_h2_msg_expand_from_pool(msg, &s_val, &resp->mit);
 
 	return r;
 }
@@ -3484,7 +3483,7 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	int ret;
 	TfwStr *c, *end;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &mit->iter;
+	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	TfwStr s_val;
 
@@ -3630,6 +3629,7 @@ encode:
 		r = tfw_hpack_hdr_add(resp, hdr, &idx, name_indexed, trans);
 	else
 		r = tfw_hpack_hdr_expand(resp, hdr, &idx, name_indexed);
+
 	return r;
 }
 
