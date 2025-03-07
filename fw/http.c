@@ -3365,7 +3365,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 }
 
 static int
-tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
+tfw_h1_add_x_forwarded_for(TfwHttpMsg *hm)
 {
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
@@ -3590,13 +3590,13 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
  * may be used on response path.
  */
 static int
-tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
+tfw_h1_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
 {
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
-	static const DEFINE_TFW_STR(host_n, "Host: ");
+	static const DEFINE_TFW_STR(host_name, "Host: ");
 
-	r = tfw_http_msg_expand_from_pool(hm, &host_n);
+	r = tfw_http_msg_expand_from_pool(hm, &host_name);
 	if (unlikely(r))
 		return r;
 
@@ -3614,38 +3614,16 @@ tfw_http_add_hdr_host(TfwHttpReq *req, const TfwHdrMods *h_mods)
 	return tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 }
 
-/**
- * Adjust the request before proxying it to real server.
- *
- * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
- * Do so to be able to use persistent connection with upstream and also to use
- * extended conditional headers mechanism.
- */
 static int
-tfw_h1_adjust_req(TfwHttpReq *req)
+tfw_h1_req_copy_first_line(TfwHttpReq *req)
 {
-	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
-	TfwStr *pos, *end;
+	int r;
 	const TfwStr *meth;
 	static const DEFINE_TFW_STR(meth_get, "GET");
 	static const DEFINE_TFW_STR(slash, "/");
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
-	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
-							  req->vhost,
-							  TFW_VHOST_HDRMOD_REQ);
-
-	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
-	if (unlikely(!req->cleanup))
-		return -ENOMEM;
-	req->cleanup->pages_sz = 0;
-	req->cleanup->skb_head = NULL;
-
-	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
-	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
-	if (unlikely(r))
-		goto clean;
 
 	if (test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags) ||
 	    test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
@@ -3656,11 +3634,11 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 
 	r = tfw_http_msg_expand_from_pool(hm, meth);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	r = tfw_http_msg_expand_from_pool(hm, &sp);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	/* uri_path is empty when uri is absolute and doesn't have slash */
 	if (TFW_STR_EMPTY(&req->uri_path))
@@ -3668,15 +3646,17 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	else
 		r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
-	r = tfw_http_msg_expand_from_pool(hm, &ver);
-	if (unlikely(r))
-		goto clean;
+	return tfw_http_msg_expand_from_pool(hm, &ver);
+}
 
-	r = tfw_http_add_hdr_host(req, h_mods);
-	if (unlikely(r))
-		goto clean;
+static int
+tfw_h1_req_copy_hdrs(TfwHttpReq *req, const TfwHdrMods *h_mods)
+{
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	TfwStr *pos, *end;
+	int r = 0;
 
 	FOR_EACH_HDR_FIELD_FROM(pos, end, hm, TFW_HTTP_HDR_CONTENT_LENGTH) {
 		int hid = pos - hm->h_tbl->tbl;
@@ -3699,7 +3679,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 		{
 			r = tfw_http_recreate_content_type_multipart_hdr(req);
 			if (unlikely(r))
-				goto clean;
+				return r;
 			continue;
 		}
 
@@ -3714,14 +3694,56 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 				continue;
 			r = tfw_http_msg_expand_from_pool(hm, dup);
 			if (unlikely(r))
-				goto clean;
+				return r;
 			r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 			if (unlikely(r))
-				goto clean;
+				return r;
 		}
 	}
 
-	r = tfw_http_add_x_forwarded_for(hm);
+	return r;
+}
+
+/**
+ * Adjust the request before proxying it to real server.
+ *
+ * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
+ * Do so to be able to use persistent connection with upstream and also to use
+ * extended conditional headers mechanism.
+ */
+static int
+tfw_h1_adjust_req(TfwHttpReq *req)
+{
+	int r;
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
+							  req->vhost,
+							  TFW_VHOST_HDRMOD_REQ);
+
+	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
+	if (unlikely(!req->cleanup))
+		return -ENOMEM;
+	req->cleanup->pages_sz = 0;
+	req->cleanup->skb_head = NULL;
+
+	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
+	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_req_copy_first_line(req);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_add_hdr_host(req, h_mods);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_req_copy_hdrs(req, h_mods);
+	if (unlikely(r))
+		goto clean;
+
+	r = tfw_h1_add_x_forwarded_for(hm);
 	if (unlikely(r))
 		goto clean;
 
