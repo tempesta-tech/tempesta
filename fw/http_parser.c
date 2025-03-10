@@ -972,6 +972,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_FORWARDED:
 	case TFW_HTTP_HDR_CONNECTION:
 	case TFW_HTTP_HDR_UPGRADE:
+	case TFW_HTTP_HDR_CONTENT_LOCATION:
 		return CSTR_NEQ;
 	}
 
@@ -2808,6 +2809,14 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
+
+	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains request modifiers
+	 * (e.g., controls and conditionals in Section 5 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
+		return r;
 
 	/*
 	 * We cannot immediately modify req->cache_ctl.flags on smallest
@@ -11236,6 +11245,14 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains response
+	 * control data (e.g., see Section 7.1 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
+
 	parser->cc_dir_flag = 0;
 
 	__FSM_STATE(Resp_I_CC_start) {
@@ -11553,6 +11570,14 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwHttpParser *parser = &msg->stream->parser;
 
 	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains response
+	 * control data (e.g., see Section 7.1 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
+
+	/*
 	 * RFC 7234 4.2.1:
 	 *
 	 * When there is more than one value present for a given directive
@@ -11591,6 +11616,14 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwHttpParser *parser = &msg->stream->parser;
 
 	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains response
+	 * control data (e.g., see Section 7.1 of [RFC7231]).
+	*/
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
+
+	/*
 	 * RFC 7230 3.2.2:
 	 *
 	 * A sender MUST NOT generate multiple header fields with the same field
@@ -11625,6 +11658,14 @@ __resp_parse_last_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
 	TfwHttpParser *parser = &msg->stream->parser;
+
+	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains request modifiers
+	 * (e.g., controls and conditionals in Section 5 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
 
 	/*
 	 * RFC 7230 3.2.2:
@@ -12271,6 +12312,16 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			if (likely(__data_available(p, 5)
 			           && C4_INT3_LCM(p + 1, 'a', 'r', 'y', ':')))
 			{
+				/*
+				 * According RFC 7230 4.1.2:
+				 * A sender MUST NOT generate a trailer that
+				 * contains request modifiers (e.g., controls
+				 * and conditionals in Section 5 of [RFC7231]).
+				 */
+				if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED,
+						      resp->flags)))
+					__FSM_EXIT(T_DROP);
+
 				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(59);
@@ -13017,7 +13068,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	/* Vary header processing. */
 	__FSM_TX_AF(Resp_HdrVa, 'r', Resp_HdrVar);
 	__FSM_TX_AF(Resp_HdrVar, 'y', Resp_HdrVary);
-	__FSM_TX_AF_OWS_HP(Resp_HdrVary, RGen_HdrOtherV, 59);
+	__FSM_TX_AF_OWS_LAMBDA(Resp_HdrVary, RGen_HdrOtherV, {
+		/*
+		 * According RFC 7230 4.1.2:
+		 * A sender MUST NOT generate a trailer that contains
+		 * request modifiers (e.g., controls and conditionals
+		 * in Section 5 of [RFC7231]).
+		 */
+		if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+			__FSM_EXIT(T_DROP);
+		__msg_hdr_set_hpack_index(59);
+	})
 
 	/* Via header processing. */
 	__FSM_TX_AF(Resp_HdrVi, 'a', Resp_HdrVia);

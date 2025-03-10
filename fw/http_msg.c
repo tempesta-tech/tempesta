@@ -701,6 +701,9 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		goto done;
 
 duplicate:
+	if (parser->hdr.flags & TFW_STR_TRAILER)
+		hdr->flags |=  TFW_STR_TRAILER_AND_HDR;
+
 	h = tfw_str_add_duplicate(hm->pool, hdr);
 	if (unlikely(!h)) {
 		T_WARN("Cannot close header %p id=%d\n", &parser->hdr, id);
