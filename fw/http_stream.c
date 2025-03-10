@@ -64,7 +64,7 @@ tfw_h2_stream_purge_all(TfwStream *stream)
 {
 	ss_skb_queue_purge(&stream->xmit.skb_head);
 	ss_skb_queue_purge(&stream->xmit.postponed);
-	stream->xmit.h_len = stream->xmit.b_len = 0;
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len = 0;
 }
 
 static void
@@ -139,7 +139,7 @@ void
 tfw_h2_stream_purge_send_queue(TfwStream *stream)
 {
 	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
-		stream->xmit.frame_length;
+		stream->xmit.t_len + stream->xmit.frame_length;
 	struct sk_buff *skb;
 
 	while (len) {
@@ -149,7 +149,8 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 		len -= skb->len;
 		kfree_skb(skb);
 	}
-	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.frame_length = 0;
+	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
+		= stream->xmit.frame_length = 0;
 }
 
 void
@@ -835,6 +836,7 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	stream->xmit.skb_head = NULL;
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
+	stream->xmit.t_len = 0;
 	stream->xmit.state = state;
 	stream->xmit.frame_length = 0;
 	stream->xmit.is_blocked = false;
@@ -842,23 +844,4 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	spin_unlock(&ctx->lock);
 
 	return 0;
-}
-
-TfwStreamFsmRes
-tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type)
-{
-	unsigned char flags = 0;
-
-	if (stream->xmit.h_len && !stream->xmit.b_len
-	    && type == HTTP2_HEADERS)
-		flags |= HTTP2_F_END_STREAM;
-
-	if (!stream->xmit.h_len && type != HTTP2_DATA)
-		flags |= HTTP2_F_END_HEADERS;
-
-	if (!stream->xmit.h_len && !stream->xmit.b_len
-	    && !tfw_h2_stream_is_eos_sent(stream))
-		flags |= HTTP2_F_END_STREAM;
-
-	return tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
 }
