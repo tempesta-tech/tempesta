@@ -23,6 +23,7 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
+#include "ja5_conf.h"
 #include "hash.h"
 #include "lib/ja5.h"
 #include "log.h"

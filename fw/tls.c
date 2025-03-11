@@ -984,7 +984,7 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 				sizeof(cli_conn->peer->addr.sin6_addr), hash);
 }
 
-bool
+static bool
 tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;

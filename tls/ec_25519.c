@@ -12,7 +12,7 @@
  *
  * For scalar multiplication, we'll use a Montgomery ladder.
  *
- * Copyright (C) 2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,7 +133,7 @@ MOD_ADD(TlsMpi *N)
  * Fast quasi-reduction modulo p255 = 2^255 - 19.
  * Write N as A0 + 2^255 A1, return A0 + 19 * A1.
  */
-void
+static void
 ecp_mod_p255(TlsMpi *N)
 {
 	size_t n;

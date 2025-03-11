@@ -24,7 +24,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -254,7 +254,7 @@ ttls_rsa_import_raw(TlsRSACtx *ctx, unsigned char const *N, size_t N_len,
  * We can therefore iterate through these numbers apply the construction
  * of (a) and (b) above to attempt to factor N.
  */
-int
+static int
 ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 		       TlsMpi *P, TlsMpi *Q)
 {
@@ -370,7 +370,7 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
  * @E	- RSA public exponent;
  * @D	- Pointer to MPI holding the private exponent on success.
  */
-int
+static int
 ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
 				 TlsMpi const *E, TlsMpi *D)
 {
@@ -1391,7 +1391,7 @@ exit:
  * If hash_id in the RSA context is unset, the @md_alg from the function call
  * is used.
  */
-int
+static int
 ttls_rsa_rsassa_pss_verify(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 			   unsigned int hashlen, const unsigned char *hash,
 			   const unsigned char *sig)
