@@ -38,8 +38,9 @@
 #include <linux/hash.h>
 #include <linux/module.h>
 
-#include "lib/hash.h"
+#include "sched.h"
 #include "tempesta_fw.h"
+#include "lib/hash.h"
 #include "log.h"
 #include "server.h"
 #include "http_msg.h"

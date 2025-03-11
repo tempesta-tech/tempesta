@@ -578,6 +578,9 @@ enum {
 	HTTP_STATUS_5XX
 };
 
+int tfw_http_init(void);
+void tfw_http_exit(void);
+
 #define HTTP_CODE_MIN 100
 #define HTTP_CODE_MAX 599
 #define HTTP_CODE_BIT_NUM(code) ((code) - HTTP_CODE_MIN)
