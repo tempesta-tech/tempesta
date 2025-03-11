@@ -1,8 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,18 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CACHE_H__
-#define __TFW_CACHE_H__
 
-#include "http.h"
+#ifndef __TFW_SCHED_H__
+#define __TFW_SCHED_H__
 
-int tfw_cache_init(void);
-void tfw_cache_exit(void);
-int tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action);
-bool tfw_cache_is_enabled_or_not_configured(void);
-TfwHttpResp *tfw_cache_build_resp_stale(TfwHttpReq *req);
-void tfw_cache_put_entry(int node, void *ce);
+int tfw_sched_hash_init(void);
+void tfw_sched_hash_exit(void);
+int tfw_sched_ratio_init(void);
+void tfw_sched_ratio_exit(void);
 
-extern unsigned int cache_default_ttl;
-
-#endif /* __TFW_CACHE_H__ */
+#endif /* __TFW_SCHED_H__ */

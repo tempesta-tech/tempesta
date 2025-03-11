@@ -101,6 +101,8 @@ static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 
 #ifdef __KERNEL__
 
+int tfw_access_log_init(void);
+void tfw_access_log_exit(void);
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
 
