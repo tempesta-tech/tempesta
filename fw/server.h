@@ -191,6 +191,8 @@ struct tfw_scheduler_t {
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
 };
 
+int tfw_server_init(void);
+void tfw_server_exit(void);
 /* Server specific routines. */
 TfwServer *tfw_server_create(const TfwAddr *addr);
 void tfw_server_destroy(TfwServer *srv);
