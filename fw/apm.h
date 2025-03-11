@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,6 +59,9 @@ static const unsigned int tfw_pstats_ith[] = {
 };
 
 #define T_PSZ	_TFW_PSTATS_IDX_COUNT
+
+int tfw_apm_init(void);
+void tfw_apm_exit(void);
 
 int tfw_apm_add_srv(TfwServer *srv);
 void tfw_apm_del_srv(TfwServer *srv);

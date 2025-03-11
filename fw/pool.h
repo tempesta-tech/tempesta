@@ -4,7 +4,7 @@
  * Memory pool.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -77,6 +77,8 @@ typedef struct {
  	s;								\
  })
 
+int tfw_pool_init(void);
+void tfw_pool_exit(void);
 TfwPool *__tfw_pool_new(size_t n);
 void *__tfw_pool_alloc_page(TfwPool *p, size_t n, bool align);
 void tfw_pool_free(TfwPool *p, void *ptr, size_t n);

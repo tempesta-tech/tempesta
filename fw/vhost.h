@@ -282,6 +282,9 @@ typedef struct {
 	u8			cache_purge_acl:1;
 } TfwGlobal;
 
+int tfw_vhost_init(void);
+void tfw_vhost_exit(void);
+
 void tfw_vhost_destroy(TfwVhost *vhost);
 
 static inline void
