@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -480,6 +480,9 @@ enum {
 #define TFW_CFG_M_ACTION	\
 	(TFW_CFG_F_ADD | TFW_CFG_F_DEL | TFW_CFG_F_MOD | TFW_CFG_F_KEEP)
 
+/* Init functions. */
+int tfw_cfg_init(void);
+void tfw_cfg_exit(void);
 /* Generic TfwCfgSpec->handler functions. */
 int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
