@@ -1179,9 +1179,6 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	if (WARN_ON_ONCE(!num || num > s_hdr->nchunks))
 		return T_COMPRESSION;
 
-	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
-		return -ENOMEM;
-
 	d_hdr->len = sz;
 	d_hdr->nchunks = num;
 	d_hdr->flags = s_hdr->flags;
@@ -1198,6 +1195,9 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		*d = *s_hdr->chunks;
 		goto done;
 	}
+
+	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
+		return -ENOMEM;
 
 	for (s = s_hdr->chunks, end = s_hdr->chunks + num; s < end; ++s) {
 		*d = *s;
