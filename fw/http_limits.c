@@ -1841,7 +1841,7 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 	},
 };
 
-void
+static void
 tfw_http_limits_hooks_remove(void)
 {
 	int i;
@@ -1855,7 +1855,7 @@ tfw_http_limits_hooks_remove(void)
 	}
 }
 
-int
+static int
 tfw_http_limits_hooks_register(void)
 {
 	int i;

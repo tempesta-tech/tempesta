@@ -372,7 +372,7 @@ drop:
 #undef WRITE_TO_BUF
 }
 
-void
+static void
 do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
 {
 	char *buf = this_cpu_ptr(access_log_buf);

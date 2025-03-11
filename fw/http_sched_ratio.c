@@ -1212,7 +1212,7 @@ cleanup:
 	return NULL;
 }
 
-void
+static void
 tfw_sched_ratio_set_sched_data(TfwSrvGroup *sg, TfwRatio *ratio)
 {
 	size_t i;
