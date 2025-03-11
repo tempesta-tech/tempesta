@@ -52,7 +52,7 @@
  * [15] A.Krizhanovsky, I.Koveshnikov, "Performance study of kernel TLS
  * handshakes", Netdev 0x14, 2020,
  *
- * Copyright (C) 2020-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1408,7 +1408,7 @@ ecp256_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
  * Generate a keypair with configurable base point - SEC1 3.2.1:
  * generate d such that 1 <= n < N.
  */
-int
+static int
 ecp256_gen_keypair(TlsMpi *d, TlsEcpPoint *Q)
 {
 	int count = 0;
