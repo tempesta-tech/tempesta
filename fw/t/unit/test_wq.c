@@ -125,7 +125,7 @@ tfw_test_wq_work_cons(void *data)
 	return 0;
 }
 
-struct task_struct *
+static struct task_struct *
 tfw_thread_create(int (*threadfn)(void *data), void *data,
 			  unsigned int cpu, const char *namefmt)
 {
