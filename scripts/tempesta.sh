@@ -351,6 +351,10 @@ start()
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
 	TFW_LOGGER_EXEC=$(expr "$TFW_STATE" != "start")
+	
+	if [ ! -f "$tfw_cfg_path" ]; then
+		error "Configuration file $tfw_cfg_path does not exist. Please create a configuration file before starting Tempesta FW."
+	fi
 
 	if [[ -z ${TFW_STATE} ]]; then
 		setup
