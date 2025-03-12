@@ -344,6 +344,13 @@ stop_tfw_logger()
 	fi
 }
 
+check_configuration_file_presense()
+{
+	if [ ! -f "$tfw_cfg_path" ]; then
+		error "Configuration file $tfw_cfg_path does not exist. Please create a configuration file before starting Tempesta FW."
+	fi
+}
+
 start()
 {
 	echo "Starting Tempesta..."
@@ -351,6 +358,8 @@ start()
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
 	TFW_LOGGER_EXEC=$(expr "$TFW_STATE" != "start")
+	
+	check_configuration_file_presense
 
 	if [[ -z ${TFW_STATE} ]]; then
 		setup
@@ -397,6 +406,7 @@ stop()
 
 reload()
 {
+	check_configuration_file_presense
 	update_js_challenge_templates
 	echo "Running live reconfiguration of Tempesta..."
 
