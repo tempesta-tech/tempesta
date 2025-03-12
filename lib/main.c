@@ -20,6 +20,8 @@
 #include <linux/module.h>
 #include <linux/string.h>
 
+#include "common.h"
+
 MODULE_AUTHOR("Tempesta Technologies, INC");
 MODULE_VERSION("0.1.1");
 MODULE_LICENSE("GPL");
@@ -64,13 +66,18 @@ EXPORT_SYMBOL(bzero_fast);
 
 static int __init
 tempesta_lib_init(void)
-{
+{	
+	int ret = tfw_ts_cache_init();
+	if (ret)
+		return ret;
+	
 	return 0;
 }
 
 static void __exit
 tempesta_lib_exit(void)
 {
+	tfw_ts_cache_exit();
 }
 
 module_init(tempesta_lib_init);
