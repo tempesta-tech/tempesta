@@ -436,12 +436,14 @@ typedef struct {
  * @count	- the actual count of headers in the map (equal to the amount
  *		  of all headers in the message);
  * @size	- the size of the map (in entries);
+ * @trailer_idx	- the start index of the trailer section, 0 means no trailers;
  * @index	- array of the indexes (which are located in the order of
  *		  corresponding headers' appearance in the message).
  */
 typedef struct {
 	unsigned int	size;
 	unsigned int	count;
+	unsigned int	trailer_idx;
 	TfwHdrIndex	index[0];
 } TfwHttpHdrMap;
 
@@ -764,6 +766,7 @@ int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 			     bool use_pool, bool cache);
 int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
+int tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp);
 /*
  * Functions to send an HTTP error response to a client.
  */
