@@ -2830,6 +2830,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			}
 			mit->map->size = TFW_HDR_MAP_INIT_CNT;
 			mit->map->count = 0;
+			mit->map->trailer_idx = 0;
 		}
 
 		TFW_INC_STAT_BH(serv.rx_messages);
@@ -4636,6 +4637,9 @@ tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id)
 		       __func__, map->size, map->count);
 	}
 
+	if (resp->trailers_len > 0 && !map->trailer_idx)
+		map->trailer_idx = map->count;
+
 	index = &map->index[map->count];
 	index->idx = id;
 	index->d_idx = TFW_STR_DUP(hdr) ? hdr->nchunks - 1 : 0;
@@ -4706,31 +4710,6 @@ tfw_h2_add_hdr_date(TfwHttpResp *resp, bool cache)
 	else
 		T_DBG3("%s: added 'date' header, resp=[%p]\n", __func__, resp);
 
-	return r;
-}
-
-/**
- * Add 'Content-Length:' header field to an HTTP message.
- */
-static int
-tfw_h2_add_hdr_clen(TfwHttpResp *resp)
-{
-	int r;
-	char* buf = *this_cpu_ptr(&g_buf);
-	unsigned long body_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
-	size_t cl_valsize = tfw_ultoa(body_len, buf,
-				      TFW_ULTOA_BUF_SIZ);
-
-	r = tfw_h2_msg_hdr_add(resp, "content-length",
-			       SLEN("content-length"), buf,
-			       cl_valsize, 28);
-
-	if (unlikely(r))
-		T_ERR("%s: unable to add 'content-length' header (resp=[%p])\n",
-		      __func__, resp);
-	else
-		T_DBG3("%s: added 'content-length' header, resp=[%p]\n",
-		       __func__, resp);
 	return r;
 }
 
@@ -5051,8 +5030,9 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpHdrMap *map = mit->map;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
+	unsigned int cnt = map->trailer_idx ? : map->count;
 
-	for (i = 0; i < map->count; ++i) {
+	for (i = 0; i < cnt; ++i) {
 		unsigned short hid = map->index[i].idx;
 		unsigned short d_num = map->index[i].d_idx;
 		TfwStr *tgt = &ht->tbl[hid];
@@ -5079,8 +5059,50 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		 */
 		if (hid == TFW_HTTP_HDR_KEEP_ALIVE
 		    || hid == TFW_HTTP_HDR_CONNECTION
-		    || tgt->flags & TFW_STR_HBH_HDR)
+		    || tgt->flags & TFW_STR_HBH_HDR
+		    || tgt->flags & TFW_STR_TRAILER_HDR)
 			continue;
+
+		/*
+		 * 'Server' header must be replaced; thus, remove the original
+		 * header (and all its duplicates) skipping it here; the new
+		 * header will be written later, during new headers' addition
+		 * stage.
+		 */
+		if (hid == TFW_HTTP_HDR_SERVER)
+			continue;
+
+		r = tfw_hpack_transform(resp, tgt);
+		if (unlikely(r))
+			return r;
+	}
+
+	return 0;
+}
+
+int
+tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
+{
+	TfwHttpHdrMap *map = resp->mit.map;
+	TfwHttpHdrTbl *ht = resp->h_tbl;
+	unsigned int i;
+	int r;
+
+	for (i = map->trailer_idx; i < map->count; ++i) {
+		unsigned short hid = map->index[i].idx;
+		unsigned short d_num = map->index[i].d_idx;
+		TfwStr *tgt = &ht->tbl[hid];
+
+		if (TFW_STR_DUP(tgt))
+			tgt = TFW_STR_CHUNK(tgt, d_num);
+
+		if (WARN_ON_ONCE(!tgt
+				 || TFW_STR_EMPTY(tgt)
+				 || TFW_STR_DUP(tgt)))
+			return -EINVAL;
+
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
+		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
 		/*
 		 * 'Server' header must be replaced; thus, remove the original
@@ -5672,11 +5694,6 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	if (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)) {
 		r = tfw_h2_add_hdr_date(resp, false);
 		if (unlikely(r))
-			goto clean;
-	}
-
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
-		if (unlikely(tfw_h2_add_hdr_clen(resp)))
 			goto clean;
 	}
 
