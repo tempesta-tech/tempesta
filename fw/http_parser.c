@@ -467,6 +467,7 @@ __FSM_STATE(st, cold) {							\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
+
 #define __FSM_TX_AF_OWS_LAMBDA(st, st_next, lambda)			\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
@@ -784,6 +785,7 @@ mark_spec_hbh(TfwHttpMsg *hm)
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
 		TfwStr *hdr = &hm->h_tbl->tbl[id];
+
 		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr))) {
 			T_DBG3("%s: hm %pK, tbl[%u] flags +TFW_STR_HBH_HDR\n",
 			       __func__, hm, id);
@@ -813,6 +815,7 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 	 */
 	for (i = 0; i < hbh->off; ++i) {
 		TfwStr *hbh_name = &hbh->raw[i];
+
 		if ((hbh_name->flags & TFW_STR_HBH_HDR)
 		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':')))
 		{
@@ -939,6 +942,8 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len,
 static int
 process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 {
+	bool is_srv_conn;
+
 	if (!(hm->crlf.flags & TFW_STR_COMPLETE))
 		return CSTR_EQ;
 
@@ -965,6 +970,16 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_CONTENT_ENCODING:
 	case TFW_HTTP_HDR_SET_COOKIE:
 	case TFW_HTTP_HDR_FORWARDED:
+	case TFW_HTTP_HDR_CONNECTION:
+	case TFW_HTTP_HDR_UPGRADE:
+	case TFW_HTTP_HDR_CONTENT_LOCATION:
+		return CSTR_NEQ;
+	}
+
+	is_srv_conn = !!(TFW_CONN_TYPE(hm->conn) & Conn_Srv);
+	if (hdr->flags & TFW_STR_HBH_HDR) {
+		T_WARN("There is a hop-by-hop header in trailers, drop %s",
+		       is_srv_conn ? "response" : "request");
 		return CSTR_NEQ;
 	}
 
@@ -2517,6 +2532,27 @@ __req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 }
 
 static int
+__parse_trailer(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st);
+
+	parser->hdr.flags |= TFW_STR_TRAILER_HDR;
+
+	__FSM_STATE(I_Trailer) {
+		__FSM_I_MATCH_MOVE(ctext_vchar, I_Trailer);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+
+static int
 __resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	/*
@@ -2773,6 +2809,14 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_DECLARE_VARS(req);
 
 	__FSM_START(parser->_i_st);
+
+	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains request modifiers
+	 * (e.g., controls and conditionals in Section 5 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags)))
+		return r;
 
 	/*
 	 * We cannot immediately modify req->cache_ctl.flags on smallest
@@ -5283,6 +5327,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 				p += 17;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
+			if (likely(__data_available(p, 8))
+				   && C8_INT_LCM(p, 't', 'r', 'a', 'i',
+						    'l', 'e', 'r', ':'))
+			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 8));
+				parser->_i_st = &&Req_HdrTrailerV;
+				p += 8;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
+			}
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
 			if (likely(__data_available(p, 16)
@@ -5495,6 +5548,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, msg,
 				     __req_parse_transfer_encoding,
 				     TFW_HTTP_HDR_TRANSFER_ENCODING, 0);
+
+	/* 'Trailer:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrTrailerV, msg, __parse_trailer, 1);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, msg,
@@ -6253,7 +6309,23 @@ Req_Method_1CharStep: __attribute__((cold))
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr);
 	__FSM_TX_AF(Req_HdrTr, 'a', Req_HdrTra);
-	__FSM_TX_AF(Req_HdrTra, 'n', Req_HdrTran);
+
+	__FSM_STATE(Req_HdrTra, cold) {
+		switch (TFW_LC(c)) {
+		case 'i':
+			__FSM_MOVE(Req_HdrTrai);
+		case 'n':
+			__FSM_MOVE(Req_HdrTran);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
+	__FSM_TX_AF(Req_HdrTrai, 'l', Req_HdrTrail);
+	__FSM_TX_AF(Req_HdrTrail, 'e', Req_HdrTraile);
+	__FSM_TX_AF(Req_HdrTraile, 'r', Req_HdrTrailer);
+	__FSM_TX_AF_OWS(Req_HdrTrailer, Req_HdrTrailerV);
+
 	__FSM_TX_AF(Req_HdrTran, 's', Req_HdrTrans);
 	__FSM_TX_AF(Req_HdrTrans, 'f', Req_HdrTransf);
 	__FSM_TX_AF(Req_HdrTransf, 'e', Req_HdrTransfe);
@@ -10155,6 +10227,7 @@ __FSM_STATE(st, cold) {							\
 			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
+
 	__FSM_H2_TX_AF(Req_HdrTr, 'a', Req_HdrTra);
 	__FSM_H2_TX_AF(Req_HdrTra, 'n', Req_HdrTran);
 	__FSM_H2_TX_AF(Req_HdrTran, 's', Req_HdrTrans);
@@ -11172,6 +11245,14 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains response
+	 * control data (e.g., see Section 7.1 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
+
 	parser->cc_dir_flag = 0;
 
 	__FSM_STATE(Resp_I_CC_start) {
@@ -11489,6 +11570,14 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwHttpParser *parser = &msg->stream->parser;
 
 	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains response
+	 * control data (e.g., see Section 7.1 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
+
+	/*
 	 * RFC 7234 4.2.1:
 	 *
 	 * When there is more than one value present for a given directive
@@ -11527,6 +11616,14 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwHttpParser *parser = &msg->stream->parser;
 
 	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains response
+	 * control data (e.g., see Section 7.1 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
+
+	/*
 	 * RFC 7230 3.2.2:
 	 *
 	 * A sender MUST NOT generate multiple header fields with the same field
@@ -11561,6 +11658,14 @@ __resp_parse_last_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
 	TfwHttpParser *parser = &msg->stream->parser;
+
+	/*
+	 * According RFC 7230 4.1.2:
+	 * A sender MUST NOT generate a trailer that contains request modifiers
+	 * (e.g., controls and conditionals in Section 5 of [RFC7231]).
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+		return r;
 
 	/*
 	 * RFC 7230 3.2.2:
@@ -12207,6 +12312,16 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 			if (likely(__data_available(p, 5)
 			           && C4_INT3_LCM(p + 1, 'a', 'r', 'y', ':')))
 			{
+				/*
+				 * According RFC 7230 4.1.2:
+				 * A sender MUST NOT generate a trailer that
+				 * contains request modifiers (e.g., controls
+				 * and conditionals in Section 5 of [RFC7231]).
+				 */
+				if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED,
+						      resp->flags)))
+					__FSM_EXIT(T_DROP);
+
 				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(59);
@@ -12397,6 +12512,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, msg,
 				     __resp_parse_transfer_encoding,
 				     TFW_HTTP_HDR_TRANSFER_ENCODING, 0);
+
+	/* 'Trailer:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTrailerV, msg,
+				    __parse_trailer, 1);
 
 	/* 'Set-Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,
@@ -12884,7 +13003,18 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 		}
 	}
 	__FSM_TX_AF(Resp_HdrTr, 'a', Resp_HdrTra);
-	__FSM_TX_AF(Resp_HdrTra, 'n', Resp_HdrTran);
+	/* Transfer-Encoding/Trailer header processing. */
+	__FSM_STATE(Resp_HdrTra, cold) {
+		switch (c) {
+		case 'n':
+			__FSM_MOVE(Resp_HdrTran);
+		case 'i':
+			__FSM_MOVE(Resp_HdrTrai);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
 	__FSM_TX_AF(Resp_HdrTran, 's', Resp_HdrTrans);
 	__FSM_TX_AF(Resp_HdrTrans, 'f', Resp_HdrTransf);
 	__FSM_TX_AF(Resp_HdrTransf, 'e', Resp_HdrTransfe);
@@ -12899,6 +13029,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	__FSM_TX_AF(Resp_HdrTransfer_Encodi, 'n', Resp_HdrTransfer_Encodin);
 	__FSM_TX_AF(Resp_HdrTransfer_Encodin, 'g', Resp_HdrTransfer_Encoding);
 	__FSM_TX_AF_OWS(Resp_HdrTransfer_Encoding, Resp_HdrTransfer_EncodingV);
+
+	__FSM_TX_AF(Resp_HdrTrai, 'l', Resp_HdrTrail);
+	__FSM_TX_AF(Resp_HdrTrail, 'e', Resp_HdrTraile);
+	__FSM_TX_AF(Resp_HdrTraile, 'r', Resp_HdrTrailer);
+	__FSM_TX_AF_OWS(Resp_HdrTrailer, Resp_HdrTrailerV);
 
 	/* Te is a connection-specific header and MUST be "silenced"
 	 * RFC 9113, section 8.2.2:
@@ -12933,7 +13068,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	/* Vary header processing. */
 	__FSM_TX_AF(Resp_HdrVa, 'r', Resp_HdrVar);
 	__FSM_TX_AF(Resp_HdrVar, 'y', Resp_HdrVary);
-	__FSM_TX_AF_OWS_HP(Resp_HdrVary, RGen_HdrOtherV, 59);
+	__FSM_TX_AF_OWS_LAMBDA(Resp_HdrVary, RGen_HdrOtherV, {
+		/*
+		 * According RFC 7230 4.1.2:
+		 * A sender MUST NOT generate a trailer that contains
+		 * request modifiers (e.g., controls and conditionals
+		 * in Section 5 of [RFC7231]).
+		 */
+		if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+			__FSM_EXIT(T_DROP);
+		__msg_hdr_set_hpack_index(59);
+	})
 
 	/* Via header processing. */
 	__FSM_TX_AF(Resp_HdrVi, 'a', Resp_HdrVia);

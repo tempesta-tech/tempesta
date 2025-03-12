@@ -513,14 +513,36 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			goto finish;
 		resp->body.len = 0;
 	} else {
+		if (resp->trailers_len > 0) {
+			TfwHttpTransIter *mit = &resp->mit;
+			unsigned long acc = mit->acc_len;
+
+			mit->iter.skb = resp->msg.skb_head->prev;
+			mit->iter.frag =
+				skb_shinfo(mit->iter.skb)->nr_frags - 1;
+			tfw_http_msg_setup_transform_pool(mit, resp->pool);
+
+			r = tfw_h2_hpack_encode_trailer_headers(resp);
+			if (unlikely(r)) {
+				T_WARN("Failed to encode trailers");
+				goto finish;
+			}
+			stream->xmit.t_len = mit->acc_len - acc;
+		}
+
 		stream->xmit.b_len = TFW_HTTP_RESP_CUT_BODY_SZ(resp);
 		/*
 		 * Response is chunked encoded, but it is not a response
 		 * on HEAD request.
 		 */
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-		    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags))
+		    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags)) {
 			r = tfw_http_msg_cutoff_body_chunks(resp);
+			if (unlikely(r)) {
+				T_WARN("Failed to encode body");
+				goto finish;
+			}
+		}
 	}
 
 finish:
