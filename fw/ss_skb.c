@@ -683,7 +683,7 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	 * advance the skb tail pointer.
 	 */
 	if (len > 0) {
-		offset = unlikely(offset == d_size) ? 0 :
+		offset = unlikely(d_size && offset == d_size) ? 0 :
 			pspt - (char *)skb_frag_address(&si->frags[0]);
 		if (unlikely(!offset)) {
 			if (!(ret = __split_try_tailroom(skb, len, it)))
