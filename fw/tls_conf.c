@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -230,7 +230,7 @@ err:
 	return r;
 }
 
-int
+static int
 tfw_tls_cert_cfg_finish_cert(TfwVhost *vhost)
 {
 	TlsConfEntry *conf_entry = vhost->tls_cfg.priv;

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -167,7 +167,7 @@ void tfw_init_frames(void);
 typedef struct {
 	const unsigned int capacity;
 	unsigned int size;
-	unsigned char data[0];
+	DECLARE_FLEX_ARRAY(unsigned char, data);
 } TfwFramesBuf;
 
 /**

@@ -3,7 +3,7 @@
  *
  * Websocket proxy protocol implementation for Tempesta FW.
  *
- * Copyright (C) 2022-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ static struct {
 
 static struct kmem_cache *tfw_ws_conn_cache;
 
-void
+static void
 tfw_ws_srv_ss_hook_drop(struct sock *sk)
 {
 	TfwConn *conn = sk->sk_user_data;
@@ -103,7 +103,7 @@ tfw_ws_conn_release(void *conn)
 	kmem_cache_free(tfw_ws_conn_cache, _conn);
 }
 
-TfwConn *
+static TfwConn *
 tfw_ws_conn_alloc(void)
 {
 	TfwConn *conn;

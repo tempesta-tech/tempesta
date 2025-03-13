@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include <linux/tcp.h>
 #include <linux/topology.h>
 #include <linux/nodemask.h>
+#include <linux/skbuff_ref.h>
 
 #undef DEBUG
 #if DBG_CACHE > 0
@@ -2781,13 +2782,13 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
  *
  * Different strategies are used to avoid extra data copying depending on
  * client connection type:
- * - for http connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * - for http connections - pages are reused in skbs and SKBFL_SHARED_FRAG is
  * set to avoid any data copies.
- * - for https connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * - for https connections - pages are reused in skbs and SKBFL_SHARED_FRAG is
  * set, but in-place crypto operations are not allowed, so data copy happens
  * right before data is pushed into network.
  * - for h2 connections - every response has unique frame header, so need to
- * copy on constructing response body from cache. SKBTX_SHARED_FRAG is left
+ * copy on constructing response body from cache. SKBFL_SHARED_FRAG is left
  * unset to allow in-place crypto operations.
  *
  * Since we can't encrypt shared data in-place we always copy it, so we need
@@ -2815,7 +2816,7 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
 		if (sh_frag)
-			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
+			skb_shinfo(it->skb)->tx_flags |= SKBFL_SHARED_FRAG;
 	}
 
 	while (1) {
@@ -3075,12 +3076,14 @@ tfw_cache_build_resp_stale(TfwHttpReq *req)
 	TfwCacheEntry *ce = req->stale_ce;
 	TfwHttpResp *resp = tfw_cache_build_resp(req, ce, req->stale_ce_age);
 
-	if (resp)
+	if (resp) {
 		T_DBG("Cache: Stale response assigned to req [%p] w/ key=%lx, \
 		      ce=%p", req, ce->trec.key, ce);
-	else
+	}
+	else {
 		T_DBG("Cache: Cannot assigne stale response to req [%p] w/ \
 		      key=%lx, ce=%p", req, ce->trec.key, ce);
+	}
 
 	tdb_rec_put(db, ce);
 	/* Set to NULL to prevent double free in req destructor. */
@@ -3088,7 +3091,7 @@ tfw_cache_build_resp_stale(TfwHttpReq *req)
 
 	return resp;
 }
-ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL)
+ALLOW_ERROR_INJECTION(tfw_cache_build_resp_stale, NULL);
 
 /**
  * Release cache entry reference.
