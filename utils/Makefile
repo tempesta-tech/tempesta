@@ -63,4 +63,7 @@ clickhouse_install:
 clickhouse_clean:
 	$(RM) -rf $(CLICKHOUSE_DIR)
 
-.PHONY: all clean clickhouse clickhouse_install clickhouse_clean
+sanitize: clean
+	$(MAKE) CXXFLAGS="-O0 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(CXXFLAGS)" all
+
+.PHONY: all clean clickhouse clickhouse_install clickhouse_clean sanitize
