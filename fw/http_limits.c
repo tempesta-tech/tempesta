@@ -1047,7 +1047,7 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 		}
 		if (trailers && unlikely(dups != trailers)) {
 			frang_msg_lock(&ra->lock, "HTTP field appear in"
-				       " header and trailer for client %p",
+				       " header and trailer for client",
 				       &FRANG_ACC2CLI(ra)->addr, "\n");
 			return T_BLOCK;
 		}
