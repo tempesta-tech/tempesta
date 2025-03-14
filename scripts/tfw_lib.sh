@@ -292,13 +292,12 @@ tfw_set_net_queues()
 
 tfw_irqbalance_revert()
 {
-	systemctl status irqbalance.service >/dev/null
-	if [ $? -eq 0 -a -f $IRQB_CONF_PATH ]; then
+	if systemctl -q is-active irqbalance.service 2>/dev/null && [ -f $IRQB_CONF_PATH ]; then
 		echo "...revert irqbalance config"
 		perl -i.orig -ple '
 			s/^('"$BAN_CONF_VAR"'=).*$/$1/;
 		' $IRQB_CONF_PATH
-		systemctl restart irqbalance.service >/dev/null
+		systemctl restart irqbalance.service >/dev/null 2>&1 || true
 	fi
 }
 
