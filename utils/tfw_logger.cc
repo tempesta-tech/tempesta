@@ -26,7 +26,7 @@
 #include <unistd.h>
 
 #include <fstream>
-#include <future>
+#include <thread>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -39,21 +39,28 @@
 #include "clickhouse.hh"
 #include "mmap_buffer.hh"
 #include "error.hh"
+#include "tfw_logger_config.hh"
 
 namespace po = boost::program_options;
 
-constexpr char dev_path[]	= "/dev/tempesta_mmap_log";
-constexpr char table_name[]	= "access_log";
-constexpr char pid_file_path[]	= "/var/run/tfw_logger.pid";
-constexpr std::chrono::seconds		wait_for_dev{1};
-constexpr std::chrono::milliseconds	wait_for_stop(10);
-constexpr std::chrono::seconds		reconnect_min_timeout{1};
-constexpr std::chrono::seconds		reconnect_max_timeout{16};
+constexpr char dev_path[] = "/dev/tempesta_mmap_log";
+constexpr std::chrono::seconds wait_for_dev{1};
+constexpr std::chrono::milliseconds wait_for_stop(10);
+constexpr std::chrono::seconds reconnect_min_timeout{1};
+constexpr std::chrono::seconds reconnect_max_timeout{16};
 
 typedef struct {
 	const char		*name;
 	clickhouse::Type::Code	code;
 } TfwField;
+
+enum class CommandResult {
+	CONTINUE,
+	HELP,
+	GENERATE,
+	STOP,
+	ERROR
+};
 
 static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_ADDR]		= {"address", clickhouse::Type::IPv6},
@@ -73,6 +80,7 @@ static const TfwField tfw_fields[] = {
 
 std::atomic<bool> stop_flag{false};
 static thread_local bool uncritical_error;
+static TfwLoggerConfig config;
 
 #ifdef DEBUG
 static void
@@ -232,9 +240,8 @@ callback(const char *data, int size, void *private_data)
 		uncritical_error = false;
 }
 
-void
-run_thread(const int ncpu, const int fd, const std::string &host,
-	   const std::string &user, const std::string &password)
+void 
+run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
 {
 	static thread_local std::chrono::seconds timeout(reconnect_min_timeout);
 	cpu_set_t cpuset;
@@ -244,8 +251,16 @@ run_thread(const int ncpu, const int fd, const std::string &host,
 
 	while (!stop_flag) {
 		try {
-			TfwClickhouse clickhouse(host, table_name,
-						 user, password, make_block());
+			const auto &ch_cfg = config.get_clickhouse();
+
+			std::cout << "Attempting to connect to ClickHouse:" << std::endl;
+			std::cout << "Host: " << ch_cfg.host << std::endl;
+			std::cout << "Port: " << ch_cfg.port << std::endl;
+
+			TfwClickhouse clickhouse(ch_cfg.host, "access_log",
+						ch_cfg.user ? *ch_cfg.user : "",
+						ch_cfg.password ? *ch_cfg.password : "",
+						make_block());
 
 			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
@@ -286,7 +301,7 @@ run_thread(const int ncpu, const int fd, const std::string &host,
 }
 
 void
-sig_handler([[maybe_unused]] int  sig_num) noexcept
+sig_handler([[maybe_unused]] int sig_num) noexcept
 {
 	stop_flag = true;
 	spdlog::info("Stopping daemon...");
@@ -310,10 +325,11 @@ set_sig_handlers() noexcept
 	sigaction(SIGTERM, &sa, NULL);
 }
 
-void stop_daemon()
+void 
+stop_daemon()
 {
 	pid_t pid;
-	std::ifstream pid_file(pid_file_path);
+	std::ifstream pid_file(config.get_pid_file());
 
 	std::cout << "Stopping daemon..." << std::endl;
 
@@ -333,136 +349,220 @@ void stop_daemon()
 		if (kill(pid, 0) == -1 && errno == ESRCH)
 			break;
 		std::this_thread::sleep_for(wait_for_stop);
-        }
+	}
 
 	std::cout << "Daemon stopped." << std::endl;
 }
 
-int
-main(int argc, char* argv[])
+// Create the default config file if it doesn't exist
+void 
+ensure_default_config(const fs::path &config_path)
 {
-	std::vector<std::thread> threads;
-	std::vector<std::future<void>> futures;
-	unsigned int i;
-	long int cpu_cnt;
-	int fd = -1, res = 0;
-	bool stop = false;
-	std::shared_ptr<spdlog::logger> logger = nullptr;
+	if (fs::exists(config_path))
+		return;
 
+	std::cout << "Creating default configuration at: " << config_path << std::endl;
+
+	// Create directory if it doesn't exist
+	fs::create_directories(config_path.parent_path());
+
+	TfwLoggerConfig default_config;
+
+	// We need at least one value to make it a valid config
+	default_config.save_to_file(config_path);
+}
+
+CommandResult 
+parse_basic_options(int argc, char *argv[], fs::path &config_path)
+{
+	// Command line options for basic operations
+	po::options_description basic_opts{"Basic options"};
+	basic_opts.add_options()
+		("help,h", "Show this message and exit")
+		("stop,s", po::bool_switch(), "Stop the daemon")
+		("config,c", po::value<fs::path>(&config_path),
+		 "Path to the config file")
+		("generate,g", "Generate a default config file and exit");
+	
+	// Parse just the basic options first
+	po::variables_map basic_vm;
+	
 	try {
-		po::options_description desc{"Usage: tfw_logger "
-					     "([options] <host> <log>) | --stop"};
-		desc.add_options()
-			("help,h", "show this message and exit")
-			("host,H", po::value<std::string>(),
-				"clickserver host address (required)")
-			("log,l", po::value<std::string>(),
-				"log path (required)")
-			("ncpu,n", po::value<unsigned int>(),
-				"manually specifying the number of CPUs")
-			("stop,s", po::bool_switch(&stop), "stop the daemon")
-			("user,u", po::value<std::string>(), "clickhouse user")
-			("password,p", po::value<std::string>(),
-			 "clickhouse password")
-			;
-		po::positional_options_description pos_desc;
-		pos_desc.add("host", 1);
-		pos_desc.add("log", -1);
-		po::variables_map vm;
 		po::store(po::command_line_parser(argc, argv)
-			.options(desc)
-			.positional(pos_desc)
-			.run(),
-			vm);
-		po::notify(vm);
-
-		if (stop) {
-			if (vm.size() > 1)
-				throw Except("--stop can't be used with "
-					     "another arguments");
+			 .options(basic_opts)
+			 .allow_unregistered()
+			 .run(),
+			 basic_vm);
+		po::notify(basic_vm);
+	}
+	catch (const po::error &e) {
+		std::cerr << "Error parsing command line: " << e.what() << std::endl;
+		std::cerr << "Use --help for usage information" << std::endl;
+		return CommandResult::ERROR;
+	}
+	
+	if (basic_vm.count("help")) {
+		std::cout << "Usage: tfw_logger [options]" << std::endl;
+		std::cout << basic_opts << std::endl;
+		std::cout << std::endl;
+		std::cout << "For detailed options, see the config file or use --generate" << std::endl;
+		return CommandResult::HELP;
+	}
+	else if (basic_vm.count("generate")) {
+		ensure_default_config(config_path);
+		std::cout << "Default configuration generated at: " << config_path << std::endl;
+		return CommandResult::GENERATE;
+	}
+	else if (basic_vm["stop"].as<bool>()) {
+		try {
 			stop_daemon();
-			return 0;
+			return CommandResult::STOP;
 		}
-
-		if (vm.count("help")) {
-			std::cout << desc << std::endl;
-			return 0;
+		catch (const std::exception &e) {
+			std::cerr << "Error stopping daemon: " << e.what() << std::endl;
+			return CommandResult::ERROR;
 		}
+	}
+	
+	return CommandResult::CONTINUE;
+}
 
-		if (!vm.count("host")) {
-			std::cerr << "'host' argument is requred" << std::endl;
-			return 1;
-		}
+void 
+load_configuration(int argc, char *argv[], const fs::path &config_path)
+{
+	auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
+	if (loaded_config) {
+		config = std::move(*loaded_config);
+		std::cout << "Configuration loaded from: " << config_path << std::endl;
+		
+		// Override config with command line arguments if specified
+		config = TfwLoggerConfig::from_cli_args(argc, argv);
+	}
+	else {
+		std::cerr << "Could not load configuration from file, exiting" << std::endl;
+		exit(1);
+	}
+}
 
-		if (!vm.count("log"))
-			throw Except("please, specify log path");
-
-		if (vm.count("ncpu")) {
-			cpu_cnt = vm["ncpu"].as<unsigned int>();
-		} else {
-			cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
-			if (cpu_cnt < 0)
-				throw Except("Can't get CPU number");
-		}
-
-		auto user = vm.count("user") ?
-			    vm["user"].as<std::string>() : std::string("");
-		auto password = vm.count("password") ?
-				vm["password"].as<std::string>() :
-				std::string("");
-
-		/*
-		 * When the daemon forks, it inherits the file descriptor for
-		 * /tmp/tempesta-lock-file, which was originally opened and locked by flock
-		 * in the tempesta.sh script. After daemonizing, the daemon process continues
-		 * to hold this lock, preventing subsequent executions of tempesta.sh.
-		 *
-		 * Close all descriptors before daemonizing.
-		 */
-		closefrom(3);
-
-		logger = spdlog::basic_logger_mt("access_logger",
-						 vm["log"].as<std::string>());
+std::shared_ptr<spdlog::logger> 
+setup_logger(const TfwLoggerConfig &config)
+{
+	// Create directory if it doesn't exist
+	fs::create_directories(fs::path(config.get_log_path()).parent_path());
+	
+	try {
+		auto logger = spdlog::basic_logger_mt("access_logger", config.get_log_path().string());
 		spdlog::set_default_logger(logger);
 		spdlog::set_level(spdlog::level::info);
 		logger->flush_on(spdlog::level::info);
+		return logger;
+	}
+	catch (const spdlog::spdlog_ex &ex) {
+		throw Except("Log initialization failed: {}", ex.what());
+	}
+}
 
-		spdlog::info("Starting daemon...");
+size_t determine_cpu_count(const TfwLoggerConfig &config)
+{
+	size_t cpu_cnt;
+ 
+	if (config.get_cpu_count() > 0) {
+		cpu_cnt = config.get_cpu_count();
+	}
+	else {
+		cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+		if (cpu_cnt <= 0)
+			throw Except("Can't get CPU number");
+	}
+	spdlog::info("Using {} CPU(s)", cpu_cnt);
+	return cpu_cnt;
+}
 
-		if (daemon(0, 0) < 0)
-			throw Except("Daemonization failed");
+void 
+create_pid_file(const fs::path &pid_file_path)
+{
+	std::ofstream pid_file(pid_file_path);
+	if (!pid_file)
+		throw Except("Failed to open PID file");
+	pid_file << getpid();
+	pid_file.close();
+}
+ 
+int 
+open_device()
+{
+	int fd;
 
+	// Try to open the device
+	while ((fd = open(dev_path, O_RDWR)) == -1) {
+		if (stop_flag.load(std::memory_order_acquire)) {
+			std::cout << "Stop flag is set, exiting device open loop" << std::endl;
+			return -1;
+		}
+ 
+		if (errno != ENOENT) {
+			std::cerr << "Critical error opening device" << std::endl;
+			throw Except("Can't open device");
+		}
+
+		std::cout << "Device not found, will retry..." << std::endl;
+		std::this_thread::sleep_for(wait_for_dev);
+	}
+
+	std::cout << "Successfully opened device: " << dev_path << std::endl;
+	return fd;
+}
+
+void 
+run_worker_threads(int fd, size_t cpu_count)
+{
+	std::vector<std::thread> threads;
+
+	for (size_t i = 0; i < cpu_count; ++i) {
+		threads.emplace_back(run_thread, i, fd, config);
+	}
+
+	spdlog::info("All worker threads started");
+
+	// Wait for all threads to complete
+	for (auto &t : threads) {
+		if (t.joinable())
+			t.join();
+	}
+}
+
+int main(int argc, char *argv[])
+{
+	int fd = -1, res = 0;
+	std::shared_ptr<spdlog::logger> logger = nullptr;
+	fs::path config_path = "/etc/tempesta/tfw_logger.json";
+
+	try {		
+		if (parse_basic_options(argc, argv, config_path) != CommandResult::CONTINUE) {
+			return 0;
+		}
+
+		load_configuration(argc, argv, config_path);
+
+		logger = setup_logger(config);
+		spdlog::info("Starting tfw_logger...");
+
+		size_t cpu_cnt = determine_cpu_count(config);
+
+		spdlog::info("Starting in {0} mode", 
+			     config.get_mode() == TfwLoggerConfig::Mode::DAEMON ? 
+			     "daemon" : "handle (foreground)");
+		
 		set_sig_handlers();
+		create_pid_file(config.get_pid_file());
 
-		std::ofstream pid_file(pid_file_path);
-		if (!pid_file)
-			throw Except("Failed to open PID file");
-		pid_file << getpid();
-		pid_file.close();
+		fd = open_device();
+		if (fd < 0)
+			goto end;
 
-		while ((fd = open(dev_path, O_RDWR)) == -1) {
-			if (stop_flag.load(std::memory_order_acquire))
-				goto end;
-			if (errno != ENOENT)
-				throw Except("Can't open device");
-			std::this_thread::sleep_for(wait_for_dev);
-		}
+		run_worker_threads(fd, cpu_cnt);
 
-		for (i = 0; i < cpu_cnt; ++i) {
-			std::packaged_task<void(int, int, std::string, std::string,
-						std::string)> task(run_thread);
-			futures.push_back(task.get_future());
-			threads.emplace_back(std::move(task), i, fd,
-					     vm["host"].as<std::string>(), user, password);
-		}
-
-		spdlog::info("Daemon started");
-
-		for (auto& future : futures)
-			future.get();
-
-		spdlog::info("Daemon stopped");
-
+		spdlog::info("TFWLoger stopped");
 	}
 	catch (const Exception &e) {
 		log_error(e.what(), logger != nullptr, false);
@@ -473,14 +573,14 @@ main(int argc, char* argv[])
 		res = 2;
 	}
 
-	for (auto &t : threads)
-		t.join();
-
+	// Clean up
 	if (fd >= 0)
 		close(fd);
 end:
-	if (std::remove(pid_file_path) != 0)
-		spdlog::error("Cant remove PID file.");
+	if (fs::exists(config.get_pid_file())) {
+		if (std::remove(config.get_pid_file().c_str()) != 0)
+			spdlog::error("Can't remove PID file.");
+	}
 
 	return res;
 }

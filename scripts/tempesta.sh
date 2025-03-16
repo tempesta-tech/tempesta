@@ -41,14 +41,12 @@ lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 utils_path=${UTILS_PATH:="$TFW_ROOT/utils"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
+tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"
 
 tfw_logger_should_start=0
 tfw_logger_pid_path="/var/run/tfw_logger.pid"
 tfw_logger_timeout=3
-mmap_host=""
-mmap_log=""
-mmap_user=""
-mmap_password=""
+tfw_logger_config_path=""
 
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
@@ -126,21 +124,14 @@ templater()
 		fi
 	done < "$tfw_cfg_path"
 
+	tfw_logger_config_path=$(echo "$cfg_content" | grep -oP 'access_log\s+.*logger_config=\K[^;]*' | sed 's/"//g' | sed "s/'//g")
+
 	opts=$(get_opts "$cfg_content" "access_log")
 	while read -r line; do
-		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
+		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ] || [ $(opt_exists "$line" "logger_config"; echo $?) -ne 0 ]; then
 			tfw_logger_should_start=1
-			mmap_log=$(get_opt_value "$line" "mmap_log")
-			mmap_host=$(get_opt_value "$line" "mmap_host")
-			mmap_user=$(get_opt_value "$line" "mmap_user")
-			mmap_password=$(get_opt_value "$line" "mmap_password")
-
-			[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
-				error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
 		fi
 	done <<< "$opts"
-
-	cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
 
 	echo "$cfg_content" > $tfw_cfg_temp
 }
@@ -311,13 +302,16 @@ start_tfw_logger()
 		return
 	fi
 
-	if [ -z "$mmap_host" ] || [ -z "$mmap_log" ]; then
-		error "You need to specify 'mmap_host' and 'mmap_log' "`
-		      `"if access_log mmap was specified"
-		return
+	local config_path
+	if [ -n "$tfw_logger_config_path" ]; then
+		config_path="$tfw_logger_config_path"
+		echo "...starting tfw_logger with custom config: $config_path"
+	else
+		config_path="$tfw_logger_config"
+		echo "...starting tfw_logger with default config: $config_path"
 	fi
 
-	"$utils_path/tfw_logger" -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
+	"$utils_path/tfw_logger" --config="$config_path" || \
 		error "cannot start tfw_logger daemon"
 
 	start_time=$(date +%s)
@@ -329,18 +323,19 @@ start_tfw_logger()
 			sysctl -e -w net.tempesta.state=stop
 			unload_modules
 			tfw_irqbalance_revert
-			error "tfw_logger failed to start, see $mmap_log for details"
+			error "tfw_logger failed to start, see logs for details"
 		fi
 
 		sleep 0.1
 	done
-
 }
 
 stop_tfw_logger()
 {
 	if [ -e $tfw_logger_pid_path ]; then
-		"$utils_path/tfw_logger" -s
+		echo "...stopping tfw_logger"
+		"$utils_path/tfw_logger" --stop || \
+			echo "Warning: Failed to stop tfw_logger daemon gracefully"
 	fi
 }
 
