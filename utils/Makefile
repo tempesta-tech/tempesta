@@ -21,7 +21,7 @@ CLICKHOUSE_BUILD_DIR := $(CLICKHOUSE_DIR)/build
 CLICKHOUSE_REPO_URL := https://github.com/ClickHouse/clickhouse-cpp.git
 
 CXX := g++
-LDFLAGS := -lfmt -lboost_program_options
+LDFLAGS := -lfmt -lboost_program_options -lboost_filesystem
 LDFLAGS += -lclickhouse-cpp-lib -L $(CLICKHOUSE_BUILD_DIR)/clickhouse
 LDFLAGS += -lcityhash -L $(CLICKHOUSE_BUILD_DIR)/contrib/cityhash/cityhash
 LDFLAGS += -lzstdstatic -L $(CLICKHOUSE_BUILD_DIR)/contrib/zstd/zstd
@@ -33,7 +33,7 @@ CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/contrib/absl
-SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
+SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc tfw_logger_config.cc
 OBJS := $(SRCS:.cc=.o)
 TARGET := tfw_logger
 
