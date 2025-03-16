@@ -70,4 +70,18 @@ tfw_logger_sanitize:
 	$(MAKE) clickhouse
 	$(MAKE) sanitize
 
-.PHONY: all clean clickhouse clickhouse_install clickhouse_clean sanitize tfw_logger_sanitize
+test: test-unit test-integration
+	@echo "All tests completed successfully!"
+
+test-unit:
+	@echo "Running unit tests..."
+	@$(MAKE) -C test test
+
+test-integration:
+	@echo "Running integration tests..."
+	@cd test/integration && ../venv/bin/python -m pytest -v
+
+test-clean:
+	@$(MAKE) -C test clean
+
+.PHONY: all clean clickhouse clickhouse_install clickhouse_clean sanitize tfw_logger_sanitize test test-unit test-integration test-clean

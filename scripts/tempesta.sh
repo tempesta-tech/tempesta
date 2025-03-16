@@ -38,7 +38,7 @@ tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
-utils_path=${UTILS_PATH:="$TFW_ROOT/utils"}
+logger_path=${LOGGER_PATH:="$TFW_ROOT/logger"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"
@@ -311,7 +311,7 @@ start_tfw_logger()
 		echo "...starting tfw_logger with default config: $config_path"
 	fi
 
-	"$utils_path/tfw_logger" --config="$config_path" || \
+	"$logger_path/tfw_logger" --config="$config_path" || \
 		error "cannot start tfw_logger daemon"
 
 	start_time=$(date +%s)
@@ -334,7 +334,7 @@ stop_tfw_logger()
 {
 	if [ -e $tfw_logger_pid_path ]; then
 		echo "...stopping tfw_logger"
-		"$utils_path/tfw_logger" --stop || \
+		"$logger_path/tfw_logger" --stop || \
 			echo "Warning: Failed to stop tfw_logger daemon gracefully"
 	fi
 }

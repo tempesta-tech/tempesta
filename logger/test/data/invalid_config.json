@@ -1,0 +1,4 @@
+{
+    "log_path": "/tmp/test.log",
+    "buffer_size": 1024,
+    "invalid_json":

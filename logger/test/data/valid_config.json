@@ -1,0 +1,13 @@
+{
+    "log_path": "/tmp/tfw_logger_test.log",
+    "buffer_size": 8388608,
+    "cpu_count": 2,
+    "clickhouse": {
+        "host": "localhost",
+        "port": 9000,
+        "user": "testuser",
+        "password": "testpass",
+        "max_events": 500,
+        "max_wait_ms": 200
+    }
+}
