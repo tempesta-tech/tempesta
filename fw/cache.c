@@ -203,13 +203,16 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 #define TFW_CSTR_SPEC_IDX	0x2
 /*
  * TfwCStr contains header, which should be skipped for http2 responses
- * constructed from cache.
+ * constructed from cache. We skip transfer encoding header, when we
+ * build response from cache for HTTP2 request.
+ * RFC 9113 8.1:
+ * HTTP/2 uses DATA frames to carry message content. The chunked
+ * transfer encoding defined in Section 7.1 of [HTTP/1.1] cannot be
+ * used in HTTP/2; see Section 8.2.2.
  */
 #define TFW_CSTR_SKIP_FOR_H2	0x4
 
-/*
- * TfwCStr contains trailer.
- */
+/* TfwCStr contains trailer. */
 #define TFW_CSTR_TRAILER	0x8
 
 /**
@@ -1065,8 +1068,8 @@ do {									\
 
 		*p += TFW_CSTR_HDRLEN;
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
-			if (unlikely(r))
-				break;
+		if (unlikely(r))
+			break;
 
 		dc_iter.skip = skip;
 	}
@@ -2753,7 +2756,8 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && g_vhost->cache_purge
-	    && g_vhost->cache_purge_acl)) {
+	    && g_vhost->cache_purge_acl))
+	{
 		tfw_http_send_err_resp(req, 403, "purge: not configured");
 		return -EINVAL;
 	}
@@ -2851,14 +2855,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * Finish chunked body encoding. Add 0\r\n
 	 * after chunked body.
 	 */
-	TfwStr b_len = {
-		.chunks = (TfwStr []){
-			{.data = S_ZERO, .len = SLEN(S_ZERO)},
-			{.data = S_CRLF, .len = SLEN(S_CRLF)}
-		},
-		.len = SLEN(S_ZERO S_CRLF),
-		.nchunks = 2
-	};
 	bool sh_frag = h2 ? false : true;
 	int r;
 
@@ -2941,6 +2937,11 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	}
 
 	if (chunked_body) {
+		static TfwStr b_len = {
+			.data = S_ZERO S_CRLF,
+			.len = SLEN(S_ZERO S_CRLF)
+		};
+
 		r = tfw_http_msg_expand_data(it, &it->skb_head,
 					     &g_crlf, NULL);
 		if (unlikely(r))
@@ -3057,7 +3058,6 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	if (!(resp = tfw_http_msg_alloc_resp(req)))
 		goto out;
 
-
 	/* Copy version information and flags */
 	resp->version = ce->version;
 	tfw_http_copy_flags(resp->flags, ce->hmflags);
@@ -3171,7 +3171,8 @@ write_body:
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if ((ce->body_len || chunked_body)
-	    && req->method != TFW_HTTP_METH_HEAD) {
+	    && req->method != TFW_HTTP_METH_HEAD)
+	{
 		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
 					      h2_mode, chunked_body))
 			goto free;
@@ -3179,7 +3180,8 @@ write_body:
 	resp->content_length = ce->body_len;
 
 	if (unlikely(ce->trailer_off < ce->hdr_num)
-	    && req->method != TFW_HTTP_METH_HEAD) {
+	    && req->method != TFW_HTTP_METH_HEAD)
+	{
 		unsigned long t_len = 0;
 
 		if (h2_mode)

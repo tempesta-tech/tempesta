@@ -429,7 +429,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 		if (ss_skb_is_within_fragment(begin, begin + off, end))
 			return begin + off;
 
-		off -= (end - begin);
+		off -= end - begin;
 	}
 
 	return NULL;

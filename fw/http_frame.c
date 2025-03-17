@@ -1897,7 +1897,6 @@ tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type,
 	    && type == HTTP2_HEADERS && trailers)
 		flags |= HTTP2_F_END_STREAM;
 
-
 	if (!stream->xmit.h_len && type != HTTP2_DATA && !trailers)
 		flags |= HTTP2_F_END_HEADERS;
 
