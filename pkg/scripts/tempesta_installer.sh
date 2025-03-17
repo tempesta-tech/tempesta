@@ -68,43 +68,16 @@ log() {
     echo "${TIMESTAMP} [${LEVEL}] - ${MESSAGE}" | tee -a $LOGFILE
 }
 
-# Use github API to get information about latest release.
-#
-# `latest` release shows ONLY releases which are not marked as `prereleases`.
-# Github restricts 60 API requests per hour without authorisation. Enough for
-# our needs.
 tfw_download()
 {
 	log "INFO" "Starting download process..."
 
-    release_tag=`curl -s https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_TEMPESTA/tags | grep \"$DISTRO/ | cut -d '"' -f 4 | sort -V -r | head -n1`
-	if [[ ! "$release_tag" ]]; then
-		log "ERROR" "Can't find the latest release in repo: https://github.com/$GITHUB_USER/$GITHUB_REPO_TEMPESTA"
-		log "INFO" "Attempting to download using fallback URLs."
-	else
-        log "INFO" "Found the latest release tag: $release_tag"
-        uri="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO_LINUX/releases/tags/${release_tag}"
-        links=`curl -s $uri | grep browser_download_url | grep -P "$2" | cut -d '"' -f 4`
-	fi
-	
-	if [[ ! "$links" ]]; then
-		log "INFO" "Can't download file $2 from release ${release_tag} in repo:"
-		log "INFO" "https://github.com/$GITHUB_USER/$GITHUB_REPO_LINUX"
-		#TODO: show next line only if received 403 status code.
-		log "INFO" "Or may be Github API rate limit exceeded. Fallback download from repo instead github.com"
-		fall_links=("http://172.240.91.52:8081/repository/tempesta/pool/l/linux-headers-5.10.35.tfw-4c9ba16/linux-headers-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
-		"http://172.240.91.52:8081/repository/tempesta/pool/l/linux-image-5.10.35.tfw-4c9ba16/linux-image-5.10.35.tfw-4c9ba16_5.10.35.tfw-4c9ba16-1_amd64.deb"
-		"http://172.240.91.52:8081/repository/tempesta/pool/l/linux-libc-dev/linux-libc-dev_5.10.35.tfw-4c9ba16-1_amd64.deb"
-		"http://172.240.91.52:8081/repository/tempesta/pool/t/tempesta-fw-dkms/tempesta-fw-dkms_0.7.1_amd64.deb -O tempesta-fw-dkms.deb")
+  links=("http://172.240.91.52:8081/repository/tempesta/pool/l/linux-headers-5.10.35.tfw-83b4909/linux-headers-5.10.35.tfw-83b4909_5.10.35.tfw-83b4909-1_amd64.deb"
+  "http://172.240.91.52:8081/repository/tempesta/pool/l/linux-image-5.10.35.tfw-83b4909/linux-image-5.10.35.tfw-83b4909_5.10.35.tfw-83b4909-1_amd64.deb"
+  "http://172.240.91.52:8081/repository/tempesta/pool/l/linux-libc-dev/linux-libc-dev_5.10.35.tfw-83b4909-1_amd64.deb"
+  "http://172.240.91.52:8081/repository/tempesta/pool/t/tempesta-fw-dkms/tempesta-fw-dkms_0.8.0_amd64.deb -O tempesta-fw-dkms.deb")
 
-		for file in ${fall_links[@]}
-		do
-			log "INFO" "Downloading $file using fallback URL"
-			wget -q --show-progress -P $DOWNLOAD_DIR/$repo $file || log "ERROR" "Failed to download $file"
-		done
-	fi
-
-	for file in ${links}
+	for file in ${links[@]}
 	do
 		wget -q --show-progress -P $DOWNLOAD_DIR/$repo $file || log "ERROR" "Failed to download $file"
 	done
@@ -119,7 +92,7 @@ tfw_install_packages()
   case $DISTRO in
 	"ubuntu-24")
     repo=""
-    log "INFO" "Downloading latest packages from github.com/$GITHUB_USER/$repo ..."
+    log "INFO" "Downloading packages"
     mkdir -p $DOWNLOAD_DIR/$repo
     ;;
   *)
@@ -148,11 +121,9 @@ tfw_install_deps()
 	"ubuntu-24")
         echo ""
 		log "INFO" "Installation on Ubuntu 24 LTS requires updating system from jessie-backports repository before installing TempestaFW."
-		log "INFO" "Updating system from jammy repository for Ubuntu 24 LTS."
+		log "INFO" "Updating system from noble repository for Ubuntu 24 LTS."
 		tfw_confirm
 
-		echo "deb http://ru.archive.ubuntu.com/ubuntu " \
-		        "jammy main" >> /etc/apt/sources.list
 		apt-get update || log "ERROR" "Failed to update package lists for Ubuntu 24 LTS."
 		apt-get dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Ubuntu 24 LTS."
     ;;
@@ -208,14 +179,11 @@ tfw_install()
     echo "*************************************************************************"
     read -n 1 -s -p "Press any key to continue..."
     echo ""
-	log "INFO" "Installing packages from $GITHUB_REPO_LINUX."
 	tfw_install_packages $GITHUB_REPO_LINUX "${FILES_LINUX[@]}"
     if [ $? -ne 0 ]; then
         log "ERROR" "Failed to install packages."
         exit 2
     fi
-
-	# tfw_install_packages $GITHUB_REPO_TEMPESTA "${FILES_TEMPESTA[@]}"
 }
 
 # Find all installed packages that suit *_FILES regular expressions and save
