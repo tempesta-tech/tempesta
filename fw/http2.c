@@ -270,17 +270,13 @@ tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 void
 tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 	TfwStream *stream, *tmp;
 
 	/*
-	 * We add and remove streams from idle queue under
-	 * socket lock.
+	 * We add/remove idle streams on receive path
+	 * so we don't need lock `ctx->lock` here.
 	 */
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
-
-	list_for_each_entry_safe_reverse(stream, tmp, &ctx->idle_streams.list,
-	                                 hcl_node)
+	list_for_each_entry_safe(stream, tmp, &ctx->idle_streams.list, hcl_node)
 	{
 		if (id <= stream->id)
 			break;
@@ -301,8 +297,6 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
-
-	tfw_h2_remove_idle_streams(ctx, UINT_MAX);
 
         rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_purge_all_and_free_response(cur);
