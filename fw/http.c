@@ -4201,8 +4201,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &tmp_host);
 		host_val = &tmp_host;
 	}
-	r |= tfw_msg_write(&it, host_val);
-	r |= tfw_msg_write(&it, &STR_CRLF);
+	r = tfw_msg_write(&it, host_val);
+	if (unlikely(r))
+		goto err;
+	r = tfw_msg_write(&it, &STR_CRLF);
 	if (unlikely(r))
 		goto err;
 
