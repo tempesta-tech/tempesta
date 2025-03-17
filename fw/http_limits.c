@@ -779,7 +779,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				frang_msg_lock(&ra->lock, "port from host header doesn't"
 					       " match port from uri",
 					       &FRANG_ACC2CLI(ra)->addr,
-					       ": %d (%d)\n", host_port,
+					       ": %u (%u)\n", host_port,
 					       uri_port);
 				return T_BLOCK;
 			}
@@ -831,7 +831,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	if (unlikely(host_port != real_port)) {
 		frang_msg_lock(&ra->lock, "port from host header doesn't"
 			       " match real port", &FRANG_ACC2CLI(ra)->addr,
-			       ": %d (%d)\n", host_port, real_port);
+			       ": %u (%u)\n", host_port, real_port);
 		return T_BLOCK;
 	}
 
