@@ -467,7 +467,6 @@ __FSM_STATE(st, cold) {							\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
-
 #define __FSM_TX_AF_OWS_LAMBDA(st, st_next, lambda)			\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
@@ -5331,9 +5330,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'i',
 						    'l', 'e', 'r', ':'))
 			{
-				__msg_hdr_chunk_fixup(data, __data_off(p + 8));
+				__msg_hdr_chunk_fixup(data, __data_off(p + 7));
 				parser->_i_st = &&Req_HdrTrailerV;
-				p += 8;
+				p += 7;
 				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrT);
@@ -11245,17 +11244,17 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
-	/*
-	 * According RFC 7230 4.1.2:
-	 * A sender MUST NOT generate a trailer that contains response
-	 * control data (e.g., see Section 7.1 of [RFC7231]).
-	 */
-	if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
-		return r;
-
 	parser->cc_dir_flag = 0;
 
 	__FSM_STATE(Resp_I_CC_start) {
+		/*
+		 * According RFC 7230 4.1.2:
+		 * A sender MUST NOT generate a trailer that contains response
+		 * control data (e.g., see Section 7.1 of [RFC7231]).
+		 */
+		if (unlikely(test_bit(TFW_HTTP_B_HEADERS_PARSED, resp->flags)))
+			return r;
+
 		/* Spaces already skipped by RGen_LWS */
 		/* Leading comma allowed per RFC 7230 Section 7 */
 		if (c == ',')

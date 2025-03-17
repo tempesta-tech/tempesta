@@ -480,6 +480,47 @@ tfw_h2_req_unlink_and_close_stream(TfwHttpReq *req)
 	spin_unlock(&ctx->lock);
 }
 
+static int
+tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
+{
+	TfwHttpHdrMap *map = resp->mit.map;
+	TfwHttpHdrTbl *ht = resp->h_tbl;
+	unsigned int i;
+	int r;
+
+	for (i = map->trailer_idx; i < map->count; ++i) {
+		unsigned short hid = map->index[i].idx;
+		unsigned short d_num = map->index[i].d_idx;
+		TfwStr *tgt = &ht->tbl[hid];
+
+		if (TFW_STR_DUP(tgt))
+			tgt = TFW_STR_CHUNK(tgt, d_num);
+
+		if (WARN_ON_ONCE(!tgt
+				 || TFW_STR_EMPTY(tgt)
+				 || TFW_STR_DUP(tgt)))
+			return -EINVAL;
+
+		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
+		       __func__, hid, d_num, ht->tbl[hid].nchunks);
+
+		/*
+		 * 'Server' header must be replaced; thus, remove the original
+		 * header (and all its duplicates) skipping it here; the new
+		 * header will be written later, during new headers' addition
+		 * stage.
+		 */
+		if (hid == TFW_HTTP_HDR_SERVER)
+			continue;
+
+		r = tfw_hpack_transform(resp, tgt);
+		if (unlikely(r))
+			return r;
+	}
+
+	return 0;
+}
+
 int
 tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 {
@@ -536,7 +577,8 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 		 * on HEAD request.
 		 */
 		if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
-		    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags)) {
+		    && !test_bit(TFW_HTTP_B_VOID_BODY, resp->flags))
+		{
 			r = tfw_http_msg_cutoff_body_chunks(resp);
 			if (unlikely(r)) {
 				T_WARN("Failed to encode body");
