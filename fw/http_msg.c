@@ -1336,7 +1336,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 int
 tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str)
 {
-	unsigned int n;
+	unsigned int n = 0;
 
 	return __tfw_http_msg_expand_from_pool(hm, str, &n, memcpy_fast);
 }
