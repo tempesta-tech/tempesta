@@ -71,7 +71,7 @@ tempesta_lib_init(void)
 	if (ret)
 		return ret;
 	
-	return 0;
+	return ret;
 }
 
 static void __exit
