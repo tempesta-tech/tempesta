@@ -407,44 +407,28 @@ tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id, bool recv)
 }
 
 /*
- * Get stream ID for upper layer to create frames info.
- */
-unsigned int
-tfw_h2_req_stream_id(TfwHttpReq *req)
-{
-	unsigned int id = 0;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
-
-	spin_lock(&ctx->lock);
-
-	if (req->stream)
-		id = req->stream->id;
-
-	spin_unlock(&ctx->lock);
-
-	return id;
-}
-
-/*
  * Unlink request from corresponding stream (if linked).
  */
 void
-tfw_h2_req_unlink_stream(TfwHttpReq *req)
+tfw_h2_req_unlink_stream_nolock(TfwHttpReq *req)
 {
 	TfwStream *stream;
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
-
-	spin_lock(&ctx->lock);
 
 	stream = req->stream;
-	if (!stream) {
-		spin_unlock(&ctx->lock);
+	if (!stream)
 		return;
-	}
 
 	req->stream = NULL;
 	stream->msg = NULL;
+}
 
+void
+tfw_h2_req_unlink_stream(TfwHttpReq *req)
+{
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(req->conn);
+
+	spin_lock(&ctx->lock);
+	tfw_h2_req_unlink_stream_nolock(req);
 	spin_unlock(&ctx->lock);
 }
 
