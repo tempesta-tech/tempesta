@@ -69,9 +69,9 @@ tempesta_lib_init(void)
 {	
 	int ret = tfw_ts_cache_init();
 	if (ret)
-		return ret;
+		return 1;
 	
-	return 0;
+	return ret;
 }
 
 static void __exit
