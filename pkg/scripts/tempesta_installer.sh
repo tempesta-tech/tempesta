@@ -25,8 +25,6 @@ declare -r TFW_NAME=`basename $0`
 declare -r LONG_OPTS="help,install,remove,purge"
 declare -r DOWNLOAD_DIR=tfw_downloads
 
-declare -r GITHUB_USER="tempesta-tech"
-declare -r GITHUB_REPO_TEMPESTA="tempesta"
 declare -r GITHUB_REPO_LINUX="linux-5.10.35-tfw"
 
 #TODO: currently Ubuntu 24 is the only supported distribution, other
