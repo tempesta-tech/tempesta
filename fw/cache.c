@@ -1911,7 +1911,6 @@ __set_etag(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, long h_off,
 	size_t len = 0;
 	unsigned short flags = 0;
 	TfwStr h_val, *c, *end, *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG];
-	TfwStr s_dummy = {}, s_val = {};
 
 #define CHECK_REC_SPACE()						\
 	while (c_size) {						\
@@ -1947,8 +1946,7 @@ __set_etag(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, long h_off,
 	 * occupy 2 bytes (RFC 7541 section 6.2.2).
 	 */
 	e_p += TFW_CSTR_HDRLEN;
-	tfw_http_hdr_split(h, &s_dummy, &s_val, true);
-	c_size = 2 + tfw_hpack_int_size(s_val.len, 0x7F);
+	c_size = 2 + tfw_hpack_int_size(h_val.len, 0x7F);
 	CHECK_REC_SPACE();
 
 	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags)) {
