@@ -3144,7 +3144,7 @@ commit:
  * threads, so lock is used to protect the find/add/erase operations inside
  * this procedure.
  */
-static TfwHPackETblRes
+static int
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 			TfwStr *__restrict h_name,
 			TfwStr *__restrict h_val,
@@ -3163,9 +3163,15 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 
 	*out_index = HPACK_NODE_GET_INDEX(tbl, node);
 
-	if(res != HPACK_IDX_ST_FOUND
-	   && !tfw_hpack_add_node(tbl, h_name, h_val, &place))
+	if(res != HPACK_IDX_ST_FOUND) {
+		int r;
+
+		r = tfw_hpack_add_node(tbl, h_name, h_val, &place);
+		if (unlikely(r))
+			return r;
+
 		res |= HPACK_IDX_FLAG_ADD;
+	}
 
 	return res;
 }
