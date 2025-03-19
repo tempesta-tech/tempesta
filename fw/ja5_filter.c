@@ -19,6 +19,7 @@
  */
 #include <linux/list.h>
 
+#include "ja5_filter.h"
 #include "db/core/tdb.h"
 #include "lib/str.h"
 #include "lib/ja5.h"

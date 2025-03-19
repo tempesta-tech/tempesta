@@ -213,7 +213,7 @@ next_msg:
  * can add the next skb in the send queue to the current encrypted TLS record.
  *
  * We extend the skbs on TCP transmission (when CWND is calculated), so we
- * also adjust TCP sequence numbers in the socket. See skb_entail().
+ * also adjust TCP sequence numbers in the socket. See tcp_skb_entail().
  */
 int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
@@ -909,7 +909,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		 * Data comes as a copy from temporary buffer tls_handshake_t::ext
 		 * See ttls_parse_client_hello() for details.
 		 */
-		tfw_cstrtolower(srv_name.data, srv_name.data, len);
+		tfw_cstrtolower_inplace(srv_name.data, len);
 
 		vhost = tfw_tls_find_vhost_by_name(&srv_name);
 		if (unlikely(!vhost && !tfw_tls_allow_any_sni)) {
@@ -989,7 +989,7 @@ ttls_cli_id(TlsCtx *tls, unsigned long hash)
 				sizeof(cli_conn->peer->addr.sin6_addr), hash);
 }
 
-bool
+static bool
 tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;

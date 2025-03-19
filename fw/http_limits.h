@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -44,6 +44,8 @@
 
 typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
 
+int tfw_http_limits_init(void);
+void tfw_http_limits_exit(void);
 void tfw_classifier_add_inport(__be16 port);
 void tfw_classifier_remove_inport(__be16 port);
 void tfw_classifier_cleanup_inport(void);

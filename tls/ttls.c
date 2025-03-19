@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1068,10 +1068,11 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 int
 __ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
 {
-	int r;
+	int r = ttls_send_cb(tls, sgt);
 
-	if ((r = ttls_send_cb(tls, sgt)))
+	if (likely(r)) {
 		T_DBG("TLS send callback error %d\n", r);
+	}
 	return r;
 }
 
@@ -1340,7 +1341,7 @@ ttls_handshake_wrapup(TlsCtx *tls)
 /**
  * Process TLS alerts.
  */
-int
+static int
 ttls_handle_alert(TlsCtx *tls)
 {
 	TlsIOCtx *io = &tls->io_in;
@@ -2557,7 +2558,7 @@ ttls_sig_hash_set_add(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 	}
 }
 
-bool
+static bool
 ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 		      ttls_md_type_t md_alg)
 {
@@ -2571,7 +2572,7 @@ ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 	}
 }
 
-void
+static void
 ttls_sig_hash_set_const(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 			ttls_md_type_t md_alg)
 {
