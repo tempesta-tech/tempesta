@@ -42,7 +42,7 @@ all:
 	$(MAKE) $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CXX) -o $@ $^ $(LDFLAGS)
+	$(CXX) -O3 -s -Wall -Wextra -std=c++23 -o $@ $^ $(LDFLAGS)
 
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -63,4 +63,11 @@ clickhouse_install:
 clickhouse_clean:
 	$(RM) -rf $(CLICKHOUSE_DIR)
 
-.PHONY: all clean clickhouse clickhouse_install clickhouse_clean
+sanitize: $(OBJS)
+	$(CXX) -O0 -g -Wall -Wextra -std=c++23 -fsanitize=address,undefined -fno-omit-frame-pointer -o $(TARGET) $^ $(LDFLAGS)
+
+tfw_logger_sanitize:
+	$(MAKE) clickhouse
+	$(MAKE) sanitize
+
+.PHONY: all clean clickhouse clickhouse_install clickhouse_clean sanitize tfw_logger_sanitize

@@ -180,3 +180,8 @@ clean:
 	$(MAKE) -C utils clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;
+
+tidy:
+	@echo "Running clang-tidy on C++ files..."
+	@./scripts/run-clang-tidy.sh
+.PHONY: tidy
