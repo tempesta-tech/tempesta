@@ -99,7 +99,7 @@ typedef struct {
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
-		       size_t data_len, unsigned int tx_flags);
+		       size_t data_len, unsigned int flags);
 int tfw_msg_iter_append_skb(TfwMsgIter *it);
 int tfw_http_iter_set_at(TfwMsgIter *it, char *off);
 int tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz);
