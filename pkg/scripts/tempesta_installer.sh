@@ -124,6 +124,7 @@ tfw_install_deps()
 
 		apt-get update || log "ERROR" "Failed to update package lists for Ubuntu 24 LTS."
 		apt-get dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Ubuntu 24 LTS."
+		apt-get install libfmt-dev libspdlog-dev -y || log "ERROR" "Failed to install dependencies on Ubuntu 24 LTS."
     ;;
 	*)
 	log "ERROR" "Unsupported distribution: $DISTRO"
