@@ -826,11 +826,11 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
  */
 int
 tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
-		   unsigned int tx_flags)
+		   unsigned int flags)
 {
 	int r;
 
-	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, tx_flags)))
+	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, flags)))
 		return r;
 	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
@@ -1272,8 +1272,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 					body_was_moved = !!r;
 				}
 
-				skb_shinfo(nskb)->tx_flags =
-					skb_shinfo(it->skb)->tx_flags;
+				skb_shinfo(nskb)->flags =
+					skb_shinfo(it->skb)->flags;
 				ss_skb_insert_after(it->skb, nskb);
 				/*
 				 * If body was moved to the new allocated skb
