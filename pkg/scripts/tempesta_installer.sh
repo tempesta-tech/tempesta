@@ -124,7 +124,6 @@ tfw_install_deps()
 
 		apt-get update || log "ERROR" "Failed to update package lists for Ubuntu 24 LTS."
 		apt-get dist-upgrade -y || log "ERROR" "Failed to dist-upgrade on Ubuntu 24 LTS."
-		apt-get install libfmt-dev libspdlog-dev -y || log "ERROR" "Failed to install dependencies on Ubuntu 24 LTS."
     ;;
 	*)
 	log "ERROR" "Unsupported distribution: $DISTRO"
@@ -140,7 +139,7 @@ tfw_install_deps()
 	read -n 1 -s -p "Press any key to continue..."
 	# curl and wget are required for the script itself.
 	apt-get ${APT_OPTS} install -y dkms libboost-dev libboost-program-options-dev \
-	     kdump-tools curl wget ethtool bc libtemplate-perl
+	     kdump-tools curl wget ethtool bc libtemplate-perl libfmt-dev libspdlog-dev
 	if [ $? -eq 0 ]; then
 		log "INFO" "Dependencies installation completed."
 	else
