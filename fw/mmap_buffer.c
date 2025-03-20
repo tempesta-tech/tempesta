@@ -251,10 +251,11 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	}
 
 	if (filename) { /* do not create the file in unit tests */
+		printk(KERN_INFO "TFW_LOG_DEBUG: Creating device for %s\n", filename); // Додайте тут
+		
 		holder->dev_major = register_chrdev(0, filename, &dev_fops);
 		if (holder->dev_major < 0) {
-			T_ERR("Registering char device failed for %s\n",
-			      filename);
+			T_ERR("Registering char device failed for %s\n", filename);
 			goto err;
 		}
 		holder->dev_class = class_create(filename);
@@ -263,14 +264,17 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 			goto err;
 		}
 		holder->dev = device_create(holder->dev_class, NULL,
-					    MKDEV(holder->dev_major, 0),
-					    NULL, filename);
+								  MKDEV(holder->dev_major, 0),
+								  NULL, filename);
 		if (IS_ERR(holder->dev)) {
 			T_ERR("Device creation failed for %s\n", filename);
 			goto err;
 		}
 		strscpy(holder->dev_name, filename, sizeof(holder->dev_name));
 		holders[holders_cnt++] = holder;
+		
+		printk(KERN_INFO "TFW_LOG_DEBUG: Device creation result: %s, dev_major: %d\n", 
+			   IS_ERR_OR_NULL(holder->dev) ? "failed" : "success", holder->dev_major); // Додайте тут
 	}
 
 	kfree(page_ptr);

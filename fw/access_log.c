@@ -590,6 +590,7 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 	}
+	printk(KERN_INFO "TFW_LOG_DEBUG: access_log_type = %d after parsing config\n", access_log_type);
 
 	if (off && access_log_type != ACCESS_LOG_OFF) {
 		T_ERR_NL("access_log 'off' value should be the only value\n");
@@ -602,12 +603,23 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_access_log_start(void)
 {
+	// У функції tfw_access_log_start, на початку
+printk(KERN_INFO "TFW_LOG_DEBUG: tfw_access_log_start called with access_log_type = %d, mmap_buffer = %p\n", 
+	access_log_type, mmap_buffer);
+
 	int cpu;
 
-	if (!(access_log_type & ACCESS_LOG_MMAP) || mmap_buffer)
+	if (!(access_log_type & ACCESS_LOG_MMAP) || mmap_buffer) {
+		printk(KERN_INFO "TFW_LOG_DEBUG: mmap_buffer=%p, no need to create\n", mmap_buffer);
 		return 0;
+	}
+
+		printk(KERN_INFO "TFW_LOG_DEBUG: Creating mmap_buffer for path %s, size %ld\n", 
+			MMAP_LOG_PATH, mmap_log_buffer_size);
 
 	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, mmap_log_buffer_size);
+
+	printk(KERN_INFO "TFW_LOG_DEBUG: mmap_buffer create result: %p\n", mmap_buffer);
 
 	for_each_online_cpu(cpu) {
 		u64 *dropped = per_cpu_ptr(&mmap_log_dropped, cpu);
@@ -662,7 +674,9 @@ TfwMod tfw_access_log_mod  = {
 int __init
 tfw_access_log_init(void)
 {
+	printk(KERN_INFO "TFW_LOG_DEBUG: tfw_access_log_init called\n");
 	tfw_mod_register(&tfw_access_log_mod);
+	printk(KERN_INFO "TFW_LOG_DEBUG: tfw_mod_register result for access_log module\n");
 	return 0;
 }
 
