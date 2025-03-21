@@ -1,3 +1,60 @@
+tempesta-fw-dkms (0.8.0) focal; urgency=medium
+
+  * Add `Expect: 100-continue` support
+  * Add `cache_use_stale` directive
+  * Add ja5h and ja5t filtering, configuration. access log
+  * Add tfw_logger for access_Log with Clickhouse
+  * Add server address to warning/debug messages.
+  * Add tls certificate date validation
+  * Add support of Cache-Control: stale-if-error
+  * Add response with 308 status code to heuristically cacheable
+  * Add CRLF filter.
+  * Add reference to a peper about ECDSA nonce attack
+  * add CamelCase type name check
+  * Add check for dublicate options in config
+  * Add global Tempesta FW percentiles statistics.
+  * Remove client from tdb
+  * Remove lower limit of reconnection attempts.
+  * Remove `timeout` option for sticky cookie
+  * Remove redirect mark from Tempesta
+  * Remove `delay_limit` JS challenge option
+  * Rename: connection_rate -> tcp_connection_rate connection_burst -> tcp_connection_burst concurrent_connections -> concurrent_tcp_connections
+  * Properly abort server connection for stale response
+  * Mark proxy-connection header as hop-by-hop in case of segmentation
+  * Drop HEAD and GET requests with body and trailers
+  * Get rid of per-cpu buffer `g_te_buf`
+  * Mark 'Keep-Alive' header as hop-by-hop
+  * Immediately stop processing for closing conection
+  * Use appropriate node for stale response
+  * Do cache PURGE with respect to NUMA mode
+  * Don't cache set-cookie header
+  * Do not add Content-Length header for HTTP2 responses
+  * tdb: Add simple global freelist
+  * Forbid duplicated `stale-if-error` in response
+  * Don't send stale response in case of frang block
+  * Change TDB version to 0.2.0
+  * Store in the cache only single record
+  * Rewrite HEAD method to GET for cache
+  * Clear socket write queue and send RST if connection is dropped
+  * Catch malformed HM response.
+  * Update cpu-node map allocation
+  * Handle HTTPS/1 and HTTP/2 on the same port
+  * Don't cache nonidempotent GET and HEAD requests
+  * Invalidate stored responses.
+  * Cache only methods according RFC 9110.
+  * Restrict range of possible JS challenge response statuses
+  * Drop request sock in case when frang block new connection
+  * http_hdr_len and http_hdr_cnt were made only global because they are checked earlier than vhost is determined.
+  * Use response to a GET request to satisfy HEAD request
+  * Reset closing flags in st_flags field
+  * Close socket after sending TLS_ALERT
+  * Introduce default server response statistics for HTTP code 200.
+  * Introduce 'health_stat', 'health_stat_server' directive.
+  * Cut port from authority when lookup vhost
+  * Block all malformed requests.
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Thu, 13 Mar 2025 16:13:47 +0400
+
 tempesta-fw-dkms (0.7.1) focal; urgency=medium
 
   * Frang: Changed default settings to more strict
@@ -59,7 +116,6 @@ tempesta-fw-dkms (0.7.0) focal; urgency=medium
   * Fixed kernel panic under heavy load with low mtu
   * Fix invalid stream processing
   * Make HTTP/2 parser reject upper-case headers
-
 
  -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 3 Mar 2022 20:13:43 +0500
 

@@ -19,6 +19,7 @@ override_dh_auto_install:
 	dh_install Makefile usr/src/$(NAME)-$(VERSION)
 	dh_install etc/* /etc/tempesta
 	dh_install scripts /lib/tempesta
+	dh_install utils /lib/tempesta
 	find "debian/$(DEB_NAME)/usr/src/$(NAME)-$(VERSION)" -name '.git*' -exec rm {} \;
 
 override_dh_dkms:
