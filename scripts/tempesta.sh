@@ -126,19 +126,30 @@ templater()
 		fi
 	done < "$tfw_cfg_path"
 
-	opts=$(get_opts "$cfg_content" "access_log")
-	while read -r line; do
-		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
-			tfw_logger_should_start=1
-			mmap_log=$(get_opt_value "$line" "mmap_log")
-			mmap_host=$(get_opt_value "$line" "mmap_host")
-			mmap_user=$(get_opt_value "$line" "mmap_user")
-			mmap_password=$(get_opt_value "$line" "mmap_password")
+	tfw_logger_config_path=$(echo "$cfg_content" | grep -oP 'access_log\s+.*logger_config=\K[^;]*' | sed 's/"//g' | sed "s/'//g")
+	if [ -n "$tfw_logger_config_path" ]; then
+		tfw_logger_should_start=1
+	else
+		opts=$(get_opts "$cfg_content" "access_log")
+		while read -r line; do
+			if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
+				tfw_logger_should_start=1
+				mmap_log=$(get_opt_value "$line" "mmap_log")
+				mmap_host=$(get_opt_value "$line" "mmap_host")
+				mmap_user=$(get_opt_value "$line" "mmap_user")
+				mmap_password=$(get_opt_value "$line" "mmap_password")
 
-			[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
-				error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
-		fi
-	done <<< "$opts"
+				[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
+					error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
+			fi
+		done <<< "$opts"
+	fi
+
+    # Check for buffer size
+	buffer_size=$(echo "$cfg_content" | grep -oP 'mmap_log_buffer_size\s+\K[^;]*')
+	if [ -n "$buffer_size" ]; then
+		mmap_log_buffer_size=$buffer_size
+	fi
 
 	cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
 
@@ -311,14 +322,29 @@ start_tfw_logger()
 		return
 	fi
 
-	if [ -z "$mmap_host" ] || [ -z "$mmap_log" ]; then
-		error "You need to specify 'mmap_host' and 'mmap_log' "`
-		      `"if access_log mmap was specified"
-		return
-	fi
+	# Check if we have a JSON config path specified
+	if [ -n "$tfw_logger_config_path" ]; then
+		echo "...starting tfw_logger with JSON config: $tfw_logger_config_path"
+		"$utils_path/tfw_logger" --config="$tfw_logger_config_path" || \
+			error "cannot start tfw_logger daemon"
+	else
+		# Traditional approach with command line parameters
+		if [ -z "$mmap_host" ] || [ -z "$mmap_log" ]; then
+			error "You need to specify 'mmap_host' and 'mmap_log' if access_log mmap was specified"
+			return
+		fi
 
-	"$utils_path/tfw_logger" -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
+		echo "...starting tfw_logger with command line arguments"
+		cmd_args="--clickhouse-host=$mmap_host --log-path=$mmap_log"
+
+		# Add optional parameters
+		[ -n "$mmap_user" ] && cmd_args="$cmd_args --clickhouse-user=$mmap_user"
+		[ -n "$mmap_password" ] && cmd_args="$cmd_args --clickhouse-password=$mmap_password"
+		[ -n "$mmap_log_buffer_size" ] && cmd_args="$cmd_args --buffer-size=$mmap_log_buffer_size"
+
+		"$utils_path/tfw_logger" $cmd_args || \
 		error "cannot start tfw_logger daemon"
+	fi
 
 	start_time=$(date +%s)
 	while [[ ! -f "$tfw_logger_pid_path" ]]; do
@@ -329,18 +355,19 @@ start_tfw_logger()
 			sysctl -e -w net.tempesta.state=stop
 			unload_modules
 			tfw_irqbalance_revert
-			error "tfw_logger failed to start, see $mmap_log for details"
+			error "tfw_logger failed to start, see logs for details"
 		fi
 
 		sleep 0.1
 	done
-
 }
 
 stop_tfw_logger()
 {
 	if [ -e $tfw_logger_pid_path ]; then
-		"$utils_path/tfw_logger" -s
+		echo "...stopping tfw_logger"
+		"$utils_path/tfw_logger" --stop || \
+			echo "Warning: Failed to stop tfw_logger daemon gracefully"
 	fi
 }
 
