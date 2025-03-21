@@ -34,20 +34,20 @@ Socket API or even DPDK or other kernel bypass technology.
 
 We do our best to keep the kernel modifications as small as possible. Current
 [patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-5.10.35.patch)
-is just about 3,100 lines.
+is just about 3,200 lines.
 
 
 ## Current state
 
-We're in [alpha](https://en.wikipedia.org/wiki/Software_release_life_cycle#Alpha)
-state for now. The alpha is available by:
+We're in [Beta](https://en.wikipedia.org/wiki/Software_release_life_cycle#Beta)
+state for now. The beta is available by:
 
 * [source code](https://tempesta-tech.com/knowledge-base/Install-from-Sources/)
 * [installation script](https://tempesta-tech.com/knowledge-base/Install-from-packages/) (binary packages)
 
 The **master** branch is a development (and unstable) branch for contributers and
 early testers only.
-Use [release-0.7](https://github.com/tempesta-tech/tempesta/tree/release-0.7) branch
+Use [release-0.8](https://github.com/tempesta-tech/tempesta/tree/release-0.8) branch
 for a stable version.
 
 
