@@ -2930,7 +2930,13 @@ tfw_http_conn_release(TfwConn *conn)
 	 */
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		tfw_http_conn_req_clean(req);
+		if (!test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
+			tfw_http_conn_req_clean(req);
+		} else {
+			BUG_ON(TFW_MSG_H2(req));
+			BUG_ON(!list_empty(&req->msg.seq_list));
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		}
 	}
 }
 
