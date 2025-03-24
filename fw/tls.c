@@ -341,9 +341,6 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 	 * The last skb in our list will bring TLS tag - add it to end_seqno.
 	 * Otherwise (in worst case), a new skb was inserted to fit TLS tag
 	 * - fix end_seqno's for @skb_tail and this new skb.
-	 *
-	 * @limit = mss_now - tls_overhead, so {tso,tcp}_fragment() called from
-	 * tcp_write_xmit() should set proper skb->tcp_gso_segs.
 	 */
 	if (likely(skb_tail->next == next)) {
 		TCP_SKB_CB(skb_tail)->end_seq += TTLS_TAG_LEN;
@@ -351,6 +348,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		/* A new frag is added to the end of the current skb. */
 		WARN_ON_ONCE(t_sz > skb_tail->truesize);
 		t_sz = skb_tail->truesize - t_sz;
+
+		tcp_set_skb_tso_segs(skb_tail, mss_now);
 	}
 	else {
 		struct sk_buff *tail_next = skb_tail->next;
