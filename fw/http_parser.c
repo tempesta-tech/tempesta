@@ -9748,6 +9748,13 @@ __FSM_STATE(st, cold) {							\
 				__FSM_H2_HDR_NAME_FIN(6,
 						TFW_TAG_HDR_COOKIE);
 			__FSM_H2_OTHER_n(4);
+		/* Expect */
+		case TFW_CHAR4_INT('e', 'x', 'p', 'e'):
+			if (unlikely(!__data_available(p, 6)))
+				__FSM_H2_NEXT_n(Req_HdrExpe, 4);
+			if (C4_INT(p + 2, 'p', 'e', 'c', 't'))
+				__FSM_H2_HDR_NAME_FIN(6, TFW_TAG_HDR_EXPECT);
+			__FSM_H2_OTHER_n(4);
 		/* forwarded */
 		case TFW_CHAR4_INT('f', 'o', 'r', 'w'):
 			if (unlikely(!__data_available(p, 9)))
@@ -9939,6 +9946,8 @@ __FSM_STATE(st, cold) {							\
 			__FSM_H2_NEXT(Req_HdrA);
 		case 'c':
 			__FSM_H2_NEXT(Req_HdrC);
+		case 'e':
+			__FSM_H2_NEXT(Req_HdrE);
 		case 'f':
 			__FSM_H2_NEXT(Req_HdrF);
 		case 'h':
@@ -10117,6 +10126,12 @@ __FSM_STATE(st, cold) {							\
 	__FSM_H2_TX_AF(Req_HdrContent_T, 'y', Req_HdrContent_Ty);
 	__FSM_H2_TX_AF(Req_HdrContent_Ty, 'p', Req_HdrContent_Typ);
 	__FSM_H2_TX_AF_FIN(Req_HdrContent_Typ, 'e', TFW_TAG_HDR_CONTENT_TYPE);
+
+	__FSM_H2_TX_AF(Req_HdrE, 'x', Req_HdrEx);
+	__FSM_H2_TX_AF(Req_HdrEx, 'p', Req_HdrExp);
+	__FSM_H2_TX_AF(Req_HdrExp, 'e', Req_HdrExpe);
+	__FSM_H2_TX_AF(Req_HdrExpe, 'c', Req_HdrExpec);
+	__FSM_H2_TX_AF_FIN(Req_HdrExpec, 't', TFW_TAG_HDR_EXPECT);
 
 	__FSM_H2_TX_AF(Req_HdrF, 'o', Req_HdrFo);
 	__FSM_H2_TX_AF(Req_HdrFo, 'r', Req_HdrFor);
@@ -10507,6 +10522,10 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	TFW_H2_PARSE_HDR_VAL(Req_HdrContent_TypeV, msg,
 			     __h2_req_parse_content_type,
 			     TFW_HTTP_HDR_CONTENT_TYPE, 0);
+
+	/* Tempesta doesn't support expect header via http2. */
+	case TFW_TAG_HDR_EXPECT:
+	__FSM_H2_DROP(Req_HdrExpectV);
 
 	/*
 	 * 'host' is read, process field-value. Semantically equals to
