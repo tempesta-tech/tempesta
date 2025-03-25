@@ -564,8 +564,8 @@ TEST(http2_parser_hpack, static_table_all_indexes_for_request)
 		HEADER(WO_IND(INDEX(28), VALUE("7")));
 		/* content-type = "text/plain" */
 		HEADER(WO_IND(INDEX(31), VALUE("text/plain")));
-		/* expect = "100-continue" */
-		HEADER(WO_IND(INDEX(35), VALUE("100-continue")));
+		/* refresh = "5; url=https://example.com" */
+		HEADER(WO_IND(INDEX(52), VALUE("5; url=https://example.com")));
 		 /* if-none-match = "\"xyzzy\"" */
 		HEADER(WO_IND(INDEX(41), VALUE("\"xyzzy\"")));
 	    HEADERS_FRAME_END();
@@ -580,7 +580,7 @@ TEST(http2_parser_hpack, static_table_all_indexes_for_request)
 	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 			     "content-type" "text/plain");
 	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_RAW],
-			     "expect" "100-continue");
+			     "refresh" "5; url=https://example.com");
 	    EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH],
 			     "if-none-match" "\"xyzzy\"");
 	}

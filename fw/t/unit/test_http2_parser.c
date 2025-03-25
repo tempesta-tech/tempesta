@@ -3465,6 +3465,53 @@ TEST(http2_parser, ja5h)
 	}
 }
 
+TEST(http2_parser, expect)
+{
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("expect"), VALUE("100-continue")));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2(
+	    HEADERS_FRAME_BEGIN();
+		HEADER(WO_IND(NAME(":method"), VALUE("GET")));
+		HEADER(WO_IND(NAME(":scheme"), VALUE("https")));
+		HEADER(WO_IND(NAME(":path"), VALUE("/")));
+		HEADER(WO_IND(NAME("expect"), VALUE("invalid")));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		/* :method = "GET" */
+		HEADER(INDEX(2));
+		/* :scheme = "https" */
+		HEADER(INDEX(7));
+		/* :path = "/" */
+		HEADER(INDEX(4));
+		/* Expect = "invalid" */
+		HEADER(INC_IND(INDEX(35), VALUE("invalid")));
+	    HEADERS_FRAME_END();
+	);
+
+	EXPECT_BLOCK_REQ_H2_HPACK(
+	    HEADERS_FRAME_BEGIN();
+		/* :method = "GET" */
+		HEADER(INDEX(2));
+		/* :scheme = "https" */
+		HEADER(INDEX(7));
+		/* :path = "/" */
+		HEADER(INDEX(4));
+		/* Expect = "100-continue" */
+		HEADER(INC_IND(INDEX(35), VALUE("100-continue")));
+	    HEADERS_FRAME_END();
+	);
+}
+
 TEST_SUITE_MPART(http2_parser, 0)
 {
 	TEST_RUN(http2_parser, short_name);
@@ -3543,6 +3590,7 @@ TEST_SUITE_MPART(http2_parser, 7)
 TEST_SUITE_MPART(http2_parser, 8)
 {
 	TEST_RUN(http2_parser, ja5h);
+	TEST_RUN(http2_parser, expect);
 }
 
 TEST_SUITE_MPART_DEFINE(http2_parser, H2_SUITE_PART_CNT,
