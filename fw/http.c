@@ -7307,7 +7307,8 @@ cleanup:
 }
 
 /**
- * Calculate the key of an HTTP request by hashing URI and Host header values.
+ * Calculate the key of an HTTP request by hashing URI and vhost name.
+ * If vhost is not yet assigned, fall back to using the Host header.
  */
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
@@ -7320,8 +7321,22 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	if (!TFW_STR_EMPTY(&req->host))
+	/*
+	 * Use vhost name for cache key instead of Host header.
+	 * This ensures proper cache operation when HTTP chains
+	 * redirect requests to different vhosts.
+	 */
+	if (req->vhost && req->vhost->name.len > 0) {
+		/* Create a TfwStr from the BasicStr vhost name */
+		TfwStr vhost_str = {
+			.data = (char *)req->vhost->name.data,
+			.len = req->vhost->name.len
+		};
+		req->hash ^= tfw_hash_str(&vhost_str);
+	} else if (!TFW_STR_EMPTY(&req->host)) {
+		/* Fallback to Host header if vhost not assigned yet */
 		req->hash ^= tfw_hash_str(&req->host);
+	}
 
 	return req->hash;
 }
