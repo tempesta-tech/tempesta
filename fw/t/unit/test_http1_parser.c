@@ -2114,21 +2114,18 @@ TEST(http1_parser, transfer_encoding)
 				"0")
 
 	/*
-	 * Trailer headers
+	 * Trailer headers.
 	 */
-	FOR_REQ("POST / HTTP/1.1\r\n"
-		"Host:\r\n"
-		"Transfer-Encoding: chunked\r\n"
-		"\r\n"
-		"0\n"
-		"Connection: close\r\n"
-		"\r\n")
+	FOR_REQ_SIMPLE("Host:\r\n"
+		       "Transfer-Encoding: chunked\r\n"
+		       "\r\n"
+		       "0\n"
+		       "X-Token: value\r\n"
+		       "If-Modified-Since: Wed, 08 Jan 2003 23:11:55 GMT")
 	{
-		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
-				 "Connection: close");
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_CHUNKED_TRAILER, req->flags));
-		EXPECT_TRUE(req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].flags
+		EXPECT_TRUE(req->h_tbl->tbl[TFW_HTTP_HDR_RAW].flags
+			    & TFW_STR_TRAILER);
+		EXPECT_TRUE(req->h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].flags
 			    & TFW_STR_TRAILER);
 	}
 
@@ -2136,25 +2133,39 @@ TEST(http1_parser, transfer_encoding)
 		 "Transfer-Encoding: chunked\r\n"
 		 "\n"
 		 "0\n"
-		 "Connection: keep-alive\r\n"
+		 "X-Token: value\r\n"
 		 "Pragma: no-cache\r\n"
 		 "Age: 2147483647\r\n"
 		 "\r\n")
 	{
-		EXPECT_TFWSTR_EQ(&resp->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
-				 "Connection: keep-alive");
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_KA, resp->flags));
-		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
-		EXPECT_TRUE(resp->cache_ctl.age == 2147483647);
-
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_CHUNKED_TRAILER, resp->flags));
-		EXPECT_TRUE(resp->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].flags
-			    & TFW_STR_TRAILER);
 		EXPECT_TRUE(resp->h_tbl->tbl[TFW_HTTP_HDR_RAW].flags
 			    & TFW_STR_TRAILER);
 		EXPECT_TRUE(resp->h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].flags
 			    & TFW_STR_TRAILER);
+		EXPECT_TRUE(resp->h_tbl->tbl[TFW_HTTP_HDR_RAW + 2].flags
+			    & TFW_STR_TRAILER);
 	}
+
+
+	/*
+	 * Drop if trailers contain hop-by-hop headers.
+	 */
+	EXPECT_BLOCK_REQ("Host:\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "0\n"
+			 "Connection: close\r\n"
+			 "If-Modified-Since: Wed, 08 Jan 2003 23:11:55 GMT");
+
+
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			  "Transfer-Encoding: chunked\r\n"
+			  "\n"
+			  "0\n"
+			  "Connection: keep-alive\r\n"
+			  "Pragma: no-cache\r\n"
+			  "Age: 2147483647\r\n"
+			  "\r\n");
 
 	/*
 	 * RFC 7230 4.1.2:
@@ -4863,6 +4874,29 @@ TEST(http1_parser, ja5h)
 	}
 }
 
+TEST(http1_parser, expect)
+{
+	FOR_REQ_SIMPLE("Expect: 100-continue")
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_EXPECT];
+
+		EXPECT_GT(h->len, 0);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags));
+	}
+
+	/* Expect with whitespaces. */
+	FOR_REQ_SIMPLE("Expect:     100-continue    ")
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_EXPECT];
+
+		EXPECT_GT(h->len, 0);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_EXPECT_CONTINUE, req->flags));
+	}
+
+	EXPECT_BLOCK_REQ_SIMPLE("Expect: 10-continue");
+	EXPECT_BLOCK_REQ_SIMPLE("Expect: 100-continue1");
+}
+
 TEST_SUITE_MPART(http1_parser, 0)
 {
 	int r;
@@ -4936,6 +4970,7 @@ TEST_SUITE_MPART(http1_parser, 2)
 TEST_SUITE_MPART(http1_parser, 3)
 {
 	TEST_RUN(http1_parser, ja5h);
+	TEST_RUN(http1_parser, expect);
 }
 
 TEST_SUITE_MPART_DEFINE(http1_parser, H1_SUITE_PART_CNT,

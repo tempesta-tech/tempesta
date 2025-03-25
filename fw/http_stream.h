@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@ enum {
 };
 
 /*
- * We use 3 bits for this state in TfwHttpXmit structure.
+ * We use 4 bits for this state in TfwHttpXmit structure.
  * If you add some new state here, do not forget to increase
  * count of bits used for this state.
  */
@@ -63,6 +63,8 @@ typedef enum {
 	HTTP2_MAKE_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
 	HTTP2_MAKE_DATA_FRAMES,
+	HTTP2_MAKE_TRAILER_FRAMES,
+	HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES,
 	HTTP2_SEND_FRAMES,
 	HTTP2_MAKE_FRAMES_FINISH,
 } TfwStreamXmitState;
@@ -119,6 +121,7 @@ typedef enum {
  * @postponed		- head of skb list that must be sent
  *			  after sending headers for this stream;
  * @h_len		- length of headers in http2 response;
+ * @t_len		- length of trailer headers in http2 response;
  * @frame_length	- length of current sending frame, or 0
  *			  if we send some service frames (for
  *			  example RST STREAM after all pending data);
@@ -126,6 +129,7 @@ typedef enum {
  * @is_blocked		- stream is blocked;
  * @state		- current stream xmit state (what type of
  * 			  frame should be made for this stream);
+ * @is_trailer_cont	- need to send trailer CONTINUATION frames;
  */
 typedef struct {
 	TfwHttpResp 		*resp;
@@ -133,9 +137,10 @@ typedef struct {
 	struct sk_buff		*postponed;
 	unsigned int		h_len;
 	unsigned int		frame_length;
-	u64			b_len : 60;
+	u64			b_len : 59;
 	u64			is_blocked : 1;
-	u64			state : 3;
+	u64			state : 4;
+	unsigned int		t_len;
 } TfwHttpXmit;
 
 /**
@@ -212,8 +217,6 @@ int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
-TfwStreamFsmRes tfw_h2_stream_send_process(TfwH2Ctx *ctx, TfwStream *stream,
-					   unsigned char type);
 void tfw_h2_stream_purge_send_queue(TfwStream *stream);
 void tfw_h2_stream_purge_all_and_free_response(TfwStream *stream);
 

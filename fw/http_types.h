@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -121,6 +121,11 @@ enum {
 	 */
 	TFW_HTTP_B_REQ_HEAD_TO_GET,
 
+	/* Request contains `Expect: 100-continue`. */
+	TFW_HTTP_B_EXPECT_CONTINUE,
+	/* 100-continue response has been queued. */
+	TFW_HTTP_B_CONTINUE_QUEUED,
+
         /* Response flags */
         TFW_HTTP_FLAGS_RESP,
         /* Response has no body. */
@@ -146,6 +151,9 @@ enum {
          * will be closed after sending it.
          */
         TFW_HTTP_B_CLOSE_ERROR_RESPONSE,
+
+	/* This is 100-continue response. */
+	TFW_HTTP_B_CONTINUE_RESP,
 
         _TFW_HTTP_FLAGS_NUM
 };
