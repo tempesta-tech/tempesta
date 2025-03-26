@@ -669,7 +669,14 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
+		/*
+		 * Set this flag to prevent calling `tcp_done` from
+		 * `tcp_send_fin` if error occurs to prevent double
+		 * free.
+		 */
+		sock_set_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
 		tcp_send_fin(sk);
+		sock_reset_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
 	}
 
 adjudge_to_death:
@@ -1496,7 +1503,14 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
+	/*
+	 * Set this flag to prevent calling `tcp_done` from
+	 * `tcp_send_fin` if error occurs to prevent double
+	 * free.
+	 */
+	sock_set_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
 	tcp_shutdown(sk, SEND_SHUTDOWN);
+	sock_reset_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
 	if (unlikely(sk->sk_state == TCP_CLOSE))
 		ss_linkerror(sk, 0);
 	else
@@ -1542,7 +1556,7 @@ ss_tx_action(void)
 			if (sk->sk_user_data
 			    && (SS_CONN_TYPE(sk) & Conn_Closing)
 			    && ss_is_closed_force(&sw))
-				ss_conn_drop_guard_exit(sk);
+				ss_linkerror(sk, SS_F_ABORT);
 			/* We've closed the socket on earlier job. */
 			bh_unlock_sock(sk);
 			goto dead_sock;
