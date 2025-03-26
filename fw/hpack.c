@@ -3521,6 +3521,18 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	return tfw_hpack_str_expand(mit, iter, skb_head, &s_val, NULL);
 }
 
+static inline int
+__tfw_hpack_check_and_split_hdr(TfwStr *__restrict hdr, TfwStr *h_name,
+				TfwStr *h_val, bool trans)
+{
+	if (unlikely(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)
+		     || !tfw_http_hdr_split(hdr, h_name, h_val, trans)
+		     || TFW_STR_EMPTY(h_name)))
+		return -EINVAL;
+
+	return 0;
+}
+
 /**
  * Perform encoding of the header @hdr into the HTTP/2 HPACK format.
  *
@@ -3549,14 +3561,6 @@ __tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	bool name_indexed = true;
 	TfwStr h_name = {}, h_val = {};
 
-#define __HDR_SPLIT(hdr)						\
-do {									\
-	if (unlikely(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)		\
-		     || !tfw_http_hdr_split(hdr, &h_name, &h_val, trans) \
-		     || TFW_STR_EMPTY(&h_name)))			\
-			return -EINVAL;					\
-} while(0)
-
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
 
@@ -3568,15 +3572,15 @@ do {									\
 	T_DBG_PRINT_HPACK_RBTREE(tbl);
 
 	if (!st_full_index && dyn_indexing) {
-		__HDR_SPLIT(hdr);
+		r = __tfw_hpack_check_and_split_hdr(hdr, &h_name, &h_val,
+						    trans);
+		if (unlikely(r))
+			return r;
+
 		assert_spin_locked(&conn->sk->sk_lock.slock);
 		r = tfw_hpack_encoder_index(tbl, &h_name, &h_val,
 					    &index, resp->flags);
-		if (r < 0)
-			return r;
 	}
-
-	if (TFW_STR_PLAIN(hdr))
 
 	if (st_full_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_FOUND) {
 		/*
@@ -3626,8 +3630,12 @@ do {									\
 
 encode:
 	if (use_pool) {
-		if (!dyn_indexing)
-			__HDR_SPLIT(hdr);
+		if (!dyn_indexing) {
+			r = __tfw_hpack_check_and_split_hdr(hdr, &h_name,
+							    &h_val, trans);
+			if (unlikely(r < 0))
+				return r;
+		}
 		r = tfw_hpack_hdr_add(resp, &h_name, &h_val, &idx,
 				      name_indexed, trans);
 	} else {
@@ -3635,8 +3643,6 @@ encode:
 	}
 
 	return r;
-
-#undef __HDR_SPLIT
 }
 
 int
