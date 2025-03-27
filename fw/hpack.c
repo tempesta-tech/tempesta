@@ -100,7 +100,7 @@ static const TfwHPackEntry static_table[] ____cacheline_aligned = {
 	HP_ENTRY_NAME("cookie",			TFW_TAG_HDR_COOKIE),
 	HP_ENTRY_NAME("date",			TFW_TAG_HDR_RAW),
 	HP_ENTRY_NAME("etag",			TFW_TAG_HDR_ETAG),
-	HP_ENTRY_NAME("expect",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("expect",			TFW_TAG_HDR_EXPECT),
 	HP_ENTRY_NAME("expires",		TFW_TAG_HDR_RAW),
 	HP_ENTRY_NAME("from",			TFW_TAG_HDR_RAW),
 	HP_ENTRY_NAME("host",			TFW_TAG_HDR_HOST),
@@ -981,6 +981,7 @@ tfw_hpack_entry_tag_valid(TfwHPackTag entry_tag)
 	case TFW_TAG_HDR_CONTENT_ENCODING:
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 	case TFW_TAG_HDR_CONTENT_TYPE:
+	case TFW_TAG_HDR_EXPECT:
 	case TFW_TAG_HDR_COOKIE:
 	case TFW_TAG_HDR_FORWARDED:
 	case TFW_TAG_HDR_HOST:
@@ -1322,6 +1323,9 @@ done:
 		if ((r = h2_set_hdr_content_type(req, &entry->cstate)))
 			return r;
 		break;
+	case TFW_TAG_HDR_EXPECT:
+		parser->_hdr_tag = TFW_HTTP_HDR_EXPECT;
+		break;
 	case TFW_TAG_HDR_COOKIE:
 		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
 		h2_set_hdr_cookie(req, &entry->cstate);
@@ -1419,6 +1423,7 @@ process_h2_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, int tag)
 	case TFW_TAG_HDR_CONTENT_ENCODING:
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 	case TFW_TAG_HDR_CONTENT_TYPE:
+	case TFW_TAG_HDR_EXPECT:
 	case TFW_TAG_HDR_COOKIE:
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 	case TFW_TAG_HDR_HOST:
