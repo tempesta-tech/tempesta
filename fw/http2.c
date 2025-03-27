@@ -504,15 +504,6 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
-		/*
-		 * 'Server' header must be replaced; thus, remove the original
-		 * header (and all its duplicates) skipping it here; the new
-		 * header will be written later, during new headers' addition
-		 * stage.
-		 */
-		if (hid == TFW_HTTP_HDR_SERVER)
-			continue;
-
 		r = tfw_hpack_transform(resp, tgt);
 		if (unlikely(r))
 			return r;
