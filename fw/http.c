@@ -3716,7 +3716,9 @@ tfw_h1_req_copy_hdrs(TfwHttpReq *req, const TfwHdrMods *h_mods)
 
 		/* Skip hop-by-hop headers. */
 		if (TFW_STR_EMPTY(hdr) || hdr->flags & TFW_STR_HBH_HDR
-		    || hid == TFW_HTTP_HDR_X_FORWARDED_FOR)
+		    || hid == TFW_HTTP_HDR_X_FORWARDED_FOR
+		    || hid == TFW_HTTP_HDR_EXPECT
+		    || hdr->flags & TFW_STR_TRAILER_HDR)
 		{
 			continue;
 		}
@@ -4541,7 +4543,8 @@ tfw_h1_resp_copy_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		TfwStr *dup, *dup_end, *hdr = pos;
 
 		/* Skip hop-by-hop headers. */
-		if (TFW_STR_EMPTY(hdr) || hdr->flags & TFW_STR_HBH_HDR)
+		if (TFW_STR_EMPTY(hdr) || hdr->flags & TFW_STR_HBH_HDR
+		    || hdr->flags & TFW_STR_TRAILER_HDR)
 			continue;
 
 		if (TFW_STR_DUP(hdr))
