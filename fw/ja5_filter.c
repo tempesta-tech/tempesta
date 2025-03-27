@@ -120,21 +120,21 @@ get_fingerprint_rates(Storage *storage, u64 fingerprint)
 
 	/* Try to remove DB_RECS_TO_FREE_CNT records from DB if it's full */
 	while (!(rec = tdb_rec_get_alloc(storage->tdb, key, &get_alloc_ctx))) {
-		struct list_head *pos, *tmp, tail_to_delete;
+		struct list_head *pos, *tmp, head_to_delete;
 		u32 cnt = DB_RECS_TO_FREE_CNT;
 
-		INIT_LIST_HEAD(&tail_to_delete);
+		INIT_LIST_HEAD(&head_to_delete);
 
 		/* Cut off DB_RECS_TO_FREE_CNT entries from the LRU list */
 		spin_lock(&storage->lru_list_lock);
-		list_for_each_prev_safe(pos, tmp, &storage->lru_list) {
-			list_move(pos, &tail_to_delete);
+		list_for_each_safe(pos, tmp, &storage->lru_list) {
+			list_move(pos, &head_to_delete);
 			if (!--cnt)
 				break;
 		}
 		spin_unlock(&storage->lru_list_lock);
 
-		list_for_each_safe(pos, tmp, &tail_to_delete) {
+		list_for_each_safe(pos, tmp, &head_to_delete) {
 			u64 key = ((TdbRec *)pos - 1)->key;
 			/* TODO: remove directly by record bypassing search by key */
 			tdb_entry_remove(storage->tdb, key, NULL, NULL, true);
@@ -150,9 +150,13 @@ get_fingerprint_rates(Storage *storage, u64 fingerprint)
 	rates = (Rates *)rec->data;
 
 	spin_lock(&storage->lru_list_lock);
-	/* The record still was not added to the LRU list */
-	if (list_empty(&rates->list_node))
+	if (list_empty(&rates->list_node)) {
+		/* Entry is new or was somehow removed from list, add it to tail (MRU) */
 		list_add_tail(&rates->list_node, &storage->lru_list);
+	} else {
+		/* Entry already exists and is in the list, move it to tail (MRU) */
+		list_move_tail(&rates->list_node, &storage->lru_list);
+	}
 	spin_unlock(&storage->lru_list_lock);
 
 	return rates;
