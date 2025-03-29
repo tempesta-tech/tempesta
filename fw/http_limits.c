@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -724,13 +724,22 @@ static int
 frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
-	unsigned short port;
+	unsigned short host_port;
+	unsigned short uri_port;
 	unsigned short real_port;
 	TfwStr authority, host;
 	TfwStr prim_trim = { 0 }, prim_name = { 0 }; /* primary source */
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
+
+	if (TFW_CONN_TLS(req->conn)) {
+		host_port = req->host_port ? : 443;
+		uri_port = req->uri_port ? : 443;
+	} else {
+		host_port = req->host_port ? : 80;
+		uri_port = req->uri_port ? : 80;
+	}
 
 	switch (req->version) {
 	case TFW_HTTP_VER_20:
@@ -754,16 +763,28 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
                 }
                 break;
 	case TFW_HTTP_VER_11:
-		/* This is pure HTTP/1.1 check, that would never trigger for
+		/*
+		 * This is pure HTTP/1.1 check, that would never trigger for
 		 * HTTP/2 because it cannot have an absolute URI.
-		 * Also this MUST be removed after #1870 is complete*/
+		 */
 		if (test_bit(TFW_HTTP_B_ABSOLUTE_URI, req->flags)) {
 			TfwStr host;
 
 			tfw_http_msg_clnthdr_val(req,
 						&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 						TFW_HTTP_HDR_HOST, &host);
-			if (tfw_strcmp(&req->host, &host) != 0) {
+
+			/* Check that ports are the same. */
+			if (unlikely(uri_port != host_port)) {
+				frang_msg_lock(&ra->lock, "port from host header doesn't"
+					       " match port from uri",
+					       &FRANG_ACC2CLI(ra)->addr,
+					       ": %u (%u)\n", host_port,
+					       uri_port);
+				return T_BLOCK;
+			}
+
+			if (tfw_stricmpspn(&req->host, &host, ':') != 0) {
 				frang_msg_lock(&ra->lock, "Request host from"
 					       " absolute URI differs from Host"
 					       " header",
@@ -801,20 +822,16 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			       "\n");
 		return T_BLOCK;
 	}
-	/* Check that SNI for TLS connection matches host header. */
-	if (TFW_CONN_TLS(req->conn))
-		port = req->host_port ? : 443;
-	else
-		port = req->host_port ? : 80;
+
 	/*
 	 * TfwClient instance can be reused across multiple connections,
 	 * check the port number of the current connection, not the first one.
 	 */
 	real_port = be16_to_cpu(inet_sk(req->conn->sk)->inet_sport);
-	if (unlikely(port != real_port)) {
+	if (unlikely(host_port != real_port)) {
 		frang_msg_lock(&ra->lock, "port from host header doesn't"
 			       " match real port", &FRANG_ACC2CLI(ra)->addr,
-			       ": %d (%d)\n", port, real_port);
+			       ": %u (%u)\n", host_port, real_port);
 		return T_BLOCK;
 	}
 

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,9 @@
 #include "msg.h"
 #include "server.h"
 #include "tls.h"
+
+/* Size of special headers bitmap. */
+#define TFW_MOD_SPEC_HDR_NUM 32
 
 /**
  * Non-Idempotent Request definition.
@@ -84,10 +87,10 @@ typedef struct {
 /**
  * Headers modification description.
  *
- * @hdr		- Header string, see @tfw_http_msg_hdr_xfrm_str();
+ * @hdr		- Header string, see @tfw_http_msg_make_hdr();
  * @hid		- Header index in the header table;
- * @append	- if set the value is added to the end of an existing header,
- *		  otherwise the original value is overwritten with given one.
+ * @append	- if set the value is added to the end of the response
+ *		  otherwise the original header is overwritten with given one.
  */
 struct tfw_hdr_mods_desc_t {
 	TfwStr		*hdr;
@@ -95,22 +98,46 @@ struct tfw_hdr_mods_desc_t {
 	bool		append;
 };
 
+/*
+ * Layout of headers list in tfw_hdr_mods_t::hdrs. It allows to iterate over
+ * "Non-indexed raw headers *hdr_set". See @tfw_http_hdr_skip().
+ *
+ *     .----------------------------------------.
+ *     | Special headers *hdr_set               |
+ *     :----------------------------------------:
+ *     | Hpack indexed raw headers *hdr_set     |
+ *     :----------------------------------------:
+ *     | Non-indexed raw headers *hdr_set       |
+ *     :----------------------------------------:
+ *     | All headers *hdr_add                   |
+ *     '----------------------------------------'
+ *
+ */
+
 /**
+ *
  * Headers modification before forwarding HTTP message.
  *
  * @sz		- Total number of headers to modify;
- * @spec_num	- Number of special headers to modify;
+ * @set_num	- Number of headers to modify using req/resp_hdr_set directive;
+ * @scan_off	- Offset in @hdrs to start finding header to modify by name
+ * 		  comparision;
+ * @host_off	- Offset of the Host header in @hdrs.
  * @hdrs	- Headers to modify;
- * @spec_hdrs	- Lookup table of special headers;
+ * @spec_hdrs	- Bitmap of special headers;
  * @s_tbl	- Bitmap of headers from static table. Static table index
- * 		  equals to bit number of the bitmap;
+ * 		  equals to bit number of the bitmap. The size of the bitmap is
+ * 		  HPACK_STATIC_ENTRIES plus one entry, because static table
+ * 		  indexed from one, zero bit always set to zero;
  */
 struct tfw_hdr_mods_t {
-	unsigned int	sz;
-	unsigned int	spec_num;
+	unsigned int	sz:8;
+	unsigned int	set_num:8;
+	unsigned int	scan_off:8;
+	unsigned int	host_off:8;
 	TfwHdrModsDesc	*hdrs;
-	TfwHdrModsDesc	**spec_hdrs;
-	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES);
+	DECLARE_BITMAP	(spec_hdrs, TFW_MOD_SPEC_HDR_NUM);
+	DECLARE_BITMAP	(s_tbl, HPACK_STATIC_ENTRIES + 1);
 };
 
 enum {
