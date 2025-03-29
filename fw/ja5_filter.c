@@ -150,9 +150,13 @@ get_fingerprint_rates(Storage *storage, u64 fingerprint)
 	rates = (Rates *)rec->data;
 
 	spin_lock(&storage->lru_list_lock);
-	/* The record still was not added to the LRU list */
-	if (list_empty(&rates->list_node))
+	if (list_empty(&rates->list_node)) {
+		/* Entry is new or was somehow removed from list, add it to tail (MRU) */
 		list_add_tail(&rates->list_node, &storage->lru_list);
+	} else {
+		/* Entry already exists and is in the list, move it to tail (MRU) */
+		list_move_tail(&rates->list_node, &storage->lru_list);
+	}
 	spin_unlock(&storage->lru_list_lock);
 
 	return rates;
