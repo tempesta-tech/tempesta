@@ -1626,40 +1626,6 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 }
 
 /*
- * Move linear data to paged fragment before inserting data into skb.
- * We must do it, because we want to insert new data "before" linear.
- * For instance: We want to insert headers. Linear data contains part
- * of the body, if we insert headers without moving linear part,
- * headers will be inserted after the body or between the body chunks.
- */
-int
-tfw_http_msg_linear_transform(TfwMsgIter *it)
-{
-	/*
-	 * There is no sense to move linear part if next skb has linear
-	 * part as well and current skb has max frags.
-	 */
-	if (skb_shinfo(it->skb)->nr_frags == MAX_SKB_FRAGS
-	    && skb_headlen(it->skb->next))
-	{
-		struct sk_buff *nskb = ss_skb_alloc(0);
-
-		if (!nskb)
-			return -ENOMEM;
-
-		skb_shinfo(nskb)->tx_flags = skb_shinfo(it->skb)->tx_flags;
-		ss_skb_insert_before(&it->skb_head, it->skb, nskb);
-		it->skb = nskb;
-		it->frag = -1;
-
-		return 0;
-	} else {
-		return ss_skb_linear_transform(it->skb_head, it->skb,
-					       it->skb->data);
-	}
-}
-
-/*
  * Expand message by @str increasing size of current paged fragment or add
  * new paged fragment using @pool if room in current pool's chunk is not enough.
  * This function is called only for adding new response headers. If skb lenght
@@ -1678,11 +1644,6 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 	TfwPool* pool = resp->pool;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
-
-	if (skb_headlen(it->skb)) {
-		if (unlikely((r = tfw_http_msg_linear_transform(it))))
-			return r;
-	}
 
 	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 		rlen = c->len;
@@ -1841,7 +1802,6 @@ tfw_h2_msg_cutoff_headers(TfwHttpResp *resp, TfwHttpRespCleanup* cleanup)
 			end = begin + skb_headlen(it->skb);
 
 			if (ss_skb_is_within_fragment(begin, off, end)) {
-				it->frag = -1;
 				/* We would end up here if the start of the body or
 				 * the end of CRLF lies within the linear data area
 				 * of the current @it->skb
