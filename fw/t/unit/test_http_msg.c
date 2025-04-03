@@ -130,18 +130,21 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 }
 
 /*
- * Tests correctness of using SKBs with linear data during allocating memory
- * using @tfw_http_msg_expand_from_pool().
+ * Tests to chdeck that skb has no linear data after
+ * call `tfw_h2_msg_cutoff_headers`
  */
-TEST(http_msg, expand_from_pool)
+TEST(http_msg, cutoff_linear_headers_paged_body)
 {
 	static TfwStr frags[] = {
 		TFW_STR_STRING("headers"),
-		TFW_STR_STRING("linear_body"),
 		TFW_STR_STRING("paged_body")
 	};
-	TfwStr *hdr = &frags[0], *head = &frags[1], *pgd = &frags[2];
+	static TfwStr expected_frags[] = {
+		TFW_STR_STRING("paged_body")
+	};
+	TfwStr *head = &frags[0], *pgd = &frags[1];
 	TfwHttpResp *resp = __test_resp_alloc(head, pgd, 1);
+	TfwHttpRespCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
@@ -150,80 +153,68 @@ TEST(http_msg, expand_from_pool)
 		return;
 
 	it = &resp->mit.iter;
+	resp->body.data = skb_frag_address(&skb_shinfo(it->skb)->frags[0]);
 
-	EXPECT_FALSE(it->skb->data_len == head->len + hdr->len + pgd->len);
-	tfw_http_msg_expand_from_pool(resp, hdr);
+	EXPECT_EQ(tfw_h2_msg_cutoff_headers(resp, &cleanup), 0);
+
 	/* Linear part MUST be moved to paged fragments */
 	EXPECT_TRUE(!skb_headlen(it->skb));
+	EXPECT_NULL(cleanup.skb_head);
 
-	for (i = 0; i < ARRAY_SIZE(frags); i++) {
+	for (i = 0; i < ARRAY_SIZE(expected_frags); i++) {
 		skb_frag_t *frag = &skb_shinfo(it->skb)->frags[i];
 		char* addr = skb_frag_address(frag);
 		unsigned int fragsz = skb_frag_size(frag);
 
-		EXPECT_ZERO(memcmp(addr, frags[i].data, fragsz));
+		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
+
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
-/*
- * Tests correctness of using SKBs with linear data and maximum fragments
- * during allocating memory using @tfw_http_msg_expand_from_pool().
- */
-TEST(http_msg, expand_from_pool_max_frags)
+TEST(http_msg, cutoff_linear_headers_and_linear_body)
 {
-	TfwStr head = TFW_STR_STRING("linear_body");
-	TfwStr pgd = TFW_STR_STRING("paged_body");
-	TfwStr hdr = TFW_STR_STRING("headers");
-	TfwHttpResp *resp = __test_resp_alloc(&head, &pgd, MAX_SKB_FRAGS);
-	unsigned int skbsz = head.len + hdr.len + (pgd.len + MAX_SKB_FRAGS);
-	struct sk_buff *skb, *next;
+	static TfwStr frags[] = {
+		TFW_STR_STRING("headerspaged_body1"),
+		TFW_STR_STRING("paged_body2")
+	};
+	static TfwStr expected_frags[] = {
+		TFW_STR_STRING("paged_body1"),
+		TFW_STR_STRING("paged_body2")
+	};
+	TfwStr *head = &frags[0], *pgd = &frags[1];
+	TfwHttpResp *resp = __test_resp_alloc(head, pgd, 1);
+	TfwHttpRespCleanup cleanup = {};
 	TfwMsgIter *it;
-
-#define EXPECT_FRAGS_EQ_STR(skb, data)					\
-do {									\
-	int i;								\
-									\
-	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)	{		\
-		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];		\
-		char* addr = skb_frag_address(frag);			\
-		unsigned int fragsz = skb_frag_size(frag);		\
-									\
-		EXPECT_ZERO(memcmp(addr, data, fragsz));		\
-	}								\
-} while (0)
+	int i;
 
 	EXPECT_NOT_NULL(resp);
 	if (!resp)
 		return;
 
 	it = &resp->mit.iter;
+	resp->body.data = it->skb->data + SLEN("headers");
 
-	EXPECT_FALSE(it->skb->data_len == skbsz);
-	tfw_http_msg_expand_from_pool(resp, &hdr);
-	skb = it->skb;
-	next = it->skb->next;
+	EXPECT_EQ(tfw_h2_msg_cutoff_headers(resp, &cleanup), 0);
 
-	/* Expected new skb without linear data. */
-	EXPECT_TRUE(!skb_headlen(skb));
+	/* Linear part MUST be moved to paged fragments */
+	EXPECT_TRUE(!skb_headlen(it->skb));
+	EXPECT_NULL(cleanup.skb_head);
 
-	/* Current SKB must contain only one frag with "headers" */
-	EXPECT_FRAGS_EQ_STR(skb, hdr.data);
+	for (i = 0; i < ARRAY_SIZE(expected_frags); i++) {
+		skb_frag_t *frag = &skb_shinfo(it->skb)->frags[i];
+		char* addr = skb_frag_address(frag);
+		unsigned int fragsz = skb_frag_size(frag);
 
-	/*
-	 * Next SKB must contain "linear_body" in linear data
-	 * and "paged_body" in each paged fragment.
-	 */
-	EXPECT_ZERO(memcmp(next->data, head.data, skb_headlen(next)));
-	EXPECT_FRAGS_EQ_STR(next, pgd.data);
+		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
+	}
+
 	tfw_http_msg_free((TfwHttpMsg *)resp);
-
-#undef EXPECT_FRAGS_EQ_STR
 }
 
 TEST_SUITE(http_msg)
 {
 	TEST_RUN(http_msg, hdr_in_array);
-	TEST_RUN(http_msg, expand_from_pool);
-	TEST_RUN(http_msg, expand_from_pool_max_frags);
+	TEST_RUN(http_msg, cutoff_linear_headers_paged_body);
+	TEST_RUN(http_msg, cutoff_linear_headers_and_linear_body);
 }
