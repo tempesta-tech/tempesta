@@ -1172,14 +1172,16 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
 
 /*
  * Move body to @nskb if body located in current skb.
+ * Return -errno in case of error, 0 if body was not
+ * moved and 1 if body was moved.
  */
 static inline int
-__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
+__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 {
 	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **body;
-	int r, frag;
 	char *p;
+	int r;
 
 	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
 		p = resp->body_start_data;
@@ -1192,15 +1194,15 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 	if (*body != it->skb)
 		return 0;
 
-	if ((r = ss_skb_find_frag_by_offset(*body, p, &frag)))
+	if ((r = ss_skb_find_frag_by_offset(*body, p, frag)))
 		return r;
 
 	/* Move body to the next skb. */
-	ss_skb_move_frags(it->skb, nskb, frag,
-			  skb_shinfo(it->skb)->nr_frags - frag);
+	ss_skb_move_frags(it->skb, nskb, *frag,
+			  skb_shinfo(it->skb)->nr_frags - *frag);
 	*body = nskb;
 
-	return 0;
+	return 1;
 }
 
 /*
@@ -1215,12 +1217,12 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				unsigned int *copied,
 				void cpy(void *dest, const void *src, size_t n))
 {
-	int r;
-	void *addr;
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
 	TfwMsgIter *it = &hm->iter;
 	TfwPool* pool = hm->pool;
+	void *addr;
+	int r;
 
 	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
@@ -1246,32 +1248,36 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
 				TfwHttpResp *resp = (TfwHttpResp *)hm;
+				bool body_was_moved = false;
+				int frag;
 
 				if (!nskb)
 					return -ENOMEM;
 
 				if (hm->body.len > 0) {
-					r = __tfw_http_msg_move_body(resp,
-								     nskb);
-					if (unlikely(r)) {
+					r = __tfw_http_msg_move_body(resp, nskb,
+								     &frag);
+					if (unlikely(r < 0)) {
 						T_WARN("Error during moving body");
 						return r;
 					}
+					body_was_moved = !!r;
 				}
 
 				skb_shinfo(nskb)->tx_flags =
 					skb_shinfo(it->skb)->tx_flags;
 				ss_skb_insert_after(it->skb, nskb);
 				/*
-				 * If body is located in the zero fragment and
-				 * takes all SS_SKB_MAX_DATA_LEN bytes, we move
-				 * it to the next skb and continue use current
-				 * skb.
+				 * If body was moved to the new allocated skb
+				 * we should use current skb.
 				 */
-				if (likely(nskb->len < SS_SKB_MAX_DATA_LEN))
+				if (likely(!body_was_moved)) {
 					it->skb = nskb;
+					it->frag = -1;
+				} else {
+					it->frag = frag - 1;
+				}
 
-				it->frag = -1;
 				skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			}
 

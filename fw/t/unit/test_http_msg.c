@@ -212,9 +212,69 @@ TEST(http_msg, cutoff_linear_headers_and_linear_body)
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
+TEST(http_msg, expand_from_pool_for_headers)
+{
+	static TfwStr frags[] = {
+		TFW_STR_STRING("headers"),
+		TFW_STR_STRING("paged_body")
+	};
+	TfwStr *hdr = &frags[0], *head = &frags[0], *pgd = &frags[1];
+	TfwHttpResp *resp = __test_resp_alloc(head, pgd, MAX_SKB_FRAGS - 1);
+	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
+	TfwHttpMsgCleanup cleanup = {};
+	TfwMsgIter *it;
+	int i;
+
+	EXPECT_NOT_NULL(resp);
+	if (!resp)
+		return;
+
+	it = &resp->iter;
+	set_bit(TFW_HTTP_B_CHUNKED, resp->flags);
+	resp->body.data = skb_frag_address(&skb_shinfo(it->skb)->frags[0]);
+	resp->body_start_data = skb_frag_address(&skb_shinfo(it->skb)->frags[0]);
+	resp->body_start_skb = it->skb;
+	resp->body.len = (MAX_SKB_FRAGS - 1) * SLEN("paged_body");
+
+	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+
+	EXPECT_EQ(tfw_http_msg_cutoff_headers(msg, &cleanup), 0);
+
+	/* Linear part MUST be moved to paged fragments */
+	EXPECT_TRUE(!skb_headlen(it->skb));
+	EXPECT_NULL(cleanup.skb_head);
+
+	EXPECT_EQ(tfw_http_msg_expand_from_pool(msg, hdr), 0);
+	EXPECT_EQ(tfw_http_msg_expand_from_pool(msg, hdr), 0);
+	EXPECT_EQ(tfw_http_msg_expand_from_pool(msg, hdr), 0);
+	EXPECT_EQ(tfw_http_msg_expand_from_pool(msg, hdr), 0);
+
+	EXPECT_TRUE(resp->msg.skb_head != resp->msg.skb_head->next);
+	EXPECT_TRUE(resp->msg.skb_head->next->next == resp->msg.skb_head);
+
+	{
+		skb_frag_t *frag = &skb_shinfo(resp->msg.skb_head)->frags[0];
+		char* addr = skb_frag_address(frag);
+		unsigned int fragsz = skb_frag_size(frag);
+
+		EXPECT_ZERO(memcmp(addr, "headersheadersheadersheaders", fragsz));
+	}
+
+	for (i = 0; i < MAX_SKB_FRAGS - 1; i++) {
+		skb_frag_t *frag = &skb_shinfo(resp->msg.skb_head->next)->frags[i];
+		char* addr = skb_frag_address(frag);
+		unsigned int fragsz = skb_frag_size(frag);
+
+		EXPECT_ZERO(memcmp(addr, pgd->data, fragsz));
+	}
+
+	tfw_http_msg_free((TfwHttpMsg *)resp);
+}
+
 TEST_SUITE(http_msg)
 {
 	TEST_RUN(http_msg, hdr_in_array);
 	TEST_RUN(http_msg, cutoff_linear_headers_paged_body);
 	TEST_RUN(http_msg, cutoff_linear_headers_and_linear_body);
+	TEST_RUN(http_msg, expand_from_pool_for_headers);
 }
