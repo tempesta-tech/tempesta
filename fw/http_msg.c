@@ -1254,7 +1254,15 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				if (!nskb)
 					return -ENOMEM;
 
-				if (hm->body.len > 0) {
+				/*
+				 * TODO #2136: Remove this flag during reworking
+				 * this function. Try to process headers and
+				 * trailers without moving body.
+				 */
+				if (hm->body.len > 0
+			            && !test_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS,
+						 resp->flags))
+				{
 					r = __tfw_http_msg_move_body(resp, nskb,
 								     &frag);
 					if (unlikely(r < 0)) {
