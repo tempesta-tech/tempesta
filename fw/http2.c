@@ -486,7 +486,13 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 	TfwHttpHdrMap *map = resp->mit.map;
 	TfwHttpHdrTbl *ht = resp->h_tbl;
 	unsigned int i;
-	int r;
+	int r = 0;
+
+	/*
+	 * TODO #2136: Remove this flag during reworking
+	 * `tfw_http_msg_expand_from_pool` function. 
+	 */
+	__set_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags);
 
 	for (i = map->trailer_idx; i < map->count; ++i) {
 		unsigned short hid = map->index[i].idx;
@@ -499,17 +505,22 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 		if (WARN_ON_ONCE(!tgt
 				 || TFW_STR_EMPTY(tgt)
 				 || TFW_STR_DUP(tgt)))
-			return -EINVAL;
+		{
+			r = -EINVAL;
+			goto finish;
+		}
 
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
 		r = tfw_hpack_transform(resp, tgt);
 		if (unlikely(r))
-			return r;
+			goto finish;
 	}
 
-	return 0;
+finish:
+	clear_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags);
+	return r;
 }
 
 int

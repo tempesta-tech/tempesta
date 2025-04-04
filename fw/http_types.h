@@ -151,6 +151,9 @@ enum {
 	/* This is 100-continue response. */
 	TFW_HTTP_B_CONTINUE_RESP,
 
+        /* This response is during trailers encoding. */
+        TFW_HTTP_B_RESP_ENCODE_TRAILERS,
+
         _TFW_HTTP_FLAGS_NUM
 };
 
