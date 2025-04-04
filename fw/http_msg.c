@@ -1611,6 +1611,8 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb)
 		body = &resp->body.skb;
 	}
 
+	printk(KERN_ALERT "__tfw_http_msg_move_body %px %px", *body, it->skb);
+
 	if (*body != it->skb)
 		return 0;
 
@@ -1663,6 +1665,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
+			printk(KERN_ALERT "__tfw_http_msg_expand_from_pool %u %u %d", skb_room, nr_frags, nr_frags == MAX_SKB_FRAGS);
+
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
@@ -1670,7 +1674,9 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 				if (!nskb)
 					return -ENOMEM;
 
-				if (resp->body.len > 0) {
+				if (resp->body.len > 0
+				    && !test_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags))
+				{
 					r = __tfw_http_msg_move_body(resp,
 								     nskb);
 					if (unlikely(r)) {
