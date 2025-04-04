@@ -1674,7 +1674,10 @@ __tfw_http_msg_expand_from_pool(TfwHttpResp *resp, const TfwStr *str,
 				if (!nskb)
 					return -ENOMEM;
 
-				if (resp->body.len > 0) {
+				if (resp->body.len > 0
+			            && !test_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS,
+						 resp->flags))
+				{
 					r = __tfw_http_msg_move_body(resp, nskb,
 								     &frag);
 					if (unlikely(r < 0)) {
