@@ -807,7 +807,7 @@ tfw_cache_h2_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp, char **data,
 	TfwStr c = { 0 };
 	TdbVRec *tr = *trec;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *it = &mit->iter;
+	TfwMsgIter *it = &resp->iter;
 	int r = 0, copied = 0;
 
 	while (1)  {
@@ -883,7 +883,7 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 		     TdbVRec **trec, char **p, unsigned long *acc_len)
 {
 	int r;
-	TfwMsgIter *it = &resp->mit.iter;
+	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	bool h2_mode = TFW_MSG_H2(resp->req);
 	TfwDecodeCacheIter dc_iter = {};
@@ -961,11 +961,8 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods,
 		return false;
 
 	/* Fast path for special headers */
-	if (str->flags & TFW_CSTR_SPEC_IDX) {
-		desc = h_mods->spec_hdrs[str->idx];
-		/* Skip only resp_hdr_set headers */
-		return desc ? !desc->append : false;
-	}
+	if (str->flags & TFW_CSTR_SPEC_IDX)
+		return test_bit(str->idx, h_mods->spec_hdrs);
 
 	if (str->idx) {
 		unsigned short hpack_idx = str->idx;
@@ -976,13 +973,13 @@ tfw_cache_skip_hdr(const TfwCStr *str, char *p, const TfwHdrMods *h_mods,
 		return test_bit(hpack_idx, h_mods->s_tbl);
 	}
 
-	for (i = h_mods->spec_num; i < h_mods->sz; ++i) {
+	for (i = h_mods->scan_off; i < h_mods->set_num; ++i) {
 		char* mod_hdr_name;
 		size_t mod_hdr_len;
 
 		desc = &h_mods->hdrs[i];
 		mod_hdr_len = TFW_STR_CHUNK(desc->hdr, 0)->len;
-		if (desc->append || mod_hdr_len != hdr.len)
+		if (mod_hdr_len != hdr.len)
 			continue;
 
 		mod_hdr_name = TFW_STR_CHUNK(desc->hdr, 0)->data;
@@ -1105,7 +1102,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err_create;
 
-	it = &resp->mit.iter;
+	it = &resp->iter;
 	skb_head = &resp->msg.skb_head;
 
 	if (!TFW_MSG_H2(req)) {
@@ -2846,8 +2843,9 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
  * to actually reserve any space for h2 frame header.
  */
 static int
-tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
-			  unsigned long body_sz, bool h2, bool chunked_body)
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpReq *req,
+			  TfwMsgIter *it,  char *p, unsigned long body_sz,
+			  bool chunked_body)
 {
 #define S_ZERO "0"
 
@@ -2855,8 +2853,9 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * Finish chunked body encoding. Add 0\r\n
 	 * after chunked body.
 	 */
-	bool sh_frag = h2 ? false : true;
 	int r;
+	const bool h2 = TFW_MSG_H2(req);
+	const bool sh_frag = !h2 && TFW_CONN_TLS(req->conn);
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
@@ -2965,7 +2964,6 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce, long age)
 	int r;
 	size_t digs;
 	bool to_h2 = TFW_MSG_H2(resp->req);
-	TfwHttpTransIter *mit = &resp->mit;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
 	char *name = to_h2 ? "age" : "age" S_DLM;
@@ -2993,11 +2991,11 @@ tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce, long age)
 		if ((r = tfw_hpack_encode(resp, &h_age, false, false)))
 			goto err;
 	} else {
-		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+		if ((r = tfw_http_msg_expand_data(&resp->iter, skb_head,
 						  &h_age, NULL)))
 			goto err;
 
-		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+		if ((r = tfw_http_msg_expand_data(&resp->iter, skb_head,
 						  &g_crlf, NULL)))
 			goto err;
 	}
@@ -3097,7 +3095,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
 	WARN_ON_ONCE(mit->acc_len);
-	it = &mit->iter;
+	it = &resp->iter;
 
 	/*
 	 * Set 'set-cookie' header if needed, for HTTP/2 or HTTP/1.1
@@ -3121,7 +3119,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long age)
 		 */
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
 		    || tfw_http_expand_hdr_via(resp)
-		    || tfw_h1_set_loc_hdrs((TfwHttpMsg *)resp, true, true)
+		    || tfw_h1_add_loc_hdrs((TfwHttpMsg *)resp, h_mods, true)
 		    || (age > ce->lifetime
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
@@ -3170,11 +3168,12 @@ write_body:
 	chunked_body = (ce->flags & TFW_CE_CHUNKED_BODY) && !h2_mode;
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
+
 	if ((ce->body_len || chunked_body)
 	    && req->method != TFW_HTTP_METH_HEAD)
 	{
-		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
-					      h2_mode, chunked_body))
+		if (tfw_cache_build_resp_body(db, trec, req, it, p,
+					      ce->body_len, chunked_body))
 			goto free;
 	}
 	resp->content_length = ce->body_len;

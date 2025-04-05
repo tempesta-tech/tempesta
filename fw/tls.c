@@ -219,10 +219,6 @@ int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		unsigned int limit)
 {
-	/*
-	 * TODO #1103 currently even trivial 500-bytes HTTP message generates
-	 * 6 segment skb. After the fix the number probably should be decreased.
-	 */
 #define AUTO_SEGS_N	8
 #define MAX_SEG_N	64
 
