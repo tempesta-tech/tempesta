@@ -950,7 +950,7 @@ index 89163ef8c..49ad1ddc9 100644
  	union {
  		struct ip_options_rcu __rcu	*ireq_opt;
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 261195598..b277c7efb 100644
+index 261195598..f03d8b999 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
 @@ -506,6 +506,30 @@ struct sock {
@@ -984,18 +984,24 @@ index 261195598..b277c7efb 100644
  	void			(*sk_error_report)(struct sock *sk);
  	int			(*sk_backlog_rcv)(struct sock *sk,
  						  struct sk_buff *skb);
-@@ -861,6 +885,10 @@ enum sock_flags {
+@@ -861,6 +885,16 @@ enum sock_flags {
  	SOCK_TXTIME,
  	SOCK_XDP, /* XDP is attached */
  	SOCK_TSTAMP_NEW, /* Indicates 64 bit timestamps always */
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	SOCK_TEMPESTA, /* The socket is managed by Tempesta FW */
-+	SOCK_TEMPESTA_HAS_DATA /* The socket has data in Tempesta FW write queue */
++	SOCK_TEMPESTA_HAS_DATA, /* The socket has data in Tempesta FW
++				 * write queue.
++				 */
++	SOCK_TEMPESTA_IS_CLOSING, /* The socket is closing by Tempesta FW
++				   * from `ss_do_close`. `tcp_done` should
++				   * not be called from the kernel code.
++				   */
 +#endif
  };
  
  #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
-@@ -1081,6 +1109,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
+@@ -1081,6 +1115,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
  		__rc;							\
  	})
  
@@ -1012,7 +1018,7 @@ index 261195598..b277c7efb 100644
  int sk_stream_wait_connect(struct sock *sk, long *timeo_p);
  int sk_stream_wait_memory(struct sock *sk, long *timeo_p);
  void sk_stream_wait_close(struct sock *sk, long timeo_p);
-@@ -1915,8 +1953,7 @@ static inline bool sk_rethink_txhash(struct sock *sk)
+@@ -1915,8 +1959,7 @@ static inline bool sk_rethink_txhash(struct sock *sk)
  static inline struct dst_entry *
  __sk_dst_get(struct sock *sk)
  {
@@ -1023,7 +1029,7 @@ index 261195598..b277c7efb 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 7d66c61d2..440938820 100644
+index 7d66c61d2..f85ea9a2b 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -307,6 +307,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -1075,15 +1081,15 @@ index 7d66c61d2..440938820 100644
 +	sk->sk_err = error;
 +	sk->sk_error_report(sk);
 +	tcp_write_queue_purge(sk);
-+
 +	/*
-+	 * If this function is called when error occurs during sending
-+	 * TCP FIN from `ss_do_close` or `tcp_shutdown`, we should not
-+	 * call `tcp_done` just set state to TCP_CLOSE and clear timers
-+	 * to prevent extra call of `inet_csk_destroy_sock`.
++	 * SOCK_TEMPESTA_IS_CLOSING is set from `ss_do_close`
++	 * or `ss_do_shutdown` function from Tempesta FW code.
++	 * We should not call `tcp_done` if error occurs during
++	 * one of this function, just set socket state to TCP_CLOSE,
++	 * clear timers and socket write queue. Socket will be
++	 * closed in one of this function.
 +	 */
-+	if (unlikely(sk->sk_state == TCP_FIN_WAIT1
-+		     || sk->sk_state == TCP_LAST_ACK)) {
++	if (unlikely(sock_flag(sk, SOCK_TEMPESTA_IS_CLOSING))) {
 +		tcp_set_state(sk, TCP_CLOSE);
 +		tcp_clear_xmit_timers(sk);
 +	} else {
@@ -2544,7 +2550,7 @@ index f0f67b25c..58fbfb071 100644
  		return NULL;
  	}
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index f99494637..879836861 100644
+index f99494637..042f9e38d 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -39,6 +39,9 @@
@@ -2753,7 +2759,7 @@ index f99494637..879836861 100644
  
  		len -= skb->len;
  	}
-@@ -2310,6 +2364,75 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
+@@ -2310,6 +2364,76 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
  	return true;
  }
  
@@ -2776,16 +2782,17 @@ index f99494637..879836861 100644
 +	int result;
 +
 +	/*
-+	 * If skb has tls type, but sk->sk_write_xmit is equal to zero
-+	 * it means that connection was already dropped. In this case
-+	 * there should not be any skbs with tls type in socket write
-+	 * queue, because we always recalculate sequence numbers of skb
-+	 * in `sk_write_xmit`, and if we don't call it skb will have
-+	 * incorrect sequence numbers, that leads to unclear warning
-+	 * later.
++	 * If skb has tls type, but `sk->sk_write_xmit` is equal to zero
++	 * it means that connection was already dropped. This skb is
++	 * not valid, because we should recalculate sequence numbers of
++	 * for this skb in `sk_write_xmit`, and if we don't call it skb
++	 * will have incorrect sequence numbers. So we should return
++	 * error code here and close socket using `tcp_tfw_handle_error`.
 +	 */
-+	if (!skb_tfw_tls_type(skb) || WARN_ON_ONCE(!sk->sk_write_xmit))
++	if (!skb_tfw_tls_type(skb))
 +		return 0;
++	else if (!sk->sk_write_xmit)
++		return -EPIPE;
 +
 +	/* Should be checked early. */
 +	BUG_ON(after(TCP_SKB_CB(skb)->seq, tcp_wnd_end(tp)));
@@ -2829,7 +2836,7 @@ index f99494637..879836861 100644
  /* Create a new MTU probe if we are ready.
   * MTU probe is regularly attempting to increase the path MTU by
   * deliberately sending larger packets.  This discovers routing
-@@ -2330,6 +2453,9 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2330,6 +2454,9 @@ static int tcp_mtu_probe(struct sock *sk)
  	int copy, len;
  	int mss_now;
  	int interval;
@@ -2839,7 +2846,7 @@ index f99494637..879836861 100644
  
  	/* Not currently probing/verifying,
  	 * not in recovery,
-@@ -2382,6 +2508,7 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2382,6 +2509,7 @@ static int tcp_mtu_probe(struct sock *sk)
  			return 0;
  	}
  
@@ -2847,7 +2854,7 @@ index f99494637..879836861 100644
  	if (!tcp_can_coalesce_send_queue_head(sk, probe_size))
  		return -1;
  
-@@ -2402,6 +2529,10 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2402,6 +2530,10 @@ static int tcp_mtu_probe(struct sock *sk)
  	nskb->csum = 0;
  	nskb->ip_summed = CHECKSUM_PARTIAL;
  
@@ -2858,13 +2865,17 @@ index f99494637..879836861 100644
  	tcp_insert_write_queue_before(nskb, skb, sk);
  	tcp_highest_sack_replace(sk, skb, nskb);
  
-@@ -2440,6 +2571,20 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2440,6 +2572,24 @@ static int tcp_mtu_probe(struct sock *sk)
  	}
  	tcp_init_tso_segs(nskb, nskb->len);
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	if (!skb_tfw_tls_type(nskb) || WARN_ON_ONCE(!sk->sk_write_xmit))
++	if (!skb_tfw_tls_type(nskb))
 +		goto transmit;
++	else if (!sk->sk_write_xmit) {
++		tcp_tfw_handle_error(sk, -EPIPE);
++		return 0;
++	}
 +
 +	result = sk->sk_write_xmit(sk, nskb, probe_size, probe_size);
 +	if (unlikely(result)) {
@@ -2879,7 +2890,7 @@ index f99494637..879836861 100644
  	/* We're ready to send.  If this fails, the probe will
  	 * be resegmented into mss-sized pieces by tcp_write_xmit().
  	 */
-@@ -2666,7 +2811,17 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2666,7 +2816,17 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
@@ -2898,7 +2909,7 @@ index f99494637..879836861 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2681,7 +2836,13 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2681,7 +2841,13 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  		 */
  		if (TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq)
  			break;
@@ -2913,7 +2924,7 @@ index f99494637..879836861 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2866,6 +3027,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2866,6 +3032,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -2921,7 +2932,7 @@ index f99494637..879836861 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -3183,7 +3345,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -3183,7 +3350,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  				 cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -2930,7 +2941,7 @@ index f99494637..879836861 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3374,6 +3536,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
+@@ -3374,6 +3541,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
  	if (mem_cgroup_sockets_enabled && sk->sk_memcg)
  		mem_cgroup_charge_skmem(sk->sk_memcg, amt);
  }
@@ -2938,7 +2949,7 @@ index f99494637..879836861 100644
  
  /* Send a FIN. The caller locks the socket for us.
   * We should try to send a FIN packet really hard, but eventually give up.
-@@ -3421,6 +3584,7 @@ void tcp_send_fin(struct sock *sk)
+@@ -3421,6 +3589,7 @@ void tcp_send_fin(struct sock *sk)
  	}
  	__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
  }
@@ -2946,7 +2957,7 @@ index f99494637..879836861 100644
  
  /* We get here when a process closes a file descriptor (either due to
   * an explicit close() or as a byproduct of exit()'ing) and there
-@@ -3454,6 +3618,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -3454,6 +3623,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  	 */
  	trace_tcp_send_reset(sk, NULL);
  }
@@ -2954,7 +2965,7 @@ index f99494637..879836861 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
-@@ -4044,6 +4209,17 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4044,6 +4214,17 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  		if (seg_size < TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq ||
  		    skb->len > mss) {
  			seg_size = min(seg_size, mss);
@@ -2972,7 +2983,7 @@ index f99494637..879836861 100644
  			TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
  			if (tcp_fragment(sk, TCP_FRAG_IN_WRITE_QUEUE,
  					 skb, seg_size, mss, GFP_ATOMIC))
-@@ -4052,6 +4228,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4052,6 +4233,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  			tcp_set_skb_tso_segs(skb, mss);
  
  		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
