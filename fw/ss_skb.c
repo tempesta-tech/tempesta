@@ -1299,6 +1299,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 {
 	struct sk_buff *buff;
 	int n = 0;
+	int nlen;
 
 	if (len < skb_headlen(skb))
 		n = skb_headlen(skb) - len;
@@ -1310,8 +1311,9 @@ ss_skb_split(struct sk_buff *skb, int len)
 	skb_reserve(buff, MAX_TCP_HEADER);
 
 	/* @buff already accounts @n in truesize. */
-	buff->truesize += skb->len - len - n;
-	skb->truesize -= skb->len - len;
+	nlen = skb->len - len - n;
+	buff->truesize += nlen;
+	skb->truesize -= nlen;
 	buff->mark = skb->mark;
 
 	/*
