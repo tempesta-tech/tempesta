@@ -5,7 +5,7 @@
  * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
  * multi-producer-multi-consumer-queue-ring-buffer .
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,18 +30,11 @@
 int
 tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 {
-	int cpu;
-
-	q->heads = alloc_percpu(atomic64_t);
-	if (!q->heads)
-		return -ENOMEM;
-
-	for_each_online_cpu(cpu) {
-		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
-		atomic64_set(local_head, LLONG_MAX);
+	if (!is_power_of_2(qsize)) {
+		pr_err("Tempesta FW: work_queue size (%zu) must be a power of 2.\n", qsize);
+		return -EINVAL;
 	}
 	q->qsize = qsize;
-	q->last_head = 0;
 	atomic64_set(&q->head, 0);
 	atomic64_set(&q->tail, 0);
 	set_bit(TFW_QUEUE_IPI, &q->flags);
@@ -49,7 +42,6 @@ tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 	/* Fallback to vmalloc for large queue sizes (> 128k items) */
 	q->array = kvmalloc_node(qsize * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
-		free_percpu(q->heads);
 		return -ENOMEM;
 	}
 
@@ -63,7 +55,6 @@ tfw_wq_destroy(TfwRBQueue *q)
 	WARN_ON_ONCE(tfw_wq_size(q));
 
 	kvfree(q->array);
-	free_percpu(q->heads);
 }
 
 /**
@@ -75,7 +66,6 @@ long
 __tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
 	long head, tail;
-	atomic64_t *head_local;
 	int budget = 10;
 
 	/*
@@ -85,37 +75,25 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	 */
 	local_bh_disable();
 
-	head_local = this_cpu_ptr(q->heads);
-	/*
-	 * Set the head guard to make a consumer wait on this position.
-	 * We could update the guard in the loop to allow a consumer to make
-	 * progress if we're got ahead by other producers, but the overhead
-	 * of the atomic write is undesirable.
-	 */
-	head = atomic64_read(&q->head);
-	atomic64_set(head_local, head);
-
-	for ( ; ; head = atomic64_read(&q->head)) {
+	for (head = atomic64_read(&q->head); ; head = atomic64_read(&q->head)) {
 		tail = atomic64_read(&q->tail);
-		WARN_ON_ONCE(head > tail + q->qsize);
-		if (unlikely(head == tail + q->qsize)) {
-			/*
-			 * Small threshold budget to pass through temporary
-			 * queue overflow.
-			 */
-			if (--budget) {
-				cpu_relax();
-				continue;
+
+		/* Check if the queue is full */
+		if (unlikely(head >= tail + q->qsize)) {
+			if (head == tail + q->qsize) {
+				/* Allow a small budget for transient fullness */
+				if (--budget) {
+					cpu_relax();
+					continue;
+				}
+				goto full_out;
 			}
-			goto full_out;
+
+			WARN_ONCE(head > tail + q->qsize, "Work queue head ahead of tail + size");
+			cpu_relax();
+			continue;
 		}
 
-		/*
-		 * There is an empty slot to push a new item.
-		 * Acquire the current head position and move the global head.
-		 * If current head position is acquired by a competing
-		 * producer, then read the current head and try again.
-		 */
 		if (atomic64_cmpxchg(&q->head, head, head + 1) == head)
 			break;
 		cpu_relax();
@@ -126,8 +104,6 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 
 	head = 0;
 full_out:
-	/* Now it's safe to release current head position. */
-	atomic64_set(head_local, LONG_MAX);
 	local_bh_enable();
 	return head;
 }
@@ -140,38 +116,17 @@ full_out:
 int
 tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 {
-	int cpu, r = -EBUSY;
-	long tail;
+	int r = -EBUSY;
+	long tail, head;
 
 	local_bh_disable();
 
 	tail = atomic64_read(&q->tail);
-	/*
-	 * tail > q->last_head means that some producer is using too old head
-	 * and is going to fail on cmpxchg(). However, we still don't know how
-	 * far we can move, so probably we have to return with nothing now.
-	 */
-	if (unlikely(tail >= q->last_head)) {
-		/*
-		 * Actualize @last_head from heads of all current producers.
-		 * We do it here since atomic reads are faster than updates and
-		 * we can do this only when we need a new value, i.e. not so
-		 * frequently. Don't support switching off cpus in runtime.
-		 */
-		q->last_head = atomic64_read(&q->head);
-		for_each_online_cpu(cpu) {
-			atomic64_t *head_local = per_cpu_ptr(q->heads, cpu);
-			long curr_h = atomic64_read(head_local);
+	head = atomic64_read(&q->head);
 
-			/* Force compiler to use curr_h only once. */
-			barrier();
-			if (curr_h < q->last_head)
-				q->last_head = curr_h;
-		}
-
-		/* Second try. */
-		if (tail >= q->last_head)
-			goto out;
+	/* Check if the queue is empty */
+	if (unlikely(tail >= head)) {
+		goto out;
 	}
 
 	memcpy(buf, &q->array[tail & (q->qsize - 1)], WQ_ITEM_SZ);
