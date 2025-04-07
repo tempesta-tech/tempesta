@@ -504,15 +504,6 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
-		/*
-		 * 'Server' header must be replaced; thus, remove the original
-		 * header (and all its duplicates) skipping it here; the new
-		 * header will be written later, during new headers' addition
-		 * stage.
-		 */
-		if (hid == TFW_HTTP_HDR_SERVER)
-			continue;
-
 		r = tfw_hpack_transform(resp, tgt);
 		if (unlikely(r))
 			return r;
@@ -558,10 +549,11 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			TfwHttpTransIter *mit = &resp->mit;
 			unsigned long acc = mit->acc_len;
 
-			mit->iter.skb = resp->msg.skb_head->prev;
-			mit->iter.frag =
-				skb_shinfo(mit->iter.skb)->nr_frags - 1;
-			tfw_http_msg_setup_transform_pool(mit, resp->pool);
+			resp->iter.skb = resp->msg.skb_head->prev;
+			resp->iter.frag =
+				skb_shinfo(resp->iter.skb)->nr_frags - 1;
+			tfw_http_msg_setup_transform_pool(mit, &resp->iter,
+							  resp->pool);
 
 			r = tfw_h2_hpack_encode_trailer_headers(resp);
 			if (unlikely(r)) {

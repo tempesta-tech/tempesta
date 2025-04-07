@@ -6,7 +6,7 @@
  * configuration phase.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -873,8 +873,7 @@ tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
  * buffer provided by @data_str.
  *
  * @pool     - pool descriptor
- * @data_str - plain TfwStr which points to target data buffer,
- *	       e.g. returned from ss_skb_get_room() call
+ * @data_str - plain TfwStr which points to target data buffer.
  * @src	     - source string
  */
 TfwStr *
