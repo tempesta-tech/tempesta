@@ -96,8 +96,6 @@ enum {
         TFW_HTTP_B_CHAIN_NO_CACHE,
         /* Request is non-idempotent. */
         TFW_HTTP_B_NON_IDEMP,
-        /* Request stated 'Accept: text/html' header */
-        TFW_HTTP_B_ACCEPT_HTML,
         /* Request is created by HTTP health monitor. */
         TFW_HTTP_B_HMONITOR,
         /* Client was disconnected, drop the request. */
