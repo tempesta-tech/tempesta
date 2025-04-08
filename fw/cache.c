@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -2147,7 +2147,8 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		 */
 		if (TFW_STR_EMPTY(field)
 		    || (field->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
-		    || hid == TFW_HTTP_HDR_SERVER)
+		    || hid == TFW_HTTP_HDR_SERVER
+		    || hid == TFW_HTTP_HDR_AGE)
 		{
 			--ce->hdr_num;
 			continue;
@@ -2387,7 +2388,8 @@ __cache_entry_size(TfwHttpResp *resp)
 		 */
 		if (TFW_STR_EMPTY(hdr)
 		    || (hdr->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR))
-		    || hid == TFW_HTTP_HDR_SERVER)
+		    || hid == TFW_HTTP_HDR_SERVER
+		    || hid == TFW_HTTP_HDR_AGE)
 			continue;
 
 		if (hid == TFW_HTTP_HDR_TRANSFER_ENCODING)
