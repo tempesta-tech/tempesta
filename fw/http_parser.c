@@ -969,6 +969,7 @@ process_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr, unsigned int id)
 	case TFW_HTTP_HDR_CONTENT_ENCODING:
 	case TFW_HTTP_HDR_SET_COOKIE:
 	case TFW_HTTP_HDR_FORWARDED:
+	case TFW_HTTP_HDR_AGE:
 	case TFW_HTTP_HDR_CONNECTION:
 	case TFW_HTTP_HDR_UPGRADE:
 	case TFW_HTTP_HDR_CONTENT_LOCATION:
@@ -12467,7 +12468,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 	}
 
 	/* 'Age:*OWS' is read, process field-value. */
-	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrAgeV, resp, __resp_parse_age, 0);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrAgeV, resp, __resp_parse_age,
+				   TFW_HTTP_HDR_AGE, 0);
 
 	/* 'Cache-Control:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrCache_CtrlV, resp,
