@@ -2181,7 +2181,8 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		    || (field->flags &
 			(TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR
 			 | TFW_STR_TRAILER_HDR))
-		    || hid == TFW_HTTP_HDR_SERVER)
+		    || hid == TFW_HTTP_HDR_SERVER
+		    || hid == TFW_HTTP_HDR_AGE)
 		{
 			--ce->hdr_num;
 			continue;
@@ -2249,7 +2250,8 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 			if ((!(field->flags & TFW_STR_TRAILER) &&
 			     !(field->flags & TFW_STR_TRAILER_AND_HDR)) ||
 			    (field->flags & TFW_STR_NOCCPY_HDR)
-			    || hid == TFW_HTTP_HDR_SERVER)
+			    || hid == TFW_HTTP_HDR_SERVER
+			    || hid == TFW_HTTP_HDR_AGE)
 				continue;
 
 			n = tfw_cache_h2_copy_hdr(db, ce, resp, hid, &p, &trec,
@@ -2444,7 +2446,8 @@ __cache_entry_size(TfwHttpResp *resp)
 		if (TFW_STR_EMPTY(hdr)
 		    || (hdr->flags & (TFW_STR_HBH_HDR | TFW_STR_NOCCPY_HDR |
 			TFW_STR_TRAILER_HDR))
-		    || hid == TFW_HTTP_HDR_SERVER)
+		    || hid == TFW_HTTP_HDR_SERVER
+		    || hid == TFW_HTTP_HDR_AGE)
 			continue;
 
 		/*

@@ -152,6 +152,7 @@ unsigned int
 tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef resp_hdrs[] = {
+		TfwStrDefV("age:",		TFW_HTTP_HDR_AGE),
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
 		TfwStrDefV("content-encoding:", TFW_HTTP_HDR_CONTENT_ENCODING),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
@@ -225,6 +226,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
 			[TFW_HTTP_HDR_CONTENT_LOCATION] = SLEN("Content-Location:"),
 			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+			[TFW_HTTP_HDR_AGE]		= SLEN("Age:"),
 			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
 			[TFW_HTTP_HDR_EXPECT]		= SLEN("Expect:"),
 			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
