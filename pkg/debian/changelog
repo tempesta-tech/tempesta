@@ -1,4 +1,4 @@
-tempesta-fw-dkms (0.8.0) focal; urgency=medium
+tempesta-fw (0.8.0) focal; urgency=medium
 
   * Add `Expect: 100-continue` support
   * Add `cache_use_stale` directive
@@ -55,7 +55,7 @@ tempesta-fw-dkms (0.8.0) focal; urgency=medium
 
  -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Thu, 13 Mar 2025 16:13:47 +0400
 
-tempesta-fw-dkms (0.7.1) focal; urgency=medium
+tempesta-fw (0.7.1) focal; urgency=medium
 
   * Frang: Changed default settings to more strict
   * Implement `max_concurrent_streams` limitation
@@ -73,7 +73,7 @@ tempesta-fw-dkms (0.7.1) focal; urgency=medium
   * Fix incorrect server connection reference counter
   * Hide "Te" header from HTTP/1.x backend when proxying response over HTTP/2.
 
-tempesta-fw-dkms (0.7.0) focal; urgency=medium
+tempesta-fw (0.7.0) focal; urgency=medium
 
   * Fix corrupted header location on H2 sticky cookie redirect
   * Fix crash during tempesta reconfiguration
@@ -119,7 +119,7 @@ tempesta-fw-dkms (0.7.0) focal; urgency=medium
 
  -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 3 Mar 2022 20:13:43 +0500
 
-tempesta-fw-dkms (0.6.8) focal; urgency=medium
+tempesta-fw (0.6.8) focal; urgency=medium
 
   * Fix parsing of an empty extension if it comes last in ClientHello.
   * Fix cached data corruption during encryption.
@@ -131,7 +131,7 @@ tempesta-fw-dkms (0.6.8) focal; urgency=medium
 
  -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 3 Mar 2022 20:13:43 +0500
 
-tempesta-fw-dkms (0.5.0) stretch; urgency=medium
+tempesta-fw (0.5.0) stretch; urgency=medium
 
   * Add HTTP health monitoring
   * Performance optiomistation and fixes for the On-the-fly reconfiguration
@@ -145,7 +145,7 @@ tempesta-fw-dkms (0.5.0) stretch; urgency=medium
 
  -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 21 Mar 2018 14:48:56 +0500
 
-tempesta-fw-dkms (0.5.0pre8) stretch; urgency=medium
+tempesta-fw (0.5.0pre8) stretch; urgency=medium
 
   * Update supported Linux kernel to 4.9.35
   * Fix memory leaks under high load
@@ -155,7 +155,7 @@ tempesta-fw-dkms (0.5.0pre8) stretch; urgency=medium
 
  -- Tempeststa Technologies, Inc. <info@tempesta-tech.com>  Tue, 23 Jan 2018 08:58:30 +0500
 
-tempesta-fw-dkms (0.5.0) stretch; urgency=medium
+tempesta-fw (0.5.0) stretch; urgency=medium
 
   * Initial release
 

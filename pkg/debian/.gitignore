@@ -1,4 +1,4 @@
-tempesta-fw-dkms/
+tempesta-fw/
 debhelper-build-stamp
 files
 *.debhelper.log

@@ -4,26 +4,21 @@
 # Uncomment this to turn on verbose mode.
 export DH_VERBOSE=1
 
-NAME=tempesta-fw
-DEB_NAME=$(NAME)-dkms
-VERSION=$(shell dpkg-parsechangelog |grep ^Version:|cut -d ' ' -f 2)
+DEB_NAME=tempesta-fw
 
 %:
-	dh $@ --with dkms --with systemd
+	dh $@ --with systemd
 
 override_dh_auto_install:
-	dh_install fw usr/src/$(NAME)-$(VERSION)
-	dh_install db usr/src/$(NAME)-$(VERSION)
-	dh_install tls usr/src/$(NAME)-$(VERSION)
-	dh_install lib usr/src/$(NAME)-$(VERSION)
-	dh_install Makefile usr/src/$(NAME)-$(VERSION)
+	dh_install fw usr/src/tempesta
+	dh_install db usr/src/tempesta
+	dh_install tls usr/src/tempesta
+	dh_install lib usr/src/tempesta
+	dh_install Makefile usr/src/tempesta
 	dh_install etc/* /etc/tempesta
 	dh_install scripts /lib/tempesta
 	dh_install utils /lib/tempesta
-	find "debian/$(DEB_NAME)/usr/src/$(NAME)-$(VERSION)" -name '.git*' -exec rm {} \;
-
-override_dh_dkms:
-	dh_dkms -V $(VERSION)
+	find "debian/$(DEB_NAME)/usr/src/tempesta" -name '.git*' -exec rm {} \;
 
 override_dh_installinit:
 	dh_installinit --no-start --no-restart-on-upgrade --noscripts --name=tempesta-fw

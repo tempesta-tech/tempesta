@@ -4,11 +4,11 @@ Source: http://tempesta-tech.com
 
 Files: *
 Copyright: 2014      NatSys Lab
-           2015-2018 Tempesta Technologies, Inc.
+           2015-2025 Tempesta Technologies, Inc.
 License: GPL-2.0+
 
 Files: debian/*
-Copyright: 2017 Tempeststa Technologies, Inc. <info@tempesta-tech.com>
+Copyright: 2017-2025 Tempeststa Technologies, Inc. <info@tempesta-tech.com>
 License: GPL-2.0+
 
 License: GPL-2.0+

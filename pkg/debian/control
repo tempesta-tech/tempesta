@@ -1,21 +1,22 @@
-Source: tempesta-fw-dkms
+Source: tempesta-fw
 Section: web
 Priority: optional
 Maintainer: Tempeststa Technologies, Inc. <info@tempesta-tech.com>
-Build-Depends: debhelper (>= 9.20160709~), dkms
-Standards-Version: 3.9.8
+Build-Depends: debhelper (>= 9)
+Standards-Version: 4.5.0
 Homepage: http://tempesta-tech.com
 Vcs-Git: https://github.com/tempesta-tech/tempesta.git
 Vcs-Browser: https://github.com/tempesta-tech/tempesta.git
 
-Package: tempesta-fw-dkms
+Package: tempesta-fw
 Architecture: amd64
-Depends: dkms (>= 1.95),
- libboost-dev,
+Depends: libboost-dev,
  libboost-program-options-dev,
  kdump-tools,
  libfmt-dev,
  libspdlog-dev,
+ linux-headers-5.10.35.tfw-669c591,
+ linux-image-5.10.35.tfw-669c591,
  ${misc:Depends}
 Description: Open-source high-speed application delivery controller.
  Tempesta FW is an open-source application delivery controller (ADC) built
