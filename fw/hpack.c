@@ -1309,7 +1309,6 @@ done:
 		break;
 	case TFW_TAG_HDR_ACCEPT:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
-		h2_set_hdr_accept(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_CONTENT_ENCODING:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_ENCODING;

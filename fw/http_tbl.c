@@ -501,6 +501,11 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		rule->act.type = TFW_HTTP_MATCH_ACT_CACHE_TTL;
 		rule->act.cache_ttl = act_val_parsed;
 	}
+	else if (!strcasecmp(action, "jsch")) {
+		rule->act.type = TFW_HTTP_MATCH_ACT_FLAG;
+		rule->act.flg.fid = TFW_HTTP_B_MUST_BE_CHALLENGED;
+		rule->act.flg.set = true;
+	}
 	else if (action && action_val &&
 		 !tfw_cfg_parse_uint(action, &rule->act.redir.resp_code))
 	{

@@ -2636,7 +2636,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
-		TRY_STR("html", Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_Subtype);
 	}
@@ -2651,14 +2650,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == '*')
 			__FSM_I_MOVE(I_EoT);
 		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_AcceptHtml) {
-		if (IS_WS(c) || c == ',' || c == ';' || IS_CRLF(c)) {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			__FSM_I_JMP(I_EoT);
-		}
-		__FSM_I_JMP(Req_I_Subtype);
 	}
 
 	__FSM_STATE(Req_I_Type) {
@@ -7179,13 +7170,6 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_authority);
 
-void
-h2_set_hdr_accept(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
-{
-	if (cstate->is_set && cstate->accept_text_html)
-		__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-}
-
 static int
 __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		      bool fin)
@@ -7236,12 +7220,6 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
-		H2_TRY_STR_LAMBDA("html", {
-			parser->cstate.is_set = 1;
-			parser->cstate.accept_text_html = 1;
-			h2_set_hdr_accept(req, &parser->cstate);
-			__FSM_EXIT(CSTR_EQ);
-		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_Subtype);
 	}
@@ -7256,14 +7234,6 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 		if (c == '*')
 			__FSM_H2_I_MOVE(I_EoT);
 		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_AcceptHtml) {
-		if (IS_WS(c) || c == ',' || c == ';') {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			__FSM_I_JMP(I_EoT);
-		}
-		__FSM_I_JMP(Req_I_Subtype);
 	}
 
 	__FSM_STATE(Req_I_Type) {

@@ -152,7 +152,6 @@ typedef enum {
  */
 typedef struct {
 	union {
-		unsigned char	accept_text_html;
 		long		if_msince_date;
 		unsigned long	authority_port;
 		unsigned char	ifnmatch_etag_any;

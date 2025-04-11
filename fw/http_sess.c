@@ -29,7 +29,7 @@
  * JS challenge client should execute it and send new request with
  * appropriate cookie just in time.
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -116,10 +116,8 @@ tfw_http_sess_cookie_enabled(TfwHttpReq *req)
 }
 
 /**
- * Normal browser must be able to execute the challenge: not all requests
- * can be challenged, e.g. images - a browser won't execute the JS code if
- * receives the challenge. Send redirect only for requests with
- * 'Accept: text/html' and GET method.
+ * Send JS challenge to a client only if request beign
+ * matched by http chain "jsch" rule and it is GET request.
  */
 static bool
 tfw_http_sticky_redirect_applied(TfwHttpReq *req)
@@ -127,8 +125,8 @@ tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 	if (!req->vhost->cookie->js_challenge)
 		return true;
 
-	return (req->method == TFW_HTTP_METH_GET)
-		&& test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+	return req->method == TFW_HTTP_METH_GET &&
+		test_bit(TFW_HTTP_B_MUST_BE_CHALLENGED, req->flags);
 }
 
 static int
