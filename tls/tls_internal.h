@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 
 #include <linux/types.h>
 #include <asm/fpu/api.h>
+#include <asm/archrandom.h>
 
 #include "lib/fsm.h"
 #include "lib/str.h"
@@ -34,6 +35,10 @@
 #include "crypto.h"
 #include "ttls.h"
 #include "x509_crt.h"
+
+#if DBG_TLS == 3
+#define DBG_TLS_NO_RAND 1
+#endif
 
 struct aead_request *ttls_aead_req_alloc(struct crypto_aead *tfm);
 void ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req);
@@ -386,6 +391,15 @@ ttls_substate(const TlsCtx *tls)
 }
 
 #if DBG_TLS == 3
+unsigned long ttls_time_debug(void);
+
+#define ttls_time()		ttls_time_debug()
+#else
+/* Uses CLOCK_MONOTONIC. Starts at system boot time but stops during suspend. */
+#define ttls_time()		ktime_get_seconds()
+#endif
+
+#if DBG_TLS_NO_RAND > 0
 /*
  * Make the things repeatable, simple and INSECURE on largest debug level -
  * this helps to debug TLS (thanks to reproducible records payload), but
@@ -394,15 +408,46 @@ ttls_substate(const TlsCtx *tls)
 static inline void
 ttls_rnd(void *buf, size_t len)
 {
-	memset(buf, 0x55, len);
+	memset(buf, 0xAA, len);
 }
 
-unsigned long ttls_time_debug(void);
-
-#define ttls_time()		ttls_time_debug()
-
 #else
-#define ttls_time()		get_seconds()
+
+/*
+ * This function borrowed from 5.10.35 kernel.
+ *
+ * This function will use the architecture-specific hardware random
+ * number generator if it is available.  The arch-specific hw RNG will
+ * almost certainly be faster than what we can do in software, but it
+ * is impossible to verify that it is implemented securely (as
+ * opposed, to, say, the AES encryption of a sequence number using a
+ * key known by the NSA).  So it's useful if we need the speed, but
+ * only if we're willing to trust the hardware manufacturer not to
+ * have put in a back door.
+ *
+ * Return number of bytes filled in.
+ */
+static inline int
+get_random_bytes_arch(void *buf, int nbytes)
+{
+	int left = nbytes;
+	char *p = buf;
+
+	while (left) {
+		unsigned long v;
+		int chunk = min_t(int, left, sizeof(unsigned long));
+
+		if (!arch_get_random_longs(&v, 1))
+			break;
+
+		memcpy(p, &v, chunk);
+		p += chunk;
+		left -= chunk;
+	}
+
+	return nbytes - left;
+}
+
 /*
  * CPUs since Intel Ice Lake are safe against SRBDS attack, so we're good
  * with the hardware random generator.

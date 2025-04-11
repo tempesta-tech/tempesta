@@ -1,8 +1,7 @@
 /**
- *		Tempesta FW
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,13 +17,27 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_FILTER_H__
-#define __TFW_FILTER_H__
+#ifndef __CRYPTO_SHA_H__
+#define __CRYPTO_SHA_H__
 
-#include "client.h"
+#include "linux/compiler.h"
 
-int tfw_filter_init(void);
-void tfw_filter_exit(void);
-void tfw_filter_block_ip(const TfwClient *cli);
+#define SHA512_DIGEST_SIZE	64
+#define SHA512_BLOCK_SIZE	128
 
-#endif /* __TFW_FILTER_H__ */
+#define SHA256_DIGEST_SIZE	32
+#define SHA256_BLOCK_SIZE	64
+
+struct sha512_state {
+	u64 state[SHA512_DIGEST_SIZE / 8];
+	u64 count[2];
+	u8 buf[SHA512_BLOCK_SIZE];
+};
+
+struct sha256_state {
+	u32 state[SHA256_DIGEST_SIZE / 4];
+	u64 count[2];
+	u8 buf[SHA256_BLOCK_SIZE];
+};
+
+#endif /* __CRYPTO_SHA_H__ */
