@@ -79,6 +79,7 @@ static TfwMmapBufferHolder *mmap_buffer;
 static DEFINE_PER_CPU_ALIGNED(char[ACCESS_LOG_BUF_SIZE], access_log_buf);
 static DEFINE_PER_CPU_ALIGNED(u64, mmap_log_dropped);
 static long mmap_log_buffer_size;
+static char *tfw_logger_config_path = NULL;
 
 /** Build string consists of chunks that belong to the header value.
  * If header value is empty, then it returns "-" to be nginx-like.
@@ -576,7 +577,21 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	bool off = false;
 
 	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
-	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	// Check for logger_config attribute
+	const char *logger_config = tfw_cfg_get_attr(ce, "logger_config", NULL);
+	if (logger_config) {
+		// Save the logger config path for later use
+		if (tfw_logger_config_path)
+			kfree(tfw_logger_config_path);
+		tfw_logger_config_path = kstrdup(logger_config, GFP_KERNEL);
+		if (!tfw_logger_config_path)
+			return -ENOMEM;
+
+		// Set access_log type to mmap since we're using external config
+		access_log_type |= ACCESS_LOG_MMAP;
+		return 0;
+	}
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (strcasecmp(val, "off") == 0) {
@@ -594,6 +609,19 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (off && access_log_type != ACCESS_LOG_OFF) {
 		T_ERR_NL("access_log 'off' value should be the only value\n");
 		return -EINVAL;
+	}
+
+	// Parse other attributes if using mmap
+	if (access_log_type & ACCESS_LOG_MMAP) {
+		mmap_host = tfw_cfg_get_attr(ce, "mmap_host", NULL);
+		mmap_log = tfw_cfg_get_attr(ce, "mmap_log", NULL);
+		mmap_user = tfw_cfg_get_attr(ce, "mmap_user", NULL);
+		mmap_password = tfw_cfg_get_attr(ce, "mmap_password", NULL);
+
+		if (!mmap_host || !mmap_log) {
+			T_ERR_NL("if mmap is enabled in access log, there have to be mmap_host and mmap_log options\n");
+			return -EINVAL;
+		}
 	}
 
 	return 0;
@@ -620,6 +648,11 @@ tfw_access_log_start(void)
 static void
 tfw_access_log_stop(void)
 {
+	if (tfw_logger_config_path) {
+		kfree(tfw_logger_config_path);
+		tfw_logger_config_path = NULL;
+	}
+
 	tfw_mmap_buffer_free(mmap_buffer);
 	mmap_buffer = NULL;
 }
