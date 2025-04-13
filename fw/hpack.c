@@ -289,12 +289,14 @@ do {								\
 do {								\
 	WARN_ON_ONCE(!TFW_STR_EMPTY(&it->hdr));			\
 	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
-		BUFFER_GET(length, it);				\
+		unsigned long len = length + (length >> 1);	\
+								\
+		BUFFER_GET(len, it);				\
 		if (!it->pos) {					\
 			r = -ENOMEM;				\
 			goto out;				\
 		}						\
-		BUFFER_HDR_INIT(length, it);			\
+		BUFFER_HDR_INIT(len, it);			\
 	}							\
 } while (0)
 
@@ -306,13 +308,15 @@ do {								\
 		? it->parsed_hdr->nchunks			\
 		: 1;						\
 	if (state & HPACK_FLAGS_HUFFMAN_VALUE) {		\
-		BUFFER_GET(length, it);				\
+		unsigned long len = length + (length >> 1);	\
+								\
+		BUFFER_GET(len, it);				\
 		if (!it->pos) {					\
 			r = -ENOMEM;				\
 			goto out;				\
 		}						\
 		if (!TFW_STR_EMPTY(&it->hdr)) {			\
-			r = tfw_hpack_exp_hdr(req->pool, length, \
+			r = tfw_hpack_exp_hdr(req->pool, len, 	\
 					      it); 		\
 			if (unlikely(r))			\
 				return r;			\
@@ -502,14 +506,28 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	unsigned int i;
 	int r;
 
+#define ADJUST_EXTRA_RSPACE(req)		\
+do {						\
+	TfwMsgParseIter *it = &req->pit;	\
+	TfwStr *hdr = &it->hdr;			\
+	TfwStr *last = TFW_STR_LAST(hdr);	\
+						\
+	hdr->len -= it->rspace;			\
+	if (!TFW_STR_PLAIN(hdr))		\
+		last->len -= it->rspace;	\
+	it->rspace = 0;				\
+} while (0)
+
 	for (;;) {
 		int shift;
 
 		if (hp->curr == -HT_NBITS) {
-			if (likely(offset == 0))
+			if (likely(offset == 0)) {
+				ADJUST_EXTRA_RSPACE(req);
 				return T_OK;
-			else
+			} else {
 				return T_COMPRESSION;
+			}
 		}
 
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
@@ -537,7 +555,8 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			if (likely(offset == 0)) {
 				if ((i ^ (HT_EOS_HIGH >> 1)) <
 				    (1U << -hp->curr)) {
-					return 0;
+					ADJUST_EXTRA_RSPACE(req);
+					return T_OK;
 				}
 			}
 			/*
@@ -563,10 +582,13 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	}
 	if (likely(offset == 0)) {
 		if ((i ^ (HT_EOS_HIGH >> 1)) < (1U << -hp->curr)) {
+			ADJUST_EXTRA_RSPACE(req);
 			return T_OK;
 		}
 	}
 	return T_COMPRESSION;
+
+#undef ADJUST_EXTRA_RSPACE
 }
 
 static int
