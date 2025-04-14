@@ -217,6 +217,7 @@ typedef enum {
 	TFW_HTTP_HDR_IF_NONE_MATCH,
 	TFW_HTTP_HDR_ETAG = TFW_HTTP_HDR_IF_NONE_MATCH,
 	TFW_HTTP_HDR_X_TEMPESTA_CACHE,
+	TFW_HTTP_HDR_AGE,
 
 	/* End of list of singular header. */
 	TFW_HTTP_HDR_NONSINGULAR,
@@ -621,7 +622,7 @@ tfw_h2_pseudo_index(unsigned short status)
 static inline size_t
 tfw_http_req_header_table_size(void)
 {
-	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 2;
+	return TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR - 3;
 }
 
 static inline size_t
