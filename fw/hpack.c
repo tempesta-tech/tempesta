@@ -30,6 +30,41 @@
 
 #include "hpack_tbl.h"
 
+/**
+ * There are to cases when we allocate space for header:
+ * - it->rspace is equal to zero. In this case we allocate
+ *   `len` bytes;
+ * - it->rspace is not equal to zero. This means that we
+ *   already have buffer with rspace bytes available.
+ *   If this buffer is rather big to contains the whole
+ *   header or it is greater then sizeof(TfwStr) we use
+ *   it. (Save delta = len - it->rspace bytes. Later when
+ *   `it->rspace` will be exceeded we use it to allocate
+ *   new chunk).
+ *   Otherwise allocate new buffer (if we have some free
+ *   bytes in old buffer, but is is not enough for the
+ *   new header and is less then sizeof(TfwStr)), we allocate
+ *   new buffer to prevent extra header chunking.
+ */
+#define	BUFFER_GET(len, it)						\
+do {									\
+									\
+									\
+	BUG_ON(!(len));							\
+	if (!(it)->rspace ||						\
+	    (len > (it)->rspace && (it)->rspace < sizeof(TfwStr)))	\
+	{								\
+		(it)->rspace = len;					\
+		(it)->pos = tfw_pool_alloc_not_align((it)->pool, len);	\
+		T_DBG3("%s: get buffer, len=%lu, it->pos=[%p],"		\
+		       " it->pos=%lu\n", __func__, (unsigned long)len,	\
+		       (it)->pos, (unsigned long)(it)->pos);		\
+	} else {							\
+		(it)->to_alloc = len > (it)->rspace ?			\
+			len - (it)->rspace : 0;				\
+	}								\
+} while (0)
+
 #define HP_HDR_NAME(name)						\
 	(&(TfwStr){							\
 		.chunks = &(TfwStr){					\
@@ -278,10 +313,10 @@ do {								\
 	       last - src);					\
 } while (0)
 
-#define	BUFFER_HDR_INIT(length, it)				\
+#define	BUFFER_HDR_INIT(it)					\
 do {								\
 	(it)->hdr.data = (it)->pos;				\
-	(it)->hdr.len = length;					\
+	(it)->hdr.len = 0;					\
 	(it)->next = 0;						\
 } while (0)
 
@@ -289,6 +324,13 @@ do {								\
 do {								\
 	WARN_ON_ONCE(!TFW_STR_EMPTY(&it->hdr));			\
 	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
+		/*						\
+		 * Allocate extra 50% bytes. Huffman usually	\
+		 * gives compression benefit about 20 - 60 %.	\
+		 * Since we use extra allocated bytes for the	\
+		 * next header, we can allocate extra 50% bytes	\
+		 * without fear of losing a lot of memory.	\
+		 */						\
 		unsigned long len = length + (length >> 1);	\
 								\
 		BUFFER_GET(len, it);				\
@@ -296,7 +338,7 @@ do {								\
 			r = -ENOMEM;				\
 			goto out;				\
 		}						\
-		BUFFER_HDR_INIT(len, it);			\
+		BUFFER_HDR_INIT(it);				\
 	}							\
 } while (0)
 
@@ -308,6 +350,13 @@ do {								\
 		? it->parsed_hdr->nchunks			\
 		: 1;						\
 	if (state & HPACK_FLAGS_HUFFMAN_VALUE) {		\
+		/*						\
+		 * Allocate extra 50% bytes. Huffman usually	\
+		 * gives compression benefit about 20 - 60 %.	\
+		 * Since we use extra allocated bytes for the	\
+		 * next header, we can allocate extra 50% bytes	\
+		 * without fear of losing a lot of memory.	\
+		 */						\
 		unsigned long len = length + (length >> 1);	\
 								\
 		BUFFER_GET(len, it);				\
@@ -316,13 +365,12 @@ do {								\
 			goto out;				\
 		}						\
 		if (!TFW_STR_EMPTY(&it->hdr)) {			\
-			r = tfw_hpack_exp_hdr(req->pool, len, 	\
-					      it); 		\
+			r = tfw_hpack_exp_hdr(req->pool, 0, it); \
 			if (unlikely(r))			\
 				return r;			\
 			it->next = it->hdr.nchunks - 1;		\
 		} else	{					\
-			BUFFER_HDR_INIT(length, it);		\
+			BUFFER_HDR_INIT(it);			\
 		}						\
 	}							\
 } while (0)
@@ -460,40 +508,60 @@ static inline int
 tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 {
 	TfwMsgParseIter *it = &req->pit;
+	unsigned long to_alloc;
 	bool np;
 	int r;
+
+#define ADJUST_HDR_LEN(it)						\
+do {									\
+	TfwStr *hdr = &it->hdr;						\
+	TfwStr *last = TFW_STR_LAST(hdr);				\
+									\
+	T_DBG3("%s: add to hdr, hdr->len=%lu, last->len=%lu,"		\
+	       " last->data=%.*s\n", __func__, hdr->len, last->len,	\
+	       (int)last->len, last->data);				\
+									\
+	++hdr->len;							\
+	if (!TFW_STR_PLAIN(hdr))					\
+		++last->len;						\
+} while (0)
 
 	if (it->rspace) {
 		--it->rspace;
 		*it->pos++ = sym;
+		ADJUST_HDR_LEN(it);
 		return 0;
 	}
 
-	if (!(it->pos = tfw_pool_alloc_not_align_np(it->pool, 1, &np)))
-		return -ENOMEM;
+	to_alloc = it->to_alloc ? it->to_alloc : 1;
+	if (to_alloc > 1)
+		it->rspace = to_alloc - 1;
 
-	*it->pos = sym;
+	it->pos = tfw_pool_alloc_not_align_np(it->pool, to_alloc, &np);
+	if (!it->pos)
+		return -ENOMEM;
 
 	T_DBG3("%s: it->rspace=%lu, sym=%c, np=%d\n", __func__,
 	       it->rspace, sym, np);
 
-	if (!np) {
-		TfwStr *hdr = &it->hdr;
-		TfwStr *last = TFW_STR_LAST(hdr);
-
-		T_DBG3("%s: add to hdr, hdr->len=%lu, last->len=%lu,"
-		       " last->data=%.*s\n", __func__, hdr->len, last->len,
-		       (int)last->len, last->data);
-
-		++hdr->len;
-		if (!TFW_STR_PLAIN(hdr))
-			++last->len;
+	/*
+	 * If the new page was allocated or it->pos points to
+	 * the buffer, which was allocated to store previously
+	 * decoded header (it->to_alloc != 0) we should expand
+	 * header.
+	 */
+	if (!np && !it->to_alloc) {
+		*it->pos++ = sym;
+		ADJUST_HDR_LEN(it);
 		return 0;
 	}
 
 	r = tfw_hpack_exp_hdr(req->pool, 1, it);
 	if (unlikely(r))
 		return r;
+
+	*it->pos++ = sym;
+	it->to_alloc = 0;
 
 	return 0;
 }
@@ -506,28 +574,14 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	unsigned int i;
 	int r;
 
-#define ADJUST_EXTRA_RSPACE(req)		\
-do {						\
-	TfwMsgParseIter *it = &req->pit;	\
-	TfwStr *hdr = &it->hdr;			\
-	TfwStr *last = TFW_STR_LAST(hdr);	\
-						\
-	hdr->len -= it->rspace;			\
-	if (!TFW_STR_PLAIN(hdr))		\
-		last->len -= it->rspace;	\
-	it->rspace = 0;				\
-} while (0)
-
 	for (;;) {
 		int shift;
 
 		if (hp->curr == -HT_NBITS) {
-			if (likely(offset == 0)) {
-				ADJUST_EXTRA_RSPACE(req);
+			if (likely(offset == 0))
 				return T_OK;
-			} else {
+			else
 				return T_COMPRESSION;
-			}
 		}
 
 		i = (hp->hctx << -hp->curr) & HT_NMASK;
@@ -554,10 +608,8 @@ do {						\
 			 */
 			if (likely(offset == 0)) {
 				if ((i ^ (HT_EOS_HIGH >> 1)) <
-				    (1U << -hp->curr)) {
-					ADJUST_EXTRA_RSPACE(req);
+				    (1U << -hp->curr))
 					return T_OK;
-				}
 			}
 			/*
 			 * The first condition here equivalent to the
@@ -581,10 +633,8 @@ do {						\
 		}
 	}
 	if (likely(offset == 0)) {
-		if ((i ^ (HT_EOS_HIGH >> 1)) < (1U << -hp->curr)) {
-			ADJUST_EXTRA_RSPACE(req);
+		if ((i ^ (HT_EOS_HIGH >> 1)) < (1U << -hp->curr))
 			return T_OK;
-		}
 	}
 	return T_COMPRESSION;
 
