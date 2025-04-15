@@ -67,14 +67,16 @@ typedef struct {
  * @pool	- allocation pool for target buffer of decoded headers;
  * @parsed_hdr	- pointer to the message header which is currently processed;
  * @hdrs_len	- accumulated length of message's decoded and parsed headers;
+ * @rspace	- space remained in the allocated chunk;
+ * @pos		- pointer to the currently allocated chunk of decoded headers'
+ *		  buffer;
  * @hdrs_cnt	- count of all headers from message headers block;
  * @__off	- offset for iterator reinitializing before next processing
  *		  stage;
  * @hdr		- descriptor of currently decoded header in target buffer;
- * @pos		- pointer to the currently allocated chunk of decoded headers'
- *		  buffer;
- * @rspace	- space remained in the allocated chunk;
  * @nm_len	- length of the decoded header's name;
+ * @to_alloc	- count of bytes which, should be allocated, after rspace
+ *		  will be exceeded;
  * @nm_num	- chunks number of the decoded header's name;
  * @tag		- tag of currently processed decoded header.
  * @next	- number of chunk which points to the decoded header part
@@ -84,12 +86,13 @@ typedef struct {
 	TfwPool		*pool;
 	TfwStr		*parsed_hdr;
 	unsigned long	hdrs_len;
+	unsigned long	rspace;
+	char		*pos;
 	unsigned int	hdrs_cnt;
 	char		__off[0];
 	TfwStr		hdr;
-	char		*pos;
-	unsigned long	rspace;
 	unsigned long	nm_len;
+	unsigned long	to_alloc;
 	unsigned int	nm_num;
 	unsigned int	tag;
 	unsigned int	next;
