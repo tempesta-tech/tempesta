@@ -867,6 +867,9 @@ tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
 }
 
 /*
+ * NOTE: This function is currently unused. Please remove the *__maybe_unused*
+ * attribute if you are using it.
+ *
  * Allocate and set up new compound @TfwStr to make it structurally identical
  * to the source TfwStr except for the actual data it points to.
  * The chunk descriptors of the new string would point to the linear
@@ -876,7 +879,7 @@ tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
  * @data_str - plain TfwStr which points to target data buffer.
  * @src	     - source string
  */
-TfwStr *
+TfwStr * __maybe_unused
 tfw_strcpy_comp_ext(TfwPool *pool, const TfwStr *data_str, const TfwStr *src)
 {
 	size_t sz;
