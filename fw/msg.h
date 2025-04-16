@@ -59,7 +59,7 @@ typedef struct {
 	int		frag;
 	struct sk_buff	*skb;
 	struct sk_buff	*skb_head;
-} TfwMsgIter;
+} __attribute__((packed)) TfwMsgIter;
 
 /**
  * Iterator for HTTP/2 message processing.
