@@ -151,21 +151,6 @@ int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm);
-/**
-* Special case for storing HTTP1.1 method to HTTP message headers list.
-*/
-static inline void
-tfw_http_msg_method_close(TfwHttpMsg *hm)
-{
-	TfwHttpParser *parser = &hm->stream->parser;
-
-	BUG_ON(parser->_hdr_tag != TFW_HTTP_METHOD);
-
-	/* Close just parsed method. */
-	parser->hdr.flags |= TFW_STR_COMPLETE;
-	hm->h_tbl->tbl[parser->_hdr_tag] = parser->hdr;
-	TFW_STR_INIT(&parser->hdr);
-}
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
@@ -186,5 +171,21 @@ int tfw_http_msg_linear_transform(TfwMsgIter *it);
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\
 	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\
 			   sizeof(val) - 1, idx)
+
+/**
+* Special case for storing HTTP1.1 method to HTTP message headers list.
+*/
+static inline void
+tfw_http_msg_method_close(TfwHttpMsg *hm)
+{
+	TfwHttpParser *parser = &hm->stream->parser;
+
+	BUG_ON(parser->_hdr_tag != TFW_HTTP_METHOD);
+
+	/* Close just parsed method. */
+	parser->hdr.flags |= TFW_STR_COMPLETE;
+	hm->h_tbl->tbl[parser->_hdr_tag] = parser->hdr;
+	TFW_STR_INIT(&parser->hdr);
+}
 
 #endif /* __TFW_HTTP_MSG_H__ */

@@ -3567,12 +3567,17 @@ tfw_h1_add_loc_hdrs(TfwHttpMsg *hm, const TfwHdrMods *h_mods, bool from_cache)
 		};
 
 		/*
-		 * Skip Host header addition, it already added during request
+		 * Skip Host header addition, it's already added during request
 		 * adjusting.
 		 */
 		if (desc->hid == TFW_HTTP_HDR_HOST)
 			continue;
 
+		/*
+		 * Skip resp_hdr_set with empty value here, that actually
+		 * deletes header. We handle them in tfw_http_hdr_skip()
+		 * during copying headers.
+		 */
 		if (TFW_STR_CHUNK(desc->hdr, 1) == NULL)
 			continue;
 
@@ -3761,7 +3766,7 @@ tfw_h1_req_copy_hdrs(TfwHttpReq *req, const TfwHdrMods *h_mods)
 /**
  * Adjust the request before proxying it to real server.
  *
- * We alway "upgrade" request to HTTP1.1, even if the client has sent HTTP1.0.
+ * We always "upgrade" request to HTTP/1.1, even if the client has sent HTTP/1.0.
  * Do so to be able to use persistent connection with upstream and also to use
  * extended conditional headers mechanism.
  */
@@ -4495,7 +4500,7 @@ tfw_h1_resp_cutoff_headers(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 	     test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags)) &&
 	    resp->body.len > 0)
 	{
-		/* Clean current response skb_head if body is exists. */
+		/* Clean current response skb_head if body exists. */
 		r = tfw_http_resp_set_empty_skb_head(resp, cleanup);
 		if (unlikely(r))
 			return r;
@@ -5173,7 +5178,7 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 		if (unlikely(desc->append && !TFW_STR_EMPTY(&ht->tbl[hid])
 			     && (hid < TFW_HTTP_HDR_NONSINGULAR)))
 		{
-			T_WARN("Attempt to add already existed singular header '%.*s'\n",
+			T_WARN("Attempt to add an already existing singular header '%.*s'\n'\n",
 			PR_TFW_STR(TFW_STR_CHUNK(desc->hdr, 0)));
 			continue;
 		}
@@ -7131,7 +7136,7 @@ tfw_http_resp_term_add_hdr_clen(TfwHttpMsg *hm)
  * Finish a response that is terminated by closing the connection.
  *
  * Http/1 response is terminated by connection close and lacks of framing
- * information(response doesn't have contnent-length header or transfer-encoding
+ * information (response doesn't have content-length header or transfer-encoding
  * chunked). H2 connections have their own framing happening just before
  * forwarding message to network, but h1 connections still require explicit
  * framing.
