@@ -1662,15 +1662,8 @@ TEST(http1_parser, folding)
 
 TEST(http1_parser, accept)
 {
-#define __FOR_ACCEPT(accept_val, EXPECT_HTML_MACRO)			\
-	FOR_REQ_SIMPLE("Accept:" accept_val)				\
-	{								\
-		EXPECT_HTML_MACRO(test_bit(TFW_HTTP_B_ACCEPT_HTML,	\
-					   req->flags));		\
-	}
+#define FOR_ACCEPT(accept_val) FOR_REQ_SIMPLE("Accept:" accept_val)
 
-#define FOR_ACCEPT(accept_val)		__FOR_ACCEPT(accept_val, EXPECT_FALSE)
-#define FOR_ACCEPT_HTML(accept_val)	__FOR_ACCEPT(accept_val, EXPECT_TRUE)
 #define EXPECT_BLOCK_ACCEPT(header)	EXPECT_BLOCK_REQ_SIMPLE("Accept:"header)
 
 #define TEST_ACCEPT_EXT(HEAD)						\
@@ -1770,23 +1763,21 @@ TEST(http1_parser, accept)
 	EXPECT_BLOCK_ACCEPT("*/,,");
 
 	/* HTML validations */
-	FOR_ACCEPT_HTML("  text/html ");
-	FOR_ACCEPT_HTML("  text/html, application/xhtml+xml ");
-	FOR_ACCEPT_HTML("  text/html;q=0.8 ");
-	FOR_ACCEPT_HTML(" text/html,application/xhtml+xml,application/xml;"
+	FOR_ACCEPT("  text/html ");
+	FOR_ACCEPT("  text/html, application/xhtml+xml ");
+	FOR_ACCEPT("  text/html;q=0.8 ");
+	FOR_ACCEPT(" text/html,application/xhtml+xml,application/xml;"
 			"q=0.9,image/webp,image/apng,*/*;q=0.8");
-	FOR_ACCEPT_HTML("  text/html, */*  ");
-	FOR_ACCEPT_HTML("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ");
-	FOR_ACCEPT_HTML("  invalid/invalid; param=\"value value\", text/html");
+	FOR_ACCEPT("  text/html, */*  ");
+	FOR_ACCEPT("  text/html,  invalid/invalid  ;  key=val;   q=0.5 ");
+	FOR_ACCEPT("  invalid/invalid; param=\"value value\", text/html");
 	FOR_ACCEPT("  text/*  ");
 	FOR_ACCEPT("  invalid/invalid;  q=0.5;    key=val, */* ");
 	FOR_ACCEPT(" textK/html");
 
 #undef TEST_ACCEPT_EXT
 #undef EXPECT_BLOCK_ACCEPT
-#undef FOR_ACCEPT_HTML
 #undef FOR_ACCEPT
-#undef __FOR_ACCEPT
 }
 
 TEST(http1_parser, host)
