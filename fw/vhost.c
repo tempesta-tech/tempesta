@@ -745,6 +745,8 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 	TfwHdrMods *h_mods = &loc->mod_hdrs[mod_type];
 	TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->sz];
 
+	BUILD_BUG_ON(TFW_HTTP_HDR_RAW > TFW_MOD_SPEC_HDR_NUM);
+
 	if (unlikely(h_mods->sz == TFW_USRHDRS_ARRAY_SZ)) {
 		T_WARN_NL("Too lot of custom headers, %d supported.\n",
 			  TFW_USRHDRS_ARRAY_SZ);

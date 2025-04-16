@@ -143,7 +143,7 @@ static struct {
 	unsigned int	sz;
 } tfw_wl_marks;
 
-static DEFINE_TFW_STR(STR_CRLF, S_CRLF);
+static const DEFINE_TFW_STR(STR_CRLF, S_CRLF);
 static const DEFINE_TFW_STR(STR_CLEN_ZERO, "Content-Length: 0");
 
 /**
@@ -3254,7 +3254,7 @@ tfw_http_expand_stale_warn(TfwHttpResp *resp)
 	return tfw_http_msg_expand_data(&resp->iter, skb_head, &wh, NULL);
 }
 
-static inline int
+static __always_inline int
 __tfw_http_add_hdr_date(TfwHttpResp *resp, bool cache)
 {
 	int r;
@@ -3271,6 +3271,8 @@ __tfw_http_add_hdr_date(TfwHttpResp *resp, bool cache)
 	};
 
 	tfw_http_prep_date_from(date, resp->date);
+
+	BUILD_BUG_ON(!__builtin_constant_p(cache));
 
 	if (!cache)
 		r = tfw_http_msg_expand_from_pool((TfwHttpMsg *)resp, &h_date);
@@ -4435,7 +4437,7 @@ err:
 	return -EINVAL;
 }
 
-unsigned long
+static unsigned long
 tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
 {
 	unsigned long conn_flg = 0;
