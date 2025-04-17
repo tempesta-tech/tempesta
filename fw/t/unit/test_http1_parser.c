@@ -275,6 +275,9 @@ TEST(http1_parser, parses_req_uri)
 	EXPECT_BLOCK_REQ("GET http://:443 HTTP/1.1\r\n"
 			 "Host: localhost\r\n\r\n");
 
+	EXPECT_BLOCK_REQ("GET http://tempesta-tech.com: HTTP/1.1\r\n"
+			 "Host: localhost\r\n\r\n");
+
 #undef TEST_FULL_REQ
 #undef TEST_URI_PATH
 }
@@ -1854,6 +1857,7 @@ TEST(http1_parser, host)
 
 	/* Invalid port */
 	EXPECT_BLOCK_REQ_SIMPLE("Host: tempesta-tech.com:0");
+	EXPECT_BLOCK_REQ_SIMPLE("Host: tempesta-tech.com:");
 	EXPECT_BLOCK_REQ_SIMPLE("Host: tempesta-tech.com:65536");
 	EXPECT_BLOCK_DIGITS("Host: tempesta-tech.com:", "",
 			    EXPECT_BLOCK_REQ_SIMPLE);
