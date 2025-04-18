@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,11 +34,16 @@ typedef struct {
 #define WQ_ITEM_SZ		sizeof(__WqItem)
 #define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
+/**
+ * MPSC (Multiple Producer, Single Consumer) Lock-Free Ring Buffer Queue.
+ *
+ * Producers concurrently push items onto the queue using atomic operations
+ * on the head pointer. The single consumer reads items and updates the tail
+ * pointer.
+ */
 typedef struct {
-	atomic64_t __percpu	*heads;
 	__WqItem		*array;
 	size_t			qsize;
-	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
 	unsigned long		flags;
@@ -69,7 +74,7 @@ tfw_wq_size(TfwRBQueue *q)
 	long t = atomic64_read(&q->tail);
 	long h = atomic64_read(&q->head);
 
-	return t > h ? 0 : h - t;
+	return h >= t ? h - t : 0;
 }
 
 static inline void
@@ -95,7 +100,7 @@ tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	 */
 	smp_mb__after_atomic();
 
-	if (test_bit(TFW_QUEUE_IPI, &q->flags))
+	if (test_and_clear_bit(TFW_QUEUE_IPI, &q->flags))
 		tfw_raise_softirq(cpu, work, local_cpu_cb);
 
 	return 0;
