@@ -74,11 +74,11 @@ typedef struct {
  * @pos		- pointer to the currently allocated chunk of decoded headers'
  *		  buffer;
  * @rspace	- space remained in the allocated chunk;
- * @next	- pointer to the decoded header part (name/value) to be
- *		- parsed next;
  * @nm_len	- length of the decoded header's name;
  * @nm_num	- chunks number of the decoded header's name;
  * @tag		- tag of currently processed decoded header.
+ * @next	- number of chunk which points to the decoded header part
+ *		  (name/value) to be parsed next;
  */
 typedef struct {
 	TfwPool		*pool;
@@ -89,10 +89,10 @@ typedef struct {
 	TfwStr		hdr;
 	char		*pos;
 	unsigned long	rspace;
-	TfwStr		*next;
 	unsigned long	nm_len;
 	unsigned int	nm_num;
 	unsigned int	tag;
+	unsigned int	next;
 } TfwMsgParseIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
