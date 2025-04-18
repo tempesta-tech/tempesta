@@ -10228,7 +10228,7 @@ __FSM_STATE(st, cold) {							\
 
 	__FSM_H2_TX_AF(Req_HdrPro, 'x', Req_HdrProx);
 	__FSM_H2_TX_AF(Req_HdrProx, 'y', Req_HdrProxy);
-	__FSM_H2_TX_AF(Req_HdrProxy, '_', Req_HdrProxy_);
+	__FSM_H2_TX_AF(Req_HdrProxy, '-', Req_HdrProxy_);
 	__FSM_H2_TX_AF(Req_HdrProxy_, 'c', Req_HdrProxy_C);
 	__FSM_H2_TX_AF(Req_HdrProxy_C, 'o', Req_HdrProxy_Co);
 	__FSM_H2_TX_AF(Req_HdrProxy_Co, 'n', Req_HdrProxy_Con);
