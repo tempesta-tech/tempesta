@@ -836,3 +836,24 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 
 	return 0;
 }
+
+int
+tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len)
+{
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(resp->req->conn);
+	TfwStream *stream;
+
+	spin_lock(&ctx->lock);
+
+	stream = resp->req->stream;
+	if (!stream) {
+		spin_unlock(&ctx->lock);
+		return -EPIPE;
+	}
+
+	stream->xmit.t_len = t_len;
+
+	spin_unlock(&ctx->lock);
+
+	return 0;
+}

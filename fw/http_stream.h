@@ -215,6 +215,7 @@ TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
+int tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
 void tfw_h2_stream_purge_send_queue(TfwStream *stream);
