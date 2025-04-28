@@ -1018,6 +1018,7 @@ static TfwCfgSrvGroup *
 __tfw_cfgop_new_sg_cfg(const char *name, unsigned int len)
 {
 	TfwCfgSrvGroup *sg_cfg = kmem_cache_alloc(tfw_sg_cfg_cache, GFP_KERNEL);
+
 	if (!sg_cfg)
 		return NULL;
 
@@ -1842,11 +1843,12 @@ static int
 tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
-		tfw_cfg_sg->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
+		tfw_cfg_sg->parsed_sg->sched =
+			tfw_cfg_sg_opts->parsed_sg->sched;
 		tfw_cfg_sg->sched_flags = tfw_cfg_sg_opts->sched_flags;
-		tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
-					    tfw_cfg_sg_opts->sched_arg);
-		return 0;
+
+		return tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
+						   tfw_cfg_sg_opts->sched_arg);
 	}
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sg->parsed_sg->sched,
 				       &tfw_cfg_sg->sched_arg,
@@ -1979,8 +1981,8 @@ tfw_sock_srv_cfgclean(void)
 static int
 tfw_sock_srv_cfgend(void)
 {
-	int r;
 	TfwCfgSrvGroup *sg_cfg;
+	int r;
 
 	/* Check health monitor existence for configured server groups. */
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
@@ -2002,13 +2004,17 @@ tfw_sock_srv_cfgend(void)
 	/* Options for implicit group are not filled, use current defaults. */
 	tfw_cfgop_sg_copy_opts(tfw_cfg_sg_def->parsed_sg,
 			       tfw_cfg_sg_opts->parsed_sg);
-	tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
-				    tfw_cfg_sg_opts->sched_arg);
+
+	r = tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
+					tfw_cfg_sg_opts->sched_arg);
+	if (unlikely(r))
+		return r;
 	tfw_cfg_sg_def->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
 	tfw_cfg_sg_def->nip_flags = tfw_cfg_sg_opts->nip_flags;
 	tfw_cfg_sg_def->sched_flags = tfw_cfg_sg_opts->sched_flags;
 
-	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def)))
+	r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def);
+	if (unlikely(r))
 		return r;
 	tfw_cfg_sg_def = NULL;
 
@@ -2463,8 +2469,10 @@ tfw_sock_srv_init(void)
 
 	tfw_sg_cfg_cache = kmem_cache_create("tfw_sg_cfg_cache",
 					     sizeof(TfwCfgSrvGroup), 0, 0, NULL);
-	if (!tfw_sg_cfg_cache)
+	if (!tfw_sg_cfg_cache) {
+		kmem_cache_destroy(tfw_srv_conn_cache);
 		return -ENOMEM;
+	}
 
 	tfw_mod_register(&tfw_sock_srv_mod);
 
