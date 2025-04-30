@@ -3195,10 +3195,8 @@ __parse_etag_or_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		* If-None-Match header field.
 		*/
 		if (if_nmatch
-		    && req->cond.flags & TFW_HTTP_COND_IF_MSINCE) {
+		    && req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
 			req->cond.m_date = 0;
-			req->cond.flags &= ~TFW_HTTP_COND_IF_MSINCE;
-		}
 
 		if (likely(c == '"')) {
 			if (if_nmatch)
@@ -8317,10 +8315,8 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	 * A recipient MUST ignore If-Modified-Since if the request contains an
 	 * If-None-Match header field.
 	 */
-	if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE) {
+	if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
 		req->cond.m_date = 0;
-		req->cond.flags &= ~TFW_HTTP_COND_IF_MSINCE;
-	}
 
 	/*
 	 * ETag value and closing DQUOTE are placed into separate chunks (see
