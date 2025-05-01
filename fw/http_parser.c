@@ -8673,10 +8673,7 @@ do {										\
 		parser->_acc = 0;
 		/* Skip the rest of the line. */
 		__FSM_H2_I_MATCH_MOVE(nctl, I_EoL);
-		if (!IS_CRLF(*(p + __fsm_sz)))
-			return CSTR_NEQ;
-		T_DBG3("%s: parsed date %lu", __func__, parser->_date);
-		return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 done:
