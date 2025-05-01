@@ -282,7 +282,7 @@ do {								\
 do {								\
 	(it)->hdr.data = (it)->pos;				\
 	(it)->hdr.len = length;					\
-	(it)->next = &(it)->hdr;				\
+	(it)->next = 0;						\
 } while (0)
 
 #define	BUFFER_NAME_OPEN(length)				\
@@ -311,11 +311,15 @@ do {								\
 			r = -ENOMEM;				\
 			goto out;				\
 		}						\
-		if (!TFW_STR_EMPTY(&it->hdr))			\
-			it->next = tfw_hpack_exp_hdr(req->pool,	\
-						     length, it); \
-		else						\
+		if (!TFW_STR_EMPTY(&it->hdr)) {			\
+			r = tfw_hpack_exp_hdr(req->pool, length, \
+					      it); 		\
+			if (unlikely(r))			\
+				return r;			\
+			it->next = it->hdr.nchunks - 1;		\
+		} else	{					\
 			BUFFER_HDR_INIT(length, it);		\
+		}						\
 	}							\
 } while (0)
 
@@ -324,11 +328,11 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 {
 	const TfwStr *c, *end;
 	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *hdr = &it->hdr, *next = it->next;
+	const TfwStr *hdr = &it->hdr;
 	int ret = -EINVAL;
 
-	WARN_ON_ONCE(next != hdr);
-	TFW_STR_FOR_EACH_CHUNK(c, next, end) {
+	WARN_ON_ONCE(it->next != 0);
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		bool last = c + 1 == end;
 
 		WARN_ON_ONCE(ret == T_OK);
@@ -344,7 +348,8 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 {
 	const TfwStr *chunk, *end;
 	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *hdr = &it->hdr, *next = it->next;
+	const TfwStr *hdr = &it->hdr;
+	const TfwStr *next = TFW_STR_CHUNK(hdr, it->next);
 	int ret = -EINVAL;
 
 	BUG_ON(TFW_STR_DUP(hdr));
@@ -431,27 +436,28 @@ write_int(unsigned long index, unsigned short max, unsigned short mask,
 	res_idx->sz = size;
 }
 
-static inline TfwStr *
+static int
 tfw_hpack_exp_hdr(TfwPool *__restrict pool, unsigned long len,
 		  TfwMsgParseIter *__restrict it)
 {
 	TfwStr *new;
 
 	if (!(new = tfw_str_add_compound(pool, &it->hdr)))
-		return NULL;
+		return -ENOMEM;
 
 	new->data = it->pos;
 	new->len = len;
 	it->hdr.len += len;
 
-	return new;
+	return 0;
 }
 
 static inline int
 tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 {
-	bool np;
 	TfwMsgParseIter *it = &req->pit;
+	bool np;
+	int r;
 
 	if (it->rspace) {
 		--it->rspace;
@@ -481,7 +487,11 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 		return 0;
 	}
 
-	return tfw_hpack_exp_hdr(req->pool, 1, it) ? 0 : -ENOMEM;
+	r = tfw_hpack_exp_hdr(req->pool, 1, it);
+	if (unlikely(r))
+		return r;
+
+	return 0;
 }
 
 static int
