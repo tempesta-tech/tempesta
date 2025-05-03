@@ -695,7 +695,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
 
 		if (*window > 0) {
-			if (tfw_h2_stream_sched_active_cnt(&ctx->sched.root)) {
+			if (ctx->sched.root.active_cnt) {
 				sock_set_flag(((TfwConn *)conn)->sk,
 					       SOCK_TEMPESTA_HAS_DATA);
 				tcp_push_pending_frames(((TfwConn *)conn)->sk);
@@ -2221,7 +2221,7 @@ do {									\
 	}								\
 } while(0)
 
-	while (tfw_h2_stream_sched_active_cnt(&sched->root)
+	while (sched->root.active_cnt
 	       && snd_wnd > FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD
 	       && ctx->rem_wnd > 0)
 	{
@@ -2274,8 +2274,7 @@ do {									\
 			break;
 	}
 
-	*data_is_available =
-		tfw_h2_stream_sched_active_cnt(&sched->root) && ctx->rem_wnd;
+	*data_is_available = sched->root.active_cnt && ctx->rem_wnd;
 
 	return r;
 
