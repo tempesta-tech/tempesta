@@ -72,12 +72,6 @@ TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSched *sched,
 void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_sched_deactivate_stream(TfwStreamSched *sched, TfwStream *stream);
 
-static inline long int
-tfw_h2_stream_sched_active_cnt(TfwStreamSchedEntry *sched)
-{
-	return sched->active_cnt;
-}
-
 static inline void
 tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
 {
