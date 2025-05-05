@@ -877,7 +877,7 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 }
 
 /* Simple version of tfw_str_eq_cstr. */
-static bool __always_inline
+static __always_inline bool
 __tfw_str_eq_cstr(const char *cstr, unsigned long clen, TfwStr **pos,
 		  const TfwStr *end)
 {
