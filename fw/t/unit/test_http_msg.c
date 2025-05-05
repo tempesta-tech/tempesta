@@ -123,8 +123,11 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 
 	for (i = 0; i < nr_frags; ++i) {
 		skb_fill_page_desc(skb, i, page, 0, paged_data->len);
+		get_page(page);
 		ss_skb_adjust_data_len(skb, paged_data->len);
 	}
+
+	put_page(page);
 
 	return hmresp;
 }
