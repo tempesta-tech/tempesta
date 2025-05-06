@@ -825,12 +825,11 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
  * may be used. (See __tfw_http_msg_alloc(full=False)).
  */
 int
-tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
-		   unsigned int flags)
+tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 {
 	int r;
 
-	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, flags)))
+	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len)))
 		return r;
 	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
