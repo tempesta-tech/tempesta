@@ -1091,7 +1091,6 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	TfwMsgIter *it;
 	TfwHttpResp *resp;
 	struct sk_buff **skb_head;
-	unsigned int stream_id = 0;
 	unsigned long h_len = 0;
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
@@ -1110,10 +1109,6 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (unlikely(r))
 			goto err_setup;
 	} else {
-		stream_id = tfw_h2_req_stream_id(req);
-		if (unlikely(!stream_id))
-			goto err_setup;
-
 		resp->mit.start_off = FRAME_HEADER_SIZE;
 
 		r = tfw_h2_resp_status_write(resp, 304, false, true);
@@ -3192,8 +3187,8 @@ write_body:
 						     TFW_CACHE_TRAILER))
 				goto free;
 		}
-		if (h2_mode)
-			resp->req->stream->xmit.t_len = t_len;
+		if (h2_mode && tfw_h2_stream_init_t_len_for_xmit(resp, t_len))
+			goto free;
 	}
 
 	/*
@@ -3318,17 +3313,6 @@ cache_do_service_request_stale(TfwHttpReq *req, tfw_http_cache_cb_t action,
 	req->stale_ce = stale_ce;
 	req->stale_ce_age = age;
 
-	/*
-	 * If the stream for HTTP/2-request is already closed (due to some
-	 * error or just reset from the client side), there is no sense to
-	 * forward request to the server.
-	 */
-	if (TFW_MSG_H2(req) && unlikely(!tfw_h2_req_stream_id(req))) {
-		/* Here stale_ce will be released by req destructor. */
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
-		return;
-	}
-
 	action((TfwHttpMsg *)req);
 }
 
@@ -3352,7 +3336,6 @@ cache_do_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action,
 			 TfwCacheEntry *ce, long age)
 {
 	TfwHttpResp *resp = NULL;
-	unsigned int id = 0;
 
 	T_DBG("Cache: service request [%p] w/ key=%lx, ce=%p", req,
 	      ce->trec.key, ce);
@@ -3361,19 +3344,6 @@ cache_do_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action,
 
 	if (!tfw_handle_validation_req(req, ce))
 		return;
-
-	/*
-	 * If the stream for HTTP/2-request is already closed (due to some
-	 * error or just reset from the client side), there is no sense to
-	 * forward response to the client.
-	 */
-	if (TFW_MSG_H2(req)) {
-		id = tfw_h2_req_stream_id(req);
-		if (unlikely(!id)) {
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			return;
-		}
-	}
 
 	resp = tfw_cache_build_resp(req, ce, age);
 	if (unlikely(!resp)) {
@@ -3388,15 +3358,8 @@ cache_do_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action,
 	 * send this response to the client (without forwarding request to
 	 * the backend), thus the stream will be finished.
 	 */
-	if (TFW_MSG_H2(req)) {
-		id = tfw_h2_req_stream_id(req);
-		if (unlikely(!id)) {
-			tfw_http_msg_free((TfwHttpMsg *)resp);
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			return;
-		}
+	if (TFW_MSG_H2(req))
 		tfw_h2_req_unlink_stream(req);
-	}
 
 	action((TfwHttpMsg *)req);
 }
