@@ -1761,7 +1761,8 @@ tfw_classifier_cleanup_inport(void)
 static int
 tfw_classify_conn_estab(struct sock *sk, struct sk_buff *skb)
 {
-	if (test_bit(tfw_addr_get_sk_sport(sk), tfw_inports))
+	if (test_bit(tfw_addr_get_sk_sport(sk), tfw_inports)
+	    && sock_flag(sk, SOCK_TEMPESTA))
 		return frang_conn_new(sk, skb);
 
 	return T_OK;
