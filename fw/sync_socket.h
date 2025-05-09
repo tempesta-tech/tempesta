@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -161,6 +161,14 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 /* Conversion of skb type (flag) to/from TLS record type. */
 #define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)
 #define SS_SKB_F2TYPE(f)		((f) >> 8)
+
+/* Init functions. */
+int tfw_sync_socket_init(void);
+void tfw_sync_socket_exit(void);
+int tfw_sock_clnt_init(void);
+void tfw_sock_clnt_exit(void);
+int tfw_sock_srv_init(void);
+void tfw_sock_srv_exit(void);
 
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);

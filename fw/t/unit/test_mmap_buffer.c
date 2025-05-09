@@ -25,7 +25,7 @@
 
 static TfwMmapBufferHolder *holder;
 
-unsigned int
+static unsigned int
 tfw_mmap_buffer_get_read_room(TfwMmapBufferHolder *holder, char **data)
 {
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
@@ -38,7 +38,7 @@ tfw_mmap_buffer_get_read_room(TfwMmapBufferHolder *holder, char **data)
 	return smp_load_acquire(&buf->head) - buf->tail;
 }
 
-void
+static void
 tfw_mmap_buffer_read_commit(TfwMmapBufferHolder *holder, unsigned int size)
 {
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);

@@ -47,7 +47,7 @@ typedef struct {
 	struct hlist_node	hlist;
 	TfwVhost		*vhost;
 	size_t			sni_len;
-	char			sni[0];
+	DECLARE_FLEX_ARRAY(char, sni);
 } TfwSVHMap;
 
 #define TFW_VH_HBITS	10

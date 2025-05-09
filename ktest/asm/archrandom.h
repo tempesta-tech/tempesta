@@ -1,8 +1,7 @@
 /**
- *		Tempesta FW
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,13 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_FILTER_H__
-#define __TFW_FILTER_H__
+#ifndef __ARCHRANDOM_H__
+#define __ARCHRANDOM_H__
 
-#include "client.h"
+static inline size_t
+arch_get_random_longs(unsigned long *v, size_t max_longs)
+{
+	return max_longs && __builtin_ia32_rdrand64_step((unsigned long long *)v);
+}
 
-int tfw_filter_init(void);
-void tfw_filter_exit(void);
-void tfw_filter_block_ip(const TfwClient *cli);
-
-#endif /* __TFW_FILTER_H__ */
+#endif /* __ARCHRANDOM_H__ */
