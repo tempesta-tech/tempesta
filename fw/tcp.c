@@ -68,7 +68,7 @@ tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
 	const bool tcp_fragment = skb->len != skb->data_len;
 
 	INIT_LIST_HEAD(&nskb->tcp_tsorted_anchor);
-	skb_shinfo(nskb)->tx_flags = 0;
+	skb_shinfo(nskb)->flags = 0;
 	memset(TCP_SKB_CB(nskb), 0, sizeof(struct tcp_skb_cb));
 
 	/* PSH and FIN should only be set in the second packet. */
@@ -85,7 +85,7 @@ tfw_tcp_setup_new_skb(struct sock *sk, struct sk_buff *skb,
 	tcb_nskb->sacked = tcp_fragment ? TCP_SKB_CB(skb)->sacked : 0;
 
 	tcp_skb_fragment_eor(skb, nskb);
-		
+
 	nskb->ip_summed = CHECKSUM_PARTIAL;
 	if (tcp_fragment)
 		nskb->tstamp = skb->tstamp;
