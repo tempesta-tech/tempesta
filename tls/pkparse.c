@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -400,13 +400,13 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 {
 	int r;
 
-	kernel_fpu_begin();
 	local_bh_disable();
+	kernel_fpu_begin();
 
 	r = __parse_key_pkcs1_der(rsa, key, keylen);
 
-	local_bh_enable();
 	kernel_fpu_end();
+	local_bh_enable();
 
 	return r;
 }
