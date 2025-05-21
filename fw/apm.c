@@ -1047,8 +1047,12 @@ tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats)
 int
 tfw_apm_stats_global(TfwPrcntlStats *pstats)
 {
-	BUG_ON(!tfw_apm_global_data);
-	return __tfw_apm_stats(tfw_apm_global_data, pstats);
+    if (!tfw_apm_global_data) {
+        pr_warn("tfw_apm: global data not initialized, skipping stats\n");
+        memset(pstats, 0, sizeof(*pstats));
+        return -ENODATA;
+    }
+    return __tfw_apm_stats(tfw_apm_global_data, pstats);
 }
 
 /*
@@ -2227,3 +2231,4 @@ tfw_apm_exit(void)
 {
 	tfw_mod_unregister(&tfw_apm_mod);
 }
+

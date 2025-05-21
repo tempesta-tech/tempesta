@@ -108,30 +108,40 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
-#define SPRNED(m, e)	seq_printf(seq, m": %ums\n", e)
-#define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
+#define SPRNE(m, e)  seq_printf(seq, m": %llu\n", e)
+#define SPRNED(m, e)  seq_printf(seq, m": %ums\n", e)
+#define SPRN(m, c)  seq_printf(seq, m": %llu\n", stat.c)
 
-	int i;
+	int i, ret;
 	TfwPerfStat stat = {0};
 	u64 serv_conn_active, serv_conn_sched;
 	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
-				  GFP_KERNEL);
+				GFP_KERNEL);
 	unsigned int val[T_PSZ] = { 0 };
 	TfwPrcntlStats pstats = {.val = val};
 
 	if (!ss_stat)
-		T_WARN("Cannot allocate sync sockets statistics\n");
+    	T_WARN("Cannot allocate sync sockets statistics\n");
 
 	if (health_stat_codes) {
 		stat.hm = kmalloc(tfw_hm_stats_size(health_stat_codes->ccnt),
-				  GFP_KERNEL);
+				GFP_KERNEL);
 		if (stat.hm)
 			tfw_hm_stats_clone(stat.hm, health_stat_codes);
 	}
 
 	tfw_perfstat_collect(&stat);
-	tfw_apm_stats_global(&pstats);
+	ret = tfw_apm_stats_global(&pstats);
+	if (ret < 0) {
+		seq_printf(seq, "Minimal response time\t\t: n/a\n");
+		seq_printf(seq, "Average response time\t\t: n/a\n");
+		seq_printf(seq, "Median  response time\t\t: n/a\n");
+		seq_printf(seq, "Percentiles\n");
+		for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i) {
+			seq_printf(seq, "%02d%%:\t n/a\n", tfw_pstats_ith[i]);
+		}
+		goto skip_apm;
+	}
 
 	SPRNED("Minimal response time\t\t", pstats.val[TFW_PSTATS_IDX_MIN]);
 	SPRNED("Average response time\t\t", pstats.val[TFW_PSTATS_IDX_AVG]);
@@ -139,21 +149,22 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRNED("Maximum response time\t\t", pstats.val[TFW_PSTATS_IDX_MAX]);
 	seq_printf(seq, "Percentiles\n");
 	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i)
-		seq_printf(seq, "%02d%%:\t%dms\n",
-				pstats.ith[i], pstats.val[i]);
+    	seq_printf(seq, "%02d%%:\t%dms\n",
+        	pstats.ith[i], pstats.val[i]);
+
+	skip_apm:
 
 	/* Ss statistics. */
 	SPRN("SS work queue full\t\t\t", ss.wq_full);
 	if (ss_stat) {
-		int cpu;
-
+    	int cpu;
 		ss_get_stat(ss_stat);
 		seq_printf(seq, "SS work queues' sizes\t\t\t:");
 		for_each_online_cpu(cpu)
-			seq_printf(seq, " %u", ss_stat[cpu].rb_wq_sz);
+		seq_printf(seq, " %u", ss_stat[cpu].rb_wq_sz);
 		seq_printf(seq, "\nSS backlog's sizes\t\t\t:");
 		for_each_online_cpu(cpu)
-			seq_printf(seq, " %u", ss_stat[cpu].backlog_sz);
+		seq_printf(seq, " %u", ss_stat[cpu].backlog_sz);
 		seq_printf(seq, "\n");
 		kfree(ss_stat);
 	} else {
@@ -178,13 +189,13 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Client connection attempts\t\t", clnt.conn_attempts);
 	SPRN("Client established connections\t\t", clnt.conn_established);
 	SPRNE("Client connections active\t\t",
-	      stat.clnt.conn_established - stat.clnt.conn_disconnects);
+			stat.clnt.conn_established - stat.clnt.conn_disconnects);
 	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
 	SPRN("Client max streams number exceeded\t", clnt.streams_num_exceeded);
 
 	/* Server related statistics. */
 	serv_conn_active = stat.serv.conn_established
-			   - stat.serv.conn_disconnects;
+			- stat.serv.conn_disconnects;
 	serv_conn_sched = serv_conn_active - stat.serv.conn_restricted;
 
 	SPRN("Server messages received\t\t", serv.rx_messages);
@@ -204,8 +215,8 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 		seq_printf(seq, "Tempesta health statistics:\n");
 		for (i = 0; i < stat.hm->ccnt; ++i) {
 			seq_printf(seq, "\tHTTP '%d' code\t: %llu\n",
-				   stat.hm->rsums[i].code,
-				   stat.hm->rsums[i].total);
+			stat.hm->rsums[i].code,
+			stat.hm->rsums[i].total);
 		}
 	}
 
