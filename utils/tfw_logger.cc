@@ -26,10 +26,12 @@
 #include <unistd.h>
 
 #include <fstream>
-#include <future>
+#include <thread>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <atomic>
+#include <vector>
 
 #include <boost/program_options.hpp>
 #include <clickhouse/base/socket.h>
@@ -39,16 +41,14 @@
 #include "clickhouse.hh"
 #include "mmap_buffer.hh"
 #include "error.hh"
+#include "tfw_logger_config.hh"
 
 namespace po = boost::program_options;
 
-constexpr char dev_path[]	= "/dev/tempesta_mmap_log";
-constexpr char table_name[]	= "access_log";
-constexpr char pid_file_path[]	= "/var/run/tfw_logger.pid";
-constexpr std::chrono::seconds		wait_for_dev{1};
-constexpr std::chrono::milliseconds	wait_for_stop(10);
-constexpr std::chrono::seconds		reconnect_min_timeout{1};
-constexpr std::chrono::seconds		reconnect_max_timeout{16};
+constexpr char dev_path[] = "/dev/tempesta_mmap_log";
+constexpr std::chrono::seconds wait_for_dev{1};
+constexpr std::chrono::seconds reconnect_min_timeout{1};
+constexpr std::chrono::seconds reconnect_max_timeout{16};
 
 typedef struct {
 	const char		*name;
@@ -73,6 +73,27 @@ static const TfwField tfw_fields[] = {
 
 std::atomic<bool> stop_flag{false};
 static thread_local bool uncritical_error;
+static TfwLoggerConfig config;
+
+/**
+ * Parse all command line options in one place.
+ */
+struct ParsedOptions {
+	// Basic commands
+	std::optional<fs::path> config_path;
+	bool generate = false;
+	bool help = false;
+	
+	// Configuration overrides
+	std::optional<std::string> clickhouse_host;
+	std::optional<uint16_t> clickhouse_port;
+	std::optional<std::string> clickhouse_user;
+	std::optional<std::string> clickhouse_password;
+	std::optional<size_t> clickhouse_max_events;
+	std::optional<int> clickhouse_max_wait_ms;
+	std::optional<size_t> cpu_count;
+	std::optional<fs::path> log_path;
+};
 
 #ifdef DEBUG
 static void
@@ -132,7 +153,6 @@ make_block()
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
 		const TfwField *field = &tfw_fields[i];
-
 		auto col = tfw_column_factory(field->code);
 		block.AppendColumn(field->name, col);
 	}
@@ -232,9 +252,8 @@ callback(const char *data, int size, void *private_data)
 		uncritical_error = false;
 }
 
-void
-run_thread(const int ncpu, const int fd, const std::string &host,
-	   const std::string &user, const std::string &password)
+void 
+run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
 {
 	static thread_local std::chrono::seconds timeout(reconnect_min_timeout);
 	cpu_set_t cpuset;
@@ -244,30 +263,42 @@ run_thread(const int ncpu, const int fd, const std::string &host,
 
 	while (!stop_flag) {
 		try {
-			TfwClickhouse clickhouse(host, table_name,
-						 user, password, make_block());
+			const auto &ch_cfg = config.get_clickhouse();
+
+			spdlog::info("Worker {} connecting to ClickHouse at {}:{}",
+				     ncpu, ch_cfg.host, ch_cfg.port);
+
+			// Use full table name to avoid confusion
+			TfwClickhouse clickhouse(ch_cfg.host, "access_log.access_log",
+						ch_cfg.user ? *ch_cfg.user : "",
+						ch_cfg.password ? *ch_cfg.password : "",
+						make_block());
 
 			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 
+			// Set CPU affinity for this thread
 			if (!affinity_is_set) {
 				CPU_ZERO(&cpuset);
 				CPU_SET(mbr.get_cpu_id(), &cpuset);
 
 				r = pthread_setaffinity_np(current_thread,
-							sizeof(cpu_set_t), &cpuset);
+							   sizeof(cpu_set_t), &cpuset);
 				if (r != 0)
-					throw Except("Affinity setting failed");
+					throw Except("Failed to set CPU affinity");
 
 				affinity_is_set = true;
+				spdlog::debug("Worker {} bound to CPU {}",
+					      ncpu, mbr.get_cpu_id());
 			}
 
+			// Main processing loop
 			mbr.run(&stop_flag);
 
 			break;
 		}
 		catch (const Exception &e) {
 			log_error(e.what(), true, false);
-			/* All the manually thrown exceptions are critical */
+			// All manually thrown exceptions are critical
 			break;
 		}
 		catch (const std::exception &e) {
@@ -283,13 +314,15 @@ run_thread(const int ncpu, const int fd, const std::string &host,
 				timeout *= 2;
 		}
 	}
+
+	spdlog::info("Worker {} stopped", ncpu);
 }
 
 void
-sig_handler([[maybe_unused]] int  sig_num) noexcept
+sig_handler([[maybe_unused]] int sig_num) noexcept
 {
 	stop_flag = true;
-	spdlog::info("Stopping daemon...");
+	spdlog::info("Received signal {}, stopping...", sig_num);
 }
 
 void
@@ -310,177 +343,317 @@ set_sig_handlers() noexcept
 	sigaction(SIGTERM, &sa, NULL);
 }
 
-void stop_daemon()
+/**
+ * Create default configuration file if it doesn't exist.
+ */
+void 
+ensure_default_config(const fs::path &config_path)
 {
-	pid_t pid;
-	std::ifstream pid_file(pid_file_path);
+	if (fs::exists(config_path)) {
+		std::cout << "Configuration file already exists: " << config_path << std::endl;
+		return;
+	}
 
-	std::cout << "Stopping daemon..." << std::endl;
+	std::cout << "Creating default configuration at: " << config_path << std::endl;
 
-	if (!pid_file)
-		throw Except("No PID file found. Is the daemon running?");
+	// Create directory if needed
+	fs::create_directories(config_path.parent_path());
 
-	pid_file >> pid;
-	pid_file.close();
-
-	if (pid <= 0)
-		throw Except("Invalid PID in PID file.");
-
-	if (kill(pid, SIGTERM) < 0)
-		throw Except("Failed to stop daemon: {}", strerror(errno));
-
-	while (1) {
-		if (kill(pid, 0) == -1 && errno == ESRCH)
-			break;
-		std::this_thread::sleep_for(wait_for_stop);
-        }
-
-	std::cout << "Daemon stopped." << std::endl;
+	// Create and save default configuration
+	TfwLoggerConfig default_config;
+	if (!default_config.save_to_file(config_path)) {
+		throw Except("Failed to create default configuration file");
+	}
 }
 
-int
-main(int argc, char* argv[])
+/**
+ * Setup spdlog logger based on configuration.
+ */
+std::shared_ptr<spdlog::logger> 
+setup_logger(const TfwLoggerConfig &config)
 {
-	std::vector<std::thread> threads;
-	std::vector<std::future<void>> futures;
-	unsigned int i;
-	long int cpu_cnt;
-	int fd = -1, res = 0;
-	bool stop = false;
-	std::shared_ptr<spdlog::logger> logger = nullptr;
-
+	// Create log directory if needed
+	fs::create_directories(fs::path(config.get_log_path()).parent_path());
+	
 	try {
-		po::options_description desc{"Usage: tfw_logger "
-					     "([options] <host> <log>) | --stop"};
-		desc.add_options()
-			("help,h", "show this message and exit")
-			("host,H", po::value<std::string>(),
-				"clickserver host address (required)")
-			("log,l", po::value<std::string>(),
-				"log path (required)")
-			("ncpu,n", po::value<unsigned int>(),
-				"manually specifying the number of CPUs")
-			("stop,s", po::bool_switch(&stop), "stop the daemon")
-			("user,u", po::value<std::string>(), "clickhouse user")
-			("password,p", po::value<std::string>(),
-			 "clickhouse password")
-			;
-		po::positional_options_description pos_desc;
-		pos_desc.add("host", 1);
-		pos_desc.add("log", -1);
-		po::variables_map vm;
-		po::store(po::command_line_parser(argc, argv)
-			.options(desc)
-			.positional(pos_desc)
-			.run(),
-			vm);
-		po::notify(vm);
-
-		if (stop) {
-			if (vm.size() > 1)
-				throw Except("--stop can't be used with "
-					     "another arguments");
-			stop_daemon();
-			return 0;
-		}
-
-		if (vm.count("help")) {
-			std::cout << desc << std::endl;
-			return 0;
-		}
-
-		if (!vm.count("host")) {
-			std::cerr << "'host' argument is requred" << std::endl;
-			return 1;
-		}
-
-		if (!vm.count("log"))
-			throw Except("please, specify log path");
-
-		if (vm.count("ncpu")) {
-			cpu_cnt = vm["ncpu"].as<unsigned int>();
-		} else {
-			cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
-			if (cpu_cnt < 0)
-				throw Except("Can't get CPU number");
-		}
-
-		auto user = vm.count("user") ?
-			    vm["user"].as<std::string>() : std::string("");
-		auto password = vm.count("password") ?
-				vm["password"].as<std::string>() :
-				std::string("");
-
-		/*
-		 * When the daemon forks, it inherits the file descriptor for
-		 * /tmp/tempesta-lock-file, which was originally opened and locked by flock
-		 * in the tempesta.sh script. After daemonizing, the daemon process continues
-		 * to hold this lock, preventing subsequent executions of tempesta.sh.
-		 *
-		 * Close all descriptors before daemonizing.
-		 */
-		closefrom(3);
-
-		logger = spdlog::basic_logger_mt("access_logger",
-						 vm["log"].as<std::string>());
+		auto logger = spdlog::basic_logger_mt("access_logger", 
+						      config.get_log_path().string());
 		spdlog::set_default_logger(logger);
 		spdlog::set_level(spdlog::level::info);
 		logger->flush_on(spdlog::level::info);
+		return logger;
+	}
+	catch (const spdlog::spdlog_ex &ex) {
+		throw Except("Log initialization failed: {}", ex.what());
+	}
+}
 
-		spdlog::info("Starting daemon...");
+/**
+ * Determine number of CPUs to use.
+ */
+size_t 
+determine_cpu_count(const TfwLoggerConfig &config)
+{
+	size_t cpu_cnt;
+ 
+	if (config.get_cpu_count() > 0) {
+		cpu_cnt = config.get_cpu_count();
+	}
+	else {
+		cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
+		if (cpu_cnt <= 0)
+			throw Except("Cannot determine CPU count");
+	}
+	spdlog::info("Using {} CPU(s)", cpu_cnt);
+	return cpu_cnt;
+}
 
-		if (daemon(0, 0) < 0)
-			throw Except("Daemonization failed");
+/**
+ * Open mmap device with retry logic.
+ */
+int 
+open_device()
+{
+	int fd;
 
-		set_sig_handlers();
-
-		std::ofstream pid_file(pid_file_path);
-		if (!pid_file)
-			throw Except("Failed to open PID file");
-		pid_file << getpid();
-		pid_file.close();
-
-		while ((fd = open(dev_path, O_RDWR)) == -1) {
-			if (stop_flag.load(std::memory_order_acquire))
-				goto end;
-			if (errno != ENOENT)
-				throw Except("Can't open device");
-			std::this_thread::sleep_for(wait_for_dev);
+	// Try to open the device with retries
+	while ((fd = open(dev_path, O_RDWR)) == -1) {
+		if (stop_flag.load(std::memory_order_acquire)) {
+			spdlog::info("Stop flag set, exiting device open loop");
+			return -1;
+		}
+ 
+		if (errno != ENOENT) {
+			throw Except("Cannot open device {}", dev_path);
 		}
 
-		for (i = 0; i < cpu_cnt; ++i) {
-			std::packaged_task<void(int, int, std::string, std::string,
-						std::string)> task(run_thread);
-			futures.push_back(task.get_future());
-			threads.emplace_back(std::move(task), i, fd,
-					     vm["host"].as<std::string>(), user, password);
-		}
-
-		spdlog::info("Daemon started");
-
-		for (auto& future : futures)
-			future.get();
-
-		spdlog::info("Daemon stopped");
-
-	}
-	catch (const Exception &e) {
-		log_error(e.what(), logger != nullptr, false);
-		res = 1;
-	}
-	catch (const std::exception &e) {
-		log_error(e.what(), logger != nullptr, true);
-		res = 2;
+		spdlog::debug("Device {} not found, retrying...", dev_path);
+		std::this_thread::sleep_for(wait_for_dev);
 	}
 
-	for (auto &t : threads)
-		t.join();
+	spdlog::info("Successfully opened device: {}", dev_path);
+	return fd;
+}
 
-	if (fd >= 0)
-		close(fd);
-end:
-	if (std::remove(pid_file_path) != 0)
-		spdlog::error("Cant remove PID file.");
+/**
+ * Start worker threads for each CPU.
+ */
+void 
+run_worker_threads(int fd, size_t cpu_count)
+{
+	std::vector<std::thread> threads;
 
-	return res;
+	for (size_t i = 0; i < cpu_count; ++i) {
+		threads.emplace_back(run_thread, i, fd, std::ref(config));
+	}
+
+	spdlog::info("All {} worker threads started", cpu_count);
+
+	// Wait for all threads to complete
+	for (auto &t : threads) {
+		if (t.joinable())
+			t.join();
+	}
+}
+
+/**
+ * Parse all command line arguments at once.
+ */
+ParsedOptions 
+parse_all_options(int argc, char *argv[])
+{
+	ParsedOptions result;
+	po::options_description desc("Tempesta FW Logger options");
+	
+	desc.add_options()
+		("help,h", po::bool_switch(&result.help), 
+			"Show this help message and exit")
+		("generate,g", po::bool_switch(&result.generate), 
+			"Generate default configuration file and exit")
+		("config,c", po::value<fs::path>(), 
+			"Path to configuration file (default: /etc/tempesta/tfw_logger.json)")
+		("host,H", po::value<std::string>(), 
+			"ClickHouse host (overrides config)")
+		("port,P", po::value<uint16_t>(), 
+			"ClickHouse port (overrides config)")
+		("user,u", po::value<std::string>(), 
+			"ClickHouse username (overrides config)")
+		("password,p", po::value<std::string>(), 
+			"ClickHouse password (overrides config)")
+		("max-events", po::value<size_t>(), 
+			"Maximum events before commit (overrides config)")
+		("max-wait", po::value<int>(), 
+			"Maximum wait time in ms before commit (overrides config)")
+		("cpu-count,n", po::value<size_t>(), 
+			"Number of CPUs to use, 0=auto-detect (overrides config)")
+		("log-path,l", po::value<fs::path>(), 
+			"Path to log file (overrides config)");
+	
+	po::variables_map vm;
+	try {
+		po::store(po::parse_command_line(argc, argv, desc), vm);
+		po::notify(vm);
+	}
+	catch (const po::error &e) {
+		std::cerr << "Error: " << e.what() << std::endl;
+		std::cerr << "Use --help for usage information" << std::endl;
+		exit(1);
+	}
+	
+	// Show help if requested
+	if (result.help) {
+		std::cout << "Usage: tfw_logger [options]" << std::endl << std::endl;
+		std::cout << desc << std::endl;
+		std::cout << "\nExamples:" << std::endl;
+		std::cout << "  tfw_logger --config /etc/tempesta/tfw_logger.json" << std::endl;
+		std::cout << "  tfw_logger --host localhost -n 4" << std::endl;
+		std::cout << "  tfw_logger --generate" << std::endl;
+std::cout << "\nExamples:" << std::endl;
+   	std::cout << "  tfw_logger --config /etc/tempesta/tfw_logger.json" << std::endl;
+   	std::cout << "  tfw_logger --host localhost -n 4" << std::endl;
+   	std::cout << "  tfw_logger --generate" << std::endl;
+   	std::cout << "\nFor systemd service management:" << std::endl;
+   	std::cout << "  systemctl start tempesta-logger" << std::endl;
+   	std::cout << "  systemctl stop tempesta-logger" << std::endl;
+   	std::cout << "  systemctl status tempesta-logger" << std::endl;
+   	return result;
+   }
+   
+   // Extract option values
+   if (vm.count("config")) 
+   	result.config_path = vm["config"].as<fs::path>();
+   if (vm.count("host")) 
+   	result.clickhouse_host = vm["host"].as<std::string>();
+   if (vm.count("port")) 
+   	result.clickhouse_port = vm["port"].as<uint16_t>();
+   if (vm.count("user")) 
+   	result.clickhouse_user = vm["user"].as<std::string>();
+   if (vm.count("password")) 
+   	result.clickhouse_password = vm["password"].as<std::string>();
+   if (vm.count("max-events")) 
+   	result.clickhouse_max_events = vm["max-events"].as<size_t>();
+   if (vm.count("max-wait")) 
+   	result.clickhouse_max_wait_ms = vm["max-wait"].as<int>();
+   if (vm.count("cpu-count")) 
+   	result.cpu_count = vm["cpu-count"].as<size_t>();
+   if (vm.count("log-path")) 
+   	result.log_path = vm["log-path"].as<fs::path>();
+   
+   return result;
+}
+
+/**
+* Apply command line overrides to configuration.
+*/
+void 
+apply_overrides(TfwLoggerConfig& config, const ParsedOptions& opts)
+{
+   if (opts.clickhouse_host) 
+   	config.override_clickhouse_host(*opts.clickhouse_host);
+   if (opts.clickhouse_port) 
+   	config.override_clickhouse_port(*opts.clickhouse_port);
+   if (opts.clickhouse_user) 
+   	config.override_clickhouse_user(*opts.clickhouse_user);
+   if (opts.clickhouse_password) 
+   	config.override_clickhouse_password(*opts.clickhouse_password);
+   if (opts.clickhouse_max_events) 
+   	config.override_clickhouse_max_events(*opts.clickhouse_max_events);
+   if (opts.clickhouse_max_wait_ms) 
+   	config.override_clickhouse_max_wait(*opts.clickhouse_max_wait_ms);
+   if (opts.cpu_count) 
+   	config.override_cpu_count(*opts.cpu_count);
+   if (opts.log_path) 
+   	config.override_log_path(*opts.log_path);
+}
+
+/**
+* Main entry point for Tempesta FW Logger.
+* Runs as a regular foreground process, suitable for systemd management.
+*/
+int 
+main(int argc, char *argv[])
+{
+   int fd = -1;
+   int res = 0;
+   
+   try {
+   	// Parse all command line options at once
+   	auto opts = parse_all_options(argc, argv);
+   	
+   	// Handle commands that don't need configuration
+   	if (opts.help) {
+   		return 0;  // Help was already shown
+   	}
+   	
+   	// Determine configuration file path
+   	fs::path config_path = opts.config_path.value_or(
+   		fs::path("/etc/tempesta/tfw_logger.json")
+   	);
+   	
+   	if (opts.generate) {
+   		ensure_default_config(config_path);
+   		return 0;
+   	}
+   	
+   	// Load configuration from file
+   	auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
+   	if (!loaded_config) {
+   		std::cerr << "Failed to load configuration from: " << config_path << std::endl;
+   		std::cerr << "Use --generate to create a default configuration" << std::endl;
+   		return 1;
+   	}
+   	
+   	config = std::move(*loaded_config);
+
+   	apply_overrides(config, opts);
+   	
+   	// Setup logging
+   	auto logger = setup_logger(config);
+   	spdlog::info("Starting Tempesta FW Logger...");
+   	spdlog::info("Configuration: {}", config_path.string());
+   	spdlog::info("ClickHouse: {}:{}", config.get_clickhouse().host, 
+   		     config.get_clickhouse().port);
+   	
+   	// Determine CPU count
+   	size_t cpu_cnt = determine_cpu_count(config);
+   	
+   	// Setup signal handlers for graceful shutdown
+   	set_sig_handlers();
+   	
+   	// Open mmap device
+   	spdlog::info("Opening device: {}", dev_path);
+   	fd = open_device();
+   	if (fd < 0) {
+   		spdlog::error("Failed to open device");
+   		return 1;
+   	}
+
+   	// Start worker threads
+   	spdlog::info("Starting {} worker threads", cpu_cnt);
+   	run_worker_threads(fd, cpu_cnt);
+   	
+   	spdlog::info("Tempesta FW Logger stopped");
+   }
+   catch (const Exception &e) {
+   	std::cerr << "Error: " << e.what() << std::endl;
+   	if (spdlog::default_logger()) {
+   		spdlog::error("Fatal error: {}", e.what());
+   	}
+   	res = 1;
+   }
+   catch (const std::exception &e) {
+   	std::cerr << "Unhandled error: " << e.what() << std::endl;
+   	if (spdlog::default_logger()) {
+   		spdlog::error("Unhandled exception: {}", e.what());
+   	}
+   	res = 2;
+   }
+   
+   // Cleanup
+   if (fd >= 0) {
+   	close(fd);
+   	spdlog::info("Device closed");
+   }
+   
+   return res;
 }
