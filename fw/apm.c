@@ -1048,7 +1048,7 @@ int
 tfw_apm_stats_global(TfwPrcntlStats *pstats)
 {
     if (!tfw_apm_global_data) {
-        pr_warn("tfw_apm: global data not initialized, skipping stats\n");
+        T_DBG("tfw_apm: global data not initialized, skipping stats\n");
         memset(pstats, 0, sizeof(*pstats));
         return -ENODATA;
     }
@@ -2231,4 +2231,3 @@ tfw_apm_exit(void)
 {
 	tfw_mod_unregister(&tfw_apm_mod);
 }
-
