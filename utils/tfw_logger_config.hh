@@ -40,6 +40,7 @@ public:
 	struct ClickHouseConfig {
 		std::string host{"localhost"};           // ClickHouse server hostname
 		uint16_t port{9000};                     // ClickHouse native protocol port
+		std::string table_name{"access_log"};   // ClickHouse table name
 		std::optional<std::string> user;         // Optional username for authentication
 		std::optional<std::string> password;     // Optional password for authentication
 		size_t max_events{1000};                 // Number of events before forcing commit
@@ -54,14 +55,6 @@ public:
 	 */
 	static std::optional<TfwLoggerConfig> load_from_file(const fs::path &path);
 
-	/**
-	 * Save current configuration to a JSON file.
-	 *
-	 * @param path Path where to save the configuration
-	 * @return true if successful, false otherwise
-	 */
-	bool save_to_file(const fs::path &path) const;
-
 	// Getters
 	const fs::path& get_log_path() const { return log_path_; }
 	size_t get_buffer_size() const { return buffer_size_; }
@@ -74,16 +67,17 @@ public:
 	void override_cpu_count(size_t count) { cpu_count_ = count; }
 	void override_clickhouse_host(const std::string& host) { clickhouse_.host = host; }
 	void override_clickhouse_port(uint16_t port) { clickhouse_.port = port; }
+	void override_clickhouse_table(const std::string& table) { clickhouse_.table_name = table; }
 	void override_clickhouse_user(const std::string& user) { clickhouse_.user = user; }
 	void override_clickhouse_password(const std::string& password) { clickhouse_.password = password; }
 	void override_clickhouse_max_events(size_t events) { clickhouse_.max_events = events; }
 	void override_clickhouse_max_wait(int ms) { clickhouse_.max_wait = std::chrono::milliseconds(ms); }
 
 private:
-	fs::path log_path_{"/var/log/tempesta/tfw_logger.log"}; // Log file path
-	size_t buffer_size_{4 * 1024 * 1024};                   // mmap buffer size (4MB default)
-	size_t cpu_count_{0};                                    // 0 means auto-detect
-	ClickHouseConfig clickhouse_;                            // ClickHouse connection settings
+	fs::path log_path_;                          // Log file path - default set in .cc file
+	size_t buffer_size_{4 * 1024 * 1024};       // mmap buffer size (4MB default)
+	size_t cpu_count_{0};                        // 0 means auto-detect
+	ClickHouseConfig clickhouse_;                // ClickHouse connection settings
 
 	/**
 	 * Parse configuration from property tree (loaded from JSON).

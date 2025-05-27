@@ -81,12 +81,12 @@ static TfwLoggerConfig config;
 struct ParsedOptions {
 	// Basic commands
 	std::optional<fs::path> config_path;
-	bool generate = false;
 	bool help = false;
 	
 	// Configuration overrides
 	std::optional<std::string> clickhouse_host;
 	std::optional<uint16_t> clickhouse_port;
+	std::optional<std::string> clickhouse_table;
 	std::optional<std::string> clickhouse_user;
 	std::optional<std::string> clickhouse_password;
 	std::optional<size_t> clickhouse_max_events;
@@ -252,72 +252,6 @@ callback(const char *data, int size, void *private_data)
 		uncritical_error = false;
 }
 
-void 
-run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
-{
-	static thread_local std::chrono::seconds timeout(reconnect_min_timeout);
-	cpu_set_t cpuset;
-	pthread_t current_thread = pthread_self();
-	bool affinity_is_set = false;
-	int r;
-
-	while (!stop_flag) {
-		try {
-			const auto &ch_cfg = config.get_clickhouse();
-
-			spdlog::info("Worker {} connecting to ClickHouse at {}:{}",
-				     ncpu, ch_cfg.host, ch_cfg.port);
-
-			// Use full table name to avoid confusion
-			TfwClickhouse clickhouse(ch_cfg.host, "access_log.access_log",
-						ch_cfg.user ? *ch_cfg.user : "",
-						ch_cfg.password ? *ch_cfg.password : "",
-						make_block());
-
-			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
-
-			// Set CPU affinity for this thread
-			if (!affinity_is_set) {
-				CPU_ZERO(&cpuset);
-				CPU_SET(mbr.get_cpu_id(), &cpuset);
-
-				r = pthread_setaffinity_np(current_thread,
-							   sizeof(cpu_set_t), &cpuset);
-				if (r != 0)
-					throw Except("Failed to set CPU affinity");
-
-				affinity_is_set = true;
-				spdlog::debug("Worker {} bound to CPU {}",
-					      ncpu, mbr.get_cpu_id());
-			}
-
-			// Main processing loop
-			mbr.run(&stop_flag);
-
-			break;
-		}
-		catch (const Exception &e) {
-			log_error(e.what(), true, false);
-			// All manually thrown exceptions are critical
-			break;
-		}
-		catch (const std::exception &e) {
-			if (!uncritical_error) {
-				log_error(e.what(), true, true);
-				timeout = reconnect_min_timeout;
-				uncritical_error = true;
-			}
-
-			std::this_thread::sleep_for(timeout);
-
-			if (timeout < reconnect_max_timeout)
-				timeout *= 2;
-		}
-	}
-
-	spdlog::info("Worker {} stopped", ncpu);
-}
-
 void
 sig_handler([[maybe_unused]] int sig_num) noexcept
 {
@@ -341,29 +275,6 @@ set_sig_handlers() noexcept
 	sigaction(SIGHUP, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
-}
-
-/**
- * Create default configuration file if it doesn't exist.
- */
-void 
-ensure_default_config(const fs::path &config_path)
-{
-	if (fs::exists(config_path)) {
-		std::cout << "Configuration file already exists: " << config_path << std::endl;
-		return;
-	}
-
-	std::cout << "Creating default configuration at: " << config_path << std::endl;
-
-	// Create directory if needed
-	fs::create_directories(config_path.parent_path());
-
-	// Create and save default configuration
-	TfwLoggerConfig default_config;
-	if (!default_config.save_to_file(config_path)) {
-		throw Except("Failed to create default configuration file");
-	}
 }
 
 /**
@@ -435,6 +346,72 @@ open_device()
 	return fd;
 }
 
+void 
+run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
+{
+	static thread_local std::chrono::seconds timeout(reconnect_min_timeout);
+	cpu_set_t cpuset;
+	pthread_t current_thread = pthread_self();
+	bool affinity_is_set = false;
+	int r;
+
+	while (!stop_flag) {
+		try {
+			const auto &ch_cfg = config.get_clickhouse();
+
+			spdlog::info("Worker {} connecting to ClickHouse at {}:{}, table: {}",
+				     ncpu, ch_cfg.host, ch_cfg.port, ch_cfg.table_name);
+
+			// Use configured table name
+			TfwClickhouse clickhouse(ch_cfg.host, ch_cfg.table_name,
+						ch_cfg.user ? *ch_cfg.user : "",
+						ch_cfg.password ? *ch_cfg.password : "",
+						make_block());
+
+			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
+
+			// Set CPU affinity for this thread
+			if (!affinity_is_set) {
+				CPU_ZERO(&cpuset);
+				CPU_SET(mbr.get_cpu_id(), &cpuset);
+
+				r = pthread_setaffinity_np(current_thread,
+							   sizeof(cpu_set_t), &cpuset);
+				if (r != 0)
+					throw Except("Failed to set CPU affinity");
+
+				affinity_is_set = true;
+				spdlog::debug("Worker {} bound to CPU {}",
+					      ncpu, mbr.get_cpu_id());
+			}
+
+			// Main processing loop
+			mbr.run(&stop_flag);
+
+			break;
+		}
+		catch (const Exception &e) {
+			log_error(e.what(), true, false);
+			// All manually thrown exceptions are critical
+			break;
+		}
+		catch (const std::exception &e) {
+			if (!uncritical_error) {
+				log_error(e.what(), true, true);
+				timeout = reconnect_min_timeout;
+				uncritical_error = true;
+			}
+
+			std::this_thread::sleep_for(timeout);
+
+			if (timeout < reconnect_max_timeout)
+				timeout *= 2;
+		}
+	}
+
+	spdlog::info("Worker {} stopped", ncpu);
+}
+
 /**
  * Start worker threads for each CPU.
  */
@@ -457,6 +434,32 @@ run_worker_threads(int fd, size_t cpu_count)
 }
 
 /**
+ * Apply command line overrides to configuration.
+ */
+void 
+apply_overrides(TfwLoggerConfig& config, const ParsedOptions& opts)
+{
+	if (opts.clickhouse_host) 
+		config.override_clickhouse_host(*opts.clickhouse_host);
+	if (opts.clickhouse_port) 
+		config.override_clickhouse_port(*opts.clickhouse_port);
+	if (opts.clickhouse_table) 
+		config.override_clickhouse_table(*opts.clickhouse_table);
+	if (opts.clickhouse_user) 
+		config.override_clickhouse_user(*opts.clickhouse_user);
+	if (opts.clickhouse_password) 
+		config.override_clickhouse_password(*opts.clickhouse_password);
+	if (opts.clickhouse_max_events) 
+		config.override_clickhouse_max_events(*opts.clickhouse_max_events);
+	if (opts.clickhouse_max_wait_ms) 
+		config.override_clickhouse_max_wait(*opts.clickhouse_max_wait_ms);
+	if (opts.cpu_count) 
+		config.override_cpu_count(*opts.cpu_count);
+	if (opts.log_path) 
+		config.override_log_path(*opts.log_path);
+}
+
+/**
  * Parse all command line arguments at once.
  */
 ParsedOptions 
@@ -468,14 +471,14 @@ parse_all_options(int argc, char *argv[])
 	desc.add_options()
 		("help,h", po::bool_switch(&result.help), 
 			"Show this help message and exit")
-		("generate,g", po::bool_switch(&result.generate), 
-			"Generate default configuration file and exit")
 		("config,c", po::value<fs::path>(), 
 			"Path to configuration file (default: /etc/tempesta/tfw_logger.json)")
 		("host,H", po::value<std::string>(), 
 			"ClickHouse host (overrides config)")
 		("port,P", po::value<uint16_t>(), 
 			"ClickHouse port (overrides config)")
+		("table,t", po::value<std::string>(), 
+			"ClickHouse table name (overrides config)")
 		("user,u", po::value<std::string>(), 
 			"ClickHouse username (overrides config)")
 		("password,p", po::value<std::string>(), 
@@ -506,154 +509,124 @@ parse_all_options(int argc, char *argv[])
 		std::cout << desc << std::endl;
 		std::cout << "\nExamples:" << std::endl;
 		std::cout << "  tfw_logger --config /etc/tempesta/tfw_logger.json" << std::endl;
-		std::cout << "  tfw_logger --host localhost -n 4" << std::endl;
-		std::cout << "  tfw_logger --generate" << std::endl;
-std::cout << "\nExamples:" << std::endl;
-   	std::cout << "  tfw_logger --config /etc/tempesta/tfw_logger.json" << std::endl;
-   	std::cout << "  tfw_logger --host localhost -n 4" << std::endl;
-   	std::cout << "  tfw_logger --generate" << std::endl;
-   	std::cout << "\nFor systemd service management:" << std::endl;
-   	std::cout << "  systemctl start tempesta-logger" << std::endl;
-   	std::cout << "  systemctl stop tempesta-logger" << std::endl;
-   	std::cout << "  systemctl status tempesta-logger" << std::endl;
-   	return result;
-   }
-   
-   // Extract option values
-   if (vm.count("config")) 
-   	result.config_path = vm["config"].as<fs::path>();
-   if (vm.count("host")) 
-   	result.clickhouse_host = vm["host"].as<std::string>();
-   if (vm.count("port")) 
-   	result.clickhouse_port = vm["port"].as<uint16_t>();
-   if (vm.count("user")) 
-   	result.clickhouse_user = vm["user"].as<std::string>();
-   if (vm.count("password")) 
-   	result.clickhouse_password = vm["password"].as<std::string>();
-   if (vm.count("max-events")) 
-   	result.clickhouse_max_events = vm["max-events"].as<size_t>();
-   if (vm.count("max-wait")) 
-   	result.clickhouse_max_wait_ms = vm["max-wait"].as<int>();
-   if (vm.count("cpu-count")) 
-   	result.cpu_count = vm["cpu-count"].as<size_t>();
-   if (vm.count("log-path")) 
-   	result.log_path = vm["log-path"].as<fs::path>();
-   
-   return result;
+		std::cout << "  tfw_logger --host localhost --table access_log_v2 -n 4" << std::endl;
+		std::cout << "\nFor systemd service management:" << std::endl;
+		std::cout << "  systemctl start tempesta-logger" << std::endl;
+		std::cout << "  systemctl stop tempesta-logger" << std::endl;
+		std::cout << "  systemctl status tempesta-logger" << std::endl;
+		return result;
+	}
+	
+	// Extract option values
+	if (vm.count("config")) 
+		result.config_path = vm["config"].as<fs::path>();
+	if (vm.count("host")) 
+		result.clickhouse_host = vm["host"].as<std::string>();
+	if (vm.count("port")) 
+		result.clickhouse_port = vm["port"].as<uint16_t>();
+	if (vm.count("table")) 
+		result.clickhouse_table = vm["table"].as<std::string>();
+	if (vm.count("user")) 
+		result.clickhouse_user = vm["user"].as<std::string>();
+	if (vm.count("password")) 
+		result.clickhouse_password = vm["password"].as<std::string>();
+	if (vm.count("max-events")) 
+		result.clickhouse_max_events = vm["max-events"].as<size_t>();
+	if (vm.count("max-wait")) 
+		result.clickhouse_max_wait_ms = vm["max-wait"].as<int>();
+	if (vm.count("cpu-count")) 
+		result.cpu_count = vm["cpu-count"].as<size_t>();
+	if (vm.count("log-path")) 
+		result.log_path = vm["log-path"].as<fs::path>();
+	
+	return result;
 }
 
 /**
-* Apply command line overrides to configuration.
-*/
-void 
-apply_overrides(TfwLoggerConfig& config, const ParsedOptions& opts)
-{
-   if (opts.clickhouse_host) 
-   	config.override_clickhouse_host(*opts.clickhouse_host);
-   if (opts.clickhouse_port) 
-   	config.override_clickhouse_port(*opts.clickhouse_port);
-   if (opts.clickhouse_user) 
-   	config.override_clickhouse_user(*opts.clickhouse_user);
-   if (opts.clickhouse_password) 
-   	config.override_clickhouse_password(*opts.clickhouse_password);
-   if (opts.clickhouse_max_events) 
-   	config.override_clickhouse_max_events(*opts.clickhouse_max_events);
-   if (opts.clickhouse_max_wait_ms) 
-   	config.override_clickhouse_max_wait(*opts.clickhouse_max_wait_ms);
-   if (opts.cpu_count) 
-   	config.override_cpu_count(*opts.cpu_count);
-   if (opts.log_path) 
-   	config.override_log_path(*opts.log_path);
-}
-
-/**
-* Main entry point for Tempesta FW Logger.
-* Runs as a regular foreground process, suitable for systemd management.
-*/
+ * Main entry point for Tempesta FW Logger.
+ * Runs as a regular foreground process, suitable for systemd management.
+ */
 int 
 main(int argc, char *argv[])
 {
-   int fd = -1;
-   int res = 0;
-   
-   try {
-   	// Parse all command line options at once
-   	auto opts = parse_all_options(argc, argv);
-   	
-   	// Handle commands that don't need configuration
-   	if (opts.help) {
-   		return 0;  // Help was already shown
-   	}
-   	
-   	// Determine configuration file path
-   	fs::path config_path = opts.config_path.value_or(
-   		fs::path("/etc/tempesta/tfw_logger.json")
-   	);
-   	
-   	if (opts.generate) {
-   		ensure_default_config(config_path);
-   		return 0;
-   	}
-   	
-   	// Load configuration from file
-   	auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
-   	if (!loaded_config) {
-   		std::cerr << "Failed to load configuration from: " << config_path << std::endl;
-   		std::cerr << "Use --generate to create a default configuration" << std::endl;
-   		return 1;
-   	}
-   	
-   	config = std::move(*loaded_config);
+	int fd = -1;
+	int res = 0;
+	
+	try {
+		// Parse all command line options at once
+		auto opts = parse_all_options(argc, argv);
+		
+		// Handle commands that don't need configuration
+		if (opts.help) {
+			return 0;  // Help was already shown
+		}
+		
+		// Determine configuration file path
+		fs::path config_path = opts.config_path.value_or(
+			fs::path("/etc/tempesta/tfw_logger.json")
+		);
+		
+		// Load configuration from file
+		auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
+		if (!loaded_config) {
+			std::cerr << "Failed to load configuration from: " << config_path << std::endl;
+			std::cerr << "Please create a configuration file or specify correct path" << std::endl;
+			return 1;
+		}
+		
+		config = std::move(*loaded_config);
 
-   	apply_overrides(config, opts);
-   	
-   	// Setup logging
-   	auto logger = setup_logger(config);
-   	spdlog::info("Starting Tempesta FW Logger...");
-   	spdlog::info("Configuration: {}", config_path.string());
-   	spdlog::info("ClickHouse: {}:{}", config.get_clickhouse().host, 
-   		     config.get_clickhouse().port);
-   	
-   	// Determine CPU count
-   	size_t cpu_cnt = determine_cpu_count(config);
-   	
-   	// Setup signal handlers for graceful shutdown
-   	set_sig_handlers();
-   	
-   	// Open mmap device
-   	spdlog::info("Opening device: {}", dev_path);
-   	fd = open_device();
-   	if (fd < 0) {
-   		spdlog::error("Failed to open device");
-   		return 1;
-   	}
+		apply_overrides(config, opts);
+		
+		// Setup logging
+		auto logger = setup_logger(config);
+		spdlog::info("Starting Tempesta FW Logger...");
+		spdlog::info("Configuration: {}", config_path.string());
+		spdlog::info("ClickHouse: {}:{}, table: {}", 
+			     config.get_clickhouse().host, 
+			     config.get_clickhouse().port,
+			     config.get_clickhouse().table_name);
+		
+		// Determine CPU count
+		size_t cpu_cnt = determine_cpu_count(config);
+		
+		// Setup signal handlers for graceful shutdown
+		set_sig_handlers();
+		
+		// Open mmap device
+		spdlog::info("Opening device: {}", dev_path);
+		fd = open_device();
+		if (fd < 0) {
+			spdlog::error("Failed to open device");
+			return 1;
+		}
 
-   	// Start worker threads
-   	spdlog::info("Starting {} worker threads", cpu_cnt);
-   	run_worker_threads(fd, cpu_cnt);
-   	
-   	spdlog::info("Tempesta FW Logger stopped");
-   }
-   catch (const Exception &e) {
-   	std::cerr << "Error: " << e.what() << std::endl;
-   	if (spdlog::default_logger()) {
-   		spdlog::error("Fatal error: {}", e.what());
-   	}
-   	res = 1;
-   }
-   catch (const std::exception &e) {
-   	std::cerr << "Unhandled error: " << e.what() << std::endl;
-   	if (spdlog::default_logger()) {
-   		spdlog::error("Unhandled exception: {}", e.what());
-   	}
-   	res = 2;
-   }
-   
-   // Cleanup
-   if (fd >= 0) {
-   	close(fd);
-   	spdlog::info("Device closed");
-   }
-   
-   return res;
+		// Start worker threads
+		spdlog::info("Starting {} worker threads", cpu_cnt);
+		run_worker_threads(fd, cpu_cnt);
+		
+		spdlog::info("Tempesta FW Logger stopped");
+	}
+	catch (const Exception &e) {
+		std::cerr << "Error: " << e.what() << std::endl;
+		if (spdlog::default_logger()) {
+			spdlog::error("Fatal error: {}", e.what());
+		}
+		res = 1;
+	}
+	catch (const std::exception &e) {
+		std::cerr << "Unhandled error: " << e.what() << std::endl;
+		if (spdlog::default_logger()) {
+			spdlog::error("Unhandled exception: {}", e.what());
+		}
+		res = 2;
+	}
+	
+	// Cleanup
+	if (fd >= 0) {
+		close(fd);
+		spdlog::info("Device closed");
+	}
+	
+	return res;
 }
