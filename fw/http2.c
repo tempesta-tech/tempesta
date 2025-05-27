@@ -40,7 +40,7 @@
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStream *stream, *next;
 
 	/*
@@ -71,7 +71,7 @@ static void
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwSettings *dest = &ctx->rsettings;
 	long int delta;
 
@@ -120,7 +120,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 int
 tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -163,7 +163,7 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -178,7 +178,7 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	unsigned int id;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -204,14 +204,27 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
+TfwH2Ctx *
+tfw_h2_context_alloc(void)
+{
+	return (TfwH2Ctx *)kzalloc(sizeof(TfwH2Ctx), GFP_ATOMIC);
+}
+
+void
+tfw_h2_context_free(TfwH2Ctx *ctx)
+{
+	kfree(ctx);
+}
+
 int
-tfw_h2_context_init(TfwH2Ctx *ctx)
+tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 {
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
+	BUG_ON(!conn || conn->h2 != ctx);
 	bzero_fast(ctx, sizeof(*ctx));
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
@@ -235,6 +248,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
+	ctx->conn = conn;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
@@ -270,7 +284,7 @@ void
 tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 			    bool attack)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	if (tfw_h2_send_goaway(ctx, err_code, attack) && close)
 		tfw_connection_close((TfwConn *)conn, true);
@@ -306,7 +320,7 @@ void
 tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 {
 	TfwStream *cur, *next;
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);

@@ -277,7 +277,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -682,7 +682,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (wnd_incr) {
-		TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+		TfwH2Conn *conn = ctx->conn;
 		long int *window = ctx->cur_stream ?
 			&ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
 
