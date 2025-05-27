@@ -630,8 +630,10 @@ tfw_tls_conn_dtor(void *c)
 	TlsCtx *tls = tfw_tls_context(c);
 
 	if (TFW_CONN_PROTO((TfwConn *)c) == TFW_FSM_H2
-	    && ttls_hs_done(tls))
+	    && ttls_hs_done(tls)) {
 		tfw_h2_context_clear(tfw_h2_context_unsafe(c));
+		tfw_h2_context_free(tfw_h2_context_unsafe(c));
+	}
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
@@ -959,17 +961,23 @@ static inline int
 tfw_tls_over(TlsCtx *tls, int state)
 {
 	int sk_proto = ((SsProto *)tls->sk->sk_user_data)->type;
-	TfwConn *conn = (TfwConn*)tls->sk->sk_user_data;
-	int r;
+	TfwH2Conn *conn = (TfwH2Conn*)tls->sk->sk_user_data;
 
 	if (state == TTLS_HS_CB_FINISHED_NEW
 	    || state == TTLS_HS_CB_FINISHED_RESUMED)
 		TFW_INC_STAT_BH(serv.tls_hs_successful);
 
-	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2 &&
-	    ((r = tfw_h2_context_init(tfw_h2_context_unsafe(conn))))) {
-		    T_ERR("cannot establish a new h2 connection\n");
-		    return r;
+	if (TFW_FSM_TYPE(sk_proto) == TFW_FSM_H2) {
+		int r;
+
+		conn->h2 = tfw_h2_context_alloc();
+		if (!conn->h2)
+			return -ENOMEM;
+		r = tfw_h2_context_init(conn->h2, conn);
+		if (r) {
+			T_ERR("cannot establish a new h2 connection\n");
+			return r;
+		}
 	}
 
 	return frang_tls_handler(tls, state);

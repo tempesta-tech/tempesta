@@ -47,6 +47,8 @@ typedef struct {
 	unsigned int max_lhdr_sz;
 } TfwSettings;
 
+typedef struct tfw_conn_t TfwConn;
+
 /**
  * Context for HTTP/2 frames processing.
  *
@@ -80,6 +82,7 @@ typedef struct {
  *			  to save what @new_settings should be applyed. bits
  *			  from _HTTP2_SETTINGS_MAX are used to save what
  *			  settings we sent to the client;
+ * @conn		- pointer to h2 connection of this context;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -124,6 +127,7 @@ typedef struct tfw_h2_ctx_t {
 	TfwStream       *error;
 	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
 	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
+	TfwH2Conn	*conn;
 	char            __off[0];
 	struct sk_buff  *skb_head;
 	TfwStream       *cur_stream;
@@ -140,7 +144,9 @@ typedef struct tfw_h2_ctx_t {
 
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
-int tfw_h2_context_init(TfwH2Ctx *ctx);
+TfwH2Ctx *tfw_h2_context_alloc(void);
+void tfw_h2_context_free(TfwH2Ctx *ctx);
+int tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 				unsigned int val);
