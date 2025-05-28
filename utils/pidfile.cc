@@ -135,18 +135,25 @@ pidfile_remove(const std::string &fname, int fd)
 {
 	struct flock fl;
 
-	if (fd >= 0) {
-		// Unlock
-		memset(&fl, 0, sizeof(fl));
-		fl.l_type = F_UNLCK;
-		fcntl(fd, F_SETLK, &fl);
+	// Set unlocking parameters
+	memset(&fl, 0, sizeof(fl));
+	fl.l_type = F_UNLCK;
+	fl.l_whence = SEEK_SET;
+	fl.l_start = 0;
+	fl.l_len = 0;
 
-		// Close PID file
-		close(fd);
+	// Release lock
+	if (fcntl(fd, F_SETLK, &fl) == -1) {
+		std::cerr << "Cannot unlock pidfile: " << fname << std::endl;
 	}
 
-	// Remove file
-	unlink(fname.c_str());
+	// Close file descriptor
+	close(fd);
+
+	// Remove PID file
+	if (unlink(fname.c_str()) == -1) {
+	std::cerr << "Cannot remove pidfile: " << fname << std::endl;
+	}
 }
 
 void
@@ -154,8 +161,6 @@ pidfile_stop_daemon(const std::string &fname)
 {
 	pid_t pid;
 	std::ifstream pid_file(fname);
-
-	std::cout << "Stopping daemon..." << std::endl;
 
 	if (!pid_file) {
 		throw Except("No PID file found at '{}'. Is the daemon running?", fname);
@@ -171,22 +176,40 @@ pidfile_stop_daemon(const std::string &fname)
 	// Send SIGTERM to daemon
 	if (kill(pid, SIGTERM) < 0) {
 		if (errno == ESRCH) {
-			std::cout << "Daemon with PID " << pid << " is not running" << std::endl;
-			// Remove stale PID file
+			// Process not running - remove stale PID file
 			unlink(fname.c_str());
 			return;
 		}
 		throw Except("Failed to stop daemon (PID {}): {}", pid, strerror(errno));
 	}
 
-	// Wait for daemon to exit
-	while (true) {
+	// Wait for graceful shutdown
+	constexpr int GRACEFUL_WAIT_ITERATIONS = 50;  // 50 * 10ms = 500ms
+	for (int i = 0; i < GRACEFUL_WAIT_ITERATIONS; ++i) {
 		if (kill(pid, 0) == -1 && errno == ESRCH) {
-			break;
+			return;  // Process died gracefully
 		}
 		std::this_thread::sleep_for(STOP_WAIT_INTERVAL);
 	}
-
-	std::cout << "Daemon stopped successfully" << std::endl;
+	
+	// Graceful shutdown failed, try SIGKILL
+	if (kill(pid, SIGKILL) < 0) {
+		if (errno == ESRCH) {
+			return;  // Process already stopped
+		}
+		throw Except("Failed to kill daemon (PID {}): {}", pid, strerror(errno));
+	}
+	
+	// Wait for force kill to take effect
+	constexpr int FORCE_WAIT_ITERATIONS = 50;  // 50 * 10ms = 500ms
+	for (int i = 0; i < FORCE_WAIT_ITERATIONS; ++i) {
+		if (kill(pid, 0) == -1 && errno == ESRCH) {
+			return;  // Process force-killed
+		}
+		std::this_thread::sleep_for(STOP_WAIT_INTERVAL);
+	}
+	
+	// If we get here, something is seriously wrong
+	throw Except("Failed to stop daemon (PID {}) even with SIGKILL", pid);
 }
 

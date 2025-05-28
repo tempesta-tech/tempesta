@@ -89,28 +89,26 @@ static int open_mmap_device();
 static void run_main_loop(int fd);
 static void cleanup_resources(int fd, int pidfile_fd);
 
-// Include all the existing helper functions here...
-// (callback, make_block, read_access_log_event, etc.)
-
 typedef struct {
 	const char		*name;
 	clickhouse::Type::Code	code;
 } TfwField;
 
 static const TfwField tfw_fields[] = {
-	[TFW_MMAP_LOG_ADDR]		= {"address", clickhouse::Type::IPv6},
-	[TFW_MMAP_LOG_METHOD]		= {"method", clickhouse::Type::UInt8},
-	[TFW_MMAP_LOG_VERSION]		= {"version", clickhouse::Type::UInt8},
-	[TFW_MMAP_LOG_STATUS]		= {"status", clickhouse::Type::UInt16},
-	[TFW_MMAP_LOG_RESP_CONT_LEN]	= {"response_content_length", clickhouse::Type::UInt32},
-	[TFW_MMAP_LOG_RESP_TIME]	= {"response_time", clickhouse::Type::UInt32},
-	[TFW_MMAP_LOG_VHOST]		= {"vhost", clickhouse::Type::String},
-	[TFW_MMAP_LOG_URI]		= {"uri", clickhouse::Type::String},
-	[TFW_MMAP_LOG_REFERER]		= {"referer", clickhouse::Type::String},
-	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", clickhouse::Type::String},
-	[TFW_MMAP_LOG_JA5T]		= {"ja5t", clickhouse::Type::UInt64},
-	[TFW_MMAP_LOG_JA5H]		= {"ja5h", clickhouse::Type::UInt64},
-	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", clickhouse::Type::UInt64}
+	[TFW_MMAP_LOG_ADDR] = {"address", clickhouse::Type::IPv6},
+	[TFW_MMAP_LOG_METHOD] = {"method", clickhouse::Type::UInt8},
+	[TFW_MMAP_LOG_VERSION] = {"version", clickhouse::Type::UInt8},
+	[TFW_MMAP_LOG_STATUS] = {"status", clickhouse::Type::UInt16},
+	[TFW_MMAP_LOG_RESP_CONT_LEN] = {"response_content_length",
+					clickhouse::Type::UInt32},
+	[TFW_MMAP_LOG_RESP_TIME] = {"response_time", clickhouse::Type::UInt32},
+	[TFW_MMAP_LOG_VHOST] = {"vhost", clickhouse::Type::String},
+	[TFW_MMAP_LOG_URI] = {"uri", clickhouse::Type::String},
+	[TFW_MMAP_LOG_REFERER] = {"referer", clickhouse::Type::String},
+	[TFW_MMAP_LOG_USER_AGENT] = {"user_agent", clickhouse::Type::String},
+	[TFW_MMAP_LOG_JA5T] = {"ja5t", clickhouse::Type::UInt64},
+	[TFW_MMAP_LOG_JA5H] = {"ja5h", clickhouse::Type::UInt64},
+	[TFW_MMAP_LOG_DROPPED] = {"dropped_events", clickhouse::Type::UInt64}
 };
 
 #ifdef DEBUG
@@ -149,7 +147,8 @@ dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
 }
 #endif /* DEBUG */
 
-void log_error(std::string msg, bool to_spdlog, bool unhandled)
+void
+log_error(std::string msg, bool to_spdlog, bool unhandled)
 {
 	if (unhandled)
 		msg = "Unhandled error: " + msg;
@@ -251,7 +250,7 @@ callback(const char *data, int size, void *private_data)
 
 	dbg_hexdump(data, size);
 
-	 while (size > (int)sizeof(TfwBinLogEvent)) {
+	while (size > (int)sizeof(TfwBinLogEvent)) {
 		event = (TfwBinLogEvent *)p;
 
 		switch (event->type) {
@@ -283,27 +282,34 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
 		try {
 			const auto &ch_cfg = config.get_clickhouse();
 
-			spdlog::debug("Worker {} connecting to ClickHouse at {}:{}, table: {}",
-				     ncpu, ch_cfg.host, ch_cfg.port, ch_cfg.table_name);
+			spdlog::debug("Worker {} connecting to ClickHouse "
+				      "at {}:{}, table: {}",
+				      ncpu, ch_cfg.host, ch_cfg.port,
+				      ch_cfg.table_name);
 
 			TfwClickhouse clickhouse(ch_cfg.host, ch_cfg.table_name,
-						ch_cfg.user ? *ch_cfg.user : "",
-						ch_cfg.password ? *ch_cfg.password : "",
-						make_block());
+						 ch_cfg.user ? *ch_cfg.user : "",
+						 ch_cfg.password ?
+						 *ch_cfg.password : "",
+						 make_block());
 
-			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
+			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse,
+						callback);
 
 			if (!affinity_is_set) {
 				CPU_ZERO(&cpuset);
 				CPU_SET(mbr.get_cpu_id(), &cpuset);
 
 				r = pthread_setaffinity_np(current_thread,
-							   sizeof(cpu_set_t), &cpuset);
+							   sizeof(cpu_set_t),
+							   &cpuset);
 				if (r != 0)
-					throw Except("Failed to set CPU affinity");
+					throw Except("Failed to set CPU "
+						     "affinity");
 
 				affinity_is_set = true;
-				spdlog::debug("Worker {} bound to CPU {}", ncpu, mbr.get_cpu_id());
+				spdlog::debug("Worker {} bound to CPU {}",
+					      ncpu, mbr.get_cpu_id());
 			}
 
 			mbr.run(&stop_flag);
@@ -365,7 +371,7 @@ parse_command_line(int argc, char *argv[])
 
 	// Create description string for config option
 	std::string config_desc = "Path to configuration file (default: " +
-	                         std::string(default_config_path) + ")";
+				  std::string(default_config_path) + ")";
 
 	desc.add_options()
 		("help,h", po::bool_switch(&result.help),
@@ -389,9 +395,11 @@ parse_command_line(int argc, char *argv[])
 		("max-events", po::value<size_t>(),
 			"Maximum events before commit (overrides config)")
 		("max-wait", po::value<int>(),
-			"Maximum wait time in ms before commit (overrides config)")
+			"Maximum wait time in ms before commit "
+			"(overrides config)")
 		("cpu-count,n", po::value<size_t>(),
-			"Number of CPUs to use, 0=auto-detect (overrides config)")
+			"Number of CPUs to use, 0=auto-detect "
+			"(overrides config)")
 		("log-path,l", po::value<fs::path>(),
 			"Path to log file (overrides config)");
 
@@ -407,13 +415,17 @@ parse_command_line(int argc, char *argv[])
 	}
 
 	if (result.help) {
-		std::cout << "Usage: tfw_logger [options]" << std::endl << std::endl;
+		std::cout << "Usage: tfw_logger [options]" << std::endl
+			  << std::endl;
 		std::cout << desc << std::endl;
 		std::cout << "\nExamples:" << std::endl;
-		std::cout << "  tfw_logger --config " << default_config_path << std::endl;
-		std::cout << "  tfw_logger --host localhost --table access_log_v2 -n 4" << std::endl;
+		std::cout << "  tfw_logger --config " << default_config_path
+			  << std::endl;
+		std::cout << "  tfw_logger --host localhost --table "
+			     "access_log_v2 -n 4" << std::endl;
 		std::cout << "  tfw_logger --stop" << std::endl;
-		std::cout << "  tfw_logger --foreground --config /tmp/test_config.json" << std::endl;
+		std::cout << "  tfw_logger --foreground --config "
+			     "/tmp/test_config.json" << std::endl;
 		return result;
 	}
 
@@ -445,11 +457,13 @@ parse_command_line(int argc, char *argv[])
 static void
 load_configuration(const ParsedOptions &opts)
 {
-	fs::path config_path = opts.config_path.value_or(fs::path(default_config_path));
+	fs::path config_path = opts.config_path.value_or(
+				fs::path(default_config_path));
 
 	auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
 	if (!loaded_config) {
-		throw Except("Failed to load configuration from: {}", config_path.string());
+		throw Except("Failed to load configuration from: {}",
+			     config_path.string());
 	}
 
 	config = std::move(*loaded_config);
@@ -490,9 +504,10 @@ setup_daemon_mode(const ParsedOptions &opts)
 
 	/*
 	 * When the daemon forks, it inherits the file descriptor for
-	 * /tmp/tempesta-lock-file, which was originally opened and locked by flock
-	 * in the tempesta.sh script. After daemonizing, the daemon process continues
-	 * to hold this lock, preventing subsequent executions of tempesta.sh.
+	 * /tmp/tempesta-lock-file, which was originally opened and locked
+	 * by flock in the tempesta.sh script. After daemonizing, the daemon
+	 * process continues to hold this lock, preventing subsequent
+	 * executions of tempesta.sh.
 	 *
 	 * Close all descriptors before daemonizing.
 	 */
@@ -631,7 +646,7 @@ main(int argc, char *argv[])
 		// Setup daemon mode (check PID, close FDs, daemonize)
 		setup_daemon_mode(opts);
 
-		// Initialize logging after daemonization (so we have correct PID)
+		// Initialize logging after daemonization
 		initialize_logging();
 
 		// Create PID file after daemonization
