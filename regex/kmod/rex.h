@@ -46,6 +46,8 @@ struct rex_scan_attr {
 	struct rex_event last_event;
 };
 
+int rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr) __ksym;
+
 #if defined(__KERNEL__) || defined(__bpf__)
 
 /**
@@ -58,11 +60,6 @@ struct rex_scan_attr {
 int bpf_scan_bytes(const void *buf, __u32 buf__sz,
 		   struct rex_scan_attr *scan_attr) __ksym;
 
-int bpf_scan_vector(const char *const *buf, const unsigned int *length,
-                    __u32 buf__sz, struct rex_scan_attr *attr) __ksym;
-
-int bpf_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr) __ksym;
-
 /**
  * Scan @len packet bytes starting from @offset against pattern database.
  * Similar to bpf_scan_bytes() but use XDP offsets to trick BPF verifier
@@ -70,8 +67,8 @@ int bpf_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr) __ksym;
  * @xdp_md:		A pointer to struct xdp_buff* actually.
  * @scan_attr:		Input/output match attributes.
  */
-//int bpf_xdp_scan_bytes(const struct xdp_md *xdp_md, __u32 offset, __u32 len,
-//		       struct rex_scan_attr *scan_attr) __ksym;
+int bpf_xdp_scan_bytes(const struct xdp_md *xdp_md, __u32 offset, __u32 len,
+		       struct rex_scan_attr *scan_attr) __ksym;
 
 #endif /* __KERNEL__ or __bpf__ */
 
