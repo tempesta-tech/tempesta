@@ -186,7 +186,7 @@ struct tfw_http_stream_t {
 	struct eb64_node	sched_node;
 	TfwStreamSchedState	sched_state;
 	unsigned int		id;
-	TfwStreamSchedEntry	sched;
+	TfwStreamSchedEntry	*sched;
 	struct list_head	hcl_node;
 	short int		state;
 	unsigned short		weight;
@@ -385,7 +385,7 @@ tfw_h2_stream_has_default_deficit(TfwStream *stream)
 static inline bool
 tfw_h2_stream_is_exclusive(TfwStream *stream)
 {
-	TfwStreamSchedEntry *parent = stream->sched.parent;
+	TfwStreamSchedEntry *parent = stream->sched->parent;
         /* Should be called only for active schedulers. */
         BUG_ON(eb_is_empty(&parent->active));
         return (eb_first(&parent->active) == eb_last(&parent->active)) &&

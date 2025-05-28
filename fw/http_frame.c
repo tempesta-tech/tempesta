@@ -2216,7 +2216,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 #define SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream)		\
 do {									\
 	if (!tfw_h2_stream_is_exclusive(stream)) {			\
-		parent = stream->sched.parent;				\
+		parent = stream->sched->parent;				\
 		tfw_h2_stream_sched_remove(sched, stream);		\
 	} else {							\
 		parent = NULL;						\
