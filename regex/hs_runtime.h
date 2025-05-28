@@ -46,7 +46,6 @@
  */
 
 #include "hs_common.h"
-//#include "fw/str.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -524,16 +523,12 @@ hs_error_t HS_CDECL hs_scan(const hs_database_t *db, const char *data,
  *      Returns @ref HS_SUCCESS on success; @ref HS_SCAN_TERMINATED if the match
  *      callback indicated that scanning should stop; other values on error.
  */
-
 hs_error_t HS_CDECL hs_scan_vector(const hs_database_t *db,
                                    const char *const *data,
                                    const unsigned int *length,
                                    unsigned int count, unsigned int flags,
                                    hs_scratch_t *scratch,
                                    match_event_handler onEvent, void *context);
-
-
-
 
 /**
  * The vectored regular expression scanner.
