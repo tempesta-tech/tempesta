@@ -251,6 +251,21 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	tfw_hpack_clean(&ctx->hpack);
 }
 
+
+TfwStreamSchedEntry *
+tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
+{
+	(void)ctx;
+	return kmalloc(sizeof(TfwStreamSchedEntry), GFP_ATOMIC);
+}
+
+void
+tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
+{
+	(void)ctx;
+	kfree(entry);
+}
+
 void
 tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 			    bool attack)

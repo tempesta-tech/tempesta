@@ -186,7 +186,7 @@ struct tfw_http_stream_t {
 	struct eb64_node	sched_node;
 	TfwStreamSchedState	sched_state;
 	unsigned int		id;
-	TfwStreamSchedEntry	sched;
+	TfwStreamSchedEntry	*sched;
 	struct list_head	hcl_node;
 	short int		state;
 	unsigned short		weight;
