@@ -1227,8 +1227,8 @@ hs_error_t HS_CDECL hs_scan_tfwstr(const hs_database_t *db,
                 dumpData(chunk->data, chunk->len);
 #endif
                 hs_error_t ret
-                        = hs_scan_stream_internal(id, chunk->data, chunk->len, 0, scratch,
-                                          onEvent, context);
+			= hs_scan_stream_internal(id, chunk->data, chunk->len,
+						  0, scratch, onEvent, context);
                 if (ret != HS_SUCCESS) {
                         unmarkScratchInUse(scratch);
                         return ret;
