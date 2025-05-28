@@ -22,8 +22,7 @@
 #include <linux/mutex.h>
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
-//#include "fw/str.h"
-//#include <net/xdp.h>
+#include <net/xdp.h>
 
 static ulong max_db_size = 4 << 20;
 module_param(max_db_size, ulong, 0644);
@@ -91,109 +90,7 @@ static int rex_scan_cb(unsigned int expression, unsigned long long from,
 	return (features & REX_SINGLE_SHOT) ? 1 : 0;
 }
 
-int bpf_scan_bytes(const void *buf, __u32 buf__sz, struct rex_scan_attr *attr)
-{
-	struct rex_scan_ctx ctx = {
-		.attr = attr,
-		.block = buf,
-		.block_len = buf__sz,
-	};
-	struct rex_policy *rex;
-	struct rex_database *db;
-	hs_scratch_t *scratch;
-	hs_error_t err;
-
-	WARN_ON_ONCE(!rcu_read_lock_held() && !rcu_read_lock_bh_held());
-
-	if (unlikely(!buf || !attr))
-		return -EINVAL;
-
-	rex = idr_find(&rex_idr, attr->database_id);
-	if (unlikely(!rex))
-		return -EBADF;
-
-	db = rcu_dereference(rex->database);
-	if (unlikely(!db))
-		return -ENODATA;
-
-	scratch = this_cpu_ptr(db->scratch);
-
-	kernel_fpu_begin();
-	err = hs_scan(patterns(db), buf, buf__sz, 0, scratch, rex_scan_cb,
-		      &ctx);
-	kernel_fpu_end();
-
-	switch (err) {
-	case HS_DB_MODE_ERROR:
-		return -ENOEXEC;
-	case HS_SCAN_TERMINATED:
-		return 1;
-	case HS_SUCCESS:
-		return 0;
-	case HS_SCRATCH_IN_USE:
-	case HS_INVALID:
-	case HS_UNKNOWN_ERROR:
-	default:
-		WARN(1, "hs_scan() failed with code %d\n", (int)err);
-		return -EFAULT;
-	}
-}
-EXPORT_SYMBOL(bpf_scan_bytes);
-
-int bpf_scan_vector(const char *const *buf,
-                    const unsigned int *length,
-                    __u32 buf__sz,
-                    struct rex_scan_attr *attr)
-{
-	struct rex_scan_ctx ctx = {
-		.attr = attr,
-		.block = buf,
-		.block_len = buf__sz,
-	};
-	struct rex_policy *rex;
-	struct rex_database *db;
-	hs_scratch_t *scratch;
-	hs_error_t err;
-
-	WARN_ON_ONCE(!rcu_read_lock_held() && !rcu_read_lock_bh_held());
-
-	if (unlikely(!buf || !attr))
-		return -EINVAL;
-
-	rex = idr_find(&rex_idr, attr->database_id);
-	if (unlikely(!rex))
-		return -EBADF;
-
-	db = rcu_dereference(rex->database);
-	if (unlikely(!db))
-		return -ENODATA;
-
-	scratch = this_cpu_ptr(db->scratch);
-
-	kernel_fpu_begin();
-	err = hs_scan_vector(patterns(db), buf, length, buf__sz, 0,
-	                     scratch, rex_scan_cb, &ctx);
-	kernel_fpu_end();
-
-	switch (err) {
-	case HS_DB_MODE_ERROR:
-		return -ENOEXEC;
-	case HS_SCAN_TERMINATED:
-		return 1;
-	case HS_SUCCESS:
-		return 0;
-	case HS_SCRATCH_IN_USE:
-	case HS_INVALID:
-	case HS_UNKNOWN_ERROR:
-	default:
-		WARN(1, "hs_scan() failed with code %d\n", (int)err);
-		return -EFAULT;
-	}
-}
-EXPORT_SYMBOL(bpf_scan_vector);
-
-int bpf_scan_tfwstr(const TfwStr *str,
-                    struct rex_scan_attr *attr)
+int rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
 {
 	struct rex_scan_ctx ctx = {
 		.attr = attr,
@@ -243,47 +140,81 @@ int bpf_scan_tfwstr(const TfwStr *str,
 		return -EFAULT;
 	}
 }
-EXPORT_SYMBOL(bpf_scan_tfwstr);
+EXPORT_SYMBOL(rex_scan_tfwstr);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0)
-/* Based on code taken from net/core/filter.c */
-/*static void *bpf_xdp_pointer(const struct xdp_buff *xdp, u32 offset, u32 len)
+__bpf_kfunc int bpf_scan_bytes(const void *buf, __u32 buf__sz,
+			       struct rex_scan_attr *attr)
 {
-	u32 size = xdp->data_end - xdp->data;
-	void *addr = xdp->data;
+	struct rex_scan_ctx ctx = {
+		.attr = attr,
+		.block = buf,
+		.block_len = buf__sz,
+	};
+	struct rex_policy *rex;
+	struct rex_database *db;
+	hs_scratch_t *scratch;
+	hs_error_t err;
 
-	if (unlikely(offset > 0xffff || len > 0xffff))
-		return ERR_PTR(-EFAULT);
+	WARN_ON_ONCE(!rcu_read_lock_held() && !rcu_read_lock_bh_held());
 
-	if (offset + len > size)
-		return ERR_PTR(-EINVAL);
+	if (unlikely(!buf || !attr))
+		return -EINVAL;
 
-	return addr + offset;
-}*/
-#else
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+	rex = idr_find(&rex_idr, attr->database_id);
+	if (unlikely(!rex))
+		return -EBADF;
+
+	db = rcu_dereference(rex->database);
+	if (unlikely(!db))
+		return -ENODATA;
+
+	scratch = this_cpu_ptr(db->scratch);
+
+	kernel_fpu_begin();
+	err = hs_scan(patterns(db), buf, buf__sz, 0, scratch, rex_scan_cb,
+		      &ctx);
+	kernel_fpu_end();
+
+	switch (err) {
+	case HS_DB_MODE_ERROR:
+		return -ENOEXEC;
+	case HS_SCAN_TERMINATED:
+		return 1;
+	case HS_SUCCESS:
+		return 0;
+	case HS_SCRATCH_IN_USE:
+	case HS_INVALID:
+	case HS_UNKNOWN_ERROR:
+	default:
+		WARN(1, "hs_scan() failed with code %d\n", (int)err);
+		return -EFAULT;
+	}
+}
+EXPORT_SYMBOL(bpf_scan_bytes);
+
 /* This code is taken from net/core/filter.c */
-static void *bpf_xdp_pointer(const struct xdp_buff *xdp, u32 offset, u32 len)
+static void *__bpf_xdp_pointer(struct xdp_buff *xdp, u32 offset, u32 len)
 {
 	u32 size = xdp->data_end - xdp->data;
+	struct skb_shared_info *sinfo;
 	void *addr = xdp->data;
-	struct skb_shared_info *sinfo = xdp_get_shared_info_from_buff(xdp);
 	int i;
 
 	if (unlikely(offset > 0xffff || len > 0xffff))
 		return ERR_PTR(-EFAULT);
 
-	if (offset + len > xdp_get_buff_len(xdp))
+	if (unlikely(offset + len > xdp_get_buff_len(xdp)))
 		return ERR_PTR(-EINVAL);
 
-	if (offset < size) /* linear area */
+	if (likely(offset < size)) /* linear area */
 		goto out;
 
+	sinfo = xdp_get_shared_info_from_buff(xdp);
 	offset -= size;
 	for (i = 0; i < sinfo->nr_frags; i++) { /* paged area */
 		u32 frag_size = skb_frag_size(&sinfo->frags[i]);
 
-		if (offset < frag_size) {
+		if  (offset < frag_size) {
 			addr = skb_frag_address(&sinfo->frags[i]);
 			size = frag_size;
 			break;
@@ -291,16 +222,14 @@ static void *bpf_xdp_pointer(const struct xdp_buff *xdp, u32 offset, u32 len)
 		offset -= frag_size;
 	}
 out:
-	return offset + len < size ? addr + offset : NULL;
+	return offset + len <= size ? addr + offset : NULL;
 }
-#endif
-#endif
 
-/*int bpf_xdp_scan_bytes(const struct xdp_md *xdp_md, u32 offset, u32 len,
-		       struct rex_scan_attr *scan_attr)
+__bpf_kfunc int bpf_xdp_scan_bytes(const struct xdp_md *xdp_md, u32 offset,
+				   u32 len, struct rex_scan_attr *scan_attr)
 {
 	struct xdp_buff *xdp = (struct xdp_buff *)xdp_md;
-	void *ptr = bpf_xdp_pointer(xdp, offset, len);
+	void *ptr = __bpf_xdp_pointer(xdp, offset, len);
 
 	if (IS_ERR(ptr))
 		return PTR_ERR(ptr);
@@ -312,11 +241,15 @@ out:
 }
 EXPORT_SYMBOL(bpf_xdp_scan_bytes);
 
-BTF_SET_START(rex_kfunc_ids)
-BTF_ID(func, bpf_scan_bytes)
-BTF_ID(func, bpf_xdp_scan_bytes)
-BTF_SET_END(rex_kfunc_ids)
-static DEFINE_KFUNC_BTF_ID_SET(&rex_kfunc_ids, rex_kfunc_btf_set);*/
+BTF_KFUNCS_START(rex_kfunc_ids)
+BTF_ID_FLAGS(func, bpf_scan_bytes)
+BTF_ID_FLAGS(func, bpf_xdp_scan_bytes)
+BTF_KFUNCS_END(rex_kfunc_ids)
+
+static struct btf_kfunc_id_set rex_kfunc_btf_set = {
+	.owner = THIS_MODULE,
+	.set   = &rex_kfunc_ids,
+};
 
 static struct rex_policy *to_policy(struct config_item *item)
 {
@@ -628,7 +561,10 @@ static int __init rex_init(void)
 	if (err)
 		return err;
 
-	//register_btf_kfunc_id_set(&prog_test_kfunc_list, &rex_kfunc_btf_set);
+	err = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP,
+					&rex_kfunc_btf_set);
+	if (err < 0)
+		return err;
 
 	banner();
 	return 0;
@@ -636,7 +572,6 @@ static int __init rex_init(void)
 
 static void __exit rex_exit(void)
 {
-	//unregister_kfunc_btf_id_set(&prog_test_kfunc_list, &rex_kfunc_btf_set);
 	configfs_unregister_subsystem(&rex_configfs);
 	WARN_ON(!idr_is_empty(&rex_idr));
 	idr_destroy(&rex_idr);

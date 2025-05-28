@@ -92,10 +92,6 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 	return flags_tbl[op];
 }
 
-//extern int bpf_scan_bytes(const void *, __u32, struct rex_scan_attr *);
-
-extern int bpf_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr);
-
 bool
 tfw_match_regex(tfw_match_t op, const char *cstr, size_t len, const TfwStr *arg)
 {
@@ -108,7 +104,7 @@ tfw_match_regex(tfw_match_t op, const char *cstr, size_t len, const TfwStr *arg)
         if (!arg->len)
                 return false;
 
-	r = bpf_scan_tfwstr(arg, &attr);
+	r = rex_scan_tfwstr(arg, &attr);
 	result = (!r && attr.nr_events && attr.last_event.expression);
 	return result;
 }

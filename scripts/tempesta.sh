@@ -182,7 +182,7 @@ load_modules()
 {
 	echo "Loading Tempesta kernel modules..."
 
-	mkdir /tmp/tempesta
+	mkdir -p /tmp/tempesta
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk

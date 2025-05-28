@@ -206,7 +206,6 @@ void pureLiteralInitScratch(struct hs_scratch *scratch, u64a offset) {
     scratch->al_log_sum = 0;
 }
 
-
 static really_inline
 void pureLiteralBlockExec(const struct RoseEngine *rose,
                           struct hs_scratch *scratch) {
@@ -214,7 +213,6 @@ void pureLiteralBlockExec(const struct RoseEngine *rose,
     assert(scratch);
 
     const struct HWLM *ftable = getFLiteralMatcher(rose);
-
     initSomState(rose, scratch->core_info.state);
     const u8 *buffer = scratch->core_info.buf;
     size_t length = scratch->core_info.len;
