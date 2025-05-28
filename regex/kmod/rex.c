@@ -117,13 +117,8 @@ int rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
 
 	scratch = this_cpu_ptr(db->scratch);
 
-	kernel_fpu_begin();
-
-
 	err = hs_scan_tfwstr(patterns(db), str, 0,
 	                     scratch, rex_scan_cb, &ctx);
-
-	kernel_fpu_end();
 
 	switch (err) {
 	case HS_DB_MODE_ERROR:
@@ -170,10 +165,8 @@ __bpf_kfunc int bpf_scan_bytes(const void *buf, __u32 buf__sz,
 
 	scratch = this_cpu_ptr(db->scratch);
 
-	kernel_fpu_begin();
 	err = hs_scan(patterns(db), buf, buf__sz, 0, scratch, rex_scan_cb,
 		      &ctx);
-	kernel_fpu_end();
 
 	switch (err) {
 	case HS_DB_MODE_ERROR:
