@@ -27,17 +27,14 @@
 
 namespace pt = boost::property_tree;
 
-// Constructor to set default log path
-TfwLoggerConfig::TfwLoggerConfig() 
-	: log_path_("/var/log/tempesta/tfw_logger.log")
-{
-}
-
 void
 TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 {
 	// Parse paths and settings
-	log_path_ = tree.get<std::string>("log_path", log_path_.string());
+	if (auto log_path_opt = tree.get_optional<std::string>("log_path")) {
+		log_path_ = *log_path_opt;
+	}
+
 	buffer_size_ = tree.get<size_t>("buffer_size", buffer_size_);
 	cpu_count_ = tree.get<size_t>("cpu_count", cpu_count_);
 
@@ -62,10 +59,10 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 		}
 
 		// Parse performance settings
-		clickhouse_.max_events = ch_node->get<size_t>("max_events", 
+		clickhouse_.max_events = ch_node->get<size_t>("max_events",
 		                                              clickhouse_.max_events);
 
-		int max_wait_ms = ch_node->get<int>("max_wait_ms", 
+		int max_wait_ms = ch_node->get<int>("max_wait_ms",
 		                                    clickhouse_.max_wait.count());
 		if (max_wait_ms < 0) {
 			throw std::runtime_error("max_wait_ms must be non-negative");

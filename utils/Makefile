@@ -33,8 +33,7 @@ CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/contrib/absl
-SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc tfw_logger_config.cc
-OBJS := $(SRCS:.cc=.o)
+OBJS := $(patsubst %.cc, %.o, $(wildcard *.cc))
 TARGET := tfw_logger
 
 all:

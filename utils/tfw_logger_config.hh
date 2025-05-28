@@ -20,17 +20,17 @@
 
 #pragma once
 
-#include <string>
+#include <boost/property_tree/ptree.hpp>
 #include <chrono>
 #include <filesystem>
 #include <optional>
-#include <boost/property_tree/ptree.hpp>
+#include <string>
 
 namespace fs = std::filesystem;
 
 /**
  * Configuration for Tempesta FW Logger.
- * 
+ *
  * This class handles loading configuration from JSON files and provides
  * methods to override settings from command line arguments.
  */
@@ -48,9 +48,14 @@ public:
 	};
 
 	/**
+	 * Default constructor.
+	 */
+	TfwLoggerConfig() = default;
+
+	/**
 	 * Load configuration from a JSON file.
 	 *
-	 * @param path Path to the JSON configuration file
+	 * @param path JSON configuration file path
 	 * @return Configuration object if successful, empty optional on error
 	 */
 	static std::optional<TfwLoggerConfig> load_from_file(const fs::path &path);
@@ -74,7 +79,7 @@ public:
 	void override_clickhouse_max_wait(int ms) { clickhouse_.max_wait = std::chrono::milliseconds(ms); }
 
 private:
-	fs::path log_path_;                          // Log file path - default set in .cc file
+	fs::path log_path_;                          // Log file path - default set in tfw_logger.cc
 	size_t buffer_size_{4 * 1024 * 1024};       // mmap buffer size (4MB default)
 	size_t cpu_count_{0};                        // 0 means auto-detect
 	ClickHouseConfig clickhouse_;                // ClickHouse connection settings

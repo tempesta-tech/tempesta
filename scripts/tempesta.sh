@@ -311,23 +311,34 @@ start_tfw_logger()
 		echo "...starting tfw_logger with default config: $config_path"
 	fi
 
+	# Check if config file exists
+	if [ ! -f "$config_path" ]; then
+		error "Configuration file not found: $config_path"
+	fi
+
+	# Start daemon
 	"$logger_path/tfw_logger" --config="$config_path" || \
 		error "cannot start tfw_logger daemon"
 
+	# Wait for daemon to start and create PID file
 	start_time=$(date +%s)
 	while [[ ! -f "$tfw_logger_pid_path" ]]; do
 		current_time=$(date +%s)
 		elapsed_time=$((current_time - start_time))
 
 		if (( elapsed_time >= tfw_logger_timeout )); then
+			# Try to cleanup any failed start
+			"$logger_path/tfw_logger" --stop 2>/dev/null || true
 			sysctl -e -w net.tempesta.state=stop
 			unload_modules
 			tfw_irqbalance_revert
-			error "tfw_logger failed to start, see logs for details"
+			error "tfw_logger failed to start within $tfw_logger_timeout seconds, see logs for details"
 		fi
 
 		sleep 0.1
 	done
+
+	echo "...tfw_logger started successfully"
 }
 
 stop_tfw_logger()
@@ -336,6 +347,12 @@ stop_tfw_logger()
 		echo "...stopping tfw_logger"
 		"$logger_path/tfw_logger" --stop || \
 			echo "Warning: Failed to stop tfw_logger daemon gracefully"
+
+		# Remove stale PID file if it still exists
+		if [ -e "$tfw_logger_pid_path" ]; then
+			echo "Warning: PID file still exists, removing it"
+			rm -f "$tfw_logger_pid_path" 2>/dev/null || true
+		fi
 	fi
 }
 
@@ -353,7 +370,7 @@ start()
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
 	TFW_LOGGER_EXEC=$(expr "$TFW_STATE" != "start")
-	
+
 	check_configuration_file_presense
 
 	if [[ -z ${TFW_STATE} ]]; then
