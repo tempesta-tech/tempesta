@@ -713,6 +713,7 @@ tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry, TfwStream *owner)
 	entry->total_weight = entry->active_cnt = 0;
 	entry->owner = owner;
 	entry->parent = NULL;
+	entry->next_free = NULL;
 	entry->blocked = entry->active = EB_ROOT;
 }
 
