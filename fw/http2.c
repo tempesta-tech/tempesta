@@ -204,17 +204,75 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
+/**
+ * Default count of max cocurrent streams according RFC9113.
+ */ 
+#define MAX_CONCURRENT_STREAMS_DFLT	100
+#define STREAM_SCHED_ENTRY_LIST_SZ	sizeof(TfwStreamSchedList) + \
+	MAX_CONCURRENT_STREAMS_DFLT * sizeof(TfwStreamSchedEntry)
+
+static inline void
+tfw_h2_context_init_sched_entry_list(TfwH2Ctx *ctx, TfwStreamSchedList *list)
+{
+	TfwStreamSchedList *first_list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+	int i;
+
+	for (i = MAX_CONCURRENT_STREAMS_DFLT - 1; i >= 0; i--) {
+		list->entries[i].owner = NULL;
+		list->entries[i].next_free = ctx->sched.free_list;
+		ctx->sched.free_list = &list->entries[i];
+	}
+	if (first_list != list) {
+		list->next = first_list->next;
+		first_list->next = list;
+	}
+}
+
+static inline int
+tfw_h2_context_alloc_extra_sched_entry_list(TfwH2Ctx *ctx)
+{
+	TfwStreamSchedList *list;
+
+	list = alloc_pages_exact(STREAM_SCHED_ENTRY_LIST_SZ, GFP_ATOMIC);
+	if (!list)
+		return -ENOMEM;
+
+	BUG_ON(ctx->sched.free_list != NULL);
+	tfw_h2_context_init_sched_entry_list(ctx, list);
+
+	return 0;
+}
+
+static inline void
+tfw_h2_context_free_extra_sched_entry_lists(TfwH2Ctx *ctx)
+{
+	TfwStreamSchedList *first_list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+
+	while (first_list->next) {
+		TfwStreamSchedList *to_delete = first_list->next;
+		
+		first_list->next = to_delete->next;
+		free_pages_exact(to_delete, STREAM_SCHED_ENTRY_LIST_SZ);
+	}
+}
+
 TfwH2Ctx *
 tfw_h2_context_alloc(void)
 {
-	return (TfwH2Ctx *)kzalloc(sizeof(TfwH2Ctx), GFP_ATOMIC);
+	return alloc_pages_exact(sizeof(TfwH2Ctx) + STREAM_SCHED_ENTRY_LIST_SZ,
+				 GFP_ATOMIC);
 }
 
 void
 tfw_h2_context_free(TfwH2Ctx *ctx)
 {
-	kfree(ctx);
+	free_pages_exact(ctx, sizeof(TfwH2Ctx) + STREAM_SCHED_ENTRY_LIST_SZ);
 }
+
+#undef STREAM_SCHED_ENTRY_LIST_SZ
+#undef MAX_CONCURRENT_STREAMS_DFLT
 
 int
 tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
@@ -223,9 +281,11 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
+	TfwStreamSchedList *list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
 
 	BUG_ON(!conn || conn->h2 != ctx);
-	bzero_fast(ctx, sizeof(*ctx));
+	bzero_fast(ctx, sizeof(*ctx) + sizeof(*list));
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = DEF_WND_SIZE;
@@ -236,6 +296,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	INIT_LIST_HEAD(&idle_streams->list);
 
 	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_context_init_sched_entry_list(ctx, list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -262,6 +323,7 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 * postponed frames and connection closing initiated.
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
+	tfw_h2_context_free_extra_sched_entry_lists(ctx);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
@@ -269,15 +331,29 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 TfwStreamSchedEntry *
 tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
 {
-	(void)ctx;
-	return kmalloc(sizeof(TfwStreamSchedEntry), GFP_ATOMIC);
+	TfwStreamSchedEntry *entry;
+
+	if (!ctx->sched.free_list) {
+		if (tfw_h2_context_alloc_extra_sched_entry_list(ctx))
+			return NULL;
+	}
+
+	entry = ctx->sched.free_list;
+	BUG_ON(entry->owner);
+	ctx->sched.free_list = entry->next_free;
+
+	return entry;
 }
 
 void
 tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
 {
-	(void)ctx;
-	kfree(entry);
+	if (entry->owner) {
+		entry->owner->sched = NULL;
+		entry->owner = NULL;
+	}
+	entry->next_free = ctx->sched.free_list;
+	ctx->sched.free_list = entry;
 }
 
 void
