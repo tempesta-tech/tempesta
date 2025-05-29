@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,13 +34,22 @@ typedef struct {
 #define WQ_ITEM_SZ		sizeof(__WqItem)
 #define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
+/**
+ * MPSC (Multiple Producer, Single Consumer) Lock-Free Ring Buffer Queue.
+ *
+ * @array	- ring buffer array
+ * @qsize	- queue size (must be power of 2)
+ * @head	- producer's head (atomic, multiple producers)
+ * @tail	- consumer's tail (non-atomic, single consumer)
+ * @flags	- queue flags (e.g., TFW_QUEUE_IPI)
+ *
+ * Cache line alignment ensures head and tail don't cause false sharing.
+ */
 typedef struct {
-	atomic64_t __percpu	*heads;
 	__WqItem		*array;
 	size_t			qsize;
-	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
-	atomic64_t		tail ____cacheline_aligned;
+	long			tail ____cacheline_aligned;
 	unsigned long		flags;
 } TfwRBQueue;
 
@@ -51,8 +60,11 @@ enum {
 
 #define TFW_WQ_IPI_SYNC(size_cb, wq)				\
 do {								\
+	/* Enable IPI generation for new items */		\
 	set_bit(TFW_QUEUE_IPI, &(wq)->flags);			\
+	/* Full memory barrier to ensure flag is visible */	\
 	smp_mb__after_atomic();					\
+	/* Check if queue became non-empty */			\
 	if (!size_cb(wq))					\
 		return;						\
 	clear_bit(TFW_QUEUE_IPI, &(wq)->flags);			\
@@ -66,10 +78,10 @@ int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, long *ticket);
 static inline int
 tfw_wq_size(TfwRBQueue *q)
 {
-	long t = atomic64_read(&q->tail);
 	long h = atomic64_read(&q->head);
+	long t = READ_ONCE(q->tail);
 
-	return t > h ? 0 : h - t;
+	return h >= t ? h - t : 0;
 }
 
 static inline void
@@ -90,11 +102,12 @@ tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	if (unlikely(ticket))
 		return ticket;
 	/*
-	 * The atomic operation is 'atomic64_cmpxchg()' in
-	 * '__tfw_wq_push()' above.
+	 * Memory barrier after atomic operation to ensure push completes
+	 * before checking IPI flag.
 	 */
 	smp_mb__after_atomic();
 
+	/* Wake up consumer if it might be sleeping */
 	if (test_bit(TFW_QUEUE_IPI, &q->flags))
 		tfw_raise_softirq(cpu, work, local_cpu_cb);
 
