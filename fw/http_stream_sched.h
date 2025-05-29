@@ -31,6 +31,8 @@
  * @active_cnt		- count of active child streams for this scheduler;
  * @owner		- stream that owns this scheduler;
  * @parent		- parent scheduler;
+ * @next_free		- next free scheduler if current scheduler is in
+ *			  free list;
  * @active		- root of the active streams scheduler ebtree;
  * @blocked		- root of the blocked streams scheduler ebtree;
  */ 
@@ -39,9 +41,19 @@ typedef struct tfw_stream_sched_entry_t {
 	long int			active_cnt;
 	TfwStream			*owner;
 	struct tfw_stream_sched_entry_t	*parent;
+	struct tfw_stream_sched_entry_t *next_free;
 	struct eb_root			active;
 	struct eb_root			blocked;
 } TfwStreamSchedEntry;
+
+/**
+ * @next 		- pointer to the next scheduler list;
+ * @entries 		- flexible array of schedulers;
+ */
+typedef struct tfw_stream_sched_list {
+	struct tfw_stream_sched_list *next;
+	TfwStreamSchedEntry entries[];
+} TfwStreamSchedList;
 
 /**
  * Scheduler for stream's processing distribution based on dependency/priority
@@ -51,11 +63,13 @@ typedef struct tfw_stream_sched_entry_t {
  *			  streams storage;
  * @root		- root scheduler of per-connection priority tree;
  * @blocked_streams	- count of blocked streams;
+ * @free_list		- list of preallocated schedulers;
  */
 typedef struct tfw_stream_sched_t {
 	struct rb_root		streams;
 	TfwStreamSchedEntry	root;
 	long int		blocked_streams;
+	TfwStreamSchedEntry	*free_list;
 } TfwStreamSched;
 
 TfwStreamSchedEntry *tfw_h2_find_stream_dep(TfwStreamSched *sched,
@@ -81,6 +95,7 @@ static inline void
 tfw_h2_init_stream_sched(TfwStreamSched *sched)
 {
 	sched->streams = RB_ROOT;
+	sched->free_list = NULL;
 	tfw_h2_init_stream_sched_entry(&sched->root, NULL);
 }
 
