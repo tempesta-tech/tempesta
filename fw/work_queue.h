@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,13 +34,23 @@ typedef struct {
 #define WQ_ITEM_SZ		sizeof(__WqItem)
 #define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
+/**
+ * MPSC Queue structure
+ * @heads - per-cpu head positions for producer coordination
+ * @array - ring buffer array
+ * @qsize - queue size (must be power of 2)
+ * @last_head - last known safe head position
+ * @head - global producer head (atomic)
+ * @tail - consumer tail (non-atomic for MPSC)
+ * @flags - queue flags
+ */
 typedef struct {
 	atomic64_t __percpu	*heads;
 	__WqItem		*array;
 	size_t			qsize;
 	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
-	atomic64_t		tail ____cacheline_aligned;
+	long			tail ____cacheline_aligned;
 	unsigned long		flags;
 } TfwRBQueue;
 
@@ -66,7 +76,7 @@ int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, long *ticket);
 static inline int
 tfw_wq_size(TfwRBQueue *q)
 {
-	long t = atomic64_read(&q->tail);
+	long t = READ_ONCE(q->tail);
 	long h = atomic64_read(&q->head);
 
 	return t > h ? 0 : h - t;

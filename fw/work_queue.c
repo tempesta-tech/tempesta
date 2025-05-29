@@ -5,7 +5,7 @@
  * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
  * multi-producer-multi-consumer-queue-ring-buffer .
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -36,14 +36,16 @@ tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 	if (!q->heads)
 		return -ENOMEM;
 
+	/* Initialize per-cpu heads for producers */
 	for_each_online_cpu(cpu) {
 		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
 		atomic64_set(local_head, LLONG_MAX);
 	}
+
 	q->qsize = qsize;
 	q->last_head = 0;
 	atomic64_set(&q->head, 0);
-	atomic64_set(&q->tail, 0);
+	q->tail = 0;
 	set_bit(TFW_QUEUE_IPI, &q->flags);
 
 	/* Fallback to vmalloc for large queue sizes (> 128k items) */
@@ -91,13 +93,15 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	 * We could update the guard in the loop to allow a consumer to make
 	 * progress if we're got ahead by other producers, but the overhead
 	 * of the atomic write is undesirable.
+	 * Set the head guard to make consumer wait on this position.
 	 */
 	head = atomic64_read(&q->head);
 	atomic64_set(head_local, head);
 
 	for ( ; ; head = atomic64_read(&q->head)) {
-		tail = atomic64_read(&q->tail);
+		tail = READ_ONCE(q->tail);
 		WARN_ON_ONCE(head > tail + q->qsize);
+		
 		if (unlikely(head == tail + q->qsize)) {
 			/*
 			 * Small threshold budget to pass through temporary
@@ -127,7 +131,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	head = 0;
 full_out:
 	/* Now it's safe to release current head position. */
-	atomic64_set(head_local, LONG_MAX);
+	atomic64_set(head_local, LLONG_MAX);
 	local_bh_enable();
 	return head;
 }
@@ -145,18 +149,15 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 
 	local_bh_disable();
 
-	tail = atomic64_read(&q->tail);
+	tail = q->tail;
+	
 	/*
-	 * tail > q->last_head means that some producer is using too old head
-	 * and is going to fail on cmpxchg(). However, we still don't know how
-	 * far we can move, so probably we have to return with nothing now.
+	 * For MPSC with single consumer, we still need to check
+	 * all producer positions to find the safe head.
 	 */
 	if (unlikely(tail >= q->last_head)) {
 		/*
 		 * Actualize @last_head from heads of all current producers.
-		 * We do it here since atomic reads are faster than updates and
-		 * we can do this only when we need a new value, i.e. not so
-		 * frequently. Don't support switching off cpus in runtime.
 		 */
 		q->last_head = atomic64_read(&q->head);
 		for_each_online_cpu(cpu) {
@@ -178,10 +179,9 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 	mb();
 
 	/*
-	 * Since only one CPU writes @tail, then use faster atomic write
-	 * instead of increment.
+	 * Single consumer - just update tail, no atomics needed.
 	 */
-	atomic64_set(&q->tail, tail + 1);
+	WRITE_ONCE(q->tail, tail + 1);
 	r = 0;
 out:
 	local_bh_enable();
