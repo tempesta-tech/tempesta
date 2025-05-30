@@ -205,20 +205,53 @@ tfw_h2_cleanup(void)
 }
 
 /**
+ * Count of streams, preallocated during http2 context
+ * creation. According our investigation there are about
+ * 15 - 25 opened streams per one connection. Since we
+ * close stream and return it to preallocated pool if
+ * it is exclusive (all chromium based browsers), this
+ * count is enough for a most cases and we don't allocate
+ * a lot of extra memory.
+ */
+#define PREALLOC_STREAM_CNT		13
+#define STREAM_LIST_SZ			sizeof(TfwStreamList) + \
+	PREALLOC_STREAM_CNT * sizeof(TfwStream)
+/**
  * Default count of max cocurrent streams according RFC9113.
  */ 
 #define MAX_CONCURRENT_STREAMS_DFLT	100
+#define PREALLOC_STREAM_SCHED_ENTRY_CNT (MAX_CONCURRENT_STREAMS_DFLT / 2)
 #define STREAM_SCHED_ENTRY_LIST_SZ	sizeof(TfwStreamSchedList) + \
-	MAX_CONCURRENT_STREAMS_DFLT * sizeof(TfwStreamSchedEntry)
+	PREALLOC_STREAM_SCHED_ENTRY_CNT * sizeof(TfwStreamSchedEntry)
+
+#define HTTP2_CTX_SZ			sizeof(TfwH2Ctx) + \
+	STREAM_LIST_SZ + STREAM_SCHED_ENTRY_LIST_SZ
+#define STREAM_SCHED_ENTRY_LIST(ctx)	\
+	(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx) + \
+		STREAM_LIST_SZ)
+#define STREAM_ENTRY_LIST(ctx)		\
+	(TfwStreamList *)((char *)ctx + sizeof(TfwH2Ctx))
+
+static inline void
+tfw_h2_context_init_stream_list(TfwH2Ctx *ctx)
+{
+	TfwStreamList *list = STREAM_ENTRY_LIST(ctx);
+	int i;
+
+	list->free_list = NULL;
+	for (i = PREALLOC_STREAM_CNT - 1; i >=0; i--) {
+		list->entries[i].next_free = list->free_list;
+		list->free_list = &list->entries[i];
+	}
+}
 
 static inline void
 tfw_h2_context_init_sched_entry_list(TfwH2Ctx *ctx, TfwStreamSchedList *list)
 {
-	TfwStreamSchedList *first_list =
-		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+	TfwStreamSchedList *first_list = STREAM_SCHED_ENTRY_LIST(ctx);
 	int i;
 
-	for (i = MAX_CONCURRENT_STREAMS_DFLT - 1; i >= 0; i--) {
+	for (i = PREALLOC_STREAM_SCHED_ENTRY_CNT - 1; i >= 0; i--) {
 		list->entries[i].owner = NULL;
 		list->entries[i].next_free = ctx->sched.free_list;
 		ctx->sched.free_list = &list->entries[i];
@@ -247,8 +280,7 @@ tfw_h2_context_alloc_extra_sched_entry_list(TfwH2Ctx *ctx)
 static inline void
 tfw_h2_context_free_extra_sched_entry_lists(TfwH2Ctx *ctx)
 {
-	TfwStreamSchedList *first_list =
-		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+	TfwStreamSchedList *first_list = STREAM_SCHED_ENTRY_LIST(ctx);
 
 	while (first_list->next) {
 		TfwStreamSchedList *to_delete = first_list->next;
@@ -261,18 +293,15 @@ tfw_h2_context_free_extra_sched_entry_lists(TfwH2Ctx *ctx)
 TfwH2Ctx *
 tfw_h2_context_alloc(void)
 {
-	return alloc_pages_exact(sizeof(TfwH2Ctx) + STREAM_SCHED_ENTRY_LIST_SZ,
-				 GFP_ATOMIC);
+	BUILD_BUG_ON(HTTP2_CTX_SZ > 4 * PAGE_SIZE);
+	return alloc_pages_exact(HTTP2_CTX_SZ, GFP_ATOMIC);
 }
 
 void
 tfw_h2_context_free(TfwH2Ctx *ctx)
 {
-	free_pages_exact(ctx, sizeof(TfwH2Ctx) + STREAM_SCHED_ENTRY_LIST_SZ);
+	free_pages_exact(ctx, HTTP2_CTX_SZ);
 }
-
-#undef STREAM_SCHED_ENTRY_LIST_SZ
-#undef MAX_CONCURRENT_STREAMS_DFLT
 
 int
 tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
@@ -281,11 +310,11 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
-	TfwStreamSchedList *list =
-		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+	TfwStreamSchedList *list = STREAM_SCHED_ENTRY_LIST(ctx);
 
 	BUG_ON(!conn || conn->h2 != ctx);
-	bzero_fast(ctx, sizeof(*ctx) + sizeof(*list));
+	bzero_fast(ctx, sizeof(*ctx));
+	list->next = NULL;
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = DEF_WND_SIZE;
@@ -296,6 +325,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	INIT_LIST_HEAD(&idle_streams->list);
 
 	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_context_init_stream_list(ctx);
 	tfw_h2_context_init_sched_entry_list(ctx, list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
@@ -327,7 +357,6 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	tfw_hpack_clean(&ctx->hpack);
 }
 
-
 TfwStreamSchedEntry *
 tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
 {
@@ -355,6 +384,45 @@ tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
 	entry->next_free = ctx->sched.free_list;
 	ctx->sched.free_list = entry;
 }
+
+TfwStream *
+tfw_h2_alloc_stream(TfwH2Ctx *ctx)
+{
+	TfwStreamList *list = STREAM_ENTRY_LIST(ctx);
+	TfwStream *stream = NULL;
+
+	if (list->free_list) {
+		stream = list->free_list;
+		list->free_list = stream->next_free;
+	}
+
+	return stream;
+}
+
+int
+tfw_h2_free_stream(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	TfwStreamList *list = STREAM_ENTRY_LIST(ctx);
+
+	if (stream >= &list->entries[0] &&
+	    stream <= &list->entries[STREAM_LIST_SZ - 1])
+	{
+		stream->next_free = list->free_list;
+		list->free_list = stream;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+#undef STREAM_ENTRY_LIST
+#undef STREAM_SCHED_ENTRY_LIST
+#undef HTTP2_CTX_SZ
+#undef STREAM_SCHED_ENTRY_LIST_SZ
+#undef PREALLOC_STREAM_SCHED_ENTRY_CNT
+#undef MAX_CONCURRENT_STREAMS_DFLT
+#undef STREAM_LIST_SZ
+#undef PREALLOC_STREAM_CNT
 
 void
 tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
@@ -412,7 +480,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		 * No further actions regarding streams dependencies/prio
 		 * is required at this stage.
 		 */
-		tfw_h2_delete_stream(cur);
+		tfw_h2_delete_stream(ctx, cur);
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;

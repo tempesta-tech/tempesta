@@ -48,7 +48,7 @@ typedef struct tfw_stream_sched_entry_t {
 
 /**
  * @next 		- pointer to the next scheduler list;
- * @entries 		- flexible array of schedulers;
+ * @entries 		- flexible array of preallocated schedulers;
  */
 typedef struct tfw_stream_sched_list {
 	struct tfw_stream_sched_list *next;

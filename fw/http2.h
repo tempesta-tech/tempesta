@@ -47,6 +47,15 @@ typedef struct {
 	unsigned int max_lhdr_sz;
 } TfwSettings;
 
+/**
+ * @free_list		- list of preallocated streams;
+ * @entries		- flexible array of preallocated streams;
+ */
+typedef struct {
+	TfwStream *free_list;
+	TfwStream entries[];
+} TfwStreamList;
+
 typedef struct tfw_conn_t TfwConn;
 
 /**
@@ -170,5 +179,7 @@ int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			     unsigned int *len, bool should_split);
 TfwStreamSchedEntry *tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx);
 void tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry);
+TfwStream *tfw_h2_alloc_stream(TfwH2Ctx *ctx);
+int tfw_h2_free_stream(TfwH2Ctx *ctx, TfwStream *stream);
 
 #endif /* __HTTP2__ */

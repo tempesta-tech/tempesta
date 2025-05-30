@@ -177,6 +177,7 @@ typedef enum {
  * @loc_wnd	- stream's current flow controlled window;
  * @rem_wnd	- streams's current flow controlled window for remote client;
  * @msg		- message that is currently being processed;
+ * @next_free	- next free stream if current stream is in free list;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
  * @xmit	- last http2 response info, used in `xmit` callbacks;
@@ -194,6 +195,7 @@ struct tfw_http_stream_t {
 	long int		loc_wnd;
 	long int		rem_wnd;
 	TfwMsg			*msg;
+	TfwStream		*next_free;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
 	TfwHttpXmit		xmit;
@@ -212,7 +214,7 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-void tfw_h2_delete_stream(TfwStream *stream);
+void tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream);
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 int tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len);

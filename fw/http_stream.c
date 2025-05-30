@@ -108,9 +108,10 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamSchedEntry *entry,
 		  unsigned int id, unsigned short weight,
 		  long int loc_wnd, long int rem_wnd)
 {
-	TfwStream *new_stream;
+	TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 	struct rb_node **new = &sched->streams.rb_node;
 	struct rb_node *parent = NULL;
+	TfwStream *new_stream;
 
 	while (*new) {
 		TfwStream *stream = rb_entry(*new, TfwStream, node);
@@ -126,10 +127,13 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamSchedEntry *entry,
 		}
 	}
 
-	new_stream = kmem_cache_alloc(stream_cache, GFP_ATOMIC | __GFP_ZERO);
+	new_stream = tfw_h2_alloc_stream(ctx);
+	if (!new_stream)
+		new_stream = kmem_cache_alloc(stream_cache, GFP_ATOMIC);
 	if (unlikely(!new_stream))
 		return NULL;
 
+	bzero_fast(new_stream, sizeof(TfwStream));
 	tfw_h2_init_stream(new_stream, entry, id, weight, loc_wnd, rem_wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
@@ -255,7 +259,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
-	tfw_h2_delete_stream(stream);
+	tfw_h2_delete_stream(ctx, stream);
 	--ctx->streams_num;
 }
 
@@ -806,10 +810,11 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 }
 
 void
-tfw_h2_delete_stream(TfwStream *stream)
+tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
-	kmem_cache_free(stream_cache, stream);
+	if (tfw_h2_free_stream(ctx, stream))
+		kmem_cache_free(stream_cache, stream);
 }
 
 int
