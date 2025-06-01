@@ -20,8 +20,6 @@
 
 #include <fcntl.h>
 #include <signal.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/spdlog.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -34,8 +32,6 @@
 #include <vector>
 
 #include <boost/program_options.hpp>
-#include <clickhouse/base/socket.h>
-#include <clickhouse/client.h>
 
 #include "../fw/access_log.h"
 #include "clickhouse.hh"
@@ -43,6 +39,11 @@
 #include "mmap_buffer.hh"
 #include "pidfile.hh"
 #include "tfw_logger_config.hh"
+
+#include <clickhouse/base/socket.h>
+#include <clickhouse/client.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
 
 namespace po = boost::program_options;
 
@@ -59,6 +60,9 @@ std::atomic<bool> stop_flag{false};
 static thread_local bool uncritical_error;
 static TfwLoggerConfig config;
 
+namespace
+{
+
 /**
  * Command line options structure
  */
@@ -66,6 +70,7 @@ struct ParsedOptions {
 	bool help = false;
 	bool stop_daemon = false;
 	bool foreground = false;
+	bool test_config = false;
 
 	std::optional<fs::path> config_path;
 	std::optional<std::string> clickhouse_host;
@@ -75,47 +80,36 @@ struct ParsedOptions {
 	std::optional<std::string> clickhouse_password;
 	std::optional<size_t> clickhouse_max_events;
 	std::optional<int> clickhouse_max_wait_ms;
-	std::optional<size_t> cpu_count;
 	std::optional<fs::path> log_path;
 };
 
-// Forward declarations
-static void setup_signal_handlers();
-static ParsedOptions parse_command_line(int argc, char *argv[]);
-static void load_configuration(const ParsedOptions &opts);
-static void setup_daemon_mode(const ParsedOptions &opts);
-static void initialize_logging();
-static int open_mmap_device();
-static void run_main_loop(int fd);
-static void cleanup_resources(int fd, int pidfile_fd);
-
 typedef struct {
-	const char		*name;
-	clickhouse::Type::Code	code;
+	const char *name;
+	clickhouse::Type::Code code;
 } TfwField;
 
 static const TfwField tfw_fields[] = {
-	[TFW_MMAP_LOG_ADDR] = {"address", clickhouse::Type::IPv6},
-	[TFW_MMAP_LOG_METHOD] = {"method", clickhouse::Type::UInt8},
-	[TFW_MMAP_LOG_VERSION] = {"version", clickhouse::Type::UInt8},
-	[TFW_MMAP_LOG_STATUS] = {"status", clickhouse::Type::UInt16},
-	[TFW_MMAP_LOG_RESP_CONT_LEN] = {"response_content_length",
-					clickhouse::Type::UInt32},
-	[TFW_MMAP_LOG_RESP_TIME] = {"response_time", clickhouse::Type::UInt32},
-	[TFW_MMAP_LOG_VHOST] = {"vhost", clickhouse::Type::String},
-	[TFW_MMAP_LOG_URI] = {"uri", clickhouse::Type::String},
-	[TFW_MMAP_LOG_REFERER] = {"referer", clickhouse::Type::String},
-	[TFW_MMAP_LOG_USER_AGENT] = {"user_agent", clickhouse::Type::String},
-	[TFW_MMAP_LOG_JA5T] = {"ja5t", clickhouse::Type::UInt64},
-	[TFW_MMAP_LOG_JA5H] = {"ja5h", clickhouse::Type::UInt64},
-	[TFW_MMAP_LOG_DROPPED] = {"dropped_events", clickhouse::Type::UInt64}
-};
+    [TFW_MMAP_LOG_ADDR] = {"address", clickhouse::Type::IPv6},
+    [TFW_MMAP_LOG_METHOD] = {"method", clickhouse::Type::UInt8},
+    [TFW_MMAP_LOG_VERSION] = {"version", clickhouse::Type::UInt8},
+    [TFW_MMAP_LOG_STATUS] = {"status", clickhouse::Type::UInt16},
+    [TFW_MMAP_LOG_RESP_CONT_LEN] = {"response_content_length",
+				    clickhouse::Type::UInt32},
+    [TFW_MMAP_LOG_RESP_TIME] = {"response_time", clickhouse::Type::UInt32},
+    [TFW_MMAP_LOG_VHOST] = {"vhost", clickhouse::Type::String},
+    [TFW_MMAP_LOG_URI] = {"uri", clickhouse::Type::String},
+    [TFW_MMAP_LOG_REFERER] = {"referer", clickhouse::Type::String},
+    [TFW_MMAP_LOG_USER_AGENT] = {"user_agent", clickhouse::Type::String},
+    [TFW_MMAP_LOG_JA5T] = {"ja5t", clickhouse::Type::UInt64},
+    [TFW_MMAP_LOG_JA5H] = {"ja5h", clickhouse::Type::UInt64},
+    [TFW_MMAP_LOG_DROPPED] = {"dropped_events", clickhouse::Type::UInt64}};
 
 #ifdef DEBUG
-static void
+void
 dbg_hexdump(const char *data, int buflen)
 {
-	const unsigned char *buf = (const unsigned char*)data;
+	const unsigned char *buf =
+	    reinterpret_cast<const unsigned char *>(data);
 	std::ostringstream oss;
 	oss << std::hex << std::setfill('0');
 
@@ -125,14 +119,15 @@ dbg_hexdump(const char *data, int buflen)
 
 		for (int j = 0; j < 16; ++j)
 			if (i + j < buflen)
-				oss << std::setw(2) << (unsigned)buf[i + j] << " ";
+				oss << std::setw(2)
+				    << static_cast<unsigned>(buf[i + j]) << " ";
 			else
 				oss << "   ";
 		oss << " ";
 		for (int j = 0; j < 16; ++j) {
 			if (i + j >= buflen)
 				break;
-			oss << (char)PRINT_CHAR(buf[i + j]);
+			oss << static_cast<char>(PRINT_CHAR(buf[i + j]));
 		}
 		oss << std::endl;
 	}
@@ -141,7 +136,7 @@ dbg_hexdump(const char *data, int buflen)
 #undef PRINT_CHAR
 }
 #else
-static void
+void
 dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
 {
 }
@@ -182,47 +177,51 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 {
 	auto block = clickhouse->get_block();
 	const char *p = data;
-	TfwBinLogEvent *event = (TfwBinLogEvent *)p;
+	const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
 	int len, ind;
 
 	p += sizeof(TfwBinLogEvent);
 	size -= sizeof(TfwBinLogEvent);
 
-	(*block)[0]->As<clickhouse::ColumnDateTime64>()->Append(event->timestamp);
+	(*block)[0]->As<clickhouse::ColumnDateTime64>()->Append(
+	    event->timestamp);
 
-#define READ_INT(method, col_type, val_type)				\
-	ind = method + 1; /* column 0 is timestamp */			\
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {			\
-		len = tfw_mmap_log_field_len((TfwBinLogFields)method);	\
-		if (len > size) [[unlikely]]				\
-			goto error;					\
-		(*block)[ind]->As<col_type>()->Append(*(val_type *)p);	\
-		p += len;						\
-		size -= len;						\
-	} else								\
-		(*block)[ind]->As<col_type>()->Append(0);		\
+#define READ_INT(method, col_type, val_type)                                   \
+	ind = method + 1; /* column 0 is timestamp */                          \
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
+		len = tfw_mmap_log_field_len(                                  \
+		    static_cast<TfwBinLogFields>(method));                     \
+		if (len > size) [[unlikely]]                                   \
+			goto error;                                            \
+		(*block)[ind]->As<col_type>()->Append(                         \
+		    *reinterpret_cast<const val_type *>(p));                   \
+		p += len;                                                      \
+		size -= len;                                                   \
+	} else                                                                 \
+		(*block)[ind]->As<col_type>()->Append(0);
 
 	READ_INT(TFW_MMAP_LOG_ADDR, clickhouse::ColumnIPv6, struct in6_addr);
 	READ_INT(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
 	READ_INT(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
 	READ_INT(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
-	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
+	READ_INT(
+	    TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
 	READ_INT(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
 
-#define READ_STR(method)						\
-	ind = method + 1; /* column 0 is timestamp */			\
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {			\
-		len = *((uint16_t *)p);					\
-		if (len > size) [[unlikely]]				\
-			goto error;					\
-		(*block)[ind]->As<clickhouse::ColumnString>()->Append(	\
-			std::string(p + 2, len));			\
-		len += 2;						\
-		p += len;						\
-		size -= len;						\
-	} else								\
-		(*block)[ind]->As<clickhouse::ColumnString>()->Append(	\
-			std::string(""));
+#define READ_STR(method)                                                       \
+	ind = method + 1; /* column 0 is timestamp */                          \
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
+		len = *reinterpret_cast<const uint16_t *>(p);                  \
+		if (len > size) [[unlikely]]                                   \
+			goto error;                                            \
+		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
+		    std::string(p + 2, len));                                  \
+		len += 2;                                                      \
+		p += len;                                                      \
+		size -= len;                                                   \
+	} else                                                                 \
+		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
+		    std::string(""));
 
 	READ_STR(TFW_MMAP_LOG_VHOST);
 	READ_STR(TFW_MMAP_LOG_URI);
@@ -233,7 +232,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	READ_INT(TFW_MMAP_LOG_JA5H, clickhouse::ColumnUInt64, uint64_t);
 	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
 
-	return p - data;
+	return static_cast<int>(p - data);
 error:
 	throw Except("Incorrect event length");
 #undef READ_STR
@@ -243,15 +242,14 @@ error:
 void
 callback(const char *data, int size, void *private_data)
 {
-	TfwClickhouse *clickhouse = (TfwClickhouse *)private_data;
-	TfwBinLogEvent *event;
+	auto *clickhouse = static_cast<TfwClickhouse *>(private_data);
 	const char *p = data;
 	int r;
 
 	dbg_hexdump(data, size);
 
-	while (size > (int)sizeof(TfwBinLogEvent)) {
-		event = (TfwBinLogEvent *)p;
+	while (size > static_cast<int>(sizeof(TfwBinLogEvent))) {
+		const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
 
 		switch (event->type) {
 		case TFW_MMAP_LOG_TYPE_ACCESS:
@@ -261,7 +259,7 @@ callback(const char *data, int size, void *private_data)
 			break;
 		default:
 			throw Except("Unsupported log type: {}",
-				     (unsigned int)event->type);
+				     static_cast<unsigned int>(event->type));
 		}
 	}
 
@@ -284,42 +282,42 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
 
 			spdlog::debug("Worker {} connecting to ClickHouse "
 				      "at {}:{}, table: {}",
-				      ncpu, ch_cfg.host, ch_cfg.port,
+				      ncpu,
+				      ch_cfg.host,
+				      ch_cfg.port,
 				      ch_cfg.table_name);
 
-			TfwClickhouse clickhouse(ch_cfg.host, ch_cfg.table_name,
-						 ch_cfg.user ? *ch_cfg.user : "",
-						 ch_cfg.password ?
-						 *ch_cfg.password : "",
-						 make_block());
+			TfwClickhouse clickhouse(
+			    ch_cfg.host,
+			    ch_cfg.table_name,
+			    ch_cfg.user ? *ch_cfg.user : "",
+			    ch_cfg.password ? *ch_cfg.password : "",
+			    make_block());
 
-			TfwMmapBufferReader mbr(ncpu, fd, &clickhouse,
-						callback);
+			TfwMmapBufferReader mbr(
+			    ncpu, fd, &clickhouse, callback);
 
 			if (!affinity_is_set) {
 				CPU_ZERO(&cpuset);
 				CPU_SET(mbr.get_cpu_id(), &cpuset);
 
-				r = pthread_setaffinity_np(current_thread,
-							   sizeof(cpu_set_t),
-							   &cpuset);
+				r = pthread_setaffinity_np(
+				    current_thread, sizeof(cpu_set_t), &cpuset);
 				if (r != 0)
-					throw Except("Failed to set CPU "
-						     "affinity");
+					throw Except("Failed to set CPU affinity");
 
 				affinity_is_set = true;
 				spdlog::debug("Worker {} bound to CPU {}",
-					      ncpu, mbr.get_cpu_id());
+					      ncpu,
+					      mbr.get_cpu_id());
 			}
 
 			mbr.run(&stop_flag);
 			break;
-		}
-		catch (const Exception &e) {
+		} catch (const Exception &e) {
 			log_error(e.what(), true, false);
 			break;
-		}
-		catch (const std::exception &e) {
+		} catch (const std::exception &e) {
 			if (!uncritical_error) {
 				log_error(e.what(), true, true);
 				timeout = reconnect_min_timeout;
@@ -337,14 +335,13 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config)
 }
 
 // Signal handling
-static void
+void
 sig_handler([[maybe_unused]] int sig_num) noexcept
 {
 	stop_flag = true;
-	spdlog::info("Received signal {}, stopping...", sig_num);
 }
 
-static void
+void
 setup_signal_handlers()
 {
 	struct sigaction sa;
@@ -363,7 +360,7 @@ setup_signal_handlers()
 }
 
 // Configuration handling
-static ParsedOptions
+ParsedOptions
 parse_command_line(int argc, char *argv[])
 {
 	ParsedOptions result;
@@ -373,42 +370,47 @@ parse_command_line(int argc, char *argv[])
 	std::string config_desc = "Path to configuration file (default: " +
 				  std::string(default_config_path) + ")";
 
-	desc.add_options()
-		("help,h", po::bool_switch(&result.help),
-			"Show this help message and exit")
-		("stop,s", po::bool_switch(&result.stop_daemon),
-			"Stop the daemon")
-		("foreground,f", po::bool_switch(&result.foreground),
-			"Run in foreground (do not daemonize)")
-		("config,c", po::value<fs::path>(),
-			config_desc.c_str())
-		("host,H", po::value<std::string>(),
-			"ClickHouse host (overrides config)")
-		("port,P", po::value<uint16_t>(),
-			"ClickHouse port (overrides config)")
-		("table,t", po::value<std::string>(),
-			"ClickHouse table name (overrides config)")
-		("user,u", po::value<std::string>(),
-			"ClickHouse username (overrides config)")
-		("password,p", po::value<std::string>(),
-			"ClickHouse password (overrides config)")
-		("max-events", po::value<size_t>(),
-			"Maximum events before commit (overrides config)")
-		("max-wait", po::value<int>(),
-			"Maximum wait time in ms before commit "
-			"(overrides config)")
-		("cpu-count,n", po::value<size_t>(),
-			"Number of CPUs to use, 0=auto-detect "
-			"(overrides config)")
-		("log-path,l", po::value<fs::path>(),
-			"Path to log file (overrides config)");
+	desc.add_options()("help,h",
+			   po::bool_switch(&result.help),
+			   "Show this help message and exit")(
+	    "stop,s", po::bool_switch(&result.stop_daemon), "Stop the daemon")(
+	    "foreground,f",
+	    po::bool_switch(&result.foreground),
+	    "Run in foreground (do not daemonize)")(
+	    "test-config",
+	    po::bool_switch(&result.test_config),
+	    "Test configuration file and exit")(
+	    "config,c", po::value<fs::path>(), config_desc.c_str())(
+	    "host,H",
+	    po::value<std::string>(),
+	    "ClickHouse host (overrides config)")(
+	    "port,P",
+	    po::value<uint16_t>(),
+	    "ClickHouse port (overrides config)")(
+	    "table,t",
+	    po::value<std::string>(),
+	    "ClickHouse table name (overrides config)")(
+	    "user,u",
+	    po::value<std::string>(),
+	    "ClickHouse username (overrides config)")(
+	    "password,p",
+	    po::value<std::string>(),
+	    "ClickHouse password (overrides config)")(
+	    "max-events",
+	    po::value<size_t>(),
+	    "Maximum events before commit (overrides config)")(
+	    "max-wait",
+	    po::value<int>(),
+	    "Maximum wait time in ms before commit "
+	    "(overrides config)")("log-path,l",
+				  po::value<fs::path>(),
+				  "Path to log file (overrides config)");
 
 	po::variables_map vm;
 	try {
 		po::store(po::parse_command_line(argc, argv, desc), vm);
 		po::notify(vm);
-	}
-	catch (const po::error &e) {
+	} catch (const po::error &e) {
 		std::cerr << "Error: " << e.what() << std::endl;
 		std::cerr << "Use --help for usage information" << std::endl;
 		exit(1);
@@ -422,10 +424,15 @@ parse_command_line(int argc, char *argv[])
 		std::cout << "  tfw_logger --config " << default_config_path
 			  << std::endl;
 		std::cout << "  tfw_logger --host localhost --table "
-			     "access_log_v2 -n 4" << std::endl;
+			     "access_log_v2"
+			  << std::endl;
 		std::cout << "  tfw_logger --stop" << std::endl;
 		std::cout << "  tfw_logger --foreground --config "
-			     "/tmp/test_config.json" << std::endl;
+			     "/tmp/test_config.json"
+			  << std::endl;
+		std::cout << "  tfw_logger --test-config --config "
+			     "/path/to/config.json"
+			  << std::endl;
 		return result;
 	}
 
@@ -446,19 +453,17 @@ parse_command_line(int argc, char *argv[])
 		result.clickhouse_max_events = vm["max-events"].as<size_t>();
 	if (vm.count("max-wait"))
 		result.clickhouse_max_wait_ms = vm["max-wait"].as<int>();
-	if (vm.count("cpu-count"))
-		result.cpu_count = vm["cpu-count"].as<size_t>();
 	if (vm.count("log-path"))
 		result.log_path = vm["log-path"].as<fs::path>();
 
 	return result;
 }
 
-static void
+void
 load_configuration(const ParsedOptions &opts)
 {
-	fs::path config_path = opts.config_path.value_or(
-				fs::path(default_config_path));
+	fs::path config_path =
+	    opts.config_path.value_or(fs::path(default_config_path));
 
 	auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
 	if (!loaded_config) {
@@ -485,16 +490,16 @@ load_configuration(const ParsedOptions &opts)
 	if (opts.clickhouse_password)
 		config.override_clickhouse_password(*opts.clickhouse_password);
 	if (opts.clickhouse_max_events)
-		config.override_clickhouse_max_events(*opts.clickhouse_max_events);
+		config.override_clickhouse_max_events(
+		    *opts.clickhouse_max_events);
 	if (opts.clickhouse_max_wait_ms)
-		config.override_clickhouse_max_wait(*opts.clickhouse_max_wait_ms);
-	if (opts.cpu_count)
-		config.override_cpu_count(*opts.cpu_count);
+		config.override_clickhouse_max_wait(
+		    *opts.clickhouse_max_wait_ms);
 	if (opts.log_path)
 		config.override_log_path(*opts.log_path);
 }
 
-static void
+void
 setup_daemon_mode(const ParsedOptions &opts)
 {
 	// Check if daemon is already running
@@ -515,32 +520,31 @@ setup_daemon_mode(const ParsedOptions &opts)
 
 	// Daemonize if not in foreground mode
 	if (!opts.foreground) {
-		spdlog::info("Daemonizing...");
+		spdlog::debug("Daemonizing...");
 
 		if (daemon(0, 0) < 0)
 			throw Except("Daemonization failed");
 	}
 }
 
-static void
+void
 initialize_logging()
 {
 	// Create log directory if needed
 	fs::create_directories(fs::path(config.get_log_path()).parent_path());
 
 	try {
-		auto logger = spdlog::basic_logger_mt("access_logger",
-						      config.get_log_path().string());
+		auto logger = spdlog::basic_logger_mt(
+		    "access_logger", config.get_log_path().string());
 		spdlog::set_default_logger(logger);
 		spdlog::set_level(spdlog::level::info);
 		logger->flush_on(spdlog::level::info);
-	}
-	catch (const spdlog::spdlog_ex &ex) {
+	} catch (const spdlog::spdlog_ex &ex) {
 		throw Except("Log initialization failed: {}", ex.what());
 	}
 }
 
-static int
+int
 open_mmap_device()
 {
 	int fd;
@@ -566,20 +570,12 @@ open_mmap_device()
 	return fd;
 }
 
-static void
+void
 run_main_loop(int fd)
 {
-	size_t cpu_count;
-
-	// Determine CPU count
-	if (config.get_cpu_count() > 0) {
-		cpu_count = config.get_cpu_count();
-	}
-	else {
-		cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
-		if (cpu_count <= 0)
-			throw Except("Cannot determine CPU count");
-	}
+	auto cpu_count = static_cast<size_t>(sysconf(_SC_NPROCESSORS_ONLN));
+	if (cpu_count <= 0)
+		throw Except("Cannot determine CPU count");
 
 	spdlog::info("Using {} CPU(s)", cpu_count);
 	spdlog::info("Starting {} worker threads", cpu_count);
@@ -587,7 +583,8 @@ run_main_loop(int fd)
 	// Start worker threads
 	std::vector<std::thread> threads;
 	for (size_t i = 0; i < cpu_count; ++i) {
-		threads.emplace_back(run_thread, i, fd, std::ref(config));
+		threads.emplace_back(
+		    run_thread, static_cast<int>(i), fd, std::ref(config));
 	}
 
 	spdlog::info("All {} worker threads started", cpu_count);
@@ -599,7 +596,7 @@ run_main_loop(int fd)
 	}
 }
 
-static void
+void
 cleanup_resources(int fd, int pidfile_fd)
 {
 	// Close device
@@ -614,6 +611,8 @@ cleanup_resources(int fd, int pidfile_fd)
 		spdlog::info("PID file removed");
 	}
 }
+
+} // anonymous namespace
 
 /**
  * Main entry point for Tempesta FW Logger.
@@ -632,7 +631,7 @@ main(int argc, char *argv[])
 
 		// Handle simple commands that don't need full setup
 		if (opts.help) {
-			return 0;  // Help was already shown
+			return 0; // Help was already shown
 		}
 
 		if (opts.stop_daemon) {
@@ -642,6 +641,12 @@ main(int argc, char *argv[])
 
 		// Load and setup configuration
 		load_configuration(opts);
+
+		// Test configuration and exit if requested
+		if (opts.test_config) {
+			std::cout << "Configuration file is valid" << std::endl;
+			return 0;
+		}
 
 		// Setup daemon mode (check PID, close FDs, daemonize)
 		setup_daemon_mode(opts);
@@ -676,20 +681,19 @@ main(int argc, char *argv[])
 		run_main_loop(fd);
 
 		spdlog::info("Tempesta FW Logger stopped");
-	}
-	catch (const Exception &e) {
+	} catch (const Exception &e) {
 		if (spdlog::default_logger()) {
 			spdlog::error("Fatal error: {}", e.what());
 		} else {
 			std::cerr << "Error: " << e.what() << std::endl;
 		}
 		res = 1;
-	}
-	catch (const std::exception &e) {
+	} catch (const std::exception &e) {
 		if (spdlog::default_logger()) {
 			spdlog::error("Unhandled exception: {}", e.what());
 		} else {
-			std::cerr << "Unhandled error: " << e.what() << std::endl;
+			std::cerr << "Unhandled error: " << e.what()
+				  << std::endl;
 		}
 		res = 2;
 	}

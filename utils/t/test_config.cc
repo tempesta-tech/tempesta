@@ -18,33 +18,37 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+
 #include "../tfw_logger_config.hh"
+
+#include <gtest/gtest.h>
 
 namespace fs = std::filesystem;
 
 class ConfigTest : public ::testing::Test
 {
 protected:
-	void SetUp() override
+	void
+	SetUp() override
 	{
 		temp_dir = fs::temp_directory_path() / "tfw_logger_test";
 		fs::create_directories(temp_dir);
 	}
 
-	void TearDown() override
+	void
+	TearDown() override
 	{
-		if (fs::exists(temp_dir))
-		{
+		if (fs::exists(temp_dir)) {
 			fs::remove_all(temp_dir);
 		}
 	}
 
 	fs::path temp_dir;
 
-	void write_config(const fs::path &path, const std::string &content)
+	void
+	write_config(const fs::path &path, const std::string &content)
 	{
 		std::ofstream file(path);
 		file << content;
@@ -54,12 +58,12 @@ protected:
 TEST_F(ConfigTest, DefaultValues)
 {
 	TfwLoggerConfig config;
-	
+
 	// Test default values
-	EXPECT_EQ(config.get_buffer_size(), 4 * 1024 * 1024);  // 4MB
-	EXPECT_EQ(config.get_cpu_count(), 0);  // auto-detect
-	EXPECT_TRUE(config.get_log_path().empty());  //no default set initially
-	
+	EXPECT_EQ(config.get_buffer_size(), 4 * 1024 * 1024); // 4MB
+	EXPECT_EQ(config.get_cpu_count(), 0);		      // auto-detect
+	EXPECT_TRUE(config.get_log_path().empty()); // no default set initially
+
 	const auto &ch = config.get_clickhouse();
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
@@ -90,11 +94,11 @@ TEST_F(ConfigTest, LoadValidConfig)
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
-	
+
 	EXPECT_EQ(config->get_log_path(), "/var/log/test.log");
 	EXPECT_EQ(config->get_buffer_size(), 8388608);
 	EXPECT_EQ(config->get_cpu_count(), 4);
-	
+
 	const auto &ch = config->get_clickhouse();
 	EXPECT_EQ(ch.host, "test.host.com");
 	EXPECT_EQ(ch.port, 9001);
@@ -116,16 +120,16 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
-	
+
 	// Optional fields should use defaults
 	EXPECT_TRUE(config->get_log_path().empty());
 	EXPECT_EQ(config->get_buffer_size(), 4 * 1024 * 1024);
 	EXPECT_EQ(config->get_cpu_count(), 0);
-	
+
 	const auto &ch = config->get_clickhouse();
 	EXPECT_EQ(ch.host, "minimal.host.com");
-	EXPECT_EQ(ch.port, 9000);  // default
-	EXPECT_EQ(ch.table_name, "access_log");  // default
+	EXPECT_EQ(ch.port, 9000);		// default
+	EXPECT_EQ(ch.table_name, "access_log"); // default
 	EXPECT_FALSE(ch.user.has_value());
 	EXPECT_FALSE(ch.password.has_value());
 }
@@ -228,7 +232,7 @@ TEST_F(ConfigTest, ValidationNegativeMaxWait)
 TEST_F(ConfigTest, CommandLineOverrides)
 {
 	TfwLoggerConfig config;
-	
+
 	config.override_log_path(fs::path("/override/log.log"));
 	config.override_buffer_size(16777216);
 	config.override_cpu_count(8);
@@ -243,7 +247,7 @@ TEST_F(ConfigTest, CommandLineOverrides)
 	EXPECT_EQ(config.get_log_path(), "/override/log.log");
 	EXPECT_EQ(config.get_buffer_size(), 16777216);
 	EXPECT_EQ(config.get_cpu_count(), 8);
-	
+
 	const auto &ch = config.get_clickhouse();
 	EXPECT_EQ(ch.host, "override.host.com");
 	EXPECT_EQ(ch.port, 9002);
@@ -256,8 +260,8 @@ TEST_F(ConfigTest, CommandLineOverrides)
 
 TEST_F(ConfigTest, NonExistentFile)
 {
-	auto config = TfwLoggerConfig::load_from_file(
-				"/non/existent/file.json");
+	auto config =
+	    TfwLoggerConfig::load_from_file("/non/existent/file.json");
 	EXPECT_FALSE(config.has_value());
 }
 
@@ -270,7 +274,7 @@ TEST_F(ConfigTest, FileWithoutClickHouseSection)
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
-	
+
 	// Should use default ClickHouse config
 	const auto &ch = config->get_clickhouse();
 	EXPECT_EQ(ch.host, "localhost");

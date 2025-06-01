@@ -19,17 +19,20 @@
  */
 
 #include "pidfile.hh"
-#include "error.hh"
+
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <cstring>
-#include <fcntl.h>
 #include <fstream>
 #include <iostream>
-#include <signal.h>
-#include <sys/stat.h>
 #include <thread>
-#include <unistd.h>
+
+#include "error.hh"
+
+#include <sys/stat.h>
 
 constexpr std::chrono::milliseconds STOP_WAIT_INTERVAL{10};
 
@@ -88,8 +91,8 @@ pidfile_create(const std::string &fname)
 	mode_t mask;
 
 	// Get PID as string
-	pid_str_len = snprintf(pid_str, sizeof(pid_str), "%ld",
-			       static_cast<long>(getpid()));
+	pid_str_len = snprintf(
+	    pid_str, sizeof(pid_str), "%ld", static_cast<long>(getpid()));
 
 	// Remove old PID file
 	if (access(fname.c_str(), F_OK) != -1) {
@@ -107,7 +110,8 @@ pidfile_create(const std::string &fname)
 
 	// Write PID
 	if (write(fd, &pid_str[0], pid_str_len) == -1) {
-		std::cerr << "Cannot write pid into pidfile: " << fname << std::endl;
+		std::cerr << "Cannot write pid into pidfile: " << fname
+			  << std::endl;
 		close(fd);
 		return -1;
 	}
@@ -152,7 +156,7 @@ pidfile_remove(const std::string &fname, int fd)
 
 	// Remove PID file
 	if (unlink(fname.c_str()) == -1) {
-	std::cerr << "Cannot remove pidfile: " << fname << std::endl;
+		std::cerr << "Cannot remove pidfile: " << fname << std::endl;
 	}
 }
 
@@ -163,7 +167,8 @@ pidfile_stop_daemon(const std::string &fname)
 	std::ifstream pid_file(fname);
 
 	if (!pid_file) {
-		throw Except("No PID file found at '{}'. Is the daemon running?", fname);
+		throw Except(
+		    "No PID file found at '{}'. Is the daemon running?", fname);
 	}
 
 	pid_file >> pid;
@@ -180,36 +185,37 @@ pidfile_stop_daemon(const std::string &fname)
 			unlink(fname.c_str());
 			return;
 		}
-		throw Except("Failed to stop daemon (PID {}): {}", pid, strerror(errno));
+		throw Except(
+		    "Failed to stop daemon (PID {}): {}", pid, strerror(errno));
 	}
 
 	// Wait for graceful shutdown
-	constexpr int GRACEFUL_WAIT_ITERATIONS = 50;  // 50 * 10ms = 500ms
+	constexpr int GRACEFUL_WAIT_ITERATIONS = 50; // 50 * 10ms = 500ms
 	for (int i = 0; i < GRACEFUL_WAIT_ITERATIONS; ++i) {
 		if (kill(pid, 0) == -1 && errno == ESRCH) {
-			return;  // Process died gracefully
+			return; // Process died gracefully
 		}
 		std::this_thread::sleep_for(STOP_WAIT_INTERVAL);
 	}
-	
+
 	// Graceful shutdown failed, try SIGKILL
 	if (kill(pid, SIGKILL) < 0) {
 		if (errno == ESRCH) {
-			return;  // Process already stopped
+			return; // Process already stopped
 		}
-		throw Except("Failed to kill daemon (PID {}): {}", pid, strerror(errno));
+		throw Except(
+		    "Failed to kill daemon (PID {}): {}", pid, strerror(errno));
 	}
-	
+
 	// Wait for force kill to take effect
-	constexpr int FORCE_WAIT_ITERATIONS = 50;  // 50 * 10ms = 500ms
+	constexpr int FORCE_WAIT_ITERATIONS = 50; // 50 * 10ms = 500ms
 	for (int i = 0; i < FORCE_WAIT_ITERATIONS; ++i) {
 		if (kill(pid, 0) == -1 && errno == ESRCH) {
-			return;  // Process force-killed
+			return; // Process force-killed
 		}
 		std::this_thread::sleep_for(STOP_WAIT_INTERVAL);
 	}
-	
+
 	// If we get here, something is seriously wrong
 	throw Except("Failed to stop daemon (PID {}) even with SIGKILL", pid);
 }
-

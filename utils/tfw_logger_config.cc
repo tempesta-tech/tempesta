@@ -19,12 +19,13 @@
  */
 
 #include "tfw_logger_config.hh"
-#include "error.hh"
-
-#include <boost/property_tree/json_parser.hpp>
 
 #include <iostream>
 #include <sstream>
+
+#include <boost/property_tree/json_parser.hpp>
+
+#include "error.hh"
 
 namespace pt = boost::property_tree;
 
@@ -37,39 +38,41 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	}
 
 	buffer_size_ = tree.get<size_t>("buffer_size", buffer_size_);
-	cpu_count_ = tree.get<size_t>("cpu_count", cpu_count_);
 
 	// Validate buffer size
-	if (buffer_size_ < 4096) {
-		throw std::runtime_error(
-			"Buffer size must be at least 4096 bytes");
+	if (buffer_size_ < MIN_BUFFER_SIZE) {
+		throw std::runtime_error("Buffer size must be at least " +
+					 std::to_string(MIN_BUFFER_SIZE) +
+					 " bytes (one memory page)");
 	}
 
 	// Parse ClickHouse configuration if present
 	if (auto ch_node = tree.get_child_optional("clickhouse")) {
-		clickhouse_.host = ch_node->get<std::string>("host",
-							clickhouse_.host);
-		clickhouse_.port = ch_node->get<uint16_t>("port",
-							clickhouse_.port);
-		clickhouse_.table_name = ch_node->get<std::string>("table_name",
-							clickhouse_.table_name);
+		clickhouse_.host =
+		    ch_node->get<std::string>("host", clickhouse_.host);
+		clickhouse_.port =
+		    ch_node->get<uint16_t>("port", clickhouse_.port);
+		clickhouse_.table_name = ch_node->get<std::string>(
+		    "table_name", clickhouse_.table_name);
 
 		// Parse optional authentication
 		if (auto user = ch_node->get_optional<std::string>("user")) {
 			clickhouse_.user = *user;
 		}
-		if (auto password = ch_node->get_optional<std::string>("password")) {
+		if (auto password =
+			ch_node->get_optional<std::string>("password")) {
 			clickhouse_.password = *password;
 		}
 
 		// Parse performance settings
-		clickhouse_.max_events = ch_node->get<size_t>("max_events",
-							clickhouse_.max_events);
-		int max_wait_ms = ch_node->get<int>("max_wait_ms",
-						clickhouse_.max_wait.count());
+		clickhouse_.max_events =
+		    ch_node->get<size_t>("max_events", clickhouse_.max_events);
+		int max_wait_ms = ch_node->get<int>(
+		    "max_wait_ms",
+		    static_cast<int>(clickhouse_.max_wait.count()));
 		if (max_wait_ms < 0) {
 			throw std::runtime_error(
-				"max_wait_ms must be non-negative");
+			    "max_wait_ms must be non-negative");
 		}
 		clickhouse_.max_wait = std::chrono::milliseconds(max_wait_ms);
 	}
@@ -83,7 +86,7 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	}
 	if (clickhouse_.table_name.empty()) {
 		throw std::runtime_error(
-			"ClickHouse table name cannot be empty");
+		    "ClickHouse table name cannot be empty");
 	}
 	if (clickhouse_.max_events == 0) {
 		throw std::runtime_error("max_events must be greater than 0");
@@ -104,20 +107,16 @@ TfwLoggerConfig::load_from_file(const fs::path &path)
 		pt::read_json(path.string(), tree);
 		config.parse_from_ptree(tree);
 		return config;
-	}
-	catch (const pt::json_parser_error &e) {
-		std::cerr <<
-		 "Error parsing config file: " << e.what() << std::endl;
+	} catch (const pt::json_parser_error &e) {
+		std::cerr << "Error parsing config file: " << e.what()
+			  << std::endl;
 		return std::nullopt;
-	}
-	catch (const pt::ptree_error &e) {
-		std::cerr <<
-		 "Error in config structure: " << e.what() << std::endl;
+	} catch (const pt::ptree_error &e) {
+		std::cerr << "Error in config structure: " << e.what()
+			  << std::endl;
 		return std::nullopt;
-	}
-	catch (const std::exception &e) {
-		std::cerr <<
-		 "Error loading config: " << e.what() << std::endl;
+	} catch (const std::exception &e) {
+		std::cerr << "Error loading config: " << e.what() << std::endl;
 		return std::nullopt;
 	}
 }

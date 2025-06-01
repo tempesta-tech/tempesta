@@ -133,6 +133,7 @@ templater()
 		fi
 	done <<< "$opts"
 
+	cfg_content=$(remove_opts_by_mask "$cfg_content" "logger_config=")
 	echo "$cfg_content" > $tfw_cfg_temp
 }
 
@@ -311,14 +312,21 @@ start_tfw_logger()
 		echo "...starting tfw_logger with default config: $config_path"
 	fi
 
-	# Check if config file exists
+	# Check if config file exists - CRITICAL ERROR if missing when logger is required
 	if [ ! -f "$config_path" ]; then
-		error "Configuration file not found: $config_path"
+		sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
+		unload_modules
+		tfw_irqbalance_revert
+		error "TFW Logger configuration file not found: $config_path. Cannot start Tempesta with access_log mmap enabled."
 	fi
 
 	# Start daemon
-	"$logger_path/tfw_logger" --config="$config_path" || \
+	"$logger_path/tfw_logger" --config="$config_path" || {
+		sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
+		unload_modules
+		tfw_irqbalance_revert
 		error "cannot start tfw_logger daemon"
+	}
 
 	# Wait for daemon to start and create PID file
 	start_time=$(date +%s)
@@ -329,7 +337,7 @@ start_tfw_logger()
 		if (( elapsed_time >= tfw_logger_timeout )); then
 			# Try to cleanup any failed start
 			"$logger_path/tfw_logger" --stop 2>/dev/null || true
-			sysctl -e -w net.tempesta.state=stop
+			sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
 			unload_modules
 			tfw_irqbalance_revert
 			error "tfw_logger failed to start within $tfw_logger_timeout seconds, see logs for details"
