@@ -40,7 +40,7 @@
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStream *stream, *next;
 
 	/*
@@ -71,7 +71,7 @@ static void
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwSettings *dest = &ctx->rsettings;
 	long int delta;
 
@@ -120,7 +120,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 int
 tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -163,7 +163,7 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -178,7 +178,7 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	unsigned int id;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -204,15 +204,97 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
+static inline void
+tfw_h2_context_init_sched_entry_list(TfwH2Ctx *ctx, TfwStreamSchedList *list)
+{
+	TfwStreamSchedList *first_list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+	unsigned int list_sz;
+	int i;
+
+#define LIST_SZ_DFLT	\
+	(PAGE_SIZE - sizeof(TfwH2Ctx)) / sizeof(TfwStreamSchedEntry)
+#define LIST_SZ_EXTRA	\
+	PAGE_SIZE / sizeof(TfwStreamSchedEntry)
+
+	if (likely(list == first_list)) {
+		list_sz = LIST_SZ_DFLT;
+	} else {
+		list_sz = LIST_SZ_EXTRA;
+		list->next = first_list->next;
+		first_list->next = list;
+	}
+
+	for (i = list_sz - 1; i >= 0; i--) {
+		list->entries[i].owner = NULL;
+		list->entries[i].next_free = ctx->sched.free_list;
+		ctx->sched.free_list = &list->entries[i];
+	}
+
+#undef LIST_SZ_EXTRA
+#undef LIST_SZ_DFLT
+}
+
+static inline int
+tfw_h2_context_alloc_extra_sched_entry_list(TfwH2Ctx *ctx)
+{
+	TfwStreamSchedList *list;
+	struct page *page;
+
+	page = alloc_page(GFP_ATOMIC);
+	if (!page)
+		return -ENOMEM;
+
+	list = (TfwStreamSchedList *)page_address(page);
+	BUG_ON(ctx->sched.free_list != NULL);
+	tfw_h2_context_init_sched_entry_list(ctx, list);
+
+	return 0;
+}
+
+static inline void
+tfw_h2_context_free_extra_sched_entry_lists(TfwH2Ctx *ctx)
+{
+	TfwStreamSchedList *first_list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+
+	while (first_list->next) {
+		TfwStreamSchedList *to_delete = first_list->next;
+		
+		first_list->next = to_delete->next;
+		free_page((unsigned long)to_delete);
+	}
+}
+
+TfwH2Ctx *
+tfw_h2_context_alloc(void)
+{
+	struct page *page;
+
+	page = alloc_page(GFP_ATOMIC);
+	if (!page)
+		return NULL;
+	return page_address(page);
+}
+
+void
+tfw_h2_context_free(TfwH2Ctx *ctx)
+{
+	free_page((unsigned long)ctx);
+}
+
 int
-tfw_h2_context_init(TfwH2Ctx *ctx)
+tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 {
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
+	TfwStreamSchedList *list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
 
-	bzero_fast(ctx, sizeof(*ctx));
+	BUG_ON(!conn || conn->h2 != ctx);
+	bzero_fast(ctx, sizeof(*ctx) + sizeof(*list));
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = DEF_WND_SIZE;
@@ -223,6 +305,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&idle_streams->list);
 
 	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_context_init_sched_entry_list(ctx, list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -235,6 +318,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
+	ctx->conn = conn;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
@@ -248,14 +332,44 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 * postponed frames and connection closing initiated.
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
+	tfw_h2_context_free_extra_sched_entry_lists(ctx);
 	tfw_hpack_clean(&ctx->hpack);
+}
+
+
+TfwStreamSchedEntry *
+tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
+{
+	TfwStreamSchedEntry *entry;
+
+	if (!ctx->sched.free_list) {
+		if (tfw_h2_context_alloc_extra_sched_entry_list(ctx))
+			return NULL;
+	}
+
+	entry = ctx->sched.free_list;
+	BUG_ON(entry->owner);
+	ctx->sched.free_list = entry->next_free;
+
+	return entry;
+}
+
+void
+tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
+{
+	if (entry->owner) {
+		entry->owner->sched = NULL;
+		entry->owner = NULL;
+	}
+	entry->next_free = ctx->sched.free_list;
+	ctx->sched.free_list = entry;
 }
 
 void
 tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 			    bool attack)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	if (tfw_h2_send_goaway(ctx, err_code, attack) && close)
 		tfw_connection_close((TfwConn *)conn, true);
@@ -291,7 +405,7 @@ void
 tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 {
 	TfwStream *cur, *next;
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
