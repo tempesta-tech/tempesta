@@ -204,40 +204,48 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
-/**
- * Default count of max cocurrent streams according RFC9113.
- */ 
-#define MAX_CONCURRENT_STREAMS_DFLT	100
-#define STREAM_SCHED_ENTRY_LIST_SZ	sizeof(TfwStreamSchedList) + \
-	MAX_CONCURRENT_STREAMS_DFLT * sizeof(TfwStreamSchedEntry)
-
 static inline void
 tfw_h2_context_init_sched_entry_list(TfwH2Ctx *ctx, TfwStreamSchedList *list)
 {
 	TfwStreamSchedList *first_list =
 		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
+	unsigned int list_sz;
 	int i;
 
-	for (i = MAX_CONCURRENT_STREAMS_DFLT - 1; i >= 0; i--) {
+#define LIST_SZ_DFLT	\
+	(PAGE_SIZE - sizeof(TfwH2Ctx)) / sizeof(TfwStreamSchedEntry)
+#define LIST_SZ_EXTRA	\
+	PAGE_SIZE / sizeof(TfwStreamSchedEntry)
+
+	if (likely(list == first_list)) {
+		list_sz = LIST_SZ_DFLT;
+	} else {
+		list_sz = LIST_SZ_EXTRA;
+		list->next = first_list->next;
+		first_list->next = list;
+	}
+
+	for (i = list_sz - 1; i >= 0; i--) {
 		list->entries[i].owner = NULL;
 		list->entries[i].next_free = ctx->sched.free_list;
 		ctx->sched.free_list = &list->entries[i];
 	}
-	if (first_list != list) {
-		list->next = first_list->next;
-		first_list->next = list;
-	}
+
+#undef LIST_SZ_EXTRA
+#undef LIST_SZ_DFLT
 }
 
 static inline int
 tfw_h2_context_alloc_extra_sched_entry_list(TfwH2Ctx *ctx)
 {
 	TfwStreamSchedList *list;
+	struct page *page;
 
-	list = alloc_pages_exact(STREAM_SCHED_ENTRY_LIST_SZ, GFP_ATOMIC);
-	if (!list)
+	page = alloc_page(GFP_ATOMIC);
+	if (!page)
 		return -ENOMEM;
 
+	list = (TfwStreamSchedList *)page_address(page);
 	BUG_ON(ctx->sched.free_list != NULL);
 	tfw_h2_context_init_sched_entry_list(ctx, list);
 
@@ -254,25 +262,26 @@ tfw_h2_context_free_extra_sched_entry_lists(TfwH2Ctx *ctx)
 		TfwStreamSchedList *to_delete = first_list->next;
 		
 		first_list->next = to_delete->next;
-		free_pages_exact(to_delete, STREAM_SCHED_ENTRY_LIST_SZ);
+		free_page((unsigned long)to_delete);
 	}
 }
 
 TfwH2Ctx *
 tfw_h2_context_alloc(void)
 {
-	return alloc_pages_exact(sizeof(TfwH2Ctx) + STREAM_SCHED_ENTRY_LIST_SZ,
-				 GFP_ATOMIC);
+	struct page *page;
+
+	page = alloc_page(GFP_ATOMIC);
+	if (!page)
+		return NULL;
+	return page_address(page);
 }
 
 void
 tfw_h2_context_free(TfwH2Ctx *ctx)
 {
-	free_pages_exact(ctx, sizeof(TfwH2Ctx) + STREAM_SCHED_ENTRY_LIST_SZ);
+	free_page((unsigned long)ctx);
 }
-
-#undef STREAM_SCHED_ENTRY_LIST_SZ
-#undef MAX_CONCURRENT_STREAMS_DFLT
 
 int
 tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
