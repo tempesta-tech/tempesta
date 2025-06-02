@@ -30,8 +30,16 @@
 
 #include "hpack_tbl.h"
 
+static inline int
+tfw_hpack_buffer_sz(unsigned long len)
+{
+	unsigned int order = get_order(sizeof(TfwPoolChunk) + len);
+
+	return (PAGE_SIZE << order) - sizeof(TfwPoolChunk) - 1;
+}
+
 /**
- * There are to cases when we allocate space for header:
+ * There are two cases when we allocate space for header:
  * - it->rspace is equal to zero. In this case we allocate
  *   `len` bytes;
  * - it->rspace is not equal to zero. This means that we
@@ -45,25 +53,30 @@
  *   bytes in old buffer, but is is not enough for the
  *   new header and is less then sizeof(TfwStr)), we allocate
  *   new buffer to prevent extra header chunking.
+ * - When we restore header from hpack table we use force flag
+ *   for the case when there is no enough space to restore
+ *   header chunk. In this case we allocate new space in pool
+ *   to prevent extra header chunking.
  */
-#define	BUFFER_GET(len, it)						\
-do {									\
-									\
-									\
-	BUG_ON(!(len));							\
-	if (!(it)->rspace ||						\
-	    (len > (it)->rspace && (it)->rspace < sizeof(TfwStr)))	\
-	{								\
-		(it)->rspace = len;					\
-		(it)->pos = tfw_pool_alloc_not_align((it)->pool, len);	\
-		T_DBG3("%s: get buffer, len=%lu, it->pos=[%p],"		\
-		       " it->pos=%lu\n", __func__, (unsigned long)len,	\
-		       (it)->pos, (unsigned long)(it)->pos);		\
-	} else {							\
-		(it)->to_alloc = len > (it)->rspace ?			\
-			len - (it)->rspace : 0;				\
-	}								\
-} while (0)
+static inline int
+tfw_hpack_buffer_get(TfwMsgParseIter *it, unsigned long len, bool force)
+{
+	unsigned int room;
+
+	if (!force && it->rspace
+	    && (len < it->rspace || it->rspace > sizeof(TfwStr))) {
+		it->to_alloc = len < it->rspace ?
+			0 : tfw_hpack_buffer_sz(len - it->rspace);
+		return 0;
+	}
+
+	room = TFW_POOL_CHUNK_ROOM(it->pool);
+	len = (room >= len ? room : tfw_hpack_buffer_sz(len));
+	it->rspace = len;
+
+	return (it->pos = tfw_pool_alloc_not_align(it->pool, len)) ?
+		0 : -ENOMEM;
+}
 
 #define HP_HDR_NAME(name)						\
 	(&(TfwStr){							\
@@ -333,11 +346,10 @@ do {								\
 		 */						\
 		unsigned long len = length + (length >> 1);	\
 								\
-		BUFFER_GET(len, it);				\
-		if (!it->pos) {					\
-			r = -ENOMEM;				\
+		r = tfw_hpack_buffer_get(it, len, false);	\
+		if (unlikely(r))				\
 			goto out;				\
-		}						\
+								\
 		BUFFER_HDR_INIT(it);				\
 	}							\
 } while (0)
@@ -359,11 +371,9 @@ do {								\
 		 */						\
 		unsigned long len = length + (length >> 1);	\
 								\
-		BUFFER_GET(len, it);				\
-		if (!it->pos) {					\
-			r = -ENOMEM;				\
+		r = tfw_hpack_buffer_get(it, len, false);	\
+		if (unlikely(r))				\
 			goto out;				\
-		}						\
 		if (!TFW_STR_EMPTY(&it->hdr)) {			\
 			r = tfw_hpack_exp_hdr(req->pool, 0, it); \
 			if (unlikely(r))			\
@@ -509,53 +519,36 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 {
 	TfwMsgParseIter *it = &req->pit;
 	unsigned long to_alloc;
-	bool np;
 	int r;
 
-#define ADJUST_HDR_LEN(it)						\
-do {									\
-	TfwStr *hdr = &it->hdr;						\
-	TfwStr *last = TFW_STR_LAST(hdr);				\
-									\
-	T_DBG3("%s: add to hdr, hdr->len=%lu, last->len=%lu,"		\
-	       " last->data=%.*s\n", __func__, hdr->len, last->len,	\
-	       (int)last->len, last->data);				\
-									\
-	++hdr->len;							\
-	if (!TFW_STR_PLAIN(hdr))					\
-		++last->len;						\
-} while (0)
-
 	if (it->rspace) {
+		TfwStr *hdr = &it->hdr;
+		TfwStr *last = TFW_STR_LAST(hdr);
+
+		T_DBG3("%s: add to hdr, hdr->len=%lu, last->len=%lu,"
+		       " last->data=%.*s\n", __func__, hdr->len, last->len,
+		       (int)last->len, last->data);
+
 		--it->rspace;
 		*it->pos++ = sym;
-		ADJUST_HDR_LEN(it);
+		++hdr->len;
+		if (!TFW_STR_PLAIN(hdr))
+			++last->len;
 		return 0;
 	}
 
-	to_alloc = it->to_alloc ? it->to_alloc : 1;
-	if (to_alloc > 1)
-		it->rspace = to_alloc - 1;
+	to_alloc = it->to_alloc ? it->to_alloc : tfw_hpack_buffer_sz(1);
+	r = tfw_hpack_buffer_get(it, to_alloc, false);
+	if (unlikely(r))
+		return r;
 
-	it->pos = tfw_pool_alloc_not_align_np(it->pool, to_alloc, &np);
-	if (!it->pos)
-		return -ENOMEM;
-
-	T_DBG3("%s: it->rspace=%lu, sym=%c, np=%d\n", __func__,
-	       it->rspace, sym, np);
+	T_DBG3("%s: it->rspace=%lu, sym=%c\n",
+	       __func__, it->rspace, sym);
 
 	/*
-	 * If the new page was allocated or it->pos points to
-	 * the buffer, which was allocated to store previously
-	 * decoded header (it->to_alloc != 0) we should expand
+	 * If the new page was allocated we should expand
 	 * header.
 	 */
-	if (!np && !it->to_alloc) {
-		*it->pos++ = sym;
-		ADJUST_HDR_LEN(it);
-		return 0;
-	}
-
 	r = tfw_hpack_exp_hdr(req->pool, 1, it);
 	if (unlikely(r))
 		return r;
@@ -1251,12 +1244,12 @@ static int
 tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		       const TfwHPackEntry *__restrict entry)
 {
-	char *data;
 	unsigned int num = entry->name_num;
 	unsigned long sz = entry->name_len;
 	const TfwStr *s, *end, *s_hdr = entry->hdr;
 	TfwMsgParseIter *it = &req->pit;
 	TfwStr *d, *d_hdr = it->parsed_hdr;
+	int r;
 
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
 	if (WARN_ON_ONCE(!num || num > s_hdr->nchunks))
@@ -1279,14 +1272,22 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		goto done;
 	}
 
-	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
-		return -ENOMEM;
+	r = tfw_hpack_buffer_get(it, sz, false);
+	if (unlikely(r))
+		return r;
 
 	for (s = s_hdr->chunks, end = s_hdr->chunks + num; s < end; ++s) {
+		if (unlikely(it->rspace < s->len)) {
+			r = tfw_hpack_buffer_get(it, it->to_alloc, true);
+			if (unlikely(r))
+				return r;
+		}
+
 		*d = *s;
-		d->data = data;
-		memcpy_fast(data, s->data, s->len);
-		data += s->len;
+		d->data = it->pos;
+		memcpy_fast(it->pos, s->data, s->len);
+		it->pos += s->len;
+		it->rspace -= s->len;
 		++d;
 	}
 
@@ -1300,12 +1301,11 @@ static int
 tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		  const TfwHPackEntry *__restrict entry)
 {
-	char *data;
 	unsigned long d_size;
-	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *s, *end, *s_hdr = entry->hdr;
 	TfwHttpParser *parser = &req->stream->parser;
 	TfwStr *d, *d_hdr = &parser->hdr;
+	TfwMsgParseIter *it = &req->pit;
 	int r;
 
 	WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr));
@@ -1334,8 +1334,9 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	 * (without full copying) only references for statically indexed
 	 * headers (also, see comment above).
 	 */
-	if (!(data = tfw_pool_alloc_not_align(it->pool, s_hdr->len)))
-		return -ENOMEM;
+	r = tfw_hpack_buffer_get(it, s_hdr->len, false);
+	if (unlikely(r))
+		return r;
 
 	d_size = s_hdr->nchunks * sizeof(TfwStr);
 	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, d_size)))
@@ -1347,10 +1348,17 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 
 	d = d_hdr->chunks;
 	TFW_STR_FOR_EACH_CHUNK(s, s_hdr, end) {
+		if (unlikely(it->rspace < s->len)) {
+			r = tfw_hpack_buffer_get(it, it->to_alloc, true);
+			if (unlikely(r))
+				return r;
+		}
+
 		*d = *s;
-		d->data = data;
-		memcpy_fast(data, s->data, s->len);
-		data += s->len;
+		d->data = it->pos;
+		memcpy_fast(it->pos, s->data, s->len);
+		it->pos += s->len;
+		it->rspace -= s->len;
 		++d;
 	}
 
