@@ -7737,7 +7737,7 @@ cleanup:
 }
 
 /**
- * Calculate the key of an HTTP request by hashing URI and Host header values.
+ * Calculate the key of an HTTP request by hashing URI and vhost name.
  */
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
@@ -7750,8 +7750,9 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	if (!TFW_STR_EMPTY(&req->host))
-		req->hash ^= tfw_hash_str(&req->host);
+	BUG_ON(!req->vhost);
+
+	req->hash ^= basic_hash_str(&req->vhost->name);
 
 	return req->hash;
 }
