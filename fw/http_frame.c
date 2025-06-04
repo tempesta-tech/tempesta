@@ -2171,8 +2171,8 @@ do {									\
 		if (stream == ctx->error)
 			ctx->error = NULL;
 		/*
-		 * Don't put exclusive streams in closed queue
-		 * remove it later immediately.
+		 * Don't put exclusive streams in closed queue it
+		 * will be immediately deleted in the caller function.
 		 */
 		if (!stream_is_exclusive)
 			tfw_h2_stream_add_closed(ctx, stream);
@@ -2211,7 +2211,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 	bool error_was_sent = false;
 	int r = 0;
 
-#define SCHED_REMOVE_EXCLUSIVE_STREAM(sched, stream)			\
+#define SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream)		\
 do {									\
 	if (!tfw_h2_stream_is_exclusive(stream)) {			\
 		parent = stream->sched.parent;				\
@@ -2233,10 +2233,10 @@ do {									\
 			 * zeroed if client close this stream.
 			 */
 			BUG_ON(!tfw_h2_stream_is_active(stream));
-			SCHED_REMOVE_EXCLUSIVE_STREAM(sched, stream);
+			SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream);
 		} else if (ctx->error && tfw_h2_stream_is_active(ctx->error)) {
 			stream = ctx->error;
-			SCHED_REMOVE_EXCLUSIVE_STREAM(sched, stream);
+			SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream);
 			error_was_sent = true;
 		} else {
 			stream = tfw_h2_sched_stream_dequeue(sched, &parent);
@@ -2278,5 +2278,5 @@ do {									\
 
 	return r;
 
-#undef SCHED_REMOVE_EXCLUSIVE_STREAM
+#undef SCHED_REMOVE_NOT_EXCLUSIVE_STREAM
 }
