@@ -150,16 +150,15 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	seq_printf(seq, "Percentiles\n");
 	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i) {
 		seq_printf(seq, "%02d%%:\t%dms\n",
-				pstats.ith[i], pstats.val[i]);
+			   pstats.ith[i], pstats.val[i]);
 	}
 
-	skip_apm:
+skip_apm:
 
 	/* Ss statistics. */
 	SPRN("SS work queue full\t\t\t", ss.wq_full);
 	if (ss_stat) {
 		int cpu;
-
 		ss_get_stat(ss_stat);
 		seq_printf(seq, "SS work queues' sizes\t\t\t:");
 		for_each_online_cpu(cpu)

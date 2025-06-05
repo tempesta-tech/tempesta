@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1047,12 +1047,12 @@ tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats)
 int
 tfw_apm_stats_global(TfwPrcntlStats *pstats)
 {
-    if (!tfw_apm_global_data) {
-        T_DBG("tfw_apm: global data not initialized, skipping stats\n");
-        memset(pstats, 0, sizeof(*pstats));
-        return -ENODATA;
-    }
-    return __tfw_apm_stats(tfw_apm_global_data, pstats);
+	if (!tfw_apm_global_data) {
+		T_DBG("tfw_apm: global data not initialized, skipping stats\n");
+		memset(pstats, 0, sizeof(*pstats));
+		return -ENODATA;
+	}
+	return __tfw_apm_stats(tfw_apm_global_data, pstats);
 }
 
 /*
