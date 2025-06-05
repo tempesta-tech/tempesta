@@ -31,9 +31,17 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include "helpers.h"
 #include "http_msg.h"
-
 #include "pool.c"
+#include "apm.h"
+#include "filter.h"
+#include "http_sess_conf.h"
+#include "cache.h"
+#include "http_tbl.h"
+#include "access_log.h"
+#include "ja5_conf.h"
+#include "ja5_filter.h"
 
 static TfwConn conn_req, conn_resp;
 
@@ -53,7 +61,7 @@ test_req_alloc(size_t data_len)
 	hmreq = __tfw_http_msg_alloc(Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
-	ret = tfw_http_msg_setup(hmreq, &it, data_len, 0);
+	ret = tfw_http_msg_setup(hmreq, &it, data_len);
 	BUG_ON(ret);
 
 	memset(&conn_req, 0, sizeof(TfwConn));
@@ -86,7 +94,7 @@ test_resp_alloc(size_t data_len)
 	hmresp = __tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	ret = tfw_http_msg_setup(hmresp, &it, data_len, 0);
+	ret = tfw_http_msg_setup(hmresp, &it, data_len);
 	BUG_ON(ret);
 
 	memset(&conn_resp, 0, sizeof(TfwConn));
@@ -118,7 +126,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 }
 
 bool
-tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
+tfw_apm_hm_srv_alive(TfwHttpResp *resp, TfwServer *srv)
 {
 	return true;
 }
@@ -147,12 +155,6 @@ ss_active(void)
 
 int
 ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
-{
-	return 0;
-}
-
-int
-ss_shutdown(struct sock *sk, int flags)
 {
 	return 0;
 }
@@ -209,12 +211,6 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 void
 tfw_cli_abort_all(void)
 {
-}
-
-int
-tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
-{
-	return 0;
 }
 
 void
@@ -286,13 +282,14 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	return 0;
 }
 
-void tfw_http_sess_cfgstart(void)
+void
+tfw_http_sess_cfgstart(void)
 {
 }
 
-int tfw_http_sess_cfgend(void)
+void
+tfw_http_sess_cfgend(void)
 {
-	return 0;
 }
 
 int
@@ -330,12 +327,6 @@ tfw_connection_init(TfwConn *conn)
 }
 
 int
-tfw_connection_shutdown(TfwConn *conn, bool sync)
-{
-	return 0;
-}
-
-int
 tfw_connection_close(TfwConn *conn, bool sync)
 {
 	return 0;
@@ -368,10 +359,10 @@ tfw_vhost_lookup_default(void)
 	return NULL;
 }
 
-TfwVhost *
-tfw_http_tbl_action(TfwMsg *msg, void *res)
+int
+tfw_http_tbl_action(TfwMsg *msg, TfwHttpActionResult *action)
 {
-	return NULL;
+	return 0;
 }
 
 int

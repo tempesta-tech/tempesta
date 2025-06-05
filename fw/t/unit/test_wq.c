@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2017-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ typedef struct {
 
 typedef struct {
 	size_t			prods_n;
-	TfwTestProducer		prods[0];
+	DECLARE_FLEX_ARRAY(TfwTestProducer, prods);
 } TfwTestProducers;
 
 typedef struct {
@@ -55,7 +55,7 @@ typedef struct {
 
 typedef struct {
 	size_t			cons_n;
-	TfwTestConsumer		cons[0];
+	DECLARE_FLEX_ARRAY(TfwTestConsumer, cons);
 } TfwTestConsumers;
 
 typedef struct {
@@ -125,7 +125,7 @@ tfw_test_wq_work_cons(void *data)
 	return 0;
 }
 
-struct task_struct *
+static struct task_struct *
 tfw_thread_create(int (*threadfn)(void *data), void *data,
 			  unsigned int cpu, const char *namefmt)
 {

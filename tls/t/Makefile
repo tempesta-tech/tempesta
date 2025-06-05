@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Tempesta Technologies, Inc.
+# Copyright (C) 2020-2025 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -mrdrnd -DNR_CPUS=1 \
 		  -Wno-unused-function \
 		  -I../../ktest -I../.. -I..
 
-TEST_CFLAGS	= -O0 -ggdb3 -DNO_RANDOM
+TEST_CFLAGS	= -O0 -ggdb3 -DDBG_TLS_NO_RAND
 SPEED_CFLAGS	= -O2 -march=native -mtune=native -DNDEBUG
 
 ifdef DEBUG

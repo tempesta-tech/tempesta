@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -164,7 +164,7 @@ typedef struct {
  * @states	- all FSM states, i.e. the FSM states set;
  */
 typedef struct {
-	char		curr;
+	signed char	curr;
 	void		*obj;
 	unsigned short	states[TFW_GFSM_FSM_NUM];
 } TfwGState;
