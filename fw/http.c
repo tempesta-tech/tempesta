@@ -7737,11 +7737,14 @@ cleanup:
 }
 
 /**
- * Calculate the key of an HTTP request by hashing URI and Host header values.
+ * Calculate the key of an HTTP request by hashing URI and vhost name.
+ * If vhost is not yet assigned, fall back to using the Host header.
  */
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
 {
+	TfwStr vhost_name;
+
 	if (req->hash)
 		return req->hash;
 
@@ -7750,8 +7753,14 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	if (!TFW_STR_EMPTY(&req->host))
-		req->hash ^= tfw_hash_str(&req->host);
+	BUG_ON(!req->vhost);
+
+	/* Convert BasicStr to TfwStr for hashing */
+	vhost_name.data = req->vhost->name.data;
+	vhost_name.len = req->vhost->name.len;
+	vhost_name.flags = 0;
+
+	req->hash ^= tfw_hash_str(&vhost_name);
 
 	return req->hash;
 }
