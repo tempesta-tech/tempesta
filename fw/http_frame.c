@@ -2344,26 +2344,16 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		   bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	TfwStreamSchedEntry *parent;
 	TfwStream *stream;
-	u64 deficit;
 	bool error_was_sent = false;
 	int r = 0;
-
-#define SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream)		\
-do {									\
-	if (!tfw_h2_stream_is_exclusive(stream)) {			\
-		parent = stream->sched->parent;				\
-		tfw_h2_stream_sched_remove(sched, stream);		\
-	} else {							\
-		parent = NULL;						\
-	}								\
-} while(0)
 
 	while (sched->root.active_cnt
 	       && snd_wnd > FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD
 	       && ctx->rem_wnd > 0)
 	{
+		bool stream_is_exclusive;
+
 		if (ctx->cur_send_headers) {
 			stream = ctx->cur_send_headers;
 			/*
@@ -2372,13 +2362,11 @@ do {									\
 			 * zeroed if client close this stream.
 			 */
 			BUG_ON(!tfw_h2_stream_is_active(stream));
-			SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream);
 		} else if (ctx->error && tfw_h2_stream_is_active(ctx->error)) {
 			stream = ctx->error;
-			SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream);
 			error_was_sent = true;
 		} else {
-			stream = tfw_h2_sched_stream_dequeue(sched, &parent);
+			stream = tfw_h2_sched_get_most_prio_stream(sched);
 		}
 
 		/*
@@ -2386,21 +2374,17 @@ do {									\
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		r = tfw_h2_stream_xmit_process(sk, ctx, stream, !parent,
-					       &snd_wnd);
+		stream_is_exclusive =  tfw_h2_stream_is_exclusive(stream);
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
+					       stream_is_exclusive, &snd_wnd);
 
-		/* We don't recalculate deficits of exclusive streams. */
-		if (parent) {
-			deficit = tfw_h2_stream_recalc_deficit(stream);
-			tfw_h2_sched_stream_enqueue(sched, stream, parent,
-						    deficit);
-		} else if (!tfw_h2_stream_is_active(stream)) {
+		if (!tfw_h2_stream_is_active(stream)) {
 			tfw_h2_sched_deactivate_stream(sched, stream);
 			/*
 			 * Remove exclusive stream after sending all pending
 			 * data.
 			 */
-			if (!stream->xmit.skb_head)
+			if (!stream->xmit.skb_head && stream_is_exclusive)
 				tfw_h2_stream_clean(ctx, stream);
 		}
 
@@ -2416,6 +2400,4 @@ do {									\
 	*data_is_available = sched->root.active_cnt && ctx->rem_wnd;
 
 	return r;
-
-#undef SCHED_REMOVE_NOT_EXCLUSIVE_STREAM
 }
