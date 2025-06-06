@@ -5,7 +5,7 @@
  * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
  * multi-producer-multi-consumer-queue-ring-buffer .
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,26 +30,19 @@
 int
 tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 {
-	int cpu;
-
-	q->heads = alloc_percpu(atomic64_t);
-	if (!q->heads)
-		return -ENOMEM;
-
-	for_each_online_cpu(cpu) {
-		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
-		atomic64_set(local_head, LLONG_MAX);
+	if (!is_power_of_2(qsize)) {
+		T_ERR("Work queue size must be a power of 2, got %zu\n", qsize);
+		return -EINVAL;
 	}
+
 	q->qsize = qsize;
-	q->last_head = 0;
 	atomic64_set(&q->head, 0);
-	atomic64_set(&q->tail, 0);
+	q->tail = 0;
 	set_bit(TFW_QUEUE_IPI, &q->flags);
 
 	/* Fallback to vmalloc for large queue sizes (> 128k items) */
 	q->array = kvmalloc_node(qsize * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
-		free_percpu(q->heads);
 		return -ENOMEM;
 	}
 
@@ -63,11 +56,11 @@ tfw_wq_destroy(TfwRBQueue *q)
 	WARN_ON_ONCE(tfw_wq_size(q));
 
 	kvfree(q->array);
-	free_percpu(q->heads);
 }
 
 /**
- * If there is no space in the queue, then current head value is returned
+ * Push an item to the queue.
+ * If there is no space in the queue, then a positive value is returned
  * to be used as a ticket for trunstilie synchronization. Since we have QSZ
  * free slots, then the ticket value is always greater than 0.
  */
@@ -75,39 +68,31 @@ long
 __tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
 	long head, tail;
-	atomic64_t *head_local;
-	int budget = 10;
+	int retries = 0;
+	const int max_retries = 10;
 
 	/*
-	 * Producers can run on the same CPU (softirq and user space process),
-	 * so they will write to the same q->thr_pos[cpu_id].
-	 * This way we have to disable preemtion.
+	 * Multiple producers can run on the same CPU (softirq and user space
+	 * process), so we need to disable preemption.
 	 */
 	local_bh_disable();
 
-	head_local = this_cpu_ptr(q->heads);
-	/*
-	 * Set the head guard to make a consumer wait on this position.
-	 * We could update the guard in the loop to allow a consumer to make
-	 * progress if we're got ahead by other producers, but the overhead
-	 * of the atomic write is undesirable.
-	 */
-	head = atomic64_read(&q->head);
-	atomic64_set(head_local, head);
+	do {
+		head = atomic64_read(&q->head);
+		tail = READ_ONCE(q->tail);  /* Single consumer, no atomic needed */
 
-	for ( ; ; head = atomic64_read(&q->head)) {
-		tail = atomic64_read(&q->tail);
-		WARN_ON_ONCE(head > tail + q->qsize);
-		if (unlikely(head == tail + q->qsize)) {
+		/* Check if queue is full */
+		if (unlikely(head - tail >= q->qsize)) {
 			/*
-			 * Small threshold budget to pass through temporary
-			 * queue overflow.
+			 * Small retry budget to handle transient fullness
+			 * (consumer might be processing right now)
 			 */
-			if (--budget) {
+			if (++retries <= max_retries) {
 				cpu_relax();
 				continue;
 			}
-			goto full_out;
+			local_bh_enable();
+			return head - tail;  /* Return positive value for turnstile */
 		}
 
 		/*
@@ -117,19 +102,18 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 		 * producer, then read the current head and try again.
 		 */
 		if (atomic64_cmpxchg(&q->head, head, head + 1) == head)
-			break;
+			break;  /* Successfully reserved a slot */
+
 		cpu_relax();
-	}
+		retries = 0;  /* Reset retries on progress */
+	} while (1);
 
+	/* Copy data to the reserved slot */
 	memcpy(&q->array[head & (q->qsize - 1)], ptr, WQ_ITEM_SZ);
-	wmb();
+	smp_wmb();  /* Ensure data is visible before consumer can read it */
 
-	head = 0;
-full_out:
-	/* Now it's safe to release current head position. */
-	atomic64_set(head_local, LONG_MAX);
 	local_bh_enable();
-	return head;
+	return 0;
 }
 
 /**
@@ -140,52 +124,38 @@ full_out:
 int
 tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 {
-	int cpu, r = -EBUSY;
-	long tail;
+	long tail, head;
 
-	local_bh_disable();
-
-	tail = atomic64_read(&q->tail);
 	/*
-	 * tail > q->last_head means that some producer is using too old head
-	 * and is going to fail on cmpxchg(). However, we still don't know how
-	 * far we can move, so probably we have to return with nothing now.
+	 * Single consumer - no locking needed if called from single context.
+	 * We're always called from tasklet context, so no additional
+	 * synchronization is required.
 	 */
-	if (unlikely(tail >= q->last_head)) {
-		/*
-		 * Actualize @last_head from heads of all current producers.
-		 * We do it here since atomic reads are faster than updates and
-		 * we can do this only when we need a new value, i.e. not so
-		 * frequently. Don't support switching off cpus in runtime.
-		 */
-		q->last_head = atomic64_read(&q->head);
-		for_each_online_cpu(cpu) {
-			atomic64_t *head_local = per_cpu_ptr(q->heads, cpu);
-			long curr_h = atomic64_read(head_local);
+	tail = q->tail;
+	head = smp_load_acquire(&q->head);  /* Pairs with smp_wmb() in push */
 
-			/* Force compiler to use curr_h only once. */
-			barrier();
-			if (curr_h < q->last_head)
-				q->last_head = curr_h;
-		}
+	/* Check if queue is empty */
+	if (unlikely(tail >= head))
+		return -EBUSY;
 
-		/* Second try. */
-		if (tail >= q->last_head)
-			goto out;
-	}
-
+	/* Read data from the queue */
 	memcpy(buf, &q->array[tail & (q->qsize - 1)], WQ_ITEM_SZ);
-	mb();
 
 	/*
-	 * Since only one CPU writes @tail, then use faster atomic write
-	 * instead of increment.
+	 * Ensure data is read before updating tail.
+	 * Use smp_store_release to ensure all reads complete before
+	 * the tail update is visible to producers.
 	 */
-	atomic64_set(&q->tail, tail + 1);
-	r = 0;
-out:
-	local_bh_enable();
+	smp_store_release(&q->tail, tail + 1);
+
+	/*
+	 * Compiler barrier to ensure tail update completes before
+	 * we potentially re-enable interrupts or return.
+	 */
+	barrier();
+
 	if (ticket)
 		*ticket = tail;
-	return r;
+
+	return 0;
 }
