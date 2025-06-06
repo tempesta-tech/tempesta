@@ -279,7 +279,6 @@ TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
 TEST_SUITE(pool);
-TEST_SUITE(ebtree);
 TEST_SUITE(mmap_buffer);
 
 #endif /* __TFW_TEST_H__ */
