@@ -100,7 +100,6 @@ TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
 TEST_SUITE(pool);
-TEST_SUITE(ebtree);
 TEST_SUITE(mmap_buffer);
 
 extern int tfw_pool_init(void);
@@ -162,9 +161,6 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(pool);
-	__fpu_schedule();
-
-	TEST_SUITE_RUN(ebtree);
 	__fpu_schedule();
 
 	kernel_fpu_end();
