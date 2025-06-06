@@ -65,6 +65,12 @@ static inline struct eb64_node *eb64_first(struct eb_root *root)
 	return eb64_entry(eb_first(root), struct eb64_node, node);
 }
 
+/* Return rightmost node in the tree, or NULL if none */
+static inline struct eb64_node *eb64_last(struct eb_root *root)
+{
+	return eb64_entry(eb_last(root), struct eb64_node, node);
+}
+
 /* Delete node from the tree if it was linked in. Mark the node unused. Note
  * that this function relies on a non-inlined generic function: eb_delete.
  */
