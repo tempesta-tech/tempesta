@@ -151,9 +151,6 @@ test_run_all(void)
 	TEST_SUITE_RUN(pool);
 	__fpu_schedule();
 
-	TEST_SUITE_RUN(ebtree);
-	__fpu_schedule();
-
 	kernel_fpu_end();
 
 	tfw_pool_exit();

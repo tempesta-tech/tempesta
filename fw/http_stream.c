@@ -89,7 +89,7 @@ tfw_h2_init_stream(TfwStream *stream, TfwStreamSchedEntry *entry,
 		   long int loc_wnd, long int rem_wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
-	bzero_fast(&stream->sched_node, sizeof(stream->sched_node));
+	INIT_LIST_HEAD(&stream->sched_node);
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
 	tfw_h2_init_stream_sched_entry(entry, stream);
 	INIT_LIST_HEAD(&stream->hcl_node);
