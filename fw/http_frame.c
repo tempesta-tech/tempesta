@@ -2380,12 +2380,25 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 
 		if (!tfw_h2_stream_is_active(stream)) {
 			tfw_h2_sched_deactivate_stream(sched, stream);
-			/*
-			 * Remove exclusive stream after sending all pending
-			 * data.
-			 */
-			if (!stream->xmit.skb_head && stream_is_exclusive)
-				tfw_h2_stream_clean(ctx, stream);
+			if (!stream->xmit.skb_head) {
+				/*
+				 * Remove exclusive stream after sending all
+				 * pending data.
+				 */
+				if (stream_is_exclusive) {
+					tfw_h2_stream_clean(ctx, stream);
+				} else {
+					TfwStreamSchedEntry *parent =
+						stream->sched->parent;
+
+					tfw_h2_stream_sched_remove(sched,
+								   stream);
+					tfw_h2_sched_stream_enqueue(sched,
+								    stream,
+								    parent);
+				}
+
+			}
 		}
 
 		/*
