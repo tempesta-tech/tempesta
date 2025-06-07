@@ -394,11 +394,20 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	TfwStreamSchedEntry *parent = stream->sched.parent;
 	bool parent_has_children;
 
+	tfw_h2_stream_sched_spin_lock_assert(sched);
+
+	/*
+	 * Stream can be removed early after sending all pending
+	 * data.
+	 */
+	if (!parent) {
+		BUG_ON(tfw_h2_stream_sched_has_children(&stream->sched));
+		return;
+	}
+
 	T_DBG3("Stream (id %u parent id %u removed from dependency tree,"
 	       " ctx %px\n", stream->id, SCHED_PARENT_STREAM(sched, parent),
 	       ctx);
-
-	tfw_h2_stream_sched_spin_lock_assert(sched);
 
 	/* Remove stream from the parent scheduler. */
 	tfw_h2_stream_sched_remove(sched, stream);
