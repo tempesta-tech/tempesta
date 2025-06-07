@@ -341,4 +341,18 @@ tfw_h2_stream_is_exclusive(TfwStream *stream)
 		&& list_empty(&parent->blocked);
 }
 
+static inline bool
+tfw_h2_stream_is_a_leaf(TfwStream *stream)
+{
+	return list_empty(&stream->sched.active)
+		&& list_empty(&stream->sched.blocked);
+}
+
+static inline bool
+tfw_h2_stream_should_be_removed(TfwStream *stream)
+{
+	return tfw_h2_stream_is_exclusive(stream)
+		|| tfw_h2_stream_is_a_leaf(stream);
+}
+
 #endif /* __HTTP_STREAM__ */

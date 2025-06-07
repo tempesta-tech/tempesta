@@ -68,6 +68,7 @@ void tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream);
 TfwStream *tfw_h2_sched_get_most_prio_stream(TfwStreamSched *sched);
 void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_sched_deactivate_stream(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_sched_clean(TfwStreamSched *sched, TfwStreamSchedEntry *parent);
 
 static inline void
 tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)

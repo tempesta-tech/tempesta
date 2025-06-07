@@ -2013,7 +2013,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   bool stream_is_exclusive, unsigned long *snd_wnd)
+			   bool should_be_removed, unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2171,10 +2171,10 @@ do {									\
 		if (stream == ctx->error)
 			ctx->error = NULL;
 		/*
-		 * Don't put exclusive streams in closed queue it
+		 * Don't put exclusive or leaf streams in closed queue it
 		 * will be immediately deleted in the caller function.
 		 */
-		if (!stream_is_exclusive)
+		if (!should_be_removed)
 			tfw_h2_stream_add_closed(ctx, stream);
 		T_FSM_EXIT();
 	}
@@ -2213,7 +2213,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 	       && snd_wnd > FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD
 	       && ctx->rem_wnd > 0)
 	{
-		bool stream_is_exclusive;
+		bool should_be_removed;
 
 		if (ctx->cur_send_headers) {
 			stream = ctx->cur_send_headers;
@@ -2235,23 +2235,24 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		stream_is_exclusive =  tfw_h2_stream_is_exclusive(stream);
+		should_be_removed = tfw_h2_stream_should_be_removed(stream);
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
-					       stream_is_exclusive, &snd_wnd);
+					       should_be_removed, &snd_wnd);
 
 		if (!tfw_h2_stream_is_active(stream)) {
 			tfw_h2_sched_deactivate_stream(sched, stream);
 			if (!stream->xmit.skb_head) {
-				/*
-				 * Remove exclusive stream after sending all
-				 * pending data.
-				 */
-				if (stream_is_exclusive) {
-					tfw_h2_stream_clean(ctx, stream);
-				} else {
-					TfwStreamSchedEntry *parent =
+				TfwStreamSchedEntry *parent =
 						stream->sched.parent;
 
+				/*
+				 * Remove exclusive or streams after sending
+				 * all pending data.
+				 */
+				if (should_be_removed) {
+					tfw_h2_stream_clean(ctx, stream);
+					tfw_h2_sched_clean(sched, parent);
+				} else {
 					tfw_h2_stream_sched_remove(sched,
 								   stream);
 					tfw_h2_sched_stream_enqueue(sched,
