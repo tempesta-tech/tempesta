@@ -622,7 +622,6 @@ void
 tfw_h2_sched_clean(TfwStreamSched *sched, TfwStreamSchedEntry *parent)
 {
 	while (parent != &sched->root) {		
-		TfwH2Ctx *ctx = container_of(sched, TfwH2Ctx, sched);
 		TfwStream *stream = container_of(parent, TfwStream, sched);
 		bool should_be_removed =
 			tfw_h2_stream_should_be_removed(stream);
@@ -631,7 +630,7 @@ tfw_h2_sched_clean(TfwStreamSched *sched, TfwStreamSchedEntry *parent)
 			break;
 		parent = stream->sched.parent;
 		BUG_ON(!parent);
-		tfw_h2_stream_clean(ctx, stream);
+		tfw_h2_remove_stream_dep(sched, stream);
 	}
 }
 

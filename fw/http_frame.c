@@ -2013,7 +2013,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   bool should_be_removed, unsigned long *snd_wnd)
+			   unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2170,12 +2170,7 @@ do {									\
 			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
 		if (stream == ctx->error)
 			ctx->error = NULL;
-		/*
-		 * Don't put exclusive or leaf streams in closed queue it
-		 * will be immediately deleted in the caller function.
-		 */
-		if (!should_be_removed)
-			tfw_h2_stream_add_closed(ctx, stream);
+		tfw_h2_stream_add_closed(ctx, stream);
 		T_FSM_EXIT();
 	}
 
@@ -2236,8 +2231,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 */
 		BUG_ON(!stream);
 		should_be_removed = tfw_h2_stream_should_be_removed(stream);
-		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
-					       should_be_removed, &snd_wnd);
+		r = tfw_h2_stream_xmit_process(sk, ctx, stream, &snd_wnd);
 
 		if (!tfw_h2_stream_is_active(stream)) {
 			tfw_h2_sched_deactivate_stream(sched, stream);
@@ -2250,7 +2244,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 				 * all pending data.
 				 */
 				if (should_be_removed) {
-					tfw_h2_stream_clean(ctx, stream);
+					tfw_h2_remove_stream_dep(sched, stream);
 					tfw_h2_sched_clean(sched, parent);
 				} else {
 					tfw_h2_stream_sched_remove(sched,
