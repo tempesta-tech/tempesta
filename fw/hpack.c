@@ -1353,10 +1353,8 @@ done:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
 		/* Prefer IF_NONE_MATCH over IF_MSINCE like in
 		 * __h2_req_parse_if_nmatch */
-		if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE) {
+		if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
 			req->cond.m_date = 0;
-			req->cond.flags &= ~TFW_HTTP_COND_IF_MSINCE;
-		}
 		h2_set_hdr_if_nmatch(req, &entry->cstate);
 		break;
 	case TFW_TAG_HDR_REFERER:
