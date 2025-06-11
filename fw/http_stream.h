@@ -382,4 +382,14 @@ tfw_h2_stream_has_default_deficit(TfwStream *stream)
 	return stream->sched_node.key == tfw_h2_stream_default_deficit(stream);
 }
 
+static inline bool
+tfw_h2_stream_is_exclusive(TfwStream *stream)
+{
+	TfwStreamSchedEntry *parent = stream->sched.parent;
+        /* Should be called only for active schedulers. */
+        BUG_ON(eb_is_empty(&parent->active));
+        return (eb_first(&parent->active) == eb_last(&parent->active)) &&
+                eb_is_empty(&parent->blocked);
+}
+
 #endif /* __HTTP_STREAM__ */
