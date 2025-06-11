@@ -683,6 +683,7 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (wnd_incr) {
 		TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+		struct sock *sk = ((TfwConn *)conn)->sk;
 		long int *window = ctx->cur_stream ?
 			&ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
 
@@ -696,13 +697,14 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 
 		if (*window > 0) {
 			if (ctx->sched.root.active_cnt) {
-				sock_set_flag(((TfwConn *)conn)->sk,
-					       SOCK_TEMPESTA_HAS_DATA);
-				tcp_push_pending_frames(((TfwConn *)conn)->sk);
+				sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+				sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);
+				tcp_push_pending_frames(sk);
+				sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);
 			}
 		}
 
-		return T_OK;
+		return likely(sk->sk_state != TCP_CLOSE) ? T_OK : sk->sk_err;
 	}
 
 fail:
