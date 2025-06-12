@@ -73,7 +73,6 @@ typedef struct {
  * @hdrs_cnt	- count of all headers from message headers block;
  * @__off	- offset for iterator reinitializing before next processing
  *		  stage;
- * @hdr		- descriptor of currently decoded header in target buffer;
  * @nm_len	- length of the decoded header's name;
  * @to_alloc	- count of bytes which, should be allocated, after rspace
  *		  will be exceeded;
@@ -81,21 +80,22 @@ typedef struct {
  * @tag		- tag of currently processed decoded header.
  * @next	- number of chunk which points to the decoded header part
  *		  (name/value) to be parsed next;
+ * @hdr		- descriptor of currently decoded header in target buffer;
  */
 typedef struct {
 	TfwPool		*pool;
 	TfwStr		*parsed_hdr;
-	unsigned long	hdrs_len;
-	unsigned long	rspace;
+	unsigned int	hdrs_len;
+	unsigned int	rspace;
 	char		*pos;
 	unsigned int	hdrs_cnt;
 	char		__off[0];
-	TfwStr		hdr;
-	unsigned long	nm_len;
-	unsigned long	to_alloc;
+	unsigned int	nm_len;
+	unsigned int	to_alloc;
 	unsigned int	nm_num;
 	unsigned int	tag;
 	unsigned int	next;
+	TfwStr		hdr;
 } TfwMsgParseIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);

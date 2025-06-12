@@ -35,7 +35,7 @@ tfw_hpack_buffer_sz(unsigned long len)
 {
 	unsigned int order = get_order(sizeof(TfwPoolChunk) + len);
 
-	return (PAGE_SIZE << order) - sizeof(TfwPoolChunk) - 1;
+	return (PAGE_SIZE << order) - sizeof(TfwPoolChunk);
 }
 
 /**
@@ -44,8 +44,8 @@ tfw_hpack_buffer_sz(unsigned long len)
  *   `len` bytes;
  * - it->rspace is not equal to zero. This means that we
  *   already have buffer with rspace bytes available.
- *   If this buffer is rather big to contains the whole
- *   header or it is greater then sizeof(TfwStr) we use
+ *   If this buffer is rather big to contain the whole
+ *   header or it is greater than sizeof(TfwStr) we use
  *   it. (Save delta = len - it->rspace bytes. Later when
  *   `it->rspace` will be exceeded we use it to allocate
  *   new chunk).
@@ -64,8 +64,8 @@ tfw_hpack_buffer_get(TfwMsgParseIter *it, unsigned long len, bool force)
 	unsigned int room;
 
 	if (!force && it->rspace
-	    && (len < it->rspace || it->rspace > sizeof(TfwStr))) {
-		it->to_alloc = len < it->rspace ?
+	    && (len <= it->rspace || it->rspace > sizeof(TfwStr))) {
+		it->to_alloc = len <= it->rspace ?
 			0 : tfw_hpack_buffer_sz(len - it->rspace);
 		return 0;
 	}
@@ -542,8 +542,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 	if (unlikely(r))
 		return r;
 
-	T_DBG3("%s: it->rspace=%lu, sym=%c\n",
-	       __func__, it->rspace, sym);
+	T_DBG3("%s: it->rspace=%u, sym=%c\n", __func__, it->rspace, sym);
 
 	/*
 	 * If the new page was allocated we should expand
@@ -553,6 +552,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 	if (unlikely(r))
 		return r;
 
+	--it->rspace;
 	*it->pos++ = sym;
 	it->to_alloc = 0;
 
@@ -630,8 +630,6 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			return T_OK;
 	}
 	return T_COMPRESSION;
-
-#undef ADJUST_EXTRA_RSPACE
 }
 
 static int
