@@ -404,6 +404,7 @@ tfw_h2_stream_sched_move_children(TfwStreamSched *sched, TfwStream *stream,
 				  struct eb_root *root,
 				  bool parent_has_children)
 {
+	TfwH2Ctx __maybe_unused *ctx = container_of(sched, TfwH2Ctx, sched);
 	size_t total_weight = stream->sched->total_weight;
 	u64 deficit;
 
