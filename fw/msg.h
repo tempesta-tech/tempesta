@@ -92,7 +92,6 @@ typedef struct {
 	unsigned long	nm_len;
 	unsigned int	nm_num;
 	unsigned int	tag;
-	unsigned int	next;
 } TfwMsgParseIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
