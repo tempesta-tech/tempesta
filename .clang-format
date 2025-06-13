@@ -1,0 +1,31 @@
+BasedOnStyle: LLVM
+IndentWidth: 8
+TabWidth: 8
+UseTab: Always
+ColumnLimit: 80
+BreakBeforeBraces: Linux
+BraceWrapping:
+  AfterFunction: true
+PointerAlignment: Right
+ReferenceAlignment: Right
+AlignAfterOpenBracket: Align
+BinPackArguments: false
+BinPackParameters: false
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<[a-z_]+\.h>'
+    Priority: 1
+  - Regex: '^<[a-z_]+>'
+    Priority: 2
+  - Regex: '^<boost/.*>'
+    Priority: 3
+  - Regex: '^".*"'
+    Priority: 4
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never  
+IndentCaseLabels: false
+AccessModifierOffset: -8
+Standard: Latest
+AlwaysBreakAfterReturnType: All
