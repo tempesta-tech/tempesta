@@ -94,7 +94,7 @@ class CommandLineArgs:
         """
         parser = argparse.ArgumentParser(
             description="Check if OS and Machine is suitable with minimal Tempesta requirements, start Netconsole",
-            epilog='./system-check.py -nh=192.168.0.100 -nni=eth0 -th=192.168.0.101 -tm=00:00:00:00:00:00',
+            epilog='./system_verification.py -nh=192.168.0.100 -nni=eth0 -th=192.168.0.101 -tm=00:00:00:00:00:00',
             add_help=True
         )
         parser.add_argument(
