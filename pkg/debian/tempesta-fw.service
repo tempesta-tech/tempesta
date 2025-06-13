@@ -11,6 +11,12 @@ Environment="TLS_PATH=/usr/src/tempesta/tls"
 Environment="LIB_PATH=/usr/src/tempesta/lib"
 Environment=TFW_CFG_PATH=/etc/tempesta/tempesta_fw.conf
 Environment="TFW_SYSTEMD=1"
+Environment="TFW_NETCONSOLE_HOST="
+Environment="TFW_NETCONSOLE_PORT="
+Environment="TFW_NETCONSOLE_NI="
+Environment="TFW_TROUBLESHOOTING_HOST="
+Environment="TFW_TROUBLESHOOTING_PORT="
+Environment="TFW_TROUBLESHOOTING_MAC="
 RemainAfterExit=yes
 ExecStart=/lib/tempesta/scripts/tempesta.sh --start
 ExecStopPost=/lib/tempesta/scripts/tempesta.sh --stop
