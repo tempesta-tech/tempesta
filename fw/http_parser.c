@@ -11135,14 +11135,14 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 	size_t len;
 
 	BUG_ON(TFW_STR_PLAIN(m_hdr));
-
+	/* ':method' name should always be in a single chunk */
 	len = m_hdr->len - H2_METH_HDR_VLEN;
 	chunk = TFW_STR_CHUNK(m_hdr, 1);
 	p = chunk->data;
 
 	switch (len) {
 	case 3:
-		if (chunk->len >= 3) {
+		if (chunk->len == 3) {
 			if (p[0] == 'G' && p[1] == 'E' && p[2] == 'T')
 				return TFW_HTTP_METH_GET;
 			if (p[0] == 'P' && p[1] == 'U' && p[2] == 'T')
@@ -11150,21 +11150,21 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 		}
 		break;
 	case 4:
-		if (chunk->len >= 4) {
-			if (p[0] == 'P' && p[1] == 'O' && p[2] == 'S' && p[3] == 'T')
+		if (chunk->len == 4) {
+			if (C4_INT(p, 'P', 'O', 'S', 'T'))
 				return TFW_HTTP_METH_POST;
-			if (p[0] == 'H' && p[1] == 'E' && p[2] == 'A' && p[3] == 'D')
+			if (C4_INT(p, 'H', 'E', 'A', 'D'))
 				return TFW_HTTP_METH_HEAD;
-			if (p[0] == 'M' && p[1] == 'O' && p[2] == 'V' && p[3] == 'E')
+			if (C4_INT(p, 'M', 'O', 'V', 'E'))
 				return TFW_HTTP_METH_MOVE;
-			if (p[0] == 'L' && p[1] == 'O' && p[2] == 'C' && p[3] == 'K')
+			if (C4_INT(p, 'L', 'O', 'C', 'K'))
 				return TFW_HTTP_METH_LOCK;
-			if (p[0] == 'C' && p[1] == 'O' && p[2] == 'P' && p[3] == 'Y')
+			if (C4_INT(p, 'C', 'O', 'P', 'Y'))
 				return TFW_HTTP_METH_COPY;
 		}
 		break;
 	case 5:
-		if (chunk->len >= 5) {
+		if (chunk->len == 5) {
 			if (p[0] == 'M' && p[1] == 'K' && p[2] == 'C' && p[3] == 'O' && p[4] == 'L')
 				return TFW_HTTP_METH_MKCOL;
 			if (p[0] == 'T' && p[1] == 'R' && p[2] == 'A' && p[3] == 'C' && p[4] == 'E')
@@ -11173,10 +11173,12 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 				return TFW_HTTP_METH_PATCH;
 			if (p[0] == 'P' && p[1] == 'U' && p[2] == 'R' && p[3] == 'G' && p[4] == 'E')
 				return TFW_HTTP_METH_PURGE;
+			if (p[0] == 'C' && p[1] == 'O' && p[2] == 'U' && p[3] == 'N' && p[4] == 'T')
+				return _TFW_HTTP_METH_COUNT;
 		}
 		break;
 	case 6:
-		if (chunk->len >= 6) {
+		if (chunk->len == 6) {
 			if (p[0] == 'D' && p[1] == 'E' && p[2] == 'L' &&
 			    p[3] == 'E' && p[4] == 'T' && p[5] == 'E')
 				return TFW_HTTP_METH_DELETE;
@@ -11186,28 +11188,35 @@ tfw_http_meth_str2id(const TfwStr *m_hdr)
 		}
 		break;
 	case 7:
-		if (chunk->len >= 7) {
+		if (chunk->len == 7) {
 			if (p[0] == 'O' && p[1] == 'P' && p[2] == 'T' && p[3] == 'I' &&
 			    p[4] == 'O' && p[5] == 'N' && p[6] == 'S')
 				return TFW_HTTP_METH_OPTIONS;
 		}
 		break;
 	case 8:
-		if (chunk->len >= 8 &&
-		    p[0] == 'P' && p[1] == 'R' && p[2] == 'O' && p[3] == 'P' &&
-		    p[4] == 'F' && p[5] == 'I' && p[6] == 'N' && p[7] == 'D')
-			return TFW_HTTP_METH_PROPFIND;
+		if (chunk->len == 8) {
+			if (C8_INT(p, 'P', 'R', 'O', 'P', 'F', 'I', 'N', 'D'))
+				return TFW_HTTP_METH_PROPFIND;
+		}
 		break;
 	case 9:
-		if (chunk->len >= 9 &&
+		if (chunk->len == 9 &&
 		    p[0] == 'P' && p[1] == 'R' && p[2] == 'O' && p[3] == 'P' &&
-		    p[4] == 'P' && p[5] == 'A' && p[6] == 'T' && p[7] == 'C' && p[8] == 'H')
+		    p[4] == 'P' && p[5] == 'A' && p[6] == 'T' && p[7] == 'C' &&
+		    p[8] == 'H')
 			return TFW_HTTP_METH_PROPPATCH;
+		break;
+	case 10:
+		if (chunk->len == 10 &&
+		    p[0] == 'I' && p[1] == 'N' && p[2] == 'C' && p[3] == 'O' &&
+		    p[4] == 'M' && p[5] == 'P' && p[6] == 'L' && p[7] == 'E' &&
+		    p[8] == 'T' && p[9] == 'E')
+			return _TFW_HTTP_METH_INCOMPLETE;
 		break;
 	default:
 		break;
 	}
-
 	return _TFW_HTTP_METH_UNKNOWN;
 }
 
