@@ -1267,16 +1267,26 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 
 	t_off = CE_BODY_SIZE;
 	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->host, u_end, h_start,
-			      h_end, u_fin, h_fin)
+			h_end, u_fin, h_fin)
 	{
-		if (!trec)
+		if (!trec || t_off >= trec->len)
 			return false;
 this_chunk:
+		if (c_off >= c->len)
+			return false;
+
+		if (t_off >= trec->len)
+			return false;
+
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
+		if (n <= 0)
+			return false;
 		/* Cache key is stored in lower case. */
 		if (tfw_cstricmp_2lc(c->data + c_off, trec->data + t_off, n))
 			return false;
+
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
+
 		if (n == trec->len - t_off) {
 			t_off = 0;
 			trec = tdb_next_rec_chunk(db, trec);
@@ -2271,8 +2281,15 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		return -ENOMEM;
 	}
 
-	if (WARN_ON_ONCE(tot_len != 0))
+	/* FIX: safer tot_len check */
+	if (WARN_ON_ONCE(tot_len < 0)) {
+		T_ERR("Cache copy: negative leftover length = %ld\n", (long)tot_len);
 		return -EINVAL;
+	}
+	if (WARN_ON_ONCE(tot_len != 0)) {
+		T_ERR("Cache copy: unexpected leftover length = %lu\n", tot_len);
+		return -EINVAL;
+	}
 
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
@@ -2320,9 +2337,15 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 			continue;
 
 		p = TDB_PTR(db->hdr, ce->hdrs_304[i]);
-		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len))
+
+		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len)) {
 			trec = tdb_next_rec_chunk(db, trec);
-		BUG_ON(!trec);
+		}
+
+		if (unlikely(!trec)) {
+			T_ERR("Cache copy: ran out of chunks while updating hdrs_304[%d]\n", i);
+			return -EFAULT;
+		}
 
 		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
 	}
