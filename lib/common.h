@@ -20,7 +20,30 @@
 #ifndef __LIB_COMMON_H__
 #define __LIB_COMMON_H__
 
-/* Get current timestamp in secs. */
+#include <linux/interrupt.h>
+
+#ifdef CONFIG_SECURITY_TEMPESTA
+/* Get current timestamp in secs.*/
+static inline long
+tfw_current_timestamp(void)
+{
+	/*
+	 * Use kernel-cached timestamp when in softirq context.
+	 * The timestamp is updated once per softirq batch in handle_softirqs().
+	 * This provides significant performance improvement by avoiding multiple
+	 * expensive ktime_get_real_ts64() calls per softirq batch.
+	 */
+	if (likely(in_serving_softirq()))
+		return softirq_current_timestamp();
+	
+	/* Fallback to direct call outside softirq context */
+	struct timespec64 ts;
+	ktime_get_real_ts64(&ts);
+	return ts.tv_sec;
+}
+
+#else
+/* Fallback implementation when Tempesta is not enabled */
 static inline long
 tfw_current_timestamp(void)
 {
@@ -28,5 +51,6 @@ tfw_current_timestamp(void)
 	ktime_get_real_ts64(&ts);
 	return ts.tv_sec;
 }
+#endif /* CONFIG_SECURITY_TEMPESTA */
 
 #endif /* __LIB_COMMON_H__ */
