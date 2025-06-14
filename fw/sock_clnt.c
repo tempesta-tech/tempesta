@@ -48,6 +48,8 @@ static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 unsigned int tfw_cli_max_concurrent_streams;
+u64 tfw_cli_soft_limit;
+u64 tfw_cli_hard_limit;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -692,13 +694,55 @@ tfw_cfgop_max_concurrent_streams(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return -EINVAL;
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
 
-	if ((r = tfw_cfg_parse_uint(ce->vals[0], &tfw_cli_max_concurrent_streams))) {
-		T_ERR_NL("Unable to parse 'max_concurrent_streams' value: '%s'\n",
-			 ce->vals[0] ? : "No value specified");
+	if ((r = tfw_cfg_parse_uint(ce->vals[0],
+				    &tfw_cli_max_concurrent_streams)))
+	{
+		T_ERR_NL("Unable to parse 'max_concurrent_streams' value:"
+			 " '%s'\n", ce->vals[0] ? : "No value specified");
 		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
+	TFW_CFG_CHECK_VAL_N(<, 3, cs, ce);
+
+	for (i = 0; i < ce->val_n; i++) {
+		char *p;
+		size_t len = strlen(ce->vals[i]);
+		unsigned long long mem = memparse(ce->vals[i], &p);
+
+		if (p != ce->vals[i] + len) {
+			T_ERR_NL("Invalid 'client_mem' value: '%s'",
+				 ce->vals[0]);
+			return -EINVAL;
+		}
+		switch (i) {
+		case 0:
+			tfw_cli_soft_limit = mem;
+			break;
+		case 1:
+			tfw_cli_hard_limit = mem;
+			break;
+		default:
+			/* Should be checked early. */
+			BUG();
+		}
+	}
+
+	if (!tfw_cli_hard_limit) {
+		tfw_cli_hard_limit = (tfw_cli_soft_limit < U64_MAX / 2) ?
+			tfw_cli_soft_limit * 2 : U64_MAX;
 	}
 
 	return 0;
@@ -927,6 +971,15 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = false,
 		.allow_reconfig = true,
+	},
+	{
+		.name = "client_mem",
+		.deflt = NULL,
+		.handler = tfw_cfgop_client_mem,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = false,
 	},
 	{ 0 }
 };
