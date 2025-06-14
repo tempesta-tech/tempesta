@@ -49,6 +49,8 @@ static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 unsigned int tfw_cli_max_concurrent_streams;
+u64 tfw_cli_soft_mem_limit;
+u64 tfw_cli_hard_mem_limit;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -724,6 +726,57 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_parse_client_mem(const char *val, unsigned long long *mem)
+{
+	size_t len = strlen(val);
+	char *p;
+
+	*mem = memparse(val, &p);
+	if (p != val + len)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
+	TFW_CFG_CHECK_VAL_N(<, 3, cs, ce);
+
+	r = tfw_parse_client_mem(ce->vals[0], &tfw_cli_soft_mem_limit);
+	if (unlikely(r)) {
+		T_ERR_NL("Invalid 'client_mem' value: '%s'",
+			 ce->vals[0]);
+		return r;
+	}
+
+	if (ce->val_n > 1) {
+		r = tfw_parse_client_mem(ce->vals[1], &tfw_cli_hard_mem_limit);
+		if (unlikely(r)) {
+			T_ERR_NL("Invalid 'client_mem' value: '%s'",
+				 ce->vals[1]);
+			return r;
+		}
+	} else {
+		tfw_cli_hard_mem_limit = (tfw_cli_soft_mem_limit < U64_MAX / 2) ?
+			tfw_cli_soft_mem_limit * 2 : U64_MAX;
+	}
+
+	if (tfw_cli_hard_mem_limit < tfw_cli_soft_mem_limit) {
+		T_ERR_NL("Invalid 'client_mem' value: hard limit (%llu) is"
+			 " less then soft (%llu)", tfw_cli_hard_mem_limit,
+			 tfw_cli_soft_mem_limit);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
@@ -961,6 +1014,15 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 1, 65536 },
 		},
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "client_mem",
+		.deflt = "0 0",
+		.handler = tfw_cfgop_client_mem,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_none = true,
 		.allow_repeat = false,
