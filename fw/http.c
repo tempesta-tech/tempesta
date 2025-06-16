@@ -950,6 +950,19 @@ tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head, TfwMsgIter *it)
 	return 0;
 }
 
+static inline void
+tfw_http_conn_msg_adjust_mem(TfwConn *conn, TfwHttpMsg *msg, bool alloc)
+{	
+	printk(KERN_ALERT "tfw_http_conn_msg_adjust_mem: sz %px %u mem_used %llu alloc %d",
+		msg, msg->mem_used, conn->mem_used, alloc);
+	if (alloc) {
+		conn->mem_used += msg->mem_used;
+	} else if (tfw_http_parse_is_done(msg)) {
+		BUG_ON(conn->mem_used < msg->mem_used);
+		conn->mem_used -= msg->mem_used;
+	}
+}
+
 /*
  * Free an HTTP message.
  * Also, free the connection instance if there's no more references.
@@ -979,6 +992,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		 * the request.
 		 */
 		WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && hm->pair);
+		tfw_http_conn_msg_adjust_mem(hm->conn, hm, false);
 
 		/*
 		 * Unlink the connection while there is at least one
@@ -998,6 +1012,8 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 
 	tfw_http_msg_free(hm);
 }
+
+
 
 /*
  * Free request after removing it from seq_queue (or after closing the
@@ -6573,6 +6589,9 @@ next_msg:
 		}
 	}
 
+	req->mem_used += req->body.len;
+	tfw_http_conn_msg_adjust_mem(conn, (TfwHttpMsg *)req, true);
+
 	/* The body received, remove 100-continue from queue. */
 	if (unlikely(tfw_http_should_del_continuation_seq_queue(req)))
 		tfw_http_del_continuation_seq_queue((TfwCliConn *)conn, req);
@@ -7351,6 +7370,9 @@ next_msg:
 			goto bad_msg;
 		}
 	}
+
+	hmresp->mem_used += hmresp->body.len;
+	tfw_http_conn_msg_adjust_mem(hmresp->conn, hmresp, true);
 
 	/*
 	 * The message is fully parsed, the rest of the data in the

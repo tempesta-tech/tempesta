@@ -105,6 +105,9 @@ enum {
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
  * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
  * @sk		- an appropriate sock handler;
+ * @mem_used	- memory is used to store unanswered client requests and
+		  requests with linked responses which can not be forwarded
+		  to a client;
  * @destructor	- called when a connection is destroyed;
  */
 typedef struct tfw_conn_t TfwConn;
@@ -118,6 +121,7 @@ typedef struct tfw_conn_t TfwConn;
 	TfwPeer 		*peer;			\
 	TfwConn			*pair;			\
 	struct sock		*sk;			\
+	u64			mem_used;		\
 	void			(*destructor)(void *);
 
 typedef struct tfw_conn_t {
@@ -534,6 +538,7 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 	sk->sk_state_change = NULL;
 	sk->sk_write_xmit = NULL;
 	sk->sk_fill_write_queue = NULL;
+	sk->sk_check_mem = NULL;
 	sk->sk_destroy_cb = NULL;
 
 	sk->sk_user_data = NULL;
@@ -563,6 +568,7 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
 	BUG_ON(conn->stream.msg);
+	BUG_ON(conn->mem_used);
 
 	rc = atomic_read(&conn->refcnt);
 	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);

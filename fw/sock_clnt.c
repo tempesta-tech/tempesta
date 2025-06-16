@@ -216,6 +216,14 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	return r;
 }
 
+static bool
+tfw_sk_check_mem(struct sock *sk)
+{
+	TfwConn *conn = (TfwConn *)sk->sk_user_data;
+
+	return !tfw_cli_hard_limit || conn->mem_used <= tfw_cli_hard_limit;
+}
+
 /**
  * This hook is called when a new client connection is established.
  */
@@ -284,6 +292,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		sk->sk_write_xmit = tfw_tls_encrypt;
 		sk->sk_fill_write_queue = tfw_sk_fill_write_queue;
 	}
+	sk->sk_check_mem = tfw_sk_check_mem;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,

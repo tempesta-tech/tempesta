@@ -304,6 +304,7 @@ typedef struct {
 	unsigned char	version;					\
 	unsigned int	keep_alive;					\
 	TfwMsgIter	iter;						\
+	unsigned int	mem_used;					\
 	unsigned long	content_length;					\
 	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\

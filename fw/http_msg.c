@@ -678,6 +678,7 @@ done:
 
 	*h = parser->hdr;
 
+	hm->mem_used += h->len + TFW_HTTP_MSG_HDR_OVERHEAD(hm);
 	if (!is_srv_conn) {
 		TfwHttpReq *req = (TfwHttpReq *)hm;
 
