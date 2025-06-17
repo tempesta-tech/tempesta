@@ -46,11 +46,6 @@ insmod $root/../../../db/core/tempesta_db.ko || clean_exit 1
 insmod $root/../tfw_fuzzer.ko || clean_exit 1
 insmod $root/tfw_test.ko || clean_exit 1
 
-$root/test_http_methods || {
-    echo "User-space test_http_methods failed"
-    clean_exit 1
-}
-
 clean_exit 0
 
 echo -e "\n @@@ UNIT TEST OUTPUT SUMMARY (see dmesg for full log):\n"

@@ -19,6 +19,7 @@
  */
 
 #include "test_http_parser_common.h"
+#include "http_parser.h"
 
 #define STATIC_TBL_LAST_INDEX 61
 #define DYN_TBL_FIRST_INDEX 62
@@ -1696,6 +1697,78 @@ TEST(http2_parser_hpack, erased_indexes_not_come_back)
 	}
 }
 
+TEST(http2_parser_hpack, methods_known)
+{
+	char *http_methods_enum[] = {
+		[TFW_HTTP_METH_COPY] = "COPY",
+		[TFW_HTTP_METH_DELETE] = "DELETE",
+		[TFW_HTTP_METH_GET] = "GET",
+		[TFW_HTTP_METH_HEAD] = "HEAD",
+		[TFW_HTTP_METH_LOCK] = "LOCK",
+		[TFW_HTTP_METH_MKCOL] = "MKCOL",
+		[TFW_HTTP_METH_MOVE] = "MOVE",
+		[TFW_HTTP_METH_OPTIONS] = "OPTIONS",
+		[TFW_HTTP_METH_PATCH] = "PATCH",
+		[TFW_HTTP_METH_POST] = "POST",
+		[TFW_HTTP_METH_PROPFIND] = "PROPFIND",
+		[TFW_HTTP_METH_PROPPATCH] = "PROPPATCH",
+		[TFW_HTTP_METH_PUT] = "PUT",
+		[TFW_HTTP_METH_TRACE] = "TRACE",
+		[TFW_HTTP_METH_UNLOCK] = "UNLOCK",
+		[TFW_HTTP_METH_PURGE] = "PURGE",
+	};
+	unsigned int meth;
+
+	for (meth = _TFW_HTTP_METH_NONE + 1; meth < _TFW_HTTP_METH_UNKNOWN; meth++) {
+		TfwStr m = {
+			.chunks = (TfwStr []) {
+				{ .data = ":method", .len = strlen(":method") },
+				{ .data = http_methods_enum[meth], .len = strlen(http_methods_enum[meth]) },
+			},
+			.len = strlen(":method") + strlen(http_methods_enum[meth]),
+			.nchunks = 2
+		};
+		EXPECT_EQ(tfw_http_meth_str2id(&m), meth);
+	}
+}
+
+TEST(http2_parser_hpack, methods_unknown)
+{
+	char *http_methods_enum[] = {
+		"C", "CO", "COP", "COPYA",
+		"D", "DE", "DEL", "DELE", "DELET", "DELETEA",
+		"H", "HE", "HEA", "HEADA",
+		"L", "LO", "LOC", "LOCKA",
+		"M", "MK", "MKL", "MKLO", "MKLOC", "MKLOCKA",
+		"M", "MO", "MOV", "MOVEA",
+		"O", "OP", "OPT", "OPTI", "OPTIO", "OPTION","OPTIONSA",
+		"P", "PA", "PAT", "PATC", "PATCHA",
+		"P", "PO", "POS", "POSTA",
+		"P", "PR", "PRO", "PROP", "PROPF", "PROPFI", "PROPFIN",
+		"PROPFINDA",
+		"P", "PR", "PRO", "PROP", "PROPP", "PROPPA", "PROPPAT",
+		"PROPPATC", "PROPPATCHA",
+		"P", "PU", "PUTA",
+		"T", "TR", "TRA", "TRAC", "TRACEA",
+		"U", "UN", "UNL", "UNLO", "UNLOC", "UNLOCKA",
+		"P", "PU", "PUR",  "PURG", "PURGEA",
+	};
+	unsigned int meth;
+
+	for (meth = 0; meth < ARRAY_SIZE(http_methods_enum); meth++) {
+		TfwStr m = {
+			.chunks = (TfwStr []) {
+				{ .data = ":method", .len = strlen(":method") },
+				{ .data = http_methods_enum[meth], .len = strlen(http_methods_enum[meth]) },
+			},
+			.len = strlen(":method") + strlen(http_methods_enum[meth]),
+			.nchunks = 2
+		};
+
+		EXPECT_EQ(tfw_http_meth_str2id(&m), _TFW_HTTP_METH_UNKNOWN);
+	}
+}
+
 TEST_SUITE(http2_parser_hpack)
 {
 	TEST_SETUP(test_case_parse_prepare_h2);
@@ -1712,4 +1785,6 @@ TEST_SUITE(http2_parser_hpack)
 	TEST_RUN(http2_parser_hpack, dup_with_equal_values_in_indexes);
 	TEST_RUN(http2_parser_hpack, dup_with_diff_values_in_indexes);
 	TEST_RUN(http2_parser_hpack, erased_indexes_not_come_back);
+	TEST_RUN(http2_parser_hpack, methods_known);
+	TEST_RUN(http2_parser_hpack, methods_unknown);
 }
