@@ -449,6 +449,11 @@ validate_num_of_opt()
 	fi
 }
 
+validate_system_configuration()
+{
+  python3 "$script_path/troubleshooting/system_verification.py"
+}
+
 validate_system_configuration_and_run_netconsole()
 {
   python3 "$script_path/troubleshooting/system_verification.py" \
@@ -489,12 +494,14 @@ while :; do
 			;;
 		--restart)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration
 			stop
 			start
 			exit
 			;;
 		--reload)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration
 			reload
 			exit
 			;;
