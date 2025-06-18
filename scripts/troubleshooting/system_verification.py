@@ -695,7 +695,7 @@ if __name__ == '__main__':
     if verification_passed:
         tempesta_log('Verification passed successfully!')
 
-    elif verification_passed:
+    else:
         tempesta_log('Verification passed with errors!')
 
     if not all([
