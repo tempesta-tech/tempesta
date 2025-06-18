@@ -73,7 +73,7 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  * fragments, and it sets up fragments with zero size.
  */
 static struct sk_buff *
-ss_skb_alloc_pages(size_t len)
+ss_skb_alloc_pages(struct sock *sk, size_t len)
 {
 	int i, nr_frags = 0;
 	struct sk_buff *skb;
@@ -84,7 +84,7 @@ ss_skb_alloc_pages(size_t len)
 		len = SKB_MAX_HEADER;
 	}
 
-	if (!(skb = ss_skb_alloc(len)))
+	if (!(skb = ss_skb_alloc(sk, len)))
 		return NULL;
 
 	for (i = 0; i < nr_frags; ++i) {
@@ -108,7 +108,8 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int tx_flags)
+ss_skb_alloc_data(struct sock *sk, struct sk_buff **skb_head, size_t len,
+		  unsigned int tx_flags)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -116,7 +117,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int tx_flags)
 
 	for (i_skb = 0; i_skb < nr_skbs; ++i_skb, len -= n) {
 		n = min(len, SS_SKB_MAX_DATA_LEN);
-		skb = ss_skb_alloc_pages(n);
+		skb = ss_skb_alloc_pages(sk, n);
 		if (!skb)
 			return -ENOMEM;
 		skb_shinfo(skb)->tx_flags |= tx_flags;
@@ -220,7 +221,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			 * If skb->sk is set, we use functions from the Linux kernel
 			 * to allocate and insert skb.
 			 */
-			nskb = ss_skb_alloc(0);
+			nskb = ss_skb_alloc(skb->sk, 0);
 			if (nskb == NULL)
 				return -ENOMEM;
 			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
@@ -394,6 +395,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
 	skb->truesize += tail_len;
+	ss_skb_adjust_sk_mem(skb, tail_len);
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
@@ -1298,6 +1300,10 @@ ss_skb_split(struct sk_buff *skb, int len)
 	if (!buff)
 		return NULL;
 
+	buff->sk = skb->sk;
+	TFW_SKB_CB(buff)->adjust_sk_mem = TFW_SKB_CB(skb)->adjust_sk_mem;
+	buff->destructor = skb->destructor;
+
 	skb_reserve(buff, MAX_TCP_HEADER);
 
 	/* @buff already accounts @n in truesize. */
@@ -1305,6 +1311,8 @@ ss_skb_split(struct sk_buff *skb, int len)
 	buff->truesize += nlen;
 	skb->truesize -= nlen;
 	buff->mark = skb->mark;
+	ss_skb_adjust_sk_mem(buff, nlen);
+	ss_skb_adjust_sk_mem(skb, nlen);
 
 	/*
 	 * Initialize GSO segments counter to let TCP set it according to
@@ -1330,12 +1338,12 @@ ss_skb_split(struct sk_buff *skb, int len)
  * data.
  */
 void
-ss_skb_init_for_xmit(struct sk_buff *skb)
+ss_skb_init_for_xmit(struct sk_buff *skb, struct sock *sk)
 {
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
-	WARN_ON_ONCE(skb->sk);
+	skb_orphan(skb);
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
@@ -1377,13 +1385,13 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 }
 
 static inline int
-__coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
+__coalesce_frag(struct sock *sk, struct sk_buff **skb_head, skb_frag_t *frag,
 		const struct sk_buff *orig_skb)
 {
 	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
 
 	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
-		skb = ss_skb_alloc(0);
+		skb = ss_skb_alloc(sk, 0);
 		if (!skb)
 			return -ENOMEM;
 		skb_shinfo(skb)->tx_flags = skb_shinfo(orig_skb)->tx_flags;
@@ -1399,7 +1407,8 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 }
 
 static int
-ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
+ss_skb_queue_coalesce_tail(struct sock *sk, struct sk_buff **skb_head,
+			   const struct sk_buff *skb)
 {
 	int i;
 	skb_frag_t head_frag;
@@ -1411,12 +1420,13 @@ ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
 		head_frag.bv_page = virt_to_page(skb->head);
 		head_frag.bv_offset = skb->data -
 			(unsigned char *)page_address(head_frag.bv_page);
-		if (__coalesce_frag(skb_head, &head_frag, skb))
+		if (__coalesce_frag(sk, skb_head, &head_frag, skb))
 			return -ENOMEM;
 	}
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		if (__coalesce_frag(skb_head, &skb_shinfo(skb)->frags[i], skb))
+		if (__coalesce_frag(sk, skb_head, &skb_shinfo(skb)->frags[i],
+				    skb))
 			return -ENOMEM;
 	}
 
@@ -1432,16 +1442,17 @@ ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
  * currently filled with paged fragments.
  */
 static int
-ss_skb_unroll_slow(struct sk_buff **skb_head, struct sk_buff *skb)
+ss_skb_unroll_slow(struct sock *sk, struct sk_buff **skb_head,
+		   struct sk_buff *skb)
 {
 	struct sk_buff *f_skb;
 
-	if (ss_skb_queue_coalesce_tail(skb_head, skb))
+	if (ss_skb_queue_coalesce_tail(sk, skb_head, skb))
 		goto cleanup;
 
 	skb_walk_frags(skb, f_skb) {
 		f_skb->mark = skb->mark;
-		if (ss_skb_queue_coalesce_tail(skb_head, f_skb))
+		if (ss_skb_queue_coalesce_tail(sk, skb_head, f_skb))
 			goto cleanup;
 	}
 
@@ -1485,7 +1496,7 @@ cleanup:
  * for that will require changes in multiple places in Tempesta.
  */
 int
-ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
+ss_skb_unroll(struct sock *sk, struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	struct sk_buff *prev_skb, *f_skb;
 
@@ -1509,7 +1520,7 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 	 * sizeof(struct skb_shared_info) = 320;
 	 */
 	if (unlikely(skb_cloned(skb)))
-		return ss_skb_unroll_slow(skb_head, skb);
+		return ss_skb_unroll_slow(sk, skb_head, skb);
 
 	WARN_ON_ONCE(skb->next || skb->prev);
 	skb->next = skb_shinfo(skb)->frag_list;
@@ -1701,3 +1712,70 @@ ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 	return 0;
 }
 
+static void
+ss_sock_rfree(struct sk_buff *skb)
+{
+	struct sock *sk = skb->sk;
+
+	printk(KERN_ALERT "ss_sock_rfree sk %px skb %px len %u sk_rmem_alloc %d BBB",
+			sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
+
+	atomic_sub(skb->truesize, &sk->sk_rmem_alloc);
+
+	printk(KERN_ALERT "ss_sock_rfree sk %px skb %px len %u sk_rmem_alloc %d AAA",
+			sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
+}
+
+static void
+ss_sock_wfree(struct sk_buff *skb)
+{
+	struct sock *sk = skb->sk;
+
+	printk(KERN_ALERT "ss_sock_wfree sk %px skb %px len %u ss_sock_rfree %u BBB",
+		sk, skb, skb->truesize, refcount_read(&sk->sk_wmem_alloc));
+
+	if (refcount_sub_and_test(skb->truesize, &sk->sk_wmem_alloc))
+		__sk_free(sk);
+
+	printk(KERN_ALERT "ss_sock_wfree sk %px skb %px len %u ss_sock_rfree %u AAA",
+		sk, skb, skb->truesize, refcount_read(&sk->sk_wmem_alloc));
+}
+
+static void
+ss_skb_adjust_sk_mem_r(struct sk_buff *skb, int delta)
+{
+	printk(KERN_ALERT "ss_skb_adjust_sk_mem_r sk%px skb %px %d BBB", sk, skb, delta);
+	atomic_add(delta, &skb->sk->sk_rmem_alloc);
+}
+
+static inline void
+ss_skb_adjust_sk_mem_w(struct sk_buff *skb, int delta)
+{
+	refcount_add(delta, &skb->sk->sk_wmem_alloc);
+}
+
+void
+ss_skb_set_owner_r(struct sk_buff *skb, struct sock *sk)
+{
+	skb_orphan(skb);
+	skb->sk = sk;
+
+	printk(KERN_ALERT "ss_skb_set_owner_r sk %px skb %px len %u sk_rmem_alloc %d BBB", sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
+
+	skb->destructor = ss_sock_rfree;
+	TFW_SKB_CB(skb)->adjust_sk_mem = ss_skb_adjust_sk_mem_r;
+	atomic_add(skb->truesize, &sk->sk_rmem_alloc);
+
+	printk(KERN_ALERT "ss_skb_set_owner_r sk %px skb %px len %u sk_rmem_alloc %d AAA", sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
+}
+
+void
+ss_skb_set_owner_w(struct sk_buff *skb, struct sock *sk)
+{
+	skb_orphan(skb);
+	skb->sk = sk;
+
+	skb->destructor = ss_sock_wfree;
+	TFW_SKB_CB(skb)->adjust_sk_mem = ss_skb_adjust_sk_mem_w;
+	refcount_add(skb->truesize, &sk->sk_wmem_alloc);
+}

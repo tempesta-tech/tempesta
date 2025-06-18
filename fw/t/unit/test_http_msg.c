@@ -21,6 +21,7 @@
 
 #include "test.h"
 #include "http_msg.h"
+#include "helpers.h"
 
 TEST(http_msg, hdr_in_array)
 {
@@ -98,16 +99,23 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 	hmresp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	skb = ss_skb_alloc(head_data->len);
+	printk(KERN_ALERT "__test_resp_alloc 111");
+
+	skb = ss_skb_alloc(&sk, head_data->len);
 	if (!skb)
 		return NULL;
+
+	printk(KERN_ALERT "__test_resp_alloc 222 %u", skb->truesize);
 
 	skb->next = skb->prev = skb;
 	it = &hmresp->iter;
 	hmresp->msg.skb_head = it->skb = it->skb_head = skb;
 	it->frag = -1;
+	it->sk = &sk;
 
 	skb_put_data(skb, head_data->data, head_data->len);
+
+	printk(KERN_ALERT "__test_resp_alloc 333 %u", skb->truesize);
 
 	if (nr_frags == 0)
 		return hmresp;
@@ -118,6 +126,8 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 		return NULL;
 	}
 
+	printk(KERN_ALERT "__test_resp_alloc 444 %u", skb->truesize);
+
 	addr = page_address(page);
 	memcpy(addr, paged_data->data, paged_data->len);
 
@@ -126,6 +136,8 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 		get_page(page);
 		ss_skb_adjust_data_len(skb, paged_data->len);
 	}
+
+	printk(KERN_ALERT "__test_resp_alloc 555 %u", skb->truesize);
 
 	put_page(page);
 

@@ -808,38 +808,6 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
 }
 
 /**
- * Set up @hm with empty SKB space of size @data_len for data writing.
- * Set up the iterator @it to support consecutive writes.
- *
- * This function is intended to work together with tfw_msg_write()
- * or tfw_http_msg_add_data() which use the @it iterator.
- *
- * @hm must be allocated dynamically (NOT statically) as it may have
- * to sit in a queue long after the caller has finished. It's assumed
- * that @hm is properly initialized.
- *
- * It's essential to understand, that "properly initialized" for @hm
- * may mean different things depending on the intended use. Currently
- * this function is called to send a response from cache, or to send
- * an error response. An error response is not parsed or adjusted, so
- * a shorter/faster version of message allocation and initialization
- * may be used. (See __tfw_http_msg_alloc(full=False)).
- */
-int
-tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
-		   unsigned int tx_flags)
-{
-	int r;
-
-	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len, tx_flags)))
-		return r;
-	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
-
-	return 0;
-}
-EXPORT_SYMBOL(tfw_http_msg_setup);
-
-/**
  * Fill up an HTTP message by iterator @it with data from string @data.
  * Properly maintain @hm header @field, so that @hm can be used in regular
  * transformations. However, the header name and the value are not split into
@@ -1015,7 +983,7 @@ tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 		unsigned long off = 0, cur_len, f_room, min_len;
 this_chunk:
 		if (!it->skb) {
-			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
+			if (!(it->skb = ss_skb_alloc(it->sk, SKB_MAX_HEADER)))
 				return -ENOMEM;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
@@ -1247,7 +1215,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
-				struct sk_buff *nskb = ss_skb_alloc(0);
+				struct sk_buff *nskb = ss_skb_alloc(it->sk, 0);
 				TfwHttpResp *resp = (TfwHttpResp *)hm;
 				bool body_was_moved = false;
 				int frag;
@@ -1415,6 +1383,8 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 		struct sk_buff *skb;
 		struct skb_shared_info *si = skb_shinfo(it->skb);
 
+		printk(KERN_ALERT "tfw_http_msg_cutoff_headers %u %u", it->skb->truesize, skb_headlen(it->skb));
+
 		if (skb_headlen(it->skb)) {
 			begin = it->skb->data;
 			end = begin + skb_headlen(it->skb);
@@ -1424,12 +1394,16 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 				 * the end of CRLF lies within the linear data area
 				 * of the current @it->skb
 				 */
+				printk(KERN_ALERT "TUT %u", it->skb->truesize);
 				r = ss_skb_linear_transform(it->skb_head,
 							    it->skb, body);
+				printk(KERN_ALERT "TUT AAA %u", it->skb->truesize);
 				break;
 			} else {
+				printk(KERN_ALERT "TUT 111");
 				ss_skb_put(it->skb, -skb_headlen(it->skb));
 				it->skb->tail_lock = 1;
+				printk(KERN_ALERT "TUT 222");
 			}
 		}
 
@@ -1447,14 +1421,18 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * fragments from skb where LF is located.
 			 */
 			if (!body) {
+				printk(KERN_ALERT "ZZZ");
 				__tfw_http_msg_rm_all_frags(it->skb, cleanup);
+				printk(KERN_ALERT "ZZZ aaa");
 				goto end;
 			} else if (off != begin) {
 				/*
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
+				printk(KERN_ALERT "ZZZ qqq");
 				__tfw_http_msg_shrink_frag(it->skb, i, off);
+				printk(KERN_ALERT "ZZZ kkk");
 			}
 
 			/*
@@ -1462,8 +1440,11 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * fragments for later cleanup and remove them
 			 * from skb.
 			 */
-			if (i >= 1)
+			if (i >= 1) {
+				printk(KERN_ALERT "ZZZ lll");
 				__tfw_http_msg_move_frags(it->skb, i, cleanup);
+				printk(KERN_ALERT "ZZZ lll 111");
+			}
 
 			goto end;
 		}
@@ -1484,6 +1465,8 @@ end:
 
 	/* Start from zero fragment */
 	it->frag = -1;
+
+	printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAA %u", it->skb->truesize);
 
 	return r;
 }

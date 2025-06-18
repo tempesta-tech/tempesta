@@ -383,7 +383,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
-	ss_skb_init_for_xmit(skb);
+	ss_skb_init_for_xmit(skb, sk);
 	skb->mark = mark;
 	if (tls_type)
 		skb_set_tfw_tls_type(skb, tls_type);
@@ -407,6 +407,8 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 	unsigned int mark = 0;
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
+
+		printk(KERN_ALERT "ss_skb_tcp_entail_list %px BBB %px %px", skb, skb->sk, skb->destructor);
 		/*
 		 * @skb_head can be the head of several different skb
 		 * lists. We set tls type for the head of each new
@@ -834,7 +836,7 @@ do {									\
 	/* SKB may be freed in processing. Save the flag. */
 	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
 
-	if (ss_skb_unroll(&skb_head, skb)) {
+	if (ss_skb_unroll(sk, &skb_head, skb)) {
 		tp->copied_seq += tcp_fin;
 		ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed);
 		__kfree_skb(skb);
@@ -844,14 +846,15 @@ do {									\
 	while ((skb = ss_skb_dequeue(&skb_head))) {
 		WARN_ON_ONCE(skb->tail_lock);
 		WARN_ON_ONCE(skb_has_frag_list(skb));
-		WARN_ON_ONCE(skb->sk);
+		WARN_ON_ONCE(!skb->sk);
 
 		/*
 		 * Some SKBs may have dev, however tempesta uses dev to store
 		 * own flags, thus clear it.
 		 */
 		skb->dev = NULL;
-		memset(skb->cb, 0, sizeof(skb->cb));
+		memset(TFW_SKB_CB(skb)->__off, 0,
+		       sizeof(struct tfw_skb_cb) - offsetof(struct tfw_skb_cb, __off));
 
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;

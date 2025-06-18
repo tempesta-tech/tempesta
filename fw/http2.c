@@ -595,6 +595,8 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			continue;
 		}
 
+		printk(KERN_ALERT "tfw_h2_entail_stream_skb %px %px %px", skb, skb->sk, skb->destructor);
+
 		BUG_ON(!tls_type);
 		BUG_ON(!skb->len);
 

@@ -57,9 +57,11 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
 
 /*
  * Tempesta FW sk_buff private data.
- * @opaque_data 	- pointer to some private data (typically http response);
- * @destructor		- destructor of the opaque data, should be set if data is
- *                        not NULL
+ * @adjust_sk_mem	- callback to adjust socket mempry for Tempesta FW skb;
+ * @opaque_data 	- pointer to some private data (typically http
+ *			  response);
+ * @destructor		- destructor of the opaque data, should be set if data
+ *			  is not NULL;
  * @on_send		- callback to special handling this skb before sending;
  * @on_tcp_entail 	- callback to special handling this skb before pushing
  *                        to socket write queue;
@@ -67,6 +69,8 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
+	void		(*adjust_sk_mem)(struct sk_buff *skb, int delta);
+	char		__off[0];
 	void 		*opaque_data;
 	void 		(*destructor)(void *opaque_data);
 	on_send_cb_t	on_send;
@@ -76,6 +80,9 @@ struct tfw_skb_cb {
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
+
+void ss_skb_set_owner_r(struct sk_buff *skb, struct sock *sk);
+void ss_skb_set_owner_w(struct sk_buff *skb, struct sock *sk);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -106,6 +113,19 @@ ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
 	if (opaque_data) {
 		BUG_ON(!destructor);
 		destructor(opaque_data);
+	}
+}
+
+static inline void
+ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
+{
+	void (*adjust_sk_mem)(struct sk_buff*, int) =
+		TFW_SKB_CB(skb)->adjust_sk_mem;
+
+	if (skb->sk) {
+		printk(KERN_ALERT "ss_skb_adjust_sk_mem %px %px %px", skb, skb->sk, adjust_sk_mem);
+		BUG_ON(!adjust_sk_mem);
+		adjust_sk_mem(skb, delta);
 	}
 }
 
@@ -308,6 +328,8 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
+	ss_skb_adjust_sk_mem(skb, delta);
+
 }
 
 /*
@@ -344,13 +366,14 @@ ss_skb_put(struct sk_buff *skb, const int len)
 }
 
 static inline struct sk_buff *
-ss_skb_alloc(size_t n)
+ss_skb_alloc(struct sock *sk, size_t n)
 {
 	struct sk_buff *skb = alloc_skb(MAX_TCP_HEADER + n, GFP_ATOMIC);
 
 	if (!skb)
 		return NULL;
 	skb_reserve(skb, MAX_TCP_HEADER);
+	ss_skb_set_owner_r(skb, sk);
 
 	return skb;
 }
@@ -439,7 +462,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
+int ss_skb_alloc_data(struct sock *sk, struct sk_buff **skb_head, size_t len,
 		      unsigned int tx_flags);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb,
@@ -448,9 +471,8 @@ int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			    size_t head, size_t tail);
 int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
-int
-ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
-			   size_t head, size_t trail);
+int ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
+			       size_t head, size_t trail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
@@ -458,16 +480,16 @@ int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 int ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 		   unsigned int *chunks, unsigned int *processed);
 
-int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
-void ss_skb_init_for_xmit(struct sk_buff *skb);
+int ss_skb_unroll(struct sock *sk, struct sk_buff **skb_head,
+		  struct sk_buff *skb);
+void ss_skb_init_for_xmit(struct sk_buff *skb, struct sock *sk);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 		    int *frag_idx, size_t frag_sz);
-int
-ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
-			unsigned char *split_point);
+int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			    unsigned char *split_point);
 
 #if defined(DEBUG) && (DEBUG >= 4)
 #define ss_skb_queue_for_each_do(queue, lambda)		\

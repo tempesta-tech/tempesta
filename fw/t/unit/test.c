@@ -22,10 +22,12 @@
 #include <linux/module.h>
 #include "test.h"
 #include "test_http_parser_defs.h"
+#include "helpers.h"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
 test_fixture_fn_t test_teardown_fn;
+struct sock sk;
 
 /* TODO: run tests with logging disabled, and re-run the failed test
  *       with enabled logs.
@@ -127,39 +129,54 @@ test_run_all(void)
 	 * the tests can not sleep.
 	 */
 	TEST_SUITE_RUN(tfw_str);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(mem_fast);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_MPART_RUN(http1_parser);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_MPART_RUN(http2_parser);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_match);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_msg);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hash);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(addr);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hpack);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(pool);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(ebtree);
+	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
 	__fpu_schedule();
 
 	kernel_fpu_end();
