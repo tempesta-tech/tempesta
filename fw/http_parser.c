@@ -571,6 +571,39 @@ __FSM_STATE(st) {							\
 #define CSTR_NEQ		T_DROP		/* -MAX_ERRNO + 3 */
 #define CSTR_BADLEN		T_BAD		/* -MAX_ERRNO + 4 */
 
+#define TFW_CHAR3_VAL(a, b, c) \
+	(((u32)(a)) | ((u32)(b) << 8) | ((u32)(c) << 16))
+
+#define TFW_CHAR4_VAL(a, b, c, d) \
+	(((u32)(a)) | ((u32)(b) << 8) | ((u32)(c) << 16) | ((u32)(d) << 24))
+
+#define TFW_CHAR5_VAL(a, b, c, d, e) \
+	(((u64)TFW_CHAR4_VAL(a, b, c, d)) | ((u64)(e) << 32))
+
+#define TFW_CHAR6_VAL(a, b, c, d, e, f) \
+	(((u64)TFW_CHAR5_VAL(a, b, c, d, e)) | ((u64)(f) << 40))
+
+#define TFW_CHAR7_VAL(a, b, c, d, e, f, g) \
+	(((u64)TFW_CHAR6_VAL(a, b, c, d, e, f)) | ((u64)(g) << 48))
+
+#define C3_INT(p, a, b, c) \
+	(!(((*(u32 *)(p)) & 0x00FFFFFF) ^ TFW_CHAR3_VAL(a, b, c)))
+
+#define C5_INT(p, a, b, c, d, e) \
+	(!(((*(u64 *)(p)) & 0x000000FFFFFFFFFF) ^ TFW_CHAR5_VAL(a, b, c, d, e)))
+
+#define C6_INT(p, a, b, c, d, e, f) \
+	(!(((*(u64 *)(p)) & 0x0000FFFFFFFFFFFF) ^ TFW_CHAR6_VAL(a, b, c, d, e, f)))
+
+#define C7_INT(p, a, b, c, d, e, f, g) \
+	(!(((*(u64 *)(p)) & 0x00FFFFFFFFFFFFFF) ^ TFW_CHAR7_VAL(a, b, c, d, e, f, g)))
+
+#define C9_INT(p, a, b, c, d, e, f, g, h, i) \
+	(C8_INT(p, a, b, c, d, e, f, g, h) && p[8] == i)
+
+#define C10_INT(p, a, b, c, d, e, f, g, h, i, j) \
+	(C8_INT(p, a, b, c, d, e, f, g, h) && p[8] == i && p[9] == j)
+
 /**
  * Compare a mixed pair of strings with the string @str of length @str_len where
  * the first string is a part of the header @hdr which is being processed and
@@ -11120,8 +11153,9 @@ enum {
 	TFW_HTTP_MLEN_7C,
 	TFW_HTTP_MLEN_8C,
 	TFW_HTTP_MLEN_9C,
+	TFW_HTTP_MLEN_10C,
 };
-#define H2_METH_HDR_VLEN    7
+#define H2_METH_HDR_VLEN    8
 
 /**
  * Obtain HTTP method id from TfwStr chunked string.
@@ -11130,93 +11164,88 @@ enum {
 unsigned char
 tfw_http_meth_str2id(const TfwStr *m_hdr)
 {
-	const TfwStr *chunk;
-	const unsigned char *p;
 	size_t len;
+	size_t copied;
+	unsigned char method_buf[10];
+	const unsigned char *p;
+	int i;
 
-	BUG_ON(TFW_STR_PLAIN(m_hdr));
-	/* ':method' name should always be in a single chunk */
 	len = m_hdr->len - H2_METH_HDR_VLEN;
-	chunk = TFW_STR_CHUNK(m_hdr, 1);
-	p = chunk->data;
+	if (len == 0 || len > 10)
+		return _TFW_HTTP_METH_UNKNOWN;
+
+	copied = 0;
+	for (i = 1; i < m_hdr->nchunks && copied < len; ++i) {
+		const TfwStr *chunk = TFW_STR_CHUNK(m_hdr, i);
+		size_t to_copy = (len - copied < chunk->len) ?
+				 (len - copied) : chunk->len;
+
+		memcpy(method_buf + copied, chunk->data, to_copy);
+		copied += to_copy;
+	}
+	if (copied < len) {
+		return _TFW_HTTP_METH_UNKNOWN;
+	}
+
+	p = method_buf;
 
 	switch (len) {
-	case 3:
-		if (chunk->len == 3) {
-			if (p[0] == 'G' && p[1] == 'E' && p[2] == 'T')
-				return TFW_HTTP_METH_GET;
-			if (p[0] == 'P' && p[1] == 'U' && p[2] == 'T')
-				return TFW_HTTP_METH_PUT;
-		}
+	case TFW_HTTP_MLEN_3C:
+		if (C3_INT(p, 'G', 'E', 'T'))
+			return TFW_HTTP_METH_GET;
+		if (C3_INT(p, 'P', 'U', 'T'))
+			return TFW_HTTP_METH_PUT;
 		break;
-	case 4:
-		if (chunk->len == 4) {
-			if (C4_INT(p, 'P', 'O', 'S', 'T'))
-				return TFW_HTTP_METH_POST;
-			if (C4_INT(p, 'H', 'E', 'A', 'D'))
-				return TFW_HTTP_METH_HEAD;
-			if (C4_INT(p, 'M', 'O', 'V', 'E'))
-				return TFW_HTTP_METH_MOVE;
-			if (C4_INT(p, 'L', 'O', 'C', 'K'))
-				return TFW_HTTP_METH_LOCK;
-			if (C4_INT(p, 'C', 'O', 'P', 'Y'))
-				return TFW_HTTP_METH_COPY;
-		}
+	case TFW_HTTP_MLEN_4C:
+		if (C4_INT(p, 'P', 'O', 'S', 'T'))
+			return TFW_HTTP_METH_POST;
+		if (C4_INT(p, 'H', 'E', 'A', 'D'))
+			return TFW_HTTP_METH_HEAD;
+		if (C4_INT(p, 'M', 'O', 'V', 'E'))
+			return TFW_HTTP_METH_MOVE;
+		if (C4_INT(p, 'L', 'O', 'C', 'K'))
+			return TFW_HTTP_METH_LOCK;
+		if (C4_INT(p, 'C', 'O', 'P', 'Y'))
+			return TFW_HTTP_METH_COPY;
 		break;
-	case 5:
-		if (chunk->len == 5) {
-			if (p[0] == 'M' && p[1] == 'K' && p[2] == 'C' && p[3] == 'O' && p[4] == 'L')
-				return TFW_HTTP_METH_MKCOL;
-			if (p[0] == 'T' && p[1] == 'R' && p[2] == 'A' && p[3] == 'C' && p[4] == 'E')
-				return TFW_HTTP_METH_TRACE;
-			if (p[0] == 'P' && p[1] == 'A' && p[2] == 'T' && p[3] == 'C' && p[4] == 'H')
-				return TFW_HTTP_METH_PATCH;
-			if (p[0] == 'P' && p[1] == 'U' && p[2] == 'R' && p[3] == 'G' && p[4] == 'E')
-				return TFW_HTTP_METH_PURGE;
-			if (p[0] == 'C' && p[1] == 'O' && p[2] == 'U' && p[3] == 'N' && p[4] == 'T')
-				return _TFW_HTTP_METH_COUNT;
-		}
+	case TFW_HTTP_MLEN_5C:
+		if (C5_INT(p, 'M', 'K', 'C', 'O', 'L'))
+			return TFW_HTTP_METH_MKCOL;
+		if (C5_INT(p, 'T', 'R', 'A', 'C', 'E'))
+			return TFW_HTTP_METH_TRACE;
+		if (C5_INT(p, 'P', 'A', 'T', 'C', 'H'))
+			return TFW_HTTP_METH_PATCH;
+		if (C5_INT(p, 'P', 'U', 'R', 'G', 'E'))
+			return TFW_HTTP_METH_PURGE;
+		if (C5_INT(p, 'C', 'O', 'U', 'N', 'T'))
+			return _TFW_HTTP_METH_COUNT;
 		break;
-	case 6:
-		if (chunk->len == 6) {
-			if (p[0] == 'D' && p[1] == 'E' && p[2] == 'L' &&
-			    p[3] == 'E' && p[4] == 'T' && p[5] == 'E')
-				return TFW_HTTP_METH_DELETE;
-			if (p[0] == 'U' && p[1] == 'N' && p[2] == 'L' &&
-			    p[3] == 'O' && p[4] == 'C' && p[5] == 'K')
-				return TFW_HTTP_METH_UNLOCK;
-		}
+	case TFW_HTTP_MLEN_6C:
+		if (C6_INT(p, 'D', 'E', 'L', 'E', 'T', 'E'))
+			return TFW_HTTP_METH_DELETE;
+		if (C6_INT(p, 'U', 'N', 'L', 'O', 'C', 'K'))
+			return TFW_HTTP_METH_UNLOCK;
 		break;
-	case 7:
-		if (chunk->len == 7) {
-			if (p[0] == 'O' && p[1] == 'P' && p[2] == 'T' && p[3] == 'I' &&
-			    p[4] == 'O' && p[5] == 'N' && p[6] == 'S')
-				return TFW_HTTP_METH_OPTIONS;
-		}
+	case TFW_HTTP_MLEN_7C:
+		if (C7_INT(p, 'O', 'P', 'T', 'I', 'O', 'N', 'S'))
+			return TFW_HTTP_METH_OPTIONS;
 		break;
-	case 8:
-		if (chunk->len == 8) {
-			if (C8_INT(p, 'P', 'R', 'O', 'P', 'F', 'I', 'N', 'D'))
-				return TFW_HTTP_METH_PROPFIND;
-		}
+	case TFW_HTTP_MLEN_8C:
+		if (C8_INT(p, 'P', 'R', 'O', 'P', 'F', 'I', 'N', 'D'))
+			return TFW_HTTP_METH_PROPFIND;
 		break;
-	case 9:
-		if (chunk->len == 9 &&
-		    p[0] == 'P' && p[1] == 'R' && p[2] == 'O' && p[3] == 'P' &&
-		    p[4] == 'P' && p[5] == 'A' && p[6] == 'T' && p[7] == 'C' &&
-		    p[8] == 'H')
+	case TFW_HTTP_MLEN_9C:
+		if (C9_INT(p, 'P', 'R', 'O', 'P', 'P', 'A', 'T', 'C', 'H'))
 			return TFW_HTTP_METH_PROPPATCH;
 		break;
-	case 10:
-		if (chunk->len == 10 &&
-		    p[0] == 'I' && p[1] == 'N' && p[2] == 'C' && p[3] == 'O' &&
-		    p[4] == 'M' && p[5] == 'P' && p[6] == 'L' && p[7] == 'E' &&
-		    p[8] == 'T' && p[9] == 'E')
+	case TFW_HTTP_MLEN_10C:
+		if (C10_INT(p, 'I', 'N', 'C', 'O', 'M', 'P', 'L', 'E', 'T', 'E'))
 			return _TFW_HTTP_METH_INCOMPLETE;
 		break;
 	default:
 		break;
 	}
+
 	return _TFW_HTTP_METH_UNKNOWN;
 }
 
