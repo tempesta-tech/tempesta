@@ -1285,23 +1285,14 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 done:
 	switch (entry->tag) {
 	case TFW_TAG_HDR_H2_METHOD:
+		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		if (hp->index == 2) {
 			req->method = TFW_HTTP_METH_GET;
 		} else if (hp->index == 3) {
 			req->method = TFW_HTTP_METH_POST;
 		} else {
-			/*
-			 * We would end up here while processing
-			 * 'Indexed Header Field' hdr, which points
-			 * to an entry in dynamic HPACK table.
-			 * This entry must has been previously populated
-			 * by 'Literal Header Field with Incremental Indexing'
-			 * hdr parsing and dynamic table update.
-			 * RFC 7541 6.2.1
-			 * */
-			req->method = tfw_http_meth_str2id(s_hdr);
+			h2_set_method(req, &entry->cstate);
 		}
-		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		break;
 	case TFW_TAG_HDR_H2_SCHEME:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_SCHEME;
