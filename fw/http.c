@@ -7759,6 +7759,7 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	vhost_name.data = req->vhost->name.data;
 	vhost_name.len = req->vhost->name.len;
 	vhost_name.flags = 0;
+	vhost_name.nchunks = 0;
 
 	req->hash ^= tfw_hash_str(&vhost_name);
 
