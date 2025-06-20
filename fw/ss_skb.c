@@ -38,6 +38,22 @@
 #include "procfs.h"
 #include "ss_skb.h"
 
+static void
+ss_skb_set_owner(struct sk_buff *skb, struct sock *sk,
+		 void(*destructor)(struct sk_buff *),
+		 void (*adjust_sk_mem)(struct sk_buff*, int))
+{
+	printk(KERN_ALERT "ss_skb_set_owner %px %px %px | %ps %ps %ps %ps", skb, sk, destructor,
+		__builtin_return_address(0), __builtin_return_address(1),
+		__builtin_return_address(2), __builtin_return_address(3));
+
+	skb_orphan(skb);
+	skb->sk = sk;
+	skb->destructor = destructor;
+	TFW_SKB_CB(skb)->adjust_sk_mem = adjust_sk_mem;
+	ss_skb_adjust_sk_mem(skb, skb->truesize);
+}
+
 /**
  * Get @skb's source address and port as a string, e.g. "127.0.0.1", "::1".
  *
@@ -1300,9 +1316,8 @@ ss_skb_split(struct sk_buff *skb, int len)
 	if (!buff)
 		return NULL;
 
-	buff->sk = skb->sk;
-	TFW_SKB_CB(buff)->adjust_sk_mem = TFW_SKB_CB(skb)->adjust_sk_mem;
-	buff->destructor = skb->destructor;
+	ss_skb_set_owner(buff, skb->sk, skb->destructor,
+			 TFW_SKB_CB(skb)->adjust_sk_mem);
 
 	skb_reserve(buff, MAX_TCP_HEADER);
 
@@ -1312,7 +1327,9 @@ ss_skb_split(struct sk_buff *skb, int len)
 	skb->truesize -= nlen;
 	buff->mark = skb->mark;
 	ss_skb_adjust_sk_mem(buff, nlen);
-	ss_skb_adjust_sk_mem(skb, nlen);
+	ss_skb_adjust_sk_mem(skb, -nlen);
+
+	printk(KERN_ALERT "ss_skb_split %px %px", skb, buff);
 
 	/*
 	 * Initialize GSO segments counter to let TCP set it according to
@@ -1717,34 +1734,29 @@ ss_sock_rfree(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
 
-	printk(KERN_ALERT "ss_sock_rfree sk %px skb %px len %u sk_rmem_alloc %d BBB",
-			sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
+	if (!sk)
+		printk(KERN_ALERT "AAAA skb %px sk %px destructor %px", skb, sk, skb->destructor);
+
+	printk(KERN_ALERT "ss_sock_rfree sk %px skb %px len %u sk_rmem_alloc %d BBB %ps %ps %ps %ps %ps",
+			sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc),
+			__builtin_return_address(0), __builtin_return_address(1),
+			__builtin_return_address(2), __builtin_return_address(3),
+			__builtin_return_address(4));
 
 	atomic_sub(skb->truesize, &sk->sk_rmem_alloc);
-
-	printk(KERN_ALERT "ss_sock_rfree sk %px skb %px len %u sk_rmem_alloc %d AAA",
-			sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
 }
 
 static void
 ss_sock_wfree(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
-
-	printk(KERN_ALERT "ss_sock_wfree sk %px skb %px len %u ss_sock_rfree %u BBB",
-		sk, skb, skb->truesize, refcount_read(&sk->sk_wmem_alloc));
-
 	if (refcount_sub_and_test(skb->truesize, &sk->sk_wmem_alloc))
 		__sk_free(sk);
-
-	printk(KERN_ALERT "ss_sock_wfree sk %px skb %px len %u ss_sock_rfree %u AAA",
-		sk, skb, skb->truesize, refcount_read(&sk->sk_wmem_alloc));
 }
 
 static void
 ss_skb_adjust_sk_mem_r(struct sk_buff *skb, int delta)
 {
-	printk(KERN_ALERT "ss_skb_adjust_sk_mem_r sk%px skb %px %d BBB", sk, skb, delta);
 	atomic_add(delta, &skb->sk->sk_rmem_alloc);
 }
 
@@ -1757,25 +1769,14 @@ ss_skb_adjust_sk_mem_w(struct sk_buff *skb, int delta)
 void
 ss_skb_set_owner_r(struct sk_buff *skb, struct sock *sk)
 {
-	skb_orphan(skb);
-	skb->sk = sk;
-
-	printk(KERN_ALERT "ss_skb_set_owner_r sk %px skb %px len %u sk_rmem_alloc %d BBB", sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
-
-	skb->destructor = ss_sock_rfree;
-	TFW_SKB_CB(skb)->adjust_sk_mem = ss_skb_adjust_sk_mem_r;
-	atomic_add(skb->truesize, &sk->sk_rmem_alloc);
-
-	printk(KERN_ALERT "ss_skb_set_owner_r sk %px skb %px len %u sk_rmem_alloc %d AAA", sk, skb, skb->truesize, atomic_read(&sk->sk_rmem_alloc));
+	printk(KERN_ALERT "ss_skb_set_owner_r %px %px | %ps %ps %ps %ps", skb, sk,
+		__builtin_return_address(0), __builtin_return_address(1),
+		__builtin_return_address(2), __builtin_return_address(3));
+	ss_skb_set_owner(skb, sk, ss_sock_rfree, ss_skb_adjust_sk_mem_r);
 }
 
 void
 ss_skb_set_owner_w(struct sk_buff *skb, struct sock *sk)
 {
-	skb_orphan(skb);
-	skb->sk = sk;
-
-	skb->destructor = ss_sock_wfree;
-	TFW_SKB_CB(skb)->adjust_sk_mem = ss_skb_adjust_sk_mem_w;
-	refcount_add(skb->truesize, &sk->sk_wmem_alloc);
+	ss_skb_set_owner(skb, sk, ss_sock_wfree, ss_skb_adjust_sk_mem_w);
 }

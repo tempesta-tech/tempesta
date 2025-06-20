@@ -955,8 +955,6 @@ tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head, TfwMsgIter *it)
 static inline void
 tfw_http_conn_msg_adjust_mem(TfwConn *conn, TfwHttpMsg *msg, bool alloc)
 {	
-	printk(KERN_ALERT "tfw_http_conn_msg_adjust_mem: sz %px %u mem_used %llu alloc %d",
-		msg, msg->mem_used, conn->mem_used, alloc);
 	if (alloc) {
 		conn->mem_used += msg->mem_used;
 	} else if (tfw_http_parse_is_done(msg)) {
@@ -5336,15 +5334,6 @@ tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head)
 	 */
 	if (unlikely(!stream))
 		return -EPIPE;
-
-	{
-		struct sk_buff *tmp = *skb_head;
-
-		do {
-			printk(KERN_ALERT "tfw_http_on_send_resp %px %px %px", tmp, tmp->sk, tmp->destructor);
-			tmp = tmp->next;
-		} while (tmp != *skb_head);
-	}
 
 	BUG_ON(stream->xmit.skb_head);
 	stream->xmit.resp = (TfwHttpResp *)tfw_cb->opaque_data;

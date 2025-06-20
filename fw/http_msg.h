@@ -89,6 +89,7 @@ __tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 	TfwHttpResp *resp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_Srv, full);
 	if (resp)
 		tfw_http_msg_pair(resp, req);
+	resp->iter.sk = req->conn->sk;
 
 	return resp;
 }

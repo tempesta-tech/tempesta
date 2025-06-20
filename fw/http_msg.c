@@ -1383,8 +1383,6 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 		struct sk_buff *skb;
 		struct skb_shared_info *si = skb_shinfo(it->skb);
 
-		printk(KERN_ALERT "tfw_http_msg_cutoff_headers %u %u", it->skb->truesize, skb_headlen(it->skb));
-
 		if (skb_headlen(it->skb)) {
 			begin = it->skb->data;
 			end = begin + skb_headlen(it->skb);
@@ -1394,16 +1392,12 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 				 * the end of CRLF lies within the linear data area
 				 * of the current @it->skb
 				 */
-				printk(KERN_ALERT "TUT %u", it->skb->truesize);
 				r = ss_skb_linear_transform(it->skb_head,
 							    it->skb, body);
-				printk(KERN_ALERT "TUT AAA %u", it->skb->truesize);
 				break;
 			} else {
-				printk(KERN_ALERT "TUT 111");
 				ss_skb_put(it->skb, -skb_headlen(it->skb));
 				it->skb->tail_lock = 1;
-				printk(KERN_ALERT "TUT 222");
 			}
 		}
 
@@ -1421,18 +1415,14 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * fragments from skb where LF is located.
 			 */
 			if (!body) {
-				printk(KERN_ALERT "ZZZ");
 				__tfw_http_msg_rm_all_frags(it->skb, cleanup);
-				printk(KERN_ALERT "ZZZ aaa");
 				goto end;
 			} else if (off != begin) {
 				/*
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
-				printk(KERN_ALERT "ZZZ qqq");
 				__tfw_http_msg_shrink_frag(it->skb, i, off);
-				printk(KERN_ALERT "ZZZ kkk");
 			}
 
 			/*
@@ -1441,9 +1431,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * from skb.
 			 */
 			if (i >= 1) {
-				printk(KERN_ALERT "ZZZ lll");
 				__tfw_http_msg_move_frags(it->skb, i, cleanup);
-				printk(KERN_ALERT "ZZZ lll 111");
 			}
 
 			goto end;
@@ -1465,8 +1453,6 @@ end:
 
 	/* Start from zero fragment */
 	it->frag = -1;
-
-	printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAA %u", it->skb->truesize);
 
 	return r;
 }

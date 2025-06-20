@@ -123,7 +123,6 @@ ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
 		TFW_SKB_CB(skb)->adjust_sk_mem;
 
 	if (skb->sk) {
-		printk(KERN_ALERT "ss_skb_adjust_sk_mem %px %px %px", skb, skb->sk, adjust_sk_mem);
 		BUG_ON(!adjust_sk_mem);
 		adjust_sk_mem(skb, delta);
 	}

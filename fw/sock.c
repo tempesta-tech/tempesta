@@ -407,8 +407,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 	unsigned int mark = 0;
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
-
-		printk(KERN_ALERT "ss_skb_tcp_entail_list %px BBB %px %px", skb, skb->sk, skb->destructor);
 		/*
 		 * @skb_head can be the head of several different skb
 		 * lists. We set tls type for the head of each new
