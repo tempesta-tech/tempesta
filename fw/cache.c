@@ -308,7 +308,7 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 #define TFW_CACHE_REQ_KEYITER(c, uri_path, vhost_name, u_end, v_start,	\
 			      v_end, u_fin, v_fin)			\
 	c = NULL;							\
-	if (!(u_fin = WARN_ON_ONCE(TFW_STR_EMPTY(uri_path)))) {	\
+	if (!(u_fin = WARN_ON_ONCE(TFW_STR_EMPTY(uri_path)))) {		\
 		if (TFW_STR_PLAIN(uri_path)) {				\
 			c = uri_path;					\
 			u_end = (uri_path) + 1;				\
@@ -1263,6 +1263,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	vhost_name.data = req->vhost->name.data;
 	vhost_name.len = req->vhost->name.len;
 	vhost_name.flags = 0;
+	vhost_name.nchunks = 0;
 
 	if (req->uri_path.len + vhost_name.len != ce->key_len)
 		return false;
@@ -2100,6 +2101,7 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	vhost_name.data = req->vhost->name.data;
 	vhost_name.len = req->vhost->name.len;
 	vhost_name.flags = 0;
+	vhost_name.nchunks = 0;
 
 	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &vhost_name, end1, v_start,
 			end2, u_fin, v_fin)
