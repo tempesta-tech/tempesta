@@ -456,9 +456,8 @@ int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			    size_t head, size_t tail);
 int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
-int
-ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
-			   size_t head, size_t trail);
+int ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
+			       size_t head, size_t trail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
@@ -473,9 +472,8 @@ int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 		    int *frag_idx, size_t frag_sz);
-int
-ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
-			unsigned char *split_point);
+int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			    unsigned char *split_point);
 int ss_skb_realloc_headroom(struct sk_buff *skb);
 
 #if defined(DEBUG) && (DEBUG >= 4)
