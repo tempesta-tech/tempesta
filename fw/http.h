@@ -777,7 +777,7 @@ int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
 int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 			TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
-		      TfwMsgIter *it);
+		      TfwHttpMsg *hm);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
