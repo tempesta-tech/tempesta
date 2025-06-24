@@ -810,7 +810,7 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
  * Set up @hm with empty SKB space of size @data_len for data writing.
  * Set up the iterator @it to support consecutive writes.
  *
- * This function is intended to work together with tfw_msg_write()
+ * This function is intended to work together with tfw_http_msg_write()
  * or tfw_http_msg_add_data() which use the @it iterator.
  *
  * @hm must be allocated dynamically (NOT statically) as it may have
@@ -909,6 +909,28 @@ this_chunk:
 	return 0;
 }
 
+/**
+ * Allocate and add a single empty skb (with a place for TCP headers though)
+ * to the @hm iterator. The allocated skb has no space for the data, user is
+ * expected to add new paged fragments.
+ */
+int
+tfw_http_msg_append_skb(TfwHttpMsg *hm)
+{
+	TfwMsgIter *it = &hm->iter;
+	int r;
+
+	if ((r = ss_skb_alloc_data(&it->skb_head, 0, 0)))
+		return r;
+	it->skb = ss_skb_peek_tail(&it->skb_head);
+	it->frag = -1;
+
+	skb_shinfo(it->skb)->tx_flags = skb_shinfo(it->skb->prev)->tx_flags;
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_http_msg_append_skb);
+
 void
 tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req)
 {
@@ -1004,9 +1026,10 @@ __tfw_http_msg_alloc(int type, bool full)
  * MUST be used only for messages from cache or messages constructed locally.
  */
 int
-tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
+tfw_http_msg_expand_data(TfwHttpMsg *hm, struct sk_buff **skb_head,
 			 const TfwStr *src, unsigned int *start_off)
 {
+	TfwMsgIter *it = &hm->iter;
 	const TfwStr *c, *end;
 
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
@@ -1138,13 +1161,14 @@ tfw_http_msg_alloc_from_pool(TfwMsgIter *it, TfwPool* pool, size_t size)
  * data, which will split the paged fragment.
  */
 int
-tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
+tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwHttpMsg *msg,
 				  TfwPool* pool)
 {
-	int r;
+	TfwMsgIter *it = &msg->iter;
+	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
 	char* addr;
 	bool np;
-	unsigned int room = TFW_POOL_CHUNK_ROOM(pool);
+	int r;
 
 	BUG_ON(room < 0);
 
@@ -1485,28 +1509,4 @@ end:
 	it->frag = -1;
 
 	return r;
-}
-
-/**
- * Insert data from string @data to message at offset defined by message
- * iterator @it and @off. This function doesn't maintain message structure.
- * After insertion message iterator and @data will point at the start of
- * inserted data fragment.
- */
-int
-tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data)
-{
-	int r;
-	TfwStr dst = {};
-
-	if ((r = ss_skb_get_room_w_frag(it->skb_head, it->skb, *off, data->len,
-					&dst, &it->frag)))
-	{
-		return r;
-	}
-
-	*off = dst.data;
-	it->skb = dst.skb;
-
-	return tfw_strcpy(&dst, data);
 }
