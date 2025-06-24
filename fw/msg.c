@@ -46,12 +46,11 @@ EXPORT_SYMBOL(tfw_msg_write);
  * iterator, since its current state is to be rewritten.
  */
 int
-tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len,
-		   unsigned int tx_flags)
+tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len)
 {
 	int r;
 
-	if ((r = ss_skb_alloc_data(skb_head, data_len, tx_flags)))
+	if ((r = ss_skb_alloc_data(skb_head, data_len)))
 		return r;
 	it->skb = it->skb_head = *skb_head;
 	it->frag = -1;
@@ -71,7 +70,7 @@ tfw_msg_iter_append_skb(TfwMsgIter *it)
 {
 	int r;
 
-	if ((r = ss_skb_alloc_data(&it->skb_head, 0, 0)))
+	if ((r = ss_skb_alloc_data(&it->skb_head, 0)))
 		return r;
 	it->skb = ss_skb_peek_tail(&it->skb_head);
 	it->frag = -1;
