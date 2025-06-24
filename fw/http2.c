@@ -676,7 +676,7 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			resp->iter.skb = resp->msg.skb_head->prev;
 			resp->iter.frag =
 				skb_shinfo(resp->iter.skb)->nr_frags - 1;
-			tfw_http_msg_setup_transform_pool(mit, &resp->iter,
+			tfw_http_msg_setup_transform_pool(mit, (TfwHttpMsg *)resp,
 							  resp->pool);
 
 			r = tfw_h2_hpack_encode_trailer_headers(resp);

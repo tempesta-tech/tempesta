@@ -568,7 +568,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 
 	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len)))
 		goto out;
-	if ((r = tfw_msg_write(&it, &str)))
+	if ((r = tfw_msg_iter_write(&it, &str)))
 		goto out;
 	/* Only one skb should has been allocated. */
 	WARN_ON_ONCE(it.skb->next != io->skb_list
