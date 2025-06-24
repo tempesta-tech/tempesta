@@ -1935,7 +1935,6 @@ tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 	unsigned int state;
 	int r = T_OK;
 	TfwStr exp_str = {};
-	TfwMsgIter *it = &resp->iter;
 	const unsigned char *last = src + n;
 	unsigned char *prev = src;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
@@ -1955,7 +1954,8 @@ do {									\
 
 #define EXPAND_STR_DATA(str)						\
 do {									\
-	if ((r = tfw_http_msg_expand_data(it, skb_head, str, NULL)))	\
+	if ((r = tfw_http_msg_expand_data((TfwHttpMsg *)resp, skb_head,	\
+					  str, NULL)))			\
 		goto out;						\
 	dc_iter->acc_len += (str)->len;					\
 } while (0)
@@ -3378,25 +3378,25 @@ tfw_huffman_encode_string(TfwStr *str, TfwPool *pool)
 }
 
 static int
-tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwMsgIter *it,
+tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwHttpMsg *hm,
 			 struct sk_buff **skb_head, TfwStr *str,
 			 bool in_huffman)
 {
-	int r;
-	TfwHPackInt len;
 	TfwStr len_str = { 0 };
 	unsigned short mask = in_huffman ? 0x80 : 0x0;
+	TfwHPackInt len;
+	int r;
 
 	write_int(str->len, 0x7F, mask, &len);
 	len_str.data = len.buf;
 	len_str.len = len.sz;
 
-	r = tfw_http_msg_expand_data(it, skb_head, &len_str, NULL);
+	r = tfw_http_msg_expand_data(hm, skb_head, &len_str, NULL);
 	if (unlikely(r))
 		return r;
 	mit->acc_len += len_str.len;
 
-	r = tfw_http_msg_expand_data(it, skb_head, str, NULL);
+	r = tfw_http_msg_expand_data(hm, skb_head, str, NULL);
 	if (unlikely(r))
 		return r;
 	mit->acc_len += str->len;
@@ -3426,7 +3426,7 @@ tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwMsgIter *it,
  * thus avoiding Huffman encodings is completely RFC-compliant behaviour.
  */
 static inline int
-tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
+tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwHttpMsg *hm,
 		     struct sk_buff **skb_head, TfwStr *str,
 		     TfwPool *pool)
 {
@@ -3440,7 +3440,7 @@ tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
 		in_huffman = true;
 	}
 
-	return tfw_hpack_str_expand_raw(mit, it, skb_head, str, in_huffman);
+	return tfw_hpack_str_expand_raw(mit, hm, skb_head, str, in_huffman);
 }
 
 static inline int
@@ -3448,7 +3448,6 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 		    bool use_pool)
 {
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	const TfwStr s_idx = {
 		.data = idx->buf,
@@ -3463,7 +3462,7 @@ tfw_hpack_write_idx(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx,
 		return tfw_h2_msg_expand_from_pool((TfwHttpMsg *)resp,
 						   &s_idx, &resp->mit);
 
-	return tfw_http_msg_expand_data(iter, skb_head, &s_idx,
+	return tfw_http_msg_expand_data((TfwHttpMsg *)resp, skb_head, &s_idx,
 					&mit->start_off);
 }
 
@@ -3532,7 +3531,6 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	int ret;
 	TfwStr *c, *end;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
 	TfwStr s_val;
 
@@ -3547,7 +3545,7 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	mit->acc_len += idx->sz;
 
 	if (unlikely(!name_indexed)) {
-		ret = tfw_hpack_str_expand(mit, iter, skb_head,
+		ret = tfw_hpack_str_expand(mit, (TfwHttpMsg *)resp, skb_head,
 					   TFW_STR_CHUNK(hdr, 0), NULL);
 		if (unlikely(ret))
 			return ret;
@@ -3579,7 +3577,8 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	c = tfw_str_collect_cmp(c, end, &s_val, NULL);
 	BUG_ON(c != end);
 
-	return tfw_hpack_str_expand(mit, iter, skb_head, &s_val, NULL);
+	return tfw_hpack_str_expand(mit, (TfwHttpMsg *)resp, skb_head,
+				    &s_val, NULL);
 }
 
 static inline int
@@ -3760,30 +3759,26 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 int
 tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 {
-	TfwMsgIter it = {
-		.skb = stream->xmit.skb_head,
-		.skb_head = stream->xmit.skb_head,
-		.frag = -1
-	};
-	TfwStr new_size = {};
 	TfwHPackInt tmp = {};
+	TfwStr dst = {};
 	char *data;
+	unsigned int _;
 	int r = 0;
 
 	WARN_ON_ONCE(!tbl->wnd_changed);
-
 	write_int(tbl->window, 0x1F, 0x20, &tmp);
-	new_size.data = tmp.buf;
-	new_size.len = tmp.sz;
 
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 FRAME_HEADER_SIZE);
 	BUG_ON(!data);
 
-	r = tfw_http_msg_insert(&it, &data, &new_size);
+	r = ss_skb_get_room_w_frag(stream->xmit.skb_head,
+				   stream->xmit.skb_head,
+				   data, tmp.sz, &dst, &_);
 	if (unlikely(r))
 		return r;
 
+	memcpy_fast(dst.data, tmp.buf, tmp.sz);
 	stream->xmit.h_len += tmp.sz;
 	tbl->wnd_changed = false;
 

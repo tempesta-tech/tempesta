@@ -235,7 +235,7 @@ TEST(http_msg, expand_from_pool_for_headers)
 	resp->body_start_skb = it->skb;
 	resp->body.len = (MAX_SKB_FRAGS - 1) * SLEN("paged_body");
 
-	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+	tfw_http_msg_setup_transform_pool(&resp->mit, msg, resp->pool);
 
 	EXPECT_EQ(tfw_http_msg_cutoff_headers(msg, &cleanup), 0);
 
@@ -297,7 +297,7 @@ TEST(http_msg, expand_from_pool_for_trailers)
 	EXPECT_NULL(cleanup.skb_head);
 
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
-	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+	tfw_http_msg_setup_transform_pool(&resp->mit, msg, resp->pool);
 
 	__set_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags);
 

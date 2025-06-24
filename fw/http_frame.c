@@ -329,7 +329,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len)))
 		goto err;
 
-	if ((r = tfw_msg_write(&it, data)))
+	if ((r = tfw_msg_iter_write(&it, data)))
 		goto err;
 
 	switch (type) {
