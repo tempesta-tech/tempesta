@@ -725,7 +725,7 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
-	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0)))
+	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len)))
 		return r;
 
 	body = TFW_STR_BODY_CH(msg);
@@ -4250,7 +4250,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz, 0);
+	r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
 
@@ -7676,7 +7676,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
 	hmreq = (TfwHttpMsg *)req;
-	if (tfw_http_msg_setup(hmreq, &it, msg.len, 0))
+	if (tfw_http_msg_setup(hmreq, &it, msg.len))
 		goto cleanup;
 	if (tfw_msg_write(&it, &msg))
 		goto cleanup;
