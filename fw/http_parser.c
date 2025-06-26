@@ -96,6 +96,16 @@ do {									\
 #define __msg_chunk_flags(flag)						\
 	__msg_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
+static const TfwStr tfw_str_slash = {
+	.data = "/",
+	.len = 1,
+	.skb = NULL,
+	.nchunks = 0,
+	.flags = 0,
+	.hpack_idx = 0,
+	.eolen = 0
+};
+
 /*
  * The macro is frequently used for headers opened by tfw_http_msg_hdr_open().
  * It sets the header's TfwStr->data to the current chunk pointer,
@@ -6081,6 +6091,8 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
+			/* Absolute URI without path → set uri_path = "/" */
+			req->uri_path = tfw_str_slash;
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriPortEnd);
