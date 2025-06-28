@@ -5938,6 +5938,8 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
+			/* Absolute URI without path -> set uri_path = "/" */
+			req->uri_path = TFW_STR_F_STRING("/", TFW_STR_COMPLETE);
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriMarkEnd);
@@ -6057,6 +6059,8 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
+			/* Absolute URI without path -> set uri_path = "/" */
+			req->uri_path = TFW_STR_F_STRING("/", TFW_STR_COMPLETE);
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriAuthorityEnd);

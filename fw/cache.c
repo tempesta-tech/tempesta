@@ -2266,15 +2266,9 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 					   resp, &tot_len);
 	}
 
-	if (unlikely(r)) {
-		T_ERR("Cache: cannot copy HTTP body\n");
-		return -ENOMEM;
-	}
+	if (unlikely(tot_len != 0))
+		pr_warn_once("leftover body data not copied, tot_len = %lu\n", tot_len);
 
-	if (WARN_ON_ONCE(tot_len != 0)) {
-		T_ERR("Cache copy: leftover body data not copied, tot_len = %lu\n", tot_len);
-		return -EINVAL;
-	}
 
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
@@ -2326,10 +2320,7 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len))
 			trec = tdb_next_rec_chunk(db, trec);
 
-		if (unlikely(!trec)) {
-			T_ERR("Cache copy: failed to update HTTP header\n");
-			return -EFAULT;
-		}
+		BUG_ON(!trec);
 
 		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
 	}
