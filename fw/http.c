@@ -3699,6 +3699,8 @@ tfw_h1_req_copy_first_line(TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
+	if (unlikely(r))
+		return r;
 
 	return tfw_http_msg_expand_from_pool(hm, &ver);
 }

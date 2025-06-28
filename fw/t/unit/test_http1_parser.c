@@ -206,7 +206,15 @@ TEST(http1_parser, parses_req_uri)
 	FOR_REQ("GET http://" req_host req_uri_path " HTTP/1.1\r\n\r\n")\
 	{								\
 		EXPECT_TFWSTR_EQ(&req->host, req_host);			\
-		EXPECT_TFWSTR_EQ(&req->uri_path, req_uri_path);		\
+		if (SLEN(req_uri_path)) {				\
+			EXPECT_TFWSTR_EQ(&req->uri_path, req_uri_path);	\
+		} else {						\
+			/*						\
+			 * If request URI is empty Tempesta FW set	\
+			 * default req->uri_path "/".			\
+			 */						\
+			EXPECT_TFWSTR_EQ(&req->uri_path, "/");		\
+		}							\
 	}
 
 	/*
