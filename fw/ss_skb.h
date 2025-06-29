@@ -77,6 +77,9 @@ struct tfw_skb_cb {
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
+void ss_skb_set_owner(struct sk_buff *skb, struct sock *sk);
+void ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta);
+
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
                           char *end_fragment)
@@ -316,6 +319,8 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
+	if (skb->sk)
+		ss_skb_adjust_sk_mem(skb, delta);
 }
 
 /*
@@ -448,7 +453,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len);
+int ss_skb_alloc_data(struct sk_buff **skb_head, struct sock *sk, size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb,
 			   char *pspt, unsigned int len, TfwStr *it, int *fragn);
