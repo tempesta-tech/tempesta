@@ -109,7 +109,7 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
+ss_skb_alloc_data(struct sk_buff **skb_head, struct sock *sk, size_t len)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -120,6 +120,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
+		ss_skb_set_owner(skb, sk);
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -217,6 +218,8 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
+
+			ss_skb_set_owner(nskb, skb->sk);
 			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
 			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
@@ -392,6 +395,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
 	skb->truesize += tail_len;
+	ss_skb_adjust_sk_mem(skb, tail_len);
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
@@ -1306,6 +1310,8 @@ ss_skb_split(struct sk_buff *skb, int len)
 	skb->truesize -= nlen;
 	buff->mark = skb->mark;
 
+	ss_skb_adjust_sk_mem(skb, -nlen);
+
 	/*
 	 * These are orphaned SKBs that are taken out of the TCP/IP
 	 * stack and are completely owned by Tempesta. There is no
@@ -1330,7 +1336,7 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
-	WARN_ON_ONCE(skb->sk);
+	skb_orphan(skb);
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
@@ -1707,3 +1713,33 @@ ss_skb_realloc_headroom(struct sk_buff *skb)
 	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
 }
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
+
+static void
+ss_sock_rfree(struct sk_buff *skb)
+{
+	struct sock *sk = skb->sk;
+
+	BUG_ON(!sk);
+	atomic_sub(skb->truesize, &sk->sk_rmem_alloc);
+	sock_put(sk);
+}
+
+void
+ss_skb_set_owner(struct sk_buff *skb, struct sock *sk)
+{
+	if (sk) {
+		BUG_ON(skb->sk);
+
+		sock_hold(sk);
+		skb->sk = sk;
+		skb->destructor = ss_sock_rfree;
+		atomic_add(skb->truesize, &sk->sk_rmem_alloc);
+	}
+}
+
+void
+ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
+{
+	if (skb->sk)
+		atomic_add(delta, &skb->sk->sk_rmem_alloc);
+}
