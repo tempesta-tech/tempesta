@@ -32,12 +32,13 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "http_msg.h"
+#include "helpers.h"
 
 #include "pool.c"
 
-static TfwConn conn_req, conn_resp;
-
 unsigned int tfw_cli_max_concurrent_streams;
+TfwConn conn_req, conn_resp;
+struct sock sk;
 
 TfwHttpReq *
 test_req_alloc(size_t data_len)
@@ -53,12 +54,13 @@ test_req_alloc(size_t data_len)
 	hmreq = __tfw_http_msg_alloc(Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
-	ret = tfw_msg_iter_setup(&it, &hmreq->msg.skb_head, data_len);
+	ret = tfw_msg_iter_setup(&it, &sk, &hmreq->msg.skb_head, data_len);
 	BUG_ON(ret);
 
 	memset(&conn_req, 0, sizeof(TfwConn));
 	tfw_connection_init(&conn_req);
 	conn_req.proto.type = Conn_HttpClnt;
+	conn_req.sk = &sk;
 	hmreq->conn = &conn_req;
 	hmreq->stream = &conn_req.stream;
 	tfw_http_init_parser_req((TfwHttpReq *)hmreq);
@@ -86,12 +88,13 @@ test_resp_alloc(size_t data_len)
 	hmresp = __tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	ret = tfw_msg_iter_setup(&it, &hmresp->msg.skb_head, data_len);
+	ret = tfw_msg_iter_setup(&it, &sk, &hmresp->msg.skb_head, data_len);
 	BUG_ON(ret);
 
 	memset(&conn_resp, 0, sizeof(TfwConn));
 	tfw_connection_init(&conn_req);
 	conn_resp.proto.type = Conn_HttpSrv;
+	conn_resp.sk = &sk;
 	hmresp->conn = &conn_resp;
 	hmresp->stream = &conn_resp.stream;
 	tfw_http_init_parser_resp((TfwHttpResp *)hmresp);

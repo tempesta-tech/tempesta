@@ -98,8 +98,8 @@ typedef struct {
 } TfwMsgParseIter;
 
 int tfw_msg_iter_write(TfwMsgIter *it, const TfwStr *data);
-int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
-		       size_t data_len);
+int tfw_msg_iter_setup(TfwMsgIter *it, struct sock *sk,
+		       struct sk_buff **skb_head, size_t data_len);
 int tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz);
 
 #endif /* __TFW_MSG_H__ */
