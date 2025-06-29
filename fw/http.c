@@ -726,7 +726,8 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
-	r = tfw_msg_iter_setup(&it, &resp->msg.skb_head, msg->len);
+	r = tfw_msg_iter_setup(&it, resp->req->conn->sk, &resp->msg.skb_head,
+			       msg->len);
 	if (unlikely(r))
 		return r;
 
@@ -4304,7 +4305,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz);
+	r = tfw_msg_iter_setup(&it, req->conn->sk, &new_head,
+			       h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
 
@@ -4534,6 +4536,7 @@ tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
+	ss_skb_set_owner(nskb, resp->msg.skb_head->sk);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
@@ -6499,6 +6502,7 @@ next_msg:
 		actor = tfw_http_parse_req;
 		req->ja5h.version = TFW_HTTP_JA5H_HTTP_REQ;
 	}
+	ss_skb_set_owner(skb, conn->sk);
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
@@ -7316,6 +7320,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 
 	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
+
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -7326,6 +7331,8 @@ next_msg:
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
+	if (likely(!test_bit(TFW_HTTP_B_HMONITOR, hmresp->req->flags)))
+		ss_skb_set_owner(skb, cli_conn->sk);
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -7731,7 +7738,8 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
 	hmreq = (TfwHttpMsg *)req;
-	if (tfw_msg_iter_setup(&it, &hmreq->msg.skb_head, msg.len))
+	if (tfw_msg_iter_setup(&it, NULL, &hmreq->msg.skb_head,
+			       msg.len))
 		goto cleanup;
 	if (tfw_msg_iter_write(&it, &msg))
 		goto cleanup;
