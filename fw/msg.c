@@ -28,11 +28,12 @@
  * iterator, since its current state is to be rewritten.
  */
 int
-tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len)
+tfw_msg_iter_setup(TfwMsgIter *it, struct sock *sk, struct sk_buff **skb_head,
+		   size_t data_len)
 {
 	int r;
 
-	if ((r = ss_skb_alloc_data(skb_head, data_len)))
+	if ((r = ss_skb_alloc_data(skb_head, sk, data_len)))
 		return r;
 	it->skb = it->skb_head = *skb_head;
 	it->frag = -1;

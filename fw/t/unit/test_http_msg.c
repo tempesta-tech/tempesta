@@ -21,6 +21,7 @@
 
 #include "test.h"
 #include "http_msg.h"
+#include "helpers.h"
 
 TEST(http_msg, hdr_in_array)
 {
@@ -98,10 +99,14 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 	hmresp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
+	hmresp->pair = (TfwHttpMsg *)test_req_alloc(0);
+	BUG_ON(!hmresp->pair);
+
 	skb = ss_skb_alloc(head_data->len);
 	if (!skb)
 		return NULL;
 
+	ss_skb_set_owner(skb, &sk);
 	skb->next = skb->prev = skb;
 	it = &hmresp->iter;
 	hmresp->msg.skb_head = it->skb = it->skb_head = skb;
@@ -172,6 +177,7 @@ TEST(http_msg, cutoff_linear_headers_paged_body)
 		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
@@ -212,6 +218,7 @@ TEST(http_msg, cutoff_linear_headers_and_linear_body)
 		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
@@ -271,6 +278,7 @@ TEST(http_msg, expand_from_pool_for_headers)
 		EXPECT_ZERO(memcmp(addr, pgd->data, fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
@@ -335,6 +343,7 @@ TEST(http_msg, expand_from_pool_for_trailers)
 		EXPECT_ZERO(memcmp(addr, "trailerstrailers", fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
