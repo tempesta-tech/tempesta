@@ -22,6 +22,7 @@
 #include "test.h"
 #include "helpers.h"
 #include "http_msg.h"
+#include "helpers.h"
 
 static TfwHttpResp *resp;
 
@@ -113,6 +114,7 @@ __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 	if (!skb)
 		return false;
 
+	ss_skb_set_owner(skb, &sk);
 	skb->next = skb->prev = skb;
 	it = &resp->iter;
 	resp->msg.skb_head = it->skb = it->skb_head = skb;

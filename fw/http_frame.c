@@ -312,7 +312,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -326,7 +326,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	T_DBG2("Preparing HTTP/2 message with %lu bytes data\n", data->len);
 
 	msg.len = data->len;
-	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len)))
+	if ((r = tfw_msg_iter_setup(&it, conn->sk, &msg.skb_head, msg.len)))
 		goto err;
 
 	if ((r = tfw_msg_iter_write(&it, data)))
@@ -357,7 +357,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 			tfw_h2_on_tcp_entail_ack;
 	}
 
-	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
+	if ((r = tfw_connection_send(conn, &msg)))
 		goto err;
 	/*
 	 * We do not close client connection automatically here in case
@@ -366,7 +366,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	 * was successful - to avoid hanged unclosed client connection.
 	 */
 	if (type == TFW_FRAME_CLOSE || type == TFW_FRAME_SHUTDOWN)
-		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
+		TFW_CONN_TYPE(conn) |= Conn_Stop;
 
 	return 0;
 
