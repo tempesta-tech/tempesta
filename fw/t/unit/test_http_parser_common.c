@@ -688,3 +688,22 @@ get_next_str_val(TfwStr *str)
 
 	return v;
 }
+
+void
+test_req_resp_cleanup(void)
+{
+	if (sample_req) {
+		test_req_free(sample_req);
+		sample_req = NULL;
+	}
+
+	if (req) {
+		test_req_free(req);
+		req = NULL;
+	}
+
+	if (resp) {
+		test_resp_free(resp);
+		resp = NULL;
+	}
+}

@@ -588,6 +588,23 @@ void tfw_http_exit(void);
 			  T_WARN("%s, status %d: %s\n",			\
 				 msg, status, addr_str))
 
+static inline bool
+tfw_http_msg_is_req(TfwHttpMsg *msg)
+{
+	/*
+	 * msg->conn can be equal to zero only for response
+	 * which is served from cache or error response.
+	 */
+	return msg->conn && TFW_CONN_TYPE(msg->conn) & Conn_Clnt;
+}
+
+static inline struct sock *
+tfw_http_msg_sock(TfwHttpMsg *msg)
+{
+	return tfw_http_msg_is_req(msg) ?
+		msg->conn->sk : msg->pair->conn->sk;
+}
+
 static inline int
 tfw_http_resp_code_range(const int n)
 {
