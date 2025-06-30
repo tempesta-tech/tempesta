@@ -212,7 +212,7 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-void tfw_h2_delete_stream(TfwStream *stream);
+void tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream);
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 int tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len);

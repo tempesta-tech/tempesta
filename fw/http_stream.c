@@ -49,7 +49,6 @@ tfw_h2_stream_cache_destroy(void)
 	kmem_cache_destroy(stream_cache);
 }
 
-
 static inline void
 tfw_h2_conn_reset_stream_on_close(TfwH2Ctx *ctx, TfwStream *stream)
 {
@@ -81,7 +80,6 @@ tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 	tfw_h2_stream_purge_all_and_free_response(stream);
 
 	tfw_h2_conn_reset_stream_on_close(ctx, stream);
-	tfw_h2_free_stream_sched_entry(ctx, stream->sched);
 	rb_erase(&stream->node, &sched->streams);
 }
 
@@ -255,7 +253,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx, ctx->streams_num);
 	tfw_h2_stop_stream(&ctx->sched, stream);
-	tfw_h2_delete_stream(stream);
+	tfw_h2_delete_stream(ctx, stream);
 	--ctx->streams_num;
 }
 
@@ -806,9 +804,10 @@ tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id)
 }
 
 void
-tfw_h2_delete_stream(TfwStream *stream)
+tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	BUG_ON(stream->xmit.resp || stream->xmit.skb_head);
+	tfw_h2_free_stream_sched_entry(ctx, stream->sched);
 	kmem_cache_free(stream_cache, stream);
 }
 

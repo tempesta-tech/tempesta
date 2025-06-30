@@ -30,6 +30,26 @@
 
 #define TFW_MAX_CLOSED_STREAMS          5
 
+static struct kmem_cache *stream_sched_cache;
+
+static int
+tfw_h2_stream_sched_cache_create(void)
+{
+	stream_sched_cache = kmem_cache_create("tfw_stream_sched_cache",
+					       sizeof(TfwStreamSchedEntry),
+					       0, 0, NULL);
+	if (!stream_sched_cache)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void
+tfw_h2_stream_sched_cache_destroy(void)
+{
+	kmem_cache_destroy(stream_sched_cache);
+}
+
 /**
  * Usually client firstly send SETTINGS frame to a server, so:
  * - we don't have many streams to iterate over in this function
@@ -195,75 +215,43 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 int
 tfw_h2_init(void)
 {
-	return tfw_h2_stream_cache_create();
+	int r;
+
+	r = tfw_h2_stream_cache_create();
+	if (unlikely(r))
+		return r;
+
+	r = tfw_h2_stream_sched_cache_create();
+	if (unlikely(r)) {
+		tfw_h2_stream_cache_destroy();
+		return r;
+	}
+
+	return 0;
 }
 
 void
 tfw_h2_cleanup(void)
 {
+	tfw_h2_stream_sched_cache_destroy();
 	tfw_h2_stream_cache_destroy();
 }
 
 static inline void
 tfw_h2_context_init_sched_entry_list(TfwH2Ctx *ctx, TfwStreamSchedList *list)
 {
-	TfwStreamSchedList *first_list =
-		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
-	unsigned int list_sz;
 	int i;
 
 #define LIST_SZ_DFLT	\
 	(PAGE_SIZE - sizeof(TfwH2Ctx)) / sizeof(TfwStreamSchedEntry)
-#define LIST_SZ_EXTRA	\
-	PAGE_SIZE / sizeof(TfwStreamSchedEntry)
 
-	if (likely(list == first_list)) {
-		list_sz = LIST_SZ_DFLT;
-	} else {
-		list_sz = LIST_SZ_EXTRA;
-		list->next = first_list->next;
-		first_list->next = list;
-	}
-
-	for (i = list_sz - 1; i >= 0; i--) {
+	for (i = LIST_SZ_DFLT - 1; i >= 0; i--) {
 		list->entries[i].owner = NULL;
 		list->entries[i].next_free = ctx->sched.free_list;
 		ctx->sched.free_list = &list->entries[i];
 	}
 
-#undef LIST_SZ_EXTRA
 #undef LIST_SZ_DFLT
-}
-
-static inline int
-tfw_h2_context_alloc_extra_sched_entry_list(TfwH2Ctx *ctx)
-{
-	TfwStreamSchedList *list;
-	struct page *page;
-
-	page = alloc_page(GFP_ATOMIC);
-	if (!page)
-		return -ENOMEM;
-
-	list = (TfwStreamSchedList *)page_address(page);
-	BUG_ON(ctx->sched.free_list != NULL);
-	tfw_h2_context_init_sched_entry_list(ctx, list);
-
-	return 0;
-}
-
-static inline void
-tfw_h2_context_free_extra_sched_entry_lists(TfwH2Ctx *ctx)
-{
-	TfwStreamSchedList *first_list =
-		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
-
-	while (first_list->next) {
-		TfwStreamSchedList *to_delete = first_list->next;
-		
-		first_list->next = to_delete->next;
-		free_page((unsigned long)to_delete);
-	}
 }
 
 TfwH2Ctx *
@@ -271,6 +259,17 @@ tfw_h2_context_alloc(void)
 {
 	struct page *page;
 
+	/*
+	 * Tempesta FW allocates the whole page for http2 context.
+	 * and uses extra memory for streams schedulers for better
+	 * memory locality. Tempesta FW preallocate only streams
+	 * schedulers not the whole streams, because size of
+	 * TfwStream structure is very big. There is no sence
+	 * to preallocate only two streams (count of streams that
+	 * can fit into the remaining memory on the page) and we
+	 * can loose too much memory if we preallocate 10 -15
+	 * streams.
+	 */
 	page = alloc_page(GFP_ATOMIC);
 	if (!page)
 		return NULL;
@@ -332,7 +331,6 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 * postponed frames and connection closing initiated.
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
-	tfw_h2_context_free_extra_sched_entry_lists(ctx);
 	tfw_hpack_clean(&ctx->hpack);
 }
 
@@ -342,16 +340,36 @@ tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
 {
 	TfwStreamSchedEntry *entry;
 
-	if (!ctx->sched.free_list) {
-		if (tfw_h2_context_alloc_extra_sched_entry_list(ctx))
-			return NULL;
+	if (unlikely(!ctx->sched.free_list)) {
+		/*
+		 * If count of preallocate streams schedulers (56) is
+		 * exceeded use standart kernel allocator. There is no
+		 * sense to allocate the whole page for the new schedulers
+		 * or use special cache for this purpose, because it is a
+		 * very rare case (browsers usually open not more then
+		 * 15 - 20 streams in parallel even if there are much
+		 * more resourses to request). TfwStreamSchedEntry is
+		 * small (64 bytes), so use special cache for allocation.
+		 */ 
+		entry = kmem_cache_alloc(stream_sched_cache,
+					 GFP_ATOMIC | __GFP_ZERO);
+	} else {
+		entry = ctx->sched.free_list;
+		BUG_ON(entry->owner);
+		ctx->sched.free_list = entry->next_free;
 	}
 
-	entry = ctx->sched.free_list;
-	BUG_ON(entry->owner);
-	ctx->sched.free_list = entry->next_free;
-
 	return entry;
+}
+
+static inline bool
+tfw_h2_stream_sched_is_dflt(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
+{
+	char *begin = (char *)ctx + sizeof(TfwH2Ctx);
+	char *end = (char *)ctx + PAGE_SIZE;
+	char *p = (char *)entry;
+
+	return p >= begin && p < end;
 }
 
 void
@@ -361,8 +379,13 @@ tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
 		entry->owner->sched = NULL;
 		entry->owner = NULL;
 	}
-	entry->next_free = ctx->sched.free_list;
-	ctx->sched.free_list = entry;
+
+	if (likely(tfw_h2_stream_sched_is_dflt(ctx, entry))) {
+		entry->next_free = ctx->sched.free_list;
+		ctx->sched.free_list = entry;
+	} else {
+		kmem_cache_free(stream_sched_cache, entry);
+	}
 }
 
 void
@@ -421,7 +444,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		 * No further actions regarding streams dependencies/prio
 		 * is required at this stage.
 		 */
-		tfw_h2_delete_stream(cur);
+		tfw_h2_delete_stream(ctx, cur);
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;

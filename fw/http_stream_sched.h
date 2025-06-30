@@ -40,8 +40,10 @@ typedef struct tfw_stream_sched_entry_t {
 	u64				total_weight;
 	long int			active_cnt;
 	TfwStream			*owner;
-	struct tfw_stream_sched_entry_t	*parent;
-	struct tfw_stream_sched_entry_t *next_free;
+	union {
+		struct tfw_stream_sched_entry_t	*parent;
+		struct tfw_stream_sched_entry_t *next_free;
+	};
 	struct eb_root			active;
 	struct eb_root			blocked;
 } TfwStreamSchedEntry;
@@ -51,8 +53,8 @@ typedef struct tfw_stream_sched_entry_t {
  * @entries 		- flexible array of schedulers;
  */
 typedef struct tfw_stream_sched_list {
-	struct tfw_stream_sched_list *next;
-	TfwStreamSchedEntry entries[];
+	struct tfw_stream_sched_list 	*next;
+	TfwStreamSchedEntry		entries[];
 } TfwStreamSchedList;
 
 /**
