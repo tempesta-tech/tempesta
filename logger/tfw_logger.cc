@@ -438,6 +438,26 @@ catch (const po::error &e) {
 }
 
 void
+set_kernel_buffer_size(size_t buffer_size)
+{
+	const char *sysfs_path = "/sys/kernel/tempesta_fw/mmap_buffer_size";
+	std::ofstream sysfs_file(sysfs_path);
+	
+	if (!sysfs_file.is_open()) {
+		throw Except("Cannot open sysfs file: {} (is tempesta_fw module loaded?)", sysfs_path);
+	}
+	
+	sysfs_file << buffer_size;
+	sysfs_file.close();
+	
+	if (sysfs_file.fail()) {
+		throw Except("Failed to write buffer size to sysfs: {}", sysfs_path);
+	}
+	
+	std::cout << "Set kernel mmap buffer size to: " << buffer_size << " bytes" << std::endl;
+}
+
+void
 load_configuration(const ParsedOptions &opts)
 {
 	fs::path config_path =
@@ -474,6 +494,14 @@ load_configuration(const ParsedOptions &opts)
 		    *opts.clickhouse_max_wait_ms);
 	if (opts.log_path)
 		config.override_log_path(*opts.log_path);
+
+	// Set kernel buffer size from configuration
+	try {
+		set_kernel_buffer_size(config.get_buffer_size());
+	} catch (const std::exception &e) {
+		std::cerr << "Warning: " << e.what() << std::endl;
+		std::cerr << "Continuing with default kernel buffer size..." << std::endl;
+	}
 }
 
 void

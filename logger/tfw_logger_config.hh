@@ -38,6 +38,11 @@ namespace fs = std::filesystem;
 class TfwLoggerConfig
 {
 public:
+	struct MmapConfig {
+		// Memory-mapped buffer size
+		size_t buffer_size{4 * 1024 * 1024}; // 4MB default
+	};
+
 	struct ClickHouseConfig {
 		// ClickHouse server hostname
 		std::string host{"localhost"};
@@ -49,9 +54,9 @@ public:
 		std::optional<std::string> user;
 		// Optional password
 		std::optional<std::string> password;
-		// Events before forcing commit
+		// Events before forcing commit (batch_size)
 		size_t max_events{1000};
-		// Max time before commit
+		// Max time before commit (batch_timeout_ms)
 		std::chrono::milliseconds max_wait{100};
 	};
 
@@ -88,7 +93,13 @@ public:
 	size_t
 	get_buffer_size() const
 	{
-		return buffer_size_;
+		return mmap_.buffer_size;
+	}
+
+	const MmapConfig &
+	get_mmap() const
+	{
+		return mmap_;
 	}
 
 	const ClickHouseConfig &
@@ -107,7 +118,7 @@ public:
 	void
 	override_buffer_size(size_t size)
 	{
-		buffer_size_ = size;
+		mmap_.buffer_size = size;
 	}
 
 	void
@@ -158,8 +169,8 @@ private:
 
 	// Log file path - default set in tfw_logger.cc
 	fs::path log_path_;
-	// mmap buffer size (4MB default)
-	size_t buffer_size_{4 * 1024 * 1024};
+	// Memory-mapped configuration
+	MmapConfig mmap_;
 	// ClickHouse connection settings
 	ClickHouseConfig clickhouse_;
 

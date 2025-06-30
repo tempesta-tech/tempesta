@@ -71,6 +71,13 @@
 
 #define MMAP_LOG_PATH "tempesta_mmap_log"
 
+/* Mmap buffer size limits */
+#define MMAP_BUFFER_MIN_SIZE 4096 /* 4KB */
+#define MMAP_BUFFER_MAX_SIZE (128 * 1024 * 1024) /* 128MB */
+
+/* Sysfs attribute permissions */
+#define SYSFS_ATTR_RW_PERMS 0644 /* rw-r--r-- */
+
 static int access_log_type = ACCESS_LOG_OFF;
 static TfwMmapBufferHolder *mmap_buffer;
 
@@ -78,7 +85,8 @@ static TfwMmapBufferHolder *mmap_buffer;
 #define ACCESS_LOG_BUF_SIZE 960
 static DEFINE_PER_CPU_ALIGNED(char[ACCESS_LOG_BUF_SIZE], access_log_buf);
 static DEFINE_PER_CPU_ALIGNED(u64, mmap_log_dropped);
-static long mmap_log_buffer_size;
+/* Buffer size will be set via sysfs from tfw_logger */
+static size_t tfw_mmap_buffer_size = MMAP_BUFFER_MIN_SIZE;  /* Default 4KB */
 
 /** Build string consists of chunks that belong to the header value.
  * If header value is empty, then it returns "-" to be nginx-like.
@@ -572,7 +580,12 @@ tfw_access_log_start(void)
 	if (!(access_log_type & ACCESS_LOG_MMAP) || mmap_buffer)
 		return 0;
 
-	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, mmap_log_buffer_size);
+	/* Use buffer size from sysfs (set by tfw_logger) */
+	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, tfw_mmap_buffer_size);
+	if (mmap_buffer) {
+		T_LOG("Created mmap buffer: path=%s, size=%zu\n", 
+		       MMAP_LOG_PATH, tfw_mmap_buffer_size);
+	}
 
 	for_each_online_cpu(cpu) {
 		u64 *dropped = per_cpu_ptr(&mmap_log_dropped, cpu);
@@ -597,17 +610,6 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_none = true,
 		.allow_repeat = true,
 	},
-	{
-		.name = "mmap_log_buffer_size",
-		.deflt = "1M",
-		.handler = tfw_cfg_set_mem,
-		.dest = &mmap_log_buffer_size,
-		.spec_ext = &(TfwCfgSpecMem) {
-			.multiple_of = "4K",
-			.range = { TFW_MMAP_BUFFER_MIN_SIZE_STR,
-				   TFW_MMAP_BUFFER_MAX_SIZE_STR },
-		}
-	},
 	{ 0 }
 };
 
@@ -624,9 +626,71 @@ TfwMod tfw_access_log_mod  = {
  * ------------------------------------------------------------------------
  */
 
+/*
+ * ------------------------------------------------------------------------
+ *	sysfs interface for buffer size configuration
+ * ------------------------------------------------------------------------
+ */
+
+static ssize_t
+mmap_buffer_size_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%zu\n", tfw_mmap_buffer_size);
+}
+
+static ssize_t
+mmap_buffer_size_store(struct kobject *kobj, struct kobj_attribute *attr,
+		       		   const char *buf, size_t count)
+{
+	size_t new_size;
+	int ret;
+
+	ret = kstrtoul(buf, 10, &new_size);
+	if (ret)
+		return ret;
+
+	/* Validate buffer size (minimum 4KB, maximum 128MB) */
+	if (new_size < MMAP_BUFFER_MIN_SIZE || new_size > MMAP_BUFFER_MAX_SIZE)
+		return -EINVAL;
+
+	tfw_mmap_buffer_size = new_size;
+	T_LOG("mmap buffer size updated to %zu bytes\n", new_size);
+
+	return count;
+}
+
+static struct kobj_attribute mmap_buffer_size_attr = 
+	__ATTR(mmap_buffer_size, SYSFS_ATTR_RW_PERMS,
+		   mmap_buffer_size_show, mmap_buffer_size_store);
+
+static struct attribute *tfw_access_log_attrs[] = {
+	&mmap_buffer_size_attr.attr,
+	NULL,
+};
+
+static struct attribute_group tfw_access_log_attr_group = {
+	.attrs = tfw_access_log_attrs,
+};
+
+static struct kobject *tfw_access_log_kobj;
+
 int __init
 tfw_access_log_init(void)
 {
+	int ret;
+
+	/* Create sysfs directory: /sys/kernel/tempesta_fw/ */
+	tfw_access_log_kobj = kobject_create_and_add("tempesta_fw", kernel_kobj);
+	if (!tfw_access_log_kobj)
+		return -ENOMEM;
+
+	/* Create sysfs files */
+	ret = sysfs_create_group(tfw_access_log_kobj, &tfw_access_log_attr_group);
+	if (ret) {
+		kobject_put(tfw_access_log_kobj);
+		return ret;
+	}
+
 	tfw_mod_register(&tfw_access_log_mod);
 	return 0;
 }
@@ -635,4 +699,6 @@ void
 tfw_access_log_exit(void)
 {
 	tfw_mod_unregister(&tfw_access_log_mod);
+	sysfs_remove_group(tfw_access_log_kobj, &tfw_access_log_attr_group);
+	kobject_put(tfw_access_log_kobj);
 }
