@@ -70,12 +70,7 @@ void tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
 TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSched *sched,
 				       TfwStreamSchedEntry **parent);
 void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
-
-static inline bool
-tfw_h2_stream_sched_is_active(TfwStreamSchedEntry *sched)
-{
-	return sched->active_cnt;
-}
+void tfw_h2_sched_deactivate_stream(TfwStreamSched *sched, TfwStream *stream);
 
 static inline void
 tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry)
