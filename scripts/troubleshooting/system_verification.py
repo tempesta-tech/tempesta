@@ -13,6 +13,10 @@ import socket
 from typing import Optional
 
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2018-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
 MINIMAL_RAM_MB = 8192
 CPU_REQUIRED_FLAGS = {"sse4_2", "pse", "avx2", "bmi2", "adx"}
 SUPPORTED_FILESYSTEMS = {"ext4", "btrfs", "xfs"}
