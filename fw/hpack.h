@@ -152,6 +152,7 @@ typedef enum {
  */
 typedef struct {
 	union {
+		unsigned char	method;
 		unsigned char	accept_text_html;
 		long		if_msince_date;
 		unsigned long	authority_port;
@@ -295,17 +296,6 @@ typedef struct {
 	unsigned long		acc_len;
 	TfwStr			hdr_data;
 } TfwDecodeCacheIter;
-
-#define	BUFFER_GET(len, it)					\
-do {								\
-	BUG_ON(!(len));						\
-	WARN_ON_ONCE((it)->rspace);				\
-	(it)->rspace = len;					\
-	(it)->pos = tfw_pool_alloc_not_align((it)->pool, len);	\
-	T_DBG3("%s: get buffer, len=%lu, it->pos=[%p],"		\
-	       " it->pos=%lu\n", __func__, (unsigned long)len,	\
-	       (it)->pos, (unsigned long)(it)->pos);		\
-} while (0)
 
 void write_int(unsigned long index, unsigned short max, unsigned short mask,
 	       TfwHPackInt *__restrict res_idx);
