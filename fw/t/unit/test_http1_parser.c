@@ -217,6 +217,19 @@ TEST(http1_parser, parses_req_uri)
 		}							\
 	}
 
+#define TEST_OPTIONS_ASTERISK()						\
+	FOR_REQ("OPTIONS * HTTP/1.1\r\n\r\n") {			\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);		\
+		EXPECT_TFWSTR_EQ(&req->uri_path, "*");			\
+	}
+
+#define TEST_OPTIONS_WITHOUT_PATH(req_host)				\
+	FOR_REQ("OPTIONS http://" req_host " HTTP/1.1\r\n\r\n") {	\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);		\
+		EXPECT_TFWSTR_EQ(&req->host, req_host);			\
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/");			\
+	}
+
 	/*
 	 * Absolute URI.
 	 * NOTE: we combine host and port URI parts into one field 'req->host'.
@@ -227,6 +240,12 @@ TEST(http1_parser, parses_req_uri)
 	TEST_FULL_REQ("natsys-lab.com:8080", "/");
 	TEST_FULL_REQ("natsys-lab.com", "/foo/");
 	TEST_FULL_REQ("natsys-lab.com:8080", "/cgi-bin/show.pl?entry=tempesta");
+
+	TEST_OPTIONS_ASTERISK();
+
+	TEST_OPTIONS_WITHOUT_PATH("example.com");
+	TEST_OPTIONS_WITHOUT_PATH("example.com:8080");
+	TEST_OPTIONS_WITHOUT_PATH("tempesta-tech.com");
 
 	EXPECT_BLOCK_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
@@ -288,6 +307,8 @@ TEST(http1_parser, parses_req_uri)
 
 #undef TEST_FULL_REQ
 #undef TEST_URI_PATH
+#undef TEST_OPTIONS_WITHOUT_PATH
+#undef TEST_OPTIONS_ASTERISK
 }
 
 TEST(http1_parser, parses_enforce_ext_req)

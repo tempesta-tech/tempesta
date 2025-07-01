@@ -2266,9 +2266,13 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 					   resp, &tot_len);
 	}
 
-	if (unlikely(tot_len != 0))
-		pr_warn_once("leftover body data not copied, tot_len = %lu\n", tot_len);
+	if (unlikely(r)) {
+		T_ERR("Cache: cannot copy HTTP body\n");
+		return -ENOMEM;
+	}
 
+	if (WARN_ON_ONCE(tot_len != 0))
+		return -EINVAL;
 
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
