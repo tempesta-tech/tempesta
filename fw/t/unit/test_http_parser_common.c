@@ -527,8 +527,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (resp)
 			test_resp_free(resp);
 
-		resp = test_resp_alloc(frames_total_sz);
-		tfw_http_msg_pair(resp, sample_req);
+		resp = test_resp_alloc(frames_total_sz, sample_req);
 	} else {
 		BUG();
 	}
