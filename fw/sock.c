@@ -417,7 +417,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 		 * belongs.
 		 */
 		if (TFW_SKB_CB(skb)->is_head) {
-			tls_type = skb_tfw_tls_type(skb);
+			tls_type = TFW_SKB_CB(skb)->tls_type;
 			mark = skb->mark;
 		}
 		/*
