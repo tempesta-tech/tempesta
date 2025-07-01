@@ -728,8 +728,8 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
-	r = tfw_msg_iter_setup(&it, resp->req->conn->sk, &resp->msg.skb_head,
-			       msg->len);
+	r = tfw_msg_iter_setup(&it, tfw_http_msg_cli_conn((TfwHttpMsg *)resp),
+			       &resp->msg.skb_head, msg->len);
 	if (unlikely(r))
 		return r;
 
@@ -4343,8 +4343,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, req->conn->sk, &new_head,
-			       h1_hdrs_sz);
+	r = tfw_msg_iter_setup(&it, tfw_http_msg_cli_conn((TfwHttpMsg *)req),
+			       &new_head, h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
 
@@ -6549,7 +6549,7 @@ next_msg:
 		actor = tfw_http_parse_req;
 		req->tfh.version = TFW_HTTP_TFH_HTTP_REQ;
 	}
-	ss_skb_set_owner(skb, conn->sk);
+	ss_skb_set_owner(skb, conn);
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
@@ -7386,7 +7386,7 @@ next_msg:
 		else
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
 					     hmresp->req->flags);
-		ss_skb_set_owner(skb, cli_conn->sk);
+		ss_skb_set_owner(skb, cli_conn);
 	} else {
 		conn_stop = false;
 	}
@@ -7799,8 +7799,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
 	hmreq = (TfwHttpMsg *)req;
-	if (tfw_msg_iter_setup(&it, NULL, &hmreq->msg.skb_head,
-			       msg.len))
+	if (tfw_msg_iter_setup(&it, NULL, &hmreq->msg.skb_head, msg.len))
 		goto cleanup;
 	if (tfw_msg_iter_write(&it, &msg))
 		goto cleanup;
