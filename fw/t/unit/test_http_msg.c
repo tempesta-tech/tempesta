@@ -25,17 +25,22 @@
 #include "helpers.h"
 
 static TfwHttpResp *resp;
+static TfwHttpReq *req;
 
 static void
 http_msg_suite_setup(void)
 {
-	resp = test_resp_alloc_no_data();
+	req = test_req_alloc(0);
+	BUG_ON(!req);
+	resp = test_resp_alloc_no_data(req);
+	BUG_ON(!resp);
 }
 
 static void
 http_msg_suite_teardown(void)
 {
 	test_resp_free(resp);
+	test_req_free(req);
 }
 
 TEST(http_msg, hdr_in_array)
@@ -114,7 +119,7 @@ __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 	if (!skb)
 		return false;
 
-	ss_skb_set_owner(skb, &sk);
+	ss_skb_set_owner(skb, tfw_http_msg_cli_conn((TfwHttpMsg*)resp));
 	skb->next = skb->prev = skb;
 	it = &resp->iter;
 	resp->msg.skb_head = it->skb = it->skb_head = skb;
