@@ -120,21 +120,21 @@ test_run_all(void)
 
 	TEST_SUITE_MPART_RUN(http1_parser);
 	test_req_resp_cleanup();
-	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	test_case_alloc_h2();
 
 	TEST_SUITE_MPART_RUN(http2_parser);
 	test_req_resp_cleanup();
-	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	test_case_cleanup_h2();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
 	test_req_resp_cleanup();
-	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_cache);
@@ -145,7 +145,7 @@ test_run_all(void)
 
 	TEST_SUITE_RUN(http_msg);
 	test_req_resp_cleanup();
-	EXPECT_EQ(atomic_read(&sk.sk_rmem_alloc), 0);
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hash);

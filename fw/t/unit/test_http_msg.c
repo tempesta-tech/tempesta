@@ -91,6 +91,7 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 {
 	TfwMsgIter *it;
 	TfwHttpResp *hmresp;
+	TfwHttpReq *req;
 	struct sk_buff *skb;
 	struct page *page;
 	char *addr;
@@ -99,14 +100,15 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 	hmresp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	hmresp->pair = (TfwHttpMsg *)test_req_alloc(0);
-	BUG_ON(!hmresp->pair);
+	req = test_req_alloc(0);
+	BUG_ON(!req);
+	tfw_http_msg_pair(hmresp, req);
 
 	skb = ss_skb_alloc(head_data->len);
 	if (!skb)
 		return NULL;
 
-	ss_skb_set_owner(skb, &sk);
+	ss_skb_set_owner(skb, tfw_http_msg_cli_conn((TfwHttpMsg*)hmresp));
 	skb->next = skb->prev = skb;
 	it = &hmresp->iter;
 	hmresp->msg.skb_head = it->skb = it->skb_head = skb;
