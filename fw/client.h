@@ -30,10 +30,12 @@
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
+ * @mem			- memory used by current client;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
+	atomic_t		mem;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -48,5 +50,11 @@ int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
+
+static inline void
+tfw_cli_conn_adjust_mem(TfwCliConn *cli_conn, int delta)
+{
+	atomic_add(delta, &((TfwClient *)cli_conn->peer)->mem);
+}
 
 #endif /* __TFW_CLIENT_H__ */
