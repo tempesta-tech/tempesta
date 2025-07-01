@@ -72,6 +72,7 @@ struct tfw_skb_cb {
 	on_send_cb_t	on_send;
 	on_tcp_entail_t on_tcp_entail;
 	unsigned int 	stream_id;
+	unsigned char	tls_type;
 	bool		is_head;
 };
 
@@ -91,9 +92,8 @@ static inline void
 ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 			  unsigned char tls_type)
 {
-	if (tls_type)
-		skb_set_tfw_tls_type(skb_head, tls_type);
 	skb_head->mark = mark;
+	TFW_SKB_CB(skb_head)->tls_type = tls_type;
 	TFW_SKB_CB(skb_head)->is_head = true;
 }
 
