@@ -4638,8 +4638,7 @@ do {									\
 	test_case_parse_prepare_http(str);				\
 	if (resp)							\
 		test_resp_free(resp);					\
-	resp = test_resp_alloc(sizeof(str) - 1);			\
-	tfw_http_msg_pair(resp, sample_req);				\
+	resp = test_resp_alloc(sizeof(str) - 1, req);			\
 	tfw_http_parse_resp(resp, str, sizeof(str) - 1, &parsed);	\
 } while (0)
 
