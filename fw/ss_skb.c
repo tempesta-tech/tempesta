@@ -109,7 +109,7 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, struct sock *sk, size_t len)
+ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -120,7 +120,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, struct sock *sk, size_t len)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
-		ss_skb_set_owner(skb, sk);
+		ss_skb_set_owner(skb, owner);
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -1346,6 +1346,12 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+
+	/*
+	 * dev is used to save connection for memory accounting
+	 * clear it before pass skb to the kernel.
+	 */
+	skb->dev = NULL;
 	/*
 	 * Since we use skb->sb for our purpose we should
 	 * zeroed it before pass skb to the kernel.
@@ -1721,31 +1727,45 @@ ss_skb_realloc_headroom(struct sk_buff *skb)
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 
 static void
-ss_sock_rfree(struct sk_buff *skb)
+ss_skb_destructor(struct sk_buff *skb)
 {
-	struct sock *sk = skb->sk;
+	TfwCliConn *conn = (TfwCliConn *)skb->sk;
 
-	BUG_ON(!sk);
-	atomic_sub(skb->truesize, &sk->sk_rmem_alloc);
-	sock_put(sk);
+	tfw_cli_conn_adjust_mem(conn, -skb->truesize);
+	tfw_connection_put((TfwConn *)conn);
 }
 
 void
-ss_skb_set_owner(struct sk_buff *skb, struct sock *sk)
+ss_skb_set_owner(struct sk_buff *skb, void *owner)
 {
-	if (sk) {
+	/*
+	 * Can be zero when this function is called from `__extend_pgfrags`
+	 * for already orphaned SKBs.
+	 */
+	if (owner) {
+		/*
+		 * All SKBs were orphaned when Tempesta FW received them.
+		 * We can safely use `skb->sk` for our purposes until
+		 * this SKBs will be passed to the socket write queue.
+		 */
 		BUG_ON(skb->sk);
 
-		sock_hold(sk);
-		skb->sk = sk;
-		skb->destructor = ss_sock_rfree;
-		atomic_add(skb->truesize, &sk->sk_rmem_alloc);
+		tfw_connection_get((TfwConn *)owner);
+		skb->sk = owner;
+		skb->destructor = ss_skb_destructor;
+		tfw_cli_conn_adjust_mem((TfwCliConn *)owner, skb->truesize);
 	}
 }
 
 void
 ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
 {
-	if (skb->sk)
-		atomic_add(delta, &skb->sk->sk_rmem_alloc);
+	TfwCliConn *conn = (TfwCliConn *)skb->sk;
+
+	/*
+	 * conn can be zero here when this function is called
+	 * from `ss_skb_split` for SKBs which are already orphaned
+	 */
+	if (conn)
+		tfw_cli_conn_adjust_mem(conn, delta);
 }

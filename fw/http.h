@@ -598,11 +598,11 @@ tfw_http_msg_is_req(TfwHttpMsg *msg)
 	return msg->conn && TFW_CONN_TYPE(msg->conn) & Conn_Clnt;
 }
 
-static inline struct sock *
-tfw_http_msg_sock(TfwHttpMsg *msg)
+static inline TfwCliConn *
+tfw_http_msg_cli_conn(TfwHttpMsg *msg)
 {
-	return tfw_http_msg_is_req(msg) ?
-		msg->conn->sk : msg->pair->conn->sk;
+	return (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
+		msg->conn : msg->pair->conn);
 }
 
 static inline int
