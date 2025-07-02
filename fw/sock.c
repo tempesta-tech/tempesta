@@ -1263,6 +1263,15 @@ ss_set_listen(struct sock *sk)
 	sock_set_flag(sk, SOCK_TEMPESTA);
 }
 
+/* The original function in tcp_ipv6.c. */
+static struct ipv6_pinfo *
+inet6_sk_generic(struct sock *sk)
+{
+	const int offset = sk->sk_prot->ipv6_pinfo_offset;
+
+	return (struct ipv6_pinfo *)(((u8 *)sk) + offset);
+}
+
 /*
  * Create a new socket for IPv4 or IPv6 protocol. The original functions
  * are inet_create() and inet6_create(). They are nearly identical and
@@ -1318,11 +1327,8 @@ ss_inet_create(struct net *net, int family,
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
 
 	if (family == AF_INET6) {
-		/* The next two lines are inet6_sk_generic(sk) */
-		const int offset = sk->sk_prot->obj_size
-				   - sizeof(struct ipv6_pinfo);
-		struct ipv6_pinfo *np = (struct ipv6_pinfo *)
-					(((u8 *)sk) + offset);
+		struct ipv6_pinfo *np = inet6_sk_generic(sk);
+
 		np->hop_limit = -1;
 		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
 		inet6_set_bit(MC_LOOP, sk);
