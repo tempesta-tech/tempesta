@@ -71,7 +71,7 @@ const char *ticket_key_name_iv =
 static inline unsigned long
 ttls_ticket_get_time(unsigned long lifetime)
 {
-	unsigned long ts = tfw_current_timestamp();
+	unsigned long ts = tfw_current_timestamp_real().tv_sec;
 
 	ts -= ts % lifetime;
 
@@ -192,7 +192,7 @@ ttls_ticket_rotate_keys(struct timer_list *t)
 	 * and callback will fire at different time on different Tempesta
 	 * nodes. To avoid it need to recalculate timer every time.
 	 */
-	secs = tcfg->lifetime - (tfw_current_timestamp() % tcfg->lifetime);
+	secs = tcfg->lifetime - (tfw_current_timestamp_real().tv_sec % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 }
 
@@ -351,7 +351,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	}
 
 	timer_setup(&tcfg->timer, ttls_ticket_rotate_keys, 0);
-	secs = tcfg->lifetime - (tfw_current_timestamp() % tcfg->lifetime);
+	secs = tcfg->lifetime - (tfw_current_timestamp_real().tv_sec % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 
 err:

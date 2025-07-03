@@ -23,34 +23,63 @@
 #include <linux/percpu.h>
 #include <linux/time.h>
 
-static DEFINE_PER_CPU(struct timespec64, tfw_cached_ts);
-static DEFINE_PER_CPU(unsigned long, tfw_ts_last_update);
-
 #define TFW_TS_REFRESH_INTERVAL (HZ)
 
 /**
+ * Get current timestamp with ktime_get_real_ts64 interface.
+ * Uses per-CPU cached timestamps in softirq context.
+ * WARNING: Must be called from softirq context only.
+ */
+static inline void
+tfw_current_timestamp_ts64(struct timespec64 *ts)
+{
+	static DEFINE_PER_CPU(struct timespec64, tfw_cached_ts);
+	static DEFINE_PER_CPU(unsigned long, tfw_ts_last_update);
+
+	WARN_ON_ONCE(!in_softirq());
+
+	struct timespec64 *cached_ts = this_cpu_ptr(&tfw_cached_ts);
+	unsigned long *last_update = this_cpu_ptr(&tfw_ts_last_update);
+	unsigned long now = jiffies;
+
+	if (unlikely(time_after(now,
+				*last_update + TFW_TS_REFRESH_INTERVAL)))
+	{
+		ktime_get_real_ts64(cached_ts);
+		*last_update = now;
+	}
+
+	*ts = *cached_ts;
+}
+
+/**
  * Get current timestamp in seconds.
- * Uses cached value if available and not stale when in softirq context.
+ * Uses per-CPU cached timestamps in softirq context.
+ * WARNING: Must be called from softirq context only.
  */
 static inline long
 tfw_current_timestamp(void)
 {
-	if (likely(in_serving_softirq())) {
-		struct timespec64 *cached_ts = this_cpu_ptr(&tfw_cached_ts);
-		unsigned long *last_update = this_cpu_ptr(&tfw_ts_last_update);
-		unsigned long now = jiffies;
-		
-		if (unlikely(time_after(now, *last_update + TFW_TS_REFRESH_INTERVAL))) {
-			ktime_get_real_ts64(cached_ts);
-			*last_update = now;
-		}
-		
-		return cached_ts->tv_sec;
-	} else {
-		struct timespec64 ts;
-		ktime_get_real_ts64(&ts);
-		return ts.tv_sec;
-	}
+	struct timespec64 ts;
+
+	tfw_current_timestamp_ts64(&ts);
+	return ts.tv_sec;
+}
+
+/**
+ * Get current timestamp - real-time version.
+ * For use outside of softirq context or when precise real-time is needed.
+ * WARNING: Must be called from process context only.
+ */
+static inline struct timespec64
+tfw_current_timestamp_real(void)
+{
+	struct timespec64 ts;
+
+	WARN_ON_ONCE(in_softirq());
+
+	ktime_get_real_ts64(&ts);
+	return ts;
 }
 
 #endif /* __LIB_COMMON_H__ */
