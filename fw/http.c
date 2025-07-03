@@ -83,7 +83,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/string.h>
-#include <linux/vmalloc.h>
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
