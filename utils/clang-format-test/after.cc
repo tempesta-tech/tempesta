@@ -81,6 +81,12 @@ static const TfwField tfw_fields[] = {
 				clickhouse::Type::UInt32},
 };
 
+TfwClickhouse clickhouse(ch_cfg.host,
+			 ch_cfg.table_name,
+			 ch_cfg.user ? *ch_cfg.user : "",
+			 ch_cfg.password ? *ch_cfg.password : "",
+			 make_block());
+
 void
 run_thread(const int ncpu, const int fd) noexcept
 try {
@@ -238,6 +244,50 @@ pidfile_stop_daemon(const std::string &fname)
 	}                                                                      \
 	else                                                                   \
 		(*block)[ind]->As<col_type>()->Append(0);
+
+// Function argument alignment test cases
+void
+very_long_function_name_with_many_parameters(int first_parameter,
+					     const char *second_parameter,
+					     double third_parameter,
+					     bool fourth_parameter,
+					     std::vector<int> fifth_parameter)
+{
+	// Function body
+}
+
+// Bad alignment - should be fixed
+void
+badly_aligned_function(int a, char *b, double c, bool d, std::string e)
+{
+}
+
+// Function calls with bad alignment
+void
+test_function_calls()
+{
+	// Properly aligned call that should remain unchanged
+	very_long_function_name_with_many_parameters(42, "test string", 3.14,
+						     true, {1, 2, 3});
+
+	// Badly aligned calls that should be fixed
+	badly_aligned_function(123, "hello", 2.5, false, "world");
+
+	// Mixed alignment issues
+	some_function(param1, param2, param3);
+
+	// Long expression in function call
+	calculate_result(very_long_variable_name + another_long_variable,
+			 some_function_call(a, b, c), final_parameter);
+}
+
+// Template function with alignment issues
+template <typename T, typename U, typename V>
+T
+complex_template_function(T first, U second, V third, int fourth)
+{
+	return T{};
+}
 
 int
 main()
