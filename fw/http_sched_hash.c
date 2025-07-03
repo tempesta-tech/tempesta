@@ -19,7 +19,7 @@
  * server unless it is offline.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,8 +38,9 @@
 #include <linux/hash.h>
 #include <linux/module.h>
 
-#include "lib/hash.h"
+#include "sched.h"
 #include "tempesta_fw.h"
+#include "lib/hash.h"
 #include "log.h"
 #include "server.h"
 #include "http_msg.h"
@@ -52,7 +53,7 @@ typedef struct {
 typedef struct {
 	struct rcu_head		rcu;
 	size_t			conn_n;
-	TfwHashConn		conns[0];
+	DECLARE_FLEX_ARRAY(TfwHashConn, conns);
 } TfwHashConnList;
 
 typedef struct {
@@ -355,7 +356,7 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 		return -EINVAL;
 
 	seed = get_random_long();
-	seed_inc = get_random_int();
+	seed_inc = get_random_long();
 
 	list_for_each_entry(srv, &sg->srv_list, list)
 		conn_n += srv->conn_n;
@@ -405,7 +406,7 @@ tfw_sched_hash_add_srv(TfwServer *srv)
 		return -EEXIST;
 
 	seed = get_random_long();
-	seed_inc = get_random_int();
+	seed_inc = get_random_long();
 
 	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
 	if (!(cl = kzalloc(size, GFP_KERNEL)))

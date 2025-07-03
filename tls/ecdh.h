@@ -13,7 +13,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ typedef struct {
 	const TlsEcpGrp	*grp;
 	TlsMpi		d;
 	TlsEcpPoint	Q;
-	unsigned long	Qp[0];
+	DECLARE_FLEX_ARRAY(unsigned long, Qp);
 } TlsECDHCtx;
 
 int ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen,
