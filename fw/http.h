@@ -587,6 +587,23 @@ enum {
 			  T_WARN("%s, status %d: %s\n",			\
 				 msg, status, addr_str))
 
+static inline bool
+tfw_http_msg_is_req(TfwHttpMsg *msg)
+{
+	/*
+	 * msg->conn can be equal to zero only for response
+	 * which is served from cache or error response.
+	 */
+	return msg->conn && TFW_CONN_TYPE(msg->conn) & Conn_Clnt;
+}
+
+static inline TfwCliConn *
+tfw_http_msg_cli_conn(TfwHttpMsg *msg)
+{
+	return (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
+		msg->conn : msg->pair->conn);
+}
+
 static inline int
 tfw_http_resp_code_range(const int n)
 {
@@ -774,7 +791,7 @@ int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
 int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 			TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
-		      TfwMsgIter *it);
+		      TfwHttpMsg *hm);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);

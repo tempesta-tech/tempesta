@@ -189,5 +189,6 @@ int frang_tls_handler(TlsCtx *tls, int state);
 int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
+void frang_adjust_client_mem(struct sock *sk, int delta);
 
 #endif /* __HTTP_LIMITS__ */

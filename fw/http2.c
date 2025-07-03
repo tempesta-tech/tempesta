@@ -509,7 +509,7 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 	BUG_ON(!resp || resp->msg.skb_head || !resp->req
 	       || !resp->req->conn || !stream->xmit.skb_head);
 
-	tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
+	tls_type = TFW_SKB_CB(stream->xmit.skb_head)->tls_type;
 	mark = stream->xmit.skb_head->mark;
 	swap(resp->msg.skb_head, stream->xmit.skb_head);
 
@@ -538,7 +538,7 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			resp->iter.skb = resp->msg.skb_head->prev;
 			resp->iter.frag =
 				skb_shinfo(resp->iter.skb)->nr_frags - 1;
-			tfw_http_msg_setup_transform_pool(mit, &resp->iter,
+			tfw_http_msg_setup_transform_pool(mit, (TfwHttpMsg *)resp,
 							  resp->pool);
 
 			r = tfw_h2_hpack_encode_trailer_headers(resp);
@@ -577,7 +577,7 @@ int
 tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			 unsigned int *len, bool should_split)
 {
-	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
+	unsigned char tls_type = TFW_SKB_CB(stream->xmit.skb_head)->tls_type;
 	unsigned int mark = stream->xmit.skb_head->mark;
 	struct sk_buff *skb, *split;
 	int r = 0;

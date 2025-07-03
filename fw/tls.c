@@ -535,6 +535,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 {
 	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
+	TfwCliConn *cli_conn = &conn->cli_conn;
 	TlsIOCtx *io = &tls->io_out;
 	TfwMsgIter it;
 	TfwStr str = {};
@@ -562,11 +563,11 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
 	      str.len, sgt ? sgt->nents : 0, io->msglen, io->msgtype, conn,
-	      conn->cli_conn.sk->sk_write_xmit, ttls_xfrm_ready(tls));
+	      cli_conn->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
-	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len, 0)))
+	if ((r = tfw_msg_iter_setup(&it, cli_conn, &io->skb_list, str.len)))
 		goto out;
-	if ((r = tfw_msg_write(&it, &str)))
+	if ((r = tfw_msg_iter_write(&it, &str)))
 		goto out;
 	/* Only one skb should has been allocated. */
 	WARN_ON_ONCE(it.skb->next != io->skb_list
@@ -582,6 +583,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 					r = -ENOMEM;
 					goto out;
 				}
+				ss_skb_set_owner(skb, cli_conn);
 				ss_skb_queue_tail(&io->skb_list, skb);
 				i = 0;
 			}

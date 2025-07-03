@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include "test.h"
 #include "test_http_parser_defs.h"
+#include "helpers.h"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
@@ -133,18 +134,26 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_MPART_RUN(http1_parser);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_MPART_RUN(http2_parser);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_match);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_msg);
+	test_req_resp_cleanup();
+	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hash);

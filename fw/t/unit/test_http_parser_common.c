@@ -510,8 +510,7 @@ do_split_and_parse(int type, int chunk_mode)
 		if (resp)
 			test_resp_free(resp);
 
-		resp = test_resp_alloc(frames_total_sz);
-		tfw_http_msg_pair(resp, sample_req);
+		resp = test_resp_alloc(frames_total_sz, sample_req);
 	} else {
 		BUG();
 	}
@@ -670,4 +669,23 @@ get_next_str_val(TfwStr *str)
 	v.nchunks = nchunks;
 
 	return v;
+}
+
+void
+test_req_resp_cleanup(void)
+{
+	if (sample_req) {
+		test_req_free(sample_req);
+		sample_req = NULL;
+	}
+
+	if (req) {
+		test_req_free(req);
+		req = NULL;
+	}
+
+	if (resp) {
+		test_resp_free(resp);
+		resp = NULL;
+	}
 }
