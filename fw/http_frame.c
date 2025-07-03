@@ -698,13 +698,13 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 		if (*window > 0) {
 			if (ctx->sched.root.active_cnt) {
 				sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
-				sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);
-				tcp_push_pending_frames(sk);
-				sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);
+				SS_IN_USE_PROTECT({
+					tcp_push_pending_frames(sk);
+				});
 			}
 		}
 
-		return likely(sk->sk_state != TCP_CLOSE) ? T_OK : sk->sk_err;
+		return likely(!ss_sock_is_closed(sk)) ? T_OK : sk->sk_err;
 	}
 
 fail:
