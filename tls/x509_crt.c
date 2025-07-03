@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -544,7 +544,6 @@ x509_get_crt_ext(const unsigned char **p, const unsigned char *end, TlsX509Crt *
 	}
 
 	while (*p < end) {
-		unsigned char *end_ext_data, *end_ext_octet;
 		/*
 		 * Extension  ::=  SEQUENCE  {
 		 *	  extnID	  OBJECT IDENTIFIER,
@@ -560,12 +559,7 @@ x509_get_crt_ext(const unsigned char **p, const unsigned char *end, TlsX509Crt *
 		if (unlikely(ret))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		/*
-		 * TODO #1808: declare the variable here to avoid type conversion
-		 * (-std=gnu11 is allowed with the new kernel).
-		 * The same for end_ext_octet at the below.
-		 */
-		end_ext_data = (unsigned char *)*p + len;
+		const unsigned char *end_ext_data = *p + len;
 
 		/* Get extension ID */
 		extn_oid.tag = **p;
@@ -594,7 +588,7 @@ x509_get_crt_ext(const unsigned char **p, const unsigned char *end, TlsX509Crt *
 		if (unlikely(ret))
 			return TTLS_ERR_X509_INVALID_EXTENSIONS + ret;
 
-		end_ext_octet = (unsigned char *)*p + len;
+		const unsigned char *end_ext_octet = *p + len;
 
 		if (end_ext_octet != end_ext_data)
 			return TTLS_ERR_X509_INVALID_EXTENSIONS
