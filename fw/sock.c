@@ -495,16 +495,15 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * If packets_out is not equal to zero `tcp_push_pending_frames`
 	 * will be called later from `tcp_data_snd_check` when we receive
 	 * ack from the peer.
-	 *
 	 */
-	sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);
-	if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
-		tcp_push_pending_frames(sk);
-	} else {
-		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF | TCP_NAGLE_PUSH,
-			 size);
-	}
-	sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);
+	SS_IN_USE_PROTECT({
+		if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+			tcp_push_pending_frames(sk);
+		} else {
+			tcp_push(sk, MSG_DONTWAIT, mss,
+				 TCP_NAGLE_OFF | TCP_NAGLE_PUSH, size);
+		}
+	});
 
 	/*
 	 * In case error occurs when we call `tcp_push_pending_frames` or
@@ -684,13 +683,12 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
 		/*
-		 * Set this flag to prevent calling `tcp_done` from
-		 * `tcp_send_fin` if error occurs to prevent double
-		 * free.
+		 * Prevent calling `tcp_done` from `tcp_send_fin` if error
+		 * occurs to prevent double free.
 		 */
-		sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);
-		tcp_send_fin(sk);
-		sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);
+		SS_IN_USE_PROTECT({
+			tcp_send_fin(sk);
+		});
 	}
 
 adjudge_to_death:
@@ -1529,13 +1527,12 @@ static inline void
 ss_do_shutdown(struct sock *sk)
 {
 	/*
-	 * Set this flag to prevent calling `tcp_done` from
-	 * `tcp_send_fin` if error occurs to prevent double
-	 * free.
+	 * Prevent calling `tcp_done` from `tcp_shutdown` if error
+	 * occurs to prevent double free.
 	 */
-	sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);
-	tcp_shutdown(sk, SEND_SHUTDOWN);
-	sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);
+	SS_IN_USE_PROTECT({
+		tcp_shutdown(sk, SEND_SHUTDOWN);
+	});
 	if (unlikely(sk->sk_state == TCP_CLOSE))
 		ss_linkerror(sk, 0);
 	else
