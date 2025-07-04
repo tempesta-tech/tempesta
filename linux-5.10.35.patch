@@ -950,7 +950,7 @@ index 89163ef8c..49ad1ddc9 100644
  	union {
  		struct ip_options_rcu __rcu	*ireq_opt;
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 261195598..f03d8b999 100644
+index 261195598..c7e9ffbcf 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
 @@ -506,6 +506,30 @@ struct sock {
@@ -993,10 +993,10 @@ index 261195598..f03d8b999 100644
 +	SOCK_TEMPESTA_HAS_DATA, /* The socket has data in Tempesta FW
 +				 * write queue.
 +				 */
-+	SOCK_TEMPESTA_IS_CLOSING, /* The socket is closing by Tempesta FW
-+				   * from `ss_do_close`. `tcp_done` should
-+				   * not be called from the kernel code.
-+				   */
++	SOCK_TEMPESTA_IN_USE, /* Currently socket is used by Tempesta FW.
++			       * `tcp_done` should not be called from the
++			       * kernel code.
++			       */
 +#endif
  };
  
@@ -1029,7 +1029,7 @@ index 261195598..f03d8b999 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 7d66c61d2..f85ea9a2b 100644
+index 7d66c61d2..c14996e05 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -307,6 +307,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -1082,14 +1082,14 @@ index 7d66c61d2..f85ea9a2b 100644
 +	sk->sk_error_report(sk);
 +	tcp_write_queue_purge(sk);
 +	/*
-+	 * SOCK_TEMPESTA_IS_CLOSING is set from `ss_do_close`
-+	 * or `ss_do_shutdown` function from Tempesta FW code.
-+	 * We should not call `tcp_done` if error occurs during
-+	 * one of this function, just set socket state to TCP_CLOSE,
++	 * SOCK_TEMPESTA_IN_USE is set when function is called
++	 * from Tempesta FW code.
++	 * We should not call `tcp_done` if error occurs when
++	 * Tempesta FW uses socket, just set socket state to TCP_CLOSE,
 +	 * clear timers and socket write queue. Socket will be
-+	 * closed in one of this function.
++	 * closed later from Tempesta FW code.
 +	 */
-+	if (unlikely(sock_flag(sk, SOCK_TEMPESTA_IS_CLOSING))) {
++	if (unlikely(sock_flag(sk, SOCK_TEMPESTA_IN_USE))) {
 +		tcp_set_state(sk, TCP_CLOSE);
 +		tcp_clear_xmit_timers(sk);
 +	} else {
