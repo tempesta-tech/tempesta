@@ -1,0 +1,15 @@
+{
+    "log_path": "/var/log/tempesta/tfw_logger.log",
+    
+    "mmap": {
+        "buffer_size": 4096
+    },
+    
+    "clickhouse": {
+        "host": "localhost",
+        "port": 9000,
+        "table_name": "access_log",
+        "batch_size": 1000,
+        "batch_timeout_ms": 100
+    }
+}

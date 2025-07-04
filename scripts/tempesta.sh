@@ -38,7 +38,7 @@ tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
-logger_path=${LOGGER_PATH:="$TFW_ROOT/utils"}
+logger_path=${LOGGER_PATH:="$TFW_ROOT/logger"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"

@@ -36,42 +36,42 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	if (auto log_path_opt = tree.get_optional<std::string>("log_path"))
 		log_path_ = *log_path_opt;
 
-	buffer_size_ = tree.get<size_t>("buffer_size", buffer_size_);
+	// Parse mmap configuration
+	if (auto mmap_node = tree.get_child_optional("mmap")) {
+		mmap_.buffer_size = mmap_node->get<size_t>("buffer_size", mmap_.buffer_size);
+	} else {
+		// Fallback: try to read old "buffer_size" for backward compatibility
+		mmap_.buffer_size = tree.get<size_t>("buffer_size", mmap_.buffer_size);
+	}
 
 	// Validate buffer size
-	if (buffer_size_ < MIN_BUFFER_SIZE)
+	if (mmap_.buffer_size < MIN_BUFFER_SIZE)
 		throw std::runtime_error("Buffer size must be at least " +
 					 std::to_string(MIN_BUFFER_SIZE) +
 					 " bytes (one memory page)");
 
+
 	// Parse ClickHouse configuration if present
 	if (auto ch_node = tree.get_child_optional("clickhouse")) {
-		clickhouse_.host =
-		    ch_node->get<std::string>("host", clickhouse_.host);
-		clickhouse_.port =
-		    ch_node->get<uint16_t>("port", clickhouse_.port);
-		clickhouse_.table_name = ch_node->get<std::string>(
-		    "table_name", clickhouse_.table_name);
+		clickhouse_.host = ch_node->get<std::string>("host", clickhouse_.host);
+		clickhouse_.port = ch_node->get<uint16_t>("port", clickhouse_.port);
+		clickhouse_.table_name = ch_node->get<std::string>("table_name", clickhouse_.table_name);
 
 		// Parse optional authentication
 		if (auto user = ch_node->get_optional<std::string>("user"))
 			clickhouse_.user = *user;
 
-		if (auto password =
-		    ch_node->get_optional<std::string>("password"))
+		if (auto password = ch_node->get_optional<std::string>("password"))
 			clickhouse_.password = *password;
 
 		// Parse performance settings
-		clickhouse_.max_events =
-		    ch_node->get<size_t>("max_events", clickhouse_.max_events);
-		int max_wait_ms = ch_node->get<int>(
-		    "max_wait_ms",
-		    static_cast<int>(clickhouse_.max_wait.count()));
-		if (max_wait_ms < 0)
-			throw std::runtime_error(
-			    "max_wait_ms must be non-negative");
+		clickhouse_.max_events = ch_node->get<size_t>("batch_size", clickhouse_.max_events);
+		int batch_timeout_ms = ch_node->get<int>("batch_timeout_ms", 
+		                                         static_cast<int>(clickhouse_.max_wait.count()));
+		if (batch_timeout_ms < 0)
+			throw std::runtime_error("batch_timeout_ms must be non-negative");
 
-		clickhouse_.max_wait = std::chrono::milliseconds(max_wait_ms);
+		clickhouse_.max_wait = std::chrono::milliseconds(batch_timeout_ms);
 	}
 
 	// Validate ClickHouse settings
@@ -85,7 +85,7 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 		throw std::runtime_error("ClickHouse table name cannot be empty");
 
 	if (clickhouse_.max_events == 0)
-		throw std::runtime_error("max_events must be greater than 0");
+		throw std::runtime_error("batch_size must be greater than 0");
 }
 
 std::optional<TfwLoggerConfig>
