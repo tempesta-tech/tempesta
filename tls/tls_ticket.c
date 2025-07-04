@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,11 +71,14 @@ const char *ticket_key_name_iv =
 static inline unsigned long
 ttls_ticket_get_time(unsigned long lifetime)
 {
-	unsigned long ts = tfw_current_timestamp_real().tv_sec;
+	struct timespec64 ts;
+	unsigned long ts_sec;
 
-	ts -= ts % lifetime;
+	tfw_current_timestamp_real(&ts);
+	ts_sec = ts.tv_sec;
+	ts_sec -= ts_sec % lifetime;
 
-	return ts;
+	return ts_sec;
 }
 
 /**
@@ -177,6 +180,7 @@ static void
 ttls_ticket_rotate_keys(struct timer_list *t)
 {
 	TlsTicketPeerCfg *tcfg = from_timer(tcfg, t, timer);
+	struct timespec64 ts;
 	unsigned long secs;
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
@@ -192,7 +196,8 @@ ttls_ticket_rotate_keys(struct timer_list *t)
 	 * and callback will fire at different time on different Tempesta
 	 * nodes. To avoid it need to recalculate timer every time.
 	 */
-	secs = tcfg->lifetime - (tfw_current_timestamp_real().tv_sec % tcfg->lifetime);
+	tfw_current_timestamp_ts64(&ts);
+	secs = tcfg->lifetime - (ts.tv_sec % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 }
 
@@ -280,6 +285,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	const char *md_ctx_key = secret_str;
 	size_t md_ctx_key_len = len;
 	TlsMdCtx md_ctx;
+	struct timespec64 ts;
 	unsigned long secs;
 
 	tcfg->active_key = 0;
@@ -351,7 +357,8 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	}
 
 	timer_setup(&tcfg->timer, ttls_ticket_rotate_keys, 0);
-	secs = tcfg->lifetime - (tfw_current_timestamp_real().tv_sec % tcfg->lifetime);
+	tfw_current_timestamp_ts64(&ts);
+	secs = tcfg->lifetime - (ts.tv_sec % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 
 err:
@@ -479,7 +486,7 @@ ttls_ticket_sess_save(const TlsSess *sess, TlsState *state, size_t buf_len)
 static int
 ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 {
-	long time_pass = ttls_time() - state->sess.start;
+	long time_pass = tfw_current_timestamp() - state->sess.start;
 
 	if ((time_pass < 0) || (unsigned long)time_pass > lifetime)
 		return TTLS_ERR_SESSION_TICKET_EXPIRED;

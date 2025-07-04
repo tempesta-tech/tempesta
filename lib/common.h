@@ -1,7 +1,7 @@
 /**
  *		Tempesta kernel library
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,12 +35,15 @@ tfw_current_timestamp_ts64(struct timespec64 *ts)
 {
 	static DEFINE_PER_CPU(struct timespec64, tfw_cached_ts);
 	static DEFINE_PER_CPU(unsigned long, tfw_ts_last_update);
+	struct timespec64 *cached_ts;
+	unsigned long *last_update;
+	unsigned long now;
 
 	WARN_ON_ONCE(!in_softirq());
 
-	struct timespec64 *cached_ts = this_cpu_ptr(&tfw_cached_ts);
-	unsigned long *last_update = this_cpu_ptr(&tfw_ts_last_update);
-	unsigned long now = jiffies;
+	cached_ts = this_cpu_ptr(&tfw_cached_ts);
+	last_update = this_cpu_ptr(&tfw_ts_last_update);
+	now = jiffies;
 
 	if (unlikely(time_after(now,
 				*last_update + TFW_TS_REFRESH_INTERVAL)))
@@ -68,18 +71,13 @@ tfw_current_timestamp(void)
 
 /**
  * Get current timestamp - real-time version.
- * For use outside of softirq context or when precise real-time is needed.
- * WARNING: Must be called from process context only.
+ * For use when precise real-time is needed without caching.
  */
-static inline struct timespec64
-tfw_current_timestamp_real(void)
+static inline void
+tfw_current_timestamp_real(struct timespec64 *ts)
 {
-	struct timespec64 ts;
-
-	WARN_ON_ONCE(in_softirq());
-
-	ktime_get_real_ts64(&ts);
-	return ts;
+	WARN_ON_ONCE(!in_task());
+	ktime_get_real_ts64(ts);
 }
 
 #endif /* __LIB_COMMON_H__ */
