@@ -2320,8 +2320,10 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 			continue;
 
 		p = TDB_PTR(db->hdr, ce->hdrs_304[i]);
+
 		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len))
 			trec = tdb_next_rec_chunk(db, trec);
+
 		BUG_ON(!trec);
 
 		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
