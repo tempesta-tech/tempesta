@@ -330,7 +330,6 @@ do {								\
 do {								\
 	(it)->hdr.data = (it)->pos;				\
 	(it)->hdr.len = 0;					\
-	(it)->next = 0;						\
 } while (0)
 
 #define	BUFFER_NAME_OPEN(length)				\
@@ -374,14 +373,9 @@ do {								\
 		r = tfw_hpack_buffer_get(it, len, false);	\
 		if (unlikely(r))				\
 			goto out;				\
-		if (!TFW_STR_EMPTY(&it->hdr)) {			\
-			r = tfw_hpack_exp_hdr(req->pool, 0, it); \
-			if (unlikely(r))			\
-				return r;			\
-			it->next = it->hdr.nchunks - 1;		\
-		} else	{					\
-			BUFFER_HDR_INIT(it);			\
-		}						\
+								\
+		TFW_STR_INIT(&it->hdr);				\
+		BUFFER_HDR_INIT(it);				\
 	}							\
 } while (0)
 
@@ -393,7 +387,6 @@ __hpack_process_hdr_name(TfwHttpReq *req)
 	const TfwStr *hdr = &it->hdr;
 	int ret = -EINVAL;
 
-	WARN_ON_ONCE(it->next != 0);
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		bool last = c + 1 == end;
 
@@ -411,23 +404,15 @@ __hpack_process_hdr_value(TfwHttpReq *req)
 	const TfwStr *chunk, *end;
 	TfwMsgParseIter *it = &req->pit;
 	const TfwStr *hdr = &it->hdr;
-	const TfwStr *next = TFW_STR_CHUNK(hdr, it->next);
 	int ret = -EINVAL;
 
 	BUG_ON(TFW_STR_DUP(hdr));
 	if (TFW_STR_PLAIN(hdr)) {
-		WARN_ON_ONCE(hdr != next);
 		chunk = hdr;
 		end = hdr + 1;
 	} else {
-		/*
-		 * In case of compound @hdr the @next can point either to the
-		 * @hdr itself (if only header's value has been Huffman-decoded,
-		 * i.e. in case of indexed or raw header's name), or to some
-		 * chunk inside the @hdr (if both, the name and the value, has
-		 * been Huffman-decoded).
-		 */
-		chunk = (hdr != next) ? next : next->chunks;
+
+		chunk = hdr->chunks;
 		end = hdr->chunks + hdr->nchunks;
 	}
 
@@ -1363,23 +1348,14 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 done:
 	switch (entry->tag) {
 	case TFW_TAG_HDR_H2_METHOD:
+		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		if (hp->index == 2) {
 			req->method = TFW_HTTP_METH_GET;
 		} else if (hp->index == 3) {
 			req->method = TFW_HTTP_METH_POST;
 		} else {
-			/*
-			 * We would end up here while processing
-			 * 'Indexed Header Field' hdr, which points
-			 * to an entry in dynamic HPACK table.
-			 * This entry must has been previously populated
-			 * by 'Literal Header Field with Incremental Indexing'
-			 * hdr parsing and dynamic table update.
-			 * RFC 7541 6.2.1
-			 * */
-			req->method = tfw_http_meth_str2id(s_hdr);
+			h2_set_method(req, &entry->cstate);
 		}
-		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
 		break;
 	case TFW_TAG_HDR_H2_SCHEME:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_SCHEME;

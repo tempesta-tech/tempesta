@@ -115,9 +115,9 @@ ss_sock_put(struct sock *sk)
 }
 
 static inline bool
-ss_sock_live(struct sock *sk)
+ss_sock_is_closed(struct sock *sk)
 {
-	return sk->sk_state == TCP_ESTABLISHED;
+	return sk->sk_state == TCP_CLOSE;
 }
 
 static inline void
@@ -181,6 +181,19 @@ void ss_get_stat(SsStat *stat);
 void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		       unsigned char tls_type);
 void ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
+
+/*
+ * We should all linux kernel functions like `tcp_push` or
+ * `tcp_push_pending_frames` using this macro, to prevent call
+ * of `tcp_done` inside this functions in case of error.
+ */
+#define SS_IN_USE_PROTECT(lambda)					\
+do {									\
+	sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);			\
+	lambda;								\
+	sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);			\
+} while (0)
+
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
