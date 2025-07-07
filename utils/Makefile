@@ -1,6 +1,6 @@
 #		Tempesta FW
 #
-# Copyright (C) 2024 Tempesta Technologies, Inc.
+# Copyright (C) 2024-2025 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ CLICKHOUSE_BUILD_DIR := $(CLICKHOUSE_DIR)/build
 CLICKHOUSE_REPO_URL := https://github.com/ClickHouse/clickhouse-cpp.git
 
 CXX := g++
-LDFLAGS := -lfmt -lboost_program_options
+LDFLAGS := -lfmt -lboost_program_options -lboost_filesystem
 LDFLAGS += -lclickhouse-cpp-lib -L $(CLICKHOUSE_BUILD_DIR)/clickhouse
 LDFLAGS += -lcityhash -L $(CLICKHOUSE_BUILD_DIR)/contrib/cityhash/cityhash
 LDFLAGS += -lzstdstatic -L $(CLICKHOUSE_BUILD_DIR)/contrib/zstd/zstd
@@ -33,8 +33,7 @@ CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/contrib/absl
-SRCS := tfw_logger.cc mmap_buffer.cc clickhouse.cc
-OBJS := $(SRCS:.cc=.o)
+OBJS := $(patsubst %.cc, %.o, $(wildcard *.cc))
 TARGET := tfw_logger
 
 all:

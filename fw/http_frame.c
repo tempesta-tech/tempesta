@@ -277,7 +277,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -682,7 +682,8 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (wnd_incr) {
-		TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+		TfwH2Conn *conn = ctx->conn;
+		struct sock *sk = ((TfwConn *)conn)->sk;
 		long int *window = ctx->cur_stream ?
 			&ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
 
@@ -696,13 +697,14 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 
 		if (*window > 0) {
 			if (ctx->sched.root.active_cnt) {
-				sock_set_flag(((TfwConn *)conn)->sk,
-					       SOCK_TEMPESTA_HAS_DATA);
-				tcp_push_pending_frames(((TfwConn *)conn)->sk);
+				sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+				SS_IN_USE_PROTECT({
+					tcp_push_pending_frames(sk);
+				});
 			}
 		}
 
-		return T_OK;
+		return likely(!ss_sock_is_closed(sk)) ? T_OK : sk->sk_err;
 	}
 
 fail:
@@ -2214,7 +2216,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 #define SCHED_REMOVE_NOT_EXCLUSIVE_STREAM(sched, stream)		\
 do {									\
 	if (!tfw_h2_stream_is_exclusive(stream)) {			\
-		parent = stream->sched.parent;				\
+		parent = stream->sched->parent;				\
 		tfw_h2_stream_sched_remove(sched, stream);		\
 	} else {							\
 		parent = NULL;						\
