@@ -5924,19 +5924,20 @@ Req_Method_1CharStep: __attribute__((cold))
 		__FSM_JMP(Req_UriAbsoluteForm);
 	}
 
-	__FSM_STATE(Req_UriRareFormsEnd, hot) {
+	__FSM_STATE(Req_UriRareFormsEnd, hot)
+	{
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
-			if (unlikely(req->method == TFW_HTTP_METH_OPTIONS)) {
+			if (req->method == TFW_HTTP_METH_OPTIONS)
 				req->uri_path = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
-			} else {
+			else
 				req->uri_path = slash;
-			}
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
+		TFW_PARSER_DROP(req_UriMarkEnd);
 	}
 
 	__FSM_STATE(Req_UriAbsoluteForm, cold) {
@@ -6037,7 +6038,8 @@ Req_Method_1CharStep: __attribute__((cold))
 		TFW_PARSER_DROP(Req_UriAuthorityIPv6);
 	}
 
-	__FSM_STATE(Req_UriAuthorityEnd, cold) {
+	__FSM_STATE(Req_UriAuthorityEnd, cold)
+	{
 		if (c == ':') {
 			/* Fixup host part using TFW_STR_VALUE flag. */
 			__msg_field_fixup(&req->host, p);
@@ -6048,13 +6050,17 @@ Req_Method_1CharStep: __attribute__((cold))
 		/* Authority End */
 		__msg_field_finish(&req->host, p);
 		T_DBG3("host len = %i\n", (int)req->host.len);
+
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
-			/* Absolute URI without path -> set uri_path = "/" */
-			req->uri_path = slash;
+			if (req->method == TFW_HTTP_METH_OPTIONS)
+				req->uri_path = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
+			else
+				req->uri_path = slash;
+
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriAuthorityEnd);
@@ -6083,14 +6089,17 @@ Req_Method_1CharStep: __attribute__((cold))
 		}
 	}
 
-	__FSM_STATE(Req_UriPortEnd, cold) {
+	__FSM_STATE(Req_UriPortEnd, cold)
+	{
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
-			/* Absolute URI without path → set uri_path = "/" */
-			req->uri_path = slash;
+			if (req->method == TFW_HTTP_METH_OPTIONS)
+				req->uri_path = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
+			else
+				req->uri_path = slash;
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriPortEnd);
