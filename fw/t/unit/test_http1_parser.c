@@ -227,7 +227,7 @@ TEST(http1_parser, parses_req_uri)
 	FOR_REQ("OPTIONS http://" req_host " HTTP/1.1\r\n\r\n") {	\
 		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);		\
 		EXPECT_TFWSTR_EQ(&req->host, req_host);			\
-		EXPECT_TFWSTR_EQ(&req->uri_path, "/");			\
+		EXPECT_TFWSTR_EQ(&req->uri_path, "*");			\
 	}
 
 	/*
@@ -304,6 +304,9 @@ TEST(http1_parser, parses_req_uri)
 
 	EXPECT_BLOCK_REQ("GET http://tempesta-tech.com: HTTP/1.1\r\n"
 			 "Host: localhost\r\n\r\n");
+
+	EXPECT_BLOCK_REQ("GET http://example.com?foo=1 HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("GET http://example.com:8080?foo=1 HTTP/1.1\r\n\r\n");
 
 #undef TEST_FULL_REQ
 #undef TEST_URI_PATH
