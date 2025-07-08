@@ -447,6 +447,12 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 }
 
 int
+frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
+{
+	return T_OK;
+}
+
+int
 frang_sticky_cookie_handler(TfwHttpReq *req)
 {
 	return T_OK;
