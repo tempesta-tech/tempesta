@@ -1671,6 +1671,35 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 
 }
 
+int
+frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
+{
+	TfwClient *cli = (TfwClient *)conn->peer;
+
+	if (tfw_cli_hard_limit
+	    && atomic_read(&cli->mem) > tfw_cli_hard_limit)
+	{
+		if (block_if_exceeded) {
+			TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+			if (WARN_ON_ONCE(!dflt_vh))
+				return T_BLOCK;
+
+			if (dflt_vh->frang_gconf->ip_block) {
+				unsigned int duration =
+					dflt_vh->frang_gconf->ip_block_duration;
+
+				tfw_filter_block_ip(cli, duration);
+			}
+			tfw_vhost_put(dflt_vh);
+		}
+		return T_BLOCK;
+	}
+
+	return 0;
+}
+
+
 static int
 frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
 			  unsigned int max_misses)
