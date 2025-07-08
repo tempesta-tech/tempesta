@@ -709,8 +709,10 @@ static void
 x509_get_current_time(ttls_x509_time *now)
 {
 	struct tm t;
+	struct timespec64 ts;
 
-	time64_to_tm(tfw_current_timestamp(), 0, &t);
+	tfw_current_timestamp_real(&ts);
+	time64_to_tm(ts.tv_sec, 0, &t);
 
 	now->year = t.tm_year + 1900;
 	now->mon  = t.tm_mon  + 1;

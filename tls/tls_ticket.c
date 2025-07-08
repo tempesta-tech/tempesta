@@ -357,7 +357,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	}
 
 	timer_setup(&tcfg->timer, ttls_ticket_rotate_keys, 0);
-	tfw_current_timestamp_ts64(&ts);
+	tfw_current_timestamp_real(&ts);
 	secs = tcfg->lifetime - (ts.tv_sec % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 
