@@ -169,7 +169,7 @@ typedef struct tfw_conn_t {
  *		  timestamp, low 16 bits are count of misses;
  *
  */
-typedef struct {
+typedef struct tfw_cli_conn_t {
 	TFW_CONN_COMMON;
 	struct list_head	seq_queue;
 	spinlock_t		seq_qlock;
