@@ -6448,6 +6448,15 @@ next_msg:
 	}
 	ss_skb_set_owner(skb, conn);
 
+	r = frang_client_mem_limit((TfwCliConn *)conn, false);
+	if (unlikely(r)) {
+		BUG_ON(r != T_BLOCK);
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		return tfw_http_req_parse_block(req, 403,
+				"parsed request has been filtered out",
+				HTTP2_ECODE_PROTO);
+	}
+
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
@@ -6978,6 +6987,18 @@ out:
 	tfw_http_req_zap_error(&eq);
 }
 
+static inline int
+tfw_http_resp_filtout(TfwHttpMsg *hmresp)
+{
+	TfwHttpReq *req = hmresp->req;
+
+	tfw_http_popreq(hmresp, false);
+	TFW_INC_STAT_BH(serv.msgs_filtout);
+	/* The response is freed by tfw_http_req_block(). */
+	return tfw_http_req_block(req, 403, "response blocked: filtered out",
+				  HTTP2_ECODE_PROTO);
+}
+
 /*
  * Post-process the response. Pass it to modules registered with GFSM
  * for further processing. Finish the request/response exchange properly
@@ -6987,7 +7008,6 @@ static int
 tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 {
 	int r;
-	TfwHttpReq *req = hmresp->req;
 
 	BUG_ON(!hmresp->conn);
 
@@ -7007,11 +7027,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 	BUG_ON(r != T_BLOCK);
 
 error:
-	tfw_http_popreq(hmresp, false);
-	TFW_INC_STAT_BH(serv.msgs_filtout);
-	/* The response is freed by tfw_http_req_block(). */
-	return tfw_http_req_block(req, 403, "response blocked: filtered out",
-				  HTTP2_ECODE_PROTO);
+	return tfw_http_resp_filtout(hmresp);
 }
 
 /*
@@ -7279,6 +7295,12 @@ next_msg:
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
 	if (likely(!test_bit(TFW_HTTP_B_HMONITOR, hmresp->req->flags)))
 		ss_skb_set_owner(skb, cli_conn);
+
+	r = frang_client_mem_limit(cli_conn, false);
+	if (unlikely(r)) {
+		BUG_ON(r != T_BLOCK);
+		return tfw_http_resp_filtout(hmresp);
+	}
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
