@@ -717,6 +717,11 @@ tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!tfw_cli_hard_limit) {
 		tfw_cli_hard_limit = (tfw_cli_soft_limit < U64_MAX / 2) ?
 			tfw_cli_soft_limit * 2 : U64_MAX;
+	} else if (tfw_cli_hard_limit < tfw_cli_soft_limit) {
+		T_ERR_NL("Invalid 'client_mem' value: hard limit (%llu) is"
+			 " greater then soft (%llu)", tfw_cli_hard_limit,
+			 tfw_cli_soft_limit);
+		return -EINVAL;
 	}
 
 	return 0;
