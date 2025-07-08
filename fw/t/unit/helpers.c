@@ -33,7 +33,6 @@
  */
 #include "helpers.h"
 #include "http_msg.h"
-#include "helpers.h"
 
 #include "pool.c"
 #include "apm.h"
@@ -437,6 +436,12 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 
 int
 frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
+{
+	return T_OK;
+}
+
+int
+frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	return T_OK;
 }
