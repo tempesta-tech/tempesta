@@ -69,7 +69,7 @@
 #include "connection.h"
 
 #define SCHED_PARENT_STREAM(sched, dep)			\
-	(dep != &sched->root ? container_of(dep, TfwStream, sched)->id : 0)
+	(dep != &sched->root ? dep->owner->id : 0)
 
 static inline void
 tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
@@ -85,8 +85,8 @@ tfw_h2_stream_sched_spin_lock_assert(TfwStreamSched *sched)
 }
 
 static void
-tfw_h2_stream_sched_insert_per_weight(struct list_head *head,
-				      TfwStream *stream)
+tfw_h2_stream_sched_insert_by_weight(struct list_head *head,
+				     TfwStream *stream)
 {
 	TfwStream *pos = NULL;
 	int found = false;
@@ -123,7 +123,7 @@ tfw_h2_stream_sched_insert_active(TfwStream *stream)
 	BUG_ON(stream->sched_state == HTTP2_STREAM_SCHED_STATE_ACTIVE);
 
 	list_del_init(&stream->sched_node);
-	tfw_h2_stream_sched_insert_per_weight(&parent->active, stream);
+	tfw_h2_stream_sched_insert_by_weight(&parent->active, stream);
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_ACTIVE;
 }
 
@@ -547,9 +547,6 @@ tfw_h2_sched_get_most_prio_stream(TfwStreamSched *sched)
 		TfwStream *stream = list_last_entry(node, TfwStream, sched_node);
 
 		if (tfw_h2_stream_is_active(stream)) {
-			T_DBG4("Stream with id (%u) removed from dependency"
-			       " tree for making frames, ctx %px\n",
-			       stream->id, ctx);
 			return stream;
 		} else if (stream->sched->active_cnt) {
 			node = &stream->sched->active;
