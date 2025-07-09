@@ -728,7 +728,7 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
-	r = tfw_msg_iter_setup(&it, tfw_http_msg_cli_conn((TfwHttpMsg *)resp),
+	r = tfw_msg_iter_setup(&it, tfw_http_msg_client((TfwHttpMsg *)resp),
 			       &resp->msg.skb_head, msg->len);
 	if (unlikely(r))
 		return r;
@@ -4343,7 +4343,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, tfw_http_msg_cli_conn((TfwHttpMsg *)req),
+	r = tfw_msg_iter_setup(&it, tfw_http_msg_client((TfwHttpMsg *)req),
 			       &new_head, h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
@@ -6549,7 +6549,12 @@ next_msg:
 		actor = tfw_http_parse_req;
 		req->tfh.version = TFW_HTTP_TFH_HTTP_REQ;
 	}
-	ss_skb_set_owner(skb, conn);
+	/*
+	 * For tls connections we already set `skb->owner` before
+	 * tls decryption.
+	 */
+	if (!skb->sk)
+		ss_skb_set_owner(skb, conn->peer);
 
 	r = frang_client_mem_limit((TfwCliConn *)conn, false);
 	if (unlikely(r)) {
@@ -7402,15 +7407,15 @@ next_msg:
 		else
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
 					     hmresp->req->flags);
-		ss_skb_set_owner(skb, cli_conn);
+		ss_skb_set_owner(skb, cli_conn->peer);
+
+		r = frang_client_mem_limit(cli_conn, false);
+		if (unlikely(r)) {
+			BUG_ON(r != T_BLOCK);
+			return tfw_http_resp_filtout(hmresp);
+		}
 	} else {
 		conn_stop = false;
-	}
-
-	r = frang_client_mem_limit(cli_conn, false);
-	if (unlikely(r)) {
-		BUG_ON(r != T_BLOCK);
-		return tfw_http_resp_filtout(hmresp);
 	}
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
