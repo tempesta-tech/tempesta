@@ -18,11 +18,11 @@
 
 CXX := g++
 CXXFLAGS := -std=c++23 -Wall -Wextra -g -O0
-CXXFLAGS += $(shell pkgconf --cflags gtest gtest_main)
+CXXFLAGS += -I/usr/include
 CXXFLAGS += $(shell pkgconf --cflags spdlog)
 CXXFLAGS += -I.. -I../..
 
-LDFLAGS := $(shell pkgconf --libs gtest gtest_main)
+LDFLAGS := -lgtest -lgtest_main -L/usr/lib/x86_64-linux-gnu
 LDFLAGS += $(shell pkgconf --libs spdlog)
 LDFLAGS += -lboost_filesystem -lboost_system
 LDFLAGS += -pthread
