@@ -286,7 +286,7 @@ try {
 		TfwClickhouse clickhouse(ch_cfg.host, ch_cfg.table_name,
 					 ch_cfg.user ? *ch_cfg.user : "",
 					 ch_cfg.password ? *ch_cfg.password : "",
-					 make_block());
+					 make_block(), ch_cfg.max_events, ch_cfg.max_wait);
 		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 		if (!affinity_is_set) {
 			CPU_ZERO(&cpuset);

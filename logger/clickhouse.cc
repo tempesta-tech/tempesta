@@ -25,15 +25,6 @@
 
 #include "clickhouse.hh"
 
-constexpr std::chrono::milliseconds max_wait(100);
-constexpr size_t max_events = 1000;
-constexpr char table_creation_querry[] = "CREATE TABLE IF NOT EXISTS "
-	"access_log (timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
-	"version UInt8, status UInt16, response_content_length UInt32, "
-	"response_time UInt32, vhost String, uri String, referer String, "
-	"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64,"
-	"PRIMARY KEY(timestamp));";
-
 static auto
 now_ms()
 {
@@ -43,8 +34,10 @@ now_ms()
 
 TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_name,
 			     const std::string &user, const std::string &password,
-			     clickhouse::Block block)
-	: block_(block), last_time_(now_ms()), table_name_(table_name)
+			     clickhouse::Block block, size_t max_events,
+			     std::chrono::milliseconds max_wait)
+	: block_(block), last_time_(now_ms()), table_name_(table_name),
+	  max_events_(max_events), max_wait_(max_wait)
 {
 	auto opts = clickhouse::ClientOptions();
 
@@ -57,7 +50,14 @@ TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_n
 
 	client_ = std::make_unique<clickhouse::Client>(opts);
 
-	client_->Execute(table_creation_querry);
+	std::string table_creation_query = "CREATE TABLE IF NOT EXISTS " + table_name_ + 
+		" (timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
+		"version UInt8, status UInt16, response_content_length UInt32, "
+		"response_time UInt32, vhost String, uri String, referer String, "
+		"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64) "
+		"ENGINE = MergeTree() ORDER BY timestamp";
+	
+	client_->Execute(table_creation_query);
 }
 
 clickhouse::Block *
@@ -72,8 +72,8 @@ TfwClickhouse::commit()
 	auto now = now_ms();
 
 	block_.RefreshRowCount();
-	if ((now - last_time_ > max_wait && block_.GetRowCount() > 0)
-	    || block_.GetRowCount() > max_events) {
+	if ((now - last_time_ > max_wait_ && block_.GetRowCount() > 0)
+	    || block_.GetRowCount() > max_events_) {
 
 		client_->Insert(table_name_, block_);
 

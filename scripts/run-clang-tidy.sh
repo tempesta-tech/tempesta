@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CLICKHOUSE_INCLUDE="-I$(pwd)/utils/clickhouse-cpp"
+CLICKHOUSE_INCLUDE="-I$(pwd)/logger/clickhouse-cpp"
 
 detect_clang_tidy() {
     if command -v "clang-tidy" &> /dev/null; then
@@ -30,7 +30,7 @@ main() {
     if [ -n "$1" ]; then
         CPP_FILES="$1"
     else
-        CPP_FILES=$(find utils -name "*.cc" -o -name "*.cpp" -o -name "*.hh" -o -name "*.hpp" -o -name "*.h" \
+        CPP_FILES=$(find logger -name "*.cc" -o -name "*.cpp" -o -name "*.hh" -o -name "*.hpp" -o -name "*.h" \
     |   grep -v "clickhouse-cpp" \
     |   xargs grep -L "clickhouse/")
     fi
