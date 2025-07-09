@@ -598,11 +598,13 @@ tfw_http_msg_is_req(TfwHttpMsg *msg)
 	return msg->conn && TFW_CONN_TYPE(msg->conn) & Conn_Clnt;
 }
 
-static inline TfwCliConn *
-tfw_http_msg_cli_conn(TfwHttpMsg *msg)
+static inline TfwClient *
+tfw_http_msg_client(TfwHttpMsg *msg)
 {
-	return (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
+	TfwCliConn *conn = (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
 		msg->conn : msg->pair->conn);
+
+	return (TfwClient *)conn->peer;
 }
 
 static inline int

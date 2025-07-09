@@ -108,7 +108,7 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 	if (!skb)
 		return NULL;
 
-	ss_skb_set_owner(skb, tfw_http_msg_cli_conn((TfwHttpMsg*)hmresp));
+	ss_skb_set_owner(skb, tfw_http_msg_client((TfwHttpMsg*)hmresp));
 	skb->next = skb->prev = skb;
 	it = &hmresp->iter;
 	hmresp->msg.skb_head = it->skb = it->skb_head = skb;
