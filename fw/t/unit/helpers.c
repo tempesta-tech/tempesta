@@ -68,7 +68,7 @@ test_req_alloc(size_t data_len)
 	hmreq->conn = &conn_req;
 	hmreq->stream = &conn_req.stream;
 
-	ret = tfw_msg_iter_setup(&it, tfw_http_msg_cli_conn(hmreq),
+	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client(hmreq),
 				 &hmreq->msg.skb_head, data_len);
 	BUG_ON(ret);
 
@@ -94,7 +94,7 @@ test_resp_alloc(size_t data_len, TfwHttpReq *req)
 	int ret;
 	TfwHttpMsg *hmresp = (TfwHttpMsg *)test_resp_alloc_no_data(req);
 
-	ret = tfw_msg_iter_setup(&it, tfw_http_msg_cli_conn(hmresp),
+	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client(hmresp),
 				 &hmresp->msg.skb_head, data_len);
 	BUG_ON(ret);
 
