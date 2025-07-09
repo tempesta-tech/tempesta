@@ -2,11 +2,27 @@
 set -euo pipefail
 
 year=$(date +%Y)
-files=$(git diff --cached --name-only)
+files=$(git diff --cached --name-only --diff-filter=ACM)
 
 # check code style
 git diff --cached --diff-filter=ACM -- '*.c' '*.h' | \
 	./scripts/checkpatch.pl --no-tree --ignore ELSE_AFTER_BRACE,SPDX_LICENSE_TAG -
+
+# check C++ code formatting
+if command -v clang-format >/dev/null 2>&1 || ls /usr/bin/clang-format-* >/dev/null 2>&1; then
+	CLANG_FORMAT=$(command -v clang-format 2>/dev/null || ls /usr/bin/clang-format-* 2>/dev/null | head -1)
+	
+	# Get staged C++ files content and check formatting
+	for file in $(git diff --cached --name-only --diff-filter=ACM -- '*.cc' '*.hh'); do
+		if [[ "$file" != *"clickhouse-cpp"* ]] && [ -f "$file" ]; then
+			if ! git show ":$file" | $CLANG_FORMAT --style=file --dry-run --Werror; then
+				echo "C++ formatting issues found in $file. Fix with:"
+				echo "  clang-format -i --style=file $file"
+				exit 1
+			fi
+		fi
+	done
+fi
 
 # update copyrights
 perl -i -pe "s/Copyright \(C\) (\d{4})(-\d{4})? Tempesta/Copyright \(C\) \$1-$year Tempesta/g" $files

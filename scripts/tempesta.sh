@@ -42,6 +42,12 @@ logger_path=${LOGGER_PATH:="$TFW_ROOT/logger"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
 tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"
+tfw_netconsole_host="$TFW_NETCONSOLE_HOST"
+tfw_netconsole_port="$TFW_NETCONSOLE_PORT"
+tfw_netconsole_ni="$TFW_NETCONSOLE_NI"
+tfw_troubleshooting_host="$TFW_TROUBLESHOOTING_HOST"
+tfw_troubleshooting_port="$TFW_TROUBLESHOOTING_PORT"
+tfw_troubleshooting_mac="$TFW_TROUBLESHOOTING_MAC"
 
 tfw_logger_should_start=0
 tfw_logger_pid_path="/var/run/tfw_logger.pid"
@@ -463,6 +469,22 @@ validate_num_of_opt()
 	fi
 }
 
+validate_system_configuration()
+{
+  python3 "$script_path/troubleshooting/system_verification.py"
+}
+
+validate_system_configuration_and_run_netconsole()
+{
+  python3 "$script_path/troubleshooting/system_verification.py" \
+   -th "$tfw_troubleshooting_host" \
+   -tp "$tfw_troubleshooting_port" \
+   -tm "$tfw_troubleshooting_mac" \
+   -nh "$tfw_netconsole_host" \
+   -np "$tfw_netconsole_port" \
+   -nni "$tfw_netconsole_ni"
+}
+
 args=$(getopt -o "d:" -a -l "$LONG_OPTS" -- "$@")
 eval set -- "${args}"
 while :; do
@@ -481,6 +503,7 @@ while :; do
 		# User CLI.
 		--start)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration_and_run_netconsole
 			start
 			exit
 			;;
@@ -491,12 +514,14 @@ while :; do
 			;;
 		--restart)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration
 			stop
 			start
 			exit
 			;;
 		--reload)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration
 			reload
 			exit
 			;;

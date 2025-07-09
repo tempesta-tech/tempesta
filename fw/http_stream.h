@@ -168,14 +168,14 @@ typedef enum {
  * @node	- entry in per-connection storage of streams (red-black tree);
  * @sched_node	- entry in per-connection priority storage of active streams;
  * sched_state	- state of stream in the per-connection scheduler;
+ * @id		- stream ID;
  * @sched	- scheduler for child streams;
  * @hcl_node	- entry in queue of half-closed or closed streams;
- * @id		- stream ID;
  * @state	- stream's current state;
+ * @weight	- stream's priority weight;
  * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
  * @loc_wnd	- stream's current flow controlled window;
  * @rem_wnd	- streams's current flow controlled window for remote client;
- * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
  * @parser	- the state of message processing;
  * @queue	- queue of half-closed or closed streams or NULL;
@@ -185,14 +185,14 @@ struct tfw_http_stream_t {
 	struct rb_node		node;
 	struct eb64_node	sched_node;
 	TfwStreamSchedState	sched_state;
-	TfwStreamSchedEntry	sched;
-	struct list_head	hcl_node;
 	unsigned int		id;
-	int			state;
+	TfwStreamSchedEntry	*sched;
+	struct list_head	hcl_node;
+	short int		state;
+	unsigned short		weight;
 	spinlock_t		st_lock;
 	long int		loc_wnd;
 	long int		rem_wnd;
-	unsigned short		weight;
 	TfwMsg			*msg;
 	TfwHttpParser		parser;
 	TfwStreamQueue		*queue;
@@ -212,7 +212,7 @@ TfwStreamFsmRes tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream,
 				  unsigned char type, unsigned char flags,
 				  bool send, TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
-void tfw_h2_delete_stream(TfwStream *stream);
+void tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream);
 int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 				unsigned long h_len, unsigned long b_len);
 int tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len);
@@ -380,6 +380,16 @@ static inline bool
 tfw_h2_stream_has_default_deficit(TfwStream *stream)
 {
 	return stream->sched_node.key == tfw_h2_stream_default_deficit(stream);
+}
+
+static inline bool
+tfw_h2_stream_is_exclusive(TfwStream *stream)
+{
+	TfwStreamSchedEntry *parent = stream->sched->parent;
+        /* Should be called only for active schedulers. */
+        BUG_ON(eb_is_empty(&parent->active));
+        return (eb_first(&parent->active) == eb_last(&parent->active)) &&
+                eb_is_empty(&parent->blocked);
 }
 
 #endif /* __HTTP_STREAM__ */
