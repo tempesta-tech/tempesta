@@ -1729,10 +1729,10 @@ ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 static void
 ss_skb_destructor(struct sk_buff *skb)
 {
-	TfwCliConn *conn = (TfwCliConn *)skb->sk;
+	TfwClient *cli = (TfwClient *)skb->sk;
 
-	tfw_cli_conn_adjust_mem(conn, -skb->truesize);
-	tfw_connection_put((TfwConn *)conn);
+	tfw_client_adjust_mem(cli, -skb->truesize);
+	tfw_client_put_light(cli);
 }
 
 void
@@ -1750,22 +1750,22 @@ ss_skb_set_owner(struct sk_buff *skb, void *owner)
 		 */
 		BUG_ON(skb->sk);
 
-		tfw_connection_get((TfwConn *)owner);
+		tfw_client_get_light((TfwClient *)owner);
 		skb->sk = owner;
 		skb->destructor = ss_skb_destructor;
-		tfw_cli_conn_adjust_mem((TfwCliConn *)owner, skb->truesize);
+		tfw_client_adjust_mem((TfwClient *)owner, skb->truesize);
 	}
 }
 
 void
 ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
 {
-	TfwCliConn *conn = (TfwCliConn *)skb->sk;
+	TfwClient *cli = (TfwClient *)skb->sk;
 
 	/*
-	 * conn can be zero here when this function is called
+	 * `cli` can be zero here when this function is called
 	 * from `ss_skb_split` for SKBs which are already orphaned
 	 */
-	if (conn)
-		tfw_cli_conn_adjust_mem(conn, delta);
+	if (cli)
+		tfw_client_adjust_mem(cli, delta);
 }
