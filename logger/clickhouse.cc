@@ -19,9 +19,11 @@
  */
 
 #include <iostream>
+#include <string_view>
 
 #include <clickhouse/base/socket.h>
 #include <clickhouse/client.h>
+#include <fmt/format.h>
 
 #include "clickhouse.hh"
 
@@ -31,6 +33,14 @@ now_ms()
 	return std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::system_clock::now().time_since_epoch());
 }
+
+constexpr std::string_view table_creation_query_template = 
+	"CREATE TABLE IF NOT EXISTS {} "
+	"(timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
+	"version UInt8, status UInt16, response_content_length UInt32, "
+	"response_time UInt32, vhost String, uri String, referer String, "
+	"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64) "
+	"ENGINE = MergeTree() ORDER BY timestamp";
 
 TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_name,
 			     const std::string &user, const std::string &password,
@@ -50,13 +60,8 @@ TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_n
 
 	client_ = std::make_unique<clickhouse::Client>(opts);
 
-	std::string table_creation_query = "CREATE TABLE IF NOT EXISTS " + table_name_ + 
-		" (timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
-		"version UInt8, status UInt16, response_content_length UInt32, "
-		"response_time UInt32, vhost String, uri String, referer String, "
-		"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64) "
-		"ENGINE = MergeTree() ORDER BY timestamp";
-	
+	std::string table_creation_query = 
+		fmt::format(table_creation_query_template, table_name_);
 	client_->Execute(table_creation_query);
 }
 
