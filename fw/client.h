@@ -32,12 +32,14 @@
  *			  no any classification logic is used;
  * list_head		- entry in the lru list;
  * @mem			- memory used by current client;
+ * @refcnt		- refcount for light versions of get/put client;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
 	atomic_t		mem;
+	atomic_t		refcnt;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -54,9 +56,29 @@ void tfw_cli_abort_all(void);
 void tfw_tls_connection_lost(TfwConn *conn);
 
 static inline void
-tfw_cli_conn_adjust_mem(TfwCliConn *cli_conn, int delta)
+tfw_client_adjust_mem(TfwClient *cli, int delta)
 {
-	atomic_add(delta, &((TfwClient *)cli_conn->peer)->mem);
+	atomic_add(delta, &cli->mem);
+}
+
+static inline void
+tfw_client_get_light(TfwClient *cli)
+{
+	int rc;
+
+	rc = atomic_inc_return(&cli->refcnt);
+	if (rc == 1)
+		tfw_client_obtain(cli->addr, NULL, NULL, NULL);
+}
+
+static inline void
+tfw_client_put_light(TfwClient *cli)
+{
+	int rc;
+
+	rc = atomic_dec_return(&cli->refcnt);
+	if (!rc)
+		tfw_client_put(cli);
 }
 
 #endif /* __TFW_CLIENT_H__ */
