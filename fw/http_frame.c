@@ -2055,7 +2055,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		r = ss_skb_get_room_w_frag(stream->xmit.skb_head,
 					   stream->xmit.skb_head,
 					   data, FRAME_HEADER_SIZE,
-					    &dst, &_);
+					   &dst, &_);
 		if (unlikely(r))
 			return r;
 
@@ -2139,15 +2139,16 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned long min_to_send = tfw_h2_calc_min_to_send(ctx, *snd_wnd);
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
-#define ADJUST_BLOCKED_STREAMS_AND_EXIT(len)				\
+#define ADJUST_BLOCKED_STREAMS_AND_EXIT(len, type)			\
 do {									\
 	/*								\
 	 * If Tempesta FW stop to make frames, because of exceeded	\
 	 * stream->rem_wnd, mark such stream as blocked.		\
 	 */								\
-	ctx->sched.blocked_streams +=					\
-		(stream->rem_wnd <= len && !stream->xmit.is_blocked);	\
-	stream->xmit.is_blocked = stream->rem_wnd <= len; 		\
+	BUG_ON(stream->xmit.is_blocked);				\
+	stream->xmit.is_blocked =					\
+		(type == HTTP2_DATA && stream->rem_wnd <= len);		\
+	ctx->sched.blocked_streams += stream->xmit.is_blocked;		\
 	*stop = true;							\
 	T_FSM_EXIT();							\
 } while(0)
@@ -2171,7 +2172,7 @@ do {									\
 	 * use it as a minimum bytes to send.				\
 	 */								\
 	if (frame_length < min_len)					\
-		ADJUST_BLOCKED_STREAMS_AND_EXIT(min_len);		\
+		ADJUST_BLOCKED_STREAMS_AND_EXIT(min_len, type);		\
 	frame_type = type;						\
 } while(0)
 
@@ -2238,7 +2239,7 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
 		if (unlikely(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0))
-			ADJUST_BLOCKED_STREAMS_AND_EXIT(0);
+			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_DATA,
 						     stream->xmit.b_len);
@@ -2417,7 +2418,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
 		 * active stream.
 		 */
 		BUG_ON(!stream);
-		stream_is_exclusive =  tfw_h2_stream_is_exclusive(stream);
+		stream_is_exclusive = tfw_h2_stream_is_exclusive(stream);
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
 					       stream_is_exclusive,
 					       &snd_wnd, &stop);
