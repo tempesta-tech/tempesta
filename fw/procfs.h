@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,6 +108,9 @@ typedef struct {
 } TfwPerfStat;
 
 DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
+
+int tfw_procfs_init(void);
+void tfw_procfs_exit(void);
 
 /*
  * this_cpu_inc/add() macros are implemented via "do {} while(0)" code
