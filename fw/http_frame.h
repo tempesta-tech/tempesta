@@ -153,7 +153,7 @@ typedef enum {
 #define MAX_WND_SIZE			((1U << 31) - 1)
 #define DEF_WND_SIZE			((1U << 16) - 1)
 
-typedef struct tfw_conn_t TfwConn;
+typedef struct tfw_h2_conn_t TfwH2Conn;
 
 int tfw_h2_frame_process(TfwConn *c, struct sk_buff *skb,
 			 struct sk_buff **next);

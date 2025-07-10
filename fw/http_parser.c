@@ -6691,6 +6691,13 @@ do {									\
 	__FSM_H2_DROP(st);						\
 } while (0)
 
+#define __SET_H2_METHOD(mid)						\
+do {									\
+	parser->cstate.is_set = 1;					\
+	parser->cstate.method = mid;					\
+	h2_set_method(req, &parser->cstate);				\
+} while(0)
+
 #define __FSM_H2_METHOD_MOVE(st_curr, n, st_next)			\
 do {									\
 	p += n;								\
@@ -6699,7 +6706,7 @@ do {									\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(st_next);			\
-		req->method = _TFW_HTTP_METH_UNKNOWN;			\
+		__SET_H2_METHOD(_TFW_HTTP_METH_UNKNOWN);		\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
 	});								\
 	goto st_next;							\
@@ -6713,7 +6720,7 @@ do {									\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(Req_MethodUnknown);		\
-		req->method = mid;					\
+		__SET_H2_METHOD(mid);					\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
 	});								\
 	goto Req_MethodUnknown;						\
@@ -7080,6 +7087,13 @@ do {										\
 						curr_st, next_st)		\
 	H2_TRY_STR_FULL_OR_PART_MATCH_FIN_LAMBDA_fixup(				\
 		str, fld, {}, fin1, fin2, curr_st, next_st, 0)
+
+void
+h2_set_method(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
+{
+	if (cstate->is_set)
+		req->method = cstate->method;
+}
 
 /* Note: this method isn't called from __h2_req_parse_authority */
 void
@@ -10889,7 +10903,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
 			if (unlikely(!fin))
 				__FSM_H2_POSTPONE(Req_MethodUnknown);
-			req->method = _TFW_HTTP_METH_UNKNOWN;
+			__SET_H2_METHOD(_TFW_HTTP_METH_UNKNOWN);
 			__FSM_H2_HDR_COMPLETE(Req_MethodUnknown);
 		}
 		__FSM_H2_DROP(Req_MethodUnknown);
@@ -11109,86 +11123,6 @@ tfw_idx_hdr_parse_host_port(TfwHttpReq *req, TfwStr *hdr)
 		__parse_ulong_ws(p_chunk.data, p_chunk.len, &host_port, USHRT_MAX);
 		T_DBG3("%s: got port: %lu\n", __func__, host_port);
 		req->host_port = host_port;
-	}
-}
-
-enum {
-	TFW_HTTP_MLEN_3C = 3,
-	TFW_HTTP_MLEN_4C,
-	TFW_HTTP_MLEN_5C,
-	TFW_HTTP_MLEN_6C,
-	TFW_HTTP_MLEN_7C,
-	TFW_HTTP_MLEN_8C,
-	TFW_HTTP_MLEN_9C,
-};
-#define H2_METH_HDR_VLEN    7
-
-/**
- * Obtain HTTP method id from TfwStr chunked string.
- * Used exclusively by HPACK related code.
- */
-unsigned char
-tfw_http_meth_str2id(const TfwStr *m_hdr)
-{
-	unsigned long mv_len;
-	unsigned char *p;
-	const TfwStr *chunk;
-
-	BUG_ON(TFW_STR_PLAIN(m_hdr));
-
-	mv_len = m_hdr->len - H2_METH_HDR_VLEN;
-	/* ':method' name should always be in a single chunk */
-	chunk = TFW_STR_CHUNK(m_hdr, 1);
-	p = chunk->data;
-
-	switch (mv_len) {
-	case TFW_HTTP_MLEN_3C:
-		return *p == 'P' ? TFW_HTTP_METH_PUT : TFW_HTTP_METH_GET;
-	case TFW_HTTP_MLEN_4C:
-		switch (*p) {
-		case 'C':
-			return TFW_HTTP_METH_COPY;
-		case 'H':
-			return TFW_HTTP_METH_HEAD;
-		case 'L':
-			return TFW_HTTP_METH_LOCK;
-		case 'M':
-			return TFW_HTTP_METH_MOVE;
-		case 'P':
-			return TFW_HTTP_METH_POST;
-		default:
-			return _TFW_HTTP_METH_UNKNOWN;
-		}
-	case TFW_HTTP_MLEN_5C:
-		switch (*p) {
-		case 'M':
-			return TFW_HTTP_METH_MKCOL;
-		case 'T':
-			return TFW_HTTP_METH_TRACE;
-		case 'P':
-			if (chunk->len == 1)
-				p = TFW_STR_CHUNK(m_hdr, 2)->data;
-			else
-				p++;
-
-			return *p  == 'A'
-				? TFW_HTTP_METH_PATCH
-				: TFW_HTTP_METH_PURGE;
-		default:
-			return _TFW_HTTP_METH_UNKNOWN;
-		}
-	case TFW_HTTP_MLEN_6C:
-		return *p == 'D' ? TFW_HTTP_METH_DELETE
-				 : TFW_HTTP_METH_UNLOCK;
-	case TFW_HTTP_MLEN_7C:
-		/* TODO: add CONNECT method */
-		return TFW_HTTP_METH_OPTIONS;
-	case TFW_HTTP_MLEN_8C:
-		return TFW_HTTP_METH_PROPFIND;
-	case TFW_HTTP_MLEN_9C:
-		return TFW_HTTP_METH_PROPPATCH;
-	default:
-		return _TFW_HTTP_METH_UNKNOWN;
 	}
 }
 

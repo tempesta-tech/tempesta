@@ -420,10 +420,27 @@ test_case_parse_prepare_http(char *str)
 }
 
 void
+test_case_alloc_h2(void)
+{
+	conn.h2 = tfw_h2_context_alloc();
+	BUG_ON(!conn.h2);
+}
+
+void
+test_case_cleanup_h2(void)
+{
+	BUG_ON(!conn.h2);
+
+	tfw_h2_context_free(conn.h2);
+	conn.h2 = NULL;
+}
+
+void
 test_case_parse_prepare_h2(void)
 {
-	tfw_h2_context_init(&conn.h2);
-	conn.h2.hdr.type = HTTP2_HEADERS;
+	BUG_ON(!conn.h2);
+	tfw_h2_context_init(conn.h2, &conn);
+	conn.h2->hdr.type = HTTP2_HEADERS;
 	tfw_h2_set_stream_state(&stream, HTTP2_STREAM_REM_HALF_CLOSED);
 }
 
@@ -487,13 +504,13 @@ do_split_and_parse(int type, int chunk_mode)
 		 */
 		static TfwH2Ctx	h2_origin;
 		if (chunk_size_index == 0)
-			h2_origin = conn.h2;
+			h2_origin = *conn.h2;
 		else
-			conn.h2 = h2_origin;
+			*(conn.h2) = h2_origin;
 
-		conn.h2.hpack.state = 0;
-		conn.h2.hpack.length = 0;
-		conn.h2.hpack.dec_tbl.wnd_update = true;
+		conn.h2->hpack.state = 0;
+		conn.h2->hpack.length = 0;
+		conn.h2->hpack.dec_tbl.wnd_update = true;
 
 		if (req)
 			test_req_free(req);

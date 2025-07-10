@@ -556,6 +556,8 @@ extern TfwStream stream;
 int set_sample_req(unsigned char *str);
 
 void test_case_parse_prepare_http(char *str);
+void test_case_alloc_h2(void);
+void test_case_cleanup_h2(void);
 void test_case_parse_prepare_h2(void);
 int do_split_and_parse(int type, int chunk_mode);
 

@@ -136,6 +136,8 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 static DEFINE_PER_CPU(SsCloseBacklog, close_backlog);
 static struct kmem_cache *ss_cbacklog_cache;
 
+static void ss_linkerror(struct sock *sk, int flags);
+
 static void
 ss_sk_incoming_cpu_update(struct sock *sk)
 {
@@ -494,12 +496,23 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * will be called later from `tcp_data_snd_check` when we receive
 	 * ack from the peer.
 	 */
-	if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
-		tcp_push_pending_frames(sk);
-	} else {
-		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF | TCP_NAGLE_PUSH,
-			 size);
-	}
+	SS_IN_USE_PROTECT({
+		if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+			tcp_push_pending_frames(sk);
+		} else {
+			tcp_push(sk, MSG_DONTWAIT, mss,
+				 TCP_NAGLE_OFF | TCP_NAGLE_PUSH, size);
+		}
+	});
+
+	/*
+	 * In case error occurs when we call `tcp_push_pending_frames` or
+	 * `tcp_push`, we just set socket state to TCP_CLOSE in
+	 * `tcp_tfw_handle_error` and it is Tempesta FW responsibilty
+	 * to drop connection and close socket.
+	 */
+	if (unlikely(sk->sk_state == TCP_CLOSE))
+		ss_linkerror(sk, 0);
 
 	return;
 
@@ -670,13 +683,12 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
 		/*
-		 * Set this flag to prevent calling `tcp_done` from
-		 * `tcp_send_fin` if error occurs to prevent double
-		 * free.
+		 * Prevent calling `tcp_done` from `tcp_send_fin` if error
+		 * occurs to prevent double free.
 		 */
-		sock_set_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
-		tcp_send_fin(sk);
-		sock_reset_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
+		SS_IN_USE_PROTECT({
+			tcp_send_fin(sk);
+		});
 	}
 
 adjudge_to_death:
@@ -1041,6 +1053,17 @@ ss_tcp_data_ready(struct sock *sk)
 		break;
 	default:
 		BUG();
+	}
+
+	/*
+	 * In case error occurs when we call `tcp_push_pending_frames` during
+	 * HTTP2 WINDOW_UPDATE frame processing, we just set socket state to
+	 * TCP_CLOSE in `tcp_tfw_handle_error` and it is Tempesta FW
+	 * responsibilty to drop connection and close socket.
+	 */
+	if (unlikely(sk->sk_state == TCP_CLOSE)) {
+		ss_linkerror(sk, 0);
+		return;
 	}
 
 	/*
@@ -1504,13 +1527,12 @@ static inline void
 ss_do_shutdown(struct sock *sk)
 {
 	/*
-	 * Set this flag to prevent calling `tcp_done` from
-	 * `tcp_send_fin` if error occurs to prevent double
-	 * free.
+	 * Prevent calling `tcp_done` from `tcp_shutdown` if error
+	 * occurs to prevent double free.
 	 */
-	sock_set_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
-	tcp_shutdown(sk, SEND_SHUTDOWN);
-	sock_reset_flag(sk, SOCK_TEMPESTA_IS_CLOSING);
+	SS_IN_USE_PROTECT({
+		tcp_shutdown(sk, SEND_SHUTDOWN);
+	});
 	if (unlikely(sk->sk_state == TCP_CLOSE))
 		ss_linkerror(sk, 0);
 	else

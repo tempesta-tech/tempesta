@@ -1,0 +1,60 @@
+BasedOnStyle: LLVM
+IndentWidth: 8
+TabWidth: 8
+UseTab: Always
+ColumnLimit: 80
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterEnum: false
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeLambdaBody: false
+  BeforeWhile: false
+RemoveBracesLLVM: true
+PointerAlignment: Right
+ReferenceAlignment: Right
+AlignAfterOpenBracket: Align
+BinPackArguments: true
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: true
+ContinuationIndentWidth: 0
+IndentWrappedFunctionNames: false
+AllowAllParametersOfDeclarationOnNextLine: true
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<fcntl\.h>|^<signal\.h>|^<stdio\.h>|^<unistd\.h>|^<sys/.*\.h>'
+    Priority: 1
+  - Regex: '^<[a-z_]+\.h>'
+    Priority: 2
+  - Regex: '^<[a-z_]+>|^<chrono>|^<cstring>|^<fstream>|^<iostream>|^<thread>'
+    Priority: 3
+  - Regex: '^<boost/.*>'
+    Priority: 4
+  - Regex: '^<clickhouse/.*>|^<spdlog/.*>'
+    Priority: 5
+  - Regex: '^".*"'
+    Priority: 6
+AllowShortBlocksOnASingleLine: Always
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+InsertBraces: false
+IndentCaseLabels: false
+AccessModifierOffset: -8
+Standard: Latest
+AlwaysBreakAfterReturnType: All
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+AlignOperands: Align
+AlignConsecutiveDeclarations: false
+AlignConsecutiveAssignments: false
+AlignConsecutiveMacros: false
+DerivePointerAlignment: false
