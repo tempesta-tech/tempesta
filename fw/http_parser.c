@@ -97,6 +97,7 @@ do {									\
 	__msg_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
 static const TfwStr slash = TFW_STR_F_STRING("/", TFW_STR_COMPLETE);
+static const TfwStr star = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
 
 /*
  * The macro is frequently used for headers opened by tfw_http_msg_hdr_open().
@@ -5094,7 +5095,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
-		__FSM_JMP(Req_UriRareForms);
+		__FSM_JMP(Req_UriAsteriskForm);
 	}
 
 	/*
@@ -5914,30 +5915,22 @@ Req_Method_1CharStep: __attribute__((cold))
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
-	__FSM_STATE(Req_UriRareForms, cold) {
+	__FSM_STATE(Req_UriAsteriskForm, cold) {
 		/* There is also authority form as in RFC7230#section-5.3.3,
 		 * but it only used with CONNECT that is not supported */
 		/* Asterisk form as in RFC7230#section-5.3.4 */
 		if (req->method == TFW_HTTP_METH_OPTIONS && c == '*')
-			__FSM_MOVE_nofixup(Req_UriRareFormsEnd);
+			__FSM_MOVE_nofixup(Req_UriAsteriskFormEnd);
 		/* Absolute form as in RFC7230#section-5.3.2 */
 		__FSM_JMP(Req_UriAbsoluteForm);
 	}
 
-	__FSM_STATE(Req_UriRareFormsEnd, hot)
-	{
-		if (likely(c == '/')) {
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
-		}
-		else if (c == ' ') {
-			if (req->method == TFW_HTTP_METH_OPTIONS)
-				req->uri_path = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
-			else
-				req->uri_path = slash;
+	__FSM_STATE(Req_UriAsteriskFormEnd, hot) {
+		if (c == ' ') {
+			req->uri_path = star;
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_DROP(req_UriMarkEnd);
+		TFW_PARSER_DROP(Req_UriAsteriskFormEnd);
 	}
 
 	__FSM_STATE(Req_UriAbsoluteForm, cold) {
@@ -6038,8 +6031,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		TFW_PARSER_DROP(Req_UriAuthorityIPv6);
 	}
 
-	__FSM_STATE(Req_UriAuthorityEnd, cold)
-	{
+	__FSM_STATE(Req_UriAuthorityEnd, cold) {
 		if (c == ':') {
 			/* Fixup host part using TFW_STR_VALUE flag. */
 			__msg_field_fixup(&req->host, p);
@@ -6057,7 +6049,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		}
 		else if (c == ' ') {
 			if (req->method == TFW_HTTP_METH_OPTIONS)
-				req->uri_path = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
+				req->uri_path = star;
 			else
 				req->uri_path = slash;
 
@@ -6089,15 +6081,14 @@ Req_Method_1CharStep: __attribute__((cold))
 		}
 	}
 
-	__FSM_STATE(Req_UriPortEnd, cold)
-	{
+	__FSM_STATE(Req_UriPortEnd, cold) {
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
 			if (req->method == TFW_HTTP_METH_OPTIONS)
-				req->uri_path = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
+				req->uri_path = star;
 			else
 				req->uri_path = slash;
 			__FSM_MOVE_nofixup(Req_HttpVer);
