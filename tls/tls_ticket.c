@@ -74,7 +74,16 @@ ttls_ticket_get_time(unsigned long lifetime)
 	struct timespec64 ts;
 	unsigned long ts_sec;
 
-	tfw_current_timestamp_real(&ts);
+	/*
+	 * This function is called from both process context
+	 * (ttls_tickets_configure) and softirq context
+	 * (ttls_ticket_rotate_keys timer callback).
+	 */
+	if (in_softirq()) {
+		tfw_current_timestamp_ts64(&ts);
+	} else {
+		tfw_current_timestamp_real(&ts);
+	}
 	ts_sec = ts.tv_sec;
 	ts_sec -= ts_sec % lifetime;
 
