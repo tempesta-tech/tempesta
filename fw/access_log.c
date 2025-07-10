@@ -298,9 +298,8 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		room_size -= sizeof(val);		\
 	} while (0)
 
-	ktime_get_real_ts64(&ts);
-
-	event->timestamp = ts.tv_sec * 1000 + ts.tv_nsec/1000000;
+	tfw_current_timestamp_ts64(&ts);
+	event->timestamp = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 	event->type = TFW_MMAP_LOG_TYPE_ACCESS;
 	event->fields = TFW_MMAP_LOG_ALL_FIELDS_MASK; /* Enable all the fields */
 
