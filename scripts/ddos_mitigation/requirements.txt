@@ -1,0 +1,13 @@
+annotated-types==0.7.0
+certifi==2025.6.15
+clickhouse-connect==0.8.18
+lz4==4.4.4
+pydantic==2.11.7
+pydantic-settings==2.10.1
+pydantic_core==2.33.2
+python-dotenv==1.1.1
+pytz==2025.2
+typing-inspection==0.4.1
+typing_extensions==4.14.1
+urllib3==2.5.0
+zstandard==0.23.0
