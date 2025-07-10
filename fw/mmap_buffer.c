@@ -17,10 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
-#include "mmap_buffer.h"
-#include "lib/str.h"
-
 #include <asm/page.h>
 #include <linux/types.h>
 #include <linux/log2.h>
@@ -29,6 +25,9 @@
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/vmalloc.h>
+
+#include "mmap_buffer.h"
+#include "lib/str.h"
 
 /*
  * We can't pass TfwMmapBufferHolder pointer to the file operations handlers.
