@@ -41,6 +41,7 @@
 #include "sched.h"
 #include "tempesta_fw.h"
 #include "lib/hash.h"
+#include "lib/random.h"
 #include "log.h"
 #include "server.h"
 #include "http_msg.h"
@@ -355,8 +356,8 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
 
-	seed = get_random_long();
-	seed_inc = get_random_long();
+	seed = tfw_get_random_long();
+	seed_inc = tfw_get_random_long();
 
 	list_for_each_entry(srv, &sg->srv_list, list)
 		conn_n += srv->conn_n;
@@ -405,8 +406,8 @@ tfw_sched_hash_add_srv(TfwServer *srv)
 	if (unlikely(cl))
 		return -EEXIST;
 
-	seed = get_random_long();
-	seed_inc = get_random_long();
+	seed = tfw_get_random_long();
+	seed_inc = tfw_get_random_long();
 
 	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
 	if (!(cl = kzalloc(size, GFP_KERNEL)))
