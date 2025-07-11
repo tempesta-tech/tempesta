@@ -2009,9 +2009,26 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	return r;
 }
 
+static unsigned long
+tfw_h2_stream_send_postponed(struct sock *sk, struct sk_buff **skb_head,
+			     unsigned int mss_now)
+{
+	TfwConn *conn = (TfwConn *)sk->sk_user_data;
+	unsigned long snd_wnd;
+
+	BUG_ON(conn->write_queue);
+	if (!(snd_wnd = ss_skb_tcp_entail_list(sk, skb_head, mss_now))) {
+		ss_skb_queue_splice(&conn->write_queue, skb_head);
+		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+	}
+
+	return snd_wnd;
+}
+
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   bool stream_is_exclusive, unsigned long *snd_wnd)
+			   bool stream_is_exclusive, unsigned int mss_now,
+			   unsigned long *snd_wnd)
 {
 	int r = 0;
 	TfwFrameType frame_type;
@@ -2079,7 +2096,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (ctx->rem_wnd <= 0 || stream->rem_wnd <= 0) {
+		if (tfw_h2_or_stream_wnd_is_exceeded(ctx, stream)) {
 			ctx->sched.blocked_streams +=
 				(stream->rem_wnd <= 0
 				 && !stream->xmit.is_blocked);
@@ -2138,11 +2155,13 @@ do {									\
 		if (stream->xmit.h_len) {
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
-			if (stream->xmit.postponed
+			if (unlikely(stream->xmit.postponed)
 			    && !stream->xmit.frame_length
-			    && !ctx->cur_send_headers)
-				ss_skb_tcp_entail_list(sk,
-						       &stream->xmit.postponed);
+			    && !ctx->cur_send_headers) {
+				struct sk_buff **head = &stream->xmit.postponed;
+				*snd_wnd = tfw_h2_stream_send_postponed(sk, head,
+									mss_now);
+			}
 			if (stream->xmit.b_len) {
 				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
 			} else if (stream->xmit.t_len) {
@@ -2164,8 +2183,11 @@ do {									\
 		 * GOAWAY and TLS ALERT are pending until error
 		 * response is sent.
 		 */
-		if (unlikely(stream->xmit.skb_head))
-			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
+		if (unlikely(stream->xmit.skb_head)) {
+			struct sk_buff **head = &stream->xmit.skb_head;
+			*snd_wnd = tfw_h2_stream_send_postponed(sk, head,
+								mss_now);
+		}
 		if (stream == ctx->error)
 			ctx->error = NULL;
 		/*
@@ -2189,8 +2211,12 @@ do {									\
 			T_WARN("Failed to send frame %d", r);
 			return r;
 		}
-		if (stream->xmit.postponed && !ctx->cur_send_headers)
-			ss_skb_tcp_entail_list(sk, &stream->xmit.postponed);
+		if (unlikely(stream->xmit.postponed)
+		    && !ctx->cur_send_headers) {
+			struct sk_buff **head = &stream->xmit.postponed;
+			*snd_wnd = tfw_h2_stream_send_postponed(sk, head,
+								mss_now);
+		}
 	}
 
 	return r;
@@ -2199,8 +2225,8 @@ do {									\
 }
 
 int
-tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd,
-		   bool *data_is_available)
+tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
+		   unsigned long snd_wnd, bool *data_is_available)
 {
 	TfwStreamSched *sched = &ctx->sched;
 	TfwStreamSchedEntry *parent;
@@ -2246,7 +2272,7 @@ do {									\
 		 */
 		BUG_ON(!stream);
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream, !parent,
-					       &snd_wnd);
+					       mss_now, &snd_wnd);
 
 		/* We don't recalculate deficits of exclusive streams. */
 		if (parent) {
