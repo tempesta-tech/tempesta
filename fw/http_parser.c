@@ -5095,7 +5095,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
-		__FSM_JMP(Req_UriAsteriskForm);
+		__FSM_JMP(Req_UriRareForms);
 	}
 
 	/*
@@ -5915,7 +5915,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
-	__FSM_STATE(Req_UriAsteriskForm, cold) {
+	__FSM_STATE(Req_UriRareForms, cold) {
 		/* There is also authority form as in RFC7230#section-5.3.3,
 		 * but it only used with CONNECT that is not supported */
 		/* Asterisk form as in RFC7230#section-5.3.4 */
