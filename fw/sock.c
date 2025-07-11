@@ -38,6 +38,7 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "http_limits.h"
+#include "tcp.h"
 
 typedef struct {
 	struct sock	*sk;
@@ -210,6 +211,12 @@ ss_conn_drop_guard_exit(struct sock *sk)
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
 }
 
+static int
+ss_fill_write_queue(struct sock *sk, unsigned int mss)
+{
+	return SS_CALL(connection_push, sk->sk_user_data, mss);
+}
+
 static void
 ss_ipi(struct irq_work *work)
 {
@@ -380,7 +387,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 
 void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-	      unsigned char tls_type)
+		  unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
@@ -390,6 +397,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	if (tls_type)
 		skb_set_tfw_tls_type(skb, tls_type);
 	ss_forced_mem_schedule(sk, skb->truesize);
+
 	skb_entail(sk, skb);
 	tp->write_seq += skb->len;
 	TCP_SKB_CB(skb)->end_seq += skb->len;
@@ -401,14 +409,19 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	       skb_tfw_tls_type(skb));
 }
 
-void
-ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
+unsigned long
+ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
+		       unsigned int mss_now)
 {
-	struct sk_buff *skb;
 	unsigned char tls_type = 0;
 	unsigned int mark = 0;
+	unsigned long snd_wnd;
 
-	while ((skb = ss_skb_dequeue(skb_head))) {
+	while ((snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now))) {
+		struct sk_buff *skb = ss_skb_dequeue(skb_head);
+		
+		if (!skb)
+			break;
 		/*
 		 * @skb_head can be the head of several different skb
 		 * lists. We set tls type for the head of each new
@@ -434,6 +447,13 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 		}
 		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
+
+	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
+		ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark,
+					  tls_type);
+	}
+
+	return snd_wnd;
 }
 
 /**
@@ -442,7 +462,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
-	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	void *conn = sk->sk_user_data;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
@@ -451,7 +471,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	       " sk_state=%d mss=%d size=%d\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
-	       sk->sk_state, mss, size);
+	       sk->sk_state, mss_now, size);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!conn || !ss_sock_active(sk)))
@@ -461,24 +481,12 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
-
-	/*
-	 * If skbs were pushed to scheuler tree, @skb_head is
-	 * empty and `ss_skb_tcp_entail_list` doesn't make
-	 * any job.
-	 */
-	ss_skb_tcp_entail_list(sk, skb_head);
+	else if (*skb_head)
+		SS_CALL(connection_on_send, sk->sk_user_data, skb_head);
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state, flags);
-
-	/*
-	 * If connection close flag is specified, then @ss_do_close is used to
-	 * set FIN on final SKB and push all pending frames to the stack.
-	 */
-	if (flags & SS_F_CONN_CLOSE)
-		return;
 
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
@@ -500,7 +508,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
 			tcp_push_pending_frames(sk);
 		} else {
-			tcp_push(sk, MSG_DONTWAIT, mss,
+			tcp_push(sk, MSG_DONTWAIT, mss_now,
 				 TCP_NAGLE_OFF | TCP_NAGLE_PUSH, size);
 		}
 	});
@@ -575,6 +583,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				r = -ENOMEM;
 				goto err;
 			}
+			ss_skb_set_owner(twin_skb, skb->sk);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);
@@ -1236,6 +1245,7 @@ ss_set_callbacks(struct sock *sk)
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
 	sk->sk_destroy_cb = ss_conn_drop_guard_exit;
+	sk->sk_fill_write_queue = ss_fill_write_queue;
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 

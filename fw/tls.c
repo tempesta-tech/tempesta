@@ -509,8 +509,6 @@ tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
 
 	BUG_ON(TFW_CONN_PROTO((TfwConn *)conn) != TFW_FSM_H2);
 	ctx = tfw_h2_context_safe((TfwConn *)conn);
-	if (!ctx)
-		return 0;
 
 	if (ctx->error && ctx->error->xmit.skb_head) {
 		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);

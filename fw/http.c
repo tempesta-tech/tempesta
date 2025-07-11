@@ -5311,7 +5311,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 ALLOW_ERROR_INJECTION(tfw_h2_append_predefined_body, ERRNO);
 
 int
-tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head)
+tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);

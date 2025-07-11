@@ -44,12 +44,6 @@ tfw_tcp_calc_snd_wnd(struct sock *sk, unsigned int mss_now)
 	unsigned int qlen =  skb_queue_len(&sk->sk_write_queue);
 	unsigned int send_win, cong_win;
 
-	/*
-	 * Update snd_cwnd if nedeed, to correct caclulation
-	 * of count of bytes to send.
-	 */
-	tcp_slow_start_after_idle_check(sk);
-
 	if (in_flight + qlen >= tp->snd_cwnd)
 		return 0;
 
