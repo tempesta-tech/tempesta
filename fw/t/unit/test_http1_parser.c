@@ -247,12 +247,11 @@ TEST(http1_parser, parses_req_uri)
 	TEST_OPTIONS_WITHOUT_PATH("example.com:8080");
 	TEST_OPTIONS_WITHOUT_PATH("tempesta-tech.com");
 
-	FOR_REQ("OPTIONS http://tempesta-tech.com/home?name=value HTTP/1.1\r\n\r\n")
-		{
-			EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);
-			EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
-			EXPECT_FALSE(tfw_str_eq_cstr(&req->uri_path, "*", 1, 0));
-		}
+	FOR_REQ("OPTIONS http://tempesta-tech.com/home?name=value HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);
+		EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
+		EXPECT_FALSE(tfw_str_eq_cstr(&req->uri_path, "*", 1, 0));
+	}
 
 	EXPECT_BLOCK_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
