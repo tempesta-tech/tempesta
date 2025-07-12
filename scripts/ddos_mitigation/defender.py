@@ -15,6 +15,8 @@ __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
+from logger import logger
+
 
 @dataclass
 class AverageStats:
@@ -91,6 +93,9 @@ class DDOSMonitor:
         """
         self.known_users = {hash(user): user for user in users}
 
+        if self.known_users:
+            logger.info(f'Updated known users:  {self.known_users}')
+
     def set_thresholds(
             self,
             requests_threshold: Decimal,
@@ -107,6 +112,11 @@ class DDOSMonitor:
         self.requests_threshold = requests_threshold
         self.time_threshold = time_threshold
         self.errors_threshold = errors_threshold
+        logger.info(
+            f'Updated live thresholds to: requests={self.requests_threshold}, '
+            f'time={self.time_threshold}, '
+            f'errors={self.errors_threshold}'
+        )
 
     def ja5t_mark_as_blocked(self, ja5t_hashes: list[int]):
         """
@@ -199,15 +209,15 @@ class DDOSMonitor:
         result = self.run_in_shell("which ipset")
 
         if result.returncode != 0:
-            raise ValueError("ipset is not installed")
+            raise ValueError("IPSET is not installed")
 
         result = self.run_in_shell(f"ipset list {self.app_config.blocking_ipset_name}")
 
         if result.returncode != 0:
             if "not permitted" in result.stderr:
                 raise PermissionError(
-                    "Does not have permission to use ipset command. "
-                    "Please, run app with root permissions."
+                    "Insufficient permissions to use the `ipset` command. "
+                    "Please run the application with root privileges."
                 )
 
             if "name does not exist" in result.stderr:
@@ -217,7 +227,7 @@ class DDOSMonitor:
 
                 if result.returncode != 0:
                     raise ValueError(
-                        f"cant not create set of ips with ipset: {result.stderr}"
+                        f"Cannot create IP set using ipset: {result.stderr}"
                     )
 
         result = self.run_in_shell("iptables -L -v -n")
@@ -229,7 +239,7 @@ class DDOSMonitor:
             )
             if result.returncode != 0:
                 raise ValueError(
-                    f"cant add ipset group to the iptables: {result.stderr}"
+                    f"Cannot add IPSet group to iptables: {result.stderr}"
                 )
 
     def ipset_reset(self):
@@ -243,7 +253,7 @@ class DDOSMonitor:
 
         if result.returncode != 0:
             raise ValueError(
-                f"cant remove ipset group from the iptables: {result.stderr}"
+                f"Cannot remove IPSet group from iptables:{result.stderr}"
             )
 
         # wait until itables become updated
@@ -253,7 +263,7 @@ class DDOSMonitor:
         )
 
         if result.returncode != 0:
-            raise ValueError(f"cant remove ipset group: {result.stderr}")
+            raise ValueError(f"Cannot remove IPSet group:{result.stderr}")
 
     def ipset_block(self, ips: list[str]):
         """
@@ -268,9 +278,9 @@ class DDOSMonitor:
 
             if result.returncode != 0:
                 if "already added" in result.stderr:
-                    print("ip already added")
+                    logger.error(f"{ip} is already added")
                 else:
-                    print(result.stderr)
+                    logger.error(f"{ip} can not be added: {result.stderr}")
 
     def ipset_release(self, ips: list[str]):
         """
@@ -285,9 +295,9 @@ class DDOSMonitor:
 
             if result.returncode != 0:
                 if "not added" in result.stderr:
-                    print("ip already added")
+                    logger.error(f"{ip} is missing in ipset")
                 else:
-                    print(result.stderr)
+                    logger.error(f"{ip} can not be released: {result.stderr}")
 
     def ipset_info(self) -> bytes:
         """
@@ -318,10 +328,10 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                raise ValueError(f"nftable - cant add new table: {result.stderr}")
+                raise ValueError(f"Cannot add new table to nft: {result.stderr}")
 
         elif result.returncode != 0:
-            raise ValueError(f"unexpected error {result.stderr}")
+            raise ValueError(f"Cannot list nft table: {result.stderr}")
 
         result = self.run_in_shell(
             f"nft list set inet {self.app_config.blocking_ipset_name}_table "
@@ -335,10 +345,10 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                raise ValueError(f"nftable - cant add new set: {result.stderr}")
+                raise ValueError(f"Cannot add new set to nft: {result.stderr}")
 
         elif result.returncode != 0:
-            raise ValueError(f"unexpected error {result.stderr}")
+            raise ValueError(f"Cannot list nft set: {result.stderr}")
 
         result = self.run_in_shell(
             f"nft list chain inet {self.app_config.blocking_ipset_name}_table input"
@@ -351,10 +361,10 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                raise ValueError(f"nftable - cant add new chain: {result.stderr}")
+                raise ValueError(f"Cannot add chain to nft: {result.stderr}")
 
         elif result.returncode != 0:
-            raise ValueError(f"unexpected error {result.stderr}")
+            raise ValueError(f"Cannot list nft chain: {result.stderr}")
 
         result = self.run_in_shell(
             f"nft list chain inet {self.app_config.blocking_ipset_name}_table input | grep "
@@ -368,7 +378,7 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                raise ValueError(f"nftable - cant add new rule: {result.stderr}")
+                raise ValueError(f"Cannot add rule to nft: {result.stderr}")
 
     def nftables_reset(self):
         """
@@ -379,14 +389,14 @@ class DDOSMonitor:
         )
 
         if result.returncode != 0:
-            raise ValueError(f"nftable - cant flush table: {result.stderr}")
+            raise ValueError(f"Cannot flush nft table: {result.stderr}")
 
         result = self.run_in_shell(
             f"nft delete table inet {self.app_config.blocking_ipset_name}_table"
         )
 
         if result.returncode != 0:
-            raise ValueError(f"nftable - cant delete table: {result.stderr}")
+            raise ValueError(f"Cannot delete nft table: {result.stderr}")
 
     def nftables_block(self, ips: list[str]):
         """
@@ -401,7 +411,7 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                print(f"can not add ip to blocking = {result.stderr}")
+                logger.error(f"Cannot block ip by nft: {result.stderr}")
 
     def nftables_release(self, ips: list[str]):
         """
@@ -416,7 +426,7 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                print(f"can not remove ip from blocking = {result.stderr}")
+                logger.error(f"Cannot release ip by nft: {result.stderr}")
 
     def nftables_info(self):
         """
@@ -566,6 +576,8 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_block([str(ip) for ip in blocking_user.ipv4])
 
+            logger.warning(f'Blocked user {blocking_user} by {self.app_config.blocking_type}')
+
         self.tempesta_dump_config_and_reload()
 
     async def risk_clients_release(self):
@@ -592,6 +604,8 @@ class DDOSMonitor:
 
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_release([str(ip) for ip in blocking_user.ipv4])
+
+            logger.warning(f'Released user {blocking_user} by {self.app_config.blocking_type}')
 
         self.tempesta_dump_config_and_reload()
 
@@ -678,16 +692,25 @@ class DDOSMonitor:
         """
         self.ja5t_config.load()
         self.ja5h_config.load()
+        logger.debug('JA5T and JA5H configurations loaded')
 
         self.ja5t_mark_as_blocked(list(self.ja5t_config.hashes))
         self.ja5h_mark_as_blocked(list(self.ja5h_config.hashes))
 
+        if len(self.blocked):
+            logger.info(f'Total number of already blocked users in JA5 configurations: {len(self.blocked)}')
+
         await self.clickhouse_client.connect()
+        logger.debug('Established connection to ClickHouse server.')
+        logger.info(f'Training mode set to `{self.app_config.training_mode.upper()}`')
 
         if self.app_config.training_mode == "real":
+            logger.info(f'Starting to collect client activity for: {self.app_config.training_mode_duration_min} min.')
             await asyncio.sleep(self.app_config.training_mode_duration_min * 60)
+            logger.info('Data collection is complete')
 
         if self.app_config.blocking_mode in {"real", "historical"}:
+            logger.info('Analyzing user activity for the period')
             known_users = await self.persistent_users_load(
                 start_at=int(time.time())
                 - self.app_config.persistent_users_window_offset_min * 60,
@@ -714,6 +737,7 @@ class DDOSMonitor:
                 errors_threshold=self.app_config.default_errors_threshold,
             )
 
+        logger.info('Preparation is complete. Starting monitoring.')
         await asyncio.gather(
             self.monitor_new_risk_clients(),
             self.monitor_release_risk_clients(),
