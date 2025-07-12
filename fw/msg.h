@@ -94,7 +94,6 @@ typedef struct {
 	unsigned int	to_alloc;
 	unsigned int	nm_num;
 	unsigned int	tag;
-	unsigned int	next;
 	TfwStr		hdr;
 } TfwMsgParseIter;
 
