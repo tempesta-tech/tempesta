@@ -289,14 +289,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
                     ipv4=[IPv4Address('127.0.0.1')],
                     value=1,
                     type=0
-                ),
-                RiskUser(
-                    ja5t=11,
-                    ja5h=21,
-                    ipv4=[IPv4Address('127.0.0.1')],
-                    value=1,
-                    type=1
-                ),
+                )
             ]
         )
 

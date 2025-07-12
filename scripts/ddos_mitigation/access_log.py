@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from clickhouse_connect import get_async_client
 from clickhouse_connect.driver import AsyncClient
 
+
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2024 Tempesta Technologies, Inc."
 __license__ = "GPL2"
@@ -53,83 +54,61 @@ class ClickhouseAccessLog:
         """
         return await self.conn.query(
             f"""
-            SELECT * FROM (
+            WITH aggregated_clients AS (
                 SELECT 
                     ja5t, 
                     ja5h,
                     groupUniqArray(address) addresses,
-                    count(1) as value,
-                    0 as type
-                FROM access_log
-                WHERE 
-                    CASE WHEN {time_from} <> 0 
-                        THEN timestamp <= toDateTime64({time_from}, 3, 'UTC')
-                        ELSE timestamp <= now()
-                    END
-                    AND CASE WHEN {time_from} <> 0 
-                        THEN timestamp > toDateTime64({time_from}, 3, 'UTC') - INTERVAL {time_frame_seconds} SECOND
-                        ELSE timestamp > now() - INTERVAL {time_frame_seconds} SECOND
-                    END
-                GROUP by ja5t, ja5h
-                HAVING count(1) >= {rps_threshold}
-
-                UNION DISTINCT 
-
-                SELECT 
-                    ja5t, 
-                    ja5h,
-                    groupUniqArray(address) addresses,
-                    sum(response_time) as value,
-                    1 as type
+                    count(1) as total_requests,
+                    sum(response_time) as total_time,
+                    countIf(status not in (200, 201)) as total_errors
                 FROM test_db.access_log
                 WHERE 
-                    CASE WHEN {time_from} <> 0 
-                        THEN timestamp <= toDateTime64({time_from}, 3, 'UTC')
-                        ELSE timestamp <= now()
-                    END
-                    AND CASE WHEN {time_from} <> 0 
-                        THEN timestamp > toDateTime64({time_from}, 3, 'UTC') - INTERVAL {time_frame_seconds} SECOND
-                        ELSE timestamp > now() - INTERVAL {time_frame_seconds} SECOND
-                    END
+                    timestamp > toDateTime64({time_from}, 3, 'UTC') - INTERVAL 60 SECOND
+                    AND timestamp <= toDateTime64({time_from}, 3, 'UTC')
                 GROUP by ja5t, ja5h
-                HAVING sum(response_time) >= {time_threshold}
-
-                UNION DISTINCT 
-
+                HAVING  
+                    total_requests >= {rps_threshold}
+                    or total_time >= {time_threshold}
+                    or total_errors >= {errors_threshold}
+            ),
+            scored_clients AS (
                 SELECT 
-                    ja5t, 
-                    ja5h,
-                    groupUniqArray(address) addresses,
-                    count(1) as value,
-                    2 as type
-                FROM test_db.access_log
-                WHERE 
-                    CASE WHEN {time_from} <> 0 
-                        THEN timestamp <= toDateTime64({time_from}, 3, 'UTC')
-                        ELSE timestamp <= now()
-                    END
-                    AND CASE WHEN {time_from} <> 0 
-                        THEN timestamp > toDateTime64({time_from}, 3, 'UTC') - INTERVAL {time_frame_seconds} SECOND
-                        ELSE timestamp > now() - INTERVAL {time_frame_seconds} SECOND
-                    END
-                    AND status NOT IN (200, 201)
-                GROUP by ja5t, ja5h
-                HAVING count(1) >= {errors_threshold} 
-            ) a 
-            ORDER BY ja5t
-            LIMIT {ja5_hashes_limit}
+                    *,
+                    if(total_requests = 0, 1, total_requests) * 
+                    if(total_time = 0, 1, total_time) * 
+                    if(total_errors = 0, 1, total_errors) as risk_score
+                FROM aggregated_clients
+                ORDER BY risk_score DESC
+                LIMIT {ja5_hashes_limit}
+            )
+            SELECT
+                ja5t,
+                ja5h,
+                addresses,
+                CASE 
+                    WHEN total_requests >= {rps_threshold} THEN total_requests
+                    WHEN total_time >= {time_threshold} THEN total_time
+                    WHEN total_errors >= {errors_threshold} THEN total_errors
+                END as value,
+                CASE 
+                    WHEN total_requests >= {rps_threshold} THEN 0
+                    WHEN total_time >= {time_threshold} THEN 1
+                    WHEN total_errors >= {errors_threshold} THEN 2
+                END as type
+            FROM scored_clients          
             """
         )
 
     async def get_stats_for_period(self, start_at: int, period_in_minutes: int):
         return await self.conn.query(
             f"""
-            SELECT * 
-            FROM (
-                with aggregated_requests as (
+            SELECT * FROM(
+                WITH aggregated_clients AS (
                     SELECT 
                         ja5t, 
                         count(1) as total_requests,
+                        sum(response_time) as total_time,
                         countIf(status not in (200, 201)) as total_errors
                     FROM test_db.access_log
                     WHERE 
@@ -140,30 +119,21 @@ class ClickhouseAccessLog:
                 SELECT 
                     avg(total_requests) value,
                     0 as type
-                from aggregated_requests
-                
-                UNION ALL
-                
-                SELECT
-                    avg(total_errors) value,
-                    2 as type
-                from aggregated_requests
+                FROM aggregated_clients
                     
                 UNION ALL
                 
                 SELECT 
                     avg(total_time) value,
                     1 as type
-                FROM (
-                     SELECT 
-                        ja5t, 
-                        sum(response_time) as total_time
-                    FROM test_db.access_log
-                    WHERE 
-                        timestamp > toDateTime64({start_at}, 3, 'UTC')
-                        and timestamp <= toDateTime64({start_at}, 3, 'UTC') + INTERVAL {period_in_minutes} MINUTE
-                    GROUP by ja5t
-                )
+                FROM aggregated_clients
+                
+                UNION ALL
+                
+                SELECT
+                    avg(total_errors) value,
+                    2 as type
+                from aggregated_clients
             ) a
             ORDER BY type
             """
