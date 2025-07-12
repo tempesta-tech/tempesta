@@ -1,12 +1,18 @@
 import asyncio
-from config import AppConfig
+
+from defender import DDOSMonitor
+
 from access_log import ClickhouseAccessLog
-from mitigator import DDOSMonitor
-from ja5_config import Ja5Config
 from cli import CommandLineArgs
+from config import AppConfig
+from ja5_config import Ja5Config
+
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = CommandLineArgs.parse_args()
     app_config = AppConfig.parse_file(args.config)
     clickhouse_client = ClickhouseAccessLog(
@@ -20,6 +26,6 @@ if __name__ == '__main__':
         clickhouse_client=clickhouse_client,
         ja5t_config=Ja5Config(file_path=app_config.path_to_ja5t_config),
         ja5h_config=Ja5Config(file_path=app_config.path_to_ja5h_config),
-        app_config=app_config
+        app_config=app_config,
     )
     asyncio.run(app.run())

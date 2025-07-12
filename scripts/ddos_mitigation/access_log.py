@@ -1,29 +1,31 @@
 from dataclasses import dataclass
+from decimal import Decimal
+
 from clickhouse_connect import get_async_client
 from clickhouse_connect.driver import AsyncClient
-
+from clickhouse_connect.driver.query import QueryResult
 
 __author__ = "Tempesta Technologies, Inc."
-__copyright__ = "Copyright (C) 2023-2024 Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
 @dataclass
 class ClickhouseAccessLog:
     """
-    Extends the Clickhouse Client and descibes
-    queries used in app
+    Extends the ClickHouse client and describes the queries used in the application
     """
-    host: str = '192.168.0.104'
+
+    host: str = "192.168.0.104"
     port: int = 8123
-    user: str = 'default'
-    password: str = '12345'
-    database: str = '__default__'
+    user: str = "default"
+    password: str = "12345"
+    database: str = "__default__"
     conn: AsyncClient = None
 
     async def connect(self):
         """
-        Create the connection to the Clickhouse server
+        Create a connection to the ClickHouse server
         """
         self.conn = await get_async_client(
             host=self.host,
@@ -33,24 +35,24 @@ class ClickhouseAccessLog:
         )
 
     async def get_top_risk_clients(
-            self,
-            time_frame_seconds: int,
-            rps_threshold: int,
-            time_threshold: int,
-            errors_threshold: int,
-            time_from: int = 0,
-            ja5_hashes_limit: int = 10
-    ):
+        self,
+        start_at: int,
+        period_in_seconds: int,
+        rps_threshold: Decimal,
+        time_threshold: Decimal,
+        errors_threshold: Decimal,
+        ja5_hashes_limit: int,
+    ) -> QueryResult:
         """
-        Fetch clients that rises thresholds
+        Fetch clients that exceed defined thresholds.
 
-        :param time_frame_seconds: along of time of user activity. Descibe a frame: [time_from; time_from + time_frame_seconds)
-        :param rps_threshold: Average RPS threshold by all user
-        :param time_threshold: Average accumulated response time threshold by all users
-        :param errors_threshold: Average responses with errors threshold by all users
-        :param time_from: start of frame
-        :param ja5_hashes_limit: amount of returning risky ja5t hashes
-        :return: risky clients
+        :param start_at: Start time of the analysis frame
+        :param period_in_seconds: Duration of the time frame for user activity
+        :param rps_threshold: Average RPS threshold across all users
+        :param time_threshold: Average accumulated response time threshold across all users.
+        :param errors_threshold: Average error response rate threshold across all users.
+        :param ja5_hashes_limit: Number of risky ja5t hashes to return.
+        :return: A QueryResult of risky clients.
         """
         return await self.conn.query(
             f"""
@@ -64,8 +66,8 @@ class ClickhouseAccessLog:
                     countIf(status not in (200, 201)) as total_errors
                 FROM test_db.access_log
                 WHERE 
-                    timestamp > toDateTime64({time_from}, 3, 'UTC') - INTERVAL 60 SECOND
-                    AND timestamp <= toDateTime64({time_from}, 3, 'UTC')
+                    timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
+                    AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
                 GROUP by ja5t, ja5h
                 HAVING  
                     total_requests >= {rps_threshold}
@@ -100,7 +102,14 @@ class ClickhouseAccessLog:
             """
         )
 
-    async def get_stats_for_period(self, start_at: int, period_in_minutes: int):
+    async def get_request_stats_for_period(self, start_at: int, period_in_minutes: int) -> QueryResult:
+        """
+        Calculate average statistics for requests, response time, and requests that finished with errors.
+
+        :param start_at: Start time of the analysis frame
+        :param period_in_minutes: Duration of the time frame for user activity
+        :return:  A QueryResult with stats.
+        """
         return await self.conn.query(
             f"""
             SELECT * FROM(

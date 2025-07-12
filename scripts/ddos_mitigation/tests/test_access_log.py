@@ -1,18 +1,24 @@
 import unittest
+from decimal import Decimal
 from ipaddress import IPv4Address
+
 from access_log import ClickhouseAccessLog
+
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
 
 
 class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
-        await self.client.conn.query('drop database test_db')
+        await self.client.conn.query("drop database test_db")
 
     async def asyncSetUp(self):
         self.client = ClickhouseAccessLog()
         await self.client.connect()
-        await self.client.conn.query('drop database if exists test_db')
+        await self.client.conn.query("drop database if exists test_db")
 
-        await self.client.conn.query('create database test_db')
+        await self.client.conn.query("create database test_db")
         await self.client.conn.query(
             """
             CREATE TABLE IF NOT EXISTS test_db.access_log (
@@ -54,23 +60,45 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_top_risk_clients(self):
         response = await self.client.get_top_risk_clients(
-            time_from=1751535000,
-            time_frame_seconds=60,
-            rps_threshold=4,
-            errors_threshold=2,
-            time_threshold=40
+            start_at=1751535000,
+            period_in_seconds=60,
+            rps_threshold=Decimal(4),
+            errors_threshold=Decimal(2),
+            time_threshold=Decimal(40),
+            ja5_hashes_limit=10
         )
         self.assertEqual(
             response.result_rows,
             [
-                (12, 22, [IPv4Address('127.0.0.2'),IPv4Address('127.0.0.3'), IPv4Address('127.0.0.1'), IPv4Address('127.0.0.5')], 4, 0),
-                (13, 23, [IPv4Address('127.0.0.2'),IPv4Address('127.0.0.3'),IPv4Address('127.0.0.1')], 40, 1),
-                (14, 24, [IPv4Address('127.0.0.4')], 2, 2)
-            ]
+                (
+                    12,
+                    22,
+                    [
+                        IPv4Address("127.0.0.2"),
+                        IPv4Address("127.0.0.3"),
+                        IPv4Address("127.0.0.1"),
+                        IPv4Address("127.0.0.5"),
+                    ],
+                    4,
+                    0,
+                ),
+                (
+                    13,
+                    23,
+                    [
+                        IPv4Address("127.0.0.2"),
+                        IPv4Address("127.0.0.3"),
+                        IPv4Address("127.0.0.1"),
+                    ],
+                    40,
+                    1,
+                ),
+                (14, 24, [IPv4Address("127.0.0.4")], 2, 2),
+            ],
         )
 
     async def test_get_stats(self):
-        response = await self.client.get_stats_for_period(
+        response = await self.client.get_request_stats_for_period(
             start_at=1751534999,
             period_in_minutes=1,
         )
@@ -78,7 +106,4 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         # time avr( ja5=11 (30), ja5=12 (30), ja5=13 (40), ja5=14(20) ) = 120/4 = 30
         # errors avr( ja5=11 (0), ja5=12 (0), ja5=13 (0), ja5=14(2) ) = 2/4 = 0.5
 
-        self.assertEqual(
-            response.result_rows,
-            [(3.0, 0), (30.0, 1), (0.5, 2)]
-        )
+        self.assertEqual(response.result_rows, [(3.0, 0), (30.0, 1), (0.5, 2)])

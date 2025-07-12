@@ -2,7 +2,12 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Dict
+
 from logger import logger
+
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
 
 
 @dataclass
@@ -13,6 +18,10 @@ class Ja5Hash:
 
 
 class Ja5Config:
+    """
+    Tempesta JA5 Config Manager
+    """
+
     hash_pattern = re.compile(
         r"[\t\s]*(?P<hash>\w+)[\t\s]+"
         r"(?P<connections>\d+)[\t\s]+"
@@ -30,10 +39,21 @@ class Ja5Config:
 
     @staticmethod
     def format_line(ja5_hash: Ja5Hash) -> str:
-        return f'{ja5_hash.value} {ja5_hash.connections} {ja5_hash.packets};\n'
+        """
+        Create a string representation of a JA5 hash.
+
+        :param ja5_hash: JA5 hash value.
+        :return: Formatted string representation of the JA5 hash.
+        """
+        return f"{ja5_hash.value} {ja5_hash.connections} {ja5_hash.packets};\n"
 
     @staticmethod
     def verify_file(file_path: str):
+        """
+        Check whether the file exists and has the correct permissions.
+
+        :param file_path: Path to the JA5 hash configuration file.
+        """
         if not os.path.isfile(file_path):
             logger.error(f"File `{file_path}` does not exist")
             raise FileNotFoundError
@@ -43,6 +63,9 @@ class Ja5Config:
             raise PermissionError
 
     def load(self):
+        """
+        Parse the JA5 configuration file and store the loaded hashes.
+        """
         with open(self.file_path, "r") as f:
             for line in f.readlines():
                 result = re.match(self.hash_pattern, line)
@@ -55,10 +78,13 @@ class Ja5Config:
                 self.hashes[hash_value] = Ja5Hash(
                     value=result.group("hash"),
                     connections=result.group("connections"),
-                    packets=result.group("packets")
+                    packets=result.group("packets"),
                 )
 
     def dump(self):
+        """
+        Dump the local storage of JA5 hashes into the configuration file.
+        """
         with open(self.file_path, "w") as f:
             for value in self.hashes.values():
                 f.write(self.format_line(value))
@@ -66,12 +92,28 @@ class Ja5Config:
         self.need_dump = False
 
     def exists(self, ja5_hash: int) -> bool:
+        """
+        Check if a JA5 hash exists in local storage.
+
+        :param ja5_hash: JA5 hash value.
+        :return: True if the hash exists, False otherwise.
+        """
         return ja5_hash in self.hashes
 
     def add(self, ja5_hash: Ja5Hash):
+        """
+        Add a new JA5 hash to local storage.
+
+        :param ja5_hash: JA5 hash value.
+        """
         self.hashes[ja5_hash.value] = ja5_hash
         self.need_dump = True
 
     def remove(self, ja5_hash: int):
+        """
+        Remove a JA5 hash from local storage.
+
+        :param ja5_hash: JA5 hash value.
+        """
         self.hashes.pop(ja5_hash)
         self.need_dump = True

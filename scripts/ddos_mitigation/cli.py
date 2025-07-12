@@ -1,25 +1,30 @@
-from dataclasses import dataclass
 import argparse
+from dataclasses import dataclass
+
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
 
 
 @dataclass
 class CommandLineArgs:
-    config: str = '/etc/tempesta-ddos-mitigation/app.env'
+    config: str = "/etc/tempesta-ddos-mitigation/app.env"
 
     @classmethod
-    def parse_args(cls) -> 'CommandLineArgs':
+    def parse_args(cls) -> "CommandLineArgs":
         """
         Read command line arguments
         :return: key-value arguments
         """
         parser = argparse.ArgumentParser(
-            description="Enable DDOS mitigation based on Tempesta FW logging data",
-            epilog='./system_verification.py -nh=192.168.0.100 -nni=eth0 -th=192.168.0.101 -tm=00:00:00:00:00:00',
-            add_help=True
+            description="DDoS Defender. Analyzes traffic using Tempesta FW access log data stored in ClickHouse",
+            epilog="./app.py --config=/etc/tempesta-ddos-defender/config.env",
+            add_help=True,
         )
         parser.add_argument(
-            '-c', '--config',
+            "-c",
+            "--config",
             type=str,
-            help="Path to config",
+            help="Path to the config file",
         )
         return cls(**vars(parser.parse_args()))

@@ -3,24 +3,28 @@ import unittest
 
 from ja5_config import Ja5Config, Ja5Hash
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
 
 class TestJa5Config(unittest.TestCase):
     def setUp(self):
-        self.path_to_file_wrong_permissions = '/tmp/wrong_permissions'
-        self.path_to_config = '/tmp/tmp-hashes'
+        self.path_to_file_wrong_permissions = "/tmp/wrong_permissions"
+        self.path_to_config = "/tmp/tmp-hashes"
 
-        with open(self.path_to_file_wrong_permissions, 'w') as f:
-            f.write('')
+        with open(self.path_to_file_wrong_permissions, "w") as f:
+            f.write("")
 
         os.chmod(self.path_to_file_wrong_permissions, 0o000)
 
-        with open(self.path_to_config, 'w') as f:
+        with open(self.path_to_config, "w") as f:
             f.write(
-                'aaaaaaa11111 3 4;\n'
-                '  2222aaaaaaa 12   23444  ;  \n'
-                '  wrong222 12   ;  \n'
-                '  wrong-again  ;  \n'
-                '#commented  ;  \n'
+                "aaaaaaa11111 3 4;\n"
+                "  2222aaaaaaa 12   23444  ;  \n"
+                "  wrong222 12   ;  \n"
+                "  wrong-again  ;  \n"
+                "#commented  ;  \n"
             )
 
     def tearDown(self):
@@ -30,7 +34,7 @@ class TestJa5Config(unittest.TestCase):
 
     def test_config_does_not_exists(self):
         with self.assertRaises(FileNotFoundError):
-            Ja5Config('/tmp/non-existing.conf')
+            Ja5Config("/tmp/non-existing.conf")
 
     def test_config_does_not_have_permissions(self):
         with self.assertRaises(PermissionError):
@@ -42,15 +46,13 @@ class TestJa5Config(unittest.TestCase):
 
     def test_dump_file(self):
         config = Ja5Config(self.path_to_config)
-        config.hashes = {
-            'test': Ja5Hash(value='test', connections=1, packets=1)
-        }
+        config.hashes = {"test": Ja5Hash(value="test", connections=1, packets=1)}
         config.dump()
 
         with open(self.path_to_config) as f:
             data = f.read()
 
-        self.assertEqual(data, 'test 1 1;\n')
+        self.assertEqual(data, "test 1 1;\n")
 
     def test_modification(self):
         config = Ja5Config(self.path_to_config)
@@ -65,7 +67,7 @@ class TestJa5Config(unittest.TestCase):
         with open(self.path_to_config) as f:
             data = f.read()
 
-        self.assertEqual(data, 'aaaaaaa11111 3 4;\n2222aaaaaaa 12 23444;\n100 1 2;\n')
+        self.assertEqual(data, "aaaaaaa11111 3 4;\n2222aaaaaaa 12 23444;\n100 1 2;\n")
 
         config.remove(100)
         self.assertEqual(config.need_dump, True)
@@ -76,4 +78,4 @@ class TestJa5Config(unittest.TestCase):
         with open(self.path_to_config) as f:
             data = f.read()
 
-        self.assertEqual(data, 'aaaaaaa11111 3 4;\n2222aaaaaaa 12 23444;\n')
+        self.assertEqual(data, "aaaaaaa11111 3 4;\n2222aaaaaaa 12 23444;\n")
