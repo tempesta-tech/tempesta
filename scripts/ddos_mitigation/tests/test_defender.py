@@ -242,7 +242,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         process.join()
         self.monitor.nftables_reset()
 
-    async def test_load_last_real_users(self):
+    async def test_persistent_users_load(self):
         result = await self.monitor.persistent_users_load(
             start_at=1751535000,
             period_in_seconds=10,
@@ -264,7 +264,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_get_stats_for_period(self):
+    async def test_average_stats_load(self):
         result = await self.monitor.average_stats_load(
             start_at=1751535000, period_in_minutes=1
         )
@@ -283,7 +283,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.time, Decimal("0.17"))
         self.assertEqual(result.errors, Decimal("0.0"))
 
-    async def test_get_risk_clients(self):
+    async def test_risk_clients_fetch(self):
         result = await self.monitor.risk_clients_fetch(
             start_at=1751535000,
             period_in_seconds=10,
@@ -307,7 +307,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(list(generator), [User(ja5t=11)])
 
-    async def test_find_new_risk_users(self):
+    async def test_risk_clients_block(self):
         async def fake_db_response(*_, **__):
 
             class Response:
@@ -322,7 +322,20 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(self.monitor.blocked), 1)
 
-    async def test_release_blocked_users(self):
+    async def test_risk_clients_block_empty_list(self):
+        async def fake_db_response(*_, **__):
+
+            class Response:
+                result_rows = []
+
+            return Response
+
+        self.monitor.clickhouse_client.get_top_risk_clients = fake_db_response
+
+        await self.monitor.risk_clients_block()
+        self.assertEqual(len(self.monitor.blocked), 0)
+
+    async def test_risk_clients_release(self):
         blocked_at = int(time.time())
         blocked_at -= self.monitor.app_config.blocking_time_min * 60
         # to be sure
@@ -334,4 +347,8 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.monitor.risk_clients_release()
 
+        self.assertEqual(len(self.monitor.blocked), 0)
+
+    async def test_risk_clients_release_empty_list(self):
+        await self.monitor.risk_clients_release()
         self.assertEqual(len(self.monitor.blocked), 0)
