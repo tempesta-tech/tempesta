@@ -3680,7 +3680,6 @@ tfw_h1_req_copy_first_line(TfwHttpReq *req)
 	int r;
 	const TfwStr *meth;
 	static const DEFINE_TFW_STR(meth_get, "GET");
-	static const DEFINE_TFW_STR(slash, "/");
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
 
@@ -3699,11 +3698,7 @@ tfw_h1_req_copy_first_line(TfwHttpReq *req)
 	if (unlikely(r))
 		return r;
 
-	/* uri_path is empty when uri is absolute and doesn't have slash */
-	if (TFW_STR_EMPTY(&req->uri_path))
-		r = tfw_http_msg_expand_from_pool(hm, &slash);
-	else
-		r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
+	r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
 	if (unlikely(r))
 		return r;
 
