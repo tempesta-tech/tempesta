@@ -107,7 +107,9 @@ class ClickhouseAccessLog:
             """
         )
 
-    async def get_request_stats_for_period(self, start_at: int, period_in_minutes: int) -> QueryResult:
+    async def get_request_stats_for_period(
+        self, start_at: int, period_in_minutes: int
+    ) -> QueryResult:
         """
         Calculate average statistics for requests, response time, and requests that finished with errors.
 
@@ -172,9 +174,7 @@ class ClickhouseAccessLog:
 
     async def user_agents_table_insert(self, values: list[list[str]]):
         return await self.conn.insert(
-            table="user_agents",
-            data=values,
-            column_names=['name']
+            table="user_agents", data=values, column_names=["name"]
         )
 
     async def user_agents_all(self):

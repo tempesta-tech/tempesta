@@ -1,13 +1,12 @@
 import asyncio
 
-from defender import DDOSMonitor
-
 from access_log import ClickhouseAccessLog
-from user_agents import UserAgentsManager
 from cli import CommandLineArgs
 from config import AppConfig
+from defender import DDOSMonitor
 from ja5_config import Ja5Config
 from logger import logger
+from user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -15,7 +14,7 @@ __license__ = "GPL2"
 
 
 if __name__ == "__main__":
-    logger.info('Starting DDoS Defender')
+    logger.info("Starting DDoS Defender")
 
     args = CommandLineArgs.parse_args()
     app_config = AppConfig.parse_file(args.config)
@@ -33,7 +32,7 @@ if __name__ == "__main__":
         app_config=app_config,
         user_agent_manager=UserAgentsManager(
             clickhouse_client=app_config.user_agent_manager,
-            config_path=app_config.allowed_user_agents_file_path
+            config_path=app_config.allowed_user_agents_file_path,
         ),
     )
     asyncio.run(app.run())

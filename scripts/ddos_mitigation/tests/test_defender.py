@@ -8,12 +8,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.request import urlopen
 
 from clickhouse_connect.driverc.dataconv import IPv4Address
-from defender import DDOSMonitor, User
 
 from access_log import ClickhouseAccessLog
-from user_agents import UserAgentsManager
 from config import AppConfig
+from defender import DDOSMonitor, User
 from ja5_config import Ja5Config
+from user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -72,10 +72,9 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
             clickhouse_client=self.access_log,
             ja5t_config=self.ja5t_config,
             ja5h_config=self.ja5h_config,
-            app_config=AppConfig(clickhouse_database='test_db'),
+            app_config=AppConfig(clickhouse_database="test_db"),
             user_agent_manager=UserAgentsManager(
-                clickhouse_client=self.access_log,
-                config_path=''
+                clickhouse_client=self.access_log, config_path=""
             ),
         )
         try:
@@ -108,7 +107,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         self.monitor.set_thresholds(
             requests_threshold=Decimal(1),
             time_threshold=Decimal(2),
-            errors_threshold=Decimal(3)
+            errors_threshold=Decimal(3),
         )
         self.assertEqual(self.monitor.requests_threshold, 1)
         self.assertEqual(self.monitor.time_threshold, 2)
@@ -304,11 +303,7 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             result,
-            [
-                User(
-                    ja5t=11, ja5h=21, ipv4=[IPv4Address("127.0.0.1")], value=1, type=0
-                )
-            ],
+            [User(ja5t=11, ja5h=21, ipv4=[IPv4Address("127.0.0.1")], value=1, type=0)],
         )
 
     def test_compare_users(self):

@@ -1,8 +1,8 @@
 import os
 import unittest
 
-from user_agents import UserAgentsManager
 from access_log import ClickhouseAccessLog
+from user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -28,10 +28,7 @@ class TestUserAgentManager(unittest.IsolatedAsyncioTestCase):
         )
 
         with open(self.path_to_config, "w") as f:
-            f.write(
-                "UserAgent\n"
-                "  2222aaaaaaa   \n"
-            )
+            f.write("UserAgent\n" "  2222aaaaaaa   \n")
 
     async def asyncTearDown(self):
         os.remove(self.path_to_config)
@@ -39,13 +36,13 @@ class TestUserAgentManager(unittest.IsolatedAsyncioTestCase):
 
     def test_read_config(self):
         self.manager.read_from_file()
-        self.assertEqual(self.manager.user_agents, {'UserAgent', '2222aaaaaaa'})
+        self.assertEqual(self.manager.user_agents, {"UserAgent", "2222aaaaaaa"})
 
     async def test_export_user_agents(self):
         await self.client.user_agents_table_create()
 
-        self.manager.user_agents = {'Hello', 'Kitty'}
+        self.manager.user_agents = {"Hello", "Kitty"}
         await self.manager.export_to_db()
 
         result = await self.client.user_agents_all()
-        self.assertEqual(result.result_rows, [('Hello', ), ('Kitty', )])
+        self.assertEqual(result.result_rows, [("Hello",), ("Kitty",)])

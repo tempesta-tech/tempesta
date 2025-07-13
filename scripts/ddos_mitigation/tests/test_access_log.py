@@ -79,7 +79,7 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
             rps_threshold=Decimal(4),
             errors_threshold=Decimal(2),
             time_threshold=Decimal(40),
-            ja5_hashes_limit=10
+            ja5_hashes_limit=10,
         )
         self.assertEqual(response.result_rows, [])
 
@@ -90,7 +90,7 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
             rps_threshold=Decimal(4),
             errors_threshold=Decimal(2),
             time_threshold=Decimal(40),
-            ja5_hashes_limit=10
+            ja5_hashes_limit=10,
         )
         self.assertEqual(
             response.result_rows,
@@ -148,6 +148,6 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(items.result_rows), 0)
 
     async def test_insert_user_agents(self):
-        await self.client.user_agents_table_insert([['TestUserAgent'], ['HelloKitty']])
+        await self.client.user_agents_table_insert([["TestUserAgent"], ["HelloKitty"]])
         items = await self.client.user_agents_all()
         self.assertEqual(len(items.result_rows), 2)

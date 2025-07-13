@@ -8,9 +8,9 @@ from ipaddress import IPv4Address
 from typing import Generator, Optional
 
 from access_log import ClickhouseAccessLog
-from user_agents import UserAgentsManager
 from config import AppConfig
 from ja5_config import Ja5Config, Ja5Hash
+from user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -98,13 +98,13 @@ class DDOSMonitor:
         self.known_users = {hash(user): user for user in users}
 
         if self.known_users:
-            logger.info(f'Updated known users:  {self.known_users}')
+            logger.info(f"Updated known users:  {self.known_users}")
 
     def set_thresholds(
-            self,
-            requests_threshold: Decimal,
-            time_threshold: Decimal,
-            errors_threshold: Decimal
+        self,
+        requests_threshold: Decimal,
+        time_threshold: Decimal,
+        errors_threshold: Decimal,
     ):
         """
         Update the current threshold values.
@@ -117,9 +117,9 @@ class DDOSMonitor:
         self.time_threshold = time_threshold
         self.errors_threshold = errors_threshold
         logger.info(
-            f'Updated live thresholds to: requests={self.requests_threshold}, '
-            f'time={self.time_threshold}, '
-            f'errors={self.errors_threshold}'
+            f"Updated live thresholds to: requests={self.requests_threshold}, "
+            f"time={self.time_threshold}, "
+            f"errors={self.errors_threshold}"
         )
 
     def ja5t_mark_as_blocked(self, ja5t_hashes: list[int]):
@@ -242,9 +242,7 @@ class DDOSMonitor:
                 f"src -j DROP "
             )
             if result.returncode != 0:
-                raise ValueError(
-                    f"Cannot add IPSet group to iptables: {result.stderr}"
-                )
+                raise ValueError(f"Cannot add IPSet group to iptables: {result.stderr}")
 
     def ipset_reset(self):
         """
@@ -256,9 +254,7 @@ class DDOSMonitor:
         )
 
         if result.returncode != 0:
-            raise ValueError(
-                f"Cannot remove IPSet group from iptables:{result.stderr}"
-            )
+            raise ValueError(f"Cannot remove IPSet group from iptables:{result.stderr}")
 
         # wait until itables become updated
         time.sleep(0.1)
@@ -543,9 +539,7 @@ class DDOSMonitor:
             start_at=start_at,
         )
         return [
-            User(
-                ja5t=item[0], ja5h=item[1], ipv4=item[2], value=item[3], type=item[4]
-            )
+            User(ja5t=item[0], ja5h=item[1], ipv4=item[2], value=item[3], type=item[4])
             for item in response.result_rows
         ]
 
@@ -580,7 +574,9 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_block([str(ip) for ip in blocking_user.ipv4])
 
-            logger.warning(f'Blocked user {blocking_user} by {self.app_config.blocking_type}')
+            logger.warning(
+                f"Blocked user {blocking_user} by {self.app_config.blocking_type}"
+            )
 
         self.tempesta_dump_config_and_reload()
 
@@ -609,7 +605,9 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_release([str(ip) for ip in blocking_user.ipv4])
 
-            logger.warning(f'Released user {blocking_user} by {self.app_config.blocking_type}')
+            logger.warning(
+                f"Released user {blocking_user} by {self.app_config.blocking_type}"
+            )
 
         self.tempesta_dump_config_and_reload()
 
@@ -696,17 +694,19 @@ class DDOSMonitor:
         """
         self.ja5t_config.load()
         self.ja5h_config.load()
-        logger.debug('JA5T and JA5H configurations loaded')
+        logger.debug("JA5T and JA5H configurations loaded")
 
         self.ja5t_mark_as_blocked(list(self.ja5t_config.hashes))
         self.ja5h_mark_as_blocked(list(self.ja5h_config.hashes))
 
         if len(self.blocked):
-            logger.info(f'Total number of already blocked users in JA5 configurations: {len(self.blocked)}')
+            logger.info(
+                f"Total number of already blocked users in JA5 configurations: {len(self.blocked)}"
+            )
 
         await self.clickhouse_client.connect()
-        logger.debug('Established connection to ClickHouse server.')
-        logger.info(f'Training mode set to `{self.app_config.training_mode.upper()}`')
+        logger.debug("Established connection to ClickHouse server.")
+        logger.info(f"Training mode set to `{self.app_config.training_mode.upper()}`")
 
         await self.clickhouse_client.user_agents_table_create()
         await self.clickhouse_client.user_agents_table_truncate()
@@ -714,19 +714,24 @@ class DDOSMonitor:
         if self.app_config.allowed_user_agents_file_path:
             self.user_agent_manager.read_from_file()
             await self.user_agent_manager.export_to_db()
-            logger.info(f'Found protected user agents. Total user agents: `{len(self.user_agent_manager.user_agents)}`')
+            logger.info(
+                f"Found protected user agents. Total user agents: `{len(self.user_agent_manager.user_agents)}`"
+            )
 
         if self.app_config.training_mode == "real":
-            logger.info(f'Starting to collect client activity for: {self.app_config.training_mode_duration_min} min.')
+            logger.info(
+                f"Starting to collect client activity for: {self.app_config.training_mode_duration_min} min."
+            )
             await asyncio.sleep(self.app_config.training_mode_duration_min * 60)
-            logger.info('Data collection is complete')
+            logger.info("Data collection is complete")
 
         if self.app_config.blocking_mode in {"real", "historical"}:
-            logger.info('Analyzing user activity for the period')
+            logger.info("Analyzing user activity for the period")
             known_users = await self.persistent_users_load(
                 start_at=int(time.time())
                 - self.app_config.persistent_users_window_offset_min * 60,
-                period_in_seconds=self.app_config.persistent_users_window_duration_min * 60,
+                period_in_seconds=self.app_config.persistent_users_window_duration_min
+                * 60,
                 requests_amount=self.app_config.persistent_users_total_requests,
                 time_amount=self.app_config.persistent_users_total_time,
                 users_amount=self.app_config.persistent_users_total_users,
@@ -749,7 +754,7 @@ class DDOSMonitor:
                 errors_threshold=self.app_config.default_errors_threshold,
             )
 
-        logger.info('Preparation is complete. Starting monitoring.')
+        logger.info("Preparation is complete. Starting monitoring.")
         await asyncio.gather(
             self.monitor_new_risk_clients(),
             self.monitor_release_risk_clients(),

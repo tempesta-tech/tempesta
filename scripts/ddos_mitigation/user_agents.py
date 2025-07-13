@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass, field
+
 from access_log import ClickhouseAccessLog
 
 
@@ -13,7 +14,7 @@ class UserAgentsManager:
         if not os.path.exists(self.config_path):
             raise FileNotFoundError
 
-        with open(self.config_path, 'r') as f:
+        with open(self.config_path, "r") as f:
             for line in f.readlines():
                 self.user_agents.add(line.strip())
 
@@ -21,4 +22,6 @@ class UserAgentsManager:
         if not self.user_agents:
             return
 
-        await self.clickhouse_client.user_agents_table_insert([[i] for i in self.user_agents])
+        await self.clickhouse_client.user_agents_table_insert(
+            [[i] for i in self.user_agents]
+        )
