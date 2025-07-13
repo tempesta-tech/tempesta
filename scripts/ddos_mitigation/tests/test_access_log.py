@@ -20,6 +20,10 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         await self.client.conn.query("drop database if exists test_db")
 
         await self.client.conn.query("create database test_db")
+        await self.client.conn.close()
+
+        self.client = ClickhouseAccessLog(database="test_db")
+        await self.client.connect()
         await self.client.conn.query(
             """
             CREATE TABLE IF NOT EXISTS test_db.access_log (
@@ -39,6 +43,14 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
                 dropped_events UInt64,
                 PRIMARY KEY(timestamp)
             );
+            """
+        )
+        await self.client.conn.query(
+            """
+            create table test_db.user_agents (
+                name String,
+                PRIMARY KEY(name)
+            )
             """
         )
         await self.client.conn.query(
@@ -129,3 +141,13 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         # errors avr( ja5=11 (0), ja5=12 (0), ja5=13 (0), ja5=14(2) ) = 2/4 = 0.5
 
         self.assertEqual(response.result_rows, [(3.0, 0), (30.0, 1), (0.5, 2)])
+
+    async def test_create_user_table(self):
+        await self.client.user_agents_table_create()
+        items = await self.client.user_agents_all()
+        self.assertEqual(len(items.result_rows), 0)
+
+    async def test_insert_user_agents(self):
+        await self.client.user_agents_table_insert([['TestUserAgent'], ['HelloKitty']])
+        items = await self.client.user_agents_all()
+        self.assertEqual(len(items.result_rows), 2)

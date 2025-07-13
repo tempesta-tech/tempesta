@@ -3,6 +3,7 @@ import asyncio
 from defender import DDOSMonitor
 
 from access_log import ClickhouseAccessLog
+from user_agents import UserAgentsManager
 from cli import CommandLineArgs
 from config import AppConfig
 from ja5_config import Ja5Config
@@ -30,5 +31,9 @@ if __name__ == "__main__":
         ja5t_config=Ja5Config(file_path=app_config.path_to_ja5t_config),
         ja5h_config=Ja5Config(file_path=app_config.path_to_ja5h_config),
         app_config=app_config,
+        user_agent_manager=UserAgentsManager(
+            clickhouse_client=app_config.user_agent_manager,
+            config_path=app_config.allowed_user_agents_file_path
+        ),
     )
     asyncio.run(app.run())

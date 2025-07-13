@@ -8,6 +8,7 @@ from ipaddress import IPv4Address
 from typing import Generator, Optional
 
 from access_log import ClickhouseAccessLog
+from user_agents import UserAgentsManager
 from config import AppConfig
 from ja5_config import Ja5Config, Ja5Hash
 
@@ -58,6 +59,9 @@ class DDOSMonitor:
 
     # Initialized application config
     app_config: AppConfig
+
+    # User Agent Config Manager
+    user_agent_manager: UserAgentsManager
 
     # current rpm threshold
     requests_threshold: Decimal = 0
@@ -703,6 +707,14 @@ class DDOSMonitor:
         await self.clickhouse_client.connect()
         logger.debug('Established connection to ClickHouse server.')
         logger.info(f'Training mode set to `{self.app_config.training_mode.upper()}`')
+
+        await self.clickhouse_client.user_agents_table_create()
+        await self.clickhouse_client.user_agents_table_truncate()
+
+        if self.app_config.allowed_user_agents_file_path:
+            self.user_agent_manager.read_from_file()
+            await self.user_agent_manager.export_to_db()
+            logger.info(f'Found protected user agents. Total user agents: `{len(self.user_agent_manager.user_agents)}`')
 
         if self.app_config.training_mode == "real":
             logger.info(f'Starting to collect client activity for: {self.app_config.training_mode_duration_min} min.')

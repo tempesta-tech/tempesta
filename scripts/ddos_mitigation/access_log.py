@@ -61,10 +61,11 @@ class ClickhouseAccessLog:
                     ja5t, 
                     ja5h,
                     groupUniqArray(address) addresses,
+                    min(user_agent) user_agent,
                     count(1) as total_requests,
                     sum(response_time) as total_time,
                     countIf(status not in (200, 201)) as total_errors
-                FROM test_db.access_log
+                FROM access_log
                 WHERE 
                     timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
                     AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
@@ -79,10 +80,12 @@ class ClickhouseAccessLog:
                     *,
                     if(total_requests = 0, 1, total_requests) * 
                     if(total_time = 0, 1, total_time) * 
-                    if(total_errors = 0, 1, total_errors) as risk_score
-                FROM aggregated_clients
+                    if(total_errors = 0, 1, total_errors) as risk_score,
+                    ua.name as persistent_user_agent
+                FROM aggregated_clients ac
+                LEFT JOIN user_agents ua
+                    ON ac.user_agent = ua.name
                 ORDER BY risk_score DESC
-                LIMIT {ja5_hashes_limit}
             )
             SELECT
                 ja5t,
@@ -98,7 +101,9 @@ class ClickhouseAccessLog:
                     WHEN total_time >= {time_threshold} THEN 1
                     WHEN total_errors >= {errors_threshold} THEN 2
                 END as type
-            FROM scored_clients          
+            FROM scored_clients
+            WHERE persistent_user_agent = ''
+            LIMIT {ja5_hashes_limit}
             """
         )
 
@@ -119,7 +124,7 @@ class ClickhouseAccessLog:
                         count(1) as total_requests,
                         sum(response_time) as total_time,
                         countIf(status not in (200, 201)) as total_errors
-                    FROM test_db.access_log
+                    FROM access_log
                     WHERE 
                         timestamp > toDateTime64({start_at}, 3, 'UTC')
                         and timestamp <= toDateTime64({start_at}, 3, 'UTC') + INTERVAL {period_in_minutes} MINUTE
@@ -145,5 +150,37 @@ class ClickhouseAccessLog:
                 from aggregated_clients
             ) a
             ORDER BY type
+            """
+        )
+
+    async def user_agents_table_create(self):
+        return await self.conn.query(
+            """
+            create table if not exists user_agents (
+                name String,
+                PRIMARY KEY(name)
+            )
+            """
+        )
+
+    async def user_agents_table_truncate(self):
+        return await self.conn.query(
+            """
+            truncate table user_agents
+            """
+        )
+
+    async def user_agents_table_insert(self, values: list[list[str]]):
+        return await self.conn.insert(
+            table="user_agents",
+            data=values,
+            column_names=['name']
+        )
+
+    async def user_agents_all(self):
+        return await self.conn.query(
+            """
+            SELECT *
+            FROM user_agents
             """
         )

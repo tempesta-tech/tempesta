@@ -11,6 +11,7 @@ from clickhouse_connect.driverc.dataconv import IPv4Address
 from defender import DDOSMonitor, User
 
 from access_log import ClickhouseAccessLog
+from user_agents import UserAgentsManager
 from config import AppConfig
 from ja5_config import Ja5Config
 
@@ -24,9 +25,13 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         self.access_log = ClickhouseAccessLog()
         await self.access_log.connect()
         await self.access_log.conn.query("create database test_db")
+        await self.access_log.conn.close()
+
+        self.access_log = ClickhouseAccessLog(database="test_db")
+        await self.access_log.connect()
         await self.access_log.conn.query(
             """
-            CREATE TABLE IF NOT EXISTS test_db.access_log (
+            CREATE TABLE IF NOT EXISTS access_log (
                 timestamp DateTime64(3, 'UTC'),
                 address IPv6,
                 method UInt8,
@@ -45,9 +50,10 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
             );
             """
         )
+        await self.access_log.user_agents_table_create()
         await self.access_log.conn.query(
             """
-            insert into test_db.access_log values 
+            insert into access_log values 
             (cast('1751535000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
             (cast('1751536000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
             (cast('1751537000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 400, 0, 10, 'default', '/', '/', 'UserAgent', 13, 23, 0)
@@ -66,7 +72,11 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
             clickhouse_client=self.access_log,
             ja5t_config=self.ja5t_config,
             ja5h_config=self.ja5h_config,
-            app_config=AppConfig(),
+            app_config=AppConfig(clickhouse_database='test_db'),
+            user_agent_manager=UserAgentsManager(
+                clickhouse_client=self.access_log,
+                config_path=''
+            ),
         )
         try:
             self.monitor.ipset_reset()
