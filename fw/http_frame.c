@@ -999,6 +999,13 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+static inline bool
+tfw_h2_frame_is_ctrl(TfwFrameType hdr_type)
+{
+	return hdr_type != HTTP2_HEADERS && hdr_type != HTTP2_CONTINUATION
+		&& hdr_type != HTTP2_DATA;
+}
+
 /*
  * Initial processing of received frames: verification and handling of
  * frame header; also, stream states are processed here - during receiving
@@ -1039,6 +1046,10 @@ do {									\
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
+
+	if (tfw_h2_frame_is_ctrl(hdr_type) &&
+	    unlikely(r = frang_ctrl_frame_limit((TfwConn *)ctx->conn)))
+		return T_BLOCK_WITH_RST;
 
 	/*
 	 * TODO: RFC 7540 Section 6.2:

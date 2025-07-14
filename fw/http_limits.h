@@ -148,6 +148,7 @@ struct frang_global_cfg_t {
 	unsigned int		http_bchunk_cnt;
 	unsigned int		http_hdr_len;
 	unsigned int		http_hdr_cnt;
+	unsigned int		ctrl_frame_rate;
 
 	bool			ip_block;
 };
@@ -189,5 +190,6 @@ int frang_tls_handler(TlsCtx *tls, int state);
 int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
+int frang_ctrl_frame_limit(TfwConn *conn);
 
 #endif /* __HTTP_LIMITS__ */

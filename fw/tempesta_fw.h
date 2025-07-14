@@ -126,4 +126,7 @@ tfw_srv_loop_sched_rcu(void)
 	rcu_barrier();
 }
 
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
+
 #endif /* __TEMPESTA_FW_H__ */

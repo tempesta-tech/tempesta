@@ -21,6 +21,7 @@
 #define __HTTP2__
 
 #include "http_frame.h"
+#include "tempesta_fw.h"
 
 /**
  * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
@@ -46,6 +47,17 @@ typedef struct {
 	unsigned int max_frame_sz;
 	unsigned int max_lhdr_sz;
 } TfwSettings;
+
+/**
+ * Control frame statistics.
+ *
+ * @cnt	- Amount of control frames in a time;
+ * @ts	- Control frame time in seconds.
+ */
+typedef struct {
+	unsigned int	cnt;
+	unsigned int	ts;
+} __attribute__((packed)) CtrlFrameStat;
 
 typedef struct tfw_conn_t TfwConn;
 
@@ -83,6 +95,7 @@ typedef struct tfw_conn_t TfwConn;
  *			  from _HTTP2_SETTINGS_MAX are used to save what
  *			  settings we sent to the client;
  * @conn		- pointer to h2 connection of this context;
+ * @ctrl_frame_stat	- control frame receiption history;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -128,6 +141,7 @@ typedef struct tfw_h2_ctx_t {
 	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
 	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
 	TfwH2Conn	*conn;
+	CtrlFrameStat	ctrl_frame_stat[FRANG_FREQ];
 	char            __off[0];
 	struct sk_buff  *skb_head;
 	TfwStream       *cur_stream;

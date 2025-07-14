@@ -30,9 +30,7 @@
 #include "sync_socket.h"
 #include "http2.h"
 #include "tls.h"
-
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
+#include "tempesta_fw.h"
 
 /*
  * Flag bits definition for SsProto.type field.

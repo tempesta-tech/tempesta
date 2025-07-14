@@ -3179,6 +3179,17 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		},
 		.allow_reconfig = true,
 	},
+	{
+		.name = "ctrl_frame_rate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.ctrl_frame_rate,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
 	/* Option can be redefined per vhost|location.
 	 *
 	 * All handler are changed to tfw_cfgop_frang_glob_...
@@ -3345,6 +3356,13 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.handler = tfw_cfgop_frang_glob_in_vhost,
 		.allow_reconfig = true,
 		.allow_none = true,
+	},
+	{
+		.name = "ctrl_frame_rate",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+
 	},
 	/* Option can be redefined per vhost|location. */
 	{

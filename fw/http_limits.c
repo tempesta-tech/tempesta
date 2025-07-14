@@ -1674,6 +1674,61 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 }
 
 static int
+__frang_ctrl_frame_limit(FrangAcc *ra, TfwCliConn *conn,
+			 unsigned int ctrl_frame_rate)
+{
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+
+
+	if (!ctrl_frame_rate)
+		return T_OK;
+
+	if (ctx->ctrl_frame_stat[i].ts != ts) {
+		ctx->ctrl_frame_stat[i].ts = ts;
+		ctx->ctrl_frame_stat[i].cnt = 0;
+	}
+	ctx->ctrl_frame_stat[i].cnt++;
+
+	if (unlikely(ctx->ctrl_frame_stat[i].cnt > ctrl_frame_rate)) {
+		frang_limmsg("control frames rate", ctx->ctrl_frame_stat[i].cnt,
+			     ctrl_frame_rate, &FRANG_ACC2CLI(ra)->addr);
+		return T_BLOCK;
+	}
+
+	return T_OK;
+}
+
+int
+frang_ctrl_frame_limit(TfwConn *conn)
+{
+	FrangAcc *ra = frang_acc_from_sk(conn->sk);
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	int r;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return T_BLOCK_WITH_RST;
+
+	BUG_ON(!ra);
+
+	spin_lock(&ra->lock);
+
+	r = __frang_ctrl_frame_limit(ra, (TfwCliConn *)conn,
+				     dflt_vh->frang_gconf->ctrl_frame_rate);
+
+	spin_unlock(&ra->lock);
+
+	if (unlikely(r == T_BLOCK_WITH_RST) && dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
+
+	tfw_vhost_put(dflt_vh);
+
+	return r;
+
+}
+
+static int
 frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
 			  unsigned int max_misses)
 {
