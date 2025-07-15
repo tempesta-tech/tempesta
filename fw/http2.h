@@ -171,4 +171,10 @@ int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 TfwStreamSchedEntry *tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx);
 void tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry);
 
+static inline bool
+tfw_h2_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	return ctx->rem_wnd <= 0 || stream->rem_wnd <= 0;
+}
+
 #endif /* __HTTP2__ */
