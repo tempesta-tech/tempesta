@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2017-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include <linux/sort.h>
 
+#include "sched.h"
 #include "tempesta_fw.h"
 #include "apm.h"
 #include "log.h"
@@ -1212,7 +1213,7 @@ cleanup:
 	return NULL;
 }
 
-void
+static void
 tfw_sched_ratio_set_sched_data(TfwSrvGroup *sg, TfwRatio *ratio)
 {
 	size_t i;

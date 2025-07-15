@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "http_sess_conf.h"
 #include "http_sess.h"
 #include "vhost.h"
+#include "lib/random.h"
 
 /* Currently parsed vhost. */
 static TfwVhost *cur_vhost;
@@ -581,7 +582,7 @@ tfw_cfgop_sticky_secret_set(TfwStickyCookie *sticky, const char *secret_str,
 	len = max_t(size_t, len, sizeof(sticky->key));
 #endif
 	if (!len) {
-		get_random_bytes(secret, sizeof(secret));
+		tfw_get_random_bytes(secret, sizeof(secret));
 		len = sizeof(secret);
 		secret_buf = secret;
 	}

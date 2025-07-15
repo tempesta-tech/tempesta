@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,16 +17,17 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
-#include "mmap_buffer.h"
-#include "lib/str.h"
+#include <asm/page.h>
 #include <linux/types.h>
 #include <linux/log2.h>
 #include <linux/cpumask.h>
 #include <linux/fs.h>
 #include <linux/device.h>
 #include <linux/io.h>
-#include <asm/page.h>
+#include <linux/vmalloc.h>
+
+#include "mmap_buffer.h"
+#include "lib/str.h"
 
 /*
  * We can't pass TfwMmapBufferHolder pointer to the file operations handlers.
@@ -209,7 +210,8 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	/*
 	 * Allocate pages for double mapping and a page for buffer control structure.
 	 */
-	page_ptr = kmalloc((page_cnt * 2 + 1) * sizeof(struct page *), GFP_KERNEL);
+	page_ptr = kmalloc((page_cnt * 2 + 1) * sizeof(struct page *),
+			   GFP_KERNEL);
 	if (!page_ptr)
 		goto err;
 
@@ -232,7 +234,8 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 			page_ptr[i + page_cnt + 1] = &holder->mem[cpu].data_page[i];
 		}
 
-		buf = (TfwMmapBuffer *)vmap(page_ptr, page_cnt * 2 + 1, VM_MAP, PAGE_KERNEL);
+		buf = (TfwMmapBuffer *)vmap(page_ptr, page_cnt * 2 + 1, VM_MAP,
+					    PAGE_KERNEL);
 		if (!buf)
 			goto err;
 
@@ -249,10 +252,11 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	if (filename) { /* do not create the file in unit tests */
 		holder->dev_major = register_chrdev(0, filename, &dev_fops);
 		if (holder->dev_major < 0) {
-			T_ERR("Registering char device failed for %s\n", filename);
+			T_ERR("Registering char device failed for %s\n",
+			      filename);
 			goto err;
 		}
-		holder->dev_class = class_create(THIS_MODULE, filename);
+		holder->dev_class = class_create(filename);
 		if (IS_ERR(holder->dev_class)) {
 			T_ERR("Class creation failed for %s\n", filename);
 			goto err;

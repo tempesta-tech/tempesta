@@ -133,7 +133,7 @@ do {									    \
 	test_suite__ ##name ##__ ##part
 
 #define TEST_SUITE_MPART(name, part)			\
-	void TEST_SUITE_MPART_NAME(name, part)(void)
+	static void TEST_SUITE_MPART_NAME(name, part)(void)
 
 #define TEST_SUITE_MPART_ARR(name, cnt)			\
 	void __attribute__((unused))			\
@@ -264,5 +264,21 @@ __fpu_schedule(void)
 	schedule();
 	kernel_fpu_begin();
 }
+
+TEST_SUITE(cfg);
+TEST_SUITE(tfw_str);
+TEST_SUITE(mem_fast);
+TEST_SUITE(http2_parser_hpack);
+TEST_SUITE(http_sticky);
+TEST_SUITE(http_match);
+TEST_SUITE(http_msg);
+TEST_SUITE(hash);
+TEST_SUITE(addr);
+TEST_SUITE(wq);
+TEST_SUITE(tls);
+TEST_SUITE(hpack);
+TEST_SUITE(pool);
+TEST_SUITE(ebtree);
+TEST_SUITE(mmap_buffer);
 
 #endif /* __TFW_TEST_H__ */
