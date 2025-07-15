@@ -61,6 +61,6 @@ debian
 /tls/t/test_rsa
 /tls/ecp256_G.autogen.h
 
-# utils
-utils/tfw_logger
-utils/clickhouse-cpp
+# logger
+logger/tfw_logger
+logger/clickhouse-cpp
