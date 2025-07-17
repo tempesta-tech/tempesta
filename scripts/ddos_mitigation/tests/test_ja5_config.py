@@ -20,10 +20,10 @@ class TestJa5Config(unittest.TestCase):
 
         with open(self.path_to_config, "w") as f:
             f.write(
-                "aaaaaaa11111 3 4;\n"
+                "hash aaaaaaa11111 3 4;\n"
                 "  2222aaaaaaa 12   23444  ;  \n"
-                "  wrong222 12   ;  \n"
-                "  wrong-again  ;  \n"
+                " hash wrong222 12   ;  \n"
+                "  hash wrong-again  ;  \n"
                 "#commented  ;  \n"
             )
 
@@ -42,23 +42,23 @@ class TestJa5Config(unittest.TestCase):
 
     def test_load_hashes_from_file(self):
         config = Ja5Config(self.path_to_config)
-        self.assertEqual(len(config.hashes), 2)
+        self.assertEqual(len(config.hashes), 1)
 
     def test_dump_file(self):
         config = Ja5Config(self.path_to_config)
-        config.hashes = {"test": Ja5Hash(value="test", connections=1, packets=1)}
+        config.hashes = {"test": Ja5Hash(value='0', connections=1, packets=1)}
         config.dump()
 
         with open(self.path_to_config) as f:
             data = f.read()
 
-        self.assertEqual(data, "test 1 1;\n")
+        self.assertEqual(data, "hash 0 1 1;\n")
 
     def test_modification(self):
         config = Ja5Config(self.path_to_config)
         self.assertEqual(config.need_dump, False)
 
-        config.add(Ja5Hash(value=100, connections=1, packets=2))
+        config.add(Ja5Hash(value='100', connections=1, packets=2))
         self.assertEqual(config.need_dump, True)
 
         config.dump()
@@ -67,7 +67,7 @@ class TestJa5Config(unittest.TestCase):
         with open(self.path_to_config) as f:
             data = f.read()
 
-        self.assertEqual(data, "aaaaaaa11111 3 4;\n2222aaaaaaa 12 23444;\n100 1 2;\n")
+        self.assertEqual(data, "hash aaaaaaa11111 3 4;\nhash 100 1 2;\n")
 
         config.remove(100)
         self.assertEqual(config.need_dump, True)
@@ -78,4 +78,4 @@ class TestJa5Config(unittest.TestCase):
         with open(self.path_to_config) as f:
             data = f.read()
 
-        self.assertEqual(data, "aaaaaaa11111 3 4;\n2222aaaaaaa 12 23444;\n")
+        self.assertEqual(data, "hash aaaaaaa11111 3 4;\n")

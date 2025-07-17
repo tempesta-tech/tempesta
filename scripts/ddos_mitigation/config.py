@@ -33,9 +33,12 @@ class AppConfig(BaseSettings):
 
     stats_window_offset_min: int = 60
     stats_window_duration_min: int = 60
+    stats_rps_multiplier: int = 100
+    stats_time_multiplier: int = 100
+    stats_errors_multiplier: int = 5
 
     blocking_type: set[Literal["ja5t", "ja5h", "ipset", "nftables"]] = {"ja5t"}
-    blocking_window_duration_sec: int = 60
+    blocking_window_duration_sec: int = 10
     blocking_ja5_limit: int = 10
     blocking_ip_limits: int = 10
     blocking_ipset_name: str = "tempesta_blocked_ips"
@@ -47,3 +50,9 @@ class AppConfig(BaseSettings):
     allowed_user_agents_file_path: str = (
         "/etc/tempesta-ddos-defender/allow_user_agents.txt"
     )
+    log_level: str = 'INFO'
+
+    @classmethod
+    def read(cls, path: str) -> str:
+        with open(path, "r") as f:
+            return f.read()

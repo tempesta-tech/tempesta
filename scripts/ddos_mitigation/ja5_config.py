@@ -12,7 +12,7 @@ __license__ = "GPL2"
 
 @dataclass
 class Ja5Hash:
-    value: int
+    value: str
     connections: int
     packets: int
 
@@ -23,6 +23,7 @@ class Ja5Config:
     """
 
     hash_pattern = re.compile(
+        r"[\t\s]*hash*"
         r"[\t\s]*(?P<hash>\w+)[\t\s]+"
         r"(?P<connections>\d+)[\t\s]+"
         r"(?P<packets>\d+)[\t\s]*;[\t\s]*"
@@ -30,7 +31,7 @@ class Ja5Config:
 
     def __init__(self, file_path: str):
         self.file_path = file_path
-        self.hashes: Dict[int, Ja5Hash] = {}
+        self.hashes: Dict[str, Ja5Hash] = {}
 
         self.verify_file(file_path)
         self.load()
@@ -45,7 +46,7 @@ class Ja5Config:
         :param ja5_hash: JA5 hash value.
         :return: Formatted string representation of the JA5 hash.
         """
-        return f"{ja5_hash.value} {ja5_hash.connections} {ja5_hash.packets};\n"
+        return f"hash {ja5_hash.value} {ja5_hash.connections} {ja5_hash.packets};\n"
 
     @staticmethod
     def verify_file(file_path: str):
@@ -56,11 +57,11 @@ class Ja5Config:
         """
         if not os.path.isfile(file_path):
             logger.error(f"File `{file_path}` does not exist")
-            raise FileNotFoundError
+            exit(1)
 
         if not os.access(file_path, os.W_OK):
-            logger.error(f"File `{file_path}` is not writable")
-            raise PermissionError
+            logger.error(f"File `{file_path}` is not writable. App does not have enough permissions.")
+            exit(1)
 
     def load(self):
         """
@@ -91,7 +92,7 @@ class Ja5Config:
 
         self.need_dump = False
 
-    def exists(self, ja5_hash: int) -> bool:
+    def exists(self, ja5_hash: str) -> bool:
         """
         Check if a JA5 hash exists in local storage.
 
@@ -109,7 +110,7 @@ class Ja5Config:
         self.hashes[ja5_hash.value] = ja5_hash
         self.need_dump = True
 
-    def remove(self, ja5_hash: int):
+    def remove(self, ja5_hash: str):
         """
         Remove a JA5 hash from local storage.
 

@@ -28,8 +28,8 @@ class AverageStats:
 
 @dataclass
 class User:
-    ja5t: Optional[int] = None
-    ja5h: Optional[int] = None
+    ja5t: Optional[str] = None
+    ja5h: Optional[str] = None
     ipv4: list[IPv4Address] = ()
     value: Optional[int] = None
     type: Optional[int] = None
@@ -122,18 +122,20 @@ class DDOSMonitor:
             f"errors={self.errors_threshold}"
         )
 
-    def ja5t_mark_as_blocked(self, ja5t_hashes: list[int]):
+    def ja5t_mark_as_blocked(self, ja5t_hashes: list[str]):
         """
         Update the internal dictionary of blocked users with new JA5T hashes,
         without actually blocking the users.
 
         :param ja5t_hashes: List of JA5T hashes.
         """
+        blocked_at = int(time.time())
+
         for hash_value in ja5t_hashes:
-            user = User(ja5t=hash_value)
+            user = User(ja5t=hash_value, blocked_at=blocked_at)
             self.blocked[hash(user)] = user
 
-    def jat5t_block(self, ja5t_value: int):
+    def jat5t_block(self, ja5t_value: str):
         """
         Block a specific JA5T hash using Tempesta FW
 
@@ -144,10 +146,14 @@ class DDOSMonitor:
 
         self.ja5t_config.add(Ja5Hash(value=ja5t_value, packets=0, connections=0))
 
-        new_blocking_user = User(ja5t=ja5t_value)
+        new_blocking_user = User(ja5t=ja5t_value, blocked_at=int(time.time()))
         self.blocked[hash(new_blocking_user)] = new_blocking_user
 
-    def ja5t_release(self, ja5t_value: int):
+        logger.warning(
+            f"Blocked user {new_blocking_user} by ja5t"
+        )
+
+    def ja5t_release(self, ja5t_value: str):
         """
         Release the JA5T hash in Tempesta FW, lifting the block.
 
@@ -158,10 +164,13 @@ class DDOSMonitor:
 
         self.ja5t_config.remove(ja5t_value)
 
-        blocking_user_hash = hash(User(ja5t=ja5t_value))
+        user = User(ja5t=ja5t_value)
+        blocking_user_hash = hash(user)
         self.blocked.pop(blocking_user_hash)
 
-    def ja5h_mark_as_blocked(self, ja5h_hashes: list[int]):
+        logger.warning(f"Released user {user} by ja5t")
+
+    def ja5h_mark_as_blocked(self, ja5h_hashes: list[str]):
         """
         Update the internal dictionary of blocked users with new JA5H hashes,
         without actually blocking the users.
@@ -169,10 +178,12 @@ class DDOSMonitor:
         :param ja5h_hashes: List of JA5H hashes.
         """
         for hash_value in ja5h_hashes:
-            user = User(ja5h=hash_value)
+            user = User(ja5h=hash_value, blocked_at=int(time.time()))
             self.blocked[hash(user)] = user
 
-    def ja5h_block(self, ja5h_value: int):
+            logger.warning(f"Blocked user {user} by ja5t")
+
+    def ja5h_block(self, ja5h_value: str):
         """
         Block a specific JA5H hash using Tempesta FW
 
@@ -189,10 +200,12 @@ class DDOSMonitor:
             )
         )
 
-        new_blocking_user = User(ja5h=ja5h_value)
+        new_blocking_user = User(ja5h=ja5h_value, blocked_at=int(time.time()))
         self.blocked[hash(new_blocking_user)] = new_blocking_user
 
-    def ja5h_release(self, ja5h_value: int):
+        logger.warning(f"Blocked user {new_blocking_user} by ja5h")
+
+    def ja5h_release(self, ja5h_value: str):
         """
         Release the JA5H hash in Tempesta FW, lifting the block.
 
@@ -203,8 +216,11 @@ class DDOSMonitor:
 
         self.ja5h_config.remove(ja5h_value)
 
-        blocking_user_hash = hash(User(ja5h=ja5h_value))
+        user = User(ja5h=ja5h_value)
+        blocking_user_hash = hash(user)
         self.blocked.pop(blocking_user_hash)
+
+        logger.warning(f"Released user {user} by ja5t")
 
     def ipset_prepare(self):
         """
@@ -281,6 +297,8 @@ class DDOSMonitor:
                     logger.error(f"{ip} is already added")
                 else:
                     logger.error(f"{ip} can not be added: {result.stderr}")
+            else:
+                logger.warning(f"Blocked user {ip} by ipset")
 
     def ipset_release(self, ips: list[str]):
         """
@@ -298,6 +316,8 @@ class DDOSMonitor:
                     logger.error(f"{ip} is missing in ipset")
                 else:
                     logger.error(f"{ip} can not be released: {result.stderr}")
+            else:
+                logger.warning(f"Released user {ip} by ipset")
 
     def ipset_info(self) -> bytes:
         """
@@ -341,7 +361,7 @@ class DDOSMonitor:
         if result.returncode != 0 and "No such file or directory" in result.stderr:
             result = self.run_in_shell(
                 f"nft add set inet {self.app_config.blocking_ipset_name}_table "
-                f"{self.app_config.blocking_ipset_name} {{ type ipv4_addr\; flags interval\; }}"
+                f"{self.app_config.blocking_ipset_name} {{ type ipv4_addr; flags interval; }}"
             )
 
             if result.returncode != 0:
@@ -357,7 +377,7 @@ class DDOSMonitor:
         if result.returncode != 0 and "No such file or directory" in result.stderr:
             result = self.run_in_shell(
                 f"nft add chain inet {self.app_config.blocking_ipset_name}_table "
-                f"input {{ type filter hook input priority 0\; }}"
+                f"input {{ type filter hook input priority 0; }}"
             )
 
             if result.returncode != 0:
@@ -412,6 +432,8 @@ class DDOSMonitor:
 
             if result.returncode != 0:
                 logger.error(f"Cannot block ip by nft: {result.stderr}")
+            else:
+                logger.warning(f"Blocked user {ip} by nft")
 
     def nftables_release(self, ips: list[str]):
         """
@@ -427,6 +449,8 @@ class DDOSMonitor:
 
             if result.returncode != 0:
                 logger.error(f"Cannot release ip by nft: {result.stderr}")
+            else:
+                logger.warning(f"Released user {ip} by nft")
 
     def nftables_info(self):
         """
@@ -504,9 +528,9 @@ class DDOSMonitor:
             errors = Decimal(response.result_rows[2][0]) / total_seconds
 
         return AverageStats(
-            requests=requests.quantize(Decimal("0.01"), ROUND_HALF_UP),
-            time=times.quantize(Decimal("0.01"), ROUND_HALF_UP),
-            errors=errors.quantize(Decimal("0.01"), ROUND_HALF_UP),
+            requests=requests.quantize(Decimal("0.01") * self.app_config.stats_rps_multiplier, ROUND_HALF_UP),
+            time=times.quantize(Decimal("0.01") * self.app_config.stats_time_multiplier, ROUND_HALF_UP),
+            errors=errors.quantize(Decimal("0.01") * self.app_config.stats_errors_multiplier, ROUND_HALF_UP),
         )
 
     async def risk_clients_fetch(
@@ -539,7 +563,7 @@ class DDOSMonitor:
             start_at=start_at,
         )
         return [
-            User(ja5t=item[0], ja5h=item[1], ipv4=item[2], value=item[3], type=item[4])
+            User(ja5t=hex(item[0])[2:], ja5h=hex(item[1])[2:], ipv4=item[2], value=item[3], type=item[4])
             for item in response.result_rows
         ]
 
@@ -549,7 +573,7 @@ class DDOSMonitor:
         """
         risk_clients = await self.risk_clients_fetch(
             start_at=int(time.time()),
-            period_in_seconds=self.app_config.blocking_time_min,
+            period_in_seconds=self.app_config.blocking_window_duration_sec,
             requests_threshold=self.requests_threshold,
             time_threshold=self.time_threshold,
             errors_threshold=self.errors_threshold,
@@ -560,8 +584,11 @@ class DDOSMonitor:
             already_blocked=self.blocked,
             exclude_users=self.known_users,
         )
+        total_users = 0
 
         for blocking_user in users_to_block:
+            total_users += 1
+
             if "ja5t" in self.app_config.blocking_type:
                 self.jat5t_block(blocking_user.ja5t)
 
@@ -574,10 +601,8 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_block([str(ip) for ip in blocking_user.ipv4])
 
-            logger.warning(
-                f"Blocked user {blocking_user} by {self.app_config.blocking_type}"
-            )
 
+        logger.debug(f'Checked risky users. Total found {total_users}')
         self.tempesta_dump_config_and_reload()
 
     async def risk_clients_release(self):
@@ -586,8 +611,8 @@ class DDOSMonitor:
         """
         current_time = int(time.time())
         blocking_seconds = self.app_config.blocking_time_min * 60
-
         fixed_users_list = list(self.blocked.items())
+
         for key, blocking_user in fixed_users_list:
 
             if (current_time - blocking_user.blocked_at) < blocking_seconds:
@@ -605,10 +630,8 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_release([str(ip) for ip in blocking_user.ipv4])
 
-            logger.warning(
-                f"Released user {blocking_user} by {self.app_config.blocking_type}"
-            )
 
+        logger.debug(f'Checked blocked users ready to release. Total found {len(fixed_users_list)}')
         self.tempesta_dump_config_and_reload()
 
     def tempesta_reload(self):
@@ -621,14 +644,16 @@ class DDOSMonitor:
             )
 
             if result.returncode != 0:
-                raise ValueError(f"tempesta could not be reloaded: {result.stderr}")
+                logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
+                exit(1)
 
             return
 
         result = self.run_in_shell("service tempesta --reload")
 
         if result.returncode != 0:
-            raise ValueError(f"tempesta could not be reloaded: {result.stderr}")
+            logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
+            exit(1)
 
     def tempesta_dump_config_and_reload(self):
         """
@@ -677,7 +702,7 @@ class DDOSMonitor:
         """
         while True:
             asyncio.create_task(self.risk_clients_block())
-            await asyncio.sleep(self.app_config.blocking_time_slice)
+            await asyncio.sleep(self.app_config.blocking_window_duration_sec)
 
     async def monitor_release_risk_clients(self):
         """
@@ -685,7 +710,7 @@ class DDOSMonitor:
         """
         while True:
             asyncio.create_task(self.risk_clients_release())
-            await asyncio.sleep(self.app_config.blocking_release_time_minutes)
+            await asyncio.sleep(self.app_config.blocking_release_time_min * 60)
 
     async def run(self):
         """
@@ -725,7 +750,7 @@ class DDOSMonitor:
             await asyncio.sleep(self.app_config.training_mode_duration_min * 60)
             logger.info("Data collection is complete")
 
-        if self.app_config.blocking_mode in {"real", "historical"}:
+        if self.app_config.blocking_type in {"real", "historical"}:
             logger.info("Analyzing user activity for the period")
             known_users = await self.persistent_users_load(
                 start_at=int(time.time())

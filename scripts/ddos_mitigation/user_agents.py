@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 
 from access_log import ClickhouseAccessLog
+from logger import logger
 
 
 @dataclass
@@ -12,7 +13,8 @@ class UserAgentsManager:
 
     def read_from_file(self):
         if not os.path.exists(self.config_path):
-            raise FileNotFoundError
+            logger.error(f'User-Agent config file not found: {self.config_path}')
+            exit(1)
 
         with open(self.config_path, "r") as f:
             for line in f.readlines():

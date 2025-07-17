@@ -1,4 +1,6 @@
+#!/usr/bin/python3
 import asyncio
+import logging
 
 from access_log import ClickhouseAccessLog
 from cli import CommandLineArgs
@@ -17,7 +19,9 @@ if __name__ == "__main__":
     logger.info("Starting DDoS Defender")
 
     args = CommandLineArgs.parse_args()
-    app_config = AppConfig.parse_file(args.config)
+    app_config = AppConfig(_env_file=args.config)
+    logger.setLevel(getattr(logging, args.log_level or app_config.log_level, 'INFO'))
+
     clickhouse_client = ClickhouseAccessLog(
         host=app_config.clickhouse_host,
         port=app_config.clickhouse_port,
@@ -31,7 +35,7 @@ if __name__ == "__main__":
         ja5h_config=Ja5Config(file_path=app_config.path_to_ja5h_config),
         app_config=app_config,
         user_agent_manager=UserAgentsManager(
-            clickhouse_client=app_config.user_agent_manager,
+            clickhouse_client=clickhouse_client,
             config_path=app_config.allowed_user_agents_file_path,
         ),
     )
