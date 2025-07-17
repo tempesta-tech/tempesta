@@ -60,7 +60,9 @@ class Ja5Config:
             exit(1)
 
         if not os.access(file_path, os.W_OK):
-            logger.error(f"File `{file_path}` is not writable. App does not have enough permissions.")
+            logger.error(
+                f"File `{file_path}` is not writable. App does not have enough permissions."
+            )
             exit(1)
 
     def load(self):

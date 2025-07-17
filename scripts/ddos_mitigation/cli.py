@@ -1,5 +1,5 @@
-import os
 import argparse
+import os
 from dataclasses import dataclass
 
 from logger import logger
@@ -29,20 +29,20 @@ class CommandLineArgs:
             "-c",
             "--config",
             type=str,
-            default='/etc/tempesta-ddos-defender/app.env',
+            default="/etc/tempesta-ddos-defender/app.env",
             help="Path to the config file",
         )
         parser.add_argument(
             "-l",
             "--log-level",
             type=str,
-            default='INFO',
+            default="INFO",
             help="Log level",
         )
         args = cls(**vars(parser.parse_args()))
 
         if not os.path.exists(args.config):
-            logger.error(f'Config file not found at path: {args.config}')
+            logger.error(f"Config file not found at path: {args.config}")
             exit(1)
 
         return args

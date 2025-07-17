@@ -46,7 +46,7 @@ class TestJa5Config(unittest.TestCase):
 
     def test_dump_file(self):
         config = Ja5Config(self.path_to_config)
-        config.hashes = {"test": Ja5Hash(value='0', connections=1, packets=1)}
+        config.hashes = {"test": Ja5Hash(value="0", connections=1, packets=1)}
         config.dump()
 
         with open(self.path_to_config) as f:
@@ -58,7 +58,7 @@ class TestJa5Config(unittest.TestCase):
         config = Ja5Config(self.path_to_config)
         self.assertEqual(config.need_dump, False)
 
-        config.add(Ja5Hash(value='100', connections=1, packets=2))
+        config.add(Ja5Hash(value="100", connections=1, packets=2))
         self.assertEqual(config.need_dump, True)
 
         config.dump()

@@ -13,7 +13,7 @@ class UserAgentsManager:
 
     def read_from_file(self):
         if not os.path.exists(self.config_path):
-            logger.error(f'User-Agent config file not found: {self.config_path}')
+            logger.error(f"User-Agent config file not found: {self.config_path}")
             exit(1)
 
         with open(self.config_path, "r") as f:

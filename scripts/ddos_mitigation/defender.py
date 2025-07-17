@@ -149,9 +149,7 @@ class DDOSMonitor:
         new_blocking_user = User(ja5t=ja5t_value, blocked_at=int(time.time()))
         self.blocked[hash(new_blocking_user)] = new_blocking_user
 
-        logger.warning(
-            f"Blocked user {new_blocking_user} by ja5t"
-        )
+        logger.warning(f"Blocked user {new_blocking_user} by ja5t")
 
     def ja5t_release(self, ja5t_value: str):
         """
@@ -528,9 +526,15 @@ class DDOSMonitor:
             errors = Decimal(response.result_rows[2][0]) / total_seconds
 
         return AverageStats(
-            requests=requests.quantize(Decimal("0.01") * self.app_config.stats_rps_multiplier, ROUND_HALF_UP),
-            time=times.quantize(Decimal("0.01") * self.app_config.stats_time_multiplier, ROUND_HALF_UP),
-            errors=errors.quantize(Decimal("0.01") * self.app_config.stats_errors_multiplier, ROUND_HALF_UP),
+            requests=requests.quantize(
+                Decimal("0.01") * self.app_config.stats_rps_multiplier, ROUND_HALF_UP
+            ),
+            time=times.quantize(
+                Decimal("0.01") * self.app_config.stats_time_multiplier, ROUND_HALF_UP
+            ),
+            errors=errors.quantize(
+                Decimal("0.01") * self.app_config.stats_errors_multiplier, ROUND_HALF_UP
+            ),
         )
 
     async def risk_clients_fetch(
@@ -563,7 +567,13 @@ class DDOSMonitor:
             start_at=start_at,
         )
         return [
-            User(ja5t=hex(item[0])[2:], ja5h=hex(item[1])[2:], ipv4=item[2], value=item[3], type=item[4])
+            User(
+                ja5t=hex(item[0])[2:],
+                ja5h=hex(item[1])[2:],
+                ipv4=item[2],
+                value=item[3],
+                type=item[4],
+            )
             for item in response.result_rows
         ]
 
@@ -601,8 +611,7 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_block([str(ip) for ip in blocking_user.ipv4])
 
-
-        logger.debug(f'Checked risky users. Total found {total_users}')
+        logger.debug(f"Checked risky users. Total found {total_users}")
         self.tempesta_dump_config_and_reload()
 
     async def risk_clients_release(self):
@@ -630,8 +639,9 @@ class DDOSMonitor:
             if "nftables" in self.app_config.blocking_type:
                 self.nftables_release([str(ip) for ip in blocking_user.ipv4])
 
-
-        logger.debug(f'Checked blocked users ready to release. Total found {len(fixed_users_list)}')
+        logger.debug(
+            f"Checked blocked users ready to release. Total found {len(fixed_users_list)}"
+        )
         self.tempesta_dump_config_and_reload()
 
     def tempesta_reload(self):

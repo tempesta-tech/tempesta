@@ -50,7 +50,7 @@ class AppConfig(BaseSettings):
     allowed_user_agents_file_path: str = (
         "/etc/tempesta-ddos-defender/allow_user_agents.txt"
     )
-    log_level: str = 'INFO'
+    log_level: str = "INFO"
 
     @classmethod
     def read(cls, path: str) -> str:

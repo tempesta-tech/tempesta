@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     args = CommandLineArgs.parse_args()
     app_config = AppConfig(_env_file=args.config)
-    logger.setLevel(getattr(logging, args.log_level or app_config.log_level, 'INFO'))
+    logger.setLevel(getattr(logging, args.log_level or app_config.log_level, "INFO"))
 
     clickhouse_client = ClickhouseAccessLog(
         host=app_config.clickhouse_host,
