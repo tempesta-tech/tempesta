@@ -32,10 +32,6 @@ class Ja5Config:
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.hashes: Dict[str, Ja5Hash] = {}
-
-        self.verify_file(file_path)
-        self.load()
-
         self.need_dump: bool = False
 
     @staticmethod
@@ -48,22 +44,19 @@ class Ja5Config:
         """
         return f"hash {ja5_hash.value} {ja5_hash.connections} {ja5_hash.packets};\n"
 
-    @staticmethod
-    def verify_file(file_path: str):
+    def verify_file(self):
         """
         Check whether the file exists and has the correct permissions.
-
-        :param file_path: Path to the JA5 hash configuration file.
         """
-        if not os.path.isfile(file_path):
-            logger.error(f"File `{file_path}` does not exist")
-            exit(1)
+        if not os.path.isfile(self.file_path):
+            logger.error(f"File `{self.file_path}` does not exist")
+            raise FileNotFoundError
 
-        if not os.access(file_path, os.W_OK):
+        if not os.access(self.file_path, os.W_OK):
             logger.error(
-                f"File `{file_path}` is not writable. App does not have enough permissions."
+                f"File `{self.file_path}` is not writable. App does not have enough permissions."
             )
-            exit(1)
+            raise PermissionError
 
     def load(self):
         """

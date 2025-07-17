@@ -1,45 +1,21 @@
 import asyncio
 import math
-import subprocess
 import time
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
-from ipaddress import IPv4Address
-from typing import Generator, Optional
+from typing import Generator
 
 from access_log import ClickhouseAccessLog
 from config import AppConfig
-from ja5_config import Ja5Config, Ja5Hash
 from user_agents import UserAgentsManager
+from datatypes import User, AverageStats
+from blockers.base import BaseBlocker
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 from logger import logger
-
-
-@dataclass
-class AverageStats:
-    requests: Decimal
-    time: Decimal
-    errors: Decimal
-
-
-@dataclass
-class User:
-    ja5t: Optional[str] = None
-    ja5h: Optional[str] = None
-    ipv4: list[IPv4Address] = ()
-    value: Optional[int] = None
-    type: Optional[int] = None
-    blocked_at: Optional[int] = None
-
-    def __hash__(self):
-        return hash(f"ja5t={self.ja5t}/ja5h={self.ja5h}")
-
-    def __eq__(self, other):
-        return hash(self) == hash(other)
 
 
 @dataclass
@@ -50,12 +26,6 @@ class DDOSMonitor:
 
     # A connected client to Clickhouse Server
     clickhouse_client: ClickhouseAccessLog
-
-    # Loaded ja5t config from path
-    ja5t_config: Ja5Config
-
-    # Loaded ja5h config from path
-    ja5h_config: Ja5Config
 
     # Initialized application config
     app_config: AppConfig
@@ -78,16 +48,8 @@ class DDOSMonitor:
     # users found as risky and where blocked
     blocked: dict[int, User] = field(default_factory=dict)
 
-    @staticmethod
-    def run_in_shell(cmd: str) -> subprocess.CompletedProcess:
-        """
-        Run command in a shell and return its output
-
-        :param cmd: command to run
-        :return: output of command
-        """
-
-        return subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    # Available blockers
+    blockers: dict[str, BaseBlocker] = field(default_factory=dict)
 
     def set_known_users(self, users: list[User]):
         """
@@ -121,344 +83,6 @@ class DDOSMonitor:
             f"time={self.time_threshold}, "
             f"errors={self.errors_threshold}"
         )
-
-    def ja5t_mark_as_blocked(self, ja5t_hashes: list[str]):
-        """
-        Update the internal dictionary of blocked users with new JA5T hashes,
-        without actually blocking the users.
-
-        :param ja5t_hashes: List of JA5T hashes.
-        """
-        blocked_at = int(time.time())
-
-        for hash_value in ja5t_hashes:
-            user = User(ja5t=hash_value, blocked_at=blocked_at)
-            self.blocked[hash(user)] = user
-
-    def jat5t_block(self, ja5t_value: str):
-        """
-        Block a specific JA5T hash using Tempesta FW
-
-        :param ja5t_value: JA5T hash of the client
-        """
-        if self.ja5t_config.exists(ja5t_value):
-            return None
-
-        self.ja5t_config.add(Ja5Hash(value=ja5t_value, packets=0, connections=0))
-
-        new_blocking_user = User(ja5t=ja5t_value, blocked_at=int(time.time()))
-        self.blocked[hash(new_blocking_user)] = new_blocking_user
-
-        logger.warning(f"Blocked user {new_blocking_user} by ja5t")
-
-    def ja5t_release(self, ja5t_value: str):
-        """
-        Release the JA5T hash in Tempesta FW, lifting the block.
-
-        :param ja5t_value: JA5T hash of the client
-        """
-        if not self.ja5t_config.exists(ja5t_value):
-            return None
-
-        self.ja5t_config.remove(ja5t_value)
-
-        user = User(ja5t=ja5t_value)
-        blocking_user_hash = hash(user)
-        self.blocked.pop(blocking_user_hash)
-
-        logger.warning(f"Released user {user} by ja5t")
-
-    def ja5h_mark_as_blocked(self, ja5h_hashes: list[str]):
-        """
-        Update the internal dictionary of blocked users with new JA5H hashes,
-        without actually blocking the users.
-
-        :param ja5h_hashes: List of JA5H hashes.
-        """
-        for hash_value in ja5h_hashes:
-            user = User(ja5h=hash_value, blocked_at=int(time.time()))
-            self.blocked[hash(user)] = user
-
-            logger.warning(f"Blocked user {user} by ja5t")
-
-    def ja5h_block(self, ja5h_value: str):
-        """
-        Block a specific JA5H hash using Tempesta FW
-
-        :param ja5h_value: JA5H hash of the client
-        """
-        if self.ja5h_config.exists(ja5h_value):
-            return None
-
-        self.ja5h_config.add(
-            Ja5Hash(
-                value=ja5h_value,
-                packets=0,
-                connections=0,
-            )
-        )
-
-        new_blocking_user = User(ja5h=ja5h_value, blocked_at=int(time.time()))
-        self.blocked[hash(new_blocking_user)] = new_blocking_user
-
-        logger.warning(f"Blocked user {new_blocking_user} by ja5h")
-
-    def ja5h_release(self, ja5h_value: str):
-        """
-        Release the JA5H hash in Tempesta FW, lifting the block.
-
-        :param ja5h_value: JA5H hash of the client
-        """
-        if not self.ja5h_config.exists(ja5h_value):
-            return None
-
-        self.ja5h_config.remove(ja5h_value)
-
-        user = User(ja5h=ja5h_value)
-        blocking_user_hash = hash(user)
-        self.blocked.pop(blocking_user_hash)
-
-        logger.warning(f"Released user {user} by ja5t")
-
-    def ipset_prepare(self):
-        """
-        Prepare IP sets and iptables for user blocking. Create the required rules and IP sets.
-        """
-        result = self.run_in_shell("which ipset")
-
-        if result.returncode != 0:
-            raise ValueError("IPSET is not installed")
-
-        result = self.run_in_shell(f"ipset list {self.app_config.blocking_ipset_name}")
-
-        if result.returncode != 0:
-            if "not permitted" in result.stderr:
-                raise PermissionError(
-                    "Insufficient permissions to use the `ipset` command. "
-                    "Please run the application with root privileges."
-                )
-
-            if "name does not exist" in result.stderr:
-                result = self.run_in_shell(
-                    f"ipset create {self.app_config.blocking_ipset_name} hash:ip"
-                )
-
-                if result.returncode != 0:
-                    raise ValueError(
-                        f"Cannot create IP set using ipset: {result.stderr}"
-                    )
-
-        result = self.run_in_shell("iptables -L -v -n")
-
-        if self.app_config.blocking_ipset_name not in result.stdout:
-            result = self.run_in_shell(
-                f"iptables -I INPUT -m set --match-set {self.app_config.blocking_ipset_name} "
-                f"src -j DROP "
-            )
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add IPSet group to iptables: {result.stderr}")
-
-    def ipset_reset(self):
-        """
-        Remove iptables rules and IP set configuration created by the application.
-        """
-        result = self.run_in_shell(
-            f"iptables -D INPUT -m set --match-set {self.app_config.blocking_ipset_name} "
-            f"src -j DROP "
-        )
-
-        if result.returncode != 0:
-            raise ValueError(f"Cannot remove IPSet group from iptables:{result.stderr}")
-
-        # wait until itables become updated
-        time.sleep(0.1)
-        result = self.run_in_shell(
-            f"ipset destroy {self.app_config.blocking_ipset_name}"
-        )
-
-        if result.returncode != 0:
-            raise ValueError(f"Cannot remove IPSet group:{result.stderr}")
-
-    def ipset_block(self, ips: list[str]):
-        """
-        Block users based on the provided list of IP addresses
-
-        :param ips: List of user IP addresses to block
-        """
-        for ip in ips:
-            result = self.run_in_shell(
-                f"ipset add {self.app_config.blocking_ipset_name} {ip}"
-            )
-
-            if result.returncode != 0:
-                if "already added" in result.stderr:
-                    logger.error(f"{ip} is already added")
-                else:
-                    logger.error(f"{ip} can not be added: {result.stderr}")
-            else:
-                logger.warning(f"Blocked user {ip} by ipset")
-
-    def ipset_release(self, ips: list[str]):
-        """
-        Release users based on the provided list of IP addresses.
-
-        :param ips: List of user IP addresses to unblock
-        """
-        for ip in ips:
-            result = self.run_in_shell(
-                f"ipset del {self.app_config.blocking_ipset_name} {ip}"
-            )
-
-            if result.returncode != 0:
-                if "not added" in result.stderr:
-                    logger.error(f"{ip} is missing in ipset")
-                else:
-                    logger.error(f"{ip} can not be released: {result.stderr}")
-            else:
-                logger.warning(f"Released user {ip} by ipset")
-
-    def ipset_info(self) -> bytes:
-        """
-        Retrieve current information about the IP sets.
-
-        :return: Standard output containing the IP set descriptions
-        """
-        return self.run_in_shell(
-            f"ipset list {self.app_config.blocking_ipset_name}"
-        ).stdout
-
-    def nftables_prepare(self):
-        """
-        Prepare the NFTable table, set, and chain to block users.
-        """
-        result = self.run_in_shell("which nft")
-
-        if result.returncode != 0:
-            raise ValueError("nftables is not installed")
-
-        result = self.run_in_shell(
-            f"nft list table inet {self.app_config.blocking_ipset_name}_table"
-        )
-
-        if result.returncode != 0 and "No such file or directory" in result.stderr:
-            result = self.run_in_shell(
-                f"nft add table inet {self.app_config.blocking_ipset_name}_table"
-            )
-
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add new table to nft: {result.stderr}")
-
-        elif result.returncode != 0:
-            raise ValueError(f"Cannot list nft table: {result.stderr}")
-
-        result = self.run_in_shell(
-            f"nft list set inet {self.app_config.blocking_ipset_name}_table "
-            f"{self.app_config.blocking_ipset_name}"
-        )
-
-        if result.returncode != 0 and "No such file or directory" in result.stderr:
-            result = self.run_in_shell(
-                f"nft add set inet {self.app_config.blocking_ipset_name}_table "
-                f"{self.app_config.blocking_ipset_name} {{ type ipv4_addr; flags interval; }}"
-            )
-
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add new set to nft: {result.stderr}")
-
-        elif result.returncode != 0:
-            raise ValueError(f"Cannot list nft set: {result.stderr}")
-
-        result = self.run_in_shell(
-            f"nft list chain inet {self.app_config.blocking_ipset_name}_table input"
-        )
-
-        if result.returncode != 0 and "No such file or directory" in result.stderr:
-            result = self.run_in_shell(
-                f"nft add chain inet {self.app_config.blocking_ipset_name}_table "
-                f"input {{ type filter hook input priority 0; }}"
-            )
-
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add chain to nft: {result.stderr}")
-
-        elif result.returncode != 0:
-            raise ValueError(f"Cannot list nft chain: {result.stderr}")
-
-        result = self.run_in_shell(
-            f"nft list chain inet {self.app_config.blocking_ipset_name}_table input | grep "
-            f"saddr @{self.app_config.blocking_ipset_name} drop"
-        )
-
-        if result.returncode != 0:
-            result = self.run_in_shell(
-                f"nft add rule inet {self.app_config.blocking_ipset_name}_table "
-                f"input ip saddr @{self.app_config.blocking_ipset_name} drop"
-            )
-
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add rule to nft: {result.stderr}")
-
-    def nftables_reset(self):
-        """
-        Delete the NFTable configuration created by the application
-        """
-        result = self.run_in_shell(
-            f"nft flush table inet {self.app_config.blocking_ipset_name}_table"
-        )
-
-        if result.returncode != 0:
-            raise ValueError(f"Cannot flush nft table: {result.stderr}")
-
-        result = self.run_in_shell(
-            f"nft delete table inet {self.app_config.blocking_ipset_name}_table"
-        )
-
-        if result.returncode != 0:
-            raise ValueError(f"Cannot delete nft table: {result.stderr}")
-
-    def nftables_block(self, ips: list[str]):
-        """
-        Block users based on the provided list of IP addresses
-
-        :param ips: List of user IP addresses to block
-        """
-        for ip in ips:
-            result = self.run_in_shell(
-                f"nft add element inet {self.app_config.blocking_ipset_name}_table "
-                f"{self.app_config.blocking_ipset_name} {{ {ip} }}"
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Cannot block ip by nft: {result.stderr}")
-            else:
-                logger.warning(f"Blocked user {ip} by nft")
-
-    def nftables_release(self, ips: list[str]):
-        """
-        Release users based on the provided list of IP addresses.
-
-        :param ips: List of user IP addresses to unblock
-        """
-        for ip in ips:
-            result = self.run_in_shell(
-                f"nft delete element inet {self.app_config.blocking_ipset_name}_table "
-                f"{self.app_config.blocking_ipset_name} {{ {ip} }}"
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Cannot release ip by nft: {result.stderr}")
-            else:
-                logger.warning(f"Released user {ip} by nft")
-
-    def nftables_info(self):
-        """
-        Retrieve current information about the blocking table.
-
-        :return: Standard output containing the blocking table descriptions
-        """
-        return self.run_in_shell(
-            f"nft list table inet {self.app_config.blocking_ipset_name}_table"
-        ).stdout
 
     async def persistent_users_load(
         self,
@@ -537,6 +161,25 @@ class DDOSMonitor:
             ),
         )
 
+    def user_block(self, user: User):
+        for blocking_type in self.app_config.blocking_type:
+            self.blockers[blocking_type].block(user)
+            self.blocked[hash(user)] = user
+
+    def user_release(self, user: User):
+        for blocking_type in self.app_config.blocking_type:
+            self.blockers[blocking_type].release(user)
+            self.blocked.pop(hash(user))
+
+    def user_apply(self):
+        for blocking_type in self.app_config.blocking_type:
+            self.blockers[blocking_type].apply()
+
+    def user_reset(self):
+        for blocking_type in self.app_config.blocking_type:
+            self.blockers[blocking_type].reset()
+            self.blocked = dict()
+
     async def risk_clients_fetch(
         self,
         start_at: int,
@@ -598,21 +241,11 @@ class DDOSMonitor:
 
         for blocking_user in users_to_block:
             total_users += 1
+            self.user_block(blocking_user)
 
-            if "ja5t" in self.app_config.blocking_type:
-                self.jat5t_block(blocking_user.ja5t)
-
-            if "ja5h" in self.app_config.blocking_type:
-                self.ja5h_block(blocking_user.ja5h)
-
-            if "ipset" in self.app_config.blocking_type:
-                self.ipset_block([str(ip) for ip in blocking_user.ipv4])
-
-            if "nftables" in self.app_config.blocking_type:
-                self.nftables_block([str(ip) for ip in blocking_user.ipv4])
+        self.user_apply()
 
         logger.debug(f"Checked risky users. Total found {total_users}")
-        self.tempesta_dump_config_and_reload()
 
     async def risk_clients_release(self):
         """
@@ -627,60 +260,12 @@ class DDOSMonitor:
             if (current_time - blocking_user.blocked_at) < blocking_seconds:
                 continue
 
-            if "ja5t" in self.app_config.blocking_type:
-                self.ja5t_release(blocking_user.ja5t)
+            self.user_release(blocking_user)
 
-            if "ja5h" in self.app_config.blocking_type:
-                self.ja5h_release(blocking_user.ja5h)
-
-            if "ipset" in self.app_config.blocking_type:
-                self.ipset_release([str(ip) for ip in blocking_user.ipv4])
-
-            if "nftables" in self.app_config.blocking_type:
-                self.nftables_release([str(ip) for ip in blocking_user.ipv4])
-
+        self.user_apply()
         logger.debug(
             f"Checked blocked users ready to release. Total found {len(fixed_users_list)}"
         )
-        self.tempesta_dump_config_and_reload()
-
-    def tempesta_reload(self):
-        """
-        Reload the Tempesta FW configuration to apply updated JA5T and JA5H rules.
-        """
-        if self.app_config.tempesta_executable_path:
-            result = self.run_in_shell(
-                f"{self.app_config.tempesta_executable_path} --reload"
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
-                exit(1)
-
-            return
-
-        result = self.run_in_shell("service tempesta --reload")
-
-        if result.returncode != 0:
-            logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
-            exit(1)
-
-    def tempesta_dump_config_and_reload(self):
-        """
-        Check configs of ja5t and ja5h. Dump one if was changed and reload Tempesta FW configuration.
-        """
-        need_to_reload_tempesta = False
-
-        if "ja5t" in self.app_config.blocking_type and self.ja5t_config.need_dump:
-            self.ja5t_config.dump()
-            need_to_reload_tempesta = True
-
-        if "ja5h" in self.app_config.blocking_type and self.ja5h_config.need_dump:
-            self.ja5h_config.dump()
-            need_to_reload_tempesta = True
-
-        if need_to_reload_tempesta:
-            self.tempesta_reload()
 
     @staticmethod
     def compare_users(
@@ -727,16 +312,15 @@ class DDOSMonitor:
         Prepare blocking mechanisms, perform historical analysis if required,
         and start monitoring for blocking and unblocking users.
         """
-        self.ja5t_config.load()
-        self.ja5h_config.load()
-        logger.debug("JA5T and JA5H configurations loaded")
+        for blocking_type in self.app_config.blocking_type:
+            self.blockers[blocking_type].prepare()
+            self.blocked.update(self.blockers[blocking_type].load())
 
-        self.ja5t_mark_as_blocked(list(self.ja5t_config.hashes))
-        self.ja5h_mark_as_blocked(list(self.ja5h_config.hashes))
+        logger.debug("Blockers prepared and loaded")
 
         if len(self.blocked):
             logger.info(
-                f"Total number of already blocked users in JA5 configurations: {len(self.blocked)}"
+                f"Total number of already blocked users: {len(self.blocked)}"
             )
 
         await self.clickhouse_client.connect()

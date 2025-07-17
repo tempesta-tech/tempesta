@@ -9,6 +9,7 @@ from defender import DDOSMonitor
 from ja5_config import Ja5Config
 from logger import logger
 from user_agents import UserAgentsManager
+from blockers import blockers
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -30,9 +31,23 @@ if __name__ == "__main__":
         database=app_config.clickhouse_database,
     )
     app = DDOSMonitor(
+        blockers={
+            blockers.Ja5tBlocker.name(): blockers.Ja5tBlocker(
+                config=Ja5Config(file_path=app_config.path_to_ja5t_config),
+                tempesta_executable_path=app_config.tempesta_executable_path,
+            ),
+            blockers.Ja5hBlocker.name(): blockers.Ja5hBlocker(
+                config=Ja5Config(file_path=app_config.path_to_ja5h_config),
+                tempesta_executable_path=app_config.tempesta_executable_path,
+            ),
+            blockers.IpSetBlocker.name(): blockers.IpSetBlocker(
+                blocking_ip_set_name=app_config.ipset_blocking_ipset_name,
+            ),
+            blockers.NFTBlocker.name(): blockers.NFTBlocker(
+                blocking_table_name=app_config.ipset_blocking_ipset_name,
+            )
+        },
         clickhouse_client=clickhouse_client,
-        ja5t_config=Ja5Config(file_path=app_config.path_to_ja5t_config),
-        ja5h_config=Ja5Config(file_path=app_config.path_to_ja5h_config),
         app_config=app_config,
         user_agent_manager=UserAgentsManager(
             clickhouse_client=clickhouse_client,

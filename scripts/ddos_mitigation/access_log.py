@@ -16,10 +16,10 @@ class ClickhouseAccessLog:
     Extends the ClickHouse client and describes the queries used in the application
     """
 
-    host: str = "192.168.0.104"
+    host: str = "127.0.0.1"
     port: int = 8123
     user: str = "default"
-    password: str = "12345"
+    password: str = ""
     database: str = "__default__"
     conn: AsyncClient = None
 
