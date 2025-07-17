@@ -56,6 +56,7 @@ tfw_connection_new(TfwConn *conn)
 {
 	return TFW_CONN_HOOK_CALL(conn, conn_init);
 }
+ALLOW_ERROR_INJECTION(tfw_connection_new, ERRNO);
 
 /**
  * Call connection repairing via TfwConnHooks.

@@ -2265,7 +2265,9 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (r)
 			T_FSM_EXIT();
 		r = ttls_handshake_server_hello(tls, &sgt, &p);
-		if (!r && tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
+		if (unlikely(r))
+			T_FSM_EXIT();
+		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
 			T_FSM_JMP(TTLS_SERVER_CHANGE_CIPHER_SPEC);
 		/* tls-> state is set on next step, don't overwrite it. */
 		return ttls_handshake_send_out_buffers(tls, &sgt, &pg);

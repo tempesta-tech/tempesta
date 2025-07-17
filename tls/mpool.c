@@ -352,6 +352,7 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(__mpi_profile_clone, ERRNO);
 
 /**
  * Determines the appropriate MPI memory profile and initizes ready to use MPI

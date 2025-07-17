@@ -1287,6 +1287,7 @@ tfw_apm_ref_create(void)
 
 	return ref;
 }
+ALLOW_ERROR_INJECTION(tfw_apm_ref_create, ERRNO)
 
 static void
 tfw_apm_data_destroy(TfwApmData *data)

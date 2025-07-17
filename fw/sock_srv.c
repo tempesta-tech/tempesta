@@ -667,6 +667,7 @@ tfw_srv_conn_alloc(void)
 
 	return srv_conn;
 }
+ALLOW_ERROR_INJECTION(tfw_srv_conn_alloc, NULL);
 
 static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
