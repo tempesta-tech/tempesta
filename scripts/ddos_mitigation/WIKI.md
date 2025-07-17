@@ -30,13 +30,19 @@ For example, if the current average metrics are:
 - Total response time: 0.1
 - Errors: 0.001
 
-Then the resulting thresholds will be:
+Multipliers:
 ```.env
 stats_rps_multiplier=100
 stats_time_multiplier=100
 stats_errors_multiplier=5
 ```
 
+Then the resulting thresholds will be:
+```.env
+default_requests_threshol=1000
+default_time_threshold=10
+default_errors_threshold=0.005
+```
 If the calculated values are too low, the script will prefer to use the default thresholds from the configuration.
 
 This mode is especially useful when the actual average system load is unknown, and it's more effective to 
@@ -47,7 +53,7 @@ In cases where historical data is not available, but you still want to automatic
 you can start the Mitigation Script with:
 
 ```.env
-training_mode=real
+training_mode="real"
 ```
 This mode works similarly to historical, with one key difference:
 the script waits for a specified amount of time to collect fresh data, and only then begins analysis.
