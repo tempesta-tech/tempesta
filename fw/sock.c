@@ -141,6 +141,21 @@ static struct kmem_cache *ss_cbacklog_cache;
 
 static void ss_linkerror(struct sock *sk, int flags);
 
+/*
+ * In case error occurs when during call `tcp_push_pending_frames` or
+ * some other linux kernel function from Tempesta FW source code, we
+ * just set socket state to TCP_CLOSE in `tcp_tfw_handle_error` and
+ * it is Tempesta FW responsibilty to check socket state and drop
+ * connection and close socket.
+ */
+#define SS_STATE_PROCESS(sk)				\
+do {							\
+	if (unlikely(sk->sk_state == TCP_CLOSE)) {	\
+		ss_linkerror(sk, 0);			\
+		return;					\
+	}						\
+} while(0)
+
 static void
 ss_sk_incoming_cpu_update(struct sock *sk)
 {
@@ -537,14 +552,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 	});
 
-	/*
-	 * In case error occurs when we call `tcp_push_pending_frames` or
-	 * `tcp_push`, we just set socket state to TCP_CLOSE in
-	 * `tcp_tfw_handle_error` and it is Tempesta FW responsibilty
-	 * to drop connection and close socket.
-	 */
-	if (unlikely(sk->sk_state == TCP_CLOSE))
-		ss_linkerror(sk, 0);
+	SS_STATE_PROCESS(sk);
 
 	return;
 
@@ -1024,6 +1032,8 @@ ss_tcp_process_data(struct sock *sk)
 				 skb_len);
 	}
 out:
+	SS_CALL(connection_recv_finish, sk->sk_user_data);
+
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
 	 * and send ACK to a client with the new window.
@@ -1085,6 +1095,7 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_OK:
 	case SS_POSTPONE:
 	case SS_DROP:
+		SS_STATE_PROCESS(sk);
 		return;
 	case SS_BAD:
 	case SS_BLOCK_WITH_FIN:
@@ -1097,16 +1108,7 @@ ss_tcp_data_ready(struct sock *sk)
 		BUG();
 	}
 
-	/*
-	 * In case error occurs when we call `tcp_push_pending_frames` during
-	 * HTTP2 WINDOW_UPDATE frame processing, we just set socket state to
-	 * TCP_CLOSE in `tcp_tfw_handle_error` and it is Tempesta FW
-	 * responsibilty to drop connection and close socket.
-	 */
-	if (unlikely(sk->sk_state == TCP_CLOSE)) {
-		ss_linkerror(sk, 0);
-		return;
-	}
+	SS_STATE_PROCESS(sk);
 
 	/*
 	 * Close connection in case of internal errors,
@@ -1571,10 +1573,8 @@ ss_do_shutdown(struct sock *sk)
 	SS_IN_USE_PROTECT({
 		tcp_shutdown(sk, SEND_SHUTDOWN);
 	});
-	if (unlikely(sk->sk_state == TCP_CLOSE))
-		ss_linkerror(sk, 0);
-	else
-		SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	SS_STATE_PROCESS(sk);
+	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 
 static inline bool

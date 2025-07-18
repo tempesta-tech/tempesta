@@ -3113,6 +3113,13 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 	return ss_send(conn->sk, &msg->skb_head, msg->ss_flags);
 }
 
+static void
+tfw_http_conn_recv_finish(TfwConn *conn)
+{
+	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
+		tfw_h2_conn_recv_finish(conn);
+}
+
 /**
  * Create a sibling for @hm message.
  * Siblings in HTTP are pipelined HTTP messages that share the same SKB.
@@ -7800,13 +7807,14 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 }
 
 static TfwConnHooks http_conn_hooks = {
-	.conn_init	= tfw_http_conn_init,
-	.conn_repair	= tfw_http_conn_repair,
-	.conn_close	= tfw_http_conn_close,
-	.conn_abort	= tfw_http_conn_abort,
-	.conn_drop	= tfw_http_conn_drop,
-	.conn_release	= tfw_http_conn_release,
-	.conn_send	= tfw_http_conn_send,
+	.conn_init		= tfw_http_conn_init,
+	.conn_repair		= tfw_http_conn_repair,
+	.conn_close		= tfw_http_conn_close,
+	.conn_abort		= tfw_http_conn_abort,
+	.conn_drop		= tfw_http_conn_drop,
+	.conn_release		= tfw_http_conn_release,
+	.conn_send		= tfw_http_conn_send,
+	.conn_recv_finish	= tfw_http_conn_recv_finish,
 };
 
 static int
