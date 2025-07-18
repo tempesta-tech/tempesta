@@ -63,7 +63,7 @@ class TestJa5Config(unittest.TestCase):
 
         self.assertEqual(data, "hash aaaaaaa11111 3 4;\nhash 100 1 2;\n")
 
-        config.remove('100')
+        config.remove("100")
         self.assertEqual(config.need_dump, True)
 
         config.dump()

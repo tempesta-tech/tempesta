@@ -3,13 +3,13 @@ import asyncio
 import logging
 
 from access_log import ClickhouseAccessLog
+from blockers import blockers
 from cli import CommandLineArgs
 from config import AppConfig
 from defender import DDOSMonitor
 from ja5_config import Ja5Config
 from logger import logger
 from user_agents import UserAgentsManager
-from blockers import blockers
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -45,7 +45,7 @@ if __name__ == "__main__":
             ),
             blockers.NFTBlocker.name(): blockers.NFTBlocker(
                 blocking_table_name=app_config.ipset_blocking_ipset_name,
-            )
+            ),
         },
         clickhouse_client=clickhouse_client,
         app_config=app_config,

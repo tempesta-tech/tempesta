@@ -8,5 +8,5 @@ __license__ = "GPL2"
 
 class TestBlockerNFT(TestBlockerIpSet):
     def setUp(self):
-        self.blocker = NFTBlocker(blocking_table_name='tempesta_blocked_ips')
+        self.blocker = NFTBlocker(blocking_table_name="tempesta_blocked_ips")
         self.blocker.prepare()

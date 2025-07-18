@@ -106,6 +106,8 @@ class TestClickhouseClient(BaseTestCaseWithFilledDB):
         self.assertEqual(len(items.result_rows), 0)
 
     async def test_insert_user_agents(self):
-        await self.access_log.user_agents_table_insert([["TestUserAgent"], ["HelloKitty"]])
+        await self.access_log.user_agents_table_insert(
+            [["TestUserAgent"], ["HelloKitty"]]
+        )
         items = await self.access_log.user_agents_all()
         self.assertEqual(len(items.result_rows), 2)

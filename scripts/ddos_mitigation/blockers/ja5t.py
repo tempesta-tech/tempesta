@@ -1,5 +1,6 @@
-import time
 import os
+import time
+
 from blockers.base import BaseBlocker, PreperationError
 from datatypes import User
 from ja5_config import Ja5Config, Ja5Hash
@@ -18,19 +19,21 @@ class Ja5tBlocker(BaseBlocker):
 
     @staticmethod
     def name() -> str:
-        return 'ja5t'
+        return "ja5t"
 
     def __tempesta_app_exists(self) -> bool:
-        if self.tempesta_executable_path and os.path.isfile(self.tempesta_executable_path):
+        if self.tempesta_executable_path and os.path.isfile(
+            self.tempesta_executable_path
+        ):
             return True
 
-        result = run_in_shell('service tempesta status')
+        result = run_in_shell("service tempesta status")
 
         return result.returncode == 0
 
     def prepare(self):
         if not self.__tempesta_app_exists():
-            raise PreperationError('Tempesta executable not found')
+            raise PreperationError("Tempesta executable not found")
 
         try:
             self.config.verify_file()
@@ -80,7 +83,4 @@ class Ja5tBlocker(BaseBlocker):
             logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
 
     def info(self) -> list[User]:
-        return [
-            User(ja5t=ja5_hash.value)
-            for ja5_hash in self.config.hashes.values()
-        ]
+        return [User(ja5t=ja5_hash.value) for ja5_hash in self.config.hashes.values()]

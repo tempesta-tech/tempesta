@@ -1,5 +1,6 @@
-from blockers.ja5t import Ja5tBlocker
 import time
+
+from blockers.ja5t import Ja5tBlocker
 from datatypes import User
 from ja5_config import Ja5Hash
 from logger import logger
@@ -13,7 +14,7 @@ class Ja5hBlocker(Ja5tBlocker):
 
     @staticmethod
     def name() -> str:
-        return 'ja5h'
+        return "ja5h"
 
     def load(self) -> list[User]:
         self.config.load()
@@ -38,7 +39,4 @@ class Ja5hBlocker(Ja5tBlocker):
         self.config.remove(user.ja5h)
 
     def info(self) -> list[User]:
-        return [
-            User(ja5h=ja5_hash.value)
-            for ja5_hash in self.config.hashes.values()
-        ]
+        return [User(ja5h=ja5_hash.value) for ja5_hash in self.config.hashes.values()]

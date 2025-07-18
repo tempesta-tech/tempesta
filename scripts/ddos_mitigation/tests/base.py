@@ -53,6 +53,5 @@ class BaseTestCaseWithFilledDB(unittest.IsolatedAsyncioTestCase):
         await self.access_log.user_agents_table_create()
         await self.create_records()
 
-
     async def asyncTearDown(self):
         await self.access_log.conn.query("drop database if exists test_db")

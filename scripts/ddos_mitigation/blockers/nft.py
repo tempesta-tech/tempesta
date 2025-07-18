@@ -2,8 +2,8 @@ from ipaddress import IPv4Address
 
 from blockers.base import BaseBlocker
 from datatypes import User
-from utils import run_in_shell
 from logger import logger
+from utils import run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -16,7 +16,7 @@ class NFTBlocker(BaseBlocker):
 
     @staticmethod
     def name() -> str:
-        return 'nftables'
+        return "nftables"
 
     def prepare(self):
         result = run_in_shell("which nft")
@@ -24,9 +24,7 @@ class NFTBlocker(BaseBlocker):
         if result.returncode != 0:
             raise ValueError("nftables is not installed")
 
-        result = run_in_shell(
-            f"nft list table inet {self.blocking_table_name}_table"
-        )
+        result = run_in_shell(f"nft list table inet {self.blocking_table_name}_table")
 
         if result.returncode != 0 and "No such file or directory" in result.stderr:
             result = run_in_shell(
@@ -87,16 +85,12 @@ class NFTBlocker(BaseBlocker):
                 raise ValueError(f"Cannot add rule to nft: {result.stderr}")
 
     def reset(self):
-        result = run_in_shell(
-            f"nft flush table inet {self.blocking_table_name}_table"
-        )
+        result = run_in_shell(f"nft flush table inet {self.blocking_table_name}_table")
 
         if result.returncode != 0:
             raise ValueError(f"Cannot flush nft table: {result.stderr}")
 
-        result = run_in_shell(
-            f"nft delete table inet {self.blocking_table_name}_table"
-        )
+        result = run_in_shell(f"nft delete table inet {self.blocking_table_name}_table")
 
         if result.returncode != 0:
             raise ValueError(f"Cannot delete nft table: {result.stderr}")
@@ -129,13 +123,13 @@ class NFTBlocker(BaseBlocker):
         data = run_in_shell(
             f"nft list table inet {self.blocking_table_name}_table | grep elements"
         ).stdout
-        elements = data.split('{ ')
+        elements = data.split("{ ")
 
         if len(elements) < 2:
             return []
 
         elements = elements[1][:-3]
-        ips = elements.split(', ')
+        ips = elements.split(", ")
         return [User(ipv4=[IPv4Address(ip)]) for ip in ips if ip is not None]
 
     def load(self) -> dict[int, User]:

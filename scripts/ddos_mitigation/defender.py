@@ -6,10 +6,10 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Generator
 
 from access_log import ClickhouseAccessLog
-from config import AppConfig
-from user_agents import UserAgentsManager
-from datatypes import User, AverageStats
 from blockers.base import BaseBlocker
+from config import AppConfig
+from datatypes import AverageStats, User
+from user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -335,9 +335,7 @@ class DDOSMonitor:
         logger.debug("Blockers prepared and loaded")
 
         if len(self.blocked):
-            logger.info(
-                f"Total number of already blocked users: {len(self.blocked)}"
-            )
+            logger.info(f"Total number of already blocked users: {len(self.blocked)}")
 
         await self.clickhouse_client.connect()
         logger.debug("Established connection to ClickHouse server.")

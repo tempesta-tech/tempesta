@@ -2,12 +2,12 @@ import multiprocessing
 import time
 import unittest
 import urllib
-from urllib.request import urlopen
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address
+from urllib.request import urlopen
 
 from blockers.ipset import IpSetBlocker
 from datatypes import User
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -16,7 +16,7 @@ __license__ = "GPL2"
 
 class TestBlockerIpSet(unittest.TestCase):
     def setUp(self):
-        self.blocker = IpSetBlocker(blocking_ip_set_name='tempesta_blocked_ips')
+        self.blocker = IpSetBlocker(blocking_ip_set_name="tempesta_blocked_ips")
         self.blocker.prepare()
 
     def tearDown(self):
@@ -33,26 +33,26 @@ class TestBlockerIpSet(unittest.TestCase):
             httpd.serve_forever()
 
     def test_block_single(self):
-        user = User(ipv4=[IPv4Address('127.0.1.1')])
+        user = User(ipv4=[IPv4Address("127.0.1.1")])
         self.blocker.block(user)
 
         users = self.blocker.info()
         self.assertEqual(len(users), 1)
-        self.assertEqual(users[0].ipv4, [IPv4Address('127.0.1.1')])
+        self.assertEqual(users[0].ipv4, [IPv4Address("127.0.1.1")])
 
     def test_block_multiple(self):
-        user = User(ipv4=[IPv4Address('127.0.1.1'), IPv4Address('127.0.1.2')])
+        user = User(ipv4=[IPv4Address("127.0.1.1"), IPv4Address("127.0.1.2")])
         self.blocker.block(user)
 
         users = self.blocker.info()
         users.sort(key=lambda u: u.ipv4)
 
         self.assertEqual(len(users), 2)
-        self.assertEqual(users[0].ipv4, [IPv4Address('127.0.1.1')])
-        self.assertEqual(users[1].ipv4, [IPv4Address('127.0.1.2')])
+        self.assertEqual(users[0].ipv4, [IPv4Address("127.0.1.1")])
+        self.assertEqual(users[1].ipv4, [IPv4Address("127.0.1.2")])
 
     def test_release_single(self):
-        user = User(ipv4=[IPv4Address('127.0.1.1')])
+        user = User(ipv4=[IPv4Address("127.0.1.1")])
         self.blocker.block(user)
 
         users = self.blocker.info()
@@ -63,7 +63,7 @@ class TestBlockerIpSet(unittest.TestCase):
         self.assertEqual(len(users), 0)
 
     def test_release_multiple(self):
-        user = User(ipv4=[IPv4Address('127.0.1.1'), IPv4Address('127.0.1.2')])
+        user = User(ipv4=[IPv4Address("127.0.1.1"), IPv4Address("127.0.1.2")])
         self.blocker.block(user)
 
         users = self.blocker.info()
@@ -78,13 +78,13 @@ class TestBlockerIpSet(unittest.TestCase):
         self.assertEqual(len(users), 0)
 
     def test_load_blocked(self):
-        user = User(ipv4=[IPv4Address('127.0.1.1'), IPv4Address('127.0.1.2')])
+        user = User(ipv4=[IPv4Address("127.0.1.1"), IPv4Address("127.0.1.2")])
         self.blocker.block(user)
         users = self.blocker.load()
         self.assertEqual(len(users), 2)
 
     def test_rules_work(self):
-        user = User(ipv4=[IPv4Address('127.0.0.1')])
+        user = User(ipv4=[IPv4Address("127.0.0.1")])
         process = multiprocessing.Process(target=self.run_http_server)
         process.start()
 
@@ -95,10 +95,7 @@ class TestBlockerIpSet(unittest.TestCase):
 
         self.blocker.block(user)
         self.assertRaises(
-            urllib.error.URLError,
-            urlopen,
-            "http://localhost:8000",
-            timeout=0.1
+            urllib.error.URLError, urlopen, "http://localhost:8000", timeout=0.1
         )
 
         self.blocker.release(user)

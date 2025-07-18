@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
 from ipaddress import IPv4Address
+from typing import Optional
 
 
 @dataclass
@@ -25,4 +25,3 @@ class User:
 
     def __eq__(self, other):
         return hash(self) == hash(other)
-

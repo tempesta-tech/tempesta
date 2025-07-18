@@ -1,9 +1,10 @@
 import time
 from ipaddress import IPv4Address
+
 from blockers.base import BaseBlocker
 from datatypes import User
-from utils import run_in_shell
 from logger import logger
+from utils import run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -16,7 +17,7 @@ class IpSetBlocker(BaseBlocker):
 
     @staticmethod
     def name() -> str:
-        return 'ipset'
+        return "ipset"
 
     def load(self) -> dict[int, User]:
         return {hash(user): user for user in self.info()}
@@ -67,18 +68,14 @@ class IpSetBlocker(BaseBlocker):
 
         # wait until itables become updated
         time.sleep(0.1)
-        result = run_in_shell(
-            f"ipset destroy {self.blocking_ip_set_name}"
-        )
+        result = run_in_shell(f"ipset destroy {self.blocking_ip_set_name}")
 
         if result.returncode != 0:
             raise ValueError(f"Cannot remove IPSet group:{result.stderr}")
 
     def block(self, user: User):
         for ip in user.ipv4:
-            result = run_in_shell(
-                f"ipset add {self.blocking_ip_set_name} {ip}"
-            )
+            result = run_in_shell(f"ipset add {self.blocking_ip_set_name} {ip}")
 
             if result.returncode != 0:
                 if "already added" in result.stderr:
@@ -90,9 +87,7 @@ class IpSetBlocker(BaseBlocker):
 
     def release(self, user: User):
         for ip in user.ipv4:
-            result = run_in_shell(
-                f"ipset del {self.blocking_ip_set_name} {ip}"
-            )
+            result = run_in_shell(f"ipset del {self.blocking_ip_set_name} {ip}")
 
             if result.returncode != 0:
                 if "not added" in result.stderr:
@@ -103,9 +98,7 @@ class IpSetBlocker(BaseBlocker):
                 logger.warning(f"Released user {ip} by ipset")
 
     def info(self) -> list[User]:
-        data = run_in_shell(
-            f"ipset list {self.blocking_ip_set_name}"
-        ).stdout
+        data = run_in_shell(f"ipset list {self.blocking_ip_set_name}").stdout
         members = data.split("Members:\n")[1]
         ips = members.split("\n")
         return [User(ipv4=[IPv4Address(ip)]) for ip in ips[:-1]]
