@@ -192,6 +192,12 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 }
 
 void
+tfw_connection_recv_finish(TfwConn *conn)
+{
+	TFW_CONN_HOOK_CALL(conn, conn_recv_finish);
+}
+
+void
 tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {
 	unsigned hid = TFW_CONN_TYPE2IDX(type);

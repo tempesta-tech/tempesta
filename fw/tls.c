@@ -799,12 +799,19 @@ out:
 	return r;
 }
 
+static void
+tfw_tls_conn_recv_finish(TfwConn *c)
+{
+	tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_recv_finish);
+}
+
 static TfwConnHooks tls_conn_hooks = {
-	.conn_init	= tfw_tls_conn_init,
-	.conn_close	= tfw_tls_conn_close,
-	.conn_abort	= tfw_tls_conn_abort,
-	.conn_drop	= tfw_tls_conn_drop,
-	.conn_send	= tfw_tls_conn_send,
+	.conn_init		= tfw_tls_conn_init,
+	.conn_close		= tfw_tls_conn_close,
+	.conn_abort		= tfw_tls_conn_abort,
+	.conn_drop		= tfw_tls_conn_drop,
+	.conn_send		= tfw_tls_conn_send,
+	.conn_recv_finish	= tfw_tls_conn_recv_finish,
 };
 
 static TlsPeerCfg *
