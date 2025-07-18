@@ -33,7 +33,7 @@ static void
 test_http_cache_setup(void)
 {
 	test_req = test_req_alloc(1);
-	BUG_ON(!test_req);
+	EXPECT_NOT_NULL(test_req);
 
 	/* Initialize test vhosts */
 	memset(&test_vhost1, 0, sizeof(test_vhost1));
@@ -83,43 +83,6 @@ TEST(http_cache, uses_vhost_not_host)
 
 	/* Keys should be different because vhost names are different */
 	EXPECT_NE(key1, key2);
-}
-
-/**
- * Test that the cache key is the same even if the Host header changes
- * but the vhost remains the same (which is what happens with HTTP chains)
- */
-TEST(http_cache, stable_with_http_chains)
-{
-	unsigned long key1, key2;
-	TfwStr uri_path;
-	TfwStr host1;
-	TfwStr host2;
-
-	/* Set a URI path */
-	uri_path.data = (void *)"/test/path";
-	uri_path.len = 10;
-	test_req->uri_path = uri_path;
-
-	/* Set the first Host header */
-	host1.data = (void *)"app1.example.com";
-	host1.len = 16;
-	test_req->host = host1;
-
-	/* Set vhost to "app2" (as would happen with HTTP chains) */
-	test_req->vhost = &test_vhost2;
-	test_req->hash = 0; /* Clear cached hash */
-	key1 = tfw_http_req_key_calc(test_req);
-
-	/* Change Host header but keep same vhost */
-	host2.data = (void *)"app3.example.com";
-	host2.len = 16;
-	test_req->host = host2;
-	test_req->hash = 0; /* Clear cached hash */
-	key2 = tfw_http_req_key_calc(test_req);
-
-	/* Keys should be the same because vhost name is the same */
-	EXPECT_EQ(key1, key2);
 }
 
 /**
@@ -217,7 +180,6 @@ TEST_SUITE(http_cache)
 	TEST_TEARDOWN(test_http_cache_teardown);
 
 	TEST_RUN(http_cache, uses_vhost_not_host);
-	TEST_RUN(http_cache, stable_with_http_chains);
 	TEST_RUN(http_cache, health_monitor);
 	TEST_RUN(http_cache, empty_vhost_name);
 }

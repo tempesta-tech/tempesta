@@ -304,10 +304,10 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 /*
  * Iterate over request URI and vhost name to process request key.
  * uri_path is chunked, vhost_name is a BasicStr pointer.
- * v_str is a TfwStr that will be initialized to wrap vhost_name.
+ * v_start is a TfwStr that will be initialized to wrap vhost_name.
  */
 #define TFW_CACHE_REQ_KEYITER(c, uri_path, vhost_name, u_end, v_start,	\
-			      v_end, u_fin, v_fin, v_str)		\
+			      v_end, u_fin, v_fin)			\
 	c = NULL;							\
 	if (!(u_fin = WARN_ON_ONCE(TFW_STR_EMPTY(uri_path)))) {		\
 		if (TFW_STR_PLAIN(uri_path)) {				\
@@ -319,18 +319,15 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 		}							\
 	}								\
 	if (!(v_fin = WARN_ON_ONCE(!(vhost_name)->len))) {		\
-		(v_str)->data = (vhost_name)->data;			\
-		(v_str)->len = (vhost_name)->len;			\
-		(v_str)->flags = 0;					\
-		(v_str)->nchunks = 0;					\
-		v_start = v_str;					\
-		v_end = (v_str) + 1;					\
-		c = c ? : v_start;					\
+		(v_start)->data = (vhost_name)->data;			\
+		(v_start)->len = (vhost_name)->len;			\
+		v_end = (v_start) + 1;					\
+		c = c ? : (v_start);					\
 	}								\
 	for ( ; !u_fin || !v_fin;					\
 	     ++c, u_fin = u_fin ? true : (c == u_end),			\
 	     v_fin = v_fin ? true : (c == v_end),			\
-	     c = (c == u_end) ? v_start : c)
+	     c = (c == u_end) ? (v_start) : c)
 
 /*
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
@@ -1258,18 +1255,16 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	/* Record key starts at first data chunk. */
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
-	TfwStr *c, *v_start, *u_end, *v_end;
+	TfwStr *c, *u_end, *v_end;
+	TfwStr v_start;
 	bool u_fin, v_fin;
-	TfwStr v_str;
-
-	BUG_ON(!req->vhost);
 
 	if (req->uri_path.len + req->vhost->name.len != ce->key_len)
 		return false;
 
 	t_off = CE_BODY_SIZE;
-	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->vhost->name, u_end, v_start,
-			      v_end, u_fin, v_fin, &v_str)
+	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->vhost->name, u_end,
+			      &v_start, v_end, u_fin, v_fin)
 	{
 		if (!trec)
 			return false;
@@ -2066,9 +2061,8 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	char *p;
 	unsigned short status_idx;
 	TfwStr *field, *end1, *end2;
+	TfwStr v_start;
 	bool u_fin, v_fin;
-	TfwStr *v_start;
-	TfwStr v_str;
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	long n, etag_off = 0;
 	TfwHttpReq *req = resp->req;
@@ -2094,10 +2088,8 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	ce->key = TDB_OFF(db->hdr, p);
 	ce->key_len = 0;
 
-	BUG_ON(!req->vhost);
-
-	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->vhost->name, end1, v_start,
-			      end2, u_fin, v_fin, &v_str)
+	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->vhost->name, end1,
+			      &v_start, end2, u_fin, v_fin)
 	{
 		n = tfw_cache_strcpy_lc(db, &p, &trec, field, tot_len);
 		if (unlikely(n < 0)) {
