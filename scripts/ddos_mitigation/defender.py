@@ -220,12 +220,13 @@ class DDOSMonitor:
             for item in response.result_rows
         ]
 
-    async def risk_clients_block(self):
+    async def risk_clients_block(self, test_unix_time: int = None):
         """
         Retrieve a batch of newly identified risky clients and block them
         """
+        current_time = test_unix_time or int(time.time())
         risk_clients = await self.risk_clients_fetch(
-            start_at=int(time.time()),
+            start_at=current_time,
             period_in_seconds=self.app_config.blocking_window_duration_sec,
             requests_threshold=self.requests_threshold,
             time_threshold=self.time_threshold,
@@ -241,30 +242,35 @@ class DDOSMonitor:
 
         for blocking_user in users_to_block:
             total_users += 1
+            blocking_user.blocked_at = current_time
             self.user_block(blocking_user)
 
         self.user_apply()
 
         logger.debug(f"Checked risky users. Total found {total_users}")
 
-    async def risk_clients_release(self):
+    async def risk_clients_release(self, test_unix_time: int = None):
         """
         Check the blocking time of currently blocked clients and unblock those whose blocking time has expired.
         """
-        current_time = int(time.time())
+        current_time = test_unix_time or int(time.time())
         blocking_seconds = self.app_config.blocking_time_min * 60
         fixed_users_list = list(self.blocked.items())
+        total_released = 0
 
         for key, blocking_user in fixed_users_list:
 
             if (current_time - blocking_user.blocked_at) < blocking_seconds:
                 continue
 
+            total_released += 1
             self.user_release(blocking_user)
 
         self.user_apply()
         logger.debug(
-            f"Checked blocked users ready to release. Total found {len(fixed_users_list)}"
+            f"Checked blocked users ready to release. "
+            f"Total found {len(fixed_users_list)}. "
+            f"Total released {total_released}"
         )
 
     @staticmethod
@@ -296,6 +302,11 @@ class DDOSMonitor:
         Start periodic monitoring of new risky users and block them if necessary
         """
         while True:
+            if self.app_config.test_mode:
+                return await self.risk_clients_block(
+                    test_unix_time=self.app_config.test_unix_time
+                )
+
             asyncio.create_task(self.risk_clients_block())
             await asyncio.sleep(self.app_config.blocking_window_duration_sec)
 
@@ -304,6 +315,11 @@ class DDOSMonitor:
         Start periodic monitoring of already blocked users and unblock them if necessary.
         """
         while True:
+            if self.app_config.test_mode:
+                return await self.risk_clients_release(
+                    test_unix_time=self.app_config.test_unix_time
+                )
+
             asyncio.create_task(self.risk_clients_release())
             await asyncio.sleep(self.app_config.blocking_release_time_min * 60)
 
@@ -374,6 +390,10 @@ class DDOSMonitor:
             )
 
         logger.info("Preparation is complete. Starting monitoring.")
+
+        if self.app_config.test_mode:
+            return
+
         await asyncio.gather(
             self.monitor_new_risk_clients(),
             self.monitor_release_risk_clients(),

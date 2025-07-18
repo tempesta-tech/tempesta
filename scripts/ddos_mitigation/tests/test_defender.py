@@ -1,68 +1,34 @@
 import os
 import time
-import unittest
 from decimal import Decimal
 
 from clickhouse_connect.driverc.dataconv import IPv4Address
 
-from access_log import ClickhouseAccessLog
 from config import AppConfig
 from defender import DDOSMonitor, User
 from ja5_config import Ja5Config
 from user_agents import UserAgentsManager
 from blockers import blockers
+from tests.base import BaseTestCaseWithFilledDB
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
-class TestMitigation(unittest.IsolatedAsyncioTestCase):
+class TestMitigation(BaseTestCaseWithFilledDB):
     async def asyncSetUp(self):
-        self.app_config = AppConfig(clickhouse_database="test_db")
-        self.access_log = ClickhouseAccessLog()
+        await super().asyncSetUp()
 
-        await self.access_log.connect()
-        await self.access_log.conn.query("create database test_db")
-        await self.access_log.conn.close()
-
-        self.access_log = ClickhouseAccessLog(database="test_db")
-        await self.access_log.connect()
-        await self.access_log.conn.query(
-            """
-            CREATE TABLE IF NOT EXISTS access_log (
-                timestamp DateTime64(3, 'UTC'),
-                address IPv6,
-                method UInt8,
-                version UInt8,
-                status UInt16,
-                response_content_length UInt32,
-                response_time UInt32,
-                vhost String,
-                uri String,
-                referer String,
-                user_agent String,
-                ja5t UInt64,
-                ja5h UInt64,
-                dropped_events UInt64,
-                PRIMARY KEY(timestamp)
-            );
-            """
-        )
-        await self.access_log.user_agents_table_create()
-        await self.access_log.conn.query(
-            """
-            insert into access_log values 
-            (cast('1751535000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
-            (cast('1751536000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
-            (cast('1751537000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 400, 0, 10, 'default', '/', '/', 'UserAgent', 13, 23, 0)
-            """
-        )
         self.ja5t_config_path = "/tmp/test_ja5t_config"
         self.ja5h_config_path = "/tmp/test_ja5h_config"
+        self.fake_tempesta_executable = '/tmp/test_fake_tempesta_executable'
+        self.user_agents_fake_config = '/tmp/test_user_agents_fake_config'
 
         open(self.ja5t_config_path, "w").close()
         open(self.ja5h_config_path, "w").close()
+        open(self.fake_tempesta_executable, 'w').close()
+        open(self.user_agents_fake_config, 'w').close()
 
         self.ja5t_config = Ja5Config(self.ja5t_config_path)
         self.ja5h_config = Ja5Config(self.ja5h_config_path)
@@ -90,12 +56,14 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
         )
 
     async def asyncTearDown(self):
+        await super().asyncTearDown()
+
         self.monitor.user_reset()
 
         os.remove(self.ja5t_config_path)
         os.remove(self.ja5h_config_path)
-
-        await self.access_log.conn.query("drop database if exists test_db")
+        os.remove(self.fake_tempesta_executable)
+        os.remove(self.user_agents_fake_config)
 
     def test_hash_risk_user_function(self):
         risk_user_1 = User(ja5t='1')
@@ -223,3 +191,33 @@ class TestMitigation(unittest.IsolatedAsyncioTestCase):
     async def test_risk_clients_release_empty_list(self):
         await self.monitor.risk_clients_release()
         self.assertEqual(len(self.monitor.blocked), 0)
+
+    async def test_run(self):
+        self.monitor.blockers['ja5t'].tempesta_executable_path = self.fake_tempesta_executable
+        self.monitor.blockers['ja5h'].tempesta_executable_path = self.fake_tempesta_executable
+
+        self.monitor.user_agent_manager.config_path = self.user_agents_fake_config
+
+        self.monitor.app_config.clickhouse_database = 'test_db'
+        self.monitor.app_config.test_mode = True
+        self.monitor.app_config.test_unix_time = 1751535001
+        self.monitor.app_config.blocking_window_duration_sec = 10
+
+        await self.monitor.run()
+        self.monitor.set_thresholds(
+            requests_threshold=Decimal(0),
+            time_threshold=Decimal(0),
+            errors_threshold=Decimal(0),
+        )
+
+        await self.monitor.monitor_new_risk_clients()
+        self.assertEqual(len(self.monitor.blocked), 1)
+
+        await self.monitor.monitor_release_risk_clients()
+        self.assertEqual(len(self.monitor.blocked), 1)
+
+        self.monitor.app_config.test_unix_time = 1751535001
+        self.monitor.app_config.test_unix_time = + self.monitor.app_config.blocking_time_min * 60
+
+        await self.monitor.monitor_release_risk_clients()
+        self.assertEqual(len(self.monitor.blocked), 1)

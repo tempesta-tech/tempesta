@@ -52,6 +52,9 @@ class AppConfig(BaseSettings):
     )
     log_level: str = "INFO"
 
+    test_mode: bool = False
+    test_unix_time: int = 0
+
     @classmethod
     def read(cls, path: str) -> str:
         with open(path, "r") as f:

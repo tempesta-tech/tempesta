@@ -1,59 +1,17 @@
 import math
-import unittest
 from decimal import Decimal
 from ipaddress import IPv4Address
 
-from access_log import ClickhouseAccessLog
+from tests.base import BaseTestCaseWithFilledDB
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
-class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
-    async def asyncTearDown(self):
-        await self.client.conn.query("drop database test_db")
-
-    async def asyncSetUp(self):
-        self.client = ClickhouseAccessLog()
-        await self.client.connect()
-        await self.client.conn.query("drop database if exists test_db")
-
-        await self.client.conn.query("create database test_db")
-        await self.client.conn.close()
-
-        self.client = ClickhouseAccessLog(database="test_db")
-        await self.client.connect()
-        await self.client.conn.query(
-            """
-            CREATE TABLE IF NOT EXISTS test_db.access_log (
-                timestamp DateTime64(3, 'UTC'),
-                address IPv6,
-                method UInt8,
-                version UInt8,
-                status UInt16,
-                response_content_length UInt32,
-                response_time UInt32,
-                vhost String,
-                uri String,
-                referer String,
-                user_agent String,
-                ja5t UInt64,
-                ja5h UInt64,
-                dropped_events UInt64,
-                PRIMARY KEY(timestamp)
-            );
-            """
-        )
-        await self.client.conn.query(
-            """
-            create table test_db.user_agents (
-                name String,
-                PRIMARY KEY(name)
-            )
-            """
-        )
-        await self.client.conn.query(
+class TestClickhouseClient(BaseTestCaseWithFilledDB):
+    async def create_records(self):
+        await self.access_log.conn.query(
             """
             insert into test_db.access_log values 
             (cast('1751535000' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
@@ -73,7 +31,7 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_get_top_risk_clients_out_of_time_period(self):
-        response = await self.client.get_top_risk_clients(
+        response = await self.access_log.get_top_risk_clients(
             start_at=1751536000,
             period_in_seconds=1,
             rps_threshold=Decimal(4),
@@ -84,7 +42,7 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.result_rows, [])
 
     async def test_get_top_risk_clients(self):
-        response = await self.client.get_top_risk_clients(
+        response = await self.access_log.get_top_risk_clients(
             start_at=1751535000,
             period_in_seconds=60,
             rps_threshold=Decimal(4),
@@ -123,7 +81,7 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_get_stats_out_of_time_period(self):
-        response = await self.client.get_request_stats_for_period(
+        response = await self.access_log.get_request_stats_for_period(
             start_at=1751536000,
             period_in_minutes=1,
         )
@@ -132,7 +90,7 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(math.isnan(response.result_rows[2][0]))
 
     async def test_get_stats(self):
-        response = await self.client.get_request_stats_for_period(
+        response = await self.access_log.get_request_stats_for_period(
             start_at=1751534999,
             period_in_minutes=1,
         )
@@ -143,11 +101,11 @@ class TestClickhouseClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.result_rows, [(3.0, 0), (30.0, 1), (0.5, 2)])
 
     async def test_create_user_table(self):
-        await self.client.user_agents_table_create()
-        items = await self.client.user_agents_all()
+        await self.access_log.user_agents_table_create()
+        items = await self.access_log.user_agents_all()
         self.assertEqual(len(items.result_rows), 0)
 
     async def test_insert_user_agents(self):
-        await self.client.user_agents_table_insert([["TestUserAgent"], ["HelloKitty"]])
-        items = await self.client.user_agents_all()
+        await self.access_log.user_agents_table_insert([["TestUserAgent"], ["HelloKitty"]])
+        items = await self.access_log.user_agents_all()
         self.assertEqual(len(items.result_rows), 2)
