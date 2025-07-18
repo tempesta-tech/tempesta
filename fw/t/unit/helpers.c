@@ -447,6 +447,12 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 	return T_OK;
 }
 
+int
+frang_ctrl_frame_limit(TfwConn *conn)
+{
+	return T_OK;
+}
+
 bool
 ttls_hs_done(TlsCtx *tls)
 {

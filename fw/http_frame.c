@@ -999,6 +999,13 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+static inline bool
+tfw_h2_frame_is_ctrl(TfwFrameType hdr_type)
+{
+	return hdr_type != HTTP2_HEADERS && hdr_type != HTTP2_CONTINUATION
+		&& hdr_type != HTTP2_DATA;
+}
+
 /*
  * Initial processing of received frames: verification and handling of
  * frame header; also, stream states are processed here - during receiving
@@ -1030,6 +1037,18 @@ do {									\
 		      ctx->streams_num);				\
 		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
 		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
+		/*							\
+		 * There are two types of rapid reset attack:		\
+		 * - client opens a lot of streams and then closes them \
+		 *   using RST STREAM. This type of attack is fixed by	\
+		 *   control frame limit;
+		 * - client opens a lot of streams and exceeded max	\
+		 *   concurrent streams limit to make the server generates \
+		 *   a lot of RST STREAM responses. We can also use	\
+		 *   control frame limit to fix it;			\
+		 */							\
+		if (unlikely(frang_ctrl_frame_limit((TfwConn *)ctx->conn))) \
+			return T_BLOCK_WITH_RST;			\
 		ACTION;							\
 	}								\
 } while(0)
@@ -1039,6 +1058,10 @@ do {									\
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
+
+	if (tfw_h2_frame_is_ctrl(hdr_type) &&
+	    unlikely(frang_ctrl_frame_limit((TfwConn *)ctx->conn)))
+		return T_BLOCK_WITH_RST;
 
 	/*
 	 * TODO: RFC 7540 Section 6.2:
