@@ -1037,6 +1037,18 @@ do {									\
 		      ctx->streams_num);				\
 		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
 		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
+		/*							\
+		 * There are two types of rapid reset attack:		\
+		 * - client opens a lot of streams and then closes them \
+		 *   using RST STREAM. This type of attack is fixed by	\
+		 *   control frame limit;
+		 * - client opens a lot of streams and exceeded max	\
+		 *   concurrent streams limit to make the server generates \
+		 *   a lot of RST STREAM responses. We can also use	\
+		 *   control frame limit to fix it;			\
+		 */							\
+		if (unlikely(frang_ctrl_frame_limit((TfwConn *)ctx->conn))) \
+			return T_BLOCK_WITH_RST;			\
 		ACTION;							\
 	}								\
 } while(0)
@@ -1048,7 +1060,7 @@ do {									\
 		goto conn_term;
 
 	if (tfw_h2_frame_is_ctrl(hdr_type) &&
-	    unlikely(r = frang_ctrl_frame_limit((TfwConn *)ctx->conn)))
+	    unlikely(frang_ctrl_frame_limit((TfwConn *)ctx->conn)))
 		return T_BLOCK_WITH_RST;
 
 	/*
