@@ -344,6 +344,11 @@ typedef struct {
 	 * that needs to be send.
 	 */
 	int (*conn_send)(TfwConn *conn, TfwMsg *msg);
+
+	/*
+	 * Called after processing all socket received queue.
+	 */
+	void (*conn_recv_finish)(TfwConn *conn);
 } TfwConnHooks;
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
@@ -602,6 +607,7 @@ void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
 int tfw_connection_recv(TfwConn *conn, struct sk_buff *skb);
+void tfw_connection_recv_finish(TfwConn *conn);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConn *conn);
