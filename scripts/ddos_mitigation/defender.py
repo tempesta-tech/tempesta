@@ -223,6 +223,8 @@ class DDOSMonitor:
     async def risk_clients_block(self, test_unix_time: int = None):
         """
         Retrieve a batch of newly identified risky clients and block them
+
+        :param test_unix_time: used as current time in functional tests
         """
         current_time = test_unix_time or int(time.time())
         risk_clients = await self.risk_clients_fetch(
@@ -252,6 +254,8 @@ class DDOSMonitor:
     async def risk_clients_release(self, test_unix_time: int = None):
         """
         Check the blocking time of currently blocked clients and unblock those whose blocking time has expired.
+
+        :param test_unix_time: used as current time in functional tests
         """
         current_time = test_unix_time or int(time.time())
         blocking_seconds = self.app_config.blocking_time_min * 60
