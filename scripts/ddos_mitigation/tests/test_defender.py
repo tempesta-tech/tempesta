@@ -2,8 +2,8 @@ import os
 import time
 from decimal import Decimal
 
-from blockers import blockers
-from detectors import detectors
+import blockers
+import detectors
 from config import AppConfig
 from defender import DDOSMonitor, User
 from ja5_config import Ja5Config
@@ -49,8 +49,7 @@ class TestMitigation(BaseTestCaseWithFilledDB):
             },
             detectors={
                 detectors.ThresholdDetector.name(): detectors.ThresholdDetector(
-                    app_config=self.app_config,
-                    clickhouse_client=self.access_log
+                    app_config=self.app_config, clickhouse_client=self.access_log
                 )
             },
             clickhouse_client=self.access_log,
@@ -136,7 +135,7 @@ class TestMitigation(BaseTestCaseWithFilledDB):
         self.monitor.app_config.blocking_window_duration_sec = 10
 
         await self.monitor.run()
-        self.monitor.detectors['threshold'].set_thresholds(
+        self.monitor.detectors["threshold"].set_thresholds(
             requests_threshold=Decimal(0),
             time_threshold=Decimal(0),
             errors_threshold=Decimal(0),

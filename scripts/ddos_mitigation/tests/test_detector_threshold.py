@@ -2,10 +2,9 @@ from decimal import Decimal
 
 from clickhouse_connect.driverc.dataconv import IPv4Address
 
+from defender import User
 from detectors.threshold import ThresholdDetector
-from defender import  User
 from tests.base import BaseTestCaseWithFilledDB
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -17,8 +16,7 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
         await super().asyncSetUp()
 
         self.detector = ThresholdDetector(
-            app_config=self.app_config,
-            clickhouse_client=self.access_log
+            app_config=self.app_config, clickhouse_client=self.access_log
         )
 
     def test_set_thresholds(self):
@@ -111,13 +109,13 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
         await self.detector.prepare()
 
     async def test_prepare_historical_mode(self):
-        self.detector.app_config.training_mode = 'historical'
+        self.detector.app_config.training_mode = "historical"
         self.detector.app_config.training_mode_duration_min = 1
         self.detector.seconds_in_minute = 1
         await self.detector.prepare()
 
     async def test_prepare_real_mode(self):
-        self.detector.app_config.training_mode = 'real'
+        self.detector.app_config.training_mode = "real"
         self.detector.app_config.training_mode_duration_min = 1
         self.detector.seconds_in_minute = 1
         await self.detector.prepare()

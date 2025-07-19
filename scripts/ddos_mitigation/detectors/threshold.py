@@ -1,14 +1,15 @@
 import asyncio
-import time
 import math
+import time
 from dataclasses import dataclass, field
-from detectors.base import BaseDetector
-from access_log import ClickhouseAccessLog
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Generator
+
+from access_log import ClickhouseAccessLog
 from config import AppConfig
-from decimal import Decimal, ROUND_HALF_UP
+from datatypes import AverageStats, User
+from detectors.base import BaseDetector
 from logger import logger
-from datatypes import User, AverageStats
 
 
 @dataclass
@@ -35,12 +36,12 @@ class ThresholdDetector(BaseDetector):
 
     @staticmethod
     def name() -> str:
-        return 'threshold'
+        return "threshold"
 
     @staticmethod
     def compare_users(
-            new_users: list[User],
-            exclude_users: dict[int, User] = (),
+        new_users: list[User],
+        exclude_users: dict[int, User] = (),
     ) -> list[User]:
         """
         Perform an intersection of user sets to determine which users need to be blocked.
@@ -71,10 +72,10 @@ class ThresholdDetector(BaseDetector):
             logger.info(f"Updated known users:  {self.known_users}")
 
     def set_thresholds(
-            self,
-            requests_threshold: Decimal,
-            time_threshold: Decimal,
-            errors_threshold: Decimal,
+        self,
+        requests_threshold: Decimal,
+        time_threshold: Decimal,
+        errors_threshold: Decimal,
     ):
         """
         Update the current threshold values.
@@ -93,7 +94,7 @@ class ThresholdDetector(BaseDetector):
         )
 
     async def average_stats_load(
-            self, start_at: int, period_in_minutes: int
+        self, start_at: int, period_in_minutes: int
     ) -> AverageStats:
         """
         Get average statistics for all user activity over a given period.
@@ -134,12 +135,12 @@ class ThresholdDetector(BaseDetector):
         )
 
     async def persistent_users_load(
-            self,
-            start_at: int,
-            period_in_seconds: int,
-            requests_amount: Decimal,
-            time_amount: Decimal,
-            users_amount: int,
+        self,
+        start_at: int,
+        period_in_seconds: int,
+        requests_amount: Decimal,
+        time_amount: Decimal,
+        users_amount: int,
     ) -> list[User]:
         """
         Analyze user activity over a given period and mark a number of users as "known" (persistent)
@@ -170,13 +171,13 @@ class ThresholdDetector(BaseDetector):
         ]
 
     async def risk_clients_fetch(
-            self,
-            start_at: int,
-            period_in_seconds: int,
-            requests_threshold: Decimal,
-            time_threshold: Decimal,
-            errors_threshold: Decimal,
-            hashes_limit: int,
+        self,
+        start_at: int,
+        period_in_seconds: int,
+        requests_threshold: Decimal,
+        time_threshold: Decimal,
+        errors_threshold: Decimal,
+        hashes_limit: int,
     ) -> list[User]:
         """
         Load risky clients who exceed the current thresholds during a specified time period.
@@ -217,16 +218,19 @@ class ThresholdDetector(BaseDetector):
                 f"Starting to collect client activity for:"
                 f" {self.app_config.training_mode_duration_min} min."
             )
-            await asyncio.sleep(self.app_config.training_mode_duration_min * self.seconds_in_minute)
+            await asyncio.sleep(
+                self.app_config.training_mode_duration_min * self.seconds_in_minute
+            )
             logger.info("Data collection is complete")
 
         if self.app_config.blocking_type in {"real", "historical"}:
             logger.info("Analyzing user activity for the period")
             known_users = await self.persistent_users_load(
                 start_at=int(time.time())
-                         - self.app_config.persistent_users_window_offset_min * self.seconds_in_minute,
+                - self.app_config.persistent_users_window_offset_min
+                * self.seconds_in_minute,
                 period_in_seconds=self.app_config.persistent_users_window_duration_min
-                                  * self.seconds_in_minute,
+                * self.seconds_in_minute,
                 requests_amount=self.app_config.persistent_users_total_requests,
                 time_amount=self.app_config.persistent_users_total_time,
                 users_amount=self.app_config.persistent_users_total_users,

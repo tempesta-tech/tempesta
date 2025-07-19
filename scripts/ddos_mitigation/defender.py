@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 
 from access_log import ClickhouseAccessLog
 from blockers.base import BaseBlocker
-from detectors.base import BaseDetector
 from config import AppConfig
 from datatypes import User
+from detectors.base import BaseDetector
 from user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
@@ -168,10 +168,12 @@ class DDOSMonitor:
                 f"`{len(self.user_agent_manager.user_agents)}`"
             )
 
-        await asyncio.gather(*[
-            self.detectors[detector].prepare()
-            for detector in self.app_config.detectors
-        ])
+        await asyncio.gather(
+            *[
+                self.detectors[detector].prepare()
+                for detector in self.app_config.detectors
+            ]
+        )
         logger.info("Detectors prepared.")
         logger.info("Preparation is complete. Starting monitoring.")
 

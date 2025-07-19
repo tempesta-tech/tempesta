@@ -2,9 +2,9 @@
 import asyncio
 import logging
 
+import blockers
+import detectors
 from access_log import ClickhouseAccessLog
-from blockers import blockers
-from detectors import detectors
 from cli import CommandLineArgs
 from config import AppConfig
 from defender import DDOSMonitor

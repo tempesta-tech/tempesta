@@ -37,7 +37,7 @@ class AppConfig(BaseSettings):
     stats_time_multiplier: int = 100
     stats_errors_multiplier: int = 5
 
-    detectors: set[Literal['threshold', 'geoip']] = {'threshold'}
+    detectors: set[Literal["threshold", "geoip"]] = {"threshold"}
     blocking_type: set[Literal["ja5t", "ja5h", "ipset", "nftables", "geoip"]] = {"ja5t"}
     blocking_window_duration_sec: int = 10
     blocking_ja5_limit: int = 10
