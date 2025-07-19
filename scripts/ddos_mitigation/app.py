@@ -52,7 +52,11 @@ if __name__ == "__main__":
             detectors.ThresholdDetector.name(): detectors.ThresholdDetector(
                 app_config=app_config,
                 clickhouse_client=clickhouse_client,
-            )
+            ),
+            detectors.GeoIPDetector.name(): detectors.ThresholdDetector(
+                app_config=app_config,
+                clickhouse_client=clickhouse_client,
+            ),
         },
         clickhouse_client=clickhouse_client,
         app_config=app_config,

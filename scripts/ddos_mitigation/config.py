@@ -47,6 +47,10 @@ class AppConfig(BaseSettings):
     blocking_time_min: int = 60
     blocking_release_time_min: int = 1
 
+    detector_geoip_percent_threshold: Decimal = Decimal(95)
+    detector_geoip_min_rps: Decimal = Decimal(100)
+    detector_geoip_period_seconds: int = 10
+
     tempesta_executable_path: str = ""
     allowed_user_agents_file_path: str = (
         "/etc/tempesta-ddos-defender/allow_user_agents.txt"

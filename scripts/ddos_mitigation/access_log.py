@@ -34,6 +34,36 @@ class ClickhouseAccessLog:
             database=self.database,
         )
 
+    async def get_aggregated_clients_for_period(
+        self,
+        start_at: int,
+        period_in_seconds: int,
+    ) -> QueryResult:
+        """
+        Fetch clients that exceed defined thresholds.
+
+        :param start_at: Start time of the analysis frame
+        :param period_in_seconds: Duration of the time frame for user activity
+        :return: A QueryResult of clients.
+        """
+        return await self.conn.query(
+            f"""
+            SELECT 
+                min(ja5t), 
+                min(ja5h),
+                address,
+                min(user_agent) user_agent,
+                count(1) as total_requests,
+                sum(response_time) as total_time,
+                countIf(status not in (200, 201)) as total_errors
+            FROM access_log
+            WHERE 
+                timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
+                AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
+            GROUP by address
+            """
+        )
+
     async def get_top_risk_clients(
         self,
         start_at: int,

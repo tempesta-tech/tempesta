@@ -3,7 +3,6 @@ import math
 import time
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Generator
 
 from access_log import ClickhouseAccessLog
 from config import AppConfig
