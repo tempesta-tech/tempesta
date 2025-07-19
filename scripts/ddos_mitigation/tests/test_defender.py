@@ -2,9 +2,8 @@ import os
 import time
 from decimal import Decimal
 
-from clickhouse_connect.driverc.dataconv import IPv4Address
-
 from blockers import blockers
+from detectors import detectors
 from config import AppConfig
 from defender import DDOSMonitor, User
 from ja5_config import Ja5Config
@@ -48,6 +47,12 @@ class TestMitigation(BaseTestCaseWithFilledDB):
                     blocking_table_name=self.app_config.blocking_ipset_name,
                 ),
             },
+            detectors={
+                detectors.ThresholdDetector.name(): detectors.ThresholdDetector(
+                    app_config=self.app_config,
+                    clickhouse_client=self.access_log
+                )
+            },
             clickhouse_client=self.access_log,
             app_config=AppConfig(),
             user_agent_manager=UserAgentsManager(
@@ -72,91 +77,6 @@ class TestMitigation(BaseTestCaseWithFilledDB):
 
         self.assertEqual(hash(risk_user_2), hash(risk_user_3))
         self.assertNotEqual(hash(risk_user_1), hash(risk_user_3))
-
-    def test_set_thresholds(self):
-        self.monitor.set_thresholds(
-            requests_threshold=Decimal(1),
-            time_threshold=Decimal(2),
-            errors_threshold=Decimal(3),
-        )
-        self.assertEqual(self.monitor.requests_threshold, 1)
-        self.assertEqual(self.monitor.time_threshold, 2)
-        self.assertEqual(self.monitor.errors_threshold, 3)
-
-    async def test_set_known_users(self):
-        risk_user = User(ja5t="1")
-        self.monitor.set_known_users([risk_user])
-        self.assertEqual(len(self.monitor.known_users), 1)
-        self.assertIn(hash(risk_user), self.monitor.known_users)
-
-    async def test_persistent_users_load(self):
-        result = await self.monitor.persistent_users_load(
-            start_at=1751535000,
-            period_in_seconds=10,
-            requests_amount=Decimal(1),
-            time_amount=Decimal(1),
-            users_amount=1,
-        )
-        self.assertEqual(
-            result,
-            [
-                User(
-                    ja5t="11",
-                    ja5h="21",
-                    ipv4=[IPv4Address("127.0.0.1")],
-                    value=None,
-                    type=None,
-                    blocked_at=None,
-                )
-            ],
-        )
-
-    async def test_average_stats_load(self):
-        result = await self.monitor.average_stats_load(
-            start_at=1751535000, period_in_minutes=1
-        )
-        self.assertEqual(
-            result.requests, self.monitor.app_config.default_requests_threshold
-        )
-        self.assertEqual(result.time, self.monitor.app_config.default_time_threshold)
-        self.assertEqual(
-            result.errors, self.monitor.app_config.default_errors_threshold
-        )
-
-        result = await self.monitor.average_stats_load(
-            start_at=1751534999, period_in_minutes=1
-        )
-        self.assertEqual(result.requests, Decimal("0.02"))
-        self.assertEqual(result.time, Decimal("0.17"))
-        self.assertEqual(result.errors, Decimal("0.0"))
-
-    async def test_risk_clients_fetch(self):
-        result = await self.monitor.risk_clients_fetch(
-            start_at=1751535000,
-            period_in_seconds=10,
-            requests_threshold=Decimal(1),
-            time_threshold=Decimal(10),
-            errors_threshold=Decimal(1),
-            hashes_limit=10,
-        )
-        self.assertEqual(
-            result,
-            [
-                User(
-                    ja5t="b",
-                    ja5h="15",
-                    ipv4=[IPv4Address("127.0.0.1")],
-                    value=1,
-                    type=0,
-                )
-            ],
-        )
-
-    def test_compare_users(self):
-        generator = self.monitor.compare_users(
-            new_users=[User(ja5t="11")], already_blocked=dict(), exclude_users=dict()
-        )
-        self.assertEqual(list(generator), [User(ja5t="11")])
 
     async def test_risk_clients_block(self):
         async def fake_db_response(*_, **__):
@@ -216,7 +136,7 @@ class TestMitigation(BaseTestCaseWithFilledDB):
         self.monitor.app_config.blocking_window_duration_sec = 10
 
         await self.monitor.run()
-        self.monitor.set_thresholds(
+        self.monitor.detectors['threshold'].set_thresholds(
             requests_threshold=Decimal(0),
             time_threshold=Decimal(0),
             errors_threshold=Decimal(0),

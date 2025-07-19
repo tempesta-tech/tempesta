@@ -4,6 +4,7 @@ import logging
 
 from access_log import ClickhouseAccessLog
 from blockers import blockers
+from detectors import detectors
 from cli import CommandLineArgs
 from config import AppConfig
 from defender import DDOSMonitor
@@ -46,6 +47,12 @@ if __name__ == "__main__":
             blockers.NFTBlocker.name(): blockers.NFTBlocker(
                 blocking_table_name=app_config.ipset_blocking_ipset_name,
             ),
+        },
+        detectors={
+            detectors.ThresholdDetector.name(): detectors.ThresholdDetector(
+                app_config=app_config,
+                clickhouse_client=clickhouse_client,
+            )
         },
         clickhouse_client=clickhouse_client,
         app_config=app_config,
