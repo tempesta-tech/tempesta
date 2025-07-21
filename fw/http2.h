@@ -57,7 +57,7 @@ typedef struct {
 typedef struct {
 	unsigned int	cnt;
 	unsigned int	ts;
-} __attribute__((packed)) CtrlFrameStat;
+} CtrlFrameStat;
 
 typedef struct tfw_conn_t TfwConn;
 

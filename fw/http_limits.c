@@ -74,7 +74,7 @@ typedef struct {
 typedef struct {
 	unsigned int	cnt;
 	unsigned int	ts;
-} __attribute__((packed)) FrangRespCodeStat;
+} FrangRespCodeStat;
 
 /**
  * Main descriptor of client resource accounting.
