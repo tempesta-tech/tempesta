@@ -712,7 +712,8 @@ ALLOW_ERROR_INJECTION(tfw_h2_stream_xmit_prepare_resp, ERRNO);
 
 int
 tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			 unsigned int *len, bool should_split)
+			 unsigned int *len, unsigned int mss_now,
+			 bool should_split)
 {
 	unsigned char tls_type = TFW_SKB_CB(stream->xmit.skb_head)->tls_type;
 	unsigned int mark = stream->xmit.skb_head->mark;
@@ -752,7 +753,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			}
 		}
 		*len -= skb->len;
-		 ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		 ss_skb_tcp_entail(sk, skb, mark, tls_type, mss_now);
 	}
 
 	/*

@@ -392,9 +392,18 @@ static bool tcp_has_tx_tstamp(const struct sk_buff *skb)
 }
 
 static inline bool
-ss_skb_can_coclesce(struct sk_buff *to, unsigned int mark,
-		    unsigned char tls_type)
+ss_skb_can_coalesce(struct tcp_sock *tp, struct sk_buff *to, struct sk_buff *from, unsigned int mark,
+		    unsigned char tls_type, unsigned int mss_now)
 {
+	unsigned int in_flight = tcp_packets_in_flight(tp);	
+	unsigned int cwnd = tp->snd_cwnd;
+
+	if (in_flight >= cwnd)
+		return false;
+	if (to->len + from->len > mss_now * min(max(cwnd >> 1, 1U), cwnd - in_flight)) {
+		return false;
+	}
+
 	if (unlikely(TCP_SKB_CB(to)->eor) || tcp_has_tx_tstamp(to))
 		return false;
 	if (skb_tfw_tls_type(to) != tls_type || to->mark != mark)
@@ -404,7 +413,7 @@ ss_skb_can_coclesce(struct sk_buff *to, unsigned int mark,
 
 void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		  unsigned char tls_type)
+		  unsigned char tls_type, unsigned int mss_now)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *tail = tcp_write_queue_tail(sk);
@@ -420,7 +429,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 	ss_forced_mem_schedule(sk, skb->truesize);
 
-	if (tail && ss_skb_can_coclesce(tail, mark, tls_type)
+	if (tail && ss_skb_can_coalesce(tp, tail, skb, mark, tls_type, mss_now)
 	    && skb_try_coalesce(tail, skb, &stolen, &delta))
 	{
 		ss_add_overhead(sk, delta);
@@ -476,7 +485,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			kfree_skb(skb);
 			continue;
 		}
-		ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		ss_skb_tcp_entail(sk, skb, mark, tls_type, mss_now);
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {

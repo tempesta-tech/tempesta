@@ -1916,7 +1916,7 @@ tfw_h2_calc_frame_flags(TfwStream *stream, TfwFrameType type,
 static inline int
 tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   TfwFrameType type, unsigned long *snd_wnd,
-			   unsigned long len)
+			   unsigned int mss_now, unsigned long len)
 {
 	TfwFrameHdr frame_hdr = {};
 	unsigned int max_len = (*snd_wnd > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD) ?
@@ -1993,7 +1993,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		if (stream->xmit.frame_length) {
 			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
 						     &stream->xmit.frame_length,
-						     true);
+						     mss_now, true);
 		}
 		stream->xmit.frame_length += length + FRAME_HEADER_SIZE;
 		/*
@@ -2074,7 +2074,8 @@ do {									\
 		}
 
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
-					       snd_wnd, stream->xmit.h_len);
+					       snd_wnd, mss_now,
+					       stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
 			return r;
@@ -2086,7 +2087,8 @@ do {									\
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
-					       snd_wnd, stream->xmit.h_len);
+					       snd_wnd, mss_now,
+					       stream->xmit.h_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make continuation frame %d", r);
 			return r;
@@ -2106,7 +2108,8 @@ do {									\
 
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_DATA);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
-					       snd_wnd, stream->xmit.b_len);
+					       snd_wnd, mss_now,
+					       stream->xmit.b_len);
 		if (unlikely (r)) {
 			T_WARN("Failed to make data frame %d", r);
 			return r;
@@ -2119,7 +2122,8 @@ do {									\
 		is_trailer_cont = true;
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_HEADERS);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
-					       snd_wnd, stream->xmit.t_len);
+					       snd_wnd, mss_now,
+					       stream->xmit.t_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make trail headers frame %d", r);
 			return r;
@@ -2132,7 +2136,8 @@ do {									\
 		is_trailer_cont = true;
 		CALC_SND_WND_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
-					       snd_wnd, stream->xmit.t_len);
+					       snd_wnd, mss_now,
+					       stream->xmit.t_len);
 		if (unlikely(r)) {
 			T_WARN("Failed to make trail continuation frame %d", r);
 			return r;
@@ -2145,7 +2150,7 @@ do {									\
 		if (likely(stream->xmit.frame_length)) {
 			r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
 						      &stream->xmit.frame_length,
-						      false);
+						      mss_now, false);
 			if (unlikely(r)) {
 				T_WARN("Failed to send frame %d", r);
 				return r;
@@ -2206,7 +2211,7 @@ do {									\
 	if (stream->xmit.frame_length) {
 		r = tfw_h2_entail_stream_skb(sk, ctx, stream,
 					     &stream->xmit.frame_length,
-					     true);
+					     mss_now, true);
 		if (unlikely(r)) {
 			T_WARN("Failed to send frame %d", r);
 			return r;
