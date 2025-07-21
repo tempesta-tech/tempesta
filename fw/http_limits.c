@@ -1692,8 +1692,9 @@ __frang_ctrl_frame_limit(FrangAcc *ra, TfwCliConn *conn,
 	ctx->ctrl_frame_stat[i].cnt++;
 
 	if (unlikely(ctx->ctrl_frame_stat[i].cnt > ctrl_frame_rate)) {
-		frang_limmsg("control frames rate", ctx->ctrl_frame_stat[i].cnt,
-			     ctrl_frame_rate, &FRANG_ACC2CLI(ra)->addr);
+		frang_limmsg_lock(&ra->lock, "control frames rate",
+				  ctx->ctrl_frame_stat[i].cnt,
+				  ctrl_frame_rate, &FRANG_ACC2CLI(ra)->addr);
 		return T_BLOCK;
 	}
 
@@ -1712,12 +1713,8 @@ frang_ctrl_frame_limit(TfwConn *conn)
 
 	BUG_ON(!ra);
 
-	spin_lock(&ra->lock);
-
 	r = __frang_ctrl_frame_limit(ra, (TfwCliConn *)conn,
 				     dflt_vh->frang_gconf->ctrl_frame_rate);
-
-	spin_unlock(&ra->lock);
 
 	if (unlikely(r == T_BLOCK_WITH_RST) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
