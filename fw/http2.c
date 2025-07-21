@@ -30,6 +30,26 @@
 
 #define TFW_MAX_CLOSED_STREAMS          5
 
+static struct kmem_cache *stream_sched_cache;
+
+static int
+tfw_h2_stream_sched_cache_create(void)
+{
+	stream_sched_cache = kmem_cache_create("tfw_stream_sched_cache",
+					       sizeof(TfwStreamSchedEntry),
+					       0, 0, NULL);
+	if (!stream_sched_cache)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void
+tfw_h2_stream_sched_cache_destroy(void)
+{
+	kmem_cache_destroy(stream_sched_cache);
+}
+
 /**
  * Usually client firstly send SETTINGS frame to a server, so:
  * - we don't have many streams to iterate over in this function
@@ -40,7 +60,7 @@
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStream *stream, *next;
 
 	/*
@@ -71,7 +91,7 @@ static void
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwSettings *dest = &ctx->rsettings;
 	long int delta;
 
@@ -120,7 +140,7 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 int
 tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -163,7 +183,7 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 
@@ -178,7 +198,7 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	unsigned int id;
 
 	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
@@ -195,24 +215,85 @@ tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 int
 tfw_h2_init(void)
 {
-	return tfw_h2_stream_cache_create();
+	int r;
+
+	r = tfw_h2_stream_cache_create();
+	if (unlikely(r))
+		return r;
+
+	r = tfw_h2_stream_sched_cache_create();
+	if (unlikely(r)) {
+		tfw_h2_stream_cache_destroy();
+		return r;
+	}
+
+	return 0;
 }
 
 void
 tfw_h2_cleanup(void)
 {
+	tfw_h2_stream_sched_cache_destroy();
 	tfw_h2_stream_cache_destroy();
 }
 
+static inline void
+tfw_h2_context_init_sched_entry_list(TfwH2Ctx *ctx, TfwStreamSchedList *list)
+{
+	int i;
+
+#define LIST_SZ_DFLT	\
+	(PAGE_SIZE - sizeof(TfwH2Ctx)) / sizeof(TfwStreamSchedEntry)
+
+	for (i = LIST_SZ_DFLT - 1; i >= 0; i--) {
+		list->entries[i].owner = NULL;
+		list->entries[i].next_free = ctx->sched.free_list;
+		ctx->sched.free_list = &list->entries[i];
+	}
+
+#undef LIST_SZ_DFLT
+}
+
+TfwH2Ctx *
+tfw_h2_context_alloc(void)
+{
+	struct page *page;
+
+	/*
+	 * Tempesta FW allocates the whole page for http2 context.
+	 * and uses extra memory for streams schedulers for better
+	 * memory locality. Tempesta FW preallocate only streams
+	 * schedulers not the whole streams, because size of
+	 * TfwStream structure is very big. There is no sence
+	 * to preallocate only two streams (count of streams that
+	 * can fit into the remaining memory on the page) and we
+	 * can loose too much memory if we preallocate 10 -15
+	 * streams.
+	 */
+	page = alloc_page(GFP_ATOMIC);
+	if (!page)
+		return NULL;
+	return page_address(page);
+}
+
+void
+tfw_h2_context_free(TfwH2Ctx *ctx)
+{
+	free_page((unsigned long)ctx);
+}
+
 int
-tfw_h2_context_init(TfwH2Ctx *ctx)
+tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 {
 	TfwStreamQueue *closed_streams = &ctx->closed_streams;
 	TfwStreamQueue *idle_streams = &ctx->idle_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
+	TfwStreamSchedList *list =
+		(TfwStreamSchedList *)((char *)ctx + sizeof(TfwH2Ctx));
 
-	bzero_fast(ctx, sizeof(*ctx));
+	BUG_ON(!conn || conn->h2 != ctx);
+	bzero_fast(ctx, sizeof(*ctx) + sizeof(*list));
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = DEF_WND_SIZE;
@@ -223,6 +304,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	INIT_LIST_HEAD(&idle_streams->list);
 
 	tfw_h2_init_stream_sched(&ctx->sched);
+	tfw_h2_context_init_sched_entry_list(ctx, list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
@@ -235,6 +317,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
+	ctx->conn = conn;
 
 	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
@@ -251,11 +334,65 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	tfw_hpack_clean(&ctx->hpack);
 }
 
+
+TfwStreamSchedEntry *
+tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
+{
+	TfwStreamSchedEntry *entry;
+
+	if (unlikely(!ctx->sched.free_list)) {
+		/*
+		 * If count of preallocate streams schedulers (56) is
+		 * exceeded use standart kernel allocator. There is no
+		 * sense to allocate the whole page for the new schedulers
+		 * or use special cache for this purpose, because it is a
+		 * very rare case (browsers usually open not more then
+		 * 15 - 20 streams in parallel even if there are much
+		 * more resourses to request). TfwStreamSchedEntry is
+		 * small (64 bytes), so use special cache for allocation.
+		 */ 
+		entry = kmem_cache_alloc(stream_sched_cache,
+					 GFP_ATOMIC | __GFP_ZERO);
+	} else {
+		entry = ctx->sched.free_list;
+		BUG_ON(entry->owner);
+		ctx->sched.free_list = entry->next_free;
+	}
+
+	return entry;
+}
+
+static inline bool
+tfw_h2_stream_sched_is_dflt(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
+{
+	char *begin = (char *)ctx + sizeof(TfwH2Ctx);
+	char *end = (char *)ctx + PAGE_SIZE;
+	char *p = (char *)entry;
+
+	return p >= begin && p < end;
+}
+
+void
+tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry)
+{
+	if (entry->owner) {
+		entry->owner->sched = NULL;
+		entry->owner = NULL;
+	}
+
+	if (likely(tfw_h2_stream_sched_is_dflt(ctx, entry))) {
+		entry->next_free = ctx->sched.free_list;
+		ctx->sched.free_list = entry;
+	} else {
+		kmem_cache_free(stream_sched_cache, entry);
+	}
+}
+
 void
 tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 			    bool attack)
 {
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 
 	if (tfw_h2_send_goaway(ctx, err_code, attack) && close)
 		tfw_connection_close((TfwConn *)conn, true);
@@ -291,7 +428,7 @@ void
 tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 {
 	TfwStream *cur, *next;
-	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwH2Conn *conn = ctx->conn;
 	TfwStreamSched *sched = &ctx->sched;
 
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
@@ -307,7 +444,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 		 * No further actions regarding streams dependencies/prio
 		 * is required at this stage.
 		 */
-		tfw_h2_delete_stream(cur);
+		tfw_h2_delete_stream(ctx, cur);
 		--ctx->streams_num;
 	}
 	sched->streams = RB_ROOT;

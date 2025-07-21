@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2849,15 +2849,6 @@ ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 	return !memcmp_fast(proto->name, buf, len);
 }
 
-#if DBG_TLS >= 3
-unsigned long
-ttls_time_debug(void)
-{
-	static atomic64_t curr_time = ATOMIC_INIT(0);
-
-	return atomic64_inc_return(&curr_time);
-}
-#endif
 
 static void
 ttls_exit(void)

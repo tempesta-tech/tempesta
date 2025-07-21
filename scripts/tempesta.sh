@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2025 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -38,17 +38,21 @@ tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
-utils_path=${UTILS_PATH:="$TFW_ROOT/utils"}
+logger_path=${LOGGER_PATH:="$TFW_ROOT/logger"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
+tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"
+tfw_netconsole_host="$TFW_NETCONSOLE_HOST"
+tfw_netconsole_port="$TFW_NETCONSOLE_PORT"
+tfw_netconsole_ni="$TFW_NETCONSOLE_NI"
+tfw_troubleshooting_host="$TFW_TROUBLESHOOTING_HOST"
+tfw_troubleshooting_port="$TFW_TROUBLESHOOTING_PORT"
+tfw_troubleshooting_mac="$TFW_TROUBLESHOOTING_MAC"
 
 tfw_logger_should_start=0
 tfw_logger_pid_path="/var/run/tfw_logger.pid"
 tfw_logger_timeout=3
-mmap_host=""
-mmap_log=""
-mmap_user=""
-mmap_password=""
+tfw_logger_config_path=""
 
 lib_mod=tempesta_lib
 tls_mod=tempesta_tls
@@ -126,22 +130,16 @@ templater()
 		fi
 	done < "$tfw_cfg_path"
 
+	tfw_logger_config_path=$(echo "$cfg_content" | grep -oP 'access_log\s+.*logger_config=\K[^;]*' | sed 's/"//g' | sed "s/'//g")
+
 	opts=$(get_opts "$cfg_content" "access_log")
 	while read -r line; do
-		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ]; then
+		if [ $(opt_exists "$line" "mmap"; echo $?) -ne 0 ] || [ $(opt_exists "$line" "logger_config"; echo $?) -ne 0 ]; then
 			tfw_logger_should_start=1
-			mmap_log=$(get_opt_value "$line" "mmap_log")
-			mmap_host=$(get_opt_value "$line" "mmap_host")
-			mmap_user=$(get_opt_value "$line" "mmap_user")
-			mmap_password=$(get_opt_value "$line" "mmap_password")
-
-			[[ -n "$mmap_log" && -n "$mmap_host" ]] ||
-				error "if mmaps enabled in access log, there have to be mmap_host and mmap_log options"
 		fi
 	done <<< "$opts"
 
-	cfg_content=$(remove_opts_by_mask "$cfg_content" "mmap_")
-
+	cfg_content=$(remove_opts_by_mask "$cfg_content" "logger_config=")
 	echo "$cfg_content" > $tfw_cfg_temp
 }
 
@@ -311,36 +309,64 @@ start_tfw_logger()
 		return
 	fi
 
-	if [ -z "$mmap_host" ] || [ -z "$mmap_log" ]; then
-		error "You need to specify 'mmap_host' and 'mmap_log' "`
-		      `"if access_log mmap was specified"
-		return
+	local config_path
+	if [ -n "$tfw_logger_config_path" ]; then
+		config_path="$tfw_logger_config_path"
+		echo "...starting tfw_logger with custom config: $config_path"
+	else
+		config_path="$tfw_logger_config"
+		echo "...starting tfw_logger with default config: $config_path"
 	fi
 
-	"$utils_path/tfw_logger" -H "$mmap_host" -l "$mmap_log" -u "$mmap_user" -p "$mmap_password" ||
-		error "cannot start tfw_logger daemon"
+	# Check if config file exists - CRITICAL ERROR if missing when logger is required
+	if [ ! -f "$config_path" ]; then
+		sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
+		unload_modules
+		tfw_irqbalance_revert
+		error "TFW Logger configuration file not found: $config_path. Cannot start Tempesta with access_log mmap enabled."
+	fi
 
+	# Start daemon
+	"$logger_path/tfw_logger" --config="$config_path" || {
+		sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
+		unload_modules
+		tfw_irqbalance_revert
+		error "cannot start tfw_logger daemon"
+	}
+
+	# Wait for daemon to start and create PID file
 	start_time=$(date +%s)
 	while [[ ! -f "$tfw_logger_pid_path" ]]; do
 		current_time=$(date +%s)
 		elapsed_time=$((current_time - start_time))
 
 		if (( elapsed_time >= tfw_logger_timeout )); then
-			sysctl -e -w net.tempesta.state=stop
+			# Try to cleanup any failed start
+			"$logger_path/tfw_logger" --stop 2>/dev/null || true
+			sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
 			unload_modules
 			tfw_irqbalance_revert
-			error "tfw_logger failed to start, see $mmap_log for details"
+			error "tfw_logger failed to start within $tfw_logger_timeout seconds, see logs for details"
 		fi
 
 		sleep 0.1
 	done
 
+	echo "...tfw_logger started successfully"
 }
 
 stop_tfw_logger()
 {
 	if [ -e $tfw_logger_pid_path ]; then
-		"$utils_path/tfw_logger" -s
+		echo "...stopping tfw_logger"
+		"$logger_path/tfw_logger" --stop || \
+			echo "Warning: Failed to stop tfw_logger daemon gracefully"
+
+		# Remove stale PID file if it still exists
+		if [ -e "$tfw_logger_pid_path" ]; then
+			echo "Warning: PID file still exists, removing it"
+			rm -f "$tfw_logger_pid_path" 2>/dev/null || true
+		fi
 	fi
 }
 
@@ -358,7 +384,7 @@ start()
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
 	TFW_LOGGER_EXEC=$(expr "$TFW_STATE" != "start")
-	
+
 	check_configuration_file_presense
 
 	if [[ -z ${TFW_STATE} ]]; then
@@ -443,6 +469,22 @@ validate_num_of_opt()
 	fi
 }
 
+validate_system_configuration()
+{
+  python3 "$script_path/troubleshooting/system_verification.py"
+}
+
+validate_system_configuration_and_run_netconsole()
+{
+  python3 "$script_path/troubleshooting/system_verification.py" \
+   -th "$tfw_troubleshooting_host" \
+   -tp "$tfw_troubleshooting_port" \
+   -tm "$tfw_troubleshooting_mac" \
+   -nh "$tfw_netconsole_host" \
+   -np "$tfw_netconsole_port" \
+   -nni "$tfw_netconsole_ni"
+}
+
 args=$(getopt -o "d:" -a -l "$LONG_OPTS" -- "$@")
 eval set -- "${args}"
 while :; do
@@ -461,6 +503,7 @@ while :; do
 		# User CLI.
 		--start)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration_and_run_netconsole
 			start
 			exit
 			;;
@@ -471,12 +514,14 @@ while :; do
 			;;
 		--restart)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration
 			stop
 			start
 			exit
 			;;
 		--reload)
 			validate_net_devices "$2" "$3"
+			validate_system_configuration
 			reload
 			exit
 			;;

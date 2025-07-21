@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -397,12 +397,8 @@ ttls_rnd(void *buf, size_t len)
 	memset(buf, 0x55, len);
 }
 
-unsigned long ttls_time_debug(void);
-
-#define ttls_time()		ttls_time_debug()
 
 #else
-#define ttls_time()		get_seconds()
 /*
  * CPUs since Intel Ice Lake are safe against SRBDS attack, so we're good
  * with the hardware random generator.
