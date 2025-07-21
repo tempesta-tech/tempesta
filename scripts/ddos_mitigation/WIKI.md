@@ -21,29 +21,8 @@ app configuration:
 training_mode="historical"
 ```
 You can also configure the training_mode_duration_min variable, which defines how far back (in minutes) the script 
-should look to analyze user traffic.  The calculated average values (requests per second, total response time, 
-and errors) can then be scaled using the following parameters, which will be applied as the new thresholds:
-
-For example, if the current average metrics are:
-
-- RPS: 10
-- Total response time: 0.1
-- Errors: 0.001
-
-Multipliers:
-```.env
-stats_rps_multiplier=100
-stats_time_multiplier=100
-stats_errors_multiplier=5
-```
-
-Then the resulting thresholds will be:
-```.env
-default_requests_threshol=1000
-default_time_threshold=10
-default_errors_threshold=0.005
-```
-If the calculated values are too low, the script will prefer to use the default thresholds from the configuration.
+should look to analyze user traffic. If the calculated values are too low, the script will prefer 
+to use the default thresholds from the configuration.
 
 This mode is especially useful when the actual average system load is unknown, and it's more effective to 
 let the Mitigation Script determine reasonable thresholds automatically.
@@ -144,7 +123,7 @@ and remove their blocks if the time limit has been exceeded.
 You can configure how often this check is performed using:
 
 ```.env
-unblocking_check_period_min=5
+blocking_release_time_min=5
 ```
 
 This ensures that users are not blocked longer than necessary, while still maintaining protection during an active attack.
@@ -182,17 +161,6 @@ This setup allows the Mitigation Script to dynamically update ja5t and ja5h bloc
 
 ## Start Mitigation Script
 
-### With Docker
-This is likely the simplest way to run the script.
-However, make sure to adjust the volume binding if you've changed the default config paths.
-
-```bash
-docker build -t tempesta-ddos-defender .
-docker run -d 
-  -v /etc/tempesta-ddos-defender:/etc/tempesta-ddos-defender:ro \
-  --name tempesta-ddos-defender tempesta-ddos-defender
-```
-
 ### Run Manually
 Manual startup is slightly more complex but doesn't require anything special.
 You just need to create a virtual environment, install the requirements, copy the default config, and create an 
@@ -202,9 +170,9 @@ empty file for the User-Agent list:
 python3 -m venv tempesta-ddos-defender
 source tempesta-ddos-defender/bin/activate
 pip install -r requirements.txt
-cp example.env /etc/tempesta-ddos-defender/env
-touch /etc/tempesta-ddos-defender/allow_user_agents.txt
-python3 app.py --config=/etc/tempesta-ddos-defender/env
+cp example.env /etc/tempesta-ddos-defender/app.env
+touch /etc/tempesta-ddos-mitigation/allow_user_agents.txt
+python3 app.py 
 ```
 
 ## How to Defend Your App

@@ -11,7 +11,7 @@ __license__ = "GPL2"
 
 @dataclass
 class CommandLineArgs:
-    config: str = "/etc/tempesta-ddos-mitigation/app.env"
+    config: str = "/etc/tempesta-ddos-defender/app.env"
     log_level: str = "INFO"
 
     @classmethod
