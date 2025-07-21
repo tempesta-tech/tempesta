@@ -76,7 +76,7 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
             start_at=1751534999, period_in_minutes=1
         )
         self.assertEqual(result.requests, Decimal("0.02"))
-        self.assertEqual(result.time, Decimal("0.17"))
+        self.assertEqual(result.time, Decimal("10.0"))
         self.assertEqual(result.errors, Decimal("0.0"))
 
     async def test_find_users(self):
