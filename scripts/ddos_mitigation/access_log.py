@@ -35,17 +35,21 @@ class ClickhouseAccessLog:
         )
 
     async def get_aggregated_clients_for_period(
-        self,
-        start_at: int,
-        period_in_seconds: int,
+        self, start_at: int, period_in_seconds: int, legal_response_statuses: set[int]
     ) -> QueryResult:
         """
         Fetch clients that exceed defined thresholds.
 
         :param start_at: Start time of the analysis frame
         :param period_in_seconds: Duration of the time frame for user activity
+        :param legal_response_statuses: white listed response statuses
         :return: A QueryResult of clients.
         """
+        statuses = ", ".join(map(str, legal_response_statuses))
+
+        if not statuses:
+            statuses = "200"
+
         return await self.conn.query(
             f"""
             SELECT 
@@ -55,7 +59,7 @@ class ClickhouseAccessLog:
                 min(user_agent) user_agent,
                 count(1) as total_requests,
                 sum(response_time) as total_time,
-                countIf(status not in (200, 201)) as total_errors
+                countIf(status not in ({statuses})) as total_errors
             FROM access_log
             WHERE 
                 timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
@@ -72,6 +76,7 @@ class ClickhouseAccessLog:
         time_threshold: Decimal,
         errors_threshold: Decimal,
         ja5_hashes_limit: int,
+        legal_response_statuses: set[int],
     ) -> QueryResult:
         """
         Fetch clients that exceed defined thresholds.
@@ -82,8 +87,14 @@ class ClickhouseAccessLog:
         :param time_threshold: Average accumulated response time threshold across all users.
         :param errors_threshold: Average error response rate threshold across all users.
         :param ja5_hashes_limit: Number of risky ja5t hashes to return.
+        :param legal_response_statuses: white listed response statuses
         :return: A QueryResult of risky clients.
         """
+        statuses = ", ".join(map(str, legal_response_statuses))
+
+        if not statuses:
+            statuses = "200"
+
         return await self.conn.query(
             f"""
             WITH aggregated_clients AS (
@@ -94,7 +105,7 @@ class ClickhouseAccessLog:
                     min(user_agent) user_agent,
                     count(1) as total_requests,
                     sum(response_time) as total_time,
-                    countIf(status not in (200, 201)) as total_errors
+                    countIf(status not in ({statuses})) as total_errors
                 FROM access_log
                 WHERE 
                     timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
@@ -138,15 +149,21 @@ class ClickhouseAccessLog:
         )
 
     async def get_request_stats_for_period(
-        self, start_at: int, period_in_minutes: int
+        self, start_at: int, period_in_minutes: int, legal_response_statuses: set[int]
     ) -> QueryResult:
         """
         Calculate average statistics for requests, response time, and requests that finished with errors.
 
         :param start_at: Start time of the analysis frame
         :param period_in_minutes: Duration of the time frame for user activity
+        :param legal_response_statuses: white listed response statuses
         :return:  A QueryResult with stats.
         """
+        statuses = ", ".join(map(str, legal_response_statuses))
+
+        if not statuses:
+            statuses = "200"
+
         return await self.conn.query(
             f"""
             SELECT * FROM(
@@ -155,7 +172,7 @@ class ClickhouseAccessLog:
                         ja5t, 
                         count(1) as total_requests,
                         sum(response_time) as total_time,
-                        countIf(status not in (200, 201)) as total_errors
+                        countIf(status not in ({statuses})) as total_errors
                     FROM access_log
                     WHERE 
                         timestamp > toDateTime64({start_at}, 3, 'UTC')

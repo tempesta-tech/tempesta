@@ -70,6 +70,7 @@ class GeoIPDetector(BaseDetector):
         response = await self.clickhouse_client.get_aggregated_clients_for_period(
             start_at=_current_time,
             period_in_seconds=self.app_config.detector_geoip_period_seconds,
+            legal_response_statuses=self.app_config.response_statuses_white_list,
         )
         users_by_cities: dict[str, list[User]] = {}
         total_users = Decimal(0)

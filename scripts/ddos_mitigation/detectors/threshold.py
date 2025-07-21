@@ -108,7 +108,9 @@ class ThresholdDetector(BaseDetector):
         :return: Statistics for the specified period
         """
         response = await self.clickhouse_client.get_request_stats_for_period(
-            start_at=start_at, period_in_minutes=period_in_minutes
+            start_at=start_at,
+            period_in_minutes=period_in_minutes,
+            legal_response_statuses=self.app_config.response_statuses_white_list,
         )
 
         total_seconds = Decimal(period_in_minutes) * Decimal(self.seconds_in_minute)
@@ -163,6 +165,7 @@ class ThresholdDetector(BaseDetector):
             errors_threshold=Decimal(99999),
             ja5_hashes_limit=users_amount,
             start_at=start_at,
+            legal_response_statuses=self.app_config.response_statuses_white_list,
         )
         return [
             User(
@@ -201,6 +204,7 @@ class ThresholdDetector(BaseDetector):
             errors_threshold=errors_threshold,
             ja5_hashes_limit=hashes_limit,
             start_at=start_at,
+            legal_response_statuses=self.app_config.response_statuses_white_list,
         )
         return [
             User(
