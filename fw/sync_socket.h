@@ -148,7 +148,7 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 	if (!overhead)
 		return;
 	sk_forced_mem_schedule(sk, overhead);
-	sk->sk_wmem_queued += overhead;
+	sk_wmem_queued_add(sk, overhead);
 	sk_mem_charge(sk, overhead);
 }
 

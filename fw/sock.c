@@ -385,28 +385,59 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	sk_memory_allocated_add(sk, amt);
 }
 
+static bool tcp_has_tx_tstamp(const struct sk_buff *skb)
+{
+	return TCP_SKB_CB(skb)->txstamp_ack ||
+		(skb_shinfo(skb)->tx_flags & SKBTX_ANY_TSTAMP);
+}
+
+static inline bool
+ss_skb_can_coclesce(struct sk_buff *to, unsigned int mark,
+		    unsigned char tls_type)
+{
+	if (unlikely(TCP_SKB_CB(to)->eor) || tcp_has_tx_tstamp(to))
+		return false;
+	if (skb_tfw_tls_type(to) != tls_type || to->mark != mark)
+		return false;
+	return true;
+}
+
 void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		  unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-
-	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
-	ss_skb_init_for_xmit(skb);
-	skb->mark = mark;
-	if (tls_type)
-		skb_set_tfw_tls_type(skb, tls_type);
-	ss_forced_mem_schedule(sk, skb->truesize);
-
-	skb_entail(sk, skb);
-	tp->write_seq += skb->len;
-	TCP_SKB_CB(skb)->end_seq += skb->len;
+	struct sk_buff *tail = tcp_write_queue_tail(sk);
+	unsigned skb_len = skb->len;
+	bool stolen;
+	int delta;
 
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 	       " truesize=%u mark=%u tls_type=%x\n",
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
-	       skb->len, skb->truesize, skb->mark,
-	       skb_tfw_tls_type(skb));
+	       skb->len, skb->truesize, mark, tls_type);
+
+	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
+	ss_forced_mem_schedule(sk, skb->truesize);
+
+	if (tail && ss_skb_can_coclesce(tail, mark, tls_type)
+	    && skb_try_coalesce(tail, skb, &stolen, &delta))
+	{
+		ss_add_overhead(sk, delta);
+		kfree_skb_partial(skb, stolen);
+	} else {
+		ss_skb_init_for_xmit(skb);
+		skb->mark = mark;
+		if (tls_type)
+			skb_set_tfw_tls_type(skb, tls_type);
+		skb_entail(sk, skb);
+		tail = skb;
+	}
+
+	tp->write_seq += skb_len;
+	TCP_SKB_CB(tail)->end_seq += skb_len;
+
+
 }
 
 unsigned long
