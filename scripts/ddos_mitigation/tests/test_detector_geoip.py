@@ -1,4 +1,5 @@
 import os
+
 from detectors.geoip import GeoIPDetector
 from tests.base import BaseTestCaseWithFilledDB
 
@@ -21,16 +22,16 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
     async def asyncSetUp(self):
         await super().asyncSetUp()
 
-        self.geoip_db_path = '/tmp/geoip.db'
-        self.allowed_cities = '/tmp/allowed_cities_list.txt'
+        self.geoip_db_path = "/tmp/geoip.db"
+        self.allowed_cities = "/tmp/allowed_cities_list.txt"
 
-        with open('tests/GeoLite2-City.mmdb', 'rb') as f:
+        with open("tests/GeoLite2-City.mmdb", "rb") as f:
             data = f.read()
 
-        with open(self.geoip_db_path, 'wb') as f:
+        with open(self.geoip_db_path, "wb") as f:
             f.write(data)
 
-        open(self.allowed_cities, 'w').close()
+        open(self.allowed_cities, "w").close()
 
         self.detector = GeoIPDetector(
             app_config=self.app_config,
@@ -57,14 +58,14 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
 
         with self.assertRaises(FileNotFoundError) as error:
             await self.detector.prepare()
-            self.assertIn('List of allowed cities does not exist', str(error))
+            self.assertIn("List of allowed cities does not exist", str(error))
 
     async def test_prepare_no_geodb(self):
         os.remove(self.allowed_cities)
 
         with self.assertRaises(FileNotFoundError) as error:
             await self.detector.prepare()
-            self.assertIn('GeoIP database was not found', str(error))
+            self.assertIn("GeoIP database was not found", str(error))
 
     async def test_find_low_rps(self):
         await self.detector.prepare()
@@ -82,8 +83,8 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
         self.assertEqual(len(result), 1)
 
     async def test_find_allowed_city(self):
-        with open(self.allowed_cities, 'w') as f:
-            f.write('Podgorica')
+        with open(self.allowed_cities, "w") as f:
+            f.write("Podgorica")
 
         await self.detector.prepare()
         self.detector.app_config.detector_geoip_period_seconds = 1

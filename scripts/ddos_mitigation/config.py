@@ -33,9 +33,9 @@ class AppConfig(BaseSettings):
 
     stats_window_offset_min: int = 60
     stats_window_duration_min: int = 60
-    stats_rps_multiplier: int = 100
-    stats_time_multiplier: int = 100
-    stats_errors_multiplier: int = 5
+    stats_rps_precision: Decimal = 1
+    stats_time_precision: Decimal = 1
+    stats_errors_precision: Decimal = 0.1
 
     detectors: set[Literal["threshold", "geoip"]] = {"threshold"}
     blocking_type: set[Literal["ja5t", "ja5h", "ipset", "nftables", "geoip"]] = {"ja5t"}
@@ -43,7 +43,6 @@ class AppConfig(BaseSettings):
     blocking_ja5_limit: int = 10
     blocking_ip_limits: int = 10
     blocking_ipset_name: str = "tempesta_blocked_ips"
-    blocking_use_ip: bool = False
     blocking_time_min: int = 60
     blocking_release_time_min: int = 1
 

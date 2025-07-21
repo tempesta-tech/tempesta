@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from blockers.base import PreperationError
+from blockers.base import PreparationError
 from blockers.ja5t import Ja5tBlocker
 from datatypes import User
 from ja5_config import Ja5Config, Ja5Hash
@@ -26,8 +26,7 @@ class TestBlockerJa5t(unittest.TestCase):
 
         users = self.blocker.load()
         self.assertEqual(len(users), 2)
-        self.assertEqual(users[0].ja5t, "1111")
-        self.assertEqual(users[1].ja5t, "2222")
+        self.assertEqual({item.ja5t for item in users.values()}, {"1111", "2222"})
 
     def test_block(self):
         user = User(ja5t="11111")
@@ -59,7 +58,7 @@ class TestBlockerJa5t(unittest.TestCase):
         self.assertEqual(users[0].ja5t, "11111")
 
     def test_prepare_no_tempesta_service(self):
-        with self.assertRaises(PreperationError) as e:
+        with self.assertRaises(PreparationError) as e:
             self.blocker.prepare()
             self.assertIn("executable not found", str(e.exception))
 
@@ -67,6 +66,6 @@ class TestBlockerJa5t(unittest.TestCase):
         self.blocker.tempesta_executable_path = "/tmp/path"
         open(self.config_path, "w").close()
 
-        with self.assertRaises(PreperationError) as e:
+        with self.assertRaises(PreparationError) as e:
             self.blocker.prepare()
             self.assertIn("file not found", str(e.exception))

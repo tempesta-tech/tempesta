@@ -10,6 +10,10 @@ from datatypes import AverageStats, User
 from detectors.base import BaseDetector
 from logger import logger
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
 
 @dataclass
 class ThresholdDetector(BaseDetector):
@@ -116,20 +120,20 @@ class ThresholdDetector(BaseDetector):
             requests = Decimal(response.result_rows[0][0]) / total_seconds
 
         if not math.isnan(response.result_rows[1][0]):
-            times = Decimal(response.result_rows[1][0]) / total_seconds
+            times = Decimal(response.result_rows[1][0])
 
         if not math.isnan(response.result_rows[2][0]):
             errors = Decimal(response.result_rows[2][0]) / total_seconds
 
         return AverageStats(
             requests=requests.quantize(
-                Decimal("0.01") * self.app_config.stats_rps_multiplier, ROUND_HALF_UP
+                Decimal(self.app_config.stats_rps_precision), ROUND_HALF_UP
             ),
             time=times.quantize(
-                Decimal("0.01") * self.app_config.stats_time_multiplier, ROUND_HALF_UP
+                Decimal(self.app_config.stats_time_precision), ROUND_HALF_UP
             ),
             errors=errors.quantize(
-                Decimal("0.01") * self.app_config.stats_errors_multiplier, ROUND_HALF_UP
+                Decimal(self.app_config.stats_errors_precision), ROUND_HALF_UP
             ),
         )
 

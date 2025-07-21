@@ -69,6 +69,9 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
             result.errors, self.detector.app_config.default_errors_threshold
         )
 
+        self.detector.app_config.stats_rps_precision = Decimal("0.01")
+        self.detector.app_config.stats_time_precision = Decimal("0.01")
+
         result = await self.detector.average_stats_load(
             start_at=1751534999, period_in_minutes=1
         )

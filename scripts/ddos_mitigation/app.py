@@ -42,10 +42,10 @@ if __name__ == "__main__":
                 tempesta_executable_path=app_config.tempesta_executable_path,
             ),
             blockers.IpSetBlocker.name(): blockers.IpSetBlocker(
-                blocking_ip_set_name=app_config.ipset_blocking_ipset_name,
+                blocking_ip_set_name=app_config.blocking_ipset_name,
             ),
             blockers.NFTBlocker.name(): blockers.NFTBlocker(
-                blocking_table_name=app_config.ipset_blocking_ipset_name,
+                blocking_table_name=app_config.blocking_ipset_name,
             ),
         },
         detectors={

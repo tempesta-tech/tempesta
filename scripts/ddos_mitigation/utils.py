@@ -1,5 +1,9 @@
 import subprocess
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
 
 def run_in_shell(cmd: str) -> subprocess.CompletedProcess:
     """

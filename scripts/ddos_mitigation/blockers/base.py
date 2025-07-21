@@ -7,9 +7,9 @@ __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
-class PreperationError(Exception):
+class PreparationError(Exception):
     """
-    Stop app exucting because of unprocessable error
+    Stop the app from executing due to an unprocessable error.
     """
 
 
@@ -19,45 +19,46 @@ class BaseBlocker(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def name() -> str:
         """
-        Name of the blocker. Should be using in config blocking_type variable
+        Name of the blocker. Should be used in the `blocking_type` config variable.
         """
 
     def prepare(self):
         """
-        Made some preparations to become blocking
-        mechanism available. Create some OS changes, etc
+        Made some preparations to make the blocking mechanism available.
+        Created some OS changes, etc.
         """
 
     def reset(self):
         """
-        Remove all preperations, rollback all OS changes, etc.
+        Remove all preparations, roll back all OS changes, etc
         """
 
     def load(self) -> dict[int, User]:
         """
-        Load already blocked users
+        Load users who are already blocked.
         """
 
     @abc.abstractmethod
     def block(self, user: User):
         """
-        Block user to prevent his abnormal acitivty
+        Block the user to prevent their abnormal activity.
         """
 
     @abc.abstractmethod
     def release(self, user: User):
         """
-        Unblock user to give him back the access to resource
+        Unblock the user to restore their access to the resource.
         """
 
     def apply(self):
         """
-        Apply blocking rules. Some blockers may block immiately without calling this method.
-        But some blockers, like ja5t better apply rules after multiple config changes
+        Apply blocking rules. Some blockers may block immediately
+        without calling this method, but others — like ja5t — apply
+        rules only after multiple config changes.
         """
 
     @abc.abstractmethod
     def info(self) -> list[User]:
         """
-        List of currently blocked users
+        List of currently blocked users.
         """

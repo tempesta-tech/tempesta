@@ -1,7 +1,7 @@
 import os
 import time
 
-from blockers.base import BaseBlocker, PreperationError
+from blockers.base import BaseBlocker, PreparationError
 from datatypes import User
 from ja5_config import Ja5Config, Ja5Hash
 from logger import logger
@@ -33,22 +33,24 @@ class Ja5tBlocker(BaseBlocker):
 
     def prepare(self):
         if not self.__tempesta_app_exists():
-            raise PreperationError("Tempesta executable not found")
+            raise PreparationError("Tempesta executable not found")
 
         try:
             self.config.verify_file()
 
         except (FileNotFoundError, PermissionError) as e:
-            raise PreperationError(e)
+            raise PreparationError(e)
 
-    def load(self) -> list[User]:
+    def load(self) -> dict[int, User]:
         self.config.load()
-        already_blocked = []
+        current_time = int(time.time())
+        result = dict()
 
-        for hash_value in list(self.config.hashes):
-            already_blocked.append(User(ja5t=hash_value, blocked_at=int(time.time())))
+        for hash_value in self.config.hashes:
+            user = User(ja5t=hash_value, blocked_at=current_time)
+            result[hash(user)] = user
 
-        return already_blocked
+        return result
 
     def block(self, user: User):
         if self.config.exists(user.ja5t):

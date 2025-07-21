@@ -16,14 +16,16 @@ class Ja5hBlocker(Ja5tBlocker):
     def name() -> str:
         return "ja5h"
 
-    def load(self) -> list[User]:
+    def load(self) -> dict[int, User]:
         self.config.load()
-        already_blocked = []
+        current_time = int(time.time())
+        result = dict()
 
-        for hash_value in list(self.config.hashes):
-            already_blocked.append(User(ja5h=hash_value, blocked_at=int(time.time())))
+        for hash_value in self.config.hashes:
+            user = User(ja5h=hash_value, blocked_at=current_time)
+            result[hash(user)] = user
 
-        return already_blocked
+        return result
 
     def block(self, user: User):
         if self.config.exists(user.ja5h):

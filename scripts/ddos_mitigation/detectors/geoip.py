@@ -1,33 +1,52 @@
-import time
 import os
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
+
+from geoip2.database import City, Reader
 
 from access_log import ClickhouseAccessLog
 from config import AppConfig
 from datatypes import User
 from detectors.base import BaseDetector
-from geoip2.database import Reader, City
-
 from logger import logger
+
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
 
 
 @dataclass
 class GeoIPDetector(BaseDetector):
+    # clickhouse access log client
     clickhouse_client: ClickhouseAccessLog
 
+    # loaded application config
     app_config: AppConfig
+
+    # path to geoip database (maxmind)
     path_to_db: str
+
+    # path to file with allowed cities list
     path_to_allowed_cities_list: str
 
-    client = Reader = None
+    # maxmind geoip database reader
+    client: Reader = None
+
+    # loaded list of cities
     loaded_cities: set[str] = field(default_factory=set)
 
     @staticmethod
     def name() -> str:
-        return "threshold"
+        return "geoip"
 
     def find_city(self, ip: str) -> City:
+        """
+        Find the city by IP and return it.
+
+        :param ip: client IP
+        :return: city details
+        """
         return self.client.city(ip)
 
     async def prepare(self):
@@ -60,7 +79,7 @@ class GeoIPDetector(BaseDetector):
             total_users += 1
             total_requests += item[4]
 
-            user =  User(
+            user = User(
                 ja5t=hex(item[0])[2:],
                 ja5h=hex(item[1])[2:],
                 ipv4=[item[2]],
@@ -75,10 +94,12 @@ class GeoIPDetector(BaseDetector):
             users_by_cities[city.city.name].append(user)
 
         total_rps = total_requests / self.app_config.detector_geoip_period_seconds
-        logger.debug(f'GeoIP detector fetched {total_users} users. RPS: {total_rps}')
+        logger.debug(f"GeoIP detector fetched {total_users} users. RPS: {total_rps}")
 
         if total_rps < self.app_config.detector_geoip_min_rps:
-            logger.debug(f'Skipped. RPS to low: {total_rps} < {self.app_config.detector_geoip_min_rps}')
+            logger.debug(
+                f"Skipped. RPS to low: {total_rps} < {self.app_config.detector_geoip_min_rps}"
+            )
             return []
 
         result_users = []
@@ -86,7 +107,7 @@ class GeoIPDetector(BaseDetector):
 
         for name, users in users_by_cities.items():
             if name in self.loaded_cities:
-                logger.debug(f'GeoIP skipped user from allowed city {name}')
+                logger.debug(f"GeoIP skipped user from allowed city {name}")
                 continue
 
             cities.add(name)
@@ -95,5 +116,5 @@ class GeoIPDetector(BaseDetector):
             if percent > self.app_config.detector_geoip_percent_threshold:
                 result_users.extend(users)
 
-        logger.debug(f'GeoIP found {len(result_users)} risky users in cities {cities}')
+        logger.debug(f"GeoIP found {len(result_users)} risky users in cities {cities}")
         return result_users
