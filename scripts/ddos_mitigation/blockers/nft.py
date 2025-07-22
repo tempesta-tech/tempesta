@@ -3,7 +3,7 @@ from ipaddress import IPv4Address
 from blockers.base import BaseBlocker
 from datatypes import User
 from logger import logger
-from utils import run_in_shell
+from utils import run_in_shell, ConditionalError
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -19,110 +19,100 @@ class NFTBlocker(BaseBlocker):
         return "nftables"
 
     def prepare(self):
-        result = run_in_shell("which nft")
+        run_in_shell("which nft", error="nftables is not installed")
 
-        if result.returncode != 0:
-            raise ValueError("nftables is not installed")
-
-        result = run_in_shell(f"nft list table inet {self.blocking_table_name}_table")
-
-        if result.returncode != 0 and "No such file or directory" in result.stderr:
-            result = run_in_shell(
-                f"nft add table inet {self.blocking_table_name}_table"
+        try:
+            run_in_shell(
+                f"nft list table inet {self.blocking_table_name}_table",
+                conditional_error='No such file or directory',
+                error="Cannot list nft table",
+            )
+        except ConditionalError:
+            run_in_shell(
+                f"nft add table inet {self.blocking_table_name}_table",
+                error="Cannot add new table to nft",
             )
 
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add new table to nft: {result.stderr}")
-
-        elif result.returncode != 0:
-            raise ValueError(f"Cannot list nft table: {result.stderr}")
-
-        result = run_in_shell(
-            f"nft list set inet {self.blocking_table_name}_table "
-            f"{self.blocking_table_name}"
-        )
-
-        if result.returncode != 0 and "No such file or directory" in result.stderr:
-            result = run_in_shell(
+        try:
+            run_in_shell(
+                f"nft list set inet {self.blocking_table_name}_table "
+                f"{self.blocking_table_name}",
+                conditional_error='No such file or directory',
+                error="Cannot list nft set",
+            )
+        except ConditionalError:
+            run_in_shell(
                 f"nft add set inet {self.blocking_table_name}_table "
-                f'{self.blocking_table_name} "{{ type ipv4_addr; flags interval; }}"'
+                f'{self.blocking_table_name} "{{ type ipv4_addr; flags interval; }}"',
+                error="Cannot add new set to nft",
             )
 
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add new set to nft: {result.stderr}")
-
-        elif result.returncode != 0:
-            raise ValueError(f"Cannot list nft set: {result.stderr}")
-
-        result = run_in_shell(
-            f"nft list chain inet {self.blocking_table_name}_table input"
-        )
-
-        if result.returncode != 0 and "No such file or directory" in result.stderr:
-            result = run_in_shell(
+        try:
+            run_in_shell(
+                f"nft list chain inet {self.blocking_table_name}_table input",
+                conditional_error='No such file or directory',
+                error="Cannot list nft chain",
+            )
+        except ConditionalError:
+            run_in_shell(
                 f"nft add chain inet {self.blocking_table_name}_table "
-                f'input "{{ type filter hook input priority 0; }}"'
+                f'input "{{ type filter hook input priority 0; }}"',
+                error='Cannot add chain to nft'
             )
 
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add chain to nft: {result.stderr}")
-
-        elif result.returncode != 0:
-            raise ValueError(f"Cannot list nft chain: {result.stderr}")
-
-        result = run_in_shell(
-            f"nft list chain inet {self.blocking_table_name}_table input | grep "
-            f"saddr @{self.blocking_table_name} drop"
-        )
-
-        if result.returncode != 0:
-            result = run_in_shell(
+        try:
+            run_in_shell(
+                f"nft list chain inet {self.blocking_table_name}_table input | grep "
+                f"saddr @{self.blocking_table_name} drop"
+            )
+        except ValueError:
+            run_in_shell(
                 f"nft add rule inet {self.blocking_table_name}_table "
-                f"input ip saddr @{self.blocking_table_name} drop"
+                f"input ip saddr @{self.blocking_table_name} drop",
+                error='Cannot add rule to nft'
             )
-
-            if result.returncode != 0:
-                raise ValueError(f"Cannot add rule to nft: {result.stderr}")
 
     def reset(self):
-        result = run_in_shell(f"nft flush table inet {self.blocking_table_name}_table")
-
-        if result.returncode != 0:
-            raise ValueError(f"Cannot flush nft table: {result.stderr}")
-
-        result = run_in_shell(f"nft delete table inet {self.blocking_table_name}_table")
-
-        if result.returncode != 0:
-            raise ValueError(f"Cannot delete nft table: {result.stderr}")
+        run_in_shell(
+            f"nft flush table inet {self.blocking_table_name}_table",
+            error="Cannot flush nft table",
+        )
+        run_in_shell(
+            f"nft delete table inet {self.blocking_table_name}_table",
+            error="Cannot delete nft table",
+        )
 
     def block(self, user: User):
         for ip in user.ipv4:
             result = run_in_shell(
                 f"nft add element inet {self.blocking_table_name}_table "
-                f'{self.blocking_table_name} "{{ {ip} }}"'
+                f'{self.blocking_table_name} "{{ {ip} }}"',
+                error=f'Cannot block {ip} by nft',
+                raise_error=False
             )
 
-            if result.returncode != 0:
-                logger.error(f"Cannot block ip by nft: {result.stderr}")
-            else:
+            if result.returncode == 0:
                 logger.warning(f"Blocked user {ip} by nft")
 
     def release(self, user: User):
         for ip in user.ipv4:
             result = run_in_shell(
                 f"nft delete element inet {self.blocking_table_name}_table "
-                f'{self.blocking_table_name} "{{ {ip} }}"'
+                f'{self.blocking_table_name} "{{ {ip} }}"',
+                error=f'Cannot release {ip} by nft'
             )
 
-            if result.returncode != 0:
-                logger.error(f"Cannot release ip by nft: {result.stderr}")
-            else:
-                logger.warning(f"Released user {ip} by nft")
+            if result.returncode == 0:
+                logger.warning(f"Cannot release {ip} by nft: ")
 
     def info(self) -> list[User]:
-        data = run_in_shell(
-            f"nft list table inet {self.blocking_table_name}_table | grep elements"
-        ).stdout
+        try:
+            data = run_in_shell(
+                f"nft list table inet {self.blocking_table_name}_table | grep elements"
+            ).stdout
+        except ValueError:
+            data = ''
+
         elements = data.split("{ ")
 
         if len(elements) < 2:

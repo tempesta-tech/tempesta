@@ -27,9 +27,10 @@ class Ja5tBlocker(BaseBlocker):
         ):
             return True
 
-        result = run_in_shell("service tempesta status")
-
-        return result.returncode == 0
+        return run_in_shell(
+            "service tempesta status",
+            raise_error=False
+        ).returncode == 0
 
     def prepare(self):
         if not self.__tempesta_app_exists():
@@ -72,17 +73,17 @@ class Ja5tBlocker(BaseBlocker):
         self.config.dump()
 
         if self.tempesta_executable_path:
-            result = run_in_shell(f"{self.tempesta_executable_path} --reload")
+            return run_in_shell(
+                f"{self.tempesta_executable_path} --reload",
+                error='Tempesta FW could not be reloaded',
+                raise_error=False,
+            )
 
-            if result.returncode != 0:
-                logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
-
-            return
-
-        result = run_in_shell("service tempesta --reload")
-
-        if result.returncode != 0:
-            logger.error(f"Tempesta FW could not be reloaded: {result.stderr}")
+        run_in_shell(
+            "service tempesta --reload",
+            error='Tempesta FW could not be reloaded',
+            raise_error=False,
+        )
 
     def info(self) -> list[User]:
         return [User(ja5t=ja5_hash.value) for ja5_hash in self.config.hashes.values()]
