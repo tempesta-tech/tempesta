@@ -27,10 +27,9 @@ class Ja5tBlocker(BaseBlocker):
         ):
             return True
 
-        return run_in_shell(
-            "service tempesta status",
-            raise_error=False
-        ).returncode == 0
+        return (
+            run_in_shell("service tempesta status", raise_error=False).returncode == 0
+        )
 
     def prepare(self):
         if not self.__tempesta_app_exists():
@@ -75,13 +74,13 @@ class Ja5tBlocker(BaseBlocker):
         if self.tempesta_executable_path:
             return run_in_shell(
                 f"{self.tempesta_executable_path} --reload",
-                error='Tempesta FW could not be reloaded',
+                error="Tempesta FW could not be reloaded",
                 raise_error=False,
             )
 
         run_in_shell(
             "service tempesta --reload",
-            error='Tempesta FW could not be reloaded',
+            error="Tempesta FW could not be reloaded",
             raise_error=False,
         )
 

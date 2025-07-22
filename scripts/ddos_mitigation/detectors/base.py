@@ -20,6 +20,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
         Made some preparation, training, etc.
         """
 
+    @abc.abstractmethod
     async def find_users(self, current_time: int = None) -> list[User]:
         """
         Performed analysis and identified risky users.

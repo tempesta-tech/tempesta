@@ -20,7 +20,7 @@ class ClickhouseAccessLog:
     port: int = 8123
     user: str = "default"
     password: str = ""
-    table_name: str = 'access_log'
+    table_name: str = "access_log"
     database: str = "__default__"
     conn: AsyncClient = None
 

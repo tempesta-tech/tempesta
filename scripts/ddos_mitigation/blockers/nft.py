@@ -3,7 +3,7 @@ from ipaddress import IPv4Address
 from blockers.base import BaseBlocker
 from datatypes import User
 from logger import logger
-from utils import run_in_shell, ConditionalError
+from utils import ConditionalError, run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -24,7 +24,7 @@ class NFTBlocker(BaseBlocker):
         try:
             run_in_shell(
                 f"nft list table inet {self.blocking_table_name}_table",
-                conditional_error='No such file or directory',
+                conditional_error="No such file or directory",
                 error="Cannot list nft table",
             )
         except ConditionalError:
@@ -37,7 +37,7 @@ class NFTBlocker(BaseBlocker):
             run_in_shell(
                 f"nft list set inet {self.blocking_table_name}_table "
                 f"{self.blocking_table_name}",
-                conditional_error='No such file or directory',
+                conditional_error="No such file or directory",
                 error="Cannot list nft set",
             )
         except ConditionalError:
@@ -50,14 +50,14 @@ class NFTBlocker(BaseBlocker):
         try:
             run_in_shell(
                 f"nft list chain inet {self.blocking_table_name}_table input",
-                conditional_error='No such file or directory',
+                conditional_error="No such file or directory",
                 error="Cannot list nft chain",
             )
         except ConditionalError:
             run_in_shell(
                 f"nft add chain inet {self.blocking_table_name}_table "
                 f'input "{{ type filter hook input priority 0; }}"',
-                error='Cannot add chain to nft'
+                error="Cannot add chain to nft",
             )
 
         try:
@@ -69,7 +69,7 @@ class NFTBlocker(BaseBlocker):
             run_in_shell(
                 f"nft add rule inet {self.blocking_table_name}_table "
                 f"input ip saddr @{self.blocking_table_name} drop",
-                error='Cannot add rule to nft'
+                error="Cannot add rule to nft",
             )
 
     def reset(self):
@@ -87,8 +87,8 @@ class NFTBlocker(BaseBlocker):
             result = run_in_shell(
                 f"nft add element inet {self.blocking_table_name}_table "
                 f'{self.blocking_table_name} "{{ {ip} }}"',
-                error=f'Cannot block {ip} by nft',
-                raise_error=False
+                error=f"Cannot block {ip} by nft",
+                raise_error=False,
             )
 
             if result.returncode == 0:
@@ -99,7 +99,7 @@ class NFTBlocker(BaseBlocker):
             result = run_in_shell(
                 f"nft delete element inet {self.blocking_table_name}_table "
                 f'{self.blocking_table_name} "{{ {ip} }}"',
-                error=f'Cannot release {ip} by nft'
+                error=f"Cannot release {ip} by nft",
             )
 
             if result.returncode == 0:
@@ -111,7 +111,7 @@ class NFTBlocker(BaseBlocker):
                 f"nft list table inet {self.blocking_table_name}_table | grep elements"
             ).stdout
         except ValueError:
-            data = ''
+            data = ""
 
         elements = data.split("{ ")
 

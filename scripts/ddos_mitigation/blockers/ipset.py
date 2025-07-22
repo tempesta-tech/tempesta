@@ -4,7 +4,7 @@ from ipaddress import IPv4Address
 from blockers.base import BaseBlocker
 from datatypes import User
 from logger import logger
-from utils import run_in_shell, ConditionalError
+from utils import ConditionalError, run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -23,18 +23,18 @@ class IpSetBlocker(BaseBlocker):
         return {hash(user): user for user in self.info()}
 
     def prepare(self):
-        run_in_shell("which ipset", error='IPSET is not installed')
+        run_in_shell("which ipset", error="IPSET is not installed")
 
         try:
             run_in_shell(
                 f"ipset list {self.blocking_ip_set_name}",
-                error='Cannot list ipset',
-                conditional_error='name does not exist'
+                error="Cannot list ipset",
+                conditional_error="name does not exist",
             )
         except ConditionalError:
             run_in_shell(
                 f"ipset create {self.blocking_ip_set_name} hash:ip",
-                error='Cannot create IP set using ipset',
+                error="Cannot create IP set using ipset",
             )
 
         result = run_in_shell("iptables -L -v -n")
@@ -43,29 +43,29 @@ class IpSetBlocker(BaseBlocker):
             run_in_shell(
                 f"iptables -I INPUT -m set --match-set {self.blocking_ip_set_name} "
                 f"src -j DROP ",
-                error='Cannot add IPSet group to iptables'
+                error="Cannot add IPSet group to iptables",
             )
 
     def reset(self):
         run_in_shell(
             f"iptables -D INPUT -m set --match-set {self.blocking_ip_set_name} "
             f"src -j DROP ",
-            error='Cannot remove IPSet group from iptables'
+            error="Cannot remove IPSet group from iptables",
         )
 
         # wait until itables become updated
         time.sleep(0.1)
         run_in_shell(
             f"ipset destroy {self.blocking_ip_set_name}",
-            error='Cannot remove IPSet group'
+            error="Cannot remove IPSet group",
         )
 
     def block(self, user: User):
         for ip in user.ipv4:
             result = run_in_shell(
                 f"ipset add {self.blocking_ip_set_name} {ip}",
-                error=f'{ip} could not be blocked',
-                raise_error=False
+                error=f"{ip} could not be blocked",
+                raise_error=False,
             )
 
             if result.returncode == 0:
@@ -75,8 +75,8 @@ class IpSetBlocker(BaseBlocker):
         for ip in user.ipv4:
             result = run_in_shell(
                 f"ipset del {self.blocking_ip_set_name} {ip}",
-                error=f'{ip} could not be released',
-                raise_error=False
+                error=f"{ip} could not be released",
+                raise_error=False,
             )
 
             if result.returncode == 0:

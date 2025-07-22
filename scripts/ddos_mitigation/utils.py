@@ -1,4 +1,5 @@
 import subprocess
+
 from logger import logger
 
 __author__ = "Tempesta Technologies, Inc."
@@ -11,10 +12,7 @@ class ConditionalError(Exception):
 
 
 def run_in_shell(
-        cmd: str,
-        error: str = None,
-        conditional_error: str = None,
-        raise_error: bool = True
+    cmd: str, error: str = None, conditional_error: str = None, raise_error: bool = True
 ) -> subprocess.CompletedProcess:
     """
     Run command in a shell and return its output
@@ -46,7 +44,7 @@ def run_in_shell(
 
         raise ValueError(result.stderr)
 
-    error_text = f'{error}: {result.stderr}'
+    error_text = f"{error}: {result.stderr}"
     logger.error(error_text)
 
     if not raise_error:
