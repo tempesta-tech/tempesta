@@ -20,6 +20,7 @@ class ClickhouseAccessLog:
     port: int = 8123
     user: str = "default"
     password: str = ""
+    table_name: str = 'access_log'
     database: str = "__default__"
     conn: AsyncClient = None
 
@@ -60,7 +61,7 @@ class ClickhouseAccessLog:
                 count(1) as total_requests,
                 sum(response_time) as total_time,
                 countIf(status not in ({statuses})) as total_errors
-            FROM access_log
+            FROM {self.table_name}
             WHERE 
                 timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
                 AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
@@ -106,7 +107,7 @@ class ClickhouseAccessLog:
                     count(1) as total_requests,
                     sum(response_time) as total_time,
                     countIf(status not in ({statuses})) as total_errors
-                FROM access_log
+                FROM {self.table_name}
                 WHERE 
                     timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
                     AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
@@ -173,7 +174,7 @@ class ClickhouseAccessLog:
                         count(1) as total_requests,
                         sum(response_time) as total_time,
                         countIf(status not in ({statuses})) as total_errors
-                    FROM access_log
+                    FROM {self.table_name}
                     WHERE 
                         timestamp > toDateTime64({start_at}, 3, 'UTC')
                         and timestamp <= toDateTime64({start_at}, 3, 'UTC') + INTERVAL {period_in_minutes} MINUTE

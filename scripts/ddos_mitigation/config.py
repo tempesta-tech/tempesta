@@ -19,6 +19,7 @@ class AppConfig(BaseSettings):
     clickhouse_port: int = 8123
     clickhouse_user: str = "default"
     clickhouse_password: str = ""
+    clickhouse_table_name: str = "access_log"
     clickhouse_database: str = "default"
 
     persistent_users_max_amount: int = 100
