@@ -28,6 +28,7 @@
 
 #define ARRAY_SIZE(x)   	(sizeof(x) / sizeof(*(x)))
 
+#define KERN_DEBUG		""
 #define KERN_INFO		""
 #define KERN_WARNING		""
 #define KERN_ERR		""
