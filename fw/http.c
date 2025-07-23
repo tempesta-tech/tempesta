@@ -8243,25 +8243,20 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 static int
 __cfgop_brange_parse_disallowed(char *str, unsigned char *a)
 {
-	char *start = str, *end = str;
+	while (str && *str) {
+		unsigned long i0 = 0, i1 = 0;
+		char *end;
 
-	do {
-		char* val;
-		unsigned long i0, i1;
+		end = strpbrk(str, " ");
+		if (end)
+			*end++ = '\0';
 
-		if (*end != ' ' && *end != '\0')
-			continue;
-
-		val = start;
-		i0 = 0, i1 = 0;
-		*end = '\0';
-
-		if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
-			T_ERR_NL("Cannot parse interval: '%s'\n", val);
+		if (tfw_cfg_parse_intvl(str, &i0, &i1)) {
+			T_ERR_NL("Cannot parse interval: '%s'\n", str);
 			return -EINVAL;
 		}
 		if (i0 > 255 || i1 > 255) {
-			T_ERR_NL("Too large interval bounds: '%s'\n", val);
+			T_ERR_NL("Too large interval bounds: '%s'\n", str);
 			return -EINVAL;
 		}
 
@@ -8269,9 +8264,8 @@ __cfgop_brange_parse_disallowed(char *str, unsigned char *a)
 		while (i0 <= i1)
 			a[i0++] = 1;
 
-		start = end + 1;
-	} while (*end++ != '\0');
-
+		str = end;
+	}
 	return 0;
 }
 
