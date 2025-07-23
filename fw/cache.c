@@ -302,12 +302,12 @@ static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_c_buf);
 static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 /*
- * Iterate over request URI and Host header to process request key.
- * uri_path and host are not expected to be empty, because we check
- * it previosly but we should not crash.
+ * Iterate over request URI and vhost name to process request key.
+ * uri_path is chunked, vhost_name is a BasicStr pointer.
+ * v_start is a TfwStr that will be initialized to wrap vhost_name.
  */
-#define TFW_CACHE_REQ_KEYITER(c, uri_path, host, u_end, h_start,	\
-			      h_end, u_fin, h_fin)			\
+#define TFW_CACHE_REQ_KEYITER(c, uri_path, vhost_name, u_end, v_start,	\
+			      v_end, u_fin, v_fin)			\
 	c = NULL;							\
 	if (!(u_fin = WARN_ON_ONCE(TFW_STR_EMPTY(uri_path)))) {		\
 		if (TFW_STR_PLAIN(uri_path)) {				\
@@ -318,20 +318,16 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 			u_end = (uri_path)->chunks + (uri_path)->nchunks; \
 		}							\
 	}								\
-	if (!(h_fin = WARN_ON_ONCE(TFW_STR_EMPTY(host)))) {		\
-		if (likely(!TFW_STR_PLAIN(host))) {			\
-			h_start = (host)->chunks;			\
-			h_end = (host)->chunks + (host)->nchunks;	\
-		} else {						\
-			h_start = host;					\
-			h_end = (host) + 1;				\
-		}							\
-		c = c ? : h_start;					\
+	if (!(v_fin = WARN_ON_ONCE(!(vhost_name)->len))) {		\
+		(v_start)->data = (vhost_name)->data;			\
+		(v_start)->len = (vhost_name)->len;			\
+		v_end = (v_start) + 1;					\
+		c = c ? : (v_start);					\
 	}								\
-	for ( ; !u_fin || !h_fin;					\
+	for ( ; !u_fin || !v_fin;					\
 	     ++c, u_fin = u_fin ? true : (c == u_end),			\
-	     h_fin = h_fin ? true : (c == h_end),			\
-	     c = (c == u_end) ? h_start : c)
+	     v_fin = v_fin ? true : (c == v_end),			\
+	     c = (c == u_end) ? (v_start) : c)
 
 /*
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
@@ -1259,15 +1255,16 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	/* Record key starts at first data chunk. */
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
-	TfwStr *c, *h_start, *u_end, *h_end;
-	bool u_fin, h_fin;
+	TfwStr *c, *u_end, *v_end;
+	TfwStr v_start;
+	bool u_fin, v_fin;
 
-	if (req->uri_path.len + req->host.len != ce->key_len)
+	if (req->uri_path.len + req->vhost->name.len != ce->key_len)
 		return false;
 
 	t_off = CE_BODY_SIZE;
-	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->host, u_end, h_start,
-			      h_end, u_fin, h_fin)
+	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &req->vhost->name, u_end,
+			      &v_start, v_end, u_fin, v_fin)
 	{
 		if (!trec)
 			return false;
@@ -2063,7 +2060,9 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	int r, i;
 	char *p;
 	unsigned short status_idx;
-	TfwStr *field, *h, *end1, *end2;
+	TfwStr *field, *end1, *end2;
+	TfwStr v_start;
+	bool u_fin, v_fin;
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	long n, etag_off = 0;
 	TfwHttpReq *req = resp->req;
@@ -2081,21 +2080,16 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 	unsigned int effective_resp_flags =
 		tfw_cache_get_effective_resp_flags(resp, req);
-	bool u_fin, h_fin;
 
 	p = tfw_init_cache_entry(ce);
 	tot_len -= CE_BODY_SIZE;
 
-	/* Write record key (URI + Host header). */
+	/* Write record key (URI + Vhost name). */
 	ce->key = TDB_OFF(db->hdr, p);
 	ce->key_len = 0;
 
-	/*
-	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
-	 * strict comparison.
-	 */
-	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->host, end1, h,
-			      end2, u_fin, h_fin)
+	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &req->vhost->name, end1,
+			      &v_start, end2, u_fin, v_fin)
 	{
 		n = tfw_cache_strcpy_lc(db, &p, &trec, field, tot_len);
 		if (unlikely(n < 0)) {
@@ -2416,7 +2410,7 @@ __cache_entry_size(TfwHttpResp *resp)
 			tfw_vhost_get_capo_hdr_del(req->location, req->vhost);
 	/* Add compound key size */
 	res_size += req->uri_path.len;
-	res_size += req->host.len;
+	res_size += req->vhost->name.len;
 
 	/*
 	 * Add the length of ':status' pseudo-header: one byte if fully indexed,
