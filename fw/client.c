@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -39,7 +39,6 @@
 static struct {
 	const char	*db_path;
 	unsigned int	db_size;
-	unsigned int	expires_time;
 	unsigned int	lru_size;
 } client_cfg __read_mostly;
 
@@ -48,21 +47,12 @@ static struct {
  *
  * @cli			- client descriptor;
  * @xff_addr		- peer IPv6 address from X-Forwarded-For;
- * @expires		- expiration time for the client descriptor after all;
- *			  connections are closed;
- * @lock		- lock for atomic change @expires and @users;
- * @users		- reference counter.
- * 			  Expiration state will begind, when the counter reaches
- *			  zero;
  * @user_agent_len	- Length of @user_agent
  * @user_agent		- UA_CMP_LEN first characters of User-Agent
  */
 typedef struct {
 	TfwClient	cli;
 	TfwAddr		xff_addr;
-	long		expires;
-	spinlock_t	lock;
-	int		users;
 	unsigned long	user_agent_len;
 	char		user_agent[UA_CMP_LEN];
 } TfwClientEntry;
@@ -142,33 +132,11 @@ tfw_client_free_lru(void)
 void
 tfw_client_put(TfwClient *cli)
 {
-	TfwClientEntry *ent = (TfwClientEntry *)cli;
 	TdbFRec *rec = ((TdbFRec *)cli) - 1;
 
-	T_DBG2("put client %p, users=%d\n",
-	       cli, ent->users);
-
-	spin_lock(&ent->lock);
-
-	--ent->users;
-
-	BUG_ON(ent->users < 0);
-
-	if (likely(ent->users)) {
-		tdb_rec_put(client_db, rec);
-		spin_unlock(&ent->lock);
-		return;
-	}
-
-	BUG_ON(!list_empty(&cli->conn_list));
-
-	ent->expires = tfw_current_timestamp() + client_cfg.expires_time;
-	spin_unlock(&ent->lock);
+	T_DBG("put client: cli=%p\n", cli);
 
 	tdb_rec_put(client_db, rec);
-
-	T_DBG("put client: cli=%p\n", cli);
-	TFW_DEC_STAT_BH(clnt.online);
 }
 
 typedef struct {
@@ -187,7 +155,6 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
-	long curr_time = tfw_current_timestamp();
 
 	if (memcmp_fast(&cli->addr.sin6_addr, &ctx->addr.sin6_addr,
 			sizeof(cli->addr.sin6_addr)))
@@ -209,24 +176,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	}
 #endif
 
-	spin_lock(&ent->lock);
-
-	if (curr_time > ent->expires) {
-		bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
-		if (ctx->init)
-			ctx->init(cli);
-	}
-
-	ent->expires = LONG_MAX;
-
-	++ent->users;
-	if (ent->users == 1)
-		TFW_INC_STAT_BH(clnt.online);
-
-	spin_unlock(&ent->lock);
-
-	T_DBG("client was found in tdb\n");
-	T_DBG2("client %p, users=%d\n", cli, ent->users);
+	T_DBG("client %p was found in tdb\n", cli);
 
 	return true;
 }
@@ -238,15 +188,9 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 
-	spin_lock_init(&ent->lock);
-
-	ent->expires = LONG_MAX;
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
 	if (ctx->init)
 		ctx->init(cli);
-
-	ent->users = 1;
-	TFW_INC_STAT_BH(clnt.online);
 
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
@@ -355,14 +299,6 @@ tfw_client_for_each(int (*fn)(void *))
 	return tdb_entry_walk(client_db, fn);
 }
 
-void
-tfw_client_set_expires_time(unsigned int expires_time)
-{
-	if (client_cfg.expires_time < expires_time + 1) {
-		client_cfg.expires_time = expires_time + 1;
-	}
-}
-
 static int
 tfw_client_start(void)
 {
@@ -442,8 +378,6 @@ TfwMod tfw_client_mod = {
 int __init
 tfw_client_init(void)
 {
-	client_cfg.expires_time = 1;
-
 	tfw_mod_register(&tfw_client_mod);
 
 	return 0;

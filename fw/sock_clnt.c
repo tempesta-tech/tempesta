@@ -137,10 +137,12 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 void
 tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
-	if (likely(cli_conn->sk))
-		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
+	/* Paired with @tfw_sock_clnt_new client obtain. */
 	if (likely(cli_conn->peer))
 		tfw_client_put((TfwClient *)cli_conn->peer);
+	/* Paired with @frang_conn_new client obtain. */
+	if (likely(cli_conn->sk))
+		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
 	tfw_cli_conn_free(cli_conn);
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }

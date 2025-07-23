@@ -39,7 +39,7 @@
 #if defined(CONFIG_DEBUG_LOCK_ALLOC) || defined (CONFIG_DEBUG_SPINLOCK)
 #define TFW_CLASSIFIER_ACCSZ	512
 #else
-#define TFW_CLASSIFIER_ACCSZ	264
+#define TFW_CLASSIFIER_ACCSZ	272
 #endif
 
 typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
@@ -195,6 +195,7 @@ int frang_tls_handler(TlsCtx *tls, int state);
 int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
+void frang_set_expires_time(unsigned int expires_time);
 
 static inline int
 frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
