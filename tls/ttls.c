@@ -1340,7 +1340,7 @@ ttls_handshake_wrapup(TlsCtx *tls)
 /**
  * Process TLS alerts.
  */
-int
+static int
 ttls_handle_alert(TlsCtx *tls)
 {
 	TlsIOCtx *io = &tls->io_in;
@@ -2557,7 +2557,7 @@ ttls_sig_hash_set_add(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 	}
 }
 
-bool
+static bool
 ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 		      ttls_md_type_t md_alg)
 {
@@ -2571,7 +2571,7 @@ ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 	}
 }
 
-void
+static void
 ttls_sig_hash_set_const(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 			ttls_md_type_t md_alg)
 {

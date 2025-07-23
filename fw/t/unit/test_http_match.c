@@ -171,7 +171,7 @@ err:
 	kfree(val);
 }
 
-int
+static int
 test_chain_match(void)
 {
 	MatchEntry *e;

@@ -230,7 +230,7 @@ skip_apm:
 static int
 tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, tfw_perfstat_seq_show, PDE_DATA(inode));
+	return single_open(file, tfw_perfstat_seq_show, pde_data(inode));
 }
 
 static int
@@ -318,8 +318,8 @@ static int
 tfw_srvstats_seq_open(struct inode *inode, struct file *file)
 {
 	if (!tfw_runstate_is_reconfig())
-		return single_open(file, tfw_srvstats_seq_show, PDE_DATA(inode));
-	return single_open(file, tfw_srvstats_seq_reconfig, PDE_DATA(inode));
+		return single_open(file, tfw_srvstats_seq_show, pde_data(inode));
+	return single_open(file, tfw_srvstats_seq_reconfig, pde_data(inode));
 }
 
 static int

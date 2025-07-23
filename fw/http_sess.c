@@ -49,7 +49,6 @@
 #include <linux/ctype.h>
 #include <linux/slab.h>
 #include <linux/time.h>
-#include <linux/vmalloc.h>
 
 #undef DEBUG
 #if DBG_HTTP_SESS > 0

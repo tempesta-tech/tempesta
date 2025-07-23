@@ -1,8 +1,7 @@
 /**
- *		Tempesta FW
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,13 +17,17 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_FILTER_H__
-#define __TFW_FILTER_H__
+#ifndef __KMEMLEAK_H__
+#define __KMEMLEAK_H__
 
-#include "client.h"
+static inline void
+kmemleak_alloc(const void *ptr, size_t size, int min_count, gfp_t gfp)
+{
+}
 
-int tfw_filter_init(void);
-void tfw_filter_exit(void);
-void tfw_filter_block_ip(const TfwClient *cli);
+static inline void
+kmemleak_free(const void *ptr)
+{
+}
 
-#endif /* __TFW_FILTER_H__ */
+#endif /* __KMEMLEAK_H__ */

@@ -75,7 +75,7 @@ typedef struct {
  */
 typedef struct {
 	size_t		len;
-	char		str[0];
+	DECLARE_FLEX_ARRAY(char, str);
 } TfwCaToken;
 
 /* tfw_vhost_get_capo_hdr_del result */
@@ -282,6 +282,9 @@ typedef struct {
 	u8			cache_purge_acl:1;
 } TfwGlobal;
 
+int tfw_vhost_init(void);
+void tfw_vhost_exit(void);
+
 void tfw_vhost_destroy(TfwVhost *vhost);
 
 static inline void
@@ -312,7 +315,7 @@ tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
 	return container_of(cfg, TfwVhost, tls_cfg);
 }
 
-static bool inline
+static inline bool
 tfw_vhost_is_default(TfwVhost *vhost)
 {
 	return !vhost->vhost_dflt;
