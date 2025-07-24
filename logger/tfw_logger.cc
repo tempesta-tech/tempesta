@@ -75,6 +75,7 @@ struct ParsedOptions {
 	std::optional<fs::path>		config_path;
 	std::optional<std::string>	clickhouse_host;
 	std::optional<uint16_t>		clickhouse_port;
+	std::optional<std::string>	clickhouse_db_name;
 	std::optional<std::string>	clickhouse_table;
 	std::optional<std::string>	clickhouse_user;
 	std::optional<std::string>	clickhouse_password;
@@ -280,13 +281,8 @@ try {
 	while (!stop_flag)
 	try {
 		const auto &ch_cfg = config.get_clickhouse();
-		spdlog::debug("Worker {} connecting to ClickHouse at {}:{},"
-			      " table: {}", ncpu, ch_cfg.host, ch_cfg.port,
-			      ch_cfg.table_name);
-		TfwClickhouse clickhouse(ch_cfg.host, ch_cfg.table_name,
-					 ch_cfg.user ? *ch_cfg.user : "",
-					 ch_cfg.password ? *ch_cfg.password : "",
-					 make_block(), ch_cfg.max_events, ch_cfg.max_wait);
+		spdlog::debug("Worker {} connecting to ClickHouse: {}", ncpu, ch_cfg);
+		TfwClickhouse clickhouse(ch_cfg, make_block());
 		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 		if (!affinity_is_set) {
 			CPU_ZERO(&cpuset);
@@ -372,6 +368,8 @@ try {
 		 "ClickHouse host (overrides config)")
 		("port,P", po::value<uint16_t>(),
 		 "ClickHouse port (overrides config)")
+		("database,d", po::value<std::string>(),
+		 "ClickHouse database name (overrides config)")
 		("table,t", po::value<std::string>(),
 		 "ClickHouse table name (overrides config)")
 		("user,u", po::value<std::string>(),
@@ -416,6 +414,8 @@ try {
 		result.clickhouse_host = vm["host"].as<std::string>();
 	if (vm.count("port"))
 		result.clickhouse_port = vm["port"].as<uint16_t>();
+	if (vm.count("database"))
+		result.clickhouse_db_name = vm["database"].as<std::string>();
 	if (vm.count("table"))
 		result.clickhouse_table = vm["table"].as<std::string>();
 	if (vm.count("user"))
@@ -460,6 +460,8 @@ load_configuration(const ParsedOptions &opts)
 		config.override_clickhouse_host(*opts.clickhouse_host);
 	if (opts.clickhouse_port)
 		config.override_clickhouse_port(*opts.clickhouse_port);
+	if (opts.clickhouse_db_name)
+		config.override_clickhouse_db_name(*opts.clickhouse_db_name);
 	if (opts.clickhouse_table)
 		config.override_clickhouse_table(*opts.clickhouse_table);
 	if (opts.clickhouse_user)
@@ -634,10 +636,7 @@ try {
 
 	// Log startup information
 	spdlog::info("Starting Tempesta FW Logger...");
-	spdlog::info("ClickHouse: {}:{}, table: {}",
-		     config.get_clickhouse().host,
-		     config.get_clickhouse().port,
-		     config.get_clickhouse().table_name);
+	spdlog::info("ClickHouse configuration: {}", config.get_clickhouse());
 
 	// Setup signal handlers for graceful shutdown
 	setup_signal_handlers();

@@ -21,8 +21,6 @@
 #include <iostream>
 #include <string_view>
 
-#include <clickhouse/base/socket.h>
-#include <clickhouse/client.h>
 #include <fmt/format.h>
 
 #include "clickhouse.hh"
@@ -42,25 +40,27 @@ constexpr std::string_view table_creation_query_template =
 	"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64) "
 	"ENGINE = MergeTree() ORDER BY timestamp";
 
-TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_name,
-			     const std::string &user, const std::string &password,
-			     clickhouse::Block block, size_t max_events,
-			     std::chrono::milliseconds max_wait)
-	: block_(block), last_time_(now_ms()), table_name_(table_name),
-	  max_events_(max_events), max_wait_(max_wait)
+TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
+			     clickhouse::Block block)
+	: block_(std::move(block)),
+	  last_time_(now_ms()),
+	  table_name_(config.table_name),
+	  max_events_(config.max_events),
+	  max_wait_(config.max_wait)
 {
 	auto opts = clickhouse::ClientOptions();
 
-	opts.SetHost(host);
+	opts.SetHost(config.host);
+	opts.SetDefaultDatabase(config.db_name);
 
-	if (!user.empty())
+	if (const auto user = config.user.value_or(""); !user.empty())
 		opts.SetUser(user);
-	if (!password.empty())
-		opts.SetPassword(password);
+	if (const auto pswd = config.password.value_or(""); !pswd.empty())
+		opts.SetPassword(pswd);
 
 	client_ = std::make_unique<clickhouse::Client>(opts);
 
-	std::string table_creation_query = 
+	std::string table_creation_query =
 		fmt::format(table_creation_query_template, table_name_);
 	client_->Execute(table_creation_query);
 }
@@ -90,4 +90,32 @@ TfwClickhouse::commit()
 		return true;
 	}
 	return false;
+}
+
+template <typename T> std::shared_ptr<clickhouse::Column>
+create_column() {
+	return std::make_shared<T>();
+}
+
+std::shared_ptr<clickhouse::Column>
+tfw_column_factory(clickhouse::Type::Code code)
+{
+	switch (code) {
+	case clickhouse::Type::UInt8:
+		return create_column<clickhouse::ColumnUInt8>();
+	case clickhouse::Type::UInt16:
+		return create_column<clickhouse::ColumnUInt16>();
+	case clickhouse::Type::UInt32:
+		return create_column<clickhouse::ColumnUInt32>();
+	case clickhouse::Type::UInt64:
+		return create_column<clickhouse::ColumnUInt64>();
+	case clickhouse::Type::IPv4:
+		return create_column<clickhouse::ColumnIPv4>();
+	case clickhouse::Type::IPv6:
+		return create_column<clickhouse::ColumnIPv6>();
+	case clickhouse::Type::String:
+		return create_column<clickhouse::ColumnString>();
+	default:
+		throw std::runtime_error("Column factory: incorrect code");
+	}
 }
