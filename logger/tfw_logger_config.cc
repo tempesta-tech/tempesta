@@ -75,6 +75,8 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 		    ch_node->get<std::string>("host", clickhouse_.host);
 		clickhouse_.port =
 		    ch_node->get<uint16_t>("port", clickhouse_.port);
+		clickhouse_.db_name = ch_node->get<std::string>(
+		    "db_name", clickhouse_.db_name);
 		clickhouse_.table_name = ch_node->get<std::string>(
 		    "table_name", clickhouse_.table_name);
 
@@ -108,6 +110,9 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 
 	if (clickhouse_.port == 0)
 		throw std::runtime_error("Invalid ClickHouse port");
+
+	if (clickhouse_.db_name.empty())
+		throw std::runtime_error("ClickHouse database name cannot be empty");
 
 	if (clickhouse_.table_name.empty())
 		throw std::runtime_error("ClickHouse table name cannot be empty");
