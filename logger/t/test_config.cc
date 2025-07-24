@@ -66,6 +66,7 @@ TEST_F(ConfigTest, DefaultValues)
 	const auto &ch = config.get_clickhouse();
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
+	EXPECT_EQ(ch.db_name, "default");
 	EXPECT_EQ(ch.table_name, "access_log");
 	EXPECT_EQ(ch.max_events, 1000);
 	EXPECT_EQ(ch.max_wait.count(), 100);
@@ -82,6 +83,7 @@ TEST_F(ConfigTest, LoadValidConfig)
 		"clickhouse": {
 			"host": "test.host.com",
 			"port": 9001,
+			"db_name": "test_db",
 			"table_name": "test_logs",
 			"user": "testuser",
 			"password": "testpass",
@@ -99,6 +101,7 @@ TEST_F(ConfigTest, LoadValidConfig)
 	const auto &ch = config->get_clickhouse();
 	EXPECT_EQ(ch.host, "test.host.com");
 	EXPECT_EQ(ch.port, 9001);
+	EXPECT_EQ(ch.db_name, "test_db");
 	EXPECT_EQ(ch.table_name, "test_logs");
 	EXPECT_EQ(ch.user.value(), "testuser");
 	EXPECT_EQ(ch.password.value(), "testpass");
@@ -125,6 +128,7 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 	const auto &ch = config->get_clickhouse();
 	EXPECT_EQ(ch.host, "minimal.host.com");
 	EXPECT_EQ(ch.port, 9000);		// default
+	EXPECT_EQ(ch.db_name, "default");	// default
 	EXPECT_EQ(ch.table_name, "access_log"); // default
 	EXPECT_FALSE(ch.user.has_value());
 	EXPECT_FALSE(ch.password.has_value());
@@ -197,6 +201,20 @@ TEST_F(ConfigTest, ValidationEmptyTableName)
 	EXPECT_FALSE(config.has_value());
 }
 
+TEST_F(ConfigTest, ValidationEmptyDbName)
+{
+	auto config_path = temp_dir / "empty_db_name.json";
+	write_config(config_path, R"({
+		"clickhouse": {
+			"host": "test.com",
+			"db_name": ""
+		}
+	})");
+
+	auto config = TfwLoggerConfig::load_from_file(config_path);
+	EXPECT_FALSE(config.has_value());
+}
+
 TEST_F(ConfigTest, ValidationZeroMaxEvents)
 {
 	auto config_path = temp_dir / "zero_events.json";
@@ -233,6 +251,7 @@ TEST_F(ConfigTest, CommandLineOverrides)
 	config.override_buffer_size(16777216);
 	config.override_clickhouse_host("override.host.com");
 	config.override_clickhouse_port(9002);
+	config.override_clickhouse_db_name("override_db");
 	config.override_clickhouse_table("override_table");
 	config.override_clickhouse_user("override_user");
 	config.override_clickhouse_password("override_pass");
@@ -245,6 +264,7 @@ TEST_F(ConfigTest, CommandLineOverrides)
 	const auto &ch = config.get_clickhouse();
 	EXPECT_EQ(ch.host, "override.host.com");
 	EXPECT_EQ(ch.port, 9002);
+	EXPECT_EQ(ch.db_name, "override_db");
 	EXPECT_EQ(ch.table_name, "override_table");
 	EXPECT_EQ(ch.user.value(), "override_user");
 	EXPECT_EQ(ch.password.value(), "override_pass");
@@ -273,6 +293,7 @@ TEST_F(ConfigTest, FileWithoutClickHouseSection)
 	const auto &ch = config->get_clickhouse();
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
+	EXPECT_EQ(ch.db_name, "default");
 	EXPECT_EQ(ch.table_name, "access_log");
 }
 

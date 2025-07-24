@@ -64,3 +64,4 @@ debian
 # logger
 logger/tfw_logger
 logger/clickhouse-cpp
+logger/t/tfw_logger_tests
