@@ -67,7 +67,7 @@ tfw_test_init(void)
 	return 0;
 }
 
-void
+static void
 tfw_test_exit(void)
 {
 	TFW_HTTP_SESS_MOD_EXIT();

@@ -1,7 +1,7 @@
 /**
  *		Tempesta kernel library
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2025 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -99,13 +99,13 @@ enum {
 #if defined(DEBUG) && (DEBUG >= 1)
 #define T_DBG(...) 	__T_DBG1(__VA_ARGS__)
 #else
-#define T_DBG(...)
+#define T_DBG(...) ((void)0)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 2)
 #define T_DBG2(...)	__T_DBG2(__VA_ARGS__)
 #else
-#define T_DBG2(...)
+#define T_DBG2(...) ((void)0)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 3)
@@ -160,9 +160,9 @@ do {									\
 #define T_ERR(...)	net_err_ratelimited(__BNR "ERROR: " __VA_ARGS__)
 #define T_WARN(...)	net_warn_ratelimited(__BNR "Warning: "	__VA_ARGS__)
 #define T_LOG(...)	net_info_ratelimited(__BNR __VA_ARGS__)
-#define T_DBG3(...)
-#define T_DBG3_BUF(...)
-#define T_DBG3_SL(...)
+#define T_DBG3(...)	((void)0)
+#define T_DBG3_BUF(...) ((void)0)
+#define T_DBG3_SL(...)  ((void)0)
 /* Non-limited printing. */
 #define T_ERR_NL(...)	pr_err(__BNR "ERROR: " __VA_ARGS__)
 #define T_WARN_NL(...)	pr_warn(__BNR "Warning: " __VA_ARGS__)
@@ -172,7 +172,7 @@ do {									\
 #if defined(DEBUG) && (DEBUG >= 4)
 #define T_DBG4(...)	printk(KERN_DEBUG __BNR "       " __VA_ARGS__)
 #else
-#define T_DBG4(...)
+#define T_DBG4(...)	((void)0)
 #endif
 
 #endif /* __LIB_LOG_H__ */

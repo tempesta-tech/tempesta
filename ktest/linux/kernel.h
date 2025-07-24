@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 
 #define ARRAY_SIZE(x)   	(sizeof(x) / sizeof(*(x)))
 
+#define KERN_DEBUG		""
 #define KERN_INFO		""
 #define KERN_WARNING		""
 #define KERN_ERR		""
@@ -96,9 +97,9 @@ struct list_head {
 };
 
 static inline int
-get_random_bytes_arch(void *buf, int nbytes)
+__get_random_bytes_arch(void *buf, int nbytes)
 {
-#ifdef NO_RANDOM
+#ifdef DBG_TLS_NO_RAND
 	memset(buf, 0xAA, nbytes);
 #else
 	int failures = 0;
@@ -126,7 +127,7 @@ get_random_bytes_arch(void *buf, int nbytes)
 static inline void
 get_random_bytes(void *buf, int nbytes)
 {
-	get_random_bytes_arch(buf, nbytes);
+	__get_random_bytes_arch(buf, nbytes);
 }
 
 #define DUMP_PREFIX_OFFSET	0

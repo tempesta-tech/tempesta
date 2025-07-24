@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #if 0 /* TODO #769 Full TLS proxying */
 
 #include "debug.h"
+#include "lib/common.h"
 #include "ttls.h"
 #include "tls_internal.h"
 
@@ -418,7 +419,7 @@ static int ssl_generate_random(TlsCtx *ssl)
 	unsigned char *p = ssl->handshake->randbytes;
 	long t;
 
-	t = ttls_time();
+	t = tfw_current_timestamp();
 	*p++ = (unsigned char)(t >> 24);
 	*p++ = (unsigned char)(t >> 16);
 	*p++ = (unsigned char)(t >>  8);
@@ -965,7 +966,7 @@ static int ssl_parse_server_hello(TlsCtx *ssl)
 	{
 		ssl->state++;
 		ssl->handshake->resume = 0;
-		ssl->session_negotiate->start = ttls_time();
+		ssl->session_negotiate->start = tfw_current_timestamp();
 		ssl->session_negotiate->ciphersuite = i;
 		ssl->session_negotiate->compression = comp;
 		ssl->session_negotiate->id_len = n;

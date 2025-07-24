@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "debug.h"
+#include "lib/common.h"
 #include "ttls.h"
 #include "asn1.h"
 #include "oid.h"
@@ -708,8 +709,10 @@ static void
 x509_get_current_time(ttls_x509_time *now)
 {
 	struct tm t;
+	struct timespec64 ts;
 
-	time64_to_tm(ttls_time(), 0, &t);
+	tfw_current_timestamp_real(&ts);
+	time64_to_tm(ts.tv_sec, 0, &t);
 
 	now->year = t.tm_year + 1900;
 	now->mon  = t.tm_mon  + 1;
