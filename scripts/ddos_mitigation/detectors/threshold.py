@@ -230,7 +230,7 @@ class ThresholdDetector(BaseDetector):
             )
             logger.info("Data collection is complete")
 
-        if self.app_config.blocking_type in {"real", "historical"}:
+        if self.app_config.training_mode in {"real", "historical"}:
             logger.info("Analyzing user activity for the period")
             known_users = await self.persistent_users_load(
                 start_at=int(time.time())
@@ -240,7 +240,7 @@ class ThresholdDetector(BaseDetector):
                 * self.seconds_in_minute,
                 requests_amount=self.app_config.persistent_users_total_requests,
                 time_amount=self.app_config.persistent_users_total_time,
-                users_amount=self.app_config.persistent_users_total_users,
+                users_amount=self.app_config.persistent_users_max_amount,
             )
             self.set_known_users(users=known_users)
 

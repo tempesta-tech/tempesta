@@ -29,7 +29,7 @@ if __name__ == "__main__":
         port=app_config.clickhouse_port,
         user=app_config.clickhouse_user,
         password=app_config.clickhouse_password,
-        table_name=app_config.cloud_table_name,
+        table_name=app_config.clickhouse_table_name,
         database=app_config.clickhouse_database,
     )
     app = DDOSMonitor(

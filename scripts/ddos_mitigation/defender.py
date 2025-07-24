@@ -41,21 +41,21 @@ class DDOSMonitor:
     detectors: dict[str, BaseDetector] = field(default_factory=dict)
 
     def user_block(self, user: User):
-        for blocking_type in self.app_config.blocking_type:
+        for blocking_type in self.app_config.blocking_types:
             self.blockers[blocking_type].block(user)
             self.blocked[hash(user)] = user
 
     def user_release(self, user: User):
-        for blocking_type in self.app_config.blocking_type:
+        for blocking_type in self.app_config.blocking_types:
             self.blockers[blocking_type].release(user)
             self.blocked.pop(hash(user))
 
     def user_apply(self):
-        for blocking_type in self.app_config.blocking_type:
+        for blocking_type in self.app_config.blocking_types:
             self.blockers[blocking_type].apply()
 
     def user_reset(self):
-        for blocking_type in self.app_config.blocking_type:
+        for blocking_type in self.app_config.blocking_types:
             self.blockers[blocking_type].reset()
             self.blocked = dict()
 
@@ -145,7 +145,7 @@ class DDOSMonitor:
         Prepare blocking mechanisms, perform historical analysis if required,
         and start monitoring for blocking and unblocking users.
         """
-        for blocking_type in self.app_config.blocking_type:
+        for blocking_type in self.app_config.blocking_types:
             self.blockers[blocking_type].prepare()
             self.blocked.update(self.blockers[blocking_type].load())
 

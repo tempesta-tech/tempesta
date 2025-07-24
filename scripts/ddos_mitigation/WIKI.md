@@ -110,7 +110,7 @@ The mitigation script supports several methods for blocking users:
 By default, the ja5t blocking method is used. However, multiple methods can be specified, including combinations:
 
 ```.env
-blocking_type=["ja5t", "ipset"]
+blocking_types=["ja5t", "ipset"]
 ```
 
 ### Unblocking Users

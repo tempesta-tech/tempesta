@@ -19,7 +19,7 @@ class BaseBlocker(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def name() -> str:
         """
-        Name of the blocker. Should be used in the `blocking_type` config variable.
+        Name of the blocker. Should be used in the `blocking_types` config variable.
         """
 
     def prepare(self):

@@ -41,7 +41,7 @@ class AppConfig(BaseSettings):
     detectors: set[Literal["threshold", "geoip"]] = {"threshold"}
     response_statuses_white_list: set[int] = [100, 101, 200, 201, 204, 400, 401, 403]
 
-    blocking_type: set[Literal["ja5t", "ja5h", "ipset", "nftables", "geoip"]] = {"ja5t"}
+    blocking_types: set[Literal["ja5t", "ja5h", "ipset", "nftables", "geoip"]] = {"ja5t"}
     blocking_window_duration_sec: int = 10
     blocking_ja5_limit: int = 10
     blocking_ip_limits: int = 10
