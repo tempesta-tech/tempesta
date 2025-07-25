@@ -25,7 +25,9 @@
 #include <optional>
 #include <string>
 
-#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ptree_fwd.hpp>
+
+#include "clickhouse_config.hh"
 
 namespace fs = std::filesystem;
 
@@ -38,23 +40,6 @@ namespace fs = std::filesystem;
 class TfwLoggerConfig
 {
 public:
-	struct ClickHouseConfig {
-		// ClickHouse server hostname
-		std::string host{"localhost"};
-		// ClickHouse native protocol port
-		uint16_t port{9000};
-		// ClickHouse table name
-		std::string table_name{"access_log"};
-		// Optional username
-		std::optional<std::string> user;
-		// Optional password
-		std::optional<std::string> password;
-		// Events before forcing commit
-		size_t max_events{1000};
-		// Max time before commit
-		std::chrono::milliseconds max_wait{100};
-	};
-
 	/**
 	 * Default constructor.
 	 */
@@ -120,6 +105,12 @@ public:
 	override_clickhouse_port(uint16_t port)
 	{
 		clickhouse_.port = port;
+	}
+
+	void
+	override_clickhouse_db_name(const std::string &db_name)
+	{
+		clickhouse_.db_name = db_name;
 	}
 
 	void
