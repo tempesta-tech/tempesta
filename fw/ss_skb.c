@@ -108,14 +108,14 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, size_t len, unsigned int tx_flags)
+ss_skb_alloc_data(struct sk_buff **skb_head, size_t max_len, size_t len, unsigned int tx_flags)
 {
-	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
+	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, max_len) : 1;
 	size_t n = 0;
 	struct sk_buff *skb;
 
 	for (i_skb = 0; i_skb < nr_skbs; ++i_skb, len -= n) {
-		n = min(len, SS_SKB_MAX_DATA_LEN);
+		n = min(len, max_len);
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;

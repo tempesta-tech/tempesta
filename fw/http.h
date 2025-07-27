@@ -248,6 +248,14 @@ typedef enum {
 	((!hmmsg->conn || TFW_CONN_TYPE(hmmsg->conn) & Conn_Srv) &&	\
 	 hmmsg->pair && TFW_MSG_H2(hmmsg->pair))
 
+#define TFW_MSG_SKB_MAX_LEN(hmmsg)					\
+({									\
+	TfwConn *conn = (!hmmsg->conn ||				\
+			 TFW_CONN_TYPE(hmmsg->conn) & Conn_Srv) ?	\
+		hmmsg->pair->conn : hmmsg->conn;			\
+	TFW_CONN_TLS(conn) ? TLS_MAX_PAYLOAD_SIZE : SS_SKB_MAX_DATA_LEN; \
+})
+
 /**
  * The structure to hold data for an HTTP error response.
  * An error response is sent later in an unlocked queue context.
