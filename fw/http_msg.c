@@ -825,11 +825,12 @@ tfw_http_msg_cutoff_body_chunks(TfwHttpResp *resp)
  * may be used. (See __tfw_http_msg_alloc(full=False)).
  */
 int
-tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
+tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t max_len,
+		   size_t data_len)
 {
 	int r;
 
-	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len)))
+	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, max_len, data_len)))
 		return r;
 	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
@@ -1220,10 +1221,9 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
 	TfwMsgIter *it = &hm->iter;
 	TfwPool* pool = hm->pool;
+	unsigned long max_len = TFW_MSG_SKB_MAX_LEN(hm);
 	void *addr;
 	int r;
-
-	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
 
 	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 		rlen = c->len;
@@ -1240,7 +1240,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			 */
 			n_copy = room == 0 ? rlen : min(room, rlen);
 			off = c->len - rlen;
-			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
+			skb_room = likely(max_len >= it->skb->len) ?
+				max_len - it->skb->len : 0;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
@@ -1285,7 +1286,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 					it->frag = frag - 1;
 				}
 
-				skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
+				skb_room = max_len - it->skb->len;
 			}
 
 			n_copy = min(n_copy, skb_room);

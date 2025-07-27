@@ -61,7 +61,7 @@ test_req_alloc(size_t data_len)
 	hmreq = __tfw_http_msg_alloc(Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
-	ret = tfw_http_msg_setup(hmreq, &it, data_len);
+	ret = tfw_http_msg_setup(hmreq, &it, SS_SKB_MAX_DATA_LEN, data_len);
 	BUG_ON(ret);
 
 	memset(&conn_req, 0, sizeof(TfwConn));
@@ -94,7 +94,7 @@ test_resp_alloc(size_t data_len)
 	hmresp = __tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	ret = tfw_http_msg_setup(hmresp, &it, data_len);
+	ret = tfw_http_msg_setup(hmresp, &it, SS_SKB_MAX_DATA_LEN, data_len);
 	BUG_ON(ret);
 
 	memset(&conn_resp, 0, sizeof(TfwConn));

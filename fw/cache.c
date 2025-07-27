@@ -2834,7 +2834,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
  * to actually reserve any space for h2 frame header.
  */
 static int
-tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 			  unsigned long body_sz, bool h2, bool chunked_body)
 {
 #define S_ZERO "0"
@@ -2843,7 +2843,8 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * Finish chunked body encoding. Add 0\r\n
 	 * after chunked body.
 	 */
-	bool sh_frag = h2 ? false : true;
+	TfwMsgIter *it = &resp->iter;
+	bool sh_frag = !h2 && TFW_CONN_TLS(resp->req->conn);
 	int r;
 
 	if (WARN_ON_ONCE(!it->skb_head))
@@ -2853,12 +2854,12 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * create new skb with empty frags to reference the cached body;
 	 * otherwise, use next empty frag in current skb.
 	 */
-	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS || sh_frag) {
+	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS) {
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-		if (sh_frag)
-			skb_shinfo(it->skb)->flags |= SKBFL_SHARED_FRAG;
 	}
+	if (sh_frag)
+		skb_shinfo(it->skb)->tx_flags |= SKBFL_SHARED_FRAG;
 
 	if (unlikely(!body_sz))
 		goto add_zero_chunk;
@@ -3160,7 +3161,7 @@ write_body:
 	if ((ce->body_len || chunked_body)
 	    && req->method != TFW_HTTP_METH_HEAD)
 	{
-		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
+		if (tfw_cache_build_resp_body(db, trec, resp, p, ce->body_len,
 					      h2_mode, chunked_body))
 			goto free;
 	}
