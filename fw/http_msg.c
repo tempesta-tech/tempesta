@@ -854,11 +854,16 @@ tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 	if (WARN_ON_ONCE(it->frag >= skb_shinfo(it->skb)->nr_frags))
 		return -E2BIG;
 
+	CHECK_ITER_SETUP(it);
+
 	TFW_STR_FOR_EACH_CHUNK(c, data, end) {
 		char *p;
-		unsigned int c_off = 0, c_size, f_room, n_copy;
+		unsigned int c_off = 0, c_size, f_room, n_copy, skb_room;
 this_chunk:
 		c_size = c->len - c_off;
+		skb_room = likely(it->max_len >= it->skb->len) ?
+				  it->max_len - it->skb->len : 0;
+
 		if (it->frag >= 0) {
 			unsigned int f_size;
 			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
@@ -866,12 +871,12 @@ this_chunk:
 			f_size = skb_frag_size(frag);
 			f_room = PAGE_SIZE - skb_frag_off(frag) - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
-			n_copy = min(c_size, f_room);
+			n_copy = min3(c_size, f_room, skb_room);
 			skb_frag_size_add(frag, n_copy);
 			ss_skb_adjust_data_len(it->skb, n_copy);
 		} else {
 			f_room = skb_tailroom(it->skb);
-			n_copy = min(c_size, f_room);
+			n_copy = min3(c_size, f_room, skb_room);
 			p = skb_put(it->skb, n_copy);
 		}
 
@@ -887,9 +892,9 @@ this_chunk:
 		 * The chunk occupied all the spare space in the SKB fragment,
 		 * switch to the next fragment.
 		 */
-		if (c_size >= f_room) {
+		if (c_size >= f_room || c_size >= skb_room) {
 			if (WARN_ON_ONCE(tfw_msg_iter_next_data_frag(it)
-					 && ((c_size != f_room)
+					 && ((c_size != n_copy)
 					     || (c + 1 < end))))
 			{
 				return -E2BIG;
@@ -899,7 +904,7 @@ this_chunk:
 			 * stay in the current chunk and copy the rest to the
 			 * next fragment.
 			 */
-			if (c_size != f_room) {
+			if (c_size != n_copy) {
 				c_off += n_copy;
 				goto this_chunk;
 			}
@@ -1009,9 +1014,11 @@ tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 {
 	const TfwStr *c, *end;
 
+	CHECK_ITER_SETUP(it);
+
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		char *p;
-		unsigned long off = 0, cur_len, f_room, min_len;
+		unsigned long off = 0, cur_len, f_room, min_len, skb_room;
 this_chunk:
 		if (!it->skb) {
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
@@ -1031,7 +1038,7 @@ this_chunk:
 			skb_frag_t *frag;
 			struct page *page;
 
-			if (it->frag + 1 == MAX_SKB_FRAGS) {
+			if (TFW_HTTP_MSG_ITER_MEED_SKB(it)) {
 				it->skb = NULL;
 				goto this_chunk;
 			}
@@ -1050,6 +1057,8 @@ this_chunk:
 		}
 
 		cur_len = c->len - off;
+		skb_room = likely(it->max_len >= it->skb->len) ?
+			it->max_len - it->skb->len : 0;
 		if (it->frag >= 0) {
 			unsigned int f_size;
 			skb_frag_t *frag;
@@ -1058,23 +1067,23 @@ this_chunk:
 			f_size = skb_frag_size(frag);
 			f_room = PAGE_SIZE - skb_frag_off(frag) - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
-			min_len = min(cur_len, f_room);
+			min_len = min3(cur_len, f_room, skb_room);
 			skb_frag_size_add(frag, min_len);
 			ss_skb_adjust_data_len(it->skb, min_len);
 		} else {
 			f_room = skb_tailroom(it->skb);
-			min_len = min(cur_len, f_room);
+			min_len = min3(cur_len, f_room, skb_room);
 			p = skb_put(it->skb, min_len);
 		}
 
 		memcpy_fast(p, c->data + off, min_len);
 
-		if (cur_len >= f_room) {
+		if (cur_len >= f_room || cur_len >= skb_room) {
 			/*
 			 * If the amount of skb frags is exhausted, allocate new
 			 * skb on next iteration (if it will be).
 			 */
-			if (MAX_SKB_FRAGS <= it->frag + 1) {
+			if (TFW_HTTP_MSG_ITER_MEED_SKB(it)) {
 				it->skb = NULL;
 				it->frag = -1;
 			}
@@ -1091,7 +1100,7 @@ this_chunk:
 				       page_address(page), it->skb);
 			}
 
-			if (cur_len != f_room) {
+			if (cur_len != min_len) {
 				off += min_len;
 				goto this_chunk;
 			}
@@ -1180,6 +1189,7 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 {
 	TfwMsgIter *it = &resp->iter;
 	struct sk_buff **body;
+	TfwStr *c, *end;
 	char *p;
 	int r;
 
@@ -1200,6 +1210,16 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 	/* Move body to the next skb. */
 	ss_skb_move_frags(it->skb, nskb, *frag,
 			  skb_shinfo(it->skb)->nr_frags - *frag);
+	/*
+	 * After moving body, we should also update resp->cut
+	 * to correct removing body flag data.
+	 */
+	TFW_STR_FOR_EACH_CHUNK(c, &resp->cut, end) {
+		if (c->skb == *body)
+			c->skb = nskb;
+		else
+			break;
+	}
 	*body = nskb;
 
 	return 1;
@@ -1221,7 +1241,6 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
 	TfwMsgIter *it = &hm->iter;
 	TfwPool* pool = hm->pool;
-	unsigned long max_len = TFW_MSG_SKB_MAX_LEN(hm);
 	void *addr;
 	int r;
 
@@ -1240,8 +1259,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			 */
 			n_copy = room == 0 ? rlen : min(room, rlen);
 			off = c->len - rlen;
-			skb_room = likely(max_len >= it->skb->len) ?
-				max_len - it->skb->len : 0;
+			skb_room = likely(it->max_len >= it->skb->len) ?
+				it->max_len - it->skb->len : 0;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
@@ -1286,7 +1305,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 					it->frag = frag - 1;
 				}
 
-				skb_room = max_len - it->skb->len;
+				CHECK_ITER_SETUP(it);
+				skb_room = it->max_len - it->skb->len;
 			}
 
 			n_copy = min(n_copy, skb_room);

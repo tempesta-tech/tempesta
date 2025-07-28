@@ -721,8 +721,7 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 {
 	TfwMsgIter it;
 	TfwStr *body = NULL;
-	size_t max_len = TFW_CONN_TLS(resp->req->conn) ?
-		TLS_MAX_PAYLOAD_SIZE : SS_SKB_MAX_DATA_LEN; 
+	size_t max_len = TFW_RESP_SKB_MAX_LEN(resp);
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
@@ -3784,7 +3783,8 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	req->cleanup->pages_sz = 0;
 	req->cleanup->skb_head = NULL;
 
-	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
+	tfw_msg_transform_setup(&req->iter, SS_SKB_MAX_DATA_LEN,
+				req->msg.skb_head);
 	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
 	if (unlikely(r))
 		goto clean;
@@ -4247,7 +4247,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, &new_head, SS_SKB_MAX_DATA_LEN h1_hdrs_sz);
+	r = tfw_msg_iter_setup(&it, &new_head, SS_SKB_MAX_DATA_LEN,
+			       h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
 
@@ -4586,11 +4587,12 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	TfwMsgIter *iter = &resp->iter;
 	TfwHttpMsgCleanup cleanup = {};
-	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
-							  req->vhost,
-							  TFW_VHOST_HDRMOD_RESP);
+	const TfwHdrMods *h_mods =
+		tfw_vhost_get_hdr_mods(req->location, req->vhost,
+				       TFW_VHOST_HDRMOD_RESP);
 
-	tfw_msg_transform_setup(iter, resp->msg.skb_head);
+	tfw_msg_transform_setup(iter, TFW_RESP_SKB_MAX_LEN(resp),
+				resp->msg.skb_head);
 
 	r = tfw_h1_resp_cutoff_headers(resp, &cleanup);
 	if (unlikely(r))
@@ -5264,7 +5266,9 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 		return -EINVAL;
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
-	if (it->frag + 1 >= MAX_SKB_FRAGS) {
+	CHECK_ITER_SETUP(it);
+
+	if (TFW_HTTP_MSG_ITER_MEED_SKB(it)) {
 		if ((r = tfw_msg_iter_append_skb(it)))
 			return r;
 	}
@@ -5273,13 +5277,14 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 	while (len) {
 		struct page *page;
 		char *p;
-		size_t copy = min(len, max_copy);
+		size_t skb_room = likely(it->max_len >= it->skb->len) ?
+			it->max_len - it->skb->len : 0;
+		size_t copy = min3(len, max_copy, skb_room);
 
 		len -= copy;
 
-		if (!(page = alloc_page(GFP_ATOMIC))) {
+		if (!(page = alloc_page(GFP_ATOMIC)))
 			return -ENOMEM;
-		}
 		p = page_address(page);
 		memcpy_fast(p, data, copy);
 		data += copy;
@@ -5288,7 +5293,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 		skb_fill_page_desc(it->skb, it->frag, page, 0, copy);
 		ss_skb_adjust_data_len(it->skb, copy);
 
-		if (it->frag + 1 == MAX_SKB_FRAGS
+		if ((TFW_HTTP_MSG_ITER_MEED_SKB(it))
 		    && (r = tfw_msg_iter_append_skb(it)))
 		{
 			return r;
@@ -5758,7 +5763,8 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	 */
 	WARN_ON_ONCE(mit->acc_len);
 	BUG_ON(mit->frame_head);
-	tfw_msg_transform_setup(&resp->iter, resp->msg.skb_head);
+	tfw_msg_transform_setup(&resp->iter, TLS_MAX_PAYLOAD_SIZE,
+				resp->msg.skb_head);
 
 	r = tfw_http_msg_cutoff_headers((TfwHttpMsg *)resp, &cleanup);
 	if (unlikely(r))

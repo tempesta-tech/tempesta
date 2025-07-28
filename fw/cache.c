@@ -2849,12 +2849,15 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
+
+	CHECK_ITER_SETUP(it);
+
 	/*
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
 	 * otherwise, use next empty frag in current skb.
 	 */
-	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS) {
+	if (!it->skb || TFW_HTTP_MSG_ITER_MEED_SKB(it)) {
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
 	}
@@ -2896,19 +2899,22 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 	}
 
 	while (1) {
-		int f_size;
+		int len, f_size;
+		unsigned long skb_room = likely(it->max_len >= it->skb->len) ?
+			it->max_len - it->skb->len : 0;
 
-		f_size = trec->data + trec->len - p;
+		len = trec->data + trec->len - p;
 
-		BUG_ON(f_size < 0 || f_size > PAGE_SIZE);
-		if (f_size) {
-			f_size = min(body_sz, (unsigned long)f_size);
+		BUG_ON(len < 0 || len > PAGE_SIZE);
+		if (len) {
+			f_size = min3(body_sz, (unsigned long)len, skb_room);
 			body_sz -= f_size;
+
 			r = tfw_cache_add_body_page(it, p, f_size, h2);
 			if (r)
 				return r;
 		}
-		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
+		if (!body_sz || (len == f_size && !(trec = tdb_next_rec_chunk(db, trec))))
 			break;
 		/*
 		 * Broken record: body is not fully copied yet, but there is
@@ -2916,9 +2922,9 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 		 */
 		if (WARN_ON_ONCE(!trec->len))
 			return -EINVAL;
-		p = trec->data;
+		p = (len == f_size ? trec->data : trec->data + f_size);
 
-		if (it->frag + 1 == MAX_SKB_FRAGS
+		if (TFW_HTTP_MSG_ITER_MEED_SKB(it)
 		    && (r = tfw_msg_iter_append_skb(it)))
 		{
 			return r;
