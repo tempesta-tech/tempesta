@@ -89,6 +89,7 @@ __tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 	TfwHttpResp *resp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_Srv, full);
 	if (resp)
 		tfw_http_msg_pair(resp, req);
+	resp->iter.max_len = TFW_RESP_SKB_MAX_LEN(resp);
 
 	return resp;
 }
@@ -106,10 +107,11 @@ tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
 }
 
 static inline void
-tfw_msg_transform_setup(TfwMsgIter *iter, struct sk_buff *skb)
+tfw_msg_transform_setup(TfwMsgIter *iter, size_t max_len, struct sk_buff *skb)
 {
 	BUG_ON(!skb);
 
+	iter->max_len = max_len;
 	iter->frag = -1;
 	iter->skb = skb;
 	if (!iter->skb_head)
@@ -186,5 +188,10 @@ tfw_http_msg_method_close(TfwHttpMsg *hm)
 	hm->h_tbl->tbl[parser->_hdr_tag] = parser->hdr;
 	TFW_STR_INIT(&parser->hdr);
 }
+
+#define CHECK_ITER_SETUP(it)						\
+	BUG_ON(!it->max_len || (it->skb && it->skb->len > it->max_len))
+#define TFW_HTTP_MSG_ITER_MEED_SKB(it)					\
+	(it->frag + 1 == MAX_SKB_FRAGS || it->skb->len == it->max_len)
 
 #endif /* __TFW_HTTP_MSG_H__ */
