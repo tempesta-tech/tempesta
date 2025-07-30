@@ -168,11 +168,7 @@ frang_sk_mark_whitelisted(struct sock *sk)
 static inline FrangAcc *
 frang_acc_from_sk(struct sock *sk)
 {
-	unsigned long d = (unsigned long)tempesta_sock(sk)->class_prvt;
-
-	d &= ~1;
-
-	return (FrangAcc *)d;
+	return frang_ptr_from_sk(sk);
 }
 
 bool
