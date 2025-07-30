@@ -2833,7 +2833,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
  * to actually reserve any space for h2 frame header.
  */
 static int
-tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 			  unsigned long body_sz, bool h2, bool chunked_body)
 {
 #define S_ZERO "0"
@@ -2842,22 +2842,47 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * Finish chunked body encoding. Add 0\r\n
 	 * after chunked body.
 	 */
-	bool sh_frag = h2 ? false : true;
+	TfwMsgIter *it = &resp->iter;
+	bool sh_frag = !h2 && TFW_CONN_TLS(resp->req->conn);
+	unsigned long body_sz_in_skb;
 	int r;
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
+
+	/*
+	 * If the body size is equal to ULONG_MAX we need extra
+	 * 23 bytes for encoding b_len.
+	 */
+	body_sz_in_skb = body_sz + (chunked_body ? 23 : 0);
+
 	/*
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
 	 * otherwise, use next empty frag in current skb.
+	 * If sh_frag is true we should copy skb with headers during
+	 * encryption. In this case we calculate count of skbs to build
+	 * response if we force add/not add extra skb for body here.
+	 * - If count of skbs are equal add skb (we don't increase count of
+	 * skbs in response, but avoid extra body copying).
+	 * - If count of skbs are not equal we calculte count of body bytes
+	 * should be copied during encryption and if this count is greater
+	 * then TLS_MAX_PAYLOAD_SIZE create extra skb.
 	 */
-	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS || sh_frag) {
+	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS
+	    || (sh_frag
+		&& ((DIV_ROUND_UP(body_sz_in_skb + it->skb->len,
+				  SS_SKB_MAX_DATA_LEN) ==
+		     1 + DIV_ROUND_UP(body_sz_in_skb,
+				      SS_SKB_MAX_DATA_LEN))
+		    || (min(SS_SKB_MAX_DATA_LEN - it->skb->len,
+			    body_sz_in_skb) >=
+			TLS_MAX_PAYLOAD_SIZE)))) {
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-		if (sh_frag)
-			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 	}
+	if (sh_frag)
+		skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 
 	if (unlikely(!body_sz))
 		goto add_zero_chunk;
@@ -3159,7 +3184,7 @@ write_body:
 	if ((ce->body_len || chunked_body)
 	    && req->method != TFW_HTTP_METH_HEAD)
 	{
-		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
+		if (tfw_cache_build_resp_body(db, trec, resp, p, ce->body_len,
 					      h2_mode, chunked_body))
 			goto free;
 	}
