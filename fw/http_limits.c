@@ -28,7 +28,6 @@
 #include <linux/bitmap.h>
 
 #include "lib/fsm.h"
-#include "lib/common.h"
 #include "tdb.h"
 
 #include "tempesta_fw.h"
@@ -90,18 +89,9 @@ typedef struct {
 typedef struct {
 	unsigned int		conn_curr;
 	spinlock_t		lock;
-	unsigned long		expires;
 	FrangRates		history[FRANG_FREQ];
 	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
 } FrangAcc;
-
-/*
- * Time after FrangAcc->history and FrangAcc->resp_code_stat will be zeroed.
- *
- * Default value is 1, but http_resp_code_block can increase this value during
- * parsing configuration.
- */
-unsigned int expires_time = 1;
 
 #define FRANG_CLI2ACC(c)	((FrangAcc *)(&(c)->class_prvt))
 #define FRANG_ACC2CLI(a)	container_of((TfwClassifierPrvt *)a,	\
@@ -196,27 +186,22 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 {
 	int i = ts % FRANG_FREQ;
 
-	/*
-	 * Increment connection counters even when we return T_BLOCK.
-	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
-	 * frang_conn_close() is also called. @conn_curr is decremented
-	 * there, but @conn_new is not changed. We count both failed
-	 * connection attempts and connections that were successfully
-	 * established.
-	 */
-	ra->conn_curr++;
-	if (ra->conn_curr == 1 && tfw_current_timestamp() > ra->expires) {
-		ra->expires = LONG_MAX;
-		bzero_fast(&ra->history, sizeof(ra->history));
-		bzero_fast(&ra->resp_code_stat, sizeof(ra->resp_code_stat));
-		TFW_INC_STAT_BH(clnt.online);
-	}
-
 	if (ra->history[i].ts != ts) {
 		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
 		ra->history[i].ts = ts;
 	}
+
+	/*
+	 * Increment connection counters even when we return T_BLOCK.
+	 * We call tfw_classify_conn_close() even for failed connections.
+	 * @conn_curr is decremented there, but @conn_new is not changed.
+	 * We count both failed connection attempts and connections that were
+	 * successfully established.
+	 */
 	ra->history[i].conn_new++;
+	ra->conn_curr++;
+	if (ra->conn_curr == 1)
+		TFW_INC_STAT_BH(clnt.online);
 }
 
 static int
@@ -374,10 +359,8 @@ tfw_classify_conn_close(struct sock *sk)
 	BUG_ON(ra->conn_curr == 0);
 	ra->conn_curr--;
 
-	if (!ra->conn_curr) {
-		ra->expires = tfw_current_timestamp() + expires_time;
+	if (!ra->conn_curr)
 		TFW_DEC_STAT_BH(clnt.online);
-	}
 
 	spin_unlock(&ra->lock);
 
@@ -398,9 +381,8 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	spin_lock(&ra->lock);
 
 	if (ra->history[i].ts != ts) {
+		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
 		ra->history[i].ts = ts;
-		ra->history[i].conn_new = 0;
-		ra->history[i].req = 0;
 	}
 	ra->history[i].req++;
 
@@ -1748,13 +1730,6 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 
 	return frang_sticky_cookie_limit(ra, (TfwCliConn *)conn,
 					 sticky->max_misses);
-}
-
-void
-frang_set_expires_time(unsigned int expires)
-{
-	if (expires_time < expires + 1)
-		expires_time = expires + 1;
 }
 
 /*

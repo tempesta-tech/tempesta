@@ -195,11 +195,6 @@ int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb)
 }
 
 void
-tfw_client_set_expires_time(unsigned int expires_time)
-{
-}
-
-void
 tfw_client_put(TfwClient *cli)
 {
 }
