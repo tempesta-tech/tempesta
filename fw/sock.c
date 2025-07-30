@@ -1174,6 +1174,9 @@ ss_tcp_state_change(struct sock *sk)
 			 */
 			if (is_srv_sock)
 				ss_conn_drop_guard_exit(sk);
+			else
+				/* Paired with @frang_conn_new() */
+				tfw_classify_conn_close(sk);
 			return;
 		}
 
@@ -1181,6 +1184,8 @@ ss_tcp_state_change(struct sock *sk)
 			ss_do_close(sk, 0);
 			sock_put(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
+			/* Paired with @frang_conn_new() */
+			tfw_classify_conn_close(sk);
 			return;
 		}
 
