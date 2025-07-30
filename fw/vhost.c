@@ -2210,12 +2210,6 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf))
 		return -EINVAL;
 
-	/*
-	 * We need the maximum time frame used by all the limiting logic
-	 * to keep limit accounting data during this time if the connection is
-	 * closed
-	 */
-	frang_set_expires_time(cb->tf);
 	/* Update time frame value to reduce calculations in hot-path. */
 	cb->tf = (cb->tf * HZ) / FRANG_FREQ;
 
