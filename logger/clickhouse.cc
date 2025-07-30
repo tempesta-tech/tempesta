@@ -51,6 +51,7 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
 	auto opts = clickhouse::ClientOptions();
 
 	opts.SetHost(config.host);
+	opts.SetPort(config.port);
 	opts.SetDefaultDatabase(config.db_name);
 
 	if (const auto user = config.user.value_or(""); !user.empty())
