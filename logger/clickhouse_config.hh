@@ -24,6 +24,8 @@
 #include <optional>
 #include <string>
 
+#include <boost/property_tree/ptree_fwd.hpp>
+
 #include <fmt/format.h>
 
 struct ClickHouseConfig {
@@ -37,6 +39,12 @@ struct ClickHouseConfig {
 	size_t max_events{1000};
 	// Max time before commit
 	std::chrono::milliseconds max_wait{100};
+
+	void
+	parse_from_ptree(const boost::property_tree::ptree &tree);
+
+	void
+	validate() const;
 };
 
 template <> struct fmt::formatter<ClickHouseConfig> {
@@ -50,15 +58,13 @@ template <> struct fmt::formatter<ClickHouseConfig> {
 	constexpr decltype(auto)
 	format(const ClickHouseConfig &config, FormatContext &ctx)
 	{
-		static constexpr auto msg_template =
-			"{{host: '{}',"
-			" port: {},"
-			" database: '{}',"
-			" table: '{}',"
-			" user: '{}',"
-			" max_events: {},"
-			" max_wait: {}ms}}";
-
+		constexpr auto msg_template = "{{host: '{}',"
+					      " port: {},"
+					      " database: '{}',"
+					      " table: '{}',"
+					      " user: '{}',"
+					      " max_events: {},"
+					      " max_wait: {}ms}}";
 		return fmt::format_to(ctx.out(),
 				      msg_template,
 				      config.host,

@@ -280,7 +280,7 @@ try {
 
 	while (!stop_flag)
 	try {
-		const auto &ch_cfg = config.get_clickhouse();
+		const auto &ch_cfg = config.clickhouse;
 		spdlog::debug("Worker {} connecting to ClickHouse: {}", ncpu, ch_cfg);
 		TfwClickhouse clickhouse(ch_cfg, make_block());
 		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
@@ -452,30 +452,31 @@ load_configuration(const ParsedOptions &opts)
 	config = std::move(*loaded_config);
 
 	// Set default log path if not specified in config
-	if (config.get_log_path().empty())
-		config.override_log_path(fs::path(default_log_path));
+	if (config.log_path.empty())
+		config.log_path = fs::path(default_log_path);
 
 	// Apply command line overrides
 	if (opts.clickhouse_host)
-		config.override_clickhouse_host(*opts.clickhouse_host);
+		config.clickhouse.host = *opts.clickhouse_host;
 	if (opts.clickhouse_port)
-		config.override_clickhouse_port(*opts.clickhouse_port);
+		config.clickhouse.port = *opts.clickhouse_port;
 	if (opts.clickhouse_db_name)
-		config.override_clickhouse_db_name(*opts.clickhouse_db_name);
+		config.clickhouse.db_name = *opts.clickhouse_db_name;
 	if (opts.clickhouse_table)
-		config.override_clickhouse_table(*opts.clickhouse_table);
+		config.clickhouse.table_name = *opts.clickhouse_table;
 	if (opts.clickhouse_user)
-		config.override_clickhouse_user(*opts.clickhouse_user);
+		config.clickhouse.user = *opts.clickhouse_user;
 	if (opts.clickhouse_password)
-		config.override_clickhouse_password(*opts.clickhouse_password);
+		config.clickhouse.password = *opts.clickhouse_password;
 	if (opts.clickhouse_max_events)
-		config.override_clickhouse_max_events(
-		    *opts.clickhouse_max_events);
+		config.clickhouse.max_events = *opts.clickhouse_max_events;
 	if (opts.clickhouse_max_wait_ms)
-		config.override_clickhouse_max_wait(
-		    *opts.clickhouse_max_wait_ms);
+		config.clickhouse.max_wait = std::chrono::milliseconds(
+			*opts.clickhouse_max_wait_ms);
 	if (opts.log_path)
-		config.override_log_path(*opts.log_path);
+		config.log_path = *opts.log_path;
+
+	config.validate();
 }
 
 void
@@ -510,10 +511,10 @@ void
 initialize_logging()
 try {
 	// Create log directory if needed
-	fs::create_directories(fs::path(config.get_log_path()).parent_path());
+	fs::create_directories(config.log_path.parent_path());
 
 	auto logger = spdlog::basic_logger_mt("access_logger",
-					      config.get_log_path().string());
+					      config.log_path.string());
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::info);
 	logger->flush_on(spdlog::level::info);
@@ -636,7 +637,7 @@ try {
 
 	// Log startup information
 	spdlog::info("Starting Tempesta FW Logger...");
-	spdlog::info("ClickHouse configuration: {}", config.get_clickhouse());
+	spdlog::info("ClickHouse configuration: {}", config.clickhouse);
 
 	// Setup signal handlers for graceful shutdown
 	setup_signal_handlers();
