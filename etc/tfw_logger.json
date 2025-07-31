@@ -6,6 +6,7 @@
         "port": 9000,
         "user": "default",
         "password": "",
+        "db_name": "default",
         "table_name": "access_log",
         "max_events": 1000,
         "max_wait_ms": 100

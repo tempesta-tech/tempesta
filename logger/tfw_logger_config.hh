@@ -20,54 +20,25 @@
 
 #pragma once
 
-#include <chrono>
 #include <filesystem>
 #include <optional>
-#include <string>
 
-#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ptree_fwd.hpp>
+
+#include "clickhouse_config.hh"
 
 namespace fs = std::filesystem;
 
-/**
- * Configuration for Tempesta FW Logger.
- *
- * This class handles loading configuration from JSON files and provides
- * methods to override settings from command line arguments.
- */
-class TfwLoggerConfig
-{
-public:
-	struct ClickHouseConfig {
-		// ClickHouse server hostname
-		std::string host{"localhost"};
-		// ClickHouse native protocol port
-		uint16_t port{9000};
-		// ClickHouse table name
-		std::string table_name{"access_log"};
-		// Optional username
-		std::optional<std::string> user;
-		// Optional password
-		std::optional<std::string> password;
-		// Events before forcing commit
-		size_t max_events{1000};
-		// Max time before commit
-		std::chrono::milliseconds max_wait{100};
-	};
+struct TfwLoggerConfig {
+	// Log file path - default set in tfw_logger.cc
+	fs::path log_path;
+	// mmap buffer size (4MB default)
+	size_t buffer_size{4 * 1024 * 1024};
+	// ClickHouse connection settings
+	ClickHouseConfig clickhouse;
 
-	/**
-	 * Default constructor.
-	 */
-	TfwLoggerConfig() = default;
-
-	/**
-	 * Get minimum buffer size constant.
-	 */
-	static constexpr size_t
-	get_min_buffer_size() noexcept
-	{
-		return MIN_BUFFER_SIZE;
-	}
+	// Minimum buffer size (one memory page)
+	static constexpr size_t MIN_BUFFER_SIZE = 4096;
 
 	/**
 	 * Load configuration from a JSON file.
@@ -78,97 +49,9 @@ public:
 	static std::optional<TfwLoggerConfig>
 	load_from_file(const fs::path &path);
 
-	// Getters
-	const fs::path &
-	get_log_path() const
-	{
-		return log_path_;
-	}
-
-	size_t
-	get_buffer_size() const
-	{
-		return buffer_size_;
-	}
-
-	const ClickHouseConfig &
-	get_clickhouse() const
-	{
-		return clickhouse_;
-	}
-
-	// Override methods for command line arguments
 	void
-	override_log_path(const fs::path &path)
-	{
-		log_path_ = path;
-	}
+	validate() const;
 
-	void
-	override_buffer_size(size_t size)
-	{
-		buffer_size_ = size;
-	}
-
-	void
-	override_clickhouse_host(const std::string &host)
-	{
-		clickhouse_.host = host;
-	}
-
-	void
-	override_clickhouse_port(uint16_t port)
-	{
-		clickhouse_.port = port;
-	}
-
-	void
-	override_clickhouse_table(const std::string &table)
-	{
-		clickhouse_.table_name = table;
-	}
-
-	void
-	override_clickhouse_user(const std::string &user)
-	{
-		clickhouse_.user = user;
-	}
-
-	void
-	override_clickhouse_password(const std::string &password)
-	{
-		clickhouse_.password = password;
-	}
-
-	void
-	override_clickhouse_max_events(size_t events)
-	{
-		clickhouse_.max_events = events;
-	}
-
-	void
-	override_clickhouse_max_wait(int ms)
-	{
-		clickhouse_.max_wait = std::chrono::milliseconds(ms);
-	}
-
-private:
-	// Minimum buffer size (one memory page)
-	static constexpr size_t MIN_BUFFER_SIZE = 4096;
-
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path_;
-	// mmap buffer size (4MB default)
-	size_t buffer_size_{4 * 1024 * 1024};
-	// ClickHouse connection settings
-	ClickHouseConfig clickhouse_;
-
-	/**
-	 * Parse configuration from property tree (loaded from JSON).
-	 *
-	 * @param tree Property tree containing configuration
-	 * @throws std::runtime_error on invalid configuration values
-	 */
 	void
 	parse_from_ptree(const boost::property_tree::ptree &tree);
 };

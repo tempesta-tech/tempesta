@@ -60,12 +60,13 @@ TEST_F(ConfigTest, DefaultValues)
 	TfwLoggerConfig config;
 
 	// Test default values
-	EXPECT_EQ(config.get_buffer_size(), 4 * 1024 * 1024); // 4MB
-	EXPECT_TRUE(config.get_log_path().empty()); // no default set initially
+	EXPECT_EQ(config.buffer_size, 4 * 1024 * 1024); // 4MB
+	EXPECT_TRUE(config.log_path.empty()); // no default set initially
 
-	const auto &ch = config.get_clickhouse();
+	const auto &ch = config.clickhouse;
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
+	EXPECT_EQ(ch.db_name, "default");
 	EXPECT_EQ(ch.table_name, "access_log");
 	EXPECT_EQ(ch.max_events, 1000);
 	EXPECT_EQ(ch.max_wait.count(), 100);
@@ -82,6 +83,7 @@ TEST_F(ConfigTest, LoadValidConfig)
 		"clickhouse": {
 			"host": "test.host.com",
 			"port": 9001,
+			"db_name": "test_db",
 			"table_name": "test_logs",
 			"user": "testuser",
 			"password": "testpass",
@@ -92,13 +94,15 @@ TEST_F(ConfigTest, LoadValidConfig)
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
+	EXPECT_NO_THROW(config->validate());
 
-	EXPECT_EQ(config->get_log_path(), "/var/log/test.log");
-	EXPECT_EQ(config->get_buffer_size(), 8388608);
+	EXPECT_EQ(config->log_path, "/var/log/test.log");
+	EXPECT_EQ(config->buffer_size, 8388608);
 
-	const auto &ch = config->get_clickhouse();
+	const auto &ch = config->clickhouse;
 	EXPECT_EQ(ch.host, "test.host.com");
 	EXPECT_EQ(ch.port, 9001);
+	EXPECT_EQ(ch.db_name, "test_db");
 	EXPECT_EQ(ch.table_name, "test_logs");
 	EXPECT_EQ(ch.user.value(), "testuser");
 	EXPECT_EQ(ch.password.value(), "testpass");
@@ -117,14 +121,16 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
+	EXPECT_NO_THROW(config->validate());
 
 	// Optional fields should use defaults
-	EXPECT_TRUE(config->get_log_path().empty());
-	EXPECT_EQ(config->get_buffer_size(), 4 * 1024 * 1024);
+	EXPECT_TRUE(config->log_path.empty());
+	EXPECT_EQ(config->buffer_size, 4 * 1024 * 1024);
 
-	const auto &ch = config->get_clickhouse();
+	const auto &ch = config->clickhouse;
 	EXPECT_EQ(ch.host, "minimal.host.com");
 	EXPECT_EQ(ch.port, 9000);		// default
+	EXPECT_EQ(ch.db_name, "default");	// default
 	EXPECT_EQ(ch.table_name, "access_log"); // default
 	EXPECT_FALSE(ch.user.has_value());
 	EXPECT_FALSE(ch.password.has_value());
@@ -153,7 +159,8 @@ TEST_F(ConfigTest, ValidationBufferTooSmall)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value());
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, ValidationEmptyHost)
@@ -166,7 +173,8 @@ TEST_F(ConfigTest, ValidationEmptyHost)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value());
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, ValidationInvalidPort)
@@ -180,7 +188,8 @@ TEST_F(ConfigTest, ValidationInvalidPort)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value());
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, ValidationEmptyTableName)
@@ -194,7 +203,23 @@ TEST_F(ConfigTest, ValidationEmptyTableName)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value());
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
+}
+
+TEST_F(ConfigTest, ValidationEmptyDbName)
+{
+	auto config_path = temp_dir / "empty_db_name.json";
+	write_config(config_path, R"({
+		"clickhouse": {
+			"host": "test.com",
+			"db_name": ""
+		}
+	})");
+
+	auto config = TfwLoggerConfig::load_from_file(config_path);
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, ValidationZeroMaxEvents)
@@ -208,7 +233,8 @@ TEST_F(ConfigTest, ValidationZeroMaxEvents)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value());
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, ValidationNegativeMaxWait)
@@ -222,34 +248,8 @@ TEST_F(ConfigTest, ValidationNegativeMaxWait)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value());
-}
-
-TEST_F(ConfigTest, CommandLineOverrides)
-{
-	TfwLoggerConfig config;
-
-	config.override_log_path(fs::path("/override/log.log"));
-	config.override_buffer_size(16777216);
-	config.override_clickhouse_host("override.host.com");
-	config.override_clickhouse_port(9002);
-	config.override_clickhouse_table("override_table");
-	config.override_clickhouse_user("override_user");
-	config.override_clickhouse_password("override_pass");
-	config.override_clickhouse_max_events(2000);
-	config.override_clickhouse_max_wait(500);
-
-	EXPECT_EQ(config.get_log_path(), "/override/log.log");
-	EXPECT_EQ(config.get_buffer_size(), 16777216);
-
-	const auto &ch = config.get_clickhouse();
-	EXPECT_EQ(ch.host, "override.host.com");
-	EXPECT_EQ(ch.port, 9002);
-	EXPECT_EQ(ch.table_name, "override_table");
-	EXPECT_EQ(ch.user.value(), "override_user");
-	EXPECT_EQ(ch.password.value(), "override_pass");
-	EXPECT_EQ(ch.max_events, 2000);
-	EXPECT_EQ(ch.max_wait.count(), 500);
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, NonExistentFile)
@@ -268,11 +268,13 @@ TEST_F(ConfigTest, FileWithoutClickHouseSection)
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
+	EXPECT_NO_THROW(config->validate());
 
 	// Should use default ClickHouse config
-	const auto &ch = config->get_clickhouse();
+	const auto &ch = config->clickhouse;
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
+	EXPECT_EQ(ch.db_name, "default");
 	EXPECT_EQ(ch.table_name, "access_log");
 }
 
@@ -299,14 +301,12 @@ TEST_F(ConfigTest, TableNameValidation_ValidNames)
 				"table_name": ")" + table_name + R"("
 			}
 		})");
-
 		auto config = TfwLoggerConfig::load_from_file(config_path);
-		EXPECT_TRUE(config.has_value()) << "Valid table name should be accepted: " 
-						<< table_name;
-		
-		if (config.has_value()) {
-			EXPECT_EQ(config->get_clickhouse().table_name, table_name);
-		}
+		ASSERT_TRUE(config.has_value());
+		EXPECT_NO_THROW(config->validate())
+			<< "Valid table name should be accepted: "
+			<< table_name;
+		EXPECT_EQ(config->clickhouse.table_name, table_name);
 	}
 }
 
@@ -355,8 +355,11 @@ TEST_F(ConfigTest, TableNameValidation_InvalidCharacters)
 		})");
 
 		auto config = TfwLoggerConfig::load_from_file(config_path);
-		EXPECT_FALSE(config.has_value()) << "Invalid table name should be rejected: " 
-						 << table_name;
+		if (config.has_value()) {
+			EXPECT_THROW(config->validate(), std::runtime_error)
+				<< "Invalid table name should be rejected: "
+				<< table_name;
+		}
 	}
 }
 
@@ -372,8 +375,9 @@ TEST_F(ConfigTest, TableNameValidation_TooLong)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value()) << "Table name longer than 128 characters "
-					    "should be rejected";
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error)
+		<< "Table name longer than 128 characters should be rejected";
 }
 
 TEST_F(ConfigTest, TableNameValidation_EmptyName)
@@ -387,7 +391,9 @@ TEST_F(ConfigTest, TableNameValidation_EmptyName)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	EXPECT_FALSE(config.has_value()) << "Empty table name should be rejected";
+	ASSERT_TRUE(config.has_value());
+	EXPECT_THROW(config->validate(), std::runtime_error)
+		<< "Empty table name should be rejected";
 }
 
 TEST_F(ConfigTest, TableNameValidation_DefaultNameValidation)
@@ -401,6 +407,8 @@ TEST_F(ConfigTest, TableNameValidation_DefaultNameValidation)
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	ASSERT_TRUE(config.has_value()) << "Default table name should be valid";
-	EXPECT_EQ(config->get_clickhouse().table_name, "access_log");
+	ASSERT_TRUE(config.has_value());
+	EXPECT_NO_THROW(config->validate())
+		<< "Default table name should be valid";
+	EXPECT_EQ(config->clickhouse.table_name, "access_log");
 }

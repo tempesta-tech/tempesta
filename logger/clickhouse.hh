@@ -20,10 +20,16 @@
 
 #pragma once
 
-#include <iostream>
+#include <chrono>
+#include <memory>
+#include <string>
 
-#include <clickhouse/base/socket.h>
+#include <clickhouse/block.h>
 #include <clickhouse/client.h>
+#include <clickhouse/columns/column.h>
+#include <clickhouse/types/types.h>
+
+#include "clickhouse_config.hh"
 
 /**
  * Class for sending records to a Clickhouse database.
@@ -45,16 +51,13 @@
  *    @client_ - Clickhouse Client instance for sending data to the database.
  *    @block_ - Block instance holding data records to be inserted.
  *    @last_time_ - The last timestamp when data was sent.
- *    @block_callback_ - Callback function that creates a new Block for data
- *        storage.
  *    @table_name_ - Name of the Clickhouse table where data is inserted.
+ *    @max_events_ - Maximum number of events to insert before committing.
+ *    @max_wait_ - Maximum time to wait before committing.
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(const std::string &host, const std::string &table_name,
-		      const std::string &user, const std::string &password,
-		      clickhouse::Block block, size_t max_events, 
-		      std::chrono::milliseconds max_wait);
+	TfwClickhouse(const ClickHouseConfig &config, clickhouse::Block block);
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
@@ -70,30 +73,5 @@ private:
 	const std::chrono::milliseconds		max_wait_;
 };
 
-template <typename T> std::shared_ptr<clickhouse::Column>
-create_column() {
-	return std::make_shared<T>();
-}
-
-static std::shared_ptr<clickhouse::Column>
-tfw_column_factory(clickhouse::Type::Code code)
-{
-	switch (code) {
-	case clickhouse::Type::UInt8:
-		return create_column<clickhouse::ColumnUInt8>();
-	case clickhouse::Type::UInt16:
-		return create_column<clickhouse::ColumnUInt16>();
-	case clickhouse::Type::UInt32:
-		return create_column<clickhouse::ColumnUInt32>();
-	case clickhouse::Type::UInt64:
-		return create_column<clickhouse::ColumnUInt64>();
-	case clickhouse::Type::IPv4:
-		return create_column<clickhouse::ColumnIPv4>();
-	case clickhouse::Type::IPv6:
-		return create_column<clickhouse::ColumnIPv6>();
-	case clickhouse::Type::String:
-		return create_column<clickhouse::ColumnString>();
-	default:
-		throw std::runtime_error("Column factory: incorrect code");
-	}
-}
+std::shared_ptr<clickhouse::Column>
+tfw_column_factory(clickhouse::Type::Code code);
