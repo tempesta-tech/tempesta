@@ -27,7 +27,7 @@ LDFLAGS += $(shell pkgconf --libs spdlog)
 LDFLAGS += -lboost_filesystem -lboost_system
 LDFLAGS += -pthread
 
-PARENT_SRCS := ../tfw_logger_config.cc ../pidfile.cc
+PARENT_SRCS := ../tfw_logger_config.cc ../pidfile.cc ../clickhouse_config.cc
 PARENT_OBJS := $(PARENT_SRCS:.cc=.o)
 
 TEST_SRCS := test_config.cc test_pidfile.cc

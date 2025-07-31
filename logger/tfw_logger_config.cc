@@ -21,104 +21,32 @@
 #include "tfw_logger_config.hh"
 
 #include <iostream>
-#include <sstream>
-#include <regex>
+#include <stdexcept>
 
 #include <boost/property_tree/json_parser.hpp>
 
-#include "error.hh"
-
 namespace pt = boost::property_tree;
-
-namespace {
-/**
- * Validate table name to prevent SQL injection.
- * 
- * @param table_name The table name to validate
- * @throws std::runtime_error if validation fails
- */
-void validate_table_name(const std::string& table_name) {
-	// Check length limit (ClickHouse uses filesystem, 128 should be enough)
-	if (table_name.length() > 128) {
-		throw std::runtime_error("Table name is too long (max 128 characters): " + 
-					 table_name);
-	}
-	
-	// Check for allowed characters only: A-Z, a-z, 0-9, _
-	static const std::regex valid_name_regex("^[A-Za-z0-9_]+$");
-	if (!std::regex_match(table_name, valid_name_regex)) {
-		throw std::runtime_error("Table name contains invalid characters. "
-					 "Only A-Z, a-z, 0-9, and _ are allowed: " + 
-					 table_name);
-	}
-}
-} // anonymous namespace
 
 void
 TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 {
-	// Parse paths and settings
-	if (auto log_path_opt = tree.get_optional<std::string>("log_path"))
-		log_path_ = *log_path_opt;
+	if (const auto val = tree.get_optional<std::string>("log_path"))
+		log_path = *val;
 
-	buffer_size_ = tree.get<size_t>("buffer_size", buffer_size_);
+	buffer_size = tree.get<size_t>("buffer_size", buffer_size);
 
-	// Validate buffer size
-	if (buffer_size_ < MIN_BUFFER_SIZE)
+	if (const auto node = tree.get_child_optional("clickhouse"))
+		clickhouse.parse_from_ptree(*node);
+}
+
+void
+TfwLoggerConfig::validate() const
+{
+	if (buffer_size < MIN_BUFFER_SIZE)
 		throw std::runtime_error("Buffer size must be at least " +
 					 std::to_string(MIN_BUFFER_SIZE) +
 					 " bytes (one memory page)");
-
-	// Parse ClickHouse configuration if present
-	if (auto ch_node = tree.get_child_optional("clickhouse")) {
-		clickhouse_.host =
-		    ch_node->get<std::string>("host", clickhouse_.host);
-		clickhouse_.port =
-		    ch_node->get<uint16_t>("port", clickhouse_.port);
-		clickhouse_.db_name = ch_node->get<std::string>(
-		    "db_name", clickhouse_.db_name);
-		clickhouse_.table_name = ch_node->get<std::string>(
-		    "table_name", clickhouse_.table_name);
-
-		// Validate table name to prevent SQL injection
-		validate_table_name(clickhouse_.table_name);
-
-		// Parse optional authentication
-		if (auto user = ch_node->get_optional<std::string>("user"))
-			clickhouse_.user = *user;
-
-		if (auto password =
-		    ch_node->get_optional<std::string>("password"))
-			clickhouse_.password = *password;
-
-		// Parse performance settings
-		clickhouse_.max_events =
-		    ch_node->get<size_t>("max_events", clickhouse_.max_events);
-		int max_wait_ms = ch_node->get<int>(
-		    "max_wait_ms",
-		    static_cast<int>(clickhouse_.max_wait.count()));
-		if (max_wait_ms < 0)
-			throw std::runtime_error(
-			    "max_wait_ms must be non-negative");
-
-		clickhouse_.max_wait = std::chrono::milliseconds(max_wait_ms);
-	}
-
-	// Validate ClickHouse settings
-	if (clickhouse_.host.empty())
-		throw std::runtime_error("ClickHouse host cannot be empty");
-
-	if (clickhouse_.port == 0)
-		throw std::runtime_error("Invalid ClickHouse port");
-
-	if (clickhouse_.db_name.empty())
-		throw std::runtime_error("ClickHouse database name cannot be empty");
-
-	if (clickhouse_.table_name.empty())
-		throw std::runtime_error("ClickHouse table name cannot be empty");
-
-	if (clickhouse_.max_events == 0)
-		throw std::runtime_error("max_events must be greater than 0");
+	clickhouse.validate();
 }
 
 std::optional<TfwLoggerConfig>
