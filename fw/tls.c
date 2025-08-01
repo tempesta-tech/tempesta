@@ -628,12 +628,13 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
+	TfwH2Ctx *h2_ctx = tfw_h2_context_unsafe(c);
 
 	if (TFW_CONN_PROTO((TfwConn *)c) == TFW_FSM_H2
-	    && ttls_hs_done(tls))
+	    && ttls_hs_done(tls) && h2_ctx)
 	{
-		tfw_h2_context_clear(tfw_h2_context_unsafe(c));
-		tfw_h2_context_free(tfw_h2_context_unsafe(c));
+		tfw_h2_context_clear(h2_ctx);
+		tfw_h2_context_free(h2_ctx);
 	}
 
 	if (tls) {
