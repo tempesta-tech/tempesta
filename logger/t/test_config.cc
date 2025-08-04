@@ -60,7 +60,6 @@ TEST_F(ConfigTest, DefaultValues)
 	TfwLoggerConfig config;
 
 	// Test default values
-	EXPECT_EQ(config.buffer_size, 4 * 1024 * 1024); // 4MB
 	EXPECT_TRUE(config.log_path.empty()); // no default set initially
 
 	const auto &ch = config.clickhouse;
@@ -79,7 +78,6 @@ TEST_F(ConfigTest, LoadValidConfig)
 	auto config_path = temp_dir / "valid.json";
 	write_config(config_path, R"({
 		"log_path": "/var/log/test.log",
-		"buffer_size": 8388608,
 		"clickhouse": {
 			"host": "test.host.com",
 			"port": 9001,
@@ -97,7 +95,6 @@ TEST_F(ConfigTest, LoadValidConfig)
 	EXPECT_NO_THROW(config->validate());
 
 	EXPECT_EQ(config->log_path, "/var/log/test.log");
-	EXPECT_EQ(config->buffer_size, 8388608);
 
 	const auto &ch = config->clickhouse;
 	EXPECT_EQ(ch.host, "test.host.com");
@@ -125,7 +122,6 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 
 	// Optional fields should use defaults
 	EXPECT_TRUE(config->log_path.empty());
-	EXPECT_EQ(config->buffer_size, 4 * 1024 * 1024);
 
 	const auto &ch = config->clickhouse;
 	EXPECT_EQ(ch.host, "minimal.host.com");
@@ -140,27 +136,11 @@ TEST_F(ConfigTest, InvalidJSON)
 {
 	auto config_path = temp_dir / "invalid.json";
 	write_config(config_path, R"({
-		"buffer_size": 1024,
 		"invalid": 
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	EXPECT_FALSE(config.has_value());
-}
-
-TEST_F(ConfigTest, ValidationBufferTooSmall)
-{
-	auto config_path = temp_dir / "small_buffer.json";
-	write_config(config_path, R"({
-		"buffer_size": 1024,
-		"clickhouse": {
-			"host": "test.com"
-		}
-	})");
-
-	auto config = TfwLoggerConfig::load_from_file(config_path);
-	ASSERT_TRUE(config.has_value());
-	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
 TEST_F(ConfigTest, ValidationEmptyHost)
@@ -262,9 +242,7 @@ TEST_F(ConfigTest, NonExistentFile)
 TEST_F(ConfigTest, FileWithoutClickHouseSection)
 {
 	auto config_path = temp_dir / "no_clickhouse.json";
-	write_config(config_path, R"({
-		"buffer_size": 8388608
-	})");
+	write_config(config_path, R"({})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
 	ASSERT_TRUE(config.has_value());
