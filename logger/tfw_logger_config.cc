@@ -33,8 +33,6 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	if (const auto val = tree.get_optional<std::string>("log_path"))
 		log_path = *val;
 
-	buffer_size = tree.get<size_t>("buffer_size", buffer_size);
-
 	if (const auto node = tree.get_child_optional("clickhouse"))
 		clickhouse.parse_from_ptree(*node);
 }
@@ -42,10 +40,6 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 void
 TfwLoggerConfig::validate() const
 {
-	if (buffer_size < MIN_BUFFER_SIZE)
-		throw std::runtime_error("Buffer size must be at least " +
-					 std::to_string(MIN_BUFFER_SIZE) +
-					 " bytes (one memory page)");
 	clickhouse.validate();
 }
 
