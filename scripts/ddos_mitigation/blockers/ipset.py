@@ -86,4 +86,6 @@ class IpSetBlocker(BaseBlocker):
         data = run_in_shell(f"ipset list {self.blocking_ip_set_name}").stdout
         members = data.split("Members:\n")[1]
         ips = members.split("\n")
-        return [User(ipv4=[IPv4Address(ip)]) for ip in ips[:-1]]
+        return [
+            User(ipv4=[IPv4Address(ip)], blocked_at=int(time.time())) for ip in ips[:-1]
+        ]

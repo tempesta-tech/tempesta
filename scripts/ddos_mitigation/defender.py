@@ -70,8 +70,10 @@ class DDOSMonitor:
         blocked_users = 0
         current_time = test_unix_time or int(time.time())
 
-        for detector in self.detectors.values():
-            for blocking_user in await detector.find_users(current_time):
+        for detector in self.app_config.detectors:
+            for blocking_user in await self.detectors[detector].find_users(
+                current_time
+            ):
                 total_users += 1
 
                 if blocking_user in self.blocked:

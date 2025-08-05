@@ -54,6 +54,7 @@ class AppConfig(BaseSettings):
     detector_geoip_period_seconds: int = 10
 
     tempesta_executable_path: str = ""
+    tempesta_config_path: str = ""
     allowed_user_agents_file_path: str = (
         "/etc/tempesta-ddos-defender/allow_user_agents.txt"
     )

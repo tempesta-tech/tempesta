@@ -200,7 +200,7 @@ class ThresholdDetector(BaseDetector):
         response = await self.clickhouse_client.get_top_risk_clients(
             period_in_seconds=period_in_seconds,
             rps_threshold=requests_threshold,
-            time_threshold=time_threshold,
+            time_threshold=time_threshold * 1_000_000,
             errors_threshold=errors_threshold,
             ja5_hashes_limit=hashes_limit,
             start_at=start_at,

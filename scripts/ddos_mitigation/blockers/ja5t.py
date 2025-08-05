@@ -13,9 +13,15 @@ __license__ = "GPL2"
 
 
 class Ja5tBlocker(BaseBlocker):
-    def __init__(self, config: Ja5Config, tempesta_executable_path: str = None):
+    def __init__(
+        self,
+        config: Ja5Config,
+        tempesta_executable_path: str = None,
+        tempesta_config_path: str = None,
+    ):
         self.config = config
         self.tempesta_executable_path = tempesta_executable_path
+        self.tempesta_config_path = tempesta_config_path
 
     @staticmethod
     def name() -> str:
@@ -73,7 +79,7 @@ class Ja5tBlocker(BaseBlocker):
 
         if self.tempesta_executable_path:
             return run_in_shell(
-                f"{self.tempesta_executable_path} --reload",
+                f"TFW_CFG_PATH={self.tempesta_config_path} {self.tempesta_executable_path} --reload",
                 error="Tempesta FW could not be reloaded",
                 raise_error=False,
             )

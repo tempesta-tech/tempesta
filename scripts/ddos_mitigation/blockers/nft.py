@@ -1,3 +1,5 @@
+import re
+import time
 from ipaddress import IPv4Address
 
 from blockers.base import BaseBlocker
@@ -108,19 +110,25 @@ class NFTBlocker(BaseBlocker):
     def info(self) -> list[User]:
         try:
             data = run_in_shell(
-                f"nft list table inet {self.blocking_table_name}_table | grep elements"
+                f"nft list table inet {self.blocking_table_name}_table"
             ).stdout
         except ValueError:
             data = ""
 
-        elements = data.split("{ ")
+        matched = re.findall(
+            r".*elements = {(?P<ips>.*).*}.*}.*chain", data, flags=re.DOTALL
+        )
 
-        if len(elements) < 2:
+        if not matched:
             return []
 
-        elements = elements[1][:-3]
-        ips = elements.split(", ")
-        return [User(ipv4=[IPv4Address(ip)]) for ip in ips if ip is not None]
+        ips = matched[0].split(",")
+        ips = [i.strip() for i in ips]
+        return [
+            User(ipv4=[IPv4Address(ip)], blocked_at=int(time.time()))
+            for ip in ips
+            if ip is not None
+        ]
 
     def load(self) -> dict[int, User]:
         return {hash(user): user for user in self.info()}

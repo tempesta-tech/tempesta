@@ -37,10 +37,12 @@ if __name__ == "__main__":
             blockers.Ja5tBlocker.name(): blockers.Ja5tBlocker(
                 config=Ja5Config(file_path=app_config.path_to_ja5t_config),
                 tempesta_executable_path=app_config.tempesta_executable_path,
+                tempesta_config_path=app_config.tempesta_config_path,
             ),
             blockers.Ja5hBlocker.name(): blockers.Ja5hBlocker(
                 config=Ja5Config(file_path=app_config.path_to_ja5h_config),
                 tempesta_executable_path=app_config.tempesta_executable_path,
+                tempesta_config_path=app_config.tempesta_config_path,
             ),
             blockers.IpSetBlocker.name(): blockers.IpSetBlocker(
                 blocking_ip_set_name=app_config.blocking_ipset_name,
@@ -54,9 +56,11 @@ if __name__ == "__main__":
                 app_config=app_config,
                 clickhouse_client=clickhouse_client,
             ),
-            detectors.GeoIPDetector.name(): detectors.ThresholdDetector(
+            detectors.GeoIPDetector.name(): detectors.GeoIPDetector(
                 app_config=app_config,
                 clickhouse_client=clickhouse_client,
+                path_to_db="",
+                path_to_allowed_cities_list="",
             ),
         },
         clickhouse_client=clickhouse_client,

@@ -59,7 +59,7 @@ class ClickhouseAccessLog:
                 address,
                 min(user_agent) user_agent,
                 count(1) as total_requests,
-                sum(response_time) as total_time,
+                avg(response_time) as total_time,
                 countIf(status not in ({statuses})) as total_errors
             FROM {self.table_name}
             WHERE 
