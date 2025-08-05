@@ -1580,6 +1580,7 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 {
 	TfwMsgIter *it = &resp->mit.iter;
 	struct sk_buff **body;
+	TfwStr *c, *end;
 	char *p;
 	int r;
 
@@ -1600,6 +1601,16 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 	/* Move body to the next skb. */
 	ss_skb_move_frags(it->skb, nskb, *frag,
 			  skb_shinfo(it->skb)->nr_frags - *frag);
+	/*
+	 * After moving body, we should also update `resp->cut`
+	 * to correct removing body flag data later.
+	 */
+	TFW_STR_FOR_EACH_CHUNK(c, &resp->cut, end) {
+		if (c->skb == *body)
+			c->skb = nskb;
+		else
+			break;
+	}
 	*body = nskb;
 
 	return 1;
