@@ -22,6 +22,9 @@
 
 #include "http_frame.h"
 
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
+
 /**
  * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
  * section 6.5.2).
@@ -46,6 +49,17 @@ typedef struct {
         unsigned int max_frame_sz;
         unsigned int max_lhdr_sz;
 } TfwSettings;
+
+/**
+ * Control frame statistics.
+ *
+ * @cnt		- Amount of control frames in a time;
+ * @ts		- Control frame time in seconds.
+ */
+typedef struct {
+	unsigned int	cnt;		
+	unsigned int	ts;
+} CtrlFrameStat;
 
 /**
  * Context for HTTP/2 frames processing.
@@ -80,6 +94,12 @@ typedef struct {
  *                        to save what @new_settings should be applyed. bits
  *                        from _HTTP2_SETTINGS_MAX are used to save what
  *                        settings we sent to the client;
+ * @rst_stat		- rst stream frame reception history;
+ * @ping_stat		- ping frame reception history;
+ * @settings_stat	- settings frame reception history;
+ * @prio_frame_cnt	- count of received priority frames;
+ * @wnd_update_cnt	- count of received window update frames;
+ * @data_frames_sent	- count of sent data frames;
  * @__off               - offset to reinitialize processing context;
  * @skb_head            - collected list of processed skbs containing HTTP/2
  *                        frames;
@@ -124,6 +144,12 @@ typedef struct tfw_h2_ctx_t {
         TfwStream       *error;
         unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
         DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
+	CtrlFrameStat	rst_stat[FRANG_FREQ];
+	CtrlFrameStat	ping_stat[FRANG_FREQ];
+	CtrlFrameStat	settings_stat[FRANG_FREQ];
+	unsigned int	prio_frame_cnt;
+	unsigned int	wnd_update_cnt;
+	unsigned int	data_frames_sent;
         char            __off[0];
         struct sk_buff  *skb_head;
         TfwStream       *cur_stream;
