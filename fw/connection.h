@@ -31,9 +31,6 @@
 #include "http2.h"
 #include "tls.h"
 
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
-
 /*
  * Flag bits definition for SsProto.type field.
  * NOTE: There are also flags definition for this
