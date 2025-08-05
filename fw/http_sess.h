@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2017-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -176,6 +176,8 @@ enum {
 	TFW_HTTP_SESS_JS_DOES_NOT_PASS
 };
 
+int tfw_http_sess_init(void);
+void tfw_http_sess_exit(void);
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_learn(TfwHttpResp *resp);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache);

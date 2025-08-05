@@ -29,6 +29,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "lib/str.h"
+#include <linux/errno.h>
 
 #include "ecdh.h"
 
@@ -142,6 +143,7 @@ ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf, size_t blen)
  *		ECPoint		public;
  *	} ServerECDHParams;
  */
+#if 0 /* TODO #769 Full TLS proxying */
 int
 ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 		      const unsigned char *end)
@@ -162,6 +164,7 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 
 	return r;
 }
+#endif
 
 /**
  * Get parameters from a keypair: set up an ECDH context from an EC key.

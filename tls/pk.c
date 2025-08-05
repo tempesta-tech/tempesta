@@ -26,6 +26,8 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include <linux/kmemleak.h>
+
 #include "debug.h"
 #include "ecp.h"
 #include "mpool.h"
@@ -91,6 +93,9 @@ rsa_alloc_wrap(void)
 	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
 		ttls_rsa_init(ctx, 0, 0);
 
+	/* Make kmemleak object to give access to @Vi and @Vf pointers. */
+	kmemleak_alloc(ctx, sizeof(*ctx), 1, GFP_KERNEL);
+
 	return ctx;
 }
 
@@ -98,6 +103,7 @@ static void
 rsa_free_wrap(void *ctx)
 {
 	ttls_rsa_free(ctx);
+	kmemleak_free(ctx);
 }
 
 /*

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -349,7 +349,7 @@ tfw_ctlfn_state_change(const char *new_state)
  * Syctl handler for tempesta.state read/write operations.
  */
 static int
-tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
+tfw_ctlfn_state_io(const struct ctl_table *ctl, int is_write,
 		   void *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
@@ -371,11 +371,11 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 
 		r = tfw_ctlfn_state_change(buf);
 		if (READ_ONCE(tfw_state) == TFW_STATE_STOPPED) {
-			strlcpy(new_state_buf, stop, T_SYSCTL_STBUF_LEN);
+			strscpy(new_state_buf, stop, T_SYSCTL_STBUF_LEN);
 		} else if (READ_ONCE(tfw_state) == TFW_STATE_STARTED) {
-			strlcpy(new_state_buf, start, T_SYSCTL_STBUF_LEN);
+			strscpy(new_state_buf, start, T_SYSCTL_STBUF_LEN);
 		} else {
-			strlcpy(new_state_buf, start_fail_reconfig,
+			strscpy(new_state_buf, start_fail_reconfig,
 				T_SYSCTL_STBUF_LEN);
 		}
 	} else {
@@ -434,8 +434,7 @@ static struct ctl_table tfw_sysctl_tbl[] = {
 		.maxlen		= T_SYSCTL_STBUF_LEN - 1,
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
-	},
-	{}
+	}
 };
 
 #define DO_INIT(mod)						\

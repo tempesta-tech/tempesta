@@ -24,6 +24,7 @@
  */
 #include "debug.h"
 #include "lib/str.h"
+#include "lib/common.h"
 #include "ecp.h"
 #include "mpool.h"
 #include "tls_internal.h"
@@ -1311,7 +1312,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	T_DBG("server hello, chosen version %d:%d, buf=%pK\n",
 	      buf[4], buf[5], buf);
 
-	*(unsigned int *)p = htonl(ttls_time());
+	*(unsigned int *)p = htonl(tfw_current_timestamp());
 	p += 4;
 	ttls_rnd(p, 28);
 	p += 28;
@@ -1325,7 +1326,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 		 */
 		tls->state = TTLS_SERVER_CERTIFICATE;
 
-		tls->sess.start = ttls_time();
+		tls->sess.start = tfw_current_timestamp();
 
 		if (tls->hs->new_session_ticket) {
 			tls->sess.id_len = n = 0;

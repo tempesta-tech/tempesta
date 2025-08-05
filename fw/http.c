@@ -83,7 +83,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/string.h>
-#include <linux/vmalloc.h>
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
@@ -725,7 +724,7 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
-	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len, 0)))
+	if ((r = tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg->len)))
 		return r;
 
 	body = TFW_STR_BODY_CH(msg);
@@ -3680,7 +3679,6 @@ tfw_h1_req_copy_first_line(TfwHttpReq *req)
 	int r;
 	const TfwStr *meth;
 	static const DEFINE_TFW_STR(meth_get, "GET");
-	static const DEFINE_TFW_STR(slash, "/");
 	static const DEFINE_TFW_STR(sp, " ");
 	static const DEFINE_TFW_STR(ver, " " S_VERSION11 S_CRLF);
 
@@ -3699,11 +3697,7 @@ tfw_h1_req_copy_first_line(TfwHttpReq *req)
 	if (unlikely(r))
 		return r;
 
-	/* uri_path is empty when uri is absolute and doesn't have slash */
-	if (TFW_STR_EMPTY(&req->uri_path))
-		r = tfw_http_msg_expand_from_pool(hm, &slash);
-	else
-		r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
+	r = tfw_http_msg_expand_from_pool(hm, &req->uri_path);
 	if (unlikely(r))
 		return r;
 
@@ -4250,7 +4244,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz, 0);
+	r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
 
@@ -7676,7 +7670,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
 	hmreq = (TfwHttpMsg *)req;
-	if (tfw_http_msg_setup(hmreq, &it, msg.len, 0))
+	if (tfw_http_msg_setup(hmreq, &it, msg.len))
 		goto cleanup;
 	if (tfw_msg_write(&it, &msg))
 		goto cleanup;
@@ -7737,7 +7731,7 @@ cleanup:
 }
 
 /**
- * Calculate the key of an HTTP request by hashing URI and Host header values.
+ * Calculate the key of an HTTP request by hashing URI and vhost name.
  */
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
@@ -7750,8 +7744,9 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags))
 		return req->hash;
 
-	if (!TFW_STR_EMPTY(&req->host))
-		req->hash ^= tfw_hash_str(&req->host);
+	BUG_ON(!req->vhost);
+
+	req->hash ^= basic_hash_str(&req->vhost->name);
 
 	return req->hash;
 }

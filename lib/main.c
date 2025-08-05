@@ -1,7 +1,7 @@
 /**
  *		Tempesta kernel library
  *
- * Copyright (C) 2018 Tempesta Technologies, INC.
+ * Copyright (C) 2018-2025 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
  */
 #include <linux/module.h>
 #include <linux/string.h>
+#include "str.h"
 
 MODULE_AUTHOR("Tempesta Technologies, INC");
 MODULE_VERSION("0.1.1");

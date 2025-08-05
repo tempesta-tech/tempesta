@@ -96,6 +96,9 @@ do {									\
 #define __msg_chunk_flags(flag)						\
 	__msg_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
+static const TfwStr slash = TFW_STR_F_STRING("/", TFW_STR_COMPLETE);
+static const TfwStr star = TFW_STR_F_STRING("*", TFW_STR_COMPLETE);
+
 /*
  * The macro is frequently used for headers opened by tfw_http_msg_hdr_open().
  * It sets the header's TfwStr->data to the current chunk pointer,
@@ -5917,20 +5920,17 @@ Req_Method_1CharStep: __attribute__((cold))
 		 * but it only used with CONNECT that is not supported */
 		/* Asterisk form as in RFC7230#section-5.3.4 */
 		if (req->method == TFW_HTTP_METH_OPTIONS && c == '*')
-			__FSM_MOVE_nofixup(Req_UriRareFormsEnd);
+			__FSM_MOVE_nofixup(Req_UriAsteriskFormEnd);
 		/* Absolute form as in RFC7230#section-5.3.2 */
 		__FSM_JMP(Req_UriAbsoluteForm);
 	}
 
-	__FSM_STATE(Req_UriRareFormsEnd, hot) {
-		if (likely(c == '/')) {
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
-		}
-		else if (c == ' ') {
+	__FSM_STATE(Req_UriAsteriskFormEnd, hot) {
+		if (c == ' ') {
+			req->uri_path = star;
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		TFW_PARSER_DROP(Req_UriMarkEnd);
+		TFW_PARSER_DROP(Req_UriAsteriskFormEnd);
 	}
 
 	__FSM_STATE(Req_UriAbsoluteForm, cold) {
@@ -6042,11 +6042,17 @@ Req_Method_1CharStep: __attribute__((cold))
 		/* Authority End */
 		__msg_field_finish(&req->host, p);
 		T_DBG3("host len = %i\n", (int)req->host.len);
+
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
+			if (req->method == TFW_HTTP_METH_OPTIONS)
+				req->uri_path = star;
+			else
+				req->uri_path = slash;
+
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriAuthorityEnd);
@@ -6081,6 +6087,10 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
+			if (req->method == TFW_HTTP_METH_OPTIONS)
+				req->uri_path = star;
+			else
+				req->uri_path = slash;
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		TFW_PARSER_DROP(Req_UriPortEnd);
@@ -11901,7 +11911,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, unsigned int len,
 				tfw_http_msg_hdr_open(msg, p);
 				__FSM_MOVE_n(Resp_StatusCodeBeg, 9);
 			}
-			/* fall through */
+			fallthrough;
 		default:
 			TFW_PARSER_DROP(Resp_HttpVer);
 		}

@@ -206,7 +206,28 @@ TEST(http1_parser, parses_req_uri)
 	FOR_REQ("GET http://" req_host req_uri_path " HTTP/1.1\r\n\r\n")\
 	{								\
 		EXPECT_TFWSTR_EQ(&req->host, req_host);			\
-		EXPECT_TFWSTR_EQ(&req->uri_path, req_uri_path);		\
+		if (SLEN(req_uri_path)) {				\
+			EXPECT_TFWSTR_EQ(&req->uri_path, req_uri_path);	\
+		} else {						\
+			/*						\
+			 * If request URI is empty Tempesta FW set	\
+			 * default req->uri_path "/".			\
+			 */						\
+			EXPECT_TFWSTR_EQ(&req->uri_path, "/");		\
+		}							\
+	}
+
+#define TEST_OPTIONS_ASTERISK()						\
+	FOR_REQ("OPTIONS * HTTP/1.1\r\n\r\n") {			\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);		\
+		EXPECT_TFWSTR_EQ(&req->uri_path, "*");			\
+	}
+
+#define TEST_OPTIONS_WITHOUT_PATH(req_host)				\
+	FOR_REQ("OPTIONS http://" req_host " HTTP/1.1\r\n\r\n") {	\
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);		\
+		EXPECT_TFWSTR_EQ(&req->host, req_host);			\
+		EXPECT_TFWSTR_EQ(&req->uri_path, "*");			\
 	}
 
 	/*
@@ -219,6 +240,18 @@ TEST(http1_parser, parses_req_uri)
 	TEST_FULL_REQ("natsys-lab.com:8080", "/");
 	TEST_FULL_REQ("natsys-lab.com", "/foo/");
 	TEST_FULL_REQ("natsys-lab.com:8080", "/cgi-bin/show.pl?entry=tempesta");
+
+	TEST_OPTIONS_ASTERISK();
+
+	TEST_OPTIONS_WITHOUT_PATH("example.com");
+	TEST_OPTIONS_WITHOUT_PATH("example.com:8080");
+	TEST_OPTIONS_WITHOUT_PATH("tempesta-tech.com");
+
+	FOR_REQ("OPTIONS http://tempesta-tech.com/home?name=value HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);
+		EXPECT_TFWSTR_EQ(&req->host, "tempesta-tech.com");
+		EXPECT_FALSE(tfw_str_eq_cstr(&req->uri_path, "*", 1, 0));
+	}
 
 	EXPECT_BLOCK_REQ("GET http://userame@natsys-lab.com HTTP/1.1\r\n\r\n");
 
@@ -278,8 +311,18 @@ TEST(http1_parser, parses_req_uri)
 	EXPECT_BLOCK_REQ("GET http://tempesta-tech.com: HTTP/1.1\r\n"
 			 "Host: localhost\r\n\r\n");
 
+	EXPECT_BLOCK_REQ("GET http://example.com?foo=1 HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("GET http://example.com:8080?foo=1 HTTP/1.1\r\n\r\n");
+
+	EXPECT_BLOCK_REQ("OPTIONS *  HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("OPTIONS */asd HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("OPTIONS *HTTP/1.1\r\n\r\n");
+	EXPECT_BLOCK_REQ("OPTIONS ** HTTP/1.1\r\n\r\n");
+
 #undef TEST_FULL_REQ
 #undef TEST_URI_PATH
+#undef TEST_OPTIONS_WITHOUT_PATH
+#undef TEST_OPTIONS_ASTERISK
 }
 
 TEST(http1_parser, parses_enforce_ext_req)

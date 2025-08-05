@@ -22,9 +22,12 @@
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/tempesta.h>
+#include <linux/errqueue.h>
 #include <net/protocol.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
+#include <net/hotdata.h>
+#include <net/proto_memory.h>
 
 #undef DEBUG
 #if DBG_SS > 0
@@ -374,7 +377,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	if (size <= sk->sk_forward_alloc)
 		return;
 	amt = sk_mem_pages(size);
-	sk->sk_forward_alloc += amt * SK_MEM_QUANTUM;
+	sk->sk_forward_alloc += amt * PAGE_SIZE;
 	sk_memory_allocated_add(sk, amt);
 }
 
@@ -390,7 +393,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	if (tls_type)
 		skb_set_tfw_tls_type(skb, tls_type);
 	ss_forced_mem_schedule(sk, skb->truesize);
-	skb_entail(sk, skb);
+	tcp_skb_entail(sk, skb);
 	tp->write_seq += skb->len;
 	TCP_SKB_CB(skb)->end_seq += skb->len;
 
@@ -680,7 +683,8 @@ ss_do_close(struct sock *sk, int flags)
 			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
 		}
 		tcp_set_state(sk, TCP_CLOSE);
-		tcp_send_active_reset(sk, sk->sk_allocation);
+		tcp_send_active_reset(sk, sk->sk_allocation,
+				      SK_RST_REASON_TCP_ABORT_ON_CLOSE);
 	} else if (tcp_close_state(sk)) {
 		/*
 		 * Prevent calling `tcp_done` from `tcp_send_fin` if error
@@ -707,7 +711,7 @@ adjudge_to_death:
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);
 
-	percpu_counter_inc(sk->sk_prot->orphan_count);
+	this_cpu_inc(*sk->sk_prot->orphan_count);
 
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
@@ -722,7 +726,8 @@ adjudge_to_death:
 		sk_mem_reclaim(sk);
 		if (tcp_check_oom(sk, 0)) {
 			tcp_set_state(sk, TCP_CLOSE);
-			tcp_send_active_reset(sk, GFP_ATOMIC);
+			tcp_send_active_reset(sk, GFP_ATOMIC,
+					      SK_RST_REASON_TCP_ABORT_ON_MEMORY);
 			__NET_INC_STATS(sock_net(sk),
 					LINUX_MIB_TCPABORTONMEMORY);
 		}
@@ -1018,12 +1023,17 @@ ss_tcp_data_ready(struct sock *sk)
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
+		struct sk_buff* skb = sk->sk_error_queue.next;
 		/*
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
-		T_ERR("error data in socket %p\n", sk);
-		return;
+		if (SKB_EXT_ERR(skb)->ee.ee_errno != ENOMSG &&
+		    SKB_EXT_ERR(skb)->ee.ee_origin !=
+		    SO_EE_ORIGIN_TIMESTAMPING) {
+			T_ERR("error data in socket %p\n", sk);
+			return;
+		}
 	}
 
 	if (skb_queue_empty(&sk->sk_receive_queue)) {
@@ -1253,6 +1263,15 @@ ss_set_listen(struct sock *sk)
 	sock_set_flag(sk, SOCK_TEMPESTA);
 }
 
+/* The original function in tcp_ipv6.c. */
+static struct ipv6_pinfo *
+inet6_sk_generic(struct sock *sk)
+{
+	const int offset = sk->sk_prot->ipv6_pinfo_offset;
+
+	return (struct ipv6_pinfo *)(((u8 *)sk) + offset);
+}
+
 /*
  * Create a new socket for IPv4 or IPv6 protocol. The original functions
  * are inet_create() and inet6_create(). They are nearly identical and
@@ -1289,20 +1308,10 @@ ss_inet_create(struct net *net, int family,
 	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot, 1)))
 		return -ENOBUFS;
 
-	if (in_interrupt()) {
-		/*
-		 * When called from an interrupt context, sk_alloc() does not
-		 * initialize sk->sk_cgrp_data, so we must do it here. Other
-		 * socket-related functions assume that sk->sk_cgrp_data.val
-		 * is always non-zero.
-		 */
-		sk->sk_cgrp_data.val = (unsigned long) &cgrp_dfl_root.cgrp;
-	}
-
+	inet_set_bit(IS_ICSK, sk);
+	inet_clear_bit(NODEFRAG, sk);
 	inet = inet_sk(sk);
-	inet->is_icsk = 1;
-	inet->nodefrag = 0;
-	inet->inet_id = 0;
+	atomic_set(&inet->inet_id, 0);
 
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
 		inet->pmtudisc = IP_PMTUDISC_DONT;
@@ -1318,28 +1327,24 @@ ss_inet_create(struct net *net, int family,
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
 
 	if (family == AF_INET6) {
-		/* The next two lines are inet6_sk_generic(sk) */
-		const int offset = sk->sk_prot->obj_size
-				   - sizeof(struct ipv6_pinfo);
-		struct ipv6_pinfo *np = (struct ipv6_pinfo *)
-					(((u8 *)sk) + offset);
+		struct ipv6_pinfo *np = inet6_sk_generic(sk);
+
 		np->hop_limit = -1;
 		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
-		np->mc_loop = 1;
+		inet6_set_bit(MC_LOOP, sk);
 		np->pmtudisc = IPV6_PMTUDISC_WANT;
 		sk->sk_ipv6only = net->ipv6.sysctl.bindv6only;
 		inet->pinet6 = np;
 	}
 
 	inet->uc_ttl = -1;
-	inet->mc_loop = 1;
-	inet->mc_ttl = 1;
-	inet->mc_all = 1;
+	inet_set_bit(MC_LOOP, sk);
+	inet_set_bit(TTL, sk);
+	inet_set_bit(MC_ALL, sk);
 	inet->mc_index = 0;
 	inet->mc_list = NULL;
 	inet->rcv_tos = 0;
 
-	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
 		T_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
@@ -1495,7 +1500,7 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 	if (inet6_sk(sk)) {
 		struct ipv6_pinfo *np = inet6_sk(sk);
 		addr->sin6_addr = sk->sk_v6_daddr;
-		addr->sin6_flowinfo = np->sndflow ? np->flow_label : 0;
+		addr->sin6_flowinfo = inet6_test_bit(SNDFLOW, sk) ? np->flow_label : 0;
 		addr->in6_prefix = ipv6_iface_scope_id(&addr->sin6_addr,
 						       sk->sk_bound_dev_if);
 	} else
@@ -1849,10 +1854,10 @@ ss_estimate_pcpu_wq_size(void)
 	rtnl_unlock();
 
 	req_per_skb = (mtu - TRANS_HDRS_SIZE) / H2_HEADERS_FRAME_SIZE;
-	qsz = roundup_pow_of_two(2 * req_per_skb * dev_rx_weight);
+	qsz = roundup_pow_of_two(2 * req_per_skb * net_hotdata.dev_rx_weight);
 
 	T_DBG("%s: dev_rx_weight %d, suggested qsz %d\n", __func__,
-	      dev_rx_weight, qsz);
+	      net_hotdata.dev_rx_weight, qsz);
 	return qsz;
 }
 

@@ -87,22 +87,6 @@ test_call_teardown_fn(void)
 extern TEST_SUITE_MPART_ARR(http1_parser, H1_SUITE_PART_CNT);
 extern TEST_SUITE_MPART_ARR(http2_parser, H2_SUITE_PART_CNT);
 
-TEST_SUITE(cfg);
-TEST_SUITE(tfw_str);
-TEST_SUITE(mem_fast);
-TEST_SUITE(http2_parser_hpack);
-TEST_SUITE(http_sticky);
-TEST_SUITE(http_match);
-TEST_SUITE(http_msg);
-TEST_SUITE(hash);
-TEST_SUITE(addr);
-TEST_SUITE(wq);
-TEST_SUITE(tls);
-TEST_SUITE(hpack);
-TEST_SUITE(pool);
-TEST_SUITE(ebtree);
-TEST_SUITE(mmap_buffer);
-
 extern int tfw_pool_init(void);
 extern void tfw_pool_exit(void);
 
@@ -144,6 +128,9 @@ test_run_all(void)
 	test_case_cleanup_h2();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
+	__fpu_schedule();
+
+	TEST_SUITE_RUN(http_cache);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_match);
