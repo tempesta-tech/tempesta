@@ -152,6 +152,8 @@ static const DEFINE_TFW_STR(STR_CLEN_ZERO, "Content-Length: 0");
  */
 unsigned int max_header_list_size = 0;
 bool allow_empty_body_content_type;
+unsigned int ctrl_frame_rate_multiplier = 0;
+unsigned int wnd_update_frame_rate_multiplier = 0;
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
@@ -8349,6 +8351,13 @@ tfw_cfgop_cleanup_allow_empty_body_content_type(TfwCfgSpec *cs)
 	allow_empty_body_content_type = false;
 }
 
+static void
+tfw_cfgop_cleanup_frame_limit(TfwCfgSpec *cs)
+{
+	ctrl_frame_rate_multiplier = 0;
+	wnd_update_frame_rate_multiplier = 0;
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -8458,6 +8467,32 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
+	},
+	{
+		.name = "ctrl_frame_rate_multiplier",
+		.deflt = "1",
+		.handler = tfw_cfg_set_int,
+		.dest = &ctrl_frame_rate_multiplier,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 1, 1024 },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+		.cleanup  = tfw_cfgop_cleanup_frame_limit,
+	},
+	{
+		.name = "window_update_frame_rate_multiplier",
+		.deflt = "1",
+		.handler = tfw_cfg_set_int,
+		.dest = &wnd_update_frame_rate_multiplier,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 1, 1024 },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+		.cleanup  = tfw_cfgop_cleanup_frame_limit,
 	},
 	{ 0 }
 };
