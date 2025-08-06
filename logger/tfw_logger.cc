@@ -500,7 +500,7 @@ setup_daemon_mode(const ParsedOptions &opts)
 
 	// Daemonize if not in foreground mode
 	if (!opts.foreground) {
-		spdlog::debug("Daemonizing...");
+		std::cout << "Daemonizing..." << std::endl;
 
 		if (daemon(0, 0) < 0)
 			throw Except("Daemonization failed");
@@ -518,6 +518,14 @@ try {
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::info);
 	logger->flush_on(spdlog::level::info);
+
+	// Set custom log pattern to include thread ID
+	// %Y-%m-%d %H:%M:%S.%e - Date and time with milliseconds
+	// %n - Logger name
+	// %l - Log level
+	// %t - Thread ID
+	// %v - Log message
+	logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] [%t] %v");
 } catch (const spdlog::spdlog_ex &ex) {
 	throw Except("Log initialization failed: {}", ex.what());
 }
