@@ -71,8 +71,8 @@ typedef struct {
 
 /*
  * @streams_num_exceeded	- Max streams number exceeded.
- * @prio_frame_exceeded		- Priority frames number exceeded;
- * @rst_stream_frame_exceeded	- Rst stream frames number exceeded;
+ * @priority_frame_exceeded	- Priority frames number exceeded;
+ * @rst_frame_exceeded		- Rst stream frames number exceeded;
  * @settings_frame_exceeded	- Settings frames number exceeded;
  * @ping_frame_exceeded		- Ping frames number exceeded;
  * @wnd_update_frame_exceeded	- Window update frames number exceeded;
@@ -82,8 +82,8 @@ typedef struct {
 typedef struct {
 	TFW_STAT_COMMON;
 	u64	streams_num_exceeded;
-	u64	prio_frame_exceeded;
-	u64	rst_stream_frame_exceeded;
+	u64	priority_frame_exceeded;
+	u64	rst_frame_exceeded;
 	u64	settings_frame_exceeded;
 	u64	ping_frame_exceeded;
 	u64	wnd_update_frame_exceeded;

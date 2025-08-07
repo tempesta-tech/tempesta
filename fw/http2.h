@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,9 +21,7 @@
 #define __HTTP2__
 
 #include "http_frame.h"
-
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
+#include "http_limits.h"
 
 /**
  * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
@@ -53,11 +51,17 @@ typedef struct {
 /**
  * Control frame statistics.
  *
- * @cnt		- Amount of control frames in a time;
- * @ts		- Control frame time in seconds.
+ * @ping_cnt		- Amount of ping frames in a time;
+ * @settings_cnt	- Amount of settings frames in a time;
+ * @rst_cnt		- Amount of rst stream frames in a time;
+ * @priority_cnt	- Amount of priority frames in a time;
+ * @ts			- Control frame time in seconds.
  */
 typedef struct {
-	unsigned int	cnt;		
+	unsigned int	ping_cnt;
+	unsigned int	settings_cnt;	
+	unsigned int	rst_cnt;
+	unsigned int	priority_cnt;
 	unsigned int	ts;
 } CtrlFrameStat;
 
@@ -97,11 +101,9 @@ typedef struct tfw_conn_t TfwConn;
  *			  from _HTTP2_SETTINGS_MAX are used to save what
  *			  settings we sent to the client;
  * @conn		- pointer to h2 connection of this context;
- * @rst_stat		- rst stream frame reception history;
- * @ping_stat		- ping frame reception history;
- * @settings_stat	- settings frame reception history;
- * @prio_frame_cnt	- count of received priority frames;
+ * @stat		- ping and settings frames reception history;
  * @wnd_update_cnt	- count of received window update frames;
+ * @data_bytes_sent	- count of sent data bytes;
  * @data_frames_sent	- count of sent data frames;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
@@ -148,12 +150,10 @@ typedef struct tfw_h2_ctx_t {
 	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
 	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
 	TfwH2Conn	*conn;
-	CtrlFrameStat	rst_stat[FRANG_FREQ];
-	CtrlFrameStat	ping_stat[FRANG_FREQ];
-	CtrlFrameStat	settings_stat[FRANG_FREQ];
-	unsigned int	prio_frame_cnt;
-	unsigned int	wnd_update_cnt;
-	unsigned int	data_frames_sent;
+	CtrlFrameStat	stat[FRANG_FREQ];
+	unsigned long	wnd_update_cnt;
+	unsigned long	data_frames_sent;
+	unsigned long	data_bytes_sent;
 	char            __off[0];
 	struct sk_buff  *skb_head;
 	TfwStream       *cur_stream;

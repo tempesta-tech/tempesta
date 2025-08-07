@@ -75,8 +75,8 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(clnt.conn_established);
 		SADD(clnt.rx_bytes);
 		SADD(clnt.streams_num_exceeded);
-		SADD(clnt.prio_frame_exceeded);
-		SADD(clnt.rst_stream_frame_exceeded);
+		SADD(clnt.priority_frame_exceeded);
+		SADD(clnt.rst_frame_exceeded);
 		SADD(clnt.settings_frame_exceeded);
 		SADD(clnt.ping_frame_exceeded);
 		SADD(clnt.wnd_update_frame_exceeded);
@@ -199,9 +199,9 @@ skip_apm:
 	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
 	SPRN("Client max streams number exceeded\t", clnt.streams_num_exceeded);
 	SPRN("Client priority frames number exceeded\t",
-	     clnt.prio_frame_exceeded);
-	SPRN("Client rst stream frames number exceeded\t",
-	     clnt.rst_stream_frame_exceeded);
+	     clnt.priority_frame_exceeded);
+	SPRN("Client rst frames number exceeded\t",
+	     clnt.rst_frame_exceeded);
 	SPRN("Client settings frames number exceeded\t",
 	     clnt.settings_frame_exceeded);
 	SPRN("Client ping frames number exceeded\t", clnt.ping_frame_exceeded);

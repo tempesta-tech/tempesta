@@ -152,8 +152,8 @@ static const DEFINE_TFW_STR(STR_CLEN_ZERO, "Content-Length: 0");
  */
 unsigned int max_header_list_size = 0;
 bool allow_empty_body_content_type;
-unsigned int ctrl_frame_rate_multiplier = 0;
-unsigned int wnd_update_frame_rate_multiplier = 0;
+unsigned int ctrl_frame_rate_mul = 0;
+unsigned int wnd_update_frame_rate_mul = 0;
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
@@ -5485,6 +5485,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 					    type == TFW_ERROR_TYPE_ATTACK);
 	} else {
 		TfwStreamState stream_state = tfw_h2_get_stream_state(stream);
+		int r;
 
 		/*
 		 * Here we rely on the fact that we always drop connection
@@ -5501,9 +5502,9 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 		 */
 		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED
 			     && stream_state != HTTP2_STREAM_CLOSED);
-		if (tfw_h2_send_rst_stream(ctx, stream->id, err_code)) {
+		if ((r = tfw_h2_send_rst_stream(ctx, stream->id, err_code))) {
 			tfw_connection_put(conn);
-			return T_BAD;
+			return r;
 		}
 	}
 	tfw_connection_put(conn);
@@ -8354,8 +8355,8 @@ tfw_cfgop_cleanup_allow_empty_body_content_type(TfwCfgSpec *cs)
 static void
 tfw_cfgop_cleanup_frame_limit(TfwCfgSpec *cs)
 {
-	ctrl_frame_rate_multiplier = 0;
-	wnd_update_frame_rate_multiplier = 0;
+	ctrl_frame_rate_mul = 1;
+	wnd_update_frame_rate_mul = 1;
 }
 
 static TfwCfgSpec tfw_http_specs[] = {
@@ -8472,9 +8473,9 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.name = "ctrl_frame_rate_multiplier",
 		.deflt = "1",
 		.handler = tfw_cfg_set_int,
-		.dest = &ctrl_frame_rate_multiplier,
+		.dest = &ctrl_frame_rate_mul,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 1, 1024 },
+			.range = { 1, 65536 },
 		},
 		.allow_none = true,
 		.allow_repeat = false,
@@ -8485,9 +8486,9 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.name = "window_update_frame_rate_multiplier",
 		.deflt = "1",
 		.handler = tfw_cfg_set_int,
-		.dest = &wnd_update_frame_rate_multiplier,
+		.dest = &wnd_update_frame_rate_mul,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 1, 1024 },
+			.range = { 1, 65536 },
 		},
 		.allow_none = true,
 		.allow_repeat = false,
