@@ -739,8 +739,8 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 extern unsigned int max_header_list_size;
 extern bool allow_empty_body_content_type;
-extern unsigned int ctrl_frame_rate_multiplier;
-extern unsigned int wnd_update_frame_rate_multiplier;
+extern unsigned int ctrl_frame_rate_mul;
+extern unsigned int wnd_update_frame_rate_mul;
 
 /* External HTTP functions. */
 int tfw_http_msg_process(TfwConn *conn, struct sk_buff *skb,
