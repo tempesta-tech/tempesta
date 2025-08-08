@@ -58,7 +58,7 @@ public:
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
-	clickhouse::Block *get_block() noexcept;
+	clickhouse::Block &get_block() noexcept;
 	bool commit();
 
 private:
@@ -70,30 +70,5 @@ private:
 	const std::chrono::milliseconds		max_wait_;
 };
 
-template <typename T> std::shared_ptr<clickhouse::Column>
-create_column() {
-	return std::make_shared<T>();
-}
-
-static std::shared_ptr<clickhouse::Column>
-tfw_column_factory(clickhouse::Type::Code code)
-{
-	switch (code) {
-	case clickhouse::Type::UInt8:
-		return create_column<clickhouse::ColumnUInt8>();
-	case clickhouse::Type::UInt16:
-		return create_column<clickhouse::ColumnUInt16>();
-	case clickhouse::Type::UInt32:
-		return create_column<clickhouse::ColumnUInt32>();
-	case clickhouse::Type::UInt64:
-		return create_column<clickhouse::ColumnUInt64>();
-	case clickhouse::Type::IPv4:
-		return create_column<clickhouse::ColumnIPv4>();
-	case clickhouse::Type::IPv6:
-		return create_column<clickhouse::ColumnIPv6>();
-	case clickhouse::Type::String:
-		return create_column<clickhouse::ColumnString>();
-	default:
-		throw std::runtime_error("Column factory: incorrect code");
-	}
-}
+std::shared_ptr<clickhouse::Column>
+tfw_column_factory(clickhouse::Type::Code code);
