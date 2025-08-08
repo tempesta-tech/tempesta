@@ -112,12 +112,9 @@ TfwMmapBufferReader::read()
 
 	const char *data = buf_->data + (tail & buf_->mask);
 	const uint64_t size = head - tail;
-	if (size == 0) [[unlikely]]
-		return false;
-
 	callback_(std::span<const char>(data, size));
 
 	__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
 
-	return true;
+	return static_cast<bool>(size);
 }
