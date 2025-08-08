@@ -192,4 +192,14 @@ int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
 
+static inline void *
+frang_ptr_from_sk(struct sock *sk)
+{
+	unsigned long d = (unsigned long)tempesta_sock(sk)->class_prvt;
+
+	d &= ~1;
+
+	return (void *)d;
+}
+
 #endif /* __HTTP_LIMITS__ */

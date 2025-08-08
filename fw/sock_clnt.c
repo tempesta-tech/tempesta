@@ -4,7 +4,7 @@
  * TCP/IP stack hooks and socket routines to handle client traffic.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -137,10 +137,9 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 void
 tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
+	/* Paired with @frang_conn_new client obtain. */
 	if (likely(cli_conn->sk))
 		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
-	if (likely(cli_conn->peer))
-		tfw_client_put((TfwClient *)cli_conn->peer);
 	tfw_cli_conn_free(cli_conn);
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
@@ -224,7 +223,6 @@ tfw_sock_clnt_new(struct sock *sk)
 	SsProto *proto;
 	TfwClient *cli;
 	TfwConn *conn;
-	TfwAddr addr;
 
 	T_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 	TFW_INC_STAT_BH(clnt.conn_attempts);
@@ -238,13 +236,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
 
-	ss_getpeername(sk, &addr);
-	cli = tfw_client_obtain(addr, NULL, NULL, NULL);
-	if (!cli) {
-		T_ERR("can't obtain a client for the new socket\n");
-		return -ENOENT;
-	}
-
+	cli = container_of(frang_ptr_from_sk(sk), TfwClient, class_prvt);
 	conn = (TfwConn *)tfw_cli_conn_alloc(proto->type);
 	if (!conn) {
 		T_ERR("can't allocate a new client connection\n");
@@ -296,7 +288,15 @@ tfw_sock_clnt_new(struct sock *sk)
 err_conn:
 	tfw_cli_conn_free((TfwCliConn *)conn);
 err_client:
-	tfw_client_put(cli);
+	/*
+	 * Connection not being allocated/initialized, therefore
+	 * tfw_cli_conn_release() -> tfw_connection_unlink_to_sk()
+	 * -> tfw_classify_conn_close() can't be called from connection
+	 *  destructor. However we must call tfw_classify_conn_close() to
+	 *  finish using current Frang descriptor that being allocated in
+	 *  frang_conn_new().
+	 */
+	tfw_classify_conn_close(sk);
 	return r;
 }
 
