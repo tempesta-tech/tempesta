@@ -46,6 +46,9 @@
 #define STREAM_ID_SIZE			4
 #define ERR_CODE_SIZE			4
 
+#define PING_FRAME_RATE_LIMIT		100
+#define SETTINGS_FRAME_RATE_LIMIT	5
+
 typedef enum {
 	TFW_FRAME_DEFAULT,
 	TFW_FRAME_SHUTDOWN,
@@ -517,6 +520,35 @@ tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code, bool attack)
 		tfw_h2_send_frame_shutdown(ctx, &hdr, &data);
 }
 
+static inline bool
+tfw_h2_rst_frame_rate_limit(TfwH2Ctx *ctx)
+{
+	/*
+	 * There are two types of rapid reset attack:
+	 * - client opens a lot of streams and then closes them using
+	 *   RST STREAM.
+	 * - client opens a lot of streams and exceeded max concurrent
+	 *   streams limit to make the server generate a lot of RST STREAM
+	 *   responses.
+	 * We use this function to prevent both this types of attack. We
+	 * allow to recv/send not more then ten percent of rst stream frames
+	 * from the number of opened streams by default. We also allow to
+	 * recv/send at least five rst streams per connection, because
+	 * sometimes browsers send rst stream after opening first stream
+	 * in the connection.
+	 */
+	if (likely(++ctx->rst_frame_cnt < 5))
+		return true;
+
+	if (unlikely(ctx->rst_frame_cnt >
+		     ctrl_frame_rate_mul * (ctx->streams_num / 10))) {
+		TFW_INC_STAT_BH(clnt.rst_stream_frame_exceeded);
+		return false;
+	}
+
+	return true;
+}
+
 int
 tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 {
@@ -538,7 +570,13 @@ tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 
 	*(unsigned int *)buf = htonl(err_code);
 
-	return tfw_h2_send_frame(ctx, &hdr, &data);
+	if (unlikely(!tfw_h2_rst_frame_rate_limit(ctx)))
+		return T_BLOCK_WITH_RST;
+
+	if (tfw_h2_send_frame(ctx, &hdr, &data))
+		return T_BAD;
+
+	return T_OK;
 }
 
 static inline void
@@ -999,6 +1037,146 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+static inline bool
+tfw_h2_prio_frame_rate_limit(TfwH2Ctx *ctx)
+{
+	/*
+	 * Usually browsers send not more priority frames then
+	 * streams count. We multiple the number of streams
+	 * by 3 to cover all possible cases.
+	 * Firefox uses priority frames to create new streams
+	 * and build complex priority tree, so we allow client
+	 * to send at least `max_streams` priority frames.
+	 */
+	if (likely(++ctx->prio_frame_cnt < ctx->lsettings.max_streams))
+		return true;
+
+	if (unlikely(ctx->prio_frame_cnt >
+		     3 * ctx->streams_num * ctrl_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.prio_frame_exceeded);
+		return false;
+	}
+
+	return true;
+}
+
+static inline bool
+tfw_h2_ping_frame_rate_limit(TfwH2Ctx *ctx)
+{
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+	unsigned int sum = 0;
+
+	if (ctx->stat[i].ts != ts) {
+		ctx->stat[i].ts = ts;
+		ctx->stat[i].ping_cnt = 0;
+	}
+	ctx->stat[i].ping_cnt++;
+
+	for (i = 0; i < FRANG_FREQ; i++)
+		if (frang_time_in_frame(ts, ctx->stat[i].ts))
+			sum += ctx->stat[i].ping_cnt;
+	if (unlikely(sum > PING_FRAME_RATE_LIMIT * ctrl_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.ping_frame_exceeded);
+		return false;
+	}
+
+	return true;
+}
+
+static inline bool
+tfw_h2_settings_frame_rate_limit(TfwH2Ctx *ctx)
+{
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	int i = ts % FRANG_FREQ;
+	unsigned int sum = 0;
+
+	if (ctx->stat[i].ts != ts) {
+		ctx->stat[i].ts = ts;
+		ctx->stat[i].settings_cnt = 0;
+	}
+	ctx->stat[i].settings_cnt++;
+
+	for (i = 0; i < FRANG_FREQ; i++)
+		if (frang_time_in_frame(ts, ctx->stat[i].ts))
+			sum += ctx->stat[i].settings_cnt;
+	if (unlikely(sum > SETTINGS_FRAME_RATE_LIMIT * ctrl_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.settings_frame_exceeded);
+		return false;
+	}
+
+	return true;
+}
+
+static inline bool
+tfw_h2_wnd_update_rate_limit(TfwH2Ctx *ctx)
+{
+	/*
+	 * We allow to send not more then six WINDOW_UPDATE
+	 * frames for one DATA frame by default. We also allow
+	 * to send not more then one WINDOW_UPDATE frame for each
+	 * 256 bytes of sent DATA frames to prevent data dribble
+	 * attack. We also allow to send at least `max_streams`
+	 * WINDOW_UPDATE frames to cover the case when client
+	 * initiate connection with zero window.
+	 */
+	if (++ctx->wnd_update_cnt < ctx->lsettings.max_streams)
+		return true;
+
+	if (unlikely(ctx->wnd_update_cnt >
+		     ctx->data_frames_sent * 6 * wnd_update_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.wnd_update_frame_exceeded);
+		return false;
+	}
+
+	if (unlikely(ctx->wnd_update_cnt >
+		     (ctx->data_bytes_sent / 256) * wnd_update_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.wnd_update_frame_exceeded);
+		return false;
+	}
+
+
+	return true;
+}
+
+static inline bool
+tfw_h2_ctrl_frame_limit(TfwH2Ctx *ctx, TfwFrameType hdr_type)
+{
+	switch (hdr_type) {
+	case HTTP2_PRIORITY:
+		if (unlikely(!tfw_h2_prio_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+	case HTTP2_RST_STREAM:
+		if (unlikely(!tfw_h2_rst_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+
+		break;
+	case HTTP2_SETTINGS:
+		if (unlikely(!tfw_h2_settings_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+	case HTTP2_PING:
+		if (unlikely(!tfw_h2_ping_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+	case HTTP2_WINDOW_UPDATE:
+		if (unlikely(!tfw_h2_wnd_update_rate_limit(ctx)))
+			return false;
+
+		break;
+	default:
+		break;
+	}
+
+	return true;		
+}
+
 /*
  * Initial processing of received frames: verification and handling of
  * frame header; also, stream states are processed here - during receiving
@@ -1019,19 +1197,19 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
 
-#define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)			\
-do {									\
-	unsigned int max_streams = ctx->lsettings.max_streams;		\
-									\
-	tfw_h2_closed_streams_shrink(ctx);				\
-									\
-	if (max_streams == ctx->streams_num) {				\
-		T_DBG("Max streams number exceeded: %lu\n",		\
-		      ctx->streams_num);				\
-		TFW_INC_STAT_BH(clnt.streams_num_exceeded);		\
-		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);	\
-		ACTION;							\
-	}								\
+#define VERIFY_MAX_CONCURRENT_STREAMS(ctx, ACTION)				\
+do {										\
+	unsigned int max_streams = ctx->lsettings.max_streams;			\
+										\
+	tfw_h2_closed_streams_shrink(ctx);					\
+										\
+	if (max_streams == ctx->streams_num) {					\
+		T_DBG("Max streams number exceeded: %lu\n",			\
+		      ctx->streams_num);					\
+		TFW_INC_STAT_BH(clnt.streams_num_exceeded);			\
+		SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);		\
+		ACTION;								\
+	}									\
 } while(0)
 
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
@@ -1039,6 +1217,9 @@ do {									\
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
+
+	if (unlikely(!tfw_h2_ctrl_frame_limit(ctx, hdr_type)))
+		return T_BLOCK_WITH_RST; 
 
 	/*
 	 * TODO: RFC 7540 Section 6.2:
@@ -1969,6 +2150,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		ctx->rem_wnd -= length;
 		stream->rem_wnd -= length;
 		stream->xmit.b_len -= length;
+		ctx->data_bytes_sent += length;
 	} else if (stream->xmit.h_len) {
 		stream->xmit.h_len -= length;
 	} else if (stream->xmit.t_len) {
@@ -2099,6 +2281,7 @@ do {									\
 			return r;
 		}
 
+		ctx->data_frames_sent++;
 		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 

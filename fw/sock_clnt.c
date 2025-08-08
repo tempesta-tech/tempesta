@@ -687,23 +687,6 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static int
-tfw_cfgop_max_concurrent_streams(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return -EINVAL;
-
-	if ((r = tfw_cfg_parse_uint(ce->vals[0], &tfw_cli_max_concurrent_streams))) {
-		T_ERR_NL("Unable to parse 'max_concurrent_streams' value: '%s'\n",
-			 ce->vals[0] ? : "No value specified");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
@@ -923,8 +906,13 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 	{
 		.name = "max_concurrent_streams",
 		.deflt = "100",
-		.handler = tfw_cfgop_max_concurrent_streams,
+		.handler = tfw_cfg_set_int,
+		.dest = &tfw_cli_max_concurrent_streams,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 1, 65536 },
+		},
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},

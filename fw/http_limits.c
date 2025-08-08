@@ -366,12 +366,6 @@ tfw_classify_conn_close(struct sock *sk)
 }
 
 static int
-frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
-{
-	return tprev + FRANG_FREQ > tcur;
-}
-
-static int
 frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
