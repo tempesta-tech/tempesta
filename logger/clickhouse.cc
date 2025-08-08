@@ -65,10 +65,10 @@ TfwClickhouse::TfwClickhouse(const std::string &host, const std::string &table_n
 	client_->Execute(table_creation_query);
 }
 
-clickhouse::Block *
+clickhouse::Block &
 TfwClickhouse::get_block() noexcept
 {
-	return &block_;
+	return block_;
 }
 
 bool
@@ -90,4 +90,32 @@ TfwClickhouse::commit()
 		return true;
 	}
 	return false;
+}
+
+template <typename T> std::shared_ptr<clickhouse::Column>
+create_column() {
+	return std::make_shared<T>();
+}
+
+std::shared_ptr<clickhouse::Column>
+tfw_column_factory(clickhouse::Type::Code code)
+{
+	switch (code) {
+	case clickhouse::Type::UInt8:
+		return create_column<clickhouse::ColumnUInt8>();
+	case clickhouse::Type::UInt16:
+		return create_column<clickhouse::ColumnUInt16>();
+	case clickhouse::Type::UInt32:
+		return create_column<clickhouse::ColumnUInt32>();
+	case clickhouse::Type::UInt64:
+		return create_column<clickhouse::ColumnUInt64>();
+	case clickhouse::Type::IPv4:
+		return create_column<clickhouse::ColumnIPv4>();
+	case clickhouse::Type::IPv6:
+		return create_column<clickhouse::ColumnIPv6>();
+	case clickhouse::Type::String:
+		return create_column<clickhouse::ColumnString>();
+	default:
+		throw std::runtime_error("Column factory: incorrect code");
+	}
 }
