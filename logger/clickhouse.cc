@@ -66,10 +66,10 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
 	client_->Execute(table_creation_query);
 }
 
-clickhouse::Block *
+clickhouse::Block &
 TfwClickhouse::get_block() noexcept
 {
-	return &block_;
+	return block_;
 }
 
 bool

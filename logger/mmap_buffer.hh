@@ -20,13 +20,11 @@
 
 #pragma once
 
-#include <string>
-#include <thread>
+#include <atomic>
+#include <functional>
+#include <span>
 
 #include "../fw/mmap_buffer.h"
-
-typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
-					  void *private_data);
 
 /**
  * Tempesta user space ring buffer reader
@@ -48,29 +46,27 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  *    @get_cpu_id - Returns the CPU ID from the shared buffer.
  *
  * Private methods:
- *    @init_buffer_size - Retrieves the size of the ring buffer for proper data
- *        management and sets to the private size_ field.
  *    @read - checks if there is a new data block and executes the callback when
  *        new data is detected.
  */
 class TfwMmapBufferReader {
 public:
-	TfwMmapBufferReader(const unsigned int ncpu, const int fd, void *private_data,
-			    TfwMmapBufferReadCallback cb);
+	using Callback = std::function<void(std::span<const char> data)>;
+
+	TfwMmapBufferReader(unsigned int ncpu, int fd, Callback cb);
 	TfwMmapBufferReader(const TfwMmapBufferReader &) = delete;
 	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;
 	~TfwMmapBufferReader();
 
 	void run(std::atomic<bool> *stop_flag);
-	unsigned int get_cpu_id() noexcept;
+	unsigned int get_cpu_id() const noexcept;
+
+private:
+	bool read();
 
 private:
 	TfwMmapBuffer	*buf_;
-	unsigned int	size_;
+	size_t		size_;
 	bool		is_running_;
-	void		*private_data_;
-	TfwMmapBufferReadCallback	callback_;
-
-	void init_buffer_size(const int fd);
-	int read();
+	Callback	callback_;
 };

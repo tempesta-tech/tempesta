@@ -18,37 +18,52 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <errno.h>
+#include "mmap_buffer.hh"
+
 #include <fcntl.h>
-#include <pthread.h>
-#include <sched.h>
 #include <sys/mman.h>
 #include <unistd.h>
+
+#include <pthread.h>
+#include <sched.h>
 
 #include <cassert>
 #include <chrono>
 #include <cstring>
-#include <iostream>
+#include <thread>
 
-#include "mmap_buffer.hh"
 #include "error.hh"
 
 constexpr std::chrono::milliseconds wait_for_readyness(10);
 
-TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
-					 void *private_data,
-					 TfwMmapBufferReadCallback cb)
-	: buf_(nullptr), size_(0), is_running_(false),
-	  private_data_(private_data), callback_(cb)
+namespace {
+
+uint32_t
+get_buffer_size(const int fd)
 {
-	unsigned int area_size;
+	void *buf = mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
+			 PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	if (buf == MAP_FAILED)
+		throw Except("Failed to get buffers info");
 
-	init_buffer_size(fd);
+	const uint32_t size = static_cast<const TfwMmapBuffer *>(buf)->size;
 
-	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size_);
+	munmap(buf, TFW_MMAP_BUFFER_DATA_OFFSET);
 
-	buf_ = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
-				    MAP_SHARED, fd, area_size * ncpu);
+	return size;
+}
+
+} // namespace
+
+TfwMmapBufferReader::TfwMmapBufferReader(unsigned int ncpu, int fd, Callback cb)
+    : buf_(nullptr), size_(get_buffer_size(fd)), is_running_(false),
+      callback_(std::move(cb))
+{
+	const size_t len = TFW_MMAP_BUFFER_FULL_SIZE(size_);
+	const __off_t offset = static_cast<__off_t>(len) * ncpu;
+
+	buf_ = static_cast<TfwMmapBuffer *>(
+		mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset));
 	if (buf_ == MAP_FAILED)
 		throw Except("Failed to map buffer");
 }
@@ -61,9 +76,7 @@ TfwMmapBufferReader::~TfwMmapBufferReader()
 void
 TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 {
-	int r;
-
-	while (1) {
+	while (true) {
 		if (stop_flag->load(std::memory_order_acquire)) [[unlikely]] {
 			__atomic_store_n(&buf_->is_ready, 0, __ATOMIC_RELEASE);
 			break;
@@ -71,8 +84,7 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 
 		if (__atomic_load_n(&buf_->is_ready, __ATOMIC_ACQUIRE)) [[likely]] {
 			is_running_ = true;
-			r = read();
-			if (r == 0)
+			if (read())
 				continue;
 		} else {
 			if (is_running_) {
@@ -87,38 +99,25 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 }
 
 unsigned int
-TfwMmapBufferReader::get_cpu_id() noexcept
+TfwMmapBufferReader::get_cpu_id() const noexcept
 {
 	return buf_->cpu;
 }
 
-void
-TfwMmapBufferReader::init_buffer_size(const int fd)
-{
-	buf_ = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
-				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
-	if (buf_ == MAP_FAILED)
-		throw Except("Failed to get buffers info");
-
-	size_ = buf_->size;
-
-	munmap(buf_, TFW_MMAP_BUFFER_DATA_OFFSET);
-}
-
-int
+bool
 TfwMmapBufferReader::read()
 {
-	u64 head, tail;
+	const auto head = __atomic_load_n(&buf_->head, __ATOMIC_ACQUIRE);
+	const auto tail = buf_->tail;
 
-	head = __atomic_load_n(&buf_->head, __ATOMIC_ACQUIRE);
-	tail = buf_->tail;
+	const char *data = buf_->data + (tail & buf_->mask);
+	const uint64_t size = head - tail;
+	if (size == 0) [[unlikely]]
+		return false;
 
-	if (head - tail == 0) [[unlikely]]
-		return -EAGAIN;
-
-	callback_(buf_->data + (tail & buf_->mask), head - tail, private_data_);
+	callback_(std::span<const char>(data, size));
 
 	__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
 
-	return 0;
+	return true;
 }
