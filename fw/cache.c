@@ -2777,6 +2777,26 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2,
 	return 0;
 }
 
+static inline bool
+tfw_cache_should_append_body_skb(TfwMsgIter *it, unsigned long body_sz)
+{
+	/*
+	 * If sh_frag is true we should copy skb with headers during
+	 * encryption. In this case we calculate count of skbs to build
+	 * response, if we force add/not add extra skb for body here.
+	 * - If count of skbs are equal add skb (we don't increase count of
+	 * skbs in response, but avoid extra body copying).
+	 * - If count of skbs are not equal we calculte count of body bytes
+	 * should be copied during encryption and if this count is greater
+	 * then PAGE_SIZE >> 2 create extra skb. This value (PAGE_SIZE >> 2)
+	 * was choosen empirically through performance testing.
+	 */
+	return (DIV_ROUND_UP(body_sz + it->skb->len, SS_SKB_MAX_DATA_LEN) ==
+		1 + DIV_ROUND_UP(body_sz, SS_SKB_MAX_DATA_LEN))
+		|| (min(SS_SKB_MAX_DATA_LEN - it->skb->len, body_sz) >
+		    (PAGE_SIZE >> 2));
+}
+
 /**
  * Build the message body as paged fragments of skb.
  * See do_tcp_sendpages() as reference.
@@ -2814,23 +2834,9 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
 	 * otherwise, use next empty frag in current skb.
-	 * If sh_frag is true we should copy skb with headers during
-	 * encryption. In this case we calculate count of skbs to build
-	 * response if we force add/not add extra skb for body here.
-	 * - If count of skbs are equal add skb (we don't increase count of
-	 * skbs in response, but avoid extra body copying).
-	 * - If count of skbs are not equal we calculte count of body bytes
-	 * should be copied during encryption and if this count is greater
-	 * then TLS_MAX_PAYLOAD_SIZE create extra skb.
 	 */
 	if (!it->skb || it->frag + 1 >= MAX_SKB_FRAGS
-	    || (sh_frag
-		&& ((DIV_ROUND_UP(body_sz + it->skb->len,
-				  SS_SKB_MAX_DATA_LEN) ==
-		     1 + DIV_ROUND_UP(body_sz,
-				      SS_SKB_MAX_DATA_LEN))
-		    || (min(SS_SKB_MAX_DATA_LEN - it->skb->len,
-			    body_sz) > (PAGE_SIZE >> 2))))) {
+	    || (sh_frag && tfw_cache_should_append_body_skb(it, body_sz))) {
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
 	}
