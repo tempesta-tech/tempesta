@@ -181,6 +181,12 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 	return frang_sk_is_whitelisted(req->conn->sk);
 }
 
+static int
+frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
+{
+	return tprev + FRANG_FREQ > tcur;
+}
+
 static void
 frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 {
@@ -195,9 +201,8 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 	 * Increment connection counters even when we return T_BLOCK.
 	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
 	 * frang_conn_close() is also called. @conn_curr is decremented
-	 * there, but @conn_new is not changed. We count both failed
-	 * connection attempts and connections that were successfully
-	 * established.
+	 * there, @conn_new is decremented immediately after condition
+	 * fail.
 	 */
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
@@ -214,6 +219,7 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	frang_acc_history_init(ra, ts);
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
+		ra->history[i].conn_new--;
 		frang_limmsg("connections max num.", ra->conn_curr,
 			     conf->conn_max, &FRANG_ACC2CLI(ra)->addr);
 		spin_unlock(&ra->lock);
@@ -223,6 +229,7 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	if (conf->conn_burst
 	    && unlikely(ra->history[i].conn_new > conf->conn_burst))
 	{
+		ra->history[i].conn_new--;
 		frang_limmsg("new connections burst", ra->history[i].conn_new,
 			     conf->conn_burst, &FRANG_ACC2CLI(ra)->addr);
 		spin_unlock(&ra->lock);
@@ -231,12 +238,15 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 
 	if (conf->conn_rate) {
 		unsigned int csum = 0;
+		int j;
 
 		/* Collect current connection sum. */
-		for (i = 0; i < FRANG_FREQ; i++)
-			if (ra->history[i].ts + FRANG_FREQ >= ts)
-				csum += ra->history[i].conn_new;
+		for (j = 0; j < FRANG_FREQ; j++)
+			if (frang_time_in_frame(ts, ra->history[j].ts))
+				csum += ra->history[j].conn_new;
+
 		if (unlikely(csum > conf->conn_rate)) {
+			ra->history[i].conn_new--;
 			frang_limmsg("new connections rate",
 				     csum, conf->conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
@@ -366,12 +376,6 @@ tfw_classify_conn_close(struct sock *sk)
 }
 
 static int
-frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
-{
-	return tprev + FRANG_FREQ > tcur;
-}
-
-static int
 frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
@@ -390,6 +394,7 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	ra->history[i].req++;
 
 	if (req_burst && unlikely(ra->history[i].req > req_burst)) {
+		ra->history[i].req--;
 		frang_limmsg("requests burst", ra->history[i].req,
 			     req_burst, &FRANG_ACC2CLI(ra)->addr);
 		spin_unlock(&ra->lock);
@@ -398,12 +403,14 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 
 	if (req_rate) {
 		unsigned int rsum = 0;
+		int j;
 
 		/* Collect current request sum. */
-		for (i = 0; i < FRANG_FREQ; i++)
-			if (frang_time_in_frame(ts, ra->history[i].ts))
-				rsum += ra->history[i].req;
+		for (j = 0; j < FRANG_FREQ; j++)
+			if (frang_time_in_frame(ts, ra->history[j].ts))
+				rsum += ra->history[j].req;
 		if (unlikely(rsum > req_rate)) {
+			ra->history[i].req--;
 			frang_limmsg("request rate", rsum, req_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
 			spin_unlock(&ra->lock);
@@ -1469,6 +1476,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	unsigned long sum_new = 0, sum_incomplete = 0;
 	int i = ts % FRANG_FREQ;
+	int j;
 
 	if (ra->history[i].ts != ts) {
 		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
@@ -1483,6 +1491,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		    && unlikely(ra->history[i].tls_sess_new >
 				conf->tls_new_conn_burst))
 		{
+			ra->history[i].tls_sess_new--;
 			frang_limmsg("new TLS connections burst",
 				     ra->history[i].tls_sess_new,
 				     conf->tls_new_conn_burst,
@@ -1501,17 +1510,19 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		break;
 	}
 
-	for (i = 0; i < FRANG_FREQ; i++)
-		if (ra->history[i].ts + FRANG_FREQ >= ts) {
-			sum_new += ra->history[i].tls_sess_new;
-			sum_incomplete += ra->history[i].tls_sess_incomplete;
+	for (j = 0; j < FRANG_FREQ; j++) {
+		if (frang_time_in_frame(ts, ra->history[j].ts)) {
+			sum_new += ra->history[j].tls_sess_new;
+			sum_incomplete += ra->history[j].tls_sess_incomplete;
 		}
+	}
 
 	switch (hs_state) {
 	case TTLS_HS_CB_FINISHED_NEW:
 		if (conf->tls_new_conn_rate
 		    && unlikely(sum_new > conf->tls_new_conn_rate))
 		{
+			ra->history[i].tls_sess_new--;
 			frang_limmsg("new TLS connections rate", sum_new,
 				     conf->tls_new_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
@@ -1523,6 +1534,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		    && unlikely(sum_incomplete >
 		    		conf->tls_incomplete_conn_rate))
 		{
+			ra->history[i].tls_sess_incomplete--;
 			frang_limmsg("incomplete TLS connections rate",
 				     sum_incomplete,
 				     conf->tls_incomplete_conn_rate,
