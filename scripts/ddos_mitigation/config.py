@@ -52,6 +52,8 @@ class AppConfig(BaseSettings):
     detector_geoip_percent_threshold: Decimal = Decimal(95)
     detector_geoip_min_rps: Decimal = Decimal(100)
     detector_geoip_period_seconds: int = 10
+    detector_geoip_path_allowed_cities_list: str = '/etc/tempesta-ddos-defender/allowed_cities.txt'
+    detector_geoip_path_to_db: str = '/etc/tempesta-ddos-defender/city.db'
 
     tempesta_executable_path: str = ""
     tempesta_config_path: str = ""

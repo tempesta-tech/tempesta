@@ -108,7 +108,7 @@ more DDoS attacks aren't prepared for a specific target.
 ### Blocking Methods
 The Defender supports several methods for blocking users:
 
-| NAME | Description                                |
+| NAME | DESCRIPTION                                |
 |-|--------------------------------------------|
 | ja5t | Client TLS connection fingerprint          |
 | ja5h | Client HTTP fingerprint                    |
@@ -135,6 +135,32 @@ BLOCKING_RELEASE_TIME_MIN=5
 ```
 
 This ensures that users are not blocked longer than necessary, while still maintaining protection during an active attack.
+
+## Detectors
+The strategies used by Defender to detect attacks.
+
+### Threshold Detector
+Block users based on installed RPS, time, and error limits. The blocking thresholds can be determined automatically using pre-trained modes.
+
+| NAME| VALUE             | DESCRIPTION                                                                                                                                                             |
+|-|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| DEFAULT_REQUESTS_THRESHOLD | 100               | The RPS threshold. This is used when training mode is disabled, or when the threshold  calculated from real or historical data is too low.  |
+| DEFAULT_TIME_THRESHOLD | 40                | Average accumulated response time threshold. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.  |
+| DEFAULT_ERRORS_THRESHOLD | 5                 | The threshold for the number of requests finished with errors. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low. |
+| BLOCKING_WINDOW_DURATION_SEC | 10                | Time period (in seconds) that defines how often the user blocking task should run to find and block new users.  |
+| TRAINING_MODE | real / historical | Start DDoS Defender in training mode.  |
+| TRAINING_MODE_DURATION_MIN | 10                | Duration of the waiting period, during which the Defender collects data before calculating thresholds. |
+
+### GeoIP Detector
+Block users from unusual countries based on their own fixed limits. Requires the MaxMind City GeoIP database.
+
+| NAME                             | EXAMPLE | DESCRIPTION                                                                                                                              |
+|----------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------|
+| DETECTOR_GEOIP_PERCENT_THRESHOLD |    95   | The percentage request limit from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked |
+| DETECTOR_GEOIP_MIN_RPS           | 1000    | the minimum RPS of requests from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked  |
+| DETECTOR_GEOIP_PERIOD_SECONDS    |  10     | the time period (in seconds)  over which client analysis should be performed                                                             |
+| DETECTOR_GEOIP_PATH_TO_DB        | /etc/tempesta-ddos-defender/city.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
+| DETECTOR_GEOIP_PATH_ALLOWED_CITIES_LIST | /etc/tempesta-ddos-defender/allowed_cities.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
 
 ## Prepare Tempesta FW
 The script requires a specific Tempesta FW configuration.

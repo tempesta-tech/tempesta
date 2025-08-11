@@ -59,8 +59,8 @@ if __name__ == "__main__":
             detectors.GeoIPDetector.name(): detectors.GeoIPDetector(
                 app_config=app_config,
                 clickhouse_client=clickhouse_client,
-                path_to_db="",
-                path_to_allowed_cities_list="",
+                path_to_db=app_config.detector_geoip_path_to_db,
+                path_to_allowed_cities_list=app_config.detector_geoip_path_allowed_cities_list,
             ),
         },
         clickhouse_client=clickhouse_client,
