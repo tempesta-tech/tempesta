@@ -190,11 +190,14 @@ where traffic spikes are not extremely frequent or unpredictable.
 ### Blog or Online Shop
 These types of applications typically don’t have a large number of concurrent users and often operate within a traffic range of 0 to 50 active users.
 However, it's important to account for the fact that static files (like CSS, JS, and images) are also requested.
-On initial page load, a single user might generate up to 200 or more HTTP requests.
+On initial page load, a single user might generate up to 200 or more HTTP requests. All farther requests should receive some
+`fetch()` data (up to 10 requests), but the posts or goods preview probably should have images 
+(with average pagination per 20 items it should be 20 images).
 
 Let's estimate:
-- If 10 users are browsing your site concurrently, total requests might reach 2000.
-- If there are 50 concurrent users, it might go up to 10000 requests.
+- If 10 users are browsing your site concurrently, total requests might reach 2000 at first loading and 300 for each next
+- If there are 50 concurrent users, it might go up to 10000 requests at first loading and 1500 for each next
+- The average RPS over the last 10 seconds should be `(1(sec) * 50(users) * 200(requests) + 9(sec) * 50(users) * 30(requests)) / 10(sec) = 2350 RPS` 
 
 Requests alone are not the only important metric.
 
