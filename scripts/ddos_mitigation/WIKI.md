@@ -245,8 +245,13 @@ If you're seeing dozens of such responses, it likely means something is going wr
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
 ```bash
-DETECTOR_THRESHOLD_MIN_RPS=300
+# 50 users with an average of 200 requests, as described in  [Blog or Online Shop](#blog-or-shop)
+DETECTOR_THRESHOLD_MIN_RPS=2350
+
+# The average response time in seconds per user (maximum 60 seconds, which is the timeout)
 DETECTOR_THRESHOLD_MIN_TIME=40
+
+# The average number of responses that finished with errors
 DETECTOR_THRESHOLD_MIN_ERRORS=5
 ```
 These thresholds provide a balance between responsiveness and protection, ensuring that legitimate traffic is allowed
