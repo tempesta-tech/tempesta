@@ -62,11 +62,11 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
             start_at=1751535000, period_in_minutes=1
         )
         self.assertEqual(
-            result.requests, self.detector.app_config.default_requests_threshold
+            result.requests, self.detector.app_config.detector_threshold_min_rps
         )
-        self.assertEqual(result.time, self.detector.app_config.default_time_threshold)
+        self.assertEqual(result.time, self.detector.app_config.detector_threshold_min_time)
         self.assertEqual(
-            result.errors, self.detector.app_config.default_errors_threshold
+            result.errors, self.detector.app_config.detector_threshold_min_errors
         )
 
         self.detector.app_config.stats_rps_precision = Decimal("0.01")
@@ -80,7 +80,7 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
         self.assertEqual(result.errors, Decimal("0.0"))
 
     async def test_find_users(self):
-        self.detector.app_config.blocking_window_duration_sec = 10
+        self.detector.app_config.detector_threshold_window_duration_sec = 10
         self.detector.requests_threshold = Decimal(1)
         self.detector.time_threshold = Decimal(10)
         self.detector.errors_threshold = Decimal(1)
@@ -112,13 +112,13 @@ class TestThresholdDetector(BaseTestCaseWithFilledDB):
         await self.detector.prepare()
 
     async def test_prepare_historical_mode(self):
-        self.detector.app_config.training_mode = "historical"
-        self.detector.app_config.training_mode_duration_min = 1
+        self.detector.app_config.detector_threshold_training_mode = "historical"
+        self.detector.app_config.detector_threshold_training_mode_duration_min = 1
         self.detector.seconds_in_minute = 1
         await self.detector.prepare()
 
     async def test_prepare_real_mode(self):
-        self.detector.app_config.training_mode = "real"
-        self.detector.app_config.training_mode_duration_min = 1
+        self.detector.app_config.detector_threshold_training_mode = "real"
+        self.detector.app_config.detector_threshold_training_mode_duration_min = 1
         self.detector.seconds_in_minute = 1
         await self.detector.prepare()

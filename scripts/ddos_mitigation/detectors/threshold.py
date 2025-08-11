@@ -114,9 +114,9 @@ class ThresholdDetector(BaseDetector):
         )
 
         total_seconds = Decimal(period_in_minutes) * Decimal(self.seconds_in_minute)
-        requests = Decimal(self.app_config.default_requests_threshold)
-        times = Decimal(self.app_config.default_time_threshold)
-        errors = Decimal(self.app_config.default_errors_threshold)
+        requests = Decimal(self.app_config.detector_threshold_min_rps)
+        times = Decimal(self.app_config.detector_threshold_min_time)
+        errors = Decimal(self.app_config.detector_threshold_min_errors)
 
         if not math.isnan(response.result_rows[0][0]):
             requests = Decimal(response.result_rows[0][0]) / total_seconds
@@ -218,19 +218,19 @@ class ThresholdDetector(BaseDetector):
         ]
 
     async def prepare(self):
-        logger.info(f"Training mode set to `{self.app_config.training_mode.upper()}`")
+        logger.info(f"Training mode set to `{self.app_config.detector_threshold_training_mode.upper()}`")
 
-        if self.app_config.training_mode == "real":
+        if self.app_config.detector_threshold_training_mode == "real":
             logger.info(
                 f"Starting to collect client activity for:"
-                f" {self.app_config.training_mode_duration_min} min."
+                f" {self.app_config.detector_threshold_training_mode_duration_min} min."
             )
             await asyncio.sleep(
-                self.app_config.training_mode_duration_min * self.seconds_in_minute
+                self.app_config.detector_threshold_training_mode_duration_min * self.seconds_in_minute
             )
             logger.info("Data collection is complete")
 
-        if self.app_config.training_mode in {"real", "historical"}:
+        if self.app_config.detector_threshold_training_mode in {"real", "historical"}:
             logger.info("Analyzing user activity for the period")
             known_users = await self.persistent_users_load(
                 start_at=int(time.time())
@@ -255,16 +255,16 @@ class ThresholdDetector(BaseDetector):
             )
         else:
             self.set_thresholds(
-                requests_threshold=self.app_config.default_requests_threshold,
-                time_threshold=self.app_config.default_time_threshold,
-                errors_threshold=self.app_config.default_errors_threshold,
+                requests_threshold=self.app_config.detector_threshold_min_rps,
+                time_threshold=self.app_config.detector_threshold_min_time,
+                errors_threshold=self.app_config.detector_threshold_min_errors,
             )
 
     async def find_users(self, current_time: int = None) -> list[User]:
         _current_time = current_time or int(time.time())
         risk_clients = await self.risk_clients_fetch(
             start_at=_current_time,
-            period_in_seconds=self.app_config.blocking_window_duration_sec,
+            period_in_seconds=self.app_config.detector_threshold_window_duration_sec,
             requests_threshold=self.requests_threshold,
             time_threshold=self.time_threshold,
             errors_threshold=self.errors_threshold,

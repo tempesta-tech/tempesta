@@ -132,7 +132,7 @@ class TestMitigation(BaseTestCaseWithFilledDB):
         self.monitor.app_config.clickhouse_database = "test_db"
         self.monitor.app_config.test_mode = True
         self.monitor.app_config.test_unix_time = 1751535001
-        self.monitor.app_config.blocking_window_duration_sec = 10
+        self.monitor.app_config.detector_threshold_window_duration_sec = 10
 
         await self.monitor.run()
         self.monitor.detectors["threshold"].set_thresholds(

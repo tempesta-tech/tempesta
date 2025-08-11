@@ -9,9 +9,6 @@ __license__ = "GPL2"
 
 
 class AppConfig(BaseSettings):
-    training_mode: Literal["off", "historical", "real"] = "off"
-    training_mode_duration_min: int = 10
-
     path_to_ja5t_config: str = "/etc/tempesta/ja5t/blocked.conf"
     path_to_ja5h_config: str = "/etc/tempesta/ja5h/blocked.conf"
 
@@ -27,10 +24,6 @@ class AppConfig(BaseSettings):
     persistent_users_window_duration_min: int = 60
     persistent_users_total_requests: Decimal = 1
     persistent_users_total_time: Decimal = 1
-
-    default_requests_threshold: Decimal = 100
-    default_time_threshold: Decimal = 40
-    default_errors_threshold: Decimal = 5
 
     stats_window_offset_min: int = 60
     stats_window_duration_min: int = 60
@@ -48,6 +41,13 @@ class AppConfig(BaseSettings):
     blocking_ipset_name: str = "tempesta_blocked_ips"
     blocking_time_min: int = 60
     blocking_release_time_min: int = 1
+
+    detector_threshold_training_mode: Literal["off", "historical", "real"] = "off"
+    detector_threshold_training_mode_duration_min: int = 10
+    detector_threshold_min_rps: Decimal = 100
+    detector_threshold_min_time: Decimal = 40
+    detector_threshold_min_errors: Decimal = 5
+    detector_threshold_window_duration_sec: Decimal = 10
 
     detector_geoip_percent_threshold: Decimal = Decimal(95)
     detector_geoip_min_rps: Decimal = Decimal(100)

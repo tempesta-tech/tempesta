@@ -18,9 +18,9 @@ To block a user, the Defender adds the user's JA5 hashes to the Tempesta FW conf
 The Defender can be configured to start in historical mode. In this mode the script learns form the historical 
 data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
 ```bash
-TRAINING_MODE="historical"
+DETECTOR_THRESHOLD_TRAINING_MODE="historical"
 ```
-You can also configure the `TRAINING_MODE_DURATION_MIN` variable, which defines how far back (in minutes) the script 
+You can also configure the `DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN` variable, which defines how far back (in minutes) the script 
 should look to analyze user traffic. If the calculated values are too low, the script will prefer 
 to use the default thresholds from the configuration.
 
@@ -32,7 +32,7 @@ In cases where historical data is not available, but you still want to automatic
 you can start the Defender with:
 
 ```bash
-TRAINING_MODE="real"
+DETECTOR_THRESHOLD_TRAINING_MODE="real"
 ```
 This mode works similarly to historical, with one key difference:
 the script waits for a specified amount of time to collect fresh data, and only then begins analysis.
@@ -40,7 +40,7 @@ the script waits for a specified amount of time to collect fresh data, and only 
 To train the script using the last 10 minutes of live traffic, you can use:
 
 ```bash
-TRAINING_MODE_DURATION_MIN=10
+DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN=10
 ```
 During this period, the Defender will gather user activity, calculate average metrics,
 apply multipliers (as in historical mode), and set the thresholds accordingly.
@@ -142,14 +142,14 @@ The strategies used by Defender to detect attacks.
 ### Threshold Detector
 Block users based on installed RPS, time, and error limits. The blocking thresholds can be determined automatically using pre-trained modes.
 
-| NAME| VALUE             | DESCRIPTION                                                                                                                                                             |
-|-|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| DEFAULT_REQUESTS_THRESHOLD | 100               | The RPS threshold. This is used when training mode is disabled, or when the threshold  calculated from real or historical data is too low.  |
-| DEFAULT_TIME_THRESHOLD | 40                | Average accumulated response time threshold. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.  |
-| DEFAULT_ERRORS_THRESHOLD | 5                 | The threshold for the number of requests finished with errors. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low. |
-| BLOCKING_WINDOW_DURATION_SEC | 10                | Time period (in seconds) that defines how often the user blocking task should run to find and block new users.  |
-| TRAINING_MODE | real / historical | Start DDoS Defender in training mode.  |
-| TRAINING_MODE_DURATION_MIN | 10                | Duration of the waiting period, during which the Defender collects data before calculating thresholds. |
+| NAME                                          | VALUE             | DESCRIPTION                                                                                                                                                                   |
+|-----------------------------------------------|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| DETECTOR_THRESHOLD_MIN_RPS                    | 100               | The RPS threshold. This is used when training mode is disabled, or when the threshold  calculated from real or historical data is too low.                                    |
+| DETECTOR_THRESHOLD_MIN_TIME                   | 40                | Average accumulated response time threshold. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.                   |
+| DETECTOR_THRESHOLD_MIN_ERRORS                 | 5                 | The threshold for the number of requests finished with errors. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low. |
+| DETECTOR_THRESHOLD_WINDOW_DURATION_SEC        | 10                | Defines the time period (in seconds) for analyzing the request window.                                                                                                        |
+| DETECTOR_THRESHOLD_TRAINING_MODE              | real / historical | Start DDoS Defender in training mode.                                                                                                                                         |
+| DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN | 10                | Duration of the waiting period, during which the Defender collects data before calculating thresholds.                                                                        |
 
 ### GeoIP Detector
 Block users from unusual countries based on their own fixed limits. Requires the MaxMind City GeoIP database.
@@ -242,9 +242,9 @@ If you're seeing dozens of such responses, it likely means something is going wr
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
 ```bash
-DEFAULT_REQUESTS_THRESHOLD=300
-DEFAULT_TIME_THRESHOLD=40
-DEFAULT_ERRORS_THRESHOLD=5
+DETECTOR_THRESHOLD_MIN_RPS=300
+DETECTOR_THRESHOLD_MIN_TIME=40
+DETECTOR_THRESHOLD_MIN_ERRORS=5
 ```
 These thresholds provide a balance between responsiveness and protection, ensuring that legitimate traffic is allowed
 while abnormal spikes can be mitigated early.
@@ -268,8 +268,8 @@ for filtering potential attacks without affecting normal operation.
 To enable real-time training, update your configuration like this:
 
 ```bash
-TRAINING_MODE="real"
-TRAINING_MODE_DURATION_MIN=30
+DETECTOR_THRESHOLD_TRAINING_MODE="real"
+DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN=30
 ```
 
 This setup allows the script to observe traffic for 30 minutes, calculate real averages,
