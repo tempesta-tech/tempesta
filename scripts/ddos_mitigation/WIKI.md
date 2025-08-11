@@ -190,11 +190,11 @@ where traffic spikes are not extremely frequent or unpredictable.
 ### Blog or Online Shop
 These types of applications typically don’t have a large number of concurrent users and often operate within a traffic range of 0 to 50 active users.
 However, it's important to account for the fact that static files (like CSS, JS, and images) are also requested.
-On initial page load, a single user might generate up to 20 or more HTTP requests.
+On initial page load, a single user might generate up to 200 or more HTTP requests.
 
 Let's estimate:
-- If 10 users are browsing your site concurrently, total requests might reach 200.
-- If there are 50 concurrent users, it might go up to 1000 requests.
+- If 10 users are browsing your site concurrently, total requests might reach 2000.
+- If there are 50 concurrent users, it might go up to 10000 requests.
 
 Requests alone are not the only important metric.
 
