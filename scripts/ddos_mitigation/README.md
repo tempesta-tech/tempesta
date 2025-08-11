@@ -16,7 +16,7 @@ python3 -m venv tempesta-ddos-defender
 source tempesta-ddos-defender/bin/activate
 pip install -r requirements.txt
 cp example.env /etc/tempesta-ddos-defender/app.env
-touch /etc/tempesta-ddos-mitigation/allow_user_agents.txt
+touch /etc/tempesta-ddos-defender/allow_user_agents.txt
 python3 app.py 
 ```
 

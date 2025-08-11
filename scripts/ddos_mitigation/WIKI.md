@@ -1,4 +1,4 @@
-# DDoS Mitigation Script
+# DDoS Defender
 
 ## Brief
 ### How it works
@@ -8,28 +8,28 @@ such as TLS connection or HTTP request fingerprints.
 
 Additionally, access logs can be stored in [ClickHouse](Access-Log-Analytics/), which offers extremely powerful capabilities for analyzing traffic.
 
-The mitigation script connects to the ClickHouse database and, at regular intervals, analyzes user traffic. 
+The Defender connects to the ClickHouse database and, at regular intervals, analyzes user traffic. 
 It compares aggregated values (such as the total number of requests, accumulated response time, and total number of
 error responses) against predefined thresholds. All of these thresholds can be customized in the application configuration.
 
-To block a user, the mitigation script adds the user's JA5 hashes to the Tempesta FW configuration and reloads the server.
+To block a user, the Defender adds the user's JA5 hashes to the Tempesta FW configuration and reloads the server.
 
 ### Historical Mode
-The Mitigation Script can be configured to start in historical mode. In this mode the script learns form the historical 
+The Defender can be configured to start in historical mode. In this mode the script learns form the historical 
 data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
 ```.env
 TRAINING_MODE="historical"
 ```
-You can also configure the training_mode_duration_min variable, which defines how far back (in minutes) the script 
+You can also configure the `TRAINING_MODE_DURATION_MIN` variable, which defines how far back (in minutes) the script 
 should look to analyze user traffic. If the calculated values are too low, the script will prefer 
 to use the default thresholds from the configuration.
 
 This mode is especially useful when the actual average system load is unknown, and it's more effective to 
-let the Mitigation Script determine reasonable thresholds automatically.
+let the Defender determine reasonable thresholds automatically.
 
 ### Real Mode
 In cases where historical data is not available, but you still want to automatically set thresholds,
-you can start the Mitigation Script with:
+you can start the Defender with:
 
 ```.env
 TRAINING_MODE="real"
@@ -42,7 +42,7 @@ To train the script using the last 10 minutes of live traffic, you can use:
 ```.env
 TRAINING_MODE_DURATION_MIN=10
 ```
-During this period, the script will gather user activity, calculate average metrics,
+During this period, the Defender will gather user activity, calculate average metrics,
 apply multipliers (as in historical mode), and set the thresholds accordingly.
 
 ### Persistent Users
@@ -52,7 +52,7 @@ Defender reacts on system metrics getting worse and kills the most aggressive cl
 However, it might false positively kill benign clients who have been working with the system before the degradation event. 
 The set of such persistent clients can also be learnt by Defender.
 
-The Mitigation Script can identify persistent users — users that generate regular, consistent traffic — and protect them during an attack.
+The Defender can identify persistent users — users that generate regular, consistent traffic — and protect them during an attack.
 All users except those marked as persistent can potentially be blocked.
 
 By default, this feature is enabled in both `historical` and `real` modes.
@@ -106,7 +106,7 @@ This still won't help if an attacker prepares an attack specifically for your se
 more DDoS attacks aren't prepared for a specific target.
 
 ### Blocking Methods
-The mitigation script supports several methods for blocking users:
+The Defender supports several methods for blocking users:
 
 | NAME | Description                                |
 |-|--------------------------------------------|
@@ -125,7 +125,7 @@ BLOCKING_TYPES=["ja5t", "ipset"]
 After a DDoS attack, blocked users can be automatically unblocked.
 The default blocking duration is controlled by the `BLOCKING_TIME_MIN` variable (in minutes).
 
-Once the specified time has passed, the Mitigation Script will check blocked users periodically
+Once the specified time has passed, the Defender will check blocked users periodically
 and remove their blocks if the time limit has been exceeded.
 
 You can configure how often this check is performed using:
@@ -165,9 +165,9 @@ Once the configuration is updated, reload Tempesta FW:
 ```bash
 service tempesta --reload
 ```
-This setup allows the Mitigation Script to dynamically update ja5t and ja5h blocking rules.
+This setup allows the Defender to dynamically update ja5t and ja5h blocking rules.
 
-## Start Mitigation Script
+## Start Defender
 
 ### Run Manually
 Manual startup is slightly more complex but doesn't require anything special.
@@ -179,12 +179,12 @@ python3 -m venv tempesta-ddos-defender
 source tempesta-ddos-defender/bin/activate
 pip install -r requirements.txt
 cp example.env /etc/tempesta-ddos-defender/app.env
-touch /etc/tempesta-ddos-mitigation/allow_user_agents.txt
+touch /etc/tempesta-ddos-defender/allow_user_agents.txt
 python3 app.py 
 ```
 
 ## How to Defend Your App
-The mitigation script currently provides basic protection suitable for small to medium-sized applications,
+The Defender currently provides basic protection suitable for small to medium-sized applications,
 where traffic spikes are not extremely frequent or unpredictable.
 
 ### Blog or Online Shop
@@ -209,7 +209,7 @@ which is a key indicator of server load.
 A spike in errors (like 5xx responses) is a strong signal of a problem.
 If you're seeing dozens of such responses, it likely means something is going wrong and needs attention.
 
-#### Example Mitigation Script Configuration
+#### Example Defender Configuration
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
 ```.env
@@ -233,7 +233,7 @@ leading to heavier load on your backend services.
 The mitigation strategy is similar to that of a blog or e-commerce site, but with higher thresholds.
 
 Additionally, for such dynamic applications, it's highly recommended to use training mode with either historical or real value.
-In this mode, the Mitigation Script will analyze real user traffic and determine the most suitable threshold values
+In this mode, the Defender will analyze real user traffic and determine the most suitable threshold values
 for filtering potential attacks without affecting normal operation.
 
 To enable real-time training, update your configuration like this:
@@ -254,7 +254,7 @@ different RPS (requests per second) loads over time slices.
 However, for a more focused and powerful DDoS simulation, we recommend using [MHDDoS](https://github.com/MatrixTM/MHDDoS).
 It’s lightweight and easy to set up, making it ideal for local or test environments.
 
-You can install and run Tempesta FW, ClickHouse, and the DDoS Mitigation Script all on a single machine.
+You can install and run Tempesta FW, ClickHouse, and the DDoS Defender all on a single machine.
 
 To simulate an HTTP server, you can use Python’s built-in web server:
 
@@ -318,7 +318,7 @@ Run the following command:
 
 This will simulate an attack with up to 100 RPS for 60 seconds against https://app.com.
 
-Now, start the Mitigation Script. You should see output similar to the following:
+Now, start the Defender. You should see output similar to the following:
 ```bash
 (tempesta-ddos-venv) root@symtu:/home/tempesta-ddos-defender# python3 app.py 
 [2025-07-17 03:53:28,539][root][INFO]: Starting DDoS Defender
@@ -328,7 +328,7 @@ Now, start the Mitigation Script. You should see output similar to the following
 [2025-07-17 03:53:28,570][root][INFO]: Preparation is complete. Starting monitoring.
 ```
 
-Let’s restart MHDDoS and see how the Mitigation Script reacts to the simulated attack:
+Let’s restart MHDDoS and see how the Defender reacts to the simulated attack:
 ```bash
 [2025-07-17 03:56:30,760][root][WARNING]: Blocked user User(ja5t='66cbe62b13320000', blocked_at=1752717390) by ja5t
 ```
@@ -353,4 +353,4 @@ Moreover, if traffic surges are predictable (e.g. due to a scheduled event or pl
 it's possible to pre-train or pre-configure the system with expected behavior — reducing the risk of false positives.
 
 In future versions, integrating traffic forecasting or external signal sources could help the 
-Mitigation Script make smarter decisions.
+Defender make smarter decisions.
