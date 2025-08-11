@@ -249,9 +249,9 @@ class ThresholdDetector(BaseDetector):
                 period_in_minutes=self.app_config.stats_window_duration_min,
             )
             self.set_thresholds(
-                requests_threshold=average_stats.requests,
-                time_threshold=average_stats.time,
-                errors_threshold=average_stats.errors,
+                requests_threshold=average_stats.requests * self.app_config.detector_threshold_rps_multiplier,
+                time_threshold=average_stats.time * self.app_config.detector_threshold_time_multiplier,
+                errors_threshold=average_stats.errors * self.app_config.detector_threshold_errors_multiplier,
             )
         else:
             self.set_thresholds(
