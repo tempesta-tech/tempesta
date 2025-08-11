@@ -17,7 +17,7 @@ To block a user, the Defender adds the user's JA5 hashes to the Tempesta FW conf
 ### Historical Mode
 The Defender can be configured to start in historical mode. In this mode the script learns form the historical 
 data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
-```.env
+```bash
 TRAINING_MODE="historical"
 ```
 You can also configure the `TRAINING_MODE_DURATION_MIN` variable, which defines how far back (in minutes) the script 
@@ -31,7 +31,7 @@ let the Defender determine reasonable thresholds automatically.
 In cases where historical data is not available, but you still want to automatically set thresholds,
 you can start the Defender with:
 
-```.env
+```bash
 TRAINING_MODE="real"
 ```
 This mode works similarly to historical, with one key difference:
@@ -39,7 +39,7 @@ the script waits for a specified amount of time to collect fresh data, and only 
 
 To train the script using the last 10 minutes of live traffic, you can use:
 
-```.env
+```bash
 TRAINING_MODE_DURATION_MIN=10
 ```
 During this period, the Defender will gather user activity, calculate average metrics,
@@ -59,7 +59,7 @@ By default, this feature is enabled in both `historical` and `real` modes.
 
 To configure persistent user detection, use the following variables:
 
-```.env
+```bash
 PERSISTENT_USERS_MAX_AMOUNT=100
 PERSISTENT_USERS_WINDOW_OFFSET_MIN=60
 PERSISTENT_USERS_WINDOW_DURATION_MIN=60
@@ -80,7 +80,7 @@ You can define these in a separate configuration file.
 
 By default, the path to this file is:
 
-```.env
+```bash
 /etc/tempesta-ddos-defender/allow_user_agents.txt
 
 ```
@@ -95,7 +95,7 @@ Each User-Agent should be on a separate line.
 
 If you want to use a custom location for this file, you can set the following variable in your config:
 
-```.env
+```bash
 ALLOWED_USER_AGENTS_FILE_PATH=/your/custom/path.txt
 ```
 
@@ -117,7 +117,7 @@ The Defender supports several methods for blocking users:
 
 By default, the ja5t blocking method is used. However, multiple methods can be specified, including combinations:
 
-```.env
+```bash
 BLOCKING_TYPES=["ja5t", "ipset"]
 ```
 
@@ -130,7 +130,7 @@ and remove their blocks if the time limit has been exceeded.
 
 You can configure how often this check is performed using:
 
-```.env
+```bash
 BLOCKING_RELEASE_TIME_MIN=5
 ```
 
@@ -212,7 +212,7 @@ If you're seeing dozens of such responses, it likely means something is going wr
 #### Example Defender Configuration
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
-```.env
+```bash
 DEFAULT_REQUESTS_THRESHOLD=300
 DEFAULT_TIME_THRESHOLD=40
 DEFAULT_ERRORS_THRESHOLD=5
@@ -238,7 +238,7 @@ for filtering potential attacks without affecting normal operation.
 
 To enable real-time training, update your configuration like this:
 
-```.env
+```bash
 TRAINING_MODE="real"
 TRAINING_MODE_DURATION_MIN=30
 ```
