@@ -18,7 +18,7 @@ To block a user, the mitigation script adds the user's JA5 hashes to the Tempest
 The Mitigation Script can be configured to start in historical mode. In this mode the script learns form the historical 
 data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
 ```.env
-training_mode="historical"
+TRAINING_MODE="historical"
 ```
 You can also configure the training_mode_duration_min variable, which defines how far back (in minutes) the script 
 should look to analyze user traffic. If the calculated values are too low, the script will prefer 
@@ -32,7 +32,7 @@ In cases where historical data is not available, but you still want to automatic
 you can start the Mitigation Script with:
 
 ```.env
-training_mode="real"
+TRAINING_MODE="real"
 ```
 This mode works similarly to historical, with one key difference:
 the script waits for a specified amount of time to collect fresh data, and only then begins analysis.
@@ -40,7 +40,7 @@ the script waits for a specified amount of time to collect fresh data, and only 
 To train the script using the last 10 minutes of live traffic, you can use:
 
 ```.env
-training_mode_duration_min=10
+TRAINING_MODE_DURATION_MIN=10
 ```
 During this period, the script will gather user activity, calculate average metrics,
 apply multipliers (as in historical mode), and set the thresholds accordingly.
@@ -60,17 +60,17 @@ By default, this feature is enabled in both `historical` and `real` modes.
 To configure persistent user detection, use the following variables:
 
 ```.env
-persistent_users_max_amount=100
-persistent_users_window_offset_min=60
-persistent_users_window_duration_min=60
-persistent_users_total_requests: Decimal=1
-persistent_users_total_time=1
+PERSISTENT_USERS_MAX_AMOUNT=100
+PERSISTENT_USERS_WINDOW_OFFSET_MIN=60
+PERSISTENT_USERS_WINDOW_DURATION_MIN=60
+PERSISTENT_USERS_TOTAL_REQUESTS=1
+PERSISTENT_USERS_TOTAL_TIME=1
 ```
 
 A user is marked as persistent if they exceed either of the following thresholds during the specified time window: 
 
-- `persistent_users_total_requests`: minimum number of requests (RPS)
-- `persistent_users_total_time`: minimum total response time
+- `PERSISTENT_USERS_TOTAL_REQUESTS`: minimum number of requests (RPS)
+- `PERSISTENT_USERS_TOTAL_TIME`: minimum total response time
 
 These thresholds help ensure that only consistently active users are protected from being mistakenly blocked.
 
@@ -96,7 +96,7 @@ Each User-Agent should be on a separate line.
 If you want to use a custom location for this file, you can set the following variable in your config:
 
 ```.env
-allowed_user_agents_file_path=/your/custom/path.txt
+ALLOWED_USER_AGENTS_FILE_PATH=/your/custom/path.txt
 ```
 
 Requests with matching User-Agents will be ignored by the blocking logic and treated as safe.
@@ -118,12 +118,12 @@ The mitigation script supports several methods for blocking users:
 By default, the ja5t blocking method is used. However, multiple methods can be specified, including combinations:
 
 ```.env
-blocking_types=["ja5t", "ipset"]
+BLOCKING_TYPES=["ja5t", "ipset"]
 ```
 
 ### Unblocking Users
 After a DDoS attack, blocked users can be automatically unblocked.
-The default blocking duration is controlled by the `blocking_time_min` variable (in minutes).
+The default blocking duration is controlled by the `BLOCKING_TIME_MIN` variable (in minutes).
 
 Once the specified time has passed, the Mitigation Script will check blocked users periodically
 and remove their blocks if the time limit has been exceeded.
@@ -131,7 +131,7 @@ and remove their blocks if the time limit has been exceeded.
 You can configure how often this check is performed using:
 
 ```.env
-blocking_release_time_min=5
+BLOCKING_RELEASE_TIME_MIN=5
 ```
 
 This ensures that users are not blocked longer than necessary, while still maintaining protection during an active attack.
@@ -213,9 +213,9 @@ If you're seeing dozens of such responses, it likely means something is going wr
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
 ```.env
-default_requests_threshold=300
-default_time_threshold=40
-default_errors_threshold=5
+DEFAULT_REQUESTS_THRESHOLD=300
+DEFAULT_TIME_THRESHOLD=40
+DEFAULT_ERRORS_THRESHOLD=5
 ```
 These thresholds provide a balance between responsiveness and protection, ensuring that legitimate traffic is allowed
 while abnormal spikes can be mitigated early.
@@ -239,8 +239,8 @@ for filtering potential attacks without affecting normal operation.
 To enable real-time training, update your configuration like this:
 
 ```.env
-training_mode="real"
-training_mode_duration_min=30
+TRAINING_MODE="real"
+TRAINING_MODE_DURATION_MIN=30
 ```
 
 This setup allows the script to observe traffic for 30 minutes, calculate real averages,
@@ -262,7 +262,7 @@ To simulate an HTTP server, you can use Python’s built-in web server:
 python3 -m http.server
 ```
 
-By default, it runs on localhost:8000.
+By default, it runs on `localhost:8000`.
 
 Generate SSL certificates and update your Tempesta FW configuration accordingly
 to enable HTTPS support and route traffic through Tempesta for analysis and mitigation.
@@ -292,7 +292,7 @@ ja5h {
 server 127.0.0.1:8000;
 ```
 
-Update /etc/hosts. Add the following entry to your /etc/hosts file:
+Update `/etc/hosts`. Add the following entry to your `/etc/hosts` file:
 ```text
 127.0.0.1 app.com
 ```
