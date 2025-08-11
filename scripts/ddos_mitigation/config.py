@@ -51,6 +51,7 @@ class AppConfig(BaseSettings):
     detector_threshold_time_multiplier: Decimal = 10
     detector_threshold_errors_multiplier: Decimal = 10
     detector_threshold_window_duration_sec: Decimal = 10
+
     detector_geoip_percent_threshold: Decimal = Decimal(95)
     detector_geoip_min_rps: Decimal = Decimal(100)
     detector_geoip_period_seconds: int = 10

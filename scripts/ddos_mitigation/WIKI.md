@@ -253,6 +253,12 @@ DETECTOR_THRESHOLD_MIN_TIME=40
 
 # The average number of responses that finished with errors
 DETECTOR_THRESHOLD_MIN_ERRORS=5
+
+# The time period (in seconds) for analyzing the request window. Last 10 seconds
+DETECTOR_THRESHOLD_WINDOW_DURATION_SEC=10
+
+# Interval between analyses in seconds. Each 10 seconds
+BLOCKING_WINDOW_DURATION_SEC=10
 ```
 These thresholds provide a balance between responsiveness and protection, ensuring that legitimate traffic is allowed
 while abnormal spikes can be mitigated early.
