@@ -2,21 +2,21 @@
 
 ## Brief
 ### How it works
-Tempesta provides extended information about user requests. In this case, we're interested in the user's IP address, 
+Tempesta provides [extended information about user requests](/Handling-clients/#access-log). In this case, we're interested in the user's IP address, 
 as well as their JA5T and JA5H hashes. These hashes allow us to distinguish users based on similar characteristics, 
 such as TLS connection or HTTP request fingerprints.
 
-Additionally, access logs can be stored in ClickHouse, which offers extremely powerful capabilities for analyzing traffic.
+Additionally, access logs can be stored in [ClickHouse](Access-Log-Analytics/), which offers extremely powerful capabilities for analyzing traffic.
 
 The mitigation script connects to the ClickHouse database and, at regular intervals, analyzes user traffic. 
 It compares aggregated values (such as the total number of requests, accumulated response time, and total number of
 error responses) against predefined thresholds. All of these thresholds can be customized in the application configuration.
 
-To block a user, the mitigation script adds the user's JA5T hash to the Tempesta FW configuration and reloads the server.
+To block a user, the mitigation script adds the user's JA5 hashes to the Tempesta FW configuration and reloads the server.
 
 ### Historical Mode
-The Mitigation Script can be configured to start in historical mode.  To enable it, set the following in your 
-app configuration:
+The Mitigation Script can be configured to start in historical mode. In this mode the script learns form the historical 
+data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
 ```.env
 training_mode="historical"
 ```
@@ -48,6 +48,10 @@ apply multipliers (as in historical mode), and set the thresholds accordingly.
 ### Persistent Users
 This feature is available only in `historical` and `real` modes, as it requires existing traffic data for analysis.
 
+Defender reacts on system metrics getting worse and kills the most aggressive clients impacting to the system overload. 
+However, it might false positively kill benign clients who have been working with the system before the degradation event. 
+The set of such persistent clients can also be learnt by Defender.
+
 The Mitigation Script can identify persistent users — users that generate regular, consistent traffic — and protect them during an attack.
 All users except those marked as persistent can potentially be blocked.
 
@@ -65,8 +69,8 @@ persistent_users_total_time=1
 
 A user is marked as persistent if they exceed either of the following thresholds during the specified time window: 
 
-- persistent_users_total_requests: minimum number of requests (RPS)
-- persistent_users_total_time: minimum total response time
+- `persistent_users_total_requests`: minimum number of requests (RPS)
+- `persistent_users_total_time`: minimum total response time
 
 These thresholds help ensure that only consistently active users are protected from being mistakenly blocked.
 
@@ -96,6 +100,10 @@ allowed_user_agents_file_path=/your/custom/path.txt
 ```
 
 Requests with matching User-Agents will be ignored by the blocking logic and treated as safe.
+This is quite unreliable way to whitelist client since many, even relatively simple, DDoS attacks use a pool of real 
+life user agents. In practice this is the most useful for Web API if your clients use some specific User-Agent values. 
+This still won't help if an attacker prepares an attack specifically for your service, but it'd safe to say that 90% or 
+more DDoS attacks aren't prepared for a specific target.
 
 ### Blocking Methods
 The mitigation script supports several methods for blocking users:
@@ -115,7 +123,7 @@ blocking_types=["ja5t", "ipset"]
 
 ### Unblocking Users
 After a DDoS attack, blocked users can be automatically unblocked.
-The default blocking duration is controlled by the blocking_time_min variable (in minutes).
+The default blocking duration is controlled by the `blocking_time_min` variable (in minutes).
 
 Once the specified time has passed, the Mitigation Script will check blocked users periodically
 and remove their blocks if the time limit has been exceeded.
@@ -130,8 +138,8 @@ This ensures that users are not blocked longer than necessary, while still maint
 
 ## Prepare Tempesta FW
 The script requires a specific Tempesta FW configuration.
-Let's create two directories inside the Tempesta configuration directory /etc/tempesta/:
-ja5t and ja5h.
+Let's create two directories inside the Tempesta configuration directory `/etc/tempesta/`:
+`ja5t` and `ja5h`.
 
 Inside each directory, create an empty block.conf file.
 The final paths should look like this:
@@ -192,7 +200,7 @@ Requests alone are not the only important metric.
 
 #### Total Accumulated Response Time
 Static file requests are usually handled directly by Tempesta FW without reaching the backend.
-However, dynamic page generation or API calls (e.g., fetch() requests) hit the backend and consume time.
+However, dynamic page generation or API calls (e.g., `fetch()` requests) hit the backend and consume time.
 
 If your backend is slow and receives 1000 requests, you’ll likely observe a noticeable increase in accumulated response time —
 which is a key indicator of server load.
@@ -240,9 +248,10 @@ and apply scaled thresholds based on live behavior — which is ideal for dynami
 
 ### Testing your App
 There are many tools available to simulate DDoS attacks on your application.
-Some of them — like Apache JMeter — even allow you to write request scenarios and define different RPS (requests per second) loads over time slices.
+Some of them — like [Apache JMeter](https://jmeter.apache.org/) — even allow you to write request scenarios and define 
+different RPS (requests per second) loads over time slices.
 
-However, for a more focused and powerful DDoS simulation, we recommend using MHDDoS.
+However, for a more focused and powerful DDoS simulation, we recommend using [MHDDoS](https://github.com/MatrixTM/MHDDoS).
 It’s lightweight and easy to set up, making it ideal for local or test environments.
 
 You can install and run Tempesta FW, ClickHouse, and the DDoS Mitigation Script all on a single machine.
