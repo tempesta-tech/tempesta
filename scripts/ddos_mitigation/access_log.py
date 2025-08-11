@@ -100,20 +100,18 @@ class ClickhouseAccessLog:
             f"""
             WITH aggregated_clients AS (
                 SELECT 
-                    ac.ja5t, 
-                    ac.ja5h,
-                    groupUniqArray(ac.address) addresses,
-                    min(ac.user_agent) user_agent,
+                    ja5t, 
+                    ja5h,
+                    groupUniqArray(address) addresses,
+                    min(user_agent) user_agent,
                     count(1) as total_requests,
-                    sum(ac.response_time) as total_time,
-                    countIf(ac.status not in ({statuses})) as total_errors
-                FROM {self.table_name} AS ac
-                LEFT ANTI JOIN user_agents AS ua
-                    ON ac.user_agent = ua.name
+                    sum(response_time) as total_time,
+                    countIf(status not in ({statuses})) as total_errors
+                FROM {self.table_name}
                 WHERE 
-                    ac.timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
-                    AND ac.timestamp <= toDateTime64({start_at}, 3, 'UTC')
-                GROUP by ac.ja5t, ac.ja5h
+                    timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
+                    AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
+                GROUP by ja5t, ja5h
                 HAVING  
                     total_requests >= {rps_threshold}
                     or total_time >= {time_threshold}
@@ -124,8 +122,11 @@ class ClickhouseAccessLog:
                     *,
                     if(total_requests = 0, 1, total_requests) * 
                     if(total_time = 0, 1, total_time) * 
-                    if(total_errors = 0, 1, total_errors) as risk_score
-                FROM aggregated_clients
+                    if(total_errors = 0, 1, total_errors) as risk_score,
+                    ua.name as persistent_user_agent
+                FROM aggregated_clients ac
+                LEFT JOIN user_agents ua
+                    ON ac.user_agent = ua.name
                 ORDER BY risk_score DESC
             )
             SELECT
@@ -143,6 +144,7 @@ class ClickhouseAccessLog:
                     WHEN total_errors >= {errors_threshold} THEN 2
                 END as type
             FROM scored_clients
+            WHERE persistent_user_agent = ''
             LIMIT {ja5_hashes_limit}
             """
         )
