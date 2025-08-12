@@ -222,10 +222,14 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
+		/*
+		 * Set pp_recycle in case when we move fragments from recyclable
+		 * SKB.
+		 */
+		nskb->pp_recycle |= skb->pp_recycle;
 		/* No fragments to shift. */
 		if (!tail_frags)
 			goto finish;
-
 		/*
 		 * Move @n_excess number of page fragments to new SKB. We
 		 * must move @n_excess fragments to next/new skb, except
@@ -391,7 +395,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
-	get_page(page);
+	skb_frag_ref(skb, alloc);
 
 	/* Prevent @skb->tail from moving forward */
 	skb->tail_lock = 1;
@@ -480,7 +484,8 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	__skb_fill_page_desc(skb_dst, (i + 2) % MAX_SKB_FRAGS,
 			     skb_frag_page(frag), skb_frag_off(frag) + off,
 			     tail_len);
-	__skb_frag_ref(frag);
+	__skb_frag_ref(frag, skb->pp_recycle);
+	skb_dst->pp_recycle |= skb->pp_recycle;
 
 	/* Adjust SKB data lengths. */
 	if (skb != skb_dst) {
@@ -531,7 +536,7 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	/* Fast path: delete a full fragment. */
 	if (unlikely(!off && len == skb_frag_size(frag))) {
 		ss_skb_adjust_data_len(skb, -len);
-		__skb_frag_unref(frag, false);
+		__skb_frag_unref(frag, skb->pp_recycle);
 		if (i + 1 < si->nr_frags)
 			memmove(&si->frags[i], &si->frags[i + 1],
 				(si->nr_frags - i - 1) * sizeof(skb_frag_t));
@@ -580,7 +585,8 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	i = (i + 1) % MAX_SKB_FRAGS;
 	__skb_fill_page_desc(skb_dst, i, skb_frag_page(frag),
 			     skb_frag_off(frag) + off + len, tail_len);
-	__skb_frag_ref(frag);
+	__skb_frag_ref(frag, skb->pp_recycle);
+	skb_dst->pp_recycle |= skb->pp_recycle;
 
 	/* Trim the fragment with the head part. */
 	skb_frag_size_sub(frag, len + tail_len);
@@ -1313,6 +1319,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	 * or recalculate the checksum.
 	 */
 	skb_split(skb, buff, len);
+	buff->pp_recycle = skb->pp_recycle;
 	__copy_ip_header(buff, skb);
 
 	return buff;
@@ -1382,10 +1389,11 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 		ss_skb_queue_tail(skb_head, skb);
 		skb->mark = orig_skb->mark;
 	}
+	skb->pp_recycle |= orig_skb->pp_recycle;
 
 	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
 	ss_skb_adjust_data_len(skb, skb_frag_size(frag));
-	__skb_frag_ref(frag);
+	__skb_frag_ref(frag, skb->pp_recycle);
 
 	return 0;
 }
@@ -1663,7 +1671,7 @@ ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 	}
 
 	__skb_fill_page_desc(*skb, *frag_idx, page, offset, frag_sz);
-	__skb_frag_ref(&skb_shinfo(*skb)->frags[*frag_idx]);
+	__skb_frag_ref(&skb_shinfo(*skb)->frags[*frag_idx], (*skb)->pp_recycle);
 
 	return 0;
 }

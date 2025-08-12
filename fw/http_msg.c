@@ -1371,12 +1371,10 @@ __tfw_http_msg_move_frags(struct sk_buff *skb, int frag_idx,
 			  TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
-	struct page *page;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
 	for (i = 0, len = 0; i < frag_idx; i++) {
-		page = skb_frag_page(&si->frags[i]);
-		cleanup->pages[i] = compound_head(page);
+		cleanup->pages[i] = skb_frag_netmem(&si->frags[i]);
 		cleanup->pages_sz++;
 		len += skb_frag_size(&si->frags[i]);
 	}
@@ -1391,13 +1389,10 @@ static inline void
 __tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
-	struct page *page;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	for (i = 0; i < si->nr_frags; i++) {
-		page = skb_frag_page(&si->frags[i]);
-		cleanup->pages[i] = compound_head(page);
-	}
+	for (i = 0; i < si->nr_frags; i++)
+		cleanup->pages[i] = skb_frag_netmem(&si->frags[i]);
 
 	len = skb->data_len;
 	cleanup->pages_sz = si->nr_frags;
