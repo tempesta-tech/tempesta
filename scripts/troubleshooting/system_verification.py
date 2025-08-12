@@ -428,7 +428,12 @@ class Config:
                 if "=" not in line:
                     continue
 
-                key, value = line.split("=")
+                data = line.split("=")
+
+                if len(data) != 2:
+                    continue
+
+                key, value = data
                 key = key.strip()
                 value = value.strip()
 
