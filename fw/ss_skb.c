@@ -222,10 +222,14 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
 
+		/*
+		 * Set pp_recycle in case when we move fragments from recyclable
+		 * SKB.
+		 */
+		nskb->pp_recycle |= skb->pp_recycle;
 		/* No fragments to shift. */
 		if (!tail_frags)
 			goto finish;
-
 		/*
 		 * Move @n_excess number of page fragments to new SKB. We
 		 * must move @n_excess fragments to next/new skb, except
@@ -531,7 +535,7 @@ __split_pgfrag_del_w_frag(struct sk_buff *skb_head, struct sk_buff *skb, int i, 
 	/* Fast path: delete a full fragment. */
 	if (unlikely(!off && len == skb_frag_size(frag))) {
 		ss_skb_adjust_data_len(skb, -len);
-		__skb_frag_unref(frag, false);
+		__skb_frag_unref(frag, skb->pp_recycle);
 		if (i + 1 < si->nr_frags)
 			memmove(&si->frags[i], &si->frags[i + 1],
 				(si->nr_frags - i - 1) * sizeof(skb_frag_t));
@@ -1313,6 +1317,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	 * or recalculate the checksum.
 	 */
 	skb_split(skb, buff, len);
+	buff->pp_recycle = skb->pp_recycle;
 	__copy_ip_header(buff, skb);
 
 	return buff;
@@ -1381,6 +1386,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 		skb_shinfo(skb)->flags = skb_shinfo(orig_skb)->flags;
 		ss_skb_queue_tail(skb_head, skb);
 		skb->mark = orig_skb->mark;
+		skb->pp_recycle = orig_skb->pp_recycle;
 	}
 
 	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
