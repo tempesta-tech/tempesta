@@ -42,7 +42,6 @@ TfwClient *tfw_client_obtain(TfwAddr addr, TfwAddr *cli_addr,
 			     TfwStr *user_agent, void (*init)(void *));
 void tfw_client_put(TfwClient *cli);
 int tfw_client_for_each(int (*fn)(void *));
-void tfw_client_set_expires_time(unsigned int expires_time);
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);

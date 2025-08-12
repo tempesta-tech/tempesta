@@ -168,11 +168,7 @@ frang_sk_mark_whitelisted(struct sock *sk)
 static inline FrangAcc *
 frang_acc_from_sk(struct sock *sk)
 {
-	unsigned long d = (unsigned long)tempesta_sock(sk)->class_prvt;
-
-	d &= ~1;
-
-	return (FrangAcc *)d;
+	return frang_ptr_from_sk(sk);
 }
 
 bool
@@ -193,14 +189,15 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 
 	/*
 	 * Increment connection counters even when we return T_BLOCK.
-	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
-	 * frang_conn_close() is also called. @conn_curr is decremented
-	 * there, but @conn_new is not changed. We count both failed
-	 * connection attempts and connections that were successfully
-	 * established.
+	 * We calling tfw_classify_conn_close() even for failed connections.
+	 * @conn_curr is decremented there, but @conn_new is not changed.
+	 * We count both failed connection attempts and connections that were
+	 * successfully established.
 	 */
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
+	if (ra->conn_curr == 1)
+		TFW_INC_STAT_BH(clnt.online);
 }
 
 static int
@@ -358,6 +355,9 @@ tfw_classify_conn_close(struct sock *sk)
 	BUG_ON(ra->conn_curr == 0);
 	ra->conn_curr--;
 
+	if (!ra->conn_curr)
+		TFW_DEC_STAT_BH(clnt.online);
+
 	spin_unlock(&ra->lock);
 
 	tempesta_sock(sk)->class_prvt = NULL;
@@ -383,9 +383,8 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	spin_lock(&ra->lock);
 
 	if (ra->history[i].ts != ts) {
+		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
 		ra->history[i].ts = ts;
-		ra->history[i].conn_new = 0;
-		ra->history[i].req = 0;
 	}
 	ra->history[i].req++;
 
