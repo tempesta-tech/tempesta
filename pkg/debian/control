@@ -11,12 +11,13 @@ Vcs-Browser: https://github.com/tempesta-tech/tempesta.git
 Package: tempesta-fw
 Architecture: amd64
 Depends: libboost-dev,
+ libboost-filesystem-dev,
  libboost-program-options-dev,
  kdump-tools,
  libfmt-dev,
  libspdlog-dev,
- linux-headers-5.10.35.tfw-39c65d3,
- linux-image-5.10.35.tfw-39c65d3,
+ linux-headers-6.12.12.tfw-1493f1e,
+ linux-image-6.12.12.tfw-1493f1e,
  ${misc:Depends}
 Description: Open-source high-speed application delivery controller.
  Tempesta FW is an open-source application delivery controller (ADC) built

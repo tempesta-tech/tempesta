@@ -21,7 +21,7 @@ __license__ = "GPL2"
 MINIMAL_RAM_MB = 8192
 CPU_REQUIRED_FLAGS = {"sse4_2", "pse", "avx2", "bmi2", "adx"}
 SUPPORTED_FILESYSTEMS = {"ext4", "btrfs", "xfs"}
-ALLOWED_KERNEL_VERSIONS = {'5.10.35'}
+ALLOWED_KERNEL_VERSIONS = {'6.12.12'}
 EXPECTED_KERNEL_CONFIG_PARAMS = {
     "CONFIG_SLUB": {"y"},
     "CONFIG_HUGETLB_PAGE": {"y"},
