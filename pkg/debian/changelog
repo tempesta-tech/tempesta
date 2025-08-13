@@ -1,3 +1,21 @@
+tempesta-fw (0.8.1) focal; urgency=medium
+
+  * Security-by-default configuration (#2451)
+  * Rapid-reset attack mitigation (#2439)
+  * Fixed parsing of unknown HTTP methods (#2362)
+  * Fixed bug when moving chunked body during response building (#2471)
+  * Fixed check for SKB coalescing capability (#2471)
+  * Fix HTTP message fragmentation bug (#2471)
+  * Hardening HTTP method verification in HTTP/2 (#2362)
+  * Crash on WINDOW_UPDATE HTTP/2 frames (#2443)
+  * Crash on application monitoring (#2424)
+  * Several bugs in HTTP/2 HPACK code
+  * Fix bubs in HTTP message transformation involving TfwPool
+  * Fix double Age header (#2402)
+  * Crash on health monitoring (#2373)
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 13 Aug 2025 16:00:00 +0400
+
 tempesta-fw (0.8.0) focal; urgency=medium
 
   * Add `Expect: 100-continue` support
