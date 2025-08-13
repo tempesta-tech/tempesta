@@ -11,6 +11,7 @@ Vcs-Browser: https://github.com/tempesta-tech/tempesta.git
 Package: tempesta-fw
 Architecture: amd64
 Depends: libboost-dev,
+ libboost-filesystem-dev,
  libboost-program-options-dev,
  kdump-tools,
  libfmt-dev,
