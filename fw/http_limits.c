@@ -234,7 +234,7 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 
 		/* Collect current connection sum. */
 		for (i = 0; i < FRANG_FREQ; i++)
-			if (ra->history[i].ts + FRANG_FREQ >= ts)
+			if (frang_time_in_frame(ts, ra->history[i].ts))
 				csum += ra->history[i].conn_new;
 		if (unlikely(csum > conf->conn_rate)) {
 			frang_limmsg("new connections rate",
@@ -363,12 +363,6 @@ tfw_classify_conn_close(struct sock *sk)
 	tempesta_sock(sk)->class_prvt = NULL;
 
 	tfw_client_put(FRANG_ACC2CLI(ra));
-}
-
-static int
-frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
-{
-	return tprev + FRANG_FREQ > tcur;
 }
 
 static int
@@ -1502,7 +1496,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 	}
 
 	for (i = 0; i < FRANG_FREQ; i++)
-		if (ra->history[i].ts + FRANG_FREQ >= ts) {
+		if (frang_time_in_frame(ts, ra->history[i].ts)) {
 			sum_new += ra->history[i].tls_sess_new;
 			sum_incomplete += ra->history[i].tls_sess_incomplete;
 		}

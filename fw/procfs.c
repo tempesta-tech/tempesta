@@ -75,6 +75,11 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(clnt.conn_established);
 		SADD(clnt.rx_bytes);
 		SADD(clnt.streams_num_exceeded);
+		SADD(clnt.priority_frame_exceeded);
+		SADD(clnt.rst_frame_exceeded);
+		SADD(clnt.settings_frame_exceeded);
+		SADD(clnt.ping_frame_exceeded);
+		SADD(clnt.wnd_update_frame_exceeded);
 
 		/* Server related statistics. */
 		SADD(serv.rx_messages);
@@ -156,61 +161,70 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 skip_apm:
 
 	/* Ss statistics. */
-	SPRN("SS work queue full\t\t\t", ss.wq_full);
+	SPRN("SS work queue full\t\t\t\t", ss.wq_full);
 	if (ss_stat) {
 		int cpu;
 		ss_get_stat(ss_stat);
-		seq_printf(seq, "SS work queues' sizes\t\t\t:");
+		seq_printf(seq, "SS work queues sizes\t\t\t\t:");
 		for_each_online_cpu(cpu)
 			seq_printf(seq, " %u", ss_stat[cpu].rb_wq_sz);
-		seq_printf(seq, "\nSS backlog's sizes\t\t\t:");
+		seq_printf(seq, "\nSS backlog's sizes\t\t\t\t:");
 		for_each_online_cpu(cpu)
 			seq_printf(seq, " %u", ss_stat[cpu].backlog_sz);
 		seq_printf(seq, "\n");
 		kfree(ss_stat);
 	} else {
-		seq_printf(seq, "SS work queues' sizes\t\t\t: n/a\n");
-		seq_printf(seq, "SS backlog's sizes\t\t\t: n/a\n");
+		seq_printf(seq, "SS work queues sizes\t\t\t\t: n/a\n");
+		seq_printf(seq, "SS backlog's sizes\t\t\t\t: n/a\n");
 	}
 
 	/* Cache statistics. */
-	SPRN("Cache hits\t\t\t\t", cache.hits);
-	SPRN("Cache misses\t\t\t\t", cache.misses);
-	SPRN("Cache objects\t\t\t\t", cache.objects);
-	SPRN("Cache bytes\t\t\t\t", cache.bytes);
+	SPRN("Cache hits\t\t\t\t\t", cache.hits);
+	SPRN("Cache misses\t\t\t\t\t", cache.misses);
+	SPRN("Cache objects\t\t\t\t\t", cache.objects);
+	SPRN("Cache bytes\t\t\t\t\t", cache.bytes);
 
 	/* Client related statistics. */
-	SPRN("Client messages received\t\t", clnt.rx_messages);
-	SPRN("Client messages forwarded\t\t", clnt.msgs_forwarded);
-	SPRN("Client messages served from cache\t", clnt.msgs_fromcache);
-	SPRN("Client messages parsing errors\t\t", clnt.msgs_parserr);
-	SPRN("Client messages filtered out\t\t", clnt.msgs_filtout);
-	SPRN("Client messages other errors\t\t", clnt.msgs_otherr);
-	SPRN("Clients online\t\t\t\t", clnt.online);
-	SPRN("Client connection attempts\t\t", clnt.conn_attempts);
-	SPRN("Client established connections\t\t", clnt.conn_established);
-	SPRNE("Client connections active\t\t",
+	SPRN("Client messages received\t\t\t", clnt.rx_messages);
+	SPRN("Client messages forwarded\t\t\t", clnt.msgs_forwarded);
+	SPRN("Client messages served from cache\t\t", clnt.msgs_fromcache);
+	SPRN("Client messages parsing errors\t\t\t", clnt.msgs_parserr);
+	SPRN("Client messages filtered out\t\t\t", clnt.msgs_filtout);
+	SPRN("Client messages other errors\t\t\t", clnt.msgs_otherr);
+	SPRN("Clients online\t\t\t\t\t", clnt.online);
+	SPRN("Client connection attempts\t\t\t", clnt.conn_attempts);
+	SPRN("Client established connections\t\t\t", clnt.conn_established);
+	SPRNE("Client connections active\t\t\t",
 	      stat.clnt.conn_established - stat.clnt.conn_disconnects);
-	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
-	SPRN("Client max streams number exceeded\t", clnt.streams_num_exceeded);
+	SPRN("Client RX bytes\t\t\t\t\t", clnt.rx_bytes);
+	SPRN("Client max streams number exceeded\t\t", clnt.streams_num_exceeded);
+	SPRN("Client priority frames number exceeded\t\t",
+	     clnt.priority_frame_exceeded);
+	SPRN("Client rst frames number exceeded\t\t",
+	     clnt.rst_frame_exceeded);
+	SPRN("Client settings frames number exceeded\t\t",
+	     clnt.settings_frame_exceeded);
+	SPRN("Client ping frames number exceeded\t\t", clnt.ping_frame_exceeded);
+	SPRN("Client window update frames number exceeded\t",
+	     clnt.wnd_update_frame_exceeded);
 
 	/* Server related statistics. */
 	serv_conn_active = stat.serv.conn_established
 			   - stat.serv.conn_disconnects;
 	serv_conn_sched = serv_conn_active - stat.serv.conn_restricted;
 
-	SPRN("Server messages received\t\t", serv.rx_messages);
-	SPRN("Server messages forwarded\t\t", serv.msgs_forwarded);
-	SPRN("Server messages parsing errors\t\t", serv.msgs_parserr);
-	SPRN("Server messages filtered out\t\t", serv.msgs_filtout);
-	SPRN("Server messages other errors\t\t", serv.msgs_otherr);
-	SPRN("Server connection attempts\t\t", serv.conn_attempts);
-	SPRN("Server established connections\t\t", serv.conn_established);
-	SPRNE("Server connections active\t\t", serv_conn_active);
-	SPRNE("Server connections schedulable\t\t", serv_conn_sched);
-	SPRN("Server RX bytes\t\t\t\t", serv.rx_bytes);
-	SPRN("Server successful TLS handshakes\t", serv.tls_hs_successful);
-	SPRN("Server failed TLS handshakes\t\t", serv.tls_hs_failed);
+	SPRN("Server messages received\t\t\t", serv.rx_messages);
+	SPRN("Server messages forwarded\t\t\t", serv.msgs_forwarded);
+	SPRN("Server messages parsing errors\t\t\t", serv.msgs_parserr);
+	SPRN("Server messages filtered out\t\t\t", serv.msgs_filtout);
+	SPRN("Server messages other errors\t\t\t", serv.msgs_otherr);
+	SPRN("Server connection attempts\t\t\t", serv.conn_attempts);
+	SPRN("Server established connections\t\t\t", serv.conn_established);
+	SPRNE("Server connections active\t\t\t", serv_conn_active);
+	SPRNE("Server connections schedulable\t\t\t", serv_conn_sched);
+	SPRN("Server RX bytes\t\t\t\t\t", serv.rx_bytes);
+	SPRN("Server successful TLS handshakes\t\t", serv.tls_hs_successful);
+	SPRN("Server failed TLS handshakes\t\t\t", serv.tls_hs_failed);
 
 	if (stat.hm) {
 		seq_printf(seq, "Tempesta health statistics:\n");

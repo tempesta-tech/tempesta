@@ -49,12 +49,10 @@ typedef struct tfw_stream_sched_entry_t {
 } TfwStreamSchedEntry;
 
 /**
- * @next 		- pointer to the next scheduler list;
  * @entries 		- flexible array of schedulers;
  */
 typedef struct tfw_stream_sched_list {
-	struct tfw_stream_sched_list 	*next;
-	TfwStreamSchedEntry		entries[];
+	DECLARE_FLEX_ARRAY(TfwStreamSchedEntry, entries);
 } TfwStreamSchedList;
 
 /**
