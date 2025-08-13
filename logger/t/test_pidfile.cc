@@ -24,7 +24,6 @@
 #include <filesystem>
 #include <fstream>
 
-#include "../error.hh"
 #include "../pidfile.hh"
 
 #include <gtest/gtest.h>
@@ -161,7 +160,8 @@ TEST_F(PidFileTest, StopDaemonWithInvalidPidFormat)
 	file.close();
 
 	// Should throw exception for invalid PID format
-	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()), Exception);
+	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()),
+		     std::runtime_error);
 }
 
 TEST_F(PidFileTest, StopDaemonWithZeroPid)
@@ -170,7 +170,8 @@ TEST_F(PidFileTest, StopDaemonWithZeroPid)
 	write_pid_file(test_pidfile, 0);
 
 	// Should throw exception for zero PID
-	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()), Exception);
+	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()),
+		     std::runtime_error);
 }
 
 TEST_F(PidFileTest, StopDaemonWithNegativePid)
@@ -179,7 +180,8 @@ TEST_F(PidFileTest, StopDaemonWithNegativePid)
 	write_pid_file(test_pidfile, -1);
 
 	// Should throw exception for negative PID
-	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()), Exception);
+	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()),
+		     std::runtime_error);
 }
 
 TEST_F(PidFileTest, ConcurrentPidFileCreation)

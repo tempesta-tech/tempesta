@@ -48,15 +48,15 @@ struct ClickHouseConfig {
 };
 
 template <> struct fmt::formatter<ClickHouseConfig> {
-	constexpr decltype(auto)
-	parse(fmt::format_parse_context &ctx)
+	constexpr auto
+	parse(fmt::format_parse_context &ctx) const
 	{
 		return ctx.begin();
 	}
 
 	template <typename FormatContext>
-	constexpr decltype(auto)
-	format(const ClickHouseConfig &config, FormatContext &ctx)
+	auto
+	format(const ClickHouseConfig &config, FormatContext &ctx) const
 	{
 		constexpr auto msg_template = "{{host: '{}',"
 					      " port: {},"

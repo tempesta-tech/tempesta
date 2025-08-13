@@ -29,9 +29,10 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <thread>
 
-#include "error.hh"
+#include <fmt/format.h>
 
 constexpr std::chrono::milliseconds STOP_WAIT_INTERVAL{10};
 
@@ -64,7 +65,7 @@ pidfile_check(const std::string &fname)
 		// File is locked by another process
 		if (errno == EAGAIN || errno == EACCES) {
 			errno = 0;
-			throw Except("Daemon is already running");
+			throw std::runtime_error("Daemon is already running");
 		}
 		return -1;
 	}
@@ -164,14 +165,17 @@ pidfile_stop_daemon(const std::string &fname)
 	std::ifstream pid_file(fname);
 
 	if (!pid_file)
-		throw Except("No PID file found at '{}'. "
-			     "Is the daemon running?", fname);
+		throw std::runtime_error(
+			fmt::format("No PID file found at '{}'. "
+				    "Is the daemon running?",
+				    fname));
 
 	pid_file >> pid;
 	pid_file.close();
 
 	if (pid <= 0)
-		throw Except("Invalid PID in PID file: {}", pid);
+		throw std::runtime_error(
+			fmt::format("Invalid PID in PID file: {}", pid));
 
 	// Send SIGTERM to daemon
 	if (kill(pid, SIGTERM) < 0) {
@@ -180,8 +184,9 @@ pidfile_stop_daemon(const std::string &fname)
 			unlink(fname.c_str());
 			return;
 		}
-		throw Except("Failed to stop daemon (PID {}): {}",
-			     pid, strerror(errno));
+		throw std::runtime_error(
+			fmt::format("Failed to stop daemon (PID {}): {}",
+				    pid, strerror(errno)));
 	}
 
 	// Wait for graceful shutdown
@@ -198,8 +203,9 @@ pidfile_stop_daemon(const std::string &fname)
 		if (errno == ESRCH)
 			return; // Process already stopped
 
-		throw Except("Failed to kill daemon (PID {}): {}",
-			     pid, strerror(errno));
+		throw std::runtime_error(
+			fmt::format("Failed to kill daemon (PID {}): {}",
+				    pid, strerror(errno)));
 	}
 
 	// Wait for force kill to take effect
@@ -212,5 +218,7 @@ pidfile_stop_daemon(const std::string &fname)
 	}
 
 	// If we get here, something is seriously wrong
-	throw Except("Failed to stop daemon (PID {}) even with SIGKILL", pid);
+	throw std::runtime_error(
+		fmt::format("Failed to stop daemon (PID {}) even with SIGKILL",
+			    pid));
 }

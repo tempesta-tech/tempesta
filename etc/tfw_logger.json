@@ -1,6 +1,5 @@
 {
     "log_path": "/var/log/tempesta/tfw_logger.log",
-    "buffer_size": 16777216,
     "clickhouse": {
         "host": "localhost",
         "port": 9000,
