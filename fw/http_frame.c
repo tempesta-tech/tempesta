@@ -46,6 +46,41 @@
 #define STREAM_ID_SIZE			4
 #define ERR_CODE_SIZE			4
 
+#define PING_FRAME_RATE_LIMIT		100
+#define SETTINGS_FRAME_RATE_LIMIT	5
+#define RST_FRAME_RATE_LIMIT		5
+#define PRIORITY_FRAME_RATE_LIMIT	30
+
+#define TFW_H2_CTRL_FRAME_RATE_LIMIT(name, limit)			\
+static inline bool							\
+tfw_h2_##name##_frame_rate_limit(TfwH2Ctx *ctx)				\
+{									\
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;			\
+	int i = ts % FRANG_FREQ;					\
+	unsigned int sum = 0;						\
+									\
+	if (ctx->stat[i].ts != ts) {					\
+		ctx->stat[i].ts = ts;					\
+		ctx->stat[i].name##_cnt = 0;				\
+	}								\
+	ctx->stat[i].name##_cnt++;					\
+									\
+	for (i = 0; i < FRANG_FREQ; i++)				\
+		if (frang_time_in_frame(ts, ctx->stat[i].ts))		\
+			sum += ctx->stat[i].name##_cnt;			\
+	if (unlikely(sum > limit * ctrl_frame_rate_mul)) {		\
+		TFW_INC_STAT_BH(clnt.name##_frame_exceeded);		\
+		return false;						\
+	}								\
+									\
+	return true;							\
+}
+
+TFW_H2_CTRL_FRAME_RATE_LIMIT(ping, PING_FRAME_RATE_LIMIT);
+TFW_H2_CTRL_FRAME_RATE_LIMIT(settings, SETTINGS_FRAME_RATE_LIMIT);
+TFW_H2_CTRL_FRAME_RATE_LIMIT(rst, RST_FRAME_RATE_LIMIT);
+TFW_H2_CTRL_FRAME_RATE_LIMIT(priority, PRIORITY_FRAME_RATE_LIMIT);
+
 typedef enum {
 	TFW_FRAME_DEFAULT,
 	TFW_FRAME_SHUTDOWN,
@@ -538,7 +573,13 @@ tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 
 	*(unsigned int *)buf = htonl(err_code);
 
-	return tfw_h2_send_frame(ctx, &hdr, &data);
+	if (unlikely(!tfw_h2_rst_frame_rate_limit(ctx)))
+		return T_BLOCK_WITH_RST;
+
+	if (tfw_h2_send_frame(ctx, &hdr, &data))
+		return T_BAD;
+
+	return T_OK;
 }
 
 static inline void
@@ -999,6 +1040,74 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+static inline bool
+tfw_h2_wnd_update_rate_limit(TfwH2Ctx *ctx)
+{
+	/*
+	 * We allow to send not more than six WINDOW_UPDATE
+	 * frames for one DATA frame by default. We also allow
+	 * to send not more than one WINDOW_UPDATE frame for each
+	 * 128 bytes of sent DATA frames to prevent data dribble
+	 * attack. We also allow to send at least `max_streams`
+	 * WINDOW_UPDATE frames to cover the case when client
+	 * initiate connection with zero window.
+	 */
+	if (++ctx->wnd_update_cnt < ctx->lsettings.max_streams)
+		return true;
+
+	if (unlikely(ctx->wnd_update_cnt >
+		     ctx->data_frames_sent * 6 * wnd_update_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.wnd_update_frame_exceeded);
+		return false;
+	}
+
+	if (unlikely(ctx->wnd_update_cnt >
+		     (ctx->data_bytes_sent / 128) * wnd_update_frame_rate_mul)) {
+		TFW_INC_STAT_BH(clnt.wnd_update_frame_exceeded);
+		return false;
+	}
+
+	return true;
+}
+
+static inline bool
+tfw_h2_ctrl_frame_limit(TfwH2Ctx *ctx, TfwFrameType hdr_type)
+{
+	switch (hdr_type) {
+	case HTTP2_PRIORITY:
+		if (unlikely(!tfw_h2_priority_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+	case HTTP2_RST_STREAM:
+		if (unlikely(!tfw_h2_rst_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+
+		break;
+	case HTTP2_SETTINGS:
+		if (unlikely(!tfw_h2_settings_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+	case HTTP2_PING:
+		if (unlikely(!tfw_h2_ping_frame_rate_limit(ctx)))
+			return false;
+
+		break;
+	case HTTP2_WINDOW_UPDATE:
+		if (unlikely(!tfw_h2_wnd_update_rate_limit(ctx)))
+			return false;
+
+		break;
+	default:
+		break;
+	}
+
+	return true;		
+}
+
 /*
  * Initial processing of received frames: verification and handling of
  * frame header; also, stream states are processed here - during receiving
@@ -1039,6 +1148,9 @@ do {									\
 
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
+
+	if (unlikely(!tfw_h2_ctrl_frame_limit(ctx, hdr_type)))
+		return T_BLOCK_WITH_RST; 
 
 	/*
 	 * TODO: RFC 7540 Section 6.2:
@@ -1963,6 +2075,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		ctx->rem_wnd -= length;
 		stream->rem_wnd -= length;
 		stream->xmit.b_len -= length;
+		ctx->data_bytes_sent += length;
 	} else {
 		stream->xmit.h_len -= length;
 	}
@@ -2089,7 +2202,8 @@ do {									\
 			return r;
 		}
 
-		fallthrough;
+		ctx->data_frames_sent++;
+		T_FSM_JMP(HTTP2_SEND_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
