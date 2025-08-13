@@ -113,12 +113,14 @@ TfwMmapBufferReader::read()
 	head = __atomic_load_n(&buf_->head, __ATOMIC_ACQUIRE);
 	tail = buf_->tail;
 
-	if (head - tail == 0) [[unlikely]]
-		return -EAGAIN;
+	assert(head >= tail);
+	const int size = static_cast<int>(head - tail);
 
-	callback_(buf_->data + (tail & buf_->mask), head - tail, private_data_);
+	callback_(buf_->data + (tail & buf_->mask), size, private_data_);
 
-	__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
-
-	return 0;
+	if (size > 0) {
+		__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
+		return 0;
+	}
+	return -EAGAIN;
 }
