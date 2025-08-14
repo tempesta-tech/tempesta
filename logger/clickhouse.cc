@@ -73,13 +73,13 @@ TfwClickhouse::get_block() noexcept
 }
 
 bool
-TfwClickhouse::commit()
+TfwClickhouse::commit(bool force)
 {
 	auto now = now_ms();
 
 	block_->RefreshRowCount();
 	if ((now - last_time_ > max_wait_ && block_->GetRowCount() > 0)
-	    || block_->GetRowCount() > max_events_) {
+	    || block_->GetRowCount() > max_events_ || force) {
 
 		client_->Insert(table_name_, *block_);
 

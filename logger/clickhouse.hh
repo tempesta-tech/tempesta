@@ -62,7 +62,7 @@ public:
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
 	clickhouse::Block *get_block() noexcept;
-	bool commit();
+	bool commit(bool force = false);
 
 private:
 	std::unique_ptr<clickhouse::Client>	client_;
