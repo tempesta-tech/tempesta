@@ -212,12 +212,16 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 #define READ_STR(method)                                                       \
 	ind = method + 1; /* column 0 is timestamp */                          \
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
+		constexpr int len_size = sizeof(uint16_t);                     \
+		if (size < len_size) [[unlikely]]                              \
+			goto error;                                            \
 		len = *reinterpret_cast<const uint16_t *>(p);                  \
+		p += len_size;                                                 \
+		size -= len_size;                                              \
 		if (len > size) [[unlikely]]                                   \
 			goto error;                                            \
 		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
-		    std::string(p + 2, len));                                  \
-		len += 2;                                                      \
+		    std::string(p, len));                                      \
 		p += len;                                                      \
 		size -= len;                                                   \
 	} else                                                                 \
@@ -277,12 +281,13 @@ try {
 	pthread_t current_thread = pthread_self();
 	bool affinity_is_set = false;
 	int r;
+	auto block = make_block();
 
 	while (!stop_flag)
 	try {
 		const auto &ch_cfg = config.clickhouse;
 		spdlog::debug("Worker {} connecting to ClickHouse: {}", ncpu, ch_cfg);
-		TfwClickhouse clickhouse(ch_cfg, make_block());
+		TfwClickhouse clickhouse(ch_cfg, &block);
 		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 		if (!affinity_is_set) {
 			CPU_ZERO(&cpuset);
@@ -300,6 +305,7 @@ try {
 	}
 	catch (const Exception &e) {
 		log_error(e.what(), true, false);
+		block.Clear();
 		break;
 	}
 	catch (const std::exception &e) {
@@ -312,6 +318,21 @@ try {
 		if (timeout < reconnect_max_timeout)
 			timeout *= 2;
 	}
+
+	block.RefreshRowCount();
+	while (block.GetRowCount() > 0)
+	try {
+		spdlog::debug("Worker {} flushing remaining events...", ncpu);
+		TfwClickhouse clickhouse(config.clickhouse, &block);
+		clickhouse.commit(/*force=*/true);
+	}
+	catch (const std::exception &e) {
+		log_error(e.what(), true, false);
+		std::this_thread::sleep_for(timeout);
+		if (timeout < reconnect_max_timeout)
+			timeout *= 2;
+	}
+
 	spdlog::debug("Worker {} stopped", ncpu);
 }
 catch (...) {
