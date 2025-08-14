@@ -15,8 +15,8 @@ Depends: libboost-dev,
  kdump-tools,
  libfmt-dev,
  libspdlog-dev,
- linux-headers-5.10.35.tfw-669c591,
- linux-image-5.10.35.tfw-669c591,
+ linux-headers-5.10.35.tfw-562f4af,
+ linux-image-5.10.35.tfw-562f4af,
  ${misc:Depends}
 Description: Open-source high-speed application delivery controller.
  Tempesta FW is an open-source application delivery controller (ADC) built
