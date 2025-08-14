@@ -277,12 +277,13 @@ try {
 	pthread_t current_thread = pthread_self();
 	bool affinity_is_set = false;
 	int r;
+	auto block = make_block();
 
 	while (!stop_flag)
 	try {
 		const auto &ch_cfg = config.clickhouse;
 		spdlog::debug("Worker {} connecting to ClickHouse: {}", ncpu, ch_cfg);
-		TfwClickhouse clickhouse(ch_cfg, make_block());
+		TfwClickhouse clickhouse(ch_cfg, &block);
 		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
 		if (!affinity_is_set) {
 			CPU_ZERO(&cpuset);

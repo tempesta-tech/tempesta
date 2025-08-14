@@ -57,7 +57,7 @@
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(const ClickHouseConfig &config, clickhouse::Block block);
+	TfwClickhouse(const ClickHouseConfig &config, clickhouse::Block *block);
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
@@ -66,7 +66,7 @@ public:
 
 private:
 	std::unique_ptr<clickhouse::Client>	client_;
-	clickhouse::Block			block_;
+	clickhouse::Block			*block_;
 	std::chrono::milliseconds		last_time_;
 	const std::string			table_name_;
 	const size_t				max_events_;

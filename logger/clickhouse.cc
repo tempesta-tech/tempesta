@@ -41,8 +41,8 @@ constexpr std::string_view table_creation_query_template =
 	"ENGINE = MergeTree() ORDER BY timestamp";
 
 TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
-			     clickhouse::Block block)
-	: block_(std::move(block)),
+			     clickhouse::Block *block)
+	: block_(block),
 	  last_time_(now_ms()),
 	  table_name_(config.table_name),
 	  max_events_(config.max_events),
@@ -69,7 +69,7 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
 clickhouse::Block *
 TfwClickhouse::get_block() noexcept
 {
-	return &block_;
+	return block_;
 }
 
 bool
@@ -77,14 +77,13 @@ TfwClickhouse::commit()
 {
 	auto now = now_ms();
 
-	block_.RefreshRowCount();
-	if ((now - last_time_ > max_wait_ && block_.GetRowCount() > 0)
-	    || block_.GetRowCount() > max_events_) {
+	block_->RefreshRowCount();
+	if ((now - last_time_ > max_wait_ && block_->GetRowCount() > 0)
+	    || block_->GetRowCount() > max_events_) {
 
-		client_->Insert(table_name_, block_);
+		client_->Insert(table_name_, *block_);
 
-		for (size_t i = 0; i < block_.GetColumnCount(); ++i)
-			block_[i]->Clear();
+		block_->Clear();
 
 		last_time_ = now;
 

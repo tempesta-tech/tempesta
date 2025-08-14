@@ -28,12 +28,26 @@
 #include <cassert>
 #include <chrono>
 #include <cstring>
-#include <iostream>
+#include <memory>
 
 #include "mmap_buffer.hh"
 #include "error.hh"
 
+namespace {
+
 constexpr std::chrono::milliseconds wait_for_readyness(10);
+
+auto
+make_tail_commit_guard(TfwMmapBuffer *buf, u64 tail, bool commit) noexcept
+{
+	auto deleter = [tail, commit](TfwMmapBuffer *buf) noexcept {
+		if (commit && buf)
+			__atomic_store_n(&buf->tail, tail, __ATOMIC_RELEASE);
+	};
+	return std::unique_ptr<TfwMmapBuffer, decltype(deleter)>(buf, deleter);
+}
+
+} // namespace
 
 TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
 					 void *private_data,
@@ -116,11 +130,10 @@ TfwMmapBufferReader::read()
 	assert(head >= tail);
 	const int size = static_cast<int>(head - tail);
 
+	const bool has_data = size > 0;
+	const auto guard = make_tail_commit_guard(buf_, head, has_data);
+
 	callback_(buf_->data + (tail & buf_->mask), size, private_data_);
 
-	if (size > 0) {
-		__atomic_store_n(&buf_->tail, head, __ATOMIC_RELEASE);
-		return 0;
-	}
-	return -EAGAIN;
+	return has_data ? 0 : -EAGAIN;
 }
