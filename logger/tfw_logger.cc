@@ -212,12 +212,16 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 #define READ_STR(method)                                                       \
 	ind = method + 1; /* column 0 is timestamp */                          \
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
+		constexpr int len_size = sizeof(uint16_t);                     \
+		if (size < len_size) [[unlikely]]                              \
+			goto error;                                            \
 		len = *reinterpret_cast<const uint16_t *>(p);                  \
+		p += len_size;                                                 \
+		size -= len_size;                                              \
 		if (len > size) [[unlikely]]                                   \
 			goto error;                                            \
 		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
-		    std::string(p + 2, len));                                  \
-		len += 2;                                                      \
+		    std::string(p, len));                                      \
 		p += len;                                                      \
 		size -= len;                                                   \
 	} else                                                                 \
