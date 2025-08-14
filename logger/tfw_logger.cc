@@ -305,6 +305,7 @@ try {
 	}
 	catch (const Exception &e) {
 		log_error(e.what(), true, false);
+		block.Clear();
 		break;
 	}
 	catch (const std::exception &e) {
@@ -317,6 +318,21 @@ try {
 		if (timeout < reconnect_max_timeout)
 			timeout *= 2;
 	}
+
+	block.RefreshRowCount();
+	while (block.GetRowCount() > 0)
+	try {
+		spdlog::debug("Worker {} flushing remaining events...", ncpu);
+		TfwClickhouse clickhouse(config.clickhouse, &block);
+		clickhouse.commit(/*force=*/true);
+	}
+	catch (const std::exception &e) {
+		log_error(e.what(), true, false);
+		std::this_thread::sleep_for(timeout);
+		if (timeout < reconnect_max_timeout)
+			timeout *= 2;
+	}
+
 	spdlog::debug("Worker {} stopped", ncpu);
 }
 catch (...) {
