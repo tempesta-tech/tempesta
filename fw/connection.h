@@ -424,6 +424,14 @@ tfw_connection_get(TfwConn *conn)
 	atomic_inc(&conn->refcnt);
 }
 
+static inline bool
+tfw_connection_last_ref(TfwConn *conn)
+{
+	int rc = atomic_read(&conn->refcnt);
+
+	return (rc - 1 == 0) || (rc - 1 == TFW_CONN_DEATHCNT);
+}
+
 /**
  * Increment reference counter and return true if @conn is not in
  * failovering process, i.e. @refcnt wasn't less or equal to zero.
