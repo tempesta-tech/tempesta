@@ -951,6 +951,25 @@ tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head, TfwMsgIter *it)
 	return 0;
 }
 
+static inline void
+tfw_http_conn_msg_unlink_conn(TfwHttpMsg *hm)
+{
+	/*
+	 * Unlink the connection while there is at least one
+	 * reference. Use atomic exchange to avoid races with
+	 * new messages arriving on the connection.
+	 *
+	 * NOTE: currently this unlink operation is not needed
+	 * for HTTP/2 mode; it is left here as is since it does
+	 * nothing in HTTP/2 mode, because default general stream
+	 * @conn->stream is not used and @conn->stream.msg must
+	 * be always NULL during HTTP/2 processing.
+	 */
+	__cmpxchg((unsigned long *)&hm->conn->stream.msg,
+		  (unsigned long)hm, 0UL, sizeof(long));
+	tfw_connection_put(hm->conn);
+}
+
 /*
  * Free an HTTP message.
  * Also, free the connection instance if there's no more references.
@@ -980,21 +999,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		 * the request.
 		 */
 		WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && hm->pair);
-
-		/*
-		 * Unlink the connection while there is at least one
-		 * reference. Use atomic exchange to avoid races with
-		 * new messages arriving on the connection.
-		 *
-		 * NOTE: currently this unlink operation is not needed
-		 * for HTTP/2 mode; it is left here as is since it does
-		 * nothing in HTTP/2 mode, because default general stream
-		 * @conn->stream is not used and @conn->stream.msg must
-		 * be always NULL during HTTP/2 processing.
-		 */
-		__cmpxchg((unsigned long *)&hm->conn->stream.msg,
-			  (unsigned long)hm, 0UL, sizeof(long));
-		tfw_connection_put(hm->conn);
+		tfw_http_conn_msg_unlink_conn(hm);
 	}
 
 	tfw_http_msg_free(hm);
@@ -2986,7 +2991,9 @@ tfw_http_conn_release(TfwConn *conn)
 static void
 tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 {
-	TfwHttpReq *req, *tmp;
+	TfwHttpReq *req, *tmp_req;
+	TfwHttpResp *resp, *tmp_resp;
+	LIST_HEAD(resp_del_queue);
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
 	T_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
@@ -3002,7 +3009,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 * condition with freeing of a request in tfw_http_resp_fwd().
 	 */
 	spin_lock(&cli_conn->seq_qlock);
-	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
+	list_for_each_entry_safe(req, tmp_req, seq_queue, msg.seq_list) {
 		/*
 		 * Request must be destroyed if the response is fully processed
 		 * and removed from fwd_queue. If the request is still in use
@@ -3015,11 +3022,40 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		smp_mb__before_atomic();
 		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		if (unused) {
-			tfw_http_resp_pair_free(req);
+			resp = req->resp;
+
+			/*
+			 * If `resp->conn` is not zero and response keeps the
+			 * last reference to the connection, we can't free
+			 * this response under the `cli_conn->seq_qlock`.
+			 * If response will be freed here, server connection
+			 * will be released here and all requests from
+			 * `fwd_list` will be freed. Such requests are freed
+			 * under the `cli_conn->seq_qlock`, where `cli_conn`
+			 * is a appropriate client connection, which can be
+			 * the same as current `cli_conn`.
+			 */
+			if (!resp->conn
+			    || !tfw_connection_last_ref(resp->conn)) {
+				tfw_http_resp_pair_free(req);
+			 } else {
+				list_add_tail(&resp->msg.seq_list,
+					      &resp_del_queue);
+				if (req->conn)
+					tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)req);
+				tfw_http_msg_free((TfwHttpMsg *)req);
+			 }
+
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
+
+	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
+				 msg.seq_list) {
+		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
+		tfw_http_msg_free((TfwHttpMsg *)resp);
+	}
 }
 
 /*
