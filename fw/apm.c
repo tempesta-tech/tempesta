@@ -1277,13 +1277,14 @@ tfw_apm_ref_create(void)
 
 	if (hm_size) {
 		i = 0;
-		list_for_each_entry(ent, &tfw_hm_codes_list, list)
-			hmstats[i++].hmcfg = ent;
+		list_for_each_entry(ent, &tfw_hm_codes_list, list) {
+			hmstats[i].hmcfg = ent;
+			spin_lock_init(&hmstats[i].lock);
+			i++;
+		}
 		BUG_ON(tfw_hm_codes_cnt != i);
 		ref->hmctl.hmstats = hmstats;
 	}
-
-	spin_lock_init(&ref->hmctl.hmstats->lock);
 
 	return ref;
 }
