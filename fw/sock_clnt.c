@@ -544,6 +544,9 @@ tfw_listen_sock_start(TfwListenSock *ls)
 		return r;
 	}
 
+	sock_set_flag(sk, SOCK_1);
+	printk(KERN_ALERT "LISTEN %px", sk);
+
 	/*
 	 * Link the new socket and TfwListenSock.
 	 *
@@ -564,6 +567,8 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	sk->sk_reuse = 1;
 	r = ss_bind(sk, addr);
 	if (r) {
+		printk(KERN_ALERT "LISTEN %px CANT_BIND", sk);
+
 		T_ERR_ADDR("can't bind to", addr, TFW_WITH_PORT);
 		goto err;
 	}
@@ -571,6 +576,8 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	T_DBG("start listening on socket: sk=%p\n", sk);
 	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
 	if (r) {
+		printk(KERN_ALERT "LISTEN %px CANT_LISTEB", sk);
+
 		T_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
 			 sk, r);
 		goto err;

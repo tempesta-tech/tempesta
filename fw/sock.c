@@ -41,6 +41,7 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "http_limits.h"
+#include "connection.h"
 
 typedef struct {
 	struct sock	*sk;
@@ -397,11 +398,26 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	tp->write_seq += skb->len;
 	TCP_SKB_CB(skb)->end_seq += skb->len;
 
-	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
-	       " truesize=%u mark=%u tls_type=%x\n",
-	       smp_processor_id(), __func__, sk, skb, skb->data_len,
-	       skb->len, skb->truesize, skb->mark,
-	       skb_tfw_tls_type(skb));
+	skb->tfw_flags |= TFW_SKB_16;
+	skb->reserved_2 = skb->data - skb->head;
+
+	if (skb->tfw_flags & TFW_SKB_15) {
+		unsigned int iii;
+
+		printk(KERN_ALERT "QQQQQQQ %px %d %d: len:%d head:%px data:%px tail:%#lx end:%#lx dev:%s headlen %u tfw_flags %lu reserved %lu reserved_cnt %lu reserved_1 %lu reserved_2 %lu\n",
+		 sk->sk_user_data, sk->sk_user_data ? (TFW_CONN_TYPE((TfwConn *)sk->sk_user_data) & Conn_Clnt) : 0, NET_SKB_PAD, skb->len, skb->head, skb->data,
+		 (unsigned long)skb->tail, (unsigned long)skb->end,
+		 skb->dev ? skb->dev->name : "<NULL>", skb_headlen(skb), skb->tfw_flags,
+		 skb->reserved, skb->reserved_cnt, skb->reserved_1, skb->reserved_2);
+		for (iii = 0; iii < 10; iii++)
+			printk(KERN_ALERT "QQQQQQQ !!! %u: %lu", iii, skb->pushed[iii]);
+		printk(KERN_ALERT "QQQQQQQ ALLOC_FROM %ps %ps %ps %ps %ps",
+		skb->alloc_from[0], skb->alloc_from[1], skb->alloc_from[2],
+		skb->alloc_from[3], skb->alloc_from[4]);
+		printk(KERN_ALERT "QQQQQQQ RESERVED_FROM %ps %ps %ps %ps %ps",
+		skb->reserved_from[0], skb->reserved_from[1], skb->reserved_from[2],
+		skb->reserved_from[3], skb->reserved_from[4]);
+	}
 }
 
 void
@@ -970,6 +986,12 @@ ss_tcp_process_data(struct sock *sk)
 			goto out;
 		}
 
+		if (skb->reserved)
+			skb->tfw_flags |= TFW_SKB_14;
+		skb->tfw_flags |= TFW_SKB_15;
+
+		skb->reserved_1 = skb->data - skb->head;
+
 		__skb_unlink(skb, &sk->sk_receive_queue);
 		skb_orphan(skb);
 
@@ -1312,6 +1334,7 @@ ss_inet_create(struct net *net, int family,
 	inet_clear_bit(NODEFRAG, sk);
 	inet = inet_sk(sk);
 	atomic_set(&inet->inet_id, 0);
+	inet_init_csk_locks(sk);
 
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
 		inet->pmtudisc = IP_PMTUDISC_DONT;
@@ -1396,6 +1419,8 @@ void
 ss_release(struct sock *sk)
 {
 	WARN_ON_ONCE(sock_flag(sk, SOCK_LINGER));
+
+	printk(KERN_ALERT "SS_RELEASE %px %d", sk, sock_flag(sk ,SOCK_1));
 
 	sk->sk_prot->close(sk, 0);
 }

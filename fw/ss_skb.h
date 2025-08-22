@@ -350,6 +350,7 @@ ss_skb_alloc(size_t n)
 
 	if (!skb)
 		return NULL;
+	skb->tfw_flags |= TFW_SKB_16;
 	skb_reserve(skb, MAX_TCP_HEADER);
 
 	return skb;
