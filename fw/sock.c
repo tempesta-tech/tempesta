@@ -1312,6 +1312,7 @@ ss_inet_create(struct net *net, int family,
 	inet_clear_bit(NODEFRAG, sk);
 	inet = inet_sk(sk);
 	atomic_set(&inet->inet_id, 0);
+	inet_init_csk_locks(sk);
 
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
 		inet->pmtudisc = IP_PMTUDISC_DONT;
