@@ -85,6 +85,7 @@
 #include <linux/string.h>
 #include <linux/sort.h>
 #include <linux/bsearch.h>
+#include <linux/skbuff_ref.h>
 
 #undef DEBUG
 #if DBG_HTTP > 0
@@ -1799,10 +1800,16 @@ __tfw_http_free_cleanup(TfwHttpMsgCleanup *cleanup)
 	struct sk_buff *skb;
 
 	while ((skb = ss_skb_dequeue(&cleanup->skb_head)))
-		__kfree_skb(skb);
+		kfree_skb(skb);
 
 	for (i = 0; i < cleanup->pages_sz; i++)
-		put_page(cleanup->pages[i]);
+		/*
+		 * Pass "true" even for non recyclable pages, relying on check
+		 * pp_magic == PP_SIGNATURE in napi_pp_put_page(), which avoid
+		 * recycling of non page_pool pages. Overhead seems the same
+		 * as to have/maintain flag for each fragment.
+		 */
+		skb_page_unref(cleanup->pages[i], true);
 }
 
 static void
