@@ -7,7 +7,8 @@ import detectors
 from access_log import ClickhouseAccessLog
 from cli import CommandLineArgs
 from config import AppConfig
-from defender import DDOSMonitor
+from defender.context import AppContext
+from defender.executor import run_app
 from ja5_config import Ja5Config
 from logger import logger
 from user_agents import UserAgentsManager
@@ -32,7 +33,7 @@ if __name__ == "__main__":
         table_name=app_config.clickhouse_table_name,
         database=app_config.clickhouse_database,
     )
-    app = DDOSMonitor(
+    context = AppContext(
         blockers={
             blockers.Ja5tBlocker.name(): blockers.Ja5tBlocker(
                 config=Ja5Config(file_path=app_config.path_to_ja5t_config),
@@ -70,4 +71,4 @@ if __name__ == "__main__":
             config_path=app_config.allowed_user_agents_file_path,
         ),
     )
-    asyncio.run(app.run())
+    asyncio.run(run_app(context))

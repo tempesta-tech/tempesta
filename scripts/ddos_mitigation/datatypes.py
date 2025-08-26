@@ -13,8 +13,8 @@ class AverageStats:
 
 @dataclass
 class User:
-    ja5t: Optional[str] = None
-    ja5h: Optional[str] = None
+    ja5t: list[str] = None
+    ja5h: list[str] = None
     ipv4: list[IPv4Address] = ()
     value: Optional[int] = None
     type: Optional[int] = None

@@ -42,8 +42,9 @@ class AppConfig(BaseSettings):
     blocking_time_min: int = 60
     blocking_release_time_min: int = 1
 
-    detector_threshold_training_mode: Literal["off", "historical", "real"] = "off"
-    detector_threshold_training_mode_duration_min: int = 10
+    training_mode: Literal["off", "historical", "real"] = "off"
+    training_mode_duration_min: int = 10
+
     detector_threshold_min_rps: Decimal = 100
     detector_threshold_min_time: Decimal = 40
     detector_threshold_min_errors: Decimal = 5
