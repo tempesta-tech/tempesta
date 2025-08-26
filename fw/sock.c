@@ -394,6 +394,14 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	tp->write_seq += skb->len;
 	TCP_SKB_CB(skb)->end_seq += skb->len;
 
+	if (skb->tfw_flags & TFW_SKB_2) {
+		printk(KERN_ALERT "QQQQQQQQQQQQ len:%d head:%px data:%px tail:%#lx end:%#lx dev:%s headlen %u tfw_flags %lu reserved %lu reserved_cnt %lu reserved_1 %lu reserved_2 %lu\n",
+		 skb->len, skb->head, skb->data,
+		 (unsigned long)skb->tail, (unsigned long)skb->end,
+		 skb->dev ? skb->dev->name : "<NULL>", skb_headlen(skb), skb->tfw_flags,
+		 skb->reserved, skb->reserved_cnt, skb->reserved_1, skb->reserved_2);
+	}
+
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 	       " truesize=%u mark=%u tls_type=%x\n",
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
@@ -967,6 +975,14 @@ ss_tcp_process_data(struct sock *sk)
 
 		__skb_unlink(skb, &sk->sk_receive_queue);
 		skb_orphan(skb);
+
+		skb->tfw_flags |= TFW_SKB_2;
+
+		printk(KERN_ALERT "AAAAAAA len:%d head:%px data:%px tail:%#lx end:%#lx dev:%s headlen %u tfw_flags %lu reserved %lu reserved_cnt %lu reserved_1 %lu reserved_2 %lu\n",
+		 skb->len, skb->head, skb->data,
+		 (unsigned long)skb->tail, (unsigned long)skb->end,
+		 skb->dev ? skb->dev->name : "<NULL>", skb_headlen(skb), skb->tfw_flags,
+		 skb->reserved, skb->reserved_cnt, skb->reserved_1, skb->reserved_2);
 
 		WARN_ON_ONCE(skb_shared(skb));
 
