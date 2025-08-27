@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict
 
-from logger import logger
+from utils.logger import logger
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
