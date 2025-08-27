@@ -51,6 +51,7 @@ class BaseTestCaseWithFilledDB(unittest.IsolatedAsyncioTestCase):
             """
         )
         await self.access_log.user_agents_table_create()
+        await self.access_log.persistent_users_table_create()
         await self.create_records()
 
     async def asyncTearDown(self):
