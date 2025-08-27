@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "clickhouse_config.hh"
 
 #include <regex>
@@ -31,18 +30,17 @@ void
 validate_table_name(const std::string &table_name)
 {
 	// Check length limit (ClickHouse uses filesystem, 128 should be enough)
-	if (table_name.length() > 128) {
-		throw std::runtime_error("Table name is too long (max 128 characters): " +
-					 table_name);
-	}
+	if (table_name.length() > 128)
+		throw std::runtime_error(
+				"Table name is too long (max 128 characters): "
+				+ table_name);
 
 	// Check for allowed characters only: A-Z, a-z, 0-9, _
 	static const std::regex valid_name_regex("^[A-Za-z0-9_]+$");
-	if (!std::regex_match(table_name, valid_name_regex)) {
+	if (!std::regex_match(table_name, valid_name_regex))
 		throw std::runtime_error("Table name contains invalid characters. "
-					 "Only A-Z, a-z, 0-9, and _ are allowed: " +
-					 table_name);
-	}
+					 "Only A-Z, a-z, 0-9, and _ are allowed: "
+					 + table_name);
 }
 
 } // anonymous namespace
