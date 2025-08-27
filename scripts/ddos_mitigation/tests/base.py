@@ -1,6 +1,6 @@
 import unittest
 
-from access_log import ClickhouseAccessLog
+from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
 
 __author__ = "Tempesta Technologies, Inc."

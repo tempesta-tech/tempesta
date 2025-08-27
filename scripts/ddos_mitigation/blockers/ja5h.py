@@ -1,9 +1,9 @@
 import time
 
 from blockers.ja5t import Ja5tBlocker
-from datatypes import User
-from ja5_config import Ja5Hash
-from logger import logger
+from utils.datatypes import User
+from utils.ja5_config import Ja5Hash
+from utils.logger import logger
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

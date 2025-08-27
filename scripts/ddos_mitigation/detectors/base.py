@@ -3,8 +3,8 @@ import asyncio
 import math
 from decimal import Decimal
 from clickhouse_connect.driver import AsyncClient
-from datatypes import User
-from access_log import ClickhouseAccessLog
+from utils.datatypes import User
+from utils.access_log import ClickhouseAccessLog
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

@@ -4,14 +4,14 @@ import logging
 
 import blockers
 import detectors
-from access_log import ClickhouseAccessLog
+from utils.access_log import ClickhouseAccessLog
 from cli import CommandLineArgs
 from config import AppConfig
 from defender.context import AppContext
 from defender.executor import run_app
-from ja5_config import Ja5Config
-from logger import logger
-from user_agents import UserAgentsManager
+from utils.ja5_config import Ja5Config
+from utils.logger import logger
+from utils.user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

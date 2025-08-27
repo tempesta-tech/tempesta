@@ -6,9 +6,9 @@ import blockers
 import detectors
 from config import AppConfig
 from defender import DDOSMonitor, User
-from ja5_config import Ja5Config
+from utils.ja5_config import Ja5Config
 from tests.base import BaseTestCaseWithFilledDB
-from user_agents import UserAgentsManager
+from utils.user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

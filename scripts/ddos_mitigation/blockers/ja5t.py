@@ -2,9 +2,9 @@ import os
 import time
 
 from blockers.base import BaseBlocker, PreparationError
-from datatypes import User
-from ja5_config import Ja5Config, Ja5Hash
-from logger import logger
+from utils.datatypes import User
+from utils.ja5_config import Ja5Config, Ja5Hash
+from utils.logger import logger
 from utils import run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."

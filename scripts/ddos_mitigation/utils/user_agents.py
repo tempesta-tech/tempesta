@@ -1,8 +1,8 @@
 import os
 from dataclasses import dataclass, field
 
-from access_log import ClickhouseAccessLog
-from logger import logger
+from utils.access_log import ClickhouseAccessLog
+from utils.logger import logger
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

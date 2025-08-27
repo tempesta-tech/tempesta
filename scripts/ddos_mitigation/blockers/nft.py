@@ -3,8 +3,8 @@ import time
 from ipaddress import IPv4Address
 
 from blockers.base import BaseBlocker
-from datatypes import User
-from logger import logger
+from utils.datatypes import User
+from utils.logger import logger
 from utils import ConditionalError, run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."

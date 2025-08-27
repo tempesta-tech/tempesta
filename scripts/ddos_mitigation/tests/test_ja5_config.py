@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from ja5_config import Ja5Config, Ja5Hash
+from utils.ja5_config import Ja5Config, Ja5Hash
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

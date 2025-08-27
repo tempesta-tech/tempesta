@@ -3,8 +3,8 @@ import unittest
 
 from blockers.base import PreparationError
 from blockers.ja5h import Ja5hBlocker
-from datatypes import User
-from ja5_config import Ja5Config, Ja5Hash
+from utils.datatypes import User
+from utils.ja5_config import Ja5Config, Ja5Hash
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
