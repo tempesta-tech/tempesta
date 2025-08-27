@@ -16,11 +16,11 @@ class BaseDetector(metaclass=abc.ABCMeta):
             self,
             access_log: ClickhouseAccessLog,
             default_threshold: Decimal,
-            persistent_users: list[User] = ()
+            difference_multiplier: Decimal,
     ):
         self._access_log = access_log
         self._threshold = default_threshold
-        self._persistent_users = persistent_users
+        self._difference_multiplier = difference_multiplier
 
     @property
     def db(self) -> AsyncClient:
@@ -33,14 +33,6 @@ class BaseDetector(metaclass=abc.ABCMeta):
     @threshold.setter
     def threshold(self, threshold: Decimal):
         self._threshold = threshold
-
-    @property
-    def persistent_users(self) -> list[User]:
-        return self._persistent_users
-
-    @persistent_users.setter
-    def persistent_users(self, users: list[User]):
-        self._persistent_users = users
 
     @staticmethod
     @abc.abstractmethod
@@ -83,6 +75,24 @@ class BaseDetector(metaclass=abc.ABCMeta):
         :param users_after:
         :return:
         """
+        comparing_table = dict()
+        users_to_block = []
+
+        for user in users_before:
+            comparing_table[user.ipv4] = user.value
+
+        for user in users_after:
+            if user.ipv4 not in comparing_table:
+                continue
+
+            multiplier = user.value / comparing_table[user.ipv4]
+
+            if multiplier < self._difference_multiplier:
+                continue
+
+            users_to_block.append(user)
+
+        return users_to_block
 
     @staticmethod
     def arithmetic_mean(values: list[Decimal]) -> Decimal:
@@ -92,13 +102,16 @@ class BaseDetector(metaclass=abc.ABCMeta):
         """
         return sum(values) / Decimal(len(values))
 
-    def standard_deviation(self, values: list[Decimal]) -> Decimal:
+    @staticmethod
+    def standard_deviation(
+            values: list[Decimal],
+            arithmetic_mean: Decimal
+    ) -> Decimal:
         """
 
         :return:
         """
-        avg = self.arithmetic_mean(values)
-        deviation = sum(map(lambda val: math.pow(val - avg, Decimal(2)), values))
+        deviation = sum(map(lambda val: math.pow(val - arithmetic_mean, Decimal(2)), values))
         deviation /= len(values)
         return Decimal(math.sqrt(deviation))
 
@@ -131,4 +144,3 @@ class SQLBasedDetector(BaseDetector):
             value=user[3],
             type=user[4]
         ) for user in response.result_rows]
-

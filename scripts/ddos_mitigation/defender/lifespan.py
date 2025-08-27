@@ -34,6 +34,9 @@ class Initialization(BaseState):
 
         await self.context.clickhouse_client.user_agents_table_create()
         await self.context.clickhouse_client.user_agents_table_truncate()
+        await self.context.clickhouse_client.persistent_users_table_create()
+        await self.context.clickhouse_client.persistent_users_table_truncate()
+        logger.debug("Prepared tables.")
 
     async def _load_whitelisted_user_agents(self):
         if not self.context.app_config.allowed_user_agents_file_path:
@@ -77,9 +80,10 @@ class AfterInitialization(BaseState):
             for user in result.result_rows
         ]
 
-    def _set_persistent_users(self, users: list[User]):
-        for detector in self.context.active_detectors:
-            detector.persistent_users = users
+    async def _set_persistent_users(self, users: list[User]):
+        await self.context.clickhouse_client.persistent_users_table_insert(
+            values=[[str(user.ipv4)] for user in users],
+        )
 
     def _get_persistent_users_frame(self) -> tuple[int, int]:
         now = self.context.utc_now
@@ -93,7 +97,7 @@ class AfterInitialization(BaseState):
             start_at=start_at,
             finish_at=finish_at,
         )
-        self._set_persistent_users(users)
+        await self._set_persistent_users(users)
 
 
 class HistoricalModeTraining(BaseState):
@@ -115,10 +119,13 @@ class HistoricalModeTraining(BaseState):
         users = await asyncio.gather(*coroutines)
 
         for detector, users in zip(detectors, users):
-            threshold = detector.standard_deviation(
-                values=[item.value for item in users]
+            values = [item.value for item in users]
+            arithmetic_mean = detector.arithmetic_mean(values)
+            standard_deviation = detector.standard_deviation(
+                values=values,
+                arithmetic_mean=arithmetic_mean,
             )
-            detector.threshold = threshold
+            detector.threshold = arithmetic_mean + standard_deviation
 
     async def run(self):
         await self._collect_data()
@@ -139,10 +146,12 @@ class RealModeTraining(HistoricalModeTraining):
 class BackgroundMonitoring(BaseState):
     @staticmethod
     def __update_threshold(detector: BaseDetector, users: list[User]):
+        values = [user.value for user in users]
+        arithmetic_mean = detector.arithmetic_mean(values)
         standard_deviation = detector.standard_deviation(
-            values=[user.value for user in users]
+            values=values, arithmetic_mean=arithmetic_mean
         )
-        detector.threshold = standard_deviation
+        detector.threshold = arithmetic_mean * standard_deviation
 
     def __block_users(self, blocking_users_bulks: list[list[User]], current_time: int):
         total_users = 0

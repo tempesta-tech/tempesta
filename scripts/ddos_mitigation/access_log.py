@@ -33,6 +33,36 @@ class ClickhouseAccessLog:
             database=self.database,
         )
 
+    async def persistent_users_table_create(self):
+        return await self.conn.query(
+            """
+            create table if not exists persistent_users (
+                ip IPv6,
+                PRIMARY KEY(ip)
+            )
+            """
+        )
+
+    async def persistent_users_table_truncate(self):
+        return await self.conn.query(
+            """
+            truncate table persistent_users
+            """
+        )
+
+    async def persistent_users_table_insert(self, values: list[list[str]]):
+        return await self.conn.insert(
+            table="persistent_users", data=values, column_names=["ip"]
+        )
+
+    async def persistent_users_all(self):
+        return await self.conn.query(
+            """
+            SELECT *
+            FROM persistent_users
+            """
+        )
+
     async def user_agents_table_create(self):
         return await self.conn.query(
             """
