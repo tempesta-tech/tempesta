@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 
+import datetime
 from access_log import ClickhouseAccessLog
 from blockers.base import BaseBlocker
 from config import AppConfig
@@ -30,11 +31,33 @@ class AppContext:
     # users found as risky and where blocked
     blocked: dict[int, User] = field(default_factory=dict)
 
-    # Available blockers
+    # Initialized blockers
     blockers: dict[str, BaseBlocker] = field(default_factory=dict)
 
-    # Available detectors
+    # Initialized detectors
     detectors: dict[str, BaseDetector] = field(default_factory=dict)
+
+    @property
+    def active_blockers(self) -> list[BaseBlocker]:
+        result = []
+
+        for blocking_type in self.app_config.blocking_types:
+            result.append(self.blockers[blocking_type])
+
+        return result
+
+    @property
+    def active_detectors(self) -> list[BaseDetector]:
+        result = []
+
+        for detector in self.app_config.detectors:
+            result.append(self.detectors[detector])
+
+        return result
+
+    @property
+    def utc_now(self) -> int:
+        return int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp())
 
     def user_block(self, user: User):
         for blocking_type in self.app_config.blocking_types:

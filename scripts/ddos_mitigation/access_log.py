@@ -1,9 +1,7 @@
 from dataclasses import dataclass
-from decimal import Decimal
 
 from clickhouse_connect import get_async_client
 from clickhouse_connect.driver import AsyncClient
-from clickhouse_connect.driver.query import QueryResult
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -33,40 +31,6 @@ class ClickhouseAccessLog:
             user=self.user,
             password=self.password,
             database=self.database,
-        )
-
-    async def get_aggregated_clients_for_period(
-        self, start_at: int, period_in_seconds: int, legal_response_statuses: set[int]
-    ) -> QueryResult:
-        """
-        Fetch clients that exceed defined thresholds.
-
-        :param start_at: Start time of the analysis frame
-        :param period_in_seconds: Duration of the time frame for user activity
-        :param legal_response_statuses: white listed response statuses
-        :return: A QueryResult of clients.
-        """
-        statuses = ", ".join(map(str, legal_response_statuses))
-
-        if not statuses:
-            statuses = "200"
-
-        return await self.conn.query(
-            f"""
-            SELECT 
-                min(ja5t), 
-                min(ja5h),
-                address,
-                min(user_agent) user_agent,
-                count(1) as total_requests,
-                avg(response_time) as total_time,
-                countIf(status not in ({statuses})) as total_errors
-            FROM {self.table_name}
-            WHERE 
-                timestamp > toDateTime64({start_at}, 3, 'UTC') - INTERVAL {period_in_seconds} SECOND
-                AND timestamp <= toDateTime64({start_at}, 3, 'UTC')
-            GROUP by address
-            """
         )
 
     async def user_agents_table_create(self):

@@ -2,7 +2,7 @@ import abc
 import asyncio
 import math
 from decimal import Decimal
-
+from clickhouse_connect.driver import AsyncClient
 from datatypes import User
 from access_log import ClickhouseAccessLog
 
@@ -18,9 +18,29 @@ class BaseDetector(metaclass=abc.ABCMeta):
             default_threshold: Decimal,
             persistent_users: list[User] = ()
     ):
-        self.access_log = access_log
-        self.threshold = default_threshold
-        self.persistent_users = persistent_users
+        self._access_log = access_log
+        self._threshold = default_threshold
+        self._persistent_users = persistent_users
+
+    @property
+    def db(self) -> AsyncClient:
+        return self._access_log.conn
+
+    @property
+    def threshold(self) -> Decimal:
+        return self._threshold
+
+    @threshold.setter
+    def threshold(self, threshold: Decimal):
+        self._threshold = threshold
+
+    @property
+    def persistent_users(self) -> list[User]:
+        return self._persistent_users
+
+    @persistent_users.setter
+    def persistent_users(self, users: list[User]):
+        self._persistent_users = users
 
     @staticmethod
     @abc.abstractmethod
@@ -56,8 +76,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
             self.fetch_for_period(start_at=current_time - interval, finish_at=current_time),
         )
 
-    @abc.abstractmethod
-    async def compare_results(self, users_before: list[User], users_after: list[User]) -> list[User]:
+    def validate_model(self, users_before: list[User], users_after: list[User]) -> list[User]:
         """
 
         :param users_before:
@@ -101,7 +120,7 @@ class SQLBasedDetector(BaseDetector):
         :param finish_at:
         :return:
         """
-        response = await self.access_log.conn.query(
+        response = await self.db.query(
             self.get_request(start_at, finish_at)
         )
 

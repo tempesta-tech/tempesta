@@ -16,7 +16,7 @@ class User:
     ja5t: list[str] = None
     ja5h: list[str] = None
     ipv4: list[IPv4Address] = ()
-    value: Optional[int] = None
+    value: Optional[Decimal] = None
     type: Optional[int] = None
     blocked_at: Optional[int] = None
 
