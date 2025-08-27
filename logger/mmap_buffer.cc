@@ -50,10 +50,8 @@ make_tail_commit_guard(TfwMmapBuffer *buf, u64 tail, bool commit) noexcept
 } // namespace
 
 TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
-					 void *private_data,
-					 TfwMmapBufferReadCallback cb)
-	: buf_(nullptr), size_(0), is_running_(false),
-	  private_data_(private_data), callback_(cb)
+					 Callback cb)
+	: buf_(nullptr), size_(0), is_running_(false), callback_(std::move(cb))
 {
 	unsigned int area_size;
 
@@ -101,7 +99,7 @@ TfwMmapBufferReader::run(std::atomic<bool> *stop_flag)
 }
 
 unsigned int
-TfwMmapBufferReader::get_cpu_id() noexcept
+TfwMmapBufferReader::get_cpu_id() const noexcept
 {
 	return buf_->cpu;
 }
@@ -133,7 +131,7 @@ TfwMmapBufferReader::read()
 	const bool has_data = size > 0;
 	const auto guard = make_tail_commit_guard(buf_, head, has_data);
 
-	callback_(buf_->data + (tail & buf_->mask), size, private_data_);
+	callback_(std::span<const char>(buf_->data + (tail & buf_->mask), size));
 
 	return has_data ? 0 : -EAGAIN;
 }

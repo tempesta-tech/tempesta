@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,16 +17,14 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
+#include <functional>
+#include <span>
 #include <string>
 #include <thread>
 
 #include "../fw/mmap_buffer.h"
-
-typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
-					  void *private_data);
 
 /**
  * Tempesta user space ring buffer reader
@@ -55,21 +53,21 @@ typedef void (*TfwMmapBufferReadCallback)(const char *data, int size,
  */
 class TfwMmapBufferReader {
 public:
-	TfwMmapBufferReader(const unsigned int ncpu, const int fd, void *private_data,
-			    TfwMmapBufferReadCallback cb);
+	using Callback = std::function<void(std::span<const char> data)>;
+
+	TfwMmapBufferReader(const unsigned int ncpu, const int fd, Callback cb);
 	TfwMmapBufferReader(const TfwMmapBufferReader &) = delete;
 	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;
 	~TfwMmapBufferReader();
 
 	void run(std::atomic<bool> *stop_flag);
-	unsigned int get_cpu_id() noexcept;
+	unsigned int get_cpu_id() const noexcept;
 
 private:
 	TfwMmapBuffer	*buf_;
-	unsigned int	size_;
+	size_t		size_;
 	bool		is_running_;
-	void		*private_data_;
-	TfwMmapBufferReadCallback	callback_;
+	Callback	callback_;
 
 	void init_buffer_size(const int fd);
 	int read();

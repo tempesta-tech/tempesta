@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -32,6 +31,10 @@
 #include <vector>
 
 #include <boost/program_options.hpp>
+#include <clickhouse/base/socket.h>
+#include <clickhouse/client.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "../fw/access_log.h"
 #include "clickhouse.hh"
@@ -39,11 +42,6 @@
 #include "mmap_buffer.hh"
 #include "pidfile.hh"
 #include "tfw_logger_config.hh"
-
-#include <clickhouse/base/socket.h>
-#include <clickhouse/client.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/spdlog.h>
 
 namespace po = boost::program_options;
 
@@ -85,37 +83,36 @@ struct ParsedOptions {
 };
 
 typedef struct {
-	const char *name;
-	clickhouse::Type::Code code;
+	const char			*name;
+	ch::Type::Code			code;
 } TfwField;
 
 static const TfwField tfw_fields[] = {
-    [TFW_MMAP_LOG_ADDR] = {"address", clickhouse::Type::IPv6},
-    [TFW_MMAP_LOG_METHOD] = {"method", clickhouse::Type::UInt8},
-    [TFW_MMAP_LOG_VERSION] = {"version", clickhouse::Type::UInt8},
-    [TFW_MMAP_LOG_STATUS] = {"status", clickhouse::Type::UInt16},
-    [TFW_MMAP_LOG_RESP_CONT_LEN] = {"response_content_length",
-                                    clickhouse::Type::UInt32},
-    [TFW_MMAP_LOG_RESP_TIME] = {"response_time", clickhouse::Type::UInt32},
-    [TFW_MMAP_LOG_VHOST] = {"vhost", clickhouse::Type::String},
-    [TFW_MMAP_LOG_URI] = {"uri", clickhouse::Type::String},
-    [TFW_MMAP_LOG_REFERER] = {"referer", clickhouse::Type::String},
-    [TFW_MMAP_LOG_USER_AGENT] = {"user_agent", clickhouse::Type::String},
-    [TFW_MMAP_LOG_JA5T] = {"ja5t", clickhouse::Type::UInt64},
-    [TFW_MMAP_LOG_JA5H] = {"ja5h", clickhouse::Type::UInt64},
-    [TFW_MMAP_LOG_DROPPED] = {"dropped_events", clickhouse::Type::UInt64}};
+    [TFW_MMAP_LOG_ADDR]		= {"address", ch::Type::IPv6},
+    [TFW_MMAP_LOG_METHOD]	= {"method", ch::Type::UInt8},
+    [TFW_MMAP_LOG_VERSION]	= {"version", ch::Type::UInt8},
+    [TFW_MMAP_LOG_STATUS]	= {"status", ch::Type::UInt16},
+    [TFW_MMAP_LOG_RESP_CONT_LEN] = {"response_content_length", ch::Type::UInt32},
+    [TFW_MMAP_LOG_RESP_TIME]	= {"response_time", ch::Type::UInt32},
+    [TFW_MMAP_LOG_VHOST]	= {"vhost", ch::Type::String},
+    [TFW_MMAP_LOG_URI]		= {"uri", ch::Type::String},
+    [TFW_MMAP_LOG_REFERER]	= {"referer", ch::Type::String},
+    [TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", ch::Type::String},
+    [TFW_MMAP_LOG_JA5T]		= {"ja5t", ch::Type::UInt64},
+    [TFW_MMAP_LOG_JA5H]		= {"ja5h", ch::Type::UInt64},
+    [TFW_MMAP_LOG_DROPPED]	= {"dropped_events", ch::Type::UInt64}};
 
 #ifdef DEBUG
 void
-dbg_hexdump(const char *data, int buflen)
+dbg_hexdump( std::span<const char> data)
 {
-	const unsigned char *buf =
-	    reinterpret_cast<const unsigned char *>(data);
+	const auto *buf = reinterpret_cast<const unsigned char *>(data.data());
+	const size_t buflen = data.size();
 	std::ostringstream oss;
 	oss << std::hex << std::setfill('0');
 
 #define PRINT_CHAR(c) (std::isprint(c) ? c : '.')
-	for (int i = 0; i < buflen; i += 16) {
+	for (size_t i = 0; i < buflen; i += 16) {
 		oss << std::setw(6) << i << ": ";
 
 		for (int j = 0; j < 16; ++j)
@@ -138,7 +135,7 @@ dbg_hexdump(const char *data, int buflen)
 }
 #else
 void
-dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
+dbg_hexdump([[maybe_unused]] std::span<const char> data)
 {
 }
 #endif /* DEBUG */
@@ -155,13 +152,13 @@ log_error(std::string msg, bool to_spdlog, bool unhandled)
 		std::cerr << msg << std::endl;
 }
 
-clickhouse::Block
+ch::Block
 make_block()
 {
 	unsigned int i;
-	auto block = clickhouse::Block();
+	auto block = ch::Block();
 
-	auto col = std::make_shared<clickhouse::ColumnDateTime64>(3);
+	auto col = std::make_shared<ch::ColumnDateTime64>(3);
 	block.AppendColumn("timestamp", col);
 
 	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
@@ -173,102 +170,116 @@ make_block()
 	return block;
 }
 
-int
-read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
+template <auto method, typename ColType, typename ValType>
+void
+read_int(ch::Block &block, const auto *event, const char *&p, size_t &size)
 {
-	auto block = clickhouse->get_block();
-	const char *p = data;
+	constexpr int ind = method + 1;
+
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {
+		const size_t len = tfw_mmap_log_field_len(method);
+
+		if (len > size) [[unlikely]]
+			throw Except("Incorrect integer eventent length");
+
+		const ValType *val = reinterpret_cast<const ValType *>(p);
+		block[ind]->As<ColType>()->Append(*val);
+
+		p += len;
+		size -= len;
+	} else {
+		block[ind]->As<ColType>()->Append(0);
+	}
+}
+
+template <auto method>
+void
+read_str(ch::Block &block, const auto *event, const char *&p, size_t &size)
+{
+	constexpr int ind = method + 1;
+
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {
+		constexpr int len_size = sizeof(uint16_t);
+
+		if (size < len_size) [[unlikely]]
+			throw Except("Too short string eventent");
+
+		const size_t len = *reinterpret_cast<const uint16_t *>(p);
+		p += len_size;
+		size -= len_size;
+		if (len > size) [[unlikely]]
+			throw Except("Incorrect string eventent length");
+
+		block[ind]->As<ch::ColumnString>()->Append(std::string(p, len));
+		p += len;
+		size -= len;
+	} else {
+		block[ind]->As<clickhouse::ColumnString>()->Append(std::string(""));
+	}
+}
+
+size_t
+read_access_log_event(TfwClickhouse &clickhouse, std::span<const char> data)
+{
+	ch::Block &block = clickhouse.get_block();
+	auto size = data.size();
+	const char *p = data.data();
 	const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
-	int len, ind;
 
 	p += sizeof(TfwBinLogEvent);
 	size -= sizeof(TfwBinLogEvent);
 
-	(*block)[0]->As<clickhouse::ColumnDateTime64>()->Append(
-	    event->timestamp);
+	block[0]->As<ch::ColumnDateTime64>()->Append(event->timestamp);
 
-#define READ_INT(method, col_type, val_type)                                   \
-	ind = method + 1; /* column 0 is timestamp */                          \
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
-		len = tfw_mmap_log_field_len(                                  \
-		    static_cast<TfwBinLogFields>(method));                     \
-		if (len > size) [[unlikely]]                                   \
-			goto error;                                            \
-		(*block)[ind]->As<col_type>()->Append(                         \
-		    *reinterpret_cast<const val_type *>(p));                   \
-		p += len;                                                      \
-		size -= len;                                                   \
-	} else                                                                 \
-		(*block)[ind]->As<col_type>()->Append(0);
+	read_int<TFW_MMAP_LOG_ADDR, ch::ColumnIPv6, in6_addr>(block, event, p, size);
+	read_int<TFW_MMAP_LOG_METHOD, ch::ColumnUInt8, unsigned char>(
+							block, event, p, size);
+	read_int<TFW_MMAP_LOG_VERSION, ch::ColumnUInt8, unsigned char>(
+							block, event, p, size);
+	read_int<TFW_MMAP_LOG_STATUS, ch::ColumnUInt16, uint16_t>(
+							block, event, p, size);
+	read_int<TFW_MMAP_LOG_RESP_CONT_LEN, ch::ColumnUInt32, uint32_t>(
+							block, event, p, size);
+	read_int<TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t>(
+							block, event, p, size);
 
-	READ_INT(TFW_MMAP_LOG_ADDR, clickhouse::ColumnIPv6, struct in6_addr);
-	READ_INT(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
-	READ_INT(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
-	READ_INT(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
-	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN,
-		 clickhouse::ColumnUInt32, uint32_t);
-	READ_INT(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
+	read_str<TFW_MMAP_LOG_VHOST>(block, event, p, size);
+	read_str<TFW_MMAP_LOG_URI>(block, event, p, size);
+	read_str<TFW_MMAP_LOG_REFERER>(block, event, p, size);
+	read_str<TFW_MMAP_LOG_USER_AGENT>(block, event, p, size);
 
-#define READ_STR(method)                                                       \
-	ind = method + 1; /* column 0 is timestamp */                          \
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
-		constexpr int len_size = sizeof(uint16_t);                     \
-		if (size < len_size) [[unlikely]]                              \
-			goto error;                                            \
-		len = *reinterpret_cast<const uint16_t *>(p);                  \
-		p += len_size;                                                 \
-		size -= len_size;                                              \
-		if (len > size) [[unlikely]]                                   \
-			goto error;                                            \
-		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
-		    std::string(p, len));                                      \
-		p += len;                                                      \
-		size -= len;                                                   \
-	} else                                                                 \
-		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
-		    std::string(""));
+	read_int<TFW_MMAP_LOG_JA5T, ch::ColumnUInt64, uint64_t>(
+							block, event, p, size);
+	read_int<TFW_MMAP_LOG_JA5H, ch::ColumnUInt64, uint64_t>(
+							block, event, p, size);
+	read_int<TFW_MMAP_LOG_DROPPED, ch::ColumnUInt64, uint64_t>(
+							block, event, p, size);
 
-	READ_STR(TFW_MMAP_LOG_VHOST);
-	READ_STR(TFW_MMAP_LOG_URI);
-	READ_STR(TFW_MMAP_LOG_REFERER);
-	READ_STR(TFW_MMAP_LOG_USER_AGENT);
-
-	READ_INT(TFW_MMAP_LOG_JA5T, clickhouse::ColumnUInt64, uint64_t);
-	READ_INT(TFW_MMAP_LOG_JA5H, clickhouse::ColumnUInt64, uint64_t);
-	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
-
-	return static_cast<int>(p - data);
-error:
-	throw Except("Incorrect event length");
-#undef READ_STR
-#undef READ_INT
+	return static_cast<size_t>(p - data.data());
 }
 
 void
-callback(const char *data, int size, void *private_data)
+callback(TfwClickhouse &clickhouse, std::span<const char> data)
 {
-	auto *clickhouse = static_cast<TfwClickhouse *>(private_data);
-	const char *p = data;
-	int r;
+	dbg_hexdump(data);
 
-	dbg_hexdump(data, size);
-
-	while (size > static_cast<int>(sizeof(TfwBinLogEvent))) {
-		const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
+	while (data.size() > sizeof(TfwBinLogEvent)) {
+		const auto *event
+			= reinterpret_cast<const TfwBinLogEvent *>(data.data());
 
 		switch (event->type) {
-		case TFW_MMAP_LOG_TYPE_ACCESS:
-			r = read_access_log_event(p, size, clickhouse);
-			size -= r;
-			p += r;
+		case TFW_MMAP_LOG_TYPE_ACCESS: {
+			const auto off = read_access_log_event(clickhouse, data);
+			data = data.subspan(off);
 			break;
+		}
 		default:
 			throw Except("Unsupported log type: {}",
 				     static_cast<unsigned int>(event->type));
 		}
 	}
 
-	if (clickhouse->commit())
+	if (clickhouse.commit())
 		uncritical_error = false;
 }
 
@@ -286,9 +297,13 @@ try {
 	while (!stop_flag)
 	try {
 		const auto &ch_cfg = config.clickhouse;
-		spdlog::debug("Worker {} connecting to ClickHouse: {}", ncpu, ch_cfg);
-		TfwClickhouse clickhouse(ch_cfg, &block);
-		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
+		spdlog::debug("Worker {} connecting to ClickHouse: {}",
+			      ncpu, ch_cfg);
+		TfwClickhouse clickhouse(ch_cfg, block);
+		auto cb = [&clickhouse](std::span<const char> data) {
+			callback(clickhouse, data);
+		};
+		TfwMmapBufferReader mbr(ncpu, fd, std::move(cb));
 		if (!affinity_is_set) {
 			CPU_ZERO(&cpuset);
 			CPU_SET(mbr.get_cpu_id(), &cpuset);
@@ -305,7 +320,7 @@ try {
 	}
 	catch (const Exception &e) {
 		log_error(e.what(), true, false);
-		block.Clear();
+		block.Clear(); // bug: block was moved!
 		break;
 	}
 	catch (const std::exception &e) {
@@ -319,11 +334,11 @@ try {
 			timeout *= 2;
 	}
 
-	block.RefreshRowCount();
+	block.RefreshRowCount(); // bug: block was moved!
 	while (block.GetRowCount() > 0)
 	try {
 		spdlog::debug("Worker {} flushing remaining events...", ncpu);
-		TfwClickhouse clickhouse(config.clickhouse, &block);
+		TfwClickhouse clickhouse(config.clickhouse, block);
 		clickhouse.commit(/*force=*/true);
 	}
 	catch (const std::exception &e) {
