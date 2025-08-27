@@ -5,7 +5,7 @@ from blockers.base import BaseBlocker, PreparationError
 from utils.datatypes import User
 from utils.ja5_config import Ja5Config, Ja5Hash
 from utils.logger import logger
-from utils import run_in_shell
+from utils.shell import run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -53,23 +53,25 @@ class Ja5tBlocker(BaseBlocker):
         result = dict()
 
         for hash_value in self.config.hashes:
-            user = User(ja5t=hash_value, blocked_at=current_time)
+            user = User(ja5t=[hash_value], blocked_at=current_time)
             result[hash(user)] = user
 
         return result
 
     def block(self, user: User):
-        if self.config.exists(user.ja5t):
-            return None
+        for hash_value in user.ja5t:
+            if self.config.exists(hash_value):
+                continue
 
-        self.config.add(Ja5Hash(value=user.ja5t, packets=0, connections=0))
-        logger.warning(f"Blocked user {user} by ja5t")
+            self.config.add(Ja5Hash(value=hash_value, packets=0, connections=0))
+            logger.warning(f"Blocked user {user} by ja5t")
 
     def release(self, user: User):
-        if not self.config.exists(user.ja5t):
-            return None
+        for hash_value in user.ja5t:
+            if not self.config.exists(hash_value):
+                continue
 
-        self.config.remove(user.ja5t)
+            self.config.remove(hash_value)
 
     def apply(self):
         if not self.config.need_dump:
@@ -91,4 +93,4 @@ class Ja5tBlocker(BaseBlocker):
         )
 
     def info(self) -> list[User]:
-        return [User(ja5t=ja5_hash.value) for ja5_hash in self.config.hashes.values()]
+        return [User(ja5t=[ja5_hash.value]) for ja5_hash in self.config.hashes.values()]

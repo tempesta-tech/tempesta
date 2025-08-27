@@ -26,16 +26,16 @@ class TestBlockerJa5h(unittest.TestCase):
 
         users = self.blocker.load()
         self.assertEqual(len(users), 2)
-        self.assertEqual({item.ja5h for item in users.values()}, {"1111", "2222"})
+        self.assertEqual([item.ja5h for item in users.values()], [["1111"], ["2222"]])
 
     def test_block(self):
-        user = User(ja5h="11111")
+        user = User(ja5h=["11111"])
         self.blocker.block(user)
         self.assertEqual(len(self.blocker.config.hashes), 1)
         self.assertEqual(self.blocker.config.hashes["11111"].value, "11111")
 
     def test_release(self):
-        user = User(ja5h="3333")
+        user = User(ja5h=["3333"])
         self.blocker.config.hashes["3333"] = Ja5Hash(
             value="3333", connections=0, packets=0
         )
@@ -43,7 +43,7 @@ class TestBlockerJa5h(unittest.TestCase):
         self.assertEqual(len(self.blocker.config.hashes), 0)
 
     def test_apply(self):
-        self.blocker.block(User(ja5h="11111"))
+        self.blocker.block(User(ja5h=["11111"]))
         self.blocker.apply()
 
         with open(self.config_path, "r") as f:
@@ -52,10 +52,10 @@ class TestBlockerJa5h(unittest.TestCase):
         self.assertEqual(data, "hash 11111 0 0;\n")
 
     def test_info(self):
-        self.blocker.block(User(ja5h="11111"))
+        self.blocker.block(User(ja5h=["11111"]))
         users = self.blocker.info()
         self.assertEqual(len(users), 1)
-        self.assertEqual(users[0].ja5h, "11111")
+        self.assertEqual(users[0].ja5h, ["11111"])
 
     def test_prepare_no_tempesta_service(self):
         with self.assertRaises(PreparationError) as e:

@@ -4,7 +4,7 @@ from ipaddress import IPv4Address
 from blockers.base import BaseBlocker
 from utils.datatypes import User
 from utils.logger import logger
-from utils import ConditionalError, run_in_shell
+from utils.shell import ConditionalError, run_in_shell
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
