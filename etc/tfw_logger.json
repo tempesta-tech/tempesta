@@ -1,6 +1,6 @@
 {
     "log_path": "/var/log/tempesta/tfw_logger.log",
-    "clickhouse": {
+    "access_log": {
         "host": "localhost",
         "port": 9000,
         "user": "default",

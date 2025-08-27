@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
 #include <chrono>
@@ -64,7 +63,7 @@ template <> struct fmt::formatter<ClickHouseConfig> {
 					      " table: '{}',"
 					      " user: '{}',"
 					      " max_events: {},"
-					      " max_wait: {}ms}}";
+					      " max_wait_ms: {}}}";
 		return fmt::format_to(ctx.out(),
 				      msg_template,
 				      config.host,
