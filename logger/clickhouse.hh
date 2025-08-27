@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
 #include <chrono>
@@ -30,6 +29,8 @@
 #include <clickhouse/types/types.h>
 
 #include "clickhouse_config.hh"
+
+namespace ch = clickhouse;
 
 /**
  * Class for sending records to a Clickhouse database.
@@ -57,16 +58,16 @@
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(const ClickHouseConfig &config, clickhouse::Block *block);
+	TfwClickhouse(const ClickHouseConfig &config, ch::Block block);
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
-	clickhouse::Block *get_block() noexcept;
+	ch::Block &get_block() noexcept;
 	bool commit(bool force = false);
 
 private:
 	std::unique_ptr<clickhouse::Client>	client_;
-	clickhouse::Block			*block_;
+	ch::Block				block_;
 	std::chrono::milliseconds		last_time_;
 	const std::string			table_name_;
 	const size_t				max_events_;
