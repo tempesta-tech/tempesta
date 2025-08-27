@@ -900,6 +900,7 @@ do {									\
 		if (unlikely(offset > 0 &&
 			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
 		{
+			__kfree_skb(skb);
 			r = SS_BAD;
 			goto out;
 		}
@@ -918,6 +919,22 @@ do {									\
 		if (SS_CONN_TYPE(sk) & Conn_Stop) {
 			__kfree_skb(skb);
 			continue;
+		}
+
+		if (unlikely(skb_headroom(skb) < MAX_TCP_HEADER)) {
+			struct sk_buff *twin_skb =
+				__pskb_copy_fclone(skb, MAX_TCP_HEADER,
+						   GFP_ATOMIC, true);
+			if (!twin_skb) {
+				T_WARN("Unable to copy SKB with small "
+				       "headroom.\n");
+				__kfree_skb(skb);
+				r = SS_BAD;
+				goto out;
+			}
+
+			__kfree_skb(skb);
+			skb = twin_skb;
 		}
 
 		r = SS_CALL(connection_recv, conn, skb);
