@@ -2,6 +2,8 @@ import unittest
 
 from decimal import Decimal
 
+from clickhouse_connect.driverc.dataconv import IPv4Address
+
 from defender.lifespan import BackgroundRiskyUsersMonitoring
 from defender.context import AppContext
 from blockers.base import BaseBlocker
@@ -43,14 +45,14 @@ class FakeBlocker(BaseBlocker):
 class FakeDetector(BaseDetector):
     groups = [
         [
-            User(ja5t=['111'], value=Decimal(1)),
-            User(ja5t=['112'], value=Decimal(2)),
-            User(ja5t=['113'], value=Decimal(3)),
+            User(ja5t=['111'], value=Decimal(1), ipv4=[IPv4Address('127.0.0.1')]),
+            User(ja5t=['112'], value=Decimal(2), ipv4=[IPv4Address('127.0.0.2')]),
+            User(ja5t=['113'], value=Decimal(3), ipv4=[IPv4Address('127.0.0.3')]),
         ],
         [
-            User(ja5t=['111'], value=Decimal(1)),
-            User(ja5t=['112'], value=Decimal(2)),
-            User(ja5t=['113'], value=Decimal(3)),
+            User(ja5t=['111'], value=Decimal(1), ipv4=[IPv4Address('127.0.0.1')]),
+            User(ja5t=['112'], value=Decimal(2), ipv4=[IPv4Address('127.0.0.2')]),
+            User(ja5t=['113'], value=Decimal(3), ipv4=[IPv4Address('127.0.0.3')]),
         ],
     ]
     def __init__(self, *args, **kwargs):
@@ -70,14 +72,14 @@ class FakeDetector(BaseDetector):
 class FakeDetector2(FakeDetector):
     groups = [
         [
-            User(ja5t=['211'], value=Decimal(1)),
-            User(ja5t=['212'], value=Decimal(2)),
-            User(ja5t=['213'], value=Decimal(3)),
+            User(ja5t=['211'], value=Decimal(1), ipv4=[IPv4Address('127.0.0.1')]),
+            User(ja5t=['212'], value=Decimal(2), ipv4=[IPv4Address('127.0.0.2')]),
+            User(ja5t=['213'], value=Decimal(3), ipv4=[IPv4Address('127.0.0.3')]),
         ],
         [
-            User(ja5t=['211'], value=Decimal(10)),
-            User(ja5t=['212'], value=Decimal(20)),
-            User(ja5t=['213'], value=Decimal(30)),
+            User(ja5t=['211'], value=Decimal(5), ipv4=[IPv4Address('127.0.0.1')]),
+            User(ja5t=['212'], value=Decimal(10), ipv4=[IPv4Address('127.0.0.2')]),
+            User(ja5t=['213'], value=Decimal(30), ipv4=[IPv4Address('127.0.0.3')]),
         ],
     ]
     @staticmethod
@@ -126,10 +128,10 @@ class TestBackgroundMonitorRiskyUsers(unittest.IsolatedAsyncioTestCase):
         await self.lifespan.run(testing=True)
 
         assert self.context.detectors['ip_rps'].passed_time == [(1751535000, 1751535010), (1751535010, 1751535020)]
-        assert self.context.detectors['ip_rps'].threshold == Decimal('1.63')
+        assert self.context.detectors['ip_rps'].threshold == Decimal('1.64')
 
         assert self.context.detectors['ip_time'].passed_time == [(1751535000, 1751535010), (1751535010, 1751535020)]
-        assert self.context.detectors['ip_time'].threshold == Decimal('163.30')
+        assert self.context.detectors['ip_time'].threshold == Decimal('162.00')
 
         assert self.context.blockers['ipset'].block_called == 1
-        assert list(self.context.blocked.values()) == [User(ja5t=['213'])]
+        assert list(self.context.blocked.values()) == [User(ja5t=['213'], ipv4=[IPv4Address('127.0.0.3')])]

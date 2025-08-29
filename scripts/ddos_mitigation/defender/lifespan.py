@@ -176,17 +176,18 @@ class BackgroundRiskyUsersMonitoring(BaseState):
             )
             for detector in detectors
         ])
-        list(map(
-            lambda group: self.__update_threshold(group[0], group[1][1]),
-            zip(detectors, users_bulks)
-        ))
-        blocking_users_bulks = list(map(
-            lambda group: group[0].validate_model(
-                users_before=group[1][0],
-                users_after=group[1][1]
-            ),
-            zip(detectors, users_bulks)
-        ))
+
+        blocking_users_bulks = []
+
+        for detector, user_bulk in zip(detectors, users_bulks):
+            users_before, users_after = user_bulk
+            self.__update_threshold(detector, users_after)
+            blocking_users_bulks.append(
+                detector.validate_model(
+                    users_before=users_before,
+                    users_after=users_after,
+                )
+            )
 
         self.__block_users(
             blocking_users_bulks=blocking_users_bulks,

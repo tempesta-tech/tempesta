@@ -2,7 +2,6 @@ import unittest
 from defender.lifespan import AfterInitialization
 from defender.context import AppContext
 
-from utils.user_agents import UserAgentsManager
 from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
 
@@ -42,6 +41,8 @@ class TestLifespanAfterInitialization(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.access_log = ClickhouseAccessLog()
         await self.access_log.connect()
+        await self.access_log.user_agents_table_truncate()
+        await self.access_log.persistent_users_table_truncate()
 
         await self.access_log.user_agents_table_insert(
             [['UserAgent'], ['UserAgent2']]
@@ -87,7 +88,7 @@ class TestLifespanAfterInitialization(unittest.IsolatedAsyncioTestCase):
         response = await self.access_log.persistent_users_all()
         assert len(response.result_rows) == 0
 
-    async def test_found_uses(self):
+    async def test_found_users(self):
         self.context.time = 1751535010
         self.context.app_config._offset_sec = 10
         self.context.app_config._duration_sec = 10
