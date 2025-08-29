@@ -129,7 +129,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
         standard_deviation = self.standard_deviation(
             values=values, arithmetic_mean=arithmetic_mean
         )
-        self.threshold = arithmetic_mean * standard_deviation
+        self.threshold = arithmetic_mean + standard_deviation
 
 
 class SQLBasedDetector(BaseDetector):
