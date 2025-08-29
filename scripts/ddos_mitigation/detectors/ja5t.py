@@ -14,62 +14,48 @@ class Ja5tRPSDetector(IPRPSDetector):
     def get_request(self, start_at, finish_at):
         return self.shared_filter(
             f"""
-            WITH prepared_users AS (
-                SELECT 
-                    [ja5t] ja5t, 
-                    groupUniqArray(ja5h) ja5h,
-                    groupUniqArray(address) address,
-                    min(user_agent) user_agent,
-                    count(1) as total_requests,
-                    ua.name as whitelisted_user_agents,
-                    p.ip as persistent_users
-                FROM {self.access_log.table_name}
-                LEFT JOIN user_agents ua
-                    ON user_agent = ua.name
-                LEFT JOIN persistent_users p
-                    ON address = p.ip
-                WHERE 
-                    timestamp >= toDateTime64({start_at}, 3, 'UTC')
-                    and timestamp < {finish_at}
-                GROUP by ja5t
-                HAVING  
-                    value >= {self.rps_threshold}
-            )
-            """
+            SELECT 
+                array(ja5t) ja5t, 
+                groupUniqArray(ja5h) ja5h,
+                groupUniqArray(address) address,
+                count(1) value
+            FROM prepared_users
+            GROUP by ja5t
+            HAVING  
+                value >= {self.threshold}
+            LIMIT {self.block_limit_per_check}
+            """,
+            start_at=start_at,
+            finish_at=finish_at
         )
 
 
 class Ja5tErrorRequestDetector(IPRPSDetector):
+    def __init__(self, *args, allowed_statues: list[int] = (), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.allowed_statues = allowed_statues
 
     @staticmethod
     def name() -> str:
         return "ja5t_errors"
 
     def get_request(self, start_at, finish_at):
+        statuses = ', '.join(list(map(str, self.allowed_statues)))
         return self.shared_filter(
             f"""
-            WITH prepared_users AS (
-                SELECT 
-                    [ja5t] ja5t, 
-                    groupUniqArray(ja5h) ja5h,
-                    groupUniqArray(address) address,
-                    min(user_agent) user_agent,
-                    countIf(status not in ({self.statuses})) value,
-                    ua.name as whitelisted_user_agents,
-                    p.ip as persistent_users
-                FROM {self.access_log.table_name}
-                LEFT JOIN user_agents ua
-                    ON user_agent = ua.name
-                LEFT JOIN persistent_users p
-                    ON address = p.ip
-                WHERE 
-                    timestamp >= toDateTime64({start_at}, 3, 'UTC')
-                    and timestamp < {finish_at}
-                GROUP by ja5t
-                HAVING  
-                    value >= {self.errors_threshold}
-            )
-            """
+            SELECT 
+                array(ja5t) ja5t, 
+                groupUniqArray(ja5h) ja5h,
+                groupUniqArray(address) address,
+                countIf(status not in ({statuses})) value
+            FROM prepared_users
+            GROUP by ja5t
+            HAVING  
+                value >= {self.threshold}
+            LIMIT {self.block_limit_per_check}
+            """,
+            start_at=start_at,
+            finish_at=finish_at
         )
 
 
@@ -82,26 +68,17 @@ class Ja5tAccumulativeTimeDetector(IPRPSDetector):
     def get_request(self, start_at, finish_at):
         return self.shared_filter(
             f"""
-            WITH prepared_users AS (
-                SELECT 
-                    [ja5t] ja5t, 
-                    groupUniqArray(ja5h) ja5h,
-                    groupUniqArray(address) address,
-                    min(user_agent) user_agent,
-                    sum(response_time) value,
-                    ua.name as whitelisted_user_agents,
-                    p.ip as persistent_users
-                FROM {self.access_log.table_name}
-                LEFT JOIN user_agents ua
-                    ON user_agent = ua.name
-                LEFT JOIN persistent_users p
-                    ON address = p.ip
-                WHERE 
-                    timestamp >= toDateTime64({start_at}, 3, 'UTC')
-                    and timestamp < {finish_at}
-                GROUP by address
-                HAVING  
-                    value >= {self.time_threshold}
-            )
-            """
+            SELECT 
+                array(ja5t) ja5t, 
+                groupUniqArray(ja5h) ja5h,
+                groupUniqArray(address) address,
+                sum(response_time) value
+            FROM prepared_users
+            GROUP by ja5t
+            HAVING  
+                value >= {self.threshold}
+            LIMIT {self.block_limit_per_check}
+            """,
+            start_at=start_at,
+            finish_at=finish_at
         )

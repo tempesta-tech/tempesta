@@ -2,6 +2,7 @@ import abc
 import asyncio
 import math
 from decimal import Decimal
+
 from clickhouse_connect.driver import AsyncClient
 from utils.datatypes import User
 from utils.access_log import ClickhouseAccessLog
@@ -17,10 +18,12 @@ class BaseDetector(metaclass=abc.ABCMeta):
             access_log: ClickhouseAccessLog,
             default_threshold: Decimal,
             difference_multiplier: Decimal,
+            block_limit_per_check: int = 10
     ):
         self._access_log = access_log
         self._threshold = default_threshold
         self._difference_multiplier = difference_multiplier
+        self.block_limit_per_check = block_limit_per_check
 
     @property
     def db(self) -> AsyncClient:
@@ -79,18 +82,20 @@ class BaseDetector(metaclass=abc.ABCMeta):
         users_to_block = []
 
         for user in users_before:
-            comparing_table[user.ipv4] = user.value
+            for ip in user.ipv4:
+                comparing_table[ip] = user.value
 
         for user in users_after:
-            if user.ipv4 not in comparing_table:
-                continue
+            for ip in user.ipv4:
+                if ip not in comparing_table:
+                    continue
 
-            multiplier = user.value / comparing_table[user.ipv4]
+                multiplier = user.value / comparing_table[ip]
 
-            if multiplier < self._difference_multiplier:
-                continue
+                if multiplier < self._difference_multiplier:
+                    continue
 
-            users_to_block.append(user)
+                users_to_block.append(User(ipv4=[ip], ja5t=user.ja5t, ja5h=user.ja5h, value=user.value))
 
         return users_to_block
 
@@ -100,7 +105,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
 
         :return:
         """
-        return sum(values) / Decimal(len(values))
+        return Decimal(sum(values) / Decimal(len(values))).quantize(Decimal('0.01'))
 
     @staticmethod
     def standard_deviation(
@@ -113,7 +118,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
         """
         deviation = sum(map(lambda val: math.pow(val - arithmetic_mean, Decimal(2)), values))
         deviation /= len(values)
-        return Decimal(math.sqrt(deviation))
+        return Decimal(math.sqrt(deviation)).quantize(Decimal('0.01'))
 
 
 class SQLBasedDetector(BaseDetector):
@@ -142,5 +147,5 @@ class SQLBasedDetector(BaseDetector):
             ja5h=user[1],
             ipv4=user[2],
             value=user[3],
-            type=user[4]
+            # type=user[4]
         ) for user in response.result_rows]
