@@ -25,7 +25,7 @@ class AppConfig(BaseSettings):
     persistent_users_total_requests: Decimal = 1
     persistent_users_total_time: Decimal = 1
 
-    detectors: set[Literal["threshold", "geoip"]] = {"threshold"}
+    detectors: set[Literal["ip_rps", "ip_time", "ip_errors"]] = {"ip_rps"}
     response_statuses_white_list: set[int] = [100,101,200,201,204,300,301,302,303,304,305,307,308,400,401,403]
 
     blocking_types: set[Literal["ja5t", "ja5h", "ipset", "nftables", "geoip"]] = {"ja5t"}
@@ -78,7 +78,7 @@ class AppConfig(BaseSettings):
 
     @property
     def persistent_users_window_duration_sec(self) -> int:
-        return self.persistent_users_window_duration_sec * 60
+        return self.persistent_users_window_duration_min * 60
 
     @property
     def blocking_release_time_sec(self) -> int:

@@ -1,11 +1,9 @@
 import abc
 import asyncio
-import time
 from defender.context import AppContext
 from utils.datatypes import User
 from detectors.base import BaseDetector
 from utils.logger import logger
-
 
 
 class BaseState(abc.ABC):
@@ -13,8 +11,10 @@ class BaseState(abc.ABC):
         self.context = context
 
     @abc.abstractmethod
-    async def run(self):
-        pass
+    async def run(self, testing: bool = False) -> None:
+        """
+        Execute commands
+        """
 
 
 class Initialization(BaseState):
@@ -49,40 +49,31 @@ class Initialization(BaseState):
             f"`{len(self.context.user_agent_manager.user_agents)}`"
         )
 
-    async def run(self):
+    async def run(self, **__) -> None:
         self._initialize_blockers()
         await self._establish_clickhouse_connection()
         await self._load_whitelisted_user_agents()
 
 
 class AfterInitialization(BaseState):
-    async def _load_persistent_users(self, start_at: int, finish_at: int) -> list[User]:
-        result = await self.context.clickhouse_client.conn.query(
+    async def _load_persistent_users(self, start_at: int, finish_at: int):
+        await self.context.clickhouse_client.conn.query(
             f"""
-            SELECT 
-                min(ja5t), 
-                min(ja5h),
-                [address],
-                min(user_agent) user_agent
-            FROM {self.context.clickhouse_client.table_name}
-            WHERE 
-                timestamp >= toDateTime64({start_at}, 3, 'UTC')
-                AND timestamp < toDateTime64({finish_at}, 3, 'UTC')
+            WITH filtered_our_user_agents as (
+                SELECT 
+                    address
+                FROM {self.context.clickhouse_client.table_name} al
+                LEFT ANTI JOIN user_agents ua
+                    on al.user_agent = ua.name
+                WHERE 
+                    timestamp >= toDateTime64({start_at}, 3, 'UTC')
+                    AND timestamp < toDateTime64({finish_at}, 3, 'UTC')
+            )
+            INSERT INTO persistent_users (ip)
+            SELECT address
+            FROM filtered_our_user_agents
             GROUP by address
             """
-        )
-        return [
-            User(
-                ja5t=user[0],
-                ja5h=user[1],
-                ipv4=user[2],
-            )
-            for user in result.result_rows
-        ]
-
-    async def _set_persistent_users(self, users: list[User]):
-        await self.context.clickhouse_client.persistent_users_table_insert(
-            values=[[str(user.ipv4)] for user in users],
         )
 
     def _get_persistent_users_frame(self) -> tuple[int, int]:
@@ -91,22 +82,15 @@ class AfterInitialization(BaseState):
         finish_at = start_at + self.context.app_config.persistent_users_window_duration_sec
         return start_at, finish_at
 
-    async def run(self):
+    async def run(self, **__):
         start_at, finish_at = self._get_persistent_users_frame()
-        users = await self._load_persistent_users(
+        await self._load_persistent_users(
             start_at=start_at,
             finish_at=finish_at,
         )
-        await self._set_persistent_users(users)
 
 
 class HistoricalModeTraining(BaseState):
-    async def _collect_data(self):
-        """
-        data is already collected
-        :return:
-        """
-
     async def _update_thresholds(self, start_at: int, finish_at: int):
         coroutines = []
         detectors = self.context.active_detectors
@@ -127,13 +111,11 @@ class HistoricalModeTraining(BaseState):
             )
             detector.threshold = arithmetic_mean + standard_deviation
 
-    async def run(self):
-        await self._collect_data()
-
+    async def run(self, **__):
         now = self.context.utc_now
         await self._update_thresholds(
-            start_at=now,
-            finish_at=now + self.context.app_config.training_mode_duration_sec,
+            start_at=now - self.context.app_config.training_mode_duration_sec,
+            finish_at=now,
         )
 
 
@@ -142,8 +124,12 @@ class RealModeTraining(HistoricalModeTraining):
     async def _collect_data(self):
         await asyncio.sleep(self.context.app_config.training_mode_duration_sec)
 
+    async def run(self, **__):
+        await self._collect_data()
+        await super().run()
 
-class BackgroundMonitoring(BaseState):
+
+class BackgroundRiskyUsersMonitoring(BaseState):
     @staticmethod
     def __update_threshold(detector: BaseDetector, users: list[User]):
         values = [user.value for user in users]
@@ -175,14 +161,12 @@ class BackgroundMonitoring(BaseState):
             f"Total blocked: {blocked_users}. "
         )
 
-    async def _update_threshold_and_block_users(self, test_unix_time: int = None):
+    async def _update_threshold_and_block_users(self):
         """
         Retrieve a batch of newly identified risky clients and block them
-
-        :param test_unix_time: used as current time in functional tests
         """
 
-        current_time = test_unix_time or self.context.utc_now
+        current_time = self.context.utc_now
         detectors = self.context.active_detectors
 
         users_bulks = await asyncio.gather(*[
@@ -197,7 +181,10 @@ class BackgroundMonitoring(BaseState):
             zip(detectors, users_bulks)
         ))
         blocking_users_bulks = list(map(
-            lambda group: group[0].validate_model(users_before=group[1][0], users_after=group[1][1]),
+            lambda group: group[0].validate_model(
+                users_before=group[1][0],
+                users_after=group[1][1]
+            ),
             zip(detectors, users_bulks)
         ))
 
@@ -206,13 +193,25 @@ class BackgroundMonitoring(BaseState):
             current_time=current_time
         )
 
-    async def _risk_clients_release(self, test_unix_time: int = None):
+    async def run(self, testing: bool = False) -> None:
+        """
+        Start periodic monitoring of new risky users and block them if necessary
+        """
+        if testing:
+            return await self._update_threshold_and_block_users()
+
+        while True:
+            asyncio.create_task(self._update_threshold_and_block_users())
+            await asyncio.sleep(self.context.app_config.blocking_window_duration_sec)
+
+
+class BackgroundReleaseUsersMonitoring(BaseState):
+
+    async def _risk_clients_release(self):
         """
         Check the blocking time of currently blocked clients and unblock those whose blocking time has expired.
-
-        :param test_unix_time: used as current time in functional tests
         """
-        current_time = test_unix_time or int(time.time())
+        current_time = self.context.utc_now
         blocking_seconds = self.context.app_config.blocking_time_sec
         fixed_users_list = list(self.context.blocked.items())
         total_released = 0
@@ -221,6 +220,7 @@ class BackgroundMonitoring(BaseState):
             time_has_been_blocked = current_time - blocking_user.blocked_at
 
             if time_has_been_blocked < blocking_seconds:
+
                 continue
 
             total_released += 1
@@ -233,35 +233,14 @@ class BackgroundMonitoring(BaseState):
             f"Total found {len(fixed_users_list)}. "
             f"Total released {total_released}"
         )
-    async def _monitor_new_risk_clients(self):
-        """
-        Start periodic monitoring of new risky users and block them if necessary
-        """
-        while True:
-            if self.context.app_config.test_mode:
-                return await self._update_threshold_and_block_users(
-                    test_unix_time=self.context.app_config.test_unix_time
-                )
 
-            asyncio.create_task(self._update_threshold_and_block_users())
-            await asyncio.sleep(self.context.app_config.blocking_window_duration_sec)
-
-    async def _monitor_release_risk_clients(self):
+    async def run(self, testing: bool = False) -> None:
         """
         Start periodic monitoring of already blocked users and unblock them if necessary.
         """
-        while True:
-            if self.context.app_config.test_mode:
-                return await self._risk_clients_release(
-                    test_unix_time=self.context.app_config.test_unix_time
-                )
+        if testing:
+            return await self._risk_clients_release()
 
+        while True:
             asyncio.create_task(self._risk_clients_release())
             await asyncio.sleep(self.context.app_config.blocking_release_time_sec)
-
-    async def run(self):
-
-        await asyncio.gather(
-            self._monitor_new_risk_clients(),
-            self._monitor_release_risk_clients(),
-        )

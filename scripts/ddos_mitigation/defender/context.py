@@ -26,7 +26,7 @@ class AppContext:
     app_config: AppConfig
 
     # User Agent Config Manager
-    user_agent_manager: UserAgentsManager
+    user_agent_manager: UserAgentsManager = None
 
     # users found as risky and where blocked
     blocked: dict[int, User] = field(default_factory=dict)

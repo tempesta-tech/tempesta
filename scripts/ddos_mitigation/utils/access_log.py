@@ -43,6 +43,13 @@ class ClickhouseAccessLog:
             """
         )
 
+    async def persistent_users_table_drop(self):
+        return await self.conn.query(
+            """
+            drop table if exists persistent_users
+            """
+        )
+
     async def persistent_users_table_truncate(self):
         return await self.conn.query(
             """
@@ -60,6 +67,13 @@ class ClickhouseAccessLog:
             """
             SELECT *
             FROM persistent_users
+            """
+        )
+
+    async def user_agents_table_drop(self):
+        return await self.conn.query(
+            """
+            drop table if exists user_agents 
             """
         )
 

@@ -28,7 +28,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
 
     @property
     def threshold(self) -> Decimal:
-        return self._threshold
+        return self._threshold.quantize(Decimal('0.01'))
 
     @threshold.setter
     def threshold(self, threshold: Decimal):
