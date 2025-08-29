@@ -130,15 +130,6 @@ class RealModeTraining(HistoricalModeTraining):
 
 
 class BackgroundRiskyUsersMonitoring(BaseState):
-    @staticmethod
-    def __update_threshold(detector: BaseDetector, users: list[User]):
-        values = [user.value for user in users]
-        arithmetic_mean = detector.arithmetic_mean(values)
-        standard_deviation = detector.standard_deviation(
-            values=values, arithmetic_mean=arithmetic_mean
-        )
-        detector.threshold = arithmetic_mean * standard_deviation
-
     def __block_users(self, blocking_users_bulks: list[list[User]], current_time: int):
         total_users = 0
         blocked_users = 0
@@ -181,7 +172,7 @@ class BackgroundRiskyUsersMonitoring(BaseState):
 
         for detector, user_bulk in zip(detectors, users_bulks):
             users_before, users_after = user_bulk
-            self.__update_threshold(detector, users_after)
+            detector.update_threshold(users_after)
             blocking_users_bulks.append(
                 detector.validate_model(
                     users_before=users_before,

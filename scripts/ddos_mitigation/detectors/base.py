@@ -120,6 +120,17 @@ class BaseDetector(metaclass=abc.ABCMeta):
         deviation /= len(values)
         return Decimal(math.sqrt(deviation)).quantize(Decimal('0.01'))
 
+    def get_values_for_threshold(self, users: list[User]) -> list[Decimal]:
+        return [user.value for user in users]
+
+    def update_threshold(self, users: list[User]):
+        values = self.get_values_for_threshold(users)
+        arithmetic_mean = self.arithmetic_mean(values)
+        standard_deviation = self.standard_deviation(
+            values=values, arithmetic_mean=arithmetic_mean
+        )
+        self.threshold = arithmetic_mean * standard_deviation
+
 
 class SQLBasedDetector(BaseDetector):
     @abc.abstractmethod

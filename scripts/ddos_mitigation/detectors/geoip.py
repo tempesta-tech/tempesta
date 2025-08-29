@@ -17,6 +17,12 @@ __license__ = "GPL2"
 
 
 @dataclass
+class CityStats:
+    users: list[User] = field(default_factory=list)
+    total_requests: Decimal = Decimal(0)
+
+
+@dataclass
 class GeoIPDetector(BaseDetector):
     # clickhouse access log client
     clickhouse_client: ClickhouseAccessLog
@@ -40,15 +46,6 @@ class GeoIPDetector(BaseDetector):
     def name() -> str:
         return "geoip"
 
-    def find_city(self, ip: str) -> City:
-        """
-        Find the city by IP and return it.
-
-        :param ip: client IP
-        :return: city details
-        """
-        return self.client.city(ip)
-
     async def prepare(self):
         if not os.path.exists(self.path_to_allowed_cities_list):
             raise FileNotFoundError(
@@ -65,57 +62,94 @@ class GeoIPDetector(BaseDetector):
 
         self.client = Reader(self.path_to_db)
 
-    async def find_users(self, current_time: int = None) -> list[User]:
-        _current_time = current_time or int(time.time())
-        response = await self.clickhouse_client.get_aggregated_clients_for_period(
-            start_at=_current_time,
-            period_in_seconds=self.app_config.detector_geoip_period_seconds,
-            legal_response_statuses=self.app_config.response_statuses_white_list,
-        )
-        users_by_cities: dict[str, list[User]] = {}
-        total_users = Decimal(0)
-        total_requests = 0
+    def find_city(self, ip: str) -> City:
+        """
+        Find the city by IP and return it.
 
-        for item in response.result_rows:
-            total_users += 1
-            total_requests += item[4]
+        :param ip: client IP
+        :return: city details
+        """
+        return self.client.city(ip)
 
-            user = User(
-                ja5t=hex(item[0])[2:],
-                ja5h=hex(item[1])[2:],
-                ipv4=[item[2]],
-                value=None,
-                type=None,
+    async def fetch_for_period(self, start_at: int, finish_at: int) -> list[User]:
+        response = await self.db.query(
+            f"""
+            WITH prepared_users AS (
+                SELECT al.*
+                FROM {self._access_log.table_name} al
+                LEFT ANTI JOIN user_agents ua
+                    ON al.user_agent = ua.name
+                LEFT ANTI JOIN persistent_users p
+                    ON al.address = p.ip
+                WHERE 
+                    timestamp >= toDateTime64({start_at}, 3, 'UTC')
+                    and timestamp < {finish_at}
             )
+            SELECT 
+                groupUniqArray(ja5t) ja5t, 
+                groupUniqArray(ja5h) ja5h,
+                address address,
+                count(1), values
+            FROM prepared_users
+            GROUP by address
+            """
+        )
+
+        return [User(
+            ja5t=user[0],
+            ja5h=user[1],
+            ipv4=user[2],
+            value=user[3],
+        ) for user in response.result_rows]
+
+    def cities_stats(self, users: list[User]) -> dict[str, CityStats]:
+        cities = dict()
+
+        for user in users:
             city = self.find_city(str(user.ipv4[0]))
 
-            if city.city.name not in users_by_cities:
-                users_by_cities[city.city.name] = []
+            if city.city.name not in cities:
+                cities[city.city.name] = CityStats()
 
-            users_by_cities[city.city.name].append(user)
+            cities[city.city.name].users.append(user)
+            cities[city.city.name].total_requests += user.value
 
-        total_rps = total_requests / self.app_config.detector_geoip_period_seconds
-        logger.debug(f"GeoIP detector fetched {total_users} users. RPS: {total_rps}")
+        return cities
 
-        if total_rps < self.app_config.detector_geoip_min_rps:
-            logger.debug(
-                f"Skipped. RPS to low: {total_rps} < {self.app_config.detector_geoip_min_rps}"
-            )
-            return []
+    def validate_model(self, users_before: list[User], users_after: list[User]) -> list[User]:
 
-        result_users = []
-        cities = set()
+        cities_before = self.cities_stats(users_before)
+        cities_after = self.cities_stats(users_after)
 
-        for name, users in users_by_cities.items():
+        blocking_cities = []
+
+        for name, city_after in cities_after.items():
             if name in self.loaded_cities:
                 logger.debug(f"GeoIP skipped user from allowed city {name}")
                 continue
 
-            cities.add(name)
-            percent = len(users) * Decimal(100) / total_users
+            city_before = cities_before.get(name)
 
-            if percent > self.app_config.detector_geoip_percent_threshold:
-                result_users.extend(users)
+            if not city_before:
+                continue
 
-        logger.debug(f"GeoIP found {len(result_users)} risky users in cities {cities}")
+            if city_after['total_requests'] < self.threshold:
+                continue
+
+            multiplier = city_after.total_requests / city_before.total_requests
+
+            if multiplier >= self._difference_multiplier:
+                blocking_cities.append(name)
+
+        result_users = []
+
+        for city in blocking_cities:
+            city_to_block = cities_after.get(city)
+            result_users.extend(city_to_block['users'])
+
+        logger.debug(f"GeoIP found {len(result_users)} risky users in cities {blocking_cities}")
         return result_users
+
+    def get_values_for_threshold(self, users: list[User]) -> list[Decimal]:
+        city_stats = self.cities_stats(users)
+        return [city.total_requests for city in city_stats.values()]
