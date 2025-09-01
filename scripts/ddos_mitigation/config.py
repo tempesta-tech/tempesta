@@ -107,14 +107,14 @@ class AppConfig(BaseSettings):
     detector_geoip_difference_multiplier: Decimal = Decimal(10)
     detector_geoip_block_users_per_iteration: Decimal = Decimal(10)
     detector_geoip_path_allowed_cities_list: str = (
-        "/etc/tempesta-ddos-defender/allowed_cities.txt"
+        "/etc/tempesta-webshield/allowed_cities.txt"
     )
-    detector_geoip_path_to_db: str = "/etc/tempesta-ddos-defender/city.db"
+    detector_geoip_path_to_db: str = "/etc/tempesta-webshield/city.db"
 
     tempesta_executable_path: str = ""
     tempesta_config_path: str = ""
     allowed_user_agents_file_path: str = (
-        "/etc/tempesta-ddos-defender/allow_user_agents.txt"
+        "/etc/tempesta-webshield/allow_user_agents.txt"
     )
     log_level: str = "INFO"
 

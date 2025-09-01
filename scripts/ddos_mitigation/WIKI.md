@@ -1,4 +1,4 @@
-# DDoS Defender
+# Tempesta WebShield
 
 ## Brief
 ### How it works
@@ -8,14 +8,14 @@ such as TLS connection or HTTP request fingerprints.
 
 Additionally, access logs can be stored in [ClickHouse](Access-Log-Analytics/), which offers extremely powerful capabilities for analyzing traffic.
 
-The Defender connects to the ClickHouse database and, at regular intervals, analyzes user traffic. 
+The WebShield connects to the ClickHouse database and, at regular intervals, analyzes user traffic. 
 It compares aggregated values (such as the total number of requests, accumulated response time, and total number of
 error responses) against predefined thresholds. All of these thresholds can be customized in the application configuration.
 
-To block a user, the Defender adds the user's JA5 hashes to the Tempesta FW configuration and reloads the server.
+To block a user, the WebShield adds the user's JA5 hashes to the Tempesta FW configuration and reloads the server.
 
 ### Historical Mode
-The Defender can be configured to start in historical mode. In this mode the script learns form the historical 
+The WebShield can be configured to start in historical mode. In this mode the script learns form the historical 
 data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
 ```bash
 DETECTOR_THRESHOLD_TRAINING_MODE="historical"
@@ -25,11 +25,11 @@ should look to analyze user traffic. If the calculated values are too low, the s
 to use the default thresholds from the configuration.
 
 This mode is especially useful when the actual average system load is unknown, and it's more effective to 
-let the Defender determine reasonable thresholds automatically.
+let the WebShield determine reasonable thresholds automatically.
 
 ### Real Mode
 In cases where historical data is not available, but you still want to automatically set thresholds,
-you can start the Defender with:
+you can start the WebShield with:
 
 ```bash
 DETECTOR_THRESHOLD_TRAINING_MODE="real"
@@ -42,17 +42,17 @@ To train the script using the last 10 minutes of live traffic, you can use:
 ```bash
 DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN=10
 ```
-During this period, the Defender will gather user activity, calculate average metrics,
+During this period, the WebShield will gather user activity, calculate average metrics,
 apply multipliers (as in historical mode), and set the thresholds accordingly.
 
 ### Persistent Users
 This feature is available only in `historical` and `real` modes, as it requires existing traffic data for analysis.
 
-Defender reacts on system metrics getting worse and kills the most aggressive clients impacting to the system overload. 
+WebShield reacts on system metrics getting worse and kills the most aggressive clients impacting to the system overload. 
 However, it might false positively kill benign clients who have been working with the system before the degradation event. 
-The set of such persistent clients can also be learnt by Defender.
+The set of such persistent clients can also be learnt by WebShield.
 
-The Defender can identify persistent users — users that generate regular, consistent traffic — and protect them during an attack.
+The WebShield can identify persistent users — users that generate regular, consistent traffic — and protect them during an attack.
 All users except those marked as persistent can potentially be blocked.
 
 By default, this feature is enabled in both `historical` and `real` modes.
@@ -81,7 +81,7 @@ You can define these in a separate configuration file.
 By default, the path to this file is:
 
 ```bash
-/etc/tempesta-ddos-defender/allow_user_agents.txt
+/etc/tempesta-webshield/allow_user_agents.txt
 
 ```
 An example configuration might look like:
@@ -106,7 +106,7 @@ This still won't help if an attacker prepares an attack specifically for your se
 more DDoS attacks aren't prepared for a specific target.
 
 ### Blocking Methods
-The Defender supports several methods for blocking users:
+The WebShield supports several methods for blocking users:
 
 | NAME | DESCRIPTION                                |
 |-|--------------------------------------------|
@@ -125,7 +125,7 @@ BLOCKING_TYPES=["ja5t", "ipset"]
 After a DDoS attack, blocked users can be automatically unblocked.
 The default blocking duration is controlled by the `BLOCKING_TIME_MIN` variable (in minutes).
 
-Once the specified time has passed, the Defender will check blocked users periodically
+Once the specified time has passed, the WebShield will check blocked users periodically
 and remove their blocks if the time limit has been exceeded.
 
 You can configure how often this check is performed using:
@@ -137,7 +137,7 @@ BLOCKING_RELEASE_TIME_MIN=5
 This ensures that users are not blocked longer than necessary, while still maintaining protection during an active attack.
 
 ## Detectors
-The strategies used by Defender to detect attacks.
+The strategies used by WebShield to detect attacks.
 
 ### Threshold Detector
 Block users based on installed RPS, time, and error limits. The blocking thresholds can be determined automatically using pre-trained modes.
@@ -148,8 +148,8 @@ Block users based on installed RPS, time, and error limits. The blocking thresho
 | DETECTOR_THRESHOLD_MIN_TIME                   | 40                | Average accumulated response time threshold. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.                                        |
 | DETECTOR_THRESHOLD_MIN_ERRORS                 | 5                 | The threshold for the number of requests finished with errors. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.                      |
 | DETECTOR_THRESHOLD_WINDOW_DURATION_SEC        | 10                | Defines the time period (in seconds) for analyzing the request window.                                                                                                                             |
-| DETECTOR_THRESHOLD_TRAINING_MODE              | real / historical | Start DDoS Defender in training mode.                                                                                                                                                              |
-| DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN | 10                | Duration of the waiting period, during which the Defender collects data before calculating thresholds.                                                                                             |
+| DETECTOR_THRESHOLD_TRAINING_MODE              | real / historical | Start DDoS WebShield in training mode.                                                                                                                                                              |
+| DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN | 10                | Duration of the waiting period, during which the WebShield collects data before calculating thresholds.                                                                                             |
 | DETECTOR_THRESHOLD_RPS_MULTIPLIER | 10                | In pretrainer mode, the threshold RPS value is calculated using a multiplier of the average value. If the average value over the last 10 seconds is 100, then the threshold should be set to 1000. |
 | DETECTOR_THRESHOLD_TIME_MULTIPLIER | 10                | In pretrainer mode, the threshold TIME value is calculated using a multiplier of the average value. If the average value over the last 10 seconds is 2, then the threshold should be set to 20.    |
 | DETECTOR_THRESHOLD_ERRORS_MULTIPLIER | 10                | In pretrainer mode, the threshold ERRORS value is calculated using a multiplier of the average value. If the average value over the last 10 seconds is 5, then the threshold should be set to 50   |
@@ -157,13 +157,13 @@ Block users based on installed RPS, time, and error limits. The blocking thresho
 ### GeoIP Detector
 Block users from unusual countries based on their own fixed limits. Requires the MaxMind City GeoIP database.
 
-| NAME                             | EXAMPLE | DESCRIPTION                                                                                                                              |
-|----------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------|
-| DETECTOR_GEOIP_PERCENT_THRESHOLD |    95   | The percentage request limit from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked |
-| DETECTOR_GEOIP_MIN_RPS           | 1000    | the minimum RPS of requests from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked  |
-| DETECTOR_GEOIP_PERIOD_SECONDS    |  10     | the time period (in seconds)  over which client analysis should be performed                                                             |
-| DETECTOR_GEOIP_PATH_TO_DB        | /etc/tempesta-ddos-defender/city.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
-| DETECTOR_GEOIP_PATH_ALLOWED_CITIES_LIST | /etc/tempesta-ddos-defender/allowed_cities.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
+| NAME                             | EXAMPLE                                   | DESCRIPTION                                                                                                                              |
+|----------------------------------|-------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| DETECTOR_GEOIP_PERCENT_THRESHOLD | 95                                        | The percentage request limit from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked |
+| DETECTOR_GEOIP_MIN_RPS           | 1000                                      | the minimum RPS of requests from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked  |
+| DETECTOR_GEOIP_PERIOD_SECONDS    | 10                                        | the time period (in seconds)  over which client analysis should be performed                                                             |
+| DETECTOR_GEOIP_PATH_TO_DB        | /etc/tempesta-webshield/city.db           | Defines the path to the MaxMind City GeoIP database.                                                                                     |
+| DETECTOR_GEOIP_PATH_ALLOWED_CITIES_LIST | /etc/tempesta-webshield/allowed_cities.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
 
 ## Prepare Tempesta FW
 The script requires a specific Tempesta FW configuration.
@@ -194,9 +194,9 @@ Once the configuration is updated, reload Tempesta FW:
 ```bash
 service tempesta --reload
 ```
-This setup allows the Defender to dynamically update ja5t and ja5h blocking rules.
+This setup allows the WebShield to dynamically update ja5t and ja5h blocking rules.
 
-## Start Defender
+## Start WebShield
 
 ### Run Manually
 Manual startup is slightly more complex but doesn't require anything special.
@@ -204,16 +204,16 @@ You just need to create a virtual environment, install the requirements, copy th
 empty file for the User-Agent list:
 
 ```bash
-python3 -m venv tempesta-ddos-defender
-source tempesta-ddos-defender/bin/activate
+python3 -m venv tempesta-webshield
+source tempesta-webshield/bin/activate
 pip install -r requirements.txt
-cp example.env /etc/tempesta-ddos-defender/app.env
-touch /etc/tempesta-ddos-defender/allow_user_agents.txt
+cp example.env /etc/tempesta-webshield/app.env
+touch /etc/tempesta-webshield/allow_user_agents.txt
 python3 app.py 
 ```
 
 ## How to Defend Your App
-The Defender currently provides basic protection suitable for small to medium-sized applications,
+The WebShield currently provides basic protection suitable for small to medium-sized applications,
 where traffic spikes are not extremely frequent or unpredictable.
 
 ### Blog or Online Shop
@@ -241,7 +241,7 @@ which is a key indicator of server load.
 A spike in errors (like 5xx responses) is a strong signal of a problem.
 If you're seeing dozens of such responses, it likely means something is going wrong and needs attention.
 
-#### Example Defender Configuration
+#### Example WebShield Configuration
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
 ```bash
@@ -276,7 +276,7 @@ leading to heavier load on your backend services.
 The mitigation strategy is similar to that of a blog or e-commerce site, but with higher thresholds.
 
 Additionally, for such dynamic applications, it's highly recommended to use training mode with either historical or real value.
-In this mode, the Defender will analyze real user traffic and determine the most suitable threshold values
+In this mode, the WebShield will analyze real user traffic and determine the most suitable threshold values
 for filtering potential attacks without affecting normal operation.
 
 To enable real-time training, update your configuration like this:
@@ -297,7 +297,7 @@ different RPS (requests per second) loads over time slices.
 However, for a more focused and powerful DDoS simulation, we recommend using [MHDDoS](https://github.com/MatrixTM/MHDDoS).
 It’s lightweight and easy to set up, making it ideal for local or test environments.
 
-You can install and run Tempesta FW, ClickHouse, and the DDoS Defender all on a single machine.
+You can install and run Tempesta FW, ClickHouse, and the DDoS WebShield all on a single machine.
 
 To simulate an HTTP server, you can use Python’s built-in web server:
 
@@ -361,17 +361,17 @@ Run the following command:
 
 This will simulate an attack with up to 100 RPS for 60 seconds against https://app.com.
 
-Now, start the Defender. You should see output similar to the following:
+Now, start the WebShield. You should see output similar to the following:
 ```bash
-(tempesta-ddos-venv) root@symtu:/home/tempesta-ddos-defender# python3 app.py 
-[2025-07-17 03:53:28,539][root][INFO]: Starting DDoS Defender
+(tempesta-webshield) root@symtu:/home/tempesta-webshield# python3 app.py 
+[2025-07-17 03:53:28,539][root][INFO]: Starting Tempesta WebShield
 [2025-07-17 03:53:28,566][root][INFO]: Training mode set to OFF
 [2025-07-17 03:53:28,570][root][INFO]: Found protected user agents. Total user agents: 0
 [2025-07-17 03:53:28,570][root][INFO]: Updated live thresholds to: requests=100, time=40, errors=5
 [2025-07-17 03:53:28,570][root][INFO]: Preparation is complete. Starting monitoring.
 ```
 
-Let’s restart MHDDoS and see how the Defender reacts to the simulated attack:
+Let’s restart MHDDoS and see how the WebShield reacts to the simulated attack:
 ```bash
 [2025-07-17 03:56:30,760][root][WARNING]: Blocked user User(ja5t='66cbe62b13320000', blocked_at=1752717390) by ja5t
 ```
@@ -396,4 +396,4 @@ Moreover, if traffic surges are predictable (e.g. due to a scheduled event or pl
 it's possible to pre-train or pre-configure the system with expected behavior — reducing the risk of false positives.
 
 In future versions, integrating traffic forecasting or external signal sources could help the 
-Defender make smarter decisions.
+WebShield make smarter decisions.

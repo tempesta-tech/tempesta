@@ -11,7 +11,7 @@ __license__ = "GPL2"
 
 @dataclass
 class CommandLineArgs:
-    config: str = "/etc/tempesta-ddos-defender/app.env"
+    config: str = "/etc/tempesta-webshield/app.env"
     log_level: str = "INFO"
     verify: bool = False
 
@@ -22,15 +22,15 @@ class CommandLineArgs:
         :return: key-value arguments
         """
         parser = argparse.ArgumentParser(
-            description="DDoS Defender. Analyzes traffic using Tempesta FW access log data stored in ClickHouse",
-            epilog="./app.py --config=/etc/tempesta-ddos-defender/config.env",
+            description="WebShield. Analyzes traffic using Tempesta FW access log data stored in ClickHouse",
+            epilog="./app.py --config=/etc/tempesta-webshield/config.env",
             add_help=True,
         )
         parser.add_argument(
             "-c",
             "--config",
             type=str,
-            default="/etc/tempesta-ddos-defender/app.env",
+            default="/etc/tempesta-webshield/app.env",
             help="Path to the config file",
         )
         parser.add_argument(

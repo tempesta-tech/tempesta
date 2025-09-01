@@ -29,7 +29,7 @@ __license__ = "GPL2"
 
 
 if __name__ == "__main__":
-    logger.info("Starting DDoS Defender")
+    logger.info("Starting Tempesta WebShield")
 
     args = CommandLineArgs.parse_args()
     app_config = AppConfig(_env_file=args.config)

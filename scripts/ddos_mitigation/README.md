@@ -1,4 +1,4 @@
-# DDoS Defender
+# Tempesta WebShield
 
 Block users by JA5T, JA5H, or IP based on Tempesta FW access 
 logs stored in the ClickHouse database.
@@ -12,11 +12,11 @@ logs stored in the ClickHouse database.
 
 ### Run manually
 ```bash
-python3 -m venv tempesta-ddos-defender
-source tempesta-ddos-defender/bin/activate
+python3 -m venv tempesta-webshield
+source tempesta-webshield/bin/activate
 pip install -r requirements.txt
-cp example.env /etc/tempesta-ddos-defender/app.env
-touch /etc/tempesta-ddos-defender/allow_user_agents.txt
+cp example.env /etc/tempesta-webshield/app.env
+touch /etc/tempesta-webshield/allow_user_agents.txt
 python3 app.py 
 ```
 
@@ -47,5 +47,5 @@ Then add 2 files
 - /etc/tempesta/ja5t/blocked.conf
 - /etc/tempesta/ja5h/blocked.conf
 
-These files should be used by default by the Defender 
+These files should be used by default by the WebShield 
 to add new blocking hashes.
