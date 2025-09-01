@@ -18,9 +18,9 @@ To block a user, the WebShield adds the user's JA5 hashes to the Tempesta FW con
 The WebShield can be configured to start in historical mode. In this mode the script learns form the historical 
 data stored and retrieved from ClickHouse. To enable it, set the following in your app configuration:
 ```bash
-DETECTOR_THRESHOLD_TRAINING_MODE="historical"
+TRAINING_MODE="historical"
 ```
-You can also configure the `DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN` variable, which defines how far back (in minutes) the script 
+You can also configure the `TRAINING_MODE_DURATION_MIN` variable, which defines how far back (in minutes) the script 
 should look to analyze user traffic. If the calculated values are too low, the script will prefer 
 to use the default thresholds from the configuration.
 
@@ -32,7 +32,7 @@ In cases where historical data is not available, but you still want to automatic
 you can start the WebShield with:
 
 ```bash
-DETECTOR_THRESHOLD_TRAINING_MODE="real"
+TRAINING_MODE="real"
 ```
 This mode works similarly to historical, with one key difference:
 the script waits for a specified amount of time to collect fresh data, and only then begins analysis.
@@ -40,7 +40,7 @@ the script waits for a specified amount of time to collect fresh data, and only 
 To train the script using the last 10 minutes of live traffic, you can use:
 
 ```bash
-DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN=10
+TRAINING_MODE_DURATION_MIN=10
 ```
 During this period, the WebShield will gather user activity, calculate average metrics,
 apply multipliers (as in historical mode), and set the thresholds accordingly.
@@ -55,24 +55,15 @@ The set of such persistent clients can also be learnt by WebShield.
 The WebShield can identify persistent users — users that generate regular, consistent traffic — and protect them during an attack.
 All users except those marked as persistent can potentially be blocked.
 
-By default, this feature is enabled in both `historical` and `real` modes.
+This feature is available in both `historical` and `real` modes.
 
 To configure persistent user detection, use the following variables:
 
 ```bash
-PERSISTENT_USERS_MAX_AMOUNT=100
+PERSISTENT_USERS_ALLOW=True
 PERSISTENT_USERS_WINDOW_OFFSET_MIN=60
 PERSISTENT_USERS_WINDOW_DURATION_MIN=60
-PERSISTENT_USERS_TOTAL_REQUESTS=1
-PERSISTENT_USERS_TOTAL_TIME=1
 ```
-
-A user is marked as persistent if they exceed either of the following thresholds during the specified time window: 
-
-- `PERSISTENT_USERS_TOTAL_REQUESTS`: minimum number of requests (RPS)
-- `PERSISTENT_USERS_TOTAL_TIME`: minimum total response time
-
-These thresholds help ensure that only consistently active users are protected from being mistakenly blocked.
 
 ### Known UserAgents
 Another way to protect trusted users during a DDoS attack is by maintaining a list of known User-Agents.
@@ -137,33 +128,95 @@ BLOCKING_RELEASE_TIME_MIN=5
 This ensures that users are not blocked longer than necessary, while still maintaining protection during an active attack.
 
 ## Detectors
-The strategies used by WebShield to detect attacks.
+Each iteration, the detectors fetch database access log data and compare it with the previous results. If a detector 
+notices an unusual rise in traffic — for instance, if the current batch of top users generates a total RPS 10× higher 
+than the previous one — users with high RPS should be blocked. Since we have multiple detectors, we can use all of them 
+to analyze traffic in different ways.
 
-### Threshold Detector
-Block users based on installed RPS, time, and error limits. The blocking thresholds can be determined automatically using pre-trained modes.
+### Floating Thresholds
+The thresholds of detectors can be initialized with default values. WebShield is able to automatically adapt to the current situation.
+At each iteration, a detector updates its thresholds. The main idea is to calculate the [standard deviation](https://en.wikipedia.org/wiki/Standard_deviation)
+of the accumulated access log data.
 
-| NAME                                          | VALUE             | DESCRIPTION                                                                                                                                                                                        |
-|-----------------------------------------------|-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| DETECTOR_THRESHOLD_MIN_RPS                    | 100               | The RPS threshold. This is used when training mode is disabled, or when the threshold  calculated from real or historical data is too low.                                                         |
-| DETECTOR_THRESHOLD_MIN_TIME                   | 40                | Average accumulated response time threshold. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.                                        |
-| DETECTOR_THRESHOLD_MIN_ERRORS                 | 5                 | The threshold for the number of requests finished with errors. Used when training mode is disabled, or when the threshold calculated from real or historical data is too low.                      |
-| DETECTOR_THRESHOLD_WINDOW_DURATION_SEC        | 10                | Defines the time period (in seconds) for analyzing the request window.                                                                                                                             |
-| DETECTOR_THRESHOLD_TRAINING_MODE              | real / historical | Start DDoS WebShield in training mode.                                                                                                                                                              |
-| DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN | 10                | Duration of the waiting period, during which the WebShield collects data before calculating thresholds.                                                                                             |
-| DETECTOR_THRESHOLD_RPS_MULTIPLIER | 10                | In pretrainer mode, the threshold RPS value is calculated using a multiplier of the average value. If the average value over the last 10 seconds is 100, then the threshold should be set to 1000. |
-| DETECTOR_THRESHOLD_TIME_MULTIPLIER | 10                | In pretrainer mode, the threshold TIME value is calculated using a multiplier of the average value. If the average value over the last 10 seconds is 2, then the threshold should be set to 20.    |
-| DETECTOR_THRESHOLD_ERRORS_MULTIPLIER | 10                | In pretrainer mode, the threshold ERRORS value is calculated using a multiplier of the average value. If the average value over the last 10 seconds is 5, then the threshold should be set to 50   |
+For example, if we have 3 users with RPS values of 1, 2, and 3 respectively, the arithmetic mean is 2, and 
+the standard deviation (1σ) is 0.82. The updated threshold is therefore 2 + 0.82 = 2.82. This means users with RPS greater 
+than 2.82 fall into the risky group.
 
-### GeoIP Detector
-Block users from unusual countries based on their own fixed limits. Requires the MaxMind City GeoIP database.
+### Detector IP_RPS
 
-| NAME                             | EXAMPLE                                   | DESCRIPTION                                                                                                                              |
-|----------------------------------|-------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| DETECTOR_GEOIP_PERCENT_THRESHOLD | 95                                        | The percentage request limit from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked |
-| DETECTOR_GEOIP_MIN_RPS           | 1000                                      | the minimum RPS of requests from a region.  If the limit is exceeded and the region is not in the whitelist, the client will be blocked  |
-| DETECTOR_GEOIP_PERIOD_SECONDS    | 10                                        | the time period (in seconds)  over which client analysis should be performed                                                             |
-| DETECTOR_GEOIP_PATH_TO_DB        | /etc/tempesta-webshield/city.db           | Defines the path to the MaxMind City GeoIP database.                                                                                     |
-| DETECTOR_GEOIP_PATH_ALLOWED_CITIES_LIST | /etc/tempesta-webshield/allowed_cities.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
+Aggregate users by IP address and calculate their RPS
+
+| NAME                                          | VALUE | DESCRIPTION                                                                                 |
+|-----------------------------------------------|-------|---------------------------------------------------------------------------------------------|
+| DETECTOR_IP_RPS_DEFAULT_THRESHOLD             | 10    | Installs the default RPS threshold                                                          |
+| DETECTOR_IP_RPS_DIFFERENCE_MULTIPLIER         | 10    | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_IP_RPS_BLOCK_USERS_PER_ITERATION     | 100   | Defines the number of users that can be blocked per check.               |
+
+### Detector IP_TIME
+
+Aggregate users by IP address and calculate their cumulative response time.
+
+| NAME                                       | VALUE | DESCRIPTION                                                                                  |
+|--------------------------------------------|-------|----------------------------------------------------------------------------------------------|
+| DETECTOR_IP_TIME_DEFAULT_THRESHOLD         | 10    | Installs the default accumulative time threshold                                             |
+| DETECTOR_IP_TIME_DIFFERENCE_MULTIPLIER     | 10    | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_IP_TIME_BLOCK_USERS_PER_ITERATION | 100   | Defines the number of users that can be blocked per check.                                   |
+
+### Detector IP_ERRORS
+
+Aggregate users by IP address and calculate the number of responses finished with errors
+
+| NAME                                         | VALUE           | DESCRIPTION                                                                                  |
+|----------------------------------------------|-----------------|----------------------------------------------------------------------------------------------|
+| DETECTOR_IP_ERRORS_DEFAULT_THRESHOLD         | 10              | Installs the default responses error threshold                                               |
+| DETECTOR_IP_ERRORS_DIFFERENCE_MULTIPLIER     | 10              | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_IP_ERRORS_BLOCK_USERS_PER_ITERATION | 100             | Defines the number of users that can be blocked per check.                                   |
+| DETECTOR_IP_ERRORS_ALLOWED_STATUSES          | [100, 101, ...] | Defines the list of response status codes ignored by WebShield                               |
+
+### Detector JA5_RPS
+
+Aggregate users by JA5-hash and calculate their RPS
+
+| NAME                                       | VALUE | DESCRIPTION                                                                                 |
+|--------------------------------------------|-------|---------------------------------------------------------------------------------------------|
+| DETECTOR_JA5_RPS_DEFAULT_THRESHOLD         | 10    | Installs the default RPS threshold                                                          |
+| DETECTOR_JA5_RPS_DIFFERENCE_MULTIPLIER     | 10    | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_JA5_RPS_BLOCK_USERS_PER_ITERATION | 100   | Defines the number of users that can be blocked per check.               |
+
+### Detector JA5_TIME
+
+Aggregate users by JA5-hash and calculate their cumulative response time.
+
+| NAME                                        | VALUE | DESCRIPTION                                                                                  |
+|---------------------------------------------|-------|----------------------------------------------------------------------------------------------|
+| DETECTOR_JA5_TIME_DEFAULT_THRESHOLD         | 10    | Installs the default accumulative time threshold                                             |
+| DETECTOR_JA5_TIME_DIFFERENCE_MULTIPLIER     | 10    | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_JA5_TIME_BLOCK_USERS_PER_ITERATION | 100   | Defines the number of users that can be blocked per check.                                   |
+
+### Detector JA5_ERRORS
+
+Aggregate users by JA5-hash and calculate the number of responses finished with errors
+
+| NAME                                          | VALUE | DESCRIPTION                                                                                  |
+|-----------------------------------------------|-------|----------------------------------------------------------------------------------------------|
+| DETECTOR_JA5_ERRORS_DEFAULT_THRESHOLD         | 10    | Installs the default responses error threshold                                               |
+| DETECTOR_JA5_ERRORS_DIFFERENCE_MULTIPLIER     | 10    | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_JA5_ERRORS_BLOCK_USERS_PER_ITERATION | 100   | Defines the number of users that can be blocked per check.                                   |
+| DETECTOR_JA5_ERRORS_ALLOWED_STATUSES          | [100, 101, ...] | Defines the list of response status codes ignored by WebShield                               |
+
+### Detector GeoIP
+
+Aggregate users by city and calculate their total RPS. All users from cities with unusual traffic should be blocked.
+It is also possible to define a list of whitelisted cities that will be ignored by the filter.
+
+
+| NAME                                     | VALUE                                     | DESCRIPTION                                                                                  |
+|------------------------------------------|-------------------------------------------|----------------------------------------------------------------------------------------------|
+| DETECTOR_GEOIP_RPS_DEFAULT_THRESHOLD     | 10                                        | Installs the default RPS threshold                                                           |
+| DETECTOR_GEOIP_DIFFERENCE_MULTIPLIER     | 10                                        | Defines the difference between two user groups. How many times GroupB is greater then GroupA |
+| DETECTOR_GEOIP_BLOCK_USERS_PER_ITERATION | 100                                       | Defines the number of users that can be blocked per check.                                   |
+| DETECTOR_GEOIP_PATH_TO_DB                | /etc/tempesta-webshield/city.db           | Defines the path to the MaxMind City GeoIP database.                                                                                     |
+| DETECTOR_GEOIP_PATH_ALLOWED_CITIES_LIST  | /etc/tempesta-webshield/allowed_cities.db | Defines the path to the MaxMind City GeoIP database.                                                                                     |
 
 ## Prepare Tempesta FW
 The script requires a specific Tempesta FW configuration.
@@ -245,22 +298,11 @@ If you're seeing dozens of such responses, it likely means something is going wr
 Based on a typical blog or online shop scenario, the following configuration is a reasonable starting point:
 
 ```bash
-# 50 users with an average of 200 requests, as described in  [Blog or Online Shop](#blog-or-shop)
-DETECTOR_THRESHOLD_MIN_RPS=2350
-
-# The average response time in seconds per user (maximum 60 seconds, which is the timeout)
-DETECTOR_THRESHOLD_MIN_TIME=40
-
-# The average number of responses that finished with errors
-DETECTOR_THRESHOLD_MIN_ERRORS=5
-
-# The time period (in seconds) for analyzing the request window. Last 10 seconds
-DETECTOR_THRESHOLD_WINDOW_DURATION_SEC=10
-
-# Interval between analyses in seconds. Each 10 seconds
+DETECTORS=["ja5_rps","ja5_time","ja5_errors"]
+BLOCKING_TYPES=["ja5t"]
 BLOCKING_WINDOW_DURATION_SEC=10
 ```
-These thresholds provide a balance between responsiveness and protection, ensuring that legitimate traffic is allowed
+These detectors and time limits balance between responsiveness and protection, ensuring that legitimate traffic is allowed
 while abnormal spikes can be mitigated early.
 
 ### Crypto Exchanger or a Game
@@ -273,20 +315,27 @@ This type of behavior significantly increases the total number of requests, many
 leading to heavier load on your backend services.
 
 #### Defense Strategy
-The mitigation strategy is similar to that of a blog or e-commerce site, but with higher thresholds.
+The mitigation strategy is similar to that of a blog or e-commerce site.
 
 Additionally, for such dynamic applications, it's highly recommended to use training mode with either historical or real value.
 In this mode, the WebShield will analyze real user traffic and determine the most suitable threshold values
-for filtering potential attacks without affecting normal operation.
+for filtering potential attacks without affecting normal operation. Probably, its good to define persistant users of 
+your REST-API from mobile clients or commercial users.
 
 To enable real-time training, update your configuration like this:
 
 ```bash
-DETECTOR_THRESHOLD_TRAINING_MODE="real"
-DETECTOR_THRESHOLD_TRAINING_MODE_DURATION_MIN=30
+TRAINING_MODE="real"
+TRAINING_MODE_DURATION_MIN=10
+PERSISTENT_USERS_ALLOW=True
+PERSISTENT_USERS_WINDOW_OFFSET_MIN=10
+PERSISTENT_USERS_WINDOW_DURATION_MIN=10
+DETECTORS=["ja5_rps","ja5_time","ja5_errors"]
+BLOCKING_TYPES=["ja5t"]
+BLOCKING_WINDOW_DURATION_SEC=10
 ```
 
-This setup allows the script to observe traffic for 30 minutes, calculate real averages,
+This setup allows the script to observe traffic for 10 minutes, calculate real averages,
 and apply scaled thresholds based on live behavior — which is ideal for dynamic, traffic-intensive apps.
 
 ### Testing your App

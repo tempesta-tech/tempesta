@@ -2,7 +2,7 @@ import pytest
 
 from config import AppConfig
 from core.context import AppContext
-from core.lifespan import AfterInitialization
+from core.lifespan import LoadPersistentUsers
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -60,7 +60,7 @@ async def lifespan(access_log, app_context):
         (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.4', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent4', 13, 23, 0)
         """
     )
-    yield AfterInitialization(context=app_context)
+    yield LoadPersistentUsers(context=app_context)
 
 
 async def test_time_frame_before(access_log, app_context, lifespan):

@@ -2,7 +2,7 @@ import asyncio
 
 from core.context import AppContext
 from core.lifespan import (
-    AfterInitialization,
+    LoadPersistentUsers,
     BackgroundReleaseUsersMonitoring,
     BackgroundRiskyUsersMonitoring,
     HistoricalModeTraining,
@@ -17,7 +17,6 @@ __license__ = "GPL2"
 
 async def run_app(context: AppContext):
     await Initialization(context).run()
-    await AfterInitialization(context).run()
 
     training_mode = None
 
@@ -29,6 +28,9 @@ async def run_app(context: AppContext):
 
     if training_mode:
         await training_mode.run()
+
+    if training_mode and context.app_config.persistent_users_allow:
+        await LoadPersistentUsers(context).run()
 
     steps = [BackgroundRiskyUsersMonitoring, BackgroundReleaseUsersMonitoring]
 

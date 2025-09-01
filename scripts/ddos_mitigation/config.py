@@ -19,6 +19,7 @@ class AppConfig(BaseSettings):
     clickhouse_table_name: str = "access_log"
     clickhouse_database: str = "default"
 
+    persistent_users_allow: bool = True
     persistent_users_window_offset_min: int = 60
     persistent_users_window_duration_min: int = 60
 

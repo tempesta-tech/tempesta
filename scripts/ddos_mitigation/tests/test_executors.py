@@ -2,7 +2,7 @@ from config import AppConfig
 from core.context import AppContext
 from core.executor import run_app
 from core.lifespan import (
-    AfterInitialization,
+    LoadPersistentUsers,
     BackgroundReleaseUsersMonitoring,
     BackgroundRiskyUsersMonitoring,
     HistoricalModeTraining,
@@ -25,7 +25,6 @@ async def test_run_app_non_training_mode(monkeypatch):
         counter += 1
 
     monkeypatch.setattr(Initialization, "run", fake_coro)
-    monkeypatch.setattr(AfterInitialization, "run", fake_coro)
     monkeypatch.setattr(BackgroundReleaseUsersMonitoring, "run", fake_coro)
     monkeypatch.setattr(BackgroundRiskyUsersMonitoring, "run", fake_coro)
 
@@ -38,7 +37,7 @@ async def test_run_app_non_training_mode(monkeypatch):
             ),
         )
     )
-    assert counter == 4
+    assert counter == 3
 
 
 async def test_run_app_real_mode(monkeypatch):
@@ -49,7 +48,7 @@ async def test_run_app_real_mode(monkeypatch):
         counter += 1
 
     monkeypatch.setattr(Initialization, "run", fake_coro)
-    monkeypatch.setattr(AfterInitialization, "run", fake_coro)
+    monkeypatch.setattr(LoadPersistentUsers, "run", fake_coro)
     monkeypatch.setattr(RealModeTraining, "run", fake_coro)
     monkeypatch.setattr(BackgroundReleaseUsersMonitoring, "run", fake_coro)
     monkeypatch.setattr(BackgroundRiskyUsersMonitoring, "run", fake_coro)
@@ -74,7 +73,7 @@ async def test_run_app_history_mode(monkeypatch):
         counter += 1
 
     monkeypatch.setattr(Initialization, "run", fake_coro)
-    monkeypatch.setattr(AfterInitialization, "run", fake_coro)
+    monkeypatch.setattr(LoadPersistentUsers, "run", fake_coro)
     monkeypatch.setattr(HistoricalModeTraining, "run", fake_coro)
     monkeypatch.setattr(BackgroundReleaseUsersMonitoring, "run", fake_coro)
     monkeypatch.setattr(BackgroundRiskyUsersMonitoring, "run", fake_coro)

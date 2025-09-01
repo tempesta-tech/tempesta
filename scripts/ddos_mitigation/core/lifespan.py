@@ -61,7 +61,7 @@ class Initialization(BaseState):
         await self._load_whitelisted_user_agents()
 
 
-class AfterInitialization(BaseState):
+class LoadPersistentUsers(BaseState):
     async def _load_persistent_users(self, start_at: int, finish_at: int):
         await self.context.clickhouse_client.conn.query(
             f"""
