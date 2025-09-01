@@ -128,10 +128,10 @@ class TestBackgroundMonitorRiskyUsers(unittest.IsolatedAsyncioTestCase):
         await self.lifespan.run(testing=True)
 
         assert self.context.detectors['ip_rps'].passed_time == [(1751535000, 1751535010), (1751535010, 1751535020)]
-        assert self.context.detectors['ip_rps'].threshold == Decimal('1.64')
+        assert self.context.detectors['ip_rps'].threshold == Decimal('2.82')
 
         assert self.context.detectors['ip_time'].passed_time == [(1751535000, 1751535010), (1751535010, 1751535020)]
-        assert self.context.detectors['ip_time'].threshold == Decimal('162.00')
+        assert self.context.detectors['ip_time'].threshold == Decimal('25.80')
 
         assert self.context.blockers['ipset'].block_called == 1
         assert list(self.context.blocked.values()) == [User(ja5t=['213'], ipv4=[IPv4Address('127.0.0.3')])]
