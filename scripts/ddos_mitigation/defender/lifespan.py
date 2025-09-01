@@ -2,7 +2,6 @@ import abc
 import asyncio
 from defender.context import AppContext
 from utils.datatypes import User
-from detectors.base import BaseDetector
 from utils.logger import logger
 
 

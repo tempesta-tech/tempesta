@@ -19,18 +19,13 @@ class AppConfig(BaseSettings):
     clickhouse_table_name: str = "access_log"
     clickhouse_database: str = "default"
 
-    persistent_users_max_amount: int = 100
     persistent_users_window_offset_min: int = 60
     persistent_users_window_duration_min: int = 60
-    persistent_users_total_requests: Decimal = 1
-    persistent_users_total_time: Decimal = 1
 
     detectors: set[Literal["ip_rps", "ip_time", "ip_errors", "ja5_rps", "ja5_time", "ja5_errors", "geoip"]] = {"ja5_rps", "ja5_time", "ja5_errors"}
 
     blocking_types: set[Literal["ja5t", "ja5h", "ipset", "nftables"]] = {"ja5t"}
     blocking_window_duration_sec: int = 10
-    # blocking_ja5_limit: int = 10
-    # blocking_ip_limits: int = 10
     blocking_ipset_name: str = "tempesta_blocked_ips"
     blocking_time_min: int = 60
     blocking_release_time_min: int = 1
@@ -64,19 +59,11 @@ class AppConfig(BaseSettings):
     detector_ja5_errors_block_users_per_iteration: Decimal = Decimal(10)
     detector_ja5_errors_allowed_statuses: list[int] = [100, 101, 200, 201, 204, 300, 301, 302, 303, 304, 305, 307, 308,
                                                       400, 401, 403]
-    # detector_threshold_min_rps: Decimal = 100
-    # detector_threshold_min_time: Decimal = 40
-    # detector_threshold_min_errors: Decimal = 5
-    # detector_threshold_rps_multiplier: Decimal = 10
-    # detector_threshold_time_multiplier: Decimal = 10
-    # detector_threshold_errors_multiplier: Decimal = 10
-    # detector_threshold_window_duration_sec: Decimal = 10
 
-    # detector_geoip_percent_threshold: Decimal = Decimal(95)
+
     detector_geoip_rps_default_threshold: Decimal = Decimal(10)
     detector_geoip_difference_multiplier: Decimal = Decimal(10)
     detector_geoip_block_users_per_iteration: Decimal = Decimal(10)
-    # detector_geoip_period_seconds: int = 10
     detector_geoip_path_allowed_cities_list: str = '/etc/tempesta-ddos-defender/allowed_cities.txt'
     detector_geoip_path_to_db: str = '/etc/tempesta-ddos-defender/city.db'
 
@@ -86,9 +73,6 @@ class AppConfig(BaseSettings):
         "/etc/tempesta-ddos-defender/allow_user_agents.txt"
     )
     log_level: str = "INFO"
-
-    test_mode: bool = False
-    test_unix_time: int = 0
 
     @classmethod
     def read(cls, path: str) -> str:
