@@ -13,6 +13,7 @@ __license__ = "GPL2"
 class CommandLineArgs:
     config: str = "/etc/tempesta-ddos-defender/app.env"
     log_level: str = "INFO"
+    verify: bool = False
 
     @classmethod
     def parse_args(cls) -> "CommandLineArgs":
@@ -38,6 +39,11 @@ class CommandLineArgs:
             type=str,
             default="INFO",
             help="Log level",
+        )
+        parser.add_argument(
+            "--verify",
+            action='store_true',
+            help="Verify config params",
         )
         args = cls(**vars(parser.parse_args()))
 

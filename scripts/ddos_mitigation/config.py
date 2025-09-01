@@ -25,10 +25,10 @@ class AppConfig(BaseSettings):
     persistent_users_total_requests: Decimal = 1
     persistent_users_total_time: Decimal = 1
 
-    detectors: set[Literal["ip_rps", "ip_time", "ip_errors"]] = {"ip_rps"}
+    detectors: set[Literal["ip_rps", "ip_time", "ip_errors", "ja5_rps", "ja5_time", "ja5_errors", "geoip"]] = {"ja5_rps", "ja5_time", "ja5_errors"}
     response_statuses_white_list: set[int] = [100,101,200,201,204,300,301,302,303,304,305,307,308,400,401,403]
 
-    blocking_types: set[Literal["ja5t", "ja5h", "ipset", "nftables", "geoip"]] = {"ja5t"}
+    blocking_types: set[Literal["ja5t", "ja5h", "ipset", "nftables"]] = {"ja5t"}
     blocking_window_duration_sec: int = 10
     blocking_ja5_limit: int = 10
     blocking_ip_limits: int = 10

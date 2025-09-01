@@ -3,7 +3,17 @@ import asyncio
 import logging
 
 import blockers
-import detectors
+from detectors.ip import (
+    IPRPSDetector,
+    IPErrorRequestDetector,
+    IPAccumulativeTimeDetector
+)
+from detectors.ja5t import (
+    Ja5tRPSDetector,
+    Ja5tErrorRequestDetector,
+    Ja5tAccumulativeTimeDetector
+)
+from detectors.geoip import GeoIPDetector
 from utils.access_log import ClickhouseAccessLog
 from cli import CommandLineArgs
 from config import AppConfig
@@ -53,13 +63,26 @@ if __name__ == "__main__":
             ),
         },
         detectors={
-            detectors.ThresholdDetector.name(): detectors.ThresholdDetector(
-                app_config=app_config,
-                clickhouse_client=clickhouse_client,
+            IPRPSDetector.name(): IPRPSDetector(
+                access_log=clickhouse_client,
             ),
-            detectors.GeoIPDetector.name(): detectors.GeoIPDetector(
-                app_config=app_config,
-                clickhouse_client=clickhouse_client,
+            IPAccumulativeTimeDetector.name(): IPAccumulativeTimeDetector(
+                access_log=clickhouse_client,
+            ),
+            IPErrorRequestDetector.name(): IPErrorRequestDetector(
+                access_log=clickhouse_client,
+            ),
+            Ja5tRPSDetector.name(): Ja5tRPSDetector(
+                access_log=clickhouse_client,
+            ),
+            Ja5tAccumulativeTimeDetector.name(): Ja5tAccumulativeTimeDetector(
+                access_log=clickhouse_client,
+            ),
+            Ja5tErrorRequestDetector.name(): Ja5tErrorRequestDetector(
+                access_log=clickhouse_client,
+            ),
+            GeoIPDetector.name(): GeoIPDetector(
+                access_log=clickhouse_client,
                 path_to_db=app_config.detector_geoip_path_to_db,
                 path_to_allowed_cities_list=app_config.detector_geoip_path_allowed_cities_list,
             ),
@@ -71,4 +94,8 @@ if __name__ == "__main__":
             config_path=app_config.allowed_user_agents_file_path,
         ),
     )
+
+    if args.verify:
+        exit(0)
+
     asyncio.run(run_app(context))
