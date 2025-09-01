@@ -106,3 +106,6 @@ class ClickhouseAccessLog:
             FROM user_agents
             """
         )
+
+    async def access_log_truncate(self):
+        return await self.conn.query("truncate table access_log")

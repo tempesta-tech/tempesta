@@ -1,101 +1,102 @@
-import unittest
+import pytest
 
 from config import AppConfig
 from defender.context import AppContext
 from defender.lifespan import AfterInitialization
-from utils.access_log import ClickhouseAccessLog
+
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
-class FlexibleTimeAppConfig(AppConfig):
+@pytest.fixture
+def app_config():
+    class FlexibleTimeAppConfig(AppConfig):
 
-    def __init__(self, *args, **kwargs):
-        super(FlexibleTimeAppConfig, self).__init__(*args, **kwargs)
+        def __init__(self, *args, **kwargs):
+            super(FlexibleTimeAppConfig, self).__init__(*args, **kwargs)
 
-        self._offset_sec = 0
-        self._duration_sec = 0
+            self._offset_sec = 0
+            self._duration_sec = 0
 
-    @property
-    def persistent_users_window_offset_sec(self):
-        return self._offset_sec
+        @property
+        def persistent_users_window_offset_sec(self):
+            return self._offset_sec
 
-    @property
-    def persistent_users_window_duration_sec(self):
-        return self._duration_sec
+        @property
+        def persistent_users_window_duration_sec(self):
+            return self._duration_sec
 
-
-class FrozenTimeAppContext(AppContext):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.time = 0
-
-    @property
-    def utc_now(self) -> int:
-        return self.time
+    yield FlexibleTimeAppConfig
 
 
-class TestLifespanAfterInitialization(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.access_log = ClickhouseAccessLog()
-        await self.access_log.connect()
-        await self.access_log.user_agents_table_truncate()
-        await self.access_log.persistent_users_table_truncate()
 
-        await self.access_log.user_agents_table_insert([["UserAgent"], ["UserAgent2"]])
-        await self.access_log.conn.query(
-            """
-            insert into access_log values
-            (cast('1751535005' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
-            (cast('1751535006' as DateTime64(3, 'UTC')), '127.0.0.2', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent2', 12, 22, 0),
-            (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.3', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent2', 13, 23, 0),
-            (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.3', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent3', 13, 23, 0),
-            (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.4', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent4', 13, 23, 0)
-            """
-        )
+@pytest.fixture
+def app_context(access_log, app_config):
+    class FrozenTimeAppContext(AppContext):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.time = 0
 
-        self.context = FrozenTimeAppContext(
-            clickhouse_client=self.access_log,
-            app_config=FlexibleTimeAppConfig(),
-        )
-        self.lifespan = AfterInitialization(context=self.context)
+        @property
+        def utc_now(self) -> int:
+            return self.time
 
-    async def asyncTearDown(self):
-        await self.access_log.user_agents_table_truncate()
-        await self.access_log.persistent_users_table_truncate()
+    yield FrozenTimeAppContext(
+        clickhouse_client=access_log,
+        app_config=app_config(),
+    )
 
-    async def test_time_frame_before(self):
-        self.context.time = 1751535005
-        self.context.app_config._offset_sec = 5
-        self.context.app_config._duration_sec = 3
 
-        await self.lifespan.run()
+@pytest.fixture
+async def lifespan(access_log, app_context):
+    await access_log.user_agents_table_insert([["UserAgent"], ["UserAgent2"]])
+    await access_log.conn.query(
+        """
+        insert into access_log values
+        (cast('1751535005' as DateTime64(3, 'UTC')), '127.0.0.1', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+        (cast('1751535006' as DateTime64(3, 'UTC')), '127.0.0.2', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent2', 12, 22, 0),
+        (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.3', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent2', 13, 23, 0),
+        (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.3', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent3', 13, 23, 0),
+        (cast('1751535007' as DateTime64(3, 'UTC')), '127.0.0.4', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent4', 13, 23, 0)
+        """
+    )
+    yield AfterInitialization(context=app_context)
 
-        response = await self.access_log.persistent_users_all()
-        assert len(response.result_rows) == 0
 
-    async def test_time_frame_after(self):
-        self.context.time = 1751535010
-        self.context.app_config._offset_sec = 2
-        self.context.app_config._duration_sec = 2
+async def test_time_frame_before(access_log, app_context, lifespan):
+    app_context.time = 1751535005
+    app_context.app_config._offset_sec = 5
+    app_context.app_config._duration_sec = 3
 
-        await self.lifespan.run()
+    await lifespan.run()
 
-        response = await self.access_log.persistent_users_all()
-        assert len(response.result_rows) == 0
+    response = await access_log.persistent_users_all()
+    assert len(response.result_rows) == 0
 
-    async def test_found_users(self):
-        self.context.time = 1751535010
-        self.context.app_config._offset_sec = 10
-        self.context.app_config._duration_sec = 10
 
-        await self.lifespan.run()
+async def test_time_frame_after(access_log, app_context, lifespan):
+    app_context.time = 1751535010
+    app_context.app_config._offset_sec = 2
+    app_context.app_config._duration_sec = 2
 
-        response = await self.access_log.persistent_users_all()
-        assert len(response.result_rows) == 2
-        assert {str(row[0]) for row in response.result_rows} == {
-            "127.0.0.3",
-            "127.0.0.4",
-        }
+    await lifespan.run()
+
+    response = await access_log.persistent_users_all()
+    assert len(response.result_rows) == 0
+
+
+async def test_found_users(access_log, app_context, lifespan):
+    app_context.time = 1751535010
+    app_context.app_config._offset_sec = 10
+    app_context.app_config._duration_sec = 10
+
+    await lifespan.run()
+
+    response = await access_log.persistent_users_all()
+    assert len(response.result_rows) == 2
+    assert {str(row[0]) for row in response.result_rows} == {
+        "127.0.0.3",
+        "127.0.0.4",
+    }

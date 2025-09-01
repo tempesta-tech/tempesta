@@ -1,133 +1,149 @@
 import os
-import unittest
-
+import pytest
 from clickhouse_connect.driver.httpclient import DatabaseError
 
 from blockers.base import BaseBlocker
 from config import AppConfig
 from defender.context import AppContext
 from defender.lifespan import Initialization
-from utils.access_log import ClickhouseAccessLog
 from utils.datatypes import User
 from utils.user_agents import UserAgentsManager
+
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
-class FakeBlocker(BaseBlocker):
-    def __init__(self):
-        self.prepare_called = False
+@pytest.fixture(autouse=True)
+async def user_agent_empty_file_path() -> str:
+    path = "/tmp/test_user_agents_loading_0"
+    open(path, "w").close()
 
-    @staticmethod
-    def name() -> str:
-        return "ipset"
+    yield path
 
-    def prepare(self):
-        self.prepare_called = True
-
-    def block(self, user: User):
-        return
-
-    def release(self, user: User):
-        return
-
-    def info(self) -> dict[int, User]:
-        return {2: User(ja5t=["4444"])}
-
-    def load(self) -> dict[int, User]:
-        return {1: User(ja5t=["3333"])}
+    if os.path.exists(path):
+        os.remove(path)
 
 
-class FakeBlocker2(FakeBlocker):
-    @staticmethod
-    def name() -> str:
-        return "ja5t"
+@pytest.fixture(autouse=True)
+async def user_agent_file_path() -> str:
+    path = "/tmp/test_user_agents_loading"
+
+    with open(path, "w") as f:
+        f.write("user1\nuser2\nuser3\n")
+
+    yield path
+
+    if os.path.exists(path):
+        os.remove(path)
 
 
-class TestLifespanInitialization(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.access_log = ClickhouseAccessLog()
-        await self.access_log.connect()
+@pytest.fixture
+async def app_context(access_log, user_agent_empty_file_path) -> AppContext:
+    await access_log.conn.query('drop table user_agents')
+    await access_log.conn.query('drop table persistent_users')
 
-        await self.access_log.user_agents_table_drop()
-        await self.access_log.persistent_users_table_drop()
+    class FakeBlocker(BaseBlocker):
+        def __init__(self):
+            self.prepare_called = False
 
-        self.user_agent_empty_file_path = "/tmp/test_user_agents_loading_0"
-        self.user_agent_file_path = "/tmp/test_user_agents_loading"
+        @staticmethod
+        def name() -> str:
+            return "ipset"
 
-        with open(self.user_agent_empty_file_path, "w") as f:
-            f.write("")
+        def prepare(self):
+            self.prepare_called = True
 
-        with open(self.user_agent_file_path, "w") as f:
-            f.write("user1\nuser2\nuser3\n")
+        def block(self, user: User):
+            return
 
-        self.context = AppContext(
-            blockers={
-                FakeBlocker.name(): FakeBlocker(),
-                FakeBlocker2.name(): FakeBlocker2(),
-            },
-            clickhouse_client=self.access_log,
-            app_config=AppConfig(blocking_types={"ipset"}),
-            user_agent_manager=UserAgentsManager(
-                clickhouse_client=self.access_log,
-                config_path=self.user_agent_empty_file_path,
-            ),
-        )
-        self.lifespan = Initialization(context=self.context)
+        def release(self, user: User):
+            return
 
-    def tearDown(self):
-        if os.path.exists(self.user_agent_file_path):
-            os.remove(self.user_agent_file_path)
+        def info(self) -> dict[int, User]:
+            return {2: User(ja5t=["4444"])}
 
-        if os.path.exists(self.user_agent_empty_file_path):
-            os.remove(self.user_agent_empty_file_path)
+        def load(self) -> dict[int, User]:
+            return {1: User(ja5t=["3333"])}
 
-    def test_active_blockers(self):
-        assert len(self.context.active_blockers) == 1
+    class FakeBlocker2(FakeBlocker):
+        @staticmethod
+        def name() -> str:
+            return "ja5t"
 
-    async def test_clickhouse_connection(self):
-        with self.assertRaises(DatabaseError):
-            await self.context.clickhouse_client.user_agents_all()
+    context = AppContext(
+        blockers={
+            FakeBlocker.name(): FakeBlocker(),
+            FakeBlocker2.name(): FakeBlocker2(),
+        },
+        clickhouse_client=access_log,
+        app_config=AppConfig(blocking_types={"ipset"}),
+        user_agent_manager=UserAgentsManager(
+            clickhouse_client=access_log,
+            config_path=user_agent_empty_file_path,
+        ),
+    )
+    yield context
 
-        await self.lifespan.run()
-        await self.context.clickhouse_client.user_agents_all()
+    await access_log.user_agents_table_create()
+    await access_log.persistent_users_table_create()
 
-    async def test_blockers_loading(self):
-        assert len(self.context.blocked) == 0
-        assert self.context.blockers["ipset"].prepare_called is False
 
-        await self.lifespan.run()
+@pytest.fixture
+async def lifespan(access_log, app_context) -> Initialization:
+    lifespan = Initialization(context=app_context)
+    yield lifespan
 
-        assert self.context.blockers["ipset"].prepare_called is True
-        assert len(self.context.blocked) == 1
 
-    async def test_tables_creation(self):
-        with self.assertRaises(DatabaseError):
-            await self.access_log.user_agents_all()
+def test_active_blockers(app_context):
+    assert len(app_context.active_blockers) == 1
 
-        with self.assertRaises(DatabaseError):
-            await self.access_log.persistent_users_all()
 
-        await self.lifespan.run()
+async def test_clickhouse_connection(app_context, lifespan):
+    with pytest.raises(DatabaseError):
+        await app_context.clickhouse_client.user_agents_all()
 
-        result = await self.access_log.user_agents_all()
-        assert len(result.result_rows) == 0
+    await lifespan.run()
+    await app_context.clickhouse_client.user_agents_all()
 
-        result = await self.access_log.persistent_users_all()
-        assert len(result.result_rows) == 0
 
-    async def test_user_agents_loading(self):
-        self.context.user_agent_manager.config_path = self.user_agent_file_path
-        await self.lifespan.run()
+async def test_blockers_loading(app_context, lifespan):
+    assert len(app_context.blocked) == 0
+    assert app_context.blockers["ipset"].prepare_called is False
 
-        result = await self.access_log.user_agents_all()
-        assert len(result.result_rows) == 3
+    await lifespan.run()
 
-    async def test_user_agents_loading_skip(self):
-        self.context.app_config.allowed_user_agents_file_path = False
-        await self.lifespan.run()
+    assert app_context.blockers["ipset"].prepare_called is True
+    assert len(app_context.blocked) == 1
 
-        result = await self.access_log.user_agents_all()
-        assert len(result.result_rows) == 0
+
+async def test_tables_creation(access_log, app_context, lifespan):
+    with pytest.raises(DatabaseError):
+        await access_log.user_agents_all()
+
+    with pytest.raises(DatabaseError):
+        await access_log.persistent_users_all()
+
+    await lifespan.run()
+
+    result = await access_log.user_agents_all()
+    assert len(result.result_rows) == 0
+
+    result = await access_log.persistent_users_all()
+    assert len(result.result_rows) == 0
+
+
+async def test_user_agents_loading(access_log, app_context, lifespan, user_agent_file_path):
+    app_context.user_agent_manager.config_path = user_agent_file_path
+    await lifespan.run()
+
+    result = await access_log.user_agents_all()
+    assert len(result.result_rows) == 3
+
+async def test_user_agents_loading_skip(access_log, app_context, lifespan):
+    app_context.app_config.allowed_user_agents_file_path = False
+    await lifespan.run()
+
+    result = await access_log.user_agents_all()
+    assert len(result.result_rows) == 0

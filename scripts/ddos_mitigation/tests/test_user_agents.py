@@ -1,48 +1,41 @@
 import os
 import unittest
 
+import pytest
+
 from utils.access_log import ClickhouseAccessLog
 from utils.user_agents import UserAgentsManager
+
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
 
 
-class TestUserAgentManager(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.client = ClickhouseAccessLog()
-        await self.client.connect()
-        await self.client.conn.query("drop database if exists test_db")
+@pytest.fixture
+def user_manager(access_log):
+    path_to_config = "/tmp/tmp-user-agents"
+    manager = UserAgentsManager(
+        config_path=path_to_config,
+        clickhouse_client=access_log,
+    )
 
-        await self.client.conn.query("create database test_db")
-        await self.client.conn.close()
+    with open(path_to_config, "w") as f:
+        f.write("UserAgent\n" "  2222aaaaaaa   \n")
 
-        self.client = ClickhouseAccessLog(database="test_db")
-        await self.client.connect()
+    yield manager
 
-        self.path_to_config = "/tmp/tmp-user-agents"
-        self.manager = UserAgentsManager(
-            config_path=self.path_to_config,
-            clickhouse_client=self.client,
-        )
+    os.remove(path_to_config)
 
-        with open(self.path_to_config, "w") as f:
-            f.write("UserAgent\n" "  2222aaaaaaa   \n")
 
-    async def asyncTearDown(self):
-        os.remove(self.path_to_config)
-        await self.client.conn.query("drop database test_db")
+def test_read_config(user_manager):
+    user_manager.read_from_file()
+    assert user_manager.user_agents == {"UserAgent", "2222aaaaaaa"}
 
-    def test_read_config(self):
-        self.manager.read_from_file()
-        self.assertEqual(self.manager.user_agents, {"UserAgent", "2222aaaaaaa"})
 
-    async def test_export_user_agents(self):
-        await self.client.user_agents_table_create()
+async def test_export_user_agents(access_log, user_manager):
+    user_manager.user_agents = {"Hello", "Kitty"}
+    await user_manager.export_to_db()
 
-        self.manager.user_agents = {"Hello", "Kitty"}
-        await self.manager.export_to_db()
-
-        result = await self.client.user_agents_all()
-        self.assertEqual(result.result_rows, [("Hello",), ("Kitty",)])
+    result = await access_log.user_agents_all()
+    assert result.result_rows == [("Hello",), ("Kitty",)]

@@ -1,13 +1,17 @@
 from config import AppConfig
 from defender.context import AppContext
 from defender.executor import run_app
-from defender.lifespan import (AfterInitialization,
-                               BackgroundReleaseUsersMonitoring,
-                               BackgroundRiskyUsersMonitoring,
-                               HistoricalModeTraining, Initialization,
-                               RealModeTraining)
+from defender.lifespan import (
+    AfterInitialization,
+    BackgroundReleaseUsersMonitoring,
+    BackgroundRiskyUsersMonitoring,
+    HistoricalModeTraining,
+    Initialization,
+    RealModeTraining
+)
 from utils.access_log import ClickhouseAccessLog
 from utils.user_agents import UserAgentsManager
+
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
