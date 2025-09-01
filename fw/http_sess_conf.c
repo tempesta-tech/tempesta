@@ -575,12 +575,6 @@ tfw_cfgop_sticky_secret_set(TfwStickyCookie *sticky, const char *secret_str,
 		return r;
 	}
 
-#ifdef DEBUG
-	if (len != sizeof(sticky->key))
-		T_LOG_NL("http_sess: reduce ley length to %zu bytes\n",
-			 sizeof(sticky->key));
-	len = max_t(size_t, len, sizeof(sticky->key));
-#endif
 	if (!len) {
 		tfw_get_random_bytes(secret, sizeof(secret));
 		len = sizeof(secret);
@@ -589,9 +583,6 @@ tfw_cfgop_sticky_secret_set(TfwStickyCookie *sticky, const char *secret_str,
 	else {
 		secret_buf = secret_str;
 	}
-#ifdef DEBUG
-	memcpy(sticky->key, secret_buf, len);
-#endif
 
 	r = crypto_shash_setkey(sticky->shash, secret_buf, len);
 	if (r)
