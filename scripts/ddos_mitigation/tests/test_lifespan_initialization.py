@@ -1,4 +1,5 @@
 import os
+
 import pytest
 from clickhouse_connect.driver.httpclient import DatabaseError
 
@@ -8,7 +9,6 @@ from defender.context import AppContext
 from defender.lifespan import Initialization
 from utils.datatypes import User
 from utils.user_agents import UserAgentsManager
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -41,8 +41,8 @@ async def user_agent_file_path() -> str:
 
 @pytest.fixture
 async def app_context(access_log, user_agent_empty_file_path) -> AppContext:
-    await access_log.conn.query('drop table user_agents')
-    await access_log.conn.query('drop table persistent_users')
+    await access_log.conn.query("drop table user_agents")
+    await access_log.conn.query("drop table persistent_users")
 
     class FakeBlocker(BaseBlocker):
         def __init__(self):
@@ -134,12 +134,15 @@ async def test_tables_creation(access_log, app_context, lifespan):
     assert len(result.result_rows) == 0
 
 
-async def test_user_agents_loading(access_log, app_context, lifespan, user_agent_file_path):
+async def test_user_agents_loading(
+    access_log, app_context, lifespan, user_agent_file_path
+):
     app_context.user_agent_manager.config_path = user_agent_file_path
     await lifespan.run()
 
     result = await access_log.user_agents_all()
     assert len(result.result_rows) == 3
+
 
 async def test_user_agents_loading_skip(access_log, app_context, lifespan):
     app_context.app_config.allowed_user_agents_file_path = False

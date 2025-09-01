@@ -7,11 +7,10 @@ from defender.lifespan import (
     BackgroundRiskyUsersMonitoring,
     HistoricalModeTraining,
     Initialization,
-    RealModeTraining
+    RealModeTraining,
 )
 from utils.access_log import ClickhouseAccessLog
 from utils.user_agents import UserAgentsManager
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

@@ -6,7 +6,6 @@ from defender.context import AppContext
 from defender.lifespan import BackgroundReleaseUsersMonitoring
 from utils.datatypes import User
 
-
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
@@ -65,7 +64,7 @@ def app_context(app_config, access_log):
     context = FrozenTimeAppContext(
         blockers={FakeBlocker.name(): FakeBlocker()},
         clickhouse_client=access_log,
-        app_config=app_config
+        app_config=app_config,
     )
     yield context
 

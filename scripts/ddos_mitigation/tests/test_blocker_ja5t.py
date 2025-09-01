@@ -1,4 +1,5 @@
 import os
+
 import pytest
 
 from blockers.base import PreparationError
@@ -44,9 +45,7 @@ def test_block(blocker):
 
 def test_release(blocker):
     user = User(ja5t=["3333"])
-    blocker.config.hashes["3333"] = Ja5Hash(
-        value="3333", connections=0, packets=0
-    )
+    blocker.config.hashes["3333"] = Ja5Hash(value="3333", connections=0, packets=0)
     blocker.release(user)
     assert len(blocker.config.hashes) == 0
 

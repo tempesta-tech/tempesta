@@ -6,10 +6,9 @@ import pytest
 from detectors.ja5t import (
     Ja5tAccumulativeTimeDetector,
     Ja5tErrorRequestDetector,
-    Ja5tRPSDetector
+    Ja5tRPSDetector,
 )
 from utils.datatypes import User
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -42,7 +41,10 @@ async def test_rps(access_log):
     assert users_before == []
     assert len(users_after) == 1
     assert users_after[0].ja5t == [13]
-    assert set(users_after[0].ipv4) == {IPv4Address("127.0.0.3"), IPv4Address("127.0.0.4")}
+    assert set(users_after[0].ipv4) == {
+        IPv4Address("127.0.0.3"),
+        IPv4Address("127.0.0.4"),
+    }
 
 
 async def test_rps_with_user_agents(access_log):
@@ -56,9 +58,7 @@ async def test_rps_with_user_agents(access_log):
         current_time=1751535010, interval=5
     )
     assert users_before == []
-    assert users_after == [
-        User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
-    ]
+    assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
 
 
 async def test_rps_with_persistent_users(access_log):
@@ -113,7 +113,10 @@ async def test_errors_with_user_agents(access_log):
     assert users_before == []
     assert len(users_after) == 1
     assert users_after[0].ja5t == [13]
-    assert set(users_after[0].ipv4) == {IPv4Address("127.0.0.3"), IPv4Address("127.0.0.4")}
+    assert set(users_after[0].ipv4) == {
+        IPv4Address("127.0.0.3"),
+        IPv4Address("127.0.0.4"),
+    }
 
 
 async def test_errors_with_persistent_users(access_log):
@@ -161,7 +164,10 @@ async def test_time(access_log):
     assert users_before == []
     assert len(users_after) == 1
     assert users_after[0].ja5t == [13]
-    assert set(users_after[0].ipv4) == {IPv4Address("127.0.0.3"), IPv4Address("127.0.0.4")}
+    assert set(users_after[0].ipv4) == {
+        IPv4Address("127.0.0.3"),
+        IPv4Address("127.0.0.4"),
+    }
 
 
 async def test_time_with_user_agents(access_log):
@@ -177,7 +183,10 @@ async def test_time_with_user_agents(access_log):
     assert users_before == []
     assert len(users_after) == 1
     assert users_after[0].ja5t == [13]
-    assert set(users_after[0].ipv4) == {IPv4Address("127.0.0.3"), IPv4Address("127.0.0.4")}
+    assert set(users_after[0].ipv4) == {
+        IPv4Address("127.0.0.3"),
+        IPv4Address("127.0.0.4"),
+    }
 
 
 async def test_time_with_persistent_users(access_log):

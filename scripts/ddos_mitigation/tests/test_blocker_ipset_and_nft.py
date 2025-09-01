@@ -1,15 +1,15 @@
 import multiprocessing
 import time
-import pytest
 import urllib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address
 from urllib.request import urlopen
 
+import pytest
+
 from blockers.ipset import IpSetBlocker
 from blockers.nft import NFTBlocker
 from utils.datatypes import User
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -19,9 +19,9 @@ __license__ = "GPL2"
 @pytest.fixture(
     params=[
         IpSetBlocker(blocking_ip_set_name="tempesta_blocked_ips"),
-        NFTBlocker(blocking_table_name="tempesta_blocked_ips")
+        NFTBlocker(blocking_table_name="tempesta_blocked_ips"),
     ],
-    ids=['IpSet', 'NFT']
+    ids=["IpSet", "NFT"],
 )
 def blocker(request):
     request.param.prepare()

@@ -1,14 +1,14 @@
 from decimal import Decimal
 from ipaddress import IPv4Address
+
 import pytest
 
 from detectors.ip import (
     IPAccumulativeTimeDetector,
     IPErrorRequestDetector,
-    IPRPSDetector
+    IPRPSDetector,
 )
 from utils.datatypes import User
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -39,9 +39,7 @@ async def test_rps(access_log):
         current_time=1751535010, interval=5
     )
     assert users_before == []
-    assert users_after == [
-        User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
-    ]
+    assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
 
 
 async def test_rps_with_user_agents(access_log):
@@ -87,9 +85,7 @@ async def test_errors(access_log):
         current_time=1751535010, interval=5
     )
     assert users_before == []
-    assert users_after == [
-        User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
-    ]
+    assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
 
 
 async def test_errors_with_user_agents(access_log):
@@ -150,9 +146,7 @@ async def test_time(access_log):
         current_time=1751535010, interval=5
     )
     assert users_before == []
-    assert users_after == [
-        User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
-    ]
+    assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
 
 
 async def test_time_with_user_agents(access_log):

@@ -1,11 +1,10 @@
 import os
-
-import pytest
 from decimal import Decimal
 from ipaddress import IPv4Address
 
-from detectors.geoip import GeoIPDetector
+import pytest
 
+from detectors.geoip import GeoIPDetector
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -94,9 +93,7 @@ async def test_prepare_no_geodb(detector: GeoIPDetector):
 
 async def test_find_low_rps(detector):
     await detector.prepare()
-    before, after = await detector.find_users(
-        current_time=1751535003, interval=5
-    )
+    before, after = await detector.find_users(current_time=1751535003, interval=5)
     assert len(before) == 0
     assert len(after) == 1
 
@@ -107,9 +104,7 @@ async def test_find_low_rps(detector):
 async def test_find(detector, additional_logs):
     await detector.prepare()
 
-    before, after = await detector.find_users(
-        current_time=1751535003, interval=5
-    )
+    before, after = await detector.find_users(current_time=1751535003, interval=5)
 
     assert len(before) == 0
     assert len(after) == 2
@@ -125,9 +120,7 @@ async def test_find_allowed_city(detector, additional_logs):
         f.write("Podgorica")
 
     await detector.prepare()
-    before, after = await detector.find_users(
-        current_time=1751535003, interval=5
-    )
+    before, after = await detector.find_users(current_time=1751535003, interval=5)
 
     assert len(before) == 0
     assert len(after) == 2

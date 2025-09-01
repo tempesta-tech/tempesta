@@ -4,7 +4,6 @@ from config import AppConfig
 from defender.context import AppContext
 from defender.lifespan import AfterInitialization
 
-
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
@@ -29,7 +28,6 @@ def app_config():
             return self._duration_sec
 
     yield FlexibleTimeAppConfig
-
 
 
 @pytest.fixture

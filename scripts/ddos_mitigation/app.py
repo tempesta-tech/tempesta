@@ -8,10 +8,16 @@ from config import AppConfig
 from defender.context import AppContext
 from defender.executor import run_app
 from detectors.geoip import GeoIPDetector
-from detectors.ip import (IPAccumulativeTimeDetector, IPErrorRequestDetector,
-                          IPRPSDetector)
-from detectors.ja5t import (Ja5tAccumulativeTimeDetector,
-                            Ja5tErrorRequestDetector, Ja5tRPSDetector)
+from detectors.ip import (
+    IPAccumulativeTimeDetector,
+    IPErrorRequestDetector,
+    IPRPSDetector,
+)
+from detectors.ja5t import (
+    Ja5tAccumulativeTimeDetector,
+    Ja5tErrorRequestDetector,
+    Ja5tRPSDetector,
+)
 from utils.access_log import ClickhouseAccessLog
 from utils.ja5_config import Ja5Config
 from utils.logger import logger

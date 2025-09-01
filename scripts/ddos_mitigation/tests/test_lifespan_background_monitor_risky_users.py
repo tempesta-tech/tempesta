@@ -10,7 +10,6 @@ from defender.lifespan import BackgroundRiskyUsersMonitoring
 from detectors.base import BaseDetector
 from utils.datatypes import User
 
-
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
@@ -111,9 +110,7 @@ async def app_context(access_log):
             ),
         },
         clickhouse_client=access_log,
-        app_config=AppConfig(
-            detectors={"ip_rps", "ip_time"}, blocking_types={"ipset"}
-        ),
+        app_config=AppConfig(detectors={"ip_rps", "ip_time"}, blocking_types={"ipset"}),
     )
     yield context
 

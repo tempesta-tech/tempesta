@@ -1,11 +1,11 @@
 import os
+
 import pytest
 
 from blockers.base import PreparationError
 from blockers.ja5h import Ja5hBlocker
 from utils.datatypes import User
 from utils.ja5_config import Ja5Config, Ja5Hash
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -45,9 +45,7 @@ def test_block(blocker):
 
 def test_release(blocker):
     user = User(ja5h=["3333"])
-    blocker.config.hashes["3333"] = Ja5Hash(
-        value="3333", connections=0, packets=0
-    )
+    blocker.config.hashes["3333"] = Ja5Hash(value="3333", connections=0, packets=0)
     blocker.release(user)
     assert len(blocker.config.hashes) == 0
 
