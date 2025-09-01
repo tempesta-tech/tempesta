@@ -5,8 +5,8 @@ from clickhouse_connect.driverc.dataconv import IPv4Address
 
 from blockers.base import BaseBlocker
 from config import AppConfig
-from defender.context import AppContext
-from defender.lifespan import BackgroundRiskyUsersMonitoring
+from core.context import AppContext
+from core.lifespan import BackgroundRiskyUsersMonitoring
 from detectors.base import BaseDetector
 from utils.datatypes import User
 

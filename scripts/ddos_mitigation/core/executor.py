@@ -1,7 +1,7 @@
 import asyncio
 
-from defender.context import AppContext
-from defender.lifespan import (
+from core.context import AppContext
+from core.lifespan import (
     AfterInitialization,
     BackgroundReleaseUsersMonitoring,
     BackgroundRiskyUsersMonitoring,

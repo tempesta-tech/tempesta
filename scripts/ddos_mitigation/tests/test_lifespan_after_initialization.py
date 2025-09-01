@@ -1,8 +1,8 @@
 import pytest
 
 from config import AppConfig
-from defender.context import AppContext
-from defender.lifespan import AfterInitialization
+from core.context import AppContext
+from core.lifespan import AfterInitialization
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

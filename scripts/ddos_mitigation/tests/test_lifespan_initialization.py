@@ -5,8 +5,8 @@ from clickhouse_connect.driver.httpclient import DatabaseError
 
 from blockers.base import BaseBlocker
 from config import AppConfig
-from defender.context import AppContext
-from defender.lifespan import Initialization
+from core.context import AppContext
+from core.lifespan import Initialization
 from utils.datatypes import User
 from utils.user_agents import UserAgentsManager
 

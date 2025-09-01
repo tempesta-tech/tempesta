@@ -1,7 +1,7 @@
 import abc
 import asyncio
 
-from defender.context import AppContext
+from core.context import AppContext
 from utils.datatypes import User
 from utils.logger import logger
 

@@ -3,8 +3,8 @@ from decimal import Decimal
 import pytest
 
 from config import AppConfig
-from defender.context import AppContext
-from defender.lifespan import HistoricalModeTraining
+from core.context import AppContext
+from core.lifespan import HistoricalModeTraining
 from detectors.base import BaseDetector
 from utils.datatypes import User
 

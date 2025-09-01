@@ -1,7 +1,7 @@
 from config import AppConfig
-from defender.context import AppContext
-from defender.executor import run_app
-from defender.lifespan import (
+from core.context import AppContext
+from core.executor import run_app
+from core.lifespan import (
     AfterInitialization,
     BackgroundReleaseUsersMonitoring,
     BackgroundRiskyUsersMonitoring,

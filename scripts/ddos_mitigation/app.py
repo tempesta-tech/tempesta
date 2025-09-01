@@ -5,8 +5,8 @@ import logging
 import blockers
 from cli import CommandLineArgs
 from config import AppConfig
-from defender.context import AppContext
-from defender.executor import run_app
+from core.context import AppContext
+from core.executor import run_app
 from detectors.geoip import GeoIPDetector
 from detectors.ip import (
     IPAccumulativeTimeDetector,

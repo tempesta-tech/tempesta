@@ -2,8 +2,8 @@ import pytest
 
 from blockers.base import BaseBlocker
 from config import AppConfig
-from defender.context import AppContext
-from defender.lifespan import BackgroundReleaseUsersMonitoring
+from core.context import AppContext
+from core.lifespan import BackgroundReleaseUsersMonitoring
 from utils.datatypes import User
 
 __author__ = "Tempesta Technologies, Inc."
