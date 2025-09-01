@@ -1,6 +1,7 @@
 import os
 from ipaddress import IPv4Address
 
+from decimal import Decimal
 from detectors.geoip import GeoIPDetector
 from tests.base import BaseTestCaseWithFilledDB
 
@@ -126,3 +127,12 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
 
         blocked = self.detector.validate_model(users_before=before, users_after=after)
         assert blocked == []
+
+    async def test_update_thresholds(self):
+        await self.create_additional_logs()
+        await self.detector.prepare()
+
+        _, after = await self.detector.find_users(current_time=1751535003, interval=5)
+        self.detector.update_threshold(users=after)
+
+        assert self.detector.threshold == Decimal(11.0)
