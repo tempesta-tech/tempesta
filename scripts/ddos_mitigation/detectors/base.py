@@ -18,12 +18,12 @@ class BaseDetector(metaclass=abc.ABCMeta):
             access_log: ClickhouseAccessLog,
             default_threshold: Decimal = Decimal(10),
             difference_multiplier: Decimal = Decimal(10),
-            block_limit_per_check: int = 10
+            block_users_per_iteration: Decimal = Decimal(10)
     ):
         self._access_log = access_log
         self._threshold = default_threshold
         self._difference_multiplier = difference_multiplier
-        self.block_limit_per_check = block_limit_per_check
+        self.block_limit_per_check = block_users_per_iteration
 
     @property
     def db(self) -> AsyncClient:

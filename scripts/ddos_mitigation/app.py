@@ -65,24 +65,47 @@ if __name__ == "__main__":
         detectors={
             IPRPSDetector.name(): IPRPSDetector(
                 access_log=clickhouse_client,
+                default_threshold=app_config.detector_ip_rps_default_threshold,
+                difference_multiplier=app_config.detector_ip_rps_difference_multiplier,
+                block_users_per_iteration=app_config.detector_ip_rps_block_users_per_iteration
             ),
             IPAccumulativeTimeDetector.name(): IPAccumulativeTimeDetector(
                 access_log=clickhouse_client,
+                default_threshold=app_config.detector_ip_time_default_threshold,
+                difference_multiplier=app_config.detector_ip_time_difference_multiplier,
+                block_users_per_iteration=app_config.detector_ip_time_block_users_per_iteration
             ),
             IPErrorRequestDetector.name(): IPErrorRequestDetector(
                 access_log=clickhouse_client,
+                default_threshold=app_config.detector_ip_errors_default_threshold,
+                difference_multiplier=app_config.detector_ip_errors_difference_multiplier,
+                block_users_per_iteration=app_config.detector_ip_errors_block_users_per_iteration,
+                allowed_statues=app_config.detector_ip_errors_allowed_statuses
             ),
             Ja5tRPSDetector.name(): Ja5tRPSDetector(
                 access_log=clickhouse_client,
+                default_threshold=app_config.detector_ja5_rps_default_threshold,
+                difference_multiplier=app_config.detector_ja5_rps_difference_multiplier,
+                block_users_per_iteration=app_config.detector_ja5_rps_block_users_per_iteration
             ),
             Ja5tAccumulativeTimeDetector.name(): Ja5tAccumulativeTimeDetector(
                 access_log=clickhouse_client,
+                default_threshold=app_config.detector_ja5_time_default_threshold,
+                difference_multiplier=app_config.detector_ja5_time_difference_multiplier,
+                block_users_per_iteration=app_config.detector_ja5_time_block_users_per_iteration
             ),
             Ja5tErrorRequestDetector.name(): Ja5tErrorRequestDetector(
                 access_log=clickhouse_client,
+                default_threshold=app_config.detector_ja5_errors_default_threshold,
+                difference_multiplier=app_config.detector_ja5_errors_difference_multiplier,
+                block_users_per_iteration=app_config.detector_ja5_errors_block_users_per_iteration,
+                allowed_statues=app_config.detector_ja5_errors_allowed_statuses
             ),
             GeoIPDetector.name(): GeoIPDetector(
                 access_log=clickhouse_client,
+                # default_threshold=app_config.detector_geoip_rps_default_threshold,
+                difference_multiplier=app_config.detector_geoip_difference_multiplier,
+                block_users_per_iteration=app_config.detector_geoip_block_users_per_iteration,
                 path_to_db=app_config.detector_geoip_path_to_db,
                 path_to_allowed_cities_list=app_config.detector_geoip_path_allowed_cities_list,
             ),
