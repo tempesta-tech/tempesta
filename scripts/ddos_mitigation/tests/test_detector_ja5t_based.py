@@ -10,6 +10,10 @@ from utils.access_log import ClickhouseAccessLog
 from decimal import Decimal
 import unittest
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
 
 class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

@@ -4,6 +4,11 @@ import shutil
 import subprocess
 
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
+
 def test_run_app():
     """
     Just check that there are not errors

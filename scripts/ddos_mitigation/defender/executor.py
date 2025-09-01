@@ -11,6 +11,11 @@ from defender.lifespan import (
 )
 
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
+
 async def run_app(context: AppContext):
     await Initialization(context).run()
     await AfterInitialization(context).run()

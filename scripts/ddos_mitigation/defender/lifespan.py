@@ -5,6 +5,11 @@ from utils.datatypes import User
 from utils.logger import logger
 
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
+
 class BaseState(abc.ABC):
     def __init__(self, context: AppContext):
         self.context = context

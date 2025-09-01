@@ -4,6 +4,11 @@ from ipaddress import IPv4Address
 from typing import Optional
 
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
+
 @dataclass
 class AverageStats:
     requests: Decimal

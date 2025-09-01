@@ -11,6 +11,10 @@ from config import AppConfig
 from utils.access_log import ClickhouseAccessLog
 from utils.user_agents import UserAgentsManager
 
+__author__ = "Tempesta Technologies, Inc."
+__copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
+__license__ = "GPL2"
+
 
 async def test_run_app_non_training_mode(monkeypatch):
     counter = 0
