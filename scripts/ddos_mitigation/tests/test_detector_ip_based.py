@@ -1,14 +1,11 @@
+import unittest
+from decimal import Decimal
 from ipaddress import IPv4Address
 
-from detectors.ip import (
-    IPRPSDetector,
-    IPErrorRequestDetector,
-    IPAccumulativeTimeDetector
-)
-from utils.datatypes import User
+from detectors.ip import (IPAccumulativeTimeDetector, IPErrorRequestDetector,
+                          IPRPSDetector)
 from utils.access_log import ClickhouseAccessLog
-from decimal import Decimal
-import unittest
+from utils.datatypes import User
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -19,7 +16,7 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.access_log = ClickhouseAccessLog()
         await self.access_log.connect()
-        await self.access_log.conn.query('truncate table access_log')
+        await self.access_log.conn.query("truncate table access_log")
         await self.access_log.user_agents_table_truncate()
         await self.access_log.persistent_users_table_truncate()
         await self.access_log.conn.query(
@@ -36,122 +33,147 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
     async def test_rps(self):
         detector = IPRPSDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10')
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
-        assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
+        assert users_after == [
+            User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
+        ]
 
     async def test_rps_with_user_agents(self):
-        await self.access_log.user_agents_table_insert(
-            [['UserAgent'], ['UserAgent2']]
-        )
+        await self.access_log.user_agents_table_insert([["UserAgent"], ["UserAgent2"]])
         detector = IPRPSDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10')
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
 
     async def test_rps_with_persistent_users(self):
         await self.access_log.persistent_users_table_insert(
-            [['127.0.0.3'], ]
+            [
+                ["127.0.0.3"],
+            ]
         )
         detector = IPRPSDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10')
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
 
     async def test_errors(self):
         detector = IPErrorRequestDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10'),
-            allowed_statues=[300]
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
+            allowed_statues=[300],
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
-        assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
+        assert users_after == [
+            User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
+        ]
 
     async def test_errors_with_user_agents(self):
-        await self.access_log.user_agents_table_insert(
-            [['UserAgent'], ['UserAgent2']]
-        )
+        await self.access_log.user_agents_table_insert([["UserAgent"], ["UserAgent2"]])
         detector = IPErrorRequestDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10'),
-            allowed_statues=[300]
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
+            allowed_statues=[300],
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
 
     async def test_errors_with_persistent_users(self):
         await self.access_log.persistent_users_table_insert(
-            [['127.0.0.3'], ]
+            [
+                ["127.0.0.3"],
+            ]
         )
         detector = IPErrorRequestDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10'),
-            allowed_statues=[300]
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
+            allowed_statues=[300],
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
 
     async def test_errors_forbidden_statuses(self):
         detector = IPErrorRequestDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('2'),
-            difference_multiplier=Decimal('10'),
-            allowed_statues=[200]
+            default_threshold=Decimal("2"),
+            difference_multiplier=Decimal("10"),
+            allowed_statues=[200],
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
 
     async def test_time(self):
         detector = IPAccumulativeTimeDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('15'),
-            difference_multiplier=Decimal('10')
+            default_threshold=Decimal("15"),
+            difference_multiplier=Decimal("10"),
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
-        assert users_after == [User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])]
+        assert users_after == [
+            User(ja5t=[13], ja5h=[23], ipv4=[IPv4Address("127.0.0.3")])
+        ]
 
     async def test_time_with_user_agents(self):
-        await self.access_log.user_agents_table_insert(
-            [['UserAgent'], ['UserAgent2']]
-        )
+        await self.access_log.user_agents_table_insert([["UserAgent"], ["UserAgent2"]])
         detector = IPAccumulativeTimeDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('15'),
-            difference_multiplier=Decimal('10')
+            default_threshold=Decimal("15"),
+            difference_multiplier=Decimal("10"),
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
 
     async def test_time_with_persistent_users(self):
         await self.access_log.persistent_users_table_insert(
-            [['127.0.0.3'], ]
+            [
+                ["127.0.0.3"],
+            ]
         )
         detector = IPAccumulativeTimeDetector(
             access_log=self.access_log,
-            default_threshold=Decimal('15'),
-            difference_multiplier=Decimal('10')
+            default_threshold=Decimal("15"),
+            difference_multiplier=Decimal("10"),
         )
-        users_before, users_after = await detector.find_users(current_time=1751535010, interval=5)
+        users_before, users_after = await detector.find_users(
+            current_time=1751535010, interval=5
+        )
         assert users_before == []
         assert users_after == []
-

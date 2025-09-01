@@ -1,18 +1,16 @@
 import unittest
-
 from decimal import Decimal
 
-from defender.lifespan import HistoricalModeTraining
-from defender.context import AppContext
-from detectors.base import BaseDetector
-from utils.datatypes import User
-from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
+from defender.context import AppContext
+from defender.lifespan import HistoricalModeTraining
+from detectors.base import BaseDetector
+from utils.access_log import ClickhouseAccessLog
+from utils.datatypes import User
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
-
 
 
 class FakeDetector(BaseDetector):
@@ -29,9 +27,9 @@ class FakeDetector(BaseDetector):
         self.start_at = start_at
         self.finish_at = finish_at
         return [
-            User(ja5t=['111'], value=Decimal(1)),
-            User(ja5t=['112'], value=Decimal(2)),
-            User(ja5t=['113'], value=Decimal(3)),
+            User(ja5t=["111"], value=Decimal(1)),
+            User(ja5t=["112"], value=Decimal(2)),
+            User(ja5t=["113"], value=Decimal(3)),
         ]
 
 
@@ -44,9 +42,9 @@ class FakeDetector2(FakeDetector):
         self.start_at = start_at
         self.finish_at = finish_at
         return [
-            User(ja5t=['111'], value=Decimal(100)),
-            User(ja5t=['112'], value=Decimal(200)),
-            User(ja5t=['113'], value=Decimal(300)),
+            User(ja5t=["111"], value=Decimal(100)),
+            User(ja5t=["112"], value=Decimal(200)),
+            User(ja5t=["113"], value=Decimal(300)),
         ]
 
 
@@ -95,7 +93,7 @@ class TestTrainingRealMode(unittest.IsolatedAsyncioTestCase):
                 ),
             },
             clickhouse_client=self.access_log,
-            app_config=FlexibleTimeAppConfig(detectors={'ip_rps', 'ip_time'})
+            app_config=FlexibleTimeAppConfig(detectors={"ip_rps", "ip_time"}),
         )
         self.lifespan = HistoricalModeTraining(context=self.context)
 
@@ -108,10 +106,14 @@ class TestTrainingRealMode(unittest.IsolatedAsyncioTestCase):
 
         await self.lifespan.run()
 
-        assert self.context.detectors['ip_rps'].threshold.quantize(Decimal('0.01')) == Decimal('2.82')
-        assert self.context.detectors['ip_rps'].start_at == 1751535009
-        assert self.context.detectors['ip_rps'].finish_at == 1751535010
+        assert self.context.detectors["ip_rps"].threshold.quantize(
+            Decimal("0.01")
+        ) == Decimal("2.82")
+        assert self.context.detectors["ip_rps"].start_at == 1751535009
+        assert self.context.detectors["ip_rps"].finish_at == 1751535010
 
-        assert self.context.detectors['ip_time'].threshold.quantize(Decimal('0.01')) == Decimal('281.65')
-        assert self.context.detectors['ip_rps'].start_at == 1751535009
-        assert self.context.detectors['ip_rps'].finish_at == 1751535010
+        assert self.context.detectors["ip_time"].threshold.quantize(
+            Decimal("0.01")
+        ) == Decimal("281.65")
+        assert self.context.detectors["ip_rps"].start_at == 1751535009
+        assert self.context.detectors["ip_rps"].finish_at == 1751535010

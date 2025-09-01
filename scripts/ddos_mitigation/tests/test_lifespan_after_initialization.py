@@ -1,9 +1,9 @@
 import unittest
-from defender.lifespan import AfterInitialization
-from defender.context import AppContext
 
-from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
+from defender.context import AppContext
+from defender.lifespan import AfterInitialization
+from utils.access_log import ClickhouseAccessLog
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -44,9 +44,7 @@ class TestLifespanAfterInitialization(unittest.IsolatedAsyncioTestCase):
         await self.access_log.user_agents_table_truncate()
         await self.access_log.persistent_users_table_truncate()
 
-        await self.access_log.user_agents_table_insert(
-            [['UserAgent'], ['UserAgent2']]
-        )
+        await self.access_log.user_agents_table_insert([["UserAgent"], ["UserAgent2"]])
         await self.access_log.conn.query(
             """
             insert into access_log values
@@ -97,4 +95,7 @@ class TestLifespanAfterInitialization(unittest.IsolatedAsyncioTestCase):
 
         response = await self.access_log.persistent_users_all()
         assert len(response.result_rows) == 2
-        assert {str(row[0]) for row in response.result_rows} == {'127.0.0.3', '127.0.0.4'}
+        assert {str(row[0]) for row in response.result_rows} == {
+            "127.0.0.3",
+            "127.0.0.4",
+        }

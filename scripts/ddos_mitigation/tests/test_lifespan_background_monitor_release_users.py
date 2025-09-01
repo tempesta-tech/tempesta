@@ -1,11 +1,11 @@
 import unittest
 
-from defender.lifespan import BackgroundReleaseUsersMonitoring
-from defender.context import AppContext
 from blockers.base import BaseBlocker
-from utils.datatypes import User
-from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
+from defender.context import AppContext
+from defender.lifespan import BackgroundReleaseUsersMonitoring
+from utils.access_log import ClickhouseAccessLog
+from utils.datatypes import User
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -18,7 +18,7 @@ class FakeBlocker(BaseBlocker):
 
     @staticmethod
     def name() -> str:
-        return 'ipset'
+        return "ipset"
 
     def prepare(self):
         return
@@ -30,10 +30,10 @@ class FakeBlocker(BaseBlocker):
         self.release_called += 1
 
     def info(self) -> dict[int, User]:
-        return {2: User(ja5t=['4444'])}
+        return {2: User(ja5t=["4444"])}
 
     def load(self) -> dict[int, User]:
-        return {1: User(ja5t=['3333'])}
+        return {1: User(ja5t=["3333"])}
 
 
 class FrozenTimeAppContext(AppContext):
@@ -64,15 +64,15 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
         self.context = FrozenTimeAppContext(
             blockers={FakeBlocker.name(): FakeBlocker()},
             clickhouse_client=self.access_log,
-            app_config=FlexibleTimeAppConfig(blocking_types={'ipset'})
+            app_config=FlexibleTimeAppConfig(blocking_types={"ipset"}),
         )
-        user1 = User(ja5t=['4441'], blocked_at=1751535000)
+        user1 = User(ja5t=["4441"], blocked_at=1751535000)
         self.context.blocked[hash(user1)] = user1
 
-        user2 = User(ja5t=['4442'], blocked_at=1751535005)
+        user2 = User(ja5t=["4442"], blocked_at=1751535005)
         self.context.blocked[hash(user2)] = user2
 
-        user3 = User(ja5t=['4443'], blocked_at=1751535009)
+        user3 = User(ja5t=["4443"], blocked_at=1751535009)
         self.context.blocked[hash(user3)] = user3
 
         self.lifespan = BackgroundReleaseUsersMonitoring(context=self.context)
@@ -84,7 +84,7 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
         await self.lifespan.run(testing=True)
 
         assert len(self.context.blocked) == 3
-        assert self.context.blockers['ipset'].release_called == 0
+        assert self.context.blockers["ipset"].release_called == 0
 
     async def test_release_one_user(self):
         self.context.time = 1751535004
@@ -93,7 +93,7 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
         await self.lifespan.run(testing=True)
 
         assert len(self.context.blocked) == 2
-        assert self.context.blockers['ipset'].release_called == 1
+        assert self.context.blockers["ipset"].release_called == 1
 
     async def test_release_two_users(self):
         self.context.time = 1751535009
@@ -102,7 +102,7 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
         await self.lifespan.run(testing=True)
 
         assert len(self.context.blocked) == 1
-        assert self.context.blockers['ipset'].release_called == 2
+        assert self.context.blockers["ipset"].release_called == 2
 
     async def test_release_all_users(self):
         self.context.time = 1751535013
@@ -111,4 +111,4 @@ class TestBackgroundMonitorReleaseUsers(unittest.IsolatedAsyncioTestCase):
         await self.lifespan.run(testing=True)
 
         assert len(self.context.blocked) == 0
-        assert self.context.blockers['ipset'].release_called == 3
+        assert self.context.blockers["ipset"].release_called == 3

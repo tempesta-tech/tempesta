@@ -1,9 +1,9 @@
 import abc
 import asyncio
+
 from defender.context import AppContext
 from utils.datatypes import User
 from utils.logger import logger
-
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -30,7 +30,9 @@ class Initialization(BaseState):
         logger.debug("Blockers prepared and loaded")
 
         if len(self.context.blocked):
-            logger.info(f"Total number of already blocked users: {len(self.context.blocked)}")
+            logger.info(
+                f"Total number of already blocked users: {len(self.context.blocked)}"
+            )
 
     async def _establish_clickhouse_connection(self):
         await self.context.clickhouse_client.connect()
@@ -83,7 +85,9 @@ class AfterInitialization(BaseState):
     def _get_persistent_users_frame(self) -> tuple[int, int]:
         now = self.context.utc_now
         start_at = now - self.context.app_config.persistent_users_window_offset_sec
-        finish_at = start_at + self.context.app_config.persistent_users_window_duration_sec
+        finish_at = (
+            start_at + self.context.app_config.persistent_users_window_duration_sec
+        )
         return start_at, finish_at
 
     async def run(self, **__):
@@ -100,9 +104,9 @@ class HistoricalModeTraining(BaseState):
         detectors = self.context.active_detectors
 
         for detector in detectors:
-            coroutines.append(detector.fetch_for_period(
-                start_at=start_at, finish_at=finish_at
-            ))
+            coroutines.append(
+                detector.fetch_for_period(start_at=start_at, finish_at=finish_at)
+            )
 
         users = await asyncio.gather(*coroutines)
 
@@ -164,13 +168,15 @@ class BackgroundRiskyUsersMonitoring(BaseState):
         current_time = self.context.utc_now
         detectors = self.context.active_detectors
 
-        users_bulks = await asyncio.gather(*[
-            detector.find_users(
-                current_time=current_time,
-                interval=self.context.app_config.blocking_window_duration_sec
-            )
-            for detector in detectors
-        ])
+        users_bulks = await asyncio.gather(
+            *[
+                detector.find_users(
+                    current_time=current_time,
+                    interval=self.context.app_config.blocking_window_duration_sec,
+                )
+                for detector in detectors
+            ]
+        )
 
         blocking_users_bulks = []
 
@@ -185,8 +191,7 @@ class BackgroundRiskyUsersMonitoring(BaseState):
             )
 
         self.__block_users(
-            blocking_users_bulks=blocking_users_bulks,
-            current_time=current_time
+            blocking_users_bulks=blocking_users_bulks, current_time=current_time
         )
 
     async def run(self, testing: bool = False) -> None:

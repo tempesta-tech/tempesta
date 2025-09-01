@@ -4,8 +4,9 @@ import math
 from decimal import Decimal
 
 from clickhouse_connect.driver import AsyncClient
-from utils.datatypes import User
+
 from utils.access_log import ClickhouseAccessLog
+from utils.datatypes import User
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -14,11 +15,11 @@ __license__ = "GPL2"
 
 class BaseDetector(metaclass=abc.ABCMeta):
     def __init__(
-            self,
-            access_log: ClickhouseAccessLog,
-            default_threshold: Decimal = Decimal(10),
-            difference_multiplier: Decimal = Decimal(10),
-            block_users_per_iteration: Decimal = Decimal(10)
+        self,
+        access_log: ClickhouseAccessLog,
+        default_threshold: Decimal = Decimal(10),
+        difference_multiplier: Decimal = Decimal(10),
+        block_users_per_iteration: Decimal = Decimal(10),
     ):
         self._access_log = access_log
         self._threshold = default_threshold
@@ -31,7 +32,7 @@ class BaseDetector(metaclass=abc.ABCMeta):
 
     @property
     def threshold(self) -> Decimal:
-        return self._threshold.quantize(Decimal('0.01'))
+        return self._threshold.quantize(Decimal("0.01"))
 
     @threshold.setter
     def threshold(self, threshold: Decimal):
@@ -58,7 +59,9 @@ class BaseDetector(metaclass=abc.ABCMeta):
         :return:
         """
 
-    async def find_users(self, current_time: int, interval: int) -> [list[User], list[User]]:
+    async def find_users(
+        self, current_time: int, interval: int
+    ) -> [list[User], list[User]]:
         """
         Performed analysis and identified risky users.
 
@@ -67,11 +70,17 @@ class BaseDetector(metaclass=abc.ABCMeta):
         :return: list of risky users
         """
         return await asyncio.gather(
-            self.fetch_for_period(start_at=current_time - 2*interval, finish_at=current_time - interval),
-            self.fetch_for_period(start_at=current_time - interval, finish_at=current_time),
+            self.fetch_for_period(
+                start_at=current_time - 2 * interval, finish_at=current_time - interval
+            ),
+            self.fetch_for_period(
+                start_at=current_time - interval, finish_at=current_time
+            ),
         )
 
-    def validate_model(self, users_before: list[User], users_after: list[User]) -> list[User]:
+    def validate_model(
+        self, users_before: list[User], users_after: list[User]
+    ) -> list[User]:
         """
 
         :param users_before:
@@ -95,7 +104,9 @@ class BaseDetector(metaclass=abc.ABCMeta):
                 if multiplier < self._difference_multiplier:
                     continue
 
-                users_to_block.append(User(ipv4=[ip], ja5t=user.ja5t, ja5h=user.ja5h, value=user.value))
+                users_to_block.append(
+                    User(ipv4=[ip], ja5t=user.ja5t, ja5h=user.ja5h, value=user.value)
+                )
 
         return users_to_block
 
@@ -105,20 +116,19 @@ class BaseDetector(metaclass=abc.ABCMeta):
 
         :return:
         """
-        return Decimal(sum(values) / Decimal(len(values))).quantize(Decimal('0.01'))
+        return Decimal(sum(values) / Decimal(len(values))).quantize(Decimal("0.01"))
 
     @staticmethod
-    def standard_deviation(
-            values: list[Decimal],
-            arithmetic_mean: Decimal
-    ) -> Decimal:
+    def standard_deviation(values: list[Decimal], arithmetic_mean: Decimal) -> Decimal:
         """
 
         :return:
         """
-        deviation = sum(map(lambda val: math.pow(val - arithmetic_mean, Decimal(2)), values))
+        deviation = sum(
+            map(lambda val: math.pow(val - arithmetic_mean, Decimal(2)), values)
+        )
         deviation /= len(values)
-        return Decimal(math.sqrt(deviation)).quantize(Decimal('0.01'))
+        return Decimal(math.sqrt(deviation)).quantize(Decimal("0.01"))
 
     def get_values_for_threshold(self, users: list[User]) -> list[Decimal]:
         return [user.value for user in users]
@@ -149,14 +159,15 @@ class SQLBasedDetector(BaseDetector):
         :param finish_at:
         :return:
         """
-        response = await self.db.query(
-            self.get_request(start_at, finish_at)
-        )
+        response = await self.db.query(self.get_request(start_at, finish_at))
 
-        return [User(
-            ja5t=user[0],
-            ja5h=user[1],
-            ipv4=user[2],
-            value=user[3],
-            # type=user[4]
-        ) for user in response.result_rows]
+        return [
+            User(
+                ja5t=user[0],
+                ja5h=user[1],
+                ipv4=user[2],
+                value=user[3],
+                # type=user[4]
+            )
+            for user in response.result_rows
+        ]

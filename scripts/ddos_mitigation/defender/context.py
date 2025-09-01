@@ -1,11 +1,11 @@
+import datetime
 from dataclasses import dataclass, field
 
-import datetime
-from utils.access_log import ClickhouseAccessLog
 from blockers.base import BaseBlocker
 from config import AppConfig
-from utils.datatypes import User
 from detectors.base import BaseDetector
+from utils.access_log import ClickhouseAccessLog
+from utils.datatypes import User
 from utils.user_agents import UserAgentsManager
 
 __author__ = "Tempesta Technologies, Inc."

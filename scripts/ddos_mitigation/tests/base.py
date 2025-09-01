@@ -1,7 +1,7 @@
 import unittest
 
-from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
+from utils.access_log import ClickhouseAccessLog
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."

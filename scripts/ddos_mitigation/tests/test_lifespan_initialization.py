@@ -1,14 +1,15 @@
 import os
 import unittest
-from defender.lifespan import Initialization
-from blockers.base import BaseBlocker
-from defender.context import AppContext
+
 from clickhouse_connect.driver.httpclient import DatabaseError
 
+from blockers.base import BaseBlocker
+from config import AppConfig
+from defender.context import AppContext
+from defender.lifespan import Initialization
+from utils.access_log import ClickhouseAccessLog
 from utils.datatypes import User
 from utils.user_agents import UserAgentsManager
-from utils.access_log import ClickhouseAccessLog
-from config import AppConfig
 
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
@@ -21,7 +22,7 @@ class FakeBlocker(BaseBlocker):
 
     @staticmethod
     def name() -> str:
-        return 'ipset'
+        return "ipset"
 
     def prepare(self):
         self.prepare_called = True
@@ -33,16 +34,16 @@ class FakeBlocker(BaseBlocker):
         return
 
     def info(self) -> dict[int, User]:
-        return {2: User(ja5t=['4444'])}
+        return {2: User(ja5t=["4444"])}
 
     def load(self) -> dict[int, User]:
-        return {1: User(ja5t=['3333'])}
+        return {1: User(ja5t=["3333"])}
 
 
 class FakeBlocker2(FakeBlocker):
     @staticmethod
     def name() -> str:
-        return 'ja5t'
+        return "ja5t"
 
 
 class TestLifespanInitialization(unittest.IsolatedAsyncioTestCase):
@@ -60,19 +61,20 @@ class TestLifespanInitialization(unittest.IsolatedAsyncioTestCase):
             f.write("")
 
         with open(self.user_agent_file_path, "w") as f:
-            f.write('user1\nuser2\nuser3\n')
+            f.write("user1\nuser2\nuser3\n")
 
         self.context = AppContext(
             blockers={
                 FakeBlocker.name(): FakeBlocker(),
-                FakeBlocker2.name(): FakeBlocker2()
+                FakeBlocker2.name(): FakeBlocker2(),
             },
             clickhouse_client=self.access_log,
-            app_config=AppConfig(blocking_types={'ipset'}),
+            app_config=AppConfig(blocking_types={"ipset"}),
             user_agent_manager=UserAgentsManager(
                 clickhouse_client=self.access_log,
-                config_path=self.user_agent_empty_file_path
-            ))
+                config_path=self.user_agent_empty_file_path,
+            ),
+        )
         self.lifespan = Initialization(context=self.context)
 
     def tearDown(self):
@@ -94,11 +96,11 @@ class TestLifespanInitialization(unittest.IsolatedAsyncioTestCase):
 
     async def test_blockers_loading(self):
         assert len(self.context.blocked) == 0
-        assert self.context.blockers['ipset'].prepare_called is False
+        assert self.context.blockers["ipset"].prepare_called is False
 
         await self.lifespan.run()
 
-        assert self.context.blockers['ipset'].prepare_called is True
+        assert self.context.blockers["ipset"].prepare_called is True
         assert len(self.context.blocked) == 1
 
     async def test_tables_creation(self):

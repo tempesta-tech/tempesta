@@ -9,7 +9,6 @@ from urllib.request import urlopen
 from blockers.ipset import IpSetBlocker
 from utils.datatypes import User
 
-
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"

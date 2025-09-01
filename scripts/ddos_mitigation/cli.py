@@ -42,7 +42,7 @@ class CommandLineArgs:
         )
         parser.add_argument(
             "--verify",
-            action='store_true',
+            action="store_true",
             help="Verify config params",
         )
         args = cls(**vars(parser.parse_args()))

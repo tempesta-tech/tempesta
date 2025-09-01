@@ -3,22 +3,16 @@ import asyncio
 import logging
 
 import blockers
-from detectors.ip import (
-    IPRPSDetector,
-    IPErrorRequestDetector,
-    IPAccumulativeTimeDetector
-)
-from detectors.ja5t import (
-    Ja5tRPSDetector,
-    Ja5tErrorRequestDetector,
-    Ja5tAccumulativeTimeDetector
-)
-from detectors.geoip import GeoIPDetector
-from utils.access_log import ClickhouseAccessLog
 from cli import CommandLineArgs
 from config import AppConfig
 from defender.context import AppContext
 from defender.executor import run_app
+from detectors.geoip import GeoIPDetector
+from detectors.ip import (IPAccumulativeTimeDetector, IPErrorRequestDetector,
+                          IPRPSDetector)
+from detectors.ja5t import (Ja5tAccumulativeTimeDetector,
+                            Ja5tErrorRequestDetector, Ja5tRPSDetector)
+from utils.access_log import ClickhouseAccessLog
 from utils.ja5_config import Ja5Config
 from utils.logger import logger
 from utils.user_agents import UserAgentsManager
@@ -67,39 +61,39 @@ if __name__ == "__main__":
                 access_log=clickhouse_client,
                 default_threshold=app_config.detector_ip_rps_default_threshold,
                 difference_multiplier=app_config.detector_ip_rps_difference_multiplier,
-                block_users_per_iteration=app_config.detector_ip_rps_block_users_per_iteration
+                block_users_per_iteration=app_config.detector_ip_rps_block_users_per_iteration,
             ),
             IPAccumulativeTimeDetector.name(): IPAccumulativeTimeDetector(
                 access_log=clickhouse_client,
                 default_threshold=app_config.detector_ip_time_default_threshold,
                 difference_multiplier=app_config.detector_ip_time_difference_multiplier,
-                block_users_per_iteration=app_config.detector_ip_time_block_users_per_iteration
+                block_users_per_iteration=app_config.detector_ip_time_block_users_per_iteration,
             ),
             IPErrorRequestDetector.name(): IPErrorRequestDetector(
                 access_log=clickhouse_client,
                 default_threshold=app_config.detector_ip_errors_default_threshold,
                 difference_multiplier=app_config.detector_ip_errors_difference_multiplier,
                 block_users_per_iteration=app_config.detector_ip_errors_block_users_per_iteration,
-                allowed_statues=app_config.detector_ip_errors_allowed_statuses
+                allowed_statues=app_config.detector_ip_errors_allowed_statuses,
             ),
             Ja5tRPSDetector.name(): Ja5tRPSDetector(
                 access_log=clickhouse_client,
                 default_threshold=app_config.detector_ja5_rps_default_threshold,
                 difference_multiplier=app_config.detector_ja5_rps_difference_multiplier,
-                block_users_per_iteration=app_config.detector_ja5_rps_block_users_per_iteration
+                block_users_per_iteration=app_config.detector_ja5_rps_block_users_per_iteration,
             ),
             Ja5tAccumulativeTimeDetector.name(): Ja5tAccumulativeTimeDetector(
                 access_log=clickhouse_client,
                 default_threshold=app_config.detector_ja5_time_default_threshold,
                 difference_multiplier=app_config.detector_ja5_time_difference_multiplier,
-                block_users_per_iteration=app_config.detector_ja5_time_block_users_per_iteration
+                block_users_per_iteration=app_config.detector_ja5_time_block_users_per_iteration,
             ),
             Ja5tErrorRequestDetector.name(): Ja5tErrorRequestDetector(
                 access_log=clickhouse_client,
                 default_threshold=app_config.detector_ja5_errors_default_threshold,
                 difference_multiplier=app_config.detector_ja5_errors_difference_multiplier,
                 block_users_per_iteration=app_config.detector_ja5_errors_block_users_per_iteration,
-                allowed_statues=app_config.detector_ja5_errors_allowed_statuses
+                allowed_statues=app_config.detector_ja5_errors_allowed_statuses,
             ),
             GeoIPDetector.name(): GeoIPDetector(
                 access_log=clickhouse_client,

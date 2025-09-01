@@ -1,6 +1,5 @@
 from detectors.ip import IPRPSDetector
 
-
 __author__ = "Tempesta Technologies, Inc."
 __copyright__ = "Copyright (C) 2023-2025 Tempesta Technologies, Inc."
 __license__ = "GPL2"
@@ -26,7 +25,7 @@ class Ja5tRPSDetector(IPRPSDetector):
             LIMIT {self.block_limit_per_check}
             """,
             start_at=start_at,
-            finish_at=finish_at
+            finish_at=finish_at,
         )
 
 
@@ -40,7 +39,7 @@ class Ja5tErrorRequestDetector(IPRPSDetector):
         return "ja5t_errors"
 
     def get_request(self, start_at, finish_at):
-        statuses = ', '.join(list(map(str, self.allowed_statues)))
+        statuses = ", ".join(list(map(str, self.allowed_statues)))
         return self.shared_filter(
             f"""
             SELECT 
@@ -55,7 +54,7 @@ class Ja5tErrorRequestDetector(IPRPSDetector):
             LIMIT {self.block_limit_per_check}
             """,
             start_at=start_at,
-            finish_at=finish_at
+            finish_at=finish_at,
         )
 
 
@@ -80,5 +79,5 @@ class Ja5tAccumulativeTimeDetector(IPRPSDetector):
             LIMIT {self.block_limit_per_check}
             """,
             start_at=start_at,
-            finish_at=finish_at
+            finish_at=finish_at,
         )

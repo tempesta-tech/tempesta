@@ -42,7 +42,7 @@ class IPRPSDetector(SQLBasedDetector):
             LIMIT {self.block_limit_per_check}
             """,
             start_at=start_at,
-            finish_at=finish_at
+            finish_at=finish_at,
         )
 
 
@@ -57,7 +57,7 @@ class IPErrorRequestDetector(IPRPSDetector):
         return "ip_errors"
 
     def get_request(self, start_at, finish_at):
-        statuses = ', '.join(list(map(str, self.allowed_statues)))
+        statuses = ", ".join(list(map(str, self.allowed_statues)))
         return self.shared_filter(
             f"""
             SELECT 
@@ -72,7 +72,7 @@ class IPErrorRequestDetector(IPRPSDetector):
             LIMIT {self.block_limit_per_check}
             """,
             start_at=start_at,
-            finish_at=finish_at
+            finish_at=finish_at,
         )
 
 
@@ -97,5 +97,5 @@ class IPAccumulativeTimeDetector(IPRPSDetector):
             LIMIT {self.block_limit_per_check}
             """,
             start_at=start_at,
-            finish_at=finish_at
+            finish_at=finish_at,
         )

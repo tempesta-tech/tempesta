@@ -1,7 +1,7 @@
 import os
+from decimal import Decimal
 from ipaddress import IPv4Address
 
-from decimal import Decimal
 from detectors.geoip import GeoIPDetector
 from tests.base import BaseTestCaseWithFilledDB
 
@@ -92,7 +92,9 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
 
     async def test_find_low_rps(self):
         await self.detector.prepare()
-        before, after = await self.detector.find_users(current_time=1751535003, interval=5)
+        before, after = await self.detector.find_users(
+            current_time=1751535003, interval=5
+        )
         assert len(before) == 0
         assert len(after) == 1
 
@@ -103,7 +105,9 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
         await self.create_additional_logs()
         await self.detector.prepare()
 
-        before, after = await self.detector.find_users(current_time=1751535003, interval=5)
+        before, after = await self.detector.find_users(
+            current_time=1751535003, interval=5
+        )
 
         assert len(before) == 0
         assert len(after) == 2
@@ -111,7 +115,7 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
         blocked = self.detector.validate_model(users_before=before, users_after=after)
 
         assert len(blocked) == 1
-        assert blocked[0].ipv4[0] == IPv4Address('79.143.107.10')
+        assert blocked[0].ipv4[0] == IPv4Address("79.143.107.10")
 
     async def test_find_allowed_city(self):
         await self.create_additional_logs()
@@ -120,7 +124,9 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
             f.write("Podgorica")
 
         await self.detector.prepare()
-        before, after = await self.detector.find_users(current_time=1751535003, interval=5)
+        before, after = await self.detector.find_users(
+            current_time=1751535003, interval=5
+        )
 
         assert len(before) == 0
         assert len(after) == 2

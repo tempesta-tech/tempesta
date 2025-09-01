@@ -5,10 +5,10 @@ from decimal import Decimal
 
 from geoip2.database import City, Reader
 
-from utils.access_log import ClickhouseAccessLog
 from config import AppConfig
-from utils.datatypes import User
 from detectors.base import BaseDetector
+from utils.access_log import ClickhouseAccessLog
+from utils.datatypes import User
 from utils.logger import logger
 
 __author__ = "Tempesta Technologies, Inc."
@@ -24,12 +24,12 @@ class CityStats:
 
 class GeoIPDetector(BaseDetector):
     def __init__(
-            self,
-            *args,
-            path_to_db: str = None,
-            path_to_allowed_cities_list: str = None,
-            client: Reader = None,
-            **kwargs
+        self,
+        *args,
+        path_to_db: str = None,
+        path_to_allowed_cities_list: str = None,
+        client: Reader = None,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.path_to_db = path_to_db
@@ -90,12 +90,15 @@ class GeoIPDetector(BaseDetector):
             """
         )
 
-        return [User(
-            ja5t=user[0],
-            ja5h=user[1],
-            ipv4=[user[2]],
-            value=user[3],
-        ) for user in response.result_rows]
+        return [
+            User(
+                ja5t=user[0],
+                ja5h=user[1],
+                ipv4=[user[2]],
+                value=user[3],
+            )
+            for user in response.result_rows
+        ]
 
     def cities_stats(self, users: list[User]) -> dict[str, CityStats]:
         cities = dict()
@@ -111,7 +114,9 @@ class GeoIPDetector(BaseDetector):
 
         return cities
 
-    def validate_model(self, users_before: list[User], users_after: list[User]) -> list[User]:
+    def validate_model(
+        self, users_before: list[User], users_after: list[User]
+    ) -> list[User]:
 
         cities_before = self.cities_stats(users_before)
         cities_after = self.cities_stats(users_after)
@@ -142,7 +147,9 @@ class GeoIPDetector(BaseDetector):
             city_to_block = cities_after.get(city)
             result_users.extend(city_to_block.users)
 
-        logger.debug(f"GeoIP found {len(result_users)} risky users in cities {blocking_cities}")
+        logger.debug(
+            f"GeoIP found {len(result_users)} risky users in cities {blocking_cities}"
+        )
         return result_users
 
     def get_values_for_threshold(self, users: list[User]) -> list[Decimal]:
