@@ -22,25 +22,20 @@ class CityStats:
     total_requests: Decimal = Decimal(0)
 
 
-@dataclass
 class GeoIPDetector(BaseDetector):
-    # clickhouse access log client
-    clickhouse_client: ClickhouseAccessLog
-
-    # loaded application config
-    app_config: AppConfig
-
-    # path to geoip database (maxmind)
-    path_to_db: str
-
-    # path to file with allowed cities list
-    path_to_allowed_cities_list: str
-
-    # maxmind geoip database reader
-    client: Reader = None
-
-    # loaded list of cities
-    loaded_cities: set[str] = field(default_factory=set)
+    def __init__(
+            self,
+            *args,
+            path_to_db: str = None,
+            path_to_allowed_cities_list: str = None,
+            client: Reader = None,
+            **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.path_to_db = path_to_db
+        self.path_to_allowed_cities_list = path_to_allowed_cities_list
+        self.client = client
+        self.loaded_cities = set()
 
     @staticmethod
     def name() -> str:
@@ -89,7 +84,7 @@ class GeoIPDetector(BaseDetector):
                 groupUniqArray(ja5t) ja5t, 
                 groupUniqArray(ja5h) ja5h,
                 address address,
-                count(1), values
+                count(1) value
             FROM prepared_users
             GROUP by address
             """
@@ -98,7 +93,7 @@ class GeoIPDetector(BaseDetector):
         return [User(
             ja5t=user[0],
             ja5h=user[1],
-            ipv4=user[2],
+            ipv4=[user[2]],
             value=user[3],
         ) for user in response.result_rows]
 
@@ -131,9 +126,9 @@ class GeoIPDetector(BaseDetector):
             city_before = cities_before.get(name)
 
             if not city_before:
-                continue
+                city_before = CityStats(total_requests=Decimal(1))
 
-            if city_after['total_requests'] < self.threshold:
+            if city_after.total_requests < self.threshold:
                 continue
 
             multiplier = city_after.total_requests / city_before.total_requests
@@ -145,7 +140,7 @@ class GeoIPDetector(BaseDetector):
 
         for city in blocking_cities:
             city_to_block = cities_after.get(city)
-            result_users.extend(city_to_block['users'])
+            result_users.extend(city_to_block.users)
 
         logger.debug(f"GeoIP found {len(result_users)} risky users in cities {blocking_cities}")
         return result_users

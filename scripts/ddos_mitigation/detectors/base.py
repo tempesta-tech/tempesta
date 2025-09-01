@@ -16,8 +16,8 @@ class BaseDetector(metaclass=abc.ABCMeta):
     def __init__(
             self,
             access_log: ClickhouseAccessLog,
-            default_threshold: Decimal,
-            difference_multiplier: Decimal,
+            default_threshold: Decimal = Decimal(10),
+            difference_multiplier: Decimal = Decimal(10),
             block_limit_per_check: int = 10
     ):
         self._access_log = access_log

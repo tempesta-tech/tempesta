@@ -24,7 +24,7 @@ class BaseTestCaseWithFilledDB(unittest.IsolatedAsyncioTestCase):
         self.access_log = ClickhouseAccessLog()
 
         await self.access_log.connect()
-        await self.access_log.conn.query("create database test_db")
+        await self.access_log.conn.query("create database  if not exists  test_db ")
         await self.access_log.conn.close()
 
         self.access_log = ClickhouseAccessLog(database="test_db")
@@ -52,6 +52,9 @@ class BaseTestCaseWithFilledDB(unittest.IsolatedAsyncioTestCase):
         )
         await self.access_log.user_agents_table_create()
         await self.access_log.persistent_users_table_create()
+        await self.access_log.user_agents_table_truncate()
+        await self.access_log.persistent_users_table_truncate()
+
         await self.create_records()
 
     async def asyncTearDown(self):

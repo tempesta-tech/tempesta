@@ -1,4 +1,5 @@
 import os
+from ipaddress import IPv4Address
 
 from detectors.geoip import GeoIPDetector
 from tests.base import BaseTestCaseWithFilledDB
@@ -34,8 +35,7 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
         open(self.allowed_cities, "w").close()
 
         self.detector = GeoIPDetector(
-            app_config=self.app_config,
-            clickhouse_client=self.access_log,
+            access_log=self.access_log,
             path_to_db=self.geoip_db_path,
             path_to_allowed_cities_list=self.allowed_cities,
         )
@@ -53,42 +53,76 @@ class TestGeoIpDetector(BaseTestCaseWithFilledDB):
         except:
             pass
 
+    async def create_additional_logs(self):
+        await self.access_log.conn.query(
+            """
+            insert into access_log values 
+            (cast('1751535000' as DateTime64(3, 'UTC')), '179.143.107.11', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '179.143.107.11', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '179.143.107.11', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '179.143.107.11', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '179.143.107.11', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 11, 21, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 200, 0, 10, 'default', '/', '/', 'UserAgent', 12, 22, 0),
+            (cast('1751535000' as DateTime64(3, 'UTC')), '79.143.107.10', 0, 1, 400, 0, 10, 'default', '/', '/', 'UserAgent', 13, 23, 0)
+            """
+        )
+
     async def test_prepare_no_city_list(self):
         os.remove(self.allowed_cities)
 
         with self.assertRaises(FileNotFoundError) as error:
             await self.detector.prepare()
-            self.assertIn("List of allowed cities does not exist", str(error))
+            assert "List of allowed cities does not exist" in str(error)
 
     async def test_prepare_no_geodb(self):
         os.remove(self.allowed_cities)
 
         with self.assertRaises(FileNotFoundError) as error:
             await self.detector.prepare()
-            self.assertIn("GeoIP database was not found", str(error))
+            assert "GeoIP database was not found" in str(error)
 
     async def test_find_low_rps(self):
         await self.detector.prepare()
-        self.detector.app_config.detector_geoip_period_seconds = 3
+        before, after = await self.detector.find_users(current_time=1751535003, interval=5)
+        assert len(before) == 0
+        assert len(after) == 1
 
-        result = await self.detector.find_users(1751535000)
-        self.assertEqual(len(result), 0)
+        blocked = self.detector.validate_model(users_before=before, users_after=after)
+        assert blocked == []
 
     async def test_find(self):
+        await self.create_additional_logs()
         await self.detector.prepare()
-        self.detector.app_config.detector_geoip_period_seconds = 1
-        self.detector.app_config.detector_geoip_min_rps = 1
 
-        result = await self.detector.find_users(1751535000)
-        self.assertEqual(len(result), 1)
+        before, after = await self.detector.find_users(current_time=1751535003, interval=5)
+
+        assert len(before) == 0
+        assert len(after) == 2
+
+        blocked = self.detector.validate_model(users_before=before, users_after=after)
+
+        assert len(blocked) == 1
+        assert blocked[0].ipv4[0] == IPv4Address('79.143.107.10')
 
     async def test_find_allowed_city(self):
+        await self.create_additional_logs()
+
         with open(self.allowed_cities, "w") as f:
             f.write("Podgorica")
 
         await self.detector.prepare()
-        self.detector.app_config.detector_geoip_period_seconds = 1
-        self.detector.app_config.detector_geoip_min_rps = 1
+        before, after = await self.detector.find_users(current_time=1751535003, interval=5)
 
-        result = await self.detector.find_users(1751535000)
-        self.assertEqual(len(result), 0)
+        assert len(before) == 0
+        assert len(after) == 2
+
+        blocked = self.detector.validate_model(users_before=before, users_after=after)
+        assert blocked == []
