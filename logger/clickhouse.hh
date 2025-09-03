@@ -66,7 +66,7 @@ public:
 	~TfwClickhouse();
 
 	ch::Block &get_block() noexcept;
-	[[nodiscard]] Error<bool> commit(bool force = false) noexcept;
+	[[nodiscard]] bool commit(bool force = false) noexcept;
 	bool handle_block_error() noexcept;
 
 private:

@@ -142,21 +142,27 @@ TfwClickhouse::get_block() noexcept
 	return block_;
 }
 
-[[nodiscard]] Error<bool>
+[[nodiscard]] bool
 TfwClickhouse::commit(bool force) noexcept
 {
 	try {
 		block_.RefreshRowCount();
 
-		if (block_.GetRowCount() < max_events_ && !force)
-			return false;
+
+		if (force) {
+			if (block_.GetRowCount() == 0)
+				return true;
+		} else {
+			if (block_.GetRowCount() < max_events_)
+				return true;
+		}
 
 		client_->Insert(table_name_, block_);
 		block_.Clear();
 	}
 	catch (const std::exception &e) {
 		spdlog::error("Clickhouse insert error: {}", e.what());
-		return error(Err::DB_SRV_FATAL);
+		return false;
 	}
 
 	return true;
