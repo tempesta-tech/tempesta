@@ -19,7 +19,6 @@
  */
 #pragma once
 
-#include <chrono>
 #include <memory>
 #include <string>
 
@@ -29,6 +28,7 @@
 #include <clickhouse/types/types.h>
 
 #include "clickhouse_config.hh"
+#include "error.hh"
 
 namespace ch = clickhouse;
 
@@ -36,42 +36,46 @@ namespace ch = clickhouse;
  * Class for sending records to a Clickhouse database.
  *
  * Constructor:
- *    @TfwClickhouse - Initializes the Clickhouse connection, and create a data
- *        block, with a provided callback.
+ *    @TfwClickhouse - Initializes the Clickhouse connection and create a data
+ *        block.
  *
  * Other public methods:
  *    @get_block - Returns a pointer to the data block for the specified CPU core.
  *    @commit - Commits the data in the block to the Clickhouse database if the
- *        elapsed time since the last insertion exceeds a predefined threshold
- *        or the block’s row count exceeds a maximum event threshold. After
+ *        block’s row count exceeds a maximum event threshold. After
  *        committing, the block is deleted, a new block is created via
  *        block_callback and last_time is updated. If a block was committed
  *        return true, otherwise return false.
+ *    @handle_block_error() - try to recover from a Clickhouse API error or an
+ *        access event parsing.
  *
  * Private Members:
  *    @client_ - Clickhouse Client instance for sending data to the database.
  *    @block_ - Block instance holding data records to be inserted.
- *    @last_time_ - The last timestamp when data was sent.
  *    @table_name_ - Name of the Clickhouse table where data is inserted.
  *    @max_events_ - Maximum number of events to insert before committing.
- *    @max_wait_ - Maximum time to wait before committing.
  */
 class TfwClickhouse {
 public:
-	TfwClickhouse(const ClickHouseConfig &config, ch::Block block);
+	static const bool FORCE = true;
+
+	TfwClickhouse(const ClickHouseConfig &config);
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
+	~TfwClickhouse();
+
 	ch::Block &get_block() noexcept;
-	bool commit(bool force = false);
+	[[nodiscard]] Error<bool> commit(bool force = false) noexcept;
+	bool handle_block_error() noexcept;
 
 private:
-	std::unique_ptr<clickhouse::Client>	client_;
-	ch::Block				block_;
-	std::chrono::milliseconds		last_time_;
-	const std::string			table_name_;
-	const size_t				max_events_;
-	const std::chrono::milliseconds		max_wait_;
+	std::unique_ptr<ch::Client>	client_;
+	ch::Block			block_;
+	const std::string		table_name_;
+	const size_t			max_events_;
+
+	void make_block();
 };
 
 std::shared_ptr<clickhouse::Column>

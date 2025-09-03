@@ -26,6 +26,9 @@
 
 #include "../fw/mmap_buffer.h"
 
+#include "clickhouse.hh"
+#include "error.hh"
+
 /**
  * Tempesta user space ring buffer reader
  * TfwMmapBufferReader is a reader from a ring buffer mapped into user space.
@@ -53,22 +56,23 @@
  */
 class TfwMmapBufferReader {
 public:
-	using Callback = std::function<void(std::span<const char> data)>;
+	using ProcessEvents = std::function<Error<size_t> (std::span<const char>)>;
 
-	TfwMmapBufferReader(const unsigned int ncpu, const int fd, Callback cb);
+	TfwMmapBufferReader(const unsigned int ncpu, const int fd,
+			    TfwClickhouse &db, ProcessEvents proc_ev);
 	TfwMmapBufferReader(const TfwMmapBufferReader &) = delete;
 	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;
 	~TfwMmapBufferReader();
 
-	void run(std::atomic<bool> *stop_flag);
+	[[nodiscard]] bool run(std::atomic<bool> &stop_flag) noexcept;
 	unsigned int get_cpu_id() const noexcept;
 
 private:
 	TfwMmapBuffer	*buf_;
 	size_t		size_;
-	bool		is_running_;
-	Callback	callback_;
+	ProcessEvents	proc_ev_;
+	TfwClickhouse	&db_;
 
 	void init_buffer_size(const int fd);
-	int read();
+	Error<bool> read() noexcept;
 };
