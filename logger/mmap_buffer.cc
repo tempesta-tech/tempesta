@@ -101,12 +101,22 @@ TfwMmapBufferReader::read() noexcept
 bool
 TfwMmapBufferReader::run(std::atomic<bool> &stop_flag) noexcept
 {
-	// Read from the ring buffer in polling mode and sleep only if 10 tries
+	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
 	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
-	// get up to 1000 records during the delya in the buffer, which is fine
+	// get up to 1000 records during the delay in the buffer, which is fine
 	// with our defaults.
+	//
 	// TODO #2442: this can be improved with true kernel sleep like perf does
 	// on it's events ring buffer.
+	//
+	// It is hard to balance all the factors. For small events, e.g. produced
+	// with basic load generator, Clickhouse behave the best with batches of
+	// size 100k (about several megabytes of raw data). However, these large
+	// batches introduce higher delays on commit(), so we starting to get
+	// dropped events. We need to increase mmap_log_buffer_size. Next, we
+	// can have quite a different number of worker threads, so Clickhouse
+	// may knee under such a load. I made a basic performance test and with
+	// the current POLL_N I saw relatively low number of force commits.
 	constexpr size_t POLL_N = 10;
 	constexpr std::chrono::milliseconds delay(1);
 
@@ -139,13 +149,14 @@ TfwMmapBufferReader::run(std::atomic<bool> &stop_flag) noexcept
 		}
 
 		if (++tries < POLL_N) {
-			// Several tries with no waiting and yielding the CPU
-			// to not get penalty from the scheduler.
-			std::this_thread::yield();
+			// Several tries with small sleeping to let the kernel
+			// fill the buffer and not to consume CPU in vain.
+			std::this_thread::sleep_for(delay);
 		}
-		else if (tries == POLL_N) {
-			// Flush the collected buffer to the database before
-			// going to sleep:
+		else {
+			// There were nothing to do for POLL_Nms and probably
+			// the system is just idle - good time to flush all
+			// clollected data:
 			// 1. we have no work now, so it's a good time to do
 			//    some housekeeping;
 			// 2. free resources for possible spike - we likely miss
@@ -156,9 +167,7 @@ TfwMmapBufferReader::run(std::atomic<bool> &stop_flag) noexcept
 			//    the database.
 			if (!db_.commit(TfwClickhouse::FORCE))
 				return false;
-		}
-		else if (tries > POLL_N) {
-			std::this_thread::sleep_for(delay);
+			tries = 0;
 		}
 	}
 
