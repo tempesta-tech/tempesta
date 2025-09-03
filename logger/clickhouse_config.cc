@@ -65,9 +65,6 @@ ClickHouseConfig::validate() const
 	if (max_events == 0)
 		throw std::runtime_error("max_events must be greater than 0");
 
-	if (max_wait < std::chrono::milliseconds::zero())
-		throw std::runtime_error("max_wait must be non-negative");
-
 	validate_table_name(table_name);
 }
 
@@ -79,10 +76,6 @@ ClickHouseConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 	db_name = tree.get<std::string>("db_name", db_name);
 	table_name = tree.get<std::string>("table_name", table_name);
 	max_events = tree.get<size_t>("max_events", max_events);
-
-	const auto max_wait_ms =
-		tree.get<int64_t>("max_wait_ms", max_wait.count());
-	max_wait = std::chrono::milliseconds(max_wait_ms);
 
 	if (const auto val = tree.get_optional<std::string>("user"))
 		user = *val;
