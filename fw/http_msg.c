@@ -1335,7 +1335,7 @@ tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req)
 	req->resp = resp;
 }
 
-static void
+void
 tfw_http_msg_unpair(TfwHttpMsg *msg)
 {
 	if (!msg->pair)
