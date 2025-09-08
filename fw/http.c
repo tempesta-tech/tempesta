@@ -1559,7 +1559,7 @@ __tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
 	TfwHttpReq *req = hmresp->req;
 	TfwHttpResp *stale_resp;
 
-	req->resp = NULL;
+	tfw_http_msg_unpair(hmresp);
 
 	stale_resp = tfw_cache_build_resp_stale(req);
 	/* For HTTP2 response will not be built if stream already closed. */
@@ -1570,7 +1570,6 @@ __tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
 	/* Unlink response. */
 	tfw_stream_unlink_msg(hmresp->stream);
 
-	hmresp->pair = NULL;
 	req->resp->conn = hmresp->conn;
 	hmresp->conn->stream.msg = (TfwMsg *)stale_resp;
 
