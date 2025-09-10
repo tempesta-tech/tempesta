@@ -56,10 +56,10 @@
  */
 class TfwMmapBufferReader {
 public:
-	using ProcessEvents = std::function<Error<size_t> (std::span<const char>)>;
+	using ProcessEventsFn = std::function<Error<size_t> (std::span<const char>)>;
 
 	TfwMmapBufferReader(const unsigned int ncpu, const int fd,
-			    TfwClickhouse &db, ProcessEvents proc_ev);
+			    TfwClickhouse &db, ProcessEventsFn proc_ev);
 	TfwMmapBufferReader(const TfwMmapBufferReader &) = delete;
 	TfwMmapBufferReader &operator=(const TfwMmapBufferReader &) = delete;
 	~TfwMmapBufferReader();
@@ -70,7 +70,7 @@ public:
 private:
 	TfwMmapBuffer	*buf_;
 	size_t		size_;
-	ProcessEvents	proc_ev_;
+	ProcessEventsFn	proc_ev_;
 	TfwClickhouse	&db_;
 
 	void init_buffer_size(const int fd);

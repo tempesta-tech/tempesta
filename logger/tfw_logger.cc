@@ -114,6 +114,24 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
 }
 #endif /* DEBUG */
 
+/**
+ * TODO #2399, #182 (escudo xFW).
+ *
+ * The 4 functions below must be moved to a Tempesta FW
+ * specific plugin, most likely to a new class(es)
+ * There will be similar functions (class API) for the security events logging.
+ *
+ * The classes should inherit the same interface, e.g.
+ *
+ *	class IEventProcessor {
+ *	public:
+ *		Error<bool> consume_event();
+ *		void make_background_work();
+ *		[[nodiscard]] bool flush(bool force = false) noexcept;
+ *	};
+ *
+ * Also replace const char *&p with std::string_view
+ */
 template <typename ColType, typename ValType>
 void
 read_int(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&p,
@@ -163,6 +181,26 @@ read_str(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&
 	}
 }
 
+/**
+ * TODO #2399, #182 (escudo xFW):
+ *
+ * ch::Block &block = db.get_block() is an ugly access to TfwClickhouse
+ * internals and basically all event processors will operate wiht the same
+ * types of columns, so move the block writting logic to TfwClickhouse:
+ *
+ *	template <typename ColType, typename ValType>
+ *	void write_int(size_t index, ValType val) {
+ *		block_[index]->As<ColType>()->Append(val);
+ *	}
+ *
+ * 	void write_string(size_t index, std::string_view sv) {
+ * 		block_[index]->As<ch::ColumnString>()->Append(std::string(sv));
+ * 	}
+ *
+ * 	void write_empty_string(size_t index) {
+ * 		block_[index]->As<ch::ColumnString>()->Append(std::string(""));
+ * 	}
+ */
 size_t
 read_access_log_event(TfwClickhouse &db, std::span<const char> data)
 {
@@ -513,7 +551,9 @@ setup_daemon_mode(const ParsedOptions &opts)
 
 	// Daemonize if not in foreground mode
 	if (!opts.foreground) {
-		spdlog::debug("Daemonizing...");
+#ifdef DEBUG
+		std::cout << "Daemonizing..." << std::endl;
+#endif
 
 		if (daemon(0, 0) < 0)
 			throw Except("Daemonization failed");

@@ -78,5 +78,5 @@ private:
 	void make_block();
 };
 
-std::shared_ptr<clickhouse::Column>
-tfw_column_factory(clickhouse::Type::Code code);
+std::shared_ptr<ch::Column>
+tfw_column_factory(ch::Type::Code code);
