@@ -410,14 +410,16 @@ tfw_server_destroy(TfwServer *srv)
 {
 }
 
-void
+int
 do_access_log(TfwHttpResp *resp)
 {
+	return 0;
 }
 
-void
+int
 do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
 {
+	return 0;
 }
 
 bool

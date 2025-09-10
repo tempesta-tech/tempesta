@@ -46,6 +46,7 @@ typedef struct {
 	struct sk_buff		*skb_head;
 	int			ss_flags;
 	size_t			len;
+	int                     msg_sent_from;
 } TfwMsg;
 
 /**

@@ -309,7 +309,8 @@ typedef struct {
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;
+	TfwStr		body;						\
+	int             boom;
 
 
 static inline void
@@ -431,6 +432,8 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
+	int                     from;
+	int                     what;
 };
 
 #define TFW_IDX_BITS		24
@@ -753,7 +756,7 @@ int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 				 struct sk_buff *skb, struct sk_buff **next);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
-void tfw_http_resp_fwd(TfwHttpResp *resp);
+int tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
@@ -782,7 +785,7 @@ int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
 		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
-void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
+int tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);

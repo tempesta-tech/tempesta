@@ -575,7 +575,10 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
 		T_DBG2("Attempt to send on inactive socket %p\n", sk);
-		ss_skb_queue_purge(skb_head);
+		if (!(flags & SS_F_KEEP_SKB))
+			ss_skb_queue_purge(skb_head);
+		else
+			printk(KERN_ALERT "HOHOHO!!!!");
 		return -EBADF;
 	}
 

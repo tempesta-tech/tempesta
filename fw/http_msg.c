@@ -935,6 +935,8 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	if (!m)
 		return;
 
+	m->boom = 1000 + smp_processor_id();
+
 	tfw_http_msg_unpair(m);
 	ss_skb_queue_purge(&m->msg.skb_head);
 

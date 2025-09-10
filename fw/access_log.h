@@ -103,8 +103,8 @@ static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 
 int tfw_access_log_init(void);
 void tfw_access_log_exit(void);
-void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
-void do_access_log(TfwHttpResp *resp);
+int do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
+int do_access_log(TfwHttpResp *resp);
 
 #endif
 

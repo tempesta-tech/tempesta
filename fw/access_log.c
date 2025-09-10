@@ -62,6 +62,8 @@
 	UNTRUNCATABLE(ja5_tls)					\
 	FIXED("\" \"")						\
 	UNTRUNCATABLE(ja5_http)					\
+	FIXED("\" \"")						\
+	UNTRUNCATABLE(result)					\
 	FIXED("\"")
 
 
@@ -372,7 +374,7 @@ drop:
 #undef WRITE_TO_BUF
 }
 
-static void
+static int
 do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
 {
 	char *buf = this_cpu_ptr(access_log_buf);
@@ -380,12 +382,13 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 	BasicStr client_ip, vhost, version;
 	/* These fields are only here to hold estimation of appropriate fields
 	 * length in characters */
-	BasicStr status, content_length, ja5_tls, ja5_http;
+	BasicStr status, content_length, ja5_tls, ja5_http, result;
 	BasicStr missing = { "-", 1 };
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
 	BasicStr truncated_out[TRUNCATABLE_FIELDS_COUNT];
 	TlsJa5t *tls_ja5t = TFW_CONN_TLS(req->conn) ?
 		&tfw_tls_context(req->conn)->sess.ja5t : NULL;
+	bool read_failed = false, write_failed = false;
 
 	/* client_ip
 	 *
@@ -436,9 +439,22 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 
 	/* Process truncated fields */
 	truncated_in[idx_uri] = req->uri_path;
-#define ADD_HDR(id, tfw_hdr_id)                                        \
-		truncated_in[id] = get_http_header_value(req->version, \
-				req->h_tbl->tbl + tfw_hdr_id);
+#define ADD_HDR(id, tfw_hdr_id)                                     \
+do {								\
+	truncated_in[id] = get_http_header_value(req->version, \
+		req->h_tbl->tbl + tfw_hdr_id);			\
+	if (kasan_get_faild(smp_processor_id(), true)) {	\
+		printk(KERN_ALERT "WRITE FAILED %d %u", smp_processor_id(), tfw_hdr_id); \
+		tfw_str_dprint((req->h_tbl->tbl + tfw_hdr_id), "WRITE");	\
+		read_failed = true;						\
+	}									\
+	if (kasan_get_faild(smp_processor_id(), false)) {				\
+		printk(KERN_ALERT "READ FAILED %d %u size %u",				\
+			smp_processor_id(), tfw_hdr_id, req->h_tbl->size); 				\
+		tfw_str_dprint((req->h_tbl->tbl + tfw_hdr_id), "READ");			\
+		write_failed = true;							\
+	}										\
+} while (0)
 
 	if (!TFW_MSG_H2(req))
 		truncated_in[idx_method] = req->h_tbl->tbl[TFW_HTTP_METHOD];
@@ -456,6 +472,11 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 #define ARG_ja5_http , (*(u64 *)&req->ja5h)
 	ja5_http.data = "";
 	ja5_http.len = 16;
+
+#define FMT_result   "cpu %d write_failed %d read_failed %d from %d what %d boom %d size %u req %px fff %d"
+#define ARG_result   , smp_processor_id(), read_failed, write_failed, req->from, req->what, req->boom, req->h_tbl->size, req, req->msg.msg_sent_from
+	result.data = "";
+	result.len = 60;
 
 	/* Now we calculate first estimation of
 	 * "maximum allowed truncated string length" */
@@ -512,22 +533,27 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 #undef ARG_ja5_tls
 #undef FMT_ja5_http
 #undef ARG_ja5_http
+
+
+	return ((read_failed || write_failed) ? -1 : 0); 
 }
 
-void
+int
 do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
 {
 	if (access_log_type & ACCESS_LOG_MMAP)
 		do_access_log_req_mmap(req, (u16)resp_status, (u32)resp_content_length);
 
 	if (access_log_type & ACCESS_LOG_DMESG)
-		do_access_log_req_dmesg(req, resp_status, resp_content_length);
+		return do_access_log_req_dmesg(req, resp_status, resp_content_length);
+
+	return 0;
 }
 
-void
+int
 do_access_log(TfwHttpResp *resp)
 {
-	do_access_log_req(resp->req, resp->status,
+	return do_access_log_req(resp->req, resp->status,
 			  resp->content_length ? :
 			  TFW_HTTP_RESP_CUT_BODY_SZ(resp));
 }

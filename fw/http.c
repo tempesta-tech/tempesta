@@ -198,6 +198,79 @@ unsigned int wnd_update_frame_rate_mul = 0;
 #define S_V_MULTIPART		"multipart/form-data; boundary="
 #define S_V_WARN		"110 - Response is stale"
 
+static bool
+ss_sock_active(struct sock *sk)
+{
+	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
+}
+
+
+static TfwStr
+get_http_header_value(char http_version, TfwStr *line)
+{
+	TfwStr result;
+	size_t len = line->len;
+	TfwStr *chunk = line->chunks, *end = chunk + line->nchunks;
+	static TfwStr empty_hdr = TFW_STR_STRING("-");
+
+	switch (http_version) {
+	case TFW_HTTP_VER_09:
+	case TFW_HTTP_VER_10:
+	case TFW_HTTP_VER_11:
+		/* Should never get plain string from parser */
+		if (TFW_STR_PLAIN(line))
+			return TFW_STR_EMPTY(line) ? empty_hdr : *line;
+		/* Skip over until ':' marker */
+		for (; chunk < end; chunk++) {
+			len -= chunk->len;
+			if (chunk->len == 1 && *chunk->data == ':')
+				break;
+		}
+		if (chunk == end)
+			return empty_hdr;
+		chunk++;
+		/* Skip possible whitespace blocks */
+		while (chunk < end && (chunk->flags & TFW_STR_OWS) != 0) {
+			len -= chunk->len;
+			chunk++;
+		}
+		break;
+	case TFW_HTTP_VER_20:
+		/* skip over chunks until HDR_VALUE one */
+		while (chunk < end && (chunk->flags & TFW_STR_HDR_VALUE) == 0) {
+			len -= chunk->len;
+			chunk++;
+		}
+		break;
+	default:
+		return empty_hdr;
+	}
+
+	if (chunk == end)
+		return empty_hdr;
+
+	TFW_STR_INIT(&result);
+	result.len = len;
+	result.chunks = chunk;
+	result.nchunks = end - chunk;
+	return result;
+}
+
+static bool
+__check(TfwHttpReq *req, char *string)
+{
+	get_http_header_value(req->version,
+				req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
+	if (kasan_get_faild(smp_processor_id(), false)) {
+		printk(KERN_ALERT "__check FAILED %s %px %d from %d what %d boom %d size %u fff %d",
+			string, req, smp_processor_id(), req->from, req->what, req->boom,
+			req->h_tbl->size, req->msg.msg_sent_from);
+		return false;
+	}
+
+	return true;
+}
+
 /*
  * A string with enough chunks to hold any element of `http_predef_resps`
  */
@@ -1219,7 +1292,7 @@ err:
  * field name starting with CRLF and ending with ': ', and every even chunk is
  * a value.
  */
-static void
+static int
 tfw_h1_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
 {
 	TfwHttpResp *resp;
@@ -1230,15 +1303,16 @@ tfw_h1_send_resp(TfwHttpReq *req, TfwStr *msg, int status)
 	if (tfw_h1_prep_resp(resp, status, msg))
 		goto err_setup;
 
-	tfw_http_resp_fwd(resp);
+	return tfw_http_resp_fwd(resp);
 
-	return;
 err_setup:
 	T_DBG2("%s: Response message allocation error: conn=[%p]\n",
 	       __func__, req->conn);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 err:
 	tfw_http_resp_build_error(req);
+
+	return 0;
 }
 
 /*
@@ -1288,13 +1362,13 @@ tfw_h2_send_err_resp(TfwHttpReq *req, int status, bool close_after_send)
  * client connection should be closed, because response-request
  * pairing for pipelined requests is violated.
  */
-static void
+static int
 tfw_h1_send_err_resp(TfwHttpReq *req, int status)
 {
 	TfwStr msg = MAX_PREDEF_RESP;
 
 	tfw_http_prep_err_resp(req, status, &msg);
-	tfw_h1_send_resp(req, &msg, status);
+	return tfw_h1_send_resp(req, &msg, status);
 }
 
 /*
@@ -1653,7 +1727,7 @@ tfw_http_resp_should_fwd_stale(TfwHttpReq *req, unsigned short status)
 		tfw_http_use_stale_if_error(status);
 }
 
-static inline void
+static inline int
 tfw_http_send_err_resp_nolog(TfwHttpReq *req, int status)
 {
 	const bool fwd_stale = tfw_http_resp_should_fwd_stale(req, status);
@@ -1663,19 +1737,21 @@ tfw_http_send_err_resp_nolog(TfwHttpReq *req, int status)
 		if (TFW_MSG_H2(req))
 			tfw_h2_send_err_resp(req, status, false);
 		else
-			tfw_h1_send_err_resp(req, status);
+			return tfw_h1_send_err_resp(req, status);
 	}
+
+	return 0;
 }
 
 /* Common interface for sending error responses. */
-void
+int
 tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG) && reason)
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_NO_PORT, status);
 
-	tfw_http_send_err_resp_nolog(req, status);
+	return tfw_http_send_err_resp_nolog(req, status);
 }
 
 static void
@@ -1914,24 +1990,35 @@ tfw_http_mark_is_in_whitlist(unsigned int mark)
  * an error response to a client. The response will be attached to
  * the request and then sent to the client in proper seq order.
  */
-static void
-tfw_http_req_zap_error(struct list_head *eq)
+static TfwHttpReq *
+tfw_http_req_zap_error(struct list_head *eq, int from)
 {
 	TfwHttpReq *req, *tmp;
+	bool alfa = false;
+	TfwHttpReq *ret = NULL;
 
 	T_DBG2("%s: queue is %sempty\n",
 	       __func__, list_empty(eq) ? "" : "NOT ");
 	if (list_empty(eq))
-		return;
+		return NULL;
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
+		if (alfa)
+			printk(KERN_ALERT "NEW ALFA %px", req);
+
+
 		list_del_init(&req->fwd_list);
 		if ((TFW_MSG_H2(req) && req->stream)
 		    || (!TFW_MSG_H2(req)
 			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 		{
-			tfw_http_send_err_resp(req, req->httperr.status,
-					       req->httperr.reason);
+			req->from = from;
+			if (tfw_http_send_err_resp(req, req->httperr.status,
+					       req->httperr.reason)) {
+				printk(KERN_ALERT "FFFFFFFFFFFFFFFFFFFFFFFF %px", req);
+				alfa = true;
+				ret = req;
+			}
 		}
 		else {
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -1939,6 +2026,8 @@ tfw_http_req_zap_error(struct list_head *eq)
 
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
+
+	return ret;
 }
 
 /*
@@ -1988,11 +2077,16 @@ tfw_http_req_evict_timeout(TfwSrvConn *srv_conn, TfwServer *srv,
 	unsigned long jqage = jiffies - req->jrxtstamp;
 
 	if (unlikely(time_after(jqage, srv->sg->max_jqage))) {
+		req->what |= 0x1;
+		__check(req, "tfw_http_req_evict_timeout 1");
 		T_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
 		       __func__, req,
 			 jiffies_to_msecs(jqage - srv->sg->max_jqage));
 		tfw_http_req_err(srv_conn, req, eq, 504,
 				 "request evicted: timed out");
+
+		if (!test_bit(TFW_HTTP_B_HMONITOR, req->flags))
+			__check(req, "tfw_http_req_evict_timeout 2");
 		return true;
 	}
 	return false;
@@ -2007,11 +2101,16 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *eq)
 {
 	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
+		req->what |= 0x2;
+
+		__check(req, "tfw_http_req_evict_retries 1");
 		T_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 		       __func__, req, req->retries);
 		tfw_http_req_err(srv_conn, req, eq, 504,
 				 "request evicted: the number"
 				 " of retries exceeded");
+		if (!test_bit(TFW_HTTP_B_HMONITOR, req->flags))
+			__check(req, "tfw_http_req_evict_retries 2");
 		return true;
 	}
 	return false;
@@ -2050,6 +2149,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	req->jtxtstamp = jiffies;
 	tfw_http_req_init_ss_flags(srv_conn, req);
 
+	__check(req, "tfw_http_req_fwd_send 111");
+
 	/*
 	 * We set TFW_CONN_B_UNSCHED on server connection. New requests must
 	 * not be scheduled to it. It will be used only for websocket transport.
@@ -2069,17 +2170,26 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		 * the current function is called under tfw_http_conn_on_hold()
 		 * check.
 		 */
+		req->what |= 0x400;
 		return -EBADF;
 	}
 
-	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
+	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req))) {
+		req->what |= 0x800;
 		return 0;
+	}
 
 	T_DBG2("%s: Forwarding error: conn=[%p] req=[%p] error=[%d]\n",
 	       __func__, srv_conn, req, r);
 
-	if (r == -EBADF || r == -EBUSY)
+	if (r == -EBADF || r == -EBUSY) {
+		if (!__check(req, "tfw_http_req_fwd_send 222"))
+			printk(KERN_ALERT "%d %d", r, ss_sock_active(srv_conn->sk));
+
+
+		req->what |= 0x1000;
 		return r;
+	}
 
 	if (test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
 		tfw_http_req_delist(srv_conn, req);
@@ -2088,10 +2198,12 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		T_WARN_ADDR("Unable to send health monitoring request to server",
 			    &srv_conn->peer->addr, TFW_WITH_PORT);
 	} else {
+		req->what |= 0x4;
 		tfw_http_req_err(srv_conn, req, eq, 500,
 				 "request dropped: forwarding error");
 	}
 
+	req->what |= 0x2000;
 	return r;
 }
 
@@ -2110,6 +2222,13 @@ tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 	if ((r = tfw_http_req_fwd_send(srv_conn, srv, req, eq)))
 		return r;
 	srv_conn->msg_sent = (TfwMsg *)req;
+	if (srv_conn->msg_sent) {
+		srv_conn->msg_sent->msg_sent_from |= 0x10;
+		if (req->what & 0x20)
+			req->what |= 0x8;
+		__check(req, "tfw_http_req_fwd_single");
+	}
+
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	return 0;
 }
@@ -2122,7 +2241,7 @@ tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
  * otherwise (e.g. the case of hanged connection with busy work queue).
  */
 static int
-tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
+tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq, int from)
 {
 	TfwHttpReq *req, *tmp;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
@@ -2137,15 +2256,26 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
-		int ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
+		int ret;
+		TfwHttpReq *save = req;
+
+		__check(req, "tfw_http_conn_fwd_unsent LOOP 1");
+		ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
+
+		if ((ret == -EBADF || ret == -EBUSY))
+			if (!__check(req, "tfw_http_conn_fwd_unsent LOOP RRR"))
+				printk(KERN_ALERT "%px %px", req, save);
 
 		/*
 		 * In case of busy work queue and absence of forwarded but
 		 * unanswered request(s) in connection, the forwarding procedure
 		 * is considered failed and the error is returned to the caller.
 		 */
-		if (ret == -EBUSY && srv_conn->msg_sent == NULL)
+		if (ret == -EBUSY && srv_conn->msg_sent == NULL) {
+			__check(req, "tfw_http_conn_fwd_unsent LOOP 2");
+			req->what |= 0x10;
 			return ret;
+		}
 		/*
 		 * If connection is broken or work queue is busy and connection
 		 * has request(s) forwarded but unanswered, we can leave all
@@ -2153,8 +2283,16 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 		 * be made when connection will be repaired or when response(s)
 		 * for unanswered request(s) will arrive from backend.
 		 */
-		if (ret == -EBADF || ret == -EBUSY)
+		if (ret == -EBADF || ret == -EBUSY) {
+			req->what |= 0x20;
+			if (req->msg.msg_sent_from & 0x10) {
+				printk(KERN_ALERT "2000 IIIIII %px", req);
+				req->what |= 0x40;
+			}
+			if (!__check(req, "tfw_http_conn_fwd_unsent LOOP 3"))
+				printk(KERN_ALERT "%px %px", req, save);
 			break;
+		}
 		/*
 		 * Connection is alive, but request has been removed from
 		 * @fwd_queue due to some error.
@@ -2224,7 +2362,7 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq,
 	 * to try reschedule it via another connection.
 	 */
 	if ((tfw_http_conn_on_hold(srv_conn)
-	     || tfw_http_conn_fwd_unsent(srv_conn, eq))
+	     || tfw_http_conn_fwd_unsent(srv_conn, eq, 1))
 	    && resched)
 	{
 		tfw_http_req_delist(srv_conn, req);
@@ -2260,6 +2398,13 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
 		srv_conn->msg_sent = __tfw_http_conn_msg_sent_prev(srv_conn);
+
+		if (srv_conn->msg_sent)
+			srv_conn->msg_sent->msg_sent_from |= 0x1;
+
+		__check(req_sent, "tfw_http_conn_treatnip");
+
+		req_sent->what |= 0x200;
 		tfw_http_nip_req_resched_err(srv_conn, req_sent, eq);
 	}
 }
@@ -2296,14 +2441,20 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 		int err;
 		if (tfw_http_req_evict(srv_conn, srv, req, eq))
 			continue;
+
+		__check(req, "tfw_http_conn_resend LOOP");
 		err = tfw_http_req_fwd_send(srv_conn, srv, req, eq);
+
 		/*
 		 * If connection is broken, leave all requests in
 		 * @fwd_queue in order to re-send them during next
 		 * repairing attempt.
 		 */
-		if (err == -EBADF)
+		if (err == -EBADF) {
+			__check(req, "tfw_http_conn_resend LOOP 1");
+			req->what |= 0x80;
 			return err;
+		}
 		/*
 		 * If work queue is busy during re-sending, shift
 		 * @msg_sent back to last sent request; remaining
@@ -2312,6 +2463,11 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 		 */
 		if (err == -EBUSY) {
 			srv_conn->msg_sent = (TfwMsg *)req_resent;
+			if (srv_conn->msg_sent)
+				srv_conn->msg_sent->msg_sent_from |= 0x2;
+
+			__check(req, "tfw_http_conn_resend LOOP 2");
+			req->what |= 0x100;
 			return err;
 		}
 		/*
@@ -2319,8 +2475,9 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 		 * other error. Connection is alive, so we continue
 		 * requests re-sending.
 		 */
-		if (err)
+		if (err) {
 			continue;
+		}
 		req_resent = req;
 		if (unlikely(first))
 			break;
@@ -2332,8 +2489,11 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	 * re-sent, but instead have been evicted or removed due to
 	 * some error, and we have no requests to re-send any more.
 	 */
-	if (!first || !req_resent)
+	if (!first || !req_resent) {
 		srv_conn->msg_sent = (TfwMsg *)req_resent;
+		if (srv_conn->msg_sent)
+			srv_conn->msg_sent->msg_sent_from |= 0x4;
+	}
 
 	return 0;
 }
@@ -2380,7 +2540,7 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 		return 0;
 	if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
 		if (tfw_http_conn_need_fwd(srv_conn))
-			ret = tfw_http_conn_fwd_unsent(srv_conn, eq);
+			ret = tfw_http_conn_fwd_unsent(srv_conn, eq, 2);
 	} else {
 		/*
 		 * Resend all previously forwarded requests. After that
@@ -2395,7 +2555,7 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 			return 0;
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		if (tfw_http_conn_need_fwd(srv_conn))
-			ret = tfw_http_conn_fwd_unsent(srv_conn, eq);
+			ret = tfw_http_conn_fwd_unsent(srv_conn, eq, 3);
 	}
 	tfw_srv_conn_reenable_if_done(srv_conn);
 
@@ -2544,7 +2704,7 @@ tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 	spin_lock_bh(&srv_conn->fwd_qlock);
 	tfw_http_req_enlist(srv_conn, req);
 	if (tfw_http_conn_on_hold(srv_conn)
-	    || !tfw_http_conn_fwd_unsent(srv_conn, eq))
+	    || !tfw_http_conn_fwd_unsent(srv_conn, eq, 4))
 	{
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
@@ -2606,8 +2766,11 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		 * @req is now the same as @srv_conn->msg_sent.
 		 */
 		msg_sent_prev = __tfw_http_conn_msg_sent_prev(srv_conn);
-		if (tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq))
+		if (tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq)) {
 			srv_conn->msg_sent = msg_sent_prev;
+			if (srv_conn->msg_sent)
+				srv_conn->msg_sent->msg_sent_from |= 0x8;
+		}
 	}
 
 	/*
@@ -2623,7 +2786,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
-	tfw_http_req_zap_error(&eq);
+	tfw_http_req_zap_error(&eq, 333);
 }
 
 /**
@@ -2649,7 +2812,32 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 
 	tfw_http_fwdq_resched(srv_conn, &schq, &eq);
 
-	tfw_http_req_zap_error(&eq);
+	tfw_http_req_zap_error(&eq, 222);
+}
+
+#define MMMM 300
+
+static void
+__add(struct list_head *eq, TfwHttpReq **ttt, int *iii)
+{
+	TfwHttpReq *req, *tmp;
+
+	(*iii)++;
+
+	if (*iii >= MMMM) {
+		printk(KERN_ALERT "__add FAILED 111");
+		return;
+	}
+
+	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
+		if (*iii >= MMMM) {
+			printk(KERN_ALERT "__add FAILED 222");
+			return;
+		}
+		__check(req, "__add");
+		ttt[*iii] = req;
+		(*iii)++;
+	}
 }
 
 /*
@@ -2678,6 +2866,12 @@ tfw_http_conn_repair(TfwConn *conn)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 	LIST_HEAD(reschq);
 	LIST_HEAD(eq);
+	int zzz = 1;
+	TfwHttpReq *xxx;
+	TfwHttpReq *fff[MMMM];
+	int iii = 0;
+
+	memset(fff, 0, sizeof(fff));
 
 	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
@@ -2700,21 +2894,30 @@ tfw_http_conn_repair(TfwConn *conn)
 	/* Treat a non-idempotent request if any. */
 	tfw_http_conn_treatnip(srv_conn, &eq);
 
+	__add(&eq, fff, &iii);
+
 	/* Re-send only the first unanswered request. */
 	err = tfw_http_conn_resend(srv_conn, true, &eq);
 	if (err == -EBADF) {
+		__add(&eq, fff, &iii);
 		spin_unlock_bh(&srv_conn->fwd_qlock);
+		zzz |= 0x2;
 		goto out;
 	}
+
+	__add(&eq, fff, &iii);
+
 	/*
 	 * If re-sending procedure successfully passed,
 	 * but requests had not been re-sent, and removed
 	 * instead, then send the remaining unsent requests.
 	 */
 	if (!err && !srv_conn->msg_sent) {
+		zzz |= 0x4;
 		if (!list_empty(&srv_conn->fwd_queue)) {
 			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-			err = tfw_http_conn_fwd_unsent(srv_conn, &eq);
+			err = tfw_http_conn_fwd_unsent(srv_conn, &eq, 5);
+			zzz |= 0x8;
 		}
 		tfw_srv_conn_reenable_if_done(srv_conn);
 	}
@@ -2723,9 +2926,13 @@ tfw_http_conn_repair(TfwConn *conn)
 	 * passed without errors.
 	 */
 	if (!err) {
+		__add(&eq, fff, &iii);
 		spin_unlock_bh(&srv_conn->fwd_qlock);
+		zzz |= 0x100;
 		goto out;
 	}
+
+	__add(&eq, fff, &iii);
 
 	/*
 	 * In case of requests re-sending error (-EBUSY) or
@@ -2735,15 +2942,31 @@ tfw_http_conn_repair(TfwConn *conn)
 	 * no unanswered requests and we can cut all remaining
 	 * requests from @fwd_queue for rescheduling.
 	 */
+	zzz |= 0x200;
 	WARN_ON(srv_conn->msg_sent);
 	__tfw_srv_conn_clear_restricted(srv_conn);
 	tfw_srv_set_busy_delay(srv_conn);
 	tfw_http_fwdq_reset(srv_conn, &reschq);
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 	tfw_http_fwdq_resched(srv_conn, &reschq, &eq);
+
+	__add(&eq, fff, &iii);
+
 out:
-	tfw_http_req_zap_error(&eq);
+	xxx = tfw_http_req_zap_error(&eq, zzz | 0x1000);
+
+	if (xxx) {
+		int yyy;
+
+		printk(KERN_ALERT "XXX %px", xxx);
+		for (yyy = 0; yyy < MMMM; yyy++) {
+			printk(KERN_ALERT "%d: fff %px", yyy, fff[yyy]);
+		}
+
+		printk(KERN_ALERT "XXX %px AAAAAAA", xxx);
+	}
 }
+STACK_FRAME_NON_STANDARD(tfw_http_conn_repair);
 
 /*
  * Destructor for a request message.
@@ -4726,7 +4949,7 @@ __tfw_http_ws_connection_put(TfwCliConn *cli_conn)
  * transmit. Move those requests to the list of returned responses
  * @ret_queue. Sequentially send responses from @ret_queue to the client.
  */
-void
+int
 tfw_http_resp_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
@@ -4734,10 +4957,14 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 	struct list_head *req_retent = NULL;
 	LIST_HEAD(ret_queue);
+	int r = 0;
 
 	T_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 	WARN_ON_ONCE(req->resp != resp);
-	do_access_log(resp);
+	if (do_access_log(resp)) {
+		printk(KERN_ALERT "tfw_http_resp_fwd %px %px !!!!!!!!!!!!!!!!!!!!!!!!", resp, resp->req);
+		r = -1;
+	}
 
 	/*
 	 * If the list is empty, then it's either a bug, or the client
@@ -4764,7 +4991,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		tfw_connection_close(req->conn, true);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return;
+		return r;
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
 	set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
@@ -4779,7 +5006,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	}
 	if (!req_retent) {
 		spin_unlock_bh(&cli_conn->seq_qlock);
-		return;
+		return r;
 	}
 	__list_cut_position(&ret_queue, seq_queue, req_retent);
 
@@ -4835,6 +5062,8 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 	spin_unlock_bh(&cli_conn->ret_qlock);
 	tfw_connection_put((TfwConn *)(cli_conn));
+
+	return r;
 }
 
 int
@@ -5938,7 +6167,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	/* Forward request to the server. */
 	tfw_http_req_fwd_resched(srv_conn, req, &eq);
-	tfw_http_req_zap_error(&eq);
+	tfw_http_req_zap_error(&eq, 444);
 	goto conn_put;
 
 send_502:
@@ -6982,7 +7211,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 	if (unlikely(tfw_srv_conn_restricted(srv_conn)))
 		err = tfw_http_conn_fwd_repair(srv_conn, &eq);
 	else if (tfw_http_conn_need_fwd(srv_conn))
-		err = tfw_http_conn_fwd_unsent(srv_conn, &eq);
+		err = tfw_http_conn_fwd_unsent(srv_conn, &eq, 6);
 	if (!err) {
 		spin_unlock(&srv_conn->fwd_qlock);
 		goto out;
@@ -7003,7 +7232,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 
 	tfw_http_fwdq_resched(srv_conn, &reschq, &eq);
 out:
-	tfw_http_req_zap_error(&eq);
+	tfw_http_req_zap_error(&eq, 555);
 }
 
 /*
@@ -7755,7 +7984,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	}
 
 	tfw_http_req_fwd(srv_conn, req, &equeue, false);
-	tfw_http_req_zap_error(&equeue);
+	tfw_http_req_zap_error(&equeue, 666);
 
 	/*
 	 * Paired with tfw_srv_conn_get_if_live() via sched_srv_conn callback which
