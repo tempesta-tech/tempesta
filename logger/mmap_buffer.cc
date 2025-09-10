@@ -36,7 +36,7 @@
 #include "error.hh"
 
 TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
-					 TfwClickhouse &db, ProcessEvents proc_ev)
+					 TfwClickhouse &db, ProcessEventsFn proc_ev)
 	: buf_(nullptr), size_(0), proc_ev_(proc_ev), db_(db)
 {
 	unsigned int area_size;
@@ -86,6 +86,12 @@ TfwMmapBufferReader::read() noexcept
 	if (!res)
 		return error(Err::DB_SRV_FATAL);
 
+	// TODO #2399, #182 (escudo xFW): this should be replaced with
+	// IEventProcessor->flush(), but ideally if we can move it to the
+	// free run() function in tfw_logger. Basically, we flush() events
+	// after a ring buffer read, so probably it's just fine to firstly
+	// call all event processors to read events from the associated RBs
+	// and then ask all of them to flush what they have to Clickhouse.
 	if (*res && !db_.commit())
 		return error(Err::DB_SRV_FATAL);
 
@@ -120,6 +126,20 @@ TfwMmapBufferReader::run(std::atomic<bool> &stop_flag) noexcept
 	constexpr size_t POLL_N = 10;
 	constexpr std::chrono::milliseconds delay(1);
 
+	// TODO #2399, #182 (escudo xFW): this must be split.
+	//
+	// The main loop is moved to a free function, ideally in tfw_logger.cc.
+	// The function must call TfwMmapBufferReader::read() and the new eBPF
+	// ring buffer and maps read() method through a unified RB API, e.g. an
+	// abstract class for all ring buffers. Any ring buffer may annonce stop
+	// and we have to stop operation on it and only on it and vise versa.
+	//
+	// All the ring buffers must be called in a loop.
+	//
+	// TfwClickhouse keeps Block and Client instances, so it should be unique
+	// per an event type (access, security, and xFW).
+	//
+	// All the clickhouses must be flushed on a loop.
 	for (size_t tries = 0; ; ) {
 		const int is_ready = __atomic_load_n(&buf_->is_ready,
 						     __ATOMIC_ACQUIRE);
@@ -165,6 +185,9 @@ TfwMmapBufferReader::run(std::atomic<bool> &stop_flag) noexcept
 			//    if we have a stream of events, we flush on full
 			//    buffer, once we get a real time delay, we flush to
 			//    the database.
+			//
+			// TODO #2399, #182 (escudo xFW): this should become
+			// IEventProcessor->make_background_work()
 			if (!db_.commit(TfwClickhouse::FORCE))
 				return false;
 			tries = 0;

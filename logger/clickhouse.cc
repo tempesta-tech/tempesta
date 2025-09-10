@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Clickhouse interfaces using the C++ client library.
- * For code sameples and the source code reference:
+ * For code samples and the source code reference:
  *
  *   https://github.com/ClickHouse/clickhouse-cpp.git
  *
@@ -111,7 +111,7 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
 	: table_name_(config.table_name),
 	  max_events_(config.max_events)
 {
-	auto opts = clickhouse::ClientOptions();
+	auto opts = ch::ClientOptions();
 
 	opts.SetHost(config.host);
 	opts.SetPort(config.port);
@@ -122,7 +122,7 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
 	if (const auto pswd = config.password.value_or(""); !pswd.empty())
 		opts.SetPassword(pswd);
 
-	client_ = std::make_unique<clickhouse::Client>(opts);
+	client_ = std::make_unique<ch::Client>(opts);
 
 	std::string table_creation_query =
 		fmt::format(table_creation_query_template, table_name_);
@@ -136,7 +136,7 @@ TfwClickhouse::~TfwClickhouse()
 	handle_block_error();
 }
 
-clickhouse::Block &
+ch::Block &
 TfwClickhouse::get_block() noexcept
 {
 	return block_;
@@ -168,29 +168,29 @@ TfwClickhouse::commit(bool force) noexcept
 	return true;
 }
 
-template <typename T> std::shared_ptr<clickhouse::Column>
+template <typename T> std::shared_ptr<ch::Column>
 create_column() {
 	return std::make_shared<T>();
 }
 
-std::shared_ptr<clickhouse::Column>
-tfw_column_factory(clickhouse::Type::Code code)
+std::shared_ptr<ch::Column>
+tfw_column_factory(ch::Type::Code code)
 {
 	switch (code) {
-	case clickhouse::Type::UInt8:
-		return create_column<clickhouse::ColumnUInt8>();
-	case clickhouse::Type::UInt16:
-		return create_column<clickhouse::ColumnUInt16>();
-	case clickhouse::Type::UInt32:
-		return create_column<clickhouse::ColumnUInt32>();
-	case clickhouse::Type::UInt64:
-		return create_column<clickhouse::ColumnUInt64>();
-	case clickhouse::Type::IPv4:
-		return create_column<clickhouse::ColumnIPv4>();
-	case clickhouse::Type::IPv6:
-		return create_column<clickhouse::ColumnIPv6>();
-	case clickhouse::Type::String:
-		return create_column<clickhouse::ColumnString>();
+	case ch::Type::UInt8:
+		return create_column<ch::ColumnUInt8>();
+	case ch::Type::UInt16:
+		return create_column<ch::ColumnUInt16>();
+	case ch::Type::UInt32:
+		return create_column<ch::ColumnUInt32>();
+	case ch::Type::UInt64:
+		return create_column<ch::ColumnUInt64>();
+	case ch::Type::IPv4:
+		return create_column<ch::ColumnIPv4>();
+	case ch::Type::IPv6:
+		return create_column<ch::ColumnIPv6>();
+	case ch::Type::String:
+		return create_column<ch::ColumnString>();
 	default:
 		throw std::runtime_error("Column factory: incorrect code");
 	}

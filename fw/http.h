@@ -379,7 +379,6 @@ typedef struct {
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
  * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
- * @jrxtstamp	- time the request is received from a client, in jiffies;
  * @tm_header	- time HTTP header started coming. Only rx path;
  * @stale_ce_age - calculated age of stale response. Must be assigned only when
  *		  "cache_use_stale" is configured on tx path with cache;
