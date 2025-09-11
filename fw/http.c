@@ -3011,7 +3011,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 			 * the same as current `cli_conn`.
 			 */
 			if (!resp->conn
-			    || !tfw_connection_last_ref(resp->conn)) {
+			    || !__tfw_connection_get_if_last_ref(resp->conn)) {
 				tfw_http_resp_pair_free(req);
 			 } else {
 				list_add_tail(&resp->msg.seq_list,
@@ -3028,6 +3028,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 
 	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
 				 msg.seq_list) {
+		tfw_connection_put(resp->conn);
 		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 	}
