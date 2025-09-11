@@ -408,21 +408,6 @@ tfw_sock_srv_abort(TfwConn *conn)
 	return 0;
 }
 
-static inline bool
-__tfw_connection_get_if_not_death(TfwConn *conn)
-{
-	int old, rc = atomic_read(&conn->refcnt);
-
-	while (likely(rc != TFW_CONN_DEATHCNT && rc != 0)) {
-		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
-		if (likely(old == rc))
-			return true;
-		rc = old;
-	}
-
-	return false;
-}
-
 /**
  * Close a server connection, or stop attempts to connect if a connection
  * is not established. This is called only in user context at STOP time.
