@@ -1,6 +1,11 @@
 /**
  *		Tempesta FW
  *
+ * Clickhouse interfaces using the C++ client library.
+ * For code samples and the source code reference:
+ *
+ *   https://github.com/ClickHouse/clickhouse-cpp.git
+ *
  * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -17,38 +22,96 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <iostream>
 #include <string_view>
 
 #include <fmt/format.h>
 
+#include <spdlog/spdlog.h>
+
+#include "../fw/access_log.h"
+#include "error.hh"
 #include "clickhouse.hh"
 
-static auto
-now_ms()
-{
-	return std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::chrono::system_clock::now().time_since_epoch());
-}
+namespace {
 
 constexpr std::string_view table_creation_query_template = 
 	"CREATE TABLE IF NOT EXISTS {} "
-	"(timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
-	"version UInt8, status UInt16, response_content_length UInt32, "
-	"response_time UInt32, vhost String, uri String, referer String, "
-	"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64) "
-	"ENGINE = MergeTree() ORDER BY timestamp";
+	"(timestamp DateTime64(3, 'UTC'),"
+	" address IPv6,"
+	" method UInt8,"
+	" version UInt8,"
+	" status UInt16,"
+	" response_content_length UInt64,"
+	" response_time UInt32,"
+	" vhost String,"
+	" uri String,"
+	" referer String,"
+	" user_agent String,"
+	" ja5t UInt64,"
+	" ja5h UInt64,"
+	" dropped_events UInt64"
+	") ENGINE = MergeTree() ORDER BY timestamp";
 
-TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
-			     clickhouse::Block block)
-	: block_(std::move(block)),
-	  last_time_(now_ms()),
-	  table_name_(config.table_name),
-	  max_events_(config.max_events),
-	  max_wait_(config.max_wait)
+typedef struct {
+	const char			*name;
+	ch::Type::Code			code;
+} TfwField;
+
+static const TfwField tfw_fields[] = {
+	[TFW_MMAP_LOG_ADDR]		= {"address", ch::Type::IPv6},
+	[TFW_MMAP_LOG_METHOD]		= {"method", ch::Type::UInt8},
+	[TFW_MMAP_LOG_VERSION]		= {"version", ch::Type::UInt8},
+	[TFW_MMAP_LOG_STATUS]		= {"status", ch::Type::UInt16},
+	[TFW_MMAP_LOG_RESP_CONT_LEN]	= {"response_content_length", ch::Type::UInt32},
+	[TFW_MMAP_LOG_RESP_TIME]	= {"response_time", ch::Type::UInt32},
+	[TFW_MMAP_LOG_VHOST]		= {"vhost", ch::Type::String},
+	[TFW_MMAP_LOG_URI]		= {"uri", ch::Type::String},
+	[TFW_MMAP_LOG_REFERER]		= {"referer", ch::Type::String},
+	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", ch::Type::String},
+	[TFW_MMAP_LOG_JA5T]		= {"ja5t", ch::Type::UInt64},
+	[TFW_MMAP_LOG_JA5H]		= {"ja5h", ch::Type::UInt64},
+	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", ch::Type::UInt64}
+};
+
+} // anonymous namespace
+
+void
+TfwClickhouse::make_block()
 {
-	auto opts = clickhouse::ClientOptions();
+	block_ = ch::Block();
+
+	auto col = std::make_shared<ch::ColumnDateTime64>(3);
+	block_.AppendColumn("timestamp", col);
+
+	for (int i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
+		const TfwField *field = &tfw_fields[i];
+		auto col = tfw_column_factory(field->code);
+		block_.AppendColumn(field->name, col);
+	}
+
+	// We may read more data in one shot, so reserve more memory.
+	block_.Reserve(max_events_ * 2);
+}
+
+bool
+TfwClickhouse::handle_block_error() noexcept
+{
+	try {
+		block_.Clear();
+		return true;
+	}
+	catch (const std::exception &e) {
+		spdlog::error("Cannot clear a Clickhouse block: {}", e.what());
+	}
+	return false;
+}
+
+TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
+	: table_name_(config.table_name),
+	  max_events_(config.max_events)
+{
+	auto opts = ch::ClientOptions();
 
 	opts.SetHost(config.host);
 	opts.SetPort(config.port);
@@ -59,63 +122,75 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config,
 	if (const auto pswd = config.password.value_or(""); !pswd.empty())
 		opts.SetPassword(pswd);
 
-	client_ = std::make_unique<clickhouse::Client>(opts);
+	client_ = std::make_unique<ch::Client>(opts);
 
 	std::string table_creation_query =
 		fmt::format(table_creation_query_template, table_name_);
 	client_->Execute(table_creation_query);
+
+	make_block();
 }
 
-clickhouse::Block *
+TfwClickhouse::~TfwClickhouse()
+{
+	handle_block_error();
+}
+
+ch::Block &
 TfwClickhouse::get_block() noexcept
 {
-	return &block_;
+	return block_;
 }
 
-bool
-TfwClickhouse::commit()
+[[nodiscard]] bool
+TfwClickhouse::commit(bool force) noexcept
 {
-	auto now = now_ms();
+	try {
+		block_.RefreshRowCount();
 
-	block_.RefreshRowCount();
-	if ((now - last_time_ > max_wait_ && block_.GetRowCount() > 0)
-	    || block_.GetRowCount() > max_events_) {
+
+		if (force) {
+			if (block_.GetRowCount() == 0)
+				return true;
+		} else {
+			if (block_.GetRowCount() < max_events_)
+				return true;
+		}
 
 		client_->Insert(table_name_, block_);
-
-		for (size_t i = 0; i < block_.GetColumnCount(); ++i)
-			block_[i]->Clear();
-
-		last_time_ = now;
-
-		return true;
+		block_.Clear();
 	}
-	return false;
+	catch (const std::exception &e) {
+		spdlog::error("Clickhouse insert error: {}", e.what());
+		return false;
+	}
+
+	return true;
 }
 
-template <typename T> std::shared_ptr<clickhouse::Column>
+template <typename T> std::shared_ptr<ch::Column>
 create_column() {
 	return std::make_shared<T>();
 }
 
-std::shared_ptr<clickhouse::Column>
-tfw_column_factory(clickhouse::Type::Code code)
+std::shared_ptr<ch::Column>
+tfw_column_factory(ch::Type::Code code)
 {
 	switch (code) {
-	case clickhouse::Type::UInt8:
-		return create_column<clickhouse::ColumnUInt8>();
-	case clickhouse::Type::UInt16:
-		return create_column<clickhouse::ColumnUInt16>();
-	case clickhouse::Type::UInt32:
-		return create_column<clickhouse::ColumnUInt32>();
-	case clickhouse::Type::UInt64:
-		return create_column<clickhouse::ColumnUInt64>();
-	case clickhouse::Type::IPv4:
-		return create_column<clickhouse::ColumnIPv4>();
-	case clickhouse::Type::IPv6:
-		return create_column<clickhouse::ColumnIPv6>();
-	case clickhouse::Type::String:
-		return create_column<clickhouse::ColumnString>();
+	case ch::Type::UInt8:
+		return create_column<ch::ColumnUInt8>();
+	case ch::Type::UInt16:
+		return create_column<ch::ColumnUInt16>();
+	case ch::Type::UInt32:
+		return create_column<ch::ColumnUInt32>();
+	case ch::Type::UInt64:
+		return create_column<ch::ColumnUInt64>();
+	case ch::Type::IPv4:
+		return create_column<ch::ColumnIPv4>();
+	case ch::Type::IPv6:
+		return create_column<ch::ColumnIPv6>();
+	case ch::Type::String:
+		return create_column<ch::ColumnString>();
 	default:
 		throw std::runtime_error("Column factory: incorrect code");
 	}

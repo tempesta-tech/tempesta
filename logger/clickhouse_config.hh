@@ -17,10 +17,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <chrono>
 #include <optional>
 #include <string>
 
@@ -29,22 +27,18 @@
 #include <fmt/format.h>
 
 struct ClickHouseConfig {
-	std::string host{"localhost"};
-	uint16_t port{9000};
-	std::string db_name{"default"};
-	std::string table_name{"access_log"};
-	std::optional<std::string> user;
-	std::optional<std::string> password;
+	std::string			host{"localhost"};
+	uint16_t			port{9000};
+	std::string			db_name{"default"};
+	std::string			table_name{"access_log"};
+	std::optional<std::string>	user;
+	std::optional<std::string>	password;
 	// Events before forcing commit
-	size_t max_events{1000};
-	// Max time before commit
-	std::chrono::milliseconds max_wait{100};
+	size_t				max_events{1000};
 
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+	void parse_from_ptree(const boost::property_tree::ptree &tree);
 
-	void
-	validate() const;
+	void validate() const;
 };
 
 template <> struct fmt::formatter<ClickHouseConfig> {
@@ -63,8 +57,7 @@ template <> struct fmt::formatter<ClickHouseConfig> {
 					      " database: '{}',"
 					      " table: '{}',"
 					      " user: '{}',"
-					      " max_events: {},"
-					      " max_wait: {}ms}}";
+					      " max_events: {}}}";
 		return fmt::format_to(ctx.out(),
 				      msg_template,
 				      config.host,
@@ -72,7 +65,6 @@ template <> struct fmt::formatter<ClickHouseConfig> {
 				      config.db_name,
 				      config.table_name,
 				      config.user.value_or("<none>"),
-				      config.max_events,
-				      config.max_wait.count());
+				      config.max_events);
 	}
 };
