@@ -424,32 +424,25 @@ tfw_connection_get(TfwConn *conn)
 	atomic_inc(&conn->refcnt);
 }
 
-static inline bool
-tfw_connection_last_ref(TfwConn *conn)
-{
-	int rc = atomic_read(&conn->refcnt);
-
-	return (rc - 1 == 0) || (rc - 1 == TFW_CONN_DEATHCNT);
+#define TFW_CONNETION_GET_IF(name, cond)				\
+static inline bool							\
+__tfw_connection_get_if_##name(TfwConn *conn)				\
+{									\
+	int old, rc = atomic_read(&conn->refcnt);			\
+									\
+	while (likely(cond)) {						\
+		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);	\
+		if (likely(old == rc))					\
+			return true;					\
+		rc = old;						\
+	}								\
+									\
+	return false;							\
 }
 
-/**
- * Increment reference counter and return true if @conn is not in
- * failovering process, i.e. @refcnt wasn't less or equal to zero.
- */
-static inline bool
-__tfw_connection_get_if_live(TfwConn *conn)
-{
-	int old, rc = atomic_read(&conn->refcnt);
-
-	while (likely(rc > 0)) {
-		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
-		if (likely(old == rc))
-			return true;
-		rc = old;
-	}
-
-	return false;
-}
+TFW_CONNETION_GET_IF(last_ref, (rc == TFW_CONN_DEATHCNT + 1 || rc == 1));
+TFW_CONNETION_GET_IF(live, (rc > 0));
+TFW_CONNETION_GET_IF(not_death, (rc != TFW_CONN_DEATHCNT && rc != 0));
 
 #define tfw_srv_conn_get_if_live(c)	\
 	__tfw_connection_get_if_live((TfwConn *)(c))
