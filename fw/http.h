@@ -799,4 +799,7 @@ bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
 int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
 
+void tfw_http_conn_release(TfwConn *conn);
+
+
 #endif /* __TFW_HTTP_H__ */

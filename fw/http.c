@@ -2920,7 +2920,7 @@ tfw_http_conn_abort(TfwConn *c)
  * to local @zap_queue, only one thread is able to proceed and release
  * the resources.
  */
-static void
+void
 tfw_http_conn_release(TfwConn *conn)
 {
 	TfwHttpReq *req, *tmp;
@@ -7759,7 +7759,6 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_close	= tfw_http_conn_close,
 	.conn_abort	= tfw_http_conn_abort,
 	.conn_drop	= tfw_http_conn_drop,
-	.conn_release	= tfw_http_conn_release,
 	.conn_send	= tfw_http_conn_send,
 };
 

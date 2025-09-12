@@ -180,7 +180,6 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
-	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
 	 * connect attempt. In that case no connection has been
@@ -365,6 +364,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 		 * SS put()'s the socket.
 		 */
 		TFW_INC_STAT_BH(serv.conn_disconnects);
+		tfw_http_conn_release(conn);
 		tfw_connection_drop(conn);
 		goto end;
 	}
@@ -386,6 +386,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 	if (tfw_connection_live(conn)) {
 		TFW_INC_STAT_BH(serv.conn_disconnects);
 		tfw_connection_put_to_death(conn);
+		tfw_http_conn_release(conn);
 		tfw_connection_drop(conn);
 	}
 
@@ -546,7 +547,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * in case that wasn't done in destructor (bit TFW_CONN_B_DEL had been
 	 * set too late).
 	 */
-	tfw_connection_release((TfwConn *)srv_conn);
+	tfw_http_conn_release((TfwConn *)srv_conn);
 
 	return 0;
 }
