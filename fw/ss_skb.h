@@ -95,6 +95,14 @@ ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 }
 
 static inline void
+ss_skb_setup_opaque_data(struct sk_buff *skb_head, void *opaque_data,
+			 void (*destructor)(void *))
+{
+	TFW_SKB_CB(skb_head)->opaque_data = opaque_data;
+	TFW_SKB_CB(skb_head)->destructor = destructor;
+}
+
+static inline void
 ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
 {
 	void *opaque_data = TFW_SKB_CB(skb_head)->opaque_data;
@@ -433,6 +441,17 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 	}
 
 	return NULL;
+}
+
+static inline int
+ss_skb_realloc_headroom(struct sk_buff *skb)
+{
+	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+
+	if (likely(delta <= 0))
+		return 0;
+
+	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
