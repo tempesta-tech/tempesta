@@ -735,6 +735,12 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		BUG_ON(!tls_type);
 		BUG_ON(!skb->len);
 
+		r = ss_skb_realloc_headroom(skb);
+		if (unlikely(r)) {
+			ss_skb_queue_head(&stream->xmit.skb_head, skb);
+			return r;
+		}
+
 		if (skb->len > *len) {
 			if (should_split) {
 				split = ss_skb_split(skb, *len);
