@@ -95,6 +95,14 @@ ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 }
 
 static inline void
+ss_skb_setup_opaque_data(struct sk_buff *skb_head, void *opaque_data,
+			 void (*destructor)(void *))
+{
+	TFW_SKB_CB(skb_head)->opaque_data = opaque_data;
+	TFW_SKB_CB(skb_head)->destructor = destructor;
+}
+
+static inline void
 ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
 {
 	void *opaque_data = TFW_SKB_CB(skb_head)->opaque_data;
@@ -467,6 +475,7 @@ int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 int
 ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 			unsigned char *split_point);
+int ss_skb_realloc_headroom(struct sk_buff *skb);
 
 #if defined(DEBUG) && (DEBUG >= 4)
 #define ss_skb_queue_for_each_do(queue, lambda)		\
