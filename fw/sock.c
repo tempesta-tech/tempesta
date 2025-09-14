@@ -383,7 +383,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 
 void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-	      unsigned char tls_type)
+		  unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
@@ -404,12 +404,15 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	       skb_tfw_tls_type(skb));
 }
 
-void
+int
 ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 {
-	struct sk_buff *skb;
+	struct sk_buff *skb, *tail, *next, *to_destroy;
 	unsigned char tls_type = 0;
 	unsigned int mark = 0;
+	void *opaque_data = NULL;
+	void (*destructor)(void *) = NULL;
+	int r;
 
 	while ((skb = ss_skb_dequeue(skb_head))) {
 		/*
@@ -422,6 +425,9 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 		if (TFW_SKB_CB(skb)->is_head) {
 			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
+			opaque_data = TFW_SKB_CB(skb)->opaque_data;
+			destructor = TFW_SKB_CB(skb)->destructor;
+			tail = tcp_write_queue_tail(sk);
 		}
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
@@ -435,8 +441,28 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 			kfree_skb(skb);
 			continue;
 		}
+
+		r = ss_skb_realloc_headroom(skb);
+		if (unlikely(r)) {
+			ss_skb_queue_head(skb_head, skb);
+			goto restore_sk_write_queue;
+		}
+
 		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
+
+	return 0;
+
+restore_sk_write_queue:
+	to_destroy = tail ? tail->next : tcp_send_head(sk);
+	if (to_destroy) {
+		tcp_for_write_queue_from_safe(to_destroy, next, sk) {
+			tcp_unlink_write_queue(to_destroy, sk);
+			tcp_wmem_free_skb(sk, to_destroy);
+		}
+	}
+	ss_skb_setup_opaque_data(*skb_head, opaque_data, destructor);
+	return r;
 }
 
 /**
@@ -470,7 +496,10 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * empty and `ss_skb_tcp_entail_list` doesn't make
 	 * any job.
 	 */
-	ss_skb_tcp_entail_list(sk, skb_head);
+	if (ss_skb_tcp_entail_list(sk, skb_head)) {
+		ss_linkerror(sk, SS_F_ABORT);
+		goto cleanup;
+	}
 
 	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	       smp_processor_id(), __func__,
@@ -573,7 +602,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
-			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
+			twin_skb = __pskb_copy_fclone(skb, MAX_TCP_HEADER,
+						      GFP_ATOMIC, true);
 			if (!twin_skb) {
 				T_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
@@ -885,6 +915,7 @@ do {									\
 		if (unlikely(offset > 0 &&
 			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
 		{
+			 __kfree_skb(skb);
 			r = SS_BAD;
 			goto out;
 		}

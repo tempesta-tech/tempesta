@@ -188,7 +188,7 @@ bool ss_active(void);
 void ss_get_stat(SsStat *stat);
 void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		       unsigned char tls_type);
-void ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
+int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
 
 /*
  * We should all linux kernel functions like `tcp_push` or
