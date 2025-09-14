@@ -1711,3 +1711,14 @@ ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 	return 0;
 }
 
+int
+ss_skb_realloc_headroom(struct sk_buff *skb)
+{
+	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+
+	if (likely(delta <= 0))
+		return 0;
+
+	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+}
+ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
