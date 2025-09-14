@@ -826,8 +826,8 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 		return -EPIPE;
 	}
 
-	TFW_SKB_CB(skb_head)->opaque_data = resp;
-	TFW_SKB_CB(skb_head)->destructor = tfw_http_resp_pair_free_and_put_conn;
+	ss_skb_setup_opaque_data(skb_head, resp,
+				 tfw_http_resp_pair_free_and_put_conn);
 	TFW_SKB_CB(skb_head)->on_send = tfw_http_on_send_resp;
 	TFW_SKB_CB(skb_head)->stream_id = stream->id;
 

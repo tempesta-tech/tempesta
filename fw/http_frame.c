@@ -2222,9 +2222,17 @@ do {									\
 		} else {
 			if (stream->xmit.postponed
 			    && !stream->xmit.frame_length
-			    && !ctx->cur_send_headers)
-				ss_skb_tcp_entail_list(sk,
-						       &stream->xmit.postponed);
+			    && !ctx->cur_send_headers) {
+				struct sk_buff **postponed =
+					&stream->xmit.postponed;
+
+				r = ss_skb_tcp_entail_list(sk, postponed);
+				if (unlikely(r)) {
+					T_WARN("Failed to send postponed"
+					       " frames %d", r);
+					return r;
+				}
+			}
 			if (stream->xmit.b_len) {
 				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
 			} else {
@@ -2240,8 +2248,14 @@ do {									\
 		 * GOAWAY and TLS ALERT are pending until error
 		 * response is sent.
 		 */
-		if (unlikely(stream->xmit.skb_head))
-			ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
+		if (unlikely(stream->xmit.skb_head)) {
+			r = ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
+			if (unlikely(r)) {
+				T_WARN("Failed to send postponed"
+				       " frames %d", r);
+				return r;
+			}
+		}
 		tfw_h2_stream_add_closed(ctx, stream);
 		if (stream == ctx->error)
 			ctx->error = NULL;
@@ -2260,8 +2274,17 @@ do {									\
 			T_WARN("Failed to send frame %d", r);
 			return r;
 		}
-		if (stream->xmit.postponed && !ctx->cur_send_headers)
-			ss_skb_tcp_entail_list(sk, &stream->xmit.postponed);
+		if (stream->xmit.postponed && !ctx->cur_send_headers) {
+			struct sk_buff **postponed =
+				&stream->xmit.postponed;
+
+			r = ss_skb_tcp_entail_list(sk, postponed);
+			if (unlikely(r)) {
+				T_WARN("Failed to send postponed"
+				       " frames %d", r);
+				return r;
+			}
+		}
 	}
 
 
