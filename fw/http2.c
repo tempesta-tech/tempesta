@@ -304,7 +304,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	tfw_h2_remove_idle_streams(ctx, UINT_MAX);
 
-        rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
+	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_purge_all_and_free_response(cur);
 		tfw_h2_stream_unlink_lock(ctx, cur);
 
