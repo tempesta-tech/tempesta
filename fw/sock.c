@@ -148,7 +148,7 @@ static void ss_linkerror(struct sock *sk, int flags);
  * it is Tempesta FW responsibilty to check socket state and drop
  * connection and close socket.
  */
-#define SS_STATE_PROCESS(sk)				\
+#define SS_STATE_PROCESS_RETURN(sk)			\
 do {							\
 	if (unlikely(sk->sk_state == TCP_CLOSE)) {	\
 		ss_linkerror(sk, 0);			\
@@ -552,7 +552,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 	});
 
-	SS_STATE_PROCESS(sk);
+	SS_STATE_PROCESS_RETURN(sk);
 
 	return;
 
@@ -1095,7 +1095,7 @@ ss_tcp_data_ready(struct sock *sk)
 	case SS_OK:
 	case SS_POSTPONE:
 	case SS_DROP:
-		SS_STATE_PROCESS(sk);
+		SS_STATE_PROCESS_RETURN(sk);
 		return;
 	case SS_BAD:
 	case SS_BLOCK_WITH_FIN:
@@ -1108,7 +1108,7 @@ ss_tcp_data_ready(struct sock *sk)
 		BUG();
 	}
 
-	SS_STATE_PROCESS(sk);
+	SS_STATE_PROCESS_RETURN(sk);
 
 	/*
 	 * Close connection in case of internal errors,
@@ -1573,7 +1573,7 @@ ss_do_shutdown(struct sock *sk)
 	SS_IN_USE_PROTECT({
 		tcp_shutdown(sk, SEND_SHUTDOWN);
 	});
-	SS_STATE_PROCESS(sk);
+	SS_STATE_PROCESS_RETURN(sk);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
 }
 
