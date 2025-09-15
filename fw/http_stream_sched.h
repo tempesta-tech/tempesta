@@ -79,9 +79,8 @@ void tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
-void tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
-				 TfwStreamSchedEntry *parent);
-void tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream);
+void tfw_h2_stream_sched_reinsert(TfwStreamSched *sched, TfwStream *stream,
+				  TfwStreamSchedEntry *parent);
 TfwStream *tfw_h2_sched_get_most_prio_stream(TfwStreamSched *sched);
 void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_sched_deactivate_stream(TfwStreamSched *sched, TfwStream *stream);

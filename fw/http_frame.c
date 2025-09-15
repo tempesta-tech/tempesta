@@ -1035,17 +1035,42 @@ tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
+static inline unsigned int
+tfw_h2_calc_min_to_send(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
+{
+	/* Empirically chosen value. */
+	const unsigned int min_to_send_dflt = 512;
+	unsigned int min_to_send;
+
+	/*
+	 * Tempesta FW avoid to send frame if the size of frame
+	 * is less than 512 bytes, except when mtu is small or http2
+	 * initial window is less than 1024 bytes (client usually sends
+	 * window update frame with a size equal to a half of initial
+	 * window).
+	 */
+	min_to_send = min3(min_to_send_dflt, mss_now - TLS_MAX_OVERHEAD,
+			   ctx->rsettings.wnd_sz >> 1);
+
+	return min_to_send;
+}
+
 static inline bool
 tfw_h2_wnd_update_rate_limit(TfwH2Ctx *ctx)
 {
+	struct sock *sk = ((TfwConn *)ctx->conn)->sk;
+	int size, mss_now;
+	unsigned int min_to_send;
+
 	/*
 	 * We allow to send not more than six WINDOW_UPDATE
 	 * frames for one DATA frame by default. We also allow
 	 * to send not more than one WINDOW_UPDATE frame for each
-	 * 128 bytes of sent DATA frames to prevent data dribble
-	 * attack. We also allow to send at least `max_streams`
-	 * WINDOW_UPDATE frames to cover the case when client
-	 * initiate connection with zero window.
+	 * minimum count of bytes allowed to send for Tempesta FW
+	 * (We do it to prevent data dribble attack). We also allow
+	 * to send at least `max_streams` WINDOW_UPDATE frames to
+	 * cover the case when client initiate connection with zero
+	 * window.
 	 */
 	if (++ctx->wnd_update_cnt < ctx->lsettings.max_streams)
 		return true;
@@ -1056,8 +1081,13 @@ tfw_h2_wnd_update_rate_limit(TfwH2Ctx *ctx)
 		return false;
 	}
 
+	mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	min_to_send = tfw_h2_calc_min_to_send(sk, ctx, mss_now);
+
 	if (unlikely(ctx->wnd_update_cnt >
-		     (ctx->data_bytes_sent / 128) * wnd_update_frame_rate_mul)) {
+		     (ctx->data_bytes_sent / min_to_send) *
+		     wnd_update_frame_rate_mul))
+	{
 		TFW_INC_STAT_BH(clnt.wnd_update_frame_exceeded);
 		return false;
 	}
@@ -2105,41 +2135,16 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	return r;
 }
 
-static inline unsigned int
-tfw_h2_calc_min_to_send(struct sock *sk, TfwH2Ctx *ctx)
-{
-	/* Empirically chosen value. */
-	const unsigned int min_to_send_dflt = 512;
-	struct dst_entry *dst = __sk_dst_get(sk);
-	unsigned int min_to_send;
-
-	/* MTU is unknown, we should send any available bytes. */
-	if (unlikely(!dst))
-		return 0;
-
-	/*
-	 * Tempesta FW avoid to send frame if the size of frame
-	 * is less then 512 bytes, except when mtu is small or http2
-	 * initial window is less then 1024 bytes (client usually sends
-	 * window update frame with a size equal to a half of initial
-	 * window).
-	 */
-	min_to_send = min3(min_to_send_dflt, dst_mtu(dst) >> 4,
-			   ctx->rsettings.wnd_sz >> 1);
-
-	return min_to_send;
-}
-
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
-			   bool stream_is_exclusive, unsigned long *snd_wnd,
-			   bool *stop)
+			   bool stream_is_exclusive, unsigned int mss_now,
+			   unsigned long *snd_wnd, bool *stop)
 {
 	int r = 0;
 	TfwFrameType frame_type;
 	unsigned int frame_length;
 	bool is_trailer_cont = false;
-	unsigned int min_to_send = tfw_h2_calc_min_to_send(sk, ctx);
+	unsigned int min_to_send = tfw_h2_calc_min_to_send(sk, ctx, mss_now);
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 #define ADJUST_BLOCKED_STREAMS_AND_EXIT(len, type)			\
@@ -2385,12 +2390,13 @@ do {									\
 }
 
 int
-tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd)
+tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	TfwStream *stream;
+	unsigned long snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
 	bool stop = false;
 	int r = 0;
+	TfwStream *stream;
 
 	while (sched->root.active_cnt) {
 		bool stream_is_exclusive;
@@ -2422,7 +2428,7 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd)
 		BUG_ON(!stream);
 		stream_is_exclusive = tfw_h2_stream_is_exclusive(stream);
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
-					       stream_is_exclusive,
+					       stream_is_exclusive, mss_now,
 					       &snd_wnd, &stop);
 
 		if (!tfw_h2_stream_is_active(stream)) {
@@ -2438,11 +2444,9 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned long snd_wnd)
 					TfwStreamSchedEntry *parent =
 						stream->sched->parent;
 
-					tfw_h2_stream_sched_remove(sched,
-								   stream);
-					tfw_h2_sched_stream_enqueue(sched,
-								    stream,
-								    parent);
+					tfw_h2_stream_sched_reinsert(sched,
+								     stream,
+								     parent);
 				}
 
 			}
