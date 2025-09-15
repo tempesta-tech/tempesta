@@ -435,7 +435,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
 
-        rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
+	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_purge_all_and_free_response(cur);
 		tfw_h2_stream_unlink_lock(ctx, cur);
 
