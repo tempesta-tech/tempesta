@@ -36,7 +36,7 @@
 constexpr std::chrono::milliseconds STOP_WAIT_INTERVAL{10};
 
 int
-pidfile_check(const std::string &fname)
+tus::pidfile_check(const std::string &fname)
 {
 	struct flock fl;
 	int fd = -1;
@@ -64,7 +64,7 @@ pidfile_check(const std::string &fname)
 		// File is locked by another process
 		if (errno == EAGAIN || errno == EACCES) {
 			errno = 0;
-			throw Except("Daemon is already running");
+			throw tus::Except("Daemon is already running");
 		}
 		return -1;
 	}
@@ -81,7 +81,7 @@ pidfile_check(const std::string &fname)
 }
 
 int
-pidfile_create(const std::string &fname)
+tus::pidfile_create(const std::string &fname)
 {
 	int fd = -1;
 	struct flock fl;
@@ -134,7 +134,7 @@ pidfile_create(const std::string &fname)
 }
 
 void
-pidfile_remove(const std::string &fname, int fd)
+tus::pidfile_remove(const std::string &fname, int fd)
 {
 	struct flock fl;
 
@@ -158,20 +158,20 @@ pidfile_remove(const std::string &fname, int fd)
 }
 
 void
-pidfile_stop_daemon(const std::string &fname)
+tus::pidfile_stop_daemon(const std::string &fname)
 {
 	pid_t pid;
 	std::ifstream pid_file(fname);
 
 	if (!pid_file)
-		throw Except("No PID file found at '{}'. "
+		throw tus::Except("No PID file found at '{}'. "
 			     "Is the daemon running?", fname);
 
 	pid_file >> pid;
 	pid_file.close();
 
 	if (pid <= 0)
-		throw Except("Invalid PID in PID file: {}", pid);
+		throw tus::Except("Invalid PID in PID file: {}", pid);
 
 	// Send SIGTERM to daemon
 	if (kill(pid, SIGTERM) < 0) {
@@ -180,7 +180,7 @@ pidfile_stop_daemon(const std::string &fname)
 			unlink(fname.c_str());
 			return;
 		}
-		throw Except("Failed to stop daemon (PID {}): {}",
+		throw tus::Except("Failed to stop daemon (PID {}): {}",
 			     pid, strerror(errno));
 	}
 
@@ -198,7 +198,7 @@ pidfile_stop_daemon(const std::string &fname)
 		if (errno == ESRCH)
 			return; // Process already stopped
 
-		throw Except("Failed to kill daemon (PID {}): {}",
+		throw tus::Except("Failed to kill daemon (PID {}): {}",
 			     pid, strerror(errno));
 	}
 
@@ -212,5 +212,5 @@ pidfile_stop_daemon(const std::string &fname)
 	}
 
 	// If we get here, something is seriously wrong
-	throw Except("Failed to stop daemon (PID {}) even with SIGKILL", pid);
+	throw tus::Except("Failed to stop daemon (PID {}) even with SIGKILL", pid);
 }

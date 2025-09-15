@@ -33,11 +33,13 @@
 #include <sstream>
 #include <string>
 #include <stdexcept>
-#include <system_error>
 #include <utility>
 
 #include <boost/system/system_error.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/system/linux_error.hpp>
+
+namespace tus {
 
 /*
  * ------------------------------------------------------------------------
@@ -48,12 +50,6 @@ enum class Err : int {
 	// Clickhouse error.
 	DB_SRV_FATAL,
 };
-
-namespace std {
-	template<>
-	struct is_error_code_enum<Err> : true_type
-	{};
-}
 
 class ErrorCategory : public std::error_category {
 public:
@@ -67,7 +63,7 @@ public:
 	message(int e) const override
 	{
 		switch (static_cast<Err>(e)) {
-			case Err::DB_SRV_FATAL:
+		case Err::DB_SRV_FATAL:
 			return "Database unrecoverable server error";
 		default:
 			return "Unknown error";
@@ -115,7 +111,8 @@ protected:
 		auto ec = sys::error_code(errno, sys::system_category());
 		if (ec) {
 			std::stringstream ss;
-			ss << " (" << ec.message() << ", errno=" << ec.value() << ")";
+			ss << " (" << ec.message()
+			   << ", errno=" << ec.value() << ")";
 			msg += ss.str();
 		}
 
@@ -132,8 +129,8 @@ public:
 	~Except() override =default;
 
 	Except(fmt::format_string<Args...> fmt, Args&&... args,
-	       const std::source_location &loc = std::source_location::current())
-		noexcept
+	       const std::source_location &loc =
+			std::source_location::current()) noexcept
 		: Exception(format_loc(fmt, std::forward<Args>(args)..., loc))
 	{}
 
@@ -142,11 +139,12 @@ private:
 	format_loc(fmt::format_string<Args...> fmt, Args&&... args,
 		   const std::source_location &loc) noexcept
 	{
-		std::string s(fmt::format("{} (at {}:{} in {})",
-					  fmt::format(fmt,
-						      std::forward<Args>(args)...),
-					  loc.file_name(), loc.line(),
-					  loc.function_name()));
+		std::string s(
+			fmt::format(
+				"{} (at {}:{} in {})",
+				fmt::format(fmt, std::forward<Args>(args)...),
+				loc.file_name(), loc.line(),
+				loc.function_name()));
 
 		return format_syserr(s);
 	}
@@ -154,3 +152,11 @@ private:
 
 template <typename... Args>
 Except(fmt::format_string<Args...>, Args&&...) -> Except<Args...>;
+
+} // tus namespace
+
+namespace std {
+	template<>
+	struct is_error_code_enum<tus::Err> : true_type
+	{};
+}
