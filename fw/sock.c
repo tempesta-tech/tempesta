@@ -1489,7 +1489,7 @@ ss_bind(struct sock *sk, const TfwAddr *addr)
 	WARN_ON_ONCE(sk->sk_type != SOCK_STREAM);
 
 	return inet6_bind(&sock, tfw_addr_sa((TfwAddr *)addr),
-	                  tfw_addr_sa_len((TfwAddr *)addr));
+			  tfw_addr_sa_len((TfwAddr *)addr));
 }
 EXPORT_SYMBOL(ss_bind);
 
