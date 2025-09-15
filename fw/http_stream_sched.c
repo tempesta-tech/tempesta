@@ -236,7 +236,7 @@ tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
  * stream both from the tree. It is a caller responsibility
  * to add stream again to the scheduler if it is necessary.
  */
-void
+static void
 tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched->parent;
@@ -280,12 +280,36 @@ tfw_h2_stream_sched_has_children(TfwStreamSchedEntry *entry)
 	return !list_empty(&entry->active) || !list_empty(&entry->blocked);
 }
 
-static inline void
-tfw_h2_stream_sched_move_child(TfwStreamSched *sched, TfwStream *child,
-			       TfwStreamSchedEntry *parent)
+static void
+tfw_h2_stream_sched_enqueue(TfwStreamSched *sched, TfwStream *stream,
+			    TfwStreamSchedEntry *parent)
 {
-	tfw_h2_stream_sched_remove(sched, child);
-	tfw_h2_sched_stream_enqueue(sched, child, parent);
+	tfw_h2_stream_sched_spin_lock_assert(sched);
+
+	parent->total_weight += stream->weight;
+	stream->sched->parent = parent;
+
+	/*
+	 * This function should be called only for new created streams or
+	 * streams which were previously removed from the scheduler.
+	 */
+	BUG_ON(!list_empty(&stream->sched_node));
+
+	if (tfw_h2_stream_is_active(stream)
+	    || stream->sched->active_cnt)
+		tfw_h2_stream_sched_insert_active(stream);
+	else
+		tfw_h2_stream_sched_insert_blocked(stream);
+
+	tfw_h2_stream_sched_propagate_add_active_cnt(sched, stream);
+}
+
+void
+tfw_h2_stream_sched_reinsert(TfwStreamSched *sched, TfwStream *stream,
+			     TfwStreamSchedEntry *parent)
+{
+	tfw_h2_stream_sched_remove(sched, stream);
+	tfw_h2_stream_sched_enqueue(sched, stream, parent);
 }
 
 /**
@@ -305,7 +329,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		       " depends from stream with id %d, ctx %px\n",
 	       	       stream->id, excl, SCHED_PARENT_STREAM(sched, dep),
 	       	       ctx);
-		tfw_h2_sched_stream_enqueue(sched, stream, dep);
+		tfw_h2_stream_sched_enqueue(sched, stream, dep);
 		return;
 	}
 
@@ -328,7 +352,7 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		       " (id %u) of stream with id (%u) to the new exclusively"
 		       " added strean with id (%u), ctx %px\n", child->id,
 		       SCHED_PARENT_STREAM(sched, dep), stream->id, ctx);
-		tfw_h2_stream_sched_move_child(sched, child, stream->sched);
+		tfw_h2_stream_sched_reinsert(sched, child, stream->sched);
 	}
 
 	while (!list_empty(&dep->active)) {
@@ -338,11 +362,11 @@ tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 		       " (id %u) of stream with id (%u) to the new exclusively"
 		       " added strean with id (%u), ctx %px\n", child->id,
 		       SCHED_PARENT_STREAM(sched, dep), stream->id, ctx);
-		tfw_h2_stream_sched_move_child(sched, child, stream->sched);
+		tfw_h2_stream_sched_reinsert(sched, child, stream->sched);
 	}
 
 	BUG_ON(tfw_h2_stream_sched_has_children(dep));
-	tfw_h2_sched_stream_enqueue(sched, stream, dep);
+	tfw_h2_stream_sched_enqueue(sched, stream, dep);
 }
 
 static void
@@ -380,7 +404,7 @@ tfw_h2_stream_sched_move_children(TfwStreamSched *sched, TfwStream *stream,
 		       " tree, move its child (id %u) to the new parent stream"
 		       " with id (%u), ctx %px\n", stream->id, child->id,
 		       SCHED_PARENT_STREAM(sched, parent), ctx);
-		tfw_h2_stream_sched_move_child(sched, child, parent);
+		tfw_h2_stream_sched_reinsert(sched, child, parent);
 	}
 }
 
@@ -511,30 +535,6 @@ tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 		tfw_h2_add_stream_dep(sched, stream, new_parent, excl);
 	}
 
-}
-
-void
-tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
-			    TfwStreamSchedEntry *parent)
-{
-	tfw_h2_stream_sched_spin_lock_assert(sched);
-
-	parent->total_weight += stream->weight;
-	stream->sched->parent = parent;
-
-	/*
-	 * This function should be called only for new created streams or
-	 * streams which were previously removed from the scheduler.
-	 */
-	BUG_ON(!list_empty(&stream->sched_node));
-
-	if (tfw_h2_stream_is_active(stream)
-	    || stream->sched->active_cnt)
-		tfw_h2_stream_sched_insert_active(stream);
-	else
-		tfw_h2_stream_sched_insert_blocked(stream);
-
-	tfw_h2_stream_sched_propagate_add_active_cnt(sched, stream);
 }
 
 TfwStream *

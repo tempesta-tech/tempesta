@@ -178,7 +178,6 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 {
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
-	unsigned long snd_wnd;
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -201,9 +200,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	if (!h2)
 		return 0;
 
-	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
-
-	r = tfw_h2_make_frames(sk, h2, snd_wnd);
+	r = tfw_h2_make_frames(sk, h2, mss_now);
 	if (unlikely(r < 0))
 		return r;
 
