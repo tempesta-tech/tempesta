@@ -22,6 +22,8 @@
 
 #include <string>
 
+namespace tus {
+
 /**
  * Check if daemon is already running by examining PID file.
  *
@@ -58,3 +60,5 @@ pidfile_remove(const std::string &fname, int fd);
  */
 void
 pidfile_stop_daemon(const std::string &fname);
+
+} // tus namespace

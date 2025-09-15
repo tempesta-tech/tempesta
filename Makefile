@@ -167,6 +167,7 @@ ifndef AVX2
 endif
 	$(MAKE) -C tls/t generate_tables
 	$(MAKE) -C db
+	$(MAKE) -C libtus
 	$(MAKE) -C logger
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
 

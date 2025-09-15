@@ -25,9 +25,9 @@
 #include <thread>
 
 #include "../fw/mmap_buffer.h"
+#include "../libtus/error.hh"
 
 #include "clickhouse.hh"
-#include "error.hh"
 
 /**
  * Tempesta user space ring buffer reader
@@ -56,7 +56,7 @@
  */
 class TfwMmapBufferReader {
 public:
-	using ProcessEventsFn = std::function<Error<size_t> (std::span<const char>)>;
+	using ProcessEventsFn = std::function<tus::Error<size_t> (std::span<const char>)>;
 
 	TfwMmapBufferReader(const unsigned int ncpu, const int fd,
 			    TfwClickhouse &db, ProcessEventsFn proc_ev);
@@ -74,5 +74,5 @@ private:
 	TfwClickhouse	&db_;
 
 	void init_buffer_size(const int fd);
-	Error<bool> read() noexcept;
+	tus::Error<bool> read() noexcept;
 };
