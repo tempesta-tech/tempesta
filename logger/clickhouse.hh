@@ -65,17 +65,30 @@ public:
 
 	~TfwClickhouse();
 
-	ch::Block &get_block() noexcept;
+	void append_timestamp(uint64_t timestamp) noexcept;
+
+	template <typename ColType, typename ValType>
+	void append_int(TfwBinLogFields field, ValType value) noexcept;
+
+	void append_string(TfwBinLogFields field, std::string_view value) noexcept;
+	void append_empty_string(TfwBinLogFields field) noexcept;
+
 	[[nodiscard]] bool commit(bool force = false) noexcept;
 	bool handle_block_error() noexcept;
+
+private:
+	constexpr size_t
+	field_to_column_index(TfwBinLogFields field) const noexcept {
+		return static_cast<size_t>(field) + 1;
+	}
+
+	void make_block();
 
 private:
 	std::unique_ptr<ch::Client>	client_;
 	ch::Block			block_;
 	const std::string		table_name_;
 	const size_t			max_events_;
-
-	void make_block();
 };
 
 std::shared_ptr<ch::Column>
