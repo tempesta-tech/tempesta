@@ -24,6 +24,7 @@
  */
 #include <iostream>
 #include <string_view>
+#include <netinet/in.h>
 
 #include <fmt/format.h>
 
@@ -94,6 +95,33 @@ TfwClickhouse::make_block()
 	block_.Reserve(max_events_ * 2);
 }
 
+void
+TfwClickhouse::append_timestamp(uint64_t timestamp)
+{
+	block_[0]->As<ch::ColumnDateTime64>()->Append(timestamp);
+}
+
+template <typename ColType, typename ValType>
+void
+TfwClickhouse::append_int(TfwBinLogFields field, ValType value)
+{
+	const size_t col_index = field_to_column_index(field);
+	block_[col_index]->As<ColType>()->Append(value);
+}
+
+void
+TfwClickhouse::append_string(TfwBinLogFields field, std::string_view value)
+{
+	const size_t col_index = field_to_column_index(field);
+	block_[col_index]->As<ch::ColumnString>()->Append(std::string(value));
+}
+
+void
+TfwClickhouse::append_empty_string(TfwBinLogFields field)
+{
+	append_string(field, std::string_view{});
+}
+
 bool
 TfwClickhouse::handle_block_error() noexcept
 {
@@ -108,8 +136,8 @@ TfwClickhouse::handle_block_error() noexcept
 }
 
 TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
-	: table_name_(config.table_name),
-	  max_events_(config.max_events)
+	: table_name_(config.table_name)
+	, max_events_(config.max_events)
 {
 	auto opts = ch::ClientOptions();
 
@@ -134,12 +162,6 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
 TfwClickhouse::~TfwClickhouse()
 {
 	handle_block_error();
-}
-
-ch::Block &
-TfwClickhouse::get_block() noexcept
-{
-	return block_;
 }
 
 [[nodiscard]] bool
@@ -195,3 +217,19 @@ tfw_column_factory(ch::Type::Code code)
 		throw std::runtime_error("Column factory: incorrect code");
 	}
 }
+
+template void
+TfwClickhouse::append_int<ch::ColumnUInt8, unsigned char>(TfwBinLogFields,
+							  unsigned char) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnUInt16, uint16_t>(TfwBinLogFields,
+						      uint16_t) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnUInt32, uint32_t>(TfwBinLogFields,
+						      uint32_t) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnUInt64, uint64_t>(TfwBinLogFields,
+						      uint64_t) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnIPv6, in6_addr>(TfwBinLogFields,
+						    in6_addr) noexcept;
