@@ -86,7 +86,7 @@ static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 		[TFW_MMAP_LOG_METHOD] = 1,
 		[TFW_MMAP_LOG_VERSION] = 1,
 		[TFW_MMAP_LOG_STATUS] = 2,
-		[TFW_MMAP_LOG_RESP_CONT_LEN] = 4,
+		[TFW_MMAP_LOG_RESP_CONT_LEN] = 8,
 		[TFW_MMAP_LOG_RESP_TIME] = 4,
 		[TFW_MMAP_LOG_VHOST] = 0, /* 0 - string */
 		[TFW_MMAP_LOG_URI] = 0,

@@ -284,7 +284,7 @@ no_buffer_space:
 
 static void
 do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
-		       u32 resp_content_length)
+		       u64 resp_content_length)
 {
 	u64 *dropped = this_cpu_ptr(&mmap_log_dropped);
 	TfwBinLogEvent *event;
@@ -336,7 +336,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	WRITE_FIELD(req->version);
 	WRITE_FIELD(resp_status);
 	WRITE_FIELD(resp_content_length);
-	resp_time = (jiffies - req->jrxtstamp) * 1000 / HZ;
+	resp_time = jiffies_to_msecs(jiffies - req->jrxtstamp);
 	WRITE_FIELD(resp_time);
 
 #define ACCES_LOG_MAX_STR_LEN 65535UL
@@ -551,10 +551,11 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status, unsigned long resp_con
 }
 
 void
-do_access_log_req(TfwHttpReq *req, int resp_status, unsigned long resp_content_length)
+do_access_log_req(TfwHttpReq *req, int resp_status,
+		  unsigned long resp_content_length)
 {
 	if (access_log_type & ACCESS_LOG_MMAP)
-		do_access_log_req_mmap(req, (u16)resp_status, (u32)resp_content_length);
+		do_access_log_req_mmap(req, (u16)resp_status, resp_content_length);
 
 	if (access_log_type & ACCESS_LOG_DMESG)
 		do_access_log_req_dmesg(req, resp_status, resp_content_length);

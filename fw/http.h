@@ -274,6 +274,7 @@ typedef struct {
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @content_length	- the value of Content-Length header field;
+ * @jrxtstamp		- time the message has been received, in jiffies;
  * @flags		- message related flags. The flags are tested
  *			  concurrently, but concurrent updates aren't
  *			  allowed. Use atomic operations if concurrent
@@ -302,6 +303,7 @@ typedef struct {
 	unsigned char	version;					\
 	unsigned int	keep_alive;					\
 	unsigned long	content_length;					\
+	unsigned long	jrxtstamp;					\
 	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
@@ -362,7 +364,6 @@ typedef struct {
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
  * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
- * @jrxtstamp	- time the request is received from a client, in jiffies;
  * @tm_header	- time HTTP header started coming. Only rx path;
  * @stale_ce_age - calculated age of stale response. Must be assigned only when
  *		  "cache_use_stale" is configured on tx path with cache;
@@ -398,7 +399,6 @@ struct tfw_http_req_t {
 	struct list_head	fwd_list;
 	struct list_head	nip_list;
 	unsigned long		jtxtstamp;
-	unsigned long		jrxtstamp;
 	union {
 		unsigned long		tm_header;
 		long			stale_ce_age;
@@ -472,7 +472,6 @@ typedef struct {
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
  *
- * @jrxtstamp	    - time the message has been received, in jiffies;
  * @mit		    - iterator for controlling HTTP/1.1 => HTTP/2 message
  *		      transformation process (applicable for HTTP/2 mode only).
  * @no_cache_tokens - tokens for cache-control directive e.g.
@@ -492,7 +491,6 @@ struct tfw_http_resp_t {
 	unsigned short		status;
 	long			date;
 	long			last_modified;
-	unsigned long		jrxtstamp;
 	TfwHttpTransIter	mit;
 	TfwStr			no_cache_tokens;
 	TfwStr			private_tokens;

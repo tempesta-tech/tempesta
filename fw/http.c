@@ -6561,7 +6561,6 @@ next_msg:
 	 * calculations in cache, and for eviction purposes.
 	 */
 	req->cache_ctl.timestamp = tfw_current_timestamp();
-	req->jrxtstamp = jiffies;
 	/*
 	 * Bypass cache if corresponding binary flag in request set.
 	 * We need separate from cache_ctl binary flag in request
@@ -7446,6 +7445,8 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			goto err;
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
+
+		((TfwHttpMsg *)stream->msg)->jrxtstamp = jiffies;
 	}
 
 	T_DBG2("Add skb %pK to message %pK\n", skb, stream->msg);

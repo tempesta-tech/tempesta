@@ -60,7 +60,7 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_METHOD]		= {"method", clickhouse::Type::UInt8},
 	[TFW_MMAP_LOG_VERSION]		= {"version", clickhouse::Type::UInt8},
 	[TFW_MMAP_LOG_STATUS]		= {"status", clickhouse::Type::UInt16},
-	[TFW_MMAP_LOG_RESP_CONT_LEN]	= {"response_content_length", clickhouse::Type::UInt32},
+	[TFW_MMAP_LOG_RESP_CONT_LEN]	= {"response_content_length", clickhouse::Type::UInt64},
 	[TFW_MMAP_LOG_RESP_TIME]	= {"response_time", clickhouse::Type::UInt32},
 	[TFW_MMAP_LOG_VHOST]		= {"vhost", clickhouse::Type::String},
 	[TFW_MMAP_LOG_URI]		= {"uri", clickhouse::Type::String},
@@ -169,7 +169,7 @@ read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
 	READ_INT(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
 	READ_INT(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
 	READ_INT(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
-	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt32, uint32_t);
+	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN, clickhouse::ColumnUInt64, uint64_t);
 	READ_INT(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
 
 #define READ_STR(method)						\
