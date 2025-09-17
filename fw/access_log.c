@@ -257,7 +257,7 @@ no_buffer_space:
 
 static void
 do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
-		       u32 resp_content_length)
+		       u64 resp_content_length)
 {
 	u64 *dropped = this_cpu_ptr(&mmap_log_dropped);
 	TfwBinLogEvent *event;
