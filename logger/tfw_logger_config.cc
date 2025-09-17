@@ -33,7 +33,7 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	if (const auto val = tree.get_optional<std::string>("log_path"))
 		log_path = *val;
 
-	if (const auto node = tree.get_child_optional("clickhouse"))
+	if (const auto node = tree.get_child_optional("access_log"))
 		clickhouse.parse_from_ptree(*node);
 }
 

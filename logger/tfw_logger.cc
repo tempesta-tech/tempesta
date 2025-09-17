@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -32,6 +31,10 @@
 #include <vector>
 
 #include <boost/program_options.hpp>
+#include <clickhouse/base/socket.h>
+#include <clickhouse/client.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "../fw/access_log.h"
 #include "clickhouse.hh"
@@ -40,11 +43,6 @@
 #include "pidfile.hh"
 #include "tfw_logger_config.hh"
 
-#include <clickhouse/base/socket.h>
-#include <clickhouse/client.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/spdlog.h>
-
 namespace po = boost::program_options;
 
 constexpr char dev_path[] = "/dev/tempesta_mmap_log";
@@ -52,16 +50,12 @@ constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr char default_config_path[] = "/etc/tempesta/tfw_logger.json";
 constexpr char default_log_path[] = "/var/log/tempesta/tfw_logger.log";
 constexpr std::chrono::seconds wait_for_dev{1};
-constexpr std::chrono::seconds reconnect_min_timeout{1};
-constexpr std::chrono::seconds reconnect_max_timeout{16};
 
 // Global state
-std::atomic<bool> stop_flag{false};
-static thread_local bool uncritical_error;
+static std::atomic<bool> stop_flag{false};
 static TfwLoggerConfig config;
 
-namespace
-{
+namespace {
 
 /**
  * Command line options structure
@@ -80,42 +74,20 @@ struct ParsedOptions {
 	std::optional<std::string>	clickhouse_user;
 	std::optional<std::string>	clickhouse_password;
 	std::optional<size_t>		clickhouse_max_events;
-	std::optional<int>		clickhouse_max_wait_ms;
 	std::optional<fs::path>		log_path;
 };
 
-typedef struct {
-	const char *name;
-	clickhouse::Type::Code code;
-} TfwField;
-
-static const TfwField tfw_fields[] = {
-    [TFW_MMAP_LOG_ADDR] = {"address", clickhouse::Type::IPv6},
-    [TFW_MMAP_LOG_METHOD] = {"method", clickhouse::Type::UInt8},
-    [TFW_MMAP_LOG_VERSION] = {"version", clickhouse::Type::UInt8},
-    [TFW_MMAP_LOG_STATUS] = {"status", clickhouse::Type::UInt16},
-    [TFW_MMAP_LOG_RESP_CONT_LEN] = {"response_content_length",
-                                    clickhouse::Type::UInt32},
-    [TFW_MMAP_LOG_RESP_TIME] = {"response_time", clickhouse::Type::UInt32},
-    [TFW_MMAP_LOG_VHOST] = {"vhost", clickhouse::Type::String},
-    [TFW_MMAP_LOG_URI] = {"uri", clickhouse::Type::String},
-    [TFW_MMAP_LOG_REFERER] = {"referer", clickhouse::Type::String},
-    [TFW_MMAP_LOG_USER_AGENT] = {"user_agent", clickhouse::Type::String},
-    [TFW_MMAP_LOG_JA5T] = {"ja5t", clickhouse::Type::UInt64},
-    [TFW_MMAP_LOG_JA5H] = {"ja5h", clickhouse::Type::UInt64},
-    [TFW_MMAP_LOG_DROPPED] = {"dropped_events", clickhouse::Type::UInt64}};
-
 #ifdef DEBUG
 void
-dbg_hexdump(const char *data, int buflen)
+dbg_hexdump(std::span<const char> data)
 {
-	const unsigned char *buf =
-	    reinterpret_cast<const unsigned char *>(data);
+	const auto *buf = reinterpret_cast<const unsigned char *>(data.data());
+	const size_t buflen = data.size();
 	std::ostringstream oss;
-	oss << std::hex << std::setfill('0');
 
-#define PRINT_CHAR(c) (std::isprint(c) ? c : '.')
-	for (int i = 0; i < buflen; i += 16) {
+	oss << "data dump of len=" << buflen << std::endl;
+	oss << std::hex << std::setfill('0');
+	for (size_t i = 0; i < buflen; i += 16) {
 		oss << std::setw(6) << i << ": ";
 
 		for (int j = 0; j < 16; ++j)
@@ -128,166 +100,248 @@ dbg_hexdump(const char *data, int buflen)
 		for (int j = 0; j < 16; ++j) {
 			if (i + j >= buflen)
 				break;
-			oss << static_cast<char>(PRINT_CHAR(buf[i + j]));
+			const char c = buf[i + j];
+			oss << static_cast<char>(std::isprint(c) ? c : '.');
 		}
 		oss << std::endl;
 	}
-	oss << std::dec << "len = " << buflen << std::endl;
 	spdlog::info("{}", oss.str());
-#undef PRINT_CHAR
 }
 #else
 void
-dbg_hexdump([[maybe_unused]] const char *data, [[maybe_unused]] int buflen)
+dbg_hexdump([[maybe_unused]] std::span<const char> data)
 {
 }
 #endif /* DEBUG */
 
+/**
+ * TODO #2399, #182 (escudo xFW).
+ *
+ * The 4 functions below must be moved to a Tempesta FW
+ * specific plugin, most likely to a new class(es)
+ * There will be similar functions (class API) for the security events logging.
+ *
+ * The classes should inherit the same interface, e.g.
+ *
+ *	class IEventProcessor {
+ *	public:
+ *		Error<bool> consume_event();
+ *		void make_background_work();
+ *		[[nodiscard]] bool flush(bool force = false) noexcept;
+ *	};
+ *
+ * Also replace const char *&p with std::string_view
+ */
+template <typename ColType, typename ValType>
 void
-log_error(std::string msg, bool to_spdlog, bool unhandled)
+read_int(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&p,
+	 size_t &size)
 {
-	if (unhandled)
-		msg = "Unhandled error: " + msg;
+	const int bi = ind + 1; // We store timestamp at index 0
 
-	if (to_spdlog)
-		spdlog::error(msg);
-	else
-		std::cerr << msg << std::endl;
-}
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
+		const size_t len = tfw_mmap_log_field_len(ind);
 
-clickhouse::Block
-make_block()
-{
-	unsigned int i;
-	auto block = clickhouse::Block();
+		if (len > size) [[unlikely]]
+			throw Except("Incorrect integer eventent length");
 
-	auto col = std::make_shared<clickhouse::ColumnDateTime64>(3);
-	block.AppendColumn("timestamp", col);
+		const ValType *val = reinterpret_cast<const ValType *>(p);
+		block[bi]->As<ColType>()->Append(*val);
 
-	for (i = TFW_MMAP_LOG_ADDR; i < TFW_MMAP_LOG_MAX; ++i) {
-		const TfwField *field = &tfw_fields[i];
-		auto col = tfw_column_factory(field->code);
-		block.AppendColumn(field->name, col);
+		p += len;
+		size -= len;
+	} else {
+		block[bi]->As<ColType>()->Append(0);
 	}
-
-	return block;
 }
 
-int
-read_access_log_event(const char *data, int size, TfwClickhouse *clickhouse)
+void
+read_str(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&p,
+	 size_t &size)
 {
-	auto block = clickhouse->get_block();
-	const char *p = data;
+	const int bi = ind + 1; // We store timestamp at index 0
+
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
+		constexpr int len_size = sizeof(uint16_t);
+
+		if (size < len_size) [[unlikely]]
+			throw Except("Too short string event");
+
+		const size_t len = *reinterpret_cast<const uint16_t *>(p);
+		p += len_size;
+		size -= len_size;
+		if (len > size) [[unlikely]]
+			throw Except("Incorrect string event length");
+
+		block[bi]->As<ch::ColumnString>()->Append(std::string(p, len));
+		p += len;
+		size -= len;
+	} else {
+		block[bi]->As<ch::ColumnString>()->Append(std::string(""));
+	}
+}
+
+/**
+ * TODO #2399, #182 (escudo xFW):
+ *
+ * ch::Block &block = db.get_block() is an ugly access to TfwClickhouse
+ * internals and basically all event processors will operate wiht the same
+ * types of columns, so move the block writting logic to TfwClickhouse:
+ *
+ *	template <typename ColType, typename ValType>
+ *	void write_int(size_t index, ValType val) {
+ *		block_[index]->As<ColType>()->Append(val);
+ *	}
+ *
+ * 	void write_string(size_t index, std::string_view sv) {
+ * 		block_[index]->As<ch::ColumnString>()->Append(std::string(sv));
+ * 	}
+ *
+ * 	void write_empty_string(size_t index) {
+ * 		block_[index]->As<ch::ColumnString>()->Append(std::string(""));
+ * 	}
+ */
+size_t
+read_access_log_event(TfwClickhouse &db, std::span<const char> data)
+{
+	ch::Block &block = db.get_block();
+	auto size = data.size();
+	const char *p = data.data();
 	const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
-	int len, ind;
 
 	p += sizeof(TfwBinLogEvent);
 	size -= sizeof(TfwBinLogEvent);
 
-	(*block)[0]->As<clickhouse::ColumnDateTime64>()->Append(
-	    event->timestamp);
+	block[0]->As<ch::ColumnDateTime64>()->Append(event->timestamp);
 
-#define READ_INT(method, col_type, val_type)                                   \
-	ind = method + 1; /* column 0 is timestamp */                          \
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
-		len = tfw_mmap_log_field_len(                                  \
-		    static_cast<TfwBinLogFields>(method));                     \
-		if (len > size) [[unlikely]]                                   \
-			goto error;                                            \
-		(*block)[ind]->As<col_type>()->Append(                         \
-		    *reinterpret_cast<const val_type *>(p));                   \
-		p += len;                                                      \
-		size -= len;                                                   \
-	} else                                                                 \
-		(*block)[ind]->As<col_type>()->Append(0);
+	read_int<ch::ColumnIPv6, in6_addr>(TFW_MMAP_LOG_ADDR, block, event, p,
+					   size);
+	read_int<ch::ColumnUInt8, unsigned char>(TFW_MMAP_LOG_METHOD, block,
+						 event, p, size);
+	read_int<ch::ColumnUInt8, unsigned char>(TFW_MMAP_LOG_VERSION, block,
+						 event, p, size);
+	read_int<ch::ColumnUInt16, uint16_t>(TFW_MMAP_LOG_STATUS, block, event,
+					     p, size);
+	read_int<ch::ColumnUInt32, uint64_t>(TFW_MMAP_LOG_RESP_CONT_LEN, block,
+					     event, p, size);
+	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_TIME, block,
+					     event, p, size);
 
-	READ_INT(TFW_MMAP_LOG_ADDR, clickhouse::ColumnIPv6, struct in6_addr);
-	READ_INT(TFW_MMAP_LOG_METHOD, clickhouse::ColumnUInt8, unsigned char);
-	READ_INT(TFW_MMAP_LOG_VERSION, clickhouse::ColumnUInt8, unsigned char);
-	READ_INT(TFW_MMAP_LOG_STATUS, clickhouse::ColumnUInt16, uint16_t);
-	READ_INT(TFW_MMAP_LOG_RESP_CONT_LEN,
-		 clickhouse::ColumnUInt32, uint32_t);
-	READ_INT(TFW_MMAP_LOG_RESP_TIME, clickhouse::ColumnUInt32, uint32_t);
+	read_str(TFW_MMAP_LOG_VHOST, block, event, p, size);
+	read_str(TFW_MMAP_LOG_URI, block, event, p, size);
+	read_str(TFW_MMAP_LOG_REFERER, block, event, p, size);
+	read_str(TFW_MMAP_LOG_USER_AGENT, block, event, p, size);
 
-#define READ_STR(method)                                                       \
-	ind = method + 1; /* column 0 is timestamp */                          \
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, method)) {                        \
-		len = *reinterpret_cast<const uint16_t *>(p);                  \
-		if (len > size) [[unlikely]]                                   \
-			goto error;                                            \
-		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
-		    std::string(p + 2, len));                                  \
-		len += 2;                                                      \
-		p += len;                                                      \
-		size -= len;                                                   \
-	} else                                                                 \
-		(*block)[ind]->As<clickhouse::ColumnString>()->Append(         \
-		    std::string(""));
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5T, block, event,
+					     p, size);
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5H, block, event,
+					     p, size);
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, block,
+					     event, p, size);
 
-	READ_STR(TFW_MMAP_LOG_VHOST);
-	READ_STR(TFW_MMAP_LOG_URI);
-	READ_STR(TFW_MMAP_LOG_REFERER);
-	READ_STR(TFW_MMAP_LOG_USER_AGENT);
-
-	READ_INT(TFW_MMAP_LOG_JA5T, clickhouse::ColumnUInt64, uint64_t);
-	READ_INT(TFW_MMAP_LOG_JA5H, clickhouse::ColumnUInt64, uint64_t);
-	READ_INT(TFW_MMAP_LOG_DROPPED, clickhouse::ColumnUInt64, uint64_t);
-
-	return static_cast<int>(p - data);
-error:
-	throw Except("Incorrect event length");
-#undef READ_STR
-#undef READ_INT
+	return static_cast<size_t>(p - data.data());
 }
 
-void
-callback(const char *data, int size, void *private_data)
+/**
+ * Read, process and send to ClickHouse events.
+ *
+ * We may copy from the kernel buffer more events than it was configured with
+ * max_events - this may cause dynamic memory allocations, but frees space
+ * in the kernel buffer as quickly as possible.
+ *
+ * @return the amount of data read, can be less than all available data,
+ * e.g. if ClickHouse throws and exception or some event record is broken.
+ */
+[[nodiscard]] Error<size_t>
+process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 {
-	auto *clickhouse = static_cast<TfwClickhouse *>(private_data);
-	const char *p = data;
-	int r;
+	size_t read = 0;
 
-	dbg_hexdump(data, size);
+	dbg_hexdump(data);
 
-	while (size > static_cast<int>(sizeof(TfwBinLogEvent))) {
-		const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
+	try {
+		while (data.size()) {
+			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
+				throw Except("Partial event in the access log");
 
-		switch (event->type) {
-		case TFW_MMAP_LOG_TYPE_ACCESS:
-			r = read_access_log_event(p, size, clickhouse);
-			size -= r;
-			p += r;
-			break;
-		default:
-			throw Except("Unsupported log type: {}",
-				     static_cast<unsigned int>(event->type));
+			const auto *ev
+				= reinterpret_cast<const TfwBinLogEvent *>(
+								data.data());
+
+			switch (ev->type) {
+			case TFW_MMAP_LOG_TYPE_ACCESS: {
+				const auto off = read_access_log_event(db, data);
+				data = data.subspan(off);
+				read += off;
+				break;
+			}
+			default:
+				throw Except("Unsupported event type: {}",
+					     static_cast<unsigned int>(ev->type));
+				break;
+			}
 		}
 	}
 
-	if (clickhouse->commit())
-		uncritical_error = false;
+	// In case of exception, we return 0 to fully consume it from the kernel
+	// buffer. We have to do this since here we loose the knowledge which
+	// column raised a Clickhouse exceptions, the Clickhouse API doesn't
+	// allow to rollback appended column values and in case of parsing error
+	// the whole buffer might be corrupted.
+	//
+	// These exceptions are severe, like memory allocation failure or memory
+	// corruption, so there is probably no reason to try hard to recover.
+	catch (const Exception &e) {
+		spdlog::error("Access log is corrupted, skip current buffer:"
+			      " {}", e.what());
+		if (!db.handle_block_error())
+			return error(Err::DB_SRV_FATAL);
+		return 0;
+	}
+	catch (const std::exception &e) {
+		spdlog::error("Cought a Clickhouse exception: {}."
+			      " Many events can be lost", e.what());
+		return error(Err::DB_SRV_FATAL);
+	}
+
+	assert(read);
+
+	return read;
 }
 
 void
 run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
-try {
-	static thread_local std::chrono::seconds timeout(reconnect_min_timeout);
+{
+	// The most Clickhouse API errors can be handled with simple connection
+	// reset and reconnection
+	//
+	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
+	//
+	// We start with zerro reconnection timeout. However, the database can
+	// be restarted, so we use indefinite loop with double backoff in
+	// reconnection attempts.
+	std::chrono::seconds reconnect_timeout(0);
 
 	cpu_set_t cpuset;
-	pthread_t current_thread = pthread_self();
 	bool affinity_is_set = false;
 	int r;
 
-	while (!stop_flag)
+	while (!stop_flag.load(std::memory_order_acquire))
 	try {
 		const auto &ch_cfg = config.clickhouse;
-		spdlog::debug("Worker {} connecting to ClickHouse: {}", ncpu, ch_cfg);
-		TfwClickhouse clickhouse(ch_cfg, make_block());
-		TfwMmapBufferReader mbr(ncpu, fd, &clickhouse, callback);
+		spdlog::debug("Worker {} connecting to ClickHouse: {}",
+			      ncpu, ch_cfg);
+
+		TfwClickhouse db(ch_cfg);
+		auto cb = [&db](std::span<const char> data) {
+			return process_events(db, data);
+		};
+		TfwMmapBufferReader mbr(ncpu, fd, db, std::move(cb));
+
 		if (!affinity_is_set) {
 			CPU_ZERO(&cpuset);
 			CPU_SET(mbr.get_cpu_id(), &cpuset);
-			r = pthread_setaffinity_np(current_thread,
+			r = pthread_setaffinity_np(pthread_self(),
 						   sizeof(cpu_set_t), &cpuset);
 			if (r != 0)
 				throw Except("Failed to set CPU affinity");
@@ -295,34 +349,38 @@ try {
 			spdlog::debug("Worker {} bound to CPU {}", ncpu,
 				      mbr.get_cpu_id());
 		}
-		mbr.run(&stop_flag);
-		break;
+
+		// At this moment we were able to connect to Clickhouse.
+		reconnect_timeout = std::chrono::seconds(0);
+
+		if (mbr.run(stop_flag))
+			break;
+		// ...else, reset the Clickhouse connection.
 	}
 	catch (const Exception &e) {
-		log_error(e.what(), true, false);
+		spdlog::error("Critical error: {}", e.what());
 		break;
 	}
 	catch (const std::exception &e) {
-		if (!uncritical_error) {
-			log_error(e.what(), true, true);
-			timeout = reconnect_min_timeout;
-			uncritical_error = true;
+		spdlog::error("A Clickhouse exception caught: {}."
+			      " Reset connection and reconnect in {}s.",
+			      e.what(), reconnect_timeout.count());
+		if (reconnect_timeout == std::chrono::seconds{0}) {
+			std::this_thread::sleep_for(reconnect_timeout);
+			reconnect_timeout *= 2;
+		} else {
+			reconnect_timeout = std::chrono::seconds(1);
 		}
-		std::this_thread::sleep_for(timeout);
-		if (timeout < reconnect_max_timeout)
-			timeout *= 2;
 	}
+
 	spdlog::debug("Worker {} stopped", ncpu);
-}
-catch (...) {
-	spdlog::error("Worker {}: Unexpected exception in thread function", ncpu);
 }
 
 // Signal handling
 void
 sig_handler([[maybe_unused]] int sig_num) noexcept
 {
-	stop_flag = true;
+	stop_flag.store(true, std::memory_order_release);
 }
 
 void
@@ -378,8 +436,6 @@ try {
 		 "ClickHouse password (overrides config)")
 		("max-events", po::value<size_t>(),
 		 "Maximum events before commit (overrides config)")
-		("max-wait", po::value<int>(),
-		 "Maximum wait time in ms before commit (overrides config)")
 		("log-path,l", po::value<fs::path>(),
 		 "Path to log file (overrides config)");
 
@@ -424,8 +480,6 @@ try {
 		result.clickhouse_password = vm["password"].as<std::string>();
 	if (vm.count("max-events"))
 		result.clickhouse_max_events = vm["max-events"].as<size_t>();
-	if (vm.count("max-wait"))
-		result.clickhouse_max_wait_ms = vm["max-wait"].as<int>();
 	if (vm.count("log-path"))
 		result.log_path = vm["log-path"].as<fs::path>();
 
@@ -470,9 +524,6 @@ load_configuration(const ParsedOptions &opts)
 		config.clickhouse.password = *opts.clickhouse_password;
 	if (opts.clickhouse_max_events)
 		config.clickhouse.max_events = *opts.clickhouse_max_events;
-	if (opts.clickhouse_max_wait_ms)
-		config.clickhouse.max_wait = std::chrono::milliseconds(
-			*opts.clickhouse_max_wait_ms);
 	if (opts.log_path)
 		config.log_path = *opts.log_path;
 
@@ -500,7 +551,9 @@ setup_daemon_mode(const ParsedOptions &opts)
 
 	// Daemonize if not in foreground mode
 	if (!opts.foreground) {
-		spdlog::debug("Daemonizing...");
+#ifdef DEBUG
+		std::cout << "Daemonizing..." << std::endl;
+#endif
 
 		if (daemon(0, 0) < 0)
 			throw Except("Daemonization failed");
@@ -518,7 +571,16 @@ try {
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::info);
 	logger->flush_on(spdlog::level::info);
-} catch (const spdlog::spdlog_ex &ex) {
+
+	// Set custom log pattern to include thread ID
+	// %Y-%m-%d %H:%M:%S.%e - Date and time with milliseconds
+	// %n - Logger name
+	// %l - Log level
+	// %t - Thread ID
+	// %v - Log message
+	logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] [%t] %v");
+}
+catch (const spdlog::spdlog_ex &ex) {
 	throw Except("Log initialization failed: {}", ex.what());
 }
 

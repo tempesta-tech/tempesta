@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "clickhouse_config.hh"
 
 #include <regex>
@@ -31,18 +30,17 @@ void
 validate_table_name(const std::string &table_name)
 {
 	// Check length limit (ClickHouse uses filesystem, 128 should be enough)
-	if (table_name.length() > 128) {
-		throw std::runtime_error("Table name is too long (max 128 characters): " +
-					 table_name);
-	}
+	if (table_name.length() > 128)
+		throw std::runtime_error(
+				"Table name is too long (max 128 characters): "
+				+ table_name);
 
 	// Check for allowed characters only: A-Z, a-z, 0-9, _
 	static const std::regex valid_name_regex("^[A-Za-z0-9_]+$");
-	if (!std::regex_match(table_name, valid_name_regex)) {
+	if (!std::regex_match(table_name, valid_name_regex))
 		throw std::runtime_error("Table name contains invalid characters. "
-					 "Only A-Z, a-z, 0-9, and _ are allowed: " +
-					 table_name);
-	}
+					 "Only A-Z, a-z, 0-9, and _ are allowed: "
+					 + table_name);
 }
 
 } // anonymous namespace
@@ -67,9 +65,6 @@ ClickHouseConfig::validate() const
 	if (max_events == 0)
 		throw std::runtime_error("max_events must be greater than 0");
 
-	if (max_wait < std::chrono::milliseconds::zero())
-		throw std::runtime_error("max_wait must be non-negative");
-
 	validate_table_name(table_name);
 }
 
@@ -81,10 +76,6 @@ ClickHouseConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 	db_name = tree.get<std::string>("db_name", db_name);
 	table_name = tree.get<std::string>("table_name", table_name);
 	max_events = tree.get<size_t>("max_events", max_events);
-
-	const auto max_wait_ms =
-		tree.get<int64_t>("max_wait_ms", max_wait.count());
-	max_wait = std::chrono::milliseconds(max_wait_ms);
 
 	if (const auto val = tree.get_optional<std::string>("user"))
 		user = *val;

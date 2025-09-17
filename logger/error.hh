@@ -1,7 +1,12 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Error handling - rules of thumb:
+ * 1. prefer std::expected and std::optional on the data plane to reduce
+ *    overhead and improve reliability;
+ * 2. it's OK to use exceptions on control path for easier error management.
+ *
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,14 +27,77 @@
 #include <array>
 #include <cassert>
 #include <cstdio>
+#include <expected>
 #include <fmt/format.h>
 #include <source_location>
 #include <sstream>
 #include <string>
 #include <stdexcept>
+#include <system_error>
+#include <utility>
 
 #include <boost/system/system_error.hpp>
 #include <boost/system/error_code.hpp>
+
+/*
+ * ------------------------------------------------------------------------
+ *	std::expected API for the data path
+ * ------------------------------------------------------------------------
+ */
+enum class Err : int {
+	// Clickhouse error.
+	DB_SRV_FATAL,
+};
+
+namespace std {
+	template<>
+	struct is_error_code_enum<Err> : true_type
+	{};
+}
+
+class ErrorCategory : public std::error_category {
+public:
+	const char *
+	name() const noexcept override
+	{
+		return "error";
+	}
+
+	std::string
+	message(int e) const override
+	{
+		switch (static_cast<Err>(e)) {
+			case Err::DB_SRV_FATAL:
+			return "Database unrecoverable server error";
+		default:
+			return "Unknown error";
+		}
+	}
+};
+
+const std::error_category &tfw_error_category();
+
+inline std::error_code
+make_error_code(Err e) noexcept
+{
+	return {static_cast<int>(e), tfw_error_category()};
+}
+
+[[nodiscard]] inline auto
+error(Err e) noexcept
+{
+	return std::unexpected(std::error_code(std::to_underlying(e),
+					       tfw_error_category()));
+}
+
+template <typename T>
+using Error = std::expected<T, std::error_code>;
+
+/*
+ * ------------------------------------------------------------------------
+ *	std::exception API for the control path
+ * ------------------------------------------------------------------------
+ */
 
 class Exception : public std::runtime_error {
 public:
@@ -64,7 +132,8 @@ public:
 	~Except() override =default;
 
 	Except(fmt::format_string<Args...> fmt, Args&&... args,
-	       const std::source_location &loc = std::source_location::current()) noexcept
+	       const std::source_location &loc = std::source_location::current())
+		noexcept
 		: Exception(format_loc(fmt, std::forward<Args>(args)..., loc))
 	{}
 
@@ -74,7 +143,8 @@ private:
 		   const std::source_location &loc) noexcept
 	{
 		std::string s(fmt::format("{} (at {}:{} in {})",
-					  fmt::format(fmt, std::forward<Args>(args)...),
+					  fmt::format(fmt,
+						      std::forward<Args>(args)...),
 					  loc.file_name(), loc.line(),
 					  loc.function_name()));
 

@@ -29,19 +29,27 @@ LDFLAGS += -llz4 -L $(CLICKHOUSE_BUILD_DIR)/contrib/lz4/lz4
 LDFLAGS += -labsl_int128 -L $(CLICKHOUSE_BUILD_DIR)/contrib/absl/absl
 LDFLAGS += $(shell pkgconf -libs spdlog)
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
-CXXFLAGS := -O3 -Wall -Wextra -std=c++23 -DPAGE_SIZE=$(PAGE_SIZE)
+CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
+	    -DPAGE_SIZE=$(PAGE_SIZE)
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/contrib/absl
 OBJS := $(patsubst %.cc, %.o, $(wildcard *.cc))
 TARGET := tfw_logger
 
+DEBUG ?= 0
+ifeq ($(DEBUG), 0)
+	CXXFLAGS += -O3 -DNDEBUG -s
+else
+	CXXFLAGS += -DDEBUG=1 -O0 -ggdb3
+endif
+
 all:
 	$(MAKE) clickhouse
 	$(MAKE) $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CXX) -O3 -s -Wall -Wextra -std=c++23 -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@

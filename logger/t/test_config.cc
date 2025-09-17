@@ -68,7 +68,6 @@ TEST_F(ConfigTest, DefaultValues)
 	EXPECT_EQ(ch.db_name, "default");
 	EXPECT_EQ(ch.table_name, "access_log");
 	EXPECT_EQ(ch.max_events, 1000);
-	EXPECT_EQ(ch.max_wait.count(), 100);
 	EXPECT_FALSE(ch.user.has_value());
 	EXPECT_FALSE(ch.password.has_value());
 }
@@ -78,15 +77,14 @@ TEST_F(ConfigTest, LoadValidConfig)
 	auto config_path = temp_dir / "valid.json";
 	write_config(config_path, R"({
 		"log_path": "/var/log/test.log",
-		"clickhouse": {
+		"access_log": {
 			"host": "test.host.com",
 			"port": 9001,
 			"db_name": "test_db",
 			"table_name": "test_logs",
 			"user": "testuser",
 			"password": "testpass",
-			"max_events": 500,
-			"max_wait_ms": 200
+			"max_events": 500
 		}
 	})");
 
@@ -104,14 +102,13 @@ TEST_F(ConfigTest, LoadValidConfig)
 	EXPECT_EQ(ch.user.value(), "testuser");
 	EXPECT_EQ(ch.password.value(), "testpass");
 	EXPECT_EQ(ch.max_events, 500);
-	EXPECT_EQ(ch.max_wait.count(), 200);
 }
 
 TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 {
 	auto config_path = temp_dir / "minimal.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "minimal.host.com"
 		}
 	})");
@@ -147,7 +144,7 @@ TEST_F(ConfigTest, ValidationEmptyHost)
 {
 	auto config_path = temp_dir / "empty_host.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": ""
 		}
 	})");
@@ -161,7 +158,7 @@ TEST_F(ConfigTest, ValidationInvalidPort)
 {
 	auto config_path = temp_dir / "invalid_port.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com",
 			"port": 0
 		}
@@ -176,7 +173,7 @@ TEST_F(ConfigTest, ValidationEmptyTableName)
 {
 	auto config_path = temp_dir / "empty_table.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com",
 			"table_name": ""
 		}
@@ -191,7 +188,7 @@ TEST_F(ConfigTest, ValidationEmptyDbName)
 {
 	auto config_path = temp_dir / "empty_db_name.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com",
 			"db_name": ""
 		}
@@ -206,24 +203,9 @@ TEST_F(ConfigTest, ValidationZeroMaxEvents)
 {
 	auto config_path = temp_dir / "zero_events.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com",
 			"max_events": 0
-		}
-	})");
-
-	auto config = TfwLoggerConfig::load_from_file(config_path);
-	ASSERT_TRUE(config.has_value());
-	EXPECT_THROW(config->validate(), std::runtime_error);
-}
-
-TEST_F(ConfigTest, ValidationNegativeMaxWait)
-{
-	auto config_path = temp_dir / "negative_wait.json";
-	write_config(config_path, R"({
-		"clickhouse": {
-			"host": "test.com",
-			"max_wait_ms": -1
 		}
 	})");
 
@@ -274,7 +256,7 @@ TEST_F(ConfigTest, TableNameValidation_ValidNames)
 		auto config_path = temp_dir / ("valid_" + 
 			std::to_string(std::hash<std::string>{}(table_name)) + ".json");
 		write_config(config_path, R"({
-			"clickhouse": {
+			"access_log": {
 				"host": "test.com",
 				"table_name": ")" + table_name + R"("
 			}
@@ -326,7 +308,7 @@ TEST_F(ConfigTest, TableNameValidation_InvalidCharacters)
 		auto config_path = temp_dir / ("invalid_" + 
 			std::to_string(std::hash<std::string>{}(table_name)) + ".json");
 		write_config(config_path, R"({
-			"clickhouse": {
+			"access_log": {
 				"host": "test.com",
 				"table_name": ")" + table_name + R"("
 			}
@@ -346,7 +328,7 @@ TEST_F(ConfigTest, TableNameValidation_TooLong)
 	auto config_path = temp_dir / "too_long.json";
 	std::string long_name(129, 'a'); // 129 characters - too long
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com",
 			"table_name": ")" + long_name + R"("
 		}
@@ -362,7 +344,7 @@ TEST_F(ConfigTest, TableNameValidation_EmptyName)
 {
 	auto config_path = temp_dir / "empty_name.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com",
 			"table_name": ""
 		}
@@ -379,7 +361,7 @@ TEST_F(ConfigTest, TableNameValidation_DefaultNameValidation)
 	// Test that default table name passes validation
 	auto config_path = temp_dir / "default_table.json";
 	write_config(config_path, R"({
-		"clickhouse": {
+		"access_log": {
 			"host": "test.com"
 		}
 	})");
