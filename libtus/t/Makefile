@@ -20,20 +20,20 @@ CXX := g++
 CXXFLAGS := -std=c++23 -Wall -Wextra -g -O0
 CXXFLAGS += -I/usr/include
 CXXFLAGS += $(shell pkgconf --cflags spdlog)
-CXXFLAGS += -I.. -I../..
+CXXFLAGS += -I.. -I../.. -I../../libtus
 
 LDFLAGS := -lgtest -lgtest_main -L/usr/lib/x86_64-linux-gnu
 LDFLAGS += $(shell pkgconf --libs spdlog)
 LDFLAGS += -lboost_filesystem -lboost_system
 LDFLAGS += -pthread
 
-PARENT_SRCS := ../tfw_logger_config.cc ../clickhouse_config.cc
+PARENT_SRCS := ../pidfile.cc
 PARENT_OBJS := $(PARENT_SRCS:.cc=.o)
 
-TEST_SRCS := test_config.cc
+TEST_SRCS := test_pidfile.cc
 TEST_OBJS := $(TEST_SRCS:.cc=.o)
 
-TARGET := tfw_logger_tests
+TARGET := tfw_libtus_tests
 
 all: $(TARGET)
 

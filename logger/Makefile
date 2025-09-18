@@ -16,6 +16,9 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+PREFIX ?= /opt/tempesta_escudo
+BINDIR ?= ${PREFIX}/bin
+
 CLICKHOUSE_DIR := clickhouse-cpp
 CLICKHOUSE_BUILD_DIR := $(CLICKHOUSE_DIR)/build
 CLICKHOUSE_REPO_URL := https://github.com/ClickHouse/clickhouse-cpp.git
@@ -27,6 +30,7 @@ LDFLAGS += -lcityhash -L $(CLICKHOUSE_BUILD_DIR)/contrib/cityhash/cityhash
 LDFLAGS += -lzstdstatic -L $(CLICKHOUSE_BUILD_DIR)/contrib/zstd/zstd
 LDFLAGS += -llz4 -L $(CLICKHOUSE_BUILD_DIR)/contrib/lz4/lz4
 LDFLAGS += -labsl_int128 -L $(CLICKHOUSE_BUILD_DIR)/contrib/absl/absl
+LDFLAGS += -ltus -L ../libtus -Wl,-rpath,'$$ORIGIN/../lib:$$ORIGIN/../libtus'
 LDFLAGS += $(shell pkgconf -libs spdlog)
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
@@ -34,6 +38,7 @@ CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/contrib/absl
+CXXFLAGS += -I ../libtus
 OBJS := $(patsubst %.cc, %.o, $(wildcard *.cc))
 TARGET := tfw_logger
 
@@ -76,5 +81,10 @@ sanitize: $(OBJS)
 tfw_logger_sanitize:
 	$(MAKE) clickhouse
 	$(MAKE) sanitize
+
+
+install:
+	@install -d -m 755 ${BINDIR}
+	install -m 755 $(TARGET) $(BINDIR)
 
 .PHONY: all clean clickhouse clickhouse_install clickhouse_clean sanitize tfw_logger_sanitize

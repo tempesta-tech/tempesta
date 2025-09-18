@@ -134,11 +134,9 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
  */
 template <typename ColType, typename ValType>
 void
-read_int(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&p,
-	 size_t &size)
+read_int(TfwBinLogFields ind, TfwClickhouse &db,
+	 const auto *event, const char *&p, size_t &size)
 {
-	const int bi = ind + 1; // We store timestamp at index 0
-
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
 		const size_t len = tfw_mmap_log_field_len(ind);
 
@@ -146,21 +144,19 @@ read_int(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&
 			throw Except("Incorrect integer eventent length");
 
 		const ValType *val = reinterpret_cast<const ValType *>(p);
-		block[bi]->As<ColType>()->Append(*val);
+		db.append_int<ColType, ValType>(ind, *val);
 
 		p += len;
 		size -= len;
 	} else {
-		block[bi]->As<ColType>()->Append(0);
+		db.append_int<ColType, ValType>(ind, ValType{});
 	}
 }
 
 void
-read_str(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&p,
-	 size_t &size)
+read_str(TfwBinLogFields ind, TfwClickhouse &db,
+	 const auto *event, const char *&p, size_t &size)
 {
-	const int bi = ind + 1; // We store timestamp at index 0
-
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
 		constexpr int len_size = sizeof(uint16_t);
 
@@ -173,38 +169,18 @@ read_str(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&
 		if (len > size) [[unlikely]]
 			throw Except("Incorrect string event length");
 
-		block[bi]->As<ch::ColumnString>()->Append(std::string(p, len));
+		db.append_string(ind, std::string_view(p, len));
+
 		p += len;
 		size -= len;
 	} else {
-		block[bi]->As<ch::ColumnString>()->Append(std::string(""));
+		db.append_empty_string(ind);
 	}
 }
 
-/**
- * TODO #2399, #182 (escudo xFW):
- *
- * ch::Block &block = db.get_block() is an ugly access to TfwClickhouse
- * internals and basically all event processors will operate wiht the same
- * types of columns, so move the block writting logic to TfwClickhouse:
- *
- *	template <typename ColType, typename ValType>
- *	void write_int(size_t index, ValType val) {
- *		block_[index]->As<ColType>()->Append(val);
- *	}
- *
- * 	void write_string(size_t index, std::string_view sv) {
- * 		block_[index]->As<ch::ColumnString>()->Append(std::string(sv));
- * 	}
- *
- * 	void write_empty_string(size_t index) {
- * 		block_[index]->As<ch::ColumnString>()->Append(std::string(""));
- * 	}
- */
 size_t
 read_access_log_event(TfwClickhouse &db, std::span<const char> data)
 {
-	ch::Block &block = db.get_block();
 	auto size = data.size();
 	const char *p = data.data();
 	const auto *event = reinterpret_cast<const TfwBinLogEvent *>(p);
@@ -212,31 +188,31 @@ read_access_log_event(TfwClickhouse &db, std::span<const char> data)
 	p += sizeof(TfwBinLogEvent);
 	size -= sizeof(TfwBinLogEvent);
 
-	block[0]->As<ch::ColumnDateTime64>()->Append(event->timestamp);
+	db.append_timestamp(event->timestamp);
 
-	read_int<ch::ColumnIPv6, in6_addr>(TFW_MMAP_LOG_ADDR, block, event, p,
+	read_int<ch::ColumnIPv6, in6_addr>(TFW_MMAP_LOG_ADDR, db, event, p,
 					   size);
-	read_int<ch::ColumnUInt8, unsigned char>(TFW_MMAP_LOG_METHOD, block,
+	read_int<ch::ColumnUInt8, unsigned char>(TFW_MMAP_LOG_METHOD, db,
 						 event, p, size);
-	read_int<ch::ColumnUInt8, unsigned char>(TFW_MMAP_LOG_VERSION, block,
+	read_int<ch::ColumnUInt8, unsigned char>(TFW_MMAP_LOG_VERSION, db,
 						 event, p, size);
-	read_int<ch::ColumnUInt16, uint16_t>(TFW_MMAP_LOG_STATUS, block, event,
+	read_int<ch::ColumnUInt16, uint16_t>(TFW_MMAP_LOG_STATUS, db, event,
 					     p, size);
-	read_int<ch::ColumnUInt32, uint64_t>(TFW_MMAP_LOG_RESP_CONT_LEN, block,
+	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_CONT_LEN, db,
 					     event, p, size);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_TIME, block,
+	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_TIME, db,
 					     event, p, size);
 
-	read_str(TFW_MMAP_LOG_VHOST, block, event, p, size);
-	read_str(TFW_MMAP_LOG_URI, block, event, p, size);
-	read_str(TFW_MMAP_LOG_REFERER, block, event, p, size);
-	read_str(TFW_MMAP_LOG_USER_AGENT, block, event, p, size);
+	read_str(TFW_MMAP_LOG_VHOST, db, event, p, size);
+	read_str(TFW_MMAP_LOG_URI, db, event, p, size);
+	read_str(TFW_MMAP_LOG_REFERER, db, event, p, size);
+	read_str(TFW_MMAP_LOG_USER_AGENT, db, event, p, size);
 
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5T, block, event,
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5T, db, event,
 					     p, size);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5H, block, event,
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5H, db, event,
 					     p, size);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, block,
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, db,
 					     event, p, size);
 
 	return static_cast<size_t>(p - data.data());

@@ -1,12 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Error handling - rules of thumb:
- * 1. prefer std::expected and std::optional on the data plane to reduce
- *    overhead and improve reliability;
- * 2. it's OK to use exceptions on control path for easier error management.
- *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -33,11 +28,11 @@
 #include <sstream>
 #include <string>
 #include <stdexcept>
-#include <system_error>
 #include <utility>
 
 #include <boost/system/system_error.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/system/linux_error.hpp>
 
 /*
  * ------------------------------------------------------------------------
@@ -67,7 +62,7 @@ public:
 	message(int e) const override
 	{
 		switch (static_cast<Err>(e)) {
-			case Err::DB_SRV_FATAL:
+		case Err::DB_SRV_FATAL:
 			return "Database unrecoverable server error";
 		default:
 			return "Unknown error";
@@ -105,6 +100,12 @@ public:
 		: std::runtime_error(format_syserr(s))
 	{}
 
+	void
+	print(char *buf, size_t len)
+	{
+		snprintf(buf, len, "%s", what());
+	}
+
 protected:
 	// Add system error code (errno).
 	static std::string
@@ -115,7 +116,8 @@ protected:
 		auto ec = sys::error_code(errno, sys::system_category());
 		if (ec) {
 			std::stringstream ss;
-			ss << " (" << ec.message() << ", errno=" << ec.value() << ")";
+			ss << " (" << ec.message()
+			   << ", errno=" << ec.value() << ")";
 			msg += ss.str();
 		}
 
@@ -132,8 +134,8 @@ public:
 	~Except() override =default;
 
 	Except(fmt::format_string<Args...> fmt, Args&&... args,
-	       const std::source_location &loc = std::source_location::current())
-		noexcept
+	       const std::source_location &loc =
+			std::source_location::current()) noexcept
 		: Exception(format_loc(fmt, std::forward<Args>(args)..., loc))
 	{}
 
@@ -142,11 +144,12 @@ private:
 	format_loc(fmt::format_string<Args...> fmt, Args&&... args,
 		   const std::source_location &loc) noexcept
 	{
-		std::string s(fmt::format("{} (at {}:{} in {})",
-					  fmt::format(fmt,
-						      std::forward<Args>(args)...),
-					  loc.file_name(), loc.line(),
-					  loc.function_name()));
+		std::string s(
+			fmt::format(
+				"{} (at {}:{} in {})",
+				fmt::format(fmt, std::forward<Args>(args)...),
+				loc.file_name(), loc.line(),
+				loc.function_name()));
 
 		return format_syserr(s);
 	}
@@ -154,3 +157,18 @@ private:
 
 template <typename... Args>
 Except(fmt::format_string<Args...>, Args&&...) -> Except<Args...>;
+
+/*
+ * ------------------------------------------------------------------------
+ *	helpers
+ * ------------------------------------------------------------------------
+ */
+
+template<typename... Args>
+inline void verify(bool cond, const char* msg, Args&&... args)
+{
+	if (!cond) {
+		throw std::runtime_error(fmt::format(fmt::runtime(msg),
+			std::forward<Args>(args)...));
+	}
+}

@@ -24,8 +24,8 @@
 #include <filesystem>
 #include <fstream>
 
-#include "../error.hh"
-#include "../pidfile.hh"
+#include "error.hh"
+#include "pidfile.hh"
 
 #include <gtest/gtest.h>
 #include <sys/wait.h>
