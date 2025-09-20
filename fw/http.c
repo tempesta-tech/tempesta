@@ -2836,6 +2836,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 		TFW_INC_STAT_BH(serv.rx_messages);
 	}
 
+	hm->jrxtstamp = jiffies;
+
 	return (TfwMsg *)hm;
 clean:
 	tfw_http_conn_msg_free(hm);
@@ -6913,7 +6915,6 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * for age calculations, and for APM and Load Balancing.
 	 */
 	hmresp->cache_ctl.timestamp = timestamp;
-	resp->jrxtstamp = jiffies;
 	/*
 	 * If 'Date:' header is missing in the response, then
 	 * set the date to the time the response was received.
@@ -7445,8 +7446,6 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			goto err;
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
-
-		((TfwHttpMsg *)stream->msg)->jrxtstamp = jiffies;
 	}
 
 	T_DBG2("Add skb %pK to message %pK\n", skb, stream->msg);
