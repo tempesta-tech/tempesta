@@ -45,6 +45,7 @@
 
 namespace po = boost::program_options;
 
+static constexpr int TFW_PLUGIN_COMPATIBLE_VERSION = 1;
 constexpr char dev_path[] = "/dev/tempesta_mmap_log";
 constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr char default_config_path[] = "/etc/tempesta/tfw_logger.json";
@@ -114,164 +115,6 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
 }
 #endif /* DEBUG */
 
-/**
- * TODO #2399, #182 (escudo xFW).
- *
- * The 4 functions below must be moved to a Tempesta FW
- * specific plugin, most likely to a new class(es)
- * There will be similar functions (class API) for the security events logging.
- *
- * The classes should inherit the same interface, e.g.
- *
- *	class IEventProcessor {
- *	public:
- *		Error<bool> consume_event();
- *		void make_background_work();
- *		[[nodiscard]] bool flush(bool force = false) noexcept;
- *	};
- *
- * Also replace const char *&p with std::string_view
- */
-template <typename ColType, typename ValType>
-void
-read_int(TfwBinLogFields ind, TfwClickhouse &db,
-	 const auto *event, std::span<const char> &data)
-{
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
-		const size_t len = tfw_mmap_log_field_len(ind);
-
-		if (data.size() < len) [[unlikely]]
-			throw tus::Except("Incorrect integer eventent length");
-
-		const ValType *val =
-			reinterpret_cast<const ValType *>(data.size());
-		db.append_int<ColType, ValType>(ind, *val);
-
-		data = data.subspan(len);
-	} else {
-		db.append_int<ColType, ValType>(ind, ValType{});
-	}
-}
-
-void
-read_str(TfwBinLogFields ind, TfwClickhouse &db,
-	 const auto *event, std::span<const char> &data)
-{
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
-		constexpr int len_size = sizeof(uint16_t);
-
-		if (data.size() < len_size) [[unlikely]]
-			throw tus::Except("Too short string event");
-
-		const size_t len =
-			*reinterpret_cast<const uint16_t *>(data.data());
-		if (data.size() < len_size + len) [[unlikely]]
-			throw tus::Except("Incorrect string event length");
-
-		std::string_view str(data.data() + len_size, len);
-		db.append_string(ind, str);
-
-		data = data.subspan(len_size + len);
-	} else {
-		db.append_empty_string(ind);
-	}
-}
-
-size_t
-read_access_log_event(TfwClickhouse &db, std::span<const char> data)
-{
-	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
-
-	data = data.subspan(sizeof(TfwBinLogEvent));
-
-	db.append_timestamp(ev->timestamp);
-
-	read_int<ch::ColumnIPv6, in6_addr>(TFW_MMAP_LOG_ADDR, db, ev, data);
-	read_int<ch::ColumnUInt8, uint8_t>(TFW_MMAP_LOG_METHOD, db, ev, data);
-	read_int<ch::ColumnUInt8, uint8_t>(TFW_MMAP_LOG_VERSION, db, ev, data);
-	read_int<ch::ColumnUInt16, uint16_t>(TFW_MMAP_LOG_STATUS, db, ev, data);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_CONT_LEN, db, ev, data);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_TIME, db, ev, data);
-
-	read_str(TFW_MMAP_LOG_VHOST, db, ev, data);
-	read_str(TFW_MMAP_LOG_URI, db, ev, data);
-	read_str(TFW_MMAP_LOG_REFERER, db, ev, data);
-	read_str(TFW_MMAP_LOG_USER_AGENT, db, ev, data);
-
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5T, db, ev, data);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5H, db, ev, data);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, db, ev, data);
-
-	return data.data() - reinterpret_cast<const char*>(ev);
-}
-
-/**
- * Read, process and send to ClickHouse events.
- *
- * We may copy from the kernel buffer more events than it was configured with
- * max_events - this may cause dynamic memory allocations, but frees space
- * in the kernel buffer as quickly as possible.
- *
- * @return the amount of data read, can be less than all available data,
- * e.g. if ClickHouse throws and exception or some event record is broken.
- */
-[[nodiscard]] tus::Error<size_t>
-process_events(TfwClickhouse &db, std::span<const char> data) noexcept
-{
-	size_t read = 0;
-
-	dbg_hexdump(data);
-
-	try {
-		while (data.size()) {
-			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
-				throw tus::Except("Partial event in the access log");
-
-			const auto *ev
-				= reinterpret_cast<const TfwBinLogEvent *>(
-								data.data());
-
-			switch (ev->type) {
-			case TFW_MMAP_LOG_TYPE_ACCESS: {
-				const auto off = read_access_log_event(db, data);
-				data = data.subspan(off);
-				read += off;
-				break;
-			}
-			default:
-				throw tus::Except("Unsupported event type: {}",
-					     static_cast<unsigned int>(ev->type));
-				break;
-			}
-		}
-	}
-
-	// In case of exception, we return 0 to fully consume it from the kernel
-	// buffer. We have to do this since here we loose the knowledge which
-	// column raised a Clickhouse exceptions, the Clickhouse API doesn't
-	// allow to rollback appended column values and in case of parsing error
-	// the whole buffer might be corrupted.
-	//
-	// These exceptions are severe, like memory allocation failure or memory
-	// corruption, so there is probably no reason to try hard to recover.
-	catch (const tus::Exception &e) {
-		spdlog::error("Access log is corrupted, skip current buffer:"
-			      " {}", e.what());
-		if (!db.handle_block_error())
-			return tus::error(tus::Err::DB_SRV_FATAL);
-		return 0;
-	}
-	catch (const std::exception &e) {
-		spdlog::error("Cought a Clickhouse exception: {}."
-			      " Many events can be lost", e.what());
-		return tus::error(tus::Err::DB_SRV_FATAL);
-	}
-
-	assert(read);
-
-	return read;
-}
-
 void
 run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
 {
@@ -280,7 +123,7 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
 	//
 	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
 	//
-	// We start with zerro reconnection timeout. However, the database can
+	// We start with zero reconnection timeout. However, the database can
 	// be restarted, so we use indefinite loop with double backoff in
 	// reconnection attempts.
 	std::chrono::seconds reconnect_timeout(0);
@@ -291,7 +134,8 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
 
 	while (!stop_flag.load(std::memory_order_acquire))
 	try {
-		const auto &ch_cfg = config.clickhouse;
+		const auto &mmap_cfg = config.clickhouse_mmap;
+		const auto &mmap_cfg = config.clickhouse_xfw;
 		spdlog::debug("Worker {} connecting to ClickHouse: {}",
 			      ncpu, ch_cfg);
 
@@ -547,33 +391,19 @@ catch (const spdlog::spdlog_ex &ex) {
 	throw tus::Except("Log initialization failed: {}", ex.what());
 }
 
-int
-open_mmap_device()
+void
+spdlog_vlog(spdlog::level::level_enum level, const char* format, va_list args)
 {
-	int fd;
+	assert(format);
 
-	spdlog::info("Opening device: {}", dev_path);
+	std::shared_ptr<spdlog::logger> logger = spdlog::default_logger();
+	fmt::format_args fmt_args = fmt::basic_format_args(args);
 
-	// Try to open the device with retries
-	while ((fd = open(dev_path, O_RDWR)) == -1) {
-		if (stop_flag.load(std::memory_order_acquire)) {
-			spdlog::info("Stop flag set, exiting device open loop");
-			return -1;
-		}
-
-		if (errno != ENOENT)
-			throw tus::Except("Cannot open device {}", dev_path);
-
-		spdlog::debug("Device {} not found, retrying...", dev_path);
-		std::this_thread::sleep_for(wait_for_dev);
-	}
-
-	spdlog::info("Successfully opened device: {}", dev_path);
-	return fd;
+	logger->log(level, fmt::string_view(format), fmt_args);
 }
 
 void
-run_main_loop(int fd)
+run_main_loop()
 {
 	/*
 	 * Use sysconf() instead of std::thread::hardware_concurrency() because
@@ -602,19 +432,62 @@ run_main_loop(int fd)
 	}
 }
 
-void
-cleanup_resources(int fd, int pidfile_fd)
-{
-	if (fd >= 0) {
-		close(fd);
-		spdlog::info("Device closed");
+class PluginManager {
+public:
+	PluginManager() = default;
+
+	bool load_plugin(const std::string& plugin_path) {
+		handle_ = dlopen(plugin_path.c_str(),
+				 RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND);
+		if (!handle_) {
+			spdlog::error("Cannot load plugin '{}': {}",
+				      plugin_path, dlerror());
+			return false;
+		}
 	}
 
-	if (pidfile_fd >= 0) {
-		tus::pidfile_remove(pid_file_path, pidfile_fd);
-		spdlog::info("PID file removed");
+		auto get_api_func =
+			(TfwLoggerPluginApiFunc)dlsym(handle_,
+						      "tfw_logger_plugin_get_api");
+		if (!get_api_func) {
+			spdlog::error("Plugin '{}' does not export api function",
+				      plugin_path);
+			return false;
+		}
+
+		api_ = get_api_func();
+		if (!api_) {
+			spdlog::error("Plugin '{}' returned invalid api",
+				      plugin_path);
+			return false;
+		}
+
+		if (api_->version != TFW_PLUGIN_COMPATIBLE_VERSION) {
+			spdlog::error("Plugin '{}' version: expected {}, got {}",
+				      plugin_path, TFW_PLUGIN_COMPATIBLE_VERSION,
+				      api_->version);
+			return false;
+		}
+
+		spdlog::info("Loaded plugin: {}", api_->name);
+		return true;
 	}
-}
+
+	TfwLoggerPluginApi* get_api() { return api_; }
+	const char* get_name() { return api_ ? api_->name : "unknown"; }
+
+	~PluginManager() {
+		if (api_ && api_->done)
+			api_->done();
+
+		if (handle_)
+			dlclose(handle_);
+	}
+
+private:
+	void			*handle_ = nullptr;
+	TfwLoggerPluginApi	*api_ = nullptr;
+};
 
 } // anonymous namespace
 
@@ -667,18 +540,18 @@ try {
 	// Setup signal handlers for graceful shutdown
 	setup_signal_handlers();
 
-	// Open mmap device
-	fd = open_mmap_device();
-	if (fd < 0)
-		throw tus::Except("Failed to open device");
-
 	spdlog::info("Daemon started");
 
 	// Run main processing loop
-	run_main_loop(fd);
+	run_main_loop();
 
 	spdlog::info("Tempesta FW Logger stopped");
-	cleanup_resources(fd, pidfile_fd);
+
+	if (pidfile_fd >= 0) {
+		tus::pidfile_remove(pid_file_path, pidfile_fd);
+		spdlog::info("PID file removed");
+	}
+
 	return 0;
 } catch (const tus::Exception &e) {
 	if (spdlog::default_logger())
@@ -693,3 +566,43 @@ try {
 		std::cerr << "Unhandled error: " << e.what() << std::endl;
 	return 2;
 }
+
+/*
+ * Exporting logging routings from main for using in plugins instead of
+ * homegrown plugin only logging routings.
+ */
+extern "C" {
+
+__attribute__((visibility("default")))
+void plugin_log_debug(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::debug, format, args);
+	va_end(args);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_info(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::info, format, args);
+	va_end(args);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_warn(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::warn, format, args);
+	va_end(args);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_error(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::error, format, args);
+	va_end(args);
+}
+
+} // extern "C"
