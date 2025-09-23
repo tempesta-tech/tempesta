@@ -45,17 +45,18 @@
 
 namespace po = boost::program_options;
 
+namespace {
+
 constexpr char dev_path[] = "/dev/tempesta_mmap_log";
 constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr char default_config_path[] = "/etc/tempesta/tfw_logger.json";
 constexpr char default_log_path[] = "/var/log/tempesta/tfw_logger.log";
 constexpr std::chrono::seconds wait_for_dev{1};
 
-// Global state
-static std::atomic<bool> stop_flag{false};
-static TfwLoggerConfig config;
-
-namespace {
+std::atomic<bool> stop_flag{false};
+TfwLoggerConfig config;
+std::optional<Plugin> mmap_plugin;
+std::optional<Plugin> xfw_plugin;
 
 /**
  * Command line options structure
@@ -114,227 +115,141 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
 }
 #endif /* DEBUG */
 
-/**
- * TODO #2399, #182 (escudo xFW).
- *
- * The 4 functions below must be moved to a Tempesta FW
- * specific plugin, most likely to a new class(es)
- * There will be similar functions (class API) for the security events logging.
- *
- * The classes should inherit the same interface, e.g.
- *
- *	class IEventProcessor {
- *	public:
- *		Error<bool> consume_event();
- *		void make_background_work();
- *		[[nodiscard]] bool flush(bool force = false) noexcept;
- *	};
- *
- * Also replace const char *&p with std::string_view
- */
-template <typename ColType, typename ValType>
+// All processors must be non-null
 void
-read_int(TfwBinLogFields ind, TfwClickhouse &db,
-	 const auto *event, std::span<const char> &data)
+inner_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 {
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
-		const size_t len = tfw_mmap_log_field_len(ind);
+	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
+	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
+	// get up to 1000 records during the delay in the buffer, which is fine
+	// with our defaults.
+	//
+	// TODO #2442: this can be improved with true kernel sleep like perf does
+	// on it's events ring buffer.
+	//
+	// It is hard to balance all the factors. For small events, e.g. produced
+	// with basic load generator, Clickhouse behave the best with batches of
+	// size 100k (about several megabytes of raw data). However, these large
+	// batches introduce higher delays on commit(), so we starting to get
+	// dropped events. We need to increase mmap_log_buffer_size. Next, we
+	// can have quite a different number of worker threads, so Clickhouse
+	// may knee under such a load. I made a basic performance test and with
+	// the current POLL_N I saw relatively low number of force commits.
+	constexpr size_t POLL_N = 10;
+	constexpr std::chrono::milliseconds delay(1);
 
-		if (data.size() < len) [[unlikely]]
-			throw tus::Except("Incorrect integer eventent length");
+	// TODO #2399: this must be split.
+	//
+	// The function must be using a unified RB API, e.g. an
+	// abstract class for all ring buffers. Any ring buffer may annonce stop
+	// and we have to stop operation on it and only on it and vise versa.
+	//
+	// All the ring buffers must be called in a loop.
+	//
+	// TfwClickhouse keeps Block and Client instances, so it should be unique
+	// per an event type (access, security, and xFW).
+	//
+	// All the clickhouses must be flushed on a loop.
+	for (size_t tries = 0; ; ) {
+		bool stop_requested = false;
+		for (const auto& processor : processors) {
+			if ( processor.stop_requested())
+				stop_requested = true;
+			if (stop_flag.load(std::memory_order_acquire)) [[unlikely]]
+				// Notify the processor that the daemong is done
+				// now no new events will be pushed to the buffer
+				// and we can process the rest of the events.
+				processor.request_stop();
+		}
 
-		const ValType *val =
-			reinterpret_cast<const ValType *>(data.size());
-		db.append_int<ColType, ValType>(ind, *val);
-
-		data = data.subspan(len);
-	} else {
-		db.append_int<ColType, ValType>(ind, ValType{});
-	}
-}
-
-void
-read_str(TfwBinLogFields ind, TfwClickhouse &db,
-	 const auto *event, std::span<const char> &data)
-{
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
-		constexpr int len_size = sizeof(uint16_t);
-
-		if (data.size() < len_size) [[unlikely]]
-			throw tus::Except("Too short string event");
-
-		const size_t len =
-			*reinterpret_cast<const uint16_t *>(data.data());
-		if (data.size() < len_size + len) [[unlikely]]
-			throw tus::Except("Incorrect string event length");
-
-		std::string_view str(data.data() + len_size, len);
-		db.append_string(ind, str);
-
-		data = data.subspan(len_size + len);
-	} else {
-		db.append_empty_string(ind);
-	}
-}
-
-size_t
-read_access_log_event(TfwClickhouse &db, std::span<const char> data)
-{
-	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
-
-	data = data.subspan(sizeof(TfwBinLogEvent));
-
-	db.append_timestamp(ev->timestamp);
-
-	read_int<ch::ColumnIPv6, in6_addr>(TFW_MMAP_LOG_ADDR, db, ev, data);
-	read_int<ch::ColumnUInt8, uint8_t>(TFW_MMAP_LOG_METHOD, db, ev, data);
-	read_int<ch::ColumnUInt8, uint8_t>(TFW_MMAP_LOG_VERSION, db, ev, data);
-	read_int<ch::ColumnUInt16, uint16_t>(TFW_MMAP_LOG_STATUS, db, ev, data);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_CONT_LEN, db, ev, data);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_TIME, db, ev, data);
-
-	read_str(TFW_MMAP_LOG_VHOST, db, ev, data);
-	read_str(TFW_MMAP_LOG_URI, db, ev, data);
-	read_str(TFW_MMAP_LOG_REFERER, db, ev, data);
-	read_str(TFW_MMAP_LOG_USER_AGENT, db, ev, data);
-
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5T, db, ev, data);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5H, db, ev, data);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, db, ev, data);
-
-	return data.data() - reinterpret_cast<const char*>(ev);
-}
-
-/**
- * Read, process and send to ClickHouse events.
- *
- * We may copy from the kernel buffer more events than it was configured with
- * max_events - this may cause dynamic memory allocations, but frees space
- * in the kernel buffer as quickly as possible.
- *
- * @return the amount of data read, can be less than all available data,
- * e.g. if ClickHouse throws and exception or some event record is broken.
- */
-[[nodiscard]] tus::Error<size_t>
-process_events(TfwClickhouse &db, std::span<const char> data) noexcept
-{
-	size_t read = 0;
-
-	dbg_hexdump(data);
-
-	try {
-		while (data.size()) {
-			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
-				throw tus::Except("Partial event in the access log");
-
-			const auto *ev
-				= reinterpret_cast<const TfwBinLogEvent *>(
-								data.data());
-
-			switch (ev->type) {
-			case TFW_MMAP_LOG_TYPE_ACCESS: {
-				const auto off = read_access_log_event(db, data);
-				data = data.subspan(off);
-				read += off;
-				break;
+		bool consumed_something = false;
+		for (const auto& processor : processors) {
+			auto result = processor->consume_event();
+			if (!result) [[unlikely]] {
+				spdlog::error("Processor {} error: {}",
+					      processor->worker_id,
+					      result.error().what());
+				continue;
 			}
-			default:
-				throw tus::Except("Unsupported event type: {}",
-					     static_cast<unsigned int>(ev->type));
-				break;
+
+			if (result.value()) {
+				consumed_something = true;
 			}
+		}
+
+		if (consumed_something) [[likely]]
+		{
+			tries = 0;
+			continue;
+		}
+
+		if (stop_requested) {
+			// The kernel notified us that we have to stop and we
+			// read all the data - propage the stop flag to the main
+			// thread loop and exit.
+			spdlog::info("Shutdown notification");
+			stop_flag.store(true, std::memory_order_release);
+			return;
+		}
+
+		if (++tries < POLL_N) {
+			// Several tries with small sleeping to let the kernel
+			// fill the buffer and not to consume CPU in vain.
+			std::this_thread::sleep_for(delay);
+		}
+		else {
+			// There were nothing to do for POLL_Nms and probably
+			// the system is just idle - good time to flush all
+			// clollected data:
+			// 1. we have no work now, so it's a good time to do
+			//    some housekeeping;
+			// 2. free resources for possible spike - we likely miss
+			//    events while we're flushing a full buffer;
+			// 3. No need to track wait time before sync explicitly -
+			//    if we have a stream of events, we flush on full
+			//    buffer, once we get a real time delay, we flush to
+			//    the database.
+			for (const auto& processor : processors)
+				processor.make_background_work()
+
+			tries = 0;
 		}
 	}
 
-	// In case of exception, we return 0 to fully consume it from the kernel
-	// buffer. We have to do this since here we loose the knowledge which
-	// column raised a Clickhouse exceptions, the Clickhouse API doesn't
-	// allow to rollback appended column values and in case of parsing error
-	// the whole buffer might be corrupted.
-	//
-	// These exceptions are severe, like memory allocation failure or memory
-	// corruption, so there is probably no reason to try hard to recover.
-	catch (const tus::Exception &e) {
-		spdlog::error("Access log is corrupted, skip current buffer:"
-			      " {}", e.what());
-		if (!db.handle_block_error())
-			return tus::error(tus::Err::DB_SRV_FATAL);
-		return 0;
-	}
-	catch (const std::exception &e) {
-		spdlog::error("Cought a Clickhouse exception: {}."
-			      " Many events can be lost", e.what());
-		return tus::error(tus::Err::DB_SRV_FATAL);
-	}
-
-	assert(read);
-
-	return read;
+	std::unreachable();
 }
 
 void
-run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
+run_thread(const unsigned ncpu) noexcept
 {
-	// The most Clickhouse API errors can be handled with simple connection
-	// reset and reconnection
-	//
-	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
-	//
-	// We start with zerro reconnection timeout. However, the database can
-	// be restarted, so we use indefinite loop with double backoff in
-	// reconnection attempts.
-	std::chrono::seconds reconnect_timeout(0);
-
 	cpu_set_t cpuset;
-	bool affinity_is_set = false;
 	int r;
+	unsigned cpu_id = ncpu;
 
-	while (!stop_flag.load(std::memory_order_acquire))
-	try {
-		const auto &ch_cfg = config.clickhouse;
-		spdlog::debug("Worker {} connecting to ClickHouse: {}",
-			      ncpu, ch_cfg);
+	std::vector<EventProcessorPtr> processors;
 
-		TfwClickhouse db(ch_cfg);
-		auto cb = [&db](std::span<const char> data) {
-			return process_events(db, data);
-		};
-		TfwMmapBufferReader mbr(ncpu, fd, db, std::move(cb));
-
-		if (!affinity_is_set) {
-			CPU_ZERO(&cpuset);
-			CPU_SET(mbr.get_cpu_id(), &cpuset);
-			r = pthread_setaffinity_np(pthread_self(),
-						   sizeof(cpu_set_t), &cpuset);
-			if (r != 0)
-				throw tus::Except("Failed to set CPU affinity");
-			affinity_is_set = true;
-			spdlog::debug("Worker {} bound to CPU {}", ncpu,
-				      mbr.get_cpu_id());
-		}
-
-		// At this moment we were able to connect to Clickhouse.
-		reconnect_timeout = std::chrono::seconds(0);
-
-		if (mbr.run(stop_flag))
-			break;
-		// ...else, reset the Clickhouse connection.
+	if (mmap_plugin) {
+		auto processor = mmap_plugin.create_processor(ncpu);
+		cpu_id = processor->get_cpu_id();
+		if (processor)
+			processors.emplace_back(std::move(processor));
 	}
-	catch (const tus::Exception &e) {
-		spdlog::error("Critical error: {}", e.what());
-		break;
+
+	if (xfw_plugin) {
+		auto processor = xfw_plugin.create_processor(ncpu);
+		if (processor)
+			processors.emplace_back(std::move(processor));
 	}
-	catch (const std::exception &e) {
-		spdlog::error("A Clickhouse exception caught: {}."
-			      " Reset connection and reconnect in {}s.",
-			      e.what(), reconnect_timeout.count());
-		if (reconnect_timeout == std::chrono::seconds{0}) {
-			std::this_thread::sleep_for(reconnect_timeout);
-			reconnect_timeout *= 2;
-		} else {
-			reconnect_timeout = std::chrono::seconds(1);
-		}
-	}
+
+	CPU_ZERO(&cpuset);
+	CPU_SET(cpu_id, &cpuset);
+	r = pthread_setaffinity_np(pthread_self(),
+				   sizeof(cpu_set_t), &cpuset);
+	if (r != 0)
+		throw tus::Except("Failed to set CPU affinity");
+	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
+
+	inner_loop(processors);
 
 	spdlog::debug("Worker {} stopped", ncpu);
 }
@@ -547,34 +462,42 @@ catch (const spdlog::spdlog_ex &ex) {
 	throw tus::Except("Log initialization failed: {}", ex.what());
 }
 
-int
-open_mmap_device()
+void
+spdlog_vlog(spdlog::level::level_enum level, const char* format, va_list args)
 {
-	int fd;
+	assert(format);
 
-	spdlog::info("Opening device: {}", dev_path);
+	std::shared_ptr<spdlog::logger> logger = spdlog::default_logger();
+	fmt::format_args fmt_args = fmt::basic_format_args(args);
 
-	// Try to open the device with retries
-	while ((fd = open(dev_path, O_RDWR)) == -1) {
-		if (stop_flag.load(std::memory_order_acquire)) {
-			spdlog::info("Stop flag set, exiting device open loop");
-			return -1;
-		}
-
-		if (errno != ENOENT)
-			throw tus::Except("Cannot open device {}", dev_path);
-
-		spdlog::debug("Device {} not found, retrying...", dev_path);
-		std::this_thread::sleep_for(wait_for_dev);
-	}
-
-	spdlog::info("Successfully opened device: {}", dev_path);
-	return fd;
+	logger->log(level, fmt::string_view(format), fmt_args);
 }
 
 void
-run_main_loop(int fd)
+run_main_loop()
 {
+	try {
+		if (config.clickhouse_mmap.has_value()) {
+			std::string plugin_path = config.access_log_plugin_path.value_or("./libmmap_plugin.so");
+			mmap_plugin.emplace(plugin_path, config.clickhouse_mmap);
+			spdlog::info("Loaded mmap plugin from: {}", plugin_path);
+		}
+
+		if (config.clickhouse_xfw.has_value()) {
+			std::string plugin_path = config.xfw_events_plugin_path.value_or("./libxfw_plugin.so");
+			xfw_plugin.emplace(plugin_path, config.clickhouse_xfw);
+			spdlog::info("Loaded xfw plugin from: {}", plugin_path);
+		}
+
+		if (!mmap_plugin && !xfw_plugin) {
+			spdlog::error("No plugins configured");
+			return;
+		}
+	} catch (const std::exception& e) {
+		spdlog::error("Failed to initialize plugins: {}", e.what());
+		return;
+	}
+
 	/*
 	 * Use sysconf() instead of std::thread::hardware_concurrency() because
 	 * it respects process CPU affinity, cgroups, and container limits,
@@ -591,28 +514,13 @@ run_main_loop(int fd)
 	// Start worker threads
 	std::vector<std::thread> threads;
 	for (size_t i = 0; i < cpu_count; ++i)
-		threads.emplace_back(run_thread, static_cast<int>(i), fd,
-							 std::ref(config));
+		threads.emplace_back(run_thread, static_cast<unsigned>(i));
 
 	spdlog::info("All {} worker threads started", cpu_count);
 
 	for (auto &t : threads) {
 		if (t.joinable())
 			t.join();
-	}
-}
-
-void
-cleanup_resources(int fd, int pidfile_fd)
-{
-	if (fd >= 0) {
-		close(fd);
-		spdlog::info("Device closed");
-	}
-
-	if (pidfile_fd >= 0) {
-		tus::pidfile_remove(pid_file_path, pidfile_fd);
-		spdlog::info("PID file removed");
 	}
 }
 
@@ -667,18 +575,18 @@ try {
 	// Setup signal handlers for graceful shutdown
 	setup_signal_handlers();
 
-	// Open mmap device
-	fd = open_mmap_device();
-	if (fd < 0)
-		throw tus::Except("Failed to open device");
-
 	spdlog::info("Daemon started");
 
 	// Run main processing loop
-	run_main_loop(fd);
+	run_main_loop();
 
 	spdlog::info("Tempesta FW Logger stopped");
-	cleanup_resources(fd, pidfile_fd);
+
+	if (pidfile_fd >= 0) {
+		tus::pidfile_remove(pid_file_path, pidfile_fd);
+		spdlog::info("PID file removed");
+	}
+
 	return 0;
 } catch (const tus::Exception &e) {
 	if (spdlog::default_logger())
@@ -693,3 +601,43 @@ try {
 		std::cerr << "Unhandled error: " << e.what() << std::endl;
 	return 2;
 }
+
+/*
+ * Exporting logging routings from main for using in plugins instead of
+ * homegrown plugin only logging routings.
+ */
+extern "C" {
+
+__attribute__((visibility("default")))
+void plugin_log_debug(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::debug, format, args);
+	va_end(args);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_info(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::info, format, args);
+	va_end(args);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_warn(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::warn, format, args);
+	va_end(args);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_error(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+	spdlog_vlog(spdlog::level::error, format, args);
+	va_end(args);
+}
+
+} // extern "C"
