@@ -17,32 +17,40 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <boost/property_tree/ptree_fwd.hpp>
+#define TFW_PLUGIN_VERSION 1
 
-#include "clickhouse_config.hh"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-namespace fs = std::filesystem;
+void plugin_log_debug(const char* msg);
+void plugin_log_info(const char* msg);
+void plugin_log_warn(const char* msg);
+void plugin_log_error(const char* msg);
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<std::string> access_log_plugin_path;
-	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
+struct ClickHouseConfig;
+typedef struct ClickHouseConfig ClickHouseConfig;
 
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
+typedef struct TfwLoggerConfig TfwLoggerConfig;
+typedef struct {
+	int 		version;
+	const char 	*name;
+	int   (*init)(const ClickHouseConfig *config, void *stop_flag);
+	void  (*done)(void);
+	void* (*create_processor)(unsigned processor_id);
+	void  (*destroy_processor)(void *processor);
+} TfwLoggerPluginApi;
 
-	void
-	validate() const;
+typedef TfwLoggerPluginApi* (*TfwLoggerPluginGetApiFunc)(void);
 
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
-};
+TfwLoggerPluginApi *get_plugin_api();
+
+#ifdef __cplusplus
+}
+#endif
+

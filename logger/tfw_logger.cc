@@ -40,10 +40,14 @@
 #include "../libtus/pidfile.hh"
 #include "../libtus/error.hh"
 #include "clickhouse.hh"
-#include "mmap_buffer.hh"
+#include "plugin.hh"
+#include "event_processor.hh"
 #include "tfw_logger_config.hh"
+#include "mmap_processor.hh"
 
 namespace po = boost::program_options;
+
+namespace {
 
 constexpr char dev_path[] = "/dev/tempesta_mmap_log";
 constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
@@ -51,11 +55,10 @@ constexpr char default_config_path[] = "/etc/tempesta/tfw_logger.json";
 constexpr char default_log_path[] = "/var/log/tempesta/tfw_logger.log";
 constexpr std::chrono::seconds wait_for_dev{1};
 
-// Global state
-static std::atomic<bool> stop_flag{false};
-static TfwLoggerConfig config;
-
-namespace {
+std::atomic<bool> stop_flag{false};
+TfwLoggerConfig config;
+std::optional<Plugin> mmap_plugin;
+std::optional<Plugin> xfw_plugin;
 
 /**
  * Command line options structure
@@ -67,274 +70,165 @@ struct ParsedOptions {
 	bool				test_config = false;
 
 	std::optional<fs::path>		config_path;
-	std::optional<std::string>	clickhouse_host;
-	std::optional<uint16_t>		clickhouse_port;
-	std::optional<std::string>	clickhouse_db_name;
-	std::optional<std::string>	clickhouse_table;
-	std::optional<std::string>	clickhouse_user;
-	std::optional<std::string>	clickhouse_password;
-	std::optional<size_t>		clickhouse_max_events;
+
+	std::optional<std::string>	mmap_clickhouse_host;
+	std::optional<uint16_t>		mmap_clickhouse_port;
+	std::optional<std::string>	mmap_clickhouse_db_name;
+	std::optional<std::string>	mmap_clickhouse_table;
+	std::optional<std::string>	mmap_clickhouse_user;
+	std::optional<std::string>	mmap_clickhouse_password;
+	std::optional<size_t>		mmap_clickhouse_max_events;
+
+	std::optional<std::string>	xfw_clickhouse_host;
+	std::optional<uint16_t>		xfw_clickhouse_port;
+	std::optional<std::string>	xfw_clickhouse_db_name;
+	std::optional<std::string>	xfw_clickhouse_table;
+	std::optional<std::string>	xfw_clickhouse_user;
+	std::optional<std::string>	xfw_clickhouse_password;
+	std::optional<size_t>		xfw_clickhouse_max_events;
+
 	std::optional<fs::path>		log_path;
 };
 
-#ifdef DEBUG
+// All processors must be non-null
 void
-dbg_hexdump(std::span<const char> data)
+inner_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 {
-	const auto *buf = reinterpret_cast<const unsigned char *>(data.data());
-	const size_t buflen = data.size();
-	std::ostringstream oss;
+	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
+	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
+	// get up to 1000 records during the delay in the buffer, which is fine
+	// with our defaults.
+	//
+	// TODO #2442: this can be improved with true kernel sleep like perf does
+	// on it's events ring buffer.
+	//
+	// It is hard to balance all the factors. For small events, e.g. produced
+	// with basic load generator, Clickhouse behave the best with batches of
+	// size 100k (about several megabytes of raw data). However, these large
+	// batches introduce higher delays on commit(), so we starting to get
+	// dropped events. We need to increase mmap_log_buffer_size. Next, we
+	// can have quite a different number of worker threads, so Clickhouse
+	// may knee under such a load. I made a basic performance test and with
+	// the current POLL_N I saw relatively low number of force commits.
+	constexpr size_t POLL_N = 10;
+	constexpr std::chrono::milliseconds delay(1);
 
-	oss << "data dump of len=" << buflen << std::endl;
-	oss << std::hex << std::setfill('0');
-	for (size_t i = 0; i < buflen; i += 16) {
-		oss << std::setw(6) << i << ": ";
-
-		for (int j = 0; j < 16; ++j)
-			if (i + j < buflen)
-				oss << std::setw(2)
-				    << static_cast<unsigned>(buf[i + j]) << " ";
-			else
-				oss << "   ";
-		oss << " ";
-		for (int j = 0; j < 16; ++j) {
-			if (i + j >= buflen)
-				break;
-			const char c = buf[i + j];
-			oss << static_cast<char>(std::isprint(c) ? c : '.');
+	// TODO #2399: this must be split.
+	//
+	// The function must be using a unified RB API, e.g. an
+	// abstract class for all ring buffers. Any ring buffer may annonce stop
+	// and we have to stop operation on it and only on it and vise versa.
+	//
+	// All the ring buffers must be called in a loop.
+	//
+	// TfwClickhouse keeps Block and Client instances, so it should be unique
+	// per an event type (access, security, and xFW).
+	//
+	// All the clickhouses must be flushed on a loop.
+	for (size_t tries = 0; ; ) {
+		bool stop_requested = false;
+		for (const auto& processor : processors) {
+			if (processor->stop_requested())
+				stop_requested = true;
+			if (stop_flag.load(std::memory_order_acquire)) [[unlikely]]
+				// Notify the processor that the daemong is done
+				// now no new events will be pushed to the buffer
+				// and we can process the rest of the events.
+				processor->request_stop();
 		}
-		oss << std::endl;
-	}
-	spdlog::info("{}", oss.str());
-}
-#else
-void
-dbg_hexdump([[maybe_unused]] std::span<const char> data)
-{
-}
-#endif /* DEBUG */
 
-/**
- * TODO #2399, #182 (escudo xFW).
- *
- * The 4 functions below must be moved to a Tempesta FW
- * specific plugin, most likely to a new class(es)
- * There will be similar functions (class API) for the security events logging.
- *
- * The classes should inherit the same interface, e.g.
- *
- *	class IEventProcessor {
- *	public:
- *		Error<bool> consume_event();
- *		void make_background_work();
- *		[[nodiscard]] bool flush(bool force = false) noexcept;
- *	};
- *
- * Also replace const char *&p with std::string_view
- */
-template <typename ColType, typename ValType>
-void
-read_int(TfwBinLogFields ind, TfwClickhouse &db,
-	 const auto *event, std::span<const char> &data)
-{
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
-		const size_t len = tfw_mmap_log_field_len(ind);
-
-		if (data.size() < len) [[unlikely]]
-			throw tus::Except("Incorrect integer eventent length");
-
-		const ValType *val =
-			reinterpret_cast<const ValType *>(data.size());
-		db.append_int<ColType, ValType>(ind, *val);
-
-		data = data.subspan(len);
-	} else {
-		db.append_int<ColType, ValType>(ind, ValType{});
-	}
-}
-
-void
-read_str(TfwBinLogFields ind, TfwClickhouse &db,
-	 const auto *event, std::span<const char> &data)
-{
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, ind)) {
-		constexpr int len_size = sizeof(uint16_t);
-
-		if (data.size() < len_size) [[unlikely]]
-			throw tus::Except("Too short string event");
-
-		const size_t len =
-			*reinterpret_cast<const uint16_t *>(data.data());
-		if (data.size() < len_size + len) [[unlikely]]
-			throw tus::Except("Incorrect string event length");
-
-		std::string_view str(data.data() + len_size, len);
-		db.append_string(ind, str);
-
-		data = data.subspan(len_size + len);
-	} else {
-		db.append_empty_string(ind);
-	}
-}
-
-size_t
-read_access_log_event(TfwClickhouse &db, std::span<const char> data)
-{
-	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
-
-	data = data.subspan(sizeof(TfwBinLogEvent));
-
-	db.append_timestamp(ev->timestamp);
-
-	read_int<ch::ColumnIPv6, in6_addr>(TFW_MMAP_LOG_ADDR, db, ev, data);
-	read_int<ch::ColumnUInt8, uint8_t>(TFW_MMAP_LOG_METHOD, db, ev, data);
-	read_int<ch::ColumnUInt8, uint8_t>(TFW_MMAP_LOG_VERSION, db, ev, data);
-	read_int<ch::ColumnUInt16, uint16_t>(TFW_MMAP_LOG_STATUS, db, ev, data);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_CONT_LEN, db, ev, data);
-	read_int<ch::ColumnUInt32, uint32_t>(TFW_MMAP_LOG_RESP_TIME, db, ev, data);
-
-	read_str(TFW_MMAP_LOG_VHOST, db, ev, data);
-	read_str(TFW_MMAP_LOG_URI, db, ev, data);
-	read_str(TFW_MMAP_LOG_REFERER, db, ev, data);
-	read_str(TFW_MMAP_LOG_USER_AGENT, db, ev, data);
-
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_TFT, db, ev, data);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_TFH, db, ev, data);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, db, ev, data);
-
-	return data.data() - reinterpret_cast<const char*>(ev);
-}
-
-/**
- * Read, process and send to ClickHouse events.
- *
- * We may copy from the kernel buffer more events than it was configured with
- * max_events - this may cause dynamic memory allocations, but frees space
- * in the kernel buffer as quickly as possible.
- *
- * @return the amount of data read, can be less than all available data,
- * e.g. if ClickHouse throws and exception or some event record is broken.
- */
-[[nodiscard]] tus::Error<size_t>
-process_events(TfwClickhouse &db, std::span<const char> data) noexcept
-{
-	size_t read = 0;
-
-	dbg_hexdump(data);
-
-	try {
-		while (data.size()) {
-			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
-				throw tus::Except("Partial event in the access log");
-
-			const auto *ev
-				= reinterpret_cast<const TfwBinLogEvent *>(
-								data.data());
-
-			switch (ev->type) {
-			case TFW_MMAP_LOG_TYPE_ACCESS: {
-				const auto off = read_access_log_event(db, data);
-				data = data.subspan(off);
-				read += off;
-				break;
+		bool consumed_something = false;
+		for (const auto& processor : processors) {
+			auto result = processor->consume_event();
+			if (!result) [[unlikely]] {
+				spdlog::error("Processor {} error: {}",
+					      processor->processor_id,
+					      result.error().message());
+				continue;
 			}
-			default:
-				throw tus::Except("Unsupported event type: {}",
-					     static_cast<unsigned int>(ev->type));
-				break;
+
+			if (result.value()) {
+				consumed_something = true;
 			}
+		}
+
+		if (consumed_something) [[likely]]
+		{
+			tries = 0;
+			continue;
+		}
+
+		if (stop_requested) {
+			// The kernel notified us that we have to stop and we
+			// read all the data - propage the stop flag to the main
+			// thread loop and exit.
+			spdlog::info("Shutdown notification");
+			stop_flag.store(true, std::memory_order_release);
+			return;
+		}
+
+		if (++tries < POLL_N) {
+			// Several tries with small sleeping to let the kernel
+			// fill the buffer and not to consume CPU in vain.
+			std::this_thread::sleep_for(delay);
+		}
+		else {
+			// There were nothing to do for POLL_Nms and probably
+			// the system is just idle - good time to flush all
+			// clollected data:
+			// 1. we have no work now, so it's a good time to do
+			//    some housekeeping;
+			// 2. free resources for possible spike - we likely miss
+			//    events while we're flushing a full buffer;
+			// 3. No need to track wait time before sync explicitly -
+			//    if we have a stream of events, we flush on full
+			//    buffer, once we get a real time delay, we flush to
+			//    the database.
+			for (const auto& processor : processors)
+				processor->make_background_work();
+
+			tries = 0;
 		}
 	}
 
-	// In case of exception, we return 0 to fully consume it from the kernel
-	// buffer. We have to do this since here we loose the knowledge which
-	// column raised a Clickhouse exceptions, the Clickhouse API doesn't
-	// allow to rollback appended column values and in case of parsing error
-	// the whole buffer might be corrupted.
-	//
-	// These exceptions are severe, like memory allocation failure or memory
-	// corruption, so there is probably no reason to try hard to recover.
-	catch (const tus::Exception &e) {
-		spdlog::error("Access log is corrupted, skip current buffer:"
-			      " {}", e.what());
-		if (!db.handle_block_error())
-			return tus::error(tus::Err::DB_SRV_FATAL);
-		return 0;
-	}
-	catch (const std::exception &e) {
-		spdlog::error("Cought a Clickhouse exception: {}."
-			      " Many events can be lost", e.what());
-		return tus::error(tus::Err::DB_SRV_FATAL);
-	}
-
-	assert(read);
-
-	return read;
+	std::unreachable();
 }
 
 void
-run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
+run_thread(const unsigned ncpu) noexcept
 {
-	// The most Clickhouse API errors can be handled with simple connection
-	// reset and reconnection
-	//
-	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
-	//
-	// We start with zerro reconnection timeout. However, the database can
-	// be restarted, so we use indefinite loop with double backoff in
-	// reconnection attempts.
-	std::chrono::seconds reconnect_timeout(0);
-
 	cpu_set_t cpuset;
-	bool affinity_is_set = false;
 	int r;
+	unsigned cpu_id = ncpu;
 
-	while (!stop_flag.load(std::memory_order_acquire))
-	try {
-		const auto &ch_cfg = config.clickhouse;
-		spdlog::debug("Worker {} connecting to ClickHouse: {}",
-			      ncpu, ch_cfg);
-
-		TfwClickhouse db(ch_cfg);
-		auto cb = [&db](std::span<const char> data) {
-			return process_events(db, data);
-		};
-		TfwMmapBufferReader mbr(ncpu, fd, db, std::move(cb));
-
-		if (!affinity_is_set) {
-			CPU_ZERO(&cpuset);
-			CPU_SET(mbr.get_cpu_id(), &cpuset);
-			r = pthread_setaffinity_np(pthread_self(),
-						   sizeof(cpu_set_t), &cpuset);
-			if (r != 0)
-				throw tus::Except("Failed to set CPU affinity");
-			affinity_is_set = true;
-			spdlog::debug("Worker {} bound to CPU {}", ncpu,
-				      mbr.get_cpu_id());
-		}
-
-		// At this moment we were able to connect to Clickhouse.
-		reconnect_timeout = std::chrono::seconds(0);
-
-		if (mbr.run(stop_flag))
-			break;
-		// ...else, reset the Clickhouse connection.
+	CPU_ZERO(&cpuset);
+	CPU_SET(cpu_id, &cpuset);
+	r = pthread_setaffinity_np(pthread_self(),
+				   sizeof(cpu_set_t), &cpuset);
+	if (r != 0) {
+		spdlog::error("Failed to set CPU affinity");
+		stop_flag.store(true, std::memory_order_release);
+		return;
 	}
-	catch (const tus::Exception &e) {
-		spdlog::error("Critical error: {}", e.what());
-		break;
+	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
+
+	std::vector<EventProcessorPtr> processors;
+
+	if (mmap_plugin) {
+		auto processor = mmap_plugin->create_processor(ncpu);
+		cpu_id = (static_cast<MmapProcessor *>(
+				processor.get()))->get_cpu_id();
+		if (processor)
+			processors.emplace_back(std::move(processor));
 	}
-	catch (const std::exception &e) {
-		spdlog::error("A Clickhouse exception caught: {}."
-			      " Reset connection and reconnect in {}s.",
-			      e.what(), reconnect_timeout.count());
-		if (reconnect_timeout == std::chrono::seconds{0}) {
-			std::this_thread::sleep_for(reconnect_timeout);
-			reconnect_timeout *= 2;
-		} else {
-			reconnect_timeout = std::chrono::seconds(1);
-		}
+
+	if (xfw_plugin) {
+		auto processor = xfw_plugin->create_processor(ncpu);
+		if (processor)
+			processors.emplace_back(std::move(processor));
 	}
+
+	inner_loop(processors);
 
 	spdlog::debug("Worker {} stopped", ncpu);
 }
@@ -385,20 +279,36 @@ try {
 		("test-config", po::bool_switch(&result.test_config),
 		 "Test configuration file and exit")
 		("config,c", po::value<fs::path>(), config_desc.c_str())
-		("host,H", po::value<std::string>(),
-		 "ClickHouse host (overrides config)")
-		("port,P", po::value<uint16_t>(),
-		 "ClickHouse port (overrides config)")
-		("database,d", po::value<std::string>(),
-		 "ClickHouse database name (overrides config)")
-		("table,t", po::value<std::string>(),
-		 "ClickHouse table name (overrides config)")
-		("user,u", po::value<std::string>(),
-		 "ClickHouse username (overrides config)")
-		("password,p", po::value<std::string>(),
-		 "ClickHouse password (overrides config)")
-		("max-events", po::value<size_t>(),
-		 "Maximum events before commit (overrides config)")
+		("mmap-host,H", po::value<std::string>(),
+		 "Mmap plugin ClickHouse host (overrides config)")
+		("mmap-port,P", po::value<uint16_t>(),
+		 "Mmap plugin ClickHouse port (overrides config)")
+		("mmap-database,d", po::value<std::string>(),
+		 "Mmap plugin ClickHouse database name (overrides config)")
+		("mmap-table,t", po::value<std::string>(),
+		 "Mmap plugin ClickHouse table name (overrides config)")
+		("mmap-user,u", po::value<std::string>(),
+		 "Mmap plugin ClickHouse username (overrides config)")
+		("mmap-password,p", po::value<std::string>(),
+		 "Mmap plugin ClickHouse password (overrides config)")
+		("mmap-max-events", po::value<size_t>(),
+		 "Mmap plugin maximum events before commit (overrides config)")
+
+		("xfw-host", po::value<std::string>(),
+		 "Xfw plugin ClickHouse host (overrides config)")
+		("xfw-port", po::value<uint16_t>(),
+		 "Xfw plugin ClickHouse port (overrides config)")
+		("xfw-database", po::value<std::string>(),
+		 "Xfw plugin ClickHouse database name (overrides config)")
+		("xfw-table", po::value<std::string>(),
+		 "Xfw plugin ClickHouse table name (overrides config)")
+		("xfw-user", po::value<std::string>(),
+		 "Xfw plugin ClickHouse username (overrides config)")
+		("xfw-password", po::value<std::string>(),
+		 "Xfw plugin ClickHouse password (overrides config)")
+		("xfw-max-events", po::value<size_t>(),
+		 "Xfw plugin maximum events before commit (overrides config)")
+
 		("log-path,l", po::value<fs::path>(),
 		 "Path to log file (overrides config)");
 
@@ -413,7 +323,7 @@ try {
 		std::cout << "\nExamples:" << std::endl;
 		std::cout << "  tfw_logger --config " << default_config_path
 			  << std::endl;
-		std::cout << "  tfw_logger --host localhost --table "
+		std::cout << "  tfw_logger --mmap-host localhost --mmap-table "
 			     "access_log_v2"
 			  << std::endl;
 		std::cout << "  tfw_logger --stop" << std::endl;
@@ -429,20 +339,37 @@ try {
 	// Extract option values
 	if (vm.count("config"))
 		result.config_path = vm["config"].as<fs::path>();
-	if (vm.count("host"))
-		result.clickhouse_host = vm["host"].as<std::string>();
-	if (vm.count("port"))
-		result.clickhouse_port = vm["port"].as<uint16_t>();
-	if (vm.count("database"))
-		result.clickhouse_db_name = vm["database"].as<std::string>();
-	if (vm.count("table"))
-		result.clickhouse_table = vm["table"].as<std::string>();
-	if (vm.count("user"))
-		result.clickhouse_user = vm["user"].as<std::string>();
-	if (vm.count("password"))
-		result.clickhouse_password = vm["password"].as<std::string>();
-	if (vm.count("max-events"))
-		result.clickhouse_max_events = vm["max-events"].as<size_t>();
+
+	if (vm.count("mmap-host"))
+		result.mmap_clickhouse_host = vm["mmap-host"].as<std::string>();
+	if (vm.count("mmap-port"))
+		result.mmap_clickhouse_port = vm["mmap-port"].as<uint16_t>();
+	if (vm.count("mmap-database"))
+		result.mmap_clickhouse_db_name = vm["mmap-database"].as<std::string>();
+	if (vm.count("mmap-table"))
+		result.mmap_clickhouse_table = vm["mmap-table"].as<std::string>();
+	if (vm.count("mmap-user"))
+		result.mmap_clickhouse_user = vm["mmap-user"].as<std::string>();
+	if (vm.count("mmap-password"))
+		result.mmap_clickhouse_password = vm["mmap-password"].as<std::string>();
+	if (vm.count("mmap-max-events"))
+		result.mmap_clickhouse_max_events = vm["mmap-max-events"].as<size_t>();
+
+	if (vm.count("xfw-host"))
+		result.xfw_clickhouse_host = vm["xfw-host"].as<std::string>();
+	if (vm.count("xfw-port"))
+		result.xfw_clickhouse_port = vm["xfw-port"].as<uint16_t>();
+	if (vm.count("xfw-database"))
+		result.xfw_clickhouse_db_name = vm["xfw-database"].as<std::string>();
+	if (vm.count("xfw-table"))
+		result.xfw_clickhouse_table = vm["xfw-table"].as<std::string>();
+	if (vm.count("xfw-user"))
+		result.xfw_clickhouse_user = vm["xfw-user"].as<std::string>();
+	if (vm.count("xfw-password"))
+		result.xfw_clickhouse_password = vm["xfw-password"].as<std::string>();
+	if (vm.count("xfw-max-events"))
+		result.xfw_clickhouse_max_events = vm["xfw-max-events"].as<size_t>();
+
 	if (vm.count("log-path"))
 		result.log_path = vm["log-path"].as<fs::path>();
 
@@ -473,20 +400,46 @@ load_configuration(const ParsedOptions &opts)
 		config.log_path = fs::path(default_log_path);
 
 	// Apply command line overrides
-	if (opts.clickhouse_host)
-		config.clickhouse.host = *opts.clickhouse_host;
-	if (opts.clickhouse_port)
-		config.clickhouse.port = *opts.clickhouse_port;
-	if (opts.clickhouse_db_name)
-		config.clickhouse.db_name = *opts.clickhouse_db_name;
-	if (opts.clickhouse_table)
-		config.clickhouse.table_name = *opts.clickhouse_table;
-	if (opts.clickhouse_user)
-		config.clickhouse.user = *opts.clickhouse_user;
-	if (opts.clickhouse_password)
-		config.clickhouse.password = *opts.clickhouse_password;
-	if (opts.clickhouse_max_events)
-		config.clickhouse.max_events = *opts.clickhouse_max_events;
+	if (opts.mmap_clickhouse_host || opts.mmap_clickhouse_port
+	    || opts.mmap_clickhouse_db_name || opts.mmap_clickhouse_table
+	    || opts.mmap_clickhouse_user || opts.mmap_clickhouse_password
+	    || opts.mmap_clickhouse_max_events)
+		config.clickhouse_mmap = {};
+	if (opts.mmap_clickhouse_host)
+		config.clickhouse_mmap->host = *opts.mmap_clickhouse_host;
+	if (opts.mmap_clickhouse_port)
+		config.clickhouse_mmap->port = *opts.mmap_clickhouse_port;
+	if (opts.mmap_clickhouse_db_name)
+		config.clickhouse_mmap->db_name = *opts.mmap_clickhouse_db_name;
+	if (opts.mmap_clickhouse_table)
+		config.clickhouse_mmap->table_name = *opts.mmap_clickhouse_table;
+	if (opts.mmap_clickhouse_user)
+		config.clickhouse_mmap->user = *opts.mmap_clickhouse_user;
+	if (opts.mmap_clickhouse_password)
+		config.clickhouse_mmap->password = *opts.mmap_clickhouse_password;
+	if (opts.mmap_clickhouse_max_events)
+		config.clickhouse_mmap->max_events = *opts.mmap_clickhouse_max_events;
+
+	if (opts.xfw_clickhouse_host || opts.xfw_clickhouse_port
+	    || opts.xfw_clickhouse_db_name || opts.xfw_clickhouse_table
+	    || opts.xfw_clickhouse_user || opts.xfw_clickhouse_password
+	    || opts.xfw_clickhouse_max_events)
+		config.clickhouse_mmap = {};
+	if (opts.xfw_clickhouse_host)
+		config.clickhouse_xfw->host = *opts.xfw_clickhouse_host;
+	if (opts.xfw_clickhouse_port)
+		config.clickhouse_xfw->port = *opts.xfw_clickhouse_port;
+	if (opts.xfw_clickhouse_db_name)
+		config.clickhouse_xfw->db_name = *opts.xfw_clickhouse_db_name;
+	if (opts.xfw_clickhouse_table)
+		config.clickhouse_xfw->table_name = *opts.xfw_clickhouse_table;
+	if (opts.xfw_clickhouse_user)
+		config.clickhouse_xfw->user = *opts.xfw_clickhouse_user;
+	if (opts.xfw_clickhouse_password)
+		config.clickhouse_xfw->password = *opts.xfw_clickhouse_password;
+	if (opts.xfw_clickhouse_max_events)
+		config.clickhouse_xfw->max_events = *opts.xfw_clickhouse_max_events;
+
 	if (opts.log_path)
 		config.log_path = *opts.log_path;
 
@@ -547,34 +500,39 @@ catch (const spdlog::spdlog_ex &ex) {
 	throw tus::Except("Log initialization failed: {}", ex.what());
 }
 
-int
-open_mmap_device()
+void
+run_main_loop()
 {
-	int fd;
-
-	spdlog::info("Opening device: {}", dev_path);
-
-	// Try to open the device with retries
-	while ((fd = open(dev_path, O_RDWR)) == -1) {
-		if (stop_flag.load(std::memory_order_acquire)) {
-			spdlog::info("Stop flag set, exiting device open loop");
-			return -1;
+	try {
+		if (config.clickhouse_mmap.has_value()) {
+			std::string plugin_path =
+				config.access_log_plugin_path.value_or(
+					"./libmmap_plugin.so");
+			mmap_plugin.emplace(plugin_path,
+					    *config.clickhouse_mmap,
+					    &stop_flag);
+			spdlog::info("Loaded mmap plugin from: {}", plugin_path);
 		}
 
-		if (errno != ENOENT)
-			throw tus::Except("Cannot open device {}", dev_path);
+		if (config.clickhouse_xfw.has_value()) {
+			std::string plugin_path =
+				config.xfw_events_plugin_path.value_or(
+					"./libxfw_plugin.so");
+			xfw_plugin.emplace(plugin_path,
+					   *config.clickhouse_xfw,
+					   &stop_flag);
+			spdlog::info("Loaded xfw plugin from: {}", plugin_path);
+		}
 
-		spdlog::debug("Device {} not found, retrying...", dev_path);
-		std::this_thread::sleep_for(wait_for_dev);
+		if (!mmap_plugin && !xfw_plugin) {
+			spdlog::error("No plugins configured");
+			return;
+		}
+	} catch (const std::exception& e) {
+		spdlog::error("Failed to initialize plugins: {}", e.what());
+		return;
 	}
 
-	spdlog::info("Successfully opened device: {}", dev_path);
-	return fd;
-}
-
-void
-run_main_loop(int fd)
-{
 	/*
 	 * Use sysconf() instead of std::thread::hardware_concurrency() because
 	 * it respects process CPU affinity, cgroups, and container limits,
@@ -591,28 +549,13 @@ run_main_loop(int fd)
 	// Start worker threads
 	std::vector<std::thread> threads;
 	for (size_t i = 0; i < cpu_count; ++i)
-		threads.emplace_back(run_thread, static_cast<int>(i), fd,
-							 std::ref(config));
+		threads.emplace_back(run_thread, static_cast<unsigned>(i));
 
 	spdlog::info("All {} worker threads started", cpu_count);
 
 	for (auto &t : threads) {
 		if (t.joinable())
 			t.join();
-	}
-}
-
-void
-cleanup_resources(int fd, int pidfile_fd)
-{
-	if (fd >= 0) {
-		close(fd);
-		spdlog::info("Device closed");
-	}
-
-	if (pidfile_fd >= 0) {
-		tus::pidfile_remove(pid_file_path, pidfile_fd);
-		spdlog::info("PID file removed");
 	}
 }
 
@@ -625,7 +568,6 @@ cleanup_resources(int fd, int pidfile_fd)
 int
 main(int argc, char *argv[])
 try {
-	int fd = -1;
 	int pidfile_fd = -1;
 
 	// Parse command line options
@@ -662,23 +604,25 @@ try {
 
 	// Log startup information
 	spdlog::info("Starting Tempesta FW Logger...");
-	spdlog::info("ClickHouse configuration: {}", config.clickhouse);
+	if (config.clickhouse_mmap)
+		spdlog::info("ClickHouse mmap configuration: {}",
+			     *config.clickhouse_mmap);
 
 	// Setup signal handlers for graceful shutdown
 	setup_signal_handlers();
 
-	// Open mmap device
-	fd = open_mmap_device();
-	if (fd < 0)
-		throw tus::Except("Failed to open device");
-
 	spdlog::info("Daemon started");
 
 	// Run main processing loop
-	run_main_loop(fd);
+	run_main_loop();
 
 	spdlog::info("Tempesta FW Logger stopped");
-	cleanup_resources(fd, pidfile_fd);
+
+	if (pidfile_fd >= 0) {
+		tus::pidfile_remove(pid_file_path, pidfile_fd);
+		spdlog::info("PID file removed");
+	}
+
 	return 0;
 } catch (const tus::Exception &e) {
 	if (spdlog::default_logger())
@@ -693,3 +637,31 @@ try {
 		std::cerr << "Unhandled error: " << e.what() << std::endl;
 	return 2;
 }
+
+/*
+ * Exporting logging routings from main for using in plugins instead of
+ * homegrown plugin only logging routings.
+ */
+extern "C" {
+
+__attribute__((visibility("default")))
+void plugin_log_debug(const char* message) {
+	spdlog::debug("{}", message);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_info(const char* message) {
+	spdlog::info("{}", message);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_warn(const char* message) {
+	spdlog::warn("{}", message);
+}
+
+__attribute__((visibility("default")))
+void plugin_log_error(const char* message) {
+	spdlog::error("{}", message);
+}
+
+} // extern "C"

@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,32 +18,32 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include <string>
+#include <memory>
 
-#include <boost/property_tree/ptree_fwd.hpp>
+#include "../fw/mmap_buffer.h"
+#include "../libtus/error.hh"
+#include "plugin_interface.hh"
+#include "event_processor.hh"
 
-#include "clickhouse_config.hh"
+class MmapProcessor : public EventProcessor {
+public:
+	explicit MmapProcessor(std::shared_ptr<TfwClickhouse> db,
+			       unsigned processor_id,
+			       int device_fd);
+	~MmapProcessor() noexcept override;
 
-namespace fs = std::filesystem;
+	void request_stop() noexcept override;
+	bool stop_requested() noexcept override;
+	unsigned int get_cpu_id() const noexcept;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<std::string> access_log_plugin_path;
-	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
+protected:
+	tus::Error<bool> do_consume_event() override;
 
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
-
-	void
-	validate() const;
-
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+private:
+	int device_fd_;
+	TfwMmapBuffer *buffer_;
+	size_t size_;
 };
