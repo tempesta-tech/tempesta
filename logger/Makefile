@@ -29,6 +29,7 @@ LDFLAGS += -llz4 -L $(CLICKHOUSE_BUILD_DIR)/contrib/lz4/lz4
 LDFLAGS += -labsl_int128 -L $(CLICKHOUSE_BUILD_DIR)/contrib/absl/absl
 LDFLAGS += -ltus -L ../libtus -Wl,-rpath,'$$ORIGIN/../lib:$$ORIGIN/../libtus'
 LDFLAGS += $(shell pkgconf -libs spdlog)
+LDFLAGS += -rdynamic -ldl
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
 	    -DPAGE_SIZE=$(PAGE_SIZE)
