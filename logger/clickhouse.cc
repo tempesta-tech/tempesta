@@ -36,7 +36,7 @@
 
 namespace {
 
-constexpr std::string_view table_creation_query_template = 
+constexpr std::string_view table_creation_query_template =
 	"CREATE TABLE IF NOT EXISTS {} "
 	"(timestamp DateTime64(3, 'UTC'),"
 	" address IPv6,"
@@ -95,6 +95,31 @@ TfwClickhouse::make_block()
 	block_.Reserve(max_events_ * 2);
 }
 
+bool
+TfwClickhouse::do_reconnect() {
+	try {
+		client_.reset();
+
+		client_ = std::make_unique<ch::Client>(client_options_);
+
+		spdlog::info("Successfully reconnected to ClickHouse");
+
+		needs_reconnect.store(false);
+		last_reconnect_attempt.store(std::chrono::steady_clock::now());
+		return true;
+	}
+	catch (const std::exception& e) {
+		spdlog::error("Failed to reconnect to ClickHouse: {}", e.what());
+		last_reconnect_attempt.store(std::chrono::steady_clock::now());
+		return false;
+	}
+	catch (...) {
+		spdlog::error("Failed to reconnect to ClickHouse: unknown error");
+		last_reconnect_attempt.store(std::chrono::steady_clock::now());
+		return false;
+	}
+}
+
 void
 TfwClickhouse::append_timestamp(uint64_t timestamp)
 {
@@ -116,12 +141,6 @@ TfwClickhouse::append_string(TfwBinLogFields field, std::string_view value)
 	block_[col_index]->As<ch::ColumnString>()->Append(std::string(value));
 }
 
-void
-TfwClickhouse::append_empty_string(TfwBinLogFields field)
-{
-	append_string(field, std::string_view{});
-}
-
 bool
 TfwClickhouse::handle_block_error() noexcept
 {
@@ -135,22 +154,51 @@ TfwClickhouse::handle_block_error() noexcept
 	return false;
 }
 
+bool
+TfwClickhouse::should_attempt_reconnect() const noexcept
+{
+	if (!needs_reconnect.load()) {
+		return false;
+	}
+
+	auto now = std::chrono::steady_clock::now();
+	auto last_attempt = last_reconnect_attempt.load();
+	auto timeout = reconnect_timeout.load();
+
+	return (now - last_attempt) >= timeout;
+}
+
+void
+TfwClickhouse::update_reconnect_timeout(bool success) noexcept
+{
+	if (success) {
+		reconnect_timeout.store(std::chrono::seconds(0));
+	} else {
+		auto current = reconnect_timeout.load();
+		if (current.count() == 0) {
+			reconnect_timeout.store(std::chrono::seconds(1));
+		} else if (current.count() < 300) {
+			reconnect_timeout.store(current * 2);
+		}
+	}
+}
+
 TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
 	: table_name_(config.table_name)
 	, max_events_(config.max_events)
+	, client_options_([config]() {
+		ch::ClientOptions options;
+		options.SetHost(config.host)
+		       .SetPort(config.port)
+		       .SetDefaultDatabase(config.db_name);
+		if (const auto user = config.user.value_or(""); !user.empty())
+			options.SetUser(user);
+		if (const auto pswd = config.password.value_or(""); !pswd.empty())
+			options.SetPassword(pswd);
+		return options;
+	}())
 {
-	auto opts = ch::ClientOptions();
-
-	opts.SetHost(config.host);
-	opts.SetPort(config.port);
-	opts.SetDefaultDatabase(config.db_name);
-
-	if (const auto user = config.user.value_or(""); !user.empty())
-		opts.SetUser(user);
-	if (const auto pswd = config.password.value_or(""); !pswd.empty())
-		opts.SetPassword(pswd);
-
-	client_ = std::make_unique<ch::Client>(opts);
+	client_ = std::make_unique<ch::Client>(client_options_);
 
 	std::string table_creation_query =
 		fmt::format(table_creation_query_template, table_name_);

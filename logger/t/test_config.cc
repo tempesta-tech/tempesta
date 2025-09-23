@@ -58,11 +58,12 @@ protected:
 TEST_F(ConfigTest, DefaultValues)
 {
 	TfwLoggerConfig config;
+	config.clickhouse_mmap = ClickHouseConfig();
 
 	// Test default values
 	EXPECT_TRUE(config.log_path.empty()); // no default set initially
 
-	const auto &ch = config.clickhouse;
+	const auto &ch = *config.clickhouse_mmap;
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
 	EXPECT_EQ(ch.db_name, "default");
@@ -78,13 +79,16 @@ TEST_F(ConfigTest, LoadValidConfig)
 	write_config(config_path, R"({
 		"log_path": "/var/log/test.log",
 		"access_log": {
-			"host": "test.host.com",
-			"port": 9001,
-			"db_name": "test_db",
-			"table_name": "test_logs",
-			"user": "testuser",
-			"password": "testpass",
-			"max_events": 500
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.host.com",
+				"port": 9001,
+				"db_name": "test_db",
+				"table_name": "test_logs",
+				"user": "testuser",
+				"password": "testpass",
+				"max_events": 500
+			}
 		}
 	})");
 
@@ -94,7 +98,7 @@ TEST_F(ConfigTest, LoadValidConfig)
 
 	EXPECT_EQ(config->log_path, "/var/log/test.log");
 
-	const auto &ch = config->clickhouse;
+	const auto &ch = *config->clickhouse_mmap;
 	EXPECT_EQ(ch.host, "test.host.com");
 	EXPECT_EQ(ch.port, 9001);
 	EXPECT_EQ(ch.db_name, "test_db");
@@ -109,7 +113,10 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 	auto config_path = temp_dir / "minimal.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "minimal.host.com"
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "minimal.host.com"
+			}
 		}
 	})");
 
@@ -120,7 +127,7 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 	// Optional fields should use defaults
 	EXPECT_TRUE(config->log_path.empty());
 
-	const auto &ch = config->clickhouse;
+	const auto &ch = *config->clickhouse_mmap;
 	EXPECT_EQ(ch.host, "minimal.host.com");
 	EXPECT_EQ(ch.port, 9000);		// default
 	EXPECT_EQ(ch.db_name, "default");	// default
@@ -145,7 +152,10 @@ TEST_F(ConfigTest, ValidationEmptyHost)
 	auto config_path = temp_dir / "empty_host.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": ""
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": ""
+			}
 		}
 	})");
 
@@ -159,8 +169,11 @@ TEST_F(ConfigTest, ValidationInvalidPort)
 	auto config_path = temp_dir / "invalid_port.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com",
-			"port": 0
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com",
+				"port": 0
+			}
 		}
 	})");
 
@@ -174,8 +187,11 @@ TEST_F(ConfigTest, ValidationEmptyTableName)
 	auto config_path = temp_dir / "empty_table.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com",
-			"table_name": ""
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com",
+				"table_name": ""
+			}
 		}
 	})");
 
@@ -189,8 +205,11 @@ TEST_F(ConfigTest, ValidationEmptyDbName)
 	auto config_path = temp_dir / "empty_db_name.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com",
-			"db_name": ""
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com",
+				"db_name": ""
+			}
 		}
 	})");
 
@@ -204,8 +223,11 @@ TEST_F(ConfigTest, ValidationZeroMaxEvents)
 	auto config_path = temp_dir / "zero_events.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com",
-			"max_events": 0
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com",
+				"max_events": 0
+			}
 		}
 	})");
 
@@ -227,11 +249,12 @@ TEST_F(ConfigTest, FileWithoutClickHouseSection)
 	write_config(config_path, R"({})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
+	config->clickhouse_mmap = ClickHouseConfig();
 	ASSERT_TRUE(config.has_value());
 	EXPECT_NO_THROW(config->validate());
 
 	// Should use default ClickHouse config
-	const auto &ch = config->clickhouse;
+	const auto &ch = *config->clickhouse_mmap;
 	EXPECT_EQ(ch.host, "localhost");
 	EXPECT_EQ(ch.port, 9000);
 	EXPECT_EQ(ch.db_name, "default");
@@ -257,8 +280,11 @@ TEST_F(ConfigTest, TableNameValidation_ValidNames)
 			std::to_string(std::hash<std::string>{}(table_name)) + ".json");
 		write_config(config_path, R"({
 			"access_log": {
-				"host": "test.com",
-				"table_name": ")" + table_name + R"("
+				"plugin_path": "./mmap_plugin.so",
+				"clickhouse": {
+					"host": "test.com",
+					"table_name": ")" + table_name + R"("
+				}
 			}
 		})");
 		auto config = TfwLoggerConfig::load_from_file(config_path);
@@ -266,7 +292,7 @@ TEST_F(ConfigTest, TableNameValidation_ValidNames)
 		EXPECT_NO_THROW(config->validate())
 			<< "Valid table name should be accepted: "
 			<< table_name;
-		EXPECT_EQ(config->clickhouse.table_name, table_name);
+		EXPECT_EQ(config->clickhouse_mmap->table_name, table_name);
 	}
 }
 
@@ -309,8 +335,11 @@ TEST_F(ConfigTest, TableNameValidation_InvalidCharacters)
 			std::to_string(std::hash<std::string>{}(table_name)) + ".json");
 		write_config(config_path, R"({
 			"access_log": {
-				"host": "test.com",
-				"table_name": ")" + table_name + R"("
+				"plugin_path": "./mmap_plugin.so",
+				"clickhouse": {
+					"host": "test.com",
+					"table_name": ")" + table_name + R"("
+				}
 			}
 		})");
 
@@ -329,8 +358,11 @@ TEST_F(ConfigTest, TableNameValidation_TooLong)
 	std::string long_name(129, 'a'); // 129 characters - too long
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com",
-			"table_name": ")" + long_name + R"("
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com",
+				"table_name": ")" + long_name + R"("
+			}
 		}
 	})");
 
@@ -345,8 +377,11 @@ TEST_F(ConfigTest, TableNameValidation_EmptyName)
 	auto config_path = temp_dir / "empty_name.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com",
-			"table_name": ""
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com",
+				"table_name": ""
+			}
 		}
 	})");
 
@@ -362,7 +397,10 @@ TEST_F(ConfigTest, TableNameValidation_DefaultNameValidation)
 	auto config_path = temp_dir / "default_table.json";
 	write_config(config_path, R"({
 		"access_log": {
-			"host": "test.com"
+			"plugin_path": "./mmap_plugin.so",
+			"clickhouse": {
+				"host": "test.com"
+			}
 		}
 	})");
 
@@ -370,5 +408,5 @@ TEST_F(ConfigTest, TableNameValidation_DefaultNameValidation)
 	ASSERT_TRUE(config.has_value());
 	EXPECT_NO_THROW(config->validate())
 		<< "Default table name should be valid";
-	EXPECT_EQ(config->clickhouse.table_name, "access_log");
+	EXPECT_EQ(config->clickhouse_mmap->table_name, "access_log");
 }
