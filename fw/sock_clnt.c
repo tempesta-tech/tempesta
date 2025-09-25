@@ -178,8 +178,6 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 {
 	TfwConn *conn = sk->sk_user_data;
 	TfwH2Ctx *h2;
-	bool data_is_available = false;
-	unsigned long snd_wnd;
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -202,13 +200,11 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	if (!h2)
 		return 0;
 
-	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
-
-	r = tfw_h2_make_frames(sk, h2, snd_wnd, &data_is_available);
+	r = tfw_h2_make_frames(sk, h2, mss_now);
 	if (unlikely(r < 0))
 		return r;
 
-	if (!data_is_available)
+	if (!tfw_h2_is_ready_to_send(h2))
 		sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 
 	return r;
@@ -354,6 +350,7 @@ static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_tls_connection_recv,
+	.connection_recv_finish = tfw_connection_recv_finish,
 };
 
 /*
