@@ -435,7 +435,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 
 	T_DBG3("%s: ctx [%p] conn %p sched %p\n", __func__, ctx, conn, sched);
 
-        rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
+	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
 		tfw_h2_stream_purge_all_and_free_response(cur);
 		tfw_h2_stream_unlink_lock(ctx, cur);
 
@@ -734,6 +734,12 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 		BUG_ON(!tls_type);
 		BUG_ON(!skb->len);
+
+		r = ss_skb_realloc_headroom(skb);
+		if (unlikely(r)) {
+			ss_skb_queue_head(&stream->xmit.skb_head, skb);
+			return r;
+		}
 
 		if (skb->len > *len) {
 			if (should_split) {
