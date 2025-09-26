@@ -37,10 +37,10 @@
 #include <spdlog/spdlog.h>
 
 #include "../fw/access_log.h"
+#include "../libtus/pidfile.hh"
+#include "../libtus/error.hh"
 #include "clickhouse.hh"
-#include "error.hh"
 #include "mmap_buffer.hh"
-#include "pidfile.hh"
 #include "tfw_logger_config.hh"
 
 namespace po = boost::program_options;
@@ -143,7 +143,7 @@ read_int(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&
 		const size_t len = tfw_mmap_log_field_len(ind);
 
 		if (len > size) [[unlikely]]
-			throw Except("Incorrect integer eventent length");
+			throw tus::Except("Incorrect integer eventent length");
 
 		const ValType *val = reinterpret_cast<const ValType *>(p);
 		block[bi]->As<ColType>()->Append(*val);
@@ -165,13 +165,13 @@ read_str(TfwBinLogFields ind, ch::Block &block, const auto *event, const char *&
 		constexpr int len_size = sizeof(uint16_t);
 
 		if (size < len_size) [[unlikely]]
-			throw Except("Too short string event");
+			throw tus::Except("Too short string event");
 
 		const size_t len = *reinterpret_cast<const uint16_t *>(p);
 		p += len_size;
 		size -= len_size;
 		if (len > size) [[unlikely]]
-			throw Except("Incorrect string event length");
+			throw tus::Except("Incorrect string event length");
 
 		block[bi]->As<ch::ColumnString>()->Append(std::string(p, len));
 		p += len;
@@ -252,7 +252,7 @@ read_access_log_event(TfwClickhouse &db, std::span<const char> data)
  * @return the amount of data read, can be less than all available data,
  * e.g. if ClickHouse throws and exception or some event record is broken.
  */
-[[nodiscard]] Error<size_t>
+[[nodiscard]] tus::Error<size_t>
 process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 {
 	size_t read = 0;
@@ -262,7 +262,7 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 	try {
 		while (data.size()) {
 			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
-				throw Except("Partial event in the access log");
+				throw tus::Except("Partial event in the access log");
 
 			const auto *ev
 				= reinterpret_cast<const TfwBinLogEvent *>(
@@ -276,7 +276,7 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 				break;
 			}
 			default:
-				throw Except("Unsupported event type: {}",
+				throw tus::Except("Unsupported event type: {}",
 					     static_cast<unsigned int>(ev->type));
 				break;
 			}
@@ -291,17 +291,17 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 	//
 	// These exceptions are severe, like memory allocation failure or memory
 	// corruption, so there is probably no reason to try hard to recover.
-	catch (const Exception &e) {
+	catch (const tus::Exception &e) {
 		spdlog::error("Access log is corrupted, skip current buffer:"
 			      " {}", e.what());
 		if (!db.handle_block_error())
-			return error(Err::DB_SRV_FATAL);
+			return tus::error(tus::Err::DB_SRV_FATAL);
 		return 0;
 	}
 	catch (const std::exception &e) {
 		spdlog::error("Cought a Clickhouse exception: {}."
 			      " Many events can be lost", e.what());
-		return error(Err::DB_SRV_FATAL);
+		return tus::error(tus::Err::DB_SRV_FATAL);
 	}
 
 	assert(read);
@@ -344,7 +344,7 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
 			r = pthread_setaffinity_np(pthread_self(),
 						   sizeof(cpu_set_t), &cpuset);
 			if (r != 0)
-				throw Except("Failed to set CPU affinity");
+				throw tus::Except("Failed to set CPU affinity");
 			affinity_is_set = true;
 			spdlog::debug("Worker {} bound to CPU {}", ncpu,
 				      mbr.get_cpu_id());
@@ -357,7 +357,7 @@ run_thread(const int ncpu, const int fd, const TfwLoggerConfig &config) noexcept
 			break;
 		// ...else, reset the Clickhouse connection.
 	}
-	catch (const Exception &e) {
+	catch (const tus::Exception &e) {
 		spdlog::error("Critical error: {}", e.what());
 		break;
 	}
@@ -499,7 +499,7 @@ load_configuration(const ParsedOptions &opts)
 
 	auto loaded_config = TfwLoggerConfig::load_from_file(config_path);
 	if (!loaded_config) {
-		throw Except("Failed to load configuration from: {}",
+		throw tus::Except("Failed to load configuration from: {}",
 			     config_path.string());
 	}
 
@@ -534,9 +534,9 @@ void
 setup_daemon_mode(const ParsedOptions &opts)
 {
 	// Check if daemon is already running
-	int ret = pidfile_check(pid_file_path);
+	int ret = tus::pidfile_check(pid_file_path);
 	if (ret < 0)
-		throw Except("PID file checking failed");
+		throw tus::Except("PID file checking failed");
 
 	/*
 	 * When the daemon forks, it inherits the file descriptor for
@@ -556,7 +556,7 @@ setup_daemon_mode(const ParsedOptions &opts)
 #endif
 
 		if (daemon(0, 0) < 0)
-			throw Except("Daemonization failed");
+			throw tus::Except("Daemonization failed");
 	}
 }
 
@@ -581,7 +581,7 @@ try {
 	logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] [%t] %v");
 }
 catch (const spdlog::spdlog_ex &ex) {
-	throw Except("Log initialization failed: {}", ex.what());
+	throw tus::Except("Log initialization failed: {}", ex.what());
 }
 
 int
@@ -599,7 +599,7 @@ open_mmap_device()
 		}
 
 		if (errno != ENOENT)
-			throw Except("Cannot open device {}", dev_path);
+			throw tus::Except("Cannot open device {}", dev_path);
 
 		spdlog::debug("Device {} not found, retrying...", dev_path);
 		std::this_thread::sleep_for(wait_for_dev);
@@ -620,7 +620,7 @@ run_main_loop(int fd)
 	 */
 	auto cpu_count = static_cast<size_t>(sysconf(_SC_NPROCESSORS_ONLN));
 	if (cpu_count <= 0)
-		throw Except("Cannot determine CPU count");
+		throw tus::Except("Cannot determine CPU count");
 
 	spdlog::info("Using {} CPU(s)", cpu_count);
 	spdlog::info("Starting {} worker threads", cpu_count);
@@ -648,7 +648,7 @@ cleanup_resources(int fd, int pidfile_fd)
 	}
 
 	if (pidfile_fd >= 0) {
-		pidfile_remove(pid_file_path, pidfile_fd);
+		tus::pidfile_remove(pid_file_path, pidfile_fd);
 		spdlog::info("PID file removed");
 	}
 }
@@ -673,7 +673,7 @@ try {
 		return 0; // Help was already shown
 
 	if (opts.stop_daemon) {
-		pidfile_stop_daemon(pid_file_path);
+		tus::pidfile_stop_daemon(pid_file_path);
 		return 0;
 	}
 
@@ -693,9 +693,9 @@ try {
 	initialize_logging();
 
 	// Create PID file after daemonization
-	pidfile_fd = pidfile_create(pid_file_path);
+	pidfile_fd = tus::pidfile_create(pid_file_path);
 	if (pidfile_fd < 0)
-		throw Except("Cannot create PID file");
+		throw tus::Except("Cannot create PID file");
 
 	// Log startup information
 	spdlog::info("Starting Tempesta FW Logger...");
@@ -707,7 +707,7 @@ try {
 	// Open mmap device
 	fd = open_mmap_device();
 	if (fd < 0)
-		throw Except("Failed to open device");
+		throw tus::Except("Failed to open device");
 
 	spdlog::info("Daemon started");
 
@@ -717,7 +717,7 @@ try {
 	spdlog::info("Tempesta FW Logger stopped");
 	cleanup_resources(fd, pidfile_fd);
 	return 0;
-} catch (const Exception &e) {
+} catch (const tus::Exception &e) {
 	if (spdlog::default_logger())
 		spdlog::error("Fatal error: {}", e.what());
 	else
