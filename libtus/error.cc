@@ -20,8 +20,8 @@
 #include "error.hh"
 
 const std::error_category &
-tfw_error_category()
+tus::tfw_error_category()
 {
-	static ErrorCategory instance;
+	static tus::ErrorCategory instance;
 	return instance;
 }
