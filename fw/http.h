@@ -352,7 +352,7 @@ typedef struct {
  */
 typedef struct {
 	struct sk_buff	*skb_head;
-	struct page	*pages[MAX_SKB_FRAGS];
+	netmem_ref	pages[MAX_SKB_FRAGS];
 	unsigned char	pages_sz;
 } TfwHttpMsgCleanup;
 
