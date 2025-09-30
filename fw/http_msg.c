@@ -1226,6 +1226,18 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				unsigned int *copied,
 				void cpy(void *dest, const void *src, size_t n))
 {
+/**
+ * Big number to unlimit skb data length, that enough to process skbs
+ * with very large fragments. UINT_MAX / 2 is not something meaningful, it's
+ * just a big value that must be enough to process any skb and not overflow
+ * skb length in other places, wehre Tempesta modifies skb. e.g during inserting
+ * frames or moving fragments from skb to skb. SS_SKB_MAX_DATA_LEN not enough
+ * here, some received skbs may have bigger size due to using large fragments.
+ * SS_SKB_MAX_DATA_LEN assumes that size of each fragment is limited by
+ * PAGE_SIZE.
+ */
+#define MSG_SKB_MAX_DATA_LEN	(UINT_MAX / 2)
+
 	const TfwStr *c, *end;
 	unsigned int room, skb_room, n_copy, rlen, off, acc = 0;
 	TfwMsgIter *it = &hm->iter;
@@ -1233,7 +1245,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 	void *addr;
 	int r;
 
-	BUG_ON(it->skb->len > SS_SKB_MAX_DATA_LEN);
+	if (WARN_ON(it->skb->len > MSG_SKB_MAX_DATA_LEN))
+		return -E2BIG;
 
 	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 		rlen = c->len;
@@ -1250,7 +1263,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			 */
 			n_copy = room == 0 ? rlen : min(room, rlen);
 			off = c->len - rlen;
-			skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
+			skb_room = MSG_SKB_MAX_DATA_LEN - it->skb->len;
 			nr_frags = skb_shinfo(it->skb)->nr_frags;
 
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
@@ -1295,7 +1308,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 					it->frag = frag - 1;
 				}
 
-				skb_room = SS_SKB_MAX_DATA_LEN - it->skb->len;
+				skb_room = MSG_SKB_MAX_DATA_LEN - it->skb->len;
 			}
 
 			n_copy = min(n_copy, skb_room);
@@ -1315,6 +1328,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 	*copied = acc;
 
 	return 0;
+
+#undef MSG_SKB_MAX_DATA_LEN
 }
 
 int
