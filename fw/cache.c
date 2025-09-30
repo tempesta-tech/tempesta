@@ -2821,8 +2821,7 @@ tfw_cache_should_append_body_skb(TfwMsgIter *it, unsigned long body_sz,
  */
 #define CHUNKED_B_SZ 23
 
-	unsigned long body_sz_in_skb =
-		body_sz + chunked_body ? CHUNKED_B_SZ : 0;
+	unsigned long body_sz_in_skb = (chunked_body * CHUNKED_B_SZ) + body_sz;
 
 	/*
 	 * If sh_frag is true we should copy skb with headers during
