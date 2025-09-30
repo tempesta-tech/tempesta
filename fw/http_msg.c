@@ -1205,10 +1205,9 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 	 * to correct removing body flag data later.
 	 */
 	TFW_STR_FOR_EACH_CHUNK(c, &resp->cut, end) {
-		if (c->skb == *body)
-			c->skb = nskb;
-		else
+		if (c->skb != *body)
 			break;
+		c->skb = nskb;
 	}
 	*body = nskb;
 
