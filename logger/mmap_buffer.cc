@@ -32,8 +32,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include "../libtus/error.hh"
 #include "mmap_buffer.hh"
-#include "error.hh"
 
 TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
 					 TfwClickhouse &db, ProcessEventsFn proc_ev)
@@ -48,7 +48,7 @@ TfwMmapBufferReader::TfwMmapBufferReader(const unsigned int ncpu, const int fd,
 	buf_ = (TfwMmapBuffer *)mmap(NULL, area_size, PROT_READ|PROT_WRITE,
 				    MAP_SHARED, fd, area_size * ncpu);
 	if (buf_ == MAP_FAILED)
-		throw Except("Failed to map buffer");
+		throw tus::Except("Failed to map buffer");
 }
 
 TfwMmapBufferReader::~TfwMmapBufferReader()
@@ -56,7 +56,7 @@ TfwMmapBufferReader::~TfwMmapBufferReader()
 	assert(munmap(buf_, TFW_MMAP_BUFFER_FULL_SIZE(size_)) == 0);
 }
 
-[[nodiscard]] Error<bool>
+[[nodiscard]] tus::Error<bool>
 TfwMmapBufferReader::read() noexcept
 {
 	uint64_t head, tail;
@@ -84,7 +84,7 @@ TfwMmapBufferReader::read() noexcept
 	__atomic_store_n(&buf_->tail, tail + size, __ATOMIC_RELEASE);
 
 	if (!res)
-		return error(Err::DB_SRV_FATAL);
+		return tus::error(tus::Err::DB_SRV_FATAL);
 
 	// TODO #2399, #182 (escudo xFW): this should be replaced with
 	// IEventProcessor->flush(), but ideally if we can move it to the
@@ -93,7 +93,7 @@ TfwMmapBufferReader::read() noexcept
 	// call all event processors to read events from the associated RBs
 	// and then ask all of them to flush what they have to Clickhouse.
 	if (*res && !db_.commit())
-		return error(Err::DB_SRV_FATAL);
+		return tus::error(tus::Err::DB_SRV_FATAL);
 
 	return true;
 }
@@ -209,7 +209,7 @@ TfwMmapBufferReader::init_buffer_size(const int fd)
 	buf_ = (TfwMmapBuffer *)mmap(NULL, TFW_MMAP_BUFFER_DATA_OFFSET,
 				    PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
 	if (buf_ == MAP_FAILED)
-		throw Except("Failed to get buffers info");
+		throw tus::Except("Failed to get buffers info");
 
 	size_ = buf_->size;
 

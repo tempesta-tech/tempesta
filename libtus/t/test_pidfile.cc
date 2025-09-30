@@ -24,8 +24,8 @@
 #include <filesystem>
 #include <fstream>
 
-#include "../error.hh"
-#include "../pidfile.hh"
+#include "error.hh"
+#include "pidfile.hh"
 
 #include <gtest/gtest.h>
 #include <sys/wait.h>
@@ -70,13 +70,13 @@ protected:
 TEST_F(PidFileTest, CheckNonExistentFile)
 {
 	// Non-existent PID file should return 0 (no daemon running)
-	EXPECT_EQ(pidfile_check(test_pidfile.string()), 0);
+	EXPECT_EQ(tus::pidfile_check(test_pidfile.string()), 0);
 }
 
 TEST_F(PidFileTest, CreateAndRemovePidFile)
 {
 	// Create PID file
-	int fd = pidfile_create(test_pidfile.string());
+	int fd = tus::pidfile_create(test_pidfile.string());
 	EXPECT_GE(fd, 0);
 
 	// File should exist
@@ -89,7 +89,7 @@ TEST_F(PidFileTest, CreateAndRemovePidFile)
 	EXPECT_EQ(written_pid, getpid());
 
 	// Remove PID file
-	pidfile_remove(test_pidfile.string(), fd);
+	tus::pidfile_remove(test_pidfile.string(), fd);
 
 	// File should be gone
 	EXPECT_FALSE(fs::exists(test_pidfile));
@@ -98,11 +98,11 @@ TEST_F(PidFileTest, CreateAndRemovePidFile)
 TEST_F(PidFileTest, CheckOwnPidFile)
 {
 	// Create PID file with our own PID
-	int fd = pidfile_create(test_pidfile.string());
+	int fd = tus::pidfile_create(test_pidfile.string());
 	EXPECT_GE(fd, 0);
 
 	// Close the file descriptor to release the lock first
-	pidfile_remove(test_pidfile.string(), fd);
+	tus::pidfile_remove(test_pidfile.string(), fd);
 
 	// Now write our PID to the file manually (simulating running daemon)
 	write_pid_file(test_pidfile, getpid());
@@ -120,7 +120,7 @@ TEST_F(PidFileTest, CheckStalePidFile)
 	write_pid_file(test_pidfile, fake_pid);
 
 	// Should return 0 (no daemon running) for stale PID file
-	EXPECT_EQ(pidfile_check(test_pidfile.string()), 0);
+	EXPECT_EQ(tus::pidfile_check(test_pidfile.string()), 0);
 }
 
 TEST_F(PidFileTest, CreatePidFileInNonWritableDirectory)
@@ -134,7 +134,7 @@ TEST_F(PidFileTest, CreatePidFileInNonWritableDirectory)
 	fs::path readonly_pidfile = readonly_dir / "test.pid";
 
 	// Should fail to create PID file
-	int fd = pidfile_create(readonly_pidfile.string());
+	int fd = tus::pidfile_create(readonly_pidfile.string());
 	EXPECT_EQ(fd, -1);
 
 	// Restore permissions for cleanup
@@ -150,7 +150,7 @@ TEST_F(PidFileTest, StopDaemonWithValidPid)
 
 	// Should handle non-existent process gracefully
 	// (it will try SIGTERM, get ESRCH, and handle it properly)
-	EXPECT_NO_THROW(pidfile_stop_daemon(test_pidfile.string()));
+	EXPECT_NO_THROW(tus::pidfile_stop_daemon(test_pidfile.string()));
 }
 
 TEST_F(PidFileTest, StopDaemonWithInvalidPidFormat)
@@ -161,7 +161,7 @@ TEST_F(PidFileTest, StopDaemonWithInvalidPidFormat)
 	file.close();
 
 	// Should throw exception for invalid PID format
-	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()), Exception);
+	EXPECT_THROW(tus::pidfile_stop_daemon(test_pidfile.string()), tus::Exception);
 }
 
 TEST_F(PidFileTest, StopDaemonWithZeroPid)
@@ -170,7 +170,7 @@ TEST_F(PidFileTest, StopDaemonWithZeroPid)
 	write_pid_file(test_pidfile, 0);
 
 	// Should throw exception for zero PID
-	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()), Exception);
+	EXPECT_THROW(tus::pidfile_stop_daemon(test_pidfile.string()), tus::Exception);
 }
 
 TEST_F(PidFileTest, StopDaemonWithNegativePid)
@@ -179,32 +179,32 @@ TEST_F(PidFileTest, StopDaemonWithNegativePid)
 	write_pid_file(test_pidfile, -1);
 
 	// Should throw exception for negative PID
-	EXPECT_THROW(pidfile_stop_daemon(test_pidfile.string()), Exception);
+	EXPECT_THROW(tus::pidfile_stop_daemon(test_pidfile.string()), tus::Exception);
 }
 
 TEST_F(PidFileTest, ConcurrentPidFileCreation)
 {
 	// Create first PID file
-	int fd1 = pidfile_create(test_pidfile.string());
+	int fd1 = tus::pidfile_create(test_pidfile.string());
 	EXPECT_GE(fd1, 0);
 
 	// While first file is locked, create a second different PID file
 	fs::path second_pidfile = temp_dir / "test2.pid";
-	int fd2 = pidfile_create(second_pidfile.string());
+	int fd2 = tus::pidfile_create(second_pidfile.string());
 	EXPECT_GE(fd2, 0);
 
 	// Both should succeed since they're different files
 	EXPECT_TRUE(fs::exists(test_pidfile));
 	EXPECT_TRUE(fs::exists(second_pidfile));
 
-	pidfile_remove(test_pidfile.string(), fd1);
-	pidfile_remove(second_pidfile.string(), fd2);
+	tus::pidfile_remove(test_pidfile.string(), fd1);
+	tus::pidfile_remove(second_pidfile.string(), fd2);
 }
 
 TEST_F(PidFileTest, PidFilePermissions)
 {
 	// Create PID file
-	int fd = pidfile_create(test_pidfile.string());
+	int fd = tus::pidfile_create(test_pidfile.string());
 	EXPECT_GE(fd, 0);
 
 	// Check file permissions (should be -rw-r--r--)
@@ -214,5 +214,5 @@ TEST_F(PidFileTest, PidFilePermissions)
 
 	EXPECT_EQ(perms & fs::perms::mask, expected);
 
-	pidfile_remove(test_pidfile.string(), fd);
+	tus::pidfile_remove(test_pidfile.string(), fd);
 }

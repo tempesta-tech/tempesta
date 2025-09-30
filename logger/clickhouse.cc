@@ -30,7 +30,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../fw/access_log.h"
-#include "error.hh"
+#include "../libtus/error.hh"
 #include "clickhouse.hh"
 
 namespace {

@@ -28,7 +28,7 @@
 #include <clickhouse/types/types.h>
 
 #include "clickhouse_config.hh"
-#include "error.hh"
+#include "../libtus/error.hh"
 
 namespace ch = clickhouse;
 
