@@ -278,7 +278,7 @@ index ed08cbd5b..17b5789d4 100644
  		type &= frontend->maskclear;
  		mask &= frontend->maskclear;
 diff --git a/crypto/cryptd.c b/crypto/cryptd.c
-index a1bea0f4b..d64a9a244 100644
+index a1bea0f4b..29a810e9b 100644
 --- a/crypto/cryptd.c
 +++ b/crypto/cryptd.c
 @@ -27,6 +27,8 @@
@@ -290,13 +290,13 @@ index a1bea0f4b..d64a9a244 100644
  static unsigned int cryptd_max_cpu_qlen = 1000;
  module_param(cryptd_max_cpu_qlen, uint, 0);
  MODULE_PARM_DESC(cryptd_max_cpu_qlen, "Set cryptd Max queue depth");
-@@ -901,6 +903,75 @@ static struct crypto_template cryptd_tmpl = {
+@@ -901,6 +903,101 @@ static struct crypto_template cryptd_tmpl = {
  	.module = THIS_MODULE,
  };
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +
-+#define MAX_CACHED_ALG_COUNT	8
++#define MAX_CACHED_ALG_COUNT	32
 +struct alg_cache {
 +	int n;
 +	spinlock_t lock;
@@ -312,6 +312,23 @@ index a1bea0f4b..d64a9a244 100644
 +static struct alg_cache ahash_alg_cache;
 +static struct alg_cache aead_alg_cache;
 +
++static inline struct crypto_alg *
++__cryptd_find_alg(const char *cryptd_alg_name, u32 type, u32 mask,
++		  struct alg_cache *__restrict ac)
++{
++	int k;
++
++	for (k = 0; k < ac->n; k++) {
++		if (strcmp(ac->a[k].alg_name, cryptd_alg_name) == 0
++		    && ac->a[k].type == type && ac->a[k].mask == mask)
++		{
++			return ac->a[k].alg;
++		}
++	}
++
++	return NULL;
++}
++
 +/*
 + * Finds a previously allocated algorithm or allocates a new one. In any case,
 + * returned alg holds at least one reference to its module.
@@ -322,18 +339,12 @@ index a1bea0f4b..d64a9a244 100644
 +		       struct alg_cache *__restrict ac)
 +{
 +	struct crypto_alg *alg;
-+	int k;
 +
 +	spin_lock(&ac->lock);
-+	for (k = 0; k < ac->n; k++) {
-+		if (strcmp(ac->a[k].alg_name, cryptd_alg_name) == 0
-+		    && ac->a[k].type == type && ac->a[k].mask == mask)
-+		{
-+			spin_unlock(&ac->lock);
-+			return ac->a[k].alg;
-+		}
-+	}
++	alg = __cryptd_find_alg(cryptd_alg_name, type, mask, ac);
 +	spin_unlock(&ac->lock);
++	if (likely(alg))
++		return alg;
 +
 +	/* Searching for the algorithm may sleep, so warn about it. */
 +	WARN_ON_ONCE(in_serving_softirq());
@@ -343,6 +354,21 @@ index a1bea0f4b..d64a9a244 100644
 +		return alg;
 +
 +	spin_lock(&ac->lock);
++
++	/*
++	 * We unlock spinlock during searching for the algorithm.
++	 * So there is a chance that two separate threads not
++	 * find algorithm in cache and will be here and add the
++	 * same algorithm to the cache. To prevent it check
++	 * algorithm presense in cache again.
++	 */
++	if (unlikely(__cryptd_find_alg(cryptd_alg_name, type,
++				       mask, ac) == alg))
++	{
++		spin_unlock(&ac->lock);
++		return alg;
++	}
++
 +	if (ac->n >= MAX_CACHED_ALG_COUNT) {
 +		spin_unlock(&ac->lock);
 +		BUG();
@@ -366,7 +392,7 @@ index a1bea0f4b..d64a9a244 100644
  struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
  					      u32 type, u32 mask)
  {
-@@ -912,7 +983,20 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
+@@ -912,7 +1009,20 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
  
@@ -387,7 +413,7 @@ index a1bea0f4b..d64a9a244 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  
-@@ -963,7 +1047,21 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
+@@ -963,7 +1073,21 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
  	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
@@ -409,7 +435,7 @@ index a1bea0f4b..d64a9a244 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
-@@ -1020,7 +1118,21 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
+@@ -1020,7 +1144,21 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
  	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
@@ -431,7 +457,7 @@ index a1bea0f4b..d64a9a244 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
-@@ -1064,6 +1176,12 @@ static int __init cryptd_init(void)
+@@ -1064,6 +1202,12 @@ static int __init cryptd_init(void)
  {
  	int err;
  
