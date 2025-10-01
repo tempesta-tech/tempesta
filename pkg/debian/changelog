@@ -1,3 +1,15 @@
+tempesta-fw (0.8.2) focal; urgency=medium
+
+  * Fix use after free from KASAN (#2502)
+  * Fix missing logs during the first second of application startup for TFW logger (#2314)
+  * Thrash results in Clickhouse access log (#2437)
+  * Fix write size of response_content_length in mmap access log (#2515)
+  * fix FPU state corruption (#2461)
+  * Fix bug if stale response build fails (#2492)
+  * Fix using uninitialized spinlock (#2499)
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 01 Oct 2025 15:10:37 +0400
+
 tempesta-fw (0.8.1) focal; urgency=medium
 
   * Security-by-default configuration (#2451)
