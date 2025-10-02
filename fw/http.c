@@ -3011,14 +3011,17 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 			 * the same as current `cli_conn`.
 			 */
 			if (!resp->conn
-			    || !__tfw_connection_get_if_last_ref(resp->conn)) {
+			    || !__tfw_connection_get_if_last_ref(resp->conn))
+			{
 				tfw_http_resp_pair_free(req);
-			 } else {
+			} else {
+				TfwHttpMsg *hmreq = (TfwHttpMsg *)req;
+
 				list_add_tail(&resp->msg.seq_list,
 					      &resp_del_queue);
 				if (req->conn)
-					tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)req);
-				tfw_http_msg_free((TfwHttpMsg *)req);
+					tfw_http_conn_msg_unlink_conn(hmreq);
+				tfw_http_msg_free(hmreq);
 			 }
 
 			TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -3026,8 +3029,14 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	}
 	spin_unlock(&cli_conn->seq_qlock);
 
+	/*
+	 * TODO #687 Should be removed during reworking current architecture of
+	 * the locking of `seq_queue` in client connections and `fwd_queue`
+	 * in server connection.
+	 */
 	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
-				 msg.seq_list) {
+				 msg.seq_list)
+		{
 		tfw_connection_put(resp->conn);
 		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
 		tfw_http_msg_free((TfwHttpMsg *)resp);
