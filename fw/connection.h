@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -341,6 +341,11 @@ typedef struct {
 	 * that needs to be send.
 	 */
 	int (*conn_send)(TfwConn *conn, TfwMsg *msg);
+
+	/*
+	 * Called after processing all socket received queue.
+	 */
+	void (*conn_recv_finish)(TfwConn *conn);
 } TfwConnHooks;
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
@@ -600,6 +605,7 @@ void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
 int tfw_connection_recv(TfwConn *conn, struct sk_buff *skb);
+void tfw_connection_recv_finish(TfwConn *conn);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConn *conn);

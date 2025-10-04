@@ -9,7 +9,7 @@
  * imitate the GoogleTest API. That should facilitate the future migration.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2021 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -279,7 +279,6 @@ TEST_SUITE(wq);
 TEST_SUITE(tls);
 TEST_SUITE(hpack);
 TEST_SUITE(pool);
-TEST_SUITE(ebtree);
 TEST_SUITE(mmap_buffer);
 
 #endif /* __TFW_TEST_H__ */

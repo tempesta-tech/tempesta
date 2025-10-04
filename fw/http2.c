@@ -60,7 +60,7 @@ tfw_h2_stream_sched_cache_destroy(void)
 static void
 tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 {
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 	TfwStream *stream, *next;
 
 	/*
@@ -75,14 +75,14 @@ tfw_h2_apply_wnd_sz_change(TfwH2Ctx *ctx, long int delta)
 	rbtree_postorder_for_each_entry_safe(stream, next,
 					     &ctx->sched.streams, node) {
 		TfwStreamState state = tfw_h2_get_stream_state(stream);
+		bool was_blocked = !tfw_h2_is_ready_to_send(ctx);
+
 		if (state == HTTP2_STREAM_OPENED ||
 		    state == HTTP2_STREAM_REM_HALF_CLOSED) {
 			stream->rem_wnd += delta;
 			tfw_h2_stream_try_unblock(&ctx->sched, stream);
-			if (stream->rem_wnd > 0) {
-				sock_set_flag(((TfwConn *)conn)->sk,
-					      SOCK_TEMPESTA_HAS_DATA);
-			}
+			if (was_blocked && tfw_h2_is_ready_to_send(ctx))
+				sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
 		}
 	}
 }
@@ -91,13 +91,14 @@ static void
 tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 	TfwSettings *dest = &ctx->rsettings;
 	long int delta;
 
+	assert_spin_locked(&conn->sk->sk_lock.slock);
+
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
 		dest->hdr_tbl_sz = min_t(unsigned int,
 					 val, HPACK_ENC_TABLE_MAX_SIZE);
 		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
@@ -140,9 +141,9 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 int
 tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	assert_spin_locked(&conn->sk->sk_lock.slock);
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
@@ -183,9 +184,9 @@ tfw_h2_check_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	assert_spin_locked(&conn->sk->sk_lock.slock);
 
 	if (id > 0 && id < _HTTP2_SETTINGS_MAX) {
 		ctx->new_settings[id - 1] = val;
@@ -198,10 +199,10 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 	unsigned int id;
 
-	assert_spin_locked(&((TfwConn *)conn)->sk->sk_lock.slock);
+	assert_spin_locked(&conn->sk->sk_lock.slock);
 
 	for (id = HTTP2_SETTINGS_TABLE_SIZE; id < _HTTP2_SETTINGS_MAX; id++) {
 		if (test_bit(id, ctx->settings_to_apply)) {
@@ -775,3 +776,16 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	return r;
 }
 ALLOW_ERROR_INJECTION(tfw_h2_entail_stream_skb, ERRNO);
+
+void
+tfw_h2_conn_recv_finish(TfwConn *conn)
+{
+	struct sock *sk = conn->sk;
+	TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
+
+	if (ctx && sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+		SS_IN_USE_PROTECT({
+			tcp_push_pending_frames(sk);
+		});
+	}
+}

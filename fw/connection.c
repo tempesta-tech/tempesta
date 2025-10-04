@@ -4,7 +4,7 @@
  * Generic connection management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -189,6 +189,12 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	BUG_ON(r == T_BLOCK ||
 	       (r == T_DROP && TFW_CONN_TYPE(conn) & Conn_Srv));
 	return r <= T_BAD || r == T_OK ? r : T_BAD;
+}
+
+void
+tfw_connection_recv_finish(TfwConn *conn)
+{
+	TFW_CONN_HOOK_CALL(conn, conn_recv_finish);
 }
 
 void

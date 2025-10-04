@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024 - 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,7 +23,6 @@
 #include <linux/rbtree.h>
 #include <linux/list.h>
 
-#include "lib/eb64tree.h"
 #include "http_types.h"
 
 /**
@@ -33,8 +32,8 @@
  * @parent		- parent scheduler;
  * @next_free		- next free scheduler if current scheduler is in
  *			  free list;
- * @active		- root of the active streams scheduler ebtree;
- * @blocked		- root of the blocked streams scheduler ebtree;
+ * @active		- head of the active streams scheduler list;
+ * @blocked	- head of the blocked streams scheduler list;
  */ 
 typedef struct tfw_stream_sched_entry_t {
 	u64				total_weight;
@@ -44,8 +43,8 @@ typedef struct tfw_stream_sched_entry_t {
 		struct tfw_stream_sched_entry_t	*parent;
 		struct tfw_stream_sched_entry_t *next_free;
 	};
-	struct eb_root			active;
-	struct eb_root			blocked;
+	struct list_head		active;
+	struct list_head		blocked;
 } TfwStreamSchedEntry;
 
 /**
@@ -80,12 +79,9 @@ void tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
-
-void tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream);
-void tfw_h2_sched_stream_enqueue(TfwStreamSched *sched, TfwStream *stream,
-				 TfwStreamSchedEntry *parent, u64 deficit);
-TfwStream *tfw_h2_sched_stream_dequeue(TfwStreamSched *sched,
-				       TfwStreamSchedEntry **parent);
+void tfw_h2_stream_sched_reinsert(TfwStreamSched *sched, TfwStream *stream,
+				  TfwStreamSchedEntry *parent);
+TfwStream *tfw_h2_sched_get_most_prio_stream(TfwStreamSched *sched);
 void tfw_h2_sched_activate_stream(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_sched_deactivate_stream(TfwStreamSched *sched, TfwStream *stream);
 void tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry,
