@@ -42,7 +42,7 @@
  * (streams 3 and 5) and choose the stream (which is active) with the greatest
  * weight.
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024 - 2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -431,8 +431,7 @@ tfw_h2_stream_sched_move_children(TfwStreamSched *sched, TfwStream *stream,
 		       " tree, move its child (id %u) to the new parent stream"
 		       " with id (%u), ctx %px\n", stream->id, child->id,
 		       SCHED_PARENT_STREAM(sched, parent), ctx);
-		__tfw_h2_stream_sched_remove(sched, child);
-		__tfw_h2_stream_sched_enqueue(sched, child, parent);
+		tfw_h2_stream_sched_reinsert(sched, child, parent);
 	}
 }
 
@@ -639,6 +638,10 @@ tfw_h2_init_stream_sched_entry(TfwStreamSchedEntry *entry, TfwStream *owner)
 	INIT_LIST_HEAD(&entry->active);
 }
 
+/*
+ * This function can be used only if `stream->parent` is the
+ * same as `parent` or was removed from sheduler.
+ */
 void
 tfw_h2_stream_sched_reinsert(TfwStreamSched *sched, TfwStream *stream,
 			     TfwStreamSchedEntry *parent)
