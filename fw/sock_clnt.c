@@ -511,15 +511,9 @@ tfw_listen_sock_del_all(void)
 		kfree(ls);
 	}
 
-	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
-		BUG_ON(ls->sk);
-		list_del(&ls->list);
-		kfree(ls);
-	}
 
 	tfw_listen_socks_sz = 0;
 	INIT_LIST_HEAD(&tfw_listen_socks);
-	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
 	tfw_classifier_cleanup_inport();
 }
 
@@ -690,6 +684,18 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
+	TfwListenSock *ls, *tmp;
+
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks_reconf, list) {
+		BUG_ON(ls->sk);
+		list_del(&ls->list);
+		kfree(ls);
+	}
+	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
+
+	if (tfw_runstate_is_reconfig())
+		return;
+
 	tfw_listen_sock_del_all();
 }
 
