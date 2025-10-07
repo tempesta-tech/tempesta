@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2026 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -161,6 +161,16 @@ error()
 # Tempesta requires kernel module loading, so we need root credentials.
 [ `id -u` -ne 0 ] && error "Please, run the script as root"
 
+prepare_db_directory()
+{
+	# Create database directory if it doesn't exist.
+	mkdir -p /opt/tempesta/db/;
+	# At this time we don't have stable TDB data format, so
+	# it would be nice to clean all the tables before the start.
+	# TODO #515: Remove the hack when TDB is fixed.
+	rm -f /opt/tempesta/db/*.tdb;
+}
+
 load_one_module()
 {
 	if [ -z "$1" ]; then
@@ -182,7 +192,6 @@ load_modules()
 {
 	echo "Loading Tempesta kernel modules..."
 
-	mkdir -p /tmp/tempesta
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
@@ -208,7 +217,6 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
-	$script_path/regex_stop.sh
 	rmmod $rgx_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
@@ -310,16 +318,6 @@ update_js_challenge_templates()
 	done
 }
 
-prepare_db_directory()
-{
-	# Create database directory if it doesn't exist.
-	mkdir -p /opt/tempesta/db/;
-	# At this time we don't have stable TDB data format, so
-	# it would be nice to clean all the tables before the start.
-	# TODO #515: Remove the hack when TDB is fixed.
-	rm -f /opt/tempesta/db/*.tdb;
-}
-
 start_tempesta_and_check_state()
 {
 	local _err
@@ -336,8 +334,6 @@ start_tempesta_and_check_state()
 		if [[ $TFW_STATE == "start (failed reconfig)" ]]; then
 			error "Tempesta FW reconfiguration fails (sysctl message: ${_err##*: }, please check dmesg)."`
 				`" Tempesta FW is still running with old configuration."
-		else
-			$script_path/regex_start.sh
 		fi
 	fi
 }

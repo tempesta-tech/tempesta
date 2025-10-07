@@ -51,7 +51,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -756,7 +756,7 @@ write_regex(const char *arg, int regex)
 	struct file *fl;
 	loff_t off = 0;
 	int r;
-	char file_name[25];
+	char file_name[32];
 	char reg_number[6];
 	int len = strlen(arg);
 	int len1;
@@ -767,7 +767,7 @@ write_regex(const char *arg, int regex)
 	}
 
 	++number_of_db_regex;
-	sprintf(file_name, "/tmp/tempesta/%u.txt", number_of_db_regex);
+	sprintf(file_name, "/opt/tempesta/regex/%u.txt", number_of_db_regex);
 
 	fl = filp_open(file_name, O_CREAT | O_WRONLY, 0600);
 	if (IS_ERR(fl)) {
