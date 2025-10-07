@@ -32,6 +32,7 @@ if [ -z "$TFW_SYSTEMD" ]; then
 fi
 
 . "$(dirname $0)/tfw_lib.sh"
+. "$(dirname $0)/tfw_regex_lib.sh"
 
 script_path="$(dirname $0)"
 tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
@@ -208,7 +209,7 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
-	$script_path/regex_stop.sh
+	stop_regex
 	rmmod $rgx_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
@@ -308,7 +309,10 @@ start_tempesta_and_check_state()
 			error "Tempesta FW reconfiguration fails (sysctl message: ${_err##*: }, please check dmesg)."`
 				`" Tempesta FW is still running with old configuration."
 		else
-			$script_path/regex_start.sh
+			start_regex
+			if [ $? -ne 0 ]; then
+				unload_modules
+			fi
 		fi
 	fi
 }
