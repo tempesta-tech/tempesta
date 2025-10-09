@@ -16,7 +16,7 @@
  * application level filters must be implemented.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -155,8 +155,10 @@ tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
 	struct in6_addr addr6;
 
 	ih = __ipv4_hdr_check(skb);
-	if (!ih)
+	if (!ih) {
+		T_WARN("Invalid ipv4 header in skb\n");
 		return NF_DROP;
+	}
 
 	ipv6_addr_set_v4mapped(ih->saddr, &addr6);
 
@@ -166,60 +168,73 @@ tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
 	return NF_ACCEPT;
 }
 
-static u8 *
-__ipv6_opt_ptr(struct sk_buff *skb, size_t off)
-{
-	if (!pskb_may_pull(skb, off + 8)) /* ext headers are 8-byte aligned */
-		return NULL;
-
-	return (u8 *)(ipv6_hdr(skb) + 1);
-}
-
 static struct ipv6hdr *
 __ipv6_hdr_check(struct sk_buff *skb)
 {
-	u32 len;
-	size_t off = 0;
+	u32 len = skb->len;
 	struct ipv6hdr *ih;
-	u8 next, *buf;
+	u8 nexthdr;
+	int offset;
 
 	if (!pskb_may_pull(skb, sizeof(struct ipv6hdr)))
 		return NULL;
 
 	ih = ipv6_hdr(skb);
+	nexthdr = ih->nexthdr;
+	offset = skb_network_header_len(skb);
+
 	if (unlikely(ih->version != 6))
 		return NULL;
 
-	len = ntohs(ih->payload_len);
-	if (unlikely(len + sizeof(struct ipv6hdr) > skb->len))
-		return NULL;
+	/*
+	 * According RFC 8200 upper-layer protocol header (e.g., TCP/UDP/ICMP)
+	 * comes after all extention headers. Iterate over all extention
+	 * headers and check that only supported extention headers are present.
+	 */
+	while (ipv6_ext_hdr(nexthdr)) {
+		struct ipv6_opt_hdr _hdr;
+		const struct ipv6_opt_hdr *hp;
 
-	/* Check options. */
-	next = ih->nexthdr;
-	buf = __ipv6_opt_ptr(skb, 0);
-	while (next != IPPROTO_TCP) {
-		if (!buf)
+		if (!pskb_may_pull(skb, offset + sizeof(_hdr)))
 			return NULL;
 
-		switch(next) {
-		case 0 : /* hop-by-hop */
-		case 60 : /* destination options */
-		case 43 : /* routing */
-			next = buf[0];
-			len = (buf[1] + 1) * 8;
-
-			off += len;
-			buf = __ipv6_opt_ptr(skb, off);
-
+		switch (nexthdr) {
+		case IPPROTO_HOPOPTS:
+		case IPPROTO_ROUTING:
+		case IPPROTO_DSTOPTS:
 			break;
-		case 44 : /* fragment */
+		case IPPROTO_FRAGMENT:
 			/* TODO we do not support fragmented IPv6 yet. */
-		default: /* unknown or unsupported ext. header, skipping */
+			fallthrough;
+		default:
 			return NULL;
 		}
+
+		hp = skb_header_pointer(skb, offset, sizeof(_hdr), &_hdr);
+		if (!hp)
+			return NULL;
+
+		nexthdr = hp->nexthdr;
+		offset += (hp->hdrlen + 1) << 3;
+		if (offset > len)
+			return NULL;
 	}
 
-	return ih;
+	/*
+	 * Only TCP and ICMP (to support NDP protocol) protocol headers
+	 * are supported.
+	 */
+	if (nexthdr == IPPROTO_TCP)
+		offset += sizeof(struct tcphdr);
+	else if (nexthdr ==  IPPROTO_ICMPV6)
+		offset += sizeof(struct icmp6hdr);
+	else
+		return NULL;
+
+	if (!pskb_may_pull(skb, offset))
+		return NULL;
+
+	return (struct ipv6hdr *)(skb_network_header(skb) + offset);
 }
 
 static unsigned int
@@ -229,8 +244,10 @@ tfw_ipv6_nf_hook(void *priv, struct sk_buff *skb,
 	struct ipv6hdr *ih;
 
 	ih = __ipv6_hdr_check(skb);
-	if (!ih)
+	if (!ih) {
+		T_WARN("Invalid ipv6 header in skb\n");
 		return NF_DROP;
+	}
 
 	if (tfw_filter_check_ip(&ih->saddr) == T_BLOCK)
 		return NF_DROP;
