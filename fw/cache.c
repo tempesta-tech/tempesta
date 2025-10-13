@@ -2812,7 +2812,7 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
 }
 
 static inline bool
-tfw_cache_should_append_body_skb(TfwMsgIter *it, unsigned long body_sz,
+tfw_cache_should_append_body_skb(TfwMsgIter *it, unsigned int body_sz,
 				 bool chunked_body)
 {
 /*
@@ -2821,8 +2821,7 @@ tfw_cache_should_append_body_skb(TfwMsgIter *it, unsigned long body_sz,
  */
 #define CHUNKED_B_SZ 23
 
-	unsigned long body_sz_in_skb =
-		body_sz + chunked_body ? CHUNKED_B_SZ : 0;
+	unsigned long body_sz_in_skb = (chunked_body * CHUNKED_B_SZ) + body_sz;
 
 	/*
 	 * If sh_frag is true we should copy skb with headers during
@@ -2868,7 +2867,7 @@ tfw_cache_should_append_body_skb(TfwMsgIter *it, unsigned long body_sz,
  */
 static int
 tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
-			  unsigned long body_sz, bool h2, bool chunked_body)
+			  unsigned int body_sz, bool h2, bool chunked_body)
 {
 /*
  * Finish chunked body encoding. Add 0\r\n
@@ -2939,7 +2938,7 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwHttpResp *resp, char *p,
 
 		BUG_ON(f_size < 0 || f_size > PAGE_SIZE);
 		if (f_size) {
-			f_size = min(body_sz, (unsigned long)f_size);
+			f_size = min_t(unsigned int, body_sz, f_size);
 			body_sz -= f_size;
 			r = tfw_cache_add_body_page(it, p, f_size, h2);
 			if (r)
