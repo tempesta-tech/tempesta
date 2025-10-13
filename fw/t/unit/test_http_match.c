@@ -133,7 +133,7 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 			    op_val = TFW_HTTP_MATCH_O_WILDCARD;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
 	tfw_http_match_val_t val_type = TFW_HTTP_MATCH_V_HID;
-	size_t arg_size = 0;
+	size_t arg_size = 0, name_size = 0;
 	unsigned int val_len = 0;
 	const char *arg = NULL, *val = NULL;
 
@@ -144,8 +144,8 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 		tfw_http_verify_hdr_field(field, &in_val, &hid);
 	}
 	val = tfw_http_val_adjust(in_val, field, &val_len, &val_type, &op_val);
-	arg = tfw_http_arg_adjust(in_arg, field, in_val, 0,
-	                          &arg_size, &type, &op);
+	arg = tfw_http_arg_adjust(in_arg, field, in_val, 0, &arg_size, &name_size,
+				  &type, &op);
 	EXPECT_NOT_NULL(arg);
 	if (!arg)
 		return;
@@ -165,7 +165,7 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 	}
 	e->rule.op = op;
 	e->rule.arg.type = type;
-	tfw_http_rule_arg_init(&e->rule, arg, arg_size - 1);
+	tfw_http_rule_arg_init(&e->rule, arg, arg_size - 1, name_size);
 	/* Just dummy action type to avoid BUG_ON in 'do_eval()'. */
 	e->rule.act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 	e->test_id = test_id;
