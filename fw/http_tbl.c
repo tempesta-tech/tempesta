@@ -83,7 +83,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -390,7 +390,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	tfw_http_match_val_t type_val = TFW_HTTP_MATCH_V_NA;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
 	TfwCfgRule *cfg_rule = &e->rule;
-	size_t arg_size = 0;
+	size_t arg_size = 0, name_size = 0;
 	TfwHttpChain *chain = NULL;
 	TfwVhost *vhost = NULL;
 
@@ -434,14 +434,13 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 
 		arg = tfw_http_arg_adjust(in_arg, field, in_field_val,
-		                          cfg_rule->regex, &arg_size,
-		                          &type, &op);
+					  cfg_rule->regex, &arg_size, &name_size, &type,
+					  &op);
 		if (IS_ERR(arg))
 			return PTR_ERR(arg);
 	}
 
-	val = tfw_http_val_adjust(in_field_val, field,
-				  &val_len, &type_val, &op_val);
+	val = tfw_http_val_adjust(in_field_val, field, &val_len, &type_val, &op_val);
 	if (IS_ERR(val)) {
 		kfree(arg);
 		return PTR_ERR(val);
@@ -469,7 +468,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		rule->field = field;
 		rule->op = op;
 		rule->arg.type = type;
-		if ((r = tfw_http_rule_arg_init(rule, arg, arg_size - 1)))
+		if ((r = tfw_http_rule_arg_init(rule, arg, arg_size - 1, name_size)))
 			goto err;
 		kfree(arg);
 	}

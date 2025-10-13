@@ -83,6 +83,7 @@ typedef enum {
 typedef struct {
 	tfw_http_match_arg_t type;
 	short len; /* Actual amount of memory allocated for the union below. */
+	short name_len; /* Length of header name part in str */
 	union {
 		tfw_http_meth_t method;
 		unsigned int num;
@@ -154,10 +155,10 @@ TfwHttpMatchRule *tfw_http_rule_new(TfwHttpChain *chain,
 				    size_t arg_len);
 
 int tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg,
-			   size_t arg_len);
+			   size_t arg_len, size_t name_len);
 const char *tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
-                                const char *raw_hdr_name, int regex,
-                                size_t *size_out,
+				const char *raw_hdr_name, int regex,
+				size_t *size_out, size_t *name_size_out,
 				tfw_http_match_arg_t *type_out,
 				tfw_http_match_op_t *op_out);
 const char *tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
