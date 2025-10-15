@@ -1219,6 +1219,49 @@ index d9d914111..412aff866 100644
  }
  
  void __init __weak arch_call_rest_init(void)
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 7c044d377..1fd6c5fac 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -441,6 +441,10 @@ void put_task_stack(struct task_struct *tsk)
+ 
+ void free_task(struct task_struct *tsk)
+ {
++#ifdef CONFIG_SECCOMP
++	WARN_ON_ONCE(tsk->seccomp.filter);
++#endif
++
+ 	scs_release(tsk);
+ 
+ #ifndef CONFIG_THREAD_INFO_IN_TASK
+@@ -2236,12 +2240,6 @@ static __latent_entropy struct task_struct *copy_process(
+ 
+ 	spin_lock(&current->sighand->siglock);
+ 
+-	/*
+-	 * Copy seccomp details explicitly here, in case they were changed
+-	 * before holding sighand lock.
+-	 */
+-	copy_seccomp(p);
+-
+ 	rseq_fork(p, clone_flags);
+ 
+ 	/* Don't start children in a dying pid namespace */
+@@ -2256,6 +2254,14 @@ static __latent_entropy struct task_struct *copy_process(
+ 		goto bad_fork_cancel_cgroup;
+ 	}
+ 
++	/* No more failure path after this point. */
++
++	/*
++	 * Copy seccomp details explicitly here, in case they were changed
++	 * before holding sighand lock.
++	 */
++	copy_seccomp(p);
++
+ 	/* past the last point of failure */
+ 	if (pidfile)
+ 		fd_install(pidfd, pidfile);
 diff --git a/kernel/irq_work.c b/kernel/irq_work.c
 index eca83965b..e0ed16db6 100644
 --- a/kernel/irq_work.c
