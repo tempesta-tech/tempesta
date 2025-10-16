@@ -17,30 +17,30 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include <string>
+#include <memory>
 
-#include <boost/property_tree/ptree_fwd.hpp>
+#include "../libtus/error.hh"
+#include "tfw_logger_plugin.hh"
+#include "event_processor.hh"
 
-#include "clickhouse_config.hh"
+class MmapProcessor : public EventProcessor {
+public:
+	explicit MmapProcessor(std::shared_ptr<TfwClickhouse> db,
+			       int device_fd
+			       const TfwLoggerProcessorContext &context);
+	~MmapProcessor() override;
 
-namespace fs = std::filesystem;
+	tus::Error<bool> consume_event() override;
+	void make_background_work() override;
+	[[nodiscard]] void flush(bool force = false) noexcept override;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
-
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
-
-	void
-	validate() const;
-
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+private:
+	int device_fd_;
+	int cpu_id_;
+	std::atomic<bool> *stop_flag_;
+	TfwMmapBuffer *buffer_;
+	size_t size_;
 };

@@ -17,30 +17,24 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include <memory>
+#include "clickhouse.hh"
+#include "../libtus/error.hh"
 
-#include <boost/property_tree/ptree_fwd.hpp>
+class EventProcessor {
+public:
+	EventProcessor(std::shared_ptr<TfwClickhouse> db);
+	virtual ~EventProcessor() = default;
 
-#include "clickhouse_config.hh"
+	EventProcessor(const EventProcessor&) = delete;
+	EventProcessor& operator=(const EventProcessor&) = delete;
 
-namespace fs = std::filesystem;
+	virtual Error<bool> consume_event() = 0;
+	virtual void make_background_work() = 0;
+	[[nodiscard]] virtual void flush(bool force = false) noexcept = 0;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
-
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
-
-	void
-	validate() const;
-
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+protected:
+	std::shared_ptr<TfwClickhouse> db_;
 };
