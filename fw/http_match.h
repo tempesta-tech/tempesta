@@ -62,7 +62,6 @@ typedef tfw_http_match_op_t	tfw_match_t;
 typedef enum {
 	TFW_HTTP_MATCH_A_NA = 0,
 	TFW_HTTP_MATCH_A_WILDCARD,
-	TFW_HTTP_MATCH_A_ADDR,
 	TFW_HTTP_MATCH_A_METHOD,
 	TFW_HTTP_MATCH_A_NUM,
 	TFW_HTTP_MATCH_A_STR,
@@ -87,7 +86,6 @@ typedef struct {
 	union {
 		tfw_http_meth_t method;
 		unsigned int num;
-		TfwAddr addr;
 		DECLARE_FLEX_ARRAY(char, str);
 	};
 } TfwHttpMatchArg;
