@@ -106,6 +106,7 @@ tfw_server_create(const TfwAddr *addr)
 
 	return srv;
 }
+ALLOW_ERROR_INJECTION(tfw_server_create, NULL);
 
 TfwServer *
 tfw_server_lookup_nolock(TfwSrvGroup *sg, TfwAddr *addr)
