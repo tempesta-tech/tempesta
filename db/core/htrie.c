@@ -30,6 +30,7 @@
 #include <linux/bitops.h>
 #include <linux/slab.h>
 #include <asm/sync_bitops.h>
+#include <linux/error-injection.h>
 
 #include "lib/str.h"
 #include "htrie.h"
@@ -468,6 +469,7 @@ allocated:
 	tdb_get_blk(dbh, rptr);
 	return rptr;
 }
+ALLOW_ERROR_INJECTION(tdb_alloc_blk, NULL);
 
 static void
 tdb_htrie_init_bucket(TdbBucket *b)
@@ -765,10 +767,8 @@ do {									\
 			if (!o_r)					\
 				goto err_cleanup;			\
 			o_b = tdb_alloc_bucket(dbh);			\
-			if (!o_b) {					\
-				tdb_put_blk(dbh, o_r);			\
+			if (!o_b)					\
 				goto err_cleanup;			\
-			}						\
 			nb[k].r = o_r;					\
 			nbckt = TDB_PTR(dbh, o_b);			\
 			tdb_htrie_init_bucket(nbckt);			\
@@ -1090,11 +1090,8 @@ retry:
 			return NULL;
 
 		o_bckt = o_bckt ?: tdb_alloc_bucket(dbh);
-		if (!o_bckt) {
-			/* Free allocated data. */
-			tdb_put_blk(dbh, o);
+		if (!o_bckt)
 			return NULL;
-		}
 
 		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
 
