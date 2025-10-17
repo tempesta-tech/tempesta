@@ -1395,6 +1395,7 @@ ss_inet_create(struct net *net, int family,
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(ss_sock_create, ERRNO);
 
 int
 ss_sock_create(int family, int type, int protocol, struct sock **res)
@@ -1479,6 +1480,7 @@ ss_connect(struct sock *sk, const TfwAddr *addr, int flags)
 	return r;
 }
 EXPORT_SYMBOL(ss_connect);
+ALLOW_ERROR_INJECTION(ss_connect, ERRNO);
 
 /*
  * The original functions are inet_bind() and inet6_bind().

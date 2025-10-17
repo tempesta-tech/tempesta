@@ -491,6 +491,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(tfw_listen_sock_add, ERRNO);
 
 static void
 tfw_listen_sock_del_all(void)
