@@ -778,19 +778,19 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len,
 }
 
 static size_t
-tfw_http_escape_pre_post(char *out , const char *str)
+tfw_http_escape_pre_post(char *out, const char *str, size_t str_len)
 {
 	int i;
-	size_t len = 0;
+	size_t new_len = 0;
 	bool escaped = false;
 
-	for (i = 0; str[i]; ++i) {
+	for (i = 0; i < str_len; ++i) {
 		if (str[i] == '*' && !escaped && (i == 0 || !str[i + 1]))
 			continue;
 		if (str[i] != '\\' || escaped) {
 			escaped = false;
 			*out = str[i];
-			++len;
+			++new_len;
 			++out;
 		}
 		else if (str[i] == '\\') {
@@ -798,7 +798,7 @@ tfw_http_escape_pre_post(char *out , const char *str)
 		}
 	}
 
-	return len;
+	return new_len;
 }
 
 /*
@@ -883,6 +883,27 @@ err:
 	return r;
 }
 
+static void
+find_spaces(const char *s, size_t len, size_t *begin_spaces_out,
+	    size_t *end_spaces_out)
+{
+	size_t i, end_s;
+
+	for (i = len - 1; i > 0; i--)
+		if (!isspace(s[i]))
+			break;
+
+	end_s = len - i - 1;
+	*end_spaces_out = end_s;
+	len -= end_s;
+
+	for (i = 0; i < len; i++)
+		if (!isspace(s[i]))
+			break;
+
+	*begin_spaces_out = i;
+}
+
 const char *
 tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		    const char *raw_hdr_name, int regex, size_t *size_out,
@@ -890,7 +911,9 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		    tfw_http_match_op_t *op_out)
 {
 	char *arg_out, *pos;
-	size_t name_len = 0, full_name_len = 0, len = strlen(arg);
+	size_t name_len = 0, full_name_len = 0, len = strlen(arg),
+	       n_begin_off = 0, n_end_off = 0, arg_begin_off = 0,
+	       arg_end_off = 0;
 	bool wc_arg = (arg[0] == '*' && len == 1);
 
 	*type_out = tfw_http_tbl_arg_type(field);
@@ -905,6 +928,13 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 
 	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
 		name_len = strlen(raw_hdr_name);
+		/* Forbid "" string in name. */
+		if (!name_len)
+			return ERR_PTR(-EINVAL);
+		find_spaces(raw_hdr_name, name_len, &n_begin_off, &n_end_off);
+		name_len -= (n_begin_off + n_end_off);
+		if (!name_len)
+			return ERR_PTR(-EINVAL);
 		full_name_len = name_len + SLEN(S_COLON);
 		*name_size_out = full_name_len;
 
@@ -920,7 +950,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	}
 
 	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
-		memcpy(arg_out, raw_hdr_name, name_len);
+		memcpy(arg_out, raw_hdr_name + n_begin_off, name_len);
 		memcpy(arg_out + name_len, S_COLON, SLEN(S_COLON));
 	}
 
@@ -1026,7 +1056,7 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	len_adjust = tfw_http_escape_pre_post(val_out, val);
+	len_adjust = tfw_http_escape_pre_post(val_out, val, len);
 	if (*op_out == TFW_HTTP_MATCH_O_EQ ||
 	    *op_out == TFW_HTTP_MATCH_O_SUFFIX)
 	{
