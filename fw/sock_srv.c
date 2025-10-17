@@ -652,6 +652,7 @@ tfw_srv_conn_alloc(void)
 
 	return srv_conn;
 }
+ALLOW_ERROR_INJECTION(tfw_srv_conn_alloc, NULL);
 
 static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
@@ -998,6 +999,7 @@ tfw_cfgop_sg_copy_sched_arg(void **to, void *from)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(tfw_cfgop_sg_copy_sched_arg, ERRNO);
 
 static TfwCfgSrvGroup *
 __tfw_cfgop_new_sg_cfg(const char *name, unsigned int len)

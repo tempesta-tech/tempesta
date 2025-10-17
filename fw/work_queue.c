@@ -24,6 +24,7 @@
 #include <linux/percpu.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
+#include <linux/error-injection.h>
 
 #include "work_queue.h"
 
@@ -131,6 +132,7 @@ full_out:
 	local_bh_enable();
 	return head;
 }
+ALLOW_ERROR_INJECTION(__tfw_wq_push, ERRNO);
 
 /**
  * Sets tail value to be compared with current turnstile ticket, so
