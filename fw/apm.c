@@ -1245,6 +1245,7 @@ tfw_apm_data_init(TfwApmData *data)
 	/* Return end of the structure, for further memory areas setting. */
 	return val[1] + T_PSZ;
 }
+ALLOW_ERROR_INJECTION(tfw_apm_data_init, ERRNO);
 
 static TfwApmRef *
 tfw_apm_ref_create(void)
