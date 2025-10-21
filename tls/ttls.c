@@ -2820,8 +2820,7 @@ ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
 		goto exit;
 	if ((r = ttls_md_update(&ctx, data, data_len)))
 		goto exit;
-	if ((r = ttls_md_finish(&ctx, output)))
-		goto exit;
+	r = ttls_md_finish(&ctx, output);
 
 exit:
 	ttls_md_free(&ctx);
