@@ -1940,10 +1940,8 @@ tfw_sock_srv_cfgstart(void)
 	tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME, nlen);
 	if (!tfw_cfg_sg_opts)
 		return -ENOMEM;
-	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg_def())) {
-		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
+	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg_def()))
 		return -ENOMEM;
-	}
 	tfw_cfg_sg = tfw_cfg_sg_opts;
 	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
