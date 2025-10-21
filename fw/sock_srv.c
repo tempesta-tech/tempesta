@@ -1831,9 +1831,8 @@ tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
 		tfw_cfg_sg->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
 		tfw_cfg_sg->sched_flags = tfw_cfg_sg_opts->sched_flags;
-		tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
-					    tfw_cfg_sg_opts->sched_arg);
-		return 0;
+		return tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
+						   tfw_cfg_sg_opts->sched_arg);
 	}
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sg->parsed_sg->sched,
 				       &tfw_cfg_sg->sched_arg,
@@ -1989,13 +1988,16 @@ tfw_sock_srv_cfgend(void)
 	/* Options for implicit group are not filled, use current defaults. */
 	tfw_cfgop_sg_copy_opts(tfw_cfg_sg_def->parsed_sg,
 			       tfw_cfg_sg_opts->parsed_sg);
-	tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
-				    tfw_cfg_sg_opts->sched_arg);
+	r = tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
+					tfw_cfg_sg_opts->sched_arg);
+	if (unlikely(r))
+		return r;
 	tfw_cfg_sg_def->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
 	tfw_cfg_sg_def->nip_flags = tfw_cfg_sg_opts->nip_flags;
 	tfw_cfg_sg_def->sched_flags = tfw_cfg_sg_opts->sched_flags;
 
-	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def)))
+	r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def);
+	if (unlikely(r))
 		return r;
 	tfw_cfg_sg_def = NULL;
 
