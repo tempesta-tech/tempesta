@@ -227,6 +227,7 @@ __ttls_md_hmac_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(__ttls_md_hmac_setup, ERRNO);
 
 int
 ttls_md_setup(TlsMdCtx *ctx, const TlsMdInfo *md_info, int hmac)
