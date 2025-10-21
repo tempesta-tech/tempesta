@@ -333,6 +333,7 @@ ttls_md_hmac_starts(TlsMdCtx *ctx, const unsigned char *key, size_t keylen)
 		return r;
 	return crypto_shash_init(&ctx->md_ctx);
 }
+ALLOW_ERROR_INJECTION(ttls_md_hmac_starts, ERRNO);
 
 int
 ttls_md_hmac_reset(TlsMdCtx *ctx)
