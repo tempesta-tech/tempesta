@@ -357,7 +357,7 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 		const unsigned char *random, size_t rlen,
 		unsigned char *dstbuf, size_t dlen)
 {
-	int r;
+	int r = 0;
 	size_t i, k, md_len;
 	const TlsMdInfo *md_info;
 	TlsMdCtx md_ctx;
@@ -375,30 +375,50 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 	llen += rlen;
 
 	/* Compute P_<hash>(secret, label + random)[0..dlen]. */
-	if ((r = ttls_md_setup(&md_ctx, md_info, 1)))
+	r = ttls_md_setup(&md_ctx, md_info, 1);
+	if (unlikely(r))
 		return r;
 
-	ttls_md_hmac_starts(&md_ctx, secret, slen);
-	ttls_md_hmac_update(&md_ctx, tmp + md_len, llen);
-	ttls_md_hmac_finish(&md_ctx, tmp);
+	r = ttls_md_hmac_starts(&md_ctx, secret, slen);
+	if (unlikely(r))
+		goto exit;
+	r = ttls_md_hmac_update(&md_ctx, tmp + md_len, llen);
+	if (unlikely(r))
+		goto exit;
+	r = ttls_md_hmac_finish(&md_ctx, tmp);
+	if (unlikely(r))
+		goto exit;
 
 	for (i = 0; i < dlen; i += md_len) {
-		ttls_md_hmac_reset(&md_ctx);
-		ttls_md_hmac_update(&md_ctx, tmp, md_len + llen);
-		ttls_md_hmac_finish(&md_ctx, h_i);
+		r = ttls_md_hmac_reset(&md_ctx);
+		if (unlikely(r))
+			goto exit;
+		r = ttls_md_hmac_update(&md_ctx, tmp, md_len + llen);
+		if (unlikely(r))
+			goto exit;
+		r = ttls_md_hmac_finish(&md_ctx, h_i);
+		if (unlikely(r))
+			goto exit;
 
-		ttls_md_hmac_reset(&md_ctx);
-		ttls_md_hmac_update(&md_ctx, tmp, md_len);
-		ttls_md_hmac_finish(&md_ctx, tmp);
+		r = ttls_md_hmac_reset(&md_ctx);
+		if (unlikely(r))
+			goto exit;
+		r = ttls_md_hmac_update(&md_ctx, tmp, md_len);
+		if (unlikely(r))
+			goto exit;
+		r = ttls_md_hmac_finish(&md_ctx, tmp);
+		if (unlikely(r))
+			goto exit;
 
 		k = (i + md_len > dlen) ? dlen % md_len : md_len;
 		memcpy_fast(dstbuf + i, h_i, k);
 	}
 
+exit:
 	ttls_md_free(&md_ctx);
 	bzero_fast(__buf, TTLS_MD_MAX_SIZE * 3);
 
-	return 0;
+	return r;
 }
 
 static int
@@ -482,30 +502,38 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	return crypto_shash_update(&tls->hs->desc, buf, len);
 }
 
-static void
+static int
 ttls_calc_verify_tls_sha256(TlsCtx *tls, unsigned char hash[32])
 {
 	ttls_sha256_context sha256;
+	int r;
 
 	memcpy_fast(&sha256, &tls->hs->fin_sha256, sizeof(sha256));
-	crypto_shash_final(&sha256.desc, hash);
 
-	T_DBG3_BUF("calculated verify sha256 result", hash, 32);
+	r = crypto_shash_final(&sha256.desc, hash);
+	if (likely(!r))
+		T_DBG3_BUF("calculated verify sha256 result", hash, 32);
 
 	bzero_fast(&sha256, sizeof(sha256));
+
+	return r;
 }
 
-static void
+static int
 ttls_calc_verify_tls_sha384(TlsCtx *tls, unsigned char hash[48])
 {
 	ttls_sha512_context sha512;
+	int r;
 
 	memcpy_fast(&sha512, &tls->hs->fin_sha512, sizeof(sha512));
-	crypto_shash_final(&sha512.desc, hash);
 
-	T_DBG3_BUF("calculated verify sha384 result", hash, 48);
+	r = crypto_shash_final(&sha512.desc, hash);
+	if (likely(!r))
+		T_DBG3_BUF("calculated verify sha384 result", hash, 48);
 
 	bzero_fast(&sha512, sizeof(sha512));
+
+	return r;
 }
 
 #define TTLS_PRF(hs, sec, slen, lbl, rnd, rlen, buf, blen)		\
@@ -514,7 +542,7 @@ ttls_calc_verify_tls_sha384(TlsCtx *tls, unsigned char hash[48])
 	(hs)->tls_prf(sec, slen, lbl, sizeof(lbl) - 1, rnd, rlen, buf, blen);\
 })
 
-static void
+static int
 ttls_calc_finished_tls_sha256(TlsCtx *tls, unsigned char *buf, int from)
 {
 	const int len = 12;
@@ -523,6 +551,7 @@ ttls_calc_finished_tls_sha256(TlsCtx *tls, unsigned char *buf, int from)
 	TlsSess *sess = &tls->sess;
 	ttls_sha256_context sha256;
 	unsigned char padbuf[SHA256_DIGEST_SIZE];
+	int r;
 
 	memcpy_fast(&sha256, &tls->hs->fin_sha256, sizeof(sha256));
 
@@ -536,17 +565,23 @@ ttls_calc_finished_tls_sha256(TlsCtx *tls, unsigned char *buf, int from)
 		 : "server finished";
 	slen = sizeof("client finished") - 1;
 
-	crypto_shash_final(&sha256.desc, padbuf);
-	tls->hs->tls_prf(sess->master, 48, sender, slen, padbuf,
-			 SHA256_DIGEST_SIZE, buf, len);
+	r = crypto_shash_final(&sha256.desc, padbuf);
+	if (unlikely(r))
+		goto exit;
 
-	T_DBG3_BUF("calc finished sha256 result", buf, len);
+	r = tls->hs->tls_prf(sess->master, 48, sender, slen, padbuf,
+			     SHA256_DIGEST_SIZE, buf, len);
+	if (likely(r))
+		T_DBG3_BUF("calc finished sha256 result", buf, len);
 
+exit:
 	bzero_fast(&sha256, sizeof(sha256));
 	bzero_fast(padbuf, sizeof(padbuf));
+
+	return r;
 }
 
-static void
+static int
 ttls_calc_finished_tls_sha384(TlsCtx *tls, unsigned char *buf, int from)
 {
 	const int len = 12;
@@ -555,6 +590,7 @@ ttls_calc_finished_tls_sha384(TlsCtx *tls, unsigned char *buf, int from)
 	TlsSess *sess = &tls->sess;
 	ttls_sha512_context sha512;
 	unsigned char padbuf[SHA384_DIGEST_SIZE];
+	int r;
 
 	memcpy_fast(&sha512, &tls->hs->fin_sha512, sizeof(sha512));
 
@@ -568,14 +604,20 @@ ttls_calc_finished_tls_sha384(TlsCtx *tls, unsigned char *buf, int from)
 		 : "server finished";
 	slen = sizeof("client finished") - 1;
 
-	crypto_shash_final(&sha512.desc, padbuf);
-	tls->hs->tls_prf(sess->master, 48, sender, slen, padbuf,
-			 SHA384_DIGEST_SIZE, buf, len);
+	r = crypto_shash_final(&sha512.desc, padbuf);
+	if (unlikely(r))
+		goto exit;
 
-	T_DBG3_BUF("calc finished sha512 result", buf, len);
+	r = tls->hs->tls_prf(sess->master, 48, sender, slen, padbuf,
+			     SHA384_DIGEST_SIZE, buf, len);
+	if (likely(!r))
+		T_DBG3_BUF("calc finished sha512 result", buf, len);
 
+exit:
 	bzero_fast(&sha512, sizeof(sha512));
 	bzero_fast(padbuf, sizeof(padbuf));
+
+	return r;
 }
 
 int
@@ -613,7 +655,9 @@ ttls_derive_keys(TlsCtx *tls)
 			unsigned char session_hash[48];
 			size_t hash_len;
 
-			tls->hs->calc_verify(tls, session_hash);
+			r = tls->hs->calc_verify(tls, session_hash);
+			if (unlikely(r))
+				return r;
 
 			if (tls->xfrm.ciphersuite_info->mac == TTLS_MD_SHA384)
 				hash_len = 48;
@@ -733,8 +777,14 @@ ttls_derive_keys(TlsCtx *tls)
 	T_DBG3_BUF("derive keys: key_dec", key2, ci->key_len);
 
 	if (mac_key_len) {
-		ttls_md_hmac_starts(&xfrm->md_ctx_enc, mac_enc, mac_key_len);
-		ttls_md_hmac_starts(&xfrm->md_ctx_dec, mac_dec, mac_key_len);
+		r = ttls_md_hmac_starts(&xfrm->md_ctx_enc, mac_enc,
+					mac_key_len);
+		if (unlikely(r))
+			return r;
+		r = ttls_md_hmac_starts(&xfrm->md_ctx_dec, mac_dec,
+					mac_key_len);
+		if (unlikely(r))
+			return r;
 	}
 
 	if ((r = ttls_cipher_setup(&xfrm->cipher_ctx_enc, ci, TTLS_TAG_LEN))) {
@@ -1828,7 +1878,10 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	msg = p + ttls_payload_off(xfrm);
 
 	ttls_write_hshdr(TTLS_HS_FINISHED, msg, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
-	tls->hs->calc_finished(tls, msg + TTLS_HS_HDR_LEN, tls->conf->endpoint);
+	r = tls->hs->calc_finished(tls, msg + TTLS_HS_HDR_LEN,
+				   tls->conf->endpoint);
+	if (unlikely(r))
+		return r;
 	/*
 	 * On abbreviated handshake order of Finished messages are reversed:
 	 * first server sends his Finished message, then client. The last
@@ -1909,7 +1962,10 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
-	tls->hs->calc_finished(tls, hash, tls->conf->endpoint ^ 1);
+	r = tls->hs->calc_finished(tls, hash, tls->conf->endpoint ^ 1);
+	if (unlikely(r))
+		return r;
+
 	if (crypto_memneq(&hs->finished[TTLS_HS_HDR_LEN], hash, TLS_HASH_LEN)) {
 		TTLS_WARN(tls, "bad hash in finished message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -2824,10 +2880,6 @@ ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
 
 exit:
 	ttls_md_free(&ctx);
-	if (r)
-		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				TTLS_ALERT_MSG_INTERNAL_ERROR,
-				TTLS_F_ST_CLOSE);
 	return r;
 }
 
