@@ -28,6 +28,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/timer.h>
+#include <crypto/hash.h>
 #include <net/tls.h>
 
 #include "lib/str.h"
@@ -393,7 +394,7 @@ typedef struct {
 	unsigned char		active_key;
 	rwlock_t		key_lock;
 	unsigned long		lifetime;
-	unsigned char		secret[TTLS_TICKET_KEY_LEN];
+	unsigned char		secret[HASH_MAX_DIGESTSIZE];
 	struct timer_list	timer;
 } TlsTicketPeerCfg;
 
