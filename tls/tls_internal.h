@@ -150,8 +150,8 @@ struct tls_handshake_t {
 	size_t				pmslen;
 	TlsKeyCert			*key_cert;
 
-	void (*calc_verify)(TlsCtx *, unsigned char *);
-	void (*calc_finished)(TlsCtx *, unsigned char *, int);
+	int (*calc_verify)(TlsCtx *, unsigned char *);
+	int (*calc_finished)(TlsCtx *, unsigned char *, int);
 	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
 			const unsigned char *, size_t, unsigned char *, size_t);
 
