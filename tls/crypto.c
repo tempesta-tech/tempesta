@@ -71,6 +71,7 @@ ttls_cipher_setup(TlsCipherCtx *ctx, const TlsCipherInfo *ci,
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(ttls_cipher_setup, ERRNO);
 
 static TlsCipherInfo aes_128_gcm_info = {
 	TTLS_CIPHER_AES_128_GCM,
@@ -215,6 +216,7 @@ __ttls_md_hash_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(__ttls_md_hash_setup, ERRNO);
 
 static int
 __ttls_md_hmac_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
@@ -256,6 +258,7 @@ ttls_md_starts(TlsMdCtx *ctx)
 
 	return r;
 }
+ALLOW_ERROR_INJECTION(ttls_md_starts, ERRNO);
 
 int
 ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
@@ -271,6 +274,7 @@ ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
 
 	return r;
 }
+ALLOW_ERROR_INJECTION(ttls_md_update, ERRNO);
 
 int
 ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
@@ -286,6 +290,7 @@ ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
 
 	return r;
 }
+ALLOW_ERROR_INJECTION(ttls_md_finish, ERRNO);
 
 int
 ttls_md(const TlsMdInfo *md_info, const unsigned char *input, size_t ilen,
@@ -343,6 +348,7 @@ ttls_md_hmac_reset(TlsMdCtx *ctx)
 
 	return crypto_shash_init(&ctx->md_ctx);
 }
+ALLOW_ERROR_INJECTION(ttls_md_hmac_reset, ERRNO);
 
 const TlsMdInfo *
 ttls_md_info_from_type(ttls_md_type_t md_type)
