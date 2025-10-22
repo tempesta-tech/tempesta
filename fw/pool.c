@@ -43,6 +43,7 @@
  */
 #include <linux/gfp.h>
 #include <linux/mm.h>
+#include <linux/error-injection.h>
 
 #include "lib/str.h"
 #include "pool.h"
@@ -91,6 +92,7 @@ tfw_pool_alloc_pages(unsigned int order)
 	flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
 	return __get_free_pages(flags, order);
 }
+ALLOW_ERROR_INJECTION(tfw_pool_alloc_pages, NULL);
 
 static void
 tfw_pool_free_pages(unsigned long addr, unsigned int order)

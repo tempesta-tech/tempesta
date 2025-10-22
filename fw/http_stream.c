@@ -135,6 +135,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamSchedEntry *entry,
 
 	return new_stream;
 }
+ALLOW_ERROR_INJECTION(tfw_h2_add_stream, NULL);
 
 void
 tfw_h2_stream_purge_send_queue(TfwStream *stream)
