@@ -314,10 +314,20 @@ index 1209c7aeb..586ded5fa 100644
   * Sync the FPU register state to current's memory register state when the
   * current task owns the FPU. The hardware register state is preserved.
 diff --git a/crypto/aead.c b/crypto/aead.c
-index cade53241..200cfcc5b 100644
+index cade53241..fcc8a9226 100644
 --- a/crypto/aead.c
 +++ b/crypto/aead.c
-@@ -208,6 +208,25 @@ int crypto_has_aead(const char *alg_name, u32 type, u32 mask)
+@@ -200,6 +200,9 @@ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask)
+ {
+ 	return crypto_alloc_tfm(alg_name, &crypto_aead_type, type, mask);
+ }
++#ifdef CONFIG_SECURITY_TEMPESTA
++ALLOW_ERROR_INJECTION(crypto_alloc_aead, ERRNO);
++#endif
+ EXPORT_SYMBOL_GPL(crypto_alloc_aead);
+ 
+ int crypto_has_aead(const char *alg_name, u32 type, u32 mask)
+@@ -208,6 +211,25 @@ int crypto_has_aead(const char *alg_name, u32 type, u32 mask)
  }
  EXPORT_SYMBOL_GPL(crypto_has_aead);
  
@@ -400,7 +410,7 @@ index bfd177a43..bd5ac02c1 100644
  		type &= frontend->maskclear;
  		mask &= frontend->maskclear;
 diff --git a/crypto/cryptd.c b/crypto/cryptd.c
-index 31d022d47..7ab5a2867 100644
+index 31d022d47..11e2bccbc 100644
 --- a/crypto/cryptd.c
 +++ b/crypto/cryptd.c
 @@ -27,6 +27,10 @@
@@ -414,13 +424,13 @@ index 31d022d47..7ab5a2867 100644
  static unsigned int cryptd_max_cpu_qlen = 1000;
  module_param(cryptd_max_cpu_qlen, uint, 0);
  MODULE_PARM_DESC(cryptd_max_cpu_qlen, "Set cryptd Max queue depth");
-@@ -946,6 +950,75 @@ static struct crypto_template cryptd_tmpl = {
+@@ -946,6 +950,101 @@ static struct crypto_template cryptd_tmpl = {
  	.module = THIS_MODULE,
  };
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +
-+#define MAX_CACHED_ALG_COUNT	8
++#define MAX_CACHED_ALG_COUNT	32
 +struct alg_cache {
 +	int n;
 +	spinlock_t lock;
@@ -436,6 +446,23 @@ index 31d022d47..7ab5a2867 100644
 +static struct alg_cache ahash_alg_cache;
 +static struct alg_cache aead_alg_cache;
 +
++static inline struct crypto_alg *
++__cryptd_find_alg(const char *cryptd_alg_name, u32 type, u32 mask,
++		  struct alg_cache *__restrict ac)
++{
++	int k;
++
++	for (k = 0; k < ac->n; k++) {
++		if (strcmp(ac->a[k].alg_name, cryptd_alg_name) == 0
++		    && ac->a[k].type == type && ac->a[k].mask == mask)
++		{
++			return ac->a[k].alg;
++		}
++	}
++
++	return NULL;
++}
++
 +/*
 + * Finds a previously allocated algorithm or allocates a new one. In any case,
 + * returned alg holds at least one reference to its module.
@@ -446,18 +473,12 @@ index 31d022d47..7ab5a2867 100644
 +		       struct alg_cache *__restrict ac)
 +{
 +	struct crypto_alg *alg;
-+	int k;
 +
 +	spin_lock(&ac->lock);
-+	for (k = 0; k < ac->n; k++) {
-+		if (strcmp(ac->a[k].alg_name, cryptd_alg_name) == 0
-+		    && ac->a[k].type == type && ac->a[k].mask == mask)
-+		{
-+			spin_unlock(&ac->lock);
-+			return ac->a[k].alg;
-+		}
-+	}
++	alg = __cryptd_find_alg(cryptd_alg_name, type, mask, ac);
 +	spin_unlock(&ac->lock);
++	if (likely(alg))
++		return alg;
 +
 +	/* Searching for the algorithm may sleep, so warn about it. */
 +	WARN_ON_ONCE(in_serving_softirq());
@@ -467,6 +488,21 @@ index 31d022d47..7ab5a2867 100644
 +		return alg;
 +
 +	spin_lock(&ac->lock);
++
++	/*
++	 * We unlock spinlock during searching for the algorithm.
++	 * So there is a chance that two separate threads not
++	 * find algorithm in cache and will be here and add the
++	 * same algorithm to the cache. To prevent it check
++	 * algorithm presense in cache again.
++	 */
++	if (unlikely(__cryptd_find_alg(cryptd_alg_name, type,
++				       mask, ac) == alg))
++	{
++		spin_unlock(&ac->lock);
++		return alg;
++	}
++
 +	if (ac->n >= MAX_CACHED_ALG_COUNT) {
 +		spin_unlock(&ac->lock);
 +		BUG();
@@ -490,7 +526,7 @@ index 31d022d47..7ab5a2867 100644
  struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
  					      u32 type, u32 mask)
  {
-@@ -957,7 +1030,20 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
+@@ -957,7 +1056,20 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
  
@@ -511,7 +547,7 @@ index 31d022d47..7ab5a2867 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  
-@@ -1008,7 +1094,21 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
+@@ -1008,7 +1120,21 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
  	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
@@ -533,7 +569,7 @@ index 31d022d47..7ab5a2867 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
-@@ -1065,7 +1165,21 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
+@@ -1065,7 +1191,21 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
  	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
@@ -555,7 +591,7 @@ index 31d022d47..7ab5a2867 100644
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
-@@ -1109,6 +1223,12 @@ static int __init cryptd_init(void)
+@@ -1109,6 +1249,12 @@ static int __init cryptd_init(void)
  {
  	int err;
  
@@ -569,10 +605,20 @@ index 31d022d47..7ab5a2867 100644
  				    1);
  	if (!cryptd_wq)
 diff --git a/crypto/shash.c b/crypto/shash.c
-index 301ab42bf..cafa5035f 100644
+index 301ab42bf..79eca916b 100644
 --- a/crypto/shash.c
 +++ b/crypto/shash.c
-@@ -303,6 +303,25 @@ int hash_prepare_alg(struct hash_alg_common *alg)
+@@ -243,6 +243,9 @@ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
+ {
+ 	return crypto_alloc_tfm(alg_name, &crypto_shash_type, type, mask);
+ }
++#ifdef CONFIG_SECURITY_TEMPESTA
++ALLOW_ERROR_INJECTION(crypto_alloc_shash, ERRNO);
++#endif
+ EXPORT_SYMBOL_GPL(crypto_alloc_shash);
+ 
+ int crypto_has_shash(const char *alg_name, u32 type, u32 mask)
+@@ -303,6 +306,25 @@ int hash_prepare_alg(struct hash_alg_common *alg)
  	return 0;
  }
  
@@ -1488,6 +1534,20 @@ index 4ba5607aa..2fdd596c6 100644
  	kmsan_init_runtime();
  	mm_cache_init();
  	execmem_init();
+diff --git a/mm/slab_common.c b/mm/slab_common.c
+index 477fa471d..aed1382ba 100644
+--- a/mm/slab_common.c
++++ b/mm/slab_common.c
+@@ -352,6 +352,9 @@ struct kmem_cache *__kmem_cache_create_args(const char *name,
+ 	}
+ 	return s;
+ }
++#ifdef CONFIG_SECURITY_TEMPESTA
++ALLOW_ERROR_INJECTION(__kmem_cache_create_args, NULL);
++#endif
+ EXPORT_SYMBOL(__kmem_cache_create_args);
+ 
+ static struct kmem_cache *kmem_buckets_cache __ro_after_init;
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
 index 000000000..4f9e9f4ef
@@ -1497,7 +1557,7 @@ index 000000000..4f9e9f4ef
 +/**
 + *		Tempesta Memory Reservation
 + *
-+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
++ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -2934,7 +2994,7 @@ index bb1fe1ba8..755c7028d 100644
  		return NULL;
  	}
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 8efc58716..a21d3cca2 100644
+index 8efc58716..42ca03db4 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -40,6 +40,9 @@
@@ -3137,22 +3197,51 @@ index 8efc58716..a21d3cca2 100644
  
  	/* Correct the sequence numbers. */
  	TCP_SKB_CB(buff)->seq = TCP_SKB_CB(skb)->seq + len;
-@@ -2346,6 +2402,14 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
+@@ -2335,6 +2391,32 @@ static inline void tcp_mtu_check_reprobe(struct sock *sk)
+ 	}
+ }
  
++#ifdef CONFIG_SECURITY_TEMPESTA
++
++static bool tfw_tcp_skb_can_collapse(struct sock *sk, struct sk_buff *skb,
++				     struct sk_buff *next)
++{
++	if (!sock_flag(sk, SOCK_TEMPESTA))
++		return true;
++
++	if (tcp_skb_is_last(sk, skb))
++		return true;
++
++	if (skb_tfw_tls_type(skb) != skb_tfw_tls_type(next))
++		return false;
++
++	if (skb->mark != next->mark)
++		return false;
++
++	if ((skb_shinfo(skb)->flags & SKBFL_SHARED_FRAG) !=
++	    (skb_shinfo(next)->flags & SKBFL_SHARED_FRAG))
++		return false;
++
++	return true;
++}
++
++#endif
++
+ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
+ {
+ 	struct sk_buff *skb, *next;
+@@ -2347,18 +2429,96 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
  		if (tcp_has_tx_tstamp(skb) || !tcp_skb_can_collapse(skb, next))
  			return false;
+ 
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+		/* Do not coalesce tempesta skbs with tls type or set mark. */
-+		if ((next != ((struct sk_buff *)&(sk)->sk_write_queue))
-+		    && ((skb_tfw_tls_type(skb) != skb_tfw_tls_type(next))
-+			|| (sock_flag(sk, SOCK_TEMPESTA)
-+			    && (skb->mark != next->mark))))
++		if (!tfw_tcp_skb_can_collapse(sk, skb, next))
 +			return false;
 +#endif
- 
++
  		len -= skb->len;
  	}
-@@ -2353,12 +2417,85 @@ static bool tcp_can_coalesce_send_queue_head(struct sock *sk, int len)
+ 
  	return true;
  }
  
@@ -3238,7 +3327,7 @@ index 8efc58716..a21d3cca2 100644
  
  	if (!sk_wmem_schedule(sk, to->truesize + probe_size))
  		return -ENOMEM;
-@@ -2369,6 +2506,10 @@ static int tcp_clone_payload(struct sock *sk, struct sk_buff *to,
+@@ -2369,6 +2529,10 @@ static int tcp_clone_payload(struct sock *sk, struct sk_buff *to,
  		if (skb_headlen(skb))
  			return -EINVAL;
  
@@ -3249,7 +3338,7 @@ index 8efc58716..a21d3cca2 100644
  		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++, fragfrom++) {
  			if (len >= probe_size)
  				goto commit;
-@@ -2393,6 +2534,13 @@ static int tcp_clone_payload(struct sock *sk, struct sk_buff *to,
+@@ -2393,6 +2557,13 @@ static int tcp_clone_payload(struct sock *sk, struct sk_buff *to,
  	}
  commit:
  	WARN_ON_ONCE(len != probe_size);
@@ -3263,7 +3352,7 @@ index 8efc58716..a21d3cca2 100644
  	for (i = 0; i < nr_frags; i++)
  		skb_frag_ref(to, i);
  
-@@ -2439,6 +2587,9 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2439,6 +2610,9 @@ static int tcp_mtu_probe(struct sock *sk)
  	int copy, len;
  	int mss_now;
  	int interval;
@@ -3273,7 +3362,7 @@ index 8efc58716..a21d3cca2 100644
  
  	/* Not currently probing/verifying,
  	 * not in recovery,
-@@ -2491,6 +2642,9 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2491,6 +2665,9 @@ static int tcp_mtu_probe(struct sock *sk)
  			return 0;
  	}
  
@@ -3283,7 +3372,7 @@ index 8efc58716..a21d3cca2 100644
  	if (!tcp_can_coalesce_send_queue_head(sk, probe_size))
  		return -1;
  
-@@ -2516,6 +2670,10 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2516,6 +2693,10 @@ static int tcp_mtu_probe(struct sock *sk)
  	TCP_SKB_CB(nskb)->end_seq = TCP_SKB_CB(skb)->seq + probe_size;
  	TCP_SKB_CB(nskb)->tcp_flags = TCPHDR_ACK;
  
@@ -3294,7 +3383,7 @@ index 8efc58716..a21d3cca2 100644
  	tcp_insert_write_queue_before(nskb, skb, sk);
  	tcp_highest_sack_replace(sk, skb, nskb);
  
-@@ -2540,6 +2698,24 @@ static int tcp_mtu_probe(struct sock *sk)
+@@ -2540,6 +2721,24 @@ static int tcp_mtu_probe(struct sock *sk)
  	}
  	tcp_init_tso_segs(nskb, nskb->len);
  
@@ -3319,7 +3408,7 @@ index 8efc58716..a21d3cca2 100644
  	/* We're ready to send.  If this fails, the probe will
  	 * be resegmented into mss-sized pieces by tcp_write_xmit().
  	 */
-@@ -2781,11 +2957,27 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2781,11 +2980,27 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			else
  				break;
  		}
@@ -3348,7 +3437,7 @@ index 8efc58716..a21d3cca2 100644
  		tso_segs = tcp_set_skb_tso_segs(skb, mss_now);
  
  		if (unlikely(!tcp_snd_wnd_test(tp, skb, mss_now))) {
-@@ -2810,7 +3002,17 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2810,7 +3025,17 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			limit = tcp_mss_split_point(sk, skb, mss_now,
  						    cwnd_quota,
  						    nonagle);
@@ -3367,7 +3456,7 @@ index 8efc58716..a21d3cca2 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2825,7 +3027,13 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2825,7 +3050,13 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  		 */
  		if (TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq)
  			break;
@@ -3382,7 +3471,7 @@ index 8efc58716..a21d3cca2 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -3015,6 +3223,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -3015,6 +3246,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -3390,7 +3479,7 @@ index 8efc58716..a21d3cca2 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -3570,6 +3779,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
+@@ -3570,6 +3802,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
  		mem_cgroup_charge_skmem(sk->sk_memcg, amt,
  					gfp_memcg_charge() | __GFP_NOFAIL);
  }
@@ -3398,7 +3487,7 @@ index 8efc58716..a21d3cca2 100644
  
  /* Send a FIN. The caller locks the socket for us.
   * We should try to send a FIN packet really hard, but eventually give up.
-@@ -3619,6 +3829,7 @@ void tcp_send_fin(struct sock *sk)
+@@ -3619,6 +3852,7 @@ void tcp_send_fin(struct sock *sk)
  	}
  	__tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
  }
@@ -3406,7 +3495,7 @@ index 8efc58716..a21d3cca2 100644
  
  /* We get here when a process closes a file descriptor (either due to
   * an explicit close() or as a byproduct of exit()'ing) and there
-@@ -3653,6 +3864,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority,
+@@ -3653,6 +3887,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority,
  	 */
  	trace_tcp_send_reset(sk, NULL, reason);
  }
@@ -3414,7 +3503,7 @@ index 8efc58716..a21d3cca2 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
-@@ -4344,6 +4556,17 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4344,6 +4579,17 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  		if (seg_size < TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq ||
  		    skb->len > mss) {
  			seg_size = min(seg_size, mss);
@@ -3432,7 +3521,7 @@ index 8efc58716..a21d3cca2 100644
  			TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
  			if (tcp_fragment(sk, TCP_FRAG_IN_WRITE_QUEUE,
  					 skb, seg_size, mss, GFP_ATOMIC))
-@@ -4352,6 +4575,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
+@@ -4352,6 +4598,15 @@ int tcp_write_wakeup(struct sock *sk, int mib)
  			tcp_set_skb_tso_segs(skb, mss);
  
  		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;

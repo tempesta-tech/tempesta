@@ -66,6 +66,8 @@
 		TYPE NAME[];			\
 	}
 
+#define ALLOW_ERROR_INJECTION(a, b)
+
 /* Redefine Tempesta performance-optimized library routines. */
 #ifndef memcpy_fast
 #define memcmp_fast(a, b, n)	memcmp(a, b, n)

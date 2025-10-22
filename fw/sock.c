@@ -199,6 +199,7 @@ ss_active_guard_enter(unsigned long val)
 
 	return SS_OK;
 }
+ALLOW_ERROR_INJECTION(ss_active_guard_enter, ERRNO);
 
 static void
 ss_active_guard_exit(unsigned long val)
