@@ -1989,7 +1989,9 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	/* Calculate hash and verify signature */
-	tls->hs->calc_verify(tls, hash);
+	r = tls->hs->calc_verify(tls, hash);
+	if (unlikely(r))
+		return r;
 
 	r = ttls_pk_verify(&tls->sess.peer_cert->pk, md_alg,
 			   hash_start, buf + i, sig_len);
@@ -2197,6 +2199,7 @@ ttls_handshake_init_out_buffers(TlsCtx *tls, struct sg_table *sgt,
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(ttls_handshake_init_out_buffers, ERRNO);
 
 static int
 ttls_handshake_send_out_buffers(TlsCtx *tls, struct sg_table *sgt,
@@ -2265,7 +2268,9 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (r)
 			T_FSM_EXIT();
 		r = ttls_handshake_server_hello(tls, &sgt, &p);
-		if (!r && tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
+		if (r)
+			T_FSM_EXIT();
+		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
 			T_FSM_JMP(TTLS_SERVER_CHANGE_CIPHER_SPEC);
 		/* tls-> state is set on next step, don't overwrite it. */
 		return ttls_handshake_send_out_buffers(tls, &sgt, &pg);
