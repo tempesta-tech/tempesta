@@ -66,8 +66,6 @@ struct rex_policy {
 
 struct rex_scan_ctx {
 	struct rex_scan_attr *attr;
-	const void *block;
-	size_t block_len;
 };
 
 static int rex_scan_cb(unsigned int expression, unsigned long long from,
@@ -93,9 +91,7 @@ static int rex_scan_cb(unsigned int expression, unsigned long long from,
 int rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
 {
 	struct rex_scan_ctx ctx = {
-		.attr = attr,
-		.block = str,
-		.block_len = str->len,
+		.attr = attr
 	};
 	struct rex_policy *rex;
 	struct rex_database *db;
@@ -141,9 +137,7 @@ __bpf_kfunc int bpf_scan_bytes(const void *buf, __u32 buf__sz,
 			       struct rex_scan_attr *attr)
 {
 	struct rex_scan_ctx ctx = {
-		.attr = attr,
-		.block = buf,
-		.block_len = buf__sz,
+		.attr = attr
 	};
 	struct rex_policy *rex;
 	struct rex_database *db;
