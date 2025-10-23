@@ -87,13 +87,11 @@ typedef u32 ReportID;
    offset values. */
 #define MAX_OFFSET 0xffffffffffffffffULL
 
-#if 0
-/* Produces lots of warnings about implicit integer casts */
-#define MIN min
-#define MAX max
-#else
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#if !defined(MIN)
+  #define MIN(a, b)      ((a) < (b) ? (a) : (b))
+#endif
+#if !defined(MAX)
+  #define MAX(a, b)      ((a) > (b) ? (a) : (b))
 #endif
 
 #define LIMIT_TO_AT_MOST(a, b) (*(a) = MIN(*(a), (b)))
