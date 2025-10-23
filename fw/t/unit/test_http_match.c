@@ -194,7 +194,7 @@ set_tfw_str(TfwStr *str, const char *cstr)
 }
 
 static void
-set_raw_hdr(const char *cstr)
+set_raw_hdr(const TfwStr *str)
 {
 	unsigned int hid = test_req->h_tbl->off;
 
@@ -204,7 +204,7 @@ set_raw_hdr(const char *cstr)
 
 	++test_req->h_tbl->off;
 
-	set_tfw_str(&test_req->h_tbl->tbl[hid], cstr);
+	test_req->h_tbl->tbl[hid] = *str;
 }
 
 TEST(tfw_http_match_req, returns_first_matching_rule)
@@ -501,13 +501,62 @@ TEST(http_match, hdr_host_suffix)
 TEST(http_match, raw_header_eq)
 {
 	int match_id;
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = "Via", .len = 3 },
+			{ .data = ":", .len = 1 },
+			{ .data = " ", .len = 1, .flags = TFW_STR_OWS },
+			{ .data = "Test_proxy 1.0", .len = 14,
+			  .flags = TFW_STR_VALUE }
+		},
+		.len = 19,
+		.nchunks = 4
+	};
 
 	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
-				"User-Agent", "U880D/4.0 (CP/M; 8-bit)");
+				"user-Agent", "U880D/4.0 (CP/M; 8-bit)");
+	/*
+	 * Use only lowercase for header name, pattern always converted
+	 * to lowercase during rule creation.
+	 */
 	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
-				"Via", "test_proxy 1.0");
+				"via", "test_proxy 1.0");
 
-	set_raw_hdr("Via: test_proxy 1.0");
+	set_raw_hdr(&hdr);
+	match_id = test_chain_match();
+	EXPECT_EQ(2, match_id);
+}
+
+TEST(http_match, raw_header_eq_chunked)
+{
+	int match_id;
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = "V", .len = 1 },
+			{ .data = "i", .len = 1 },
+			{ .data = "a", .len = 1 },
+			{ .data = ":", .len = 1 },
+			{ .data = " ", .len = 1, .flags = TFW_STR_OWS },
+			{ .data = "t", .len = 1, .flags = TFW_STR_VALUE },
+			{ .data = "e", .len = 1, .flags = TFW_STR_VALUE },
+			{ .data = "st_proxy 1.", .len = 11,
+			  .flags = TFW_STR_VALUE },
+			{ .data = "0", .len = 1, .flags = TFW_STR_VALUE }
+		},
+		.len = 19,
+		.nchunks = 9
+	};
+
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+				"user-Agent", "U880D/4.0 (CP/M; 8-bit)");
+	/*
+	 * Use only lowercase for header name, pattern always converted
+	 * to lowercase during rule creation.
+	 */
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+				"via", "test_proxy 1.0");
+
+	set_raw_hdr(&hdr);
 	match_id = test_chain_match();
 	EXPECT_EQ(2, match_id);
 }
@@ -515,17 +564,64 @@ TEST(http_match, raw_header_eq)
 TEST(http_match, raw_header_eq_ws)
 {
 	int match_id;
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = "Warning", .len = 7 },
+			{ .data = ":", .len = 1 },
+			{ .data = "    ", .len = 4, .flags = TFW_STR_OWS },
+			{ .data = "123 miscellaneous warning      ", .len = 31,
+			  .flags = TFW_STR_VALUE }
+		},
+		.len = 43,
+		.nchunks = 4
+	};
 
 	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
-				"User-Agent", "U880D/4.0 (CP/M; 8-bit)");
+				"user-Agent", "U880D/4.0 (CP/M; 8-bit)");
 	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
-				"Connection", "close");
+				"connection", "close");
 	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR,
-				"Connection", "Keep-Alive");
+				"connection", "Keep-Alive");
+	/*
+	 * Use only lowercase for header name, pattern always converted
+	 * to lowercase during rule creation.
+	 */
 	test_chain_add_rule_str(4, TFW_HTTP_MATCH_F_HDR,
-				"Warning", "        123 miscellaneous warning");
+				"warning", "123 miscellaneous warning");
 
-	set_raw_hdr("Warning: 123 miscellaneous warning");
+	set_raw_hdr(&hdr);
+	match_id = test_chain_match();
+	EXPECT_EQ(4, match_id);
+}
+
+TEST(http_match, raw_header_eq_nows)
+{
+	int match_id;
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = "Warning", .len = 7 },
+			{ .data = ":", .len = 1 },
+			{ .data = "123 miscellaneous warning", .len = 25,
+			  .flags = TFW_STR_VALUE }
+		},
+		.len = 33,
+		.nchunks = 3
+	};
+
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+				"user-Agent", "U880D/4.0 (CP/M; 8-bit)");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+				"connection", "close");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR,
+				"connection", "Keep-Alive");
+	/*
+	 * Use only lowercase for header name, pattern always converted
+	 * to lowercase during rule creation.
+	 */
+	test_chain_add_rule_str(4, TFW_HTTP_MATCH_F_HDR,
+				"warning", "123 miscellaneous warning");
+
+	set_raw_hdr(&hdr);
 	match_id = test_chain_match();
 	EXPECT_EQ(4, match_id);
 }
@@ -914,7 +1010,9 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, hdr_host_prefix);
 	TEST_RUN(http_match, hdr_host_suffix);
 	TEST_RUN(http_match, raw_header_eq);
+	TEST_RUN(http_match, raw_header_eq_chunked);
 	TEST_RUN(http_match, raw_header_eq_ws);
+	TEST_RUN(http_match, raw_header_eq_nows);
 	TEST_RUN(http_match, method_eq);
 	TEST_RUN(http_match, cookie);
 	TEST_RUN(http_match, choose_host);
