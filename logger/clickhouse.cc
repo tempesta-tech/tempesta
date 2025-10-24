@@ -24,6 +24,7 @@
  */
 #include <iostream>
 #include <string_view>
+#include <netinet/in.h>
 
 #include <fmt/format.h>
 
@@ -35,7 +36,7 @@
 
 namespace {
 
-constexpr std::string_view table_creation_query_template = 
+constexpr std::string_view table_creation_query_template =
 	"CREATE TABLE IF NOT EXISTS {} "
 	"(timestamp DateTime64(3, 'UTC'),"
 	" address IPv6,"
@@ -95,6 +96,58 @@ TfwClickhouse::make_block()
 }
 
 bool
+TfwClickhouse::do_reconnect() {
+	try {
+		client_.reset();
+
+		client_ = std::make_unique<ch::Client>(client_options_);
+
+		spdlog::info("Successfully reconnected to ClickHouse");
+
+		needs_reconnect.store(false);
+		last_reconnect_attempt.store(std::chrono::steady_clock::now());
+		return true;
+	}
+	catch (const std::exception& e) {
+		spdlog::error("Failed to reconnect to ClickHouse: {}", e.what());
+		last_reconnect_attempt.store(std::chrono::steady_clock::now());
+		return false;
+	}
+	catch (...) {
+		spdlog::error("Failed to reconnect to ClickHouse: unknown error");
+		last_reconnect_attempt.store(std::chrono::steady_clock::now());
+		return false;
+	}
+}
+
+void
+TfwClickhouse::append_timestamp(uint64_t timestamp)
+{
+	block_[0]->As<ch::ColumnDateTime64>()->Append(timestamp);
+}
+
+template <typename ColType, typename ValType>
+void
+TfwClickhouse::append_int(TfwBinLogFields field, ValType value)
+{
+	const size_t col_index = field_to_column_index(field);
+	block_[col_index]->As<ColType>()->Append(value);
+}
+
+void
+TfwClickhouse::append_string(TfwBinLogFields field, std::string_view value)
+{
+	const size_t col_index = field_to_column_index(field);
+	block_[col_index]->As<ch::ColumnString>()->Append(std::string(value));
+}
+
+void
+TfwClickhouse::append_empty_string(TfwBinLogFields field)
+{
+	append_string(field, std::string_view{});
+}
+
+bool
 TfwClickhouse::handle_block_error() noexcept
 {
 	try {
@@ -107,22 +160,51 @@ TfwClickhouse::handle_block_error() noexcept
 	return false;
 }
 
-TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
-	: table_name_(config.table_name),
-	  max_events_(config.max_events)
+bool
+TfwClickhouse::should_attempt_reconnect() const noexcept
 {
-	auto opts = ch::ClientOptions();
+	if (!needs_reconnect.load()) {
+		return false;
+	}
 
-	opts.SetHost(config.host);
-	opts.SetPort(config.port);
-	opts.SetDefaultDatabase(config.db_name);
+	auto now = std::chrono::steady_clock::now();
+	auto last_attempt = last_reconnect_attempt.load();
+	auto timeout = reconnect_timeout.load();
 
-	if (const auto user = config.user.value_or(""); !user.empty())
-		opts.SetUser(user);
-	if (const auto pswd = config.password.value_or(""); !pswd.empty())
-		opts.SetPassword(pswd);
+	return (now - last_attempt) >= timeout;
+}
 
-	client_ = std::make_unique<ch::Client>(opts);
+void
+TfwClickhouse::update_reconnect_timeout(bool success) noexcept
+{
+	if (success) {
+		reconnect_timeout.store(std::chrono::seconds(0));
+	} else {
+		auto current = reconnect_timeout.load();
+		if (current.count() == 0) {
+			reconnect_timeout.store(std::chrono::seconds(1));
+		} else if (current.count() < 300) {
+			reconnect_timeout.store(current * 2);
+		}
+	}
+}
+
+TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
+	: table_name_(config.table_name)
+	, max_events_(config.max_events)
+	, client_options_([config]() {
+		ch::ClientOptions options;
+		options.SetHost(config.host)
+		       .SetPort(config.port)
+		       .SetDefaultDatabase(config.db_name);
+		if (const auto user = config.user.value_or(""); !user.empty())
+			options.SetUser(user);
+		if (const auto pswd = config.password.value_or(""); !pswd.empty())
+			options.SetPassword(pswd);
+		return options;
+	}())
+{
+	client_ = std::make_unique<ch::Client>(client_options_);
 
 	std::string table_creation_query =
 		fmt::format(table_creation_query_template, table_name_);
@@ -134,12 +216,6 @@ TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
 TfwClickhouse::~TfwClickhouse()
 {
 	handle_block_error();
-}
-
-ch::Block &
-TfwClickhouse::get_block() noexcept
-{
-	return block_;
 }
 
 [[nodiscard]] bool
@@ -195,3 +271,19 @@ tfw_column_factory(ch::Type::Code code)
 		throw std::runtime_error("Column factory: incorrect code");
 	}
 }
+
+template void
+TfwClickhouse::append_int<ch::ColumnUInt8, unsigned char>(TfwBinLogFields,
+							  unsigned char) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnUInt16, uint16_t>(TfwBinLogFields,
+						      uint16_t) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnUInt32, uint32_t>(TfwBinLogFields,
+						      uint32_t) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnUInt64, uint64_t>(TfwBinLogFields,
+						      uint64_t) noexcept;
+template void
+TfwClickhouse::append_int<ch::ColumnIPv6, in6_addr>(TfwBinLogFields,
+						    in6_addr) noexcept;

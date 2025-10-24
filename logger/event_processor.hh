@@ -17,32 +17,40 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include <memory>
 
-#include <boost/property_tree/ptree_fwd.hpp>
+#include "../libtus/error.hh"
+#include "clickhouse.hh"
+#include "plugin_interface.hh"
 
-#include "clickhouse_config.hh"
+class EventProcessor {
+public:
+	EventProcessor(std::shared_ptr<TfwClickhouse> db,
+		       unsigned processor_id);
+	virtual ~EventProcessor() noexcept = default;
 
-namespace fs = std::filesystem;
+	EventProcessor(const EventProcessor&) = delete;
+	EventProcessor& operator=(const EventProcessor&) = delete;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<std::string> access_log_plugin_path;
-	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
+	bool make_background_work() noexcept;
+	[[nodiscard]] bool flush(bool force = false) noexcept;
+	virtual tus::Error<bool> consume_event();
 
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
+	virtual void request_stop() noexcept = 0;
+	virtual bool stop_requested() noexcept = 0;
 
-	void
-	validate() const;
 
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+public:
+	const unsigned processor_id;
+
+protected:
+	virtual tus::Error<bool> do_consume_event() = 0;
+
+protected:
+	std::shared_ptr<TfwClickhouse> db_;
+
+private:
+	bool handle_reconnection();
 };

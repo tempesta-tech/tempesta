@@ -27,6 +27,7 @@
 #include <clickhouse/columns/column.h>
 #include <clickhouse/types/types.h>
 
+#include "../fw/access_log.h"
 #include "clickhouse_config.hh"
 #include "../libtus/error.hh"
 
@@ -65,17 +66,53 @@ public:
 
 	~TfwClickhouse();
 
-	ch::Block &get_block() noexcept;
+	void append_timestamp(uint64_t timestamp);
+
+	template <typename ColType, typename ValType>
+	void append_int(TfwBinLogFields field, ValType value);
+
+	void append_string(TfwBinLogFields field, std::string_view value);
+	void append_empty_string(TfwBinLogFields field);
+
 	[[nodiscard]] bool commit(bool force = false) noexcept;
 	bool handle_block_error() noexcept;
 
+	bool should_attempt_reconnect() const noexcept;
+	void update_reconnect_timeout(bool success) noexcept;
+	bool do_reconnect();
+
+public:
+	std::atomic<bool> needs_reconnect{false};
+	std::atomic<std::chrono::steady_clock::time_point>last_reconnect_attempt{
+		std::chrono::steady_clock::time_point::min()
+	};
+	// The most Clickhouse API errors can be handled with simple connection
+	// reset and reconnection
+	//
+	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
+	//
+	// We start with zero reconnection timeout. However, the database can
+	// be restarted, so we use indefinite loop with double backoff in
+	// reconnection attempts.
+	std::atomic<std::chrono::seconds> reconnect_timeout{
+		std::chrono::seconds(0)
+	};
+
 private:
-	std::unique_ptr<ch::Client>	client_;
-	ch::Block			block_;
-	const std::string		table_name_;
-	const size_t			max_events_;
+	constexpr size_t
+	field_to_column_index(TfwBinLogFields field) const noexcept {
+		return static_cast<size_t>(field) + 1;
+	}
 
 	void make_block();
+
+private:
+	const std::string		table_name_;
+	const size_t			max_events_;
+	const ch::ClientOptions		client_options_;
+
+	ch::Block			block_;
+	std::unique_ptr<ch::Client>	client_;
 };
 
 std::shared_ptr<ch::Column>
