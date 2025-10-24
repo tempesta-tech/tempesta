@@ -30,6 +30,7 @@
 TfwHttpReq *test_req_alloc(size_t data_len);
 void test_req_free(TfwHttpReq *req);
 TfwHttpResp *test_resp_alloc(size_t data_len);
+TfwHttpResp *test_resp_alloc_no_data(void);
 void test_resp_free(TfwHttpResp *req);
 
 #endif /* __TFW_TEST_HELPER_H__ */

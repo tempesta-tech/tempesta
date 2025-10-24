@@ -409,6 +409,7 @@ ss_skb_move_frags(struct sk_buff *skb, struct sk_buff *nskb, int from,
 		e_size += skb_frag_size(f);
 	}
 
+	nskb->pp_recycle = skb->pp_recycle;
 	ss_skb_adjust_data_len(skb, -e_size);
 	ss_skb_adjust_data_len(nskb, e_size);
 }
