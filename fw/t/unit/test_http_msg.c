@@ -20,7 +20,22 @@
 
 
 #include "test.h"
+#include "helpers.h"
 #include "http_msg.h"
+
+static TfwHttpResp *resp;
+
+static void
+http_msg_suite_setup(void)
+{
+	resp = test_resp_alloc_no_data();
+}
+
+static void
+http_msg_suite_teardown(void)
+{
+	test_resp_free(resp);
+}
 
 TEST(http_msg, hdr_in_array)
 {
@@ -84,39 +99,33 @@ TEST(http_msg, hdr_in_array)
 	EXPECT_NOT_NULL(tfw_http_msg_find_hdr(&dup_hdr, hdrs));
 }
 
-static TfwHttpResp *
-__test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
-		  unsigned short nr_frags)
+static bool
+__test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
+		       unsigned short nr_frags)
 {
 	TfwMsgIter *it;
-	TfwHttpResp *hmresp;
 	struct sk_buff *skb;
 	struct page *page;
 	char *addr;
 	int i;
 
-	hmresp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_HttpSrv, true);
-	BUG_ON(!hmresp);
-
 	skb = ss_skb_alloc(head_data->len);
 	if (!skb)
-		return NULL;
+		return false;
 
 	skb->next = skb->prev = skb;
-	it = &hmresp->iter;
-	hmresp->msg.skb_head = it->skb = it->skb_head = skb;
+	it = &resp->iter;
+	resp->msg.skb_head = it->skb = it->skb_head = skb;
 	it->frag = -1;
 
 	skb_put_data(skb, head_data->data, head_data->len);
 
 	if (nr_frags == 0)
-		return hmresp;
+		return true;
 
 	page = alloc_page(GFP_ATOMIC);
-	if (!page) {
-		kfree_skb(skb);
-		return NULL;
-	}
+	if (!page)
+		return false;
 
 	addr = page_address(page);
 	memcpy(addr, paged_data->data, paged_data->len);
@@ -129,7 +138,7 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 
 	put_page(page);
 
-	return hmresp;
+	return true;
 }
 
 /*
@@ -146,14 +155,11 @@ TEST(http_msg, cutoff_linear_headers_paged_body)
 		TFW_STR_STRING("paged_body")
 	};
 	TfwStr *head = &frags[0], *pgd = &frags[1];
-	TfwHttpResp *resp = __test_resp_alloc(head, pgd, 1);
 	TfwHttpMsgCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
-	EXPECT_NOT_NULL(resp);
-	if (!resp)
-		return;
+	EXPECT_TRUE(__test_resp_data_alloc(head, pgd, 1));
 
 	it = &resp->iter;
 	resp->body.data = skb_frag_address(&skb_shinfo(it->skb)->frags[0]);
@@ -171,8 +177,6 @@ TEST(http_msg, cutoff_linear_headers_paged_body)
 
 		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
-
-	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
 TEST(http_msg, cutoff_linear_headers_and_linear_body)
@@ -186,14 +190,11 @@ TEST(http_msg, cutoff_linear_headers_and_linear_body)
 		TFW_STR_STRING("paged_body2")
 	};
 	TfwStr *head = &frags[0], *pgd = &frags[1];
-	TfwHttpResp *resp = __test_resp_alloc(head, pgd, 1);
 	TfwHttpMsgCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
-	EXPECT_NOT_NULL(resp);
-	if (!resp)
-		return;
+	EXPECT_TRUE(__test_resp_data_alloc(head, pgd, 1));
 
 	it = &resp->iter;
 	resp->body.data = it->skb->data + SLEN("headers");
@@ -211,8 +212,6 @@ TEST(http_msg, cutoff_linear_headers_and_linear_body)
 
 		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
-
-	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
 TEST(http_msg, expand_from_pool_for_headers)
@@ -222,15 +221,12 @@ TEST(http_msg, expand_from_pool_for_headers)
 		TFW_STR_STRING("paged_body")
 	};
 	TfwStr *hdr = &frags[0], *head = &frags[0], *pgd = &frags[1];
-	TfwHttpResp *resp = __test_resp_alloc(head, pgd, MAX_SKB_FRAGS - 1);
 	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
 	TfwHttpMsgCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
-	EXPECT_NOT_NULL(resp);
-	if (!resp)
-		return;
+	EXPECT_TRUE(__test_resp_data_alloc(head, pgd, MAX_SKB_FRAGS - 1));
 
 	it = &resp->iter;
 	set_bit(TFW_HTTP_B_CHUNKED, resp->flags);
@@ -270,8 +266,6 @@ TEST(http_msg, expand_from_pool_for_headers)
 
 		EXPECT_ZERO(memcmp(addr, pgd->data, fragsz));
 	}
-
-	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
 TEST(http_msg, expand_from_pool_for_trailers)
@@ -282,15 +276,12 @@ TEST(http_msg, expand_from_pool_for_trailers)
 		TFW_STR_STRING("paged_body")
 	};
 	TfwStr *trailer = &frags[0], *head = &frags[1], *pgd = &frags[2];
-	TfwHttpResp *resp = __test_resp_alloc(head, pgd, MAX_SKB_FRAGS - 1);
 	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
 	TfwHttpMsgCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
-	EXPECT_NOT_NULL(resp);
-	if (!resp)
-		return;
+	EXPECT_TRUE(__test_resp_data_alloc(head, pgd, MAX_SKB_FRAGS - 1));
 
 	it = &resp->iter;
 	set_bit(TFW_HTTP_B_CHUNKED, resp->flags);
@@ -334,12 +325,13 @@ TEST(http_msg, expand_from_pool_for_trailers)
 
 		EXPECT_ZERO(memcmp(addr, "trailerstrailers", fragsz));
 	}
-
-	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
 TEST_SUITE(http_msg)
 {
+	TEST_SETUP(http_msg_suite_setup);
+	TEST_TEARDOWN(http_msg_suite_teardown);
+
 	TEST_RUN(http_msg, hdr_in_array);
 	TEST_RUN(http_msg, cutoff_linear_headers_paged_body);
 	TEST_RUN(http_msg, cutoff_linear_headers_and_linear_body);

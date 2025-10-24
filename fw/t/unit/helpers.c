@@ -87,18 +87,26 @@ test_req_free(TfwHttpReq *req)
 TfwHttpResp *
 test_resp_alloc(size_t data_len)
 {
-	int ret;
 	TfwMsgIter it;
+	int ret;
+	TfwHttpResp *hmresp = test_resp_alloc_no_data();
+
+	ret = tfw_http_msg_setup((TfwHttpMsg *)hmresp, &it, data_len);
+	BUG_ON(ret);
+
+	return (TfwHttpResp *)hmresp;
+}
+
+TfwHttpResp *
+test_resp_alloc_no_data()
+{
 	TfwHttpMsg *hmresp;
 
 	hmresp = __tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	ret = tfw_http_msg_setup(hmresp, &it, data_len);
-	BUG_ON(ret);
-
 	memset(&conn_resp, 0, sizeof(TfwConn));
-	tfw_connection_init(&conn_req);
+	tfw_connection_init(&conn_resp);
 	conn_resp.proto.type = Conn_HttpSrv;
 	hmresp->conn = &conn_resp;
 	hmresp->stream = &conn_resp.stream;
