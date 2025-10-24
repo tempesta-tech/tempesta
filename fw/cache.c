@@ -111,9 +111,9 @@ typedef struct {
 	unsigned int	hdr_num;
 	unsigned int	hdr_h2_off;
 	unsigned int	hdr_len;
-	unsigned int	body_len;
 	unsigned int	method: 4;
 	unsigned int	flags: 28;
+	size_t		body_len;
 	long		age;
 	long		date;
 	long		req_time;
@@ -1382,7 +1382,7 @@ do {							\
  * @return zero on success and negative value otherwise.
  */
 static int
-tfw_cache_h2_copy_chunked_body(TDB *db, unsigned int *acc_len, char **p,
+tfw_cache_h2_copy_chunked_body(TDB *db, size_t *acc_len, char **p,
 			       TdbVRec **trec, TfwHttpResp *resp, TfwStr *cut,
 			       size_t *tot_len)
 {
@@ -1516,7 +1516,7 @@ continue_curr_frag:
  * @return zero on success and negative value otherwise.
  */
 static int
-tfw_cache_h2_copy_body(TDB *db, unsigned int *acc_len, char **p, TdbVRec **trec,
+tfw_cache_h2_copy_body(TDB *db, size_t *acc_len, char **p, TdbVRec **trec,
 		       TfwHttpResp *resp, size_t *tot_len)
 {
 	long n;
@@ -2059,6 +2059,9 @@ tfw_cache_copy_resp(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 		tfw_cache_get_effective_resp_flags(resp, req);
 	bool u_fin, h_fin;
 
+	if (tot_len >= db->hdr->dbsz)
+		return -E2BIG;
+
 	p = tfw_init_cache_entry(ce);
 	tot_len -= CE_BODY_SIZE;
 
@@ -2360,7 +2363,7 @@ __cache_entry_size(TfwHttpResp *resp)
 
 	TfwStr *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
-	long size, res_size = CE_BODY_SIZE;
+	size_t size, res_size = CE_BODY_SIZE;
 	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
 		+ tfw_vhost_get_global()->hdr_via_len;
 	TfwCaTokenArray hdr_del_tokens =
@@ -2536,10 +2539,9 @@ tfw_cache_decrease_stat(TdbRec *rec)
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
-	size_t len;
 	TfwCacheEntry *ce;
 	TfwStr rph, *s_line;
-	long data_len = __cache_entry_size(resp);
+	size_t data_len = __cache_entry_size(resp), len;
 	int r;
 
 	if (test_bit(TFW_HTTP_B_HDR_ETAG_HAS_NO_QOUTES, resp->flags))
@@ -2561,7 +2563,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	data_len += rph.len;
 	len = data_len;
 
-	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
+	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%lu'\n",
 	       __func__, db, resp, resp->req, key, data_len);
 
 	/*
