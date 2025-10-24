@@ -1,0 +1,29 @@
+            f"""
+health_check auto {{
+    request     "GET / HTTP/1.0\r\n\r\n";
+    request_url "/";
+    resp_code   200;
+    resp_crc32    auto;
+    timeout     3;
+}}
+
+srv_group grp1 {{
+    server {SERVER_IP}:8000;
+    server {SERVER_IP}:8001;
+    server {SERVER_IP}:8002;
+    server {SERVER_IP}:8003;
+
+    sched ratio predict minimum past=5 ahead=2;
+
+    health auto;
+}}
+
+vhost grp1 {{
+    proxy_pass grp1;
+}}
+
+http_chain {{
+    host == "grp1" -> grp1;
+    -> block;
+}}
+"""

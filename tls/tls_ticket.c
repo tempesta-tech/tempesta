@@ -90,14 +90,28 @@ __ttls_ticket_gen_key(unsigned long ts, const char *secret, char *digest)
 	int r;
 
 	ttls_md_init(&md_ctx);
-	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1)))
-		T_ERR_NL("TLS: can't init ");
+	r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1);
+	if (unlikely(r)) {
+		T_ERR_NL("TLS: can't init");
+		return r;
+	}
 
-	r |= ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
-	r |= ttls_md_hmac_update(&md_ctx, ticket_key_sym_iv,
-				 SLEN(ticket_key_sym_iv));
-	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&ts, sizeof(ts));
-	r |= ttls_md_finish(&md_ctx, digest);
+	r = ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
+	if (unlikely(r))
+		goto exit;
+
+	r = ttls_md_hmac_update(&md_ctx, ticket_key_sym_iv,
+				SLEN(ticket_key_sym_iv));
+	if (unlikely(r))
+		goto exit;
+
+	r = ttls_md_hmac_update(&md_ctx, (unsigned char *)&ts, sizeof(ts));
+	if (unlikely(r))
+		goto exit;
+
+	r = ttls_md_finish(&md_ctx, digest);
+
+exit:
 	ttls_md_free(&md_ctx);
 
 	return r;
@@ -285,23 +299,30 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	tcfg->active_key = 0;
 	tcfg->lifetime = lifetime ? : TTLS_DEFAULT_TICKET_LIFETIME;
 	rwlock_init(&tcfg->key_lock);
+	timer_setup(&tcfg->timer, ttls_ticket_rotate_keys, 0);
 
 	ttls_md_init(&md_ctx);
 	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1))) {
-		T_ERR_NL("TLS: can't init ");
-		goto err;
+		T_ERR_NL("TLS: can't init");
+		return r;
 	}
 	if (!secret_str || !len) {
 		md_ctx_key_len = sizeof(rand_secret);
 		md_ctx_key = rand_secret;
 		ttls_rnd(rand_secret, sizeof(rand_secret));
 	}
-	r |= ttls_md_hmac_starts(&md_ctx, md_ctx_key, md_ctx_key_len);
-	r |= ttls_md_hmac_update(&md_ctx, ticket_secret_key_iv,
-				 SLEN(ticket_secret_key_iv));
-	r |= ttls_md_hmac_update(&md_ctx, vhost_name, vn_len);
-	r |= ttls_md_finish(&md_ctx, tcfg->secret);
-	if (r) {
+	r = ttls_md_hmac_starts(&md_ctx, md_ctx_key, md_ctx_key_len);
+	if (unlikely(r))
+		goto err;
+	r = ttls_md_hmac_update(&md_ctx, ticket_secret_key_iv,
+				SLEN(ticket_secret_key_iv));
+	if (unlikely(r))
+		goto err;
+	r = ttls_md_hmac_update(&md_ctx, vhost_name, vn_len);
+	if (unlikely(r))
+		goto err;
+	r = ttls_md_finish(&md_ctx, tcfg->secret);
+	if (unlikely(r)) {
 		T_ERR_NL("TLS: can't init ticket secret for vhost '%s'",
 			 vhost_name);
 		goto err;
@@ -323,12 +344,20 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 		 * that we have issued the ticket.
 		 */
 		r = ttls_md_starts(&md_ctx);
-		r |= ttls_md_update(&md_ctx, ticket_key_name_iv,
-				    SLEN(ticket_key_name_iv));
-		r |= ttls_md_update(&md_ctx, (unsigned char *)&i, sizeof(i));
-		r |= ttls_md_update(&md_ctx, vhost_name, vn_len);
-		r |= ttls_md_finish(&md_ctx, kn_hash);
-		if (r) {
+		if (unlikely(r))
+			goto err;
+		r = ttls_md_update(&md_ctx, ticket_key_name_iv,
+				   SLEN(ticket_key_name_iv));
+		if (unlikely(r))
+			goto err;
+		r = ttls_md_update(&md_ctx, (unsigned char *)&i, sizeof(i));
+		if (unlikely(r))
+			goto err;
+		r = ttls_md_update(&md_ctx, vhost_name, vn_len);
+		if (unlikely(r))
+			goto err;
+		r = ttls_md_finish(&md_ctx, kn_hash);
+		if (unlikely(r)) {
 			T_ERR_NL("TLS: can't init ticket key name");
 			goto err;
 		}
@@ -350,7 +379,6 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 		}
 	}
 
-	timer_setup(&tcfg->timer, ttls_ticket_rotate_keys, 0);
 	secs = tcfg->lifetime - (tfw_current_timestamp() % tcfg->lifetime);
 	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 

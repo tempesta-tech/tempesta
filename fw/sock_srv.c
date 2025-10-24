@@ -652,6 +652,7 @@ tfw_srv_conn_alloc(void)
 
 	return srv_conn;
 }
+ALLOW_ERROR_INJECTION(tfw_srv_conn_alloc, NULL);
 
 static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
@@ -998,6 +999,7 @@ tfw_cfgop_sg_copy_sched_arg(void **to, void *from)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(tfw_cfgop_sg_copy_sched_arg, ERRNO);
 
 static TfwCfgSrvGroup *
 __tfw_cfgop_new_sg_cfg(const char *name, unsigned int len)
@@ -1829,9 +1831,8 @@ tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
 		tfw_cfg_sg->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
 		tfw_cfg_sg->sched_flags = tfw_cfg_sg_opts->sched_flags;
-		tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
-					    tfw_cfg_sg_opts->sched_arg);
-		return 0;
+		return tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
+						   tfw_cfg_sg_opts->sched_arg);
 	}
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sg->parsed_sg->sched,
 				       &tfw_cfg_sg->sched_arg,
@@ -1939,10 +1940,8 @@ tfw_sock_srv_cfgstart(void)
 	tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME, nlen);
 	if (!tfw_cfg_sg_opts)
 		return -ENOMEM;
-	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg_def())) {
-		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
+	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg_def()))
 		return -ENOMEM;
-	}
 	tfw_cfg_sg = tfw_cfg_sg_opts;
 	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
@@ -1987,13 +1986,16 @@ tfw_sock_srv_cfgend(void)
 	/* Options for implicit group are not filled, use current defaults. */
 	tfw_cfgop_sg_copy_opts(tfw_cfg_sg_def->parsed_sg,
 			       tfw_cfg_sg_opts->parsed_sg);
-	tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
-				    tfw_cfg_sg_opts->sched_arg);
+	r = tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
+					tfw_cfg_sg_opts->sched_arg);
+	if (unlikely(r))
+		return r;
 	tfw_cfg_sg_def->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
 	tfw_cfg_sg_def->nip_flags = tfw_cfg_sg_opts->nip_flags;
 	tfw_cfg_sg_def->sched_flags = tfw_cfg_sg_opts->sched_flags;
 
-	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def)))
+	r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def);
+	if (unlikely(r))
 		return r;
 	tfw_cfg_sg_def = NULL;
 

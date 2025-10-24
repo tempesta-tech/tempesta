@@ -394,6 +394,7 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(tfw_sched_hash_add_grp, ERRNO);
 
 static int
 tfw_sched_hash_add_srv(TfwServer *srv)
@@ -417,6 +418,7 @@ tfw_sched_hash_add_srv(TfwServer *srv)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(tfw_sched_hash_add_srv, ERRNO);
 
 static void
 tfw_sched_hash_put_srv_data(struct rcu_head *rcu)

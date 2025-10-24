@@ -106,6 +106,7 @@ tfw_server_create(const TfwAddr *addr)
 
 	return srv;
 }
+ALLOW_ERROR_INJECTION(tfw_server_create, NULL);
 
 TfwServer *
 tfw_server_lookup_nolock(TfwSrvGroup *sg, TfwAddr *addr)
@@ -234,6 +235,7 @@ tfw_sg_new(const char *name, unsigned int len, gfp_t flags)
 
 	return sg;
 }
+ALLOW_ERROR_INJECTION(tfw_sg_new, NULL);
 
 /**
  * Add a Server Group to the list.

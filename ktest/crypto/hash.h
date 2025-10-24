@@ -23,6 +23,7 @@
 #include "linux/kernel.h"
 #include "linux/atomic.h"
 
+#define HASH_MAX_DIGESTSIZE	64
 #define CRYPTO_MAX_ALG_NAME	128
 
 struct crypto_shash { /* dummy struct */ };
