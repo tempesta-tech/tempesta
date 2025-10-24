@@ -1175,20 +1175,23 @@ tfw_http_msg_setup_transform_pool(TfwHttpTransIter *mit, TfwMsgIter *it,
  * moved and 1 if body was moved.
  */
 static inline int
-__tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
+__tfw_http_msg_move_body(TfwHttpMsg *hm, struct sk_buff *nskb, int *frag)
 {
-	TfwMsgIter *it = &resp->iter;
+	TfwMsgIter *it = &hm->iter;
 	struct sk_buff **body;
 	TfwStr *c, *end;
 	char *p;
 	int r;
+	const bool is_resp = TFW_CONN_TYPE(hm->conn) & Conn_Srv;
 
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)) {
+	if (test_bit(TFW_HTTP_B_CHUNKED, hm->flags) && is_resp) {
+		TfwHttpResp *resp = (TfwHttpResp *)hm;
+
 		p = resp->body_start_data;
 		body = &resp->body_start_skb;
 	} else {
-		p = TFW_STR_CHUNK(&resp->body, 0)->data;
-		body = &resp->body.skb;
+		p = TFW_STR_CHUNK(&hm->body, 0)->data;
+		body = &hm->body.skb;
 	}
 
 	if (*body != it->skb)
@@ -1204,10 +1207,14 @@ __tfw_http_msg_move_body(TfwHttpResp *resp, struct sk_buff *nskb, int *frag)
 	 * After moving body, we should also update `resp->cut`
 	 * to correct removing body flag data later.
 	 */
-	TFW_STR_FOR_EACH_CHUNK(c, &resp->cut, end) {
-		if (c->skb != *body)
-			break;
-		c->skb = nskb;
+	if (test_bit(TFW_HTTP_B_CHUNKED, hm->flags) && is_resp) {
+		TfwHttpResp *resp = (TfwHttpResp *)hm;
+
+		TFW_STR_FOR_EACH_CHUNK(c, &resp->cut, end) {
+			if (c->skb != *body)
+				break;
+			c->skb = nskb;
+		}
 	}
 	*body = nskb;
 
@@ -1269,7 +1276,6 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
-				TfwHttpResp *resp = (TfwHttpResp *)hm;
 				bool body_was_moved = false;
 				int frag;
 
@@ -1283,9 +1289,9 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				 */
 				if (hm->body.len > 0
 			            && !test_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS,
-						 resp->flags))
+						 hm->flags))
 				{
-					r = __tfw_http_msg_move_body(resp, nskb,
+					r = __tfw_http_msg_move_body(hm, nskb,
 								     &frag);
 					if (unlikely(r < 0)) {
 						T_WARN("Error during moving body");
