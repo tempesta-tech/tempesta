@@ -65,6 +65,7 @@ following topics:
 * [Performance tips & benchmarks](https://tempesta-tech.com/knowledge-base/Performance/)
 
 
-## We appreciate support of our technical partner
+## Contribute to Tempesta FW
 
- <a href="https://netactuate.com/"><img src="https://user-images.githubusercontent.com/884694/163684435-f4c9a95f-ab2c-4f3c-8734-81c173677e01.svg" width="300"/></a>
+Please follow [Tempesta Contributor's Guide](https://tempesta-tech.com/knowledge-base/Development-guidelines/)
+for guidance on making new contributions to the repository.
