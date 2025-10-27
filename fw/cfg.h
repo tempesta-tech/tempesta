@@ -148,8 +148,8 @@ typedef struct {
 	const char *snd;
 	const char *act;
 	const char *val;
-	bool inv;
-	int regex;
+	bool inv : 1;
+	bool regex : 1;
 } TfwCfgRule;
 
 typedef struct {
@@ -475,12 +475,6 @@ enum {
 	TFW_CFG_B_DEL,		/* Delete an entry */
 	TFW_CFG_B_MOD,		/* Modify an entry */
 	TFW_CFG_B_KEEP,		/* Keep an entry */
-};
-
-enum {
-	TFW_REGEX_NO = 0,
-	TFW_REGEX_REGULAR,
-	TFW_REGEX_CI,
 };
 
 #define TFW_CFG_F_ADD		(1 << TFW_CFG_B_ADD)
