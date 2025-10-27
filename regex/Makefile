@@ -14,12 +14,9 @@ CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX512
 
 CC_FLAGS_HSRUNTIME		+= $(CC_FLAGS_SIMD)
 CC_FLAGS_REMOVE_HSRUNTIME	:= $(CC_FLAGS_REMOVE_SIMD)
-CC_FLAGS_REMOVE_HSRUNTIME	+= -Wdeclaration-after-statement
 CC_FLAGS_HSRUNTIME		+= -Wframe-larger-than=2048
 CC_FLAGS_HSRUNTIME		+= -std=gnu11
-CC_FLAGS_REMOVE_HSRUNTIME	+= -std=gnu99
 
-ccflags-y			+= -std=c99
 ccflags-y			+= -I$(src) -I$(src)/kmod -I$(src)/../
 ccflags-y			+= $(CC_FLAGS_HSRUNTIME)
 ccflags-remove-y		+= $(CC_FLAGS_REMOVE_HSRUNTIME)
