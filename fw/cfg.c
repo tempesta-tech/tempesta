@@ -401,9 +401,7 @@ typedef enum {
 	TOKEN_SEMICOLON,
 	TOKEN_LITERAL,
 	TOKEN_ARROW,
-	TOKEN_TILDA,
 	TOKEN_REGEX,
-	TOKEN_REGEX_CI,
 	_TOKEN_COUNT,
 } token_t;
 
@@ -595,8 +593,6 @@ read_next_token(TfwCfgParserState *ps)
 				    TOKEN_NEQSIGN);
 		TFSM_COND_MOVE_EXIT(ps->c == '>' && ps->prev_c == '-',
 				    TOKEN_ARROW);
-		TFSM_COND_MOVE_EXIT(ps->c == '*' && ps->prev_c == '~',
-		                    TOKEN_REGEX_CI);
 
 		/* Special case to differ single equal sign from double one. */
 		TFSM_COND_MOVE(ps->c == '=', TS_EQSIGN);
@@ -632,8 +628,6 @@ read_next_token(TfwCfgParserState *ps)
 	FSM_STATE(TS_TILDA) {
 		TFSM_COND_JMP_EXIT(!ps->c, TOKEN_REGEX);
 
-		/* If this is double equal sign, eat second sign and exit. */
-		TFSM_COND_MOVE_EXIT(ps->c == '*', TOKEN_REGEX_CI);
 		TFSM_JMP_EXIT(TOKEN_REGEX);
 	}
 
@@ -752,15 +746,11 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 
 	switch (cond_type) {
 	case TOKEN_REGEX:
-		rule->regex = TFW_REGEX_REGULAR;
-		rule->inv = false;
-		break;
-	case TOKEN_REGEX_CI:
-		rule->regex = TFW_REGEX_CI;
+		rule->regex = true;
 		rule->inv = false;
 		break;
 	default:
-		rule->regex = TFW_REGEX_NO;
+		rule->regex = false;
 		rule->inv = cond_type == TOKEN_DEQSIGN ? false : true;
 		break;
 	}
@@ -839,8 +829,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	FSM_STATE(PS_PLAIN_OR_RULE) {
 		PFSM_COND_MOVE(ps->t == TOKEN_DEQSIGN ||
 		               ps->t == TOKEN_NEQSIGN ||
-		               ps->t == TOKEN_REGEX ||
-		               ps->t == TOKEN_REGEX_CI,
+			       ps->t == TOKEN_REGEX,
 		               PS_RULE_COND);
 		PFSM_COND_MOVE(ps->t == TOKEN_LITERAL, PS_PLAIN_OR_LONG_RULE);
 
@@ -854,8 +843,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	FSM_STATE(PS_PLAIN_OR_LONG_RULE) {
 		FSM_COND_JMP(ps->t == TOKEN_DEQSIGN ||
 		             ps->t == TOKEN_NEQSIGN ||
-		             ps->t == TOKEN_REGEX ||
-		             ps->t == TOKEN_REGEX_CI,
+			     ps->t == TOKEN_REGEX,
 		             PS_LONG_RULE_COND);
 
 		/* This is not rule (simple or extended), so jump to
@@ -881,8 +869,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(PS_RULE_COND) {
-		FSM_COND_JMP(ps->prev_t == TOKEN_REGEX ||
-		             ps->prev_t == TOKEN_REGEX_CI,
+		FSM_COND_JMP(ps->prev_t == TOKEN_REGEX,
 		             PS_STORE_VAL_PREV_REGEX);
 
 		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
@@ -969,10 +956,6 @@ parse_cfg_entry(TfwCfgParserState *ps)
 				if (ps->prev_t == TOKEN_REGEX)
 					ps->err = entry_add_val(&ps->e, "regex",
 					                        sizeof("regex"));
-				if (ps->prev_t == TOKEN_REGEX_CI)
-					ps->err = entry_add_val(&ps->e,
-					                        "regex_ci",
-					                        sizeof("regex_ci"));
 			}
 			FSM_COND_JMP(ps->err, PS_EXIT);
 			FSM_JMP(PS_VAL_OR_ATTR);

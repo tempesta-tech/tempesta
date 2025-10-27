@@ -79,8 +79,6 @@ static const TfwCfgEnum tfw_match_enum[] = {
 	{ "suffix",	TFW_HTTP_MATCH_O_SUFFIX },
         /*regex case sensitive*/
         { "regex",	TFW_HTTP_MATCH_O_REGEX },
-        /*regex* case insensitive*/
-        { "regex_ci",	TFW_HTTP_MATCH_O_REGEX_CI },
 	{ 0 }
 };
 
@@ -206,7 +204,6 @@ static const __tfw_match_fn __tfw_match_fn_tbl[] = {
 	[TFW_HTTP_MATCH_O_PREFIX]	= __tfw_match_prefix,
 	[TFW_HTTP_MATCH_O_SUFFIX]	= __tfw_match_suffix,
         [TFW_HTTP_MATCH_O_REGEX]	= __tfw_match_regex,
-        [TFW_HTTP_MATCH_O_REGEX_CI]     = __tfw_match_regex,
 };
 
 /*
@@ -1535,20 +1532,12 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 
 	switch (op) {
 	case TFW_HTTP_MATCH_O_REGEX:
-		write_regex(arg, TFW_REGEX_REGULAR);
+		write_regex(arg);
 		/*
 		* Save number_of_db_regex to use it in tfw_match_regex
 		*/
 		memcpy((void *)loc->arg, (void *)&number_of_db_regex,
 		       sizeof(number_of_db_regex));
-		break;
-	case TFW_HTTP_MATCH_O_REGEX_CI:
-		write_regex(arg, TFW_REGEX_CI);
-		/*
-		* Save number_of_db_regex to use it in tfw_match_regex
-		*/
-		memcpy((void *)loc->arg, (void *)&number_of_db_regex,
-		        sizeof(number_of_db_regex));
 		break;
 	default:
 		memcpy((void *)loc->arg, (void *)arg, len + 1);
