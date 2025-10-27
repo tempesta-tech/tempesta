@@ -187,12 +187,10 @@ __tfw_match_prefix(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 	return tfw_str_eq_cstr(arg, cstr, len, flags);
 }
 
-extern int bpf_scan_bytes(const void *, __u32, struct rex_scan_attr *);
-
 static bool
 __tfw_match_regex(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 {
-	return tfw_match_regex(op, cstr, len, arg);
+	return tfw_match_regex(cstr, arg);
 }
 
 typedef bool (*__tfw_match_fn)(tfw_match_t, const char *, size_t, TfwStr *);

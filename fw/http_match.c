@@ -92,20 +92,18 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 }
 
 bool
-tfw_match_regex(tfw_match_t op, const char *cstr, size_t len, const TfwStr *arg)
+tfw_match_regex(const char *cstr, const TfwStr *arg)
 {
-        bool result;
-        int r;
+	int r;
+	struct rex_scan_attr attr = {};
 
-        struct rex_scan_attr attr = {};
-        memcpy(&attr.database_id, cstr, sizeof(unsigned short));
+	memcpy(&attr.database_id, cstr, sizeof(unsigned short));
 
-        if (!arg->len)
-                return false;
+	if (!arg->len)
+		return false;
 
 	r = rex_scan_tfwstr(arg, &attr);
-	result = (!r && attr.nr_events && attr.last_event.expression);
-	return result;
+	return (!r && attr.nr_events && attr.last_event.expression);
 }
 
 static bool
@@ -118,7 +116,7 @@ tfw_rule_str_match(const TfwStr *str, const char *cstr,
 					   cstr, cstr_len, flags);
 
 	if (op == TFW_HTTP_MATCH_O_REGEX)
-		return tfw_match_regex(op, cstr, cstr_len, str);
+		return tfw_match_regex(cstr, str);
 
 	return tfw_str_eq_cstr(str, cstr, cstr_len, flags);
 }
@@ -372,7 +370,7 @@ __cmp_hdr_raw_value(const TfwStr *chunk, const TfwStr *end, const TfwStr *hdr,
 		rhdr.chunks += cnum;
 		rhdr.nchunks -= cnum;
 		rhdr.len -= name_len;
-		return tfw_match_regex(rule->op, p_val, p_val_len, &rhdr);
+		return tfw_match_regex(p_val, &rhdr);
 	}
 
 	return __cmp_hdr_raw_value_str(chunk, end, p_val, p_val_len, flags,
@@ -831,8 +829,23 @@ write_regex(const char *arg)
 	int len = strlen(arg);
 	int len1;
 
-	if (len < sizeof(unsigned short)) {
-		T_ERR_NL("String of regex too short\n");
+	/*
+	 * Length of regexp string must be greater or equal to sizeof(number_of_regex)
+	 * because we use memory allocated for this string for storing id
+	 * of the regexp.
+	 */
+	if (len < sizeof(number_of_regex)) {
+		T_ERR_NL("String of regex too short.\n");
+		return -EINVAL;
+	}
+
+	if (number_of_db_regex == USHRT_MAX) {
+		T_ERR_NL("Maximum number of regular expression databases has been reached.\n");
+		return -EINVAL;
+	}
+
+	if (number_of_regex == USHRT_MAX) {
+		T_ERR_NL("Maximum number of regular expressions has been reached.\n");
 		return -EINVAL;
 	}
 
