@@ -1310,7 +1310,7 @@ m256 loadu_maskz_m256(__mmask32 k, const void *ptr) {
 static really_inline
 void storebytes512(void *ptr, m512 a, unsigned int n) {
     assert(n <= sizeof(a));
-    memcpy(ptr, &a, n);
+    unsafe_memcpy(ptr, &a, n, /* Bounds checked by caller. */);
 }
 
 // packed unaligned load of first N bytes, pad with zero
