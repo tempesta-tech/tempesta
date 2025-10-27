@@ -85,8 +85,7 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 		[TFW_HTTP_MATCH_O_EQ]		= TFW_STR_EQ_DEFAULT,
 		[TFW_HTTP_MATCH_O_PREFIX]	= TFW_STR_EQ_PREFIX,
 		[TFW_HTTP_MATCH_O_SUFFIX]	= TFW_STR_EQ_DEFAULT,
-	        [TFW_HTTP_MATCH_O_REGEX]	= TFW_STR_EQ_REGEX,
-	        [TFW_HTTP_MATCH_O_REGEX_CI]	= TFW_STR_EQ_REGEX_CASEI,
+		[TFW_HTTP_MATCH_O_REGEX]	= TFW_STR_EQ_REGEX
 	};
 	BUG_ON(flags_tbl[op] < 0);
 	return flags_tbl[op];
@@ -822,7 +821,7 @@ tfw_http_escape_pre_post(char *out, const char *str, size_t str_len)
  * tempesta.sh script.
  */
 int
-write_regex(const char *arg, int regex)
+write_regex(const char *arg)
 {
 	struct file *fl;
 	loff_t off = 0;
@@ -865,12 +864,6 @@ write_regex(const char *arg, int regex)
 	if (r != len)
 		goto err;
 
-	if (regex == TFW_REGEX_CI) {
-		r = kernel_write(fl, "i", 1, &off);
-		if (r != 1)
-			goto err;
-	}
-
 	r = kernel_write(fl, "\n", 1, &off);
 	if (r != 1)
 		goto err;
@@ -906,7 +899,7 @@ find_spaces(const char *s, size_t len, size_t *begin_spaces_out,
 
 const char *
 tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
-		    const char *raw_hdr_name, int regex, size_t *size_out,
+		    const char *raw_hdr_name, bool regex, size_t *size_out,
 		    size_t *name_size_out, tfw_http_match_arg_t *type_out,
 		    tfw_http_match_op_t *op_out)
 {
@@ -966,7 +959,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 
 	if (!wc_arg && regex) {
 		*op_out = TFW_HTTP_MATCH_O_REGEX;
-		write_regex(arg, regex);
+		write_regex(arg);
 	}
 
 	/*
