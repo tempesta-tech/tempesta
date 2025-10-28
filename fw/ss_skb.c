@@ -1725,7 +1725,7 @@ ss_skb_destructor(struct sk_buff *skb)
 {
 	TfwClient *cli = (TfwClient *)skb->sk;
 
-	ss_skb_adjust_client_mem(cli, -skb->truesize);
+	tfw_client_adjust_mem(cli, -skb->truesize);
 	tfw_client_put_light(cli);
 }
 
@@ -1747,7 +1747,7 @@ ss_skb_set_owner(struct sk_buff *skb, void *owner)
 		tfw_client_get_light((TfwClient *)owner);
 		skb->sk = owner;
 		skb->destructor = ss_skb_destructor;
-		ss_skb_adjust_client_mem((TfwClient *)owner, skb->truesize);
+		tfw_client_adjust_mem((TfwClient *)owner, skb->truesize);
 	}
 }
 

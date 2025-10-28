@@ -319,8 +319,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
-	if (skb->sk)
-		ss_skb_adjust_client_mem(skb, delta);
+	ss_skb_adjust_client_mem(skb, delta);
 }
 
 /*
