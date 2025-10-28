@@ -193,7 +193,8 @@ void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 {
 }
 
-int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb)
+int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
+			   unsigned int mss_now, unsigned long *snd_wnd)
 {
 	return 0;
 }
