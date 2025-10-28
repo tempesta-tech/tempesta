@@ -4,7 +4,7 @@
  * Generic storage layer.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2025 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -195,8 +195,8 @@ typedef bool tdb_eq_cb_t(TdbHdr *db_hdr, TdbRec *rec, void *data);
 /*
  * Version for buckets.
  */
-#define TDB_O2BI(o)		((o) / sizeof(TdbBucket))
-#define TDB_BI2O(i)		((i) * sizeof(TdbBucket))
+#define TDB_O2BI(o)		((o) / TDB_HTRIE_IALIGN(sizeof(TdbBucket)))
+#define TDB_BI2O(i)		((i) * TDB_HTRIE_IALIGN(sizeof(TdbBucket)))
 
 #define TDB_BANNER		"[tdb] "
 
