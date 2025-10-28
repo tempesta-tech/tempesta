@@ -5410,7 +5410,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 ALLOW_ERROR_INJECTION(tfw_h2_append_predefined_body, ERRNO);
 
 int
-tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head)
+tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
@@ -7390,7 +7390,6 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 
 	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
-
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -7400,6 +7399,7 @@ next_msg:
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
+
 	/* `cli_conn` is equal to zero for health monitor requests. */
 	if (likely(cli_conn)) {
 		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2)
