@@ -98,9 +98,10 @@ enum {
  * @list	- member in the list of connections with @peer;
  * @refcnt	- number of users of the connection structure instance;
  * @stream	- instance for control messages processing;
- * @timer	- The keep-alive/retry timer for the connection;
+ * @timer	- the keep-alive/retry timer for the connection;
+ * @write_queue	- queue of skb to push to socket write queue;
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
- * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
+ * @pair	- paired TfwCliConn or TfwSrvConn for websocket connections;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
  */
@@ -112,6 +113,7 @@ typedef struct tfw_conn_t TfwConn;
 	atomic_t		refcnt;			\
 	TfwStream		stream;			\
 	struct timer_list	timer;			\
+	struct sk_buff		*write_queue;		\
 	TfwPeer 		*peer;			\
 	TfwConn			*pair;			\
 	struct sock		*sk;			\
@@ -626,5 +628,7 @@ int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
+void tfw_connection_on_send(TfwConn *conn, struct sk_buff **sk_buff);
+int tfw_connection_push(TfwConn *conn, unsigned int mss_now);
 
 #endif /* __TFW_CONNECTION_H__ */
