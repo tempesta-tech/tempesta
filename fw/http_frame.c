@@ -2141,6 +2141,24 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 }
 
 static int
+tfw_h2_stream_send_postponed(struct sock *sk, struct sk_buff **skb_head,
+			     unsigned int mss_now, unsigned long *snd_wnd)
+{
+	TfwConn *conn = (TfwConn *)sk->sk_user_data;
+	int r;
+
+	BUG_ON(conn->write_queue);
+	r = ss_skb_tcp_entail_list(sk, skb_head, mss_now, snd_wnd);
+	if (unlikely(r))
+		return r;
+
+	ss_skb_queue_splice(&conn->write_queue, skb_head);
+	sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+
+	return 0;
+}
+
+static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   bool stream_is_exclusive, unsigned int mss_now,
 			   unsigned long *snd_wnd, bool *stop)
@@ -2251,7 +2269,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (unlikely(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0))
+		if (tfw_h2_or_stream_wnd_is_exceeded(ctx, stream))
 			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_DATA,
@@ -2309,13 +2327,13 @@ do {									\
 		if (stream->xmit.h_len) {
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
-			if (stream->xmit.postponed
+			if (unlikely(stream->xmit.postponed)
 			    && !stream->xmit.frame_length
 			    && !ctx->cur_send_headers) {
-				struct sk_buff **postponed =
-					&stream->xmit.postponed;
-
-				r = ss_skb_tcp_entail_list(sk, postponed);
+				struct sk_buff **head = &stream->xmit.postponed;
+				r = tfw_h2_stream_send_postponed(sk, head,
+								 mss_now,
+								 snd_wnd);
 				if (unlikely(r)) {
 					T_WARN("Failed to send postponed"
 					       " frames %d", r);
@@ -2344,7 +2362,10 @@ do {									\
 		 * response is sent.
 		 */
 		if (unlikely(stream->xmit.skb_head)) {
-			r = ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
+			struct sk_buff **head = &stream->xmit.skb_head;
+			r = tfw_h2_stream_send_postponed(sk, head,
+							 mss_now,
+							 snd_wnd);
 			if (unlikely(r)) {
 				T_WARN("Failed to send postponed"
 				       " frames %d", r);
@@ -2374,11 +2395,12 @@ do {									\
 			T_WARN("Failed to send frame %d", r);
 			return r;
 		}
-		if (stream->xmit.postponed && !ctx->cur_send_headers) {
-			struct sk_buff **postponed =
-				&stream->xmit.postponed;
-
-			r = ss_skb_tcp_entail_list(sk, postponed);
+		if (unlikely(stream->xmit.postponed)
+		    && !ctx->cur_send_headers) {
+			struct sk_buff **head = &stream->xmit.postponed;
+			r = tfw_h2_stream_send_postponed(sk, head,
+							 mss_now,
+							 snd_wnd);
 			if (unlikely(r)) {
 				T_WARN("Failed to send postponed"
 				       " frames %d", r);
@@ -2395,10 +2417,10 @@ do {									\
 }
 
 int
-tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
+tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
+		   unsigned long snd_wnd)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	unsigned long snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
 	bool stop = false;
 	int r = 0;
 	TfwStream *stream;
@@ -2435,7 +2457,6 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
 					       stream_is_exclusive, mss_now,
 					       &snd_wnd, &stop);
-
 		if (!tfw_h2_stream_is_active(stream)) {
 			tfw_h2_sched_deactivate_stream(sched, stream);
 			if (!stream->xmit.skb_head) {

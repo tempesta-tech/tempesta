@@ -65,7 +65,7 @@ enum {
 	 * Connection is in special state: it socket is DEAD
 	 * and wait until ACK to our FIN is come.
 	 */
-	Conn_Closing		= (0x3 << __Flag_Bits),
+	Conn_Closing		= (0x4 << __Flag_Bits),
 };
 
 typedef struct tfw_conn_t TfwConn;
@@ -92,6 +92,18 @@ typedef struct ss_hooks {
 
 	/* Callback to make some job after processing received data. */
 	void (*connection_recv_finish)(TfwConn *conn);
+
+	/*
+	 * Default callback which is called before push skb
+	 * to socket write queue.
+	 */
+	void (*connection_on_send)(TfwConn *conn, struct sk_buff **skb_head);
+
+	/*
+	 * Push skbs from connection write queue to socket write queue
+	 * according TCP window.
+	 */
+	int (*connection_push)(TfwConn *conn, unsigned int mss_now);
 } SsHooks;
 
 /**
@@ -191,7 +203,8 @@ bool ss_active(void);
 void ss_get_stat(SsStat *stat);
 void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		       unsigned char tls_type);
-int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
+int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
+			   unsigned int mss_now, unsigned long *snd_wnd);
 
 /*
  * We should all linux kernel functions like `tcp_push` or
