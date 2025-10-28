@@ -33,6 +33,121 @@
 
 namespace ch = clickhouse;
 
+template<TfwBinLogFields FieldType>
+struct TfwBinLogTypeCommonTraits
+{
+	static constexpr size_t index = static_cast<size_t>(FieldType) + 1;
+};
+
+template<TfwBinLogFields FieldType>
+struct TfwBinLogTypeTraits
+{
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_ADDR>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_ADDR>
+{
+	using ColType = ch::ColumnIPv6;
+	using ValType = in6_addr;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_METHOD>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_METHOD>
+{
+	using ColType = ch::ColumnUInt8;
+	using ValType = uint8_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_VERSION>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_VERSION>
+{
+	using ColType = ch::ColumnUInt8;
+	using ValType = uint8_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_STATUS>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_STATUS>
+{
+	using ColType = ch::ColumnUInt16;
+	using ValType = uint16_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_RESP_CONT_LEN>
+{
+	using ColType = ch::ColumnUInt32;
+	using ValType = uint32_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_TIME>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_RESP_TIME>
+{
+	using ColType = ch::ColumnUInt32;
+	using ValType = uint32_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_VHOST>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_VHOST>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_URI>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_URI>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_REFERER>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_REFERER>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_USER_AGENT>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_USER_AGENT>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_TFT>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_TFT>
+{
+	using ColType = ch::ColumnUInt64;
+	using ValType = uint64_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_TFH>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_TFH>
+{
+	using ColType = ch::ColumnUInt64;
+	using ValType = uint64_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_DROPPED>
+{
+	using ColType = ch::ColumnUInt64;
+	using ValType = uint64_t;
+};
+
 /**
  * Class for sending records to a Clickhouse database.
  *
@@ -66,12 +181,10 @@ public:
 
 	~TfwClickhouse();
 
+	template<TfwBinLogFields FieldType>
+	void append(
+		const typename TfwBinLogTypeTraits<FieldType>::ValType& value);
 	void append_timestamp(uint64_t timestamp);
-
-	template <typename ColType, typename ValType>
-	void append_int(TfwBinLogFields field, ValType value);
-
-	void append_string(TfwBinLogFields field, std::string_view value);
 
 	[[nodiscard]] bool commit(bool force = false) noexcept;
 	bool handle_block_error() noexcept;
@@ -117,3 +230,18 @@ private:
 
 std::shared_ptr<ch::Column>
 tfw_column_factory(ch::Type::Code code);
+
+template <TfwBinLogFields FieldType>
+void
+TfwClickhouse::append(
+	const typename TfwBinLogTypeTraits<FieldType>::ValType& value)
+{
+	using Traits   = TfwBinLogTypeTraits<FieldType>;
+	using ColType  = typename Traits::ColType;
+
+	if constexpr (std::is_same_v<ColType, ch::ColumnString>)
+		block_[Traits::index]->
+			template As<ColType>()->Append(std::string(value));
+	else
+		block_[Traits::index]->template As<ColType>()->Append(value);
+}
