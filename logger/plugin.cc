@@ -26,8 +26,7 @@
 #include "event_processor.hh"
 #include "plugin.hh"
 
-Plugin::Plugin(const std::string &plugin_path,
-	       const ClickHouseConfig& config,
+Plugin::Plugin(const std::string &plugin_path, const ClickHouseConfig& config,
 	       std::atomic<bool> *stop_flag)
 {
 	handle_ = dlopen(plugin_path.c_str(),
@@ -39,8 +38,7 @@ Plugin::Plugin(const std::string &plugin_path,
 	auto get_api = reinterpret_cast<TfwLoggerPluginGetApiFunc>(
 		dlsym(handle_, "get_plugin_api"));
 
-	if (!get_api)
-	{
+	if (!get_api) {
 		dlclose(handle_);
 		handle_ = nullptr;
 		throw tus::Except("Plugin {} missing get_plugin_api function",
@@ -48,8 +46,7 @@ Plugin::Plugin(const std::string &plugin_path,
 	}
 
 	api_ = get_api();
-	if (!api_ || api_->version != TFW_PLUGIN_VERSION)
-	{
+	if (!api_ || api_->version != TFW_PLUGIN_VERSION) {
 		dlclose(handle_);
 		handle_ = nullptr;
 		api_ = nullptr;
@@ -63,8 +60,7 @@ Plugin::Plugin(const std::string &plugin_path,
 
 	if (api_->init) {
 		int ret = api_->init(&config, stop_flag);
-		if (ret < 0)
-		{
+		if (ret < 0) {
 			cleanup();
 			throw tus::Except("Plugin {} init failed with code {}",
 					  name_, ret);
@@ -109,14 +105,12 @@ Plugin::operator=(Plugin&& other) noexcept
 void
 Plugin::cleanup()
 {
-	if (initialized_ && api_ && api_->done)
-	{
+	if (initialized_ && api_ && api_->done) {
 		api_->done();
 		spdlog::info("Plugin {} cleaned up", name_);
 	}
 
-	if (handle_)
-	{
+	if (handle_) {
 		dlclose(handle_);
 		handle_ = nullptr;
 	}
