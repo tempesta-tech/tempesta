@@ -232,9 +232,9 @@ read_access_log_event(TfwClickhouse &db, std::span<const char> data)
 	read_str(TFW_MMAP_LOG_REFERER, block, event, p, size);
 	read_str(TFW_MMAP_LOG_USER_AGENT, block, event, p, size);
 
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5T, block, event,
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_TFT, block, event,
 					     p, size);
-	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_JA5H, block, event,
+	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_TFH, block, event,
 					     p, size);
 	read_int<ch::ColumnUInt64, uint64_t>(TFW_MMAP_LOG_DROPPED, block,
 					     event, p, size);

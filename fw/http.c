@@ -114,8 +114,8 @@
 #include "access_log.h"
 #include "vhost.h"
 #include "websocket.h"
-#include "ja5_filter.h"
-#include "ja5_conf.h"
+#include "tf_filter.h"
+#include "tf_conf.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -6303,10 +6303,10 @@ __check_authority_correctness(TfwHttpReq *req)
 }
 
 static bool
-tfw_http_check_ja5h_req_limit(TfwHttpReq *req)
+tfw_http_check_tfh_req_limit(TfwHttpReq *req)
 {
-	u64 limit = http_get_ja5_recs_limit(req->ja5h);
-	u64 rate = ja5h_get_records_rate(req->ja5h);
+	u64 limit = http_get_tf_recs_limit(req->tfh);
+	u64 rate = tfh_get_records_rate(req->tfh);
 
 	return rate > limit;
 }
@@ -6495,10 +6495,10 @@ next_msg:
 	req = (TfwHttpReq *)stream->msg;
 	if (TFW_MSG_H2(req)) {
 		actor = tfw_h2_parse_req;
-		req->ja5h.version = TFW_HTTP_JA5H_HTTP2_REQ;
+		req->tfh.version = TFW_HTTP_TFH_HTTP2_REQ;
 	} else {
 		actor = tfw_http_parse_req;
-		req->ja5h.version = TFW_HTTP_JA5H_HTTP_REQ;
+		req->tfh.version = TFW_HTTP_TFH_HTTP_REQ;
 	}
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
@@ -6635,12 +6635,12 @@ next_msg:
 	if (unlikely(tfw_http_should_del_continuation_seq_queue(req)))
 		tfw_http_del_continuation_seq_queue((TfwCliConn *)conn, req);
 
-	req->ja5h.method = req->method;
+	req->tfh.method = req->method;
 
-	if (tfw_http_check_ja5h_req_limit(req)) {
+	if (tfw_http_check_tfh_req_limit(req)) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		return tfw_http_req_parse_block(req, 403,
-				"parsed request exceeded ja5h limit",
+				"parsed request exceeded tfh limit",
 				HTTP2_ECODE_PROTO);
 	}
 
@@ -7829,7 +7829,7 @@ tfw_http_start(void)
 {
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	bool misconfiguration;
-	u64 storage_size = http_get_ja5_storage_size();
+	u64 storage_size = http_get_tf_storage_size();
 
 	if (WARN_ON_ONCE(!dflt_vh))
 		return -1;
@@ -7846,7 +7846,7 @@ tfw_http_start(void)
 		return -1;
 	}
 
-	if (storage_size && !ja5h_init_filter(storage_size))
+	if (storage_size && !tfh_init_filter(storage_size))
 		return -ENOMEM;
 
 	return 0;
@@ -7855,7 +7855,7 @@ tfw_http_start(void)
 static void
 tfw_http_stop(void)
 {
-	ja5h_close_filter();
+	tfh_close_filter();
 }
 
 /*
@@ -8510,14 +8510,14 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.cleanup = tfw_cfgop_cleanup_allow_empty_body_content_type,
 	},
 	{
-		.name = "ja5h",
+		.name = "tfh",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = http_ja5_cfgop_cleanup,
-		.dest = ja5_hash_specs,
+		.cleanup = http_tf_cfgop_cleanup,
+		.dest = tf_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = ja5_cfgop_begin,
-			.finish_hook = http_ja5_cfgop_finish
+			.begin_hook = tf_cfgop_begin,
+			.finish_hook = http_tf_cfgop_finish
 		},
 		.allow_none = true,
 		.allow_repeat = false,

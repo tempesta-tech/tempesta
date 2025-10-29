@@ -3063,8 +3063,8 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_CookieStart) {
-		HTTP_JA5H_REQ_CALC_NUM(((TfwHttpReq *)hm), cookie,
-				       TFW_HTTP_JA5H_COOKIE_MAX, 1);
+		HTTP_TFH_REQ_CALC_NUM(((TfwHttpReq *)hm), cookie,
+				       TFW_HTTP_TFH_COOKIE_MAX, 1);
 		__FSM_I_MATCH_MOVE_fixup(token, Req_I_CookieName, TFW_STR_NAME);
 		/*
 		 * Name should contain at least 1 character.
@@ -3413,7 +3413,7 @@ __req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st);
-	((TfwHttpReq *)hm)->ja5h.has_referer = 1;
+	((TfwHttpReq *)hm)->tfh.has_referer = 1;
 
 	__FSM_STATE(Req_I_Referer) {
 		__FSM_I_MATCH_MOVE(uri, Req_I_Referer);
@@ -8206,7 +8206,7 @@ void
 h2_set_hdr_cookie(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (cstate->is_set)
-		HTTP_JA5H_REQ_CALC_NUM(req, cookie, TFW_HTTP_JA5H_COOKIE_MAX,
+		HTTP_TFH_REQ_CALC_NUM(req, cookie, TFW_HTTP_TFH_COOKIE_MAX,
 				       cstate->cookie.cookie_num);
 }
 
@@ -8226,11 +8226,11 @@ __h2_req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(Req_I_CookieStart) {
-		HTTP_JA5H_REQ_CALC_NUM(((TfwHttpReq *)hm), cookie,
-				       TFW_HTTP_JA5H_COOKIE_MAX, 1);
+		HTTP_TFH_REQ_CALC_NUM(((TfwHttpReq *)hm), cookie,
+				       TFW_HTTP_TFH_COOKIE_MAX, 1);
 		parser->cstate.cookie.cookie_num =
-			HTTP_JA5H_CALC_NUM(parser->cstate.cookie.cookie_num,
-					   TFW_HTTP_JA5H_COOKIE_MAX, 1);
+			HTTP_TFH_CALC_NUM(parser->cstate.cookie.cookie_num,
+					   TFW_HTTP_TFH_COOKIE_MAX, 1);
 
 		parser->cstate.is_set = 1;
 		__FSM_H2_I_MATCH_MOVE_NEQ_fixup(token, Req_I_CookieName,
@@ -8416,7 +8416,7 @@ void
 h2_set_hdr_referer(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
 	if (cstate->is_set)
-		req->ja5h.has_referer = cstate->referer.has_referer;
+		req->tfh.has_referer = cstate->referer.has_referer;
 }
 
 static int
@@ -8427,7 +8427,7 @@ __h2_req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st);
-	((TfwHttpReq *)hm)->ja5h.has_referer = 1;
+	((TfwHttpReq *)hm)->tfh.has_referer = 1;
 	parser->cstate.is_set = 1;
 	parser->cstate.referer.has_referer = 1;
 
