@@ -1283,6 +1283,51 @@ index eca83965b..e0ed16db6 100644
  
  bool irq_work_needs_cpu(void)
  {
+diff --git a/kernel/kprobes.c b/kernel/kprobes.c
+index f590e9ff3..146bdf1b1 100644
+--- a/kernel/kprobes.c
++++ b/kernel/kprobes.c
+@@ -2255,8 +2255,13 @@ static void kill_kprobe(struct kprobe *p)
+ 
+ 	lockdep_assert_held(&kprobe_mutex);
+ 
+-	if (WARN_ON_ONCE(kprobe_gone(p)))
+-		return;
++	/*
++         * The module is going away. We should disarm the kprobe which
++         * is using ftrace, because ftrace framework is still available at
++         * MODULE_STATE_GOING notification.
++         */
++        if (kprobe_ftrace(p) && !kprobe_disabled(p) && !kprobes_all_disarmed)
++                disarm_kprobe_ftrace(p);
+ 
+ 	p->flags |= KPROBE_FLAG_GONE;
+ 	if (kprobe_aggrprobe(p)) {
+@@ -2274,14 +2279,6 @@ static void kill_kprobe(struct kprobe *p)
+ 	 * the original probed function (which will be freed soon) any more.
+ 	 */
+ 	arch_remove_kprobe(p);
+-
+-	/*
+-	 * The module is going away. We should disarm the kprobe which
+-	 * is using ftrace, because ftrace framework is still available at
+-	 * MODULE_STATE_GOING notification.
+-	 */
+-	if (kprobe_ftrace(p) && !kprobe_disabled(p) && !kprobes_all_disarmed)
+-		disarm_kprobe_ftrace(p);
+ }
+ 
+ /* Disable one kprobe */
+@@ -2539,9 +2536,6 @@ static int kprobes_module_callback(struct notifier_block *nb,
+ 	for (i = 0; i < KPROBE_TABLE_SIZE; i++) {
+ 		head = &kprobe_table[i];
+ 		hlist_for_each_entry(p, head, hlist) {
+-			if (kprobe_gone(p))
+-				continue;
+-
+ 			if (within_module_init((unsigned long)p->addr, mod) ||
+ 			    (checkcore &&
+ 			     within_module_core((unsigned long)p->addr, mod))) {
 diff --git a/kernel/softirq.c b/kernel/softirq.c
 index 09229ad82..4d1de66af 100644
 --- a/kernel/softirq.c
