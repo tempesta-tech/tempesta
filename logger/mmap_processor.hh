@@ -2,7 +2,6 @@
  *		Tempesta FW
  *
  * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
-
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,8 +24,9 @@
 
 #include "../fw/mmap_buffer.h"
 #include "../libtus/error.hh"
-#include "plugin_interface.hh"
+
 #include "event_processor.hh"
+#include "plugin_interface.hh"
 
 class MmapProcessor : public EventProcessor {
 public:
@@ -43,7 +43,7 @@ protected:
 	tus::Error<bool> do_consume_event() override;
 
 private:
-	int device_fd_;
-	TfwMmapBuffer *buffer_;
-	size_t size_;
+	int		device_fd_;
+	TfwMmapBuffer	*buffer_;
+	size_t		size_;
 };

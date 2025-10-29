@@ -143,7 +143,8 @@ mmap_create_processor(unsigned processor_id)
 void
 mmap_destroy_processor(void *processor)
 {
-	if (!processor) return;
+	if (!processor)
+		return;
 	delete static_cast<EventProcessor*>(processor);
 	plugin_log_debug("Destroyed MmapProcessor instance");
 }

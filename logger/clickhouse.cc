@@ -96,7 +96,9 @@ TfwClickhouse::make_block()
 }
 
 bool
-TfwClickhouse::do_reconnect() {
+TfwClickhouse::do_reconnect() noexcept
+{
+	bool success = false;
 	try {
 		client_.reset();
 
@@ -106,18 +108,20 @@ TfwClickhouse::do_reconnect() {
 
 		needs_reconnect.store(false);
 		last_reconnect_attempt.store(std::chrono::steady_clock::now());
-		return true;
+		success = true;
 	}
 	catch (const std::exception& e) {
 		spdlog::error("Failed to reconnect to ClickHouse: {}", e.what());
 		last_reconnect_attempt.store(std::chrono::steady_clock::now());
-		return false;
+		success = false;
 	}
 	catch (...) {
 		spdlog::error("Failed to reconnect to ClickHouse: unknown error");
 		last_reconnect_attempt.store(std::chrono::steady_clock::now());
-		return false;
+		success = false;
 	}
+	update_reconnect_timeout(success);
+	return success;
 }
 
 void
@@ -173,20 +177,22 @@ TfwClickhouse::update_reconnect_timeout(bool success) noexcept
 {
 	if (success) {
 		reconnect_timeout.store(std::chrono::seconds(0));
-	} else {
-		auto current = reconnect_timeout.load();
-		if (current.count() == 0) {
-			reconnect_timeout.store(std::chrono::seconds(1));
-		} else if (current.count() < 300) {
-			reconnect_timeout.store(current * 2);
-		}
+		return;
+	}
+
+	auto current = reconnect_timeout.load();
+	if (current.count() == 0) {
+		reconnect_timeout.store(std::chrono::seconds(1));
+	} else if (current.count() < 300) {
+		reconnect_timeout.store(current * 2);
 	}
 }
 
 TfwClickhouse::TfwClickhouse(const ClickHouseConfig &config)
 	: table_name_(config.table_name)
 	, max_events_(config.max_events)
-	, client_options_([config]() {
+	, client_options_([config]()
+	{
 		ch::ClientOptions options;
 		options.SetHost(config.host)
 		       .SetPort(config.port)

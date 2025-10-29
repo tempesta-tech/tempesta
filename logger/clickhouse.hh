@@ -77,14 +77,13 @@ public:
 	bool handle_block_error() noexcept;
 
 	bool should_attempt_reconnect() const noexcept;
-	void update_reconnect_timeout(bool success) noexcept;
-	bool do_reconnect();
+	bool do_reconnect() noexcept;
 
 public:
 	std::atomic<bool> needs_reconnect{false};
-	std::atomic<std::chrono::steady_clock::time_point>last_reconnect_attempt{
-		std::chrono::steady_clock::time_point::min()
-	};
+	std::atomic<std::chrono::steady_clock::time_point>
+		last_reconnect_attempt{
+			std::chrono::steady_clock::time_point::min()};
 	// The most Clickhouse API errors can be handled with simple connection
 	// reset and reconnection
 	//
@@ -105,6 +104,7 @@ private:
 	}
 
 	void make_block();
+	void update_reconnect_timeout(bool success) noexcept;
 
 private:
 	const std::string		table_name_;
