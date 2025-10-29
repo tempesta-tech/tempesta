@@ -41,7 +41,6 @@ public:
 	virtual void request_stop() noexcept = 0;
 	virtual bool stop_requested() noexcept = 0;
 
-
 public:
 	const unsigned processor_id;
 

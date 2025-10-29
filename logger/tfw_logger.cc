@@ -92,7 +92,7 @@ struct ParsedOptions {
 
 // All processors must be non-null
 void
-inner_loop(const std::vector<EventProcessorPtr> &processors) noexcept
+event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 {
 	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
 	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
@@ -152,8 +152,7 @@ inner_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 			}
 		}
 
-		if (consumed_something) [[likely]]
-		{
+		if (consumed_something) [[likely]] {
 			tries = 0;
 			continue;
 		}
@@ -228,7 +227,7 @@ run_thread(const unsigned ncpu) noexcept
 			processors.emplace_back(std::move(processor));
 	}
 
-	inner_loop(processors);
+	event_loop(processors);
 
 	spdlog::debug("Worker {} stopped", ncpu);
 }
