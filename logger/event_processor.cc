@@ -1,4 +1,3 @@
-
 /**
  *		Tempesta FW
  *
@@ -58,10 +57,8 @@ EventProcessor::flush(bool force) noexcept
 tus::Error<bool>
 EventProcessor::consume_event()
 {
-	auto reconnect_result = handle_reconnection();
-	if (!reconnect_result) {
+	if (!handle_reconnection())
 		return tus::error(tus::Err::DB_CLT_TRANSIENT);
-	}
 
 	return do_consume_event();
 }
@@ -69,7 +66,7 @@ EventProcessor::consume_event()
 bool
 EventProcessor::handle_reconnection()
 {
-	if (!db_->needs_reconnect.load(std::memory_order_acquire))
+	if (!db_->needs_reconnect.load(std::memory_order_acquire)) [[likely]]
 		return true;
 
 	if (!db_->should_attempt_reconnect())
@@ -82,15 +79,7 @@ EventProcessor::handle_reconnection()
 		std::memory_order_release
 	);
 
-	bool success = false;
-	try {
-		success = db_->do_reconnect();
-	} catch (...) {
-		success = false;
-	}
-
-	db_->update_reconnect_timeout(success);
-
+	bool success = db_->do_reconnect();
 	if (success) {
 		db_->needs_reconnect.store(false,
 					   std::memory_order_release);
