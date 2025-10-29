@@ -259,7 +259,7 @@ static void
 do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		       u64 resp_content_length)
 {
-	u64 *dropped = this_cpu_ptr(&mmap_log_dropped);
+	u64 *dropped = this_cpu_ptr(&mmap_log_dropped), dropped_tmp;
 	TfwBinLogEvent *event;
 	unsigned int room_size;
 	TfwStr referer, ua;
@@ -351,6 +351,8 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 
 	if (*dropped) {
 		WRITE_FIELD(*dropped);
+		/* Save dropped to restore if commit failed. */
+		dropped_tmp = *dropped;
 		*dropped = 0;
 	} else {
 		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_DROPPED);
@@ -358,6 +360,7 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 
 	if (tfw_mmap_buffer_commit(mmap_buffer, p - data) != 0) {
 		T_DBG("Incorrect data size at commit: %ld", p - data);
+		*dropped = dropped_tmp;
 		goto drop;
 	}
 
