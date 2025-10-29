@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -29,9 +29,6 @@ static unsigned int
 tfw_mmap_buffer_get_read_room(TfwMmapBufferHolder *holder, char **data)
 {
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
-
-	if (!atomic_read(&buf->is_ready))
-		return 0;
 
 	*data = buf->data + buf->tail % buf->size;
 
@@ -120,9 +117,6 @@ TEST(tfw_mmap_buffer, write_read)
 
 #define MAX_SIZE (buf->size - 1)
 
-	size = tfw_mmap_buffer_get_room(holder, &data);
-	EXPECT_ZERO(size);
-	atomic_set(&buf->is_ready, 1);
 	size = tfw_mmap_buffer_get_room(holder, &data);
 	EXPECT_EQ(size, MAX_SIZE);
 
