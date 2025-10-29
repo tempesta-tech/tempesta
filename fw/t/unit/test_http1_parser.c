@@ -4706,16 +4706,16 @@ do {									\
 #undef RESP_PERF
 }
 
-TEST(http1_parser, ja5h)
+TEST(http1_parser, tfh)
 {
 	FOR_REQ("GET /index.html HTTP/1.1\r\n"
 		"Connection: Keep-Alive\r\n"
 		"X-Forwarded-For: 127.0.0.1\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 2);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 2);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 0);
 	}
 
 	FOR_REQ("GET /index.html HTTP/1.1\r\n"
@@ -4755,10 +4755,10 @@ TEST(http1_parser, ja5h)
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 34);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
-		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 34);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->tfh.version, 0);
 	}
 
 	FOR_REQ("GET /index.html HTTP/1.1\r\n"
@@ -4832,10 +4832,10 @@ TEST(http1_parser, ja5h)
 		"bbbbbbbbbbbbbbbbbbbbbbbbbb: bbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 63);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
-		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 63);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->tfh.version, 0);
 	}
 
 	FOR_REQ("GET /index.html HTTP/1.1\r\n"
@@ -4845,10 +4845,10 @@ TEST(http1_parser, ja5h)
 		"Referer: http://tempesta-tech.com:8080\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 1);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 2);
-		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 1);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 4);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 2);
+		EXPECT_EQ((unsigned)req->tfh.version, 0);
 	}
 
 	FOR_REQ("GET /index.html HTTP/1.1\r\n"
@@ -4864,10 +4864,10 @@ TEST(http1_parser, ja5h)
 		"Referer: http://tempesta-tech.com:8080\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 1);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 31);
-		EXPECT_EQ((unsigned)req->ja5h.version, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 1);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 4);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 31);
+		EXPECT_EQ((unsigned)req->tfh.version, 0);
 	}
 }
 
@@ -4966,7 +4966,7 @@ TEST_SUITE_MPART(http1_parser, 2)
 
 TEST_SUITE_MPART(http1_parser, 3)
 {
-	TEST_RUN(http1_parser, ja5h);
+	TEST_RUN(http1_parser, tfh);
 	TEST_RUN(http1_parser, expect);
 }
 

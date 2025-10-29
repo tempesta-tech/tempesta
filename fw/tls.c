@@ -31,8 +31,8 @@
 #include "http.h"
 #include "http_frame.h"
 #include "http_limits.h"
-#include "ja5_conf.h"
-#include "ja5_filter.h"
+#include "tf_conf.h"
+#include "tf_filter.h"
 #include "msg.h"
 #include "procfs.h"
 #include "tls.h"
@@ -917,8 +917,8 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			return -ENOENT;
 		}
 
-		/* JA5t computation */
-		ctx->sess.ja5t.vhost_found = !!(u8)(vhost != NULL);
+		/* TFt computation */
+		ctx->sess.tft.vhost_found = !!(u8)(vhost != NULL);
 	}
 	else if (!tfw_tls_allow_any_sni) {
 		SNI_WARN("missing server name, reject connection.\n");
@@ -1013,19 +1013,19 @@ tfw_tls_alpn_match(const TlsCtx *tls, const ttls_alpn_proto *alpn)
 }
 
 static bool
-tfw_ja5t_limit_conn(TlsJa5t fingerprint)
+tfw_tft_limit_conn(TlsTft fingerprint)
 {
-	u64 limit = tls_get_ja5_conns_limit(fingerprint);
-	u64 rate = ja5t_get_conns_rate(fingerprint);
+	u64 limit = tls_get_tf_conns_limit(fingerprint);
+	u64 rate = tft_get_conns_rate(fingerprint);
 
 	return rate > limit;
 }
 
 static bool
-tfw_ja5t_limit_rec(TlsJa5t fingerprint)
+tfw_tft_limit_rec(TlsTft fingerprint)
 {
-	u64 limit = tls_get_ja5_recs_limit(fingerprint);
-	u64 rate = ja5t_get_records_rate(fingerprint);
+	u64 limit = tls_get_tf_recs_limit(fingerprint);
+	u64 rate = tft_get_records_rate(fingerprint);
 
 	return rate > limit;
 }
@@ -1055,7 +1055,7 @@ static void
 tfw_tls_do_cleanup(void)
 {
 	ttls_config_free(&tfw_tls_cfg);
-	ja5t_close_filter();
+	tft_close_filter();
 }
 
 /*
@@ -1179,11 +1179,11 @@ tfw_tls_cfgend(void)
 static int
 tfw_tls_start(void)
 {
-	u64 storage_size = tls_get_ja5_storage_size();
+	u64 storage_size = tls_get_tf_storage_size();
 
 	tfw_tls_allow_any_sni = allow_any_sni_reconfig;
 
-	if (storage_size && !ja5t_init_filter(storage_size))
+	if (storage_size && !tft_init_filter(storage_size))
 		return -ENOMEM;
 
 	return 0;
@@ -1197,14 +1197,14 @@ tfw_tls_get_allow_any_sni_reconfig(void)
 
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
-		.name = "ja5t",
+		.name = "tft",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tls_ja5_cfgop_cleanup,
-		.dest = ja5_hash_specs,
+		.cleanup = tls_tf_cfgop_cleanup,
+		.dest = tf_hash_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = ja5_cfgop_begin,
-			.finish_hook = tls_ja5_cfgop_finish
+			.begin_hook = tf_cfgop_begin,
+			.finish_hook = tls_tf_cfgop_finish
 		},
 		.allow_none = true,
 		.allow_repeat = false,
@@ -1238,7 +1238,7 @@ tfw_tls_init(void)
 
 	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_over,
 				ttls_cli_id, tfw_tls_alpn_match,
-				tfw_ja5t_limit_conn, tfw_ja5t_limit_rec);
+				tfw_tft_limit_conn, tfw_tft_limit_rec);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;

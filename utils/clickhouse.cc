@@ -31,7 +31,7 @@ constexpr char table_creation_querry[] = "CREATE TABLE IF NOT EXISTS "
 	"access_log (timestamp DateTime64(3, 'UTC'), address IPv6, method UInt8, "
 	"version UInt8, status UInt16, response_content_length UInt64, "
 	"response_time UInt32, vhost String, uri String, referer String, "
-	"user_agent String, ja5t UInt64, ja5h UInt64, dropped_events UInt64,"
+	"user_agent String, tft UInt64, tfh UInt64, dropped_events UInt64,"
 	"PRIMARY KEY(timestamp));";
 
 static auto
