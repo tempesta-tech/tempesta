@@ -605,6 +605,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
+		//int delta;
+
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
@@ -616,6 +618,9 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				goto err;
 			}
 			ss_skb_set_owner(twin_skb, skb->sk);
+			/* Only linear data was copyed. */
+			//delta = -(twin_skb->truesize - skb_headlen(twin_skb));
+			//ss_skb_adjust_sk_mem(twin_skb, delta);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);
@@ -1553,7 +1558,11 @@ __sk_close_locked(struct sock *sk, int flags)
 {
 	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
-	ss_fill_write_queue(sk, mss_now);
+	if (ss_fill_write_queue(sk, mss_now)) {
+		ss_linkerror(sk, 0);
+		bh_unlock_sock(sk);
+		return;
+	}
 	ss_do_close(sk, flags);
 	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);
@@ -1574,15 +1583,14 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
+	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	/*
-	 * Prevent calling `tcp_done` from `tcp_shutdown` if error
-	 * occurs to prevent double free.
+	 * `tcp_shutdown` will ne called from `ss_fill_write_queue`
+	 * after sending all pending data.
 	 */
-	SS_IN_USE_PROTECT({
-		tcp_shutdown(sk, SEND_SHUTDOWN);
-	});
-	SS_STATE_PROCESS_RETURN(sk);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	if (ss_fill_write_queue(sk, mss_now))
+		ss_linkerror(sk, 0);
 }
 
 static inline bool

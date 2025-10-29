@@ -272,6 +272,23 @@ tfw_client_precreate(void *data)
 	return 0;
 }
 
+void
+tfw_client_get_light(TfwClient *cli)
+{
+	int rc;
+
+	rc = atomic_inc_return(&cli->refcnt);
+	if (rc == 1) {
+		TfwClientEntry *ent = (TfwClientEntry *)cli;
+		TdbFRec *rec = ((TdbFRec *)cli) - 1;
+
+		tdb_rec_keep(rec);
+		spin_lock(&ent->lock);
+		++ent->users;
+		spin_unlock(&ent->lock);
+	}
+}
+
 /**
  * Find a client corresponding to @addr, @xff_addr (e.g. from X-Forwarded-For)
  * and @user_agent.

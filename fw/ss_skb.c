@@ -1710,11 +1710,26 @@ int
 ss_skb_realloc_headroom(struct sk_buff *skb)
 {
 	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+	unsigned int old_truesize = skb->truesize;
+	int r;
 
 	if (likely(delta <= 0))
 		return 0;
 
-	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	r = pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	if (unlikely(r))
+		return r;
+
+	/*
+	 * Currently in linux kernel `pskb_expand_head` doesn't change
+	 * `skb->truesize` if `skb->sk` is set, because currently it is
+	 * not safe to change skb->truesize on tx path in linux kernel
+	 * if `skb->destructor` is set. So we don't adjust `client` mem
+	 * here.  
+	 */
+	BUG_ON(skb->sk && skb->truesize != old_truesize);
+
+	return 0;
 }
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 

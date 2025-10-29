@@ -198,6 +198,11 @@ tfw_client_set_expires_time(unsigned int expires_time)
 }
 
 void
+tfw_client_get_light(TfwClient *cli)
+{
+}
+
+void
 tfw_client_put(TfwClient *cli)
 {
 }
