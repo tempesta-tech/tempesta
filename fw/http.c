@@ -1000,7 +1000,11 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		 * Check that the paired response has been destroyed before
 		 * the request.
 		 */
-		WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && hm->pair);
+		if (WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && hm->pair))
+			printk(KERN_ALERT "req %px %lx resp %px %lx | %d",
+				hm, ((TfwHttpReq *)hm)->xxx, hm->pair,
+				((TfwHttpResp *)hm->pair)->xxx,
+				smp_processor_id());
 		tfw_http_conn_msg_unlink_conn(hm);
 	}
 
@@ -1927,6 +1931,7 @@ tfw_http_req_zap_error(struct list_head *eq)
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
+		req->xxx |= TFW_REQ_1;
 		if ((TFW_MSG_H2(req) && req->stream)
 		    || (!TFW_MSG_H2(req)
 			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
@@ -1954,6 +1959,11 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	 * not corresponding client connection and, consequently, cannot
 	 * be dropped.
 	 */
+	if (req->resp) {
+		req->xxx |= TFW_REQ_13;
+		req->resp->xxx |= TFW_RESP_7;
+	}
+
 	if (!req->conn)
 		return false;
 
@@ -2022,6 +2032,10 @@ static inline bool
 tfw_http_req_evict_stale_req(TfwSrvConn *srv_conn, TfwServer *srv,
 			     TfwHttpReq *req, struct list_head *eq)
 {
+	if (req->resp) {
+		req->xxx |= TFW_REQ_12;
+		req->resp->xxx |= TFW_RESP_8;
+	}
 	return tfw_http_req_evict_dropped(srv_conn, req)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq);
 }
@@ -2138,7 +2152,14 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
-		int ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
+		int ret;
+
+		if (req->resp) {
+			printk(KERN_ALERT "TUT 111 %px %px\n", req, req->resp);
+			continue;
+		}
+
+		ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
 
 		/*
 		 * In case of busy work queue and absence of forwarded but
@@ -2295,7 +2316,13 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	     req = tmp, tmp = list_next_entry(tmp, fwd_list))
 	{
 		int err;
-		if (tfw_http_req_evict(srv_conn, srv, req, eq))
+
+		if (req->resp) {
+			req->xxx |= TFW_REQ_11;
+			req->resp->xxx |= TFW_RESP_9;
+			printk(KERN_ALERT "TUT %px %px\n", req, req->resp);
+		}
+		if (req->resp || tfw_http_req_evict(srv_conn, srv, req, eq))
 			continue;
 		err = tfw_http_req_fwd_send(srv_conn, srv, req, eq);
 		/*
@@ -2816,7 +2843,7 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
  * GFSM for the message.
  */
 static TfwMsg *
-tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
+tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream, int rrr)
 {
 	int type = TFW_CONN_TYPE(conn);
 	TfwHttpMsg *hm = __tfw_http_msg_alloc(type, true);
@@ -2849,6 +2876,14 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	} else {
 		if (unlikely(tfw_http_resp_pair(hm)))
 			goto clean;
+
+		((TfwHttpResp *)hm)->xxx |= TFW_RESP_3;
+		hm->req->xxx |= TFW_REQ_9;
+
+		if (rrr == 111)
+			((TfwHttpResp *)hm)->xxx |= TFW_RESP_4;
+		else
+			((TfwHttpResp *)hm)->xxx |= TFW_RESP_5;
 
 		if (TFW_MSG_H2(hm->req)) {
 			size_t sz = TFW_HDR_MAP_SZ(TFW_HDR_MAP_INIT_CNT);
@@ -3135,7 +3170,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 	       hm->conn, hm, skb);
 
 	/* The sibling message belongs to the same connection. */
-	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn, hm->stream);
+	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn, hm->stream, 222);
 	if (unlikely(!shm))
 		return NULL;
 
@@ -5926,6 +5961,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
 
 	if (req->resp) {
+		req->xxx |= TFW_REQ_4;
 		tfw_http_req_cache_service(req->resp);
 		return;
 	}
@@ -5933,6 +5969,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	if (test_bit(TFW_HTTP_B_JS_NOT_SUPPORTED, req->flags)) {
 		T_DBG("request dropped: non-challengeable resource"
 		      " was not served from cache");
+		req->xxx |= TFW_REQ_5;
 		tfw_http_send_err_resp_nolog(req, 403);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
@@ -5962,6 +5999,8 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 
 	/* Account current request in APM health monitoring statistics */
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
+
+	req->xxx |= TFW_REQ_6;
 
 	/* Forward request to the server. */
 	tfw_http_req_fwd_resched(srv_conn, req, &eq);
@@ -6226,6 +6265,8 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 			tfw_http_conn_error_log(req->conn, "Can't create"
 						" pipelined request");
 			__kfree_skb(skb);
+		} else {
+			((TfwHttpReq *) hmsib)->xxx |= TFW_REQ_10;
 		}
 	}
 
@@ -6517,6 +6558,8 @@ next_msg:
 				"parsed request has been filtered out",
 				HTTP2_ECODE_PROTO);
 	}
+
+	req->xxx |= TFW_REQ_2;
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
@@ -6886,6 +6929,7 @@ next_msg:
 	 * Response is already prepared for the client by sticky module.
 	 */
 	if (unlikely(req->resp)) {
+		req->xxx |= TFW_REQ_3;
 		if (TFW_MSG_H2(req))
 			tfw_h2_resp_fwd(req->resp);
 		else
@@ -7007,6 +7051,9 @@ tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 		srv_conn->msg_sent = NULL;
 	tfw_http_req_delist(srv_conn, req);
 	tfw_http_conn_nip_adjust(srv_conn);
+
+	((TfwHttpResp *)hmresp)->xxx |= TFW_RESP_2;
+	req->xxx |= TFW_REQ_8;
 
 	if (unlikely(!fwd_unsent)) {
 		spin_unlock(&srv_conn->fwd_qlock);
@@ -7350,7 +7397,14 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
+	if (!hmresp || !hmresp->req)
+		printk(KERN_ALERT "AAAAAAAAA %px %lx %px | %d\n",
+			hmresp, ((TfwHttpResp *)hmresp)->xxx,
+			hmresp->req, smp_processor_id());
+
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
+
+	((TfwHttpResp *)hmresp)->xxx |= TFW_RESP_1;
 
 	if (likely(!test_bit(TFW_HTTP_B_HMONITOR, hmresp->req->flags))) {
 		ss_skb_set_owner(skb, cli_conn->peer);
@@ -7527,6 +7581,8 @@ next_msg:
 			__kfree_skb(skb);
 			skb = NULL;
 			conn_stop = true;
+		} else {
+			((TfwHttpResp *)hmsib)->xxx |= TFW_RESP_6;
 		}
 	}
 
@@ -7685,7 +7741,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 		    && (r = __tfw_upgrade_in_queue((TfwCliConn *)conn))) {
 			goto err;
 		}
-		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
+		stream->msg = tfw_http_conn_msg_alloc(conn, stream, 111);
 		if (!stream->msg)
 			goto err;
 		T_DBG2("Link new msg %p with connection %p\n",

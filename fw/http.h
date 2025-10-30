@@ -86,6 +86,39 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
+enum {
+	TFW_REQ_1 = 0x1,
+	TFW_REQ_2 = 0x2,
+	TFW_REQ_3 = 0x4,
+	TFW_REQ_4 = 0x8,
+	TFW_REQ_5 = 0x10,
+	TFW_REQ_6 = 0x20,
+	TFW_REQ_7 = 0x40,
+	TFW_REQ_8 = 0x80,
+	TFW_REQ_9 = 0x100,
+	TFW_REQ_10 = 0x200,
+	TFW_REQ_11 = 0x400,
+	TFW_REQ_12 = 0x800,
+	TFW_REQ_13 = 0x1000,
+	TFW_REQ_14 = 0x2000,
+	TFW_REQ_15 = 0x4000,
+	TFW_REQ_16 = 0x8000,
+};
+
+enum {
+	TFW_RESP_1 = 0x1,
+	TFW_RESP_2 = 0x2,
+	TFW_RESP_3 = 0x4,
+	TFW_RESP_4 = 0x8,
+	TFW_RESP_5 = 0x10,
+	TFW_RESP_6 = 0x20,
+	TFW_RESP_7 = 0x40,
+	TFW_RESP_8 = 0x80,
+	TFW_RESP_9 = 0x100,
+	TFW_RESP_10 = 0x200,
+	TFW_RESP_11 = 0x400,
+};
+
 /* TODO: When CONNECT will be added, add it to tfw_handle_validation_req()
  * and to tfw_http_parse_check_bodyless_meth() */
 /* New safe methods MUST be added to TFW_HTTP_IS_METH_SAFE macro */
@@ -431,6 +464,7 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
+	unsigned long		xxx;
 };
 
 #define TFW_IDX_BITS		24
@@ -513,6 +547,7 @@ struct tfw_http_resp_t {
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
 	int			trailers_len;
+	unsigned long		xxx;
 };
 
 #define TFW_HDR_MAP_INIT_CNT		32
