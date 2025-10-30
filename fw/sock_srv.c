@@ -369,6 +369,8 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 		goto end;
 	}
 
+
+	printk(KERN_ALERT "tfw_sock_srv_connect_drop %px\n", conn);
 	/**
 	 * This is executed when there's unrecoverable error in a connection
 	 * (and not executed when an established connection is closed as usual).

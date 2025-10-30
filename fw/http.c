@@ -1979,6 +1979,13 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 		       req);
 	}
 
+	if (req->resp)
+		printk(KERN_ALERT "tfw_http_req_evict_dropped TRUE "
+			"%px %px | %d %d | %u",
+			req, req->resp, TFW_MSG_H2(req),
+			test_bit(TFW_HTTP_B_REQ_DROP, req->flags),
+			req->retries);
+
 	if (srv_conn)
 		tfw_http_req_delist(srv_conn, req);
 
@@ -2004,6 +2011,10 @@ tfw_http_req_evict_timeout(TfwSrvConn *srv_conn, TfwServer *srv,
 			 jiffies_to_msecs(jqage - srv->sg->max_jqage));
 		tfw_http_req_err(srv_conn, req, eq, 504,
 				 "request evicted: timed out");
+
+		if (req->resp)
+			printk(KERN_ALERT "tfw_http_req_evict_timeout TRUE %px %px\n", req, req->resp);
+
 		return true;
 	}
 	return false;
@@ -2023,6 +2034,9 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 		tfw_http_req_err(srv_conn, req, eq, 504,
 				 "request evicted: the number"
 				 " of retries exceeded");
+		if (req->resp)
+			printk(KERN_ALERT "tfw_http_req_evict_timeout TRUE %px %px\n", req, req->resp);
+
 		return true;
 	}
 	return false;
@@ -2035,6 +2049,7 @@ tfw_http_req_evict_stale_req(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (req->resp) {
 		req->xxx |= TFW_REQ_12;
 		req->resp->xxx |= TFW_RESP_8;
+		printk(KERN_ALERT "tfw_http_req_evict_stale_req TUT\n");
 	}
 	return tfw_http_req_evict_dropped(srv_conn, req)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq);
@@ -2155,8 +2170,10 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 		int ret;
 
 		if (req->resp) {
-			printk(KERN_ALERT "TUT 111 %px %px\n", req, req->resp);
-			continue;
+			printk(KERN_ALERT "TUT 111 %px %px %ps %ps %ps %ps %ps\n",
+				req, req->resp, __builtin_return_address(0),
+				__builtin_return_address(1), __builtin_return_address(2),
+				__builtin_return_address(4), __builtin_return_address(5));
 		}
 
 		ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
@@ -2298,17 +2315,19 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	TfwHttpReq *req, *tmp, *req_resent = NULL;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
+	bool ZZZ = false;
 
 	if (!srv_conn->msg_sent)
 		return 0;
 
-	T_DBG2("%s: conn=[%p] first=[%s]\n",
-	       __func__, srv_conn, first ? "true" : "false");
 	BUG_ON(!srv_conn->msg_sent);
 	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
 
 	req = list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 	end = ((TfwHttpReq *)srv_conn->msg_sent)->fwd_list.next;
+
+	printk(KERN_ALERT "%s: conn=[%px] first=[%s] %px %px\n",
+	       __func__, srv_conn, first ? "true" : "false", req, end);
 
 	/* Similar to list_for_each_entry_safe_from() */
 	for (tmp = list_next_entry(req, fwd_list);
@@ -2320,10 +2339,19 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 		if (req->resp) {
 			req->xxx |= TFW_REQ_11;
 			req->resp->xxx |= TFW_RESP_9;
-			printk(KERN_ALERT "TUT %px %px\n", req, req->resp);
-		}
-		if (req->resp || tfw_http_req_evict(srv_conn, srv, req, eq))
+			printk(KERN_ALERT "TUT %px %px %d\n",
+				req, req->resp, first);
+			ZZZ = true;
 			continue;
+		}
+		if (tfw_http_req_evict(srv_conn, srv, req, eq)) {
+			if (ZZZ)
+				printk(KERN_ALERT "EVICT !!!!\n");
+			continue;
+		} else {
+			if (ZZZ)
+				printk(KERN_ALERT "NOT EVICT !!!!\n");
+		}
 		err = tfw_http_req_fwd_send(srv_conn, srv, req, eq);
 		/*
 		 * If connection is broken, leave all requests in
@@ -2350,8 +2378,10 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 		if (err)
 			continue;
 		req_resent = req;
-		if (unlikely(first))
+		if (unlikely(first)) {
+			printk(KERN_ALERT "BREAK!!!!");
 			break;
+		}
 	}
 	/*
 	 * If only one first request is needed to be re-send, change
@@ -2362,6 +2392,9 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	 */
 	if (!first || !req_resent)
 		srv_conn->msg_sent = (TfwMsg *)req_resent;
+
+	if (ZZZ)
+		printk(KERN_ALERT "srv_conn->msg_sent %px\n", srv_conn->msg_sent);
 
 	return 0;
 }
@@ -2407,9 +2440,15 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 	if (tfw_srv_conn_reenable_if_done(srv_conn))
 		return 0;
 	if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
+		printk(KERN_ALERT "tfw_http_conn_fwd_repair %px TFW_CONN_B_QFORWD "
+			"%ps %ps %ps %ps %ps\n",
+			srv_conn, __builtin_return_address(0),
+		__builtin_return_address(1), __builtin_return_address(2),
+		__builtin_return_address(3), __builtin_return_address(4));
 		if (tfw_http_conn_need_fwd(srv_conn))
 			ret = tfw_http_conn_fwd_unsent(srv_conn, eq);
 	} else {
+		int r;
 		/*
 		 * Resend all previously forwarded requests. After that
 		 * @srv_conn->msg_sent will be either NULL or the last
@@ -2419,13 +2458,32 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 		 * requests that were never forwarded only if the last
 		 * request that was re-sent was NOT non-idempotent.
 		 */
-		if (tfw_http_conn_resend(srv_conn, false, eq) == -EBADF)
+		printk(KERN_ALERT "tfw_http_conn_fwd_repair %px cpu %d"
+			"%ps %ps %ps %ps %ps | %px\n",
+			srv_conn, smp_processor_id(), __builtin_return_address(0),
+		__builtin_return_address(1), __builtin_return_address(2),
+		__builtin_return_address(3), __builtin_return_address(4),
+		srv_conn->msg_sent);
+		if ((r = tfw_http_conn_resend(srv_conn, false, eq)) == -EBADF) {
+			printk(KERN_ALERT "tfw_http_conn_fwd_repair %px EBADF\n", srv_conn);
 			return 0;
+		}
+		printk(KERN_ALERT "tfw_http_conn_fwd_repair %px r %d cpu %d\n",
+			srv_conn, r, smp_processor_id());
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		if (tfw_http_conn_need_fwd(srv_conn))
+		if (tfw_http_conn_need_fwd(srv_conn)) {
+			printk(KERN_ALERT "tfw_http_conn_fwd_repair NNN %px\n",
+				srv_conn);
 			ret = tfw_http_conn_fwd_unsent(srv_conn, eq);
+			printk(KERN_ALERT "tfw_http_conn_fwd_repair NNN %px %d\n",
+				srv_conn, ret);
+		}
 	}
 	tfw_srv_conn_reenable_if_done(srv_conn);
+
+	printk(KERN_ALERT "tfw_http_conn_fwd_repair RET %px %d ret %d | %px",
+		srv_conn, test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags), ret,
+		srv_conn->msg_sent);
 
 	return ret;
 }
@@ -2729,22 +2787,37 @@ tfw_http_conn_repair(TfwConn *conn)
 	tfw_http_conn_treatnip(srv_conn, &eq);
 
 	/* Re-send only the first unanswered request. */
+	printk(KERN_ALERT "tfw_http_conn_repair %px %d BBB %px"
+		"%ps %ps %ps %ps %ps\n",
+		conn, smp_processor_id(), srv_conn->msg_sent, __builtin_return_address(0),
+		__builtin_return_address(1), __builtin_return_address(2),
+		__builtin_return_address(3), __builtin_return_address(4));
 	err = tfw_http_conn_resend(srv_conn, true, &eq);
 	if (err == -EBADF) {
+		printk(KERN_ALERT "tfw_http_conn_repair %px EBADF\n", conn);
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 		goto out;
 	}
+	printk(KERN_ALERT "tfw_http_conn_repair %px err %d AAA %d | %px\n",
+		conn, err, smp_processor_id(), srv_conn->msg_sent);
 	/*
 	 * If re-sending procedure successfully passed,
 	 * but requests had not been re-sent, and removed
 	 * instead, then send the remaining unsent requests.
 	 */
 	if (!err && !srv_conn->msg_sent) {
+		printk(KERN_ALERT "tfw_http_conn_repair %px err %d AAA 111 %d | %px %d\n",
+			conn, err, smp_processor_id(), srv_conn->msg_sent,
+			list_empty(&srv_conn->fwd_queue));
 		if (!list_empty(&srv_conn->fwd_queue)) {
 			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 			err = tfw_http_conn_fwd_unsent(srv_conn, &eq);
+			printk(KERN_ALERT "ERRRRRRR %d %px", err, srv_conn);
 		}
 		tfw_srv_conn_reenable_if_done(srv_conn);
+
+		printk(KERN_ALERT "ERRRRRRR %d %px AAA %d",
+			err, srv_conn, test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags));
 	}
 	/*
 	 * Move out if re-sending/sending procedures are
@@ -7386,8 +7459,8 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	 * in ss_tcp_process_skb().
 	 */
 
-	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
-	       skb->len, conn, stream->msg);
+	printk(KERN_ALERT "Received %u server %px data bytes on conn=%px msg=%p\n",
+	       skb->len, stream->msg, conn, stream->msg);
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -7398,9 +7471,9 @@ next_msg:
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 	if (!hmresp || !hmresp->req)
-		printk(KERN_ALERT "AAAAAAAAA %px %lx %px | %d\n",
+		printk(KERN_ALERT "AAAAAAAAA %px %lx %px | %d conn %px\n",
 			hmresp, ((TfwHttpResp *)hmresp)->xxx,
-			hmresp->req, smp_processor_id());
+			hmresp->req, smp_processor_id(), conn);
 
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
 
