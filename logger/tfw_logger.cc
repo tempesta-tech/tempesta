@@ -41,9 +41,8 @@
 #include "../libtus/error.hh"
 #include "clickhouse.hh"
 #include "plugin.hh"
-#include "event_processor.hh"
 #include "tfw_logger_config.hh"
-#include "mmap_processor.hh"
+#include "access_log_plugin.hh"
 
 namespace po = boost::program_options;
 
@@ -215,7 +214,7 @@ run_thread(const unsigned ncpu) noexcept
 
 	if (mmap_plugin) {
 		auto processor = mmap_plugin->create_processor(ncpu);
-		cpu_id = (static_cast<MmapProcessor *>(
+		cpu_id = (static_cast<AccessLogProcessor *>(
 				processor.get()))->get_cpu_id();
 		if (processor)
 			processors.emplace_back(std::move(processor));

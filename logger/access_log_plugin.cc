@@ -25,12 +25,14 @@
 #include <errno.h>
 #include <cstring>
 #include <cstdio>
-
-#include <spdlog/spdlog.h>
+#include <thread>
+#include <fmt/format.h>
 
 #include "../libtus/error.hh"
+#include "../fw/mmap_buffer.h"
+
 #include "plugin_interface.hh"
-#include "mmap_processor.hh"
+#include "access_log_plugin.hh"
 
 namespace {
 
@@ -154,7 +156,7 @@ dbg_hexdump(std::span<const char> data)
 		}
 		oss << std::endl;
 	}
-	spdlog::info("{}", oss.str());
+	plugin_log_info(oss.str());
 }
 #else
 void
@@ -183,7 +185,8 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 	try {
 		while (data.size()) {
 			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
-				throw tus::Except("Partial event in the access log");
+				throw tus::Except(
+					"Partial event in the access log");
 
 			const auto *ev
 				= reinterpret_cast<const TfwBinLogEvent *>(
@@ -197,8 +200,9 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 				break;
 			}
 			default:
-				throw tus::Except("Unsupported event type: {}",
-					     static_cast<unsigned int>(ev->type));
+				throw tus::Except(
+					"Unsupported event type: {}",
+					static_cast<unsigned int>(ev->type));
 			}
 		}
 	}
@@ -212,15 +216,17 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 	// These exceptions are severe, like memory allocation failure or memory
 	// corruption, so there is probably no reason to try hard to recover.
 	catch (const tus::Exception &e) {
-		spdlog::error("Access log is corrupted, skip current buffer:"
-			      " {}", e.what());
+		plugin_log_error(fmt::format(
+			"Access log is corrupted, skip current buffer: {}",
+			e.what()).c_str());
 		if (!db.handle_block_error())
 			return tus::error(tus::Err::DB_SRV_FATAL);
 		return 0;
 	}
 	catch (const std::exception &e) {
-		spdlog::error("Cought a Clickhouse exception: {}."
-			      " Many events can be lost", e.what());
+		plugin_log_error(fmt::format(
+			"Cought a Clickhouse exception: {}."
+			" Many events can be lost", e.what()).c_str());
 		return tus::error(tus::Err::DB_SRV_FATAL);
 	}
 
@@ -231,13 +237,13 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 
 } // anonymous namespace
 
-MmapProcessor::MmapProcessor(std::shared_ptr<TfwClickhouse> db,
-			     unsigned processor_id,
-			     int device_fd)
+AccessLogProcessor::AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
+				       unsigned processor_id,
+				       int device_fd)
 	: EventProcessor(std::move(db), processor_id)
 	, device_fd_(device_fd)
 {
-	plugin_log_debug(fmt::format("Creating MmapProcessor with device: {}",
+	plugin_log_debug(fmt::format("Creating AccessLogProcessor with device: {}",
 				     device_fd_).c_str());
 
 	unsigned int area_size;
@@ -253,17 +259,17 @@ MmapProcessor::MmapProcessor(std::shared_ptr<TfwClickhouse> db,
 	if (buffer_ == MAP_FAILED)
 		throw tus::Except("Failed to map buffer");
 
-	plugin_log_info("MmapProcessor created successfully");
+	plugin_log_info("AccessLogProcessor created successfully");
 }
 
-MmapProcessor::~MmapProcessor()
+AccessLogProcessor::~AccessLogProcessor()
 {
 	assert(munmap(buffer_, TFW_MMAP_BUFFER_FULL_SIZE(size_)) == 0);
-	plugin_log_debug("MmapProcessor destroyed");
+	plugin_log_debug("AccessLogProcessor destroyed");
 }
 
 tus::Error<bool>
-MmapProcessor::do_consume_event()
+AccessLogProcessor::do_consume_event()
 {
 	uint64_t head, tail;
 
@@ -302,20 +308,157 @@ MmapProcessor::do_consume_event()
 }
 
 void
-MmapProcessor::request_stop() noexcept
+AccessLogProcessor::request_stop() noexcept
 {
 	__atomic_store_n(&buffer_->is_ready, 0, __ATOMIC_RELEASE);
 }
 
 bool
-MmapProcessor::stop_requested() noexcept
+AccessLogProcessor::stop_requested() noexcept
 {
 	return !__atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE);
 }
 
 unsigned int
-MmapProcessor::get_cpu_id() const noexcept
+AccessLogProcessor::get_cpu_id() const noexcept
 {
 	assert(buffer_);
 	return buffer_->cpu;
+}
+
+namespace {
+
+TfwLoggerPluginApi plugin_api = {
+	.version		= TFW_PLUGIN_VERSION,
+	.name			= "mmap",
+	.init			= nullptr,
+	.done			= nullptr,
+	.create_processor	= nullptr,
+	.destroy_processor	= nullptr
+};
+
+constexpr char dev_path[] = "/dev/tempesta_mmap_log";
+constexpr std::chrono::seconds wait_for_dev{1};
+
+std::atomic<bool> *global_stop_flag;
+std::shared_ptr<TfwClickhouse> db;
+int dev_fd = -1;
+
+int
+open_mmap_device()
+{
+	int fd;
+
+	plugin_log_info(fmt::format("Opening device: {}", dev_path).c_str());
+
+	// Try to open the device with retries
+	while ((fd = open(dev_path, O_RDWR)) == -1) {
+		if (global_stop_flag->load(std::memory_order_acquire)) {
+			plugin_log_info("Stop flag set, exiting device open loop");
+			return -1;
+		}
+
+		if (errno != ENOENT) {
+			plugin_log_error(fmt::format("Cannot open device {}",
+						     dev_path).c_str());
+			return -1;
+		}
+
+		plugin_log_debug(fmt::format("Device {} not found, retrying...",
+					     dev_path).c_str());
+		std::this_thread::sleep_for(wait_for_dev);
+	}
+
+	plugin_log_info(fmt::format("Successfully opened device: {}",
+			dev_path).c_str());
+	return fd;
+}
+
+int
+mmap_plugin_init(const ClickHouseConfig *config, void *stop_flag)
+{
+	assert(config);
+
+	plugin_log_info("Mmap plugin initialization");
+
+	global_stop_flag = reinterpret_cast<std::atomic<bool> *>(stop_flag);
+
+	try {
+		db = std::make_shared<TfwClickhouse>(*config);
+		plugin_log_info("Created clickhouse connection");
+	} catch (const std::exception& e) {
+		plugin_log_error(fmt::format(
+			"Failed to create clickhouse connection: {}",
+			e.what()).c_str());
+		return -1;
+	}
+
+	dev_fd = open_mmap_device();
+	if (dev_fd < 0) {
+		plugin_log_error(fmt::format("Failed to open device {}",
+					     dev_path).c_str());
+		return -1;
+	}
+
+	return 0;
+}
+
+void
+mmap_plugin_done(void)
+{
+	if (dev_fd >= 0)
+	{
+		close(dev_fd);
+		dev_fd = -1;
+	}
+
+	db.reset();
+	plugin_log_info("Clickhouse connection closed");
+}
+
+void*
+mmap_create_processor(unsigned processor_id)
+{
+	try {
+		plugin_log_debug(fmt::format("Creating MmapProcessor for CPU: {}",
+					     processor_id).c_str());
+
+		auto processor =
+			std::make_unique<AccessLogProcessor>(db,
+							     processor_id,
+							     dev_fd);
+
+		return processor.release();
+	} catch (const std::exception& e) {
+		plugin_log_error(fmt::format("Failed to create MmapProcessor: {}",
+					     e.what()).c_str());
+	}
+
+	return nullptr;
+}
+
+void
+mmap_destroy_processor(void *processor)
+{
+	if (!processor)
+		return;
+	delete static_cast<EventProcessor*>(processor);
+	plugin_log_debug("Destroyed MmapProcessor instance");
+}
+
+void
+mmap_plugin_populate_api()
+{
+	plugin_api.init = mmap_plugin_init;
+	plugin_api.done = mmap_plugin_done;
+	plugin_api.create_processor = mmap_create_processor;
+	plugin_api.destroy_processor = mmap_destroy_processor;
+}
+
+} // anonymous namespace
+
+extern "C" TfwLoggerPluginApi* get_plugin_api(void)
+{
+	mmap_plugin_populate_api();
+	return &plugin_api;
 }
