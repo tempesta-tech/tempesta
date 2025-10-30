@@ -17,33 +17,28 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#pragma once
 
-#include <string>
-#include <memory>
-
-#include "../fw/mmap_buffer.h"
 #include "../libtus/error.hh"
+#include "../fw/mmap_buffer.h"
 
 #include "event_processor.hh"
-#include "plugin_interface.hh"
 
-class MmapProcessor : public EventProcessor {
+class AccessLogProcessor : public EventProcessor {
 public:
-	explicit MmapProcessor(std::shared_ptr<TfwClickhouse> db,
-			       unsigned processor_id,
-			       int device_fd);
-	~MmapProcessor() noexcept override;
+	explicit AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
+				    unsigned processor_id,
+				    int device_fd);
+	~AccessLogProcessor() noexcept override;
 
 	void request_stop() noexcept override;
 	bool stop_requested() noexcept override;
 	unsigned int get_cpu_id() const noexcept;
 
-protected:
+private:
 	tus::Error<bool> do_consume_event() override;
 
 private:
-	int		device_fd_;
-	TfwMmapBuffer	*buffer_;
-	size_t		size_;
+	int	     device_fd_;
+	TfwMmapBuffer   *buffer_;
+	size_t	  size_;
 };
