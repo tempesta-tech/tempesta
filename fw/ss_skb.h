@@ -72,10 +72,14 @@ struct tfw_skb_cb {
 	on_send_cb_t	on_send;
 	on_tcp_entail_t on_tcp_entail;
 	unsigned int 	stream_id;
+	unsigned char	tls_type;
 	bool		is_head;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
+
+void ss_skb_set_owner(struct sk_buff *skb, void *owner);
+void ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -88,9 +92,8 @@ static inline void
 ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 			  unsigned char tls_type)
 {
-	if (tls_type)
-		skb_set_tfw_tls_type(skb_head, tls_type);
 	skb_head->mark = mark;
+	TFW_SKB_CB(skb_head)->tls_type = tls_type;
 	TFW_SKB_CB(skb_head)->is_head = true;
 }
 
@@ -316,6 +319,8 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
+	if (skb->sk)
+		ss_skb_adjust_sk_mem(skb, delta);
 }
 
 /*
@@ -447,7 +452,7 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len);
+int ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb,
 			   char *pspt, unsigned int len, TfwStr *it, int *fragn);
@@ -455,9 +460,8 @@ int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			    size_t head, size_t tail);
 int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
-int
-ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
-			   size_t head, size_t trail);
+int ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
+			       size_t head, size_t trail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
@@ -472,9 +476,8 @@ int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 		    int *frag_idx, size_t frag_sz);
-int
-ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
-			unsigned char *split_point);
+int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			    unsigned char *split_point);
 int ss_skb_realloc_headroom(struct sk_buff *skb);
 
 #if defined(DEBUG) && (DEBUG >= 4)

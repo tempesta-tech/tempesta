@@ -369,6 +369,8 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 		goto end;
 	}
 
+
+	printk(KERN_ALERT "tfw_sock_srv_connect_drop %px\n", conn);
 	/**
 	 * This is executed when there's unrecoverable error in a connection
 	 * (and not executed when an established connection is closed as usual).
@@ -398,6 +400,8 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_drop,
 	.connection_recv	= tfw_connection_recv,
+	.connection_on_send	= tfw_connection_on_send,
+	.connection_push	= tfw_connection_push,
 };
 
 static int

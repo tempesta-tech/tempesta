@@ -21,6 +21,7 @@
 
 #include "test.h"
 #include "http_msg.h"
+#include "helpers.h"
 
 TEST(http_msg, hdr_in_array)
 {
@@ -90,6 +91,7 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 {
 	TfwMsgIter *it;
 	TfwHttpResp *hmresp;
+	TfwHttpReq *req;
 	struct sk_buff *skb;
 	struct page *page;
 	char *addr;
@@ -98,10 +100,15 @@ __test_resp_alloc(TfwStr *head_data, TfwStr *paged_data,
 	hmresp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
+	req = test_req_alloc(0);
+	BUG_ON(!req);
+	tfw_http_msg_pair(hmresp, req);
+
 	skb = ss_skb_alloc(head_data->len);
 	if (!skb)
 		return NULL;
 
+	ss_skb_set_owner(skb, tfw_http_msg_client((TfwHttpMsg*)hmresp));
 	skb->next = skb->prev = skb;
 	it = &hmresp->iter;
 	hmresp->msg.skb_head = it->skb = it->skb_head = skb;
@@ -172,6 +179,7 @@ TEST(http_msg, cutoff_linear_headers_paged_body)
 		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
@@ -212,6 +220,7 @@ TEST(http_msg, cutoff_linear_headers_and_linear_body)
 		EXPECT_ZERO(memcmp(addr, expected_frags[i].data, fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
@@ -239,7 +248,7 @@ TEST(http_msg, expand_from_pool_for_headers)
 	resp->body_start_skb = it->skb;
 	resp->body.len = (MAX_SKB_FRAGS - 1) * SLEN("paged_body");
 
-	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+	tfw_http_msg_setup_transform_pool(&resp->mit, msg, resp->pool);
 
 	EXPECT_EQ(tfw_http_msg_cutoff_headers(msg, &cleanup), 0);
 
@@ -271,6 +280,7 @@ TEST(http_msg, expand_from_pool_for_headers)
 		EXPECT_ZERO(memcmp(addr, pgd->data, fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
@@ -306,7 +316,7 @@ TEST(http_msg, expand_from_pool_for_trailers)
 	EXPECT_NULL(cleanup.skb_head);
 
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
-	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+	tfw_http_msg_setup_transform_pool(&resp->mit, msg, resp->pool);
 
 	__set_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags);
 
@@ -335,6 +345,7 @@ TEST(http_msg, expand_from_pool_for_trailers)
 		EXPECT_ZERO(memcmp(addr, "trailerstrailers", fragsz));
 	}
 
+	test_req_free((TfwHttpReq *)resp->pair);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 

@@ -86,6 +86,39 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
+enum {
+	TFW_REQ_1 = 0x1,
+	TFW_REQ_2 = 0x2,
+	TFW_REQ_3 = 0x4,
+	TFW_REQ_4 = 0x8,
+	TFW_REQ_5 = 0x10,
+	TFW_REQ_6 = 0x20,
+	TFW_REQ_7 = 0x40,
+	TFW_REQ_8 = 0x80,
+	TFW_REQ_9 = 0x100,
+	TFW_REQ_10 = 0x200,
+	TFW_REQ_11 = 0x400,
+	TFW_REQ_12 = 0x800,
+	TFW_REQ_13 = 0x1000,
+	TFW_REQ_14 = 0x2000,
+	TFW_REQ_15 = 0x4000,
+	TFW_REQ_16 = 0x8000,
+};
+
+enum {
+	TFW_RESP_1 = 0x1,
+	TFW_RESP_2 = 0x2,
+	TFW_RESP_3 = 0x4,
+	TFW_RESP_4 = 0x8,
+	TFW_RESP_5 = 0x10,
+	TFW_RESP_6 = 0x20,
+	TFW_RESP_7 = 0x40,
+	TFW_RESP_8 = 0x80,
+	TFW_RESP_9 = 0x100,
+	TFW_RESP_10 = 0x200,
+	TFW_RESP_11 = 0x400,
+};
+
 /* TODO: When CONNECT will be added, add it to tfw_handle_validation_req()
  * and to tfw_http_parse_check_bodyless_meth() */
 /* New safe methods MUST be added to TFW_HTTP_IS_METH_SAFE macro */
@@ -431,6 +464,7 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
+	unsigned long		xxx;
 };
 
 #define TFW_IDX_BITS		24
@@ -513,6 +547,7 @@ struct tfw_http_resp_t {
 	struct sk_buff		*body_start_skb;
 	TfwStr			cut;
 	int			trailers_len;
+	unsigned long		xxx;
 };
 
 #define TFW_HDR_MAP_INIT_CNT		32
@@ -587,6 +622,25 @@ void tfw_http_exit(void);
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
 			  T_WARN("%s, status %d: %s\n",			\
 				 msg, status, addr_str))
+
+static inline bool
+tfw_http_msg_is_req(TfwHttpMsg *msg)
+{
+	/*
+	 * msg->conn can be equal to zero only for response
+	 * which is served from cache or error response.
+	 */
+	return msg->conn && TFW_CONN_TYPE(msg->conn) & Conn_Clnt;
+}
+
+static inline TfwClient *
+tfw_http_msg_client(TfwHttpMsg *msg)
+{
+	TfwCliConn *conn = (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
+		msg->conn : msg->pair->conn);
+
+	return (TfwClient *)conn->peer;
+}
 
 static inline int
 tfw_http_resp_code_range(const int n)
@@ -777,7 +831,7 @@ int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
 int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 			TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
-		      TfwMsgIter *it);
+		      TfwHttpMsg *hm);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
@@ -795,6 +849,6 @@ int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
-int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
+int tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head);
 
 #endif /* __TFW_HTTP_H__ */

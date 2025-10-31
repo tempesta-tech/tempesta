@@ -161,6 +161,7 @@ tfw_client_put(TfwClient *cli)
 	}
 
 	BUG_ON(!list_empty(&cli->conn_list));
+	BUG_ON(atomic_read(&cli->mem));
 
 	ent->expires = tfw_current_timestamp() + client_cfg.expires_time;
 	spin_unlock(&ent->lock);
@@ -249,6 +250,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TFW_INC_STAT_BH(clnt.online);
 
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
+	atomic_set(&cli->mem, 0);
+	atomic_set(&cli->refcnt, 0);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
 			sizeof(ent->user_agent));
@@ -267,6 +270,23 @@ tfw_client_precreate(void *data)
 	tfw_client_update_lru(ctx->key);
 
 	return 0;
+}
+
+void
+tfw_client_get_light(TfwClient *cli)
+{
+	int rc;
+
+	rc = atomic_inc_return(&cli->refcnt);
+	if (rc == 1) {
+		TfwClientEntry *ent = (TfwClientEntry *)cli;
+		TdbFRec *rec = ((TdbFRec *)cli) - 1;
+
+		tdb_rec_keep(rec);
+		spin_lock(&ent->lock);
+		++ent->users;
+		spin_unlock(&ent->lock);
+	}
 }
 
 /**
