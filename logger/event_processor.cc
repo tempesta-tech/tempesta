@@ -26,8 +26,10 @@
 #include "event_processor.hh"
 
 EventProcessor::EventProcessor(std::shared_ptr<TfwClickhouse> db,
-			       unsigned processor_id)
+			       unsigned processor_id,
+			       const char *name)
 	: processor_id(processor_id)
+	, name(name)
 	, db_(std::move(db))
 {
 }

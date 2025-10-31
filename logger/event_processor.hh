@@ -28,7 +28,8 @@
 class EventProcessor {
 public:
 	EventProcessor(std::shared_ptr<TfwClickhouse> db,
-		       unsigned processor_id);
+		       unsigned processor_id,
+		       const char *name);
 	virtual ~EventProcessor() noexcept = default;
 
 	EventProcessor(const EventProcessor&) = delete;
@@ -42,7 +43,8 @@ public:
 	virtual bool stop_requested() noexcept = 0;
 
 public:
-	const unsigned processor_id;
+	const unsigned	processor_id;
+	const char	*name;
 
 protected:
 	virtual tus::Error<bool> do_consume_event() = 0;

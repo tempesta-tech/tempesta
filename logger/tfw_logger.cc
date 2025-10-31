@@ -141,7 +141,7 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 			auto result = processor->consume_event();
 			if (!result) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
-					      processor->processor_id,
+					      processor->name,
 					      result.error().message());
 				continue;
 			}
@@ -503,9 +503,12 @@ run_main_loop()
 {
 	try {
 		if (config.clickhouse_mmap.has_value()) {
+			if (!config.access_log_plugin_path.has_value()) {
+				spdlog::error("Empty path for access log plugin");
+				return;
+			}
 			std::string plugin_path =
-				config.access_log_plugin_path.value_or(
-					"./libmmap_plugin.so");
+				config.access_log_plugin_path.value();
 			mmap_plugin.emplace(plugin_path,
 					    *config.clickhouse_mmap,
 					    &stop_flag);
@@ -513,9 +516,12 @@ run_main_loop()
 		}
 
 		if (config.clickhouse_xfw.has_value()) {
+			if (!config.xfw_events_plugin_path.has_value()) {
+				spdlog::error("Empty path for xfw events plugin");
+				return;
+			}
 			std::string plugin_path =
-				config.xfw_events_plugin_path.value_or(
-					"./libxfw_plugin.so");
+				config.xfw_events_plugin_path.value();
 			xfw_plugin.emplace(plugin_path,
 					   *config.clickhouse_xfw,
 					   &stop_flag);
