@@ -240,7 +240,7 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 AccessLogProcessor::AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
 				       unsigned processor_id,
 				       int device_fd)
-	: EventProcessor(std::move(db), processor_id)
+	: EventProcessor(std::move(db), processor_id, "access_log")
 	, device_fd_(device_fd)
 {
 	plugin_log_debug(fmt::format("Creating AccessLogProcessor with device: {}",

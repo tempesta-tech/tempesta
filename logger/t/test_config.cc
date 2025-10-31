@@ -80,15 +80,13 @@ TEST_F(ConfigTest, LoadValidConfig)
 		"log_path": "/var/log/test.log",
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.host.com",
-				"port": 9001,
-				"db_name": "test_db",
-				"table_name": "test_logs",
-				"user": "testuser",
-				"password": "testpass",
-				"max_events": 500
-			}
+			"host": "test.host.com",
+			"port": 9001,
+			"db_name": "test_db",
+			"table_name": "test_logs",
+			"user": "testuser",
+			"password": "testpass",
+			"max_events": 500
 		}
 	})");
 
@@ -114,9 +112,7 @@ TEST_F(ConfigTest, LoadConfigWithoutOptionalFields)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "minimal.host.com"
-			}
+			"host": "minimal.host.com"
 		}
 	})");
 
@@ -153,9 +149,7 @@ TEST_F(ConfigTest, ValidationEmptyHost)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": ""
-			}
+			"host": ""
 		}
 	})");
 
@@ -170,10 +164,8 @@ TEST_F(ConfigTest, ValidationInvalidPort)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com",
-				"port": 0
-			}
+			"host": "test.com",
+			"port": 0
 		}
 	})");
 
@@ -182,16 +174,31 @@ TEST_F(ConfigTest, ValidationInvalidPort)
 	EXPECT_THROW(config->validate(), std::runtime_error);
 }
 
+TEST_F(ConfigTest, ValidationNoPluginPath)
+{
+	auto config_path = temp_dir / "no_plugin_path.json";
+	write_config(config_path, R"({
+		"access_log": {
+			"host": "test.com"
+		}
+	})");
+
+	auto config = TfwLoggerConfig::load_from_file(config_path);
+	ASSERT_TRUE(config.has_value());
+	EXPECT_NO_THROW(config->validate());
+
+	// Default plugin path for access_log_plugin
+	EXPECT_FALSE(config->access_log_plugin_path.has_value());
+}
+
 TEST_F(ConfigTest, ValidationEmptyTableName)
 {
 	auto config_path = temp_dir / "empty_table.json";
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com",
-				"table_name": ""
-			}
+			"host": "test.com",
+			"table_name": ""
 		}
 	})");
 
@@ -206,10 +213,8 @@ TEST_F(ConfigTest, ValidationEmptyDbName)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com",
-				"db_name": ""
-			}
+			"host": "test.com",
+			"db_name": ""
 		}
 	})");
 
@@ -224,10 +229,8 @@ TEST_F(ConfigTest, ValidationZeroMaxEvents)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com",
-				"max_events": 0
-			}
+			"host": "test.com",
+			"max_events": 0
 		}
 	})");
 
@@ -281,10 +284,8 @@ TEST_F(ConfigTest, TableNameValidation_ValidNames)
 		write_config(config_path, R"({
 			"access_log": {
 				"plugin_path": "./mmap_plugin.so",
-				"clickhouse": {
-					"host": "test.com",
-					"table_name": ")" + table_name + R"("
-				}
+				"host": "test.com",
+				"table_name": ")" + table_name + R"("
 			}
 		})");
 		auto config = TfwLoggerConfig::load_from_file(config_path);
@@ -336,10 +337,8 @@ TEST_F(ConfigTest, TableNameValidation_InvalidCharacters)
 		write_config(config_path, R"({
 			"access_log": {
 				"plugin_path": "./mmap_plugin.so",
-				"clickhouse": {
-					"host": "test.com",
-					"table_name": ")" + table_name + R"("
-				}
+				"host": "test.com",
+				"table_name": ")" + table_name + R"("
 			}
 		})");
 
@@ -359,10 +358,8 @@ TEST_F(ConfigTest, TableNameValidation_TooLong)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com",
-				"table_name": ")" + long_name + R"("
-			}
+			"host": "test.com",
+			"table_name": ")" + long_name + R"("
 		}
 	})");
 
@@ -378,10 +375,8 @@ TEST_F(ConfigTest, TableNameValidation_EmptyName)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com",
-				"table_name": ""
-			}
+			"host": "test.com",
+			"table_name": ""
 		}
 	})");
 
@@ -398,9 +393,7 @@ TEST_F(ConfigTest, TableNameValidation_DefaultNameValidation)
 	write_config(config_path, R"({
 		"access_log": {
 			"plugin_path": "./mmap_plugin.so",
-			"clickhouse": {
-				"host": "test.com"
-			}
+			"host": "test.com"
 		}
 	})");
 

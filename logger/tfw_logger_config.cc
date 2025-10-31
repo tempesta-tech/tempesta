@@ -36,19 +36,17 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	if (const auto node = tree.get_child_optional("access_log")) {
 		if (const auto path_val = node->get_optional<std::string>("plugin_path"))
 			access_log_plugin_path = *path_val;
-		if (const auto ch_node = node->get_child_optional("clickhouse")) {
-			clickhouse_mmap.emplace();
-			clickhouse_mmap->parse_from_ptree(*ch_node);
-		}
+
+		clickhouse_mmap.emplace();
+		clickhouse_mmap->parse_from_ptree(*node);
 	}
 
 	if (const auto node = tree.get_child_optional("xfw_events")) {
 		if (const auto path_val = node->get_optional<std::string>("plugin_path"))
 			xfw_events_plugin_path = *path_val;
-		if (const auto ch_node = node->get_child_optional("clickhouse")) {
-			clickhouse_xfw.emplace();
-			clickhouse_xfw->parse_from_ptree(*ch_node);
-		}
+
+		clickhouse_xfw.emplace();
+		clickhouse_xfw->parse_from_ptree(*node);
 	}
 }
 
