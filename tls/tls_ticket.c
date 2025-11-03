@@ -57,13 +57,13 @@ static TlsTicketsCfg t_cfg;
  * configuration and user secrets. It's ok, that attacker may know it,
  * it's just a value HMAC'ed with a really secret key.
  */
-const char *ticket_secret_key_iv =
+const char ticket_secret_key_iv[] =
 	"u5xBNXmcQwxs9yGfv3IJa0h3QIZujnuf0ISmycYSB4vhfitCMM1phNP9ft3xjEbR";
 /* for ticket symmetric key: */
-const char *ticket_key_sym_iv =
+const char ticket_key_sym_iv[] =
 	"r26bMJcfLdlYyn9wM3xsHrzraeLKQHGCgYkWivTu6UVxw7VxcJQAr63k8Sa6lFUa";
 /* for ticket key name: */
-const char *ticket_key_name_iv =
+const char ticket_key_name_iv[] =
 	"qolUvqou29yxSwvz2jWTNvk3znIjy25E";
 
 #define SLEN(s)	(sizeof(s) - 1)

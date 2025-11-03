@@ -1105,7 +1105,7 @@ x509_crt_verifycrl(TlsX509Crt *crt, TlsX509Crt *ca,
 		   const ttls_x509_crt_profile *profile)
 {
 	int flags = 0;
-	unsigned char hash[TTLS_MD_MAX_SIZE];
+	unsigned char hash[HASH_MAX_DIGESTSIZE];
 	const TlsMdInfo *md_info;
 
 	if (ca == NULL)
@@ -1382,7 +1382,7 @@ x509_crt_verify_top(TlsX509Crt *child, TlsX509Crt *trust_ca,
 {
 	uint32_t ca_flags = 0;
 	int check_path_cnt;
-	unsigned char hash[TTLS_MD_MAX_SIZE];
+	unsigned char hash[HASH_MAX_DIGESTSIZE];
 	const TlsMdInfo *md_info;
 	TlsX509Crt *future_past_ca = NULL;
 
@@ -1492,7 +1492,7 @@ x509_crt_verify_child(TlsX509Crt *child, TlsX509Crt *parent,
 {
 	int ret;
 	uint32_t parent_flags = 0;
-	unsigned char hash[TTLS_MD_MAX_SIZE];
+	unsigned char hash[HASH_MAX_DIGESTSIZE];
 	TlsX509Crt *grandparent;
 	const TlsMdInfo *md_info;
 
