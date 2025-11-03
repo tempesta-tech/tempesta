@@ -361,14 +361,14 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 	size_t i, k, md_len;
 	const TlsMdInfo *md_info;
 	TlsMdCtx md_ctx;
-	unsigned char __buf[TTLS_MD_MAX_SIZE * 3] ____cacheline_aligned;
-	unsigned char *tmp = __buf, *h_i = &__buf[TTLS_MD_MAX_SIZE * 2];
+	unsigned char __buf[HASH_MAX_DIGESTSIZE * 3] ____cacheline_aligned;
+	unsigned char *tmp = __buf, *h_i = &__buf[HASH_MAX_DIGESTSIZE * 2];
 
 	ttls_md_init(&md_ctx);
 
 	md_info = ttls_md_info_from_type(md_type);
 	md_len = ttls_md_get_size(md_info);
-	BUG_ON(TTLS_MD_MAX_SIZE * 2 < md_len + llen + rlen);
+	BUG_ON(HASH_MAX_DIGESTSIZE * 2 < md_len + llen + rlen);
 
 	memcpy_fast(tmp + md_len, label, llen);
 	memcpy_fast(tmp + md_len + llen, random, rlen);
@@ -416,7 +416,7 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 
 exit:
 	ttls_md_free(&md_ctx);
-	bzero_fast(__buf, TTLS_MD_MAX_SIZE * 3);
+	bzero_fast(__buf, HASH_MAX_DIGESTSIZE * 3);
 
 	return r;
 }
