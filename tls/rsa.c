@@ -930,14 +930,14 @@ ttls_rsa_public(TlsRSACtx *ctx, const unsigned char *input,
 static int mgf_mask(unsigned char *dst, size_t dlen, unsigned char *src,
 		  size_t slen, TlsMdCtx *md_ctx)
 {
-	unsigned char mask[TTLS_MD_MAX_SIZE];
+	unsigned char mask[HASH_MAX_DIGESTSIZE];
 	unsigned char counter[4];
 	unsigned char *p;
 	unsigned int hlen;
 	size_t i, use_len;
 	int ret = 0;
 
-	memset(mask, 0, TTLS_MD_MAX_SIZE);
+	memset(mask, 0, HASH_MAX_DIGESTSIZE);
 	memset(counter, 0, 4);
 
 	hlen = ttls_md_get_size(md_ctx->md_info);
@@ -989,7 +989,7 @@ ttls_rsa_rsassa_pss_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 {
 	size_t olen;
 	unsigned char *p = sig;
-	unsigned char salt[TTLS_MD_MAX_SIZE];
+	unsigned char salt[HASH_MAX_DIGESTSIZE];
 	unsigned int slen, hlen, offset = 0;
 	int ret;
 	size_t msb;
@@ -1260,7 +1260,7 @@ ttls_rsa_rsassa_pss_verify_ext(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	size_t siglen;
 	unsigned char *p;
 	unsigned char *hash_start;
-	unsigned char result[TTLS_MD_MAX_SIZE];
+	unsigned char result[HASH_MAX_DIGESTSIZE];
 	unsigned char zeros[8];
 	unsigned int hlen;
 	size_t observed_salt_len, msb;
