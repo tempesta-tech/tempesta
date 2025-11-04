@@ -2187,7 +2187,7 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq,
 {
 	int ret = 0;
 
-	T_DBG2("%s: srv_conn=%pK req=%pK\n", __func__, srv_conn, req);
+	printk(KERN_ALERT "%s: srv_conn=%px req=%px\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
@@ -2256,7 +2256,7 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	if (!srv_conn->last_msg_sent)
 		return 0;
 
-	T_DBG2("%s: conn=[%p] first=[%s]\n",
+	printk(KERN_ALERT "%s: conn=[%px] first=[%s]\n",
 	       __func__, srv_conn, first ? "true" : "false");
 	BUG_ON(!srv_conn->last_msg_sent);
 	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->last_msg_sent)->fwd_list));
@@ -2522,7 +2522,7 @@ tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 {
 	LIST_HEAD(reschq);
 
-	T_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
+	printk(KERN_ALERT "%s: srv_conn=[%p]x, req=[%px] %d\n", __func__, srv_conn, req, tfw_http_conn_on_hold(srv_conn));
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
@@ -2665,7 +2665,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	LIST_HEAD(reschq);
 	LIST_HEAD(eq);
 
-	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	printk(KERN_ALERT "%s: conn=[%px]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	srv_conn->curr_msg_sent = NULL;
@@ -2694,6 +2694,8 @@ tfw_http_conn_repair(TfwConn *conn)
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 		goto out;
 	}
+
+	printk(KERN_ALERT "%s: conn=[%px] AFTER %d %px %px\n", __func__, srv_conn, err, srv_conn->last_msg_sent, srv_conn->curr_msg_sent);
 	/*
 	 * If re-sending procedure successfully passed,
 	 * but requests had not been re-sent, and removed
@@ -2879,7 +2881,7 @@ clean:
 static int
 tfw_http_conn_init(TfwConn *conn)
 {
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
+	printk(KERN_ALERT "%s: conn=[%px]\n", __func__, conn);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
@@ -5818,7 +5820,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
-	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
+	printk(KERN_ALERT "%s: req = %px, resp = %px\n", __func__, req, req->resp);
 
 	if (req->resp) {
 		tfw_http_req_cache_service(req->resp);

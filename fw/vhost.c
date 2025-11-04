@@ -328,19 +328,21 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
 
 	if (unlikely(!main_sg))
 		return NULL;
-	T_DBG2("vhost: use server group: '%s'\n", main_sg->name);
+	printk(KERN_ALERT "vhost: use server group: '%s'\n", main_sg->name);
 
-	if (likely(main_sg->sched))
+	if (likely(main_sg->sched)) {
+		printk(KERN_ALERT "TUT!!!!");
 		srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
+	}
 
 	if (unlikely(!srv_conn && backup_sg && backup_sg->sched)) {
-		T_DBG("vhost: the main group is offline, use backup: '%s'\n",
+		printk(KERN_ALERT "vhost: the main group is offline, use backup: '%s'\n",
 		      backup_sg->name);
 		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
 	}
 
 	if (unlikely(!srv_conn))
-		T_DBG2("vhost: Unable to select server from group '%s'\n",
+		printk(KERN_ALERT "vhost: Unable to select server from group '%s'\n",
 		       backup_sg ? backup_sg->name : main_sg->name);
 
 	return srv_conn;

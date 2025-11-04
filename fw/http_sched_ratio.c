@@ -951,6 +951,7 @@ rerun:
 	attempts = ratio->srv_n;
 	while (attempts--) {
 		srvdesc = tfw_sched_ratio_next_srv(ratio, rtodata);
+		printk(KERN_ALERT "tfw_sched_ratio_sched_sg_conn %d", tfw_srv_suspended(srvdesc->srv));
 		if (tfw_srv_suspended(srvdesc->srv))
 			continue;
 
