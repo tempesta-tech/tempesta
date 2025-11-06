@@ -1388,7 +1388,7 @@ tfw_http_conn_nip_adjust(TfwSrvConn *srv_conn)
 static inline bool
 tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
 {
-	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
+	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->last_msg_sent;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 	return ((req_sent && tfw_http_req_is_nip(req_sent))
@@ -1404,7 +1404,7 @@ static inline bool
 tfw_http_conn_drained(TfwSrvConn *srv_conn)
 {
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
-	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
+	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->last_msg_sent;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
@@ -1429,12 +1429,12 @@ tfw_http_conn_need_fwd(TfwSrvConn *srv_conn)
 }
 
 /*
- * Get the request that is previous to @srv_conn->msg_sent.
+ * Get the request that is previous to @srv_conn->last_msg_sent.
  */
 static inline TfwMsg *
 __tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn)
 {
-	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
+	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->last_msg_sent;
 
 	/*
 	 * There is list_is_last() function in the Linux kernel,
@@ -1454,7 +1454,7 @@ tfw_http_fwdq_reset(TfwSrvConn *srv_conn, struct list_head *dst)
 {
 	list_splice_tail_init(&srv_conn->fwd_queue, dst);
 	srv_conn->qsize = 0;
-	srv_conn->msg_sent = NULL;
+	srv_conn->curr_msg_sent = srv_conn->last_msg_sent = NULL;
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
@@ -1473,7 +1473,7 @@ tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 
 /**
  * Remove @req from the server connection's forwarding queue.
- * Caller must care about @srv_conn->msg_sent on it's own to keep the
+ * Caller must care about @srv_conn->last_msg_sent on it's own to keep the
  * queue state consistent.
  */
 static inline void
@@ -2083,7 +2083,7 @@ tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 		return -EINVAL;
 	if ((r = tfw_http_req_fwd_send(srv_conn, srv, req, eq)))
 		return r;
-	srv_conn->msg_sent = (TfwMsg *)req;
+	srv_conn->curr_msg_sent = srv_conn->last_msg_sent = (TfwMsg *)req;
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	return 0;
 }
@@ -2104,10 +2104,11 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 
 	T_DBG2("%s: conn=%pK\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
+	BUG_ON(srv_conn->curr_msg_sent != srv_conn->last_msg_sent);
 	BUG_ON(tfw_http_conn_drained(srv_conn));
 
-	req = srv_conn->msg_sent
-	    ? list_next_entry((TfwHttpReq *)srv_conn->msg_sent, fwd_list)
+	req = srv_conn->last_msg_sent
+	    ? list_next_entry((TfwHttpReq *)srv_conn->last_msg_sent, fwd_list)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
@@ -2118,7 +2119,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 		 * unanswered request(s) in connection, the forwarding procedure
 		 * is considered failed and the error is returned to the caller.
 		 */
-		if (ret == -EBUSY && srv_conn->msg_sent == NULL)
+		if (ret == -EBUSY && srv_conn->last_msg_sent == NULL)
 			return ret;
 		/*
 		 * If connection is broken or work queue is busy and connection
@@ -2219,21 +2220,22 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq,
  *
  * As forwarding is paused after a non-idempotent request is sent,
  * there can be only one such request among forwarded requests, and
- * that's @srv_conn->msg_sent.
+ * that's @srv_conn->last_msg_sent.
  *
- * Note: @srv_conn->msg_sent may change in result.
+ * Note: @srv_conn->last_msg_sent may change in result.
  */
 static inline void
 tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
+	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->last_msg_sent;
 
 	if (req_sent && tfw_http_conn_on_hold(srv_conn)
 	    && !(srv->sg->flags & TFW_SRV_RETRY_NIP))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
-		srv_conn->msg_sent = __tfw_http_conn_msg_sent_prev(srv_conn);
+		srv_conn->last_msg_sent =
+			__tfw_http_conn_msg_sent_prev(srv_conn);
 		tfw_http_nip_req_resched_err(srv_conn, req_sent, eq);
 	}
 }
@@ -2242,7 +2244,7 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
  * Re-forward requests in a server connection. Requests that exceed
  * the set limits are evicted.
  *
- * Note: @srv_conn->msg_sent may change in result.
+ * Note: @srv_conn->last_msg_sent may change in result.
  */
 static int
 tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
@@ -2251,16 +2253,20 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
 
-	if (!srv_conn->msg_sent)
+	if (!srv_conn->last_msg_sent)
 		return 0;
 
 	T_DBG2("%s: conn=[%p] first=[%s]\n",
 	       __func__, srv_conn, first ? "true" : "false");
-	BUG_ON(!srv_conn->msg_sent);
-	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
+	BUG_ON(!srv_conn->last_msg_sent);
+	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->last_msg_sent)->fwd_list));
 
 	req = list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
-	end = ((TfwHttpReq *)srv_conn->msg_sent)->fwd_list.next;
+	end = ((TfwHttpReq *)srv_conn->last_msg_sent)->fwd_list.next;
+
+	BUG_ON((first && srv_conn->curr_msg_sent)
+	       || (!first && (srv_conn->curr_msg_sent &&
+			      srv_conn->curr_msg_sent != (TfwMsg *)req)));
 
 	/* Similar to list_for_each_entry_safe_from() */
 	for (tmp = list_next_entry(req, fwd_list);
@@ -2268,6 +2274,7 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	     req = tmp, tmp = list_next_entry(tmp, fwd_list))
 	{
 		int err;
+
 		if (tfw_http_req_evict(srv_conn, srv, req, eq))
 			continue;
 		err = tfw_http_req_fwd_send(srv_conn, srv, req, eq);
@@ -2280,12 +2287,12 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 			return err;
 		/*
 		 * If work queue is busy during re-sending, shift
-		 * @msg_sent back to last sent request; remaining
+		 * @last_msg_sent back to last sent request; remaining
 		 * requests will be processed in the following
 		 * @tfw_http_conn_fwd_unsent call.
 		 */
 		if (err == -EBUSY) {
-			srv_conn->msg_sent = (TfwMsg *)req_resent;
+			srv_conn->last_msg_sent = (TfwMsg *)req_resent;
 			return err;
 		}
 		/*
@@ -2295,19 +2302,21 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 		 */
 		if (err)
 			continue;
-		req_resent = req;
+		srv_conn->curr_msg_sent = (TfwMsg *)(req_resent = req);
 		if (unlikely(first))
 			break;
 	}
 	/*
 	 * If only one first request is needed to be re-send, change
-	 * @srv_conn->msg_sent only if it must be set to NULL. That
+	 * @srv_conn->last_msg_sent only if it must be set to NULL. That
 	 * means that all requests for re-sending - had not been
 	 * re-sent, but instead have been evicted or removed due to
 	 * some error, and we have no requests to re-send any more.
 	 */
-	if (!first || !req_resent)
-		srv_conn->msg_sent = (TfwMsg *)req_resent;
+	if (!first || !req_resent) {
+		srv_conn->curr_msg_sent =
+			srv_conn->last_msg_sent = (TfwMsg *)req_resent;
+	}
 
 	return 0;
 }
@@ -2332,7 +2341,8 @@ tfw_srv_conn_reenable_if_done(TfwSrvConn *srv_conn)
 	if (!list_empty(&srv_conn->fwd_queue))
 		return false;
 	BUG_ON(srv_conn->qsize);
-	BUG_ON(srv_conn->msg_sent);
+	BUG_ON(srv_conn->last_msg_sent);
+	BUG_ON(srv_conn->curr_msg_sent);
 	__tfw_srv_conn_clear_restricted(srv_conn);
 	return true;
 }
@@ -2358,7 +2368,7 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 	} else {
 		/*
 		 * Resend all previously forwarded requests. After that
-		 * @srv_conn->msg_sent will be either NULL or the last
+		 * @srv_conn->last_msg_sent will be either NULL or the last
 		 * request that was re-sent successfully. If re-sending
 		 * of non-idempotent requests is allowed, then that last
 		 * request may be non-idempotent. Continue with sending
@@ -2382,7 +2392,7 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
  * This is run under a lock, so spend minimum time under the lock and
  * do it fast while maintaining consistency. First destroy @nip_queue,
  * most often it has just one entry. Then snip @fwd_queue, move it to
- * @out_queue, and zero @qsize and @msg_sent.
+ * @out_queue, and zero @qsize and @last_msg_sent.
  */
 static void
 tfw_http_conn_snip_fwd_queue(TfwSrvConn *srv_conn, struct list_head *out_queue)
@@ -2394,7 +2404,7 @@ tfw_http_conn_snip_fwd_queue(TfwSrvConn *srv_conn, struct list_head *out_queue)
 	tfw_http_conn_nip_reset(srv_conn);
 	list_splice_tail_init(&srv_conn->fwd_queue, out_queue);
 	srv_conn->qsize = 0;
-	srv_conn->msg_sent = NULL;
+	srv_conn->curr_msg_sent = srv_conn->last_msg_sent = NULL;
 }
 
 /*
@@ -2557,17 +2567,19 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		return;
 	}
 
+	BUG_ON(srv_conn->curr_msg_sent);
+
 	/*
 	 * Evict timed-out requests, NOT including the request that was sent
 	 * last. Do it for requests that were sent before, no NIP requests are
 	 * here. Don't touch unsent requests so far.
 	 */
-	if (srv_conn->msg_sent) {
+	if (srv_conn->last_msg_sent) {
 		TfwMsg *msg_sent_prev;
 
 		/* Similar to list_for_each_entry_safe_from() */
 		req = list_first_entry(fwdq, TfwHttpReq, fwd_list);
-		end = &((TfwHttpReq *)srv_conn->msg_sent)->fwd_list;
+		end = &((TfwHttpReq *)srv_conn->last_msg_sent)->fwd_list;
 		for (tmp = list_next_entry(req, fwd_list);
 		     &req->fwd_list != end;
 		     req = tmp, tmp = list_next_entry(tmp, fwd_list))
@@ -2576,20 +2588,20 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		}
 		/*
 		 * Process the request that was forwarded last, and then
-		 * reassign @srv_conn->msg_sent in case it is evicted.
-		 * @req is now the same as @srv_conn->msg_sent.
+		 * reassign @srv_conn->last_msg_sent in case it is evicted.
+		 * @req is now the same as @srv_conn->last_msg_sent.
 		 */
 		msg_sent_prev = __tfw_http_conn_msg_sent_prev(srv_conn);
 		if (tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq))
-			srv_conn->msg_sent = msg_sent_prev;
+			srv_conn->last_msg_sent = msg_sent_prev;
 	}
 
 	/*
 	 * Process the rest of the forwarding queue. These requests were never
 	 * forwarded yet through the connection. Evict some of them by timeout.
 	 */
-	req = srv_conn->msg_sent
-	    ? list_next_entry((TfwHttpReq *)srv_conn->msg_sent, fwd_list)
+	req = srv_conn->last_msg_sent
+	    ? list_next_entry((TfwHttpReq *)srv_conn->last_msg_sent, fwd_list)
 	    : list_first_entry(fwdq, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwdq, fwd_list)
@@ -2656,6 +2668,8 @@ tfw_http_conn_repair(TfwConn *conn)
 	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
+	srv_conn->curr_msg_sent = NULL;
+
 	/* See if requests need to be rescheduled. */
 	if (unlikely(!tfw_srv_conn_live(srv_conn))) {
 		if (tfw_srv_conn_need_resched(srv_conn))
@@ -2685,7 +2699,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	 * but requests had not been re-sent, and removed
 	 * instead, then send the remaining unsent requests.
 	 */
-	if (!err && !srv_conn->msg_sent) {
+	if (!err && !srv_conn->last_msg_sent) {
 		if (!list_empty(&srv_conn->fwd_queue)) {
 			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 			err = tfw_http_conn_fwd_unsent(srv_conn, &eq);
@@ -2703,13 +2717,13 @@ tfw_http_conn_repair(TfwConn *conn)
 
 	/*
 	 * In case of requests re-sending error (-EBUSY) or
-	 * requests forwarding error (-EBUSY and @msg_sent
+	 * requests forwarding error (-EBUSY and @last_msg_sent
 	 * is NULL) the reschedule procedure is started;
-	 * @msg_sent is definitely NULL here, so there are
+	 * @last_msg_sent is definitely NULL here, so there are
 	 * no unanswered requests and we can cut all remaining
 	 * requests from @fwd_queue for rescheduling.
 	 */
-	WARN_ON(srv_conn->msg_sent);
+	WARN_ON(srv_conn->curr_msg_sent || srv_conn->last_msg_sent);
 	__tfw_srv_conn_clear_restricted(srv_conn);
 	tfw_srv_set_busy_delay(srv_conn);
 	tfw_http_fwdq_reset(srv_conn, &reschq);
@@ -2766,6 +2780,10 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)hmresp->conn;
 
 	spin_lock(&srv_conn->fwd_qlock);
+
+	if (unlikely(!srv_conn->curr_msg_sent))
+		goto end;
+
 	list_for_each_entry(req, &srv_conn->fwd_queue, fwd_list) {
 		if (!req->pair) {
 			tfw_http_msg_pair((TfwHttpResp *)hmresp, req);
@@ -2773,9 +2791,11 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 
 			return 0;
 		}
-		if (req == (TfwHttpReq *)srv_conn->msg_sent)
+		if (req == (TfwHttpReq *)srv_conn->curr_msg_sent)
 			break;
 	}
+
+end:
 	spin_unlock(&srv_conn->fwd_qlock);
 
 	T_WARN("Paired request missing, HTTP Response Splitting attack?\n");
@@ -2863,7 +2883,9 @@ tfw_http_conn_init(TfwConn *conn)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+
 		if (!list_empty(&srv_conn->fwd_queue)) {
+			srv_conn->curr_msg_sent = NULL;
 			set_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 			TFW_INC_STAT_BH(serv.conn_restricted);
 		}
@@ -6834,9 +6856,9 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 /**
  * Just received response is parsed and processed. The corresponding
  * request is the first one in the connection forwarding
- * queue, and srv_conn->msg_sent points to it or to one of the next requests.
- * @fwd_unsent is set to true if progress inside connection is possible.
- * The forwarding queue state is fully consistent after the call.
+ * queue, and srv_conn->last_msg_sent points to it or to one of the next
+ * requests. @fwd_unsent is set to true if progress inside connection is
+ * possible. The forwarding queue state is fully consistent after the call.
  *
  * If processing of the response is successful then it's possible to forward
  * all unsent requests.
@@ -6863,8 +6885,10 @@ tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 	LIST_HEAD(eq);
 
 	spin_lock(&srv_conn->fwd_qlock);
-	if ((TfwMsg *)req == srv_conn->msg_sent)
-		srv_conn->msg_sent = NULL;
+	if ((TfwMsg *)req == srv_conn->last_msg_sent)
+		srv_conn->last_msg_sent = NULL;
+	if ((TfwMsg *)req == srv_conn->curr_msg_sent)
+		srv_conn->curr_msg_sent = NULL;
 	tfw_http_req_delist(srv_conn, req);
 	tfw_http_conn_nip_adjust(srv_conn);
 
@@ -6890,13 +6914,13 @@ tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 	}
 	/*
 	 * If error occurred during repairing or forwarding procedures
-	 * (-EBUSY and @msg_sent is NULL) the rescheduling is started;
-	 * Since @msg_sent is definitely NULL here, there must not be
+	 * (-EBUSY and @last_msg_sent is NULL) the rescheduling is started;
+	 * Since @last_msg_sent is definitely NULL here, there must not be
 	 * pending sibling responses attached to requests, so it is
 	 * safe to cut all remaining requests from @fwd_queue for
 	 * rescheduling.
 	 */
-	WARN_ON(srv_conn->msg_sent);
+	WARN_ON(srv_conn->curr_msg_sent || srv_conn->last_msg_sent);
 	__tfw_srv_conn_clear_restricted(srv_conn);
 	tfw_srv_set_busy_delay(srv_conn);
 	tfw_http_fwdq_reset(srv_conn, &reschq);
