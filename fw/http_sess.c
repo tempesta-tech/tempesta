@@ -1062,14 +1062,11 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 	if (tfw_srv_suspended(srv))
 		return NULL;
 
-	if (!tfw_srv_conn_restricted(srv_conn)
-	    && !tfw_srv_conn_unscheduled(srv_conn)
-	    && !tfw_srv_conn_busy(srv_conn)
-	    && !tfw_srv_conn_queue_full(srv_conn)
-	    && !tfw_srv_conn_hasnip(srv_conn)
-	    && tfw_srv_conn_get_if_live(srv_conn))
-	{
-		return srv_conn;
+	if (tfw_srv_conn_get_if_live(srv_conn)) {
+		if (tfw_srv_conn_suitable_common(srv_conn)
+		    && !tfw_srv_conn_hasnip(srv_conn))
+			return srv_conn;
+		tfw_connection_put((TfwConn *)srv_conn);
 	}
 
 	/*
