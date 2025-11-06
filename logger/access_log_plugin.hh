@@ -18,31 +18,27 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#pragma once
+#include "../libtus/error.hh"
+#include "../fw/mmap_buffer.h"
 
-#include <filesystem>
-#include <optional>
+#include "event_processor.hh"
 
-#include <boost/property_tree/ptree_fwd.hpp>
+class AccessLogProcessor : public EventProcessor {
+public:
+	explicit AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
+				    unsigned processor_id,
+				    int device_fd);
+	~AccessLogProcessor() noexcept override;
 
-#include "clickhouse_config.hh"
+	void request_stop() noexcept override;
+	bool stop_requested() noexcept override;
+	unsigned int get_cpu_id() const noexcept;
 
-namespace fs = std::filesystem;
+private:
+	tus::Error<bool> do_consume_event() override;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<std::string> access_log_plugin_path;
-	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
-
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
-
-	void
-	validate() const;
-
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+private:
+	int	     device_fd_;
+	TfwMmapBuffer   *buffer_;
+	size_t	  size_;
 };

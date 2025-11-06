@@ -27,10 +27,126 @@
 #include <clickhouse/columns/column.h>
 #include <clickhouse/types/types.h>
 
+#include "../fw/access_log.h"
 #include "clickhouse_config.hh"
 #include "../libtus/error.hh"
 
 namespace ch = clickhouse;
+
+template<TfwBinLogFields FieldType>
+struct TfwBinLogTypeCommonTraits
+{
+	static constexpr size_t index = static_cast<size_t>(FieldType) + 1;
+};
+
+template<TfwBinLogFields FieldType>
+struct TfwBinLogTypeTraits
+{
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_ADDR>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_ADDR>
+{
+	using ColType = ch::ColumnIPv6;
+	using ValType = in6_addr;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_METHOD>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_METHOD>
+{
+	using ColType = ch::ColumnUInt8;
+	using ValType = uint8_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_VERSION>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_VERSION>
+{
+	using ColType = ch::ColumnUInt8;
+	using ValType = uint8_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_STATUS>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_STATUS>
+{
+	using ColType = ch::ColumnUInt16;
+	using ValType = uint16_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_RESP_CONT_LEN>
+{
+	using ColType = ch::ColumnUInt32;
+	using ValType = uint32_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_TIME>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_RESP_TIME>
+{
+	using ColType = ch::ColumnUInt32;
+	using ValType = uint32_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_VHOST>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_VHOST>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_URI>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_URI>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_REFERER>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_REFERER>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_USER_AGENT>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_USER_AGENT>
+{
+	using ColType = ch::ColumnString;
+	using ValType = std::string_view;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_JA5T>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_JA5T>
+{
+	using ColType = ch::ColumnUInt64;
+	using ValType = uint64_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_JA5H>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_JA5H>
+{
+	using ColType = ch::ColumnUInt64;
+	using ValType = uint64_t;
+};
+
+template<>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_DROPPED>
+{
+	using ColType = ch::ColumnUInt64;
+	using ValType = uint64_t;
+};
 
 /**
  * Class for sending records to a Clickhouse database.
@@ -65,18 +181,67 @@ public:
 
 	~TfwClickhouse();
 
-	ch::Block &get_block() noexcept;
+	template<TfwBinLogFields FieldType>
+	void append(
+		const typename TfwBinLogTypeTraits<FieldType>::ValType& value);
+	void append_timestamp(uint64_t timestamp);
+
 	[[nodiscard]] bool commit(bool force = false) noexcept;
 	bool handle_block_error() noexcept;
 
+	bool should_attempt_reconnect() const noexcept;
+	bool do_reconnect() noexcept;
+
+public:
+	std::atomic<bool> needs_reconnect{false};
+	std::atomic<std::chrono::steady_clock::time_point>
+		last_reconnect_attempt{
+			std::chrono::steady_clock::time_point::min()};
+	// The most Clickhouse API errors can be handled with simple connection
+	// reset and reconnection
+	//
+	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
+	//
+	// We start with zero reconnection timeout. However, the database can
+	// be restarted, so we use indefinite loop with double backoff in
+	// reconnection attempts.
+	std::atomic<std::chrono::seconds> reconnect_timeout{
+		std::chrono::seconds(0)
+	};
+
 private:
-	std::unique_ptr<ch::Client>	client_;
-	ch::Block			block_;
-	const std::string		table_name_;
-	const size_t			max_events_;
+	// We store timestamp at index 0
+	constexpr size_t
+	field_to_column_index(TfwBinLogFields field) const noexcept {
+		return static_cast<size_t>(field) + 1;
+	}
 
 	void make_block();
+	void update_reconnect_timeout(bool success) noexcept;
+
+private:
+	const std::string		table_name_;
+	const size_t			max_events_;
+	const ch::ClientOptions		client_options_;
+
+	ch::Block			block_;
+	std::unique_ptr<ch::Client>	client_;
 };
 
 std::shared_ptr<ch::Column>
 tfw_column_factory(ch::Type::Code code);
+
+template <TfwBinLogFields FieldType>
+void
+TfwClickhouse::append(
+	const typename TfwBinLogTypeTraits<FieldType>::ValType& value)
+{
+	using Traits   = TfwBinLogTypeTraits<FieldType>;
+	using ColType  = typename Traits::ColType;
+
+	if constexpr (std::is_same_v<ColType, ch::ColumnString>)
+		block_[Traits::index]->
+			template As<ColType>()->Append(std::string(value));
+	else
+		block_[Traits::index]->template As<ColType>()->Append(value);
+}
