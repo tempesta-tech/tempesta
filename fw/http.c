@@ -1980,10 +1980,6 @@ static inline bool
 tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *eq, int from)
 {
-	if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent)
-		printk(KERN_ALERT "FFFF %px %px %px %d\n",
-			srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent, from);
-
 	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
 		T_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 		       __func__, req, req->retries);
@@ -2005,11 +2001,11 @@ tfw_http_req_evict_stale_req(TfwSrvConn *srv_conn, TfwServer *srv,
 
 static inline bool
 tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
-		   struct list_head *eq)
+		   struct list_head *eq, int from)
 {
 	return tfw_http_req_evict_dropped(srv_conn, req)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq)
-	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq, 111);
+	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq, from);
 }
 
 /*
@@ -2271,7 +2267,7 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
  * Note: @srv_conn->last_msg_sent may change in result.
  */
 static int
-tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
+tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq, int from)
 {
 	TfwHttpReq *req, *tmp, *req_resent = NULL;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
@@ -2299,7 +2295,7 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	{
 		int err;
 
-		if (tfw_http_req_evict(srv_conn, srv, req, eq))
+		if (tfw_http_req_evict(srv_conn, srv, req, eq, 444 + from))
 			continue;
 		err = tfw_http_req_fwd_send(srv_conn, srv, req, eq);
 		/*
@@ -2355,10 +2351,11 @@ __tfw_srv_conn_clear_restricted(TfwSrvConn *srv_conn, int from)
 	if (test_and_clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags))
 		TFW_DEC_STAT_BH(serv.conn_restricted);
 
-	if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent)
-	printk(KERN_ALERT "__tfw_srv_conn_clear_restricted srv_conn "
+	if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent) {
+	printk(KERN_ALERT "__tfw_srv_conn_clear_restricted srv_conn FUCK \n"
 		"%px curr %px  last %px from %d cpu %d\n",
 		srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent, from, smp_processor_id());
+	}
 }
 
 /*
@@ -2404,8 +2401,11 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 		 * requests that were never forwarded only if the last
 		 * request that was re-sent was NOT non-idempotent.
 		 */
-		if (tfw_http_conn_resend(srv_conn, false, eq) == -EBADF)
+		if (tfw_http_conn_resend(srv_conn, false, eq, 999) == -EBADF) {
+			printk(KERN_ALERT "BADF %px %px %px %d\n", srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent, smp_processor_id());
+
 			return 0;
+		}
 		if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent)
 			printk(KERN_ALERT "%s srv_conn %px curr %px last %px cpu %d from %d\n",
                         __func__, srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent, smp_processor_id(), 111);
@@ -2454,12 +2454,22 @@ tfw_http_get_srv_conn(TfwMsg *msg)
 {
 	TfwHttpReq *req = (TfwHttpReq *)msg;
 	TfwHttpSess *sess = req->sess;
+	TfwSrvConn *srv_conn;
 
 	/* Sticky cookies are disabled or client doesn't support cookies. */
-	if (!sess)
-		return tfw_vhost_get_srv_conn(msg);
+	if (!sess) {
+		srv_conn = tfw_vhost_get_srv_conn(msg);
+		if (srv_conn && tfw_srv_conn_restricted(srv_conn))
+			printk(KERN_ALERT "RRRRRRRRRRRRRRRRRRRR %px\n", srv_conn);
+		return srv_conn;
+	}
 
-	return tfw_http_sess_get_srv_conn(msg);
+	srv_conn =  tfw_http_sess_get_srv_conn(msg);
+
+	if (srv_conn && tfw_srv_conn_restricted(srv_conn))
+        	printk(KERN_ALERT "LLLLL RRRRRRRRRRRRRRRRRRRR %px\n", srv_conn);
+
+	return srv_conn;
 }
 
 /*
@@ -2555,17 +2565,34 @@ tfw_http_fwdq_resched(TfwSrvConn *srv_conn, struct list_head *resch_queue,
  */
 static void
 tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
-			 struct list_head *eq)
+			 struct list_head *eq, int from)
 {
+	bool restr;
 	LIST_HEAD(reschq);
+
 
 	T_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
+	
+	if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent
+	    && !tfw_srv_conn_restricted(srv_conn))
+		printk(KERN_ALERT "TTTTTTTTTTTT %px %px %px\n",
+			srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent);
+	
+	restr = tfw_srv_conn_restricted(srv_conn);
+
 	tfw_http_req_enlist(srv_conn, req);
+
+	if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent
+            && !tfw_srv_conn_restricted(srv_conn))
+                printk(KERN_ALERT "TTTTTTTTTTTT %px %px %px 1111\n",
+                        srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent);
+
+
 	if (tfw_http_conn_on_hold(srv_conn)
-	    || !tfw_http_conn_fwd_unsent(srv_conn, eq, 444))
+	    || !tfw_http_conn_fwd_unsent(srv_conn, eq, 444 + restr + from))
 	{
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
@@ -2705,6 +2732,9 @@ tfw_http_conn_repair(TfwConn *conn)
 	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
+	if (!tfw_srv_conn_restricted(srv_conn))
+		printk(KERN_ALERT "WHAT ???????? %px\n", srv_conn);
+
 	srv_conn->curr_msg_sent = NULL;
 
 	/* See if requests need to be rescheduled. */
@@ -2726,8 +2756,12 @@ tfw_http_conn_repair(TfwConn *conn)
 	tfw_http_conn_treatnip(srv_conn, &eq);
 
 	/* Re-send only the first unanswered request. */
-	err = tfw_http_conn_resend(srv_conn, true, &eq);
+	err = tfw_http_conn_resend(srv_conn, true, &eq, 10110);
 	if (err == -EBADF) {
+		if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent) {
+			printk(KERN_ALERT "EBADF CCCCC %px %px %px\n",
+				srv_conn, srv_conn->curr_msg_sent, srv_conn->last_msg_sent);
+		}
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 		goto out;
 	}
@@ -2931,8 +2965,6 @@ clean:
 static int
 tfw_http_conn_init(TfwConn *conn)
 {
-	T_DBG2("%s: conn=[%p]\n", __func__, conn);
-
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
@@ -2940,6 +2972,8 @@ tfw_http_conn_init(TfwConn *conn)
 			srv_conn->curr_msg_sent = NULL;
 			set_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 			TFW_INC_STAT_BH(serv.conn_restricted);
+			srv_conn->xxx = get_jiffies_64();
+			srv_conn->cpu_cpu = smp_processor_id();
 		}
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
@@ -2993,6 +3027,9 @@ tfw_http_conn_release(TfwConn *conn)
 		 */
 		if (unlikely(test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 			tfw_http_conn_shrink_fwdq_resched(srv_conn);
+		
+		if (srv_conn->curr_msg_sent != srv_conn->last_msg_sent)
+			printk(KERN_ALERT "GGG\n");
 		__tfw_srv_conn_clear_restricted(srv_conn, 333);
 
 		return;
@@ -5866,6 +5903,7 @@ static void
 tfw_http_req_cache_cb(TfwHttpMsg *msg)
 {
 	int r;
+	unsigned long long xxx;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
@@ -5885,6 +5923,8 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		return;
 	}
 
+	xxx = get_jiffies_64();
+
 	/*
 	 * Dispatch request to an appropriate server. Schedulers should
 	 * make a decision based on an unmodified request, so this must
@@ -5901,6 +5941,9 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		goto send_502;
 	}
 
+	if (tfw_srv_conn_restricted(srv_conn))
+		printk(KERN_ALERT "GGGGGGGG %px %llu %llu %llu %d %d %d\n", srv_conn, xxx, srv_conn->xxx, get_jiffies_64(), smp_processor_id(), srv_conn->cpu_cpu, atomic_read(&srv_conn->refcnt));
+
 	r = TFW_MSG_H2(req)
 		? tfw_h2_adjust_req(req)
 		: tfw_h1_adjust_req(req);
@@ -5911,7 +5954,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
 
 	/* Forward request to the server. */
-	tfw_http_req_fwd_resched(srv_conn, req, &eq);
+	tfw_http_req_fwd_resched(srv_conn, req, &eq, 1212);
 	tfw_http_req_zap_error(&eq);
 	goto conn_put;
 

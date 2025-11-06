@@ -244,6 +244,10 @@ typedef struct {
 	TfwMsg			*last_msg_sent;
 	TfwMsg			*curr_msg_sent;
 	unsigned long		jbusytstamp;
+	unsigned long long      xxx;
+	unsigned long long 	yyy;
+	unsigned long long 	zzz;
+	int 			cpu_cpu;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -267,7 +271,9 @@ enum {
 	 * Mark connection as unavailable to schedulers.
 	 * Used to steal server connections for websockets.
 	 */
-	TFW_CONN_B_UNSCHED
+	TFW_CONN_B_UNSCHED,
+
+	TFW_CONN_XXX_1,
 };
 
 /**

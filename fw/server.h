@@ -254,6 +254,16 @@ tfw_srv_conn_queue_full(TfwSrvConn *srv_conn)
 	return READ_ONCE(srv_conn->qsize) >= sg->max_qsize;
 }
 
+static inline bool
+tfw_srv_conn_suitable(TfwSrvConn *srv_conn)
+{
+        return !tfw_srv_conn_restricted(srv_conn)
+                && !tfw_srv_conn_unscheduled(srv_conn)
+                && !tfw_srv_conn_busy(srv_conn)
+                && !tfw_srv_conn_queue_full(srv_conn);
+}
+
+
 /*
  * Timeout between connect attempts is increased with each unsuccessful
  * attempt. Length of the timeout for each attempt is chosen to follow

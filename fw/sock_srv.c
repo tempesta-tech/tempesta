@@ -194,10 +194,12 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * callback). The only reason not to start new reconnect
 	 * attempt is removing server from the current configuration.
 	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags))) {
+		srv_conn->yyy = get_jiffies_64();
 		tfw_sock_srv_connect_try_later(srv_conn);
-	else
+	} else {
 		tfw_srv_conn_stop(srv_conn);
+	}
 }
 
 /**
