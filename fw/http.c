@@ -5805,8 +5805,10 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
 		codings.data = tfw_pool_alloc(resp->pool, RESP_TE_BUF_LEN);
-		if (unlikely(!codings.data))
+		if (unlikely(!codings.data)) {
+			r = -ENOMEM;
 			goto clean;
+		}
 		r = tfw_http_resp_copy_encodings(resp, &codings,
 						 RESP_TE_BUF_LEN);
 		if (unlikely(r))
@@ -7652,8 +7654,10 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			goto err;
 		}
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
-		if (!stream->msg)
+		if (!stream->msg) {
+			r = -ENOMEM;
 			goto err;
+		}
 		T_DBG2("Link new msg %p with connection %p\n",
 		       stream->msg, conn);
 	}
