@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,13 +62,13 @@ MODULE_LICENSE("GPL");
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 
 static struct kmem_cache *ttls_hs_cache = NULL;
-static ttls_ja5t_limit_rec_cb_t *ttls_ja5t_limit_rec_cb;
+static ttls_tft_limit_rec_cb_t *ttls_tft_limit_rec_cb;
 static ttls_send_cb_t *ttls_send_cb;
 extern ttls_sni_cb_t *ttls_sni_cb;
 extern ttls_hs_over_cb_t *ttls_hs_over_cb;
 extern ttls_cli_id_t *ttls_cli_id_cb;
 extern ttls_alpn_match_t *ttls_alpn_match_cb;
-extern ttls_ja5t_limit_conn_cb_t *ttls_ja5t_limit_conn_cb;
+extern ttls_tft_limit_conn_cb_t *ttls_tft_limit_conn_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -256,16 +256,16 @@ void
 ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
 			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb,
 			ttls_alpn_match_t *alpn_match_cb,
-			ttls_ja5t_limit_conn_cb_t *ja5t_limit_conn_cb,
-			ttls_ja5t_limit_rec_cb_t *ja5t_limit_rec_cb)
+			ttls_tft_limit_conn_cb_t *tft_limit_conn_cb,
+			ttls_tft_limit_rec_cb_t *tft_limit_rec_cb)
 {
 	ttls_send_cb = send_cb;
 	ttls_sni_cb = sni_cb;
 	ttls_hs_over_cb = hs_over_cb;
 	ttls_cli_id_cb = cli_id_cb;
 	ttls_alpn_match_cb = alpn_match_cb;
-	ttls_ja5t_limit_conn_cb = ja5t_limit_conn_cb;
-	ttls_ja5t_limit_rec_cb = ja5t_limit_rec_cb;
+	ttls_tft_limit_conn_cb = tft_limit_conn_cb;
+	ttls_tft_limit_rec_cb = tft_limit_rec_cb;
 }
 EXPORT_SYMBOL(ttls_register_callbacks);
 
@@ -2397,7 +2397,7 @@ ttls_recv(void *tls_data, unsigned char *buf, unsigned int len, unsigned int *re
 		return T_POSTPONE;
 	}
 
-	if (ttls_ja5t_limit_rec_cb(tls->sess.ja5t))
+	if (ttls_tft_limit_rec_cb(tls->sess.tft))
 		return T_BLOCK_WITH_RST;
 
 	*read += io->msglen - io->rlen;

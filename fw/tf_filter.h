@@ -17,19 +17,19 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __JA5_FILTER__
-#define __JA5_FILTER__
+#ifndef __TF_FILTER__
+#define __TF_FILTER__
 
-#include "lib/ja5.h"
+#include "lib/tf.h"
 
-bool ja5t_init_filter(size_t max_storage_size);
-void ja5t_close_filter(void);
-u32 ja5t_get_conns_rate(TlsJa5t fingerprint);
-u32 ja5t_get_records_rate(TlsJa5t fingerprint);
+bool tft_init_filter(size_t max_storage_size);
+void tft_close_filter(void);
+u32 tft_get_conns_rate(TlsTft fingerprint);
+u32 tft_get_records_rate(TlsTft fingerprint);
 
-bool ja5h_init_filter(size_t max_storage_size);
-void ja5h_close_filter(void);
-u32 ja5h_get_conns_rate(HttpJa5h fingerprint);
-u32 ja5h_get_records_rate(HttpJa5h fingerprint);
+bool tfh_init_filter(size_t max_storage_size);
+void tfh_close_filter(void);
+u32 tfh_get_conns_rate(HttpTfh fingerprint);
+u32 tfh_get_records_rate(HttpTfh fingerprint);
 
-#endif /* __JA5_FILTER__ */
+#endif /* __TF_FILTER__ */

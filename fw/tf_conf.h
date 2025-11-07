@@ -19,31 +19,31 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __JA5_CONF__
-#define __JA5_CONF__
+#ifndef __TF5_CONF__
+#define __TF5_CONF__
 
 #include "cfg.h"
-#include "lib/ja5.h"
+#include "lib/tf.h"
 
 /** TLS */
-u64 tls_get_ja5_storage_size(void);
-u64 tls_get_ja5_conns_limit(TlsJa5t fingerprint);
-u64 tls_get_ja5_recs_limit(TlsJa5t fingerprint);
+u64 tls_get_tf_storage_size(void);
+u64 tls_get_tf_conns_limit(TlsTft fingerprint);
+u64 tls_get_tf_recs_limit(TlsTft fingerprint);
 
-int tls_ja5_cfgop_finish(TfwCfgSpec *cs);
-void tls_ja5_cfgop_cleanup(TfwCfgSpec *cs);
+int tls_tf_cfgop_finish(TfwCfgSpec *cs);
+void tls_tf_cfgop_cleanup(TfwCfgSpec *cs);
 
 /** HTTP */
-u64 http_get_ja5_storage_size(void);
-u64 http_get_ja5_conns_limit(HttpJa5h fingerprint);
-u64 http_get_ja5_recs_limit(HttpJa5h fingerprint);
+u64 http_get_tf_storage_size(void);
+u64 http_get_tf_conns_limit(HttpTfh fingerprint);
+u64 http_get_tf_recs_limit(HttpTfh fingerprint);
 
-int http_ja5_cfgop_finish(TfwCfgSpec *cs);
-void http_ja5_cfgop_cleanup(TfwCfgSpec *cs);
+int http_tf_cfgop_finish(TfwCfgSpec *cs);
+void http_tf_cfgop_cleanup(TfwCfgSpec *cs);
 
 /** Common */
-extern TfwCfgSpec ja5_hash_specs[];
+extern TfwCfgSpec tf_hash_specs[];
 
-int ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
+int tf_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce);
 
-#endif // __JA5_CONF__
+#endif // __TF_CONF__

@@ -551,7 +551,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 }
 
 static void
-tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
+tfw_http_req_calc_tfh_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
 {
 	const TfwStr *dup, *dup_end, *c, *chunk_end;
 	size_t len = 0;
@@ -596,7 +596,7 @@ tfw_http_req_calc_ja5h_summ_for_raw_hdr(TfwHttpReq *req, TfwStr *hdr)
 	}
 
 out:
-	COMPUTE_JA5_ACCHASH(req->ja5h.summ, summ);
+	COMPUTE_TF_ACCHASH(req->tfh.summ, summ);
 
 #undef HDR_LEN_MAX
 #undef TFW_CHAR_INT
@@ -728,12 +728,12 @@ done:
 
 		req->header_list_sz += h->len + TFW_HTTP_MSG_HDR_OVERHEAD(hm);
 		req->headers_cnt++;
-		HTTP_JA5H_REQ_CALC_NUM(req, headers, TFW_HTTP_JA5H_HEADERS_MAX,
+		HTTP_TFH_REQ_CALC_NUM(req, headers, TFW_HTTP_TFH_HEADERS_MAX,
 				       1);
 		if (likely(id < TFW_HTTP_HDR_RAW))
-			COMPUTE_JA5_ACCHASH(req->ja5h.summ, id);
+			COMPUTE_TF_ACCHASH(req->tfh.summ, id);
 		else
-			tfw_http_req_calc_ja5h_summ_for_raw_hdr(req, h);
+			tfw_http_req_calc_tfh_summ_for_raw_hdr(req, h);
 	}
 
 	TFW_STR_INIT(&parser->hdr);

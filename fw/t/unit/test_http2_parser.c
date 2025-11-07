@@ -3289,7 +3289,7 @@ TEST_MPART_DEFINE(http2_parser, forwarded, H2_FWD_TCNT,
 #undef EXPECT_BLOCK_REQ_H2_FORWARDED
 #undef FOR_REQ_H2_FORWARDED
 
-TEST(http2_parser, ja5h)
+TEST(http2_parser, tfh)
 {
 	FOR_REQ_H2(
 	    HEADERS_FRAME_BEGIN();
@@ -3299,9 +3299,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 3);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 3);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 0);
 	}
 
 	FOR_REQ_H2(
@@ -3379,9 +3379,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 63);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 63);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 0);
 	}
 
 	FOR_REQ_H2(
@@ -3393,9 +3393,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 1);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 0);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 1);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 4);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 0);
 	}
 
 	FOR_REQ_H2(
@@ -3408,9 +3408,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 5);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 2);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 5);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 2);
 	}
 
 	FOR_REQ_H2(
@@ -3422,9 +3422,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 4);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 2);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 4);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 2);
 	}
 
 	FOR_REQ_H2(
@@ -3437,9 +3437,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 5);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 4);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 5);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 4);
 	}
 
 	FOR_REQ_H2(
@@ -3459,9 +3459,9 @@ TEST(http2_parser, ja5h)
 	    HEADERS_FRAME_END();
 	)
 	{
-		EXPECT_EQ((unsigned)req->ja5h.has_referer, 0);
-		EXPECT_EQ((unsigned)req->ja5h.headers_num, 12);
-		EXPECT_EQ((unsigned)req->ja5h.cookie_num, 31);
+		EXPECT_EQ((unsigned)req->tfh.has_referer, 0);
+		EXPECT_EQ((unsigned)req->tfh.headers_num, 12);
+		EXPECT_EQ((unsigned)req->tfh.cookie_num, 31);
 	}
 }
 
@@ -3589,7 +3589,7 @@ TEST_SUITE_MPART(http2_parser, 7)
 
 TEST_SUITE_MPART(http2_parser, 8)
 {
-	TEST_RUN(http2_parser, ja5h);
+	TEST_RUN(http2_parser, tfh);
 	TEST_RUN(http2_parser, expect);
 }
 

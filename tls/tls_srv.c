@@ -33,7 +33,7 @@
 ttls_sni_cb_t *ttls_sni_cb;
 ttls_hs_over_cb_t *ttls_hs_over_cb;
 ttls_alpn_match_t *ttls_alpn_match_cb;
-ttls_ja5t_limit_conn_cb_t *ttls_ja5t_limit_conn_cb;
+ttls_tft_limit_conn_cb_t *ttls_tft_limit_conn_cb;
 
 static int
 ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
@@ -214,7 +214,7 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 		}
 		p += 2;
 
-		COMPUTE_JA5_ACCHASH(tls->sess.ja5t.elliptic_curve_hash, cid);
+		COMPUTE_TF_ACCHASH(tls->sess.tft.elliptic_curve_hash, cid);
 	}
 
 	return 0;
@@ -403,9 +403,9 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
 			our = &alpn_list[i];
 			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
-				/* Calculate JA5t */
-				tls->sess.ja5t.alpn <<= 1;
-				tls->sess.ja5t.alpn += our->id;
+				/* Calculate TFt */
+				tls->sess.tft.alpn <<= 1;
+				tls->sess.tft.alpn += our->id;
 				/* Use our order of preference */
 				if (alpn_chosen_idx > i &&
 				    ttls_alpn_match_cb(tls, our)) {
@@ -416,7 +416,7 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 			}
 		}
 		if (has_unknown_alpn)
-			tls->sess.ja5t.has_unknown_alpn = 1;
+			tls->sess.tft.has_unknown_alpn = 1;
 	}
 
 	if (tls->alpn_chosen)
@@ -774,9 +774,9 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 
 		/**
 		 *  TODO #1031: add TLS 1.3 version (TTLS_MINOR_VERSION_4) 
-		 * to JA5t computation. Now its always 1.2
+		 * to TFt computation. Now its always 1.2
 		 */
-		tls->sess.ja5t.is_tls1_3 = 0;
+		tls->sess.tft.is_tls1_3 = 0;
 
 		io->hslen -= 2;
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_RND);
@@ -908,8 +908,8 @@ bad_version:
 		io->hslen -= 2;
 		tls->hs->cs_cur_len += 2;
 
-		/* ja5t must be initialized with zeros */
-		COMPUTE_JA5_ACCHASH(tls->sess.ja5t.cipher_suite_hash, cs);
+		/* tft must be initialized with zeros */
+		COMPUTE_TF_ACCHASH(tls->sess.tft.cipher_suite_hash, cs);
 
 		if (tls->hs->cs_cur_len == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
@@ -1027,7 +1027,7 @@ bad_version:
 		       tls->hs->ext_type);
 		io->hslen -= 2;
 
-		COMPUTE_JA5_ACCHASH(tls->sess.ja5t.extension_type_hash,
+		COMPUTE_TF_ACCHASH(tls->sess.tft.extension_type_hash,
 				    tls->hs->ext_type);
 
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXS);
@@ -1154,8 +1154,8 @@ bad_version:
 	 */
 	ttls_process_session_ticket(tls);
 
-	/* JA5t computation */
-	tls->sess.ja5t.is_abbreviated = tls->hs->resume;
+	/* TFt computation */
+	tls->sess.tft.is_abbreviated = tls->hs->resume;
 
 	/*
 	 * Server TLS configuration is found, match it with client capabilities.
@@ -2249,7 +2249,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (r)
 			return r;
 
-		if (ttls_ja5t_limit_conn_cb(tls->sess.ja5t))
+		if (ttls_tft_limit_conn_cb(tls->sess.tft))
 			return T_BLOCK_WITH_RST;
 
 		tls->state = TTLS_SERVER_HELLO;

@@ -21,17 +21,17 @@
 
 #include "db/core/tdb.h"
 #include "lib/str.h"
-#include "lib/ja5.h"
+#include "lib/tf.h"
 #include "log.h"
 
 
-#define JA5_FILTER_TIME_SLOTS_POW	3
-#define JA5_FILTER_TIME_SLOTS_CNT	(1 << JA5_FILTER_TIME_SLOTS_POW)
-#define JA5_FILTER_TIME_SLOTS_MASK	(JA5_FILTER_TIME_SLOTS_CNT - 1)
+#define TF_FILTER_TIME_SLOTS_POW	3
+#define TF_FILTER_TIME_SLOTS_CNT	(1 << TF_FILTER_TIME_SLOTS_POW)
+#define TF_FILTER_TIME_SLOTS_MASK	(TF_FILTER_TIME_SLOTS_CNT - 1)
 #define DB_RECS_TO_FREE_CNT		32
 
-#define TLS_TDB_FILE_PATH	"/opt/tempesta/db/ja5t_flt.tdb"
-#define HTTP_TDB_FILE_PATH	"/opt/tempesta/db/ja5h_flt.tdb"
+#define TLS_TDB_FILE_PATH	"/opt/tempesta/db/tft_flt.tdb"
+#define HTTP_TDB_FILE_PATH	"/opt/tempesta/db/tfh_flt.tdb"
 
 /**
  * Holds time slot's @counter for timestamp @ts
@@ -53,14 +53,14 @@ typedef struct {
 typedef struct {
 	/** Keep  @list_node first for easy type casts */
 	struct list_head	list_node;
-	TimeSlot		conns[JA5_FILTER_TIME_SLOTS_CNT];
+	TimeSlot		conns[TF_FILTER_TIME_SLOTS_CNT];
 	spinlock_t		conns_lock;
-	TimeSlot		recs[JA5_FILTER_TIME_SLOTS_CNT];
+	TimeSlot		recs[TF_FILTER_TIME_SLOTS_CNT];
 	spinlock_t		recs_lock;
 } Rates;
 
 /**
- * Rates storage for a particular fingerprints types. This file(ja5_filter.h)
+ * Rates storage for a particular fingerprints types. This file(tf_filter.h)
  * is supposed to be included into a .c file responsible for that fingerprints
  * processing.
  *
@@ -192,11 +192,11 @@ close_filter(Storage *storage)
 }
 
 static u32
-ja5_calc_rate(TimeSlot slots[], spinlock_t *lock)
+tf_calc_rate(TimeSlot slots[], spinlock_t *lock)
 {
 	u32 sum = 0;
-	u64 ts = jiffies * JA5_FILTER_TIME_SLOTS_CNT / HZ;
-	u8 slot_num = ts & JA5_FILTER_TIME_SLOTS_MASK;
+	u64 ts = jiffies * TF_FILTER_TIME_SLOTS_CNT / HZ;
+	u8 slot_num = ts & TF_FILTER_TIME_SLOTS_MASK;
 	TimeSlot *current_slot = &slots[slot_num];
 
 	spin_lock(lock);
@@ -207,8 +207,8 @@ ja5_calc_rate(TimeSlot slots[], spinlock_t *lock)
 	}
 	current_slot->counter++;
 
-	for (slot_num = 0; slot_num < JA5_FILTER_TIME_SLOTS_CNT; slot_num++)
-		if (slots[slot_num].ts + JA5_FILTER_TIME_SLOTS_CNT >= ts)
+	for (slot_num = 0; slot_num < TF_FILTER_TIME_SLOTS_CNT; slot_num++)
+		if (slots[slot_num].ts + TF_FILTER_TIME_SLOTS_CNT >= ts)
 			sum += slots[slot_num].counter;
 
 	spin_unlock(lock);
@@ -223,7 +223,7 @@ ja5_calc_rate(TimeSlot slots[], spinlock_t *lock)
  * @param fingerprint fingerprint connections rates to look for
  */
 static u32
-ja5_get_conns_rate(Storage *storage, u64 fingerprint)
+tf_get_conns_rate(Storage *storage, u64 fingerprint)
 {
 	u32 res;
 	Rates *rates;
@@ -235,11 +235,11 @@ ja5_get_conns_rate(Storage *storage, u64 fingerprint)
 		/* Allow connection if DB is full */
 		return 0;
 
-	res = ja5_calc_rate(rates->conns, &rates->conns_lock);
+	res = tf_calc_rate(rates->conns, &rates->conns_lock);
 
 	put_fingerprint_rates(storage, rates);
 
-	T_DBG("JA5 Fingerprint %08llx: connections/sec %d",
+	T_DBG("TF Fingerprint %08llx: connections/sec %d",
 	      *(u64 *)&fingerprint, res);
 
 	return res;
@@ -252,7 +252,7 @@ ja5_get_conns_rate(Storage *storage, u64 fingerprint)
  * @param fingerprint a fingerprint records rates to look for
  */
 static u32
-ja5_get_records_rate(Storage *storage, u64 fingerprint)
+tf_get_records_rate(Storage *storage, u64 fingerprint)
 {
 	u32 res;
 	Rates *rates;
@@ -264,68 +264,68 @@ ja5_get_records_rate(Storage *storage, u64 fingerprint)
 		/* Allow record if DB is full */
 		return 0;
 
-	res = ja5_calc_rate(rates->recs, &rates->recs_lock);
+	res = tf_calc_rate(rates->recs, &rates->recs_lock);
 
 	put_fingerprint_rates(storage, rates);
 
-	T_DBG("JA5 Fingerprint %08llx: records/sec %d",
+	T_DBG("TF Fingerprint %08llx: records/sec %d",
 	      *(u64 *)&fingerprint, res);
 
 	return res;
 }
 
 bool
-ja5h_init_filter(size_t max_storage_size)
+tfh_init_filter(size_t max_storage_size)
 {
 	return init_filter(&http_storage, max_storage_size, HTTP_TDB_FILE_PATH);
 }
 
 void
-ja5h_close_filter(void)
+tfh_close_filter(void)
 {
 	return close_filter(&http_storage);
 }
 
 u32
-ja5h_get_conns_rate(HttpJa5h fingerprint)
+tfh_get_conns_rate(HttpTfh fingerprint)
 {
 	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 
-	return ja5_get_conns_rate(&http_storage, *(u64 *)&fingerprint);
+	return tf_get_conns_rate(&http_storage, *(u64 *)&fingerprint);
 }
 
 u32
-ja5h_get_records_rate(HttpJa5h fingerprint)
+tfh_get_records_rate(HttpTfh fingerprint)
 {
 	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 
-	return ja5_get_records_rate(&http_storage, *(u64 *)&fingerprint);
+	return tf_get_records_rate(&http_storage, *(u64 *)&fingerprint);
 }
 
 bool
-ja5t_init_filter(size_t max_storage_size)
+tft_init_filter(size_t max_storage_size)
 {
 	return init_filter(&tls_storage, max_storage_size, TLS_TDB_FILE_PATH);
 }
 
 void
-ja5t_close_filter(void)
+tft_close_filter(void)
 {
 	return close_filter(&tls_storage);
 }
 
 u32
-ja5t_get_conns_rate(TlsJa5t fingerprint)
+tft_get_conns_rate(TlsTft fingerprint)
 {
 	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 
-	return ja5_get_conns_rate(&tls_storage, *(u64 *)&fingerprint);
+	return tf_get_conns_rate(&tls_storage, *(u64 *)&fingerprint);
 }
 
 u32
-ja5t_get_records_rate(TlsJa5t fingerprint)
+tft_get_records_rate(TlsTft fingerprint)
 {
 	BUILD_BUG_ON(sizeof(fingerprint) != sizeof(u64));
 
-	return ja5_get_records_rate(&tls_storage, *(u64 *)&fingerprint);
+	return tf_get_records_rate(&tls_storage, *(u64 *)&fingerprint);
 }

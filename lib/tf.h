@@ -17,24 +17,24 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __LIB_JA5_H__
-#define __LIB_JA5_H__
+#ifndef __LIB_TF_H__
+#define __LIB_TF_H__
 
 #include <linux/compiler.h>
 
 /**
- * Different constants for HTTP ja5 hash calculation.
+ * Different constants for HTTP TF hash calculation.
  */
 enum {
-	TFW_HTTP_JA5H_HTTP_REQ = 0,
-	TFW_HTTP_JA5H_HTTP2_REQ = 1,
-	TFW_JA5_HASH_CALC_PRIME = 11,
-	TFW_HTTP_JA5H_COOKIE_MAX = 31,
-	TFW_HTTP_JA5H_HEADERS_MAX = 63
+	TFW_HTTP_TFH_HTTP_REQ = 0,
+	TFW_HTTP_TFH_HTTP2_REQ = 1,
+	TFW_TF_HASH_CALC_PRIME = 11,
+	TFW_HTTP_TFH_COOKIE_MAX = 31,
+	TFW_HTTP_TFH_HEADERS_MAX = 63
 };
 
 /**
- * Description of HTTP ja5 hash structure.
+ * Description of HTTP TF hash structure.
  * @padding	- padding up to 3 bytes;
  * @has_referer	- has Refer;
  * @headers_num	- number of headers (all bits set for 63
@@ -57,10 +57,10 @@ typedef struct {
 	unsigned int	method:5;
 	unsigned int	version:1;
 	unsigned int	summ;
-} HttpJa5h;
+} HttpTfh;
 
 /**
- * JA5t TLS client fingerprint
+ * Tft TLS client fingerprint
  *
  * @alpn - chosen ALPN id
  * @has_unknown_alpn - has client sent unknown alpn value
@@ -80,22 +80,22 @@ typedef struct {
 	unsigned short cipher_suite_hash;
 	unsigned short extension_type_hash;
 	unsigned short elliptic_curve_hash;
-} TlsJa5t;
+} TlsTft;
 
-#define HTTP_JA5H_CALC_NUM(val, max, num)					\
+#define HTTP_TFH_CALC_NUM(val, max, num)					\
 	({									\
 		typeof(max) x = (val) + (num) < (max) ? (val) + (num) : (max);	\
 		x;								\
 	})
 
-#define HTTP_JA5H_REQ_CALC_NUM(req, name, max, num)			\
-	(req)->ja5h.name##_num =					\
-		HTTP_JA5H_CALC_NUM(((req)->ja5h.name##_num), max, num)
+#define HTTP_TFH_REQ_CALC_NUM(req, name, max, num)			\
+	(req)->tfh.name##_num =					\
+		HTTP_TFH_CALC_NUM(((req)->tfh.name##_num), max, num)
 
-#define COMPUTE_JA5_ACCHASH(hash, field)	\
+#define COMPUTE_TF_ACCHASH(hash, field)	\
 do {						\
-	(hash) *= TFW_JA5_HASH_CALC_PRIME;	\
+	(hash) *= TFW_TF_HASH_CALC_PRIME;	\
 	(hash) += (field);			\
 } while (0)
 
-#endif /* __LIB_JA5_H__ */
+#endif /* __LIB_TF_H__ */
