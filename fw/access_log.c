@@ -59,9 +59,9 @@
 	FIXED("\" \"")						\
 	TRUNCATABLE(user_agent)					\
 	FIXED("\" \"")						\
-	UNTRUNCATABLE(ja5_tls)					\
+	UNTRUNCATABLE(tf_tls)					\
 	FIXED("\" \"")						\
-	UNTRUNCATABLE(ja5_http)					\
+	UNTRUNCATABLE(tf_http)					\
 	FIXED("\"")
 
 
@@ -267,8 +267,8 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	char *data, *p;
 	struct timespec64 ts;
 	u16 len;
-	TlsJa5t *tls_ja5t = TFW_CONN_TLS(req->conn) ?
-		&tfw_tls_context(req->conn)->sess.ja5t : NULL;
+	TlsTft *tls_tft = TFW_CONN_TLS(req->conn) ?
+		&tfw_tls_context(req->conn)->sess.tft : NULL;
 
 
 	room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
@@ -343,11 +343,11 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 				   req->h_tbl->tbl + TFW_HTTP_HDR_USER_AGENT);
 	WRITE_STR_FIELD(ua);
 
-	if (tls_ja5t)
-		WRITE_FIELD(*tls_ja5t);
+	if (tls_tft)
+		WRITE_FIELD(*tls_tft);
 	else
-		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_JA5T);
-	WRITE_FIELD(req->ja5h);
+		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_TFT);
+	WRITE_FIELD(req->tfh);
 
 	if (*dropped) {
 		WRITE_FIELD(*dropped);
@@ -384,12 +384,12 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status,
 	BasicStr client_ip, vhost, version;
 	/* These fields are only here to hold estimation of appropriate fields
 	 * length in characters */
-	BasicStr status, content_length, ja5_tls, ja5_http;
+	BasicStr status, content_length, tf_tls, tf_http;
 	BasicStr missing = { "-", 1 };
 	TfwStr truncated_in[TRUNCATABLE_FIELDS_COUNT];
 	BasicStr truncated_out[TRUNCATABLE_FIELDS_COUNT];
-	TlsJa5t *tls_ja5t = TFW_CONN_TLS(req->conn) ?
-		&tfw_tls_context(req->conn)->sess.ja5t : NULL;
+	TlsTft *tls_tft = TFW_CONN_TLS(req->conn) ?
+		&tfw_tls_context(req->conn)->sess.tft : NULL;
 
 	/* client_ip
 	 *
@@ -452,14 +452,14 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status,
 	ADD_HDR(idx_referer, TFW_HTTP_HDR_REFERER);
 	ADD_HDR(idx_user_agent, TFW_HTTP_HDR_USER_AGENT);
 
-#define FMT_ja5_tls "ja5t=%llx"
-#define ARG_ja5_tls , (tls_ja5t ? *(u64 *)tls_ja5t : 0)
-	ja5_tls.data = "";
-	ja5_tls.len = 16;
-#define FMT_ja5_http "ja5h=%llx"
-#define ARG_ja5_http , (*(u64 *)&req->ja5h)
-	ja5_http.data = "";
-	ja5_http.len = 16;
+#define FMT_tf_tls "tft=%llx"
+#define ARG_tf_tls , (tls_tft ? *(u64 *)tls_tft : 0)
+	tf_tls.data = "";
+	tf_tls.len = 16;
+#define FMT_tf_http "tfh=%llx"
+#define ARG_tf_http , (*(u64 *)&req->tfh)
+	tf_http.data = "";
+	tf_http.len = 16;
 
 	/* Now we calculate first estimation of
 	 * "maximum allowed truncated string length" */
@@ -512,10 +512,10 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status,
 #undef FMT_vhost
 #undef ARG_client_ip
 #undef FMT_client_ip
-#undef FMT_ja5_tls
-#undef ARG_ja5_tls
-#undef FMT_ja5_http
-#undef ARG_ja5_http
+#undef FMT_tf_tls
+#undef ARG_tf_tls
+#undef FMT_tf_http
+#undef ARG_tf_http
 }
 
 void

@@ -48,8 +48,8 @@ constexpr std::string_view table_creation_query_template =
 	" uri String,"
 	" referer String,"
 	" user_agent String,"
-	" ja5t UInt64,"
-	" ja5h UInt64,"
+	" tft UInt64,"
+	" tfh UInt64,"
 	" dropped_events UInt64"
 	") ENGINE = MergeTree() ORDER BY timestamp";
 
@@ -69,8 +69,8 @@ static const TfwField tfw_fields[] = {
 	[TFW_MMAP_LOG_URI]		= {"uri", ch::Type::String},
 	[TFW_MMAP_LOG_REFERER]		= {"referer", ch::Type::String},
 	[TFW_MMAP_LOG_USER_AGENT]	= {"user_agent", ch::Type::String},
-	[TFW_MMAP_LOG_JA5T]		= {"ja5t", ch::Type::UInt64},
-	[TFW_MMAP_LOG_JA5H]		= {"ja5h", ch::Type::UInt64},
+	[TFW_MMAP_LOG_TFT]		= {"tft", ch::Type::UInt64},
+	[TFW_MMAP_LOG_TFH]		= {"tfh", ch::Type::UInt64},
 	[TFW_MMAP_LOG_DROPPED]		= {"dropped_events", ch::Type::UInt64}
 };
 
