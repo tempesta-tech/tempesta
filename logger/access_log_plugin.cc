@@ -158,7 +158,7 @@ dbg_hexdump(std::span<const char> data)
 		}
 		oss << std::endl;
 	}
-	plugin_log_info(oss.str());
+	plugin_log_info(oss.str().c_str());
 }
 #else
 void

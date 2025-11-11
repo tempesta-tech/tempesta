@@ -125,16 +125,16 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_USER_AGENT>
 };
 
 template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_JA5T>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_JA5T>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_TFT>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_TFT>
 {
 	using ColType = ch::ColumnUInt64;
 	using ValType = uint64_t;
 };
 
 template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_JA5H>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_JA5H>
+struct TfwBinLogTypeTraits<TFW_MMAP_LOG_TFH>
+	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_TFH>
 {
 	using ColType = ch::ColumnUInt64;
 	using ValType = uint64_t;
