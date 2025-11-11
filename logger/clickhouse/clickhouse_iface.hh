@@ -17,28 +17,24 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#pragma once
 
-#include "../libtus/error.hh"
-#include "../fw/mmap_buffer.h"
+#include <string>
 
-#include "event_processor.hh"
+#include <clickhouse/types/types.h>
 
-class AccessLogProcessor : public EventProcessor {
+namespace ch = clickhouse;
+
+class IClickhouse
+{
 public:
-	explicit AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
-				    unsigned processor_id,
-				    int device_fd);
-	~AccessLogProcessor() noexcept override;
+	virtual ~IClickhouse() = default;
 
-	void request_stop() noexcept override;
-	bool stop_requested() noexcept override;
-	unsigned int get_cpu_id() const noexcept;
+public:
+	virtual bool ensure_connected() noexcept = 0;
 
-private:
-	tus::Error<bool> do_consume_event() override;
+	virtual bool execute(const std::string &query) noexcept = 0;
 
-private:
-	int	     device_fd_;
-	TfwMmapBuffer   *buffer_;
-	size_t	  size_;
+	virtual bool
+	flush(const std::string &table_name, ch::Block &block) noexcept = 0;
 };

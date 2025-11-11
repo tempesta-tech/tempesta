@@ -19,19 +19,12 @@
  */
 #pragma once
 
-#include <memory>
-#include <string>
+#include <netinet/in.h>
+#include <string_view>
+#include <span>
 
-#include <clickhouse/block.h>
-#include <clickhouse/client.h>
-#include <clickhouse/columns/column.h>
-#include <clickhouse/types/types.h>
-
-#include "../fw/access_log.h"
-#include "clickhouse_config.hh"
-#include "../libtus/error.hh"
-
-namespace ch = clickhouse;
+#include "../../fw/access_log.h"
+#include "../clickhouse/clickhouse_decorator.hh"
 
 template<TfwBinLogFields FieldType>
 struct TfwBinLogTypeCommonTraits
@@ -40,9 +33,7 @@ struct TfwBinLogTypeCommonTraits
 };
 
 template<TfwBinLogFields FieldType>
-struct TfwBinLogTypeTraits
-{
-};
+struct TfwBinLogTypeTraits;
 
 template<>
 struct TfwBinLogTypeTraits<TFW_MMAP_LOG_ADDR>
@@ -148,93 +139,45 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
 	using ValType = uint64_t;
 };
 
-//TODO: fix description
 /**
- * Class for sending records to a Clickhouse database.
+ * ClickHouse decorator specialized for access-log events.
  *
- * Constructor:
- *    @TfwClickhouse - Initializes the Clickhouse connection and create a data
- *        block.
+ * Provides type-safe append operations for various binlog fields defined
+ * in TfwBinLogFields. Each field maps to the corresponding ClickHouse column
+ * type using TfwBinLogTypeTraits.
  *
- * Other public methods:
- *    @get_block - Returns a pointer to the data block for the specified CPU core.
- *    @commit - Commits the data in the block to the Clickhouse database if the
- *        block’s row count exceeds a maximum event threshold. After
- *        committing, the block is deleted, a new block is created via
- *        block_callback and last_time is updated. If a block was committed
- *        return true, otherwise return false.
- *    @handle_block_error() - try to recover from a Clickhouse API error or an
- *        access event parsing.
- *
- * Private Members:
- *    @client_ - Clickhouse Client instance for sending data to the database.
- *    @block_ - Block instance holding data records to be inserted.
- *    @table_name_ - Name of the Clickhouse table where data is inserted.
- *    @max_events_ - Maximum number of events to insert before committing.
+ * This decorator delegates table creation and block management to the
+ * base ClickHouseDecorator class. It provides a convenient API for
+ * appending timestamps and binlog field values without exposing
+ * low-level block or table creation details.
  */
-class TfwClickhouse {
+class AccessLogClickhouseDecorator final: public ClickHouseDecorator
+{
 public:
-	static const bool FORCE = true;
-
-	TfwClickhouse(const ClickHouseConfig &config);
-	TfwClickhouse(const TfwClickhouse &) = delete;
-	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
-
-	~TfwClickhouse();
-
-	template<TfwBinLogFields FieldType>
-	void append(
-		const typename TfwBinLogTypeTraits<FieldType>::ValType& value);
-	void append_timestamp(uint64_t timestamp);
-
-	[[nodiscard]] bool commit(bool force = false) noexcept;
-	bool handle_block_error() noexcept;
-
-	bool should_attempt_reconnect() const noexcept;
-	bool do_reconnect() noexcept;
+	AccessLogClickhouseDecorator(std::unique_ptr<IClickhouse> client,
+		std::string_view table_name, size_t max_events);
 
 public:
-	std::atomic<bool> needs_reconnect{false};
-	std::atomic<std::chrono::steady_clock::time_point>
-		last_reconnect_attempt{
-			std::chrono::steady_clock::time_point::min()};
-	// The most Clickhouse API errors can be handled with simple connection
-	// reset and reconnection
-	//
-	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
-	//
-	// We start with zero reconnection timeout. However, the database can
-	// be restarted, so we use indefinite loop with double backoff in
-	// reconnection attempts.
-	std::atomic<std::chrono::seconds> reconnect_timeout{
-		std::chrono::seconds(0)
-	};
+	/**
+	 * Appends a timestamp value to the current block.
+	 */
+	void
+	append_timestamp(uint64_t timestamp);
 
-private:
-	// We store timestamp at index 0
-	constexpr size_t
-	field_to_column_index(TfwBinLogFields field) const noexcept {
-		return static_cast<size_t>(field) + 1;
-	}
-
-	void make_block();
-	void update_reconnect_timeout(bool success) noexcept;
-
-private:
-	const std::string		table_name_;
-	const size_t			max_events_;
-	const ch::ClientOptions		client_options_;
-
-	ch::Block			block_;
-	std::unique_ptr<ch::Client>	client_;
+	/**
+	 * Appends a value of the specified binlog field type.
+	 *
+	 * The field type is resolved at compile-time using TfwBinLogTypeTraits,
+	 * ensuring type-safe insertion into the correct ClickHouse column.
+	 */
+	template <TfwBinLogFields FieldType>
+	void
+	append(const typename TfwBinLogTypeTraits<FieldType>::ValType& value);
 };
-
-std::shared_ptr<ch::Column>
-tfw_column_factory(ch::Type::Code code);
 
 template <TfwBinLogFields FieldType>
 void
-TfwClickhouse::append(
+AccessLogClickhouseDecorator::append(
 	const typename TfwBinLogTypeTraits<FieldType>::ValType& value)
 {
 	using Traits   = TfwBinLogTypeTraits<FieldType>;

@@ -23,113 +23,197 @@
 #include <fmt/format.h>
 
 #include "../libtus/error.hh"
-#include "event_processor.hh"
 #include "plugin.hh"
 
-Plugin::Plugin(const std::string &plugin_path, const ClickHouseConfig& config,
-	       std::atomic<bool> *stop_flag)
+inline PluginConfigApi
+make_plugin_config_api(const PluginConfig &cfg)
 {
-	handle_ = dlopen(plugin_path.c_str(),
+	PluginConfigApi c_cfg{};
+
+	c_cfg.host       = cfg.host.c_str();
+	c_cfg.port       = cfg.port;
+	c_cfg.db_name    = cfg.db_name.c_str();
+	c_cfg.table_name = cfg.table_name.c_str();
+
+	c_cfg.user       = cfg.user ? cfg.user->c_str() : nullptr;
+	c_cfg.password   = cfg.password ? cfg.password->c_str() : nullptr;
+
+	c_cfg.max_events = cfg.max_events;
+
+	return c_cfg;
+}
+
+/**
+ * RAII wrapper for a processor instance created by a plugin.
+ *
+ * Manages a processor handle obtained from TfwLoggerPluginApi and ensures
+ * that it is properly destroyed via `api_->destroy_processor(handle_)` when the
+ * object goes out of scope.
+ *
+ * The class also safely forwards (reinvokes) plugin API functions, passing the
+ * stored handle back to the plugin as needed.
+ */
+class ProcessorHandle final: public IPluginProcessor
+{
+public:
+	ProcessorHandle(TfwLoggerPluginApi *api, void *processor)
+		: api_(api), processor_(processor)
+	{
+		if (!api || !processor || !api_->has_stopped || !api_->request_stop
+		         || !api_->consume || !api_->send)
+			throw tus::Except("Plugin api is not fully presented");
+	}
+
+	~ProcessorHandle() override
+	{
+		if (api_->destroy_processor) {
+			api_->destroy_processor(processor_);
+			processor_ = nullptr;
+		}
+	}
+
+	ProcessorHandle(const ProcessorHandle&) = delete;
+	ProcessorHandle& operator=(const ProcessorHandle&) = delete;
+
+	ProcessorHandle(ProcessorHandle &&other) noexcept
+		: api_(other.api_), processor_(other.processor_)
+	{
+		other.processor_ = nullptr;
+	}
+
+	ProcessorHandle& operator=(ProcessorHandle &&other) noexcept
+	{
+		if (this != &other) {
+			if (api_->destroy_processor)
+				api_->destroy_processor(processor_);
+			api_ = other.api_;
+			processor_ = other.processor_;
+			other.processor_ = nullptr;
+		}
+		return *this;
+	}
+
+public:
+	virtual int has_stopped() noexcept override
+	{
+		assert(api_->has_stopped);
+		return api_->has_stopped(processor_);
+	}
+
+	virtual void request_stop() noexcept override
+	{
+		assert(api_->request_stop);
+		return api_->request_stop(processor_);
+	}
+
+	virtual int consume(size_t *cnt) noexcept override
+	{
+		assert(api_->consume);
+		return api_->consume(processor_, cnt);
+	}
+
+	virtual int send(bool force) noexcept override
+	{
+		assert(api_->send);
+		return api_->send(processor_, force);
+	}
+
+	virtual std::string_view name() const noexcept override { return api_->name; };
+
+private:
+	TfwLoggerPluginApi*	api_;
+	void*			processor_;
+};
+
+Plugin::Plugin(const std::string &plugin_path, const PluginConfig &config,
+	StopFlag *stop_flag)
+	: plugin_config_(config)
+	, plugin_config_api_(make_plugin_config_api(plugin_config_))
+{
+	//TODO: split to several minor functions: load_library, get_plugin_api, init_plugin
+	void * handle = dlopen(plugin_path.c_str(),
 			 RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND);
-	if (!handle_)
+	if (!handle)
 		throw tus::Except("Failed to load plugin {}: {}",
 				  plugin_path, dlerror());
+	handle_ = DlHandle(handle);
 
 	auto get_api = reinterpret_cast<TfwLoggerPluginGetApiFunc>(
-		dlsym(handle_, "get_plugin_api"));
+		dlsym(handle_.get(), "get_plugin_api"));
 
-	if (!get_api) {
-		dlclose(handle_);
-		handle_ = nullptr;
+	if (!get_api)
 		throw tus::Except("Plugin {} missing get_plugin_api function",
 				  plugin_path);
-	}
 
 	api_ = get_api();
-	if (!api_ || api_->version != TFW_PLUGIN_VERSION) {
-		dlclose(handle_);
-		handle_ = nullptr;
-		api_ = nullptr;
+	if (!api_ || api_->version != TFW_PLUGIN_VERSION)
 		throw tus::Except("Plugin {} version mismatch", plugin_path);
-	}
 
 	spdlog::info("Loaded plugin: {} ({})", api_->name, plugin_path);
 
-	if (api_->name)
-		name_ = api_->name;
-
 	if (api_->init) {
-		int ret = api_->init(&config, stop_flag);
-		if (ret < 0) {
-			cleanup();
+		int ret = api_->init(stop_flag);
+		if (ret < 0)
 			throw tus::Except("Plugin {} init failed with code {}",
-					  name_, ret);
-		}
-
-		initialized_ = true;
+					  api_->name, ret);
 		spdlog::info("Plugin {} initialized", api_->name);
 	}
 }
 
 Plugin::~Plugin()
 {
-	cleanup();
+	shutdown_plugin();
 }
 
-Plugin::Plugin(Plugin&& other) noexcept
-	: handle_(other.handle_)
+Plugin::Plugin(Plugin &&other) noexcept
+	: plugin_config_(std::move(other.plugin_config_))
+	, plugin_config_api_(make_plugin_config_api(plugin_config_))
+	, handle_(std::move(other.handle_))
 	, api_(other.api_)
-	, initialized_(other.initialized_)
 {
-	other.handle_ = nullptr;
 	other.api_ = nullptr;
-	other.initialized_ = false;
 }
 
 Plugin&
-Plugin::operator=(Plugin&& other) noexcept
+Plugin::operator=(Plugin &&other) noexcept
 {
 	if (this != &other) {
-		handle_ = other.handle_;
-		api_ = other.api_;
-		initialized_ = other.initialized_;
-
-		other.handle_ = nullptr;
-		other.api_ = nullptr;
-		other.initialized_ = false;
+		plugin_config_ = std::move(other.plugin_config_);
+		plugin_config_api_ = make_plugin_config_api(plugin_config_);
+		handle_ = std::move(other.handle_);
+		api_ = std::move(other.api_);
 	}
 
 	return *this;
 }
 
 void
-Plugin::cleanup()
+Plugin::shutdown_plugin()
 {
-	if (initialized_ && api_ && api_->done) {
+	if (api_ && api_->done) {
 		api_->done();
-		spdlog::info("Plugin {} cleaned up", name_);
+		spdlog::info("Plugin {} cleaned up", api_->name);
 	}
-
-	if (handle_) {
-		dlclose(handle_);
-		handle_ = nullptr;
-	}
-
-	api_ = nullptr;
-	initialized_ = false;
 }
 
-EventProcessorPtr Plugin::create_processor(unsigned processor_id)
+std::unique_ptr<IPluginProcessor>
+Plugin::create_processor(unsigned cpu_id) const
 {
 	if (!api_ || !api_->create_processor)
-		throw tus::Except("Plugin {} not properly loaded", name_);
+		throw tus::Except("Plugin {} not properly loaded", api_->name);
 
-	void* raw_processor = api_->create_processor(processor_id);
+	void* raw_processor = api_->create_processor(&plugin_config_api_, cpu_id);
 	if (!raw_processor)
 		throw tus::Except("Plugin {} failed to create processor",
-				  name_);
+				  api_->name);
 
-	EventProcessor* processor = static_cast<EventProcessor*>(raw_processor);
+	return std::make_unique<ProcessorHandle>(api_, raw_processor);
+}
 
-	return EventProcessorPtr(processor, EventProcessorDeleter(api_));
+
+void
+Plugin::DlCloser::operator()(void *h) const noexcept
+{
+	if (h)
+		dlclose(h);
 }

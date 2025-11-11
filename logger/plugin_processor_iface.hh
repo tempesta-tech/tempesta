@@ -20,29 +20,33 @@
 
 #pragma once
 
-#include <filesystem>
-#include <optional>
+class IPluginProcessor
+{
+public:
+	virtual ~IPluginProcessor() = default;
 
-#include <boost/property_tree/ptree_fwd.hpp>
+public:
+	/**
+	 * Returns 1 if the processor has stopped, 0 if it is active.
+	 */
+	virtual int has_stopped() noexcept = 0;
 
-#include "plugin_config.hh"
+	/**
+	 * Requests the processor to stop as soon as possible.
+	 */
+	virtual void request_stop() noexcept = 0;
 
-namespace fs = std::filesystem;
+	/**
+	 * Processes available data. Returns 0 on success (writes consumed count
+	 * to *cnt), or a non-zero TUS error code on failure.
+	 */
+	virtual int consume(size_t *cnt) noexcept = 0;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<std::string> access_log_plugin_path;
-	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<PluginConfig> clickhouse_mmap;
-	std::optional<PluginConfig> clickhouse_xfw;
+	/**
+	 * Performs background maintenance work.
+	 * Returns 0 on success, or a non-zero TUS error code on failure.
+	 */
+	virtual int send(bool force = false) noexcept = 0;
 
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
-
-	void
-	validate() const;
-
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+	virtual std::string_view name() const noexcept = 0;
 };

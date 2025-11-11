@@ -31,18 +31,13 @@
 #include <vector>
 
 #include <boost/program_options.hpp>
-#include <clickhouse/base/socket.h>
-#include <clickhouse/client.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
-#include "../fw/access_log.h"
 #include "../libtus/pidfile.hh"
 #include "../libtus/error.hh"
-#include "clickhouse.hh"
 #include "plugin.hh"
 #include "tfw_logger_config.hh"
-#include "access_log_plugin.hh"
 
 namespace po = boost::program_options;
 
@@ -56,8 +51,6 @@ constexpr std::chrono::seconds wait_for_dev{1};
 
 std::atomic<bool> stop_flag{false};
 TfwLoggerConfig config;
-std::optional<Plugin> mmap_plugin;
-std::optional<Plugin> xfw_plugin;
 
 /**
  * Command line options structure
@@ -89,9 +82,12 @@ struct ParsedOptions {
 	std::optional<fs::path>		log_path;
 };
 
+static const bool FORCE = true;
+static const bool NOT_FORCE = false;
+
 // All processors must be non-null
 void
-event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
+event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 {
 	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
 	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
@@ -112,55 +108,54 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 	constexpr size_t POLL_N = 10;
 	constexpr std::chrono::milliseconds delay(1);
 
-	// TODO #2399: this must be split.
-	//
-	// The function must be using a unified RB API, e.g. an
-	// abstract class for all ring buffers. Any ring buffer may annonce stop
-	// and we have to stop operation on it and only on it and vise versa.
-	//
-	// All the ring buffers must be called in a loop.
-	//
-	// TfwClickhouse keeps Block and Client instances, so it should be unique
-	// per an event type (access, security, and xFW).
-	//
-	// All the clickhouses must be flushed on a loop.
+	std::vector<std::unique_ptr<IPluginProcessor>> inactive_processors;
 	for (size_t tries = 0; ; ) {
-		bool stop_requested = false;
-		for (const auto& processor : processors) {
-			if (processor->stop_requested())
-				stop_requested = true;
-			if (stop_flag.load(std::memory_order_acquire)) [[unlikely]]
-				// Notify the processor that the daemong is done
-				// now no new events will be pushed to the buffer
-				// and we can process the rest of the events.
+		if (stop_flag.load(std::memory_order_acquire)) [[unlikely]] {
+			// Notify the processors that the daemong is done
+			// now no new events will be pushed to the buffer
+			// and we can process the rest of the events.
+			for (auto& processor : processors)
 				processor->request_stop();
 		}
 
 		bool consumed_something = false;
-		for (const auto& processor : processors) {
-			auto result = processor->consume_event();
-			if (!result) [[unlikely]] {
+		for (auto it = processors.begin(); it != processors.end(); ) {
+			auto& processor = *it;
+			size_t consumed = 0;
+			const int err = processor->consume(&consumed);
+			if (err) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
-					      processor->name,
-					      result.error().message());
+					processor->name(),
+					tus::make_error_code_from_int(err).message());
+       				++it;
 				continue;
 			}
 
-			if (result.value()) {
+			if (consumed) {
 				consumed_something = true;
+				++it;
+			}
+			else {
+				// Some of the processors finished their job
+				// and we already read all their data.
+				if (processor->has_stopped()) {
+        				inactive_processors.push_back(std::move(*it));
+					it = processors.erase(it);
+				} else {
+					++it;
+				}
 			}
 		}
 
 		if (consumed_something) [[likely]] {
 			tries = 0;
+			for (auto& processor : processors)
+				processor->send(NOT_FORCE);
 			continue;
 		}
 
-		if (stop_requested) {
-			// The kernel notified us that we have to stop and we
-			// read all the data - propage the stop flag to the main
-			// thread loop and exit.
-			spdlog::info("Shutdown notification");
+		if (processors.empty()) {
+			spdlog::info("All processors finished their jobs, nothing to do");
 			stop_flag.store(true, std::memory_order_release);
 			return;
 		}
@@ -173,7 +168,7 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 		else {
 			// There were nothing to do for POLL_Nms and probably
 			// the system is just idle - good time to flush all
-			// clollected data:
+			// collected data:
 			// 1. we have no work now, so it's a good time to do
 			//    some housekeeping;
 			// 2. free resources for possible spike - we likely miss
@@ -182,8 +177,13 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 			//    if we have a stream of events, we flush on full
 			//    buffer, once we get a real time delay, we flush to
 			//    the database.
-			for (const auto& processor : processors)
-				processor->make_background_work();
+			for (auto& processor : processors)
+				processor->send(FORCE);
+			// We don't have any indication that the processor
+			// can be removed at all. During system idle time,
+			// it's fine if we do some extra work.
+			for (auto& processor : inactive_processors)
+				processor->send(FORCE);
 
 			tries = 0;
 		}
@@ -193,11 +193,11 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 }
 
 void
-run_thread(const unsigned ncpu) noexcept
+run_thread(const unsigned worker_id, const std::vector<Plugin>& plugins) noexcept
 {
 	cpu_set_t cpuset;
 	int r;
-	unsigned cpu_id = ncpu;
+	unsigned cpu_id = worker_id;
 
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu_id, &cpuset);
@@ -208,27 +208,29 @@ run_thread(const unsigned ncpu) noexcept
 		stop_flag.store(true, std::memory_order_release);
 		return;
 	}
-	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
+	spdlog::debug("Worker {} bound to CPU {}", worker_id, cpu_id);
 
-	std::vector<EventProcessorPtr> processors;
+	std::vector<std::unique_ptr<IPluginProcessor>> processors;
+	try {
+		processors.reserve(plugins.size());
 
-	if (mmap_plugin) {
-		auto processor = mmap_plugin->create_processor(ncpu);
-		cpu_id = (static_cast<AccessLogProcessor *>(
-				processor.get()))->get_cpu_id();
-		if (processor)
+		for (const auto& plugin : plugins) {
+			auto processor = plugin.create_processor(cpu_id);
 			processors.emplace_back(std::move(processor));
+		}
+	}
+	catch(const tus::Exception &e) {
+		spdlog::error("Worker {} stopped: {}", worker_id, e.what());
+		return;
+	}
+	catch(std::bad_alloc& e) {
+		spdlog::error("Worker {} stopped: {}", worker_id, e.what());
+		return;
 	}
 
-	if (xfw_plugin) {
-		auto processor = xfw_plugin->create_processor(ncpu);
-		if (processor)
-			processors.emplace_back(std::move(processor));
-	}
+	event_loop(std::move(processors));
 
-	event_loop(processors);
-
-	spdlog::debug("Worker {} stopped", ncpu);
+	spdlog::debug("Worker {} stopped", worker_id);
 }
 
 // Signal handling
@@ -480,7 +482,7 @@ try {
 	// Create log directory if needed
 	fs::create_directories(config.log_path.parent_path());
 
-	auto logger = spdlog::basic_logger_mt("access_logger",
+	auto logger = spdlog::basic_logger_mt("event_logger",
 					      config.log_path.string());
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::info);
@@ -499,41 +501,46 @@ catch (const spdlog::spdlog_ex &ex) {
 }
 
 void
-run_main_loop()
+execute_workers() noexcept(false)
 {
-	try {
-		if (config.clickhouse_mmap.has_value()) {
-			if (!config.access_log_plugin_path.has_value()) {
-				spdlog::error("Empty path for access log plugin");
-				return;
-			}
-			std::string plugin_path =
-				config.access_log_plugin_path.value();
-			mmap_plugin.emplace(plugin_path,
-					    *config.clickhouse_mmap,
-					    &stop_flag);
-			spdlog::info("Loaded mmap plugin from: {}", plugin_path);
+	StopFlag fstop{
+		.stop_requested = []() -> int {
+			return stop_flag.load(std::memory_order_relaxed);
+		},
+		.request_stop   = []() {
+			stop_flag.store(1, std::memory_order_relaxed);
 		}
+	};
 
-		if (config.clickhouse_xfw.has_value()) {
-			if (!config.xfw_events_plugin_path.has_value()) {
-				spdlog::error("Empty path for xfw events plugin");
-				return;
-			}
-			std::string plugin_path =
-				config.xfw_events_plugin_path.value();
-			xfw_plugin.emplace(plugin_path,
-					   *config.clickhouse_xfw,
-					   &stop_flag);
-			spdlog::info("Loaded xfw plugin from: {}", plugin_path);
-		}
-
-		if (!mmap_plugin && !xfw_plugin) {
-			spdlog::error("No plugins configured");
+	std::vector<Plugin> plugins;
+	plugins.reserve(2);
+	//TODO: we don't need to separate different types of plugin in config
+	if (config.clickhouse_mmap.has_value()) {
+		if (!config.access_log_plugin_path.has_value()) {
+			spdlog::error("Empty path for access log plugin");
 			return;
 		}
-	} catch (const std::exception& e) {
-		spdlog::error("Failed to initialize plugins: {}", e.what());
+		const std::string plugin_path = config.access_log_plugin_path.value();
+		plugins.emplace_back(plugin_path,
+				     *config.clickhouse_mmap,
+				     &fstop);
+		spdlog::info("Loaded mmap plugin from: {}", plugin_path);
+	}
+
+	if (config.clickhouse_xfw.has_value()) {
+		if (!config.xfw_events_plugin_path.has_value()) {
+			spdlog::error("Empty path for xfw events plugin");
+			return;
+		}
+		const std::string plugin_path =	config.xfw_events_plugin_path.value();
+		plugins.emplace_back(plugin_path,
+				     *config.clickhouse_xfw,
+				     &fstop);
+		spdlog::info("Loaded xfw plugin from: {}", plugin_path);
+	}
+
+	if (plugins.empty()) {
+		spdlog::error("No plugins configured");
 		return;
 	}
 
@@ -543,9 +550,10 @@ run_main_loop()
 	 * is more reliable on NUMA systems and machines with 100+ CPUs while
 	 * hardware_concurrency() is just a "hint".
 	 */
-	auto cpu_count = static_cast<size_t>(sysconf(_SC_NPROCESSORS_ONLN));
-	if (cpu_count <= 0)
+	long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+	if (nprocs < 1)
 		throw tus::Except("Cannot determine CPU count");
+	size_t cpu_count = static_cast<size_t>(nprocs);
 
 	spdlog::info("Using {} CPU(s)", cpu_count);
 	spdlog::info("Starting {} worker threads", cpu_count);
@@ -553,7 +561,7 @@ run_main_loop()
 	// Start worker threads
 	std::vector<std::thread> threads;
 	for (size_t i = 0; i < cpu_count; ++i)
-		threads.emplace_back(run_thread, static_cast<unsigned>(i));
+		threads.emplace_back(run_thread, static_cast<unsigned>(i), std::cref(plugins));
 
 	spdlog::info("All {} worker threads started", cpu_count);
 
@@ -617,8 +625,8 @@ try {
 
 	spdlog::info("Daemon started");
 
-	// Run main processing loop
-	run_main_loop();
+	// Start workers and wait for them to finish
+	execute_workers();
 
 	spdlog::info("Tempesta FW Logger stopped");
 

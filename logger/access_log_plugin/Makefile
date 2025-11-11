@@ -16,20 +16,22 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-# We don't need to build clickhouse - it would be build by access_log_plugin as .a
-SUBDIRS := access_log_plugin
+CLICKHOUSE_DIR := ../clickhouse
+
+LDFLAGS += $(shell pkgconf --libs spdlog)
+LDFLAGS += -rdynamic -ldl
 
 CXX := g++
-LDFLAGS := -lfmt -lboost_program_options -lboost_filesystem
-LDFLAGS += -ltus -L ../libtus -Wl,-rpath,'$$ORIGIN/../lib:$$ORIGIN/../libtus'
-LDFLAGS += $(shell pkgconf -libs spdlog)
-LDFLAGS += -rdynamic -ldl
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
-	    -DPAGE_SIZE=$(PAGE_SIZE)
+	    -DPAGE_SIZE=$(PAGE_SIZE) -fPIC
+
 CXXFLAGS += $(shell pkgconf -cflags spdlog)
+CXXFLAGS += -I $(CLICKHOUSE_DIR)/clickhouse-cpp
+CXXFLAGS += -I $(CLICKHOUSE_DIR)/clickhouse-cpp/contrib/absl
+
 OBJS := $(patsubst %.cc, %.o, $(wildcard *.cc))
-TARGET := tfw_logger
+TARGET := access_log.so
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 0)
@@ -38,22 +40,24 @@ else
 	CXXFLAGS += -DDEBUG=1 -O0 -ggdb3
 endif
 
-all:
-	@for dir in $(SUBDIRS); do	\
-		$(MAKE) -C $$dir;	\
-	done
-	$(MAKE) $(TARGET)
+all: clickhouse $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+# We don't want to worry about compatibility, so just link ClickHouse statically.
+# But we need to pass CXXFLAGS to build clickhouse with our building flags.
+clickhouse:
+	$(MAKE) -C $(CLICKHOUSE_DIR) TARGET_DIR=$(abspath .) CXXFLAGS="$(CXXFLAGS)" -j$(shell nproc)
 
-%.o: %.cc
+$(TARGET): clickhouse $(OBJS)
+	$(CXX) -shared -fPIC $(CXXFLAGS) -o $@ $(OBJS) \
+		-Wl,--whole-archive,tfw_clickhouse.a,--no-whole-archive $(LDFLAGS)
+
+%.o: %.cc clickhouse
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-clean:
-	@for dir in $(SUBDIRS); do	\
-		$(MAKE) -C $$dir clean;	\
-	done
+clickhouse_clean:
+	$(MAKE) -C $(CLICKHOUSE_DIR) clean TARGET_DIR=$(abspath .)
+
+clean: clickhouse_clean
 	rm -f $(OBJS) $(TARGET)
 
-.PHONY: all clean $(SUBDIRS)
+.PHONY: all clean clickhouse clickhouse_clean

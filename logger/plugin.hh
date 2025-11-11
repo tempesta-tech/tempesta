@@ -24,31 +24,20 @@
 #include <memory>
 
 #include "plugin_interface.hh"
-#include "clickhouse_config.hh"
+#include "plugin_config.hh"
+#include "plugin_processor_iface.hh"
 
-class EventProcessor;
-
-class EventProcessorDeleter {
-public:
-	explicit EventProcessorDeleter(TfwLoggerPluginApi* api): api_(api) {}
-
-	void operator()(EventProcessor* processor) const {
-		if (processor && api_ && api_->destroy_processor) {
-			api_->destroy_processor(static_cast<void *>(processor));
-		}
-	}
-
-private:
-	TfwLoggerPluginApi* api_;
-};
-
-using EventProcessorPtr = std::unique_ptr<EventProcessor, EventProcessorDeleter>;
-
+/**
+ * Implementation of the Plugin class — a safe dynamic plugin loader. Responsible for:
+ *  - Dynamic loading of shared libraries (.so) using dlopen();
+ *  - Retrieval of the exported function `get_plugin_api()` via dlsym();
+ *  - Initialization and cleanup of the plugin API;
+ */
 class Plugin {
 public:
 	explicit Plugin(const std::string &plugin_path,
-			const ClickHouseConfig& config,
-			std::atomic<bool> *stop_flag);
+			const PluginConfig &config,
+			StopFlag *stop_flag);
 
 	Plugin(const Plugin&) = delete;
 	Plugin& operator=(const Plugin&) = delete;
@@ -58,16 +47,23 @@ public:
 
 	~Plugin();
 
-	EventProcessorPtr create_processor(unsigned processor_id);
-
-	const std::string& get_name() const { return name_; };
-
-private:
-	void cleanup();
+public:
+	std::unique_ptr<IPluginProcessor>
+	create_processor(unsigned cpu_id) const;
 
 private:
-	void* handle_ = nullptr;
-	TfwLoggerPluginApi* api_ = nullptr;
-	bool initialized_ = false;
-	std::string name_ = "unknown";
+	void shutdown_plugin();
+
+private:
+	struct DlCloser
+	{
+		void operator()(void *h) const noexcept;
+	};
+	using DlHandle = std::unique_ptr<void, DlCloser>;
+
+private:
+	PluginConfig		plugin_config_;
+	PluginConfigApi		plugin_config_api_;
+	DlHandle		handle_;
+	TfwLoggerPluginApi*	api_ = nullptr;
 };
