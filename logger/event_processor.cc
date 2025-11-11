@@ -57,12 +57,12 @@ EventProcessor::flush(bool force) noexcept
 }
 
 tus::Error<bool>
-EventProcessor::consume_event()
+EventProcessor::consume()
 {
 	if (!handle_reconnection())
 		return tus::error(tus::Err::DB_CLT_TRANSIENT);
 
-	return do_consume_event();
+	return do_consume();
 }
 
 bool

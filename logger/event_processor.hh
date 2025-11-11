@@ -35,10 +35,14 @@ public:
 	EventProcessor(const EventProcessor&) = delete;
 	EventProcessor& operator=(const EventProcessor&) = delete;
 
+public:
 	bool make_background_work() noexcept;
 	[[nodiscard]] bool flush(bool force = false) noexcept;
-	virtual tus::Error<bool> consume_event();
 
+public:
+	virtual tus::Error<bool> consume();
+
+public:
 	virtual void request_stop() noexcept = 0;
 	virtual bool stop_requested() noexcept = 0;
 
@@ -47,7 +51,7 @@ public:
 	const char	*name;
 
 protected:
-	virtual tus::Error<bool> do_consume_event() = 0;
+	virtual tus::Error<bool> do_consume() = 0;
 
 protected:
 	std::shared_ptr<TfwClickhouse> db_;

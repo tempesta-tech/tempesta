@@ -274,7 +274,7 @@ AccessLogProcessor::~AccessLogProcessor()
 }
 
 tus::Error<bool>
-AccessLogProcessor::do_consume_event()
+AccessLogProcessor::do_consume()
 {
 	uint64_t head, tail;
 
