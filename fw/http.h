@@ -399,6 +399,7 @@ typedef struct {
  */
 struct tfw_http_req_t {
 	TFW_HTTP_MSG_COMMON;
+	TfwSrvConn		*fwd_conn;
 	TfwVhost		*vhost;
 	TfwLocation		*location;
 	TfwHttpSess		*sess;

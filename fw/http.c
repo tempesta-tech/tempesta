@@ -999,7 +999,8 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		 * Check that the paired response has been destroyed before
 		 * the request.
 		 */
-		WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && hm->pair);
+		WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
+			     && (hm->pair || ((TfwHttpReq *)hm)->fwd_conn));
 		tfw_http_conn_msg_unlink_conn(hm);
 	}
 
@@ -1020,6 +1021,7 @@ tfw_http_conn_req_clean(TfwHttpReq *req)
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 		if (likely(!list_empty(&req->msg.seq_list)))
 			list_del_init(&req->msg.seq_list);
+		req->fwd_conn = NULL;
 		spin_unlock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -1470,6 +1472,7 @@ static inline void
 tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
+	req->fwd_conn = srv_conn;
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
 		tfw_http_req_nip_enlist(srv_conn, req);
@@ -1484,8 +1487,9 @@ static inline void
 tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	tfw_http_req_nip_delist(srv_conn, req);
-	list_del_init(&req->fwd_list);
 	srv_conn->qsize--;
+	req->fwd_conn = NULL;
+	list_del_init(&req->fwd_list);
 }
 
 /*
@@ -1931,6 +1935,7 @@ tfw_http_req_zap_error(struct list_head *eq)
 		return;
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
+		BUG_ON(req->fwd_conn);
 		list_del_init(&req->fwd_list);
 		if ((TFW_MSG_H2(req) && req->stream)
 		    || (!TFW_MSG_H2(req)
