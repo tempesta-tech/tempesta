@@ -49,7 +49,7 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_ADDR>
 	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_ADDR>
 {
 	using ColType = ch::ColumnIPv6;
-	using ValType = in6_addr;
+	using ValType = struct in6_addr;
 };
 
 template<>
@@ -148,6 +148,7 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
 	using ValType = uint64_t;
 };
 
+//TODO: fix description
 /**
  * Class for sending records to a Clickhouse database.
  *
@@ -239,9 +240,5 @@ TfwClickhouse::append(
 	using Traits   = TfwBinLogTypeTraits<FieldType>;
 	using ColType  = typename Traits::ColType;
 
-	if constexpr (std::is_same_v<ColType, ch::ColumnString>)
-		block_[Traits::index]->
-			template As<ColType>()->Append(std::string(value));
-	else
-		block_[Traits::index]->template As<ColType>()->Append(value);
+	block_[Traits::index]->template As<ColType>()->Append(value);
 }
