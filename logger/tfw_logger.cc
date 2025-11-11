@@ -146,9 +146,8 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 				continue;
 			}
 
-			if (result.value()) {
+			if (result.value())
 				consumed_something = true;
-			}
 		}
 
 		if (consumed_something) [[likely]] {
