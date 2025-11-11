@@ -58,7 +58,7 @@ protected:
 TEST_F(ConfigTest, DefaultValues)
 {
 	TfwLoggerConfig config;
-	config.clickhouse_mmap = ClickHouseConfig();
+	config.clickhouse_mmap = PluginConfig();
 
 	// Test default values
 	EXPECT_TRUE(config.log_path.empty()); // no default set initially
@@ -136,7 +136,7 @@ TEST_F(ConfigTest, InvalidJSON)
 {
 	auto config_path = temp_dir / "invalid.json";
 	write_config(config_path, R"({
-		"invalid": 
+		"invalid":
 	})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
@@ -252,7 +252,7 @@ TEST_F(ConfigTest, FileWithoutClickHouseSection)
 	write_config(config_path, R"({})");
 
 	auto config = TfwLoggerConfig::load_from_file(config_path);
-	config->clickhouse_mmap = ClickHouseConfig();
+	config->clickhouse_mmap = PluginConfig();
 	ASSERT_TRUE(config.has_value());
 	EXPECT_NO_THROW(config->validate());
 
@@ -279,7 +279,7 @@ TEST_F(ConfigTest, TableNameValidation_ValidNames)
 	};
 
 	for (const auto& table_name : valid_names) {
-		auto config_path = temp_dir / ("valid_" + 
+		auto config_path = temp_dir / ("valid_" +
 			std::to_string(std::hash<std::string>{}(table_name)) + ".json");
 		write_config(config_path, R"({
 			"access_log": {
@@ -332,7 +332,7 @@ TEST_F(ConfigTest, TableNameValidation_InvalidCharacters)
 	};
 
 	for (const auto& table_name : invalid_names) {
-		auto config_path = temp_dir / ("invalid_" + 
+		auto config_path = temp_dir / ("invalid_" +
 			std::to_string(std::hash<std::string>{}(table_name)) + ".json");
 		write_config(config_path, R"({
 			"access_log": {
