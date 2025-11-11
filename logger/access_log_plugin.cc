@@ -55,8 +55,10 @@ get_buffer_size(const int fd)
 }
 
 template <TfwBinLogFields FieldType>
+requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ValType> ||
+	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ValType, struct in6_addr>
 void
-read_int(TfwClickhouse &db, const auto *event, std::span<const char> &data)
+read_field(TfwClickhouse &db, const auto *event, std::span<const char> &data)
 {
 	using Traits  = TfwBinLogTypeTraits<FieldType>;
 	using ValType = typename Traits::ValType;
@@ -78,8 +80,9 @@ read_int(TfwClickhouse &db, const auto *event, std::span<const char> &data)
 }
 
 template <TfwBinLogFields FieldType>
+requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ValType, std::string_view>
 void
-read_str(TfwClickhouse &db, const auto *event, std::span<const char> &data)
+read_field(TfwClickhouse &db, const auto *event, std::span<const char> &data)
 {
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
 		constexpr int len_size = sizeof(uint16_t);
@@ -111,21 +114,21 @@ read_access_log_event(TfwClickhouse &db, std::span<const char> data)
 
 	db.append_timestamp(ev->timestamp);
 
-	read_int<TFW_MMAP_LOG_ADDR>(db, ev, data);
-	read_int<TFW_MMAP_LOG_METHOD>(db, ev, data);
-	read_int<TFW_MMAP_LOG_VERSION>(db, ev, data);
-	read_int<TFW_MMAP_LOG_STATUS>(db, ev, data);
-	read_int<TFW_MMAP_LOG_RESP_CONT_LEN>(db, ev, data);
-	read_int<TFW_MMAP_LOG_RESP_TIME>(db, ev, data);
+	read_field<TFW_MMAP_LOG_ADDR>(db, ev, data);
+	read_field<TFW_MMAP_LOG_METHOD>(db, ev, data);
+	read_field<TFW_MMAP_LOG_VERSION>(db, ev, data);
+	read_field<TFW_MMAP_LOG_STATUS>(db, ev, data);
+	read_field<TFW_MMAP_LOG_RESP_CONT_LEN>(db, ev, data);
+	read_field<TFW_MMAP_LOG_RESP_TIME>(db, ev, data);
 
-	read_str<TFW_MMAP_LOG_VHOST>(db, ev, data);
-	read_str<TFW_MMAP_LOG_URI>(db, ev, data);
-	read_str<TFW_MMAP_LOG_REFERER>(db, ev, data);
-	read_str<TFW_MMAP_LOG_USER_AGENT>(db, ev, data);
+	read_field<TFW_MMAP_LOG_VHOST>(db, ev, data);
+	read_field<TFW_MMAP_LOG_URI>(db, ev, data);
+	read_field<TFW_MMAP_LOG_REFERER>(db, ev, data);
+	read_field<TFW_MMAP_LOG_USER_AGENT>(db, ev, data);
 
-	read_int<TFW_MMAP_LOG_TFT>(db, ev, data);
-	read_int<TFW_MMAP_LOG_TFH>(db, ev, data);
-	read_int<TFW_MMAP_LOG_DROPPED>(db, ev, data);
+	read_field<TFW_MMAP_LOG_TFT>(db, ev, data);
+	read_field<TFW_MMAP_LOG_TFH>(db, ev, data);
+	read_field<TFW_MMAP_LOG_DROPPED>(db, ev, data);
 
 	return data.data() - reinterpret_cast<const char*>(ev);
 }
