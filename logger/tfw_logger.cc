@@ -138,7 +138,7 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 
 		bool consumed_something = false;
 		for (const auto& processor : processors) {
-			auto result = processor->consume_event();
+			auto result = processor->consume();
 			if (!result) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
 					      processor->name,

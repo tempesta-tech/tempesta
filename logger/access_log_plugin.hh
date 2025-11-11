@@ -35,7 +35,7 @@ public:
 	unsigned int get_cpu_id() const noexcept;
 
 private:
-	tus::Error<bool> do_consume_event() override;
+	tus::Error<bool> do_consume() override;
 
 private:
 	int	     device_fd_;

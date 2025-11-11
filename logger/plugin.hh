@@ -58,6 +58,7 @@ public:
 
 	~Plugin();
 
+public:
 	EventProcessorPtr create_processor(unsigned processor_id);
 
 	const std::string& get_name() const { return name_; };
