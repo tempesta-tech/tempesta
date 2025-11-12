@@ -56,8 +56,6 @@ constexpr std::chrono::seconds wait_for_dev{1};
 
 std::atomic<bool> stop_flag{false};
 TfwLoggerConfig config;
-std::optional<Plugin> mmap_plugin;
-std::optional<Plugin> xfw_plugin;
 
 /**
  * Command line options structure
@@ -91,7 +89,7 @@ struct ParsedOptions {
 
 // All processors must be non-null
 void
-event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
+event_loop(std::vector<ProcessorHandle> &processors) noexcept
 {
 	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
 	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
@@ -127,21 +125,21 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 	for (size_t tries = 0; ; ) {
 		bool stop_requested = false;
 		for (const auto& processor : processors) {
-			if (processor->stop_requested())
+			if (processor.stop_requested())
 				stop_requested = true;
 			if (stop_flag.load(std::memory_order_acquire)) [[unlikely]]
 				// Notify the processor that the daemong is done
 				// now no new events will be pushed to the buffer
 				// and we can process the rest of the events.
-				processor->request_stop();
+				processor.request_stop();
 		}
 
 		bool consumed_something = false;
-		for (const auto& processor : processors) {
-			auto result = processor->consume();
+		for (auto& processor : processors) {
+			auto result = processor.consume();
 			if (!result) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
-					      processor->name,
+					      processor.name(),
 					      result.error().message());
 				continue;
 			}
@@ -182,8 +180,8 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 			//    if we have a stream of events, we flush on full
 			//    buffer, once we get a real time delay, we flush to
 			//    the database.
-			for (const auto& processor : processors)
-				processor->make_background_work();
+			for (auto& processor : processors)
+				processor.make_background_work();
 
 			tries = 0;
 		}
@@ -193,7 +191,7 @@ event_loop(const std::vector<EventProcessorPtr> &processors) noexcept
 }
 
 void
-run_thread(const unsigned ncpu) noexcept
+run_thread(const unsigned ncpu, const std::vector<Plugin>& plugins) noexcept
 {
 	cpu_set_t cpuset;
 	int r;
@@ -210,20 +208,22 @@ run_thread(const unsigned ncpu) noexcept
 	}
 	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
 
-	std::vector<EventProcessorPtr> processors;
+	std::vector<ProcessorHandle> processors;
+	try {
+		processors.reserve(plugins.size());
 
-	if (mmap_plugin) {
-		auto processor = mmap_plugin->create_processor(ncpu);
-		cpu_id = (static_cast<AccessLogProcessor *>(
-				processor.get()))->get_cpu_id();
-		if (processor)
+		for (const auto& plugin : plugins) {
+			auto processor = plugin.create_processor(ncpu);
 			processors.emplace_back(std::move(processor));
+		}
 	}
-
-	if (xfw_plugin) {
-		auto processor = xfw_plugin->create_processor(ncpu);
-		if (processor)
-			processors.emplace_back(std::move(processor));
+	catch(const tus::Exception &e) {
+		spdlog::error("Worker {} stopped: {}", ncpu, e.what());
+		return;
+	}
+	catch(std::bad_alloc& e) {
+		spdlog::error("Worker {} stopped: {}", ncpu, e.what());
+		return;
 	}
 
 	event_loop(processors);
@@ -499,41 +499,37 @@ catch (const spdlog::spdlog_ex &ex) {
 }
 
 void
-run_main_loop()
+execute_workers() noexcept(false)
 {
-	try {
-		if (config.clickhouse_mmap.has_value()) {
-			if (!config.access_log_plugin_path.has_value()) {
-				spdlog::error("Empty path for access log plugin");
-				return;
-			}
-			std::string plugin_path =
-				config.access_log_plugin_path.value();
-			mmap_plugin.emplace(plugin_path,
-					    *config.clickhouse_mmap,
-					    &stop_flag);
-			spdlog::info("Loaded mmap plugin from: {}", plugin_path);
-		}
-
-		if (config.clickhouse_xfw.has_value()) {
-			if (!config.xfw_events_plugin_path.has_value()) {
-				spdlog::error("Empty path for xfw events plugin");
-				return;
-			}
-			std::string plugin_path =
-				config.xfw_events_plugin_path.value();
-			xfw_plugin.emplace(plugin_path,
-					   *config.clickhouse_xfw,
-					   &stop_flag);
-			spdlog::info("Loaded xfw plugin from: {}", plugin_path);
-		}
-
-		if (!mmap_plugin && !xfw_plugin) {
-			spdlog::error("No plugins configured");
+	std::vector<Plugin> plugins;
+	plugins.reserve(2);
+	//TODO: we don't need to separate different types of plugin in config
+	if (config.clickhouse_mmap.has_value()) {
+		if (!config.access_log_plugin_path.has_value()) {
+			spdlog::error("Empty path for access log plugin");
 			return;
 		}
-	} catch (const std::exception& e) {
-		spdlog::error("Failed to initialize plugins: {}", e.what());
+		const std::string plugin_path = config.access_log_plugin_path.value();
+		plugins.emplace_back(plugin_path,
+				    *config.clickhouse_mmap,
+				    &stop_flag);
+		spdlog::info("Loaded mmap plugin from: {}", plugin_path);
+	}
+
+	if (config.clickhouse_xfw.has_value()) {
+		if (!config.xfw_events_plugin_path.has_value()) {
+			spdlog::error("Empty path for xfw events plugin");
+			return;
+		}
+		const std::string plugin_path =	config.xfw_events_plugin_path.value();
+		plugins.emplace_back(plugin_path,
+				   *config.clickhouse_xfw,
+				   &stop_flag);
+		spdlog::info("Loaded xfw plugin from: {}", plugin_path);
+	}
+
+	if (plugins.empty()) {
+		spdlog::error("No plugins configured");
 		return;
 	}
 
@@ -553,7 +549,7 @@ run_main_loop()
 	// Start worker threads
 	std::vector<std::thread> threads;
 	for (size_t i = 0; i < cpu_count; ++i)
-		threads.emplace_back(run_thread, static_cast<unsigned>(i));
+		threads.emplace_back(run_thread, static_cast<unsigned>(i), std::cref(plugins));
 
 	spdlog::info("All {} worker threads started", cpu_count);
 
@@ -617,8 +613,8 @@ try {
 
 	spdlog::info("Daemon started");
 
-	// Run main processing loop
-	run_main_loop();
+	// Start workers and wait for them to finish
+	execute_workers();
 
 	spdlog::info("Tempesta FW Logger stopped");
 
