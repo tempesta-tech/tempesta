@@ -23,7 +23,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../libtus/error.hh"
-#include "event_processor.hh"
+#include "clickhouse_with_reconnect.hh"
 
 ClickhouseWithReconnection::ClickhouseWithReconnection(
 	std::shared_ptr<TfwClickhouse> db, unsigned processor_id)
@@ -57,7 +57,7 @@ ClickhouseWithReconnection::handle_reconnection()
 	if (!db_->should_attempt_reconnect())
 		return false;
 
-	spdlog::info("Attempting reconnection for processor {}", processor_id);
+	spdlog::info("Attempting reconnection for processor {}", processor_id_);
 
 	db_->last_reconnect_attempt.store(
 		std::chrono::steady_clock::now(),
@@ -69,7 +69,7 @@ ClickhouseWithReconnection::handle_reconnection()
 		db_->needs_reconnect.store(false,
 					   std::memory_order_release);
 		spdlog::info("Reconnection successful for processor {}",
-			     processor_id);
+			     processor_id_);
 		return true;
 	} else {
 		db_->needs_reconnect.store(true,
