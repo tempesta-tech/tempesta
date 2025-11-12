@@ -2935,7 +2935,7 @@ tfw_http_conn_abort(TfwConn *c)
  * the resources.
  */
 static void
-tfw_http_conn_release(TfwConn *conn)
+tfw_http_srv_conn_drop(TfwConn *conn)
 {
 	TfwHttpReq *req, *tmp;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
@@ -2996,11 +2996,9 @@ tfw_http_conn_release(TfwConn *conn)
  * connection threads.
  */
 static void
-tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
+tfw_http_cli_conn_drop(TfwCliConn *cli_conn)
 {
 	TfwHttpReq *req, *tmp_req;
-	TfwHttpResp *resp, *tmp_resp;
-	LIST_HEAD(resp_del_queue);
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
 	T_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
@@ -3029,50 +3027,11 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		smp_mb__before_atomic();
 		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		if (unused) {
-			resp = req->resp;
-
-			/*
-			 * If `resp->conn` is not zero and response keeps the
-			 * last reference to the connection, we can't free
-			 * this response under the `cli_conn->seq_qlock`.
-			 * If response will be freed here, server connection
-			 * will be released here and all requests from
-			 * `fwd_list` will be freed. Such requests are freed
-			 * under the `cli_conn->seq_qlock`, where `cli_conn`
-			 * is a appropriate client connection, which can be
-			 * the same as current `cli_conn`.
-			 */
-			if (!resp->conn
-			    || !__tfw_connection_get_if_last_ref(resp->conn))
-			{
-				tfw_http_resp_pair_free(req);
-			} else {
-				TfwHttpMsg *hmreq = (TfwHttpMsg *)req;
-
-				list_add_tail(&resp->msg.seq_list,
-					      &resp_del_queue);
-				if (req->conn)
-					tfw_http_conn_msg_unlink_conn(hmreq);
-				tfw_http_msg_free(hmreq);
-			 }
-
+			tfw_http_resp_pair_free(req);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
-
-	/*
-	 * TODO #687 Should be removed during reworking current architecture of
-	 * the locking of `seq_queue` in client connections and `fwd_queue`
-	 * in server connection.
-	 */
-	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
-				 msg.seq_list)
-		{
-		tfw_connection_put(resp->conn);
-		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
-		tfw_http_msg_free((TfwHttpMsg *)resp);
-	}
 }
 
 /*
@@ -3087,17 +3046,18 @@ static void
 tfw_http_conn_drop(TfwConn *conn)
 {
 	bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
+	bool sock_clnt_conn = TFW_CONN_TYPE(conn) & Conn_Clnt;
 
 	T_DBG3("%s: conn=[%px]\n", __func__, conn);
 
-	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
+	if (sock_clnt_conn) {
 		if (h2_mode) {
 			TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
 
 			if (ctx)
 				tfw_h2_conn_streams_cleanup(ctx);
 		} else {
-			tfw_http_conn_cli_drop((TfwCliConn *)conn);
+			tfw_http_cli_conn_drop((TfwCliConn *)conn);
 		}
 	}
 	else if (conn->stream.msg) { /* server connection */
@@ -3107,6 +3067,9 @@ tfw_http_conn_drop(TfwConn *conn)
 
 	if (!h2_mode)
 		tfw_http_conn_msg_free((TfwHttpMsg *)conn->stream.msg);
+
+	if (!sock_clnt_conn)
+		tfw_http_srv_conn_drop(conn);
 }
 
 /*
@@ -7823,7 +7786,6 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_close		= tfw_http_conn_close,
 	.conn_abort		= tfw_http_conn_abort,
 	.conn_drop		= tfw_http_conn_drop,
-	.conn_release		= tfw_http_conn_release,
 	.conn_send		= tfw_http_conn_send,
 	.conn_recv_finish	= tfw_http_conn_recv_finish,
 };

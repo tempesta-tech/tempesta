@@ -180,7 +180,6 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
-	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
 	 * connect attempt. In that case no connection has been
@@ -525,13 +524,6 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * until connection's destructor finish its work.
 		*/
 	} while (!test_bit(TFW_CONN_B_STOPPED, &srv_conn->flags));
-	/*
-	 * If we here, connection is stopped (in destructor or after deactivation
-	 * of rearmed timer), and connection's resources should be cleaned - just
-	 * in case that wasn't done in destructor (bit TFW_CONN_B_DEL had been
-	 * set too late).
-	 */
-	tfw_connection_release((TfwConn *)srv_conn);
 
 	return 0;
 }

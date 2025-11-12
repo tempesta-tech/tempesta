@@ -445,7 +445,6 @@ __tfw_connection_get_if_##name(TfwConn *conn)				\
 	return false;							\
 }
 
-TFW_CONNETION_GET_IF(last_ref, (rc == TFW_CONN_DEATHCNT + 1 || rc == 1));
 TFW_CONNETION_GET_IF(live, (rc > 0));
 TFW_CONNETION_GET_IF(not_death, (rc != TFW_CONN_DEATHCNT && rc != 0));
 
