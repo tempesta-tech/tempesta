@@ -831,18 +831,21 @@ __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
 		unsigned long idxval = atomic64_inc_return(&srvdesc->counter);
 		TfwSrvConn *srv_conn = srvdesc->conn[idxval % srvdesc->conn_n];
 
-		if (unlikely(tfw_srv_conn_restricted(srv_conn)
-			     || tfw_srv_conn_unscheduled(srv_conn)
-			     || tfw_srv_conn_busy(srv_conn)
-			     || tfw_srv_conn_queue_full(srv_conn)))
+		if (unlikely(!tfw_srv_conn_get_if_live(srv_conn)))
 			continue;
-		if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
-			if (likely(tfw_srv_conn_live(srv_conn)))
-				++(*nipconn);
+
+		if (unlikely(!tfw_srv_conn_suitable_common(srv_conn))) {
+			tfw_connection_put((TfwConn *)srv_conn);
 			continue;
 		}
-		if (likely(tfw_srv_conn_get_if_live(srv_conn)))
-			return srv_conn;
+
+		if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
+			++(*nipconn);
+			tfw_connection_put((TfwConn *)srv_conn);
+			continue;
+		}
+
+		return srv_conn;
 	}
 
 	return NULL;
@@ -881,6 +884,7 @@ rerun:
 	}
 done:
 	rcu_read_unlock_bh();
+
 	return srv_conn;
 }
 

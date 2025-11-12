@@ -130,11 +130,7 @@ static inline int
 __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
 {
 	return (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer))
-		&& !tfw_srv_conn_restricted(conn)
-		&& !tfw_srv_conn_unscheduled(conn)
-		&& !tfw_srv_conn_busy(conn)
-		&& !tfw_srv_conn_queue_full(conn)
-		&& tfw_srv_conn_get_if_live(conn);
+		&& tfw_srv_conn_suitable_common(conn);
 }
 
 /**
@@ -177,8 +173,11 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 	 */
 	idx = __bsearch(best_hash, cl);
 	conn = cl->conns[idx].conn;
-	if (likely(__is_conn_suitable(conn, hmonitor)))
-		return conn;
+	if (likely(tfw_srv_conn_get_if_live(conn))) {
+		if (likely(__is_conn_suitable(conn, hmonitor)))
+			return conn;
+		tfw_connection_put((TfwConn *)conn);
+	}
 
 	/*
 	 * The best connection is dead or overfilled. Take the nearest live
@@ -196,8 +195,11 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 		ssize_t best_idx = (l_diff <= r_diff) ? l_idx : r_idx;
 
 		conn = cl->conns[best_idx].conn;
-		if (likely(__is_conn_suitable(conn, hmonitor)))
-			return conn;
+		if (likely(tfw_srv_conn_get_if_live(conn))) {
+			if (likely(__is_conn_suitable(conn, hmonitor)))
+				return conn;
+			tfw_connection_put((TfwConn *)conn);
+		}
 
 		if (l_diff <= r_diff)
 			--l_idx;

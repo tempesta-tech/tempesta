@@ -217,15 +217,21 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
  * These are specific properties that are relevant to server connections.
  * See the description of special features of this structure in sock_srv.c.
  *
- * @fwd_queue	- queue of messages to be sent to a back-end server;
- * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
- * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
- * @flags	- atomic flags related to server connection's state;
- * @qsize	- current number of requests in server's @fwd_queue;
- * @recns	- the number of reconnect attempts;
- * @msg_sent	- request that was sent last in a server connection;
- * @jbusytstamp - timestamp (in jiffies) until which connection is considered
- *		  as inactive due to busy corresponding work queue;
+ * @fwd_queue		- queue of messages to be sent to a back-end server;
+ * @nip_queue		- queue of non-idempotent messages in server's
+ *			  @fwd_queue;
+ * @fwd_qlock		- lock for accessing @fwd_queue and @nip_queue;
+ * @flags		- atomic flags related to server connection's state;
+ * @qsize		- current number of requests in server's @fwd_queue;
+ * @recns		- the number of reconnect attempts;
+ * @last_msg_sent	- request that was sent last in a server connection;
+ * @curr_msg_sent	- current sent request. Usually equal to @msg_sent, but
+ *			  when the server connection is re-established it points
+ *			  to the current last sent request (after connection is
+ *			  re-established);
+ * @jbusytstamp 	- timestamp (in jiffies) until which connection is
+ *			  considered as inactive due to busy corresponding
+ *			  work queue;
  */
 typedef struct {
 	TFW_CONN_COMMON;
@@ -235,7 +241,8 @@ typedef struct {
 	unsigned long		flags;
 	unsigned int		qsize;
 	unsigned int		recns;
-	TfwMsg			*msg_sent;
+	TfwMsg			*last_msg_sent;
+	TfwMsg			*curr_msg_sent;
 	unsigned long		jbusytstamp;
 } TfwSrvConn;
 
