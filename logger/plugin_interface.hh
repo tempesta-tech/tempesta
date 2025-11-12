@@ -33,6 +33,11 @@ void plugin_log_info(const char* msg);
 void plugin_log_warn(const char* msg);
 void plugin_log_error(const char* msg);
 
+// TODO: add to plugin API
+//tus::Error<bool> consume() = 0;
+//bool make_background_work() noexcept = 0;
+
+
 struct ClickHouseConfig;
 typedef struct ClickHouseConfig ClickHouseConfig;
 
@@ -53,4 +58,3 @@ TfwLoggerPluginApi *get_plugin_api();
 #ifdef __cplusplus
 }
 #endif
-

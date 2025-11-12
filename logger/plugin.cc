@@ -23,113 +23,90 @@
 #include <fmt/format.h>
 
 #include "../libtus/error.hh"
-#include "event_processor.hh"
 #include "plugin.hh"
 
 Plugin::Plugin(const std::string &plugin_path, const ClickHouseConfig& config,
-	       std::atomic<bool> *stop_flag)
+	std::atomic<bool> *stop_flag)
 {
-	handle_ = dlopen(plugin_path.c_str(),
+	//TODO: split to several minor functions: load_library, get_plugin_api, init_plugin
+	void * handle = dlopen(plugin_path.c_str(),
 			 RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND);
-	if (!handle_)
+	if (!handle)
 		throw tus::Except("Failed to load plugin {}: {}",
 				  plugin_path, dlerror());
+	handle_ = DlHandle(handle);
 
 	auto get_api = reinterpret_cast<TfwLoggerPluginGetApiFunc>(
-		dlsym(handle_, "get_plugin_api"));
+		dlsym(handle_.get(), "get_plugin_api"));
 
-	if (!get_api) {
-		dlclose(handle_);
-		handle_ = nullptr;
+	if (!get_api)
 		throw tus::Except("Plugin {} missing get_plugin_api function",
 				  plugin_path);
-	}
 
 	api_ = get_api();
-	if (!api_ || api_->version != TFW_PLUGIN_VERSION) {
-		dlclose(handle_);
-		handle_ = nullptr;
-		api_ = nullptr;
+	if (!api_ || api_->version != TFW_PLUGIN_VERSION)
 		throw tus::Except("Plugin {} version mismatch", plugin_path);
-	}
 
 	spdlog::info("Loaded plugin: {} ({})", api_->name, plugin_path);
 
-	if (api_->name)
-		name_ = api_->name;
-
 	if (api_->init) {
 		int ret = api_->init(&config, stop_flag);
-		if (ret < 0) {
-			cleanup();
+		if (ret < 0)
 			throw tus::Except("Plugin {} init failed with code {}",
-					  name_, ret);
-		}
-
-		initialized_ = true;
+					  api_->name, ret);
 		spdlog::info("Plugin {} initialized", api_->name);
 	}
 }
 
 Plugin::~Plugin()
 {
-	cleanup();
+	shutdown_plugin();
 }
 
 Plugin::Plugin(Plugin&& other) noexcept
-	: handle_(other.handle_)
+	: handle_(std::move(other.handle_))
 	, api_(other.api_)
-	, initialized_(other.initialized_)
 {
-	other.handle_ = nullptr;
 	other.api_ = nullptr;
-	other.initialized_ = false;
 }
 
 Plugin&
 Plugin::operator=(Plugin&& other) noexcept
 {
 	if (this != &other) {
-		handle_ = other.handle_;
-		api_ = other.api_;
-		initialized_ = other.initialized_;
-
-		other.handle_ = nullptr;
-		other.api_ = nullptr;
-		other.initialized_ = false;
+		handle_ = std::move(other.handle_);
+		api_ = std::move(other.api_);
 	}
 
 	return *this;
 }
 
 void
-Plugin::cleanup()
+Plugin::shutdown_plugin()
 {
-	if (initialized_ && api_ && api_->done) {
+	if (api_ && api_->done) {
 		api_->done();
-		spdlog::info("Plugin {} cleaned up", name_);
+		spdlog::info("Plugin {} cleaned up", api_->name);
 	}
-
-	if (handle_) {
-		dlclose(handle_);
-		handle_ = nullptr;
-	}
-
-	api_ = nullptr;
-	initialized_ = false;
 }
 
-EventProcessorPtr Plugin::create_processor(unsigned processor_id)
+ProcessorHandle Plugin::create_processor(unsigned processor_id) const
 {
 	if (!api_ || !api_->create_processor)
-		throw tus::Except("Plugin {} not properly loaded", name_);
+		throw tus::Except("Plugin {} not properly loaded", api_->name);
 
 	void* raw_processor = api_->create_processor(processor_id);
 	if (!raw_processor)
 		throw tus::Except("Plugin {} failed to create processor",
-				  name_);
+				  api_->name);
 
-	EventProcessor* processor = static_cast<EventProcessor*>(raw_processor);
+	return ProcessorHandle(api_, raw_processor);
+}
 
-	return EventProcessorPtr(processor, EventProcessorDeleter(api_));
+
+void
+Plugin::DlCloser::operator()(void* h) const noexcept
+{
+	if (h)
+		dlclose(h);
 }

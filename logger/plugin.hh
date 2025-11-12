@@ -26,29 +26,92 @@
 #include "plugin_interface.hh"
 #include "clickhouse_config.hh"
 
-class EventProcessor;
-
-class EventProcessorDeleter {
+/**
+ * RAII wrapper for a processor instance created by a plugin.
+ *
+ * Manages a processor handle obtained from TfwLoggerPluginApi and ensures
+ * that it is properly destroyed via `api_->destroy_processor(handle_)` when the
+ * object goes out of scope.
+ *
+ * The class also safely forwards (reinvokes) plugin API functions, passing the
+ * stored handle back to the plugin as needed.
+ */
+class ProcessorHandle
+{
 public:
-	explicit EventProcessorDeleter(TfwLoggerPluginApi* api): api_(api) {}
+	ProcessorHandle(TfwLoggerPluginApi* api, void* processor)
+		: api_(api), processor_(processor)
+	{}
 
-	void operator()(EventProcessor* processor) const {
-		if (processor && api_ && api_->destroy_processor) {
-			api_->destroy_processor(static_cast<void *>(processor));
+	~ProcessorHandle()
+	{
+		if (api_ && api_->destroy_processor && processor_) {
+			api_->destroy_processor(processor_);
+			processor_ = nullptr;
 		}
 	}
 
+	ProcessorHandle(const ProcessorHandle&) = delete;
+	ProcessorHandle& operator=(const ProcessorHandle&) = delete;
+
+	ProcessorHandle(ProcessorHandle&& other) noexcept
+		: api_(other.api_), processor_(other.processor_)
+	{
+		other.processor_ = nullptr;
+	}
+
+public:
+	//TODO: implement
+	tus::Error<bool> consume() noexcept
+	{
+		return false;
+	}
+
+	bool make_background_work() noexcept
+	{
+		return false;
+	}
+
+	void request_stop() const noexcept
+	{
+	}
+
+	bool stop_requested() const noexcept
+	{
+		return false;
+	}
+
+	std::string_view name() const noexcept { return api_->name; };
+
+public:
+	ProcessorHandle& operator=(ProcessorHandle&& other) noexcept
+	{
+		if (this != &other) {
+			if (processor_ && api_ && api_->destroy_processor)
+				api_->destroy_processor(processor_);
+			api_ = other.api_;
+			processor_ = other.processor_;
+			other.processor_ = nullptr;
+		}
+		return *this;
+	}
+
 private:
-	TfwLoggerPluginApi* api_;
+	TfwLoggerPluginApi*	api_;
+	void*			processor_;
 };
 
-using EventProcessorPtr = std::unique_ptr<EventProcessor, EventProcessorDeleter>;
-
+/**
+ * Implementation of the Plugin class — a safe dynamic plugin loader. Responsible for:
+ *  - Dynamic loading of shared libraries (.so) using dlopen();
+ *  - Retrieval of the exported function `get_plugin_api()` via dlsym();
+ *  - Initialization and cleanup of the plugin API;
+ */
 class Plugin {
 public:
 	explicit Plugin(const std::string &plugin_path,
 			const ClickHouseConfig& config,
-			std::atomic<bool> *stop_flag);
+			std::atomic<bool> *stop_flag); //TODO: replace flag with API?
 
 	Plugin(const Plugin&) = delete;
 	Plugin& operator=(const Plugin&) = delete;
@@ -59,16 +122,19 @@ public:
 	~Plugin();
 
 public:
-	EventProcessorPtr create_processor(unsigned processor_id);
-
-	const std::string& get_name() const { return name_; };
+	ProcessorHandle create_processor(unsigned processor_id) const;
 
 private:
-	void cleanup();
+	void shutdown_plugin();
 
 private:
-	void* handle_ = nullptr;
-	TfwLoggerPluginApi* api_ = nullptr;
-	bool initialized_ = false;
-	std::string name_ = "unknown";
+	struct DlCloser
+	{
+		void operator()(void* h) const noexcept;
+	};
+	using DlHandle = std::unique_ptr<void, DlCloser>;
+
+private:
+	DlHandle		handle_;
+	TfwLoggerPluginApi*	api_ = nullptr;
 };
