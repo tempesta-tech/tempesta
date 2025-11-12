@@ -468,6 +468,7 @@ tfw_connection_put(TfwConn *conn)
 		conn->destructor(conn);
 }
 
+#define tfw_srv_conn_get(c)	tfw_connection_get((TfwConn *)(c))
 #define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
 
 static inline void
