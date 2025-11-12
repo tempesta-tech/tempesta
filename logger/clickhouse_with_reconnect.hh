@@ -25,6 +25,8 @@
 #include "clickhouse.hh"
 
 //TODO: what do we really wants to share? ClickhouseWithReconnection or Clickhouse
+//TODO: we also need to create wrapper for every plugin to make a plugin-dependings
+//initialization and get rid of mane append methods
 class ClickhouseWithReconnection {
 public:
 	ClickhouseWithReconnection(std::shared_ptr<TfwClickhouse> db,
@@ -35,7 +37,23 @@ public:
 	ClickhouseWithReconnection& operator=(const ClickhouseWithReconnection&) = delete;
 
 public:
-	[[nodiscard]] bool flush(bool force = false) noexcept;
+	template<TfwBinLogFields FieldType>
+	void append(
+		const typename TfwBinLogTypeTraits<FieldType>::ValType& value)
+	{
+		return db_->append<FieldType>(value);
+	}
+
+	void append_timestamp(uint64_t timestamp)
+	{
+		return db_->append_timestamp(timestamp);
+	}
+	bool handle_block_error() noexcept
+	{
+		return db_->handle_block_error();
+	}
+public:
+	bool flush(bool force = false) noexcept;
 
 private:
 	bool handle_reconnection();

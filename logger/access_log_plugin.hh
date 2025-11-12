@@ -21,23 +21,31 @@
 #include "../libtus/error.hh"
 #include "../fw/mmap_buffer.h"
 
-#include "event_processor.hh"
+#include "clickhouse_with_reconnect.hh"
 
-class AccessLogProcessor : public EventProcessor {
+class AccessLogProcessor{
 public:
 	explicit AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
 				    unsigned processor_id,
 				    int device_fd);
-	~AccessLogProcessor() noexcept override;
+	~AccessLogProcessor();
 
-	void request_stop() noexcept override;
-	bool stop_requested() noexcept override;
-	unsigned int get_cpu_id() const noexcept;
+public:
+	//Part of plugin API
+	void request_stop() noexcept;
+	bool stop_requested() noexcept;
+
+	tus::Error<bool> consume();
+	bool make_background_work() noexcept;
+
+	static const std::string& name() noexcept {
+		static const std::string name = "access_log";
+		return name;
+	}
 
 private:
-	tus::Error<bool> do_consume() override;
+	ClickhouseWithReconnection writer_;
 
-private:
 	int	     device_fd_;
 	TfwMmapBuffer   *buffer_;
 	size_t	  size_;

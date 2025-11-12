@@ -58,7 +58,7 @@ template <TfwBinLogFields FieldType>
 requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ValType> ||
 	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ValType, struct in6_addr>
 void
-read_field(TfwClickhouse &db, const auto *event, std::span<const char> &data)
+read_field(ClickhouseWithReconnection &db, const auto *event, std::span<const char> &data)
 {
 	using Traits  = TfwBinLogTypeTraits<FieldType>;
 	using ValType = typename Traits::ValType;
@@ -82,7 +82,7 @@ read_field(TfwClickhouse &db, const auto *event, std::span<const char> &data)
 template <TfwBinLogFields FieldType>
 requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ValType, std::string_view>
 void
-read_field(TfwClickhouse &db, const auto *event, std::span<const char> &data)
+read_field(ClickhouseWithReconnection &db, const auto *event, std::span<const char> &data)
 {
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
 		constexpr int len_size = sizeof(uint16_t);
@@ -106,7 +106,7 @@ read_field(TfwClickhouse &db, const auto *event, std::span<const char> &data)
 }
 
 size_t
-read_access_log_event(TfwClickhouse &db, std::span<const char> data)
+read_access_log_event(ClickhouseWithReconnection &db, std::span<const char> data)
 {
 	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
 
@@ -181,7 +181,7 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
  * e.g. if ClickHouse throws and exception or some event record is broken.
  */
 [[nodiscard]] tus::Error<size_t>
-process_events(TfwClickhouse &db, std::span<const char> data) noexcept
+process_events(ClickhouseWithReconnection &db, std::span<const char> data) noexcept
 {
 	size_t read = 0;
 
@@ -245,7 +245,7 @@ process_events(TfwClickhouse &db, std::span<const char> data) noexcept
 AccessLogProcessor::AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
 				       unsigned processor_id,
 				       int device_fd)
-	: EventProcessor(std::move(db), processor_id, "access_log")
+	: writer_(std::move(db), processor_id)
 	, device_fd_(device_fd)
 {
 	plugin_log_debug(fmt::format("Creating AccessLogProcessor with device: {}",
@@ -274,7 +274,7 @@ AccessLogProcessor::~AccessLogProcessor()
 }
 
 tus::Error<bool>
-AccessLogProcessor::do_consume()
+AccessLogProcessor::consume()
 {
 	uint64_t head, tail;
 
@@ -288,7 +288,7 @@ AccessLogProcessor::do_consume()
 	uint64_t size = static_cast<uint64_t>(head - tail);
 	const auto start = buffer_->data + (tail & buffer_->mask);
 
-	auto res = process_events(*db_, std::span<const char>(start, size));
+	auto res = process_events(writer_, std::span<const char>(start, size));
 	if (res && *res) [[likely]]
 		size = *res;
 	// ...else consume the whole buffer in case of error.
@@ -306,10 +306,16 @@ AccessLogProcessor::do_consume()
 	// Ideally if we can move flushing into main loop of tfw_logger
 	// after all event processors to read events from the associated RBs
 	// and then ask all of them to flush what they have to Clickhouse.
-	if (*res && flush())
+	if (*res && writer_.flush(/*force=*/false))
 		return tus::error(tus::Err::DB_SRV_FATAL);
 
 	return true;
+}
+
+bool
+AccessLogProcessor::make_background_work() noexcept
+{
+	return writer_.flush(/*force=*/true);
 }
 
 void
@@ -322,13 +328,6 @@ bool
 AccessLogProcessor::stop_requested() noexcept
 {
 	return !__atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE);
-}
-
-unsigned int
-AccessLogProcessor::get_cpu_id() const noexcept
-{
-	assert(buffer_);
-	return buffer_->cpu;
 }
 
 namespace {
@@ -447,7 +446,7 @@ mmap_destroy_processor(void *processor)
 {
 	if (!processor)
 		return;
-	delete static_cast<EventProcessor*>(processor);
+	delete static_cast<AccessLogProcessor*>(processor);
 	plugin_log_debug("Destroyed MmapProcessor instance");
 }
 
