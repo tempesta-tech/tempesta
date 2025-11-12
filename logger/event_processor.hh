@@ -23,39 +23,24 @@
 
 #include "../libtus/error.hh"
 #include "clickhouse.hh"
-#include "plugin_interface.hh"
 
-class EventProcessor {
+//TODO: what do we really wants to share? ClickhouseWithReconnection or Clickhouse
+class ClickhouseWithReconnection {
 public:
-	EventProcessor(std::shared_ptr<TfwClickhouse> db,
-		       unsigned processor_id,
-		       const char *name);
-	virtual ~EventProcessor() noexcept = default;
+	ClickhouseWithReconnection(std::shared_ptr<TfwClickhouse> db,
+				   unsigned processor_id);
+	virtual ~ClickhouseWithReconnection() noexcept = default;
 
-	EventProcessor(const EventProcessor&) = delete;
-	EventProcessor& operator=(const EventProcessor&) = delete;
+	ClickhouseWithReconnection(const ClickhouseWithReconnection&) = delete;
+	ClickhouseWithReconnection& operator=(const ClickhouseWithReconnection&) = delete;
 
 public:
-	bool make_background_work() noexcept;
 	[[nodiscard]] bool flush(bool force = false) noexcept;
-
-public:
-	virtual tus::Error<bool> consume();
-
-public:
-	virtual void request_stop() noexcept = 0;
-	virtual bool stop_requested() noexcept = 0;
-
-public:
-	const unsigned	processor_id;
-	const char	*name;
-
-protected:
-	virtual tus::Error<bool> do_consume() = 0;
-
-protected:
-	std::shared_ptr<TfwClickhouse> db_;
 
 private:
 	bool handle_reconnection();
+
+private:
+	const unsigned			processor_id_;
+	std::shared_ptr<TfwClickhouse>	db_;
 };
