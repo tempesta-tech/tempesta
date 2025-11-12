@@ -25,23 +25,15 @@
 #include "../libtus/error.hh"
 #include "event_processor.hh"
 
-EventProcessor::EventProcessor(std::shared_ptr<TfwClickhouse> db,
-			       unsigned processor_id,
-			       const char *name)
-	: processor_id(processor_id)
-	, name(name)
+ClickhouseWithReconnection::ClickhouseWithReconnection(
+	std::shared_ptr<TfwClickhouse> db, unsigned processor_id)
+	: processor_id_(processor_id)
 	, db_(std::move(db))
 {
 }
 
 bool
-EventProcessor::make_background_work() noexcept
-{
-	return flush(true);
-}
-
-bool
-EventProcessor::flush(bool force) noexcept
+ClickhouseWithReconnection::flush(bool force) noexcept
 {
 	if (!handle_reconnection()) {
 		spdlog::debug("DB flushing skipped due to reconnection issues");
@@ -56,17 +48,8 @@ EventProcessor::flush(bool force) noexcept
 	return true;
 }
 
-tus::Error<bool>
-EventProcessor::consume()
-{
-	if (!handle_reconnection())
-		return tus::error(tus::Err::DB_CLT_TRANSIENT);
-
-	return do_consume();
-}
-
 bool
-EventProcessor::handle_reconnection()
+ClickhouseWithReconnection::handle_reconnection()
 {
 	if (!db_->needs_reconnect.load(std::memory_order_acquire)) [[likely]]
 		return true;
