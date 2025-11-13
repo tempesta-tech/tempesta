@@ -262,7 +262,8 @@ tfw_srv_conn_suitable_common(TfwSrvConn *srv_conn)
 	return !tfw_srv_conn_restricted(srv_conn)
 		&& !tfw_srv_conn_unscheduled(srv_conn)
 		&& !tfw_srv_conn_busy(srv_conn)
-		&& !tfw_srv_conn_queue_full(srv_conn);
+		&& !tfw_srv_conn_queue_full(srv_conn)
+		&& !tfw_srv_conn_need_resched_and_stop(srv_conn);
 }
 
 /*

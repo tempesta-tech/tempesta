@@ -2538,12 +2538,23 @@ tfw_http_fwdq_resched(TfwSrvConn *srv_conn, struct list_head *resch_queue,
 		INIT_LIST_HEAD(&req->fwd_list);
 		if (unlikely(srv_conn_deleted) &&
 		    !test_bit(TFW_HTTP_B_HMONITOR, req->flags)) {
-			TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+		    	TfwConn *conn = req->conn;
+			bool h2_mode = TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2;
+			TfwCliConn *cli_conn;
+			TfwH2Ctx *ctx;
 
-		    	BUG_ON(!cli_conn);
-			spin_lock(&cli_conn->seq_qlock);
-			req->fwd_conn = NULL;
-			spin_unlock(&cli_conn->seq_qlock);
+			BUG_ON(!conn);
+			if (!h2_mode) {
+				cli_conn = (TfwCliConn *)conn;
+				spin_lock(&cli_conn->seq_qlock);
+				req->fwd_conn = NULL;
+				spin_unlock(&cli_conn->seq_qlock);
+			} else {
+				ctx = tfw_h2_context_unsafe(conn);
+				spin_lock(&ctx->lock);
+				req->fwd_conn = NULL;
+				spin_unlock(&ctx->lock);
+			}
 		} else {
 			req->fwd_conn = NULL;
 		}
@@ -3109,8 +3120,6 @@ tfw_http_cli_conn_drop(TfwCliConn *cli_conn)
 			if (fwd_conn
 			    && tfw_srv_conn_get_if_live(fwd_conn)) {
 				set_bit(TFW_CONN_B_NEED_RESCHED_AND_STOP,
-					&fwd_conn->flags);
-				set_bit(TFW_CONN_B_UNSCHED,
 					&fwd_conn->flags);
 				tfw_srv_conn_put(fwd_conn);
 			}
@@ -7367,7 +7376,7 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwCliConn *cli_conn;
 	TfwFsmData data_up;
-	bool conn_stop, filtout = false, websocket = false;
+	bool conn_stop = false, filtout = false, websocket = false;
 
 	BUG_ON(!stream->msg);
 	/*
@@ -7384,11 +7393,21 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	 * until all data in the SKB is processed.
 	 */
 next_msg:
-	conn_stop = false;
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
+
+	if (test_bit(TFW_CONN_B_NEED_RESCHED_AND_STOP,
+		     &((TfwSrvConn *)conn)->flags))
+	{
+		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2) {
+			conn_stop = !hmresp->req->stream;
+		} else {
+			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
+					     hmresp->req->flags);
+		}
+	}
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -7455,7 +7474,7 @@ next_msg:
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return T_OK;
+		return likely(!conn_stop) ? T_OK : T_BAD;
 	case T_OK:
 		/*
 		 * The response is fully parsed, fall through and

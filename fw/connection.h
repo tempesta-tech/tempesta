@@ -393,6 +393,15 @@ tfw_srv_conn_unscheduled(TfwSrvConn *srv_conn)
 }
 
 /*
+ * Connection should be resheduled and stopped.
+ */
+static inline bool
+tfw_srv_conn_need_resched_and_stop(TfwSrvConn *srv_conn)
+{
+	return test_bit(TFW_CONN_B_NEED_RESCHED_AND_STOP, &srv_conn->flags);
+}
+
+/*
  * Tell if a connection has non-idempotent requests.
  */
 static inline bool
