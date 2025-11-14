@@ -256,7 +256,6 @@ enum {
 	TFW_CONN_B_QFORWD,
 	/* Has non-idempotent requests. */
 	TFW_CONN_B_HASNIP,
-
 	/* Remove connection */
 	TFW_CONN_B_DEL,
 	/* Connection is in use or at least scheduled to be established. */
@@ -267,7 +266,9 @@ enum {
 	 * Mark connection as unavailable to schedulers.
 	 * Used to steal server connections for websockets.
 	 */
-	TFW_CONN_B_UNSCHED
+	TFW_CONN_B_UNSCHED,
+	/* Need to reshedule all requests and drop connection. */
+	TFW_CONN_B_NEED_RESCHED_AND_STOP,
 };
 
 /**
@@ -389,6 +390,15 @@ static inline bool
 tfw_srv_conn_unscheduled(TfwSrvConn *srv_conn)
 {
 	return test_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+}
+
+/*
+ * Connection should be resheduled and stopped.
+ */
+static inline bool
+tfw_srv_conn_need_resched_and_stop(TfwSrvConn *srv_conn)
+{
+	return test_bit(TFW_CONN_B_NEED_RESCHED_AND_STOP, &srv_conn->flags);
 }
 
 /*

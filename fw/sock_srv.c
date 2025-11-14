@@ -334,6 +334,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		return r;
 	}
 
+	clear_bit(TFW_CONN_B_NEED_RESCHED_AND_STOP, &srv_conn->flags);
 	/* Let schedulers use the connection hereafter. */
 	tfw_connection_revive(conn);
 
