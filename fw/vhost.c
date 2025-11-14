@@ -39,6 +39,7 @@
 #include "client.h"
 #include "tls_conf.h"
 #include "lib/log.h"
+#include "lib/alloc.h"
 
 /*
  * The hash table entry for mapping @sni to @vhost for SAN certificates handling.
@@ -637,7 +638,8 @@ tfw_nipdef_addnew(TfwLocation *loc, int method,
 	if (loc->nipdef_sz == TFW_NIPDEF_ARRAY_SZ)
 		return NULL;
 
-	if ((data = kmalloc(sizeof(TfwNipDef) + len + 1, GFP_KERNEL)) == NULL)
+	data = tfw_kmalloc(sizeof(TfwNipDef) + len + 1, GFP_KERNEL);
+	if (unlikely(!data))
 		return NULL;
 
 	nipdef = (TfwNipDef *)data;
@@ -1001,7 +1003,7 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 		return -EINVAL;
 	}
 
-	cfg = kzalloc(sizeof(TfwCacheUseStale), GFP_KERNEL);
+	cfg = tfw_kzalloc(sizeof(TfwCacheUseStale), GFP_KERNEL);
 
 	if (!cfg)
 		return -ENOMEM;
@@ -1117,7 +1119,9 @@ tfw_capolicy_new(int cmd, int op, const char *arg, size_t len)
 {
 	TfwCaPolicy *capo;
 
-	if ((capo = kmalloc(sizeof(TfwCaPolicy) + len + 1, GFP_KERNEL)) == NULL)
+	capo = tfw_kmalloc(sizeof(TfwCaPolicy) + len + 1,
+			   GFP_KERNEL);
+	if (unlikely(!capo))
 		return NULL;
 
 	capo->cmd = cmd;
@@ -1287,7 +1291,7 @@ tfw_cfgop_capo_hdr_del(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	if (total_size != 0) {
 		size_t actual_bytes = 0;
 		TfwCaToken *token;
-		new_tokens = kzalloc(total_size, GFP_KERNEL);
+		new_tokens = tfw_kzalloc(total_size, GFP_KERNEL);
 		if (!new_tokens)
 			return -ENOMEM;
 		token = new_tokens;
@@ -1435,7 +1439,7 @@ tfw_frang_cfg_inherit(FrangVhostCfg *curr, const FrangVhostCfg *from)
 		FrangCtVal *val;
 		long delta;
 
-		curr->http_ct_vals = kzalloc(sz, GFP_KERNEL);
+		curr->http_ct_vals = tfw_kzalloc(sz, GFP_KERNEL);
 		if (!curr->http_ct_vals) {
 			r = -ENOMEM;
 		}
@@ -1453,7 +1457,7 @@ tfw_frang_cfg_inherit(FrangVhostCfg *curr, const FrangVhostCfg *from)
 	}
 	if (!r && from->http_resp_code_block) {
 		size_t sz = sizeof(FrangHttpRespCodeBlock);
-		curr->http_resp_code_block = kzalloc(sz, GFP_KERNEL);
+		curr->http_resp_code_block = tfw_kzalloc(sz, GFP_KERNEL);
 		if (!curr->http_resp_code_block) {
 			r = -ENOMEM;
 		}
@@ -1478,9 +1482,9 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
 		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
 
-	if ((argmem = kmalloc(len + 1, GFP_KERNEL)) == NULL)
+	if ((argmem = tfw_kmalloc(len + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
-	if ((data = kzalloc(size, GFP_KERNEL)) == NULL) {
+	if ((data = tfw_kzalloc(size, GFP_KERNEL)) == NULL) {
 		kfree(argmem);
 		return -ENOMEM;
 	}
@@ -1811,7 +1815,7 @@ tfw_cfgop_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * the specified value results in an error.
 	 */
 	len = strlen(ce->vals[0]);
-	if ((tfw_global.hdr_via = kmalloc(len + 1, GFP_KERNEL)) == NULL)
+	if ((tfw_global.hdr_via = tfw_kmalloc(len + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 	memcpy((void *)tfw_global.hdr_via, (void *)ce->vals[0], len + 1);
 	tfw_global.hdr_via_len = len;
@@ -1961,7 +1965,7 @@ tfw_vhost_create(const char *name)
 	if (!(pool = __tfw_pool_new(0)))
 		return NULL;
 
-	if (!(vhost = kzalloc(size, GFP_KERNEL))) {
+	if (!(vhost = tfw_kzalloc(size, GFP_KERNEL))) {
 		tfw_pool_destroy(pool);
 		T_ERR_NL("Cannot allocate vhost entry '%s'\n", name);
 		return NULL;
@@ -2035,7 +2039,7 @@ tfw_vhost_add_sni_map(const BasicStr *cn, TfwVhost *vhost)
 	TfwSVHMap *svhm;
 	int n = sizeof(*svhm) + cn->len;
 
-	if (!(svhm = kmalloc(n, GFP_KERNEL))) {
+	if (!(svhm = tfw_kmalloc(n, GFP_KERNEL))) {
 		T_WARN("Cannot allocate mapping for SAN/CN %.*s -> %.*s\n",
 		       (int)cn->len, cn->data,
 		       (int)vhost->name.len, vhost->name.data);
@@ -2126,7 +2130,7 @@ __tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		strs_size += strlen(in_str) + 1;
 	}
 	alloc_sz = vals_size + strs_size + sizeof(FrangCtVals);
-	mem = kzalloc(alloc_sz, GFP_KERNEL);
+	mem = tfw_kzalloc(alloc_sz, GFP_KERNEL);
 	if (!mem)
 		return -ENOMEM;
 	vals = mem;
@@ -2188,7 +2192,7 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		return -EINVAL;
 	}
 
-	cb = kzalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
+	cb = tfw_kzalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
 	if (!cb)
 		return -ENOMEM;
 	conf->http_resp_code_block = cb;
@@ -2645,7 +2649,7 @@ tfw_vhost_cfgstart(void)
 	TfwVhost *vh_dflt;
 
 	BUG_ON(tfw_vhosts_reconfig);
-	tfw_vhosts_reconfig = kmalloc(sizeof(TfwVhostList), GFP_KERNEL);
+	tfw_vhosts_reconfig = tfw_kmalloc(sizeof(TfwVhostList), GFP_KERNEL);
 	if (!tfw_vhosts_reconfig) {
 		T_ERR_NL("Unable to allocate vhosts' list.\n");
 		return -ENOMEM;

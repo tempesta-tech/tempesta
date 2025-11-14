@@ -24,6 +24,7 @@
 #include <linux/slab.h>
 
 #include "tf_conf.h"
+#include "lib/alloc.h"
 #include "hash.h"
 #include "lib/tf.h"
 #include "log.h"
@@ -176,7 +177,7 @@ tf_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if (!(he = kmalloc(sizeof(TfHashEntry), GFP_KERNEL)))
+	if (!(he = tfw_kmalloc(sizeof(TfHashEntry), GFP_KERNEL)))
 		return -ENOMEM;
 
 	he->hash = hash;
@@ -206,7 +207,8 @@ tf_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_EQ_N(0, cs, ce);
 	TFW_CFG_CHECK_ATTR_LE_N(1, cs, ce);
 
-	if (!(filter_cfg_reconfig = kzalloc(sizeof(TfFilterCfg), GFP_KERNEL)))
+	filter_cfg_reconfig = tfw_kzalloc(sizeof(TfFilterCfg), GFP_KERNEL);
+	if (unlikely(!filter_cfg_reconfig))
 		return -ENOMEM;
 
 	if (ce->attr_n == 1) {
