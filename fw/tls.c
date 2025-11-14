@@ -38,6 +38,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
+#include "lib/alloc.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
@@ -394,10 +395,11 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		out_sgt.sgl = out_sg;
 		pages = pages_end = auto_pages;
 	} else {
-		char *ptr = kmalloc(sizeof(struct scatterlist) * sgt.nents +
-			            sizeof(struct scatterlist) * out_sgt.nents +
-			            sizeof(struct page *) * out_sgt.nents,
-				    GFP_ATOMIC);
+		size_t alloc_sz = sizeof(struct scatterlist) * sgt.nents +
+			sizeof(struct scatterlist) * out_sgt.nents +
+			sizeof(struct page *) * out_sgt.nents;
+		char *ptr = tfw_kmalloc(alloc_sz, GFP_ATOMIC);
+
 		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
 			T_WARN("cannot alloc memory for TLS encryption.\n");
