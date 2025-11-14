@@ -71,6 +71,7 @@
 #include "http_match.h"
 #include "http_msg.h"
 #include "cfg.h"
+#include "lib/alloc.h"
 
 /**
  * Map an operator to that flags passed to tfw_str_eq_*() functions.
@@ -731,7 +732,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		full_name_len = name_len + SLEN(S_DLM);
 	}
 
-	if (!(arg_out = kzalloc(full_name_len + len + 1, GFP_KERNEL))) {
+	if (!(arg_out = tfw_kzalloc(full_name_len + len + 1, GFP_KERNEL))) {
 		T_ERR_NL("http_match: unable to allocate rule argument.\n");
 		return ERR_PTR(-ENOMEM);
 	}
@@ -826,7 +827,7 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 		}
 	}
 
-	if (!(val_out = kzalloc(len + SLEN("=") + 1, GFP_KERNEL))) {
+	if (!(val_out = tfw_kzalloc(len + SLEN("=") + 1, GFP_KERNEL))) {
 		T_ERR_NL("http_match: unable to allocate rule field value.\n");
 		return ERR_PTR(-ENOMEM);
 	}

@@ -46,6 +46,7 @@
 #include "sync_socket.h"
 #include "work_queue.h"
 #include "lib/common.h"
+#include "lib/alloc.h"
 
 #if MAX_NUMNODES > ((1 << 16) - 1)
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"
@@ -395,7 +396,7 @@ tfw_init_node_cpus(void)
 
 	T_DBG2("nr_online_nodes: %d", nr_online_nodes);
 
-	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
+	c_nodes = tfw_kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
 	if(!c_nodes) {
 		T_ERR("Failed to allocate nodes map for cache work scheduler");
 		return -ENOMEM;
@@ -404,10 +405,11 @@ tfw_init_node_cpus(void)
 	for_each_node_with_cpus(node) {
 		nr_cpus = nr_cpus_node(node);
 		T_DBG2("node: %d  nr_cpus: %d",node, nr_cpus);
-		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
+		c_nodes[node].cpu = tfw_kzalloc(nr_cpus * sizeof(int),
+						GFP_KERNEL);
 		if(!c_nodes[node].cpu) {
-			T_ERR("Failed to allocate CPU array for node %d for cache work scheduler",
-				node);
+			T_ERR("Failed to allocate CPU array for node "
+			      "%d for cache work scheduler", node);
 			return -ENOMEM;
 		}
 	}
@@ -3625,8 +3627,8 @@ tfw_cache_start(void)
 
 #if defined(DEBUG)
 	for_each_online_cpu(i) {
-		char *dbg_buf = kmalloc_node(CE_DBGBUF_LEN, GFP_KERNEL,
-					     cpu_to_node(i));
+		char *dbg_buf = tfw_kmalloc_node(CE_DBGBUF_LEN, GFP_KERNEL,
+						 cpu_to_node(i));
 		if (!dbg_buf) {
 			T_WARN("Failed to allocate CE dump buffer\n");
 			goto dbg_buf_free;

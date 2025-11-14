@@ -27,6 +27,7 @@
 #include <linux/device.h>
 #include <linux/io.h>
 #include <asm/page.h>
+#include "lib/alloc.h"
 
 /*
  * We can't pass TfwMmapBufferHolder pointer to the file operations handlers.
@@ -187,9 +188,9 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	if (holders_cnt + 1 > MAX_HOLDERS)
 		return NULL;
 
-	holder = kzalloc(sizeof(TfwMmapBufferHolder) +
-			 sizeof(TfwMMapBufferMem) * num_online_cpus(),
-			 GFP_KERNEL);
+	holder = tfw_kzalloc(sizeof(TfwMmapBufferHolder) +
+			     sizeof(TfwMMapBufferMem) * num_online_cpus(),
+			     GFP_KERNEL);
 	if (!holder)
 		return NULL;
 
@@ -207,9 +208,11 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 
 	page_cnt = size / PAGE_SIZE;
 	/*
-	 * Allocate pages for double mapping and a page for buffer control structure.
+	 * Allocate pages for double mapping and a page for buffer control
+	 * structure.
 	 */
-	page_ptr = kmalloc((page_cnt * 2 + 1) * sizeof(struct page *), GFP_KERNEL);
+	page_ptr = tfw_kmalloc((page_cnt * 2 + 1) * sizeof(struct page *),
+			       GFP_KERNEL);
 	if (!page_ptr)
 		goto err;
 

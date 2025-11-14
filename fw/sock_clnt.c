@@ -24,6 +24,7 @@
 #include <linux/bsearch.h>
 
 #include "tempesta_fw.h"
+#include "lib/alloc.h"
 #include "cfg.h"
 #include "client.h"
 #include "connection.h"
@@ -484,7 +485,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		}
 	}
 
-	ls = kzalloc(sizeof(*ls), GFP_KERNEL);
+	ls = tfw_kzalloc(sizeof(*ls), GFP_KERNEL);
 	if (!ls)
 		return -ENOMEM;
 
@@ -753,15 +754,16 @@ tfw_sock_clnt_start(void)
 	TfwListenSock **ls_found, **listen_socks_array = NULL;
 	bool *touched = NULL;
 
-	touched = kzalloc(tfw_listen_socks_sz, GFP_KERNEL);
+	touched = tfw_kzalloc(tfw_listen_socks_sz, GFP_KERNEL);
 	if (!touched) {
 		T_ERR("can't allocate memory\n");
 		r = -ENOMEM;
 		goto done;
 	}
 
-	listen_socks_array = kmalloc(tfw_listen_socks_sz *
-				     sizeof(listen_socks_array[0]), GFP_KERNEL);
+	listen_socks_array = tfw_kmalloc(tfw_listen_socks_sz *
+					 sizeof(listen_socks_array[0]),
+					 GFP_KERNEL);
 	if (!listen_socks_array) {
 		T_ERR("can't allocate memory\n");
 		r = -ENOMEM;

@@ -40,6 +40,7 @@
 
 #include "lib/hash.h"
 #include "tempesta_fw.h"
+#include "lib/alloc.h"
 #include "log.h"
 #include "server.h"
 #include "http_msg.h"
@@ -364,10 +365,10 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 
 	size = sizeof(TfwHashConnList) * (sg->srv_n + 1)
 			+ sizeof(TfwHashConn) * conn_n * 2;
-	if (!(cl = kzalloc(size, GFP_KERNEL)))
+	if (!(cl = tfw_kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
-	if (!(srv_cls = kcalloc(sg->srv_n, sizeof(TfwHashSrvConnList),
-				GFP_KERNEL)))
+	if (!(srv_cls = tfw_kcalloc(sg->srv_n, sizeof(TfwHashSrvConnList),
+				    GFP_KERNEL)))
 	{
 		kfree(cl);
 		return -ENOMEM;
@@ -411,7 +412,7 @@ tfw_sched_hash_add_srv(TfwServer *srv)
 	seed_inc = get_random_int();
 
 	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
-	if (!(cl = kzalloc(size, GFP_KERNEL)))
+	if (!(cl = tfw_kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
 
 	tfw_sched_hash_add_conns(srv, cl, &seed, seed_inc);

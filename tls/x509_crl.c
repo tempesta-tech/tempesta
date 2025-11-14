@@ -35,6 +35,7 @@
 #include "oid.h"
 #include "pem.h"
 #include "tls_internal.h"
+#include "lib/alloc.h"
 
 /*
  *  Version  ::=  INTEGER  {  v1(0), v2(1)  }
@@ -242,8 +243,8 @@ x509_get_entries(const unsigned char **p, const unsigned char *end,
 			return ret;
 
 		if (*p < end) {
-			cur_entry->next = kzalloc(sizeof(ttls_x509_crl_entry),
-						  GFP_KERNEL);
+			cur_entry->next = tfw_kzalloc(sizeof(ttls_x509_crl_entry),
+						      GFP_KERNEL);
 			if (!cur_entry->next)
 				return TTLS_ERR_X509_ALLOC_FAILED;
 
@@ -292,7 +293,7 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 		crl = crl->next;
 
 	if (crl->version != 0 && crl->next == NULL) {
-		crl->next = kzalloc(sizeof(ttls_x509_crl), GFP_KERNEL);
+		crl->next = tfw_kzalloc(sizeof(ttls_x509_crl), GFP_KERNEL);
 
 		if (crl->next == NULL) {
 			ttls_x509_crl_free(crl);
@@ -309,7 +310,7 @@ ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	if (buflen == 0)
 		return TTLS_ERR_X509_INVALID_FORMAT;
 
-	p = kmalloc(buflen, GFP_KERNEL);
+	p = tfw_kmalloc(buflen, GFP_KERNEL);
 	if (p == NULL)
 		return TTLS_ERR_X509_ALLOC_FAILED;
 
