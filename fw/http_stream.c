@@ -270,6 +270,8 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
 
+	assert_spin_locked(&ctx->lock);
+
 	tfw_h2_stream_del_from_queue_nolock(stream);
 
 	if (hmreq) {
@@ -289,11 +291,23 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 		} else {
 			TfwSrvConn *fwd_conn = ((TfwHttpReq *)hmreq)->fwd_conn;
 
+			/*
+			 * We don't need to increment connection reference counter
+			 * here, just check that connection is live. If connection
+			 * will be released immediately after check, it's not a
+			 * problem:
+			 * - if `TFW_CONN_B_DEL` is set we  iterate over all requests
+			 * in `fwd_queue` under the `ctx->lock`, same as this function,
+			 * so we never destroy server connection, before this function
+			 * will be finished.
+			 * - if `TFW_CONN_B_DEL` is not set, there is no problem if
+			 * connection will be released after this check, pointer is
+			 * still valid, and will reschedule all requests later.
+			 */
 			if (fwd_conn
-			    && tfw_srv_conn_get_if_live(fwd_conn)) {
+			    && tfw_srv_conn_live(fwd_conn)) {
 				set_bit(TFW_CONN_B_NEED_RESCHED_AND_STOP,
 					&fwd_conn->flags);
-				tfw_srv_conn_put(fwd_conn);
 			}
 		}
 	}
