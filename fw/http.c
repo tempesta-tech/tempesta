@@ -7348,11 +7348,14 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	 * until all data in the SKB is processed.
 	 */
 next_msg:
-	conn_stop = false;
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
+	if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2)
+		conn_stop = !hmresp->req->stream;
+	else
+		conn_stop = test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags);
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -7419,7 +7422,7 @@ next_msg:
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return T_OK;
+		return likely(!conn_stop) ? T_OK : T_BAD;
 	case T_OK:
 		/*
 		 * The response is fully parsed, fall through and
@@ -7433,6 +7436,8 @@ next_msg:
 			goto bad_msg;
 		}
 	}
+
+	conn_stop = false;
 
 	/*
 	 * The message is fully parsed, the rest of the data in the
