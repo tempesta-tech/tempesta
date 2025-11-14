@@ -32,6 +32,7 @@
 #include <asm/sync_bitops.h>
 
 #include "lib/str.h"
+#include "lib/alloc.h"
 #include "htrie.h"
 
 #define TDB_MAX_PCP_SZ  (TDB_EXT_SZ / PAGE_SIZE) /* Store one extent per cpu. */
@@ -1419,7 +1420,7 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 	spin_lock_init(&hdr->gfl_lock);
 
 	/* Set per-CPU pointers. */
-	hdr->pcpu = alloc_percpu(TdbPerCpu);
+	hdr->pcpu = tfw_alloc_percpu(TdbPerCpu);
 	if (!hdr->pcpu) {
 		TDB_ERR("cannot allocate per-cpu data\n");
 		return NULL;
