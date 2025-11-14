@@ -25,6 +25,7 @@
 
 #define S_CRLF			"\r\n"
 #define S_DLM			": "
+#define S_COLON			":"
 #define S_SET_COOKIE		"set-cookie"
 #define S_F_SET_COOKIE		S_SET_COOKIE S_DLM
 #define S_LOCATION		"location"
