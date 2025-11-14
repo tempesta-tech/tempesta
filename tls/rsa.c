@@ -45,6 +45,7 @@
 #include <linux/random.h>
 
 #include "lib/str.h"
+#include "lib/alloc.h"
 #include "crypto.h"
 #include "mpool.h"
 #include "oid.h"
@@ -117,13 +118,13 @@ __rsa_setup_ctx(TlsRSACtx *ctx)
 		return -EINVAL;
 	}
 
-	ctx->Vi = __alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
-				 __alignof__(TlsMpi));
+	ctx->Vi = tfw__alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
+				    __alignof__(TlsMpi));
 	if (!ctx->Vi)
 		return -ENOMEM;
 
-	ctx->Vf = __alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
-				 __alignof__(TlsMpi));
+	ctx->Vf = tfw__alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
+				    __alignof__(TlsMpi));
 	if (!ctx->Vf) {
 		free_percpu(ctx->Vi);
 		return -ENOMEM;
@@ -1200,7 +1201,7 @@ ttls_rsa_rsassa_pkcs1_v15_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	 * In order to prevent Lenstra's attack, make the signature in a
 	 * temporary buffer and check it before returning it.
 	 */
-	if (!(sig_try = kzalloc(ctx->len * 2, GFP_ATOMIC)))
+	if (!(sig_try = tfw_kzalloc(ctx->len * 2, GFP_ATOMIC)))
 		return -ENOMEM;
 
 	verif = sig_try + ctx->len;
@@ -1431,8 +1432,8 @@ ttls_rsa_rsassa_pkcs1_v15_verify(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	 * Prepare expected PKCS1 v1.5 encoding of hash.
 	 */
 
-	if ((encoded = kzalloc(sig_len, GFP_ATOMIC)) == NULL ||
-		(encoded_expected = kzalloc(sig_len, GFP_ATOMIC)) == NULL)
+	if ((encoded = tfw_kzalloc(sig_len, GFP_ATOMIC)) == NULL ||
+		(encoded_expected = tfw_kzalloc(sig_len, GFP_ATOMIC)) == NULL)
 	{
 		ret = -ENOMEM;
 		goto cleanup;

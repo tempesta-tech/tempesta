@@ -23,6 +23,7 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
+#include "lib/alloc.h"
 #include "hash.h"
 #include "lib/ja5.h"
 #include "log.h"
@@ -175,7 +176,7 @@ ja5_cfgop_handle_hash_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if (!(he = kmalloc(sizeof(Ja5HashEntry), GFP_KERNEL)))
+	if (!(he = tfw_kmalloc(sizeof(Ja5HashEntry), GFP_KERNEL)))
 		return -ENOMEM;
 
 	he->hash = hash;
@@ -205,7 +206,7 @@ ja5_cfgop_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_EQ_N(0, cs, ce);
 	TFW_CFG_CHECK_ATTR_LE_N(1, cs, ce);
 
-	if (!(filter_cfg_reconfig = kzalloc(sizeof(Ja5FilterCfg), GFP_KERNEL)))
+	if (!(filter_cfg_reconfig = tfw_kzalloc(sizeof(Ja5FilterCfg), GFP_KERNEL)))
 		return -ENOMEM;
 
 	if (ce->attr_n == 1) {

@@ -26,13 +26,14 @@
 #include <linux/slab.h>
 
 #include "work_queue.h"
+#include "lib/alloc.h"
 
 int
 tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 {
 	int cpu;
 
-	q->heads = alloc_percpu(atomic64_t);
+	q->heads = tfw_alloc_percpu(atomic64_t);
 	if (!q->heads)
 		return -ENOMEM;
 
@@ -47,7 +48,7 @@ tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 	set_bit(TFW_QUEUE_IPI, &q->flags);
 
 	/* Fallback to vmalloc for large queue sizes (> 128k items) */
-	q->array = kvmalloc_node(qsize * WQ_ITEM_SZ, GFP_KERNEL, node);
+	q->array = tfw_kvmalloc_node(qsize * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
 		free_percpu(q->heads);
 		return -ENOMEM;

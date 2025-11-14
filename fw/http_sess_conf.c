@@ -23,6 +23,7 @@
 #include "http_sess_conf.h"
 #include "http_sess.h"
 #include "vhost.h"
+#include "lib/alloc.h"
 
 /* Currently parsed vhost. */
 static TfwVhost *cur_vhost;
@@ -689,7 +690,7 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 	} else {
 		goto err;
 	}
-	js_ch->body.chunks = kzalloc(sizeof(TfwStr) * 2, GFP_KERNEL);
+	js_ch->body.chunks = tfw_kzalloc(sizeof(TfwStr) * 2, GFP_KERNEL);
 	js_ch->body.chunks[0] = (TfwStr) { .data = body_data,
 	                                   .len = rbegin - body_data};
 	js_ch->body.chunks[1] = (TfwStr) { .data = rend,
@@ -715,7 +716,7 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwCfgJsCh *js_ch;
 	bool was_delay_min = false, was_delay_range=false, was_resp_code=false;
 
-	js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
+	js_ch = tfw_kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
 	if (!js_ch) {
 		T_ERR_NL("%s: can't allocate memory for JS challenge\n", cs->name);
 		return -ENOMEM;
