@@ -23,6 +23,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
+#include "lib/alloc.h"
 #include "file.h"
 #include "htrie.h"
 #include "table.h"
@@ -296,7 +297,7 @@ tdb_get_db(const char *path, int node)
 	if (db)
 		return db;
 
-	db = kzalloc(sizeof(TDB), GFP_KERNEL);
+	db = tfw_kzalloc(sizeof(TDB), GFP_KERNEL);
 	if (!db) {
 		TDB_ERR("Cannot allocate new db handler\n");
 		return NULL;

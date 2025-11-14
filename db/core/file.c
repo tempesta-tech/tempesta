@@ -28,6 +28,7 @@
 #include <linux/writeback.h>
 
 #include "file.h"
+#include "lib/alloc.h"
 
 /**
  * Node of list of free/user memory areas.
@@ -83,7 +84,7 @@ ma_split(MArea *ma, unsigned long len)
 	}
 
 	/* ma is larger than we need, split it. */
-	ret = kmalloc(sizeof(MArea), GFP_KERNEL);
+	ret = tfw_kmalloc(sizeof(MArea), GFP_KERNEL);
 	if (!ret)
 		return NULL;
 

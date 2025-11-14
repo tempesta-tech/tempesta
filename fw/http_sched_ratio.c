@@ -24,6 +24,7 @@
 
 #include "sched.h"
 #include "tempesta_fw.h"
+#include "lib/alloc.h"
 #include "apm.h"
 #include "log.h"
 #include "server.h"
@@ -612,7 +613,7 @@ tfw_sched_ratio_rtodata_get(TfwRatio *ratio)
 	TfwRatioData *rtodata;
 
 	size = sizeof(TfwRatioData) + sizeof(TfwRatioSrvData) * ratio->srv_n;
-	if (!(rtodata = kmalloc(size, GFP_ATOMIC)))
+	if (!(rtodata = tfw_kmalloc(size, GFP_ATOMIC)))
 		return NULL;
 	rtodata->srvdata = (TfwRatioSrvData *)(rtodata + 1);
 	spin_lock_init(&rtodata->schdata.lock);
@@ -1046,7 +1047,7 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 	TfwSrvConn **conn, *srv_conn;
 
 	size = sizeof(TfwSrvConn *) * srv->conn_n;
-	if (!(srvdesc->conn = kzalloc(size, GFP_KERNEL)))
+	if (!(srvdesc->conn = tfw_kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
 
 	conn = srvdesc->conn;
@@ -1115,7 +1116,7 @@ tfw_sched_ratio_add_grp_common(TfwSrvGroup *sg)
 	T_DBG2("%s: SG=[%s]\n", __func__, sg->name);
 
 	size = sizeof(TfwRatio) + sizeof(TfwRatioSrvDesc) * sg->srv_n;
-	if (!(ratio = kzalloc(size, GFP_KERNEL)))
+	if (!(ratio = tfw_kzalloc(size, GFP_KERNEL)))
 		return NULL;
 
 	ratio->srv_n = sg->srv_n;
@@ -1174,7 +1175,7 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg, void *arg)
 		size = sizeof(TfwRatioHstData)
 		       + sizeof(TfwRatioHstDesc) * sg->srv_n
 		       + sizeof(TfwRatioHstUnit) * sg->srv_n * slot_n;
-		if (!(ratio->hstdata = kzalloc(size, GFP_KERNEL)))
+		if (!(ratio->hstdata = tfw_kzalloc(size, GFP_KERNEL)))
 			goto cleanup;
 
 		hdata = ratio->hstdata;
@@ -1268,7 +1269,7 @@ tfw_sched_ratio_add_srv(TfwServer *srv)
 	if (unlikely(srvdesc))
 		return -EEXIST;
 
-	if (!(srvdesc = kzalloc(sizeof(TfwRatioSrvDesc), GFP_KERNEL)))
+	if (!(srvdesc = tfw_kzalloc(sizeof(TfwRatioSrvDesc), GFP_KERNEL)))
 		return -ENOMEM;
 	if ((r = tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc))) {
 		kfree(srvdesc);
