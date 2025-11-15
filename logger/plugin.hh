@@ -39,8 +39,8 @@
 class ProcessorHandle
 {
 public:
-	ProcessorHandle(TfwLoggerPluginApi* api, void* processor, const char* name)
-		: api_(api), processor_(processor), name_(name? name: "unknown")
+	ProcessorHandle(TfwLoggerPluginApi* api, void* processor)
+		: api_(api), processor_(processor)
 	{}
 
 	~ProcessorHandle()
@@ -61,37 +61,27 @@ public:
 	}
 
 public:
-	bool is_initialized() const noexcept
-	{
-		return processor_ != nullptr;
-	}
-
-public:
 	//TODO: implement
 	tus::Error<bool> consume() noexcept
 	{
-		assert(is_initialized());
 		return false;
 	}
 
 	bool make_background_work() noexcept
 	{
-		assert(is_initialized());
 		return false;
 	}
 
 	void request_stop() const noexcept
 	{
-		assert(is_initialized());
 	}
 
 	bool stop_requested() const noexcept
 	{
-		assert(is_initialized());
 		return false;
 	}
 
-	const std::string& name() const noexcept { return name_; };
+	std::string_view name() const noexcept { return api_->name; };
 
 public:
 	ProcessorHandle& operator=(ProcessorHandle&& other) noexcept
@@ -109,7 +99,6 @@ public:
 private:
 	TfwLoggerPluginApi*	api_;
 	void*			processor_;
-	const std::string	name_;
 };
 
 /**

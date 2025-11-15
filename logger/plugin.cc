@@ -100,7 +100,7 @@ ProcessorHandle Plugin::create_processor(unsigned processor_id) const
 		throw tus::Except("Plugin {} failed to create processor",
 				  api_->name);
 
-	return ProcessorHandle(api_, raw_processor, api_->name);
+	return ProcessorHandle(api_, raw_processor);
 }
 
 

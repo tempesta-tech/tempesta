@@ -208,13 +208,21 @@ run_thread(const unsigned ncpu, const std::vector<Plugin>& plugins) noexcept
 	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
 
 	std::vector<ProcessorHandle> processors;
-	processors.reserve(plugins.size());
+	try {
+		processors.reserve(plugins.size());
 
-	for (const auto& plugin : plugins) {
-		//TODO: throw!
-		auto processor = plugin.create_processor(ncpu);
-		if (processor.is_initialized())
+		for (const auto& plugin : plugins) {
+			auto processor = plugin.create_processor(ncpu);
 			processors.emplace_back(std::move(processor));
+		}
+	}
+	catch(const tus::Exception &e) {
+		spdlog::error("Worker {} stopped: {}", ncpu, e.what());
+		return;
+	}
+	catch(std::bad_alloc& e) {
+		spdlog::error("Worker {} stopped: {}", ncpu, e.what());
+		return;
 	}
 
 	event_loop(processors);
@@ -493,41 +501,34 @@ void
 run_main_loop()
 {
 	std::vector<Plugin> plugins;
-	try {
-		plugins.reserve(2);
-		//TODO: we don't need to separate different types of plugin in config
-		if (config.clickhouse_mmap.has_value()) {
-			if (!config.access_log_plugin_path.has_value()) {
-				spdlog::error("Empty path for access log plugin");
-				return;
-			}
-			const std::string plugin_path =
-				config.access_log_plugin_path.value();
-			plugins.emplace_back(plugin_path,
-					    *config.clickhouse_mmap,
-					    &stop_flag);
-			spdlog::info("Loaded mmap plugin from: {}", plugin_path);
-		}
-
-		if (config.clickhouse_xfw.has_value()) {
-			if (!config.xfw_events_plugin_path.has_value()) {
-				spdlog::error("Empty path for xfw events plugin");
-				return;
-			}
-			const std::string plugin_path =
-				config.xfw_events_plugin_path.value();
-			plugins.emplace_back(plugin_path,
-					   *config.clickhouse_xfw,
-					   &stop_flag);
-			spdlog::info("Loaded xfw plugin from: {}", plugin_path);
-		}
-
-		if (plugins.empty()) {
-			spdlog::error("No plugins configured");
+	plugins.reserve(2);
+	//TODO: we don't need to separate different types of plugin in config
+	if (config.clickhouse_mmap.has_value()) {
+		if (!config.access_log_plugin_path.has_value()) {
+			spdlog::error("Empty path for access log plugin");
 			return;
 		}
-	} catch (const std::exception& e) {
-		spdlog::error("Failed to initialize plugins: {}", e.what());
+		const std::string plugin_path = config.access_log_plugin_path.value();
+		plugins.emplace_back(plugin_path,
+				    *config.clickhouse_mmap,
+				    &stop_flag);
+		spdlog::info("Loaded mmap plugin from: {}", plugin_path);
+	}
+
+	if (config.clickhouse_xfw.has_value()) {
+		if (!config.xfw_events_plugin_path.has_value()) {
+			spdlog::error("Empty path for xfw events plugin");
+			return;
+		}
+		const std::string plugin_path =	config.xfw_events_plugin_path.value();
+		plugins.emplace_back(plugin_path,
+				   *config.clickhouse_xfw,
+				   &stop_flag);
+		spdlog::info("Loaded xfw plugin from: {}", plugin_path);
+	}
+
+	if (plugins.empty()) {
+		spdlog::error("No plugins configured");
 		return;
 	}
 
