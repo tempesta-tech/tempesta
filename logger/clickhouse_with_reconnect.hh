@@ -59,6 +59,28 @@ private:
 	bool handle_reconnection();
 
 private:
+	bool should_attempt_reconnect() const noexcept;
+	void update_reconnect_timeout(bool success) noexcept;
+	bool do_reconnect() noexcept;
+
+private:
+	std::atomic<bool> needs_reconnect{false};
+	std::atomic<std::chrono::steady_clock::time_point>
+		last_reconnect_attempt{
+			std::chrono::steady_clock::time_point::min()};
+	// The most Clickhouse API errors can be handled with simple connection
+	// reset and reconnection
+	//
+	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
+	//
+	// We start with zero reconnection timeout. However, the database can
+	// be restarted, so we use indefinite loop with double backoff in
+	// reconnection attempts.
+	std::atomic<std::chrono::seconds> reconnect_timeout{
+		std::chrono::seconds(0)
+	};
+
+private:
 	const unsigned			processor_id_;
 	std::shared_ptr<TfwClickhouse>	db_;
 };

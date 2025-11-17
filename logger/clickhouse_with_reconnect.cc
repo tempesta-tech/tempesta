@@ -41,7 +41,7 @@ ClickhouseWithReconnection::flush(bool force) noexcept
 	}
 
 	if (!db_->commit(force ? TfwClickhouse::FORCE : false)) {
-		db_->needs_reconnect.store(true, std::memory_order_release);
+		needs_reconnect.store(true, std::memory_order_release);
 		return false;
 	}
 
@@ -51,29 +51,71 @@ ClickhouseWithReconnection::flush(bool force) noexcept
 bool
 ClickhouseWithReconnection::handle_reconnection()
 {
-	if (!db_->needs_reconnect.load(std::memory_order_acquire)) [[likely]]
+	if (!needs_reconnect.load(std::memory_order_acquire)) [[likely]]
 		return true;
 
-	if (!db_->should_attempt_reconnect())
+	if (!should_attempt_reconnect())
 		return false;
 
 	spdlog::info("Attempting reconnection for processor {}", processor_id_);
 
-	db_->last_reconnect_attempt.store(
+	last_reconnect_attempt.store(
 		std::chrono::steady_clock::now(),
 		std::memory_order_release
 	);
 
-	bool success = db_->do_reconnect();
+	bool success = do_reconnect();
 	if (success) {
-		db_->needs_reconnect.store(false,
+		needs_reconnect.store(false,
 					   std::memory_order_release);
 		spdlog::info("Reconnection successful for processor {}",
 			     processor_id_);
 		return true;
 	} else {
-		db_->needs_reconnect.store(true,
+		needs_reconnect.store(true,
 					   std::memory_order_release);
 		return false;
 	}
+}
+
+bool
+ClickhouseWithReconnection::should_attempt_reconnect() const noexcept
+{
+	if (!needs_reconnect.load()) {
+		return false;
+	}
+
+	auto now = std::chrono::steady_clock::now();
+	auto last_attempt = last_reconnect_attempt.load();
+	auto timeout = reconnect_timeout.load();
+
+	return (now - last_attempt) >= timeout;
+}
+
+void
+ClickhouseWithReconnection::update_reconnect_timeout(bool success) noexcept
+{
+	if (success) {
+		reconnect_timeout.store(std::chrono::seconds(0));
+		return;
+	}
+
+	auto current = reconnect_timeout.load();
+	if (current.count() == 0) {
+		reconnect_timeout.store(std::chrono::seconds(1));
+	} else if (current.count() < 300) {
+		reconnect_timeout.store(current * 2);
+	}
+}
+
+bool
+ClickhouseWithReconnection::do_reconnect() noexcept
+{
+	bool success = db_->reestablish_connection();
+	if (success)
+		needs_reconnect.store(false);
+
+	last_reconnect_attempt.store(std::chrono::steady_clock::now());
+	update_reconnect_timeout(success);
+	return success;
 }

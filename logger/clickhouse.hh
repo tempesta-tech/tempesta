@@ -148,7 +148,6 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
 	using ValType = uint64_t;
 };
 
-//TODO: fix description
 /**
  * Class for sending records to a Clickhouse database.
  *
@@ -157,7 +156,6 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
  *        block.
  *
  * Other public methods:
- *    @get_block - Returns a pointer to the data block for the specified CPU core.
  *    @commit - Commits the data in the block to the Clickhouse database if the
  *        block’s row count exceeds a maximum event threshold. After
  *        committing, the block is deleted, a new block is created via
@@ -171,6 +169,7 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
  *    @block_ - Block instance holding data records to be inserted.
  *    @table_name_ - Name of the Clickhouse table where data is inserted.
  *    @max_events_ - Maximum number of events to insert before committing.
+ *    @client_options_ - settings to establish new connection
  */
 class TfwClickhouse {
 public:
@@ -182,33 +181,18 @@ public:
 
 	~TfwClickhouse();
 
+public:
 	template<TfwBinLogFields FieldType>
 	void append(
 		const typename TfwBinLogTypeTraits<FieldType>::ValType& value);
 	void append_timestamp(uint64_t timestamp);
 
+public:
 	[[nodiscard]] bool commit(bool force = false) noexcept;
 	bool handle_block_error() noexcept;
 
-	bool should_attempt_reconnect() const noexcept;
-	bool do_reconnect() noexcept;
-
 public:
-	std::atomic<bool> needs_reconnect{false};
-	std::atomic<std::chrono::steady_clock::time_point>
-		last_reconnect_attempt{
-			std::chrono::steady_clock::time_point::min()};
-	// The most Clickhouse API errors can be handled with simple connection
-	// reset and reconnection
-	//
-	//   https://github.com/ClickHouse/clickhouse-cpp/issues/184
-	//
-	// We start with zero reconnection timeout. However, the database can
-	// be restarted, so we use indefinite loop with double backoff in
-	// reconnection attempts.
-	std::atomic<std::chrono::seconds> reconnect_timeout{
-		std::chrono::seconds(0)
-	};
+	bool reestablish_connection() noexcept;
 
 private:
 	// We store timestamp at index 0
@@ -218,7 +202,6 @@ private:
 	}
 
 	void make_block();
-	void update_reconnect_timeout(bool success) noexcept;
 
 private:
 	const std::string		table_name_;
