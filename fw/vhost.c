@@ -1482,6 +1482,7 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
 		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
 
+	memset(loc, 0, sizeof(TfwLocation));
 	if ((argmem = tfw_kmalloc(len + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 	if ((data = tfw_kzalloc(size, GFP_KERNEL)) == NULL) {
@@ -1691,13 +1692,15 @@ tfw_location_del(TfwLocation *loc)
 		BUG_ON(!loc->capo[i]);
 		kfree(loc->capo[i]);
 	}
+
 	kfree(loc->capo_hdr_del);
 	for (i = 0; i < loc->nipdef_sz; ++i) {
 		BUG_ON(!loc->nipdef[i]);
 		kfree(loc->nipdef[i]);
 	}
 
-	__tfw_frang_clean(loc->frang_cfg);
+	if (loc->frang_cfg)
+		__tfw_frang_clean(loc->frang_cfg);
 
 	kfree(loc->arg);
 	kfree(loc->frang_cfg);
@@ -2835,8 +2838,11 @@ tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 		tfw_srv_loop_sched_rcu();
 	}
 
-	set_bit(TFW_VHOST_B_REMOVED, &vhosts->vhost_dflt->flags);
-	tfw_vhost_put(vhosts->vhost_dflt);
+	if (vhosts->vhost_dflt) {
+		set_bit(TFW_VHOST_B_REMOVED, &vhosts->vhost_dflt->flags);
+		tfw_vhost_put(vhosts->vhost_dflt);
+	}
+
 	kfree(vhosts);
 }
 
