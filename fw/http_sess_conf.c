@@ -678,6 +678,7 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 	char *body_data;
 	size_t sz;
 	char *rbegin, *rend, *p;
+	int r;
 
 	body_data = tfw_http_msg_body_dup(script, &sz);
 	if (!body_data)
@@ -688,9 +689,15 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 		if (!(rend = strchr(rbegin, '"')))
 			goto err;
 	} else {
+		r = -EINVAL;
 		goto err;
 	}
 	js_ch->body.chunks = tfw_kzalloc(sizeof(TfwStr) * 2, GFP_KERNEL);
+	if (!js_ch->body.chunks) {
+		r = -ENOMEM;
+		goto err;
+	}
+
 	js_ch->body.chunks[0] = (TfwStr) { .data = body_data,
 	                                   .len = rbegin - body_data};
 	js_ch->body.chunks[1] = (TfwStr) { .data = rend,
@@ -704,7 +711,7 @@ err:
 	T_ERR_NL("%s: can't find TFW_DONT_CHANGE_NAME in JS challenge script\n",
 	         cs->name);
 	free_pages((unsigned long)body_data, get_order(sz));
-	return -EINVAL;
+	return r;
 }
 
 static int
