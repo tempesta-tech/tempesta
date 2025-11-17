@@ -2187,34 +2187,6 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg);
 }
 
-static int
-tfw_sock_srv_start(void)
-{
-	int r;
-	TfwCfgSrvGroup *sg_cfg;
-	TfwSrvGroup *sg;
-	struct hlist_node *tmp;
-	HLIST_HEAD(orphan_sgs);
-
-	tfw_cfg_grace_time = tfw_cfg_grace_time_reconfig;
-
-	list_for_each_entry(sg_cfg, &sg_cfg_list, list) {
-		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
-			return r;
-		tfw_srv_loop_sched_rcu();
-	}
-
-	tfw_sg_apply_reconfig(&orphan_sgs);
-	hlist_for_each_entry_safe(sg, tmp, &orphan_sgs, list) {
-		tfw_sock_srv_grace_shutdown_sg(sg);
-		tfw_srv_loop_sched_rcu();
-	}
-
-	tfw_cfgop_cleanup_srv_cfgs(false);
-
-	return 0;
-}
-
 static void
 tfw_sock_srv_stop(void)
 {
@@ -2230,6 +2202,38 @@ tfw_sock_srv_stop(void)
 		tfw_sg_for_each_srv(NULL, tfw_sock_srv_abort_srv);
 
 	tfw_sg_release_all();
+}
+
+static int
+tfw_sock_srv_start(void)
+{
+	int r;
+	TfwCfgSrvGroup *sg_cfg;
+	TfwSrvGroup *sg;
+	struct hlist_node *tmp;
+	HLIST_HEAD(orphan_sgs);
+
+	tfw_cfg_grace_time = tfw_cfg_grace_time_reconfig;
+
+	list_for_each_entry(sg_cfg, &sg_cfg_list, list) {
+		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
+			goto stop;
+		tfw_srv_loop_sched_rcu();
+	}
+
+	tfw_sg_apply_reconfig(&orphan_sgs);
+	hlist_for_each_entry_safe(sg, tmp, &orphan_sgs, list) {
+		tfw_sock_srv_grace_shutdown_sg(sg);
+		tfw_srv_loop_sched_rcu();
+	}
+
+	tfw_cfgop_cleanup_srv_cfgs(false);
+
+	return 0;
+
+stop:
+	tfw_sock_srv_stop();
+	return r;
 }
 
 /* Group specs are cleaned up by tfw_sock_srv_specs["srv_group"].cleanup(). */
