@@ -24,36 +24,21 @@
 #include "../libtus/error.hh"
 #include "clickhouse.hh"
 
-//TODO: what do we really wants to share? ClickhouseWithReconnection or Clickhouse
-//TODO: we also need to create wrapper for every plugin to make a plugin-dependings
-//initialization and get rid of mane append methods
-class ClickhouseWithReconnection {
+class ClickhouseWithReconnection final: public TfwClickhouse {
 public:
-	ClickhouseWithReconnection(std::shared_ptr<TfwClickhouse> db,
-				   unsigned processor_id);
-	virtual ~ClickhouseWithReconnection() noexcept = default;
+	ClickhouseWithReconnection(ch::ClientOptions &&client_options);
+	~ClickhouseWithReconnection() noexcept = default;
 
+public:
 	ClickhouseWithReconnection(const ClickhouseWithReconnection&) = delete;
 	ClickhouseWithReconnection& operator=(const ClickhouseWithReconnection&) = delete;
 
 public:
-	template<TfwBinLogFields FieldType>
-	void append(
-		const typename TfwBinLogTypeTraits<FieldType>::ValType& value)
-	{
-		return db_->append<FieldType>(value);
-	}
+	virtual bool
+	execute(const std::string &query) noexcept override;
 
-	void append_timestamp(uint64_t timestamp)
-	{
-		return db_->append_timestamp(timestamp);
-	}
-	bool handle_block_error() noexcept
-	{
-		return db_->handle_block_error();
-	}
-public:
-	bool flush(bool force = false) noexcept;
+	virtual bool
+	flush(const std::string &table_name, ch::Block &block) noexcept override;
 
 private:
 	bool handle_reconnection();
@@ -79,8 +64,4 @@ private:
 	std::atomic<std::chrono::seconds> reconnect_timeout{
 		std::chrono::seconds(0)
 	};
-
-private:
-	const unsigned			processor_id_;
-	std::shared_ptr<TfwClickhouse>	db_;
 };

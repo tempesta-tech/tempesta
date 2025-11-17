@@ -31,8 +31,10 @@
 #include "../libtus/error.hh"
 #include "../fw/mmap_buffer.h"
 
-#include "plugin_interface.hh"
 #include "access_log_plugin.hh"
+#include "clickhouse_config.hh"
+#include "clickhouse_with_reconnect.hh"
+#include "plugin_interface.hh"
 
 namespace {
 
@@ -58,7 +60,7 @@ template <TfwBinLogFields FieldType>
 requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ValType> ||
 	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ValType, struct in6_addr>
 void
-read_field(ClickhouseWithReconnection &db, const auto *event, std::span<const char> &data)
+read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)
 {
 	using Traits  = TfwBinLogTypeTraits<FieldType>;
 	using ValType = typename Traits::ValType;
@@ -82,7 +84,7 @@ read_field(ClickhouseWithReconnection &db, const auto *event, std::span<const ch
 template <TfwBinLogFields FieldType>
 requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ValType, std::string_view>
 void
-read_field(ClickhouseWithReconnection &db, const auto *event, std::span<const char> &data)
+read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)
 {
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
 		constexpr int len_size = sizeof(uint16_t);
@@ -106,7 +108,7 @@ read_field(ClickhouseWithReconnection &db, const auto *event, std::span<const ch
 }
 
 size_t
-read_access_log_event(ClickhouseWithReconnection &db, std::span<const char> data)
+read_access_log_event(AccessLogClickhouseDecorator &db, std::span<const char> data)
 {
 	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
 
@@ -181,7 +183,7 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
  * e.g. if ClickHouse throws and exception or some event record is broken.
  */
 [[nodiscard]] tus::Error<size_t>
-process_events(ClickhouseWithReconnection &db, std::span<const char> data) noexcept
+process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noexcept
 {
 	size_t read = 0;
 
@@ -245,7 +247,7 @@ process_events(ClickhouseWithReconnection &db, std::span<const char> data) noexc
 AccessLogProcessor::AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
 				       unsigned processor_id,
 				       int device_fd)
-	: writer_(std::move(db), processor_id)
+	: writer_(std::move(db))
 	, device_fd_(device_fd)
 {
 	plugin_log_debug(fmt::format("Creating AccessLogProcessor with device: {}",
@@ -386,9 +388,17 @@ mmap_plugin_init(const ClickHouseConfig *config, void *stop_flag)
 	plugin_log_info("Mmap plugin initialization");
 
 	global_stop_flag = reinterpret_cast<std::atomic<bool> *>(stop_flag);
-
 	try {
-		db = std::make_shared<TfwClickhouse>(*config);
+		ch::ClientOptions options;
+		options.SetHost(config->host)
+		       .SetPort(config->port)
+		       .SetDefaultDatabase(config->db_name);
+		if (const auto user = config->user.value_or(""); !user.empty())
+			options.SetUser(user);
+		if (const auto pswd = config->password.value_or(""); !pswd.empty())
+			options.SetPassword(pswd);
+
+		db = std::make_shared<ClickhouseWithReconnection>(std::move(options));
 		plugin_log_info("Created clickhouse connection");
 	} catch (const std::exception& e) {
 		plugin_log_error(fmt::format(

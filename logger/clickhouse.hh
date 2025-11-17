@@ -22,131 +22,12 @@
 #include <memory>
 #include <string>
 
-#include <clickhouse/block.h>
 #include <clickhouse/client.h>
-#include <clickhouse/columns/column.h>
 #include <clickhouse/types/types.h>
 
-#include "../fw/access_log.h"
-#include "clickhouse_config.hh"
 #include "../libtus/error.hh"
 
 namespace ch = clickhouse;
-
-template<TfwBinLogFields FieldType>
-struct TfwBinLogTypeCommonTraits
-{
-	static constexpr size_t index = static_cast<size_t>(FieldType) + 1;
-};
-
-template<TfwBinLogFields FieldType>
-struct TfwBinLogTypeTraits
-{
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_ADDR>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_ADDR>
-{
-	using ColType = ch::ColumnIPv6;
-	using ValType = struct in6_addr;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_METHOD>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_METHOD>
-{
-	using ColType = ch::ColumnUInt8;
-	using ValType = uint8_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_VERSION>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_VERSION>
-{
-	using ColType = ch::ColumnUInt8;
-	using ValType = uint8_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_STATUS>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_STATUS>
-{
-	using ColType = ch::ColumnUInt16;
-	using ValType = uint16_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_RESP_CONT_LEN>
-{
-	using ColType = ch::ColumnUInt32;
-	using ValType = uint32_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_TIME>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_RESP_TIME>
-{
-	using ColType = ch::ColumnUInt32;
-	using ValType = uint32_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_VHOST>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_VHOST>
-{
-	using ColType = ch::ColumnString;
-	using ValType = std::string_view;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_URI>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_URI>
-{
-	using ColType = ch::ColumnString;
-	using ValType = std::string_view;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_REFERER>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_REFERER>
-{
-	using ColType = ch::ColumnString;
-	using ValType = std::string_view;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_USER_AGENT>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_USER_AGENT>
-{
-	using ColType = ch::ColumnString;
-	using ValType = std::string_view;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_TFT>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_TFT>
-{
-	using ColType = ch::ColumnUInt64;
-	using ValType = uint64_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_TFH>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_TFH>
-{
-	using ColType = ch::ColumnUInt64;
-	using ValType = uint64_t;
-};
-
-template<>
-struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
-	: TfwBinLogTypeCommonTraits<TFW_MMAP_LOG_DROPPED>
-{
-	using ColType = ch::ColumnUInt64;
-	using ValType = uint64_t;
-};
 
 /**
  * Class for sending records to a Clickhouse database.
@@ -156,72 +37,34 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
  *        block.
  *
  * Other public methods:
- *    @commit - Commits the data in the block to the Clickhouse database if the
- *        block’s row count exceeds a maximum event threshold. After
- *        committing, the block is deleted, a new block is created via
- *        block_callback and last_time is updated. If a block was committed
- *        return true, otherwise return false.
- *    @handle_block_error() - try to recover from a Clickhouse API error or an
- *        access event parsing.
+ *    @flush - Commits the data from the block to the Clickhouse database.
+ * If a block was committed return true, otherwise return false.
  *
  * Private Members:
  *    @client_ - Clickhouse Client instance for sending data to the database.
- *    @block_ - Block instance holding data records to be inserted.
- *    @table_name_ - Name of the Clickhouse table where data is inserted.
- *    @max_events_ - Maximum number of events to insert before committing.
  *    @client_options_ - settings to establish new connection
  */
 class TfwClickhouse {
 public:
-	static const bool FORCE = true;
+	TfwClickhouse(ch::ClientOptions &&client_options);
+	virtual ~TfwClickhouse() {}
 
-	TfwClickhouse(const ClickHouseConfig &config);
+public:
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
-	~TfwClickhouse();
-
 public:
-	template<TfwBinLogFields FieldType>
-	void append(
-		const typename TfwBinLogTypeTraits<FieldType>::ValType& value);
-	void append_timestamp(uint64_t timestamp);
+	virtual bool execute(const std::string &query) noexcept;
 
-public:
-	[[nodiscard]] bool commit(bool force = false) noexcept;
-	bool handle_block_error() noexcept;
-
+	virtual bool
+	flush(const std::string &table_name, ch::Block &block) noexcept;
 public:
 	bool reestablish_connection() noexcept;
 
 private:
-	// We store timestamp at index 0
-	constexpr size_t
-	field_to_column_index(TfwBinLogFields field) const noexcept {
-		return static_cast<size_t>(field) + 1;
-	}
-
-	void make_block();
-
-private:
-	const std::string		table_name_;
-	const size_t			max_events_;
 	const ch::ClientOptions		client_options_;
-
-	ch::Block			block_;
 	std::unique_ptr<ch::Client>	client_;
 };
 
 std::shared_ptr<ch::Column>
 tfw_column_factory(ch::Type::Code code);
-
-template <TfwBinLogFields FieldType>
-void
-TfwClickhouse::append(
-	const typename TfwBinLogTypeTraits<FieldType>::ValType& value)
-{
-	using Traits   = TfwBinLogTypeTraits<FieldType>;
-	using ColType  = typename Traits::ColType;
-
-	block_[Traits::index]->template As<ColType>()->Append(value);
-}

@@ -21,7 +21,8 @@
 #include "../libtus/error.hh"
 #include "../fw/mmap_buffer.h"
 
-#include "clickhouse_with_reconnect.hh"
+#include "clickhouse.hh"
+#include "access_log_clickhouse.hh"
 
 class AccessLogProcessor{
 public:
@@ -44,7 +45,7 @@ public:
 	}
 
 private:
-	ClickhouseWithReconnection writer_;
+	AccessLogClickhouseDecorator writer_;
 
 	int	     device_fd_;
 	TfwMmapBuffer   *buffer_;
