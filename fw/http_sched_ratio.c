@@ -619,7 +619,6 @@ tfw_sched_ratio_rtodata_get(TfwRatio *ratio)
 
 	return rtodata;
 }
-ALLOW_ERROR_INJECTION(tfw_sched_ratio_rtodata_get, NULL);
 
 /**
  * Release a ratio data entry that is no longer used.
