@@ -142,7 +142,7 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
 class AccessLogClickhouseDecorator final: public ClickHouseDecorator
 {
 public:
-	AccessLogClickhouseDecorator(std::shared_ptr<TfwClickhouse> client,
+	AccessLogClickhouseDecorator(std::unique_ptr<TfwClickhouse> client,
 		std::string_view table_name, size_t max_events);
 
 public:

@@ -24,7 +24,11 @@
 #include <memory>
 
 #include "plugin_interface.hh"
+#include "plugin_processor_iface.hh"
 #include "clickhouse_config.hh"
+
+//TODO: get rid of ClickHouseConfig struct
+typedef ClickHouseConfig PluginConfig;
 
 /**
  * RAII wrapper for a processor instance created by a plugin.
@@ -36,16 +40,20 @@
  * The class also safely forwards (reinvokes) plugin API functions, passing the
  * stored handle back to the plugin as needed.
  */
-class ProcessorHandle
+class ProcessorHandle final: public IPluginProcessor
 {
 public:
-	ProcessorHandle(TfwLoggerPluginApi* api, void* processor)
+	ProcessorHandle(TfwLoggerPluginApi *api, void *processor)
 		: api_(api), processor_(processor)
-	{}
+	{
+		if (!api || !processor || !api_->is_active || !api_->request_stop
+		         || !api_->consume || !api_->make_background_work)
+			throw tus::Except("Plugin api is not fully presented");
+	}
 
 	~ProcessorHandle()
 	{
-		if (api_ && api_->destroy_processor && processor_) {
+		if (api_->destroy_processor) {
 			api_->destroy_processor(processor_);
 			processor_ = nullptr;
 		}
@@ -54,40 +62,44 @@ public:
 	ProcessorHandle(const ProcessorHandle&) = delete;
 	ProcessorHandle& operator=(const ProcessorHandle&) = delete;
 
-	ProcessorHandle(ProcessorHandle&& other) noexcept
+	ProcessorHandle(ProcessorHandle &&other) noexcept
 		: api_(other.api_), processor_(other.processor_)
 	{
 		other.processor_ = nullptr;
 	}
 
 public:
-	//TODO: implement
-	tus::Error<bool> consume() noexcept
+	virtual int is_active() noexcept override
 	{
-		return false;
+		assert(api_->is_active);
+		return api_->is_active(processor_);
 	}
 
-	bool make_background_work() noexcept
+	virtual void request_stop() noexcept override
 	{
-		return false;
+		assert(api_->request_stop);
+		return api_->request_stop(processor_);
 	}
 
-	void request_stop() const noexcept
+	virtual int consume(int* cnt) noexcept override
 	{
+		assert(api_->consume);
+		return api_->consume(processor_, cnt);
 	}
 
-	bool stop_requested() const noexcept
+	virtual int make_background_work() noexcept override
 	{
-		return false;
+		assert(api_->make_background_work);
+		return api_->make_background_work(processor_);
 	}
 
 	std::string_view name() const noexcept { return api_->name; };
 
 public:
-	ProcessorHandle& operator=(ProcessorHandle&& other) noexcept
+	ProcessorHandle& operator=(ProcessorHandle &&other) noexcept
 	{
 		if (this != &other) {
-			if (processor_ && api_ && api_->destroy_processor)
+			if (api_->destroy_processor)
 				api_->destroy_processor(processor_);
 			api_ = other.api_;
 			processor_ = other.processor_;
@@ -110,8 +122,8 @@ private:
 class Plugin {
 public:
 	explicit Plugin(const std::string &plugin_path,
-			const ClickHouseConfig& config,
-			std::atomic<bool> *stop_flag); //TODO: replace flag with API?
+			const PluginConfig &config,
+			StopFlag *stop_flag);
 
 	Plugin(const Plugin&) = delete;
 	Plugin& operator=(const Plugin&) = delete;
@@ -130,11 +142,13 @@ private:
 private:
 	struct DlCloser
 	{
-		void operator()(void* h) const noexcept;
+		void operator()(void *h) const noexcept;
 	};
 	using DlHandle = std::unique_ptr<void, DlCloser>;
 
 private:
+	PluginConfig		plugin_config_;
+	PluginConfigApi		plugin_config_api_;
 	DlHandle		handle_;
 	TfwLoggerPluginApi*	api_ = nullptr;
 };

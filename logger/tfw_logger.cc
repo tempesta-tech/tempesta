@@ -89,7 +89,7 @@ struct ParsedOptions {
 
 // All processors must be non-null
 void
-event_loop(std::vector<ProcessorHandle> &processors) noexcept
+event_loop(std::vector<ProcessorHandle> &&processors) noexcept
 {
 	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
 	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
@@ -122,30 +122,41 @@ event_loop(std::vector<ProcessorHandle> &processors) noexcept
 	// per an event type (access, security, and xFW).
 	//
 	// All the clickhouses must be flushed on a loop.
+	std::vector<ProcessorHandle> inactive_processors;
 	for (size_t tries = 0; ; ) {
-		bool stop_requested = false;
-		for (const auto& processor : processors) {
-			if (processor.stop_requested())
-				stop_requested = true;
-			if (stop_flag.load(std::memory_order_acquire)) [[unlikely]]
-				// Notify the processor that the daemong is done
-				// now no new events will be pushed to the buffer
-				// and we can process the rest of the events.
+		if (stop_flag.load(std::memory_order_acquire)) [[unlikely]] {
+			// Notify the processors that the daemong is done
+			// now no new events will be pushed to the buffer
+			// and we can process the rest of the events.
+			for (auto& processor : processors)
 				processor.request_stop();
 		}
 
 		bool consumed_something = false;
-		for (auto& processor : processors) {
-			auto result = processor.consume();
-			if (!result) [[unlikely]] {
+		for (auto it = processors.begin(); it != processors.end(); ) {
+			auto& processor = *it;
+			int consumed = 0;
+			const int err = processor.consume(&consumed);
+			if (err) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
-					      processor.name(),
-					      result.error().message());
+					processor.name(),
+					tus::make_error_code_from_int(err).message());
+       				++it;
 				continue;
 			}
 
-			if (result.value()) {
+			if (consumed) {
 				consumed_something = true;
+			}
+			else {
+				// Some of the processors finished their job
+				// and we already read all their data.
+				if (!processor.is_active()) {
+        				inactive_processors.push_back(std::move(*it));
+					it = processors.erase(it);
+				} else {
+					++it;
+				}
 			}
 		}
 
@@ -154,11 +165,8 @@ event_loop(std::vector<ProcessorHandle> &processors) noexcept
 			continue;
 		}
 
-		if (stop_requested) {
-			// The kernel notified us that we have to stop and we
-			// read all the data - propage the stop flag to the main
-			// thread loop and exit.
-			spdlog::info("Shutdown notification");
+		if (processors.empty()) {
+			spdlog::info("All processors finished their jobs, nothing to do");
 			stop_flag.store(true, std::memory_order_release);
 			return;
 		}
@@ -181,6 +189,11 @@ event_loop(std::vector<ProcessorHandle> &processors) noexcept
 			//    buffer, once we get a real time delay, we flush to
 			//    the database.
 			for (auto& processor : processors)
+				processor.make_background_work();
+			// We don't have any indication that the processor
+			// can be removed at all. During system idle time,
+			// it's fine if we do some extra work.
+			for (auto& processor : inactive_processors)
 				processor.make_background_work();
 
 			tries = 0;
@@ -226,7 +239,7 @@ run_thread(const unsigned ncpu, const std::vector<Plugin>& plugins) noexcept
 		return;
 	}
 
-	event_loop(processors);
+	event_loop(std::move(processors));
 
 	spdlog::debug("Worker {} stopped", ncpu);
 }
@@ -501,6 +514,15 @@ catch (const spdlog::spdlog_ex &ex) {
 void
 execute_workers() noexcept(false)
 {
+	StopFlag fstop{
+		.stop_requested = []() -> int {
+			return stop_flag.load(std::memory_order_relaxed);
+		},
+		.request_stop   = []() {
+			stop_flag.store(1, std::memory_order_relaxed);
+		}
+	};
+
 	std::vector<Plugin> plugins;
 	plugins.reserve(2);
 	//TODO: we don't need to separate different types of plugin in config
@@ -511,8 +533,8 @@ execute_workers() noexcept(false)
 		}
 		const std::string plugin_path = config.access_log_plugin_path.value();
 		plugins.emplace_back(plugin_path,
-				    *config.clickhouse_mmap,
-				    &stop_flag);
+				     *config.clickhouse_mmap,
+				     &fstop);
 		spdlog::info("Loaded mmap plugin from: {}", plugin_path);
 	}
 
@@ -523,8 +545,8 @@ execute_workers() noexcept(false)
 		}
 		const std::string plugin_path =	config.xfw_events_plugin_path.value();
 		plugins.emplace_back(plugin_path,
-				   *config.clickhouse_xfw,
-				   &stop_flag);
+				     *config.clickhouse_xfw,
+				     &fstop);
 		spdlog::info("Loaded xfw plugin from: {}", plugin_path);
 	}
 

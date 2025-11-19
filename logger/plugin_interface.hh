@@ -33,22 +33,54 @@ void plugin_log_info(const char* msg);
 void plugin_log_warn(const char* msg);
 void plugin_log_error(const char* msg);
 
-// TODO: add to plugin API
-//tus::Error<bool> consume() = 0;
-//bool make_background_work() noexcept = 0;
-
-
-struct ClickHouseConfig;
-typedef struct ClickHouseConfig ClickHouseConfig;
-
-typedef struct TfwLoggerConfig TfwLoggerConfig;
 typedef struct {
-	int 		version;
-	const char 	*name;
-	int   (*init)(const ClickHouseConfig *config, void *stop_flag);
-	void  (*done)(void);
-	void* (*create_processor)(unsigned processor_id);
-	void  (*destroy_processor)(void *processor);
+	const char*	host;		// null-terminated
+	uint16_t	port;
+
+	const char*	db_name;	// null-terminated
+	const char*	table_name;	// null-terminated
+
+	const char*	user;      	// null-terminated
+	const char*	password;  	// null-terminated
+
+	size_t		max_events;
+} PluginConfigApi;
+
+typedef void* ProcessorInstance;
+
+typedef struct {
+	/**
+	* Checks whether a stop of plugin loading has been requested.
+	* Returns 0 = continue loading, 1 = stop requested.
+	* Note: the flag is one-way — once set to 1 (stop requested),
+	* it cannot be reset back to 0.
+	*/
+	int (*stop_requested)();
+
+	/**
+	* Signals that plugin loading should stop.
+	* This is a one-way operation: once the flag is set to stop,
+	* it will remain set and cannot be cleared.
+	*/
+	void (*request_stop)();
+} StopFlag;
+
+typedef struct {
+	int		version;
+	const char	*name;
+
+	int	(*init)(StopFlag* stop_flag);
+	void	(*done)(void);
+
+	ProcessorInstance	(*create_processor)(const PluginConfigApi *config,
+						    unsigned processor_id);
+	void 			(*destroy_processor)(ProcessorInstance);
+
+	int			(*is_active)(ProcessorInstance);
+	void			(*request_stop)(ProcessorInstance);
+
+	int			(*consume)(ProcessorInstance, int* cnt);
+	int			(*make_background_work)(ProcessorInstance);
 } TfwLoggerPluginApi;
 
 typedef TfwLoggerPluginApi* (*TfwLoggerPluginGetApiFunc)(void);

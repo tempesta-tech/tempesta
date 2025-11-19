@@ -18,35 +18,33 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "../libtus/error.hh"
-#include "../fw/mmap_buffer.h"
+#pragma once
 
-#include "clickhouse.hh"
-#include "access_log_clickhouse.hh"
-#include "plugin_processor_iface.hh"
-
-class AccessLogProcessor final: public IPluginProcessor
+class IPluginProcessor
 {
 public:
-	explicit AccessLogProcessor(std::unique_ptr<TfwClickhouse> writer,
-				    unsigned processor_id,
-				    int device_fd,
-				    const char* table_name,
-				    size_t max_events);
-	~AccessLogProcessor() override;
+	virtual ~IPluginProcessor() = default;
 
 public:
-	//Part of plugin API
-	virtual int is_active() noexcept override;
-	virtual void request_stop() noexcept override;
+	/**
+	 * Returns 1 if the processor is active, 0 if inactive.
+	 */
+	virtual int is_active() noexcept = 0;
 
-	virtual int consume(int* cnt) noexcept override;
-	virtual int make_background_work() noexcept override;
+	/**
+	 * Requests the processor to stop as soon as possible.
+	 */
+	virtual void request_stop() noexcept = 0;
 
-private:
-	AccessLogClickhouseDecorator writer_;
+	/**
+	 * Processes available data. Returns 0 on success (writes consumed count
+	 * to *cnt), or a non-zero TUS error code on failure.
+	 */
+	virtual int consume(int* cnt) noexcept = 0;
 
-	int		device_fd_;
-	TfwMmapBuffer	*buffer_;
-	size_t		size_;
+	/**
+	 * Performs background maintenance work.
+	 * Returns 0 on success, or a non-zero TUS error code on failure.
+	 */
+	virtual int make_background_work() noexcept = 0;
 };

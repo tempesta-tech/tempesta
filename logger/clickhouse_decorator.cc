@@ -23,7 +23,7 @@
 
 #include "clickhouse_decorator.hh"
 
-ClickHouseDecorator::ClickHouseDecorator(std::shared_ptr<TfwClickhouse> client,
+ClickHouseDecorator::ClickHouseDecorator(std::unique_ptr<TfwClickhouse> client,
 			    std::string_view table_creation_query_template,
 			    std::string_view table_name,
 			    std::span<const TfwField> fields,
@@ -40,7 +40,8 @@ ClickHouseDecorator::ClickHouseDecorator(std::shared_ptr<TfwClickhouse> client,
 
 ClickHouseDecorator::~ClickHouseDecorator()
 {
-	handle_block_error();
+	if (!flush(FORCE))
+		handle_block_error();
 }
 
 bool

@@ -32,7 +32,6 @@
 #include "../fw/mmap_buffer.h"
 
 #include "access_log_plugin.hh"
-#include "clickhouse_config.hh"
 #include "clickhouse_with_reconnect.hh"
 #include "plugin_interface.hh"
 
@@ -244,10 +243,12 @@ process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noe
 
 } // anonymous namespace
 
-AccessLogProcessor::AccessLogProcessor(std::shared_ptr<TfwClickhouse> db,
+AccessLogProcessor::AccessLogProcessor(std::unique_ptr<TfwClickhouse> writer,
 				       unsigned processor_id,
-				       int device_fd)
-	: writer_(std::move(db))
+				       int device_fd,
+				       const char* table_name,
+				       size_t max_events)
+	: writer_(std::move(writer), table_name, max_events)
 	, device_fd_(device_fd)
 {
 	plugin_log_debug(fmt::format("Creating AccessLogProcessor with device: {}",
@@ -275,8 +276,8 @@ AccessLogProcessor::~AccessLogProcessor()
 	plugin_log_debug("AccessLogProcessor destroyed");
 }
 
-tus::Error<bool>
-AccessLogProcessor::consume()
+int
+AccessLogProcessor::consume(int* cnt) noexcept
 {
 	uint64_t head, tail;
 
@@ -284,8 +285,10 @@ AccessLogProcessor::consume()
 	tail = buffer_->tail;
 
 	assert(head >= tail);
-	if (head - tail == 0) [[unlikely]]
-		return false;
+	if (head - tail == 0) [[unlikely]] {
+		*cnt = 0;
+		return 0;
+	}
 
 	uint64_t size = static_cast<uint64_t>(head - tail);
 	const auto start = buffer_->data + (tail & buffer_->mask);
@@ -303,55 +306,62 @@ AccessLogProcessor::consume()
 	__atomic_store_n(&buffer_->tail, tail + size, __ATOMIC_RELEASE);
 
 	if (!res)
-		return tus::error(tus::Err::DB_SRV_FATAL);
+		return static_cast<int>(tus::Err::DB_SRV_FATAL);
 
 	// Ideally if we can move flushing into main loop of tfw_logger
 	// after all event processors to read events from the associated RBs
 	// and then ask all of them to flush what they have to Clickhouse.
 	if (*res && writer_.flush(/*force=*/false))
-		return tus::error(tus::Err::DB_SRV_FATAL);
+		return static_cast<int>(tus::Err::DB_SRV_FATAL);
 
-	return true;
+	*cnt = 1;
+	return 0;
 }
 
-bool
+int
 AccessLogProcessor::make_background_work() noexcept
 {
-	return writer_.flush(/*force=*/true);
+	if (writer_.flush(ClickHouseDecorator::FORCE))
+		return 0;
+
+	return static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
 }
 
 void
 AccessLogProcessor::request_stop() noexcept
 {
+	// Let the kernel know that it doesn’t have a listener.
 	__atomic_store_n(&buffer_->is_ready, 0, __ATOMIC_RELEASE);
 }
 
-bool
-AccessLogProcessor::stop_requested() noexcept
+int
+AccessLogProcessor::is_active() noexcept
 {
-	return !__atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE);
+	return __atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE);
 }
 
 namespace {
 
 TfwLoggerPluginApi plugin_api = {
 	.version		= TFW_PLUGIN_VERSION,
-	.name			= "mmap",
+	.name			= "access_log",
 	.init			= nullptr,
 	.done			= nullptr,
 	.create_processor	= nullptr,
-	.destroy_processor	= nullptr
+	.destroy_processor	= nullptr,
+	.is_active		= nullptr,
+	.request_stop		= nullptr,
+	.consume		= nullptr,
+	.make_background_work	= nullptr
 };
 
 constexpr char dev_path[] = "/dev/tempesta_mmap_log";
 constexpr std::chrono::seconds wait_for_dev{1};
 
-std::atomic<bool> *global_stop_flag;
-std::shared_ptr<TfwClickhouse> db;
 int dev_fd = -1;
 
 int
-open_mmap_device()
+open_mmap_device(StopFlag* stop_flag)
 {
 	int fd;
 
@@ -359,7 +369,7 @@ open_mmap_device()
 
 	// Try to open the device with retries
 	while ((fd = open(dev_path, O_RDWR)) == -1) {
-		if (global_stop_flag->load(std::memory_order_acquire)) {
+		if (stop_flag && stop_flag->stop_requested()) {
 			plugin_log_info("Stop flag set, exiting device open loop");
 			return -1;
 		}
@@ -381,33 +391,11 @@ open_mmap_device()
 }
 
 int
-mmap_plugin_init(const ClickHouseConfig *config, void *stop_flag)
+mmap_plugin_init(StopFlag* stop_flag)
 {
-	assert(config);
-
 	plugin_log_info("Mmap plugin initialization");
 
-	global_stop_flag = reinterpret_cast<std::atomic<bool> *>(stop_flag);
-	try {
-		ch::ClientOptions options;
-		options.SetHost(config->host)
-		       .SetPort(config->port)
-		       .SetDefaultDatabase(config->db_name);
-		if (const auto user = config->user.value_or(""); !user.empty())
-			options.SetUser(user);
-		if (const auto pswd = config->password.value_or(""); !pswd.empty())
-			options.SetPassword(pswd);
-
-		db = std::make_shared<ClickhouseWithReconnection>(std::move(options));
-		plugin_log_info("Created clickhouse connection");
-	} catch (const std::exception& e) {
-		plugin_log_error(fmt::format(
-			"Failed to create clickhouse connection: {}",
-			e.what()).c_str());
-		return -1;
-	}
-
-	dev_fd = open_mmap_device();
+	dev_fd = open_mmap_device(stop_flag);
 	if (dev_fd < 0) {
 		plugin_log_error(fmt::format("Failed to open device {}",
 					     dev_path).c_str());
@@ -425,22 +413,27 @@ mmap_plugin_done(void)
 		close(dev_fd);
 		dev_fd = -1;
 	}
-
-	db.reset();
-	plugin_log_info("Clickhouse connection closed");
 }
 
-void*
-mmap_create_processor(unsigned processor_id)
+ProcessorInstance
+mmap_create_processor(const PluginConfigApi *config, unsigned processor_id)
 {
+	assert(config);
+
 	try {
 		plugin_log_debug(fmt::format("Creating MmapProcessor for CPU: {}",
 					     processor_id).c_str());
 
-		auto processor =
-			std::make_unique<AccessLogProcessor>(db,
-							     processor_id,
-							     dev_fd);
+		ch::ClientOptions options;
+		options.SetHost(config->host)
+		       .SetPort(config->port)
+		       .SetDefaultDatabase(config->db_name)
+		       .SetUser(config->user)
+		       .SetPassword(config->password);
+
+		auto writer = std::make_unique<ClickhouseWithReconnection>(std::move(options));
+		auto processor = std::make_unique<AccessLogProcessor>(std::move(writer),
+			processor_id, dev_fd, config->table_name, config->max_events);
 
 		return processor.release();
 	} catch (const std::exception& e) {
@@ -452,21 +445,59 @@ mmap_create_processor(unsigned processor_id)
 }
 
 void
-mmap_destroy_processor(void *processor)
+mmap_destroy_processor(ProcessorInstance processor)
 {
 	if (!processor)
 		return;
-	delete static_cast<AccessLogProcessor*>(processor);
+
+	std::unique_ptr<AccessLogProcessor> p(
+		static_cast<AccessLogProcessor*>(processor));
 	plugin_log_debug("Destroyed MmapProcessor instance");
+}
+
+int
+mmap_is_active(ProcessorInstance processor)
+{
+	assert(!!processor);
+	auto* p = static_cast<AccessLogProcessor*>(processor);
+	return p->is_active();
+}
+
+void
+mmap_request_stop(ProcessorInstance processor)
+{
+	assert(!!processor);
+	auto* p = static_cast<AccessLogProcessor*>(processor);
+	return p->request_stop();
+}
+
+int
+mmap_consume(ProcessorInstance processor, int* cnt)
+{
+	assert(!!processor);
+	auto* p = static_cast<AccessLogProcessor*>(processor);
+	return p->consume(cnt);
+}
+
+int
+mmap_make_background_work(ProcessorInstance processor)
+{
+	assert(!!processor);
+	auto* p = static_cast<AccessLogProcessor*>(processor);
+	return p->make_background_work();
 }
 
 void
 mmap_plugin_populate_api()
 {
-	plugin_api.init = mmap_plugin_init;
-	plugin_api.done = mmap_plugin_done;
-	plugin_api.create_processor = mmap_create_processor;
-	plugin_api.destroy_processor = mmap_destroy_processor;
+	plugin_api.init			= mmap_plugin_init;
+	plugin_api.done			= mmap_plugin_done;
+	plugin_api.create_processor	= mmap_create_processor;
+	plugin_api.destroy_processor	= mmap_destroy_processor;
+	plugin_api.is_active		= mmap_is_active;
+	plugin_api.request_stop		= mmap_request_stop;
+	plugin_api.consume		= mmap_consume;
+	plugin_api.make_background_work	= mmap_make_background_work;
 }
 
 } // anonymous namespace

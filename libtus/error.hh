@@ -82,6 +82,12 @@ make_error_code(Err e) noexcept
 	return {static_cast<int>(e), tfw_error_category()};
 }
 
+inline std::error_code
+make_error_code_from_int(int e) noexcept
+{
+	return {e, tfw_error_category()};
+}
+
 [[nodiscard]] inline auto
 error(Err e) noexcept
 {

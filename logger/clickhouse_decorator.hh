@@ -38,7 +38,7 @@ public:
 	/**
 	 * table_creation_query_template, table_name, fields has to have static lifetime
 	 */
-	ClickHouseDecorator(std::shared_ptr<TfwClickhouse> client,
+	ClickHouseDecorator(std::unique_ptr<TfwClickhouse> client,
 			    std::string_view table_creation_query_template,
 			    std::string_view table_name,
 			    std::span<const TfwField> fields,
@@ -62,7 +62,7 @@ private:
 	const std::span<const TfwField>		table_fields_;
 	const size_t				max_events_;
 
-	std::shared_ptr<TfwClickhouse>		client_;
+	std::unique_ptr<TfwClickhouse>		client_;
 
 protected:
 	ch::Block				block_;

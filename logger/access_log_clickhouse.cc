@@ -64,7 +64,7 @@ static_assert(std::size(TfwFields) == TFW_MMAP_LOG_MAX + 1, "tfw_fields size mis
 } // anonymous namespace
 
 AccessLogClickhouseDecorator::AccessLogClickhouseDecorator(
-	std::shared_ptr<TfwClickhouse> client, std::string_view table_name,
+	std::unique_ptr<TfwClickhouse> client, std::string_view table_name,
 	size_t max_events)
 		: ClickHouseDecorator(std::move(client), TableCreationQueryTemplate,
 				      table_name, TfwFields, max_events)

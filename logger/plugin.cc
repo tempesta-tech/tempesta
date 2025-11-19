@@ -25,8 +25,28 @@
 #include "../libtus/error.hh"
 #include "plugin.hh"
 
-Plugin::Plugin(const std::string &plugin_path, const ClickHouseConfig& config,
-	std::atomic<bool> *stop_flag)
+inline PluginConfigApi
+make_plugin_config_api(const PluginConfig &cfg)
+{
+	PluginConfigApi c_cfg{};
+
+	c_cfg.host       = cfg.host.c_str();
+	c_cfg.port       = cfg.port;
+	c_cfg.db_name    = cfg.db_name.c_str();
+	c_cfg.table_name = cfg.table_name.c_str();
+
+	c_cfg.user       = cfg.user ? cfg.user->c_str() : nullptr;
+	c_cfg.password   = cfg.password ? cfg.password->c_str() : nullptr;
+
+	c_cfg.max_events = cfg.max_events;
+
+	return c_cfg;
+}
+
+Plugin::Plugin(const std::string &plugin_path, const PluginConfig &config,
+	StopFlag *stop_flag)
+	: plugin_config_(config)
+	, plugin_config_api_(make_plugin_config_api(plugin_config_))
 {
 	//TODO: split to several minor functions: load_library, get_plugin_api, init_plugin
 	void * handle = dlopen(plugin_path.c_str(),
@@ -50,7 +70,7 @@ Plugin::Plugin(const std::string &plugin_path, const ClickHouseConfig& config,
 	spdlog::info("Loaded plugin: {} ({})", api_->name, plugin_path);
 
 	if (api_->init) {
-		int ret = api_->init(&config, stop_flag);
+		int ret = api_->init(stop_flag);
 		if (ret < 0)
 			throw tus::Except("Plugin {} init failed with code {}",
 					  api_->name, ret);
@@ -63,17 +83,21 @@ Plugin::~Plugin()
 	shutdown_plugin();
 }
 
-Plugin::Plugin(Plugin&& other) noexcept
-	: handle_(std::move(other.handle_))
+Plugin::Plugin(Plugin &&other) noexcept
+	: plugin_config_(std::move(other.plugin_config_))
+	, plugin_config_api_(make_plugin_config_api(plugin_config_))
+	, handle_(std::move(other.handle_))
 	, api_(other.api_)
 {
 	other.api_ = nullptr;
 }
 
 Plugin&
-Plugin::operator=(Plugin&& other) noexcept
+Plugin::operator=(Plugin &&other) noexcept
 {
 	if (this != &other) {
+		plugin_config_ = std::move(other.plugin_config_);
+		plugin_config_api_ = make_plugin_config_api(plugin_config_);
 		handle_ = std::move(other.handle_);
 		api_ = std::move(other.api_);
 	}
@@ -95,7 +119,7 @@ ProcessorHandle Plugin::create_processor(unsigned processor_id) const
 	if (!api_ || !api_->create_processor)
 		throw tus::Except("Plugin {} not properly loaded", api_->name);
 
-	void* raw_processor = api_->create_processor(processor_id);
+	void* raw_processor = api_->create_processor(&plugin_config_api_, processor_id);
 	if (!raw_processor)
 		throw tus::Except("Plugin {} failed to create processor",
 				  api_->name);
@@ -105,7 +129,7 @@ ProcessorHandle Plugin::create_processor(unsigned processor_id) const
 
 
 void
-Plugin::DlCloser::operator()(void* h) const noexcept
+Plugin::DlCloser::operator()(void *h) const noexcept
 {
 	if (h)
 		dlclose(h);
