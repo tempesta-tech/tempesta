@@ -938,7 +938,8 @@ this_chunk:
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
 				return -ENOMEM;
 
-			ss_skb_set_owner(it->skb, tfw_http_msg_client(hm));
+			ss_skb_set_owner(it->skb, tfw_http_msg_client(hm),
+					 it->skb->truesize);
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
 			if (!it->skb_head)
@@ -1208,7 +1209,8 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 				if (!nskb)
 					return -ENOMEM;
 
-				ss_skb_set_owner(nskb, tfw_http_msg_client(hm));
+				ss_skb_set_owner(nskb, tfw_http_msg_client(hm),
+						 nskb->truesize);
 				/*
 				 * TODO #2136: Remove this flag during reworking
 				 * this function. Try to process headers and
