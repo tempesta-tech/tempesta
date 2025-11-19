@@ -63,7 +63,11 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
  * @on_send		- callback to special handling this skb before sending;
  * @on_tcp_entail 	- callback to special handling this skb before pushing
  *                        to socket write queue;
+ * @mem			- memory used for this skb, used to account appropriate
+ *			  client memory;
  * @stream_id		- id of sender stream;
+ * @tls_type		- tls type of current skb, if it's data should be
+ *			  encrypted;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
@@ -71,14 +75,16 @@ struct tfw_skb_cb {
 	void 		(*destructor)(void *opaque_data);
 	on_send_cb_t	on_send;
 	on_tcp_entail_t on_tcp_entail;
+	long int	mem;
 	unsigned int 	stream_id;
 	bool		is_head;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
-void ss_skb_set_owner(struct sk_buff *skb, void *owner);
+void ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int delta);
 void ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta);
+void ss_skb_adjust_mem(struct sk_buff *skb, int delta);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -319,8 +325,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
-	if (skb->sk)
-		ss_skb_adjust_sk_mem(skb, delta);
+	ss_skb_adjust_sk_mem(skb, delta);
 }
 
 /*
@@ -364,6 +369,7 @@ ss_skb_alloc(size_t n)
 	if (!skb)
 		return NULL;
 	skb_reserve(skb, MAX_TCP_HEADER);
+	memset(skb->cb, 0, sizeof(skb->cb));
 
 	return skb;
 }
