@@ -4579,7 +4579,7 @@ tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
-	ss_skb_set_owner(nskb, resp->msg.skb_head->sk);
+	ss_skb_set_owner(nskb, resp->msg.skb_head->sk, nskb->truesize);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
@@ -6554,7 +6554,7 @@ next_msg:
 	 * tls decryption.
 	 */
 	if (!skb->sk)
-		ss_skb_set_owner(skb, conn->peer);
+		ss_skb_set_owner(skb, conn->peer, skb->truesize);
 
 	r = frang_client_mem_limit((TfwCliConn *)conn, false);
 	if (unlikely(r)) {
@@ -7407,7 +7407,7 @@ next_msg:
 		else
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
 					     hmresp->req->flags);
-		ss_skb_set_owner(skb, cli_conn->peer);
+		ss_skb_set_owner(skb, cli_conn->peer, skb->truesize);
 
 		r = frang_client_mem_limit(cli_conn, false);
 		if (unlikely(r)) {
