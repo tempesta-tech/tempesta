@@ -139,6 +139,12 @@ tfw_client_put(TfwClient *cli)
 	tdb_rec_put(client_db, rec);
 }
 
+void
+tfw_client_get(TfwClient *cli)
+{
+	tdb_rec_keep(((TdbFRec *)cli) - 1);
+}
+
 typedef struct {
 	TfwAddr		addr;
 	TfwAddr		xff_addr;

@@ -200,6 +200,11 @@ int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 }
 
 void
+tfw_client_get(TfwClient *cli)
+{
+}
+
+void
 tfw_client_put(TfwClient *cli)
 {
 }
