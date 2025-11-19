@@ -404,6 +404,52 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 	sk_memory_allocated_add(sk, amt);
 }
 
+static bool
+ss_skb_can_collapce(struct sk_buff *to, struct sk_buff *from)
+{
+	if (skb_tfw_tls_type(to) != TFW_SKB_CB(from)->tls_type)
+		return false;
+
+	if (to->mark != from->mark)
+		return false;
+
+	if ((skb_shinfo(to)->flags & SKBFL_SHARED_FRAG) !=
+	    (skb_shinfo(from)->flags & SKBFL_SHARED_FRAG))
+		return false;
+
+	return true;
+}
+
+static bool
+ss_skb_try_collapce(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct sk_buff *tail = tcp_write_queue_tail(sk);
+	bool stolen;
+	int delta;
+
+	if (!tail || tail->len + skb->len > TLS_MAX_PAYLOAD_SIZE)
+		return false;
+
+	if (!ss_skb_can_collapce(tail, skb))
+		return false;
+
+	if (!tcp_skb_can_collapse(tail, skb))
+		return false;
+
+	if (!skb_try_coalesce(tail, skb, &stolen, &delta))
+		return false;
+
+	TCP_SKB_CB(tail)->end_seq += skb->len;
+	tp->write_seq += skb->len;
+
+	sk_wmem_queued_add(sk, delta);
+	sk_mem_charge(sk, delta);
+	kfree_skb_partial(skb, stolen);
+
+	return true;
+}
+
 void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		  unsigned char tls_type)
@@ -411,20 +457,25 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
-	ss_skb_init_for_xmit(skb);
 	skb->mark = mark;
-	if (tls_type)
-		skb_set_tfw_tls_type(skb, tls_type);
-	ss_forced_mem_schedule(sk, skb->truesize);
-	tcp_skb_entail(sk, skb);
-	tp->write_seq += skb->len;
-	TCP_SKB_CB(skb)->end_seq += skb->len;
 
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 	       " truesize=%u mark=%u tls_type=%x\n",
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
 	       skb->len, skb->truesize, skb->mark,
 	       skb_tfw_tls_type(skb));
+
+	if (!ss_skb_try_collapce(sk, skb)) {
+		ss_skb_init_for_xmit(skb);
+		/* Restore mark after `ss_skb_init_for_xmit`. */
+		skb->mark = mark;
+		if (tls_type)
+			skb_set_tfw_tls_type(skb, tls_type);
+		ss_forced_mem_schedule(sk, skb->truesize);
+		tcp_skb_entail(sk, skb);
+		tp->write_seq += skb->len;
+		TCP_SKB_CB(skb)->end_seq += skb->len;
+	}
 }
 
 int
