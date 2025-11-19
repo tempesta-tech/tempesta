@@ -120,7 +120,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
-		ss_skb_set_owner(skb, owner);
+		ss_skb_set_owner(skb, owner, skb->truesize);
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -219,7 +219,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (nskb == NULL)
 				return -ENOMEM;
 
-			ss_skb_set_owner(nskb, skb->sk);
+			ss_skb_set_owner(nskb, skb->sk, nskb->truesize);
 			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
 			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
@@ -1302,6 +1302,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	if (!buff)
 		return NULL;
 
+	memset(buff->cb, 0, sizeof(buff)->cb);
 	skb_reserve(buff, MAX_TCP_HEADER);
 
 	/* @buff already accounts @n in truesize. */
@@ -1712,11 +1713,37 @@ int
 ss_skb_realloc_headroom(struct sk_buff *skb)
 {
 	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+	bool skb_has_owner = (skb->sk != NULL);
+	void *owner;
+	long int mem;
+	unsigned int old_truesize;
+	int r;
 
 	if (likely(delta <= 0))
 		return 0;
 
-	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	/*
+	 * `pskb_expand_head` doesn't change skb->truesize for not
+	 * orphaned skbs (there is a special comment about it in the
+	 * kernel code). It is not safe for us to not break `skb->truesize`
+	 * calculation here, so we should orphan skb and then restore it's
+	 * owner later.
+	 */
+	if (skb_has_owner) {
+		owner = skb->sk;
+		mem = TFW_SKB_CB(skb)->mem;
+		old_truesize = skb->truesize;
+		skb_orphan(skb);
+	}
+
+	r = pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	if (unlikely(r))
+		return r;
+
+	if (skb_has_owner)
+		ss_skb_set_owner(skb, owner, mem + skb->truesize - old_truesize);
+
+	return 0;
 }
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 
@@ -1725,12 +1752,12 @@ ss_skb_destructor(struct sk_buff *skb)
 {
 	TfwClient *cli = (TfwClient *)skb->sk;
 
-	tfw_client_adjust_mem(cli, -skb->truesize);
-	tfw_client_put_light(cli);
+	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
+	tfw_client_put(cli);
 }
 
 void
-ss_skb_set_owner(struct sk_buff *skb, void *owner)
+ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int mem)
 {
 	/*
 	 * Can be zero when this function is called from `__extend_pgfrags`
@@ -1743,11 +1770,12 @@ ss_skb_set_owner(struct sk_buff *skb, void *owner)
 		 * this SKBs will be passed to the socket write queue.
 		 */
 		BUG_ON(skb->sk);
+		BUG_ON(TFW_SKB_CB(skb)->mem != 0);
 
-		tfw_client_get_light((TfwClient *)owner);
+		tfw_client_get((TfwClient *)owner);
 		skb->sk = owner;
 		skb->destructor = ss_skb_destructor;
-		tfw_client_adjust_mem((TfwClient *)owner, skb->truesize);
+		ss_skb_adjust_client_mem(skb, mem);
 	}
 }
 
@@ -1760,6 +1788,9 @@ ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 	 * `cli` can be zero here when this function is called
 	 * from `ss_skb_split` for SKBs which are already orphaned
 	 */
-	if (cli)
+	if (cli) {
+		TFW_SKB_CB(skb)->mem += delta;
+		BUG_ON(TFW_SKB_CB(skb)->mem < 0);
 		tfw_client_adjust_mem(cli, delta);
+	}
 }
