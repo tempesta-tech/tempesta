@@ -89,7 +89,7 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 next_msg:
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
-	ss_skb_set_owner(skb, conn->peer);
+	ss_skb_set_owner(skb, conn->peer, skb->truesize);
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
 	parsed = 0;
@@ -587,7 +587,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 					r = -ENOMEM;
 					goto out;
 				}
-				ss_skb_set_owner(skb, cli_conn->peer);
+				ss_skb_set_owner(skb, cli_conn->peer, skb->truesize);
 				ss_skb_queue_tail(&io->skb_list, skb);
 				i = 0;
 			}
