@@ -44,6 +44,7 @@ int tfw_client_init(void);
 void tfw_client_exit(void);
 TfwClient *tfw_client_obtain(TfwAddr addr, TfwAddr *cli_addr,
 			     TfwStr *user_agent, void (*init)(void *));
+void tfw_client_get(TfwClient *cli);
 void tfw_client_put(TfwClient *cli);
 int tfw_client_for_each(int (*fn)(void *));
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
@@ -57,26 +58,6 @@ static inline void
 tfw_client_adjust_mem(TfwClient *cli, int delta)
 {
 	atomic_add(delta, &cli->mem);
-}
-
-static inline void
-tfw_client_get_light(TfwClient *cli)
-{
-	int rc;
-
-	rc = atomic_inc_return(&cli->refcnt);
-	if (rc == 1)
-		tfw_client_obtain(cli->addr, NULL, NULL, NULL);
-}
-
-static inline void
-tfw_client_put_light(TfwClient *cli)
-{
-	int rc;
-
-	rc = atomic_dec_return(&cli->refcnt);
-	if (!rc)
-		tfw_client_put(cli);
 }
 
 #endif /* __TFW_CLIENT_H__ */
