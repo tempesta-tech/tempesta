@@ -16,6 +16,11 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+ifeq ($(shell which pkgconf), )
+$(error "pkgconf not found in $(PATH)")
+endif
+
+
 CLICKHOUSE_DIR := clickhouse-cpp
 CLICKHOUSE_BUILD_DIR := $(CLICKHOUSE_DIR)/build
 CLICKHOUSE_REPO_URL := https://github.com/ClickHouse/clickhouse-cpp.git
