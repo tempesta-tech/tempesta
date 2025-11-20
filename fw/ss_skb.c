@@ -1719,24 +1719,35 @@ int
 ss_skb_realloc_headroom(struct sk_buff *skb)
 {
 	int delta = MAX_TCP_HEADER - skb_headroom(skb);
-	unsigned int old_truesize = skb->truesize;
+	bool skb_has_owner = (skb->sk != NULL);
+	void *owner;
+	long int mem;
+	unsigned int old_truesize;
 	int r;
 
 	if (likely(delta <= 0))
 		return 0;
 
+	/*
+	 * `pskb_expand_head` doesn't change skb->truesize for not
+	 * orphaned skbs (there is a special comment about it in the
+	 * kernel code). It is not safe for us to not break `skb->truesize`
+	 * calculation here, so we should orphan skb and then restore it's
+	 * owner later.
+	 */
+	if (skb_has_owner) {
+		owner = skb->sk;
+		mem = TFW_SKB_CB(skb)->mem;
+		old_truesize = skb->truesize;
+		skb_orphan(skb);
+	}
+
 	r = pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
 	if (unlikely(r))
 		return r;
 
-	/*
-	 * Currently in linux kernel `pskb_expand_head` doesn't change
-	 * `skb->truesize` if `skb->sk` is set, because currently it is
-	 * not safe to change skb->truesize on tx path in linux kernel
-	 * if `skb->destructor` is set. So we don't adjust `client` mem
-	 * here.  
-	 */
-	BUG_ON(skb->sk && skb->truesize != old_truesize);
+	if (skb_has_owner)
+		ss_skb_set_owner(skb, owner, mem + skb->truesize - old_truesize);
 
 	return 0;
 }
