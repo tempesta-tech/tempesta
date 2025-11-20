@@ -84,7 +84,7 @@ struct ParsedOptions {
 
 // All processors must be non-null
 void
-event_loop(std::vector<ProcessorHandle> &&processors) noexcept
+event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 {
 	// Read from the ring buffer in polling mode and sleep only if POLL_N tries
 	// in a row were unsuccessful. We sleep for 1ms - theoretically we might
@@ -117,24 +117,24 @@ event_loop(std::vector<ProcessorHandle> &&processors) noexcept
 	// per an event type (access, security, and xFW).
 	//
 	// All the clickhouses must be flushed on a loop.
-	std::vector<ProcessorHandle> inactive_processors;
+	std::vector<std::unique_ptr<IPluginProcessor>> inactive_processors;
 	for (size_t tries = 0; ; ) {
 		if (stop_flag.load(std::memory_order_acquire)) [[unlikely]] {
 			// Notify the processors that the daemong is done
 			// now no new events will be pushed to the buffer
 			// and we can process the rest of the events.
 			for (auto& processor : processors)
-				processor.request_stop();
+				processor->request_stop();
 		}
 
 		bool consumed_something = false;
 		for (auto it = processors.begin(); it != processors.end(); ) {
 			auto& processor = *it;
 			int consumed = 0;
-			const int err = processor.consume(&consumed);
+			const int err = processor->consume(&consumed);
 			if (err) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
-					processor.name(),
+					processor->name(),
 					tus::make_error_code_from_int(err).message());
        				++it;
 				continue;
@@ -146,7 +146,7 @@ event_loop(std::vector<ProcessorHandle> &&processors) noexcept
 			else {
 				// Some of the processors finished their job
 				// and we already read all their data.
-				if (!processor.is_active()) {
+				if (!processor->is_active()) {
         				inactive_processors.push_back(std::move(*it));
 					it = processors.erase(it);
 				} else {
@@ -184,12 +184,12 @@ event_loop(std::vector<ProcessorHandle> &&processors) noexcept
 			//    buffer, once we get a real time delay, we flush to
 			//    the database.
 			for (auto& processor : processors)
-				processor.make_background_work();
+				processor->make_background_work();
 			// We don't have any indication that the processor
 			// can be removed at all. During system idle time,
 			// it's fine if we do some extra work.
 			for (auto& processor : inactive_processors)
-				processor.make_background_work();
+				processor->make_background_work();
 
 			tries = 0;
 		}
@@ -216,7 +216,7 @@ run_thread(const unsigned ncpu, const std::vector<Plugin>& plugins) noexcept
 	}
 	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
 
-	std::vector<ProcessorHandle> processors;
+	std::vector<std::unique_ptr<IPluginProcessor>> processors;
 	try {
 		processors.reserve(plugins.size());
 

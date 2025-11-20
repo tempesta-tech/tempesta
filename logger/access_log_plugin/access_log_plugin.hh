@@ -44,6 +44,7 @@ public:
 	virtual int consume(int* cnt) noexcept override;
 	virtual int make_background_work() noexcept override;
 
+	virtual std::string_view name() const noexcept override;
 private:
 	AccessLogClickhouseDecorator writer_;
 

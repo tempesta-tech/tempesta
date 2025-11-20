@@ -327,6 +327,13 @@ AccessLogProcessor::make_background_work() noexcept
 	return static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
 }
 
+std::string_view
+AccessLogProcessor::name() const noexcept
+{
+	using namespace std::literals;
+	return "access_log"sv;
+}
+
 void
 AccessLogProcessor::request_stop() noexcept
 {

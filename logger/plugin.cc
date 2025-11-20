@@ -43,6 +43,89 @@ make_plugin_config_api(const PluginConfig &cfg)
 	return c_cfg;
 }
 
+/**
+ * RAII wrapper for a processor instance created by a plugin.
+ *
+ * Manages a processor handle obtained from TfwLoggerPluginApi and ensures
+ * that it is properly destroyed via `api_->destroy_processor(handle_)` when the
+ * object goes out of scope.
+ *
+ * The class also safely forwards (reinvokes) plugin API functions, passing the
+ * stored handle back to the plugin as needed.
+ */
+class ProcessorHandle final: public IPluginProcessor
+{
+public:
+	ProcessorHandle(TfwLoggerPluginApi *api, void *processor)
+		: api_(api), processor_(processor)
+	{
+		if (!api || !processor || !api_->is_active || !api_->request_stop
+		         || !api_->consume || !api_->make_background_work)
+			throw tus::Except("Plugin api is not fully presented");
+	}
+
+	~ProcessorHandle()
+	{
+		if (api_->destroy_processor) {
+			api_->destroy_processor(processor_);
+			processor_ = nullptr;
+		}
+	}
+
+	ProcessorHandle(const ProcessorHandle&) = delete;
+	ProcessorHandle& operator=(const ProcessorHandle&) = delete;
+
+	ProcessorHandle(ProcessorHandle &&other) noexcept
+		: api_(other.api_), processor_(other.processor_)
+	{
+		other.processor_ = nullptr;
+	}
+
+public:
+	virtual int is_active() noexcept override
+	{
+		assert(api_->is_active);
+		return api_->is_active(processor_);
+	}
+
+	virtual void request_stop() noexcept override
+	{
+		assert(api_->request_stop);
+		return api_->request_stop(processor_);
+	}
+
+	virtual int consume(int* cnt) noexcept override
+	{
+		assert(api_->consume);
+		return api_->consume(processor_, cnt);
+	}
+
+	virtual int make_background_work() noexcept override
+	{
+		assert(api_->make_background_work);
+		return api_->make_background_work(processor_);
+	}
+
+	virtual std::string_view name() const noexcept override { return api_->name; };
+
+public:
+	ProcessorHandle& operator=(ProcessorHandle &&other) noexcept
+	{
+		if (this != &other) {
+			if (api_->destroy_processor)
+				api_->destroy_processor(processor_);
+			api_ = other.api_;
+			processor_ = other.processor_;
+			other.processor_ = nullptr;
+		}
+		return *this;
+	}
+
+private:
+	TfwLoggerPluginApi*	api_;
+	void*			processor_;
+};
+
 Plugin::Plugin(const std::string &plugin_path, const PluginConfig &config,
 	StopFlag *stop_flag)
 	: plugin_config_(config)
@@ -114,7 +197,8 @@ Plugin::shutdown_plugin()
 	}
 }
 
-ProcessorHandle Plugin::create_processor(unsigned processor_id) const
+std::unique_ptr<IPluginProcessor>
+Plugin::create_processor(unsigned processor_id) const
 {
 	if (!api_ || !api_->create_processor)
 		throw tus::Except("Plugin {} not properly loaded", api_->name);
@@ -124,7 +208,7 @@ ProcessorHandle Plugin::create_processor(unsigned processor_id) const
 		throw tus::Except("Plugin {} failed to create processor",
 				  api_->name);
 
-	return ProcessorHandle(api_, raw_processor);
+	return std::make_unique<ProcessorHandle>(api_, raw_processor);
 }
 
 

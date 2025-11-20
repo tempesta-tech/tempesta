@@ -47,4 +47,6 @@ public:
 	 * Returns 0 on success, or a non-zero TUS error code on failure.
 	 */
 	virtual int make_background_work() noexcept = 0;
+
+	virtual std::string_view name() const noexcept = 0;
 };
