@@ -24,7 +24,7 @@
  */
 #include <spdlog/spdlog.h>
 
-#include "../libtus/error.hh"
+#include "../../libtus/error.hh"
 #include "clickhouse.hh"
 
 

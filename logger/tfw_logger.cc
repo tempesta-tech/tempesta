@@ -31,18 +31,13 @@
 #include <vector>
 
 #include <boost/program_options.hpp>
-#include <clickhouse/base/socket.h>
-#include <clickhouse/client.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
-#include "../fw/access_log.h"
 #include "../libtus/pidfile.hh"
 #include "../libtus/error.hh"
-#include "clickhouse.hh"
 #include "plugin.hh"
 #include "tfw_logger_config.hh"
-#include "access_log_plugin.hh"
 
 namespace po = boost::program_options;
 

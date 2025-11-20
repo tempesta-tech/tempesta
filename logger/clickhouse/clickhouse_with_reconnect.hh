@@ -21,7 +21,6 @@
 
 #include <memory>
 
-#include "../libtus/error.hh"
 #include "clickhouse.hh"
 
 class ClickhouseWithReconnection final: public TfwClickhouse {

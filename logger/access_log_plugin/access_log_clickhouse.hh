@@ -22,9 +22,8 @@
 #include <string_view>
 #include <span>
 
-#include "../fw/access_log.h"
-
-#include "clickhouse_decorator.hh"
+#include "../../fw/access_log.h"
+#include "../clickhouse/clickhouse_decorator.hh"
 
 template<TfwBinLogFields FieldType>
 struct TfwBinLogTypeCommonTraits

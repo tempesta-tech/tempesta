@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "../../libtus/error.hh"
 #include "clickhouse_decorator.hh"
 
 ClickHouseDecorator::ClickHouseDecorator(std::unique_ptr<TfwClickhouse> client,

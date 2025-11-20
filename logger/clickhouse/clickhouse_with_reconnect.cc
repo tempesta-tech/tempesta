@@ -22,7 +22,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "../libtus/error.hh"
+#include "../../libtus/error.hh"
 #include "clickhouse_with_reconnect.hh"
 
 ClickhouseWithReconnection::ClickhouseWithReconnection(ch::ClientOptions &&client_options)

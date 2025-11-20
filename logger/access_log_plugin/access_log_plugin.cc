@@ -28,12 +28,12 @@
 #include <thread>
 #include <fmt/format.h>
 
-#include "../libtus/error.hh"
-#include "../fw/mmap_buffer.h"
+#include "../../libtus/error.hh"
+#include "../../fw/mmap_buffer.h"
+#include "../plugin_interface.hh"
+#include "../clickhouse/clickhouse_with_reconnect.hh"
 
 #include "access_log_plugin.hh"
-#include "clickhouse_with_reconnect.hh"
-#include "plugin_interface.hh"
 
 namespace {
 

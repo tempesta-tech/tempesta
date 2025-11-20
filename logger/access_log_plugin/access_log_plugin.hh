@@ -18,12 +18,13 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "../libtus/error.hh"
-#include "../fw/mmap_buffer.h"
+#include "../../libtus/error.hh"
+#include "../../fw/mmap_buffer.h"
 
-#include "clickhouse.hh"
+#include "../clickhouse/clickhouse.hh"
+#include "../plugin_processor_iface.hh"
+
 #include "access_log_clickhouse.hh"
-#include "plugin_processor_iface.hh"
 
 class AccessLogProcessor final: public IPluginProcessor
 {

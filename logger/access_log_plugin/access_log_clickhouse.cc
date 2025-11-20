@@ -19,7 +19,7 @@
  */
 #include <spdlog/spdlog.h>
 
-#include "../libtus/error.hh"
+#include "../../libtus/error.hh"
 
 #include "access_log_clickhouse.hh"
 
