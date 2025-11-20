@@ -24,11 +24,8 @@
 #include <memory>
 
 #include "plugin_interface.hh"
+#include "plugin_config.hh"
 #include "plugin_processor_iface.hh"
-#include "clickhouse_config.hh"
-
-//TODO: get rid of ClickHouseConfig struct
-typedef ClickHouseConfig PluginConfig;
 
 /**
  * RAII wrapper for a processor instance created by a plugin.

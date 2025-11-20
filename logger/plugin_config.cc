@@ -17,7 +17,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "clickhouse_config.hh"
+#include "plugin_config.hh"
 
 #include <regex>
 #include <stdexcept>
@@ -46,7 +46,7 @@ validate_table_name(const std::string &table_name)
 } // anonymous namespace
 
 void
-ClickHouseConfig::validate() const
+PluginConfig::validate() const
 {
 	if (host.empty())
 		throw std::runtime_error("ClickHouse host cannot be empty");
@@ -69,7 +69,7 @@ ClickHouseConfig::validate() const
 }
 
 void
-ClickHouseConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
+PluginConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 {
 	host = tree.get<std::string>("host", host);
 	port = tree.get<uint16_t>("port", port);

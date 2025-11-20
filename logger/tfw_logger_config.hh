@@ -25,7 +25,7 @@
 
 #include <boost/property_tree/ptree_fwd.hpp>
 
-#include "clickhouse_config.hh"
+#include "plugin_config.hh"
 
 namespace fs = std::filesystem;
 
@@ -34,8 +34,8 @@ struct TfwLoggerConfig {
 	fs::path log_path;
 	std::optional<std::string> access_log_plugin_path;
 	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<ClickHouseConfig> clickhouse_mmap;
-	std::optional<ClickHouseConfig> clickhouse_xfw;
+	std::optional<PluginConfig> clickhouse_mmap;
+	std::optional<PluginConfig> clickhouse_xfw;
 
 	static std::optional<TfwLoggerConfig>
 	load_from_file(const fs::path &path);
