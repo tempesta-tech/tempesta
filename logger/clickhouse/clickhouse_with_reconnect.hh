@@ -23,6 +23,19 @@
 
 #include "clickhouse.hh"
 
+/**
+ * Wrapper around a ClickHouse client with automatic reconnection logic.
+ *
+ * This class tracks the connection state and performs a reconnect on the next
+ * access if needed. If a connection attempt fails, the timeout before the next
+ * reconnect attempt is increased in a backoff manner: initially 0 seconds, then
+ * 1 second, and subsequently multiplied by 2 on each failure.
+ *
+ * NOTE: This class is not thread-safe. Concurrent access must be externally synchronized.
+ *
+ * TODO: Consider changing the design to perform the reconnect immediately
+ * rather than waiting for the next access.
+ */
 class ClickhouseWithReconnection final: public TfwClickhouse {
 public:
 	ClickhouseWithReconnection(ch::ClientOptions &&client_options);
@@ -42,15 +55,16 @@ public:
 private:
 	bool handle_reconnection();
 
-private:
-	bool should_attempt_reconnect() const noexcept;
+	//should be called only if needs_reconnect_ = true
+	bool reconnect_attempt_allowed() const noexcept;
+
 	void update_reconnect_timeout(bool success) noexcept;
 	bool do_reconnect() noexcept;
 
 private:
-	std::atomic<bool> needs_reconnect{false};
-	std::atomic<std::chrono::steady_clock::time_point>
-		last_reconnect_attempt{
+	bool needs_reconnect_{false};
+	std::chrono::steady_clock::time_point
+		last_reconnect_attempt_{
 			std::chrono::steady_clock::time_point::min()};
 	// The most Clickhouse API errors can be handled with simple connection
 	// reset and reconnection
@@ -60,7 +74,5 @@ private:
 	// We start with zero reconnection timeout. However, the database can
 	// be restarted, so we use indefinite loop with double backoff in
 	// reconnection attempts.
-	std::atomic<std::chrono::seconds> reconnect_timeout{
-		std::chrono::seconds(0)
-	};
+	std::chrono::seconds reconnect_timeout_{std::chrono::seconds(0)};
 };

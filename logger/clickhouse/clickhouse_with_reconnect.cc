@@ -48,70 +48,58 @@ ClickhouseWithReconnection::flush(const std::string &table_name, ch::Block &bloc
 		return false;
 	}
 
-	if (!TfwClickhouse::flush(table_name, block)) {
-		needs_reconnect.store(true, std::memory_order_release);
-		return false;
-	}
+	if (TfwClickhouse::flush(table_name, block))
+		return true;
 
-	return true;
+	needs_reconnect_ = true;
+	return false;
 }
 
 bool
 ClickhouseWithReconnection::handle_reconnection()
 {
-	if (!needs_reconnect.load(std::memory_order_acquire)) [[likely]]
+	if (!needs_reconnect_) [[likely]]
 		return true;
 
-	if (!should_attempt_reconnect())
+	if (!reconnect_attempt_allowed())
 		return false;
 
 	spdlog::info("TfwClickhouse: reconnection attempt.");
 
-	last_reconnect_attempt.store(
-		std::chrono::steady_clock::now(),
-		std::memory_order_release
-	);
+	last_reconnect_attempt_ = std::chrono::steady_clock::now();
 
 	bool success = do_reconnect();
 	if (success) {
-		needs_reconnect.store(false,
-					   std::memory_order_release);
+		needs_reconnect_ = false;
 		spdlog::info("TfwClickhouse: reconnection was successful.");
 		return true;
 	} else {
-		needs_reconnect.store(true,
-					   std::memory_order_release);
+		needs_reconnect_ = true;
 		return false;
 	}
 }
 
 bool
-ClickhouseWithReconnection::should_attempt_reconnect() const noexcept
+ClickhouseWithReconnection::reconnect_attempt_allowed() const noexcept
 {
-	if (!needs_reconnect.load())
-		return false;
+	assert(needs_reconnect_);
 
 	auto now = std::chrono::steady_clock::now();
-	auto last_attempt = last_reconnect_attempt.load();
-	auto timeout = reconnect_timeout.load();
-
-	return (now - last_attempt) >= timeout;
+	return (now - last_reconnect_attempt_) >= reconnect_timeout_;
 }
 
 void
 ClickhouseWithReconnection::update_reconnect_timeout(bool success) noexcept
 {
 	if (success) {
-		reconnect_timeout.store(std::chrono::seconds(0));
+		reconnect_timeout_ = std::chrono::seconds(0);
 		return;
 	}
 
-	auto current = reconnect_timeout.load();
-	if (current.count() == 0) {
-		reconnect_timeout.store(std::chrono::seconds(1));
-	} else if (current.count() < 300) {
-		reconnect_timeout.store(current * 2);
-	}
+	if (reconnect_timeout_.count() == 0)
+		reconnect_timeout_ = std::chrono::seconds(1);
+	else if (reconnect_timeout_.count() < 300)
+		reconnect_timeout_ *= 2;
 }
 
 bool
@@ -119,9 +107,9 @@ ClickhouseWithReconnection::do_reconnect() noexcept
 {
 	bool success = reestablish_connection();
 	if (success)
-		needs_reconnect.store(false);
+		needs_reconnect_ = false;
 
-	last_reconnect_attempt.store(std::chrono::steady_clock::now());
+	last_reconnect_attempt_ = std::chrono::steady_clock::now();
 	update_reconnect_timeout(success);
 	return success;
 }
