@@ -58,9 +58,4 @@ clean:
 	$(MAKE) -C $(CLICKHOUSE_DIR) clean TARGET_DIR=$(abspath .)
 	rm -f $(OBJS) $(TARGET)
 
-sanitize: $(CLICKHOUSE_LIB) $(OBJS)
-	$(CXX) -O0 -g -Wall -Wextra -std=c++23 \
-		-fsanitize=address,undefined -fno-omit-frame-pointer -fPIC \
-		-shared -o access_log_sanitized.so $(OBJS) $(CLICKHOUSE_LIB) $(LDFLAGS)
-
-.PHONY: all clean sanitize
+.PHONY: all clean

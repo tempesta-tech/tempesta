@@ -56,14 +56,4 @@ clean:
 	done
 	rm -f $(OBJS) $(TARGET)
 
-
-sanitize: $(OBJS)
-	$(CXX) -O0 -g -Wall -Wextra -std=c++23 -fsanitize=address,undefined -fno-omit-frame-pointer -o $(TARGET) $^ $(LDFLAGS)
-
-tfw_logger_sanitize:
-	@for dir in $(SUBDIRS); do		\
-		$(MAKE) -C $$dir sanitize;	\
-	done
-	$(MAKE) sanitize
-
-.PHONY: all clean $(SUBDIRS) sanitize tfw_logger_sanitize
+.PHONY: all clean $(SUBDIRS)

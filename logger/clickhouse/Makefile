@@ -76,15 +76,7 @@ $(CLICKHOUSE_DIR):
 	git clone $(CLICKHOUSE_REPO_URL) $(CLICKHOUSE_DIR)
 
 clickhouse_clean:
-	rm -rf $(CLICKHOUSE_BUILD_DIR)
+	$(RM) -rf $(CLICKHOUSE_DIR)
+	$(RM) -rf $(CLICKHOUSE_BUILD_DIR)
 
-sanitize: $(OBJS)
-	$(CXX) -O0 -g -Wall -Wextra -std=c++23 \
-		-fsanitize=address,undefined -fno-omit-frame-pointer -fPIC \
-		-shared -o $(TARGET_DIR)/tfw_clickhouse_sanitized.so $^ $(LDFLAGS)
-
-tfw_clickhouse_sanitize:
-	$(MAKE) clickhouse
-	$(MAKE) sanitize
-
-.PHONY: all clean clickhouse clickhouse_clean sanitize tfw_clickhouse_sanitize
+.PHONY: all clean clickhouse clickhouse_clean
