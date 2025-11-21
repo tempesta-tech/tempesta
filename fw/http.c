@@ -2078,7 +2078,14 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		return -EBADF;
 	}
 
-	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
+	r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req);
+	if (!(req->msg.ss_flags & SS_F_KEEP_SKB)) {
+		struct sk_buff *skb_head;
+
+		skb_head = arch_xchg(&req->msg.skb_head, NULL);
+		ss_skb_queue_purge(&skb_head);
+	}
+	if (likely(!r))
 		return 0;
 
 	T_DBG2("%s: Forwarding error: conn=[%p] req=[%p] error=[%d]\n",
@@ -3008,7 +3015,7 @@ tfw_http_conn_release(TfwConn *conn)
  * Disintegrate the client connection's @seq_list. Requests without a paired
  * response have not been answered yet. They are held in the lists of server
  * connections until responses come. A paired response may be in use until
- * TFW_HTTP_B_RESP_READY flag is not set.  Don't free any of those requests.
+ * TFW_HTTP_B_REQ_RESP_READY flag is not set.  Don't free any of those requests.
  *
  * If a response comes or gets ready to forward after @seq_list is
  * disintegrated, then both the request and the response are dropped at the
@@ -3018,7 +3025,7 @@ tfw_http_conn_release(TfwConn *conn)
  * connection threads.
  */
 static void
-tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
+tfw_http_cli_conn_drop(TfwCliConn *cli_conn)
 {
 	TfwHttpReq *req, *tmp_req;
 	TfwHttpResp *resp, *tmp_resp;
@@ -3045,13 +3052,12 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		 * immediately after REQ_DROP flag is set, the request-response
 		 * pair can be destroyed in other thread.
 		 */
-		bool unused = req->resp
-			&& test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags);
+		bool unused = test_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 		list_del_init(&req->msg.seq_list);
 		smp_mb__before_atomic();
-		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		if (unused) {
 			resp = req->resp;
+			BUG_ON(!resp);
 
 			/*
 			 * If `resp->conn` is not zero and response keeps the
@@ -3079,6 +3085,13 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 			 }
 
 			TFW_INC_STAT_BH(serv.msgs_otherr);
+		} else {
+			struct sk_buff *skb_head = NULL;
+
+			req->msg.ss_flags &= ~SS_F_KEEP_SKB;
+			skb_head = arch_xchg(&req->msg.skb_head, NULL);
+			ss_skb_queue_purge(&skb_head);
+			set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
@@ -3090,7 +3103,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 */
 	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
 				 msg.seq_list)
-		{
+	{
 		tfw_connection_put(resp->conn);
 		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
 		tfw_http_msg_free((TfwHttpMsg *)resp);
@@ -3119,7 +3132,7 @@ tfw_http_conn_drop(TfwConn *conn)
 			if (ctx)
 				tfw_h2_conn_streams_cleanup(ctx);
 		} else {
-			tfw_http_conn_cli_drop((TfwCliConn *)conn);
+			tfw_http_cli_conn_drop((TfwCliConn *)conn);
 		}
 	}
 	else if (conn->stream.msg) { /* server connection */
@@ -4814,14 +4827,11 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		return;
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
-	set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
+	set_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
-		if (!req->resp
-		    || !test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags))
-		{
+		if (!test_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags))
 			break;
-		}
 		req_retent = &req->msg.seq_list;
 	}
 	if (!req_retent) {
@@ -6368,6 +6378,7 @@ tfw_http_del_continuation_seq_queue(TfwCliConn *cli_conn, TfwHttpReq *req)
 	 * that under @seq_qlock.
 	 */
 	spin_lock_bh(&cli_conn->seq_qlock);
+	clear_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 	list_for_each_entry(queued_req, seq_queue, msg.seq_list) {
 		if (queued_req != req)
 			continue;
@@ -6434,7 +6445,7 @@ tfw_http_send_continuation(TfwCliConn *cli_conn, TfwHttpReq *req)
 	} else {
 		set_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
 		set_bit(TFW_HTTP_B_CONTINUE_RESP, resp->flags);
-		set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
+		set_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 		list_add_tail(&req->msg.seq_list, seq_queue);
 		spin_unlock_bh(&cli_conn->seq_qlock);
 	}
@@ -7348,11 +7359,19 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	 * until all data in the SKB is processed.
 	 */
 next_msg:
-	conn_stop = false;
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
+	/* `cli_conn` is equal to zero for health monitor requests. */
+	if (likely(cli_conn)) {
+		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2)
+			conn_stop = !hmresp->req->stream;
+		else
+			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags);
+	} else {
+		conn_stop = false;
+	}
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -7419,7 +7438,7 @@ next_msg:
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return T_OK;
+		return likely(!conn_stop) ? T_OK : T_BAD;
 	case T_OK:
 		/*
 		 * The response is fully parsed, fall through and
@@ -7433,6 +7452,8 @@ next_msg:
 			goto bad_msg;
 		}
 	}
+
+	conn_stop = false;
 
 	/*
 	 * The message is fully parsed, the rest of the data in the

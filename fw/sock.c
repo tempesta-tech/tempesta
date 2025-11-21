@@ -573,7 +573,7 @@ int
 ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
 	int cpu, r = 0;
-	struct sk_buff *skb, *twin_skb;
+	struct sk_buff *skb, *twin_skb, *head = arch_xchg(skb_head, NULL);
 	SsWork sw = {
 		.sk	= sk,
 		.flags  = flags,
@@ -581,8 +581,9 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	};
 
 	BUG_ON(!sk);
+
 	/* The queue could be purged in previous call. */
-	if (unlikely(!*skb_head))
+	if (unlikely(!head))
 		return 0;
 
 	cpu = sk->sk_incoming_cpu;
@@ -598,7 +599,9 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (unlikely(!ss_sock_active(sk))) {
 		T_DBG2("Attempt to send on inactive socket %p\n", sk);
 		if (!(flags & SS_F_KEEP_SKB))
-			ss_skb_queue_purge(skb_head);
+			ss_skb_queue_purge(&head);
+		else
+			arch_xchg(skb_head, head);
 		return -EBADF;
 	}
 
@@ -608,7 +611,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
-		skb = *skb_head;
+		skb = head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
 			twin_skb = __pskb_copy_fclone(skb, MAX_TCP_HEADER,
@@ -616,14 +619,17 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			if (!twin_skb) {
 				T_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
-				goto err;
+				break;
 			}
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
-		} while (skb != *skb_head);
+		} while (skb != head);
+
+		arch_xchg(skb_head, head);
+		if (unlikely(r))
+			goto err;
 	} else {
-		sw.skb_head = *skb_head;
-		*skb_head = NULL;
+		sw.skb_head = head;
 	}
 
 	/*
