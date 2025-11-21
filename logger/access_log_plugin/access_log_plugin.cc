@@ -244,7 +244,7 @@ process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noe
 } // anonymous namespace
 
 AccessLogProcessor::AccessLogProcessor(std::unique_ptr<TfwClickhouse> writer,
-				       unsigned processor_id,
+				       unsigned cpu_id,
 				       int device_fd,
 				       const char* table_name,
 				       size_t max_events)
@@ -263,7 +263,7 @@ AccessLogProcessor::AccessLogProcessor(std::unique_ptr<TfwClickhouse> writer,
 	buffer_ = (TfwMmapBuffer *)mmap(nullptr, area_size,
 					PROT_READ|PROT_WRITE,
 					MAP_SHARED, device_fd_,
-					area_size * processor_id);
+					area_size * cpu_id);
 	if (buffer_ == MAP_FAILED)
 		throw tus::Except("Failed to map buffer");
 
@@ -423,13 +423,13 @@ mmap_plugin_done(void)
 }
 
 ProcessorInstance
-mmap_create_processor(const PluginConfigApi *config, unsigned processor_id)
+mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 {
 	assert(config);
 
 	try {
 		plugin_log_debug(fmt::format("Creating MmapProcessor for CPU: {}",
-					     processor_id).c_str());
+					     cpu_id).c_str());
 
 		ch::ClientOptions options;
 		options.SetHost(config->host)
@@ -440,7 +440,7 @@ mmap_create_processor(const PluginConfigApi *config, unsigned processor_id)
 
 		auto writer = std::make_unique<ClickhouseWithReconnection>(std::move(options));
 		auto processor = std::make_unique<AccessLogProcessor>(std::move(writer),
-			processor_id, dev_fd, config->table_name, config->max_events);
+			cpu_id, dev_fd, config->table_name, config->max_events);
 
 		return processor.release();
 	} catch (const std::exception& e) {

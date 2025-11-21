@@ -199,11 +199,11 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 }
 
 void
-run_thread(const unsigned ncpu, const std::vector<Plugin>& plugins) noexcept
+run_thread(const unsigned worker_id, const std::vector<Plugin>& plugins) noexcept
 {
 	cpu_set_t cpuset;
 	int r;
-	unsigned cpu_id = ncpu;
+	unsigned cpu_id = worker_id;
 
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu_id, &cpuset);
@@ -214,29 +214,29 @@ run_thread(const unsigned ncpu, const std::vector<Plugin>& plugins) noexcept
 		stop_flag.store(true, std::memory_order_release);
 		return;
 	}
-	spdlog::debug("Worker {} bound to CPU {}", ncpu, cpu_id);
+	spdlog::debug("Worker {} bound to CPU {}", worker_id, cpu_id);
 
 	std::vector<std::unique_ptr<IPluginProcessor>> processors;
 	try {
 		processors.reserve(plugins.size());
 
 		for (const auto& plugin : plugins) {
-			auto processor = plugin.create_processor(ncpu);
+			auto processor = plugin.create_processor(cpu_id);
 			processors.emplace_back(std::move(processor));
 		}
 	}
 	catch(const tus::Exception &e) {
-		spdlog::error("Worker {} stopped: {}", ncpu, e.what());
+		spdlog::error("Worker {} stopped: {}", worker_id, e.what());
 		return;
 	}
 	catch(std::bad_alloc& e) {
-		spdlog::error("Worker {} stopped: {}", ncpu, e.what());
+		spdlog::error("Worker {} stopped: {}", worker_id, e.what());
 		return;
 	}
 
 	event_loop(std::move(processors));
 
-	spdlog::debug("Worker {} stopped", ncpu);
+	spdlog::debug("Worker {} stopped", worker_id);
 }
 
 // Signal handling

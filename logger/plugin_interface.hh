@@ -73,7 +73,7 @@ typedef struct {
 	void	(*done)(void);
 
 	ProcessorInstance	(*create_processor)(const PluginConfigApi *config,
-						    unsigned processor_id);
+						    unsigned cpu_id);
 	void 			(*destroy_processor)(ProcessorInstance);
 
 	int			(*is_active)(ProcessorInstance);

@@ -198,12 +198,12 @@ Plugin::shutdown_plugin()
 }
 
 std::unique_ptr<IPluginProcessor>
-Plugin::create_processor(unsigned processor_id) const
+Plugin::create_processor(unsigned cpu_id) const
 {
 	if (!api_ || !api_->create_processor)
 		throw tus::Except("Plugin {} not properly loaded", api_->name);
 
-	void* raw_processor = api_->create_processor(&plugin_config_api_, processor_id);
+	void* raw_processor = api_->create_processor(&plugin_config_api_, cpu_id);
 	if (!raw_processor)
 		throw tus::Except("Plugin {} failed to create processor",
 				  api_->name);

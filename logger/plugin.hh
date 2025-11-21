@@ -49,7 +49,7 @@ public:
 
 public:
 	std::unique_ptr<IPluginProcessor>
-	create_processor(unsigned processor_id) const;
+	create_processor(unsigned cpu_id) const;
 
 private:
 	void shutdown_plugin();
