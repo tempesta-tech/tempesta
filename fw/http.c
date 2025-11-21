@@ -3055,7 +3055,7 @@ tfw_http_clear_resp_del_queue(struct list_head *resp_del_queue)
  * Disintegrate the client connection's @seq_list. Requests without a paired
  * response have not been answered yet. They are held in the lists of server
  * connections until responses come. A paired response may be in use until
- * TFW_HTTP_B_RESP_READY flag is not set.  Don't free any of those requests.
+ * TFW_HTTP_B_REQ_RESP_READY flag is not set.  Don't free any of those requests.
  *
  * If a response comes or gets ready to forward after @seq_list is
  * disintegrated, then both the request and the response are dropped at the
@@ -3091,8 +3091,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		 * immediately after REQ_DROP flag is set, the request-response
 		 * pair can be destroyed in other thread.
 		 */
-		bool unused = req->resp
-			&& test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags);
+		bool unused = test_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 		list_del_init(&req->msg.seq_list);
 		smp_mb__before_atomic();
 		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
@@ -4832,14 +4831,11 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		goto clear_del_queue;
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
-	set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
+	set_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
-		if (!req->resp
-		    || !test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags))
-		{
+		if (!test_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags))
 			break;
-		}
 		req_retent = &req->msg.seq_list;
 	}
 	if (!req_retent) {
@@ -6386,6 +6382,7 @@ tfw_http_del_continuation_seq_queue(TfwCliConn *cli_conn, TfwHttpReq *req)
 	 * that under @seq_qlock.
 	 */
 	spin_lock_bh(&cli_conn->seq_qlock);
+	clear_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 	list_for_each_entry(queued_req, seq_queue, msg.seq_list) {
 		if (queued_req != req)
 			continue;
@@ -6452,7 +6449,7 @@ tfw_http_send_continuation(TfwCliConn *cli_conn, TfwHttpReq *req)
 	} else {
 		set_bit(TFW_HTTP_B_CONTINUE_QUEUED, req->flags);
 		set_bit(TFW_HTTP_B_CONTINUE_RESP, resp->flags);
-		set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
+		set_bit(TFW_HTTP_B_REQ_RESP_READY, req->flags);
 		list_add_tail(&req->msg.seq_list, seq_queue);
 		spin_unlock_bh(&cli_conn->seq_qlock);
 	}
