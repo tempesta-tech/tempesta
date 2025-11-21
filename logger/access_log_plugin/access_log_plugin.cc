@@ -419,6 +419,7 @@ mmap_plugin_done(void)
 	{
 		close(dev_fd);
 		dev_fd = -1;
+		plugin_log_info("Device closed");
 	}
 }
 
