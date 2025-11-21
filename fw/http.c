@@ -2078,7 +2078,14 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		return -EBADF;
 	}
 
-	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
+	r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req);
+	if (!(req->msg.ss_flags & SS_F_KEEP_SKB)) {
+		struct sk_buff *skb_head;
+
+		skb_head = arch_xchg(&req->msg.skb_head, NULL);
+		ss_skb_queue_purge(&skb_head);
+	}
+	if (likely(!r))
 		return 0;
 
 	T_DBG2("%s: Forwarding error: conn=[%p] req=[%p] error=[%d]\n",
@@ -3018,7 +3025,7 @@ tfw_http_conn_release(TfwConn *conn)
  * connection threads.
  */
 static void
-tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
+tfw_http_cli_conn_drop(TfwCliConn *cli_conn)
 {
 	TfwHttpReq *req, *tmp_req;
 	TfwHttpResp *resp, *tmp_resp;
@@ -3049,7 +3056,6 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 			&& test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags);
 		list_del_init(&req->msg.seq_list);
 		smp_mb__before_atomic();
-		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		if (unused) {
 			resp = req->resp;
 
@@ -3079,6 +3085,13 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 			 }
 
 			TFW_INC_STAT_BH(serv.msgs_otherr);
+		} else {
+			struct sk_buff *skb_head = NULL;
+
+			req->msg.ss_flags &= ~SS_F_KEEP_SKB;
+			skb_head = arch_xchg(&req->msg.skb_head, NULL);
+			ss_skb_queue_purge(&skb_head);
+			set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
@@ -3090,7 +3103,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 */
 	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
 				 msg.seq_list)
-		{
+	{
 		tfw_connection_put(resp->conn);
 		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
 		tfw_http_msg_free((TfwHttpMsg *)resp);
@@ -3119,7 +3132,7 @@ tfw_http_conn_drop(TfwConn *conn)
 			if (ctx)
 				tfw_h2_conn_streams_cleanup(ctx);
 		} else {
-			tfw_http_conn_cli_drop((TfwCliConn *)conn);
+			tfw_http_cli_conn_drop((TfwCliConn *)conn);
 		}
 	}
 	else if (conn->stream.msg) { /* server connection */
