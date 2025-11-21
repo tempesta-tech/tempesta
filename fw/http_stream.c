@@ -284,8 +284,16 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 		 * cases controlled by server connection side (after adding to
 		 * @fwd_queue): successful response sending, eviction etc.
 		 */
-		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
+		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags)) {
 			tfw_http_conn_msg_free(hmreq);
+		} else {
+			TfwHttpReq *req = (TfwHttpReq *)hmreq;
+			struct sk_buff *skb_head;
+
+			req->msg.ss_flags &= ~SS_F_KEEP_SKB;
+			skb_head = arch_xchg(&req->msg.skb_head, NULL);
+			ss_skb_queue_purge(&skb_head);
+		}
 	}
 }
 
