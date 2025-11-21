@@ -49,7 +49,8 @@ $(CLICKHOUSE_LIB):
 	$(MAKE) -C $(CLICKHOUSE_DIR) TARGET_DIR=$(abspath .) CXXFLAGS="$(CXXFLAGS)" -j$(shell nproc)
 
 $(TARGET): $(CLICKHOUSE_LIB) $(OBJS)
-	$(CXX) -shared $(CXXFLAGS) -o $@ $(OBJS) $(CLICKHOUSE_LIB) $(LDFLAGS)
+	$(CXX) -shared -fPIC $(CXXFLAGS) -o $@ $(OBJS) \
+		-Wl,--whole-archive,tfw_clickhouse.a,--no-whole-archive $(LDFLAGS)
 
 %.o: %.cc $(CLICKHOUSE_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

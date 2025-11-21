@@ -34,9 +34,6 @@ CLICKHOUSE_BUILD_DIR := $(TARGET_DIR)/clickhouse-build
 CLICKHOUSE_REPO_URL := https://github.com/ClickHouse/clickhouse-cpp.git
 CLICKHOUSE_LIB := $(CLICKHOUSE_BUILD_DIR)/clickhouse/libclickhouse-cpp-lib.a
 
-LDFLAGS := $(shell pkgconf --libs spdlog)
-LDFLAGS += -rdynamic -ldl
-
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS ?= -Wall -Wextra -std=c++23 -march=native -mtune=native \
 	    -DPAGE_SIZE=$(PAGE_SIZE) -fPIC
@@ -59,7 +56,10 @@ all:
 	$(MAKE) $(TARGET)
 
 $(TARGET): $(OBJS) $(CLICKHOUSE_LIB)
-	ar rcs $@ $^
+	@mkdir -p tmp_objs
+	@cd tmp_objs && ar x $(CLICKHOUSE_LIB)
+	ar rcs $@ $(OBJS) tmp_objs/*.o
+	@rm -rf tmp_objs
 
 $(TARGET_DIR)/%.o: %.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@
