@@ -51,7 +51,7 @@ $(CLICKHOUSE_LIB):
 $(TARGET): $(CLICKHOUSE_LIB) $(OBJS)
 	$(CXX) -shared $(CXXFLAGS) -o $@ $(OBJS) $(CLICKHOUSE_LIB) $(LDFLAGS)
 
-%.o: %.cc
+%.o: %.cc $(CLICKHOUSE_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
