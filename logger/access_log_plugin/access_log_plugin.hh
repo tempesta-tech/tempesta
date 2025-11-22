@@ -41,7 +41,7 @@ public:
 	virtual int is_active() noexcept override;
 	virtual void request_stop() noexcept override;
 
-	virtual int consume(int* cnt) noexcept override;
+	virtual int consume(size_t *cnt) noexcept override;
 	virtual int send(bool force) noexcept override;
 
 	virtual std::string_view name() const noexcept override;

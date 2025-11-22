@@ -94,7 +94,7 @@ public:
 		return api_->request_stop(processor_);
 	}
 
-	virtual int consume(int* cnt) noexcept override
+	virtual int consume(size_t *cnt) noexcept override
 	{
 		assert(api_->consume);
 		return api_->consume(processor_, cnt);

@@ -277,7 +277,7 @@ AccessLogProcessor::~AccessLogProcessor()
 }
 
 int
-AccessLogProcessor::consume(int* cnt) noexcept
+AccessLogProcessor::consume(size_t *cnt) noexcept
 {
 	uint64_t head, tail;
 
@@ -474,7 +474,7 @@ mmap_request_stop(ProcessorInstance processor)
 }
 
 int
-mmap_consume(ProcessorInstance processor, int* cnt)
+mmap_consume(ProcessorInstance processor, size_t *cnt)
 {
 	assert(!!processor);
 	auto* p = static_cast<AccessLogProcessor*>(processor);

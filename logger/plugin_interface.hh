@@ -79,7 +79,7 @@ typedef struct {
 	int			(*is_active)(ProcessorInstance);
 	void			(*request_stop)(ProcessorInstance);
 
-	int			(*consume)(ProcessorInstance, int* cnt);
+	int			(*consume)(ProcessorInstance, size_t *cnt);
 	int			(*send)(ProcessorInstance, bool);
 } TfwLoggerPluginApi;
 

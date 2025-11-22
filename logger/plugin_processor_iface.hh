@@ -40,7 +40,7 @@ public:
 	 * Processes available data. Returns 0 on success (writes consumed count
 	 * to *cnt), or a non-zero TUS error code on failure.
 	 */
-	virtual int consume(int* cnt) noexcept = 0;
+	virtual int consume(size_t *cnt) noexcept = 0;
 
 	/**
 	 * Performs background maintenance work.
