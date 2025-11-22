@@ -1,6 +1,7 @@
 {
     "log_path": "/var/log/tempesta/tfw_logger.log",
     "access_log": {
+        "plugin_path": "/home/kestrel/escudo/fw/logger/access_log_plugin/access_log.so",
         "host": "localhost",
         "port": 9000,
         "user": "default",

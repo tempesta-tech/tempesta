@@ -22,13 +22,8 @@
 #include <memory>
 #include <string>
 
-#include <clickhouse/block.h>
 #include <clickhouse/client.h>
-#include <clickhouse/columns/column.h>
 #include <clickhouse/types/types.h>
-
-#include "clickhouse_config.hh"
-#include "../libtus/error.hh"
 
 namespace ch = clickhouse;
 
@@ -40,42 +35,33 @@ namespace ch = clickhouse;
  *        block.
  *
  * Other public methods:
- *    @get_block - Returns a pointer to the data block for the specified CPU core.
- *    @commit - Commits the data in the block to the Clickhouse database if the
- *        block’s row count exceeds a maximum event threshold. After
- *        committing, the block is deleted, a new block is created via
- *        block_callback and last_time is updated. If a block was committed
- *        return true, otherwise return false.
- *    @handle_block_error() - try to recover from a Clickhouse API error or an
- *        access event parsing.
+ *    @flush - Commits the data from the block to the Clickhouse database.
+ * If a block was committed return true, otherwise return false.
  *
  * Private Members:
  *    @client_ - Clickhouse Client instance for sending data to the database.
- *    @block_ - Block instance holding data records to be inserted.
- *    @table_name_ - Name of the Clickhouse table where data is inserted.
- *    @max_events_ - Maximum number of events to insert before committing.
+ *    @client_options_ - settings to establish new connection
  */
 class TfwClickhouse {
 public:
-	static const bool FORCE = true;
+	TfwClickhouse(ch::ClientOptions &&client_options);
+	virtual ~TfwClickhouse() {}
 
-	TfwClickhouse(const ClickHouseConfig &config);
+public:
 	TfwClickhouse(const TfwClickhouse &) = delete;
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
-	~TfwClickhouse();
+public:
+	virtual bool execute(const std::string &query) noexcept;
 
-	ch::Block &get_block() noexcept;
-	[[nodiscard]] bool commit(bool force = false) noexcept;
-	bool handle_block_error() noexcept;
+	virtual bool
+	flush(const std::string &table_name, ch::Block &block) noexcept;
+public:
+	bool reestablish_connection() noexcept;
 
 private:
+	const ch::ClientOptions		client_options_;
 	std::unique_ptr<ch::Client>	client_;
-	ch::Block			block_;
-	const std::string		table_name_;
-	const size_t			max_events_;
-
-	void make_block();
 };
 
 std::shared_ptr<ch::Column>
