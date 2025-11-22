@@ -41,7 +41,7 @@ ClickHouseDecorator::ClickHouseDecorator(std::unique_ptr<TfwClickhouse> client,
 
 ClickHouseDecorator::~ClickHouseDecorator()
 {
-	if (!flush(FORCE))
+	if (!flush(true))
 		handle_block_error();
 }
 

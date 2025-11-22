@@ -42,7 +42,7 @@ public:
 	virtual void request_stop() noexcept override;
 
 	virtual int consume(int* cnt) noexcept override;
-	virtual int make_background_work() noexcept override;
+	virtual int send(bool force) noexcept override;
 
 	virtual std::string_view name() const noexcept override;
 private:
