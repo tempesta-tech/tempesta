@@ -133,7 +133,7 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 		bool consumed_something = false;
 		for (auto it = processors.begin(); it != processors.end(); ) {
 			auto& processor = *it;
-			int consumed = 0;
+			size_t consumed = 0;
 			const int err = processor->consume(&consumed);
 			if (err) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
