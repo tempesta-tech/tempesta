@@ -60,7 +60,7 @@ public:
 		: api_(api), processor_(processor)
 	{
 		if (!api || !processor || !api_->is_active || !api_->request_stop
-		         || !api_->consume || !api_->make_background_work)
+		         || !api_->consume || !api_->send)
 			throw tus::Except("Plugin api is not fully presented");
 	}
 
@@ -100,10 +100,10 @@ public:
 		return api_->consume(processor_, cnt);
 	}
 
-	virtual int make_background_work() noexcept override
+	virtual int send(bool force) noexcept override
 	{
-		assert(api_->make_background_work);
-		return api_->make_background_work(processor_);
+		assert(api_->send);
+		return api_->send(processor_, force);
 	}
 
 	virtual std::string_view name() const noexcept override { return api_->name; };

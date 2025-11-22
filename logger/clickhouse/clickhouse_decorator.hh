@@ -27,8 +27,6 @@
 
 class ClickHouseDecorator {
 public:
-	static const bool FORCE = true;
-
 	struct TfwField
 	{
 		const char	*name;

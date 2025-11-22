@@ -308,20 +308,14 @@ AccessLogProcessor::consume(int* cnt) noexcept
 	if (!res)
 		return static_cast<int>(tus::Err::DB_SRV_FATAL);
 
-	// Ideally if we can move flushing into main loop of tfw_logger
-	// after all event processors to read events from the associated RBs
-	// and then ask all of them to flush what they have to Clickhouse.
-	if (*res && writer_.flush(/*force=*/false))
-		return static_cast<int>(tus::Err::DB_SRV_FATAL);
-
-	*cnt = 1;
+	*cnt = *res;
 	return 0;
 }
 
 int
-AccessLogProcessor::make_background_work() noexcept
+AccessLogProcessor::send(bool force) noexcept
 {
-	if (writer_.flush(ClickHouseDecorator::FORCE))
+	if (writer_.flush(force))
 		return 0;
 
 	return static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
@@ -359,7 +353,7 @@ TfwLoggerPluginApi plugin_api = {
 	.is_active		= nullptr,
 	.request_stop		= nullptr,
 	.consume		= nullptr,
-	.make_background_work	= nullptr
+	.send			= nullptr
 };
 
 constexpr char dev_path[] = "/dev/tempesta_mmap_log";
@@ -488,11 +482,11 @@ mmap_consume(ProcessorInstance processor, int* cnt)
 }
 
 int
-mmap_make_background_work(ProcessorInstance processor)
+mmap_send(ProcessorInstance processor, bool force)
 {
 	assert(!!processor);
 	auto* p = static_cast<AccessLogProcessor*>(processor);
-	return p->make_background_work();
+	return p->send(force);
 }
 
 void
@@ -505,7 +499,7 @@ mmap_plugin_populate_api()
 	plugin_api.is_active		= mmap_is_active;
 	plugin_api.request_stop		= mmap_request_stop;
 	plugin_api.consume		= mmap_consume;
-	plugin_api.make_background_work	= mmap_make_background_work;
+	plugin_api.send			= mmap_send;
 }
 
 } // anonymous namespace

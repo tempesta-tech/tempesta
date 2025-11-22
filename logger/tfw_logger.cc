@@ -82,6 +82,9 @@ struct ParsedOptions {
 	std::optional<fs::path>		log_path;
 };
 
+static const bool FORCE = true;
+static const bool NOT_FORCE = false;
+
 // All processors must be non-null
 void
 event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
@@ -157,6 +160,8 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 
 		if (consumed_something) [[likely]] {
 			tries = 0;
+			for (auto& processor : processors)
+				processor->send(NOT_FORCE);
 			continue;
 		}
 
@@ -184,12 +189,12 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 			//    buffer, once we get a real time delay, we flush to
 			//    the database.
 			for (auto& processor : processors)
-				processor->make_background_work();
+				processor->send(FORCE);
 			// We don't have any indication that the processor
 			// can be removed at all. During system idle time,
 			// it's fine if we do some extra work.
 			for (auto& processor : inactive_processors)
-				processor->make_background_work();
+				processor->send(FORCE);
 
 			tries = 0;
 		}

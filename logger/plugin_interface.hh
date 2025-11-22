@@ -80,7 +80,7 @@ typedef struct {
 	void			(*request_stop)(ProcessorInstance);
 
 	int			(*consume)(ProcessorInstance, int* cnt);
-	int			(*make_background_work)(ProcessorInstance);
+	int			(*send)(ProcessorInstance, bool);
 } TfwLoggerPluginApi;
 
 typedef TfwLoggerPluginApi* (*TfwLoggerPluginGetApiFunc)(void);
