@@ -873,7 +873,7 @@ tfw_h2_goaway_process(TfwH2Ctx *ctx)
 	 * 6.8 for details).
 	 */
 	if (err_code)
-		T_LOG("HTTP/2 connection is closed by client with error code:"
+		T_DBG("HTTP/2 connection is closed by client with error code:"
 		      " %u, ID of last processed stream: %u\n", err_code,
 		      last_id);
 	SET_TO_READ(ctx);
