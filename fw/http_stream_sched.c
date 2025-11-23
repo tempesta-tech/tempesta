@@ -230,28 +230,6 @@ __tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
 	}
 }
 
-/**
- * Recalculate count of active streams for parent schedulers, when
- * new stream is removed from the priority tree. If parent scheduler
- * is deactivated in this function, remove appropriate parent stream
- * from the tree of active streams.
- */
-static void
-tfw_h2_stream_sched_propagate_dec_active_cnt(TfwStreamSched *sched,
-					     TfwStream *stream)
-{
-	TfwStreamSchedEntry *parent = stream->sched->parent;
-	bool stream_is_active = tfw_h2_stream_is_active(stream);
-	long int active_cnt =
-		stream->sched->active_cnt + (stream_is_active ? 1 : 0);
-
-	if (!active_cnt)
-		return;
-
-	__tfw_h2_stream_sched_propagate_dec_active_cnt(sched, parent,
-						       active_cnt);
-}
-
 static void
 __tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 {
@@ -265,16 +243,29 @@ __tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 }
 
 /**
- * Remove stream from the scheduler. Since this function is
- * used when we delete stream also we should explicitly remove
- * stream both from the tree. It is a caller responsibility
- * to add stream again to the scheduler if it is necessary.
+ * Remove stream from the scheduler and recalculate count of active streams for
+ * parent schedulers, when new stream is removed from the priority tree.
+ * If parent scheduler is deactivated in this function, remove appropriate
+ * parent stream from the tree of active streams.
+ * Since this function is used when we delete stream, we also should explicitly
+ * remove stream from the tree. It is a caller responsibility to add stream
+ * again to the scheduler if it is necessary.
  */
 static void
 tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 {
+	TfwStreamSchedEntry *parent = stream->sched->parent;
+	bool stream_is_active = tfw_h2_stream_is_active(stream);
+	long int active_cnt = stream->sched->active_cnt
+			      + (stream_is_active ? 1 : 0);
+
 	__tfw_h2_stream_sched_remove(sched, stream);
-	tfw_h2_stream_sched_propagate_dec_active_cnt(sched, stream);
+
+	if (!active_cnt)
+		return;
+
+	__tfw_h2_stream_sched_propagate_dec_active_cnt(sched, parent,
+						       active_cnt);
 }
 
 /**
@@ -447,6 +438,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	bool stream_is_active = tfw_h2_stream_is_active(stream);
 	bool parent_has_children;
 
+	BUG_ON(!parent);
 	T_DBG3("Stream (id %u parent id %u removed from dependency tree,"
 	       " ctx %px\n", stream->id, SCHED_PARENT_STREAM(sched, parent),
 	       ctx);
@@ -472,10 +464,10 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 					  &stream->sched->active,
 					  parent_has_children);
 
-	if (stream_is_active) {
-		__tfw_h2_stream_sched_propagate_dec_active_cnt(sched, parent,
-							       1);
-	}
+	if (!stream_is_active)
+		return;
+
+	__tfw_h2_stream_sched_propagate_dec_active_cnt(sched, parent, 1);
 }
 
 /**
