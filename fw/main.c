@@ -353,13 +353,13 @@ tfw_ctlfn_state_io(const struct ctl_table *ctl, int is_write,
 		   void *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
-	static char new_state_buf[T_SYSCTL_STBUF_LEN];
+	static char new_state_buf[T_SYSCTL_STBUF_LEN] = {0};
 	struct ctl_table tmp = *ctl;
 
 	mutex_lock(&tfw_sysctl_mtx);
 
 	if (is_write) {
-		char buf[T_SYSCTL_STBUF_LEN];
+		char buf[T_SYSCTL_STBUF_LEN] = {0};
 		char start[T_SYSCTL_STBUF_LEN] = "start";
 		char stop[T_SYSCTL_STBUF_LEN] = "stop";
 		char start_fail_reconfig[T_SYSCTL_STBUF_LEN] =
