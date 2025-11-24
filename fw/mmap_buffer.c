@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -102,7 +102,7 @@ dev_file_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	TfwMmapBufferHolder *holder = filp->private_data;
 	TfwMmapBuffer *buf = *this_cpu_ptr(holder->buf);
-	unsigned long pfn, size, area_size, user_addr;
+	unsigned long size, area_size, user_addr;
 	int cpu_num, cpu_id, i;
 
 	size = vma->vm_end - vma->vm_start;
@@ -135,17 +135,16 @@ dev_file_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	buf = *per_cpu_ptr(holder->buf, cpu_id);
 
-	pfn = page_to_pfn(holder->mem[cpu_id].buf_page);
-	if (remap_pfn_range(vma, vma->vm_start, pfn,
-			    TFW_MMAP_BUFFER_DATA_OFFSET, vma->vm_page_prot))
+	if (vm_insert_page(vma, vma->vm_start, holder->mem[cpu_id][0]))
 		return -EAGAIN;
 
 	if (area_size == FULL_SIZE) { /* entire buffer is mapping */
-		pfn = page_to_pfn(holder->mem[cpu_id].data_page);
 		user_addr = vma->vm_start + TFW_MMAP_BUFFER_DATA_OFFSET;
 		for (i = 0; i < 2; ++i) {
-			if (remap_pfn_range(vma, user_addr, pfn, buf->size,
-					    vma->vm_page_prot)) {
+			unsigned long nr_pages = (buf->size >> PAGE_SHIFT);
+			if (vm_insert_pages(vma, user_addr,
+					    holder->mem[cpu_id] + 1,
+					    &nr_pages)) {
 				return -EAGAIN;
 			}
 			user_addr += buf->size;
@@ -170,12 +169,165 @@ dev_file_vm_close(struct vm_area_struct *vma)
 	atomic_set(&buf->is_ready, 0);
 }
 
+/* Modified version of vm_area_alloc_pages(). */
+static unsigned int
+tfw_mmap_buffer_alloc_pages(gfp_t gfp, int nid, unsigned int order,
+			    unsigned int nr_pages, struct page **pages,
+			    unsigned int nr_allocated)
+{
+	struct page *page;
+	int i;
+
+	/*
+	 * For order-0 pages we make use of bulk allocator, if
+	 * the page array is partly or not at all populated due
+	 * to fails, fallback to a single page allocator that is
+	 * more permissive.
+	 */
+	if (!order) {
+		while (nr_allocated < nr_pages) {
+			unsigned int nr, nr_pages_request;
+
+			/*
+			 * A maximum allowed request is hard-coded and is 100
+			 * pages per call. That is done in order to prevent a
+			 * long preemption off scenario in the bulk-allocator
+			 * so the range is [1:100].
+			 */
+			nr_pages_request = min(100U, nr_pages - nr_allocated);
+
+			nr = alloc_pages_bulk_array_node(gfp, nid,
+							 nr_pages_request,
+							 pages + nr_allocated);
+
+			nr_allocated += nr;
+			cond_resched();
+
+			/*
+			 * If zero or pages were obtained partly,
+			 * fallback to a single page allocator.
+			 */
+			if (nr != nr_pages_request)
+				break;
+		}
+	}
+
+	/* High-order pages or fallback path if "bulk" fails. */
+	while (nr_allocated < nr_pages) {
+		if (!(gfp & __GFP_NOFAIL) && fatal_signal_pending(current))
+			break;
+
+		page = alloc_pages_node(nid, gfp, order);
+
+		if (unlikely(!page))
+			break;
+
+		/*
+		 * High-order allocations must be able to be treated as
+		 * independent small pages by callers (as they can with
+		 * small-page vmallocs). Some drivers do their own refcounting
+		 * on vmalloc_to_page() pages, some use page->mapping,
+		 * page->lru, etc.
+		 */
+		if (order)
+			split_page(page, order);
+
+		/*
+		 * Careful, we allocate and map page-order pages, but
+		 * tracking is done per PAGE_SIZE page so as to keep the
+		 * vm_struct APIs independent of the physical/mapped size.
+		 */
+		for (i = 0; i < (1U << order); i++)
+			pages[nr_allocated + i] = page + i;
+
+		cond_resched();
+		nr_allocated += 1U << order;
+	}
+
+	return nr_allocated;
+}
+
+static void
+tfw_mmap_buffer_free_pages(struct page **pages, unsigned int nr_pages)
+{
+	if (!pages)
+		return;
+
+	for (int i = 0; i < nr_pages; i++)
+		__free_page(pages[i]);
+	vfree(pages);
+}
+
+/**
+ * Allocate complete buffer including metadata page and array that contains
+ * all those pages.
+ *
+ * Allocates enough pages for the buffer plus one metadata page, also
+ * alocates array that contains all allocated pages. The size of this array
+ * is *double* count of all pages excluding metadata page, the first half
+ * of the array contains allocated pages. The second half is just *copy*
+ * of the first part. Do copy because each our buffer is mapped twice
+ * in memory. Returns array ready for vmap. The first page in the resulted
+ * array is metadat page, the rest are data pages. @array_size is the *total*
+ * size of the resulted array.
+ *
+ * At first try to allocate high-order pages, then rollback to per-page
+ * allocation.
+ */
+static struct page **
+tfw_mmap_buffer_alloc(int nid, unsigned int size, unsigned int *array_size)
+{
+	unsigned int nr_allocated = 0, shift = PAGE_SHIFT, order;
+	const unsigned int head_offset = 1;
+	const unsigned int nr_need_pages = size >> PAGE_SHIFT;
+	const unsigned int pages_array_size = nr_need_pages * 2 + head_offset;
+	struct page **pages = vmalloc(pages_array_size * sizeof(struct page *));
+	struct page *head_page;
+
+	if (unlikely(!pages))
+		return NULL;
+
+	if (size >= PMD_SIZE)
+		shift = PMD_SHIFT;
+	order = shift - PAGE_SHIFT;
+
+	/* Allocate metadata page. */
+	head_page = alloc_pages_node(nid, GFP_KERNEL, 0);
+	if (unlikely(!head_page)) {
+		vfree(pages);
+		return NULL;
+	}
+	pages[0] = head_page;
+
+again:
+	/* Use __GFP_NORETRY to not trigger OOM killer on failure. */
+	nr_allocated = tfw_mmap_buffer_alloc_pages(GFP_KERNEL | __GFP_NORETRY,
+						   nid, order,
+						   nr_need_pages,
+						   pages + head_offset,
+						   nr_allocated);
+	/* First try high order allocation and then fallback to per page. */
+	if (nr_allocated != nr_need_pages) {
+		if (order > 0) {
+			order = 0;
+			goto again;
+		}
+
+		tfw_mmap_buffer_free_pages(pages, nr_allocated);
+		return NULL;
+	}
+
+	memcpy_fast(pages + nr_allocated + head_offset, pages + head_offset,
+		    nr_need_pages * sizeof(struct page *));
+	*array_size = pages_array_size;
+	return pages;
+}
+
 TfwMmapBufferHolder *
 tfw_mmap_buffer_create(const char *filename, unsigned int size)
 {
 	TfwMmapBufferHolder *holder;
-	struct page **page_ptr = NULL;
-	unsigned int order, i, page_cnt;
+	unsigned int page_cnt;
 	int cpu;
 
 	if (size < TFW_MMAP_BUFFER_MIN_SIZE
@@ -190,12 +342,10 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 		return NULL;
 
 	holder = tfw_kzalloc(sizeof(TfwMmapBufferHolder) +
-			     sizeof(TfwMMapBufferMem) * num_online_cpus(),
+			     sizeof(struct page *) * num_online_cpus(),
 			     GFP_KERNEL);
 	if (!holder)
 		return NULL;
-
-	order = get_order(size);
 
 	holder->dev_major = -1;
 	holder->size = size;
@@ -207,39 +357,24 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 	atomic_set(&holder->dev_is_opened, 0);
 	atomic_set(&holder->is_freeing, 0);
 
-	page_cnt = size / PAGE_SIZE;
-	/*
-	 * Allocate pages for double mapping and a page for buffer control
-	 * structure.
-	 */
-	page_ptr = tfw_kmalloc((page_cnt * 2 + 1) * sizeof(struct page *),
-			       GFP_KERNEL);
-	if (!page_ptr)
-		goto err;
-
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf, **bufp;
+		struct page **page_ptr = NULL;
 
-		holder->mem[cpu].buf_page = alloc_pages_node(cpu_to_node(cpu),
-							     GFP_KERNEL, 0);
-		if (holder->mem[cpu].buf_page == NULL)
+		page_ptr = tfw_mmap_buffer_alloc(cpu_to_node(cpu), size,
+						 &page_cnt);
+		if (unlikely(!page_ptr)) {
+			T_ERR("Can't allocate mmap_buffer with size %u.", size);
 			goto err;
-
-		holder->mem[cpu].data_page = alloc_pages_node(cpu_to_node(cpu),
-							      GFP_KERNEL, order);
-		if (holder->mem[cpu].data_page == NULL)
-			goto err;
-
-		page_ptr[0] = holder->mem[cpu].buf_page;
-		for (i = 0; i < page_cnt; ++i) {
-			page_ptr[i + 1] = &holder->mem[cpu].data_page[i];
-			page_ptr[i + page_cnt + 1] = &holder->mem[cpu].data_page[i];
 		}
 
-		buf = (TfwMmapBuffer *)vmap(page_ptr, page_cnt * 2 + 1, VM_MAP,
-					    PAGE_KERNEL);
-		if (!buf)
+		buf = vmap(page_ptr, page_cnt, VM_MAP, PAGE_KERNEL);
+		if (!buf) {
+			tfw_mmap_buffer_free_pages(page_ptr, page_cnt);
 			goto err;
+		}
+
+		holder->mem[cpu] = page_ptr;
 
 		buf->size = holder->size;
 		buf->mask = holder->size - 1;
@@ -274,12 +409,9 @@ tfw_mmap_buffer_create(const char *filename, unsigned int size)
 		holders[holders_cnt++] = holder;
 	}
 
-	kfree(page_ptr);
-
 	return holder;
 
 err:
-	kfree(page_ptr);
 	tfw_mmap_buffer_free(holder);
 
 	return NULL;
@@ -312,14 +444,14 @@ tfw_mmap_buffer_free(TfwMmapBufferHolder *holder)
 	for_each_online_cpu(cpu) {
 		TfwMmapBuffer *buf = *per_cpu_ptr(holder->buf, cpu);
 
-		if (buf)
-			vunmap(buf);
+		if (!buf)
+			continue;
 
-		if (holder->mem[cpu].buf_page)
-			__free_pages(holder->mem[cpu].buf_page, 0);
-		if (holder->mem[cpu].data_page)
-			__free_pages(holder->mem[cpu].data_page,
-				     get_order(holder->size));
+		/* Num data pages + one metada page. */
+		unsigned int nr_pages = (buf->size >> PAGE_SHIFT) + 1;
+
+		vunmap(buf);
+		tfw_mmap_buffer_free_pages(holder->mem[cpu], nr_pages);
 	}
 
 	if (!IS_ERR_OR_NULL(holder->dev))
