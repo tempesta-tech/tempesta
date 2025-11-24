@@ -493,7 +493,7 @@ try {
 	// Create log directory if needed
 	fs::create_directories(config.log_path.parent_path());
 
-	auto logger = spdlog::basic_logger_mt("access_logger",
+	auto logger = spdlog::basic_logger_mt("event_logger",
 					      config.log_path.string());
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::info);
