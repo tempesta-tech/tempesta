@@ -102,6 +102,8 @@ enum {
         TFW_HTTP_B_HMONITOR,
         /* Client was disconnected, drop the request. */
         TFW_HTTP_B_REQ_DROP,
+        /* Same as previous, but used for internal synchronization. */
+        __TFW_HTTP_B_REQ_DROP,
         /* Request is PURGE with an 'X-Tempesta-Cache: get' header. */
         TFW_HTTP_B_PURGE_GET,
         /*

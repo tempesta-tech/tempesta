@@ -270,6 +270,7 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
 
+	assert_spin_locked(&ctx->lock);
 	tfw_h2_stream_del_from_queue_nolock(stream);
 
 	if (hmreq) {
@@ -290,9 +291,10 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 			TfwHttpReq *req = (TfwHttpReq *)hmreq;
 			struct sk_buff *skb_head;
 
-			req->msg.ss_flags &= ~SS_F_KEEP_SKB;
+			set_bit(__TFW_HTTP_B_REQ_DROP, req->flags);
 			skb_head = arch_xchg(&req->msg.skb_head, NULL);
 			ss_skb_queue_purge(&skb_head);
+			
 		}
 	}
 }

@@ -2040,6 +2040,48 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
 
+static inline void
+tfw_http_req_unlink_stream(TfwHttpReq *req)
+{
+	TfwStream *stream = req->stream;
+
+	if (stream) {
+		req->stream = NULL;
+		stream->msg = NULL;
+	}
+}
+
+#define __REQ_CLI_CONN_LOCK(req)				\
+({								\
+	spinlock_t *lock;					\
+	if (TFW_MSG_H2(req)) {					\
+		lock = &tfw_h2_context_unsafe(req->conn)->lock;	\
+	} else {						\
+		lock = &((TfwCliConn *)req->conn)->seq_qlock;	\
+	}							\
+	lock;							\
+})
+
+static inline void
+do_access_log_req_lock(TfwHttpReq *req, int resp_status,
+		       unsigned long resp_content_length)
+{
+	spinlock_t *lock;
+
+	if (unlikely(!req->conn))
+		do_access_log_req(req, resp_status, resp_content_length);
+
+	lock = __REQ_CLI_CONN_LOCK(req);
+	spin_lock(lock);
+	if (req->msg.skb_head) {
+		do_access_log_req(req, resp_status, resp_content_length);
+	} else {
+		T_DBG2("Can't log request for already dropped client"
+		       " connection");
+	}
+	spin_unlock(lock);
+}
+
 /*
  * If forwarding of @req in @srv_conn is not successful, then move
  * it to the error queue @eq for sending an error response later.
@@ -2079,11 +2121,36 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	}
 
 	r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req);
-	if (!(req->msg.ss_flags & SS_F_KEEP_SKB)) {
-		struct sk_buff *skb_head;
+	/*
+	 * We set this flag during client connection drop. If this flag is set
+	 * here it means, that current request belongs to already dropped
+	 * client connection.
+	 */
+	if (unlikely(test_bit(__TFW_HTTP_B_REQ_DROP, req->flags))) {
+		/*
+		 * If error occurs during sending request to already dropped
+		 * client connection, delete such request from server
+		 * connection lists.
+		 */
+		if (unlikely(r)) {
+			spinlock_t *lock;
 
-		skb_head = arch_xchg(&req->msg.skb_head, NULL);
-		ss_skb_queue_purge(&skb_head);
+			lock = __REQ_CLI_CONN_LOCK(req);
+			spin_lock(lock);
+			tfw_http_req_evict_dropped(srv_conn, req);
+			spin_unlock(lock);
+			return r;
+		} else {
+			struct sk_buff *skb_head;
+
+			/*
+			 * Requst was successfully send to backend server,
+			 * we can't free such request, but we can drop
+			 * request skbs, because we never try to resent it.
+			 */
+			skb_head = arch_xchg(&req->msg.skb_head, NULL);
+			ss_skb_queue_purge(&skb_head);
+		}
 	}
 	if (likely(!r))
 		return 0;
@@ -2107,6 +2174,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 
 	return r;
 }
+
+#undef __REQ_CLI_CONN_LOCK
 
 /*
  * Forward one request @req to server connection @srv_conn. Return 0 if
@@ -3088,7 +3157,19 @@ tfw_http_cli_conn_drop(TfwCliConn *cli_conn)
 		} else {
 			struct sk_buff *skb_head = NULL;
 
-			req->msg.ss_flags &= ~SS_F_KEEP_SKB;
+			/*
+			 * We set this flag before purging `skb_head` for
+			 * synchronization with sending request to backend
+			 * server. We send request to backend server with
+			 * `SS_F_KEEP_SKB` flag, so skb_head o request can
+			 * be restored in `ss_send`. After sending request
+			 * we check `__TFW_HTTP_B_REQ_DROP` and if it set
+			 * clear `skb_head` again.
+			 * `TFW_HTTP_B_REQ_DROP` can't be used, because
+			 * after this flag will be set, request can be deleted
+			 * on other cpu.
+			 */
+			set_bit(__TFW_HTTP_B_REQ_DROP, req->flags);
 			skb_head = arch_xchg(&req->msg.skb_head, NULL);
 			ss_skb_queue_purge(&skb_head);
 			set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
@@ -5610,7 +5691,7 @@ skip_stream:
 	}
 
 free_req:
-	do_access_log_req(req, status, 0);
+	do_access_log_req_lock(req, status, 0);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 out:
 	return tfw_h2_choose_close_type(type, reply);
@@ -5634,7 +5715,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 			tfw_connection_abort(req->conn);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
-		do_access_log_req(req, status, 0);
+		do_access_log_req_lock(req, status, 0);
 		tfw_http_conn_req_clean(req);
 		goto out;
 	}
@@ -7365,10 +7446,12 @@ next_msg:
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
 	/* `cli_conn` is equal to zero for health monitor requests. */
 	if (likely(cli_conn)) {
-		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2)
+		if (TFW_MSG_H2(hmresp->req)) {
 			conn_stop = !hmresp->req->stream;
-		else
-			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags);
+		} else {
+			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
+					     hmresp->req->flags);
+		}
 	} else {
 		conn_stop = false;
 	}

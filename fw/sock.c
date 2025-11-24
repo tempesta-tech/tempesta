@@ -584,7 +584,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	/* The queue could be purged in previous call. */
 	if (unlikely(!head))
-		return 0;
+		return -EFAULT;
 
 	cpu = sk->sk_incoming_cpu;
 
