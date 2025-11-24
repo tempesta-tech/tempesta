@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -91,6 +91,9 @@ TEST(tfw_mmap_buffer, create)
 	EXPECT_NULL(tfw_mmap_buffer_create(NULL, TFW_MMAP_BUFFER_MIN_SIZE + 1));
 	EXPECT_NULL(tfw_mmap_buffer_create(NULL, TFW_MMAP_BUFFER_MAX_SIZE * 2));
 	holder = tfw_mmap_buffer_create(NULL, TFW_MMAP_BUFFER_MIN_SIZE);
+	EXPECT_NOT_NULL(holder);
+	tfw_mmap_buffer_free(holder);
+	holder = tfw_mmap_buffer_create(NULL, TFW_MMAP_BUFFER_MAX_SIZE);
 	EXPECT_NOT_NULL(holder);
 	tfw_mmap_buffer_free(holder);
 }

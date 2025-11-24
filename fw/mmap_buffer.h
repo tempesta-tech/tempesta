@@ -83,7 +83,7 @@
  * at module start and freed at module stop, so repeated initialization or
  * freeing is not expected.
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -158,15 +158,6 @@ typedef struct {
 #ifdef __KERNEL__
 
 /**
- * @buf_page	- Pages allocated for buffer metadata;
- * @data_page	- pages allocated for data storage.
- */
-typedef struct {
-	struct page	*buf_page;
-	struct page	*data_page;
-} TfwMMapBufferMem;
-
-/**
  * @buf			- Per CPU pointers to store pointers to buffers;
  * @dev_name		- name of the device in /dev;
  * @size		- size of the memory allocated to every buffer;
@@ -176,7 +167,8 @@ typedef struct {
  * @dev			- device structure of the device in /dev;
  * @dev_major		- the major number of the device in /dev;
  * @dev_class		- the class of the device;
- * @mem			- array of structures descripting allocated memory.
+ * @mem			- array of allocated pages. The first page is metada
+ *                        page the rest are data pages.
  */
 typedef struct {
 	TfwMmapBuffer __percpu	**buf;
@@ -187,7 +179,7 @@ typedef struct {
 	struct device		*dev;
 	int			dev_major;
 	struct class		*dev_class;
-	TfwMMapBufferMem	mem[];
+	DECLARE_FLEX_ARRAY(struct page **, mem);
 } TfwMmapBufferHolder;
 
 /*
