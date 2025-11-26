@@ -1144,7 +1144,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
 			goto err_setup;
 
-		tfw_http_resp_fwd(resp);
+		tfw_http_resp_fwd(resp, false);
 
 		return;
 	}
@@ -2748,14 +2748,14 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	if (!(cache_cfg.cache && g_vhost->cache_purge
 	    && g_vhost->cache_purge_acl))
 	{
-		tfw_http_send_err_resp(req, 403, "purge: not configured");
+		tfw_http_send_err_resp(req, 403, "purge: not configured", false);
 		return -EINVAL;
 	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(&saddr)) {
-		tfw_http_send_err_resp(req, 403, "purge: ACL violation");
+		tfw_http_send_err_resp(req, 403, "purge: ACL violation", false);
 		return -EINVAL;
 	}
 
@@ -2769,14 +2769,14 @@ tfw_cache_purge_method(TfwHttpReq *req)
 						  tfw_cache_purge_immediate);
 		break;
 	default:
-		tfw_http_send_err_resp(req, 403, "purge: invalid option");
+		tfw_http_send_err_resp(req, 403, "purge: invalid option", false);
 		return -EINVAL;
 	}
 
 	if (ret)
-		tfw_http_send_err_resp(req, 404, "purge: processing error");
+		tfw_http_send_err_resp(req, 404, "purge: processing error", false);
 	else if (!test_bit(TFW_HTTP_B_PURGE_GET, req->flags))
-		tfw_http_send_err_resp(req, 200, "purge: success");
+		tfw_http_send_err_resp(req, 200, "purge: success", false);
 
 	return ret;
 }
@@ -3354,7 +3354,7 @@ static void
 cache_do_not_service_request(TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
 	if (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED) {
-		tfw_http_send_err_resp(req, 504, "resource not cached");
+		tfw_http_send_err_resp(req, 504, "resource not cached", false);
 	} else {
 		/*
 		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
