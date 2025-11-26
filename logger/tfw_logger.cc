@@ -30,6 +30,8 @@
 #include <thread>
 #include <vector>
 
+#include <experimental/scope>
+
 #include <boost/program_options.hpp>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
@@ -491,7 +493,8 @@ void
 initialize_logging()
 try {
 	// Create log directory if needed
-	fs::create_directories(config.log_path.parent_path());
+	if (config.log_path.has_parent_path())
+		std::filesystem::create_directories(config.log_path.parent_path());
 
 	auto logger = spdlog::basic_logger_mt("event_logger",
 					      config.log_path.string());
@@ -509,6 +512,12 @@ try {
 }
 catch (const spdlog::spdlog_ex &ex) {
 	throw tus::Except("Log initialization failed: {}", ex.what());
+}
+
+inline void
+log_deinit()
+{
+	spdlog::shutdown();
 }
 
 void
@@ -589,75 +598,81 @@ execute_workers() noexcept(false)
  */
 int
 main(int argc, char *argv[])
-try {
-	int pidfile_fd = -1;
+{
 
-	// Parse command line options
-	auto opts = parse_command_line(argc, argv);
+	std::optional<std::experimental::scope_exit<decltype(&log_deinit)>> log_guard;
+	try {
+		int pidfile_fd = -1;
 
-	// Handle simple commands that don't need full setup
-	if (opts.help)
-		return 0; // Help was already shown
+		// Parse command line options
+		auto opts = parse_command_line(argc, argv);
 
-	if (opts.stop_daemon) {
-		tus::pidfile_stop_daemon(pid_file_path);
+		// Handle simple commands that don't need full setup
+		if (opts.help)
+			return 0; // Help was already shown
+
+		if (opts.stop_daemon) {
+			tus::pidfile_stop_daemon(pid_file_path);
+			return 0;
+		}
+
+		// Load and setup configuration
+		load_configuration(opts);
+
+		// Test configuration and exit if requested
+		if (opts.test_config) {
+			std::cout << "Configuration file is valid" << std::endl;
+			return 0;
+		}
+
+		// Setup daemon mode (check PID, close FDs, daemonize)
+		setup_daemon_mode(opts);
+
+		// Initialize logging after daemonization
+		initialize_logging();
+		//From here we have to use spdlog::info or spdlog::error macroses
+		log_guard.emplace(log_deinit);
+
+		// Create PID file after daemonization
+		pidfile_fd = tus::pidfile_create(pid_file_path);
+		if (pidfile_fd < 0)
+			throw tus::Except("Cannot create PID file");
+
+		// Log startup information
+		spdlog::info("Starting Tempesta FW Logger...");
+		if (config.clickhouse_mmap)
+			spdlog::info("ClickHouse mmap configuration: {}",
+				*config.clickhouse_mmap);
+
+		// Setup signal handlers for graceful shutdown
+		setup_signal_handlers();
+
+		spdlog::info("Daemon started");
+
+		// Start workers and wait for them to finish
+		execute_workers();
+
+		spdlog::info("Tempesta FW Logger stopped");
+
+		if (pidfile_fd >= 0) {
+			tus::pidfile_remove(pid_file_path, pidfile_fd);
+			spdlog::info("PID file removed");
+		}
+
 		return 0;
+	} catch (const tus::Exception &e) {
+		if (log_guard.has_value())
+			spdlog::error("Fatal error: {}", e.what());
+		else
+			std::cerr << "Error: " << e.what() << std::endl;
+		return 1;
+	} catch (const std::exception &e) {
+		if (log_guard.has_value())
+			spdlog::error("Unhandled exception: {}", e.what());
+		else
+			std::cerr << "Unhandled error: " << e.what() << std::endl;
+		return 2;
 	}
-
-	// Load and setup configuration
-	load_configuration(opts);
-
-	// Test configuration and exit if requested
-	if (opts.test_config) {
-		std::cout << "Configuration file is valid" << std::endl;
-		return 0;
-	}
-
-	// Setup daemon mode (check PID, close FDs, daemonize)
-	setup_daemon_mode(opts);
-
-	// Initialize logging after daemonization
-	initialize_logging();
-
-	// Create PID file after daemonization
-	pidfile_fd = tus::pidfile_create(pid_file_path);
-	if (pidfile_fd < 0)
-		throw tus::Except("Cannot create PID file");
-
-	// Log startup information
-	spdlog::info("Starting Tempesta FW Logger...");
-	if (config.clickhouse_mmap)
-		spdlog::info("ClickHouse mmap configuration: {}",
-			     *config.clickhouse_mmap);
-
-	// Setup signal handlers for graceful shutdown
-	setup_signal_handlers();
-
-	spdlog::info("Daemon started");
-
-	// Start workers and wait for them to finish
-	execute_workers();
-
-	spdlog::info("Tempesta FW Logger stopped");
-
-	if (pidfile_fd >= 0) {
-		tus::pidfile_remove(pid_file_path, pidfile_fd);
-		spdlog::info("PID file removed");
-	}
-
-	return 0;
-} catch (const tus::Exception &e) {
-	if (spdlog::default_logger())
-		spdlog::error("Fatal error: {}", e.what());
-	else
-		std::cerr << "Error: " << e.what() << std::endl;
-	return 1;
-} catch (const std::exception &e) {
-	if (spdlog::default_logger())
-		spdlog::error("Unhandled exception: {}", e.what());
-	else
-		std::cerr << "Unhandled error: " << e.what() << std::endl;
-	return 2;
 }
 
 /*
