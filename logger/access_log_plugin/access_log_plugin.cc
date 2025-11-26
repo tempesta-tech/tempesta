@@ -243,7 +243,7 @@ process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noe
 
 } // anonymous namespace
 
-AccessLogProcessor::AccessLogProcessor(std::unique_ptr<TfwClickhouse> writer,
+AccessLogProcessor::AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
 				       unsigned cpu_id,
 				       int device_fd,
 				       const char* table_name,
@@ -279,16 +279,25 @@ AccessLogProcessor::~AccessLogProcessor()
 int
 AccessLogProcessor::consume(size_t *cnt) noexcept
 {
+	*cnt = 0;
+
+	// TODO: It might be better to have one ClickHouse instance per CPU.
+	// This would allow moving this check outside and avoid continuously
+	//  polling ClickHouse in a busy loop, which wastes CPU time.
+	// Ideally, we would sleep until the ReconnectPolicy allows the next retry.
+	// I would prefer to implement this once we integrate all our solutions
+	// into the monorepo to prevent potential compiler incompatibilities.
+	if (!writer_.ensure_connected())
+		return 0;
+
 	uint64_t head, tail;
 
 	head = __atomic_load_n(&buffer_->head, __ATOMIC_ACQUIRE);
 	tail = buffer_->tail;
 
 	assert(head >= tail);
-	if (head - tail == 0) [[unlikely]] {
-		*cnt = 0;
+	if (head - tail == 0) [[unlikely]]
 		return 0;
-	}
 
 	uint64_t size = static_cast<uint64_t>(head - tail);
 	const auto start = buffer_->data + (tail & buffer_->mask);
@@ -433,6 +442,10 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 		       .SetUser(config->user)
 		       .SetPassword(config->password);
 
+		// We are creating a ClickHouse instance here, but later we might
+		// decide to share a single instance per CPU across all processors.
+		// Passing the ClickHouse instance from outside would save resources:
+		// instead of Ncpu * Mplugins workers, we would have just Ncpu workers.
 		auto writer = std::make_unique<ClickhouseWithReconnection>(std::move(options));
 		auto processor = std::make_unique<AccessLogProcessor>(std::move(writer),
 			cpu_id, dev_fd, config->table_name, config->max_events);

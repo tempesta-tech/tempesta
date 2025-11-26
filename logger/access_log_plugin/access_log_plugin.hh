@@ -29,7 +29,7 @@
 class AccessLogProcessor final: public IPluginProcessor
 {
 public:
-	explicit AccessLogProcessor(std::unique_ptr<TfwClickhouse> writer,
+	explicit AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
 				    unsigned cpu_id,
 				    int device_fd,
 				    const char* table_name,

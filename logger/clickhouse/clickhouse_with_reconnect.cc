@@ -25,26 +25,30 @@
 #include "../../libtus/error.hh"
 #include "clickhouse_with_reconnect.hh"
 
-ClickhouseWithReconnection::ClickhouseWithReconnection(ch::ClientOptions &&client_options)
-	: TfwClickhouse(std::forward<ch::ClientOptions>(client_options))
+ClickhouseWithReconnection::ClickhouseWithReconnection(ch::ClientOptions &&opts)
+	: TfwClickhouse(std::move(opts))
 {
 }
 
 bool
 ClickhouseWithReconnection::execute(const std::string &query) noexcept
 {
-	if (!handle_reconnection()) {
+	if (!ensure_connected()) {
 		spdlog::debug("Query '{}' execution skipped due to reconnection issues", query);
 		return false;
 	}
-	return TfwClickhouse::execute(query);
+	if (TfwClickhouse::execute(query))
+		return true;
+
+	needs_reconnect_ = true;
+	return false;
 }
 
 bool
 ClickhouseWithReconnection::flush(const std::string &table_name, ch::Block &block) noexcept
 {
-	if (!handle_reconnection()) {
-		spdlog::debug("DB flushing skipped due to reconnection issues");
+	if (!ensure_connected()) {
+		spdlog::debug("Flushing skipped due to reconnection issues");
 		return false;
 	}
 
@@ -56,60 +60,34 @@ ClickhouseWithReconnection::flush(const std::string &table_name, ch::Block &bloc
 }
 
 bool
-ClickhouseWithReconnection::handle_reconnection()
+ClickhouseWithReconnection::ensure_connected() noexcept
 {
 	if (!needs_reconnect_) [[likely]]
 		return true;
 
-	if (!reconnect_attempt_allowed())
+	if (!reconnect_policy_.can_attempt())
 		return false;
 
-	spdlog::info("TfwClickhouse: reconnection attempt.");
-
-	last_reconnect_attempt_ = std::chrono::steady_clock::now();
-
-	bool success = do_reconnect();
-	if (success) {
-		needs_reconnect_ = false;
-		spdlog::info("TfwClickhouse: reconnection was successful.");
-		return true;
-	} else {
-		needs_reconnect_ = true;
-		return false;
-	}
-}
-
-bool
-ClickhouseWithReconnection::reconnect_attempt_allowed() const noexcept
-{
-	assert(needs_reconnect_);
-
-	auto now = std::chrono::steady_clock::now();
-	return (now - last_reconnect_attempt_) >= reconnect_timeout_;
-}
-
-void
-ClickhouseWithReconnection::update_reconnect_timeout(bool success) noexcept
-{
-	if (success) {
-		reconnect_timeout_ = std::chrono::seconds(0);
-		return;
-	}
-
-	if (reconnect_timeout_.count() == 0)
-		reconnect_timeout_ = std::chrono::seconds(1);
-	else if (reconnect_timeout_.count() < 300)
-		reconnect_timeout_ *= 2;
+	return do_reconnect();
 }
 
 bool
 ClickhouseWithReconnection::do_reconnect() noexcept
 {
-	bool success = reestablish_connection();
-	if (success)
-		needs_reconnect_ = false;
+	spdlog::info("ClickhouseWithReconnection: reconnect attempt. ");
 
-	last_reconnect_attempt_ = std::chrono::steady_clock::now();
-	update_reconnect_timeout(success);
+	const bool success = reestablish_connection();
+
+	spdlog::info("ClickhouseWithReconnection: reconnection result = {}.",
+		     success? "success": "fail");
+
+	if (success) {
+		needs_reconnect_ = false;
+		reconnect_policy_.on_success();
+	}
+	else {
+		needs_reconnect_ = true;
+		reconnect_policy_.on_failure();
+	}
 	return success;
 }

@@ -24,25 +24,40 @@
 #include "../../libtus/error.hh"
 #include "clickhouse_decorator.hh"
 
-ClickHouseDecorator::ClickHouseDecorator(std::unique_ptr<TfwClickhouse> client,
-			    std::string_view table_creation_query_template,
+ClickHouseDecorator::ClickHouseDecorator(std::unique_ptr<IClickhouse> client,
+			    std::string_view table_template,
 			    std::string_view table_name,
 			    std::span<const TfwField> fields,
 			    size_t max_events)
-	: table_name_(table_name), table_fields_(fields), max_events_(max_events)
-	, client_(std::move(client)), block_(make_block(fields, max_events))
+	: table_name_(table_name)
+	, table_creation_query_(fmt::format(fmt::runtime(table_template), table_name_))
+	, max_events_(max_events)
+	, client_(std::move(client))
+	, block_(make_block(fields, max_events))
 {
-	const std::string table_creation_query =
-		fmt::format(fmt::runtime(table_creation_query_template), table_name_);
-
-	if (!client_->execute(table_creation_query))
-		throw tus::Except("Can't execute query: {}", table_creation_query);
+	ensure_table_created();
 }
 
 ClickHouseDecorator::~ClickHouseDecorator()
 {
 	if (!flush(true))
 		handle_block_error();
+}
+
+bool
+ClickHouseDecorator::ensure_table_created() noexcept
+{
+	if (!needs_create_table_) [[likely]]
+		return true;
+
+	needs_create_table_ = client_->execute(table_creation_query_);
+	return needs_create_table_;
+}
+
+bool
+ClickHouseDecorator::ensure_connected() noexcept
+{
+	return client_->ensure_connected();
 }
 
 bool
@@ -61,6 +76,9 @@ ClickHouseDecorator::handle_block_error() noexcept
 bool
 ClickHouseDecorator::flush(bool force) noexcept
 {
+	if (!ensure_table_created())
+		return false;
+
 	try {
 		block_.RefreshRowCount();
 
@@ -72,10 +90,12 @@ ClickHouseDecorator::flush(bool force) noexcept
 				return true;
 		}
 
-		client_->flush(table_name_, block_);
-		block_.Clear();
+		// We don't want to miss events
+		const bool res = client_->flush(table_name_, block_);
+		if (res)
+			block_.Clear();
 
-		return true;
+		return res;
 	}
 	catch (const std::exception &e) {
 		spdlog::error("Clickhouse insert error: {}", e.what());

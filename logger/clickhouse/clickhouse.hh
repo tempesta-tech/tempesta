@@ -23,9 +23,8 @@
 #include <string>
 
 #include <clickhouse/client.h>
-#include <clickhouse/types/types.h>
 
-namespace ch = clickhouse;
+#include "clickhouse_iface.hh"
 
 /**
  * Class for sending records to a Clickhouse database.
@@ -42,7 +41,8 @@ namespace ch = clickhouse;
  *    @client_ - Clickhouse Client instance for sending data to the database.
  *    @client_options_ - settings to establish new connection
  */
-class TfwClickhouse {
+class TfwClickhouse: public IClickhouse
+{
 public:
 	TfwClickhouse(ch::ClientOptions &&client_options);
 	virtual ~TfwClickhouse() {}
@@ -52,16 +52,19 @@ public:
 	TfwClickhouse &operator=(const TfwClickhouse &) = delete;
 
 public:
-	virtual bool execute(const std::string &query) noexcept;
+
+	virtual bool ensure_connected() noexcept override;
+
+	virtual bool execute(const std::string &query) noexcept override;
 
 	virtual bool
-	flush(const std::string &table_name, ch::Block &block) noexcept;
+	flush(const std::string &table_name, ch::Block &block) noexcept override;
+
 public:
 	bool reestablish_connection() noexcept;
 
 private:
-	const ch::ClientOptions		client_options_;
-	std::unique_ptr<ch::Client>	client_;
+	ch::Client	client_;
 };
 
 std::shared_ptr<ch::Column>

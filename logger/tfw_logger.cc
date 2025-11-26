@@ -108,18 +108,6 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 	constexpr size_t POLL_N = 10;
 	constexpr std::chrono::milliseconds delay(1);
 
-	// TODO #2399: this must be split.
-	//
-	// The function must be using a unified RB API, e.g. an
-	// abstract class for all ring buffers. Any ring buffer may annonce stop
-	// and we have to stop operation on it and only on it and vise versa.
-	//
-	// All the ring buffers must be called in a loop.
-	//
-	// TfwClickhouse keeps Block and Client instances, so it should be unique
-	// per an event type (access, security, and xFW).
-	//
-	// All the clickhouses must be flushed on a loop.
 	std::vector<std::unique_ptr<IPluginProcessor>> inactive_processors;
 	for (size_t tries = 0; ; ) {
 		if (stop_flag.load(std::memory_order_acquire)) [[unlikely]] {

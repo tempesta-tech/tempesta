@@ -32,8 +32,7 @@ bool
 TfwClickhouse::reestablish_connection() noexcept
 {
 	try {
-		auto client = std::make_unique<ch::Client>(client_options_);
-		client_.swap(client);
+		client_.ResetConnection();
 
 		spdlog::info("Successfully reconnected to ClickHouse");
 		return true;
@@ -49,17 +48,21 @@ TfwClickhouse::reestablish_connection() noexcept
 }
 
 TfwClickhouse::TfwClickhouse(ch::ClientOptions &&client_options)
-	: client_options_(std::move(client_options))
-
+	: client_(std::move(client_options))
 {
-	client_ = std::make_unique<ch::Client>(client_options_);
+}
+
+bool
+TfwClickhouse::ensure_connected() noexcept
+{
+	return true;
 }
 
 bool
 TfwClickhouse::execute(const std::string &query) noexcept
 {
 	try {
-		client_->Execute(query);
+		client_.Execute(query);
 		return true;
 	}
 	catch (const std::exception &e) {
@@ -72,7 +75,7 @@ bool
 TfwClickhouse::flush(const std::string &table_name, ch::Block &block) noexcept
 {
 	try {
-		client_->Insert(table_name, block);
+		client_.Insert(table_name, block);
 		return true;
 	}
 	catch (const std::exception &e) {
