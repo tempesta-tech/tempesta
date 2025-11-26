@@ -37,10 +37,11 @@
  * TODO: Consider changing the design to perform the reconnect immediately
  * rather than waiting for the next access.
  */
-class ClickhouseWithReconnection final: public TfwClickhouse {
+class ClickhouseWithReconnection final: public TfwClickhouse
+{
 public:
-	ClickhouseWithReconnection(ch::ClientOptions &&client_options);
-	~ClickhouseWithReconnection() noexcept = default;
+	ClickhouseWithReconnection(const ch::ClientOptions &client_options);
+	~ClickhouseWithReconnection() noexcept override = default;
 
 public:
 	ClickhouseWithReconnection(const ClickhouseWithReconnection&) = delete;

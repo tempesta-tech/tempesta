@@ -25,8 +25,8 @@
 #include "../../libtus/error.hh"
 #include "clickhouse_with_reconnect.hh"
 
-ClickhouseWithReconnection::ClickhouseWithReconnection(ch::ClientOptions &&opts)
-	: TfwClickhouse(std::move(opts))
+ClickhouseWithReconnection::ClickhouseWithReconnection(const ch::ClientOptions &client_options)
+	: TfwClickhouse(client_options)
 {
 }
 

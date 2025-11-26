@@ -26,6 +26,7 @@
 #include "../../fw/mmap_buffer.h"
 #include "../plugin_interface.hh"
 #include "../clickhouse/clickhouse_with_reconnect.hh"
+#include "../clickhouse/lazy_init_clickhouse.hh"
 
 #include "access_log_processor.hh"
 
@@ -121,11 +122,16 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 		       .SetUser(config->user)
 		       .SetPassword(config->password);
 
+		auto factory = [opts = std::move(options)]() -> LazyInitClickhouse::Ptr {
+			return std::make_unique<ClickhouseWithReconnection>(opts);
+		};
+
 		// We are creating a ClickHouse instance here, but later we might
 		// decide to share a single instance per CPU across all processors.
 		// Passing the ClickHouse instance from outside would save resources:
 		// instead of Ncpu * Mplugins workers, we would have just Ncpu workers.
-		auto writer = std::make_unique<ClickhouseWithReconnection>(std::move(options));
+		auto writer = std::make_unique<LazyInitClickhouse>(factory);
+
 		auto processor = std::make_unique<AccessLogProcessor>(std::move(writer),
 			cpu_id, dev_fd, config->table_name, config->max_events);
 

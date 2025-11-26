@@ -44,8 +44,8 @@
 class TfwClickhouse: public IClickhouse
 {
 public:
-	TfwClickhouse(ch::ClientOptions &&client_options);
-	virtual ~TfwClickhouse() {}
+	TfwClickhouse(const ch::ClientOptions &client_options);
+	virtual ~TfwClickhouse() override {}
 
 public:
 	TfwClickhouse(const TfwClickhouse &) = delete;
