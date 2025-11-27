@@ -345,7 +345,7 @@ AccessLogProcessor::request_stop() noexcept
 }
 
 int
-AccessLogProcessor::is_active() noexcept
+AccessLogProcessor::has_stopped() noexcept
 {
 	return __atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE);
 }
@@ -359,7 +359,7 @@ TfwLoggerPluginApi plugin_api = {
 	.done			= nullptr,
 	.create_processor	= nullptr,
 	.destroy_processor	= nullptr,
-	.is_active		= nullptr,
+	.has_stopped		= nullptr,
 	.request_stop		= nullptr,
 	.consume		= nullptr,
 	.send			= nullptr
@@ -471,11 +471,11 @@ mmap_destroy_processor(ProcessorInstance processor)
 }
 
 int
-mmap_is_active(ProcessorInstance processor)
+mmap_has_stopped(ProcessorInstance processor)
 {
 	assert(!!processor);
 	auto* p = static_cast<AccessLogProcessor*>(processor);
-	return p->is_active();
+	return p->has_stopped();
 }
 
 void
@@ -509,7 +509,7 @@ mmap_plugin_populate_api()
 	plugin_api.done			= mmap_plugin_done;
 	plugin_api.create_processor	= mmap_create_processor;
 	plugin_api.destroy_processor	= mmap_destroy_processor;
-	plugin_api.is_active		= mmap_is_active;
+	plugin_api.has_stopped		= mmap_has_stopped;
 	plugin_api.request_stop		= mmap_request_stop;
 	plugin_api.consume		= mmap_consume;
 	plugin_api.send			= mmap_send;

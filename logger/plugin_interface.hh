@@ -76,7 +76,7 @@ typedef struct {
 						    unsigned cpu_id);
 	void 			(*destroy_processor)(ProcessorInstance);
 
-	int			(*is_active)(ProcessorInstance);
+	int			(*has_stopped)(ProcessorInstance);
 	void			(*request_stop)(ProcessorInstance);
 
 	int			(*consume)(ProcessorInstance, size_t *cnt);

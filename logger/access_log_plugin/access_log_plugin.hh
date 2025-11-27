@@ -38,7 +38,7 @@ public:
 
 public:
 	//Part of plugin API
-	virtual int is_active() noexcept override;
+	virtual int has_stopped() noexcept override;
 	virtual void request_stop() noexcept override;
 
 	virtual int consume(size_t *cnt) noexcept override;

@@ -59,7 +59,7 @@ public:
 	ProcessorHandle(TfwLoggerPluginApi *api, void *processor)
 		: api_(api), processor_(processor)
 	{
-		if (!api || !processor || !api_->is_active || !api_->request_stop
+		if (!api || !processor || !api_->has_stopped || !api_->request_stop
 		         || !api_->consume || !api_->send)
 			throw tus::Except("Plugin api is not fully presented");
 	}
@@ -82,10 +82,10 @@ public:
 	}
 
 public:
-	virtual int is_active() noexcept override
+	virtual int has_stopped() noexcept override
 	{
-		assert(api_->is_active);
-		return api_->is_active(processor_);
+		assert(api_->has_stopped);
+		return api_->has_stopped(processor_);
 	}
 
 	virtual void request_stop() noexcept override

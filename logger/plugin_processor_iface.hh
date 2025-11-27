@@ -27,9 +27,9 @@ public:
 
 public:
 	/**
-	 * Returns 1 if the processor is active, 0 if inactive.
+	 * Returns 1 if the processor has stopped, 0 if it is active.
 	 */
-	virtual int is_active() noexcept = 0;
+	virtual int has_stopped() noexcept = 0;
 
 	/**
 	 * Requests the processor to stop as soon as possible.

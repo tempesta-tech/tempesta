@@ -137,7 +137,7 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 			else {
 				// Some of the processors finished their job
 				// and we already read all their data.
-				if (!processor->is_active()) {
+				if (processor->has_stopped()) {
         				inactive_processors.push_back(std::move(*it));
 					it = processors.erase(it);
 				} else {
