@@ -133,6 +133,7 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 
 			if (consumed) {
 				consumed_something = true;
+				++it;
 			}
 			else {
 				// Some of the processors finished their job
