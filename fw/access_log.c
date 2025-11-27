@@ -529,14 +529,6 @@ do_access_log_req(TfwHttpReq *req, int resp_status,
 		do_access_log_req_dmesg(req, resp_status, resp_content_length);
 }
 
-void
-do_access_log(TfwHttpResp *resp)
-{
-	do_access_log_req(resp->req, resp->status,
-			  resp->content_length ? :
-			  TFW_HTTP_RESP_CUT_BODY_SZ(resp));
-}
-
 static int
 cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {

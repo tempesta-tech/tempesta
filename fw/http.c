@@ -564,6 +564,38 @@ tfw_http_prep_date(char *buf)
 	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
 
+static inline void
+http_do_access_log_req(TfwHttpReq *req, int resp_status,
+			unsigned long resp_content_length)
+{
+	struct sk_buff *skb_head;
+
+	if (unlikely(!req->conn)) {
+		do_access_log_req(req, resp_status, resp_content_length);
+		return;
+	}
+
+	skb_head = arch_xchg(&req->msg.skb_head, NULL);
+	if (!skb_head)
+		return;
+
+	do_access_log_req(req, resp_status, resp_content_length);
+	arch_xchg(&req->msg.skb_head, skb_head);
+	if (test_bit(__TFW_HTTP_B_REQ_DROP, req->flags)) {
+		skb_head = arch_xchg(&req->msg.skb_head, NULL);
+		ss_skb_queue_purge(&skb_head);
+	}
+
+}
+
+static inline void
+http_do_access_log(TfwHttpResp *resp)
+{
+	http_do_access_log_req(resp->req, resp->status,
+			       resp->content_length ? :
+			       TFW_HTTP_RESP_CUT_BODY_SZ(resp));
+}
+
 char *
 tfw_http_resp_status_line(int status, size_t *len)
 {
@@ -1153,7 +1185,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	int status = READ_ONCE(resp->status);
 
 	tfw_connection_get(conn);
-	do_access_log(resp);
+	http_do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
@@ -2040,46 +2072,17 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
 
-static inline void
-tfw_http_req_unlink_stream(TfwHttpReq *req)
-{
-	TfwStream *stream = req->stream;
-
-	if (stream) {
-		req->stream = NULL;
-		stream->msg = NULL;
-	}
-}
-
-#define __REQ_CLI_CONN_LOCK(req)				\
-({								\
-	spinlock_t *lock;					\
-	if (TFW_MSG_H2(req)) {					\
-		lock = &tfw_h2_context_unsafe(req->conn)->lock;	\
-	} else {						\
-		lock = &((TfwCliConn *)req->conn)->seq_qlock;	\
-	}							\
-	lock;							\
-})
-
-static inline void
-do_access_log_req_lock(TfwHttpReq *req, int resp_status,
-		       unsigned long resp_content_length)
+static inline spinlock_t *
+tfw_http_req_cli_conn_lock(TfwHttpReq *req)
 {
 	spinlock_t *lock;
 
-	if (unlikely(!req->conn))
-		do_access_log_req(req, resp_status, resp_content_length);
+	if (TFW_MSG_H2(req))
+		lock = &tfw_h2_context_unsafe(req->conn)->lock;
+	else
+		lock = &((TfwCliConn *)req->conn)->seq_qlock;
 
-	lock = __REQ_CLI_CONN_LOCK(req);
-	spin_lock(lock);
-	if (req->msg.skb_head) {
-		do_access_log_req(req, resp_status, resp_content_length);
-	} else {
-		T_DBG2("Can't log request for already dropped client"
-		       " connection");
-	}
-	spin_unlock(lock);
+	return lock;
 }
 
 /*
@@ -2135,7 +2138,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		if (unlikely(r)) {
 			spinlock_t *lock;
 
-			lock = __REQ_CLI_CONN_LOCK(req);
+			lock = tfw_http_req_cli_conn_lock(req);
 			spin_lock(lock);
 			tfw_http_req_evict_dropped(srv_conn, req);
 			spin_unlock(lock);
@@ -2174,8 +2177,6 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 
 	return r;
 }
-
-#undef __REQ_CLI_CONN_LOCK
 
 /*
  * Forward one request @req to server connection @srv_conn. Return 0 if
@@ -4878,7 +4879,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 	T_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 	WARN_ON_ONCE(req->resp != resp);
-	do_access_log(resp);
+	http_do_access_log(resp);
 
 	/*
 	 * If the list is empty, then it's either a bug, or the client
@@ -5691,7 +5692,7 @@ skip_stream:
 	}
 
 free_req:
-	do_access_log_req_lock(req, status, 0);
+	http_do_access_log_req(req, status, 0);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 out:
 	return tfw_h2_choose_close_type(type, reply);
@@ -5715,7 +5716,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 			tfw_connection_abort(req->conn);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
-		do_access_log_req_lock(req, status, 0);
+		http_do_access_log_req(req, status, 0);
 		tfw_http_conn_req_clean(req);
 		goto out;
 	}
