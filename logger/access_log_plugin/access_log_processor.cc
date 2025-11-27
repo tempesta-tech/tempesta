@@ -339,5 +339,5 @@ AccessLogProcessor::request_stop() noexcept
 int
 AccessLogProcessor::has_stopped() noexcept
 {
-	return __atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE);
+	return __atomic_load_n(&buffer_->is_ready, __ATOMIC_ACQUIRE)? 0: 1;
 }
