@@ -44,7 +44,7 @@ public:
 	using Clock = std::chrono::steady_clock;
 
 	ReconnectPolicy(std::chrono::milliseconds initial = std::chrono::seconds(1),
-			std::chrono::milliseconds max_delay = std::chrono::minutes(1))
+			std::chrono::milliseconds max_delay = std::chrono::minutes(5))
 		: initial_delay_(initial), max_delay_(max_delay), next_retry_(Clock::now())
 	{}
 
