@@ -47,6 +47,8 @@ TfwClickhouse::reestablish_connection() noexcept
 	}
 }
 
+// An exception can occur here, but it is not related to the connection.
+// At this stage, we are only creating the class; no connection is established yet.
 TfwClickhouse::TfwClickhouse(ch::ClientOptions &&client_options)
 	: client_(std::move(client_options))
 {
