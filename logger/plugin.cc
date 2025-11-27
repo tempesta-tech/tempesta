@@ -64,7 +64,7 @@ public:
 			throw tus::Except("Plugin api is not fully presented");
 	}
 
-	~ProcessorHandle()
+	~ProcessorHandle() override
 	{
 		if (api_->destroy_processor) {
 			api_->destroy_processor(processor_);
@@ -79,6 +79,18 @@ public:
 		: api_(other.api_), processor_(other.processor_)
 	{
 		other.processor_ = nullptr;
+	}
+
+	ProcessorHandle& operator=(ProcessorHandle &&other) noexcept
+	{
+		if (this != &other) {
+			if (api_->destroy_processor)
+				api_->destroy_processor(processor_);
+			api_ = other.api_;
+			processor_ = other.processor_;
+			other.processor_ = nullptr;
+		}
+		return *this;
 	}
 
 public:
@@ -107,19 +119,6 @@ public:
 	}
 
 	virtual std::string_view name() const noexcept override { return api_->name; };
-
-public:
-	ProcessorHandle& operator=(ProcessorHandle &&other) noexcept
-	{
-		if (this != &other) {
-			if (api_->destroy_processor)
-				api_->destroy_processor(processor_);
-			api_ = other.api_;
-			processor_ = other.processor_;
-			other.processor_ = nullptr;
-		}
-		return *this;
-	}
 
 private:
 	TfwLoggerPluginApi*	api_;

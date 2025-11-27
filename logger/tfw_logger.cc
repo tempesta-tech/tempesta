@@ -167,7 +167,7 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 		else {
 			// There were nothing to do for POLL_Nms and probably
 			// the system is just idle - good time to flush all
-			// clollected data:
+			// collected data:
 			// 1. we have no work now, so it's a good time to do
 			//    some housekeeping;
 			// 2. free resources for possible spike - we likely miss
@@ -549,9 +549,7 @@ execute_workers() noexcept(false)
 	 * is more reliable on NUMA systems and machines with 100+ CPUs while
 	 * hardware_concurrency() is just a "hint".
 	 */
-	auto cpu_count = static_cast<size_t>(sysconf(_SC_NPROCESSORS_ONLN));
-	if (cpu_count <= 0)
-		throw tus::Except("Cannot determine CPU count");
+	size_t cpu_count = static_cast<size_t>(std::max(sysconf(_SC_NPROCESSORS_ONLN), 1L));
 
 	spdlog::info("Using {} CPU(s)", cpu_count);
 	spdlog::info("Starting {} worker threads", cpu_count);

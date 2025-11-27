@@ -162,7 +162,7 @@ dbg_hexdump(std::span<const char> data)
 		}
 		oss << std::endl;
 	}
-	plugin_log_info(oss.str().c_str());
+	plugin_log_info(oss.view().data());
 }
 #else
 void
@@ -231,7 +231,7 @@ process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noe
 	}
 	catch (const std::exception &e) {
 		plugin_log_error(fmt::format(
-			"Cought a Clickhouse exception: {}."
+			"Caught a Clickhouse exception: {}."
 			" Many events can be lost", e.what()).c_str());
 		return tus::error(tus::Err::DB_SRV_FATAL);
 	}
