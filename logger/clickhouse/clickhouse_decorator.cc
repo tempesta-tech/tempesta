@@ -76,7 +76,7 @@ ClickHouseDecorator::handle_block_error() noexcept
 bool
 ClickHouseDecorator::flush(bool force) noexcept
 {
-	if (!ensure_table_created())
+	if (!ensure_table_created()) [[unlikely]]
 		return false;
 
 	try {
@@ -91,11 +91,11 @@ ClickHouseDecorator::flush(bool force) noexcept
 		}
 
 		// We don't want to miss events
-		const bool res = client_->flush(table_name_, block_);
-		if (res)
+		const bool success = client_->flush(table_name_, block_);
+		if (success)
 			block_.Clear();
 
-		return res;
+		return success;
 	}
 	catch (const std::exception &e) {
 		spdlog::error("Clickhouse insert error: {}", e.what());
