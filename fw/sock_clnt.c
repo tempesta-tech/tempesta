@@ -737,6 +737,48 @@ tfw_listen_socks_array_cmp(const void *l, const void *r)
 		(b->proto.type & Conn_Negotiable);
 }
 
+static void
+tfw_sock_clnt_stop(void)
+{
+	TfwListenSock *ls;
+
+	might_sleep();
+
+	/*
+	 * Stop listening sockets, but leave them in the list to bve freed by
+	 * tfw_cfgop_cleanup_sock_clnt().
+	 */
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
+		if (!ls->sk)
+			continue;
+		ss_release(ls->sk);
+		ls->sk = NULL;
+	}
+	ss_wait_newconn();
+
+	/*
+	 * Now all listening sockets are closed, so no new connections
+	 * can appear. Close all established client connections.
+	 * We're going to acquire client hash bucket and peer connection list
+	 * locks, so disable softirq to avoid deadlock with the sockets closing
+	 * in softirq context.
+	 */
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
+		/*
+		 * SS transport is overloaded: let softirqs make progress and
+		 * repeat again. Not a big deal that we'll probably close the
+		 * same connections - SS can handle it and it's expected that
+		 * softirqs close some of them while we wait.
+		 */
+		local_bh_enable();
+		schedule();
+		local_bh_disable();
+	}
+	local_bh_enable();
+}
+
 /**
  * Start listening on all existing sockets (added via "listen" configuration
  * entries).
@@ -831,49 +873,10 @@ done:
 		kfree(ls);
 
 	INIT_LIST_HEAD(&tfw_listen_socks_reconf);
+
+	if (unlikely(r))
+		tfw_sock_clnt_stop();
 	return r;
-}
-
-static void
-tfw_sock_clnt_stop(void)
-{
-	TfwListenSock *ls;
-
-	might_sleep();
-
-	/*
-	 * Stop listening sockets, but leave them in the list to bve freed by
-	 * tfw_cfgop_cleanup_sock_clnt().
-	 */
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
-		if (!ls->sk)
-			continue;
-		ss_release(ls->sk);
-		ls->sk = NULL;
-	}
-	ss_wait_newconn();
-
-	/*
-	 * Now all listening sockets are closed, so no new connections
-	 * can appear. Close all established client connections.
-	 * We're going to acquire client hash bucket and peer connection list
-	 * locks, so disable softirq to avoid deadlock with the sockets closing
-	 * in softirq context.
-	 */
-	local_bh_disable();
-	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
-		/*
-		 * SS transport is overloaded: let softirqs make progress and
-		 * repeat again. Not a big deal that we'll probably close the
-		 * same connections - SS can handle it and it's expected that
-		 * softirqs close some of them while we wait.
-		 */
-		local_bh_enable();
-		schedule();
-		local_bh_disable();
-	}
-	local_bh_enable();
 }
 
 /**
