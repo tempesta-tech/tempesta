@@ -203,11 +203,23 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 	ra->conn_curr++;
 }
 
+/**
+ * Monotonically increasing time quantums. The configured @tframe
+ * is divided by FRANG_FREQ slots to get the quantums granularity.
+ * To reduce calculations, tframe is already stored as result of multiplication
+ * operation, see __tfw_cfgop_frang_rsp_code_block().
+ */
+static inline unsigned int
+frang_time_quantum(unsigned short tframe)
+{
+	return jiffies / tframe;
+}
+
 static int
 frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 {
-	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
-	int i = ts % FRANG_FREQ;
+	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
+	const int i = ts % FRANG_FREQ;
 
 	spin_lock(&ra->lock);
 
@@ -233,9 +245,10 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 		unsigned int csum = 0;
 
 		/* Collect current connection sum. */
-		for (i = 0; i < FRANG_FREQ; i++)
-			if (frang_time_in_frame(ts, ra->history[i].ts))
-				csum += ra->history[i].conn_new;
+		for (int j = 0; j < FRANG_FREQ; j++)
+			if (frang_time_in_frame(ts, ra->history[j].ts))
+				csum += ra->history[j].conn_new;
+
 		if (unlikely(csum > conf->conn_rate)) {
 			frang_limmsg("new connections rate",
 				     csum, conf->conn_rate,
@@ -366,10 +379,11 @@ tfw_classify_conn_close(struct sock *sk)
 }
 
 static int
-frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
+frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
+		unsigned short tf)
 {
-	unsigned long ts = jiffies * FRANG_FREQ / HZ;
-	int i = ts % FRANG_FREQ;
+	const unsigned int ts = frang_time_quantum(tf);
+	const int i = ts % FRANG_FREQ;
 
 	if (!req_burst && !req_rate)
 		return T_OK;
@@ -394,9 +408,9 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 		unsigned int rsum = 0;
 
 		/* Collect current request sum. */
-		for (i = 0; i < FRANG_FREQ; i++)
-			if (frang_time_in_frame(ts, ra->history[i].ts))
-				rsum += ra->history[i].req;
+		for (int j = 0; j < FRANG_FREQ; j++)
+			if (frang_time_in_frame(ts, ra->history[j].ts))
+				rsum += ra->history[j].req;
 		if (unlikely(rsum > req_rate)) {
 			frang_limmsg("request rate", rsum, req_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
@@ -1120,7 +1134,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	 * that run when a connection is established or destroyed.
 	 */
 	T_FSM_STATE(Frang_Req_0) {
-		r = frang_req_limit(ra, fg_cfg->req_burst, fg_cfg->req_rate);
+		r = frang_req_limit(ra, fg_cfg->req_burst, fg_cfg->req_rate,
+				    fg_cfg->req_rate_tf);
 		/* Set the time the header started coming in. */
 		req->tm_header = jiffies;
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Method);
@@ -1319,24 +1334,12 @@ frang_resp_process(TfwHttpResp *resp)
 	return r;
 }
 
-/**
- * Monotonically increasing time quantums. The configured @tframe
- * is divided by FRANG_FREQ slots to get the quantums granularity.
- * To reduce calculations, tframe is already stored as result of multiplication
- * operation, see __tfw_cfgop_frang_rsp_code_block().
- */
-static inline unsigned int
-frang_resp_quantum(unsigned short tframe)
-{
-	return jiffies / tframe;
-}
-
 static int
 frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
 {
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	unsigned long cnt = 0;
-	const unsigned int ts = frang_resp_quantum(resp_cblk->tf);
+	const unsigned int ts = frang_time_quantum(resp_cblk->tf);
 	int i = 0;
 
 	i = ts % FRANG_FREQ;

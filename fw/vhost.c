@@ -2130,12 +2130,12 @@ __tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce,
 }
 
 static int
-frang_parse_ushort(const char *s, unsigned short *out)
+frang_parse_ushort(const char *s, unsigned short *out, const char *spec_name)
 {
 	int n;
 	if (tfw_cfg_parse_int(s, &n)) {
-		T_ERR_NL("frang: http_resp_code_block: "
-			 "\"%s\" isn't a valid value\n", s);
+		T_ERR_NL("frang: %s: "
+			 "\"%s\" isn't a valid value\n", spec_name, s);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(n, 1, USHRT_MAX))
@@ -2152,12 +2152,11 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 				 FrangVhostCfg *conf)
 {
 	FrangHttpRespCodeBlock *cb;
-	static const char *error_msg_begin = "frang: http_resp_code_block:";
 	int n, i;
 
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 	if (ce->val_n < 3) {
-		T_ERR_NL("%s too few arguments\n", error_msg_begin);
+		T_ERR_NL("frang: %s: too few arguments\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -2170,16 +2169,16 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	while (--i >= 0) {
 		if (tfw_cfg_parse_int(ce->vals[i], &n)
 		    || !tfw_http_resp_code_range(n)) {
-			T_ERR_NL("%s invalid HTTP code \"%s\"",
-				 error_msg_begin, ce->vals[i]);
+			T_ERR_NL("%s invalid HTTP code \"%s\"", cs->name,
+				 ce->vals[i]);
 			return -EINVAL;
 		}
 		/* Atomic restriction isn't needed here */
 		__set_bit(HTTP_CODE_BIT_NUM(n), cb->codes);
 	}
 
-	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit)
-	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf))
+	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit, cs->name)
+	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf, cs->name))
 		return -EINVAL;
 
 	/*
@@ -2441,6 +2440,54 @@ tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		cfg->http_resp_code_block = NULL;
 	}
 	return __tfw_cfgop_frang_rsp_code_block(cs, ce, cfg);
+}
+
+static int
+__tfw_cfgop_frang_rates(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *rate,
+			unsigned short *tf)
+{
+	if (ce->dflt_value && tfw_cfgop_is_dflt_val_already_set(cs))
+		return 0;
+
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
+	TFW_CFG_CHECK_VAL_N(<=, 2, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	if (tfw_cfg_parse_uint(ce->vals[0], rate)) {
+		T_ERR_NL("%s: \"%s\" isn't a valid value\n", cs->name,
+			 ce->vals[0]);
+		return -EINVAL;
+	}
+
+	*tf = 1;
+	if (ce->val_n == 2 && frang_parse_ushort(ce->vals[1], tf, cs->name))
+		return -EINVAL;
+
+	/*
+	 * How many ticks in signle timeframe. Update the
+	 * value to reduce calculations in hot-path.
+	 */
+	*tf = (*tf * HZ) / FRANG_FREQ;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_frang_conn_rate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	FrangGlobCfg *cfg = &tfw_frang_glob_reconfig;
+
+	return __tfw_cfgop_frang_rates(cs, ce, &cfg->conn_rate,
+				       &cfg->conn_rate_tf);
+}
+
+static int
+tfw_cfgop_frang_req_rate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	FrangGlobCfg *cfg = &tfw_frang_glob_reconfig;
+
+	return __tfw_cfgop_frang_rates(cs, ce, &cfg->req_rate,
+				       &cfg->req_rate_tf);
 }
 
 static int
@@ -3015,11 +3062,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	{
 		.name = "request_rate",
 		.deflt = "0",
-		.handler = tfw_cfgop_frang_glob_set_int,
-		.dest = &tfw_frang_glob_reconfig.req_rate,
-		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
-		},
+		.handler = tfw_cfgop_frang_req_rate,
 		.allow_reconfig = true,
 	},
 	{
@@ -3035,11 +3078,7 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	{
 		.name = "tcp_connection_rate",
 		.deflt = "0",
-		.handler = tfw_cfgop_frang_glob_set_int,
-		.dest = &tfw_frang_glob_reconfig.conn_rate,
-		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
-		},
+		.handler = tfw_cfgop_frang_conn_rate,
 		.allow_reconfig = true,
 	},
 	{

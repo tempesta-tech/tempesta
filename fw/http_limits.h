@@ -129,6 +129,10 @@ typedef struct {
  * @http_bchunk_cnt	- Maximum number of chunks in body part;
  * @http_hdr_len	- Maximum HTTP header length;
  * @http_hdr_cnt	- Maximum number of headers;
+ * @conn_rate_tf	- Time frame in which @conn_rate and @conn_burst are
+ *                        calculated;
+ * @req_rate_tf		- Time frame in which @req_rate and @req_burst are
+ *                        calculated;
  * @ip_block		- Block clients by IP address if set, if not - just
  *			  close the client connection.
  *
@@ -151,6 +155,9 @@ struct frang_global_cfg_t {
 	unsigned int		http_bchunk_cnt;
 	unsigned int		http_hdr_len;
 	unsigned int		http_hdr_cnt;
+
+	unsigned short		conn_rate_tf;
+	unsigned short		req_rate_tf;
 
 	bool			ip_block;
 };
