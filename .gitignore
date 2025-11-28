@@ -67,5 +67,10 @@ debian
 
 # logger
 logger/tfw_logger
-logger/clickhouse-cpp
+logger/clickhouse/clickhouse-cpp
+logger/clickhouse/clickhouse-build
+logger/clickhouse/tfw_clickhouse.a
+logger/access_log_plugin/clickhouse-build
+logger/access_log_plugin/access_log.so
+logger/access_log_plugin/tfw_clickhouse.a
 logger/t/tfw_logger_tests
