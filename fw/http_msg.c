@@ -931,12 +931,15 @@ tfw_http_msg_unpair(TfwHttpMsg *msg)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
+	struct sk_buff *skb_head;
+
 	T_DBG3("Free msg=%p\n", m);
 	if (!m)
 		return;
 
+	skb_head = arch_xchg(&m->msg.skb_head, NULL);
 	tfw_http_msg_unpair(m);
-	ss_skb_queue_purge(&m->msg.skb_head);
+	ss_skb_queue_purge(&skb_head);
 
 	if (m->destructor)
 		m->destructor(m);

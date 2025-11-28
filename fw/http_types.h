@@ -102,6 +102,8 @@ enum {
         TFW_HTTP_B_HMONITOR,
         /* Client was disconnected, drop the request. */
         TFW_HTTP_B_REQ_DROP,
+        /* Same as previous, but used for internal synchronization. */
+        __TFW_HTTP_B_REQ_DROP,
         /* Request is PURGE with an 'X-Tempesta-Cache: get' header. */
         TFW_HTTP_B_PURGE_GET,
         /*
@@ -110,6 +112,11 @@ enum {
          * from cache.
          */
         TFW_HTTP_B_JS_NOT_SUPPORTED,
+        /*
+         * Response is fully processed and ready to be
+         * forwarded to the client.
+         */
+        TFW_HTTP_B_REQ_RESP_READY,
 
 	/*
 	 * Rewrite method from HEAD to GET. Applicable only to request that can
@@ -130,11 +137,6 @@ enum {
         TFW_HTTP_B_HDR_DATE,
         /* Response has header 'Last-Modified:'. */
         TFW_HTTP_B_HDR_LMODIFIED,
-        /*
-         * Response is fully processed and ready to be
-         * forwarded to the client.
-         */
-        TFW_HTTP_B_RESP_READY,
         /*
          * Response has header 'Etag: ' and this header is
          * not enclosed in double quotes.
