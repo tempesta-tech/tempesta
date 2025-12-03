@@ -3461,6 +3461,14 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		resp = (TfwHttpResp *)msg;
 		req = resp->req;
 
+		/*
+		 * Don't cache response to HEAD, to prevent caching response
+		 * without body.
+		 */
+		if (req->method == TFW_HTTP_METH_HEAD &&
+		    !test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags))
+			goto dont_cache;
+
 		if (tfw_cache_should_invalidate_uri(req, resp))
 			tfw_cache_invalidate_uri(req, resp);
 	}
