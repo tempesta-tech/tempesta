@@ -55,40 +55,36 @@ open_mmap_device(StopFlag* stop_flag)
 {
 	int fd;
 
-	plugin_log_info(fmt::format("Opening device: {}", dev_path).c_str());
+	spdlog::info("Opening device: {}", dev_path);
 
 	// Try to open the device with retries
 	while ((fd = open(dev_path, O_RDWR)) == -1) {
 		if (stop_flag && stop_flag->stop_requested()) {
-			plugin_log_info("Stop flag set, exiting device open loop");
+			spdlog::info("Stop flag set, exiting device open loop");
 			return -1;
 		}
 
 		if (errno != ENOENT) {
-			plugin_log_error(fmt::format("Cannot open device {}",
-						     dev_path).c_str());
+			spdlog::error("Cannot open device {}", dev_path);
 			return -1;
 		}
 
-		plugin_log_debug(fmt::format("Device {} not found, retrying...",
-					     dev_path).c_str());
+		spdlog::debug("Device {} not found, retrying...", dev_path);
 		std::this_thread::sleep_for(wait_for_dev);
 	}
 
-	plugin_log_info(fmt::format("Successfully opened device: {}",
-			dev_path).c_str());
+	spdlog::info("Successfully opened device: {}", dev_path);
 	return fd;
 }
 
 int
 mmap_plugin_init(StopFlag* stop_flag)
 {
-	plugin_log_info("Mmap plugin initialization");
+	spdlog::info("Mmap plugin initialization");
 
 	dev_fd = open_mmap_device(stop_flag);
 	if (dev_fd < 0) {
-		plugin_log_error(fmt::format("Failed to open device {}",
-					     dev_path).c_str());
+		spdlog::error("Failed to open device {}", dev_path);
 		return -1;
 	}
 
@@ -102,7 +98,7 @@ mmap_plugin_done(void)
 	{
 		close(dev_fd);
 		dev_fd = -1;
-		plugin_log_info("Device closed");
+		spdlog::info("Device closed");
 	}
 }
 
@@ -112,8 +108,7 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 	assert(config);
 
 	try {
-		plugin_log_debug(fmt::format("Creating MmapProcessor for CPU: {}",
-					     cpu_id).c_str());
+		spdlog::debug("Creating MmapProcessor for CPU: {}", cpu_id);
 
 		ch::ClientOptions options;
 		options.SetHost(config->host)
@@ -137,8 +132,7 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 
 		return processor.release();
 	} catch (const std::exception& e) {
-		plugin_log_error(fmt::format("Failed to create MmapProcessor: {}",
-					     e.what()).c_str());
+		spdlog::error("Failed to create MmapProcessor: {}", e.what());
 	}
 
 	return nullptr;
@@ -152,7 +146,7 @@ mmap_destroy_processor(ProcessorInstance processor)
 
 	std::unique_ptr<AccessLogProcessor> p(
 		static_cast<AccessLogProcessor*>(processor));
-	plugin_log_debug("Destroyed MmapProcessor instance");
+	spdlog::debug("Destroyed MmapProcessor instance");
 }
 
 int
