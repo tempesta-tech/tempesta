@@ -367,7 +367,7 @@ static inline bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
 	/* POST request is not idempotent, but can be cacheble. */
-	return cache_cfg.cache && __cache_method_test(req->method) &&
+	return __cache_method_test(req->method) &&
 		(!tfw_http_req_is_nip(req)
 		 || req->method == TFW_HTTP_METH_POST);
 }
@@ -3514,11 +3514,11 @@ tfw_cache_ipi(struct irq_work *work)
 static bool
 tfw_cache_should_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	return cache_cfg.cache && (req->method == TFW_HTTP_METH_PUT
+	return (req->method == TFW_HTTP_METH_PUT
 		|| req->method == TFW_HTTP_METH_DELETE
 		|| req->method == TFW_HTTP_METH_POST
 		|| tfw_http_req_is_nip(req))
-		&& resp->status >= 200 && resp->status < 400;
+		 && resp->status >= 200 && resp->status < 400;
 }
 
 static void
@@ -3573,6 +3573,9 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	TfwCWork cw;
 	TfwHttpResp *resp = NULL;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
+
+	if (!cache_cfg.cache)
+		goto dont_cache;
 
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
 		resp = (TfwHttpResp *)msg;
