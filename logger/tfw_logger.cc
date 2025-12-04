@@ -649,31 +649,3 @@ try {
 		std::cerr << "Unhandled error: " << e.what() << std::endl;
 	return 2;
 }
-
-/*
- * Exporting logging routings from main for using in plugins instead of
- * homegrown plugin only logging routings.
- */
-extern "C" {
-
-__attribute__((visibility("default")))
-void plugin_log_debug(const char* message) {
-	spdlog::debug("{}", message);
-}
-
-__attribute__((visibility("default")))
-void plugin_log_info(const char* message) {
-	spdlog::info("{}", message);
-}
-
-__attribute__((visibility("default")))
-void plugin_log_warn(const char* message) {
-	spdlog::warn("{}", message);
-}
-
-__attribute__((visibility("default")))
-void plugin_log_error(const char* message) {
-	spdlog::error("{}", message);
-}
-
-} // extern "C"
