@@ -225,23 +225,6 @@ setup()
 	sysctl -w net.core.netdev_max_backlog=10000 >/dev/null
 	sysctl -w net.core.somaxconn=131072 >/dev/null
 	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
-
-	# Limit the number of orphan sockets in FIN-WAIT-1,
-	# quite common for L7 DDoS.
-	sysctl -w net.ipv4.tcp_orphan_retries=1 >/dev/null # timeout for 1s
-	sysctl -w net.ipv4.tcp_retries2=5 >/dev/null # number of retries
-	sysctl -w net.ipv4.tcp_max_orphans=16384 >/dev/null
-
-	# Increase the total TCP memory in x4 to mitigate
-	# "TCP: out of memory -- consider tuning tcp_mem" problem.
-	# This increases the total TCP memory, but leave per-socket limits as
-	# defaults to not allow too memory hungry sockets.
-	local new_tcp_mem
-	new_tcp_mem=$(sysctl -n net.ipv4.tcp_mem | perl -ane 'print join(" ", map { $_*4 } @F)')
-	sysctl -w net.ipv4.tcp_mem="$new_tcp_mem" >/dev/null
-
-	# Enhance the local port range to be able to handle more connections.
-	sysctl -w net.ipv4.ip_local_port_range='1024 65535' >/dev/null
 }
 
 update_single_js_template()
