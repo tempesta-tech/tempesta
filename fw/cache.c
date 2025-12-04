@@ -3571,14 +3571,14 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	unsigned long key;
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
-	TfwHttpResp *resp = NULL;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
+	const bool is_resp = TFW_CONN_TYPE(msg->conn) & Conn_Srv;
 
 	if (!cache_cfg.cache)
 		goto dont_cache;
 
-	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
-		resp = (TfwHttpResp *)msg;
+	if (is_resp) {
+		TfwHttpResp *resp = (TfwHttpResp *)msg;
 		req = resp->req;
 
 		/*
@@ -3605,7 +3605,7 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		goto do_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
-	if (!resp && !tfw_cache_employ_req(req))
+	if (!is_resp && !tfw_cache_employ_req(req))
 		goto dont_cache;
 
 do_cache:
@@ -3633,7 +3633,7 @@ do_cache:
 	       cw.msg, key);
 	if (tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi)) {
 		T_WARN("Cache work queue overrun: [%s]\n",
-		       resp ? "response" : "request");
+		       is_resp ? "response" : "request");
 		return -EBUSY;
 	}
 	return 0;
