@@ -27,7 +27,10 @@ LDFLAGS += -rdynamic -ldl
 PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
 	    -DPAGE_SIZE=$(PAGE_SIZE)
-CXXFLAGS += $(shell pkgconf -cflags spdlog)
+
+CXXFLAGS += $(shell pkgconf --cflags spdlog)
+CXXFLAGS += -DSPDLOG_COMPILED_LIB
+
 OBJS := $(patsubst %.cc, %.o, $(wildcard *.cc))
 TARGET := tfw_logger
 

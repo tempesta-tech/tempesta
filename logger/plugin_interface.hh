@@ -28,11 +28,6 @@
 extern "C" {
 #endif
 
-void plugin_log_debug(const char* msg);
-void plugin_log_info(const char* msg);
-void plugin_log_warn(const char* msg);
-void plugin_log_error(const char* msg);
-
 typedef struct {
 	const char*	host;		// null-terminated
 	uint16_t	port;
