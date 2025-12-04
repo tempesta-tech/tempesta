@@ -517,9 +517,9 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 }
 
 /*
- * Decide if the cache can be employed. For a request that means
+ * Decide if the cache can be employed. For a request path that means
  * that it can be served from cache if there's a cached response.
- * For a response it means that the response can be stored in cache.
+ * For a response path it means that the response can be stored in cache.
  *
  * Various cache action/control directives are consulted when making
  * the resulting decision.
@@ -527,6 +527,10 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 static bool
 tfw_cache_employ_req(TfwHttpReq *req)
 {
+	/* TFW_HTTP_CC_CFG_CACHE_BYPASS set from config by "cache_disable" */
+	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
+		return false;
+
 	int cmd = tfw_cache_policy(req->vhost, req->location, &req->uri_path);
 
 	if (cmd == TFW_D_CACHE_BYPASS) {
@@ -536,7 +540,6 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	/* cache_fulfill - work as usual in cache mode. */
 	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
 
-	/* CC_NO_CACHE also may be set by http chain rules */
 	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
 		/*
 		 * TODO: RFC 7234 4. "... a cache MUST NOT reuse a stored

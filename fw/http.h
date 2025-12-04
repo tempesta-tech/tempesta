@@ -160,7 +160,7 @@ enum {
 #define TFW_HTTP_CC_HDR_AGE		0x00020000
 #define TFW_HTTP_CC_HDR_EXPIRES		0x00040000
 #define TFW_HTTP_CC_HDR_AUTHORIZATION	0x00080000
-/* Config directives that affect Cache Control. */
+/* Config directives that affect Cache Control and http_chain cache_disable. */
 #define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x01000000
 
 typedef struct {
