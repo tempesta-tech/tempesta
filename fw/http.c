@@ -6657,7 +6657,7 @@ next_msg:
 	 * the flag before it evaluated to CC_NO_CACHE here.
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_CHAIN_NO_CACHE, req->flags)))
-		req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
+		req->cache_ctl.flags |= TFW_HTTP_CC_CFG_CACHE_BYPASS;
 
 	/*
 	 * Run frang checks first before any processing happen. Can't start
