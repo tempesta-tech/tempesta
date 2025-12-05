@@ -367,7 +367,7 @@ static inline bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
 	/* POST request is not idempotent, but can be cacheble. */
-	return cache_cfg.cache && __cache_method_test(req->method) &&
+	return __cache_method_test(req->method) &&
 		(!tfw_http_req_is_nip(req)
 		 || req->method == TFW_HTTP_METH_POST);
 }
@@ -517,9 +517,9 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 }
 
 /*
- * Decide if the cache can be employed. For a request that means
+ * Decide if the cache can be employed. For a request path that means
  * that it can be served from cache if there's a cached response.
- * For a response it means that the response can be stored in cache.
+ * For a response path it means that the response can be stored in cache.
  *
  * Various cache action/control directives are consulted when making
  * the resulting decision.
@@ -527,6 +527,10 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 static bool
 tfw_cache_employ_req(TfwHttpReq *req)
 {
+	/* TFW_HTTP_CC_CFG_CACHE_BYPASS set from config by "cache_disable" */
+	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
+		return false;
+
 	int cmd = tfw_cache_policy(req->vhost, req->location, &req->uri_path);
 
 	if (cmd == TFW_D_CACHE_BYPASS) {
@@ -536,7 +540,6 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	/* cache_fulfill - work as usual in cache mode. */
 	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
 
-	/* CC_NO_CACHE also may be set by http chain rules */
 	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
 		/*
 		 * TODO: RFC 7234 4. "... a cache MUST NOT reuse a stored
@@ -3511,11 +3514,11 @@ tfw_cache_ipi(struct irq_work *work)
 static bool
 tfw_cache_should_invalidate_uri(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	return cache_cfg.cache && (req->method == TFW_HTTP_METH_PUT
+	return (req->method == TFW_HTTP_METH_PUT
 		|| req->method == TFW_HTTP_METH_DELETE
 		|| req->method == TFW_HTTP_METH_POST
 		|| tfw_http_req_is_nip(req))
-		&& resp->status >= 200 && resp->status < 400;
+		 && resp->status >= 200 && resp->status < 400;
 }
 
 static void
@@ -3568,12 +3571,23 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 	unsigned long key;
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
-	TfwHttpResp *resp = NULL;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
+	const bool is_resp = TFW_CONN_TYPE(msg->conn) & Conn_Srv;
 
-	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
-		resp = (TfwHttpResp *)msg;
+	if (!cache_cfg.cache)
+		goto dont_cache;
+
+	if (is_resp) {
+		TfwHttpResp *resp = (TfwHttpResp *)msg;
 		req = resp->req;
+
+		/*
+		 * Don't cache response to HEAD, to prevent caching response
+		 * without body.
+		 */
+		if (req->method == TFW_HTTP_METH_HEAD &&
+		    !test_bit(TFW_HTTP_B_REQ_HEAD_TO_GET, req->flags))
+			goto dont_cache;
 
 		if (tfw_cache_should_invalidate_uri(req, resp))
 			tfw_cache_invalidate_uri(req, resp);
@@ -3591,7 +3605,7 @@ tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 		goto do_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
-	if (!resp && !tfw_cache_employ_req(req))
+	if (!is_resp && !tfw_cache_employ_req(req))
 		goto dont_cache;
 
 do_cache:
@@ -3619,7 +3633,7 @@ do_cache:
 	       cw.msg, key);
 	if (tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi)) {
 		T_WARN("Cache work queue overrun: [%s]\n",
-		       resp ? "response" : "request");
+		       is_resp ? "response" : "request");
 		return -EBUSY;
 	}
 	return 0;
