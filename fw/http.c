@@ -4670,6 +4670,7 @@ tfw_h1_resp_copy_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 
 	return r;
 }
+ALLOW_ERROR_INJECTION(tfw_h1_resp_copy_hdrs, ERRNO);
 
 /**
  * Adjust the response before proxying it to real client.
@@ -5820,7 +5821,7 @@ tfw_http_req_block(TfwHttpReq *req, int status, const char *msg,
 int
 tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 {
-	int r;
+	int r = -EINVAL;
 	TfwHttpReq *req = resp->req;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwHttpMsgCleanup cleanup = {};
@@ -5849,14 +5850,12 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
 		codings.data = tfw_pool_alloc(resp->pool, RESP_TE_BUF_LEN);
-		if (unlikely(!codings.data)) {
-			r = -ENOMEM;
-			goto clean;
-		}
+		if (unlikely(!codings.data))
+			return -ENOMEM;
 		r = tfw_http_resp_copy_encodings(resp, &codings,
 						 RESP_TE_BUF_LEN);
 		if (unlikely(r))
-			goto clean;
+			return r;
 	}
 
 	/*
@@ -5869,7 +5868,7 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 
 	r = tfw_http_msg_cutoff_headers((TfwHttpMsg *)resp, &cleanup);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	/*
 	 * Alloc room for frame header. After this call resp->pool
@@ -5877,15 +5876,15 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	 */
 	r = tfw_http_msg_setup_transform_pool(mit, &resp->iter, resp->pool);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	r = tfw_h2_resp_status_write(resp, resp->status, true, false);
 	 if (unlikely(r))
-		goto clean;
+		return r;
 
 	r = tfw_h2_hpack_encode_headers(resp, h_mods);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	/*
 	 * Write additional headers in HTTP/2 format in the end of the
@@ -5895,42 +5894,38 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	 */
 	r = tfw_http_sess_resp_process(resp, false);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	r = tfw_h2_add_hdr_via(resp);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	if (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)) {
 		r = tfw_h2_add_hdr_date(resp, false);
 		if (unlikely(r))
-			goto clean;
+			return r;
 	}
 
 	if (test_bit(TFW_HTTP_B_TE_EXTRA, resp->flags)) {
 		r = tfw_h2_add_hdr_cenc(resp, &codings);
 		if (unlikely(r))
-			goto clean;
+			return r;
 
 		TFW_STR_INIT(&codings);
 	}
 
 	r = TFW_H2_MSG_HDR_ADD(resp, "server", TFW_SERVER, 54);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	r = tfw_h2_resp_add_loc_hdrs(resp, h_mods, false);
 	if (unlikely(r))
-		goto clean;
+		return r;
 
 	T_DBG4("[%d] %s: req %pK resp %pK: \n", smp_processor_id(), __func__,
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	__tfw_http_free_cleanup(&cleanup);
-	return 0;
-
-clean:
 	__tfw_http_free_cleanup(&cleanup);
 	return r;
 }
