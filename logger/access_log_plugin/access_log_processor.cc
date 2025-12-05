@@ -21,6 +21,7 @@
 #include <cstring>
 #include <errno.h>
 #include <sys/mman.h>
+#include <spdlog/spdlog.h>
 
 #include "../../libtus/error.hh"
 #include "../plugin_interface.hh"
@@ -154,7 +155,7 @@ dbg_hexdump(std::span<const char> data)
 		}
 		oss << std::endl;
 	}
-	plugin_log_info(oss.view().data());
+	spdlog::info(oss.view());
 }
 #else
 void
@@ -214,17 +215,15 @@ process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noe
 	// These exceptions are severe, like memory allocation failure or memory
 	// corruption, so there is probably no reason to try hard to recover.
 	catch (const tus::Exception &e) {
-		plugin_log_error(fmt::format(
-			"Access log is corrupted, skip current buffer: {}",
-			e.what()).c_str());
+		spdlog::error("Access log is corrupted, skip current buffer: {}",
+			      e.what());
 		if (!db.handle_block_error())
 			return tus::error(tus::Err::DB_SRV_FATAL);
 		return 0;
 	}
 	catch (const std::exception &e) {
-		plugin_log_error(fmt::format(
-			"Caught a Clickhouse exception: {}."
-			" Many events can be lost", e.what()).c_str());
+		spdlog::error("Caught a Clickhouse exception: {}."
+			      " Many events can be lost", e.what());
 		return tus::error(tus::Err::DB_SRV_FATAL);
 	}
 
@@ -243,8 +242,7 @@ AccessLogProcessor::AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
 	: writer_(std::move(writer), table_name, max_events)
 	, device_fd_(device_fd)
 {
-	plugin_log_debug(fmt::format("Creating AccessLogProcessor with device: {}",
-				     device_fd_).c_str());
+	spdlog::debug("Creating AccessLogProcessor with device: {}", device_fd_);
 
 	unsigned int area_size;
 
@@ -259,13 +257,13 @@ AccessLogProcessor::AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
 	if (buffer_ == MAP_FAILED)
 		throw tus::Except("Failed to map buffer");
 
-	plugin_log_info("AccessLogProcessor created successfully");
+	spdlog::info("AccessLogProcessor created successfully");
 }
 
 AccessLogProcessor::~AccessLogProcessor()
 {
 	assert(munmap(buffer_, TFW_MMAP_BUFFER_FULL_SIZE(size_)) == 0);
-	plugin_log_debug("AccessLogProcessor destroyed");
+	spdlog::debug("AccessLogProcessor destroyed");
 }
 
 int

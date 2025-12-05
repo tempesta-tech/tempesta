@@ -26,7 +26,9 @@ PAGE_SIZE := $(shell getconf PAGE_SIZE)
 CXXFLAGS := -Wall -Wextra -std=c++23 -march=native -mtune=native \
 	    -DPAGE_SIZE=$(PAGE_SIZE) -fPIC
 
-CXXFLAGS += $(shell pkgconf -cflags spdlog)
+CXXFLAGS += $(shell pkgconf --cflags spdlog)
+CXXFLAGS += -DSPDLOG_COMPILED_LIB
+
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/clickhouse-cpp
 CXXFLAGS += -I $(CLICKHOUSE_DIR)/clickhouse-cpp/contrib/absl
 

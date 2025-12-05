@@ -20,6 +20,7 @@
 
 #pragma once
 #include <memory>
+#include <spdlog/spdlog.h>
 
 #include "clickhouse_iface.hh"
 #include "reconnect_policy.hh"
@@ -90,8 +91,15 @@ private:
 			policy_.on_success();
 			return true;
 		}
-		catch (...)
-		{
+
+		catch (const std::exception& e) {
+			spdlog::error("Failed to connect to ClickHouse: {}", e.what());
+			ptr_.reset();
+			policy_.on_failure();
+			return false;
+		}
+		catch (...) {
+			spdlog::error("Failed to connect to ClickHouse: unknown error");
 			ptr_.reset();
 			policy_.on_failure();
 			return false;
